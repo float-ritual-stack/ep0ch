@@ -98,6 +98,26 @@ function terminalGuard(): { dismiss(): void } | null {
 
 export interface TermInfo { cols: number; rows: number; cellW: number; cellH: number; kitty: boolean }
 
+/** How a program is run in a terminal handed to it: its folder, its environment, a line printed first. */
+export interface HandoverOpts { cwd?: string; env?: Record<string, string>; banner?: string }
+
+/**
+ * A terminal handed to another program (App.suspend: the drop shell, $EDITOR): `run` starts the program with the
+ * terminal as its stdio and resolves to its exit code. The door's own is `ownTerminal`; in a session, the terminal of
+ * the client with the person's keys (its client runs the program there, src/session/client.ts).
+ */
+export interface Handover { run(argv: string[], o?: HandoverOpts): Promise<number | null> }
+
+/** `argv` with this process's terminal as its stdio, `banner` printed first: its exit code. */
+export async function runProgram(argv: string[], o: HandoverOpts = {}): Promise<number | null> {
+  if (o.banner && process.stdout.isTTY) process.stdout.write(`\x1b[2J\x1b[H${o.banner}\n`);
+  const p = Bun.spawn(argv, { cwd: o.cwd, env: o.env ?? (process.env as Record<string, string>), stdio: ["inherit", "inherit", "inherit"] });
+  return await p.exited;
+}
+
+/** This process's own terminal. */
+export const ownTerminal: Handover = { run: (argv, o) => runProgram(argv, o) };
+
 /**
  * One terminal's screen as rows, written to `out`: what was painted last, so a paint rewrites only the rows that
  * changed, and a frame goes out as one synchronized update. The door's own terminal (Term) is one; each client

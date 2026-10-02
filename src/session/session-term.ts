@@ -167,13 +167,15 @@ export class SessionTerm implements Display {
     return new Promise(done => this.running.set(id, { c, done }));
   }
 
-  /** The person leaves the terminal they're typing on (App.logoff): it detaches; the session goes on. */
-  detachActive(): boolean {
-    const c = this.active;
+  /** The person leaves the terminal they're typing on, or the one they logged off from (`from`): it detaches; the session goes on. */
+  detachActive(from?: unknown): boolean {
+    const c = from instanceof SessionClient && this.clients.includes(from) ? from : this.active;
     if (!c) return false;
     this.onLogoff(c);
     return true;
   }
+  /** The client the person is typing on. */
+  typingOn(): SessionClient | null { return this.active; }
 
   /** The session's terminals, for `peek`. */
   session() { return { pid: process.pid, clients: this.list() }; }
@@ -183,8 +185,9 @@ export class SessionTerm implements Display {
   /** A client attached: it becomes the active one when nobody else is (a watcher never). */
   attach(link: Link, hello: Hello): SessionClient {
     const c = new SessionClient(this.nextId++, hello, link);
-    c.decoder.keyHandler = k => this.key(c, k);
-    c.decoder.rawSink = () => this.rawSink?.() ?? null;
+    // A watcher's keys are decoded too (a Kitty keyboard terminal sends ctrl+c as a report), only to leave by.
+    c.decoder.keyHandler = c.watch ? k => this.watcherKey(c, k) : k => this.key(c, k);
+    if (!c.watch) c.decoder.rawSink = () => this.rawSink?.() ?? null;
     link.onDrain(() => { if (!c.behind) return; c.behind = false; c.painter.dispose(); c.rows.invalidate(); this.paintClient(c); });
     this.clients.push(c);
     this.sendGround(c);
@@ -210,7 +213,7 @@ export class SessionTerm implements Display {
   /** What a client's terminal typed. */
   input(c: SessionClient, text: string): void {
     c.lastInput = Date.now();
-    if (c.watch) { if (/[q\x03]/.test(text)) c.link.close({ t: "bye", reason: "detached", message: "stopped watching · the session goes on" }); return; }
+    if (c.watch) { c.decoder.feed(text); return; }
     this.activate(c);
     try { this.batch(() => c.decoder.feed(text)); }
     finally { c.fresh = false; }     // what it types next was aimed at the frame it has been sent since
@@ -232,6 +235,7 @@ export class SessionTerm implements Display {
     c.away = null;
     c.painter.dispose();
     c.rows.invalidate();
+    c.decoder.reset();
     this.sendGround(c);
     this.onClients();
     r.done(code);
@@ -250,6 +254,11 @@ export class SessionTerm implements Display {
   get activeClient(): SessionClient | null { return this.active; }
 
   // ── inside ──────────────────────────────────────────────────────────────────
+
+  /** A watcher's key: q or ctrl+c stops watching; nothing else is anyone's. */
+  private watcherKey(c: SessionClient, k: Key) {
+    if (k.kind === "char" && ((k.ch === "q" && !k.ctrl && !k.pasted) || (k.ch === "c" && k.ctrl))) c.link.close({ t: "bye", reason: "detached", message: "stopped watching · the session goes on" });
+  }
 
   private key(c: SessionClient, k: Key) {
     // A click aimed at a frame drawn for another size: it took the session, and that's all it did.

@@ -335,7 +335,7 @@
         { "r": "door", "p": "src/surface/dispatch.ts", "l": 184, "m": "export class Dispatcher" },
         { "r": "door", "p": "src/surface/dispatch.ts", "l": 141, "m": "export function actorRule" },
         { "r": "door", "p": "src/whereabouts.ts", "l": 46, "m": "export function whereabouts" },
-        { "r": "door", "p": "src/app.ts", "l": 518, "m": "person(): Whereabouts" },
+        { "r": "door", "p": "src/app.ts", "l": 523, "m": "person(): Whereabouts" },
         { "r": "door", "p": "src/draft-session.ts", "l": 544, "m": "export function draftRule" },
         { "r": "door", "p": "src/desk/desk.ts", "l": 1037, "m": "readonly dispatch: Dispatcher = new Dispatcher(this.dispatchHost()" }
       ],
@@ -351,8 +351,8 @@
         { "r": "door", "p": "src/screens.ts", "l": 422, "m": "export const SHELL_ACTIONS" },
         { "r": "door", "p": "src/screens.ts", "l": 638, "m": "export const LIST_ACTIONS" },
         { "r": "door", "p": "src/surface/dispatch.ts", "l": 141, "m": "export function actorRule" },
-        { "r": "door", "p": "src/app.ts", "l": 527, "m": "async act(req" },
-        { "r": "door", "p": "src/drop.ts", "l": 78, "m": "export async function runLoginShell" }
+        { "r": "door", "p": "src/app.ts", "l": 532, "m": "async act(req" },
+        { "r": "door", "p": "src/drop.ts", "l": 50, "m": "export async function runLoginShell" }
       ]
     },
     {
@@ -384,7 +384,7 @@
       "does": "Alt screen, SGR mouse with button events, bracketed paste, OSC 52 copy, Kitty graphics where there are any. Over ssh and tmux to a phone, and a Mac terminal that types Option as characters.",
       "built": "term.ts turns on 1049, 1002, 1006 and 2004 and decodes keys and mouse into Key events (a KeyDecoder per terminal, a session's clients each their own); a frame goes to a Display, a Painter per terminal (its rows diffed by Rows, its Kitty images, its video mode); each chunk of input is handled, then painted once, and a trackpad's burst of wheel reports scrolls a row each (wheelRows); a macOS Option character is read as its alt key outside text (OPTION_KEYS). What reaches the terminal is printable (text.ts printable and paintable: no raw escapes from a note or a program) and measured in cells (style.ts width; fitHint cuts a hint row to fit and says ? more, #103).",
       "refs": [
-        { "r": "door", "p": "src/term.ts", "l": 342, "m": "\\x1b[?1002h" },
+        { "r": "door", "p": "src/term.ts", "l": 362, "m": "\\x1b[?1002h" },
         { "r": "door", "p": "src/scroll.ts", "l": 23, "m": "export const wheelRows" },
         { "r": "door", "p": "src/term.ts", "l": 40, "m": "export const OPTION_KEYS" },
         { "r": "door", "p": "src/text.ts", "l": 24, "m": "export function printable(" },
@@ -499,7 +499,7 @@
       "does": "A screen that runs programs stays alive when you leave it; D on the menu brings it back.",
       "built": "Two owners: App.background and a static Desk.kept.",
       "refs": [
-        { "r": "door", "p": "src/app.ts", "l": 265, "m": "background: Screen[]" },
+        { "r": "door", "p": "src/app.ts", "l": 271, "m": "background: Screen[]" },
         { "r": "door", "p": "src/desk/desk.ts", "l": 610, "m": "private static kept" }
       ],
       "questions": [ { "text": "App.background as the one owner.", "finding": "A-F19", "route": "PIE-493" } ]
@@ -558,11 +558,11 @@
     {
       "id": "door.runtime", "name": "One teardown", "group": "door", "chapter": "terminal", "ladder": "provisional", "was": "accidental", "dependsOn": ["door.state", "door.draft"],
       "does": "SIGINT, SIGQUIT, SIGTERM, SIGHUP, an uncaught exception or rejection: drafts and ctrl+e text are copied to drafts/, the terminal is put back, the socket removed, and the door says where the text went.",
-      "built": "Every signal and fault calls App.terminate; a small watcher restores the terminal after kill -9. In a door session (door.daemon) a terminal's signals only detach it; the session's own end goes through the same terminate.",
+      "built": "guardDoor (door.ts) is the one teardown, for the own terminal and the session alike: every signal and fault calls App.terminate; a small watcher restores the terminal after kill -9. In a door session (door.daemon) a terminal's signals only detach it; the session's own end goes through the same terminate.",
       "refs": [
-        { "r": "door", "p": "src/main.ts", "l": 119, "m": "process.on(sig" },
-        { "r": "door", "p": "src/main.ts", "l": 133, "m": "uncaughtException" },
-        { "r": "door", "p": "src/app.ts", "l": 547, "m": "terminate()" }
+        { "r": "door", "p": "src/door.ts", "l": 100, "m": "export function guardDoor" },
+        { "r": "door", "p": "src/door.ts", "l": 115, "m": "process.on(\"uncaughtException\", fault)" },
+        { "r": "door", "p": "src/app.ts", "l": 319, "m": "terminate()" }
       ],
       "questions": [ { "text": "Six child-process launchers, three with no timeout; unzip blocks the paint.", "finding": "B-F7" } ]
     },
@@ -571,11 +571,11 @@
       "does": "The door keeps running without a terminal (PIE-418): quitting a terminal detaches it, and the screens, layouts, drafts and terminal tiles (programs and scrollback) are there at the next attach. Several terminals at once, the keys wherever the person last typed; ended only by session.end.",
       "built": "One daemon per user and state dir runs openDoor on a SessionTerm and serves session.sock beside the control socket; a client probes its terminal, sends input and its size, writes the frames it's sent, runs a program the session hands it. Frames, not state: App renders once and SessionTerm paints each client through its own Painter (size, video mode, Kitty images).",
       "refs": [
-        { "r": "door", "p": "src/session/daemon.ts", "l": 77, "m": "export async function serve" },
+        { "r": "door", "p": "src/session/daemon.ts", "l": 71, "m": "export async function serve" },
         { "r": "door", "p": "src/session/session-term.ts", "l": 77, "m": "export class SessionTerm" },
-        { "r": "door", "p": "src/session/client.ts", "l": 167, "m": "export async function attach(" },
-        { "r": "door", "p": "src/session/protocol.ts", "l": 93, "m": "export class Frames" },
-        { "r": "door", "p": "src/display.ts", "l": 48, "m": "export class Painter" },
+        { "r": "door", "p": "src/session/client.ts", "l": 223, "m": "export async function attach(" },
+        { "r": "door", "p": "src/session/protocol.ts", "l": 98, "m": "export class Frames" },
+        { "r": "door", "p": "src/display.ts", "l": 56, "m": "export class Painter" },
         { "r": "door", "p": "src/door.ts", "l": 36, "m": "export async function openDoor" }
       ],
       "questions": [
@@ -692,8 +692,8 @@
       "does": "The door's own socket: peek, snap, open, actions, act, subscribe. Agents, tile programs and the Herdr wrapper all come through it. It is the door's shell, so it is private.",
       "built": "startControl sweeps dead sockets, listens in a folder that is the user's alone, chmods 0600, caps request lines; snap writes only under the state dir; the feed disconnects a subscriber that stops reading.",
       "refs": [
-        { "r": "door", "p": "src/control.ts", "l": 120, "m": "export async function startControl" },
-        { "r": "door", "p": "src/control.ts", "l": 173, "m": "chmodSync(path, 0o600)" },
+        { "r": "door", "p": "src/control.ts", "l": 122, "m": "export async function startControl" },
+        { "r": "door", "p": "src/control.ts", "l": 175, "m": "chmodSync(path, 0o600)" },
         { "r": "door", "p": "src/control.ts", "l": 60, "m": "req.cmd === \"peek\"" },
         { "r": "door", "p": "src/control.ts", "l": 50, "m": "export function feedWriter" }
       ],
@@ -704,8 +704,8 @@
       "does": "An agent sees what the person sees and does what they do. Its action is named on the status bar, recorded as author agent with its actor id, and never takes the person's focus, selection or keys.",
       "built": "App.act runs the request through the App's dispatcher (the host layer's, the shell's and the extensions' sets, then the screen's own dispatcher); App.subscribe diffs each screen's viewState after a paint.",
       "refs": [
-        { "r": "door", "p": "src/app.ts", "l": 527, "m": "async act(req" },
-        { "r": "door", "p": "src/app.ts", "l": 323, "m": "viewState?.()" }
+        { "r": "door", "p": "src/app.ts", "l": 532, "m": "async act(req" },
+        { "r": "door", "p": "src/app.ts", "l": 336, "m": "viewState?.()" }
       ],
       "questions": [
         { "text": "`open` is three actions with different arguments; `pin` is four things.", "finding": "C-F16" },

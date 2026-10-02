@@ -12,10 +12,13 @@ import { closeSync, openSync, readFileSync } from "node:fs";
 import { connect, type Socket } from "node:net";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
-import { runProgram } from "../drop";
+import { listening } from "../control";
+import { resolveTarget } from "../discover";
+import { appendNest, nestLayers } from "../nest";
+import { SocketBoard } from "../socket";
 import { privateDir, stateDir } from "../state";
-import { Term } from "../term";
-import { listening, serve, sessionLog, sessionSocket } from "./daemon";
+import { runProgram, Term } from "../term";
+import { LOCKED, serve, sessionLog, sessionSocket } from "./daemon";
 import { encode, Frames, PROTOCOL, type DaemonMsg, type Hello, type SessionInfo } from "./protocol";
 
 /**
@@ -31,15 +34,67 @@ export async function doorMode(args: readonly string[], env: Record<string, stri
 
 /** `ep0ch [door flags]` with sessions: the session in this state dir, started first when none runs; then attached. */
 export async function attachDoor(args: string[], how: { running: boolean }): Promise<number> {
+  // The outline it names, when it names one: a session on another one refuses it.
+  const target = await namedTarget(args);
+  if (target && "error" in target) { console.error(`ep0ch: ${target.error}`); return 1; }
   if (!how.running) {
     const started = await startSession(args.filter(a => a !== "--daemon"));
-    if (!started.ok) { console.error(`ep0ch: ${started.error}`); return 1; }
+    // Another `ep0ch` started it a moment before: that one is waited for, then attached to.
+    if (!started.ok && !(started.error.startsWith(LOCKED) && (await waitFor(sessionSocket(), 15_000)))) { console.error(`ep0ch: ${started.error}`); return 1; }
   }
-  return attach(sessionSocket(), { args });
+  return attach(sessionSocket(), { args, ...(target ? { target } : {}) });
+}
+
+/** Until a session answers on `path`, at most `ms`: whether one does. */
+export async function waitFor(path: string, ms: number): Promise<boolean> {
+  const end = Date.now() + ms;
+  while (Date.now() < end) { if (await listening(path, 500)) return true; await Bun.sleep(100); }
+  return false;
+}
+
+/**
+ * The outline the door flags name (`--ws <name|root>`, a socket path, EP0CH_SOCKET), as its service answers for it;
+ * null when they name none (the session in the state dir is attached to, whichever outline it's on).
+ */
+export async function namedTarget(args: readonly string[], env: Record<string, string | undefined> = process.env): Promise<{ workspace: string; outline?: string } | { error: string } | null> {
+  const named = args.includes("--ws") || args.some((a, i) => a.includes("/") && !["--board", "--ws", "--root"].includes(args[i - 1] ?? "")) || !!env.EP0CH_SOCKET;
+  if (!named) return null;
+  const t = await resolveTarget(args);
+  if ("error" in t) return { error: t.error };
+  const b = new SocketBoard(t.path, 5000, t.outline);
+  try { const i = await b.info(); return { workspace: i.workspace, ...(i.outline ? { outline: i.outline } : {}) }; }
+  catch (e) { return { error: `no carrier on ${t.path}\n  ${(e as Error).message}` }; }
+  finally { b.close(); }
 }
 
 /** The variables a session doesn't keep from the terminal that started it: it outlives that terminal, its pane and its ssh login. */
-export const TERMINAL_VARS = ["HERDR_PANE_ID", "HERDR_TAB_ID", "EP0CH_NEST", "SSH_CONNECTION", "SSH_CLIENT", "SSH_TTY", "TMUX", "TMUX_PANE", "WINDOWID", "STY"] as const;
+export const TERMINAL_VARS = ["HERDR_PANE_ID", "HERDR_TAB_ID", "EP0CH_NEST", "SSH_CONNECTION", "SSH_CLIENT", "SSH_TTY", "SSH_AUTH_SOCK", "TMUX", "TMUX_PANE", "WINDOWID", "STY", "TERM", "COLORTERM", "TERM_PROGRAM", "TERM_PROGRAM_VERSION", "DISPLAY", "WAYLAND_DISPLAY", "KITTY_WINDOW_ID", "GHOSTTY_RESOURCES_DIR"] as const;
+/**
+ * Started from inside a door (a tile, a drop shell: EP0CH_IN_DOOR), these name that door and its tile, never the
+ * session's own: the session serves its control socket in its own state dir and its tiles are its own.
+ */
+export const INSIDE_DOOR_VARS = ["EP0CH_CONTROL", "EP0CH_TILE", "EP0CH_TILE_ID", "EP0CH_IN_DOOR"] as const;
+
+/** What a session starts with: this environment, without the terminal's (and an outer door's) variables. */
+export function sessionEnv(env: Record<string, string | undefined> = process.env): Record<string, string> {
+  const drop = new Set<string>([...TERMINAL_VARS, ...(env.EP0CH_IN_DOOR ? INSIDE_DOOR_VARS : [])]);
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(env)) if (v !== undefined && !drop.has(k)) out[k] = v;
+  return out;
+}
+
+/**
+ * A program the session hands this terminal (the drop shell, $EDITOR) runs with the session's environment and this
+ * terminal's own: its TERM and colours, its ssh login, tmux, display; and the layers it runs in before the session's.
+ */
+export function runEnv(session: Record<string, string> | undefined, here: Record<string, string | undefined> = process.env): Record<string, string> {
+  const out: Record<string, string> = { ...(session ?? sessionEnv(here)) };
+  for (const k of TERMINAL_VARS) { const v = here[k]; if (v !== undefined) out[k] = v; else if (k !== "EP0CH_NEST") delete out[k]; }
+  for (const [k, v] of Object.entries(here)) if (/^LC_|^LANG$/.test(k) && v !== undefined) out[k] = v;
+  out.EP0CH_NEST = appendNest(here.EP0CH_NEST, ...nestLayers(session?.EP0CH_NEST));
+  if (!out.EP0CH_NEST) delete out.EP0CH_NEST;
+  return out;
+}
 
 /**
  * Start the session for this state dir, detached (its own process group and session, no terminal), and wait until it
@@ -47,8 +102,7 @@ export const TERMINAL_VARS = ["HERDR_PANE_ID", "HERDR_TAB_ID", "EP0CH_NEST", "SS
  */
 export async function startSession(args: readonly string[], timeoutMs = 30_000): Promise<{ ok: true } | { ok: false; error: string }> {
   if (!privateDir(stateDir(), true)) return { ok: false, error: `${stateDir()} isn't yours alone (it needs mode 700): no session` };
-  const env: Record<string, string> = {};
-  for (const [k, v] of Object.entries(process.env)) if (v !== undefined && !(TERMINAL_VARS as readonly string[]).includes(k)) env[k] = v;
+  const env = sessionEnv();
   env.EP0CH_SESSION_READY = "3";
   const log = openSync(sessionLog(), "a", 0o600);
   const main = join(import.meta.dir, "../main.ts");
@@ -119,7 +173,9 @@ export async function sessionCommand(args: string[]): Promise<number> {
   }
   if (cmd === "attach") {
     if (!(await listening(path))) { console.error(`ep0ch: no session in ${stateDir()} · \`ep0ch\` starts one`); return 1; }
-    return attach(path, { args: rest.filter(a => a !== "--watch"), watch: rest.includes("--watch") });
+    const args = rest.filter(a => a !== "--watch"), target = await namedTarget(args);
+    if (target && "error" in target) { console.error(`ep0ch: ${target.error}`); return 1; }
+    return attach(path, { args, watch: rest.includes("--watch"), ...(target ? { target } : {}) });
   }
   if (cmd === "end") {
     if (!(await listening(path))) { console.error(`ep0ch: no session in ${stateDir()}`); return 1; }
@@ -164,7 +220,7 @@ function confirm(q: string): Promise<boolean> {
  * Attach this terminal to the session on `path` until it detaches or the session ends; the exit code. The terminal is
  * put back whichever way it goes (Term.stop; its guard covers a kill -9).
  */
-export async function attach(path: string, o: { args?: string[]; watch?: boolean } = {}): Promise<number> {
+export async function attach(path: string, o: { args?: string[]; watch?: boolean; target?: Hello["target"] } = {}): Promise<number> {
   const sock = await new Promise<Socket>((res, rej) => { const s = connect(path, () => res(s)); s.once("error", rej); }).catch((e: Error) => { console.error(`ep0ch: can't reach the session on ${path}: ${e.message}`); return null; });
   if (!sock) return 1;
   const term = new Term();
@@ -172,35 +228,42 @@ export async function attach(path: string, o: { args?: string[]; watch?: boolean
   const finished = new Promise<number>(r => { done = r; });
   let said = "";
   let over = false;
+  /** A program the session handed this terminal is running (the drop shell, $EDITOR): the terminal is its. */
+  let handed = 0;
+  let running: Promise<void> = Promise.resolve();
   const leave = (code: number, message = "") => {
     if (over) return;
     over = true;
-    term.stop();
-    if (message) (code ? console.error : console.log)(`ep0ch: ${message}`);
     sock.destroy();
-    done(code);
+    // A program that has the terminal keeps it until it ends; then the terminal is put back and the reason said.
+    void running.then(() => {
+      term.stop();
+      if (message) (code ? console.error : console.log)(`ep0ch: ${message}`);
+      done(code);
+    });
   };
   const send = (m: Parameters<typeof encode>[0]) => { if (!sock.destroyed) sock.write(encode(m)); };
-  // The terminal closed or the client was told to go: the session goes on without it.
-  for (const sig of ["SIGHUP", "SIGTERM", "SIGINT", "SIGQUIT"] as const) process.on(sig, () => leave(0));
+  // The terminal closed or the client was told to go: the session goes on without it. While a program has the
+  // terminal, ctrl+c and ctrl+\ are its (a shell without job control shares this process group).
+  for (const sig of ["SIGHUP", "SIGTERM", "SIGINT", "SIGQUIT"] as const) process.on(sig, () => { if (handed && (sig === "SIGINT" || sig === "SIGQUIT")) return; leave(0); });
   process.on("uncaughtException", e => { const c = (e as NodeJS.ErrnoException).code; leave(c === "EIO" || c === "EPIPE" ? 0 : 1, c === "EIO" || c === "EPIPE" ? "" : String((e as Error).stack ?? e)); });
   const frames = new Frames<DaemonMsg>();
-  let running: Promise<void> = Promise.resolve();
   sock.on("data", (chunk: Buffer) => {
     let msgs: DaemonMsg[];
     try { msgs = frames.push(chunk); } catch (e) { leave(1, `the session sent something unreadable: ${(e as Error).message}`); return; }
     for (const m of msgs) {
-      if (m.t === "output") { if (!over) process.stdout.write(m.text); }
+      if (m.t === "output") { if (!over && !handed) process.stdout.write(m.text); }
       else if (m.t === "ground") term.sessionGround = m.set;
       else if (m.t === "bye") { said = m.message; leave(m.code ?? 0, m.message); }
       else if (m.t === "run") {
         // One program at a time, in the order asked; the terminal is the program's until it ends.
+        handed++;
         running = running.then(async () => {
           term.stop();
-          if (m.banner) process.stdout.write(`\x1b[2J\x1b[H${m.banner}\n`);
           let code: number | null;
-          try { code = await runProgram(m.argv, { ...(m.cwd ? { cwd: m.cwd } : {}), ...(m.env ? { env: m.env } : {}) }); }
+          try { code = await runProgram(m.argv, { ...(m.cwd ? { cwd: m.cwd } : {}), env: runEnv(m.env), ...(m.banner ? { banner: m.banner } : {}) }); }
           catch (e) { process.stderr.write(`ep0ch: can't run ${m.argv[0]}: ${(e as Error).message}\n`); code = 127; }
+          handed--;
           if (over) return;
           term.resume();
           send({ t: "ran", id: m.id, code });
@@ -214,10 +277,10 @@ export async function attach(path: string, o: { args?: string[]; watch?: boolean
   const hello: Hello = {
     proto: PROTOCOL, ...term.info, pid: process.pid,
     ...(ttyName() ? { tty: ttyName()! } : {}), ...(process.env.EP0CH_NEST ? { nest: process.env.EP0CH_NEST } : {}),
-    args: o.args ?? [], ...(o.watch ? { watch: true } : {}),
+    args: o.args ?? [], ...(o.watch ? { watch: true } : {}), ...(o.target ? { target: o.target } : {}),
   };
   send({ t: "hello", hello });
-  term.pass = text => send({ t: "input", text });
+  term.pass = text => { if (!handed) send({ t: "input", text }); };
   term.onResize(() => send({ t: "resize", cols: term.info.cols, rows: term.info.rows }));
   return finished;
 }

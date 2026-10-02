@@ -93,9 +93,11 @@ export let controlPath: string | null = null;
  * Is a door listening on `path`? False only when nobody is (the file is left from a door that died). A
  * file that isn't a socket has nobody on it either: macOS says ENOTSOCK where Linux says ECONNREFUSED.
  */
-const listening = (path: string) => new Promise<boolean>(res => {
-  const c = connect(path, () => { c.end(); res(true); });
-  c.on("error", (e: NodeJS.ErrnoException) => res(e.code !== "ECONNREFUSED" && e.code !== "ENOENT" && e.code !== "ENOTSOCK"));
+export const listening = (path: string, ms = 2000) => new Promise<boolean>(res => {
+  const c = connect(path, () => { clearTimeout(t); c.end(); res(true); });
+  // No answer in time: somebody holds it but isn't answering (a session or door busy starting): taken, not free.
+  const t = setTimeout(() => { c.destroy(); res(true); }, ms);
+  c.on("error", (e: NodeJS.ErrnoException) => { clearTimeout(t); res(e.code !== "ECONNREFUSED" && e.code !== "ENOENT" && e.code !== "ENOTSOCK"); });
 });
 
 /**

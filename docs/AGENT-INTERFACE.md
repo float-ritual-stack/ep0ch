@@ -35,8 +35,11 @@ as long as the session, not as long as a terminal: an agent's `act` and `peek` w
 `peek` adds `session` (its `pid` and `clients`: each attached terminal's size, video mode, whether it `active`ly has the
 person's keys, `watch`, `idle`). The person's keys are wherever they last typed; the actor rule reads one person
 whichever terminal that is. To see the session as a terminal does, an agent attaches read-only: `ep0ch session attach
---watch` in a pane of its own is shown every frame and never given the keys. Ending the session (`session.end`) is
-the person's only.
+--watch` in a pane of its own is shown every frame and never given the keys (its `q` or `ctrl+c` stops watching).
+Ending the session (`session.end`: `E` on the main menu, `ep0ch session end` at the person's shell) is the person's
+only: an agent's `act session.end` is refused, a terminal attached to the session can't end it over the wire, and an
+agent never runs `ep0ch session end` on the person's state dir (a session it started on its own `EP0CH_STATE` it ends
+itself).
 
 | Request | Answer | CLI |
 |---|---|---|

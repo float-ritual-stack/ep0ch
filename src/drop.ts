@@ -11,6 +11,7 @@ import { homedir } from "node:os";
 import { appendNest, doorNest, shellLayer } from "./nest";
 import { DOOR_START_VARS } from "./desk/pty";
 import { controlPath } from "./control";
+import type { Handover } from "./term";
 
 export const SHELL_BANNER = "ep0ch · shell · exit returns to the door";
 
@@ -40,36 +41,7 @@ export function shellCwd(cwd = process.cwd(), home = process.env.HOME || homedir
   return cwd && existsSync(cwd) ? cwd : home;
 }
 
-/**
- * A terminal handed to another program (App.suspend): `run` starts the program in it, with the terminal as its stdio,
- * and resolves to its exit code. `banner` is printed first. The door's own terminal is `ownTerminal`; a session's is
- * the terminal of the client with the person's keys (src/session/), whose client runs the program there.
- */
-export interface Handover {
-  run(argv: string[], o?: { cwd?: string; env?: Record<string, string>; banner?: string }): Promise<number | null>;
-}
-
-/** The door's own terminal: the program runs here, as this process's child, with the terminal as its stdio. */
-export const ownTerminal: Handover = {
-  async run(argv, o = {}) {
-    if (o.banner && process.stdout.isTTY) process.stdout.write(`\x1b[2J\x1b[H${o.banner}\n`);
-    return runProgram(argv, o);
-  },
-};
-
-/** `argv` with this terminal as its stdio; when its first word isn't there, `fallback` instead. Its exit code. */
-export async function runProgram(argv: string[], o: { cwd?: string; env?: Record<string, string> } = {}, fallback?: string[]): Promise<number | null> {
-  const opts = { cwd: o.cwd, env: o.env ?? (process.env as Record<string, string>), stdio: ["inherit", "inherit", "inherit"] as ["inherit", "inherit", "inherit"] };
-  let p;
-  try { p = Bun.spawn(argv, opts); }
-  catch (e) { if (!fallback) throw e; p = Bun.spawn(fallback, opts); }   // $SHELL names a program that isn't there
-  return await p.exited;
-}
-
-/**
- * The drop shell's command, folder and environment: the person's login shell (`sh -l` where $SHELL isn't there,
- * src/session/client.ts and `ownTerminal` fall back to it), with this door's control socket.
- */
+/** The drop shell's command, folder and environment: the person's login shell, with this door's control socket. */
 export function loginShellRun(control: string | null = controlPath): { argv: string[]; cwd: string; env: Record<string, string>; banner: string } {
   return { argv: [loginShell(), "-l"], cwd: shellCwd(), env: shellEnv(process.env, control), banner: SHELL_BANNER };
 }

@@ -9,7 +9,7 @@ import { SHELL_ACTIONS } from "./screens";
 import { isCopyKey, osc52 } from "./surface/selection";
 import { bg, C, chip, fg, headOf, pad, RESET, tailFrom, width } from "./style";
 import { printable } from "./text";
-import { OPTION_AS_ALT_HINT, OPTION_KEYS, optionKeysOn, pasteKeys, type Key, type Term, type TermInfo } from "./term";
+import { OPTION_AS_ALT_HINT, OPTION_KEYS, optionKeysOn, pasteKeys, type Handover, type Key, type Term, type TermInfo } from "./term";
 import { paintingScroll } from "./scroll";
 import { invalidateLive, setLiveSource } from "./live";
 import { resourceChanged } from "./projection";
@@ -21,7 +21,6 @@ import { groundSeq, setTheme as useTheme, theme, type ThemeName } from "./theme"
 import { writeState } from "./state";
 import { AgentDock, DOCK_ACTIONS, DOCK_TILE_ID, HOST_AGENT_TILE, HOST_TILE_ACTIONS, overlay, type DockRun } from "./dock";
 import type { HostMode } from "./desk/screen-layout";
-import { ownTerminal, type Handover } from "./drop";
 
 /** Changes whose record names the one block they touched (a move or trash carries a subtree). */
 const SCOPED = new Set(["edit", "create", "annotate", "reorder"]);
@@ -36,10 +35,10 @@ export interface Frame { lines: string[]; placements?: Placement[] }
 export type AppTerm = Pick<Term, "info" | "write" | "onKey" | "onResize" | "invalidate" | "stop" | "resume">
   & Partial<Pick<Term, "onBatch" | "setGround" | "paint" | "paintRow" | "frame" | "rawSink">>
   & {
-    /** Run a program in the terminal of the client with the person's keys (a session's): its exit code. */
-    handOver?(argv: string[], o: { cwd?: string; env?: Record<string, string>; banner?: string }): Promise<number | null>;
-    /** Let go of the terminal the person is typing on (a session's): true when one was attached. */
-    detachActive?(): boolean;
+    /** Let go of the terminal the person is typing on (a session's), or the one `from` names: true when one was attached. */
+    detachActive?(from?: unknown): boolean;
+    /** The terminal the person is typing on now (a session's client), as `detachActive` takes it. */
+    typingOn?(): unknown;
     /** The session's terminals, for `peek` (a session's). */
     session?(): unknown;
   };
@@ -79,9 +78,16 @@ export interface Ctx {
    * The person logs off (the menu's Goodbye, ctrl+c): in a session, their terminal detaches and everything goes on
    * running (`detaches`); in the door's own terminal, the door quits.
    */
-  logoff?(): void;
+  logoff?(from?: unknown): void;
   /** Logging off only detaches this terminal: the door is a session (src/session/), which goes on without it. */
   readonly detaches?: boolean;
+  /**
+   * End the door, and with it the session (`session.end`): null once it's ending; else why not, as said (programs
+   * run or a draft is unsaved: again within 3s ends it). `force` ends it anyway, the drafts copied to disk first.
+   */
+  end?(force: boolean): string | null;
+  /** Which terminal the person is typing on now (a session's client), for a logoff begun there: `logoff(from)` lets go of that one. */
+  typingOn?(): unknown;
   /**
    * Hand the person's terminal to another program for the duration of `run`, then repaint: $EDITOR (ctrl+e), the drop
    * shell (`screen.shell`). `run` starts its program through the Handover it is given (src/drop.ts): in the door's own
@@ -301,12 +307,19 @@ export class App implements Ctx {
   editInTile(path: string, cmd: string, done: (code: number | null) => void): boolean { return this.stack.at(-1)?.editInTile?.(path, cmd, done) ?? false; }
   confirmQuit(): boolean { return this.leaving([...this.stack, ...this.background], true); }
   get detaches(): boolean { return !!this.term.detachActive; }
-  logoff(): void {
+  typingOn(): unknown { return this.term.typingOn?.() ?? null; }
+  logoff(from?: unknown): void {
     if (!this.term.detachActive) return this.quit();
     // The session stays where the person was, not on the Goodbye.
     if (this.stack.at(-1)?.title === "logoff") this.stack.pop();
-    this.term.detachActive();
+    this.term.detachActive(from);
     this.redraw();
+  }
+  end(force: boolean): string | null {
+    if (force) { this.terminate(); return null; }
+    if (!this.leaving([...this.stack, ...this.background], true)) return this.message;
+    this.quit();
+    return null;
   }
   /** A message in the status bar: one line, nothing a terminal acts on (an error can quote a title or an extension's words). */
   flash(msg: string, ms = 4000) { this.message = printable(msg, " "); this.messageUntil = Date.now() + ms; this.flashes++; this.redraw(); }
@@ -402,19 +415,11 @@ export class App implements Ctx {
   suspended(): string | null { return this.away; }
   async suspend(run: (terminal: Handover) => Promise<unknown>, what = "editor"): Promise<void> {
     if (this.away) throw new Error(`the terminal is already handed over (${this.away})`);
-    // A session hands over the terminal of the client with the person's keys; the others go on showing the session.
-    const session = this.term.handOver ? this.term as Required<Pick<AppTerm, "handOver">> : null;
-    if (!session) {
-      this.display.dispose();              // images don't survive the screen switch; the next paint re-uploads
-      this.term.stop();
-    }
+    // The display hands over the person's terminal (in a session, the client's with their keys: the others go on
+    // showing the session) and paints nothing to it until the program gives it back.
     this.away = what;
-    try { await run(session ? { run: (argv, o) => session.handOver(argv, o ?? {}) } : ownTerminal); }
-    finally {
-      this.away = null;
-      if (!session) this.term.resume();
-      this.redraw();
-    }
+    try { await run({ run: (argv, o) => this.display.handOver(argv, o ?? {}) }); }
+    finally { this.away = null; this.redraw(); }
   }
 
   event(e: OutlineEvent) {
@@ -712,7 +717,6 @@ export class App implements Ctx {
   }
 
   private paint() {
-    if (this.away && !this.term.handOver) return;   // another program has the terminal; resume repaints
     // A frame after nothing but wheel reports: views may move what they laid out last time (onlyScrolled).
     paintingScroll(!this.changed);
     this.changed = false;

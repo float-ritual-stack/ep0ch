@@ -412,7 +412,7 @@ const SCREEN_NAMES: Record<string, string[]> = {
 };
 
 type ShellArgs = {
-  "screen.open": { name: string }; "screen.back": Record<string, never>; "screen.list": Record<string, never>; "screen.shell": Record<string, never>; "session.end": Record<string, never>;
+  "screen.open": { name: string }; "screen.back": Record<string, never>; "screen.list": Record<string, never>; "screen.shell": Record<string, never>; "session.end": { force?: boolean };
   "screen.help": Record<string, never>; "video.cycle": Record<string, never>; "changes.extensions": { include?: boolean };
   "theme.set": { name: string }; "theme.cycle": Record<string, never>;
   "open": { id: string };
@@ -436,7 +436,7 @@ export const SHELL_ACTIONS = new ActionSet<ShellArgs, ShellOn>("shell", {
     },
   },
   "screen.open": {
-    summary: "open a screen from the main menu over the current one (q comes back); an agent's waits until the person is idle and is said on the status bar", keys: "the menu's letters N J K R W L F S Q B D G X T O C, or n j k r w l f s q b d g x t o c, ⏎, click on a menu item or its letter on the key line",
+    summary: "open a screen from the main menu over the current one (q comes back); an agent's waits until the person is idle and is said on the status bar", keys: "the menu's letters N J K R W L F S Q B D G X T O C E, or n j k r w l f s q b d g x t o c e, ⏎, click on a menu item or its letter on the key line",
     touches: "screen", replay: "safe", says: out => (out?.key ? { text: `· opened ${out.opened ?? out.key} · q goes back`, ms: 6000 } : null),
     args: { name: { type: "string", about: "the menu key (S), its label (Stats) or the screen's title (board stats)" } },
     run({ name }, { ctx, here, again }, actor): unknown {
@@ -490,14 +490,14 @@ export const SHELL_ACTIONS = new ActionSet<ShellArgs, ShellOn>("shell", {
   },
   "session.end": {
     summary: "end the session: the door stops, with every program in its terminal tiles and the agent drawer, and every attached terminal is let go (unsaved drafts are copied to disk and put aside, as when the door quits). Logging off (G, ctrl+c) only detaches the terminal you're on; this is how the session ends. With programs running or a draft unsaved it asks first: again within 3s ends it. The person's only",
-    keys: "E on the main menu (or a click on End on its key line); `ep0ch session end` from a shell",
+    keys: "E on the main menu (or a click on End on its key line); `ep0ch session end [--yes]` from a shell (--yes is force=true)",
     touches: "screen", replay: "ask",
     person: "an agent doesn't end the person's session: it would stop the programs in their terminal tiles and let go of their terminals. A session an agent started on its own state dir it ends with `ep0ch session end` there",
-    args: {},
-    run(_, { ctx }) {
-      if (ctx.confirmQuit && !ctx.confirmQuit()) return { ended: false, asked: true };
-      ctx.quit();
-      return { ended: true };
+    args: { force: { type: "boolean", optional: true, about: "end it even with programs running or a draft unsaved (the drafts are copied to disk and put aside); else it says what's running, and again within 3s ends it" } },
+    run({ force }, { ctx }) {
+      if (!ctx.detaches || !ctx.end) throw new ActionRefused("this door runs in its own terminal, not as a session: G logs off and ends it");
+      const why = ctx.end(!!force);
+      return why ? { ended: false, why } : { ended: true };
     },
   },
   "screen.help": {
@@ -1408,8 +1408,10 @@ export class Goodbye implements Screen {
   private at = Date.now();
   /** Logging off quits the door: with programs still running (the desk in the background), it asks first. */
   /** In a session it only detaches this terminal (nothing ends, so nothing is asked); else, with programs running, it asks first. */
-  enter(ctx: Ctx) { if (!ctx.detaches && ctx.confirmQuit && !ctx.confirmQuit()) ctx.pop(); else this.at = Date.now(); }
-  tick(ctx: Ctx) { if (Date.now() - this.at > 1600) { if (ctx.logoff) ctx.logoff(); else ctx.quit(); return false; } return true; }
+  enter(ctx: Ctx) { this.from = ctx.typingOn?.() ?? null; if (!ctx.detaches && ctx.confirmQuit && !ctx.confirmQuit()) ctx.pop(); else this.at = Date.now(); }
+  tick(ctx: Ctx) { if (Date.now() - this.at > 1600) { if (ctx.logoff) ctx.logoff(this.from); else ctx.quit(); return false; } return true; }
+  /** The terminal G was pressed on (a session's): the one that's let go, whoever types meanwhile. */
+  private from: unknown = null;
   render(ctx: Ctx): Frame {
     const w = ctx.t.cols;
     const t = Date.now() - this.at;

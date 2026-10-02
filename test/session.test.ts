@@ -7,7 +7,8 @@
 //   program still running with its scrollback, an unsaved draft and the layout; two clients consistent; an agent
 //   acting through the control socket; `end` asking while programs run, then ending.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { connect, type Socket } from "node:net";
 import { join } from "node:path";
 import { App } from "../src/app";
@@ -15,8 +16,8 @@ import { Mirror } from "../src/mirror";
 import { SocketBoard } from "../src/socket";
 import { encode, Frames, PROTOCOL, type ClientMsg, type DaemonMsg, type Hello } from "../src/session/protocol";
 import { SessionTerm, type Link } from "../src/session/session-term";
-import { sessionInfo, startSession } from "../src/session/client";
-import { sessionFile, sessionSocket } from "../src/session/daemon";
+import { runEnv, sessionEnv, sessionInfo, startSession } from "../src/session/client";
+import { sessionFile, sessionSocket, takeLock } from "../src/session/daemon";
 import { controlSocket } from "../src/control";
 import { outliner, Scratch, until } from "./scratch";
 
@@ -42,6 +43,36 @@ describe("the session protocol", () => {
     expect(() => new Frames().push(Buffer.from([0x5a, 0, 0, 0, 0]))).toThrow(/unknown frame type/);
     const big = Buffer.alloc(5); big.write("o", 0, "latin1"); big.writeUInt32BE(0xffffffff, 1);
     expect(() => new Frames().push(big)).toThrow(/over the limit/);
+  });
+});
+
+describe("the session's environment", () => {
+  test("a session keeps nothing of the terminal that started it, nor of an outer door it was started in", () => {
+    const env = sessionEnv({ HOME: "/home/fern", TERM: "xterm-kitty", SSH_TTY: "/dev/pts/4", TMUX: "/tmp/tmux-1/default,1,0", EP0CH_STATE: "/tmp/plot", EP0CH_CONTROL: "/tmp/outer/door.sock", EP0CH_TILE: "t2", EP0CH_IN_DOOR: "1", EP0CH_NEST: "ssh:pts/4" });
+    expect(env).toEqual({ HOME: "/home/fern", EP0CH_STATE: "/tmp/plot" });
+    // A test door's own EP0CH_CONTROL (not inside a door) is kept.
+    expect(sessionEnv({ EP0CH_CONTROL: "/tmp/plot/door.sock" })).toEqual({ EP0CH_CONTROL: "/tmp/plot/door.sock" });
+  });
+
+  test("a program the session hands a terminal runs with that terminal's TERM, ssh, tmux and locale, its layers first", () => {
+    const env = runEnv({ HOME: "/home/fern", EP0CH_CONTROL: "/tmp/plot/door.sock", EP0CH_NEST: "shell:4242" }, { TERM: "xterm-ghostty", SSH_TTY: "/dev/pts/9", LANG: "en_NZ.UTF-8", EP0CH_NEST: "ssh:pts/9", HOME: "/elsewhere" });
+    expect(env).toEqual({ HOME: "/home/fern", EP0CH_CONTROL: "/tmp/plot/door.sock", TERM: "xterm-ghostty", SSH_TTY: "/dev/pts/9", LANG: "en_NZ.UTF-8", EP0CH_NEST: "ssh:pts/9 › shell:4242" });
+  });
+});
+
+describe("the session lock", () => {
+  test("a lock left by a dead session, or naming a pid now someone else's, is taken over; a live session's isn't", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "ep0ch-lock-")), lock = join(dir, "session.lock");
+    const sleeper = Bun.spawn(["sleep", "30"]), named = Bun.spawn(["bash", "-c", "exec -a 'bun main.ts session serve' sleep 30"]);
+    try {
+      await Bun.sleep(100);
+      writeFileSync(lock, "999999999");                      // nobody
+      expect(await takeLock(lock)).toBe(true);
+      writeFileSync(lock, String(sleeper.pid));               // a live process, but not a session (its pid reused)
+      expect(await takeLock(lock)).toBe(true);
+      writeFileSync(lock, String(named.pid));                 // a live session
+      expect(await takeLock(lock)).toBe(false);
+    } finally { sleeper.kill(); named.kill(); rmSync(dir, { recursive: true, force: true }); }
   });
 });
 
@@ -146,7 +177,10 @@ describe("two clients on one session", () => {
     expect(keys).toEqual([]);
     expect(w.text()[23]).toContain("read-only");
     expect(term.list().find(c => c.watch)!.active).toBe(false);
-    term.input(cw, "q");
+    // A pasted q is text, not the key; a Kitty keyboard terminal's ctrl+c (CSI 99;5u) stops watching as ctrl+c does.
+    term.input(cw, "\x1b[200~quiet\x1b[201~");
+    expect(w.closed).toBeNull();
+    term.input(cw, "\x1b[99;5u");
     expect(w.closed).toMatchObject({ t: "bye", reason: "detached" });
   });
 
@@ -181,6 +215,28 @@ describe("two clients on one session", () => {
     expect(gone as number | null).toBe(ca.id);
     expect(term.list().map(c => [c.id, c.active])).toEqual([[cb.id, true]]);
     expect(term.info.cols).toBe(70);
+  });
+
+  test("the Goodbye lets go of the terminal G was pressed on, even when another typed during its fade", () => {
+    const { term, app } = session();
+    const a = fakeLink(80, 24), b = fakeLink(80, 24);
+    const ca = term.attach(a.link, hello(80, 24)), cb = term.attach(b.link, hello(80, 24));
+    term.input(ca, "y");
+    const from = app.typingOn();
+    term.input(cb, "x");                                  // b typed while a's Goodbye faded
+    let gone: number | null = null;
+    term.onLogoff = c => { gone = c.id; term.detach(c); };
+    app.logoff(from);
+    expect(gone as number | null).toBe(ca.id);
+  });
+
+  test("ending: an agent's session.end is refused; in a door with no session, E says there is none", async () => {
+    const { app } = session();
+    await expect(app.act({ action: "session.end", args: { force: true }, as: "test-agent" })).rejects.toThrow(/an agent doesn't end the person's session/);
+    const own = new App({ info: { cols: 80, rows: 24, cellW: 9, cellH: 16, kitty: false }, write() {}, paint() {}, invalidate() {}, onKey() {}, onResize() {}, stop() {}, resume() {} } as any, { supports: () => null, capabilities: null } as any, Date.now(), () => {});
+    own.push({ title: "plot board", key() {}, render: () => ({ lines: [] }) } as any);
+    await own.dispatch.press("session.end");
+    expect((own as any).message).toContain("not as a session: G logs off");
   });
 
   test("a client that stops reading is skipped, then painted whole when it catches up", () => {
@@ -274,13 +330,19 @@ describe.skipIf(!outliner)("a real session on a scratch service", () => {
     await until(() => a.screen().includes("outline"), "the desk on the client", 10_000);
     // An agent opens a terminal tile through the control socket, and a note in the reader (the person's keys stay theirs).
     const opened = await control({ cmd: "act", action: "tile.open", args: { kind: "pty", cmd: "sh" }, as: "test-agent" });
-    await control({ cmd: "act", action: "tile.type", tile: opened.id, args: { text: "echo leeks-$((6*7))\\n" }, as: "test-agent" });
+    // Its program starts at the tile's first paint: typed once it runs.
+    for (let i = 0; ; i++) {
+      try { await control({ cmd: "act", action: "tile.type", tile: opened.id, args: { text: "echo leeks-$((6*7))\\n" }, as: "test-agent" }); break; }
+      catch (e) { if (i > 50 || !/isn't running/.test((e as Error).message)) throw e; await Bun.sleep(100); }
+    }
     await until(() => a.screen().includes("leeks-42"), "the tile's output on the client", 10_000);
     await control({ cmd: "act", action: "open", args: { id: plot }, as: "test-agent" });
     await until(() => a.screen().includes("Water the leeks before noon"), "the note in the reader", 10_000);
     // The person, on this client: the reader (2), edit (e), type, and leave it unsaved.
-    a.type("2"); await Bun.sleep(200);
-    a.type("e"); await Bun.sleep(400);
+    a.type("2");
+    for (let i = 0; i < 50 && (await control({ cmd: "peek" })).screen.person.focus !== "reader"; i++) await Bun.sleep(100);
+    a.type("e");
+    await until(() => a.screen().includes("ctrl+s"), "the edit open", 10_000);
     a.type(" and net the brassicas");
     await until(() => a.screen().includes("and net the brassicas"), "the typed text in the draft", 10_000);
     const shape = async () => { const l = await control({ cmd: "act", action: "layout.get", as: "test-agent" }); return JSON.stringify({ rev: l.rev, tiles: (l.tiles ?? []).map((t: any) => [t.id, t.kind, t.name]) }); };
@@ -310,16 +372,46 @@ describe.skipIf(!outliner)("a real session on a scratch service", () => {
     expect(info!.clients.map(c => c.active)).toEqual([false, true]);
     expect(a.text()).toEqual(b.text());
     a.close(); b.close();
-    await until(() => true, "");
+    for (let i = 0; i < 50 && (await sessionInfo())!.clients.length; i++) await Bun.sleep(100);
+    expect((await sessionInfo())!.clients).toEqual([]);
+  }, 30_000);
+
+  test("a terminal is refused: another protocol, inside the session, before hello, naming another outline", async () => {
+    const said = async (more: Partial<Hello> | null, first?: ClientMsg) => {
+      const sock = await new Promise<Socket>((res, rej) => { const s = connect(sessionSocket(), () => res(s)); s.once("error", rej); });
+      const got: DaemonMsg[] = [], f = new Frames<DaemonMsg>();
+      sock.on("data", (d: Buffer) => got.push(...f.push(d)));
+      sock.write(encode(first ?? { t: "hello", hello: hello(80, 24, more ?? {}) }));
+      await until(() => got.some(m => m.t === "bye"), "the refusal", 5000);
+      sock.destroy();
+      return got.find(m => m.t === "bye") as Extract<DaemonMsg, { t: "bye" }>;
+    };
+    expect((await said({ proto: PROTOCOL + 1 })).message).toMatch(/speaks protocol/);
+    expect((await said({ nest: `ssh:pts/3 › door:${pid}/desk/t2:pty` })).message).toMatch(/inside the session already/);
+    expect((await said({ nest: `shell:${pid}` })).message).toMatch(/inside the session already/);
+    expect((await said(null, { t: "input", text: "j" })).message).toBe("say hello first");
+    expect((await said({ target: { workspace: "/elsewhere/plot", outline: "seed-library" } })).message).toMatch(/not the outline you named \(seed-library\)/);
+    expect((await sessionInfo())!.clients).toEqual([]);
   }, 30_000);
 
   test("ending asks while programs run in its tiles, then ends: every client told, the files gone", async () => {
     const a = await RawClient.attach(sessionSocket(), 100, 30);
-    const asker = await RawClient.attach(sessionSocket(), 80, 24, { watch: true });
-    asker.send({ t: "end" });
-    await until(() => asker.got.some(m => m.t === "ask"), "the question", 5000);
-    expect((asker.got.find(m => m.t === "ask") as any).message).toMatch(/running in the session's terminal tiles/);
-    asker.send({ t: "end", force: true });
+    // An attached terminal (a watcher above all) can't end it over the wire: the menu's E is how.
+    const watcher = await RawClient.attach(sessionSocket(), 80, 24, { watch: true });
+    watcher.send({ t: "end", force: true });
+    await until(() => watcher.got.some(m => m.t === "ask"), "the refusal", 5000);
+    expect((watcher.got.find(m => m.t === "ask") as any).message).toMatch(/from the main menu \(E\)/);
+    // `ep0ch session end` connects without attaching: asked first, then forced.
+    const asker = await new Promise<Socket>((res, rej) => { const s = connect(sessionSocket(), () => res(s)); s.once("error", rej); });
+    const asked: DaemonMsg[] = [], f = new Frames<DaemonMsg>();
+    let closed = false;
+    asker.on("data", (d: Buffer) => asked.push(...f.push(d)));
+    asker.on("close", () => { closed = true; });
+    asker.write(encode({ t: "end" }));
+    await until(() => asked.some(m => m.t === "ask"), "the question", 5000);
+    expect((asked.find(m => m.t === "ask") as any).message).toMatch(/running in a tile|isn.t saved/);
+    asker.write(encode({ t: "end", force: true }));
+    await until(() => closed, "the asker let go", 15_000);
     await until(() => a.closed, "the session to end", 15_000);
     expect(a.got.at(-1)).toMatchObject({ t: "bye", reason: "ended" });
     await until(() => !existsSync(sessionSocket()) && !existsSync(sessionFile()), "the session's files to go", 5000);

@@ -1,7 +1,6 @@
 // The one edit control: a Draft (src/edit.ts) drawn in the same frame, with the same keys and the same
 // status line, wherever text is written — a note's whole text, a comment, a reply. Ctrl+E hands any of
 // them to $VISUAL/$EDITOR and back through the same path.
-import { ownTerminal, type Handover } from "../drop";
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
@@ -10,6 +9,7 @@ import { USER, type Actor } from "../socket";
 import { stateSub } from "../state";
 import { C, fg, pad, RESET } from "../style";
 import { rule } from "../text";
+import { ownTerminal, type Handover } from "../term";
 import { agentLabel } from "./actions";
 import { COMPLETION_HINT, COMPLETION_ROWS, completerOf, completionOf, renderCompletion } from "./completer";
 
@@ -144,9 +144,15 @@ export function openInEditor(ctx: Suspender, d: Draft): Promise<void> {
   const path = join(dir, `${d.blockId.slice(0, 8)}.md`);
   writeFileSync(path, d.text + "\n", { mode: 0o600 });
   const editor = process.env.VISUAL || process.env.EDITOR || "vi";
+  // What went to the editor: if the draft changed meanwhile (another terminal of a session typed in it, an agent's
+  // patch landed), the editor's text doesn't cover it: it's copied to disk beside it instead, and said.
+  const sent = d.text;
   const back = (code: number | null) => {
     if (code !== 0) d.note = `${editor} exited ${code}; the draft is unchanged`;
-    else {
+    else if (d.text !== sent) {
+      const copy = keepCopy(readFileSync(path, "utf8"), `${d.blockId.slice(0, 8)}-editor`);
+      d.note = `the draft changed while ${editor} had it: kept as it is here · ${editor}'s text is at ${copy}`;
+    } else {
       const before = d.text;
       d.replace(readFileSync(path, "utf8"));
       d.note = d.text === before ? `no changes from ${editor}` : `back from ${editor} · ctrl+s saves`;

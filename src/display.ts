@@ -5,13 +5,16 @@
 import { toCp437Glyphs } from "./ansi";
 import { crtUnderlay } from "./crt";
 import { KittyLayer, type Placement } from "./kitty";
-import type { TermInfo } from "./term";
+import { runProgram, type HandoverOpts, type TermInfo } from "./term";
 
 export type Video = "kitty+crt" | "kitty" | "cells";
 
 /** What a Painter draws on: a terminal's rows and raw writes (Term, a session client's Rows, a test's fake). */
 export interface RawTerm {
   info: TermInfo;
+  /** Give the terminal up (cooked mode, the normal screen) and take it back: for a program run in it. */
+  stop?(): void;
+  resume?(): void;
   write(s: string): void;
   paint(lines: string[]): void;
   paintRow?(r: number, line: string): void;
@@ -31,8 +34,13 @@ export interface Display {
   showRow(r: number, line: string): boolean;
   /** Forget what's on screen: the next frame is painted whole. */
   invalidate(): void;
-  /** Free the images uploaded (the terminal is handed over, or the door ends). */
+  /** Free the images uploaded (the door ends). */
   dispose(): void;
+  /**
+   * Hand the person's terminal to a program (App.suspend) until it ends: its exit code. Nothing is painted to that
+   * terminal meanwhile; it's painted whole after. A session's is the terminal of the client with the person's keys.
+   */
+  handOver(argv: string[], o: HandoverOpts): Promise<number | null>;
 }
 
 export const isDisplay = (t: unknown): t is Display => typeof (t as Display | null)?.show === "function";
@@ -48,6 +56,8 @@ export const nextVideo = (v: Video): Video => (v === "kitty+crt" ? "kitty" : v =
 export class Painter implements Display {
   video: Video;
   private readonly kitty: KittyLayer;
+  /** A program has the terminal (handOver): nothing is painted until it gives it back. */
+  private away = false;
   constructor(readonly term: RawTerm, video?: Video) {
     this.video = video ?? (term.info.kitty ? "kitty+crt" : "cells");
     this.kitty = new KittyLayer(s => term.write(s));
@@ -64,6 +74,7 @@ export class Painter implements Display {
   glyphs(line: string): string { return this.video === "kitty+crt" ? toCp437Glyphs(line) : line; }
 
   show(lines: string[], placements: Placement[]): void {
+    if (this.away) return;
     const images = this.video === "cells" ? [] : this.video === "kitty+crt" ? [crtUnderlay(this.term.info), ...placements] : placements;
     // The text and the images are one frame: a terminal never shows new rows over old placements (PIE-462).
     const draw = () => { this.term.paint(lines.map(l => this.glyphs(l))); this.kitty.sync(images); };
@@ -72,6 +83,7 @@ export class Painter implements Display {
   }
 
   showRow(r: number, line: string): boolean {
+    if (this.away) return true;
     if (!this.term.paintRow) return false;
     this.term.paintRow(r, this.glyphs(line));
     return true;
@@ -79,4 +91,13 @@ export class Painter implements Display {
 
   invalidate(): void { this.term.invalidate(); }
   dispose(): void { this.kitty.dispose(); }
+
+  async handOver(argv: string[], o: HandoverOpts): Promise<number | null> {
+    if (this.away) throw new Error("the terminal is already handed over");
+    this.kitty.dispose();                // images don't survive the screen switch; the next paint re-uploads
+    this.away = true;
+    this.term.stop?.();
+    try { return await runProgram(argv, o); }
+    finally { this.away = false; this.term.resume?.(); this.term.invalidate(); }
+  }
 }

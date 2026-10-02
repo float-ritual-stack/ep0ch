@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 // ep0ch-door: a BBS door into a pi-herdr-outliner outline, over its socket.
 import { join } from "node:path";
-import { Offline, SocketBoard } from "./socket";
+import { SocketBoard } from "./socket";
 import { Term } from "./term";
 import { clientRows, controlClient, formatClients } from "./control";
 import { skillCommand } from "./skills";
@@ -10,7 +10,7 @@ import { parseOutlineArgs, runOutlineCommand } from "./outlines";
 import { Mirror } from "./mirror";
 import { setupCommand } from "./setup/apply";
 import { whereCommand } from "./where";
-import { connectTarget, openDoor, writeLastCall, type Door } from "./door";
+import { connectTarget, guardDoor, openDoor, writeLastCall, type Door } from "./door";
 import { attachDoor, doorMode, sessionCommand } from "./session/client";
 
 let args = process.argv.slice(2);
@@ -101,43 +101,29 @@ const opened = await connectTarget(args);
 if ("error" in opened) { console.error(`ep0ch: ${opened.error}`); process.exit(1); }
 
 const term = new Term();
-// Every way the door ends goes through `end`: a signal (SIGINT, SIGQUIT, SIGTERM, SIGHUP) or a crash (an
-// uncaught exception or rejection). Unsaved drafts and comments are copied to disk (App.terminate), the
-// terminal is put back, the control socket removed, and where the drafts went is said. kill -9 can't be
-// caught: Term's guard puts the terminal back, and the next door sweeps the socket and ctrl+e files.
+// Every way the door ends goes through one teardown (guardDoor): a signal (SIGINT, SIGQUIT, SIGTERM, SIGHUP) or a
+// crash. Unsaved drafts and comments are copied to disk (App.terminate), the terminal is put back, the control
+// socket removed, and where the drafts went is said. kill -9 can't be caught: Term's guard puts the terminal back,
+// and the next door sweeps the socket and ctrl+e files.
 let door: Door | null = null;
-let ending: { code: number; crash?: unknown } | null = null;
-const end = (code: number, crash?: unknown) => {
-  if (ending || !door) {
-    // A second signal or a fault during teardown (or before the door was up): put the terminal back, go.
+const SIGNALS: Record<string, number> = { SIGHUP: 1, SIGINT: 2, SIGQUIT: 3, SIGTERM: 15 };
+const guard = guardDoor({
+  door: () => door,
+  // SIGTERM and SIGHUP end the door as it always has (exit 0: nothing went wrong); SIGINT and SIGQUIT say which.
+  // While the drop shell has the terminal, ctrl+c and ctrl+\ are its (a shell without job control shares the
+  // door's process group): the door doesn't end under it.
+  signal: sig => (sig === "SIGINT" || sig === "SIGQUIT" ? (door?.app.suspended() === "shell" ? null : 128 + SIGNALS[sig]!) : 0),
+  // A write to a terminal that has gone (EIO, EPIPE: the ssh connection dropped before its SIGHUP was handled)
+  // is a hangup, not a crash: the door ends as it does on SIGHUP.
+  hangup: e => ["EIO", "EPIPE"].includes((e as NodeJS.ErrnoException | null)?.code ?? ""),
+  // A second signal or a fault during teardown (or before the door was up): put the terminal back, go.
+  now: (code, crash) => {
     term.stop();
     if (crash !== undefined) console.error(`ep0ch: ${crash instanceof Error ? crash.stack ?? crash.message : String(crash)}`);
     door?.control?.close();
-    process.exit(ending?.code ?? code);
-  }
-  ending = { code, crash };
-  door.app.terminate();
-};
-const SIGNALS = { SIGHUP: 1, SIGINT: 2, SIGQUIT: 3, SIGTERM: 15 } as const;
-// SIGTERM and SIGHUP end the door as it always has (exit 0: nothing went wrong); SIGINT and SIGQUIT say which.
-// While the drop shell has the terminal, ctrl+c and ctrl+\ are its (a shell without job control shares the
-// door's process group): the door doesn't end under it.
-for (const [sig, n] of Object.entries(SIGNALS)) process.on(sig, () => {
-  if ((sig === "SIGINT" || sig === "SIGQUIT") && door?.app.suspended() === "shell") return;
-  end(sig === "SIGTERM" || sig === "SIGHUP" ? 0 : 128 + n);
+    process.exit(code);
+  },
 });
-// "Couldn't ask the outline" is never a crash: an Offline that no caller caught (a key or a click that reads
-// a note first, while the service is down) is said, and the door carries on.
-// A write to a terminal that has gone (EIO, EPIPE: the ssh connection dropped before its SIGHUP was handled)
-// is a hangup, not a crash: the door ends as it does on SIGHUP.
-const fault = (e: unknown) => {
-  if (e instanceof Offline && door && !ending) { door.app.flash(e.message); return; }
-  const code = (e as NodeJS.ErrnoException | null)?.code;
-  if (code === "EIO" || code === "EPIPE") return end(0);
-  end(1, e);
-};
-process.on("uncaughtException", fault);
-process.on("unhandledRejection", fault);
 await term.start();
 // Everything the terminal is sent also goes to a mirror, so `snap` can show exactly this screen.
 const mirror = new Mirror(term.info.cols, term.info.rows);
@@ -151,6 +137,7 @@ door = await openDoor({
   term, mirror, info: () => term.info, board: opened.board, service: opened.service, args, ...(opened.notice ? { notice: opened.notice } : {}),
   done(app) {
     term.stop();                                          // never throws: a terminal that's gone is skipped
+    const ending = guard.ending();
     if (app.keptOnExit.length) console.error(`ep0ch: unsaved text was copied to:\n  ${app.keptOnExit.join("\n  ")}`);
     if (ending?.crash !== undefined) console.error(`ep0ch: the door crashed:\n${ending.crash instanceof Error ? ending.crash.stack ?? ending.crash.message : String(ending.crash)}`);
     door?.control?.close();

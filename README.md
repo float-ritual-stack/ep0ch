@@ -355,20 +355,23 @@ A door checkout from before `install` gets it by hand, once:
     ep0ch                      # with a session running: attach to it
     ep0ch session list         # who's attached, what runs in its tiles
     ep0ch session attach --watch
-    ep0ch session end          # asks while programs run in its tiles; --yes doesn't
+    ep0ch session end          # asks while programs run in its tiles or a draft is unsaved; --yes doesn't
 
 A **session** (PIE-418) is the door kept running without a terminal, as Herdr and tmux keep theirs. One runs per
 user and state dir (`EP0CH_STATE`), started on demand in the background, and holds everything the door holds:
 the screens and their layouts, the dispatcher, drafts, the terminal tiles with their programs and scrollback, the
 agent drawer, the service connection and its change feed. Your terminal is a **client**: it shows what the session
-sends and sends what you type.
+sends and sends what you type. A terminal inside the session (one of its tiles, its drop shell) can't attach to it.
 
 - **Quitting detaches.** `G` (Goodbye), `ctrl+c`, closing the terminal or a dropped ssh connection lets go of that
   terminal; everything goes on running. `ep0ch` attaches again and you're where you were: the layout, nvim with its
   unsaved buffer, a shell's scrollback, a half-written draft. Flags that open a screen (`--board`, `--layout daily`)
-  apply when a session starts; attaching says it didn't apply them.
-- **Ending is its own act:** `E` on the main menu (End), or `ep0ch session end`. With programs running in its tiles
-  it asks first (`E` again within 3s, or `--yes`). Unsaved drafts are copied to disk and put aside, as when the door quits.
+  apply when a session starts; attaching says it didn't apply them. Naming another outline than the session's
+  (`--ws`, a socket, `EP0CH_SOCKET`) is refused, with which one it's on: one session per state dir.
+- **Ending is its own act:** `E` on the main menu (End), or `ep0ch session end` at your shell: the same action
+  (`session.end`), the person's only. With programs running in its tiles or a draft unsaved it asks first (`E` again
+  within 3s; the command asks y/N, or `--yes`). Unsaved drafts are copied to disk and put aside, as when the door quits.
+  In a door running in its own terminal there's no session: `E` says so, and `G` logs off.
 - **Several terminals at once** (the laptop and the phone, two screens): one session, one person, one focus. The keys
   are wherever you last typed (tmux's `window-size latest`): the session is drawn at that terminal's size and in its
   video mode, and the drop shell or `$EDITOR` runs there. Another terminal of another size sees the same frame cut to
@@ -382,7 +385,7 @@ sends and sends what you type.
 How it's built: the session sends frames, not state. It renders once, as the door always has, and paints each
 client the bytes its terminal takes (rows diffed per client, Kitty images uploaded per client), so a client is a
 few hundred lines that work over ssh as is. The session's files are in the state dir: `session.sock` (mode 0600, the
-dir 0700), `session.json` (who it is), `session.log`. A test door on its own `EP0CH_STATE` has its own session and
+dir 0700), `session.json` (who it is), `session.lock` (held while it runs), `session.log`. A test door on its own `EP0CH_STATE` has its own session and
 never reaches yours. See `src/session/`.
 
 ## The desk

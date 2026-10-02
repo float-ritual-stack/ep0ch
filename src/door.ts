@@ -7,7 +7,7 @@ import type { Mirror } from "./mirror";
 import { Logon } from "./screens";
 import { startScreens } from "./start";
 import type { BoardInfo } from "./board";
-import { SocketBoard } from "./socket";
+import { Offline, SocketBoard } from "./socket";
 import { resolveTarget } from "./discover";
 import { attachTarget } from "./outlines";
 import { alive, claimState, readLastCall, readState, writeLastCall } from "./state";
@@ -85,4 +85,34 @@ export async function connectTarget(args: readonly string[]): Promise<{ board: S
     board.close();
     return { error: `no carrier on ${board.path}\n  ${(e as Error).message}` };
   }
+}
+
+/** How the door is ending, once it is: the exit code, and the crash that ended it. */
+export interface Ending { code: number; crash?: unknown }
+
+/**
+ * One teardown for every way the door ends, in its own terminal or as a session: a signal or a crash (an uncaught
+ * exception or rejection) ends it through App.terminate (drafts and comments copied to disk), once; a second one, or
+ * one before the door is up, goes at once (`now`). `signal` says what a signal means here: an exit code, or null to
+ * leave it alone. "Couldn't ask the outline" (an Offline nobody caught) is said, never a crash; a `hangup` (a terminal
+ * that has gone) ends it as a signal would.
+ */
+export function guardDoor(o: { door(): Door | null; signal(sig: NodeJS.Signals): number | null; hangup?(e: unknown): boolean; now(code: number, crash?: unknown): void }): { ending(): Ending | null } {
+  let ending: Ending | null = null;
+  const end = (code: number, crash?: unknown) => {
+    const d = o.door();
+    if (ending || !d) { o.now(ending?.code ?? code, crash); return; }
+    ending = { code, ...(crash !== undefined ? { crash } : {}) };
+    d.app.terminate();
+  };
+  for (const sig of ["SIGHUP", "SIGINT", "SIGQUIT", "SIGTERM"] as const) process.on(sig, () => { const c = o.signal(sig); if (c !== null) end(c); });
+  const fault = (e: unknown) => {
+    const d = o.door();
+    if (e instanceof Offline && d && !ending) { d.app.flash(e.message); return; }
+    if (o.hangup?.(e)) return end(0);
+    end(1, e);
+  };
+  process.on("uncaughtException", fault);
+  process.on("unhandledRejection", fault);
+  return { ending: () => ending };
 }

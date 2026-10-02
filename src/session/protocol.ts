@@ -23,6 +23,11 @@ export interface Hello {
   args?: string[];
   /** Read-only: shown the session, never given the person's keys (an agent watching, a second screen). */
   watch?: boolean;
+  /**
+   * The outline the client named (`--ws`, a socket, EP0CH_SOCKET), as its service answered: a session on another one
+   * refuses it. Absent: it named none, and attaches to whichever this state dir's session is on.
+   */
+  target?: { workspace: string; outline?: string };
 }
 
 /** What the daemon says about itself: answered to `query`, and in `session list`. */
