@@ -262,7 +262,10 @@ export class HostPtys implements PtyBackend {
     }
   }
 
+  /** Let go of on purpose (a handoff): the programs run on in the host, so none of them is said to have ended. */
+  private released = false;
   private lost() {
+    if (this.released) return;
     for (const e of this.entries.values()) if (e.exited === null) { e.exited = 129; e.done(129); }
     this.onLost?.();
   }
@@ -312,7 +315,7 @@ export class HostPtys implements PtyBackend {
   /** End every program and the host (the session ends). */
   endAll(): void { if (!this.sock.destroyed) this.sock.end(frame("q", 0)); }
   /** Let go of the host, every program left running in it for the next daemon (a handoff). */
-  release(): void { this.onLost = null; this.sock.destroy(); }
+  release(): void { this.released = true; this.onLost = null; this.sock.destroy(); }
 }
 
 /**
