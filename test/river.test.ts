@@ -120,9 +120,9 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
     expect(S().draft).toBeNull();
     key({ kind: "enter" });                                      // edit the selected value
     await until(() => !!S().panel?.field, "the value field");
-    const before = S().panel.field.text;
+    const before = S().panel.field.input.text;
     type("zz");
-    expect(S().panel.field.text).toBe(before + "zz");           // typing reaches the field, not the river
+    expect(S().panel.field.input.text).toBe(before + "zz");           // typing reaches the field, not the river
     expect(V().focus).toBe(at);
     key({ kind: "esc" });                                        // closes the field, not the river
     expect(S().panel?.field ?? null).toBeNull();
@@ -384,6 +384,17 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
     expect(p.top).toBeLessThan(scrolled);
     key({ kind: "home" }); key({ kind: "pgdn" }); screen();
     expect(p.top).toBeGreaterThan(0);
+  });
+
+  test("the person's / filter takes every letter they type: e, i and C are the filter's, not an edit, the panel or a comment", async () => {
+    focusOnReader(lib());
+    key(char("/"));
+    key(ctrl("u"));
+    type("type:inbox Cie");
+    expect(paneOf(lib()).input.text).toBe("type:inbox Cie");
+    expect(surfaceOf(1).panel ?? null).toBeNull();
+    expect(surfaceOf(1).draft ?? null).toBeNull();
+    key({ kind: "esc" });
   });
 
   test("an agent's filter and same-property column work through act, are said on the status bar, and leave the person's keys where they are", async () => {

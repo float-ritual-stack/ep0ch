@@ -132,7 +132,8 @@ A journey to try, whichever service it is:
 
 opens the showcase (PIE-439): the shared door parts, live, in nineteen sections, one per row of the reuse map
 ([Before adding a feature](docs/UI-GRAMMAR.md#before-adding-a-feature)) in the map's order. The map's
-scrolling row, its key-names row, its elements and reading-ruler row (PIE-441) and its terminal-output row (PIE-510: cells, escapes,
+scrolling row, its key-names row, its list-picker and line-input rows (in the panes section's ^W P and ^W r,
+the board's g m s), its elements and reading-ruler row (PIE-441) and its terminal-output row (PIE-510: cells, escapes,
 CP437; the key names and the terminal output are under every section) have no section yet. The newest parts are in their rows' sections:
 the agent drawer in `terminal` (`alt+a` pulls it up over the showcase itself), the terminals attached to the door session in `session`, a row's links in the tree
 (`L`) in `entity`, a drawer and the lock (`alt+k`) in `panes`, the draft session (an edit and a comment open side by side) in `drafts`, a screen spec (the brief, its spec read back by `screen.spec`) in `screens`, the tile-kind registry listed by a service-drawn tile in `kinds`, quiet embeds (a dim `»` source line) in `note`, and the outliner's example extensions (a record, an output, a component with its `[w ward]`, an `@tidy` request) beside what the service's list bound, in `extensions`. It runs on an

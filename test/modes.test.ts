@@ -111,7 +111,7 @@ describe("the reader's four modes, with no service", () => {
     s.show(note(TEXT), h);
     s.render(80, 30, h);
     s.openPanel(false);
-    s.picker = { key: "task:x#0", sel: 0, note: "", busy: false };
+    s.picker = { key: "task:x#0", list: s.choices(0), note: "", busy: false };
     expect([s.choosing, s.holdsKeys, s.hint()]).toEqual([true, true, expect.stringContaining("status ·")]);
     s.key({ kind: "esc" }, h);
     expect([s.choosing, !!s.panel, s.hint()]).toEqual([false, true, s.panel!.hint()]);
@@ -148,7 +148,7 @@ describe("the reader's four modes, with no service", () => {
     s.openPanel(false);
     const agent = { kind: "agent" as const, id: "gardener" };
     await expect(s.act("edit", {}, h, agent)).rejects.toThrow("the person has the property panel open");
-    s.picker = { key: "task:x#0", sel: 0, note: "", busy: false };
+    s.picker = { key: "task:x#0", list: s.choices(0), note: "", busy: false };
     await expect(s.act("edit", {}, h, agent)).rejects.toThrow("the person has the property panel open");
     expect([s.sessionOf(), s.sessionWord()]).toEqual([s.panel, "property panel"]);   // the choice isn't a session
   });
@@ -160,7 +160,7 @@ describe("the reader's four modes, with no service", () => {
     const lines = s.render(80, 30, h).lines.map(l => l.replace(/\x1b\[[\d;]*m/g, ""));
     const y = lines.findIndex(l => l.includes("stage") && l.includes("queued"));
     expect(y).toBeGreaterThan(0);
-    s.picker = { key: "task:x#0", sel: 0, note: "", busy: false };
+    s.picker = { key: "task:x#0", list: s.choices(0), note: "", busy: false };
     expect(s.click(4, y, h)).toBe(true);
     expect([s.choosing, s.panel!.sel]).toEqual([false, 0]);
   });
@@ -173,10 +173,10 @@ describe("the reader's four modes, with no service", () => {
     expect(s.editing).toBe(false);
     s.openPanel(false);
     s.editValue(s.rows(s.msg!)[0]!);
-    s.panel!.field!.text = "doing";
+    s.panel!.field!.input.text = "doing";
     expect(s.leaveRefusal()).toBe("finish the property value first · ⏎ saves · esc cancels");
     await expect(s.leave(h)).rejects.toThrow("finish the property value first");
-    s.panel!.field!.text = s.panel!.field!.row.value;
+    s.panel!.field!.input.text = s.panel!.field!.row.value;
     expect(await s.leave(h)).toEqual({ left: "nothing" });
     expect([s.panel!.field, !!s.panel]).toEqual([null, true]);
   });

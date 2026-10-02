@@ -12,6 +12,7 @@ import { ch, isUp, isDown, type Key } from "../term";
 import { rule } from "../text";
 import { withoutPropertyTokens } from "../vendor/property-grammar";
 import { RowView } from "../scroll";
+import { LineInput } from "./line";
 
 /** One property token as the panel lists it. `ordinal` is what properties.patch replaces (null: unknown here). */
 export interface PropRow {
@@ -80,7 +81,7 @@ export function checkValue(r: PropRow, value: string): string | null {
 }
 
 /** A one-line value being edited. */
-export interface Field { row: PropRow; text: string; cursor: number; revision: number; saving: boolean; note: string; changedElsewhere: boolean }
+export interface Field { row: PropRow; input: LineInput; revision: number; saving: boolean; note: string; changedElsewhere: boolean }
 
 export type PanelIntent = "copy" | "follow" | "edit" | "save" | "cancel" | "close" | "summary" | "full" | null;
 
@@ -103,14 +104,7 @@ export class PropertyPanel {
       if (f.saving) return null;
       if (k.kind === "enter") return "save";
       if (k.kind === "esc") return "cancel";
-      if (k.kind === "backspace") { if (f.cursor > 0) { f.text = f.text.slice(0, f.cursor - 1) + f.text.slice(f.cursor); f.cursor--; } }
-      else if (k.kind === "delete") f.text = f.text.slice(0, f.cursor) + f.text.slice(f.cursor + 1);
-      else if (k.kind === "left") f.cursor = Math.max(0, f.cursor - 1);
-      else if (k.kind === "right") f.cursor = Math.min(f.text.length, f.cursor + 1);
-      else if (k.kind === "home" || (k.kind === "char" && k.ctrl && k.ch === "a")) f.cursor = 0;
-      else if (k.kind === "end" || (k.kind === "char" && k.ctrl && k.ch === "e")) f.cursor = f.text.length;
-      else if (k.kind === "char" && k.ctrl && k.ch === "u") { f.text = ""; f.cursor = 0; }
-      else if (k.kind === "char" && !k.ctrl) { f.text = f.text.slice(0, f.cursor) + k.ch + f.text.slice(f.cursor); f.cursor += k.ch.length; }
+      f.input.key(k);
       f.note = "";
       return null;
     }
@@ -150,13 +144,8 @@ export class PropertyPanel {
       const f = this.field && this.field.row.n === r.n ? this.field : null;
       const valW = Math.max(1, w - keyW - 4 - (scope ? scope.length + 1 : 0));
       let value: string;
-      if (f) {
-        // The field scrolls so the cursor stays in view.
-        const start = Math.max(0, f.cursor - valW + 2);
-        const shown = f.text.slice(start, start + valW - 1);
-        const cur = f.cursor - start;
-        value = fg(C.white) + shown.slice(0, cur) + bg(C.lcyan) + fg(C.black) + (shown[cur] ?? " ") + RESET + fg(C.white) + shown.slice(cur + 1);
-      } else value = (r.target ? fg(C.lcyan) : fg(C.yellow)) + valueView(r, info.src, info.text);
+      if (f) value = f.input.show(valW, "block");
+      else value = (r.target ? fg(C.lcyan) : fg(C.yellow)) + valueView(r, info.src, info.text);
       const shown = pad(value, valW);
       const line = mark + " " + fg(C.brown) + pad(printable(r.key), keyW) + "  " + (scope && !f ? value + RESET + " " + fg(C.dark) + scope : shown) + RESET;
       if (out.length < h) this.at.push({ y: out.length, n: r.n, from: keyW + 4, target: !!r.target });

@@ -37,6 +37,8 @@ import { completerFor, completerOf, completionOf, insertCompletion, lookupComple
 import { completionTargetAtCursor } from "../completion";
 import { checkValue, propertyRows, PropertyPanel, valueTarget, valueView, type PropRow } from "./props-panel";
 import { ModeStack, type ReaderMode } from "./modes";
+import { LineInput } from "./line";
+import { ListPicker } from "./picker";
 import { AGENT_BG, cellsOf, Gesture, isCopyKey, lineAt, modeKey, paintRange, RULER_BG, SELECT_BG, Selection, selectionHint, THREAD_BG, wordAt, type Pos, type SelectRows } from "./selection";
 
 /**
@@ -297,7 +299,8 @@ export { leaveSaid, propertyChange, type LeaveResult };
  * A step's status choice, open under its box (PIE-472): the step's element key, the choice the keys are on,
  * and what the last choice said. The person's alone (an agent sets a status by `task.status`).
  */
-interface Picker { key: string; sel: number; note: string; busy: boolean }
+/** A step's status choice: the step (its element key), the choices as a list picker, what the last choice said. */
+interface Picker { key: string; list: ListPicker<(typeof STEP_CHOICES)[number], SurfaceHost>; note: string; busy: boolean }
 /** The reader's four modes (src/surface/modes.ts), each with what it's about. */
 type DraftMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { session: DraftSession; describe(): ReturnType<DraftSession["describe"]> & { writtenBy: string | null } };
 type CommentMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { session: CommentSession; describe(): ReturnType<CommentSession["describe"]> };
@@ -978,7 +981,7 @@ export class NoteSurface {
   }
 
   closePanel(): boolean {
-    if (this.panel?.field && this.panel.field.text !== this.panel.field.row.value && !this.panel.field.saving) return false;
+    if (this.panel?.field && this.panel.field.input.text !== this.panel.field.row.value && !this.panel.field.saving) return false;
     this.panel = null;
     return true;
   }
@@ -1021,7 +1024,7 @@ export class NoteSurface {
   editValue(r: PropRow): void {
     const m = this.msg!;
     if (!this.panel || m.revision === undefined) throw new ActionRefused("the note's revision is unknown, so a value edit couldn't be checked; open it again");
-    this.panel.field = { row: r, text: r.value, cursor: r.value.length, revision: m.revision, saving: false, note: "", changedElsewhere: false };
+    this.panel.field = { row: r, input: new LineInput(r.value), revision: m.revision, saving: false, note: "", changedElsewhere: false };
   }
 
   /**
@@ -1054,9 +1057,9 @@ export class NoteSurface {
   async saveValue(host: SurfaceHost, actor: Actor = host.actor ?? USER): Promise<number | null> {
     const f = this.panel?.field, m = this.msg;
     if (!f || !m || f.saving) return null;
-    const why = checkValue(f.row, f.text);
+    const why = checkValue(f.row, f.input.text);
     if (why) { f.note = why; host.redraw(); return null; }
-    const value = f.text.trim();
+    const value = f.input.text.trim();
     if (value === f.row.value) { this.panel!.field = null; this.panel!.note = "unchanged"; host.redraw(); return m.revision ?? null; }
     f.saving = true; f.note = "saving…"; host.redraw();
     try {
@@ -1459,15 +1462,15 @@ export class NoteSurface {
       // Drawn by the reading render: above the note, or filling the reader under its header (full).
       rows: () => null,
       leave: async host => { if (P.field) { P.field = null; host.redraw(); } return { left: "nothing" }; },
-      leaveRefusal: () => { const f = P.field; return f && f.text !== f.row.value ? "finish the property value first · ⏎ saves · esc cancels" : null; },
-      unsaved: () => !!P.field && P.field.text !== P.field.row.value,
+      leaveRefusal: () => { const f = P.field; return f && f.input.text !== f.row.value ? "finish the property value first · ⏎ saves · esc cancels" : null; },
+      unsaved: () => !!P.field && P.field.input.text !== P.field.row.value,
       hint: () => P.hint(),
       state: () => (P.field ? "editing a property" : "properties"),
       describe: () => {
         const m = this.msg;
         return m ? {
           open: P.full ? "full" : "inline", selected: P.sel + 1, note: P.note || null,
-          editing: P.field ? { n: P.field.row.n, key: P.field.row.key, text: P.field.text, revision: P.field.revision, changedElsewhere: P.field.changedElsewhere, note: P.field.note || null } : null,
+          editing: P.field ? { n: P.field.row.n, key: P.field.row.key, text: P.field.input.text, revision: P.field.revision, changedElsewhere: P.field.changedElsewhere, note: P.field.note || null } : null,
           rows: this.rows(m).map(r => describeRow(r, this.src, m.text)),
         } : null;
       },
@@ -1491,7 +1494,7 @@ export class NoteSurface {
       leave: async () => ({ left: "nothing" }),
       hint: () => `status · ${STEP_CHOICES.map(c => `${c.key} ${c.id === "copy-link" ? "copy link" : c.id === "address" ? "addressable" : statusWord(c.id)}`).join(" · ")} · j k ⏎ choose · esc cancel`,
       state: () => null,
-      describe: () => ({ step: this.elems.find(e => e.key === p.key)?.label ?? null, selected: STEP_CHOICES[p.sel]?.id, note: p.note || null }),
+      describe: () => ({ step: this.elems.find(e => e.key === p.key)?.label ?? null, selected: STEP_CHOICES[p.list.sel]?.id, note: p.note || null }),
     };
   }
 
@@ -2363,20 +2366,28 @@ export class NoteSurface {
     this.setElem(e);
     this.reveal = true;
     // Mark done first, as Detail's menu; on a done step, Mark to do.
-    this.picker = { key: e.key, sel: e.task.step.status === "done" ? 1 : 0, note: "", busy: false };
+    this.picker = { key: e.key, list: this.choices(e.task.step.status === "done" ? 1 : 0), note: "", busy: false };
+  }
+
+  /** A status choice's list, from choice `sel`: j k Tab round it, ⏎ or a choice's letter chooses, esc or q cancels. */
+  choices(sel: number): Picker["list"] {
+    const list = new ListPicker<(typeof STEP_CHOICES)[number], SurfaceHost>({
+      name: "choice", items: () => STEP_CHOICES, wraps: true, closers: "q", row: () => [],
+      choose: (_, i, host) => void this.choose(i, host),
+      close: host => { this.picker = null; host.redraw(); },                                  // a cancel: as it was
+      keys: (k, host) => { const i = STEP_CHOICES.findIndex(x => x.key === ch(k)); if (i >= 0) void this.choose(i, host); return i >= 0; },
+    });
+    list.sel = sel;
+    return list;
   }
 
   private pickerKey(k: Key, host: SurfaceHost): boolean {
-    const P = this.picker!, c = ch(k), n = STEP_CHOICES.length;
-    if (k.kind === "esc" || c === "q") { this.picker = null; host.redraw(); return true; }   // a cancel: as it was
-    if (P.busy) return true;
-    if (isUp(k) || k.kind === "backtab") P.sel = (P.sel + n - 1) % n;
-    else if (isDown(k) || k.kind === "tab") P.sel = (P.sel + 1) % n;
-    else if (k.kind === "enter") void this.choose(P.sel, host);
-    else { const i = STEP_CHOICES.findIndex(x => x.key === c); if (i >= 0) void this.choose(i, host); }
+    const P = this.picker!;
+    if (!P.busy || k.kind === "esc" || ch(k) === "q") P.list.key(k, host);
     host.redraw();
     return true;
   }
+
 
   /** Choice `i` of the open status choice, for the person: the step as drawn now. */
   private async choose(i: number, host: SurfaceHost) {
@@ -2384,7 +2395,7 @@ export class NoteSurface {
     if (!P || P.busy || !choice) return;
     const e = this.elems.find(x => x.key === P.key);
     if (!e?.task) { this.picker = null; host.ctx.flash("that step isn't drawn here any more"); host.redraw(); return; }
-    P.busy = true; P.sel = i; P.note = "…"; host.redraw();
+    P.busy = true; P.list.sel = i; P.note = "…"; host.redraw();
     try {
       // The choice is the step's action (PIE-506): task.status, or task.link for its link and its id, as the person's
       // key, through the host's dispatcher; a refusal is the picker's note.
@@ -2571,7 +2582,7 @@ export class NoteSurface {
     if (!hit) return { doc, picks: null };
     let at = hit.line + 1;
     if (!hit.ref.via) while (at < doc.source.length && doc.source[at] === doc.source[hit.line]) at++;
-    const { lines, rows } = pickerPanel(hit.ref, P.sel, P.note, P.busy, W);
+    const { lines, rows } = pickerPanel(hit.ref, P.list.sel, P.note, P.busy, W);
     const { doc: out } = withRows(doc, [{ at, lines }]);
     return { doc: out, picks: { at, lines: lines.length, rows: rows.map(r => at + r) } };
   }
@@ -4072,7 +4083,7 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
     async run({ n, key, value, revision }, { surface, host }, actor) {
       if (surface.draft || surface.session) throw new ActionRefused("this reader is editing or commenting; close that first");
       const f = surface.panel?.field;
-      if (f && (f.saving || f.text !== f.row.value)) throw new ActionRefused(f.saving ? "a value is being saved here" : `a value (${f.row.key}) is being typed here; it's someone else's until saved or cancelled`);
+      if (f && (f.saving || f.input.text !== f.row.value)) throw new ActionRefused(f.saving ? "a value is being saved here" : `a value (${f.row.key}) is being typed here; it's someone else's until saved or cancelled`);
       const { m, row } = await propRow(surface, n, key);
       if (revision !== undefined && m.revision !== revision) throw new ActionRefused(`the note is at revision ${m.revision}, not ${revision}; read the properties again (props)`);
       if (m.revision === undefined) throw new ActionRefused("the note's revision is unknown, so a value edit couldn't be checked");

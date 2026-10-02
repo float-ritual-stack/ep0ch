@@ -501,7 +501,7 @@ describe("review: property actions", () => {
     expect(s.panel).not.toBeNull();
     // While a value is typed, Space is text.
     s.key({ kind: "enter" }, h); s.key(char(" "), h);
-    expect([s.scroll, s.panel!.field!.text]).toEqual([15, "high "]);
+    expect([s.scroll, s.panel!.field!.input.text]).toEqual([15, "high "]);
   });
 });
 

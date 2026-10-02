@@ -47,7 +47,8 @@ export class RowView {
   top = 0;
   private max = Infinity;
   private shown: number | null = null;
-  private room = -1;
+  /** The rows it was last placed in. */
+  room = -1;
   scroll(by: number) { this.top = scrolled(this.top, by, this.max); }
   /** The selection comes into view at the next `place` even if it didn't move (j at the end of a list). */
   reveal() { this.shown = null; }

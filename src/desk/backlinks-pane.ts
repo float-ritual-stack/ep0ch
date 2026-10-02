@@ -15,10 +15,11 @@ import {
 } from "../backlinks";
 import { USER, type Actor, type OutlineEvent } from "../socket";
 import { ActionRefused, ActionSet, agentLabel } from "../surface/actions";
-import { C, fg, INPUT_CURSOR, pad, RESET, selected, width } from "../style";
+import { C, fg, pad, RESET, selected, width } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
 import { runOwn, type DeskApi, type Pane, type PaneView } from "./panes";
 import { RowView } from "../scroll";
+import { LineInput } from "../surface/line";
 
 
 /** One piece of the status line as placed: at x, y in the list's cells, `cols` wide (clipped), a control or not. */
@@ -84,7 +85,7 @@ export class BacklinksPane implements Pane {
   /** Given the keys before its rows were read: the selected row shows once they are (and as whom). */
   private showOnLoad: Actor | null = null;
   /** A filter being typed (`/`): applied as it's typed; ⏎ keeps it, esc goes back to what it was. Null when not typing. */
-  draft: string | null = null;
+  draft: LineInput | null = null;
   /**
    * A note named outright (`backlinks id=<id>` on the board, a note no tile shows): listed instead of what the
    * source tile shows, until the source shows another note.
@@ -130,7 +131,7 @@ export class BacklinksPane implements Pane {
   /** The person is typing a filter: their keys are its. */
   typing() { return this.draft !== null; }
   /** The view as shown now: a filter being typed applies as it's typed. */
-  private opts(): BacklinkViewOptions { return this.draft === null ? this.options : { ...this.options, filter: this.draft.trim() }; }
+  private opts(): BacklinkViewOptions { return this.draft === null ? this.options : { ...this.options, filter: this.draft.text.trim() }; }
 
   /** Ask the service for `m`'s backlinks (the list keeps its view options, as Detail's panel does). */
   load(m: Msg | null, desk: DeskApi, keepSel = false): Promise<void> {
@@ -212,7 +213,7 @@ export class BacklinksPane implements Pane {
   private statusParts(): BacklinkStatusPart[] {
     const o = this.opts(), typing = this.draft;
     const parts = backlinkStatusParts(backlinkView(this.data, o), o).filter(p => typing === null || p.control !== "filter");
-    if (typing !== null) parts.unshift({ text: `Filter: ${typing}${INPUT_CURSOR}`, control: "filter" });
+    if (typing !== null) parts.unshift({ text: `Filter: ${typing.plain()}`, control: "filter" });
     if (this.data?.completeness.kind === "truncated") parts.push({ text: `first ${this.data.completeness.limit ?? this.data.sources.length} sources` });
     return parts;
   }
@@ -294,7 +295,7 @@ export class BacklinksPane implements Pane {
       } else if (c === "stage") { o.stage = nextBacklinkStageFilter(o.stage); said = o.stage === "all" ? "backlinks: every stage" : `backlinks: only ${o.stage}`; }
       else if (c === "resolved") { o.showResolved = !o.showResolved; said = o.showResolved ? "showing resolved comments" : "hiding resolved comments"; }
       else if (c === "related") { o.showRelated = !o.showRelated; said = o.showRelated ? "showing this note and its descendants" : "hiding this note and its descendants"; }
-      else if (c === "filter") { this.draft ??= o.filter; said = ""; }
+      else if (c === "filter") { this.draft ??= new LineInput(o.filter); said = ""; }
     });
     return said;
   }
@@ -303,25 +304,22 @@ export class BacklinksPane implements Pane {
     const brief = this.target ? { id: this.target.id, title: subject(this.target) } : null;
     if (!this.data) return { source: this.source, target: brief, loading: !!this.target && !this.problem, problem: this.problem || undefined };
     const o = this.opts();
-    return { source: this.source, target: brief, ...describeBacklinkView(backlinkView(this.data, o), o, this.expanded, this.sel), typing: this.draft };
+    return { source: this.source, target: brief, ...describeBacklinkView(backlinkView(this.data, o), o, this.expanded, this.sel), typing: this.draft?.text ?? null };
   }
 
   run(desk: DeskApi, name: "backlinks.pick" | "backlinks.view" | "backlinks.fold", args: Record<string, unknown>) { runOwn(BACKLINKS_ACTIONS, name, args, { pane: this, desk }); }
 
   /** Typing a filter: letters go into it and the list follows; ⏎ keeps it (`backlinks.view filter=`), esc goes back to what it was. */
   private filterKey(k: Key, desk: DeskApi): boolean {
-    if (k.kind === "enter") { const f = (this.draft ?? "").trim(); this.draft = null; this.run(desk, "backlinks.view", { filter: f }); return true; }
+    if (k.kind === "enter") { const f = this.draft?.text.trim() ?? ""; this.draft = null; this.run(desk, "backlinks.view", { filter: f }); return true; }
     if (k.kind === "esc") this.draft = null;
-    else if (k.kind === "backspace") this.draft = (this.draft ?? "").slice(0, -1);
-    else if (k.kind === "char" && k.ctrl && k.ch === "u") this.draft = "";
-    else if (k.kind === "char" && !k.ctrl) this.draft = (this.draft ?? "") + k.ch;
-    else return k.kind !== "tab" && k.kind !== "backtab";
+    else if (!this.draft?.key(k)) return k.kind !== "tab" && k.kind !== "backtab";
     this.keepSel(() => {});
     desk.redraw();
     return true;
   }
   /** It loses the keys while a filter is typed: what's typed is kept, as leaving Detail's filter keeps it. */
-  blur() { if (this.draft !== null) { this.options = { ...this.options, filter: this.draft.trim() }; this.draft = null; } }
+  blur() { if (this.draft !== null) { this.options = { ...this.options, filter: this.draft.text.trim() }; this.draft = null; } }
 
   key(k: Key, desk: DeskApi): boolean {
     if (this.draft !== null && k.kind !== "mouse") return this.filterKey(k, desk);

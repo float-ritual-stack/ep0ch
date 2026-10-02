@@ -197,11 +197,11 @@ describe.skipIf(!outliner)("containers with policy on the desk", () => {
     expect(get().locked).toBe(true);
     // A click on the same row unlocks it.
     render();
-    const row = D().policyPanel.hits.rows[0];
-    mouse("down", D().policyPanel.hits.rect.col + 3, row.y);
+    const panel = D().overlays.get("policy"), row = panel.hits[0];
+    mouse("down", panel.box.col + 3, row.y);
     expect(get().locked).toBe(false);
     key({ kind: "esc" });
-    expect(D().policyPanel).toBeNull();
+    expect(D().overlays.get("policy")).toBeNull();
   });
 
   test("a tile kind registered from outside (drawn by the service) opens by key and act, saves and comes back", async () => {

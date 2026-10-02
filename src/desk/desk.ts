@@ -18,11 +18,14 @@ import { actorRule, Dispatcher, type Delegation, type Registration, type RunHow,
 import type { ScreenKeys } from "../whereabouts";
 import { leaveSaid, NOTE_ACTIONS, type OpenHow, type SurfaceHost } from "../surface/note";
 import { keepEditFile } from "../surface/editor";
+import { LineInput } from "../surface/line";
+import { Modes } from "../surface/modes";
+import { ListPicker, pickRow } from "../surface/picker";
 import { readState, writeState } from "../state";
 import { keyName, specData, type ScreenSpec } from "./screen-spec";
-import { bg, C, chip as chipStyle, fg, fitHint, headOf, INPUT_CURSOR, pad, paint, RESET, selected, width } from "../style";
+import { bg, C, chip as chipStyle, fg, fitHint, headOf, pad, paint, RESET, selected, width } from "../style";
 import { themed } from "../theme";
-import { ch, isUp, isDown, type Key } from "../term";
+import { ch, type Key } from "../term";
 import { colourBody, wrap } from "../text";
 import { emphasis } from "../inline";
 import { presentLinks } from "../refs";
@@ -105,8 +108,8 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost, 
   /** A reader the mouse went down in (PIE-419): its drag selects text, its release is the click. */
   private pressed: { pane: ReaderPane; col: number; row: number; fresh: boolean } | null = null;
   protected placed: Placed = { rects: new Map(), nodes: new Map(), dividers: [] };
-  private search: SearchOverlay | null = null;
-  private picker: LayoutPicker | null = null;
+  /** Its own overlays (the search, the layout picker, the policy panel): the first takes every key and click. */
+  private readonly overlays = new Modes<Desk, ListPicker<any, Desk>>();
   /** The reader edit, comment or property panel the person is in: only that one takes their keys (PIE-411). */
   protected entered = new Entered();
   /** A session the person started by key that is still opening (the note being read): Esc cancels it. */
@@ -128,7 +131,6 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost, 
   /** The whole hint row shown above it (keys.more: ?, or a click on "? more"), until the next key or click elsewhere. */
   private hintMoreOpen = false;
   /** ^W P: the policy panel over the focused tile's containers. */
-  private policyPanel: PolicyPanel | null = null;
   /** The spines drawn, for a click. */
   private spines: [number, Rect][] = [];
   /** A float's title or ◢ corner being dragged: it follows the pointer by `float.place`. */
@@ -1273,7 +1275,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost, 
    */
   personTyping(): boolean {
     const f = this.panes.get(this.focus);
-    return !!this.search || !!this.picker || !!this.policyPanel || !!this.linking || this.prefix !== "" || !!this.pending || !!this.personIn() || !!this.choosingReader() || this.inPty() || (!!f && !!kindOf(f)?.takesKeys?.(f)) || !!f?.typing?.()
+    return !!this.overlays.top() || !!this.linking || this.prefix !== "" || !!this.pending || !!this.personIn() || !!this.choosingReader() || this.inPty() || (!!f && !!kindOf(f)?.takesKeys?.(f)) || !!f?.typing?.()
       || [...this.models.values()].some(m => m.busy?.());
   }
   /** A reader whose step choice is open (PIE-472), wherever it is: it takes the keys (a click in a drawer's preview opens one without focusing it). */
@@ -1531,15 +1533,8 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost, 
     this.drawEmpty(canvas);
     for (const m of this.models.values()) if (m.drawOver?.(canvas, area)) placements = [];
     if (this.dragging) this.drawGhost(canvas);
-    if (this.search) {
-      const r: Rect = { col: Math.floor(cols * 0.1), row: Math.floor(rows * 0.12), cols: Math.floor(cols * 0.8), rows: Math.floor(rows * 0.72) };
-      canvas.clear(r, bg(C.black));
-      canvas.box(r, fg(C.yellow), `${fg(C.yellow)}search the board`, fg(C.dark) + "↑↓ pick · ⏎ open · esc close");
-      this.search.render(r.cols - 2, r.rows - 2).forEach((l, i) => canvas.text(r.col + 1, r.row + 1 + i, l, r.cols - 2));
-      placements = [];   // images would bleed through the overlay
-    }
-    if (this.picker) { this.picker.draw(canvas, cols, rows); placements = []; }
-    if (this.policyPanel) { this.policyPanel.draw(canvas, cols, rows, this); placements = []; }
+    // Images would bleed through an overlay.
+    for (const o of [...this.overlays.all()].reverse()) { o.draw(canvas, { col: 0, row: 0, cols, rows }); placements = []; }
     const hint = this.hints(cols);
     if (!this.hintFull) this.hintMoreOpen = false;            // the row fits again: nothing is left to show
     if (this.hintFull && (this.hintMoreOpen || this.prefix)) { this.drawHintMore(canvas, cols, rows); placements = []; }
@@ -1571,7 +1566,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost, 
     }
   }
   /** The desk's own overlay is open (its search, the layout picker, the policy panel): it takes every key and click. */
-  protected overlayOpen(): boolean { return !!this.search || !!this.picker || !!this.policyPanel; }
+  protected overlayOpen(): boolean { return !!this.overlays.top(); }
 
   /**
    * The screen's key map (its spec's `keys`): a key there runs its action as the person, before the focused tile's own
@@ -1870,7 +1865,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost, 
     // Esc, or leaving the desk, while the note is read cancels it: the token is cleared and nothing opens.
     const token = { pane: rd };
     this.pending = token;
-    const still = () => this.pending === token && this.focusedReader() === rd && !this.search;
+    const still = () => this.pending === token && this.focusedReader() === rd && !this.overlays.get("search");
     const opened = (open: boolean) => {
       const want = still();
       if (this.pending === token) this.pending = null;
@@ -1911,12 +1906,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost, 
   }
 
   private keyIn(k: Key, ctx: Ctx) {
-    if (this.search) {
-      if (this.search.key(k, this) === "close") this.search = null;
-      return this.redraw();
-    }
-    if (this.picker) { this.picker.key(k, this); return this.redraw(); }
-    if (this.policyPanel) { this.policyPanel.key(k, this); return this.redraw(); }
+    if (this.overlays.key(k, this) !== null) return this.redraw();
     // In a terminal tile: every key is the program's, but the escape chord and the mouse. Once the program
     // has exited, the keys wait for a choice (⏎ runs it again, ctrl+] leaves) and nothing leaks to the desk.
     if (this.inPty() && k.kind !== "mouse") {
@@ -2000,7 +1990,8 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost, 
     const pressed = pane ? kindOf(pane)?.press?.(pane, k) : null;
     if (pressed) return this.cmd(pressed.action, pressed.args ?? {}, this.nameOf(this.focus));
     const readOnly = pane instanceof ReaderPane && pane.readOnly;
-    const start = focused && !focused.holdsKeys && focused.msg && !readOnly ? sessionStart(k) : null;
+    // Not while the tile takes typed text of its own (a river column's / filter): e, i and C are letters there.
+    const start = focused && !focused.holdsKeys && !pane?.typing?.() && focused.msg && !readOnly ? sessionStart(k) : null;
     if (focused && start) return this.start(focused, start);
     if (!focused?.holdsKeys && pane?.key(k, this)) return;
     // ⏎ in a reader that follows another tile (the board's preview), on none of its elements, opens its note where its
@@ -2077,15 +2068,15 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost, 
     if (c === "c") return this.cmd("tile.collapse", {}, me);
     if (c === "f") return this.cmd("tile.float", {}, me);
     if (c === "W") return this.cmd("tile.widen", {}, me);
-    if (c === "P") { this.policyPanel = new PolicyPanel(this.focus); return this.redraw(); }
+    if (c === "P") { this.overlays.push(policyPanel(this, this.focus)); return this.redraw(); }
     if (c === "d") {
       const shutOne = this.shutDrawers().at(-1);
       if (drawerOf(this.root, this.focus)?.open) return this.cmd("tile.drawer", { open: false }, me);
       if (shutOne) return this.cmd("tile.drawer", { open: true, container: shutOne.id }, this.nameOf(leaves(shutOne.kid)[0]!));
       this.ctx.flash("no drawers · ^W p puts this tile in one"); return this.redraw();
     }
-    if (c === "r") { this.picker = new LayoutPicker("load", layoutNames()); return this.redraw(); }
-    if (c === "w") { this.picker = new LayoutPicker("save", layoutNames(), this.layoutName ?? ""); return this.redraw(); }
+    if (c === "r") { this.overlays.push(layoutPicker(layoutNames())); return this.redraw(); }
+    if (c === "w") { this.overlays.push(layoutSaver(this.layoutName ?? "")); return this.redraw(); }
     if (c === "=") return this.cmd("layout.even");
     // Drop to shell (`screen.shell`), the menu's `!`: loaded when pressed, as screens.ts imports this module.
     if (c === "!") { void import("../screens").then(m => m.dropToShell(this, this.ctx)); return; }
@@ -2099,8 +2090,8 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost, 
 
   /** Run an action by name as the person (the layout picker's ⏎, the policy panel's rows). */
   run(name: string, args: Record<string, unknown>, reader?: string) { this.cmd(name, args, reader); }
-  closePicker() { this.picker = null; }
-  closePolicy() { this.policyPanel = null; }
+  /** Put the overlay on top away (the search, the layout picker, the policy panel). */
+  closeOverlay() { const o = this.overlays.top(); if (o) this.overlays.drop(o); }
 
   /** The policy panel's containers over tile `tile`: the screen, then each one down to it. */
   policyNodes(tile: number): { label: string; node: Container | null }[] {
@@ -2501,7 +2492,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost, 
   async searchNotes(query: string | undefined, limit: number | undefined, actor: Actor): Promise<unknown> {
     const q = query?.trim() ?? "";
     if (actor.kind !== "agent") {
-      this.search = new SearchOverlay(q, this);
+      this.overlays.push(searchOverlay(this, q));
       this.redraw();
       return { overlay: true, query: q };
     }
@@ -3203,143 +3194,102 @@ const placeOf = (where: Where, at: number): At<number> => (where === "next" ? { 
 /** A command line as words, "quoted words" kept together. */
 export function splitWords(s: string): string[] { return [...s.matchAll(/"([^"]*)"|'([^']*)'|(\S+)/g)].map(m => m[1] ?? m[2] ?? m[3]!); }
 
-// ── the layout picker (^W r loads, ^W w saves) ──────────────────────────────
+// ── the desk's overlays (the layout picker, the policy panel, the search): pickers on its mode stack ─────────
 
-class LayoutPicker {
-  private sel = 0;
-  /** The name it opened with (the layout's own): the first key typed replaces it, ⏎ keeps it. */
-  private prefilled: boolean;
-  constructor(readonly mode: "load" | "save", private readonly items: { name: string; saved: boolean; builtin: boolean }[], private text = "") { this.prefilled = !!text; }
-  key(k: Key, desk: Desk) {
-    if (k.kind === "esc" || (k.kind === "mouse" && k.action === "down")) return desk.closePicker();
-    if (this.mode === "load") {
-      if (k.kind === "up" || (k.kind === "char" && k.ch === "k")) this.sel = Math.max(0, this.sel - 1);
-      else if (k.kind === "down" || (k.kind === "char" && k.ch === "j")) this.sel = Math.min(this.items.length - 1, this.sel + 1);
-      else if (k.kind === "enter") { desk.closePicker(); desk.run("layout.load", { name: this.items[this.sel]!.name }); }
-      return;
-    }
-    if (k.kind === "enter") { desk.closePicker(); if (this.text.trim()) desk.run("layout.save", { name: this.text.trim() }); }
-    else if (k.kind === "backspace") { this.text = this.prefilled ? "" : this.text.slice(0, -1); this.prefilled = false; }
-    else if (k.kind === "char" && !k.ctrl && this.text.length < 40) { this.text = (this.prefilled ? "" : this.text) + k.ch; this.prefilled = false; }
-  }
-  draw(canvas: Canvas, cols: number, rows: number) {
-    const w = Math.min(60, cols - 4), h = this.mode === "load" ? Math.min(rows - 4, this.items.length + 2) : 3;
-    const r: Rect = { col: Math.floor((cols - w) / 2), row: Math.floor((rows - h) / 3), cols: w, rows: h };
-    canvas.clear(r, bg(C.black));
-    canvas.box(r, fg(C.yellow), `${fg(C.yellow)}${this.mode === "load" ? "load a layout" : "save the layout as"}`, fg(C.dark) + (this.mode === "load" ? "↑↓ pick · ⏎ load · esc" : "⏎ save · esc"));
-    if (this.mode === "save") { canvas.text(r.col + 2, r.row + 1, this.prefilled ? `${bg(C.blue)}${fg(C.white)}${this.text}${RESET}${paint(`|07${INPUT_CURSOR} |08⏎ keeps it, typing replaces it`)}` : paint(`|15${this.text}|07${INPUT_CURSOR}`), w - 4); return; }
-    this.items.forEach((it, i) => {
-      const label = `${it.name}${it.saved ? (it.builtin ? " · saved over the built-in" : " · saved") : " · built-in"}`;
-      canvas.text(r.col + 1, r.row + 1 + i, (i === this.sel ? selected() : fg(C.grey)) + pad(` ${label}`, w - 2) + RESET, w - 2);
-    });
-  }
+type DeskPicker = ListPicker<any, Desk>;
+/** A box `w` by `h` over the screen: centred across, a third of the way down. */
+const centred = (a: Rect, w: number, h: number): Rect => ({ col: Math.floor((a.cols - w) / 2), row: Math.floor((a.rows - h) / 3), cols: w, rows: h });
+
+/** ^W r: the layouts to load, built-in and saved. */
+function layoutPicker(items: { name: string; saved: boolean; builtin: boolean }[]): DeskPicker {
+  return new ListPicker({
+    name: "layouts", items: () => items,
+    row: (it, _i, on, w) => [pickRow(` ${it.name}${it.saved ? (it.builtin ? " · saved over the built-in" : " · saved") : " · built-in"}`, on, w)],
+    choose: (it, _i, d) => { d.closeOverlay(); d.run("layout.load", { name: it.name }); },
+    close: d => d.closeOverlay(),
+    frame: (a, n) => ({ rect: centred(a, Math.min(60, a.cols - 4), Math.min(a.rows - 4, n + 2)), title: "load a layout", foot: "↑↓ pick · ⏎ load · esc" }),
+  });
 }
 
-// ── the policy panel (^W P): what each container over the focused tile allows ──
+/** ^W w: the name to save the layout as (the layout's own, typed over). */
+function layoutSaver(name: string): DeskPicker {
+  const input = new LineInput(name, 40, true);
+  return new ListPicker({
+    name: "layouts", items: () => [], row: () => [], input, choose() {},
+    close: d => d.closeOverlay(),
+    keys: (k, d) => { if (k.kind !== "enter") return false; d.closeOverlay(); if (input.text.trim()) d.run("layout.save", { name: input.text.trim() }); return true; },
+    frame: a => { const w = Math.min(60, a.cols - 4); return { rect: centred(a, w, 3), title: "save the layout as", foot: "⏎ save · esc", head: [" " + input.show(w - 4)] }; },
+  });
+}
 
 /**
- * The containers over a tile (the screen first, then each one down to it) and one's policy, a row per field.
- * ⏎, space or a click changes a row through the same action an agent calls; h l (or a click on a name) pick
- * the container; + - change a size; esc, q or a click outside closes it.
+ * ^W P: the containers over a tile (the screen first, then each one down to it) and one's policy, a row per field.
+ * ⏎, space or a click changes a row through the same action an agent calls; h l (or a click on a name) pick the
+ * container; + - change a size; esc, q or a click outside closes it.
  */
-class PolicyPanel {
-  private node: number;
-  private row = 0;
-  private hits: { rows: { y: number; i: number }[]; nodes: { from: number; to: number; y: number; i: number }[]; rect: Rect | null } = { rows: [], nodes: [], rect: null };
-  constructor(private readonly tile: number) { this.node = Number.MAX_SAFE_INTEGER; }
-  key(k: Key, desk: Desk) {
-    const nodes = desk.policyNodes(this.tile);
-    this.node = Math.min(this.node, nodes.length - 1);
-    const rows = desk.policyRows(this.tile, nodes[this.node]!.node);
-    const c = ch(k);
-    if (k.kind === "esc" || c === "q") return desk.closePolicy();
-    if (k.kind === "mouse") {
-      if (k.action !== "down") return;
-      const r = this.hits.rect;
-      if (!r || k.x < r.col || k.x >= r.col + r.cols || k.y < r.row || k.y >= r.row + r.rows) return desk.closePolicy();
-      const n = this.hits.nodes.find(h => h.y === k.y && k.x >= h.from && k.x < h.to);
-      if (n) { this.node = n.i; this.row = 0; return; }
-      const row = this.hits.rows.find(h => h.y === k.y);
-      if (row) { this.row = row.i; rows[row.i]?.run?.(); }
-      return;
-    }
-    if (isUp(k)) this.row = Math.max(0, this.row - 1);
-    else if (isDown(k)) this.row = Math.min(rows.length - 1, this.row + 1);
-    else if (k.kind === "left" || c === "h") { this.node = Math.max(0, this.node - 1); this.row = 0; }
-    else if (k.kind === "right" || c === "l") { this.node = Math.min(nodes.length - 1, this.node + 1); this.row = 0; }
-    else if (k.kind === "enter" || c === " ") rows[this.row]?.run?.();
-    else if (c === "+" || c === "-") rows[this.row]?.adjust?.(c === "+" ? 1 : -1);
-  }
-  draw(canvas: Canvas, cols: number, rowsN: number, desk: Desk) {
-    const nodes = desk.policyNodes(this.tile);
-    this.node = Math.min(this.node, nodes.length - 1);
-    const rows = desk.policyRows(this.tile, nodes[this.node]!.node);
-    this.row = Math.min(this.row, rows.length - 1);
-    const w = Math.min(76, cols - 4), h = Math.min(rowsN - 4, rows.length + 4);
-    const r: Rect = { col: Math.floor((cols - w) / 2), row: Math.floor((rowsN - h) / 3), cols: w, rows: h };
-    this.hits = { rows: [], nodes: [], rect: r };
-    canvas.clear(r, bg(C.black));
-    canvas.box(r, fg(C.yellow), `${fg(C.yellow)}policy`, fg(C.dark) + "j k pick · ⏎ or a click changes · h l container · + - size · esc");
-    let x = r.col + 2;
-    let crumbs = "";
-    nodes.forEach((n, i) => {
-      if (i) crumbs += fg(C.dark) + " › " + RESET, x += 3;
-      this.hits.nodes.push({ from: x, to: x + n.label.length, y: r.row + 1, i });
-      crumbs += (i === this.node ? selected() : fg(C.grey)) + n.label + RESET; x += n.label.length;
-    });
-    canvas.text(r.col + 2, r.row + 1, crumbs, w - 4);
-    const lw = Math.max(20, Math.min(52, w - 28));
-    rows.slice(0, h - 4).forEach((row, i) => {
-      const y = r.row + 3 + i;
-      this.hits.rows.push({ y, i });
-      canvas.text(r.col + 1, y, (i === this.row ? selected() : fg(C.grey)) + pad(` ${row.label}`, lw) + RESET + fg(C.lcyan) + ` ${row.value}` + RESET, w - 2);
-    });
-  }
+function policyPanel(d: Desk, tile: number): DeskPicker {
+  let node = Number.MAX_SAFE_INTEGER, crumbs: { from: number; to: number; y: number; i: number }[] = [];
+  const nodes = () => { const ns = d.policyNodes(tile); node = Math.min(node, ns.length - 1); return ns; };
+  const rows = () => d.policyRows(tile, nodes()[node]!.node);
+  const p: DeskPicker = new ListPicker<ReturnType<Desk["policyRows"]>[number], Desk>({
+    name: "policy", items: rows, closers: "q",
+    row: (r, _i, on, w) => [pickRow(` ${r.label}`, on, Math.max(20, Math.min(52, w - 26))) + fg(C.lcyan) + ` ${r.value}` + RESET],
+    choose: r => r.run?.(),
+    close: () => d.closeOverlay(),
+    keys: k => {
+      const c = ch(k);
+      if (k.kind === "left" || c === "h" || k.kind === "right" || c === "l") { node = Math.max(0, Math.min(nodes().length - 1, node + (k.kind === "left" || c === "h" ? -1 : 1))); p.sel = 0; return true; }
+      if (c === " ") { rows()[p.sel]?.run?.(); return true; }
+      if (c === "+" || c === "-") { rows()[p.sel]?.adjust?.(c === "+" ? 1 : -1); return true; }
+      return false;
+    },
+    clicked: (x, y) => { const n = crumbs.find(h => h.y === y && x >= h.from && x < h.to); if (n) { node = n.i; p.sel = 0; } return !!n; },
+    frame: (a, n) => {
+      const rect = centred(a, Math.min(76, a.cols - 4), Math.min(a.rows - 4, n + 4));
+      let x = rect.col + 2, line = " ";
+      crumbs = [];
+      nodes().forEach((c, i) => {
+        if (i) { line += fg(C.dark) + " › " + RESET; x += 3; }
+        crumbs.push({ from: x, to: x + c.label.length, y: rect.row + 1, i });
+        line += (i === node ? selected() : fg(C.grey)) + c.label + RESET; x += c.label.length;
+      });
+      return { rect, title: "policy", foot: "j k pick · ⏎ or a click changes · h l container · + - size · esc", head: [line, ""] };
+    },
+  });
+  return p;
 }
 
-// ── floating search ──────────────────────────────────────────────────────────
-
-class SearchOverlay {
-  private hits: Msg[] = [];
-  private sel = 0;
-  private busy = false;
-  private timer: Timer | null = null;
-  private seq = 0;
-  constructor(private q = "", desk?: Desk) { if (q && desk) this.run(desk); }
-
-  key(k: Key, desk: Desk): "keep" | "close" {
-    if (k.kind === "esc") return "close";
-    if (k.kind === "up") this.sel = Math.max(0, this.sel - 1);
-    else if (k.kind === "down" || k.kind === "tab") this.sel = Math.min(Math.max(0, this.hits.length - 1), this.sel + 1);
-    else if (k.kind === "enter") { const m = this.hits[this.sel]; if (m) { desk.run("open", { id: m.id }); return "close"; } }
-    else if (k.kind === "backspace") { this.q = this.q.slice(0, -1); this.run(desk); }
-    else if (k.kind === "char" && !k.ctrl) { this.q += k.ch; this.run(desk); }
-    return "keep";
-  }
-
-  private run(desk: Desk) {
-    if (this.timer) clearTimeout(this.timer);
-    const q = this.q.trim();
-    if (q.length < 2) { this.hits = []; return; }
-    this.timer = setTimeout(() => {
-      const n = ++this.seq;
-      this.busy = true; desk.redraw();
-      desk.ctx.board.search(q, 30).then(h => { if (n === this.seq) { this.hits = h; this.sel = 0; this.busy = false; desk.redraw(); } }, () => { this.busy = false; });
+/** `/`: the service's search as it's typed, the hits on the left, the one picked read on the right; ⏎ opens it. */
+function searchOverlay(d: Desk, q: string): DeskPicker {
+  let hits: Msg[] = [], busy = false, timer: Timer | null = null, seq = 0;
+  const input = new LineInput(q);
+  const run = () => {
+    if (timer) clearTimeout(timer);
+    const t = input.text.trim();
+    if (t.length < 2) { hits = []; return; }
+    timer = setTimeout(() => {
+      const n = ++seq;
+      busy = true; d.redraw();
+      d.ctx.board.search(t, 30).then(h => { if (n === seq) { hits = h; p.sel = 0; busy = false; d.redraw(); } }, () => { busy = false; });
     }, 250);
-  }
-
-  render(w: number, h: number): string[] {
-    const listW = Math.floor(w * 0.42);
-    const lines = [paint(`|14/ |15${this.q}|07${INPUT_CURSOR} ${this.busy ? "|08searching…" : `|08${this.hits.length} hit(s)`}`), fg(C.blue) + "─".repeat(w) + RESET];
-    const m = this.hits[this.sel];
-    const preview = m ? [fg(C.white) + subject(m) + RESET, ...previewLines(m, w - listW - 3)] : [];
-    for (let i = 0; i < h - 2; i++) {
-      const hit = this.hits[i];
-      const left = hit ? (i === this.sel ? selected() : fg(C.grey)) + pad(` ${hit.props["work-id"] && !subject(hit).startsWith(hit.props["work-id"]) ? hit.props["work-id"] + " " : ""}${subject(hit)}`, listW) + RESET : " ".repeat(listW);
-      lines.push(left + fg(C.blue) + " │ " + RESET + (preview[i] ?? ""));
-    }
-    return lines;
-  }
+  };
+  const p: ListPicker<Msg, Desk> = new ListPicker<Msg, Desk>({
+    name: "search", items: () => hits, input, typed: run,
+    row: (m, _i, on, w) => [pickRow(` ${m.props["work-id"] && !subject(m).startsWith(m.props["work-id"]) ? m.props["work-id"] + " " : ""}${subject(m)}`, on, w)],
+    choose: m => { d.closeOverlay(); d.run("open", { id: m.id }); },
+    close: () => d.closeOverlay(),
+    frame: a => {
+      const rect: Rect = { col: Math.floor(a.cols * 0.1), row: Math.floor(a.rows * 0.12), cols: Math.floor(a.cols * 0.8), rows: Math.floor(a.rows * 0.72) };
+      const w = rect.cols - 2, listW = Math.floor(w * 0.42), m = hits[p.sel];
+      return {
+        rect, title: "search the board", foot: "↑↓ pick · ⏎ open · esc close",
+        head: [paint("|14/ ") + input.show(w - 20) + paint(` ${busy ? "|08searching…" : `|08${hits.length} hit(s)`}`), fg(C.blue) + "─".repeat(w) + RESET],
+        side: { w: listW, lines: m ? [fg(C.white) + subject(m) + RESET, ...previewLines(m, w - listW - 3)] : [] },
+      };
+    },
+  });
+  if (q) run();
+  return p;
 }
 
 interface DeskOn { d: Desk; reader?: string }

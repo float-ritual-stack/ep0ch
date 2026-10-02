@@ -11,16 +11,18 @@ import { ActionRefused, ActionSet, agentLabel, asActor } from "../surface/action
 import { Dispatcher } from "../surface/dispatch";
 import { draftPreview, leaveSaid, sessionStart } from "../surface/note";
 import { viewSummaryKeys } from "../props";
-import { bg, C, chip, fg, pad, paint, RESET, selected } from "../style";
+import { bg, C, chip, ellipsize, fg, pad, paint, RESET } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
 import { ago } from "../text";
 import { applyMove, describeChanges, NO_PLAN, planMoves, type MovePlan } from "../move";
 import { PROPERTY_KEY_SOURCE } from "../vendor/property-grammar";
-import { clamp, RowView, wheelRows } from "../scroll";
+import { clamp, wheelRows } from "../scroll";
 import { DRAFT_ACTIONS } from "../edit";
 import { cardTarget, DraftSession, openDraftOf, type DraftCommand, type LeaveResult } from "../draft-session";
 import { editHint, editorClick, openInEditor, renderEditor, writtenBy } from "../surface/editor";
 import { completerFor, completerOf } from "../surface/completer";
+import { Modes } from "../surface/modes";
+import { ListPicker, pickRow } from "../surface/picker";
 import { Refused, type ChecklistRead, type ChecklistStep, type CreatePlan, type StepStatus } from "../socket";
 import { pickParent, titleOf, type ParentPick } from "./writes";
 import { findBoards, hubViews, laneDefs, laneTileName, QueryPane } from "./query";
@@ -36,6 +38,11 @@ interface CardDrag { from: number; card: Msg; over: number | null; open: boolean
 export interface LanesSaved { hubs?: Record<string, string>; lane?: string }
 
 
+/** The board's pickers: the boards (`g`), the lanes a card moves to (`m`), a card's checklist steps (`s`). */
+type HubPicker = ListPicker<{ hub: Msg; lanes: number }, Lanes>;
+type Mover = ListPicker<Lane, Lanes> & { card: Msg; from: number; plans: MovePlan[] | null };
+type Steps = ListPicker<ChecklistStep, Lanes> & { card: Msg; read: ChecklistRead | null; busy: boolean; note: string };
+
 export class Lanes implements SourceModel {
   hub: Msg | null = null;
   /** The lane the cursor is in: what the lanes' keys and `card.*` act on when they name no lane. */
@@ -44,11 +51,14 @@ export class Lanes implements SourceModel {
   private hubs: Record<string, string> = {};
   /** The lane named last time: the cursor goes there once the lanes are read. */
   private wantLane: string | null = null;
-  hubPicker: { items: { hub: Msg; lanes: number }[]; sel: number } | null = null;
-  /** Where the hub picker drew each board, for a click. */
-  private pickerRows: { i: number; col: number; row: number; cols: number }[] = [];
+  /** Its overlays (the hub picker, the mover, the steps): pickers on one mode stack; the first takes every key and click. */
+  private readonly overlays = new Modes<Lanes, ListPicker<any, Lanes>>();
+  /** The hub picker (`g`): the boards here. */
+  get hubPicker(): HubPicker | null { return this.overlays.get("hubs") as HubPicker | null; }
+  set hubPicker(p: HubPicker | null) { this.overlay("hubs", p); }
   /** The move picker (`m`): every lane with what moving the selected card there would patch. */
-  mover: { card: Msg; from: number; plans: MovePlan[] | null; sel: number } | null = null;
+  get mover(): Mover | null { return this.overlays.get("mover") as Mover | null; }
+  set mover(p: Mover | null) { this.overlay("mover", p); }
   /**
    * The service's move plans for one card at one revision into the lanes as they're defined now, for
    * drawing a drag or the picker without asking on every paint. `plans` is null while they're asked.
@@ -69,7 +79,9 @@ export class Lanes implements SourceModel {
   /** Where the composer was last drawn, for the mouse. */
   composerAt: Rect | null = null;
   /** The selected card's checklist steps (`s`): pick one and set its status. */
-  steps: { card: Msg; read: ChecklistRead | null; sel: number; busy: boolean; note: string; view: RowView } | null = null;
+  get steps(): Steps | null { return this.overlays.get("steps") as Steps | null; }
+  set steps(p: Steps | null) { this.overlay("steps", p); }
+  private overlay(name: string, p: ListPicker<any, Lanes> | null) { if (p) this.overlays.push(p); else this.overlays.drop(name); }
   /** The first `d` on a card: a second one within a few seconds trashes it. */
   trashArm: { id: string; at: number } | null = null;
   /** The last card trashed from the board, until it is restored or another one is: `u` restores it. */
@@ -160,7 +172,7 @@ export class Lanes implements SourceModel {
   empty(): string | null { return this.lanes.length ? null : this.status || (this.hub ? subject(this.hub) : "board"); }
 
   /** The person's keys are the board's own business right now: a new card or note being written, the mover or steps overlay, or the hub picker. */
-  busy(): boolean { return !!this.composer || !!this.steps || !!this.mover || !!this.hubPicker; }
+  busy(): boolean { return !!this.composer || !!this.overlays.top(); }
 
   unsaved() { return !!this.composer?.session.dirty; }
   keepDrafts() { const c = this.composer; return c?.session.dirty ? [c.session.keep()] : []; }
@@ -182,11 +194,9 @@ export class Lanes implements SourceModel {
   /** Its overlays over the screen (the hub picker, the mover, the steps, the composer): true when one took it. */
   drawOver(canvas: Canvas, area: Rect): boolean {
     const W = area.cols, H = area.rows + area.row;
-    if (this.hubPicker) this.drawPicker(canvas, W, H);
-    if (this.mover) this.drawMover(canvas, W, H);
-    if (this.steps) this.drawSteps(canvas, W, H);
+    for (const o of [...this.overlays.all()].reverse()) o.draw(canvas, { col: 0, row: 0, cols: W, rows: H });
     if (this.composer) this.drawComposer(canvas, W, H);
-    return !!(this.hubPicker || this.mover || this.steps || this.composer);
+    return !!(this.overlays.top() || this.composer);
   }
 
   /** A mode of the board's own says its keys first: a card dragged, the mover, the composer, the steps. */
@@ -236,24 +246,8 @@ export class Lanes implements SourceModel {
       if (d.busy) { this.host.ctx.flash("the new card is being created · wait for it"); return true; }
       void this.host.pressAction(BOARD_ACTIONS, "composer.leave").then(r => { const said = r ? leaveSaid(r as LeaveResult) : null; if (said) this.host.ctx.flash(said, 8000); this.host.redraw(); });
     }
-    if (this.steps && k.kind !== "mouse") { this.stepsKey(k, c); return true; }
     if (this.trashArm && !(c === "d" && this.onLanes)) this.trashArm = null;   // any other key keeps the card
-    if (this.mover && k.kind !== "mouse") { this.moverKey(k, c); return true; }
-    if (this.hubPicker) {
-      const P = this.hubPicker;
-      if (k.kind === "mouse") {
-        // A click on a board in the picker shows it, as ⏎ on it does.
-        const row = k.action === "down" ? this.pickerRows.find(r => k.y === r.row && k.x >= r.col && k.x < r.col + r.cols) : undefined;
-        if (row) { P.sel = row.i; void this.run("board.hub", { id: P.items[row.i]!.hub.id }); }
-        return true;
-      }
-      if (isDown(k)) P.sel = Math.min(P.items.length - 1, P.sel + 1);
-      else if (isUp(k)) P.sel = Math.max(0, P.sel - 1);
-      else if (k.kind === "enter") { const it = P.items[P.sel]; if (it) void this.run("board.hub", { id: it.hub.id }); return true; }
-      else if (k.kind === "esc" || c === "q") { void this.run("board.hub", { close: true }); return true; }
-      this.host.redraw();
-      return true;
-    }
+    if (this.overlays.key(k, this) !== null) { this.host.redraw(); return true; }
     // A card dragged across lanes: the drag and the release are its, wherever they land.
     if (k.kind === "mouse" && this.cardDrag) return this.laneMouse(k);
     return false;
@@ -295,7 +289,7 @@ export class Lanes implements SourceModel {
       const df = found.find(f => subject(f.hub) === "Delivery Flow");
       if (df || found.length === 1) return this.useHub((df ?? found[0]!).hub);
       if (!found.length) { this.status = "no hub with virtual-branch children here; pass --board <block-id>"; return this.host.redraw(); }
-      this.hubPicker = { items: found, sel: 0 };
+      this.hubPicker = this.hubList(found);
       this.status = "";
     } catch (e) { this.status = String((e as Error).message); }
     this.host.redraw();
@@ -513,9 +507,22 @@ export class Lanes implements SourceModel {
     this.status = "looking for boards…"; this.host.redraw();
     findBoards(this.host.ctx.board).then(items => {
       this.status = "";
-      this.hubPicker = { items, sel: Math.max(0, items.findIndex(i => i.hub.id === this.hub?.id)) };
+      const p = this.hubPicker = this.hubList(items);
+      p.sel = Math.max(0, items.findIndex(i => i.hub.id === this.hub?.id));
       this.host.redraw();
     }, e => { this.status = ""; this.host.ctx.flash(`couldn't look for boards: ${(e as Error).message}`); this.host.redraw(); });
+  }
+
+  /** The boards to pick from: ⏎ or a click shows one (board.hub id=), esc or q puts it away (board.hub close=true). */
+  private hubList(items: { hub: Msg; lanes: number }[]): HubPicker {
+    return new ListPicker({
+      name: "hubs", items: () => items, closers: "q",
+      row: (it, _i, on, w) => [pickRow(` ${subject(it.hub)}  ${fg(C.dark)}${it.lanes} lanes · ${ago(it.hub.updatedAt)}`, on, w)],
+      choose: it => void this.run("board.hub", { id: it.hub.id }),
+      close: () => void this.run("board.hub", { close: true }),
+      clicked: () => true,                                     // a click beside it isn't a choice, nor a way out
+      frame: (a, n) => ({ rect: { col: Math.round(a.cols * 0.2), row: Math.round(a.rows * 0.15), cols: Math.round(a.cols * 0.6), rows: Math.min(a.rows - 4, n + 4) }, title: `pick a board · ${this.host.ctx.workspace}`, foot: "⏎ open · esc back" }),
+    });
   }
 
   /** `board.reload`: every lane asked again. */
@@ -661,7 +668,28 @@ export class Lanes implements SourceModel {
     if (!card) return this.host.ctx.flash("select a card to move");
     const blocked = this.moveBlocked(card);
     if (blocked) return this.host.ctx.flash(`not moved: ${blocked}`);
-    const M: NonNullable<Lanes["mover"]> = { card, from: this.lane, plans: null, sel: this.lane };
+    const from = this.lane;
+    const M: Mover = Object.assign(new ListPicker<Lane, Lanes>({
+      name: "mover", items: () => this.lanes, closers: "mq",
+      // The lane, and what moving the card there would patch (the service's plan).
+      row: (l, i, on, w) => {
+        const p = M.plans?.[i];
+        const what = i === from ? fg(C.dark) + "the card's lane now"
+          : !p ? fg(C.dark) + "asking the outline what would be patched…"
+          : p.kind === "patch" ? fg(C.lgreen) + "-> " + describeChanges(p.changes)
+          : p.kind === "already" ? fg(C.dark) + "already matches · nothing to change"
+          : fg(C.lred) + "can't: " + p.reason;
+        return [pickRow(` ${on ? ">" : " "} ${l.name}  ${fg(C.dark)}${l.read?.status === "ready" ? l.def?.props.query ?? "" : l.read?.status ?? "loading"}`, on, w, C.white), pad(`     ${what}`, w) + RESET];
+      },
+      choose: (_, i) => {
+        this.mover = null;
+        if (this.card()?.id !== card.id || this.lane !== from) return this.host.ctx.flash("the selection changed · not moved");
+        if (i !== from) void this.run("card.move", { lane: this.lanes[i]!.name, card: card.id });
+      },
+      close: () => { this.mover = null; },
+      frame: a => ({ rect: { col: Math.round(a.cols * 0.15), row: Math.round(a.rows * 0.12), cols: Math.round(a.cols * 0.7), rows: Math.min(a.rows - 4, this.lanes.length * 2 + 3) }, title: `move · ${ellipsize(subject(card), Math.round(a.cols * 0.7) - 20)}`, foot: "enter move · esc back" }),
+    }), { card, from, plans: null as MovePlan[] | null });
+    M.sel = from;
     this.mover = M;
     this.host.redraw();
     const ids = this.lanes.map(l => l.view);
@@ -675,20 +703,6 @@ export class Lanes implements SourceModel {
       },
       (e: Error) => { if (this.mover === M) { M.plans = ids.map(() => ({ kind: "refused" as const, reason: e.message })); this.host.redraw(); } },
     );
-  }
-
-  private moverKey(k: Key, c: string) {
-    const M = this.mover!;
-    if (isDown(k)) M.sel = Math.min(this.lanes.length - 1, M.sel + 1);
-    else if (isUp(k)) M.sel = Math.max(0, M.sel - 1);
-    else if (k.kind === "esc" || c === "m" || c === "q") this.mover = null;
-    else if (k.kind === "enter") {
-      this.mover = null;
-      if (this.card()?.id !== M.card.id || this.lane !== M.from) return this.host.ctx.flash("the selection changed · not moved");
-      if (M.sel === M.from) return this.host.redraw();
-      return void this.run("card.move", { lane: this.lanes[M.sel]!.name, card: M.card.id });
-    }
-    this.host.redraw();
   }
 
   // ── writing cards: create, check off steps, trash and restore (PIE-406) ──────
@@ -954,30 +968,37 @@ export class Lanes implements SourceModel {
   /** `s`: the selected card's checklist steps, read from the service. */
   private async openSteps(card = this.card()) {
     if (!card) return this.host.ctx.flash("select a card to see its steps");
-    const S = { card, read: null as ChecklistRead | null, sel: 0, busy: true, note: "", view: new RowView() };
+    const MARK: Record<StepStatus, string> = { todo: "[ ]", done: "[x]", waiting: "[~]", problem: "[!]" };
+    const COLOR: Record<StepStatus, number> = { todo: C.white, done: C.lgreen, waiting: C.yellow, problem: C.lred };
+    // The person's step change from the overlay: checked against the step as it was read; a refusal is its note.
+    const set = (to?: StepStatus) => {
+      const it = S.read?.items[S.sel];
+      if (S.busy || !S.read || !it) return;
+      const status = to ?? (it.status === "done" ? "todo" : "done");
+      void this.host.pressAction(BOARD_ACTIONS, "step.set", { step: String(S.sel + 1), status, card: S.card.id }, undefined, why => { S.note = why; return `not changed: ${why}`; }, { shown: { item: it, revision: S.read.revision } });
+    };
+    const S: Steps = Object.assign(new ListPicker<ChecklistStep, Lanes>({
+      name: "steps", items: () => S.read?.items ?? [], closers: "qs",
+      row: (it, _i, on, w) => [pickRow(` ${"  ".repeat(it.depth)}${MARK[it.status]} ${stepText(it.text)}`, on, w, COLOR[it.status])],
+      choose: () => set(),
+      close: () => { this.steps = null; },
+      keys: k => { const c = ch(k), to = ({ " ": undefined, x: "done", w: "waiting", "!": "problem" } as Record<string, StepStatus | undefined>)[c]; if (!(c in { " ": 1, x: 1, w: 1, "!": 1 })) return false; set(to); return true; },
+      frame: (a, n) => {
+        const done = S.read?.items.filter(i => i.status === "done").length ?? 0;
+        return {
+          rect: { col: Math.round(a.cols * 0.2), row: Math.round(a.rows * 0.12), cols: Math.round(a.cols * 0.6), rows: Math.min(a.rows - 4, Math.max(6, n + 4)) },
+          title: `steps · ${titleOf(S.card, 50)}${S.read ? ` · ${done}/${n} done · rev ${S.read.revision}` : ""}`, foot: "space done · esc back",
+          head: S.read ? [] : [fg(C.dark) + " reading the steps…" + RESET],
+          tail: S.read ? [fg(S.busy ? C.grey : C.dark) + ` ${S.busy ? "saving…" : S.note || "each step is changed by the service, checked against how it was read"}` + RESET] : [],
+        };
+      },
+    }), { card, read: null as ChecklistRead | null, busy: true, note: "" });
     this.steps = S; this.host.redraw();
     try {
       S.read = await this.host.ctx.board.checklist(card.id);
       if (!S.read.items.length) { if (this.steps === S) this.steps = null; this.host.ctx.flash(`${titleOf(card)} has no checklist steps`); }
     } catch (e) { if (this.steps === S) this.steps = null; this.host.ctx.flash(`couldn't read the steps: ${(e as Error).message}`); }
     finally { S.busy = false; this.host.redraw(); }
-  }
-
-  private stepsKey(k: Key, c: string) {
-    const S = this.steps!;
-    const n = S.read?.items.length ?? 0;
-    if (k.kind === "esc" || c === "q" || c === "s") this.steps = null;
-    else if (isDown(k)) S.sel = Math.min(Math.max(0, n - 1), S.sel + 1);
-    else if (isUp(k)) S.sel = Math.max(0, S.sel - 1);
-    else if (!S.busy && S.read && (c === " " || k.kind === "enter" || c === "x" || c === "w" || c === "!")) {
-      const it = S.read.items[S.sel];
-      if (it) {
-        const status: StepStatus = c === "x" ? "done" : c === "w" ? "waiting" : c === "!" ? "problem" : it.status === "done" ? "todo" : "done";
-        // The person's step change from the overlay: checked against the step as it was read; a refusal is its note.
-        void this.host.pressAction(BOARD_ACTIONS, "step.set", { step: String(S.sel + 1), status, card: S.card.id }, undefined, why => { S.note = why; return `not changed: ${why}`; }, { shown: { item: it, revision: S.read.revision } });
-      }
-    }
-    this.host.redraw();
   }
 
   /**
@@ -1093,16 +1114,6 @@ export class Lanes implements SourceModel {
 
   // ── drawing: the desk draws the tiles; the board adds its pickers, its composer and its hint row ──
 
-  private drawPicker(canvas: Canvas, W: number, H: number) {
-    const P = this.hubPicker!;
-    const r: Rect = { col: Math.round(W * 0.2), row: Math.round(H * 0.15), cols: Math.round(W * 0.6), rows: Math.min(H - 4, P.items.length + 4) };
-    canvas.clear(r, bg(C.black));
-    canvas.box(r, fg(C.yellow), fg(C.yellow) + `pick a board · ${this.host.ctx.workspace}`, fg(C.dark) + "⏎ open · esc back");
-    this.pickerRows = P.items.map((_, i) => ({ i, col: r.col + 1, row: r.row + 1 + i, cols: r.cols - 2 })).filter(x => x.row < r.row + r.rows - 1);
-    P.items.forEach((it, i) => canvas.text(r.col + 1, r.row + 1 + i,
-      (i === P.sel ? selected() : fg(C.grey)) + pad(` ${subject(it.hub)}  ${fg(C.dark)}${it.lanes} lanes · ${ago(it.hub.updatedAt)}`, r.cols - 2) + RESET, r.cols - 2));
-  }
-
   // ── input: the board's own keys, before the desk's ─────────────────────
 
   private laneKey(k: Key, c: string): boolean {
@@ -1196,25 +1207,6 @@ export class Lanes implements SourceModel {
     return hit && hit.pane instanceof QueryPane && this.lanes.includes(hit.pane) ? this.lanes.indexOf(hit.pane) : null;
   }
 
-  private drawMover(canvas: Canvas, W: number, H: number) {
-    const M = this.mover!;
-    const r: Rect = { col: Math.round(W * 0.15), row: Math.round(H * 0.12), cols: Math.round(W * 0.7), rows: Math.min(H - 4, this.lanes.length * 2 + 3) };
-    canvas.clear(r, bg(C.black));
-    canvas.box(r, fg(C.yellow), fg(C.yellow) + `move · ${subject(M.card).slice(0, r.cols - 20)}`, fg(C.dark) + "enter move · esc back");
-    const inner = r.cols - 2;
-    this.lanes.forEach((l, i) => {
-      const p = M.plans?.[i], sel = i === M.sel, y = r.row + 1 + i * 2;
-      if (y + 1 >= r.row + r.rows - 1) return;
-      const what = i === M.from ? fg(C.dark) + "the card's lane now"
-        : !p ? fg(C.dark) + "asking the outline what would be patched…"
-        : p.kind === "patch" ? fg(C.lgreen) + "-> " + describeChanges(p.changes)
-        : p.kind === "already" ? fg(C.dark) + "already matches · nothing to change"
-        : fg(C.lred) + "can't: " + p.reason;
-      canvas.text(r.col + 1, y, (sel ? selected() : fg(C.white)) + pad(` ${sel ? ">" : " "} ${l.name}  ${fg(C.dark)}${l.read?.status === "ready" ? l.def?.props.query ?? "" : l.read?.status ?? "loading"}`, inner) + RESET, inner);
-      canvas.text(r.col + 1, y + 1, pad(`     ${what}`, inner) + RESET, inner);
-    });
-  }
-
   private drawComposer(canvas: Canvas, W: number, H: number) {
     const C0 = this.composer!, d = C0.session.draft;
     const r: Rect = { col: Math.round(W * 0.18), row: Math.round(H * 0.1), cols: Math.round(W * 0.64), rows: Math.max(10, Math.round(H * 0.6)) };
@@ -1242,26 +1234,6 @@ export class Lanes implements SourceModel {
     lines.forEach((l, i) => canvas.text(r.col + 1, r.row + 1 + i, l, w));
   }
 
-  private drawSteps(canvas: Canvas, W: number, H: number) {
-    const S = this.steps!;
-    const items = S.read?.items ?? [];
-    const r: Rect = { col: Math.round(W * 0.2), row: Math.round(H * 0.12), cols: Math.round(W * 0.6), rows: Math.min(H - 4, Math.max(6, items.length + 4)) };
-    canvas.clear(r, bg(C.black));
-    const done = items.filter(i => i.status === "done").length;
-    canvas.box(r, fg(C.yellow), fg(C.yellow) + `steps · ${titleOf(S.card, 50)}${S.read ? ` · ${done}/${items.length} done · rev ${S.read.revision}` : ""}`, fg(C.dark) + "space done · esc back");
-    const w = r.cols - 2;
-    if (!S.read) { canvas.text(r.col + 1, r.row + 1, fg(C.dark) + " reading the steps…" + RESET, w); return; }
-    const MARK: Record<StepStatus, string> = { todo: "[ ]", done: "[x]", waiting: "[~]", problem: "[!]" };
-    const COLOR: Record<StepStatus, number> = { todo: C.white, done: C.lgreen, waiting: C.yellow, problem: C.lred };
-    const room = r.rows - 3;
-    const top = S.view.place(S.sel, items.length, room);
-    items.slice(top, top + room).forEach((it, j) => {
-      const i = top + j, sel = i === S.sel;
-      const text = `${"  ".repeat(it.depth)}${MARK[it.status]} ${stepText(it.text)}`;
-      canvas.text(r.col + 1, r.row + 1 + j, (sel ? selected() : fg(COLOR[it.status])) + pad(` ${text}`, w) + RESET, w);
-    });
-    canvas.text(r.col + 1, r.row + r.rows - 2, fg(S.busy ? C.grey : C.dark) + pad(` ${S.busy ? "saving…" : S.note || "each step is changed by the service, checked against how it was read"}`, w) + RESET, w);
-  }
 }
 
 

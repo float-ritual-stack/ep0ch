@@ -290,6 +290,9 @@ export class Showcase implements Screen {
   private stages = new Map<number, FramedScreen>();
   private stageRect: Rect = { col: 34, row: 4, cols: 80, rows: 20 };
   private indexW = 34;
+  /** The index's cursor and scroll (sections from `indexTop`). */
+  private readonly index = new RowView();
+  private indexTop = 0;
   /** Where the mouse went down: the stage takes the drag and the release, wherever they land. */
   private pressed = false;
 
@@ -337,11 +340,13 @@ export class Showcase implements Screen {
     const idx: Rect = { col: 0, row: 1, cols: this.indexW, rows: H - 2 };
     canvas.box(idx, fg(this.focus === "index" ? C.lcyan : C.blue), `${fg(this.focus === "index" ? C.white : C.dark)}${idx.cols >= 30 ? "before adding a feature" : "sections"}`, "");
     const wide = idx.cols >= 30;
-    SECTIONS.forEach((s, i) => {
-      const on = i === this.sel;
+    // Two rows a section, its cursor a list's: the sections past the screen scroll into view.
+    const fit = Math.floor((idx.rows - 2) / 2), top = (this.indexTop = this.index.place(this.sel, SECTIONS.length * 2, fit * 2, [this.sel * 2, this.sel * 2 + 1]) / 2);
+    SECTIONS.slice(top, top + fit).forEach((s, j) => {
+      const i = top + j, on = i === this.sel;
       const label = pad(` ${String(i + 1).padStart(2)} ${wide ? s.need : s.key}`, idx.cols - 2);
-      canvas.text(1, 2 + i * 2, on ? (this.focus === "index" ? selected() : fg(C.yellow)) + label + RESET : fg(C.grey) + label + RESET, idx.cols - 2);
-      if (wide) canvas.text(1, 3 + i * 2, fg(C.dark) + pad(`    ${s.key}`, idx.cols - 2) + RESET, idx.cols - 2);
+      canvas.text(1, 2 + j * 2, on ? (this.focus === "index" ? selected() : fg(C.yellow)) + label + RESET : fg(C.grey) + label + RESET, idx.cols - 2);
+      if (wide) canvas.text(1, 3 + j * 2, fg(C.dark) + pad(`    ${s.key}`, idx.cols - 2) + RESET, idx.cols - 2);
     });
     const s = SECTIONS[this.sel]!;
     const x = idx.cols + 1, w = Math.max(1, cols - x);
@@ -398,7 +403,7 @@ export class Showcase implements Screen {
     }
     if (k.action === "down") {
       if (inStage && f) { if (this.focus !== "stage") this.run("section.try", {}); this.pressed = true; f.key(rel); return this.ctx.redraw(); }
-      const i = k.x < this.indexW && k.y >= 2 ? Math.floor((k.y - 2) / 2) : -1;
+      const i = k.x < this.indexW && k.y >= 2 ? this.indexTop + Math.floor((k.y - 2) / 2) : -1;
       if (i >= 0 && i < SECTIONS.length && (i !== this.sel || this.focus !== "index")) return this.run("section", { name: String(i + 1) });
       return;
     }

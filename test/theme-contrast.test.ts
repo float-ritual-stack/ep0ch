@@ -209,7 +209,7 @@ describe("the palettes themselves (every background, not only the ones these scr
       } finally { setTheme("calm"); }
     }
     // A background in a light palette colour, drawn straight (not through chip): only the one-cell text cursor.
-    const CURSOR = new Set(["src/edit.ts", "src/surface/props-panel.ts"]);
+    const CURSOR = new Set(["src/edit.ts", "src/surface/line.ts"]);
     const light = /bg\(C\.(dark|grey|white|yellow|lcyan|lgreen|lred|lmagenta|lblue)\)/;
     const found: string[] = [];
     for (const f of new Bun.Glob("src/**/*.ts").scanSync(".")) {

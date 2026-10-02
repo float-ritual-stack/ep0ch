@@ -60,16 +60,16 @@ describe.skipIf(!outliner)("the desk's keys are actions, and agents' runs of the
     const focus = get().focus;
     const r = await act("search", { query: "Prune the pears" }) as any;
     expect(r.hits.some((h: any) => h.id === notes.pears.id)).toBe(true);
-    expect(D().search).toBeNull();
+    expect(D().overlays.get("search")).toBeNull();
     expect(get().focus).toBe(focus);
     await expect(act("search", { query: "p" })).rejects.toThrow(/at least 2 characters/);
     expect(await ran(char("/"))).toEqual(["search"]);
     expect(desk.holdsKeys()).toBe(true);
     for (const c of "Thin the plums") key(char(c));
-    await until(() => (D().search as any).hits.length > 0, "the search hits", 5000);
+    await until(() => D().overlays.get("search").items.length > 0, "the search hits", 5000);
     expect(await ran({ kind: "enter" })).toContain("open");
     await until(() => desk.current?.id === notes.plums.id, "the plums note opened");
-    expect(D().search).toBeNull();
+    expect(D().overlays.get("search")).toBeNull();
   });
 
   test("a list tile's pick: the person's moves the selection; an agent's answers the row and moves nothing", async () => {
