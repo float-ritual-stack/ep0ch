@@ -293,7 +293,7 @@ export const TILE_ACTIONS = new ActionSet<{
   },
   "tile.travel": {
     summary: "back (dir=back, the default) or forward in tile=<tile>'s flow: the person's keys go to the column it was opened from, or the one back last left; it widens only if it's covered, so the text comes back where it was. The person's keys only: an agent opens beside instead (open, link.follow)",
-    keys: "on the river: alt+← backspace the mouse's back button, a click on ← back (back); alt+→ the forward button, a click on forward → (forward)",
+    keys: "on the river: alt+← alt+b backspace the mouse's back button, a click on ← back (back); alt+→ alt+f the forward button, a click on forward → (forward)",
     touches: "screen", replay: "safe", person: "back and forward in a flow move the person's keys between columns; an agent opens beside (open, link.follow) instead",
     args: { dir: { type: "string", optional: true, about: "back or forward; default back" } },
     run({ dir }, { d, reader }, actor) {
