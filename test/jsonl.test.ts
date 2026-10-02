@@ -1,10 +1,11 @@
 // Newline JSON over a socket (src/jsonl.ts): one reader, one one-shot request and one liveness probe, used by the
 // outline client, the control socket and its clients, and the session's sockets.
 import { afterAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
-import { createServer } from "node:net";
+import { chmodSync, mkdtempSync, rmSync } from "node:fs";
+import { connect, createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { LINE_LIMIT, startControl } from "../src/control";
 import { ask, jsonLine, JsonLines, listening } from "../src/jsonl";
 
 describe("JsonLines", () => {
@@ -52,5 +53,33 @@ describe("ask and listening", () => {
       expect(await listening(path)).toBe(true);
       expect(await listening(join(dir, "none.sock"))).toBe(false);
     } finally { echo.close(); silent.close(); }
+  });
+});
+
+describe("the control socket's refusals", () => {
+  const dir = mkdtempSync(join(tmpdir(), "ep0ch-ctl-"));
+  chmodSync(dir, 0o700);
+  afterAll(() => rmSync(dir, { recursive: true, force: true }));
+  /** What the door says to `send` on a connection of its own, until it hangs up or `lines` lines came. */
+  const said = (path: string, send: string, lines = 1) => new Promise<string[]>(res => {
+    const got: string[] = [], c = connect(path, () => c.write(send));
+    const r = new JsonLines(v => { got.push(v.error); if (got.length >= lines) { c.destroy(); res(got); } });
+    c.on("data", d => r.feed(d)); c.on("close", () => res(got));
+  });
+
+  test("a line that isn't JSON is answered so and the connection goes on; one past the limit is refused and cut off", async () => {
+    const ctl = await startControl({ app: { act: async () => "acted" } as any, mirror: {} as any, info: () => ({}) as any }, join(dir, "door.sock"));
+    try {
+      expect(await said(ctl.path, "not json\n" + jsonLine({ cmd: "nope" }), 2)).toEqual(["bad json", "unknown command nope; try peek, snap, actions or act"]);
+      expect(await said(ctl.path, "x".repeat(LINE_LIMIT + 10))).toEqual([`request line too long (over ${LINE_LIMIT} characters)`]);
+      // The door still answers a good request.
+      expect(await ask(ctl.path, { cmd: "act", action: "noop" }, 1000)).toEqual({ ok: true, result: "acted" });
+    } finally { ctl.close(); }
+  });
+
+  test("ask: a server that hangs up before it answers is null", async () => {
+    const path = join(dir, "hangs.sock"), s = createServer(c => c.end());
+    await new Promise<void>(r => s.listen(path, r));
+    try { expect(await ask(path, { cmd: "peek" })).toBeNull(); } finally { s.close(); }
   });
 });

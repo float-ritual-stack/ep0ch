@@ -122,6 +122,7 @@ export function readSpec(x: unknown, known = false): ScreenSpec {
  */
 export function savedNodes(n: any): any[] {
   if (!n || typeof n !== "object") return [];
+  if (n.t === "leaf") return [n];
   return [n, ...[...(Array.isArray(n.kids) ? n.kids : []), ...(Array.isArray(n.tabs) ? n.tabs : []), n.kid, n.a, n.b].flatMap(savedNodes)];
 }
 const leafField = (n: unknown, f: "name" | "kind"): string[] => savedNodes(n).flatMap(x => (x.t === "leaf" && typeof x[f] === "string" ? [x[f]] : []));

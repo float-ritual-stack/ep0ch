@@ -9,6 +9,7 @@ import type { Scroll } from "../canvas";
 import type { Placement } from "../kitty";
 import { find, loadArt } from "../packs";
 import type { Activity, Actor, Comment } from "../socket";
+import { shortId } from "../refs";
 import { ActionRefused, ActionSet } from "../surface/actions";
 import { Dispatcher } from "../surface/dispatch";
 import { ART_ACTIONS, type ArtAbout } from "../art-actions";
@@ -366,7 +367,7 @@ export class ThreadPane implements Pane {
     const id = this.msg?.parentId;
     if (!id) throw new ActionRefused(this.msg ? "this note is at the top" : "no note shown");
     const p = await desk.ctx.board.get(id);
-    if (!p) throw new ActionRefused(`nothing answers at ${id.slice(0, 8)}…`);
+    if (!p) throw new ActionRefused(`nothing answers at ${shortId(id)}`);
     desk.setCurrent(p, { reveal: true, from: this, by: actor });
     return { id: p.id };
   }

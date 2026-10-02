@@ -160,7 +160,7 @@ export async function controlClient(args: string[]): Promise<number> {
       const lines = new JsonLines(r => console.log(JSON.stringify(r?.event)), l => console.log(l));
       c.on("data", chunk => lines.feed(chunk));
       c.on("close", () => res(0));
-      c.on("error", e => { console.error(`no door running at ${path} (${e.message})`); res(1); });
+      c.on("error", () => { console.error(`no door answered at ${path}`); res(1); });
     });
   }
   try {

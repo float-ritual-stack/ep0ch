@@ -3,7 +3,7 @@
 import { spawn } from "node:child_process";
 import { closeSync, openSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { listening } from "../jsonl";
+import { JsonLines, listening } from "../jsonl";
 import { connect } from "node:net";
 import { privateDir, stateDir } from "../state";
 import { encode, Frames, type DaemonMsg, type SessionInfo } from "./protocol";
@@ -55,29 +55,26 @@ export async function spawnReady(args: string[], env: Record<string, string>, lo
   const main = join(import.meta.dir, "../main.ts");
   const child = spawn(process.execPath, [main, ...args], { detached: true, stdio: ["ignore", fd, fd, "pipe"], env: { ...env, EP0CH_SESSION_READY: "3" }, cwd: process.cwd() });
   closeSync(fd);
-  const said = await new Promise<string>(res => {
-    let got = "";
+  const said = await new Promise<{ ok: boolean; error?: string } | null>(res => {
     const pipe = child.stdio[3] as NodeJS.ReadableStream | null;
-    const t = setTimeout(() => res(""), timeoutMs);
-    pipe?.on("data", (d: Buffer) => { got += d.toString(); if (got.includes("\n")) { clearTimeout(t); res(got); } });
-    pipe?.on("end", () => { clearTimeout(t); res(got); });
-    child.once("exit", () => setTimeout(() => { clearTimeout(t); res(got); }, 50));
+    const done = (v: { ok: boolean; error?: string } | null) => { clearTimeout(t); res(v); };
+    const t = setTimeout(() => res(null), timeoutMs);
+    const lines = new JsonLines(done, () => done(null));
+    pipe?.on("data", (d: Buffer) => lines.feed(d));
+    pipe?.on("end", () => done(null));
+    child.once("exit", () => setTimeout(() => done(null), 50));
   });
   child.unref();
   (child.stdio[3] as unknown as { destroy?(): void } | null)?.destroy?.();
-  try {
-    const m = JSON.parse(said.split("\n")[0]!) as { ok: boolean; error?: string };
-    return m.ok ? { ok: true } : { ok: false, error: m.error ?? `${what} didn't start` };
-  } catch {
-    return { ok: false, error: `${what} didn't start; its log: ${log}${tail(log)}` };
-  }
+  if (!said) return { ok: false, error: `${what} didn't start; its log: ${log}${tail(log)}` };
+  return said.ok ? { ok: true } : { ok: false, error: said.error ?? `${what} didn't start` };
 }
 
 const tail = (path: string) => { try { const l = readFileSync(path, "utf8").trim().split("\n").slice(-6); return l.length ? `\n  ${l.join("\n  ")}` : ""; } catch { return ""; } };
 
 
-/** One request to the session, its first answer (not attached: `session list`, `session end`). */
-export function ask(path: string, m: Parameters<typeof encode>[0], ms = 5000): Promise<DaemonMsg | null> {
+/** One request to the session, its first answer, in the session's frames (not attached: `session list`, `session end`). */
+export function askSession(path: string, m: Parameters<typeof encode>[0], ms = 5000): Promise<DaemonMsg | null> {
   return new Promise(res => {
     const sock = connect(path);
     const frames = new Frames<DaemonMsg>();
@@ -92,7 +89,7 @@ export function ask(path: string, m: Parameters<typeof encode>[0], ms = 5000): P
 /** The session in this state dir, or null. */
 export async function sessionInfo(path = sessionSocket()): Promise<SessionInfo | null> {
   if (!(await listening(path))) return null;
-  const r = await ask(path, { t: "query" });
+  const r = await askSession(path, { t: "query" });
   return r?.t === "info" ? r.info : null;
 }
 

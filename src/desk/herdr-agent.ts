@@ -299,6 +299,7 @@ function watch(bin: string, terminal: string): Promise<"takeover" | "quit" | "cl
       obs = p;
       void (async () => {
         const lines = new JsonLines(rec => {
+          if (done) return;
           if (rec?.type === "terminal.frame" && typeof rec.bytes === "string") out.write(Buffer.from(rec.bytes, "base64"));
           else if (rec?.type === "terminal.closed") finish("closed");
         });
