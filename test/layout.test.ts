@@ -1,10 +1,11 @@
 // PIE-412: the layout tree is the one pane model. The desk's binary splits place exactly as they did,
 // n-ary splits share by weight around spines, drawers slide over or join the layout, borders follow the
-// pointer, and the desk's saved form still reads and writes as older doors expect. Pure functions only.
+// pointer, and the desk's saved form still reads and writes as older doors expect. Pure functions only: the tree
+// arithmetic inside the screen-layout module (its rules are tested through its interface, screen-layout.test.ts).
 import { describe, expect, test } from "bun:test";
 import type { Rect } from "../src/canvas";
 import {
-  chainOf, columnsOf, dividerAt, dockedTiles, dragShare, drawerOf, drawers, drawerToEdge, effective, even, grow, leaf, leaves, move, node, normalise, pair, place, placeScreen, policyOf, remove, resize, revive, serialize, share, splitOf, unwrapDrawer, visible, wrapDrawer, wrapNodeDrawer,
+  columnsOf, dividerAt, dragShare, drawerOf, drawers, drawerToEdge, even, grow, leaf, leaves, move, node, normalise, pair, place, placeScreen, policyOf, remove, resize, revive, serialize, share, splitOf, unwrapDrawer, visible, wrapDrawer, wrapNodeDrawer,
   type Grab, type LNode,
 } from "../src/desk/layout";
 
@@ -303,18 +304,6 @@ describe("drawer containers and policy (PIE-505)", () => {
     expect(policyOf({ locked: "yes", min: -2, fixed: 7.4, opensInto: "" })).toEqual({ fixed: 7 });
   });
 
-  test("the policy in effect: the nearest that says a field wins; locked anywhere above locks", () => {
-    const e = effective([{ by: "screen", policy: { locked: true, droppable: false } }, { by: "s2", policy: { droppable: true, accepts: ["tree"] } }, { by: "d1", policy: {} }]);
-    expect(e.locked).toBe(true);
-    expect(e.by.locked).toBe("screen");
-    expect(e.droppable).toBe(true);
-    expect(e.by.droppable).toBe("s2");
-    expect(e.accepts).toEqual(["tree"]);
-    expect(effective([]).draggable).toBe(true);
-    const t = tree();
-    expect(chainOf(t, "claude").map(c => c.t)).toEqual(["split", "drawer", "split"]);
-  });
-
   test("review: a lone drawer at the top is what it holds, keeping a policy; a drawer inside a drawer is one", () => {
     const t = { ...splitOf("row", [{ t: "drawer", kid: splitOf("col", [leaf("a"), leaf("b")]), edge: "left", open: true } as LNode<string>]), policy: { locked: true } } as LNode<string>;
     const n = normalise(t) as any;
@@ -348,32 +337,6 @@ describe("containers keep their rules and every tile its room (PIE-510)", () => 
     }
     // Room for them all: the minimums aren't touched.
     expect(sizes(place(splitOf("row", [leaf(1), leaf(2)]), area).rects)).toEqual([[1, 0, 40, 0, 24], [2, 40, 40, 0, 24]]);
-  });
-
-  test("a container's policy stays when a move, a close or a float leaves it one tile; a tile moved back is under it again", () => {
-    const rule = { accepts: ["query"], droppable: false };
-    const t: LNode = splitOf("row", [leaf(1), { ...splitOf("col", [leaf(2), leaf(3)]), id: "s2", policy: rule }]);
-    const moved = move(t, 3, { kind: "edge", dir: "left" })!;
-    const s2 = chainOf(moved, 2).find(c => c.id === "s2");
-    expect(s2?.policy).toEqual(rule);
-    expect(chainOf(normalise(remove(t, 3)!), 2).find(c => c.id === "s2")?.policy).toEqual(rule);
-    const back = move(moved, 3, { kind: "split", target: 2, dir: "down" })!;
-    expect(chainOf(back, 3).find(c => c.id === "s2")?.policy).toEqual(rule);
-    // A split with no policy still gives way to its last kid.
-    expect(normalise(remove(splitOf("row", [leaf(1), splitOf("col", [leaf(2), leaf(3)])]), 3)!)).toEqual(splitOf("row", [leaf(1), leaf(2)], [0.5, 0.5]));
-  });
-
-  test("a drawer needs something docked to slide over: the last docked tile or container isn't put in one", () => {
-    const t: LNode = splitOf("row", [{ t: "drawer", kid: leaf(1), edge: "left", open: false }, leaf(2), splitOf("col", [leaf(3), leaf(4)])]);
-    let r: LNode | null = wrapDrawer(t, 2)!;
-    expect(dockedTiles(r)).toEqual([3, 4]);
-    r = wrapDrawer(r, 3)!;
-    expect(wrapDrawer(r, 4)).toBeNull();
-    expect(wrapDrawer(r, 4, "right")).toBeNull();
-    const c = splitOf("col", [leaf(3), leaf(4)]);
-    const u: LNode = splitOf("row", [{ t: "drawer", kid: leaf(1), edge: "left", open: true }, c]);
-    expect(wrapNodeDrawer(u, c)).toBeNull();
-    expect(wrapNodeDrawer(u, c, "down")).toBeNull();
   });
 
   test("evening out leaves each drawer's size: the docked kids share the rest", () => {

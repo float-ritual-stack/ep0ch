@@ -383,6 +383,7 @@ split, tab, drag, link and save, drawn by the door itself, so no multiplexer is 
 | `Ctrl+W` then `v` | a preview of this tile: a terminal's file, the board's card, a tile's selection |
 | `Ctrl+W` then `p` / `d` | put this tile (its tab set, as one) in a drawer where it is, or take its drawer away / slide the drawer open or shut. A drawer slides over the others without moving them, shuts when the keys leave it, and holds anything moved into it |
 | `Ctrl+W` then `c` / `f` | fold this tile to a spine where it is (a tile side by side with others), or open it / pop it out as a float over everything (its title drags it, `◢` sizes it, `H J K L` step it), or dock a float back |
+| `Ctrl+W` then `W`, a click on a flow column's spine | give this tile's flow column the wide place (`tile.widen`): the flow is laid out around it, the column you were reading stays full beside it; moving the keys between columns never moves a column |
 | a click on a header's `⇤ drawer` | dock that drawer where it is |
 | `Ctrl+W` then `P` | the policy panel: the containers over this tile (the screen first) and what each allows: locked, draggable, droppable, resizable, accepts, opens into, fixed/min/max size, and a drawer's collapsible, overlay, stays and edge (`⏎` or a click changes a row, `h l` picks the container, `+ -` change a size) |
 | `Ctrl+W` then `r` / `w` | load a layout by name / save this one by name |
@@ -406,7 +407,13 @@ drawer slides out from an edge (`act tile.pin tile=tree edge=left`, or the polic
 anything dropped into it: the tree, claude and a detail can share one. Every container, and the screen itself,
 carries a policy saved with the layout (`layout.policy`, `^W P`): `locked`, `draggable`, `droppable`,
 `accepts` (tile kinds), `resizable`, `min`/`max`/`fixed` cells, a drawer's `collapsible`, `overlay` and edge, and
-`opensInto` (where its tiles' opens land when they have no link). A locked screen comes back locked after a restart.
+`opensInto` (where its tiles' opens land when they have no link), `opens` (the open rule: `current`, or `next`).
+A locked screen comes back locked after a restart. A **flow** (PIE-513) is the river's columns as a container: an
+open from one of its tiles (a link followed) lands in a new column right after its own, the columns squeeze full,
+peek or spine around the wide one, and only `^W W` (or a click on a spine) moves the wide place. A layout saved
+with one (`{"t": "flow", "kids": [...]}` in `layouts.json`) works on the desk; the River screen moves onto it next.
+Every layout change, by key, click or `act`, is one operation of one module (`src/desk/screen-layout.ts`): it is
+done whole or refused with the reason, and its rules (floats, policy, the lock, the tile you type in) are checked there.
 Tile kinds come from one registry (`src/desk/tile-kinds.ts`): the built-ins register at startup, and an
 extension's kind registers the same way. The outline service lists its extensions' tile kinds
 (`extensions.list`, `tileKinds`; the example is `tarot.reading`): each registers through `serviceKind` as a
@@ -1300,6 +1307,7 @@ agent's edit meets the same revision check, property warning and duplicate-safe 
 | `note.create` | `text`, `parent` (default the selected card) | `N`, typing, `Ctrl+S` |
 | `steps`, `step.set` | `card` (default the selected card); `step` (number from 1, or `^id`), `status=todo\|done\|waiting\|problem` (default toggles done) | `s`, `j k`, `space x w !` |
 | `card.trash`, `card.restore` | `confirm=<the card's id>` (the second `d`; without it the person's first `d` arms, an agent's is refused), `card`; `id` (default the card trashed last) | `d d`, `u` |
+| `tile.widen` | `tile=<tile>` in a flow | desk `^W W`, a click on a flow column's spine |
 | `tile.collapse` (`reader.collapse`, `reader.expand`) | `tile=preview\|detail1\|detail2` or a lane's tile (the focused one by default), `on=true\|false` (default toggles; `reader.collapse` is `on=true`, `reader.expand` `on=false`); `tile=all` opens everything (board) | `c`, `⏎` or a click on a spine, `alt+c`; desk `^W c` |
 | `tile.resize` (`pane.resize`) | `tile=<tile>` (`lanes`, a reader, `tree`, `backlinks`, a float; default the focused one), `by` (steps, `-20`…`20`), `axis=row\|col` (width, default; or height) | board `{ } < >`, desk `^W < > + -`, dragging a border |
 | `tile.close`, `tile.float`, `tile.pin` (`pane.close`, `pane.float`, `pane.pin`) | `tile=<tile>`; `on=true\|false` for `pin` (default toggles). `close` takes a detail, a float or a drawer's tile (it shuts the drawer); the lanes and the preview stay and say why. `float` pops a reader out or docks a float, `pin` on the board's `tree` and `backlinks` docks or slides the whole drawer. An agent can't close or float the tile that has your keys | board `x`, `esc`, `o`, a click on a float's `⧉`, `T`, `B`; desk `^W x`, `^W f`, `^W p` |

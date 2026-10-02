@@ -29,7 +29,8 @@ import { readState, writeState } from "../state";
 import { bg, C, extractLinks, fg, INPUT_CURSOR, pad, paint, RESET, visible } from "../style";
 import type { Key } from "../term";
 import { ago, colourBody, wrap } from "../text";
-import { drawSpine, SPINE } from "../spine";
+import { drawSpine } from "../spine";
+import { flowOf, leaf, squeeze, type Cover as FlowCover } from "../desk/screen-layout";
 import { withoutPropertyTokens } from "../vendor/property-grammar";
 
 type Source = { kind: "roots" } | { kind: "block"; id: string } | { kind: "tag"; key: string; value: string };
@@ -67,7 +68,7 @@ interface PaneS {
 }
 /** `from`: the column this one was opened from (back goes there); `ahead`: the one back last came from (forward). */
 interface Col { uid: number; panes: PaneS[]; pane: number; pinned: boolean; from?: number; ahead?: number }
-type Cover = "full" | "peek" | "spine";
+type Cover = FlowCover;
 interface Row { m: Msg; depth: number }
 /** "1 reply", "3 replies". */
 const repliesWord = (n: number) => `${n} repl${n === 1 ? "y" : "ies"}`;
@@ -75,7 +76,6 @@ const repliesWord = (n: number) => `${n} repl${n === 1 ? "y" : "ies"}`;
 type HitRow = { card: number; replies: boolean; links?: { from: number; to: number; link: Link }[]; history?: { from: number; to: number; dir: -1 | 1 }[] };
 interface Hit { rect: Rect; col: number; pane: number; rows: HitRow[]; cover: Cover }
 
-const PEEK = 24;
 /** A property notice or an agent line in a pane the person isn't in clears on their first action after this long on screen. */
 export const BANNER_MS = 30_000;
 /** Note actions that start or continue an edit or a comment: positional addressing is checked for these. */
@@ -307,33 +307,17 @@ export class River implements Screen {
   /**
    * Where each column goes, built around the wide column (never around focus, so moving focus moves
    * nothing). `natural` is the width a column is drawn at: a peek is drawn at reading width and shows
-   * only its first `width` cells, the rest under its right-hand neighbour.
+   * only its first `width` cells, the rest under its right-hand neighbour. The squeeze is the layout
+   * engine's flow container's (PIE-513: `squeeze`, one implementation; the screen itself ports onto the
+   * engine in PIE-515): the wide column first, then the one the person was just reading, then docked ones and
+   * those holding an edit, then by distance.
    */
   private layout(W: number, anchor = this.anchor, keep = this.keepAt): { col: number; cover: Cover; width: number; natural: number }[] {
-    const FULL = Math.max(40, Math.min(76, Math.round(W * 0.42)));
-    // Too many columns even as spines: keep the ones nearest the wide one.
-    const visible = [...this.cols.keys()].sort((a, b) => Math.abs(a - anchor) - Math.abs(b - anchor) || b - a)
-      .slice(0, Math.max(1, Math.floor(W / SPINE))).sort((a, b) => a - b);
-    const cover = new Map<number, Cover>(visible.map(i => [i, "spine"]));
-    let spare = W - visible.length * SPINE;
-    // The wide column first, then the one the person was just reading, then docked ones, then by distance.
-    // (Docking a column lets go of the one kept, so a dock always widens what it can.)
-    const rank = (i: number) => i === anchor ? -1 : i === keep ? 0.25 : this.cols[i]!.pinned || this.holds(this.cols[i]!) ? 0.5 : Math.abs(i - anchor);
-    const order = [...visible].sort((a, b) => rank(a) - rank(b) || b - a);
-    for (const i of order) {
-      if (spare >= FULL - SPINE) { cover.set(i, "full"); spare -= FULL - SPINE; }
-      else if (spare >= PEEK - SPINE) { cover.set(i, "peek"); spare -= PEEK - SPINE; }
-    }
-    const width = new Map<number, number>(visible.map(i => [i, cover.get(i) === "full" ? FULL : cover.get(i) === "peek" ? PEEK : SPINE]));
-    // Leftover room shows more of the peeks' text first (each up to its reading width), then goes to the
-    // wide column, so the strip fills the screen.
-    const peeks = visible.filter(i => cover.get(i) === "peek");
-    for (let left = peeks.length; left > 0 && spare > 0; left--) {
-      const i = peeks[peeks.length - left]!, add = Math.min(FULL - PEEK, Math.floor(spare / left));
-      width.set(i, width.get(i)! + add); spare -= add;
-    }
-    width.set(anchor, (width.get(anchor) ?? FULL) + Math.max(0, spare));
-    return visible.map(i => ({ col: i, cover: cover.get(i)!, width: width.get(i)!, natural: cover.get(i) === "peek" ? FULL : width.get(i)! }));
+    const flow = flowOf(this.cols.map(c => leaf(c.uid)), { ...(this.cols[anchor] ? { anchor: this.cols[anchor]!.uid } : {}) });
+    if (this.cols[keep]) flow.keep = this.cols[keep]!.uid;
+    const docked = this.cols.filter(c => c.pinned).map(c => c.uid);
+    if (docked.length) flow.docked = docked;
+    return squeeze(flow, W, uid => { const c = this.cols.find(x => x.uid === uid); return !!c && this.holds(c); }).map(l => ({ col: l.i, cover: l.cover, width: l.width, natural: l.natural }));
   }
 
   /**

@@ -4,7 +4,7 @@
 // one action each, one path. An agent's is said on screen, and it never takes the person's tile.
 import type { Actor } from "../socket";
 import { ActionRefused, ActionSet, agentLabel } from "../surface/actions";
-import type { Axis } from "./layout";
+import type { Axis } from "./screen-layout";
 import { tileKinds, tileNoun } from "./tile-kinds";
 
 /** What pane.split did: `tile` the new tile's name, `pane` its number on screen (the older answer, kept). */

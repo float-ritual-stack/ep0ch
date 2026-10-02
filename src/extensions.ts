@@ -20,7 +20,7 @@ import type { Actor, SocketBoard } from "./socket";
 import { printable } from "./text";
 import { ActionRefused, ActionSet, asActor, type ActionDef } from "./surface/actions";
 import { kindsChanged, registerTileKind, serviceKind, setMissingKindReason, tileKind, tileKinds, unregisterTileKind, type TileKind } from "./desk/tile-kinds";
-import type { Policy } from "./desk/layout";
+import type { Policy } from "./desk/screen-layout";
 import type { DeskApi } from "./desk/panes";
 import { ProgramTile } from "./desk/tile-kinds";
 

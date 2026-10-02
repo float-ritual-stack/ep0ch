@@ -11,7 +11,7 @@ import { homedir } from "node:os";
 import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { readState, stateDir, writeState } from "../state";
-import { leaf, splitOf, type Dir, type LNode, type NaryForm, type BinaryForm, type Policy } from "./layout";
+import { leaf, splitOf, type Dir, type LNode, type NaryForm, type BinaryForm, type Policy } from "./screen-layout";
 import { ReaderPane, type Pane } from "./panes";
 import type { PtyPane } from "./pty";
 import { nowPage } from "../hub/now";
@@ -62,10 +62,11 @@ export interface TileSpec {
 export type SavedTree = BinaryForm<TileSpec> | NaryForm<TileSpec>;
 
 /**
- * Where an open from a tile goes when it has no link: the current note. (The river's rule, "the next column",
- * is the River screen's own; the `river` layout hosts that screen in a tile rather than copying it.)
+ * Where an open from a tile goes when it has no link: the current note, or (`next`) a new column after its own in
+ * its flow. A layout's `rule` is read into its screen policy's `opens` (PIE-513: the open rule is policy now).
  */
-export type OpenRule = "current";
+export type { OpenRule } from "./screen-layout";
+import type { OpenRule } from "./screen-layout";
 /**
  * A layout (a screen): its tree of containers and tiles, the focus, the open rule, and the screen's own policy
  * (the outermost container's: `locked` there locks the whole screen, PIE-505).

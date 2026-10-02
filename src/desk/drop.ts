@@ -13,7 +13,7 @@
 // ghost and the hint row say it before the release, and the release's `layout.move` refuses with the same words.
 // A shut drawer's handle on the hint row is a drop zone too: the tile goes into the drawer.
 import type { Rect } from "../canvas";
-import { EDGE_GLYPH, type Dir, type Place } from "./layout";
+import { EDGE_GLYPH, type Dir, type Place } from "./screen-layout";
 
 /** A tile as the drag sees it: where it is, and when it's a tab set, which cells each tab's label takes. */
 export interface DropTile<I> { id: I; rect: Rect; tabs?: { id: I; from: number; to: number }[]; alone?: boolean }

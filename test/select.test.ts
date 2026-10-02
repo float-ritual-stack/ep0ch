@@ -540,18 +540,19 @@ describe.skipIf(!outliner)("selecting in the board, the desk and the river, agai
     BV.at(b, `detail${B().details.indexOf(d)}`);
     key(char("o"));
     await until(() => B().floats.length > 0, "the float");
-    const f = B().floats.at(-1);
+    // The float as the layout has it now (each move is a new state: read it again after each).
+    const f = () => B().floats.at(-1);
     frame();
-    const was = { ...f.rect };
+    const was = { ...f().rect };
     drag({ x: was.col + 4, y: was.row }, { x: was.col + 10, y: was.row + 2 });
-    expect([f.rect.col, f.rect.row]).toEqual([was.col + 10 - 4, was.row + 2]);
-    const r = f.rect, corner = { x: r.col + r.cols - 1, y: r.row + r.rows - 1 };
+    expect([f().rect.col, f().rect.row]).toEqual([was.col + 10 - 4, was.row + 2]);
+    const r = f().rect, corner = { x: r.col + r.cols - 1, y: r.row + r.rows - 1 };
     drag(corner, { x: corner.x + 5, y: corner.y + 1 });
-    expect([f.rect.cols, f.rect.rows]).toEqual([was.cols + 5, was.rows + 1]);
+    expect([f().rect.cols, f().rect.rows]).toEqual([was.cols + 5, was.rows + 1]);
     await until(() => plain(frame().join("\n")).includes("Water the seedlings"), "the float drawn");
-    const w = where(frame(), "Water", f.rect);
+    const w = where(frame(), "Water", f().rect);
     drag(w, { x: w.x + 4, y: w.y });
-    expect(B().panes.get(f.id).surface.describe().selection.text).toBe("Water");
+    expect(B().panes.get(f().id).surface.describe().selection.text).toBe("Water");
     key(char("x"));
   });
 
