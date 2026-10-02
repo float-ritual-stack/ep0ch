@@ -1506,7 +1506,7 @@ export class DeliveryBoard extends Desk {
     // cmd+c: the draft's selection to the person's clipboard, through the draft's copy action.
     else if (cmd === "copy") void runAsPerson(DRAFT_ACTIONS, "draft.copy", {}, d, m => this.ctx.flash(m)).then(r => { const c = r as { text: string; chars: number } | undefined; if (c) { this.ctx.copy?.(c.text); this.ctx.flash(`copied ${c.chars} chars`); } this.redraw(); });
     // Esc on nothing typed closes it; esc, esc on typed text puts it aside as unsent (never created), and says where.
-    else if (cmd === "close" || cmd === "discard") { const r = C0.session.close(cmd === "discard"); if (r.said) this.ctx.flash(r.said, 8000); }
+    else if (cmd === "close" || cmd === "discard") void runAsPerson(BOARD_ACTIONS, "composer.close", cmd === "discard" ? { discard: true } : {}, { b: this }, m => this.ctx.flash(m));
   }
 
   /**
@@ -1517,6 +1517,18 @@ export class DeliveryBoard extends Desk {
     const C0 = this.composer;
     if (!C0) return { left: "nothing" };
     const r = await C0.session.leave(USER);
+    this.redraw();
+    return r;
+  }
+
+  /** Close the new card or note (esc): unchanged, it goes; typed text only with `discard`, put aside as unsent. */
+  closeComposer(discard: boolean, actor: Actor): { closed: boolean; keptAt?: string; said?: string } {
+    const C0 = this.composer;
+    if (!C0) return { closed: false };
+    if (C0.session.dirty && !discard) throw new ActionRefused("there's typed text; ctrl+s creates it, discard=true puts it aside as unsent");
+    if (actor.kind === "agent") throw new ActionRefused("the new card or note being written is the person's; an agent doesn't close it (card.create writes its own)");
+    const r = C0.session.close(discard);
+    if (r.said) this.ctx.flash(r.said, 8000);
     this.redraw();
     return r;
   }
@@ -2194,6 +2206,7 @@ export const BOARD_ACTIONS = new ActionSet<{
   "card.trash": { confirm?: string; card?: string };
   "card.restore": { id?: string };
   "composer.leave": Record<string, never>;
+  "composer.close": { discard?: boolean };
   "backlinks": { id?: string; filter?: string; kind?: string; stage?: string; resolved?: boolean; related?: boolean; sort?: string };
 }, BoardOn>("board", {
   "open": {
@@ -2271,6 +2284,12 @@ export const BOARD_ACTIONS = new ActionSet<{
       if (actor.kind === "agent") throw new ActionRefused("the new card or note being written is the person's; an agent doesn't close it (card.create writes its own)");
       return b.leaveComposer();
     },
+  },
+  "composer.close": {
+    summary: "close the new card or note being written: unchanged, it goes; typed text needs discard=true, and is put aside as unsent (n or N brings it back). The person's own",
+    keys: "esc (twice with typed text)",
+    args: { discard: { type: "boolean", optional: true, about: "put typed text aside as unsent and close" } },
+    run: ({ discard }, { b }, actor) => b.closeComposer(!!discard, actor),
   },
   "card.create": {
     summary: "create a card in a lane: the text, born with the properties the lane's query sets (and its create:: default, unless the text sets that key), under the lane's create-parent or where its cards live. In a roadmap lane (type=roadmap-item) it's a roadmap item made by the workboard's allocator, which issues its work-id: the text gives priority, arc and track(s) as [key::value] tokens, and Review/Validate/Done lanes refuse (create in Queued or Doing, then move). Refused, with the reason, when the lane can't define it", keys: "n, typing, ctrl+s",

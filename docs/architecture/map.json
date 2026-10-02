@@ -277,7 +277,7 @@
       "refs": [
         { "r": "door", "p": "src/surface/note.ts", "l": 287, "m": "export class NoteSurface" },
         { "r": "door", "p": "src/surface/note.ts", "l": 48, "m": "export interface SurfaceHost" },
-        { "r": "door", "p": "src/surface/note.ts", "l": 3376, "m": "export const NOTE_ACTIONS" },
+        { "r": "door", "p": "src/surface/note.ts", "l": 3371, "m": "export const NOTE_ACTIONS" },
         { "r": "door", "p": "src/surface/note.ts", "l": 479, "m": "staleOn(e: OutlineEvent): boolean" },
         { "r": "door", "p": "src/surface/note.ts", "l": 496, "m": "reread(host: SurfaceHost)" }
       ]
@@ -298,11 +298,11 @@
       "does": "One lifecycle for every draft the door writes: open with what was put aside, the service hold, key and leave, written or refused (stale keeps it), put aside as unsent, recordAs. Every rule about an agent and a draft, and the invitation an @name line gives one agent.",
       "built": "DraftSession in draft-session.ts behind three target adapters: blockTarget (update a block), commentTarget (a comment or reply, one request id per text), cardTarget (card.create through views.planWrite, or note.create). Hosts (the reader, the comment session, the board's composer) call key and leave (PIE-516).",
       "refs": [
-        { "r": "door", "p": "src/draft-session.ts", "l": 116, "m": "export class DraftSession" },
-        { "r": "door", "p": "src/draft-session.ts", "l": 459, "m": "export function agentRefusal" },
-        { "r": "door", "p": "src/draft-session.ts", "l": 502, "m": "export function blockTarget" },
-        { "r": "door", "p": "src/draft-session.ts", "l": 601, "m": "export function commentTarget" },
-        { "r": "door", "p": "src/draft-session.ts", "l": 668, "m": "export function cardTarget" }
+        { "r": "door", "p": "src/draft-session.ts", "l": 114, "m": "export class DraftSession" },
+        { "r": "door", "p": "src/draft-session.ts", "l": 473, "m": "export function agentRefusal" },
+        { "r": "door", "p": "src/draft-session.ts", "l": 516, "m": "export function blockTarget" },
+        { "r": "door", "p": "src/draft-session.ts", "l": 615, "m": "export function commentTarget" },
+        { "r": "door", "p": "src/draft-session.ts", "l": 682, "m": "export function cardTarget" }
       ]
     },
 
@@ -338,7 +338,7 @@
       "does": "Turns a key into what happens: on every screen, into an action, or into an input state (a prefix, a picker, an edit) that ends in one. test/parity.ts fails when a key or click changes the screen without an action naming that key (#96). Keys are still matched in place, screen by screen.",
       "built": "Hundreds of in-place comparisons (422 by a grep for c === / ch(k) === / k.kind === at 07d82c9; 86 in delivery.ts, 47 in river.ts), each screen with its own priority order.",
       "refs": [
-        { "r": "door", "p": "src/desk/delivery.ts", "l": 1994, "m": "if (c === \"m\") { this.openMover(); return true; }" },
+        { "r": "door", "p": "src/desk/delivery.ts", "l": 2006, "m": "if (c === \"m\") { this.openMover(); return true; }" },
         { "r": "door", "p": "src/screens.ts", "l": 39, "m": "const isBack" }
       ],
       "questions": [
@@ -576,7 +576,7 @@
       "refs": [
         { "r": "door", "p": "src/desk/delivery.ts", "l": 109, "m": "export class DeliveryBoard extends Desk" },
         { "r": "door", "p": "src/desk/delivery.ts", "l": 98, "m": "function boardTree" },
-        { "r": "door", "p": "src/desk/delivery.ts", "l": 2181, "m": "export const BOARD_ACTIONS" },
+        { "r": "door", "p": "src/desk/delivery.ts", "l": 2193, "m": "export const BOARD_ACTIONS" },
         { "r": "door", "p": "src/desk/delivery.ts", "l": 1303, "m": "private async moveTo" }
       ],
       "questions": [
@@ -686,7 +686,7 @@
       "does": "list, create, update and the rest for scripts and agents, with author and actor on every write; door-open shows a block in the door.",
       "built": "cli.ts over the outliner client; door-open goes to the door's control socket.",
       "refs": [
-        { "r": "outliner", "p": "src/cli.ts", "l": 579, "m": "case \"list\"" },
+        { "r": "outliner", "p": "src/cli.ts", "l": 595, "m": "case \"list\"" },
         { "r": "outliner", "p": "src/cli.ts", "l": 62, "m": "\"door-open\"" }
       ]
     },
@@ -745,8 +745,8 @@
       "does": "Serves blocks marked [publish::…] read-only at a URL; an attached .html or .md file as the page. This map is published through it.",
       "built": "A client of the service: blocks.query finds published blocks, the content feed drops its cache. Attachments only from allowed roots; attached HTML runs in a CSP sandbox without allow-same-origin.",
       "refs": [
-        { "r": "outliner", "p": "src/publish.ts", "l": 291, "m": "export class Publisher" },
-        { "r": "outliner", "p": "src/publish.ts", "l": 277, "m": "const ATTACHED_HTML_CSP" }
+        { "r": "outliner", "p": "src/publish.ts", "l": 387, "m": "export class Publisher" },
+        { "r": "outliner", "p": "src/publish.ts", "l": 315, "m": "const ATTACHED_HTML_CSP" }
       ]
     }
   ],
@@ -763,7 +763,7 @@
     "about": "The path the code takes today when the person presses m on a board card and picks a lane. m only opens the mover, an input state; the move itself is card.move, the same ActionDef that H, L, a drag and an agent's act run (PIE-506 closed the gap PIE-492 named).",
     "steps": [
       { "label": "key m", "at": "door.keys", "what": "The lanes' key handler opens the mover: an input state that holds the keys, and changes nothing until it ends.",
-        "ref": { "r": "door", "p": "src/desk/delivery.ts", "l": 1994, "m": "if (c === \"m\") { this.openMover(); return true; }" } },
+        "ref": { "r": "door", "p": "src/desk/delivery.ts", "l": 2006, "m": "if (c === \"m\") { this.openMover(); return true; }" } },
       { "label": "mover asks", "at": "door.board", "what": "openMover asks the service for every lane's plan at once, at the card's revision.",
         "ref": { "r": "door", "p": "src/desk/delivery.ts", "l": 1362, "m": "planMoves(this.ctx.board, card, ids)" } },
       { "label": "views.planWrite", "at": "door.socketboard", "what": "SocketBoard sends one views.planWrite request over the service socket.",

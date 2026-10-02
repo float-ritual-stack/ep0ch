@@ -9,7 +9,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { subject, type Msg } from "./board";
-import { DRAFT_DAYS, DRAFT_KEEP, sameParty, tidy, whenPut, PATCH_FLASH_MS, Draft, type DraftAction } from "./edit";
+import { DRAFT_ACTIONS, DRAFT_DAYS, DRAFT_KEEP, sameParty, tidy, whenPut, PATCH_FLASH_MS, Draft, type DraftAction, type DraftActionArgs } from "./edit";
 import { actorIdOf, EditConflict, isExtensionWriter, Refused, USER, type Actor, type Comment, type CommentPassage, type DraftAnswer, type DraftHoldHandle, type DraftRequest, type SocketBoard } from "./socket";
 import { ActionRefused, agentLabel } from "./surface/actions";
 import { completionKey, type Completer } from "./surface/completer";
@@ -42,8 +42,6 @@ export interface DraftTarget {
   readonly verb: "save" | "send" | "create";
   /** The block it edits in place: held on the service while open (`drafts.hold`), and what the agent rule keys on. */
   readonly blockId?: string;
-  /** The note it's about (a comment's): a write under it would make the send stale. */
-  readonly about?: string;
   /** A click away writes it (an edit), or puts it aside unsent (a comment, a reply, a new card: sending is explicit). */
   readonly leaveWrites: boolean;
   /**
@@ -183,7 +181,9 @@ export class DraftSession {
     if (!this.open) return { ok: false, why: "the draft is closed" };
     const d = this.draft;
     if (d.busy) return { ok: false, why: `the ${this.target.verb} is still landing` };
-    const why = this.target.blockId && actor.kind === "agent" ? agentRefusal(actor, { board: this.env.board, blockId: this.target.blockId, except: this }) : null;
+    // An agent's save of the draft itself is allowed, recorded as whoever wrote it (recordAs: honest provenance, not
+    // an approval); a write underneath someone else's open draft of the same block is not.
+    const why = this.target.blockId ? agentRefusal(actor, { board: this.env.board, blockId: this.target.blockId, except: this }) : null;
     if (why) return { ok: false, why };
     const r = await this.target.submit(this, recordAs(d, actor), { asked: actor, away });
     if (r.ok) { if (this.open) this.end("written"); return r; }
@@ -217,13 +217,13 @@ export class DraftSession {
       const reason = r.stale ? "it changed elsewhere since you started" : r.why || "refused";
       const keptAt = this.keep();
       this.end("aside");
-      const said = `not saved: ${reason} · ${t.what} was kept as unsent · ${r.stale ? `a copy is at ${tidy(keptAt)}` : t.back}`;
+      const said = `not saved: ${reason} · ${t.what} was kept as unsent · ${r.stale || !this.persons ? `a copy is at ${tidy(keptAt)}` : t.back}`;
       this.env.said?.(said);
       return { left: "kept", why: reason, keptAt, said };
     }
     const keptAt = this.keep();
     this.end("aside");
-    const said = `${t.what} was kept as unsent, not ${t.verb === "send" ? "sent" : t.verb === "create" ? "created" : "saved"} · ${t.back}`;
+    const said = `${t.what} was kept as unsent, not ${t.verb === "send" ? "sent" : t.verb === "create" ? "created" : "saved"} · ${this.persons ? t.back : `a copy is at ${tidy(keptAt)}`}`;
     this.env.said?.(said);
     return { left: "kept", keptAt, said };
   }
@@ -246,13 +246,27 @@ export class DraftSession {
     return { closed: true };
   }
 
+  /**
+   * One of the draft's own actions (DRAFT_ACTIONS: the list keys, a click, the wheel, the preview, copy, undo) as
+   * `actor`: the person's always; an agent's only in a draft it opened and alone typed in (undo: its own patches).
+   */
+  act<K extends keyof DraftActionArgs>(name: K, args: DraftActionArgs[K], actor: Actor): Promise<unknown> {
+    const no = name === "draft.undo" ? null : agentRefusal(actor, this);
+    if (no) return Promise.reject(new ActionRefused(no));
+    return DRAFT_ACTIONS.run(name, args, this.draft, actor);
+  }
+
   /** ctrl+r: after a stale refusal, start over from what the service has now (the target's way). */
   async reload(): Promise<void> {
     if (!this.open) return;
     if (!this.target.reload) { this.draft.note = "nothing to reload"; return; }
     await this.target.reload(this);
+    this.settled();
     this.hold?.revise(this.draft.base);
   }
+
+  /** The block or passage was found again after a stale refusal: the draft says so no longer. */
+  settled() { this.draft.conflict = null; this.draft.changedElsewhere = false; }
 
   /**
    * Replace the whole text (`edit.text`, `comment.write`, $EDITOR coming back). Text someone else changed last
@@ -619,7 +633,7 @@ export function commentTarget(o: {
     back: w0.kind === "quote" ? "C and a passage bring it back" : "r on the thread brings it back",
     label: `${o.note.id.slice(0, 8)}-${w0.kind === "quote" ? "comment" : "reply"}`,
     what: `the ${w0.kind === "quote" ? "comment" : "reply"} on ${title}`,
-    verb: "send", about: o.note.id, leaveWrites: false,
+    verb: "send", leaveWrites: false,
     async submit(s, by) {
       const d = s.draft, t = o.where();
       const body = d.text.trim();

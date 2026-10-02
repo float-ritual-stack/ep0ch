@@ -31,7 +31,7 @@ import type { Key } from "../term";
 import { ago, bbsDate, rule, wrap } from "../text";
 import { ActionRefused, ActionSet, runAsPerson, agentLabel, asActor, type ActionDef } from "./actions";
 import { draftState, editHint, editorClick, openInEditor, renderEditor, writtenBy } from "./editor";
-import { completerFor, completerOf, completionKey, completionOf, insertCompletion, lookupCompletion, type CompletionBoard } from "./completer";
+import { completerFor, completerOf, completionOf, insertCompletion, lookupCompletion, type CompletionBoard } from "./completer";
 import { completionTargetAtCursor } from "../completion";
 import { checkValue, propertyRows, PropertyPanel, valueTarget, valueView, type PropRow } from "./props-panel";
 import { AGENT_BG, cellsOf, Gesture, isCopyKey, lineAt, modeKey, paintRange, RULER_BG, SELECT_BG, Selection, selectionHint, THREAD_BG, wordAt, type Pos, type SelectRows } from "./selection";
@@ -1223,11 +1223,8 @@ export class NoteSurface {
    */
   async leave(host: SurfaceHost, actor: Actor = USER): Promise<LeaveResult> {
     const d = this.drafting, s = this.session;
-    const mine = d ?? s?.writing;
-    if (actor.kind === "agent" && (d || s)) {
-      const no = mine ? agentRefusal(actor, mine, { op: "leave" }) : "the person is in this comment; an agent doesn't save or close it (block.mark gets their attention)";
-      if (no) throw new ActionRefused(no);
-    }
+    // An agent leaves only a draft it opened and alone typed in: the draft session's rule (its leave asks it).
+    if (actor.kind === "agent" && s && !s.writing) throw new ActionRefused("the person is in this comment; an agent doesn't save or close it (block.mark gets their attention)");
     const why = this.leaveRefusal();
     if (why) throw new ActionRefused(why);
     if (this.panel?.field) { this.panel.field = null; host.redraw(); }
@@ -1492,8 +1489,6 @@ export class NoteSurface {
   /** The note scrolled `by` rows within its length (the wheel, j k, PgUp PgDn): the current element is let go, nothing else moves. */
   scrollBy(by: number, letGo = true) { if (letGo) this.letGo(); this.scroll = scrolled(this.scroll, by, this.maxScroll); }
 
-  /** The draft or comment being written here, if any (for the draft's actions). */
-  writingDraft(): Draft | null { return this.writing(); }
   /** The draft or comment being written here, if any. */
   private writing(): Draft | null {
     return this.draft ?? (this.session?.mode === "compose" ? this.session.composer : null);
@@ -2277,6 +2272,9 @@ export class NoteSurface {
       host.ctx.flash(why);
       throw new ActionRefused(why);
     }
+    // Never underneath a draft someone has open on that note (the draft session's agent rule).
+    const no = agentRefusal(actor, { board: host.ctx.board, blockId: e.block });
+    if (no) { host.ctx.flash(no); throw new ActionRefused(no); }
     const step: ChecklistStep = { itemId: e.itemId, identity: "unique", status: e.to, evidence: e.evidence, span: { start: 0, end: 0, startLine: 0, endLine: 0 }, depth: 0, text: e.title };
     let r: Awaited<ReturnType<SurfaceHost["ctx"]["board"]["changeStep"]>>;
     try {
@@ -2876,8 +2874,7 @@ export class NoteSurface {
   closeDraftAction(discard: boolean): { closed: boolean; keptAt?: string; said?: string } {
     const s = this.drafting;
     if (!s) return { closed: false };
-    if (s.busy) throw new ActionRefused("the save is still landing");
-    if (s.dirty && !discard) throw new ActionRefused("the draft has unsaved changes; edit.save saves it, discard=true closes it anyway (put aside as unsent first, as esc twice does)");
+    if (s.dirty && !discard && !s.busy) throw new ActionRefused("the draft has unsaved changes; edit.save saves it, discard=true closes it anyway (put aside as unsent first, as esc twice does)");
     return s.close(discard);
   }
 
@@ -3063,10 +3060,8 @@ function forwardDraft<K extends keyof DraftActionArgs>(name: K): ActionDef<Draft
       if (!w) throw new ActionRefused("nothing is being written in this reader; edit, or comment.write, opens a draft");
       const d = w.draft;
       if (d.busy) throw new ActionRefused("the save is still landing");
-      // The person's draft is theirs: its cursor, view and preview move only by their keys and mouse.
-      const no = name === "draft.undo" ? null : agentRefusal(actor, w);
-      if (no) throw new ActionRefused(no);
-      const r = await DRAFT_ACTIONS.run(name, args, d, actor);
+      // The person's draft is theirs: its cursor, view and preview move only by their keys and mouse (the session's rule).
+      const r = await w.act(name, args, actor);
       // The person's copy reaches their clipboard, as the reader's select.copy does; an agent's is only returned.
       if (name === "draft.copy" && actor.kind === "user") {
         const c = r as { text: string; chars: number };

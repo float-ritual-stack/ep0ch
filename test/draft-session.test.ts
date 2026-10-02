@@ -219,6 +219,20 @@ describe("the agent rule, stated once", () => {
     mine.dispose(); its.dispose();
   });
 
+  test("an agent doesn't run the draft's own actions in the person's draft; its save of it names who typed; in its own it does both", async () => {
+    const { t, sent } = fake({ blockId: undefined, place: "edit:none-2" });
+    const theirs = DraftSession.open(t, { text: "Fern" });
+    keys(theirs, ["s"]);
+    await expect(theirs.act("draft.indent", {}, AGENT)).rejects.toThrow("this draft is the person's");
+    expect(await theirs.submit(AGENT)).toEqual({ ok: true });
+    expect(sent.map(x => [x.by, x.asked])).toEqual([[USER, AGENT]]);           // recorded as the person's, who typed it
+    const its = DraftSession.open(t, { by: AGENT });
+    its.replace("- a\n- b", AGENT);
+    expect(await its.act("draft.indent", { from: 2 }, AGENT)).toEqual({ lines: 1 });
+    expect(await its.submit(AGENT)).toEqual({ ok: true });
+    theirs.dispose();
+  });
+
   test("an agent never writes a block the person has open in a draft, nor opens a second draft of it; the person is never refused", async () => {
     const h = fakeHolds();
     const { t } = fake({ place: "edit:note-rope", blockId: "note-rope", what: "the edit to “Rope”" });

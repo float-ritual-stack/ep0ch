@@ -471,8 +471,8 @@ describe.skipIf(!outliner)("selecting in the board, the desk and the river, agai
   test("in an edit, a drag is the draft's selection and isn't copied; cmd+c copies it", async () => {
     const { d, r } = await openCard();
     key(char("e"));
-    await until(() => !!d.surface.editing && !!d.surface.writingDraft(), "the edit");
-    const draft = d.surface.writingDraft();
+    await until(() => !!d.surface.editing && !!d.surface.draft, "the edit");
+    const draft = d.surface.draft;
     writes.length = 0;
     const w = where(frame(), "Water the", r);
     drag(w, { x: w.x + 8, y: w.y });

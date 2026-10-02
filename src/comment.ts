@@ -365,12 +365,15 @@ export class CommentSession {
       const start = hits.reduce((a, b) => (Math.abs(b - t.passage.start) < Math.abs(a - t.passage.start) ? b : a));
       this.target = { ...t, revision: fresh.revision, passage: { quote: q, start } };
       this.stale = false; this.error = null;
+      // Found again: the draft's own "refused, copied to …" line goes, so this one shows.
+      if (this.writing) { this.writing.settled(); this.writing.draft.note = ""; }
       this.note = `found the quote again at revision ${fresh.revision}${hits.length > 1 ? ` (nearest of ${hits.length})` : ""} · ctrl+s sends`;
     } else {
       // The words are gone: pick again. The comment text rides along and comes back on Enter.
       this.passage = new Passage(fresh.text);
       this.passage.note = "the quote is gone from the current text · pick the passage again · Enter returns to your comment";
       this.stale = false; this.error = null; this.mode = "select";
+      if (this.writing) { this.writing.settled(); this.writing.draft.note = ""; }
     }
     env.redraw();
   }
