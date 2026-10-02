@@ -6,7 +6,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { setupCommand } from "../src/setup/apply";
+import { setupCommand, withoutProgress } from "../src/setup/apply";
 import { run } from "../src/setup/facts";
 import { ASCII_SPINNER, bar, elapsed, FRAME_MS, Progress, progressMode, size, SPINNER, spinnerFor, type Terminal } from "../src/setup/progress";
 import { visible, width } from "../src/style";
@@ -244,4 +244,23 @@ describe("the whole command, in a scratch home", () => {
     expect(text).toContain("    ✓ field-notes: ~/.local/state/pi-herdr-outliner/outlines/field-notes.sqlite → ~/backups/ep0ch/field-notes-20260314T092653Z.sqlite (integrity ok)");
     expect(existsSync(join(piped.h, ".local/bin/ep0ch"))).toBe(true);
   });
+});
+
+test("closing after an exception out of a step: its line ends as ✗, the timer stops, the cursor comes back", () => {
+  const writes: string[] = [];
+  let stopped = false;
+  const p = new Progress({ mode: "live", out: () => {}, terminal: { isTTY: true, columns: 80, write: s => { writes.push(s); } }, env: {}, now: () => 0,
+    every: () => () => { stopped = true; } });
+  p.task({ lead: "3", mark: "→", title: "Update the door checkout" });
+  p.close();
+  expect(visible(writes.at(-2)!)).toContain("3 ✗ Update the door checkout · 0.0s");
+  expect(writes.at(-1)).toBe("\x1b[?25h");
+  expect(stopped).toBe(true);
+  p.close();
+  expect(writes).toHaveLength(3);
+});
+
+test("a failed step's error is git's, not the progress lines before it", () => {
+  expect(withoutProgress("remote: Enumerating objects: 5, done.\nReceiving objects:  45% (9/20)\rReceiving objects: 100% (20/20), done.\nfatal: Not possible to fast-forward, aborting."))
+    .toBe("remote: Enumerating objects: 5, done.\nfatal: Not possible to fast-forward, aborting.");
 });

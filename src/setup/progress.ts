@@ -161,6 +161,13 @@ export class Progress {
     return head;
   }
 
+  /** After the command, whatever happened: a step left running (an exception out of it) ends as ✗, the cursor shown. */
+  close(): void {
+    if (this.live) this.finish(this.live, "failed");
+    this.showCursor();
+    this.current = null;
+  }
+
   private finish(t: LiveTask, how: "ok" | "failed" | "interrupted") {
     if (this.live !== t) return;
     this.stop?.(); this.stop = null;

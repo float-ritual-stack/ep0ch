@@ -83,9 +83,13 @@ class StepFailed extends Error { constructor(message: string, readonly recover: 
 
 async function must(cmd: string[], recover: string, opts: { cwd?: string; env?: Env; timeoutMs?: number; onLine?: OnLine } = {}): Promise<string> {
   const r = await run(cmd, { timeoutMs: 300_000, ...opts });
-  if (r.code !== 0) throw new StepFailed(`${cmd.join(" ")} failed: ${r.err || r.out || `exit ${r.code}`}`, recover);
+  if (r.code !== 0) throw new StepFailed(`${cmd.join(" ")} failed: ${withoutProgress(r.err) || r.out || `exit ${r.code}`}`, recover);
   return r.out;
 }
+
+/** A child's stderr without the progress lines asked for with --progress (Receiving objects:  45% (90/200)). */
+export const withoutProgress = (err: string) =>
+  err.split(/\r?\n/).map(l => l.split("\r").at(-1)!).filter(l => l.trim() && !/:\s+\d+% \(/.test(l)).join("\n");
 
 /** Fast-forwards a checkout, then installs its packages when the pull (or anything before) left them stale. */
 async function updateCheckout(root: string, name: string, say: (s: string) => void, child: OnLine, env: Env) {
@@ -232,7 +236,10 @@ export async function setupCommand(args: readonly string[], io: SetupIO = { out:
   };
   if (io.terminal) process.on("SIGINT", interrupted);
   try { return await setup(args, io, env, json, progress); }
-  finally { if (io.terminal) process.off("SIGINT", interrupted); }
+  finally {
+    progress.close();
+    if (io.terminal) process.off("SIGINT", interrupted);
+  }
 }
 
 async function setup(args: readonly string[], io: SetupIO, env: Env, json: boolean, progress: Progress): Promise<number> {
