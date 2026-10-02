@@ -18,6 +18,7 @@ import {
 } from "../backlinks";
 import { subject, type Msg } from "../board";
 import { USER, type Actor, type OutlineEvent } from "../socket";
+import { shortId } from "../refs";
 import { ActionRefused, ActionSet } from "../surface/actions";
 import { C, dim, fg, pad, RESET, selected, width } from "../style";
 import { RowView } from "../scroll";
@@ -370,7 +371,7 @@ export class TreePane implements Pane {
     if (r.kind === "outlink" && r.link.resolution.kind !== "ready") throw new ActionRefused(`${r.link.label} · ${outlinkWords(r.link).context}`);
     const id = r.kind === "block" ? r.m.id : rowBlock(r)!;
     const m = r.kind === "block" ? r.m : await this.target(id, desk);
-    if (!m) throw new ActionRefused(`nothing answers at ${id.slice(0, 8)}…`);
+    if (!m) throw new ActionRefused(`nothing answers at ${shortId(id)}`);
     land(m);
     return { row: i + 1, id: m.id };
   }
@@ -386,7 +387,7 @@ export class TreePane implements Pane {
     const id = rowBlock(this.rows[i]);
     if (!id) throw new ActionRefused(`row ${i + 1} stands for no note: open=true opens a group or shows a resource`);
     const m = await this.target(id, desk);
-    if (!m) throw new ActionRefused(`nothing answers at ${id.slice(0, 8)}…`);
+    if (!m) throw new ActionRefused(`nothing answers at ${shortId(id)}`);
     // Where the tree's selection goes (a desk's previews and link); a view without that, its tree's own preview.
     if (desk.showFrom) desk.showFrom(this, m); else desk.setCurrent(m, { from: this, by: actor });
     return { row: i + 1, id: m.id };

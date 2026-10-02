@@ -135,7 +135,6 @@ export class WelcomeList implements Pane {
   private rows: ListRow[] = [];
   private reload: Timer | null = null;
   private tabs: TabHit[] = [];
-  private loaded: DeskApi | null = null;
 
   /** The place of the welcome note the detail shows, or -1 (another note, alt+⏎'s, or nothing). */
   get at(): number { const id = this.detail?.msg?.id; return id ? (this.items ?? []).findIndex(m => m.id === id) : -1; }
@@ -204,7 +203,6 @@ export class WelcomeList implements Pane {
 
   /** Read the welcome notes again. The detail keeps what it shows unless that was the first read or the fallback. */
   async load(desk: DeskApi, first = false) {
-    this.loaded = desk;
     try {
       this.items = await findWelcome(desk.ctx.board);
       this.problem = "";

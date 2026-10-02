@@ -7,13 +7,12 @@ import type { Art, Cell } from "./ansi";
 import { artBlock, cloneGrid, locate, stamp } from "./art-view";
 import type { Ctx, Frame, Screen } from "./app";
 import { subject, type Caller, type Msg } from "./board";
-import { artNamed, find, loadArt, members, packs, type Member } from "./packs";
+import { artNamed, loadArt, members, packs, type Member } from "./packs";
 import type { Activity } from "./socket";
 import { C, center, chip, fg, pad, paint, RESET, selected, width } from "./style";
 import { nextTheme, theme, THEME_NAMES, themeNamed, THEMES } from "./theme";
 import { ch, isUp, isDown, type Key } from "./term";
 import { heatmap } from "./stats";
-import { Desk } from "./desk/desk";
 import { Showcase } from "./showcase/showcase";
 import { openScreen } from "./desk/screen-specs";
 import { ago, bbsDate, rule, wrap } from "./text";
@@ -22,7 +21,7 @@ import { shellRunner } from "./drop";
 import { ActionRefused, ActionSet } from "./surface/actions";
 import { Dispatcher, type TileRef } from "./surface/dispatch";
 import { SHELL_IDLE_MS } from "./whereabouts";
-import { AGENT_ACTOR_ID, type Actor, type OutlineEvent } from "./socket";
+import type { Actor, OutlineEvent } from "./socket";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 

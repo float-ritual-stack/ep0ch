@@ -22,7 +22,7 @@ import { LineInput } from "../surface/line";
 import { Modes } from "../surface/modes";
 import { ListPicker, pickRow } from "../surface/picker";
 import { readState, writeState } from "../state";
-import { specData, type ScreenSpec } from "./screen-spec";
+import { containerKeys, leafNames, savedNodes, specData, type ScreenSpec } from "./screen-spec";
 import { bg, C, chip as chipStyle, fg, fitHint, headOf, pad, paint, RESET, selected, width } from "../style";
 import { themed } from "../theme";
 import { ch, type Key } from "../term";
@@ -31,14 +31,14 @@ import { emphasis } from "../inline";
 import { presentLinks } from "../refs";
 import { dropAt, handleDrop, type Drop, type DropTile } from "./drop";
 import {
-  allTiles, apply as applyOp, autoName, chainOf, copyTree, describe as describeLayout, dividerAt, dragShare, drawerOf, drawers, EDGE_GLYPH, effective, init, isLine, keepOnScreen, kidsOf, landing, layers as policyLayers, leaf, leaves,
-  neighbour, node, pair, parentNode, place as placeLayout, policyAt as policyOver, policyOf, policyOfNode, rects as rectsOf, refusal, reviveTree, revisionRefusal, serialize as serializeLayout,
-  shape as layoutShapeOf, shown, splitOf, tabsOf, tileOfColumn, travelTarget, visible, UNLOCK, type At, type Axis, type Columns, type Container, type Ctx as LayoutCtx, type Dir, type Divider, type Drawer, type Effective, type Float, type Flow,
+  allTiles, apply as applyOp, autoName, chainOf, describe as describeLayout, dividerAt, dragShare, drawerOf, drawers, EDGE_GLYPH, effective, init, isLine, keepOnScreen, kidsOf, landing, layers as policyLayers, leaf, leaves,
+  neighbour, node, parentNode, place as placeLayout, policyAt as policyOver, policyOf, policyOfNode, rects as rectsOf, refusal, reviveTree, revisionRefusal, serialize as serializeLayout,
+  shape as layoutShapeOf, shown, splitOf, tabsOf, tileOfColumn, travelTarget, visible, columnOf, UNLOCK, type At, type Axis, type Columns, type Container, type Ctx as LayoutCtx, type Dir, type Divider, type Drawer, type Effective, type Float, type Flow,
   type Grab, type HostMode, type LayoutState, type LNode, type Op, type Place, type Placed, type PlacedDrawer, type Policy, type Result, type TileFacts,
 } from "./screen-layout";
 import { drawSpine, SPINE } from "../spine";
 import { PANE_ACTIONS, type PaneDone, type PaneHost } from "./pane-actions";
-import { Entered, ReaderPane, sessionName, sessionStart, startSession, type DeskApi, type Pane, type PaneView, type SessionKind } from "./panes";
+import { Entered, ReaderPane, sessionName, sessionStart, startSession, type DeskApi, type Pane, type SessionKind } from "./panes";
 import { isEscapeChord, PtyPane, ESCAPE_CHORD } from "./pty";
 import { ptyBackend } from "./pty-backend";
 import { PreviewPane } from "./preview";
@@ -196,16 +196,13 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost, 
    * into it after being docked (the board's outline: its width; its backlinks: they stay).
    */
   private fromSpec(spec: ScreenSpec) {
-    const walk = (n: any) => {
-      if (!n || typeof n !== "object" || n.t === "leaf") return;
+    for (const n of savedNodes(spec.layout.root)) {
       if (n.t === "columns" && typeof n.key === "string" && typeof n.source === "string" && /:./.test(n.source)) {
         const c = node(this.root, n.key);
         if (c?.t === "columns" && c.id && c.source !== n.source) this.apply({ op: "source", container: c.id, source: n.source });
       }
       if (n.t === "drawer" && n.kid?.key && n.policy) { const k = node(this.root, n.kid.key); if (k?.id) this.apply({ op: "remember", key: k.id, policy: n.policy }); }
-      for (const k of [...(Array.isArray(n.kids) ? n.kids : []), ...(Array.isArray(n.tabs) ? n.tabs : []), n.kid, n.a, n.b]) walk(k);
-    };
-    walk(spec.layout.root);
+    }
   }
 
   /**
@@ -1184,7 +1181,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost, 
   /** Tile `p`'s column is the wide one of its flow. */
   isWide(p: Pane): boolean {
     const id = this.idOf(p), flow = id === undefined ? undefined : chainOf(this.root, id).find((c): c is Flow<number> => c.t === "flow");
-    return !!flow && flow.anchor !== undefined && flow.kids.findIndex(k => leaves(k).includes(flow.anchor!)) === flow.kids.findIndex(k => leaves(k).includes(id!));
+    return !!flow && flow.anchor !== undefined && columnOf(flow, flow.anchor) === columnOf(flow, id);
   }
   /** The id of the container with key `key` (the board's `lanes`), as `layout.get` and `layout.policy` name it. */
   containerId(key: string): string | undefined { return node(this.root, key)?.id; }
@@ -1655,7 +1652,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost, 
     };
     // A docked column of a flow (the river's p): it resists compression, and says so.
     const flow = chainOf(this.root, id).find((c): c is Flow<number> => c.t === "flow");
-    if (flow?.docked?.some(t => flow.kids.findIndex(k => leaves(k).includes(t)) === flow.kids.findIndex(k => leaves(k).includes(id)))) put("⊙ ", fg(C.yellow));
+    if (flow?.docked?.some(t => columnOf(flow, t) === columnOf(flow, id))) put("⊙ ", fg(C.yellow));
     if (set && set.ids.length > 1) {
       set.ids.forEach((t, i) => {
         if (i) put("│", fg(C.blue));
@@ -2867,7 +2864,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost, 
     const t = this.tile(sel);
     const flow = chainOf(this.root, t.id).find(c => c.t === "flow");
     if (flow && "kids" in flow && (dir === "left" || dir === "right")) {
-      const ci = flow.kids.findIndex(k => leaves(k).includes(t.id)), to = flow.kids[ci + (dir === "left" ? -1 : 1)];
+      const ci = columnOf(flow, t.id), to = flow.kids[ci + (dir === "left" ? -1 : 1)];
       if (!to) throw new ActionRefused(`no column ${dir === "left" ? "before" : "after"} ${t.name}`);
       return this.nameOf(leaves(to)[0]!);
     }
@@ -2880,7 +2877,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost, 
   travelPeek(p: Pane, dir: -1 | 1): string | null {
     const id = this.idOf(p), flow = id === undefined ? undefined : chainOf(this.root, id).find((c): c is Flow<number> => c.t === "flow");
     if (!flow || id === undefined) return null;
-    const ci = flow.kids.findIndex(k => leaves(k).includes(id)), to = travelTarget(flow, ci, dir), t = to < 0 ? undefined : tileOfColumn(flow, to);
+    const ci = columnOf(flow, id), to = travelTarget(flow, ci, dir), t = to < 0 ? undefined : tileOfColumn(flow, to);
     const q = t === undefined ? undefined : this.panes.get(t);
     return q ? q.headName?.() ?? q.title() : null;
   }
@@ -3128,11 +3125,6 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost, 
   }
 }
 
-/** The names of the leaves in a saved or spec'd tree (either form; anything else in it skipped). */
-function leafNames(n: any): string[] {
-  return !n || typeof n !== "object" ? [] : n.t === "leaf" ? (typeof n.name === "string" ? [n.name] : []) : [...(Array.isArray(n.kids) ? n.kids : []), ...(Array.isArray(n.tabs) ? n.tabs : []), n.kid, n.a, n.b].flatMap(leafNames);
-}
-
 /**
  * A screen as it was saved (its spec's `saves`), when it can come back: one missing a tile or container its spec
  * names comes back as its spec instead.
@@ -3141,9 +3133,7 @@ function savedScreen(x: unknown, spec: ScreenSpec): SavedDesk | null {
   if (!x || typeof x !== "object") return null;
   const o = x as Record<string, any>;
   if (!o.root) return o.models ? { root: undefined as never, focus: 0, models: o.models } : null;
-  const names = leafNames;
-  const keys = (n: any): string[] => (!n || typeof n !== "object" || n.t === "leaf" ? [] : [...(typeof n.key === "string" ? [n.key] : []), ...[...(Array.isArray(n.kids) ? n.kids : []), n.kid, n.a, n.b].flatMap(keys)]);
-  const want = names(spec.layout.root), have = new Set(names(o.root)), wantKeys = keys(spec.layout.root), haveKeys = new Set(keys(o.root));
+  const want = leafNames(spec.layout.root), have = new Set(leafNames(o.root)), wantKeys = containerKeys(spec.layout.root), haveKeys = new Set(containerKeys(o.root));
   // The desk's tiles are the person's own: anything goes. A screen of a fixed shape needs its tiles and named containers.
   if (!spec.layouts && (!want.every(n => have.has(n)) || !wantKeys.every(k => haveKeys.has(k)))) return { ...(o as SavedDesk), root: undefined as never };
   return o as SavedDesk;

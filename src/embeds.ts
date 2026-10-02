@@ -14,7 +14,7 @@ import type { Msg } from "./board";
 import { subject } from "./board";
 import type { DocEnv } from "./doc";
 import { printable, summarySegments, viewSummaryKeys, type Source } from "./props";
-import { anyChangeSince, changeClock, changedSince, LINK_OFF, LINK_ON, outlineChanged, type LinkTarget } from "./refs";
+import { anyChangeSince, changeClock, changedSince, LINK_OFF, LINK_ON, outlineChanged, shortId, type LinkTarget } from "./refs";
 import type { ChecklistStep, SocketBoard, TransclusionNode } from "./socket";
 import { BOLD, C, ellipsize, fg, LINK_END, linkTag, pad, RESET, tint, UNBOLD } from "./style";
 import { themed } from "./theme";
@@ -181,7 +181,7 @@ export function embedRegion(id: string, fragment: string | undefined, n: number,
   return [S(fg(C.lred) + `${shortRef(id, fragment)} · TARGET FAILED · ${printable(st.error).slice(0, 200)}` + RESET)];
 }
 
-const shortRef = (id: string, fragment?: string) => `!((${id.length > 12 ? id.slice(0, 8) + "…" : id}${fragment ? `^${fragment}` : ""}))`;
+const shortRef = (id: string, fragment?: string) => `!((${shortId(id)}${fragment ? `^${fragment}` : ""}))`;
 
 /** Tag `text` as link `to` in `sink` (or leave it as text without one). */
 const tagged = (sink: LinkTarget[] | undefined, to: LinkTarget, text: string) => (sink ? linkTag(sink.push(to) - 1) + text + LINK_END : text);

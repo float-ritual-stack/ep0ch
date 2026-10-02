@@ -25,7 +25,7 @@ import { arrive, columnOf, leaving, setAhead, setDocked, setFrom, squeeze, tileO
 import {
   activate, besideSlot, chainOf, clone, cycle, describeTree, dockedTiles, drawerOf, drawers, drawerToEdge, edge, effective, even, forgetIds, has, insert, isLine, kidsOf, leaf, leaves, move,
   node, nodeById, normalise, parentOf, placeScreen, policyOf, remove, resize, serialize as serializeTree, shown, tabInto, tabsOf, unwrapDrawer, visible, wrapDrawer, wrapNodeDrawer,
-  POLICY_KEYS, type Axis, type Container, type Dir, type Drawer, type Effective, type Flow, type Float, type HostMode, type Line, type LNode, type Place, type Placed, type PlacedScreen, type PlaceOpts, type Policy,
+  POLICY_KEYS, type Axis, type Container, type Dir, type Drawer, type Effective, type Flow, type Float, type HostMode, type Line, type LNode, type Place, type PlacedScreen, type PlaceOpts, type Policy,
 } from "./layout";
 import { SPINE } from "../spine";
 
@@ -43,7 +43,7 @@ export type {
 } from "./layout";
 export type { Cover } from "./flow";
 /** The flow's squeeze, and where back and forward go from a column (its trail). */
-export { squeeze, fullWidth, PEEK, travelTarget, tileOfColumn } from "./flow";
+export { columnOf, squeeze, fullWidth, PEEK, travelTarget, tileOfColumn } from "./flow";
 
 /** A screen's layout: everything about where its tiles are, and nothing about what they show. */
 export interface LayoutState<I = number> {

@@ -11,7 +11,7 @@
 //
 // Its code changes rarely and its protocol has a version (HOST_PROTOCOL): a daemon that finds a host of another
 // version can't adopt its programs, ends them and starts a host of its own (the tiles run their programs again).
-import { chmodSync, closeSync, existsSync, unlinkSync, writeSync } from "node:fs";
+import { chmodSync, closeSync, unlinkSync, writeSync } from "node:fs";
 import { connect, createServer, type Socket } from "node:net";
 import { constants } from "node:os";
 import { join } from "node:path";
@@ -19,6 +19,7 @@ import type { Subprocess } from "bun";
 import { privateDir, stateDir } from "../state";
 import type { Adopted, PtyBackend, PtyMeta, PtyProc, PtyStart } from "../desk/pty-backend";
 import { spawnReady } from "./start";
+import { jsonLine, listening } from "../jsonl";
 
 export const HOST_PROTOCOL = 1;
 /** What the host keeps of each program's output, to replay into the next daemon's emulator. */
@@ -71,12 +72,12 @@ interface Held extends HostPty { pty: InstanceType<typeof Bun.Terminal>; proc: S
 export async function servePtyHost(): Promise<never> {
   const ready = (m: object) => {
     if (process.env.EP0CH_SESSION_READY !== "3") return;
-    try { writeSync(3, JSON.stringify(m) + "\n"); closeSync(3); } catch { /* the starter went */ }
+    try { writeSync(3, jsonLine(m)); closeSync(3); } catch { /* the starter went */ }
     delete process.env.EP0CH_SESSION_READY;
   };
   if (!privateDir(stateDir(), true)) { ready({ ok: false, error: `${stateDir()} isn't yours alone` }); process.exit(1); }
   const path = ptyHostSocket();
-  if (await answering(path)) { ready({ ok: false, error: `a terminal host already serves ${path}` }); process.exit(1); }
+  if (await listening(path)) { ready({ ok: false, error: `a terminal host already serves ${path}` }); process.exit(1); }
   try { unlinkSync(path); } catch { /* none */ }
   const held = new Map<number, Held>();
   let daemon: Socket | null = null;
@@ -194,15 +195,6 @@ function replayOf(h: Held): Buffer {
   const nl = all.indexOf(0x0a);
   return nl >= 0 ? all.subarray(nl + 1) : all;
 }
-
-/** Is a host answering on `path`? */
-export const answering = (path: string, ms = 2000) => new Promise<boolean>(res => {
-  if (!existsSync(path)) return res(false);
-  const c = connect(path, () => { c.end(); res(true); });
-  const t = setTimeout(() => { c.destroy(); res(false); }, ms);
-  c.on("error", () => { clearTimeout(t); res(false); });
-  c.on("close", () => clearTimeout(t));
-});
 
 /** Start the host for this state dir, detached, and wait until it serves (it says so on fd 3). */
 export const startPtyHost = (timeoutMs = 15_000) => spawnReady(["session", "pty-host"], process.env as Record<string, string>, hostLog(), "the terminal host", timeoutMs);
@@ -359,14 +351,14 @@ export class HostPtys implements PtyBackend {
 export async function ensurePtyHost(): Promise<{ host: HostPtys; ended: number }> {
   const path = ptyHostSocket();
   let ended = 0;
-  if (await answering(path)) {
+  if (await listening(path)) {
     try { return { host: await HostPtys.connect(path), ended }; }
     catch (e) {
       const old = (e as { host?: HostPtys }).host;
       if (!old) throw e;
       ended = old.unadopted().length;
       old.endAll();
-      for (let i = 0; i < 50 && (await answering(path, 200)); i++) await Bun.sleep(100);
+      for (let i = 0; i < 50 && (await listening(path, 200)); i++) await Bun.sleep(100);
     }
   }
   const started = await startPtyHost();

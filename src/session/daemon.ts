@@ -10,10 +10,10 @@
 // its own state dir has its own session and never reaches the person's.
 import { closeSync, existsSync, openSync, readFileSync, rmSync, writeFileSync, writeSync, chmodSync, unlinkSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
 import type { App } from "../app";
 import { openDoor, connectTarget, guardDoor, type Door } from "../door";
-import { listening } from "../control";
+import { jsonLine, listening } from "../jsonl";
 import { endUnkept, livePrograms } from "../desk/pty";
 import { usePtyBackend } from "../desk/pty-backend";
 import { ensurePtyHost, type HostPtys } from "./pty-host";
@@ -84,7 +84,7 @@ export async function serve(args: string[]): Promise<never> {
   delete process.env.EP0CH_SESSION_READY;
   const ready = (m: { ok: true; socket: string } | { ok: false; error: string }) => {
     if (readyFd === null) return;
-    try { writeSync(readyFd, JSON.stringify(m) + "\n"); } catch { /* the starter went */ }
+    try { writeSync(readyFd, jsonLine(m)); } catch { /* the starter went */ }
     try { closeSync(readyFd); } catch { /* closed */ }
   };
   const dir = privateDir(stateDir(), true);

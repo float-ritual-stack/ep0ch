@@ -12,7 +12,7 @@
 import { connect, type Socket } from "node:net";
 import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
-import { listening } from "../control";
+import { listening } from "../jsonl";
 import { resolveTarget } from "../discover";
 import { appendNest, nestLayers } from "../nest";
 import { stateDir } from "../state";
@@ -21,7 +21,7 @@ import { ago } from "../text";
 import { codeVersion, LOCKED, serve } from "./daemon";
 import { HostPtys, ptyHostSocket, servePtyHost } from "./pty-host";
 import { forgetSession } from "./restore";
-import { ask, sessionEnv, sessionInfo, sessionSocket, startSession, TERMINAL_VARS, waitFor } from "./start";
+import { askSession, sessionEnv, sessionInfo, sessionSocket, startSession, TERMINAL_VARS, waitFor } from "./start";
 export { sessionInfo };
 import { encode, Frames, PROTOCOL, type DaemonMsg, type Hello, type SessionInfo } from "./protocol";
 
@@ -285,11 +285,11 @@ export async function upgradeSession(o: { clients?: boolean; handoff?: boolean }
   if (!before) return { ok: false, message: `no session in ${stateDir()}` };
   const here = codeVersion();
   if (o.clients || (!o.handoff && before.code.commit && before.code.commit === here.commit)) {
-    await ask(path, { t: "reload" });
+    await askSession(path, { t: "reload" });
     const n = before.clients.length;
     return { ok: true, message: `the session (pid ${before.pid}) runs ${before.code.commit?.slice(0, 9) ?? "this code"} already · its ${n} terminal${n === 1 ? "" : "s"} start${n === 1 ? "s" : ""} again on this checkout${o.clients ? "" : " (`ep0ch session restart` hands it over anyway, for changes not committed yet)"}` };
   }
-  const r = await ask(path, { t: "upgrade" }, 60_000);
+  const r = await askSession(path, { t: "upgrade" }, 60_000);
   if (r?.t !== "ask" || r.message !== "handed over") return { ok: false, message: r?.t === "ask" ? r.message : "the session didn't answer the handoff" };
   const after = await sessionInfo(path);
   const progs = before.terminals.length, n = before.clients.length;

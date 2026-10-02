@@ -7,7 +7,6 @@
 // replies in place, a filter, a column of the same property, a column stacked under it, its text selected and copied.
 // The layout (widen, dock, close, back and forward) is the engine's tile actions.
 import { bodyLinesOf, subject, type Msg } from "../board";
-import { Canvas } from "../canvas";
 import { USER, type Actor, type IndexBlock, type OutlineEvent, type SocketBoard } from "../socket";
 import { ActionRefused, ActionSet } from "../surface/actions";
 import { historyRow, IN_TRASH, type Link } from "../surface/note";

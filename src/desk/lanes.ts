@@ -1252,7 +1252,6 @@ type Composer =
   | { kind: "card"; lane: Lane; planning: boolean; born: { key: string; value: string }[]; defaults: { key: string; value: string }[]; needs: string[]; parent: (ParentPick & { title: string }) | null; session: DraftSession }
   | { kind: "child"; parent: Msg; session: DraftSession };
 
-const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 30) || "lane";
 /** A step's first line, without its list mark, checkbox and ^id. */
 const stepText = (t: string) => (t.split("\n")[0] ?? "").replace(/^\s*(?:[-*+]|\d+[.)])\s+\[[ xX~!]\]\s*/, "").replace(/\s*\^[\w-]+\s*$/, "").trim();
 /** `(project=a OR project=b)` → `project::a`: a token the person could type to meet it. */

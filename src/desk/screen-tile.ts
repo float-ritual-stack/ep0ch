@@ -12,7 +12,6 @@ import { ch, type Key } from "../term";
 import type { DeskApi, Pane, PaneView } from "./panes";
 
 export type ScreenKind = "board" | "river";
-export const SCREEN_KINDS: readonly ScreenKind[] = ["board", "river"];
 
 /** The screen for a kind, built when the tile is first shown (every module has loaded by then). */
 function make(kind: ScreenKind): Screen {
