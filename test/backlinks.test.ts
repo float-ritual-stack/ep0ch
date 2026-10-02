@@ -10,7 +10,8 @@ import {
   BACKLINK_SORT_ORDER, BACKLINK_STAGE_FILTERS, DEFAULT_BACKLINK_VIEW_OPTIONS, fitBacklinkRow, nextBacklinkKindFilter, nextBacklinkSort,
   nextBacklinkStageFilter, type BacklinkCollection, type BacklinkSource, type BacklinkSourceFacets, type BacklinkView, type BacklinkViewOptions,
 } from "../src/backlinks";
-import { DeliveryBoard } from "../src/desk/delivery";
+import { boardScreen } from "../src/desk/screen-specs";
+import { Desk } from "../src/desk/desk";
 import { MainMenu } from "../src/screens";
 import { SocketBoard, USER } from "../src/socket";
 import type { Key } from "../src/term";
@@ -196,10 +197,10 @@ describe("the door's own parts of the view", () => {
 
 describe.skipIf(!outliner)("the board's backlinks drawer: Detail's facets and defaults, by keys, mouse and act", () => {
   const scratch = new Scratch();
-  let board: SocketBoard, app: App, b: DeliveryBoard, hub: any, target: any;
+  let board: SocketBoard, app: App, b: Desk, hub: any, target: any;
   const ids: Record<string, string> = {};
   let key: (k: Key) => void = () => {};
-  const B = () => b as any;
+  const B = () => BV.view(b);
   const ch = (c: string) => key({ kind: "char", ch: c });
   const create = (parentId: string | null, text: string) => board.request<any>("create", { parentId, text, author: "agent" });
   const plain = (s: string) => s.replace(/\x1b\[[\d;]*m/g, "").replace(/[\u{100000}-\u{10FFFD}]/gu, "");
@@ -222,8 +223,8 @@ describe.skipIf(!outliner)("the board's backlinks drawer: Detail's facets and de
   };
 
   const openDrawer = async () => {
-    if ((app as any).stack.at(-1) instanceof DeliveryBoard) app.pop();
-    b = new DeliveryBoard(hub.id, false);
+    if ((app as any).stack.at(-1) instanceof Desk) app.pop();
+    b = boardScreen(hub.id, false);
     app.push(b);
     await until(() => B().lanes[0]?.items?.length === 1 && B().preview.msg?.id === target.id, "the card in the preview", 10_000);
     ch("b");

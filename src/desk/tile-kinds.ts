@@ -6,7 +6,7 @@
 import type { Msg } from "../board";
 import type { Canvas, Rect } from "../canvas";
 import type { Placement } from "../kitty";
-import type { Actor, Change } from "../socket";
+import type { Actor, Change, OutlineEvent } from "../socket";
 import type { ActionSet } from "../surface/actions";
 import { nameKinds, type Dispatcher } from "../surface/dispatch";
 import type { Key } from "../term";
@@ -210,6 +210,89 @@ export interface TileSource {
   readonly drop?: string;
   /** Which tile is which across a refill: a tile with the same key is kept. */
   key(spec: Partial<TileSpec>): string | null;
+  /**
+   * What it keeps for a columns container it fills, and does there (PIE-515: the board's lanes are the hub source's
+   * tiles, and what they share is its model: the hub shown, the lane cursor, a card being moved or written). Made once
+   * per container as the screen starts (`saved`: what it kept last time, `SourceModel.save`).
+   */
+  model?(host: ColumnsHost, container: string, saved?: unknown): SourceModel;
+  /** Its model's actions (the board's card.*, board.hub), on the screen its container is on (none named: the model there). */
+  readonly actions?: ActionSet<any, { model: SourceModel }>;
+}
+
+/**
+ * What a source's model shares with the screen it's on: its tiles, the keys, the person's typing, where a note opens.
+ * The desk is this; the model never sees the layout.
+ */
+export interface ColumnsHost extends DeskApi {
+  /** The container's tiles its source supplied, in its order (a tile moved out of it after). */
+  supplied(container: string): Pane[];
+  /** The pane with the person's keys now. */
+  focusedPane(): Pane | undefined;
+  /** Show `source` in the container (another hub) and fill it again; resolves once filled. */
+  showSource(container: string, source: string): Promise<void>;
+  /** Run an action as the person's key (a refusal said), in tile `p` (or its own default). */
+  pressAction(set: ActionSet<any, any>, name: string, args?: Record<string, unknown>, p?: Pane, quiet?: boolean | ((why: string) => string | null), given?: unknown): Promise<unknown>;
+  /** Run another action inside this one, for `by`, in tile `p`: its refusal is thrown to the action that asked. */
+  within(action: string, args: Record<string, unknown>, by: Actor, p?: Pane): Promise<unknown>;
+  /** The screen's title, as it says it now (a model names its board: `board · Delivery Flow`). */
+  title: string;
+  /** The tile drawn on top at a cell, if any (a card dragged over a lane). */
+  paneAt(x: number, y: number): { pane: Pane; rect: Rect } | null;
+  /** Each tile as drawn now (for the mouse). */
+  rectOf(p: Pane): Rect | undefined;
+  /** Whether tile `p` is folded to a spine, or floats. */
+  folded(p: Pane): boolean;
+  isFloating(p: Pane): boolean;
+  /** The source a container shows now (`hub:<id>`). */
+  sourceOf?(container: string): string | undefined;
+  /** Save the screen now (a model's state changed: the hub shown). */
+  saveNow(): void;
+  /** The tiles following any tile in the container (a preview with `source=tile:<its key>`). */
+  followersOf(container: string): Pane[];
+  /** Every reader on the screen, by name. */
+  readerPanes(): { name: string; pane: import("./panes").ReaderPane }[];
+  /** A tile's name. */
+  nameOfPane(p: Pane): string;
+  /** The person's keys go into the session `p` holds (an edit they left), as e or ⏎ does. */
+  enterSession(p: import("./panes").ReaderPane): void;
+  /** Leave the screen (the hub picker put away with no board yet): the shell's back. */
+  leave(): void;
+}
+
+/** A source's model (`TileSource.model`): what a columns container it fills shares, beside its tiles. */
+export interface SourceModel {
+  /** A tile it supplied (new, or kept from before), before it starts. */
+  supplied?(p: Pane): void;
+  /** The container was filled (a hub shown, a view added): the source's title for the screen. */
+  filled?(title?: string): void;
+  /** The screen is about to draw (what its tiles show of it now: a card dragged over a lane). */
+  frame?(): void;
+  /** Its own overlay over the screen (a picker, the composer), in `area`; true when it took it (images go). */
+  drawOver?(canvas: Canvas, area: Rect): boolean;
+  /** A key or a click, before the screen's keys: true when it took it (an overlay open holds every key). */
+  key?(k: Key): boolean;
+  /** Its own mode's hint row, which outranks the screen's (a card dragged, the composer), or null. */
+  hint?(): string | null;
+  /** The screen's hint as it says it here (a banner before it: a card trashed; a status after). */
+  decorate?(hint: string): string;
+  /** The person's keys are its business now (an overlay or picker open). */
+  busy?(): boolean;
+  /** What an empty container of it says (no lanes yet: looking for boards). */
+  empty?(): string | null;
+  /** What `peek` says of it. */
+  peek?(): Record<string, unknown>;
+  onEvent?(e: OutlineEvent): void;
+  /** An unsaved draft it holds (a new card being written), and keeping it when the screen goes. */
+  unsaved?(): boolean;
+  keepDrafts?(): string[];
+  /** What it keeps between runs. */
+  save?(): unknown;
+  dispose?(): void;
+  /** The block an action of its that names none writes, for `actor` (the card selected), for the draft rule. */
+  draftBlock?(actor: Actor): string | null;
+  /** The summary keys a note shows with, when the model's tiles list it (a lane's `[summary-properties::…]`). */
+  summaryKeys?(m: Msg): readonly string[] | null;
 }
 const sources = new Map<string, TileSource>();
 /** Register a tile source (refused under a name taken already). */

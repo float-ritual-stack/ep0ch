@@ -13,7 +13,8 @@ import { join } from "node:path";
 import { App } from "../src/app";
 import "../src/screens";
 import { Desk } from "../src/desk/desk";
-import { DeliveryBoard } from "../src/desk/delivery";
+import { boardScreen } from "../src/desk/screen-specs";
+import * as BV from "./board-view";
 import { ReaderPane } from "../src/desk/panes";
 import { River } from "../src/river/river";
 import { MainMenu } from "../src/screens";
@@ -328,10 +329,10 @@ describe.skipIf(!outliner)("routing on the desk, the board and the river: tile.t
   }, 30_000);
 
   test("the board: open by its words (detail, new-detail, float, preview), a reader's name or a block id; tile.type the same as the desk", async () => {
-    const b = new DeliveryBoard(notes.hub.id, false), B = b as any;
+    const b = boardScreen(notes.hub.id, false), B: any = BV.view(b);
     app.push(b);
     await until(() => B.lanes.length === 2 && B.lanes.every((l: any) => l.items), "the lanes", 10_000);
-    const where = () => B.focus;
+    const where = () => BV.where(b);
     const was = where();
     expect(await act("open", { id: notes.beans.id }, "detail")).toMatchObject({ reader: "detail1", id: notes.beans.id });
     expect(await act("open", { id: notes.peas.id }, "new-detail")).toMatchObject({ reader: "detail2", id: notes.peas.id });
@@ -402,7 +403,7 @@ describe.skipIf(!outliner)("routing on the desk, the board and the river: tile.t
     await desk.dispatch.act({ action: "tile.focus", reader: "middle" }, USER);
     await sweep("desk");
     app.pop();
-    const b = new DeliveryBoard(notes.hub.id, false), B = b as any;
+    const b = boardScreen(notes.hub.id, false), B: any = BV.view(b);
     app.push(b);
     await until(() => B.lanes.length === 2 && B.lanes.every((l: any) => l.items), "the lanes", 10_000);
     await sweep("board");

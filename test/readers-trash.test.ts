@@ -5,7 +5,8 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { App } from "../src/app";
-import { DeliveryBoard } from "../src/desk/delivery";
+import { boardScreen } from "../src/desk/screen-specs";
+import * as BV from "./board-view";
 import { Desk } from "../src/desk/desk";
 import { River } from "../src/river/river";
 import { MessageReader } from "../src/screens";
@@ -113,7 +114,7 @@ describe.skipIf(!outliner)("a child shown while its parent goes to the Trash, on
     const hub = await make(null, "Pantry board");
     await make(hub.id, "Queued [type::virtual-branch] [query::stage=queued]");
     const { parent, child } = await family("medlars");
-    const b = new DeliveryBoard(hub.id), B = b as any;
+    const b = boardScreen(hub.id), B: any = BV.view(b);
     app.push(b);
     try {
       await until(() => !!B.preview, "the board", 10_000);

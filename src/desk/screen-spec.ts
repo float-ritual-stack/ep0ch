@@ -39,14 +39,22 @@ export interface ScreenSpec {
   layout: LayoutSpec;
   /** Its keys: each names an action, run as the person, before the focused tile's own keys. */
   keys?: KeyBinding[];
-  /** Its hint row, after the focused tile's own keys (`|NN` colours, as the BBS's). */
-  hint?: string;
+  /**
+   * Its hint row while nothing else is going on (`|NN` colours, as the BBS's): one for the whole screen, or one per
+   * focused tile's kind (`query`, `backlinks`; `float` for a float, `spine` after a folded tile's name, `*` the rest).
+   */
+  hint?: string | Record<string, string>;
   /** The tile (by name) whose kind draws a band across the top of the screen (the welcome's logo and tabs). */
   band?: string;
   /** The glyphs its tiles' frames are drawn with: `dotted` (the welcome's `::....::`), or the desk's lines. */
   frame?: "dotted";
   /** `false`: the digits are the screen's own (its key map's), so tiles aren't numbered and 1-9 don't focus them. */
   digits?: false;
+  /**
+   * Where the keys go back to (a tile's name or a container's key: the board's lanes): `Esc` and `q` step back there
+   * before they leave the screen, and the keys land there when the drawer they were in shuts.
+   */
+  home?: string;
   /** Where an agent's open naming no tile lands (`ep0ch open <id>`): a tile, by name, that takes the note its way. */
   lands?: string;
   /** What an "open fresh" (alt+⏎, a ctrl- or alt-click) from its tiles runs, with `id`: an action's name. */
@@ -104,7 +112,7 @@ export function readSpec(x: unknown, known = false): ScreenSpec {
   const spec: ScreenSpec = {
     name, title, layout,
     ...(keys ? { keys } : {}),
-    ...str("hint"), ...str("band"), ...str("lands"), ...str("fresh"), ...str("saves"),
+    ...str("hint"), ...hintMap(o.hint), ...str("band"), ...str("home"), ...str("lands"), ...str("fresh"), ...str("saves"),
     ...(o.frame === "dotted" ? { frame: "dotted" as const } : {}),
     ...(o.digits === false ? { digits: false as const } : {}),
     ...(o.layouts === true ? { layouts: true as const } : {}),
@@ -112,9 +120,10 @@ export function readSpec(x: unknown, known = false): ScreenSpec {
   if (known) for (const k of leafKinds(layout.root)) if (!isTileKind(k)) throw new Error(`screen ${name}: no tile kind ${k} here`);
   // What it names by name is in its layout: a key's tile, the band's tile, where opens land and the keys go home.
   const tiles = new Set(leafNames(layout.root)), places = new Set([...tiles, ...containerKeys(layout.root)]);
-  for (const b of spec.keys ?? []) if (b.tile !== undefined && !tiles.has(b.tile)) throw new Error(`screen ${name}: key ${b.key} runs in tile ${b.tile}, which its layout hasn't`);
+  // `all`: every tile (tile.collapse on=false tile=all reopens every spine); a container by its key: the tile last in it.
+  for (const b of spec.keys ?? []) if (b.tile !== undefined && b.tile !== "all" && !places.has(b.tile)) throw new Error(`screen ${name}: key ${b.key} runs in tile ${b.tile}, which its layout hasn't`);
   if (spec.band !== undefined && !tiles.has(spec.band)) throw new Error(`screen ${name}: its band is drawn by tile ${spec.band}, which its layout hasn't`);
-  if (spec.lands !== undefined && !places.has(spec.lands)) throw new Error(`screen ${name}: lands names ${spec.lands}, neither a tile nor a container of its layout`);
+  for (const k of ["lands", "home"] as const) if (spec[k] !== undefined && !places.has(spec[k]!)) throw new Error(`screen ${name}: ${k} names ${spec[k]}, neither a tile nor a container of its layout`);
   return spec;
 }
 
@@ -128,6 +137,12 @@ function containerKeys(n: any): string[] {
   if (!n || typeof n !== "object" || n.t === "leaf") return [];
   return [...(typeof n.key === "string" ? [n.key] : []), ...[...(Array.isArray(n.kids) ? n.kids : []), n.kid, n.a, n.b].flatMap(containerKeys)];
 }
+/** A hint per focused kind, as data: its strings only. */
+const hintMap = (x: unknown): { hint?: Record<string, string> } => {
+  if (!x || typeof x !== "object" || Array.isArray(x)) return {};
+  const out = Object.fromEntries(Object.entries(x as Record<string, unknown>).filter(([, v]) => typeof v === "string") as [string, string][]);
+  return Object.keys(out).length ? { hint: out } : {};
+};
 
 /** The kinds of a saved tree's tiles. */
 function leafKinds(n: any): string[] {

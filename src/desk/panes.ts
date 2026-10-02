@@ -60,6 +60,17 @@ export interface DeskApi {
   focusPane?(p: Pane, actor: Actor): void;
   /** The person's keys are held here right now (typing, a picker, a ^W chord): a screen's own key waits. */
   personTyping?(): boolean;
+  /** Tile `p` is on screen now (not in a shut drawer, not a hidden tab). */
+  shownNow?(p: Pane): boolean;
+  /** Tile `p` is in a drawer (not docked in the layout). */
+  inDrawer?(p: Pane): boolean;
+  /** The side of the screen tile `p` is on (its drawer's edge, else where it's placed). */
+  sideOf?(p: Pane): "left" | "right";
+  /**
+   * The person's backlinks (`b`): tile `p` lists the backlinks of `m` (else of the note the reader they read through
+   * shows), following the reader that shows it; its drawer slides open and their keys go to it.
+   */
+  aimBacklinks?(p: Pane & { source: string; show(m: Msg, desk: DeskApi): Promise<void> }, m: Msg | null): Promise<void>;
 }
 
 export interface Pane {
@@ -109,6 +120,11 @@ export interface Pane {
   blur?(): void;
   /** Folded to a spine (true) or opened again: what it holds stays exactly as it was. */
   folded?(on: boolean): void;
+  /**
+   * Controls for its header after its title, when they fit in `room` columns (the backlinks' status: sort, kind,
+   * stage), each its text, colour and what a click on it does; null when they don't fit (it draws them itself).
+   */
+  headControls?(room: number, desk: DeskApi): { text: string; sgr: string; press?: () => void }[] | null;
 }
 
 let SEL_ON = "", SEL_OFF = "";

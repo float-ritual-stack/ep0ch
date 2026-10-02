@@ -7,7 +7,8 @@ import { join } from "node:path";
 import { App } from "../src/app";
 import type { Msg } from "../src/board";
 import { renderDoc } from "../src/doc";
-import { DeliveryBoard } from "../src/desk/delivery";
+import { boardScreen } from "../src/desk/screen-specs";
+import type { Desk } from "../src/desk/desk";
 import { embedRegion, invalidateEmbeds, MAX_EMBEDS, shade } from "../src/embeds";
 import { answer, invalidateLive, resolveLive, setLiveSource } from "../src/live";
 import { metadataLines, setUserSummaryKeys, summaryKeys, summarySegments, type Source } from "../src/props";
@@ -241,10 +242,10 @@ describe("live figures: the query grammar", () => {
 
 describe.skipIf(!outliner)("the property panel and transclusions, against a scratch outline", () => {
   const scratch = new Scratch();
-  let board: SocketBoard, other: SocketBoard, app: App, b: DeliveryBoard;
+  let board: SocketBoard, other: SocketBoard, app: App, b: Desk;
   let key: (k: Key) => void = () => {};
   const ids = {} as Record<"plan" | "shed" | "chores" | "nested" | "card", string>;
-  const B = () => b as any;
+  const B = () => BV.view(b);
   const AS = "test-agent-9";
   const act = (action: string, args: Record<string, unknown> = {}, reader = "preview") => app.act({ action, args, reader, as: AS }) as Promise<any>;
   const create = async (parentId: string | null, text: string) => (await board.request("create", { parentId, text, author: "agent" })).id as string;
@@ -280,7 +281,7 @@ describe.skipIf(!outliner)("the property panel and transclusions, against a scra
     const term = { info: { cols: 180, rows: 60, cellW: 9, cellH: 16, kitty: false }, write() {}, paint() {}, invalidate() {}, onKey(f: any) { key = f; }, onResize() {}, stop() {}, resume() {} };
     app = new App(term as any, board, Date.now(), () => {});
     board.subscribe(e => app.event(e));
-    b = new DeliveryBoard(hub);
+    b = boardScreen(hub);
     app.push(new MainMenu()); app.push(b);
     await until(() => B().lanes.length === 1 && B().lanes[0].items?.length === 1, "the lane", 10_000);
     await act("open", { id: ids.card });

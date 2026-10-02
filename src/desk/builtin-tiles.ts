@@ -11,7 +11,8 @@ import { PreviewPane, sourceName, sourceOf } from "./preview";
 import { PtyPane } from "./pty";
 import { PTY_ACTIONS } from "./pty-actions";
 import { ScreenTile, type ScreenKind } from "./screen-tile";
-import { HUB_SOURCE, laneTileName, QUERY_ACTIONS, QueryPane } from "./query";
+import { laneTileName, QUERY_ACTIONS, QueryPane } from "./query";
+import { HUB_SOURCE } from "./lanes";
 import { kindOf, registerTileKind, registerTileSource, tileKind, tileSource, type TileKind } from "./tile-kinds";
 import { DetailPane, dailyDraft, editor, shell, words } from "./tiles";
 import { TREE_ACTIONS } from "./tree";
@@ -56,11 +57,13 @@ const builtins = (): TileKind[] => [
     shows: p => (p as TreePane).selected(),
     view: p => { const m = (p as TreePane).selected(); return { viewport: { selected: m?.id ?? null, title: m ? subject(m) : null } }; },
     describe: (p, full) => (full ? { tree: (p as TreePane).describe() } : {}),
+    // The outline as a screen shows it: open (on screen), pinned (docked, not in a drawer), its side, and its rows when shown.
+    peek: (p, desk) => { const open = desk.shownNow?.(p) ?? true; return { outline: { open, pinned: !desk.inDrawer?.(p), side: desk.sideOf?.(p) ?? "left", ...(open ? { rows: (p as TreePane).describe() } : {}) } }; },
   },
   { kind: "reader", about: "a reader that follows the current note", keys: [{ key: "r", label: "reader" }], make: () => new ReaderPane(true), ...reading, actions: READER_ACTIONS },
   {
     kind: "detail", about: "a reader that keeps its note (note=<id>, or page=<name> to pin [[name]])", keys: [{ key: "d", label: "detail" }],
-    make: s => { const r = new DetailPane(); if (s.page) r.page = s.page; else if (s.note) r.want = s.note; return r; },
+    make: s => { const r = new DetailPane(); if (s.page) r.page = s.page; else if (s.note) r.want = s.note; if (s.label) r.label = s.label; return r; },
     ...reading,
     start: (p, env) => {
       const d = p as DetailPane;
@@ -166,6 +169,8 @@ const builtins = (): TileKind[] => [
     check: s => (s.source && !/^tile:./.test(s.source) ? "a backlinks tile's source is tile:<name>" : null),
     defaults: (s, at) => (s.source ? {} : { source: `tile:${at.name}` }),
     describe: (p, full) => ({ source: `tile:${(p as BacklinksPane).source}`, ...(full ? { backlinks: (p as BacklinksPane).describe() } : {}) }),
+    // The backlinks as the screen shows them: what they list and from which tile, while they're on screen and aimed.
+    peek: (p, desk) => { const L = p as BacklinksPane; return { backlinks: (desk.shownNow?.(p) ?? true) && L.target ? { from: L.source, pinned: !desk.inDrawer?.(p), ...L.describe() } : null }; },
   },
 ];
 

@@ -9,7 +9,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { App } from "../src/app";
 import { Desk } from "../src/desk/desk";
-import { DeliveryBoard } from "../src/desk/delivery";
+import { boardScreen } from "../src/desk/screen-specs";
 import type { ReaderPane } from "../src/desk/panes";
 import { River } from "../src/river/river";
 import { MainMenu } from "../src/screens";
@@ -65,10 +65,10 @@ describe("without a service", () => {
 
 describe.skipIf(!outliner)("elements in readers, against a scratch outline", () => {
   const scratch = new Scratch();
-  let board: SocketBoard, app: App, b: DeliveryBoard, hub: any;
+  let board: SocketBoard, app: App, b: Desk, hub: any;
   const n: Record<string, any> = {};
   let key: (k: Key) => void = () => {};
-  const B = () => b as any;
+  const B = () => BV.view(b);
   const AS = "test-agent-441";
   const create = (parentId: string | null, text: string) => board.request<any>("create", { parentId, text, author: "agent" });
   const act = (action: string, args: Record<string, unknown> = {}, reader?: string, as?: string) => app.act({ action, args, reader, as });
@@ -93,8 +93,8 @@ describe.skipIf(!outliner)("elements in readers, against a scratch outline", () 
   };
   /** A fresh board, the preview on the jobs card with everything in it drawn. */
   const fresh = async () => {
-    if ((app as any).stack.at(-1) instanceof DeliveryBoard) app.pop();
-    b = new DeliveryBoard(hub.id);
+    if ((app as any).stack.at(-1) instanceof Desk) app.pop();
+    b = boardScreen(hub.id);
     app.push(b);
     await until(() => B().lanes[0]?.items?.length === 1, "the lane", 10_000);
     await whole(B().preview, n.jobs.id);
@@ -380,7 +380,7 @@ describe.skipIf(!outliner)("elements in readers, against a scratch outline", () 
   }, 20_000);
 
   test("the desk: alt+⏎ on a link opens a new reader holding it; ⏎ follows in place", async () => {
-    if ((app as any).stack.at(-1) instanceof DeliveryBoard) app.pop();
+    if ((app as any).stack.at(-1) instanceof Desk) app.pop();
     const desk = new Desk(), D = desk as any;
     app.push(desk);
     try {
@@ -399,7 +399,7 @@ describe.skipIf(!outliner)("elements in readers, against a scratch outline", () 
   }, 30_000);
 
   test("the river: alt+⏎ on a selected link opens the link in a new column, not the card", async () => {
-    if ((app as any).stack.at(-1) instanceof DeliveryBoard) app.pop();
+    if ((app as any).stack.at(-1) instanceof Desk) app.pop();
     const river = new River(), R = river as any;
     app.push(river);
     try {

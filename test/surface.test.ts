@@ -9,7 +9,7 @@ import { agentActor, App } from "../src/app";
 import type { Msg } from "../src/board";
 import { CommentSession } from "../src/comment";
 import { Desk } from "../src/desk/desk";
-import { DeliveryBoard } from "../src/desk/delivery";
+import { boardScreen } from "../src/desk/screen-specs";
 import { ReaderPane } from "../src/desk/panes";
 import { Draft } from "../src/edit";
 import { recordAs } from "../src/draft-session";
@@ -287,11 +287,11 @@ describe("the surface without a service", () => {
 
 describe.skipIf(!outliner)("agents acting through the surface, against a scratch outline", () => {
   const scratch = new Scratch();
-  let board: SocketBoard, other: SocketBoard, app: App, b: DeliveryBoard, hub: any;
+  let board: SocketBoard, other: SocketBoard, app: App, b: Desk, hub: any;
   const cards: Record<string, any> = {};
   let key: (k: Key) => void = () => {};
   const AS = "test-agent-7";
-  const B = () => b as any;
+  const B = () => BV.view(b);
   const act = (action: string, args: Record<string, unknown> = {}, reader?: string) => app.act({ action, args, reader, as: AS });
   /** The person has been away from the keys longer than the idle window (an agent may move their screen). */
   const idle = () => { (app as any).lastInput = 0; };
@@ -324,7 +324,7 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
     const term = { info: { cols: 180, rows: 50, cellW: 9, cellH: 16, kitty: false }, write() {}, paint() {}, invalidate() {}, onKey(f: any) { key = f; }, onResize() {}, stop() {}, resume() {} };
     app = new App(term as any, board, Date.now(), () => {});
     board.subscribe(e => app.event(e));
-    b = new DeliveryBoard(hub.id);
+    b = boardScreen(hub.id);
     app.push(new MainMenu()); app.push(b);
     await until(() => B().lanes.length === 2 && B().lanes.every((l: any) => l.items), "the lanes", 10_000);
   }, 30_000);
@@ -539,8 +539,9 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
     expect(BV.where(b)).toBe(region);
     // Giving the keys away is only ever an explicit action, once the person is idle, and it says so.
     idle();
-    expect(await act("focus", {}, "lanes")).toEqual({ focus: "lanes" });
-    expect(message()).toContain("an agent (test-agent-7) gave the keys to lanes");
+    const lane = B().lanes[B().lane].name;
+    expect(await act("focus", {}, "lanes")).toEqual({ tile: lane, focus: lane });
+    expect(message()).toContain(`an agent (test-agent-7) gave the keys to ${lane}`);
     await b.dispatch.act({ action: "focus", reader }, { kind: "user" });
     await settled();
   });
@@ -548,7 +549,7 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
   test("an agent can't act in a drawer's reader while the drawer is shut", async () => {
     expect(B().treeOpen).toBe(false);
     expect(B().describe().backlinks).toBeNull();
-    await expect(act("open", { id: cards.gate.id }, "tree")).rejects.toThrow("tree-preview isn't on screen; open it first (t opens the outline drawer)");
+    await expect(act("open", { id: cards.gate.id }, "tree")).rejects.toThrow("tree-preview isn't on screen (its drawer is shut)");
     await expect(act("edit.text", { text: "x" }, "backlinks")).rejects.toThrow("backlinks-preview isn't on screen");
   });
 

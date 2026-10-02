@@ -10,7 +10,8 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { App } from "../src/app";
 import { subject, type Msg } from "../src/board";
-import { DeliveryBoard } from "../src/desk/delivery";
+import { boardScreen } from "../src/desk/screen-specs";
+import type { Desk } from "../src/desk/desk";
 import { external } from "../src/open";
 import { forgetProjectionAnswers, mayHaveProjections, PROJECTION_KEYS, projectionLayout, relativeAge, resourceChanged, ticketRegion, type ResourceProjection, type ResourceProjectionRead } from "../src/projection";
 import type { LinkTarget } from "../src/refs";
@@ -325,10 +326,10 @@ describe("a projection in a reader", () => {
 describe.skipIf(!outliner)("projections from a scratch service, in the board's readers", () => {
   const scratch = new Scratch();
   // `board` is the door's connection; `seeder` stands in for Detail and the person, who register and fetch.
-  let board: SocketBoard, seeder: SocketBoard, app: App, b: DeliveryBoard, ticketsFile = "";
+  let board: SocketBoard, seeder: SocketBoard, app: App, b: Desk, ticketsFile = "";
   let key: (k: Key) => void = () => {};
   const n: Record<string, any> = {};
-  const B = () => b as any;
+  const B = () => BV.view(b);
   const create = (parentId: string | null, text: string) => board.request<any>("create", { parentId, text, author: "agent" });
   const frame = () => b.render(B().ctx).lines.map(plain).join("\n");
 
@@ -348,7 +349,7 @@ describe.skipIf(!outliner)("projections from a scratch service, in the board's r
     app = new App(term as any, board, Date.now(), () => {});
     board.subscribe(e => app.event(e));
     app.push(new MainMenu());
-    b = new DeliveryBoard(hub.id);
+    b = boardScreen(hub.id);
     app.push(b);
     await until(() => B().lanes[0]?.items?.length === 1, "the lane", 10_000);
   }, 30_000);

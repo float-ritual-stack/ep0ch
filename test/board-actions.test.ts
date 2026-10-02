@@ -4,7 +4,8 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { App } from "../src/app";
-import { DeliveryBoard } from "../src/desk/delivery";
+import { boardScreen } from "../src/desk/screen-specs";
+import type { Desk } from "../src/desk/desk";
 import { MainMenu } from "../src/screens";
 import { SocketBoard } from "../src/socket";
 import { traceActions } from "../src/surface/actions";
@@ -16,10 +17,10 @@ const char = (ch: string): Key => ({ kind: "char", ch });
 
 describe.skipIf(!outliner)("the board's actions, against a scratch outline", () => {
   const scratch = new Scratch();
-  let board: SocketBoard, app: App, b: DeliveryBoard, garden: any, kitchen: any;
+  let board: SocketBoard, app: App, b: Desk, garden: any, kitchen: any;
   let key: (k: Key) => void = () => {};
   const AS = "board-agent-506";
-  const B = () => b as any;
+  const B = () => BV.view(b);
   const act = (action: string, args: Record<string, unknown> = {}, reader?: string) => app.act({ action, args, as: AS, ...(reader ? { reader } : {}) });
   const message = () => (app as any).message as string;
   const ran = (f: () => void) => { const names: string[] = []; const stop = traceActions(r => names.push(r.name)); try { f(); } finally { stop(); } return names; };
@@ -40,7 +41,7 @@ describe.skipIf(!outliner)("the board's actions, against a scratch outline", () 
     const term = { info: { cols: 160, rows: 48, cellW: 9, cellH: 16, kitty: false }, write() {}, paint() {}, invalidate() {}, onKey(f: any) { key = f; }, onResize() {}, stop() {}, resume() {} };
     app = new App(term as any, board, Date.now(), () => {});
     app.push(new MainMenu());
-    b = new DeliveryBoard(garden.id, false);
+    b = boardScreen(garden.id, false);
     app.push(b);
     await until(() => B().lanes.length === 2 && B().lanes.every((l: any) => l.items), "the lanes", 10_000);
   }, 30_000);
@@ -68,10 +69,9 @@ describe.skipIf(!outliner)("the board's actions, against a scratch outline", () 
     const card = B().lanes[0].items[0];
     await expect(act("open", { id: card.id, from: "nowhere" })).rejects.toThrow(/no tile nowhere/);
     const tiles = (await act("layout.get") as any).tiles as any[];
-    // A lane's opens land in the preview (its link): from= a lane, there.
+    // A lane's opens land in the readers row (the screen's opensInto), as its ⏎ does: from= a lane, a detail there.
     const lane = tiles.find(t => t.kind === "query")!;
-    expect(lane.link).toBe("preview");
-    expect(await act("open", { id: card.id, from: lane.name })).toMatchObject({ reader: "preview", id: card.id });
+    expect(await act("open", { id: card.id, from: lane.name })).toMatchObject({ reader: expect.stringMatching(/^detail/), id: card.id });
     // An unlinked tile (the outline drawer's tree): where the board's own open puts a note, its detail.
     expect(tiles.find(t => t.name === "tree").link ?? null).toBeNull();
     const unlinked = await act("open", { id: card.id, from: "tree" }) as any;
@@ -82,12 +82,12 @@ describe.skipIf(!outliner)("the board's actions, against a scratch outline", () 
 
   test("an agent's open naming no reader (`ep0ch open <id>`) lands in a detail and leaves the person's keys where they are", async () => {
     const card = B().lanes[0].items[0];
-    B().focus = B().idNamed("preview");
-    const focus = B().focus;
+    BV.at(b, "preview");
+    const focus = BV.where(b);
     const r = await act("open", { id: card.id }) as any;
     expect(r.id).toBe(card.id);
     expect(r.reader).toMatch(/^detail/);
-    expect(B().focus).toBe(focus);
+    expect(BV.where(b)).toBe(focus);
     expect(message()).toContain(`an agent (${AS})`);
   });
 
@@ -163,29 +163,30 @@ describe.skipIf(!outliner)("the board's actions, against a scratch outline", () 
   });
 
   test("lanes collapse, the outline drawer opens and floats move by actions; an agent's leaves the person's keys", async () => {
-    expect(ran(() => key(char("c")))).toEqual(["lane.collapse"]);
+    // The lane's own action, which folds its tile by the desk's.
+    expect(ran(() => key(char("c")))).toEqual(["lane.collapse", "tile.collapse"]);
     expect(B().collapsed.size).toBe(1);
     await act("lane.collapse", { on: false, lane: "To do" });
     expect(B().collapsed.size).toBe(0);
     expect(message()).toContain("opened the lane To do");
-    await act("outline", { open: true });
+    await act("tile.drawer", { open: true }, "tree");
     expect(B().treeOpen).toBe(true);
     expect(BV.where(b)).toBe("lanes");
-    await act("outline", { open: false });
-    expect(ran(() => key(char("t")))).toEqual(["outline"]);
+    await act("tile.drawer", { open: false }, "tree");
+    expect(ran(() => key(char("t")))).toEqual(["tile.drawer"]);
     expect(BV.where(b)).toBe("tree");
-    await expect(act("outline", { open: false })).rejects.toThrow("the person is in the outline drawer");
+    await expect(act("tile.drawer", { open: false }, "tree")).rejects.toThrow(/the person|their keys|keys/);
     key({ kind: "esc" });
     expect(B().treeOpen).toBe(false);
     // A float: o on the preview pops a copy out; H J K L move it by float.place, as an agent's does.
     key({ kind: "tab" });
     await until(() => !!B().preview.msg, "the preview's note");
     expect(ran(() => key(char("o")))).toEqual(["tile.float"]);
-    const f = B().floats[0].rect, col = f.col;
+    const at = () => { b.render(B().ctx); return B().rect("float0")!.col; }, col = at();
     expect(ran(() => key(char("L")))).toEqual(["float.place"]);
-    expect(B().floats[0].rect.col).toBe(col + 4);
-    await act("float.place", { dx: -4 }, B().nameOf(B().floats[0].id));
-    expect(B().floats[0].rect.col).toBe(col);
+    expect(at()).toBe(col + 4);
+    await act("float.place", { dx: -4 }, B().name(B().floats[0]));
+    expect(at()).toBe(col);
     key(char("x"));
     expect(B().floats.length).toBe(0);
   });

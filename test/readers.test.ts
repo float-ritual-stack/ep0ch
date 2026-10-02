@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { App } from "../src/app";
 import { Canvas } from "../src/canvas";
 import { Desk } from "../src/desk/desk";
-import { DeliveryBoard } from "../src/desk/delivery";
+import { boardScreen } from "../src/desk/screen-specs";
 import type { ReaderPane } from "../src/desk/panes";
 import { MainMenu } from "../src/screens";
 import { SCROLL_ROWS } from "../src/scroll";
@@ -42,13 +42,13 @@ describe("the scroll thumb", () => {
 
 describe.skipIf(!outliner)("readers always scroll, against a scratch outline", () => {
   const scratch = new Scratch();
-  let board: SocketBoard, app: App, b: DeliveryBoard, hub: any;
+  let board: SocketBoard, app: App, b: Desk, hub: any;
   const cards: Record<string, any> = {};
   let key: (k: Key) => void = () => {};
   const AS = "test-agent-411";
-  const B = () => b as any;
+  const B = () => BV.view(b);
   /** A detail's name for agents (PIE-491: kept while it lives, not its place in the row). */
-  const nm = (p: ReaderPane): string => B().nameOf(B().idOf(p));
+  const nm = (p: ReaderPane): string => B().name(p);
   const act = (action: string, args: Record<string, unknown> = {}, reader?: string) => app.act({ action, args, reader, as: AS });
   /** The person's own action, through the board's dispatcher (their key's path): closing their draft, opening where they look. */
   const mine = (action: string, args: Record<string, unknown> = {}, reader?: string) => B().dispatch.act({ action, args, reader }, { kind: "user" });
@@ -63,10 +63,10 @@ describe.skipIf(!outliner)("readers always scroll, against a scratch outline", (
   const whole = (p: ReaderPane, id?: string) => until(() => !!p.msg && !p.msg.partial && (!id || p.msg.id === id), "the whole note");
   /** A new board on the same hub, the lanes loaded and the preview on the first Queued card. */
   const fresh = async () => {
-    if ((app as any).stack.at(-1) instanceof DeliveryBoard || (app as any).stack.at(-1) instanceof Desk) app.pop();
+    if ((app as any).stack.at(-1) instanceof Desk) app.pop();
     // Each test starts with nothing put aside: a draft an earlier test left would come back on `e` (PIE-496).
     rmSync(join(scratch.root, "door", "drafts", "unsent"), { recursive: true, force: true });
-    b = new DeliveryBoard(hub.id);
+    b = boardScreen(hub.id);
     app.push(b);
     await until(() => B().lanes.length === 2 && B().lanes.every((l: any) => l.items?.length), "the lanes", 10_000);
     await whole(B().preview);
@@ -189,7 +189,7 @@ describe.skipIf(!outliner)("readers always scroll, against a scratch outline", (
     expect([B().treeOpen, B().floats.length]).toEqual([false, 0]);
     // Both details held (an agent's edit in the other): the agent's open is refused, the person untouched.
     await act("edit", {}, nm(B().details.find((d: ReaderPane) => d !== d1)));
-    await expect(act("open", { id: cards.shed.id })).rejects.toThrow(/both details hold/);
+    await expect(act("open", { id: cards.shed.id })).rejects.toThrow(/holds? (edits|an edit), (a )?comments?,? or properties/);
     expect(BV.where(b)).toBe(`detail${B().details.indexOf(d1)}`);
     key(char("!"));
     expect([d1.draft!.text.length, d1.draft!.text.includes("to!")]).toEqual([text.length + 3, true]);
@@ -211,7 +211,7 @@ describe.skipIf(!outliner)("readers always scroll, against a scratch outline", (
     expect(B().details).not.toContain(p1);
     expect(p0.surface.panel).not.toBeNull();
     expect(BV.where(b)).toBe(`detail${B().details.indexOf(p0)}`);
-    expect(B().entered.in(p0)).toBe(true);
+    expect(b.isIn(p0)).toBe(true);
     key({ kind: "esc" });
     expect(p0.surface.panel).toBeNull();
   });
@@ -261,11 +261,11 @@ describe.skipIf(!outliner)("readers always scroll, against a scratch outline", (
     b.render(B().ctx);
     expect(scrollOf(d)).toBe(0);
     // Reading again: End (as a held reader's scroll key) goes to the bottom of the note, no further.
-    expect(d.scrollKey({ kind: "end" }, b as any)).toBe(true);
+    expect(d.scrollKey({ kind: "end" }, b)).toBe(true);
     const bottom = scrollOf(d);
     expect(bottom).toBeGreaterThan(50);
     expect(bottom).toBeLessThan(200);
-    d.scrollKey({ kind: "up" }, b as any);
+    d.scrollKey({ kind: "up" }, b);
     expect(scrollOf(d)).toBe(bottom - 1);
   });
 
@@ -275,9 +275,10 @@ describe.skipIf(!outliner)("readers always scroll, against a scratch outline", (
     await fresh();
     await act("open", { id: card.id }, "float");
     const f = B().floats[0];
-    await whole(B().panes.get(f.id), card.id);
+    await whole(f, card.id);
     key({ kind: "pgdn" });
-    const line = frame()[f.rect.row]!.slice(f.rect.col, f.rect.col + f.rect.cols);
+    const fr = frame(), R = B().rect(f)!;
+    const line = fr[R.row]!.slice(R.col, R.col + R.cols);
     expect(line).toMatch(/ · \d+%/);
     expect(line).toContain("Rebuild the potting bench");
     expect(line).toContain("…");
@@ -400,7 +401,7 @@ describe.skipIf(!outliner)("readers always scroll, against a scratch outline", (
     BV.at(b, "float0");
     key(char("o"));
     expect(B().floats.length).toBe(1);
-    expect(message()).toContain("not docked: both details hold edits or comments");
+    expect(message()).toContain("not docked: the other tiles in readers hold edits or comments");
     for (const d of B().details) await mine("edit.close", { discard: true }, nm(d));
   });
 
@@ -434,15 +435,15 @@ describe.skipIf(!outliner)("readers always scroll, against a scratch outline", (
     expect(border.indexOf("█")).toBeGreaterThan(0);                             // scrolled: the thumb isn't at the top
     // The float and the desk's reader do the same.
     await act("open", { id: cards.gate.id }, "float");
-    await whole(B().panes.get(B().floats[0].id));
-    const f = B().floats[0].rect, fl = frame();
+    await whole(B().floats[0]);
+    const fl = frame(), f = B().rect(B().floats[0])!;
     expect(fl[f.row]).toMatch(/\d+%/);
     expect(Array.from({ length: f.rows - 2 }, (_, i) => fl[f.row + 1 + i]![f.col + f.cols - 1]).join("")).toContain("█");
   });
 
   test("the desk: an agent's edit doesn't take the person's keys, and the wheel still scrolls the pane under it", async () => {
     const desk = new Desk();
-    if ((app as any).stack.at(-1) instanceof DeliveryBoard) app.pop();
+    if ((app as any).stack.at(-1) instanceof Desk) app.pop();
     app.push(desk);
     const D = desk as any;
     try {
@@ -487,7 +488,7 @@ describe.skipIf(!outliner)("readers always scroll, against a scratch outline", (
 
   test("the desk: e then esc before the note is read cancels the edit and keeps the desk (PR #11 review)", async () => {
     const desk = new Desk();
-    if ((app as any).stack.at(-1) instanceof DeliveryBoard) app.pop();
+    if ((app as any).stack.at(-1) instanceof Desk) app.pop();
     app.push(desk);
     const D = desk as any;
     const get = board.get.bind(board);

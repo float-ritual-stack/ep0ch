@@ -9,7 +9,8 @@ import { CP437_HIGH } from "../src/ansi";
 import { App } from "../src/app";
 import type { Msg } from "../src/board";
 import { primitiveLines } from "../src/components";
-import { DeliveryBoard } from "../src/desk/delivery";
+import { boardScreen } from "../src/desk/screen-specs";
+import * as BV from "./board-view";
 import { Desk, searchPreviewLines } from "../src/desk/desk";
 import { renderGraph } from "../src/graphs";
 import { River } from "../src/river/river";
@@ -89,9 +90,9 @@ describe.skipIf(!outliner)("on a scratch outline", () => {
   });
 
   test("a lane's header names its view as written, and its cards show the view's summary properties", async () => {
-    const b = new DeliveryBoard(hub.id, false);
+    const b = boardScreen(hub.id, false);
     app.push(b);
-    await until(() => (b as any).lanes.length === 2 && (b as any).lanes.every((l: any) => l.items?.length) && (b as any).lanes[0].items.length === 2, "the lanes", 10_000);
+    await until(() => BV.view(b).lanes.length === 2 && BV.view(b).lanes.every((l: any) => l.items?.length) && BV.view(b).lanes[0].items.length === 2, "the lanes", 10_000);
     const top = lines()[0]!;
     expect(top).toContain("To read 2");
     expect(top).toContain("Reading now 1");
@@ -101,7 +102,7 @@ describe.skipIf(!outliner)("on a scratch outline", () => {
     expect(all).toContain("R. Pike");
     expect(all).toContain("A. Oak, B. Ash");                           // repeated values joined, as the reader does
     // The tile keeps its name for reader=.
-    expect((b as any).layoutGet().tiles.map((t: any) => t.name)).toContain("Reading-now");
+    expect(b.layoutGet().tiles.map((t: any) => t.name)).toContain("Reading-now");
     app.pop();
   });
 

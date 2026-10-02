@@ -40,7 +40,7 @@ export interface TileHost {
   linkTile(sel: string | undefined, to: string | undefined, actor: Actor): TileDone;
   selectTab(sel: string | undefined, by: number | undefined, actor: Actor): TileDone;
   focusTile(sel: string | undefined, actor: Actor): TileDone;
-  pinTile(sel: string | undefined, on: boolean | undefined, edge: Dir | undefined, actor: Actor, container?: string): TileDone;
+  pinTile(sel: string | undefined, on: boolean | undefined, edge: Dir | "other" | undefined, actor: Actor, container?: string): TileDone;
   collapseTile(sel: string | undefined, on: boolean | undefined, actor: Actor): TileDone;
   widenTile(sel: string | undefined, actor: Actor): TileDone;
   placeFloat(sel: string | undefined, a: { dx?: number; dy?: number; col?: number; row?: number; cols?: number; rows?: number }, actor: Actor): TileDone;
@@ -246,7 +246,7 @@ export const TILE_ACTIONS = new ActionSet<{
   },
   "tile.focus": {
     summary: "give the person's keys to tile=<tile>. Refused to an agent while the person is typing (an edit, a comment, a terminal they're in)",
-    keys: "click, Tab, shift+tab, 1-9, ^W h j k l (← ↓ ↑ →)",
+    keys: "click, Tab, shift+tab, 1-9, ^W h j k l (← ↓ ↑ →); esc q back home (a screen with a home: the board's lanes)",
     // The desk's older `focus` answered { focus }.
     aliases: [{ name: "focus", answer: (r: TileDone) => ({ ...r, focus: r.tile }) }],
     touches: "screen", replay: "safe", says: r => `gave the keys to ${r.tile}`,
@@ -262,10 +262,10 @@ export const TILE_ACTIONS = new ActionSet<{
     // pane.pin answered { pane } too (the board's own pin still does).
     aliases: [{ name: "pane.pin", answer: (r: TileDone) => ({ ...r, pane: r.pane ?? r.tile }) }],
     touches: "shape", replay: "safe", confirms: true, says: r => (r.changed === false ? null : r.pinned ? `docked ${r.tile}` : `put ${r.tile} in a drawer on the ${EDGE_WORD[r.edge as Dir] ?? r.edge}`),
-    args: { on: { type: "boolean", optional: true, about: "false puts it in a drawer, true docks it again" }, edge: { type: "string", optional: true, about: "left, right, up or down: the outer edge the drawer slides from" }, container: { type: "string", optional: true, about: "a split (s<n>) to put in the drawer whole, instead of the tile's own slot" } },
+    args: { on: { type: "boolean", optional: true, about: "false puts it in a drawer, true docks it again" }, edge: { type: "string", optional: true, about: "left, right, up or down: the outer edge the drawer slides from; other: the opposite side to where it is (docked, it stays docked there)" }, container: { type: "string", optional: true, about: "a split (s<n>) to put in the drawer whole, instead of the tile's own slot" } },
     run({ on, edge, container }, { d, reader }, actor) {
-      if (edge !== undefined && !isDir(edge)) throw new ActionRefused(`tile.pin: edge is left, right, up or down, not ${edge}`);
-      const r = d.pinTile(reader, on, edge as Dir | undefined, actor, container);
+      if (edge !== undefined && !isDir(edge) && edge !== "other") throw new ActionRefused(`tile.pin: edge is left, right, up, down or other, not ${edge}`);
+      const r = d.pinTile(reader, on, edge as Dir | "other" | undefined, actor, container);
       return r;
     },
   },

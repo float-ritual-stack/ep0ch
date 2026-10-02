@@ -8,7 +8,8 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { App } from "../src/app";
 import { Desk } from "../src/desk/desk";
-import { DeliveryBoard } from "../src/desk/delivery";
+import { boardScreen } from "../src/desk/screen-specs";
+import * as BV from "./board-view";
 import type { ReaderPane } from "../src/desk/panes";
 import { MainMenu } from "../src/screens";
 import { SocketBoard } from "../src/socket";
@@ -22,16 +23,16 @@ const shape = (t: unknown) => JSON.parse(JSON.stringify(t, (k, v) => (k === "id"
 
 describe.skipIf(!outliner)("the board on the desk's engine, against a scratch outline", () => {
   const scratch = new Scratch();
-  let board: SocketBoard, app: App, b: DeliveryBoard, hub: any, queued: any;
+  let board: SocketBoard, app: App, b: Desk, hub: any, queued: any;
   let key: (k: Key) => void = () => {};
   const AS = "layout-agent-511";
-  const B = () => b as any;
+  const B = () => BV.view(b);
   const act = (action: string, args: Record<string, unknown> = {}, reader?: string, as = AS) => app.act({ action, args, reader, as });
   const create = (parentId: string | null, text: string) => board.request<any>("create", { parentId, text, author: "agent" });
   const message = () => (app as any).message as string;
   /** The tree as `peek` shows it: tiles by name, containers with their keys and shares. */
-  const tree = () => B().describe().layout.tree;
-  const rect = (name: string): Rect => { b.render(B().ctx); return B().rectsNow().get(B().idNamed(name)); };
+  const tree = () => B().describe().tree;
+  const rect = (name: string): Rect => { b.render(B().ctx); return b.drawnAt(name)!; };
   const focus = () => B().describe().focus as string;
   const state = () => JSON.parse(readFileSync(join(scratch.root, "door", "delivery.json"), "utf8"));
   const mouse = (action: "down" | "drag" | "up", x: number, y: number) => key({ kind: "mouse", action, button: 0, x, y });
@@ -46,9 +47,9 @@ describe.skipIf(!outliner)("the board on the desk's engine, against a scratch ou
   const details = () => B().details;
   /** A new board, the saved layout cleared first, lanes loaded, the preview on the first card. */
   const fresh = async (keep = false) => {
-    if ((app as any).stack.at(-1) instanceof DeliveryBoard || (app as any).stack.at(-1) instanceof Desk) app.pop();
+    if ((app as any).stack.at(-1) instanceof Desk) app.pop();
     if (!keep) writeFileSync(join(scratch.root, "door", "delivery.json"), JSON.stringify({ hubs: {} }));
-    b = new DeliveryBoard(hub.id);
+    b = boardScreen(hub.id);
     app.push(b);
     await until(() => B().lanes.length === 2 && B().lanes.every((l: any) => l.items?.length), "the lanes", 10_000);
     await whole(B().preview);
@@ -93,7 +94,7 @@ describe.skipIf(!outliner)("the board on the desk's engine, against a scratch ou
       split: "row", kids: [
         { drawer: "left", open: false, kid: { split: "col", key: "outline", policy: { draggable: false }, kids: [{ pane: "tree" }, { pane: "tree-preview" }] } },
         { split: "col", key: "board", kids: [
-          { columns: `hub:${hub.id}`, key: "lanes", policy: { draggable: false, accepts: ["query"], opensInto: "preview" }, kids: [{ pane: "Doing" }, { pane: "Queued" }] },
+          { columns: `hub:${hub.id}`, key: "lanes", policy: { draggable: false, accepts: ["query"] }, kids: [{ pane: "Doing" }, { pane: "Queued" }] },
           { split: "row", key: "readers", kids: [{ tabs: ["preview"], policy: { draggable: false, droppable: false, closable: false } }] },
           { drawer: "down", open: false, policy: { stays: true }, kid: { split: "row", key: "links", policy: { draggable: false }, kids: [{ pane: "backlinks" }, { pane: "backlinks-preview" }] } },
         ] },
@@ -130,27 +131,27 @@ describe.skipIf(!outliner)("the board on the desk's engine, against a scratch ou
     key(char(">")); key(char(">"));
     expect(rect("preview").cols).toBeGreaterThan(w);
     // The sizes are the layout's, kept in delivery.json with the rest of it.
-    expect(shape(state().layout.root)).toMatchObject({ t: "split" });
+    expect(shape(state().root)).toMatchObject({ t: "split" });
   });
 
   test("t slides the outline drawer over (nothing moves); T pins it into the layout; S puts it on the other side; T and t put it away", async () => {
     await fresh();
     const col = rect("preview").col;
     key(char("t"));
-    expect(B().describe().tree).toMatchObject({ open: true, pinned: false, side: "left" });
+    expect(B().describe().outline).toMatchObject({ open: true, pinned: false, side: "left" });
     expect(focus()).toBe("tree");
     expect(rect("preview").col).toBe(col);
     key(char("T"));
-    expect(B().describe().tree).toMatchObject({ open: true, pinned: true });
+    expect(B().describe().outline).toMatchObject({ open: true, pinned: true });
     expect(rect("preview").col).toBe(54);                              // the readers make room
     key(char("S"));
-    expect(B().describe().tree).toMatchObject({ pinned: true, side: "right" });
+    expect(B().describe().outline).toMatchObject({ pinned: true, side: "right" });
     expect(rect("preview").col).toBe(0);
     key(char("T"));
-    expect(B().describe().tree).toMatchObject({ pinned: false, side: "right" });
-    expect(JSON.stringify(state().layout.root)).toContain(`"t":"drawer","edge":"right"`);
+    expect(B().describe().outline).toMatchObject({ pinned: false, side: "right" });
+    expect(JSON.stringify(state().root)).toContain(`"t":"drawer","edge":"right"`);
     key(char("t"));
-    expect(B().describe().tree.open).toBe(false);
+    expect(B().describe().outline.open).toBe(false);
   });
 
   test("b slides the backlinks drawer up on a reader's note and it stays while the keys go elsewhere; B pins it; esc shuts it", async () => {
@@ -235,38 +236,13 @@ describe.skipIf(!outliner)("the board on the desk's engine, against a scratch ou
     expect(B().describe().floats).toHaveLength(0);
   });
 
-  test("the next board builds the same tree from delivery.json; a file from before PIE-511 keeps the board's shape where the preset has a home for it", async () => {
+  test("the next board builds the same tree from delivery.json", async () => {
     await fresh();
     key(char("}")); key(char("T")); key(char("S")); key({ kind: "esc" });
     const before = shape(tree()), preview = rect("preview");
     await fresh(true);
     expect(shape(tree())).toEqual(before);
     expect(rect("preview")).toEqual(preview);
-    // A file as the board wrote it before it was a preset (6d3f0f6): sizes as shares, drawers pinned or not, lanes by name.
-    writeFileSync(join(scratch.root, "door", "delivery.json"), JSON.stringify({
-      laneFrac: 0.3, previewFrac: 0.4, treeFrac: 0.25, linksFrac: 0.45, treeSide: "right", laneWeights: { Doing: 2.5 }, readerWeights: [4, 3, 3],
-      treePinned: true, linksPinned: false, lane: 1, collapsed: ["Queued"], collapsedReaders: [], hubs: { [B().ctx.workspace]: hub.id },
-    }));
-    if ((app as any).stack.at(-1) instanceof DeliveryBoard) app.pop();
-    b = new DeliveryBoard(hub.id); app.push(b);
-    await until(() => B().lanes.length === 2 && B().lanes.every((l: any) => l.items?.length), "the lanes", 10_000);
-    // The outline on the right, pinned (docked), at its width; the lanes at their share of the board.
-    expect(B().describe().tree).toMatchObject({ open: true, pinned: true, side: "right" });
-    const t = tree();
-    expect(panesIn(t.kids.at(-1))).toEqual(["tree", "tree-preview"]);
-    expect(t.kids.at(-1).share).toBeCloseTo(0.25, 2);
-    expect(find(t, "board").kids[0].share / (find(t, "board").kids[0].share + find(t, "board").kids[1].share)).toBeCloseTo(0.3, 2);
-    // The lanes: Doing at its weight, Queued folded to a spine, the cursor on the second lane.
-    const lanes = lanesNode().kids;
-    const doing = lanes.find((k: any) => k.pane === "Doing"), queuedLane = lanes.find((k: any) => k.pane === "Queued");
-    expect(doing.share / queuedLane.share).toBeCloseTo(2.5, 1);
-    expect(B().layoutGet().tiles.find((x: any) => x.name === "Queued").collapsed).toBe(true);
-    expect(B().describe().lanes.find((l: any) => l.focused)?.name).toBe(B().lanes[1].name);
-    // The next save writes the new shape: the old fields are gone.
-    await act("tile.collapse", { on: false }, "Queued");
-    const saved = state();
-    expect(saved.layout).toBeDefined();
-    for (const k of ["laneFrac", "treeFrac", "laneWeights", "treePinned", "collapsed"]) expect(saved[k]).toBeUndefined();
   });
 
   test("agents resize, pin, float, zoom and close tiles by pane.* actions, said on screen", async () => {
@@ -285,11 +261,11 @@ describe.skipIf(!outliner)("the board on the desk's engine, against a scratch ou
     await act("pane.resize", { by: 1, axis: "col" }, "lanes");
     expect(rect("preview").row).toBeGreaterThan(top);
     await act("pane.pin", {}, "tree");
-    expect(B().describe().tree).toMatchObject({ open: true, pinned: true });
+    expect(B().describe().outline).toMatchObject({ open: true, pinned: true });
     expect(focus()).toBe("lanes");                                   // opening it pinned moved no focus
     await act("pane.pin", { on: false }, "tree");
     await act("pane.close", {}, "tree");
-    expect(B().describe().tree.open).toBe(false);
+    expect(B().describe().outline.open).toBe(false);
     // The board is on the desk's engine: zoom is the desk's (an agent's never hides the person's tile).
     await expect(act("pane.zoom", {}, "detail2")).rejects.toThrow(/would hide/);
     await expect(act("pane.close", {}, "preview")).rejects.toThrow(/preview stays: .*closable off/);
@@ -323,7 +299,7 @@ describe.skipIf(!outliner)("the board on the desk's engine, against a scratch ou
     key({ kind: "tab" }); key({ kind: "tab" });
     expect(focus()).toBe("detail1");
     const mine = details()[0], held = details()[1];
-    B().setCurrent(B().lanes[1].items[0], { from: B().preview, fresh: true, by: { kind: "agent", id: AS } });
+    b.setCurrent(B().lanes[1].items[0], { from: B().preview, fresh: true, by: { kind: "agent", id: AS } });
     expect(details()).toEqual([mine, held]);
     expect(focus()).toBe("detail1");
     expect(message()).toContain("not opened");
@@ -335,7 +311,7 @@ describe.skipIf(!outliner)("the board on the desk's engine, against a scratch ou
     key({ kind: "tab" }); key({ kind: "tab" });
     expect(focus()).toBe("detail1");
     const mine = details()[0], other = details()[1];
-    B().setCurrent(B().lanes[1].items[0], { from: B().preview, fresh: true, by: { kind: "agent", id: AS } });
+    b.setCurrent(B().lanes[1].items[0], { from: B().preview, fresh: true, by: { kind: "agent", id: AS } });
     expect(details()).toContain(mine);
     expect(details()).not.toContain(other);
     expect(row()).toEqual(["preview", "detail1", "detail3"]);                // the new detail's name is new
@@ -352,12 +328,12 @@ describe.skipIf(!outliner)("the board on the desk's engine, against a scratch ou
     expect(opened).toMatchObject({ tile: "recent" });
     await act("tile.close", {}, "recent");
     // Let them go, and the lane moves beside the preview: still a lane of the board, refilled where it is.
-    const cid = lanesNode().id ?? B().lanesNode().id;
+    const cid = lanesNode().id ?? b.containerId("lanes");
     await act("layout.policy", { node: cid, draggable: true });
     await act("layout.move", { to: "preview", where: "right" }, "Doing");
     expect(panesIn(find(tree(), "readers"))).toEqual(["preview", "Doing"]);
     expect(B().lanes.map((l: any) => l.name)).toEqual(["Queued", "Doing"]);
-    await B().fillColumns();
+    await B().fill();
     expect(panesIn(find(tree(), "readers"))).toEqual(["preview", "Doing"]);
     const card = B().lanes[0].items[0].id;
     await act("card.move", { lane: "Doing", card });
@@ -422,8 +398,8 @@ describe.skipIf(!outliner)("the board on the desk's engine, against a scratch ou
     await expect(act("tile.close", {}, "preview")).rejects.toThrow(/preview stays/);
     key(char("t"));
     W(); key(char("x"));                                                // in the outline: it shuts
-    expect(B().describe().tree.open).toBe(false);
-    expect(B().idNamed("tree")).toBeDefined();
+    expect(B().describe().outline.open).toBe(false);
+    expect(b.pane("tree")).toBeDefined();
     b.render(B().ctx);                                                  // and the board still draws
   });
 
@@ -431,12 +407,12 @@ describe.skipIf(!outliner)("the board on the desk's engine, against a scratch ou
     await fresh();
     const other = await create(null, "Odd jobs [type::virtual-branch] [query::stage=someday]");   // a view under no hub
     await act("tile.open", { kind: "query", view: other.id, name: "odd", to: "Queued", where: "right" });
-    await B().fillColumns();
+    await B().fill();
     expect(panesIn(lanesNode())).toEqual(["Doing", "Queued", "odd"]);
     key({ kind: "enter" }); key({ kind: "esc" });                       // a detail
     await act("layout.move", { to: "Doing", where: "edge-right" }, "detail1");
     b.render(B().ctx);
-    expect(JSON.stringify(state().layout)).not.toContain(`"kind":"detail"`);
+    expect(JSON.stringify(state().root)).not.toContain(`"kind":"detail"`);
     await act("tile.close", {}, "odd");
   });
 
@@ -446,7 +422,7 @@ describe.skipIf(!outliner)("the board on the desk's engine, against a scratch ou
     expect(await act("tile.collapse", {}, "detail2")).toMatchObject({ tile: "detail2", collapsed: true });
     await act("tile.collapse", { on: false }, "detail2");
     await expect(act("tile.collapse", {}, "tree")).rejects.toThrow(/isn't side by side/);
-    const cid = B().lanesNode().id;
+    const cid = b.containerId("lanes");
     await act("layout.policy", { node: cid, collapsible: false });
     await expect(act("lane.collapse", { lane: "Queued" })).rejects.toThrow(/collapsible off/);
     await act("layout.policy", { node: cid, clear: "collapsible" });

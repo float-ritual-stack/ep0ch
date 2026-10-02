@@ -46,8 +46,22 @@ export interface Policy {
   stays?: boolean;
   /** Task mode: the shape is fixed, the contents stay live. Unlocking is one key (alt+k), a click or `layout.lock`. */
   locked?: boolean;
-  /** Where opens from its tiles land when a tile has no link of its own: a tile's name. */
+  /**
+   * Where opens from its tiles land when a tile has no link of its own: a tile's name, or a container's key (the
+   * board's readers row, PIE-515): a tile opened into it holds the note (see `keep`).
+   */
   opensInto?: string;
+  /**
+   * A container opens land in (an `opensInto` naming its key): how many tiles opened into it it keeps. An open lands
+   * in the one last opened (or given the keys) there; a fresh one (alt+⏎), or one when that holds an edit, opens
+   * another; past `keep`, the oldest free one gives way.
+   */
+  keep?: number;
+  /**
+   * Closing a tile in it shuts the drawer it's in instead (docked, it goes back into a drawer first): the board's
+   * outline and backlinks, whose lists stay theirs.
+   */
+  shuts?: boolean;
   /**
    * The open rule (PIE-513; was the layout's `rule`): where an open from one of its tiles lands when no link or
    * opens-into says: the current note (`current`), a new column right after the tile's own in its flow (`next`, a
@@ -66,7 +80,7 @@ export interface Policy {
 export type HostMode = "beside" | "over" | "none";
 /** Where an open with no link lands: the current note, the next column of the flow it's in, or a reader beside it. */
 export type OpenRule = "current" | "next" | "beside";
-export const POLICY_KEYS = ["draggable", "droppable", "closable", "accepts", "resizable", "min", "max", "fixed", "collapsible", "overlay", "stays", "locked", "opensInto", "opens", "host"] as const;
+export const POLICY_KEYS = ["draggable", "droppable", "closable", "accepts", "resizable", "min", "max", "fixed", "collapsible", "overlay", "stays", "locked", "opensInto", "opens", "host", "keep", "shuts"] as const;
 
 export type Split<I = number> = {
   t: "split"; dir: Axis; kids: LNode<I>[]; weights: number[]; policy?: Policy;
@@ -898,7 +912,8 @@ export function policyOf(x: unknown): Policy {
   const out: Policy = {};
   if (!x || typeof x !== "object") return out;
   const o = x as Record<string, unknown>;
-  for (const k of ["draggable", "droppable", "closable", "resizable", "collapsible", "overlay", "stays", "locked"] as const) if (typeof o[k] === "boolean") out[k] = o[k] as boolean;
+  for (const k of ["draggable", "droppable", "closable", "resizable", "collapsible", "overlay", "stays", "locked", "shuts"] as const) if (typeof o[k] === "boolean") out[k] = o[k] as boolean;
+  if (typeof o.keep === "number" && Number.isInteger(o.keep) && o.keep >= 1 && o.keep <= 20) out.keep = o.keep;
   for (const k of ["min", "max", "fixed"] as const) { const n = cells(o[k]); if (n !== undefined) out[k] = n; }
   if (Array.isArray(o.accepts)) out.accepts = [...new Set(o.accepts.filter((a): a is string => typeof a === "string" && /^[\w.-]{1,40}$/.test(a)))];
   if (typeof o.opensInto === "string" && o.opensInto) out.opensInto = o.opensInto;

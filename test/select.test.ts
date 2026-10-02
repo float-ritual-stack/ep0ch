@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { App } from "../src/app";
 import type { Msg } from "../src/board";
 import { Desk } from "../src/desk/desk";
-import { DeliveryBoard } from "../src/desk/delivery";
+import { boardScreen } from "../src/desk/screen-specs";
 import { River } from "../src/river/river";
 import { MainMenu } from "../src/screens";
 import { SocketBoard, type Actor } from "../src/socket";
@@ -320,10 +320,10 @@ describe("the note surface selects and copies, without a service", () => {
 
 describe.skipIf(!outliner)("selecting in the board, the desk and the river, against a scratch outline", () => {
   const scratch = new Scratch();
-  let board: SocketBoard, app: App, b: DeliveryBoard, hub: any, beans: any, card: any;
+  let board: SocketBoard, app: App, b: Desk, hub: any, beans: any, card: any;
   let key: (k: Key) => void = () => {};
   const writes: string[] = [];
-  const B = () => b as any;
+  const B = () => BV.view(b);
   const act = (action: string, args: Record<string, unknown> = {}, reader?: string) => app.act({ action, args, reader, as: "test-agent-419" }) as Promise<any>;
   const create = (parentId: string | null, text: string) => board.request<any>("create", { parentId, text, author: "agent" });
   const message = () => (app as any).message as string;
@@ -354,7 +354,7 @@ describe.skipIf(!outliner)("selecting in the board, the desk and the river, agai
     const term = { info: { cols: 180, rows: 50, cellW: 9, cellH: 16, kitty: false }, write(s: string) { writes.push(s); }, paint() {}, invalidate() {}, onKey(f: any) { key = f; }, onResize() {}, stop() {}, resume() {} };
     app = new App(term as any, board, Date.now(), () => {});
     board.subscribe(e => app.event(e));
-    b = new DeliveryBoard(hub.id);
+    b = boardScreen(hub.id);
     app.push(new MainMenu()); app.push(b);
     await until(() => B().lanes.length === 1 && B().lanes.every((l: any) => l.items?.length), "the lanes", 10_000);
   }, 30_000);
@@ -542,17 +542,18 @@ describe.skipIf(!outliner)("selecting in the board, the desk and the river, agai
     await until(() => B().floats.length > 0, "the float");
     // The float as the layout has it now (each move is a new state: read it again after each).
     const f = () => B().floats.at(-1);
+    const fr = () => B().describe().floats.at(-1).rect;
     frame();
-    const was = { ...f().rect };
+    const was = { ...fr() };
     drag({ x: was.col + 4, y: was.row }, { x: was.col + 10, y: was.row + 2 });
-    expect([f().rect.col, f().rect.row]).toEqual([was.col + 10 - 4, was.row + 2]);
-    const r = f().rect, corner = { x: r.col + r.cols - 1, y: r.row + r.rows - 1 };
+    expect([fr().col, fr().row]).toEqual([was.col + 10 - 4, was.row + 2]);
+    const r = fr(), corner = { x: r.col + r.cols - 1, y: r.row + r.rows - 1 };
     drag(corner, { x: corner.x + 5, y: corner.y + 1 });
-    expect([f().rect.cols, f().rect.rows]).toEqual([was.cols + 5, was.rows + 1]);
+    expect([fr().cols, fr().rows]).toEqual([was.cols + 5, was.rows + 1]);
     await until(() => plain(frame().join("\n")).includes("Water the seedlings"), "the float drawn");
-    const w = where(frame(), "Water", f().rect);
+    const w = where(frame(), "Water", fr());
     drag(w, { x: w.x + 4, y: w.y });
-    expect(B().panes.get(f().id).surface.describe().selection.text).toBe("Water");
+    expect(f().surface.describe().selection.text).toBe("Water");
     key(char("x"));
   });
 

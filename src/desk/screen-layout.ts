@@ -318,12 +318,14 @@ export function autoName<I>(s: Pick<LayoutState<I>, "names">, kind: string): str
  * that names a tile here (not itself), else the open rule: the next column of its flow (`next`), or none (the
  * current note).
  */
-export function landing<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "links" | "names">, id: I, facts?: TileFacts): { to: I } | { next: true } | null {
+export function landing<I>(s: Pick<LayoutState<I>, "tree" | "policy" | "links" | "names">, id: I, facts?: TileFacts): { to: I } | { into: string } | { next: true } | null {
   const own = s.links.get(id);
   if (own !== undefined && s.names.has(own)) return { to: own };
   const e = policyAt(s, id, facts);
   const into = e.opensInto ? named(s, e.opensInto) : undefined;
   if (into !== undefined && into !== id) return { to: into };
+  // A container by its key (the board's readers row): a tile opened into it holds the note.
+  if (into === undefined && e.opensInto && node(s.tree, e.opensInto)) return { into: e.opensInto };
   if (e.opens === "next" && flowHolding(s.tree, id)) return { next: true };
   return null;
 }
@@ -604,9 +606,10 @@ class Step<I> {
       this.shape(id, `closing ${name}`);
       const e = this.policyAt(id);
       const fold = e.collapsible ? " · tile.collapse folds it to a spine" : "";
+      // An edit in it is said first: it's what the person would lose.
+      if (f.editing) refuse(`not closed: it holds ${f.editing} · e or ⏎ enters it`);
       if (!e.closable) refuse(`${name} stays: ${this.whose(e.by.closable)} keeps its tiles (closable off)${fold}`);
       if (f.keeps) refuse(`${name} stays: ${f.keeps}${fold}`);
-      if (f.editing) refuse(`not closed: it holds ${f.editing} · e or ⏎ enters it`);
       if (!this.isFloat(id) && leaves(this.d.tree).length <= 1) refuse("the screen's last tile stays");
       if (this.agent && id === this.d.focus) refuse(`${name} has the person's keys; an agent doesn't close it`);
       if (this.agent && f.running) refuse(`${name} is running ${f.running}; an agent doesn't end it`);
@@ -926,8 +929,8 @@ class Step<I> {
     if (e.locked && [...Object.keys(op.set), ...op.clear].some(k => k !== "locked")) refuse(this.lockedWhy(e, `changing ${name}'s policy`));
     if (op.set.opensInto !== undefined) {
       const to = named(this.d, op.set.opensInto);
-      if (to === undefined) refuse(`no tile ${op.set.opensInto} for opens to land in`);
-      if (!this.facts(to!).notes) refuse(`${op.set.opensInto} is a ${this.facts(to!).kind} tile: opens land in a tile that takes notes`);
+      if (to === undefined && !node(this.d.tree, op.set.opensInto)) refuse(`no tile or container ${op.set.opensInto} for opens to land in`);
+      if (to !== undefined && !this.facts(to).notes) refuse(`${op.set.opensInto} is a ${this.facts(to).kind} tile: opens land in a tile that takes notes`);
     }
     if (op.set.accepts && this.ctx.kinds) { const unknown = op.set.accepts.filter(k => !this.ctx.kinds!.all.includes(k)); if (unknown.length) refuse(`layout.policy: accepts names tile kinds (${this.ctx.kinds.all.join(", ")}), not ${unknown.join(", ")}`); }
     const locking = op.set.locked === true ? true : (op.set.locked === false || op.clear.includes("locked")) && before.locked ? false : null;

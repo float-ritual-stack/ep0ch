@@ -6,7 +6,8 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { App } from "../src/app";
-import { DeliveryBoard } from "../src/desk/delivery";
+import { boardScreen } from "../src/desk/screen-specs";
+import * as BV from "./board-view";
 import { Desk } from "../src/desk/desk";
 import { drawerToEdge, splitOf, leaf, type LNode } from "../src/desk/layout";
 import { openScreen } from "../src/desk/screen-specs";
@@ -154,10 +155,10 @@ describe.skipIf(!outliner)("hint rows at 120 columns", () => {
   });
 
   test("the board's outline keeps its width when S moves it to the other side", async () => {
-    const b = new DeliveryBoard(garden.id, false);
+    const b = boardScreen(garden.id, false);
     app.push(b);
-    await until(() => (b as any).lanes.length === 2 && (b as any).lanes.every((l: any) => l.items), "the lanes", 10_000);
-    const share = () => { const t = (b as any).layoutGet().tree; const d = t.kids.find((k: any) => k.drawer); return { edge: d.drawer, share: d.share }; };
+    await until(() => BV.view(b).lanes.length === 2 && BV.view(b).lanes.every((l: any) => l.items), "the lanes", 10_000);
+    const share = () => { const t: any = b.layoutGet().tree; const d = t.kids.find((k: any) => k.drawer); return { edge: d.drawer, share: d.share }; };
     expect(share()).toEqual({ edge: "left", share: 0.3 });
     key(char("t"));
     key(char("S"));

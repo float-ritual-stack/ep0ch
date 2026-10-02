@@ -27,7 +27,8 @@ import { autoName, serializeTree } from "../desk/screen-layout";
 import type { SavedTree, TileSpec } from "../desk/tiles";
 import { TILE_ACTIONS } from "../desk/tile-actions";
 import { PANE_ACTIONS } from "../desk/pane-actions";
-import { BOARD_ACTIONS, DeliveryBoard } from "../desk/delivery";
+import { BOARD_ACTIONS } from "../desk/lanes";
+import { boardScreen } from "../desk/screen-specs";
 import { RIVER_ACTIONS } from "../river/river";
 import { ActivityPane, ReaderPane, ThreadPane, TreePane, WhoPane, type DeskApi, type Pane, type PaneView } from "../desk/panes";
 import { LastCallers, MessageReader, SHELL_ACTIONS, WhoOnline } from "../screens";
@@ -186,7 +187,7 @@ export const SECTIONS: Section[] = [
   },
   {
     key: "spine", need: "squeeze a tile to a title strip", part: "the spine part: drawSpine, SPINE (c collapses a lane or a reader, alt+c opens all)", files: "src/spine.ts, on the board: src/desk/delivery.ts",
-    stage(n) { return new DeliveryBoard(n.hub?.id, false); },
+    stage(n) { return boardScreen(n.hub?.id, false); },
   },
   {
     key: "entity", need: "show children, outlinks, backlinks, resources", part: "entity navigation: u, [ ] and ⏎ on links in the surface; children in the thread tile; a row's links in the tree (L)", files: "src/surface/note.ts, src/desk/tree.ts, src/authored.ts, references.backlinks in src/socket.ts, src/backlinks.ts",
@@ -480,7 +481,7 @@ const SETS: { name: string; file: string; list: () => ActionInfo[] }[] = [
   { name: "TILE_ACTIONS", file: "src/desk/tile-actions.ts", list: () => TILE_ACTIONS.list() },
   { name: "PANE_ACTIONS", file: "src/desk/pane-actions.ts", list: () => PANE_ACTIONS.list() },
   { name: "DRAFT_ACTIONS", file: "src/edit.ts", list: () => DRAFT_ACTIONS.list() },
-  { name: "BOARD_ACTIONS", file: "src/desk/delivery.ts", list: () => BOARD_ACTIONS.list() },
+  { name: "BOARD_ACTIONS", file: "src/desk/lanes.ts", list: () => BOARD_ACTIONS.list() },
   { name: "RIVER_ACTIONS", file: "src/river/river.ts", list: () => RIVER_ACTIONS.list() },
   { name: "SHOWCASE_ACTIONS", file: "src/showcase/showcase.ts", list: () => SHOWCASE_ACTIONS.list() },
 ];
