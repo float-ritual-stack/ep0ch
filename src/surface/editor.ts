@@ -9,6 +9,7 @@ import { USER, type Actor } from "../socket";
 import { stateSub } from "../state";
 import { C, fg, pad, RESET } from "../style";
 import { rule } from "../text";
+import { ownTerminal, type Handover } from "../term";
 import { agentLabel } from "./actions";
 import { COMPLETION_HINT, COMPLETION_ROWS, completerOf, completionOf, renderCompletion } from "./completer";
 
@@ -130,46 +131,49 @@ export function writtenBy(d: Draft, verb: "save" | "send"): string | null {
   return `${names.join(" and ")} typed this · ${verb === "save" ? `saved as whoever saves it, naming ${all}` : `sent as the agent's, naming ${all}`}`;
 }
 
-export interface Suspender { suspend(run: () => void): void; editInTile?(path: string, cmd: string, done: (code: number | null) => void): boolean }
+export interface Suspender { suspend(run: (terminal: Handover) => Promise<unknown>, what?: string): Promise<void>; editInTile?(path: string, cmd: string, done: (code: number | null) => void): boolean }
 
 /**
  * Ctrl+E: the draft goes to $VISUAL/$EDITOR in a temp file and comes back, replacing the draft's text.
- * The base revision stays: the service still judges the save.
+ * The base revision stays: the service still judges the save. Resolves once the draft is back.
+ *
+ * The editor's text is never dropped: when it can't go back into the draft (the editor failed or its terminal went,
+ * the draft changed meanwhile from another terminal or an agent's patch, or nobody holds the draft any more: `held`
+ * says whether its host still does), it's copied to disk (`drafts/`) and said.
  */
-export function openInEditor(ctx: Suspender, d: Draft): void {
+export function openInEditor(ctx: Suspender, d: Draft, held: () => boolean = () => true): Promise<void> {
   // In the door's state (edit/<pid>-…, private), not /tmp: if the door ends first, the file is copied to
   // drafts/ and said (keepEditFile), or, after a kill -9, by the next door (recoverEdits).
   const dir = mkdtempSync(join(stateSub("edit") ?? tmpdir(), `${process.pid}-`));
   const path = join(dir, `${d.blockId.slice(0, 8)}.md`);
   writeFileSync(path, d.text + "\n", { mode: 0o600 });
   const editor = process.env.VISUAL || process.env.EDITOR || "vi";
+  const sent = d.text;
+  const back = (code: number | null) => {
+    let text: string | null = null;
+    try { text = readFileSync(path, "utf8"); } catch { /* the file went */ }
+    const edited = text !== null && text.replace(/\n$/, "") !== sent;
+    if (code === 0 && text !== null && d.text === sent && held()) {
+      const before = d.text;
+      d.replace(text);
+      d.note = d.text === before ? `no changes from ${editor}` : `back from ${editor} · ctrl+s saves`;
+      return;
+    }
+    const why = code !== 0 ? `${editor} exited ${code ?? "without a code (its terminal went)"}` : !held() ? "the draft was closed meanwhile" : "the draft changed while it was out";
+    if (edited) d.note = `${why}: the draft is as it is here · ${editor}'s text is at ${keepCopy(text!, `${d.blockId.slice(0, 8)}-editor`)}`;
+    else d.note = `${why}; the draft is unchanged`;
+  };
+  const tidyUp = () => rmSync(dir, { recursive: true, force: true });
   // Where the view has tiles, the editor runs in one beside the note (PIE-417); the draft comes back when it exits.
-  if (ctx.editInTile?.(path, editor, c => { try { back(c); } finally { rmSync(dir, { recursive: true, force: true }); } })) {
+  if (ctx.editInTile?.(path, editor, c => { try { back(c); } finally { tidyUp(); } })) {
     d.note = `editing in ${editor} beside · the draft comes back when it exits`;
-    return;
+    return Promise.resolve();
   }
-  function back(code: number | null) {
-    if (code !== 0) d.note = `${editor} exited ${code}; the draft is unchanged`;
-    else {
-      const before = d.text;
-      d.replace(readFileSync(path, "utf8"));
-      d.note = d.text === before ? `no changes from ${editor}` : `back from ${editor} · ctrl+s saves`;
-    }
-  }
+  // Else in the person's terminal (the door's own, or a session client's), the door stepping aside meanwhile.
   let code: number | null = null;
-  try {
-    ctx.suspend(() => {
-      code = Bun.spawnSync(["sh", "-c", `${editor} "$1"`, "sh", path], { stdio: ["inherit", "inherit", "inherit"] }).exitCode;
-    });
-    if (code !== 0) d.note = `${editor} exited ${code}; the draft is unchanged`;
-    else {
-      const before = d.text;
-      d.replace(readFileSync(path, "utf8"));
-      d.note = d.text === before ? `no changes from ${editor}` : `back from ${editor} · ctrl+s saves`;
-    }
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
+  return ctx.suspend(async terminal => { code = await (terminal ?? ownTerminal).run(["sh", "-c", `${editor} "$1"`, "sh", path]); }, "editor")
+    .then(() => back(code), () => back(null))
+    .finally(tidyUp);
 }
 
 /**

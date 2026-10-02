@@ -830,7 +830,7 @@ export class Lanes implements SourceModel {
   private composerCommand(cmd: DraftCommand) {
     const C0 = this.composer!, d = C0.session.draft;
     if (cmd === "save") void this.submitComposer();
-    else if (cmd === "editor") openInEditor(this.host.ctx, d);
+    else if (cmd === "editor") void openInEditor(this.host.ctx, d, () => this.composer?.session.draft === d).then(() => this.host.redraw());
     // cmd+c: the draft's selection to the person's clipboard, through the draft's copy action.
     else if (cmd === "copy") void Dispatcher.of(DRAFT_ACTIONS, d, () => this.host.ctx).press("draft.copy").then(r => { const c = r as { text: string; chars: number } | undefined; if (c) { this.host.ctx.copy?.(c.text); this.host.ctx.flash(`copied ${c.chars} chars`); } this.host.redraw(); });
     // Esc on nothing typed closes it; esc, esc on typed text puts it aside as unsent (never created), and says where.

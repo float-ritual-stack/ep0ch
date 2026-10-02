@@ -79,6 +79,12 @@ person asked for it.
   it with `ep0ch try … --copy` or against a scratch service, and pass the same `EP0CH_CONTROL` to every
   command. Keep that directory short and mode 700 (`mktemp -d /tmp/…`): a long socket path fails, and the
   door serves no socket in a folder others can reach. `ep0ch-core` has the whole recipe, mouse included.
+- **The door may be a session** (`ep0ch session list` says; README "Sessions: quit is detach"): it runs without a
+  terminal, and its control socket answers whether or not a terminal is attached. To see it as a terminal does,
+  `ep0ch session attach --watch` in a pane of your own (read-only, never the person's keys). Never attach to the
+  person's session without `--watch`: your keys would be theirs. Ending it (`session.end`, `ep0ch session end`) is
+  the person's; a session you started on your own `EP0CH_STATE` you end yourself (`EP0CH_STATE=… ep0ch session end --yes`),
+  or it keeps running after your pane is gone.
 - Name yourself: `EP0CH_AGENT=<your-id>` once, or `--as` on each `act` and `open`. The door records and shows
   it. `ext:<id>` is an extension's and is refused: only the outline service writes as an extension. To run
   one's action, run it as yourself (`act ext.<id>.<action> block=<id>`); the change feed records you as

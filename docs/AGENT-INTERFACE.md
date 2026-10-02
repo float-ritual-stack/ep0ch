@@ -30,6 +30,17 @@ reaches the door it runs in (for the daily agent in Herdr, the socket of the doo
 README's "The daily agent in Herdr"). It speaks newline-delimited JSON:
 one request per line, one answer per line (`{"ok":true,"result":…}` or `{"ok":false,"error":"…"}`).
 
+**In a door session** (PIE-418, the README's "Sessions: quit is detach") the session serves this socket, so it lives
+as long as the session, not as long as a terminal: an agent's `act` and `peek` work while no terminal is attached, and
+`peek` adds `session` (its `pid` and `clients`: each attached terminal's size, video mode, whether it `active`ly has the
+person's keys, `watch`, `idle`). The person's keys are wherever they last typed; the actor rule reads one person
+whichever terminal that is. To see the session as a terminal does, an agent attaches read-only: `ep0ch session attach
+--watch` in a pane of its own is shown every frame and never given the keys (its `q` or `ctrl+c` stops watching).
+Ending the session (`session.end`: `E` on the main menu, `ep0ch session end` at the person's shell) is the person's
+only: an agent's `act session.end` is refused, a terminal attached to the session can't end it over the wire, and an
+agent never runs `ep0ch session end` on the person's state dir (a session it started on its own `EP0CH_STATE` it ends
+itself).
+
 | Request | Answer | CLI |
 |---|---|---|
 | `{"cmd":"peek"}` | the screen as text, and the screen's own `describe()`, with the door's `pid` and `nest` (the layers it runs in) and `person`: where the person is (`focus`, `typingIn`, `busy`, `why`, `keys`, `idle` ms, `away`), the answer every agent rule reads | `ep0ch peek` |
@@ -482,7 +493,9 @@ the person does:
 | an agent's `tile.close` on a running program | refused | — |
 | the program exits | the tile keeps the person's keys until `⏎` (run again) or `ctrl+]` | — |
 | `layout.load` | same-named tiles keep their programs; others running go in one shut drawer on the right | replaced (refused on a locked screen) |
-| quitting the door (ctrl+c, the menu's logoff) | asked twice, then ended (nvim keeps unsaved changes in its swap file) | kept |
+| detaching from a session (ctrl+c, the menu's logoff `G`, closing the terminal, a dropped ssh) | keep running in the session, scrollback and all; the next attach shows them | kept, live |
+| ending a session (`E` on the main menu, `ep0ch session end`; an agent's `session.end` is refused) | asked (programs running), then ended with the session | kept |
+| quitting a door in its own terminal (`--no-daemon`: ctrl+c, the menu's logoff) | asked twice, then ended (nvim keeps unsaved changes in its swap file) | kept |
 | SIGINT, SIGQUIT, SIGTERM, SIGHUP, an uncaught exception | ended with the door, after drafts, comments and an open `ctrl+e` editor's text are copied to `drafts/`; the terminal is put back and the socket removed | kept; written whole (temp file, rename) |
 | `kill -9` | ended by the pty's hangup; a watcher puts the terminal back; the next door sweeps the socket and keeps the `ctrl+e` file | kept |
 | a restart | started again from the layout; a `ctrl+e` edit tile isn't restored | read back |

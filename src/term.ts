@@ -98,23 +98,37 @@ function terminalGuard(): { dismiss(): void } | null {
 
 export interface TermInfo { cols: number; rows: number; cellW: number; cellH: number; kitty: boolean }
 
-export class Term {
-  info: TermInfo = { cols: 80, rows: 25, cellW: 9, cellH: 18, kitty: false };
-  private last: string[] = [];
-  private keyHandler: (k: Key) => void = () => {};
-  private resizeHandler: () => void = () => {};
-  private pending = "";
-  private decoder = new TextDecoder("utf-8");
-  private probing: { kitty: boolean | null; done: () => void } | null = null;
-  /**
-   * The terminal answered the Kitty keyboard protocol's query (src/kbd.ts): the door asks it for the protocol at
-   * start and on every resume, and TERM_RESET gives it back. False: legacy keys, as before.
-   */
-  kbd = false;
+/** How a program is run in a terminal handed to it: its folder, its environment, a line printed first. */
+export interface HandoverOpts { cwd?: string; env?: Record<string, string>; banner?: string }
 
+/**
+ * A terminal handed to another program (App.suspend: the drop shell, $EDITOR): `run` starts the program with the
+ * terminal as its stdio and resolves to its exit code. The door's own is `ownTerminal`; in a session, the terminal of
+ * the client with the person's keys (its client runs the program there, src/session/client.ts).
+ */
+export interface Handover { run(argv: string[], o?: HandoverOpts): Promise<number | null> }
+
+/** `argv` with this process's terminal as its stdio, `banner` printed first: its exit code. */
+export async function runProgram(argv: string[], o: HandoverOpts = {}): Promise<number | null> {
+  if (o.banner && process.stdout.isTTY) process.stdout.write(`\x1b[2J\x1b[H${o.banner}\n`);
+  const p = Bun.spawn(argv, { cwd: o.cwd, env: o.env ?? (process.env as Record<string, string>), stdio: ["inherit", "inherit", "inherit"] });
+  return await p.exited;
+}
+
+/** This process's own terminal. */
+export const ownTerminal: Handover = { run: (argv, o) => runProgram(argv, o) };
+
+/**
+ * One terminal's screen as rows, written to `out`: what was painted last, so a paint rewrites only the rows that
+ * changed, and a frame goes out as one synchronized update. The door's own terminal (Term) is one; each client
+ * attached to a session (src/session/) is another, over its socket.
+ */
+export class Rows {
+  private last: string[] = [];
   /** What a frame in progress has written so far (null outside `frame`); sent as one chunk when it ends. */
   private frameOut: string | null = null;
-  write = (s: string) => { if (this.frameOut !== null) this.frameOut += s; else process.stdout.write(s); };
+  constructor(private readonly out: (s: string) => void, public info: TermInfo) {}
+  write = (s: string) => { if (this.frameOut !== null) this.frameOut += s; else this.out(s); };
 
   /**
    * Everything `draw` writes goes out as one synchronized update (DEC mode 2026), in one write: the terminal,
@@ -129,70 +143,8 @@ export class Term {
     } finally {
       const out = this.frameOut;
       this.frameOut = null;
-      if (out) process.stdout.write(`\x1b[?2026h${out}\x1b[?2026l`);
+      if (out) this.out(`\x1b[?2026h${out}\x1b[?2026l`);
     }
-  }
-
-  private guard: { dismiss(): void } | null = null;
-  /** The theme's ground (OSC 10 and 11, src/theme.ts groundSeq): set again on every resume, given back by TERM_RESET. */
-  private ground = "";
-  setGround(seq: string): void {
-    // Classic sets no ground: its reset is sent only to undo one this door set.
-    if (seq === GROUND_RESET && !this.ground) return;
-    this.ground = seq === GROUND_RESET ? "" : seq;
-    this.write(seq);
-  }
-
-  async start(): Promise<void> {
-    this.guard = terminalGuard();
-    process.stdin.setRawMode?.(true);
-    process.stdin.resume();
-    process.stdin.on("data", (d: Buffer) => this.batch(() => this.feed(this.decoder.decode(d, { stream: true }))));
-    process.stdout.on("resize", () => { this.measure(); this.last = []; this.resizeHandler(); });
-    this.write("\x1b[?1049h\x1b[?25l\x1b[?7l\x1b[2J\x1b[?1002h\x1b[?1006h\x1b[?2004h");
-    this.measure();
-    const hint = kittyHint();
-    await new Promise<void>(resolve => {
-      const timer = setTimeout(() => { this.probing = null; resolve(); }, 400);
-      this.probing = { kitty: null, done: () => { clearTimeout(timer); this.probing = null; resolve(); } };
-      this.write(`\x1b[16t${kbdWanted() ? KBD_QUERY : ""}${hint === null ? KITTY_QUERY : "\x1b[c"}`);
-    });
-    if (hint !== null) this.info.kitty = hint;
-    if (this.kbd) this.write(KBD_PUSH);
-    if (this.ground) this.write(this.ground);
-  }
-
-  /**
-   * Put the terminal back. Each step on its own: when the terminal has gone (an ssh connection dropped),
-   * the writes fail, and what the door does after stopping (drafts, the socket, the last call) still runs.
-   */
-  stop(): void {
-    try { this.write(`\x1b[2J${TERM_RESET}${this.ground ? GROUND_RESET : ""}`); } catch { /* no terminal to reset */ }
-    try { process.stdin.setRawMode?.(false); } catch { /* the same */ }
-    try { process.stdin.pause(); } catch { /* the same */ }
-    this.guard?.dismiss(); this.guard = null;
-  }
-
-  /** Take the terminal back after another program ($EDITOR) had it: alt screen, mouse, a full repaint. */
-  resume(): void {
-    this.guard ??= terminalGuard();
-    process.stdin.setRawMode?.(true);
-    process.stdin.resume();
-    this.pending = "";
-    this.write(`\x1b[?1049h\x1b[?25l\x1b[?7l\x1b[2J\x1b[?1002h\x1b[?1006h\x1b[?2004h${this.kbd ? KBD_PUSH : ""}${this.ground}`);
-    this.measure();
-    this.invalidate();
-  }
-
-  onKey(fn: (k: Key) => void) { this.keyHandler = fn; }
-  /** Wraps the handling of each chunk of input, so the door paints once for all the keys in it (App.batched). */
-  onBatch(fn: (run: () => void) => void) { this.batch = fn; }
-  private batch: (run: () => void) => void = run => run();
-  onResize(fn: () => void) { this.resizeHandler = fn; }
-
-  private measure() {
-    this.info.cols = process.stdout.columns || 80;
-    this.info.rows = process.stdout.rows || 25;
   }
 
   /** Paint full-screen lines; only rows that changed are rewritten. */
@@ -221,6 +173,23 @@ export class Term {
   private row(r: number, line: string): string { return rowBytes(r, line, this.info.cols); }
 
   invalidate() { this.last = []; }
+}
+
+/**
+ * Keys from the bytes a terminal sends: escape sequences, the mouse (SGR), pastes, Kitty keyboard reports, and the
+ * terminal's replies to the door's own queries (its cell size, Kitty graphics, the keyboard protocol). One per
+ * terminal: the door's own (Term), or each client attached to a session, each with its own half-read sequence.
+ */
+export class KeyDecoder {
+  private pending = "";
+  keyHandler: (k: Key) => void = () => {};
+  probing: { kitty: boolean | null; done: () => void } | null = null;
+  /**
+   * The terminal answered the Kitty keyboard protocol's query (src/kbd.ts): the door asks it for the protocol at
+   * start and on every resume, and TERM_RESET gives it back. False: legacy keys, as before.
+   */
+  kbd = false;
+  constructor(private readonly info: TermInfo) {}
 
   /**
    * Where raw input goes while the person types in a terminal tile (PIE-417): every byte as the terminal sent
@@ -228,6 +197,9 @@ export class Term {
    * (ctrl+], 0x1d), which stay the door's. Null: decode keys as usual.
    */
   rawSink: (() => ((bytes: string) => void) | null) | null = null;
+
+  /** Forget a half-read sequence (the terminal was handed to another program and back). */
+  reset() { this.pending = ""; }
 
   private mouseKey(m: RegExpMatchArray) {
     const b = Number(m[1]), x = Number(m[2]) - 1, y = Number(m[3]) - 1;
@@ -278,7 +250,7 @@ export class Term {
     return true;
   }
 
-  private feed(s: string) {
+  feed(s: string) {
     this.pending += s;
     while (this.pending.length) {
       const sink = this.rawSink?.();
@@ -350,6 +322,99 @@ export class Term {
       else if (code < 32) this.keyHandler({ kind: "char", ch: String.fromCharCode(code + 96), ctrl: true });
       else this.keyHandler({ kind: "char", ch: c });
     }
+  }
+}
+
+export class Term extends Rows {
+  readonly decoder: KeyDecoder;
+  private resizeHandler: () => void = () => {};
+  private textDecoder = new TextDecoder("utf-8");
+  constructor() {
+    super(s => { process.stdout.write(s); }, { cols: 80, rows: 25, cellW: 9, cellH: 18, kitty: false });
+    this.decoder = new KeyDecoder(this.info);
+  }
+  /** See KeyDecoder.kbd. */
+  get kbd() { return this.decoder.kbd; }
+  /** See KeyDecoder.rawSink. */
+  get rawSink() { return this.decoder.rawSink; }
+  set rawSink(f) { this.decoder.rawSink = f; }
+  /** Bytes as the terminal sent them (a test's). */
+  feed(s: string) { this.decoder.feed(s); }
+
+  private guard: { dismiss(): void } | null = null;
+  /** The theme's ground (OSC 10 and 11, src/theme.ts groundSeq): set again on every resume, given back by TERM_RESET. */
+  private ground = "";
+  setGround(seq: string): void {
+    // Classic sets no ground: its reset is sent only to undo one this door set.
+    if (seq === GROUND_RESET && !this.ground) return;
+    this.ground = seq === GROUND_RESET ? "" : seq;
+    this.write(seq);
+  }
+  /** A session this terminal shows set a theme's ground on it (src/session/client.ts): `stop` gives it back too. */
+  sessionGround = false;
+
+  async start(): Promise<void> {
+    this.guard = terminalGuard();
+    process.stdin.setRawMode?.(true);
+    process.stdin.resume();
+    process.stdin.on("data", (d: Buffer) => this.input(d));
+    process.stdout.on("resize", () => { this.measure(); this.invalidate(); this.resizeHandler(); });
+    this.write("\x1b[?1049h\x1b[?25l\x1b[?7l\x1b[2J\x1b[?1002h\x1b[?1006h\x1b[?2004h");
+    this.measure();
+    const hint = kittyHint();
+    const decoder = this.decoder;
+    await new Promise<void>(resolve => {
+      const timer = setTimeout(() => { decoder.probing = null; resolve(); }, 400);
+      decoder.probing = { kitty: null, done: () => { clearTimeout(timer); decoder.probing = null; resolve(); } };
+      this.write(`\x1b[16t${kbdWanted() ? KBD_QUERY : ""}${hint === null ? KITTY_QUERY : "\x1b[c"}`);
+    });
+    if (hint !== null) this.info.kitty = hint;
+    if (this.kbd) this.write(KBD_PUSH);
+    if (this.ground) this.write(this.ground);
+  }
+
+  /**
+   * Where stdin's bytes go: decoded into keys (the door's own terminal), or, once a session's client has probed the
+   * terminal, `pass`ed on as they came (src/session/client.ts): the session decodes them.
+   */
+  private input(d: Buffer) {
+    const s = this.textDecoder.decode(d, { stream: true });
+    if (this.pass) this.pass(s);
+    else this.batch(() => this.decoder.feed(s));
+  }
+  pass: ((s: string) => void) | null = null;
+
+  /**
+   * Put the terminal back. Each step on its own: when the terminal has gone (an ssh connection dropped),
+   * the writes fail, and what the door does after stopping (drafts, the socket, the last call) still runs.
+   */
+  stop(): void {
+    try { this.write(`\x1b[2J${TERM_RESET}${this.ground || this.sessionGround ? GROUND_RESET : ""}`); } catch { /* no terminal to reset */ }
+    try { process.stdin.setRawMode?.(false); } catch { /* the same */ }
+    try { process.stdin.pause(); } catch { /* the same */ }
+    this.guard?.dismiss(); this.guard = null;
+  }
+
+  /** Take the terminal back after another program ($EDITOR) had it: alt screen, mouse, a full repaint. */
+  resume(): void {
+    this.guard ??= terminalGuard();
+    process.stdin.setRawMode?.(true);
+    process.stdin.resume();
+    this.decoder.reset();
+    this.write(`\x1b[?1049h\x1b[?25l\x1b[?7l\x1b[2J\x1b[?1002h\x1b[?1006h\x1b[?2004h${this.kbd ? KBD_PUSH : ""}${this.ground}`);
+    this.measure();
+    this.invalidate();
+  }
+
+  onKey(fn: (k: Key) => void) { this.decoder.keyHandler = fn; }
+  /** Wraps the handling of each chunk of input, so the door paints once for all the keys in it (App.batched). */
+  onBatch(fn: (run: () => void) => void) { this.batch = fn; }
+  private batch: (run: () => void) => void = run => run();
+  onResize(fn: () => void) { this.resizeHandler = fn; }
+
+  private measure() {
+    this.info.cols = process.stdout.columns || 80;
+    this.info.rows = process.stdout.rows || 25;
   }
 }
 

@@ -326,7 +326,7 @@ describe.skipIf(!outliner)("editing against a scratch outline", () => {
     try {
       const { pane, d } = await openReader(b.id);
       pane.key(ctrl("e"), d);
-      expect(pane.draft!.text).toBe("Via editor [stage::queued]\nwritten in the editor");
+      await until(() => pane.draft!.text === "Via editor [stage::queued]\nwritten in the editor", "the editor's text back in the draft");
       pane.key(ctrl("s"), d);
       await until(() => !pane.editing, "the save");
       expect((await current(b.id)).text).toBe("Via editor [stage::queued]\nwritten in the editor");

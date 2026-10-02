@@ -74,3 +74,7 @@ export function claimState(): number[] {
   }
   return others;
 }
+
+/** When the person last called (logged on): "new since your last call" reads it. */
+export const readLastCall = () => Number(readState<{ at?: number }>("lastcall.json")?.at) || 0;
+export const writeLastCall = (at: number) => writeState("lastcall.json", { at });

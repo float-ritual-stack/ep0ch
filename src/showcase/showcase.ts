@@ -39,6 +39,7 @@ import { PtyPane } from "../desk/pty";
 import { serviceKind, tileKinds } from "../desk/tile-kinds";
 import { extensionList } from "../extensions";
 import { ScreenTile } from "../desk/screen-tile";
+import { servingSession } from "../session/session-term";
 import { loadShowcase, SEED, type SeedName } from "./seed";
 import { PROPERTY_GRAMMAR_VERSION } from "../vendor/property-grammar";
 
@@ -252,6 +253,25 @@ export const SECTIONS: Section[] = [
     key: "service", need: "know anything the service can answer", part: "ask the service: views.read, blocks.read, properties.preview, changes.since, references.*, gated by Capability", files: "src/socket.ts",
     stage(n, show) { const p = new ServicePane(n); return deskOf({ title: "showcase · service", panes: [p] }, show, []); },
   },
+  {
+    key: "session", need: "keep the door running without a terminal: quit detaches, attach again, several terminals at once", part: "the door session: one daemon per state dir holds the App (screens, layouts, the dispatcher, drafts, terminal tiles, the service connection); clients attach over session.sock and are only terminals; SessionTerm is the App's terminal, a Painter per client (its size, video mode and Kitty images), the keys wherever the person last typed", files: "src/session/daemon.ts, src/session/client.ts, src/session/session-term.ts, src/session/protocol.ts, src/display.ts",
+    aside: "G and ctrl+c detach the terminal you're on, and everything goes on; E on the main menu (or `ep0ch session end`) ends the session; `ep0ch session attach --watch` shows it read-only; `ep0ch session list` says who's attached",
+    stage(n, show) {
+      // The session's terminals as they are, drawn the way a service tile is.
+      const list = serviceKind({
+        kind: "showcase.session", about: "the terminals attached to this session",
+        render: async req => {
+          const s = servingSession();
+          const rows = !s ? [`${fg(C.yellow)}this door runs in its own terminal (--no-daemon): quitting it ends it${RESET}`, `${fg(C.grey)}EP0CH_DAEMON=1 ep0ch runs it as a session${RESET}`]
+            : [`${fg(C.lcyan)}session ${process.pid}${RESET} ${fg(C.dark)}drawn at ${s.info.cols}×${s.info.rows}${RESET}`,
+              ...s.list().map(c => `  ${c.active ? fg(C.white) : fg(C.grey)}#${c.id} ${c.tty ?? `pid ${c.pid}`} ${c.cols}×${c.rows} ${c.video}${c.active ? " · has the keys" : ""}${c.watch ? " · watching" : ""}${RESET}`)];
+          return { title: "session", lines: rows.map(x => x.slice(0, req.cols + 40)) };
+        },
+      }).make({ kind: "showcase.session" });
+      const r = new ReaderPane();
+      return deskOf({ title: "showcase · session", panes: [r, list], layout: ([a, b]) => row(0.62, a!, b!) }, show, [[r, n.notebook]]);
+    },
+  },
 ];
 
 /** The index is wide enough for every need on one line when the terminal allows; narrow, it lists the keys only. */
@@ -448,7 +468,7 @@ export class Showcase implements Screen {
 /** The showcase's own actions: which section is shown. Keys and clicks on the index call the same code. */
 export const SHOWCASE_ACTIONS = new ActionSet<{ "section": { name: string }; "section.try": { name?: string } }, Showcase>("showcase", {
   "section.try": {
-    summary: "go into a section's stage (name=<1-18> or its key, else the one shown): the person's keys and mouse go to the part itself until its own esc brings them back to the index. The person's only: an agent acts in the stage with its actions (`act` reaches the shown section's)",
+    summary: "go into a section's stage (name=<1-19> or its key, else the one shown): the person's keys and mouse go to the part itself until its own esc brings them back to the index. The person's only: an agent acts in the stage with its actions (`act` reaches the shown section's)",
     keys: "⏎ → l tab, click in the stage",
     touches: "screen", replay: "safe", person: "going into a section gives it the person's keys; an agent runs the shown section's own actions instead",
     args: { name: { type: "string", optional: true, about: "the section's number or key; the one shown when left out" } },
@@ -459,7 +479,7 @@ export const SHOWCASE_ACTIONS = new ActionSet<{ "section": { name: string }; "se
     },
   },
   "section": {
-    summary: "show a section (name=<1-18> or its key: note, actions, edit, drafts, panes, screens, kinds, terminal, preview, screen, spine, entity, presence, live, projection, extensions, selection, service); refused to an agent while the person is in one", keys: "↑↓ j k, 1-9 0, click, wheel",
+    summary: "show a section (name=<1-19> or its key: note, actions, edit, drafts, panes, screens, kinds, terminal, preview, screen, spine, entity, presence, live, projection, extensions, selection, service, session); refused to an agent while the person is in one", keys: "↑↓ j k, 1-9 0, click, wheel",
     touches: "screen", replay: "safe", says: r => `showed section ${r.section} (${r.key})`,
     args: { name: { type: "string", about: "the section's number or key" } },
     run({ name }, s) {
