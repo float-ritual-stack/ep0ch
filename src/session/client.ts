@@ -10,12 +10,11 @@
 import { spawn } from "node:child_process";
 import { closeSync, openSync, readFileSync } from "node:fs";
 import { connect, type Socket } from "node:net";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { listening } from "../control";
 import { resolveTarget } from "../discover";
 import { appendNest, nestLayers } from "../nest";
-import { SocketBoard } from "../socket";
 import { privateDir, stateDir } from "../state";
 import { runProgram, Term } from "../term";
 import { LOCKED, serve, sessionLog, sessionSocket } from "./daemon";
@@ -34,8 +33,9 @@ export async function doorMode(args: readonly string[], env: Record<string, stri
 
 /** `ep0ch [door flags]` with sessions: the session in this state dir, started first when none runs; then attached. */
 export async function attachDoor(args: string[], how: { running: boolean }): Promise<number> {
-  // The outline it names, when it names one: a session on another one refuses it.
-  const target = await namedTarget(args);
+  // The outline it names, when it names one and a session runs: a session on another one refuses it. (One starting
+  // now takes these same flags.)
+  const target = how.running ? await namedTarget(args) : null;
   if (target && "error" in target) { console.error(`ep0ch: ${target.error}`); return 1; }
   if (!how.running) {
     const started = await startSession(args.filter(a => a !== "--daemon"));
@@ -53,18 +53,17 @@ export async function waitFor(path: string, ms: number): Promise<boolean> {
 }
 
 /**
- * The outline the door flags name (`--ws <name|root>`, a socket path, EP0CH_SOCKET), as its service answers for it;
- * null when they name none (the session in the state dir is attached to, whichever outline it's on).
+ * The outline the door flags name (`--ws <name|root>`, a socket path, EP0CH_SOCKET), as resolveTarget names it (its
+ * service's socket, and the outline on it): the same resolution the session made when it started, without asking the
+ * service (an outline not open yet is opened by the session that starts). Null when they name none: the session in the
+ * state dir is attached to, whichever outline it's on.
  */
-export async function namedTarget(args: readonly string[], env: Record<string, string | undefined> = process.env): Promise<{ workspace: string; outline?: string } | { error: string } | null> {
+export async function namedTarget(args: readonly string[], env: Record<string, string | undefined> = process.env): Promise<{ socket: string; outline?: string } | { error: string } | null> {
   const named = args.includes("--ws") || args.some((a, i) => a.includes("/") && !["--board", "--ws", "--root"].includes(args[i - 1] ?? "")) || !!env.EP0CH_SOCKET;
   if (!named) return null;
-  const t = await resolveTarget(args);
+  const t = await resolveTarget(args, env);
   if ("error" in t) return { error: t.error };
-  const b = new SocketBoard(t.path, 5000, t.outline);
-  try { const i = await b.info(); return { workspace: i.workspace, ...(i.outline ? { outline: i.outline } : {}) }; }
-  catch (e) { return { error: `no carrier on ${t.path}\n  ${(e as Error).message}` }; }
-  finally { b.close(); }
+  return { socket: resolve(t.path), ...(t.outline ? { outline: t.outline } : {}) };
 }
 
 /** The variables a session doesn't keep from the terminal that started it: it outlives that terminal, its pane and its ssh login. */

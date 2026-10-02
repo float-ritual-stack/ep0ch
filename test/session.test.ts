@@ -13,6 +13,8 @@ import { connect, type Socket } from "node:net";
 import { join } from "node:path";
 import { App } from "../src/app";
 import { Mirror } from "../src/mirror";
+import { Draft } from "../src/edit";
+import { openInEditor } from "../src/surface/editor";
 import { SocketBoard } from "../src/socket";
 import { encode, Frames, PROTOCOL, type ClientMsg, type DaemonMsg, type Hello } from "../src/session/protocol";
 import { SessionTerm, type Link } from "../src/session/session-term";
@@ -57,6 +59,42 @@ describe("the session's environment", () => {
   test("a program the session hands a terminal runs with that terminal's TERM, ssh, tmux and locale, its layers first", () => {
     const env = runEnv({ HOME: "/home/fern", EP0CH_CONTROL: "/tmp/plot/door.sock", EP0CH_NEST: "shell:4242" }, { TERM: "xterm-ghostty", SSH_TTY: "/dev/pts/9", LANG: "en_NZ.UTF-8", EP0CH_NEST: "ssh:pts/9", HOME: "/elsewhere" });
     expect(env).toEqual({ HOME: "/home/fern", EP0CH_CONTROL: "/tmp/plot/door.sock", TERM: "xterm-ghostty", SSH_TTY: "/dev/pts/9", LANG: "en_NZ.UTF-8", EP0CH_NEST: "ssh:pts/9 › shell:4242" });
+  });
+});
+
+describe("$EDITOR's text is never dropped", () => {
+  const draftIn = async (change: (d: Draft) => void, code: number | null, held = true) => {
+    const dir = mkdtempSync(join(tmpdir(), "ep0ch-editor-")), was = { state: process.env.EP0CH_STATE, editor: process.env.EDITOR, visual: process.env.VISUAL };
+    process.env.EP0CH_STATE = dir; process.env.EDITOR = "true"; delete process.env.VISUAL;
+    try {
+      const d = new Draft("0a1b2c3d-plot", 4, "Water the leeks");
+      const ctx = {
+        suspend: async (run: (t: { run(argv: string[]): Promise<number | null> }) => Promise<unknown>) => {
+          await run({ run: async argv => { writeFileSync(argv.at(-1)!, "Water the leeks and the beans\n"); change(d); return code; } });
+        },
+      };
+      await openInEditor(ctx as any, d, () => held);
+      return { d, dir };
+    } finally {
+      if (was.state === undefined) delete process.env.EP0CH_STATE; else process.env.EP0CH_STATE = was.state;
+      if (was.editor === undefined) delete process.env.EDITOR; else process.env.EDITOR = was.editor;
+      if (was.visual !== undefined) process.env.VISUAL = was.visual;
+    }
+  };
+  test("back into the draft when nothing else touched it", async () => {
+    const { d, dir } = await draftIn(() => {}, 0);
+    expect(d.text).toBe("Water the leeks and the beans");
+    rmSync(dir, { recursive: true, force: true });
+  });
+  test("copied to disk when the draft changed meanwhile, when the editor's terminal went, or when the draft was closed", async () => {
+    for (const [change, code, held, why] of [[(d: Draft) => d.replace("typed on the phone"), 0, true, /changed while it was out/], [() => {}, null, true, /without a code/], [() => {}, 0, false, /closed meanwhile/]] as const) {
+      const { d, dir } = await draftIn(change as (d: Draft) => void, code, held);
+      expect(d.note).toMatch(why);
+      const copy = /text is at (\S+)/.exec(d.note ?? "")![1]!;
+      expect(readFileSync(copy, "utf8")).toContain("and the beans");
+      expect(d.text).not.toContain("and the beans");
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 
@@ -390,7 +428,12 @@ describe.skipIf(!outliner)("a real session on a scratch service", () => {
     expect((await said({ nest: `ssh:pts/3 › door:${pid}/desk/t2:pty` })).message).toMatch(/inside the session already/);
     expect((await said({ nest: `shell:${pid}` })).message).toMatch(/inside the session already/);
     expect((await said(null, { t: "input", text: "j" })).message).toBe("say hello first");
-    expect((await said({ target: { workspace: "/elsewhere/plot", outline: "seed-library" } })).message).toMatch(/not the outline you named \(seed-library\)/);
+    expect((await said({ target: { socket: "/elsewhere/plot/outliner.sock", outline: "seed-library" } })).message).toMatch(/not the outline you named \(seed-library\)/);
+    // The same outline, named: attached.
+    const named = await RawClient.attach(sessionSocket(), 80, 24, { target: { socket: process.env.EP0CH_SOCKET! } });
+    await until(() => named.got.some(m => m.t === "output"), "the named client drawn", 5000);
+    named.close();
+    for (let i = 0; i < 50 && (await sessionInfo())!.clients.length; i++) await Bun.sleep(100);
     expect((await sessionInfo())!.clients).toEqual([]);
   }, 30_000);
 

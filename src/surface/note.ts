@@ -1289,7 +1289,7 @@ export class NoteSurface {
   /** Ctrl+E: the draft (or a comment being written) goes to $EDITOR and comes back. */
   external(host: SurfaceHost, d: Draft | null = this.draft) {
     if (!d) return;
-    void openInEditor(host.ctx, d).then(() => host.redraw());
+    void openInEditor(host.ctx, d, () => this.draft === d || this.session?.composer === d).then(() => host.redraw());
     host.redraw();
   }
 
@@ -3668,7 +3668,7 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
       if (writing && external) { surface.external(host, writing); return { comment: surface.session!.blockId, external: true }; }
       if (surface.draft) return { already: true, id: surface.draft.blockId, baseRevision: surface.draft.base };
       const { draft: d } = await surface.ensureDraft(host);
-      if (external) void openInEditor(host.ctx, d).then(() => host.redraw());
+      if (external) void openInEditor(host.ctx, d, () => surface.draft === d).then(() => host.redraw());
       surface.noteAgent(actor, "opened this note for editing");
       return { id: d.blockId, baseRevision: d.base };
     },

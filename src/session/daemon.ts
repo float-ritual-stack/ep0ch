@@ -134,7 +134,7 @@ export async function serve(args: string[]): Promise<never> {
 
   door = await openDoor({ term, mirror: term.mirror, info: () => term.info, board: opened.board, service: opened.service, args, ...(opened.notice ? { notice: opened.notice } : {}), done: finish });
   const app = door.app;
-  const same = (t: Hello["target"]) => !t || (t.workspace === opened.service.workspace && (t.outline ?? null) === (opened.service.outline ?? null));
+  const same = (t: Hello["target"]) => !t || (resolve(t.socket) === resolve(opened.board.path) && (t.outline ?? null) === (opened.board.outline ?? null));
   const where = opened.service.outline ? `the outline ${opened.service.outline}` : opened.service.workspace;
 
   server = createServer(sock => {
@@ -177,7 +177,7 @@ export async function serve(args: string[]): Promise<never> {
           }
           // A client that named another outline (--ws, a socket, EP0CH_SOCKET) isn't given this one.
           if (!same(h.target)) {
-            link.close({ t: "bye", reason: "refused", code: 1, message: `this state dir's session is on ${where}, not the outline you named (${h.target!.outline ?? h.target!.workspace}) · \`ep0ch session end\` ends it, or open that outline with --no-daemon or its own EP0CH_STATE` });
+            link.close({ t: "bye", reason: "refused", code: 1, message: `this state dir's session is on ${where}, not the outline you named (${h.target!.outline ?? h.target!.socket}) · \`ep0ch session end\` ends it, or open that outline with --no-daemon or its own EP0CH_STATE` });
             return;
           }
           const others = term.all().filter(c => !c.watch).length;

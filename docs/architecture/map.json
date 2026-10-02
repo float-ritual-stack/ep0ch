@@ -573,8 +573,8 @@
       "refs": [
         { "r": "door", "p": "src/session/daemon.ts", "l": 71, "m": "export async function serve" },
         { "r": "door", "p": "src/session/session-term.ts", "l": 77, "m": "export class SessionTerm" },
-        { "r": "door", "p": "src/session/client.ts", "l": 223, "m": "export async function attach(" },
-        { "r": "door", "p": "src/session/protocol.ts", "l": 98, "m": "export class Frames" },
+        { "r": "door", "p": "src/session/client.ts", "l": 222, "m": "export async function attach(" },
+        { "r": "door", "p": "src/session/protocol.ts", "l": 99, "m": "export class Frames" },
         { "r": "door", "p": "src/display.ts", "l": 56, "m": "export class Painter" },
         { "r": "door", "p": "src/door.ts", "l": 36, "m": "export async function openDoor" }
       ],
