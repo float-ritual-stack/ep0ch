@@ -17,6 +17,7 @@ import { Goodbye, MainMenu } from "../src/screens";
 import { SocketBoard } from "../src/socket";
 import { readState, writeState } from "../src/state";
 import { Term, type Key } from "../src/term";
+import { terminalDay } from "./terminal-day";
 import { outliner, Scratch, until } from "./scratch";
 
 const char = (ch: string): Key => ({ kind: "char", ch });
@@ -129,7 +130,7 @@ describe.skipIf(!outliner)("the review's findings, against a scratch outline", (
     const term = { info: { cols: 200, rows: 60, cellW: 9, cellH: 16, kitty: false }, write() {}, paint() {}, invalidate() {}, onKey(f: any) { key = f; }, onResize() {}, stop() {}, resume() {} };
     app = new App(term as any, board, Date.now(), () => {});
     app.push(new MainMenu());
-    desk = new Desk(undefined, { layout: "daily" });
+    desk = new Desk(undefined, { layout: terminalDay() });
     app.push(desk);
     render();
     await until(() => tile("claude")?.terminal?.running, "the agent tile");
@@ -235,7 +236,7 @@ describe.skipIf(!outliner)("the review's findings, against a scratch outline", (
     for (const k of [{ kind: "tab" } as Key, ctrl("w"), { kind: "alt", ch: "d" } as Key, char("q")]) key(k);
     expect(got.length).toBe(4);
     expect(D().prefix).toBe("");
-    expect(D().layoutName).toBe("daily");
+    expect(D().layoutName).toBe("terminal-day");
     expect(D().personTyping()).toBe(true);
     await expect(act("tile.focus", {}, "middle")).rejects.toThrow(/the person is typing/);
     t.holdsKeys = () => false;

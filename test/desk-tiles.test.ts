@@ -13,6 +13,7 @@ import { keyBytes, mouseBytes } from "../src/desk/pty";
 import { MainMenu } from "../src/screens";
 import { SocketBoard } from "../src/socket";
 import type { Key } from "../src/term";
+import { terminalDay } from "./terminal-day";
 import { outliner, Scratch, until } from "./scratch";
 
 const char = (ch: string): Key => ({ kind: "char", ch });
@@ -78,7 +79,7 @@ describe.skipIf(!outliner)("the desk as tiles, against a scratch outline", () =>
     const term = { info: { cols: 200, rows: 60, cellW: 9, cellH: 16, kitty: false }, write() {}, paint() {}, invalidate() {}, onKey(f: any) { key = f; }, onResize() {}, stop() {}, resume() {} };
     app = new App(term as any, board, Date.now(), () => {});
     app.push(new MainMenu());
-    desk = new Desk(undefined, { layout: "daily" });
+    desk = new Desk(undefined, { layout: terminalDay() });
     app.push(desk);
     render();
     await until(() => tile("claude")?.terminal?.running && tile("draft")?.terminal?.running, "the daily terminals");
@@ -91,8 +92,11 @@ describe.skipIf(!outliner)("the desk as tiles, against a scratch outline", () =>
     for (const k of ["EP0CH_STATE", "EP0CH_DAILY_AGENT", "EP0CH_DAILY_DRAFT", "EDITOR", "EP0CH_NOW_PAGE"]) delete process.env[k];
   });
 
-  test("daily: the agent over now, the tree and its preview over middle, the editor over side; tree, now and side open into middle", () => {
+  test("daily: now on the left (the agent is the host layer's, beside it), the tree and its preview over middle, the editor over side; tree, now and side open into middle", () => {
+    // Here with a terminal of the person's own over now (terminal-day); the daily layout itself has none.
     expect(shape()).toBe("row(col(claude,now),col(tree,preview,middle),col(draft,side))");
+    const { builtin } = require("../src/desk/tiles");
+    expect(JSON.stringify(builtin("daily").root)).not.toContain(`"kind":"pty","name":"claude"`);
     expect(tile("tree").link).toBe("middle");
     expect(tile("now").link).toBe("middle");
     expect(tile("side").link).toBe("middle");
@@ -103,15 +107,11 @@ describe.skipIf(!outliner)("the desk as tiles, against a scratch outline", () =>
     expect(get().focus).toBe("tree");
   });
 
-  test("daily: EP0CH_DAILY_CWD sets the folder the agent starts in, ~ meaning home", () => {
-    const { builtin } = require("../src/desk/tiles");
-    const leafOf = (n: any): any[] => (typeof n === "object" && n.kids ? n.kids.flatMap(leafOf) : n.tabs ? n.tabs.flatMap(leafOf) : [n]);
+  test("daily: EP0CH_DAILY_CWD sets the folder the agent (the host layer's) starts in, ~ meaning home", () => {
+    const { dailyAgent } = require("../src/desk/tiles");
     process.env.EP0CH_DAILY_CWD = "~/garden";
-    try {
-      const claude = leafOf(builtin("daily").root).find((l: any) => l.name === "claude");
-      expect(claude.cwd).toBe(`${require("node:os").homedir()}/garden`);
-    } finally { delete process.env.EP0CH_DAILY_CWD; }
-    expect(leafOf(builtin("daily").root).find((l: any) => l.name === "claude").cwd).toBeUndefined();
+    try { expect(dailyAgent().cwd).toBe(`${require("node:os").homedir()}/garden`); } finally { delete process.env.EP0CH_DAILY_CWD; }
+    expect(dailyAgent().cwd).toBeUndefined();
   });
 
   test("daily: the now tile is pinned to the now page (EP0CH_NOW_PAGE), and saves as that page, not its note", async () => {
@@ -170,7 +170,7 @@ describe.skipIf(!outliner)("the desk as tiles, against a scratch outline", () =>
   });
 
   test("alt+l, then a click, links a tile's opens; a followed link and the tree's ⏎ land there; a ctrl-click opens beside", async () => {
-    await mine("layout.load", { name: "daily" });
+    await mine("layout.load", { name: "terminal-day" });
     render();
     await act("open", { id: notes.plan.id }, "side");
     await until(() => tile("side").showing?.id === notes.plan.id, "the plan in side");
@@ -300,7 +300,7 @@ describe.skipIf(!outliner)("the desk as tiles, against a scratch outline", () =>
   }, 20_000);
 
   test("an agent's tile actions leave the person's focus where it is; its new tab isn't shown over theirs", async () => {
-    await mine("layout.load", { name: "daily" });
+    await mine("layout.load", { name: "terminal-day" });
     D().focus = [...D().names].find(([, v]: any) => v === "middle")[0];
     await act("tile.open", { kind: "reader", name: "helper", where: "tabs" }, "middle");
     expect(get().focus).toBe("middle");
@@ -332,7 +332,7 @@ describe.skipIf(!outliner)("the desk as tiles, against a scratch outline", () =>
   }, 20_000);
   test("a header's title moves the tile; the bare line after it is the border above, so pressing it resizes the tile", async () => {
     if (!(app as any).stack.includes(desk)) app.push(desk);
-    await mine("layout.load", { name: "daily" });
+    await mine("layout.load", { name: "terminal-day" });
     const before = shape(), n = rect("now"), c = rect("claude");
     // Past the title, on the line: the border between claude and now follows the pointer up. Nothing moves.
     render();
@@ -348,7 +348,7 @@ describe.skipIf(!outliner)("the desk as tiles, against a scratch outline", () =>
     drag(n.col + 4, rect("now").row, m.col + 1, m.row + Math.floor(m.rows / 2));
     expect(shape()).not.toBe(before);
     // A header with no border above (the top row) is grip all the way along.
-    await mine("layout.load", { name: "daily" });
+    await mine("layout.load", { name: "terminal-day" });
     const t = rect("claude");
     mouse("down", t.col + t.cols - 3, t.row); mouse("drag", t.col + t.cols - 1, t.row); render();
     expect(D().describe().dragging).toMatchObject({ tile: "claude" });

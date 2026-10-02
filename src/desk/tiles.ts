@@ -35,8 +35,8 @@ export interface TileSpec {
   /** A terminal tile's program and its folder; `file`: the file it edits (a preview can follow it). */
   cmd?: string[];
   /**
-   * The daily layout's agent tile: its program and folder are what EP0CH_DAILY_AGENT and EP0CH_DAILY_CWD say
-   * when it's built (`withDailyAgent`), not the `cmd` and `cwd` it was saved with.
+   * The daily layout's agent tile, in a layout saved before the agent moved to the host layer (PIE-513): read once
+   * and left out (`withoutAgentTile`): the agent has one home, the host layer's drawer.
    */
   agent?: true;
   cwd?: string;
@@ -146,7 +146,7 @@ export function migrateNames(spec: LayoutSpec): LayoutSpec {
 /**
  * A desk saved from built-in layout `from` before PIE-491 (no tile has an id yet), or a layout saved in
  * layouts.json under a built-in's name then, gets the links that layout has gained since, on tiles of the
- * same name and kind that have none: the daily layout's claude tile now links to middle, so an agent's
+ * same name and kind that have none: the daily layout's now tile links to middle, so an agent's
  * `open from=claude` lands in middle, as the Claude mod's `--reader middle` did. Once saved with ids, a link
  * the person took away stays away.
  */
@@ -164,24 +164,45 @@ export function migrateLinks(spec: LayoutSpec, from: string | undefined): Layout
 }
 
 /**
- * The daily agent's tile runs what the door is told now: its saved `cmd` and `cwd` are replaced by
- * `dailyAgent()`, so setting EP0CH_DAILY_AGENT (the Herdr launcher, say) takes effect on a restored desk and
- * on `layout.load`, not only on a fresh daily layout.
- *
- * Migration rule (desks saved before `agent`): in a layout named `daily`, a pty tile named `claude` with no
- * flag whose saved command is exactly `["claude"]` (the daily layout's only default so far) is the agent tile.
- * A command the person changed stays theirs.
+ * A tile has one home (PIE-513): the agent lives in the host layer's drawer, above every screen, so a layout saved
+ * with the daily agent tile comes back without it, and its screen lets the host layer sit beside it (`host:
+ * beside`, where the tile was) unless it says otherwise. The agent tile is one flagged `agent`; in a layout named
+ * `daily` saved before the flag, a pty tile named `claude` whose command is exactly `["claude"]`. A terminal the
+ * person made themselves (any other command) is theirs, and stays.
  */
-export function withDailyAgent(spec: LayoutSpec, from: string | undefined): LayoutSpec {
-  const isOld = (l: TileSpec) => from === "daily" && l.kind === "pty" && l.name === "claude" && !l.agent && l.cmd?.length === 1 && l.cmd[0] === "claude";
-  if (!savedLeaves(spec.root).some(l => l.agent || isOld(l))) return spec;
-  const now = dailyAgent();
-  const root = mapLeaves(spec.root, (l: TileSpec) => {
-    if (!l.agent && !isOld(l)) return l;
-    const { cwd: _cwd, ...rest } = l;
-    return { ...rest, agent: true, cmd: now.cmd, ...(now.cwd ? { cwd: now.cwd } : {}) };
-  });
-  return { ...spec, root };
+export function withoutAgentTile(spec: LayoutSpec, from: string | undefined): LayoutSpec {
+  const isAgent = (l: TileSpec) => !!l.agent || (from === "daily" && l.kind === "pty" && l.name === "claude" && l.cmd?.length === 1 && l.cmd[0] === "claude");
+  const floats = Array.isArray(spec.floats) ? spec.floats : [];
+  const gone = [...savedLeaves(spec.root), ...floats.map(f => f.tile)].filter(l => l && isAgent(l));
+  if (!gone.length) return spec;
+  // Nothing but the agent: the desk as it always opened (a second attach to the agent is never made).
+  const root = dropLeaves(spec.root, isAgent) ?? builtin("desk")!.root;
+  const names = new Set(gone.map(l => l.name));
+  const tidy = mapLeaves(root, l => (l.link && names.has(l.link) ? (({ link: _l, ...rest }) => rest)(l) : l));
+  const kept = floats.filter(f => !(f.tile && isAgent(f.tile)));
+  return {
+    ...spec, root: tidy, policy: { host: "beside", ...(spec.policy ?? {}) }, ...(Array.isArray(spec.floats) ? { floats: kept } : {}),
+    ...(typeof spec.focus === "string" && names.has(spec.focus) ? { focus: undefined } : {}),
+  };
+}
+
+/** A saved tree with the tiles `gone` says left out (a split left one kid, a tab set or drawer left none, give way). */
+function dropLeaves(root: SavedTree, gone: (l: TileSpec) => boolean): SavedTree | null {
+  const drop = (n: any): any => {
+    if (!n || typeof n !== "object") return n;
+    if (n.t === "leaf") return gone(n) ? null : n;
+    if (n.a || n.b) { const a = drop(n.a), b = drop(n.b); return a && b ? { ...n, a, b } : a ?? b; }
+    if (n.t === "tabs") { const tabs = (Array.isArray(n.tabs) ? n.tabs : []).filter((l: any) => !(l?.t === "leaf" && gone(l))); return tabs.length ? { ...n, tabs, active: Math.max(0, Math.min(Number(n.active) || 0, tabs.length - 1)) } : null; }
+    if (n.t === "drawer") { const kid = drop(n.kid); return kid ? { ...n, kid } : null; }
+    if (Array.isArray(n.kids)) {
+      const kids: any[] = [], weights: number[] = [];
+      n.kids.forEach((k: any, i: number) => { const r = drop(k); if (r) { kids.push(r); if (Array.isArray(n.weights)) weights.push(n.weights[i]); } });
+      if (!kids.length && n.t !== "columns") return null;
+      return { ...n, kids, ...(Array.isArray(n.weights) ? { weights } : {}) };
+    }
+    return n;
+  };
+  return drop(root);
 }
 
 /** Every tile spec in a saved tree (either form, tab sets too). */
@@ -206,28 +227,6 @@ function mapLeaves(root: SavedTree, f: (l: TileSpec) => TileSpec): SavedTree {
   return fix(root);
 }
 
-/**
- * The app's own agent tile (PIE-498, `AgentDock` in src/dock.ts): the daily layout's agent tile is that one
- * instance, not a second program. With Herdr, a second tile would be a second attach from the same door (Herdr
- * lets one client attach), and without Herdr it would be a second agent. The desk draws it, but never ends it:
- * closing the tile or leaving the desk leaves it running in the dock.
- */
-export interface SharedAgent {
-  /** The shared tile for an agent tile with this program, or null when it runs another (it gets its own). */
-  paneFor(spec: { cmd?: string[]; cwd?: string }): PtyPane | null;
-  isShared(p: unknown): boolean;
-  /** The dock's drawer shows it now: a desk tile draws a note in its place, so it has one size at a time. */
-  drawnElsewhere(p: unknown): boolean;
-  /** The person is typing in it in the drawer: an agent's `tile.type` would mix into their keys. */
-  personIn(p: unknown): boolean;
-  /** A desk showing it repaints when it writes; `unwatch` when that desk goes. */
-  watch(v: { redraw(): void }): void;
-  unwatch(v: { redraw(): void }): void;
-}
-let shared: SharedAgent | null = null;
-/** Set by the App as it starts (null: no dock, as in tests that build a desk alone, and each agent tile is its own). */
-export function shareAgent(s: SharedAgent | null) { shared = s; }
-export const sharedAgent = (): SharedAgent | null => shared;
 
 /** The kinds a tile can be: every kind in the registry, built-ins first. */
 export const tileKindNames = (): string[] => tileKinds().map(k => k.kind);
@@ -281,9 +280,10 @@ const T = (kind: TileKindName, name: string, more: Partial<TileSpec> = {}): LNod
 
 /**
  * The built-in layouts, as trees of tile specs:
- * - `daily`: Evan's arrangement (the 2026-09-29 screenshots). Claude over the "now" detail on the left; the
- *   outline tree over its preview, above the middle detail; the editor on the scratch draft over a third
- *   detail on the right. The tree, the "now" detail and the right detail open into the middle one.
+ * - `daily`: Evan's arrangement (the 2026-09-29 screenshots). The "now" detail on the left; the outline tree over
+ *   its preview, above the middle detail; the editor on the scratch draft over a third detail on the right. The
+ *   tree, the "now" detail and the right detail open into the middle one. The agent is the host layer's, pulled
+ *   up beside the desk (alt+a), not a tile here.
  * - `river`: the River screen (Quay) in a tile, its columns and open rule its own, a preview following what
  *   it selects beside it. One implementation of the river: the screen's (see docs/UI-GRAMMAR.md §7).
  * - `board`: the kanban as a tile, its selection followed by a preview tile that can go anywhere.
@@ -292,13 +292,12 @@ const T = (kind: TileKindName, name: string, more: Partial<TileSpec> = {}): LNod
 export function builtin(name: string): LayoutSpec | null {
   const serial = (n: LNode<TileSpec>): SavedTree => (n.t === "leaf" ? n.id : n.t === "tabs" ? { t: "tabs", tabs: n.ids, active: n.active } : n.t === "drawer" ? { t: "drawer", edge: n.edge, open: n.open, kid: serial(n.kid) as NaryForm<TileSpec> } : { t: "split", dir: n.dir, kids: n.kids.map(serial) as NaryForm<TileSpec>[], weights: n.weights });
   if (name === "daily") {
-    const agent = dailyAgent();
     const draft = dailyDraft();
     return {
-      name, rule: "current", focus: "tree",
+      // The agent is the host layer's (alt+a), beside the desk, never a tile of its own here (PIE-513).
+      name, rule: "current", focus: "tree", policy: { host: "beside" },
       root: serial(splitOf("row", [
-        // The claude tile's opens land in middle too: an agent in it opens with `open from=$EP0CH_TILE`, never naming middle.
-        splitOf("col", [T("pty", "claude", { ...agent, agent: true, link: "middle" }), T("detail", "now", { link: "middle", page: nowPage().address })], [0.6, 0.4]),
+        T("detail", "now", { link: "middle", page: nowPage().address }),
         splitOf("col", [splitOf("col", [T("tree", "tree", { link: "middle" }), T("preview", "preview", { source: "tile:tree" })], [0.6, 0.4]), T("detail", "middle")], [0.6, 0.4]),
         splitOf("col", [T("pty", "draft", { cmd: [...words(editor()), draft], file: draft }), T("detail", "side", { link: "middle" })], [0.6, 0.4]),
       ], [0.34, 0.33, 0.33])),
@@ -318,7 +317,7 @@ export function saveLayout(name: string, spec: LayoutSpec) { const all = savedLa
 /** A layout by name: the one saved under it, else the built-in. */
 export function layoutNamed(name: string): { spec: LayoutSpec; saved: boolean } | null {
   const s = savedLayouts()[name];
-  if (s?.root) return { spec: withDailyAgent(migrateLinks(s, name), name), saved: true };
+  if (s?.root) return { spec: withoutAgentTile(migrateLinks(s, name), name), saved: true };
   const b = builtin(name);
   return b ? { spec: b, saved: false } : null;
 }

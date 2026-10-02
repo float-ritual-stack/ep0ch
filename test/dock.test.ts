@@ -1,14 +1,16 @@
-// PIE-498, first slice: the agent drawer. One terminal tile belongs to the App, pulled up from the status bar's
-// chip (or alt+a) over any screen without the screen reflowing; its actions (`agent.toggle`, `agent.height`)
-// are what the keys, the clicks and `act` run; it's saved in dock.json; and the daily layout's agent tile is the
-// same instance. The agent here is `cat` (a stand-in: no real Claude, no real Herdr), and Herdr is a fake.
+// PIE-498, PIE-513: the agent drawer, the host layer's. One terminal tile belongs to the App, the first tab of the
+// host layer's drawer, pulled up from the status bar's chip (or alt+a) over any screen without the screen
+// reflowing (or beside it, the screen drawn shorter, where the screen says so); its actions (`host.toggle`,
+// `host.size`, their older names `agent.toggle`, `agent.height`) are what the keys, the clicks and `act` run; it's
+// saved in dock.json; and it has one home: no screen has a copy of it. The agent here is `cat` (a stand-in: no real
+// Claude, no real Herdr), and Herdr is a fake.
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { App } from "../src/app";
 import { Desk } from "../src/desk/desk";
-import { makeTile, saveLayout, sharedAgent } from "../src/desk/tiles";
+import { builtin, makeTile } from "../src/desk/tiles";
 import { PtyPane } from "../src/desk/pty";
 import { DOCK_TILE_ID, MAX_SHARE, MIN_SHARE, nextStep } from "../src/dock";
 import { WATCH_TITLE } from "../src/desk/herdr-agent";
@@ -89,7 +91,7 @@ describe("the agent drawer", () => {
       // The screen was drawn at its full height, and the drawer covers its lower half.
       expect(d.renders.at(-1)!.rows).toBe(30);
       const r = d.app.dock.rect!;
-      expect(r).toEqual({ col: 0, row: 29 - 15, cols: 100, rows: 15 });
+      expect(r).toEqual({ col: 0, row: 29 - 14, cols: 100, rows: 14 });
       expect(shown[r.row - 1]).toBe(`main menu row ${r.row - 1}`);
       expect(shown[r.row]).toContain("▼ claude");
       expect(shown.at(-1)).toContain("▼ claude");
@@ -207,7 +209,8 @@ describe("the agent drawer", () => {
     const d = door();
     try {
       d.app.push(d.screen("main menu") as any);
-      expect(d.app.actions().actions.map(a => a.name)).toEqual(expect.arrayContaining(["agent.toggle", "agent.height"]));
+      // The host layer's actions, by their names and their older ones.
+      expect(d.app.actions().actions.flatMap(a => [a.name, ...(a.aliases ?? [])])).toEqual(expect.arrayContaining(["host.toggle", "host.size", "agent.toggle", "agent.height"]));
       d.A.lastInput = Date.now();
       await expect(d.app.act({ action: "agent.toggle", args: { open: true }, as: "claude-7" })).rejects.toThrow(/at the keys/);
       d.A.lastInput = 0;
@@ -293,16 +296,61 @@ describe("the agent drawer", () => {
     } finally { d.app.quit(); d.app.dock.tile?.kill(); }
   });
 
-  test("while the App runs, the daily layout's agent tile is the dock's one instance; after it quits, a tile is its own", () => {
+  test("one home: the agent is the host layer's alone; the daily layout has no tile for it, and a terminal tile is always its own program", () => {
     const d = door();
-    const one = makeTile({ kind: "pty", agent: true, cmd: ["cat"], name: "claude" });
-    expect(one).toBe(d.app.dock.pane());
-    expect(makeTile({ kind: "pty", cmd: ["cat"], name: "shell" })).not.toBe(one);
-    // An agent tile whose command the person changed runs its own program.
-    expect(makeTile({ kind: "pty", agent: true, cmd: ["sh", "-s"], name: "claude" })).not.toBe(one);
-    d.app.quit();
-    expect(sharedAgent()).toBeNull();
-    expect(makeTile({ kind: "pty", agent: true, cmd: ["cat"], name: "claude" })).not.toBe(one);
+    try {
+      const leaves = (n: any): any[] => (n.kids ? n.kids.flatMap(leaves) : n.tabs ? n.tabs.flatMap(leaves) : [n]);
+      expect(leaves(builtin("daily")!.root).some((l: any) => l.kind === "pty" && l.name === "claude")).toBe(false);
+      expect(makeTile({ kind: "pty", cmd: ["cat"], name: "claude" })).not.toBe(d.app.dock.pane());
+      expect(d.app.describe().dock).toMatchObject({ tile: { id: DOCK_TILE_ID, name: "claude" } });
+    } finally { d.app.quit(); d.app.dock.tile?.kill(); }
+  });
+
+  test("beside on a short terminal: the rows the screen gives up are exactly the drawer's (one size, from the layout engine)", () => {
+    const d = door(14, 80);
+    try {
+      d.app.push(d.screen("daily", { hostMode: () => "beside" }) as any);
+      d.key(ALT("a"));
+      d.app.dock.height(0.2);
+      d.paint();
+      const r = d.app.dock.rect!;
+      expect(r.rows).toBeGreaterThanOrEqual(4);                  // a frame and a row of the program, at least
+      expect(d.renders.at(-1)!.rows - 1 + r.rows).toBe(13);      // the screen's rows and the drawer's fill the room
+      expect(r.row).toBe(d.renders.at(-1)!.rows - 1);
+    } finally { d.app.quit(); d.app.dock.tile?.kill(); }
+  });
+
+  test("where the screen says: beside it, the screen is drawn shorter; none, alt+a says why and the drawer comes back on another screen", () => {
+    const d = door();
+    try {
+      d.app.push(d.screen("daily", { hostMode: () => "beside" }) as any);
+      d.key(ALT("a"));
+      const shown = d.paint();
+      const r = d.app.dock.rect!;
+      // The screen drew only the rows above the drawer, its last row just above the drawer's top edge.
+      expect(d.renders.at(-1)!.rows).toBe(30 - r.rows);
+      expect(shown[r.row - 1]).toBe(`daily row ${r.row - 1}`);
+      expect(shown[r.row]).toContain("▼ claude");
+      expect(d.app.t.rows).toBe(30 - r.rows);                   // the screen's keys and clicks see the same size
+      d.key(ALT("a"));
+      d.paint();
+      expect(d.renders.at(-1)!.rows).toBe(30);
+      // A screen that keeps the whole screen: the drawer isn't drawn there, and pulling it up says why.
+      d.key(ALT("a")); d.key(CTRL_RB);
+      d.app.push(d.screen("lord", { hostMode: () => "none" }) as any);
+      const lord = d.paint();
+      expect(d.app.dock.rect).toBeNull();
+      expect(lord.some(l => l.includes("drag this edge"))).toBe(false);
+      expect(d.renders.at(-1)!.rows).toBe(30);
+      expect(d.app.dock.entered).toBe(false);                  // not drawn here, so the keys aren't in it
+      d.key(ALT("a"));                                         // put away: allowed anywhere
+      d.key(ALT("a"));                                         // pulled up: refused here
+      expect(d.app.dock.open).toBe(false);
+      expect(d.A.message).toContain("keeps the whole screen");
+      d.A.stack.pop();
+      d.key(ALT("a"));
+      expect(d.app.dock.open).toBe(true);
+    } finally { d.app.quit(); d.app.dock.tile?.kill(); }
   });
 
   test("ep0ch where names the drawer as the tile a program in it runs in", async () => {
@@ -332,36 +380,7 @@ describe.skipIf(!outliner)("the drawer and the daily desk, against a scratch out
   }, 30_000);
   afterAll(async () => { board?.close(); await scratch.dispose(); });
 
-  test("the desk's claude tile is the drawer's program: one start, drawn in one place at a time, never ended by the desk", async () => {
-    let key: (k: Key) => void = () => {};
-    let painted: string[] = [];
-    const term: any = { info: { cols: 150, rows: 40, cellW: 9, cellH: 16, kitty: false }, write() {}, paint(l: string[]) { painted = l; }, paintRow() {}, invalidate() {}, onKey(f: any) { key = f; }, onResize() {}, stop() {}, resume() {} };
-    const app = new App(term, board, Date.now(), () => {});
-    try {
-      const desk = new Desk(undefined, { layout: "daily" });
-      app.push(desk);
-      (app as any).paint();
-      const claude = (desk.describe().panes as any[]).find(p => p.name === "claude");
-      expect(claude.kind).toBe("pty");
-      await wait(() => app.dock.tile?.running === true);
-      const pid = app.dock.tile!.pid;
-      expect(claude.terminal.cmd).toEqual(["cat"]);
-      // Pulled up over the desk: the tile says where it went instead of drawing it at a second size.
-      key(ALT("a")); (app as any).paint();
-      expect(painted.map(plain).some(l => l.includes("is in the agent drawer below"))).toBe(true);
-      expect(app.dock.tile!.pid).toBe(pid);
-      key(ALT("a"));
-      // The desk closing its tile, and leaving the desk, don't end the drawer's program.
-      await desk.act({ action: "tile.close", reader: "claude" }, { kind: "user" } as any);
-      expect(app.dock.tile!.running).toBe(true);
-      expect(desk.leaveWarning() ?? "").not.toContain("cat");       // the desk's own programs only (its editor)
-      app.pop();
-      expect(app.dock.tile!.running).toBe(true);
-      expect(app.dock.tile!.pid).toBe(pid);
-    } finally { app.quit(); app.dock.tile?.kill(); }
-  }, 30_000);
-
-  /** A door on the daily desk, and its claude tile running (`cat`). */
+  /** A door on the daily desk (no agent tile on it: the agent is the host layer's). */
   async function dailyDoor() {
     let key: (k: Key) => void = () => {};
     let painted: string[] = [];
@@ -370,61 +389,51 @@ describe.skipIf(!outliner)("the drawer and the daily desk, against a scratch out
     const desk = new Desk(undefined, { layout: "daily" });
     app.push(desk);
     (app as any).paint();
-    await wait(() => app.dock.tile?.running === true);
     const ptys = () => [...(desk as any).panes.values()].filter((p: any) => p instanceof PtyPane);
     return { app, desk, key: (k: Key) => key(k), paint: () => { (app as any).paint(); return painted.map(plain); }, ptys };
   }
 
-  test("laid out again with reuse, the claude tile under another name is still the drawer's one program: no second attach", async () => {
+  test("the daily desk: no agent tile; alt+a pulls the agent up beside it (the desk shorter, every tile there), and put away the keys are on the tile they left", async () => {
     const d = await dailyDoor();
     try {
-      const pid = d.app.dock.tile!.pid;
-      const spec = JSON.parse(JSON.stringify((d.desk as any).layoutSpec()), (k, v) => (k === "name" && v === "claude" ? "helper" : v));
-      saveLayout("helper-day", spec);
-      await d.desk.act({ action: "layout.load", args: { name: "helper-day" } }, { kind: "user" } as any);
-      const agents = d.ptys().filter((p: any) => p.run.cmd.join(" ") === "cat");
-      expect(agents.length).toBe(1);
-      expect(agents[0] === d.app.dock.tile).toBe(true);
-      expect(d.app.dock.tile!.pid).toBe(pid);
-      expect((d.desk.describe().panes as any[]).find(p => p.name === "helper")?.kind).toBe("pty");
-      // And back to the daily layout: the same one again.
-      await d.desk.act({ action: "layout.load", args: { name: "daily" } }, { kind: "user" } as any);
-      const again = d.ptys().filter((p: any) => p.run.cmd.join(" ") === "cat");
-      expect(again.length === 1 && again[0] === d.app.dock.tile).toBe(true);
-    } finally { d.app.quit(); d.app.dock.tile?.kill(); }
-  }, 30_000);
-
-  test("while the drawer has it, the desk's claude tile isn't entered: ⏎ and a click say where it is", async () => {
-    const d = await dailyDoor();
-    try {
-      d.key(ALT("a")); d.key(CTRL_RB);                          // up, and the keys back to the desk
-      expect(d.app.dock.entered).toBe(false);
-      await d.desk.act({ action: "tile.focus", reader: "claude" }, { kind: "user" } as any);
-      d.key({ kind: "enter" });
-      expect(d.desk.rawKeys()).toBe(false);
-      expect((d.app as any).message).toContain("is in the agent drawer");
-      const shown = d.paint();
-      const row = shown.findIndex(l => l.includes("is in the agent drawer below"));
-      const col = shown[row]!.indexOf("is in the agent drawer below");
-      d.key(mouse("down", col, row)); d.key(mouse("up", col, row));
-      expect(d.desk.rawKeys()).toBe(false);
-      expect(d.app.dock.entered).toBe(false);
-      // Put away, the tile is the desk's again: ⏎ types in it.
+      expect(d.ptys().some((p: any) => p.run.cmd.join(" ") === "cat")).toBe(false);
+      await d.desk.act({ action: "tile.focus", reader: "middle" }, { kind: "user" } as any);
+      const tall = (d.desk.describe().panes as any[]).find(p => p.name === "middle").rect.rows;
       d.key(ALT("a"));
-      d.key({ kind: "enter" });
-      expect(d.desk.rawKeys()).toBe(true);
+      expect(d.app.dock.entered).toBe(true);
+      await wait(() => d.app.dock.tile?.running === true);
+      d.paint();
+      const r = d.app.dock.rect!;
+      const panes = d.desk.describe().panes as any[];
+      expect(panes.every(p => !p.rect || p.rect.row + p.rect.rows <= r.row)).toBe(true);
+      expect(panes.find(p => p.name === "middle").rect.rows).toBeLessThan(tall);
+      // Put away: the desk has its rows back, and the keys are on the tile the person left.
+      d.key(ALT("a"));
+      expect(d.app.dock.entered).toBe(false);
+      d.paint();
+      expect((d.desk.describe().panes as any[]).find(p => p.name === "middle").rect.rows).toBe(tall);
+      expect((d.desk.describe() as any).focusName).toBe("middle");
+      // Leaving the desk never touches the agent.
+      const pid = d.app.dock.tile!.pid;
+      d.app.pop();
+      expect(d.app.dock.tile!.running).toBe(true);
+      expect(d.app.dock.tile!.pid).toBe(pid);
     } finally { d.app.quit(); d.app.dock.tile?.kill(); }
   }, 30_000);
 
-  test("an agent's tile.type never goes into the claude tile while the person types in it in the drawer", async () => {
+  test("an agent types to the agent by agent.type (never tile.type: it's no tile), and never while the person types in it", async () => {
     const d = await dailyDoor();
     try {
+      await expect(d.app.act({ action: "agent.type", args: { text: "hello" }, as: "claude-7" })).rejects.toThrow(/isn't running/);
       d.key(ALT("a"));                                           // the person's pull: they're in it
+      await wait(() => d.app.dock.tile?.running === true);
       expect(d.app.dock.entered).toBe(true);
-      await expect(d.app.act({ action: "tile.type", reader: "claude", args: { text: "rm notes\\n" }, as: "claude-7" })).rejects.toThrow(/typing in claude in the agent drawer/);
+      await expect(d.app.act({ action: "agent.type", args: { text: "rm notes\\n" }, as: "claude-7" })).rejects.toThrow(/typing in claude in the agent drawer/);
+      await expect(d.app.act({ action: "tile.type", reader: "claude", args: { text: "seed list" }, as: "claude-7" })).rejects.toThrow(/no tile claude|claude/);
       d.key(CTRL_RB);                                            // out of it: an agent may type there again
-      const r: any = await d.app.act({ action: "tile.type", reader: "claude", args: { text: "seed list" }, as: "claude-7" });
+      const r: any = await d.app.act({ action: "agent.type", args: { text: "seed list" }, as: "claude-7" });
       expect(r).toMatchObject({ tile: "claude" });
+      await wait(() => d.app.dock.tile!.text().some(l => l.includes("seed list")));
     } finally { d.app.quit(); d.app.dock.tile?.kill(); }
   }, 30_000);
 });

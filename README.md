@@ -327,7 +327,7 @@ A door checkout from before `install` gets it by hand, once:
 | `EP0CH_SCROLL_ROWS` | rows one wheel report scrolls a reader, a draft, a column or a scrollback (1 to 20, default 1). A trackpad then moves the text with your fingers, and a mouse wheel in Ghostty (three reports a notch) moves 3 rows a notch; in a terminal that sends one report a notch (xterm, most Linux terminals) set 3. In lists (the tree, a lane, the BBS lists) a report moves the selection one row |
 | `EP0CH_OBSERVE` | `0` skips registering as an observer (then the door is not in Who's Online and gets no live events) |
 | `EP0CH_NOW_PAGE` | the page the welcome screen (C) shows while no note is tagged `welcome`, and the `daily` layout's "now" tile shows (default `claude-now`); `EP0CH_NOW_LABEL` names it |
-| `EP0CH_DAILY_AGENT` | the command the `daily` layout's agent tile runs (default `claude`); `scripts/door-agent-herdr.ts` runs it inside Herdr (see [The daily agent in Herdr](#the-daily-agent-in-herdr)) |
+| `EP0CH_DAILY_AGENT` | the command the agent drawer's agent runs (default `claude`; the host layer's, with no tile on any screen); `scripts/door-agent-herdr.ts` runs it inside Herdr (see [The daily agent in Herdr](#the-daily-agent-in-herdr)) |
 | `EP0CH_HERDR_AGENT_CMD` | the agent that wrapper starts in its Herdr pane (default `door-claude` when it's on PATH, else `claude`) |
 | `EP0CH_DAILY_DRAFT` | the file the `daily` layout's editor tile opens (default `scratch.md` in the door's state) |
 
@@ -426,10 +426,11 @@ and it comes back after a restart. When its extension goes away while the door r
 program and says why in its place; when the extension comes back, so does the tile. A kind whose program is
 on another host than this door says so instead of running.
 `EP0CH_DAILY_AGENT` (default `claude`), `EP0CH_DAILY_CWD` (the folder it starts in; default the door's own) and
-`EP0CH_DAILY_DRAFT` (default `scratch.md` in the door's state) set the daily layout's agent and draft; the editor is `$VISUAL`, `$EDITOR`, else nvim or vi.
-The agent tile is marked in the saved layout (`agent`), so a restored desk or a loaded layout runs what
-`EP0CH_DAILY_AGENT` and `EP0CH_DAILY_CWD` say now, not the command it was saved with. A daily desk saved before
-the mark counts its `claude` tile as the agent when its command is the plain `claude`; one you changed stays yours.
+`EP0CH_DAILY_DRAFT` (default `scratch.md` in the door's state) set the agent and the daily draft; the editor is `$VISUAL`, `$EDITOR`, else nvim or vi.
+The agent has one home, the host layer (the agent drawer, below): the daily layout has no tile for it, and lets
+the drawer sit beside the desk (its policy's `host: beside`). A layout saved with the old agent tile (marked
+`agent`, or in a `daily` desk a `claude` tile whose command is the plain `claude`) comes back without it, beside
+the drawer; a terminal you made yourself stays yours.
 
 **What happens to programs in tiles:**
 
@@ -496,8 +497,9 @@ pane and the tile shows it. Herdr lists it (`herdr agent list`), other agents me
   - So `ep0ch act …` and the Outliner's `show` from the agent reach the door that shows it now.
   - When the attach ends (`ctrl+b q`, or the door quits or crashes), the wrapper removes the link if it still
     points at its door. With no door attached, `show` finds no door and splits Claude's pane in Herdr.
-  - The Outliner's `show` opens the note where the agent's own tile's opens land (`open from=$EP0CH_TILE`:
-    the daily layout links the claude tile to middle), as an agent's `open`, which never moves your focus.
+  - The Outliner's `show` opens the note where an agent's open lands (`open from=$EP0CH_TILE`: the agent is the
+    host layer's, so it lands where the focused tile's opens go, or a reader that follows), as an agent's `open`,
+    which never moves your focus.
 - **No Herdr.** If Herdr isn't installed, no server answers (or one doesn't answer within 10s), or Herdr can't
   make the pane, the tile runs the agent directly, as before, and says why when it isn't simply "no server".
 - **Messages are unattributed.** `herdr agent prompt` types the text into the agent's prompt, and nothing
@@ -526,14 +528,17 @@ the welcome. The chip at the start of the status bar's right part, `▲ claude`,
 - **Leaving it.** `ctrl+]` gives the keys back to the screen (the drawer stays up); a click on the screen
   above does too. Going back in: a click in the drawer, or `ctrl+]` again (right away, it also sends the agent
   a `ctrl+]`, as in a terminal tile; in a desk's terminal tile you're typing in, `ctrl+]` is that tile's).
-  Inside it, every key is the agent's except `ctrl+]`, `alt+a` and `alt+A`. While the drawer has the agent,
-  the desk's `claude` tile isn't entered: `⏎` or a click there says it's in the drawer.
+  Inside it, every key is the agent's except `ctrl+]`, `alt+a` and `alt+A`. Put away, your keys are back on the
+  tile you left.
+- **Where it appears** is the screen's to say (its policy's `host`, `layout.policy node=screen host=…`, the `^W P`
+  panel's host row): over its lower rows (the default; the screen keeps its size under it), beside it (the
+  daily desk: the screen is drawn shorter while it's up), or not at all (a screen that keeps the whole screen).
 - **Putting it away.** `alt+a` again, a click on the chip, or `Esc` once you've left it with `ctrl+]`.
 - **Its height.** Drag its top edge, or press `alt+A` to step through 40%, 50%, 60% and 75%.
-- **One agent.** It runs what the daily layout's agent tile runs (`EP0CH_DAILY_AGENT`: with the Herdr launcher,
-  the agent in the `door-claude` pane), and it starts the first time you pull it up. The daily layout's
-  `claude` tile is the same terminal, not a second attach: while the drawer is up, the tile says the agent is
-  in the drawer. Closing that tile or leaving the desk doesn't end it.
+- **One agent, one home.** It runs `EP0CH_DAILY_AGENT` (with the Herdr launcher, the agent in the `door-claude`
+  pane), and it starts the first time you pull it up. It's the host layer's (PIE-513): a layout on the same
+  engine as the screens, its drawer a tab set whose first tab is the agent, above every screen. No screen has a
+  copy of it, so one door never attaches twice; leaving a screen never ends it.
 - **What it's doing.** The chip says `working` while the agent writes to its screen and `idle` after. With the
   agent in Herdr, it's Herdr's own state (`herdr agent get`, every few seconds): `working`, `idle`, or
   `needs you` when Herdr says it's blocked. `exited` once the program has ended (`⏎` in the drawer runs it again).
@@ -556,8 +561,9 @@ the welcome. The chip at the start of the status bar's right part, `▲ claude`,
   Herdr, its pane closes with it and the launcher makes a new `door-claude` pane, with today's variables, and
   starts it there, continuing. An agent's `agent.restart` is refused while you're typing in the agent, or
   within 10s of your last key in it.
-- **Agents.** `agent.toggle [open=true|false]`, `agent.height share=0.2…0.9`, `agent.knows` and
-  `agent.restart` work on every screen through `ep0ch act`. An agent's pull waits until you've been idle 2s and you aren't typing, is said on the status bar
+- **Agents.** `host.toggle [open=true|false]` and `host.size share=0.2…0.9` (their older names `agent.toggle` and
+  `agent.height` still work), `agent.type text=…`, `agent.knows` and `agent.restart` work on every screen through
+  `ep0ch act`. An agent's pull waits until you've been idle 2s and you aren't typing, is said on the status bar
   and in the drawer's title (`pulled up by an agent (<id>)`), and never gives the agent your keys. An agent can't
   put it away or resize it while you're typing in it.
 

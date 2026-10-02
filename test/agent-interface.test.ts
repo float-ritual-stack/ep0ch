@@ -16,6 +16,7 @@ import { decode, encode, Ext, handle, Incomplete } from "../src/msgpack";
 import { MainMenu } from "../src/screens";
 import { SocketBoard } from "../src/socket";
 import type { Key } from "../src/term";
+import { terminalDay } from "./terminal-day";
 import { outliner, Scratch, until } from "./scratch";
 
 const NVIM = process.env.EP0CH_TEST_NVIM || Bun.which("nvim");
@@ -75,7 +76,7 @@ describe.skipIf(!outliner)("the agent interface, against a scratch outline", () 
     app = new App(term as any, board, Date.now(), () => {});
     control = await startControl({ app, mirror: new Mirror(200, 60), info: () => term.info }, join(scratch.root, "door", "ctl.sock"));
     app.push(new MainMenu());
-    desk = new Desk(undefined, { layout: "daily" });
+    desk = new Desk(undefined, { layout: terminalDay() });
     app.push(desk);
     render();
     await until(() => tile("draft")?.terminal?.running, "the editor tile");

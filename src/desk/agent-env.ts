@@ -3,7 +3,7 @@
 // One function, `agentVars`, builds the variables that tell an agent which door and tile it runs in. All three
 // ways a person starts one use it:
 // - a terminal tile (`^W o s`, then `claude`): `tileEnv` (src/desk/pty.ts);
-// - the dock's agent (the ▲ claude chip, alt+a) and the daily layout's agent tile (D, `daily`): the same
+// - the dock's agent (the ▲ claude chip, alt+a: the host layer's, PIE-513, with no tile on any screen): a
 //   `PtyPane`, so `tileEnv` too;
 // - the Herdr launcher (scripts/door-agent-herdr.ts), for the pane it makes for the agent: `agentConfig`
 //   (src/desk/herdr-agent.ts), with EP0CH_CONTROL naming the link it points at the attached door.
@@ -19,6 +19,8 @@ import { basename, delimiter, join } from "node:path";
 
 /** The dock agent's tile id (src/dock.ts): what EP0CH_TILE_ID tells its program, in a tile or its Herdr pane. */
 export const DOCK_TILE_ID = "dock.agent";
+/** The host layer's agent tile's name: what `EP0CH_TILE` tells its program (`open from=claude`). */
+export const DOCK_NAME = "claude";
 
 /** What every door agent gets: the door's control socket, its tile's name and id, the nest, and that it's in a door. */
 export const AGENT_VARS = ["EP0CH_CONTROL", "EP0CH_TILE", "EP0CH_TILE_ID", "EP0CH_NEST", "EP0CH_IN_DOOR"] as const;

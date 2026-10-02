@@ -27,7 +27,7 @@ import {
   allTiles, apply as applyOp, autoName, chainOf, copyTree, describe as describeLayout, dividerAt, dragShare, drawerOf, drawers, EDGE_GLYPH, effective, init, isLine, keepOnScreen, kidsOf, landing, layers as policyLayers, leaf, leaves,
   neighbour, pair, parentNode, place as placeLayout, policyAt as policyOver, policyOf, policyOfNode, rects as rectsOf, refusal, reviveTree, revisionRefusal, serialize as serializeLayout,
   shape as layoutShapeOf, shown, splitOf, tabsOf, visible, UNLOCK, type At, type Axis, type Columns, type Container, type Ctx as LayoutCtx, type Dir, type Divider, type Drawer, type Effective, type Float,
-  type Grab, type LayoutState, type LNode, type Op, type Place, type Placed, type PlacedDrawer, type Policy, type Result, type TileFacts,
+  type Grab, type HostMode, type LayoutState, type LNode, type Op, type Place, type Placed, type PlacedDrawer, type Policy, type Result, type TileFacts,
 } from "./screen-layout";
 import { drawSpine, SPINE } from "../spine";
 import { PANE_ACTIONS, type PaneDone, type PaneHost } from "./pane-actions";
@@ -36,7 +36,8 @@ import { isEscapeChord, PtyPane, ESCAPE_CHORD } from "./pty";
 import { LocalMarks, markLabel, type Mark, type MarkStore } from "./marks";
 import { TILE_ACTIONS, type NewTile, type TileDone, type TileHost, type Where } from "./tile-actions";
 import type { TerminalHost } from "./pty-actions";
-import { builtin, dailyAgent, type SavedFloat, sharedAgent, isTileKind, layoutNamed, layoutNames, makeTile, migrateDrawers, migrateLinks, migrateNames, saveLayout, withDailyAgent, tileKindNames, tileNameProblem, words, type LayoutSpec, type OpenRule, type SavedTree, type TileSpec } from "./tiles";
+import { DOCK_NAME, DOCK_TILE_ID } from "./agent-env";
+import { builtin, type SavedFloat, isTileKind, layoutNamed, layoutNames, makeTile, migrateDrawers, migrateLinks, migrateNames, saveLayout, withoutAgentTile, tileKindNames, tileNameProblem, words, type LayoutSpec, type OpenRule, type SavedTree, type TileSpec } from "./tiles";
 import { allKindActions, kindActions, kindForKey, kindNoun, kindOf, lastKindOf, tileKinds, tileSource, unwatchTileKinds, watchTileKinds, wasTileKind, type TileEnv, type TileKindName } from "./tile-kinds";
 
 /**
@@ -172,7 +173,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost {
     this.focus = 0;
     const saved = want ? null : last;
     if (want) { this.build(want.spec); this.layoutName = opts.layout!; }
-    else if (saved?.root) { this.build(withDailyAgent(migrateLinks({ root: saved.root, focus: saved.focus, rule: saved.rule, ...(saved.policy ? { policy: saved.policy } : {}), ...(saved.floats ? { floats: saved.floats } : {}) }, saved.layout), saved.layout), false, true); this.layoutName = saved.layout ?? null; }
+    else if (saved?.root) { this.build(withoutAgentTile(migrateLinks({ root: saved.root, focus: saved.focus, rule: saved.rule, ...(saved.policy ? { policy: saved.policy } : {}), ...(saved.floats ? { floats: saved.floats } : {}) }, saved.layout), saved.layout), false, true); this.layoutName = saved.layout ?? null; }
     else this.build(layoutNamed("desk")!.spec);
   }
 
@@ -274,16 +275,8 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost {
       if (o !== undefined && p && !used.has(o) && p.kind === kind && (!(p instanceof PtyPane) || !l.cmd || p.run.cmd.join(" ") === l.cmd.join(" "))) {
         id = o; names.set(id, l.name!);
       } else {
-        let pane = makeTile({ ...l, kind });
-        // The dock's agent (PIE-498) is one tile. Laid out again with `reuse`, the desk may hold it already under
-        // another name: that tile is this one (a new program would be a second attach to the agent).
-        const had = reuse && this.isShared(pane) ? [...old].find(([, q]) => q === pane)?.[0] : undefined;
-        if (had !== undefined && !used.has(had)) {
-          id = had;
-          names.set(id, l.name && ![...names.values()].includes(l.name) ? l.name : oldNames.get(id) ?? auto(kind));
-        } else {
-          // A second agent tile in the same layout gets a program of its own.
-          if (this.isShared(pane) && [...names.keys()].some(n => this.panes.get(n) === pane)) pane = new PtyPane({ cmd: l.cmd?.length ? l.cmd : dailyAgent().cmd, cwd: l.cwd, label: l.name });
+        const pane = makeTile({ ...l, kind });
+        {
           // The tile's saved id, when no tile here has it (a saved layout loaded twice gets new ones the second time).
           const saved = /^t(\d+)$/.exec(l.id ?? "");
           const n = saved ? Number(saved[1]) : 0;
@@ -315,7 +308,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost {
         const was = oldNames.get(id) ?? p.kind;
         names.set(id, [...names.values()].includes(was) ? auto(was) : was);
         kept.push(id);
-      } else { if (!this.isShared(p)) p.dispose?.(); this.panes.delete(id); if (this.ptyIn === p) this.ptyIn = null; }
+      } else { p.dispose?.(); this.panes.delete(id); if (this.ptyIn === p) this.ptyIn = null; }
     }
     if (kept.length) {
       const kid: LNode = kept.length > 1 ? { t: "tabs", ids: kept, active: 0 } : leaf(kept[0]!);
@@ -412,8 +405,6 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost {
   /** A tile joins a live desk: it reads what it needs (its kind's `start`: a detail its note, a preview its source). */
   protected startTile(id: number) {
     const p = this.panes.get(id)!;
-    // The dock's agent is the App's (PIE-498): its id, its place and its repaints stay the dock's; the desk only shows it.
-    if (this.isShared(p)) { sharedAgent()!.watch(this); return; }
     const env: TileEnv = {
       desk: this, id: this.tileId(id), name: this.nameOf(id), place: this.layoutName ?? "desk",
       tile: name => { const t = this.idNamed(name); return t !== undefined ? this.panes.get(t) : undefined; },
@@ -547,11 +538,10 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost {
   dispose(): void | "keep" {
     this.onScreen = false;
     if (!this.preset && this.running().length) { Desk.kept = this; return "keep"; }
-    sharedAgent()?.unwatch(this);
     // Gone for good: kinds that come later never make tiles (nor start programs) here.
     this.disposed = true;
     unwatchTileKinds(this);
-    for (const p of this.panes.values()) if (!this.isShared(p)) p.dispose?.();
+    for (const p of this.panes.values()) p.dispose?.();
   }
   private disposed = false;
   /** The desk kept alive with its programs, to come back to (the menu's D). */
@@ -559,19 +549,8 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost {
   /** The desk to open: the one kept running in the background, else a new one. */
   static resume(): Desk { const d = Desk.kept; Desk.kept = null; return d ?? new Desk(); }
   private onScreen = false;
-  /** The programs this desk runs (the dock's agent isn't one of them: it runs on when the desk goes). */
-  private running(shared = false) { return [...this.panes.values()].filter((p): p is PtyPane => p instanceof PtyPane && p.running && (shared || !this.isShared(p))); }
-  /** The dock's agent tile (PIE-498): shown here, owned by the App. */
-  private isShared(p: unknown): boolean { return !!sharedAgent()?.isShared(p); }
-  /**
-   * The dock's agent is pulled up in the drawer: its tile here draws a note, and isn't entered from here (the
-   * drawer has it, at its own size; ctrl+] or a click there types in it). Said, with how to bring it back.
-   */
-  private inDrawer(p: unknown, say = true): boolean {
-    if (!sharedAgent()?.drawnElsewhere(p)) return false;
-    if (say) this.ctx.flash(`${this.nameOf(this.focus)} is in the agent drawer · type there (a click, or ctrl+]) · alt+a or Esc puts it back here`);
-    return true;
-  }
+  /** The programs this desk runs (the agent isn't one of them: it lives in the host layer, PIE-513). */
+  private running() { return [...this.panes.values()].filter((p): p is PtyPane => p instanceof PtyPane && p.running); }
   /** A desk built for another view (the brief) has no way back: leaving it would end its programs, so it says so. */
   leaveRefusal(): string | null {
     const r = this.preset ? this.running() : [];
@@ -735,6 +714,8 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost {
    * tile links to middle). Unlinked, where `ep0ch open <id>` puts it. The caller names its own tile, never a reader.
    */
   async openFrom(id: string, from: string, actor: Actor): Promise<{ reader: string | null; id: string }> {
+    // The host layer's agent (PIE-513: it lives above every screen, no tile here) opens where an agent's open lands.
+    if ((from === DOCK_NAME || from === DOCK_TILE_ID) && this.idNamed(from) === undefined) return this.openLanding(id);
     const t = this.tile(from);
     const to = this.linkOf(t.id);
     if (to !== undefined && this.panes.get(to) instanceof ReaderPane) return this.openIn(id, this.tileId(to), actor);
@@ -863,7 +844,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost {
 
   /** The person is in a terminal tile (its program running, or exited and waiting for ⏎ or ctrl+]): every key is the tile's, ctrl+c included. */
   rawKeys(): boolean { return this.inPty(); }
-  private inPty(): boolean { return !!this.ptyIn && this.panes.get(this.focus) === this.ptyIn && !this.inDrawer(this.ptyIn, false); }
+  private inPty(): boolean { return !!this.ptyIn && this.panes.get(this.focus) === this.ptyIn; }
   /** Raw input goes straight to the program while it runs (F-keys, shift-arrows, a bracketed paste): Term keeps the mouse and ctrl+]. */
   rawInput(): ((bytes: string) => void) | null { const p = this.ptyIn; return p && this.inPty() && p.running ? (s: string) => p.inputRaw(s) : null; }
   acceptsPaste(): boolean { return this.inPty(); }
@@ -932,7 +913,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost {
   /** Quitting the door ends the desk's programs: said first, and asked twice (App). Leaving the desk doesn't. */
   leaveWarning(): string | null {
     // An agent attached from Herdr keeps running in its pane when the door quits: nothing of it ends here.
-    const r = this.running(true).filter(p => !p.herdr);
+    const r = this.running().filter(p => !p.herdr);
     return r.length ? `${r.map(p => p.title()).join(", ")} ${r.length === 1 ? "is" : "are"} running in a tile · quitting ends ${r.length === 1 ? "it" : "them"} · again within 3s quits` : null;
   }
 
@@ -1075,9 +1056,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost {
     const r = cover === "peek" ? this.placed.boxes?.get(id) ?? this.slid.find(d => d.placed.boxes?.has(id))?.placed.boxes?.get(id) ?? r0 : r0;
     const inner: Rect = { col: r.col + 1, row: r.row + 1, cols: r.cols - 2, rows: r.rows - 2 };
     const typing = pane === this.ptyIn && focused;
-    // The dock's agent pulled up over the screen (PIE-498): drawn there, at one size, and said here.
-    const away: PaneView | null = sharedAgent()?.drawnElsewhere(pane) ? { lines: ["", `${fg(C.dark)}  ${this.nameOf(id)} is in the agent drawer below${RESET}`, `${fg(C.dark)}  alt+a or Esc puts it back here${RESET}`] } : null;
-    const view = inner.cols >= 1 && inner.rows >= 1 ? (away ?? pane.render(inner.cols, inner.rows, focused, this, typing)) : null;
+    const view = inner.cols >= 1 && inner.rows >= 1 ? pane.render(inner.cols, inner.rows, focused, this, typing) : null;
     // A reader holding a session the person isn't in says how to get in; a long note says how far down it is.
     const held = pane instanceof ReaderPane && pane.holdsKeys && !this.entered.in(pane);
     const more = overflows(view?.scroll) ? `${fg(C.dark)} · ${scrollPct(view!.scroll!)}` : "";
@@ -1342,7 +1321,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost {
       return;
     }
     // ctrl+] twice: the second goes to the program (a literal ctrl+], telnet's own escape).
-    if (isEscapeChord(k) && this.chord && Date.now() - this.chord.at < 1500 && this.panes.get(this.focus) === this.chord.pane && this.chord.pane.running && !this.inDrawer(this.chord.pane, false)) {
+    if (isEscapeChord(k) && this.chord && Date.now() - this.chord.at < 1500 && this.panes.get(this.focus) === this.chord.pane && this.chord.pane.running) {
       this.chord = null;
       return this.cmd("tile.enter", { send: "\x1d" }, this.nameOf(this.focus));
     }
@@ -1600,6 +1579,8 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost {
   protected policyAt(id: number): Effective { return policyOver(this.layout, id, this.facts(id)); }
   /** The whole screen is locked (its own policy). */
   screenLocked(): boolean { return !!this.layout.policy.locked; }
+  /** Where this screen lets the host layer (the agent drawer) appear: its policy's `host` (PIE-513), else over it. */
+  hostMode(): HostMode { return this.layout.policy.host ?? "over"; }
   /** The drawers shut now, outermost first (one inside a shut drawer isn't reachable: its outer one's handle is). */
   private shutDrawers(): Drawer<number>[] {
     const out: Drawer<number>[] = [];
@@ -1677,7 +1658,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost {
     if (!r.ok) throw new ActionRefused(r.refused);
     // Closing a tile with a program running ends the program: the person is asked twice, as quitting does.
     const pty = this.panes.get(t.id);
-    if (pty instanceof PtyPane && pty.running && !this.isShared(pty)) {
+    if (pty instanceof PtyPane && pty.running) {
       const armed = this.closeArm && this.closeArm.id === t.id && Date.now() - this.closeArm.at < 3000;
       if (!armed) { this.closeArm = { id: t.id, at: Date.now() }; throw new ActionRefused(`${t.name} is running ${pty.title()} · closing ends it · ^W x again within 3s closes`); }
       this.closeArm = null;
@@ -1780,8 +1761,6 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost {
   typeTerminal(name: string, p: PtyPane, text: string, actor: Actor): TileDone {
     if (!p.running) throw new ActionRefused(`${name}'s program isn't running · tile.restart runs it again`);
     if (actor.kind === "agent" && this.ptyIn === p && this.panes.get(this.focus) === p) throw new ActionRefused(`the person is typing in ${name}; an agent doesn't type there (an nvim tile's socket edits other lines without their cursor)`);
-    // The dock's agent is this tile too (PIE-498): the person typing in it in the drawer holds its keys as well.
-    if (actor.kind === "agent" && sharedAgent()?.personIn(p)) throw new ActionRefused(`the person is typing in ${name} in the agent drawer; an agent doesn't type there`);
     p.input(text.replace(/\\n/g, "\r").replace(/\\e/g, "\x1b"));
     return { tile: name, chars: text.length };
   }
@@ -1803,7 +1782,6 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost {
   enterTerminal(name: string, p: PtyPane, send: string | undefined, actor: Actor): TileDone {
     if (actor.kind === "agent") throw new ActionRefused("typing in a terminal tile takes the person's keys; an agent sends it text with tile.type");
     if (this.panes.get(this.focus) !== p) throw new ActionRefused(`${name} doesn't have the keys · tile.focus first`);
-    if (this.inDrawer(p)) { this.redraw(); return { tile: name, drawer: true }; }
     if (!p.running && p.exited !== null) { p.restart(); return { tile: name, restarted: true }; }
     if (!p.running) throw new ActionRefused(`${name}'s program hasn't started`);
     this.ptyIn = p; this.chord = null;
@@ -2079,10 +2057,10 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost {
     this.commit(r);
     this.dropTile(id);
   }
-  /** A tile instance the layout no longer has: its program ended (unless the dock shares it), its state let go. */
+  /** A tile instance the layout no longer has: its program ended, its state let go. */
   protected dropTile(id: number) {
     const p = this.panes.get(id);
-    if (p && !this.isShared(p)) p.dispose?.();
+    p?.dispose?.();
     if (this.ptyIn === p) this.ptyIn = null;
     this.panes.delete(id); this.unregistered.delete(id);
   }
@@ -2336,7 +2314,6 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost {
         const press = pane ? kindOf(pane)?.press : undefined;
         if (pane && press) {
           // A click its kind gives an action (in a terminal: typing in it); the tile gets the click when it asks for the mouse.
-          if (this.inDrawer(pane)) return this.redraw();
           const a = press(pane, k);
           if (a) this.cmd(a.action, a.args ?? {}, this.nameOf(id));
           if (pane.mouse?.(k, x, y, this)) this.mouseTile = { id, r };

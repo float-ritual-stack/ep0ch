@@ -332,7 +332,7 @@
         { "r": "door", "p": "src/screens.ts", "l": 433, "m": "export const SHELL_ACTIONS" },
         { "r": "door", "p": "src/screens.ts", "l": 592, "m": "export const LIST_ACTIONS" },
         { "r": "door", "p": "src/screens.ts", "l": 399, "m": "export function agentMayMove" },
-        { "r": "door", "p": "src/app.ts", "l": 422, "m": "async act(req" },
+        { "r": "door", "p": "src/app.ts", "l": 433, "m": "async act(req" },
         { "r": "door", "p": "src/drop.ts", "l": 44, "m": "export async function runLoginShell" }
       ]
     },
@@ -423,12 +423,12 @@
       "does": "The one full host of the layout: tile instances, focus, frames, headers, drag, tabs, drawers, zoom, floats, flows drawn. Every key and drag goes through cmd() to an action, and every action's layout change through the screen-layout module.",
       "built": "Desk in desk.ts with TILE_ACTIONS; what differs by kind it asks the tile-kind registry. It holds a LayoutState and changes it only by apply (PIE-513): it says what each tile is (facts) and where the person types (layoutCtx), commits the module's answer, and keeps the tile instances, gestures and painting. Its refusal functions are gone into the module. tile.* actions are the one name for each operation; pane.* are their older aliases (PIE-510).",
       "refs": [
-        { "r": "door", "p": "src/desk/desk.ts", "l": 64, "m": "export class Desk" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 246, "m": "protected apply(" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 224, "m": "protected layoutCtx" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 822, "m": "protected cmd(" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 482, "m": "protected async fillColumns" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 2120, "m": "floatTile(sel" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 65, "m": "export class Desk" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 247, "m": "protected apply(" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 225, "m": "protected layoutCtx" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 803, "m": "protected cmd(" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 473, "m": "protected async fillColumns" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 2098, "m": "floatTile(sel" },
         { "r": "door", "p": "src/desk/tile-actions.ts", "l": 89, "m": "export const TILE_ACTIONS" },
         { "r": "door", "p": "src/desk/tile-actions.ts", "l": 276, "m": "\"tile.widen\": {" }
       ],
@@ -448,7 +448,7 @@
         { "r": "door", "p": "src/desk/tile-kinds.ts", "l": 285, "m": "export function serviceKind" },
         { "r": "door", "p": "src/desk/query.ts", "l": 87, "m": "export class QueryPane" },
         { "r": "door", "p": "src/desk/query.ts", "l": 67, "m": "export const HUB_SOURCE" },
-        { "r": "door", "p": "src/desk/builtin-tiles.ts", "l": 176, "m": "export function registerBuiltinTiles" }
+        { "r": "door", "p": "src/desk/builtin-tiles.ts", "l": 173, "m": "export function registerBuiltinTiles" }
       ],
       "questions": [
         { "text": "The tile layer and the protocol import features.", "finding": "A-F16", "route": "PIE-493" }
@@ -460,7 +460,7 @@
       "built": "Four shapes of one idea: LayoutSpec (desk.json, layouts.json, and the board's layout in delivery.json since PIE-511), SavedDesk, DeskPreset (code), river.json. The daily agent tile's command comes from EP0CH_DAILY_AGENT when restored.",
       "refs": [
         { "r": "door", "p": "src/desk/tiles.ts", "l": 74, "m": "export interface LayoutSpec" },
-        { "r": "door", "p": "src/desk/tiles.ts", "l": 175, "m": "export function withDailyAgent" },
+        { "r": "door", "p": "src/desk/tiles.ts", "l": 173, "m": "export function withoutAgentTile" },
         { "r": "door", "p": "src/desk/delivery.ts", "l": 62, "m": "interface Saved" },
         { "r": "door", "p": "src/river/river.ts", "l": 209, "m": "river.json" }
       ],
@@ -482,8 +482,8 @@
       "does": "A screen that runs programs stays alive when you leave it; D on the menu brings it back.",
       "built": "Two owners: App.background and a static Desk.kept.",
       "refs": [
-        { "r": "door", "p": "src/app.ts", "l": 209, "m": "background: Screen[]" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 558, "m": "private static kept" }
+        { "r": "door", "p": "src/app.ts", "l": 220, "m": "background: Screen[]" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 548, "m": "private static kept" }
       ],
       "questions": [ { "text": "App.background as the one owner.", "finding": "A-F19", "route": "PIE-493" } ]
     },
@@ -525,16 +525,16 @@
     },
     {
       "id": "door.herdragent", "name": "Herdr agent tile", "group": "door", "chapter": "terminal", "ladder": "provisional", "dependsOn": ["door.pty", "kept.herdr", "door.control"],
-      "does": "The daily agent runs in a Herdr pane the tile attaches to, so quitting the door leaves it running; the next door reattaches. The App owns that one tile (PIE-498): the status bar's chip pulls it up as a drawer over any screen, and the daily layout's agent tile is the same instance.",
+      "does": "The daily agent runs in a Herdr pane the tile attaches to, so quitting the door leaves it running; the next door reattaches. The App owns that one tile (PIE-498), the first tab of the host layer's drawer (PIE-513): a layout on the one layout engine above every screen, pulled up from the status bar's chip over or beside a screen, as the screen's policy says. No screen has a copy of it.",
       "built": "scripts/door-agent-herdr.ts finds or creates the pane under a lock, attaches, and tells the door with tile.herdr over the control socket, as its tile. No title matching.",
       "refs": [
         { "r": "door", "p": "src/desk/herdr-agent.ts", "l": 310, "m": "export async function main" },
         { "r": "door", "p": "src/desk/herdr-agent.ts", "l": 228, "m": "export function tellDoor" },
         { "r": "door", "p": "src/desk/pty-actions.ts", "l": 67, "m": "\"tile.herdr\": {" },
         { "r": "door", "p": "src/desk/pty.ts", "l": 133, "m": "herdr: { pane: string } | null" },
-        { "r": "door", "p": "src/dock.ts", "l": 83, "m": "export class AgentDock" },
-        { "r": "door", "p": "src/dock.ts", "l": 527, "m": "export const DOCK_ACTIONS" },
-        { "r": "door", "p": "src/desk/tiles.ts", "l": 229, "m": "export function shareAgent" }
+        { "r": "door", "p": "src/dock.ts", "l": 88, "m": "export class AgentDock" },
+        { "r": "door", "p": "src/dock.ts", "l": 576, "m": "export const DOCK_ACTIONS" },
+        { "r": "door", "p": "src/desk/screen-layout.ts", "l": 1120, "m": "export function hostLayer" }
       ],
       "questions": [ { "text": "Reattach shows Herdr's current screen only: no scrollback.", "finding": "B-F21", "route": "PIE-418" } ]
     },
@@ -545,7 +545,7 @@
       "refs": [
         { "r": "door", "p": "src/main.ts", "l": 134, "m": "process.on(sig" },
         { "r": "door", "p": "src/main.ts", "l": 148, "m": "uncaughtException" },
-        { "r": "door", "p": "src/app.ts", "l": 469, "m": "terminate()" }
+        { "r": "door", "p": "src/app.ts", "l": 480, "m": "terminate()" }
       ],
       "questions": [ { "text": "Six child-process launchers, three with no timeout; unzip blocks the paint.", "finding": "B-F7" } ]
     },
@@ -568,7 +568,7 @@
       "does": "Screens built on the desk: the brief, Waiting, the welcome. Their tiles, links and focus.",
       "built": "DeskPreset holds Pane instances and a layout closure; each screen is a Desk subclass overriding key, act and its band. PinnedPage is test-only.",
       "refs": [
-        { "r": "door", "p": "src/desk/desk.ts", "l": 55, "m": "export interface DeskPreset" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 56, "m": "export interface DeskPreset" },
         { "r": "door", "p": "src/brief/brief.ts", "l": 91, "m": "class Brief extends Desk" },
         { "r": "door", "p": "src/hub/welcome.ts", "l": 270, "m": "class Welcome extends Desk" },
         { "r": "door", "p": "src/hub/waiting.ts", "l": 174, "m": "class Waiting extends Desk" },
@@ -636,7 +636,7 @@
       "does": "Find a note: the desk's /, the river's palette, the board's picker. The BBS Search screen, never constructed, is gone (PIE-510).",
       "built": "Separate implementations over different sources; none uses tree.search.",
       "refs": [
-        { "r": "door", "p": "src/desk/desk.ts", "l": 2499, "m": "class SearchOverlay" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 2476, "m": "class SearchOverlay" },
         { "r": "door", "p": "src/river/river.ts", "l": 128, "m": "function parseFilter" }
       ],
       "questions": [ { "text": "One jump palette as a shell overlay over tree.search.", "finding": "A-F8", "route": "PIE-493" } ]
@@ -670,8 +670,8 @@
       "does": "An agent sees what the person sees and does what they do. Its action is named on the status bar, recorded as author agent with its actor id, and never takes the person's focus, selection or keys.",
       "built": "App.act runs the shell's actions first, then the screen's; App.subscribe diffs each screen's viewState after a paint.",
       "refs": [
-        { "r": "door", "p": "src/app.ts", "l": 422, "m": "async act(req" },
-        { "r": "door", "p": "src/app.ts", "l": 259, "m": "viewState?.()" }
+        { "r": "door", "p": "src/app.ts", "l": 433, "m": "async act(req" },
+        { "r": "door", "p": "src/app.ts", "l": 270, "m": "viewState?.()" }
       ],
       "questions": [
         { "text": "`open` is three actions with different arguments; `pin` is four things.", "finding": "C-F16" },

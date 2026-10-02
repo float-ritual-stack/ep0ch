@@ -14,6 +14,7 @@ import { registerTileKind, serviceKind, unregisterTileKind, kindForKey, kindsCha
 import { MainMenu } from "../src/screens";
 import { SocketBoard } from "../src/socket";
 import type { Key } from "../src/term";
+import { terminalDay } from "./terminal-day";
 import { outliner, Scratch, until } from "./scratch";
 
 const char = (ch: string): Key => ({ kind: "char", ch });
@@ -69,7 +70,7 @@ describe.skipIf(!outliner)("containers with policy on the desk", () => {
     const term = { info: { cols: 200, rows: 60, cellW: 9, cellH: 16, kitty: false }, write() {}, paint() {}, invalidate() {}, onKey(f: any) { key = f; }, onResize() {}, stop() {}, resume() {} };
     app = new App(term as any, board, Date.now(), () => {});
     app.push(new MainMenu());
-    desk = new Desk(undefined, { layout: "daily" });
+    desk = new Desk(undefined, { layout: terminalDay() });
     app.push(desk);
     render();
     await until(() => tile("claude")?.terminal?.running, "the daily agent tile");
@@ -168,7 +169,7 @@ describe.skipIf(!outliner)("containers with policy on the desk", () => {
     expect(g.locked).toBe(true);
     expect(s(g.tree)).toBe(before);
     expect(g.tiles.find((t: any) => t.name === "now").drawer).toBe("shut");
-    for (const p of again.panes.values()) if (p !== undefined && !D().isShared(p)) p.dispose?.();
+    for (const p of again.panes.values()) p?.dispose?.();
     // The chip: a click unlocks (layout.lock, as the person).
     render();
     const chip = D().lockChip;
