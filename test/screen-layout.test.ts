@@ -353,6 +353,42 @@ describe("the rest of the layout's operations", () => {
     void names;
   });
 
+  test("another hub's lane takes the name of the one it replaces; a kept lane named by its kind gets its source's name back (round 3, W1)", () => {
+    const tree: LNode = splitOf("col", [{ t: "columns", dir: "row", kids: [], weights: [], key: "lanes", source: "hub:fern" }, splitOf("row", [leaf(1), leaf(2)])]);
+    let s = init({ tree, names: new Map([[1, "tree"], [2, "preview"]]) });
+    const cid = (describeLayout(s, id => String(id)) as any).kids[0].id as string;
+    s = ok(s, { op: "fill", container: cid, order: [10, 11], fresh: [{ id: 10, kind: "query", name: "Sowing" }, { id: 11, kind: "query", name: "Done" }] }).state;
+    // The hub switched (g): both its lanes go, and the new hub's "Done" is named Done, not by its kind.
+    s = ok(s, { op: "fill", container: cid, order: [12, 13], fresh: [{ id: 12, kind: "query", name: "To-do" }, { id: 13, kind: "query", name: "Done" }], drop: [10, 11] }).state;
+    expect(names(s, [12, 13])).toEqual(["To-do", "Done"]);
+    // A save that already holds a lane named by its kind ("query"): the refill gives it the source's name back.
+    s = init({ tree: s.tree, names: new Map([[1, "tree"], [2, "preview"], [12, "To-do"], [13, "query"]]) });
+    s = ok(s, { op: "fill", container: cid, order: [12, 13], names: [[12, "To-do"], [13, "Done"]] }).state;
+    expect(names(s, [12, 13])).toEqual(["To-do", "Done"]);
+    // A name another tile has stays that tile's.
+    s = ok(s, { op: "fill", container: cid, order: [12, 13], names: [[12, "Done"]] }).state;
+    expect(names(s, [12, 13])).toEqual(["To-do", "Done"]);
+  });
+
+  test("a spine swapped into a column split opens, as a move there does (round 3, B-L2)", () => {
+    const tree = splitOf("row", [leaf(1), leaf(2), splitOf("col", [leaf(3), leaf(4)])]);
+    let s = init({ tree, names: NAMES });
+    s = ok(s, { op: "collapse", tile: 2, on: true }).state;
+    expect(s.collapsed.has(2)).toBe(true);
+    s = ok(s, { op: "swap", tile: 2, with: 3 }).state;
+    expect(s.collapsed.has(2)).toBe(false);
+  });
+
+  test("a place by a tile that isn't in the layout is refused: nothing opened unplaced, no float lost (round 3, B-L3)", () => {
+    extra = {};
+    no(fresh(), { op: "open", tile: 9, kind: "reader", at: { kind: "split", target: 99, dir: "right" } }, /no tile 99 in the layout/);
+    no(fresh(), { op: "open", tile: 9, kind: "reader", at: { kind: "tabs", target: 99 } }, /no tile 99 in the layout/);
+    const s = withFloat(fresh(), 1);
+    no(s, { op: "move", tile: 1, to: { kind: "split", target: 99, dir: "left" } }, /no tile 99 in the layout/);
+    no(s, { op: "move", tile: 1, to: { kind: "tabs", target: 99 } }, /no tile 99 in the layout/);
+    expect(floated(s)).toEqual(["tree"]);
+  });
+
   test("saved and put back: the tree, the policy, the floats; a stray field in a hand-edited policy is dropped", () => {
     let s = ok(fresh(), { op: "policy", tile: 3, set: { draggable: false }, clear: [] }).state;
     s = withFloat(s, 1);

@@ -194,7 +194,7 @@ export const TILE_ACTIONS = new ActionSet<{
     },
   },
   "tile.close": {
-    summary: "close tile=<tile>: a program in it is ended. On the board a detail or a float closes, a drawer's tile shuts its drawer, and the lanes and the preview stay (closable off). Refused while it holds an edit or a comment, and to an agent for the tile that has the person's keys",
+    summary: "close tile=<tile>: a program in it is ended. On the board a detail or a float closes, a drawer's tile shuts its drawer, and the lanes and the preview stay (closable off); on a screen of a fixed shape the tiles its spec names stay (the river's library). Refused while it holds an edit or a comment, and to an agent for the tile that has the person's keys",
     keys: "^W x; board x, esc q on a drawer",
     aliases: ["pane.close"],
     touches: "shape", replay: "ask", says: r => `closed ${r.tile}`,

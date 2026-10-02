@@ -39,7 +39,7 @@ export type Source = { kind: "roots" } | { kind: "block"; id: string } | { kind:
 interface Clause { key: string; value: string; exclude: boolean }
 interface Row { m: Msg; depth: number }
 /** A row as drawn: its card (-1: none), whether it's the replies toggle, the links on it, the history row's parts. */
-type HitRow = { card: number; replies: boolean; links?: { from: number; to: number; link: Link }[]; history?: { from: number; to: number; dir: -1 | 1 }[] };
+type HitRow = { card: number; replies: boolean; links?: { from: number; to: number; link: Link }[]; history?: { from: number; to: number; dir: -1 | 1 }[]; fold?: { to: number; n: number } };
 
 /** A source as a tile spec writes it: `roots`, `block:<id>`, `tag:<key>=<value>`. */
 export const sourceText = (s: Source) => (s.kind === "roots" ? "roots" : s.kind === "block" ? `block:${s.id}` : `tag:${s.key}=${s.value}`);
@@ -145,7 +145,7 @@ export class RiverColumn extends ReaderPane {
   private digestOf_: { key: string; m: Msg; s: Msg | null; dg: ReturnType<ReaderPane["surface"]["digest"]> } | undefined;
   private shown?: { key: string; at: number };
   private gesture = new Gesture();
-  private down: { row?: HitRow; link?: Link; same: boolean; dragging: boolean } | null = null;
+  private down: { row?: HitRow; link?: Link; fold?: number; same: boolean; dragging: boolean } | null = null;
   private editDrag = false;
   /** The keys came here just now (a click that focuses it only focuses it). */
   private justFocused = false;
@@ -295,7 +295,9 @@ export class RiverColumn extends ReaderPane {
       const dg = this.digest(m, w - 1), at = all.length;
       const byRow = new Map<number, { from: number; to: number; link: Link }[]>();
       for (const x of dg.links) { const r = byRow.get(x.row); const l = { from: x.from + 1, to: x.to + 1, link: x.link }; if (r) r.push(l); else byRow.set(x.row, [l]); }
-      dg.lines.forEach((l, i) => all.push({ text: " " + l, card: -1, replies: false, links: byRow.get(i) ?? [] }));
+      // A heading (or a list item's mark) is a fold point, as in a reader: a click on it folds or unfolds it.
+      const folds = new Map(dg.folds.map(f => [f.row, { to: f.cols + 1, n: f.n }] as const));
+      dg.lines.forEach((l, i) => all.push({ text: " " + l, card: -1, replies: false, links: byRow.get(i) ?? [], ...(folds.has(i) ? { fold: folds.get(i)! } : {}) }));
       // The element `[ ]` just stepped to comes into view (only when it changed: the wheel still reads on).
       if (dg.key !== (this.shownElem ?? null)) {
         this.shownElem = dg.key;
@@ -337,7 +339,7 @@ export class RiverColumn extends ReaderPane {
     this.drawn = { lines: all.map(l => l.text), w };
     if (this.text && this.text.w !== w) this.text = null;
     const shown = all.slice(this.top, this.top + rows);
-    this.rows = shown.map(l => ({ card: l.card, replies: l.replies, links: l.links, history: l.history }));
+    this.rows = shown.map(l => ({ card: l.card, replies: l.replies, links: l.links, history: l.history, fold: l.fold }));
     return shown.map((l, i) => { const span = this.text?.span(this.top + i); return span ? paintRange(l.text, span[0], span[1], SELECT_BG) : l.text; });
   }
 
@@ -512,7 +514,8 @@ export class RiverColumn extends ReaderPane {
     // Only a click in the column that already had the keys opens a card: the first one only focuses.
     const same = !this.justFocused && !!row && row.card >= 0 && this.sel === row.card;
     if (row && row.card >= 0 && !link) this.run(desk, "column.select", { n: row.card + 1, scroll: false });
-    this.down = { row, link: link?.link, same, dragging: false };
+    const fold = !link && row?.fold && x >= 1 && x <= row.fold.to ? row.fold.n : undefined;
+    this.down = { row, link: link?.link, ...(fold !== undefined ? { fold } : {}), same, dragging: false };
     if (row && row.card >= 0) this.gesture.forget();
     const n = this.gesture.press(x, y);
     const rows = this.drawn && rowsOf(this.drawn.lines);
@@ -522,8 +525,9 @@ export class RiverColumn extends ReaderPane {
     return true;
   }
 
-  /** A press and release on the same cell: a link opens in the next column, a card's replies show, a selected card opens. */
+  /** A press and release on the same cell: a link opens in the next column, a heading folds, a card's replies show, a selected card opens. */
   private click_(d: NonNullable<RiverColumn["down"]>, desk: DeskApi) {
+    if (d.fold !== undefined) { void this.surface.runKey("fold.toggle", { n: d.fold }, this.host(desk)); return; }
     if (d.link) {
       this.gesture.forget();
       try { void this.surface.open(d.link, this.host(desk)); } catch (e) { desk.ctx.flash(e instanceof Error ? e.message : String(e)); }

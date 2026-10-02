@@ -454,4 +454,53 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
     expect(focused().mode).toBe("");
     expect(river.holdsKeys()).toBe(false);
   });
+
+  test("a note column folds as a reader does: fold n=1 hides its section; ( ) f and a click on the heading unfold it (round 3, W4)", async () => {
+    const plan = await create(null, "Garden plan\nWhat goes where.\n\n## Beds\nCarrots by the shed, leeks by the gate.\n\n## Paths\nGravel between the beds.");
+    const o: any = await act("open", { id: plan.id, from: lib() });
+    const r = o.reader as string;
+    await until(() => !!paneOf(r).root, "the plan column");
+    await mine("focus", {}, r);
+    await mine("tile.widen", {}, r);
+    expect(screen()).toContain("Carrots by the shed");
+    const done: any = await act("fold", { n: 1 }, r);
+    expect(done.foldedNow).toEqual([expect.stringContaining("Beds")]);
+    let text = screen();
+    expect(text).not.toContain("Carrots by the shed");
+    expect(text).toContain("Beds");
+    expect(text).toContain("Gravel between the beds.");     // the next section is drawn
+    // The person's keys: ( selects a fold point, f toggles it, as in every reader.
+    const s = paneOf(r).surface as any;
+    key(char("("));
+    expect(s.describe().folds.selected).toBeTruthy();
+    while (!String(s.describe().folds.selected).includes("Beds")) key(char(")"));
+    key(char("f"));
+    await until(() => !s.folded.size, "unfolded by f");
+    expect(screen()).toContain("Carrots by the shed");
+    // The mouse: a click on the heading folds it (press and release on the same cell).
+    const col = paneOf(r) as any, row = col.rows.findIndex((h: any) => h.fold);
+    expect(row).toBeGreaterThanOrEqual(0);
+    const y = row + col.headRows;
+    col.mouse({ kind: "mouse", action: "down", button: 0, x: 2, y }, 2, y, river);
+    col.mouse({ kind: "mouse", action: "up", button: 0, x: 2, y }, 2, y, river);
+    await until(() => s.folded.size === 1, "folded by a click");
+    text = screen();
+    expect(text).not.toContain("Carrots by the shed");
+    await act("unfold", { all: true }, r);
+    await mine("tile.close", {}, r);
+  });
+
+  test("the Library stays (the river is made around it), so a restarted river comes back with its columns (round 3, B-M2)", async () => {
+    const o: any = await act("open", { id: notes.squash.id, from: lib() });
+    await until(() => !!paneOf(o.reader).root, "the squash column");
+    await expect(act("tile.close", {}, lib())).rejects.toThrow(/library stays: the river screen is made around it/);
+    await expect(mine("tile.close", {}, lib())).rejects.toThrow(/made around it/);
+    (river as any).save();
+    // The river opened again, as a restarted door does: its saved columns come back.
+    const again = openScreen("river") as Desk;
+    const titles = view(again).columns.map(c => view(again).name(c));
+    expect(titles).toContain("library");
+    expect(titles).toContain(o.reader);
+    await act("tile.close", {}, o.reader);
+  });
 });
