@@ -8,11 +8,11 @@
 // Built on the desk (a preset, as the brief is): the reader, its sessions, the mouse and `act` are the
 // desk's. Picking an item is an action (WAITING_ACTIONS): the keys, a click and `act` call the same code.
 import { subject, type Msg } from "../board";
-import { USER, type Actor, type SocketBoard } from "../socket";
+import { type Actor, type SocketBoard } from "../socket";
 import { bg, C, fg, pad, RESET } from "../style";
 import type { Key } from "../term";
 import { ago } from "../text";
-import { ActionRefused, ActionSet, agentLabel, type ActRequest } from "../surface/actions";
+import { ActionRefused, ActionSet, type ActRequest } from "../surface/actions";
 import { Desk } from "../desk/desk";
 import { pair } from "../desk/screen-layout";
 import { ReaderPane, type DeskApi, type Pane, type PaneView } from "../desk/panes";
@@ -139,9 +139,7 @@ export class WaitingPane implements Pane {
   /** Run a list action as the person, saying a refusal on screen. */
   private run(desk: DeskApi, req: ActRequest) {
     if (!this.screen) return;
-    WAITING_ACTIONS.runUntyped(req.action, { ...(req.args ?? {}) }, this.screen, USER)
-      .catch(e => desk.ctx.flash(e instanceof Error ? e.message : String(e)))
-      .finally(() => desk.redraw());
+    void desk.press?.(this, WAITING_ACTIONS, req.action, { ...(req.args ?? {}) });
   }
 
   key(k: Key, desk: DeskApi): boolean {
@@ -178,6 +176,8 @@ export class Waiting extends Desk {
     super({ title: "waiting on others", panes: [list, new ReaderPane(true)], layout: ([l, r]) => pair("row", 0.5, { t: "leaf", id: l! }, { t: "leaf", id: r! }) });
     this.list = list;
     list.screen = this;
+    // Its own actions (which item) before the desk's, through the desk's dispatcher.
+    this.dispatch.register([{ set: WAITING_ACTIONS, takes: "screen", on: () => this }], true);
   }
 
   /** Show the item at `n` (1 is the longest wait) or with `id`, as `actor`; an agent's is said on screen. */
@@ -187,28 +187,14 @@ export class Waiting extends Desk {
     if (!list.length) throw new ActionRefused("nothing is waiting");
     const i = which.id !== undefined ? list.findIndex(m => m.id === which.id) : (which.n ?? 0) - 1;
     if (i < 0 || i >= list.length) throw new ActionRefused(which.id !== undefined ? `no waiting item ${which.id}` : `pick 1 to ${list.length}`);
-    // An agent never moves the reader out from under an edit or a comment the person is in.
-    if (actor.kind === "agent" && this.personTyping()) throw new ActionRefused("the person is typing here; the pick stays");
     const m = list[i]!;
     this.list.at = i;
-    this.setCurrent(m, { from: this.list, ...(actor.kind === "agent" ? { agent: true } : {}) });
-    const p: Picked = { n: i + 1, of: list.length, id: m.id, who: waitingOn(m).who, title: subject(m) };
-    if (actor.kind === "agent") this.ctx.flash(`${agentLabel(actor)} showed what ${p.who} owes (${p.n} of ${p.of})`);
-    return p;
+    this.setCurrent(m, { from: this.list, by: actor });
+    return { n: i + 1, of: list.length, id: m.id, who: waitingOn(m).who, title: subject(m) };
   }
 
   override describe() {
     return { ...super.describe(), kind: "waiting", picked: this.list.at >= 0 ? this.list.at + 1 : null, waiting: this.list.items ? this.list.describe() : null, problem: this.list.problem || undefined };
-  }
-
-  override actions() {
-    const d = super.actions();
-    return { ...d, actions: [...WAITING_ACTIONS.list(), ...d.actions] };
-  }
-
-  override async act(req: ActRequest, actor: Actor): Promise<unknown> {
-    if (WAITING_ACTIONS.has(req.action)) return WAITING_ACTIONS.runUntyped(req.action, { ...(req.args ?? {}) }, this, actor);
-    return super.act(req, actor);
   }
 }
 
@@ -216,6 +202,7 @@ export class Waiting extends Desk {
 export const WAITING_ACTIONS = new ActionSet<{ "waiting.pick": { n?: number; id?: string }; "waiting.reload": Record<string, never> }, Waiting>("waiting", {
   "waiting.pick": {
     summary: "show a waiting item in the reader: n (1 is the longest wait, as describe lists them) or id; refused to an agent while the person is typing here", keys: "j k ↑ ↓ click",
+    touches: "screen", replay: "safe", says: r => `showed what ${r.who} owes (${r.n} of ${r.of})`,
     args: { n: { type: "number", about: "its place in the list, from 1", optional: true }, id: { type: "string", about: "the item's block id", optional: true } },
     run(a, w, actor) {
       if ((a.n === undefined) === (a.id === undefined)) throw new ActionRefused("waiting.pick takes n or id, one of them");
@@ -224,6 +211,7 @@ export const WAITING_ACTIONS = new ActionSet<{ "waiting.pick": { n?: number; id?
   },
   "waiting.reload": {
     summary: "ask the outline again what's waiting (it also does when the outline changes)", keys: "r",
+    touches: "nothing", replay: "safe",
     args: {},
     async run(_, w) { await w.list.load(w); return { waiting: w.list.items?.length ?? 0 }; },
   },

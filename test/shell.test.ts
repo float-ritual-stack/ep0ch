@@ -172,7 +172,7 @@ describe.skipIf(!outliner)("the BBS shell, against a scratch outline", () => {
       expect(top().title).toBe("who's online");
       const out: any = await act("who.refresh");
       expect(Array.isArray(out.callers)).toBe(true);
-      expect(top().actions().actions.map((a: any) => a.name)).toEqual(["who.refresh"]);
+      expect(top().dispatch!.list().actions.map((a: any) => a.name)).toEqual(["who.refresh"]);
       home();
     });
 
@@ -416,6 +416,7 @@ describe.skipIf(!outliner)("the BBS shell, against a scratch outline", () => {
       home(); A().lastInput = Date.now();
       await expect(act("open", { id: m!.id })).rejects.toThrow(/at the keys/);
       expect(titles()).toEqual(["main menu"]);
+      idle();
       await expect(act("open", { id: "00000000-0000-4000-8000-000000000000" })).rejects.toThrow(/no block/);
     });
   });

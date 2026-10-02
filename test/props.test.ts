@@ -368,6 +368,7 @@ describe.skipIf(!outliner)("the property panel and transclusions, against a scra
     expect(r).toMatchObject({ opened: ids.plan, title: "Garden plan" });
     await act("open", { id: ids.card });
     await expect(act("props.follow", { key: "project" })).rejects.toThrow("plain text");
+    (app as any).lastInput = 0;                                    // the person's summary keys: an agent's change waits until they're idle
     const s = await act("props.summary", { keys: "project, work-stage" });
     expect(s.yours).toEqual({ keys: ["project", "work-stage"], source: "yours" });
     expect(s.here.source).toBe("view");                                                    // the lane still decides for its cards

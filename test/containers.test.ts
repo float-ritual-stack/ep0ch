@@ -42,7 +42,7 @@ describe.skipIf(!outliner)("containers with policy on the desk", () => {
   const AS = "container-agent-505";
   const D = () => desk as any;
   const act = (action: string, args: Record<string, unknown> = {}, reader?: string) => app.act({ action, args, reader, as: AS });
-  const mine = (action: string, args: Record<string, unknown> = {}, reader?: string) => D().act({ action, args, reader }, { kind: "user" });
+  const mine = (action: string, args: Record<string, unknown> = {}, reader?: string) => D().dispatch.act({ action, args, reader }, { kind: "user" });
   const message = () => (app as any).message as string;
   const render = () => desk.render(D().ctx);
   const get = () => D().layoutGet() as { tree: any; focus: string; tiles: any[]; locked: boolean; rev: number };

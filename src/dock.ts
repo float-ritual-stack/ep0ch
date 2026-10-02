@@ -18,9 +18,9 @@
 // `agent.restart`): the
 // chip's click, alt+a, Esc, the drawer's dragged top edge, alt+A, the chip's ⟳ and alt+R call them, and so does an
 // agent over `act`. An agent may pull it up
-// only under the shell's rule (`agentMayMove`: never while the person types, never within 2s of their last
-// key), it's said on the status bar and in the drawer's title, and an agent never enters it: its keys stay
-// where they were. Whether it's open and how tall is saved in the door's state (dock.json), so it's still
+// only under the actor rule for what changes the person's screen (`touches: "screen"`, PIE-514: never while the
+// person types, never within 2s of their last key), it's said on the status bar and in the drawer's title, and an
+// agent never enters it: its keys stay where they were. Whether it's open and how tall is saved in the door's state (dock.json), so it's still
 // there after a screen switch and after a restart; with Herdr it's the same session everywhere.
 //
 // The chip also says what the agent knows (src/desk/agent-env.ts): `door tools` when it started in a door after
@@ -39,9 +39,10 @@ import { rawKey } from "./kbd";
 import { dailyAgent } from "./desk/tiles";
 import { apply as applyLayout, shown as shownTiles, hostDrawer, hostLayer, HOST_SCREEN, placeHost, type Ctx as LayoutCtx, type HostMode, type LayoutState, type Op, type TileFacts } from "./desk/screen-layout";
 import { readState, writeState } from "./state";
-import { agentMayMove } from "./screens";
 import { USER, type Actor } from "./socket";
-import { ActionRefused, ActionSet, runAsPerson, agentLabel } from "./surface/actions";
+import { ActionRefused, ActionSet, agentLabel } from "./surface/actions";
+import type { TileRef } from "./surface/dispatch";
+import { HOST_AGENT, type Whereabouts } from "./whereabouts";
 import { bg, C, fg, RESET } from "./style";
 import type { Key } from "./term";
 
@@ -78,8 +79,10 @@ export interface DockHost {
   /** Only the status bar changed (the chip): repaint it alone when the screen allows. */
   statusChanged(): void;
   flash(msg: string, ms?: number): void;
-  /** The screen shown (the screen layer): where it lets the host layer appear, whether the person types in it. */
+  /** The screen shown (the screen layer): where it lets the host layer appear. */
   screen?(): Screen | undefined;
+  /** Where the person is (the shell's query, PIE-514): the host layer's operations are applied with it. */
+  person?(): Whereabouts;
 }
 
 const clamp = (share: number) => Math.max(MIN_SHARE, Math.min(MAX_SHARE, share));
@@ -151,13 +154,11 @@ export class AgentDock {
     if (id === HOST_SCREEN) return { kind: "screen", policy: { closable: false, draggable: false } };
     return { kind: "pty", ...(this.p?.running ? { running: this.p.run.cmd[0] ?? "the agent" } : {}) };
   }
-  /** Who acts, and where the person is: in the agent, or typing in the screen (whose rule the screen keeps). */
+  /** Who acts, and where the person is (the shell's one answer): in the agent, or busy on the screen. */
   private ctx(actor: Actor, rows = 30, cols = 100): LayoutCtx<string> {
-    const screen = this.host.screen?.();
-    const busy = actor.kind === "agent" && (this.entered || !!screen?.holdsKeys?.() || !!screen?.rawKeys?.());
     return {
       actor, area: { col: 0, row: 0, cols, rows: Math.max(1, rows - 1) }, tile: id => this.facts(id), screenHost: this.mode,
-      person: { focus: this.keys, typingIn: this.entered ? DOCK_TILE_ID : null, busy },
+      person: { focus: this.keys, typingIn: this.entered ? DOCK_TILE_ID : null, busy: this.entered || !!this.host.person?.().busy },
     };
   }
   /** One operation on the host layer, for `actor`: its new state and where the keys are now, or the refusal thrown. */
@@ -343,6 +344,8 @@ export class AgentDock {
    * that keeps the whole screen (host none) it's refused, with why.
    */
   set(open: boolean, actor: Actor) {
+    // An agent's pull of a drawer that's up already changes nothing; the person's goes into it.
+    if (open && this.open && actor.kind === "agent") return;
     if (open) this.pane();
     this.do({ op: "drawer", tile: DOCK_TILE_ID, open }, actor);
     if (open && actor.kind !== "agent") this.do({ op: "focus", tile: DOCK_TILE_ID }, actor);
@@ -578,36 +581,30 @@ export const DOCK_ACTIONS = new ActionSet<DockArgs, DockOn>("dock", {
     aliases: ["agent.enter"],
     summary: "go into the agent drawer: the person's keys go to the agent until ctrl+]; restart=true runs one that exited again (⏎ on it). The person's only: an agent's would take their keys",
     keys: "ctrl+], click in the drawer, ⏎ on an exited agent; ctrl+] then ctrl+] sends ctrl+] to it",
+    touches: "screen", replay: "safe",
+    person: "going into the drawer takes the person's keys; an agent pulls it up with host.toggle and leaves their keys where they are",
     args: { send: { type: "string", optional: true, about: "bytes to give the agent first (a literal ctrl+])" }, restart: { type: "boolean", optional: true, about: "run an agent that exited again, as ⏎ on it does" } },
-    run({ send, restart }, { dock }, actor) {
-      if (actor.kind === "agent") throw new ActionRefused("going into the drawer takes the person's keys; an agent pulls it up with host.toggle and leaves their keys where they are");
-      return dock.enter(send, restart);
-    },
+    run({ send, restart }, { dock }) { return dock.enter(send, restart); },
   },
   "host.leave": {
     aliases: ["agent.leave"],
     summary: "the person's keys go back to the screen from the agent drawer; the drawer stays up. The person's only",
     keys: "ctrl+], click on the screen above the drawer",
+    touches: "screen", replay: "safe",
+    person: "the person's keys are theirs: an agent doesn't take them out of the drawer",
     args: { quiet: { type: "boolean", optional: true, about: "say nothing on the status bar (a click away)" } },
-    run({ quiet }, { dock, here }, actor) {
-      if (actor.kind === "agent") throw new ActionRefused("the person's keys are theirs: an agent doesn't take them out of the drawer");
-      return dock.leave(here, !quiet);
-    },
+    run({ quiet }, { dock, here }) { return dock.leave(here, !quiet); },
   },
   "host.toggle": {
     aliases: ["agent.toggle"],
     summary: "pull the host layer's drawer (the agent, its first tab) up over or beside the screen, as the screen lets it (its policy's host), or put it away (open=true/false; neither toggles). The person's pull gives it their keys; an agent's never does, waits until they're idle, and is said on screen. Refused on a screen that keeps the whole screen (host none)",
     keys: "alt+a, a click on the ▲ claude chip in the status bar; Esc (or ctrl+] then Esc) puts it away",
+    touches: "screen", replay: "safe",
+    says: out => ({ text: `· ${out.open ? "pulled up" : "put away"} the agent drawer`, ms: 6000 }),
     args: { open: { type: "boolean", optional: true, about: "true pulls it up, false puts it away; left out, it toggles" } },
-    run({ open }, { dock, ctx, here }, actor) {
+    run({ open }, { dock }, actor) {
       const want = open ?? !dock.open;
-      if (actor.kind === "agent") {
-        if (!dock.active) throw new ActionRefused(`the door is at the ${here?.title ?? "logon"}; the drawer shows once the person has logged on`);
-        if (!want && dock.entered) throw new ActionRefused(`the person is typing in the agent drawer; an agent doesn't put it away`);
-        if (want !== dock.open) agentMayMove(here, ctx, actor);
-      }
-      if (want !== dock.open || (want && actor.kind !== "agent" && !dock.entered)) dock.set(want, actor);
-      if (actor.kind === "agent") ctx.flash(`${want ? "pulled up" : "put away"} the agent drawer`, 6000);
+      if (want !== dock.open || want) dock.set(want, actor);
       return { open: dock.open, entered: dock.entered, share: dock.share, state: dock.state() };
     },
   },
@@ -615,10 +612,10 @@ export const DOCK_ACTIONS = new ActionSet<DockArgs, DockOn>("dock", {
     aliases: ["agent.height"],
     summary: "how much of the screen the agent drawer covers, as a share of the rows above the status bar (0.2 to 0.9); over a screen, the screen under it doesn't move; beside one, the screen is drawn shorter",
     keys: "drag the drawer's top edge; alt+A steps 40%, 50%, 60%, 75%",
+    touches: "tile", while: "typing", replay: "safe", way: "an agent doesn't resize it under them",
     args: { share: { type: "number", about: "0.2 to 0.9 (0.5: half the screen)" } },
     run({ share }, { dock }, actor) {
       if (!(share > 0 && share <= 1)) throw new ActionRefused(`share is a fraction of the screen, 0.2 to 0.9, not ${share}`);
-      if (actor.kind === "agent" && dock.entered) throw new ActionRefused("the person is typing in the agent drawer; an agent doesn't resize it under them");
       dock.height(share, actor);
       return { share: dock.share, open: dock.open };
     },
@@ -626,47 +623,63 @@ export const DOCK_ACTIONS = new ActionSet<DockArgs, DockOn>("dock", {
   "agent.restart": {
     summary: "restart the agent (▲ claude) so it starts with the door's environment (EP0CH_CONTROL, EP0CH_NEST …) and the installed Claude mod: that agent alone is asked to exit (SIGTERM, SIGKILL after 8s) and the same command runs again, keeping the conversation (door-claude continues; a bare claude gets --continue). In Herdr it comes back in a new door-claude pane. An agent's restart is refused while the person types in it, and is said on screen",
     keys: `a click on ${RESTART_GLYPH} at the end of the ▲ claude chip (shown when it started before an update, or without door tools); alt+R`,
+    touches: "tile", while: "typing", replay: "ask", way: "an agent doesn't restart it under them",
+    says: () => ({ text: `· restarted ${DOCK_NAME}`, ms: 6000 }),
     args: {},
     async run(_, { dock, ctx }, actor) {
       const p = dock.tile;
-      if (actor.kind === "agent") {
-        if (dock.shown && dock.entered) throw new ActionRefused("the person is typing in the agent drawer; an agent doesn't restart it under them");
-        const idle = Date.now() - (p?.personKeyAt ?? 0);
-        if (p && idle < RESTART_IDLE_MS) throw new ActionRefused(`the person typed into the agent ${(idle / 1000).toFixed(1)}s ago; try again once they've left it ${RESTART_IDLE_MS / 1000}s`);
-      }
+      // The agent's own window: the person who typed into it lately may be about to again.
+      const idle = Date.now() - (p?.personKeyAt ?? 0);
+      if (actor.kind === "agent" && p && idle < RESTART_IDLE_MS) throw new ActionRefused(`the person typed into the agent ${(idle / 1000).toFixed(1)}s ago; try again once they've left it ${RESTART_IDLE_MS / 1000}s`);
       ctx.flash(`restarting ${DOCK_NAME}${p?.herdr ? ` in Herdr (${p.herdr.pane})` : ""} · the conversation is kept`, 6000);
-      const r = await dock.restart();
-      if (actor.kind === "agent") ctx.flash(`restarted ${DOCK_NAME}`, 6000);
-      return r;
+      return dock.restart();
     },
   },
   "agent.type": {
     summary: "send the agent (▲ claude, the host layer's agent) text as typed: \\n is ⏎, \\e Esc. The agent lives in the host layer, never as a tile on a screen, so this is how another agent types to it (tile.type types into a screen's terminal tile). Refused while the person is typing in it, and while it isn't running",
     keys: "the person types in the drawer (ctrl+], a click in it)",
+    touches: "tile", while: "typing", replay: "ask", way: "an agent doesn't type there",
+    says: () => `· typed to ${DOCK_NAME}`,
     args: { text: { type: "string", about: "what to type (\\n ⏎, \\e Esc)" } },
-    run({ text }, { dock, ctx }, actor) {
+    run({ text }, { dock }) {
       const p = dock.tile;
       if (!p?.running) throw new ActionRefused(`${DOCK_NAME} isn't running · alt+a pulls it up and starts it`);
-      if (actor.kind === "agent" && dock.shown && dock.entered) throw new ActionRefused(`the person is typing in ${DOCK_NAME} in the agent drawer; an agent doesn't type there`);
       p.input(text.replace(/\\n/g, "\r").replace(/\\e/g, "\x1b"));
-      if (actor.kind === "agent") ctx.flash(`typed to ${DOCK_NAME}`, 4000);
       return { tile: DOCK_NAME, chars: text.length };
     },
   },
   "agent.knows": {
     summary: "what the agent (▲ claude) knows: read now from its own process (its environment and start time) against the installed Outliner Claude mod. state current (door tools), stale (started before the mod changed, or by an older door), no-door (no EP0CH_CONTROL) or unknown",
     keys: "the ▲ claude chip says it: · door tools, · started before update ⟳",
+    touches: "nothing", replay: "safe",
     args: {},
     async run(_, { dock }) { return { knows: await dock.readKnows(), pid: dock.knowsPid }; },
   },
 });
 
-/** A person's key or click: the action as `you`; a refusal is said, not thrown. */
-export function dockRunner(dock: AgentDock, ctx: Ctx, here: () => Screen | undefined): DockRun {
-  return (name, args) => {
-    void runAsPerson(DOCK_ACTIONS, name as never, args as never, { dock, ctx, here: here() }, msg => ctx.flash(msg));
-  };
-}
+/** The host layer's agent as the actor rule sees it: the tile an agent's typing, resizing or restarting would be under. */
+export const HOST_AGENT_TILE: TileRef = { name: HOST_AGENT, kind: "pty", label: `${DOCK_NAME} in the agent drawer` };
+
+/**
+ * `tile.herdr` for the host layer's agent (`tile=dock.agent`): the same rule as a desk terminal's (PTY_ACTIONS), said by
+ * the Herdr launcher as it attaches, on whatever screen is shown.
+ */
+export const HOST_TILE_ACTIONS = new ActionSet<{ "tile.herdr": { pane?: string; on?: boolean } }, { dock: AgentDock }>("host", {
+  "tile.herdr": {
+    summary: "the host layer's agent (tile=dock.agent) lives in Herdr pane pane=<label> (on=false: it no longer does): quitting the door then ends only the attach",
+    touches: "nothing", replay: "ask",
+    args: { pane: { type: "string", optional: true, about: "the Herdr pane's label (door-claude)" }, on: { type: "boolean", optional: true, about: "false: it no longer shows a Herdr agent" } },
+    run({ pane, on }, { dock }) {
+      const p = dock.tile;
+      if (!p) throw new ActionRefused(`${DOCK_TILE_ID} hasn't started`);
+      if (on === false) { p.herdr = null; return { tile: DOCK_TILE_ID, herdr: null }; }
+      if (!pane) throw new ActionRefused("tile.herdr needs pane=<the Herdr pane's label>");
+      if (!p.running) throw new ActionRefused(`${DOCK_TILE_ID}'s program isn't running`);
+      p.herdr = { pane };
+      return { tile: DOCK_TILE_ID, herdr: p.herdr };
+    },
+  },
+});
 
 /** The drawer laid over a screen's lines: its rows replace the screen's (a full-width drawer, nothing reflows). */
 export function overlay(lines: string[], drawer: { rect: Rect; lines: string[] }): string[] {

@@ -48,7 +48,7 @@ describe.skipIf(!outliner)("the desk as tiles, against a scratch outline", () =>
   const AS = "tile-agent-413";
   const D = () => desk as any;
   const act = (action: string, args: Record<string, unknown> = {}, reader?: string, as: string | null = AS) => app.act({ action, args, reader, ...(as ? { as } : {}) });
-  const mine = (action: string, args: Record<string, unknown> = {}, reader?: string) => D().act({ action, args, reader }, { kind: "user" });
+  const mine = (action: string, args: Record<string, unknown> = {}, reader?: string) => D().dispatch.act({ action, args, reader }, { kind: "user" });
   const message = () => (app as any).message as string;
   const render = () => desk.render(D().ctx);
   const get = () => D().layoutGet() as { tree: any; focus: string; tiles: any[] };

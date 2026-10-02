@@ -20,7 +20,7 @@
 // (its kind, its kind's default policy, whether it takes notes, what keeps it). Tile instances, gestures and
 // painting stay the desk's. Internal: the tree arithmetic (`layout.ts`) and the flow's squeeze (`flow.ts`).
 import type { Rect } from "../canvas";
-import type { Actor } from "../socket";
+import { byOf, type Actor } from "../socket";
 import { arrive, columnOf, leaving, setAhead, setDocked, setFrom, squeeze, tileOfColumn, travelTarget, widen as widenFlow, type Cover } from "./flow";
 import {
   activate, besideSlot, chainOf, clone, cycle, describeTree, dockedTiles, drawerOf, drawers, drawerToEdge, edge, effective, even, forgetIds, has, insert, isLine, kidsOf, leaf, leaves, move,
@@ -842,7 +842,7 @@ class Step<I> {
       const e = this.policyAt(id);
       if (!e.collapsible) refuse(`${name} stays open: ${e.by.collapsible} doesn't collapse (collapsible off)`);
       if (this.agent && id === this.d.focus) refuse(`${name} has the person's keys; an agent doesn't fold it`);
-      this.d.collapsed.set(id, this.ctx.actor.kind === "agent" ? { by: this.ctx.actor.id } : {});
+      this.d.collapsed.set(id, byOf(this.ctx.actor));
     } else this.d.collapsed.delete(id);
     this.d.answer = { collapsed: want };
   }

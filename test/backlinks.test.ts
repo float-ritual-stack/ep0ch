@@ -395,16 +395,16 @@ describe.skipIf(!outliner)("the board's backlinks drawer: Detail's facets and de
     ch("s");                                                                          // the person's sort: updated ↑
     const before = JSON.stringify(peek());
     const agent = { kind: "agent" as const, id: "gardener" };
-    const r: any = await b.act({ action: "backlinks", args: { resolved: true, kind: "comment" } }, agent);
+    const r: any = await b.dispatch.act({ action: "backlinks", args: { resolved: true, kind: "comment" } }, agent);
     expect(r.backlinks.status).toBe("2 of 9 match · 6 filtered · 1 this note hidden · resolved shown · Kind: Comment · Stage: all · Sort: Updated ↑");
     expect(r.backlinks.rows.filter((x: any) => x.id).length).toBe(2);
     expect(JSON.stringify(peek())).toBe(before);                                      // nothing of the person's moved
     expect((app as any).message).toContain("gardener");
-    const other: any = await b.act({ action: "backlinks", args: { id: ids.rota } }, agent);
+    const other: any = await b.dispatch.act({ action: "backlinks", args: { id: ids.rota } }, agent);
     expect(other.backlinks.total).toBe(0);
     expect(JSON.stringify(peek())).toBe(before);
-    await expect(b.act({ action: "backlinks", args: { stage: "someday" } }, agent)).rejects.toThrow("stage is one of");
-    const mine: any = await b.act({ action: "backlinks", args: { stage: "done", sort: "title" } }, USER);
+    await expect(b.dispatch.act({ action: "backlinks", args: { stage: "someday" } }, agent)).rejects.toThrow("stage is one of");
+    const mine: any = await b.dispatch.act({ action: "backlinks", args: { stage: "done", sort: "title" } }, USER);
     expect(mine.backlinks.options).toMatchObject({ stage: "done", sortField: "title", sortDirection: "asc" });
     expect(peek().options).toMatchObject({ stage: "done", sortField: "title" });
     expect(drawer()[0]).toBe(peek().status);

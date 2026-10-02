@@ -43,9 +43,17 @@ Then both repos' `AGENTS.md` and `CONTRIBUTING.md`. They are short and they are 
   action is a bug, and `test/parity.ts` (run by `test/parity-*.test.ts`) catches it: it presses every key and clicks every row on every
   screen and fails on a change no action named that key ran. Mouse is first-class: every feature states its
   mouse path and its key path.
+- **One dispatcher per screen host runs every action** (`src/surface/dispatch.ts`, PIE-514). A screen
+  registers its action sets, its tiles (`TileRef`) and where the person's keys are on it (`Screen.keys`); keys
+  and clicks call `press`, the control socket `act`. `tile=` has one grammar there (name, id, number, alias,
+  `focused`, block id): never parse a tile name in a screen. Each `ActionDef` declares what it `touches`
+  (`nothing`, `tile`, `shape`, `draft`, `screen`), whether a `replay` is `safe`, and `person` when it is the
+  person's only; the dispatcher checks that once against the shell's whereabouts query (`App.person()`,
+  `src/whereabouts.ts`). Don't write `actor.kind === "agent"` checks for the person's keys: declare it. What
+  remains per actor is whose state it is (an agent's own card selection) and who is told.
 - **Every draft is a draft session** (`src/draft-session.ts`): a new kind of text the door writes is a
   target adapter on it (block, comment or reply, card or child), never its own put-aside, restore, hold or
-  click-away. Every rule about an agent and a draft is its `agentRefusal`.
+  click-away. Every rule about an agent and a draft is its `draftRule` (`agentRefusal`), which the dispatcher asks for `touches: "draft"`.
 - **A reader's modes are one stack** (`src/surface/modes.ts`): a new thing that takes a reader's keys (a
   picker, a panel, an editor) is a `ReaderMode` with its place in `PRECEDENCE`, never a field `key`, `click`
   and `render` each check. NoteSurface stays the only reader.

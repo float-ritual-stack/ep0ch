@@ -9,10 +9,11 @@ import type { Scroll } from "../canvas";
 import type { Placement } from "../kitty";
 import { find, loadArt } from "../packs";
 import { USER, type Activity, type Actor, type Comment } from "../socket";
-import { ActionRefused, ActionSet, runAsPerson, agentLabel } from "../surface/actions";
+import { ActionRefused, ActionSet } from "../surface/actions";
+import { Dispatcher } from "../surface/dispatch";
 import { ART_ACTIONS, type ArtAbout } from "../art-actions";
 import { WHO_ACTIONS, type WhoRow } from "../who-actions";
-import { NoteSurface, propertyChange, sessionStart, type OpenHow, type SessionKind, type SurfaceHost } from "../surface/note";
+import { NOTE_ACTIONS, NoteSurface, propertyChange, sessionStart, type OpenHow, type SessionKind, type SurfaceHost } from "../surface/note";
 import { artLines, bg, C, fg, pad, RESET } from "../style";
 import type { Key } from "../term";
 import { ago, wrap } from "../text";
@@ -32,14 +33,19 @@ export interface DeskApi {
   summaryKeys?(m: Msg): readonly string[] | null;
   /** Start a session in `pane` as the person's key does, so they're in it (a comment mark's ⏎ or click). */
   startSession?(pane: ReaderPane, kind: SessionKind): void;
-  /** `pane` is the reader the person has focused: an agent's back and forward are refused there (PIE-453). */
-  holdsFocus?(pane: ReaderPane): boolean;
+  /**
+   * A tile's own key or click, as the person, through the screen's dispatcher (PIE-514): the action of `set` (its kind's,
+   * a reader's note actions), in tile `p`. `quiet`: the action says its own refusal.
+   */
+  press?(p: Pane, set: ActionSet<any, any>, name: string, args?: Record<string, unknown>, quiet?: boolean | ((why: string) => string | null), given?: unknown): Promise<unknown>;
+  /** Tile `p` has the person's focus here (a whole screen in a tile sees the person through it). */
+  hasFocus?(p: Pane): boolean;
   /** Opens from `pane` land in another tile (its link, PIE-473, or the view's open rule): it doesn't follow them in place. */
   routes?(pane: Pane): boolean;
   /** What tile `name` shows or has selected (a backlinks tile lists the backlinks of its source's note). */
   tileShowing?(name: string): Msg | null;
   /** A selection moved in `from`: the previews following it and its link show `m`; the current note stays. */
-  showFrom?(from: Pane, m: Msg, agent?: boolean): void;
+  showFrom?(from: Pane, m: Msg): void;
 }
 
 export interface Pane {
@@ -99,11 +105,12 @@ const isUp = (k: Key) => k.kind === "up" || ch(k) === "k";
 const isDown = (k: Key) => k.kind === "down" || ch(k) === "j";
 
 /**
- * A tile's own key or click as the person: the action its kind registers (PIE-506), the same one `act` runs on
- * that tile. A refusal is said, not thrown.
+ * A tile's own key or click as the person: the action its kind registers (PIE-506), the same one `act` runs on that
+ * tile, through the screen's dispatcher (the desk's `press`); a host with none runs it through one of its own.
+ * A refusal is said, not thrown.
  */
-export function runOwn<On>(set: ActionSet<any, On>, name: string, args: Record<string, unknown>, on: On & { desk: { ctx: { flash(msg: string): void }; redraw(): void } }) {
-  void runAsPerson(set, name as never, args as never, on, msg => on.desk.ctx.flash(msg)).then(() => on.desk.redraw());
+export function runOwn(set: ActionSet<any, any>, name: string, args: Record<string, unknown>, on: { pane: Pane; desk: DeskApi }) {
+  void (on.desk.press ? on.desk.press(on.pane, set, name, args) : Dispatcher.of(set, on, () => on.desk.ctx).press(name, args));
 }
 
 /** Row `n` (from 1) of `count`, or why not. */
@@ -182,7 +189,8 @@ export class ReaderPane implements Pane {
       navigate: (m, how) => { if (this.held && !how?.fresh && !desk.routes?.(this)) this.surface.show(m, h); desk.setCurrent(m, { reveal: true, from: this, ...how }); },
       summaryKeys: m => desk.summaryKeys?.(m),
       startSession: desk.startSession ? kind => desk.startSession!(this, kind) : undefined,
-      focused: desk.holdsFocus?.(this) ?? false,
+      // Its own keys and clicks run its note actions through the screen's dispatcher, where it's a tile.
+      ...(desk.press ? { press: (name: string, args: Record<string, unknown>, quiet?: boolean | ((why: string) => string | null), given?: SurfaceHost) => desk.press!(this, NOTE_ACTIONS, name, args, quiet, given) } : {}),
       // A reader that follows another tile takes `p` (hold) before the surface does.
       ...(this.follows ? { ownKeys: "p" } : {}),
     };
@@ -324,7 +332,7 @@ export class ThreadPane implements Pane {
     if (!id) throw new ActionRefused(this.msg ? "this note is at the top" : "no note shown");
     const p = await desk.ctx.board.get(id);
     if (!p) throw new ActionRefused(`nothing answers at ${id.slice(0, 8)}…`);
-    desk.setCurrent(p, { reveal: actor.kind !== "agent", from: this, ...(actor.kind === "agent" ? { agent: true } : {}) });
+    desk.setCurrent(p, { reveal: true, from: this, by: actor });
     return { id: p.id };
   }
 
@@ -524,32 +532,28 @@ export class ArtPane implements Pane {
 
 // ── the list tiles' own actions (PIE-506): what their keys and clicks do, by name, for `act` too ──
 
-/** An agent's own pick answers the row and moves nothing of the person's; its open opens as an agent's open does. */
-const agentOpens = { reveal: false, agent: true } as const;
 
 export const THREAD_ACTIONS = new ActionSet<{ "thread.pick": { n?: number; open?: boolean }; "thread.up": Record<string, never> }, { pane: ThreadPane; desk: DeskApi }>("thread", {
   "thread.pick": {
     summary: "pick a reply in a thread tile (tile=<its name>): n from 1, else the selected one; open=true makes it the current note, as ⏎ does. An agent's pick answers the reply and moves nothing of the person's; its open never moves their keys",
     keys: "j k ↑ ↓ click, ⏎ (open)",
+    touches: "nothing", replay: "safe", says: r => (r.opened ? `opened reply ${r.row}` : null),
     args: { n: { type: "number", optional: true, about: "the reply, from 1" }, open: { type: "boolean", optional: true, about: "make it the current note, as ⏎ does" } },
     run({ n, open }, { pane, desk }, actor) {
       const all = pane.replies(), i = rowN(n, pane.selected, all.length, "thread");
-      const m = all[i]!, agent = actor.kind === "agent";
-      if (!agent) pane.pickRow(i, desk);
-      if (open) desk.setCurrent(m, agent ? agentOpens : { reveal: true, from: pane });
-      if (agent && open) desk.ctx.flash(`${agentLabel(actor)} opened reply ${i + 1}`);
+      const m = all[i]!;
+      // An agent's pick is its own (the answer); the person's moves their selection.
+      if (actor.kind !== "agent") pane.pickRow(i, desk);
+      if (open) desk.setCurrent(m, { reveal: true, from: pane, by: actor });
       return { row: i + 1, id: m.id, title: subject(m), opened: !!open };
     },
   },
   "thread.up": {
     summary: "make the note above the thread's (its parent) the current note, as u does; an agent's never moves the person's keys",
     keys: "u",
+    touches: "nothing", replay: "safe", says: () => "went up a level",
     args: {},
-    async run(_, { pane, desk }, actor) {
-      const r = await pane.up(desk, actor);
-      if (actor.kind === "agent") desk.ctx.flash(`${agentLabel(actor)} went up a level`);
-      return r;
-    },
+    run(_, { pane, desk }, actor) { return pane.up(desk, actor); },
   },
 });
 
@@ -557,18 +561,20 @@ export const ACTIVITY_ACTIONS = new ActionSet<{ "activity.pick": { n?: number; o
   "activity.pick": {
     summary: "pick a row of the activity tile (last callers, live): n from 1, else the selected one; open=true makes its note the current one, as ⏎ does. An agent's pick answers the row and moves nothing of the person's",
     keys: "j k ↑ ↓ click wheel, ⏎ (open)",
+    touches: "nothing", replay: "safe", says: r => (r.opened ? `opened ${String(r.title).slice(0, 40)}` : null),
     args: { n: { type: "number", optional: true, about: "the row, from 1" }, open: { type: "boolean", optional: true, about: "make its note the current one, as ⏎ does" } },
     run({ n, open }, { pane, desk }, actor) {
       const rows = pane.list(), i = rowN(n, pane.selected, rows.length, "activity");
-      const r = rows[i]!, agent = actor.kind === "agent";
-      if (!agent) pane.pickRow(i, desk);
-      if (open) desk.setCurrent(r.block, agent ? agentOpens : { reveal: true, from: pane });
-      if (agent && open) desk.ctx.flash(`${agentLabel(actor)} opened ${subject(r.block).slice(0, 40)}`);
+      const r = rows[i]!;
+      // An agent's pick is its own (the answer); the person's moves their selection.
+      if (actor.kind !== "agent") pane.pickRow(i, desk);
+      if (open) desk.setCurrent(r.block, { reveal: true, from: pane, by: actor });
       return { row: i + 1, id: r.block.id, title: subject(r.block), actor: r.actor, at: r.at, opened: !!open };
     },
   },
   "activity.reload": {
     summary: "read recent activity again", keys: "r",
+    touches: "nothing", replay: "safe",
     args: {},
     run(_, { pane, desk }) { pane.reload(desk); return { reloading: true }; },
   },
@@ -579,11 +585,8 @@ export const READER_ACTIONS = new ActionSet<{ "reader.hold": { on?: boolean } },
   "reader.hold": {
     summary: "hold a desk reader (tile=<its name>) on the note it shows, so the current note doesn't move it (on=true), or let it follow the current note again (on=false); left out, the other way. Said on screen when an agent does it",
     keys: "p",
+    touches: "tile", replay: "safe", way: "an agent holds a reader the person isn't in", says: r => (r.held ? "held the reader on its note" : "let the reader follow the current note"),
     args: { on: { type: "boolean", optional: true, about: "true holds, false follows; left out, the other way" } },
-    run({ on }, { pane, desk }, actor) {
-      const r = pane.setHold(on, desk);
-      if (actor.kind === "agent") desk.ctx.flash(`${agentLabel(actor)} ${r.held ? "held the reader on its note" : "let the reader follow the current note"}`);
-      return r;
-    },
+    run({ on }, { pane, desk }) { return pane.setHold(on, desk); },
   },
 });

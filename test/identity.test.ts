@@ -65,7 +65,7 @@ describe.skipIf(!outliner)("layout identity, against a scratch outline", () => {
   const AS = "layout-agent-491";
   const D = () => desk as any;
   const act = (action: string, args: Record<string, unknown> = {}, reader?: string) => app.act({ action, args, reader, as: AS });
-  const mine = (action: string, args: Record<string, unknown> = {}, reader?: string) => D().act({ action, args, reader }, { kind: "user" });
+  const mine = (action: string, args: Record<string, unknown> = {}, reader?: string) => D().dispatch.act({ action, args, reader }, { kind: "user" });
   const get = async () => await act("layout.get") as any;
   const notes: Record<string, any> = {};
   const state = () => join(scratch.root, "door");

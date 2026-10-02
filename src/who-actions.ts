@@ -9,6 +9,7 @@ export interface WhoHost { refresh(): void; rows(): WhoRow[] }
 export const WHO_ACTIONS = new ActionSet<{ "who.refresh": Record<string, never> }, { pane: WhoHost }>("who", {
   "who.refresh": {
     summary: "ask the outline again who is attached (every Tree, Detail, door and agent); answers the callers as they were before the new answer lands", keys: "r R, click on R refresh",
+    touches: "nothing", replay: "safe",
     args: {},
     run(_, { pane }) { pane.refresh(); return { callers: pane.rows() }; },
   },

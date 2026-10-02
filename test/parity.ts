@@ -166,7 +166,7 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     } catch (e) { lines = [`render threw ${e}`]; }
     let about = "";
     try { about = JSON.stringify(top?.describe?.() ?? null); } catch { about = "?"; }
-    return { top, depth: A().stack.length, lines, about: mask.has(-1) ? "" : about, holds: !!top?.holdsKeys?.() || !!top?.rawKeys?.() || app.dockHoldsKeys(), video: app.video, dock: drawer() };
+    return { top, depth: A().stack.length, lines, about: mask.has(-1) ? "" : about, holds: app.person().busy, video: app.video, dock: drawer() };
   };
   /**
    * The agent drawer over the screen: up or put away, the person in it or not, its height. Its rows are the
@@ -254,7 +254,7 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
   const checkHint = (label: string) => {
     const top = A().stack.at(-1) as Screen | undefined;
     if (!top) return;
-    const acts = [...(top.actions?.().actions ?? []), ...SHELL_ACTIONS.list(), ...DOCK_ACTIONS.list(), ...EXT_ACTIONS.list()];
+    const acts = [...(top.dispatch?.list().actions ?? []), ...SHELL_ACTIONS.list(), ...DOCK_ACTIONS.list(), ...EXT_ACTIONS.list()];
     const declared = new Set(acts.flatMap(a => [...declaredKeys(a.keys)]));
     // The hint row, and the hint each tile draws in its frame when it has the keys (the desk and its views).
     const tiles: { hint?(): string }[] = [...((top as any).panes?.values?.() ?? [])];
@@ -328,7 +328,7 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     // Second keys: every key, as the first key is (PARITY_QUICK=1: only the keys that type text or are named,
     // and the ctrl and alt keys an action here declares).
     const top = A().stack.at(-1) as Screen | undefined;
-    const declared = new Set([...(top?.actions?.().actions ?? []), ...SHELL_ACTIONS.list(), ...DOCK_ACTIONS.list(), ...EXT_ACTIONS.list()].flatMap(a => [...declaredKeys(a.keys)]).flatMap(t => t.split(" ")));
+    const declared = new Set([...(top?.dispatch?.list().actions ?? []), ...SHELL_ACTIONS.list(), ...DOCK_ACTIONS.list(), ...EXT_ACTIONS.list()].flatMap(a => [...declaredKeys(a.keys)]).flatMap(t => t.split(" ")));
     const seconds = process.env.PARITY_QUICK !== "1" ? PROBE_KEYS : PROBE_KEYS.filter(k => (k.kind !== "alt" && !(k.kind === "char" && k.ctrl)) || declared.has(keyName(k)!));
     for (const k1 of states) {
       dirty = true;

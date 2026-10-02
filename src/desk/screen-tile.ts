@@ -8,7 +8,6 @@ import type { Msg } from "../board";
 import type { Placement } from "../kitty";
 import { USER, type Actor, type OutlineEvent } from "../socket";
 import { FramedScreen } from "../showcase/frame";
-import type { ActRequest } from "../surface/actions";
 import type { Key } from "../term";
 import type { DeskApi, Pane, PaneView } from "./panes";
 
@@ -35,7 +34,7 @@ export class ScreenTile implements Pane {
   async ownPreview(on: boolean, actor: Actor = USER) {
     this.preview = on;
     const s = this.framed?.first;
-    if (this.kind === "board" && s?.act) await s.act({ action: "tile.collapse", reader: "preview", args: { on: !on } }, actor).catch(() => {});
+    if (this.kind === "board" && s?.dispatch) await s.dispatch.act({ action: "tile.collapse", reader: "preview", args: { on: !on } }, actor).catch(() => {});
   }
   spec() { return this.preview ? {} : { preview: false }; }
 
@@ -46,7 +45,7 @@ export class ScreenTile implements Pane {
   init(desk: DeskApi) {
     if (this.framed) return;
     this.desk = desk;
-    this.framed = new FramedScreen(make(this.kind), () => desk.ctx, () => desk.ctx.flash(`the ${this.kind} is a tile · ^W x closes it, ^W z zooms it`));
+    this.framed = new FramedScreen(make(this.kind), () => desk.ctx, () => desk.ctx.flash(`the ${this.kind} is a tile · ^W x closes it, ^W z zooms it`), undefined, () => !!desk.hasFocus?.(this));
     if (!this.preview) { this.framed.open(); void this.ownPreview(false); }
   }
 
@@ -93,12 +92,5 @@ export class ScreenTile implements Pane {
   dispose() { this.framed?.dispose(); }
   holdsKeys() { return !!this.framed?.top.holdsKeys?.(); }
 
-  /** Its screen's actions, for `act tile=<this tile>`. */
-  actions() { return this.framed?.top.actions?.() ?? null; }
-  act(req: ActRequest, actor: Actor): Promise<unknown> {
-    const s = this.framed?.top;
-    if (!s?.act) throw new Error(`the ${this.kind} tile has no actions`);
-    return s.act(req, actor);
-  }
   describe() { return this.framed?.top.describe?.() ?? null; }
 }

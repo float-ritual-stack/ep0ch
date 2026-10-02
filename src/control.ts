@@ -221,7 +221,7 @@ export async function controlClient(args: string[]): Promise<number> {
         console.log(`${a.screen ?? "?"}${a.note ? ` · ${a.note}` : ""}${a.tiles?.length ? ` · tiles: ${a.tiles.join(", ")}` : a.readers?.length ? ` · readers: ${a.readers.join(", ")}` : ""}`);
         for (const x of a.actions) {
           const args = Object.entries(x.args as Record<string, { type: string; optional?: boolean }>).map(([k, v]) => `${k}=<${v.type}>${v.optional ? "?" : ""}`).join(" ");
-          console.log(`  ${x.name}${args ? " " + args : ""}${x.keys ? `   [${x.keys}]` : ""}${x.aliases?.length ? `\n      also: ${x.aliases.join(", ")}` : ""}\n      ${x.summary}`);
+          console.log(`  ${x.name}${args ? " " + args : ""}${x.keys ? `   [${x.keys}]` : ""}${x.aliases?.length ? `\n      also: ${x.aliases.join(", ")}` : ""}\n      ${x.summary}${x.touches ? `\n      touches ${x.touches}${x.person ? " (the person's only)" : ""} · replay ${x.replay}` : ""}`);
         }
       }
       else if (cmd === "snap" && arg) {

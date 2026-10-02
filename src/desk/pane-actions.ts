@@ -3,7 +3,7 @@
 // older `pane.*` names (close, resize, zoom, float, pin) are aliases of the tile actions (src/desk/tile-actions.ts):
 // one action each, one path. An agent's is said on screen, and it never takes the person's tile.
 import type { Actor } from "../socket";
-import { ActionRefused, ActionSet, agentLabel } from "../surface/actions";
+import { ActionRefused, ActionSet } from "../surface/actions";
 import type { Axis } from "./screen-layout";
 import { tileKinds, tileNoun } from "./tile-kinds";
 
@@ -32,11 +32,8 @@ export const PANE_ACTIONS = new ActionSet<{
   "pane.split": {
     get summary() { return `open a tile beside tile=<tile> (default the focused one), along its longer side: kind=<kind> (default reader; ${kinds()}), dir=row (beside) or col (below). The person's focus stays where it is. tile.open does the same with where= and to=. The board's details open with a note: open tile=new-detail`; },
     keys: "desk ^W o <kind>; board alt+⏎",
+    touches: "shape", replay: "ask", says: (r, a) => `opened ${tileNoun(a.kind ?? "reader", r.pane)}`,
     args: { kind: { type: "string", optional: true, about: "what the new tile shows: a kind from the tile-kind registry (default reader)" }, dir: { type: "string", optional: true, about: "row (beside) or col (below); default along the longer side" } },
-    async run({ kind, dir }, { h, reader }, actor) {
-      const r = await h.splitPane(reader, kind, axisOf(dir, "pane.split"), actor);
-      if (actor.kind === "agent") h.ctx.flash(`${agentLabel(actor)} opened ${tileNoun(kind ?? "reader", r.pane)}`);
-      return r;
-    },
+    run({ kind, dir }, { h, reader }, actor) { return h.splitPane(reader, kind, axisOf(dir, "pane.split"), actor); },
   },
 });

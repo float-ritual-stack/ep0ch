@@ -228,7 +228,7 @@ describe("the agent drawer", () => {
       expect(d.app.dock.entered).toBe(true);
       d.A.lastInput = 0;
       await expect(d.app.act({ action: "agent.toggle", args: { open: false }, as: "claude-7" })).rejects.toThrow(/typing in the agent drawer/);
-      await expect(d.app.act({ action: "agent.height", args: { share: 0.6 }, as: "claude-7" })).rejects.toThrow(/typing in the agent drawer/);
+      await expect(d.app.act({ action: "agent.height", args: { share: 0.6 }, as: "claude-7" })).rejects.toThrow(/typing in claude in the agent drawer/);
       // Nor move their screen.
       await expect(d.app.act({ action: "screen.open", args: { name: "S" }, as: "claude-7" })).rejects.toThrow(/typing in the agent drawer/);
     } finally { d.app.quit(); d.app.dock.tile?.kill(); }
@@ -397,7 +397,7 @@ describe.skipIf(!outliner)("the drawer and the daily desk, against a scratch out
     const d = await dailyDoor();
     try {
       expect(d.ptys().some((p: any) => p.run.cmd.join(" ") === "cat")).toBe(false);
-      await d.desk.act({ action: "tile.focus", reader: "middle" }, { kind: "user" } as any);
+      await d.desk.dispatch.act({ action: "tile.focus", reader: "middle" }, { kind: "user" } as any);
       const tall = (d.desk.describe().panes as any[]).find(p => p.name === "middle").rect.rows;
       d.key(ALT("a"));
       expect(d.app.dock.entered).toBe(true);

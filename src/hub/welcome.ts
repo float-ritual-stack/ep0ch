@@ -21,11 +21,11 @@ import { subject, type Msg } from "../board";
 import { DOTTED_BOX, type Canvas, type Rect } from "../canvas";
 import type { Placement } from "../kitty";
 import { artNamed } from "../packs";
-import { AGENT_ACTOR_ID, USER, type Actor, type OutlineEvent, type SocketBoard } from "../socket";
+import { USER, type Actor, type OutlineEvent, type SocketBoard } from "../socket";
 import { artLines, bg, C, fg, pad, paint, RESET, width } from "../style";
 import type { Key } from "../term";
 import { bbsDate, wrap } from "../text";
-import { ActionRefused, ActionSet, agentLabel, type ActRequest } from "../surface/actions";
+import { ActionRefused, ActionSet, type ActRequest } from "../surface/actions";
 import type { OpenHow } from "../surface/note";
 import { BacklinksPane } from "../desk/backlinks-pane";
 import { Desk } from "../desk/desk";
@@ -151,9 +151,7 @@ export class WelcomeList implements Pane {
   private run(desk: DeskApi, n: number, read = false) {
     const s = this.screen;
     if (!s) return;
-    Promise.resolve().then(() => WELCOME_ACTIONS.runUntyped("welcome.select", { n, ...(read ? { read: true } : {}) }, s, USER))
-      .catch(e => desk.ctx.flash(e instanceof Error ? e.message : String(e)))
-      .finally(() => desk.redraw());
+    void desk.press?.(this, WELCOME_ACTIONS, "welcome.select", { n, ...(read ? { read: true } : {}) });
   }
 
   key(k: Key, desk: DeskApi): boolean {
@@ -240,9 +238,7 @@ export class WelcomePreview extends PreviewPane {
   private promote(desk: DeskApi) {
     const s = this.screen, m = this.msg;
     if (!s || !m) return;
-    Promise.resolve().then(() => WELCOME_ACTIONS.runUntyped("welcome.read", { id: m.id }, s, USER))
-      .catch(e => desk.ctx.flash(e instanceof Error ? e.message : String(e)))
-      .finally(() => desk.redraw());
+    void desk.press?.(this, WELCOME_ACTIONS, "welcome.read", { id: m.id });
   }
 
   override key(k: Key, desk: DeskApi): boolean {
@@ -305,6 +301,8 @@ export class Welcome extends Desk {
     });
     this.list = list; this.detail = detail; this.preview = preview; this.backlinks = backlinks;
     list.screen = this; detail.screen = this; preview.screen = this;
+    // Its own actions (which note the detail reads, the logo) before the desk's, through the desk's dispatcher.
+    this.dispatch.register([{ set: WELCOME_ACTIONS, takes: "screen", on: () => this }], true);
   }
 
   override enter(ctx: Ctx) {
@@ -350,7 +348,6 @@ export class Welcome extends Desk {
 
   /** Make `m` the note read in the detail (a welcome pick, alt+⏎ on a link, `welcome.read`); back returns to the one before. */
   readHere(m: Msg, actor: Actor, focus = true): Shown {
-    if (actor.kind === "agent" && this.personTyping()) throw new ActionRefused("the person is typing here; the detail stays");
     if (this.detail.holdsKeys || this.detail.editing) throw new ActionRefused("the detail holds an edit or a comment; save or close it first");
     // Another note read by the person: what the preview showed came from the one before (its link, its
     // backlink), so it empties rather than show something the detail no longer points at. An agent's leaves
@@ -361,15 +358,13 @@ export class Welcome extends Desk {
     if (focus && actor.kind !== "agent" && !this.personTyping()) this.focusTile("detail", actor);
     const items = this.items ?? [], i = items.findIndex(x => x.id === m.id);
     const s: Shown = { id: m.id, title: subject(m), welcome: m.props[WELCOME_KEY] ?? null, n: i >= 0 ? i + 1 : null, of: items.length };
-    if (actor.kind === "agent") this.ctx.flash(`${agentLabel(actor)} put ${s.title.slice(0, 40)} in the detail${s.n ? ` (welcome ${tabKey(s.n - 1) ?? s.n})` : ""}`);
     this.redraw();
     return s;
   }
 
-  nextLogo(by: number, actor: Actor) {
+  nextLogo(by: number) {
     const step = by < 0 ? -1 : 1;
     this.logo = (this.logo + step + LOGOS.length) % LOGOS.length;
-    if (actor.kind === "agent") this.ctx.flash(`${agentLabel(actor)} changed the logo`);
     this.redraw();
     return { logo: LOGOS[this.logo]!.file, drawn: !!artNamed(LOGOS[this.logo]!.file) };
   }
@@ -380,10 +375,11 @@ export class Welcome extends Desk {
    * detail's opens land in the preview (its link), and the preview follows the backlinks' selection.
    */
   override setCurrent(m: Msg | null, opts: { reveal?: boolean; from?: Pane } & OpenHow = {}) {
-    const actor: Actor = opts.agent ? { kind: "agent", id: AGENT_ACTOR_ID } : USER;
+    const actor: Actor = opts.by ?? USER;
     const here = opts.from === this.detail || opts.from === this.preview || opts.from === this.backlinks;
     if (m && opts.fresh && here) {
-      try { this.readHere(m, actor); } catch (e) { this.ctx.flash(e instanceof Error ? e.message : String(e)); }
+      // Reached by an open, not by an action of its own: the same actor rule as welcome.read, for whoever opened it.
+      try { const no = this.dispatch.rule("screen", actor); if (no) throw new ActionRefused(no); this.readHere(m, actor); } catch (e) { this.ctx.flash(e instanceof Error ? e.message : String(e)); }
       return;
     }
     if (m && opts.from === this.preview) {
@@ -553,9 +549,7 @@ export class Welcome extends Desk {
 
   /** Run a welcome action as the person, saying a refusal on screen. */
   private runWelcome(req: ActRequest) {
-    Promise.resolve().then(() => WELCOME_ACTIONS.runUntyped(req.action, { ...(req.args ?? {}), ...(req.action === "welcome.select" ? { read: true } : {}) }, this, USER))
-      .catch(e => this.ctx.flash(e instanceof Error ? e.message : String(e)))
-      .finally(() => this.redraw());
+    void this.dispatch.pressIn(WELCOME_ACTIONS, req.action, { ...(req.args ?? {}), ...(req.action === "welcome.select" ? { read: true } : {}) });
   }
 
   override describe() {
@@ -571,16 +565,6 @@ export class Welcome extends Desk {
       problem: this.problem || undefined,
     };
   }
-
-  override actions() {
-    const d = super.actions();
-    return { ...d, actions: [...WELCOME_ACTIONS.list(), ...d.actions] };
-  }
-
-  override async act(req: ActRequest, actor: Actor): Promise<unknown> {
-    if (WELCOME_ACTIONS.has(req.action)) return WELCOME_ACTIONS.runUntyped(req.action, { ...(req.args ?? {}) }, this, actor);
-    return super.act(req, actor);
-  }
 }
 
 /** Which note the welcome's detail reads, and the logo. The keys, the mouse and `act` call the same code. */
@@ -593,6 +577,7 @@ export const WELCOME_ACTIONS = new ActionSet<{
   "welcome.select": {
     summary: "read a welcome note in the detail: n (its place from 1, as the tabs number them: 1-9, then 10 is the 0 key) or id; read=true also gives the detail the person's keys (never an agent's). Refused to an agent while the person is typing here",
     keys: "1-9 0, a click on a tab, j k ⏎ in the list",
+    touches: "screen", replay: "safe", says: r => `put ${r.title.slice(0, 40)} in the detail${r.n ? ` (welcome ${tabKey(r.n - 1) ?? r.n})` : ""}`,
     args: {
       n: { type: "number", optional: true, about: "its place, from 1" },
       id: { type: "string", optional: true, about: "the welcome note's block id" },
@@ -608,6 +593,7 @@ export const WELCOME_ACTIONS = new ActionSet<{
   "welcome.read": {
     summary: "read any note in the detail (as alt+⏎ or a ctrl-click on a link does); back (alt+←) returns to the one before",
     keys: "alt+⏎, ctrl-click, alt-click on a link or a backlink",
+    touches: "screen", replay: "safe", says: r => `put ${r.title.slice(0, 40)} in the detail`,
     args: { id: { type: "string", about: "the block id" } },
     async run({ id }, w, actor) {
       const m = await w.ctx.board.get(id);
@@ -618,11 +604,13 @@ export const WELCOME_ACTIONS = new ActionSet<{
   "welcome.logo": {
     summary: "draw the next ep0ch logo (by=-1: the one before) in the band",
     keys: "L, a click on the logo",
+    touches: "screen", replay: "safe", says: () => "changed the logo",
     args: { by: { type: "number", optional: true, about: "1 (the default) or -1" } },
-    run({ by }, w, actor) { return w.nextLogo(by ?? 1, actor); },
+    run({ by }, w) { return w.nextLogo(by ?? 1); },
   },
   "welcome.reload": {
     summary: "ask the outline again which notes are welcome notes (it also does when the outline changes)",
+    touches: "nothing", replay: "safe",
     args: {},
     async run(_, w) { await w.load(); return { welcome: w.items?.length ?? 0 }; },
   },

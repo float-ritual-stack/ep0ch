@@ -8,10 +8,11 @@ An agent sees what the person sees, live, and can change anything except where t
 - **Reads:** `layout.get` and `view.get` say what's on screen, as JSON.
 - **A live feed:** `subscribe` pushes every change to what the person sees as it happens: focus, what each
   tile has in view, cursors and selections, the layout, and marks.
-- **Agents never take the cursor.** One rule, in one place (`mayMoveKeys` in the desk): an agent's action moves
-  the person's focus only when they aren't typing. Typing means in an edit, a comment or the property panel,
-  in a terminal tile, in a board, river or brief tile's own edit, or with a picker open. The paths it guards
-  are listed below. An agent never moves the outline's cursor or the person's selection at all. To get the
+- **Agents never take the cursor.** One rule, in one place (PIE-514): every action declares what it touches,
+  and each screen host's dispatcher (`src/surface/dispatch.ts`) checks that against where the person is (the
+  shell's one query, `src/whereabouts.ts`) before it runs, for every action, however it was called. Typing
+  means in an edit, a comment or the property panel, in a terminal tile, in a board, river or brief tile's own
+  edit, in the agent drawer, or with a picker open. The paths it guards are listed below. An agent never moves the outline's cursor or the person's selection at all. To get the
   person's attention, an agent sets a mark (`block.mark`).
 - **Edits go through the owner.** Notes are written through the outline service, with revision checks and
   `author: agent`. An nvim tile's buffer is written through nvim's own socket, which moves no one's cursor.
@@ -31,7 +32,7 @@ one request per line, one answer per line (`{"ok":true,"result":…}` or `{"ok":
 
 | Request | Answer | CLI |
 |---|---|---|
-| `{"cmd":"peek"}` | the screen as text, and the screen's own `describe()`, with the door's `pid` and `nest` (the layers it runs in) | `ep0ch peek` |
+| `{"cmd":"peek"}` | the screen as text, and the screen's own `describe()`, with the door's `pid` and `nest` (the layers it runs in) and `person`: where the person is (`focus`, `typingIn`, `busy`, `why`, `keys`, `idle` ms, `away`), the answer every agent rule reads | `ep0ch peek` |
 | `{"cmd":"snap","path":"x.png"}` | a PNG of exactly what the terminal was sent, written under the door's state (`path` relative to it, or inside it; default `screen.png`); anywhere else is refused | `ep0ch snap` |
 | `{"cmd":"snap","data":true}` | the same PNG, base64, for the client to write | `ep0ch snap x.png` (the command writes `x.png`, into a folder that must exist) |
 | `{"cmd":"actions"}` | every action the current screen takes, with its arguments and keys | `ep0ch actions` |
@@ -195,9 +196,14 @@ thing after someone else's change.
   links that layout has gained since (the now tile's, to `middle`), on tiles that have none. The old daily agent
   tile is left out: the agent is the host layer's.
 - **Numbers.** `#3` (or `3`) is the tile numbered 3 on screen, where it is now.
-- **`tile=<tile>`** (or `reader=`, its older name: both are resolved in one place, `parseActArgs` and the
-  control socket) takes a name, an id, a number, or `focused`. Answers name the tile by its name, not its
-  place.
+- **`tile=<tile>`** (or `reader=`, its older name; `parseActArgs` and the control socket read either) takes a
+  name, an id, a number, an alias (a place: the board's `detail`, `float`, `lanes`, the river's `3` and `3.2`),
+  `focused`, or a block id (the tile showing that note: the agent's own draft of it first, then one on screen
+  holding an edit, one on screen, one off screen holding an edit, then a list selecting it; the focused tile
+  wins a tie). One grammar on every screen, read once by the screen's dispatcher (PIE-514): the desk, the board,
+  the river, the brief, the welcome, the showcase and the message reader all name their tiles through it, and an
+  action's tile-valued argument (`layout.move to=`, `tile.link to=`) takes the same words. Answers name the tile
+  by its name, not its place.
 - **The revision.** `layout.get` gives `rev`, a number that changes whenever the tree's shape does: a split,
   tab set or tile added, taken away or moved. A resize or showing another tab doesn't change it. It only goes
   up, and never repeats across a restart (it starts from the clock, or from the one `desk.json` saved), so an
@@ -217,6 +223,32 @@ thing after someone else's change.
     ep0ch act layout.resize split=s5 border=0 share=0.3   # the same split, whatever moved since
     ep0ch act layout.resize path=2 border=0 share=0.3 expected=12   # refused if the layout changed
 
+## What an action touches (PIE-514)
+
+Every action says what it touches, and the dispatcher checks it once, the same way for a key, a click and `act`.
+`ep0ch actions` prints it under each action (`touches tile · replay safe`).
+
+| Touches | An agent's is refused when | Examples |
+|---|---|---|
+| `nothing` | never (it reads, or answers, or acts out of the person's sight) | `layout.get`, `view.get`, `open`, `block.mark`, `search` |
+| `tile` | the tile it runs in has the person's keys; or, for an action that says `while: typing`, only while they type in it | `view.scrollTo` (typing), `tile.close`, `link.select`, a river column's `select` |
+| `shape` | the layout engine says so (`ctx.person` from the same query): never the tile they type in, never their tab hidden | `layout.move`, `tile.open`, `tile.pin`, `tile.float` |
+| `draft` | the draft session's rule (`draftRule` in `src/draft-session.ts`): not a draft the person opened or typed in, not a note they have open in a draft | `edit.text`, `edit.save`, `comment.send`, `task.status` |
+| `screen` | the person is away (not logged on, or in the door's shell or editor), busy (typing anywhere), or touched a key or the mouse within the last 2s (`SHELL_IDLE_MS`) | `screen.open`, `tile.focus`, `marks.next`, `brief.step`, `board.hub id=`, `host.toggle open=true` |
+
+An action may say its touches depend on its arguments (`board.hub` with `id=` touches the screen, without it
+nothing). An action that is the person's own (`tile.enter`, `select.mode`, `screen.shell`) is refused to every
+agent with the way an agent does it instead. Each action also says whether replaying it is `safe` (the same
+answer again, nothing written twice) or `ask` (it writes, or starts something): for PIE-418's replay.
+
+Where the person is comes from one query, `App.person()`: the screen shown, which tile has their focus, which
+tile they're typing in (a desk tile, a board's composer, a river column, or `dock.agent` for the agent drawer),
+whether they're busy, how long since their last key, and whether they're away. A screen inside a tile (a board
+on a desk) is asked the same thing as seen from inside it.
+
+An agent's action carries its actor all the way through: an open it causes, a reader it fills, a write it makes
+are all attributed to that agent (its id), never to an unnamed one.
+
 ## Commands
 
 The desk's commands, by what they change. `tile=<tile>` names a tile as above (written `tile` in the Args column).
@@ -231,7 +263,7 @@ gesture; see the README's desk section and `docs/UI-GRAMMAR.md` §7.
 | `layout.even`, `layout.swap` | `to` | |
 | `tile.open` | `kind`, `name`, `cmd`, `file`, `source`, `note`, `cwd`, `view` (a `query` tile: a saved view's block id), `to`, `where` | focus stays where it is; a new tab isn't shown over the person's |
 | `tile.close` (`pane.close`) | `tile` | never the person's tile, never a running program |
-| `tile.focus` (`focus`) | `tile` | refused while the person is typing |
+| `tile.focus` (`focus`) | `tile` | refused while the person is typing, and within 2s of their last key |
 | `tile.link` | `tile`, `to` | |
 | `tile.pin` (`pane.pin`) | `tile`, `on` (false: in a drawer; true: docked), `edge` (left, right, up, down: the drawer slides from that outer edge), `container` (a split's id: it goes in whole) | an agent's new drawer starts shut, unless it holds the person's keys (their tile, or the tab set it's in) |
 | `tile.collapse` (`reader.collapse`: `on=true`; `reader.expand`: `on=false`) | `tile`, `on` (default toggles) | folds a tile side by side with others (a lane, a reader in a row) to a spine, keeping what it holds; never the tile that has the person's keys |
@@ -249,7 +281,7 @@ gesture; see the README's desk section and `docs/UI-GRAMMAR.md` §7.
 | `view.scrollTo` | `tile`, `line` or `text`, `block` | scrolls a reader's view; never the person's [ ] position, selection or keys, and never their edit |
 | `block.mark` | `id` (default: the note `tile` shows), or `line` for an nvim tile; `reason` | framed and labelled in every tile showing it, or an nvim extmark |
 | `block.unmark` | `n`, or `id`, or neither (the focused tile's) | |
-| `marks.next` | | refused while the person is typing |
+| `marks.next` | | refused while the person is typing, and within 2s of their last key |
 | `tile.resize` (`pane.resize`), `tile.zoom` (`pane.zoom`) | `tile`; `by`, `axis`; `on` | resize by steps; an agent zooms only the person's tile, never one that hides it |
 | `pane.split` | `tile`, `kind`, `dir` (row, col) | `tile.open` along the longer side, with its own arguments; focus stays |
 | `tree.links` | `tile` (an outline tree; on the board, its outline drawer, refused while shut), `n` (a row as `peek`'s `tree.rows` numbers it) or `id`, `show` | shows or hides a row's outlinks, resources and backlinks under it, as the outliner's Tree does (`blocks.authored-links`, `references.backlinks`); registers nothing; the person's selection stays on its row, and hiding the rows it is in is refused |
@@ -287,8 +319,10 @@ at, and what it does while they're typing:
 
 | Action | Moves the person's focus? | While they're typing |
 |---|---|---|
-| `tile.focus`, `focus` (the same action) | yes, that's what it's for | refused |
-| `marks.next` | to a tile showing the mark | refused |
+| `tile.focus`, `focus` (the same action) | yes, that's what it's for | refused, and within 2s of their last key |
+| `marks.next` | to a tile showing the mark | refused, and within 2s of their last key |
+| `brief.step`, the river's `focus` | yes: another step, another column | refused, and within 2s of their last key |
+| `link.select` in the reader that has the person's keys | it would move their selection | refused: `link.follow n=` or `tile=` another reader |
 | `layout.load` (`layout.restore`) | rebuilds the desk | refused |
 | `tile.drawer open=false` on the drawer that has the keys | the keys go to another tile | refused |
 | `tile.drawer open=true` | no (the person's own opens it and gives it the keys) | allowed |
@@ -314,6 +348,7 @@ at, and what it does while they're typing:
 | `scroll`, `back`, `forward` (a reader's own) | no | refused on a reader that has the person's keys (a host that doesn't say otherwise); elsewhere a scroll never lets go of their `[ ]` position. `view.scrollTo` is the agent's |
 | the river's `select` by row, `column.scroll`, `filter` | no | refused on the column the person has the keys in, with the agent's way named (`select id=`, `jump`, `open`, `tag`); said on the status bar elsewhere |
 | the board's `card.select` | no: an agent's selection is its own | allowed |
+| a board reader named by an agent (`tile=detail`, `tile=float`, a block id) | no: the person's keys stay on the lanes or where they were | allowed |
 | `board.hub id=` | yes: the board shown | refused while the person holds the keys; said on the status bar |
 | `search`, `jump query=`, `board.hub` (no id), `who.refresh`, `thread.pick`, `activity.pick` | no: they answer, they don't open | allowed |
 | `tile.enter`, `tile.leave`, `agent.enter`, `agent.leave`, `select.mode`, `callouts`, `fold.select`, `element.select`, `section.try`, `backlinks.fold`, `card.trash` without `confirm` | they are the person's keys | refused: each names the agent's way |

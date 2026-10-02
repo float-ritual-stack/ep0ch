@@ -20,7 +20,7 @@ describe.skipIf(!outliner)("the board's fixed shape is policy", () => {
   let board: SocketBoard, app: App, b: DeliveryBoard, garden: { id: string }, card: string;
   // An agent's, unless `as` is null: the person's (as their key runs it).
   const act = (action: string, args: Record<string, unknown> = {}, reader?: string, as: string | null = "claude-7") =>
-    as ? app.act({ action, args, as, ...(reader ? { reader } : {}) }) : b.act({ action, args, ...(reader ? { reader } : {}) }, USER);
+    as ? app.act({ action, args, as, ...(reader ? { reader } : {}) }) : b.dispatch.act({ action, args, ...(reader ? { reader } : {}) }, USER);
   const open = async (persist: boolean) => {
     app = new App(term() as any, board, Date.now(), () => {});
     app.push(new MainMenu());

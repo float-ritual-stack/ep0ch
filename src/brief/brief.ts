@@ -7,10 +7,10 @@
 // mouse, `act` and `peek` are the desk's. This file only adds which note is the brief and the day keys.
 import type { Ctx } from "../app";
 import { subject, type Msg } from "../board";
-import { AGENT_ACTOR_ID, USER, type Actor, type OutlineEvent, type SocketBoard } from "../socket";
+import { USER, type Actor, type OutlineEvent, type SocketBoard } from "../socket";
 import { C, fg, pad, RESET } from "../style";
 import type { Key } from "../term";
-import { ActionRefused, ActionSet, runAsPerson, agentLabel, type ActRequest } from "../surface/actions";
+import { ActionRefused, ActionSet } from "../surface/actions";
 import type { HeaderInfo, OpenHow, SurfaceHost } from "../surface/note";
 import { bbsDate } from "../text";
 import { Desk } from "../desk/desk";
@@ -102,6 +102,8 @@ export class Brief extends Desk {
     super({ title: "daily brief", panes: [reader] });
     this.reader = reader;
     reader.screen = this;
+    // Its own actions (which day) before the desk's: `,` `.` and `act` run them through the desk's dispatcher.
+    this.dispatch.register([{ set: BRIEF_ACTIONS, takes: "screen", on: () => this }], true);
   }
 
   override enter(ctx: Ctx) {
@@ -166,7 +168,7 @@ export class Brief extends Desk {
    * The previous (-1) or next (1) day's brief. From a note that isn't a brief (an agent's `open` put it
    * here), either key comes back to the brief last shown.
    */
-  step(by: number, actor: Actor = USER): Stepped {
+  step(by: number): Stepped {
     const list = this.briefs;
     if (!list) throw new ActionRefused("the briefs are still being read");
     if (!list.length) throw new ActionRefused("there are no briefs yet");
@@ -174,30 +176,35 @@ export class Brief extends Desk {
     const to = back ? this.at : this.at + Math.sign(by);
     if (to < 0) throw new ActionRefused(`this is the oldest brief (${briefDate(list[0]!)})`);
     if (to >= list.length) throw new ActionRefused(`this is the newest brief (${briefDate(list.at(-1)!)})`);
-    return this.go(to, actor);
+    return this.go(to);
   }
 
-  /** Show the brief at `i`, as `actor`; an agent's is said on screen. */
-  go(i: number, actor: Actor): Stepped {
-    // An agent never moves the page out from under an edit or a comment the person is in.
-    if (actor.kind === "agent" && this.personTyping()) throw new ActionRefused("the person is typing here; the brief stays");
+  /** Show the brief at `i` (BRIEF_ACTIONS say an agent's on screen, once the actor rule let it). */
+  go(i: number): Stepped {
     if (!this.showAt(i)) throw new ActionRefused("the brief's reader holds an edit or a comment on another note; save or close it first");
-    const s = this.shown!;
-    if (actor.kind === "agent") this.ctx.flash(`${agentLabel(actor)} showed the brief for ${s.date}`);
     this.redraw();
-    return s;
+    return this.shown!;
+  }
+  /**
+   * The brief at `i`, reached by an open, not by an action of its own (a link to another day followed in it, an
+   * agent's `open` of a brief): the same actor rule as `brief.step`, for whoever opened it.
+   */
+  private goBy(i: number, by: Actor): Stepped {
+    const no = this.dispatch.rule("screen", by);
+    if (no) throw new ActionRefused(no);
+    return this.go(i);
   }
 
   /** The brief for a day (YYYY-MM-DD): the last one written that day. */
-  dated(day: string, actor: Actor): Stepped {
+  dated(day: string): Stepped {
     const i = (this.briefs ?? []).findLastIndex(m => briefDate(m) === day);
     if (i < 0) throw new ActionRefused(`no brief for ${day}${this.briefs?.length ? `; the briefs run ${briefDate(this.briefs[0]!)} to ${briefDate(this.briefs.at(-1)!)}` : ""}`);
-    return this.go(i, actor);
+    return this.go(i);
   }
 
-  newest(actor: Actor): Stepped {
+  newest(): Stepped {
     if (!this.briefs?.length) throw new ActionRefused("there are no briefs yet");
-    return this.go(this.briefs.length - 1, actor);
+    return this.go(this.briefs.length - 1);
   }
 
   /**
@@ -208,24 +215,24 @@ export class Brief extends Desk {
     // Another brief (an "Earlier briefs" row, a link to yesterday's): the brief steps to it, as `,` `.` do.
     const day = m && !opts.fresh && opts.from === this.reader ? (this.briefs ?? []).findIndex(b => b.id === m.id) : -1;
     if (day >= 0) {
-      try { this.go(day, opts.agent ? { kind: "agent", id: AGENT_ACTOR_ID } : USER); } catch (e) { this.ctx.flash(e instanceof Error ? e.message : String(e)); }
+      try { this.goBy(day, opts.by ?? USER); } catch (e) { this.ctx.flash(e instanceof Error ? e.message : String(e)); }
       return;
     }
-    if (m && !opts.fresh && (opts.from === this.reader || !opts.from)) this.readerBeside(this.reader, opts.agent ? { kind: "agent", id: AGENT_ACTOR_ID } : USER);
+    if (m && !opts.fresh && (opts.from === this.reader || !opts.from)) this.readerBeside(this.reader, opts.by ?? USER);
     super.setCurrent(m, opts);
   }
 
   /** `ep0ch open <id>`: a brief is stepped to; any other note opens beside it. */
-  override openBlock(m: Msg) {
+  override openBlock(m: Msg, by: Actor = USER) {
     const i = (this.briefs ?? []).findIndex(b => b.id === m.id);
-    if (i >= 0) { this.go(i, USER); return; }
-    this.setCurrent(m, { reveal: true });
+    if (i >= 0) { this.goBy(i, by); return; }
+    this.setCurrent(m, { reveal: true, by });
   }
 
   override key(k: Key, ctx: Ctx) {
     const c = k.kind === "char" && !k.ctrl ? k.ch : "";
     if ((c === "," || c === ".") && !this.personTyping()) {
-      void runAsPerson(BRIEF_ACTIONS, "brief.step", { by: c === "," ? -1 : 1 }, this, msg => ctx.flash(msg)).then(() => this.redraw());
+      void this.dispatch.pressIn(BRIEF_ACTIONS, "brief.step", { by: c === "," ? -1 : 1 });
       return;
     }
     super.key(k, ctx);
@@ -243,33 +250,26 @@ export class Brief extends Desk {
   override describe() {
     return { ...super.describe(), kind: "brief", brief: this.shown, briefs: this.briefs?.length ?? null, problem: this.problem || undefined };
   }
-
-  override actions() {
-    const d = super.actions();
-    return { ...d, actions: [...BRIEF_ACTIONS.list(), ...d.actions] };
-  }
-
-  override async act(req: ActRequest, actor: Actor): Promise<unknown> {
-    if (BRIEF_ACTIONS.has(req.action)) return BRIEF_ACTIONS.runUntyped(req.action, { ...(req.args ?? {}) }, this, actor);
-    return super.act(req, actor);
-  }
 }
 
 /** Which brief is shown. The keys and `act` call the same code. */
 export const BRIEF_ACTIONS = new ActionSet<{ "brief.step": { by: number }; "brief.newest": Record<string, never>; "brief.date": { date: string } }, Brief>("brief", {
   "brief.step": {
     summary: "show the previous (by=-1) or next (by=1) day's brief; refused to an agent while the person is typing here", keys: ", .",
+    touches: "screen", replay: "safe", says: r => `showed the brief for ${r.date}`,
     args: { by: { type: "number", about: "-1 for the day before, 1 for the day after" } },
-    run({ by }, b, actor) { if (by !== 1 && by !== -1) throw new ActionRefused("brief.step: by is -1 or 1"); return b.step(by, actor); },
+    run({ by }, b) { if (by !== 1 && by !== -1) throw new ActionRefused("brief.step: by is -1 or 1"); return b.step(by); },
   },
   "brief.newest": {
     summary: "show the newest brief",
+    touches: "screen", replay: "safe", says: r => `showed the brief for ${r.date}`,
     args: {},
-    run(_, b, actor) { return b.newest(actor); },
+    run(_, b) { return b.newest(); },
   },
   "brief.date": {
     summary: "show the brief for a day (date=YYYY-MM-DD)",
+    touches: "screen", replay: "safe", says: r => `showed the brief for ${r.date}`,
     args: { date: { type: "string", about: "the day, YYYY-MM-DD" } },
-    run({ date }, b, actor) { return b.dated(date.trim(), actor); },
+    run({ date }, b) { return b.dated(date.trim()); },
   },
 });

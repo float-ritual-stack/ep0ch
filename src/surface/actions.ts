@@ -7,14 +7,65 @@ import type { Actor } from "../socket";
 import type { Key } from "../term";
 
 export type ArgType = "string" | "number" | "boolean";
-/** One argument: its type, whether it may be left out, and what it means. */
-export interface ArgSpec { type: ArgType; optional?: boolean; about: string }
+/**
+ * One argument: its type, whether it may be left out, and what it means. `tile`: it names a tile (`to=`), and the
+ * dispatcher reads it with `tile=`'s one grammar, so the action is given that tile's name.
+ */
+export interface ArgSpec { type: ArgType; optional?: boolean; about: string; tile?: true }
+
+/**
+ * What an action touches of the person's (PIE-514). The dispatcher (src/surface/dispatch.ts) checks it once, against
+ * where the person is (src/whereabouts.ts), before the action runs; the action never asks who acts for this.
+ * - `nothing`: a read; a mark; what the service writes and attributes (an extension's action, a refresh). Anyone, any time.
+ * - `tile`: the tile it runs in: its view, cursor, selection or input. An agent's is refused in the tile that has the
+ *   person's keys (`while: "typing"`: only while they type in it), with the agent's own way said (`way`).
+ * - `shape`: the screen's layout. The layout engine decides each operation (src/desk/screen-layout.ts) from the same
+ *   answer about where the person is (`ctx.person`).
+ * - `draft`: a note the person may have open in a draft. The draft session's rule decides (`draftRule`).
+ * - `screen`: what the person looks at, or where their keys go (another screen, their focus, a list's lit row, the
+ *   board shown). An agent's waits until they aren't typing anywhere and have been idle `SHELL_IDLE_MS`.
+ */
+export type Touches = "nothing" | "tile" | "shape" | "draft" | "screen";
+/**
+ * Whether a door that restarts (PIE-418) may run the action again by itself: `safe` (it changes only the door's own
+ * view or layout, or reads), or `ask` (it writes to the outline, types into a program, or reaches outside the door).
+ */
+export type Replay = "safe" | "ask";
+/**
+ * What a `draft` action does to a draft (draftRule): types in it, leaves it (save, close, send), writes the block, or
+ * changes it in a way the session keeps safe for the person itself (`safe`: a whole text replaced copies theirs out
+ * first, an undo takes back only that actor's own patch).
+ */
+export type DraftUse = "type" | "leave" | "write" | "safe";
 
 export interface ActionDef<A, H> {
   /** What the action does, in the words `actions` and the README use. */
   summary: string;
   /** The key that does the same thing, when there is one. */
   keys?: string;
+  /** What it touches of the person's: the one actor rule, checked by the dispatcher (Touches). The most it can touch. */
+  touches: Touches;
+  /** What it touches with these arguments, when they decide it (board.hub with id= shows a board; without, it answers). */
+  touchesWith?(args: A): Touches;
+  /** `touches: "tile"`: refused in the tile with the person's keys (`focused`, the default), or only while they type in it. */
+  while?: "focused" | "typing";
+  /** `touches: "draft"`: what it does to a draft (DraftUse); default `write`. */
+  draft?: DraftUse;
+  /** Whether a restarted door may run it again by itself (Replay). */
+  replay: Replay;
+  /** The person's own: an agent's is refused with this, which says why and what an agent does instead. */
+  person?: string;
+  /** `touches: "tile"`: what an agent does instead, said when it's refused in the person's tile. */
+  way?: string;
+  /**
+   * What an agent's run says on the status bar once it's done ("opened a note in column 3"), from its answer; with
+   * `ms`, how long it stays (a screen pushed over the person's: "q goes back" stays 6s).
+   */
+  says?(out: any, args: A): string | { text: string; ms: number } | null | undefined;
+  /** `says` is said to the person too: a confirmation the screen doesn't show (a layout saved, where a drag put a tile). */
+  confirms?: true;
+  /** Words `tile=` may give instead of a tile: where something new goes (the board's open: new-detail, float). */
+  places?: readonly string[];
   args: { [K in keyof A]-?: ArgSpec };
   /**
    * Other names for this same action (an older name agents' scripts use, a view's own word for it). Each runs
@@ -37,8 +88,12 @@ export interface ActionAlias {
   answer?(result: any): unknown;
 }
 
-/** An action as `ep0ch-door actions` lists it: `aliases` are its other names, each the same action. */
-export interface ActionInfo { name: string; summary: string; keys?: string; args: Record<string, ArgSpec>; scope: string; aliases?: string[] }
+/**
+ * An action as `ep0ch-door actions` lists it: `aliases` are its other names, each the same action; `touches`, `replay`
+ * and `person` are its declarations (what it touches of the person's, whether a restarted door may run it again, the
+ * person's only).
+ */
+export interface ActionInfo { name: string; summary: string; keys?: string; args: Record<string, ArgSpec>; scope: string; aliases?: string[]; touches: Touches; replay: Replay; person?: true }
 
 /**
  * What the control socket sends: an action on the current screen, in one of its tiles, as someone. `reader` is
@@ -61,6 +116,7 @@ export class ActionSet<M extends { [K in keyof M]: object }, H> {
   private readonly aliasOf = new Map<string, { of: string; alias: ActionAlias }>();
   constructor(readonly scope: string, private readonly defs: { [K in keyof M]: ActionDef<M[K], H> }) {
     for (const name of Object.keys(defs) as (keyof M & string)[]) this.addAliases(name, defs[name]);
+    everySet.add(new WeakRef(this as ActionSet<any, any>));
   }
   private addAliases(name: string, def: ActionDef<any, H>) {
     for (const a of def.aliases ?? []) {
@@ -72,7 +128,17 @@ export class ActionSet<M extends { [K in keyof M]: object }, H> {
 
   has(name: string): name is Extract<keyof M, string> { return Object.hasOwn(this.defs, name) || this.aliasOf.has(name); }
   /** The action a name runs: itself, or the one it's an alias of. */
-  canonical(name: string): string { return this.aliasOf.get(name)?.of ?? name; }
+  canonical(name: string): string { return Object.hasOwn(this.defs, name) ? name : this.aliasOf.get(name)?.of ?? name; }
+  /** The def a name runs (an alias's action's), with its declarations; undefined when the set has no such action. */
+  def(name: string): ActionDef<any, H> | undefined { return this.has(name) ? (this.defs as Record<string, ActionDef<any, H>>)[this.canonical(name)] : undefined; }
+  /** The arguments a name takes (an alias's own when it has them). */
+  argsOf(name: string): Record<string, ArgSpec> | undefined {
+    if (!this.has(name)) return undefined;
+    const a = Object.hasOwn(this.defs, name) ? undefined : this.aliasOf.get(name);
+    return (a?.alias.args ?? this.def(name)!.args) as Record<string, ArgSpec>;
+  }
+  /** Every action's name, in order (no aliases). */
+  names(): string[] { return Object.keys(this.defs); }
 
   /**
    * Add an action while the door runs: an extension's (PIE-512), bound from what the service lists. One
@@ -96,7 +162,7 @@ export class ActionSet<M extends { [K in keyof M]: object }, H> {
     return (Object.keys(this.defs) as (keyof M & string)[]).map(name => {
       const d = this.defs[name];
       const aliases = [...this.aliasOf].filter(([, x]) => x.of === name).map(([a]) => a);
-      return { name, summary: d.summary, keys: this.keysOf(name), args: d.args as Record<string, ArgSpec>, scope: this.scope, ...(aliases.length ? { aliases } : {}) };
+      return { name, summary: d.summary, keys: this.keysOf(name), args: d.args as Record<string, ArgSpec>, scope: this.scope, ...(aliases.length ? { aliases } : {}), touches: d.touches, replay: d.replay, ...(d.person ? { person: true as const } : {}) };
     });
   }
   /** An action's keys and the keys its aliases are bound to: one action, every key that runs it. */
@@ -107,34 +173,45 @@ export class ActionSet<M extends { [K in keyof M]: object }, H> {
 
   /** Run an action (or an alias of one) with arguments already typed (keys, code). */
   run<K extends keyof M & string>(name: K, args: M[K], host: H, actor: Actor): Promise<unknown> {
+    return Promise.resolve(this.call(name, args, host, actor));
+  }
+
+  /**
+   * Run an action, answering as it does: at once when it does, a promise when it waits (the dispatcher says what an
+   * action did as soon as it's done; `run` is this, always a promise).
+   */
+  call<K extends keyof M & string>(name: K, args: M[K], host: H, actor: Actor): unknown {
     // An action of its own by that name (an extension's, defined later) is that action, not an alias.
     const a = Object.hasOwn(this.defs, name) ? undefined : this.aliasOf.get(name);
     const of = (a?.of ?? name) as K;
     const mapped = (a?.alias.map ? a.alias.map(args as Record<string, unknown>) : args) as M[K];
     for (const t of tracers) t({ scope: this.scope, name: of, keys: this.keysOf(of), actor });
-    const r = Promise.resolve(this.defs[of].run(mapped, host, actor));
+    const r = this.defs[of].run(mapped, host, actor);
     const answer = a?.alias.answer;
-    return answer ? r.then(x => answer(x)) : r;
+    return !answer ? r : r instanceof Promise ? r.then(x => answer(x)) : answer(r);
   }
 
   /** Run an action named on the wire: unknown names and wrong arguments are refused before it starts. */
   runUntyped(name: string, raw: Record<string, unknown>, host: H, actor: Actor): Promise<unknown> {
+    return Promise.resolve(this.callUntyped(name, raw, host, actor));
+  }
+  /** `runUntyped`, answering as the action does (see `call`). */
+  callUntyped(name: string, raw: Record<string, unknown>, host: H, actor: Actor): unknown {
     if (!this.has(name)) throw new ActionRefused(`no action ${name} here; try: ${Object.keys(this.defs).join(", ")}`);
     const a = Object.hasOwn(this.defs, name) ? undefined : this.aliasOf.get(name);
     const spec = (a?.alias.args ?? this.defs[(a?.of ?? name) as keyof M & string].args) as Record<string, ArgSpec>;
-    return this.run(name, coerce(name, spec, raw) as any, host, actor);
+    return this.call(name, coerce(name, spec, raw) as any, host, actor);
   }
 }
 
-/**
- * The person's key or click: `name` run as `you`, the same code an agent's `act` runs. A refusal (thrown, or a
- * rejected promise) is said through `say` (the status bar), never thrown at the key handler.
- */
-export function runAsPerson<M extends { [K in keyof M]: object }, H, K extends keyof M & string>(set: ActionSet<M, H>, name: K, args: M[K], host: H, say: (msg: string) => void): Promise<unknown> {
-  const tell = (e: unknown) => { say(e instanceof Error ? e.message : String(e)); return undefined; };
-  try { return set.run(name, args, host, PERSON).catch(tell); } catch (e) { return Promise.resolve(tell(e)); }
+// Every set made in this process (held weakly): the table test checks every action's declarations (PIE-514).
+const everySet = new Set<WeakRef<ActionSet<any, any>>>();
+/** Every action set that exists now: the built-ins, each tile kind's, an extension's while it's bound. */
+export function allActionSets(): ActionSet<any, any>[] {
+  const out: ActionSet<any, any>[] = [];
+  for (const w of everySet) { const s = w.deref(); if (s) out.push(s); else everySet.delete(w); }
+  return out;
 }
-const PERSON: Actor = { kind: "user" };
 
 /** One action run, as a tracer sees it: which set, which action, the keys it declares, and who ran it. */
 export interface ActionRun { scope: string; name: string; keys?: string; actor: Actor }

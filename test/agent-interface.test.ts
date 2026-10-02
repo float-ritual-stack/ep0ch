@@ -14,7 +14,7 @@ import { NvimClient } from "../src/desk/nvim";
 import { Mirror } from "../src/mirror";
 import { decode, encode, Ext, handle, Incomplete } from "../src/msgpack";
 import { MainMenu } from "../src/screens";
-import { SocketBoard } from "../src/socket";
+import { SocketBoard, USER } from "../src/socket";
 import type { Key } from "../src/term";
 import { terminalDay } from "./terminal-day";
 import { outliner, Scratch, until } from "./scratch";
@@ -42,14 +42,24 @@ describe.skipIf(!outliner)("the agent interface, against a scratch outline", () 
   let board: SocketBoard, app: App, desk: Desk, control: { path: string; close(): void };
   let key: (k: Key) => void = () => {};
   const AS = "watcher-7";
-  const D = () => desk as any;
+  /** An agent's action through the App's dispatcher: its answer is data, read with toMatchObject. */
   const act = (action: string, args: Record<string, unknown> = {}, reader?: string) => app.act({ action, args, reader, as: AS });
+  /** The person's own action, through the desk's dispatcher (their key's path). */
+  const mine = (action: string, reader?: string) => desk.dispatch.act({ action, ...(reader ? { reader } : {}) }, USER);
   const render = () => app.redraw();
-  const tile = (name: string) => (D().layoutGet().tiles as any[]).find(t => t.name === name);
-  const idOf = (name: string) => [...D().names].find(([, v]: any) => v === name)![0];
+  /** A tile as layout.get describes it; a terminal's own facts, as its kind describes them. */
+  const tile = (name: string) => desk.layoutGet().tiles.find(t => t.name === name);
+  type Term = { running?: boolean; text?: string[]; file?: string; nvim?: { socket: string; connected?: boolean } };
+  const terminal = (name: string) => (tile(name) as { terminal?: Term } | undefined)?.terminal;
+  /** Where the person is: the shell's one answer (PIE-514). */
+  const person = () => app.person();
   const mouse = (action: "down" | "drag" | "up", x: number, y: number) => key({ kind: "mouse", action, button: 0, x, y });
-  const notes: Record<string, any> = {};
+  const notes: Record<"long" | "shed", { id: string }> = { long: { id: "" }, shed: { id: "" } };
   const draft = () => join(scratch.root, "door", "draft.md");
+  /** What the status bar said, in order. */
+  const said: string[] = [];
+  /** The rows the desk draws now, without colour. */
+  const drawn = () => desk.render(app).lines.map(l => l.replace(/\x1b\[[\d;]*m/g, ""));
 
   /** A second process's view: the control socket's live feed, as `ep0ch subscribe` reads it. */
   function feed(types?: string[]) {
@@ -68,60 +78,56 @@ describe.skipIf(!outliner)("the agent interface, against a scratch outline", () 
     delete process.env.VISUAL;
     board = new SocketBoard(await scratch.start());
     await board.info();
-    const mk = (text: string) => board.request<any>("create", { parentId: null, text, author: "agent" });
+    const mk = (text: string) => board.request<{ id: string }>("create", { parentId: null, text, author: "agent" });
     notes.long = await mk(["Seed order", ...Array.from({ length: 60 }, (_, i) => `Row ${i + 1}: ${i === 41 ? "the parsnips need your call" : "beans and peas"}`)].join("\n"));
     notes.shed = await mk("Mend the shed roof\nBuy tacks and felt.");
     writeFileSync(draft(), ["# Plot draft", ...Array.from({ length: 30 }, (_, i) => `- line ${i + 2} of the draft`)].join("\n") + "\n");
-    const term = { info: { cols: 200, rows: 60, cellW: 9, cellH: 16, kitty: false }, write() {}, paint() {}, invalidate() {}, onKey(f: any) { key = f; }, onResize() {}, stop() {}, resume() {} };
-    app = new App(term as any, board, Date.now(), () => {});
+    const term = { info: { cols: 200, rows: 60, cellW: 9, cellH: 16, kitty: false }, write() {}, paint() {}, invalidate() {}, onKey(f: (k: Key) => void) { key = f; }, onResize() {}, stop() {}, resume() {} };
+    app = new App(term as unknown as ConstructorParameters<typeof App>[0], board, Date.now(), () => {});
+    const flash = app.flash.bind(app);
+    app.flash = (m: string, ms?: number) => { said.push(m); flash(m, ms); };
     control = await startControl({ app, mirror: new Mirror(200, 60), info: () => term.info }, join(scratch.root, "door", "ctl.sock"));
     app.push(new MainMenu());
     desk = new Desk(undefined, { layout: terminalDay() });
     app.push(desk);
     render();
-    await until(() => tile("draft")?.terminal?.running, "the editor tile");
+    await until(() => !!terminal("draft")?.running, "the editor tile");
   }, 30_000);
 
   afterAll(async () => {
     control?.close();
-    D().dispose();
+    desk.dispose();
     board?.close();
     await scratch.dispose();
     for (const k of ["EP0CH_STATE", "EP0CH_DAILY_AGENT", "EP0CH_DAILY_DRAFT", "EDITOR"]) delete process.env[k];
   });
 
   test("layout.get: each tile's kind, source, tabs, link and pinned or drawer state, and each split's path", async () => {
-    const g = await act("layout.get") as any;
-    expect(g.tree.split).toBe("row");
-    expect(g.tree.path).toBe("");
-    expect(g.tree.kids[1].path).toBe("1");
-    const tree = g.tiles.find((t: any) => t.name === "tree");
-    expect(tree).toMatchObject({ kind: "tree", link: "middle" });
-    expect(g.tiles.find((t: any) => t.name === "preview").source).toBe("tile:tree");
-    const shape = D().layoutShape();
-    expect(shape.tree.path).toBe("");
-    expect(shape.tree.kids[1].path).toBe("1");
-    expect(shape.tiles.find((t: any) => t.tile === "claude")).toMatchObject({ kind: "pty", pinned: true, cmd: ["sh"] });
+    expect(await act("layout.get")).toMatchObject({ tree: { split: "row", path: "", kids: expect.arrayContaining([expect.objectContaining({ path: "1" })]) } });
+    const tiles = desk.layoutGet().tiles;
+    expect(tiles.find(t => t.name === "tree")).toMatchObject({ kind: "tree", link: "middle" });
+    expect(tiles.find(t => t.name === "preview")).toMatchObject({ source: "tile:tree" });
+    // The feed's view of the shape says the same.
+    expect(desk.viewState().layout).toMatchObject({ tree: { path: "", kids: expect.arrayContaining([expect.objectContaining({ path: "1" })]) }, tiles: expect.arrayContaining([expect.objectContaining({ tile: "claude", kind: "pty", pinned: true, cmd: ["sh"] })]) });
   });
 
   test("a terminal tile is told this door's control socket (EP0CH_CONTROL) and its own name (EP0CH_TILE)", async () => {
     // The door serves on its own path, not EP0CH_CONTROL's default: `ep0ch act` from the tile reaches this door.
     await act("tile.type", { text: "echo \"ctl=$EP0CH_CONTROL tile=$EP0CH_TILE\"\r" }, "claude");
-    const said = () => (tile("claude")?.terminal?.text ?? []).join("\n");
-    await until(() => said().includes(`ctl=${control.path} tile=claude`), "the tile's echo");
+    await until(() => (terminal("claude")?.text ?? []).join("\n").includes(`ctl=${control.path} tile=claude`), "the tile's echo");
   });
 
   test("view.subscribe from another process: a click moves focus and the event arrives; a move is layout.changed", async () => {
     const f = feed();
     await until(() => f.events.some(e => e.type === "hello"), "the hello");
-    expect((f.events[0] as any).state.focus.tile).toBe("tree");
-    const r = tile("side").rect;
+    expect(f.events[0]).toMatchObject({ state: { focus: { tile: "tree" } } });
+    const r = tile("side")!.rect!;
     mouse("down", r.col + 5, r.row + 5); mouse("up", r.col + 5, r.row + 5);
-    await until(() => f.of("focus.changed").some((e: any) => e.tile === "side"), "focus.changed to side");
+    await until(() => f.of("focus.changed").some(e => e.tile === "side"), "focus.changed to side");
+    expect(person().focus).toBe("side");
     await act("layout.move", { to: "middle", where: "tabs" }, "now");
     await until(() => f.of("layout.changed").length > 0, "layout.changed");
-    const tabs = (f.of("layout.changed").at(-1) as any).layout.tiles.find((t: any) => t.tile === "now").tabs;
-    expect(tabs).toEqual(["middle", "now"]);
+    expect(f.of("layout.changed").at(-1)).toMatchObject({ layout: { tiles: expect.arrayContaining([expect.objectContaining({ tile: "now", tabs: ["middle", "now"] })]) } });
     // Only what was asked for, when a subscriber names types.
     const only = feed(["marks.changed"]);
     await until(() => only.events.length > 0, "its hello");
@@ -135,37 +141,33 @@ describe.skipIf(!outliner)("the agent interface, against a scratch outline", () 
   test("open a note in a tile, view.scrollTo a line, block.mark it: framed and labelled, the person's focus unmoved", async () => {
     const f = feed();
     await until(() => f.events.length > 0, "hello");
-    const focus = D().focus;
+    const focus = person().focus;
     await act("open", { id: notes.long.id }, "middle");
-    expect(D().focus).toBe(focus);                                  // an agent's open never moves the keys
-    await until(() => tile("middle").showing?.id === notes.long.id, "the note in middle");
-    const mid = D().panes.get(idOf("middle"));
-    await mid.surface.whole(); render();
-    const s = await act("view.scrollTo", { text: "parsnips" }, "middle") as any;
-    expect(s.line).toBe(43);
-    expect(s.viewport.first).toBe(43);
-    await until(() => f.of("viewport").some((e: any) => e.tile === "middle" && e.viewport.first === 43), "the viewport event");
+    expect(person().focus).toBe(focus);                             // an agent's open never moves the keys
+    await until(() => desk.dispatch.tile("middle")?.shows === notes.long.id, "the note in middle");
+    await act("folds", {}, "middle");                               // its whole note read
+    render();
+    expect(await act("view.scrollTo", { text: "parsnips" }, "middle")).toMatchObject({ line: 43, viewport: { first: 43 } });
+    await until(() => f.of("viewport").some(e => e.tile === "middle" && (e.viewport as { first?: number }).first === 43), "the viewport event");
     await expect(act("view.scrollTo", { line: 3, block: notes.shed.id }, "middle")).rejects.toThrow(/open it there first/);
-    const m = await act("block.mark", { reason: "needs your call" }, "middle") as any;
-    expect(m.showing).toEqual(["middle"]);
+    expect(await act("block.mark", { reason: "needs your call" }, "middle")).toMatchObject({ showing: ["middle"] });
     await until(() => f.of("marks.changed").length > 0, "marks.changed");
     render();
-    const drawn = desk.render(D().ctx).lines.join("\n").replace(/\x1b\[[\d;]*m/g, "");
-    expect(drawn).toContain("◆ needs your call · by watcher-7");
-    expect(D().focus).toBe(focus);
+    const label = "◆ needs your call · by watcher-7";
+    expect(drawn().join("\n")).toContain(label);
+    expect(person().focus).toBe(focus);
     // view.get says the same, per tile.
-    const v = await act("view.get", {}, "middle") as any;
-    expect(v.viewport).toMatchObject({ block: notes.long.id, first: 43 });
+    expect(await act("view.get", {}, "middle")).toMatchObject({ viewport: { block: notes.long.id, first: 43 } });
     // The person clicks the label: dismissed.
-    const h = D().markHits[0];
-    mouse("down", h.from + 1, h.row); mouse("up", h.from + 1, h.row);
-    expect((await act("marks.list") as any).marks).toEqual([]);
+    const rows = drawn(), y = rows.findIndex(l => l.includes(label)), x = rows[y]!.indexOf(label) + 2;
+    mouse("down", x, y); mouse("up", x, y);
+    expect(await act("marks.list")).toMatchObject({ marks: [] });
     f.close();
   }, 20_000);
 
   test("one open (E1): `ep0ch open <id>` is act open, named by --as or EP0CH_AGENT; the older {cmd:open} runs the same action", async () => {
-    const said = () => (app as any).message as string;
-    const raw = (req: Record<string, unknown>) => new Promise<any>((res, rej) => {
+    const lastSaid = () => said.at(-1) ?? "";
+    const raw = (req: Record<string, unknown>) => new Promise<{ ok: boolean; result?: unknown; error?: string }>((res, rej) => {
       const c = connect(control.path, () => c.write(JSON.stringify(req) + "\n"));
       let buf = "";
       c.on("data", d => { buf += d.toString(); const i = buf.indexOf("\n"); if (i >= 0) { c.end(); res(JSON.parse(buf.slice(0, i))); } });
@@ -177,14 +179,14 @@ describe.skipIf(!outliner)("the agent interface, against a scratch outline", () 
     const log = console.log, err = console.error;
     console.log = () => {}; console.error = () => {};
     try {
-      const focus = D().focus;
+      const focus = person().focus;
       expect(await controlClient(["open", notes.shed.id, "--as", "opener-510"])).toBe(0);
-      expect(said()).toContain("an agent (opener-510)");
-      expect(D().focus).toBe(focus);                                // an agent's open never moves the keys
-      await until(() => (D().layoutGet().tiles as any[]).some(t => t.showing?.id === notes.shed.id), "the note shown");
+      expect(said.some(m => m.includes("an agent (opener-510)"))).toBe(true);
+      expect(person().focus).toBe(focus);                           // an agent's open never moves the keys
+      await until(() => desk.layoutGet().tiles.some(t => t.showing?.id === notes.shed.id), "the note shown");
       process.env.EP0CH_AGENT = "env-opener-510";
       expect(await controlClient(["open", notes.long.id])).toBe(0);
-      expect(said()).toContain("an agent (env-opener-510)");
+      expect(said.some(m => m.includes("an agent (env-opener-510)"))).toBe(true);
       // from= works the same way it does on act: where that tile's opens land.
       expect(await controlClient(["open", notes.shed.id, "from=claude", "--as", "opener-510"])).toBe(0);
       // Only the service writes as an extension.
@@ -195,57 +197,59 @@ describe.skipIf(!outliner)("the agent interface, against a scratch outline", () 
       for (const [k, v] of [["EP0CH_CONTROL", env.control], ["EP0CH_AGENT", env.agent]] as const) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
     }
     // The older request is the open action too: attributed, and refused the same way.
-    const r = await raw({ cmd: "open", id: notes.shed.id, as: "raw-opener-510" });
-    expect(r).toMatchObject({ ok: true, result: { id: notes.shed.id } });
-    expect(said()).toContain("an agent (raw-opener-510)");
-    expect((await raw({ cmd: "open", id: notes.shed.id, as: "ext:tidy" })).error).toMatch(/extension's actor id/);
+    expect(await raw({ cmd: "open", id: notes.shed.id, as: "raw-opener-510" })).toMatchObject({ ok: true, result: { id: notes.shed.id } });
+    expect(said.some(m => m.includes("an agent (raw-opener-510)"))).toBe(true);
+    expect(await raw({ cmd: "open", id: notes.shed.id, as: "ext:tidy" })).toMatchObject({ error: expect.stringMatching(/extension's actor id/) });
     // One `open` in the list: the desk's (the shell's is for screens without one).
-    expect((app.actions().actions as any[]).filter(a => a.name === "open")).toHaveLength(1);
+    expect(app.actions().actions.filter(a => a.name === "open")).toHaveLength(1);
+    expect(lastSaid()).toBeTruthy();
     await act("open", { id: notes.long.id }, "middle");                // as the next test expects it
   }, 20_000);
 
   test("marks.next takes the person to a tile showing the mark; an agent's is refused while they type", async () => {
     await act("block.mark", { id: notes.long.id, reason: "look here" });
-    D().focus = idOf("tree");
+    await mine("tile.focus", "tree");
+    expect(person().focus).toBe("tree");
     key({ kind: "alt", ch: "m" });
-    expect(D().focus).toBe(idOf("middle"));
+    expect(person().focus).toBe("middle");
     key({ kind: "alt", ch: "x" });                                  // dismisses the marks on the focused tile's note
-    expect((await act("marks.list") as any).marks).toEqual([]);
+    expect(await act("marks.list")).toMatchObject({ marks: [] });
   });
 
   test("a border dragged is layout.resize, the action an agent calls", async () => {
     const f = feed(["layout.changed"]);
     await until(() => f.events.length > 0, "hello");
     render();
-    const d = D().dividers.find((x: any) => x.node === D().root);
-    const x = d.at, y = d.area.row + 5;
+    // The root split's first border: just right of its first kid's tiles.
+    const got = await act("layout.get") as { tree: { id: string; kids: { tiles?: string[] }[] } };
+    const left = desk.layoutGet().tiles.filter(t => t.rect && t.rect.col === 0 && t.shown);
+    const x = Math.max(...left.map(t => t.rect!.col + t.rect!.cols)), y = left[0]!.rect!.row + 5;
     mouse("down", x, y); mouse("drag", x + 12, y); mouse("up", x + 12, y);
     await until(() => f.of("layout.changed").length > 0, "layout.changed from the drag");
-    const r = await act("layout.resize", { path: "", border: 0, share: 0.5 }) as any;
-    expect(r).toMatchObject({ split: D().root.id, path: "", border: 0, share: 0.5 });
     // The drag named the split by its id, as an agent can.
-    expect(r.split).toMatch(/^s\d+$/);
+    expect(await act("layout.resize", { path: "", border: 0, share: 0.5 })).toMatchObject({ split: got.tree.id, path: "", border: 0, share: 0.5 });
+    expect(got.tree.id).toMatch(/^s\d+$/);
     await expect(act("layout.resize", { path: "7.7", border: 0, share: 0.5 })).rejects.toThrow(/no split at path/);
     f.close();
   });
 
   test.skipIf(!NVIM)("an nvim tile: the person types, an agent's tile.open lands elsewhere, and its edit through the socket leaves their cursor", async () => {
-    await until(() => !!tile("draft").terminal.nvim?.connected, "the door on nvim's socket", 8000);
-    const sock = tile("draft").terminal.nvim.socket as string;
-    expect((await act("tile.info", {}, "draft") as any).terminal.nvim.socket).toBe(sock);
+    await until(() => !!terminal("draft")?.nvim?.connected, "the door on nvim's socket", 8000);
+    const sock = terminal("draft")!.nvim!.socket;
+    expect(await act("tile.info", {}, "draft")).toMatchObject({ terminal: { nvim: { socket: sock } } });
     await act("tile.preview", {}, "draft");
     const f = feed(["cursor", "focus.changed"]);
     await until(() => f.events.length > 0, "hello");
     // The person clicks into nvim, goes to line 20 and types.
-    const r = tile("draft").rect;
+    const r = tile("draft")!.rect!;
     mouse("down", r.col + 5, r.row + 3); mouse("up", r.col + 5, r.row + 3);
-    expect(D().describe().inTerminal).toBe("draft");
+    expect(person().typingIn).toBe("draft");
     for (const c of "20Gi") key(char(c));
     for (const c of "typed by the person ") key(char(c));
-    await until(() => f.of("cursor").some((e: any) => e.tile === "draft" && e.cursor.line === 20 && e.cursor.mode === "i"), "nvim's cursor on line 20 in insert mode");
+    await until(() => f.of("cursor").some(e => e.tile === "draft" && (e.cursor as { line?: number; mode?: string }).line === 20 && (e.cursor as { mode?: string }).mode === "i"), "nvim's cursor on line 20 in insert mode");
     // While they type: an agent's tile.open lands beside another tile, and the keys stay in nvim.
     await act("tile.open", { kind: "detail", note: notes.shed.id, name: "agent-note", where: "right" }, "side");
-    expect(D().describe().inTerminal).toBe("draft");
+    expect(person().typingIn).toBe("draft");
     await expect(act("tile.focus", {}, "agent-note")).rejects.toThrow(/the person is typing/);
     // An agent edits line 1 through nvim's own socket: the person's cursor stays on line 20.
     const nv = new NvimClient(sock);
@@ -255,22 +259,21 @@ describe.skipIf(!outliner)("the agent interface, against a scratch outline", () 
     await nv.request("nvim_buf_set_lines", [0, 0, 1, false, ["# Plot draft, retitled by an agent"]]);
     await nv.request("nvim_command", ["silent write"]);
     expect(await nv.request("nvim_win_get_cursor", [0])).toEqual(before);
-    await until(() => tile("draft-preview")?.showing?.title.includes("retitled by an agent"), "the preview after the agent's write", 5000);
+    await until(() => !!tile("draft-preview")?.showing?.title.includes("retitled by an agent"), "the preview after the agent's write", 5000);
     // A mark on a line is an extmark with virtual text.
-    const m = await act("block.mark", { line: 25, reason: "check this line" }, "draft") as any;
-    expect(m.mark.extmark).toBeGreaterThan(0);
+    expect(await act("block.mark", { line: 25, reason: "check this line" }, "draft")).toMatchObject({ mark: { extmark: expect.any(Number) } });
     const marks = await nv.lua(`return #vim.api.nvim_buf_get_extmarks(0, vim.api.nvim_create_namespace("ep0ch_marks"), 0, -1, {})`);
     expect(marks).toBe(1);
-    expect(tile("draft-preview").source).toBe("tile:draft");
+    expect(tile("draft-preview")).toMatchObject({ source: "tile:draft" });
     // The person opens another file in nvim: the preview follows the buffer (nvim tells the door).
     const other = join(scratch.root, "door", "beans.md");
     writeFileSync(other, "# Bean notes\n\nTwo to a hole.\n");
     key({ kind: "esc" });
     for (const c of `:w\r:e ${other}`) key(c === "\r" ? { kind: "enter" } : char(c));
     key({ kind: "enter" });
-    await until(() => tile("draft-preview")?.showing?.title.includes("Bean notes"), "the preview following nvim's buffer", 5000);
+    await until(() => !!tile("draft-preview")?.showing?.title.includes("Bean notes"), "the preview following nvim's buffer", 5000);
     // nvim names the file by its real path (on macOS the temp folder is under /private).
-    expect(realpathSync(tile("draft").terminal.file)).toBe(realpathSync(other));
+    expect(realpathSync(terminal("draft")!.file!)).toBe(realpathSync(other));
     nv.close(); f.close();
     key(ctrl("]"));
   }, 30_000);

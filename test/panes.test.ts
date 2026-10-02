@@ -112,7 +112,7 @@ describe.skipIf(!outliner)("the board on the desk's engine, against a scratch ou
     expect(row()).toEqual(["preview", "detail2"]);
     expect(details()).toEqual([second]);
     expect(focus()).toBe("detail2");
-    await expect(act("edit.close", { discard: true }, "detail1")).rejects.toThrow(/no reader detail1/);
+    await expect(act("edit.close", { discard: true }, "detail1")).rejects.toThrow(/no tile detail1/);
   });
 
   test("{ } and < > change the tree's shares: the lanes' height, a lane's width in the columns, a reader's in the row", async () => {
@@ -271,7 +271,7 @@ describe.skipIf(!outliner)("the board on the desk's engine, against a scratch ou
 
   test("agents resize, pin, float, zoom and close tiles by pane.* actions, said on screen", async () => {
     await withDetails();
-    const listed = B().actions().actions as { name: string; aliases?: string[] }[];
+    const listed = B().dispatch.list().actions as { name: string; aliases?: string[] }[];
     expect(listed.map(a => a.name)).toEqual(expect.arrayContaining(["pane.split", "tile.close", "tile.resize", "tile.zoom", "tile.float", "tile.pin", "tile.collapse", "float.place"]));
     // The older pane.* names are aliases: listed once, with the tile action they run (A4, PIE-510).
     const aliasOf = (n: string) => listed.find(a => a.aliases?.includes(n))?.name;
@@ -323,7 +323,7 @@ describe.skipIf(!outliner)("the board on the desk's engine, against a scratch ou
     key({ kind: "tab" }); key({ kind: "tab" });
     expect(focus()).toBe("detail1");
     const mine = details()[0], held = details()[1];
-    B().setCurrent(B().lanes[1].items[0], { from: B().preview, fresh: true, agent: true });
+    B().setCurrent(B().lanes[1].items[0], { from: B().preview, fresh: true, by: { kind: "agent", id: AS } });
     expect(details()).toEqual([mine, held]);
     expect(focus()).toBe("detail1");
     expect(message()).toContain("not opened");
@@ -335,7 +335,7 @@ describe.skipIf(!outliner)("the board on the desk's engine, against a scratch ou
     key({ kind: "tab" }); key({ kind: "tab" });
     expect(focus()).toBe("detail1");
     const mine = details()[0], other = details()[1];
-    B().setCurrent(B().lanes[1].items[0], { from: B().preview, fresh: true, agent: true });
+    B().setCurrent(B().lanes[1].items[0], { from: B().preview, fresh: true, by: { kind: "agent", id: AS } });
     expect(details()).toContain(mine);
     expect(details()).not.toContain(other);
     expect(row()).toEqual(["preview", "detail1", "detail3"]);                // the new detail's name is new
@@ -548,14 +548,14 @@ describe.skipIf(!outliner)("the desk's pane actions, against a scratch outline",
     await board.request<any>("create", { parentId: null, text: "Mend the hose [shed::open]", author: "agent" });
     await until(() => D().describe().panes.find((p: any) => p.name === "shed")?.count === 3, "the new card listed");
     await expect(act("tile.open", { kind: "query" })).rejects.toThrow(/needs view=/);
-    D().focusTile("1", { kind: "person" } as any);
+    D().focusTile(D().nameOf(D().all()[0]), { kind: "user" });
     await act("tile.close", {}, "shed-card"); await act("tile.close", {}, "shed");
   }, 20_000);
 
   test("^W c folds the tile to a spine and opens it; ^W f floats it and docks it: the keys run tile.collapse and pane.float", async () => {
     const W = () => key({ kind: "char", ch: "w", ctrl: true } as Key);
     const me = () => D().describe().panes.find((p: any) => p.focused);
-    D().focusTile("1", { kind: "person" } as any);
+    D().focusTile(D().nameOf(D().all()[0]), { kind: "user" });
     W(); key(char("c"));
     expect(me()).toMatchObject({ collapsed: true });
     expect(D().layoutGet().tree).toBeTruthy();

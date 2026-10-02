@@ -67,6 +67,8 @@ describe.skipIf(!outliner)("the welcome screen", () => {
   let board: SocketBoard, app: App;
   let key: (k: Key) => void = () => {};
   const press = (k: Key) => key(k);
+  /** The person has been away from the keys longer than the idle window: an agent may move what they see. */
+  const idle = () => { (app as any).lastInput = 0; };
   const ch = (c: string) => press({ kind: "char", ch: c });
   const mouse = (x: number, y: number, mods?: number) => { press({ kind: "mouse", action: "down", button: 0, x, y, ...(mods ? { mods } : {}) }); press({ kind: "mouse", action: "up", button: 0, x, y, ...(mods ? { mods } : {}) }); };
   const top = () => (app as any).stack.at(-1) as Welcome;
@@ -95,6 +97,7 @@ describe.skipIf(!outliner)("the welcome screen", () => {
     expect(screen()).toContain("No note is a welcome note");
     expect(screen()).toContain("Tag one [welcome::1]");
     expect(screen()).toContain("Nothing to read yet");
+    idle();
     await expect(app.act({ action: "welcome.select", args: { n: 1 }, as: "test-agent" })).rejects.toThrow(/no note is a welcome note yet/);
     const page = await board.createBlock(null, "Claude · now [page::claude-now] [type::agent-status]\nStart here: the jam jars.");
     await until(() => top().detail.msg?.id === page.id, "the fallback page, once it exists");
@@ -139,6 +142,7 @@ describe.skipIf(!outliner)("the welcome screen", () => {
   });
 
   test("⏎ on a link in the detail opens it in the preview; alt+⏎ reads it in the detail; back returns", async () => {
+    await until(() => screen().includes("First, boil"), "the start note drawn");          // [ ] step through what's drawn
     ch("]");
     press({ kind: "enter" });
     await until(() => top().preview.msg?.id === n.kettle.id, "the kettle in the preview");
@@ -191,6 +195,7 @@ describe.skipIf(!outliner)("the welcome screen", () => {
   test("Tab goes detail → backlinks → preview → list; landing on the backlinks shows the selected row", async () => {
     ch("1");
     await until(() => top().detail.msg?.id === n.start.id && focus() === "detail", "the start note");
+    idle();
     await app.act({ action: "welcome.read", args: { id: n.kettle.id } });
     await until(() => top().backlinks.target?.id === n.kettle.id && top().backlinks.data !== null, "the kettle's backlinks");
     top().preview.show(null, top());
@@ -237,6 +242,9 @@ describe.skipIf(!outliner)("the welcome screen", () => {
     ch("1");
     await until(() => top().detail.msg?.id === n.start.id && focus() === "detail", "the start note");
     while (focus() !== "welcome") press({ kind: "tab" });
+    // Within the idle window an agent's pick waits (the person's key may be in flight); then it goes ahead.
+    await expect(app.act({ action: "welcome.select", args: { n: 2, read: true }, as: "test-agent" })).rejects.toThrow(/at the keys/);
+    idle();
     expect(await app.act({ action: "welcome.select", args: { n: 2, read: true }, as: "test-agent" })).toMatchObject({ id: n.rules.id, n: 2, of: 3 });
     expect(focus()).toBe("welcome");
     expect((app as any).message).toContain("an agent (test-agent) put House rules in the detail (welcome 2)");
@@ -252,7 +260,8 @@ describe.skipIf(!outliner)("the welcome screen", () => {
     await until(() => focus() === "detail" && top().detail.msg?.id === n.start.id, "the start note, read");
     ch("e");
     await until(() => !!top().detail.draft, "the person's edit");
-    await expect(app.act({ action: "welcome.select", args: { n: 2 }, as: "test-agent" })).rejects.toThrow(/the person is typing here/);
+    idle();
+    await expect(app.act({ action: "welcome.select", args: { n: 2 }, as: "test-agent" })).rejects.toThrow(/the person is typing on the welcome/);
     ch("2");                                                                         // typed into the edit, not a pick
     expect(top().detail.msg?.id).toBe(n.start.id);
     press({ kind: "esc" }); press({ kind: "esc" });

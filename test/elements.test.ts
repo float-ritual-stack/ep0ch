@@ -172,7 +172,8 @@ describe.skipIf(!outliner)("elements in readers, against a scratch outline", () 
     expect((await act("elements", {}, "preview", AS) as any).elements.map((e: any) => e.kind)).toEqual(["link", "link", "link", "fold", "comment", "fold", "row", "row", "embed"]);
     // link.select picks the element it's drawn as, so the ruler and ⏎ agree with it.
     const beans = p.surface.describe().links.findIndex(l => l.block === n.beans.id) + 1;
-    await act("link.select", { n: beans }, "preview");
+    // (The person's: their preview has their keys, so an agent's would be refused there.)
+    await (app as any).stack.at(-1).dispatch.act({ action: "link.select", args: { n: beans }, reader: "preview" }, { kind: "user" });
     frame();
     expect(current(p)).toMatchObject({ kind: "link", label: "Stake the beans" });
   }, 30_000);

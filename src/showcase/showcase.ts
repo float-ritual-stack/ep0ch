@@ -16,7 +16,9 @@ import { USER, type Actor, type Capability, type OutlineEvent } from "../socket"
 import { bg, C, fg, pad, paint, RESET } from "../style";
 import { wrap } from "../text";
 import type { Key } from "../term";
-import { ActionRefused, ActionSet, runAsPerson, agentLabel, type ActionInfo, type ActRequest } from "../surface/actions";
+import { ActionRefused, ActionSet, type ActionInfo } from "../surface/actions";
+import { Dispatcher } from "../surface/dispatch";
+import { screenKeys } from "../whereabouts";
 import { NOTE_ACTIONS } from "../surface/note";
 import { DRAFT_ACTIONS } from "../edit";
 import { Desk, DESK_ACTIONS, type DeskPreset } from "../desk/desk";
@@ -25,7 +27,7 @@ import { PANE_ACTIONS } from "../desk/pane-actions";
 import { BOARD_ACTIONS, DeliveryBoard } from "../desk/delivery";
 import { RIVER_ACTIONS } from "../river/river";
 import { ActivityPane, ReaderPane, ThreadPane, TreePane, WhoPane, type DeskApi, type Pane, type PaneView } from "../desk/panes";
-import { LastCallers, MessageReader, WhoOnline } from "../screens";
+import { LastCallers, MessageReader, SHELL_ACTIONS, WhoOnline } from "../screens";
 import { columnsOf, leaf, pair, splitOf, type LNode } from "../desk/screen-layout";
 import { FramedScreen, ScreenPane } from "./frame";
 import { PreviewPane } from "../desk/preview";
@@ -83,7 +85,7 @@ export const SECTIONS: Section[] = [
       const r = new ReaderPane();
       const list = new ActionsPane();
       const d = deskOf({ title: "showcase · actions", panes: [list, r], layout: ([a, b]) => row(0.55, a!, b!) }, show, [[r, n.whiteboard]]);
-      list.run = (name, actor) => d.act({ action: name, reader: "2" }, actor);
+      list.run = (name, actor) => d.dispatch.act({ action: name, reader: "2" }, actor);
       return d;
     },
   },
@@ -261,7 +263,7 @@ export class Showcase implements Screen {
     if (!f) {
       let after: ((ctx: Ctx) => void) | null = null;
       const screen = SECTIONS[i]!.stage(this.notes, a => { after = a; });
-      f = new FramedScreen(screen, () => this.ctx, () => { this.focus = "index"; }, () => after?.(f!.ctx));
+      f = new FramedScreen(screen, () => this.ctx, () => { this.focus = "index"; }, () => after?.(f!.ctx), () => this.focus === "stage" && this.sel === i);
       this.stages.set(i, f);
     }
     return f;
@@ -334,9 +336,7 @@ export class Showcase implements Screen {
   }
 
   /** A key or click on the index as the person: the showcase's own action. A refusal is said. */
-  private run(name: "section" | "section.try", args: { name?: string }) {
-    void runAsPerson(SHOWCASE_ACTIONS, name, args as { name: string }, this, msg => this.ctx.flash(msg)).then(() => this.ctx.redraw());
-  }
+  private run(name: "section" | "section.try", args: { name?: string }) { void this.dispatch.pressIn(SHOWCASE_ACTIONS, name, args); }
   /** The shell's q, Esc and V (src/shell-keys.ts: screens.ts imports this module). */
   private shell(name: "screen.back" | "video.cycle") { shellKeyOf(name, this, this.ctx); }
 
@@ -379,18 +379,28 @@ export class Showcase implements Screen {
     };
   }
 
-  actions() {
-    const inner = this.stage(this.sel)?.top.actions?.() ?? { actions: [], readers: [] };
-    return { actions: [...SHOWCASE_ACTIONS.list(), ...inner.actions], readers: inner.readers };
-  }
-
-  async act(req: ActRequest, actor: Actor): Promise<unknown> {
-    if (SHOWCASE_ACTIONS.has(req.action)) return SHOWCASE_ACTIONS.runUntyped(req.action, { ...(req.args ?? {}) }, this, actor);
-    const f = this.stage(this.sel);
-    if (!f) throw new ActionRefused(this.problem || "the showcase outline is still being read");
-    const top = f.top;
-    if (!top.act) throw new ActionRefused(`the ${SECTIONS[this.sel]!.key} section has no actions`);
-    return top.act(req, actor);
+  /**
+   * The showcase's dispatcher: its own actions (which section), then the shown section's stage: its screen's own
+   * dispatcher, as if it were the screen shown.
+   */
+  readonly dispatch: Dispatcher = new Dispatcher({ title: "showcase", ctx: () => this.ctx, keys: () => this.keys() }, [
+    { set: SHOWCASE_ACTIONS, takes: "none", on: () => this },
+    {
+      delegate: () => {
+        const f = this.stage(this.sel);
+        if (!f) throw new ActionRefused(this.problem || "the showcase outline is still being read");
+        if (!f.top.dispatch) throw new ActionRefused(`the ${SECTIONS[this.sel]!.key} section has no actions`);
+        return f.top.dispatch;
+      },
+      // The stage's own actions; while it isn't ready, anything not the showcase's (so the reason is said). The shell's
+      // (`screen.list`, `screen.open`) and the host layer's stay the App's.
+      claims: req => { if (SHOWCASE_ACTIONS.has(req.action)) return false; const d = this.stage(this.sel)?.top.dispatch; return d ? d.takes(req) : !SHELL_ACTIONS.has(req.action); },
+    },
+  ]);
+  /** Screen.keys: in the stage, its screen's; on the index, nothing holds them. */
+  keys() {
+    const f = this.focus === "stage" ? this.stages.get(this.sel) : undefined;
+    return f ? screenKeys(f.top) : { focus: null, typingIn: null, busy: false };
   }
 
   /** The section on screen, and whether the person's keys are in it (not on the index). */
@@ -410,9 +420,9 @@ export const SHOWCASE_ACTIONS = new ActionSet<{ "section": { name: string }; "se
   "section.try": {
     summary: "go into a section's stage (name=<1-17> or its key, else the one shown): the person's keys and mouse go to the part itself until its own esc brings them back to the index. The person's only: an agent acts in the stage with its actions (`act` reaches the shown section's)",
     keys: "⏎ → l tab, click in the stage",
+    touches: "screen", replay: "safe", person: "going into a section gives it the person's keys; an agent runs the shown section's own actions instead",
     args: { name: { type: "string", optional: true, about: "the section's number or key; the one shown when left out" } },
-    run({ name }, s, actor) {
-      if (actor.kind === "agent") throw new ActionRefused("going into a section gives it the person's keys; an agent runs the shown section's own actions instead");
+    run({ name }, s) {
       const i = name === undefined ? s.shown : s.sectionOf(name);
       s.pick(i, true);
       return { section: i + 1, key: SECTIONS[i]!.key, in: s.personInStage() };
@@ -420,13 +430,13 @@ export const SHOWCASE_ACTIONS = new ActionSet<{ "section": { name: string }; "se
   },
   "section": {
     summary: "show a section (name=<1-17> or its key: note, actions, edit, drafts, panes, kinds, terminal, preview, screen, spine, entity, presence, live, projection, extensions, selection, service); refused to an agent while the person is in one", keys: "↑↓ j k, 1-9 0, click, wheel",
+    touches: "screen", replay: "safe", says: r => `showed section ${r.section} (${r.key})`,
     args: { name: { type: "string", about: "the section's number or key" } },
     run({ name }, s, actor) {
       const i = s.sectionOf(name);
       // An agent never moves the person out of a section they are working in: sections change from the index.
       if (actor.kind === "agent" && s.personInStage()) throw new ActionRefused(`the person is in section ${s.shown + 1} (${SECTIONS[s.shown]!.key}); sections change from the index`);
       s.pick(i, false);
-      if (actor.kind === "agent") s.ctx.flash(`${agentLabel(actor)} showed section ${i + 1} (${SECTIONS[i]!.key})`);
       return { section: i + 1, key: SECTIONS[i]!.key };
     },
   },

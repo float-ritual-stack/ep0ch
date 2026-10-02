@@ -18,7 +18,7 @@ import {
 } from "../backlinks";
 import { subject, type Msg } from "../board";
 import { USER, type Actor, type OutlineEvent } from "../socket";
-import { ActionRefused, ActionSet, agentLabel } from "../surface/actions";
+import { ActionRefused, ActionSet } from "../surface/actions";
 import { bg, C, fg, pad, RESET, width } from "../style";
 import { follow } from "../scroll";
 import type { Key } from "../term";
@@ -347,7 +347,7 @@ export class TreePane implements Pane {
     }
     const land = (m: Msg) => {
       const routed = desk.routes?.(this);
-      desk.setCurrent(m, { from: this, link: true, ...(agent ? { agent: true } : {}) });
+      desk.setCurrent(m, { from: this, link: true, by: actor });
       if (!routed && !agent) desk.focusKind("reader");
     };
     // A ticket the Jira extension keeps as a block (PIE-445): ⏎ opens that block, a note like any other.
@@ -388,13 +388,13 @@ export class TreePane implements Pane {
   }
 
   /** An agent picked row `i`: its note shows where the tree's selection goes; the person's selection stays. */
-  async showRow(i: number, desk: DeskApi): Promise<Record<string, unknown>> {
+  async showRow(i: number, desk: DeskApi, actor: Actor): Promise<Record<string, unknown>> {
     const id = rowBlock(this.rows[i]);
     if (!id) throw new ActionRefused(`row ${i + 1} stands for no note: open=true opens a group or shows a resource`);
     const m = await this.target(id, desk);
     if (!m) throw new ActionRefused(`nothing answers at ${id.slice(0, 8)}…`);
     // Where the tree's selection goes (a desk's previews and link); a view without that, its tree's own preview.
-    if (desk.showFrom) desk.showFrom(this, m, true); else desk.setCurrent(m, { from: this, agent: true });
+    if (desk.showFrom) desk.showFrom(this, m); else desk.setCurrent(m, { from: this, by: actor });
     return { row: i + 1, id: m.id };
   }
 
@@ -517,6 +517,7 @@ export const TREE_ACTIONS = new ActionSet<{
   "tree.fold": {
     summary: "open (open=true) or fold (open=false) a row of the outline tree, else the other way: a note's children, a group of links. n (from 1) or id, else the selected row. An agent's never folds away the rows the person's selection is in",
     keys: "l → space h ←, click on a row's mark",
+    touches: "nothing", replay: "safe", says: r => `${r.open ? "opened" : "folded"} row ${r.row} of the outline`,
     args: {
       n: { type: "number", optional: true, about: "the row, from 1, as peek lists them" },
       id: { type: "string", optional: true, about: "a block id (or its start): the first row that stands for it" },
@@ -524,14 +525,13 @@ export const TREE_ACTIONS = new ActionSet<{
     },
     run({ n, id, open }, { pane, desk }, actor) {
       const i = rowOf(pane, n, id);
-      const r = pane.foldRow(i, open, desk, actor.kind === "agent");
-      if (actor.kind === "agent") desk.ctx.flash(`${agentLabel(actor)} ${r.open ? "opened" : "folded"} row ${r.row} of the outline`);
-      return r;
+      return pane.foldRow(i, open, desk, actor.kind === "agent");
     },
   },
   "tree.links": {
     summary: "show or hide the authored links under a row of the outline tree (tile=<its name>), as the outliner's Tree does: its outlinks, resources and backlinks, grouped; n (as peek's rows, from 1) or id, else the selected row; show=true or false, else the other way. Registers nothing",
     keys: "L · l → space on a link · a click on a link's mark",
+    touches: "nothing", replay: "safe", says: r => `${r.shown ? "showed" : "hid"} the links under row ${r.row}`,
     args: {
       n: { type: "number", optional: true, about: "the row, from 1, as peek lists them" },
       id: { type: "string", optional: true, about: "a block id (or its start): the first row that stands for it" },
@@ -539,14 +539,13 @@ export const TREE_ACTIONS = new ActionSet<{
     },
     run({ n, id, show }, { pane, desk }, actor) {
       const i = rowOf(pane, n, id);
-      const shown = pane.toggleLinks(i, desk, show, actor.kind === "agent");
-      if (actor.kind === "agent") desk.ctx.flash(`${agentLabel(actor)} ${shown ? "showed" : "hid"} the links under row ${i + 1}`);
-      return { row: i + 1, shown };
+      return { row: i + 1, shown: pane.toggleLinks(i, desk, show, actor.kind === "agent") };
     },
   },
   "tree.pick": {
     summary: "pick a row of the outline tree: n (from 1) or id. As the person: the selection moves there; open=true opens it as ⏎ does (a note where the tree's opens go, a group folds, a resource is registered if it must be and its stored content shown). An agent's never moves the person's selection or keys: its pick shows the row's note where the tree's selection goes, its open opens it there",
     keys: "j k ↑ ↓ PgUp PgDn Home End h ← (to the row above), click, wheel (pick) · ⏎ (open)",
+    touches: "nothing", replay: "safe", says: (r, a) => `${a.open ? "opened" : "picked"} row ${r.row} of the outline`,
     args: {
       n: { type: "number", optional: true, about: "the row, from 1, as peek lists them" },
       id: { type: "string", optional: true, about: "a block id (or its start): the first row that stands for it" },
@@ -555,11 +554,10 @@ export const TREE_ACTIONS = new ActionSet<{
     async run({ n, id, open }, { pane, desk }, actor) {
       const i = rowOf(pane, n, id);
       if (!pane.list()[i]) throw new ActionRefused(`no row ${i + 1}; the tree has ${pane.list().length}`);
+      // The person's pick moves their selection; an agent's is its own: the row's note shown where the tree's selection goes.
       const agent = actor.kind === "agent";
       if (!agent) pane.selectRow(i, desk, !open);
-      const out = open ? await pane.openRow(i, desk, actor) : agent ? await pane.showRow(i, desk) : { row: i + 1, id: rowBlock(pane.list()[i]) ?? undefined };
-      if (agent) desk.ctx.flash(`${agentLabel(actor)} ${open ? "opened" : "picked"} row ${i + 1} of the outline`);
-      return out;
+      return open ? pane.openRow(i, desk, actor) : agent ? pane.showRow(i, desk, actor) : { row: i + 1, id: rowBlock(pane.list()[i]) ?? undefined };
     },
   },
 });

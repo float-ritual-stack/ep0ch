@@ -178,6 +178,8 @@ function lineAction(e: ExtensionEntry, a: ExtensionAction): ActionDef<ExtArgs, E
   return {
     summary: `${e.name ?? e.id}: ${a.description ?? a.label}${handler ? ` (on a ${handler}:: line: block=<its note>, line=<the line's index> when the note has several)` : " (on block=<id>)"}. The service runs it; what it writes is attributed ext:${e.id}${a.effects === "write" ? "" : " (it only answers)"}.${unbound}`,
     ...(key ? { keys: `${key}, click` } : { keys: "click" }),
+    // The service runs it and writes as the extension: nothing of the person's moves. Replaying it writes again.
+    touches: "nothing", replay: a.effects === "write" ? "ask" : "safe",
     args: {
       block: { type: "string", optional: true, about: handler ? `the note with the ${handler}:: line` : "the block it acts on" },
       line: { type: "number", optional: true, about: "the line's index in the note's text (0 is its first line), when it has more than one" },
@@ -212,6 +214,7 @@ function tileAction(t: ExtensionTileKind, a: ExtensionAction): ActionDef<ExtArgs
     summary: `${t.name}: ${a.description ?? a.label}${onBlock ? " (on the tile's block, or block=<id>)" : ""}. The service runs it; what it writes is attributed ext:${t.extension}`,
     // In the tile its program has the keys: the key is the program's own, which runs this same action.
     ...(keyOf(a.key) ? { keys: keyOf(a.key)! } : {}),
+    touches: "nothing", replay: a.effects === "write" ? "ask" : "safe",
     // On a block: which one (the tile's own by default). On the tile: nothing to say.
     args: (onBlock ? { block: { type: "string", optional: true, about: "the block it acts on; default the tile's own (where it was opened)" } } : {}) as ActionDef<ExtArgs, TileHost>["args"],
     run({ block }, { pane, desk }, actor) {

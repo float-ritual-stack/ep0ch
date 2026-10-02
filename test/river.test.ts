@@ -132,7 +132,8 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
     const at = R().focus, S = () => surfaceOf(at + 1);
     key(char("e"));
     await until(() => !!S().draft, "the draft");
-    await act("focus", {}, beansR);
+    // Moving their keys while they type is refused (the actor rule), even onto the pane they're in.
+    await expect(act("focus", {}, beansR)).rejects.toThrow(/edit, a comment or the property panel on the river.*not moved/);
     key({ kind: "end" }); type("Q");                             // still the person's edit: typed, not a river key
     expect(S().draft.text).toContain("Q");
     expect(R().focus).toBe(at);
@@ -214,7 +215,9 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
     await until(() => !!surfaceOf(2).draft, "the draft");
     key(char("x"));                                              // in it: x is typed
     expect(surfaceOf(2).draft.text).toContain("x");
-    await act("focus", {}, "1");
+    // An agent doesn't move their keys out of their edit (the actor rule); the person's own move does.
+    await expect(act("focus", {}, "1")).rejects.toThrow(/not moved/);
+    await R().dispatch.act({ action: "focus", reader: "1" }, { kind: "user" });
     expect(R().focus).toBe(0);
     key(char("l"));
     expect(R().focus).toBe(1);
@@ -245,8 +248,8 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
     expect(focusedUid()).toBe(uid);
     await until(() => !!paneOf(peas.reader).root, "the peas column");
     // The agent's old number now names the peas column: refused, and told the pane's id.
-    await expect(act("edit.text", { text }, "2")).rejects.toThrow(`reader ${beansR}`);
-    await expect(act("edit.save", {}, "2")).rejects.toThrow(`reader ${beansR}`);
+    await expect(act("edit.text", { text }, "2")).rejects.toThrow(`tile ${beansR}`);
+    await expect(act("edit.save", {}, "2")).rejects.toThrow(`tile ${beansR}`);
     expect(paneOf(peas.reader).surface.draft).toBeNull();
     expect(await act("edit.close", { discard: true }, beansR)).toMatchObject({ reader: beansR, at: "3", closed: true });
     expect(await act("close", {}, peas.reader)).toMatchObject({ closed: peas.reader });
@@ -353,7 +356,7 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
     const squeezed = cols().find((c: any) => c.cover !== "full" && !c.pinned && !c.focused);
     const r = squeezed.panes[0].reader;
     const refusal = await act("edit.text", { text: "x" }, r).then(() => "", (e: Error) => e.message);
-    expect(refusal).toContain(`pin reader=${r}`);
+    expect(refusal).toContain(`pin tile=${r}`);
     expect(refusal).not.toContain("focus");
     const uid = focusedUid();
     await dockOnly(r);
@@ -383,7 +386,7 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
     const long = await create(null, `The long seed list\n${lines.join("\n")}`);
     await create(long.id, "Order more\nFrom the usual place.");
     const r = (await act("open", { id: long.id })) as { reader: string };
-    await act("focus", {}, r.reader);
+    await R().dispatch.act({ action: "focus", reader: r.reader }, { kind: "user" });     // the person goes to it
     await act("widen", {}, r.reader);
     const p = paneOf(r.reader);
     await until(() => (p.items?.length ?? 0) >= 1, "the long note's reply");
@@ -412,9 +415,9 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
     focusOnReader("r1");                                         // the person's keys on the Library
     const focus = R().focus, uid = focusedUid();
     // The column the person has the keys in is theirs: its filter, scroll and cursor aren't an agent's to move.
-    await expect(act("filter", { query: "squash" }, "1")).rejects.toThrow("the person has the keys in column 1");
-    await expect(act("column.scroll", { by: 3 }, "1")).rejects.toThrow("the person has the keys in column 1");
-    await expect(act("select", { by: 1 }, "1")).rejects.toThrow("the person has the keys in column 1");
+    await expect(act("filter", { query: "squash" }, "1")).rejects.toThrow("column 1 has the person's keys");
+    await expect(act("column.scroll", { by: 3 }, "1")).rejects.toThrow("column 1 has the person's keys");
+    await expect(act("select", { by: 1 }, "1")).rejects.toThrow("column 1 has the person's keys");
     // A column of its own beside (peas lists its two replies): filtered, said on the status bar.
     const own = (await act("open", { id: notes.peas.id, duplicate: true }, "1")) as { reader: string };
     await until(() => (paneOf(own.reader).items?.length ?? 0) === 2, "the peas' replies");

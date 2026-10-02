@@ -386,6 +386,8 @@ describe.skipIf(!outliner)("folds in the board's readers, against a scratch outl
   let key: (k: Key) => void = () => {};
   const B = () => b as any;
   const act = (action: string, args: Record<string, unknown> = {}, reader?: string) => app.act({ action, args, reader, as: "test-agent-410" }) as Promise<any>;
+  /** The person's own action (their ⏎ on a card: the reader gets their keys), through the board's dispatcher. */
+  const mine = (action: string, args: Record<string, unknown> = {}, reader?: string) => B().dispatch.act({ action, args, reader }, { kind: "user" }) as Promise<any>;
   const create = (parentId: string | null, text: string) => board.request("create", { parentId, text, author: "agent" });
   const frame = () => b.render(B().ctx).lines.map(plain);
   const long = `Plan the allotment [stage::queued]\n## Beds\n${Array.from({ length: 60 }, (_, i) => `- bed ${i + 1}: beans, then squash`).join("\n")}\n## Water\nThe hose runs along the fence.`;
@@ -412,7 +414,7 @@ describe.skipIf(!outliner)("folds in the board's readers, against a scratch outl
   });
 
   test("keys and a click fold in a detail; the frame's thumb and % follow; an edit elsewhere keeps the fold; another note resets it", async () => {
-    await act("open", { id: card.id }, "detail");
+    await mine("open", { id: card.id }, "detail");
     const d = B().details[0];
     await until(() => d.msg?.id === card.id && !d.msg.partial, "the whole note");
     expect(BV.where(b)).toBe("detail0");
@@ -450,7 +452,7 @@ describe.skipIf(!outliner)("folds in the board's readers, against a scratch outl
   const rowIn = (lines: string[], r: any, text: string) => lines.findIndex((l, i) => i > r.row && i < r.row + r.rows - 1 && [...l].slice(r.col, r.col + r.cols).join("").includes(text));
 
   test("review 2: in the preview, ( ) then moving on or esc gives ⏎ back: it opens the note in a detail", async () => {
-    await act("open", { id: card.id }, "preview");
+    await mine("open", { id: card.id }, "preview");
     const p = B().preview;
     await until(() => p.msg?.id === card.id && !p.msg.partial, "the whole note in the preview");
     expect(BV.where(b)).toBe("preview");
@@ -462,7 +464,7 @@ describe.skipIf(!outliner)("folds in the board's readers, against a scratch outl
     key(char("j"));
     key({ kind: "enter" });
     await until(() => opened() === was + 1, "⏎ to open a detail");
-    await act("open", { id: card.id }, "preview");
+    await mine("open", { id: card.id }, "preview");
     frame();
     key(char(")"));
     key({ kind: "esc" });

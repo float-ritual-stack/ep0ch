@@ -267,7 +267,7 @@ describe("what a running agent knows", () => {
       await until(() => d.app.dock.tile?.running === true && starts().length === 1, "the dock's agent");
       const sink = d.term.rawSink();
       sink("hello");                                                    // the person types in it
-      await expect(d.app.act({ action: "agent.restart", args: {}, as: "helper" })).rejects.toThrow(/typing in the agent drawer/);
+      await expect(d.app.act({ action: "agent.restart", args: {}, as: "helper" })).rejects.toThrow(/typing in claude in the agent drawer/);
       d.key({ kind: "char", ch: "]", ctrl: true });                     // they leave the drawer, just now
       await expect(d.app.act({ action: "agent.restart", args: {}, as: "helper" })).rejects.toThrow(/typed into the agent/);
       d.app.dock.tile!.personKeyAt = Date.now() - 60_000;

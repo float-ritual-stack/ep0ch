@@ -5,7 +5,8 @@
 // tile whose content the service draws (`serviceKind`, below).
 import type { Msg } from "../board";
 import type { Actor, Change } from "../socket";
-import type { ActionSet, ActRequest } from "../surface/actions";
+import type { ActionSet } from "../surface/actions";
+import { nameKinds, type Dispatcher } from "../surface/dispatch";
 import type { Key } from "../term";
 import { wrap } from "../text";
 import type { Policy } from "./screen-layout";
@@ -89,8 +90,8 @@ export interface TileKind {
   press?(p: Pane, k: Key): { action: string; args?: Record<string, unknown> } | null;
   /** Every key is the tile's own now, the desk's included (a whole screen in a tile, in its own edit). */
   takesKeys?(p: Pane): boolean;
-  /** Answer an action the desk doesn't know, on this tile (a whole screen's: the board's `card.*`). */
-  act?(p: Pane, req: ActRequest, actor: Actor): Promise<unknown>;
+  /** The dispatcher of a whole screen in the tile (a board's), whose actions it answers there (the board's `card.*`). */
+  dispatcher?(p: Pane): Dispatcher | null;
   /** A frame of its own animation: true when it changed (a screen in a tile, revealing its art). */
   tick?(p: Pane): boolean;
   /** Call `then` once it no longer holds work (`holdsWork`): a terminal's program exited. */
@@ -98,6 +99,8 @@ export interface TileKind {
 }
 
 const registry = new Map<TileKindName, TileKind>();
+// The dispatcher's refusals name a tile's kind as the registry does ("an outline tile", "a terminal tile").
+nameKinds(kind => kindNoun(kind));
 /** Kinds that were registered and went away, with why: their tiles say so instead of running something else. */
 const gone = new Map<TileKindName, string>();
 
