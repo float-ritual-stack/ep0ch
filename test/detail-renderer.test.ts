@@ -13,6 +13,7 @@ import { DEFAULT_OUTLINER_ACTION_KEYMAP } from "../src/outliner-actions";
 import type { DetailState } from "../src/detail-controller";
 import {
   renderDetailAnsi,
+  renderDetailFooter,
   renderDetailHeader,
   renderDetailLines,
 } from "../src/detail-renderer";
@@ -22,7 +23,7 @@ import { TextBuffer } from "../src/text-buffer";
 import { deriveResourceCapabilityReport } from "../src/resources";
 import type { Block } from "../src/types";
 import { createPropertyInspectorModel, detailPropertyInspectorRegions } from "../src/property-inspector";
-const ACTION_MENU = "\x1b]8;;pi-outliner-action:detail.menu.open\x1b\\\x1b[2;36m[⋯]\x1b[0m\x1b]8;;\x1b\\";
+const ACTION_MENU = "\x1b]8;;pi-outliner-action:detail.menu.open\x1b\\[⋯]\x1b]8;;\x1b\\";
 
 test("Current, Preview and Properties headers expose the same clickable destination without moving content", () => {
   for (const surface of ["Current", "Preview", "Properties"]) {
@@ -776,4 +777,14 @@ test('ANSI Detail retains component installation on resize and reloads it on a n
   expect(paint(18)).toContain('Waiting: 4');expect(paint(18)).not.toContain('disabled');
   detail.context.selected=block(text);expect(paint(80)).toContain('renderer is disabled');
  } finally {if(prior===undefined)delete process.env.OUTLINER_DOCUMENT_RENDERERS;else process.env.OUTLINER_DOCUMENT_RENDERERS=prior;rmSync(directory,{recursive:true,force:true});}
+});
+
+test("compact Detail keeps one hint row: a status while it lasts, then the generated hints", () => {
+  const hints = {entries: DEFAULT_OUTLINER_ACTION_KEYMAP.hints("detail", "preview"), menuKey: "?"};
+  const idle = renderDetailFooter(state(), 60, "preview", "", undefined, "compact", hints);
+  expect(idle).toHaveLength(1);
+  expect(stripTerminalSequences(idle[0]!)).toStartWith("? all actions · ");
+  expect(getOsc8LinkAtColumn(idle[0]!, 0)).toBe("pi-outliner-action:detail.menu.open");
+  const flashing = renderDetailFooter(state({status: "Keymap and bars reloaded"}), 60, "preview", "", undefined, "compact", hints);
+  expect(flashing.map(line => stripTerminalSequences(line))).toEqual(["Keymap and bars reloaded"]);
 });

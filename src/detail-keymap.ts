@@ -29,6 +29,8 @@ export interface DetailKeymapOptions {
     items: readonly OutlinerActionMenuItem[],
     invoke: (actionId: string) => Promise<void>,
   ): void;
+  /** Reloads ui.json (pins and chrome) with the keymap on Ctrl+R. */
+  reloadUiConfig?(): {ok: true; warnings?: readonly string[]} | {ok: false; error: string};
   focusDraftSplit?(): void;
   navigatePreview?(direction: "up" | "down" | "pageup" | "pagedown" | "top" | "bottom"): void;
   previewFocused?(): boolean;
@@ -226,8 +228,13 @@ export function createDetailKeyHandler(options: DetailKeymapOptions): DetailKeyH
         );
         return true;
       case "detail.keymap.reload": {
-        const result = actionKeymap.reload();
-        await setStatus(result.ok ? "Outliner keymap reloaded" : `Keymap unchanged: ${result.error}`);
+        const keys = actionKeymap.reload();
+        const ui = options.reloadUiConfig?.() ?? {ok: true};
+        const ok = keys.ok && ui.ok;
+        const message = ok ? `Keymap and bars reloaded${"warnings" in ui && ui.warnings?.length ? ` · left off: ${ui.warnings.join("; ")}` : ""}`
+          : [keys.ok ? "" : `Keymap unchanged: ${keys.error}`, ui.ok ? "" : `Bars unchanged: ${ui.error}`].filter(Boolean).join(" · ");
+        // Success flashes; a refusal stays until the next action, so it can be read.
+        await dispatch({type: ok ? "status.flash" : "status.set", message});
         return true;
       }
       case "detail.focus.tree":

@@ -150,6 +150,43 @@ Cursor changes publish the selected canonical block together with the source Tre
 
 PageUp/PageDown move the selected expanded row's offset by one Tree body viewport and clamp to its wrapped row count. Cursor changes, multiline expansion changes, and reconnects reset the offset.
 
+### Pane bars, hint rows and chrome (`ui.json`)
+
+Every pane draws its chrome from three shared parts, never its own:
+
+- [`ui-config.ts`](../src/ui-config.ts) owns `ui.json` beside `keybindings.json`:
+  `bar.<kind>` (pinned action IDs in order) and `chrome.<kind>` (`compact` |
+  `full`) for the kinds `tree`, `preview` and `detail`, with the defaults in
+  code. It checks IDs against the action registry and the kind's surface
+  (a stale pin is left off with a warning, not the whole file), reloads
+  atomically (a file that doesn't parse keeps what is shown), and writes a pin on
+  top of the file as it is now, keeping kinds and keys it doesn't know. That
+  last rule is what lets ep0ch-door (PIE-492) share the file and its shape:
+  `{"bar": {"<kind>": ["<action id>", …]}, "chrome": {"<kind>": "compact"|"full"}}`.
+- [`reader-chrome.ts`](../src/reader-chrome.ts) draws the bar
+  (`renderPaneBar`: identity, pinned buttons, `[⋯]`, dropping buttons that
+  don't fit but never `[⋯]`) and the hint row (`renderHintRow`, from
+  `OutlinerActionKeymap.hints`, each hint a link to its action; a status
+  replaces it while fresh). A button shows the action's `glyph` from the
+  registry, or a state glyph the pane supplies (`PaneBarState`: Auto `◙`/`○`,
+  the active dock).
+- The action registry ([`outliner-actions.ts`](../src/outliner-actions.ts))
+  stays the only UI path: a bar button, its key and its menu item run the same
+  action ID. Pinning is an action too (`tree.menu.pin`, `detail.menu.pin`,
+  default `Alt+Enter`, scope `action-menu` / `menu`); wildcard (`*`) actions
+  don't apply in a menu scope, so Detail's `Alt+Enter` "Keep Preview here"
+  never reaches its menu.
+
+Tree and its Preview share one hint row at the bottom of the pane
+(`TREE_HINT_ROWS`); `treePreviewFrame` lays both out above it for the renderer
+and the controller alike. Docked below, Preview's bar doubles as the divider:
+dragging its title resizes. Status is a flash: Tree's `TREE_STATUS_FLASH_MS`,
+Detail's `status.flash` intent (its routine notice); refusals stay until the next
+action. Right-
+click belongs to Herdr's pane menu unless the pane takes it: hosts take it
+while one of their menus is open (`configureCurrentPaneRightClick`), so a
+right-click on a menu item pins it.
+
 ### Detail client
 
 [`src/detail-main.ts`](../src/detail-main.ts) selects the Pi TUI Detail implementation, which separates:
