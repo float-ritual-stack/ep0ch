@@ -7,7 +7,7 @@ import { Database } from "bun:sqlite";
 import { afterAll, describe, expect, test } from "bun:test";
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { backupDatabase, formatPlan, setupCommand, tilde } from "../src/setup/apply";
 import { applyLinks } from "../src/setup/links";
 import { skillLinkFacts } from "../src/setup/skill-links";
@@ -707,6 +707,36 @@ describe("the agent skills: their links where Claude Code (and ~/.agents) finds 
     applyLinks(step.links!, () => {});
     expect(lstatSync(join(m.claude, "ep0ch")).isDirectory()).toBe(true);
     expect(readlinkSync(join(m.claude, "ep0ch-core"))).toBe(join(m.old, "x", "ep0ch-core"));
+  });
+
+  test("a link left by a worktree or checkout since deleted is broken whatever it was: replaced", () => {
+    const m = machine();
+    const gone = join(m.home, "projects", "ep0ch-wt-gone", "packages", "door", "skills", "ep0ch-core");
+    skill(dirname(gone), "ep0ch-core");
+    symlinkSync(gone, join(m.claude, "ep0ch-core"));
+    rmSync(join(m.home, "projects"), { recursive: true });
+    const facts = look(m);
+    expect(facts.links.find(l => l.dest === join(m.claude, "ep0ch-core"))).toMatchObject({ state: "replace", was: gone });
+    applyLinks(skillsStep(withSkills(facts)).links!, () => {});
+    expect(readlinkSync(join(m.claude, "ep0ch-core"))).toBe(join(m.door, "skills", "ep0ch-core"));
+    // A broken link under another skill's name is still left alone.
+    rmSync(join(m.claude, "ep0ch")); symlinkSync(join(m.home, "nowhere", "other-skill"), join(m.claude, "ep0ch"));
+    expect(look(m).links.find(l => l.dest === join(m.claude, "ep0ch"))).toMatchObject({ state: "taken" });
+  });
+
+  test("a folder install linked into before is still looked in for stale links (CLAUDE_CONFIG_DIR changed since)", () => {
+    const m = machine();
+    const before = join(m.home, "claude-before");
+    applyLinks(skillsStep(withSkills(look(m, { CLAUDE_CONFIG_DIR: before }))).links!, () => {});
+    rmSync(join(m.door, "skills", "ep0ch"), { recursive: true });
+    expect(look(m).stale.map(s => s.dest)).toEqual([join(before, "skills", "ep0ch")]);
+  });
+
+  test("the commands quote a path that needs it", () => {
+    const m = machine();
+    const spaced = join(m.home, "Claude Config");
+    const step = skillsStep(withSkills(look(m, { CLAUDE_CONFIG_DIR: spaced })));
+    expect(step.commands).toContain(`ln -s ${join(m.door, "skills", "ep0ch")} '${join(spaced, "skills", "ep0ch")}'`);
   });
 
   test("a link that changed between the plan and the apply isn't replaced", () => {

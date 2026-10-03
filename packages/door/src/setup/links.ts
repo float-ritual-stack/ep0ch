@@ -5,9 +5,9 @@
 //   - a symlink that is another checkout's copy of the same thing (the kind says what "same" is) is replaced;
 //   - anything else there (a file or folder of the person's own, someone else's link) is left as it is, and said;
 //   - a link install made into one of its roots whose file is gone (the thing was deleted or renamed) is taken away;
-//   - what it made is recorded (`install-links.json` in the door's state), so the folders it linked into are found
-//     again after the last thing linking there is gone.
-import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
+//   - what it made is recorded (`install-links.json` in the door's state), so the folders it linked into are looked
+//     in again for stale links after the last thing linking there is gone (or the folder stopped being one it links into).
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, renameSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 
 /** What's at a link's place: nothing, this link, another checkout's copy (replaced), or anything else (left alone). */
@@ -93,12 +93,18 @@ export function linkWork(links: readonly OwnedLink[], stale: readonly StaleLink[
   };
 }
 
+/** A path as a shell word: quoted only when it needs it. */
+export const sh = (p: string) => (/^[\w@%+=:,./~-]+$/.test(p) ? p : `'${p.replace(/'/g, `'\\''`)}'`);
+
+/** The commands for one link, as a person would type them. */
+export const lnCommand = (src: string, dest: string, replace = false) => `ln -s${replace ? "fn" : ""} ${sh(src)} ${sh(dest)}`;
+
 /** The work as commands a person could type. */
 export function linkCommands(w: LinkWork, gone = "its file is gone"): string[] {
   return [
-    ...w.remove.map(d => `rm ${d}   # ${gone}`),
-    ...w.replace.map(l => `ln -sfn ${l.src} ${l.dest}   # was ${l.was}`),
-    ...w.make.map(l => `ln -s ${l.src} ${l.dest}`),
+    ...w.remove.map(d => `rm ${sh(d)}   # ${gone}`),
+    ...w.replace.map(l => `${lnCommand(l.src, l.dest, true)}   # was ${l.was}`),
+    ...w.make.map(l => lnCommand(l.src, l.dest)),
   ];
 }
 
@@ -132,12 +138,21 @@ export function applyLinks(w: LinkWork, say: (s: string) => void): void {
     }
     for (const l of w.replace) {
       if (linkTarget(l.dest) !== l.was) throw new LinkFailed(`${l.dest} changed since the plan (it pointed at ${l.was})`, `nothing was replaced; rerun ep0ch install to see the plan`);
-      unlinkSync(l.dest);
-      link(l.src, l.dest, `${l.dest} was taken away and not linked again; link it by hand: ln -s ${l.src} ${l.dest}`);
+      // The new link beside it, renamed over it: the old one is there until the new one is.
+      const tmp = `${l.dest}.ep0ch-install`;
+      try {
+        rmSync(tmp, { force: true });
+        symlinkSync(l.src, tmp);
+        renameSync(tmp, l.dest);
+      } catch (e) {
+        rmSync(tmp, { force: true });
+        throw new LinkFailed(`replacing ${l.dest} failed: ${(e as Error).message}`, `it still points at ${l.was}; replace it by hand: ${lnCommand(l.src, l.dest, true)}`);
+      }
+      made.push(l.dest);
       say(`${l.dest} → ${l.src} (was ${l.was})`);
     }
     for (const l of w.make) {
-      link(l.src, l.dest, `nothing there was replaced; link it by hand: ln -s ${l.src} ${l.dest}`);
+      link(l.src, l.dest, `nothing there was replaced; link it by hand: ${lnCommand(l.src, l.dest)}`);
       say(`${l.dest} → ${l.src}`);
     }
   } finally { if (w.record) recordLinks(w.record, made, removed); }

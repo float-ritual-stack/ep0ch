@@ -1,6 +1,7 @@
 // `ep0ch doctor`: every piece of the stack, its state (✓ current, ! behind, ✗ missing, · for information)
 // and the exact command that fixes it. Read-only; built from the facts (model.ts) so tests describe machines.
 import { basename } from "node:path";
+import { lnCommand, sh } from "./links";
 import { PROTOCOL } from "@ep0ch/outline-core/protocol";
 import { DOCK_TILE_ID } from "../desk/agent-env";
 import { KEYED_ACTIONS, MIN_BUN, PLUGIN_ID, type Facts, short, staleness } from "./model";
@@ -127,12 +128,12 @@ export function skillChecks(f: Facts): Check[] {
   for (const l of f.skills.links) {
     const name = basename(l.dest);
     if (l.state === "ours") add(name, "ok", `${l.dest} → ${l.src}`);
-    else if (l.state === "missing") add(name, "missing", `no ${l.dest}`, `ln -s ${l.src} ${l.dest}   (or ep0ch install --apply)`);
-    else if (l.state === "replace") add(name, "behind", `${l.dest} → ${l.was}, another checkout's copy; install replaces it`, `ln -sfn ${l.src} ${l.dest}   (or ep0ch install --apply)`);
-    else if (l.was) add(name, "behind", `${l.dest} → ${l.was}, not this skill's copy; install leaves it`, `ln -sfn ${l.src} ${l.dest}   (if it should be this checkout's)`);
+    else if (l.state === "missing") add(name, "missing", `no ${l.dest}`, `${lnCommand(l.src, l.dest)}   (or ep0ch install --apply)`);
+    else if (l.state === "replace") add(name, "behind", `${l.dest} → ${l.was}, another checkout's copy; install replaces it`, `${lnCommand(l.src, l.dest, true)}   (or ep0ch install --apply)`);
+    else if (l.was) add(name, "behind", `${l.dest} → ${l.was}, not this skill's copy; install leaves it`, `${lnCommand(l.src, l.dest, true)}   (if it should be this checkout's)`);
     else add(name, "info", `${l.dest} is yours (not a link); install leaves it`);
   }
-  for (const s of f.skills.stale) add(basename(s.dest), "behind", `${s.dest} → ${s.target}, a skill that's gone`, `rm ${s.dest}   (or ep0ch install --apply)`);
+  for (const s of f.skills.stale) add(basename(s.dest), "behind", `${s.dest} → ${s.target}, a skill that's gone`, `rm ${sh(s.dest)}   (or ep0ch install --apply)`);
   return out;
 }
 
