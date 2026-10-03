@@ -365,8 +365,8 @@ export class Term extends Rows {
     this.guard = terminalGuard();
     process.stdin.setRawMode?.(true);
     process.stdin.resume();
-    process.stdin.on("data", (d: Buffer) => this.input(d));
-    process.stdout.on("resize", () => { this.measure(); this.invalidate(); this.resizeHandler(); });
+    process.stdin.on("data", this.onData);
+    process.stdout.on("resize", this.onResized);
     this.write("\x1b[?1049h\x1b[?25l\x1b[?7l\x1b[2J\x1b[?1002h\x1b[?1006h\x1b[?2004h");
     this.measure();
     const hint = kittyHint();
@@ -401,6 +401,15 @@ export class Term extends Rows {
     try { process.stdin.setRawMode?.(false); } catch { /* the same */ }
     try { process.stdin.pause(); } catch { /* the same */ }
     this.guard?.dismiss(); this.guard = null;
+  }
+
+  private readonly onData = (d: Buffer) => this.input(d);
+  private readonly onResized = () => { this.measure(); this.invalidate(); this.resizeHandler(); };
+  /** Put the terminal back for good: what it reads and listens to let go, so another Term can take it (the home base's, before the door's). */
+  close(): void {
+    this.stop();
+    process.stdin.off("data", this.onData);
+    process.stdout.off("resize", this.onResized);
   }
 
   /** Take the terminal back after another program ($EDITOR) had it: alt screen, mouse, a full repaint. */

@@ -1,5 +1,5 @@
 // The door on the outline host (PIE-466, PIE-530): every line names its outline; which outline is `--ws`, then
-// EP0CH_WS, then the nearest .ep0ch; a folder that names none is asked about (init, pick, import), never guessed;
+// EP0CH_WS, then the nearest .ep0ch; a folder that names none gets the home base (test/home.test.ts), never a guess;
 // `ep0ch outline|init|status` drive the host. Unit tests use a fake socket; the rest run against a scratch host.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
@@ -7,7 +7,7 @@ import { createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { hostSocketOf, resolveTarget, slugOutlineName } from "../src/discover";
-import { attachTarget, chooseOutline, deletionPlan, formatOutlines, nameTheOutline, parseOutlineArgs, writeDotEp0ch } from "../src/outlines";
+import { attachTarget, deletionPlan, formatOutlines, nameTheOutline, parseOutlineArgs, writeDotEp0ch } from "../src/outlines";
 import { PROTOCOL } from "@ep0ch/outline-core/protocol";
 import { type HostedOutline, hostRequest, SocketBoard, type OutlineEvent } from "../src/socket";
 import { hostOutliner, ScratchHost, until } from "./scratch";
@@ -151,13 +151,34 @@ describe("which outline the door opens (PIE-530)", () => {
     const saved = { HOME: process.env.HOME, EP0CH_OUTLINES: process.env.EP0CH_OUTLINES };
     try {
       process.chdir(plain); Object.assign(process.env, env);
-      const r = await nameTheOutline([], false) as { error: string };
+      const r = await nameTheOutline([], false, async () => null) as { error: string };
       expect(r.error).toContain(`ep0ch init (starts "jam-shelf", writing ${plain}/.ep0ch)`);
       expect(r.error).toContain("ep0ch outline import <database.sqlite> <name>");
-      expect(await nameTheOutline(["--ws", "pie"], false)).toEqual({ args: ["--ws", "pie"] });
+      expect(await nameTheOutline(["--ws", "pie"], false, async () => null)).toEqual({ args: ["--ws", "pie"] });
       writeDotEp0ch(plain, "jam-shelf");
-      expect(await nameTheOutline(["--desk"], false)).toEqual({ args: ["--desk", "--ws", "jam-shelf"] });
+      expect(await nameTheOutline(["--desk"], false, async () => null)).toEqual({ args: ["--desk", "--ws", "jam-shelf"] });
+      // A folder that names none, in a terminal: the home base's choice becomes the door's arguments, and its notice.
+      const attic = join(base, "attic");
+      mkdirSync(attic, { recursive: true });
+      process.chdir(attic);
+      const asked: unknown[] = [];
+      const chose = (c: Awaited<ReturnType<Parameters<typeof nameTheOutline>[2]>>) => async (a: unknown) => { asked.push(a); return c; };
+      expect(await nameTheOutline(["--desk"], true, chose({ outline: "fern", machine: "box-a", wrote: `${attic}/.ep0ch`, by: "helper" }))).toEqual({
+        args: ["--desk", "--ws", "fern", "--machine", "box-a"], notice: `an agent (helper) opened fern on box-a from the home base · ${attic}/.ep0ch names it now`,
+      });
+      // It's opened over the host the rule names (EP0CH_SOCKET's here), with the folder and its guess.
+      process.env.EP0CH_SOCKET = "/fictional/elsewhere.sock";
+      await nameTheOutline([], true, chose(null));
+      expect(asked.at(-1)).toEqual({ folder: attic, guess: { name: "attic", folder: attic }, socket: "/fictional/elsewhere.sock" });
+      delete process.env.EP0CH_SOCKET;
+      // A machine named with no outline opens the home base on it; a choice on this machine drops EP0CH_MACHINE.
+      process.env.EP0CH_MACHINE = "box-a";
+      expect(await nameTheOutline([], true, chose({ outline: "bob" }))).toEqual({ args: ["--ws", "bob"], notice: "opened bob from the home base" });
+      expect(asked.at(-1)).toMatchObject({ folder: attic, machine: "box-a" });
+      expect(process.env.EP0CH_MACHINE).toBeUndefined();
+      expect(await nameTheOutline([], true, chose(null))).toBeNull();
     } finally {
+      delete process.env.EP0CH_SOCKET; delete process.env.EP0CH_MACHINE;
       process.chdir(cwd);
       for (const [k, v] of Object.entries(saved)) v === undefined ? delete process.env[k] : process.env[k] = v;
     }
@@ -224,42 +245,6 @@ describe.skipIf(!hostOutliner)("the door against a scratch outline host", () => 
     expect(nameless.code).toBe(1);
     expect(nameless.err).toContain("Name the outline");
   });
-
-  test("init, pick and import when a folder names nothing; each writes .ep0ch, and q opens nothing", async () => {
-    const lines: string[] = [];
-    const answers = (...a: string[]) => { const queue = [...a]; return async (q: string) => { lines.push(q); return queue.shift() ?? "q"; }; };
-    const unnamed = (folder: string) => {
-      const t = resolveTarget([], host.env, folder);
-      if (!("unnamed" in t)) throw new Error(JSON.stringify(t));
-      return t;
-    };
-    // New: the folder's name is offered; Enter takes it.
-    const jam = host.folder("jam-shelf");
-    expect(await chooseOutline(unnamed(jam), answers("n", ""), l => lines.push(l))).toBe("jam-shelf");
-    expect(readFileSync(join(jam, ".ep0ch"), "utf8")).toBe('ws = "jam-shelf"\n');
-    expect(lines.join("\n")).toContain(`new outline "jam-shelf" (writes ${jam}/.ep0ch)`);
-    expect(existsSync(join(host.outlines, "jam-shelf.sqlite"))).toBe(true);
-    // Pick: by its number.
-    const attic = host.folder("quiet-attic");
-    const listed = (await hostRequest<{ outlines: { name: string }[] }>(host.sock, "outlines.list")).outlines.map(o => o.name);
-    expect(await chooseOutline(unnamed(attic), answers(String(listed.indexOf("fred") + 1)), () => {})).toBe("fred");
-    expect(readFileSync(join(attic, ".ep0ch"), "utf8")).toBe('ws = "fred"\n');
-    // Import: an older database becomes a new outline; the file is only read.
-    const old = join(host.root, "old-bob.sqlite");
-    const { Database } = await import("bun:sqlite");
-    const copy = new Database(join(host.outlines, "bob.sqlite"), { readonly: true });
-    copy.exec(`VACUUM INTO '${old}'`);
-    copy.close();
-    const ferns = host.folder("fern-ledger");
-    expect(await chooseOutline(unnamed(ferns), answers("i", old, ""), () => {})).toBe("fern-ledger");
-    expect(readFileSync(join(ferns, ".ep0ch"), "utf8")).toBe('ws = "fern-ledger"\n');
-    expect(existsSync(join(host.outlines, "fern-ledger.sqlite"))).toBe(true);
-    // A taken name is refused, then q quits: nothing named, nothing written.
-    const shed = host.folder("shed");
-    expect(await chooseOutline(unnamed(shed), answers("n", "bob", "q"), l => lines.push(l))).toBeNull();
-    expect(lines.join("\n")).toContain('already an outline named "bob"');
-    expect(existsSync(join(shed, ".ep0ch"))).toBe(false);
-  }, 30_000);
 
   test("ep0ch outline list|create|attach|import|stop|delete and status, with --json", async () => {
     const created = await run(host.root, "outline", "create", "uncle", "--json");

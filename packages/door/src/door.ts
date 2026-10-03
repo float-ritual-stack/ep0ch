@@ -3,7 +3,6 @@
 // attached to it) open it the same way; only the terminal differs.
 import { App, type AppTerm } from "./app";
 import { startControl } from "./control";
-import type { Mirror } from "./mirror";
 import { Logon } from "./screens";
 import { startScreens } from "./start";
 import type { BoardInfo } from "./board";
@@ -15,6 +14,12 @@ import { alive, claimState, readLastCall, readState, writeLastCall } from "./sta
 import { recoverEdits } from "./surface/editor";
 import type { TermInfo } from "./term";
 import { setTheme, startTheme } from "./theme";
+import { hostname } from "node:os";
+import { Term } from "./term";
+import { Mirror } from "./mirror";
+import { openScreen } from "./desk/screen-specs";
+import { hostSocketOf } from "./discover";
+import type { HomeArgs, HomeChoice } from "./home";
 
 export { readLastCall, writeLastCall };
 
@@ -24,7 +29,8 @@ export interface DoorOpen {
   mirror: Mirror;
   info: () => TermInfo;
   board: SocketBoard;
-  service: BoardInfo;
+  /** The outline the door is on; absent for the home base's door, which is on none yet (it reads no outline's events). */
+  service?: BoardInfo;
   args: readonly string[];
   /** Said once it's up, when nothing more pressing is (`created outline pie`, the folder's binding). */
   notice?: string;
@@ -44,12 +50,14 @@ export async function openDoor(o: DoorOpen): Promise<Door> {
   // The theme: EP0CH_THEME, else the one chosen last time (theme.set keeps it in the state dir), else calm.
   setTheme(startTheme(process.env.EP0CH_THEME, readState<{ name?: string }>("theme.json")?.name));
   const app: App = new App(o.term, o.board, lastCall, () => o.done(app));
-  app.host = o.service.host;
-  app.workspace = o.service.workspace;
-  app.outline = o.service.outline;
-  o.board.subscribe(e => app.event(e));
-  // The service's extensions (PIE-512): their lines, actions and tile kinds, bound as soon as the list is read.
-  void app.loadExtensions();
+  if (o.service) {
+    app.host = o.service.host;
+    app.workspace = o.service.workspace;
+    app.outline = o.service.outline;
+    o.board.subscribe(e => app.event(e));
+    // The service's extensions (PIE-512): their lines, actions and tile kinds, bound as soon as the list is read.
+    void app.loadExtensions();
+  } else { app.host = hostname(); app.workspace = "home base"; }
   // Served before any screen starts: terminal tiles are given its path (EP0CH_CONTROL) when they start.
   let refused = "";
   const control = await startControl({ app, mirror: o.mirror, info: o.info }).catch(e => { refused = `no control socket: ${(e as Error).message}`; return null; });
@@ -104,6 +112,50 @@ export async function connectTarget(args: readonly string[]): Promise<{ board: S
     board.close();
     return { error: `no carrier on ${board.path}\n  ${(e as Error).message}` };
   }
+}
+
+/**
+ * The home base (src/home.ts) in this terminal, before a door is on an outline: a door on the host the rule names
+ * (`args.socket`: EP0CH_SOCKET's, else this machine's) with no outline, its one screen the home base, its control socket
+ * served (so `act home.open …` works too). Resolves to the outline chosen, or null when the person quits. The terminal
+ * is let go of either way (a crash too), for the door that follows. Not main's door runner: that one ends the process;
+ * this one hands the terminal on.
+ */
+export async function homeBase(args: HomeArgs): Promise<HomeChoice | null> {
+  const term = new Term();
+  const board = new SocketBoard(args.socket ?? hostSocketOf());
+  let finish: (c: HomeChoice | null) => void = () => {};
+  const chosen = new Promise<HomeChoice | null>(r => { finish = r; });
+  let choice: HomeChoice | null = null, door: Door | null = null;
+  const resized = () => mirror?.resize(process.stdout.columns || term.info.cols, process.stdout.rows || term.info.rows);
+  let mirror: Mirror | null = null, over = false;
+  const end = () => {
+    if (over) return;
+    over = true;
+    door?.control?.close(); board.close(); term.close();
+    for (const [s, f] of handlers) process.off(s, f);
+    process.stdout.off("resize", resized);
+    finish(choice);
+  };
+  // A signal here ends the home base (nothing to keep yet), and the terminal is put back.
+  const handlers = (["SIGHUP", "SIGTERM", "SIGINT", "SIGQUIT"] as const).map(s => [s, () => { end(); process.exit(s === "SIGHUP" || s === "SIGTERM" ? 0 : 130); }] as const);
+  for (const [s, f] of handlers) process.on(s, f);
+  try {
+    await term.start();
+    const m = (mirror = new Mirror(term.info.cols, term.info.rows));
+    const raw = term.write;
+    term.write = (s: string) => { raw(s); m.write(s); };
+    process.stdout.prependListener("resize", resized);
+    door = await openDoor({
+      term, mirror: m, info: () => term.info, board, args: [],
+      start: async app => {
+        app.home = { choose(c) { choice = c; app.quit(); } };
+        app.push(openScreen("home", { folder: args.folder, ...(args.guess ? { guess: args.guess } : {}), ...(args.machine ? { machine: args.machine } : {}) }));
+      },
+      done: () => end(),
+    });
+  } catch (e) { end(); throw e; }
+  return chosen;
 }
 
 /** How the door is ending, once it is: the exit code, and the crash that ended it. */

@@ -22,6 +22,7 @@ import type { Msg } from "../src/board";
 import type { Key } from "../src/term";
 import type { Screen } from "../src/app";
 import { Desk } from "../src/desk/desk";
+import { openScreen } from "../src/desk/screen-specs";
 import { PtyPane } from "../src/desk/pty";
 import { SEED } from "../src/showcase/seed";
 import { external } from "../src/open";
@@ -401,6 +402,8 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     ["main menu", () => new MainMenu()],
     ...MENU_SCREENS.filter(([key]) => key !== "G" && key !== "!" && key !== "E").map(([key, make]): Scenario => [key, () => make(app) as Screen]),
     ["message reader", () => new MessageReader(notes, 0)],
+    // The home base, opened by name on a door that is on an outline: it shows, and its choices are refused (no home).
+    ["home base", () => openScreen("home", { folder: scratch.root })],
   ];
 
   // ── the board in its other states (the keys and clicks of each area) ──

@@ -6,7 +6,8 @@
 //
 // EP0CH_SSH names the ssh to run (tests give a fake one); ssh is the default.
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { homedir } from "node:os";
+import { basename, dirname, isAbsolute, join } from "node:path";
 import { type Forward, type ForwardState, forwardState } from "@ep0ch/outline-core/machine";
 import { forwardFor, forwardOptions } from "@ep0ch/outliner/src/machine-forward";
 import { isMachineName } from "@ep0ch/outline-core/outline-location";
@@ -65,6 +66,33 @@ export function forgetMachine(name: string): boolean {
   if (!list.some(m => m.name === name)) return false;
   writeState(FILE, { machines: list.filter(m => m.name !== name) });
   return true;
+}
+
+/**
+ * The machines ssh config names: each `Host` alias in ~/.ssh/config and the files it `Include`s, without patterns
+ * (`*`, `?`, `!`). What the home base offers to add; ssh itself is what reaches them.
+ */
+export function sshConfigNames(env: Env = process.env): string[] {
+  const home = env.HOME || homedir(), names = new Set<string>(), seen = new Set<string>();
+  const read = (file: string, depth: number) => {
+    if (depth > 4 || seen.has(file)) return;
+    seen.add(file);
+    let text: string;
+    try { text = readFileSync(file, "utf8"); } catch { return; }
+    for (const raw of text.split(/\r?\n/)) {
+      const m = /^\s*(host|include)(?:\s*=\s*|\s+)(.+?)\s*$/i.exec(raw.replace(/#.*$/, ""));
+      if (!m) continue;
+      const words = m[2]!.split(/\s+/).map(w => w.replace(/^"|"$/g, ""));
+      if (m[1]!.toLowerCase() === "host") { for (const w of words) if (isMachineName(w)) names.add(w); continue; }
+      for (const w of words) {
+        const pattern = w.replace(/^~(?=\/)/, home), abs = isAbsolute(pattern) ? pattern : join(home, ".ssh", pattern);
+        try { for (const f of new Bun.Glob(basename(abs)).scanSync({ cwd: dirname(abs), absolute: true, onlyFiles: true })) read(f, depth + 1); }
+        catch { /* a folder that isn't there includes nothing */ }
+      }
+    }
+  };
+  read(join(home, ".ssh", "config"), 0);
+  return [...names].sort();
 }
 
 // ── the door session on another machine ──

@@ -86,14 +86,14 @@ describe("--machine: an outline on another machine, through the forward", () => 
     const before = forwards();
     process.kill(forwarderPid());
     await Bun.sleep(200);
-    expect(await nameTheOutline(["--machine", "box-a", "--ws", "garden"], false)).toEqual({ args: ["--machine", "box-a", "--ws", "garden"] });
+    expect(await nameTheOutline(["--machine", "box-a", "--ws", "garden"], false, async () => null)).toEqual({ args: ["--machine", "box-a", "--ws", "garden"] });
     expect(forwards()).toBe(before + 1);
     const folder = join(here, "far-session");
     mkdirSync(folder, { recursive: true });
     writeFileSync(join(folder, ".ep0ch"), 'ws = "garden"\nmachine = "box-a"\n');
     const cwd = process.cwd();
     process.chdir(folder);
-    try { expect(await nameTheOutline(["--desk"], false)).toEqual({ args: ["--desk", "--ws", "garden", "--machine", "box-a"] }); }
+    try { expect(await nameTheOutline(["--desk"], false, async () => null)).toEqual({ args: ["--desk", "--ws", "garden", "--machine", "box-a"] }); }
     finally { process.chdir(cwd); }
   }, 30_000);
 

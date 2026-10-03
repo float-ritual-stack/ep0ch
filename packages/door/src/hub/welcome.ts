@@ -25,7 +25,7 @@ import type { Placement } from "../kitty";
 import { artNamed } from "../packs";
 import { USER, type Actor, type OutlineEvent, type SocketBoard } from "../socket";
 import { artLines, C, chip, ellipsize, fg, pad, paint, RESET, selected, width } from "../style";
-import { ch, isUp, isDown, type Key } from "../term";
+import { ch, isUp, isDown, type Key, type TermInfo } from "../term";
 import { bbsDate, wrap } from "../text";
 import { ActionRefused, actionSet, def } from "../surface/actions";
 import type { OpenHow } from "../surface/note";
@@ -103,6 +103,23 @@ export function densest(rows: Cell[][], n: number): Cell[][] {
   let best = 0, at = 0;
   for (let i = 0; i + n <= rows.length; i++) { const s = ink.slice(i, i + n).reduce((a, b) => a + b, 0); if (s > best) { best = s; at = i; } }
   return rows.slice(at, at + n);
+}
+
+/**
+ * A logo across the top of `r` with the words beside it when there's room (the welcome's band, the home base's): drawn
+ * in cells, or as an image under Kitty. Where the logo went, and the images to place.
+ */
+export function drawLogo(canvas: Canvas, r: Rect, ctx: { t: TermInfo; graphics: boolean }, logo: { rows: Cell[][]; width: number }, key: string, info: string[]): { x0: number; withInfo: boolean; placements: Placement[] } {
+  const infoW = Math.max(0, ...info.map(l => width(paint(l))));
+  const gap = 4, withInfo = info.length > 0 && r.cols >= logo.width + gap + infoW + 4;
+  const x0 = Math.max(0, Math.floor((r.cols - logo.width - (withInfo ? gap + infoW : 0)) / 2));
+  const b = artBlock(logo.rows, logo.width, ctx.t, { key, at: { col: x0, row: r.row }, maxRows: logo.rows.length, fit: "grid", graphics: ctx.graphics });
+  if (!ctx.graphics) artLines(logo.rows, 0, 0, logo.width, logo.rows.length).forEach((l, i) => canvas.text(x0, r.row + i, l, Math.min(logo.width, r.cols - x0)));
+  if (withInfo) {
+    const top = r.row + Math.max(0, Math.floor((logo.rows.length - info.length) / 2));
+    info.forEach((l, i) => canvas.text(x0 + logo.width + gap, top + i, paint(l), r.cols - x0 - logo.width - gap));
+  }
+  return { x0, withInfo, placements: ctx.graphics ? b.placements : [] };
 }
 
 // ── the tiles ───────────────────────────────────────────────────────────────────────────────────────────
@@ -305,19 +322,9 @@ export class WelcomeList implements Pane {
     const logo = this.logoFor(ctx.t.rows);
     let placements: Placement[] = [];
     if (logo) {
-      const info = this.info(desk);
-      const infoW = Math.max(...info.map(l => width(paint(l))));
-      const gap = 4, withInfo = r.cols >= logo.width + gap + infoW + 4;
-      const total = logo.width + (withInfo ? gap + infoW : 0);
-      const x0 = Math.max(0, Math.floor((r.cols - total) / 2));
-      const b = artBlock(logo.rows, logo.width, ctx.t, { key: `welcome-logo-${this.logo}`, at: { col: x0, row: r.row }, maxRows: logo.rows.length, fit: "grid", graphics: ctx.graphics });
-      if (ctx.graphics) placements = b.placements;
-      else artLines(logo.rows, 0, 0, logo.width, logo.rows.length).forEach((l, i) => canvas.text(x0, r.row + i, l, Math.min(logo.width, r.cols - x0)));
-      this.tabs.push({ y0: r.row, y1: r.row + logo.rows.length - 1, from: x0, to: x0 + logo.width, logo: true });
-      if (withInfo) {
-        const top = r.row + Math.max(0, Math.floor((logo.rows.length - info.length) / 2));
-        info.forEach((l, i) => canvas.text(x0 + logo.width + gap, top + i, paint(l), r.cols - x0 - logo.width - gap));
-      }
+      const drawn = drawLogo(canvas, r, ctx, logo, `welcome-logo-${this.logo}`, this.info(desk));
+      placements = drawn.placements;
+      this.tabs.push({ y0: r.row, y1: r.row + logo.rows.length - 1, from: drawn.x0, to: drawn.x0 + logo.width, logo: true });
     }
     this.drawTabs(canvas, r.row + r.rows - 1, r.cols, !logo);
     return placements;

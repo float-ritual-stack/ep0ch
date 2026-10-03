@@ -95,12 +95,43 @@ The door opens outlines like Herdr sessions (PIE-530):
 
 The rule is outline-core's `whichOutline`, the one every client applies (the outliner's Herdr panes, its CLI,
 the Claude mod): `--ws`, then `EP0CH_WS`, then the nearest `.ep0ch`. Nothing else names an outline. In a folder
-that names none, `ep0ch` asks before it opens: start a new outline (the folder's or repository's name offered),
-pick one of the host's, or import an older database (a new outline holding its notes, properties, pages and work
-ids; the file is only read); each writes `.ep0ch`, so the next `ep0ch` there opens directly, and moving or
-renaming the folder changes nothing. Without a terminal it says what to run instead. Every request and the subscription
+that names none, `ep0ch` opens the [home base](#the-home-base) first. Without a terminal it says what to run
+instead (`ep0ch init`, `--ws`, `ep0ch outline import`: the same choices for scripts and agents). Every request and the subscription
 name the outline. The status bar and `peek` show `host · outline`. Only opening the door (or `init`) creates an
 outline; the listings and `clients` never do (`src/discover.ts`, `resolveTarget`; `src/outlines.ts`).
+
+### The home base
+
+Bare `ep0ch` where nothing names an outline opens the home base: a screen like any other (a spec on the desk,
+`src/home.ts`), the ep0ch logo over one list.
+
+- **This machine**: its host's outlines, then `+ new outline…` (the folder's or repository's name offered) and
+  `↧ import a database…` (a new outline holding an older database's notes, properties, pages and work ids; the
+  file is only read).
+- **Other machines**: the ones opened from here (`machines.json` in the state dir), each with its outlines once its
+  forward is up (⏎ on a machine connects; nothing is started by just looking), and `+ add a machine…`, which lists
+  the `Host` names in `~/.ssh/config` (and the files it includes) not added yet; a name typed that isn't there is
+  offered too. `x` takes a machine off the list.
+- **Choosing an outline** opens the door on it. Started in a folder that can be named (not `$HOME`, `/` or one
+  right under `/`), the home base offers to write its `.ep0ch` (`ws`, and `machine` for one on another machine), so
+  the next `ep0ch` there opens it directly, or to open it this time only.
+
+| Key | Mouse | `act` |
+|---|---|---|
+| `j` `k` `↑` `↓`, the wheel | | `home.pick n=` |
+| `⏎` on an outline | a click on it | `home.open outline= [machine=] [write=true]` (an agent's writes `.ep0ch` only with `write=true`) |
+| `⏎` on a machine | a click on it | `home.connect machine=` |
+| `n` (on a machine's rows: on that machine) | a click on `+ new outline…` | `home.new name= [machine=]` |
+| `i` | a click on `↧ import a database…` | `home.import path= name=` |
+| `a` | a click on `+ add a machine…` | `home.add machine=` |
+| `x` on a machine | | `home.forget machine=` |
+| `r` | | `home.reload` |
+| `q`, `esc` | the hint row's `q` | quits: nothing is opened |
+
+What a choice needs typed or picked (a name, a file, a machine, whether to write `.ep0ch`) is a list picker over
+the screen; ⏎ or a click on its row does it, `esc` goes back. The home base runs before any door session; with
+one running, `ep0ch` attaches to it as before. Opened by name on a door that is on an outline, it shows what it
+shows but makes, connects and opens nothing.
 
 ### Outlines on other machines
 

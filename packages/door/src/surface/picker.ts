@@ -7,7 +7,7 @@ import type { Canvas, Rect } from "../canvas";
 import { RowView } from "../scroll";
 import { bg, C, fg, pad, RESET, selected } from "../style";
 import { ch, isDown, isUp, type Key } from "../term";
-import type { LineInput } from "./line";
+import { LineInput } from "./line";
 import type { Mode } from "./modes";
 
 /** Its box, title and foot, lines above and below the list, and lines beside a list `w` wide (the search's preview). */
@@ -131,6 +131,23 @@ export class ListPicker<T, H> implements Mode<H> {
     }
     tail.forEach((l, i) => canvas.text(r.col + 1, r.row + r.rows - 1 - tail.length + i, l, w));
   }
+}
+
+/** A box `w` by `h` over the screen: centred across, a third of the way down. */
+export const centred = (a: Rect, w: number, h: number): Rect => ({ col: Math.floor((a.cols - w) / 2), row: Math.floor((a.rows - h) / 3), cols: w, rows: h });
+
+/**
+ * One line to type in a box over the screen (a layout's name, a new outline's name, a file): the line, then the one
+ * row that does it once something is typed (`doing` says what), so ⏎ or a click on that row runs `done`.
+ */
+export function linePrompt<H>(o: { name: string; title: string; text: string; prefilled?: boolean; doing: (t: string) => string; done: (t: string, host: H) => void; head?: string[]; w?: number }): ListPicker<string, H> {
+  const input = new LineInput(o.text, o.prefilled ?? true);
+  return new ListPicker<string, H>({
+    name: o.name, input, items: () => (input.text.trim() ? [o.doing(input.text.trim())] : []),
+    row: (it, _i, on, w) => [pickRow(` ${it}`, on, w)],
+    choose: (_it, _i, host) => o.done(input.text.trim(), host),
+    frame: a => { const w = Math.min(o.w ?? 70, a.cols - 4), head = o.head ?? []; return { rect: centred(a, w, 4 + head.length), title: o.title, foot: "⏎ or a click · esc back", head: [" " + input.show(w - 4), ...head] }; },
+  });
 }
 
 /** A row in the picker's colours: lit when the cursor is on it, else in `ink`. */

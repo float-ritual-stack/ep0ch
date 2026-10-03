@@ -9,7 +9,7 @@ import { resolveTarget } from "./discover";
 import { nameTheOutline, parseOutlineArgs, runOutlineCommand } from "./outlines";
 import { Mirror } from "./mirror";
 import { whereCommand } from "./where";
-import { connectTarget, guardDoor, openDoor, writeLastCall, type Door } from "./door";
+import { connectTarget, guardDoor, homeBase, openDoor, writeLastCall, type Door } from "./door";
 import { attachDoor, doorMode, sessionCommand } from "./session/client";
 import { forwardTo, remoteDoor, remoteOf } from "./machine";
 
@@ -26,8 +26,10 @@ const USAGE = `ep0ch: a BBS door into an outline
                                    EP0CH_LANDING=welcome lands there after the logon.
                                    Which outline: --ws <name> from anywhere, else EP0CH_WS, else the
                                    nearest .ep0ch from this folder up (it holds ws = "<name>"). A name
-                                   nobody has yet is created (like herdr --session <name>). A folder that
-                                   names none asks: init (the folder's name offered), pick or import.
+                                   nobody has yet is created (like herdr --session <name>). Where none is
+                                   named, the home base: this machine's outlines (open, new, import) and the
+                                   machines opened from here (add one from ~/.ssh/config); choosing one opens
+                                   it and offers to write the folder's .ep0ch.
                                    Outlines are <name>.sqlite in EP0CH_OUTLINES (~/outlines).
                                    Which machine: --machine <ssh-name> (a Host in ~/.ssh/config), else
                                    EP0CH_MACHINE, else the machine = "<ssh-name>" of the .ep0ch that named
@@ -122,15 +124,18 @@ if (args[0] === "clients") {
   process.exit(0);
 }
 // The door: attached to this state dir's session (started when sessions are on and none runs), or in this terminal.
+/** What the home base chose, said once the door is up (in this terminal; a session started from it shows the screen). */
+let homeNotice: string | undefined;
 const how = await doorMode(args);
 // A door about to open on an outline of its own (no session to attach to): which outline. A folder that names none
-// asks the person (init, pick or import) and goes on with --ws <their choice> (PIE-530).
+// opens the home base in this terminal (src/home.ts) and goes on with --ws <their choice> (PIE-530).
 // Without a terminal, a session isn't started at all (attachDoor says so); nothing to ask.
 if (!(how.mode === "attach" && (how.running || !process.stdin.isTTY))) {
-  const named = await nameTheOutline(args);
+  const named = await nameTheOutline(args, !!process.stdin.isTTY, homeBase);
   if (!named) process.exit(1);
   if ("error" in named) { console.error(`ep0ch: ${named.error}`); process.exit(1); }
   args = named.args;
+  homeNotice = named.notice;
 }
 // Attaching to a session that runs: a machine it names gets its forward started from here, where ssh has the person's
 // agent (the session's daemon has none of its own), so `ep0ch --machine <name>` again brings a dropped forward back.
@@ -179,7 +184,8 @@ term.write = (s: string) => { rawWrite(s); mirror.write(s); };
 process.stdout.prependListener("resize", () => mirror.resize(process.stdout.columns || term.info.cols, process.stdout.rows || term.info.rows));
 const loggedOnAt = Date.now();
 door = await openDoor({
-  term, mirror, info: () => term.info, board: opened.board, service: opened.service, args, ...(opened.notice ? { notice: opened.notice } : {}),
+  term, mirror, info: () => term.info, board: opened.board, service: opened.service, args,
+  ...(opened.notice || homeNotice ? { notice: [homeNotice, opened.notice].filter(Boolean).join(" · ") } : {}),
   done(app) {
     term.stop();                                          // never throws: a terminal that's gone is skipped
     const ending = guard.ending();

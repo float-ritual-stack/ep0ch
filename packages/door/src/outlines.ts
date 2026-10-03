@@ -3,16 +3,17 @@
 // `attach` opens the door on the outline, the same as `ep0ch --ws <name>`. `--json` prints the host's answer for
 // agents. Nothing here reads or writes an outline's notes.
 //
-// A folder that names no outline (no --ws, no EP0CH_WS, no .ep0ch) gets init, pick or import when the door opens
-// there (`chooseOutline`): never a guess taken silently. Each writes `.ep0ch`, so the next `ep0ch` there is direct.
+// A folder that names no outline (no --ws, no EP0CH_WS, no .ep0ch) gets the home base when the door opens there
+// (src/home.ts): never a guess taken silently. Choosing there offers to write `.ep0ch`, so the next `ep0ch` is direct.
 import { readFileSync, renameSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline/promises";
 import { dirname, join, resolve } from "node:path";
-import { DOT_EP0CH, formatDotEp0ch, freeOutlineName as freeName, isMachineName, isOutlineName, slugifyOutlineName, tooBroadToName } from "@ep0ch/outline-core/outline-location";
+import { DOT_EP0CH, formatDotEp0ch, isMachineName, tooBroadToName } from "@ep0ch/outline-core/outline-location";
 import { homedir } from "node:os";
 import { hostLive, hostSocketOf, outlinesDir, resolveTarget, type Target } from "./discover";
 import { hostRequest, type HostedOutline, OUTLINE_NAME } from "./socket";
 import { forwardTo } from "./machine";
+import type { HomeArgs, HomeChoice } from "./home";
 
 /** `machine`: `--machine <ssh-name>`, the host that machine's, through its forward (else the one rule: runOutlineCommand). */
 export type OutlineCommand = { machine?: string } & (
@@ -206,62 +207,8 @@ export async function attachTarget(target: { path: string; outline?: string; att
   return { created: r.created };
 }
 
-/** One line of a prompt, answered. */
-export type Ask = (question: string) => Promise<string>;
-
-/**
- * A folder that names no outline: ask, on the terminal, whether to start one (named by the folder's guess, or
- * typed), pick one of the host's, or import a database; write `.ep0ch` where the folder may be named. Resolves to
- * the outline's name, or null when the person quits. Without a terminal it never asks: the caller says what to run.
- */
-export async function chooseOutline(target: Extract<Target, { unnamed: string }>, ask: Ask, say: (line: string) => void): Promise<string | null> {
-  const host = await hostLive(target.path);
-  if (!host) throw new Error(`${target.unnamed}, and no outline host answers at ${target.path} to start or pick one`);
-  const where = target.guess ? `writes ${target.guess.folder}/.ep0ch` : "this time only: the folder is too broad to name";
-  const offered = target.guess ? freeName(target.guess.name, host.outlines) : undefined;
-  say(`No outline is named for ${target.folder} (no --ws, no EP0CH_WS, no .ep0ch here or above).`);
-  say(`  n) new outline${offered ? ` "${offered}"` : ""} (${where})`);
-  host.outlines.forEach((name, i) => say(`  ${i + 1}) ${name}`));
-  say(`  i) import a database (.sqlite): a new outline from its notes, properties, pages and work ids`);
-  say("  q) quit");
-  for (;;) {
-    const answer = (await ask(`Choose [n${host.outlines.length ? `, 1-${host.outlines.length}` : ""}, i, q]: `)).trim().toLowerCase();
-    let name: string | undefined;
-    if (answer === "q" || answer === "") return null;
-    if (answer === "n") {
-      name = (await ask(`Name${offered ? ` [${offered}]` : ""}: `)).trim() || offered;
-      if (!name || !isOutlineName(name)) { say(`"${name ?? ""}" isn't an outline name: lowercase letters, digits and hyphens, up to 32`); continue; }
-      if (host.outlines.includes(name)) { say(`there is already an outline named "${name}": pick it by its number`); continue; }
-      await hostRequest(target.path, "outlines.create", { name });
-      say(`created outline ${name}`);
-    } else if (answer === "i" && target.remote) {
-      say("import reads a file on the host's machine; run ep0ch outline import there");
-      continue;
-    } else if (answer === "i") {
-      const file = (await ask("Database file: ")).trim().replace(/^~(?=\/)/, process.env.HOME ?? "~");
-      if (!file) continue;
-      const path = resolve(file);
-      name = (await ask(`Name [${freeName(target.guess?.name ?? slugifyOutlineName(path.split("/").at(-1)!.replace(/\.sqlite$/, "")), host.outlines)}]: `)).trim()
-        || freeName(target.guess?.name ?? slugifyOutlineName(path.split("/").at(-1)!.replace(/\.sqlite$/, "")), host.outlines);
-      if (!isOutlineName(name)) { say(`"${name}" isn't an outline name`); continue; }
-      try {
-        const r = await hostRequest<{ imported: { blocks: number } }>(target.path, "outlines.import", { path, name }, 600_000);
-        say(`imported ${path} as ${name} (${r.imported.blocks} blocks)`);
-      } catch (e) { say(`not imported: ${(e as Error).message}`); continue; }
-    } else if (/^\d+$/.test(answer) && host.outlines[Number(answer) - 1]) {
-      name = host.outlines[Number(answer) - 1]!;
-    } else {
-      say(`"${answer}" isn't one of the choices`);
-      continue;
-    }
-    if (target.guess) say(`${writeDotEp0ch(target.guess.folder, name)} names it`);
-    return name;
-  }
-}
-
-
 /** A line read from the terminal, asked on stderr (the door's stdout is its screen). */
-export async function askLine(question: string): Promise<string> {
+async function askLine(question: string): Promise<string> {
   const rl = createInterface({ input: process.stdin, output: process.stderr });
   try { return await rl.question(question); } finally { rl.close(); }
 }
@@ -279,24 +226,36 @@ export function unnamedHelp(target: Extract<Target, { unnamed: string }>): strin
 }
 
 /**
- * Before a door opens: the outline it opens, by the rule; when the folder names none, the person is asked (init,
- * pick or import) and the door goes on with `--ws <their choice>`. Resolves to the arguments to open with, or what
+ * Before a door opens: the outline it opens, by the rule; when the folder names none, `home` (the home base, src/home.ts,
+ * which main passes in) opens in this terminal and the door goes on with what was chosen there (`--ws <name>`, and
+ * `--machine` for one on another machine; a choice on this machine drops an EP0CH_MACHINE the shell had, so the door
+ * that follows is this machine's). Resolves to the arguments to open with and what to say once the door is up, or what
  * to print (an error, or null when they quit).
  */
-export async function nameTheOutline(args: string[], interactive = !!process.stdin.isTTY, ask: Ask = askLine,
-  say: (line: string) => void = line => console.error(line)): Promise<{ args: string[] } | { error: string } | null> {
+export async function nameTheOutline(args: string[], interactive: boolean,
+  home: (a: HomeArgs) => Promise<HomeChoice | null>): Promise<{ args: string[]; notice?: string } | { error: string } | null> {
   const target = resolveTarget(args);
   if ("error" in target) return { error: target.error };
   // Named: said explicitly from here on (the machine too), so a session started now (or its next daemon) opens this
   // outline whatever its folder's .ep0ch or EP0CH_MACHINE says later.
   const on = target.machine && !args.includes("--machine") ? ["--machine", target.machine] : [];
   // The forward is started here, in the person's terminal, where ssh can ask their agent for the key; a session's
-  // daemon (which outlives the terminal, and its agent) then finds it up.
-  if (target.machine) {
+  // daemon (which outlives the terminal, and its agent) then finds it up. (The home base connects a machine it's
+  // given itself, in this same terminal.)
+  if (target.machine && !("unnamed" in target)) {
     try { await forwardTo(target.machine); } catch (e) { return { error: `can't reach the outline host on ${target.machine}: ${(e as Error).message}` }; }
   }
   if (!("unnamed" in target)) return { args: [...(args.includes("--ws") ? args : [...args, "--ws", target.outline]), ...on] };
   if (!interactive) return { error: unnamedHelp(target) };
-  const name = await chooseOutline(target, ask, say);
-  return name ? { args: [...args, "--ws", name, ...on] } : null;
+  const chosen = await home({
+    folder: target.folder, ...(target.guess ? { guess: target.guess } : {}),
+    ...(target.machine ? { machine: target.machine } : { socket: target.path }),
+  });
+  if (!chosen) return null;
+  if (!chosen.machine) delete process.env.EP0CH_MACHINE;
+  const who = chosen.by ? `an agent (${chosen.by}) opened` : "opened";
+  return {
+    args: [...args.filter((a, i) => a !== "--machine" && args[i - 1] !== "--machine"), "--ws", chosen.outline, ...(chosen.machine ? ["--machine", chosen.machine] : [])],
+    notice: `${who} ${chosen.outline}${chosen.machine ? ` on ${chosen.machine}` : ""} from the home base${chosen.wrote ? ` · ${chosen.wrote} names it now` : ""}`,
+  };
 }
