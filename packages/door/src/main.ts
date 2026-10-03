@@ -15,6 +15,7 @@ import { forwardTo, remoteDoor, remoteOf } from "./machine";
 import { findCommand, NOTES_USAGE, showCommand } from "./notes-cli";
 import { EXPORT_USAGE } from "./export";
 import { showcaseTry } from "./showcase/route";
+import { checkWords, usageFor } from "./cli-words";
 
 let args = process.argv.slice(2);
 const USAGE = `ep0ch: a BBS door into an outline
@@ -103,8 +104,14 @@ ${EXPORT_USAGE}
   ep0ch --skill [--all] [<name>]
                                    the stack's skills (this door's and the installed Outliner's), or the
                                    path of one skill's SKILL.md; --all adds contributor skills
-  ep0ch help`;
-if (["help", "--help", "-h"].includes(args[0] ?? "")) { console.log(USAGE); process.exit(0); }
+  ep0ch help [<command>]           this, or one command's part of it; --help and -h do the same anywhere
+                                   (ep0ch session --help). A word ep0ch doesn't know, command or door flag,
+                                   is said with the closest one it does (exit 2), and opens no door`;
+// A word ep0ch doesn't know is said, with the closest it does, and opens no door; --help, -h and help print usage (the
+// command's own when one is named) from anywhere (PIE-547, src/cli-words.ts).
+const words = checkWords(args);
+if (words && "help" in words) { console.log(usageFor(USAGE, words.help)); process.exit(0); }
+if (words) { console.error(`ep0ch: ${words.error}`); process.exit(2); }
 // --remote <machine>: the door runs there; this terminal only carries it (src/machine.ts).
 // An outline the machine doesn't have is never made there without --create (PIE-545): nameRemoteOutline asks it first,
 // and the home base here offers the choices; the one on this machine opens a door here instead.
