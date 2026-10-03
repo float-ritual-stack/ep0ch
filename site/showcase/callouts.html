@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0d1016">
+<style>html{background:#0d1016;color:#c8cace;color-scheme:dark}</style>
+<script>try{if(localStorage.getItem("ep0ch-docs-tone")==="night")document.documentElement.dataset.tone="night"}catch(e){}</script>
+<title>Callouts · ep0ch</title>
+<meta name="description" content="Boxed asides in a note: write > [!type] Title, and the door frames, nests and folds it, and changes its type with a click.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:ital,wght@0,400;0,600;0,700;1,400&amp;family=JetBrains+Mono:wght@400;500;600;700&amp;display=swap">
+<link rel="stylesheet" href="../assets/tokens.css">
+<link rel="stylesheet" href="../vendor/asciinema-player.css">
+<link rel="stylesheet" href="../assets/site.css">
+</head>
+<body data-page="feature">
+<header class="masthead">
+  <a class="mark" href="../kitchen-sink.html"><span>─=[</span> <b>ep0ch</b> docs <span>]=─</span></a>
+  <nav aria-label="Sections">
+    <a href="callouts.html" aria-current="true">Showcase</a>
+    <a href="../build/callout-type.html">Build</a>
+    <a href="../build/callout-type.html#reference">Reference</a>
+    <a href="../kitchen-sink.html#ia">Concepts</a>
+    <a href="../kitchen-sink.html">Kitchen sink</a>
+  </nav>
+</header>
+
+<div class="shell">
+  <aside class="index" aria-label="Showcase pages">
+    <details open>
+      <summary>showcase</summary>
+      <ol>
+        <li class="group">Reading</li>
+        <li><a href="callouts.html" aria-current="page">Callouts</a></li>
+        <li><a aria-disabled="true">Folds</a></li>
+        <li><a aria-disabled="true">Live figures</a></li>
+        <li><a aria-disabled="true">Links and backlinks</a></li>
+        <li class="group">Tiles and screens</li>
+        <li><a aria-disabled="true">Splits, tabs, drawers</a></li>
+        <li><a aria-disabled="true">The board</a></li>
+        <li class="group">Agents</li>
+        <li><a aria-disabled="true">An agent beside you</a></li>
+      </ol>
+    </details>
+  </aside>
+
+  <main id="main">
+    <article class="page">
+      <ol class="crumbs"><li><a href="callouts.html">Showcase</a></li><li><a href="callouts.html">Reading</a></li><li aria-current="page">Callouts</li></ol>
+
+      <header class="page-head">
+        <span class="kind">Feature</span>
+        <h1>Callouts</h1>
+        <p class="lede">A boxed aside in a note. Write <code>&gt; [!warning] Title</code>, as Obsidian does, and the door draws it in a frame with its icon. Callouts nest, fold, and change type with a click. Use one when a line has to stand apart from the prose: a risk, a summary, a question waiting on someone.</p>
+        <p class="meta"><span>showcase section <b>21 · callouts</b></span><span>work <b>PIE-538</b></span><span>works by <b>keys · mouse · act</b></span></p>
+      </header>
+
+      <figure class="cast" data-cast="../casts/callouts.cast">
+        <figcaption class="cast-head"><b>cast · callouts</b><span>an agent drives the showcase section</span><span class="push" data-cast-length>0:19 · 6 chapters</span></figcaption>
+        <div class="cast-body">
+          <div class="cast-screen"><pre class="poster" aria-label="The first frame of the recording"><span style="color:var(--term-9)">─=</span><span style="color:var(--term-11)">[ </span><span style="color:var(--term-15)">KITCHEN SINK </span><span style="color:var(--term-11)">]</span><span style="color:var(--term-9)">=─ </span><span style="color:var(--term-8)">every shared door part, live, on a seeded outline · </span><span style="color:var(--term-7)">made-up notes; </span><span style="color:var(--term-15)">--reset</span><span style="color:var(--term-7)"> puts them back
+</span><span style="color:var(--term-11)">┌─</span> <span style="color:var(--term-15)">before adding a feature </span><span style="color:var(--term-11)">──────┐</span> <span style="color:var(--term-14)">21 · draw, fold, complete or change a callout </span><span style="color:var(--term-8)">· </span><span style="color:var(--term-15)">one list of callout types (
+</span><span style="color:var(--term-11)">│</span><span style="color:var(--term-7)">  5 write a draft somewhere: a …</span><span style="color:var(--term-11)">│</span> <span style="color:var(--term-8)">outline-core/src/callouts.ts, src/callouts.ts, src/doc.ts, src/surface/note
+</span><span style="color:var(--term-11)">│</span><span style="color:var(--term-8)">    drafts                      </span><span style="color:var(--term-11)">│</span> <span style="color:var(--term-13)">Obsidian's own examples, nested three deep, folded with - and open with + ·
+</span><span style="color:var(--term-11)">│</span><span style="color:var(--term-7)">  6 open, split, zoom, close ti…</span><span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">┌─</span> <span style="color:var(--term-15)">1</span><span style="color:var(--term-11)"> reader</span><span style="color:var(--term-8)"> · 47% </span><span style="color:var(--term-11)">────────────────────────────┐</span><span style="color:var(--term-1)">┌─</span> <span style="color:var(--term-8)">2</span><span style="color:var(--term-3)"> reader</span> <span style="color:var(--term-1)">───────────────┐
+</span><span style="color:var(--term-11)">│</span><span style="color:var(--term-8)">    panes                       </span><span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">│</span><span style="color:var(--term-15)">Callouts, as Obsidian writes them            </span><span style="color:var(--term-11)">█</span><span style="color:var(--term-1)">│</span><span style="color:var(--term-15)">Recipe callouts           </span><span style="color:var(--term-1)">│
+</span><span style="color:var(--term-11)">│</span><span style="color:var(--term-7)">  7 make a screen (the welcome,…</span><span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">│</span><span style="color:var(--term-6)">user · 10-03-26 (12:32)                      </span><span style="color:var(--term-11)">█</span><span style="color:var(--term-1)">│</span><span style="color:var(--term-6)">user · 10-03-26 (12:31)</span><span style="color:var(--term-8)"> ·…</span><span style="color:var(--term-1)">│
+</span><span style="color:var(--term-11)">│</span><span style="color:var(--term-8)">    screens                     </span><span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">│</span><span style="color:var(--term-3)">Kitchen sink                                 </span><span style="color:var(--term-11)">█</span><span style="color:var(--term-1)">│</span><span style="color:var(--term-3)">Kitchen sink              </span><span style="color:var(--term-1)">│
+</span><span style="color:var(--term-11)">│</span><span style="color:var(--term-7)">  8 add a kind of tile (a built…</span><span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">│</span><span style="color:var(--term-13)">an agent (docs-tour) scrolled this reader    </span><span style="color:var(--term-11)">█</span><span style="color:var(--term-1)">│──────────────────────────│
+</span><span style="color:var(--term-11)">│</span><span style="color:var(--term-8)">    kinds                       </span><span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">│</span><span style="color:var(--term-1)">─────────────────────────────────────────────</span><span style="color:var(--term-11)">█</span><span style="color:var(--term-1)">│</span> <span style="color:var(--term-7)">Declares a callout type:</span> <span style="color:var(--term-1)">│
+</span><span style="color:var(--term-11)">│</span><span style="color:var(--term-7)">  9 run a program beside the no…</span><span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">│</span> <span style="color:var(--term-7)">Obsidian's examples. ( ) then f, or a click</span> <span style="color:var(--term-11)">█</span><span style="color:var(--term-1)">│</span> <span style="color:var(--term-13)">&gt; [!recipe]</span><span style="color:var(--term-7)"> (or </span><span style="color:var(--term-13)">&gt;</span>        <span style="color:var(--term-1)">│
+</span><span style="color:var(--term-11)">│</span><span style="color:var(--term-8)">    terminal                    </span><span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">│</span> <span style="color:var(--term-7)">on a title, folds one; <span class="g">⏎</span> or a click on its</span>  <span style="color:var(--term-11)">█</span><span style="color:var(--term-1)">│</span> <span style="color:var(--term-13)">[!dish]</span><span style="color:var(--term-7)">) draws with this</span> <span style="color:var(--term-1)">│
+</span><span style="color:var(--term-11)">│</span><span style="color:var(--term-7)"> 10 follow a tile's selection o…</span><span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">│</span> <span style="color:var(--term-7)">icon or type changes its type; z opens them</span> <span style="color:var(--term-11)">█</span><span style="color:var(--term-1)">│</span> <span style="color:var(--term-7)">icon and tone, and offers</span><span style="color:var(--term-1)">│
+</span><span style="color:var(--term-11)">│</span><span style="color:var(--term-8)">    preview                     </span><span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">│</span> <span style="color:var(--term-7)">all; e, then &gt; [! offers the types.</span>         <span style="color:var(--term-11)">█</span><span style="color:var(--term-1)">│</span> <span style="color:var(--term-7)">it wherever types are</span>    <span style="color:var(--term-1)">│
+</span><span style="color:var(--term-11)">│</span><span style="color:var(--term-7)"> 11 put a whole screen in a til…</span><span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">│</span>                                             <span style="color:var(--term-11)">█</span><span style="color:var(--term-1)">│</span> <span style="color:var(--term-7)">offered.</span>                 <span style="color:var(--term-1)">│
+</span><span style="color:var(--term-11)">│</span><span style="color:var(--term-8)">    screen                      </span><span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">╭─</span><span style="color:var(--term-11);font-weight:700"> <span class="g">▾</span> <span class="g">✎</span> note </span><span style="color:var(--term-11)">───────────────────────────────╮█</span><span style="color:var(--term-1)">│</span>                          <span style="color:var(--term-1)">│
+</span><span style="color:var(--term-11)">│</span><span style="color:var(--term-7)"> 12 squeeze a tile to a title s…</span><span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">│ </span><span style="color:var(--term-7)">body</span>                                    <span style="color:var(--term-11)"> │█</span><span style="color:var(--term-1)">│</span>                          <span style="color:var(--term-1)">│
+</span><span style="color:var(--term-11)">│</span><span style="color:var(--term-8)">    spine                       </span><span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">│ </span><span style="color:var(--term-14)">╭─</span><span style="color:var(--term-14);font-weight:700"> <span class="g">▾</span> <span class="g">⚠</span> warning </span><span style="color:var(--term-14)">────────────────────────╮</span><span style="color:var(--term-11)"> │█</span><span style="color:var(--term-1)">│</span>                          <span style="color:var(--term-1)">│
+</span><span style="color:var(--term-11)">│</span><span style="color:var(--term-7)"> 13 show children, outlinks, ba…</span><span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">│ </span><span style="color:var(--term-14)">│ </span><span style="color:var(--term-7)">body body</span>                           <span style="color:var(--term-14)"> │</span><span style="color:var(--term-11)"> │█</span><span style="color:var(--term-1)">│</span>                          <span style="color:var(--term-1)">│
+</span><span style="color:var(--term-11)">│</span><span style="color:var(--term-8)">    entity                      </span><span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">│ </span><span style="color:var(--term-14)">╰──────────────────────────────────────╯</span><span style="color:var(--term-11)"> │█</span><span style="color:var(--term-1)">│</span>                          <span style="color:var(--term-1)">│
+</span><span style="color:var(--term-11)">│</span><span style="color:var(--term-7)"> 14 show who's here or recent a…</span><span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">╰──────────────────────────────────────────╯│</span><span style="color:var(--term-1)">│</span>                          <span style="color:var(--term-1)">│
+</span><span style="color:var(--term-11)">│</span><span style="color:var(--term-8)">    presence                    </span><span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">│</span>                                             <span style="color:var(--term-11)">│</span><span style="color:var(--term-1)">│</span>                          <span style="color:var(--term-1)">│
+</span><span style="color:var(--term-11)">│</span><span style="color:var(--term-7)"> 15 put live data in a note     </span><span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">╭─</span><span style="color:var(--term-11);font-weight:700"> <span class="g">▸</span> <span class="g">✎</span> collapse </span><span style="color:var(--term-11)">────────────────────</span><span style="color:var(--term-8)"> note </span><span style="color:var(--term-11)">─╮│</span><span style="color:var(--term-1)">│</span>                          <span style="color:var(--term-1)">│
+</span><span style="color:var(--term-11)">│</span><span style="color:var(--term-8)">    live                        </span><span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">│ </span><span style="color:var(--term-8)"><span class="g">▸</span> 1 line folded · f or a click on the t…</span><span style="color:var(--term-11)"> ││</span><span style="color:var(--term-1)">│</span>                          <span style="color:var(--term-1)">│
+</span><span style="color:var(--term-11)">│</span><span style="color:var(--term-7)"> 16 show a Resource's stored de…</span><span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">╰──────────────────────────────────────────╯│</span><span style="color:var(--term-1)">│</span>                          <span style="color:var(--term-1)">│
+</span><span style="color:var(--term-11)">│</span><span style="color:var(--term-8)">    projection                  </span><span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">│</span>                                             <span style="color:var(--term-11)">│</span><span style="color:var(--term-1)">│</span>                          <span style="color:var(--term-1)">│
+</span><span style="color:var(--term-11)">│</span><span style="color:var(--term-7)"> 17 bind an extension the servi…</span><span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">╭─</span><span style="color:var(--term-11);font-weight:700"> <span class="g">▾</span> <span class="g">✎</span> expando </span><span style="color:var(--term-11)">─────────────────────</span><span style="color:var(--term-8)"> note </span><span style="color:var(--term-11)">─╮│</span><span style="color:var(--term-1)">│</span>                          <span style="color:var(--term-1)">│
+</span><span style="color:var(--term-11)">│</span><span style="color:var(--term-8)">    extensions                  </span><span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">│ </span><span style="color:var(--term-7)">feel the power</span>                          <span style="color:var(--term-11)"> ││</span><span style="color:var(--term-1)">│</span>                          <span style="color:var(--term-1)">│
+</span><span style="color:var(--term-11)">│</span><span style="color:var(--term-7)"> 18 select or copy text a reade…</span><span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">╰──────────────────────────────────────────╯│</span><span style="color:var(--term-1)">│</span>                          <span style="color:var(--term-1)">│
+</span><span style="color:var(--term-11)">│</span><span style="color:var(--term-8)">    selection                   </span><span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">│</span>                                             <span style="color:var(--term-11)">│</span><span style="color:var(--term-1)">│</span>                          <span style="color:var(--term-1)">│
+</span><span style="color:var(--term-11)">│</span><span style="color:var(--term-7)"> 19 know anything the service c…</span><span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">│</span> <span style="color:var(--term-13)">╭─</span><span style="color:var(--term-13);font-weight:700"> <span class="g">▾</span> ? Can callouts be nested? </span><span style="color:var(--term-13)">─</span><span style="color:var(--term-8)"> question </span><span style="color:var(--term-13)">─╮</span><span style="color:var(--term-11)">│</span><span style="color:var(--term-1)">│</span>                          <span style="color:var(--term-1)">│
+</span><span style="color:var(--term-11)">│</span><span style="color:var(--term-8)">    service                     </span><span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">│</span> <span style="color:var(--term-13)">│ </span><span style="color:var(--term-11)">╭─</span><span style="color:var(--term-11);font-weight:700"> <span class="g">▾</span> <span class="g">☐</span> Yes!, they can. </span><span style="color:var(--term-11)">─────────</span><span style="color:var(--term-8)"> todo </span><span style="color:var(--term-11)">─╮</span><span style="color:var(--term-13)"> │</span><span style="color:var(--term-11)">│</span><span style="color:var(--term-1)">│</span>                          <span style="color:var(--term-1)">│
+</span><span style="color:var(--term-11)">│</span><span style="color:var(--term-7)"> 20 keep the door running witho…</span><span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">│</span> <span style="color:var(--term-13)">│ </span><span style="color:var(--term-11)">│ </span><span style="color:var(--term-13)">╭─</span><span style="color:var(--term-13);font-weight:700"> <span class="g">◆</span> You can even use multiple … </span><span style="color:var(--term-13)">──╮</span><span style="color:var(--term-11)"> │</span><span style="color:var(--term-13)"> │</span><span style="color:var(--term-11)">│</span><span style="color:var(--term-1)">│</span>                          <span style="color:var(--term-1)">│
+</span><span style="color:var(--term-11)">│</span><span style="color:var(--term-8)">    session                     </span><span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">│</span> <span style="color:var(--term-13)">│ </span><span style="color:var(--term-11)">│ </span><span style="color:var(--term-13)">│ </span><span style="color:var(--term-13);font-weight:700">layers of nesting.              </span><span style="color:var(--term-13)"> │</span><span style="color:var(--term-11)"> │</span><span style="color:var(--term-13)"> │</span><span style="color:var(--term-11)">│</span><span style="color:var(--term-1)">│</span>                          <span style="color:var(--term-1)">│
+</span><span style="color:var(--term-11)">│</span><span style="color:var(--term-15)"></span><span style="color:var(--term-15);background:var(--term-1)"> 21 draw, fold, complete or cha…</span><span style="color:var(--term-11);background:var(--term-1)"></span><span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">│</span> <span style="color:var(--term-13)">│ </span><span style="color:var(--term-11)">│ </span><span style="color:var(--term-13)">╰──────────────────────────────────╯</span><span style="color:var(--term-11)"> │</span><span style="color:var(--term-13)"> │</span><span style="color:var(--term-11)">│</span><span style="color:var(--term-1)">│</span>                          <span style="color:var(--term-1)">│
+</span><span style="color:var(--term-11)">│</span><span style="color:var(--term-8)">    callouts                    </span><span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">│</span> <span style="color:var(--term-13)">│ </span><span style="color:var(--term-11)">╰──────────────────────────────────────╯</span><span style="color:var(--term-13)"> │</span><span style="color:var(--term-11)">│</span><span style="color:var(--term-1)">│</span>                          <span style="color:var(--term-1)">│
+</span><span style="color:var(--term-11)">│</span>                                <span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">└─</span> <span style="color:var(--term-8)">[ ] elements · ( ) f folds</span> <span style="color:var(--term-8)">…</span> <span style="color:var(--term-11)">──────────────┘</span><span style="color:var(--term-1)">└──────────────────────────┘
+</span><span style="color:var(--term-11)">└────────────────────────────────┘</span> <span style="color:var(--term-8)"> Tab/1-9 focus · </span><span style="color:var(--term-15)">^W</span><span style="color:var(--term-8)"> window · </span><span style="color:var(--term-15)">drag</span><span style="color:var(--term-8)"> a title moves, a border resizes · </span><span style="color:var(--term-15)">?</span><span style="color:var(--term-8)"> more</span>
+<span style="color:var(--term-8)"> <span class="g">↑</span><span class="g">↓</span> j k 1-9 0 section · </span><span style="color:var(--term-15)"><span class="g">⏎</span> <span class="g">→</span> l tab</span><span style="color:var(--term-8)"> try it · click a section or the part · </span><span style="color:var(--term-15)">V</span><span style="color:var(--term-8)"> video · </span><span style="color:var(--term-15)">q</span><span style="color:var(--term-8)"> back</span>
+<span style="color:var(--term-11)"></span><span style="color:var(--term-11);background:var(--term-1)"> </span><span style="color:var(--term-14);background:var(--term-1)">an agent (docs-tour) unzoomed reader</span><span style="color:var(--term-11);background:var(--term-1)">                      │ </span><span style="color:var(--term-15);background:var(--term-1)"><span class="g">▲</span> claude</span><span style="color:var(--term-11);background:var(--term-1)"> │ </span><span style="color:var(--term-14);background:var(--term-1)">+4 new </span><span style="color:var(--term-11);background:var(--term-1)">│ cells │ calm │ on 1m │ 12:32</span></pre></div>
+          <ol class="chapters" aria-label="Chapters">
+            <li aria-current="step"><button type="button">Callouts in a note <span class="t">0:00</span></button></li>
+            <li><button type="button">Fold one: f, or a click on its title <span class="t">0:03</span></button></li>
+            <li><button type="button">A folded callout opens; the text isn't touched <span class="t">0:07</span></button></li>
+            <li><button type="button">Change a type: callout.type <span class="t">0:10</span></button></li>
+            <li><button type="button">Undo puts the line back <span class="t">0:13</span></button></li>
+            <li><button type="button">The outline's own type: recipe, alias dish <span class="t">0:15</span></button></li>
+          </ol>
+        </div>
+        <div class="cast-foot"><span><kbd>space</kbd> play · <kbd>[</kbd> <kbd>]</kbd> chapter · <kbd>←</kbd> <kbd>→</kbd> 5 s</span><span class="push">recorded from <code>ep0ch --showcase</code> › callouts · 110×40 · calm</span></div>
+      </figure>
+
+      <section aria-labelledby="try">
+        <h2 id="try">Try it</h2>
+        <ol class="try" id="try-showcase">
+          <li>
+            <button class="box" type="button" aria-label="Mark step 1 done"></button>
+            <p class="do">Open the kitchen sink. It runs on its own outline of made-up notes, so nothing you do reaches yours.</p>
+            <div class="code"><div class="code-head"><span class="file">shell</span><span class="lang">bash</span><button class="copy" type="button">copy</button></div><pre><code><span class="tk-k">ep0ch</span> --showcase</code></pre></div>
+            <p class="see">the index of door parts on the left, and section 1 beside it.</p>
+          </li>
+          <li>
+            <button class="box" type="button" aria-label="Mark step 2 done"></button>
+            <p class="do">Click <b>callouts</b> at the foot of the index, or press <kbd>j</kbd> until it's selected. Then press <kbd>⏎</kbd> to go into it.</p>
+            <p class="see">two readers: Obsidian's own examples on the left, and a type this outline declares on the right.</p>
+          </li>
+          <li>
+            <button class="box" type="button" aria-label="Mark step 3 done"></button>
+            <p class="do">Press <kbd>]</kbd> until the first callout's <b>✎</b> icon is current, then <kbd>⏎</kbd>. Press <kbd>j</kbd> and <kbd>⏎</kbd>.</p>
+            <p class="see">the type choice open under the frame, then the callout redrawn as <b>≡ abstract</b>.</p>
+          </li>
+          <li>
+            <button class="box" type="button" aria-label="Mark step 4 done"></button>
+            <p class="do">Press <kbd>ctrl</kbd><kbd>z</kbd>. Then click the title of the nested <b>⚠ warning</b>.</p>
+            <p class="see">the type put back, then the warning folded to one line. Folding never changes the note's text.</p>
+          </li>
+        </ol>
+      </section>
+
+      <section aria-labelledby="write">
+        <h2 id="write">Write one</h2>
+        <div class="prose">
+          <p>A callout is a block quote whose first line names a type in <code>[! ]</code>. Everything quoted after it is its body. Quote one level deeper to put a callout inside another.</p>
+        </div>
+        <div class="code" data-run="note" data-query="place=gate" data-expect="⚠ The gate sticks"><div class="code-head"><span class="file">note · Allotment gate</span><span class="lang">markdown</span><button class="copy" type="button">copy</button></div><pre><code>Allotment gate [place::gate]
+
+&gt; [!warning] The gate sticks
+&gt; Lift it as you pull.
+&gt; &gt; [!tip]- Why
+&gt; &gt; The hinge post leans. It is on the jobs list.</code></pre></div>
+        <pre class="term" aria-label="The note as the door draws it"><span style="color:var(--term-15)">Allotment gate                                              </span>
+<span style="color:var(--term-6)">user · 10-03-26 (12:49)</span><span style="color:var(--term-8)"> · i 1 property                      </span>
+<span style="color:var(--term-3)">top level                                                   </span>
+<span style="color:var(--term-1)">────────────────────────────────────────────────────────────</span>
+ <span style="color:var(--term-14)">╭─</span><span style="color:var(--term-14);font-weight:700"> <span class="g">▾</span></span><span style="color:var(--term-14);font-weight:700"> <span class="g">⚠</span> The gate sticks</span><span style="color:var(--term-14);font-weight:700"> </span><span style="color:var(--term-14)">─────────────────────────</span><span style="color:var(--term-8)"> warning </span><span style="color:var(--term-14)">─╮</span>
+ <span style="color:var(--term-14)">│ </span><span style="color:var(--term-7)">Lift it as you pull.</span>                                   <span style="color:var(--term-14)"> │</span>
+ <span style="color:var(--term-14)">│ </span><span style="color:var(--term-10)">╭─</span><span style="color:var(--term-10);font-weight:700"> <span class="g">▾</span></span><span style="color:var(--term-10);font-weight:700"> <span class="g">✦</span> Why</span><span style="color:var(--term-10);font-weight:700"> </span><span style="color:var(--term-10)">─────────────────────────────────────</span><span style="color:var(--term-8)"> tip </span><span style="color:var(--term-10)">─╮</span><span style="color:var(--term-14)"> │</span>
+ <span style="color:var(--term-14)">│ </span><span style="color:var(--term-10)">│ </span><span style="color:var(--term-7)">The hinge post leans. It is on the jobs list.</span>      <span style="color:var(--term-10)"> │</span><span style="color:var(--term-14)"> │</span>
+ <span style="color:var(--term-14)">│ </span><span style="color:var(--term-10)">╰─────────────────────────────────────────────────────╯</span><span style="color:var(--term-14)"> │</span>
+ <span style="color:var(--term-14)">╰─────────────────────────────────────────────────────────╯</span></pre>
+        <p class="term-cap">Drawn by <code>ep0ch show</code>, which prints every callout open. In a reader, <b>Why</b> starts folded because of its <code>-</code>.</p>
+        <div class="table-wrap"><table class="plain">
+          <thead><tr><th>You write</th><th>It draws</th></tr></thead>
+          <tbody>
+            <tr><td><code>&gt; [!note]</code></td><td>a note titled with its type's name, "Note"</td></tr>
+            <tr><td><code>&gt; [!note] Gate code</code></td><td>a note titled "Gate code"</td></tr>
+            <tr><td><code>&gt; [!note]- Gate code</code></td><td>the same, folded until you open it</td></tr>
+            <tr><td><code>&gt; [!note]+ Gate code</code></td><td>the same, open, and foldable</td></tr>
+            <tr><td><code>&gt; &gt; [!tip]</code></td><td>a callout inside the one quoted above it, to any depth</td></tr>
+          </tbody>
+        </table></div>
+      </section>
+
+      <section aria-labelledby="ways">
+        <h2 id="ways">Every action, three ways</h2>
+        <div class="prose"><p>The keys, the mouse and an agent call the same action. An agent's change is written as the agent, and the reader says so on screen: <i>an agent (docs-tour) callout warning: [!warning] → [!danger]</i>.</p></div>
+        <div class="ways-wrap"><table class="ways">
+          <thead><tr><th>To</th><th>Keys</th><th>Mouse</th><th>Agent</th></tr></thead>
+          <tbody>
+            <tr><td>Fold or open one</td><td><kbd>(</kbd> <kbd>)</kbd> then <kbd>f</kbd></td><td><span class="chip mouse">its title</span></td><td><span class="chip act">fold.toggle text=collapse</span></td></tr>
+            <tr><td>Open every fold</td><td><kbd>F</kbd></td><td>none</td><td><span class="chip act">unfold all=true</span></td></tr>
+            <tr><td>Change its type</td><td><kbd>]</kbd> to its icon, <kbd>⏎</kbd>, then <kbd>j</kbd> <kbd>k</kbd> <kbd>⏎</kbd></td><td><span class="chip mouse">its icon or type</span></td><td><span class="chip act">callout.type n=2 to=danger</span></td></tr>
+            <tr><td>Make it start folded or open</td><td><kbd>-</kbd> or <kbd>+</kbd> in the type choice</td><td><span class="chip mouse">the choice's row</span></td><td><span class="chip act">callout.start n=3 folded=true</span></td></tr>
+            <tr><td>Undo that change</td><td><kbd>ctrl</kbd><kbd>z</kbd></td><td>none</td><td><span class="chip act">callout.undo</span></td></tr>
+            <tr><td>Pick a type while writing</td><td><kbd>e</kbd>, then type <code>&gt; [!</code></td><td><span class="chip mouse">a row in the list</span></td><td>an agent writes the text through its draft</td></tr>
+            <tr><td>List callouts and types</td><td>none</td><td>none</td><td><span class="chip act">callout.list</span></td></tr>
+          </tbody>
+        </table></div>
+        <div class="callout" data-tone="blue">
+          <div class="c-title"><span aria-hidden="true">✎</span> The type choice is yours<span class="type">note</span></div>
+          <div class="c-body"><p>An agent can't open the type choice in your reader (<code>callout.menu</code> refuses it). It changes a callout with <code>callout.type</code> or <code>callout.start</code>, checked against the revision it read.</p></div>
+        </div>
+      </section>
+
+      <section aria-labelledby="types">
+        <h2 id="types">The types</h2>
+        <div class="prose"><p>Obsidian's thirteen types, with its aliases. An outline can add its own or restyle these. <a href="../build/callout-type.html">Add a callout type</a> shows how.</p></div>
+        <div class="table-wrap"><table class="plain">
+          <thead><tr><th>Type</th><th>Icon</th><th>Tone</th><th>Also written</th></tr></thead>
+          <tbody>
+            <tr><td><code>note</code></td><td>✎</td><td>blue</td><td></td></tr>
+            <tr><td><code>abstract</code></td><td>≡</td><td>blue</td><td><code>summary</code> <code>tldr</code></td></tr>
+            <tr><td><code>info</code></td><td>ℹ</td><td>blue</td><td></td></tr>
+            <tr><td><code>todo</code></td><td>☐</td><td>blue</td><td></td></tr>
+            <tr><td><code>tip</code></td><td>✦</td><td>green</td><td><code>hint</code> <code>important</code></td></tr>
+            <tr><td><code>success</code></td><td>✓</td><td>green</td><td><code>check</code> <code>done</code></td></tr>
+            <tr><td><code>question</code></td><td>?</td><td>violet</td><td><code>help</code> <code>faq</code></td></tr>
+            <tr><td><code>warning</code></td><td>⚠</td><td>amber</td><td><code>caution</code> <code>attention</code></td></tr>
+            <tr><td><code>failure</code></td><td>✗</td><td>coral</td><td><code>fail</code> <code>missing</code></td></tr>
+            <tr><td><code>danger</code></td><td>△</td><td>coral</td><td><code>error</code></td></tr>
+            <tr><td><code>bug</code></td><td>※</td><td>coral</td><td></td></tr>
+            <tr><td><code>example</code></td><td>◆</td><td>violet</td><td></td></tr>
+            <tr><td><code>quote</code></td><td>❝</td><td>neutral</td><td><code>cite</code></td></tr>
+          </tbody>
+        </table></div>
+        <div class="prose"><p>A type nobody declared, such as <code>[!recipe]</code> in an outline without it, still draws, in neutral with <b>●</b>, under its own name.</p></div>
+      </section>
+
+      <section aria-labelledby="reference">
+        <h2 id="reference">Reference</h2>
+        <div class="sig">
+          <pre class="sig-line"><span class="name">callout.type</span> <span class="arg">n</span>=<span class="ty">&lt;number&gt;?</span> <span class="arg">line</span>=<span class="ty">&lt;number&gt;?</span> <span class="arg">to</span>=<span class="ty">&lt;string&gt;</span></pre>
+          <p class="sig-about">Changes a callout's type: its header's <code>[!type]</code> is rewritten through the note's save, checked against the revision read now, recorded as whoever asks and said on screen.</p>
+          <p class="sig-facts"><span class="chip"><b>touches</b> draft</span><span class="chip"><b>draft</b> write</span><span class="chip"><b>replay</b> ask</span><span class="chip"><b>keys</b> the type choice's ⏎</span></p>
+          <div class="sig-args"><table>
+            <thead><tr><th>Arg</th><th>Type</th><th>Means</th></tr></thead>
+            <tbody>
+              <tr><td>n</td><td>number?</td><td>which callout, from 1, as <code>callout.list</code> lists them: outermost first, in reading order</td></tr>
+              <tr><td>line</td><td>number?</td><td>its header's line in the note (1 is the subject)</td></tr>
+              <tr><td>to</td><td>string</td><td>a name or alias the outline has, or a new name</td></tr>
+            </tbody>
+          </table></div>
+          <div class="sig-src">packages/door/src/surface/note.ts · <code>ep0ch actions</code> lists every action like this</div>
+        </div>
+      </section>
+
+      <nav class="pager" aria-label="Next and previous">
+        <a href="../kitchen-sink.html"><span class="dir">← kitchen sink</span>Every component</a>
+        <a class="next" href="../build/callout-type.html"><span class="dir">build →</span>Add a callout type</a>
+      </nav>
+    </article>
+  </main>
+</div>
+
+<footer class="statusbar">
+  <span>ep0ch</span><span>docs</span><span>showcase › callouts</span><span class="push wide">dark only</span><button class="push-alt" type="button" data-tone-toggle>calm</button>
+</footer>
+<script src="../vendor/asciinema-player.min.js"></script>
+<script src="../assets/site.js"></script>
+</body>
+</html>
