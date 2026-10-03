@@ -2513,6 +2513,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   async previewTile(sel: string | undefined, where: Dir | undefined, actor: Actor): Promise<TileDone> {
     const t = this.tile(sel);
     const p = this.panes.get(t.id)!;
+    // A flow's column already opens the next column (its open rule): a split inside it would end the trail.
+    if (this.inFlow(t.id) && !this.layout.links.has(t.id)) throw new ActionRefused(`${t.name} is a column of a flow: its opens already land in the next column`);
     const had = this.linkOf(t.id);
     if (had !== undefined) {
       this.apply({ op: "reveal", tile: had }, actor);
@@ -2523,6 +2525,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const r0 = this.rectsNow().get(t.id);
     const dir: Dir = where ?? (r0 && splitAxis(r0) === "col" ? "down" : "right");
     const name = this.autoName(`${t.name}-preview`);
+    // Checked before the kind is asked (the board collapses its own strip for it): a refused name changes nothing.
+    const bad = tileNameProblem(name);
+    if (bad) throw new ActionRefused(`tile.preview: ${bad} · ^W v on a shorter-named tile, or tile.open name=… then tile.link`);
     const k = kindOf(p);
     // Asked of the layout before the kind is: a preview has nowhere to go beside a float or into a locked container.
     const why = refusal(this.layout, { op: "open", tile: this.nextId, kind: "preview", name, at: placeOf(dir, t.id), link: t.id }, this.layoutCtx(actor));

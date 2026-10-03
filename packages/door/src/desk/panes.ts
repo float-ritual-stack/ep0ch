@@ -71,6 +71,8 @@ export interface DeskApi {
   travelPeek?(p: Pane, dir: -1 | 1): string | null;
   /** Run an action as `by` in tile `p` through the screen's dispatcher, its refusal thrown (what an agent's `act` does). */
   within?(action: string, args: Record<string, unknown>, by: Actor, p?: Pane): Promise<unknown>;
+  /** The person's key running a screen action in tile `p` (a refusal said, as any key's). */
+  perform?(action: string, args: Record<string, unknown>, by?: Actor, p?: Pane | string): Promise<unknown>;
   /** How tile `p` shows in its flow: full, peek or spine (undefined outside one). */
   coverOf?(p: Pane): "full" | "peek" | "spine" | undefined;
   /** The tile named `name` on this screen. */
@@ -292,6 +294,8 @@ export class ReaderPane implements Pane {
   key(k: Key, desk: DeskApi): boolean {
     if (this.readOnly && !this.holdsKeys && sessionStart(k)) { desk.ctx.flash(`${subject(this.msg!)} is shown here to read · it isn't a note in the outline`); return true; }
     if (this.follows && !this.editing && ch(k) === "p") { runOwn(READER_ACTIONS, "reader.hold", {}, { pane: this, desk }); return true; }
+    // O: a reader beside this one where its links open (the desk's tile.preview), so this one never navigates away.
+    if (!this.editing && ch(k) === "O" && desk.perform) { void desk.perform("tile.preview", {}, undefined, this); return true; }
     return this.surface.key(k, this.host(desk));
   }
 

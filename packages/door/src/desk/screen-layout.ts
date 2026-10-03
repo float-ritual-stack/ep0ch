@@ -1021,19 +1021,22 @@ class Step<I> {
     const set = tabsOf(this.d.tree, id);
     if (set && !(this.agent && set.ids.includes(this.d.focus) && this.d.focus !== id)) activate(this.d.tree, id);
     this.d.collapsed.delete(id);
-    this.bringOut(id);
+    // An agent doesn't move a flow's strip under the column the person is typing in (as its widen doesn't).
+    const f = flowHolding(this.d.tree, id), typing = this.ctx.person.typingIn;
+    const steps = !(this.agent && f && typing !== null && flowHolding(this.d.tree, typing)?.flow === f.flow);
+    this.bringOut(id, steps);
     this.d.answer = { tile: this.name(id) };
   }
 
   /** What showing tile `id` takes: a float comes to the top, the drawers around it slide open, its flow column comes on the strip. */
-  private bringOut(id: I) {
+  private bringOut(id: I, flowSteps = true) {
     // A float given the keys comes to the top.
     const fi = this.d.floats.findIndex(f => f.id === id);
     if (fi >= 0 && fi < this.d.floats.length - 1) this.d.floats.push(...this.d.floats.splice(fi, 1));
     // A tile in a shut drawer: the drawer slides open (every drawer around it).
     for (const c of chainOf(this.d.tree, id)) if (c.t === "drawer") c.open = true;
     // A column off the flow's strip altogether: the wide place steps toward it until it's on, nothing else moves.
-    const f = flowHolding(this.d.tree, id);
+    const f = flowSteps ? flowHolding(this.d.tree, id) : null;
     if (f) {
       const shownNow = () => coversOf(this.d, f.flow, this.ctx.area, x => !!this.facts(x).holds).has(f.ci);
       let a = Math.max(0, columnOf(f.flow, f.flow.anchor));
