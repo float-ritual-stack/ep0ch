@@ -37,7 +37,8 @@ herdr plugin action invoke open-here --plugin float.pi-outliner
 ```
 
 `ensure-detail` focuses or creates a Detail for the Tree selected from the
-invoking pane/tab. `open-here` always creates a new linked Tree/Detail browsing
+invoking pane/tab/workspace (`--no-focus` leaves focus where it is; `--mode
+find-detail` reports that Detail without opening anything). `open-here` always creates a new linked Tree/Detail browsing
 context beside the invoking pane. None of them guesses an outline: a folder
 that names none (no `EP0CH_WS`, no `.ep0ch` here or above) gets the **Choose
 outline** popup (`src/choose-outline-main.ts`), which picks one of the host's

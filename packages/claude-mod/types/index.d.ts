@@ -13,6 +13,12 @@ export type BlockViewData = ({ kind: 'cells' } & BlockCells) | { kind: 'text'; w
 /** One block's drawing kept for the session: the latest only, `at` naming the revision and width it was drawn for. */
 export type BlockViewEntry = { at: string; data: BlockViewData }
 
+/**
+ * The Outliner Detail beside Claude in Herdr, as find-detail (or the last open) found it: one a press reuses,
+ * none (a press opens one), or a press would be refused, and why (two Trees in the tab, a dead link).
+ */
+export type DetailBeside = { found: 'detail' | 'none' } | { found: 'refused'; why: string }
+
 /** Where Recent mentions shows: a compact band above the prompt, a pane beside the transcript, or nowhere. */
 export type MentionsPlacement = 'band' | 'pane' | 'off'
 
@@ -53,6 +59,8 @@ declare module 'claude-code' {
       mentions: MentionsList
       /** BlockView drawings, by block id: the latest one each. */
       blockViews: StateFamily<BlockViewEntry>
+      /** What the Outliner's find-detail found beside Claude in Herdr: what the heading's "opens in" says. */
+      detailBeside: DetailBeside
     }
   }
 }

@@ -14,11 +14,20 @@ export function openStartupErrorLogPath(env: NodeJS.ProcessEnv): string | undefi
   return existsSync(hostDir) ? join(hostDir, "open-startup-error.log") : undefined;
 }
 
-/** Startup panes can disappear on exit; keep the failure available outside them. */
-export async function reportStartupErrors(start: () => Promise<void>): Promise<void> {
+/**
+ * Startup panes can disappear on exit; keep the failure available outside them. `callerReports`: a program
+ * caller (the Claude mod's `--no-focus` and `find-detail`) says the failure itself, so it only goes to stderr,
+ * never a Herdr notification or the open log a person's own failed open is kept in.
+ */
+export async function reportStartupErrors(start: () => Promise<void>, options: { callerReports?: boolean } = {}): Promise<void> {
   try {
     await start();
   } catch (error) {
+    if (options.callerReports) {
+      console.error(`Outliner could not open: ${error instanceof Error ? error.message : String(error)}`);
+      process.exitCode = 1;
+      return;
+    }
     let details = error instanceof Error ? error.stack ?? error.message : String(error);
     // A failed child command can include its arguments, including forwarded credentials.
     for (const [name, value] of Object.entries(process.env)) {

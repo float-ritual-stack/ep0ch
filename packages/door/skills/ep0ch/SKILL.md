@@ -112,7 +112,7 @@ running `ep0ch act` through Bash. Outside a door tile they aren't there: use the
 
 **One open.** `show`, `door_open`, a click on a reference in Claude, `ep0ch open` and `act open` are the same
 open: in a door tile it lands where that tile's opens go (`from=$EP0CH_TILE`), the door choosing the reader and
-saying which; in Herdr outside a door, `show` uses Claude's own Detail pane; elsewhere it answers the `((id))`.
+saying which; in Herdr outside a door, `show` uses the Outliner Detail beside Claude (the Tree-linked one, opened when there is none, never taking focus); elsewhere it answers the `((id))`.
 It never moves the person's focus, and a door's refusal is the answer, never a reason to open it elsewhere.
 
 **Three ways a door agent starts, one environment.** Each gets the same variables (`agentVars`,

@@ -250,7 +250,7 @@ const FEATURE_TOUR_SECTIONS = [
       "",
       "Give a block `[publish::true]` or `[publish::<slug>]` and `outliner publish serve` shows it read-only at `/p/<page or slug>`, along with an attached HTML page, claude.ai artifact, SVG, Mermaid or Markdown file. `[publish::false]` opts one block out; `[publish::never]` keeps it and everything under it off every page, embed and link. `[publish::public]` or `[publish::public:<slug>]` also opens a note to anyone with the link, the way a shared doc does: `--public-port` serves only those notes, with no index, and an embed of a note that isn't public shows nothing of it.",
       "",
-      "The Claude Code mod turns Work IDs, `[[pages]]` and `((ids))` in Claude's replies into links that open in Claude's own Detail, and feeds Recent Mentions.",
+      "The Claude Code mod turns Work IDs, `[[pages]]` and `((ids))` in Claude's replies into links that open in the Outliner Detail beside Claude (in Herdr) or in its door, and feeds Recent Mentions.",
     ],
   },
   {

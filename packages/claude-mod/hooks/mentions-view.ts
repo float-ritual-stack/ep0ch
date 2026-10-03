@@ -1,6 +1,6 @@
 import type { RenderElement, RenderSurface } from 'claude-code'
 
-import type { MentionRow, MentionsList, MentionsPlacement, MentionsPrefs } from '../types'
+import type { DetailBeside, MentionRow, MentionsList, MentionsPlacement, MentionsPrefs } from '../types'
 import type { BlockViewElements } from './block-view'
 import { MENTIONS_AGENT } from './mention-message'
 
@@ -16,7 +16,7 @@ import { MENTIONS_AGENT } from './mention-message'
  * choice is kept across sessions. Each mention can show a small preview of
  * its block, drawn by the door's renderer (BlockView; `p` toggles). A press
  * opens the block through the mod's one open (`openNote`): in the door this
- * session runs in, else Claude's own Detail in Herdr, else a toast with the
+ * session runs in, else the Outliner Detail beside Claude in Herdr, else a toast with the
  * exact command. Every action is a Button with a hotkey, so it works by mouse
  * and by keys once the band or pane holds them (ctrl+x tab, or a click); the
  * pane never opens with focus, so the prompt keeps the keys.
@@ -75,10 +75,17 @@ export function mentionRowsOf(stdout: string): MentionRow[] {
   })
 }
 
-/** Where a press opens a block, as the person reads it (openNote's order). */
-export function opensIn(env: { EP0CH_CONTROL?: string; HERDR_PANE_ID?: string; HERDR_WORKSPACE_ID?: string }): string {
+/**
+ * Where a press opens a block, as the person reads it (openNote's order).
+ * `beside`: what the Outliner's `find-detail` found beside Claude in its Herdr
+ * workspace (the Detail a press reuses), unknown until it answers.
+ */
+export function opensIn(env: { EP0CH_CONTROL?: string; HERDR_PANE_ID?: string; HERDR_WORKSPACE_ID?: string }, beside?: DetailBeside): string {
   if (env.EP0CH_CONTROL) return 'opens in this door'
-  if (env.HERDR_PANE_ID && env.HERDR_WORKSPACE_ID) return "opens in Claude's Outliner Detail"
+  if (env.HERDR_PANE_ID && env.HERDR_WORKSPACE_ID) {
+    if (beside?.found === 'refused') return `can't open beside you: ${beside.why}`
+    return beside?.found === 'detail' ? 'opens in the Outliner Detail beside you' : 'opens in a new Outliner Detail beside you'
+  }
   return 'not in a door or Herdr: a press says how to open it'
 }
 
@@ -149,6 +156,14 @@ export type MentionsModel = {
   choose: (change: (p: MentionsPrefs) => MentionsPrefs) => void
 }
 
+/**
+ * The engine's keys for the band and the pane, as their hint lines say them: ctrl+x tab moves the keys to the
+ * band or pane and back to the prompt (Esc hands them back too); there Tab and the arrows move, Enter or a
+ * hotkey presses. ctrl+x ctrl+a folds the band; ctrl+x x closes the pane (kept hidden until /mentions pane).
+ */
+export const BAND_KEYS = 'ctrl+x tab: keys here and back · tab/arrows move · enter or 1-9 opens · ctrl+x ctrl+a: fold'
+export const PANE_KEYS = 'ctrl+x tab: keys here and back · tab/arrows move · enter or 1-9 opens · ctrl+x x: close · /mentions pane: show it again'
+
 /** The band's or the pane's tree: the mentions as buttons (hotkeys 1 to 9), their previews, and the controls. */
 export function mentionsTree(ui: SiteElements, m: MentionsModel): RenderElement {
   const { Box, Button, Text } = ui
@@ -157,7 +172,10 @@ export function mentionsTree(ui: SiteElements, m: MentionsModel): RenderElement 
   const controls = [
     Button({ key: 'mentions-previews', hotkey: 'p', plain: true, label: p.previews ? 'previews off' : 'previews', onPress: () => m.choose(x => ({ ...x, previews: !x.previews })) }),
     Button({ key: 'mentions-scope', hotkey: 's', plain: true, label: p.scope === 'conversation' ? 'all conversations' : 'this conversation', onPress: () => m.choose(x => ({ ...x, scope: x.scope === 'conversation' ? 'workspace' : 'conversation' })) }),
-    Button({ key: 'mentions-move', hotkey: 'm', plain: true, label: site === 'band' ? 'to pane' : 'to band', onPress: () => m.choose(x => ({ ...x, placement: site === 'band' ? 'pane' : 'band' })) }),
+    // register.ts's ui.press hook takes this press and moves it: an open from the press is the person's, placed at any
+    // width, where one from this closure would be the plugin's own. In the band standing in for a waiting pane, `m`
+    // shows the pane.
+    Button({ key: 'mentions-move', hotkey: 'm', plain: true, label: site === 'pane' ? 'to band' : p.placement === 'pane' ? 'show pane' : 'to pane', onPress: () => {} }),
     Button({ key: 'mentions-hide', hotkey: 'x', plain: true, label: 'hide', onPress: () => m.choose(x => ({ ...x, placement: 'off' })) }),
   ]
   const heading = `Mentioned${p.scope === 'workspace' ? ' (all conversations)' : ''}`
@@ -178,6 +196,7 @@ export function mentionsTree(ui: SiteElements, m: MentionsModel): RenderElement 
         ] }),
         ...(list.note ? [Text({ dimColor: true, children: list.note })] : []),
         ...numbered,
+        Text({ dimColor: true, wrap: 'truncate-end', children: BAND_KEYS }),
       ],
     })
   }
@@ -194,12 +213,14 @@ export function mentionsTree(ui: SiteElements, m: MentionsModel): RenderElement 
       ],
     })
   })
+  // The mentions before the controls: Tab and the arrows reach them first, as in the band.
   return Box({
     key: 'mentions-pane', flexDirection: 'column', children: [
-      Text({ bold: true, wrap: 'truncate-end', children: `${heading} · ${m.opens}` }),
-      Box({ flexDirection: 'row', flexWrap: 'wrap', columnGap: 2, marginBottom: 1, children: controls }),
+      Box({ marginBottom: 1, children: Text({ bold: true, children: `${heading} · ${m.opens}` }) }),
       ...(list.note ? [Box({ marginBottom: 1, children: Text({ dimColor: true, children: list.note }) })] : []),
-      ...(items.length ? items : [Text({ dimColor: true, children: empty })]),
+      ...(items.length ? items : [Box({ marginBottom: 1, children: Text({ dimColor: true, children: empty }) })]),
+      Box({ flexDirection: 'row', flexWrap: 'wrap', columnGap: 2, children: controls }),
+      Text({ dimColor: true, children: PANE_KEYS }),
     ],
   })
 }

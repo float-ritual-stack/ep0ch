@@ -69,28 +69,6 @@ export function outlinerUriOf(href: string): string | null {
   return `pi-outliner://${kind}/${value}`
 }
 
-export type OutlinerClient = {
-  clientId: string
-  role: string
-  paneId: string
-  contextId?: string
-}
-
-/**
- * Claude's own Outliner Detail: the live Detail whose browsing context is this
- * Claude session's id, which only a pane this session split carries. Null when
- * there is none, or its pane is gone (`paneTabs` holds the workspace's live
- * panes).
- */
-export function scratchPaneOf(
-  clients: readonly OutlinerClient[],
-  paneTabs: ReadonlyMap<string, string>,
-  sessionId: string,
-): OutlinerClient | null {
-  return clients.find(client =>
-    client.role === 'detail' && client.contextId === sessionId && paneTabs.has(client.paneId)) ?? null
-}
-
 /**
  * The `pi-outliner://` URI for a reference as the model writes it: a Work ID,
  * `[[page]]`, `((uuid))`, a bare block UUID, a `pi-outliner://` URI, or else a
@@ -129,40 +107,9 @@ export function outlinerReferenceOf(uri: string): string {
 
 /**
  * Whether a navigation failed only because its destination is mid-edit (or
- * holding a source selection): the Outliner protects it, and a new Detail is
- * the way round, never overriding the protection.
+ * holding a source selection): the Outliner protects it, and the person
+ * finishes there; it is never overridden.
  */
 export function isProtectedDestination(reason: string): boolean {
   return reason.startsWith('Destination is protected')
-}
-
-/**
- * The Herdr command that splits Claude's own Detail below `paneId` (the Claude
- * pane), unfocused, already showing the block. Its browsing context is the
- * session id, which is how `scratchPaneOf` finds it again.
- */
-export function detailSplitArgv(split: {
-  paneId: string
-  workspace: string
-  /** The outline the folder's `.ep0ch` names. */
-  outline?: string
-  sessionId: string
-  blockId: string
-  fragmentId?: string
-}): string[] {
-  const target = { kind: 'block', blockId: split.blockId, ...(split.fragmentId ? { fragmentId: split.fragmentId } : {}) }
-  return [
-    'herdr', 'plugin', 'pane', 'open',
-    '--plugin', 'float.pi-outliner',
-    '--entrypoint', 'detail',
-    '--placement', 'split',
-    '--target-pane', split.paneId,
-    '--direction', 'down',
-    '--no-focus',
-    '--cwd', split.workspace,
-    '--env', `OUTLINER_WORKSPACE_ROOT=${split.workspace}`,
-    ...(split.outline ? ['--env', `EP0CH_WS=${split.outline}`] : []),
-    '--env', `OUTLINER_BROWSING_CONTEXT_ID=${split.sessionId}`,
-    '--env', `OUTLINER_DETAIL_TARGET=${encodeURIComponent(JSON.stringify(target))}`,
-  ]
 }
