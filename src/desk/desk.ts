@@ -13,7 +13,7 @@ import { bodyLinesOf, subject, type Msg } from "../board";
 import { Canvas, DOTTED_BOX, overflows, scrollPct, type BoxGlyphs, type Rect } from "../canvas";
 import type { Placement } from "../kitty";
 import { whoOf, USER, type Actor, type OutlineEvent } from "../socket";
-import { ActionRefused, ActionSet, asBoundKey, hintSpots, keyName, type ActRequest } from "../surface/actions";
+import { ActionRefused, ActionSet, actionSet, def, asBoundKey, hintSpots, keyName, type ActRequest } from "../surface/actions";
 import { actorRule, Dispatcher, type Delegation, type Registration, type RunHow, type TileRef } from "../surface/dispatch";
 import type { ScreenKeys } from "../whereabouts";
 import { leaveSaid, NOTE_ACTIONS, type OpenHow, type SurfaceHost } from "../surface/note";
@@ -3292,28 +3292,28 @@ function searchOverlay(d: Desk, q: string): DeskPicker {
 interface DeskOn { d: Desk; reader?: string }
 
 /** What the desk adds to a reader's note actions: which note is current, and which pane has the keys. */
-export const DESK_ACTIONS = new ActionSet<{ "open": { id: string; from?: string; fresh?: boolean }; "search": { query?: string; limit?: number }; "keys.more": Record<string, never>; "screen.spec": Record<string, never> }, DeskOn>("desk", {
-  "screen.spec": {
+export const DESK_ACTIONS = actionSet<DeskOn>()("desk", {
+  "screen.spec": def({
     summary: "the screen shown as its spec (PIE-515): its name, title, layout as it opens (containers with policy, tiles by kind), key map, hint, band and where opens land: the data a screen note holds. Nothing on screen moves; layout.get says how it's laid out now",
     touches: "nothing", replay: "safe",
     args: {},
     run(_, { d }) { return { spec: specData(d.spec) }; },
-  },
-  "keys.more": {
+  }),
+  "keys.more": def({
     summary: "show the whole hint row in a box above it, when the screen is too narrow for it and it was cut (it ends \"? more\"); again, or the next key, puts it away. The person's view: an agent's is refused (peek and actions say every key already)",
     keys: "?, a click on ? more",
     touches: "screen", replay: "safe", person: "keys.more is the person's view of their hint row; `actions` lists every key",
     args: {},
     run(_, { d }) { return d.keysMore(); },
-  },
-  "search": {
+  }),
+  "search": def({
     summary: "find notes by text (the service's search): query= answers the hits, numbered from 1, each with its id and title; nothing on screen moves. The person's (/) opens the search overlay, ⏎ there opens the hit (`open`)",
     keys: "/; river column: g",
     touches: "nothing", replay: "safe",
     args: { query: { type: "string", optional: true, about: "the text to find (at least 2 characters)" }, limit: { type: "number", optional: true, about: "how many hits (default 30, at most 100)" } },
     run({ query, limit }, { d }, actor) { return d.searchNotes(query, limit, actor); },
-  },
-  "open": {
+  }),
+  "open": def({
     summary: "make a note the desk's current one and show it in tile=<tile name, id or #number> (a detail holds it); or, with from=<tile>, where that tile's opens land (its link; unlinked, where the desk's own open puts it; fresh=true: a new tile there). On a screen whose opens land in a container (the board's readers row), tile=detail is the tile an open lands in there, new-detail a new one, float a new one floating. An agent's naming neither (`ep0ch open <id>`) lands where the focused tile's opens go, else a reader that follows, never one the person is typing in. A program in a tile passes from=$EP0CH_TILE, so it never has to know which reader that is. The person's own open gives that reader the keys, an agent's never moves them", keys: "enter in the outline, / search; ⏎ alt+⏎ in a reader that follows (where its opens land)",
     // A reader named (tile=) is moved: an agent's is refused in the one the person has. Naming none (or a place word),
     // it lands where opens land: maybe the note they're reading, said on screen, never their keys or a reader they type in.
@@ -3331,7 +3331,7 @@ export const DESK_ACTIONS = new ActionSet<{ "open": { id: string; from?: string;
         : reader === undefined && actor.kind === "agent" ? d.openLanding(id, actor)
         : d.openIn(id, reader, actor);
     },
-  },
+  }),
 });
 
 /** A search hit's body under its title, wrapped: literal-region markers hidden, properties in a region plain (PIE-422). */

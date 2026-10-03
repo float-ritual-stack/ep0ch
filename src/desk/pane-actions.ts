@@ -1,7 +1,7 @@
 // `pane.split` (PIE-412): a new tile beside another, along the longer side, as the desk's ^W o opens one. It's
 // kept by its own name because its arguments are its own (dir=row|col, and no where= or to=). An agent's is said
 // on screen, and it never takes the person's tile.
-import { ActionRefused, ActionSet } from "../surface/actions";
+import { ActionRefused, actionSet, def } from "../surface/actions";
 import type { Axis } from "./screen-layout";
 import type { Desk } from "./desk";
 import { tileKinds, tileNoun } from "./tile-kinds";
@@ -19,14 +19,12 @@ const axisOf = (s: string | undefined, action: string): Axis | undefined => {
 /** The kinds a tile can be, from the registry (extensions' too), as the summary lists them. */
 const kinds = () => tileKinds().map(k => k.kind).join(", ");
 
-export const PANE_ACTIONS = new ActionSet<{
-  "pane.split": { kind?: string; dir?: string };
-}, On>("pane", {
-  "pane.split": {
+export const PANE_ACTIONS = actionSet<On>()("pane", {
+  "pane.split": def({
     get summary() { return `open a tile beside tile=<tile> (default the focused one), along its longer side: kind=<kind> (default reader; ${kinds()}), dir=row (beside) or col (below). The person's focus stays where it is. tile.open does the same with where= and to=. The board's details open with a note: open tile=new-detail`; },
     keys: "desk ^W o <kind>; board alt+⏎",
     touches: "shape", replay: "ask", says: (r, a) => `opened ${tileNoun(a.kind ?? "reader", r.pane)}`,
     args: { kind: { type: "string", optional: true, about: "what the new tile shows: a kind from the tile-kind registry (default reader)" }, dir: { type: "string", optional: true, about: "row (beside) or col (below); default along the longer side" } },
     run({ kind, dir }, { h, reader }, actor) { return h.splitPane(reader, kind, axisOf(dir, "pane.split"), actor); },
-  },
+  }),
 });

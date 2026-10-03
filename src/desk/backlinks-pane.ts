@@ -14,7 +14,7 @@ import {
   type BacklinkCollection, type BacklinkControl, type BacklinkRow, type BacklinkStatusPart, type BacklinkViewOptions,
 } from "../backlinks";
 import { USER, type Actor, type OutlineEvent } from "../socket";
-import { ActionRefused, ActionSet, agentLabel } from "../surface/actions";
+import { ActionRefused, actionSet, def, agentLabel } from "../surface/actions";
 import { C, fg, pad, RESET, selected, width } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
 import { runOwn, type DeskApi, type Pane, type PaneView } from "./panes";
@@ -353,13 +353,8 @@ export class BacklinksPane implements Pane {
 
 /** A backlinks tile's actions: which row is picked (and where it opens), and the view's options. */
 export interface BacklinksOn { pane: BacklinksPane; desk: DeskApi }
-export const BACKLINKS_ACTIONS = new ActionSet<{
-  "backlinks.pick": { n?: number; id?: string; by?: number; open?: boolean; fresh?: boolean };
-  "backlinks.view": { filter?: string; kind?: string; stage?: string; resolved?: boolean; related?: boolean; sort?: string; step?: string };
-  "backlinks.fold": { kind?: string };
-  "backlinks": { id?: string; filter?: string; kind?: string; stage?: string; resolved?: boolean; related?: boolean; sort?: string };
-}, BacklinksOn>("backlinks", {
-  "backlinks": {
+export const BACKLINKS_ACTIONS = actionSet<BacklinksOn>()("backlinks", {
+  "backlinks": def({
     summary: "a backlinks tile's view as Detail groups it: counts, groups with stage counts, each row. An agent's reads the person's view (or id=<block id>'s) with its own options on top and changes nothing of theirs; the person's (b, as=you) lists the backlinks of id (else of the note in the reader they read through), following the reader that shows it, its drawer sliding open, and sets their options; its rows and controls are backlinks.pick, backlinks.view and backlinks.fold",
     keys: "b",
     touches: "nothing", replay: "safe",
@@ -404,8 +399,8 @@ export const BACKLINKS_ACTIONS = new ActionSet<{
       desk.ctx.flash(`${agentLabel(actor)} read the backlinks of ${subject(target).slice(0, 40)}`);
       return { backlinks: { target: { id: target.id, title: subject(target) }, ...describeBacklinkView(backlinkView(data, o), o, same ? L.expanded : new Set()) } };
     },
-  },
-  "backlinks.fold": {
+  }),
+  "backlinks.fold": def({
     summary: "open or fold a kind's group in a backlinks tile (kind=<its key or label>; default the selected row's), as . or space on it does; every group is open while a filter is set. The person's view: an agent's is refused",
     keys: ". space",
     touches: "tile", replay: "safe", person: "which groups are folded is the person's view; an agent reads every row with backlinks.view or peek",
@@ -419,8 +414,8 @@ export const BACKLINKS_ACTIONS = new ActionSet<{
       desk.redraw();
       return { backlinks: pane.describe() };
     },
-  },
-  "backlinks.pick": {
+  }),
+  "backlinks.pick": def({
     summary: "pick a row of a backlinks tile (tile=<its name>): n (as peek's rows, from 1) or id; the source shows where the tile's selection goes; open=true as ⏎, fresh=true as alt+⏎. An agent's never moves the person's keys",
     keys: "j k ↑ ↓ Home End wheel (show) · ⏎ click (open) · alt+⏎ ctrl-click alt-click (fresh)",
     touches: "nothing", replay: "safe", says: r => `picked a backlink (row ${r.row})`,
@@ -439,8 +434,8 @@ export const BACKLINKS_ACTIONS = new ActionSet<{
       if (id !== undefined && i < 0) throw new ActionRefused(`no backlink from ${id} here`);
       return pane.pick(i, fresh ? "fresh" : open ? "open" : "show", desk, actor);
     },
-  },
-  "backlinks.view": {
+  }),
+  "backlinks.view": def({
     summary: "change a backlinks tile's view as Detail's controls do: filter (text to match), kind (a kind or all), stage (all, open, waiting, draft, active, done), resolved, related, sort (updated, created, title, -asc or -desc); step=filter starts typing one (the person's)",
     keys: "K w h n s, click on the status line; / then typing, backspace ctrl+u, ⏎ keeps it, esc goes back",
     touches: "nothing", replay: "safe", says: r => (r.said ? `· ${r.said}` : "changed the backlinks view"),
@@ -469,5 +464,5 @@ export const BACKLINKS_ACTIONS = new ActionSet<{
       desk.redraw();
       return { backlinks: pane.describe() };
     },
-  },
+  }),
 });

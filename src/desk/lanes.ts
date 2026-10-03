@@ -7,7 +7,7 @@
 import { subject, type Msg } from "../board";
 import type { Canvas, Rect } from "../canvas";
 import { byOf, USER, type Actor, type Change, type OutlineEvent } from "../socket";
-import { ActionRefused, ActionSet, agentLabel, asActor } from "../surface/actions";
+import { ActionRefused, actionSet, def, agentLabel, asActor } from "../surface/actions";
 import { Dispatcher } from "../surface/dispatch";
 import { draftPreview, leaveSaid, sessionStart } from "../surface/note";
 import { viewSummaryKeys } from "../props";
@@ -1266,22 +1266,8 @@ const lanesOf = (o: BoardOn): Lanes => { if (!(o.model instanceof Lanes)) throw 
  * The board's lanes' actions (the hub source's: they run on its model, PIE-515): which card is selected, moving it,
  * writing new cards and notes, steps, trash and restore, which hub is shown. The lanes' keys and clicks run them.
  */
-export const BOARD_ACTIONS = new ActionSet<{
-  "board.hub": { id?: string; close?: boolean };
-  "board.reload": Record<string, never>;
-  "card.select": { id?: string; lane?: string; by?: number; lanes?: number; focus?: boolean };
-  "lane.collapse": { lane?: string; on?: boolean };
-  "card.move": { lane: string; card?: string };
-  "card.create": { lane: string; text: string; parent?: string };
-  "note.create": { text: string; parent?: string };
-  "steps": { card?: string };
-  "step.set": { step: string; status?: string; card?: string };
-  "card.trash": { confirm?: string; card?: string };
-  "card.restore": { id?: string };
-  "composer.leave": Record<string, never>;
-  "composer.close": { discard?: boolean };
-}, BoardOn>("board", {
-  "card.select": {
+export const BOARD_ACTIONS = actionSet<BoardOn>()("board", {
+  "card.select": def({
     summary: "select a card: id (in lane=<name> when it's in more than one), or step from the selection: by=<cards> down its lane (negative up), lanes=<lanes> right (negative left), or lane=<name> with by. The preview follows. An agent's selection is its own: what its card actions default to, leaving the person's cursor, preview and keys where they are",
     keys: "h l j k ↑↓ ← → PgUp PgDn, click on a card, wheel over a lane",
     touches: "nothing", replay: "safe",
@@ -1295,8 +1281,8 @@ export const BOARD_ACTIONS = new ActionSet<{
     // An agent's selection is its own (what its card actions default to): the person's lane cursor,
     // preview and keys stay where they are. The person's own card.select, through the socket as `you`, moves them.
     run(args, { model }, actor) { return lanesOf({ model }).selectBy(args, actor); },
-  },
-  "board.hub": {
+  }),
+  "board.hub": def({
     summary: "which board this is: with no id, the hubs it can show (every block with two or more virtual-branch lanes), and for the person the picker to choose one; with id=<hub block id>, show that board. An agent's switch is refused while the person is typing, and is said on the status bar",
     keys: "g, then j k ↑↓ and ⏎ or click on a board; esc q puts the picker away",
     touches: "screen", touchesWith: a => (a.id !== undefined ? "screen" : "nothing"), replay: "safe", says: r => (r.hub ? `showed the board ${r.title}` : null),
@@ -1306,41 +1292,41 @@ export const BOARD_ACTIONS = new ActionSet<{
       if (close && actor.kind === "agent") throw new ActionRefused("the hub picker is the person's; an agent shows a board with board.hub id=<hub>");
       return close ? lanesOf({ model }).closePicker() : lanesOf({ model }).chooseHub(id, actor);
     },
-  },
-  "board.reload": {
+  }),
+  "board.reload": def({
     summary: "read every lane again from the service", keys: "r on the lanes",
     touches: "nothing", replay: "safe", says: () => "reloaded the lanes",
     args: {},
     run(_, { model }) { return lanesOf({ model }).reloadLanes(); },
-  },
-  "lane.collapse": {
+  }),
+  "lane.collapse": def({
     summary: "collapse a lane to a spine showing its name, or open it again (on=true/false; default toggles): lane=<name>, default the person's lane. Its cards stay where they are",
     keys: "c on the lanes, ⏎ or space on a collapsed lane, click on a lane's spine (the desk's tile.collapse on its tile)",
     touches: "shape", replay: "safe", says: r => (r.changed === false ? null : `${r.collapsed ? "collapsed" : "opened"} the lane ${r.lane}`),
     args: { lane: { type: "string", optional: true, about: "the lane's name; default the lane the cursor is in" }, on: { type: "boolean", optional: true, about: "true collapses, false opens; default toggles" } },
     run: ({ lane, on }, { model }, actor) => lanesOf({ model }).collapseLane(lane, on, actor),
-  },
-  "card.move": {
+  }),
+  "card.move": def({
     summary: "move the selected card (or card=<id>) into a lane, patching what the lane's query names", keys: "H L, m then ⏎, drag a card to a lane",
     touches: "draft", draft: "write", replay: "ask",
     args: { lane: { type: "string", about: "the lane's name" }, card: { type: "string", optional: true, about: "the card's block id; default the selected card" } },
     run: ({ lane, card }, { model }, actor) => lanesOf({ model }).moveCard(lane, card, actor),
-  },
-  "composer.leave": {
+  }),
+  "composer.leave": def({
     summary: "leave the new card or note the person is writing, as a click outside it does: never created (ctrl+s creates); typed text is kept as unsent, and n or N brings it back. The person's own: an agent creates with card.create or note.create",
     keys: "click outside it",
     touches: "draft", draft: "leave", replay: "ask", person: "the new card or note being written is the person's; an agent doesn't close it (card.create writes its own)",
     args: {},
     run(_, { model }) { return lanesOf({ model }).leaveComposer(); },
-  },
-  "composer.close": {
+  }),
+  "composer.close": def({
     summary: "close the new card or note being written: unchanged, it goes; typed text needs discard=true, and is put aside as unsent (n or N brings it back). The person's own",
     keys: "esc (twice with typed text)",
     touches: "draft", draft: "leave", replay: "ask", person: "the new card or note being written is the person's; an agent doesn't close it (card.create writes its own)",
     args: { discard: { type: "boolean", optional: true, about: "put typed text aside as unsent and close" } },
     run: ({ discard }, { model }) => lanesOf({ model }).closeComposer(!!discard),
-  },
-  "card.create": {
+  }),
+  "card.create": def({
     summary: "create a card in a lane: the text, born with the properties the lane's query sets (and its create:: default, unless the text sets that key), under the lane's create-parent or where its cards live. In a roadmap lane (type=roadmap-item) it's a roadmap item made by the workboard's allocator, which issues its work-id: the text gives priority, arc and track(s) as [key::value] tokens, and Review/Validate/Done lanes refuse (create in Queued or Doing, then move). Refused, with the reason, when the lane can't define it", keys: "n, typing, ctrl+s",
     touches: "nothing", replay: "ask",
     args: {
@@ -1349,20 +1335,20 @@ export const BOARD_ACTIONS = new ActionSet<{
       parent: { type: "string", optional: true, about: "the block to create it under, instead of the lane's default" },
     },
     run: ({ lane, text, parent }, { model }, actor) => lanesOf({ model }).createCard(lanesOf({ model }).laneFor(lane), text, actor, parent),
-  },
-  "note.create": {
+  }),
+  "note.create": def({
     summary: "add a note under the selected card (or parent=<id>)", keys: "N, typing, ctrl+s",
     touches: "nothing", replay: "ask",
     args: { text: { type: "string", about: "the note's text" }, parent: { type: "string", optional: true, about: "the card's block id; default the selected card" } },
     run: ({ text, parent }, { model }, actor) => lanesOf({ model }).createNote(parent ?? lanesOf({ model }).selectedCardId(actor), text, actor),
-  },
-  "steps": {
+  }),
+  "steps": def({
     summary: "list a card's checklist steps (the selected card, or card=<id>)", keys: "s",
     touches: "nothing", replay: "safe",
     args: { card: { type: "string", optional: true, about: "the card's block id; default the selected card" } },
     run: ({ card }, { model }, actor) => lanesOf({ model }).listSteps(card, actor),
-  },
-  "step.set": {
+  }),
+  "step.set": def({
     summary: "set a checklist step's status (default: toggle done / to do), checked against the step as it was read", keys: "s then space ⏎ x w !",
     touches: "draft", draft: "write", replay: "ask",
     args: {
@@ -1376,8 +1362,8 @@ export const BOARD_ACTIONS = new ActionSet<{
       if (typeof n === "number" && n < 0) throw new ActionRefused("steps are numbered from 1");
       return lanesOf({ model }).setStep(card ?? lanesOf({ model }).selectedCardId(actor), n, status as StepStatus | undefined, actor, shown);
     },
-  },
-  "card.trash": {
+  }),
+  "card.trash": def({
     summary: "move the selected card (or card=<id>) and the notes under it to Trash; confirm=<its id> is the second d. Without confirm, the person's first d arms it (a second d within 5 s trashes it, any other key keeps it); an agent always passes confirm. The service records no author for this", keys: "d d",
     touches: "draft", draft: "write", replay: "ask",
     args: {
@@ -1391,13 +1377,13 @@ export const BOARD_ACTIONS = new ActionSet<{
       }
       return lanesOf({ model }).trashCard(card ?? lanesOf({ model }).selectedCardId(actor), confirm, actor);
     },
-  },
-  "card.restore": {
+  }),
+  "card.restore": def({
     summary: "bring back the card trashed last from this board (or id=<block id>), where it was", keys: "u",
     touches: "nothing", replay: "ask",
     args: { id: { type: "string", optional: true, about: "a Trash root's block id; default the card trashed last here" } },
     run: ({ id }, { model }, actor) => lanesOf({ model }).restoreCard(id, actor),
-  },
+  }),
 });
 
 /**

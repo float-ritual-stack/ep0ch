@@ -8,7 +8,7 @@
 // The layout (widen, dock, close, back and forward) is the engine's tile actions.
 import { bodyLinesOf, subject, type Msg } from "../board";
 import { USER, type Actor, type IndexBlock, type OutlineEvent, type SocketBoard } from "../socket";
-import { ActionRefused, ActionSet, keyName } from "../surface/actions";
+import { ActionRefused, actionSet, def, keyName } from "../surface/actions";
 import { historyRow, IN_TRASH, type Link } from "../surface/note";
 import { Gesture, isCopyKey, lineAt, modeKey, paintRange, rowsOf, SELECT_BG, Selection, selectionHint, wordAt, type Pos } from "../surface/selection";
 import { presentLinks } from "../refs";
@@ -633,16 +633,8 @@ export class RiverColumn extends ReaderPane {
 const columnOf = (pane: unknown): RiverColumn => { if (!(pane instanceof RiverColumn)) throw new ActionRefused("that tile isn't a river column"); return pane; };
 
 /** A column's own actions (the layout's, widen, dock, close, back and forward, are the desk's tile actions). */
-export const COLUMN_ACTIONS = new ActionSet<{
-  "column.select": { id?: string; n?: number; by?: number; scroll?: boolean };
-  "column.replies": { id?: string; open?: boolean };
-  "column.scroll": { by: number };
-  "column.filter": { query: string };
-  "column.tag": { key: string; value?: string };
-  "column.split": Record<string, never>;
-  "column.copy": Record<string, never>;
-}, KindHost>("river", {
-  "column.select": {
+export const COLUMN_ACTIONS = actionSet<KindHost>()("river", {
+  "column.select": def({
     summary: "select a note a river column lists (in the Library and a #tag column, that's the note e and C act on): id=, the nth row (n=, from 1), or by= rows from the selected one (j k: 1 -1). An agent's is refused on the column the person has the keys in (its selection is their cursor, id= too); elsewhere it picks a note for its own note actions",
     keys: "j k ↑↓ Home End, a click on a card",
     touches: "tile", replay: "safe", way: "an agent doesn't move their cursor there · act on another column, or open the note in a column of its own (open id= from=<column>); peek reads the column", says: (r, a) => (a.id === undefined ? `selected row ${r.n} in ${r.tile}` : `selected ${String(r.selected).slice(0, 8)} in ${r.tile}`),
@@ -653,27 +645,27 @@ export const COLUMN_ACTIONS = new ActionSet<{
       scroll: { type: "boolean", optional: true, about: "false leaves the column's scroll as it is (a click on a card in view)" },
     },
     run: ({ id, n, by, scroll }, { pane, desk, tile }, actor) => ({ tile, ...columnOf(pane).pick({ id, n, by, scroll }, desk, actor) }),
-  },
-  "column.replies": {
+  }),
+  "column.replies": def({
     summary: "show or hide a listed note's replies in place in a river column (the selected one, or id=; open= true or false, default toggles)", keys: "space, a click on » replies",
     touches: "tile", replay: "safe", way: "an agent doesn't change what they're reading · peek reads the column, or act on another column",
     args: { id: { type: "string", optional: true, about: "which listed note; default the selected one" }, open: { type: "boolean", optional: true, about: "true shows, false hides; default toggles" } },
     run: ({ id, open }, { pane, desk, tile }) => ({ tile, ...columnOf(pane).replies(id, open, desk) }),
-  },
-  "column.scroll": {
+  }),
+  "column.scroll": def({
     summary: "scroll a river column by= rows (a page is its height less two); what it lists, its selection and the keys stay", keys: "PgUp PgDn, the wheel",
     touches: "tile", replay: "safe", way: "an agent doesn't scroll what they're reading · peek reads the column whole, or act on another column", says: r => `scrolled ${r.tile}`,
     args: { by: { type: "number", about: "rows: positive down, negative up" } },
     run: ({ by }, { pane, desk, tile }) => ({ tile, ...columnOf(pane).scroll(by, desk) }),
-  },
-  "column.filter": {
+  }),
+  "column.filter": def({
     summary: "filter what a river column lists: type:hub -status:done author:codex word (query= empty clears it). The person's /, typing, ⏎",
     keys: "/ then typing, ⏎ or alt+⏎ (esc cancels)",
     touches: "tile", replay: "safe", way: "an agent doesn't change what it lists under them (a filter goes back to the top) · search finds notes; open or column.tag puts a column of your own beside, or act on another column", says: r => `filtered ${r.tile}${r.filter ? ` by ${r.filter}` : " (cleared)"}`,
     args: { query: { type: "string", about: "clauses: key:value, -key:value, author:x, or words" } },
     run: async ({ query }, { pane, desk, tile }) => ({ tile, ...(await columnOf(pane).setFilter(query, desk)) }),
-  },
-  "column.tag": {
+  }),
+  "column.tag": def({
     summary: "open a column of every note with the same property (key::value, the river's virtual branch) next to a river column; value defaults to the selected note's. The person's # then 1-9 gives them the column; an agent's leaves their keys",
     keys: "# then 1-9",
     touches: "shape", replay: "safe", says: r => `opened #${r.value} beside ${r.from}`,
@@ -687,8 +679,8 @@ export const COLUMN_ACTIONS = new ActionSet<{
       if (actor.kind !== "agent") await desk.within("tile.focus", {}, actor, desk.pane?.(r.tile));
       return { tile: r.tile, from: tile, key, value: v };
     },
-  },
-  "column.split": {
+  }),
+  "column.split": def({
     summary: "stack the selected note of a river column as its own column tile under it, in the same column of the flow; the person's s moves to it, an agent's leaves the keys",
     keys: "s",
     touches: "shape", replay: "safe", says: r => `stacked ${r.tile} under ${r.from}`,
@@ -701,14 +693,14 @@ export const COLUMN_ACTIONS = new ActionSet<{
       if (actor.kind !== "agent") await desk.within("tile.focus", {}, actor, desk.pane?.(r.tile));
       return { tile: r.tile, from: tile, id: m.id };
     },
-  },
-  "column.copy": {
+  }),
+  "column.copy": def({
     summary: "copy the text selected in a river column (its drawn rows: drag, or v and move): the person's goes to their clipboard (a drag's when the button comes up); an agent's is given back, the clipboard left alone",
     keys: "y, cmd+c, the release of a drag (or a double or triple click)",
     touches: "nothing", replay: "safe",
     args: {},
     run: (_, { pane, desk }, actor) => columnOf(pane).copy(actor, desk),
-  },
+  }),
 });
 
 /**

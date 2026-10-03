@@ -16,7 +16,7 @@ import { openScreen } from "./desk/screen-specs";
 import { bbsDate, rule, wrap } from "./text";
 import { NOTE_ACTIONS, NoteSurface, type HeaderInfo, type SurfaceHost } from "./surface/note";
 import { shellRunner } from "./drop";
-import { ActionRefused, ActionSet } from "./surface/actions";
+import { ActionRefused, actionSet, def, type ArgsOfSet } from "./surface/actions";
 import { Dispatcher, type TileRef } from "./surface/dispatch";
 import { SHELL_IDLE_MS } from "./whereabouts";
 import type { Actor, OutlineEvent } from "./socket";
@@ -355,10 +355,9 @@ function openItem(item: MenuItem, ctx: Ctx): Screen | null {
 
 // ── the main menu's own action: which item is lit (PIE-506) ─────────────────
 
-type MenuArgs = { "menu.select": { name?: string; by?: number } };
 /** The main menu's lit item: its arrows, Tab and a press on an item run this, as `act` does. */
-export const MENU_ACTIONS = new ActionSet<MenuArgs, { menu: MainMenu; ctx: Ctx }>("menu", {
-  "menu.select": {
+export const MENU_ACTIONS = actionSet<{ menu: MainMenu; ctx: Ctx }>()("menu", {
+  "menu.select": def({
     summary: "light a menu item: name=<its key or label>, or by=<steps> (↑↓ one, ←→ a column of four); ⏎ or its letter opens it (screen.open). An agent's waits until the person is idle and is said on the status bar",
     keys: "↑ ↓ ← → tab, the wheel, click on an item (lit as it is pressed)",
     touches: "screen", replay: "safe", says: out => `· lit ${out.label} on the menu · ⏎ opens it`,
@@ -372,7 +371,7 @@ export const MENU_ACTIONS = new ActionSet<MenuArgs, { menu: MainMenu; ctx: Ctx }
       ctx.redraw();
       return { selected: item.key, label: item.label };
     },
-  },
+  }),
 });
 
 // ── the shell's actions (PIE-489): open a screen, go back, list them; on every screen ─
@@ -408,16 +407,9 @@ const SCREEN_NAMES: Record<string, string[]> = {
   X: ["showcase"], T: ["today", "brief"], O: ["waiting"], C: ["welcome", "claude-now"], "!": ["drop to shell", "dos"], E: ["end session", "end"],
 };
 
-type ShellArgs = {
-  "screen.open": { name: string }; "screen.back": Record<string, never>; "screen.list": Record<string, never>; "screen.shell": Record<string, never>; "session.end": { force?: boolean }; "session.upgrade": { clients?: boolean };
-  "screen.help": Record<string, never>; "video.cycle": Record<string, never>; "changes.extensions": { include?: boolean };
-  "theme.set": { name: string }; "theme.cycle": Record<string, never>;
-  "open": { id: string };
-};
-
 /** The shell's actions: the menu's letters, ⏎ and clicks, and q/Esc on every BBS screen, run these, as `act` does. */
-export const SHELL_ACTIONS = new ActionSet<ShellArgs, ShellOn>("shell", {
-  "changes.extensions": {
+export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
+  "changes.extensions": def({
     summary: "whether \"what changed\" (the status bar's +N new, the new scan) includes what extensions wrote (a refreshed Jira ticket, `ext:…`); include=true or false sets it, else it toggles. Off by default. The person's view: an agent's is refused",
     keys: "a click on the status bar's +N ext",
     touches: "screen", replay: "safe",
@@ -431,8 +423,8 @@ export const SHELL_ACTIONS = new ActionSet<ShellArgs, ShellOn>("shell", {
       ctx.redraw();
       return { include: ctx.extensionChanges };
     },
-  },
-  "screen.open": {
+  }),
+  "screen.open": def({
     summary: "open a screen from the main menu over the current one (q comes back); an agent's waits until the person is idle and is said on the status bar", keys: "the menu's letters N J K R W L F S Q B D G X T O C E, or n j k r w l f s q b d g x t o c e, ⏎, click on a menu item or its letter on the key line",
     touches: "screen", replay: "safe", says: out => (out?.key ? { text: `· opened ${out.opened ?? out.key} · q goes back`, ms: 6000 } : null),
     args: { name: { type: "string", about: "the menu key (S), its label (Stats) or the screen's title (board stats)" } },
@@ -451,8 +443,8 @@ export const SHELL_ACTIONS = new ActionSet<ShellArgs, ShellOn>("shell", {
       const s = openItem(item, ctx);
       return { opened: s?.title ?? item.label, key: item.key };
     },
-  },
-  "screen.back": {
+  }),
+  "screen.back": def({
     summary: "leave this screen for the one under it (the main menu is the top: there it stays; G logs off)", keys: "q Q, Esc, click on Q back; ⏎ on Who's online and Stats; any key on the help screen (on the main menu, Esc only: q there is the Quay)",
     touches: "screen", replay: "safe", says: out => (out?.from ? { text: `· went back from the ${out.from} to the ${out.to}`, ms: 6000 } : null),
     args: {},
@@ -469,8 +461,8 @@ export const SHELL_ACTIONS = new ActionSet<ShellArgs, ShellOn>("shell", {
       const to = ctx.screens?.().at(-1)?.title ?? null;
       return { from, to };
     },
-  },
-  "screen.shell": {
+  }),
+  "screen.shell": def({
     summary: "drop to shell (the BBS's drop to DOS): the door steps aside for the person's login shell ($SHELL -l) in their own terminal, in the door's folder, with EP0CH_IN_DOOR, EP0CH_CONTROL and EP0CH_NEST set; exit returns to the door where it was, its tiles running meanwhile. The person's only: an agent's is refused",
     keys: "! on the main menu (or a click on Shell on its key line), ^W ! on the desk",
     touches: "screen", replay: "ask",
@@ -484,8 +476,8 @@ export const SHELL_ACTIONS = new ActionSet<ShellArgs, ShellOn>("shell", {
       ctx.flash(code === 0 ? "back from the shell" : `back from the shell · it exited ${code ?? "on a signal"}`);
       return { exited: code };
     },
-  },
-  "session.end": {
+  }),
+  "session.end": def({
     summary: "end the session: the door stops, with every program in its terminal tiles and the agent drawer, and every attached terminal is let go (unsaved drafts are copied to disk and put aside, as when the door quits). Logging off (G, ctrl+c) only detaches the terminal you're on; this is how the session ends. With programs running or a draft unsaved it asks first: again within 3s ends it. The person's only",
     keys: "E on the main menu (or a click on End on its key line); `ep0ch session end [--yes]` from a shell (--yes is force=true)",
     touches: "screen", replay: "ask",
@@ -496,8 +488,8 @@ export const SHELL_ACTIONS = new ActionSet<ShellArgs, ShellOn>("shell", {
       const why = ctx.end(!!force);
       return why ? { ended: false, why } : { ended: true };
     },
-  },
-  "session.upgrade": {
+  }),
+  "session.upgrade": def({
     summary: "hand the session to a new daemon on the code in its checkout: the programs in its tiles keep running in the terminal host, the screens and the edits on top come back, and every attached terminal starts again on the new code and attaches by itself (clients=true: only the terminals start again). The person's only",
     keys: "`ep0ch session upgrade [--clients]` (and `ep0ch install --apply` when the door's code changed)",
     touches: "screen", replay: "ask",
@@ -509,8 +501,8 @@ export const SHELL_ACTIONS = new ActionSet<ShellArgs, ShellOn>("shell", {
       if (!r.ok) throw new ActionRefused(r.message);
       return r;
     },
-  },
-  "screen.help": {
+  }),
+  "screen.help": def({
     summary: "open the help screen over this one: every menu item and what it does (any key goes back); an agent's waits until the person is idle and is said on the status bar", keys: "? on the main menu",
     touches: "screen", replay: "safe", says: () => ({ text: "· opened help · any key goes back", ms: 6000 }),
     args: {},
@@ -518,8 +510,8 @@ export const SHELL_ACTIONS = new ActionSet<ShellArgs, ShellOn>("shell", {
       ctx.push(new Help());
       return { opened: "help" };
     },
-  },
-  "video.cycle": {
+  }),
+  "video.cycle": def({
     summary: "the next video mode: Kitty+CRT, Kitty, plain cells (the person's display: an agent's waits until they're idle and is said on the status bar)", keys: "alt+v on every screen; V on the menu, the board, the desk, the river, the showcase and the views; v in the art viewer, or click on its v video; click on the status bar's video mode",
     touches: "screen", replay: "safe", says: out => `· switched the video to ${out.video}`,
     args: {},
@@ -528,8 +520,8 @@ export const SHELL_ACTIONS = new ActionSet<ShellArgs, ShellOn>("shell", {
       ctx.redraw();
       return { video: ctx.video };
     },
-  },
-  "theme.set": {
+  }),
+  "theme.set": def({
     summary: `the door's colours: ${THEME_NAMES.map(n => `${n} (${THEMES[n].about})`).join("; ")}. Every screen at once, kept for the next start (EP0CH_THEME overrides it there). ANSI art keeps true VGA in every theme. An agent's waits until the person is idle and is said on the status bar`,
     // Kept for the next start: a restarted door asks before running it again.
     touches: "screen", replay: "ask", says: out => `· switched the theme to ${out.theme}`,
@@ -541,8 +533,8 @@ export const SHELL_ACTIONS = new ActionSet<ShellArgs, ShellOn>("shell", {
       ctx.setTheme(want);
       return { theme: theme().name };
     },
-  },
-  "theme.cycle": {
+  }),
+  "theme.cycle": def({
     summary: `the next theme: ${THEME_NAMES.join(" → ")} (theme.set picks one by name)`,
     keys: "alt+t on every screen; click on the status bar's theme",
     touches: "screen", replay: "ask", says: out => `· switched the theme to ${out.theme}`,
@@ -552,8 +544,8 @@ export const SHELL_ACTIONS = new ActionSet<ShellArgs, ShellOn>("shell", {
       ctx.setTheme(nextTheme());
       return { theme: theme().name };
     },
-  },
-  "open": {
+  }),
+  "open": def({
     summary: "put a note in front of the person (`ep0ch open <id>` is this). A screen with an open of its own (the desk, the board, the river, the views) runs that instead; elsewhere a message reader opens over the screen (a message reader's opens another). An agent's waits until the person is idle, never takes their keys, never lands over what they're typing, and is said on the status bar",
     touches: "screen", replay: "safe",
     args: { id: { type: "string", about: "the block id" } },
@@ -569,15 +561,15 @@ export const SHELL_ACTIONS = new ActionSet<ShellArgs, ShellOn>("shell", {
       ctx.redraw();
       return { opened: m.id, id: m.id, screen: ctx.screens?.().at(-1)?.title ?? null };
     },
-  },
-  "screen.list": {
+  }),
+  "screen.list": def({
     summary: "the screens the menu opens (key, label, what it is) and the stack the person is on, bottom first",
     touches: "nothing", replay: "safe",
     args: {},
     run(_, { ctx }) {
       return { stack: (ctx.screens?.() ?? []).map(s => s.title), screens: ITEMS.map(i => ({ key: i.key, label: i.label, about: HELP[i.key] ?? "" })) };
     },
-  },
+  }),
 });
 
 /**
@@ -630,7 +622,10 @@ interface BbsList extends Screen {
   threadRow?(i: number, ctx: Ctx): void;
 }
 interface ListOn { list: BbsList; ctx: Ctx }
-type ListArgs = { "list.select": { n: number }; "list.open": { n?: number }; "list.read": { from?: number; limit?: number }; "list.thread": { n?: number } };
+type ListArgs = ArgsOfSet<typeof LIST_ACTIONS>;
+type ShellArgs = ArgsOfSet<typeof SHELL_ACTIONS>;
+type MenuArgs = ArgsOfSet<typeof MENU_ACTIONS>;
+type ArtArgs = ArgsOfSet<typeof ART_ACTIONS>;
 
 const rowsOf = (list: BbsList) => {
   const rows = list.listRows();
@@ -645,8 +640,8 @@ const rowAt = (list: BbsList, n: number) => {
 };
 
 /** The lists' actions: j k ↑↓ PgUp PgDn and the wheel run list.select, ⏎ and a click on the lit row list.open. */
-export const LIST_ACTIONS = new ActionSet<ListArgs, ListOn>("list", {
-  "list.select": {
+export const LIST_ACTIONS = actionSet<ListOn>()("list", {
+  "list.select": def({
     summary: "light row n of the list (an agent's waits until the person is idle and is said on the status bar)", keys: "j k ↑↓ PgUp PgDn Home End, a click, the wheel",
     touches: "screen", replay: "safe", says: out => `· lit row ${out.selected}: ${out.row.title.slice(0, 50)}`,
     args: { n: { type: "number", about: "the row, from 1 (list.read numbers them)" } },
@@ -656,8 +651,8 @@ export const LIST_ACTIONS = new ActionSet<ListArgs, ListOn>("list", {
       ctx.redraw();
       return { selected: n, row };
     },
-  },
-  "list.open": {
+  }),
+  "list.open": def({
     summary: "open a row as ⏎ does (read, join, browse): the lit one, or row n", keys: "⏎, a click on the lit row",
     touches: "screen", replay: "safe", says: out => ({ text: `· opened row ${out.n}: ${out.row.title.slice(0, 50)} · q goes back`, ms: 6000 }),
     args: { n: { type: "number", optional: true, about: "the row, from 1; the lit one when left out" } },
@@ -671,8 +666,8 @@ export const LIST_ACTIONS = new ActionSet<ListArgs, ListOn>("list", {
       const opened = ctx.screens?.().at(-1);
       return { opened: opened && opened !== list ? opened.title : null, n: at, row };
     },
-  },
-  "list.thread": {
+  }),
+  "list.thread": def({
     summary: "list a row's replies (its children) as messages over this list, as t does on a message list: the lit row, or row n (q comes back)", keys: "t, T, click on T thread",
     touches: "screen", replay: "safe", says: out => ({ text: `· opened the replies of row ${out.n}: ${out.row.title.slice(0, 50)} · q goes back`, ms: 6000 }),
     args: { n: { type: "number", optional: true, about: "the row, from 1; the lit one when left out" } },
@@ -683,8 +678,8 @@ export const LIST_ACTIONS = new ActionSet<ListArgs, ListOn>("list", {
       list.threadRow(at - 1, ctx);
       return { opened: ctx.screens?.().at(-1)?.title ?? null, n: at, row };
     },
-  },
-  "list.read": {
+  }),
+  "list.read": def({
     summary: "the list's rows (numbered from 1) and which one is lit; moves nothing",
     touches: "nothing", replay: "safe",
     args: { from: { type: "number", optional: true, about: "the first row, from 1 (default 1)" }, limit: { type: "number", optional: true, about: "how many rows (default 100)" } },
@@ -693,7 +688,7 @@ export const LIST_ACTIONS = new ActionSet<ListArgs, ListOn>("list", {
       const start = Math.max(1, from ?? 1);
       return { screen: list.title, selected: rows.length ? list.sel + 1 : null, of: rows.length, rows: rows.slice(start - 1, start - 1 + Math.max(1, limit ?? 100)) };
     },
-  },
+  }),
 });
 
 /** A list's keys and clicks: the same actions, as `you`, through the list's dispatcher. */
@@ -1030,20 +1025,20 @@ export class MessageReader implements Screen {
 const READER = "message";
 
 /** The message reader's own keys, as actions: next, previous, thread. The note's actions are NOTE_ACTIONS. */
-export const MESSAGE_ACTIONS = new ActionSet<{ "message.next": Record<string, never>; "message.previous": Record<string, never>; "message.thread": Record<string, never> }, MessageOn>("message", {
-  "message.next": {
+export const MESSAGE_ACTIONS = actionSet<MessageOn>()("message", {
+  "message.next": def({
     summary: "read the next message in the list the reader was opened from (an agent's waits until the person is idle, and is said)", keys: "n N, ⏎ (with no element current), →",
     touches: "screen", replay: "safe", says: out => `· moved to message ${out.index} of ${out.of}`,
     args: {},
     run(_, { r, ctx, actor }) { return r.moved(r.step(1, ctx), actor); },
-  },
-  "message.previous": {
+  }),
+  "message.previous": def({
     summary: "read the previous message in the list (an agent's waits until the person is idle, and is said)", keys: "p P, ←",
     touches: "screen", replay: "safe", says: out => `· moved to message ${out.index} of ${out.of}`,
     args: {},
     run(_, { r, ctx, actor }) { return r.moved(r.step(-1, ctx), actor); },
-  },
-  "message.thread": {
+  }),
+  "message.thread": def({
     summary: "list the message's replies (its children) as messages", keys: "t T",
     touches: "screen", replay: "safe", says: () => "· opened the thread · q goes back",
     args: {},
@@ -1051,7 +1046,7 @@ export const MESSAGE_ACTIONS = new ActionSet<{ "message.next": Record<string, ne
       r.thread(ctx);
       return { opened: "thread" };
     },
-  },
+  }),
 });
 
 export class Conferences implements BbsList {
@@ -1231,7 +1226,6 @@ export class ArtViewer implements Screen {
   private on(ctx: Ctx): ArtOn { return { pane: this, desk: { ctx, redraw: () => ctx.redraw() } }; }
 }
 
-type ArtArgs = { "art.step": { by: number }; "art.scroll": { by: number }; "art.ice": { on?: boolean }; "art.reveal": Record<string, never> };
 
 // ── stats, help, goodbye ─────────────────────────────────────────────────────
 

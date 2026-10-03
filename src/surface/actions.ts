@@ -76,6 +76,23 @@ export interface ActionDef<A, H> {
   run(args: A, host: H, actor: Actor): Promise<unknown> | unknown;
 }
 
+/** The type an argument's schema says it is. */
+type ArgOf<S> = S extends { type: "number" } ? number : S extends { type: "boolean" } ? boolean : string;
+/**
+ * The arguments an action's `args` schema says it takes (an `optional` one may be left out): the schema is the one
+ * source. A schema kept apart is `as const`, or its types widen to a required string. None: no arguments at all.
+ */
+export type ArgsOf<S> = [keyof S] extends [never] ? Record<string, never>
+  : { -readonly [K in keyof S as S[K] extends { optional: true } ? never : K]: ArgOf<S[K]> }
+  & { -readonly [K in keyof S as S[K] extends { optional: true } ? K : never]?: ArgOf<S[K]> };
+/** An action whose arguments are typed from its `args` schema (ArgsOf), its host from the set it's in (actionSet). */
+// The cast only says what TS can't prove generically: ArgsOf<S>'s keys are S's.
+export const def = <const S extends Record<string, ArgSpec>, H>(d: { args: S } & Omit<ActionDef<ArgsOf<S>, H>, "args">) => d as unknown as ActionDef<ArgsOf<S>, H>;
+/** Each action's arguments in a set, by name. */
+export type ArgsOfSet<S> = S extends ActionSet<infer M, any> ? M : never;
+/** A set of `def` actions over host `H`, in scope `scope`: `actionSet<On>()("tile", { … })`. */
+export const actionSet = <H>() => <M extends { [K in keyof M]: object }>(scope: string, defs: { [K in keyof M]: ActionDef<M[K], H> }) => new ActionSet<M, H>(scope, defs);
+
 /**
  * An action as `ep0ch-door actions` lists it: `touches`, `replay` and `person` are its declarations (what it touches
  * of the person's, whether a restarted door may run it again, the person's only).
@@ -91,9 +108,9 @@ export class ActionRefused extends Error {
 }
 
 /**
- * A set of actions over one kind of host. `M` maps each action name to its argument object, so a
- * caller in code gets its arguments checked by the compiler, and one from the socket gets them
- * checked (and coerced from strings) here.
+ * A set of actions over one kind of host. `M` maps each action name to its argument object (derived from each
+ * `def`'s schema by `actionSet`), so a caller in code gets its arguments checked by the compiler, and one from the
+ * socket gets them checked (and coerced from strings) here.
  */
 export class ActionSet<M extends { [K in keyof M]: object }, H> {
   constructor(readonly scope: string, private readonly defs: { [K in keyof M]: ActionDef<M[K], H> }) {

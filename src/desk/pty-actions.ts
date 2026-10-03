@@ -2,7 +2,7 @@
 // kind's. `act` routes them to tile=<tile> when it's a terminal (a program an extension names is one too), else
 // the focused terminal, else the first; the desk's keys (⏎, e, a click, ctrl+]) run the same actions through the
 // kind's `press` hook. What they change on the desk (whose keys go where) the desk does.
-import { ActionRefused, ActionSet } from "../surface/actions";
+import { ActionRefused, actionSet, def } from "../surface/actions";
 import type { Desk } from "./desk";
 import type { DeskApi } from "./panes";
 import type { PtyPane } from "./pty";
@@ -15,22 +15,16 @@ const host = (desk: DeskApi): Desk => {
   return desk as Desk;
 };
 
-export const PTY_ACTIONS = new ActionSet<{
-  "tile.type": { text: string };
-  "tile.restart": Record<string, never>;
-  "tile.enter": { send?: string };
-  "tile.leave": Record<string, never>;
-  "tile.herdr": { pane?: string; name?: string; on?: boolean };
-}, On>("terminal", {
-  "tile.type": {
+export const PTY_ACTIONS = actionSet<On>()("terminal", {
+  "tile.type": def({
     summary: "send text=<text> to the program in terminal tile=<tile>, as typed keys (\\n is ⏎). Refused to an agent for the terminal the person is in",
     touches: "tile", while: "typing", replay: "ask", way: "an agent doesn't type there (an nvim tile's socket edits other lines without their cursor)", says: r => `typed into ${r.tile}`,
     args: { text: { type: "string", about: "what to type; \\n for enter, \\e for escape" } },
     run({ text }, { pane, desk, tile }, actor) {
       return host(desk).typeTerminal(tile, pane, text, actor);
     },
-  },
-  "tile.restart": {
+  }),
+  "tile.restart": def({
     summary: "run the program in terminal tile=<tile> again (after it exited). Refused to an agent for the terminal the person is in",
     keys: "⏎ on an exited terminal",
     touches: "tile", while: "typing", replay: "ask", way: "an agent doesn't restart it under them (block.mark gets their attention)", says: r => `restarted ${r.tile}`,
@@ -38,22 +32,22 @@ export const PTY_ACTIONS = new ActionSet<{
     run(_, { pane, desk, tile }, actor) {
       return host(desk).restartTerminal(tile, pane, actor);
     },
-  },
-  "tile.enter": {
+  }),
+  "tile.enter": def({
     summary: "type in terminal tile=<tile> (the focused one): every key but ctrl+] goes to its program; one that exited runs again. The person's only: an agent's would take their keys (tile.type sends a program text)",
     keys: "e, ⏎, click in a terminal tile; ctrl+] then ctrl+] sends ctrl+] to it",
     touches: "screen", replay: "safe", person: "typing in a terminal tile takes the person's keys; an agent sends it text with tile.type",
     args: { send: { type: "string", optional: true, about: "bytes to give the program first (a literal ctrl+])" } },
     run({ send }, { pane, desk, tile }) { return host(desk).enterTerminal(tile, pane, send); },
-  },
-  "tile.leave": {
+  }),
+  "tile.leave": def({
     summary: "back to the door from the terminal tile the person types in (ctrl+] again soon sends one to the program). The person's only",
     keys: "ctrl+]",
     touches: "screen", replay: "safe", person: "the person's keys are theirs: an agent doesn't take them out of a terminal tile",
     args: {},
     run(_, { desk }) { return host(desk).leaveTerminal(); },
-  },
-  "tile.herdr": {
+  }),
+  "tile.herdr": def({
     summary: "terminal tile=<tile> shows an agent that lives in Herdr pane pane=<label> (on=false: it no longer does). Said by scripts/door-agent-herdr.ts, the program in the tile, while it attaches: quitting the door then ends only the attach, not the agent. Cleared when the program exits",
     // Flagged, quitting the door doesn't warn that it ends the program: never set by an agent on the terminal the
     // person types in. Cleared (on=false), the warning comes back: anyone, any time.
@@ -63,5 +57,5 @@ export const PTY_ACTIONS = new ActionSet<{
     run({ pane: label, name, on }, { pane, desk, tile }, actor) {
       return host(desk).herdrTerminal(tile, pane, label, on, actor, name);
     },
-  },
+  }),
 });

@@ -10,7 +10,7 @@
 import { subject, type Msg } from "../board";
 import { USER, type OutlineEvent, type SocketBoard } from "../socket";
 import { C, fg, pad, RESET } from "../style";
-import { ActionRefused, ActionSet } from "../surface/actions";
+import { ActionRefused, actionSet, def } from "../surface/actions";
 import type { HeaderInfo, OpenHow, SurfaceHost } from "../surface/note";
 import { bbsDate } from "../text";
 import { ch, type Key } from "../term";
@@ -208,26 +208,26 @@ export class BriefReader extends ReaderPane {
 }
 
 /** Which brief is shown. The keys and `act` call the same code. */
-export const BRIEF_ACTIONS = new ActionSet<{ "brief.step": { by: number }; "brief.newest": Record<string, never>; "brief.date": { date: string }; "brief.show": { id: string } }, KindHost>("brief", {
-  "brief.step": {
+export const BRIEF_ACTIONS = actionSet<KindHost>()("brief", {
+  "brief.step": def({
     summary: "show the previous (by=-1) or next (by=1) day's brief; refused to an agent while the person is typing here", keys: ", .",
     touches: "screen", replay: "safe", says: r => `showed the brief for ${r.date}`,
     args: { by: { type: "number", about: "-1 for the day before, 1 for the day after" } },
     run({ by }, { pane, desk }) { if (by !== 1 && by !== -1) throw new ActionRefused("brief.step: by is -1 or 1"); return (pane as BriefReader).step(by, desk); },
-  },
-  "brief.newest": {
+  }),
+  "brief.newest": def({
     summary: "show the newest brief",
     touches: "screen", replay: "safe", says: r => `showed the brief for ${r.date}`,
     args: {},
     run(_, { pane, desk }) { return (pane as BriefReader).newest(desk); },
-  },
-  "brief.date": {
+  }),
+  "brief.date": def({
     summary: "show the brief for a day (date=YYYY-MM-DD)",
     touches: "screen", replay: "safe", says: r => `showed the brief for ${r.date}`,
     args: { date: { type: "string", about: "the day, YYYY-MM-DD" } },
     run({ date }, { pane, desk }) { return (pane as BriefReader).dated(date.trim(), desk); },
-  },
-  "brief.show": {
+  }),
+  "brief.show": def({
     summary: "show a brief by its block id (a link to another day's brief, followed in it, or an agent's `open` of one, steps there)",
     keys: "⏎ or a click on a link to another brief, an \"Earlier briefs\" row",
     touches: "screen", replay: "safe", says: r => `showed the brief for ${r.date}`,
@@ -237,7 +237,7 @@ export const BRIEF_ACTIONS = new ActionSet<{ "brief.step": { by: number }; "brie
       if (i < 0) throw new ActionRefused(`${id} isn't a daily brief`);
       return b.go(i, desk);
     },
-  },
+  }),
 });
 
 /** The brief as a tile kind: a reader of its own (no `^W o` key), its actions, its open rule. */

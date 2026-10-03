@@ -27,7 +27,7 @@ import { USER, type Actor, type OutlineEvent, type SocketBoard } from "../socket
 import { artLines, C, chip, ellipsize, fg, pad, paint, RESET, selected, width } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
 import { bbsDate, wrap } from "../text";
-import { ActionRefused, ActionSet } from "../surface/actions";
+import { ActionRefused, actionSet, def } from "../surface/actions";
 import type { OpenHow } from "../surface/note";
 import { ReaderPane, type DeskApi, type Pane, type PaneView } from "../desk/panes";
 import { PreviewPane, sourceOf } from "../desk/preview";
@@ -461,13 +461,8 @@ export class WelcomePreview extends PreviewPane {
 }
 
 /** Which note the welcome's detail reads, and the logo. The keys, the mouse and `act` call the same code. */
-export const WELCOME_ACTIONS = new ActionSet<{
-  "welcome.select": { n?: number; id?: string; read?: boolean };
-  "welcome.read": { id: string };
-  "welcome.logo": { by?: number };
-  "welcome.reload": Record<string, never>;
-}, KindHost>("welcome", {
-  "welcome.select": {
+export const WELCOME_ACTIONS = actionSet<KindHost>()("welcome", {
+  "welcome.select": def({
     summary: "read a welcome note in the detail: n (its place from 1, as the tabs number them: 1-9, then 10 is the 0 key) or id; read=true also gives the detail the person's keys (never an agent's). Refused to an agent while the person is typing here",
     keys: "1-9 0, a click on a tab, j k ⏎ in the list",
     touches: "screen", replay: "safe", says: r => `put ${r.title.slice(0, 40)} in the detail${r.n ? ` (welcome ${tabKey(r.n - 1) ?? r.n})` : ""}`,
@@ -483,8 +478,8 @@ export const WELCOME_ACTIONS = new ActionSet<{
       if (id !== undefined && i < 0 && w.items) throw new ActionRefused(`${id} isn't a welcome note`);
       return w.pick(i, actor, desk, !!read);
     },
-  },
-  "welcome.read": {
+  }),
+  "welcome.read": def({
     summary: "read any note in the detail (as alt+⏎ or a ctrl-click on a link does); back (alt+←) returns to the one before",
     keys: "alt+⏎, ctrl-click, alt-click on a link or a backlink",
     touches: "screen", replay: "safe", says: r => `put ${r.title.slice(0, 40)} in the detail`,
@@ -494,20 +489,20 @@ export const WELCOME_ACTIONS = new ActionSet<{
       if (!m) throw new ActionRefused(`no block ${id}`);
       return (pane as WelcomeList).readHere(m, actor, desk);
     },
-  },
-  "welcome.logo": {
+  }),
+  "welcome.logo": def({
     summary: "draw the next ep0ch logo (by=-1: the one before) in the band",
     keys: "L, a click on the logo",
     touches: "screen", replay: "safe", says: () => "changed the logo",
     args: { by: { type: "number", optional: true, about: "1 (the default) or -1" } },
     run({ by }, { pane, desk }) { return (pane as WelcomeList).nextLogo(by ?? 1, desk); },
-  },
-  "welcome.reload": {
+  }),
+  "welcome.reload": def({
     summary: "ask the outline again which notes are welcome notes (it also does when the outline changes)",
     touches: "nothing", replay: "safe",
     args: {},
     async run(_, { pane, desk }) { const w = pane as WelcomeList; await w.load(desk); return { welcome: w.items?.length ?? 0 }; },
-  },
+  }),
 });
 
 /** The welcome's kinds: the list (its model, actions and band), its detail and its preview. */

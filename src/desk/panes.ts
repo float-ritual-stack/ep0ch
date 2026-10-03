@@ -10,7 +10,7 @@ import type { Placement } from "../kitty";
 import { find, loadArt } from "../packs";
 import type { Activity, Actor, Comment } from "../socket";
 import { shortId } from "../refs";
-import { ActionRefused, ActionSet } from "../surface/actions";
+import { ActionRefused, ActionSet, actionSet, def } from "../surface/actions";
 import { Dispatcher } from "../surface/dispatch";
 import { ART_ACTIONS, type ArtAbout } from "../art-actions";
 import { NOTE_ACTIONS, NoteSurface, propertyChange, sessionStart, type OpenHow, type SessionKind, type SurfaceHost } from "../surface/note";
@@ -511,13 +511,13 @@ export class WhoPane implements Pane {
   headControls(_w: number, desk: DeskApi) { return [{ text: "r refresh", sgr: fg(C.grey), press: () => runOwn(WHO_ACTIONS, "who.refresh", {}, { pane: this, desk }) }]; }
 }
 
-export const WHO_ACTIONS = new ActionSet<{ "who.refresh": Record<string, never> }, { pane: WhoPane; desk: DeskApi }>("who", {
-  "who.refresh": {
+export const WHO_ACTIONS = actionSet<{ pane: WhoPane; desk: DeskApi }>()("who", {
+  "who.refresh": def({
     summary: "ask the outline again who is attached (every Tree, Detail, door and agent); answers the callers as they were before the new answer lands", keys: "r, a click on r refresh",
     touches: "nothing", replay: "safe",
     args: {},
     run(_, { pane, desk }) { pane.load(desk); return { callers: pane.rows() }; },
-  },
+  }),
 });
 
 // ── the ep0ch art as a pane ──────────────────────────────────────────────────
@@ -575,8 +575,8 @@ export class ArtPane implements Pane {
 // ── the list tiles' own actions (PIE-506): what their keys and clicks do, by name, for `act` too ──
 
 
-export const THREAD_ACTIONS = new ActionSet<{ "thread.pick": { n?: number; open?: boolean }; "thread.up": Record<string, never> }, { pane: ThreadPane; desk: DeskApi }>("thread", {
-  "thread.pick": {
+export const THREAD_ACTIONS = actionSet<{ pane: ThreadPane; desk: DeskApi }>()("thread", {
+  "thread.pick": def({
     summary: "pick a reply in a thread tile (tile=<its name>): n from 1, else the selected one; open=true makes it the current note, as ⏎ does. An agent's pick answers the reply and moves nothing of the person's; its open never moves their keys",
     keys: "j k ↑ ↓ click, ⏎ (open)",
     touches: "nothing", replay: "safe", says: r => (r.opened ? `opened reply ${r.row}` : null),
@@ -589,18 +589,18 @@ export const THREAD_ACTIONS = new ActionSet<{ "thread.pick": { n?: number; open?
       if (open) desk.setCurrent(m, { reveal: true, from: pane, by: actor });
       return { row: i + 1, id: m.id, title: subject(m), opened: !!open };
     },
-  },
-  "thread.up": {
+  }),
+  "thread.up": def({
     summary: "make the note above the thread's (its parent) the current note, as u does; an agent's never moves the person's keys",
     keys: "u",
     touches: "nothing", replay: "safe", says: () => "went up a level",
     args: {},
     run(_, { pane, desk }, actor) { return pane.up(desk, actor); },
-  },
+  }),
 });
 
-export const ACTIVITY_ACTIONS = new ActionSet<{ "activity.pick": { n?: number; open?: boolean }; "activity.reload": Record<string, never> }, { pane: ActivityPane; desk: DeskApi }>("activity", {
-  "activity.pick": {
+export const ACTIVITY_ACTIONS = actionSet<{ pane: ActivityPane; desk: DeskApi }>()("activity", {
+  "activity.pick": def({
     summary: "pick a row of the activity tile (last callers, live): n from 1, else the selected one; open=true makes its note the current one, as ⏎ does. An agent's pick answers the row and moves nothing of the person's",
     keys: "j k ↑ ↓ click wheel, ⏎ (open)",
     touches: "nothing", replay: "safe", says: r => (r.opened ? `opened ${String(r.title).slice(0, 40)}` : null),
@@ -613,22 +613,22 @@ export const ACTIVITY_ACTIONS = new ActionSet<{ "activity.pick": { n?: number; o
       if (open) desk.setCurrent(r.block, { reveal: true, from: pane, by: actor });
       return { row: i + 1, id: r.block.id, title: subject(r.block), actor: r.actor, at: r.at, opened: !!open };
     },
-  },
-  "activity.reload": {
+  }),
+  "activity.reload": def({
     summary: "read recent activity again", keys: "r, a click on r reload",
     touches: "nothing", replay: "safe",
     args: {},
     run(_, { pane, desk }) { pane.reload(desk); return { reloading: true }; },
-  },
+  }),
 });
 
 
-export const READER_ACTIONS = new ActionSet<{ "reader.hold": { on?: boolean } }, { pane: ReaderPane; desk: DeskApi }>("reader", {
-  "reader.hold": {
+export const READER_ACTIONS = actionSet<{ pane: ReaderPane; desk: DeskApi }>()("reader", {
+  "reader.hold": def({
     summary: "hold a desk reader (tile=<its name>) on the note it shows, so the current note doesn't move it (on=true), or let it follow the current note again (on=false); left out, the other way. Said on screen when an agent does it",
     keys: "p",
     touches: "tile", replay: "safe", way: "an agent holds a reader the person isn't in", says: r => (r.held ? "held the reader on its note" : "let the reader follow the current note"),
     args: { on: { type: "boolean", optional: true, about: "true holds, false follows; left out, the other way" } },
     run({ on }, { pane, desk }) { return pane.setHold(on, desk); },
-  },
+  }),
 });
