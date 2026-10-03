@@ -3,7 +3,7 @@
 import { PROTOCOL } from "@ep0ch/outline-core/protocol";
 import { DOCK_TILE_ID } from "../desk/agent-env";
 import { KEYED_ACTIONS, MIN_BUN, PLUGIN_ID, type Facts, short, staleness } from "./model";
-import { chooseLinkDir, claudeModState, oldMentionsAllowlist, hostRestartHint, hostUnitCommand, linkStep, pluginStep, doorStep, sessionStep, serviceLabel, unitRunsElsewhere } from "./plan";
+import { chooseLinkDir, claudeModState, oldMentionsAllowlist, hostRestartHint, hostUnitCommand, linkStep, pluginStep, repoStep, sessionStep, unitChanges } from "./plan";
 
 /** unknown: it couldn't be checked (a fetch failed), so it isn't counted as current. */
 export type CheckStatus = "ok" | "behind" | "missing" | "info" | "unknown";
@@ -27,72 +27,61 @@ export function doctorChecks(f: Facts): Check[] {
   else if (f.bun.version && !versionAtLeast(f.bun.version, MIN_BUN)) add("bun", "bun", "behind", `${f.bun.path} ${f.bun.version}; the Outliner needs ${MIN_BUN} or newer`, f.platform === "macos" && f.bun.path.startsWith("/opt/homebrew") ? "brew upgrade bun" : "bun upgrade");
   else add("bun", "bun", "ok", `${f.bun.path} ${f.bun.version ?? "(version unknown)"}`);
 
-  // the Outliner plugin
+  // the ep0ch checkout: the door, the outliner and outline-core, one repo
+  const repo = repoStep(f);
+  const c = f.repo.checkout;
+  add("ep0ch", "checkout", repo.status === "skip" ? "ok" : repo.unchecked ? "unknown" : "behind", `${c.root}${c.head ? ` at ${short(c.head)}${c.branch ? ` on ${c.branch}` : ""}` : ""}; ${repo.why}`,
+    repo.status === "do" ? repo.commands.filter(x => !x.includes("# when")).join(" && ") : undefined);
+  add("ep0ch", "bun install", f.repo.deps.needed ? "behind" : "ok", f.repo.deps.why, f.repo.deps.needed ? `(cd ${c.root} && bun install --frozen-lockfile)` : undefined);
+  add("ep0ch", "protocol", f.repo.protocol === null ? "missing" : "info",
+    f.repo.protocol === null ? `couldn't read packages/outline-core/src/protocol.ts in ${f.repo.root}` : `protocol ${f.repo.protocol}`);
+  if (f.repo.protocol !== null && f.repo.protocol !== PROTOCOL) add("ep0ch", "this door", "behind", `this door speaks protocol ${PROTOCOL} and the checkout ${f.repo.protocol}: restart the door on the checkout's code`);
+  const link = linkStep(f);
+  if (f.ep0ch.pointsHere) add("ep0ch", "ep0ch on PATH", "ok", `${f.ep0ch.found} → ${f.repo.entry}`);
+  else if (f.ep0ch.found) add("ep0ch", "ep0ch on PATH", "behind", link.why, link.commands[0]);
+  else add("ep0ch", "ep0ch on PATH", "missing", `not on PATH${chooseLinkDir(f.linkDirs) ? `; install links it in ${chooseLinkDir(f.linkDirs)}` : ""}`, link.commands[0] ?? link.why);
+  // The door session (PIE-418): the daemon, on the checkout's code or behind it.
+  if (f.session !== undefined) {
+    const sess = sessionStep(f, { status: "skip" }), sx = f.session;
+    if (!sx) add("ep0ch", "session", "info", "none running · `ep0ch` starts one");
+    else add("ep0ch", "session", sess.status === "do" ? "behind" : /another checkout|left for you/.test(sess.why) ? "info" : "ok", `pid ${sx.pid} · ${sx.clients} terminal${sx.clients === 1 ? "" : "s"} attached · ${sx.programs} program${sx.programs === 1 ? "" : "s"} in its tiles; ${sess.why}`, sess.status === "do" ? sess.commands[0] : undefined);
+  }
+
+  // the Outliner plugin: Herdr's link to this checkout's packages/outliner
   const plugin = pluginStep(f);
   const p = f.plugin;
-  if (!p) add("plugin", PLUGIN_ID, "missing", plugin.why, plugin.commands[0]);
+  if (!p) add("plugin", PLUGIN_ID, "missing", plugin.why, plugin.commands.join(" && "));
   else {
     // A managed install whose source couldn't be reached (ls-remote failed) isn't known to be current either.
     const unreachable = p.kind === "github" && !!p.source?.commit && !p.remote?.commit && !!p.remote?.error && p.remote.error !== "not fetched";
-    const how = p.kind === "local" ? `linked checkout ${p.root}` : `managed install ${p.root}`;
-    const status = plugin.status === "skip" ? "ok" : plugin.status === "do" ? "behind" : plugin.unchecked || unreachable ? "unknown" : p.kind === "github" && !p.remote?.commit ? "info" : "behind";
-    const commit = p.kind === "local" ? (p.checkout?.head ? ` at ${short(p.checkout.head)}${p.checkout.branch ? ` on ${p.checkout.branch}` : ""}` : "") : p.source?.commit ? ` at ${short(p.source.commit)}` : "";
-    add("plugin", "installed", status, `${how}${commit}${p.enabled ? "" : " (disabled in Herdr)"}; ${plugin.why}`, plugin.status === "skip" || plugin.unchecked ? undefined : plugin.commands.filter(c => !c.includes("# when")).join(" && ") || "ep0ch install --apply");
-    add("plugin", "protocol", p.protocol === null ? "missing" : "info",
-      p.protocol === null ? `couldn't read the protocol from ${p.root}/../outline-core/src/protocol.ts` : `protocol ${p.protocol}`);
-    if (p.protocol !== null && p.protocol !== PROTOCOL) add("plugin", "for the door", "behind", `the installed plugin speaks protocol ${p.protocol} and this door ${PROTOCOL}`, "ep0ch install --apply");
+    const how = p.kind === "local" ? `linked ${p.root}` : `managed install ${p.root}`;
+    const status = plugin.status === "skip" ? "ok" : plugin.status === "do" ? "behind" : unreachable ? "unknown" : p.kind === "github" && !p.remote?.commit && p.source?.repo === "ep0ch" ? "info" : "behind";
+    const commit = p.kind === "github" && p.source?.commit ? ` at ${short(p.source.commit)}` : "";
+    add("plugin", "in Herdr", status, `${how}${commit}${p.enabled ? "" : " (disabled in Herdr)"}; ${plugin.why}`, plugin.status === "skip" ? undefined : plugin.commands.join(" && ") || "ep0ch install --apply");
   }
 
-  // the door
-  const door = doorStep(f);
-  const c = f.door.checkout;
-  add("door", "checkout", door.status === "skip" ? "ok" : door.unchecked ? "unknown" : "behind", `${c.root}${c.head ? ` at ${short(c.head)}${c.branch ? ` on ${c.branch}` : ""}` : ""}; ${door.why}`,
-    door.status === "do" ? door.commands.filter(x => !x.includes("# when")).join(" && ") : undefined);
-  add("door", "bun install", f.door.deps.needed ? "behind" : "ok", f.door.deps.why, f.door.deps.needed ? `(cd ${c.root} && bun install --frozen-lockfile)` : undefined);
-  const link = linkStep(f);
-  if (f.ep0ch.pointsHere) add("door", "ep0ch on PATH", "ok", `${f.ep0ch.found} → ${f.door.entry}`);
-  // Another door checkout's link is left alone on purpose (install skips it too): information, not a fault.
-  else if (f.ep0ch.found) add("door", "ep0ch on PATH", link.status === "skip" ? "info" : "behind", link.why);
-  else add("door", "ep0ch on PATH", "missing", `not on PATH${chooseLinkDir(f.linkDirs) ? `; install links it in ${chooseLinkDir(f.linkDirs)}` : ""}`, link.commands[0] ?? link.why);
-  // The door session (PIE-418): the daemon, on the door's code or behind it.
-  if (f.session !== undefined) {
-    const sess = sessionStep(f, { status: "skip" }), sx = f.session;
-    if (!sx) add("door", "session", "info", "none running · `ep0ch` starts one");
-    else add("door", "session", sess.status === "do" ? "behind" : /another door checkout|left for you/.test(sess.why) ? "info" : "ok", `pid ${sx.pid} · ${sx.clients} terminal${sx.clients === 1 ? "" : "s"} attached · ${sx.programs} program${sx.programs === 1 ? "" : "s"} in its tiles; ${sess.why}`, sess.status === "do" ? sess.commands[0] : undefined);
-  }
-
-  // outline services
+  // outlines: the folder, the host serving it by name, its unit, and which outline this folder opens
   const h = f.host;
+  add("outlines", "folder", "info", `${h.folder} · ${f.databases.length ? f.databases.map(d => d.name).join(", ") : "no outlines yet"}`);
   const unit = h.unit ? `${h.unit.kind} ${h.unit.name}, ${h.unit.path}${h.unit.state ? `; ${h.unit.state.detail}` : ""}` : "no service unit";
-  const elsewhere = unitRunsElsewhere(f);
   if (!h.running) {
-    add("services", "outline host", h.configured || h.unit ? "missing" : "info",
-      h.configured || h.unit ? `set up (${unit}) but nothing answers at ${h.socket}` : `none (${h.socket}); per-folder services only`,
-      h.unit ? hostUnitCommand(h.unit, "start") : undefined);
+    add("outlines", "host", "missing", `nothing answers at ${h.socket} (${unit})`,
+      h.unit ? hostUnitCommand(h.unit, "start") : `bun ${f.repo.outliner}/src/host-main.ts (or a ${f.platform === "macos" ? "launchd agent" : "systemd user unit"} running it)`);
   } else {
-    const missing = staleness(h, f.plugin?.protocol ?? null);
-    const names = h.outlines.map(o => `${o.name}${o.default ? "*" : ""}${o.open ? "" : " (closed)"}`).join(", ");
+    const missing = staleness(h, f.repo.protocol);
+    const names = h.outlines.map(o => `${o.name}${o.open ? "" : " (closed)"}`).join(", ");
     // The socket answers, but the unit says its job isn't running: something else serves it (a host started by hand).
     const stray = h.unit?.state?.active === false ? `; ${h.unit.kind} isn't running it, so another process answers` : "";
-    add("services", "outline host", missing.length || stray ? "behind" : "ok",
-      `${h.socket} (${unit}); default ${h.defaultOutline ?? "none"}; outlines: ${names || "none"}${h.protocol ? `; protocol ${h.protocol}` : ""}${missing.length ? `; runs old code, missing ${missing.join(", ")}` : ""}${stray}`,
+    add("outlines", "host", missing.length || stray ? "behind" : "ok",
+      `${h.socket} (${unit}); serves ${names || "no outlines yet"}${h.protocol ? `; protocol ${h.protocol}` : ""}${missing.length ? `; runs old code: ${missing.join(", ")}` : ""}${stray}`,
       missing.length ? hostRestartHint(f) : undefined);
   }
-  if (h.unit && elsewhere) {
-    add("services", "host unit", "behind", `${h.unit.path} runs ${elsewhere}, not the installed plugin's ${f.plugin!.root}/src/host-main.ts: a restart brings back that code`,
-      `point ${h.unit.path} at ${f.plugin!.root}/src/host-main.ts, then ${hostUnitCommand(h.unit, "restart")}`);
+  const change = unitChanges(f);
+  if (h.unit && change) add("outlines", "host unit", "behind", `${h.unit.path} is from before outlines by name (PIE-530) or another checkout`, change);
+  if (f.here) {
+    if (f.here.outline) add("outlines", "this folder", "info", `${f.here.folder} opens ${f.here.why}`);
+    else add("outlines", "this folder", "info", `${f.here.folder}: ${f.here.unnamed}${f.here.guess ? `; ep0ch init would start "${f.here.guess}"` : ""}`);
   }
-  if (!f.services.length) add("services", "per-folder", "info", "no per-folder services on this machine");
-  for (const s of f.services) {
-    const label = `folder ${serviceLabel(s)}`;
-    const hosted = s.database ? f.databases.find(d => d.from === "host" && d.path === s.database) : undefined;
-    if (!s.running) { add("services", label, "info", hosted ? `served by the outline host as ${hosted.name} (${s.stateDir})` : `stopped (${s.stateDir})`); continue; }
-    const missing = staleness(s, f.plugin?.protocol ?? null);
-    add("services", label, missing.length ? "behind" : "ok",
-      `${s.root ?? s.stateDir}, protocol ${s.protocol ?? "?"}${missing.length ? `; runs old code, missing ${missing.join(", ")}: restart to pick up new features` : ""}${s.paneId ? `; Herdr pane ${s.paneId}` : ""}`,
-      missing.length ? (s.paneId ? "ep0ch install --apply --restart-services" : "stop it and reopen the Outliner in that folder") : undefined);
-  }
-  if (f.databases.length) add("services", "databases", "info", f.databases.map(d => `${d.name} ${d.path}`).join("; "));
 
   // Herdr
   if (!f.herdr.path) add("herdr", "herdr", "missing", "not on PATH", "see https://herdr.dev");

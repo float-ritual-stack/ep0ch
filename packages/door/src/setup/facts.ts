@@ -1,15 +1,15 @@
 // What this machine's stack looks like (model.ts's Facts), gathered read-only: git (fetch and ls-remote
-// only), Herdr's own answers, the outline sockets (`ping`, `outlines.list`), the file system. Nothing here
-// writes a database, starts a service or changes a config.
+// only), Herdr's own answers, the outline host's socket (`ping`, `outlines.list`), the file system. Nothing
+// here writes a database, starts a host or changes a config.
 import { defaultStateDir } from "../state";
 import { accessSync, constants, existsSync, lstatSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
-import { hostConfigured, hostLive, hostSocketOf } from "../discover";
+import { hostLive, hostSocketOf, outlinesDir, resolveTarget } from "../discover";
 import { outlinerPlugin } from "../skills";
 import { doorAgents } from "../desk/agent-env";
 import { hostRequest, type HostedOutline } from "../socket";
-import { type Checkout, type DatabaseFacts, type Deps, detectPlatform, type Facts, type HostFacts, type HostUnit, KEYED_ACTIONS, PLUGIN_ID, type PluginFacts, type ServiceFacts, type UnitState } from "./model";
+import { type Checkout, type DatabaseFacts, type Deps, detectPlatform, type Facts, type HereFacts, type HostFacts, type HostUnit, KEYED_ACTIONS, PLUGIN_ID, type PluginFacts, type RepoFacts, type UnitState } from "./model";
 import { linkCandidates } from "./plan";
 
 type Env = Record<string, string | undefined>;
@@ -142,9 +142,12 @@ export function depsState(root: string): Deps {
   return { needed: false, why: `${names.length} packages installed as bun.lock says` };
 }
 
-/** The installed Outliner code's protocol: its repo's outline-core protocol.ts, read in a fresh process. */
-export async function pluginCode(root: string): Promise<{ protocol: number | null }> {
-  const file = join(root, "../outline-core/src/protocol.ts");
+/**
+ * The protocol a checkout's code speaks: outline-core's protocol.ts beside `packageRoot` (packages/outliner, or a
+ * managed plugin's root), read in a fresh process so a pull that changed it is seen.
+ */
+export async function pluginCode(packageRoot: string): Promise<{ protocol: number | null }> {
+  const file = join(packageRoot, "../outline-core/src/protocol.ts");
   if (!existsSync(file)) return { protocol: null };
   const r = await run([process.execPath, "-e", `const m = await import(${JSON.stringify(file)}); console.log(JSON.stringify({ protocol: m.PROTOCOL ?? null }))`], { timeoutMs: 15_000 });
   try { const v = JSON.parse(r.out); return { protocol: typeof v.protocol === "number" ? v.protocol : null }; }
@@ -195,11 +198,11 @@ export function herdrKeys(configPath: string): Record<string, string> {
 
 /**
  * A unit that runs the outline host (host-main.ts): a systemd user unit on Linux, a launchd agent on macOS.
- * Only one serving `base`, the state folder whose socket is being asked about (its OUTLINER_STATE_DIR, else
- * the host's default): a unit for another state folder is another host, and install never restarts it for
- * this one (a scratch host in a test must never restart the person's).
+ * Only one serving `outlines`, the outlines folder being asked about (its EP0CH_OUTLINES, else ~/outlines): a
+ * unit for another folder is another host, and install never restarts it for this one (a scratch host in a test
+ * must never restart the person's). What it still sets from before outlines by name is listed in `stale`.
  */
-export function hostUnit(platform: Facts["platform"], home: string, base = join(home, ".local/state/pi-herdr-outliner")): HostFacts["unit"] {
+export function hostUnit(platform: Facts["platform"], home: string, outlines = join(home, "outlines")): HostFacts["unit"] {
   const [kind, dir, ext] = platform === "linux" ? ["systemd", join(home, ".config/systemd/user"), ".service"] as const
     : platform === "macos" ? ["launchd", join(home, "Library/LaunchAgents"), ".plist"] as const : [null, "", ""] as const;
   if (!kind || !existsSync(dir)) return null;
@@ -207,20 +210,22 @@ export function hostUnit(platform: Facts["platform"], home: string, base = join(
     let text: string;
     try { text = readFileSync(join(dir, file), "utf8"); } catch { continue; /* unreadable: not ours */ }
     if (!text.includes("host-main.ts")) continue;
-    if (resolve(unitStateDir(kind, text, home) ?? join(home, ".local/state/pi-herdr-outliner")) !== resolve(base)) continue;
+    const served = resolve(unitEnv(kind, text, "EP0CH_OUTLINES", home) ?? join(home, "outlines"));
+    if (served !== resolve(outlines)) continue;
     const label = kind === "launchd" ? /<key>\s*Label\s*<\/key>\s*<string>([^<]+)<\/string>/.exec(text)?.[1]?.trim() : undefined;
     const program = /[^\s<>"'=]*host-main\.ts/.exec(text)?.[0];
-    return { kind, path: join(dir, file), name: label || (kind === "launchd" ? file.replace(/\.plist$/, "") : file), ...(program ? { program } : {}) };
+    const stale = (["OUTLINER_STATE_DIR", "OUTLINER_DEFAULT_OUTLINE"] as const).filter(k => unitEnv(kind, text, k, home) !== null);
+    return { kind, path: join(dir, file), name: label || (kind === "launchd" ? file.replace(/\.plist$/, "") : file), ...(program ? { program } : {}), outlines: served, stale };
   }
   return null;
 }
 
-/** The OUTLINER_STATE_DIR a unit sets: systemd's Environment= (%h is the home folder), a plist's EnvironmentVariables. */
-function unitStateDir(kind: "systemd" | "launchd", text: string, home: string): string | null {
+/** A variable a unit sets: systemd's Environment= (%h is the home folder), a plist's EnvironmentVariables; null when unset. */
+export function unitEnv(kind: "systemd" | "launchd", text: string, name: string, home: string): string | null {
   const found = kind === "systemd"
-    ? /^\s*Environment\s*=.*?"?OUTLINER_STATE_DIR=("[^"]*"|[^\s"]+)/m.exec(text)?.[1]
-    : /<key>\s*OUTLINER_STATE_DIR\s*<\/key>\s*<string>([^<]*)<\/string>/.exec(text)?.[1];
-  return found ? found.replace(/^"|"$/g, "").trim().replace(/%h/g, home) : null;
+    ? new RegExp(`^\\s*Environment\\s*=.*?"?${name}=("[^"]*"|[^\\s"]+)`, "m").exec(text)?.[1]
+    : new RegExp(`<key>\\s*${name}\\s*</key>\\s*<string>([^<]*)</string>`).exec(text)?.[1];
+  return found === undefined ? null : found.replace(/^"|"$/g, "").trim().replace(/%h/g, home);
 }
 
 /** launchd's answer to `launchctl print gui/<uid>/<label>`: its own state, pid and last exit (the job's top-level lines). */
@@ -251,69 +256,60 @@ export async function unitState(unit: HostUnit, uid = process.getuid?.() ?? 0): 
   return systemdState(r.code === 0 ? r.out : null);
 }
 
-type Ping = { protocolVersion?: number; location?: { workspaceRoot?: string }; outline?: { name?: string } };
-const ping = (socket: string, params: Record<string, unknown> = {}) => hostRequest<Ping>(socket, "ping", params, 1500).catch(() => null);
+type Ping = { protocolVersion?: number };
 
-/**
- * The outline a read-only `ping` may go to on the host: the default when it is open, else any open one.
- * A plain `ping` goes to the default outline, and the host opens it when it's closed; so a closed outline
- * is never pinged (with none open, the host's protocol stays unknown).
- */
+/** The outline to ping read-only on the host: an open one (a ping to a closed one would open it); null when none is open. */
 export function openOutlineToPing(outlines: readonly HostedOutline[]): string | null {
-  return (outlines.find(o => o.open && o.default) ?? outlines.find(o => o.open))?.name ?? null;
+  return outlines.find(o => o.open)?.name ?? null;
 }
 
-export async function hostFacts(base: string, platform: Facts["platform"], home: string): Promise<HostFacts> {
-  const socket = hostSocketOf(base);
-  const found = hostUnit(platform, home, base);
+/** The outline host over `folder`: its socket, whether it answers, its outlines, its protocol, its unit. */
+export async function hostFacts(folder: string, platform: Facts["platform"], home: string): Promise<HostFacts> {
+  const socket = hostSocketOf({ EP0CH_OUTLINES: folder, HOME: home });
+  const found = hostUnit(platform, home, folder);
   const [live, state] = await Promise.all([hostLive(socket), found ? unitState(found) : Promise.resolve(undefined)]);
   const unit = found && state ? { ...found, state } : found;
-  if (!live) return { socket, configured: hostConfigured(base), running: false, outlines: [], unit };
+  if (!live) return { folder, socket, running: false, outlines: [], unit };
   const list = await hostRequest<{ outlines: HostedOutline[] }>(socket, "outlines.list", {}, 3000).catch(() => ({ outlines: [] as HostedOutline[] }));
   const target = openOutlineToPing(list.outlines);
-  const p = target ? await ping(socket, { outline: target }) : null;
-  return { socket, configured: true, running: true, ...(live.defaultOutline ? { defaultOutline: live.defaultOutline } : {}), outlines: list.outlines,
-    ...(p?.protocolVersion !== undefined ? { protocol: p.protocolVersion } : {}), unit };
+  const p = target ? await hostRequest<Ping>(socket, "ping", { outline: target }, 1500).catch(() => null) : null;
+  return { folder, socket, running: true, outlines: list.outlines, ...(p?.protocolVersion !== undefined ? { protocol: p.protocolVersion } : {}), unit };
 }
 
-/** Each `<state>/<hash>/` with a socket or a database: a per-folder outline service. */
-export async function serviceFacts(base: string): Promise<ServiceFacts[]> {
-  if (!existsSync(base)) return [];
-  const dirs = readdirSync(base, { withFileTypes: true }).filter(d => d.isDirectory() && /^[0-9a-f]{12}$/.test(d.name)).map(d => join(base, d.name));
-  const found = await Promise.all(dirs.map(async (stateDir): Promise<ServiceFacts | null> => {
-    const socket = join(stateDir, "outliner.sock"), db = join(stateDir, "outliner.sqlite");
-    if (!existsSync(socket) && !existsSync(db)) return null;
-    const answer = existsSync(socket) ? await ping(socket) : null;
-    let name: string | undefined, root: string | undefined, paneId: string | undefined;
-    try { const o = JSON.parse(readFileSync(join(stateDir, "outline.json"), "utf8")); name = o.name; root = o.root; } catch { /* none */ }
-    try { paneId = JSON.parse(readFileSync(join(stateDir, "service-pane.json"), "utf8")).paneId; } catch { /* none */ }
-    root = answer?.location?.workspaceRoot ?? root;
-    name = answer?.outline?.name ?? name ?? (root ? root.split("/").filter(Boolean).pop() : undefined);
-    return { stateDir, socket, database: existsSync(db) ? real(db) : null, running: !!answer, ...(name ? { name } : {}), ...(root ? { root } : {}),
-      ...(answer?.protocolVersion !== undefined ? { protocol: answer.protocolVersion } : {}), ...(paneId ? { paneId } : {}) };
-  }));
-  return found.filter((s): s is ServiceFacts => !!s);
+/** Every outline database in the outlines folder (`<name>.sqlite`), read even when the host is down. */
+export function databases(folder: string): DatabaseFacts[] {
+  if (!existsSync(folder)) return [];
+  return readdirSync(folder, { withFileTypes: true })
+    .filter(e => e.isFile() && e.name.endsWith(".sqlite"))
+    .map(e => ({ name: e.name.replace(/\.sqlite$/, ""), path: join(folder, e.name) }))
+    .sort((a, b) => a.name.localeCompare(b.name));
 }
 
+/** Which outline `folder` opens, by the rule (`EP0CH_WS`, the nearest `.ep0ch`); never a guess. */
+export function hereFacts(folder: string, env: Env): HereFacts {
+  const t = resolveTarget([], env, folder);
+  if ("error" in t) return { folder, unnamed: t.error };
+  if ("unnamed" in t) return { folder, unnamed: t.unnamed, ...(t.guess ? { guess: t.guess.name } : {}) };
+  return { folder, outline: t.outline, why: t.why };
+}
 
-/**
- * Every local outline database, once: the host's outlines (by name; `outlines/*.sqlite`, links for adopted
- * ones, read even when the host is down) first, then each folder service's that isn't one of them.
- */
-export function databases(base: string, host: HostFacts, services: ServiceFacts[]): DatabaseFacts[] {
-  const out: DatabaseFacts[] = [];
-  const seen = new Set<string>();
-  const add = (name: string, path: string, from: DatabaseFacts["from"]) => {
-    if (!existsSync(path)) return;
-    const r = real(path);
-    if (seen.has(r)) return;
-    seen.add(r); out.push({ name, path: r, from });
-  };
-  for (const o of host.outlines) add(o.name, o.database, "host");
-  const dir = join(base, "outlines");
-  if (existsSync(dir)) for (const f of readdirSync(dir).filter(n => n.endsWith(".sqlite")).sort()) add(f.replace(/\.sqlite$/, ""), join(dir, f), "host");
-  for (const s of services) if (s.database) add(s.name ?? s.stateDir.split("/").pop()!, s.database, "folder");
-  return out;
+/** The repo around this door: packages/door is two folders under its root. */
+export const repoRootOf = (doorDir = resolve(import.meta.dir, "../..")) => resolve(doorDir, "../..");
+
+/** The Claude mod's folder and its installer in a repo: packages/claude-mod, else packages/outliner/claude-mod. */
+export function claudeModIn(root: string): { dir: string | null; installer: string | null } {
+  const dir = [join(root, "packages/claude-mod"), join(root, "packages/outliner/claude-mod")].find(d => existsSync(d)) ?? null;
+  const installer = [join(root, "packages/claude-mod/scripts/install-claude-mod.ts"), join(root, "packages/outliner/scripts/install-claude-mod.ts")].find(f => existsSync(f)) ?? null;
+  return { dir, installer };
+}
+
+/** The ep0ch checkout at `root`: the checkout, its packages, the protocol its code speaks. */
+export async function repoFacts(root: string, fetch: boolean, env: Env, onLine?: OnLine): Promise<RepoFacts> {
+  const outliner = join(root, "packages/outliner");
+  const mod = claudeModIn(root);
+  const [checkout, code] = await Promise.all([inspectCheckout(root, fetch, env, onLine), pluginCode(outliner)]);
+  return { root, checkout, deps: depsState(root), entry: join(root, "packages/door/src/main.ts"), door: join(root, "packages/door"), outliner,
+    claudeMod: mod.dir, claudeModInstaller: mod.installer, protocol: code.protocol };
 }
 
 const splitDirs = (v: unknown) => (typeof v === "string" ? v.split(delimiter).map(d => d.trim()).filter(Boolean) : null);
@@ -330,7 +326,8 @@ function which(name: string, pathDirs: string[]): string | null {
 /** Which of the facts' parts are still being gathered, for a progress line; each change is reported. */
 export interface GatherProgress { done: number; total: number; waiting: string[] }
 export interface GatherOptions {
-  env?: Env; fetch?: boolean; doorRoot?: string; platform?: string;
+  /** `repoRoot`: the ep0ch checkout (default: the one this door runs from). `cwd`: the folder `here` is about. */
+  env?: Env; fetch?: boolean; repoRoot?: string; platform?: string; cwd?: string;
   /** Called as each part (bun, Herdr, the plugin, the door checkout …) is gathered. */
   onProgress?: (p: GatherProgress) => void;
   /** The fetches' output as it arrives, prefixed with what is fetched. */
@@ -343,9 +340,8 @@ export async function gatherFacts(o: GatherOptions = {}): Promise<Facts> {
   const home = resolve(env.HOME || homedir());
   const pathDirs = (env.PATH ?? "").split(delimiter).filter(Boolean);
   const fetch = o.fetch ?? true;
-  const doorRoot = o.doorRoot ?? resolve(import.meta.dir, "../..");
-  const entry = join(doorRoot, "src/main.ts");
-  const base = env.OUTLINER_STATE_DIR ?? join(home, ".local/state/pi-herdr-outliner");
+  const repoRoot = o.repoRoot ?? repoRootOf();
+  const folder = outlinesDir({ ...env, HOME: home });
 
   const bunPath = which("bun", pathDirs);
   const herdrPath = env.HERDR_BIN_PATH && existsSync(env.HERDR_BIN_PATH) ? env.HERDR_BIN_PATH : which("herdr", pathDirs);
@@ -358,14 +354,13 @@ export async function gatherFacts(o: GatherOptions = {}): Promise<Facts> {
     return Promise.resolve(p).finally(() => { waiting.splice(waiting.indexOf(name), 1); done++; o.onProgress?.({ done, total: done + waiting.length, waiting: [...waiting] }); });
   };
   const lines = (what: string): OnLine | undefined => (o.onLine ? l => o.onLine!(`${what}: ${l.trim()}`) : undefined);
-  const [bunVersion, herdrVersion, server, plugin, doorCheckout, host, services, agents, session] = await Promise.all([
+  const [bunVersion, herdrVersion, server, plugin, repo, host, agents, session] = await Promise.all([
     part("bun", bunPath ? run([bunPath, "--version"], { env, timeoutMs: 5000 }).then(r => r.code === 0 ? r.out : null) : null),
     part("Herdr", herdrPath ? run([herdrPath, "--version"], { env, timeoutMs: 5000 }).then(r => r.code === 0 ? r.out.replace(/^herdr\s+/, "") : null) : null),
     part("Herdr's server", herdrPath ? run([herdrPath, "status", "server", "--json"], { env, timeoutMs: 5000 }).then(r => { try { return JSON.parse(r.out).running === true; } catch { return false; } }) : null),
     part("the Outliner plugin", herdrPath ? pluginFacts({ ...env, HERDR_BIN_PATH: herdrPath }, fetch, lines("plugin")) : null),
-    part("the door checkout", inspectCheckout(doorRoot, fetch, env, lines("door"))),
-    part("the outline host", hostFacts(base, platform, home)),
-    part("folder services", serviceFacts(base)),
+    part("the ep0ch checkout", repoFacts(repoRoot, fetch, env, lines("ep0ch"))),
+    part("the outline host", hostFacts(folder, platform, home)),
     part("door agents", doorAgents(env).catch(() => undefined)),
     part("the door session", doorSession(env).catch(() => null)),
   ]);
@@ -394,14 +389,14 @@ export async function gatherFacts(o: GatherOptions = {}): Promise<Facts> {
   return {
     platform, home, pathDirs,
     bun: { path: bunPath, version: bunVersion },
-    herdr: { path: herdrPath, version: herdrVersion, server, configPath, keys: herdrKeys(configPath), inside: env.HERDR_ENV === "1" },
+    herdr: { path: herdrPath, version: herdrVersion, server, configPath, keys: herdrKeys(configPath) },
     plugin,
-    door: { checkout: doorCheckout, deps: depsState(doorRoot), entry },
-    ep0ch: { found, target, pointsHere: target === real(entry) },
+    repo,
+    ep0ch: { found, target, pointsHere: target === real(repo.entry) },
     linkDirs,
     host,
-    services,
-    databases: databases(base, host, services),
+    databases: databases(folder),
+    here: hereFacts(o.cwd ?? process.cwd(), { ...env, HOME: home }),
     claude: { settingsPath, settingsDirs, envDirs: splitDirs(env.CLAUDE_CODE_PLUGIN_DIRS), ...(mentions ? { mentions } : {}), ...(env.FORCE_HYPERLINK !== undefined ? { forceHyperlink: env.FORCE_HYPERLINK } : {}), ...(agents ? { agents } : {}) },
     session,
   };

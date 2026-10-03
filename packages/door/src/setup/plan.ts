@@ -1,12 +1,16 @@
 // `ep0ch install`'s plan: from the facts (model.ts), which steps run, in order, and which are already current.
 // Pure: the dry run prints it, `--apply` runs it (apply.ts), the tests check it against described machines.
+//
+// One checkout (the ep0ch repo) is fast-forwarded, its workspace installed, `ep0ch` linked, the Herdr plugin
+// checked to be that checkout's packages/outliner, and the outline host restarted through its unit when the code
+// under it changed. Every `<outlines>/*.sqlite` is backed up first. Units and Herdr's config are never edited:
+// what they need is said.
 import { join, resolve } from "node:path";
-import { slugOutlineName } from "../discover";
-import { type Checkout, type DatabaseFacts, type Deps, type Facts, type HostUnit, KEYED_ACTIONS, PLUGIN_ID, PLUGIN_SOURCE, type ServiceFacts, short, staleness } from "./model";
+import { type Checkout, type DatabaseFacts, type Deps, type Facts, type HostUnit, KEYED_ACTIONS, PLUGIN_ID, PLUGIN_SOURCE, short, staleness } from "./model";
 
-/** do: runs with --apply. skip: already current. manual: needs a person (the hint says what). offer: runs with a flag. */
-export type StepStatus = "do" | "skip" | "manual" | "offer";
-export type StepId = "backup" | "plugin" | "door" | "link" | "restart" | "host" | "session";
+/** do: runs with --apply. skip: already current. manual: needs a person (the hint says what). */
+export type StepStatus = "do" | "skip" | "manual";
+export type StepId = "backup" | "repo" | "plugin" | "link" | "host" | "session";
 
 export interface Step {
   id: StepId;
@@ -17,14 +21,12 @@ export interface Step {
   commands: string[];
   /** backup: each database and where it's copied. */
   backups?: (DatabaseFacts & { dest: string })[];
-  /** restart: the services it restarts. */
-  services?: ServiceFacts[];
   /** A checkout whose remote couldn't be reached (the fetch failed): whether it's current isn't known. */
   unchecked?: true;
 }
 
 export interface Plan { steps: Step[]; notes: string[] }
-export interface PlanOptions { restartServices: boolean; now: Date; backupDir: string }
+export interface PlanOptions { now: Date; backupDir: string }
 
 /** Where backups go: ~/backups/ep0ch. */
 export const backupDirOf = (home: string) => join(home, "backups", "ep0ch");
@@ -32,14 +34,8 @@ export const backupDirOf = (home: string) => join(home, "backups", "ep0ch");
 /** A timestamp for file names, in UTC: 20260929T221530Z. */
 export const stamp = (d: Date) => d.toISOString().replace(/[-:]/g, "").replace(/\.\d+Z$/, "Z");
 
-/** `<name>-<timestamp>.sqlite`, the name as an outline name; a second database of that name gets `-2`. */
-export function backupName(name: string, now: Date, taken: Set<string> = new Set()): string {
-  const base = `${slugOutlineName(name)}-${stamp(now)}`;
-  let file = `${base}.sqlite`;
-  for (let n = 2; taken.has(file); n++) file = `${base}-${n}.sqlite`;
-  taken.add(file);
-  return file;
-}
+/** `<UTC timestamp>/<name>.sqlite`: one folder per run, each outline by its name (names are unique in a folder). */
+export const backupName = (name: string, now: Date) => join(stamp(now), `${name}.sqlite`);
 
 /** The first directory, in preference order, that is on PATH and writable; null when none is. */
 export function chooseLinkDir(dirs: Facts["linkDirs"]): string | null {
@@ -74,46 +70,61 @@ export function checkoutStep(c: Checkout, deps: Deps | null, name: string): Pick
   return { status: "skip", why: `current at ${short(c.head)}${c.ahead ? `, ${c.ahead} ahead of origin/main` : " (origin/main)"}`, commands: [] };
 }
 
+/** The ep0ch checkout: the door, the outliner (the plugin and the host) and outline-core, updated together. */
+export function repoStep(f: Facts): Step {
+  return { id: "repo", title: "Update the ep0ch checkout", ...checkoutStep(f.repo.checkout, f.repo.deps, "the ep0ch checkout") };
+}
+
+/** The commands that point Herdr's plugin at this checkout's packages/outliner. */
+export const relinkCommands = (f: Facts) => [`herdr plugin unlink ${PLUGIN_ID}`, `herdr plugin link ${f.repo.outliner} --enabled`];
+
+/**
+ * The Herdr plugin: linked to this checkout's packages/outliner (the repo step updates it), or a managed install
+ * of float-ritual-stack/ep0ch/packages/outliner compared with main. A link to another checkout (the old
+ * pi-herdr-outliner) is the person's to relink: Herdr's registry is never edited by install.
+ */
 export function pluginStep(f: Facts): Step {
-  const title = "Update the Outliner plugin";
+  const title = "The Outliner plugin in Herdr";
   const p = f.plugin;
-  if (!f.herdr.path) return { id: "plugin", title, status: "manual", why: "Herdr isn't installed; install it (https://herdr.dev), then the Outliner: its install.sh", commands: [] };
-  if (!p) {
-    return { id: "plugin", title, status: "manual", why: "the Outliner plugin isn't installed in Herdr; install it with the Outliner's installer (keys, Claude mod) or directly:",
-      commands: [`herdr plugin install ${PLUGIN_SOURCE} --ref main --yes`] };
+  if (!f.herdr.path) return { id: "plugin", title, status: "manual", why: "Herdr isn't installed; install it (https://herdr.dev), then link the plugin:", commands: [`herdr plugin link ${f.repo.outliner} --enabled`] };
+  if (!p) return { id: "plugin", title, status: "manual", why: "the Outliner plugin isn't in Herdr; link it to this checkout (its install.sh also binds keys and the Claude mod):", commands: [`herdr plugin link ${f.repo.outliner} --enabled`] };
+  if (p.kind === "local") {
+    if (resolve(p.root) === resolve(f.repo.outliner)) return { id: "plugin", title, status: "skip", why: `linked to ${p.root}: updated with the ep0ch checkout`, commands: [] };
+    return { id: "plugin", title, status: "manual", why: `Herdr runs the plugin from ${p.root}, not this checkout's ${f.repo.outliner}; point Herdr at it (then restart the Outliner's panes):`, commands: relinkCommands(f) };
   }
-  if (p.kind === "local") return { id: "plugin", title: `${title} (linked checkout)`, ...checkoutStep(p.checkout ?? missingCheckout(p.root), p.deps, "the plugin checkout") };
-  const source = p.source?.owner && p.source.repo ? `${p.source.owner}/${p.source.repo}` : PLUGIN_SOURCE;
+  const recorded = p.source?.owner && p.source.repo ? `${p.source.owner}/${p.source.repo}` : null;
+  if (recorded && recorded !== "float-ritual-stack/ep0ch") {
+    return { id: "plugin", title, status: "manual", why: `a managed install of ${recorded}, from before the one repo; reinstall it from ${PLUGIN_SOURCE}, or link this checkout:`,
+      commands: [`herdr plugin install ${PLUGIN_SOURCE} --ref main --yes`, ...relinkCommands(f)] };
+  }
   // Compared with main, and refreshed from main, whatever ref it was installed from (a PR branch, a commit).
-  const reinstall = `herdr plugin install ${source} --ref main --yes`;
+  const reinstall = `herdr plugin install ${PLUGIN_SOURCE} --ref main --yes`;
   const managed = `${title} (managed by Herdr)`;
   const from = p.source?.ref && p.source.ref !== "main" ? `; installed from ${p.source.ref}, refreshed from main` : "";
   if (!p.remote?.commit || !p.source?.commit) {
     return { id: "plugin", title: managed, status: "manual",
       why: `managed, cannot compare (${!p.source?.commit ? "Herdr recorded no installed commit" : p.remote?.error ?? "the source couldn't be reached"}); to refresh it anyway:`, commands: [reinstall] };
   }
-  if (p.remote.commit === p.source.commit) return { id: "plugin", title: managed, status: "skip", why: `current at ${short(p.source.commit)} (${source}@main)`, commands: [] };
-  return { id: "plugin", title: managed, status: "do", why: `installed ${short(p.source.commit)}, ${source}@main is at ${short(p.remote.commit)}${from}; Herdr has no update command, so installing again refreshes it`, commands: [reinstall] };
-}
-const missingCheckout = (root: string): Checkout => ({ root, git: false, branch: null, head: null, upstream: null, ahead: 0, behind: 0, dirty: false });
-
-export function doorStep(f: Facts): Step {
-  return { id: "door", title: "Update the door checkout", ...checkoutStep(f.door.checkout, f.door.deps, "the door checkout") };
+  if (p.remote.commit === p.source.commit) return { id: "plugin", title: managed, status: "skip", why: `current at ${short(p.source.commit)} (${PLUGIN_SOURCE}@main)`, commands: [] };
+  return { id: "plugin", title: managed, status: "do", why: `installed ${short(p.source.commit)}, main is at ${short(p.remote.commit)}${from}; Herdr has no update command, so installing again refreshes it`, commands: [reinstall] };
 }
 
-/** Whether a path is some ep0ch-door checkout's entry point (another checkout's link is left alone). */
+/** Whether a path is some ep0ch checkout's entry point (another checkout's link is left alone). */
 const isDoorEntry = (target: string | null) => !!target && /\/src\/main\.ts$/.test(target);
 
 export function linkStep(f: Facts): Step {
   const title = "Put ep0ch on PATH";
-  const entry = f.door.entry;
+  const entry = f.repo.entry;
   if (f.ep0ch.pointsHere) return { id: "link", title, status: "skip", why: `${f.ep0ch.found} → ${entry}`, commands: [] };
-  if (f.ep0ch.found) {
-    return isDoorEntry(f.ep0ch.target)
-      ? { id: "link", title, status: "skip", why: `ep0ch (${f.ep0ch.found}) runs another door checkout, ${f.ep0ch.target}; left as it is (run install from that checkout, or remove the link to link this one)`, commands: [] }
-      : { id: "link", title, status: "manual", why: `${f.ep0ch.found} is on PATH and isn't a door checkout's link; remove or rename it, then rerun`, commands: [] };
-  }
   const dir = chooseLinkDir(f.linkDirs);
+  if (f.ep0ch.found) {
+    // Another checkout's link (the old ep0ch-door's, say) is replaced only when it's in a directory install links in.
+    const relink = dir && f.ep0ch.found === join(dir, "ep0ch") && f.linkDirs.find(d => d.dir === dir)?.existing === "link";
+    if (isDoorEntry(f.ep0ch.target) && relink) return { id: "link", title, status: "do", why: `${f.ep0ch.found} runs ${f.ep0ch.target}; point it at this checkout`, commands: [`ln -sfn ${entry} ${f.ep0ch.found}`] };
+    return isDoorEntry(f.ep0ch.target)
+      ? { id: "link", title, status: "manual", why: `ep0ch (${f.ep0ch.found}) runs another checkout, ${f.ep0ch.target}; point it here: ln -sfn ${entry} ${f.ep0ch.found}`, commands: [] }
+      : { id: "link", title, status: "manual", why: `${f.ep0ch.found} is on PATH and isn't an ep0ch checkout's link; remove or rename it, then rerun`, commands: [] };
+  }
   if (!dir) {
     return { id: "link", title, status: "manual",
       why: `none of ${f.linkDirs.map(d => d.dir).join(", ")} is both on PATH and writable (install never uses sudo); mkdir -p ~/.local/bin, add it to PATH, then rerun`, commands: [] };
@@ -124,56 +135,12 @@ export function linkStep(f: Facts): Step {
   return { id: "link", title, status: "do", why: `${dir} is the first writable PATH directory of ${f.linkDirs.map(d => d.dir).join(", ")}`, commands: [`ln -s ${entry} ${dir}/ep0ch`] };
 }
 
-/** Per-folder services running old code, with what each is missing. */
-export function staleServices(f: Facts): { service: ServiceFacts; missing: string[] }[] {
-  return f.services.filter(s => s.running).map(s => ({ service: s, missing: staleness(s, f.plugin?.protocol ?? null) })).filter(x => x.missing.length);
-}
-
-export const serviceLabel = (s: ServiceFacts) => s.name ?? s.root ?? s.stateDir;
-
-/** The restart of one service: close its Herdr pane, then the Outliner's own launcher starts it again. */
-export const restartCommands = (s: ServiceFacts, pluginRoot: string) => [
-  `herdr pane close ${s.paneId}`,
-  `OUTLINER_OPEN_WORKSPACE_ROOT=${s.root} bun run ${pluginRoot}/src/herdr-open.ts --mode service-only`,
-];
-
-export function restartStep(f: Facts, o: PlanOptions, pluginUpdates: boolean): Step {
-  const title = "Restart per-folder services running old code";
-  const stale = staleServices(f);
-  const running = f.services.filter(s => s.running);
-  const after = pluginUpdates ? " (checked again after the plugin update)" : "";
-  if (!stale.length && !(pluginUpdates && running.length)) {
-    return { id: "restart", title, status: "skip", why: running.length ? `every running service offers what the current code does (${running.map(serviceLabel).join(", ")})` : "no per-folder services are running", commands: [] };
-  }
-  const listed = stale.length
-    ? stale.map(x => `${serviceLabel(x.service)} (missing ${x.missing.join(", ")})`).join("; ")
-    : `${running.map(serviceLabel).join(", ")} may, once the plugin is updated`;
-  if (!o.restartServices) {
-    return { id: "restart", title, status: "offer", why: `${listed}${after}. These are working panes: pass --restart-services to restart them`, commands: [],
-      services: stale.map(x => x.service) };
-  }
-  const targets = (stale.length ? stale.map(x => x.service) : running);
-  if (!f.herdr.inside) {
-    return { id: "restart", title, status: "manual", why: `${listed}; run install from a Herdr pane to restart them (the Outliner starts services only inside Herdr)`, commands: [], services: targets };
-  }
-  const restartable = targets.filter(s => s.paneId && s.root);
-  const not = targets.filter(s => !s.paneId || !s.root);
-  const root = f.plugin?.root ?? "<plugin root>";
-  if (!restartable.length) {
-    return { id: "restart", title, status: "manual", why: `${listed}; none was started in a Herdr pane the Outliner recorded, so stop each and reopen the Outliner in its folder`, commands: [], services: targets };
-  }
-  return { id: "restart", title, status: "do",
-    why: `${listed}${after}${not.length ? `; not restartable here (no recorded Herdr pane): ${not.map(serviceLabel).join(", ")}` : ""}. Reopen Tree and Detail panes on them afterwards`,
-    commands: restartable.flatMap(s => restartCommands(s, root)), services: restartable };
-}
-
 export function backupStep(f: Facts, o: PlanOptions, anythingElse: boolean): Step {
-  const title = "Back up every local outline database";
-  if (!f.databases.length) return { id: "backup", title, status: "skip", why: "no local outline databases", commands: [] };
-  const taken = new Set<string>();
-  const backups = f.databases.map(d => ({ ...d, dest: join(o.backupDir, backupName(d.name, o.now, taken)) }));
-  if (!anythingElse) return { id: "backup", title, status: "skip", why: `nothing else changes, so no backup is needed (${f.databases.length} database${f.databases.length === 1 ? "" : "s"})`, commands: [], backups };
-  return { id: "backup", title, status: "do", why: `before anything changes: a consistent copy (VACUUM INTO) of each, integrity-checked, into ${o.backupDir}`,
+  const title = "Back up every outline";
+  if (!f.databases.length) return { id: "backup", title, status: "skip", why: `no outlines in ${f.host.folder}`, commands: [] };
+  const backups = f.databases.map(d => ({ ...d, dest: join(o.backupDir, backupName(d.name, o.now)) }));
+  if (!anythingElse) return { id: "backup", title, status: "skip", why: `nothing else changes, so no backup is needed (${f.databases.length} outline${f.databases.length === 1 ? "" : "s"})`, commands: [], backups };
+  return { id: "backup", title, status: "do", why: `before anything changes: a consistent copy (VACUUM INTO) of each ${f.host.folder}/*.sqlite, integrity-checked, into ${join(o.backupDir, stamp(o.now))}`,
     commands: backups.map(b => `sqlite3 ${b.path} "VACUUM INTO '${b.dest}'"`), backups };
 }
 
@@ -192,32 +159,55 @@ export function hostUnitArgv(u: HostUnit, verb: "restart" | "start", uid: number
   return ["launchctl", "kickstart", ...(verb === "restart" ? ["-k"] : []), `gui/${uid}/${u.name}`];
 }
 
-/** The unit runs a host-main.ts that isn't the installed plugin's: a restart would bring back the old code. */
+/** The host-main.ts the unit should run: this checkout's. */
+export const hostMainOf = (f: Facts) => join(f.repo.outliner, "src/host-main.ts");
+
+/** The unit runs a host-main.ts that isn't this checkout's (the old pi-herdr-outliner's, say): a restart brings back that code. */
 export function unitRunsElsewhere(f: Facts): string | null {
-  const u = f.host.unit, root = f.plugin?.root;
-  if (!u?.program || !root) return null;
-  return u.program === join(root, "src/host-main.ts") ? null : u.program;
+  const u = f.host.unit;
+  if (!u?.program) return null;
+  return resolve(u.program) === resolve(hostMainOf(f)) ? null : u.program;
 }
 
 /**
- * The outline host (one process serving every outline by name) runs the plugin's code as it was when it
- * started. After a plugin update, or when it lacks what the plugin now offers, install restarts it through
- * its unit (launchd's kickstart -k, systemctl restart): the doors and panes on it reconnect by themselves.
- * A host not under a unit, or a unit running another checkout's host-main.ts, is left to the person.
+ * What the host's unit must change, in words a person applies by hand (install never edits a unit): run this
+ * checkout's host-main.ts, and drop the settings the host no longer reads (outlines are found by name in
+ * EP0CH_OUTLINES, default ~/outlines; every client names its outline). Null when nothing.
  */
-export function hostStep(f: Facts, pluginUpdates: boolean): Step {
+export function unitChanges(f: Facts): string | null {
+  const u = f.host.unit;
+  if (!u) return null;
+  const changes: string[] = [];
+  const elsewhere = unitRunsElsewhere(f);
+  if (elsewhere) changes.push(u.kind === "systemd"
+    ? `ExecStart=<bun> ${hostMainOf(f)} and WorkingDirectory=${f.repo.outliner} (it runs ${elsewhere})`
+    : `ProgramArguments to run ${hostMainOf(f)} (it runs ${elsewhere})`);
+  for (const k of u.stale) changes.push(`drop ${k} (${k === "OUTLINER_STATE_DIR" ? `outlines are ${u.outlines}/<name>.sqlite; set EP0CH_OUTLINES only for another folder` : "every client names its outline"})`);
+  if (!changes.length) return null;
+  const reload = u.kind === "systemd" ? `systemctl --user daemon-reload && ${hostUnitCommand(u, "restart")}` : `launchctl bootout gui/$(id -u)/${u.name}; launchctl bootstrap gui/$(id -u) ${u.path}`;
+  return `in ${u.path}: ${changes.join("; ")}; then ${reload}`;
+}
+
+/**
+ * The outline host (one process serving every outline by name) runs this checkout's code as it was when it
+ * started. After the checkout updates, or when it speaks another protocol, install restarts it through its unit
+ * (launchd's kickstart -k, systemctl restart): the doors and panes on it reconnect by themselves. A host not under
+ * a unit, or a unit that needs changing (another checkout's host-main.ts, settings from before PIE-530), is left
+ * to the person, with the change.
+ */
+export function hostStep(f: Facts, codeUpdates: boolean): Step {
   const title = "Restart the outline host on the new code";
   const h = f.host, u = h.unit;
-  const missing = h.running ? staleness(h, f.plugin?.protocol ?? null) : [];
-  const after = pluginUpdates ? "the plugin is updated in this run" : missing.length ? `it runs old code (missing ${missing.join(", ")})` : "";
+  const missing = h.running ? staleness(h, f.repo.protocol) : [];
+  const after = codeUpdates ? "the ep0ch checkout is updated in this run" : missing.length ? `it runs old code (${missing.join(", ")})` : "";
   if (!u) {
-    if (!h.running) return { id: "host", title, status: "skip", why: "no outline host here (per-folder services only)", commands: [] };
+    if (!h.running) return { id: "host", title: "Start the outline host", status: "manual", why: `nothing answers at ${h.socket}, and there's no ${f.platform === "macos" ? "launchd agent" : "systemd user unit"} for it; see the note below`, commands: [] };
     if (!after) return { id: "host", title, status: "skip", why: "the host runs the current code", commands: [] };
     return { id: "host", title, status: "manual", why: `${after}, and it runs outside a ${f.platform === "macos" ? "launchd agent" : "systemd user unit"}; restart that process when it's quiet`, commands: [] };
   }
-  const elsewhere = unitRunsElsewhere(f);
-  if (elsewhere && (after || !h.running)) {
-    return { id: "host", title, status: "manual", why: `${u.path} runs ${elsewhere}, not the installed plugin's ${join(f.plugin!.root, "src/host-main.ts")}; point the unit at it, then ${hostUnitCommand(u, "restart")}`, commands: [] };
+  const change = unitChanges(f);
+  if (change) {
+    return { id: "host", title, status: "manual", why: `${u.kind} ${u.name} needs changing before a restart brings up this checkout's host: ${change}`, commands: [] };
   }
   // The socket answers but the unit's job isn't running: another process serves it (a host started by hand),
   // and starting the unit beside it would fight it for the socket.
@@ -232,14 +222,17 @@ export function hostStep(f: Facts, pluginUpdates: boolean): Step {
   return { id: "host", title, status: "do", why: `${after}; ${u.kind} restarts it, and every door and pane on it reconnects`, commands: [hostUnitCommand(u, "restart")] };
 }
 
-/** Things install reports and never does: units it would have to create, keys, the Claude mod. */
+/** Things install reports and never does: a unit to create, keys, the Claude mod. */
 export function planNotes(f: Facts): string[] {
   const notes: string[] = [];
   const h = f.host;
   if (!h.unit) {
-    notes.push(h.running
-      ? `The outline host runs, but not as a ${f.platform === "macos" ? "launchd agent" : f.platform === "linux" ? "systemd user unit" : "service"}; moving it to one is a separate step (install doesn't create units).`
-      : `No outline host service here (per-folder services only). Moving to the outline host is a separate step; install doesn't create ${f.platform === "macos" ? "launchd" : "systemd"} units.`);
+    const run = `bun ${hostMainOf(f)}`;
+    notes.push(f.platform === "linux"
+      ? `No systemd user unit runs the outline host for ${h.folder}; install doesn't create units. One with ExecStart=${run} (WorkingDirectory=${f.repo.outliner}, Restart=always) serves every outline there.`
+      : f.platform === "macos"
+        ? `No launchd agent (io.ep0ch.outliner-host) runs the outline host for ${h.folder}; install doesn't create agents. Its ProgramArguments run ${run}.`
+        : `Nothing runs the outline host for ${h.folder}; run ${run} under your service manager.`);
   }
   const missingKeys = KEYED_ACTIONS.filter(a => !f.herdr.keys[a]);
   if (f.plugin && missingKeys.length) notes.push(`Herdr has no key for ${missingKeys.map(a => `${PLUGIN_ID}.${a}`).join(", ")} in ${f.herdr.configPath}; the Outliner's install.sh writes them (install doesn't edit Herdr's config).`);
@@ -249,70 +242,70 @@ export function planNotes(f: Facts): string[] {
   if (old) notes.push(`Claude mod: ${old}.`);
   return notes;
 }
+
 export function hostRestartHint(f: Facts): string {
   const u = f.host.unit;
   if (u) return `ep0ch install --apply restarts it (${hostUnitCommand(u, "restart")})`;
   return "Restart the host process when it's quiet.";
 }
 
-/** Whether Claude Code loads this plugin's claude-mod: from its settings (new sessions), else this environment. */
+/** Whether Claude Code loads this checkout's Claude mod: from its settings (new sessions), else this environment. */
 export function claudeModState(f: Facts): { status: "ok" | "behind" | "missing"; detail: string; fix?: string } {
-  if (!f.plugin) return { status: "missing", detail: "no Outliner plugin, so no Claude mod" };
-  const want = join(f.plugin.root, "claude-mod");
+  const want = f.repo.claudeMod;
+  if (!want) return { status: "missing", detail: `no Claude mod in ${f.repo.root}` };
   const dirs = f.claude.settingsDirs ?? f.claude.envDirs ?? [];
   const where = f.claude.settingsDirs ? f.claude.settingsPath : "CLAUDE_CODE_PLUGIN_DIRS";
-  // No folder to name: each Claude session follows the outline its folder is bound to (PIE-526).
-  const fix = `bun ${f.plugin.root}/scripts/install-claude-mod.ts`;
+  // No folder to name: each Claude session follows the outline its folder's .ep0ch names (PIE-526, PIE-530).
+  const fix = f.repo.claudeModInstaller ? `bun ${f.repo.claudeModInstaller}` : undefined;
   if (dirs.includes(want)) return { status: "ok", detail: `${where} loads ${want}` };
-  const other = dirs.find(d => /claude-mod\/?$/.test(d) && /outliner/i.test(d));
-  if (other) return { status: "behind", detail: `${where} loads ${other}, not the installed plugin's ${want}`, fix };
-  return { status: "missing", detail: `${where} doesn't load ${want}`, fix };
+  const other = dirs.find(d => /claude-mod\/?$/.test(d));
+  if (other) return { status: "behind", detail: `${where} loads ${other}, not this checkout's ${want}`, ...(fix ? { fix } : {}) };
+  return { status: "missing", detail: `${where} doesn't load ${want}`, ...(fix ? { fix } : {}) };
 }
 
 /**
  * Settings that list the mod's folders with no mode: the mod then feeds nothing anywhere (mentionsModeOf in the
- * Outliner's claude-mod), since the list may be an allowlist from before folder mode. The person chooses, so it is
- * never a fix to apply: it says the ways on. Keep in step with the mod's rule.
+ * Claude mod), since the list may be an allowlist from before folder mode. The person chooses, so it is never a
+ * fix to apply: it says the ways on. Keep in step with the mod's rule.
  */
 export function oldMentionsAllowlist(f: Facts): string | null {
   const m = f.claude.mentions;
-  if (!f.plugin || !m?.listed || m.mode) return null;
-  const installer = `bun ${f.plugin.root}/scripts/install-claude-mod.ts`;
-  return `${f.claude.settingsPath} lists PI_OUTLINER_MENTIONS_WORKSPACES with no mode, so the Claude mod feeds nothing anywhere. ${installer} --folder drops it, and then every folder bound to an outline feeds that outline; --allowlist <folder> keeps strict mode; PI_OUTLINER_MENTIONS_MODE=folder opts the listed folders out`;
+  if (!f.repo.claudeModInstaller || !m?.listed || m.mode) return null;
+  const installer = `bun ${f.repo.claudeModInstaller}`;
+  return `${f.claude.settingsPath} lists PI_OUTLINER_MENTIONS_WORKSPACES with no mode, so the Claude mod feeds nothing anywhere. ${installer} --folder drops it, and then every folder whose .ep0ch names an outline feeds that outline; --allowlist <folder> keeps strict mode; PI_OUTLINER_MENTIONS_MODE=folder opts the listed folders out`;
 }
 
 /**
- * The door session (PIE-418): a daemon on older code than the door checkout (after its update) is handed to a new one
+ * The door session (PIE-418): a daemon on older code than the checkout (after its update) is handed to a new one
  * on that code (`ep0ch session upgrade`): its programs keep running in the terminal host, its terminals attach again.
  */
-export function sessionStep(f: Facts, door: Pick<Step, "status">): Step {
+export function sessionStep(f: Facts, repo: Pick<Step, "status">): Step {
   const title = "Hand the door session to the new code";
   const s = f.session;
   if (!s) return { id: "session", title, status: "skip", why: "no door session runs", commands: [] };
-  const c = f.door.checkout;
-  if (resolve(s.dir) !== resolve(c.root)) return { id: "session", title, status: "skip", why: `the session (pid ${s.pid}) runs another door checkout, ${s.dir}; run install from that one`, commands: [] };
+  const c = f.repo.checkout;
+  if (resolve(s.dir) !== resolve(f.repo.door)) return { id: "session", title, status: "skip", why: `the session (pid ${s.pid}) runs another checkout's door, ${s.dir}; run install from that one`, commands: [] };
   // A checkout left for the person (another branch, a detached HEAD, diverged, local changes in the way) isn't code to
   // hand the session to.
-  if (door.status === "manual" || door.status === "offer" || c.branch !== "main") return { id: "session", title, status: "skip", why: `the door checkout is left for you (not main, or not fast-forwardable), so the session (pid ${s.pid}) stays on ${short(s.commit)}`, commands: [] };
-  const doorUpdates = door.status === "do" && c.behind > 0;
-  const target = doorUpdates ? c.upstream : c.head;
-  if (s.commit && s.commit === target) return { id: "session", title, status: "skip", why: `the session (pid ${s.pid}) runs the current door code (${short(s.commit)})`, commands: [] };
+  if (repo.status === "manual" || c.branch !== "main") return { id: "session", title, status: "skip", why: `the ep0ch checkout is left for you (not main, or not fast-forwardable), so the session (pid ${s.pid}) stays on ${short(s.commit)}`, commands: [] };
+  const updates = repo.status === "do" && c.behind > 0;
+  const target = updates ? c.upstream : c.head;
+  if (s.commit && s.commit === target) return { id: "session", title, status: "skip", why: `the session (pid ${s.pid}) runs the current code (${short(s.commit)})`, commands: [] };
   return {
     id: "session", title, status: "do",
-    why: `the session (pid ${s.pid}) runs ${short(s.commit)}, the door ${doorUpdates ? "will be" : "is"} at ${short(target)}: a new daemon on that code takes it over; its ${s.programs} program${s.programs === 1 ? "" : "s"} keep running and its ${s.clients} terminal${s.clients === 1 ? "" : "s"} attach again`,
+    why: `the session (pid ${s.pid}) runs ${short(s.commit)}, the checkout ${updates ? "will be" : "is"} at ${short(target)}: a new daemon on that code takes it over; its ${s.programs} program${s.programs === 1 ? "" : "s"} keep running and its ${s.clients} terminal${s.clients === 1 ? "" : "s"} attach again`,
     commands: ["ep0ch session upgrade"],
   };
 }
 
 /** The whole plan, in order: backup first, whenever anything after it will change something. */
 export function buildPlan(f: Facts, o: PlanOptions): Plan {
+  const repo = repoStep(f);
   const plugin = pluginStep(f);
-  const door = doorStep(f);
   const link = linkStep(f);
-  const session = sessionStep(f, door);
-  const restart = restartStep(f, o, plugin.status === "do");
-  const host = hostStep(f, plugin.status === "do");
-  const backup = backupStep(f, o, [plugin, door, link, restart, host].some(s => s.status === "do"));
+  const host = hostStep(f, repo.status === "do" && f.repo.checkout.behind > 0);
+  const session = sessionStep(f, repo);
+  const backup = backupStep(f, o, [repo, plugin, link, host].some(s => s.status === "do"));
   // The session last: handed to the new code once everything under it is current.
-  return { steps: [backup, plugin, door, link, restart, host, session], notes: planNotes(f) };
+  return { steps: [backup, repo, plugin, link, host, session], notes: planNotes(f) };
 }

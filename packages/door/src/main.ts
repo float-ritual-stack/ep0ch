@@ -45,15 +45,16 @@ const USAGE = `ep0ch: a BBS door into an outline
                                    notes, properties, pages and work ids; the file is only read); stop
                                    releases its database; delete moves it to .deleted/, after asking
   ep0ch status [--json]            the outline host: its socket, its outlines folder, open outlines
-  ep0ch doctor [--json]            every piece of the stack (bun, the Outliner plugin, this checkout, ep0ch on
-                                   PATH, outline services, Herdr and its keys, the Claude mod): ✓ current,
-                                   ! behind, ✗ missing, with the command that fixes each. Read-only
-  ep0ch install [--apply] [--restart-services] [--json]
+  ep0ch doctor [--json]            every piece of the stack (bun, the ep0ch checkout, ep0ch on PATH, the plugin
+                                   in Herdr, the outlines folder and its host and unit, which outline this folder
+                                   opens, Herdr's keys, the Claude mod): ✓ current, ! behind, ✗ missing, with the
+                                   command that fixes each. Read-only
+  ep0ch install [--apply] [--json]
                                    bring the stack up to date: a dry run by default (the plan). --apply backs
-                                   up every outline database to ~/backups/ep0ch first, then updates the plugin
-                                   and this checkout (fast-forward only, bun install when needed) and links
-                                   ep0ch on PATH; each step is skipped when current. --restart-services also
-                                   restarts per-folder services running old code (they are working panes)
+                                   up every ~/outlines/*.sqlite to ~/backups/ep0ch/<time>/ first, then updates the
+                                   ep0ch checkout (fast-forward only, bun install when needed), links ep0ch on
+                                   PATH and restarts the outline host through its unit; each step is skipped when
+                                   current. Units, Herdr's config and its plugin link are said, never edited
   ep0ch try --ws <name> [--copy] [--hub <id>]
   ep0ch try --showcase [--reset]
                                    the door on a private copy, or on the showcase outline (scripts/try-it.sh)
