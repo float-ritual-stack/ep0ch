@@ -187,7 +187,7 @@ export async function openResource<A>(board: { followAuthored(r: AuthoredResourc
 // ── the rows' words ──────────────────────────────────────────────────────────────────────────────────
 
 /** A Work ID needs a token boundary: PIE-18 is not a prefix of PIE-181 (PIE-329). */
-const redundantLabel = (label: string, title: string) =>
+export const redundantLabel = (label: string, title: string) =>
   label === title || (/^[A-Z][A-Z0-9]*-\d+$/i.test(label) && title.startsWith(label) && /^(?:\s|[—–:])/u.test(title.slice(label.length)));
 
 const occurrences = (n: number) => (n > 1 ? `${n} occurrences` : "");

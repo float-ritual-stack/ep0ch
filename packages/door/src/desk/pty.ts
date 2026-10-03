@@ -122,6 +122,13 @@ export interface PtySpec {
   cmd: string[]; cwd?: string; file?: string; label?: string; temp?: boolean; agent?: boolean;
   /** Variables the program gets on top of a terminal tile's own (an extension's tile: its outline and socket, PIE-512). */
   env?: Record<string, string>;
+  /**
+   * The door's own settings for a program it starts itself (`Ctx.inTile`: ctrl+t's picker on the draft's outline), last
+   * and EP0CH_* included, unlike `env`'s; null unsets one. Never from a service or a saved layout.
+   */
+  own?: Record<string, string | null>;
+  /** What its title calls the program, when the first word of `cmd` isn't it (a picker sh runs: `tv ep0ch`). */
+  shows?: string;
 }
 
 export class PtyPane implements Pane {
@@ -193,7 +200,7 @@ export class PtyPane implements Pane {
   get isNvim() { return basename(this.run.cmd[0] ?? "") === "nvim"; }
 
   title() {
-    const name = basename(this.run.cmd[0] ?? "shell");
+    const name = this.run.shows ?? basename(this.run.cmd[0] ?? "shell");
     const what = this.file ? `${name} ${basename(this.file)}` : this.programTitle && this.programTitle !== name ? `${name} · ${this.programTitle}` : name;
     return this.exited !== null ? `${what} · exited ${this.exited}` : this.back ? `${what} · ${this.back} lines back` : what;
   }
@@ -283,6 +290,7 @@ export class PtyPane implements Pane {
     if (keep) env.EP0CH_AGENT_CONTINUE = "1";
     // The service's variables for its program (an extension's tile); the door's own (EP0CH_*) stay the door's.
     for (const [k, v] of Object.entries(this.run.env ?? {})) if (!k.startsWith("EP0CH_")) env[k] = v;
+    for (const [k, v] of Object.entries(this.run.own ?? {})) { if (v === null) delete env[k]; else env[k] = v; }
     try {
       // The pty becomes the program's controlling terminal (CTTY above), so resizes reach it as SIGWINCH.
       // nvim listens on a socket in the door's state (`tile.info` names it): the door watches its cursor and

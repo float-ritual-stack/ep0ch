@@ -285,7 +285,7 @@ describe.skipIf(!outliner)("the review's findings, against a scratch outline", (
     const f = join(scratch.root, "door", "edit.md");
     writeFileSync(f, "x\n");
     D().focus = idOf("middle");
-    expect(D().editInTile(f, "tail -f", () => {})).toBe(true);
+    expect(D().inTile({ cmd: ["tail", "-f", f], file: f, name: "edit" }, () => {})).toBe(true);
     D().save();
     expect(readFileSync(join(scratch.root, "door", "desk.json"), "utf8")).not.toContain("edit.md");
     D().closeId(idOf("edit"));

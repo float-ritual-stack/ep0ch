@@ -1342,7 +1342,7 @@ export const BOARD_ACTIONS = actionSet<BoardOn>()("board", {
     run(_, { model }) { return lanesOf({ model }).leaveComposer(); },
   }),
   "composer.pick": def({
-    summary: "insert from a picker in the new card or note being written: the person's terminal goes to the picker (EP0CH_PICKER, default tv) on a channel (default EP0CH_PICK_CHANNEL, else ep0ch), and what they choose goes in at the cursor, space-separated. The person's own: it takes their terminal",
+    summary: "insert from a picker in the new card or note being written: the picker (EP0CH_PICKER, default tv) takes the person's terminal (the board's shape is locked, so not a tile) on a channel (default EP0CH_PICK_CHANNEL, else ep0ch), and what they choose goes in at the cursor, space-separated. The person's own: it takes their keys",
     keys: "ctrl+t, a click on [insert] in its title row",
     touches: "draft", draft: "type", replay: "ask", person: "an agent doesn't hand the person's terminal to a picker; card.create and note.create write their own text",
     args: { channel: { type: "string", optional: true, about: "the picker's argument (a television channel: ep0ch, ep0ch-files …); empty for none" } },

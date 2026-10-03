@@ -72,9 +72,9 @@ export interface Comment {
 /** A passage to comment on: exact source text of the note, and where it starts (UTF-16 offset). */
 export interface CommentPassage { quote: string; start: number }
 export interface CommentReceipt { id: string; deduplicated: boolean }
-/** One row of the whole-outline index: everything but the full text. */
+/** One row of the whole-outline index: everything but the full text. `depth`: 0 for a top-level note. */
 export interface IndexBlock {
-  id: string; parentId: string | null; position: number; title: string; author: string;
+  id: string; parentId: string | null; position: number; depth: number; title: string; author: string;
   createdAt: number; updatedAt: number; props: Record<string, string>; hasChildren: boolean;
 }
 export type { BacklinkCollection, BacklinkSource } from "./backlinks";
@@ -602,13 +602,19 @@ export class SocketBoard implements Board {
     })).sort((a, b) => b.at - a.at).slice(0, limit);
   }
 
-  /** The whole outline without full text (tree.index): parents, properties, titles. ~1 MB for 1.5k blocks. */
+  /**
+   * The whole outline without full text (tree.index): parents, properties, titles, depths. ~1 MB for 1.5k blocks. In the
+   * service's tree order (its one walk, as Tree draws it: depth first, children by position).
+   */
   async index(): Promise<IndexBlock[]> {
     // Its own connection: the service answers one socket strictly in order, and this call takes seconds.
     const lane = new SocketBoard(this.path, 90_000, this.outline);
-    const r = await lane.request<{ blocks: any[] }>("tree.index", {}).finally(() => lane.close());
-    return r.blocks.map(b => ({
-      id: b.id, parentId: b.parentId ?? null, position: b.position ?? 0, title: String(b.preview ?? "").trim() || "(untitled)",
+    const r = await lane.request<{ blocks: any[]; physicalBlockIds: string[] }>("tree.index", {}).finally(() => lane.close());
+    // The service's walk is `physicalBlockIds`; `blocks` holds them by id (and a view's rows, which this asks for none of).
+    const by = new Map(r.blocks.map(b => [b.id, b]));
+    const order: any[] = r.physicalBlockIds.map(id => by.get(id)).filter(Boolean);
+    return order.map(b => ({
+      id: b.id, parentId: b.parentId ?? null, position: b.position ?? 0, depth: b.depth ?? 0, title: String(b.preview ?? "").trim() || "(untitled)",
       author: b.actorId ?? b.author ?? "?", createdAt: Date.parse(b.createdAt), updatedAt: Date.parse(b.updatedAt),
       props: Object.fromEntries((b.properties ?? []).map((p: any) => [p.key, p.value])), hasChildren: !!b.hasChildren,
     }));

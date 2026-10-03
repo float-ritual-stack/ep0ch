@@ -1299,8 +1299,9 @@ export class NoteSurface {
   }
 
   /**
-   * Ctrl+T: insert from a picker (src/pick.ts) into the edit or the comment being written: the person's terminal goes
-   * to the picker, and what they chose comes back at the cursor. Resolves once it's in (or said why not).
+   * Ctrl+T: insert from a picker (src/pick.ts) into the edit or the comment being written: the picker opens in a
+   * terminal tile beside the reader (the person's terminal on a screen without tiles), and what they chose comes back
+   * at the cursor. Resolves once it's in (or said why not).
    */
   async pick(host: SurfaceHost, channel?: string): Promise<Picked> {
     const d = this.draft ?? (this.session?.mode === "compose" ? this.session.composer : null);
@@ -3624,7 +3625,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "draft.pick": def({
-    summary: "insert from a picker in this reader's edit or comment: the person's terminal goes to the picker (EP0CH_PICKER, default tv) on a channel (default EP0CH_PICK_CHANNEL, else ep0ch), and what they choose goes in at the cursor, space-separated. The person's only: it takes their terminal",
+    summary: "insert from a picker in this reader's edit or comment: the picker (EP0CH_PICKER, default tv) opens in a terminal tile beside the reader with the person's keys (their whole terminal on a screen without tiles or a locked one) on a channel (default EP0CH_PICK_CHANNEL, else ep0ch), and what they choose goes in at the cursor, space-separated. The person's only: it takes their keys",
     keys: "ctrl+t, a click on [insert] in the edit's, comment's or reply's title row",
     touches: "draft", draft: "type", replay: "ask",
     person: "an agent doesn't hand the person's terminal to a picker; put text in their draft with draft.patch, or in an edit it opened with edit.text",

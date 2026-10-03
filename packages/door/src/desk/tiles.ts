@@ -62,6 +62,7 @@ export type SavedTree = BinaryForm<TileSpec> | NaryForm<TileSpec>;
  */
 export type { OpenRule } from "./screen-layout";
 import type { OpenRule } from "./screen-layout";
+import { words } from "../text";
 /**
  * A layout (a screen): its tree of containers and tiles, the focus, the open rule, and the screen's own policy
  * (the outermost container's: `locked` there locks the whole screen, PIE-505).
@@ -125,8 +126,6 @@ export class DetailPane extends ReaderPane {
 export const shell = () => process.env.SHELL || "sh";
 /** The editor the daily layout starts: $VISUAL, $EDITOR, nvim where it's installed, else vi. */
 export const editor = () => process.env.VISUAL || process.env.EDITOR || (Bun.which("nvim") ? "nvim" : "vi");
-/** A command line as words (the daily agent's EP0CH_DAILY_AGENT, "claude" by default). */
-export const words = (s: string) => s.trim().split(/\s+/).filter(Boolean);
 
 /** The daily agent's program and folder, read now: EP0CH_DAILY_AGENT ("claude" unset) and EP0CH_DAILY_CWD (~ allowed; unset, the door's own folder). */
 export function dailyAgent(): { cmd: string[]; cwd?: string } {

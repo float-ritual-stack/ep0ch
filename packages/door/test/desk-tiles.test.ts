@@ -5,7 +5,7 @@
 // programs; the river's open rule adds columns. Every one of them is an action an agent can call, and an
 // agent's never takes the person's focus or keys. Scratch services, fictional notes, `sh` and `tail` only.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { chmodSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { App } from "../src/app";
 import { Desk } from "../src/desk/desk";
@@ -336,6 +336,77 @@ describe.skipIf(!outliner)("the desk as tiles, against a scratch outline", () =>
     key({ kind: "esc" }); key({ kind: "esc" });
     process.env.EDITOR = "tail -f";
   }, 20_000);
+  test("ctrl+t in an edit on the desk opens the picker in a tile beside it with the keys; what it prints goes in, and the tile closes", async () => {
+    const script = join(scratch.root, "door", "fake-picker.sh");
+    // A picker that waits for a key in its tile, then prints a choice naming the outline it was given.
+    writeFileSync(script, `#!/bin/sh\nread k\n[ -S "$EP0CH_SOCKET" ] && echo "(($EP0CH_WS-$1-$k))"\n`);
+    chmodSync(script, 0o755);
+    const was = process.env.EP0CH_PICKER;
+    process.env.EP0CH_PICKER = script;
+    try {
+      if (!(app as any).stack.includes(desk)) app.push(desk);
+      // The note the ctrl+e test left an edit put aside on: e takes it up again.
+      await mine("open", { id: notes.beans.id }, "middle");
+      const at = [...D().names].find(([, v]: any) => v === "middle")[0];
+      const mid = D().panes.get(at);
+      await until(() => mid.msg?.id === notes.beans.id && !mid.msg.partial, "beans in middle");
+      D().focus = at;
+      key(char("e"));
+      await until(() => !!mid.draft, "the edit open");
+      key(ctrl("t"));
+      await until(() => get().tiles.some(t => t.name === "pick" && t.terminal?.running), "the picker's tile", 8000);
+      expect(get().focus).toBe("pick");                               // the person's keys are in it
+      expect(mid.draft.note).toContain("beside");
+      for (const c of "ok") key(char(c));
+      key({ kind: "enter" });
+      // The board here names no outline (the host's default): the picker is given its socket, and no EP0CH_WS.
+      await until(() => mid.draft.text.includes("((-ep0ch-ok))"), "the choice in the draft", 8000);
+      await until(() => !get().tiles.some(t => t.name === "pick"), "the picker's tile closed");
+      expect(get().focus).toBe("middle");                             // and the keys back in the edit
+      expect(D().isIn(mid)).toBe(true);
+      key({ kind: "esc" }); key({ kind: "esc" });
+    } finally { if (was === undefined) delete process.env.EP0CH_PICKER; else process.env.EP0CH_PICKER = was; }
+  }, 20_000);
+  test("the picker's tile closed by the person while it runs: nothing goes in, its folder goes, and ctrl+t opens it again", async () => {
+    const script = join(scratch.root, "door", "slow-picker.sh");
+    writeFileSync(script, `#!/bin/sh\nread k\necho "((never-$k))"\n`);
+    chmodSync(script, 0o755);
+    const was = process.env.EP0CH_PICKER;
+    process.env.EP0CH_PICKER = script;
+    try {
+      if (!(app as any).stack.includes(desk)) app.push(desk);
+      await mine("open", { id: notes.beans.id }, "middle");
+      const at = [...D().names].find(([, v]: any) => v === "middle")[0];
+      const mid = D().panes.get(at);
+      await until(() => mid.msg?.id === notes.beans.id && !mid.msg.partial, "beans in middle");
+      D().focus = at;
+      key(char("e"));
+      await until(() => !!mid.draft, "the edit open");
+      key(ctrl("t"));
+      await until(() => get().tiles.some(t => t.name === "pick" && t.terminal?.running), "the picker's tile", 8000);
+      const picks = join(process.env.EP0CH_STATE!, "pick");
+      expect(readdirSync(picks).length).toBe(1);
+      await expect(mine("tile.close", {}, "pick")).rejects.toThrow(/closing ends it/);   // asked twice, as any running tile
+      await mine("tile.close", {}, "pick");
+      await until(() => !get().tiles.some(t => t.name === "pick"), "the picker's tile closed");
+      await until(() => readdirSync(picks).length === 0, "its folder removed");
+      expect(mid.draft.text).not.toContain("((never-");             // nothing went in
+      expect(mid.draft.note).toContain("closed before a choice");
+      // Not still "open beside": a second ctrl+t opens the picker again.
+      D().focus = at;
+      key(ctrl("t"));
+      await until(() => get().tiles.some(t => t.name === "pick" && t.terminal?.running), "the picker's tile again", 8000);
+      // It returns while the person's keys are elsewhere: the choice goes in, and their keys stay where they went.
+      const other = [...D().names].find(([id, v]: any) => v !== "pick" && v !== "middle" && D().panes.has(id))![0];
+      D().focus = other;
+      const otherName = get().focus;
+      (D().panes.get([...D().names].find(([, v]: any) => v === "pick")[0]) as any).input("y\n");
+      await until(() => mid.draft.text.includes("((never-"), "the choice in the draft", 8000);
+      await until(() => !get().tiles.some(t => t.name === "pick"), "the picker's tile closed");
+      expect(get().focus).toBe(otherName);
+      D().focus = at; key({ kind: "esc" }); key({ kind: "esc" });
+    } finally { if (was === undefined) delete process.env.EP0CH_PICKER; else process.env.EP0CH_PICKER = was; }
+  }, 30_000);
   test("a header's title moves the tile; the bare line after it is the border above, so pressing it resizes the tile", async () => {
     if (!(app as any).stack.includes(desk)) app.push(desk);
     await mine("layout.load", { name: "terminal-day" });

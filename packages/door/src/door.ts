@@ -12,6 +12,7 @@ import { attachTarget, unnamedHelp } from "./outlines";
 import { forwardSaying, forwardTo, rememberMachine } from "./machine";
 import { alive, claimState, readLastCall, readState, writeLastCall } from "./state";
 import { recoverEdits } from "./surface/editor";
+import { sweepPicks } from "./pick";
 import type { TermInfo } from "./term";
 import { setTheme, startTheme } from "./theme";
 import { hostname } from "node:os";
@@ -65,6 +66,7 @@ export async function openDoor(o: DoorOpen): Promise<Door> {
   const others = claimState();
   // ctrl+e files a door killed with kill -9 left behind: copied to drafts/ and said.
   const recovered = recoverEdits(alive);
+  sweepPicks(alive);
   if (o.start) await o.start(app);
   if (!app.screens().length) for (const s of startScreens(o.args, process.env, then => new Logon(app, then))) app.push(s);
   if (refused) app.flash(refused, 20_000);

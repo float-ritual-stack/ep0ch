@@ -27,14 +27,14 @@ import { readState, writeState } from "../state";
 import { containerKeys, leafNames, savedNodes, specData, type ScreenSpec } from "./screen-spec";
 import { bg, C, chip as chipStyle, fg, fitHint, headOf, pad, paint, RESET, selected, width } from "../style";
 import { themed } from "../theme";
-import { ch, type Key } from "../term";
+import { ch, type Key, type TileProgram } from "../term";
 import { colourBody, wrap } from "../text";
 import { emphasis } from "../inline";
 import { presentLinks } from "../refs";
 import { dropAt, handleDrop, type Drop, type DropTile } from "./drop";
 import {
   allTiles, apply as applyOp, autoName, chainOf, describe as describeLayout, dividerAt, dragShare, drawerOf, drawers, EDGE_GLYPH, effective, init, isLine, keepOnScreen, kidsOf, landing, layers as policyLayers, leaf, leaves,
-  neighbour, node, parentNode, place as placeLayout, policyAt as policyOver, policyOf, policyOfNode, rects as rectsOf, refusal, reviveTree, revisionRefusal, serialize as serializeLayout,
+  neighbour, node, parentNode, place as placeLayout, policyAt as policyOver, policyOf, policyOfNode, rects as rectsOf, refusal, reviveTree, revisionRefusal, serialize as serializeLayout, splitAxis,
   shape as layoutShapeOf, shown, splitOf, tabsOf, tileOfColumn, travelTarget, visible, columnOf, UNLOCK, type At, type Axis, type Columns, type Container, type Ctx as LayoutCtx, type Dir, type Divider, type Drawer, type Effective, type Float, type Flow,
   type Grab, type HostMode, type LayoutState, type LNode, type Op, type Place, type Placed, type PlacedDrawer, type Policy, type Result, type TileFacts,
 } from "./screen-layout";
@@ -47,7 +47,7 @@ import { PreviewPane } from "./preview";
 import { LocalMarks, markLabel, type Mark, type MarkStore } from "./marks";
 import { TILE_ACTIONS, type NewTile, type TileDone, type Where } from "./tile-actions";
 import { DOCK_NAME, DOCK_TILE_ID } from "./agent-env";
-import { builtin, DetailPane, type SavedFloat, isTileKind, layoutNamed, layoutNames, makeTile, saveLayout, tileKindNames, tileNameProblem, words, type LayoutSpec, type OpenRule, type SavedTree, type TileSpec } from "./tiles";
+import { builtin, DetailPane, type SavedFloat, isTileKind, layoutNamed, layoutNames, makeTile, saveLayout, tileKindNames, tileNameProblem, type LayoutSpec, type OpenRule, type SavedTree, type TileSpec } from "./tiles";
 import { allKindActions, kindActions, kindForKey, kindNoun, kindOf, lastKindOf, tileKinds, tileSource, unwatchTileKinds, watchTileKinds, wasTileKind, type ColumnsHost, type SourceModel, type TileEnv, type TileKind, type TileKindName } from "./tile-kinds";
 
 /**
@@ -119,6 +119,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /** A reader the mouse went down in (PIE-419): its drag selects text, its release is the click. */
   private pressed: { pane: ReaderPane; col: number; row: number; fresh: boolean } | null = null;
   private placed: Placed = { rects: new Map(), nodes: new Map(), dividers: [] };
+  /** `inTile`'s tiles, by id: the reader each opened beside, where the person's keys go back when they close it. */
+  private openedFrom = new Map<number, number>();
   /** Its own overlays (the search, the layout picker, the policy panel): the first takes every key and click. */
   private readonly overlays = new Modes<Desk, ListPicker<any, Desk>>();
   /** The reader edit, comment or property panel the person is in: only that one takes their keys (PIE-411). */
@@ -2336,6 +2338,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       const next = this.floats.at(-1)?.id ?? this.activeIn(into);
       if (next !== undefined) this.keysTo(next); else this.goHome();
     }
+    // A program's tile beside a reader (ctrl+e, ctrl+t) the person closed: their keys go back to that reader.
+    const from = this.openedFrom.get(t.id);
+    this.openedFrom.delete(t.id);
+    if (from !== undefined && had && actor.kind !== "agent" && this.panes.has(from)) this.keysTo(from);
     this.save(); this.redraw();
     return { tile: t.name, pane: n, kind };
   }
@@ -2598,23 +2604,45 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return { layout: this.layoutName, rev: this.layout.rev, rule: this.rule, focus: this.nameOf(this.focus), zoom: this.zoom !== null ? this.nameOf(this.zoom) : null, locked: this.screenLocked(), ...this.savedPolicy(), tree: describeLayout(this.layout, id => this.nameOf(id), id => this.tileId(id)), floats: this.floats.map(f => ({ tile: this.nameOf(f.id), id: this.tileId(f.id), rect: this.floatRect(f) })), tiles: this.all().map(id => this.tileView(id)) };
   }
 
-  /** Ctrl+E in a reader (PIE-417): the editor runs in a terminal tile beside it, not over the whole door. */
-  editInTile(path: string, cmd: string, done: (code: number | null) => void): boolean {
+  /**
+   * A program for a moment beside the reader the person is in (PIE-417): ctrl+e's editor, ctrl+t's picker. It runs in a
+   * terminal tile with their keys, not over the whole door; when it exits, `done` hears its code, the tile closes and the
+   * keys go back to the reader.
+   */
+  inTile(p: TileProgram, done: (code: number | null) => void): boolean {
     const at = this.focus;
-    // A locked screen keeps its shape: the editor runs over the whole door instead (as on a screen without tiles).
+    // A locked screen keeps its shape: the program runs over the whole door instead (as on a screen without tiles).
     if (!this.panes.has(at) || this.screenLocked()) return false;
-    // In a flow (the river's columns) the editor is the next column, at reading width; elsewhere it splits beside.
-    const where: At<number> = this.inFlow(at) ? { kind: "next", from: at } : { kind: "split", target: at, dir: "right" };
-    const r = this.ask({ op: "open", tile: this.nextId, kind: "pty", name: "edit", loose: true, at: where });
+    // In a flow (the river's columns) it is the next column, at reading width; elsewhere it splits beside, or below for a
+    // program that wants width (a picker's list) when beside would leave it narrower than tall (`splitAxis`, the layout's
+    // one rule). A tile not placed yet splits beside.
+    const r0 = this.placed.rects.get(at);
+    const dir = p.wide && r0 && splitAxis(r0, true) === "col" ? "down" : "right";
+    const where: At<number> = this.inFlow(at) ? { kind: "next", from: at } : { kind: "split", target: at, dir };
+    const r = this.ask({ op: "open", tile: this.nextId, kind: "pty", name: p.name, loose: true, at: where });
     if (!r.ok) return false;
-    const pane = makeTile({ kind: "pty", cmd: [...words(cmd), path], file: path, name: "edit" }) as PtyPane;
-    pane.run.temp = true;
+    // Never kept in a layout (its program and files go with the door), so its spec is the door's own, never a saved one.
+    const pane = new PtyPane({ cmd: p.cmd, ...(p.cwd ? { cwd: p.cwd } : {}), ...(p.file ? { file: p.file } : {}), ...(p.own ? { own: p.own } : {}), ...(p.shows ? { shows: p.shows } : {}), label: p.name, temp: true });
     const id = this.put(pane);
     this.commit(r);
+    this.openedFrom.set(id, at);
     this.startTile(id);
+    // The person was in the reader's edit: they come back into that edit (that session, never one opened since, an
+    // agent's included), typing where they left off, if the keys were still in this tile when it closed.
+    const from = this.panes.get(at), wasIn = from instanceof ReaderPane && this.entered.in(from) ? from.sessionOf() : null;
     pane.onExit = code => {
-      done(code);
-      if (this.panes.has(id)) { this.closeId(id); if (this.panes.has(at)) this.keysTo(at); }
+      // Its tile closed first (^W x, the door ending): it was ended, whatever it printed on its way out (a program that
+      // reads its tile sees end-of-input), so it gave no answer: no code, and nothing it wrote is taken.
+      done(this.panes.has(id) ? code : null);
+      // Its keys come back to the reader when they were in the tile as it ended; a tile the person closed themselves
+      // (^W x) gave them back to the reader as it closed (`openedFrom`), and they go on into the edit.
+      const back = this.panes.has(id) ? this.focus === id : this.focus === at;
+      this.openedFrom.delete(id);
+      if (this.panes.has(id)) this.closeId(id);
+      if (back && this.panes.has(at)) {
+        this.keysTo(at);
+        if (wasIn && from instanceof ReaderPane && this.panes.get(at) === from && from.sessionOf() === wasIn) this.entered.enter(from);
+      }
       this.save(); this.redraw();
     };
     this.focus = id; this.ptyIn = pane;
@@ -2815,7 +2843,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   async splitPane(sel: string | undefined, kind: string | undefined, dir: Axis | undefined, actor: Actor): Promise<PaneDone> {
     const at = this.tileNumbered(sel);
     const r = this.placed.rects.get(at.id) ?? { col: 0, row: 0, cols: 80, rows: 24 };
-    const where: Where = dir === "col" ? "down" : dir === "row" ? "right" : r.cols >= r.rows * 2.2 ? "right" : "down";
+    const where: Where = (dir ?? splitAxis(r)) === "col" ? "down" : "right";
     const t = await this.openTile({ kind: (kind ?? "reader") as TileKindName }, at.name, where, actor);
     return { pane: String(t.n), kind: t.kind, beside: at.n, tile: t.tile };
   }
