@@ -574,7 +574,7 @@ plugin_root() {
       if (roots.length === 1 && typeof roots[0] === "string") console.log(roots[0]);' "$PLUGIN_ID" 2>/dev/null
 }
 
-# Claude Code loads claude-mod/ from the installed plugin root. Each session
+# Claude Code loads the mod from the repository beside the plugin root (packages/claude-mod). Each session
 # feeds the outline its folder is bound to; an unbound folder feeds nothing.
 # Offered only where Claude Code exists.
 install_claude_mod() {

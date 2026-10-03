@@ -3,9 +3,9 @@ import {homedir} from 'node:os';
 import {resolve,join,dirname,isAbsolute,delimiter} from 'node:path';
 import {boundFolderOf} from '../src/paths';
 
-// Loads claude-mod/ in every Claude Code session. Each session then follows its
-// folder: the nearest folder bound to an outline (client.json, or an outline
-// root the host serves) feeds that outline; an unbound folder feeds nothing.
+// Loads packages/claude-mod in every Claude Code session. Each session then follows its
+// folder: the nearest folder whose .ep0ch names an outline feeds that outline;
+// a folder that names none feeds nothing.
 //
 //   install-claude-mod.ts                        load the mod; the folder list and mode are kept
 //   install-claude-mod.ts --exclude FOLDER…      and opt these folders out
@@ -37,7 +37,8 @@ if(allowlistFlag&&!allowed.length)throw Error(`--allowlist needs at least one fo
 if((excluded.length||toFolderMode)&&allowed.length)throw Error(`Opting folders out (folder mode) and an allowlist (strict mode) don't mix. ${usage}`);
 for(const folder of [...excluded,...allowed])if(!isAbsolute(folder))throw Error(`Folder must be absolute: ${folder}`);
 
-const modDir=resolve(import.meta.dir,'../claude-mod');
+// The mod is its own package beside this one (packages/claude-mod).
+const modDir=resolve(import.meta.dir,'../../claude-mod');
 const settingsPath=join(process.env.CLAUDE_CONFIG_DIR??join(homedir(),'.claude'),'settings.json');
 let settingsExist=true;
 const source=await readFile(settingsPath,'utf8').catch((error:NodeJS.ErrnoException)=>{

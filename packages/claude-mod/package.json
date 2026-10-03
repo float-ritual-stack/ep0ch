@@ -1,0 +1,6 @@
+{
+  "name": "@ep0ch/claude-mod",
+  "private": true,
+  "type": "module",
+  "description": "The Claude Code mod (a plugin of function hooks): outline and workboard tools, reference links and Recent Mentions. Its tests run under `claude plugin test`, which provides claude-code/testing."
+}

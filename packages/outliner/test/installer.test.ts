@@ -150,7 +150,7 @@ test("Claude mod installer replaces other copies of the mod and keeps unrelated 
   const settingsPath = join(directory, "settings.json");
   const worktreeCopy = join(directory, "old-worktree/claude-mod");
   const unrelated = join(directory, "other-plugin");
-  const modDir = join(import.meta.dir, "../claude-mod");
+  const modDir = join(import.meta.dir, "../../claude-mod");
   try {
     await mkdir(join(worktreeCopy, ".claude-plugin"), { recursive: true });
     await writeFile(join(worktreeCopy, ".claude-plugin/plugin.json"), '{"name":"pi-outliner"}');
@@ -195,7 +195,7 @@ test("Claude mod installer opts folders out, keeps strict mode on request, and r
     let env = await envOf();
     expect(env.PI_OUTLINER_MENTIONS_MODE).toBe("folder");
     expect(env.PI_OUTLINER_MENTIONS_WORKSPACES).toBe("/scratch/private:/scratch/other");
-    expect(env.CLAUDE_CODE_PLUGIN_DIRS).toBe(join(import.meta.dir, "../claude-mod"));
+    expect(env.CLAUDE_CODE_PLUGIN_DIRS).toBe(join(import.meta.dir, "../../claude-mod"));
     // A later run without folders keeps the opt-outs.
     expect((await runClaudeModInstaller(configDir)).stdout).toContain("already installed");
 
@@ -279,7 +279,7 @@ test("install.sh installs the Claude mod from the managed plugin root only when 
     const loaded = await run("--claude-mod");
     expect(loaded.exitCode).toBe(0);
     let env = JSON.parse(await readFile(settingsPath, "utf8")).env;
-    expect(env.CLAUDE_CODE_PLUGIN_DIRS).toBe(join(root, "claude-mod"));
+    expect(env.CLAUDE_CODE_PLUGIN_DIRS).toBe(join(root, "../claude-mod"));
     expect(env.PI_OUTLINER_MENTIONS_WORKSPACES).toBeUndefined();
 
     expect((await run("--claude-workspace", "relative")).exitCode).not.toBe(0);
