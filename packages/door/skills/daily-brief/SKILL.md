@@ -34,8 +34,9 @@ The first line is the title and its block properties, so every tool finds it:
 
 ## Sources, in this order
 
-`outliner` below is `bun src/cli.ts` in the Outliner checkout (the installed plugin's root; `ep0ch --skill`
-names it). Each command prints JSON.
+`outliner` below is `bun packages/outliner/src/cli.ts` in the ep0ch checkout, with the outline named first
+(`outliner --ws <name> list …`); without `--ws` it uses the outline the folder's `.ep0ch` names. Each command
+prints JSON.
 
 1. **The previous brief and its checkpoint.**
    `outliner list --filter type=daily-brief --limit 50 --fields id,title,properties,timestamps`,
@@ -93,7 +94,7 @@ A live figure, as the door and the prototype draw it (ids are the outline's own)
     ::
 
 `view: ((id))` and a quoted bare id both work. `query:` takes the saved-view grammar (OR, NOT, parentheses,
-`updated >= -1d`) where the service has `query.expression`.
+`updated >= -1d`).
 
 ## The rules
 
@@ -133,7 +134,8 @@ A live figure, as the door and the prototype draw it (ids are the outline's own)
 - The headline has no heading, so it isn't rewritten after the morning; later news goes under
   `## Since this morning`.
 - Bump `feed-sequence` only when you re-read the feed: `outliner work set` is for roadmap items, so edit
-  the property through the Pi or Claude tools' property patch (`outliner_property_patch`) with the revision.
+  the title line's property with the revision you read (`outline_patch` in Claude, `outliner_property_patch`
+  in Pi).
 
 ## Known gaps
 

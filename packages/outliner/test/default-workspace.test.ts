@@ -65,7 +65,7 @@ test("seeds working documentation tours and preserves local edits on restart", a
     const tourSections = tourChildren.filter(block => getProperty(block.properties, "tour-section"));
     expect(tourSections.map(block => getProperty(block.properties, "tour-section"))).toEqual([
       "navigation", "capture-inbox", "prompts", "reading-comments", "resources", "workboard", "surfaces",
-      "outlines-publishing",
+      "outlines-publishing", "door",
     ]);
     expect([...tour.text.matchAll(/!\(\(([0-9a-f-]+)\)\)/g)].map(match => match[1]))
       .toEqual(tourSections.map(block => block.id));
@@ -77,6 +77,23 @@ test("seeds working documentation tours and preserves local edits on restart", a
     const source = tourChildren.find(block => getProperty(block.properties, "demo-kind") === "source")!;
     const reader = tourChildren.find(block => getProperty(block.properties, "demo-kind") === "reader")!;
     const examplesView = tourChildren.find(block => getProperty(block.properties, "type") === "virtual-branch")!;
+    // Seed 7: a live figures note the door draws, its link to the source an Outlink for ::links.
+    const figures = tourChildren.find(block => getProperty(block.properties, "demo-kind") === "figure")!;
+    expect(store.resolvePageAddress("outliner-tour-figures")).toMatchObject({ status: "resolved", block: { id: figures.id } });
+    expect(figures.text).toContain("::graph-stat");
+    expect(figures.text).toContain("::links");
+    expect(tour.text).toContain(`((${figures.id}|live figures and links))`);
+    const figureLinks = readAuthoredLinks(store, figures.id);
+    if (figureLinks.kind !== "ready") throw new Error(`Expected ready figure links, got ${figureLinks.kind}`);
+    expect(figureLinks.outlinks.entries.map(entry => entry.resolution)).toEqual([
+      expect.objectContaining({ kind: "ready", target: { kind: "block", blockId: source.id } }),
+    ]);
+    const doorSection = tourSections.find(block => getProperty(block.properties, "tour-section") === "door")!;
+    const doorLinks = readAuthoredLinks(store, doorSection.id);
+    if (doorLinks.kind !== "ready") throw new Error(`Expected ready door links, got ${doorLinks.kind}`);
+    expect(doorLinks.outlinks.entries.map(entry => entry.resolution)).toEqual([
+      expect.objectContaining({ kind: "ready", target: { kind: "block", blockId: figures.id } }),
+    ]);
     // Seed 6 demonstrates the boolean saved-view grammar the service evaluates.
     expect(getProperty(examplesView.properties, "query")).toContain(" OR ");
     const readerLinks = readAuthoredLinks(store, reader.id);
@@ -114,14 +131,14 @@ test("seeds working documentation tours and preserves local edits on restart", a
         },
       }),
       expect.objectContaining({
-        label: "https://github.com/float-ritual-stack/pi-herdr-outliner/blob/main/README.md",
+        label: "https://example.com/guides/outliner.md",
         resolution: {
           kind: "unregistered",
           reference: {
             kind: "web",
-            url: "https://github.com/float-ritual-stack/pi-herdr-outliner/blob/main/README.md",
+            url: "https://example.com/guides/outliner.md",
           },
-          reason: "Web Resource is not registered: https://github.com/float-ritual-stack/pi-herdr-outliner/blob/main/README.md",
+          reason: "Web Resource is not registered: https://example.com/guides/outliner.md",
         },
       }),
       expect.objectContaining({

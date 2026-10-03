@@ -138,6 +138,10 @@ The feed is the desk's, and every view built on it (the brief, the pinned pages,
 | `screen.spec` | the screen shown as its spec (PIE-515): its name, title, layout as it opens (containers with policy, tiles by kind with their names and args), key map, hint, band and where opens land; the data a screen note holds |
 | `actions` | everything the screen can do |
 
+Two reads need no door at all, only the outline: `ep0ch find <words>… [--lines|--json]` (the service's forgiving
+ranker, as Goto and `[[` rank; `--recent`, `--tree [<root id>]`) and `ep0ch show <id> [--width <n>] [--ansi]` (the
+note drawn by the note surface, as a reader draws it). Both take `--ws` and `--machine`.
+
 ## The shell: screens and lists
 
 On every screen, before the screen's own actions: `screen.open name=<menu key, label or title>`,
@@ -325,6 +329,9 @@ gesture; see the README's desk section and `docs/UI-GRAMMAR.md` §7.
 | `tree.pick` | `tile`, `n` or `id`, `open` | an agent's pick shows the row's note where the tree's selection goes; `open=true` opens it where the tree's opens go (a group folds; a ticket the Jira extension keeps as a block opens that block; another resource is registered if it must be, fetched once if nothing is stored, and shown, attributed to the agent). Never the person's selection or keys |
 | `projection.refresh` | `tile`, `block` (a page or a ticket block; default the reader's), `line` | fetches the tickets it shows now and runs its extensions' lines (`resources.projection.refresh`): with `line`, only that line (an output or component runs again, an `@name` request is asked again); without it, every line and every `@name` request not answered yet. The service writes as the extension (`ext:jira`, `ext:moon`), never as the agent or the person, and records who ran it as who asked (`asked by an agent (<id>)` on the line); said on the status bar |
 | `ext.<extension>.<action>` | `block` (the note with the handler line, or the block it acts on), `line` (when the note has several of that handler's lines) | an extension's action, named as `extensions.list` names it (`ext.fancy-horror.ward`, `ext.<id>.keep`): the service runs it (`extensions.act`) and what it writes is attributed `ext:<id>`; the status bar says `an agent (<id>) · Fancy Horror: …`. On every screen. A tile kind's actions (`ext.tarot.draw`, `ext.tarot.keep`) take `tile=<the tile>`; `block` defaults to the tile's own; a block action a tile lists (`ext.tarot.keep`) runs on any screen with `block=` too. Who asked goes with it, recorded as the change feed's `requestedBy`. Bound and unbound as the service's extensions change |
+| `links` | `tile` (a reader) | `b`: the reader's note's outlinks, resources and backlinks (one links model, `src/links.ts`) in the screen's links tile, opening one below the reader where the screen has none. An agent's aims or opens it and leaves the person's keys where they are; a screen with no room refuses and names `::links` |
+| `column.links`, `column.link` | `tile` (a river column); `on`; `n` (a links row, from 1), `fresh` | a river column's links under its replies, and opening one in the next column; `column.links` is refused on the column the person has the keys in, with the agent's way named |
+| `home.pick`, `home.open`, `home.new`, `home.import`, `home.connect`, `home.add`, `home.forget`, `home.reload` | `n`; `outline`, `machine`, `write`; `name`; `path` | the home base (bare `ep0ch` where nothing names an outline). An agent's `home.open` writes the folder's `.ep0ch` only with `write=true`; what the person's would ask for (a name, a file, a machine) an agent passes as arguments |
 | the note actions | `edit.*`, `comment.*`, `link.follow`, `block.tint` (PIE-423's focus mark), `select*`, … | in the reader named; an agent's edit or comment is never the person's until they enter it |
 
 Example: bring the person's attention to a decision, from an agent running in a tile.
@@ -398,6 +405,8 @@ at, and what it does while they're typing:
 | an agent's `comment.write` in a comment or reply the person is writing | no | refused (round 3), whether or not they're typing in it: the reason is said on the status bar and names `block.mark`. In a comment the agent opened, it replaces the text, copying out what the person typed there first |
 | an agent's `complete insert=` in the person's edit or comment | no | refused (round 3): it would type at their cursor. Looking candidates up (`complete`, `complete text=`) only reads and stays allowed |
 | an agent's reply to an invitation (the person's `@name` line in their own draft) | no: the cursor and view shift with it | `DraftSession.invite` grants one reply for the text above the line, checked by hash; `reply` swaps it in as one undo step, or keeps it as a suggestion when the person changed that text. Two actions take one (`invitation=`, checked by the draft rule, then used up): `comment.write invitation=<id> base=<hash>` rewrites the text above the line through `reply`, and `complete insert=n invitation=<id>` puts one candidate in at their cursor. No key or rendering makes an invitation yet |
+| an agent's `draft.pick`, `composer.pick` (`ctrl+t`, `[insert]`) | it would hand the person's terminal to a picker | refused (`person:`): an agent puts text in their draft with `draft.patch`, or in an edit it opened with `edit.text` |
+| `links` | no: the links tile aims at the note and its drawer opens; the person's keys stay where they are | allowed |
 | an agent's `draft.patch` on the service (below) | no: it lands in the draft above the mark when it names one, and never in the block being typed in; the cursor, selection and view shift with it | allowed, compared against the text as typed |
 | `proposal.apply` | no | allowed, recorded as whoever runs it; an agent's isn't forced (the same compare as a patch) |
 | `proposal.dismiss` | no | its own proposals only (the actor its patch names, checked by the service), recorded as it; the person dismisses any |
@@ -434,10 +443,10 @@ replacement, the agent's `mutation`, and a mark (the `@request` line) the span m
   `[dismiss]`, and `A` says why. The person's apply is forced (placed by its passage wherever it is now, still
   above the mark; a changed passage is refused, never guessed); an agent's is held to the same compare as a patch, under the policy its
   patch named (`edit`, or `prose` for a `prose` patch and any proposal from before policies), above the mark
-  and the cursor's block, against the text now (`applyProposal` in pi-herdr-outliner's
+  and the cursor's block, against the text now (`applyProposal` in the outliner's
   `src/draft-patch-router.ts`), so an agent can't force its own proposal. A
   proposal applies only what its text shows.
-- **The structural policy is the service's,** one of two the agent picks (pi-herdr-outliner #263). The
+- **The structural policy is the service's,** one of two the agent picks. The
   default, `edit`, is `outline_edit`'s guard: only a dropped `[page::…]`, or a dropped `^anchor` another
   note links to, is refused (unless the patch says `allowStructural`), and that refusal is an error:
   nothing is written and nothing is proposed. `prose`, opt-in (`outliner patch-demo`, a CLI demo of draft.patch; the `@tidy` agent is the tidy extension and uses `edit`), keeps every
@@ -455,7 +464,7 @@ replacement, the agent's `mutation`, and a mark (the `@request` line) the span m
 
 ## Extensions (PIE-512)
 
-The outline service runs extensions (pi-herdr-outliner `docs/extensions/README.md`); the door binds what
+The outline service runs extensions (`packages/outliner/docs/extensions/README.md`); the door binds what
 `extensions.list` names, and binds it again when the service says they changed. An agent uses the same paths
 the person does:
 

@@ -8,7 +8,7 @@ import { depths, isoLayout } from "../scripts/architecture-map/iso";
 // Made-up commits: the page never needs the checkouts to draw.
 const PINS: Pins = {
   now: { door: "a".repeat(40), outliner: "b".repeat(40) },
-  reviews: { A: { door: "c".repeat(40), outliner: "d".repeat(40) }, B: { door: "c".repeat(40), outliner: "d".repeat(40) }, C: { door: "c".repeat(40), outliner: "d".repeat(40) } },
+  reviews: Object.fromEntries(Object.keys(loadMap().reviews).map(k => [k, { door: "c".repeat(40), outliner: "d".repeat(40) }])),
   dirty: [],
 };
 
@@ -44,7 +44,7 @@ describe("architecture map", () => {
     }
     // Then and now: a finding's review commits and the current ones are both there.
     expect(data).toContain(`/tree/${"c".repeat(40)}`);
-    expect(data).toContain(`/blob/${"a".repeat(40)}/packages/door/docs/review/`);
+    expect(data).toContain(`/blob/${d.reviews.A!.kept ?? "a".repeat(40)}/packages/door/docs/review/`);
   });
 
   test("a dirty checkout is stamped on the page", async () => {

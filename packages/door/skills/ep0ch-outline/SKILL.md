@@ -13,9 +13,11 @@ For changing the code instead, use `ep0ch-core`. For driving their door (peek, a
 
 ## Start here
 
-1. **Know which outline.** In a door tile, the session's first prompt says where you are (`ep0ch where`). Else
-   `outliner outlines --json` (or `ep0ch outline list`) and name it: `--ws <name>`. Never write to
-   an outline you guessed: a folder names its outline only in its `.ep0ch`.
+1. **Know which outline.** Outlines go by name (`~/outlines/<name>.sqlite`, one host per machine serving them
+   all). Which one, first match wins: `--ws <name>`, `EP0CH_WS`, the nearest `.ep0ch` (`ws = "<name>"`, and
+   `machine = "<ssh-name>"` for one on another machine). In a door tile, `ep0ch where` says; else `ep0ch outline
+   list` (or `outliner outlines --json`) and name it with `--ws`. Never write to an outline you guessed: a
+   folder that names none names none.
 2. **Load the outline's own guide** with the `outliner-documentation` skill's steps: find
    `system-doc=agent-documentation-guide`, then read it whole. It owns how documentation is structured there:
    hierarchy owns, references connect, transclusions compose, properties classify, virtual branches project.
@@ -28,15 +30,16 @@ For changing the code instead, use `ep0ch-core`. For driving their door (peek, a
 
 ## Tools
 
-In Claude with the Outliner's Claude mod: `outline_read`, `outline_find`, `outline_resolve`, `outline_edit`,
+In Claude with the Claude mod (packages/claude-mod): `outline_read`, `outline_find`, `outline_resolve`, `outline_edit`,
 `outline_patch`, `outline_create`, `outline_comment`/`outline_reply`/`outline_resolve_thread`,
 `outline_changes`, the `work_*` tools and `note_section`; in a door tile also `door_where`, `door_peek`,
-`door_act`, `door_open`. The table is in the mod's `claude-mod/README.md`, "Outline tools". Other agents run
-the same operations as `outliner agent <operation> --json '{…}' --actor <id>`.
+`door_act`, `door_open`. The table is in `packages/claude-mod/README.md`, "Outline tools". Other agents run
+the same operations as `outliner agent <operation> --json '{…}' --actor <id>`; `ep0ch find <words>` and
+`ep0ch show <id>` read (ranked search, a note drawn as text) with no door and no mod.
 
 - **The tools follow the folder Claude runs in.** They (and Recent Mentions and the links in replies) use the
   outline its nearest `.ep0ch` names (`ws = "<name>"`, written by `ep0ch init` or the Choose outline popup);
-  `outliner bound-folder` says which. Installing the mod (`scripts/install-claude-mod.ts`) needs no folder. In a
+  `outliner bound-folder` says which. Installing the mod (`packages/outliner/scripts/install-claude-mod.ts`) needs no folder. In a
   folder that names no outline they refuse and nothing is sent: name it (ask the person), don't work around it.
 
 - **Read before you write,** the whole text. A ref is an id, `((id))`, `[[page]]` or a Work ID, never a title.

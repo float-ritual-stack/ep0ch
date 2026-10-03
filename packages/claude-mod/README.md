@@ -3,7 +3,7 @@
 A [Claude Mod](https://github.com/anthropics/claude-code/issues/91870) (a plugin
 with a function-hooks module) that forwards each completed Claude Code answer to
 the Outliner's `mentions.ingest` contract. It works the same way as the Codex Stop hook
-(`src/mentions-codex.ts`). `[[page]]`, `((block-id))`, Work IDs and existing
+(the outliner's `src/mentions-codex.ts`). `[[page]]`, `((block-id))`, Work IDs and existing
 UUIDs in the answer then show up in Tree/Detail `?` → **Recent mentions**.
 
 - Only main-loop answers are sent. Subagent runs, interruptions, refusals and errors are skipped.
@@ -55,7 +55,7 @@ to the variable. An entry that isn't an absolute folder (a relative path, or
 ## Clickable references and Claude's Outliner pane
 
 In a bound folder, Work IDs (its outline's prefixes), `[[pages]]` and
-`((block references))` in Claude's replies are drawn as links. In an ep0ch-door
+`((block references))` in Claude's replies are drawn as links. In a door
 tile a click opens the note in that door ([Where a note opens](#where-a-note-opens)).
 In Herdr a plain click shows the target in **Claude's own Outliner Detail**: a pane split below the
 Claude pane the first time, then reused for every later click in the session.
@@ -70,17 +70,16 @@ ID, `[[page]]`, `((uuid))` or `pi-outliner://` URI).
 A click, `show` and `door_open` share one open (`openNote` in
 `hooks/register.ts`), tried in this order:
 
-1. **In an ep0ch-door tile** (`EP0CH_CONTROL` set: the daily agent, the dock's
+1. **In a door tile** (`EP0CH_CONTROL` set: the daily agent, the dock's
    agent, or a `claude` started in a `^W o s` terminal tile, in the tile or in
    its Herdr pane): the CLI's `door-open --from <tile>` sends the door an
    agent's `open` from Claude's own tile over `EP0CH_CONTROL`. The tile is
    `EP0CH_TILE`, or its id (`EP0CH_TILE_ID`, `t<n>`) when the name is empty. The
    door puts it where that tile's opens land (its link: the daily layout links
    the claude tile to its middle detail) and says which reader that was. A door
-   older than `open from=`, or without that tile, is asked again naming no
-   tile, and puts it where its own `open` puts notes, which never takes the
-   person's keys. The mod never names a reader (it used to ask for `middle`; a
-   door refuses an agent that names the reader the person is on).
+   without that tile is asked again naming no tile, and puts it where its own
+   `open` puts notes, which never takes the person's keys. The mod never names a
+   reader (a door refuses an agent that names the reader the person is on).
    - The door says who opened it (`claude-code`, or `OUTLINER_ACTOR` /
      `EP0CH_AGENT`), and an agent's open never moves the person's focus.
    - If the door refuses (say it is on its menu, or the reader the tile links
@@ -115,7 +114,7 @@ A click, `show` and `door_open` share one open (`openNote` in
 In a door tile (`EP0CH_NEST` or `EP0CH_CONTROL` set), the mod runs `ep0ch where
 --json` when the session starts. The first prompt then carries its one-line
 summary as a context block (`whereAmI`), not a pane: the layers the session runs
-in, outermost first (`ssh:pts/5 › herdr:w1:p1 › door:<pid>/desk/t1:claude`, ep0ch-door's
+in, outermost first (`ssh:pts/5 › herdr:w1:p1 › door:<pid>/desk/t1:claude`, the door's
 `EP0CH_NEST`), which of them are live, and where the person's keys are. Claude
 then doesn't have to guess from the repo name or a window title.
 
@@ -192,7 +191,7 @@ rows on. Only the outline host has to run: no door, no Herdr.
 In a bound folder Claude also gets `work_create`, `work_stage`, `work_set`,
 `work_deliver`, `work_complete`, `work_body` and `note_section`. Each one runs the
 installed CLI's `work` / `note` command (see the
-[roadmap operations reference](../pi-extension/skills/outliner-workflow/references/roadmap-items.md#agent-commands))
+[roadmap operations reference](../outliner/pi-extension/skills/outliner-workflow/references/roadmap-items.md#agent-commands))
 in the session's workspace, as an agent write attributed to `claude-code` and
 this session. Items are named by Work ID or block UUID, never by title. The tool
 result is the command's JSON; a refusal (stale revision, unknown stage, unmerged
@@ -209,7 +208,7 @@ one left in validate on an item that is already done.
 In a bound folder Claude gets typed tools for everything an agent does to
 the outline, so it never writes a script around `list --subtree`, `update` or a
 comment socket. Each runs the installed CLI's `agent <operation>` command
-(`src/agent-tools.ts`) with the tool's input as JSON on stdin, in the session's
+(the outliner's `src/agent-tools.ts`) with the tool's input as JSON on stdin, in the session's
 workspace, and returns compact JSON. The service keeps the rules; a refusal
 comes back as the tool's error with the reason.
 
@@ -233,7 +232,7 @@ find it with `outline_find` first.
   an empty or whitespace-only result, a revision that isn't the block's (read it
   again), and an edit that drops a `[page::…]` or an `^anchor` another note
   links to, unless `allowStructural: true` (the check is `refuseDroppedStructure`
-  in `src/work-tools.ts`, over `droppedLinkedStructure` and `droppedStructure`). An
+  in the outliner's `src/work-tools.ts`, over `droppedLinkedStructure` and `droppedStructure`). An
   agent's `note_section` and `work_body` get the same check, with no way past it:
   removing them is an `outline_edit` with `allowStructural`.
 - Rewriting your own pages, such as a status page, is `outline_edit`. For small
@@ -251,7 +250,7 @@ find it with `outline_find` first.
 
 ## Door tools
 
-When Claude runs in an ep0ch-door tile (`EP0CH_CONTROL` set), it also gets
+When Claude runs in a door tile (`EP0CH_CONTROL` set), it also gets
 `door_where`, `door_peek`, `door_act { action, args?, tile? }` and
 `door_open { id }`. They run `ep0ch where --json`, `ep0ch peek` and
 `ep0ch act …` on that socket; `door_open` is the same open as a click or `show`
@@ -274,14 +273,15 @@ When Claude runs in an ep0ch-door tile (`EP0CH_CONTROL` set), it also gets
 Function hooks are early access and need `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1`.
 
 The installer sets up everything below: `install.sh --claude-mod`, or, from a
-checkout, `bun scripts/install-claude-mod.ts`. It needs no folder.
+checkout, `bun packages/outliner/scripts/install-claude-mod.ts`. It needs no folder.
+`ep0ch doctor` says whether Claude Code loads this checkout's mod.
 
 ```sh
-claude --plugin-dir /path/to/checkout/claude-mod
+claude --plugin-dir ~/projects/ep0ch/packages/claude-mod
 ```
 
 To load it in every session, set `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1` and
-`CLAUDE_CODE_PLUGIN_DIRS=/path/to/checkout/claude-mod` in the `env` block of
+`CLAUDE_CODE_PLUGIN_DIRS=<checkout>/packages/claude-mod` in the `env` block of
 `~/.claude/settings.json`; that is what the installer writes, replacing any
 other copy of this mod and backing the file up first.
 
@@ -298,9 +298,13 @@ as strict-mode folders. To stop the mod, remove its folder from
 
 ## Develop
 
+From the repository root:
+
 ```sh
-claude plugin validate claude-mod
-claude plugin test claude-mod
-# types: run /plugin-types claude-mod/.claude/types in a session, then
-tsc -p claude-mod/tsconfig.json
+claude plugin validate packages/claude-mod
+claude plugin test packages/claude-mod
+# types: run /plugin-types packages/claude-mod/.claude/types in a session, then
+tsc -p packages/claude-mod/tsconfig.json
 ```
+
+The hooks module can't import application code: it runs the outliner's installed CLI (found through Herdr).

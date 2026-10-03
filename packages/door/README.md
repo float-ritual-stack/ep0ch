@@ -1,8 +1,9 @@
-# ep0ch-door
+# ep0ch: the door
 
-A BBS door into a pi-herdr-outliner outline: it reads everything, edits notes in place, moves cards between
-board lanes, and comments on them. It talks straight to the outliner service's Unix socket, on the one protocol both share
-(`PROTOCOL` in outline-core), and is not part of the outliner.
+`packages/door`: a BBS door into an outline the outline host (`packages/outliner`) serves. It reads everything,
+edits notes in place, moves cards between board lanes, and comments on them. It talks straight to the host's Unix
+socket, on the one protocol both share (`PROTOCOL` in outline-core), and imports the outliner only through its
+declared exports (`test/package-boundary.test.ts`).
 
 The screens are ep0ch's own 1997 art by shypht, read in place from the WOE art packs:
 the logon (`SHY-LOGI.ANS`), the main menu (`SHY-EMNU.ANS`, whose twelve "Menu Cmd"
@@ -44,8 +45,12 @@ One walk through the door, in the order you meet things. Each step has its own s
    `ep0ch` from `~/.bashrc` with `EP0CH_IN_DOOR=1`, and `EP0CH_LANDING=welcome` puts you on
    [Welcome](#welcome) after the logon's `⏎`: the notes tagged `[welcome::n]`, the first one read. Quitting
    the door leaves you at that shell; `ssh -t <host> EP0CH_NO_DOOR=1 bash -l` skips the door once.
-   Anywhere else, `ep0ch` opens the current folder's outline on the outline host, and `ep0ch --ws <name>`
-   opens another ([Outlines on the outline host](#outlines-on-the-outline-host)).
+   Anywhere else, `ep0ch` opens the outline the folder's `.ep0ch` names, and `ep0ch --ws <name>` opens one by
+   name; where nothing names one, the [home base](#the-home-base) lists this machine's outlines and the
+   machines you've used (open, new, import). `--machine <ssh-name>` opens an outline on another machine, and
+   `--remote <ssh-name>` attaches this terminal to the door running there
+   ([Outlines on the outline host](#outlines-on-the-outline-host)). `ep0ch --showcase` opens every shared part
+   on a seeded outline of made-up notes, to look around without touching yours ([The showcase](#the-showcase)).
 2. **Get around.** The menu's letters or a click open its screens: `D` the desk, `K` the kanban, `Q` the Quay
    (the river), `T` today's brief, `C` Welcome, `X` the showcase. `q` goes back on every screen below the
    menu; only `G` logs off.
@@ -61,7 +66,7 @@ One walk through the door, in the order you meet things. Each step has its own s
    bright VGA palette; `alt+v` steps the video mode (the CRT glow is Kitty+CRT). Both work on every screen
    ([Themes and accessibility](#themes-and-accessibility)).
 6. **Drop to shell.** `!` on the menu, or `^W !` on the desk: your login shell in this terminal, and `exit`
-   brings the door back where it was ([Getting around](#ep0ch-door), above).
+   brings the door back where it was ([Getting around](#ep0ch-the-door), above).
 7. **Links anywhere.** `b` in any reader shows its note's outlinks, resources and backlinks in the screen's
    links tile (one opens below the reader, with a preview beside it, where the screen has none); moving onto a
    resource previews what the service stores for it, and `⏎` opens it. In an outline tile `L` shows them under a
@@ -70,15 +75,18 @@ One walk through the door, in the order you meet things. Each step has its own s
    is `⏎`, an alt-, ctrl- or middle-click is `alt+⏎`, and a click that gives a tile the keys only selects.
 8. **Write.** `e` in any reader edits the note. `Enter` continues a list, `Tab` and `Shift+Tab` nest and
    outdent, `Ctrl+P` previews, `Ctrl+S` saves (the first press says which properties would change). `Esc`
-   twice puts unsaved text aside as **unsent**; `e` on the same note brings it back
-   ([Editing notes](#editing-notes)).
+   twice puts unsaved text aside as **unsent**; `e` on the same note brings it back. `[[` completes
+   pages with the service's forgiving matcher (a typo or two), `((` notes with every word in any order, and `Ctrl+T`
+   (or a click on `[insert]`) opens television's `ep0ch` channel in a tile beside the draft (the whole terminal on the board): pick notes (Tab for
+   several) and their `((id))`s go in at the cursor ([Editing notes](#editing-notes)).
 9. **On a Mac,** set the terminal to send Option as Alt (Ghostty `macos-option-as-alt = true`, kitty
    `macos_option_as_alt left`). Without it, where you aren't typing text, the door reads `å` as `alt+a`, `¬`
    as `alt+l` and so on, and says once which setting to change ([The agent drawer](#the-agent-drawer-pie-498)).
 10. **Keep the stack current.** `ep0ch doctor` checks every piece; `ep0ch install` shows the plan and
    `--apply` runs it ([Install and update](#install-and-update)). `ep0ch outline list` names the host's
-   outlines, and from a program in a tile `ep0ch where` says which door, tile and keys it's in
-   ([where am I](docs/AGENT-INTERFACE.md#where-am-i-ep0ch_nest-and-ep0ch-where)).
+   outlines, `ep0ch find <words>` and `ep0ch show <id>` search and draw notes at your shell (`tv ep0ch`, once
+   install has linked its channel, does both in television), and from a program in a tile `ep0ch where` says
+   which door, tile and keys it's in ([where am I](docs/AGENT-INTERFACE.md#where-am-i-ep0ch_nest-and-ep0ch-where)).
 
 ## Outlines on the outline host
 
@@ -132,8 +140,10 @@ Bare `ep0ch` where nothing names an outline opens the home base: a screen like a
 | `q`, `esc` | the hint row's `q` | quits: nothing is opened |
 
 What a choice needs typed or picked (a name, a file, a machine, whether to write `.ep0ch`) is a list picker over
-the screen; ⏎ or a click on its row does it, `esc` goes back. The home base runs before any door session; with
-one running, `ep0ch` attaches to it as before. Opened by name on a door that is on an outline, it shows what it
+the screen; ⏎ or a click on its row does it, `esc` goes back. The home base runs before any door session, and
+bare `ep0ch` in a folder that names no outline opens it even when exactly one session runs: which outline is never a
+silent guess (the root `AGENTS.md`, "Outlines by name"). The outlines with a running session are marked there, and
+choosing one attaches to it; `ep0ch session attach` names the only running session outright. Opened by name on a door that is on an outline, it shows what it
 shows but makes, connects and opens nothing.
 
 ### Outlines on other machines
@@ -195,15 +205,15 @@ A journey to try, whichever service it is:
 
 ## The showcase
 
-    scripts/try-it.sh --showcase
-    scripts/try-it.sh --showcase --reset
+    ep0ch --showcase
+    ep0ch --showcase --reset
 
-opens the showcase (PIE-439): the shared door parts, live, in nineteen sections, one per row of the reuse map
+opens the showcase (PIE-439): the shared door parts, live, in twenty sections, one per row of the reuse map
 ([Before adding a feature](docs/UI-GRAMMAR.md#before-adding-a-feature)) in the map's order. The map's
 scrolling row, its key-names row, its list-picker and line-input rows (in the panes section's ^W P and ^W r,
 the board's g m s), its elements and reading-ruler row (PIE-441) and its terminal-output row (PIE-510: cells, escapes,
 CP437; the key names and the terminal output are under every section) have no section yet. The newest parts are in their rows' sections:
-the agent drawer in `terminal` (`alt+a` pulls it up over the showcase itself), the terminals attached to the door session in `session`, a row's links in the tree
+the service's forgiving search (the `/` overlay, opened on a query with typos) in `search`, the agent drawer in `terminal` (`alt+a` pulls it up over the showcase itself), the terminals attached to the door session in `session`, a row's links in the tree
 (`L`) in `entity`, a drawer and the lock (`alt+k`) in `panes`, the draft session (an edit and a comment open side by side) in `drafts`, a screen spec (the brief, its spec read back by `screen.spec`) in `screens`, the tile-kind registry listed by a service-drawn tile in `kinds`, quiet embeds (a dim `»` source line) in `note`, and the outliner's example extensions (a record, an output, a component with its `[w ward]`, an `@tidy` request) beside what the service's list bound, in `extensions`. It runs on an
 outline of its own: a private service (own state, workspace and config dirs, background agents off, Herdr
 unset) on a persistent workspace under `<the door's state>/showcase/` (`$EP0CH_STATE`, else `${XDG_STATE_HOME:-~/.local/state}/ep0ch-door`), with the
@@ -230,10 +240,10 @@ door's own `EP0CH_STATE` and `EP0CH_CONTROL` there too, so nothing reaches a rea
   section names the part and its files and is drawn by the part itself, on a desk of its own spec (the layout
   tree, nothing saved to your `desk.json`) or the real board. A parallel version still in the code that
   can't be framed alone is named on the section's third line.
-- **Reaching it:** `X` on the main menu (its key line; the menu art has twelve slots), or `--showcase` on
-  the command line, beside `--desk`, `--river` and `--board`. On an outline without the seed it says so and
-  writes nothing.
-- **Agents:** `ep0ch-door act section name=<1-19|key>` shows a section (your keys go back to the list);
+- **Reaching it:** `ep0ch --showcase` (or `ep0ch try --showcase`, `scripts/try-it.sh --showcase`) opens it on its
+  own seeded outline, whatever this folder names. `X` on the main menu (its key line; the menu art has twelve
+  slots) opens the screen on the outline you're on: on one without the seed it says so and writes nothing.
+- **Agents:** `ep0ch act section name=<1-20|key>` shows a section (your keys go back to the list);
   every other action is the section's own (a reader's note actions, the desk's, the board's).
   `EP0CH_CONTROL=<showcase>/door/door.sock` reaches this door, and only it.
 
@@ -259,7 +269,7 @@ embeds are live.
 - **Agents:** `brief.step by=-1|1`, `brief.newest`, `brief.date date=YYYY-MM-DD`, `brief.show id=<brief>` (refused
   while you're typing in the brief), plus the desk's and the reader's actions. `open <id>` on a brief steps to it;
   any other note opens beside it.
-- The showcase outline has two made-up briefs, so `scripts/try-it.sh --showcase` then `T` shows one.
+- The showcase outline has two made-up briefs, so `ep0ch --showcase` then `T` shows one.
 
 ## Welcome
 
@@ -397,11 +407,12 @@ A checkout from before `install` gets it by hand, once:
     bun install
     ln -s "$PWD/src/main.ts" ~/.local/bin/ep0ch    # once: the ep0ch command (or: ep0ch install --apply)
 
-    ep0ch                           # the outline this folder names (EP0CH_WS, else its .ep0ch; else it asks)
+    ep0ch                           # the outline this folder names (EP0CH_WS, else its .ep0ch; else the home base)
     ep0ch --ws pie                  # an outline by name, from anywhere
     ep0ch --machine float-2         # this folder's outline on another machine (an ssh config name)
     ep0ch --remote float-2          # the door session running on another machine, in this terminal
-    ep0ch --showcase | --desk | --layout <name> | --river | --brief | --welcome | --board [<hub-id>]
+    ep0ch --desk | --layout <name> | --river | --brief | --welcome | --board [<hub-id>]
+    ep0ch --showcase [--reset]      # the showcase on its own seeded outline (as ep0ch try --showcase)
 
 `ep0ch help` lists everything. Besides opening the door:
 
@@ -411,7 +422,7 @@ A checkout from before `install` gets it by hand, once:
 | `ep0ch try …` | `scripts/try-it.sh`: the door on a private copy (`--copy`), or on the showcase outline (`--showcase`, `--reset`) |
 | `ep0ch init [<name>]`, `ep0ch outline …`, `ep0ch status` | name this folder's outline, and the host's outlines (see [Outlines on the outline host](#outlines-on-the-outline-host)) |
 | `ep0ch --skill [--all] [<name>]` | the stack's skills (this door's `skills/` and the outliner's `pi-extension/skills/`: the installed plugin's, found through Herdr, else packages/outliner beside the door), or the path of one skill's `SKILL.md`; `--all` adds contributor skills |
-| `ep0ch find [<words>… \| --recent \| --tree [<root id>]] [--lines \| --json]` | the outline's notes for a picker or a script: with words, the service's ranked search (as `((` and Goto rank them, at most 30); `--recent`, its newest 30; `--tree`, the outline (or the notes under the root) depth first in the service's order, drawn with `├─ │ └─` (past ten levels the outer rails become `…<depth>`); without, every note, newest first. `--lines` prints `id<TAB>title<TAB>path`, and with `--tree` then `<TAB>depth<TAB>glyphs<TAB>about` (work id, stage, type); television's `ep0ch` channel reads them |
+| `ep0ch find [<words>… \| --recent \| --tree [<root id>]] [--lines \| --json]` | the outline's notes for a picker or a script: with words, the service's ranked search (as Goto and `[[` rank them, at most 30); `--recent`, its newest 30; `--tree`, the outline (or the notes under the root) depth first in the service's order, drawn with `├─ │ └─` (past ten levels the outer rails become `…<depth>`); without, every note, newest first. `--lines` prints `id<TAB>title<TAB>path`, and with `--tree` then `<TAB>depth<TAB>glyphs<TAB>about` (work id, stage, type); television's `ep0ch` channel reads them |
 | `ep0ch show <id> [--ansi \| --cells] [--width <n>] [--rows <n>]` | the note drawn as a reader draws it (the note surface), at that width; `--ansi` keeps its colours (a picker's preview); `--cells` prints it as JSON cells for a program that paints a grid (the Claude mod's BlockView draws them as a `Raster`; `src/cells.ts` has the format); `--rows` keeps the first rows, for a preview |
 | `ep0ch outline list --all [--lines]` | every outline you can open from here: this machine's, then each machine you've opened before (a machine not connected now says so; nothing is started) |
 | `ep0ch clients [--ws <name>] [--machine <ssh-name>]` | who's connected to the outline: every role, observers and roles this door doesn't know yet |
@@ -711,8 +722,10 @@ pane and the tile shows it. Herdr lists it (`herdr agent list`), other agents me
   PIE-123: …"). The agent should treat an unsigned message as it would text typed by an unknown person.
 
 The current layout is saved to `desk.json` in the outline's folder of the state dir
-(`~/.local/state/ep0ch-door/sessions/local/<name>/`; see [Sessions](#sessions-quit-is-detach)). Mouse reporting is on, so use your
-terminal's selection modifier (Shift in Ghostty) to select text.
+(`~/.local/state/ep0ch-door/sessions/local/<name>/`; see [Sessions](#sessions-quit-is-detach)). A drag in a reader
+selects and copies its text through the door ([Selecting and copying text](#selecting-and-copying-text)); in a
+terminal tile your terminal's selection modifier (Shift in Ghostty) selects what that program drew. Under tmux,
+`set -g set-clipboard on` lets the door's OSC 52 copy reach your clipboard.
 
 ### The agent drawer (PIE-498)
 
@@ -773,12 +786,8 @@ the welcome. The chip at the start of the status bar's right part, `▲ claude`,
 
 ## The board
 
-`K` on the menu, or `bun src/main.ts [--ws <workspace root>] --board [hub-block-id]`. Any block with two or more
-virtual-branch children is a board; `g` picks one (Delivery Flow on the pi-outliner outline, Outbox on float-hub).
-The last board per workspace is remembered.
-
-`--ws ~/float-hub` finds that workspace's socket the way the outliner does
-(`~/.local/state/pi-herdr-outliner/<sha256(root)[0:12]>/outliner.sock`).
+`K` on the menu, or `ep0ch [--ws <name>] --board [<hub-block-id>]`. Any block with two or more virtual-branch
+children is a board; `g` picks one. The last board per outline is remembered.
 
 - **Lanes** are saved views, read by the service with `views.read` (see "On the service platform"). A lane
   says `of N+` when truncated or `invalid` / `failed` with the reason instead of looking empty. The door
@@ -841,7 +850,7 @@ service plans it (`views.planWrite`, PIE-490): it judges the whole query on the 
 it, so a patch can't break a group it mentions, and names the token ordinals to patch. The door shows the
 plan (the picker, a drag's lane and hint line) and applies it with `properties.patch` at the revision the
 card was shown at. What a new card in a lane is born with, and the text or roadmap item it's saved as, is
-the same capability's answer.
+the same plan's answer.
 
 | Keys | Action |
 |---|---|
@@ -1017,7 +1026,7 @@ The board's new-card composer is the same control too.
   the agent's, and refused if that note changed since it was offered). The popup never keeps a key it doesn't use: with nothing to choose, `Enter`,
   arrows and `Esc` do what they do in a draft, the first `Esc` only closes the popup, and `Tab` outside a
   token indents.
-- **Agents edit above while you type** (pi-herdr-outliner PIE-501, `draft.patch`). An open draft is held on
+- **Agents edit above while you type** (the outliner's PIE-501, `draft.patch`). An open draft is held on
   the service, on a lease the door renews every 5 s, so an agent's compare-and-swap on a span of the note
   lands in your draft instead of the saved note. It applies only while the text it read is still there (at
   or near where it saw it), above the `@request` line it names (or, without one, above the block your cursor
@@ -1046,7 +1055,7 @@ The board's new-card composer is the same control too.
 - **Scroll indicators:** a reader whose note is longer than its frame shows a thumb on the frame's right
   border and how far down it is in the title (`· 42%`): board readers, floats and the desk's reader.
 - **Properties:** the service decides which `[key::value]` tokens are properties (one followed by more
-  text on its line is plain text). The service's `properties.preview` (pi-herdr-outliner PIE-401) reads
+  text on its line is plain text). The service's `properties.preview` (the outliner's PIE-401) reads
   them first: the first `Ctrl+S` on a draft that would change them says which and writes nothing; `Ctrl+S`
   again saves.
 - **Attribution:** door edits are recorded as `author: user`, `actorId: ep0ch-door:<hostname>`, like the
@@ -1237,7 +1246,7 @@ opens a link or an embed beside or in a new column, and a step's box opens its s
 
 ### Extensions in a note
 
-An extension the outline service runs (pi-herdr-outliner `docs/extensions/README.md`, PIE-507) answers a
+An extension the outline service runs ([the outliner's extensions guide](../outliner/docs/extensions/README.md), PIE-507) answers a
 line by its key (`moon:: 2026-10-26`, `horoscope:: virgo`, `fancy-horror:: virgo`) or an `@name` request
 (`@tidy`). The reader draws what the service kept for each line in a shaded region after it, the way it
 draws a ticket (PIE-512):
@@ -1371,6 +1380,8 @@ Bodies render with `src/doc.ts`:
   through Kitty. Big images are shrunk with `sips`, video gets a poster frame from `ffmpeg` (or Quick Look), cached in
   `~/.cache/ep0ch-door/media` (under `$EP0CH_STATE/cache/` when that is set). `\ ` escapes and macOS screenshot names (narrow no-break space before AM/PM) resolve.
   `[ ]` selects an image like a link and ⏎ opens it in the system viewer. Images a drawer or float covers are hidden.
+  River columns draw them as readers do (cropped as they scroll). Where an image isn't drawn its line says why: no
+  Kitty graphics in this terminal, or `alt+v` set the video mode to cells.
   If macOS blocks the read (Desktop, Documents), the line says so: grant the terminal Files & Folders access.
 - **Callouts.** `> [!note] Title` (tip, warning, danger, summary, example, question, quote, …) render as colored boxes;
   `[!x]-` starts folded, `z` unfolds. Headings and list items fold too (see Folding).
@@ -1388,7 +1399,7 @@ Bodies render with `src/doc.ts`:
   - `timeline`: dated by `updated`/`created` or `date: <property>`, `now: "<filter>"` · `meter`: share matching `done`
   - `view:` reads a saved virtual branch the faithful way (ranks, limit, errors); `query:` is an explicit filter
     in the saved-view grammar (`OR`, `NOT`, parentheses, `created`/`updated` ranges), sent to the service as
-    `blocks.query` `expression` (capability `query.expression`, PIE-398). `done:` and `now:` are queries in the
+    `blocks.query` `expression` (PIE-398). `done:` and `now:` are queries in the
     same grammar: the service says which results they hold for (`query.matches`, PIE-490). They match
     properties only; there is no `author=` pseudo-key.
 - Long callout titles keep a short head on the border and flow the rest into the box.
@@ -1435,7 +1446,7 @@ Card bodies come from `children`. The layout is saved to `river.json` (the desk'
 
 Kitty graphics are used only where cells can't do it, and every word stays real terminal text:
 
-- **Art** is rasterized with the 9×16 VGA font from `../ep0ch/ep0ch.html` and placed under the text layer.
+- **Art** is rasterized with the 9×16 VGA font (lifted from ep0ch.html into `src/vga.ts`) and placed under the text layer.
   Menu and logon art are placed one art cell per terminal cell, so live text lands exactly in the art's slots.
   The viewer keeps true VGA proportions.
 - **CRT**: scanlines and a phosphor bloom at the lowest Kitty layer, so they show through default-background cells only.
@@ -1731,7 +1742,7 @@ The service has no auth or read-only mode, so these limits are the door's own di
 
     bun test
     bun run check
-    bun scripts/snap.ts           # drives the real door against the live outline and writes out/snap-kitty-*.png
+    bun scripts/snap.ts           # drives the real door, read-only, against the outline this folder names (or EP0CH_SOCKET); writes out/snap-kitty-*.png
     bun scripts/snap.ts cells     # same, cells mode
     bun scripts/snap.ts desk      # the desk at 200×60: expand, focus, add a tile, dock, search
     bun scripts/snap.ts river     # the river at 200×60: open beside, replies, compression
@@ -1767,8 +1778,8 @@ Kitty upload, place, crop and delete) and composites them into a PNG.
 
 ## Known limits
 
-- Live figures need `query.expression` for `query:` and `query.matches` for `done:` and `now:`; moves and new
-  cards need `views.planWrite`, and lanes `views.read`. The door has no evaluator of its own.
+- The door has no query evaluator of its own: live figures, lanes, moves and new cards all ask the service
+  (`blocks.query`, `query.matches`, `views.read`, `views.planWrite`).
 - Nested embeds each keep their quiet `»` source line and bar; PIE-185's flat composition (no chrome per level)
   and a configurable depth aren't here. Detail itself doesn't nest embeds yet (PIE-185); the door takes
   the service's depth.

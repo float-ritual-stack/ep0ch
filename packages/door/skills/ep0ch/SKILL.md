@@ -5,8 +5,8 @@ description: Use when an agent needs to see or act in an ep0ch door (the BBS-sty
 
 # ep0ch: working in a door
 
-ep0ch is a terminal door into an Outliner workspace: the board (kanban), desk, river and BBS screens, all
-built on one note surface. Everything the person can do there, an agent can do through the door's control
+ep0ch is a terminal door into an outline: the board (kanban), desk, river and BBS screens, all built on one
+note surface. Everything the person can do there, an agent can do through the door's control
 socket, with the same checks (revisions, property warnings, duplicate-safe comments) and honest attribution.
 
 Two sibling skills: `ep0ch-outline` for working in the outline for the person (notes, properties, views,
@@ -14,8 +14,10 @@ pages, publishing, extensions), and `ep0ch-core` for changing this code (includi
 
 ## Commands
 
-    ep0ch help                       everything below
+    ep0ch help                       every command, with its flags: the truth when this list and it differ
     ep0ch --ws <name>                open the door on an outline (created if nobody has it yet)
+    ep0ch --machine <ssh-name>       the door here, the outline on that machine; --remote <ssh-name>: the door session there
+    ep0ch --showcase [--reset]       every shared door part on its own seeded outline of made-up notes
     ep0ch init [<name>]              name this folder's outline: write .ep0ch (creating the outline if needed)
     ep0ch outline list [--json]      the host's outlines: name, open, database
     ep0ch outline attach <name> [--json]   open the door on it (--json: only attach, print the answer)
@@ -23,36 +25,39 @@ pages, publishing, extensions), and `ep0ch-core` for changing this code (includi
     ep0ch status [--json]            the host: socket, outlines folder, open outlines
     ep0ch where [--json]             which door, tile and Herdr pane this process runs in, and where the keys are
     ep0ch clients [--ws <name>]      who is connected to the outline (every role)
+    ep0ch find [<words>… | --recent | --tree [<root>]] [--lines | --json]
+                                     notes, ranked as Goto and [[ rank them; no door needed
+    ep0ch show <id> [--width <n>]    a note drawn as a reader draws it, as text; no door needed
     ep0ch peek                       the screen as text plus structured state
     ep0ch actions                    what the current screen can do, with arguments and keys
     ep0ch act <action> [key=value…] [--as <agent-id>]
     ep0ch open <block-id> [from=<tile>] [--as <agent-id>]
                                      put a block in front of the person: the same as act open id=<block-id>
+    ep0ch subscribe [type,…]         the door's live feed, one JSON event per line
     ep0ch snap [out.png]             exactly what the terminal shows
     ep0ch try --ws <name> --copy     your own door on a private copy of an outline
+    ep0ch session list | attach --watch | end   this folder's outline's session (or --ws <name>)
     ep0ch --skill [<name>]           the stack's skills, or the path of one
     ep0ch doctor [--json]            the whole stack's state (✓ ! ✗) with a fix command for each; read-only
-    ep0ch install [--json]           the update plan (a dry run); --apply runs it, --restart-services too
+    ep0ch install [--json]           the update plan (a dry run); --apply runs it
 
-`bun src/main.ts …` in the door's checkout is the same command. The full action table is in the door's
-README, section "Letting an agent see what you see, and do what you do" (`ep0ch --skill ep0ch` shows this
-file's path; the README is two directories up).
+`bun src/main.ts …` in packages/door of the ep0ch checkout is the same command. The action table is the
+door's README, "Letting an agent see what you see, and do what you do", and the rules per path are its
+`docs/AGENT-INTERFACE.md` (`ep0ch --skill ep0ch` shows this file's path; the package is two directories up);
+`ep0ch actions` on a running door lists what its current screen takes.
 
 ## Checking and updating the stack
 
-`ep0ch doctor --json` is the first thing to run when something in the stack seems off: bun, the Outliner
-plugin (linked or managed, its commit against origin/main, its protocol), this checkout, `ep0ch` on PATH,
-the outline host and per-folder services (flagging ones running old code), Herdr and its keys, and the
-Claude mod. It only reads (`git fetch` aside).
+`ep0ch doctor --json` is the first thing to run when something in the stack seems off: bun, the ep0ch
+checkout, `ep0ch` on PATH, the plugin in Herdr, the outlines folder with its host and unit, which outline
+this folder opens, Herdr's keys and the Claude mod. It only reads (`git fetch` aside).
 
 `ep0ch install` without `--apply` is safe to run any time: it prints the plan. Run `--apply` only when the
 person asked for the update: it also hands the person's door session to the new code, which restarts every
 terminal attached to it. It backs up every outline database to `~/backups/ep0ch/` first, then
-fast-forwards the plugin and door checkouts and links `ep0ch`. After a plugin update (or when the host runs
-old code) it also restarts the outline host through its systemd or launchd unit, and every door and pane on
-it reconnects: say so before you run it. `--restart-services` restarts the person's per-folder service
-panes: never pass it unless they asked for that too. Install never writes a unit, Herdr's config or
-Claude's settings; it reports them as notes.
+fast-forwards the ep0ch checkout and links `ep0ch`. When the host's code changed it also restarts the outline
+host through its systemd or launchd unit, and every door and pane on it reconnects: say so before you run
+it. Install never writes a unit, Herdr's config or Claude's settings; it reports them as notes.
 
 ## Which outline a door opens
 
@@ -66,8 +71,8 @@ open writes the folder's `.ep0ch` only with `write=true`. Without a terminal it 
 (`ep0ch init`, `--ws`, `ep0ch outline import`). An outline on another machine is
 named by `--machine <ssh-name>`, `EP0CH_MACHINE` or the `.ep0ch`'s `machine = "<ssh-name>"`: the door reaches it
 through a shared ssh forward (`~/outlines/.remote/<ssh-name>.sock`) and starts it again when it drops.
-`ep0ch --remote <ssh-name>` is the door session running there, in this terminal. `outline list`, `status` and `clients` never
-create. The status bar and `peek` show `host · outline`. Delete moves an outline to `.deleted/`; pass `--yes`
+`ep0ch --remote <ssh-name>` is the door session running there, in this terminal. `outline list`, `status`,
+`clients`, `find` and `show` never create. The status bar and `peek` show `host · outline`. Delete moves an outline to `.deleted/`; pass `--yes`
 only when the person asked for it.
 
 ## Which door you reach
@@ -92,7 +97,7 @@ only when the person asked for it.
   without a terminal, and its control socket answers whether or not a terminal is attached. To see it as a terminal does,
   `ep0ch session attach --watch` in a pane of your own (read-only, never the person's keys). Never attach to the
   person's session without `--watch`: your keys would be theirs. Ending it (`session.end`, `ep0ch session end`) is
-  the person's; a session you started on your own `EP0CH_STATE` you end yourself (`EP0CH_STATE=… ep0ch session end --yes`),
+  the person's; a session you started on your own `EP0CH_STATE` you end yourself (`EP0CH_STATE=… ep0ch session end --all --yes`),
   or it keeps running after your pane is gone.
 - Name yourself: `EP0CH_AGENT=<your-id>` once, or `--as` on each `act` and `open`. The door records and shows
   it. `ext:<id>` is an extension's and is refused: only the outline service writes as an extension. To run
@@ -101,21 +106,26 @@ only when the person asked for it.
 
 ## Door tools in Claude
 
-In a Claude session inside a door tile (`EP0CH_CONTROL` set), the Outliner's Claude mod adds `door_where`,
-`door_peek`, `door_act` and `door_open`. They run `ep0ch` on that tile's socket. Prefer them to running
-`ep0ch act` through Bash. Outside a door tile they aren't there: use the commands above.
+In a Claude session inside a door tile (`EP0CH_CONTROL` set), the Claude mod (packages/claude-mod) adds
+`door_where`, `door_peek`, `door_act` and `door_open`. They run `ep0ch` on that tile's socket. Prefer them to
+running `ep0ch act` through Bash. Outside a door tile they aren't there: use the commands above.
+
+**One open.** `show`, `door_open`, a click on a reference in Claude, `ep0ch open` and `act open` are the same
+open: in a door tile it lands where that tile's opens go (`from=$EP0CH_TILE`), the door choosing the reader and
+saying which; in Herdr outside a door, `show` uses Claude's own Detail pane; elsewhere it answers the `((id))`.
+It never moves the person's focus, and a door's refusal is the answer, never a reason to open it elsewhere.
 
 **Three ways a door agent starts, one environment.** Each gets the same variables (`agentVars`,
 `src/desk/agent-env.ts`): `EP0CH_CONTROL`, `EP0CH_TILE`, `EP0CH_TILE_ID`, `EP0CH_NEST`, `EP0CH_IN_DOOR`, and
 the door's `EP0CH_STATE` and `EP0CH_SOCKET` when it has them.
 1. `^W o s` on the desk, then `claude` in that shell: a terminal tile's program.
-2. `D`, then the `daily` layout's `claude` tile: the door's own agent. On float-2 it runs in Herdr
-   (`EP0CH_DAILY_AGENT=…/door-agent-herdr.ts`, the `door-claude` pane, `EP0CH_CONTROL` a link the launcher
-   points at the attached door); elsewhere plain `claude` in the tile.
+2. `D`, then the `daily` layout's `claude` tile: the door's own agent. Where `EP0CH_DAILY_AGENT` names the
+   Herdr launcher (`scripts/door-agent-herdr.ts`) it runs in Herdr (the `door-claude` pane, `EP0CH_CONTROL` a
+   link the launcher points at the attached door); elsewhere plain `claude` in the tile.
 3. The `▲ claude` chip on the status bar, or `alt+a`: the same agent as 2, in a drawer over any screen.
 
-**A Claude reads these, and the mod, only as it starts.** If the mod changed after it started (a `git pull` in
-the Outliner), or it started without them, it has no door tools or old ones. The chip says so:
+**A Claude reads these, and the mod, only as it starts.** If the mod changed after it started (a `git pull` of
+the ep0ch checkout), or it started without them, it has no door tools or old ones. The chip says so:
 `▲ claude · door tools` when current, `▲ claude · started before update ⟳` (or `no door tools ⟳`) when not.
 `ep0ch act agent.knows` says the same with why; `ep0ch doctor` lists every door agent on an older mod.
 A click on `⟳`, `alt+R` or `ep0ch act agent.restart` restarts the door's agent, keeping the conversation
@@ -156,6 +166,8 @@ yourself (path 1): `/exit`, then `claude --continue`.
   wait until they save or close it. The draft actions (`draft.*`, `session.leave`) work only in a draft you
   opened and alone typed in.
 - Test data belongs in scratch services with fictional notes, never a real outline.
+- **Inserting from a picker** (`draft.pick`, ctrl+t: television in a tile beside the reader) is the person's
+  only: it takes their keys. Put text in their draft with `draft.patch`, or in an edit you opened with `edit.text`.
 - Moving the person's screen (`screen.open`, `screen.back`, `list.*`, `host.toggle open=true`) waits until
   they've been idle 2s and aren't typing, and is said on their status bar. `screen.shell` (drop to shell) is
   theirs only: yours is refused. Use a terminal tile (`tile.open kind=pty`) for a program of your own.
@@ -166,8 +178,14 @@ yourself (path 1): `/exit`, then `claude --continue`.
   share=0.2…0.9`, `agent.type text=…` (the agent is no screen's tile,
   so `tile.type` doesn't reach it), `agent.knows`, `agent.restart`. It never takes the person's keys; you can't put
   it away, resize it, type in it or restart its agent while they type in it. `peek` shows it as `dock` (with `knows`).
-- **The outline tree's links:** `tree.links tile=<tree tile> n=<row>` shows a row's outlinks, resources and
-  backlinks under it; `tree.pick n=<row> [open=true]` shows or opens one (`peek`'s `tree.rows` numbers them).
+- **Links** (one model on every screen: Outlinks, Resources, Backlinks). `links tile=<reader>` aims the
+  screen's links tile at that reader's note (or opens one below it), leaving the person's keys where they are;
+  `backlinks.pick n=<row> [open=true]` shows or opens a row (a note, a ticket's block, a Resource's stored
+  content; `open` registers a Resource first if it must), `backlinks.view filter=…` filters. In the outline tree,
+  `tree.links n=<row>` shows a row's links under it and `tree.pick n=<row> [open=true]` picks one (`peek`'s
+  `tree.rows` numbers them). Folding a group (`backlinks.fold`) is the person's view.
+- **Search:** `search query=<words>` answers the service's ranked hits (as Goto and `[[` rank them); nothing
+  on screen moves. `ep0ch find <words>` is the same without a door.
 - **The desk:** `layout.get` (tiles, splits and tab sets by stable id, and `rev`), `tile.open`, `layout.move`,
   `block.mark reason=…` to ask for the person's attention. Pass `expected=<rev>` when you name by place.
 - **The board** is a screen spec on the desk: the same `layout.get` and `tile.*` work there. Its lanes are

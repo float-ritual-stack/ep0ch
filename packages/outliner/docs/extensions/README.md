@@ -27,8 +27,8 @@ which checks revisions, keeps it inside the block it acts on, and attributes it
 (`author: agent`, `actorId: ext:<id>`), so every surface shows who wrote it.
 
 `ext:<id>` is reserved: only the service's extension runtime writes as an extension. A client's
-write that names an `ext:` actor anywhere it says who writes (`mutation`, `provenance`) is refused
-(capability `mutations.ext-reserved`), since readers trust the prefix: an extension's write runs no
+write that names an `ext:` actor anywhere it says who writes (`mutation`, `provenance`) is refused,
+since readers trust the prefix: an extension's write runs no
 `@agent`, and the publisher credits it to the extension. To have an extension write, ask it with
 `extensions.act`. A co-written id that names its saver first (`ep0ch-door:host+ext:tidy`) is the
 saver's write and is accepted.
@@ -429,7 +429,7 @@ component never breaks a reader: it degrades to its data.
 ## Actions
 
 An action is one thing an extension can do, declared once, so every client binds the same thing:
-the door as an `ActionDef` named `ext.<id>.<action>` with its key and click (ep0ch-door PIE-512: a
+the door as an `ActionDef` named `ext.<id>.<action>` with its key and click (the door's PIE-512: a
 handler line's actions as keys and `[w ward]` controls under the line, a tile's in its tile kind),
 `outliner ext act` from a shell, and `extensions.act` for agents. Detail doesn't bind extension
 actions yet; `r` is its path today.
@@ -455,7 +455,7 @@ actions yet; `r` is its path today.
 - **A created block's text is inert BlockDown**: a `key::` line or `[key::value]` in it stays words,
   not a property, and terminal escapes go. No write may add an `@name` request line (extensions
   can't ask agents).
-- **Who asked.** `extensions.act` takes `mutation` (capability `extensions.act.requester`): the
+- **Who asked.** `extensions.act` takes `mutation`: the
   person (`{ "author": "user" }`) or an agent (`{ "author": "agent", "actorId": "loki" }`);
   `author`/`provenance` as on `create` work too. The writes stay `ext:<id>`'s; each change in
   `changes.since` (and its live event) carries `requestedBy` with who asked. `outliner ext act` asks
@@ -484,7 +484,7 @@ lands in the note while he goes on. That needs a door that says when he types in
 - **When it runs.** A request line that a person's save adds runs once the note has been quiet
   for a moment (1.5 s; every save restarts the wait), so a pause mid-sentence rarely sends half a
   request. A door holding the note's live draft calls `drafts.touch { holdId }` after the person
-  types (capability `drafts.touch`); the service reads that draft from the door, and a request line
+  types; the service reads that draft from the door, and a request line
   the person wrote there runs the same way once the draft is quiet, before any save. It runs once:
   rewording the line is a new request, removing an answered line and putting it back (an undo, within
   ten minutes) brings its answer back rather than asking again, and `r` on the line asks again. `r`
@@ -636,13 +636,13 @@ Use made-up data. The runtime is the same one the live service uses.
 ## Not yet
 
 - **The door's `::graph-*` figures** (`graph-check`, `graph-stat`, `graph-table`, `graph-rank`) stay
-  in ep0ch-door for now. They are a rich component in shape, but they live in the door's core and
+  in the door for now. They are a rich component in shape, but they live in the door's core and
   read the outline through queries on every paint. The door draws components from the service now
-  (ep0ch-door PIE-512); moving them still needs a query input in the `run` contract (a handler that
+  (the door's PIE-512); moving them still needs a query input in the `run` contract (a handler that
   declares the query it reads, evaluated by the service). The primitives here are
   the target they move to.
 - **Actions in Detail.** The service lists them with keys and labels; the door binds them
-  (ep0ch-door PIE-512), Detail doesn't yet. Until then in Detail: `outliner ext act` and `extensions.act`.
+  (the door's PIE-512), Detail doesn't yet. Until then in Detail: `outliner ext act` and `extensions.act`.
 - **The same request twice in one note.** Requests are known by their words: a second `@tidy` line
   that says exactly what an earlier one in the note says shows that one's answer and isn't asked
   until `r` on it (or it's worded differently).
