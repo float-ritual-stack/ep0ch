@@ -7,11 +7,12 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { formatDoctor, doctorReport } from "./doctor";
 import { depsState, gatherFacts, hostFacts, type OnLine, pluginCode, pluginFacts, run, stopRunning, unitState } from "./facts";
-import { Progress, progressMode, size, type Task, type Terminal } from "./progress";
+import { clauses, Progress, progressMode, size, table, type Task, type Terminal } from "./progress";
 import { type Facts, PLUGIN_SOURCE, short, staleness } from "./model";
-import { backupDirOf, buildPlan, hostMainOf, hostStep, hostUnitArgv, hostUnitCommand, type Plan, type PlanOptions, type Step, type StepStatus } from "./plan";
+import { backupDirOf, buildPlan, hostMainOf, hostStep, hostUnitArgv, hostUnitCommand, type Plan, type PlanOptions, repoStep, sessionName, sessionVerdict, type Step, type StepStatus } from "./plan";
 import { hostLive } from "../discover";
-import { applyLinks, LinkFailed } from "./links";
+import type { Handover } from "../session/client";
+import { applyLinks, byFolder, LinkFailed, type LinkWork } from "./links";
 
 type Env = Record<string, string | undefined>;
 export const SETUP_USAGE = "ep0ch doctor [--json] | ep0ch install [--apply] [--json]";
@@ -46,18 +47,61 @@ export function backupDatabase(path: string, dest: string): { integrity: string 
 
 export function formatPlan(f: Facts, plan: Plan, apply: boolean): string {
   const lines = [`ep0ch install · ${f.platform} · ${apply ? "applying" : "dry run: nothing changes; ep0ch install --apply runs the → steps"}`, ""];
-  plan.steps.forEach((s, i) => lines.push(...stepLines(s, i, false)));
+  plan.steps.forEach((s, i) => lines.push(...stepLines(s, i, f, false)));
   if (plan.notes.length) lines.push("", "not done by install:", ...plan.notes.map(n => `  · ${n}`));
   return lines.join("\n");
 }
 
-/** A step as the plan shows it; while applying, its ✓ lines say what it did instead of the commands. */
-function stepLines(s: Step, i: number, applying: boolean): string[] {
-  const out = [`${i + 1} ${MARK[s.status]} ${s.title}`, `    ${s.why}`];
-  if (applying && s.status === "do") return out;
-  if (s.backups && s.status !== "skip") for (const b of s.backups) out.push(`    ${b.name}: ${b.path} → ${b.dest}`);
+/**
+ * A step as the plan shows it: its title, why (one clause a line), what it covers and its commands. While applying,
+ * a step that runs is only its title: its ✓ lines say what it did, not the plan's words again.
+ */
+function stepLines(s: Step, i: number, f: Facts, applying: boolean): string[] {
+  const head = `${i + 1} ${MARK[s.status]} ${s.title}`;
+  if (applying && s.status === "do") return [head];
+  const out = [head];
+  if (s.id === "session" && f.sessions?.length) out.push(...sessionLines(f));
+  else out.push(...clauses(s.why).map(l => `    ${l}`));
+  // The outlines it copies by name: the folders are in the why, once.
+  if (s.backups && s.status !== "skip") out.push(`    ${s.backups.map(b => b.name).join(" · ")}`);
   for (const c of s.commands) if (!(s.backups && c.startsWith("sqlite3"))) out.push(`    $ ${c}`);
   return out;
+}
+
+/**
+ * The door sessions in the plan: those to hand over as a table (the code they go to said once), and each one left as
+ * it is on its own line.
+ */
+export function sessionLines(f: Facts): string[] {
+  const repo = repoStep(f);
+  const all = (f.sessions ?? []).map(s => ({ s, v: sessionVerdict(s, f, repo) }));
+  const doing = all.filter(x => x.v.status === "do");
+  const out: string[] = [];
+  if (doing.length) {
+    const to = [...new Set(doing.map(x => short(x.v.target ?? null)))].join(", ");
+    out.push(`    a new daemon on ${to} takes each over; its programs keep running and its terminals attach again`);
+    out.push(...table([["outline", "pid", "runs", "programs", "terminals"],
+      ...doing.map(({ s }) => [sessionName(s), `${s.pid}`, short(s.commit), `${s.programs}`, `${s.clients}`])]));
+  }
+  for (const { v } of all) if (v.status !== "do") out.push(`    ${v.why}`);
+  return out;
+}
+
+/** Handed-over sessions as a table; the code they moved between said once when they all moved the same way. */
+export function handoverLines(hs: readonly Handover[]): string[] {
+  const code = (h: Handover) => `${short(h.code[0])} → ${short(h.code[1])}`;
+  const same = new Set(hs.map(code)).size === 1;
+  const out = same ? [`    ✓ handed over to new daemons, ${code(hs[0]!)}; programs kept running, terminals attaching again`]
+    : ["    ✓ handed over to new daemons; programs kept running, terminals attaching again"];
+  out.push(...table([["outline", "pid", "programs", "terminals", ...(same ? [] : ["code"])],
+    ...hs.map(h => [h.name, `${h.pid[0]}→${h.pid[1] ?? "?"}`, `${h.programs}`, `${h.terminals}`, ...(same ? [] : [code(h)])])], "      "));
+  return out;
+}
+
+/** Links made, replaced and taken away, one line per folder and kind: `✓ linked in ~/.claude/skills/: a · b`. */
+export function linkSummary(w: LinkWork): string[] {
+  const kinds: [string, string[]][] = [["took away (their files are gone) in", w.remove], ["replaced another checkout's in", w.replace.map(l => l.dest)], ["linked in", w.make.map(l => l.dest)]];
+  return kinds.flatMap(([what, dests]) => [...byFolder(dests)].map(([dir, names]) => `    ✓ ${what} ${dir}/: ${names.join(" · ")}`));
 }
 
 class StepFailed extends Error { constructor(message: string, readonly recover: string) { super(message); } }
@@ -95,7 +139,10 @@ async function waitFor(check: () => Promise<boolean>, ms: number): Promise<boole
 
 /** What a step runs, reported through its task: what it did (`say`), its children's output, its items. */
 async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[]): Promise<void> {
-  const say = (s: string) => { said.push(s); task.say(`    ✓ ${s}`); };
+  // `said` is what --json reports, whole; the person sees the same as a ✓ line, or (record, then show) tidied up.
+  const record = (s: string) => { said.push(s); };
+  const show = (line: string) => task.say(line);
+  const say = (s: string) => { record(s); show(`    ✓ ${s}`); };
   const child = task.child;
   switch (step.id) {
     case "backup": {
@@ -103,6 +150,9 @@ async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[
       const sizes = backups.map(b => { try { return statSync(b.path).size; } catch { return 0; } });
       const total = sizes.reduce((a, b) => a + b, 0);
       let copied = 0;
+      // The folders once; then a short line per outline, in columns.
+      if (backups.length) show(`    ${f.host.folder}/*.sqlite → ${dirname(backups[0]!.dest)}/ (VACUUM INTO, integrity-checked)`);
+      const nameWidth = Math.max(...backups.map(b => b.name.length)), sizeWidth = Math.max(...sizes.map(n => size(n).length));
       for (const [i, b] of backups.entries()) {
         task.count(i, backups.length, `${b.name} ${size(sizes[i]!)}`, total ? { done: copied, total } : undefined);
         // The copy holds the event loop: draw what it's copying first.
@@ -110,7 +160,8 @@ async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[
         try {
           mkdirSync(dirname(b.dest), { recursive: true, mode: 0o700 });
           const { integrity } = backupDatabase(b.path, b.dest);
-          say(`${b.name}: ${b.path} → ${b.dest} (integrity ${integrity})`);
+          record(`${b.name}: ${b.path} → ${b.dest} (integrity ${integrity})`);
+          show(`    ✓ ${b.name.padEnd(nameWidth)}  ${size(sizes[i]!).padStart(sizeWidth)}  integrity ${integrity}`);
           copied += sizes[i]!;
         } catch (e) {
           throw new StepFailed(`backing up ${b.name} failed: ${(e as Error).message}`, `nothing was changed; check the disk and ${b.path}, then rerun ep0ch install --apply`);
@@ -139,7 +190,9 @@ async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[
       const { upgradeAll } = await import("../session/client");
       const { ep0ch } = await import("../session/place");
       const rs = await upgradeAll();
-      for (const r of rs) if (r.ok) say(r.message);
+      const handed = rs.filter(r => r.ok && r.handover);
+      for (const r of rs) if (r.ok) { record(r.message); if (!r.handover) show(`    ✓ ${r.message}`); }
+      if (handed.length) handoverLines(handed.map(r => r.handover!)).forEach(show);
       const failed = rs.filter(r => !r.ok);
       if (failed.length) throw new StepFailed(`handing ${failed.length === 1 ? "a door session" : `${failed.length} door sessions`} over failed: ${failed.map(r => r.message).join("; ")}`, `the sessions run on as they were; \`${ep0ch()}session upgrade --all\` tries again, and \`${ep0ch()}session list\` says what runs`);
       return;
@@ -159,7 +212,11 @@ async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[
     }
     case "ext":
     case "skills": {
-      if (step.links) applyLinks(step.links, say);
+      if (!step.links) return;
+      const done: string[] = [];
+      try { applyLinks(step.links, s => { record(s); done.push(s); }); }
+      catch (e) { done.forEach(s => show(`    ✓ ${s}`)); throw e; }
+      linkSummary(step.links).forEach(show);
       return;
     }
     case "host": {
@@ -248,9 +305,8 @@ async function setup(args: readonly string[], io: SetupIO, env: Env, json: boole
       current = { ...current, repo: { ...current.repo, protocol: code.protocol }, host };
       step = hostStep(current, current.repo.checkout.behind > 0);
     }
-    if (step.status !== "do") { stepLines(step, i, true).forEach(l => say(l)); results.push(step); continue; }
-    const [head, ...body] = stepLines(step, i, true);
-    const task = progress.task({ lead: `${i + 1}`, mark: MARK.do, title: head!.slice(`${i + 1} ${MARK.do} `.length), body });
+    if (step.status !== "do") { stepLines(step, i, current, true).forEach(l => say(l)); results.push(step); continue; }
+    const task = progress.task({ lead: `${i + 1}`, mark: MARK.do, title: step.title });
     const done: string[] = [];
     try {
       await execute(step, current, env, task, done);

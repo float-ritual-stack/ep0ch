@@ -99,6 +99,9 @@ const real = (p: string) => { try { return realpathSync(p); } catch { return res
 /** What went wrong in git's stderr: its fatal: or error: line, not the progress lines before it. */
 const gitError = (s: string) => s.split(/\r|\n/).map(l => l.trim()).find(l => /^(fatal|error):/.test(l)) ?? s.split(/\r|\n/).map(l => l.trim()).filter(Boolean).at(-1) ?? "";
 
+/** git's words for a fetch that lost the ref's lock to another process updating it at the same moment. */
+export const fetchRace = (error: string) => /cannot lock ref '[^']+': is at \S+ but expected/.test(error);
+
 /** A checkout against origin/main, fetching first unless `fetch` is false. */
 /** How long a `git fetch` may take: a slow link needs more than a few seconds, and the person sees it run. */
 export const FETCH_TIMEOUT_MS = 90_000;
@@ -107,11 +110,13 @@ export async function inspectCheckout(root: string, fetch = true, env: Env = pro
   const git = (...args: string[]) => run(["git", "-C", root, ...args], { env });
   const none: Checkout = { root, git: false, branch: null, head: null, upstream: null, ahead: 0, behind: 0, dirty: false };
   if (!existsSync(root) || (await git("rev-parse", "--is-inside-work-tree")).out !== "true") return none;
-  let fetchError: string | undefined;
+  let fetchError: string | undefined, fetchRaced = false;
   if (fetch) {
     // --progress: git's counting and receiving lines, for the line under the spinner (stderr isn't a terminal).
     const f = await run(["git", "-C", root, "fetch", "--progress", "origin", "main"], { env, timeoutMs: FETCH_TIMEOUT_MS, onLine });
     if (f.code !== 0) fetchError = gitError(f.err) || `git fetch exited ${f.code}`;
+    // Another git process (an editor's, a second install's) fetched at the same moment and wrote origin/main first.
+    if (fetchError && fetchRace(fetchError)) { fetchError = undefined; fetchRaced = true; }
   }
   const [branch, head, upstream, status] = await Promise.all([git("symbolic-ref", "--quiet", "--short", "HEAD"), git("rev-parse", "HEAD"), git("rev-parse", "--verify", "--quiet", "origin/main"), git("status", "--porcelain", "--untracked-files=no")]);
   let ahead = 0, behind = 0;
@@ -120,7 +125,7 @@ export async function inspectCheckout(root: string, fetch = true, env: Env = pro
     [ahead, behind] = counts.out.split(/\s+/).map(Number) as [number, number];
   }
   return { root, git: true, branch: branch.code === 0 ? branch.out : null, head: head.code === 0 ? head.out : null, upstream: upstream.code === 0 ? upstream.out : null,
-    ahead: ahead || 0, behind: behind || 0, dirty: status.out.length > 0, ...(fetchError ? { fetchError } : {}) };
+    ahead: ahead || 0, behind: behind || 0, dirty: status.out.length > 0, ...(fetchError ? { fetchError } : {}), ...(fetchRaced ? { fetchRaced: true as const } : {}) };
 }
 
 /**

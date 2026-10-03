@@ -1,7 +1,8 @@
 // `ep0ch doctor`: every piece of the stack, its state (✓ current, ! behind, ✗ missing, · for information)
 // and the exact command that fixes it. Read-only; built from the facts (model.ts) so tests describe machines.
-import { basename } from "node:path";
-import { lnCommand, sh } from "./links";
+import { basename, dirname } from "node:path";
+import { byFolder, lnCommand, sh } from "./links";
+import { clauses } from "./progress";
 import { PROTOCOL } from "@ep0ch/outline-core/protocol";
 import { DOCK_TILE_ID } from "../desk/agent-env";
 import { KEYED_ACTIONS, MIN_BUN, PLUGIN_ID, type Facts, short, staleness } from "./model";
@@ -48,7 +49,7 @@ export function doctorChecks(f: Facts): Check[] {
     if (!f.sessions.length) add("ep0ch", "sessions", "info", `none running · \`${ep0ch().trim()}\` starts one`);
     for (const sx of f.sessions) {
       const v = sessionVerdict(sx, f, { status: "skip" });
-      add("ep0ch", `session ${sessionName(sx)}`, v.status === "do" ? "behind" : /another checkout|left for you/.test(v.why) ? "info" : "ok", `pid ${sx.pid} · ${sx.clients} terminal${sx.clients === 1 ? "" : "s"} attached · ${sx.programs} program${sx.programs === 1 ? "" : "s"} in its tiles; ${v.why}`, v.status === "do" ? `${ep0ch(process.env, sx)}session upgrade ${sessionFlags({ place: sx })}` : undefined);
+      add("ep0ch", `session ${sessionName(sx)}`, v.status === "do" ? "behind" : /another checkout|left for you/.test(v.why) ? "info" : "ok", `pid ${sx.pid} · ${sx.clients} terminal${sx.clients === 1 ? "" : "s"} attached · ${sx.programs} program${sx.programs === 1 ? "" : "s"} in its tiles; ${v.brief}`, v.status === "do" ? `${ep0ch(process.env, sx)}session upgrade ${sessionFlags({ place: sx })}` : undefined);
     }
   }
 
@@ -62,7 +63,9 @@ export function doctorChecks(f: Facts): Check[] {
     const how = p.kind === "local" ? `linked ${p.root}` : `managed install ${p.root}`;
     const status = plugin.status === "skip" ? "ok" : plugin.status === "do" ? "behind" : unreachable ? "unknown" : p.kind === "github" && !p.remote?.commit && p.source?.repo === "ep0ch" ? "info" : "behind";
     const commit = p.kind === "github" && p.source?.commit ? ` at ${short(p.source.commit)}` : "";
-    add("plugin", "in Herdr", status, `${how}${commit}${p.enabled ? "" : " (disabled in Herdr)"}; ${plugin.why}`, plugin.status === "skip" ? undefined : plugin.commands.join(" && ") || "ep0ch install --apply");
+    // A link to this checkout: the plan's words already name the folder.
+    const said = plugin.why.startsWith(`linked to ${p.root}`) ? `${plugin.why}${p.enabled ? "" : " (disabled in Herdr)"}` : `${how}${commit}${p.enabled ? "" : " (disabled in Herdr)"}; ${plugin.why}`;
+    add("plugin", "in Herdr", status, said, plugin.status === "skip" ? undefined : plugin.commands.join(" && ") || "ep0ch install --apply");
   }
 
   // outlines: the folder, the host serving it by name, its unit, and which outline this folder opens
@@ -128,9 +131,11 @@ export function skillChecks(f: Facts): Check[] {
   if (!f.skills) return [];
   const out: Check[] = [];
   const add = (name: string, status: CheckStatus, detail: string, fix?: string) => out.push({ group: "skills", name, status, detail, ...(fix ? { fix } : {}) });
+  // The links already this checkout's: one line per folder, by name (the folder is the line's name).
+  for (const [dir, names] of byFolder(f.skills.links.filter(l => l.state === "ours").map(l => l.dest))) add(`${basename(dirname(dir))}/${basename(dir)}`, "ok", `${names.length} linked into this checkout: ${names.join(" · ")}`);
   for (const l of f.skills.links) {
     const name = basename(l.dest);
-    if (l.state === "ours") add(name, "ok", `${l.dest} → ${l.src}`);
+    if (l.state === "ours") continue;
     else if (l.state === "missing") add(name, "missing", `no ${l.dest}`, `${lnCommand(l.src, l.dest)}   (or ep0ch install --apply)`);
     else if (l.state === "replace") add(name, "behind", `${l.dest} → ${l.was}, another checkout's copy; install replaces it`, `${lnCommand(l.src, l.dest, true)}   (or ep0ch install --apply)`);
     else if (l.was) add(name, "behind", `${l.dest} → ${l.was}, not this skill's copy; install leaves it`, `${lnCommand(l.src, l.dest, true)}   (if it should be this checkout's)`);
@@ -174,7 +179,9 @@ export function formatDoctor(f: Facts, checks = doctorChecks(f)): string {
   const width = Math.max(...checks.map(c => c.name.length));
   for (const c of checks) {
     if (c.group !== group) { group = c.group; lines.push("", group); }
-    lines.push(`  ${MARK[c.status]} ${c.name.padEnd(width)}  ${c.detail}`);
+    // A detail of several clauses: one a line, under the first.
+    const [first, ...more] = clauses(c.detail);
+    lines.push(`  ${MARK[c.status]} ${c.name.padEnd(width)}  ${first ?? ""}`, ...more.map(m => `    ${" ".repeat(width)}  ${m}`));
     if (c.fix) lines.push(`    ${" ".repeat(width)}  fix: ${c.fix}`);
   }
   const bad = checks.filter(c => c.status === "behind" || c.status === "missing").length;
