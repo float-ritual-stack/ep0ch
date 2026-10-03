@@ -13,11 +13,12 @@ import { connectTarget, guardDoor, homeBase, openDoor, writeLastCall, type Door 
 import { attachDoor, doorMode, sessionCommand } from "./session/client";
 import { forwardTo, remoteDoor, remoteOf } from "./machine";
 import { findCommand, NOTES_USAGE, showCommand } from "./notes-cli";
+import { showcaseTry } from "./showcase/route";
 
 let args = process.argv.slice(2);
 const USAGE = `ep0ch: a BBS door into an outline
 
-  ep0ch [--ws <name>] [--machine <ssh-name>] [--board [<hub-id>] | --desk | --layout <name> | --river | --brief | --welcome | --showcase]
+  ep0ch [--ws <name>] [--machine <ssh-name>] [--board [<hub-id>] | --desk | --layout <name> | --river | --brief | --welcome]
                                    open the door (the logon, then the main menu, by default);
                                    --layout daily opens the desk laid out as a named layout (daily,
                                    river, board, desk, or one saved with ^W w);
@@ -38,6 +39,8 @@ const USAGE = `ep0ch: a BBS door into an outline
                                    machine's outline host (~/outlines/.remote/<ssh-name>.sock), shared by
                                    every client here and started again when it drops. EP0CH_SOCKET names
                                    a host's socket outright
+  ep0ch --showcase [--reset]       every shared door part, live, on its own seeded outline of made-up notes
+                                   (the same as ep0ch try --showcase); --reset reseeds it
   ep0ch --remote <ssh-name> [door flags]
                                    this terminal on the door session running on that machine (ssh -t
                                    <ssh-name> ep0ch [door flags]), like herdr --remote
@@ -95,8 +98,11 @@ if (args[0] === "doctor" || args[0] === "install") {
   process.exit(await setupCommand(args, { out: console.log, err: console.error, terminal: process.stdout }));
 }
 if (args.includes("--skill")) { const r = skillCommand(args); (r.code ? console.error : console.log)(r.out); process.exit(r.code); }
-if (args[0] === "try") {
-  const run = Bun.spawn(["sh", join(import.meta.dir, "../scripts/try-it.sh"), ...args.slice(1)], { stdio: ["inherit", "inherit", "inherit"] });
+// The showcase lives on its own seeded outline, never the one this folder names: `ep0ch --showcase [--reset]` is
+// `ep0ch try --showcase [--reset]`. With --ws (as try-it.sh itself runs it) it opens the screen on that outline.
+const tryArgs = args[0] === "try" ? args.slice(1) : showcaseTry(args);
+if (tryArgs) {
+  const run = Bun.spawn(["sh", join(import.meta.dir, "../scripts/try-it.sh"), ...tryArgs], { stdio: ["inherit", "inherit", "inherit"] });
   process.exit(await run.exited);
 }
 if (args[0] === "find") process.exit(await findCommand(args));
