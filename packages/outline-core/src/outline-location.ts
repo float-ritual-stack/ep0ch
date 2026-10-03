@@ -7,7 +7,8 @@
 // 2. `EP0CH_WS=<name>`, for shells and scripts.
 // 3. The nearest `.ep0ch` walking up from the folder (like `.git` or `.nvmrc`). It holds only names
 //    (`ws = "float-hub"`, and `machine = "float-2"` for an outline on another machine), never a path or a hash.
-// 4. Nothing: the client offers init (with a guess: the folder's name, or its repository's), pick or import.
+// 4. Nothing: the client offers to start one (with a guess: the folder's name, or its repository's), pick or import
+//    (the door's home base, the outliner's Choose outline popup).
 //    Accepting the guess writes `.ep0ch`, so renaming the folder later changes nothing.
 //
 // On which machine (first match wins): `--machine <ssh-name>`, then `EP0CH_MACHINE`, then the `machine` of the nearest

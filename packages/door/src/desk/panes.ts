@@ -18,6 +18,7 @@ import { artLines, C, dim, fg, pad, RESET, selected } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
 import { ago, wrap } from "../text";
 import type { TileKindName } from "./tile-kinds";
+import type { ListPicker } from "../surface/picker";
 import { withoutPropertyTokens } from "@ep0ch/outline-core/property-grammar";
 
 export interface PaneView { lines: string[]; placements?: Placement[]; scroll?: Scroll }
@@ -51,6 +52,11 @@ export interface DeskApi {
    * its `act` does, a refusal said either way. A tile kind's code reaches another action (the brief steps to a day) by it.
    */
   perform?(action: string, args: Record<string, unknown>, by?: Actor, tile?: Pane | string): Promise<unknown>;
+  /**
+   * A list picker over the screen, from a tile (the home base's choices: a name to type, a machine to add): the desk's
+   * overlay, which holds the person's keys until it's put away. A choice runs the tile's action as the person.
+   */
+  overlay?(p: ListPicker<any, any>): void;
   /** The tile `p`'s opens land in (its link, or its container's opens-into), if any. */
   linked?(p: Pane): Pane | undefined;
   /** The actor rule for a step that moves the person's screen on the way (an open that steps the brief): why not, or null. */

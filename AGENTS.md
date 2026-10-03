@@ -81,7 +81,8 @@ Both histories are kept: `git log --follow` and `git blame` reach back into ep0c
 Which outline a client opens (PIE-530, `outline-core/src/outline-location.ts`), first match wins: `--ws
 <name>`, then `EP0CH_WS`, then the nearest `.ep0ch` walking up from the folder. It holds names only:
 `ws = "<name>"`, and `machine = "<ssh-name>"` for an outline on another machine. Nothing else names one: a
-folder that names none gets init, pick or import, never a guess taken silently and never a default. Outlines are
+folder that names none gets the home base (the door's `home` screen: open, new or import, here or on a machine),
+never a guess taken silently and never a default. Outlines are
 `<EP0CH_OUTLINES or ~/outlines>/<name>.sqlite`, each with its own folder `<name>/` beside it; the host's socket
 and lock are in `.host/`.
 

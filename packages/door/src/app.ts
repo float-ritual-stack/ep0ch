@@ -21,6 +21,7 @@ import { groundSeq, setTheme as useTheme, theme, type ThemeName } from "./theme"
 import { writeState } from "./state";
 import { AgentDock, DOCK_ACTIONS, DOCK_TILE_ID, HOST_AGENT_TILE, HOST_TILE_ACTIONS, overlay, type DockRun } from "./dock";
 import type { HostMode } from "./desk/screen-layout";
+import type { HomeChoice } from "./home";
 
 /** Changes whose record names the one block they touched (a move or trash carries a subtree). */
 const SCOPED = new Set(["edit", "create", "annotate", "reorder"]);
@@ -113,6 +114,11 @@ export interface Ctx {
   screens?(): readonly Screen[];
   /** Milliseconds since the person last pressed a key or used the mouse: an agent moves their screen only when they're idle. */
   idleFor?(): number;
+  /**
+   * The home base's door (src/home.ts): before a door is on an outline, `choose` ends it with the outline the person or
+   * an agent chose, and the door opens on that. Absent on a door that is on an outline.
+   */
+  home?: { choose(c: HomeChoice): void };
   /**
    * Where the person is (PIE-514): their keys and focus, the tile they type in, whether they're busy, how long idle.
    * The shell's one answer (src/whereabouts.ts); a frame around a screen answers it as seen from inside.
@@ -236,6 +242,8 @@ export class App implements Ctx {
   private extAt: { from: number; to: number; row: number } | null = null;
   /** The event connection to the service is down; the door is reconnecting. */
   offline = false;
+  /** The home base's door: what ends it with the outline chosen (Ctx.home); absent on a door that is on an outline. */
+  home?: { choose(c: HomeChoice): void };
   /** The agent that stays with the person on every screen, pulled up from the status bar (PIE-498). */
   readonly dock: AgentDock;
   private dockRun: DockRun;

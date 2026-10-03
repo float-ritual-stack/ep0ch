@@ -59,9 +59,11 @@ Claude's settings; it reports them as notes.
 One outline host per machine serves every outline in `~/outlines` (`EP0CH_OUTLINES`) by name:
 `<name>.sqlite`, with its own folder `<name>/` beside it. Which one a door opens, first match wins: `--ws <name>`
 from anywhere, then `EP0CH_WS`, then the nearest `.ep0ch` from the folder up (it holds `ws = "<name>"`). A name
-nobody has yet is created. A folder that names none asks the person: init (its folder's or repository's name
-offered), pick one of the host's, or import an older database; each writes `.ep0ch`. Without a terminal it says
-what to run instead, and an agent never answers that prompt for the person. An outline on another machine is
+nobody has yet is created. A folder that names none opens the home base, a door screen (`home`): this machine's
+outlines (open, new, import), the machines opened from here (add one from ssh config), each choice an action
+(`home.open outline= [machine=] [write=true]`, `home.new`, `home.import`, `home.add`, `home.connect`); an agent's
+open writes the folder's `.ep0ch` only with `write=true`. Without a terminal it says what to run instead
+(`ep0ch init`, `--ws`, `ep0ch outline import`). An outline on another machine is
 named by `--machine <ssh-name>`, `EP0CH_MACHINE` or the `.ep0ch`'s `machine = "<ssh-name>"`: the door reaches it
 through a shared ssh forward (`~/outlines/.remote/<ssh-name>.sock`) and starts it again when it drops.
 `ep0ch --remote <ssh-name>` is the door session running there, in this terminal. `outline list`, `status` and `clients` never

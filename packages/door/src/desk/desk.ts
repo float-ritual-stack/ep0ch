@@ -20,7 +20,7 @@ import { leaveSaid, NOTE_ACTIONS, type OpenHow, type SurfaceHost } from "../surf
 import { keepEditFile } from "../surface/editor";
 import { LineInput } from "../surface/line";
 import { Modes } from "../surface/modes";
-import { ListPicker, pickRow } from "../surface/picker";
+import { centred, linePrompt, ListPicker, pickRow } from "../surface/picker";
 import { readState, writeState } from "../state";
 import { containerKeys, leafNames, savedNodes, specData, type ScreenSpec } from "./screen-spec";
 import { bg, C, chip as chipStyle, fg, fitHint, headOf, pad, paint, RESET, selected, width } from "../style";
@@ -1251,6 +1251,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   ruleFor(touches: "tile" | "screen", actor: Actor): string | null { return this.dispatch.rule(touches, actor); }
   /** The keys to tile `p`, as `tile.focus` gives them (an agent's never moves them). */
   focusPane(p: Pane, actor: Actor) { const id = this.idOf(p); if (id !== undefined) this.focusTile(this.nameOf(id), actor); }
+  /** A tile's list picker over the screen (the home base's choices): on the desk's own overlay stack, first to take keys and clicks. */
+  overlay(p: ListPicker<any, any>) { this.overlays.push(p); this.redraw(); }
 
   /** A tile's own key or click (its kind's set, a reader's note actions), as the person, in that tile. */
   press(p: Pane, set: ActionSet<any, any>, name: string, args: Record<string, unknown> = {}, quiet: boolean | ((why: string) => string | null) = false, given?: unknown): Promise<unknown> {
@@ -3213,8 +3215,6 @@ export function splitWords(s: string): string[] { return [...s.matchAll(/"([^"]*
 // ── the desk's overlays (the layout picker, the policy panel, the search): pickers on its mode stack ─────────
 
 type DeskPicker = ListPicker<any, Desk>;
-/** A box `w` by `h` over the screen: centred across, a third of the way down. */
-const centred = (a: Rect, w: number, h: number): Rect => ({ col: Math.floor((a.cols - w) / 2), row: Math.floor((a.rows - h) / 3), cols: w, rows: h });
 
 /** ^W r: the layouts to load, built-in and saved. */
 function layoutPicker(items: { name: string; saved: boolean; builtin: boolean }[]): DeskPicker {
@@ -3228,13 +3228,7 @@ function layoutPicker(items: { name: string; saved: boolean; builtin: boolean }[
 
 /** ^W w: the name to save the layout as (the layout's own, typed over). */
 function layoutSaver(name: string): DeskPicker {
-  const input = new LineInput(name, true);
-  const p: DeskPicker = new ListPicker({
-    name: "layouts", items: () => [], row: () => [], input, choose() {},
-    keys: (k, d) => { if (k.kind !== "enter") return false; p.close(d); if (input.text.trim()) d.run("layout.save", { name: input.text.trim() }); return true; },
-    frame: a => { const w = Math.min(60, a.cols - 4); return { rect: centred(a, w, 3), title: "save the layout as", foot: "⏎ save · esc", head: [" " + input.show(w - 4)] }; },
-  });
-  return p;
+  return linePrompt<Desk>({ name: "layouts", title: "save the layout as", text: name, w: 60, doing: t => `save it as ${t}`, done: (t, d) => d.run("layout.save", { name: t }) });
 }
 
 /**

@@ -5,6 +5,7 @@ import { briefKind, briefSpec } from "../brief/brief";
 import { pinnedKind, pinnedSpec } from "../hub/pinned";
 import { WAITING_KIND, waitingSpec } from "../hub/waiting";
 import { welcomeKinds, welcomeSpec } from "../hub/welcome";
+import { HOME_KIND, homeSpec } from "../home";
 import { boardSpec } from "./delivery";
 import { riverSpec } from "../river/column";
 import { Desk, deskSpec } from "./desk";
@@ -13,7 +14,7 @@ import { registerTileKind, tileKind } from "./tile-kinds";
 
 /** The built-in screens' kinds and specs (once: every module that opens a screen asks). */
 export function registerBuiltinScreens(): void {
-  for (const k of [WAITING_KIND, ...welcomeKinds(), briefKind(), pinnedKind()]) if (!tileKind(k.kind)) registerTileKind(k);
+  for (const k of [WAITING_KIND, ...welcomeKinds(), briefKind(), pinnedKind(), HOME_KIND]) if (!tileKind(k.kind)) registerTileKind(k);
   const have = new Set(screenNames());
   const add = (name: string, of: Parameters<typeof registerScreen>[1]) => { if (!have.has(name)) registerScreen(name, of); };
   add("desk", () => deskSpec());
@@ -23,6 +24,8 @@ export function registerBuiltinScreens(): void {
   add("pinned", args => pinnedSpec(args));
   add("board", args => boardSpec(args));
   add("river", () => riverSpec());
+  // The home base (src/home.ts): what bare `ep0ch` opens where no outline is named; its args are where it was opened.
+  add("home", args => homeSpec(args ?? {}));
   // The BBS menu's W and L: the who and activity tiles as screens (the activity's ⏎ shows its note in the reader).
   add("who", () => ({ name: "who", title: "who's online", layout: { focus: "who", root: { t: "leaf", kind: "who", name: "who" } } }));
   add("lastcall", () => ({ name: "lastcall", title: "last callers", layout: { focus: "activity", root: { t: "split", dir: "row", weights: [0.5, 0.5], kids: [{ t: "leaf", kind: "activity", name: "activity" }, { t: "leaf", kind: "reader", name: "reader" }] } } }));
