@@ -1,0 +1,274 @@
+import {expect,test} from 'bun:test';
+import {DocumentPreview} from '../src/document-preview';
+import type {RequestInput} from '../src/client';
+import type {Block} from '../src/types';
+
+const block=(id:string,text:string)=>({id,text,revision:1} as Block);
+test('Preview disclosure clicks and Enter share local state without navigation or writes',async()=>{
+ const {initTheme}=await import('@earendil-works/pi-coding-agent');initTheme(undefined,false);
+ const {documentPreviewLines,documentPreviewLinks}=await import('../src/document-preview-renderer');
+ const {stripTerminalSequences}=await import('@earendil-works/pi-tui');
+ const text='Plan\n\n## First\nHidden [destination](https://example.test)\n\n## Second\nVisible body';
+ const reader=new DocumentPreview({async request<T>():Promise<T>{throw Error('Disclosure must not call the service');}},()=>{});
+ await reader.loadText({kind:'block',blockId:'plan'},'Plan',Promise.resolve(text));reader.focus();
+ const document=reader.state!.document;
+ const paint=(width:number)=>documentPreviewLines(document,width).map(stripTerminalSequences).join('\n');
+ expect(paint(70)).toContain('Hidden');
+ const first=documentPreviewLinks(document,70).find(link=>link.uri.includes('document-toggle'))!;
+ await reader.action('preview.link:'+encodeURIComponent(first.uri),async()=>{throw Error('Disclosure must not open Detail');});
+ expect(paint(70)).not.toContain('Hidden');
+ expect(paint(24)).toContain('Visible body');
+ expect(documentPreviewLinks(document,24).some(link=>link.uri==='https://example.test')).toBe(false);
+ expect(reader.state!.canBack).toBe(false);
+ await reader.key({name:'return'},24,12,async()=>{throw Error('Disclosure must not open Detail');});
+ expect(paint(24)).toContain('Hidden');
+ expect(reader.state!.document.canonicalText).toBe(text);
+});
+test('late reads and failures cannot replace the newly selected preview',async()=>{
+  const older=Promise.withResolvers<Block>();
+  const reader=new DocumentPreview({async request<T>(input:RequestInput):Promise<T>{
+    if(input.action==='get')return (input.blockId==='old'?await older.promise:block(input.blockId,'New current note')) as T;
+    if(input.action==='references.resolve')return {text:input.text,workIdPrefix:null} as T;
+    throw new Error('unexpected request');
+  }},()=>{});
+  const pending=reader.load({kind:'block',blockId:'old'});
+  await reader.load({kind:'block',blockId:'new'});
+  older.reject(new Error('obsolete failure'));await pending;
+  expect(reader.state?.title).toBe('New current note');
+  expect(reader.state?.document.projectedText).toBe('New current note');
+});
+test('closing invalidates an in-flight preview; current failures remain readable',async()=>{
+  const pending=Promise.withResolvers<Block>();
+  const reader=new DocumentPreview({async request<T>():Promise<T>{return await pending.promise as T;}},()=>{});
+  const load=reader.load({kind:'block',blockId:'a'});reader.clear();pending.reject(new Error('failed after close'));await load;
+  expect(reader.state).toBeNull();
+  await reader.load({kind:'block',blockId:'b'});
+  expect(reader.state?.document.projectedText).toContain('failed after close');
+});
+
+test('scrolling starts from the visible clamped offset after enlargement',async()=>{
+ const {initTheme}=await import('@earendil-works/pi-coding-agent');initTheme(undefined,false);
+ const {renderDocumentPreview}=await import('../src/document-preview-renderer');
+ const reader=new DocumentPreview({async request<T>(input:RequestInput):Promise<T>{
+  if(input.action==='get')return block('long',Array.from({length:100},(_,i)=>`Paragraph ${i}\n`).join('\n')) as T;
+  if(input.action==='references.resolve')return {text:input.text,workIdPrefix:null} as T;
+  throw new Error('unexpected');
+ }},()=>{});
+ await reader.load({kind:'block',blockId:'long'});reader.scroll(10000,60,5);
+ const frame=renderDocumentPreview(reader.state!,{x:0,y:0,width:60,height:33},'help');
+ reader.scroll(-1,frame.content.width,frame.content.height);
+ expect(reader.state?.offset).toBe(frame.offset-1);
+});
+
+test('saved text never resolves live projections and cannot replace a later current selection',async()=>{
+ const pending=Promise.withResolvers<string>();let requests=0;
+ const reader=new DocumentPreview({async request<T>(input:RequestInput):Promise<T>{requests++;throw Error('unexpected '+input.action);}},()=>{});
+ const old=reader.loadText({kind:'block',blockId:'old'},'Before',pending.promise);
+ await reader.loadText({kind:'block',blockId:'new'},'New before',Promise.resolve('Saved ((reference))\n```query\nold\n```'));
+ pending.resolve('late before');await old;
+ expect(requests).toBe(0);expect(reader.state!.document.projectedText).toContain('Saved ((reference))');
+ expect(reader.state!.target).toEqual({kind:'block',blockId:'new'});
+});
+
+test('Preview follows rendered links without writes, restores history and opens its actual current target',async()=>{
+ const {initTheme}=await import('@earendil-works/pi-coding-agent');initTheme(undefined,false);
+ const {renderDocumentPreview}=await import('../src/document-preview-renderer');
+ const requests:string[]=[];const opens:unknown[]=[];
+ const a='aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',b='bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
+ const reader=new DocumentPreview({async request<T>(input:RequestInput):Promise<T>{
+  requests.push(input.action);
+  if(input.action==='get')return block(input.blockId,input.blockId===a?`Origin\n\n[Read target](pi-outliner://block/${b})\n\n${'Long paragraph\n\n'.repeat(20)}`:'Destination\n\nTarget body') as T;
+  if(input.action==='references.resolve')return {text:input.text,workIdPrefix:null} as T;
+  throw Error('unexpected '+input.action);
+ }},()=>{});
+ const open=async(target:unknown)=>{opens.push(target);};
+ await reader.load({kind:'block',blockId:a});reader.focus();
+ const frame=renderDocumentPreview(reader.state!,{x:20,y:3,width:60,height:20},'help');
+ expect(frame.links?.some(link=>link.uri===`pi-outliner://block/${b}`)).toBe(true);
+ expect(frame.lines.join('\n')).not.toContain('\x1b]8;');
+ reader.cycleLink(-1,60,17);expect(reader.state?.activeLink).toBe(`pi-outliner://block/${b}`);
+ reader.restoreOffset(3);
+ await reader.key({name:'return'},60,17,open);
+ expect(reader.state?.target).toEqual({kind:'block',blockId:b});
+ await reader.action('preview.open',open);expect(opens).toEqual([{kind:'block',blockId:b}]);
+ await reader.action('preview.back',open);expect(reader.state?.offset).toBe(3);expect(reader.state?.target).toEqual({kind:'block',blockId:a});
+ await reader.key({name:'right',meta:true},60,17,open);expect(reader.state?.target).toEqual({kind:'block',blockId:b});
+ await reader.load({kind:'block',blockId:a});await reader.action('preview.back',open);expect(reader.state?.target).toEqual({kind:'block',blockId:a});
+ expect(requests.every(action=>action==='get'||action==='references.resolve'||action==='annotations.list')).toBe(true);
+});
+
+test('Preview link labels use their own display columns, including wide and combining glyphs',async()=>{
+ const {initTheme}=await import('@earendil-works/pi-coding-agent');initTheme(undefined,false);
+ const {documentPreviewLinks,renderDocumentPreview}=await import('../src/document-preview-renderer');
+ const {stripTerminalSequences}=await import('@earendil-works/pi-tui');
+ const reader=new DocumentPreview({async request<T>():Promise<T>{throw Error('not used');}},()=>{});
+ await reader.loadText({kind:'block',blockId:'source'},'Source',Promise.resolve('See 界 [Read 界 e\u0301](https://example.com/first) then [Other](https://example.com/second) before continuing.'));
+ const links=documentPreviewLinks(reader.state!.document,120);
+ expect(links.map(link=>link.label)).toEqual(['Read 界 e\u0301','Other']);
+ expect(links[0]!.row).toBe(links[1]!.row);
+ reader.focus();
+ for(const label of ['Read 界 e\u0301','Other']){
+  reader.cycleLink(1,120,17);
+  expect(reader.state?.activeLinkLabel).toBe(label);
+  const frame=renderDocumentPreview(reader.state!,{x:0,y:0,width:120,height:20},'help');
+  expect(stripTerminalSequences(frame.lines.at(-1)!).trim()).toBe(`Enter follow · ${label}`);
+ }
+});
+
+test('a late link resolution cannot navigate a newly selected Preview; unresolved pages never create notes',async()=>{
+ const resolution=Promise.withResolvers<unknown>();
+ const reader=new DocumentPreview({async request<T>(input:RequestInput):Promise<T>{
+  if(input.action==='pages.resolve')return await resolution.promise as T;
+  if(input.action==='get')return block(input.blockId,'Current') as T;
+  if(input.action==='references.resolve')return {text:input.text,workIdPrefix:null} as T;
+  throw Error('unexpected '+input.action);
+ }},()=>{});
+ await reader.load({kind:'block',blockId:'old'});
+ const following=reader.action(`preview.link:${encodeURIComponent('pi-outliner://page/Somewhere')}`,async()=>{});
+ await reader.load({kind:'block',blockId:'new'});
+ resolution.resolve({block:block('resolved','Late')});await following;
+ expect(reader.state?.target).toEqual({kind:'block',blockId:'new'});
+ await reader.action(`preview.link:${encodeURIComponent('https://example.com')}`,async()=>{});
+ expect(reader.state?.notice).toContain('Unsupported link');
+});
+
+test('newest link intent wins regardless of page-resolution response order',async()=>{
+ const first=Promise.withResolvers<unknown>(),second=Promise.withResolvers<unknown>();
+ const reader=new DocumentPreview({async request<T>(input:RequestInput):Promise<T>{
+  if(input.action==='pages.resolve')return await (input.address==='First'?first:second).promise as T;
+  if(input.action==='get')return block(input.blockId,input.blockId) as T;
+  if(input.action==='references.resolve')return {text:input.text,workIdPrefix:null} as T;
+  throw Error('unexpected '+input.action);
+ }},()=>{});
+ await reader.load({kind:'block',blockId:'origin'});
+ const a=reader.action('preview.link:'+encodeURIComponent('pi-outliner://page/First'),async()=>{});
+ const b=reader.action('preview.link:'+encodeURIComponent('pi-outliner://page/Second'),async()=>{});
+ first.resolve({block:block('first','First')});await a;
+ second.resolve({block:block('second','Second')});await b;
+ expect(reader.state?.target).toEqual({kind:'block',blockId:'second'});
+ await reader.action('preview.back',async()=>{});expect(reader.state?.target).toEqual({kind:'block',blockId:'origin'});
+});
+
+test('Forward reloads a visit interrupted by Back instead of restoring a loading placeholder',async()=>{
+ const pending=Promise.withResolvers<Block>();let reads=0;
+ const reader=new DocumentPreview({async request<T>(input:RequestInput):Promise<T>{
+  if(input.action==='get'){
+   if(input.blockId==='bbbbbbbb'&&++reads===1)return await pending.promise as T;
+   return block(input.blockId,'Resolved '+input.blockId) as T;
+  }
+  if(input.action==='references.resolve')return {text:input.text,workIdPrefix:null} as T;
+  throw Error('unexpected '+input.action);
+ }},()=>{});
+ await reader.load({kind:'block',blockId:'aaaaaaaa'});
+ const following=reader.action('preview.link:'+encodeURIComponent('pi-outliner://block/bbbbbbbb'),async()=>{});
+ await reader.action('preview.back',async()=>{});
+ expect(reader.state?.target).toEqual({kind:'block',blockId:'aaaaaaaa'});
+ await reader.action('preview.forward',async()=>{});
+ expect(reader.state?.document.projectedText).toBe('Resolved bbbbbbbb');
+ pending.resolve(block('bbbbbbbb','Stale'));await following;
+ expect(reader.state?.document.projectedText).toBe('Resolved bbbbbbbb');
+});
+
+test('narrow Preview keeps its menu and fits pinned buttons on its one bar row',async()=>{
+ const {initTheme}=await import('@earendil-works/pi-coding-agent');initTheme(undefined,false);
+ const {treePreviewFrame}=await import('../src/tree-preview');
+ const {renderDocumentPreview}=await import('../src/document-preview-renderer');
+ const {stripTerminalSequences,visibleWidth}=await import('@earendil-works/pi-tui');
+ const reader=new DocumentPreview({async request<T>():Promise<T>{throw Error('not used');}},()=>{});
+ await reader.loadText({kind:'block',blockId:'source'},'Source',Promise.resolve('Body'));
+ const buttons=[{actionId:'tree.preview.right',text:'[▐]'},{actionId:'tree.preview.bottom',text:'[▄]'},{actionId:'tree.preview.auto',text:'[◙]'},{actionId:'tree.preview.close',text:'[×]'}];
+ const compact=renderDocumentPreview(reader.state!,{x:10,y:2,width:34,height:8},'',undefined,'compact',{buttons,menuAction:'tree.preview.menu'});
+ expect(stripTerminalSequences(compact.lines[0]!)).toContain('○ Preview');
+ expect(stripTerminalSequences(compact.lines[0]!).trimEnd().endsWith('[▐][▄][◙][×][⋯]')).toBe(true);
+ expect(compact.controls?.map(c=>c.action)).toEqual(['tree.preview.right','tree.preview.bottom','tree.preview.auto','tree.preview.close','tree.preview.menu']);
+ expect(compact.controls!.every(c=>c.rect.y===2&&c.rect.x+c.rect.width<=44)).toBe(true);
+ expect(stripTerminalSequences(compact.lines[0]!)).toContain('○ Preview · Source');
+ expect(compact.content.y).toBe(3);
+ const narrow=renderDocumentPreview(reader.state!,{x:0,y:0,width:12,height:8},'',undefined,'compact',{buttons,menuAction:'tree.preview.menu'});
+ expect(narrow.controls!.map(c=>c.action).at(-1)).toBe('tree.preview.menu');
+ expect(visibleWidth(narrow.lines[0]!)).toBeLessThanOrEqual(12);
+ for(const sideFraction of [.55,.8]){
+  const frame=treePreviewFrame(reader.state!,60,40,'',{enabled:true,dock:'right',sideFraction,bottomFraction:.5},{chrome:'compact',buttons});
+  expect(frame.controls?.map(control=>control.action)).toEqual(expect.arrayContaining(['tree.preview.right','tree.preview.close','tree.preview.menu']));
+  expect(frame.controls?.every(control=>control.rect.x+control.rect.width<=frame.rect.x+frame.rect.width)).toBe(true);
+  expect(frame.rect.height).toBe(39);
+ }
+});
+
+
+test('refresh retains local folds until a source edit makes their identity ambiguous',async()=>{
+ const {initTheme}=await import('@earendil-works/pi-coding-agent');initTheme(undefined,false);
+ const {documentPreviewLines,documentPreviewLinks}=await import('../src/document-preview-renderer');
+ let text='Plan\n\n## Section\nHidden body ^inside\n\n## Other\nOther body';
+ const reader=new DocumentPreview({async request<T>(input:RequestInput):Promise<T>{
+  if(input.action==='get')return block('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',text) as T;
+  if(input.action==='references.resolve')return {text:input.text,workIdPrefix:null} as T;
+  throw Error('unexpected '+input.action);
+ }},()=>{});
+ const target={kind:'block' as const,blockId:'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'};
+ await reader.load(target);
+ const link=documentPreviewLinks(reader.state!.document,60).find(link=>link.uri.includes('document-toggle'))!;
+ await reader.action('preview.link:'+encodeURIComponent(link.uri),async()=>{});
+ const paint=()=>documentPreviewLines(reader.state!.document,60).join('\n');
+ expect(paint()).not.toContain('Hidden body');
+ await reader.load(target,true);
+ expect(paint()).not.toContain('Hidden body');
+ const other=documentPreviewLinks(reader.state!.document,60).find(link=>link.label==='Other')!;
+ await reader.action('preview.link:'+encodeURIComponent(other.uri),async()=>{});
+ await reader.action('preview.link:'+encodeURIComponent('pi-outliner://block/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa?fragment=inside'),async()=>{});
+ expect(paint()).toContain('Hidden body');
+ expect(paint()).toContain('Other');
+ expect(paint()).not.toContain('Other body');
+ const section=documentPreviewLinks(reader.state!.document,60).find(link=>link.label==='Section')!;
+ await reader.action('preview.link:'+encodeURIComponent(section.uri),async()=>{});
+ expect(paint()).not.toContain('Hidden body');
+ await reader.load(reader.state!.target,true);
+ expect(paint()).not.toContain('Hidden body');
+ expect(paint()).not.toContain('Other body');
+ text=text.replace('Section','Changed');
+ await reader.load(target,true);
+ expect(paint()).toContain('Hidden body');
+});
+
+test('Preview keeps renderer installation stable across reflow and folds, then reloads it with new content',async()=>{
+ const {mkdtempSync,writeFileSync,rmSync}=await import('node:fs');
+ const {tmpdir}=await import('node:os');const {join,resolve}=await import('node:path');
+ const {initTheme}=await import('@earendil-works/pi-coding-agent');initTheme(undefined,false);
+ const {documentPreviewLines,documentPreviewLinks}=await import('../src/document-preview-renderer');
+ const {stripTerminalSequences}=await import('@earendil-works/pi-tui');
+ const directory=mkdtempSync(join(tmpdir(),'preview-renderers-')),registry=join(directory,'registry.json');
+ const prior=process.env.OUTLINER_DOCUMENT_RENDERERS;process.env.OUTLINER_DOCUMENT_RENDERERS=registry;
+ const install=(enabled:boolean)=>writeFileSync(registry,JSON.stringify({version:1,renderers:{status:{manifest:resolve('extensions/status-summary/manifest.json'),enabled}}}));
+ const text='## Summary\n\n```component:status\nWaiting :: 4\nDone :: 5\n```\n\n> [!note] Counts\n> ```component:status\n> Nested :: 6\n> ```';
+ const reader=new DocumentPreview({async request<T>():Promise<T>{throw Error('Presentation must not call the service');}},()=>{});
+ const load=()=>reader.loadText({kind:'block',blockId:'summary'},'Summary',Promise.resolve(text));
+ const paint=(width:number)=>documentPreviewLines(reader.state!.document,width).map(stripTerminalSequences).join('\n');
+ try {
+  install(true);await load();expect(paint(80)).toContain('Waiting: 4 · Done: 5');expect(paint(80)).toContain('Nested: 6');
+  install(false);
+  expect(paint(22)).toContain('Waiting: 4');expect(paint(22)).toContain('Nested: 6');expect(paint(22)).not.toContain('disabled');
+  const fold=documentPreviewLinks(reader.state!.document,22).find(link=>link.uri.includes('document-toggle'))!;
+  await reader.action('preview.link:'+encodeURIComponent(fold.uri),async()=>{throw Error('Fold must stay local');});
+  expect(paint(22)).not.toContain('Waiting: 4');
+  await reader.action('preview.link:'+encodeURIComponent(fold.uri),async()=>{throw Error('Fold must stay local');});
+  expect(paint(80)).toContain('Waiting: 4 · Done: 5');expect(paint(80)).not.toContain('disabled');
+  await load();expect(paint(80)).toContain('renderer is disabled');expect(paint(80)).toContain('Waiting :: 4');
+  install(true);await load();expect(paint(80)).toContain('Waiting: 4 · Done: 5');
+  await reader.loadText({kind:'block',blockId:'summary'},'Summary',Promise.resolve(text.replace('Done :: 5','Done :: 7')));
+  expect(paint(80)).toContain('Done: 7');expect(paint(80)).not.toContain('Done: 5');
+ } finally {if(prior===undefined)delete process.env.OUTLINER_DOCUMENT_RENDERERS;else process.env.OUTLINER_DOCUMENT_RENDERERS=prior;rmSync(directory,{recursive:true,force:true});}
+});
+
+test('docked below, Preview bar is the divider: its title drags, its buttons click', async () => {
+ const {initTheme}=await import('@earendil-works/pi-coding-agent');initTheme(undefined,false);
+ const {treePreviewFrame}=await import('../src/tree-preview');
+ const reader=new DocumentPreview({async request<T>():Promise<T>{throw Error('not used');}},()=>{});
+ await reader.loadText({kind:'block',blockId:'source'},'Source',Promise.resolve('Body'));
+ const buttons=[{actionId:'tree.preview.right',text:'[▐]'},{actionId:'tree.preview.close',text:'[×]'}];
+ const frame=treePreviewFrame(reader.state!,80,30,'',{enabled:true,dock:'bottom',sideFraction:.5,bottomFraction:.5},{chrome:'compact',buttons});
+ expect(frame.placement).toBe('below');
+ expect(frame.rect.y).toBe(frame.treeHeight);
+ expect(frame.rect.y+frame.rect.height).toBe(29);
+ expect(frame.divider).toEqual({x:0,y:frame.rect.y,width:frame.controls![0]!.rect.x-1,height:1});
+ expect(frame.controls!.every(control=>control.rect.x>frame.divider!.x+frame.divider!.width-1)).toBe(true);
+});

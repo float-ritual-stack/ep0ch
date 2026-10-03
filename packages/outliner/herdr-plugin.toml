@@ -1,0 +1,144 @@
+id = "float.pi-outliner"
+name = "Pi Outliner"
+version = "0.1.1"
+min_herdr_version = "0.9.0"
+description = "Persistent block workspace shared by Pi agents and the user"
+platforms = ["linux", "macos"]
+
+[[build]]
+command = ["/bin/sh", "scripts/run-bun.sh", "install", "--frozen-lockfile"]
+
+[[panes]]
+id = "service"
+title = "Outliner Service"
+placement = "tab"
+command = ["/bin/sh", "scripts/run-bun.sh", "run", "src/server-main.ts"]
+
+[[panes]]
+id = "outliner"
+title = "Outliner"
+placement = "split"
+command = ["/bin/sh", "scripts/run-bun.sh", "run", "src/outliner.ts"]
+
+[[panes]]
+id = "detail"
+title = "Outliner Detail"
+placement = "split"
+command = ["/bin/sh", "scripts/run-bun.sh", "run", "src/detail-main.ts"]
+
+[[panes]]
+id = "composed"
+title = "Outliner · Tree + Detail"
+placement = "split"
+command = ["/bin/sh", "scripts/run-bun.sh", "run", "src/composed-main.ts"]
+
+[[panes]]
+id = "goto"
+title = "Go to"
+placement = "popup"
+width = "90%"
+height = "88%"
+command = ["/bin/sh", "scripts/run-bun.sh", "run", "src/goto-main.ts"]
+
+[[panes]]
+id = "choose-outline"
+title = "Choose outline"
+placement = "popup"
+width = "80%"
+height = "70%"
+command = ["/bin/sh", "scripts/run-bun.sh", "run", "src/choose-outline-main.ts"]
+
+[[panes]]
+id = "capture"
+title = "Quick Capture"
+placement = "popup"
+width = "72%"
+height = "64%"
+command = ["/bin/sh", "scripts/run-bun.sh", "run", "src/capture-main.ts"]
+
+[[panes]]
+id = "backlink-peek"
+title = "Backlink Peek"
+placement = "popup"
+width = "78%"
+height = "76%"
+command = ["/bin/sh", "scripts/run-bun.sh", "run", "src/backlink-peek-main.ts"]
+
+[[panes]]
+id = "virtual-branch-navigator"
+title = "Virtual Branch Navigator"
+placement = "popup"
+width = "86%"
+height = "82%"
+command = ["/bin/sh", "scripts/run-bun.sh", "run", "src/virtual-branch-navigator-main.ts"]
+
+
+[[actions]]
+id = "open"
+title = "Outliner: open or focus"
+description = "Focus the Outliner in this project, or open a Tree and linked Detail when none exists."
+contexts = ["workspace", "tab", "pane"]
+command = ["/bin/sh", "scripts/run-bun.sh", "run", "src/herdr-link-open.ts"]
+
+[[actions]]
+id = "ensure-detail"
+title = "Outliner: open or focus Detail"
+description = "Focus an existing Detail in this tab, preferring the Tree-linked one, or create one when the tab has none."
+contexts = ["workspace", "tab", "pane"]
+command = ["/bin/sh", "scripts/run-bun.sh", "run", "src/herdr-open.ts", "--mode", "ensure-detail"]
+
+[[actions]]
+id = "open-here"
+title = "Outliner: open new Tree + Detail here"
+description = "Always open a new Tree and linked Detail beside the invoking pane."
+contexts = ["workspace", "tab", "pane"]
+command = ["/bin/sh", "scripts/run-bun.sh", "run", "src/herdr-open.ts", "--mode", "open-here"]
+
+
+[[actions]]
+id = "choose-outline"
+title = "Outliner: choose this folder's outline"
+description = "Pick which outline this folder opens (or start a new one), then open it here."
+contexts = ["workspace", "tab", "pane"]
+command = ["/bin/sh", "scripts/run-bun.sh", "run", "src/herdr-open.ts", "--mode", "choose-outline"]
+
+[[actions]]
+id = "open-composed"
+title = "Outliner: open combined Tree + Detail experiment"
+description = "Open one application-owned split, with explicit detached views still available."
+contexts = ["workspace", "tab", "pane"]
+command = ["/bin/sh", "scripts/run-bun.sh", "run", "src/herdr-open.ts", "--mode", "open-composed"]
+
+[[actions]]
+id = "capture"
+title = "Outliner: Quick Capture"
+description = "Open the existing Inbox capture popup from this project's current pane."
+contexts = ["workspace", "tab", "pane"]
+command = ["/bin/sh", "scripts/run-bun.sh", "run", "src/herdr-capture.ts"]
+
+[[actions]]
+id = "capture-editor"
+title = "Outliner: capture in sidebar editor"
+description = "Create or resume a protected Inbox draft in the right sidebar and open it in VISUAL/EDITOR."
+contexts = ["workspace", "tab", "pane"]
+command = ["/bin/sh", "scripts/run-bun.sh", "run", "src/herdr-capture.ts", "--editor"]
+
+[[actions]]
+id = "comment-selection"
+title = "Outliner: comment on selection"
+description = "Open the invoking Detail composer with Herdr's revision-validated rendered selection."
+contexts = ["pane"]
+command = ["/bin/sh", "scripts/run-bun.sh", "run", "src/herdr-comment-selection.ts"]
+
+[[link_handlers]]
+id = "outliner-navigation"
+title = "Navigate Outliner"
+pattern = "^pi-outliner://(block|goto|page|resource|work)/[^[:space:]]+$"
+action = "open"
+
+[[actions]]
+id = "open-tree"
+title = "Outliner: new Tree only"
+description = "Open an independent workspace-rooted Tree without a companion Detail."
+contexts = ["workspace", "tab", "pane"]
+command = ["/bin/sh", "scripts/run-bun.sh", "run", "src/herdr-open.ts", "--mode", "open-tree"]

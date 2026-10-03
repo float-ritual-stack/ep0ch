@@ -1,0 +1,669 @@
+import { execFileSync } from "node:child_process";
+import { existsSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { hostname } from "node:os";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
+import { Type, type Static } from "typebox";
+import { Parse } from "typebox/value";
+import type { OutlinerRegion, OutlinerClientRuntime, OutlinerNavigationTarget } from "./types";
+import type { BacklinkViewOptions } from "./backlink-view";
+
+export type PaneEntrypoint =
+  | "composed"
+  | "service"
+  | "outliner"
+  | "detail"
+  | "capture"
+  | "backlink-peek"
+  | "virtual-branch-navigator";
+export type OutlinerRightClickOwnership = "herdr" | "outliner";
+
+const PaneStateSchema = Type.Object({
+  paneId: Type.String(),
+  terminalId: Type.Optional(Type.String()),
+  workspaceRoot: Type.Optional(Type.String()),
+  herdrSocketPath: Type.Optional(Type.String()),
+  hostname: Type.Optional(Type.String()),
+});
+type PaneState = Static<typeof PaneStateSchema>;
+
+const HerdrPaneSchema = Type.Object({
+  pane_id: Type.String(),
+  terminal_id: Type.Optional(Type.String()),
+  label: Type.Optional(Type.String()),
+  cwd: Type.Optional(Type.String()),
+  foreground_cwd: Type.Optional(Type.String()),
+  workspace_id: Type.Optional(Type.String()),
+  tab_id: Type.Optional(Type.String()),
+});
+type HerdrPane = Static<typeof HerdrPaneSchema>;
+
+const PaneGetResponseSchema = Type.Object({
+  result: Type.Object({ pane: HerdrPaneSchema }),
+});
+const PaneCurrentResponseSchema = Type.Object({
+  result: Type.Object({ pane: HerdrPaneSchema }),
+});
+const PluginPaneOpenResponseSchema = Type.Object({
+  result: Type.Object({
+    plugin_pane: Type.Object({ pane: HerdrPaneSchema }),
+  }),
+});
+const ResourceRevisionSchema = Type.Union([
+  Type.Object({
+    kind: Type.Literal("filesystem"),
+    mtimeNs: Type.String(),
+    size: Type.String(),
+  }),
+  Type.Object({
+    kind: Type.Literal("web"),
+    validator: Type.Union([
+      Type.Object({
+        kind: Type.Literal("etag"),
+        value: Type.String(),
+        weak: Type.Boolean(),
+      }),
+      Type.Object({
+        kind: Type.Literal("last-modified"),
+        value: Type.String(),
+      }),
+    ]),
+  }),
+  Type.Object({
+    kind: Type.Literal("github"),
+    validator: Type.Union([
+      Type.Object({
+        kind: Type.Literal("etag"),
+        value: Type.String(),
+      }),
+      Type.Object({
+        kind: Type.Literal("updated-at"),
+        value: Type.String(),
+      }),
+    ]),
+  }),
+]);
+
+const ResourceRevisionRefSchema = Type.Object({
+  resourceId: Type.String(),
+  addressVersion: Type.Integer({ minimum: 1 }),
+  revision: ResourceRevisionSchema,
+});
+
+const NavigationTargetSchema = Type.Union([
+  Type.Object({
+    kind: Type.Literal("block"),
+    blockId: Type.String(),
+    fragmentId: Type.Optional(Type.String()),
+  }),
+  Type.Object({
+    kind: Type.Literal("resource"),
+    resourceId: Type.String(),
+    revision: Type.Optional(ResourceRevisionRefSchema),
+  }),
+]);
+
+export function detailTargetFromEnvironment(
+  value: string | undefined,
+): OutlinerNavigationTarget | undefined {
+  const encoded = value?.trim();
+  if (!encoded) return undefined;
+  return Parse(NavigationTargetSchema, JSON.parse(decodeURIComponent(encoded)));
+}
+const WorkspaceListResponseSchema = Type.Object({
+  result: Type.Object({
+    workspaces: Type.Array(Type.Object({ workspace_id: Type.String() })),
+  }),
+});
+const PaneListResponseSchema = Type.Object({
+  result: Type.Object({ panes: Type.Array(HerdrPaneSchema) }),
+});
+const PaneLayoutResponseSchema = Type.Object({
+  result: Type.Object({
+    layout: Type.Object({
+      panes: Type.Array(Type.Object({
+        pane_id: Type.String(),
+        rect: Type.Object({
+          x: Type.Number(),
+          y: Type.Number(),
+        }),
+      })),
+    }),
+  }),
+});
+
+const SERVICE_PANE_LABEL = "Outliner Service";
+const HERDR_COMMAND_TIMEOUT_MS = 2_000;
+const OUTLINER_PLUGIN_ID = "float.pi-outliner";
+
+/** Herdr derives action context from terminal cwd; imports still run from the plugin checkout. */
+export function reportCurrentPaneWorkspace(workspaceRoot: string): void {
+  if (process.env.HERDR_ENV === "1" && process.stdout.isTTY) {
+    process.stdout.write(`\x1b]7;${pathToFileURL(workspaceRoot).href}\x07`);
+  }
+}
+
+interface HerdrPluginContext {
+  clicked_url?: string;
+  focused_pane_cwd?: string;
+  focused_pane_id?: string;
+  workspace_cwd?: string;
+}
+
+function pluginContext(
+  env: NodeJS.ProcessEnv,
+): HerdrPluginContext {
+  const encoded = env.HERDR_PLUGIN_CONTEXT_JSON;
+  if (!encoded) return {};
+  try {
+    const parsed: unknown = JSON.parse(encoded);
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+      throw new Error("context must be an object");
+    }
+    return parsed as HerdrPluginContext;
+  } catch {
+    throw new Error("Herdr supplied invalid plugin context");
+  }
+}
+
+export function pluginInvocationPaneId(
+  env: NodeJS.ProcessEnv = process.env,
+): string | undefined {
+  return pluginContext(env).focused_pane_id?.trim() ||
+    env.HERDR_PANE_ID?.trim() ||
+    undefined;
+}
+
+export function pluginInvocationWorkspaceRoot(
+  env: NodeJS.ProcessEnv = process.env,
+  fallback = process.cwd(),
+): string {
+  return pluginInvocationWorkspaceRootSource(env, fallback).root;
+}
+
+/** The invocation root plus where it came from, for explaining the choice to the user. */
+export function pluginInvocationWorkspaceRootSource(
+  env: NodeJS.ProcessEnv = process.env,
+  fallback = process.cwd(),
+): { root: string; source: "pane" | "workspace" | "fallback" } {
+  const context = pluginContext(env);
+  const pane = context.focused_pane_cwd?.trim();
+  if (pane) return { root: pane, source: "pane" };
+  const workspace = context.workspace_cwd?.trim();
+  if (workspace) return { root: workspace, source: "workspace" };
+  return { root: fallback, source: "fallback" };
+}
+
+export function pluginClickedUrl(
+  env: NodeJS.ProcessEnv = process.env,
+): string | undefined {
+  return pluginContext(env).clicked_url?.trim() ||
+    env.HERDR_PLUGIN_CLICKED_URL?.trim() ||
+    undefined;
+}
+
+function invokeHerdr(herdr: string, args: string[]): string {
+  return execFileSync(herdr, args, {
+    encoding: "utf8",
+    timeout: HERDR_COMMAND_TIMEOUT_MS,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+}
+
+function runtimeFromPane(pane: HerdrPane): OutlinerClientRuntime {
+  return {
+    hostname: hostname(),
+    paneId: pane.pane_id,
+    ...(pane.terminal_id ? { terminalId: pane.terminal_id } : {}),
+    ...(pane.workspace_id ? { workspaceId: pane.workspace_id } : {}),
+    ...(pane.tab_id ? { tabId: pane.tab_id } : {}),
+  };
+}
+
+export function currentPaneIdentity(
+  herdr = process.env.HERDR_BIN_PATH ?? "herdr",
+): OutlinerClientRuntime | undefined {
+  if (process.env.HERDR_ENV !== "1") return undefined;
+  try {
+    const output = invokeHerdr(herdr, ["pane", "current", "--current"]);
+    const pane = Parse(PaneCurrentResponseSchema, JSON.parse(output)).result.pane;
+    if (!pane.pane_id.trim()) throw new Error("Herdr returned an empty current pane ID");
+    return runtimeFromPane(pane);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new Error(`Current Herdr pane identity is unavailable: ${reason}`);
+  }
+}
+
+export function currentPaneRuntime(
+  herdr = process.env.HERDR_BIN_PATH ?? "herdr",
+): OutlinerClientRuntime | undefined {
+  const runtime = currentPaneIdentity(herdr);
+  if (!runtime) return undefined;
+  const paneId = runtime.paneId;
+  if (!paneId) return runtime;
+  try {
+    const layoutOutput = invokeHerdr(herdr, ["pane", "layout", "--pane", paneId]);
+    const layout = Parse(PaneLayoutResponseSchema, JSON.parse(layoutOutput)).result.layout;
+    const positioned = layout.panes.find((candidate) => candidate.pane_id === paneId);
+    if (positioned) {
+      runtime.paneX = positioned.rect.x;
+      runtime.paneY = positioned.rect.y;
+    }
+  } catch {
+    // Pane identity remains useful when spatial metadata is unavailable.
+  }
+  return runtime;
+}
+
+export function outlinerRightClickOwnership(
+  env: NodeJS.ProcessEnv = process.env,
+): OutlinerRightClickOwnership {
+  const value = env.OUTLINER_RIGHT_CLICK?.trim().toLowerCase() || "herdr";
+  if (value === "herdr" || value === "outliner") return value;
+  throw new Error("OUTLINER_RIGHT_CLICK must be herdr or outliner");
+}
+
+export function configureCurrentPaneRightClick(
+  ownership: OutlinerRightClickOwnership,
+  herdr = process.env.HERDR_BIN_PATH ?? "herdr",
+): void {
+  if (process.env.HERDR_ENV !== "1") return;
+  invokeHerdr(herdr, [
+    "pane",
+    "input",
+    "--current",
+    "--right-click",
+    ownership === "outliner" ? "pane" : "herdr",
+  ]);
+}
+
+export function focusCurrentPane(
+  herdr = process.env.HERDR_BIN_PATH ?? "herdr",
+): void {
+  if (process.env.HERDR_ENV !== "1") return;
+  const paneId = currentPaneIdentity(herdr)?.paneId;
+  if (!paneId) throw new Error("Current Herdr pane identity is unavailable");
+  try {
+    invokeHerdr(herdr, ["plugin", "pane", "focus", paneId]);
+  } catch (error) {
+    const stderr = typeof error === "object" && error !== null && "stderr" in error
+      ? String(error.stderr)
+      : "";
+    if (!stderr.includes('"code":"plugin_pane_not_found"')) throw error;
+    // Manual panes can receive navigation but have no plugin focus handle.
+  }
+}
+
+export interface OpenDetailPaneOptions {
+  workspaceRoot: string;
+  browsingContextId: string;
+  propertyInspectorBlockId?: string;
+  initialTarget?: OutlinerNavigationTarget;
+  targetPaneId?: string;
+  direction?: "right" | "down";
+  /** Layout orchestration focuses the completed layout after it owns the new pane ID. */
+  deferFocus?: boolean;
+}
+
+export function openDetailPane(
+  options: OpenDetailPaneOptions,
+  herdr = process.env.HERDR_BIN_PATH ?? "herdr",
+): string {
+  if (process.env.HERDR_ENV !== "1") {
+    throw new Error("Creating a Detail pane requires Herdr");
+  }
+  const sourcePaneId = options.targetPaneId?.trim() || currentPaneIdentity(herdr)?.paneId;
+  if (!sourcePaneId) throw new Error("Target Herdr pane identity is unavailable");
+  const args = [
+    "plugin",
+    "pane",
+    "open",
+    "--plugin",
+    OUTLINER_PLUGIN_ID,
+    "--entrypoint",
+    "detail",
+    "--env",
+    `OUTLINER_WORKSPACE_ROOT=${options.workspaceRoot}`,
+    "--env",
+    `OUTLINER_BROWSING_CONTEXT_ID=${options.browsingContextId}`,
+  ];
+  if (options.propertyInspectorBlockId !== undefined) {
+    const blockId = options.propertyInspectorBlockId.trim();
+    if (!blockId) throw new Error("Property inspector block ID cannot be empty");
+    args.push(
+      "--env",
+      "OUTLINER_DETAIL_PRESENTATION=property-inspector",
+      "--env",
+      `OUTLINER_DETAIL_TARGET_BLOCK_ID=${blockId}`,
+      "--env",
+      "OUTLINER_DETAIL_RENDERER=pi-tui",
+    );
+  }
+  if (options.initialTarget !== undefined) {
+    args.push(
+      "--env",
+      `OUTLINER_DETAIL_TARGET=${encodeURIComponent(JSON.stringify(options.initialTarget))}`,
+    );
+  }
+  return openPaneSplit(args, sourcePaneId, options.direction ?? "down", herdr, options.deferFocus);
+}
+
+export function openTreePane(options: {
+  workspaceRoot: string; root: {rowId:string;canonicalId:string;label:string} | null; direction: "right" | "down";
+}, herdr = process.env.HERDR_BIN_PATH ?? "herdr"): string {
+  if(process.env.HERDR_ENV !== "1") throw new Error("Creating a Tree pane requires Herdr");
+  const sourcePaneId = currentPaneIdentity(herdr)?.paneId;
+  if(!sourcePaneId) throw new Error("Target Herdr pane identity is unavailable");
+  const args = ["plugin","pane","open","--entrypoint","outliner","--plugin",OUTLINER_PLUGIN_ID,
+    "--env",`OUTLINER_WORKSPACE_ROOT=${options.workspaceRoot}`,
+    "--env",`OUTLINER_BROWSING_CONTEXT_ID=${crypto.randomUUID()}`];
+  if (options.root) args.push("--env", `OUTLINER_TREE_ROOT=${encodeURIComponent(JSON.stringify(options.root))}`);
+  return openPaneSplit(args,sourcePaneId,options.direction,herdr);
+}
+
+function openPaneSplit(args: string[], sourcePaneId: string, direction: "right" | "down", herdr: string, deferFocus = false): string {
+  args.push(
+    "--placement",
+    "split",
+    "--target-pane",
+    sourcePaneId,
+    "--direction",
+    direction,
+    "--no-focus",
+  );
+  for (const name of [
+    "OUTLINER_STATE_DIR",
+    "OUTLINER_CONFIG_PATH",
+    "OUTLINER_REMOTE",
+    "OUTLINER_SOCKET_PATH", "OUTLINER_OUTLINE",
+    "OUTLINER_KEYBINDINGS_PATH",
+    "OUTLINER_RIGHT_CLICK",
+    "OUTLINER_PROPERTY_SUMMARY_KEYS",
+    "OUTLINER_OPEN_DESTINATION_TIMEOUT_MS",
+  ] as const) {
+    if (process.env[name] !== undefined) {
+      args.push("--env", `${name}=${process.env[name]}`);
+    }
+  }
+  const output = invokeHerdr(herdr, args);
+  const pane = Parse(PluginPaneOpenResponseSchema, JSON.parse(output)).result.plugin_pane.pane;
+  if (!deferFocus) invokeHerdr(herdr, ["plugin", "pane", "focus", pane.pane_id]);
+  return pane.pane_id;
+}
+
+export interface OpenBacklinkPeekPopupOptions {
+  workspaceRoot: string;
+  browsingContextId: string;
+  sourceClientId: string;
+  targetBlockId: string;
+  selectedSourceBlockId: string;
+  view: BacklinkViewOptions;
+}
+
+export function openBacklinkPeekPopup(
+  options: OpenBacklinkPeekPopupOptions,
+  herdr = process.env.HERDR_BIN_PATH ?? "herdr",
+): void {
+  if (process.env.HERDR_ENV !== "1") {
+    throw new Error("Backlink peek popup requires Herdr");
+  }
+  const args = [
+    "plugin",
+    "pane",
+    "open",
+    "--plugin",
+    OUTLINER_PLUGIN_ID,
+    "--entrypoint",
+    "backlink-peek",
+    "--env",
+    `OUTLINER_WORKSPACE_ROOT=${options.workspaceRoot}`,
+    "--env",
+    `OUTLINER_BROWSING_CONTEXT_ID=${options.browsingContextId}`,
+    "--env",
+    `OUTLINER_BACKLINK_SOURCE_CLIENT_ID=${options.sourceClientId}`,
+    "--env",
+    `OUTLINER_BACKLINK_TARGET_BLOCK_ID=${options.targetBlockId}`,
+    "--env",
+    `OUTLINER_BACKLINK_SELECTED_SOURCE_ID=${options.selectedSourceBlockId}`,
+    "--env",
+    `OUTLINER_BACKLINK_VIEW=${JSON.stringify(options.view)}`,
+    "--focus",
+  ];
+  for (const name of [
+    "OUTLINER_STATE_DIR",
+    "OUTLINER_CONFIG_PATH",
+    "OUTLINER_REMOTE",
+    "OUTLINER_SOCKET_PATH", "OUTLINER_OUTLINE",
+    "OUTLINER_OPEN_DESTINATION_TIMEOUT_MS",
+  ] as const) {
+    if (process.env[name] !== undefined) {
+      args.push("--env", `${name}=${process.env[name]}`);
+    }
+  }
+  invokeHerdr(herdr, args);
+}
+
+export interface OpenVirtualBranchNavigatorPopupOptions {
+  workspaceRoot: string;
+  browsingContextId: string;
+  sourceClientId: string;
+  sourceRole: OutlinerRegion;
+  viewId: string;
+  adapter?: "bookmark" | "mentions";
+}
+
+export function openVirtualBranchNavigatorPopup(
+  options: OpenVirtualBranchNavigatorPopupOptions,
+  herdr = process.env.HERDR_BIN_PATH ?? "herdr",
+): void {
+  if (process.env.HERDR_ENV !== "1") {
+    throw new Error("Virtual branch navigator popup requires Herdr");
+  }
+  const args = [
+    "plugin",
+    "pane",
+    "open",
+    "--plugin",
+    OUTLINER_PLUGIN_ID,
+    "--entrypoint",
+    "virtual-branch-navigator",
+    "--env",
+    `OUTLINER_WORKSPACE_ROOT=${options.workspaceRoot}`,
+    "--env",
+    `OUTLINER_BROWSING_CONTEXT_ID=${options.browsingContextId}`,
+    "--env",
+    `OUTLINER_NAVIGATOR_SOURCE_CLIENT_ID=${options.sourceClientId}`,
+    "--env",
+    `OUTLINER_NAVIGATOR_SOURCE_ROLE=${options.sourceRole}`,
+    "--env",
+    `OUTLINER_NAVIGATOR_VIEW_ID=${options.viewId}`,
+  ];
+  if (options.adapter) {
+    args.push("--env", `OUTLINER_NAVIGATOR_ADAPTER=${options.adapter}`);
+  }
+  for (const name of [
+    "OUTLINER_STATE_DIR",
+    "OUTLINER_CONFIG_PATH",
+    "OUTLINER_REMOTE",
+    "OUTLINER_SOCKET_PATH", "OUTLINER_OUTLINE",
+    "OUTLINER_OPEN_DESTINATION_TIMEOUT_MS",
+  ] as const) {
+    if (process.env[name] !== undefined) {
+      args.push("--env", `${name}=${process.env[name]}`);
+    }
+  }
+  args.push("--focus");
+  invokeHerdr(herdr, args);
+}
+
+export interface OpenCapturePopupOptions {
+  workspaceRoot: string;
+  capturedFromBlockId?: string;
+}
+
+export function openGotoPopup(
+  options: { workspaceRoot: string; sourceClientId: string; sourceRegion: "tree" | "detail" },
+  herdr = process.env.HERDR_BIN_PATH ?? "herdr",
+): void {
+  if (process.env.HERDR_ENV !== "1") throw new Error("Goto popup requires Herdr");
+  const args = [
+    "plugin", "pane", "open", "--plugin", OUTLINER_PLUGIN_ID, "--entrypoint", "goto",
+    "--env", `OUTLINER_WORKSPACE_ROOT=${options.workspaceRoot}`,
+    "--env", `OUTLINER_GOTO_SOURCE_CLIENT_ID=${options.sourceClientId}`,
+    "--env", `OUTLINER_GOTO_SOURCE_REGION=${options.sourceRegion}`,
+    "--focus",
+  ];
+  for (const name of ["OUTLINER_STATE_DIR", "OUTLINER_CONFIG_PATH", "OUTLINER_REMOTE", "OUTLINER_SOCKET_PATH", "OUTLINER_OUTLINE", "OUTLINER_KEYBINDINGS_PATH"] as const) {
+    if (process.env[name] !== undefined) args.push("--env", `${name}=${process.env[name]}`);
+  }
+  invokeHerdr(herdr, args);
+}
+
+export function openCapturePopup(
+  options: OpenCapturePopupOptions,
+  herdr = process.env.HERDR_BIN_PATH ?? "herdr",
+): void {
+  if (process.env.HERDR_ENV !== "1") {
+    throw new Error("Quick capture popup requires Herdr");
+  }
+  const args = [
+    "plugin",
+    "pane",
+    "open",
+    "--plugin",
+    OUTLINER_PLUGIN_ID,
+    "--entrypoint",
+    "capture",
+    "--env",
+    `OUTLINER_WORKSPACE_ROOT=${options.workspaceRoot}`,
+    "--env",
+    `OUTLINER_CAPTURE_REQUEST_ID=${crypto.randomUUID()}`,
+    "--focus",
+  ];
+  if (options.capturedFromBlockId) {
+    args.push("--env", `OUTLINER_CAPTURE_FROM_BLOCK_ID=${options.capturedFromBlockId}`);
+  }
+  const originPaneId = pluginInvocationPaneId();
+  if (originPaneId) args.push("--env", `OUTLINER_CAPTURE_ORIGIN_PANE=${originPaneId}`);
+  for (const name of [
+    "OUTLINER_STATE_DIR",
+    "OUTLINER_CONFIG_PATH",
+    "OUTLINER_REMOTE",
+    "OUTLINER_SOCKET_PATH", "OUTLINER_OUTLINE",
+  ] as const) {
+    if (process.env[name] !== undefined) {
+      args.push("--env", `${name}=${process.env[name]}`);
+    }
+  }
+  invokeHerdr(herdr, args);
+}
+
+function paneMatchesState(
+  pane: HerdrPane,
+  state: PaneState,
+): boolean {
+  if (state.terminalId) return pane.terminal_id === state.terminalId;
+  if (pane.label !== SERVICE_PANE_LABEL) return false;
+  return pane.foreground_cwd === state.workspaceRoot || pane.cwd === state.workspaceRoot;
+}
+
+function writeJsonAtomic(path: string, value: unknown): void {
+  const temporaryPath = `${path}.${process.pid}.tmp`;
+  writeFileSync(temporaryPath, `${JSON.stringify(value)}\n`);
+  renameSync(temporaryPath, path);
+}
+
+function readPaneState(stateDir: string): PaneState | null {
+  const path = join(stateDir, "service-pane.json");
+  if (!existsSync(path)) return null;
+  try {
+    return Parse(PaneStateSchema, JSON.parse(readFileSync(path, "utf8")));
+  } catch {
+    return null;
+  }
+}
+
+export function registerServicePaneState(
+  stateDir: string,
+  workspaceRoot: string,
+  herdr = process.env.HERDR_BIN_PATH ?? "herdr",
+): void {
+  const inheritedPaneId = process.env.HERDR_PANE_ID;
+  if (!inheritedPaneId) return;
+  const herdrSocketPath = process.env.HERDR_SOCKET_PATH;
+  if (!herdrSocketPath) return;
+  const output = invokeHerdr(herdr, ["pane", "get", inheritedPaneId]);
+  const pane = Parse(PaneGetResponseSchema, JSON.parse(output)).result.pane;
+  writeJsonAtomic(join(stateDir, "service-pane.json"), {
+    paneId: pane.pane_id,
+    terminalId: pane.terminal_id,
+    workspaceRoot,
+    herdrSocketPath,
+    hostname: hostname(),
+  } satisfies PaneState);
+}
+
+function listWorkspaces(herdr: string): string[] {
+  const output = invokeHerdr(herdr, ["workspace", "list"]);
+  return Parse(WorkspaceListResponseSchema, JSON.parse(output)).result.workspaces.map(
+    (workspace) => workspace.workspace_id,
+  );
+}
+
+function listPanes(herdr: string, workspaceId: string): HerdrPane[] {
+  const output = invokeHerdr(herdr, ["pane", "list", "--workspace", workspaceId]);
+  return Parse(PaneListResponseSchema, JSON.parse(output)).result.panes;
+}
+
+function recoverMovedPane(
+  state: PaneState,
+  herdr: string,
+): HerdrPane | null {
+  for (const workspaceId of listWorkspaces(herdr)) {
+    const match = listPanes(herdr, workspaceId).find((pane) =>
+      paneMatchesState(pane, state),
+    );
+    if (match) return match;
+  }
+  return null;
+}
+
+export function removeLegacyClientPaneStates(stateDir: string): void {
+  for (const entrypoint of ["outliner", "detail"]) {
+    const path = join(stateDir, `${entrypoint}-pane.json`);
+    if (existsSync(path)) unlinkSync(path);
+  }
+}
+
+export function resolveServicePaneId(
+  stateDir: string,
+  herdr = process.env.HERDR_BIN_PATH ?? "herdr",
+): string | null {
+  const state = readPaneState(stateDir);
+  if (!state) return null;
+  if (
+    !state.herdrSocketPath ||
+    !state.hostname ||
+    state.herdrSocketPath !== process.env.HERDR_SOCKET_PATH ||
+    state.hostname !== hostname()
+  ) return null;
+
+  try {
+    const output = invokeHerdr(herdr, ["pane", "get", state.paneId]);
+    const pane = Parse(PaneGetResponseSchema, JSON.parse(output)).result.pane;
+    const stateHasIdentity = Boolean(state.terminalId || state.workspaceRoot);
+    if (!stateHasIdentity || paneMatchesState(pane, state)) {
+      return pane.pane_id;
+    }
+  } catch {
+    // Search by stable pane identity below.
+  }
+
+  const movedPane = recoverMovedPane(state, herdr);
+  if (!movedPane) return null;
+  state.paneId = movedPane.pane_id;
+  state.terminalId = movedPane.terminal_id;
+  writeJsonAtomic(join(stateDir, "service-pane.json"), state);
+  return state.paneId;
+}

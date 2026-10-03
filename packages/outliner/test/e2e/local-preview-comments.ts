@@ -1,0 +1,142 @@
+import assert from 'node:assert/strict';
+import {visibleWidth} from '@earendil-works/pi-tui';
+import type {AnnotationThread, Block} from '../../src/types';
+import type {ObservedDocument} from '../../src/document-provenance';
+import {runHerdrScenario} from './herdr-runner';
+
+const result=await runHerdrScenario({
+  name:'local-preview-comments',
+ // Comment is a menu action; this journey pins it to the Preview bar.
+ uiConfig:{bar:{preview:["tree.reader.comment","tree.preview.close"]}},
+  async prepare(){},
+  async run(s){
+    const panes=s.panes;
+    const tree=(await s.registrations()).find(c=>c.runtime?.paneId===panes.tree)!;
+    await s.client.request({action:'navigation.link.set',source:{clientId:tree.clientId,region:'tree'},destination:null});
+    const note=await s.client.request<Block>({action:'create',text:'LOCAL COMMENT NOTE\n\nKeep this writing intact.\n\n## Further reading\nThe comment stays here.'});
+    const other=await s.client.request<Block>({action:'create',text:'OTHER BROWSING TARGET'});
+    await s.focus(panes.tree);
+    await s.revealTree(panes.tree,note.id);
+    const terminal=await s.attachClient();
+    await terminal.resize(150,62);
+    const comments=()=>s.client.request<AnnotationThread[]>({action:'annotations.list',query:{subject:{kind:'block',blockId:note.id},includeResolved:true}});
+    const frame=await s.waitFor('Comment control visible',terminal.visible,text=>text.includes('Preview · LOCAL COMMENT NOTE')&&(text.includes('[c]')||text.includes('[Comment]')));
+    const lines=frame.split('\n');
+    const row=lines.findIndex(line=>line.includes('[c]')||line.includes('[Comment]'));
+    const marker=lines[row]!.includes('[Comment]')?'[Comment]':'[c]';
+    const column=visibleWidth(lines[row]!.slice(0,lines[row]!.indexOf(marker)))+1;
+    await s.record('native-comment-control',{row,column,frame});
+    await terminal.write(`\x1b[<0;${column+1};${row+1}M\x1b[<0;${column+1};${row+1}m`);
+    await s.waitVisible(panes.tree,'Comment on note');
+    await s.text(panes.tree,'LOCAL WHOLE NOTE FEEDBACK');
+    await s.waitVisible(panes.tree,'LOCAL WHOLE NOTE FEEDBACK');
+    await terminal.resize(120,36);
+    await s.waitFor('short composer keeps writing and controls',()=>s.visible(panes.tree),text=>text.includes('LOCAL WHOLE NOTE FEEDBACK')&&text.includes('Ctrl+S')&&text.includes('Esc'));
+    await s.checkpoint('local-comment-draft-short');
+    await terminal.resize(120,62);
+    await s.waitFor('narrow composer remains readable',()=>s.visible(panes.tree),text=>text.includes('LOCAL WHOLE NOTE FEEDBACK')&&text.includes('Ctrl+S')&&Math.max(...text.split('\n').map(visibleWidth))<55);
+    await s.checkpoint('local-comment-draft-narrow');
+    await s.revealTree(panes.tree,other.id);
+    await s.waitVisible(panes.tree,'LOCAL WHOLE NOTE FEEDBACK');
+    await s.keys(panes.tree,'ctrl+s');
+    await s.waitFor('comment persisted on original note',comments,threads=>threads.length===1&&threads[0]!.body==='LOCAL WHOLE NOTE FEEDBACK');
+    assert.equal((await comments())[0]!.originalTarget.anchor.kind,'whole-subject');
+    assert.equal((await s.client.request<AnnotationThread[]>({action:'annotations.list',query:{subject:{kind:'block',blockId:other.id}}})).length,0);
+    await s.keys(panes.tree,']');
+    await s.waitVisible(panes.tree,'LOCAL WHOLE NOTE FEEDBACK');
+    const replyFrame=await s.waitFor('Reply visible',terminal.visible,text=>text.includes('Reply · Resolve'));
+    const replyLines=replyFrame.split('\n');
+    const replyRow=replyLines.findIndex(line=>line.includes('Reply · Resolve'));
+    const replyColumn=visibleWidth(replyLines[replyRow]!.slice(0,replyLines[replyRow]!.indexOf('Reply')));
+    await terminal.write(`\x1b[<0;${replyColumn+1};${replyRow+1}M\x1b[<0;${replyColumn+1};${replyRow+1}m`);
+    await s.waitVisible(panes.tree,'Write a comment');
+    await s.text(panes.tree,'LOCAL PREVIEW REPLY');
+    await s.keys(panes.tree,'ctrl+s');
+    await s.waitFor('reply persisted once',comments,threads=>threads.length===1&&threads[0]!.replies.length===1&&threads[0]!.replies[0]!.body==='LOCAL PREVIEW REPLY');
+    await s.waitVisible(panes.tree,'LOCAL PREVIEW REPLY');
+    await s.checkpoint('local-comment-and-reply-saved');
+    assert.equal((await s.client.request<Block>({action:'get',blockId:note.id})).text,note.text);
+    await s.keys(panes.tree,'esc');
+    await s.waitVisible(panes.tree,'○ Preview · LOCAL COMMENT');
+    const passageNote=await s.client.request<Block>({action:'create',text:'WRAPPED PASSAGE NOTE\n\nPassage begins here and continues with enough words to occupy several rendered lines in this narrow reader. Its source coordinates must never be guessed from screen columns.'});
+    await s.revealTree(panes.tree,passageNote.id);
+    const passageFrame=await s.waitFor('wrapped passage visible',terminal.visible,text=>text.includes('Passage begins here')&&text.includes('WRAPPED PASSAGE NOTE'));
+    const passageLines=passageFrame.split('\n');
+    const passageRow=passageLines.findIndex(line=>line.includes('Passage begins here'));
+    const passageColumn=visibleWidth(passageLines[passageRow]!.slice(0,passageLines[passageRow]!.indexOf('Passage begins here')));
+    await terminal.write(`\x1b[<0;${passageColumn+1};${passageRow+1}M\x1b[<32;${passageColumn+22};${passageRow+2}M\x1b[<0;${passageColumn+22};${passageRow+2}m`);
+    await s.waitVisible(panes.tree,'Passage selected');
+    await terminal.resize(150,62);
+    await s.waitVisible(panes.tree,'Passage selected');
+    await s.checkpoint('wrapped-selection-retained-after-resize');
+    await terminal.write('c');
+    await s.waitVisible(panes.tree,'Comment on passage');
+    await s.text(panes.tree,'WRAPPED QUOTE FEEDBACK');
+    await s.keys(panes.tree,'ctrl+s');
+    const savedPassages=await s.waitFor('wrapped comment persisted once',()=>s.client.request<AnnotationThread[]>({action:'annotations.list',query:{subject:{kind:'block',blockId:passageNote.id}}}),threads=>threads.length===1);
+    const passage=savedPassages[0]!.originalTarget;
+    assert.equal(passage.anchor.kind,'text-quote');
+    if(passage.anchor.kind!=='text-quote')throw Error('Expected captured passage');
+    assert.ok(passage.anchor.exact.startsWith('Passage begins here'));
+    assert.ok(passage.anchor.exact.includes('\n'));
+    assert.equal(passage.anchor.start,null);
+    assert.equal(passage.representation.observation?.validation,'preview-selection');
+    assert.equal(passage.representation.observation?.quote,passage.anchor.exact);
+    assert.equal(passage.passage?.quote,passage.anchor.exact);
+    const sources=passage.passage!.fragments.flatMap(fragment=>fragment.kind==='source'?fragment.slices:[]);
+    assert.ok(sources.length>=2,'Wrapped rows keep their separate canonical ranges');
+    for(const slice of sources){
+      const source:ObservedDocument=passage.passage!.documents[slice.document]!;
+      assert.deepEqual(source.subject,{kind:'block',blockId:passageNote.id});
+      assert.equal(source.text,passageNote.text);
+      assert.equal(source.text.slice(slice.anchor.start!,slice.anchor.end!),slice.anchor.exact);
+    }
+    await s.keys(panes.tree,']');
+    await s.waitVisible(panes.tree,'WRAPPED QUOTE FEEDBACK');
+    await s.checkpoint('wrapped-preview-passage-saved');
+    await s.keys(panes.tree,'esc');
+    await s.waitVisible(panes.tree,'○ Preview');
+    const keyboardNote=await s.client.request<Block>({action:'create',text:'KEYBOARD PASSAGE NOTE\n\nPreserve this source while selecting from its rich Preview.'});
+    await s.revealTree(panes.tree,keyboardNote.id);
+    await s.waitVisible(panes.tree,'Preserve this source');
+    await s.keys(panes.tree,'f7');
+    await s.waitVisible(panes.tree,'● Preview');
+    await s.keys(panes.tree,'v');
+    await s.waitVisible(panes.tree,'Select passage');
+    await terminal.write('\x1b[1;2Fc');
+    await s.waitVisible(panes.tree,'Comment on passage');
+    await s.waitVisible(panes.tree,'KEYBOARD PASSAGE NOTE');
+    await s.text(panes.tree,'KEYBOARD QUOTE FEEDBACK');
+    await s.keys(panes.tree,'ctrl+s');
+    const keyboardThreads=await s.waitFor('keyboard selection persisted once',()=>s.client.request<AnnotationThread[]>({action:'annotations.list',query:{subject:{kind:'block',blockId:keyboardNote.id}}}),threads=>threads.length===1);
+    assert.equal(keyboardThreads[0]!.originalTarget.anchor.kind,'text-quote');
+    assert.equal(keyboardThreads[0]!.originalTarget.representation.observation?.quote,'KEYBOARD PASSAGE NOTE');
+    assert.deepEqual((keyboardThreads[0]!.originalTarget.representation.observation as {input?:string})?.input,'keyboard');
+    assert.equal(keyboardThreads[0]!.originalTarget.passage?.quote,'KEYBOARD PASSAGE NOTE');
+    assert.equal((await s.client.request<Block>({action:'get',blockId:keyboardNote.id})).text,keyboardNote.text);
+    await s.keys(panes.tree,']');
+    await s.waitVisible(panes.tree,'KEYBOARD QUOTE FEEDBACK');
+    await s.checkpoint('keyboard-preview-passage-saved');
+
+    const keyboardComments=()=>s.client.request<AnnotationThread[]>({action:'annotations.list',query:{subject:{kind:'block',blockId:keyboardNote.id},includeResolved:true}});
+    await s.keys(panes.tree,'D');
+    await s.waitFor('keyboard lifecycle resolves the selected thread',keyboardComments,threads=>threads.length===1&&threads[0]!.lifecycle==='resolved');
+    await s.keys(panes.tree,'D');
+    await s.waitFor('keyboard lifecycle reopens the same thread',keyboardComments,threads=>threads.length===1&&threads[0]!.lifecycle==='open');
+    const detail=(await s.registrations()).find(c=>c.runtime?.paneId===panes.detail)!;
+    await s.client.request({action:'navigation.link.set',source:{clientId:tree.clientId,region:'tree'},destination:{clientId:detail.clientId,region:'detail'}});
+    await s.keys(panes.tree,'esc');await s.waitVisible(panes.tree,'○ Preview');
+    await s.revealTree(panes.tree,note.id);await s.keys(panes.tree,'enter');
+    await s.waitVisible(panes.detail,'LOCAL COMMENT NOTE');
+    await s.focus(panes.detail);await s.keys(panes.detail,']');
+    await s.waitVisible(panes.detail,'LOCAL WHOLE NOTE FEEDBACK');
+    await s.waitVisible(panes.detail,'LOCAL PREVIEW REPLY');
+    assert.equal((await comments()).length,1);
+    assert.equal((await comments())[0]!.replies.length,1);
+    await s.checkpoint('same-thread-in-canonical-detail');
+
+
+  },
+});
+console.log(JSON.stringify(result));
+if(result.status!=='passed')process.exitCode=1;

@@ -1,0 +1,329 @@
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {emitKeypressEvents} from "node:readline";
+import {PassThrough} from "node:stream";
+import {once} from "node:events";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
+import {
+  actionChordForInput,
+  displayActionChord,
+  filterActionMenuItems,
+  normalizeActionChord,
+  OutlinerActionKeymap,
+  resolveOutlinerKeymapPath,
+} from "../src/outliner-actions";
+
+const temporaryDirectories: string[] = [];
+
+test("Shift+L opens destination controls in Tree and Detail read modes without consuming editor text", () => {
+  const map = new OutlinerActionKeymap();
+  expect(map.resolve("tree", "browse", "L", {name: "l", shift: true}).actionId).toBe("tree.navigation.link");
+  for (const mode of ["preview", "annotation", "file", "property"]) {
+    expect(map.resolve("detail", mode, "L", {name: "l", shift: true}).actionId).toBe("detail.navigation.link");
+    expect(map.resolve("detail", mode, "", {name: "l", meta: true}).actionId).toBe("detail.navigation.link");
+  }
+  for (const mode of ["edit", "comment", "property-edit", "property-filter", "backlinks-filter"]) {
+    expect(map.resolve("detail", mode, "L", {name: "l", shift: true}).actionId).toBeNull();
+  }
+  expect(map.resolve("tree", "edit", "L", {name: "l", shift: true}).actionId).toBeNull();
+});
+
+test("actual readline bare Escape matches Esc without conflating Alt+Escape", async () => {
+  const input = new PassThrough();
+  emitKeypressEvents(input);
+  const event = once(input, "keypress");
+  input.write("\x1b");
+  const [text, key] = await event;
+  input.destroy();
+  const map = new OutlinerActionKeymap();
+  expect(map.canonicalize("tree", "browse", text, key).actionId).toBe("tree.preview.close");
+  expect(actionChordForInput(undefined, {name: "escape", meta: true, sequence: "\x1b\x1b"})).toBe("Alt+Esc");
+});
+
+afterEach(() => {
+  for (const directory of temporaryDirectories.splice(0)) {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+function temporaryKeymap(contents: unknown): string {
+  const directory = mkdtempSync(join(tmpdir(), "outliner-keymap-"));
+  temporaryDirectories.push(directory);
+  const path = join(directory, "keybindings.json");
+  writeFileSync(path, JSON.stringify(contents));
+  return path;
+}
+
+function temporaryRawKeymap(contents: string): string {
+  const directory = mkdtempSync(join(tmpdir(), "outliner-keymap-"));
+  temporaryDirectories.push(directory);
+  const path = join(directory, "keybindings.json");
+  writeFileSync(path, contents);
+  return path;
+}
+
+describe("Outliner action keymap", () => {
+  test("exposes configurable reorder actions and rejects split collisions atomically", () => {
+    const path = temporaryKeymap({
+      "tree.reorder.up": ["Shift+ArrowUp"],
+      "tree.reorder.down": ["Shift+ArrowDown"],
+    });
+    const keymap = new OutlinerActionKeymap(path);
+    expect(keymap.resolve("tree", "browse", "", { name: "up", meta: true }).actionId).toBe("tree.reorder.up");
+    expect(keymap.resolve("tree", "browse", "", { name: "down", meta: true }).actionId).toBe("tree.reorder.down");
+    expect(keymap.reload()).toEqual({ ok: true });
+    expect(keymap.menuItems("tree", "browse")).toContainEqual(expect.objectContaining({
+      id: "tree.reorder.down", binding: "⇧↓", label: "Move item down",
+    }));
+    writeFileSync(path, JSON.stringify({
+      "tree.reorder.down": ["Shift+ArrowDown"],
+      "tree.detail.below": ["Shift+ArrowDown"],
+    }));
+    expect(keymap.reload()).toEqual({
+      ok: false,
+      error: expect.stringContaining("both use Shift+ArrowDown"),
+    });
+    expect(keymap.primaryBinding("tree.reorder.up")).toBe("Shift+ArrowUp");
+    expect(keymap.primaryBinding("tree.reorder.down")).toBe("Shift+ArrowDown");
+    expect(keymap.primaryBinding("tree.detail.below")).toBe("Alt+Shift+ArrowDown");
+  });
+
+  test("normalizes terminal inputs and configurable chords", () => {
+    expect(normalizeActionChord("control+shift+r")).toBe("Ctrl+Shift+R");
+    expect(actionChordForInput("R", { name: "r", shift: true })).toBe("Shift+R");
+    expect(actionChordForInput("R", { name: "R" })).toBe("Shift+R");
+    expect(actionChordForInput("?", { name: "/", shift: true })).toBe("?");
+    expect(actionChordForInput(" ", {})).toBe("Space");
+    expect(actionChordForInput(undefined, { name: "down", sequence: "\x1b[B" })).toBe("ArrowDown");
+    expect(actionChordForInput(undefined, {})).toBeNull();
+    expect(actionChordForInput(undefined, { name: "undefined" })).toBeNull();
+    expect(actionChordForInput("", { name: "return" })).toBe("Enter");
+    expect(() => normalizeActionChord("Ctrl+Banana")).toThrow("Unsupported key name: Banana");
+  });
+  test("renders compact terminal glyphs without changing canonical chords", () => {
+    expect(displayActionChord("Ctrl+Shift+ArrowDown")).toBe("⌃⇧↓");
+    expect(displayActionChord("Command+Option+ArrowUp")).toBe("⌘⌥↑");
+    expect(displayActionChord("Enter")).toBe("↵");
+    expect(new OutlinerActionKeymap("<test>").helpText(
+      "tree",
+      "browse",
+      ["tree.close", "tree.move.down", "tree.read"],
+    )).toBe("⌃Q close  ↓ down  ↵ open");
+    expect(new OutlinerActionKeymap("<test>", {
+      "tree.detail.right": ["Alt+D"],
+    }).menuItems("tree", "browse")).toContainEqual(
+      expect.objectContaining({
+        id: "tree.detail.right",
+        binding: "⌥D",
+      }),
+    );
+  });
+  test("fuzzy-ranks action menu labels, descriptions, and IDs", () => {
+    const keymap = new OutlinerActionKeymap("<test>");
+    const matches = filterActionMenuItems(keymap.menuItems("tree", "browse"), "dtrt");
+    expect(matches[0]?.id).toBe("tree.detail.right");
+    expect(filterActionMenuItems(keymap.menuItems("tree", "browse"), "no-such-action")).toEqual([]);
+  });
+  test("exposes stable intents and mode-aware availability", () => {
+    const keymap = new OutlinerActionKeymap("<test>");
+    const action = keymap.action("detail.edit.begin");
+    expect(action.intent).toBe("detail.edit.begin");
+    expect(action.available({ surface: "detail", mode: "preview" })).toBe(true);
+    expect(action.available({ surface: "detail", mode: "edit" })).toBe(false);
+    const reveal = keymap.action("detail.current.reveal");
+    expect(reveal.available({ surface: "detail", mode: "preview" })).toBe(true);
+    expect(reveal.available({ surface: "detail", mode: "annotation" })).toBe(true);
+    expect(reveal.available({ surface: "detail", mode: "file" })).toBe(true);
+    expect(reveal.available({ surface: "detail", mode: "property" })).toBe(true);
+    expect(reveal.available({ surface: "detail", mode: "edit" })).toBe(false);
+    for (const [surface, mode] of [["tree", "browse"], ["detail", "preview"]] as const) {
+      expect(keymap.resolve(surface, mode, "l", {name: "l", meta: true}).actionId).toBe(`${surface}.navigation.link`);
+      expect(keymap.menuItems(surface, mode)).toContainEqual(expect.objectContaining({id: `${surface}.navigation.link`, binding: "⌥L, ⇧L"}));
+    }
+    expect(keymap.action("tree.current.reveal").defaultChords).toEqual(["Shift+R"]);
+    expect(keymap.action("detail.current.reveal").defaultChords).toEqual(["Shift+R"]);
+    expect(keymap.action("tree.reference.reveal").defaultChords).toEqual(["Alt+Shift+R"]);
+    expect(keymap.action("detail.reference.reveal").defaultChords).toEqual(["Alt+Shift+R"]);
+    expect(keymap.action("tree.virtual-branch.open").defaultChords).toEqual(["Shift+V"]);
+    expect(keymap.action("detail.virtual-branch.open").defaultChords).toEqual(["Shift+V"]);
+    expect(keymap.action("tree.bookmark.toggle").defaultChords).toEqual(["m"]);
+    expect(keymap.action("detail.bookmark.toggle").defaultChords).toEqual(["m"]);
+    expect(keymap.action("tree.bookmarks.open").defaultChords).toEqual(["Shift+M"]);
+    expect(keymap.action("detail.bookmarks.open").defaultChords).toEqual(["Shift+M"]);
+    expect(keymap.action("detail.edit.external").defaultChords).toEqual(["Ctrl+E", "Alt+E"]);
+    expect(keymap.canonicalize(
+      "detail",
+      "preview",
+      "",
+      { name: "e", ctrl: true },
+    )).toEqual({
+      actionId: "detail.edit.external",
+      str: "",
+      key: { name: "e", ctrl: true },
+      suppressed: false,
+    });
+    expect(keymap.canonicalize(
+      "tree",
+      "browse",
+      "",
+      { name: "m", ctrl: true, shift: true },
+    ).actionId).toBeNull();
+  });
+
+
+  test("remaps registered actions and suppresses stale defaults", () => {
+    const keymap = new OutlinerActionKeymap("<test>", { "tree.edit": ["z"] });
+    expect(keymap.canonicalize("tree", "browse", "z", { name: "z" })).toMatchObject({
+      actionId: "tree.edit",
+      str: "e",
+      suppressed: false,
+    });
+    expect(keymap.canonicalize("tree", "browse", "e", { name: "e" })).toMatchObject({
+      actionId: null,
+      suppressed: true,
+    });
+  });
+
+  test("rebinds and disables Shift-letter actions for uppercase Pi input", () => {
+    const rebound = new OutlinerActionKeymap("<test>", {
+      "tree.current.reveal": ["Shift+Z"],
+    });
+    expect(rebound.canonicalize("tree", "browse", "Z", { name: "Z" })).toMatchObject({
+      actionId: "tree.current.reveal",
+      suppressed: false,
+    });
+    expect(rebound.canonicalize("tree", "browse", "R", { name: "R" })).toMatchObject({
+      actionId: null,
+      suppressed: true,
+    });
+
+    const unbound = new OutlinerActionKeymap("<test>", { "tree.current.reveal": [] });
+    expect(unbound.canonicalize("tree", "browse", "R", { name: "R" })).toMatchObject({
+      actionId: null,
+      suppressed: true,
+    });
+  });
+  test("uses direction-aware pane defaults and supports rebound chords", () => {
+    const defaults = new OutlinerActionKeymap("<test>");
+    expect(defaults.primaryBinding("tree.detail.right")).toBe("Alt+Shift+ArrowRight");
+    expect(defaults.primaryBinding("tree.detail.below")).toBe("Alt+Shift+ArrowDown");
+    expect(defaults.primaryBinding("tree.delete")).toBe("Delete");
+    expect(defaults.primaryBinding("detail.pane.right")).toBe("Alt+Shift+ArrowRight");
+    expect(defaults.primaryBinding("detail.pane.below")).toBe("Alt+Shift+ArrowDown");
+
+    const keymap = new OutlinerActionKeymap("<test>", { "tree.detail.right": ["Alt+D"] });
+    expect(keymap.canonicalize("tree", "browse", "", { name: "d", meta: true })).toMatchObject({
+      actionId: "tree.detail.right",
+      str: "",
+      key: { name: "right", meta: true, shift: true },
+      suppressed: false,
+    });
+    expect(keymap.boundInput("tree.detail.right")).toEqual({
+      str: "",
+      key: { name: "d", meta: true },
+    });
+  });
+
+  test("rejects active-scope collisions and missing cancel routes", () => {
+    expect(() => new OutlinerActionKeymap("<test>", {
+      "tree.edit": ["g"],
+    })).toThrow("tree.edit and tree.goto both use g");
+    expect(() => new OutlinerActionKeymap("<test>", {
+      "detail.cancel": [],
+    })).toThrow("Detail editor modes require a keyboard-accessible cancel action");
+  });
+  test("resolves the same chord by explicit active-scope order", () => {
+    const keymap = new OutlinerActionKeymap("<test>", {
+      "detail.edit.begin": ["x"],
+      "detail.property.filter": ["x"],
+      "detail.backlinks.filter": ["x"],
+    });
+
+    expect(keymap.resolve(
+      "detail",
+      ["backlinks", "property-inspector", "preview"],
+      "x",
+      { name: "x" },
+    )).toEqual({ actionId: "detail.backlinks.filter", suppressed: false });
+    expect(keymap.resolve(
+      "detail",
+      ["property-inspector", "backlinks", "preview"],
+      "x",
+      { name: "x" },
+    )).toEqual({ actionId: "detail.property.filter", suppressed: false });
+    expect(keymap.resolve("detail", ["preview"], "x", { name: "x" })).toEqual({
+      actionId: "detail.edit.begin",
+      suppressed: false,
+    });
+  });
+  test("suppresses a rebound higher-scope default before lower-scope fallback", () => {
+    const keymap = new OutlinerActionKeymap("<test>", {
+      "detail.property.group": ["x"],
+    });
+
+    expect(keymap.resolve(
+      "detail",
+      ["property-inspector", "preview"],
+      "G",
+      { name: "G" },
+    )).toEqual({ actionId: null, suppressed: true });
+  });
+  test("reports unbound actions accurately in helpers and menus", () => {
+    const keymap = new OutlinerActionKeymap("<test>", { "tree.edit": [] });
+    expect(keymap.helpText("tree", "browse", ["tree.edit"])).toBe("unbound edit");
+    expect(keymap.menuItems("tree", "browse")).toContainEqual(expect.objectContaining({
+      id: "tree.edit",
+      binding: "unbound",
+    }));
+  });
+
+
+  test("reloads atomically and reports effective bindings in help and menus", () => {
+    const path = temporaryKeymap({ "detail.edit.begin": ["x"] });
+    const keymap = new OutlinerActionKeymap(path);
+    expect(keymap.reload()).toEqual({ ok: true });
+    expect(keymap.helpText("detail", "preview", ["detail.edit.begin"])).toBe("x edit");
+    expect(keymap.menuItems("detail", "preview")).toContainEqual(expect.objectContaining({
+      id: "detail.edit.begin",
+      binding: "x",
+    }));
+
+    writeFileSync(path, JSON.stringify({ "unknown.action": ["z"] }));
+    expect(keymap.reload()).toEqual({
+      ok: false,
+      error: "Unknown Outliner action ID: unknown.action",
+    });
+    expect(keymap.primaryBinding("detail.edit.begin")).toBe("x");
+  });
+
+  test("falls back to defaults with bounded diagnostics when startup keymaps are invalid", () => {
+    const parseFailure = temporaryRawKeymap(`{"tree.edit": ${"x".repeat(700)}}`);
+    const validationFailure = temporaryKeymap({ "unknown.action": ["z"] });
+    const diagnostic = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      expect(OutlinerActionKeymap.load({
+        OUTLINER_KEYBINDINGS_PATH: parseFailure,
+      }).primaryBinding("tree.edit")).toBe("e");
+      expect(OutlinerActionKeymap.load({
+        OUTLINER_KEYBINDINGS_PATH: validationFailure,
+      }).primaryBinding("tree.edit")).toBe("e");
+      expect(diagnostic).toHaveBeenCalledTimes(2);
+      for (const call of diagnostic.mock.calls) {
+        expect(String(call[0])).toContain("using defaults");
+        expect(String(call[0]).length).toBeLessThanOrEqual(512);
+      }
+    } finally {
+      diagnostic.mockRestore();
+    }
+  });
+
+  test("resolves XDG and explicit keymap paths", () => {
+    expect(resolveOutlinerKeymapPath({
+      XDG_CONFIG_HOME: "/config",
+    })).toBe("/config/pi-herdr-outliner/keybindings.json");
+    expect(resolveOutlinerKeymapPath({
+      OUTLINER_KEYBINDINGS_PATH: "/workspace/keys.json",
+    })).toBe("/workspace/keys.json");
+  });
+});

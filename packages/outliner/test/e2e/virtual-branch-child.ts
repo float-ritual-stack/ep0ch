@@ -1,0 +1,73 @@
+import assert from "node:assert/strict";
+import type { Block, VisibleBlockCollection } from "../../src/types";
+import { runHerdrScenario } from "./herdr-runner";
+
+const result = await runHerdrScenario({
+  name: "virtual-branch-child",
+  async prepare() {},
+  async run(s) {
+    const terminal = await s.attachClient();
+    await terminal.resize(190, 55);
+    const tree = s.panes.tree;
+    const create = (text: string, parentId: string | null = null) => s.client.request<Block>({ action: "create", text, parentId });
+    const folder = await create("Canonical sources");
+    const ticket = await create("ALPHA validation ticket\n[fixture::child]", folder.id);
+    const older = await create("Existing feedback", ticket.id);
+    const other = await create("BRAVO validation ticket\n[fixture::child]", folder.id);
+    await create("Other hidden feedback", other.id);
+    const view = await create("Validation lane\n[type::virtual-branch] [query::fixture=child] [child-depth::1] [expanded::false]");
+    const roots = async () => (await s.client.request<VisibleBlockCollection>({ action: "blocks.query", query: { filters: [{ key: "fixture", value: "child" }], rankViewId: view.id, limit: 10 } })).blocks.map(b => b.id);
+    const originalRoots = await roots();
+    const children = () => s.client.request<Block[]>({ action: "children", parentId: ticket.id });
+    await s.setKeybindings({ "tree.root.focus": ["Alt+F"] });
+    await s.keys(tree, "ctrl+r");
+    await s.waitVisible(tree, "Keymap and bars reloaded");
+    await s.revealTree(tree, view.id);
+    await s.keys(tree, "alt+f");
+    await s.waitVisible(tree, "Focused branch: Validation lane");
+    await s.keys(tree, "down");
+    await s.waitFor("collapsed projection ready", () => s.visible(tree), text => text.includes("Validation lane › ◇ ALPHA validation ticket") && !text.includes("Existing feedback"));
+    await s.checkpoint("01-collapsed-ticket");
+    await s.keys(tree, "a");
+    await s.text(tree, "Cancelled feedback");
+    await s.waitVisible(tree, "Cancelled feedback");
+    await s.keys(tree, "escape");
+    assert.deepEqual((await children()).map(b => b.id), [older.id]);
+    await s.keys(tree, "a");
+    await s.text(tree, "New validation feedback");
+    await s.keys(tree, "enter");
+    const saved = await s.waitFor("canonical first child", children, list => list.length === 2 && list[0]?.text === "New validation feedback");
+    assert.equal(saved[0]!.parentId, ticket.id);
+    assert.equal(saved[1]!.id, older.id);
+    await s.waitVisible(tree, "Validation lane › ◇ ALPHA validation ticket › ◇ New validation feedback");
+    assert(!(await s.visible(tree)).includes("Other hidden feedback"));
+    await s.checkpoint("02-new-child-same-occurrence");
+    await s.keys(tree, "a");
+    await s.waitVisible(tree, "child-depth 1");
+    assert.equal((await s.client.request<Block[]>({ action: "children", parentId: saved[0]!.id })).length, 0);
+    await s.checkpoint("03-depth-bound-no-write");
+    await s.keys(tree, "left");
+    await s.focus(tree);
+    await s.text(tree, "?");
+    await s.waitVisible(tree, "Find:");
+    await s.text(tree, "add child");
+    const screen = await s.waitFor("add child action visible", terminal.visible, text => text.includes("Find: add child") && text.split("\n").some(line => line.includes("add child") && !line.includes("Find:")));
+    const lines = screen.split("\n"), y = lines.findIndex(line => line.includes("add child") && !line.includes("Find:"));
+    const x = lines[y]!.indexOf("add child");
+    await terminal.write(`\x1b[<0;${x + 2};${y + 1}M\x1b[<0;${x + 2};${y + 1}m`);
+    await s.text(tree, "Pointer feedback");
+    await s.keys(tree, "enter");
+    const pointerSaved = await s.waitFor("pointer first child", children, list => list.length === 3 && list[0]?.text === "Pointer feedback");
+    await s.waitVisible(tree, "Validation lane › ◇ ALPHA validation ticket › ◇ Pointer feedback");
+    await terminal.resize(145, 48);
+    await s.waitVisible(tree, "Pointer feedback");
+    assert.deepEqual(await roots(), originalRoots);
+    assert.deepEqual(await s.client.request<Block>({ action: "get", blockId: ticket.id }), ticket);
+    assert.deepEqual(await s.client.request<Block>({ action: "get", blockId: view.id }), view);
+    assert.equal(pointerSaved.filter(b => b.text === "Pointer feedback").length, 1);
+    await s.checkpoint("04-pointer-action-resize");
+    await s.record("coverage", { input: "Herdr injected keys and attached-terminal pointer action menu", result: "First canonical child; same occurrence; cancel and depth refusal write nothing; collapsed sibling retained; roots unchanged", limits: "Physical host shortcut delivery not exercised" });
+  },
+});
+console.log(JSON.stringify(result));
+if (result.status !== "passed") process.exitCode = 1;

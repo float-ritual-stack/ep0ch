@@ -1,0 +1,5187 @@
+import {isVirtualBranchDefinition, parseVirtualBranchConfig, selectVirtualBranchMembers, virtualBranchMembershipQuery, type VirtualBranchMembers} from "./virtual-branches";
+import {placeOrderedItems} from "./virtual-placement";
+import {WorkingSelectionRepository} from "./working-selection";
+import { ChangeFeed, raiseChangeFeedFloor, type SequenceChange } from "./change-feed";
+import { checklistItems, queryChecklistItems, updateChecklistText, validateChecklistIdentityChanges } from "./checklist-items";
+import { searchFragmentCandidates, type FragmentCandidateCollection, type FragmentCandidateQuery } from "./fragment-search";
+import { ensureHeadingFragment } from "./fragments";
+import { readFragment, readTransclusions, type FragmentRead, type TransclusionOptions, type TransclusionRead, type TransclusionTarget } from "./transclusions";
+import type { ChecklistCollection, ChecklistIdentityChange, ChecklistQuery, ChecklistSearchQuery, ChecklistSearchCollection, ChecklistUpdateInput, ChecklistUpdateReceipt } from "./types";
+import { planCreateInView, planMoveIntoView, writeView } from "./view-writes";
+import type {QueryExpression, SavedViewReadOptions, ViewWritePlanRequest, ViewWritePlanResult, SavedViewReadProblem, SavedViewReadResult, VirtualBranchOrder, VirtualBranchPlacementInput} from "./types";
+import { BLOCK_ACTIVITY_KINDS, BLOCK_EDIT_ACTIVITY_KINDS } from "./types";
+import { Database } from "bun:sqlite";
+import { createHash } from "node:crypto";
+import { mkdirSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { acquireWorkspaceOwnership } from "./workspace-ownership";
+import { AnnotationRepository } from "./annotation-repository";
+import { blockAnnotationRepresentation } from "./annotation-representations";
+import { RESOURCE_DIRECTIVE_PROVIDERS } from "./resource-references";
+import { extensionActorId, extensionWriteRefusal, type ExtensionRecordOwner } from "./extension-records";
+import { authoredTextDigest } from "./authored-links";
+import { resolveBacklinkRelation } from "./backlinks";
+import { rankBlockFocusMatches } from "./block-focus";
+import { rankTextSearchMatches, searchTextTerms } from "./search-match";
+import { normalizeBlockReadFields, normalizeBlockReadIds, projectBlock } from "./block-projection";
+import { gotoCandidates } from "./goto-search";
+import { contextList, searchContext, sortByContext, type SearchContext } from "./search-context";
+import {
+  BOOKMARKS_SYSTEM_VIEW,
+  BOOKMARK_TYPE,
+  bookmarkRecordText,
+  parseBookmarkRecord,
+  parseBookmarksRoot,
+  type BookmarkRecord,
+} from "./bookmarks";
+import { isValidGitBranchName, parseDeliveryIdentity } from "./delivery-lifecycle";
+import { seedDefaultWorkspace } from "./default-workspace";
+import { migrateRoadmapText } from "./roadmap-migration";
+import {
+  compileQueryExpression,
+  normalizeBlockSearchQuery,
+  parseSearchExpression,
+  positivePropertyFilters,
+} from "./block-query";
+import {
+  firstLineWithoutPropertyTokens,
+  literalMarkerLineRanges,
+  formatProperty,
+  matchingPropertyRecords,
+  matchesFilters,
+  parsePropertyRecords,
+  patchPropertyText,
+  PROPERTY_PARSER_VERSION,
+} from "./properties";
+import {
+  normalizePageAddress,
+  PAGE_ADDRESS_REGISTRY_VERSION,
+  tryNormalizePageAddress,
+  type NormalizedPageAddress,
+} from "./page-addresses";
+import {
+  blockReferenceDisplayText,
+  blockReferenceOccurrences,
+  resolveBlockReferences as resolveBlockReferenceText,
+  resolveBlockReferencesWithStatus,
+} from "./references";
+import {
+  ResourceCatalog,
+  type ResourceCatalogOptions,
+} from "./resource-catalog";
+import {
+  formatWorkId,
+  isConfiguredWorkIdPlaceholder,
+  normalizeWorkIdPrefix,
+  parseWorkId,
+  workIdReferences,
+  type ParsedWorkId,
+} from "./work-ids";
+import type {
+  AnnotationAgentEvidenceSummary,
+  AnnotationAgentPromptPackage,
+  AnnotationAgentProposalInput,
+  AnnotationAgentProposalReceipt,
+  AnnotationAgentReviewInput,
+  AnnotationApproveResolutionInput,
+  AnnotationBatchOperation,
+  AnnotationBatchReceipt,
+  AnnotationCreateInput,
+  AnnotationLifecycleInput,
+  AnnotationListQuery,
+  AnnotationReconcileInput,
+  AnnotationReconcileReceipt,
+  AnnotationRecord,
+  AnnotationReplyInput,
+  AnnotationThread,
+  BacklinkCollection,
+  BacklinkQuery,
+  Block,
+  BlockAuthor,
+  BlockProperty,
+  BlockProvenance,
+  BlockActivityKind,
+  BlockEditActivity,
+  BlockEditActivityPage,
+  BlockSearchQuery,
+  BlockReadCollection,
+  ProjectedBlock,
+  ProjectedBlockCollection,
+  UnavailableBlockRead,
+  BlockTraversalOptions,
+  BookmarkRemoveReceipt,
+  BookmarkResolution,
+  BookmarkStatus,
+  BookmarkToggleReceipt,
+  CaptureReceipt,
+  CaptureSource,
+  QuickCaptureDraft,
+  QuickCaptureDraftSaveInput,
+  NavigationState,
+  DeliveryEnsureInput,
+  DeliveryReceipt,
+  DeliverySyncInput,
+  DeliverySyncReceipt,
+  MutationProvenance,
+  PageAddressCollection,
+  PageAddressFollowResult,
+  PageAddressKind,
+  PageAddressMatch,
+  BlockCollectionCompleteness,
+  GotoSearchCollection,
+  PageAddressRecord,
+  PageAddressRemoval,
+  PageAddressResolution,
+  PropertyCatalogItem,
+  PropertyFilter,
+  PropertyPlacement,
+  PropertyQueryScope,
+  PropertyRecord,
+  PropertyScope,
+  PropertySyntax,
+  PropertyPatchOperation,
+  ResolvedBlockReferences,
+  RoadmapBranchMembership,
+  RoadmapItemCreateInput,
+  RoadmapItemCreateReceipt,
+  RoadmapItemPriority,
+  RoadmapWorkStage,
+  SelectionContext,
+  TreeIndexBlock,
+  TreeIndexCollection,
+  TreeFocusCollection,
+  TreeIndexSnapshot,
+  VirtualOccurrenceRank,
+  VisibleBlock,
+  VisibleBlockCollection,
+  WorkIdAllocation,
+  WorkIdAllocatorStatus,
+  WorkspaceSnapshot,
+  WorkspaceSnapshotView,
+} from "./types";
+
+interface BlockRow {
+  id: string;
+  parent_id: string | null;
+  position: number;
+  text: string;
+  revision: number;
+  author: BlockAuthor;
+  actor_id: string | null;
+  session_id: string | null;
+  task_id: string | null;
+  deleted_at: string | null;
+  effective_deleted_root_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+interface CaptureRequestRow {
+  block_id: string;
+  inbox_block_id: string;
+  payload_hash: string | null;
+}
+
+interface QuickCaptureDraftRow {
+  request_id: string;
+  text: string;
+  submitted_text: string | null;
+  cursor_row: number;
+  cursor_column: number;
+  captured_from_block_id: string | null;
+  revision: number;
+  updated_at: string;
+  block_id: string | null;
+  block_revision: number | null;
+  selection_anchor: string | null;
+}
+
+interface PropertyRow {
+  block_id: string;
+
+  key: string;
+  value: string;
+  ordinal: number;
+  raw: string;
+  start: number;
+  end: number;
+  line: number;
+  column: number;
+  placement: PropertyPlacement;
+  scope: PropertyScope;
+  syntax: PropertySyntax;
+}
+
+interface PageAddressRow {
+  normalized_address: string;
+  display_address: string;
+  block_id: string;
+  kind: PageAddressKind;
+}
+
+interface PageAddressMatchRow extends PageAddressRow {
+  text: string;
+}
+
+interface WorkIdAllocatorRow {
+  prefix: string;
+  next_number: number;
+}
+
+interface VirtualOccurrenceRankRow {
+  view_id: string;
+  block_id: string;
+  rank: number;
+}
+
+interface VisibleBlockRow extends BlockRow {
+  depth: number;
+  has_children: number;
+}
+
+interface BlockEditActivityRow {
+  activity_id: number;
+  block_id: string;
+  author: BlockAuthor;
+  actor_id: string | null;
+  session_id: string | null;
+  task_id: string | null;
+  kind: BlockActivityKind;
+  edited_at: string;
+}
+
+interface LoadedGraph {
+  byId: Map<string, Block>;
+  byParent: Map<string | null, Block[]>;
+  propertyRecordsByBlock: Map<string, PropertyRecord[]>;
+  deletedDescendantCountByRoot: Map<string, number>;
+}
+function propertyRecordFromRow(row: PropertyRow): PropertyRecord {
+  return {
+    key: row.key,
+    value: row.value,
+    ordinal: row.ordinal,
+    raw: row.raw,
+    start: row.start,
+    end: row.end,
+    line: row.line,
+    column: row.column,
+    placement: row.placement,
+    scope: row.scope,
+    syntax: row.syntax,
+  };
+}
+
+function propertyMatchContexts(records: readonly PropertyRecord[]) {
+  return records.map(({ key, value, ordinal, start, end, line, column, scope }) => ({
+    key,
+    value,
+    ordinal,
+    start,
+    end,
+    line,
+    column,
+    scope,
+  }));
+}
+
+function sortByOccurrenceRank(blocks: VisibleBlock[], ranks: readonly VirtualOccurrenceRank[]): void {
+  const rankById = new Map(ranks.map(entry => [entry.blockId, entry.rank]));
+  const preorder = new Map(blocks.map((block, index) => [block.id, index]));
+  blocks.sort((left, right) => {
+    const leftRank = rankById.get(left.id);
+    const rightRank = rankById.get(right.id);
+    if (leftRank === undefined && rightRank === undefined) return preorder.get(left.id)! - preorder.get(right.id)!;
+    if (leftRank === undefined) return 1;
+    if (rightRank === undefined) return -1;
+    return leftRank - rightRank || left.id.localeCompare(right.id);
+  });
+}
+
+function sortQueriedBlocks(
+  blocks: VisibleBlock[],
+  sort: NonNullable<BlockSearchQuery["sort"]>,
+): void {
+  const field = sort.field === "created" ? "createdAt" : "updatedAt";
+  const direction = sort.direction === "asc" ? 1 : -1;
+  blocks.sort((left, right) =>
+    direction * left[field].localeCompare(right[field]) ||
+    direction * left.createdAt.localeCompare(right.createdAt) ||
+    left.id.localeCompare(right.id)
+  );
+}
+
+interface LoadedGraphTraversalOptions extends BlockTraversalOptions {
+  /** Boolean expression, ANDed with filters; relative times already resolved. */
+  where?: QueryExpression;
+  now?: number;
+  text?: string;
+  stopAfterMatches?: number;
+  deletedMode?: "active" | "roots" | "all";
+}
+
+function normalizeCreatorProvenance(
+  author: BlockAuthor,
+  provenance: BlockProvenance | undefined,
+): { actorId: string | null; sessionId: string | null; taskId: string | null } {
+  if (provenance === undefined) {
+    return { actorId: null, sessionId: null, taskId: null };
+  }
+  if (author !== "agent") {
+    throw new Error("Only agent-authored blocks may include agent provenance");
+  }
+
+  const normalizeOptionalId = (value: string | undefined, label: string): string | null => {
+    if (value === undefined) return null;
+    const normalized = value.trim();
+    if (!normalized) throw new Error(`${label} cannot be empty`);
+    return normalized;
+  };
+  const actorId = normalizeOptionalId(provenance.actorId, "Provenance actorId");
+  if (actorId === null) throw new Error("Provenance actorId cannot be empty");
+
+  return {
+    actorId,
+    sessionId: normalizeOptionalId(provenance.sessionId, "Provenance sessionId"),
+    taskId: normalizeOptionalId(provenance.taskId, "Provenance taskId"),
+  };
+}
+
+/** The activity table, shared by creation and the kind migration so the two cannot drift. */
+function blockActivityTableSql(name: string, options: { ifNotExists?: boolean } = {}): string {
+  return `CREATE TABLE ${options.ifNotExists ? "IF NOT EXISTS " : ""}${name} (
+    activity_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    block_id TEXT NOT NULL REFERENCES blocks(id) ON DELETE CASCADE,
+    author TEXT NOT NULL CHECK (author IN ('user', 'agent', 'system')),
+    actor_id TEXT,
+    session_id TEXT,
+    task_id TEXT,
+    kind TEXT NOT NULL CHECK (kind IN (${BLOCK_ACTIVITY_KINDS.map(kind => `'${kind}'`).join(", ")})),
+    edited_at TEXT NOT NULL
+  )`;
+}
+
+function normalizeMutationProvenance(
+  mutation: MutationProvenance,
+): {
+  author: BlockAuthor;
+  actorId: string | null;
+  sessionId: string | null;
+  taskId: string | null;
+} {
+  if (!mutation || !["user", "agent", "system"].includes(mutation.author)) {
+    throw new Error("Mutation provenance must identify user, agent, or system");
+  }
+  const normalizeOptionalId = (value: string | undefined, label: string): string | null => {
+    if (value === undefined) return null;
+    const normalized = value.trim();
+    if (!normalized) throw new Error(`${label} cannot be empty`);
+    return normalized;
+  };
+  const actorId = normalizeOptionalId(mutation.actorId, "Mutation actorId");
+  if (mutation.author === "agent" && actorId === null) {
+    throw new Error("Agent mutation provenance requires actorId");
+  }
+  return {
+    author: mutation.author,
+    actorId,
+    sessionId: normalizeOptionalId(mutation.sessionId, "Mutation sessionId"),
+    taskId: normalizeOptionalId(mutation.taskId, "Mutation taskId"),
+  };
+}
+
+interface ExtensionRecordDbRow {
+  block_id: string;
+  extension_id: string;
+  label: string;
+  role: "record" | "comment";
+  parent_block_id: string;
+  item_key: string;
+  resource_id: string | null;
+  synced_at: string;
+}
+
+/** One owned block (`extension_records`): who owns it and what it shows. */
+export interface ExtensionRecordRow extends ExtensionRecordOwner {
+  readonly blockId: string;
+  /** The block that asked for it (a record), or its record (a comment). */
+  readonly parentBlockId: string;
+  readonly resourceId: string | null;
+  /** When the extension last wrote or confirmed it. */
+  readonly syncedAt: string;
+}
+
+function extensionRecordRow(row: ExtensionRecordDbRow): ExtensionRecordRow {
+  return {
+    blockId: row.block_id,
+    extensionId: row.extension_id,
+    label: row.label,
+    role: row.role,
+    parentBlockId: row.parent_block_id,
+    itemKey: row.item_key,
+    resourceId: row.resource_id,
+    syncedAt: row.synced_at,
+  };
+}
+
+/**
+ * What an `@name` request came to. `waiting`: written by an agent, so it waits for r. `proposed` becomes
+ * `applied` or `dismissed` when the person settles the proposal it left (PIE-510).
+ */
+export const AGENT_REQUEST_STATUSES = ["waiting", "running", "applied", "proposed", "dismissed", "replied", "nothing", "failed"] as const;
+export type AgentRequestStatus = typeof AGENT_REQUEST_STATUSES[number];
+
+/** The `agent_requests` table, shared by creation and the status migration so the two cannot drift. */
+function agentRequestsTableSql(name: string): string {
+  return `CREATE TABLE IF NOT EXISTS ${name} (
+        block_id TEXT NOT NULL REFERENCES blocks(id) ON DELETE CASCADE,
+        request_key TEXT NOT NULL,
+        agent TEXT NOT NULL,
+        extension_id TEXT NOT NULL,
+        request TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN (${AGENT_REQUEST_STATUSES.map(status => `'${status}'`).join(", ")})),
+        message TEXT,
+        reply TEXT,
+        proposal_id TEXT,
+        requested_by TEXT NOT NULL,
+        requested_at TEXT NOT NULL,
+        answered_at TEXT,
+        PRIMARY KEY (block_id, request_key)
+      )`;
+}
+
+/** One `@name` request line and what its agent did (`agent_requests`). */
+export interface AgentRequestRow {
+  readonly blockId: string;
+  readonly requestKey: string;
+  readonly agent: string;
+  readonly extensionId: string;
+  readonly request: string;
+  /** `waiting`: written by an agent, so it waits for r. */
+  readonly status: AgentRequestStatus;
+  readonly message?: string | null;
+  readonly reply?: string | null;
+  readonly proposalId?: string | null;
+  /** `user` or `agent:<actor>`: who wrote the line. */
+  readonly requestedBy: string;
+  readonly requestedAt: string;
+  readonly answeredAt?: string | null;
+}
+
+interface AgentRequestDbRow {
+  block_id: string; request_key: string; agent: string; extension_id: string; request: string; status: AgentRequestRow["status"];
+  message: string | null; reply: string | null; proposal_id: string | null; requested_by: string; requested_at: string; answered_at: string | null;
+}
+
+function agentRequestRow(row: AgentRequestDbRow): AgentRequestRow {
+  return {
+    blockId: row.block_id, requestKey: row.request_key, agent: row.agent, extensionId: row.extension_id, request: row.request,
+    status: row.status, message: row.message, reply: row.reply, proposalId: row.proposal_id, requestedBy: row.requested_by,
+    requestedAt: row.requested_at, answeredAt: row.answered_at,
+  };
+}
+
+/** One handler line's stored result (`extension_outputs`). */
+export interface ExtensionOutputRow {
+  readonly blockId: string;
+  readonly callKey: string;
+  readonly extensionId: string;
+  readonly handlerKey: string;
+  readonly kind: "output" | "component";
+  readonly request: unknown;
+  /** The last good result; null before the first. */
+  readonly result: unknown;
+  readonly error: string | null;
+  readonly ranAt: string | null;
+  readonly attemptedAt: string;
+  readonly blockRevision: number;
+  readonly extensionVersion: number;
+}
+
+export interface ExtensionOutputWrite {
+  readonly blockId: string;
+  readonly callKey: string;
+  readonly extensionId: string;
+  readonly handlerKey: string;
+  readonly kind: "output" | "component";
+  readonly request: unknown;
+  /** Absent on a failure: the last good result stays. */
+  readonly result?: unknown;
+  readonly error?: string;
+  readonly attemptedAt: string;
+  readonly blockRevision: number;
+  readonly extensionVersion: number;
+}
+
+interface ExtensionOutputDbRow {
+  block_id: string; call_key: string; extension_id: string; handler_key: string; kind: "output" | "component";
+  request: string; result: string | null; error: string | null; ran_at: string | null; attempted_at: string;
+  block_revision: number; extension_version: number;
+}
+
+function extensionOutputRow(row: ExtensionOutputDbRow): ExtensionOutputRow {
+  return {
+    blockId: row.block_id, callKey: row.call_key, extensionId: row.extension_id, handlerKey: row.handler_key, kind: row.kind,
+    request: JSON.parse(row.request), result: row.result === null ? null : JSON.parse(row.result), error: row.error,
+    ranAt: row.ran_at, attemptedAt: row.attempted_at, blockRevision: row.block_revision, extensionVersion: row.extension_version,
+  };
+}
+
+export interface ExtensionRecordWriteInput {
+  readonly extensionId: string;
+  readonly label: string;
+  /** The block that asked for the record; the record is its child. */
+  readonly parentBlockId: string;
+  readonly itemKey: string;
+  readonly resourceId: string | null;
+  readonly text: string;
+  /** Comment blocks, oldest first. `null` removes them; `undefined` leaves them. */
+  readonly comments?: readonly { readonly itemKey: string; readonly text: string }[] | null;
+}
+
+export interface ExtensionRecordWriteReceipt {
+  readonly record: Block;
+  /** Blocks whose text, place or existence the write changed; empty when nothing did. */
+  readonly changedBlockIds: readonly string[];
+}
+
+const CAPTURE_SOURCES = new Set<CaptureSource>(["tree", "pi", "omp", "cli", "external"]);
+
+function normalizeCaptureRequestId(requestId: string): string {
+  if (typeof requestId !== "string") {
+    throw new Error("Capture requestId must be 1-200 printable characters");
+  }
+  const normalized = requestId.trim();
+  if (!normalized || normalized.length > 200 || /[\u0000-\u001f\u007f]/.test(normalized)) {
+    throw new Error("Capture requestId must be 1-200 printable characters");
+  }
+  return normalized;
+}
+
+function normalizeCaptureTitle(title: string): string {
+  if (typeof title !== "string") throw new Error("Capture title must be a string");
+  const normalized = title.trim();
+  if (
+    !normalized ||
+    [...normalized].length > 120 ||
+    /[\r\n[\]\u0000-\u001f\u007f]/.test(normalized)
+  ) {
+    throw new Error("Capture title must be 1-120 plain printable characters");
+  }
+  return normalized;
+}
+
+
+const ROADMAP_PRIORITIES: Record<RoadmapItemPriority, true> = {
+  high: true,
+  medium: true,
+  low: true,
+};
+const ROADMAP_CREATE_STAGES: Record<Exclude<RoadmapWorkStage, "done" | "superseded">, true> = {
+  unprioritized: true,
+  queued: true,
+  doing: true,
+  review: true,
+  validate: true,
+  later: true,
+};
+const RESERVED_ROADMAP_PROPERTY_KEYS: Record<string, true> = {
+  type: true,
+  status: true,
+  priority: true,
+  "work-stage": true,
+  "work-batch": true,
+  project: true,
+  arc: true,
+  track: true,
+  "depends-on": true,
+  "related-to": true,
+  "source-block": true,
+  "work-id": true,
+};
+
+const CANONICAL_BLOCK_ID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function normalizeRoadmapText(value: unknown, label: string): string {
+  if (typeof value !== "string") throw new Error(`${label} must be a string`);
+  const normalized = value.trim();
+  if (!normalized) throw new Error(`${label} cannot be empty`);
+  if (/[\u0000-\u001f\u007f]/.test(normalized)) {
+    throw new Error(`${label} must be a single printable line`);
+  }
+  return normalized;
+}
+
+function normalizeRoadmapValues(values: unknown, label: string): string[] {
+  if (!Array.isArray(values) || values.length === 0) {
+    throw new Error(`${label} must contain at least one value`);
+  }
+
+  return [...new Set(values.map((value) => normalizeRoadmapText(value, label)))];
+}
+
+function normalizeRoadmapRelationshipId(value: unknown, label: string): string {
+  const blockId = normalizeRoadmapText(value, label);
+  if (!CANONICAL_BLOCK_ID_PATTERN.test(blockId)) {
+    throw new Error(`${label} must contain canonical block UUIDs: ${blockId}`);
+  }
+  return blockId;
+}
+
+function normalizeRoadmapRelationshipIds(
+  values: unknown,
+  label: string,
+): string[] {
+  if (values === undefined) return [];
+  if (!Array.isArray(values)) throw new Error(`${label} must be an array`);
+  return [...new Set(values.map((value) => normalizeRoadmapRelationshipId(value, label)))];
+}
+
+function assertNoReservedRoadmapProperties(title: string, body: string): void {
+  const reservedProperty = parsePropertyRecords(`${title}\n${body}`).find(
+    (property) => RESERVED_ROADMAP_PROPERTY_KEYS[property.key] === true,
+  );
+  if (reservedProperty) {
+    throw new Error(
+      `Roadmap title and body cannot include reserved property: ${reservedProperty.key}`,
+    );
+  }
+}
+
+const treeLabelSegmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+
+function boundedTreeLabel(text: string): string {
+  if (text.length <= 512) return text;
+  const boundary = treeLabelSegmenter.segment(text).containing(511)!.index;
+  return `${text.slice(0, boundary)}…`;
+}
+
+/** Internal saved-view evaluation counts every member; public queries stay within 1..1000. */
+const UNBOUNDED_VIEW_MATCHES = 1_000_000_000;
+
+function compactTreeBlock(
+  { text, displayText: _displayText, propertyMatches: _matches, ...metadata }: VisibleBlock,
+  lookup: (blockId: string) => Block | null,
+): TreeIndexBlock {
+  const resolved = resolveBlockReferencesWithStatus(text, lookup);
+  let offset = 0;
+  let spans = blockReferenceOccurrences(text).map((occurrence, index) => {
+    const reference = resolved.references[index]!;
+    const start = occurrence.start + offset;
+    const end = start + blockReferenceDisplayText(reference).length;
+    offset = end - occurrence.end;
+    return {
+      start,
+      end,
+      target: reference.status === "resolved" || reference.status === "deleted"
+        ? { blockId: reference.blockId, ...(reference.fragmentId ? { fragmentId: reference.fragmentId } : {}) }
+        : null,
+    };
+  });
+  let title = resolved.text;
+  const replaceRanges = (ranges: Array<{ start: number; end: number }>, replacement: string) => {
+    const parts: string[] = [];
+    let cursor = 0;
+    for (const range of [...ranges, { start: title.length, end: title.length }]) {
+      parts.push(title.slice(cursor, range.start));
+      if (range.end > range.start) parts.push(replacement);
+      cursor = range.end;
+    }
+    const mapPosition = (position: number): number => {
+      let delta = 0;
+      for (const range of ranges) {
+        if (position <= range.start) break;
+        if (position < range.end) return range.start + delta;
+        delta += replacement.length - (range.end - range.start);
+      }
+      return position + delta;
+    };
+    spans = spans.flatMap(span => {
+      const start = mapPosition(span.start);
+      const end = mapPosition(span.end);
+      if (start >= end) return [];
+      // Removing an inner label token preserves the reference. Cutting either
+      // delimiter preserves only nonactionable provenance for the visible text.
+      const clipped = ranges.some(range =>
+        (range.start <= span.start && span.start < range.end) ||
+        (range.start < span.end && span.end <= range.end));
+      return [{ start, end, target: clipped ? null : span.target }];
+    });
+    title = parts.join("");
+  };
+  // Matched literal-region marker lines are hidden in Detail, so the label skips
+  // them too. They are removed with the property tokens in one pass: a region
+  // stops protecting its text once a marker is gone.
+  const markerLines = literalMarkerLineRanges(title);
+  if (metadata.properties.length) {
+    replaceRanges([
+      ...parsePropertyRecords(title).filter(record => record.syntax !== "hashtag"),
+      ...markerLines,
+    ].sort((left, right) => left.start - right.start), "");
+    let lineStart = 0;
+    for (const line of title.split("\n")) {
+      if (line.trim()) {
+        const start = lineStart + line.length - line.trimStart().length;
+        const end = lineStart + line.trimEnd().length;
+        replaceRanges([{ start: 0, end: start }, { start: end, end: title.length }], "");
+        break;
+      }
+      lineStart += line.length + 1;
+    }
+    if (!title.trim()) {
+      title = metadata.id;
+      spans = [];
+    }
+  } else {
+    if (markerLines.length) replaceRanges(markerLines, "");
+    replaceRanges(Array.from(title.matchAll(/\r?\n/g), match => ({
+      start: match.index, end: match.index + match[0].length,
+    })), " ↵ ");
+  }
+  const preview = boundedTreeLabel(title);
+  const visibleEnd = preview === title ? title.length : preview.length - 1;
+  const previewReferences = spans.filter(span => span.start < visibleEnd).map(({ start, end, target }) => ({
+    start,
+    end: Math.min(end, visibleEnd),
+    target: end <= visibleEnd ? target : null,
+  }));
+  return {
+    ...metadata,
+    preview,
+    previewReferences,
+    textDigest: authoredTextDigest(text),
+  };
+}
+
+export class OutlinerStore {
+  private readonly releaseOwnership: () => void;
+  readonly database: Database;
+  readonly workspaceRoot: string;
+  readonly resources: ResourceCatalog;
+  readonly annotations: AnnotationRepository;
+  readonly workingSelections: WorkingSelectionRepository;
+  readonly changes: ChangeFeed;
+  /** The extension writing now (`writeExtensionRecord`); owned blocks refuse every other writer. */
+  private extensionWriter: string | null = null;
+
+  constructor(path: string, resourceOptions: ResourceCatalogOptions = {}) {
+    this.workspaceRoot = resolve(resourceOptions.workspaceRoot ?? dirname(path));
+    mkdirSync(dirname(path), { recursive: true });
+    this.releaseOwnership = acquireWorkspaceOwnership(path);
+    let database: Database | undefined;
+    try {
+      this.database = database = new Database(path, { create: true });
+      this.database.exec("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;");
+      this.migrate();
+      this.changes = new ChangeFeed(this.database, () => this.sequence);
+      this.workingSelections = new WorkingSelectionRepository(this.database);
+      this.resources = new ResourceCatalog(this.database, {
+        workspaceRoot: dirname(path),
+        ...resourceOptions,
+      }, (sequence) => this.changes.recordSequenceOnly(sequence, "resource-catalog"));
+      this.annotations = new AnnotationRepository(this.database, this.resources, {
+        create: (text, parentId, author, provenance) =>
+          this.create(text, parentId, author, provenance),
+        update: (blockId, text, expectedRevision, mutation) =>
+          this.update(blockId, text, expectedRevision, mutation),
+        insertCanonical: (id, text, parentId, author, createdAt) =>
+          this.insertCanonicalBlock(id, text, parentId, author, createdAt),
+        replaceCanonicalText: (blockId, text) =>
+          this.replaceCanonicalBlockText(blockId, text),
+        markMutation: (change) => this.bumpSequence(change),
+        requireActive: (blockId) => this.requireActive(blockId),
+        get: (blockId) => this.get(blockId),
+        listAnnotations: () => (
+          this.database.query(`
+            SELECT DISTINCT b.id
+            FROM blocks b
+            JOIN block_properties p ON p.block_id = b.id
+            WHERE p.key = 'type'
+              AND p.value IN ('annotation', 'annotation-reply')
+              AND p.scope = 'block'
+            ORDER BY b.created_at, b.id
+          `).all() as Array<{ id: string }>
+        ).map(({ id }) => this.get(id)).filter((block): block is Block => block !== null),
+      });
+      this.seed();
+      this.ensureTrashView();
+      this.ensureInbox();
+      this.ensureBookmarks();
+    } catch (error) {
+      try {
+        database?.close();
+      } finally {
+        this.releaseOwnership();
+      }
+      throw error;
+    }
+  }
+
+
+  close(): void {
+    try {
+      this.database.close();
+    } finally {
+      this.releaseOwnership();
+    }
+  }
+
+  get sequence(): number {
+    const row = this.database.query("SELECT value FROM metadata WHERE key = 'sequence'").get() as
+      | { value: string }
+      | null;
+    return Number(row?.value ?? 0);
+  }
+
+
+  create(
+    text: string,
+    parentId: string | null = null,
+    author: BlockAuthor = "user",
+    provenance?: BlockProvenance,
+  ): Block {
+    return this.createAt(
+      text,
+      parentId,
+      author,
+      provenance,
+      new Date().toISOString(),
+    );
+  }
+
+  private createAt(
+    text: string,
+    parentId: string | null,
+    author: BlockAuthor,
+    provenance: BlockProvenance | undefined,
+    createdAt: string,
+    position?: number,
+  ): Block {
+    if (parentId !== null) this.requireActive(parentId);
+    const { actorId, sessionId, taskId } = normalizeCreatorProvenance(author, provenance);
+    const id = crypto.randomUUID();
+
+    this.database.transaction(() => {
+      this.validateRoadmapText(text);
+      const siblingCount = this.database
+        .query("SELECT COUNT(*) AS count FROM blocks WHERE parent_id IS ?")
+        .get(parentId) as { count: number };
+      const targetPosition = position === undefined
+        ? siblingCount.count
+        : Math.max(0, Math.min(position, siblingCount.count));
+      if (targetPosition < siblingCount.count) {
+        this.database
+          .query("UPDATE blocks SET position = position + 1 WHERE parent_id IS ? AND position >= ?")
+          .run(parentId, targetPosition);
+      }
+      this.database
+        .query(
+          "INSERT INTO blocks (id, parent_id, position, text, author, actor_id, session_id, task_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .run(
+          id,
+          parentId,
+          targetPosition,
+          text,
+          author,
+          actorId,
+          sessionId,
+          taskId,
+          createdAt,
+          createdAt,
+        );
+      this.replaceProperties(id, parsePropertyRecords(text));
+      this.bumpSequence({ kind: "create", blockId: id });
+    })();
+
+    return this.require(id);
+  }
+
+  private insertCanonicalBlock(
+    id: string,
+    text: string,
+    parentId: string | null,
+    author: BlockAuthor,
+    createdAt: string,
+  ): Block {
+    if (this.get(id)) throw new Error(`Block already exists: ${id}`);
+    if (parentId !== null) this.requireActive(parentId);
+    this.database.transaction(() => {
+      const siblingCount = this.database
+        .query("SELECT COUNT(*) AS count FROM blocks WHERE parent_id IS ?")
+        .get(parentId) as { count: number };
+      const position = siblingCount.count;
+      this.database.query(`
+        INSERT INTO blocks (
+          id, parent_id, position, text, author, actor_id, session_id, task_id,
+          created_at, updated_at, deleted_at, effective_deleted_root_id
+        ) VALUES (?, ?, ?, ?, ?, NULL, NULL, NULL, ?, ?, NULL, NULL)
+      `).run(id, parentId, position, text, author, createdAt, createdAt);
+      this.replaceProperties(id, parsePropertyRecords(text));
+      this.bumpSequence({ kind: "create", blockId: id });
+    })();
+    return this.require(id);
+  }
+
+  private replaceCanonicalBlockText(id: string, text: string): Block {
+    this.database.transaction(() => {
+      const block = this.require(id);
+      this.writeBlockText(block.id, text, block.revision, block.updatedAt);
+      this.replaceProperties(id, parsePropertyRecords(text));
+    })();
+    return this.require(id);
+  }
+
+  bookmarksRoot(): Block {
+    return this.database.transaction(() => this.requireBookmarksRootFromCurrentRead())();
+  }
+
+  bookmarkStatus(targetBlockId: string): BookmarkStatus {
+    return this.database.transaction(() => {
+      this.requireActive(targetBlockId);
+      const root = this.requireBookmarksRootFromCurrentRead();
+      const records = this.bookmarkRecordsFromCurrentRead(root);
+      return {
+        root,
+        targetBlockId,
+        record: records.find((candidate) => candidate.targetBlockId === targetBlockId)?.record ?? null,
+      };
+    })();
+  }
+
+  resolveBookmark(recordId: string): BookmarkResolution {
+    return this.database.transaction(() => {
+      const root = this.requireBookmarksRootFromCurrentRead();
+      const record = this.requireBookmarkRecordFromCurrentRead(root, recordId);
+      const target = this.getFromCurrentRead(record.targetBlockId);
+      if (!target) {
+        return {
+          record: record.record,
+          target: null,
+          unavailableReason: "Bookmark target no longer exists",
+        };
+      }
+      if (target.effectiveDeletedRootId) {
+        return {
+          record: record.record,
+          target: null,
+          unavailableReason: "Bookmark target is in Trash",
+        };
+      }
+      return { record: record.record, target };
+    })();
+  }
+  toggleBookmark(
+    targetBlockId: string,
+    expectedRecordId: string | null,
+    label?: string,
+    author: BlockAuthor = "user",
+    provenance?: BlockProvenance,
+  ): BookmarkToggleReceipt {
+    return this.database.transaction(() => {
+      const target = this.requireActive(targetBlockId);
+      const root = this.requireBookmarksRootFromCurrentRead();
+      const current = this.bookmarkRecordsFromCurrentRead(root)
+        .find((candidate) => candidate.targetBlockId === targetBlockId);
+      if ((current?.record.id ?? null) !== expectedRecordId) {
+        throw new Error("Bookmark changed; refresh and retry");
+      }
+      if (current) {
+        return {
+          root,
+          target,
+          record: this.delete(current.record.id),
+          bookmarked: false,
+        };
+      }
+      const createdAt = new Date().toISOString();
+      const record = this.createAt(
+        bookmarkRecordText(target, createdAt, label),
+        root.id,
+        author,
+        provenance,
+        createdAt,
+      );
+      parseBookmarkRecord(record);
+      return { root, target, record, bookmarked: true };
+    })();
+  }
+
+  removeBookmark(recordId: string, expectedRevision: number): BookmarkRemoveReceipt {
+    return this.database.transaction(() => {
+      const root = this.requireBookmarksRootFromCurrentRead();
+      const record = this.requireBookmarkRecordFromCurrentRead(root, recordId);
+      if (record.record.revision !== expectedRevision) {
+        throw new Error("Bookmark changed; refresh and retry");
+      }
+      return {
+        record: this.delete(recordId),
+        targetBlockId: record.targetBlockId,
+      };
+    })();
+  }
+
+  createAnnotation(
+    requestId: string,
+    input: AnnotationCreateInput,
+    author: BlockAuthor = "user",
+    provenance?: BlockProvenance,
+  ): AnnotationBatchReceipt {
+    return this.annotations.create(requestId, input, author, provenance);
+  }
+
+  replyToAnnotation(
+    requestId: string,
+    input: AnnotationReplyInput,
+    author: BlockAuthor = "user",
+    provenance?: BlockProvenance,
+  ): AnnotationBatchReceipt {
+    return this.annotations.reply(requestId, input, author, provenance);
+  }
+
+  createAnnotationBatch(
+    requestId: string,
+    operations: readonly AnnotationBatchOperation[],
+    author: BlockAuthor = "user",
+    provenance?: BlockProvenance,
+  ): AnnotationBatchReceipt {
+    return this.annotations.batch(requestId, operations, author, provenance);
+  }
+
+  getAnnotation(annotationId: string): AnnotationRecord {
+    return this.annotations.get(annotationId);
+  }
+
+  listAnnotationThreads(query: AnnotationListQuery): AnnotationThread[] {
+    return this.annotations.list(query);
+  }
+
+  reconcileAnnotationThreads(input: AnnotationReconcileInput): AnnotationReconcileReceipt {
+    return this.annotations.reconcile(input);
+  }
+
+  approveAnnotationResolution(input: AnnotationApproveResolutionInput): AnnotationRecord {
+    return this.annotations.approve(input);
+  }
+
+  getAnnotationAgentPackage(annotationId: string): AnnotationAgentPromptPackage {
+    return this.annotations.agentPackage(annotationId);
+  }
+
+
+  getAnnotationAgentReceipt(requestId: string): AnnotationAgentProposalReceipt | null {
+    return this.annotations.agentReceipt(requestId);
+  }
+  proposeAnnotationAgentResolution(
+    requestId: string,
+    input: AnnotationAgentProposalInput,
+  ): AnnotationAgentProposalReceipt {
+    return this.annotations.proposeAgent(requestId, input);
+  }
+
+  reviewAnnotationAgentResolution(input: AnnotationAgentReviewInput): AnnotationRecord {
+    return this.annotations.reviewAgent(input);
+  }
+
+  summarizeAnnotationAgentEvidence(limit?: number): AnnotationAgentEvidenceSummary {
+    return this.annotations.agentEvidence(limit);
+  }
+
+  setAnnotationLifecycle(
+    input: AnnotationLifecycleInput,
+    mutation: MutationProvenance,
+  ): AnnotationRecord {
+    return this.annotations.setLifecycle(input, mutation);
+  }
+  validateRoadmapItem(input:RoadmapItemCreateInput):void {
+    this.database.transaction(()=>{this.prepareRoadmapItem(input);})();
+  }
+
+  private prepareRoadmapItem(input:RoadmapItemCreateInput) {
+    if (!input || typeof input !== "object") {
+      throw new Error("Roadmap item input must be an object");
+    }
+    const title = normalizeRoadmapText(input.title, "Roadmap title");
+    let body = "";
+    if (input.body !== undefined) {
+      if (typeof input.body !== "string") {
+        throw new Error("Roadmap body must be a string");
+      }
+      body = input.body.trim();
+    }
+    const priority = input.priority;
+    if (ROADMAP_PRIORITIES[priority] !== true) {
+      throw new Error(`Invalid roadmap priority: ${String(priority)}`);
+    }
+    const workBatchId = input.workBatchId === undefined
+      ? undefined
+      : normalizeRoadmapRelationshipId(input.workBatchId, "workBatchId");
+    const workStage = input.workStage ?? (workBatchId ? "queued" : "unprioritized");
+    if (ROADMAP_CREATE_STAGES[workStage] !== true) {
+      throw new Error(`Invalid roadmap work stage: ${String(workStage)}`);
+    }
+    const project = normalizeRoadmapText(input.project, "Roadmap project");
+    const arc = normalizeRoadmapText(input.arc, "Roadmap arc");
+    const tracks = normalizeRoadmapValues(input.tracks, "Roadmap tracks");
+    const dependsOn = normalizeRoadmapRelationshipIds(input.dependsOn, "dependsOn");
+    const relatedTo = normalizeRoadmapRelationshipIds(input.relatedTo, "relatedTo");
+    const sourceBlockId = input.sourceBlockId === undefined
+      ? undefined
+      : normalizeRoadmapRelationshipId(input.sourceBlockId, "sourceBlockId");
+    assertNoReservedRoadmapProperties(title, body);
+
+    const workQueues = this.database.query(
+      "SELECT DISTINCT block.id FROM blocks block JOIN block_properties type_property ON type_property.block_id = block.id AND type_property.scope = 'block' AND type_property.key = 'type' AND type_property.value = 'work-queue' JOIN block_properties project_property ON project_property.block_id = block.id AND project_property.scope = 'block' AND project_property.key = 'project' AND project_property.value = ? WHERE block.effective_deleted_root_id IS NULL ORDER BY block.id",
+    ).all(project) as Array<{ id: string }>;
+    if (workQueues.length !== 1) {
+      throw new Error(
+        `Expected exactly one active work queue for project ${project}; found ${workQueues.length}`,
+      );
+    }
+    const workQueueId = workQueues[0]!.id;
+    const allocator = this.workIdAllocatorFromCurrentRead();
+    if (!allocator) {
+      throw new Error("Configure the project Work-ID prefix before creating roadmap items");
+    }
+    for (const blockId of [...dependsOn, ...relatedTo, ...(sourceBlockId ? [sourceBlockId] : [])]) {
+      const target = this.getFromCurrentRead(blockId);
+      if (!target) throw new Error(`Relationship target not found: ${blockId}`);
+      if (target.effectiveDeletedRootId) {
+        throw new Error(`Relationship target is in Trash: ${blockId}`);
+      }
+    }
+
+    return {title,body,priority,workBatchId,workStage,project,arc,tracks,dependsOn,relatedTo,sourceBlockId,workQueueId,allocator};
+  }
+
+  createRoadmapItem(
+    input: RoadmapItemCreateInput,
+    author: BlockAuthor = "user",
+    provenance?: BlockProvenance,
+  ): RoadmapItemCreateReceipt {
+    const creator = normalizeCreatorProvenance(author, provenance);
+    return this.database.transaction(() => {
+      const {title,body,priority,workBatchId,workStage,project,arc,tracks,dependsOn,relatedTo,sourceBlockId,workQueueId,allocator}=this.prepareRoadmapItem(input);
+      let nextNumber = allocator.next_number;
+      let workId = formatWorkId(allocator.prefix, nextNumber);
+      while (this.reservedWorkIdOwnerFromCurrentRead(workId) !== undefined) {
+        nextNumber += 1;
+        workId = formatWorkId(allocator.prefix, nextNumber);
+      }
+      const properties: BlockProperty[] = [
+        { key: "type", value: "roadmap-item" },
+        { key: "priority", value: priority },
+        { key: "work-stage", value: workStage },
+        ...(workBatchId ? [{ key: "work-batch", value: workBatchId }] : []),
+        { key: "project", value: project },
+        { key: "arc", value: arc },
+        ...tracks.map((value) => ({ key: "track", value })),
+        ...dependsOn.map((value) => ({ key: "depends-on", value })),
+        ...relatedTo.map((value) => ({ key: "related-to", value })),
+        ...(sourceBlockId ? [{ key: "source-block", value: sourceBlockId }] : []),
+        { key: "work-id", value: workId },
+      ];
+      const metadata = properties.map(formatProperty).join(" ");
+      const text = `${workId} — ${title} ${metadata}${body ? `\n\n${body}` : ""}`;
+      this.validateRoadmapText(text);
+      const id = crypto.randomUUID();
+      const now = new Date().toISOString();
+      const position = this.database.query(
+        "SELECT COALESCE(MAX(position), -1) + 1 AS position FROM blocks WHERE parent_id IS ?",
+      ).get(workQueueId) as { position: number };
+      this.database.query(
+        "INSERT INTO blocks (id, parent_id, position, text, author, actor_id, session_id, task_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      ).run(
+        id,
+        workQueueId,
+        position.position,
+        text,
+        author,
+        creator.actorId,
+        creator.sessionId,
+        creator.taskId,
+        now,
+        now,
+      );
+      this.replaceProperties(id, parsePropertyRecords(text));
+      this.bumpSequence({ kind: "create", blockId: id });
+      const block = this.getFromCurrentRead(id);
+      if (!block) throw new Error(`Roadmap item was not created: ${id}`);
+      return {
+        workId,
+        workQueueId,
+        block,
+        memberships: this.roadmapBranchMembershipsFromCurrentRead(block),
+      };
+    })();
+  }
+
+  ensureDelivery(
+    input: DeliveryEnsureInput,
+    author: BlockAuthor = "agent",
+    provenance?: BlockProvenance,
+  ): DeliveryReceipt {
+    if (!input || typeof input !== "object") {
+      throw new Error("Delivery input must be an object");
+    }
+    const taskBlockId = normalizeRoadmapText(input.taskBlockId, "Delivery task block ID");
+    const deliveryKey = normalizeRoadmapText(input.deliveryKey, "Delivery key");
+    const repository = normalizeRoadmapText(input.repository, "Delivery repository");
+    const baseBranch = normalizeRoadmapText(input.baseBranch, "Delivery base branch");
+    const workBranch = normalizeRoadmapText(input.workBranch, "Delivery work branch");
+    if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository)) {
+      throw new Error(`Delivery repository must be owner/name: ${repository}`);
+    }
+    if (!isValidGitBranchName(baseBranch)) {
+      throw new Error(`Invalid delivery base branch: ${baseBranch}`);
+    }
+    if (!isValidGitBranchName(workBranch)) {
+      throw new Error(`Invalid delivery work branch: ${workBranch}`);
+    }
+
+    return this.database.transaction((): DeliveryReceipt => {
+      const task = this.requireActive(taskBlockId);
+      const type = task.properties.filter((property) => property.key === "type");
+      const identifiers = task.properties.filter((property) => property.key === "work-id");
+      if (type.length !== 1 || type[0]!.value.toLowerCase() !== "roadmap-item") {
+        throw new Error(`Delivery parent is not a roadmap item: ${task.id}`);
+      }
+      if (identifiers.length !== 1) {
+        throw new Error(`Delivery parent must have exactly one Work ID: ${task.id}`);
+      }
+      const identifier = identifiers[0]!.value.toUpperCase();
+      if (!deliveryKey.toUpperCase().startsWith(`${identifier}/`)) {
+        throw new Error(`Delivery key must begin with ${identifier}/: ${deliveryKey}`);
+      }
+
+      const matches = this.childrenFromCurrentRead(task.id).filter((child) => {
+        const isDelivery = child.properties.some((property) =>
+          property.key === "type" && property.value === "delivery"
+        );
+        const hasKey = child.properties.some((property) =>
+          property.key === "delivery-key" && property.value === deliveryKey
+        );
+        return isDelivery && hasKey;
+      });
+      if (matches.length > 1) {
+        throw new Error(`Duplicate delivery key beneath task ${task.id}: ${deliveryKey}`);
+      }
+      const existing = matches[0];
+      if (existing) {
+        const immutable: Array<[string, string]> = [
+          ["repository", repository],
+          ["base-branch", baseBranch],
+          ["work-branch", workBranch],
+        ];
+        for (const [key, expected] of immutable) {
+          const values = existing.properties.filter((property) => property.key === key);
+          if (values.length !== 1 || values[0]!.value !== expected) {
+            throw new Error(`Delivery ${deliveryKey} has conflicting ${key}`);
+          }
+        }
+        return { task, delivery: existing, created: false };
+      }
+
+      const metadata = [
+        formatProperty({ key: "type", value: "delivery" }),
+        formatProperty({ key: "delivery-key", value: deliveryKey }),
+        formatProperty({ key: "repository", value: repository }),
+        formatProperty({ key: "base-branch", value: baseBranch }),
+        formatProperty({ key: "work-branch", value: workBranch }),
+        formatProperty({ key: "delivery-stage", value: "work" }),
+      ].join(" ");
+      const delivery = this.create(
+        `Delivery ${deliveryKey} ${metadata}`,
+        task.id,
+        author,
+        provenance,
+      );
+      return { task, delivery, created: true };
+    })();
+  }
+
+  syncDelivery(input: DeliverySyncInput, mutation: MutationProvenance): DeliverySyncReceipt {
+    return this.database.transaction(() => {
+      const deliveryBlock = this.requireActive(input.deliveryBlockId);
+      const delivery = parseDeliveryIdentity(deliveryBlock);
+      if (deliveryBlock.parentId !== input.taskBlockId) throw new Error("Delivery no longer belongs to the expected task");
+      const task = this.requireActive(input.taskBlockId);
+      this.validateRoadmapText(task.text);
+      if (!matchesFilters(task.properties, [{ key: "type", value: "roadmap-item" }])) {
+        throw new Error("Delivery must belong to a roadmap item");
+      }
+      if (deliveryBlock.revision !== input.expectedDeliveryRevision || task.revision !== input.expectedTaskRevision) {
+        throw new Error("Delivery or task changed since synchronization began");
+      }
+      const pr = input.pullRequest;
+      if (!Number.isSafeInteger(pr.number) || pr.number < 1 ||
+        pr.url !== `https://github.com/${delivery.repository}/pull/${pr.number}` ||
+        !["OPEN", "CLOSED", "MERGED"].includes(pr.state) ||
+        (pr.state === "MERGED" && !pr.mergeCommit)) {
+        throw new Error("Invalid pull request facts for this delivery");
+      }
+      const nextStage = delivery.stage === "complete" ? "complete" : pr.state === "MERGED" ? "validate" : "review";
+      const values: Record<string, string> = { "delivery-stage": nextStage,
+        "pull-request-number": String(pr.number), "pull-request-url": pr.url, "pull-request-state": pr.state.toLowerCase() };
+      if (pr.mergeCommit) values["merge-commit"] = normalizeRoadmapText(pr.mergeCommit, "Merge commit");
+      const records = parsePropertyRecords(deliveryBlock.text).filter(property => property.scope === "block");
+      const operations = Object.entries(values).flatMap(([key, value]): PropertyPatchOperation[] => {
+        const existing = records.filter(property => property.key === key);
+        if (existing.length > 1) throw new Error(`Delivery has ambiguous ${key}`);
+        if (existing[0]?.value === value) return [];
+        return [existing[0] ? { op: "replace", ordinal: existing[0].ordinal, value } : { op: "append", key, value }];
+      });
+      const updatedDelivery = operations.length
+        ? this.patchProperties(deliveryBlock.id, deliveryBlock.revision, operations, mutation) : deliveryBlock;
+      const stage = parsePropertyRecords(task.text).find(property => property.scope === "block" && property.key === "work-stage")!;
+      // Commit both records together. Repeating unchanged PR facts preserves
+      // an explicit return to Doing; an interrupted transition commits neither.
+      const advance = nextStage !== delivery.stage && nextStage !== "complete" &&
+        !["done", "superseded", nextStage].includes(stage.value.toLowerCase());
+      const updatedTask = advance ? this.patchProperties(task.id, task.revision,
+        [{ op: "replace", ordinal: stage.ordinal, value: nextStage }], mutation) : task;
+      return { task: updatedTask, delivery: updatedDelivery, changed: operations.length > 0 || advance };
+    })();
+  }
+
+  capture(
+    requestId: string,
+    text: string,
+    source: CaptureSource,
+    capturedFromBlockId?: string,
+    author: BlockAuthor = "user",
+    provenance?: BlockProvenance,
+    expectedDraftRevision?: number,
+  ): CaptureReceipt {
+    if (typeof text !== "string") throw new Error("Capture text must be a string");
+    if (capturedFromBlockId !== undefined && typeof capturedFromBlockId !== "string") {
+      throw new Error("Capture capturedFromBlockId must be a string");
+    }
+    const normalizedRequestId = normalizeCaptureRequestId(requestId);
+    const normalizedText = expectedDraftRevision === undefined ? text.trim() : text;
+    if (!normalizedText.trim()) throw new Error("Capture text cannot be empty");
+    if (expectedDraftRevision !== undefined && (!Number.isSafeInteger(expectedDraftRevision) || expectedDraftRevision < 1)) {
+      throw new Error("Capture draft expected revision must be a positive integer");
+    }
+    if (!CAPTURE_SOURCES.has(source)) throw new Error(`Invalid capture source: ${String(source)}`);
+    const creator = normalizeCreatorProvenance(author, provenance);
+    // Retried tool calls may have new session/task IDs. Original creation provenance stays immutable.
+    const payloadHash = createHash("sha256").update(JSON.stringify([
+      normalizedText, source, capturedFromBlockId || null, author,
+      creator.actorId,
+    ])).digest("hex");
+
+    return this.database.transaction((): CaptureReceipt => {
+      const existing = this.database
+        .query(
+          "SELECT block_id, inbox_block_id, payload_hash FROM capture_requests WHERE request_id = ?",
+        )
+        .get(normalizedRequestId) as CaptureRequestRow | null;
+      if (existing) {
+        if (existing.payload_hash === null) {
+          throw new Error(`Capture receipt predates payload validation; inspect saved capture ${existing.block_id} before retrying`);
+        }
+        if (existing.payload_hash !== payloadHash) {
+          throw new Error("Capture request ID already belongs to a different submission");
+        }
+        const block = this.getFromCurrentRead(existing.block_id);
+        if (!block) {
+          throw new Error(`Capture receipt target no longer exists: ${normalizedRequestId}`);
+        }
+        return {
+          block,
+          inboxBlockId: existing.inbox_block_id,
+          deduplicated: true,
+        };
+      }
+
+      const inbox = this.requireCaptureInboxFromCurrentRead();
+      const draft = this.quickCaptureDraftFromCurrentRead();
+      const prepared = draft?.requestId === normalizedRequestId && draft.blockId ? draft : undefined;
+      if (expectedDraftRevision !== undefined && (!prepared || prepared.revision !== expectedDraftRevision)) {
+        throw new Error("Capture draft changed before submission");
+      }
+      if (prepared && expectedDraftRevision === undefined) throw new Error("Prepared capture requires its draft revision");
+      if (prepared && (source !== "tree" || author !== "user" || capturedFromBlockId !== prepared.capturedFromBlockId)) {
+        throw new Error("Prepared capture provenance changed");
+      }
+      const preparedBlock = prepared ? this.requireActive(prepared.blockId!) : undefined;
+      if (preparedBlock && (preparedBlock.revision !== prepared!.blockRevision || preparedBlock.parentId !== inbox.id)) {
+        throw new Error("Capture note changed outside this draft; retain and review it before submitting");
+      }
+      if (capturedFromBlockId) this.require(capturedFromBlockId);
+      const capturedAt = new Date().toISOString();
+      const metadata = [
+        formatProperty({ key: "type", value: "capture" }),
+        formatProperty({ key: "status", value: "unprocessed" }),
+        formatProperty({ key: "capture-source", value: source }),
+        formatProperty({ key: "captured-at", value: capturedAt }),
+        ...(capturedFromBlockId
+          ? [formatProperty({ key: "captured-from", value: capturedFromBlockId })]
+          : []),
+      ].join(" ");
+      const firstNewlineIndex = normalizedText.search(/\r?\n/);
+      const firstLine =
+        firstNewlineIndex === -1 ? normalizedText : normalizedText.slice(0, firstNewlineIndex);
+      const remainingText =
+        firstNewlineIndex === -1 ? "" : normalizedText.slice(firstNewlineIndex);
+      const capturedText = `${firstLine} ${metadata}${remainingText}`;
+      const block = preparedBlock ? this.update(preparedBlock.id, capturedText, preparedBlock.revision, {author, ...provenance}) : this.createAt(
+        capturedText,
+        inbox.id,
+        author,
+        provenance,
+        capturedAt,
+        0,
+      );
+      this.database
+        .query(
+          "INSERT INTO capture_requests (request_id, block_id, inbox_block_id, created_at, payload_hash) VALUES (?, ?, ?, ?, ?)",
+        )
+        .run(normalizedRequestId, block.id, inbox.id, capturedAt, payloadHash);
+      return { block, inboxBlockId: inbox.id, deduplicated: false };
+    })();
+  }
+
+  retitleCapture(
+    blockId: string,
+    expectedRevision: number,
+    title: string,
+    mutation: MutationProvenance,
+  ): Block {
+    const capture = this.requireActive(blockId);
+    const captureTypes = capture.properties
+      .filter((property) => property.key === "type")
+      .map((property) => property.value.toLowerCase());
+    if (captureTypes.length !== 1 || captureTypes[0] !== "capture") {
+      throw new Error(`Block is not one canonical capture: ${blockId}`);
+    }
+    const normalizedTitle = normalizeCaptureTitle(title);
+    const firstNewlineIndex = capture.text.search(/\r?\n/);
+    const firstLine = firstNewlineIndex === -1
+      ? capture.text
+      : capture.text.slice(0, firstNewlineIndex);
+    const remainingText = firstNewlineIndex === -1
+      ? ""
+      : capture.text.slice(firstNewlineIndex);
+    const metadataIndex = firstLine.indexOf("[type::capture]");
+    if (metadataIndex < 0) {
+      throw new Error(`Capture metadata is not on the title line: ${blockId}`);
+    }
+    const metadata = firstLine.slice(metadataIndex);
+    return this.update(
+      blockId,
+      `${normalizedTitle} ${metadata}${remainingText}`,
+      expectedRevision,
+      mutation,
+    );
+  }
+
+  quickCaptureDraft(): QuickCaptureDraft | null {
+    return this.database.transaction(() => this.quickCaptureDraftFromCurrentRead())();
+  }
+
+  /** Durable ownership, independent of focus, timing, or editable note properties. */
+  isCaptureDraft(blockId: string): boolean {
+    return !!this.database.query(`SELECT 1 FROM quick_capture_draft d WHERE singleton = 1 AND block_id = ?
+      AND NOT EXISTS (SELECT 1 FROM capture_requests r WHERE r.request_id = d.request_id)`).get(blockId);
+  }
+
+  saveQuickCaptureDraft(input: QuickCaptureDraftSaveInput, reviewedBlockRevision?: number): QuickCaptureDraft {
+    const requestId = normalizeCaptureRequestId(input.requestId);
+    if (input.submittedText !== undefined &&
+      (typeof input.submittedText !== "string" || !input.submittedText.trim())) {
+      throw new Error("Quick Capture submitted text must be non-empty");
+    }
+    if (input.prepareBlock !== undefined && typeof input.prepareBlock !== "boolean") throw new Error("Invalid capture preparation");
+    if (reviewedBlockRevision !== undefined && (!Number.isSafeInteger(reviewedBlockRevision) || reviewedBlockRevision < 1)) {
+      throw new Error("Capture review requires a positive block revision");
+    }
+    if (typeof input.text !== "string") {
+      throw new Error("Quick Capture draft text cannot be empty");
+    }
+    if (!Number.isInteger(input.cursorRow) || input.cursorRow < 0) {
+      throw new Error("Quick Capture draft cursor row must be a non-negative integer");
+    }
+    const lines = input.text.split("\n");
+    const cursorLine = lines[input.cursorRow];
+    if (cursorLine === undefined) {
+      throw new Error("Quick Capture draft cursor row is outside the text");
+    }
+    if (
+      !Number.isInteger(input.cursorColumn) ||
+      input.cursorColumn < 0 ||
+      input.cursorColumn > cursorLine.length
+    ) {
+      throw new Error("Quick Capture draft cursor column is outside the text");
+    }
+    if (
+      input.expectedRevision !== null &&
+      (!Number.isInteger(input.expectedRevision) || input.expectedRevision < 1)
+    ) {
+      throw new Error("Quick Capture draft expected revision must be null or a positive integer");
+    }
+    if (input.capturedFromBlockId !== undefined) this.requireActive(input.capturedFromBlockId);
+    if (input.selectionAnchor !== undefined) {
+      const {row, column} = input.selectionAnchor;
+      if (!Number.isInteger(row) || !Number.isInteger(column) || row < 0 || column < 0 ||
+        lines[row] === undefined || column > lines[row]!.length) throw new Error("Capture selection is outside the text");
+    }
+
+    return this.database.transaction(() => {
+      const current = this.quickCaptureDraftFromCurrentRead();
+      if ((current?.revision ?? null) !== input.expectedRevision) {
+        throw new Error("Quick Capture draft changed; close this popup and reopen the current draft");
+      }
+      if (!input.text.trim() && input.submittedText === undefined && !input.prepareBlock && !current?.blockId) {
+        throw new Error("Quick Capture draft text cannot be empty");
+      }
+      const captured = !!current?.blockId && !!this.database.query("SELECT 1 FROM capture_requests WHERE request_id = ?").get(current.requestId);
+      if (current?.blockId && !captured && (requestId !== current.requestId || input.capturedFromBlockId !== current.capturedFromBlockId)) {
+        throw new Error("Prepared capture identity cannot change");
+      }
+      let block = current?.blockId && requestId === current.requestId ? this.requireActive(current.blockId) : undefined;
+      if (reviewedBlockRevision !== undefined && (!block || captured)) throw new Error("Only an unsubmitted prepared capture can accept reviewed writing");
+      if (block && !captured && block.revision !== (reviewedBlockRevision ?? current!.blockRevision)) throw new Error("Capture note changed outside this draft; use Writing history to review it");
+      if (input.prepareBlock && this.database.query("SELECT 1 FROM capture_requests WHERE request_id = ?").get(requestId)) throw new Error("This capture was already submitted");
+      if (input.prepareBlock && !block) {
+        block = this.createAt(input.text, this.requireCaptureInboxFromCurrentRead().id, "user", undefined, new Date().toISOString(), 0);
+      } else if (block && !captured && block.text !== input.text) {
+        // Draft saves are provisional writing: a page named in one idle save and
+        // corrected in the next must not stay behind as an alias of the capture.
+        const provisionalPage = this.database.query(
+          "SELECT normalized_address FROM page_addresses WHERE block_id = ? AND kind = 'page'",
+        ).get(block.id) as { normalized_address: string } | null;
+        block = this.update(block.id, input.text, block.revision, {author:"user", actorId:"capture"});
+        if (provisionalPage) {
+          this.database.query("DELETE FROM page_addresses WHERE normalized_address = ? AND block_id = ? AND kind = 'alias'")
+            .run(provisionalPage.normalized_address, block.id);
+        }
+      }
+      const previous = this.database.query(
+        "SELECT revision FROM quick_capture_draft WHERE singleton = 1",
+      ).get() as { revision: number } | null;
+      const revision = (previous?.revision ?? 0) + 1;
+      const updatedAt = new Date(
+        Math.max(Date.now(), current ? Date.parse(current.updatedAt) + 1 : 0),
+      ).toISOString();
+      this.database.query(`
+        INSERT INTO quick_capture_draft
+          (singleton, request_id, text, submitted_text, cursor_row, cursor_column, captured_from_block_id, revision, updated_at)
+        VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(singleton) DO UPDATE SET
+          request_id = excluded.request_id,
+          text = excluded.text,
+          submitted_text = excluded.submitted_text,
+          cursor_row = excluded.cursor_row,
+          cursor_column = excluded.cursor_column,
+          captured_from_block_id = excluded.captured_from_block_id,
+          revision = excluded.revision,
+          updated_at = excluded.updated_at
+      `).run(
+        requestId,
+        input.text,
+        (block ? input.submittedText : input.submittedText?.trim()) ?? null,
+        input.cursorRow,
+        input.cursorColumn,
+        input.capturedFromBlockId ?? null,
+        revision,
+        updatedAt,
+      );
+      this.database.query("UPDATE quick_capture_draft SET block_id = ?, block_revision = ?, selection_anchor = ? WHERE singleton = 1")
+        .run(block?.id ?? null, block?.revision ?? null, input.selectionAnchor ? JSON.stringify(input.selectionAnchor) : null);
+      return this.quickCaptureDraftFromCurrentRead()!;
+    })();
+  }
+
+  clearQuickCaptureDraft(expectedRevision: number | null): null {
+    if (
+      expectedRevision !== null &&
+      (!Number.isInteger(expectedRevision) || expectedRevision < 1)
+    ) {
+      throw new Error("Quick Capture draft expected revision must be null or a positive integer");
+    }
+    return this.database.transaction(() => {
+      const current = this.quickCaptureDraftFromCurrentRead();
+      if ((current?.revision ?? null) !== expectedRevision) {
+        throw new Error("Quick Capture draft changed; close this popup and reopen the current draft");
+      }
+      if (current?.blockId && this.isCaptureDraft(current.blockId)) {
+        // A prepared note already in Trash or purged must not block discarding the draft.
+        const block = this.getFromCurrentRead(current.blockId);
+        if (block && !block.effectiveDeletedRootId) {
+          if (block.revision !== current.blockRevision || this.children(block.id).length) throw new Error("Capture note changed; retain and review before discarding");
+          this.delete(block.id);
+        }
+      }
+      // Keep the revision after clearing; delayed cleanup must never match a new draft.
+      if (current) this.database.query(`
+        UPDATE quick_capture_draft
+        SET request_id = '', text = '', submitted_text = NULL,
+          cursor_row = 0, cursor_column = 0, captured_from_block_id = NULL,
+          block_id = NULL, block_revision = NULL, selection_anchor = NULL
+        WHERE singleton = 1
+      `).run();
+      return null;
+    })();
+  }
+
+  queryChecklist(id: string, query: ChecklistQuery): ChecklistCollection {
+    return this.database.transaction(() => {
+      const block = this.requireActive(id);
+      const rows = this.database.query(
+        "SELECT block_id, key, value, ordinal, raw, start, end, line, column, placement, scope, syntax FROM block_properties WHERE block_id = ? ORDER BY ordinal",
+      ).all(id) as PropertyRow[];
+      return {
+        blockId: id, revision: block.revision,
+        title: firstLineWithoutPropertyTokens(block.text)?.trim() || id,
+        ...queryChecklistItems(block.text, query, rows.map(propertyRecordFromRow)),
+      };
+    })();
+  }
+
+  searchChecklist(query: ChecklistSearchQuery): ChecklistSearchCollection {
+    if(!query||typeof query!=='object')throw new Error('Checklist search query is required');
+    if(!query.items||typeof query.items!=='object'||Array.isArray(query.items))throw new Error('Checklist search query.items is required');
+    // Validate even when the workspace or plan selection is empty.
+    queryChecklistItems('', query.items, []);
+    const scope=normalizeBlockSearchQuery({...query.scope,limit:1000});
+    return this.database.transaction(():ChecklistSearchCollection => {
+      if(scope.subtreeRootId)this.requireActive(scope.subtreeRootId);
+      const graph=this.loadGraph();
+      const plans=this.traverseLoadedGraph(graph,{
+        filters:scope.filters,text:scope.text,subtreeRootId:scope.subtreeRootId,propertyScope:scope.propertyScope,
+      });
+      if(scope.sort)sortQueriedBlocks(plans,scope.sort);
+      const matches:ChecklistSearchCollection['matches']=[];
+      for(const block of plans){
+        const result=queryChecklistItems(block.text,query.items,graph.propertyRecordsByBlock.get(block.id)??[]);
+        for(const item of result.items){
+          if(matches.length===query.items.limit)return {matches,completeness:{kind:'truncated',limit:query.items.limit}};
+          matches.push({block,item});
+        }
+        if(result.completeness.kind==='truncated')return {matches,completeness:{kind:'truncated',limit:query.items.limit}};
+      }
+      return {matches,completeness:{kind:'complete'}};
+    })();
+  }
+
+  /** `((id^fragment))`'s slice of its note, read in one transaction (src/transclusions.ts owns the rules). */
+  readFragment(id: string, fragmentId: string): FragmentRead {
+    return this.database.transaction(() => readFragment(this.requireActive(id), fragmentId))();
+  }
+
+  /** Fragment completion across every active note, in one read (src/fragment-search.ts owns the rules). */
+  fragmentCandidates(query: FragmentCandidateQuery): FragmentCandidateCollection {
+    return this.database.transaction(() => searchFragmentCandidates(this.traverseLoadedGraph(this.loadGraph(), {}), query))();
+  }
+
+  /**
+   * Give the heading on `lineIndex` its anchor, as completion offered it: refused when the note moved past
+   * `expectedRevision` (the offer was for other text), a no-op when it already has one.
+   */
+  ensureFragment(id: string, lineIndex: number, expectedRevision: number, mutation: MutationProvenance): { blockId: string; fragmentId: string; created: boolean; block: Block } {
+    normalizeMutationProvenance(mutation);
+    if (!Number.isSafeInteger(lineIndex) || lineIndex < 0) throw new Error("fragments.ensure needs a lineIndex");
+    return this.database.transaction(() => {
+      const before = this.requireActive(id);
+      if (before.revision !== expectedRevision) throw new Error("The note changed since the fragment was offered; search again");
+      const anchored = ensureHeadingFragment(before.text, lineIndex);
+      const block = anchored.created ? this.update(id, anchored.text, before.revision, mutation) : before;
+      return { blockId: id, fragmentId: anchored.fragmentId, created: anchored.created, block };
+    })();
+  }
+
+  /** Transclusions as readers show them, nested and cycle-safe, from one consistent read. */
+  readTransclusions(targets: readonly TransclusionTarget[], options: TransclusionOptions): TransclusionRead {
+    return this.database.transaction(() => readTransclusions(id => this.getFromCurrentRead(id), targets, options))();
+  }
+
+  updateChecklist(id: string, input: ChecklistUpdateInput, mutation: MutationProvenance): ChecklistUpdateReceipt {
+    normalizeMutationProvenance(mutation);
+    return this.database.transaction(() => {
+      const before = this.requireActive(id);
+      const edit = updateChecklistText(before.text, before.revision, input);
+      const changed = edit.text !== before.text;
+      const block = changed ? this.update(id, edit.text, before.revision, mutation) : before;
+      const item = checklistItems(block.text).find(candidate => candidate.itemId === edit.itemId)!;
+      return {block, item, changed};
+    })();
+  }
+
+  update(
+    id: string,
+    text: string,
+    expectedRevision: number,
+    mutation: MutationProvenance = { author: "system" },
+    kind: "text" | "properties" = "text",
+    identityChanges: readonly ChecklistIdentityChange[] = [],
+  ): Block {
+    const provenance = normalizeMutationProvenance(mutation);
+    this.database.transaction(() => {
+      this.requireActive(id);
+      const editedAt = this.writeBlockText(id, text, expectedRevision, undefined, identityChanges);
+      this.replaceProperties(id, parsePropertyRecords(text));
+      this.recordActivity(id, provenance, kind, editedAt);
+      this.bumpSequence({ kind: "edit", blockId: id });
+    })();
+    return this.require(id);
+  }
+
+  // ── Extension records (src/extension-records.ts) ────────────────────────
+  // A record is an ordinary block an extension owns: only that extension may
+  // change its text (the guard in writeBlockText). The table says who owns
+  // what; the text itself is canonical like any block's.
+  //
+  // One key has one record block, as if the person had copied the ticket in
+  // once: it sits under the key's home (`extensionRecordHome`), and every
+  // other block that asks for the key shows that block (its projection's
+  // `record`) instead of keeping a copy. `extension_askers` says which blocks
+  // ask for which keys, so the record can move when its home changes and go
+  // to Trash only when nothing asks for it any more.
+
+  /** The extension that owns a block, when one does. */
+  extensionOwner(blockId: string): ExtensionRecordRow | null {
+    return this.database.transaction(() => this.extensionOwnerFromCurrentRead(blockId))();
+  }
+
+  /** Owned blocks under a parent, showing one Resource, or holding one key. */
+  extensionRecords(filter: { parentBlockId?: string; resourceId?: string; extensionId?: string; role?: "record" | "comment"; itemKey?: string }): ExtensionRecordRow[] {
+    const clauses: string[] = [];
+    const values: string[] = [];
+    if (filter.parentBlockId) { clauses.push("parent_block_id = ?"); values.push(filter.parentBlockId); }
+    if (filter.resourceId) { clauses.push("resource_id = ?"); values.push(filter.resourceId); }
+    if (filter.extensionId) { clauses.push("extension_id = ?"); values.push(filter.extensionId); }
+    if (filter.role) { clauses.push("role = ?"); values.push(filter.role); }
+    if (filter.itemKey) { clauses.push("item_key = ?"); values.push(filter.itemKey); }
+    const rows = this.database.query(`
+      SELECT record.* FROM extension_records record JOIN blocks block ON block.id = record.block_id
+      WHERE block.effective_deleted_root_id IS NULL${clauses.length ? ` AND ${clauses.map((clause) => `record.${clause}`).join(" AND ")}` : ""}
+      ORDER BY block.position, record.block_id
+    `).all(...values) as ExtensionRecordDbRow[];
+    return rows.map(extensionRecordRow);
+  }
+
+  /**
+   * Records which keys a block asks an extension for (its provider lines, its
+   * own `[jira::KEY]`), with the comments each asks to see (0: none). Returns
+   * the keys it asked for before and no longer does.
+   */
+  setExtensionAsks(blockId: string, extensionId: string, asks: ReadonlyMap<string, number>): string[] {
+    return this.database.transaction(() => {
+      const before = (this.database.query("SELECT item_key FROM extension_askers WHERE block_id = ? AND extension_id = ?")
+        .all(blockId, extensionId) as Array<{ item_key: string }>).map((row) => row.item_key);
+      const same = before.length === asks.size && (this.database.query(
+        "SELECT item_key, comments FROM extension_askers WHERE block_id = ? AND extension_id = ?",
+      ).all(blockId, extensionId) as Array<{ item_key: string; comments: number }>).every((row) => asks.get(row.item_key) === row.comments);
+      if (!same) {
+        this.database.query("DELETE FROM extension_askers WHERE block_id = ? AND extension_id = ?").run(blockId, extensionId);
+        const insert = this.database.query("INSERT INTO extension_askers (block_id, extension_id, item_key, comments) VALUES (?, ?, ?, ?)");
+        for (const [key, comments] of asks) insert.run(blockId, extensionId, key, Math.max(0, Math.floor(comments)));
+      }
+      return before.filter((key) => !asks.has(key));
+    })();
+  }
+
+  /** Runs several writes as one: all of them commit, or none (an extension action's writes). */
+  atomically<T>(work: () => T): T {
+    return this.database.transaction(work)();
+  }
+
+  /** The extensions and keys a block asks for, every extension. */
+  extensionAsksOf(blockId: string): Array<{ extensionId: string; itemKey: string }> {
+    return (this.database.query("SELECT extension_id AS extensionId, item_key AS itemKey FROM extension_askers WHERE block_id = ?")
+      .all(blockId) as Array<{ extensionId: string; itemKey: string }>);
+  }
+
+  // ── Agent requests (src/agent-requests.ts) ─────────────────────────────
+  // One row per `@name …` line a block has had: who wrote it, and what the
+  // agent did about it. A request runs once; `r` runs it again.
+
+  agentRequests(blockId: string): AgentRequestRow[] {
+    return (this.database.query("SELECT * FROM agent_requests WHERE block_id = ?").all(blockId) as AgentRequestDbRow[]).map(agentRequestRow);
+  }
+
+  /** The request answered with proposal `proposalId`, if one was. */
+  agentRequestByProposal(proposalId: string): AgentRequestRow | null {
+    const row = this.database.query("SELECT * FROM agent_requests WHERE proposal_id = ? LIMIT 1").get(proposalId) as AgentRequestDbRow | null;
+    return row ? agentRequestRow(row) : null;
+  }
+
+  /** Records a request, or its answer. */
+  putAgentRequest(row: AgentRequestRow): void {
+    this.database.query(`
+      INSERT INTO agent_requests (block_id, request_key, agent, extension_id, request, status, message, reply, proposal_id, requested_by, requested_at, answered_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT (block_id, request_key) DO UPDATE SET agent = excluded.agent, extension_id = excluded.extension_id, request = excluded.request,
+        status = excluded.status, message = excluded.message, reply = excluded.reply, proposal_id = excluded.proposal_id,
+        requested_by = excluded.requested_by, requested_at = excluded.requested_at, answered_at = excluded.answered_at
+    `).run(row.blockId, row.requestKey, row.agent, row.extensionId, row.request, row.status, row.message ?? null, row.reply ?? null,
+      row.proposalId ?? null, row.requestedBy, row.requestedAt, row.answeredAt ?? null);
+  }
+
+  /**
+   * The `@name` lines a block had when the service last looked (any name), so
+   * a save can tell a request it adds from one already there, across restarts.
+   * Null when the service never saw one in it.
+   */
+  agentRequestBaseline(blockId: string): string[] | null {
+    const row = this.database.query("SELECT request_keys FROM agent_request_baseline WHERE block_id = ?").get(blockId) as { request_keys: string } | null;
+    return row ? JSON.parse(row.request_keys) as string[] : null;
+  }
+
+  setAgentRequestBaseline(blockId: string, keys: readonly string[]): void {
+    if (!keys.length) {
+      this.database.query("DELETE FROM agent_request_baseline WHERE block_id = ?").run(blockId);
+      return;
+    }
+    this.database.query(`INSERT INTO agent_request_baseline (block_id, request_keys) VALUES (?, ?)
+      ON CONFLICT (block_id) DO UPDATE SET request_keys = excluded.request_keys`).run(blockId, JSON.stringify(keys));
+  }
+
+  /** Forgets requests whose lines a block no longer has. */
+  pruneAgentRequests(blockId: string, keep: readonly string[]): void {
+    const rows = this.database.query("SELECT request_key FROM agent_requests WHERE block_id = ?").all(blockId) as Array<{ request_key: string }>;
+    const remove = this.database.query("DELETE FROM agent_requests WHERE block_id = ? AND request_key = ?");
+    for (const row of rows) if (!keep.includes(row.request_key)) remove.run(blockId, row.request_key);
+  }
+
+  /** Requests a restart cut off while they ran: failed, saying why. */
+  interruptAgentRequests(message: string, at: string): void {
+    this.database.query("UPDATE agent_requests SET status = 'failed', message = ?, answered_at = ? WHERE status = 'running'").run(message, at);
+  }
+
+  /**
+   * Once per outline: every block with an `@` and no baseline gets one (`keysOf` its text), so lines written
+   * before agent requests existed are old lines, not requests its next save adds.
+   */
+  seedAgentRequestBaselines(keysOf: (text: string) => string[]): void {
+    if (this.database.query("SELECT value FROM metadata WHERE key = 'agent_request_baseline_seeded'").get()) return;
+    this.database.transaction(() => {
+      const blocks = this.database.query(`SELECT id, text FROM blocks WHERE instr(text, '@') > 0
+        AND NOT EXISTS (SELECT 1 FROM agent_request_baseline WHERE agent_request_baseline.block_id = blocks.id)`).all() as Array<{ id: string; text: string }>;
+      for (const block of blocks) {
+        const keys = keysOf(block.text);
+        if (keys.length) this.setAgentRequestBaseline(block.id, keys);
+      }
+      this.database.query("INSERT INTO metadata (key, value) VALUES ('agent_request_baseline_seeded', '1') ON CONFLICT(key) DO UPDATE SET value = excluded.value").run();
+    })();
+  }
+
+  // ── Extension outputs (src/extension-calls.ts) ──────────────────────────
+  // What an output or component handler line last returned, kept per block
+  // and call (handler, argument, fetch options), so a reader shows it at once
+  // and a restart keeps it. It is never block text: `keep` writes blocks.
+
+  /** The stored results of a block's handler lines. */
+  extensionOutputs(blockId: string): ExtensionOutputRow[] {
+    return (this.database.query("SELECT * FROM extension_outputs WHERE block_id = ?").all(blockId) as ExtensionOutputDbRow[])
+      .map(extensionOutputRow);
+  }
+
+  /** Stores one call's result or failure. A failure keeps the last good result. */
+  putExtensionOutput(row: ExtensionOutputWrite): void {
+    this.database.transaction(() => {
+      const current = this.database.query("SELECT result, ran_at FROM extension_outputs WHERE block_id = ? AND call_key = ?")
+        .get(row.blockId, row.callKey) as { result: string | null; ran_at: string | null } | null;
+      const result = row.result !== undefined ? JSON.stringify(row.result) : current?.result ?? null;
+      const ranAt = row.result !== undefined ? row.attemptedAt : current?.ran_at ?? null;
+      this.database.query(`
+        INSERT INTO extension_outputs (block_id, call_key, extension_id, handler_key, kind, request, result, error, ran_at, attempted_at, block_revision, extension_version)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT (block_id, call_key) DO UPDATE SET extension_id = excluded.extension_id, handler_key = excluded.handler_key,
+          kind = excluded.kind, request = excluded.request, result = excluded.result, error = excluded.error, ran_at = excluded.ran_at,
+          attempted_at = excluded.attempted_at, block_revision = excluded.block_revision, extension_version = excluded.extension_version
+      `).run(row.blockId, row.callKey, row.extensionId, row.handlerKey, row.kind, JSON.stringify(row.request), result,
+        row.error ?? null, ranAt, row.attemptedAt, row.blockRevision, row.extensionVersion);
+    })();
+  }
+
+  /** Forgets the results of lines a block no longer has. Returns how many went. */
+  pruneExtensionOutputs(blockId: string, keep: readonly string[]): number {
+    const rows = this.database.query("SELECT call_key FROM extension_outputs WHERE block_id = ?").all(blockId) as Array<{ call_key: string }>;
+    const gone = rows.map((row) => row.call_key).filter((key) => !keep.includes(key));
+    const remove = this.database.query("DELETE FROM extension_outputs WHERE block_id = ? AND call_key = ?");
+    for (const key of gone) remove.run(blockId, key);
+    return gone.length;
+  }
+
+  /** Whether a block has asked an extension for a key (removing its last line still settles the record). */
+  asksExtension(blockId: string): boolean {
+    return !!this.database.query("SELECT 1 FROM extension_askers WHERE block_id = ? LIMIT 1").get(blockId);
+  }
+
+  /** The active blocks that ask for a key, earliest first, with the comments each asks to see. */
+  extensionAskers(extensionId: string, itemKey: string): Array<{ blockId: string; comments: number }> {
+    return (this.database.query(`
+      SELECT asker.block_id AS blockId, asker.comments AS comments
+      FROM extension_askers asker JOIN blocks block ON block.id = asker.block_id
+      WHERE asker.extension_id = ? AND asker.item_key = ? AND block.effective_deleted_root_id IS NULL
+      ORDER BY block.created_at, block.id
+    `).all(extensionId, itemKey) as Array<{ blockId: string; comments: number }>);
+  }
+
+  /**
+   * Where a key's one record block belongs while anything asks for it: under
+   * the block whose page is the key (`[page::PC-12]`), else the earliest
+   * block whose own `[jira::PC-12]` names it, else the earliest block that
+   * asks. Null when nothing asks for it any more.
+   */
+  extensionRecordHome(extensionId: string, itemKey: string): string | null {
+    return this.database.transaction(() => {
+      const askers = this.extensionAskers(extensionId, itemKey);
+      if (!askers.length) return null;
+      const normalized = tryNormalizePageAddress(itemKey)?.normalizedAddress;
+      const address = normalized ? this.pageAddressRowFromCurrentRead(normalized) : null;
+      const page = address ? this.getFromCurrentRead(address.block_id) : null;
+      if (page && !page.effectiveDeletedRootId && !this.extensionOwnerFromCurrentRead(page.id)) return page.id;
+      const own = this.database.query(`
+        SELECT block.id FROM block_properties property JOIN blocks block ON block.id = property.block_id
+        WHERE property.scope = 'block' AND property.syntax = 'bracket' AND property.key = ? AND upper(trim(property.value)) = ?
+          AND block.effective_deleted_root_id IS NULL
+          AND NOT EXISTS (SELECT 1 FROM extension_records owned WHERE owned.block_id = block.id)
+        ORDER BY block.created_at, block.id LIMIT 1
+      `).get(extensionId, itemKey.trim().toUpperCase()) as { id: string } | null;
+      return own?.id ?? askers[0]!.blockId;
+    })();
+  }
+
+  /**
+   * Writes a key's one record (and, when given, its comments) as the
+   * extension, under `parentBlockId` (its home). An unchanged text is not
+   * written, so a refresh that finds nothing new records no change. A record
+   * elsewhere moves there, keeping its identity, comments and highlights; one
+   * the extension dropped to Trash comes back from it. Changed texts re-anchor
+   * their comments and highlights through the annotation repository.
+   */
+  writeExtensionRecord(input: ExtensionRecordWriteInput): ExtensionRecordWriteReceipt {
+    const actor: MutationProvenance = { author: "agent", actorId: extensionActorId(input.extensionId) };
+    const changed: string[] = [];
+    const now = new Date().toISOString();
+    let recordId = "";
+    this.database.transaction(() => {
+      this.extensionWriter = input.extensionId;
+      try {
+        this.requireActive(input.parentBlockId);
+        recordId = this.placeRecordFromCurrentRead(input, actor, now, changed);
+        if (input.comments !== undefined) {
+          const wanted = input.comments ?? [];
+          const keys = new Set(wanted.map((comment) => comment.itemKey));
+          for (const row of this.extensionRecords({ parentBlockId: recordId, extensionId: input.extensionId, role: "comment" })) {
+            if (keys.has(row.itemKey)) continue;
+            this.dropOwnedFromCurrentRead(row.blockId, input.extensionId, "comment", actor);
+            changed.push(row.blockId);
+          }
+          const ids = wanted.map((comment) => this.writeOwnedBlockFromCurrentRead(input, "comment", recordId, comment.itemKey, comment.text, undefined, actor, now, changed));
+          const order = this.children(recordId).map((child) => child.id).filter((id) => ids.includes(id));
+          if (order.join() !== ids.join()) {
+            for (const id of ids) this.move(id, recordId, undefined, actor);
+          }
+        }
+      } finally {
+        this.extensionWriter = null;
+      }
+    })();
+    return { record: this.require(recordId), changedBlockIds: [...new Set(changed)] };
+  }
+
+  /**
+   * Puts a key's one record where it belongs now, without a fetch: under its
+   * home (`extensionRecordHome`), or in Trash when nothing asks for it. Every
+   * extension's sync settles a key through this (Jira's, and the data
+   * handlers'), after its asks change.
+   */
+  settleExtensionRecord(extensionId: string, itemKey: string): "home" | "dropped" {
+    const home = this.extensionRecordHome(extensionId, itemKey);
+    if (!home) {
+      this.dropExtensionRecord(extensionId, itemKey);
+      return "dropped";
+    }
+    this.moveExtensionRecord(extensionId, itemKey, home);
+    return "home";
+  }
+
+  /** Forgets every stored result of an extension's handler lines (its folder is gone). */
+  forgetExtensionOutputs(extensionId: string): number {
+    return this.database.query("DELETE FROM extension_outputs WHERE extension_id = ?").run(extensionId).changes;
+  }
+
+  /**
+   * Moves a key's record to `parentBlockId` (its new home) without a fetch.
+   * Returns whether it moved; false when there is no active record, it is
+   * already there, or the home is inside the record.
+   */
+  moveExtensionRecord(extensionId: string, itemKey: string, parentBlockId: string): boolean {
+    const actor: MutationProvenance = { author: "agent", actorId: extensionActorId(extensionId) };
+    return this.changes.run(this.changes.attribution({ action: `ext.${extensionId}.sync`, actor }), () =>
+      this.database.transaction(() => {
+        const row = this.extensionRecords({ extensionId, role: "record", itemKey })[0];
+        if (!row || row.parentBlockId === parentBlockId) return false;
+        if (parentBlockId === row.blockId || this.isDescendant(parentBlockId, row.blockId)) return false;
+        this.requireActive(parentBlockId);
+        this.move(row.blockId, parentBlockId, 0, actor);
+        this.database.query("UPDATE extension_records SET parent_block_id = ? WHERE block_id = ?").run(parentBlockId, row.blockId);
+        return true;
+      })());
+  }
+
+  /**
+   * Moves a key's record to Trash because nothing asks for it any more
+   * (`ext.<id>.drop-record` in the change feed). What sits under it (its
+   * comments, a person's highlights and replies) goes with it and comes back
+   * with a restore; asking for the key again brings the same block back.
+   */
+  dropExtensionRecord(extensionId: string, itemKey: string): string[] {
+    const actor: MutationProvenance = { author: "agent", actorId: extensionActorId(extensionId) };
+    return this.database.transaction(() => this.extensionRecords({ extensionId, role: "record", itemKey }).map((row) => {
+      this.dropOwnedFromCurrentRead(row.blockId, extensionId, "record", actor);
+      return row.blockId;
+    }))();
+  }
+
+  /**
+   * Keeps a record's newest `keep` comment blocks and drops the older ones to
+   * Trash (`ext.<id>.drop-comment`), for when fewer are asked for.
+   */
+  trimExtensionComments(extensionId: string, recordBlockId: string, keep: number): string[] {
+    const actor: MutationProvenance = { author: "agent", actorId: extensionActorId(extensionId) };
+    return this.database.transaction(() => {
+      const comments = this.extensionRecords({ parentBlockId: recordBlockId, extensionId, role: "comment" });
+      const order = new Map(this.children(recordBlockId).map((child, index) => [child.id, index]));
+      comments.sort((a, b) => (order.get(a.blockId) ?? 0) - (order.get(b.blockId) ?? 0));
+      const dropped = comments.slice(0, Math.max(0, comments.length - Math.max(0, keep)));
+      for (const row of dropped) this.dropOwnedFromCurrentRead(row.blockId, extensionId, "comment", actor);
+      return dropped.map((row) => row.blockId);
+    })();
+  }
+
+  /**
+   * An owned block to Trash, as the extension, under its own change action
+   * (`ext.<id>.drop-record` or `drop-comment`) so the change feed and the
+   * activity say why it went. It stays owned in Trash: a restore by the
+   * person or by the extension brings back the same block with everything
+   * under and on it (comments, highlights, replies).
+   */
+  private dropOwnedFromCurrentRead(blockId: string, extensionId: string, role: "record" | "comment", actor: MutationProvenance): void {
+    this.changes.run(this.changes.attribution({ action: `ext.${extensionId}.drop-${role}`, actor }), () => this.delete(blockId, actor));
+  }
+
+  /**
+   * The page a ticket key names (PIE-408's ticket keys): the active block whose
+   * own `[jira::KEY]` names it, else the block a record for it sits under. The
+   * earliest wins when several do.
+   */
+  ticketPage(key: string): Block | null {
+    return this.database.transaction(() => this.ticketPageFromCurrentRead(key))();
+  }
+
+  /** Every ticket key with a page, as `ticketPage` would answer each one. */
+  private ticketPagesFromCurrentRead(): Map<string, string> {
+    const keys = [...new Set([...RESOURCE_DIRECTIVE_PROVIDERS.map((provider) => provider.propertyKey),
+      ...(this.database.query("SELECT DISTINCT extension_id FROM extension_records").all() as Array<{ extension_id: string }>)
+        .map((row) => row.extension_id)])];
+    const pages = new Map<string, string>();
+    const rows = [
+      ...this.database.query(`
+        SELECT upper(trim(property.value)) AS key, block.id FROM block_properties property JOIN blocks block ON block.id = property.block_id
+        WHERE property.scope = 'block' AND property.syntax = 'bracket' AND property.key IN (${keys.map(() => "?").join(", ")}) AND block.effective_deleted_root_id IS NULL
+        ORDER BY block.created_at, block.id
+      `).all(...keys) as Array<{ key: string; id: string }>,
+      ...this.database.query(`
+        SELECT record.item_key AS key, block.id FROM extension_records record
+        JOIN blocks block ON block.id = record.parent_block_id JOIN blocks owned ON owned.id = record.block_id
+        WHERE record.role = 'record' AND block.effective_deleted_root_id IS NULL AND owned.effective_deleted_root_id IS NULL
+        ORDER BY block.created_at, block.id
+      `).all() as Array<{ key: string; id: string }>,
+    ];
+    for (const row of rows) {
+      if (/^[A-Z][A-Z0-9_]*-[1-9][0-9]*$/.test(row.key) && !pages.has(row.key)) pages.set(row.key, row.id);
+    }
+    return pages;
+  }
+
+  private ticketPageFromCurrentRead(key: string): Block | null {
+    const normalized = key.trim().toUpperCase();
+    if (!/^[A-Z][A-Z0-9_]*-[1-9][0-9]*$/.test(normalized)) return null;
+    const keys = [...new Set([...RESOURCE_DIRECTIVE_PROVIDERS.map((provider) => provider.propertyKey),
+      ...(this.database.query("SELECT DISTINCT extension_id FROM extension_records").all() as Array<{ extension_id: string }>)
+        .map((row) => row.extension_id)])];
+    const page = this.database.query(`
+      SELECT block.id FROM block_properties property JOIN blocks block ON block.id = property.block_id
+      WHERE property.scope = 'block' AND property.syntax = 'bracket' AND property.key IN (${keys.map(() => "?").join(", ")})
+        AND upper(trim(property.value)) = ? AND block.effective_deleted_root_id IS NULL
+      ORDER BY block.created_at, block.id LIMIT 1
+    `).get(...keys, normalized) as { id: string } | null;
+    const id = page?.id ?? (this.database.query(`
+      SELECT record.parent_block_id AS id FROM extension_records record
+      JOIN blocks block ON block.id = record.parent_block_id
+      JOIN blocks owned ON owned.id = record.block_id
+      WHERE record.role = 'record' AND record.item_key = ?
+        AND block.effective_deleted_root_id IS NULL AND owned.effective_deleted_root_id IS NULL
+      ORDER BY block.created_at, block.id LIMIT 1
+    `).get(normalized) as { id: string } | null)?.id;
+    return id ? this.getFromCurrentRead(id) : null;
+  }
+
+  private writeOwnedBlockFromCurrentRead(
+    input: ExtensionRecordWriteInput,
+    role: "record" | "comment",
+    parentBlockId: string,
+    itemKey: string,
+    text: string,
+    position: number | undefined,
+    actor: MutationProvenance,
+    now: string,
+    changed: string[],
+  ): string {
+    const rows = this.database.query(`
+      SELECT block_id FROM extension_records
+      WHERE parent_block_id = ? AND extension_id = ? AND role = ? AND item_key = ?
+    `).all(parentBlockId, input.extensionId, role, itemKey) as Array<{ block_id: string }>;
+    const blocks = rows.flatMap((row) => this.getFromCurrentRead(row.block_id) ?? []);
+    let block: Block | null = blocks.find((candidate) => !candidate.effectiveDeletedRootId) ?? null;
+    // One the extension dropped (a comment that left the newest-N window) comes back with what is on it.
+    block ??= this.reviveOwnedFromCurrentRead(blocks, actor);
+    return this.writeOwnedTextFromCurrentRead(input, role, parentBlockId, itemKey, text, position, actor, now, changed, block);
+  }
+
+  /**
+   * The key's one record, under its home: the active record there (or
+   * elsewhere, moved there; a duplicate from an older version is dropped),
+   * else the one the extension dropped to Trash, restored, else a new block.
+   */
+  private placeRecordFromCurrentRead(input: ExtensionRecordWriteInput, actor: MutationProvenance, now: string, changed: string[]): string {
+    const rows = this.database.query(`
+      SELECT record.block_id FROM extension_records record JOIN blocks block ON block.id = record.block_id
+      WHERE record.extension_id = ? AND record.role = 'record' AND record.item_key = ?
+      ORDER BY block.created_at, block.id
+    `).all(input.extensionId, input.itemKey) as Array<{ block_id: string }>;
+    const blocks = rows.flatMap((row) => this.getFromCurrentRead(row.block_id) ?? []);
+    const active = blocks.filter((candidate) => !candidate.effectiveDeletedRootId);
+    let block: Block | null = active.find((candidate) => candidate.parentId === input.parentBlockId) ?? active[0] ?? null;
+    for (const duplicate of active) {
+      if (duplicate.id === block?.id) continue;
+      this.dropOwnedFromCurrentRead(duplicate.id, input.extensionId, "record", actor);
+      changed.push(duplicate.id);
+    }
+    block ??= this.reviveOwnedFromCurrentRead([...blocks].reverse(), actor);
+    if (block && block.parentId !== input.parentBlockId &&
+      input.parentBlockId !== block.id && !this.isDescendant(input.parentBlockId, block.id)) {
+      block = this.move(block.id, input.parentBlockId, 0, actor);
+      this.database.query("UPDATE extension_records SET parent_block_id = ? WHERE block_id = ?").run(input.parentBlockId, block.id);
+      changed.push(block.id);
+    }
+    return this.writeOwnedTextFromCurrentRead(input, "record", block?.parentId ?? input.parentBlockId, input.itemKey, input.text, 0, actor, now, changed, block);
+  }
+
+  /** The first of these owned blocks that is a Trash root and can be restored, restored as the extension. */
+  private reviveOwnedFromCurrentRead(blocks: readonly Block[], actor: MutationProvenance): Block | null {
+    for (const candidate of blocks) {
+      if (!candidate.deletedAt) continue;
+      try {
+        const restored = this.restore(candidate.id, actor);
+        if (!restored.effectiveDeletedRootId) return restored;
+      } catch {
+        // Its old place is in Trash too: a new block takes over.
+      }
+    }
+    return null;
+  }
+
+  private writeOwnedTextFromCurrentRead(
+    input: ExtensionRecordWriteInput,
+    role: "record" | "comment",
+    parentBlockId: string,
+    itemKey: string,
+    text: string,
+    position: number | undefined,
+    actor: MutationProvenance,
+    now: string,
+    changed: string[],
+    found: Block | null,
+  ): string {
+    let block = found;
+    if (!block) {
+      block = this.createAt(text, parentBlockId, "agent", { actorId: actor.actorId! }, now, position);
+      this.database.query(`
+        INSERT INTO extension_records (block_id, extension_id, label, role, parent_block_id, item_key, resource_id, synced_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(block.id, input.extensionId, input.label, role, parentBlockId, itemKey, input.resourceId, now);
+      changed.push(block.id);
+      return block.id;
+    }
+    if (block.text !== text) {
+      const updated = this.update(block.id, text, block.revision, actor);
+      changed.push(block.id);
+      this.annotations.reconcile({ subject: { kind: "block", blockId: block.id }, newRepresentation: blockAnnotationRepresentation(updated) });
+    }
+    this.database.query("UPDATE extension_records SET synced_at = ?, resource_id = ?, label = ? WHERE block_id = ?")
+      .run(now, input.resourceId, input.label, block.id);
+    return block.id;
+  }
+
+  private extensionOwnerFromCurrentRead(blockId: string): ExtensionRecordRow | null {
+    const row = this.database.query("SELECT * FROM extension_records WHERE block_id = ?").get(blockId) as ExtensionRecordDbRow | null;
+    return row ? extensionRecordRow(row) : null;
+  }
+
+  /** Records who changed a block, in the transaction that changes it. */
+  private recordActivity(
+    id: string,
+    provenance: ReturnType<typeof normalizeMutationProvenance>,
+    kind: BlockActivityKind,
+    at: string,
+  ): void {
+    this.database.query(`
+      INSERT INTO block_edit_activity
+        (block_id, author, actor_id, session_id, task_id, kind, edited_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(id, provenance.author, provenance.actorId, provenance.sessionId, provenance.taskId, kind, at);
+  }
+
+  private writeBlockText(
+    id: string,
+    text: string,
+    expectedRevision: number,
+    editedAt = new Date().toISOString(),
+    identityChanges: readonly ChecklistIdentityChange[] = [],
+  ): string {
+    if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 1) {
+      throw new Error("Block edit requires a positive integer revision");
+    }
+    const current = this.require(id);
+    if (current.revision !== expectedRevision) throw new Error(`Block changed since editing began: ${id}`);
+    const owner = this.extensionOwnerFromCurrentRead(id);
+    if (owner && owner.extensionId !== this.extensionWriter && text !== current.text) {
+      throw new Error(extensionWriteRefusal(owner, current.text, text));
+    }
+    validateChecklistIdentityChanges(current.text, text, identityChanges);
+    this.validateRoadmapText(text);
+    if (this.roadmapMembersOfBatches([id]).length) {
+      const previous = this.require(id).properties;
+      const next = parsePropertyRecords(text).filter(property => property.scope === "block");
+      const oldProject = previous.filter(property => property.key === "project");
+      const newProject = next.filter(property => property.key === "project");
+      if (!matchesFilters(next, [{ key: "type", value: "work-batch" }]) ||
+        oldProject.length !== 1 || newProject.length !== 1 ||
+        oldProject[0]!.value.toLowerCase() !== newProject[0]!.value.toLowerCase()) {
+        throw new Error("A batch with members must retain its type and project; reassign members first");
+      }
+    }
+    const result = this.database.query(`
+      UPDATE blocks SET text = ?, revision = revision + 1, updated_at = ?
+      WHERE id = ? AND revision = ?
+    `).run(text, editedAt, id, expectedRevision);
+    if (result.changes !== 1) throw new Error(`Block changed since editing began: ${id}`);
+    return editedAt;
+  }
+
+  private validateRoadmapText(text: string): void {
+    const properties = parsePropertyRecords(text).filter(property => property.scope === "block");
+    const values = (key: string) => properties.filter(property => property.key === key).map(property => property.value);
+    if (!matchesFilters(properties, [{ key: "type", value: "roadmap-item" }])) return;
+    if (values("status").length > 0) {
+      throw new Error("Roadmap items use work-stage as their lifecycle; remove the status property");
+    }
+    const stages = values("work-stage");
+    if (stages.length !== 1 || ![...Object.keys(ROADMAP_CREATE_STAGES), "done", "superseded"].includes(stages[0]!.toLowerCase())) {
+      throw new Error("Roadmap items require exactly one valid work-stage");
+    }
+    if (stages[0]!.toLowerCase() === "superseded" && values("superseded-by").length !== 1) {
+      throw new Error("Superseded roadmap items require exactly one superseded-by link");
+    }
+    const batches = values("work-batch");
+    if (batches.length > 1) throw new Error("Roadmap items have at most one work-batch");
+    if (batches[0]) {
+      const batch = this.requireActive(normalizeRoadmapRelationshipId(batches[0], "work-batch"));
+      if (!matchesFilters(batch.properties, [{ key: "type", value: "work-batch" }])) {
+        throw new Error("work-batch must reference a work-batch block");
+      }
+      const projects = values("project");
+      const batchProjects = batch.properties.filter(property => property.key === "project");
+      if (projects.length !== 1 || batchProjects.length !== 1 || projects[0]!.toLowerCase() !== batchProjects[0]!.value.toLowerCase()) {
+        throw new Error("work-batch must belong to the item's project");
+      }
+    }
+  }
+
+  private roadmapMembersOfBatches(batchIds: readonly string[]): string[] {
+    if (!batchIds.length) return [];
+    // Include Trash: restoring a member must not resurrect a dangling commitment.
+    const rows = this.database.query(`
+      SELECT DISTINCT membership.block_id FROM block_properties membership
+      WHERE membership.scope = 'block' AND membership.key = 'work-batch'
+        AND LOWER(membership.value) IN (${batchIds.map(() => "?").join(",")})
+        AND EXISTS (
+          SELECT 1 FROM block_properties type
+          WHERE type.block_id = membership.block_id AND type.scope = 'block'
+            AND type.key = 'type' AND LOWER(type.value) = 'roadmap-item'
+        )
+    `).all(...batchIds) as Array<{ block_id: string }>;
+    return rows.map(row => row.block_id);
+  }
+
+  patchProperties(
+    id: string,
+    expectedRevision: number,
+    operations: PropertyPatchOperation[],
+    mutation: MutationProvenance = { author: "system" },
+  ): Block {
+    if (operations.length === 0) throw new Error("Property patch requires at least one operation");
+    const existing = this.requireActive(id);
+    if (existing.revision !== expectedRevision) {
+      throw new Error(`Block changed since editing began: ${id}`);
+    }
+    const text = patchPropertyText(existing.text, operations);
+    return this.update(id, text, expectedRevision, mutation, "properties");
+  }
+
+  recentEditActivity(options: {
+    afterCursor?: number;
+    since?: string;
+    limit?: number;
+    author?: BlockAuthor;
+    kinds?: readonly BlockActivityKind[];
+    /** `exclude`: leave out extension writes (`actor_id` `ext:…`); `only`: just those. */
+    extensions?: "exclude" | "only";
+    /** Only entries recorded with this actor id. */
+    actorId?: string;
+    /** Only blocks whose latest matching entry is below this cursor: the next, older page of a cut one. */
+    beforeCursor?: number;
+  } = {}): BlockEditActivityPage {
+    const afterCursor = options.afterCursor ?? 0;
+    if (!Number.isSafeInteger(afterCursor) || afterCursor < 0) {
+      throw new Error("Activity cursor must be a non-negative safe integer");
+    }
+    const limit = Math.min(options.limit ?? 5, 100);
+    if (!Number.isInteger(limit) || limit <= 0) {
+      throw new Error("Activity limit must be a positive integer");
+    }
+    const author = options.author ?? "user";
+    if (!["user", "agent", "system"].includes(author)) {
+      throw new Error("Activity author must be user, agent, or system");
+    }
+    const since = options.since ?? "0000-01-01T00:00:00.000Z";
+    if (options.since !== undefined && !Number.isFinite(Date.parse(options.since))) {
+      throw new Error("Activity since must be an ISO timestamp");
+    }
+    const requested: unknown = options.kinds ?? BLOCK_EDIT_ACTIVITY_KINDS;
+    const listed = Array.isArray(requested) ? [...new Set(requested as unknown[])] : [];
+    if (listed.length === 0 || listed.some(kind => !(BLOCK_ACTIVITY_KINDS as readonly unknown[]).includes(kind))) {
+      throw new Error(`Activity kinds must be a non-empty list of ${BLOCK_ACTIVITY_KINDS.join(", ")}`);
+    }
+    const kinds = listed as BlockActivityKind[];
+    // Filtered before grouping, so a block's latest edit still shows after a later move.
+    if (options.extensions !== undefined && options.extensions !== "exclude" && options.extensions !== "only") {
+      throw new Error("Activity extensions must be exclude or only");
+    }
+    if (options.actorId !== undefined && (typeof options.actorId !== "string" || !options.actorId.trim())) {
+      throw new Error("Activity actorId must be a non-empty actor id");
+    }
+    if (options.beforeCursor !== undefined && (!Number.isSafeInteger(options.beforeCursor) || options.beforeCursor < 1)) {
+      throw new Error("Activity beforeCursor must be a positive safe integer");
+    }
+    const before = options.beforeCursor === undefined ? [] : [options.beforeCursor];
+    // The actor id is bound as the clause's last parameter, after the kinds.
+    const actor = options.actorId === undefined ? [] : [options.actorId.trim()];
+    const kindClause = `kind IN (${kinds.map(() => "?").join(", ")})${
+      options.extensions === "exclude" ? " AND (actor_id IS NULL OR actor_id NOT LIKE 'ext:%')"
+        : options.extensions === "only" ? " AND actor_id LIKE 'ext:%'" : ""}${actor.length ? " AND actor_id = ?" : ""}`;
+    const cursorRow = this.database.query(`
+      SELECT COALESCE(MAX(activity_id), ?) AS cursor
+      FROM block_edit_activity
+      WHERE activity_id > ? AND author = ? AND edited_at >= ? AND ${kindClause}
+    `).get(afterCursor, afterCursor, author, since, ...kinds, ...actor) as { cursor: number };
+    const rows = this.database.query(`
+      SELECT activity_id, block_id, author, actor_id, session_id, task_id, kind, edited_at
+      FROM block_edit_activity
+      WHERE activity_id IN (
+        SELECT MAX(activity_id)
+        FROM block_edit_activity
+        WHERE activity_id > ? AND author = ? AND edited_at >= ? AND ${kindClause}
+        GROUP BY block_id
+      )${before.length ? " AND activity_id < ?" : ""}
+      ORDER BY activity_id DESC, block_id ASC
+      LIMIT ?
+    `).all(afterCursor, author, since, ...kinds, ...actor, ...before, limit) as BlockEditActivityRow[];
+    const entries = rows.flatMap((row): BlockEditActivity[] => {
+      const block = this.get(row.block_id);
+      if (!block) return [];
+      // A trashed block is listed only for the entry that trashed it, and that
+      // entry only while the block is still a Trash root; after an unrecorded
+      // restore it would describe a state the block is no longer in.
+      const trashRoot = Boolean(block.deletedAt);
+      if (row.kind === "delete" ? !trashRoot : Boolean(block.effectiveDeletedRootId)) return [];
+      return [{
+        cursor: row.activity_id,
+        block,
+        author: row.author,
+        ...(row.actor_id ? { actorId: row.actor_id } : {}),
+        ...(row.session_id ? { sessionId: row.session_id } : {}),
+        ...(row.task_id ? { taskId: row.task_id } : {}),
+        kind: row.kind,
+        editedAt: row.edited_at,
+      }];
+    });
+    return { entries, cursor: cursorRow.cursor };
+  }
+
+  propertyCatalog(
+    key?: string,
+    prefix = "",
+    requestedLimit = 50,
+    requestedScope: PropertyQueryScope = "block",
+  ): PropertyCatalogItem[] {
+    if (!["block", "line", "inline", "all"].includes(requestedScope)) {
+      throw new Error(`Invalid property scope: ${requestedScope}`);
+    }
+    const limit = Math.max(1, Math.min(100, Math.floor(requestedLimit)));
+    const normalizedPrefix = prefix.toLowerCase();
+    const scopeClause = requestedScope === "all" ? "" : "AND property.scope = ?";
+    const scopeParameters = requestedScope === "all" ? [] : [requestedScope];
+    if (key) {
+      return this.database
+        .query(
+          `SELECT property.key, property.value, COUNT(*) AS count FROM block_properties property JOIN blocks block ON block.id = property.block_id WHERE block.effective_deleted_root_id IS NULL AND property.key = ? AND SUBSTR(LOWER(property.value), 1, LENGTH(?)) = ? ${scopeClause} GROUP BY property.key, property.value ORDER BY count DESC, LOWER(property.value), property.value LIMIT ?`,
+        )
+        .all(
+          key.toLowerCase(),
+          normalizedPrefix,
+          normalizedPrefix,
+          ...scopeParameters,
+          limit,
+        ) as PropertyCatalogItem[];
+    }
+    return this.database
+      .query(
+        `SELECT property.key, property.value, COUNT(*) AS count FROM block_properties property JOIN blocks block ON block.id = property.block_id WHERE block.effective_deleted_root_id IS NULL AND SUBSTR(property.key, 1, LENGTH(?)) = ? ${scopeClause} GROUP BY property.key, property.value ORDER BY count DESC, property.key, LOWER(property.value), property.value LIMIT ?`,
+      )
+      .all(normalizedPrefix, normalizedPrefix, ...scopeParameters, limit) as PropertyCatalogItem[];
+  }
+
+  propertyInventory(input: { key: string; propertyScope?: PropertyQueryScope; offset?: number; limit?: number }): import("./types").PropertyInventory {
+    const key = typeof input.key === "string" ? input.key.trim().toLowerCase() : "";
+    if (!/^[a-z][a-z0-9_.-]*$/.test(key)) throw new Error("Inventory requires one property key");
+    const propertyScope = input.propertyScope ?? "block";
+    if (!["block", "line", "inline", "all"].includes(propertyScope)) throw new Error("Invalid inventory property scope");
+    const offset = input.offset ?? 0;
+    const limit = input.limit ?? 1000;
+    if (!Number.isSafeInteger(offset) || offset < 0) throw new Error("Inventory offset must be a nonnegative integer");
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 1000) throw new Error("Inventory limit must be between 1 and 1000");
+    return this.database.transaction(() => {
+      const scopeClause = propertyScope === "all" ? "" : "AND property.scope = ?";
+      const parameters = propertyScope === "all" ? [key] : [key, propertyScope];
+      const from = `FROM block_properties property JOIN blocks block ON block.id = property.block_id
+        WHERE block.effective_deleted_root_id IS NULL AND property.key = ? ${scopeClause}`;
+      const counts = this.database.query(`SELECT COUNT(DISTINCT property.value) AS totalValues,
+        COUNT(DISTINCT property.block_id) AS matchedBlocks ${from}`).get(...parameters) as { totalValues: number; matchedBlocks: number };
+      const { totalBlocks } = this.database.query("SELECT COUNT(*) AS totalBlocks FROM blocks WHERE effective_deleted_root_id IS NULL")
+        .get() as { totalBlocks: number };
+      const items = this.database.query(`SELECT property.key, property.value, COUNT(DISTINCT property.block_id) AS count
+        ${from} GROUP BY property.key, property.value ORDER BY LOWER(property.value), property.value LIMIT ? OFFSET ?`)
+        .all(...parameters, limit, offset) as PropertyCatalogItem[];
+      const nextOffset = offset + items.length < counts.totalValues ? offset + items.length : null;
+      return { key, propertyScope, items, ...counts, totalBlocks, offset, nextOffset,
+        complete: offset === 0 && nextOffset === null, sequence: this.sequence };
+    })();
+  }
+
+  /**
+   * Structural changes record activity only when `mutation` says who made them;
+   * without it (older clients, internal moves) they stay unattributed, as before.
+   */
+  move(id: string, parentId: string | null, requestedPosition?: number, mutation?: MutationProvenance): Block {
+    const provenance = mutation ? normalizeMutationProvenance(mutation) : undefined;
+    const block = this.requireActive(id);
+    if (parentId !== null) {
+      this.requireActive(parentId);
+      if (parentId === id || this.isDescendant(parentId, id)) throw new Error("Cannot move a block beneath itself");
+    }
+
+    const siblings = this.children(parentId).filter((candidate) => candidate.id !== id);
+    const position = Math.max(0, Math.min(requestedPosition ?? siblings.length, siblings.length));
+    siblings.splice(position, 0, block);
+
+    this.database.transaction(() => {
+      this.database.query("UPDATE blocks SET parent_id = ? WHERE id = ?").run(parentId, id);
+      const updatePosition = this.database.query("UPDATE blocks SET position = ?, updated_at = ? WHERE id = ?");
+      const now = new Date().toISOString();
+      siblings.forEach((sibling, index) => updatePosition.run(index, now, sibling.id));
+      this.normalizePositions(block.parentId);
+      if (provenance) this.recordActivity(id, provenance, "move", now);
+      this.bumpSequence({ kind: "move", blockId: id, previousParentId: block.parentId });
+    })();
+    return this.require(id);
+  }
+
+  delete(id: string, mutation?: MutationProvenance): Block {
+    const provenance = mutation ? normalizeMutationProvenance(mutation) : undefined;
+    this.requireActive(id);
+    const deletedAt = new Date().toISOString();
+    this.database.transaction(() => {
+      const subtree = new Set(this.subtreeIdsFromCurrentRead(id));
+      if (this.roadmapMembersOfBatches([...subtree]).some(member => !subtree.has(member))) {
+        throw new Error("Cannot delete a batch with members outside the deleted subtree; reassign members first");
+      }
+      this.database.query("UPDATE blocks SET deleted_at = ?, updated_at = ? WHERE id = ?")
+        .run(deletedAt, deletedAt, id);
+      this.recomputeEffectiveDeletion();
+      if (provenance) this.recordActivity(id, provenance, "delete", deletedAt);
+      this.bumpSequence({ kind: "delete", blockId: id });
+    })();
+    return this.require(id);
+  }
+
+  restore(id: string, mutation?: MutationProvenance): Block {
+    const provenance = mutation ? normalizeMutationProvenance(mutation) : undefined;
+    const block = this.require(id);
+    if (!block.deletedAt) throw new Error(`Block is not a direct Trash root: ${id}`);
+    let ancestorId = block.parentId;
+    while (ancestorId) {
+      const ancestor = this.require(ancestorId);
+      if (ancestor.deletedAt) {
+        throw new Error(`Restore enclosing Trash root first: ${ancestor.id}`);
+      }
+      ancestorId = ancestor.parentId;
+    }
+    const restoredAt = new Date().toISOString();
+    this.database.transaction(() => {
+      this.database.query("UPDATE blocks SET deleted_at = NULL, updated_at = ? WHERE id = ?")
+        .run(restoredAt, id);
+      this.recomputeEffectiveDeletion();
+      for (const blockId of this.subtreeIdsFromCurrentRead(id)) {
+        const restored = this.getFromCurrentRead(blockId);
+        if (restored && !restored.effectiveDeletedRootId) {
+          const text = migrateRoadmapText(restored);
+          if (text !== restored.text) this.replaceCanonicalBlockText(blockId, text);
+        }
+        if (
+          restored &&
+          !restored.effectiveDeletedRootId &&
+          this.canRegisterRestoredPageAddresses(blockId, restored.properties)
+        ) {
+          for (const workId of this.configuredWorkIdValues(restored.properties)) {
+            this.reserveWorkIdForBlockFromCurrentRead(blockId, workId);
+          }
+          this.syncDeclaredPageAddresses(blockId, restored.properties);
+        }
+      }
+      if (provenance) this.recordActivity(id, provenance, "restore", restoredAt);
+      this.bumpSequence({ kind: "restore", blockId: id });
+    })();
+    return this.require(id);
+  }
+
+  purge(id: string, confirmation: string): void {
+    const block = this.require(id);
+    if (!block.deletedAt) throw new Error(`Block is not a direct Trash root: ${id}`);
+    const workId = block.properties.find((property) => property.key === "work-id")?.value;
+    const expected = workId ?? block.id.slice(0, 8);
+    if (confirmation !== expected) throw new Error(`Permanent purge requires confirmation: ${expected}`);
+    this.database.transaction(() => {
+      const subtree = (this.database.query(`
+        WITH RECURSIVE doomed(id) AS (
+          SELECT id FROM blocks WHERE id = ?
+          UNION
+          SELECT child.id FROM blocks child JOIN doomed ON child.parent_id = doomed.id
+          UNION
+          SELECT target.annotation_block_id
+          FROM annotation_targets target JOIN doomed ON target.block_id = doomed.id
+          UNION
+          SELECT parent.block_id
+          FROM block_properties parent JOIN doomed ON parent.value = doomed.id
+          WHERE parent.scope = 'block' AND parent.key = 'parent-annotation'
+            AND NOT EXISTS (
+              SELECT 1 FROM block_properties earlier
+              WHERE earlier.block_id = parent.block_id AND earlier.scope = 'block'
+                AND earlier.key = 'parent-annotation' AND earlier.ordinal < parent.ordinal
+            )
+            AND EXISTS (
+              SELECT 1 FROM block_properties type
+              WHERE type.block_id = parent.block_id AND type.scope = 'block'
+                AND type.key = 'type' AND type.value IN ('annotation', 'annotation-reply')
+            )
+        )
+        SELECT id FROM doomed
+      `).all(id) as Array<{ id: string }>).map((row) => row.id);
+      const placeholders = subtree.map(() => "?").join(", ");
+      const reserved = this.database.query(
+        `SELECT block_id, value FROM block_properties WHERE scope = 'block' AND key = 'work-id' AND block_id IN (${placeholders})`,
+      ).all(...subtree) as Array<{ block_id: string; value: string }>;
+      for (const row of reserved) {
+        const parsed = parseWorkId(row.value);
+        if (!parsed || parsed.workId !== row.value.trim()) continue;
+        if (this.reservedWorkIdOwnerFromCurrentRead(parsed.workId) !== undefined) {
+          continue;
+        }
+        this.reservePurgedWorkIdFromCurrentRead(row.block_id, parsed);
+      }
+      this.database.query(`
+        WITH purged(id) AS (SELECT value FROM json_each(?))
+        UPDATE annotation_requests
+        SET annotation_ids = (
+          SELECT json_group_array(value) FROM (
+            SELECT entry.value
+            FROM json_each(annotation_requests.annotation_ids) entry
+            WHERE entry.value NOT IN (SELECT id FROM purged)
+            ORDER BY entry.key
+          )
+        )
+        WHERE EXISTS (
+          SELECT 1 FROM json_each(annotation_requests.annotation_ids) entry
+          WHERE entry.value IN (SELECT id FROM purged)
+        )
+      `).run(JSON.stringify(subtree));
+      this.database.query(
+        `DELETE FROM annotation_targets WHERE annotation_block_id IN (${placeholders})`,
+      ).run(...subtree);
+      this.database.query(`DELETE FROM blocks WHERE id IN (${placeholders})`).run(...subtree);
+      this.recomputeEffectiveDeletion();
+      this.bumpSequence({ kind: "purge", blockId: id });
+    })();
+  }
+
+
+
+  virtualBranchOrder(viewId: string): VirtualBranchOrder {
+    return this.database.transaction(() => {
+      const view=this.requireActive(viewId);
+      const parsed=parseVirtualBranchConfig(view, []);
+      if (!parsed.config) throw Error(parsed.configurationErrors.join("; "));
+      if (parsed.config.sort) throw Error("This branch is sorted; manual ranking is disabled");
+      // The authored limit bounds display, not rank operations over hidden members.
+      const result=this.queryBlocks(virtualBranchMembershipQuery(viewId,parsed.config,1000));
+      return {viewId,viewRevision:view.revision,blockIds:result.blocks.filter(b=>b.id!==viewId).map(b=>b.id),completeness:result.completeness};
+    })();
+  }
+
+  placeVirtualOccurrences(input: VirtualBranchPlacementInput): VirtualBranchOrder {
+    return this.database.transaction(() => {
+      if (input.selection) {
+        const saved = this.workingSelections.get(input.selection.ownerClientId);
+        if (!saved || saved.id !== input.selection.id || saved.revision !== input.selection.revision ||
+          saved.targets.length !== input.selectedBlockIds.length ||
+          saved.targets.some(target => !input.selectedBlockIds.includes(target.blockId))) {
+          throw Error("Selection changed; reopen Selected items before moving");
+        }
+      }
+      const current=this.virtualBranchOrder(input.expected.viewId);
+      if (current.completeness.kind!=="complete" || input.expected.completeness.kind!=="complete") {
+        throw Error("Branch membership is truncated; bulk placement requires a complete list");
+      }
+      if (current.viewRevision!==input.expected.viewRevision || JSON.stringify(current.blockIds)!==JSON.stringify(input.expected.blockIds)) {
+        throw Error("Branch membership or order changed; refresh the selection before moving");
+      }
+      const ordered=placeOrderedItems(current.blockIds,input.selectedBlockIds,input.placement);
+      if (ordered.some((id,index)=>id!==current.blockIds[index])) this.reorderVirtualOccurrences(current.viewId,ordered);
+      return {...current,blockIds:ordered};
+    })();
+  }
+
+  reorderVirtualOccurrences(
+    viewId: string,
+    orderedBlockIds: readonly string[],
+  ): VirtualOccurrenceRank[] {
+    if (orderedBlockIds.length === 0) {
+      throw new Error("Virtual occurrence reorder requires at least one block");
+    }
+    return this.database.transaction(() => {
+      const view = this.getFromCurrentRead(viewId);
+      if (!view) throw new Error(`Virtual branch not found: ${viewId}`);
+      if (!view.properties.some((property) =>
+        property.key.toLowerCase() === "type" && property.value.toLowerCase() === "virtual-branch"
+      )) {
+        throw new Error(`Block is not a virtual branch: ${viewId}`);
+      }
+
+      const orderedBlockIdSet = new Set(orderedBlockIds);
+      if (orderedBlockIdSet.size !== orderedBlockIds.length) {
+        throw new Error("Virtual occurrence reorder contains duplicate block IDs");
+      }
+      for (const blockId of orderedBlockIds) {
+        if (blockId === viewId) {
+          throw new Error("Virtual branch cannot rank itself as an occurrence");
+        }
+        if (!this.getFromCurrentRead(blockId)) {
+          throw new Error(`Virtual occurrence block not found: ${blockId}`);
+        }
+      }
+
+      const retainedRanks = new Set(
+        this.virtualOccurrenceRanksFromCurrentRead()
+          .filter((entry) =>
+            entry.viewId === viewId && !orderedBlockIdSet.has(entry.blockId)
+          )
+          .map((entry) => entry.rank),
+      );
+      const upsert = this.database.query(
+        "INSERT INTO virtual_occurrence_ranks (view_id, block_id, rank) VALUES (?, ?, ?) ON CONFLICT(view_id, block_id) DO UPDATE SET rank = excluded.rank",
+      );
+      let nextRank = 0;
+      for (const blockId of orderedBlockIds) {
+        while (retainedRanks.has(nextRank)) nextRank += 1;
+        upsert.run(viewId, blockId, nextRank);
+        nextRank += 1;
+      }
+      this.bumpSequence({ kind: "reorder", blockId: viewId });
+      return this.virtualOccurrenceRanksFromCurrentRead().filter((entry) => entry.viewId === viewId);
+    })();
+  }
+  resolveBlockReferences(text: string): ResolvedBlockReferences {
+    const resolved = resolveBlockReferencesWithStatus(text, (blockId) => this.get(blockId));
+    const workIdPrefix = this.workIdAllocatorFromCurrentRead()?.prefix;
+    return workIdPrefix ? { ...resolved, workIdPrefix } : resolved;
+  }
+
+  queryBacklinks(input: BacklinkQuery): BacklinkCollection {
+    return this.database.transaction(() => {
+      const query = { ...input, targetBlockId: input.targetBlockId.trim() };
+      const graph = this.loadGraph();
+      const target = graph.byId.get(query.targetBlockId);
+      if (!target) throw new Error(`Block not found: ${query.targetBlockId}`);
+
+      const orderedBlocks: Block[] = [];
+      const visit = (block: Block): void => {
+        orderedBlocks.push(block);
+        for (const child of graph.byParent.get(block.id) ?? []) visit(child);
+      };
+      for (const root of graph.byParent.get(null) ?? []) visit(root);
+
+      const addressRows = this.database.query(
+        "SELECT normalized_address, block_id FROM page_addresses ORDER BY normalized_address",
+      ).all() as Array<{ normalized_address: string; block_id: string }>;
+      const addressTargets = new Map(
+        addressRows.map((row) => [row.normalized_address, row.block_id]),
+      );
+      // A ticket key with no page of its own links to its ticket page (PIE-408's ticket keys).
+      for (const [key, blockId] of this.ticketPagesFromCurrentRead()) {
+        const normalized = tryNormalizePageAddress(key)?.normalizedAddress;
+        if (normalized && !addressTargets.has(normalized)) addressTargets.set(normalized, blockId);
+      }
+      return resolveBacklinkRelation({
+        query,
+        target,
+        orderedBlocks,
+        blocksById: graph.byId,
+        addressTargets,
+        workIdPrefix: this.workIdAllocatorFromCurrentRead()?.prefix ?? null,
+      });
+    })();
+  }
+
+  resolvePageAddress(address: string): PageAddressResolution {
+    return this.database.transaction(() =>
+      this.resolveAuthoredPageAddressFromCurrentRead(normalizePageAddress(address))
+    )();
+  }
+
+  followPageAddress(
+    address: string,
+    author: BlockAuthor = "user",
+    provenance?: BlockProvenance,
+  ): PageAddressFollowResult {
+    return this.database.transaction(() => {
+      const normalized = normalizePageAddress(address);
+      const existing = this.resolveAuthoredPageAddressFromCurrentRead(normalized);
+      if (existing.status !== "missing") return { ...existing, created: false };
+      const allocator = this.workIdAllocatorFromCurrentRead();
+      const embeddedWorkIds = allocator
+        ? workIdReferences(normalized.displayAddress, allocator.prefix)
+        : [];
+      if (embeddedWorkIds.length === 1) {
+        throw new Error(
+          `Unresolved Work ID cannot create a page stub: ${embeddedWorkIds[0]!.workId}`,
+        );
+      }
+      const parsedWorkId = parseWorkId(normalized.displayAddress);
+      const canonicalWorkId = parsedWorkId?.workId ===
+          normalized.displayAddress.toUpperCase()
+        ? parsedWorkId
+        : null;
+      if (
+        canonicalWorkId &&
+        (
+          this.reservedWorkIdOwnerFromCurrentRead(canonicalWorkId.workId) !== undefined ||
+          allocator?.prefix === canonicalWorkId.prefix
+        )
+      ) {
+        throw new Error(`Unresolved Work ID cannot create a page stub: ${normalized.displayAddress}`);
+      }
+
+      this.create(
+        `${normalized.displayAddress} [page::${normalized.displayAddress}]`,
+        null,
+        author,
+        provenance,
+      );
+      const created = this.resolvePageAddressFromCurrentRead(normalized);
+      if (!created.block) {
+        throw new Error(`Created page address did not resolve: ${normalized.displayAddress}`);
+      }
+      return { ...created, created: true };
+    })();
+  }
+
+  /**
+   * Named addresses for `[[`, best first. With a query, the shared search ranker (src/search-match.ts) matches
+   * it against each address and its note's title, so `[[fat cats` finds the Work ID of "Fat cats in party
+   * hats" and `[[gardn bed` finds `garden-beds`; equal matches go page, Work ID, alias, then by address.
+   */
+  completePageAddresses(query: string | undefined, requestedLimit: number, contextBlockId?: string): PageAddressCollection & { context?: GotoSearchCollection["context"] } {
+    const { addresses, completeness, context } = this.rankPageAddresses(query, requestedLimit, contextBlockId);
+    return { addresses: addresses.map(({ exact: _exact, ...address }) => address), completeness, ...(context ? { context } : {}) };
+  }
+
+  /** Whether `normalizedAddress` still names `blockId`, a live note (after a Jev ranking, which takes seconds). */
+  pageAddressLive(normalizedAddress: string, blockId: string): boolean {
+    return !!this.database.query(`
+      SELECT 1 FROM page_addresses address JOIN blocks block ON block.id = address.block_id
+      WHERE address.normalized_address = ? AND address.block_id = ? AND block.effective_deleted_root_id IS NULL
+    `).get(normalizedAddress, blockId);
+  }
+
+  /**
+   * `completePageAddresses`, each address saying whether it is the query itself (Jev never reorders those).
+   * With `contextBlockId` (the note being edited), addresses whose notes are nearer it come first inside each
+   * rung, then the more recently edited; an empty query starts with what its parent and siblings link to,
+   * then notes near it, then the person's recent edits.
+   */
+  rankPageAddresses(query: string | undefined, requestedLimit: number, contextBlockId?: string): { addresses: (PageAddressMatch & { exact: boolean })[]; completeness: BlockCollectionCompleteness; context?: GotoSearchCollection["context"] } {
+    if (!Number.isInteger(requestedLimit) || requestedLimit <= 0) {
+      throw new Error("Page address completion limit must be a positive integer");
+    }
+    if (typeof query === "string" && query.length > 500) throw new Error("Page address query must be at most 500 characters");
+    const limit = Math.min(requestedLimit, 100);
+    try {
+      if (query?.trim()) normalizePageAddress(query);
+    } catch {
+      return { addresses: [], completeness: { kind: "complete" } };
+    }
+    return this.database.transaction(() => {
+      const rows = this.database.query(`
+        SELECT address.normalized_address, address.display_address, address.block_id, address.kind, block.text
+        FROM page_addresses address
+        JOIN blocks block ON block.id = address.block_id
+        WHERE block.effective_deleted_root_id IS NULL
+      `).all() as PageAddressMatchRow[];
+      const kindOrder = (kind: string) => kind === "page" ? 0 : kind === "work-id" ? 1 : 2;
+      const byAddress = (a: PageAddressMatchRow, b: PageAddressMatchRow) =>
+        kindOrder(a.kind) - kindOrder(b.kind) || a.normalized_address.localeCompare(b.normalized_address) || a.block_id.localeCompare(b.block_id);
+      const titleOf = (row: PageAddressMatchRow) => firstLineWithoutPropertyTokens(row.text)?.trim() || row.block_id;
+      let context: SearchContext | null = null;
+      let byId: Map<string, Block> = new Map();
+      if (contextBlockId !== undefined) {
+        byId = new Map([...this.loadGraph().byId].filter(([, block]) => !block.effectiveDeletedRootId && !block.deletedAt));
+        context = searchContext(byId, contextBlockId);
+      }
+      let ranked: { row: PageAddressMatchRow; exact: boolean }[];
+      if (query?.trim()) {
+        // No id: an address is found by what it says, never by the uuid of the note it names.
+        // A title's letters scattered in order (`text-fuzzy`) are too loose for an address: the address's own are kept.
+        const matches = rankTextSearchMatches(rows.map(row => ({ id: "", title: row.display_address, text: `${row.display_address}\n${titleOf(row)}`, row })), query.trim())
+          .filter(match => match.kind !== "text-fuzzy");
+        if (context) {
+          const sorted = sortByContext(matches.map(match => ({ match, block: byId.get(match.document.row.block_id)!, kind: match.kind, inTitle: match.inTitle, edits: match.edits })).filter(entry => entry.block), context,
+            (a, b) => byAddress(a.match.document.row, b.match.document.row));
+          ranked = sorted.map(({ match }) => ({ row: match.document.row, exact: match.kind === "exact-title" }));
+        } else {
+          ranked = matches.sort((a, b) => b.score - a.score || byAddress(a.document.row, b.document.row))
+            .map(match => ({ row: match.document.row, exact: match.kind === "exact-title" }));
+        }
+      } else {
+        rows.sort(byAddress);
+        if (context) {
+          const order = new Map(contextList([...byId.values()], byId, context, Infinity, reference => {
+            const resolved = this.resolvePageAddressFromCurrentRead(reference);
+            return resolved.status === "resolved" ? resolved.block?.id : undefined;
+          }).map(({ block }, index) => [block.id, index]));
+          const at = (row: PageAddressMatchRow) => order.get(row.block_id) ?? Number.MAX_SAFE_INTEGER;
+          rows.sort((a, b) => at(a) - at(b) || byAddress(a, b));
+        }
+        ranked = rows.map(row => ({ row, exact: false }));
+      }
+      return {
+        addresses: ranked.slice(0, limit).map(({ row, exact }) => ({ ...this.pageAddressRecord(row), title: titleOf(row), exact })),
+        completeness: ranked.length <= limit ? { kind: "complete" as const } : { kind: "truncated" as const, limit },
+        ...(context ? { context: { blockId: context.block.id, ...context.note } } : {}),
+      };
+    })();
+  }
+
+  renamePageAddress(
+    blockId: string,
+    address: string,
+    expectedRevision: number,
+  ): PageAddressRecord {
+    const nextAddress = normalizePageAddress(address);
+    return this.database.transaction(() => {
+      const block = this.getFromCurrentRead(blockId);
+      if (!block) throw new Error(`Block not found: ${blockId}`);
+      if (block.effectiveDeletedRootId) throw new Error(`Block is in Trash: ${blockId}`);
+      if (block.revision !== expectedRevision) {
+        throw new Error(`Block changed since editing began: ${blockId}`);
+      }
+      const pageTokens = parsePropertyRecords(block.text).filter(
+        (token) => token.scope === "block" && token.key === "page",
+      );
+      if (pageTokens.length !== 1) {
+        throw new Error(`Page rename requires exactly one [page::address] declaration: ${blockId}`);
+      }
+      const current = this.database.query(
+        "SELECT 1 FROM page_addresses WHERE block_id = ? AND kind = 'page'",
+      ).get(blockId);
+      if (!current) throw new Error(`Block has no registered page address: ${blockId}`);
+      const nextText = patchPropertyText(block.text, [{
+        op: "replace",
+        ordinal: pageTokens[0].ordinal,
+        value: nextAddress.displayAddress,
+      }]);
+      // The text edit carries the rename: syncing the declared page moves the
+      // address exactly as any other save of `[page::…]` does.
+      this.writeBlockText(blockId, nextText, expectedRevision);
+      this.replaceProperties(blockId, parsePropertyRecords(nextText));
+      this.bumpSequence({ kind: "edit", blockId });
+      const renamed: PageAddressRecord = {
+        address: nextAddress.displayAddress,
+        normalizedAddress: nextAddress.normalizedAddress,
+        blockId,
+        kind: "page",
+      };
+      return renamed;
+    })();
+  }
+
+  addPageAlias(blockId: string, address: string): PageAddressRecord {
+    this.requireActive(blockId);
+    const normalized = normalizePageAddress(address);
+    return this.database.transaction(() => {
+      const registered = this.database.query(
+        "SELECT 1 FROM page_addresses WHERE block_id = ? LIMIT 1",
+      ).get(blockId);
+      if (!registered) throw new Error(`Block has no registered symbolic address: ${blockId}`);
+
+      const existing = this.pageAddressRowFromCurrentRead(normalized.normalizedAddress);
+      if (existing) {
+        if (existing.block_id !== blockId) {
+          throw new Error(
+            `Page address already belongs to block ${existing.block_id}: ${normalized.displayAddress}`,
+          );
+        }
+        return this.pageAddressRecord(existing);
+      }
+      const alias = this.insertPageAddressFromCurrentRead(
+        blockId,
+        normalized.displayAddress,
+        "alias",
+      );
+      this.bumpSequence({ kind: "edit", blockId });
+      return alias;
+    })();
+  }
+
+  removePageAddress(
+    blockId: string,
+    address: string,
+    expectedRevision: number,
+  ): PageAddressRemoval {
+    const normalized = normalizePageAddress(address);
+    return this.database.transaction(() => {
+      const block = this.getFromCurrentRead(blockId);
+      if (!block) throw new Error(`Block not found: ${blockId}`);
+      if (block.effectiveDeletedRootId) throw new Error(`Block is in Trash: ${blockId}`);
+      if (block.revision !== expectedRevision) {
+        throw new Error(`Block changed since editing began: ${blockId}`);
+      }
+      const row = this.pageAddressRowFromCurrentRead(normalized.normalizedAddress);
+      if (!row || row.block_id !== blockId) {
+        throw new Error(`Page address is not registered to block ${blockId}: ${normalized.displayAddress}`);
+      }
+      if (row.kind === "work-id") {
+        throw new Error(`Work IDs cannot be removed through pages.remove: ${normalized.displayAddress}`);
+      }
+      const removed = this.pageAddressRecord(row);
+      this.database.query("DELETE FROM page_addresses WHERE normalized_address = ?")
+        .run(row.normalized_address);
+
+      let updated = block;
+      if (row.kind === "page") {
+        const token = parsePropertyRecords(block.text).find((candidate) =>
+          candidate.scope === "block" &&
+          candidate.key === "page" &&
+          normalizePageAddress(candidate.value).normalizedAddress === row.normalized_address
+        );
+        if (!token) throw new Error(`Block has no matching page declaration: ${blockId}`);
+        const nextText = patchPropertyText(block.text, [{ op: "remove", ordinal: token.ordinal }]);
+        this.writeBlockText(blockId, nextText, expectedRevision);
+        this.replaceProperties(blockId, parsePropertyRecords(nextText));
+        updated = this.getFromCurrentRead(blockId)!;
+      }
+      this.bumpSequence({ kind: "edit", blockId });
+      return { removed, block: updated };
+    })();
+  }
+
+  workIdAllocatorStatus(): WorkIdAllocatorStatus {
+    return this.database.transaction(() =>
+      this.workIdAllocatorStatusFromCurrentRead()
+    )();
+  }
+
+  configureWorkIdPrefix(prefix: string): WorkIdAllocatorStatus {
+    const normalizedPrefix = normalizeWorkIdPrefix(prefix);
+    return this.database.transaction(() => {
+      const current = this.workIdAllocatorFromCurrentRead();
+      if (current?.prefix === normalizedPrefix) {
+        return this.workIdAllocatorStatusFromCurrentRead();
+      }
+      if (
+        current &&
+        this.canonicalWorkIdReservationsFromCurrentRead().some(
+          (reservation) => reservation.prefix === current.prefix,
+        )
+      ) {
+        throw new Error(
+          `Work-ID prefix ${current.prefix} already has immutable reservations`,
+        );
+      }
+      const nextNumber = this.nextWorkIdNumberForPrefixFromCurrentRead(
+        normalizedPrefix,
+      );
+      this.database.query(
+        "INSERT INTO work_id_allocator (singleton, prefix, next_number) VALUES (1, ?, ?) ON CONFLICT(singleton) DO UPDATE SET prefix = excluded.prefix, next_number = excluded.next_number",
+      ).run(normalizedPrefix, nextNumber);
+      this.reconcileWorkIdAddresses();
+      this.bumpSequence({ kind: "other" });
+      return this.workIdAllocatorStatusFromCurrentRead();
+    })();
+  }
+
+  allocateWorkId(
+    blockId: string,
+    expectedRevision: number,
+  ): WorkIdAllocation {
+    return this.database.transaction(() => {
+      const block = this.getFromCurrentRead(blockId);
+      if (!block) throw new Error(`Block not found: ${blockId}`);
+      if (block.effectiveDeletedRootId) throw new Error(`Block is in Trash: ${blockId}`);
+      if (block.revision !== expectedRevision) {
+        throw new Error(`Block changed since editing began: ${blockId}`);
+      }
+      const allocator = this.workIdAllocatorFromCurrentRead();
+      if (!allocator) {
+        throw new Error("Configure the project Work-ID prefix before allocation");
+      }
+      const workIdProperties = parsePropertyRecords(block.text).filter(
+        (property) => property.scope === "block" && property.key === "work-id",
+      );
+      const replacesPlaceholder =
+        workIdProperties.length === 1 &&
+        isConfiguredWorkIdPlaceholder(workIdProperties[0]!.value, allocator.prefix);
+      if (workIdProperties.length > 0 && !replacesPlaceholder) {
+        throw new Error(`Block already has a Work ID: ${blockId}`);
+      }
+
+      let nextNumber = allocator.next_number;
+      let workId = formatWorkId(allocator.prefix, nextNumber);
+      while (this.reservedWorkIdOwnerFromCurrentRead(workId) !== undefined) {
+        nextNumber += 1;
+        workId = formatWorkId(allocator.prefix, nextNumber);
+      }
+      const workIdOperation: PropertyPatchOperation = replacesPlaceholder
+        ? { op: "replace", ordinal: workIdProperties[0]!.ordinal, value: workId }
+        : { op: "append", key: "work-id", value: workId };
+      const nextText = patchPropertyText(block.text, [workIdOperation]);
+      const properties = parsePropertyRecords(nextText);
+      this.writeBlockText(blockId, nextText, expectedRevision);
+      this.replaceProperties(blockId, properties);
+      this.bumpSequence({ kind: "edit", blockId });
+      return {
+        workId,
+        block: this.getFromCurrentRead(blockId)!,
+      };
+    })();
+  }
+
+  get(id: string): Block | null {
+    return this.database.transaction(() => this.getFromCurrentRead(id))();
+  }
+
+  require(id: string): Block {
+    const block = this.get(id);
+    if (!block) throw new Error(`Block not found: ${id}`);
+    return block;
+  }
+
+  requireActive(id: string): Block {
+    const block = this.require(id);
+    if (block.effectiveDeletedRootId) throw new Error(`Block is in Trash: ${id}`);
+    return block;
+  }
+
+  children(parentId: string | null): Block[] {
+    return this.database.transaction(() => this.childrenFromCurrentRead(parentId))();
+  }
+
+  queryBlocks(input: BlockSearchQuery): VisibleBlockCollection {
+    const query = normalizeBlockSearchQuery(input);
+    return this.database.transaction(() => this.queryNormalizedBlocksFromCurrentRead(query))();
+  }
+
+  /** `query.limit` is normally 1..1000; sorted saved-view reads pass UNBOUNDED_VIEW_MATCHES to count every member. */
+  private queryNormalizedBlocksFromCurrentRead(query: BlockSearchQuery): VisibleBlockCollection {
+    if (query.subtreeRootId) this.require(query.subtreeRootId);
+    const deletedMode = query.includeDeleted ?? "active";
+    if (query.rankViewId && deletedMode === "active" && !query.where) {
+      return this.queryRankedBlocksFromCurrentRead(query, query.rankViewId);
+    }
+    const ranked = query.rankViewId && deletedMode === "active" ? query.rankViewId : null;
+    const blocks = this.traverseLoadedGraph(this.loadGraph(), {
+      filters: query.filters,
+      where: query.where,
+      propertyScope: query.propertyScope,
+      subtreeRootId: query.subtreeRootId,
+      text: query.text,
+      stopAfterMatches: query.sort || ranked ? undefined : query.limit + 1,
+      deletedMode,
+    });
+    if (query.sort) sortQueriedBlocks(blocks, query.sort);
+    // Same order as ranked SQL: manual ranks first, then canonical preorder.
+    if (ranked) sortByOccurrenceRank(blocks, this.virtualOccurrenceRanksFromCurrentRead().filter(entry => entry.viewId === ranked));
+    if (blocks.length <= query.limit) {
+      return { blocks, completeness: { kind: "complete" } };
+    }
+    return {
+      blocks: blocks.slice(0, query.limit),
+      completeness: { kind: "truncated", limit: query.limit },
+    };
+  }
+
+  /**
+   * Evaluate a saved virtual branch in one read transaction: the same membership,
+   * order and limit Tree projects, plus the exact eligible total for paging.
+   */
+  readSavedView(viewId: string, options?: SavedViewReadOptions): SavedViewReadResult<VisibleBlock>;
+  readSavedView(viewId: string, options: SavedViewReadOptions, format: "tree"): SavedViewReadResult<TreeIndexBlock>;
+  readSavedView(
+    viewId: string,
+    options: SavedViewReadOptions = {},
+    format: "full" | "tree" = "full",
+  ): SavedViewReadResult<VisibleBlock | TreeIndexBlock> {
+    if (typeof viewId !== "string" || !viewId) throw new Error("View read requires a view block ID");
+    const { limit, offset = 0, expectedRevision } = options;
+    if (limit !== undefined && (!Number.isInteger(limit) || limit < 1 || limit > 1000)) {
+      throw new Error("View read limit must be an integer from 1 through 1000");
+    }
+    if (!Number.isSafeInteger(offset) || offset < 0) throw new Error("View read offset must be a non-negative integer");
+    if (expectedRevision !== undefined && (!Number.isSafeInteger(expectedRevision) || expectedRevision < 1)) {
+      throw new Error("Expected view revision must be a positive integer");
+    }
+    return this.database.transaction((): SavedViewReadResult<VisibleBlock | TreeIndexBlock> => {
+      const result: SavedViewReadResult<VisibleBlock | TreeIndexBlock> = {
+        status: "missing", viewId, sequence: this.sequence, blocks: [], completeness: null, errors: [], problems: [],
+      };
+      const fail = (status: SavedViewReadResult["status"], problems: SavedViewReadProblem[]) =>
+        ({ ...result, status, errors: problems.map(problem => problem.message), problems });
+      const definition = this.getFromCurrentRead(viewId);
+      if (!definition || definition.effectiveDeletedRootId) {
+        return fail("missing", [{ code: "view-missing", message: "Saved view not found in the active workspace" }]);
+      }
+      result.revision = definition.revision;
+      if (expectedRevision !== undefined && definition.revision !== expectedRevision) {
+        return fail("changed", [{ code: "view-changed", message: "Saved view revision changed; read the current definition before retrying" }]);
+      }
+      if (!isVirtualBranchDefinition(definition)) {
+        return fail("unsupported", [{ code: "view-unsupported", message: "This reader supports type=virtual-branch; other view kinds are not substituted with a property query" }]);
+      }
+      // create-parent only affects creation, which a read never performs.
+      const parsed = parseVirtualBranchConfig(definition, []);
+      if (!parsed.config) {
+        return fail("invalid", (parsed.configurationProblems ?? parsed.configurationErrors.map(message => ({ message })))
+          .map(problem => ({ code: "view-invalid", ...problem })));
+      }
+      const effectiveLimit = limit ?? parsed.config.limit;
+      Object.assign(result, { configuredLimit: parsed.config.limit, effectiveLimit, offset });
+      let selected: VirtualBranchMembers<VisibleBlock>;
+      try {
+        const query = normalizeBlockSearchQuery(virtualBranchMembershipQuery(viewId, parsed.config, 1));
+        const ranks = this.virtualOccurrenceRanksFromCurrentRead();
+        if (query.rankViewId && (query.includeDeleted ?? "active") === "active" && !query.where) {
+          // Same route as queryNormalizedBlocksFromCurrentRead. Rank and count lightweight id/depth pairs, then hydrate only the page:
+          // Tree and embeds read small pages of views with many members.
+          const candidates = this.rankedMatchIdsFromCurrentRead(query, query.rankViewId);
+          const page = selectVirtualBranchMembers(viewId, parsed.config, { blocks: candidates, completeness: { kind: "complete" } }, ranks, effectiveLimit, offset);
+          selected = { ...page, members: this.hydrateRankedPageFromCurrentRead(page.members, query) };
+        } else {
+          // Sorted, Trash and expression views are evaluated over the loaded graph, which is already hydrated.
+          const matches = this.queryNormalizedBlocksFromCurrentRead({ ...query, limit: UNBOUNDED_VIEW_MATCHES });
+          selected = selectVirtualBranchMembers(viewId, parsed.config, matches, ranks, effectiveLimit, offset);
+        }
+      } catch (error) {
+        return fail("failed", [{ code: "query-failed", message: error instanceof Error ? error.message : String(error) }]);
+      }
+      const blocks = format === "tree"
+        ? selected.members.map(block => compactTreeBlock(block, id => this.getFromCurrentRead(id)))
+        : selected.members;
+      return {
+        ...result, status: "ready", blocks, total: selected.eligible,
+        completeness: selected.truncated ? { kind: "truncated", limit: effectiveLimit } : { kind: "complete" },
+        ...(selected.truncated ? { nextOffset: offset + selected.members.length } : {}),
+      };
+    })();
+  }
+
+  /**
+   * views.planWrite: in one read, what a move of a block into each view (or a new block with the given
+   * text) must change, or why it can't. Nothing is written; the client applies a move with
+   * properties.patch at the returned revision.
+   */
+  planViewWrites(input: ViewWritePlanRequest): ViewWritePlanResult {
+    if (!input || typeof input !== "object") throw new Error("View write plan request is required");
+    const { viewIds, blockId, text } = input;
+    if (!Array.isArray(viewIds) || viewIds.length < 1 || viewIds.length > 100 || viewIds.some(id => typeof id !== "string" || !id)) {
+      throw new Error("View write plans need 1 through 100 view IDs");
+    }
+    if ((blockId === undefined) === (text === undefined)) throw new Error("View write plans need exactly one of blockId or text");
+    if (blockId !== undefined && (typeof blockId !== "string" || !blockId)) throw new Error("View write plan blockId must be a block ID");
+    if (text !== undefined && typeof text !== "string") throw new Error("View write plan text must be a string");
+    return this.database.transaction((): ViewWritePlanResult => {
+      const now = Date.now();
+      const active = (id: string) => { const block = this.getFromCurrentRead(id); return block && !block.effectiveDeletedRootId ? block : undefined; };
+      const block = blockId === undefined ? undefined : active(blockId);
+      if (blockId !== undefined && !block) throw new Error(`Block not found in the active workspace: ${blockId}`);
+      const plans = viewIds.map(viewId => {
+        const view = writeView(viewId, active(viewId));
+        // A `child:` clause reads the block's children, which a move leaves where they are.
+        const subject = block ? { ...block, childProperties: () => this.childrenFromCurrentRead(block.id).map((child) => child.properties) } : undefined;
+        return { viewId, plan: subject ? planMoveIntoView(view, subject, now) : planCreateInView(view, text, now) };
+      });
+      return { sequence: this.sequence, ...(block ? { revision: block.revision } : {}), plans };
+    })();
+  }
+
+  /** query.matches: which of `ids` (active blocks) the query holds for, with saved-view semantics. */
+  matchQuery(expression: unknown, ids: unknown): { blockIds: string[] } {
+    if (typeof expression !== "string" || !expression.trim()) throw new Error("Query match needs a query expression");
+    if (!Array.isArray(ids) || ids.length > 1000 || ids.some(id => typeof id !== "string")) throw new Error("Query match needs blockIds: an array of at most 1000 block IDs");
+    const { filters, where } = parseSearchExpression(expression);
+    if (filters.some(filter => filter.key === "deleted")) throw new Error("deleted=true selects Trash; it isn't a property to match");
+    const test = where ? compileQueryExpression(where) : null;
+    return this.database.transaction(() => ({
+      blockIds: (ids as string[]).filter(id => {
+        const block = this.getFromCurrentRead(id);
+        return !!block && !block.effectiveDeletedRootId && matchesFilters(block.properties, filters) &&
+          (!test || test({ ...block, childProperties: () => this.childrenFromCurrentRead(block.id).map((child) => child.properties) }, block.properties));
+      }),
+    }))();
+  }
+
+  /** Reads many blocks in one consistent read, reduced to the requested fields. */
+  readBlocks(ids: unknown, fields?: unknown): BlockReadCollection {
+    const requestedIds = normalizeBlockReadIds(ids);
+    const projection = normalizeBlockReadFields(fields);
+    return this.database.transaction((): BlockReadCollection => {
+      const placeholders = requestedIds.map(() => "?").join(", ");
+      const rows = this.database.query(`
+        SELECT block.*, EXISTS (
+          SELECT 1 FROM blocks child
+          WHERE child.parent_id = block.id AND child.effective_deleted_root_id IS NULL
+        ) AS has_children
+        FROM blocks block WHERE block.id IN (${placeholders})
+      `).all(...requestedIds) as Array<BlockRow & { has_children: number }>;
+      const rowsById = new Map(rows.map((row) => [row.id, row]));
+      const propertiesById = new Map<string, BlockProperty[]>();
+      if (projection.includes("properties") && rows.length > 0) {
+        const propertyRows = this.database.query(
+          `SELECT block_id, key, value FROM block_properties WHERE scope = 'block' AND block_id IN (${rows.map(() => "?").join(", ")}) ORDER BY block_id, ordinal`,
+        ).all(...rows.map((row) => row.id)) as Array<{ block_id: string } & BlockProperty>;
+        for (const { block_id: blockId, key, value } of propertyRows) {
+          const properties = propertiesById.get(blockId);
+          if (properties) properties.push({ key, value });
+          else propertiesById.set(blockId, [{ key, value }]);
+        }
+      }
+      const blocks: ProjectedBlock[] = [];
+      const unavailable: UnavailableBlockRead[] = [];
+      for (const id of requestedIds) {
+        const row = rowsById.get(id);
+        if (!row) {
+          unavailable.push({ id, status: "missing" });
+        } else if (row.effective_deleted_root_id) {
+          unavailable.push({ id, status: "trashed", deletedRootId: row.effective_deleted_root_id });
+        } else {
+          const block = this.hydrate(row, propertiesById.get(id) ?? []);
+          blocks.push(projectBlock(block, row.has_children === 1, projection));
+        }
+      }
+      return { blocks, unavailable, fields: projection };
+    })();
+  }
+
+  /** `blocks.query` with a field projection: the same matches without unrequested payload. */
+  queryProjectedBlocks(input: BlockSearchQuery, fields: unknown): ProjectedBlockCollection {
+    const projection = normalizeBlockReadFields(fields);
+    const { blocks, completeness } = this.queryBlocks(input);
+    return {
+      blocks: blocks.map((block) => ({
+        ...projectBlock(block, block.hasChildren, projection),
+        depth: block.depth,
+        ...(block.propertyMatches ? { propertyMatches: block.propertyMatches } : {}),
+        // Trash state rides along only on trashed matches (possible with `includeDeleted`),
+        // so active results keep their small shape and trashed ones stay distinguishable.
+        ...(block.deletedAt ? { deletedAt: block.deletedAt } : {}),
+        ...(block.effectiveDeletedRootId ? { effectiveDeletedRootId: block.effectiveDeletedRootId } : {}),
+        ...(block.deletedDescendantCount !== undefined
+          ? { deletedDescendantCount: block.deletedDescendantCount }
+          : {}),
+      })),
+      completeness,
+      fields: projection,
+    };
+  }
+
+  readWorkspaceSnapshot(view: WorkspaceSnapshotView = {}): WorkspaceSnapshot {
+    return this.database.transaction((): WorkspaceSnapshot => {
+      const graph = this.loadGraph();
+      const query = view.query ? normalizeBlockSearchQuery(view.query) : null;
+      if (query?.rankViewId) throw new Error("Workspace snapshot query cannot use rankViewId");
+      if (query?.subtreeRootId && !graph.byId.has(query.subtreeRootId)) {
+        throw new Error(`Block not found: ${query.subtreeRootId}`);
+      }
+      const matched = this.traverseLoadedGraph(graph, {
+        filters: query?.filters,
+        where: query?.where,
+        propertyScope: query?.propertyScope,
+        subtreeRootId: query?.subtreeRootId,
+        text: query?.text,
+        stopAfterMatches: query?.sort ? undefined : query ? query.limit + 1 : undefined,
+        deletedMode: query?.includeDeleted ?? "active",
+      });
+      if (query?.sort) sortQueriedBlocks(matched, query.sort);
+      const visible: VisibleBlockCollection = query && matched.length > query.limit
+        ? {
+            blocks: matched.slice(0, query.limit),
+            completeness: { kind: "truncated", limit: query.limit },
+          }
+        : { blocks: matched, completeness: { kind: "complete" } };
+      const physical = this.traverseLoadedGraph(graph, {});
+
+      const workIdPrefix = this.workIdAllocatorFromCurrentRead()?.prefix;
+      return {
+        visible,
+        physical: { blocks: physical, completeness: { kind: "complete" } },
+        selection: this.selectionFromGraph(graph),
+        sequence: this.sequence,
+        virtualOccurrenceRanks: this.virtualOccurrenceRanksFromCurrentRead(),
+        ...(workIdPrefix ? { workIdPrefix } : {}),
+      };
+    })();
+  }
+
+  focusTree(query: string): TreeFocusCollection {
+    if (typeof query !== "string" || query.length > 500) throw new Error("Tree focus query must be text of at most 500 characters");
+    return this.database.transaction(() => {
+      const blocks = [...this.loadGraph().byId.values()].filter(block => !block.effectiveDeletedRootId);
+      const matches = rankBlockFocusMatches(blocks, query, 21);
+      return {
+        matches: matches.slice(0, 20).map(({ block, title }) => ({ block: { id: block.id }, title: boundedTreeLabel(title) })),
+        completeness: matches.length > 20
+          ? { kind: "truncated" as const, limit: 20 }
+          : { kind: "complete" as const },
+      };
+    })();
+  }
+
+  /** Goto's candidates for `query`; `contextBlockId` is the note it is asked from (see `search.context`). */
+  searchTree(query: string, contextBlockId?: string) {
+    return this.database.transaction(() => {
+      const normalized = typeof query === "string" ? tryNormalizePageAddress(query) : null;
+      const address = normalized ? this.resolvePageAddressFromCurrentRead(normalized) : null;
+      return gotoCandidates([...this.loadGraph().byId.values()], query, {
+        exactAddressId: address?.status === "resolved" ? address.block?.id : undefined,
+        contextBlockId,
+        resolveAddress: reference => {
+          const resolved = this.resolvePageAddressFromCurrentRead(reference);
+          return resolved.status === "resolved" ? resolved.block?.id : undefined;
+        },
+      });
+    })();
+  }
+
+  queryTree(query: BlockSearchQuery): TreeIndexCollection {
+    return this.database.transaction(() => {
+      const result = this.queryBlocks(query);
+      return { ...result, blocks: result.blocks.map(block => compactTreeBlock(block, id => this.getFromCurrentRead(id))) };
+    })();
+  }
+
+  readTreeIndex(view: WorkspaceSnapshotView = {}): TreeIndexSnapshot {
+    return this.database.transaction(() => {
+      const snapshot = this.readWorkspaceSnapshot(view);
+      const compact = (block: VisibleBlock) => compactTreeBlock(block, id => this.getFromCurrentRead(id));
+      const blocks = new Map(snapshot.physical.blocks.map(block => [block.id, compact(block)]));
+      for (const block of snapshot.visible.blocks) {
+        if (!blocks.has(block.id)) blocks.set(block.id, compact(block));
+      }
+      return {
+        blocks: [...blocks.values()],
+        physicalBlockIds: snapshot.physical.blocks.map(block => block.id),
+        visible: {
+          rows: snapshot.visible.blocks.map(({ id, depth, propertyMatches }) => ({
+            id,
+            depth,
+            ...(propertyMatches ? { propertyMatches } : {}),
+          })),
+          completeness: snapshot.visible.completeness,
+        },
+        selectedBlockId: snapshot.selection.selected?.id ?? null,
+        virtualOccurrenceRanks: snapshot.virtualOccurrenceRanks,
+        sequence: snapshot.sequence,
+        ...(snapshot.workIdPrefix ? { workIdPrefix: snapshot.workIdPrefix } : {}),
+      };
+    })();
+  }
+
+  getSelection(): SelectionContext {
+    return this.database.transaction(() => this.selectionFromCurrentRead())();
+  }
+
+  blockContext(blockId: string): SelectionContext {
+    return this.database.transaction(() => {
+      const selected = this.getFromCurrentRead(blockId);
+      if (!selected) throw new Error(`Block not found: ${blockId}`);
+      return this.contextForBlockFromCurrentRead(selected);
+    })();
+  }
+
+  setSelection(blockId: string | null): SelectionContext {
+    return this.database.transaction(() => this.setSelectionFromCurrentRead(blockId))();
+  }
+
+  navigationState(): NavigationState {
+    return this.database.transaction(() => this.navigationStateFromCurrentRead())();
+  }
+
+  navigateHistory(direction: "back" | "forward"): NavigationState {
+    return this.database.transaction(() => {
+      const cursor = this.navigationCursorFromCurrentRead();
+      const currentId = this.selectionFromCurrentRead().selected?.id ?? null;
+      const comparison = direction === "back" ? "<" : ">";
+      const ordering = direction === "back" ? "DESC" : "ASC";
+      const target = this.database.query(
+        `SELECT entry_id, block_id FROM navigation_history
+         WHERE entry_id ${comparison} ? AND block_id IS NOT NULL
+           AND (? IS NULL OR block_id <> ?)
+         ORDER BY entry_id ${ordering} LIMIT 1`,
+      ).get(cursor, currentId, currentId) as { entry_id: number; block_id: string } | null;
+      if (!target) return this.navigationStateFromCurrentRead();
+      this.setNavigationCursorFromCurrentRead(target.entry_id);
+      this.database.query("UPDATE selection SET block_id = ? WHERE singleton = 1")
+        .run(target.block_id);
+      return this.navigationStateFromCurrentRead();
+    })();
+  }
+
+  private getFromCurrentRead(id: string): Block | null {
+    const row = this.database.query("SELECT * FROM blocks WHERE id = ?").get(id) as BlockRow | null;
+    return row ? this.hydrate(row) : null;
+  }
+
+  private childrenFromCurrentRead(
+    parentId: string | null,
+    includeDeleted = false,
+  ): Block[] {
+    const rows = this.database
+      .query(
+        `SELECT * FROM blocks WHERE parent_id IS ? ${
+          includeDeleted ? "" : "AND effective_deleted_root_id IS NULL"
+        } ORDER BY position, created_at`,
+      )
+      .all(parentId) as BlockRow[];
+    return rows.map((row) => this.hydrate(row));
+  }
+
+  /**
+   * The recursive ranked-match statement shared by bounded queries and saved-view
+   * reads. `columns` selects either full rows or the lightweight id/depth pairs a
+   * saved-view read ranks before it hydrates one page.
+   */
+  private rankedMatchStatement(
+    query: BlockSearchQuery,
+    rankViewId: string,
+    columns: "full" | "ids",
+  ): { sql: string; parameters: Array<string | number> } {
+    const parameters: Array<string | number> = [];
+    const rootQuery = query.subtreeRootId
+      ? "SELECT id, 0, printf('%010d:%s', position, created_at) FROM blocks WHERE id = ?"
+      : "SELECT id, 0, printf('%010d:%s', position, created_at) FROM blocks WHERE parent_id IS NULL";
+    if (query.subtreeRootId) parameters.push(query.subtreeRootId);
+    parameters.push(rankViewId);
+    const predicates: string[] = [];
+    const propertyScope = query.propertyScope ?? "block";
+    const propertyScopePredicate = propertyScope === "all" ? "" : " AND property.scope = ?";
+    // Compute each matching ID set once. A correlated EXISTS can rescan the
+    // entire scope/key range for every block when LOWER(value) prevents a lookup.
+    for (const filter of query.filters ?? []) {
+      if (filter.value === undefined) {
+        predicates.push(
+          `block.id IN (SELECT property.block_id FROM block_properties property WHERE property.key = ?${propertyScopePredicate})`,
+        );
+        parameters.push(filter.key);
+      } else {
+        predicates.push(
+          `block.id IN (SELECT property.block_id FROM block_properties property WHERE property.key = ? AND LOWER(property.value) = LOWER(?)${propertyScopePredicate})`,
+        );
+        parameters.push(filter.key, filter.value);
+      }
+      if (propertyScope !== "all") parameters.push(propertyScope);
+    }
+    predicates.push("block.effective_deleted_root_id IS NULL");
+    if (query.text) {
+      // Every word, in any order, punctuation folded (src/search-match.ts): "Claude now" finds "Claude - now".
+      // A query of punctuation alone is matched as typed.
+      for (const term of searchTextTerms(query.text)) {
+        predicates.push("INSTR(LOWER(block.text), LOWER(?)) > 0");
+        parameters.push(term);
+      }
+    }
+    const where = predicates.length > 0 ? `WHERE ${predicates.join(" AND ")}` : "";
+    const selected = columns === "ids"
+      ? "block.id, tree.depth"
+      : `block.*,
+          tree.depth,
+          EXISTS (
+            SELECT 1 FROM blocks child
+            WHERE child.parent_id = block.id AND child.effective_deleted_root_id IS NULL
+          ) AS has_children`;
+    const sql = `
+        WITH RECURSIVE tree(id, depth, sort_path) AS (
+          ${rootQuery}
+          UNION ALL
+          SELECT
+            child.id,
+            tree.depth + 1,
+            tree.sort_path || '/' || printf('%010d:%s', child.position, child.created_at)
+          FROM blocks child
+          JOIN tree ON child.parent_id = tree.id
+        )
+        SELECT
+          ${selected}
+        FROM tree
+        JOIN blocks block ON block.id = tree.id
+        LEFT JOIN virtual_occurrence_ranks occurrence_rank
+          ON occurrence_rank.view_id = ? AND occurrence_rank.block_id = block.id
+        ${where}
+        ORDER BY
+          CASE WHEN occurrence_rank.rank IS NULL THEN 1 ELSE 0 END,
+          occurrence_rank.rank,
+          CASE WHEN occurrence_rank.rank IS NULL THEN tree.sort_path ELSE block.id END
+      `;
+    return { sql, parameters };
+  }
+
+  private queryRankedBlocksFromCurrentRead(
+    query: BlockSearchQuery,
+    rankViewId: string,
+  ): VisibleBlockCollection {
+    const { sql, parameters } = this.rankedMatchStatement(query, rankViewId, "full");
+    const rows = this.database
+      .query(`${sql} LIMIT ?`)
+      .all(...parameters, query.limit + 1) as VisibleBlockRow[];
+    const blocks = this.hydrateVisibleRowsFromCurrentRead(
+      rows.slice(0, query.limit),
+      query.filters ?? [],
+      query.propertyScope ?? "block",
+    );
+    return {
+      blocks,
+      completeness: rows.length > query.limit
+        ? { kind: "truncated", limit: query.limit }
+        : { kind: "complete" },
+    };
+  }
+
+  /**
+   * Every ranked match as a lightweight id/depth pair, in the same order as
+   * queryRankedBlocksFromCurrentRead. Saved-view reads rank and count these, then
+   * hydrate only the requested page.
+   */
+  private rankedMatchIdsFromCurrentRead(
+    query: BlockSearchQuery,
+    rankViewId: string,
+  ): Array<{ id: string; depth: number }> {
+    const { sql, parameters } = this.rankedMatchStatement(query, rankViewId, "ids");
+    return this.database.query(sql).all(...parameters) as Array<{ id: string; depth: number }>;
+  }
+
+  /** Hydrate a bounded page of ranked matches, keeping the page's order. */
+  private hydrateRankedPageFromCurrentRead(
+    page: ReadonlyArray<{ id: string; depth: number }>,
+    query: BlockSearchQuery,
+  ): VisibleBlock[] {
+    if (page.length === 0) return [];
+    const placeholders = page.map(() => "?").join(", ");
+    const rows = this.database
+      .query(`
+        SELECT block.*, EXISTS (
+          SELECT 1 FROM blocks child
+          WHERE child.parent_id = block.id AND child.effective_deleted_root_id IS NULL
+        ) AS has_children
+        FROM blocks block WHERE block.id IN (${placeholders})
+      `)
+      .all(...page.map(entry => entry.id)) as Array<Omit<VisibleBlockRow, "depth">>;
+    const byId = new Map(rows.map(row => [row.id, row]));
+    const ordered = page.map(entry => ({ ...byId.get(entry.id)!, depth: entry.depth }) as VisibleBlockRow);
+    return this.hydrateVisibleRowsFromCurrentRead(ordered, query.filters ?? [], query.propertyScope ?? "block");
+  }
+
+  private hydrateVisibleRowsFromCurrentRead(
+    rows: readonly VisibleBlockRow[],
+    filters: readonly PropertyFilter[],
+    propertyScope: PropertyQueryScope,
+  ): VisibleBlock[] {
+    if (rows.length === 0) return [];
+    const placeholders = rows.map(() => "?").join(", ");
+    const propertyRows = this.database
+      .query(
+        `SELECT block_id, key, value, ordinal, raw, start, end, line, column, placement, scope, syntax FROM block_properties WHERE block_id IN (${placeholders}) ORDER BY block_id, ordinal`,
+      )
+      .all(...rows.map((row) => row.id)) as PropertyRow[];
+    const recordsByBlock = new Map<string, PropertyRecord[]>();
+    for (const row of propertyRows) {
+      const records = recordsByBlock.get(row.block_id);
+      if (records) records.push(propertyRecordFromRow(row));
+      else recordsByBlock.set(row.block_id, [propertyRecordFromRow(row)]);
+    }
+    return rows.map((row) => {
+      const records = recordsByBlock.get(row.id) ?? [];
+      const block = this.hydrate(
+        row,
+        records
+          .filter((record) => record.scope === "block")
+          .map(({ key, value }) => ({ key, value })),
+      );
+      return {
+        ...block,
+        depth: row.depth,
+        hasChildren: row.has_children === 1,
+        displayText: resolveBlockReferenceText(
+          block.text,
+          (blockId) => this.getFromCurrentRead(blockId),
+        ),
+        ...(propertyScope !== "block" && filters.length > 0
+          ? {
+              propertyMatches: propertyMatchContexts(
+                matchingPropertyRecords(records, filters, propertyScope),
+              ),
+            }
+          : {}),
+      };
+    });
+  }
+  private navigationCursorFromCurrentRead(): number {
+    const row = this.database.query(
+      "SELECT value FROM metadata WHERE key = 'navigation_cursor'",
+    ).get() as { value: string } | null;
+    return Number(row?.value ?? 0);
+  }
+
+  private setNavigationCursorFromCurrentRead(entryId: number): void {
+    this.database.query(
+      "INSERT INTO metadata (key, value) VALUES ('navigation_cursor', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+    ).run(String(entryId));
+  }
+
+  private setSelectionFromCurrentRead(blockId: string | null): SelectionContext {
+    if (blockId !== null && !this.getFromCurrentRead(blockId)) {
+      throw new Error(`Block not found: ${blockId}`);
+    }
+    const currentId = this.selectionFromCurrentRead().selected?.id ?? null;
+    if (blockId !== currentId) {
+      if (currentId) this.recordNavigationFromCurrentRead(currentId);
+      if (blockId) this.recordNavigationFromCurrentRead(blockId);
+      this.database.query("UPDATE selection SET block_id = ? WHERE singleton = 1").run(blockId);
+    }
+    return this.selectionFromCurrentRead();
+  }
+
+  private recordNavigationFromCurrentRead(blockId: string): void {
+    const cursor = this.navigationCursorFromCurrentRead();
+    const current = this.database.query(
+      "SELECT block_id FROM navigation_history WHERE entry_id = ?",
+    ).get(cursor) as { block_id: string | null } | null;
+    if (current?.block_id === blockId) return;
+    this.database.query("DELETE FROM navigation_history WHERE entry_id > ?").run(cursor);
+    const result = this.database.query(
+      "INSERT INTO navigation_history (block_id) VALUES (?)",
+    ).run(blockId);
+    this.setNavigationCursorFromCurrentRead(Number(result.lastInsertRowid));
+    this.database.query(
+      "DELETE FROM navigation_history WHERE entry_id NOT IN (SELECT entry_id FROM navigation_history ORDER BY entry_id DESC LIMIT 200)",
+    ).run();
+  }
+
+  private navigationStateFromCurrentRead(): NavigationState {
+    const cursor = this.navigationCursorFromCurrentRead();
+    const currentId = this.selectionFromCurrentRead().selected?.id ?? null;
+    const canBack = this.database.query(
+      "SELECT 1 FROM navigation_history WHERE entry_id < ? AND block_id IS NOT NULL AND (? IS NULL OR block_id <> ?) LIMIT 1",
+    ).get(cursor, currentId, currentId) !== null;
+    const canForward = this.database.query(
+      "SELECT 1 FROM navigation_history WHERE entry_id > ? AND block_id IS NOT NULL AND (? IS NULL OR block_id <> ?) LIMIT 1",
+    ).get(cursor, currentId, currentId) !== null;
+    return {
+      selection: this.selectionFromCurrentRead(),
+      canBack,
+      canForward,
+    };
+  }
+
+
+  private virtualOccurrenceRanksFromCurrentRead(): VirtualOccurrenceRank[] {
+    const rows = this.database
+      .query(
+        "SELECT view_id, block_id, rank FROM virtual_occurrence_ranks ORDER BY view_id, rank, block_id",
+      )
+      .all() as VirtualOccurrenceRankRow[];
+    return rows.map((row) => ({
+      viewId: row.view_id,
+      blockId: row.block_id,
+      rank: row.rank,
+    }));
+  }
+
+  private selectionFromCurrentRead(): SelectionContext {
+    const row = this.database.query("SELECT block_id FROM selection WHERE singleton = 1").get() as
+      | { block_id: string | null }
+      | null;
+    const selected = row?.block_id ? this.getFromCurrentRead(row.block_id) : null;
+    return this.contextForBlockFromCurrentRead(selected);
+  }
+
+  private contextForBlockFromCurrentRead(selected: Block | null): SelectionContext {
+    if (!selected) return { selected: null, ancestors: [], children: [] };
+
+    const ancestors: Block[] = [];
+    let parentId = selected.parentId;
+    while (parentId) {
+      const parent = this.getFromCurrentRead(parentId);
+      if (!parent) break;
+      ancestors.unshift(parent);
+      parentId = parent.parentId;
+    }
+    return {
+      selected,
+      ancestors,
+      children: this.childrenFromCurrentRead(
+        selected.id,
+        Boolean(selected.effectiveDeletedRootId),
+      ),
+    };
+  }
+
+  private loadGraph(): LoadedGraph {
+    const rows = this.database.query("SELECT * FROM blocks ORDER BY position, created_at").all() as BlockRow[];
+    const propertyRows = this.database
+      .query(
+        "SELECT block_id, key, value, ordinal, raw, start, end, line, column, placement, scope, syntax FROM block_properties ORDER BY block_id, ordinal",
+      )
+      .all() as PropertyRow[];
+    const propertyRecordsByBlock = new Map<string, PropertyRecord[]>();
+    const propertiesByBlock = new Map<string, BlockProperty[]>();
+    for (const row of propertyRows) {
+      const record = propertyRecordFromRow(row);
+      const records = propertyRecordsByBlock.get(row.block_id);
+      if (records) records.push(record);
+      else propertyRecordsByBlock.set(row.block_id, [record]);
+      if (record.scope !== "block") continue;
+      const properties = propertiesByBlock.get(row.block_id);
+      if (properties) properties.push({ key: record.key, value: record.value });
+      else propertiesByBlock.set(row.block_id, [{ key: record.key, value: record.value }]);
+    }
+
+    const blocks = rows.map((row) => this.hydrate(row, propertiesByBlock.get(row.id) ?? []));
+    const byId = new Map<string, Block>();
+    const byParent = new Map<string | null, Block[]>();
+    const deletedDescendantCountByRoot = new Map<string, number>();
+    for (const block of blocks) {
+      byId.set(block.id, block);
+      const siblings = byParent.get(block.parentId);
+      if (siblings) {
+        siblings.push(block);
+      } else {
+        byParent.set(block.parentId, [block]);
+      }
+      const deletedRootId = block.effectiveDeletedRootId;
+      if (deletedRootId && deletedRootId !== block.id) {
+        deletedDescendantCountByRoot.set(
+          deletedRootId,
+          (deletedDescendantCountByRoot.get(deletedRootId) ?? 0) + 1,
+        );
+      }
+    }
+
+    return { byId, byParent, propertyRecordsByBlock, deletedDescendantCountByRoot };
+  }
+
+  private traverseLoadedGraph(
+    graph: LoadedGraph,
+    options: LoadedGraphTraversalOptions,
+  ): VisibleBlock[] {
+    const blocks: VisibleBlock[] = [];
+    // The same words the ranked path's SQL requires (searchTextTerms): every one, in any order.
+    const filterTerms = options.text ? searchTextTerms(options.text) : [];
+    const deletedMode = options.deletedMode ?? "active";
+    const propertyScope = options.propertyScope ?? "block";
+    const where = options.where ? compileQueryExpression(options.where, options.now) : null;
+    const contextFilters = [...(options.filters ?? []), ...(options.where ? positivePropertyFilters(options.where) : [])];
+    const visit = (block: Block, depth: number): boolean => {
+      const effectivelyDeleted = Boolean(block.effectiveDeletedRootId);
+      if (deletedMode === "active" && effectivelyDeleted) return false;
+      let deletionMatches: boolean;
+      switch (deletedMode) {
+        case "active":
+          deletionMatches = !effectivelyDeleted;
+          break;
+        case "roots":
+          deletionMatches = Boolean(block.deletedAt);
+          break;
+        case "all":
+          deletionMatches = effectivelyDeleted;
+          break;
+      }
+      const propertyRecords = graph.propertyRecordsByBlock.get(block.id) ?? [];
+      const matches =
+        deletionMatches &&
+        (!options.filters?.length ||
+          matchesFilters(propertyRecords, options.filters, propertyScope)) &&
+        (!where || where({ ...block, childProperties: () => (graph.byParent.get(block.id) ?? [])
+          .filter((child) => !child.effectiveDeletedRootId).map((child) => child.properties) }, propertyRecords, propertyScope)) &&
+        (!filterTerms.length || filterTerms.every(term => block.text.toLowerCase().includes(term)));
+      if (matches) {
+        const children = (graph.byParent.get(block.id) ?? []).filter((child) =>
+          deletedMode === "active" ? !child.effectiveDeletedRootId : true
+        );
+        blocks.push({
+          ...block,
+          depth,
+          hasChildren: children.length > 0,
+          ...(block.deletedAt
+            ? {
+                deletedDescendantCount:
+                  graph.deletedDescendantCountByRoot.get(block.id) ?? 0,
+              }
+            : {}),
+          displayText: resolveBlockReferenceText(
+            block.text,
+            (blockId) => graph.byId.get(blockId) ?? null,
+          ),
+          ...(propertyScope !== "block" && contextFilters.length
+            ? {
+                propertyMatches: propertyMatchContexts(
+                  matchingPropertyRecords(propertyRecords, contextFilters, propertyScope),
+                ),
+              }
+            : {}),
+        });
+        if (options.stopAfterMatches !== undefined && blocks.length >= options.stopAfterMatches) {
+          return true;
+        }
+      }
+
+      for (const child of graph.byParent.get(block.id) ?? []) {
+        if (visit(child, depth + 1)) return true;
+      }
+      return false;
+    };
+
+    if (options.subtreeRootId) {
+      const root = graph.byId.get(options.subtreeRootId);
+      if (root) visit(root, 0);
+    } else {
+      for (const root of graph.byParent.get(null) ?? []) {
+        if (visit(root, 0)) break;
+      }
+    }
+    return blocks;
+  }
+
+  private selectionFromGraph(graph: LoadedGraph): SelectionContext {
+    const row = this.database.query("SELECT block_id FROM selection WHERE singleton = 1").get() as
+      | { block_id: string | null }
+      | null;
+    const selected = row?.block_id ? graph.byId.get(row.block_id) ?? null : null;
+    if (!selected) return { selected: null, ancestors: [], children: [] };
+
+    const ancestors: Block[] = [];
+    let parentId = selected.parentId;
+    while (parentId) {
+      const parent = graph.byId.get(parentId);
+      if (!parent) break;
+      ancestors.unshift(parent);
+      parentId = parent.parentId;
+    }
+    return {
+      selected,
+      ancestors,
+      children: graph.byParent.get(selected.id) ?? [],
+    };
+  }
+
+  private quickCaptureDraftFromCurrentRead(): QuickCaptureDraft | null {
+    const row = this.database.query(`
+      SELECT request_id, text, submitted_text, cursor_row, cursor_column, captured_from_block_id, revision, updated_at,
+        block_id, block_revision, selection_anchor
+      FROM quick_capture_draft
+      WHERE singleton = 1
+    `).get() as QuickCaptureDraftRow | null;
+    if (!row || (!row.text && row.submitted_text === null && row.block_id === null)) return null;
+    return {
+      requestId: row.request_id,
+      text: row.text,
+      ...(row.submitted_text === null ? {} : { submittedText: row.submitted_text }),
+      cursorRow: row.cursor_row,
+      cursorColumn: row.cursor_column,
+      ...(row.block_id ? {blockId:row.block_id,blockRevision:row.block_revision!} : {}),
+      ...(row.selection_anchor ? {selectionAnchor:JSON.parse(row.selection_anchor)} : {}),
+      ...(row.captured_from_block_id
+        ? { capturedFromBlockId: row.captured_from_block_id }
+        : {}),
+      revision: row.revision,
+      updatedAt: row.updated_at,
+    };
+  }
+
+
+
+  private migrate(): void {
+    this.database.exec(`
+      CREATE TABLE IF NOT EXISTS blocks (
+        id TEXT PRIMARY KEY,
+        parent_id TEXT REFERENCES blocks(id) ON DELETE CASCADE,
+        position INTEGER NOT NULL,
+        text TEXT NOT NULL,
+        revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
+        author TEXT NOT NULL CHECK (author IN ('user', 'agent', 'system')),
+        actor_id TEXT,
+        session_id TEXT,
+        task_id TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        deleted_at TEXT,
+        effective_deleted_root_id TEXT
+      );
+      CREATE INDEX IF NOT EXISTS blocks_parent_position ON blocks(parent_id, position);
+      CREATE TABLE IF NOT EXISTS block_properties (
+        block_id TEXT NOT NULL REFERENCES blocks(id) ON DELETE CASCADE,
+        key TEXT NOT NULL,
+        value TEXT NOT NULL,
+        ordinal INTEGER NOT NULL,
+        raw TEXT NOT NULL,
+        start INTEGER NOT NULL,
+        end INTEGER NOT NULL,
+        line INTEGER NOT NULL,
+        column INTEGER NOT NULL,
+        placement TEXT NOT NULL CHECK (placement IN ('inline', 'trailing-metadata', 'metadata-line')),
+        scope TEXT NOT NULL CHECK (scope IN ('block', 'line', 'inline')),
+        syntax TEXT NOT NULL CHECK (syntax IN ('bracket', 'bare', 'hashtag')),
+        PRIMARY KEY (block_id, ordinal)
+      );
+      CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+      INSERT OR IGNORE INTO metadata (key, value) VALUES ('sequence', '0');
+      CREATE TABLE IF NOT EXISTS selection (
+        singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+        block_id TEXT REFERENCES blocks(id) ON DELETE SET NULL
+      );
+      INSERT OR IGNORE INTO selection (singleton, block_id) VALUES (1, NULL);
+      CREATE TABLE IF NOT EXISTS navigation_history (
+        entry_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        block_id TEXT REFERENCES blocks(id) ON DELETE SET NULL
+      );
+      CREATE INDEX IF NOT EXISTS navigation_history_block
+        ON navigation_history(block_id, entry_id);
+      INSERT OR IGNORE INTO metadata (key, value) VALUES ('navigation_cursor', '0');
+      CREATE TABLE IF NOT EXISTS virtual_occurrence_ranks (
+        view_id TEXT NOT NULL REFERENCES blocks(id) ON DELETE CASCADE,
+        block_id TEXT NOT NULL REFERENCES blocks(id) ON DELETE CASCADE,
+        rank INTEGER NOT NULL CHECK (rank >= 0),
+        PRIMARY KEY (view_id, block_id),
+        CHECK (view_id <> block_id)
+      );
+      CREATE INDEX IF NOT EXISTS virtual_occurrence_ranks_order
+        ON virtual_occurrence_ranks(view_id, rank, block_id);
+      CREATE TABLE IF NOT EXISTS reserved_work_ids (
+        work_id TEXT PRIMARY KEY,
+        reserved_at TEXT NOT NULL,
+        block_id TEXT
+      );
+      CREATE TABLE IF NOT EXISTS work_id_allocator (
+        singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+        prefix TEXT NOT NULL UNIQUE,
+        next_number INTEGER NOT NULL CHECK (next_number >= 1)
+      );
+      CREATE TABLE IF NOT EXISTS page_addresses (
+        normalized_address TEXT PRIMARY KEY,
+        display_address TEXT NOT NULL,
+        block_id TEXT NOT NULL REFERENCES blocks(id) ON DELETE CASCADE,
+        kind TEXT NOT NULL CHECK (kind IN ('page', 'alias', 'work-id'))
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS page_addresses_primary_per_block
+        ON page_addresses(block_id) WHERE kind = 'page';
+      CREATE UNIQUE INDEX IF NOT EXISTS page_addresses_work_id_per_block
+        ON page_addresses(block_id) WHERE kind = 'work-id';
+      CREATE TABLE IF NOT EXISTS capture_requests (
+        request_id TEXT PRIMARY KEY,
+        block_id TEXT NOT NULL,
+        inbox_block_id TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        payload_hash TEXT
+      );
+      CREATE TABLE IF NOT EXISTS quick_capture_draft (
+        singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+        request_id TEXT NOT NULL,
+        text TEXT NOT NULL,
+        submitted_text TEXT,
+        cursor_row INTEGER NOT NULL CHECK (cursor_row >= 0),
+        cursor_column INTEGER NOT NULL CHECK (cursor_column >= 0),
+        captured_from_block_id TEXT REFERENCES blocks(id) ON DELETE SET NULL,
+        revision INTEGER NOT NULL CHECK (revision >= 1),
+        updated_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS extension_records (
+        block_id TEXT PRIMARY KEY REFERENCES blocks(id) ON DELETE CASCADE,
+        extension_id TEXT NOT NULL,
+        label TEXT NOT NULL,
+        role TEXT NOT NULL CHECK (role IN ('record', 'comment')),
+        parent_block_id TEXT NOT NULL,
+        item_key TEXT NOT NULL,
+        resource_id TEXT,
+        synced_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS extension_records_parent ON extension_records(parent_block_id, extension_id, item_key);
+      CREATE INDEX IF NOT EXISTS extension_records_resource ON extension_records(resource_id);
+      CREATE INDEX IF NOT EXISTS extension_records_key ON extension_records(extension_id, item_key);
+      CREATE TABLE IF NOT EXISTS extension_askers (
+        block_id TEXT NOT NULL REFERENCES blocks(id) ON DELETE CASCADE,
+        extension_id TEXT NOT NULL,
+        item_key TEXT NOT NULL,
+        comments INTEGER NOT NULL DEFAULT 0 CHECK (comments >= 0),
+        PRIMARY KEY (block_id, extension_id, item_key)
+      );
+      CREATE INDEX IF NOT EXISTS extension_askers_key ON extension_askers(extension_id, item_key);
+      ${agentRequestsTableSql("agent_requests")};
+      CREATE TABLE IF NOT EXISTS agent_request_baseline (
+        block_id TEXT PRIMARY KEY REFERENCES blocks(id) ON DELETE CASCADE,
+        request_keys TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS extension_outputs (
+        block_id TEXT NOT NULL REFERENCES blocks(id) ON DELETE CASCADE,
+        call_key TEXT NOT NULL,
+        extension_id TEXT NOT NULL,
+        handler_key TEXT NOT NULL,
+        kind TEXT NOT NULL CHECK (kind IN ('output', 'component')),
+        request TEXT NOT NULL,
+        result TEXT,
+        error TEXT,
+        ran_at TEXT,
+        attempted_at TEXT NOT NULL,
+        block_revision INTEGER NOT NULL,
+        extension_version INTEGER NOT NULL,
+        PRIMARY KEY (block_id, call_key)
+      );
+      CREATE TABLE IF NOT EXISTS annotation_requests (
+        request_id TEXT PRIMARY KEY,
+        payload_hash TEXT,
+        annotation_ids TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+    `);
+    this.database.query(blockActivityTableSql("block_edit_activity", { ifNotExists: true })).run();
+    this.migrateActivityKinds();
+    this.migrateAgentRequestStatuses();
+    this.database.exec(`
+      CREATE INDEX IF NOT EXISTS block_edit_activity_author_cursor
+        ON block_edit_activity(author, activity_id DESC);
+      CREATE INDEX IF NOT EXISTS block_edit_activity_block_cursor
+        ON block_edit_activity(block_id, activity_id DESC);
+    `);
+    this.migrateCaptureState();
+    this.migrateBlockStateColumns();
+    this.retireTreePresentationState();
+    this.migratePropertyIndex();
+    this.migrateWorkIdStateColumns();
+    this.migrateWorkIdReservations();
+    this.reconcileWorkIdAllocator();
+    this.migratePageAddressRegistry();
+    this.reconcileWorkIdAddresses();
+    this.migrateNavigationHistory();
+  }
+
+  /**
+   * Widens the agent request status check (`dismissed`, PIE-510). SQLite cannot alter a CHECK, so an older
+   * table is rebuilt with its rows.
+   */
+  private migrateAgentRequestStatuses(): void {
+    const table = this.database.query(
+      "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'agent_requests'",
+    ).get() as { sql: string } | null;
+    if (!table || AGENT_REQUEST_STATUSES.every(status => table.sql.includes(`'${status}'`))) return;
+    this.database.transaction(() => {
+      const { expected } = this.database.query("SELECT COUNT(*) AS expected FROM agent_requests WHERE block_id IN (SELECT id FROM blocks)").get() as { expected: number };
+      this.database.query("DROP TABLE IF EXISTS agent_requests_next").run();
+      this.database.query(agentRequestsTableSql("agent_requests_next")).run();
+      this.database.query(`
+        INSERT INTO agent_requests_next
+          (block_id, request_key, agent, extension_id, request, status, message, reply, proposal_id, requested_by, requested_at, answered_at)
+        SELECT block_id, request_key, agent, extension_id, request, status, message, reply, proposal_id, requested_by, requested_at, answered_at
+        FROM agent_requests
+        WHERE block_id IN (SELECT id FROM blocks)
+      `).run();
+      const { copied } = this.database.query("SELECT COUNT(*) AS copied FROM agent_requests_next").get() as { copied: number };
+      if (copied !== expected) throw new Error(`Agent request migration copied ${copied} of ${expected} rows; the original table is unchanged`);
+      this.database.query("DROP TABLE agent_requests").run();
+      this.database.query("ALTER TABLE agent_requests_next RENAME TO agent_requests").run();
+    })();
+  }
+
+  private migrateCaptureState(): void {
+    const columns = this.database.query("PRAGMA table_info(capture_requests)").all() as Array<{ name: string }>;
+    if (!columns.some(column => column.name === "payload_hash")) {
+      // Original payloads cannot be reconstructed from captures that may have been edited.
+      this.database.exec("ALTER TABLE capture_requests ADD COLUMN payload_hash TEXT");
+    }
+    const draftColumns = this.database.query("PRAGMA table_info(quick_capture_draft)").all() as Array<{ name: string }>;
+    if (!draftColumns.some(column => column.name === "submitted_text")) {
+      this.database.exec("ALTER TABLE quick_capture_draft ADD COLUMN submitted_text TEXT");
+    }
+    for (const [name, type] of [["block_id","TEXT"],["block_revision","INTEGER"],["selection_anchor","TEXT"]]) {
+      if (!draftColumns.some(column => column.name === name)) this.database.exec(`ALTER TABLE quick_capture_draft ADD COLUMN ${name} ${type}`);
+    }
+  }
+
+  /**
+   * Widens the activity kind check to structural changes (PIE-451). SQLite cannot
+   * alter a CHECK, so an older table is rebuilt with its rows and cursors intact.
+   */
+  private migrateActivityKinds(): void {
+    const table = this.database.query(
+      "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'block_edit_activity'",
+    ).get() as { sql: string } | null;
+    if (!table || BLOCK_ACTIVITY_KINDS.every(kind => table.sql.includes(`'${kind}'`))) return;
+    // One statement per call: a multi-statement exec can skip a failed statement
+    // and carry on to the DROP, which would lose the history.
+    this.database.transaction(() => {
+      // Keep AUTOINCREMENT past ids a client may already hold as a cursor.
+      const issued = this.database.query(
+        "SELECT seq FROM sqlite_sequence WHERE name = 'block_edit_activity'",
+      ).get() as { seq: number } | null;
+      // A row whose block is gone (a raw delete with foreign keys off) cannot be
+      // shown by any reader and would fail the new table's foreign key.
+      const { expected } = this.database.query(
+        "SELECT COUNT(*) AS expected FROM block_edit_activity WHERE block_id IN (SELECT id FROM blocks)",
+      ).get() as { expected: number };
+      this.database.query("DROP TABLE IF EXISTS block_edit_activity_next").run();
+      this.database.query(blockActivityTableSql("block_edit_activity_next")).run();
+      this.database.query(`
+        INSERT INTO block_edit_activity_next
+          (activity_id, block_id, author, actor_id, session_id, task_id, kind, edited_at)
+        SELECT activity_id, block_id, author, actor_id, session_id, task_id, kind, edited_at
+        FROM block_edit_activity
+        WHERE block_id IN (SELECT id FROM blocks)
+      `).run();
+      const { copied } = this.database.query(
+        "SELECT COUNT(*) AS copied FROM block_edit_activity_next",
+      ).get() as { copied: number };
+      if (copied !== expected) {
+        throw new Error(`Activity migration copied ${copied} of ${expected} rows; the original table is unchanged`);
+      }
+      this.database.query("DROP TABLE block_edit_activity").run();
+      this.database.query("ALTER TABLE block_edit_activity_next RENAME TO block_edit_activity").run();
+      if (issued) {
+        const kept = this.database.query(
+          "UPDATE sqlite_sequence SET seq = MAX(seq, ?) WHERE name = 'block_edit_activity'",
+        ).run(issued.seq);
+        if (kept.changes === 0) {
+          this.database.query("INSERT INTO sqlite_sequence (name, seq) VALUES ('block_edit_activity', ?)").run(issued.seq);
+        }
+      }
+    })();
+  }
+
+  private migrateBlockStateColumns(): void {
+    this.database.transaction(() => {
+      const existingColumns = new Set(
+        (
+          this.database.query("PRAGMA table_info(blocks)").all() as Array<{ name: string }>
+        ).map((column) => column.name),
+      );
+      const needsEffectiveDeletionBackfill = !existingColumns.has("effective_deleted_root_id");
+      if (!existingColumns.has("revision")) {
+        this.database.exec("ALTER TABLE blocks ADD COLUMN revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1)");
+      }
+      const textColumns = [
+        "actor_id",
+        "session_id",
+        "task_id",
+        "deleted_at",
+        "effective_deleted_root_id",
+      ] as const;
+      for (const name of textColumns) {
+        if (!existingColumns.has(name)) {
+          this.database.exec(`ALTER TABLE blocks ADD COLUMN ${name} TEXT`);
+        }
+      }
+      this.database.exec(
+        "CREATE INDEX IF NOT EXISTS blocks_effective_deleted ON blocks(effective_deleted_root_id, deleted_at)",
+      );
+      if (needsEffectiveDeletionBackfill) this.recomputeEffectiveDeletion();
+    })();
+  }
+
+  private retireTreePresentationState(): void {
+    this.database.transaction(() => {
+      this.database.exec("DROP TABLE IF EXISTS block_view_state");
+      const columns = new Set(
+        (
+          this.database.query("PRAGMA table_info(blocks)").all() as Array<{ name: string }>
+        ).map((column) => column.name),
+      );
+      if (columns.has("collapsed")) {
+        this.database.exec("ALTER TABLE blocks DROP COLUMN collapsed");
+      }
+    })();
+  }
+
+  private migrateWorkIdStateColumns(): void {
+    this.database.transaction(() => {
+      const columns = new Set(
+        (
+          this.database.query("PRAGMA table_info(reserved_work_ids)").all() as Array<{
+            name: string;
+          }>
+        ).map((column) => column.name),
+      );
+      if (!columns.has("block_id")) {
+        this.database.exec("ALTER TABLE reserved_work_ids ADD COLUMN block_id TEXT");
+      }
+      this.database.query(`
+        UPDATE reserved_work_ids
+        SET block_id = (
+          SELECT property.block_id
+          FROM block_properties property
+          JOIN blocks block ON block.id = property.block_id
+          WHERE property.scope = 'block'
+            AND property.key = 'work-id'
+            AND TRIM(property.value) = reserved_work_ids.work_id
+          ORDER BY (block.effective_deleted_root_id IS NOT NULL), property.block_id
+          LIMIT 1
+        )
+        WHERE block_id IS NULL
+      `).run();
+    })();
+  }
+  private migrateNavigationHistory(): void {
+    const count = this.database.query(
+      "SELECT COUNT(*) AS count FROM navigation_history",
+    ).get() as { count: number };
+    if (count.count > 0) return;
+    const selected = this.database.query(
+      "SELECT block_id FROM selection WHERE singleton = 1",
+    ).get() as { block_id: string | null } | null;
+    if (selected?.block_id) this.recordNavigationFromCurrentRead(selected.block_id);
+  }
+
+
+  private migratePropertyIndex(): void {
+    this.database.transaction(() => {
+      const versionRow = this.database
+        .query("SELECT value FROM metadata WHERE key = 'property_parser_version'")
+        .get() as { value: string } | null;
+      const storedVersion = versionRow ? Number(versionRow.value) : 0;
+      if (!Number.isInteger(storedVersion) || storedVersion < 0) {
+        throw new Error(`Invalid property parser version: ${versionRow?.value}`);
+      }
+      if (storedVersion > PROPERTY_PARSER_VERSION) {
+        throw new Error(
+          `Database property parser version ${storedVersion} is newer than supported version ${PROPERTY_PARSER_VERSION}`,
+        );
+      }
+
+      const columns = new Set(
+        (
+          this.database.query("PRAGMA table_info(block_properties)").all() as Array<{
+            name: string;
+          }>
+        ).map((column) => column.name),
+      );
+      const requiredColumns = [
+        "block_id",
+        "key",
+        "value",
+        "ordinal",
+        "raw",
+        "start",
+        "end",
+        "line",
+        "column",
+        "placement",
+        "scope",
+        "syntax",
+      ];
+      const schemaCurrent = requiredColumns.every((column) => columns.has(column));
+      if (schemaCurrent && storedVersion === PROPERTY_PARSER_VERSION) return;
+
+      const existingBlocks = this.database.query("SELECT id, text FROM blocks ORDER BY id").all() as Array<{
+        id: string;
+        text: string;
+      }>;
+      // Parser v3 adds hashtag to the syntax CHECK constraint, not just rows.
+      if (!schemaCurrent || storedVersion < 3) {
+        this.database.exec(`
+          DROP TABLE block_properties;
+          CREATE TABLE block_properties (
+            block_id TEXT NOT NULL REFERENCES blocks(id) ON DELETE CASCADE,
+            key TEXT NOT NULL,
+            value TEXT NOT NULL,
+            ordinal INTEGER NOT NULL,
+            raw TEXT NOT NULL,
+            start INTEGER NOT NULL,
+            end INTEGER NOT NULL,
+            line INTEGER NOT NULL,
+            column INTEGER NOT NULL,
+            placement TEXT NOT NULL CHECK (placement IN ('inline', 'trailing-metadata', 'metadata-line')),
+            scope TEXT NOT NULL CHECK (scope IN ('block', 'line', 'inline')),
+            syntax TEXT NOT NULL CHECK (syntax IN ('bracket', 'bare', 'hashtag')),
+            PRIMARY KEY (block_id, ordinal)
+          );
+        `);
+      } else {
+        this.database.query("DELETE FROM block_properties").run();
+      }
+      this.database.exec(`
+        CREATE INDEX IF NOT EXISTS properties_scope_key_value
+          ON block_properties(scope, key, value, block_id);
+      `);
+      for (const block of existingBlocks) {
+        this.replacePropertyIndex(block.id, parsePropertyRecords(block.text));
+      }
+      this.database
+        .query(
+          "INSERT INTO metadata (key, value) VALUES ('property_parser_version', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        )
+        .run(String(PROPERTY_PARSER_VERSION));
+      if (existingBlocks.length > 0) this.bumpSequenceWithoutHistory();
+    })();
+  }
+
+  private migrateWorkIdReservations(): void {
+    this.database.transaction(() => {
+      const rows = this.database.query(
+        "SELECT property.block_id, property.value FROM block_properties property JOIN blocks block ON block.id = property.block_id WHERE property.scope = 'block' AND property.key = 'work-id' AND block.effective_deleted_root_id IS NULL ORDER BY property.block_id",
+      ).all() as Array<{ block_id: string; value: string }>;
+      for (const row of rows) {
+        const parsed = parseWorkId(row.value);
+        if (!parsed || parsed.workId !== row.value.trim()) continue;
+        if (this.reservedWorkIdOwnerFromCurrentRead(parsed.workId) === undefined) {
+          this.database.query(
+            "INSERT INTO reserved_work_ids (work_id, reserved_at, block_id) VALUES (?, ?, ?)",
+          ).run(parsed.workId, new Date().toISOString(), row.block_id);
+        }
+      }
+    })();
+  }
+
+  private reconcileWorkIdAllocator(): void {
+    this.database.transaction(() => {
+      const reservations = this.canonicalWorkIdReservationsFromCurrentRead();
+      const prefixes = [...new Set(
+        reservations.map((reservation) => reservation.prefix),
+      )].sort();
+      const current = this.workIdAllocatorFromCurrentRead();
+      const migration = this.database.query(
+        "SELECT value FROM metadata WHERE key = 'work_id_allocator_migration_version'",
+      ).get() as { value: string } | null;
+      if (!current && migration === null && prefixes.length === 1) {
+        const prefix = prefixes[0]!;
+        this.database.query(
+          "INSERT INTO work_id_allocator (singleton, prefix, next_number) VALUES (1, ?, ?)",
+        ).run(prefix, this.nextWorkIdNumberForPrefixFromCurrentRead(prefix));
+      } else if (current) {
+        this.database.query(
+          "UPDATE work_id_allocator SET next_number = ? WHERE singleton = 1",
+        ).run(Math.max(
+          current.next_number,
+          this.nextWorkIdNumberForPrefixFromCurrentRead(current.prefix),
+        ));
+      }
+      this.database.query(
+        "INSERT INTO metadata (key, value) VALUES ('work_id_allocator_migration_version', '1') ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+      ).run();
+    })();
+  }
+
+  private reconcileWorkIdAddresses(): void {
+    this.database.transaction(() => {
+      const allocator = this.workIdAllocatorFromCurrentRead();
+      const rows = this.database.query(
+        "SELECT normalized_address, display_address, block_id, kind FROM page_addresses WHERE kind = 'work-id' ORDER BY normalized_address",
+      ).all() as PageAddressRow[];
+      for (const row of rows) {
+        const parsed = parseWorkId(row.display_address);
+        const owner = parsed
+          ? this.reservedWorkIdOwnerFromCurrentRead(parsed.workId)
+          : undefined;
+        if (
+          !parsed ||
+          parsed.workId !== row.display_address.trim() ||
+          owner !== row.block_id
+        ) {
+          this.database.query(
+            "DELETE FROM page_addresses WHERE normalized_address = ?",
+          ).run(row.normalized_address);
+        }
+      }
+      if (allocator) {
+        this.registerConfiguredWorkIdAddressesFromCurrentRead(allocator.prefix);
+      }
+    })();
+  }
+
+  private migratePageAddressRegistry(): void {
+    this.database.transaction(() => {
+      const versionRow = this.database.query(
+        "SELECT value FROM metadata WHERE key = 'page_address_registry_version'",
+      ).get() as { value: string } | null;
+      const version = versionRow ? Number(versionRow.value) : 0;
+      if (
+        !Number.isInteger(version) ||
+        version < 0 ||
+        version > PAGE_ADDRESS_REGISTRY_VERSION
+      ) {
+        throw new Error(`Unsupported page address registry version: ${versionRow?.value}`);
+      }
+      if (version === PAGE_ADDRESS_REGISTRY_VERSION) return;
+
+      const retainedAddresses = this.database.query(
+        "SELECT address.normalized_address, address.display_address, address.block_id, address.kind FROM page_addresses address JOIN blocks block ON block.id = address.block_id WHERE address.kind = 'alias' OR block.effective_deleted_root_id IS NOT NULL ORDER BY address.normalized_address",
+      ).all() as PageAddressRow[];
+      this.database.query("DELETE FROM page_addresses").run();
+      const rows = this.database.query(
+        "SELECT property.block_id, property.key, property.value FROM block_properties property JOIN blocks block ON block.id = property.block_id WHERE block.effective_deleted_root_id IS NULL AND property.scope = 'block' AND property.key IN ('page', 'work-id') ORDER BY property.block_id, property.ordinal",
+      ).all() as Array<{ block_id: string; key: string; value: string }>;
+      const propertiesByBlock = new Map<string, BlockProperty[]>();
+      for (const row of rows) {
+        const properties = propertiesByBlock.get(row.block_id) ?? [];
+        properties.push({ key: row.key, value: row.value });
+        propertiesByBlock.set(row.block_id, properties);
+      }
+      for (const [blockId, properties] of propertiesByBlock) {
+        this.syncDeclaredPageAddresses(blockId, properties);
+      }
+      for (const retained of retainedAddresses) {
+        const normalized = normalizePageAddress(retained.display_address);
+        const existing = this.pageAddressRowFromCurrentRead(normalized.normalizedAddress);
+        if (existing) {
+          if (existing.block_id === retained.block_id) continue;
+          throw new Error(
+            `Retained address migration conflicts with block ${existing.block_id}: ${retained.display_address}`,
+          );
+        }
+        this.insertPageAddressFromCurrentRead(
+          retained.block_id,
+          retained.display_address,
+          retained.kind,
+        );
+      }
+      this.database.query(
+        "INSERT INTO metadata (key, value) VALUES ('page_address_registry_version', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+      ).run(String(PAGE_ADDRESS_REGISTRY_VERSION));
+    })();
+  }
+
+  private bookmarksRootsFromCurrentRead(): Block[] {
+    const rows = this.database
+      .query(
+        "SELECT DISTINCT property.block_id FROM block_properties property JOIN blocks block ON block.id = property.block_id WHERE property.scope = 'block' AND property.key = 'system-view' AND LOWER(property.value) = ? AND block.effective_deleted_root_id IS NULL ORDER BY block.created_at, block.id",
+      )
+      .all(BOOKMARKS_SYSTEM_VIEW) as Array<{ block_id: string }>;
+    return rows
+      .map((row) => this.getFromCurrentRead(row.block_id))
+      .filter((block): block is Block => block !== null);
+  }
+
+  private requireBookmarksRootFromCurrentRead(): Block {
+    const roots = this.bookmarksRootsFromCurrentRead();
+    if (roots.length !== 1) {
+      throw new Error(
+        `Workspace must contain exactly one active [system-view::${BOOKMARKS_SYSTEM_VIEW}]; found ${roots.length}`,
+      );
+    }
+    return parseBookmarksRoot(roots[0]!).root;
+  }
+
+  private bookmarkRecordsFromCurrentRead(root: Block): BookmarkRecord[] {
+    const rows = this.database
+      .query(
+        "SELECT DISTINCT property.block_id FROM block_properties property JOIN blocks block ON block.id = property.block_id WHERE property.scope = 'block' AND property.key = 'type' AND LOWER(property.value) = ? AND block.parent_id = ? AND block.effective_deleted_root_id IS NULL ORDER BY block.created_at, block.id",
+      )
+      .all(BOOKMARK_TYPE, root.id) as Array<{ block_id: string }>;
+    const records = rows.map((row) => parseBookmarkRecord(this.require(row.block_id)));
+    const targetOwners = new Map<string, string>();
+    for (const record of records) {
+      if (record.record.parentId !== root.id) {
+        throw new Error(`Bookmark record must be a direct child of ${root.id}: ${record.record.id}`);
+      }
+      const owner = targetOwners.get(record.targetBlockId);
+      if (owner) {
+        throw new Error(
+          `Duplicate active bookmark records for ${record.targetBlockId}: ${owner}, ${record.record.id}`,
+        );
+      }
+      targetOwners.set(record.targetBlockId, record.record.id);
+    }
+    return records;
+  }
+
+  private requireBookmarkRecordFromCurrentRead(root: Block, recordId: string): BookmarkRecord {
+    const record = this.bookmarkRecordsFromCurrentRead(root)
+      .find((candidate) => candidate.record.id === recordId);
+    if (!record) throw new Error(`Active bookmark record not found: ${recordId}`);
+    return record;
+  }
+
+  private captureInboxesFromCurrentRead(): Block[] {
+    const rows = this.database
+      .query(
+        "SELECT DISTINCT property.block_id FROM block_properties property JOIN blocks block ON block.id = property.block_id WHERE property.scope = 'block' AND property.key = 'system-view' AND LOWER(property.value) = 'inbox' AND block.effective_deleted_root_id IS NULL ORDER BY block.created_at, block.id",
+      )
+      .all() as Array<{ block_id: string }>;
+    return rows
+      .map((row) => this.getFromCurrentRead(row.block_id))
+      .filter((block): block is Block => block !== null);
+  }
+
+  private requireCaptureInboxFromCurrentRead(): Block {
+    const inboxes = this.captureInboxesFromCurrentRead();
+    if (inboxes.length !== 1) {
+      throw new Error(
+        `Workspace must contain exactly one active [system-view::inbox]; found ${inboxes.length}`,
+      );
+    }
+    return inboxes[0]!;
+  }
+
+  private ensureInbox(): void {
+    const inboxes = this.database.transaction(() => this.captureInboxesFromCurrentRead())();
+    if (inboxes.length > 1) {
+      throw new Error(
+        `Workspace must contain exactly one active [system-view::inbox]; found ${inboxes.length}`,
+      );
+    }
+    if (inboxes.length === 1) return;
+    this.create("Inbox [type::inbox] [system-view::inbox]", null, "system");
+  }
+
+  private ensureBookmarks(): void {
+    const roots = this.database.transaction(() => this.bookmarksRootsFromCurrentRead())();
+    if (roots.length > 1) {
+      throw new Error(
+        `Workspace must contain exactly one active [system-view::${BOOKMARKS_SYSTEM_VIEW}]; found ${roots.length}`,
+      );
+    }
+    if (roots.length === 1) {
+      parseBookmarksRoot(roots[0]!);
+      return;
+    }
+    this.create(
+      "Bookmarks [type::virtual-branch] [system-view::bookmarks] [query::type=bookmark] [limit::1000] [summary-properties::target,bookmark-created]",
+      null,
+      "system",
+    );
+  }
+
+  private ensureTrashView(): void {
+    const existing = this.queryBlocks({
+      filters: [{ key: "system-view", value: "trash" }],
+      limit: 1,
+    }).blocks[0];
+    if (existing) return;
+    this.create(
+      "Trash [type::virtual-branch] [system-view::trash] [query::deleted=true] [limit::200]",
+      null,
+      "system",
+    );
+  }
+
+  private seed(): void {
+    this.database.transaction(() => {
+      const row = this.database.query("SELECT COUNT(*) AS count FROM blocks").get() as {
+        count: number;
+      };
+      if (row.count > 0) return;
+      seedDefaultWorkspace({
+        create: (text, parentId) => this.create(text, parentId, "system"),
+        update: (block, text) =>
+          this.update(block.id, text, block.revision, { author: "system" }),
+        select: (blockId) => {
+          this.setSelection(blockId);
+        },
+      });
+    })();
+  }
+
+  private hydrate(row: BlockRow, properties?: BlockProperty[]): Block {
+    const hydratedProperties =
+      properties ??
+      (
+        this.database
+          .query(
+            "SELECT key, value FROM block_properties WHERE block_id = ? AND scope = 'block' ORDER BY ordinal",
+          )
+          .all(row.id) as BlockProperty[]
+      );
+    return {
+      id: row.id,
+      parentId: row.parent_id,
+      position: row.position,
+      text: row.text,
+      revision: row.revision,
+      author: row.author,
+      ...(row.actor_id ? { actorId: row.actor_id } : {}),
+      ...(row.session_id ? { sessionId: row.session_id } : {}),
+      ...(row.task_id ? { taskId: row.task_id } : {}),
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      ...(row.deleted_at ? { deletedAt: row.deleted_at } : {}),
+      ...(row.effective_deleted_root_id
+        ? { effectiveDeletedRootId: row.effective_deleted_root_id }
+        : {}),
+      properties: hydratedProperties,
+    };
+  }
+
+  private workIdAllocatorFromCurrentRead(): WorkIdAllocatorRow | null {
+    return this.database.query(
+      "SELECT prefix, next_number FROM work_id_allocator WHERE singleton = 1",
+    ).get() as WorkIdAllocatorRow | null;
+  }
+
+  private reservedWorkIdOwnerFromCurrentRead(
+    workId: string,
+  ): string | null | undefined {
+    const row = this.database.query(
+      "SELECT block_id FROM reserved_work_ids WHERE work_id = ?",
+    ).get(workId) as { block_id: string | null } | null;
+    return row ? row.block_id : undefined;
+  }
+
+  private canonicalWorkIdReservationsFromCurrentRead(): Array<{
+    workId: string;
+    prefix: string;
+    number: number;
+  }> {
+    const rows = this.database.query(
+      "SELECT work_id FROM reserved_work_ids ORDER BY work_id",
+    ).all() as Array<{ work_id: string }>;
+    return rows.flatMap((row) => {
+      const parsed = parseWorkId(row.work_id);
+      return parsed && parsed.workId === row.work_id ? [parsed] : [];
+    });
+  }
+
+  private workIdAllocatorStatusFromCurrentRead(): WorkIdAllocatorStatus {
+    const allocator = this.workIdAllocatorFromCurrentRead();
+    const reservations = this.canonicalWorkIdReservationsFromCurrentRead();
+    const observedPrefixes = [...new Set(
+      reservations.map((reservation) => reservation.prefix),
+    )].sort();
+    return {
+      prefix: allocator?.prefix ?? null,
+      nextNumber: allocator?.next_number ?? null,
+      nextWorkId: allocator
+        ? formatWorkId(allocator.prefix, allocator.next_number)
+        : null,
+      reservedCount: reservations.length,
+      observedPrefixes,
+    };
+  }
+
+  private nextWorkIdNumberForPrefixFromCurrentRead(prefix: string): number {
+    let maximum = 0;
+    for (const reservation of this.canonicalWorkIdReservationsFromCurrentRead()) {
+      if (reservation.prefix === prefix) {
+        maximum = Math.max(maximum, reservation.number);
+      }
+    }
+    return maximum + 1;
+  }
+
+  private registerConfiguredWorkIdAddressesFromCurrentRead(prefix: string): void {
+    const rows = this.database.query(
+      "SELECT DISTINCT property.block_id FROM block_properties property JOIN blocks block ON block.id = property.block_id WHERE property.scope = 'block' AND property.key = 'work-id' AND block.effective_deleted_root_id IS NULL ORDER BY property.block_id",
+    ).all() as Array<{ block_id: string }>;
+    for (const row of rows) {
+      const block = this.getFromCurrentRead(row.block_id);
+      if (
+        block &&
+        block.properties.some((property) => {
+          if (property.key !== "work-id") return false;
+          const parsed = parseWorkId(property.value);
+          return parsed?.workId === property.value.trim() &&
+            parsed.prefix === prefix;
+        }) &&
+        this.canRegisterRestoredPageAddresses(block.id, block.properties)
+      ) {
+        this.syncDeclaredPageAddresses(block.id, block.properties);
+      }
+    }
+  }
+
+  private reserveWorkIdForBlockFromCurrentRead(
+    blockId: string,
+    value: string,
+  ): void {
+    const parsed = parseWorkId(value);
+    if (!parsed || parsed.workId !== value.trim()) {
+      throw new Error(`Invalid canonical Work ID: ${value}`);
+    }
+    const allocator = this.workIdAllocatorFromCurrentRead();
+    if (allocator && allocator.prefix !== parsed.prefix) {
+      throw new Error(
+        `Work-ID prefix is already configured as ${allocator.prefix}`,
+      );
+    }
+
+    const owner = this.reservedWorkIdOwnerFromCurrentRead(parsed.workId);
+    if (owner === null) {
+      throw new Error(`Work ID is reserved and cannot be reused: ${parsed.workId}`);
+    }
+    if (owner !== undefined && owner !== blockId) {
+      throw new Error(`Work ID already belongs to block ${owner}: ${parsed.workId}`);
+    }
+    if (owner === undefined) {
+      this.database.query(
+        "INSERT INTO reserved_work_ids (work_id, reserved_at, block_id) VALUES (?, ?, ?)",
+      ).run(parsed.workId, new Date().toISOString(), blockId);
+    }
+    if (allocator && allocator.next_number <= parsed.number) {
+      this.database.query(
+        "UPDATE work_id_allocator SET next_number = ? WHERE singleton = 1",
+      ).run(parsed.number + 1);
+    }
+  }
+
+  private reservePurgedWorkIdFromCurrentRead(
+    blockId: string,
+    parsed: ParsedWorkId,
+  ): void {
+    this.database.query(
+      "INSERT INTO reserved_work_ids (work_id, reserved_at, block_id) VALUES (?, ?, ?)",
+    ).run(parsed.workId, new Date().toISOString(), blockId);
+    const allocator = this.workIdAllocatorFromCurrentRead();
+    if (!allocator) return;
+    if (
+      allocator.prefix === parsed.prefix &&
+      allocator.next_number <= parsed.number
+    ) {
+      this.database.query(
+        "UPDATE work_id_allocator SET next_number = ? WHERE singleton = 1",
+      ).run(parsed.number + 1);
+    }
+  }
+
+  private resolveAuthoredPageAddressFromCurrentRead(
+    normalized: NormalizedPageAddress,
+  ): PageAddressResolution {
+    const exact = this.resolvePageAddressFromCurrentRead(normalized);
+    if (exact.status !== "missing") return exact;
+    const allocator = this.workIdAllocatorFromCurrentRead();
+    if (!allocator) return exact;
+    const embeddedWorkIds = workIdReferences(normalized.displayAddress, allocator.prefix);
+    if (embeddedWorkIds.length !== 1) return exact;
+    const resolved = this.resolvePageAddressFromCurrentRead(
+      normalizePageAddress(embeddedWorkIds[0]!.workId),
+    );
+    return resolved.status === "missing"
+      ? exact
+      : {
+          ...resolved,
+          address: normalized.displayAddress,
+          normalizedAddress: normalized.normalizedAddress,
+        };
+  }
+
+  private resolvePageAddressFromCurrentRead(
+    normalized: NormalizedPageAddress,
+  ): PageAddressResolution {
+    const row = this.pageAddressRowFromCurrentRead(normalized.normalizedAddress);
+    const ticket = row ? null : this.ticketPageFromCurrentRead(normalized.displayAddress);
+    if (ticket) {
+      return {
+        address: normalized.displayAddress,
+        normalizedAddress: normalized.normalizedAddress,
+        status: ticket.effectiveDeletedRootId ? "deleted" : "resolved",
+        registeredAddress: normalized.displayAddress.trim().toUpperCase(),
+        kind: "alias",
+        block: ticket,
+      };
+    }
+    if (!row) {
+      return {
+        address: normalized.displayAddress,
+        normalizedAddress: normalized.normalizedAddress,
+        status: "missing",
+      };
+    }
+    const block = this.getFromCurrentRead(row.block_id);
+    if (!block) {
+      throw new Error(`Page address points to missing block: ${row.normalized_address}`);
+    }
+    return {
+      address: normalized.displayAddress,
+      normalizedAddress: normalized.normalizedAddress,
+      status: block.effectiveDeletedRootId ? "deleted" : "resolved",
+      registeredAddress: row.display_address,
+      kind: row.kind,
+      block,
+      ...(block.effectiveDeletedRootId
+        ? { deletionRootId: block.effectiveDeletedRootId }
+        : {}),
+    };
+  }
+
+  private pageAddressRowFromCurrentRead(normalizedAddress: string): PageAddressRow | null {
+    return this.database.query(
+      "SELECT normalized_address, display_address, block_id, kind FROM page_addresses WHERE normalized_address = ?",
+    ).get(normalizedAddress) as PageAddressRow | null;
+  }
+
+  private pageAddressRecord(row: PageAddressRow): PageAddressRecord {
+    return {
+      address: row.display_address,
+      normalizedAddress: row.normalized_address,
+      blockId: row.block_id,
+      kind: row.kind,
+    };
+  }
+
+  private insertPageAddressFromCurrentRead(
+    blockId: string,
+    address: string,
+    kind: PageAddressKind,
+  ): PageAddressRecord {
+    const normalized = normalizePageAddress(address);
+    const existing = this.pageAddressRowFromCurrentRead(normalized.normalizedAddress);
+    if (existing) {
+      throw new Error(
+        `Page address already belongs to block ${existing.block_id}: ${normalized.displayAddress}`,
+      );
+    }
+    this.database.query(
+      "INSERT INTO page_addresses (normalized_address, display_address, block_id, kind) VALUES (?, ?, ?, ?)",
+    ).run(normalized.normalizedAddress, normalized.displayAddress, blockId, kind);
+    return {
+      address: normalized.displayAddress,
+      normalizedAddress: normalized.normalizedAddress,
+      blockId,
+      kind,
+    };
+  }
+
+  private configuredWorkIdValues(properties: BlockProperty[]): string[] {
+    const allocator = this.workIdAllocatorFromCurrentRead();
+    if (!allocator) return [];
+    return properties.flatMap((property) => {
+      if (property.key !== "work-id") return [];
+      const parsed = parseWorkId(property.value);
+      return parsed &&
+          parsed.workId === property.value.trim() &&
+          parsed.prefix === allocator.prefix
+        ? [parsed.workId]
+        : [];
+    });
+  }
+
+  private canRegisterRestoredPageAddresses(
+    blockId: string,
+    properties: BlockProperty[],
+  ): boolean {
+    const pageValues = properties.filter((property) => property.key === "page");
+    const workIdValues = this.configuredWorkIdValues(properties);
+    if (pageValues.length > 1 || workIdValues.length > 1) return false;
+    if (workIdValues[0]) {
+      const owner = this.reservedWorkIdOwnerFromCurrentRead(workIdValues[0]);
+      if (owner === null || (owner !== undefined && owner !== blockId)) return false;
+    }
+
+    const page = pageValues[0] ? tryNormalizePageAddress(pageValues[0].value) : null;
+    const workId = workIdValues[0]
+      ? tryNormalizePageAddress(workIdValues[0])
+      : null;
+    if ((pageValues[0] && !page) || (workIdValues[0] && !workId)) return false;
+    if (page && workId && page.normalizedAddress === workId.normalizedAddress) return false;
+
+    for (const [kind, desired] of [["page", page], ["work-id", workId]] as const) {
+      const current = this.database.query(
+        "SELECT normalized_address FROM page_addresses WHERE block_id = ? AND kind = ?",
+      ).get(blockId, kind) as { normalized_address: string } | null;
+      if (current && current.normalized_address !== desired?.normalizedAddress) return false;
+      if (!desired) continue;
+      const owner = this.pageAddressRowFromCurrentRead(desired.normalizedAddress);
+      if (owner && owner.block_id !== blockId) return false;
+    }
+    return true;
+  }
+
+  private syncDeclaredPageAddresses(blockId: string, properties: BlockProperty[]): void {
+    const pageValues = properties
+      .filter((property) => property.key === "page")
+      .map((property) => property.value);
+    const workIdValues = this.configuredWorkIdValues(properties);
+    if (pageValues.length > 1) {
+      throw new Error(`Block may declare at most one page address: ${blockId}`);
+    }
+    if (workIdValues.length > 1) {
+      throw new Error(`Block may declare at most one canonical Work ID: ${blockId}`);
+    }
+
+    const page = pageValues[0] ? normalizePageAddress(pageValues[0]) : null;
+    const workId = workIdValues[0] ? normalizePageAddress(workIdValues[0]) : null;
+    if (page && workId && page.normalizedAddress === workId.normalizedAddress) {
+      throw new Error(`Page address duplicates the block Work ID: ${page.displayAddress}`);
+    }
+    this.syncDeclaredPrimaryPageAddress(blockId, page);
+    this.syncDeclaredWorkIdAddress(blockId, workId);
+  }
+
+  /**
+   * The one path that moves a block's primary page address, used by every text
+   * save and by pages.rename. A new address takes over as the page and the old
+   * one stays as an alias, so existing `[[old]]` links keep resolving; the
+   * block's own alias is promoted. Removing the declaration deletes only the
+   * primary row, as pages.remove does, and keeps the block's aliases.
+   */
+  private syncDeclaredPrimaryPageAddress(
+    blockId: string,
+    desired: NormalizedPageAddress | null,
+  ): void {
+    const current = this.database.query(
+      "SELECT normalized_address, display_address, block_id, kind FROM page_addresses WHERE block_id = ? AND kind = 'page'",
+    ).get(blockId) as PageAddressRow | null;
+    if (!desired) {
+      if (current) {
+        this.database.query("DELETE FROM page_addresses WHERE normalized_address = ?").run(current.normalized_address);
+      }
+      return;
+    }
+    const target = this.pageAddressRowFromCurrentRead(desired.normalizedAddress);
+    if (target && target.block_id !== blockId) {
+      const role = target.kind === "page" ? "the page" : target.kind === "alias" ? "an alias" : "the Work ID";
+      const owner = this.database.query("SELECT effective_deleted_root_id FROM blocks WHERE id = ?")
+        .get(target.block_id) as { effective_deleted_root_id: string | null } | null;
+      const where = owner?.effective_deleted_root_id ? " (in Trash)" : "";
+      throw new Error(
+        `[[${desired.displayAddress}]] is already ${role} of block ${target.block_id}${where}; pick another name`,
+      );
+    }
+    if (target?.kind === "work-id") {
+      throw new Error(`[[${desired.displayAddress}]] is this block's Work ID; pick another page name`);
+    }
+    if (target?.kind === "page") {
+      if (target.display_address !== desired.displayAddress) {
+        this.database.query(
+          "UPDATE page_addresses SET display_address = ? WHERE normalized_address = ?",
+        ).run(desired.displayAddress, desired.normalizedAddress);
+      }
+      return;
+    }
+    if (current) {
+      this.database.query(
+        "UPDATE page_addresses SET kind = 'alias' WHERE normalized_address = ?",
+      ).run(current.normalized_address);
+    }
+    if (target) {
+      this.database.query(
+        "UPDATE page_addresses SET display_address = ?, kind = 'page' WHERE normalized_address = ?",
+      ).run(desired.displayAddress, desired.normalizedAddress);
+    } else {
+      this.insertPageAddressFromCurrentRead(blockId, desired.displayAddress, "page");
+    }
+  }
+
+  private syncDeclaredWorkIdAddress(
+    blockId: string,
+    desired: NormalizedPageAddress | null,
+  ): void {
+    const current = this.database.query(
+      "SELECT normalized_address, display_address, block_id, kind FROM page_addresses WHERE block_id = ? AND kind = 'work-id'",
+    ).get(blockId) as PageAddressRow | null;
+    if (!current) {
+      if (desired) this.insertPageAddressFromCurrentRead(blockId, desired.displayAddress, "work-id");
+      return;
+    }
+    if (!desired || current.normalized_address !== desired.normalizedAddress) {
+      throw new Error(`Work IDs are immutable once registered: ${blockId}`);
+    }
+    if (current.display_address !== desired.displayAddress) {
+      this.database.query(
+        "UPDATE page_addresses SET display_address = ? WHERE normalized_address = ?",
+      ).run(desired.displayAddress, desired.normalizedAddress);
+    }
+  }
+
+  private replacePropertyIndex(
+    blockId: string,
+    properties: readonly PropertyRecord[],
+  ): void {
+    this.database.query("DELETE FROM block_properties WHERE block_id = ?").run(blockId);
+    const insert = this.database.query(
+      "INSERT INTO block_properties (block_id, key, value, ordinal, raw, start, end, line, column, placement, scope, syntax) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    );
+    for (const property of properties) {
+      insert.run(
+        blockId,
+        property.key,
+        property.value,
+        property.ordinal,
+        property.raw,
+        property.start,
+        property.end,
+        property.line,
+        property.column,
+        property.placement,
+        property.scope,
+        property.syntax,
+      );
+    }
+  }
+
+  private replaceProperties(blockId: string, properties: readonly PropertyRecord[]): void {
+    this.replacePropertyIndex(blockId, properties);
+    const blockProperties = properties
+      .filter((property) => property.scope === "block")
+      .map(({ key, value }) => ({ key, value }));
+    const allocator = this.workIdAllocatorFromCurrentRead();
+    for (const property of blockProperties) {
+      if (property.key !== "work-id") continue;
+      const parsed = parseWorkId(property.value);
+      if (
+        parsed &&
+        parsed.workId === property.value.trim() &&
+        (!allocator || allocator.prefix === parsed.prefix)
+      ) {
+        this.reserveWorkIdForBlockFromCurrentRead(blockId, parsed.workId);
+      }
+    }
+    this.syncDeclaredPageAddresses(blockId, blockProperties);
+  }
+
+  private roadmapBranchMembershipsFromCurrentRead(
+    block: Block,
+  ): RoadmapBranchMembership[] {
+    const rows = this.database.query(
+      "SELECT DISTINCT block.id FROM blocks block JOIN block_properties property ON property.block_id = block.id AND property.scope = 'block' AND property.key = 'type' AND property.value = 'virtual-branch' WHERE block.effective_deleted_root_id IS NULL ORDER BY block.position, block.created_at, block.id",
+    ).all() as Array<{ id: string }>;
+    const memberships: RoadmapBranchMembership[] = [];
+    for (const row of rows) {
+      const branch = this.getFromCurrentRead(row.id);
+      if (!branch) continue;
+      // Parse and evaluate exactly as views.read does, so a receipt names every
+      // view that would list the item, including OR/NOT/date grammar. Invalid
+      // views list nothing in views.read and are omitted here too.
+      const { config } = parseVirtualBranchConfig(branch, []);
+      if (!config) continue;
+      if (!matchesFilters(block.properties, config.filters)) continue;
+      if (config.where && !compileQueryExpression(config.where)({ ...block,
+        childProperties: () => this.childrenFromCurrentRead(block.id).map((child) => child.properties) }, block.properties)) continue;
+      const rank = this.database.query(
+        "SELECT rank FROM virtual_occurrence_ranks WHERE view_id = ? AND block_id = ?",
+      ).get(branch.id, block.id) as { rank: number } | null;
+      memberships.push({
+        viewId: branch.id,
+        title: firstLineWithoutPropertyTokens(branch.text)?.trim() || branch.id,
+        ...(rank ? { rank: rank.rank } : {}),
+      });
+    }
+    return memberships;
+  }
+
+  private subtreeIdsFromCurrentRead(rootId: string): string[] {
+    const rows = this.database.query(`
+      WITH RECURSIVE subtree(id) AS (
+        SELECT id FROM blocks WHERE id = ?
+        UNION ALL
+        SELECT block.id FROM blocks block JOIN subtree ON block.parent_id = subtree.id
+      )
+      SELECT id FROM subtree
+    `).all(rootId) as Array<{ id: string }>;
+    return rows.map((row) => row.id);
+  }
+
+  private recomputeEffectiveDeletion(): void {
+    const rows = this.database
+      .query("SELECT id, parent_id, deleted_at FROM blocks ORDER BY position, created_at")
+      .all() as Array<{ id: string; parent_id: string | null; deleted_at: string | null }>;
+    const children = new Map<string | null, typeof rows>();
+    for (const row of rows) {
+      const siblings = children.get(row.parent_id);
+      if (siblings) siblings.push(row);
+      else children.set(row.parent_id, [row]);
+    }
+    const update = this.database.query(
+      "UPDATE blocks SET effective_deleted_root_id = ? WHERE id = ?",
+    );
+    const visit = (row: (typeof rows)[number], inheritedRoot: string | null): void => {
+      const effectiveRoot = row.deleted_at ? row.id : inheritedRoot;
+      update.run(effectiveRoot, row.id);
+      for (const child of children.get(row.id) ?? []) visit(child, effectiveRoot);
+    };
+    for (const root of children.get(null) ?? []) visit(root, null);
+  }
+
+  private normalizePositions(parentId: string | null): void {
+    const siblings = this.childrenFromCurrentRead(parentId);
+    const update = this.database.query("UPDATE blocks SET position = ? WHERE id = ?");
+    siblings.forEach((sibling, index) => update.run(index, sibling.id));
+  }
+
+  /** Whether `candidateId` sits somewhere under `ancestorId`. */
+  isDescendant(candidateId: string, ancestorId: string): boolean {
+    return this.database.transaction(() => {
+      let current = this.getFromCurrentRead(candidateId);
+      while (current?.parentId) {
+        if (current.parentId === ancestorId) return true;
+        current = this.getFromCurrentRead(current.parentId);
+      }
+      return false;
+    })();
+  }
+
+  /**
+   * Advances the sequence and records what changed in the same transaction, so
+   * the change feed cannot miss a committed content change.
+   */
+  private bumpSequence(change: SequenceChange): void {
+    this.database.transaction(() => {
+      this.advanceSequence();
+      this.changes.recordSequence(
+        this.sequence,
+        change,
+        change.blockId ? this.getFromCurrentRead(change.blockId) : null,
+      );
+    })();
+  }
+
+  /**
+   * A startup rebuild that changes derived data for every block has no single
+   * change to describe; history before it is unavailable instead.
+   */
+  private bumpSequenceWithoutHistory(): void {
+    this.advanceSequence();
+    raiseChangeFeedFloor(this.database, this.sequence);
+  }
+
+  private advanceSequence(): void {
+    this.database.query("UPDATE metadata SET value = CAST(value AS INTEGER) + 1 WHERE key = 'sequence'").run();
+  }
+}

@@ -1,0 +1,790 @@
+import {initTheme} from "@earendil-works/pi-coding-agent";
+initTheme(undefined, false);
+import { buildDetailAnnotationView } from "../src/detail-annotations";
+import { getOsc8LinkAtColumn, stripTerminalSequences, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { describe, expect, test } from "bun:test";
+import {
+  attentionClientState,
+  emptyAttentionState,
+  normalizeAttentionMark,
+} from "../src/attention";
+import { createAnnotationAnchor } from "../src/annotations";
+import { DEFAULT_OUTLINER_ACTION_KEYMAP } from "../src/outliner-actions";
+import type { DetailState } from "../src/detail-controller";
+import {
+  renderDetailAnsi,
+  renderDetailFooter,
+  renderDetailHeader,
+  renderDetailLines,
+} from "../src/detail-renderer";
+import { createOpenDestinationChooserState } from "../src/open-destination-chooser";
+import { parsePropertySummaryKeys } from "../src/property-summary";
+import { TextBuffer } from "../src/text-buffer";
+import { deriveResourceCapabilityReport } from "../src/resources";
+import type { Block } from "../src/types";
+import { createPropertyInspectorModel, detailPropertyInspectorRegions } from "../src/property-inspector";
+const ACTION_MENU = "\x1b]8;;pi-outliner-action:detail.menu.open\x1b\\[⋯]\x1b]8;;\x1b\\";
+
+test("Current, Preview and Properties headers expose the same clickable destination without moving content", () => {
+  for (const surface of ["Current", "Preview", "Properties"]) {
+    for (const width of [35, 80]) {
+      const lines = renderDetailHeader(state(), width, {surface, destinationLabel: "Research notes"});
+      expect(lines).toHaveLength(3);
+      expect(stripTerminalSequences(lines[2]!)).toContain("Opens in:");
+      expect(stripTerminalSequences(lines[2]!)).toContain("Change");
+      expect(getOsc8LinkAtColumn(lines[2]!, 0)).toBe("pi-outliner-action:detail.navigation.link");
+      expect(lines.every(line => visibleWidth(line) <= width)).toBe(true);
+    }
+  }
+});
+const detailHeader = (title: string, width: number): string[] => {
+  const controls = ACTION_MENU;
+  return [
+    `\x1b[1;97m${title}\x1b[0m${
+      " ".repeat(Math.max(1, width - visibleWidth(title) - visibleWidth(controls)))
+    }${controls}`,
+    "",
+    `\x1b[2m${"─".repeat(width)}\x1b[0m`,
+  ];
+};
+const detailHelp = (mode: "preview" | "edit", width: number): string =>
+  `\x1b[2m${truncateToWidth(
+    DEFAULT_OUTLINER_ACTION_KEYMAP.helpText("detail", mode),
+    width,
+    "…",
+  ).replaceAll("\x1b[0m", "")}\x1b[0m`;
+
+function block(text: string, properties: Block["properties"] = []): Block {
+  return {
+    revision: 1,
+    id: "block-1",
+    parentId: null,
+    position: 0,
+    text,
+    author: "user",
+    createdAt: "created",
+    updatedAt: "updated",
+    properties,
+  };
+}
+
+function state(overrides: Partial<DetailState> = {}): DetailState {
+  const context = overrides.context ?? { selected: null, ancestors: [], children: [] };
+  const target = overrides.target ??
+    (context.selected ? { kind: "block" as const, blockId: context.selected.id } : null);
+  const resource = overrides.resource ?? null;
+  const source = {
+    id: resource?.sourceId ?? "20000000-0000-4000-8000-000000000001",
+    name: "Test source",
+    provider: "filesystem" as const,
+    boundary: { kind: "filesystem" as const, root: "/workspace" },
+    policy: { deniedCapabilities: [] },
+    version: 1,
+    createdAt: "created",
+    updatedAt: "updated",
+  };
+  const document = overrides.document ??
+    (target?.kind === "block"
+      ? { kind: "ready" as const, document: { kind: "block" as const, target, context } }
+      : target?.kind === "resource" && resource
+      ? {
+          kind: "ready" as const,
+          document: {
+            kind: "resource" as const,
+            target,
+            description: {
+              resource,
+              source,
+              requestedRevision: target.revision ?? null,
+              capabilities: deriveResourceCapabilityReport(source, true),
+              web: null,
+              webHistory: null,
+              webStatus: null,
+              remoteEntity: null,
+              remoteStatus: null,
+              availableCommands: [],
+            },
+          },
+        }
+      : { kind: "empty" as const });
+  return {
+    context,
+    target,
+    resource,
+    
+    canNavigateBack: false,
+    canNavigateForward: false,
+    resolvedProvenance: null,
+    resolvedSelectedText: "",
+    projectedSelectedText: "",
+    readStatus: "ready",
+    embedStates: [],
+    embedRanges: [],
+    embedBackgroundEnabled: true,
+    workIdPrefix: null,
+    resolvedBreadcrumb: "",
+    mode: "preview",
+    buffer: new TextBuffer(),
+    referencedFile: null,
+    previewOffset: 0,
+    editorVisualOffset: 0,
+    fileOffset: 0,
+    fileCursor: 0,
+    selectionAnchor: null,
+    annotationRange: null,
+    annotationThreads: [],
+    attention: emptyAttentionState("detail-test"),
+    attentionRevealSourceLine: null,
+    completion: null,
+    status: "",
+    busy: false,
+    refreshPending: false,
+    backlinks: {
+      expanded: false,
+      loading: false,
+      collection: null,
+      selectedIndex: 0,
+      error: "",
+      filter: "",
+      filterDraft: null,
+      sortField: "updated",
+      sortDirection: "desc",
+      showRelated: false,
+      showResolved: false,
+      kindFilter: null,
+      stageFilter: "all",
+      expandedKinds: new Set(),
+      expandedSourceIds: new Set(),
+    },
+    propertyInspector: {
+      presentation: "inline",
+      model: null,
+      expanded: false,
+      groupBy: null,
+      filter: "",
+      filterDraft: null,
+      viewportOffset: 0,
+      edit: null,
+    },
+    previewRegions: {
+      regions: [],
+      focusedRegionId: null,
+      disclosureOverrides: new Map(),
+    },
+    destinationChooser: createOpenDestinationChooserState(),
+    ...overrides,
+    document,
+  };
+}
+
+describe("detail ANSI renderer", () => {
+  test("draws distinct Resource choices and keeps the focused occurrence visible", () => {
+    const source = block("Resource choices\n\n" + Array.from({ length: 15 }, (_, index) =>
+      `Use ${index} [file::same.md].`).join("\n"));
+    const detail = state({ context: { selected: source, ancestors: [], children: [] } });
+    detail.propertyInspector.model = createPropertyInspectorModel(source.id, source.text);
+    detail.propertyInspector.expanded = true;
+    const entry = detail.propertyInspector.model.entries.at(-1)!;
+    detail.previewRegions.regions = detailPropertyInspectorRegions(detail);
+    detail.previewRegions.focusedRegionId = entry.occurrenceId;
+    const lines = renderDetailLines(detail, { width: 60, height: 10 });
+    expect(lines).toHaveLength(10);
+    expect(lines.map(stripTerminalSequences).join("\n")).toContain("▶ file::same.md · inline · L17:C8");
+    expect(lines.every(line => visibleWidth(line) <= 60)).toBe(true);
+    detail.propertyInspector.model = null;
+    detail.context.selected = null;
+    detail.resolvedSelectedText = "RESOURCE BYTES";
+    expect(renderDetailLines(detail, { width: 60, height: 10 }).join("\n")).toContain("RESOURCE BYTES");
+  });
+  test("renders the fixed no-selection frame", () => {
+    const width = 64;
+    const rendered = renderDetailAnsi(state(), { width, height: 8 });
+
+    const [header, metadata, rule] = detailHeader("No block selected", width);
+    expect(rendered).toBe([
+      `\x1b[H\x1b[2J${header}`,
+      metadata,
+      rule,
+      "Select a block or resource in the outliner pane.",
+      "",
+      "",
+      "",
+      detailHelp("preview", 64),
+    ].join("\n"));
+  });
+
+  test("fits failed document messages within the fixed frame", () => {
+    const width = 32;
+    const lines = renderDetailLines(state({
+      document: {
+        kind: "failed",
+        target: {
+          kind: "resource",
+          resourceId: "10000000-0000-4000-8000-000000000001",
+        },
+        message: "\x1b[31mResource revision reference does not match the current resource address\x1b[0m",
+      },
+    }), { width, height: 8 });
+
+    expect(lines).toHaveLength(8);
+    expect(lines.every((line) => visibleWidth(line) <= width)).toBe(true);
+    expect(stripTerminalSequences(lines[3]!)).toBe(
+      "Resource revision reference doe…",
+    );
+  });
+
+  test("renders a resource target without block context", () => {
+    const resource = {
+      id: "10000000-0000-4000-8000-000000000001",
+      sourceId: "20000000-0000-4000-8000-000000000001",
+      provider: "filesystem" as const,
+      address: { kind: "filesystem" as const, path: "notes/example.md" },
+      version: 1,
+      addressVersion: 1,
+      mediaType: "text/markdown",
+      createdAt: "created",
+      updatedAt: "updated",
+    };
+    const rendered = renderDetailAnsi(state({
+      target: { kind: "resource", resourceId: resource.id },
+      resource,
+      resolvedBreadcrumb: resource.address.path,
+      resolvedSelectedText: [
+        `# ${resource.address.path}`,
+        "",
+        `- Resource ID: \`${resource.id}\``,
+        `- Source ID: \`${resource.sourceId}\``,
+      ].join("\n"),
+    }), { width: 80, height: 10 });
+
+    expect(stripTerminalSequences(rendered)).toContain("notes/example.md");
+    expect(stripTerminalSequences(rendered)).toContain(resource.id);
+    expect(rendered).not.toContain("Select a block in the outliner pane.");
+  });
+  test("right-aligns the action-menu control", () => {
+    const header = renderDetailLines(state(), { width: 64, height: 8 })[0]!;
+    const visible = stripTerminalSequences(header);
+    expect(visible.endsWith("[⋯]")).toBe(true);
+    expect(getOsc8LinkAtColumn(header, visible.indexOf("[⋯]") + 1)).toBe(
+      "pi-outliner-action:detail.menu.open",
+    );
+  });
+
+  test("puts configured properties on one compact line beneath the title", () => {
+    const selected = block("Roadmap item", [
+      { key: "status", value: "planned" },
+      { key: "work-stage", value: "doing" },
+      { key: "priority", value: "high" },
+      { key: "track", value: "interactive-documents" },
+    ]);
+    const detail = state({
+      context: {
+        selected,
+        ancestors: [block("Pi Outliner Workboard")],
+        children: [],
+      },
+      resolvedSelectedText: selected.text,
+    });
+
+    const lines = renderDetailLines(detail, { width: 100, height: 8 });
+    expect(stripTerminalSequences(lines[0]!)).toStartWith("Roadmap item");
+    expect(stripTerminalSequences(lines[1]!)).toBe(
+      "status planned · stage doing · priority high · track interactive-documents" +
+        "  ·  Pi Outliner Workboard",
+    );
+    expect(lines.every((line) => visibleWidth(line) <= 100)).toBe(true);
+
+    const configured = renderDetailLines(
+      detail,
+      { width: 28, height: 8 },
+      { header: { propertyKeys: ["work-stage"] } },
+    );
+    expect(stripTerminalSequences(configured[1]!)).toStartWith("stage doing  ·  ");
+  });
+
+
+  test("renders resolved preview text while retaining the fixed viewport height", () => {
+    const selected = block("raw one\nraw two\nraw three\nraw four");
+    const rendered = renderDetailAnsi(state({
+      context: { selected, ancestors: [], children: [] },
+      resolvedSelectedText: "resolved one\nresolved two\nresolved three\nresolved four",
+      resolvedBreadcrumb: "Resolved title",
+      target: {
+        kind: "block",
+        blockId: selected.id,
+        fragmentId: "resolved-section",
+      },
+      previewOffset: 1,
+      status: "Ready",
+    }), { width: 64, height: 8 });
+
+    const [header, metadata, rule] = detailHeader(
+      "Resolved title · ^resolved-section",
+      64,
+    );
+    expect(rendered).toBe([
+      `\x1b[H\x1b[2J${header}`,
+      metadata,
+      rule,
+      "resolved two",
+      "resolved three",
+      "resolved four",
+      "Ready",
+      detailHelp("preview", 64),
+    ].join("\n"));
+  });
+
+  test("renders full-width embed backgrounds only inside projected line ranges", () => {
+    const selected = block("raw");
+    const detail = state({
+      context: { selected, ancestors: [], children: [] },
+      resolvedSelectedText: "Before\nEmbedded block\nProjected body\nAfter",
+      resolvedBreadcrumb: "Embed demo",
+      embedRanges: [{ startLine: 1, endLine: 2 }],
+    });
+
+    let rendered = renderDetailLines(detail, { width: 32, height: 10 });
+    expect(rendered[3]).toBe("Before");
+    expect(rendered[4]).toContain("\x1b[48;5;236m");
+    expect(rendered[4]).toContain("Embedded block");
+    expect(rendered[5]).toContain("\x1b[48;5;236m");
+    expect(rendered[6]).toBe("After");
+
+    detail.embedBackgroundEnabled = false;
+    rendered = renderDetailLines(detail, { width: 32, height: 10 });
+    expect(rendered.slice(3, 7).some((line) => line.includes("\x1b[48;5;236m"))).toBe(false);
+  });
+
+  test("fits the cursor and completion inside the exact viewport height", () => {
+    const selected = block("one\ntwo\nthree\nfour\nfive\nsix\nseven");
+    const buffer = new TextBuffer(selected.text);
+    buffer.row = 3;
+    buffer.column = 4;
+    const detail = state({
+      context: { selected, ancestors: [], children: [] },
+      resolvedBreadcrumb: "Block",
+      mode: "edit",
+      buffer,
+      editorVisualOffset: 3,
+      completion: {
+        start: 0,
+        end: 4,
+        index: 1,
+        items: [
+          { label: "First", insertion: "first" },
+          { label: "Second", insertion: "second" },
+        ],
+      },
+    });
+    const before = {
+      editorVisualOffset: detail.editorVisualOffset,
+      row: detail.buffer.row,
+      column: detail.buffer.column,
+      completionIndex: detail.completion?.index,
+    };
+
+    const rendered = renderDetailAnsi(detail, { width: 32, height: 9 });
+
+    expect(rendered).toContain("   4 four▏");
+    expect(rendered).toContain("References 2/2");
+    expect(rendered).toContain("Second");
+    expect(rendered).toContain("pi-outliner-action:completion.choose:1");
+    expect(rendered.split("\n")).toHaveLength(9);
+    expect({
+      editorVisualOffset: detail.editorVisualOffset,
+      row: detail.buffer.row,
+      column: detail.buffer.column,
+      completionIndex: detail.completion?.index,
+    }).toEqual(before);
+  });
+
+  test("omits completion output when the viewport has no completion item row", () => {
+    const selected = block("alpha");
+    const buffer = new TextBuffer(selected.text);
+    buffer.column = 5;
+
+    const rendered = renderDetailAnsi(state({
+      context: { selected, ancestors: [], children: [] },
+      resolvedBreadcrumb: "Block",
+      mode: "edit",
+      buffer,
+      completion: {
+        start: 0,
+        end: 5,
+        index: 0,
+        items: [{ label: "First", insertion: "first" }],
+      },
+    }), { width: 32, height: 6 });
+
+    const [header, metadata, rule] = detailHeader("Block", 32);
+    expect(rendered).toBe([
+      `\x1b[H\x1b[2J${header}`,
+      metadata,
+      rule,
+      "   1 alpha▏",
+      "",
+      detailHelp("edit", 32),
+    ].join("\n"));
+    expect(rendered.split("\n")).toHaveLength(6);
+  });
+
+  test("renders file range selection and annotation source/comment frames", () => {
+    const fileBlock = block("Source", [{ key: "file", value: "src/example.ts" }]);
+    const referencedFile = {
+      absolutePath: "/workspace/src/example.ts",
+      displayPath: "src/example.ts",
+      sourcePath: "src/example.ts",
+      lines: ["const one = 1;", "const two = 2;", "return one + two;"],
+      firstLine: 10,
+    };
+    const fileState = state({
+      context: { selected: fileBlock, ancestors: [], children: [] },
+      resolvedBreadcrumb: "Source",
+      resolvedSelectedText: "Source",
+      mode: "file",
+      referencedFile,
+      fileCursor: 2,
+      selectionAnchor: 0,
+    });
+
+    const fileFrame = renderDetailAnsi(fileState, { width: 48, height: 9 });
+    expect(fileFrame).toContain(" 10 │ const one = 1;");
+    expect(fileFrame).toContain("\x1b[48;5;238m>12 │ return one + two;\x1b[0m");
+
+    const annotationBlock = block(
+      "Comment on source selection\n[type::annotation] [annotation-source::user] [annotation-status::open]\nNeeds a guard.",
+      [{ key: "type", value: "annotation" }],
+    );
+    const representation = {
+      id: "filesystem-representation",
+      subject: {
+        kind: "resource" as const,
+        resourceId: "30000000-0000-4000-8000-000000000001",
+      },
+      sourceSnapshot: {
+        kind: "resource" as const,
+        resourceId: "30000000-0000-4000-8000-000000000001",
+        sourceSnapshotId: null,
+        revision: null,
+      },
+      adapter: { id: "filesystem.text", version: 1 },
+      mediaType: "text/plain",
+      contentHash: "fixture",
+      capturedAt: "2026-01-01T00:00:00.000Z",
+    };
+    const originalTarget = {
+      representation,
+      anchor: {
+        kind: "text-quote" as const,
+        start: 0,
+        end: 14,
+        exact: "const one = 1;",
+        prefix: "",
+        suffix: "\nconst two = 2;",
+      },
+    };
+    const resolution = {
+      id: "resolution-1",
+      annotationId: annotationBlock.id,
+      sequence: 1,
+      sourceRepresentation: representation,
+      targetRepresentation: representation,
+      resolvedTarget: null,
+      method: {
+        kind: "codec" as const,
+        codecId: "text-quote",
+        codecVersion: 1,
+        method: "unique-exact",
+      },
+      reviewer: { kind: "system" as const, id: "annotation-repository" },
+      confidence: null,
+      candidates: [],
+      status: "orphaned" as const,
+      appliesCurrent: true,
+      createdAt: "2026-01-02T00:00:00.000Z",
+    };
+    const agentProposal = {
+      id: "resolution-proposal-2",
+      annotationId: annotationBlock.id,
+      sequence: 2,
+      sourceRepresentation: representation,
+      targetRepresentation: representation,
+      resolvedTarget: null,
+      method: {
+        kind: "agent" as const,
+        modelId: "provider/model",
+        method: "semantic-reconciliation" as const,
+        rationale: "The revised source no longer contains the claim.",
+        evidence: ["No supplied candidate preserves “const one = 1;”."],
+      },
+      reviewer: { kind: "agent" as const, id: "provider/model" },
+      confidence: 0.82,
+      candidates: [],
+      status: "orphaned" as const,
+      appliesCurrent: false,
+      createdAt: "2026-01-02T00:01:00.000Z",
+    };
+    const annotationState = state({
+      context: { selected: annotationBlock, ancestors: [], children: [] },
+      resolvedBreadcrumb: "Annotation",
+      resolvedSelectedText: annotationBlock.text,
+      mode: "annotation",
+      referencedFile,
+      annotationThreads: [{
+        block: annotationBlock,
+        originalTarget,
+        resolvedTarget: null,
+        currentResolution: resolution,
+        resolutionHistory: [resolution, agentProposal],
+        body: "Needs a guard.",
+        source: "user",
+        lifecycle: "open",
+        replies: [],
+      }],
+    });
+    const beforeOffset = annotationState.previewOffset;
+
+    const annotationFrame = renderDetailAnsi(annotationState, { width: 100, height: 24 });
+    expect(annotationFrame).toContain("Original target: resource 30000000-0000-4000-8000-000000000001 @0-14");
+    expect(annotationFrame).toContain("Stored resolution: orphaned");
+    expect(annotationFrame).toContain("#1 orphaned · current · text-quote@1:unique-exact");
+    expect(annotationFrame).toContain("#2 orphaned · semantic-reconciliation · agent:provider/model · 0.82");
+    expect(annotationFrame).toContain("rationale · The revised source no longer contains the claim.");
+    expect(annotationFrame).toContain("evidence · No supplied candidate preserves “const one = 1;”.");
+    expect(annotationFrame).toContain("\x1b[1mComment\x1b[0m\nNeeds a guard.");
+    expect(annotationState.previewOffset).toBe(beforeOffset);
+    const staleTarget = annotationState.annotationThreads[0]!.originalTarget;
+    const staleResolution = { ...resolution, status: "resolved" as const, resolvedTarget: staleTarget };
+    const staleFileState = {
+      ...annotationState,
+      referencedFile: { ...referencedFile, lines: ["Different replacement"], sourceText: "Different replacement" },
+      annotationThreads: [{
+        ...annotationState.annotationThreads[0]!,
+        currentResolution: staleResolution,
+        resolvedTarget: staleTarget,
+        resolutionHistory: [staleResolution],
+      }],
+    };
+    const staleFrame = buildDetailAnnotationView(staleFileState, 100).join("\n");
+    expect(staleFrame).toContain("const one = 1;");
+    expect(staleFrame).not.toContain("Different replacement");
+    expect(staleFrame).toContain("Stored resolution: resolved");
+  });
+});
+
+test("sanitizes dynamic terminal controls and respects compact viewport heights", () => {
+  const selected = block(
+    "safe\x1b[2Jtext\x9b?1049lrest\x1b]0;owned\x07done\x90payload\x1b\\tail",
+  );
+  const detail = state({
+    context: { selected, ancestors: [], children: [] },
+    resolvedSelectedText: selected.text,
+    resolvedBreadcrumb: "Title\x1b[?1049lnext\x9dwindow title\x9cafter",
+    status: "Status\x9b2Jdone\x1b_apc payload\x1b\\tail",
+  });
+
+  const lines = renderDetailLines(detail, { width: 80, height: 8 });
+  const rendered = lines.join("\n");
+  expect(rendered).toContain("safetextrestdonetail");
+  expect(rendered).toContain("Titlenextafter");
+  expect(rendered).toContain("Statusdonetail");
+  expect(rendered).not.toContain("\x1b[2J");
+  expect(rendered).not.toContain("[2J");
+  expect(rendered).not.toContain("2J");
+  expect(rendered).not.toContain("\x1b[?1049l");
+  expect(rendered).not.toContain("[?1049l");
+  expect(rendered).not.toContain("?1049l");
+  expect(rendered).not.toContain("owned");
+  expect(rendered).not.toContain("payload");
+  expect(rendered).not.toContain("window title");
+  expect(lines.every((line) => visibleWidth(line) <= 80)).toBe(true);
+  expect(lines.every((line) => !/[\n\r\x07\x80-\x9f]/.test(line))).toBe(true);
+
+  for (let height = 1; height <= 5; height += 1) {
+    expect(renderDetailLines(detail, { width: 80, height })).toHaveLength(height);
+  }
+});
+
+test("wraps wide edit text while reserving one cell for the software cursor", () => {
+  const selected = block("\t界界");
+  const buffer = new TextBuffer(selected.text);
+  buffer.moveEnd();
+  const lines = renderDetailLines(state({
+    context: { selected, ancestors: [], children: [] },
+    mode: "edit",
+    buffer,
+  }), { width: 10, height: 8 });
+
+  expect(lines.every((line) => visibleWidth(line) <= 10)).toBe(true);
+  expect(lines[3]).toBe("   1     ");
+  expect(lines[4]).toBe("     界界▏");
+});
+
+test("keeps a joined emoji intact when its grapheme exactly fills a wrapped row", () => {
+  const family = "👨‍👩‍👧‍👦";
+  const selected = block(`${family}x`);
+  const buffer = new TextBuffer(selected.text);
+  buffer.moveEnd();
+  const lines = renderDetailLines(state({
+    context: { selected, ancestors: [], children: [] },
+    mode: "edit",
+    buffer,
+  }), { width: 8, height: 8 });
+
+  expect(lines[3]).toBe(`   1 ${family}`);
+  expect(lines[4]).toBe("     x▏");
+  expect(lines.slice(3, 5).every((line) => visibleWidth(line) <= 8)).toBe(true);
+});
+
+test("wraps a long physical editor line without ellipsizing or changing its source", () => {
+  const selected = block("alpha beta gamma delta epsilon");
+  const buffer = new TextBuffer(selected.text);
+  buffer.moveEnd();
+  const lines = renderDetailLines(state({
+    context: { selected, ancestors: [], children: [] },
+    mode: "edit",
+    buffer,
+  }), { width: 18, height: 10 });
+
+  const editorLines = lines.slice(3, 6);
+  expect(editorLines).toEqual([
+    "   1 alpha beta ",
+    "     gamma delta ",
+    "     epsilon▏",
+  ]);
+  expect(editorLines.join("\n")).not.toContain("…");
+  expect(buffer.text).toBe(selected.text);
+});
+
+test("renders a selection across wrapped rows with the cursor at its active edge", () => {
+  const selected = block("alpha beta gamma delta epsilon");
+  const buffer = new TextBuffer(selected.text);
+  buffer.moveWordRight();
+  buffer.moveWordRight(true);
+  buffer.moveWordRight(true);
+  const lines = renderDetailLines(state({
+    context: { selected, ancestors: [], children: [] },
+    mode: "edit",
+    buffer,
+  }), { width: 18, height: 10 });
+
+  expect(lines[3]).toBe("   1 alpha \x1b[7mbeta \x1b[0m");
+  expect(lines[4]).toBe("     \x1b[7mgamma \x1b[0m▏delta ");
+  expect(lines.slice(3, 6).every((line) => visibleWidth(line) <= 18)).toBe(true);
+});
+
+test("header exposes actions without the retired lock control", () => {
+  const header=renderDetailLines(state(),{width:80,height:8})[0]!;
+  expect(header).toContain("pi-outliner-action:detail.menu.open");
+  expect(header).not.toContain("detail.lock.toggle");
+  expect(stripTerminalSequences(header)).not.toMatch(/[🔓🔐]/u);
+});
+
+test("parses configured Detail header properties deterministically", () => {
+  expect(parsePropertySummaryKeys(undefined)).toBeUndefined();
+  expect(parsePropertySummaryKeys("work-stage, owner, work-stage")).toEqual([
+    "work-stage",
+    "owner",
+  ]);
+  expect(parsePropertySummaryKeys("")).toEqual([]);
+});
+
+test("renders the shared destination prompt over ordinary Detail help", () => {
+  const detailState = state({
+    status: "Ordinary status",
+    destinationChooser: {
+      active: true,
+      loading: false,
+      target: { target: { kind: "block", blockId: "target-1" }, title: "Target" },
+      status: "Choose destination",
+    },
+  });
+
+  const rendered = renderDetailLines(detailState, { width: 100, height: 8 }).map(
+    stripTerminalSequences,
+  );
+  expect(rendered.at(-2)).toContain("Choose destination");
+  expect(rendered.at(-1)).toContain("f linked destination");
+  expect(rendered.at(-2)).toContain("Choose destination");
+});
+
+
+test("renders exact Detail attention with a non-color rail and return summary", () => {
+  const selected = block("alpha target phrase omega");
+  const start = selected.text.indexOf("target");
+  const mark = normalizeAttentionMark({
+    markId: "detail-mark",
+    targetClientId: "detail-test",
+    target: {
+      kind: "block",
+      sourceBlockId: selected.id,
+      anchor: createAnnotationAnchor(
+        selected.text,
+        start,
+        start + "target phrase".length,
+        selected.updatedAt,
+      ),
+    },
+    tone: "warning",
+    sender: "agent-test",
+  }, {
+    clientId: "detail-test",
+    role: "detail",
+    contextId: "detail-test",
+  }, selected);
+  const original = selected.text;
+  const lines = renderDetailLines(state({
+    context: { selected, ancestors: [], children: [] },
+    target: { kind: "block", blockId: selected.id },
+    resolvedSelectedText: selected.text,
+    projectedSelectedText: selected.text,
+    readStatus: "ready",
+    attention: attentionClientState("detail-test", [mark], 2),
+  }), { width: 48, height: 10 });
+  const visible = lines.map(stripTerminalSequences);
+
+  expect(visible[1]).toContain("ATTENTION WARNING");
+  expect(visible.some((line) => line.includes("▐ alpha target phrase omega"))).toBe(true);
+  expect(visible.at(-2)).toContain("2 attention cues");
+  expect(lines.some((line) => line.includes("\x1b[1;4;33m"))).toBe(true);
+  expect(selected.text).toBe(original);
+  expect(lines.every((line) => visibleWidth(line) <= 48)).toBe(true);
+});
+
+test("recovery headers fit narrow panes without cutting link controls",()=>{
+  for(const width of [20,35,80]){
+    for(const extra of [{recoveryCount:12},{recoveryNotice:"Unreadable recovery: \x1b[2J/a/long/path/context.json"}]){
+      const lines=renderDetailHeader(state({...extra,context:{selected:block("Title"),ancestors:[],children:[]}}),width);
+      expect(lines.every(line=>visibleWidth(line)<=width)).toBe(true);
+      expect(lines.join("\n")).not.toContain("\x1b[2J");
+      expect(getOsc8LinkAtColumn(lines[1]!,0)).toBe("pi-outliner-action:detail.edit.recover");
+    }
+  }
+});
+
+test('ANSI Detail retains component installation on resize and reloads it on a new document read',async()=>{
+ const {mkdtempSync,writeFileSync,rmSync}=await import('node:fs');
+ const {tmpdir}=await import('node:os');const {join,resolve}=await import('node:path');
+ const {buildDetailAnsiPreview}=await import('../src/detail-renderer');
+ const directory=mkdtempSync(join(tmpdir(),'ansi-renderers-')),registry=join(directory,'registry.json');
+ const prior=process.env.OUTLINER_DOCUMENT_RENDERERS;process.env.OUTLINER_DOCUMENT_RENDERERS=registry;
+ const install=(enabled:boolean)=>writeFileSync(registry,JSON.stringify({version:1,renderers:{status:{manifest:resolve('extensions/status-summary/manifest.json'),enabled}}}));
+ const text='```component:status\nWaiting :: 4\nDone :: 5\n```';
+ const detail=state({resolvedSelectedText:text,projectedSelectedText:text});detail.context.selected=block(text);
+ const paint=(width:number)=>buildDetailAnsiPreview(detail,width).sourceLines.map(stripTerminalSequences).join('\n');
+ try {
+  install(true);expect(paint(80)).toContain('Waiting: 4 · Done: 5');install(false);
+  expect(paint(18)).toContain('Waiting: 4');expect(paint(18)).not.toContain('disabled');
+  detail.context.selected=block(text);expect(paint(80)).toContain('renderer is disabled');
+ } finally {if(prior===undefined)delete process.env.OUTLINER_DOCUMENT_RENDERERS;else process.env.OUTLINER_DOCUMENT_RENDERERS=prior;rmSync(directory,{recursive:true,force:true});}
+});
+
+test("compact Detail keeps one hint row: a status while it lasts, then the generated hints", () => {
+  const hints = {entries: DEFAULT_OUTLINER_ACTION_KEYMAP.hints("detail", "preview"), menuKey: "?"};
+  const idle = renderDetailFooter(state(), 60, "preview", "", undefined, "compact", hints);
+  expect(idle).toHaveLength(1);
+  expect(stripTerminalSequences(idle[0]!)).toStartWith("? all actions · ");
+  expect(getOsc8LinkAtColumn(idle[0]!, 0)).toBe("pi-outliner-action:detail.menu.open");
+  const flashing = renderDetailFooter(state({status: "Keymap and bars reloaded"}), 60, "preview", "", undefined, "compact", hints);
+  expect(flashing.map(line => stripTerminalSequences(line))).toEqual(["Keymap and bars reloaded"]);
+});

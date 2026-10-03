@@ -1,0 +1,310 @@
+import { describe, expect, test } from "bun:test";
+import { OutlinerActionKeymap } from "../src/outliner-actions";
+import {
+  DEFAULT_OPEN_DESTINATION_TIMEOUT_MS,
+  OpenDestinationChooser,
+  openDestinationTimeoutFromEnvironment,
+  type OpenDestination,
+  type OpenDestinationScheduler,
+  type OpenDestinationTarget,
+} from "../src/open-destination-chooser";
+
+type Timer = { callback: () => void; cleared: boolean };
+
+class FakeScheduler implements OpenDestinationScheduler {
+  readonly timers: Timer[] = [];
+
+  set(callback: () => void): Timer {
+    const timer = { callback, cleared: false };
+    this.timers.push(timer);
+    return timer;
+  }
+
+  clear(handle: unknown): void {
+    (handle as Timer).cleared = true;
+  }
+
+  fire(index: number): void {
+    this.timers[index]!.callback();
+  }
+}
+
+const target: OpenDestinationTarget = {
+  target: { kind: "block", blockId: "target-1" },
+  title: "Target one",
+};
+
+function harness(options: {
+  linkedAvailable?: boolean;
+  scheduler?: FakeScheduler;
+  actionKeymap?: OutlinerActionKeymap;
+} = {}) {
+  const calls: Array<string> = [];
+  const chooser = new OpenDestinationChooser({
+    beforeOpen: (_target, destination) => {
+      calls.push(`before:${destination}`);
+    },
+    replace: (opened) => {
+      calls.push(`replace:${opened.target.kind === "block" ? opened.target.blockId : opened.target.resourceId}`);
+    },
+    openLinked: (opened) => {
+      calls.push(`first:${opened.target.kind === "block" ? opened.target.blockId : opened.target.resourceId}`);
+      return options.linkedAvailable ?? true;
+    },
+    openNewDetail: (opened, direction) => {
+      calls.push(`split:${direction}:${
+        opened.target.kind === "block" ? opened.target.blockId : opened.target.resourceId
+      }`);
+    },
+    opened: (_opened, destination) => {
+      calls.push(`opened:${destination}`);
+    },
+    invalidate: () => calls.push("invalidate"),
+  }, {
+    timeoutMs: 7_500,
+    ...(options.scheduler ? { scheduler: options.scheduler } : {}),
+    ...(options.actionKeymap ? { actionKeymap: options.actionKeymap } : {}),
+  });
+  return { chooser, calls };
+}
+
+async function choose(
+  destination: Exclude<OpenDestination, "default">,
+  chooser: OpenDestinationChooser,
+): Promise<void> {
+  const input = destination === "replace"
+    ? ["R", { name: "r", shift: true }]
+    : destination === "linked"
+    ? ["f", { name: "f" }]
+    : destination === "split-right"
+    ? ["r", { name: "r" }]
+    : ["d", { name: "d" }];
+  await chooser.handleKeypress(input[0] as string, input[1] as { name: string; shift?: boolean });
+}
+
+describe("open destination chooser", () => {
+  test("defers navigation until confirmation and defaults to linked destination", async () => {
+    const state = harness();
+    state.chooser.open(target);
+
+    expect(state.chooser.state.active).toBe(true);
+    expect(state.calls.filter((call) => call.startsWith("first:") || call.startsWith("split:")))
+      .toEqual([]);
+
+    await state.chooser.handleKeypress("", { name: "return" });
+
+    expect(state.calls).toContain("before:default");
+    expect(state.calls).toContain("first:target-1");
+    expect(state.calls).toContain("opened:default");
+    expect(state.calls).not.toContain("split:right:target-1");
+    expect(state.chooser.state.active).toBe(false);
+  });
+
+  test("keeps the choice explicit when no linked destination is available", async () => {
+    const fallback = harness({ linkedAvailable: false });
+    fallback.chooser.open(target);
+    await fallback.chooser.handleKeypress("", { name: "return" });
+    expect(fallback.calls).not.toContain("split:right:target-1");
+    expect(fallback.chooser.state.active).toBe(true);
+
+    const explicitFirst = harness({ linkedAvailable: false });
+    explicitFirst.chooser.open(target);
+    await choose("linked", explicitFirst.chooser);
+    expect(explicitFirst.calls).not.toContain("split:right:target-1");
+    expect(explicitFirst.chooser.state.active).toBe(true);
+    expect(explicitFirst.chooser.state.status).toContain("No linked destination");
+  });
+
+  test("dispatches every explicit destination through one key model", async () => {
+    const cases: Array<[Exclude<OpenDestination, "default" | "linked">, string]> = [
+      ["replace", "replace:target-1"],
+      ["split-right", "split:right:target-1"],
+      ["split-down", "split:down:target-1"],
+    ];
+    for (const [destination, expected] of cases) {
+      const state = harness();
+      state.chooser.open(target);
+      await choose(destination, state.chooser);
+      expect(state.calls).toContain(`before:${destination}`);
+      expect(state.calls).toContain(expected);
+      expect(state.chooser.state.active).toBe(false);
+    }
+  });
+  test("uses configured directional bindings and reports them in chooser help", async () => {
+    const actionKeymap = new OutlinerActionKeymap("<test>", {
+      "detail.pane.right": ["Shift+ArrowRight"],
+      "detail.pane.below": ["Shift+ArrowDown"],
+    });
+    for (const [keyName, direction] of [
+      ["right", "right"],
+      ["down", "down"],
+    ] as const) {
+      const state = harness({ actionKeymap });
+      state.chooser.open(target);
+      await state.chooser.handleKeypress("", { name: keyName, shift: true });
+      expect(state.calls).toContain(`split:${direction}:target-1`);
+    }
+    expect(harness({ actionKeymap }).chooser.helpText()).toContain(
+      "⇧→/r split right  ⇧↓/d split down",
+    );
+  });
+
+
+  test("consumes input, resets idle dismissal, and rejects stale timers", async () => {
+    const scheduler = new FakeScheduler();
+    const state = harness({ scheduler });
+    state.chooser.open(target);
+    expect(scheduler.timers).toHaveLength(1);
+
+    expect(await state.chooser.handleKeypress("x", { name: "x" })).toBe(true);
+    expect(scheduler.timers).toHaveLength(2);
+    scheduler.fire(0);
+    expect(state.chooser.state.active).toBe(true);
+
+    scheduler.fire(1);
+    expect(state.chooser.state.active).toBe(false);
+    expect(state.chooser.state.target).toBeNull();
+  });
+
+  test("rebinding a target makes the prior target's timer harmless", () => {
+    const scheduler = new FakeScheduler();
+    const state = harness({ scheduler });
+    state.chooser.open(target);
+    state.chooser.open({
+      target: { kind: "block", blockId: "target-2" },
+      title: "Target two",
+    });
+
+    scheduler.fire(0);
+    expect(state.chooser.state.target?.target).toEqual({
+      kind: "block",
+      blockId: "target-2",
+    });
+    scheduler.fire(1);
+    expect(state.chooser.state.active).toBe(false);
+  });
+
+  test("does not dispatch a stale choice after its target is disposed", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const calls: string[] = [];
+    const chooser = new OpenDestinationChooser({
+      beforeOpen: async () => {
+        await gate;
+      },
+      replace: () => {
+        calls.push("replace");
+      },
+      openLinked: () => true,
+      openNewDetail: () => {},
+      invalidate: () => {},
+    });
+    chooser.open(target);
+    const pending = chooser.handleKeypress("R", { name: "r", shift: true });
+    chooser.dispose();
+    release();
+    await pending;
+
+    expect(calls).toEqual([]);
+    expect(chooser.state.active).toBe(false);
+  });
+
+  test("input during an in-flight destination does not cancel it", async () => {
+    const scheduler = new FakeScheduler();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const calls: string[] = [];
+    const chooser = new OpenDestinationChooser({
+      beforeOpen: async () => {
+        await gate;
+      },
+      replace: () => {
+        calls.push("replace");
+      },
+      openLinked: () => true,
+      openNewDetail: () => {},
+      invalidate: () => {},
+    }, { scheduler, timeoutMs: 7_500 });
+    chooser.open(target);
+    const pending = chooser.handleKeypress("R", { name: "r", shift: true });
+    await chooser.handleKeypress("x", { name: "x" });
+    scheduler.fire(1);
+    expect(chooser.state.active).toBe(true);
+
+    release();
+    await pending;
+
+    expect(calls).toEqual(["replace"]);
+    expect(chooser.state.active).toBe(false);
+  });
+
+  test("idle timeout does not cancel an in-flight destination", async () => {
+    const scheduler = new FakeScheduler();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const calls: string[] = [];
+    const chooser = new OpenDestinationChooser({
+      beforeOpen: async () => {
+        await gate;
+      },
+      replace: () => {
+        calls.push("replace");
+      },
+      openLinked: () => true,
+      openNewDetail: () => {},
+      invalidate: () => {},
+    }, { scheduler, timeoutMs: 7_500 });
+    chooser.open(target);
+    const pending = chooser.handleKeypress("R", { name: "r", shift: true });
+
+    scheduler.fire(1);
+    expect(chooser.state.active).toBe(true);
+    expect(chooser.state.loading).toBe(true);
+    release();
+    await pending;
+
+    expect(calls).toEqual(["replace"]);
+    expect(chooser.state.active).toBe(false);
+  });
+
+  test("validates the configurable timeout", () => {
+    expect(openDestinationTimeoutFromEnvironment(undefined)).toBe(
+      DEFAULT_OPEN_DESTINATION_TIMEOUT_MS,
+    );
+    expect(openDestinationTimeoutFromEnvironment("5000")).toBe(5_000);
+    expect(openDestinationTimeoutFromEnvironment("0")).toBe(
+      DEFAULT_OPEN_DESTINATION_TIMEOUT_MS,
+    );
+    expect(openDestinationTimeoutFromEnvironment("not-a-number")).toBe(
+      DEFAULT_OPEN_DESTINATION_TIMEOUT_MS,
+    );
+  });
+});
+
+
+test("missing destination requires a distinct Enter; cancel and timeout never replace", async () => {
+  const fallback = harness({linkedAvailable:false});
+  fallback.chooser.open(target);
+  await fallback.chooser.handleKeypress("", {name:"return"});
+  expect(fallback.calls.filter(call=>call.startsWith("replace:"))).toEqual([]);
+  expect(fallback.chooser.helpText()).toContain("Enter: Open here");
+  await fallback.chooser.handleKeypress("", {name:"return"});
+  expect(fallback.calls.filter(call=>call.startsWith("replace:"))).toEqual(["replace:target-1"]);
+  expect(fallback.chooser.state.active).toBe(false);
+  const scheduler = new FakeScheduler();
+  const cancelled = harness({scheduler});
+  cancelled.chooser.recover(target);
+  await cancelled.chooser.handleKeypress("", {name:"escape"});
+  await cancelled.chooser.handleKeypress("", {name:"return"});
+  expect(cancelled.calls.filter(call=>call.startsWith("replace:"))).toEqual([]);
+  cancelled.chooser.recover(target);
+  scheduler.fire(scheduler.timers.length-1);
+  await cancelled.chooser.handleKeypress("", {name:"return"});
+  expect(cancelled.calls.filter(call=>call.startsWith("replace:"))).toEqual([]);
+});

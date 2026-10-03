@@ -1,0 +1,1342 @@
+import {initTheme} from "@earendil-works/pi-coding-agent";
+initTheme(undefined,false);
+import { getOsc8LinkAtColumn, stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
+import { describe, expect, test } from "bun:test";
+import {
+  attentionClientState,
+  emptyAttentionState,
+  normalizeAttentionMark,
+} from "../src/attention";
+import { DEFAULT_OUTLINER_ACTION_KEYMAP } from "../src/outliner-actions";
+import { InboxController } from "../src/inbox-controller";
+import type { TreeView } from "../src/tree-controller";
+import { renderTreeFrame, treeHintRow, treeSemanticState } from "../src/tree-renderer";
+import { renderPaneBar } from "../src/reader-chrome";
+import { composeAuthoredLinkRows, isBlockTreeRow, type TreeDisplayRow } from "../src/tree-rows";
+import { resolveBlockReferencesWithStatus } from "../src/references";
+import { treeIndexFixture } from "./tree-fixtures";
+import { truncate } from "../src/terminal";
+import type { VisibleBlock } from "../src/types";
+import type {
+  PhysicalTreeRow,
+  TreeRow,
+  VirtualBranchConfig,
+  VirtualBranchOccurrenceRow,
+  VirtualBranchState,
+} from "../src/virtual-branches";
+
+function block(id: string, overrides: Partial<VisibleBlock> = {}): VisibleBlock {
+  return {
+    revision: 1,
+    id,
+    parentId: null,
+    position: 0,
+    text: id,
+    author: "user",
+    createdAt: "2026-08-22T00:00:00.000Z",
+    updatedAt: "2026-08-22T00:00:00.000Z",
+    properties: [],
+    depth: 0,
+    hasChildren: false,
+    displayText: id,
+    ...overrides,
+  };
+}
+
+function physical(
+  block: VisibleBlock,
+  presentation: { collapsed?: boolean; multilineExpanded?: boolean } = {},
+): PhysicalTreeRow {
+  return {
+    kind: "physical",
+    rowId: block.id,
+    canonicalId: block.id,
+    block,
+    depth: block.depth,
+    hasChildren: block.hasChildren,
+    collapsed: presentation.collapsed ?? false,
+    multilineExpanded: presentation.multilineExpanded ?? false,
+  };
+}
+
+function occurrence(
+  viewId: string,
+  canonical: VisibleBlock,
+  depth = 1,
+  multilineExpanded = false,
+): VirtualBranchOccurrenceRow {
+  return {
+    kind: "occurrence",
+    rowId: `occurrence:${viewId}:${canonical.id}`,
+    canonicalId: canonical.id,
+    viewId,
+    matchRootCanonicalId: canonical.id,
+    parentRowId: viewId,
+    relativeDepth: 0,
+    block: canonical,
+    depth,
+    hasChildren: false,
+    collapsed: false,
+    multilineExpanded,
+  };
+}
+
+function isTreeRow(row: VisibleBlock | TreeRow): row is TreeRow {
+  return "rowId" in row;
+}
+
+const branchConfig: VirtualBranchConfig = {
+  viewId: "definition",
+  query: "",
+  filters: [],
+  sort: null,
+  limit: 200,
+  create: null,
+  createParentId: null,
+  readOnly: false,
+};
+
+function branchState(overrides: Partial<VirtualBranchState> = {}): VirtualBranchState {
+  return {
+    config: branchConfig,
+    configurationErrors: [],
+    creationErrors: [],
+    queryError: null,
+    count: 0,
+    descendantCount: 0,
+    completeness: { kind: "complete" },
+    truncation: { rootQuery: false, depth: false, budget: false },
+    queried: true,
+    ...overrides,
+  };
+}
+
+function view(
+  inputRows: ReadonlyArray<VisibleBlock | TreeRow>,
+  overrides: Omit<Partial<TreeView>, "rows"> & { rows?: TreeDisplayRow[] } = {},
+): TreeView {
+  const originalRows = overrides.rows ?? inputRows.map((row) => (isTreeRow(row) ? row : physical(row)));
+  const documents = new Map(originalRows.filter(isBlockTreeRow).map(row => [row.canonicalId, row.block]));
+  const lookup = (id: string) => documents.get(id) ?? null;
+  const rows = originalRows.map(row => isBlockTreeRow(row)
+    ? { ...row, block: treeIndexFixture(row.block, lookup) }
+    : row);
+  const { rows: _rows, ...rest } = overrides;
+  return {
+    chrome: "full",
+    workspaceRoot: "/w",
+    rows,
+    expandedDocuments: new Map(originalRows.filter(isBlockTreeRow).filter(row => row.multilineExpanded).map(row => [row.canonicalId, {
+      block: row.block,
+      resolved: { ...resolveBlockReferencesWithStatus(row.block.text, lookup), text: row.block.displayText },
+    }])),
+    physicalBlocksById: new Map(
+      rows.filter(row => row.kind === "physical").map((row) => [
+        row.canonicalId,
+        row.block,
+      ]),
+    ),
+    physicalRowCount: rows.filter((row) => row.kind === "physical").length,
+    occurrenceRowCount: rows.filter((row) => row.kind === "occurrence").length,
+    workIdPrefix: "PIE",
+    visibleCompleteness: { kind: "complete" },
+    branchStates: new Map(),
+    selectedIndex: 0,
+    activeFilter: "",
+    mode: "browse",
+    quickInput: "",
+    quickColumn: 0,
+    quickCompletion: null,
+    viewerLines: [],
+    viewerPath: "",
+    viewerOffset: 0,
+    attention: emptyAttentionState("tree-test"),
+    expandedBlockOffset: 0,
+    status: "ready",
+    refreshPending: false,
+    ...rest,
+    workspaceContextBlockId: overrides.workspaceContextBlockId ?? null,
+  };
+}
+
+const hintRow = (width: number) => treeHintRow(view([]), width, {showStatus: false});
+const NARROW_HELP = hintRow(80);
+const header = (width: number) => renderPaneBar(width, "● Tree", [], "tree.menu.open").line;
+const HEADER = header(80);
+
+describe("renderTreeFrame", () => {
+  test("bounds and sanitizes the focused root header", () => {
+    const label="界".repeat(100)+"\x1b[2J\x1b]52;c;payload\x07";
+    const frame=renderTreeFrame(view([block("root")],{root:{rowId:"root",canonicalId:"root",label}}),40,12).frame;
+    expect(frame.split("\n")).toHaveLength(12);
+    const header=frame.slice("\x1b[H\x1b[2J".length).split("\n")[0]!;
+    expect(visibleWidth(header)).toBeLessThanOrEqual(40);
+    expect(header).not.toContain("\x1b[2J");expect(header).not.toContain("\x1b]52");
+  });
+  test("shows a clickable Inbox cue and the same bounded overlay in standalone and composed Tree", async () => {
+    const inbox = new InboxController({
+      async openResource() {},
+      async request<T>() { return { enabled: true, paused: true, state: "paused", message: "Paused by user", pending: 4, results: [], resultsTruncated: false, attentionCount: 0, attentionOnly: false, resultsOffset: 0 } as T; },
+      invalidate() {}, async open() {}, close() {},
+    });
+    await inbox.start();
+    const browse = renderTreeFrame(view([block("root")], { inboxCue: "Inbox paused · 4 pending" }), 80, 18);
+    const cue = browse.frame.split("\n").find(line => stripTerminalSequences(line).includes("Inbox paused"))!;
+    expect(getOsc8LinkAtColumn(cue, stripTerminalSequences(cue).indexOf("Inbox paused") + 1)).toBe("pi-outliner-action:tree.inbox.open");
+    for (const focused of [undefined, true]) {
+      const rendered = renderTreeFrame(view([block("root")], { mode: "inbox", inbox }), 60, 18, 0, { focused, clearScreen: false });
+      const lines = rendered.frame.split("\n");
+      expect(lines).toHaveLength(18);
+      expect(lines.every(line => visibleWidth(line) <= 60)).toBe(true);
+      expect(stripTerminalSequences(rendered.frame)).toContain("Paused by user");
+      expect(stripTerminalSequences(rendered.frame)).toContain("4 pending");
+      expect(rendered.mouseTargets).toEqual([]);
+    }
+  });
+
+  test("renders a representative browse frame exactly", () => {
+    const root = block("root", { text: "Root", displayText: "Root", hasChildren: true });
+    const child = block("child", {
+      parentId: "root",
+      position: 0,
+      text: "Child",
+      displayText: "Child",
+      author: "agent",
+      depth: 1,
+    });
+
+    const rendered = renderTreeFrame(view([root, child]), 80, 9);
+
+    expect(rendered).toEqual({
+      expandedPage: null,
+      mouseTargets: expect.any(Array),
+      scrollStartEntryIndex: 0,
+      frame: [
+        "\x1b[H\x1b[2J" + HEADER,
+        "\x1b[2m/w · 2 physical blocks · 0 projected occurrences\x1b[0m",
+        "─".repeat(80),
+        "\x1b[48;5;238m\x1b[1m▾ Root   \x1b[0m",
+        "  • Child  A",
+        "",
+        "",
+        "ready",
+        NARROW_HELP,
+      ].join("\n"),
+    });
+  });
+  test("renders fixed status treatments with deterministic precedence", () => {
+    const semantic = [
+      block("blocked", {
+        text: "Blocked item [status::blocked] [work-stage::doing]",
+        displayText: "Blocked item [status::blocked] [work-stage::doing]",
+        properties: [
+          { key: "Status", value: "blocked" },
+          { key: "WORK-STAGE", value: "doing" },
+        ],
+      }),
+      block("doing", {
+        text: "Doing item [work-stage::doing]",
+        displayText: "Doing item [work-stage::doing]",
+        properties: [{ key: "work-stage", value: "doing" }],
+      }),
+      block("review", {
+        text: "Review item [work-stage::review]",
+        displayText: "Review item [work-stage::review]",
+        properties: [{ key: "work-stage", value: "review" }],
+      }),
+      block("done", {
+        text: "Done item [status::complete]",
+        displayText: "Done item [status::complete]",
+        properties: [{ key: "status", value: "complete" }],
+      }),
+      block("pool", {
+        text: "Pool item [work-stage::unprioritized]",
+        displayText: "Pool item [work-stage::unprioritized]",
+        properties: [{ key: "work-stage", value: "unprioritized" }],
+      }),
+    ];
+    const neutral = block("neutral", {
+      text: "Neutral item [status::planned] [work-stage::next]",
+      displayText: "Neutral item [status::planned] [work-stage::next]",
+      properties: [
+        { key: "status", value: "planned" },
+        { key: "work-stage", value: "next" },
+      ],
+    });
+    const rows = [neutral, ...semantic, occurrence("definition", semantic[3]!, 1)];
+    const original = rows.map((row) => isTreeRow(row) ? row.block.text : row.text);
+    const rendered = renderTreeFrame(view(rows), 80, 14).frame.split("\n");
+    const plain = rendered.map(stripTerminalSequences);
+
+    expect(semantic.map(treeSemanticState)).toEqual([
+      "blocked",
+      "doing",
+      "review",
+      "done",
+      "unprioritized",
+    ]);
+    expect(treeSemanticState(neutral)).toBeNull();
+    expect(plain.some((line) => line.includes("! Blocked item"))).toBe(true);
+    expect(plain.some((line) => line.includes("● Doing item"))).toBe(true);
+    expect(plain.some((line) => line.includes("◆ Review item"))).toBe(true);
+    expect(plain.filter((line) => line.includes("✓ Done item"))).toHaveLength(2);
+    expect(plain.some((line) => line.includes("· Pool item"))).toBe(true);
+    expect(plain.some((line) => line.includes("• Neutral item"))).toBe(true);
+    expect(rows.map((row) => isTreeRow(row) ? row.block.text : row.text)).toEqual(original);
+
+    const selected = renderTreeFrame(view([semantic[0]!]), 42, 8).frame.split("\n")[3]!;
+    expect(selected).toContain("\x1b[48;5;238m\x1b[1m• \x1b[1;31m! Blocked item");
+    expect(selected).toContain("\x1b[0m\x1b[48;5;238m\x1b[1m");
+    expect(visibleWidth(selected)).toBeLessThanOrEqual(42);
+  });
+
+  test("fits ordered property summaries into one-line canonical rows", () => {
+    const roadmap = block("roadmap", {
+      text:
+        "PIE-196 — Property summaries [status::planned] [work-stage::next] [priority::high] [track::interactive-documents]",
+      displayText:
+        "PIE-196 — Property summaries [status::planned] [work-stage::next] [priority::high] [track::interactive-documents]",
+      properties: [
+        { key: "status", value: "planned" },
+        { key: "work-stage", value: "next" },
+        { key: "priority", value: "high" },
+        { key: "track", value: "interactive-documents" },
+      ],
+    });
+
+    const wide = renderTreeFrame(view([roadmap]), 140, 8).frame.split("\n");
+    const wideRow = wide.find((line) => stripTerminalSequences(line).includes("PIE-196"))!;
+    const wideText = stripTerminalSequences(wideRow);
+    expect(wideText).toContain("PIE-196 — Property summaries");
+    expect(wideText).toContain(
+      "status planned · stage next · priority high · track interactive-documents",
+    );
+    expect(wideText).not.toContain("[status::");
+    expect(visibleWidth(wideRow)).toBe(140);
+
+    const medium = renderTreeFrame(view([roadmap]), 80, 8).frame.split("\n");
+    const mediumRow = medium.find((line) => stripTerminalSequences(line).includes("PIE-196"))!;
+    expect(stripTerminalSequences(mediumRow)).toContain("PIE-196 — Property summaries");
+    expect(stripTerminalSequences(mediumRow)).toContain("status planned");
+    expect(stripTerminalSequences(mediumRow)).not.toContain("track interactive-documents");
+
+    const narrow = renderTreeFrame(view([roadmap]), 42, 8).frame.split("\n");
+    const narrowRow = narrow.find((line) => stripTerminalSequences(line).includes("PIE-196"))!;
+    expect(stripTerminalSequences(narrowRow)).toContain("planned");
+    expect(stripTerminalSequences(narrowRow)).not.toContain("status planned");
+    expect(visibleWidth(narrowRow)).toBeLessThanOrEqual(42);
+    expect(narrow.filter((line) => stripTerminalSequences(line).includes("PIE-196"))).toHaveLength(1);
+    expect(narrowRow).toStartWith("\x1b[48;5;238m\x1b[1m");
+
+    const minimum = renderTreeFrame(view([roadmap]), 18, 8).frame.split("\n");
+    const minimumRow = minimum[3]!;
+    expect(stripTerminalSequences(minimumRow)).toContain("planned");
+    expect(visibleWidth(minimumRow)).toBeLessThanOrEqual(18);
+  });
+
+  test("applies workspace and virtual-view property allowlists without changing source", () => {
+    const canonical = block("canonical", {
+      text: "Roadmap card [status::done] [priority::high] [track::delivery]",
+      displayText: "Roadmap card [status::done] [priority::high] [track::delivery]",
+      properties: [
+        { key: "status", value: "done" },
+        { key: "priority", value: "high" },
+        { key: "track", value: "delivery" },
+      ],
+    });
+    const originalText = canonical.text;
+    const rows = [physical(canonical), occurrence("definition", canonical)];
+    const branchStates = new Map([
+      [
+        "definition",
+        branchState({
+          config: {
+            ...branchConfig,
+            viewId: "definition",
+            summaryPropertyKeys: ["track"],
+          },
+        }),
+      ],
+    ]);
+    const rendered = renderTreeFrame(
+      view(rows, { branchStates }),
+      100,
+      9,
+      0,
+      { propertyKeys: ["priority"] },
+    ).frame.split("\n");
+    const canonicalRow = stripTerminalSequences(
+      rendered.find((line) => stripTerminalSequences(line).startsWith("• ✓ Roadmap"))!,
+    );
+    const occurrenceRow = stripTerminalSequences(
+      rendered.find((line) => stripTerminalSequences(line).startsWith("  ◇ ✓ Roadmap"))!,
+    );
+
+    expect(canonicalRow).toContain("high");
+    expect(canonicalRow).not.toContain("priority high");
+    expect(canonicalRow).not.toContain("status done");
+    expect(occurrenceRow).toContain("delivery");
+    expect(occurrenceRow).not.toContain("track delivery");
+    expect(occurrenceRow).not.toContain("priority high");
+    expect(canonical.text).toBe(originalText);
+  });
+
+  test("right-aligns an unlabeled single-property summary column", () => {
+    const planned = block("planned", {
+      text: "Planned roadmap item [status::planned]",
+      displayText: "Planned roadmap item [status::planned]",
+      properties: [{ key: "status", value: "planned" }],
+    });
+    const proposed = block("proposed", {
+      text: "Short [status::proposed]",
+      displayText: "Short [status::proposed]",
+      properties: [{ key: "status", value: "proposed" }],
+    });
+
+    const rendered = renderTreeFrame(
+      view([planned, proposed]),
+      60,
+      9,
+      0,
+      { propertyKeys: ["status"] },
+    ).frame.split("\n").map(stripTerminalSequences);
+    const plannedRow = rendered.find((line) => line.includes("Planned roadmap item"))!;
+    const proposedRow = rendered.find((line) => line.includes("Short"))!;
+
+    expect(plannedRow).not.toContain("status planned");
+    expect(proposedRow).not.toContain("status proposed");
+    expect(plannedRow.indexOf("planned") + "planned".length).toBe(
+      proposedRow.indexOf("proposed") + "proposed".length,
+    );
+    expect(visibleWidth(plannedRow)).toBe(60);
+    expect(visibleWidth(proposedRow)).toBe(60);
+  });
+
+  test("keeps the author marker only when title, gap, and summary all fit", () => {
+    const item = block("item", {
+      text: "Task [status::planned]",
+      displayText: "Task [status::planned]",
+      author: "agent",
+      properties: [{ key: "status", value: "planned" }],
+    });
+    const rowAt = (width: number) =>
+      renderTreeFrame(
+        view([item]),
+        width,
+        9,
+        0,
+        { propertyKeys: ["status"] },
+      ).frame.split("\n").map(stripTerminalSequences).find((line) => line.includes("Task"))!;
+
+    expect(rowAt(18)).toBe("• Task  planned  A");
+    expect(rowAt(17)).toBe("• Task    planned");
+  });
+  test("renders a narrow keyboard menu with clickable pane and action links", () => {
+    const rendered = renderTreeFrame(view([], {
+      mode: "action-menu",
+      actionMenuItems: [
+        {id:"tree.location:synthetic",group:"Navigate",label:"\x1b]52;c;Zm9yYmlkZGVu\x07資料🧑‍🔬".repeat(12),description:"",binding:""},
+        ...DEFAULT_OUTLINER_ACTION_KEYMAP.menuItems("tree", "browse"),
+      ],
+      actionMenuIndex: 0,
+      actionMenuOrigin: { column: 5, row: 5 },
+      status: "Choose an action",
+    }), 40, 9).frame.split("\n");
+    const header = rendered[0]!;
+    const menuColumn = stripTerminalSequences(header).indexOf("[⋯]") + 1;
+    expect(getOsc8LinkAtColumn(header, menuColumn)).toBe(
+      "pi-outliner-action:tree.menu.open",
+    );
+    expect(rendered.join("\n")).toContain("pi-outliner-action:tree.edit");
+    expect(rendered.join("\n")).not.toContain("\x1b]52;");
+    expect(rendered[6]).toStartWith("     ");
+    expect(rendered.at(-1)).toContain("↵ run");
+    expect(rendered.map((line) => ({
+      text: stripTerminalSequences(line),
+      width: visibleWidth(line),
+    })).filter((line) => line.width > 40)).toEqual([]);
+  });
+
+
+  test("renders work IDs and canonical UUIDs as OSC 8 outliner links", () => {
+    const id = "550e8400-e29b-41d4-a716-446655440000";
+    const linked = block(id, {
+      text: `PIE-133 links [decision::${id}]`,
+      displayText: `PIE-133 links [decision::${id}]`,
+    });
+    const frame = renderTreeFrame(view([linked]), 120, 8).frame;
+    const line = frame.split("\n").find((candidate) =>
+      stripTerminalSequences(candidate).includes("PIE-133 links")
+    );
+    expect(line).toBeDefined();
+    const visible = stripTerminalSequences(line!);
+    expect(visible).toBe(`• PIE-133 links [decision::${id}]   `);
+
+    expect(getOsc8LinkAtColumn(line!, visible.indexOf("PIE-133") + 2)).toBe(
+      "pi-outliner://work/PIE-133",
+    );
+    expect(getOsc8LinkAtColumn(line!, visible.indexOf(id) + 2)).toBe(
+      `pi-outliner://block/${id}`,
+    );
+  });
+  test("places compact reference spans after indentation and semantic decoration", () => {
+    const targetId = "550e8400-e29b-41d4-a716-446655440006";
+    const hiddenId = "550e8400-e29b-41d4-a716-446655440007";
+    const source = block("reference-source", {
+      text: `[related::((${hiddenId}|same))] [status::complete]\nLiteral ((same)) then ((${targetId}|same))`,
+      displayText: "[related::((same))] [status::complete]\nLiteral ((same)) then ((same))",
+      properties: [{ key: "status", value: "complete" }],
+      depth: 1,
+    });
+    const frame = renderTreeFrame(view([source, block(targetId), block(hiddenId)]), 120, 12).frame;
+    const line = frame.split("\n").find(line => stripTerminalSequences(line).includes("Literal ((same)) then ((same))"))!;
+    expect(line).toBeDefined();
+    const visible = stripTerminalSequences(line);
+    expect(getOsc8LinkAtColumn(line, visible.indexOf("same"))).toBeUndefined();
+    expect(getOsc8LinkAtColumn(line, visible.lastIndexOf("same"))).toBe(`pi-outliner://block/${targetId}`);
+  });
+  test("compact fixtures omit hidden reference spans and retain clipped spans without targets", () => {
+    const targetId = "550e8400-e29b-41d4-a716-446655440006";
+    const target = block(targetId);
+    for (const start of [500, 511, 600]) {
+      const prefix = "x".repeat(start);
+      const source = block("reference-source", {
+        text: `${prefix}((${targetId}|long reference))`,
+        displayText: `${prefix}((long reference))`,
+      });
+      const compact = treeIndexFixture(source, id => id === targetId ? target : null);
+      expect(compact.preview.length).toBe(512);
+      expect(compact.previewReferences).toEqual(
+        start < 511 ? [{ start, end: 511, target: null }] : [],
+      );
+    }
+  });
+  test("clipping a stale reference cannot activate its canonical-ID alias", () => {
+    const targetId = "550e8400-e29b-41d4-a716-446655440006";
+    const aliasId = "550e8400-e29b-41d4-a716-446655440007";
+    const source = block("stale-reference-source", {
+      text: `((${targetId}^gone|${aliasId}))`,
+      displayText: `((${aliasId} · Missing fragment))`,
+    });
+    const tree = view([source, block(targetId), block(aliasId)]);
+    for (const width of [100, 44]) {
+      const line = renderTreeFrame(tree, width, 12).frame.split("\n")
+        .find(line => stripTerminalSequences(line).includes(`((${aliasId}`))!;
+      expect(line).toBeDefined();
+      expect(getOsc8LinkAtColumn(line, stripTerminalSequences(line).indexOf(aliasId))).toBeUndefined();
+    }
+  });
+  test("links external ticket keys alongside the configured project prefix", () => {
+    const linked = block("custom-work", {
+      text: "ABC-001 and PIE-001",
+      displayText: "ABC-001 and PIE-001",
+    });
+    const frame = renderTreeFrame(
+      view([linked], { workIdPrefix: "ABC" }),
+      80,
+      8,
+    ).frame;
+    const line = frame.split("\n").find((candidate) =>
+      stripTerminalSequences(candidate).includes("ABC-001 and")
+    )!;
+    const visible = stripTerminalSequences(line);
+    expect(getOsc8LinkAtColumn(line, visible.indexOf("ABC-001") + 2)).toBe(
+      "pi-outliner://work/ABC-001",
+    );
+    expect(getOsc8LinkAtColumn(line, visible.indexOf("PIE-001") + 2)).toBe("pi-outliner://work/PIE-001");
+  });
+
+
+  test("renders expanded physical rows and markdown continuation styling", () => {
+    const expanded = block("expanded", {
+      text: "# Heading\n- item",
+      displayText: "# Heading\n- item",
+      author: "system",
+    });
+
+    const rendered = renderTreeFrame(
+      view([physical(expanded, { multilineExpanded: true })]),
+      40,
+      9,
+    ).frame.split("\n");
+
+    expect(rendered.slice(3, 5)).toEqual([
+      "\x1b[48;5;238m\x1b[1m• # Heading  S\x1b[0m",
+      "  │ \x1b[33m-\x1b[0m item",
+    ]);
+    expect(rendered.at(-2)).toBe("ready");
+  });
+
+  test("blanks matched literal-region markers in expanded rows and keeps the row count", () => {
+    const text = "Brief\n<!-- literal -->\nWrite stage:: doing\n<!-- /literal -->\nEnd";
+    const expanded = block("expanded", { text, displayText: text });
+    const frame = stripTerminalSequences(renderTreeFrame(
+      view([physical(expanded, { multilineExpanded: true })]),
+      40,
+      12,
+    ).frame);
+    expect(frame).not.toContain("literal -->");
+    const rows = frame.split("\n");
+    const first = rows.findIndex(line => line.includes("Brief"));
+    expect(rows.slice(first, first + 5).map(line => line.replace(/^\s*(?:•|│)\s?/, "").trim()))
+      .toEqual(["Brief", "", "Write stage:: doing", "", "End"]);
+  });
+
+  test("renders a selected expanded block from its intra-block offset", () => {
+    const text = Array.from({ length: 12 }, (_, index) => `line ${index + 1}`).join("\n");
+    const expanded = block("expanded", {
+      text,
+      displayText: text,
+    });
+
+    const rendered = renderTreeFrame(
+      view([physical(expanded, { multilineExpanded: true })], {
+        expandedBlockOffset: 4,
+        status: "",
+      }),
+      40,
+      10,
+    ).frame.split("\n");
+
+    expect(rendered.slice(3, 8)).toEqual([
+      "\x1b[48;5;238m\x1b[1m  │ line 5\x1b[0m",
+      "  │ line 6",
+      "  │ line 7",
+      "  │ line 8",
+      "  │ line 9",
+    ]);
+    expect(rendered.at(-2)).toBe("Expanded block rows 5-9/12");
+    expect(rendered.at(-1)).toBe(hintRow(40));
+  });
+
+  test("places an add-child editor before existing descendants and renders completion rows", () => {
+    const parent = block("parent", { text: "Parent", displayText: "Parent", hasChildren: true });
+    const child = block("child", {
+      parentId: "parent",
+      text: "Existing",
+      displayText: "Existing",
+      depth: 1,
+    });
+    const rendered = renderTreeFrame(
+      view([parent, child], {
+        mode: "add-child",
+        quickInput: "[[h",
+        quickColumn: 3,
+        quickCompletion: {
+          start: 0,
+          end: 3,
+          index: 0,
+          items: [{ label: "Home", insertion: "[[Home]]" }],
+          truncatedLimit: null,
+        },
+      }),
+      80,
+      11,
+    ).frame.split("\n");
+
+    const frame=rendered.join("\n");
+    expect(frame).toContain("[[h▏");
+    expect(frame).toContain("References 1/1");
+    expect(frame).toContain("pi-outliner-action:completion.choose:0");
+    expect(frame).toContain("Home");
+    expect(rendered.at(-2)).toBe(
+      truncate(DEFAULT_OUTLINER_ACTION_KEYMAP.helpText("tree", "add-child"), 80),
+    );
+  });
+
+  test("renders explicit snapshot and completion truncation warnings", () => {
+    const selected = block("selected");
+    const rendered = renderTreeFrame(
+      view([selected], {
+        visibleCompleteness: { kind: "truncated", limit: 500 },
+        mode: "edit",
+        quickInput: "[[s",
+        quickColumn: 3,
+        quickCompletion: {
+          start: 0,
+          end: 3,
+          index: 0,
+          truncatedLimit: 20,
+          items: [{ label: "Selected", insertion: "[[Selected]]" }],
+        },
+      }),
+      100,
+      10,
+    ).frame;
+
+    expect(rendered).toContain(
+      "/w · 1 physical block · 0 projected occurrences\u001b[0m",
+    );
+    expect(rendered.split("\n")[0]).toContain("\u001b[33mtruncated at 500");
+    expect(rendered).toContain("References 1/1 · Showing first 20 matches");
+  });
+
+  test("renders virtual definition states and projected counts without changing canonical text", () => {
+    const valid = block("valid", {
+      text: "Valid",
+      displayText: "Valid",
+      hasChildren: true,
+    });
+    const card = block("card", {
+      text: "Card",
+      displayText: "Card",
+      hasChildren: true,
+    });
+    const limited = block("limited", { text: "Limited", displayText: "Limited" });
+    const invalid = block("invalid", { text: "Invalid", displayText: "Invalid" });
+    const failed = block("failed", { text: "Failed", displayText: "Failed" });
+    const readOnly = block("read-only", { text: "Read only", displayText: "Read only" });
+    const rows: TreeRow[] = [
+      physical(valid),
+      occurrence("valid", card),
+      physical(limited),
+      physical(invalid),
+      physical(failed),
+      physical(readOnly),
+    ];
+    const branchStates = new Map<string, VirtualBranchState>([
+      ["valid", branchState({ count: 1 })],
+      [
+        "limited",
+        branchState({
+          count: 2,
+          completeness: { kind: "truncated", limit: 2 },
+          truncation: { rootQuery: true, depth: false, budget: false },
+        }),
+      ],
+      [
+        "invalid",
+        branchState({
+          config: null,
+          configurationErrors: ["missing [view::query]"],
+          completeness: null,
+          queried: false,
+        }),
+      ],
+      [
+        "failed",
+        branchState({ queryError: "query unavailable", completeness: null }),
+      ],
+      [
+        "read-only",
+        branchState({ config: { ...branchConfig, readOnly: true } }),
+      ],
+    ]);
+
+    const rendered = renderTreeFrame(view(rows, { branchStates }), 200, 12);
+
+    expect(rendered).toEqual({
+      expandedPage: null,
+      mouseTargets: expect.any(Array),
+      scrollStartEntryIndex: 0,
+      frame: [
+        "\x1b[H\x1b[2J" + header(200),
+        "\x1b[2m/w · 5 physical blocks · 1 projected occurrence\x1b[0m",
+        "─".repeat(200),
+        "\x1b[48;5;238m\x1b[1m▾ Valid [V:1]   \x1b[0m",
+        "  ◇ Card   ",
+        "• Limited [V:2 · ROOT TRUNCATED]   ",
+        "• Invalid [V:0 · CONFIG ERROR]   ",
+        "• Failed [V:0 · QUERY ERROR]   ",
+        "• Read only [V:0 · READ-ONLY]   ",
+        "",
+        "ready",
+        hintRow(200),
+      ].join("\n"),
+    });
+    expect(valid.displayText).toBe("Valid");
+  });
+
+  test("highlights an occurrence as a leaf with a distinct marker", () => {
+    const definition = block("definition", {
+      text: "Definition",
+      displayText: "Definition",
+      hasChildren: true,
+    });
+    const canonical = block("canonical", {
+      text: "Canonical",
+      displayText: "Canonical",
+      hasChildren: true,
+    });
+    const rows = [physical(definition), occurrence(definition.id, canonical)];
+    const rendered = renderTreeFrame(
+      view(rows, {
+        selectedIndex: 1,
+        branchStates: new Map([["definition", branchState({ count: 1 })]]),
+      }),
+      80,
+      8,
+    );
+
+    expect(rendered).toEqual({
+      expandedPage: null,
+      mouseTargets: expect.any(Array),
+      scrollStartEntryIndex: 0,
+      frame: [
+        "\x1b[H\x1b[2J" + HEADER,
+        "\x1b[2m/w · 1 physical block · 1 projected occurrence\x1b[0m",
+        "─".repeat(80),
+        "▾ Definition [V:1]   ",
+        "\x1b[48;5;238m\x1b[1m  ◇ Canonical   \x1b[0m",
+        "",
+        "ready",
+        NARROW_HELP,
+      ].join("\n"),
+    });
+    expect(rendered.frame).not.toContain("▸ Canonical");
+    expect(rendered.frame).not.toContain("▾ Canonical");
+  });
+
+  test("makes canonical deletion scope explicit for an occurrence", () => {
+    const definition = block("definition", { text: "Next", displayText: "Next" });
+    const canonical = block("canonical", { text: "Card", displayText: "Card" });
+    const rows = [physical(definition), occurrence(definition.id, canonical)];
+    const frame = renderTreeFrame(view(rows, {
+      selectedIndex: 1,
+      mode: "delete",
+    }), 120, 8).frame;
+
+    expect(frame).toContain(
+      "Move canonical block “Card” and its descendants to Trash? y/N",
+    );
+  });
+
+  test("explains property-aware creation destination and mutation", () => {
+    const parent = block("parent", { text: "Inbox", displayText: "Inbox" });
+    const definition = block("definition", { text: "Doing", displayText: "Doing" });
+    const writable: VirtualBranchConfig = {
+      ...branchConfig,
+      viewId: definition.id,
+      create: { key: "status", value: "active" },
+      createParentId: parent.id,
+      readOnly: false,
+    };
+    const frame = renderTreeFrame(view([physical(parent), physical(definition)], {
+      selectedIndex: 1,
+      mode: "add-child",
+      branchStates: new Map([
+        [definition.id, branchState({ config: writable })],
+      ]),
+    }), 120, 8).frame;
+
+    expect(frame).toContain(
+      "Create canonical under Inbox · sets [status::active] · ↵ save · ⎋ cancel",
+    );
+  });
+
+  test("reserves compact branch state and exposes full selected error", () => {
+    const definition = block("definition", {
+      text: "A very long virtual branch title that would otherwise hide its state",
+      displayText: "A very long virtual branch title that would otherwise hide its state",
+    });
+    const state = branchState({
+      config: null,
+      configurationErrors: ["missing [query::status=next]"],
+      completeness: null,
+      queried: false,
+    });
+    const frame = renderTreeFrame(view([physical(definition)], {
+      status: "",
+      branchStates: new Map([[definition.id, state]]),
+    }), 60, 8).frame;
+    expect(frame).toContain("[V:0 · CONFIG ERROR]");
+    const wideFrame = renderTreeFrame(view([physical(definition)], {
+      status: "",
+      branchStates: new Map([[definition.id, state]]),
+    }), 120, 8).frame;
+    expect(wideFrame).toContain("CONFIG ERROR: missing [query::status=next]");
+  });
+
+  test("places a physical sibling editor after projected rows nested under its ancestor", () => {
+    const ancestor = block("ancestor", {
+      text: "Ancestor",
+      displayText: "Ancestor",
+      hasChildren: true,
+    });
+    const definition = block("definition", {
+      parentId: ancestor.id,
+      text: "Definition",
+      displayText: "Definition",
+      depth: 1,
+      hasChildren: true,
+    });
+    const card = block("card", { text: "Card", displayText: "Card" });
+    const sibling = block("sibling", {
+      text: "Sibling",
+      displayText: "Sibling",
+      position: 1,
+    });
+    const rows = [
+      physical(ancestor),
+      physical(definition),
+      occurrence(definition.id, card, 2),
+      physical(sibling),
+    ];
+    const rendered = renderTreeFrame(
+      view(rows, {
+        mode: "add-sibling",
+        branchStates: new Map([["definition", branchState({ count: 1 })]]),
+      }),
+      100,
+      11,
+    ).frame.split("\n");
+
+    expect(rendered.slice(3, 8)).toEqual([
+      "▾ Ancestor   ",
+      "  ▾ Definition [V:1]   ",
+      "    ◇ Card   ",
+      "\x1b[48;5;238m\x1b[1m• ▏   \x1b[0m",
+      "• Sibling   ",
+    ]);
+  });
+
+  test("renders filter, delete, and viewer mode-specific frames", () => {
+    const selected = block("selected");
+    const filterFrame = renderTreeFrame(
+      view([selected], { mode: "filter", quickInput: "type=page", status: "" }),
+      80,
+      8,
+    ).frame.split("\n");
+    expect(filterFrame.at(-2)).toBe("\x1b[1mProperties:\x1b[0m type=page▏");
+    const invalidFilterFrame = renderTreeFrame(
+      view([selected], {
+        mode: "filter",
+        quickInput: 'status="in progress',
+        status: "Invalid filter: Unterminated quoted filter value at character 8",
+      }),
+      120,
+      8,
+    ).frame.split("\n");
+    expect(invalidFilterFrame.at(-2)).toContain(
+      "Invalid filter: Unterminated quoted filter value at character 8",
+    );
+
+
+    const deleteFrame = renderTreeFrame(view([selected], { mode: "delete" }), 80, 8).frame.split("\n");
+    expect(deleteFrame.at(-2)).toBe("\x1b[33;1mMove this block and its descendants to Trash? y/N\x1b[0m");
+
+    const deletedSelected = block("deleted", {
+      text: "PIE-999 deleted [work-id::PIE-999]",
+      displayText: "PIE-999 deleted [work-id::PIE-999]",
+      properties: [{ key: "work-id", value: "PIE-999" }],
+      deletedAt: "deleted-at",
+      effectiveDeletedRootId: "deleted",
+    });
+    const purgeFrame = renderTreeFrame(
+      view([deletedSelected], { mode: "purge", quickInput: "PIE-" }),
+      80,
+      8,
+    ).frame.split("\n");
+    expect(purgeFrame.at(-2)).toContain("Purge PIE-999:");
+    expect(purgeFrame.at(-1)).toContain("↵ save");
+
+    const viewer = renderTreeFrame(
+      view([selected], {
+        mode: "viewer",
+        viewerPath: "notes.md:3",
+        viewerLines: ["# Heading", "- item"],
+        viewerOffset: 0,
+      }),
+      20,
+      7,
+    );
+    expect(viewer.frame).toBe([
+      "\x1b[H\x1b[2J\x1b[1mnotes.md:3\x1b[0m",
+      "─".repeat(20),
+      "\x1b[1;36m# Heading\x1b[0m",
+      "\x1b[33m-\x1b[0m item",
+      "",
+      "",
+      `\x1b[2m${truncate(DEFAULT_OUTLINER_ACTION_KEYMAP.helpText("tree", "viewer"), 20)}\x1b[0m`,
+    ].join("\n"));
+  });
+
+  test("uses authored capture titles in compact Tree rows", () => {
+    const capture = block("capture", {
+      text: "Useful title [type::capture] [status::unprocessed]\nSupporting detail",
+      displayText: "Useful title [type::capture] [status::unprocessed]\nSupporting detail",
+      properties: [
+        { key: "type", value: "capture" },
+        { key: "status", value: "unprocessed" },
+      ],
+    });
+
+    const compact = renderTreeFrame(view([capture]), 80, 8).frame;
+    expect(compact).toContain("Useful title");
+    expect(compact).not.toContain("[type::capture]");
+    expect(compact).not.toContain("Supporting detail");
+  });
+
+  test("returns logical scroll state that keeps the selected row visible in either direction", () => {
+    const rows = Array.from({ length: 6 }, (_, index) => block(`row-${index}`, { position: index }));
+
+    const down = renderTreeFrame(view(rows, { selectedIndex: 5 }), 40, 8, 0);
+    expect(down.scrollStartEntryIndex).toBe(3);
+    expect(down.frame).toContain("• row-3");
+    expect(down.frame).toContain("\x1b[48;5;238m\x1b[1m• row-5");
+    expect(down.frame).not.toContain("• row-2");
+
+    const up = renderTreeFrame(view(rows, { selectedIndex: 0 }), 40, 8, down.scrollStartEntryIndex);
+    expect(up.scrollStartEntryIndex).toBe(0);
+    expect(up.frame).toContain("\x1b[48;5;238m\x1b[1m• row-0");
+  });
+
+  test("bounds block rendering work when selection jumps across a large complete projection", () => {
+    let previewReads = 0;
+    const rows = Array.from({ length: 20_000 }, (_, index) => block(`large-${index}`, { position: index }));
+    const current = view(rows, { selectedIndex: 15_000 });
+    for (const row of current.rows) {
+      if (!isBlockTreeRow(row)) continue;
+      const preview = row.block.preview;
+      Object.defineProperty(row.block, "preview", {
+        get() {
+          previewReads += 1;
+          return preview;
+        },
+      });
+    }
+    const rendered = renderTreeFrame(current, 80, 10, 0);
+
+    expect(rendered.scrollStartEntryIndex).toBe(14_996);
+    expect(rendered.frame).toContain("\x1b[48;5;238m\x1b[1m• large-15000");
+    expect(previewReads).toBeLessThanOrEqual(5);
+  });
+
+  test("recomputes viewport bounds after width, expansion, and projection replacement", () => {
+    const longText = Array.from({ length: 24 }, () => "wrapping").join(" ");
+    const expanded = physical(block("expanded", { text: longText, displayText: longText }), {
+      multilineExpanded: true,
+    });
+    const selected = physical(block("selected"));
+    const expandedView = view([expanded, selected], { selectedIndex: 1 });
+
+    const wide = renderTreeFrame(expandedView, 100, 10, 0);
+    expect(wide.scrollStartEntryIndex).toBe(0);
+    const narrow = renderTreeFrame(expandedView, 20, 10, wide.scrollStartEntryIndex);
+    expect(narrow.scrollStartEntryIndex).toBe(1);
+    expect(narrow.frame).toContain("\x1b[48;5;238m\x1b[1m• selected");
+
+    const replacement = view([block("filtered-content")], { selectedIndex: 0 });
+    const replaced = renderTreeFrame(replacement, 20, 10, 15_000);
+    expect(replaced.scrollStartEntryIndex).toBe(0);
+    expect(replaced.frame).toContain("/w · 1 physical b");
+    expect(replaced.frame).toContain("\x1b[48;5;238m\x1b[1m• filtered-content");
+    expect(replaced.frame).not.toContain("selected");
+  });
+
+  test("renders contextual disclosure markers with exact mouse row targets", () => {
+    const definition = block("view", { hasChildren: true });
+    const canonicalRoot = block("root", { hasChildren: true });
+    const canonicalChild = block("child");
+    const root: VirtualBranchOccurrenceRow = {
+      ...occurrence(definition.id, canonicalRoot),
+      hasChildren: true,
+    };
+    const child: VirtualBranchOccurrenceRow = {
+      ...occurrence(definition.id, canonicalChild, 2),
+      rowId: "occurrence:view:root:child",
+      matchRootCanonicalId: root.canonicalId,
+      parentRowId: root.rowId,
+      relativeDepth: 1,
+    };
+
+    const rendered = renderTreeFrame(
+      view([physical(definition), root, child]),
+      80,
+      9,
+    );
+
+    expect(rendered.frame).toContain("  ▾ root");
+    expect(rendered.mouseTargets.find((target) => target?.rowId === root.rowId)).toEqual({
+      rowId: root.rowId,
+      disclosureColumn: 2,
+    });
+    expect(rendered.mouseTargets.find((target) => target?.rowId === child.rowId)).toEqual({
+      rowId: child.rowId,
+      disclosureColumn: -1,
+    });
+  });
+
+  test("sanitizes generated authored-link headers, labels, and titles", () => {
+    const owner = block("owner-render", { text: "Owner", displayText: "Owner" });
+    const ownerRow = physical(owner);
+    const rows = composeAuthoredLinkRows([ownerRow], new Map([[ownerRow.rowId, {
+      kind: "open",
+      owner: { rowId: ownerRow.rowId, blockId: owner.id },
+      generation: 1,
+      collapsedGroups: { outlinks: false, resources: false, backlinks:false },
+      backlinks:{kind:"ready",group:{entries:[],completeness:{kind:"complete"},invalidCount:0,diagnostics:[]}},
+      load: {
+        kind: "ready",
+        snapshot: {
+          kind: "ready",
+          ownerId: owner.id,
+          ownerTextDigest: "0".repeat(64),
+          outlinks: {
+            entries: [{
+              kind: "outlink",
+              key: "target",
+              label: "Label \x1b[2Jkept",
+              firstSpan: { start: 0, end: 1 },
+              occurrenceCount: 1,
+              referenceKind: "block",
+              resolution: {
+                kind: "ready",
+                target: { kind: "block", blockId: "target-render" },
+                title: "Target \x1b]52;c;SGVsbG8=\x07safe",
+              },
+            }],
+            completeness: { kind: "complete" },
+            invalidCount: 0,
+            diagnostics: [],
+          },
+          resources: {
+            entries: [],
+            completeness: { kind: "complete" },
+            invalidCount: 0,
+            diagnostics: [],
+          },
+        },
+      },
+    }]]));
+
+    const rowsWithUnsafeHeader = rows.map((row) =>
+      row.kind === "authored-link-header" && row.group === "outlinks"
+        ? { ...row, label: "Out\x1b[2Jlinks\x1b]52;c;SGVsbG8=\x07" }
+        : row,
+    );
+
+    const frame = renderTreeFrame(view([owner], { rows: rowsWithUnsafeHeader }), 100, 9).frame;
+    const visible = stripTerminalSequences(frame);
+
+    expect(visible).toContain("Outlinks");
+    expect(frame).not.toContain("Out\x1b[2Jlinks");
+    expect(visible).toContain("Label kept → Target safe");
+    expect(frame).not.toContain("\x1b[2Jkept");
+    expect(frame).not.toContain("\x1b]52;c;SGVsbG8=\x07");
+  });
+});
+
+test("renders a targeted Tree block mark and coalesced return cue", () => {
+  const target = block("attention-target", { text: "Target block", displayText: "Target block" });
+  const mark = normalizeAttentionMark({
+    markId: "tree-mark",
+    targetClientId: "tree-test",
+    target: { kind: "block", sourceBlockId: target.id },
+    tone: "info",
+    sender: "agent-test",
+  }, {
+    clientId: "tree-test",
+    role: "tree",
+    contextId: "tree-test",
+  }, target);
+  const rendered = renderTreeFrame(view([target], {
+    attention: attentionClientState("tree-test", [mark], 4),
+  }), 44, 10).frame;
+  const visible = stripTerminalSequences(rendered);
+
+  expect(visible).toContain("4 attention cues");
+  expect(visible).toContain("Target block");
+  expect(visible).toContain("◀");
+  expect(rendered).toContain("\x1b[1;4;96m");
+  expect(rendered.split("\n").every((line) => visibleWidth(line) <= 44)).toBe(true);
+});
+
+
+test("wide local Preview keeps Tree row hit targets aligned with rendered text", () => {
+  const rows = [block("FIRST TARGET"), block("SECOND TARGET")];
+  const rendered = renderTreeFrame({...view(rows), localPreview: {target: {kind: "block", blockId: rows[1]!.id}, title: "Preview", document: {canonicalText:"Inspection",resolvedText:"Inspection",projectedText:"Inspection",embedRanges:[],workIdPrefix:null}, offset: 0, focused: false}}, 180, 16, 0, {clearScreen: false});
+  const lines = rendered.frame.split("\n").map(stripTerminalSequences);
+  for (const row of rows) {
+    const index = lines.findIndex(line => line.includes(row.id));
+    expect(index).toBeGreaterThan(0);
+    expect(rendered.mouseTargets[index]?.rowId).toBe(row.id);
+  }
+});
+
+
+test("breadcrumbs keep controls at the edges and link occurrence identity safely", () => {
+  const path = [
+    {rowId:"hub",canonicalId:"hub",label:"Hub",kind:"physical" as const},
+    {rowId:"occurrence:hub:note",canonicalId:"note",label:"世界\x1b[2J projected note",kind:"occurrence" as const},
+  ];
+  const result=renderTreeFrame(view([block("note")],{breadcrumbs:path,breadcrumbStart:1}),32,12,0);
+  const line=result.frame.split("\n")[2]!;
+  expect(visibleWidth(line)).toBe(32);
+  expect(stripTerminalSequences(line).startsWith("⌂ < ◇ 世界")).toBe(true);
+  expect(stripTerminalSequences(line).endsWith(">" )).toBe(true);
+  expect(line).not.toContain("\x1b[2J");
+  expect(getOsc8LinkAtColumn(line,0)).toBe("pi-outliner-action:tree.root.workspace");
+  expect(getOsc8LinkAtColumn(line,2)).toBe("pi-outliner-action:tree.breadcrumb.left");
+  expect(getOsc8LinkAtColumn(line,6)).toBe("pi-outliner-action:tree.breadcrumb.focus:occurrence%3Ahub%3Anote");
+  expect(getOsc8LinkAtColumn(line,31)).toBe("pi-outliner-action:tree.breadcrumb.right");
+});
+
+test("scrolled deep rows reclaim common indentation while preserving child geometry", () => {
+  const rows=Array.from({length:18},(_,i)=>block(`Title ${i} remains readable`,{depth:i,hasChildren:true}));
+  const first=renderTreeFrame(view(rows,{selectedIndex:13}),40,12,12);
+  const second=renderTreeFrame(view(rows,{selectedIndex:14}),40,12,first.scrollStartEntryIndex);
+  expect(first.scrollStartEntryIndex).toBe(12);
+  expect(second.scrollStartEntryIndex).toBe(12);
+  expect(stripTerminalSequences(first.frame)).toContain("Title 12 remains readable");
+  const targets=first.mouseTargets.filter(target=>target != null);
+  expect(targets.slice(0,3).map(target=>target!.disclosureColumn)).toEqual([2,4,6]);
+  expect(second.mouseTargets.filter(target=>target != null).slice(0,3).map(target=>target!.disclosureColumn)).toEqual([2,4,6]);
+});
+
+test("expanded-row reflow cannot flatten newly exposed shallower ancestry", () => {
+  const rows=[physical(block("deep",{depth:10,text:"word ".repeat(20),displayText:"word ".repeat(20),hasChildren:true}),{multilineExpanded:true}),physical(block("parent",{depth:1,hasChildren:true})),physical(block("child",{depth:2,hasChildren:true}))];
+  const rendered=renderTreeFrame(view(rows,{selectedIndex:0}),40,12,0);
+  const targets=rendered.mouseTargets.filter(target=>target != null);
+  const parent=targets.find(target=>target!.rowId === "parent")!;
+  const child=targets.find(target=>target!.rowId === "child")!;
+  // At the original depth the expanded note may fill the whole viewport.
+  // If reflow exposes ancestry, it must retain its hierarchy.
+  if (child) { expect(parent).toBeDefined(); expect(child.disclosureColumn-parent.disclosureColumn).toBe(2); }
+  else expect(targets.every(target=>target!.rowId === "deep")).toBe(true);
+});
+
+test("selection indentation follows occurrence depth with shallow rows still visible", () => {
+  const rows = [physical(block("shallow", {depth: 0, hasChildren: true})),
+    occurrence("query", block("deep", {depth: 1}), 8),
+    physical(block("other-root", {depth: 0, hasChildren: true}))];
+  const visible = renderTreeFrame(view(rows, {selectedIndex: 1}), 80, 12);
+  const following = renderTreeFrame(view(rows, {selectedIndex: 1, indentationMode: "selection"}), 80, 12);
+  expect(stripTerminalSequences(visible.frame)).toContain("                ◇ deep");
+  expect(stripTerminalSequences(following.frame)).toContain("  ◇ deep");
+  expect(stripTerminalSequences(following.frame)).toContain("‹ shallow");
+  expect(following.mouseTargets.find(target => target?.rowId === "shallow")?.disclosureColumn).toBe(-1);
+  expect(following.scrollStartEntryIndex).toBe(visible.scrollStartEntryIndex);
+  expect(following.mouseTargets.filter(Boolean).map(target => target!.rowId))
+    .toEqual(visible.mouseTargets.filter(Boolean).map(target => target!.rowId));
+});
+
+
+test("local Preview uses rich Detail wrapping and appears beside or below Tree",()=>{
+  const text="Readable Preview\n\n> [!note] Useful callout\n> CALLOUT BODY\n\n"+"long ".repeat(45)+"WRAPPED TAIL";
+  const localPreview={target:{kind:"block" as const,blockId:"a"},title:"Readable Preview",document:{canonicalText:text,resolvedText:text,projectedText:text,embedRanges:[],workIdPrefix:null},offset:0,focused:false};
+  for(const [width,height] of [[120,40],[80,40]]){
+    const rendered=renderTreeFrame(view([block("a")],{localPreview}),width!,height!);
+    const plain=stripTerminalSequences(rendered.frame);
+    expect(plain).toContain("CALLOUT BODY");expect(plain).toContain("WRAPPED TAIL");expect(plain).not.toContain("> [!note]");
+    expect(rendered.frame.split("\n")).toHaveLength(height!);
+    for(const line of rendered.frame.split("\n"))expect(visibleWidth(line)).toBeLessThanOrEqual(width!);
+  }
+});
+
+test.each([
+ ['PIE-181','PIE-181 — Recon','PIE-181 — Recon'],
+ ['Identical title','Identical title','Identical title'],
+ ['PIE-18','PIE-181 — Recon','PIE-18 → PIE-181 — Recon'],
+ ['Why this matters','PIE-181 — Recon','Why this matters → PIE-181 — Recon'],
+ ['Plan','Planning work','Plan → Planning work'],
+])('Outlink label %s remains concise without losing authored meaning', (label,title,expected)=>{
+ const owner=block('label-owner',{text:'Owner',displayText:'Owner'});
+ const row:import('../src/tree-rows').AuthoredLinkRow={kind:'authored-link',rowId:'link-row',parentRowId:owner.id,owner:{rowId:owner.id,blockId:owner.id},group:'outlinks',depth:1,
+  link:{kind:'outlink',key:'target',label,referenceKind:'work-id',occurrenceCount:2,firstSpan:{start:0,end:7},resolution:{kind:'ready',title,target:{kind:'block',blockId:'label-target',fragmentId:'section'}}}};
+ const visible=stripTerminalSequences(renderTreeFrame(view([owner],{rows:[physical(owner),row]}),140,12).frame);
+ expect(visible).toContain(expected+' · ^section · work-id · 2 occurrences');
+ expect(row.link.label).toBe(label);
+});
+
+
+test.each([
+  ["CONFIG ERROR", {config:null, configurationErrors:["missing query"], queried:false}, ""],
+  ["QUERY ERROR", {queryError:"query unavailable"}, ""],
+  ["CONFIG ERROR", {config:null, configurationErrors:["missing query"], queried:false}, "Moved up among siblings"],
+  ["QUERY ERROR", {queryError:"query unavailable"}, "Moved up among siblings"],
+] as Array<[string, Partial<VirtualBranchState>, string]>)("compact Tree keeps %s visible at narrow widths (status %p)", (label, error, status) => {
+  const state=branchState({...error});
+  const render=renderTreeFrame(view([block("definition")], {
+    chrome:"compact", status, branchStates:new Map([["definition",state]]),
+  }),40,8,0,{clearScreen:false});
+  const lines=render.frame.split("\n").map(stripTerminalSequences);
+  expect(lines).toHaveLength(8);
+  const errorRow=lines.findIndex(line=>line.startsWith(label+":"));
+  // One hint row at the bottom; a status flashes there rather than taking the error's row.
+  expect(errorRow).toBe(6);
+  if (status) expect(lines[7]).toBe(status);
+  expect(lines[errorRow]).not.toContain("matched root");
+  expect(visibleWidth(lines[errorRow]!)).toBeLessThanOrEqual(40);
+});
+
+test.each(["Workspace service disconnected; reconnecting…", "Failed to open target"])("compact branch errors retain concurrent safety state: %s", status => {
+  const tree=view([block("definition")],{chrome:"compact",status,
+    branchStates:new Map([["definition",branchState({queryError:"query unavailable"})]])});
+  for(const recoveryStatus of [undefined,"Retained draft needs recovery"]){
+    const lines=renderTreeFrame({...tree,recoveryStatus},60,10,0,{clearScreen:false}).frame.split("\n").map(stripTerminalSequences);
+    expect(lines).toHaveLength(10);
+    expect(lines).toContain("QUERY ERROR: query unavailable");
+    expect(lines).toContain(status);
+    if(recoveryStatus) expect(lines).toContain(recoveryStatus);
+    expect(lines[1]).toContain("definition");
+  }
+});
+
+test("short compact Tree reserves destination recovery controls ahead of lower-priority notices", () => {
+  const tree=view([block("definition")],{chrome:"compact",status:"Workspace service disconnected; reconnecting…",
+    recoveryStatus:"Destination missing",recoveryHelp:"↵ choose destination  ⎋ cancel",
+    branchStates:new Map([["definition",branchState({queryError:"query unavailable"})]])});
+  const lines=renderTreeFrame(tree,60,4,0,{clearScreen:false}).frame.split("\n").map(stripTerminalSequences);
+  expect(lines).toHaveLength(4);
+  expect(lines[1]).toContain("definition");
+  expect(lines.slice(2)).toEqual(["Destination missing","↵ choose destination  ⎋ cancel"]);
+  const taller=renderTreeFrame(tree,60,5,0,{clearScreen:false}).frame.split("\n").map(stripTerminalSequences);
+  expect(taller.slice(2)).toEqual(["Destination missing","Workspace service disconnected; reconnecting…","↵ choose destination  ⎋ cancel"]);
+  for (const cue of [{activeFilter:"lane=todo"}, {}, {visibleCompleteness:{kind:"truncated" as const,limit:100}}]) {
+    for (const height of [4,1,2,3,5,6]) {
+      const frame=renderTreeFrame({...tree,...cue},60,height,0,{clearScreen:false}).frame.split("\n").map(stripTerminalSequences);
+      expect(frame).toHaveLength(height);
+      expect(frame).toContain("↵ choose destination  ⎋ cancel");
+      if(height>=3)expect(frame.some(line=>line.includes("definition"))).toBe(true);
+      if(height>=4)expect(frame).toContain("Destination missing");
+    }
+  }
+});
+
+test("compact Tree gives a short pane back its rows and keeps overflow reachable", () => {
+  const rows = Array.from({length: 20}, (_,index) => block(`Item ${index + 1}`));
+  const compact = view(rows, {chrome:"compact", status:""});
+  const render = renderTreeFrame(compact,40,12,0,{clearScreen:false});
+  const lines = render.frame.split("\n").map(stripTerminalSequences);
+  expect(lines).toHaveLength(12);
+  expect(lines[0]).toContain("[⋯]");
+  expect(lines[1]).toContain("Item 1");
+  expect(lines[10]).toContain("Item 10");
+  expect(lines[11]).toContain("? all actions");
+  expect(lines.join("\n")).not.toContain("physical block");
+  expect(lines.join("\n")).not.toContain("Opens in:");
+  expect(render.mouseTargets[1]?.rowId).toBe("Item 1");
+  for (const width of [20,40,80]) {
+    const row = renderTreeFrame(compact,width,12,0,{clearScreen:false}).frame.split("\n")[0]!;
+    expect(visibleWidth(row)).toBeLessThanOrEqual(width);
+    expect(getOsc8LinkAtColumn(row,visibleWidth(row)-2)).toBe("pi-outliner-action:tree.menu.open");
+  }
+});
+
+test("chrome budget: compact Tree with Preview keeps one bar per pane and one shared hint row", async () => {
+  const {DocumentPreview} = await import("../src/document-preview");
+  const reader = new DocumentPreview({async request<T>(): Promise<T> { throw Error("not used"); }}, () => {});
+  await reader.loadText({kind: "block", blockId: "item-1"}, "Item 1", Promise.resolve(Array.from({length: 40}, (_, i) => `Preview line ${i + 1}`).join("\n\n")));
+  const rows = Array.from({length: 40}, (_, index) => block(`Item ${index + 1}`));
+  const previewBar = [{actionId: "tree.preview.right", text: "[▐]"}, {actionId: "tree.preview.bottom", text: "[▄]"}, {actionId: "tree.preview.auto", text: "[◙]"}, {actionId: "tree.preview.close", text: "[×]"}];
+  for (const [dock, chromeRows] of [["bottom", 3], ["right", 2]] as const) {
+    const tree = view(rows, {chrome: "compact", previewChrome: "compact", status: "", localPreview: reader.state!, previewBar,
+      previewPreferences: {enabled: true, dock, sideFraction: .5, bottomFraction: .5}});
+    const rendered = renderTreeFrame(tree, 120, 20, 0, {clearScreen: false});
+    const lines = rendered.frame.split("\n").map(stripTerminalSequences);
+    expect(lines).toHaveLength(20);
+    const content = lines.filter(line => /Item \d+|Preview line \d+/.test(line) && !line.includes("[⋯]")).length;
+    const chrome = lines.filter(line => line.includes("[⋯]") || /^─+$/.test(line) || line.startsWith("? all actions")).length;
+    expect(chrome).toBe(chromeRows);
+    expect(lines.at(-1)).toStartWith("? all actions");
+    expect(lines.some(line => line.includes("[▐][▄][◙][×][⋯]"))).toBe(true);
+    expect(content).toBeGreaterThanOrEqual(20 - chromeRows - 8);
+    expect(rendered.preview?.controls?.map(control => control.action)).toEqual(["tree.preview.right", "tree.preview.bottom", "tree.preview.auto", "tree.preview.close", "tree.preview.menu"]);
+  }
+  // A Preview notice flashes in the shared hint row instead of taking a Preview row.
+  const noticed = renderTreeFrame(view(rows, {chrome: "compact", status: "", localPreview: {...reader.state!, notice: "Copied 3 lines"}, previewBar,
+    previewPreferences: {enabled: true, dock: "bottom", sideFraction: .5, bottomFraction: .5}}), 120, 20, 0, {clearScreen: false}).frame.split("\n").map(stripTerminalSequences);
+  expect(noticed.at(-1)).toBe("Copied 3 lines");
+  expect(noticed.filter(line => line === "Copied 3 lines")).toHaveLength(1);
+});

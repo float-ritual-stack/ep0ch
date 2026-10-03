@@ -1,0 +1,1168 @@
+import { hostname, networkInterfaces } from "node:os";
+import { extname } from "node:path";
+import { Marked } from "marked";
+import type { OutlinerClient, OutlinerWatcher } from "./client";
+import type { FileContents } from "./files";
+import { MAX_TEXT_FILE_BYTES } from "./files";
+import { pageAddressReferences, tryNormalizePageAddress } from "./page-addresses";
+import { getProperty, stripPropertyTokens } from "./properties";
+import {
+  canonicalPublishRoots,
+  checkAttachment,
+  type AttachmentPolicy,
+  type PublishedFileType,
+} from "./publish-attachments";
+import { ArtifactCompiler, mermaidArtifactPage, reactArtifactPage } from "./publish-artifacts";
+import { blockReferenceOccurrences } from "./references";
+import { MAX_BLOCK_READ_IDS } from "./block-projection";
+import { codeLineSet, stripFragmentAnchors } from "./fragments";
+import { embedMatches, MAX_EMBEDS_PER_DOCUMENT, TRANSCLUSION_WORDING, type TransclusionNode, type TransclusionRead } from "./transclusions";
+import type {
+  BlockProperty,
+  BlockReadCollection,
+  OutlinerServiceStatus,
+  PageAddressResolution,
+  ProjectedBlockCollection,
+  ProjectedVisibleBlock,
+} from "./types";
+
+/**
+ * Outline as server: a read-only HTTP publisher for blocks carrying
+ * `[publish::…]`. It is a client of the service (blocks.query, files.read, the
+ * content event feed) and never writes. See README "Publishing blocks".
+ */
+
+export const PUBLISH_PROPERTY = "publish";
+export const PUBLISH_QUERY_LIMIT = 1000;
+const INDEX_MAX_AGE_MS = 5_000;
+const DISCONNECTED_MAX_AGE_MS = 1_000;
+/** At most this many distinct `[[page]]` addresses are resolved for one page; the rest show their label. */
+const PAGE_RESOLVE_LIMIT = 200;
+/** `pages.resolve` requests in flight at once, so one large page never floods the shared service. */
+const PAGE_RESOLVE_CONCURRENCY = 4;
+/** Levels the `[publish::never]` lock is looked for above a block; a deeper chain counts as locked. */
+const LOCK_WALK_LIMIT = 256;
+
+export type PublishedEntryType = PublishedFileType | "block";
+
+/**
+ * Who a listener serves. `tailnet`: every published note, the index, embeds of
+ * any note. `public` (`[publish::public]`, for anyone with the link, exposed by
+ * Tailscale Funnel): only notes tagged public, no index, and an embed of a note
+ * that isn't public shows a placeholder, never its text.
+ */
+export type PublishAudience = "tailnet" | "public";
+
+export interface PublishedEntry {
+  blockId: string;
+  title: string;
+  /** URL path below the base path, e.g. `/p/moth-garden`. */
+  path: string;
+  slug: string;
+  /** The slug the block asked for when another block holds it. */
+  collision?: { requested: string; heldBy: string };
+  type: PublishedEntryType;
+  updatedAt: string;
+  /**
+   * Set when the block is `[publish::public…]`: anyone with the link may open it
+   * on the public listener, at `publicPath`. Its title there links only public notes.
+   */
+  public?: { title: string };
+  /**
+   * Set when the block has `[file::…]`: the path as authored and why it is not
+   * served, if not. Over HTTP only a refusal is shown, never the path.
+   */
+  attachment?: { source?: string; refused?: string };
+}
+
+export interface PublishedIndex {
+  entries: PublishedEntry[];
+  truncated: boolean;
+  builtAt: string;
+}
+
+export interface PublisherOptions {
+  client: OutlinerClient;
+  /** Extra allowed attachment roots; the outline's workspace root is always one. */
+  roots?: readonly string[];
+  /** Leave the workspace root out of the allowlist (tests, or an outline rooted too broadly). */
+  excludeWorkspaceRoot?: boolean;
+  maxBytes?: number;
+  /** Where a proxy mounts the publisher (`/pub`); links carry it and requests may too. */
+  basePath?: string;
+  /**
+   * Host names requests may name besides loopback and `*.ts.net` (the tailnet
+   * names `tailscale serve` forwards). Any other Host is refused, so a web page
+   * that rebinds its own name to 127.0.0.1 cannot read what is published.
+   */
+  allowedHosts?: readonly string[];
+  /**
+   * Where React artifacts' packages and compiled bundles are cached
+   * (`<state root>/publish/artifacts` from the CLI). Without it a `.jsx`/`.tsx`
+   * attachment shows a page saying compiling is not set up.
+   */
+  artifactCacheDirectory?: string;
+  /**
+   * Where the public listener is mounted (`/share`), or the full URL anyone opens
+   * it at (`https://host.ts.net:8443/share`): its path is the base path, and the
+   * whole URL is what the index and `publish list` show for public notes.
+   */
+  publicUrl?: string;
+  log?: (line: string) => void;
+}
+
+/** What a block's `[publish::…]` asks for: not published, locked, or published (public or tailnet only), maybe at a slug. */
+export type PublishIntent = "off" | "never" | { slug?: string; public: boolean };
+
+/**
+ * `true`/`yes` publish at the page address or block id; `<slug>` at that slug;
+ * `public` and `public:<slug>` do the same and also open the note to anyone
+ * with the link; `false`/`no`/`off`/`0` or empty do not publish; `never` locks
+ * the block and everything under it (see `blockPublishIntent`).
+ */
+export function publishIntent(value: string | undefined): PublishIntent {
+  let trimmed = value?.trim() ?? "";
+  const lowered = trimmed.toLowerCase();
+  if (lowered === "never") return "never";
+  if (!trimmed || lowered === "false" || lowered === "no" || lowered === "off" || lowered === "0") return "off";
+  const isPublic = lowered === "public" || lowered.startsWith("public:");
+  if (isPublic) trimmed = trimmed.slice("public".length).replace(/^:/, "").trim();
+  const lowerRest = trimmed.toLowerCase();
+  // `public:false` or `public:never` is never read as a slug that opens the note to everyone.
+  if (isPublic && lowerRest === "never") return "never";
+  if (isPublic && (lowerRest === "false" || lowerRest === "no" || lowerRest === "off" || lowerRest === "0")) return "off";
+  if (!trimmed || lowerRest === "true" || lowerRest === "yes") return { public: isPublic };
+  const slug = slugify(trimmed);
+  return slug ? { slug, public: isPublic } : { public: isPublic };
+}
+
+/**
+ * A URL path from authored text: NFKC, lower case, `/` separates folders,
+ * anything but letters, digits, `.`, `_`, `~` and `-` becomes `-`. Segments
+ * never start or end with `.` or `-`, so `.` and `..` cannot appear.
+ */
+export function slugify(value: string): string | null {
+  const segments = value
+    .normalize("NFKC")
+    .toLowerCase()
+    .split("/")
+    .map((segment) => segment
+      .trim()
+      .replace(/[^\p{L}\p{N}._~-]+/gu, "-")
+      .replace(/-{2,}/g, "-")
+      .replace(/^[-.]+|[-.]+$/g, ""))
+    .filter(Boolean);
+  const slug = segments.join("/").slice(0, 200).replace(/[/.-]+$/, "");
+  return slug || null;
+}
+
+/**
+ * A block's publish intent from all its `[publish::…]` tokens. `never` wins
+ * over everything: the block and its whole subtree are locked, never published,
+ * embedded or linked. Otherwise, when any says false/no/off/0 the block is not
+ * published, whatever the others say. The first slug asked for is used, and
+ * the block is public when any token says `public`.
+ */
+export function blockPublishIntent(properties: readonly BlockProperty[]): PublishIntent | undefined {
+  const values = properties.filter((property) => property.key === PUBLISH_PROPERTY).map((property) => publishIntent(property.value));
+  if (!values.length) return undefined;
+  if (values.includes("never")) return "never";
+  if (values.includes("off")) return "off";
+  const published = values.filter((value): value is Exclude<PublishIntent, string> => typeof value === "object");
+  const slug = published.find((value) => value.slug)?.slug;
+  return { ...(slug ? { slug } : {}), public: published.some((value) => value.public) };
+}
+
+/** `[publish.ext::jira]` on a block or page lets that extension's blocks under it be published. */
+export const PUBLISH_EXTENSION_PROPERTY = "publish.ext";
+
+/**
+ * The extension whose data a block holds: its writer is `ext:<id>` (an
+ * extension record, such as a Jira ticket kept as a block). Real blocks go
+ * wherever the outline goes, so these are left off a published page unless
+ * the block or a block above it opts in with `[publish.ext::<id>]` (or `all`).
+ */
+export function extensionSource(block: { author?: string; actorId?: string }): string | undefined {
+  return block.author === "agent" && block.actorId?.startsWith("ext:") ? block.actorId.slice(4) || undefined : undefined;
+}
+
+/** Whether these properties opt an extension's blocks in. */
+export function publishesExtension(properties: readonly BlockProperty[], extensionId: string): boolean {
+  return properties.some((property) => property.key === PUBLISH_EXTENSION_PROPERTY &&
+    property.value.split(/[\s,]+/).some((value) => {
+      const lowered = value.trim().toLowerCase();
+      return lowered === extensionId || lowered === "all" || lowered === "true";
+    }));
+}
+
+/** What an extension's block shows in its place when it isn't opted in. */
+export const EXTENSION_HIDDEN = (extensionId: string) => `${extensionId} data, not published (add [publish.ext::${extensionId}] to publish it)`;
+
+/** Said on the index: what a published page may show besides the published blocks. */
+export const EMBED_NOTICE = "Embeds (!((note))) show the embedded note's text even when that note is not published: " +
+  "this publisher is for the tailnet. Mark a note [publish::never] to lock it and everything under it. " +
+  "A note marked [publish::public] is also open to anyone with its public link, where embeds show only public notes.";
+
+/** What a locked note shows in its place on a published page. */
+export const LOCKED_NOTE = "locked note";
+
+/** What an embed of a note that isn't public shows in its place on a public page. */
+export const NOT_SHARED_NOTE = "not shared";
+
+function requestedSlug(block: { id: string; properties?: BlockProperty[] }): string | null {
+  const intent = blockPublishIntent(block.properties ?? []) ?? "off";
+  if (intent === "off" || intent === "never") return null;
+  if (intent.slug) return intent.slug;
+  const page = getProperty(block.properties ?? [], "page");
+  const address = page ? tryNormalizePageAddress(page) : null;
+  return (address && slugify(address.displayAddress)) || block.id;
+}
+
+/**
+ * Assigns each published block its path. When blocks ask for the same slug the
+ * oldest (created first, then lowest id) keeps it; each other gets
+ * `<slug>~<first 8 of its id>` and the index shows the collision.
+ */
+export function assignPaths(blocks: readonly ProjectedVisibleBlock[]): Array<{ block: ProjectedVisibleBlock; slug: string; collision?: PublishedEntry["collision"] }> {
+  const wanted = blocks
+    .map((block) => ({ block, slug: requestedSlug(block) }))
+    .filter((entry): entry is { block: ProjectedVisibleBlock; slug: string } => entry.slug !== null)
+    .sort((left, right) =>
+      (left.block.createdAt ?? "").localeCompare(right.block.createdAt ?? "") || left.block.id.localeCompare(right.block.id));
+  const holders = new Map<string, string>();
+  return wanted.map(({ block, slug }) => {
+    const holder = holders.get(slug);
+    if (holder === undefined) {
+      holders.set(slug, block.id);
+      return { block, slug };
+    }
+    const alternate = `${slug}~${block.id.slice(0, 8)}`;
+    holders.set(alternate, block.id);
+    return { block, slug: alternate, collision: { requested: slug, heldBy: holder } };
+  });
+}
+
+function escapeHtml(text: string): string {
+  return text.replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]!);
+}
+
+const SAFE_HREF = /^(?:https?:|mailto:|\/|#|\.{0,2}\/|[^:]*$)/i;
+
+/** Markdown to HTML with authored raw HTML shown as text and only safe link schemes. */
+const markdownRenderer = new Marked({
+  gfm: true,
+  renderer: {
+    html({ text }) {
+      return escapeHtml(text);
+    },
+    link({ href, title, tokens }) {
+      const label = this.parser.parseInline(tokens);
+      if (!SAFE_HREF.test(href)) return label;
+      return `<a href="${escapeHtml(href)}"${title ? ` title="${escapeHtml(title)}"` : ""}>${label}</a>`;
+    },
+    image({ href, title, text }) {
+      if (!SAFE_HREF.test(href)) return escapeHtml(text);
+      return `<img src="${escapeHtml(href)}" alt="${escapeHtml(text)}"${title ? ` title="${escapeHtml(title)}"` : ""}>`;
+    },
+  },
+});
+
+export function renderMarkdownHtml(markdown: string): string {
+  return markdownRenderer.parse(markdown, { async: false }) as string;
+}
+
+const PAGE_STYLE = `
+:root{color-scheme:light dark;--bg:#fbfaf7;--fg:#1d1d1b;--dim:#6b6a64;--rule:#dcd9cf;--link:#1a55a8}
+@media (prefers-color-scheme:dark){:root{--bg:#111110;--fg:#e8e6df;--dim:#9a988f;--rule:#34332f;--link:#8fb8ff}}
+body{margin:0;background:var(--bg);color:var(--fg);font:17px/1.6 ui-serif,Georgia,serif}
+main{max-width:46rem;margin:0 auto;padding:2rem 1rem 4rem}
+a{color:var(--link)}
+header.bar,footer{font:13px/1.5 ui-monospace,Menlo,monospace;color:var(--dim)}
+header.bar{border-bottom:1px solid var(--rule);padding-bottom:.5rem;margin-bottom:1.5rem}
+footer{border-top:1px solid var(--rule);margin-top:3rem;padding-top:.5rem}
+pre,code{font:14px/1.45 ui-monospace,Menlo,monospace}
+pre{overflow-x:auto;padding:.75rem;border:1px solid var(--rule)}
+table{border-collapse:collapse;width:100%;font:14px/1.5 ui-monospace,Menlo,monospace}
+th,td{text-align:left;padding:.25rem .75rem .25rem 0;border-bottom:1px solid var(--rule);vertical-align:top}
+th{color:var(--dim);font-weight:normal}
+.dim{color:var(--dim)}
+img{max-width:100%}
+`;
+
+function htmlPage(title: string, body: string, nav: string): string {
+  return `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${escapeHtml(title)}</title><style>${PAGE_STYLE}</style></head>
+<body><main><header class="bar">${nav}</header>
+${body}
+</main></body></html>
+`;
+}
+
+const COMMON_HEADERS = {
+  "cache-control": "no-store",
+  "x-content-type-options": "nosniff",
+  "referrer-policy": "no-referrer",
+};
+/** Pages the publisher renders itself run no script and embed nothing but images. */
+const RENDERED_CSP = "default-src 'none'; style-src 'unsafe-inline'; img-src * data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+/**
+ * An attached `.html` file runs as authored, but in a sandbox without
+ * `allow-same-origin`: its scripts get an opaque origin, so they cannot read
+ * other pages on the same host (the tailnet name also serves other mounts) or
+ * this publisher's index with the viewer's credentials.
+ */
+const ATTACHED_HTML_CSP = "sandbox allow-scripts allow-popups allow-popups-to-escape-sandbox allow-forms allow-modals allow-downloads";
+
+function respond(body: string, contentType: string, status = 200, extra: Record<string, string> = {}): Response {
+  return new Response(body, { status, headers: { ...COMMON_HEADERS, "content-type": contentType, ...extra } });
+}
+
+function renderedHtml(body: string, status = 200): Response {
+  return respond(body, "text/html; charset=utf-8", status, { "content-security-policy": RENDERED_CSP });
+}
+
+function notFound(): Response {
+  return respond("Not published\n", "text/plain; charset=utf-8", 404);
+}
+
+/** Every public response also asks search engines not to list it: the link is the invitation. */
+const PUBLIC_HEADERS = { "x-robots-tag": "noindex, nofollow" };
+
+function withHeaders(response: Response, headers: Record<string, string>): Response {
+  for (const [name, value] of Object.entries(headers)) response.headers.set(name, value);
+  return response;
+}
+
+function isPublicIntent(properties: readonly BlockProperty[] | undefined): boolean {
+  const intent = blockPublishIntent(properties ?? []);
+  return typeof intent === "object" && intent.public;
+}
+
+/**
+ * The index one audience sees: the tailnet sees everything published; the
+ * public sees only public notes, each under its public title (which links
+ * only other public notes).
+ */
+export function audienceIndex(index: PublishedIndex, audience: PublishAudience): PublishedIndex {
+  if (audience === "tailnet") return index;
+  return {
+    ...index,
+    entries: index.entries.flatMap((entry) => entry.public ? [{ ...entry, title: entry.public.title }] : []),
+  };
+}
+
+/** `--public-url`: a path (`/share`) or a full URL whose path is the mount. */
+export function parsePublicUrl(value: string | undefined): { basePath: string; origin?: string } {
+  const trimmed = (value ?? "").trim();
+  if (!trimmed) return { basePath: DEFAULT_PUBLIC_BASE_PATH };
+  if (trimmed.startsWith("/")) return { basePath: normalizeBasePath(trimmed) || DEFAULT_PUBLIC_BASE_PATH };
+  let url: URL;
+  try {
+    url = new URL(trimmed);
+  } catch {
+    throw new Error(`--public-url must be a path such as /share or a URL such as https://host.ts.net:8443/share: ${value}`);
+  }
+  if (url.protocol !== "https:" && url.protocol !== "http:") throw new Error(`--public-url must be http(s): ${value}`);
+  return { basePath: normalizeBasePath(url.pathname) || DEFAULT_PUBLIC_BASE_PATH, origin: url.origin };
+}
+
+/**
+ * The one address the public listener may bind: loopback, or an address one of
+ * this machine's interfaces has (its tailnet address, for a proxy elsewhere on
+ * the tailnet). Anything else, including every spelling of "all interfaces"
+ * (`0.0.0.0`, `::`, `::0`, `00.0.0.0`), is refused, so the listener is never on
+ * the LAN by accident.
+ */
+export function checkPublicBind(address: string, interfaces = networkInterfaces()): string {
+  const wanted = address.trim().toLowerCase();
+  const own = new Set(Object.values(interfaces).flatMap((list) => (list ?? []).map((entry) => entry.address.toLowerCase())));
+  if (wanted === "127.0.0.1" || wanted === "::1" || own.has(wanted)) return wanted;
+  throw new Error(`--public-bind must be 127.0.0.1, ::1 or one of this machine's own addresses (such as its tailnet address), never every interface: ${address}`);
+}
+
+/** Where the public listener is mounted when nothing says otherwise. */
+export const DEFAULT_PUBLIC_BASE_PATH = "/share";
+
+export class Publisher {
+  private readonly client: OutlinerClient;
+  readonly basePath: string;
+  /** The public listener's mount (`/share`) and, when known, the origin anyone opens it at. */
+  readonly publicBase: { basePath: string; origin?: string };
+  private readonly maxBytes: number;
+  private readonly log: (line: string) => void;
+  private readonly allowedHosts: ReadonlySet<string>;
+  /** The `--public-url` host: answered on the public listener only. */
+  private readonly publicHost: string | undefined;
+  private policy: AttachmentPolicy | null = null;
+  private readonly compiler: ArtifactCompiler | null;
+  private index: { value: PublishedIndex; at: number } | null = null;
+  private building: Promise<PublishedIndex> | null = null;
+  private watcher: OutlinerWatcher | null = null;
+  private connected = false;
+  /** Advanced by every content change; an index built across a change is not cached. */
+  private generation = 0;
+
+  constructor(private readonly options: PublisherOptions) {
+    this.client = options.client;
+    this.basePath = normalizeBasePath(options.basePath);
+    this.publicBase = parsePublicUrl(options.publicUrl);
+    this.maxBytes = Math.min(options.maxBytes ?? MAX_TEXT_FILE_BYTES, MAX_TEXT_FILE_BYTES);
+    this.log = options.log ?? (() => {});
+    this.allowedHosts = new Set((options.allowedHosts ?? []).map((host) => host.trim().toLowerCase()).filter(Boolean));
+    // The name anyone opens the public listener at (a custom domain behind Caddy, say) is a Host it answers.
+    this.publicHost = this.publicBase.origin ? new URL(this.publicBase.origin).hostname.toLowerCase() : undefined;
+    this.compiler = options.artifactCacheDirectory
+      ? new ArtifactCompiler({ cacheDirectory: options.artifactCacheDirectory, log: this.log })
+      : null;
+  }
+
+  /** Loopback, a tailnet name, or a host the operator allowed; the port is ignored. */
+  private hostAllowed(header: string | null, audience: PublishAudience): boolean {
+    if (!header) return false;
+    let host: string;
+    try {
+      host = new URL(`http://${header}`).hostname.toLowerCase();
+    } catch {
+      return false;
+    }
+    return host === "127.0.0.1" || host === "localhost" || host === "[::1]" ||
+      host.endsWith(".ts.net") || this.allowedHosts.has(host) || (audience === "public" && host === this.publicHost);
+  }
+
+  /**
+   * Learns the outline's workspace root from `ping` and subscribes to the
+   * content feed as an observer: any committed change drops the cached index,
+   * so unpublishing takes effect on the next request.
+   */
+  async start(): Promise<OutlinerServiceStatus> {
+    const status = await this.client.requireCompatibleService();
+    const roots = [...(this.options.roots ?? [])];
+    const location = status.location;
+    // Attachments are checked on this machine's filesystem and read by the service from its own:
+    // the check means nothing unless both are the same machine.
+    const local = location !== undefined && location.hostname === hostname();
+    if (local && !this.options.excludeWorkspaceRoot) roots.unshift(location.workspaceRoot);
+    if (!local) this.log(`publish: the service runs on ${location?.hostname ?? "an unknown machine"}, not here; attachments are not served`);
+    const canonical = canonicalPublishRoots(roots);
+    for (const problem of canonical.problems) this.log(`publish: ${problem}`);
+    this.policy = {
+      roots: canonical.roots,
+      workspaceRoot: local ? location.workspaceRoot : process.cwd(),
+      maxBytes: this.maxBytes,
+      ...(local ? {} : { remoteService: true }),
+    };
+    const connected = Promise.withResolvers<void>();
+    this.watcher = this.client.watch({
+      client: { clientId: `publish-${crypto.randomUUID()}`, role: "observer", contextId: "publish" },
+      onConnect: () => {
+        this.connected = true;
+        this.invalidate();
+        connected.resolve();
+      },
+      onDisconnect: () => {
+        this.connected = false;
+      },
+      onEvent: (event) => {
+        if (event.domain === "content") this.invalidate();
+      },
+      onError: (error) => this.log(`publish: change feed: ${error.message}`),
+    });
+    await Promise.race([connected.promise, Bun.sleep(3_000)]);
+    return status;
+  }
+
+  private invalidate(): void {
+    this.generation += 1;
+    this.index = null;
+  }
+
+  async stop(): Promise<void> {
+    await this.watcher?.stop();
+    this.watcher = null;
+  }
+
+  get roots(): readonly string[] {
+    return this.policy?.roots ?? [];
+  }
+
+  private requirePolicy(): AttachmentPolicy {
+    if (!this.policy) throw new Error("Publisher has not started");
+    return this.policy;
+  }
+
+  /** The published set, rebuilt after any content change (or after a few seconds, for attachment files). */
+  async readIndex(): Promise<PublishedIndex> {
+    const maxAge = this.connected ? INDEX_MAX_AGE_MS : DISCONNECTED_MAX_AGE_MS;
+    if (this.index && Date.now() - this.index.at < maxAge) return this.index.value;
+    this.building ??= this.buildIndex().finally(() => { this.building = null; });
+    return this.building;
+  }
+
+  private async buildIndex(): Promise<PublishedIndex> {
+    const started = Date.now();
+    const generation = this.generation;
+    const collection = await this.client.request<ProjectedBlockCollection>({
+      action: "blocks.query",
+      query: { filters: [{ key: PUBLISH_PROPERTY }], propertyScope: "block", limit: PUBLISH_QUERY_LIMIT },
+      fields: ["title", "properties", "timestamps"],
+    });
+    const policy = this.requirePolicy();
+    // A block under a `[publish::never]` note is locked with it, whatever it says itself.
+    const wanted = collection.blocks.filter((block) => requestedSlug(block) !== null);
+    const locked = await this.lockedIds(wanted.map((block) => block.id));
+    const assigned = assignPaths(wanted.filter((block) => !locked.has(block.id)));
+    const rawTitles = new Map(assigned.map(({ block }) => [block.id, block.title ?? ""]));
+    // A public note's title links only other public notes, so it never names a tailnet-only one.
+    const publicTitles = new Map(assigned.filter(({ block }) => isPublicIntent(block.properties)).map(({ block }) => [block.id, block.title ?? ""]));
+    const entries = assigned.map(({ block, slug, collision }): PublishedEntry => {
+      const source = getProperty(block.properties ?? [], "file");
+      const check = source === undefined ? undefined : checkAttachment(source, policy);
+      const served = check?.ok ? check : undefined;
+      return {
+        blockId: block.id,
+        title: publishedTitle(block.title ?? "", rawTitles) || block.id,
+        path: `/p/${slug}`,
+        slug,
+        ...(collision ? { collision } : {}),
+        type: served ? served.type : "block",
+        updatedAt: served && served.updatedAt > (block.updatedAt ?? "") ? served.updatedAt : block.updatedAt ?? "",
+        ...(publicTitles.has(block.id) ? { public: { title: publishedTitle(block.title ?? "", publicTitles) || block.id } } : {}),
+        ...(source === undefined ? {} : { attachment: { source, ...(check && !check.ok ? { refused: check.reason } : {}) } }),
+      };
+    }).sort((left, right) => left.path.localeCompare(right.path));
+    const value = { entries, truncated: collection.completeness.kind === "truncated", builtAt: new Date().toISOString() };
+    // A change during the build leaves the index uncached, so the next request sees it.
+    if (generation === this.generation) this.index = { value, at: started };
+    return value;
+  }
+
+  /** The full public URL of an entry, or its public path when the public origin is not known. */
+  publicHref(entry: PublishedEntry): string | undefined {
+    return entry.public ? `${this.publicBase.origin ?? ""}${this.publicBase.basePath}${entry.path}` : undefined;
+  }
+
+  private basePathFor(audience: PublishAudience): string {
+    return audience === "public" ? this.publicBase.basePath : this.basePath;
+  }
+
+  /**
+   * Answers one HTTP request. Only GET and HEAD; only the index and published
+   * entries. The public audience has no index and sees only public notes.
+   */
+  async handle(request: Request, audience: PublishAudience = "tailnet"): Promise<Response> {
+    const response = await this.answer(request, audience);
+    return audience === "public" ? withHeaders(response, PUBLIC_HEADERS) : response;
+  }
+
+  private async answer(request: Request, audience: PublishAudience): Promise<Response> {
+    if (request.method !== "GET" && request.method !== "HEAD") {
+      return respond("Read-only\n", "text/plain; charset=utf-8", 405, { allow: "GET, HEAD" });
+    }
+    if (!this.hostAllowed(request.headers.get("host") ?? new URL(request.url).host, audience)) {
+      return respond("Host not allowed\n", "text/plain; charset=utf-8", 421);
+    }
+    const url = new URL(request.url);
+    const basePath = this.basePathFor(audience);
+    let path = url.pathname;
+    if (basePath && (path === basePath || path.startsWith(`${basePath}/`))) {
+      path = path.slice(basePath.length) || "/";
+    }
+    try {
+      // The public listener has no index: a public note is reached by its link alone.
+      if (audience === "public" && !path.startsWith("/p/")) return notFound();
+      if (path === "/" || path === "" || path === "/index" || path === "/index.html") {
+        const accept = request.headers.get("accept") ?? "";
+        if (path !== "/index.html" && accept.includes("text/plain") && !accept.includes("text/html")) {
+          return respond(renderIndexText(await this.readIndex(), this.basePath, this.publicHrefs()), "text/plain; charset=utf-8");
+        }
+        return renderedHtml(renderIndexHtml(await this.readIndex(), this.basePath, this.publicHrefs()));
+      }
+      if (path === "/index.txt") return respond(renderIndexText(await this.readIndex(), this.basePath, this.publicHrefs()), "text/plain; charset=utf-8");
+      if (path === "/index.json") return respond(`${JSON.stringify(readerIndex(await this.readIndex()), null, 2)}\n`, "application/json; charset=utf-8");
+      if (!path.startsWith("/p/")) return notFound();
+      let slug: string;
+      try {
+        slug = decodeURIComponent(path.slice(3)).replace(/\/+$/, "");
+      } catch {
+        return notFound();
+      }
+      const index = audienceIndex(await this.readIndex(), audience);
+      const entry = index.entries.find((candidate) => candidate.slug === slug) ??
+        index.entries.find((candidate) => candidate.blockId === slug);
+      if (!entry) return notFound();
+      return await this.serveEntry(entry, index, url.searchParams.get("view"), audience);
+    } catch (error) {
+      this.log(`publish: ${request.method} ${path}: ${error instanceof Error ? error.message : String(error)}`);
+      return respond("The outline could not be read\n", "text/plain; charset=utf-8", 502);
+    }
+  }
+
+  private publicHrefs(): (entry: PublishedEntry) => string | undefined {
+    return (entry) => this.publicHref(entry);
+  }
+
+  private async serveEntry(entry: PublishedEntry, index: PublishedIndex, view: string | null, audience: PublishAudience): Promise<Response> {
+    const asHtml = view === "html";
+    // The lock is checked again at request time, so `[publish::never]` holds from the next request
+    // even before the change feed has cleared the cached index.
+    if ((await this.lockedIds([entry.blockId])).size) return notFound();
+    // So is `public`: a note made tailnet-only again leaves the public listener at once.
+    if (audience === "public" && !(await this.stillPublic(entry.blockId))) return notFound();
+    if (entry.type !== "block" && entry.attachment?.source !== undefined) {
+      // Check again at request time: the file or a link in its path may have changed since the index.
+      const check = checkAttachment(entry.attachment.source, this.requirePolicy());
+      if (!check.ok) return respond("Attachment not served\n", "text/plain; charset=utf-8", 403);
+      const contents = await this.client.request<FileContents>({ action: "files.read", path: check.path });
+      if (contents.absolutePath !== check.path || contents.revision.size !== String(check.size) ||
+        contents.revision.mtimeNs !== check.mtimeNs) {
+        return respond("Attachment changed while it was read; try again\n", "text/plain; charset=utf-8", 409);
+      }
+      if (check.type === "html") {
+        return respond(contents.text, "text/html; charset=utf-8", 200, { "content-security-policy": ATTACHED_HTML_CSP });
+      }
+      // An artifact's source, as claude.ai's "code" tab shows it.
+      if (view === "source" && (check.type === "react" || check.type === "svg" || check.type === "mermaid")) {
+        return respond(contents.text, "text/plain; charset=utf-8");
+      }
+      if (check.type === "svg") {
+        return respond(contents.text, "image/svg+xml; charset=utf-8", 200, { "content-security-policy": ATTACHED_HTML_CSP });
+      }
+      if (check.type === "mermaid") {
+        return respond(mermaidArtifactPage(entry.title, contents.text), "text/html; charset=utf-8", 200, { "content-security-policy": ATTACHED_HTML_CSP });
+      }
+      if (check.type === "react") return this.serveReact(entry, contents.text, extname(check.path).toLowerCase() === ".tsx" ? ".tsx" : ".jsx", audience);
+      if (check.type === "markdown") {
+        if (asHtml) return renderedHtml(this.page(entry, renderMarkdownHtml(await this.attachedMarkdown(entry, index, contents.text, audience)), audience));
+        // Raw, the public audience gets the file with its links and embeds resolved, so the ids
+        // of notes that aren't public never leave in `((…))` as written.
+        if (audience === "public") {
+          return respond(`${await this.attachedMarkdown(entry, index, contents.text, audience)}\n`, "text/markdown; charset=utf-8", 200, { "content-disposition": "inline" });
+        }
+        return respond(contents.text, "text/markdown; charset=utf-8", 200, { "content-disposition": "inline" });
+      }
+      return respond(contents.text, "text/plain; charset=utf-8");
+    }
+    const markdown = await this.blockMarkdown(entry, index, audience);
+    if (asHtml) return renderedHtml(this.page(entry, renderMarkdownHtml(markdown), audience));
+    return respond(markdown, "text/markdown; charset=utf-8", 200, { "content-disposition": "inline" });
+  }
+
+  /**
+   * A React artifact compiled to one page, run in the same sandbox as attached
+   * HTML. A compile error is a readable page (422) naming the artifact's line,
+   * never a stack trace or a path on this machine.
+   */
+  private async serveReact(entry: PublishedEntry, source: string, extension: ".jsx" | ".tsx", audience: PublishAudience): Promise<Response> {
+    if (!this.compiler) {
+      return renderedHtml(this.page(entry, "<h1>Not compiled</h1>\n<p>This publisher has no artifact cache, so React artifacts are not compiled.</p>\n", audience), 503);
+    }
+    const build = await this.compiler.compile(source, extension);
+    if (build.ok) {
+      return respond(reactArtifactPage(entry.title, build.script), "text/html; charset=utf-8", 200, { "content-security-policy": ATTACHED_HTML_CSP });
+    }
+    const problems = build.problems.map((problem) => `<pre>${escapeHtml(problem)}</pre>`).join("\n");
+    const status = build.transient ? 503 : 422;
+    const body = `<h1>${build.transient ? "Not compiled yet" : "This artifact does not compile"}</h1>\n${problems}\n` +
+      `<p class="dim">Fix the file and reload; <a href="${escapeHtml(`${this.basePathFor(audience)}${entry.path}?view=source`)}">source</a>.</p>\n`;
+    return renderedHtml(this.page(entry, body, audience), status);
+  }
+
+  private page(entry: PublishedEntry, body: string, audience: PublishAudience): string {
+    const href = (path: string) => escapeHtml(`${this.basePathFor(audience)}${path}`);
+    // The public listener has no index to link to.
+    const nav = audience === "public" ? escapeHtml(entry.slug) : `<a href="${href("/index")}">index</a> / ${escapeHtml(entry.slug)}`;
+    return htmlPage(entry.title, `<article>\n${body}</article>\n<footer>updated ${escapeHtml(entry.updatedAt)} · <a href="${href(entry.path)}">raw</a></footer>`, nav);
+  }
+
+  /** Whether the block still says `[publish::public…]` now, not just when the index was built. */
+  private async stillPublic(blockId: string): Promise<boolean> {
+    return (await this.publicNow([blockId])).has(blockId);
+  }
+
+  /** Which of `ids` say `[publish::public…]` now: read at request time, as the lock is. */
+  private async publicNow(ids: readonly string[]): Promise<Set<string>> {
+    const unique = [...new Set(ids)];
+    const result = new Set<string>();
+    for (let start = 0; start < unique.length; start += MAX_BLOCK_READ_IDS) {
+      const read = await this.client.request<BlockReadCollection>({
+        action: "blocks.read", ids: unique.slice(start, start + MAX_BLOCK_READ_IDS), fields: ["properties"],
+      });
+      for (const block of read.blocks) if (isPublicIntent(block.properties)) result.add(block.id);
+    }
+    return result;
+  }
+
+  /**
+   * Which of `ids` are locked: the block or any ancestor carries
+   * `[publish::never]`. Walks up one level per request, all ids together. A
+   * chain it cannot finish counts as locked.
+   */
+  private async lockedIds(ids: readonly string[]): Promise<Set<string>> {
+    const known = new Map<string, { parentId: string | null; never: boolean } | null>();
+    let frontier = [...new Set(ids)];
+    for (let level = 0; frontier.length && level < LOCK_WALK_LIMIT; level++) {
+      for (let start = 0; start < frontier.length; start += MAX_BLOCK_READ_IDS) {
+        const read = await this.client.request<BlockReadCollection>({
+          action: "blocks.read", ids: frontier.slice(start, start + MAX_BLOCK_READ_IDS), fields: ["parent", "properties"],
+        });
+        for (const block of read.blocks) {
+          known.set(block.id, { parentId: block.parentId ?? null, never: blockPublishIntent(block.properties ?? []) === "never" });
+        }
+        // A missing or trashed block is never shown, so it locks nothing and unlocks nothing.
+        for (const unavailable of read.unavailable) known.set(unavailable.id, null);
+      }
+      frontier = [...new Set([...known.values()]
+        .map((entry) => entry?.parentId)
+        .filter((parentId): parentId is string => !!parentId && !known.has(parentId)))];
+    }
+    const decided = new Map<string, boolean>();
+    const isLocked = (id: string, depth = 0): boolean => {
+      const cached = decided.get(id);
+      if (cached !== undefined) return cached;
+      if (!known.has(id) || depth > LOCK_WALK_LIMIT) return true;
+      const entry = known.get(id);
+      const value = !!entry && (entry.never || (entry.parentId !== null && isLocked(entry.parentId, depth + 1)));
+      decided.set(id, value);
+      return value;
+    };
+    return new Set(ids.filter((id) => isLocked(id)));
+  }
+
+  /** `[[page]]` addresses in `texts` resolved through the service's page registry, a few at a time. */
+  private async resolvePages(texts: readonly string[]): Promise<Map<string, string>> {
+    const addresses = [...new Set(texts.flatMap((text) =>
+      pageAddressReferences(text).map((reference) => reference.normalizedAddress)))].slice(0, PAGE_RESOLVE_LIMIT);
+    const pages = new Map<string, string>();
+    // A few at a time: a large page must not open hundreds of connections to the shared service.
+    // A link that cannot be resolved shows its label, as an unpublished one does.
+    let next = 0;
+    await Promise.all(Array.from({ length: Math.min(PAGE_RESOLVE_CONCURRENCY, addresses.length) }, async () => {
+      while (next < addresses.length) {
+        const address = addresses[next++]!;
+        try {
+          const resolution = await this.client.request<PageAddressResolution>({ action: "pages.resolve", address });
+          if (resolution.status === "resolved" && resolution.block) pages.set(address, resolution.block.id);
+        } catch (error) {
+          this.log(`publish: pages.resolve: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+    }));
+    return pages;
+  }
+
+  /**
+   * The embeds in `texts` (in the order a page shows them), projected by the
+   * service's `transclusions.read` as one document: its depth, per-document
+   * count, byte budget, cycle and Trash rules apply. Then every embedded note
+   * that is locked is found, so it shows as a locked note.
+   */
+  private async readEmbeds(texts: readonly string[], hostBlockId: string, shareable?: ShareableNotes): Promise<EmbedExpansion | undefined> {
+    const targets = texts.flatMap((text) => embedMatches(text)
+      .map((match) => ({ blockId: match[1]!, ...(match[2] ? { fragmentId: match[2] } : {}) })));
+    if (!targets.length) return undefined;
+    const read = await this.client.request<TransclusionRead>({
+      action: "transclusions.read", targets: targets.slice(0, MAX_EMBEDS_PER_DOCUMENT + 1), hostBlockId,
+    });
+    const ids = new Set<string>();
+    const visit = (node: TransclusionNode) => {
+      if (node.status === "ready") ids.add(node.blockId);
+      for (const inner of node.embeds ?? []) visit(inner);
+    };
+    for (const node of read.results) visit(node);
+    const extensionBlocks = new Map([...ids].flatMap((id) => {
+      const extension = read.blocks[id] ? extensionSource(read.blocks[id]!) : undefined;
+      return extension ? [[id, extension] as const] : [];
+    }));
+    // A public note embedded here is read again: the index may be seconds old, and `public` holds per request.
+    const confirmed = shareable
+      ? new Set([...shareable.shown, ...await this.publicNow([...ids].filter((id) => shareable.published.has(id) && !shareable.shown.has(id)))])
+      : undefined;
+    return {
+      read,
+      ...(confirmed ? { shareable: confirmed } : {}),
+      locked: ids.size ? await this.lockedIds([...ids]) : new Set(),
+      ...(extensionBlocks.size ? { extensionHidden: await this.extensionHiddenIds(extensionBlocks, hostBlockId) } : {}),
+      cursor: { next: 0 },
+    };
+  }
+
+  /**
+   * Which embedded extension blocks stay hidden: those with no
+   * `[publish.ext::<id>]` on themselves, their ancestors or the page that
+   * embeds them. Walks up one level per request, as `lockedIds` does.
+   */
+  private async extensionHiddenIds(blocks: ReadonlyMap<string, string>, hostBlockId: string): Promise<Map<string, string>> {
+    // The page that embeds them, and every block above it, may opt in.
+    const chain = async (start: string) => {
+      const properties: BlockProperty[][] = [];
+      let frontier: string | null = start;
+      for (let level = 0; frontier && level < LOCK_WALK_LIMIT; level++) {
+        const read: BlockReadCollection = await this.client.request<BlockReadCollection>({
+          action: "blocks.read", ids: [frontier], fields: ["parent", "properties"],
+        });
+        const block = read.blocks[0];
+        if (!block) break;
+        properties.push(block.properties ?? []);
+        frontier = block.parentId ?? null;
+      }
+      return properties;
+    };
+    const host = await chain(hostBlockId);
+    const hidden = new Map<string, string>();
+    for (const [id, extension] of blocks) {
+      const opted = host.some((properties) => publishesExtension(properties, extension)) ||
+        (await chain(id)).some((properties) => publishesExtension(properties, extension));
+      if (!opted) hidden.set(id, extension);
+    }
+    return hidden;
+  }
+
+
+  /**
+   * The index as this page may link it: a target locked since the index was
+   * built (the change feed has not caught up yet) is not linked.
+   */
+  private async linkable(index: PublishedIndex, texts: readonly string[], pages: ReadonlyMap<string, string>, embeds?: EmbedExpansion, audience: PublishAudience = "tailnet"): Promise<PublishedIndex> {
+    const published = new Set(index.entries.map((entry) => entry.blockId));
+    const embedded = embeds ? Object.values(embeds.read.blocks).map((block) => block.text) : [];
+    const targets = new Set([
+      ...[...texts, ...embedded].flatMap((text) => [...blockReferenceOccurrences(text)].map((occurrence) => occurrence.blockId)),
+      ...pages.values(),
+    ].filter((id) => published.has(id)));
+    if (!targets.size) return index;
+    const locked = await this.lockedIds([...targets]);
+    // On a public page a link target must still be public now, not only when the index was built.
+    const stillPublic = audience === "public" ? await this.publicNow([...targets]) : undefined;
+    const stale = new Set(stillPublic ? [...targets].filter((id) => !stillPublic.has(id)) : []);
+    return locked.size || stale.size
+      ? { ...index, entries: index.entries.filter((entry) => !locked.has(entry.blockId) && !stale.has(entry.blockId)) }
+      : index;
+  }
+
+  /**
+   * For the public audience: the notes an embed may show, the public notes and
+   * the rows this page shows anyway. Any other embed shows NOT_SHARED_NOTE.
+   */
+  private shareable(audience: PublishAudience, index: PublishedIndex, shownIds: readonly string[] = []): ShareableNotes | undefined {
+    return audience === "public"
+      ? { published: new Set(index.entries.map((entry) => entry.blockId)), shown: new Set(shownIds) }
+      : undefined;
+  }
+
+  /** The block and its subtree as markdown, with its links and embeds. */
+  private async blockMarkdown(entry: PublishedEntry, index: PublishedIndex, audience: PublishAudience): Promise<string> {
+    const subtree = await this.client.request<ProjectedBlockCollection>({
+      action: "blocks.query",
+      query: { subtreeRootId: entry.blockId, limit: PUBLISH_QUERY_LIMIT },
+      fields: ["text", "parent", "properties", "author"],
+    });
+    const rows = shownSubtree(subtree).filter((row) => !row.locked);
+    const shown = rows.map((row) => row.block.text ?? "");
+    const pages = await this.resolvePages(shown);
+    const embeds = await this.readEmbeds(shown, entry.blockId, this.shareable(audience, index, rows.map((row) => row.block.id)));
+    return renderSubtreeMarkdown(subtree, await this.linkable(index, shown, pages, embeds, audience), this.basePathFor(audience), pages, embeds);
+  }
+
+  /** An attached markdown file rendered: its `((block))` and `[[page]]` links and its embeds, as a block's. */
+  private async attachedMarkdown(entry: PublishedEntry, index: PublishedIndex, text: string, audience: PublishAudience): Promise<string> {
+    const pages = await this.resolvePages([text]);
+    const embeds = await this.readEmbeds([text], entry.blockId, this.shareable(audience, index, [entry.blockId]));
+    const linkable = await this.linkable(index, [text], pages, embeds, audience);
+    return publishedText(text, { index: linkable, basePath: this.basePathFor(audience), pages, ...(embeds ? { embeds } : {}) }, { keepProperties: true });
+  }
+}
+
+function normalizeBasePath(value: string | undefined): string {
+  const trimmed = (value ?? "").trim().replace(/\/+$/, "");
+  if (!trimmed) return "";
+  if (!/^\/[A-Za-z0-9._~/-]*$/.test(trimmed) || trimmed.split("/").some((segment) => segment === "..")) {
+    throw new Error(`--base-path must be a URL path such as /pub: ${value}`);
+  }
+  return trimmed;
+}
+
+/** For a public page: the public notes in the index, and the rows the page shows anyway. */
+interface ShareableNotes {
+  published: ReadonlySet<string>;
+  shown: ReadonlySet<string>;
+}
+
+/** Embeds on one published page: the service's projection, which of its notes are locked, and how many are used. */
+export interface EmbedExpansion {
+  read: TransclusionRead;
+  locked: ReadonlySet<string>;
+  /** Embedded extension blocks nothing opted in, by id, with their extension. */
+  extensionHidden?: ReadonlyMap<string, string>;
+  /**
+   * On a public page: the only notes an embed may show. Any other ready embed
+   * shows NOT_SHARED_NOTE, never its text, title or id.
+   */
+  shareable?: ReadonlySet<string>;
+  cursor: { next: number };
+}
+
+interface TextContext {
+  index: PublishedIndex;
+  basePath: string;
+  pages: ReadonlyMap<string, string>;
+  embeds?: EmbedExpansion;
+}
+
+/** Where a text's embeds come from: the page's top-level projection in order, or an embedded note's own. */
+interface EmbedSource {
+  nodes: readonly TransclusionNode[];
+  cursor: { next: number };
+  /** The whole note a fragment's text was sliced from, and its first line there (code is judged in the note). */
+  note?: string;
+  firstLine?: number;
+}
+
+function lineOf(text: string, offset: number): number {
+  let line = 0;
+  for (let at = text.indexOf("\n"); at >= 0 && at < offset; at = text.indexOf("\n", at + 1)) line++;
+  return line;
+}
+
+/** Markdown emphasis for a fixed placeholder such as "locked note". */
+const placeholder = (text: string) => `*${text}*`;
+
+/** An embedded note (or why it is not shown) as markdown, before it is quoted. */
+function renderEmbed(node: TransclusionNode | undefined, context: TextContext): string {
+  const expansion = context.embeds!;
+  if (!node) return placeholder(TRANSCLUSION_WORDING.limit);
+  // On a public page an embed of a note that isn't public names nothing from it, whatever its state.
+  if (expansion.shareable && !expansion.shareable.has(node.blockId)) return placeholder(NOT_SHARED_NOTE);
+  if (node.status !== "ready") {
+    // Wording that names nothing from the target: a trashed note's title is not shown.
+    if (node.status === "deleted") return placeholder("note in Trash");
+    if (node.status === "missing") return placeholder("missing note");
+    if (node.status === "failed") return placeholder("embed failed");
+    return placeholder(node.message ?? "not shown");
+  }
+  if (expansion.locked.has(node.blockId)) return placeholder(LOCKED_NOTE);
+  const hidden = expansion.extensionHidden?.get(node.blockId);
+  if (hidden) return placeholder(EXTENSION_HIDDEN(hidden));
+  if (node.kind === "view") return placeholder("a view; views are not published");
+  const block = expansion.read.blocks[node.blockId];
+  if (!block) return placeholder("missing note");
+  // Anchors (`^spring`) are hidden as a fragment's text hides them; the lines stay line for line.
+  const text = node.fragment ? node.fragment.text : stripFragmentAnchors(block.text);
+  return publishedText(text, context, {}, {
+    nodes: node.embeds ?? [], cursor: { next: 0 }, note: block.text, firstLine: node.fragment?.startLine ?? 0,
+  }) || placeholder("empty note");
+}
+
+const quote = (markdown: string) => markdown.split("\n").map((line) => line ? `> ${line}` : ">").join("\n");
+const EMBED_SENTINEL = /[ \t]*\u0000(\d+)\u0000[ \t]*/g;
+
+/**
+ * Text for publication: property tokens removed (unless `keepProperties`, for
+ * an attached markdown file); a `((block))` or `[[page]]` link becomes a link
+ * when its target is published, and otherwise only its authored label (never
+ * the target's text). An embed `!((id))` / `!((id^anchor))` shows the embedded
+ * note's text as a quote, published or not (a locked note shows "locked
+ * note"). Links and embeds written in code stay as written.
+ */
+function publishedText(text: string, context: TextContext, options: { keepProperties?: boolean } = {}, source?: EmbedSource): string {
+  const { index, basePath, pages, embeds } = context;
+  let body = text;
+  // Embeds first, in order, so each takes the projection read for its place.
+  const rendered: string[] = [];
+  const matches = embeds ? embedMatches(body, source?.note ?? body, source?.firstLine ?? 0) : [];
+  const from = source ?? (embeds ? { nodes: embeds.read.results, cursor: embeds.cursor } : undefined);
+  for (let at = 0; from && at < matches.length; at++) rendered.push(renderEmbed(from.nodes[from.cursor.next++], context));
+  for (let at = matches.length - 1; at >= 0; at--) {
+    const match = matches[at]!;
+    body = body.slice(0, match.index) + `\u0000${at}\u0000` + body.slice(match.index + match[0].length);
+  }
+  if (!options.keepProperties) {
+    body = stripPropertyTokens(body).split("\n").map((line) => line.replace(/[ \t]+$/, "")).join("\n");
+  }
+  // Replacing links never adds or removes a line, so the code lines stay where they are.
+  const code = codeLineSet(body);
+  const inCode = (offset: number) => code.has(lineOf(body, offset));
+  const byId = new Map(index.entries.map((entry) => [entry.blockId, entry]));
+  const link = (label: string, target: PublishedEntry | undefined) =>
+    target ? `[${label}](${basePath}${target.path})` : label;
+  // Without an embed projection (a caller that has none), an embed reads as a link, never as
+  // `![…](…)`, which markdown takes for an image.
+  const embedStarts = new Set(embeds ? [] : embedMatches(body).map((match) => match.index));
+  for (const occurrence of [...blockReferenceOccurrences(body)].reverse()) {
+    if (inCode(occurrence.start)) continue;
+    const target = byId.get(occurrence.blockId);
+    const replacement = link(occurrence.label?.trim() || target?.title || "unpublished note", target);
+    const start = embedStarts.has(occurrence.start - 1) ? occurrence.start - 1 : occurrence.start;
+    body = body.slice(0, start) + replacement + body.slice(occurrence.end);
+  }
+  for (const reference of [...pageAddressReferences(body)].reverse()) {
+    if (inCode(reference.start)) continue;
+    const blockId = pages.get(reference.normalizedAddress);
+    const replacement = link(reference.label ?? reference.displayAddress, blockId ? byId.get(blockId) : undefined);
+    body = body.slice(0, reference.start) + replacement + body.slice(reference.end);
+  }
+  body = body.replace(EMBED_SENTINEL, (_, at: string) => `\n\n${quote(rendered[Number(at)] ?? "")}\n\n`);
+  return body.replace(/\n{3,}/g, "\n\n").replace(/^\n+|\n+$/g, "");
+}
+
+/**
+ * A published block's title as readers see it: a `((ref))` shows its authored
+ * label, else a published target's title, else "unpublished note" — never an
+ * unpublished block's id or text. `[[page]]` links keep their authored text.
+ */
+function publishedTitle(rawTitle: string, publishedTitles: ReadonlyMap<string, string>, depth = 0): string {
+  let title = rawTitle;
+  for (const occurrence of [...blockReferenceOccurrences(title)].reverse()) {
+    const target = publishedTitles.get(occurrence.blockId);
+    const replacement = occurrence.label?.trim() ||
+      (target !== undefined && depth < 1 ? publishedTitle(target, publishedTitles, depth + 1) : target !== undefined ? "note" : "unpublished note");
+    const start = title[occurrence.start - 1] === "!" ? occurrence.start - 1 : occurrence.start;
+    title = title.slice(0, start) + replacement + title.slice(occurrence.end);
+  }
+  return title.replace(/\s{2,}/g, " ").trim();
+}
+
+/** The index as served over HTTP: without the authored attachment paths, which say where files live. */
+function readerIndex(index: PublishedIndex): PublishedIndex {
+  return {
+    ...index,
+    entries: index.entries.map(({ attachment, ...entry }) =>
+      attachment?.refused ? { ...entry, attachment: { refused: attachment.refused } } : entry),
+  };
+}
+
+/**
+ * The rows of a published subtree in page order: the root, then each
+ * descendant that is shown. A descendant marked `[publish::false]` (or
+ * no/off/0) is left out with its own subtree; one marked `[publish::never]`
+ * is a locked row (its place says "locked note") and its subtree is left out.
+ * A block whose chain to the root is not in the result is left out. Decided
+ * per block, not by result order.
+ */
+export function shownSubtree(subtree: ProjectedBlockCollection): Array<{ block: ProjectedVisibleBlock; locked: boolean }> {
+  const [root, ...descendants] = subtree.blocks;
+  if (!root) return [];
+  const byId = new Map(subtree.blocks.map((block) => [block.id, block]));
+  type Decision = "shown" | "locked" | "hidden";
+  const decided = new Map<string, Decision>([[root.id, "shown"]]);
+  const decide = (block: ProjectedVisibleBlock): Decision => {
+    const known = decided.get(block.id);
+    if (known !== undefined) return known;
+    decided.set(block.id, "hidden"); // a cycle is never shown
+    const parent = block.parentId ? byId.get(block.parentId) : undefined;
+    const intent = blockPublishIntent(block.properties ?? []);
+    const extension = extensionSource(block);
+    const optedIn = (id: string | null | undefined, depth = 0): boolean => {
+      const at = id ? byId.get(id) : undefined;
+      return !!at && depth <= subtree.blocks.length &&
+        (publishesExtension(at.properties ?? [], extension!) || optedIn(at.parentId, depth + 1));
+    };
+    const value: Decision = parent === undefined || decide(parent) !== "shown" || intent === "off" ? "hidden"
+      : extension && !optedIn(block.id) ? "hidden"
+      : intent === "never" ? "locked" : "shown";
+    decided.set(block.id, value);
+    return value;
+  };
+  return [{ block: root, locked: false }, ...descendants
+    .map((block) => ({ block, decision: decide(block) }))
+    .filter((row) => row.decision !== "hidden")
+    .map((row) => ({ block: row.block, locked: row.decision === "locked" }))];
+}
+
+/**
+ * Publishing covers the block and its subtree (see `shownSubtree`). The
+ * block's own text comes first (its first line as the heading); descendants
+ * follow as a nested list, as they sit in the outline. Trash is never included.
+ */
+export function renderSubtreeMarkdown(
+  subtree: ProjectedBlockCollection,
+  index: PublishedIndex,
+  basePath = "",
+  pages: ReadonlyMap<string, string> = new Map(),
+  embeds?: EmbedExpansion,
+): string {
+  const [rootRow, ...rows] = shownSubtree(subtree);
+  if (!rootRow) return "";
+  const root = rootRow.block;
+  const context: TextContext = { index, basePath, pages, ...(embeds ? { embeds } : {}) };
+  const rootText = publishedText(root.text ?? "", context);
+  const [first = "", ...rest] = rootText.split("\n");
+  const lines = /^#{1,6}\s/.test(first) ? [first, ...rest]
+    // A note that opens with an embed keeps it below the heading.
+    : first.startsWith(">") ? [`# ${root.id}`, "", first, ...rest]
+      : [`# ${first.trim() || root.id}`, ...rest];
+  const listed: string[] = [];
+  for (const { block, locked } of rows) {
+    const text = locked ? placeholder(LOCKED_NOTE) : publishedText(block.text ?? "", context);
+    const indent = "  ".repeat(Math.max(0, block.depth - root.depth - 1));
+    const [head = "", ...tail] = text.split("\n");
+    listed.push(`${indent}- ${head}`);
+    for (const line of tail) listed.push(line ? `${indent}  ${line}` : "");
+  }
+  const parts = [lines.join("\n").replace(/\n+$/, "")];
+  if (listed.length) parts.push(listed.join("\n"));
+  if (subtree.completeness.kind === "truncated") parts.push(`*(Only the first ${PUBLISH_QUERY_LIMIT} blocks are published.)*`);
+  return `${parts.join("\n\n")}\n`;
+}
+
+function entryHref(entry: PublishedEntry, basePath: string): string {
+  const view = entry.type === "markdown" || entry.type === "block" ? "?view=html" : "";
+  return `${basePath}${entry.path}${view}`;
+}
+
+/** A public note's public URL, for the index and `publish list`. */
+type PublicHref = (entry: PublishedEntry) => string | undefined;
+const defaultPublicHref: PublicHref = (entry) => entry.public ? `${DEFAULT_PUBLIC_BASE_PATH}${entry.path}` : undefined;
+
+export function renderIndexText(index: PublishedIndex, basePath = "", publicHref: PublicHref = defaultPublicHref): string {
+  const header = ["TYPE", "UPDATED", "URL", "PUBLIC", "TITLE"];
+  const rows = index.entries.map((entry) => [
+    entry.type,
+    entry.updatedAt.replace("T", " ").replace(/\.\d+Z$/, "Z"),
+    `${basePath}${entry.path}`,
+    publicHref(entry) ?? "-",
+    entry.title +
+      (entry.collision ? `  (collision: ${entry.collision.requested} is held by ${entry.collision.heldBy})` : "") +
+      (entry.attachment?.refused ? `  (attachment not served: ${entry.attachment.refused})` : ""),
+  ]);
+  const widths = header.map((_, column) => Math.max(header[column]!.length, ...rows.map((row) => row[column]!.length)));
+  const format = (row: string[]) => row.map((cell, column) => column === row.length - 1 ? cell : cell.padEnd(widths[column]!)).join("  ");
+  const lines = [format(header), ...rows.map(format)];
+  if (!rows.length) lines.push("(nothing is published; add [publish::true] to a block)");
+  if (index.truncated) lines.push(`(only the first ${PUBLISH_QUERY_LIMIT} published blocks are listed)`);
+  lines.push("", EMBED_NOTICE);
+  return `${lines.join("\n")}\n`;
+}
+
+export function renderIndexHtml(index: PublishedIndex, basePath = "", publicHref: PublicHref = defaultPublicHref): string {
+  const rows = index.entries.map((entry) => {
+    const notes = [
+      entry.collision ? `collision: “${escapeHtml(entry.collision.requested)}” is held by ${escapeHtml(entry.collision.heldBy)}` : "",
+      entry.attachment?.refused ? `attachment not served: ${escapeHtml(entry.attachment.refused)}` : "",
+    ].filter(Boolean).map((note) => `<div class="dim">${note}</div>`).join("");
+    const raw = entry.type === "markdown" || entry.type === "block"
+      ? ` <a class="dim" href="${escapeHtml(`${basePath}${entry.path}`)}">md</a>` : "";
+    const shared = publicHref(entry);
+    const open = shared ? `<div class="dim">public: <a href="${escapeHtml(shared)}">${escapeHtml(shared)}</a></div>` : "";
+    return `<tr><td><a href="${escapeHtml(entryHref(entry, basePath))}">${escapeHtml(entry.title)}</a>${notes}</td>` +
+      `<td>${escapeHtml(`${basePath}${entry.path}`)}${raw}${open}</td><td>${escapeHtml(entry.type)}</td>` +
+      `<td>${escapeHtml(entry.updatedAt.slice(0, 16).replace("T", " "))}</td></tr>`;
+  }).join("\n");
+  const body = index.entries.length
+    ? `<table><thead><tr><th>title</th><th>url</th><th>type</th><th>updated</th></tr></thead><tbody>\n${rows}\n</tbody></table>`
+    : `<p class="dim">Nothing is published yet. Add <code>[publish::true]</code> to a block.</p>`;
+  const truncated = index.truncated ? `<p class="dim">Only the first ${PUBLISH_QUERY_LIMIT} published blocks are listed.</p>` : "";
+  const notice = `<p class="dim">${escapeHtml(EMBED_NOTICE)}</p>`;
+  return htmlPage("Published", `${body}${truncated}\n${notice}\n<footer><a href="${escapeHtml(`${basePath}/index.txt`)}">index.txt</a> · <a href="${escapeHtml(`${basePath}/index.json`)}">index.json</a></footer>`, "published");
+}
+
+/**
+ * Serves a publisher on 127.0.0.1 by default; exposure beyond the machine is a
+ * proxy's job (`tailscale serve` for the tailnet, `tailscale funnel` for the
+ * public audience, each on its own port). The public listener may instead bind
+ * this machine's tailnet address, for a proxy on another tailnet machine
+ * (Caddy for a custom domain).
+ */
+export function servePublisher(publisher: Publisher, port: number, audience: PublishAudience = "tailnet", hostname = "127.0.0.1"): ReturnType<typeof Bun.serve> {
+  return Bun.serve({ hostname, port, fetch: (request) => publisher.handle(request, audience) });
+}

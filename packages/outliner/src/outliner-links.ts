@@ -1,0 +1,836 @@
+import {atomicDocument, concatDocuments, generatedDocument, sliceDocument, type MappedDocument} from './document-provenance';
+import { hyperlink } from "@earendil-works/pi-tui";
+import { createAnnotationReferenceContext } from "./annotations";
+import {
+  focusBlockByQuery,
+  resolveBlockFocus,
+  formatBlockFocusMatch,
+  type BlockFocusRequester,
+} from "./block-focus";
+import { requireUniqueClientId, sendClientCommand } from "./client-target";
+import { isFragmentId, resolveFragment } from "./fragments";
+import {
+  blockDisplayTitle,
+  blockReferenceDisplayText,
+  blockReferenceEnvelopeRanges,
+  blockReferenceOccurrences,
+} from "./references";
+import {
+  outlinerReferenceOccurrences,
+  protectedMarkdownRanges,
+  rangesOverlap,
+  type TextRange,
+} from "./reference-occurrences";
+import {
+  type TreeNavigation,
+  dispatchNavigation,
+  resolveNavigationDestination,
+} from "./navigation-routes";
+import { isWorkIdAddress } from "./page-addresses";
+import { authoredResourceReferenceOccurrences } from "./resource-references";
+import { parsePropertyRecords } from "./properties";
+import type {
+  Block,
+  BlockReferenceResolution,
+  TreeIndexBlock,
+  OutlinerNavigationIntent,
+  PageAddressFollowResult,
+  PageAddressResolution,
+  Resource,
+  WorkspaceSnapshot,
+  InternResourceReceipt,
+  AnnotationReferenceContext,
+  ResourceTarget,
+} from "./types";
+
+const OUTLINER_SCHEME = "pi-outliner:";
+const BLOCK_ID_PATTERN = /^[A-Za-z0-9_-]{8,}$/;
+const BLOCK_ID_TOKEN_PATTERN = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi;
+
+const TERMINAL_CONTROL_PATTERN = /[\u0000-\u001f\u007f]/;
+
+export type OutlinerLinkKind = "block" | "goto" | "page" | "resource" | "reference" | "work";
+
+export interface ResourceOccurrenceAddress {
+  revision: number;
+  start: number;
+  end: number;
+}
+
+export interface OutlinerLinkTarget {
+  kind: OutlinerLinkKind;
+  value: string;
+  fragmentId?: string;
+  preserveSource?: boolean;
+  intent?: "reveal";
+  occurrence?: ResourceOccurrenceAddress;
+}
+
+export interface OutlinerLinkNavigation {
+  kind: OutlinerLinkKind;
+  id: string;
+  title: string;
+  deleted?: boolean;
+  created?: boolean;
+  targetClientId?: string;
+  intent?: OutlinerNavigationIntent;
+  resolution?: "self" | "context" | "same-tab" | "linked" | "chosen";
+}
+
+interface LinkSpan {
+  start: number;
+  end: number;
+  uri: string | null;
+  presentation?: string;
+}
+
+
+export function outlinerLinkUri(
+  kind: OutlinerLinkKind,
+  value: string,
+  options: {
+    preserveSource?: boolean;
+    intent?: "reveal";
+    fragmentId?: string;
+    occurrence?: ResourceOccurrenceAddress;
+  } = {},
+): string {
+  const normalized = value.trim();
+  if (TERMINAL_CONTROL_PATTERN.test(normalized)) {
+    throw new Error("Outliner link target contains terminal control characters");
+  }
+  if (!normalized) throw new Error("Outliner link target cannot be empty");
+  if (
+    ((kind === "block" || kind === "reference") && !BLOCK_ID_PATTERN.test(normalized)) ||
+    (kind === "work" && !isWorkIdAddress(normalized))
+  ) {
+    throw new Error(`Invalid outliner ${kind} target: ${normalized}`);
+  }
+  if (options.fragmentId && (kind !== "block" || !isFragmentId(options.fragmentId))) {
+    throw new Error(`Invalid outliner fragment target: ${options.fragmentId}`);
+  }
+  const query = new URLSearchParams();
+  if (options.preserveSource) query.set("preserveSource", "1");
+  if (options.intent) query.set("intent", options.intent);
+  if (options.fragmentId) query.set("fragment", options.fragmentId);
+  if (kind === "reference" || options.occurrence) {
+    const occurrence = options.occurrence;
+    if (kind !== "reference" || !occurrence || !validOccurrenceAddress(occurrence)) {
+      throw new Error("Resource reference requires an exact source revision and span");
+    }
+    query.set("revision", String(occurrence.revision));
+    query.set("start", String(occurrence.start));
+    query.set("end", String(occurrence.end));
+  }
+  const suffix = query.size > 0 ? `?${query}` : "";
+  return `${OUTLINER_SCHEME}//${kind}/${encodeURIComponent(normalized)}${suffix}`;
+}
+
+export function parseOutlinerLinkUri(uri: string): OutlinerLinkTarget {
+  if (!URL.canParse(uri)) {
+    throw new Error("Invalid outliner link URI");
+  }
+  const parsed = new URL(uri);
+  if (
+    parsed.protocol !== OUTLINER_SCHEME ||
+    parsed.username ||
+    parsed.password ||
+    parsed.port ||
+    parsed.hash
+  ) {
+    throw new Error("Invalid outliner link URI");
+  }
+  const kind = parsed.hostname;
+  if (
+    kind !== "block" &&
+    kind !== "goto" &&
+    kind !== "page" &&
+    kind !== "resource" &&
+    kind !== "reference" &&
+    kind !== "work"
+  ) {
+    throw new Error(`Unsupported outliner link kind: ${parsed.hostname}`);
+  }
+  const encoded = parsed.pathname.startsWith("/") ? parsed.pathname.slice(1) : parsed.pathname;
+  let value: string;
+  try {
+    value = decodeURIComponent(encoded);
+  } catch {
+    throw new Error("Invalid outliner link encoding");
+  }
+  const preserveSourceValues = parsed.searchParams.getAll("preserveSource");
+  const intentValues = parsed.searchParams.getAll("intent");
+  const fragmentValues = parsed.searchParams.getAll("fragment");
+  const occurrenceKeys = ["revision", "start", "end"];
+  const occurrence = kind === "reference" ? {
+    revision: Number(parsed.searchParams.get("revision")),
+    start: Number(parsed.searchParams.get("start")),
+    end: Number(parsed.searchParams.get("end")),
+  } : undefined;
+  if (
+    [...parsed.searchParams.keys()].some((key) =>
+      key !== "preserveSource" && key !== "intent" && key !== "fragment" &&
+      !(kind === "reference" && occurrenceKeys.includes(key))
+    ) ||
+    preserveSourceValues.length > 1 ||
+    (preserveSourceValues.length === 1 && preserveSourceValues[0] !== "1") ||
+    intentValues.length > 1 ||
+    (intentValues.length === 1 && intentValues[0] !== "reveal") ||
+    fragmentValues.length > 1 ||
+    (fragmentValues.length === 1 &&
+      (kind !== "block" || !isFragmentId(fragmentValues[0]!))) ||
+    (kind === "reference" && (occurrenceKeys.some(key =>
+      parsed.searchParams.getAll(key).length !== 1 ||
+      !/^\d+$/.test(parsed.searchParams.get(key)!)
+    ) || !validOccurrenceAddress(occurrence!)))
+  ) {
+    throw new Error("Invalid outliner link navigation constraints");
+  }
+  if (
+    !value ||
+    TERMINAL_CONTROL_PATTERN.test(value) ||
+    ((kind === "block" || kind === "reference") && !BLOCK_ID_PATTERN.test(value)) ||
+    (kind === "work" && !isWorkIdAddress(value))
+  ) {
+    throw new Error(`Invalid outliner ${kind} target`);
+  }
+  return {
+    kind,
+    value,
+    ...(fragmentValues.length === 1 ? { fragmentId: fragmentValues[0] } : {}),
+    ...(preserveSourceValues.length === 1 ? { preserveSource: true } : {}),
+    ...(intentValues.length === 1 ? { intent: "reveal" as const } : {}),
+    ...(occurrence ? { occurrence } : {}),
+  };
+}
+
+function validOccurrenceAddress(value: ResourceOccurrenceAddress): boolean {
+  return Number.isSafeInteger(value.revision) && value.revision > 0 &&
+    Number.isSafeInteger(value.start) && value.start >= 0 &&
+    Number.isSafeInteger(value.end) && value.end > value.start;
+}
+
+export function resourceOccurrenceLink(
+  block: Pick<Block, "id" | "revision">,
+  span: { start: number; end: number },
+): OutlinerLinkTarget {
+  return { kind: "reference", value: block.id, occurrence: {
+    revision: block.revision, start: span.start, end: span.end,
+  } };
+}
+
+/** Map authored tokens through the existing line projection, preserving duplicates. */
+export function resourceOccurrenceLinks(
+  block: Pick<Block, "id" | "revision" | "text">,
+  projectedText: string,
+  projectedLine: (sourceLine: number) => number = line => line,
+): ReadonlyMap<number, string> {
+  const links = new Map<number, string>();
+  const source = parsePropertyRecords(block.text).filter(record => record.scope !== "block");
+  const resources = new Set(authoredResourceReferenceOccurrences(block.text)
+    .filter(reference => reference.kind === "authored-resource").map(reference => reference.start));
+  const projected = parsePropertyRecords(projectedText);
+  const displayedResources = new Set(authoredResourceReferenceOccurrences(projectedText)
+    .filter(reference => reference.kind === "authored-resource").map(reference => reference.start));
+  for (const line of new Set(source.filter(record => resources.has(record.start)).map(record => record.line))) {
+    const authored = source.filter(record => record.line === line && resources.has(record.start));
+    const displayed = projected.filter(record => record.line === projectedLine(line) &&
+      displayedResources.has(record.start));
+    // An embed or unknown projection must not lend its coordinates to the host.
+    if (authored.length !== displayed.length || authored.some((record, index) =>
+      record.raw !== displayed[index]!.raw
+    )) continue;
+    authored.forEach((record, index) => {
+      const target = resourceOccurrenceLink(block, { start: record.start, end: record.end });
+      links.set(displayed[index]!.start, outlinerLinkUri(target.kind, target.value, target));
+    });
+  }
+  return links;
+}
+
+/** Activation rechecks source identity before the existing explicit Resource follow. */
+export interface FollowResourceOccurrenceReceipt extends InternResourceReceipt {
+  readonly referenceContext: AnnotationReferenceContext;
+}
+
+export async function followResourceOccurrence(
+  requester: BlockFocusRequester,
+  target: OutlinerLinkTarget,
+): Promise<FollowResourceOccurrenceReceipt> {
+  if (target.kind !== "reference" || !target.occurrence || !validOccurrenceAddress(target.occurrence)) {
+    throw new Error("Resource reference requires an exact source revision and span");
+  }
+  const block = await requester.request<Block>({ action: "get", blockId: target.value });
+  if (block.deletedAt || block.effectiveDeletedRootId || block.revision !== target.occurrence.revision) {
+    throw new Error("Reference source changed; reopen the block before following it");
+  }
+  const occurrence = authoredResourceReferenceOccurrences(block.text).find(reference =>
+    reference.start === target.occurrence!.start && reference.end === target.occurrence!.end
+  );
+  if (!occurrence) throw new Error("Resource reference occurrence no longer exists");
+  if (occurrence.kind === "invalid-authored-resource") throw new Error(occurrence.message);
+  const receipt = await requester.request<InternResourceReceipt>({
+    action: "resources.follow-authored", reference: occurrence.reference,
+  });
+  return { ...receipt, referenceContext: createAnnotationReferenceContext(block, occurrence.start, occurrence.end) };
+}
+
+export interface ResolvedOutlinerLinkTarget {
+  block: Block;
+  fragmentId?: string;
+  created?: boolean;
+}
+
+export async function resolveOutlinerLinkTarget(
+  requester: BlockFocusRequester,
+  target: OutlinerLinkTarget,
+  options: { followMissingPages?: boolean } = {},
+): Promise<ResolvedOutlinerLinkTarget> {
+  if (target.kind === "goto") {
+    throw new Error("Fuzzy goto links require a Tree destination");
+  }
+  if (target.kind === "resource" || target.kind === "reference") {
+    throw new Error("Resource links resolve through Resource navigation");
+  }
+  if (target.kind === "block") {
+    const block = await requester.request<Block>({ action: "get", blockId: target.value });
+    if (!target.fragmentId) return { block };
+    const fragment = resolveFragment(block.text, target.fragmentId);
+    if (fragment.status === "missing") {
+      throw new Error(`Fragment not found: ${target.value}^${target.fragmentId}`);
+    }
+    if (fragment.status === "duplicate") {
+      throw new Error(`Fragment is duplicated: ${target.value}^${target.fragmentId}`);
+    }
+    return { block, fragmentId: target.fragmentId };
+  }
+  const resolution = await requester.request<PageAddressResolution>({
+    action: "pages.resolve",
+    address: target.value,
+  });
+  if (resolution.block) return { block: resolution.block };
+  if (target.kind === "work") {
+    throw new Error(`Work ID address is unresolved: ${target.value}`);
+  }
+  if (options.followMissingPages === false) {
+    throw new Error(`Page address did not resolve: ${target.value}`);
+  }
+  const followed = await requester.request<PageAddressFollowResult>({
+    action: "pages.follow",
+    address: target.value,
+  });
+  if (!followed.block) throw new Error(`Page address did not resolve: ${target.value}`);
+  return { block: followed.block, ...(followed.created ? { created: true } : {}) };
+}
+
+export async function navigateOutlinerLink(
+  requester: BlockFocusRequester,
+  uri: string,
+  targets: {
+    treeClientId?: string;
+    detailClientId?: string;
+    sourceClientId?: string;
+    sourceRegion?: import("./types").OutlinerRegion;
+    navigation?: Pick<TreeNavigation, "dispatch" | "resolve">;
+    intent?: OutlinerNavigationIntent;
+    /** With `detailClientId`: false opens there without focusing that pane. */
+    focus?: boolean;
+  } = {},
+): Promise<OutlinerLinkNavigation> {
+  const dispatch = targets.navigation?.dispatch ?? ((target, intent, options) =>
+    dispatchNavigation(requester, targets.sourceClientId!, target, intent, {...options, ...(targets.sourceRegion ? {sourceRegion: targets.sourceRegion} : {})}));
+  const resolve = targets.navigation?.resolve ?? ((intent, options) =>
+    resolveNavigationDestination(requester, targets.sourceClientId!, intent, {...options, ...(targets.sourceRegion ? {sourceRegion: targets.sourceRegion} : {})}));
+  const target = parseOutlinerLinkUri(uri);
+  if (target.kind === "goto") {
+    const focused = targets.navigation
+      ? {resolution: resolveBlockFocus((await requester.request<WorkspaceSnapshot>({action: "workspace.snapshot"})).physical.blocks, target.value, 20)}
+      : await focusBlockByQuery(requester, target.value, 20, targets.treeClientId);
+    if (focused.resolution.kind === "none") {
+      throw new Error(`No outliner block matches clicked link: ${target.value}`);
+    }
+    if (focused.resolution.kind === "ambiguous") {
+      const candidates = focused.resolution.matches
+        .map((match) => formatBlockFocusMatch(match, match.block.id))
+        .join("\n");
+      throw new Error(`Clicked outliner link is ambiguous:\n${candidates}`);
+    }
+    if (targets.navigation) await targets.navigation.dispatch({kind: "block", blockId: focused.resolution.match.block.id}, "reveal");
+    return {
+      kind: "goto",
+      id: focused.resolution.match.block.id,
+      title: focused.resolution.match.title,
+    };
+  }
+  if (target.kind === "resource" || target.kind === "reference") {
+    if (!targets.sourceClientId && !targets.detailClientId) {
+      throw new Error("Resource Open requires a source view or an explicit Detail destination");
+    }
+    const intent = target.intent ?? targets.intent ?? "open";
+    // Resolve before following authored references, which can create or refresh Resources.
+    if (targets.sourceClientId) await resolve(intent, {preserveSource: target.preserveSource});
+    else await resolveNavigationDestination(requester, targets.detailClientId!, "open", {
+      sourceRegion: "detail", destination: {clientId: targets.detailClientId!, region: "detail"},
+    });
+    const followed = target.kind === "reference"
+      ? await followResourceOccurrence(requester, target) : null;
+    const resource = followed
+      ? followed.resource
+      : await requester.request<Resource>({
+      action: "resources.get",
+      resourceId: target.value,
+    });
+    const navigationTarget: ResourceTarget = { kind: "resource", resourceId: resource.id,
+      ...(followed ? { referenceContext: followed.referenceContext } : {}),
+    };
+    if (targets.sourceClientId) {
+      const intent = target.intent ?? targets.intent ?? "open";
+      const dispatched = await dispatch(
+        navigationTarget,
+        intent,
+        { preserveSource: target.preserveSource },
+      );
+      return {
+        kind: "resource",
+        id: resource.id,
+        title: resource.id,
+        targetClientId: dispatched.targetClientId,
+        intent: dispatched.intent,
+        resolution: dispatched.resolution,
+      };
+    }
+    const detailClientId = targets.detailClientId!;
+    await sendClientCommand(requester, detailClientId, {
+      command: "open", targetRegion: "detail",
+      target: navigationTarget,
+      ...(targets.focus === false ? { focus: false } : {}),
+    });
+    return {
+      kind: "resource",
+      id: resource.id,
+      title: resource.id,
+      targetClientId: detailClientId,
+    };
+  }
+
+  if (targets.sourceClientId) {
+    const intent = target.intent ?? targets.intent ?? "open";
+    if (target.kind === "page") {
+      await resolve(
+        intent,
+        { preserveSource: target.preserveSource },
+      );
+    }
+    const resolved = await resolveOutlinerLinkTarget(requester, target);
+    const dispatched = await dispatch(
+      {
+        kind: "block",
+        blockId: resolved.block.id,
+        ...(resolved.fragmentId ? { fragmentId: resolved.fragmentId } : {}),
+      },
+      intent,
+      { preserveSource: target.preserveSource },
+    );
+    return {
+      kind: target.kind,
+      id: resolved.block.id,
+      title: blockDisplayTitle(resolved.block),
+      targetClientId: dispatched.targetClientId,
+      intent: dispatched.intent,
+      resolution: dispatched.resolution,
+      ...(resolved.block.effectiveDeletedRootId ? { deleted: true } : {}),
+      ...(resolved.created ? { created: true } : {}),
+    };
+  }
+
+  if (targets.detailClientId) {
+    // Open in exactly this Detail: resolve without creating pages, then let the
+    // Detail apply its own edit protection.
+    const resolved = await resolveOutlinerLinkTarget(requester, target, { followMissingPages: false });
+    await sendClientCommand(requester, targets.detailClientId, {
+      command: "open", targetRegion: "detail",
+      target: { kind: "block", blockId: resolved.block.id, ...(resolved.fragmentId ? { fragmentId: resolved.fragmentId } : {}) },
+      ...(targets.focus === false ? { focus: false } : {}),
+    });
+    return {
+      kind: target.kind,
+      id: resolved.block.id,
+      title: blockDisplayTitle(resolved.block),
+      targetClientId: targets.detailClientId,
+    };
+  }
+
+  let pageFollow: PageAddressFollowResult | null = null;
+  let treeClientId = targets.treeClientId;
+  let block: Block;
+  if (target.kind === "page") {
+    const resolution = await requester.request<PageAddressResolution>({
+      action: "pages.resolve",
+      address: target.value,
+    });
+    if (resolution.block) {
+      block = resolution.block;
+    } else {
+      treeClientId ??= await requireUniqueClientId(requester, "tree");
+      pageFollow = await requester.request<PageAddressFollowResult>({
+        action: "pages.follow",
+        address: target.value,
+      });
+      if (!pageFollow.block) throw new Error(`Page address did not resolve: ${target.value}`);
+      block = pageFollow.block;
+    }
+  } else if (target.kind === "work") {
+    const resolution = await requester.request<PageAddressResolution>({
+      action: "pages.resolve",
+      address: target.value,
+    });
+    if (!resolution.block) throw new Error(`Work ID address is unresolved: ${target.value}`);
+    block = resolution.block;
+  } else {
+    block = (await resolveOutlinerLinkTarget(requester, target)).block;
+  }
+  if (block.effectiveDeletedRootId) {
+    const detailClientId =
+      targets.detailClientId ?? await requireUniqueClientId(requester, "detail");
+    await requester.request({ action: "selection.set", blockId: block.id });
+    await sendClientCommand(requester, detailClientId, {
+      command: "focus", targetRegion: "detail",
+      target: {
+        kind: "block",
+        blockId: block.id,
+        ...(target.fragmentId ? { fragmentId: target.fragmentId } : {}),
+      },
+    });
+    return {
+      kind: target.kind,
+      id: block.id,
+      title: blockDisplayTitle(block),
+      deleted: true,
+      ...(pageFollow?.created ? { created: true } : {}),
+    };
+  }
+
+  treeClientId ??= await requireUniqueClientId(requester, "tree");
+  await requester.request({ action: "selection.set", blockId: block.id });
+  await sendClientCommand(requester, treeClientId, {
+    command: "focus", targetRegion: "tree",
+    target: {
+      kind: "block",
+      blockId: block.id,
+      ...(target.fragmentId ? { fragmentId: target.fragmentId } : {}),
+    },
+  });
+  return {
+    kind: target.kind,
+    id: block.id,
+    title: blockDisplayTitle(block),
+    ...(pageFollow?.created ? { created: true } : {}),
+  };
+}
+
+
+export function firstOutlinerReference(
+  text: string,
+  workIdPrefix: string | null = null,
+): OutlinerLinkTarget | null {
+  const first = outlinerReferenceOccurrences(text, workIdPrefix)[0];
+  if (!first) return null;
+  if (first.kind === "block") {
+    return {
+      kind: "block",
+      value: first.blockId,
+      ...(first.fragmentId ? { fragmentId: first.fragmentId } : {}),
+    };
+  }
+  if (first.kind === "page") return { kind: "page", value: first.address };
+  return { kind: "work", value: first.address };
+}
+
+function genericLinkSpans(
+  text: string,
+  canLinkBlock: (blockId: string) => boolean,
+  workIdPrefix: string | null,
+): LinkSpan[] {
+  const spans: LinkSpan[] = [];
+  const blockReferenceRanges = blockReferenceEnvelopeRanges(text).filter((range) =>
+    text.slice(range.start, range.end).includes("|")
+  );
+  for (const reference of outlinerReferenceOccurrences(text, workIdPrefix)) {
+    if (reference.kind === "page") {
+      spans.push({
+        start: reference.start,
+        end: reference.end,
+        uri: outlinerLinkUri("page", reference.address),
+        presentation: reference.label ?? reference.address,
+      });
+    } else if (reference.kind === "work-id") {
+      spans.push({
+        start: reference.start,
+        end: reference.end,
+        uri: outlinerLinkUri("work", reference.address),
+      });
+    }
+  }
+  for (const match of text.matchAll(BLOCK_ID_TOKEN_PATTERN)) {
+    const range = { start: match.index, end: match.index + match[0].length };
+    if (
+      blockReferenceRanges.some((reference) => rangesOverlap(reference, range)) ||
+      !canLinkBlock(match[0])
+    ) continue;
+    spans.push({
+      start: match.index,
+      end: match.index + match[0].length,
+      uri: outlinerLinkUri("block", match[0]),
+    });
+  }
+  return spans;
+}
+
+function selectLinkSpans(
+  text: string,
+  exactSpans: readonly LinkSpan[],
+  canLinkBlock: (blockId: string) => boolean,
+  workIdPrefix: string | null,
+): LinkSpan[] {
+  const protectedRanges = protectedMarkdownRanges(text);
+  const selected: LinkSpan[] = [];
+  for (const span of [
+    ...exactSpans,
+    ...genericLinkSpans(text, canLinkBlock, workIdPrefix),
+  ]) {
+    if (protectedRanges.some((range) => rangesOverlap(span, range))) continue;
+    if (selected.some((existing) => rangesOverlap(span, existing))) continue;
+    selected.push(span);
+  }
+  return selected.sort((left, right) => left.start - right.start);
+}
+
+function renderLinkSpans(
+  text: string,
+  spans: readonly LinkSpan[],
+  renderLink: (visible: string, uri: string) => string,
+  usePresentation = false,
+): string {
+  if (spans.length === 0) return text;
+  let result = "";
+  let cursor = 0;
+  for (const span of spans) {
+    result += text.slice(cursor, span.start);
+    const visible = usePresentation && span.presentation !== undefined
+      ? span.presentation
+      : text.slice(span.start, span.end);
+    result += span.uri ? renderLink(visible, span.uri) : visible;
+    cursor = span.end;
+  }
+  return result + text.slice(cursor);
+}
+
+
+/**
+ * Map each authored reference to its presentation in resolved text. Only the
+ * references change; the text between them is authored and unchanged, so it
+ * places each presented `((Title))` even when the title has its own `))`,
+ * as in `((Smile :)))`. Titles are never re-parsed as reference syntax.
+ */
+function resolvedReferenceSpans(rawText: string, resolvedText: string): LinkSpan[] {
+  const references = blockReferenceOccurrences(rawText);
+  const between = references.map((reference, index) =>
+    rawText.slice(reference.end, references[index + 1]?.start ?? rawText.length));
+  const leading = rawText.slice(0, references[0]?.start ?? rawText.length);
+  // Resolved text may be clipped: authored text that runs to its end still matches.
+  const follows = (literal: string, at: number) => resolvedText.startsWith(literal, at) ||
+    (resolvedText.length - at < literal.length && literal.startsWith(resolvedText.slice(at)));
+  if (!follows(leading, 0)) return [];
+  const lineEnd = (from: number) => {
+    const ends = [resolvedText.indexOf("\n", from), resolvedText.indexOf("\r", from)].filter(end => end >= 0);
+    return ends.length ? Math.min(...ends) : resolvedText.length;
+  };
+  const failed = new Set<string>();
+  const place = (index: number, start: number): LinkSpan[] | null => {
+    const reference = references[index];
+    if (!reference || start >= resolvedText.length) return [];
+    if (failed.has(`${index}:${start}`)) return null;
+    const authored = rawText.slice(reference.start, reference.end);
+    const candidates: Array<{end: number; span: LinkSpan | null}> = [];
+    if (resolvedText.startsWith(authored, start)) {
+      candidates.push({end: start + authored.length, span: reference.label === undefined ? null : {
+        start, end: start + authored.length, uri: null, presentation: `${reference.label} · Missing target`,
+      }});
+    }
+    if (resolvedText.startsWith("((", start)) {
+      const limit = lineEnd(start);
+      for (let close = resolvedText.indexOf("))", start + 2); close >= 0 && close + 2 <= limit;
+        close = resolvedText.indexOf("))", close + 1)) {
+        candidates.push({end: close + 2, span: {
+          start, end: close + 2,
+          uri: outlinerLinkUri("block", reference.blockId, {fragmentId: reference.fragmentId}),
+          presentation: resolvedText.slice(start + 2, close),
+        }});
+      }
+    }
+    for (const {end, span} of candidates) {
+      const literal = between[index]!;
+      if (!follows(literal, end)) continue;
+      const rest = place(index + 1, end + literal.length);
+      if (rest) return span ? [span, ...rest] : rest;
+    }
+    // A presentation cut off by the end of clipped text links nothing, and costs nothing earlier.
+    if (lineEnd(start) === resolvedText.length &&
+      (resolvedText.startsWith("((", start) || authored.startsWith(resolvedText.slice(start)))) return [];
+    failed.add(`${index}:${start}`);
+    return null;
+  };
+  return place(0, leading.length) ?? [];
+}
+
+export function linkOutlinerMarkdown(
+  resolvedText: string,
+  rawText: string,
+  workIdPrefix: string | null = null,
+  linksEnabled = true,
+  resourceLinks: ReadonlyMap<number, string> = new Map(),
+): string {
+  return linkOutlinerDocument(generatedDocument(resolvedText, 'unobserved link presentation'), rawText,
+    workIdPrefix, linksEnabled, resourceLinks).text;
+}
+
+export function linkOutlinerDocument(
+  document: MappedDocument,
+  rawText: string,
+  workIdPrefix: string | null = null,
+  linksEnabled = true,
+  resourceLinks: ReadonlyMap<number, string> = new Map(),
+): MappedDocument {
+  const resolvedText = document.text;
+  // Block-reference presentation changes lengths. Map only unchanged source
+  // segments; an authored Resource token is never inferred from rendered labels.
+  const resources: LinkSpan[] = [];
+  let rawCursor = 0;
+  let resolvedCursor = 0;
+  const replacements = resolvedReferenceSpans(rawText, resolvedText);
+  const rawReferences = blockReferenceOccurrences(rawText);
+  for (const occurrence of authoredResourceReferenceOccurrences(rawText)) {
+    const uri = resourceLinks.get(occurrence.start);
+    if (!uri) continue;
+    rawCursor = 0;
+    resolvedCursor = 0;
+    let valid = true;
+    for (const reference of rawReferences) {
+      if (reference.start >= occurrence.start) break;
+      resolvedCursor += reference.start - rawCursor;
+      const authored = rawText.slice(reference.start, reference.end);
+      if (resolvedText.startsWith(authored, resolvedCursor)) resolvedCursor += authored.length;
+      else {
+        const replacement = replacements.find(span => span.start === resolvedCursor);
+        if (!replacement) { valid = false; break; }
+        resolvedCursor = replacement.end;
+      }
+      rawCursor = reference.end;
+    }
+    const start = resolvedCursor + occurrence.start - rawCursor;
+    const token = rawText.slice(occurrence.start, occurrence.end);
+    if (valid && resolvedText.slice(start, start + token.length) === token) {
+      resources.push({ start, end: start + token.length, uri });
+    }
+  }
+  const spans = selectLinkSpans(
+    resolvedText,
+    [...replacements, ...resources],
+    () => true,
+    workIdPrefix,
+  );
+  const parts: MappedDocument[] = [];
+  let cursor = 0;
+  for (const span of spans) {
+    parts.push(sliceDocument(document, cursor, span.start));
+    let label = sliceDocument(document, span.start, span.end);
+    if (span.presentation !== undefined) {
+      const run = label.runs.length === 1 ? label.runs[0]! : null;
+      const origin = run?.origin;
+      label = origin ? atomicDocument(span.presentation,
+        run.mapping === 'linear' && origin.kind === 'source' && origin.slices.length === 1 && span.uri
+          ? {kind:'reference',token:origin.slices[0]!,destination:span.uri,...(origin.occurrence ? {occurrence:origin.occurrence} : {})}
+          : origin)
+        : generatedDocument(span.presentation, 'reference label spans multiple origins');
+    }
+    if (linksEnabled && span.uri) {
+      parts.push(generatedDocument('[', 'link syntax'));
+      let labelCursor = 0;
+      for (const match of label.text.matchAll(/[\\\]]/g)) {
+        parts.push(sliceDocument(label, labelCursor, match.index), generatedDocument('\\', 'link label escape'),
+          sliceDocument(label, match.index, match.index + 1));
+        labelCursor = match.index + 1;
+      }
+      parts.push(sliceDocument(label, labelCursor), generatedDocument(`](${span.uri})`, 'link destination'));
+    } else parts.push(label);
+    cursor = span.end;
+  }
+  parts.push(sliceDocument(document, cursor));
+  return concatDocuments(parts);
+}
+
+export interface OutlinerTextLinker {
+  link(text: string, referenceOffset?: number): string;
+}
+
+export function createOutlinerTextLinker(
+  resolved: readonly BlockReferenceResolution[] | Pick<TreeIndexBlock, "preview" | "previewReferences">,
+  hasBlock: (blockId: string) => boolean,
+  workIdPrefix: string | null = null,
+): OutlinerTextLinker {
+  const references = "preview" in resolved ? resolved.previewReferences.map(reference => ({
+    visible: resolved.preview.slice(reference.start, reference.end),
+    start: reference.start,
+    end: reference.end,
+    uri: reference.target
+      ? outlinerLinkUri("block", reference.target.blockId, { fragmentId: reference.target.fragmentId })
+      : null,
+  })) : resolved.map(reference => ({
+    visible: blockReferenceDisplayText(reference),
+    start: undefined,
+    end: undefined,
+    uri: reference.status === "resolved" || reference.status === "deleted"
+      ? outlinerLinkUri("block", reference.blockId, { fragmentId: reference.fragmentId })
+      : null,
+  }));
+  const consumedReferences = new Set<number>();
+  return {
+    link(text: string, referenceOffset = 0): string {
+      const exactSpans: LinkSpan[] = [];
+      const referenceRanges: TextRange[] = [];
+      for (let index = 0; index < references.length; index += 1) {
+        if (consumedReferences.has(index)) continue;
+        const reference = references[index];
+        let start = reference.start === undefined
+          ? text.indexOf(reference.visible)
+          : reference.start + referenceOffset;
+        if (reference.start !== undefined && text.slice(start, reference.end! + referenceOffset) !== reference.visible) {
+          let retained = 0;
+          while (retained < reference.visible.length && text[start + retained] === reference.visible[retained]) retained += 1;
+          if (retained > 0) exactSpans.push({ start, end: start + retained, uri: null });
+          continue;
+        }
+        while (
+          start >= 0 &&
+          referenceRanges.some((range) =>
+            range.start < start + reference.visible.length && start < range.end
+          )
+        ) {
+          start = text.indexOf(reference.visible, start + 1);
+        }
+        if (start < 0) continue;
+        const range = { start, end: start + reference.visible.length };
+        referenceRanges.push(range);
+        consumedReferences.add(index);
+        exactSpans.push({ ...range, uri: reference.uri });
+      }
+      const spans = selectLinkSpans(
+        text,
+        exactSpans,
+        hasBlock,
+        workIdPrefix,
+      );
+      return renderLinkSpans(text, spans, hyperlink);
+    },
+  };
+}

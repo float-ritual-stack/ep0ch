@@ -1,0 +1,72 @@
+{
+  "name": "pi-herdr-outliner",
+  "version": "0.1.1",
+  "description": "Persistent local-first block outliner shared by Herdr users and Pi agents",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/float-ritual-stack/pi-herdr-outliner.git"
+  },
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "outliner": "bun run src/outliner.ts",
+    "profile:tree": "bun run scripts/profile-tree.ts",
+    "server": "bun run src/server-main.ts",
+    "host": "bun run src/host-main.ts",
+    "cli": "bun run src/cli.ts",
+    "workflow": "bun run src/workflow-main.ts",
+    "goto": "bun run src/cli.ts goto",
+    "check": "tsc --noEmit",
+    "test": "bun test",
+    "test:e2e:herdr": "bun run test/e2e/startup-interruption.ts && bun run test/e2e/resource-authoring.ts",
+    "test:e2e:roadmap": "bun run test/e2e/roadmap-batches.ts",
+    "test:e2e:extensions": "bun run test/e2e/extension-kinds.ts",
+    "test:e2e:pane-bars": "bun run test/e2e/pane-bars.ts",
+    "test:e2e:goto": "bun run test/e2e/goto-search.ts && bun run test/e2e/goto-search.ts --composed",
+    "test:e2e:inbox": "bun run test/e2e/inbox-agent.ts",
+    "test:e2e:assistant-sessions": "bun run test/e2e/assistant-sessions.ts",
+    "test:e2e:notes": "bun run test/e2e/note-assistance.ts",
+    "test:e2e:inbox-attention": "bun run test/e2e/inbox-attention.ts",
+    "test:e2e:prompts": "bun run test/e2e/ai-prompts.ts",
+    "test:e2e:documentation": "bun run test/e2e/documentation.ts",
+    "test:e2e:ownership": "bun run test/e2e/workspace-ownership.ts",
+    "test:e2e:capture": "bun run test/e2e/capture-retry.ts",
+    "test:e2e:capture-shortcut": "bun run test/e2e/capture-shortcut.ts",
+    "test:e2e:edit-conflicts": "bun run test/e2e/edit-conflicts.ts",
+    "test:e2e:file-revisions": "bun run test/e2e/file-revisions.ts",
+    "test:e2e:file-commit": "bun run test/e2e/file-commit.ts",
+    "test:e2e:file-authority": "bun run test/e2e/file-authority.ts && bun run test/e2e/file-authority.ts --ansi",
+    "test:e2e:annotation-threads": "bun run test/e2e/annotation-threads.ts",
+    "test:e2e:rendered-passage": "bun run test/e2e/rendered-passage.ts",
+    "test:e2e:annotation-identity": "bun run test/e2e/annotation-identity.ts",
+    "test:e2e:tree-breadcrumbs": "bun run test/e2e/tree-breadcrumbs.ts && bun run test/e2e/tree-breadcrumbs.ts --composed",
+    "test:e2e:tree-open-focus": "bun run test/e2e/tree-open-focus.ts && bun run test/e2e/tree-open-focus.ts --ansi && bun run test/e2e/tree-open-focus.ts --composed",
+    "test:e2e:tree-roots": "bun run test/e2e/tree-roots.ts && bun run test/e2e/tree-roots.ts --composed",
+    "test:e2e:tree-index": "bun run test/e2e/tree-index.ts && bun run test/e2e/tree-index.ts --forwarded",
+    "test:e2e:detail-progressive": "bun run test/e2e/detail-progressive.ts && bun run test/e2e/detail-progressive.ts --forwarded",
+    "test:e2e:composed": "bun run test/e2e/composed-surface.ts && bun run test/e2e/composed-boundaries.ts && bun run test/e2e/reference-annotations.ts --composed && bun run test/e2e/annotation-threads.ts --composed",
+    "test:e2e:resource-occurrences": "bun run test/e2e/resource-occurrences.ts && bun run test/e2e/resource-occurrences.ts --ansi",
+    "test:e2e:reference-annotations": "bun run test/e2e/reference-annotations.ts",
+    "test:e2e:outline-chooser": "bun run test/e2e/outline-chooser.ts",
+    "test:e2e:embed-links": "bun run test/e2e/embed-links.ts"
+  },
+  "dependencies": {
+    "@earendil-works/pi-ai": "^0.84.2",
+    "@earendil-works/pi-coding-agent": "^0.84.2",
+    "@earendil-works/pi-tui": "0.84.2",
+    "callscript": "^0.1.0",
+    "diff": "8.0.4",
+    "entities": "8.1.0",
+    "marked": "18.0.5",
+    "pdfjs-dist": "^6.3.289",
+    "typebox": "^1.0.44"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@xterm/headless": "6.0.0",
+    "typescript": "^5.9.3"
+  },
+  "patchedDependencies": {
+    "@earendil-works/pi-tui@0.84.2": "patches/@earendil-works%2Fpi-tui@0.84.2.patch"
+  }
+}

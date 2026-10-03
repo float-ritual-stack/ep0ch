@@ -1,0 +1,4531 @@
+import {OutlinerUiConfig} from "../src/ui-config";
+import { OutlinerStore } from "../src/store";
+import {initTheme} from "@earendil-works/pi-coding-agent";
+initTheme(undefined,false);
+import {renderTreeFrame} from "../src/tree-renderer";
+import { gotoCandidates, visibleGotoResults } from "../src/goto-search";
+import { serviceTreeNavigation } from "../src/navigation-routes";
+import { describe, expect, test, spyOn } from "bun:test";
+import { setImmediate } from "node:timers/promises";
+import {
+  attentionClientState,
+  emptyAttentionState,
+  normalizeAttentionMark,
+} from "../src/attention";
+import { authoredTextDigest } from "../src/authored-links";
+import { rankBlockFocusMatches } from "../src/block-focus";
+import { resolveBlockReferencesWithStatus } from "../src/references";
+import { treeIndexFixture } from "./tree-fixtures";
+import type { RequestInput } from "../src/client";
+import type { InboxStatus } from "../src/inbox-types";
+import { OutlinerActionKeymap } from "../src/outliner-actions";
+import {
+  createTreeController,
+  type TreeController,
+  type TreeControllerEffects,
+} from "../src/tree-controller";
+import {
+  isBlockTreeRow,
+  type TreeDisplayRow as ProjectedDisplayRow,
+} from "../src/tree-rows";
+import { layoutExpandedBlock } from "../src/tree-layout";
+import {
+  decorateVirtualBranchDefinitionText,
+  evaluateVirtualBranchMatches,
+  type TreeRow as ProjectedTreeRow,
+  type VirtualBranchQueryEffect,
+} from "../src/virtual-branches";
+import type {
+  Block,
+  BlockCollectionCompleteness,
+  OutlinerEvent,
+  SavedViewReadResult,
+  VisibleBlock,
+  VirtualOccurrenceRank,
+  TreeIndexBlock,
+  TreeIndexSnapshot,
+  GotoSearchCollection,
+} from "../src/types";
+
+type TreeRow = ProjectedTreeRow<TreeIndexBlock>;
+type TreeDisplayRow = ProjectedDisplayRow<TreeIndexBlock>;
+const fixtureSources = new WeakMap<TreeIndexBlock, VisibleBlock>();
+
+function block(
+  id: string,
+  overrides: Partial<VisibleBlock> = {},
+): VisibleBlock {
+  return {
+    revision: 1,
+    id,
+    parentId: null,
+    position: 0,
+    text: id,
+    author: "user",
+    createdAt: "2026-08-22T00:00:00.000Z",
+    updatedAt: "2026-08-22T00:00:00.000Z",
+    properties: [],
+    depth: 0,
+    hasChildren: false,
+    displayText: id,
+    ...overrides,
+  };
+}
+
+function snapshot(
+  blocks: VisibleBlock[],
+  selected: Block | null = null,
+  options: {
+    physicalBlocks?: VisibleBlock[];
+    visibleCompleteness?: BlockCollectionCompleteness;
+    virtualOccurrenceRanks?: VirtualOccurrenceRank[];
+    workIdPrefix?: string;
+  } = {},
+): TreeIndexSnapshot {
+  const physical = options.physicalBlocks ?? blocks;
+  const documents = new Map([...blocks, ...physical].map(block => [block.id, block]));
+  const compact = [...documents.values()].map(block => {
+    const entry = treeIndexFixture(block, id => documents.get(id) ?? null);
+    fixtureSources.set(entry, block);
+    return entry;
+  });
+  return {
+    blocks: compact,
+    physicalBlockIds: physical.map(block => block.id),
+    visible: {
+      rows: blocks.map(({id, depth, propertyMatches}) => ({ id, depth, ...(propertyMatches ? { propertyMatches } : {}) })),
+      completeness: options.visibleCompleteness ?? { kind: "complete" },
+    },
+    selectedBlockId: selected?.id ?? null,
+    virtualOccurrenceRanks: options.virtualOccurrenceRanks ?? [],
+    sequence: 1,
+    workIdPrefix: options.workIdPrefix,
+  };
+}
+function blockRow(row: TreeDisplayRow | undefined): TreeRow {
+  if (!isBlockTreeRow(row)) throw new Error("Expected a block Tree row");
+  return row;
+}
+
+function selectedBlockRow(controller: TreeController): TreeRow {
+  const view = controller.view();
+  return blockRow(view.rows[view.selectedIndex]);
+}
+
+function canonicalRowIds(rows: readonly TreeDisplayRow[]): string[] {
+  return rows.filter(isBlockTreeRow).map((row) => row.canonicalId);
+}
+
+function publishedBlockId(
+  input: Extract<RequestInput, { action: "browsing-context.publish" }>,
+): string | null {
+  return input.target?.kind === "block" ? input.target.blockId : null;
+}
+
+/**
+ * Stands in for the service's views.read: these fixtures describe each view's
+ * query result, so the shared client evaluator derives the view read from it.
+ * Service parity with that evaluator is owned by saved-view-read.test.ts.
+ */
+async function simulatedViewRead(
+  viewId: string,
+  index: TreeIndexSnapshot,
+  query: VirtualBranchQueryEffect<TreeIndexBlock>,
+): Promise<SavedViewReadResult<TreeIndexBlock>> {
+  const entries = new Map(index.blocks.map(block => [block.id, block]));
+  const physical = index.physicalBlockIds.map(id => entries.get(id)!);
+  const definition = entries.get(viewId);
+  const base = { viewId, sequence: 1, blocks: [], completeness: null };
+  if (!definition) return { ...base, status: "missing", errors: ["Saved view not found in the active workspace"] };
+  const { roots, state } = await evaluateVirtualBranchMatches(definition, physical, query, index.virtualOccurrenceRanks);
+  if (!state.config) return { ...base, status: "invalid", errors: state.configurationErrors };
+  if (state.queryError) return { ...base, status: "failed", errors: [state.queryError] };
+  return { ...base, status: "ready", blocks: roots, completeness: state.completeness, errors: [] };
+}
+
+interface Harness {
+  readonly calls: RequestInput[];
+  effects: TreeControllerEffects;
+  readonly focused: Array<"detail" | "outliner">;
+  readonly createdDetails: string[];
+  readonly createdDetailDirections: Array<"right" | "down">;
+  readonly openedCaptures: string[];
+  readonly openedVirtualNavigators: string[];
+  readonly openedVirtualNavigatorAdapters: Array<"bookmark" | "mentions" | undefined>;
+  invalidations: number;
+  stops: number;
+}
+
+function harness(
+  respond: (input: RequestInput) => unknown | Promise<unknown>,
+  clientId = "tree-test",
+): Harness {
+  const documents = new Map<string, Block>();
+  let lastIndex: TreeIndexSnapshot | null = null;
+  const result: Harness = {
+    calls: [],
+    focused: [],
+    createdDetails: [],
+    createdDetailDirections: [],
+    openedCaptures: [],
+    openedVirtualNavigators: [],
+    openedVirtualNavigatorAdapters: [],
+    invalidations: 0,
+    stops: 0,
+    effects: {
+      uiConfig: new OutlinerUiConfig("", {chrome: {tree: "full", preview: "full", detail: "full"}}),
+      navigation: serviceTreeNavigation({request: input => result.effects.request(input)}, clientId, `${clientId}-context`),
+      clientId,
+      browsingContextId: `${clientId}-context`,
+      workspaceRoot: "/workspace",
+      request: async <T>(input: RequestInput): Promise<T> => {
+        result.calls.push(input);
+        const response = await respond(input);
+        if (input.action === "views.read" && response === undefined && lastIndex) {
+          return simulatedViewRead(input.viewId, lastIndex, query => result.effects.request({action: "tree.query", query})) as T;
+        }
+        if (input.action === "tree.index" && response) {
+          lastIndex = response as TreeIndexSnapshot;
+          documents.clear();
+          for (const entry of (response as TreeIndexSnapshot).blocks) {
+            const source = fixtureSources.get(entry);
+            if (source) documents.set(source.id, source);
+          }
+        }
+        if (input.action === "tree.query" && response) {
+          const collection = response as { blocks: VisibleBlock[]; completeness: BlockCollectionCompleteness };
+          for (const source of collection.blocks) documents.set(source.id, source);
+          return { ...collection, blocks: collection.blocks.map(source => treeIndexFixture(source, id => documents.get(id) ?? null)) } as T;
+        }
+        if (response === undefined && input.action === "annotations.list") return [] as T;
+        if (response === undefined && input.action === "references.backlinks") return {targetBlockId:input.query.targetBlockId,sources:[],completeness:{kind:"complete"}} as T;
+        if (response === undefined && input.action === "get") return (documents.get(input.blockId) ?? null) as T;
+        if (response === undefined && input.action === "references.resolve") {
+          return resolveBlockReferencesWithStatus(input.text, id => documents.get(id) ?? null) as T;
+        }
+        if (response === undefined && input.action === "tree.search") return visibleGotoResults(gotoCandidates([...documents.values()], input.query)) as T;
+        if (response === undefined && input.action === "tree.focus") {
+          const matches = rankBlockFocusMatches([...documents.values()], input.query, 21);
+          return {
+            matches: matches.slice(0, 20).map(({block, title}) => ({ block: { id: block.id }, title })),
+            completeness: matches.length > 20 ? { kind: "truncated", limit: 20 } : { kind: "complete" },
+          } as T;
+        }
+        if (response === undefined && input.action === "files.complete") return [] as T;
+        if (response === undefined && input.action === "inbox.status") {
+          return { enabled: false, paused: false, state: "unavailable", message: "Inbox agent is not configured", pending: 0, results: [], resultsTruncated: false, attentionCount: 0, attentionOnly: input.attentionOnly === true, resultsOffset: 0 } as T;
+        }
+        if (response === undefined && input.action === "clients.list") {
+          return [{
+            clientId: input.role === "tree" ? clientId : "detail-test",
+            role: input.role ?? "tree",
+            contextId: `${clientId}-context`,
+          }] as T;
+        }
+        if (response === undefined && input.action === "attention.get") {
+          return emptyAttentionState(input.targetClientId) as T;
+        }
+        if (response === undefined && input.action === "attention.acknowledge") {
+          return emptyAttentionState(input.input.targetClientId) as T;
+        }
+        if (response === undefined && input.action === "browsing-context.publish") {
+          return {
+            contextId: input.contextId,
+            target: { selected: null, ancestors: [], children: [] },
+          } as T;
+        }
+        if (response === undefined && input.action === "navigation.dispatch") {
+          const targetClientId = input.intent === "reveal" ? clientId : "detail-test";
+          return {
+            sourceClientId: input.sourceClientId,
+            targetClientId,
+            intent: input.intent,
+            resolution: input.intent === "reveal" ? "self" : "unlocked",
+            command: {
+              targetClientId,
+              command: input.intent,
+              target: input.target,
+            },
+          } as T;
+        }
+        if (response === undefined && input.action === "navigation.resolve") {
+          return {
+            sourceClientId: input.sourceClientId,
+            targetClientId: "detail-test",
+            intent: input.intent,
+            resolution: "linked",
+          } as T;
+        }
+        return response as T;
+      },
+      createDetailPane: async (blockId, direction = "down") => {
+        result.createdDetails.push(blockId);
+        result.createdDetailDirections.push(direction);
+      },
+      openCapturePopup: async (capturedFromBlockId) => {
+        result.openedCaptures.push(capturedFromBlockId);
+      },
+      openVirtualBranchNavigator: async (viewId, adapter) => {
+        result.openedVirtualNavigators.push(viewId);
+        result.openedVirtualNavigatorAdapters.push(adapter);
+      },
+      focusSelf: () => result.focused.push("outliner"),
+      terminalWidth: () => 80,
+      terminalHeight: () => 12,
+      stop: () => {
+        result.stops += 1;
+      },
+      invalidate: () => {
+        result.invalidations += 1;
+      },
+    },
+  };
+  return result;
+}
+
+function event(
+  domain: OutlinerEvent["domain"],
+  blockId?: string,
+  contextId = "tree-test-context",
+): OutlinerEvent {
+  return {
+    id: "event",
+    domain,
+    action: "changed",
+    sequence: 2,
+    blockId,
+    ...(domain === "browsing-context" ? { contextId } : {}),
+  };
+}
+
+function renderViewport(controller: TreeController, width=80, height=12) {
+  const frame=renderTreeFrame(controller.view(),width,height,controller.view().scrollStartEntryIndex ?? 0);
+  controller.setViewportStart(frame.scrollStartEntryIndex,frame.expandedPage);
+  return frame;
+}
+
+function lastCall(calls: readonly RequestInput[], action: RequestInput["action"]): RequestInput | undefined {
+  return [...calls].reverse().find((call) => call.action === action);
+}
+
+describe("createTreeController", () => {
+  test("focus and navigation history retain occurrence root and viewport independently", async () => {
+    const x=block("x",{hasChildren:true}), child=block("child",{parentId:"x",depth:1,hasChildren:true}), leaf=block("leaf",{parentId:"child",depth:2}), other=block("other");
+    const blocks=[x,child,leaf,other];
+    const fake=harness(input=>input.action === "tree.index" ? snapshot(blocks,x) : undefined);
+    const first=createTreeController(fake.effects), second=createTreeController({...fake.effects,clientId:"other-tree"});
+    await first.initialize();await second.initialize();
+    await first.handleRowClick("child");first.setViewportStart(1);
+    await first.handleAction("tree.root.focus");
+    expect(first.view().rows.map(row=>[row.rowId,row.depth])).toEqual([["child",0],["leaf",1]]);
+    expect(second.view().root).toBeNull();expect(second.view().rows).toHaveLength(4);
+    await first.handleKeypress("",{name:"left",meta:true},"pass");
+    expect(first.view().root).toBeNull();expect(selectedBlockRow(first).rowId).toBe("child");expect(first.view().scrollStartEntryIndex).toBe(1);
+    await first.handleKeypress("",{name:"right",meta:true},"pass");
+    expect(first.view().root?.rowId).toBe("child");
+    await first.revealBlock("other");expect(first.view().root).toBeNull();expect(selectedBlockRow(first).canonicalId).toBe("other");
+    await first.handleKeypress("",{name:"left",meta:true},"pass");expect(first.view().root?.rowId).toBe("child");
+  });
+
+  test("depth actions reveal one new layer and fold deepest layers only under the anchor", async () => {
+    const blocks=[block("x",{hasChildren:true}),block("x1",{parentId:"x",depth:1,hasChildren:true}),block("x11",{parentId:"x1",depth:2,hasChildren:true}),block("x111",{parentId:"x11",depth:3}),block("x2",{parentId:"x",depth:1,hasChildren:true}),block("x21",{parentId:"x2",depth:2}),block("other",{hasChildren:true}),block("other-child",{parentId:"other",depth:1})];
+    const fake=harness(input=>input.action === "tree.index" ? snapshot(blocks,blocks[0]!) : undefined);
+    const controller=createTreeController(fake.effects);await controller.initialize();
+    await controller.handleDisclosure("x"); // hide descendants that were expanded
+    await controller.handleAction("tree.depth.expand");
+    expect(controller.view().rows.map(row=>row.rowId)).toEqual(["x","x1","x2","other","other-child"]);
+    await controller.handleAction("tree.depth.expand");
+    expect(controller.view().rows.map(row=>row.rowId)).toEqual(["x","x1","x11","x2","x21","other","other-child"]);
+    await controller.handleAction("tree.depth.expand");expect(controller.view().rows.some(row=>row.rowId === "x111")).toBe(true);
+    await controller.handleAction("tree.depth.collapse");expect(controller.view().rows.some(row=>row.rowId === "x111")).toBe(false);
+    await controller.handleAction("tree.depth.collapse");expect(controller.view().rows.map(row=>row.rowId)).toEqual(["x","x1","x2","other","other-child"]);
+    expect(selectedBlockRow(controller).rowId).toBe("x");
+    await controller.handleRowClick("x2");await controller.handleAction("tree.depth.expand");
+    expect(controller.view().rows.some(row=>row.rowId === "x21")).toBe(true);
+    expect(controller.view().rows.some(row=>row.rowId === "x11")).toBe(false);
+  });
+
+  test("expanding an uneven frontier leaves already-visible descendants expanded", async () => {
+    const blocks=[block("x",{hasChildren:true}),block("a",{parentId:"x",depth:1,hasChildren:true}),block("a1",{parentId:"a",depth:2}),block("b",{parentId:"x",depth:1,hasChildren:true}),block("b1",{parentId:"b",depth:2,hasChildren:true}),block("b11",{parentId:"b1",depth:3})];
+    const fake=harness(input=>input.action === "tree.index" ? snapshot(blocks,blocks[0]!) : undefined);
+    const controller=createTreeController(fake.effects);await controller.initialize();
+    await controller.handleDisclosure("a");await controller.handleRowClick("x");
+    await controller.handleAction("tree.depth.expand");
+    expect(controller.view().rows.map(row=>row.rowId)).toEqual(["x","a","a1","b","b1","b11"]);
+  });
+
+  test("recent mentions reports launch success and failure and invalidates the view", async () => {
+    const first = block("first");
+    const fake = harness(input => input.action === "tree.index" ? snapshot([first], first) : undefined);
+    const controller = createTreeController(fake.effects);
+    await controller.initialize();
+    await controller.handleAction("tree.mentions.open");
+    expect(fake.openedVirtualNavigators).toEqual(["recent-mentions"]);
+    expect(fake.openedVirtualNavigatorAdapters).toEqual(["mentions"]);
+    expect(controller.view().status).toBe("Opened recent agent mentions");
+    fake.effects.openVirtualBranchNavigator = async () => { throw new Error("Virtual branch navigator popup requires Herdr"); };
+    const invalidations = fake.invalidations;
+    await controller.handleAction("tree.mentions.open");
+    expect(controller.view().status).toBe("Virtual branch navigator popup requires Herdr");
+    expect(fake.invalidations).toBeGreaterThan(invalidations);
+  });
+
+  test("mention events do not reload the Tree or defer refresh during editing", async () => {
+    const first = block("first");
+    const fake = harness(input => input.action === "tree.index" ? snapshot([first], first) : undefined);
+    const controller = createTreeController(fake.effects);
+    await controller.initialize();
+    const reads = fake.calls.filter(input => input.action === "tree.index").length;
+    for (const action of ["mentions.ingest", "mentions.clear"]) {
+      await controller.handleServiceEvent({ ...event("mentions"), action });
+    }
+    expect(fake.calls.filter(input => input.action === "tree.index")).toHaveLength(reads);
+    await controller.handleKeypress("e", { name: "e" }, "pass");
+    await controller.handlePaste("keep this draft");
+    const draft = controller.view().quickInput;
+    for (const action of ["mentions.ingest", "mentions.clear"]) {
+      await controller.handleServiceEvent({ ...event("mentions"), action });
+    }
+    expect(controller.view().quickInput).toBe(draft);
+    expect(controller.view().refreshPending).toBe(false);
+    await controller.handleServiceEvent(event("content"));
+    expect(controller.view().refreshPending).toBe(true);
+  });
+
+  test("Inbox progress reads do not hold the serial event and keyboard lane", async () => {
+    const first = block("first");
+    const second = block("second", { position: 1 });
+    const initial: InboxStatus = { enabled: true, paused: false, state: "working", message: "Reading", pending: 1, results: [], resultsTruncated: false, attentionCount: 0, attentionOnly: false, resultsOffset: 0 };
+    const held = Promise.withResolvers<InboxStatus>();
+    let delayStatus = false;
+    const fake = harness(input => {
+      if (input.action === "tree.index") return snapshot([first, second], first);
+      if (input.action === "inbox.status") return delayStatus ? held.promise : initial;
+    });
+    const controller = createTreeController(fake.effects);
+    await controller.initialize();
+    delayStatus = true;
+    const lane = controller.handleServiceEvent(event("inbox")).then(() => controller.handleKeypress("", { name: "down" }, "pass"));
+    try {
+      await Promise.race([lane, Bun.sleep(100).then(() => { throw new Error("Progress blocked keyboard input"); })]);
+      expect(selectedBlockRow(controller).canonicalId).toBe(second.id);
+    } finally { held.resolve(initial); await lane; }
+  });
+  test("opens Inbox from the action menu and uses events while closed without reloading the Tree", async () => {
+    const first = block("first");
+    let inboxStatus: InboxStatus = { enabled: true, paused: false, state: "working", message: "Reading capture", pending: 2, results: [], resultsTruncated: false, attentionCount: 0, attentionOnly: false, resultsOffset: 0 };
+    const fake = harness(input => {
+      if (input.action === "tree.index") return snapshot([first], first);
+      if (input.action === "inbox.status") return { ...inboxStatus, attentionOnly: input.attentionOnly ?? false };
+      if (input.action === "inbox.pause") return inboxStatus = { ...inboxStatus, paused: true, state: "paused" };
+    });
+    const controller = createTreeController(fake.effects);
+    await controller.initialize();
+    expect(controller.view().inboxCue).toContain("working");
+    await controller.handleKeypress("?", { name: "?" }, "pass");
+    expect(controller.view().actionMenuItems?.find(item => item.id === "tree.inbox.open")?.binding).toBe("⇧I");
+    await controller.handleKeypress("Inbox", { sequence: "Inbox" }, "pass");
+    await controller.handleKeypress("", { name: "return" }, "pass");
+    expect(controller.view().mode).toBe("inbox");
+    expect(controller.view().inbox?.snapshot?.pending).toBe(2);
+    expect(selectedBlockRow(controller).canonicalId).toBe(first.id);
+    await controller.handleKeypress("?", { name: "?" }, "pass");
+    expect(controller.view().actionMenuItems?.some(item => item.id === "tree.inbox.undo")).toBe(true);
+    expect(controller.view().actionMenuItems?.find(item => item.id === "tree.inbox.attention")).toMatchObject({ label: "Show needs attention (0)", binding: "a" });
+    expect(controller.view().actionMenuItems?.some(item => item.id === "tree.add.child")).toBe(false);
+    await controller.handleKeypress("", { name: "escape" }, "pass");
+    expect(controller.view().mode).toBe("inbox");
+    expect(controller.view().actionHelpText).toContain("a needs attention (0)");
+    await controller.handleKeypress("a", { name: "a" }, "pass");
+    expect(controller.view().inbox?.attentionOnly).toBe(true);
+    expect(controller.view().actionHelpText).not.toContain("older results");
+    await controller.handleKeypress("?", { name: "?" }, "pass");
+    expect(controller.view().actionMenuItems?.find(item => item.id === "tree.inbox.attention")?.label).toBe("Show recent results");
+    await controller.handleAction("tree.inbox.attention");
+    expect(controller.view().inbox?.attentionOnly).toBe(false);
+    await controller.handleKeypress("p", { name: "p" }, "pass");
+    expect(controller.view().inbox?.snapshot?.state).toBe("paused");
+    await controller.handleKeypress("", { name: "escape" }, "pass");
+    expect(controller.view().mode).toBe("browse");
+    const priorIndexReads = fake.calls.filter(input => input.action === "tree.index").length;
+    inboxStatus = { ...inboxStatus, paused: false, state: "idle", pending: 0 };
+    await controller.handleServiceEvent(event("inbox"));
+    await setImmediate();
+    expect(controller.view().inboxCue).toBe("Inbox idle");
+    expect(fake.calls.filter(input => input.action === "tree.index")).toHaveLength(priorIndexReads);
+    const priorInvalidations = fake.invalidations;
+    inboxStatus = { ...inboxStatus, message: "Another internal progress message" };
+    await controller.handleServiceEvent(event("inbox"));
+    await setImmediate();
+    expect(fake.invalidations).toBe(priorInvalidations);
+    await controller.handleKeypress("I", { name: "i", shift: true }, "pass");
+    expect(controller.view().mode).toBe("inbox");
+    expect(controller.view().inbox?.snapshot?.state).toBe("idle");
+    await controller.handleKeypress("", { name: "escape" }, "pass");
+    await controller.handleKeypress("e", { name: "e" }, "pass");
+    await controller.handlePaste("keep this draft");
+    const draft = controller.view().quickInput;
+    await controller.handleAction("tree.inbox.open");
+    expect(controller.view().mode).toBe("edit");
+    expect(controller.view().quickInput).toBe(draft);
+  });
+
+  test("Inbox key rebinding leaves reconsider input literal and opens outputs through existing Detail navigation", async () => {
+    const source = block("source-capture");
+    const output = block("created-output");
+    const inboxStatus: InboxStatus = { enabled: true, paused: false, state: "idle", message: "Ready", pending: 0, resultsTruncated: false, attentionCount: 1, attentionOnly: false, resultsOffset: 0, results: [{ id: "result-id", sourceId: source.id, sourceTitle: "Captured idea", summary: "Filed", state: "held", outputIds: [output.id], createdAt: "2026-09-20" }] };
+    const fake = harness(input => {
+      if (input.action === "navigation.link.get") return {source:{clientId:"tree-test",region:"tree"},destination:{clientId:"detail-test",region:"detail"},destinations:[{view:{clientId:"detail-test",region:"detail"},label:"Reader"}]};
+      if (input.action === "tree.index") return snapshot([source, output], source);
+      if (input.action === "inbox.status") return { ...inboxStatus, attentionOnly: input.attentionOnly === true };
+      if (input.action.startsWith("inbox.")) return inboxStatus;
+    });
+    fake.effects = { ...fake.effects, actionKeymap: new OutlinerActionKeymap("<test>", { "tree.inbox.pause": ["x"] }) };
+    const controller = createTreeController(fake.effects);
+    await controller.initialize();
+    await controller.handleKeypress("I", { name: "i", shift: true }, "pass");
+    await controller.handleKeypress("p", { name: "p" }, "pass");
+    expect(fake.calls.some(input => input.action === "inbox.pause")).toBe(false);
+    await controller.handleKeypress("x", { name: "x" }, "pass");
+    expect(lastCall(fake.calls, "inbox.pause")).toEqual({ action: "inbox.pause" });
+    await controller.handleKeypress("r", { name: "r" }, "pass");
+    await controller.handleKeypress("p", { name: "p" }, "pass");
+    await controller.handlePaste("lease keep the task in this project");
+    await controller.handleKeypress("", { name: "return" }, "pass");
+    expect(lastCall(fake.calls, "inbox.retry")).toEqual({ action: "inbox.retry", sourceId: source.id, instructions: "please keep the task in this project" });
+    await controller.handleServiceEvent(event("content"));
+    expect(controller.view().refreshPending).toBe(true);
+    await controller.handleKeypress("", { name: "return", meta: true }, "pass");
+    expect(controller.view().mode).toBe("inbox");
+    expect(controller.view().refreshPending).toBe(false);
+    expect(lastCall(fake.calls, "navigation.dispatch")).toMatchObject({ target: { kind: "block", blockId: output.id }, intent: "open" });
+    expect(selectedBlockRow(controller).canonicalId).toBe(source.id);
+    await controller.handleKeypress("", {name:"escape"}, "pass");
+    expect(controller.view().mode).toBe("browse");
+    expect(controller.view().refreshPending).toBe(false);
+  });
+
+  test("Inbox Preview composer owns input before host shortcuts and follows the clicked reader", async () => {
+    const source=block("comment-source"), output=block("comment-output");
+    let refreshed=false;
+    const fake=harness(input=>{
+      if(input.action==='tree.index')return snapshot([source,output],source);
+      if(input.action==='inbox.status')return {enabled:true,paused:true,state:'paused',pending:0,resultsTruncated:false,
+        attentionCount:1,attentionOnly:input.attentionOnly===true,resultsOffset:0,results:refreshed?[{id:'later-result',sourceId:source.id,sourceTitle:'Later receipt',summary:'Updated',state:'held',outputIds:[],createdAt:'2026-01-02T00:00:00.000Z'}]:[{
+          id:'comment-result',sourceId:source.id,sourceTitle:'Original capture',summary:'Filed',state:'held',
+          outputIds:[output.id],createdAt:'2026-01-01T00:00:00.000Z',
+        }]};
+    });
+    const controller=createTreeController(fake.effects);
+    await controller.initialize();
+    await controller.handleKeypress('I',{name:'i',shift:true},'pass');
+    await setImmediate();
+    const inbox=controller.view().inbox!;
+    inbox.focusReader(true,'source');
+    await inbox.previewAction('preview.comment',inbox.outputReader);
+    expect(inbox.reader).toBe(inbox.outputReader);
+    expect(inbox.sourceReader.state?.focused).toBe(false);
+    const writing='FEEDBACK ON SAVED SOURCE / ? p r s a';
+    for(const char of writing)await controller.handleKeypress(char,{name:char.toLowerCase(),shift:char!==char.toLowerCase()},'pass');
+    expect(inbox.outputReader.state!.comment!.buffer.text).toBe(writing);
+    for(const action of ['tree.inbox.preview.activity','tree.inbox.preview.before','tree.inbox.search','tree.menu.open']) {
+      await controller.handleAction(action);
+      expect(controller.view().mode).toBe('inbox');
+      expect(inbox.previewMode).toBe('content');
+      expect(inbox.sourceVersion).toBe('current');
+      expect(inbox.searching).toBe(false);
+      expect(inbox.reader.state!.comment!.buffer.text).toBe(writing);
+    }
+    inbox.focusReader(true,'source');
+    inbox.selectTarget(1);
+    inbox.showActivity();
+    expect(inbox.reader).toBe(inbox.outputReader);
+    expect(inbox.outputReader.state?.focused).toBe(true);
+    expect(inbox.sourceReader.state?.focused).toBe(false);
+
+    renderViewport(controller,120,40);
+    inbox.handlePreviewMouse('\x1b[<0;1;1M',()=>{});
+    expect(inbox.outputReader.state?.focused).toBe(true);
+    await controller.handleKeypress('!',{},'pass');
+    expect(inbox.reader.state!.comment!.buffer.text).toBe(writing+'!');
+
+    refreshed=true;
+    await controller.handleServiceEvent(event('inbox'));
+    await setImmediate();
+    expect(inbox.selected?.id).toBe('comment-result');
+    expect(inbox.outputTarget?.id).toBe(output.id);
+    expect(inbox.reader.state!.comment!.buffer.text).toBe(writing+'!');
+    expect(inbox.previewMode).toBe('content');
+    expect(controller.view().mode).toBe('inbox');
+    await controller.handleKeypress('',{name:'escape'},'pass');
+    expect(inbox.hasCommentDraft).toBe(false);
+    expect(inbox.notice).not.toContain('draft retained');
+    expect(inbox.reader.state!.target).toEqual({kind:'block',blockId:output.id});
+    await controller.handleKeypress('',{name:'escape'},'pass');
+    expect(inbox.reader.state!.focused).toBe(false);
+    expect(controller.view().mode).toBe('inbox');
+    await controller.handleKeypress('',{name:'p',meta:true},'pass');
+    expect(inbox.reader.state!.focused).toBe(true);
+    await controller.handleKeypress('?',{name:'?'},'pass');
+    expect(controller.view().actionMenuItems).toEqual(expect.arrayContaining([expect.objectContaining({id:'tree.reader.comment'})]));
+    expect(controller.view().actionMenuItems).not.toEqual(expect.arrayContaining([expect.objectContaining({id:'tree.preview.close'})]));
+    await controller.handleKeypress('',{name:'escape'},'pass');
+    inbox.move(1);
+    expect(inbox.selected?.id).toBe('later-result');
+    expect(controller.view().mode).toBe('inbox');
+  });
+
+  test("edits the exact on-demand body with the revision from that read, not the compact preview", async () => {
+    const original = block("exact-edit", { revision: 4 });
+    const { text: _text, displayText: _displayText, ...metadata } = original;
+    const index: TreeIndexSnapshot = {
+      blocks: [{ ...metadata, preview: "Short row preview", previewReferences: [], textDigest: "old-digest" }],
+      physicalBlockIds: [original.id], visible: { rows: [{ id: original.id, depth: 0 }], completeness: { kind: "complete" } },
+      selectedBlockId: original.id, sequence: 1, virtualOccurrenceRanks: [],
+    };
+    const text = "Exact editable body ".repeat(40) + "LAST BYTE";
+    const exact = { ...original, revision: 5, text };
+    const fake = harness(input => {
+      if (input.action === "tree.index") return index;
+      if (input.action === "get") return exact;
+      if (input.action === "update") return { ...exact, revision: 6, text: input.text };
+      return undefined;
+    });
+    const controller = createTreeController(fake.effects);
+    await controller.initialize();
+    await controller.handleKeypress("e", { name: "e" }, "pass");
+    expect(controller.view().quickInput).toBe(text);
+    await controller.handleKeypress("!", { name: "!" }, "pass");
+    await controller.handleKeypress("", { name: "return" }, "pass");
+    expect(lastCall(fake.calls, "update")).toMatchObject({ blockId: original.id, expectedRevision: 5, text: text + "!" });
+  });
+
+  test("remaps browse actions, suppresses stale defaults, and invokes the action menu", async () => {
+    const first = block("first");
+    const second = block("second", { position: 1 });
+    const fake = harness((input) =>
+      input.action === "tree.index" ? snapshot([first, second], first) : undefined
+    );
+    fake.effects = {
+      ...fake.effects,
+      actionKeymap: new OutlinerActionKeymap("<test>", {
+        "tree.move.down": ["j"],
+      }),
+    };
+    const controller = createTreeController(fake.effects);
+    await controller.initialize();
+
+    await controller.handleKeypress("j", { name: "j" }, "pass");
+    expect(selectedBlockRow(controller).canonicalId).toBe("second");
+    await controller.handleKeypress("", { name: "down" }, "pass");
+    expect(selectedBlockRow(controller).canonicalId).toBe("second");
+
+    await controller.handleAction("tree.menu.open");
+    expect(controller.view().mode).toBe("action-menu");
+    expect(controller.view().actionMenuItems?.length).toBeGreaterThan(0);
+    await controller.handleKeypress("dtrt", {}, "pass");
+    expect(controller.view().actionMenuQuery).toBe("dtrt");
+    expect(controller.view().actionMenuItems?.[0]?.id).toBe("tree.detail.right");
+    expect(controller.view().actionMenuItems?.length).toBeLessThan(
+      fake.effects.actionKeymap!.menuItems("tree", "browse").length,
+    );
+    await controller.handleKeypress("", { name: "backspace" }, "pass");
+    expect(controller.view().actionMenuQuery).toBe("dtr");
+    await controller.handleAction("tree.detail.right");
+    expect(fake.createdDetailDirections).toEqual(["right"]);
+    expect(controller.view().mode).toBe("browse");
+  });
+
+  test("uses snapshot selection initially and preserves the current visible selection on refresh", async () => {
+    const first = block("first");
+    const second = block("second", { position: 1 });
+    let snapshotCount = 0;
+    const fake = harness((input) => {
+      if (input.action === "tree.index") {
+        snapshotCount += 1;
+        return snapshotCount === 1
+          ? snapshot([first, second], second)
+          : snapshot([second, first], first);
+      }
+      return undefined;
+    });
+    const controller = createTreeController(fake.effects);
+
+    await controller.initialize();
+    expect(selectedBlockRow(controller).canonicalId).toBe("second");
+    expect(fake.calls.filter((call) => call.action === "browsing-context.publish")).toHaveLength(1);
+
+    await controller.handleServiceEvent(event("content"));
+    expect(selectedBlockRow(controller).canonicalId).toBe("second");
+    expect(fake.calls.filter((call) => call.action === "browsing-context.publish")).toHaveLength(1);
+  });
+
+  test("selects clicked rows and opens a modified-click row in Detail", async () => {
+    const first = block("first");
+    const second = block("second", { position: 1 });
+    const fake = harness((input) =>
+      input.action === "tree.index" ? snapshot([first, second], first) : undefined
+    );
+    const controller = createTreeController(fake.effects);
+    await controller.initialize();
+    fake.calls.length = 0;
+
+    await controller.handleRowClick(second.id);
+    expect(selectedBlockRow(controller).canonicalId).toBe(second.id);
+    expect(lastCall(fake.calls, "browsing-context.publish")).toMatchObject({
+      target: { kind: "block", blockId: second.id },
+    });
+
+    fake.calls.length = 0;
+    await controller.handleRowClick(first.id, true);
+    expect(selectedBlockRow(controller).canonicalId).toBe(first.id);
+    expect(lastCall(fake.calls, "navigation.dispatch")).toMatchObject({
+      target: { kind: "block", blockId: first.id },
+      intent: "open",
+    });
+    expect(controller.view().status).toContain("Reader opened in linked Detail");
+  });
+  test("keeps generated links on their exact owner occurrence and opens typed targets explicitly", async () => {
+    const definition = block("view0001", {
+      properties: [
+        { key: "type", value: "virtual-branch" },
+        { key: "query", value: "status=Next" },
+      ],
+    });
+    const target = block("target01", { text: "Target", displayText: "Target" });
+    const resourceId = "22222222-2222-4222-8222-222222222222";
+    const owner = block("owner001", {
+      text: `Owner ((${target.id}|Target)) [Guide](pi-outliner://resource/${resourceId})`,
+      displayText: "Owner",
+      properties: [{ key: "status", value: "Next" }],
+    });
+    const ownerOccurrenceRowId = `occurrence:${definition.id}:${owner.id}`;
+    const fake = harness((input) => {
+      if (input.action === "tree.index") {
+        return snapshot([definition], definition, {
+          physicalBlocks: [definition, owner, target],
+        });
+      }
+      if (input.action === "tree.query") {
+        return { blocks: [owner], completeness: { kind: "complete" } };
+      }
+      if (input.action === "blocks.authored-links") {
+        return {
+          kind: "ready",
+          ownerId: owner.id,
+          ownerTextDigest: authoredTextDigest(owner.text),
+          outlinks: {
+            entries: [{
+              kind: "outlink",
+              key: JSON.stringify(["block", target.id, null]),
+              label: "Target",
+              firstSpan: { start: 6, end: 27 },
+              occurrenceCount: 1,
+              referenceKind: "block",
+              resolution: {
+                kind: "ready",
+                target: { kind: "block", blockId: target.id },
+                title: "Target",
+              },
+            }],
+            completeness: { kind: "complete" },
+            invalidCount: 0,
+            diagnostics: [],
+          },
+          resources: {
+            entries: [{
+              kind: "resource",
+              key: JSON.stringify(["resource", resourceId]),
+              label: "Guide",
+              firstSpan: { start: 28, end: owner.text.length },
+              occurrenceCount: 1,
+              resourceId,
+              resolution: {
+                kind: "ready",
+                target: { kind: "resource", resourceId },
+                sourceName: "Protocol docs",
+                provider: "web",
+                addressLabel: "https://example.test/guide",
+              },
+            }],
+            completeness: { kind: "complete" },
+            invalidCount: 0,
+            diagnostics: [],
+          },
+        };
+      }
+      return undefined;
+    });
+    const controller = createTreeController(fake.effects);
+    await controller.initialize();
+    await controller.handleKeypress("", { name: "down" }, "pass");
+
+    expect(controller.view().rows[controller.view().selectedIndex]?.rowId)
+      .toBe(ownerOccurrenceRowId);
+    await controller.handleAction("tree.authored-links.toggle");
+
+    await controller.handleDisclosure(ownerOccurrenceRowId);
+    expect(controller.view().rows.some(row => row.kind === "authored-link-header")).toBe(false);
+    await controller.handleDisclosure(ownerOccurrenceRowId);
+    const displayed = controller.view().rows;
+    expect(displayed.map((row) => row.kind)).toEqual([
+      "physical",
+      "occurrence",
+      "authored-link-header",
+      "authored-link",
+      "authored-link-header",
+      "authored-link",
+      "authored-link-header",
+    ]);
+    const headers = displayed.filter((row) => row.kind === "authored-link-header");
+    expect(headers.map((row) => ({
+      ownerRowId: row.owner.rowId,
+      group: row.group,
+      collapsed: row.collapsed,
+    }))).toEqual([
+      { ownerRowId: ownerOccurrenceRowId, group: "outlinks", collapsed: false },
+      { ownerRowId: ownerOccurrenceRowId, group: "resources", collapsed: false },
+      { ownerRowId: ownerOccurrenceRowId, group: "backlinks", collapsed: false },
+    ]);
+    const resourceRow = displayed.find(
+      (row) => row.kind === "authored-link" && row.group === "resources",
+    );
+    if (!resourceRow || resourceRow.kind !== "authored-link") {
+      throw new Error("Expected generated Resource row");
+    }
+
+    await controller.handleRowClick(resourceRow.rowId);
+    expect(lastCall(fake.calls, "browsing-context.publish")).toEqual({
+      action: "browsing-context.publish",
+      sourceClientId: "tree-test",
+      contextId: "tree-test-context",
+      target: { kind: "resource", resourceId },
+    });
+    expect(fake.calls.some((call) => call.action === "navigation.dispatch")).toBe(false);
+
+    await controller.handleKeypress("", { name: "return" }, "pass");
+    expect(lastCall(fake.calls, "navigation.dispatch")).toEqual({
+      action: "navigation.dispatch",
+      sourceClientId: "tree-test",
+      target: { kind: "resource", resourceId },
+      intent: "open",
+      focusTarget: false,
+      preserveSource: true,
+    });
+  });
+
+  test("creates an unregistered page only when its generated Outlink is activated", async () => {
+    const owner = block("owner001", {
+      text: "Owner [[Future Page]]",
+      displayText: "Owner",
+    });
+    const createdPage = block("created1", {
+      text: "Future Page [page::Future Page]",
+      displayText: "Future Page",
+    });
+    const fake = harness((input) => {
+      if (input.action === "tree.index") return snapshot([owner], owner);
+      if (input.action === "blocks.authored-links") {
+        return {
+          kind: "ready",
+          ownerId: owner.id,
+          ownerTextDigest: authoredTextDigest(owner.text),
+          outlinks: {
+            entries: [{
+              kind: "outlink",
+              key: JSON.stringify(["address", "future page"]),
+              label: "Future Page",
+              firstSpan: { start: 6, end: owner.text.length },
+              occurrenceCount: 1,
+              referenceKind: "page",
+              resolution: {
+                kind: "unregistered-page",
+                address: "Future Page",
+                reason: "Page is not registered: Future Page",
+              },
+            }],
+            completeness: { kind: "complete" },
+            invalidCount: 0,
+            diagnostics: [],
+          },
+          resources: {
+            entries: [],
+            completeness: { kind: "complete" },
+            invalidCount: 0,
+            diagnostics: [],
+          },
+        };
+      }
+      if (input.action === "pages.resolve") {
+        return {
+          address: input.address,
+          normalizedAddress: "future page",
+          status: "missing",
+        };
+      }
+      if (input.action === "pages.follow") {
+        return {
+          address: input.address,
+          normalizedAddress: "future page",
+          registeredAddress: "Future Page",
+          status: "resolved",
+          kind: "page",
+          block: createdPage,
+          created: true,
+        };
+      }
+      return undefined;
+    });
+    const controller = createTreeController(fake.effects);
+    await controller.initialize();
+    await controller.handleAction("tree.authored-links.toggle");
+    expect(
+      controller.view().rows
+        .filter((row) => row.kind === "authored-link-header")
+        .map((row) => row.group),
+    ).toEqual(["outlinks", "backlinks"]);
+    const pageRow = controller.view().rows.find((row) => row.kind === "authored-link");
+    if (!pageRow || pageRow.kind !== "authored-link") {
+      throw new Error("Expected generated page Outlink");
+    }
+
+    await controller.handleRowClick(pageRow.rowId);
+    expect(lastCall(fake.calls, "browsing-context.publish")).toMatchObject({
+      target: null,
+      dispatchPreview: false,
+    });
+    expect(fake.calls.some((call) => call.action === "pages.follow")).toBe(false);
+
+    await controller.handleKeypress("", { name: "return" }, "pass");
+
+    expect(lastCall(fake.calls, "pages.follow")).toEqual({
+      action: "pages.follow",
+      address: "Future Page",
+    });
+    expect(lastCall(fake.calls, "navigation.dispatch")).toMatchObject({
+      target: { kind: "block", blockId: createdPage.id },
+      intent: "open",
+      preserveSource: true,
+    });
+  });
+
+  test("creates a human-authored Resource only when its generated row is activated", async () => {
+    const owner = block("owner002", {
+      text: "Owner [file::notes/today.md]",
+      displayText: "Owner",
+    });
+    const resourceId = "30000000-0000-4000-8000-000000000030";
+    const sourceId = "40000000-0000-4000-8000-000000000040";
+    const resource = {
+      id: resourceId,
+      sourceId,
+      provider: "filesystem" as const,
+      address: { kind: "filesystem" as const, path: "today.md" },
+      version: 1,
+      addressVersion: 1,
+      mediaType: "text/markdown",
+      createdAt: "2026-09-17T00:00:00.000Z",
+      updatedAt: "2026-09-17T00:00:00.000Z",
+    };
+    const fake = harness((input) => {
+      if (input.action === "tree.index") return snapshot([owner], owner);
+      if (input.action === "blocks.authored-links") {
+        return {
+          kind: "ready",
+          ownerId: owner.id,
+          ownerTextDigest: authoredTextDigest(owner.text),
+          outlinks: {
+            entries: [],
+            completeness: { kind: "complete" },
+            invalidCount: 0,
+            diagnostics: [],
+          },
+          resources: {
+            entries: [{
+              kind: "resource",
+              key: JSON.stringify(["filesystem", "notes/today.md"]),
+              label: "notes/today.md",
+              firstSpan: { start: 6, end: owner.text.length },
+              occurrenceCount: 1,
+              resolution: {
+                kind: "unregistered",
+                reference: { kind: "filesystem", path: "notes/today.md" },
+                reason: "File is not registered: notes/today.md",
+              },
+            }],
+            completeness: { kind: "complete" },
+            invalidCount: 0,
+            diagnostics: [],
+          },
+        };
+      }
+      if (input.action === "resources.follow-authored") {
+        return { resource, created: true };
+      }
+      return undefined;
+    });
+    const controller = createTreeController(fake.effects);
+    await controller.initialize();
+    await controller.handleAction("tree.authored-links.toggle");
+    expect(
+      controller.view().rows
+        .filter((row) => row.kind === "authored-link-header")
+        .map((row) => row.group),
+    ).toEqual(["resources", "backlinks"]);
+    const resourceRow = controller.view().rows.find((row) =>
+      row.kind === "authored-link" && row.group === "resources"
+    );
+    if (!resourceRow || resourceRow.kind !== "authored-link") {
+      throw new Error("Expected generated human-authored Resource row");
+    }
+
+    await controller.handleRowClick(resourceRow.rowId);
+    expect(lastCall(fake.calls, "browsing-context.publish")).toMatchObject({
+      target: null,
+      dispatchPreview: false,
+    });
+    expect(fake.calls.some((call) => call.action === "resources.follow-authored")).toBe(false);
+
+    await controller.handleKeypress("", { name: "return" }, "pass");
+
+    expect(lastCall(fake.calls, "resources.follow-authored")).toEqual({
+      action: "resources.follow-authored",
+      reference: { kind: "filesystem", path: "notes/today.md" },
+    });
+    expect(lastCall(fake.calls, "navigation.dispatch")).toMatchObject({
+      target: { kind: "resource", resourceId },
+      intent: "open",
+      focusTarget: false,
+      preserveSource: true,
+    });
+  });
+
+
+  test("fuzzy goto previews candidates and reveals the selected block", async () => {
+    const first = block("first", { text: "Inbox", displayText: "Inbox" });
+    const target = block("40bd0864-913a-4537-9535-8f96e1b63ef7", {
+      position: 1,
+      text: "Roadmap review after the graveyard walk",
+      displayText: "Roadmap review after the graveyard walk",
+    });
+    const other = block("other", {
+      position: 2,
+      text: "Unrelated note",
+      displayText: "Unrelated note",
+    });
+    const fake = harness((input) =>
+      input.action === "tree.index"
+        ? snapshot([first, target, other], first)
+        : undefined,
+    );
+    const controller = createTreeController(fake.effects);
+    await controller.initialize();
+
+    await controller.handleKeypress("g", { name: "g" }, "pass");
+    await controller.handleKeypress(
+      "rdmp reviw",
+      { sequence: "rdmp reviw" },
+      "pass",
+    );
+    await setImmediate();
+
+    expect(controller.view().mode).toBe("goto");
+    expect(controller.view().goto?.matches[0]).toMatchObject({
+      block: { id: target.id }, title: "Roadmap review after the graveyard walk",
+    });
+
+    await controller.handleKeypress("", { name: "return" }, "pass");
+    expect(controller.view().mode).toBe("browse");
+    expect(selectedBlockRow(controller).canonicalId).toBe(target.id);
+    expect(lastCall(fake.calls, "browsing-context.publish")).toEqual({ action: "browsing-context.publish", sourceClientId: "tree-test", contextId: "tree-test-context", target: { kind: "block", blockId: target.id } });
+  });
+
+  test("hosted Goto keeps the source Tree ready for its exact navigation command", async () => {
+    const first = block("first", { text: "Original" });
+    const target = block("target", { text: "Destination" });
+    const fake = harness(input => input.action === "tree.index" ? snapshot([first, target], first) : undefined);
+    let popups = 0;
+    fake.effects.openGotoPopup = () => { popups++; };
+    const controller = createTreeController(fake.effects);
+    await controller.initialize();
+    await controller.handleKeypress("g", { name: "g" }, "pass");
+    expect(popups).toBe(1);
+    expect(controller.view().mode).toBe("browse");
+    expect(selectedBlockRow(controller).canonicalId).toBe(first.id);
+    expect(fake.calls.some(input => input.action === "tree.search")).toBe(false);
+    await controller.handleServiceEvent({id: "goto-focus", action: "ui.command.send", domain: "ui", sequence: 2, command: {
+      command: "focus", targetClientId: "tree-test", targetRegion: "tree",
+      target: {kind: "block", blockId: target.id},
+    }});
+    expect(selectedBlockRow(controller).canonicalId).toBe(target.id);
+    expect(fake.focused.at(-1)).toBe("outliner");
+  });
+
+  test("Goto ignores pointer activation on blank result rows", async () => {
+    for (const count of [2, 10]) {
+      const source = Array.from({length: count}, (_, i) => block(`match-${i}`));
+      const fake = harness(input => input.action === "tree.index" ? snapshot(source, source[0]) : undefined);
+      fake.effects.terminalWidth = () => 120; fake.effects.terminalHeight = () => 26;
+      const controller = createTreeController(fake.effects); await controller.initialize();
+      await controller.handleKeypress("g", {name: "g"}, "pass");
+      await controller.handlePaste("match"); await setImmediate();
+      const selected = controller.view().goto!.selected!.block.id;
+      // 19 body rows display only 9 pairs; the last row and empty pairs are inert.
+      await controller.handleGotoMouse(`\x1b[<8;3;${count === 2 ? 9 : 23}M`);
+      expect(controller.view().mode).toBe("goto");
+      expect(controller.view().goto!.selected!.block.id).toBe(selected);
+      await controller.handleKeypress("", {name: "escape"}, "pass");
+    }
+  });
+
+  test("Goto Detail acceptance flushes deferred content without changing Tree selection", async () => {
+    const selected = block("selected"), target = block("target"), added = block("added");
+    let source = [selected, target];
+    const fake = harness(input => input.action === "tree.index" ? snapshot(source, selected) : undefined);
+    const controller = createTreeController(fake.effects); await controller.initialize();
+    await controller.handleKeypress("g", {name: "g"}, "pass");
+    await controller.handlePaste("target"); await setImmediate();
+    source = [selected, target, added];
+    await controller.handleServiceEvent(event("content", added.id));
+    expect(controller.view().refreshPending).toBe(true);
+    await controller.handleKeypress("", {name: "return", meta: true}, "pass");
+    expect(controller.view().mode).toBe("browse");
+    expect(controller.view().refreshPending).toBe(false);
+    expect(canonicalRowIds(controller.view().rows)).toContain(added.id);
+    expect(selectedBlockRow(controller).canonicalId).toBe(selected.id);
+    expect(lastCall(fake.calls, "navigation.dispatch")).toMatchObject({target: {kind: "block", blockId: target.id}, intent: "open"});
+  });
+
+  test("keeps goto typing responsive and coalesces intermediate queries behind a slow read", async () => {
+    const first = block("first");
+    const target = block("target01", { position: 1, text: "Violet research", displayText: "Violet research" });
+    const started = Promise.withResolvers<void>();
+    const held = Promise.withResolvers<GotoSearchCollection>();
+    const queries: string[] = [];
+    const fake = harness(input => {
+      if (input.action === "tree.index") return snapshot([first, target], first);
+      if (input.action === "tree.search") {
+        queries.push(input.query);
+        if (input.query === "v") { started.resolve(); return held.promise; }
+        return gotoCandidates([target], input.query);
+      }
+      return undefined;
+    });
+    const controller = createTreeController(fake.effects);
+    await controller.initialize();
+    await controller.handleKeypress("g", { name: "g" }, "pass");
+    await setImmediate();
+    let inputQueue = Promise.resolve();
+    for (const text of ["v", "io", "let"]) {
+      inputQueue = inputQueue.then(() => controller.handleKeypress(text, { sequence: text }, "pass"));
+    }
+    await started.promise;
+    await setImmediate(); // Drain the input lane while its transport remains held.
+    const typedBeforeReply = controller.view().quickInput;
+    held.resolve(gotoCandidates([first], ""));
+    await inputQueue;
+    await controller.handleKeypress("", { name: "return" }, "pass");
+    expect(typedBeforeReply).toBe("violet");
+    await setImmediate();
+    expect(queries).toEqual(["", "v", "violet"]);
+    expect(selectedBlockRow(controller).canonicalId).toBe(target.id);
+  });
+  test("separates canonical source reveal from authored reference reveal", async () => {
+    const source = block("source01", {
+      text: "Source points to ((target01))",
+      displayText: "Source points to ((target01))",
+    });
+    const target = block("target01", { position: 1, text: "Target", displayText: "Target" });
+    const fake = harness((input) => {
+      if (input.action === "tree.index") return snapshot([source, target], source);
+      if (input.action === "get") return input.blockId === source.id ? source : target;
+      return undefined;
+    });
+    const controller = createTreeController(fake.effects);
+    await controller.initialize();
+
+    await controller.handleKeypress("o", { name: "o" }, "pass");
+    expect(selectedBlockRow(controller).canonicalId).toBe(source.id);
+    expect(lastCall(fake.calls, "navigation.dispatch")).toEqual({ action: "navigation.dispatch", sourceClientId: "tree-test", target: { kind: "block", blockId: target.id }, intent: "open", });
+    expect(controller.view().status).toBe("Opened Target in linked Detail");
+
+    await controller.handleKeypress("R", { name: "r", shift: true }, "pass");
+    expect(fake.calls.filter((call) => call.action === "navigation.dispatch")).toEqual([
+      expect.objectContaining({
+        target: { kind: "block", blockId: target.id },
+        intent: "open",
+      }),
+    ]);
+    expect(selectedBlockRow(controller).canonicalId).toBe(source.id);
+    expect(fake.focused).toEqual(["outliner"]);
+
+    await controller.handleKeypress("R", { name: "r", meta: true, shift: true }, "pass");
+    expect(fake.calls.filter((call) => call.action === "navigation.dispatch")).toEqual([
+      expect.objectContaining({
+        target: { kind: "block", blockId: target.id },
+        intent: "open",
+      }),
+      expect.objectContaining({
+        target: { kind: "block", blockId: target.id },
+        intent: "reveal",
+        focusTarget: true,
+      }),
+    ]);
+    expect(selectedBlockRow(controller).canonicalId).toBe(source.id);
+
+    await controller.handleKeypress("", { name: "b", meta: true }, "pass");
+    expect(selectedBlockRow(controller).canonicalId).toBe(source.id);
+    expect(fake.calls.some((call) => call.action === "navigation.back")).toBe(false);
+  });
+
+  test("creates and follows a dangling symbolic reference only on explicit open", async () => {
+    const source = block("source01", {
+      text: "Source points to [[Future Page]]",
+      displayText: "Source points to [[Future Page]]",
+    });
+    const target = block("target01", {
+      position: 1,
+      text: "Future Page [page::Future Page]",
+      displayText: "Future Page [page::Future Page]",
+    });
+    let selected = source;
+    const fake = harness((input) => {
+      if (input.action === "tree.index") return snapshot([source, target], selected);
+      if (input.action === "pages.resolve") {
+        return {
+          address: input.address,
+          normalizedAddress: "future page",
+          status: "missing",
+        };
+      }
+      if (input.action === "pages.follow") {
+        return {
+          address: input.address,
+          normalizedAddress: "future page",
+          registeredAddress: "Future Page",
+          status: "resolved",
+          kind: "page",
+          block: target,
+          created: true,
+        };
+      }
+      if (input.action === "browsing-context.publish") {
+        selected = publishedBlockId(input) === target.id ? target : source;
+        return { selected, ancestors: [], children: [] };
+      }
+      return undefined;
+    });
+    const controller = createTreeController(fake.effects);
+    await controller.initialize();
+
+    await controller.handleKeypress("o", { name: "o" }, "pass");
+
+    expect(lastCall(fake.calls, "pages.follow")).toEqual({
+      action: "pages.follow",
+      address: "Future Page",
+    });
+    expect(selectedBlockRow(controller).canonicalId).toBe(source.id);
+    expect(controller.view().status).toBe("Created and opened Future Page in linked Detail");
+  });
+
+  test("follows a bare Work ID for the configured project prefix", async () => {
+    const source = block("source01", {
+      text: "Source points to ABC-001 and PIE-001",
+      displayText: "Source points to ABC-001 and PIE-001",
+    });
+    const target = block("target01", { position: 1, text: "Target", displayText: "Target" });
+    let selected = source;
+    const fake = harness((input) => {
+      if (input.action === "tree.index") {
+        return snapshot([source, target], selected, { workIdPrefix: "ABC" });
+      }
+      if (input.action === "pages.resolve") {
+        return {
+          address: input.address,
+          normalizedAddress: "abc-001",
+          registeredAddress: "ABC-001",
+          status: "resolved",
+          kind: "work-id",
+          block: target,
+        };
+      }
+      if (input.action === "browsing-context.publish") {
+        selected = publishedBlockId(input) === target.id ? target : source;
+      }
+      return undefined;
+    });
+    const controller = createTreeController(fake.effects);
+    await controller.initialize();
+
+    await controller.handleKeypress("o", { name: "o" }, "pass");
+
+    expect(lastCall(fake.calls, "pages.resolve")).toEqual({
+      action: "pages.resolve",
+      address: "ABC-001",
+    });
+    expect(selectedBlockRow(controller).canonicalId).toBe(source.id);
+    expect(lastCall(fake.calls, "navigation.dispatch")).toMatchObject({
+      sourceClientId: "tree-test",
+      target: { kind: "block", blockId: target.id },
+      intent: "open",
+    });
+  });
+
+  test("opens a deleted reference read-only in Detail", async () => {
+    const source = block("source01", {
+      text: "Source points to ((deleted1))",
+      displayText: "Source points to ((deleted1))",
+    });
+    const deleted = block("deleted1", {
+      deletedAt: "2026-08-22T01:00:00.000Z",
+      effectiveDeletedRootId: "deleted1",
+    });
+    let selected: Block = source;
+    const fake = harness((input) => {
+      if (input.action === "tree.index") return snapshot([source], selected);
+      if (input.action === "get") return input.blockId === source.id ? source : deleted;
+      if (input.action === "browsing-context.publish") {
+        selected = publishedBlockId(input) === deleted.id ? deleted : source;
+        return { selected, ancestors: [], children: [] };
+      }
+      return undefined;
+    });
+    const controller = createTreeController(fake.effects);
+    await controller.initialize();
+
+    await controller.handleKeypress("o", { name: "o" }, "pass");
+    expect(fake.focused).toEqual([]);
+    expect(lastCall(fake.calls, "navigation.dispatch")).toEqual({ action: "navigation.dispatch", sourceClientId: "tree-test", target: { kind: "block", blockId: deleted.id }, intent: "open", });
+
+  });
+  test("plain L opens link settings without changing a link", async () => {
+    const root = block("root", { text: "Root", displayText: "Root" });
+    const fake = harness((input) =>
+      input.action === "tree.index" ? snapshot([root], root) : input.action === "navigation.link.get" ? {source:{clientId:"tree-test",region:"tree"},destination:null,destinations:[]} : undefined
+    );
+    const controller = createTreeController(fake.effects);
+    await controller.initialize();
+
+    await controller.handleKeypress("L", { name: "l", shift: true }, "pass");
+
+    expect(controller.view().mode).toBe("action-menu");
+    expect(controller.view().status).toContain("Tree has no linked destination");
+    expect(fake.calls.some(({action}) => action === "navigation.link.set")).toBe(false);
+    expect(fake.calls.some(({ action }) => action === "navigation.resolve")).toBe(false);
+  });
+  test("says the person moved, trashed or restored a block through the Tree (PIE-451)", async () => {
+    const first = block("first");
+    const second = block("second", { position: 1 });
+    const binned = block("binned", { position: 2, deletedAt: "2026-08-22T00:00:00.000Z" });
+    const siblings = [first, second];
+    let selected: Block = second;
+    const fake = harness((input) => {
+      if (input.action === "tree.index") return snapshot([...siblings, binned], selected);
+      if (input.action === "children") return siblings;
+      if (input.action === "move") {
+        const index = siblings.findIndex(candidate => candidate.id === input.blockId);
+        const [moved] = siblings.splice(index, 1);
+        siblings.splice(input.position!, 0, moved!);
+        return moved;
+      }
+      return undefined;
+    });
+    fake.effects = { ...fake.effects, actionKeymap: new OutlinerActionKeymap("<test>", { "tree.reorder.up": ["z"] }) };
+    const controller = createTreeController(fake.effects);
+    await controller.initialize();
+    const tree = { author: "user" as const, actorId: "tree" };
+
+    await controller.handleKeypress("z", { name: "z" }, "pass");
+    expect(lastCall(fake.calls, "move")).toMatchObject({ blockId: second.id, mutation: tree });
+
+    await controller.handleKeypress("", { name: "delete" }, "pass");
+    await controller.handleKeypress("y", { name: "y" }, "pass");
+    expect(lastCall(fake.calls, "delete")).toEqual({ action: "delete", blockId: second.id, mutation: tree });
+
+    selected = binned;
+    const restorer = createTreeController(fake.effects);
+    await restorer.initialize();
+    expect(selectedBlockRow(restorer).canonicalId).toBe(binned.id);
+    await restorer.handleKeypress("r", { name: "r" }, "pass");
+    expect(lastCall(fake.calls, "trash.restore")).toEqual({ action: "trash.restore", blockId: binned.id, mutation: tree });
+  });
+
+  test("reorders through rebound keys and menu actions without legacy keys moving data or opening panes", async () => {
+    const first = block("first");
+    const second = block("second", { position: 1 });
+    const siblings = [first, second];
+    const fake = harness((input) => {
+      if (input.action === "tree.index") return snapshot(siblings, second);
+      if (input.action === "children") return siblings;
+      if (input.action === "move") {
+        const index = siblings.findIndex(block => block.id === input.blockId);
+        const [moved] = siblings.splice(index, 1);
+        siblings.splice(input.position!, 0, moved!);
+        return moved;
+      }
+      return undefined;
+    });
+    fake.effects = { ...fake.effects, actionKeymap: new OutlinerActionKeymap("<test>", {
+      "tree.reorder.up": ["z"],
+      "tree.reorder.down": ["y"],
+    }) };
+    const controller = createTreeController(fake.effects);
+    await controller.initialize();
+    await controller.handleKeypress("z", { name: "z" }, "pass");
+    expect(siblings.map(block => block.id)).toEqual(["second", "first"]);
+    expect(selectedBlockRow(controller).canonicalId).toBe(second.id);
+
+    await controller.handleAction("tree.menu.open");
+    expect(controller.view().actionMenuItems).toContainEqual(expect.objectContaining({
+      id: "tree.reorder.down", binding: "y",
+    }));
+    await controller.handlePaste("Move item down");
+    await controller.handleKeypress("", { name: "return" }, "pass");
+    expect(siblings.map(block => block.id)).toEqual(["first", "second"]);
+    expect(selectedBlockRow(controller).canonicalId).toBe(second.id);
+
+    fake.calls.length = 0;
+    await controller.handleKeypress("", { name: "up", meta: true }, "pass");
+    await controller.handleKeypress("", { name: "up", shift: true }, "pass");
+    await controller.handleKeypress("", { name: "down", shift: true }, "pass");
+    await controller.handleKeypress("d", { name: "d" }, "pass");
+    await controller.handleKeypress("D", { name: "d", shift: true }, "pass");
+    expect(fake.calls.some(call => call.action === "move")).toBe(false);
+    expect(fake.createdDetails).toEqual([]);
+  });
+
+  test("opens right and lower Details while Delete retains confirmation", async () => {
+    const root = block("root", { text: "Root", displayText: "Root" });
+    const fake = harness((input) =>
+      input.action === "tree.index" ? snapshot([root], root) : undefined
+    );
+    const controller = createTreeController(fake.effects);
+    await controller.initialize();
+
+    await controller.handleKeypress("", { name: "right", meta: true, shift: true }, "pass");
+    await controller.handleKeypress("", { name: "down", meta: true, shift: true }, "pass");
+    await controller.handleKeypress("", { name: "delete" }, "pass");
+
+    expect(fake.createdDetails).toEqual([root.id, root.id]);
+    expect(fake.createdDetailDirections).toEqual(["right", "down"]);
+    expect(controller.view().mode).toBe("delete");
+    expect(fake.calls.some(({ action }) => action === "delete")).toBe(false);
+    expect(fake.calls.some(({ action }) => action === "navigation.dispatch")).toBe(false);
+  });
+
+  test("cycles goto candidates across both Tab boundaries", async () => {
+    const review = block("40bd0864-913a-4537-9535-8f96e1b63ef7", {
+      text: "Roadmap review",
+      displayText: "Roadmap review",
+    });
+    const triage = block("a089afe5-6535-40ca-8164-25f8a299ac5e", {
+      position: 1,
+      text: "Roadmap triage",
+      displayText: "Roadmap triage",
+    });
+    const fake = harness((input) =>
+      input.action === "tree.index"
+        ? snapshot([review, triage], review)
+        : undefined,
+    );
+    const controller = createTreeController(fake.effects);
+    await controller.initialize();
+    await controller.handleKeypress("g", { name: "g" }, "pass");
+    await controller.handleKeypress("roadmap", { sequence: "roadmap" }, "pass");
+    await setImmediate();
+
+    expect(controller.view().goto?.index).toBe(0);
+    await controller.handleKeypress("", { name: "tab", shift: true }, "pass");
+    expect(controller.view().goto?.index).toBe(1);
+    await controller.handleKeypress("", { name: "tab" }, "pass");
+    expect(controller.view().goto?.index).toBe(0);
+  });
+
+  test("installs a complete 501-block snapshot and selects its last block", async () => {
+    const blocks = Array.from({ length: 501 }, (_, index) =>
+      block(`block-${index}`, { position: index }),
+    );
+    const selected = blocks.at(-1)!;
+    const fake = harness((input) =>
+      input.action === "tree.index" ? snapshot(blocks, selected) : undefined,
+    );
+    const controller = createTreeController(fake.effects);
+
+    await controller.initialize();
+
+    expect(fake.calls.find(call => call.action === "tree.index")).toEqual({
+      action: "tree.index",
+      view: undefined,
+    });
+    expect(controller.view().rows).toHaveLength(501);
+    expect(controller.view().physicalBlocksById.size).toBe(501);
+    expect(controller.view().visibleCompleteness).toEqual({ kind: "complete" });
+    expect(selectedBlockRow(controller).canonicalId).toBe("block-500");
+    expect(fake.calls.filter((call) => call.action === "browsing-context.publish")).toHaveLength(1);
+  });
+
+  test("completes quoted property filters and preserves the prior view on parse errors", async () => {
+    const alpha = block("alpha", {
+      text: "Alpha [status::in progress]",
+      properties: [{ key: "status", value: "in progress" }],
+    });
+    const beta = block("beta", {
+      position: 1,
+      text: "Beta [status::in review]",
+      properties: [{ key: "status", value: "in review" }],
+    });
+    const fake = harness((input) => {
+      if (input.action === "tree.index") {
+        const filtered = input.view?.query?.filters?.[0]?.value === "in progress";
+        return snapshot(filtered ? [alpha] : [alpha, beta], alpha, {
+          physicalBlocks: [alpha, beta],
+        });
+      }
+      if (input.action === "properties.catalog") {
+        return input.key === "status"
+          ? [{ key: "status", value: "in progress", count: 4 }]
+          : [
+              { key: "status", value: "in progress", count: 4 },
+              { key: "status", value: "in review", count: 2 },
+              { key: "stage", value: "next", count: 1 },
+            ];
+      }
+      if (input.action === "browsing-context.publish") {
+        return { selected: alpha, ancestors: [], children: [] };
+      }
+      return undefined;
+    });
+    const controller = createTreeController(fake.effects);
+    await controller.initialize();
+
+    await controller.handleAction("tree.filter.properties");
+    await controller.handleKeypress("sta", { sequence: "sta" }, "pass");
+    await controller.handleKeypress("", { name: "tab" }, "pass");
+    expect(lastCall(fake.calls, "properties.catalog")).toEqual({
+      action: "properties.catalog",
+      prefix: "sta",
+      limit: 100,
+    });
+    expect(controller.view().quickCompletion?.items[0]).toEqual({
+      label: "status (6)",
+      insertion: "status=",
+    });
+    await controller.handleKeypress("", { name: "tab" }, "pass");
+    await controller.handleKeypress("in", { sequence: "in" }, "pass");
+    await controller.handleKeypress("", { name: "tab" }, "pass");
+    expect(lastCall(fake.calls, "properties.catalog")).toEqual({
+      action: "properties.catalog",
+      key: "status",
+      prefix: "in",
+      limit: 20,
+    });
+    await controller.handleKeypress("", { name: "tab" }, "pass");
+    expect(controller.view().quickInput).toBe('status="in progress"');
+    await controller.handleKeypress("", { name: "return" }, "pass");
+
+    expect(controller.view().activeFilter).toBe('status="in progress"');
+    expect(canonicalRowIds(controller.view().rows)).toEqual(["alpha"]);
+    expect(lastCall(fake.calls, "tree.index")).toEqual({
+      action: "tree.index",
+      view: {
+        query: {
+          filters: [{ key: "status", value: "in progress" }],
+          limit: 500,
+        },
+      },
+    });
+
+    await controller.handleAction("tree.filter.properties");
+    await controller.handleKeypress('"', { sequence: '"' }, "pass");
+    await controller.handleKeypress("", { name: "return" }, "pass");
+    expect(controller.view().mode).toBe("filter");
+    expect(controller.view().activeFilter).toBe('status="in progress"');
+    expect(canonicalRowIds(controller.view().rows)).toEqual(["alpha"]);
+    expect(controller.view().status).toContain("Invalid filter:");
+  });
+
+  test("sends boolean property filters as a structured where and rejects Trash inside them", async () => {
+    const alpha = block("alpha", { text: "Alpha [status::open]", properties: [{ key: "status", value: "open" }] });
+    const fake = harness((input) => {
+      if (input.action === "tree.index") return snapshot([alpha], alpha);
+      if (input.action === "browsing-context.publish") return { selected: alpha, ancestors: [], children: [] };
+      return undefined;
+    });
+    const controller = createTreeController(fake.effects);
+    await controller.initialize();
+
+    await controller.handleAction("tree.filter.properties");
+    await controller.handlePaste("status=open OR NOT priority");
+    await controller.handleKeypress("", { name: "return" }, "pass");
+    expect(controller.view().activeFilter).toBe("status=open OR NOT priority");
+    expect(lastCall(fake.calls, "tree.index")).toEqual({
+      action: "tree.index",
+      view: {
+        query: {
+          filters: [],
+          where: {
+            kind: "or",
+            operands: [
+              { kind: "property", key: "status", value: "open" },
+              { kind: "not", operand: { kind: "property", key: "priority" } },
+            ],
+          },
+          limit: 500,
+        },
+      },
+    });
+
+    const reads = fake.calls.filter((call) => call.action === "tree.index").length;
+    await controller.handleAction("tree.filter.properties");
+    for (const _ of controller.view().activeFilter) await controller.handleKeypress("", { name: "backspace" }, "pass");
+    await controller.handlePaste("deleted=true OR status=open");
+    await controller.handleKeypress("", { name: "return" }, "pass");
+    expect(controller.view().mode).toBe("filter");
+    expect(controller.view().status).toContain("deleted=true selects Trash");
+    expect(controller.view().activeFilter).toBe("status=open OR NOT priority");
+    expect(fake.calls.filter((call) => call.action === "tree.index")).toHaveLength(reads);
+  });
+
+  test("opens a Herdr capture popup without moving the selected Tree row", async () => {
+    const origin = block("origin", { text: "Deep origin" });
+    const fake = harness((input) =>
+      input.action === "tree.index" ? snapshot([origin], origin) : undefined
+    );
+    const controller = createTreeController(fake.effects);
+    await controller.initialize();
+
+    await controller.handleKeypress("c", { name: "c" }, "pass");
+
+    expect(fake.openedCaptures).toEqual([origin.id]);
+    expect(fake.calls.some((call) => call.action === "capture.create")).toBe(false);
+    expect(controller.view().mode).toBe("browse");
+    expect(controller.view().rows[controller.view().selectedIndex]?.rowId).toBe(origin.id);
+    expect(controller.view().status).toBe("Opened quick capture popup");
+    expect(fake.calls.filter((call) => call.action === "browsing-context.publish")).toHaveLength(1);
+  });
+
+  test("opens the generic navigator only for a selected virtual branch", async () => {
+    const view = block("next-view", {
+      text: "Next\n[type::virtual-branch]",
+      properties: [{ key: "type", value: "virtual-branch" }],
+    });
+    const ordinary = block("ordinary", { position: 1 });
+    const fake = harness((input) =>
+      input.action === "tree.index" ? snapshot([view, ordinary], view) : undefined
+    );
+    const controller = createTreeController(fake.effects);
+    await controller.initialize();
+
+    await controller.handleKeypress("V", { name: "v", shift: true }, "pass");
+    expect(fake.openedVirtualNavigators).toEqual([view.id]);
+    expect(selectedBlockRow(controller).canonicalId).toBe(view.id);
+
+    await controller.handleKeypress("", { name: "down" }, "pass");
+    await controller.handleKeypress("V", { name: "v", shift: true }, "pass");
+    expect(fake.openedVirtualNavigators).toEqual([view.id]);
+    expect(controller.view().status).toBe("Selected block is not a virtual branch");
+  });
+
+  test("toggles and opens Bookmarks without mutating Tree selection", async () => {
+    const target = block("target");
+    const root = block("bookmarks-root", {
+      text: "Bookmarks",
+      properties: [{ key: "type", value: "virtual-branch" }],
+    });
+    const record = block("bookmark-record", { parentId: root.id });
+    const fake = harness((input) => {
+      if (input.action === "tree.index") return snapshot([target], target);
+      if (input.action === "bookmarks.status") {
+        return { root, targetBlockId: target.id, record: null };
+      }
+      if (input.action === "bookmarks.toggle") {
+        return { root, target, record, bookmarked: true };
+      }
+      if (input.action === "bookmarks.root") return root;
+      return undefined;
+    });
+    const controller = createTreeController(fake.effects);
+    await controller.initialize();
+
+    await controller.handleKeypress("m", { name: "m" }, "pass");
+    expect(lastCall(fake.calls, "bookmarks.toggle")).toMatchObject({
+      targetBlockId: target.id,
+      expectedRecordId: null,
+    });
+    expect(controller.view().status).toBe("Bookmarked");
+
+    await controller.handleKeypress("M", { name: "m", shift: true }, "pass");
+    expect(fake.openedVirtualNavigators).toEqual([root.id]);
+    expect(fake.openedVirtualNavigatorAdapters).toEqual(["bookmark"]);
+    expect(selectedBlockRow(controller).canonicalId).toBe(target.id);
+  });
+
+  test("keeps Tree selection stable when the capture popup cannot open", async () => {
+    const origin = block("origin");
+    const fake = harness((input) =>
+      input.action === "tree.index" ? snapshot([origin], origin) : undefined
+    );
+    fake.effects.openCapturePopup = async () => {
+      throw new Error("popup unavailable");
+    };
+    const controller = createTreeController(fake.effects);
+    await controller.initialize();
+
+    await controller.handleKeypress("c", { name: "c" }, "pass");
+
+    expect(controller.view().mode).toBe("browse");
+    expect(controller.view().rows[controller.view().selectedIndex]?.rowId).toBe(origin.id);
+    expect(controller.view().status).toBe("popup unavailable");
+  });
+
+  test("installs visible completeness and the distinct complete physical collection", async () => {
+    const visible = block("visible");
+    const hidden = block("hidden", { parentId: "visible", depth: 1 });
+    const fake = harness((input) =>
+      input.action === "tree.index"
+        ? snapshot([visible], visible, {
+            physicalBlocks: [visible, hidden],
+            visibleCompleteness: { kind: "truncated", limit: 1 },
+          })
+        : undefined,
+    );
+    const controller = createTreeController(fake.effects);
+
+    await controller.initialize();
+
+    expect(canonicalRowIds(controller.view().rows)).toEqual(["visible"]);
+    expect([...controller.view().physicalBlocksById.keys()]).toEqual(["visible", "hidden"]);
+    expect(controller.view().visibleCompleteness).toEqual({ kind: "truncated", limit: 1 });
+  });
+
+  test("publishes the first visible row only when the service has no selection", async () => {
+    const first = block("first");
+    const fake = harness((input) =>
+      input.action === "tree.index" ? snapshot([first], null) : undefined,
+    );
+    const controller = createTreeController(fake.effects);
+
+    await controller.initialize();
+
+    expect(lastCall(fake.calls, "browsing-context.publish")).toEqual({ action: "browsing-context.publish", sourceClientId: "tree-test", contextId: "tree-test-context", target: { kind: "block", blockId: "first" } });
+  });
+
+  test("clears a stale unavailable Detail status after preview routing recovers", async () => {
+    const first = block("first");
+    const second = block("second", { position: 1 });
+    let publicationCount = 0;
+    const fake = harness((input) => {
+      if (input.action === "tree.index") return snapshot([first, second], first);
+      if (input.action !== "browsing-context.publish") return undefined;
+      publicationCount += 1;
+      return {
+        contextId: input.contextId,
+        target: { selected: null, ancestors: [], children: [] },
+        ...(publicationCount === 1
+          ? { unavailable: "No Detail is available in this tab · open another Detail" }
+          : {}),
+      };
+    });
+    const controller = createTreeController(fake.effects);
+
+    await controller.initialize();
+    expect(controller.view().status).toBe(
+      "No Detail is available in this tab · open another Detail",
+    );
+
+    await controller.handleKeypress("", { name: "down" }, "pass");
+    await Bun.sleep(0);
+    expect(controller.view().status).toBe("");
+  });
+
+  test("keeps rapid movement local and publishes only the newest pending target", async () => {
+    const first = block("first");
+    const second = block("second", { position: 1 });
+    const third = block("third", { position: 2 });
+    const fourth = block("fourth", { position: 3 });
+    const delayedSecond = Promise.withResolvers<{
+      contextId: string;
+      target: { kind: "block"; blockId: string };
+    }>();
+    let delaySecond = false;
+    const fake = harness((input) => {
+      if (input.action === "tree.index") {
+        return snapshot([first, second, third, fourth], first);
+      }
+      if (input.action !== "browsing-context.publish") return undefined;
+      const blockId = publishedBlockId(input);
+      if (delaySecond && blockId === second.id) return delayedSecond.promise;
+      return {
+        contextId: input.contextId,
+        target: input.target,
+      };
+    });
+    const controller = createTreeController(fake.effects);
+    await controller.initialize();
+    delaySecond = true;
+
+    await controller.handleKeypress("", { name: "down" }, "pass");
+    await controller.handleKeypress("", { name: "down" }, "pass");
+    await controller.handleKeypress("", { name: "down" }, "pass");
+
+    expect(selectedBlockRow(controller).canonicalId).toBe(fourth.id);
+    expect(
+      fake.calls
+        .filter((call) => call.action === "browsing-context.publish")
+        .map((call) => publishedBlockId(call)),
+    ).toEqual([first.id, second.id]);
+
+    delayedSecond.resolve({
+      contextId: "tree-test-context",
+      target: { kind: "block", blockId: second.id },
+    });
+    await Bun.sleep(0);
+
+    expect(
+      fake.calls
+        .filter((call) => call.action === "browsing-context.publish")
+        .map((call) => publishedBlockId(call)),
+    ).toEqual([first.id, second.id, fourth.id]);
+    expect(controller.view().workspaceContextBlockId).toBe(fourth.id);
+  });
+
+  test("publishes the selected preview before explicit reference navigation", async () => {
+    const first = block("first");
+    const intermediate = block("intermediate", { position: 1 });
+    const source = block("source01", {
+      position: 2,
+      text: "Source points to ((target01))",
+      displayText: "Source points to ((target01))",
+    });
+    const target = block("target01", {
+      position: 3,
+      text: "Target",
+      displayText: "Target",
+    });
+    const delayedIntermediate = Promise.withResolvers<{
+      contextId: string;
+      target: { kind: "block"; blockId: string };
+    }>();
+    let delayIntermediate = false;
+    const fake = harness((input) => {
+      if (input.action === "tree.index") {
+        return snapshot([first, intermediate, source, target], first);
+      }
+      if (input.action === "browsing-context.publish") {
+        const blockId = publishedBlockId(input);
+        if (delayIntermediate && blockId === intermediate.id) {
+          return delayedIntermediate.promise;
+        }
+        return { contextId: input.contextId, target: input.target };
+      }
+      if (input.action === "get") return input.blockId === target.id ? target : source;
+      return undefined;
+    });
+    const controller = createTreeController(fake.effects);
+    await controller.initialize();
+    delayIntermediate = true;
+
+    await controller.handleKeypress("", { name: "down" }, "pass");
+    await controller.handleKeypress("", { name: "down" }, "pass");
+    const navigation = controller.handleAction("tree.reference.open");
+    await Bun.sleep(0);
+
+    expect(fake.calls.some((call) => call.action === "navigation.dispatch")).toBe(false);
+    delayedIntermediate.resolve({
+      contextId: "tree-test-context",
+      target: { kind: "block", blockId: intermediate.id },
+    });
+    await navigation;
+
+    expect(
+      fake.calls
+        .filter((call) =>
+          call.action === "browsing-context.publish" || call.action === "navigation.dispatch"
+        )
+        .map((call) =>
+          call.action === "browsing-context.publish"
+            ? `preview:${publishedBlockId(call)}`
+            : `open:${call.target.kind === "block" ? call.target.blockId : ""}`
+        ),
+    ).toEqual([
+      `preview:${first.id}`,
+      `preview:${intermediate.id}`,
+      `preview:${source.id}`,
+      `open:${target.id}`,
+    ]);
+  });
+
+  test("reports a queued browsing publication failure without blocking movement", async () => {
+    const first = block("first");
+    const second = block("second", { position: 1 });
+    let failPublication = false;
+    const fake = harness((input) => {
+      if (input.action === "tree.index") return snapshot([first, second], first);
+      if (input.action === "browsing-context.publish" && failPublication) {
+        throw new Error("Preview publication failed");
+      }
+      return undefined;
+    });
+    const controller = createTreeController(fake.effects);
+    await controller.initialize();
+    failPublication = true;
+
+    await controller.handleKeypress("", { name: "down" }, "pass");
+    expect(selectedBlockRow(controller).canonicalId).toBe(second.id);
+    await Bun.sleep(0);
+
+    expect(controller.view().status).toBe("Preview publication failed");
+
+    failPublication = false;
+    await controller.handleKeypress("", { name: "up" }, "pass");
+    await Bun.sleep(0);
+
+    expect(controller.view().workspaceContextBlockId).toBe(first.id);
+    expect(controller.view().status).toBe("");
+  });
+
+  test("clears a restarted publication pump error after a later success", async () => {
+    const first = block("first");
+    const second = block("second", { position: 1 });
+    const third = block("third", { position: 2 });
+    const fourth = block("fourth", { position: 3 });
+    const delayedSecond = Promise.withResolvers<never>();
+    const delayedThird = Promise.withResolvers<never>();
+    const fake = harness((input) => {
+      if (input.action === "tree.index") {
+        return snapshot([first, second, third, fourth], first);
+      }
+      if (input.action !== "browsing-context.publish") return undefined;
+      if (publishedBlockId(input) === second.id) return delayedSecond.promise;
+      if (publishedBlockId(input) === third.id) return delayedThird.promise;
+      return undefined;
+    });
+    const controller = createTreeController(fake.effects);
+    await controller.initialize();
+
+    await controller.handleKeypress("", { name: "down" }, "pass");
+    await controller.handleKeypress("", { name: "down" }, "pass");
+    delayedSecond.reject(new Error("Initial publication failed"));
+    await Bun.sleep(0);
+    delayedThird.reject(new Error("Restarted publication failed"));
+    await Bun.sleep(0);
+    expect(controller.view().status).toBe("Restarted publication failed");
+
+    await controller.handleKeypress("", { name: "down" }, "pass");
+    await Bun.sleep(0);
+    expect(controller.view().workspaceContextBlockId).toBe(fourth.id);
+    expect(controller.view().status).toBe("");
+  });
+
+  test("receives workspace context publication without moving the local cursor", async () => {
+    const first = block("first");
+    const second = block("second", { position: 1 });
+    const fake = harness((input) =>
+      input.action === "tree.index" ? snapshot([first, second], first) : undefined,
+    );
+    const controller = createTreeController(fake.effects);
+
+    await controller.initialize();
+    await controller.handleKeypress("", { name: "down" }, "pass");
+    await controller.handleServiceEvent(event("browsing-context", first.id));
+
+    expect(selectedBlockRow(controller).canonicalId).toBe(second.id);
+    expect(controller.view().workspaceContextBlockId).toBe(first.id);
+  });
+
+  test("keeps presentation, cursor, history, and filters independent across two Trees", async () => {
+    const rootText = Array.from({ length: 20 }, (_, index) => `line ${index + 1}`).join("\n");
+    const root = block("root", {
+      text: rootText,
+      displayText: rootText,
+      hasChildren: true,
+    });
+    const child = block("child", { parentId: root.id, depth: 1 });
+    const peer = block("peer", {
+      position: 1,
+      properties: [{ key: "kind", value: "peer" }],
+    });
+    let workspaceSelection: Block = root;
+    const respond = (input: RequestInput): unknown => {
+      if (input.action === "tree.index") {
+        const visible = input.view ? [peer] : [root, child, peer];
+        return snapshot(visible, workspaceSelection, {
+          physicalBlocks: [root, child, peer],
+        });
+      }
+      if (input.action === "browsing-context.publish") {
+        workspaceSelection =
+          [root, child, peer].find((candidate) => candidate.id === publishedBlockId(input)) ?? root;
+        return { selected: workspaceSelection, ancestors: [], children: [] };
+      }
+      if (input.action === "get") {
+        return [root, child, peer].find((candidate) => candidate.id === input.blockId);
+      }
+      return undefined;
+    };
+    const firstHarness = harness(respond, "tree-first");
+    const secondHarness = harness(respond, "tree-second");
+    const first = createTreeController(firstHarness.effects);
+    const second = createTreeController(secondHarness.effects);
+    await first.initialize();
+    await second.initialize();
+
+    await first.handleKeypress(".", { name: "." }, "modified-enter");
+    renderViewport(first);
+    await first.handleKeypress("", { name: "pagedown" }, "pass");
+    expect(first.view().expandedBlockOffset).toBeGreaterThan(0);
+    expect(second.view().expandedBlockOffset).toBe(0);
+    expect(blockRow(first.view().rows[0]).multilineExpanded).toBe(true);
+    expect(blockRow(second.view().rows[0]).multilineExpanded).toBe(false);
+
+    await first.handleKeypress("", { name: "space" }, "pass");
+    expect(canonicalRowIds(first.view().rows)).toEqual(["root", "peer"]);
+    expect(canonicalRowIds(second.view().rows)).toEqual(["root", "child", "peer"]);
+    await first.handleKeypress("", { name: "down" }, "pass");
+    await second.handleServiceEvent(
+      event("browsing-context", peer.id, "tree-second-context"),
+    );
+    expect(selectedBlockRow(second).canonicalId).toBe(root.id);
+    expect(second.view().workspaceContextBlockId).toBe(peer.id);
+
+    await second.handleServiceEvent({
+      id: "target-second",
+      domain: "ui",
+      action: "ui.command.send",
+      sequence: 3,
+      command: { targetClientId: "tree-second", command: "reveal", target: { kind: "block", blockId: child.id }, focus: true, },
+    });
+    await first.handleServiceEvent(
+      event("browsing-context", child.id, "tree-first-context"),
+    );
+    expect(selectedBlockRow(second).canonicalId).toBe(child.id);
+    expect(selectedBlockRow(first).canonicalId).toBe(peer.id);
+    expect(secondHarness.focused).toEqual(["outliner"]);
+    expect(firstHarness.focused).toEqual([]);
+    expect(canonicalRowIds(first.view().rows)).toEqual(["root", "peer"]);
+
+    await second.handleKeypress("", { name: "left", meta: true }, "pass");
+    expect(selectedBlockRow(second).canonicalId).toBe(root.id);
+    expect(firstHarness.calls.map((call) => String(call.action))).not.toContain("navigation.back");
+    expect(secondHarness.calls.map((call) => String(call.action))).not.toContain("navigation.back");
+
+    await first.handleAction("tree.filter.properties");
+    await first.handleKeypress("kind=peer", { sequence: "kind=peer" }, "pass");
+    await first.handleKeypress("", { name: "return" }, "pass");
+    expect(first.view().activeFilter).toBe("kind=peer");
+    expect(second.view().activeFilter).toBe("");
+  });
+
+  test("reveals a target by expanding only this Tree's collapsed ancestors", async () => {
+    const parent = block("parent", { hasChildren: true });
+    const hidden = block("hidden", { parentId: parent.id, depth: 1 });
+    const fake = harness((input) =>
+      input.action === "tree.index"
+        ? snapshot([parent, hidden], parent)
+        : undefined,
+    );
+    const controller = createTreeController(fake.effects);
+    await controller.initialize();
+    await controller.handleKeypress("", { name: "space" }, "pass");
+    expect(canonicalRowIds(controller.view().rows)).toEqual(["parent"]);
+
+    await controller.handleServiceEvent({
+      id: "reveal",
+      domain: "ui",
+      action: "ui.command.send",
+      sequence: 2,
+      command: { targetClientId: "tree-test", command: "reveal", target: { kind: "block", blockId: "hidden" } },
+    });
+
+    expect(fake.calls.map((call) => String(call.action))).not.toContain("toggle");
+    expect(fake.calls.at(-1)).toEqual({ action: "browsing-context.publish", sourceClientId: "tree-test", contextId: "tree-test-context", target: { kind: "block", blockId: "hidden" } });
+    expect(selectedBlockRow(controller).canonicalId).toBe("hidden");
+  });
+
+  test("indents only beneath a canonical sibling in a filtered projection", async () => {
+    const first = block("first", { parentId: "parent-a", depth: 1 });
+    const selected = block("selected", { parentId: "parent-b", depth: 1, position: 1 });
+    const parentA = block("parent-a", { hasChildren: true });
+    const parentB = block("parent-b", { position: 1, hasChildren: true });
+    const fake = harness((input) =>
+      input.action === "tree.index"
+        ? snapshot([first, selected], selected, {
+            physicalBlocks: [parentA, first, parentB, selected],
+          })
+        : undefined,
+    );
+    const controller = createTreeController(fake.effects);
+    await controller.initialize();
+
+    await controller.handleKeypress("", { name: "tab" }, "pass");
+
+    expect(fake.calls.some((call) => call.action === "move")).toBe(false);
+    expect(controller.view().status).toBe("No previous sibling to indent beneath");
+  });
+
+  test("refuses an initial index missing canonical ancestry", async () => {
+    const selected = block("selected");
+    const fake = harness((input) =>
+      input.action === "tree.index"
+        ? { ...snapshot([selected], selected), blocks: [] }
+        : undefined,
+    );
+    const controller = createTreeController(fake.effects);
+
+    await expect(controller.initialize()).rejects.toThrow(
+      "Tree index is missing canonical entry selected",
+    );
+    expect(controller.view().rows).toEqual([]);
+    expect(controller.view().physicalBlocksById.size).toBe(0);
+    expect(fake.calls.some((call) => call.action === "browsing-context.publish")).toBe(false);
+  });
+
+  test("retains the prior complete tree when a refreshed index is missing canonical ancestry", async () => {
+    const stable = block("stable");
+    const replacement = block("replacement");
+    let snapshotCount = 0;
+    const fake = harness((input) => {
+      if (input.action !== "tree.index") return undefined;
+      snapshotCount += 1;
+      return snapshotCount === 1
+        ? snapshot([stable], stable)
+        : { ...snapshot([replacement], replacement), blocks: [] };
+    });
+    const controller = createTreeController(fake.effects);
+    await controller.initialize();
+    const completeView = controller.view();
+
+    await expect(controller.handleServiceEvent(event("content"))).rejects.toThrow(
+      "Tree index is missing canonical entry replacement",
+    );
+
+    expect(controller.view().rows).toBe(completeView.rows);
+    expect(controller.view().physicalBlocksById).toBe(completeView.physicalBlocksById);
+    expect(selectedBlockRow(controller).canonicalId).toBe("stable");
+  });
+
+  test("commits a quick child before targeted Detail handoff", async () => {
+    const parent = block("parent", { hasChildren: true });
+    const created = block("child", { parentId: "parent", text: "Child", displayText: "Child", depth: 1 });
+    let snapshotCount = 0;
+    const effectOrder: string[] = [];
+    const fake = harness((input) => {
+      effectOrder.push(input.action);
+      if (input.action === "tree.index") {
+        snapshotCount += 1;
+        return snapshotCount === 1 ? snapshot([parent], parent) : snapshot([parent, created], parent);
+      }
+      if (input.action === "create") return created;
+      return undefined;
+    });
+    const controller = createTreeController(fake.effects);
+    await controller.initialize();
+    effectOrder.length = 0;
+
+    await controller.handleKeypress("a", { name: "a" }, "pass");
+    await controller.handleKeypress("Child", { sequence: "Child" }, "pass");
+    await controller.handleKeypress("", { name: "e", ctrl: true }, "pass");
+
+    expect(effectOrder).toEqual([
+      "create",
+      "move",
+      "tree.index",
+      "browsing-context.publish",
+      "navigation.resolve",
+      "ui.command.send",
+    ]);
+    expect(fake.calls.find((call) => call.action === "move")).toEqual({
+      action: "move",
+      blockId: "child",
+      parentId: "parent",
+      position: 0,
+      mutation: { author: "user", actorId: "tree" },
+    });
+    expect(controller.view().mode).toBe("browse");
+    expect(controller.view().status).toBe("Multiline editor opened in linked Detail");
+  });
+
+  test("Enter opens the linked Detail while e explicitly edits", async () => {
+    const selected = block("selected", {
+      text: "First line\nSecond line",
+      displayText: "First line\nSecond line",
+    });
+    const fake = harness((input) =>
+      input.action === "tree.index" ? snapshot([selected], selected) : undefined
+    );
+    const controller = createTreeController(fake.effects);
+    await controller.initialize();
+
+    await controller.handleKeypress("", { name: "return" }, "pass");
+    expect(controller.view().mode).toBe("browse");
+    expect(lastCall(fake.calls, "navigation.dispatch")).toEqual({ action: "navigation.dispatch", sourceClientId: "tree-test", target: { kind: "block", blockId: selected.id }, intent: "open", focusTarget: false, });
+    expect(controller.view().status).toContain("Reader opened in linked Detail");
+
+    await controller.handleKeypress("e", { name: "e" }, "pass");
+    expect(lastCall(fake.calls, "ui.command.send")).toEqual({
+      action: "ui.command.send",
+      command: { targetClientId: "detail-test", command: "edit", targetRegion: "detail", target: { kind: "block", blockId: selected.id } },
+    });
+    expect(controller.view().status).toBe(
+      "Multiline editor opened in linked Detail",
+    );
+  });
+
+  test("single-line Enter stays reader-only until explicit e", async () => {
+    const selected = block("selected", { text: "One line", displayText: "One line" });
+    const fake = harness((input) =>
+      input.action === "tree.index" ? snapshot([selected], selected) : undefined
+    );
+    const controller = createTreeController(fake.effects);
+    await controller.initialize();
+
+    await controller.handleKeypress("", { name: "return" }, "pass");
+    expect(controller.view().mode).toBe("browse");
+    expect(controller.view().quickInput).toBe("");
+
+    await controller.handleKeypress("e", { name: "e" }, "pass");
+    expect(controller.view().mode).toBe("edit");
+    expect(controller.view().quickInput).toBe("One line");
+  });
+
+  test("defers service events during editing and reloads once editing is cancelled", async () => {
+    const selected = block("selected");
+    const fake = harness((input) => input.action === "tree.index" ? snapshot([selected], selected) : undefined);
+    const controller = createTreeController(fake.effects);
+    await controller.initialize();
+
+    await controller.handleKeypress("e", { name: "e" }, "pass");
+    const indexReads = () => fake.calls.filter(call => call.action === "tree.index").length;
+    const callsBeforeEvent = indexReads();
+    const draft=controller.view().quickInput;
+    await controller.handleServiceEvent(event("content", "selected"));
+    expect(indexReads()).toBe(callsBeforeEvent);
+    expect(controller.view().quickInput).toBe(draft);
+    expect(controller.view().mode).toBe("edit");
+    expect(controller.view().refreshPending).toBe(true);
+
+    await controller.handleKeypress("", { name: "escape" }, "pass");
+    expect(indexReads()).toBe(callsBeforeEvent + 1);
+    expect(controller.view().mode).toBe("browse");
+    expect(controller.view().refreshPending).toBe(false);
+  });
+
+  test("waits for a fresh owner snapshot after a deferred content event", async () => {
+    const previousOwner = block("owner-stale", {
+      text: "Owner before",
+      displayText: "Owner before",
+    });
+    const currentOwner = block("owner-stale", {
+      text: "Owner after",
+      displayText: "Owner after",
+      updatedAt: "2026-08-22T00:01:00.000Z",
+    });
+    let snapshotCount = 0;
+    let authoredRequestCount = 0;
+    let contentChanged = false;
+    let snapshotIsCurrent = false;
+    const authoredSnapshot = (owner: VisibleBlock) => ({
+      kind: "ready" as const,
+      ownerId: owner.id,
+      ownerTextDigest: authoredTextDigest(owner.text),
+      outlinks: {
+        entries: [],
+        completeness: { kind: "complete" as const },
+        invalidCount: 0,
+        diagnostics: [],
+      },
+      resources: {
+        entries: [],
+        completeness: { kind: "complete" as const },
+        invalidCount: 0,
+        diagnostics: [],
+      },
+    });
+    const fake = harness((input) => {
+      if (input.action === "tree.index") {
+        snapshotCount += 1;
+        snapshotIsCurrent = contentChanged && snapshotCount >= 2;
+        const owner = snapshotIsCurrent ? currentOwner : previousOwner;
+        return snapshot([owner], owner);
+      }
+      if (input.action === "blocks.authored-links") {
+        authoredRequestCount += 1;
+        if (!contentChanged || snapshotIsCurrent) {
+          return authoredSnapshot(snapshotIsCurrent ? currentOwner : previousOwner);
+        }
+        return authoredSnapshot(authoredRequestCount === 2 ? currentOwner : previousOwner);
+      }
+      return undefined;
+    });
+    const controller = createTreeController(fake.effects);
+    await controller.initialize();
+    await controller.handleAction("tree.authored-links.toggle");
+    expect(authoredRequestCount).toBe(1);
+
+    await controller.handleKeypress("e", { name: "e" }, "pass");
+    contentChanged = true;
+    await controller.handleServiceEvent(event("content", previousOwner.id));
+    expect(controller.view().refreshPending).toBe(true);
+
+    await controller.handleServiceEvent(event("resource-catalog"));
+    expect(authoredRequestCount).toBe(2);
+    expect(controller.view().refreshPending).toBe(true);
+
+    await controller.handleKeypress("", { name: "escape" }, "pass");
+    expect(snapshotCount).toBe(2);
+    expect(authoredRequestCount).toBe(3);
+    expect(controller.view().refreshPending).toBe(false);
+  });
+
+  test("Return saves the draft when completion is loading, empty, or failed", async () => {
+    for (const lookup of ["loading", "empty", "failed"]) {
+      const selected = block("selected", { text: "[[draft", displayText: "[[draft" });
+      const pending = Promise.withResolvers<unknown>();
+      const started = Promise.withResolvers<void>();
+      const fake = harness((input) => {
+        if (input.action === "tree.index") return snapshot([selected], selected);
+        if (input.action === "pages.complete") {
+          started.resolve();
+          if (lookup === "loading") return pending.promise;
+          if (lookup === "failed") throw new Error("offline");
+          return { addresses: [], completeness: { kind: "complete" } };
+        }
+        if (input.action === "update") return block(input.blockId, { text: input.text });
+        return undefined;
+      });
+      const controller = createTreeController(fake.effects);
+      await controller.initialize();
+      await controller.handleKeypress("e", { name: "e" }, "pass");
+      const opening = controller.handleKeypress("", { name: "tab" }, "pass");
+      await started.promise;
+      if (lookup !== "loading") await opening;
+      expect(controller.view().quickCompletion?.items).toEqual([]);
+      await controller.handleKeypress("", { name: "return" }, "pass");
+      expect(fake.calls).toContainEqual(expect.objectContaining({ action: "update", blockId: selected.id, text: "[[draft" }));
+      expect(controller.view().mode).toBe("browse");
+      pending.resolve({ addresses: [], completeness: { kind: "complete" } });
+      await opening;
+      expect(controller.view().quickCompletion).toBeNull();
+    }
+  });
+
+  test("applies registered symbolic-address completion without generic block fallback", async () => {
+    const selected = block("selected", { text: "[[ho", displayText: "[[ho" });
+    const fake = harness((input) => {
+      if (input.action === "tree.index") return snapshot([selected], selected);
+      if (input.action === "pages.complete") {
+        return {
+          addresses: [{
+            address: "home",
+            normalizedAddress: "home",
+            blockId: "home-id",
+            kind: "page",
+            title: "Home",
+          }],
+          completeness: { kind: "truncated", limit: 20 },
+        };
+      }
+      if(input.action === "blocks.context")return {selected:block(input.blockId),ancestors:[],children:[]};
+      return undefined;
+    });
+    const controller = createTreeController(fake.effects);
+    await controller.initialize();
+    await controller.handleKeypress("e", { name: "e" }, "pass");
+
+    await controller.handleKeypress("", { name: "tab" }, "pass");
+    expect(fake.calls.filter((call) => call.action === "pages.complete")).toEqual([{
+      action: "pages.complete",
+      query: "ho",
+      limit: 20,
+    }]);
+    expect(fake.calls.some((call) => call.action === "tree.query")).toBe(false);
+    expect(controller.view().quickCompletion?.items[0]).toMatchObject({
+      label: "home — Home",
+      insertion: "[[home]]",
+      blockId: "home-id",
+    });
+    expect(controller.view().quickCompletion?.truncatedLimit).toBe(20);
+
+    await controller.handleKeypress("", { name: "tab" }, "pass");
+    expect(controller.view().quickInput).toBe("[[home]]");
+  });
+  test("normalizes Work-ID convenience completion to a titled canonical wikilink", async () => {
+    const selected = block("selected", {
+      text: "[[some title - PIE-175",
+      displayText: "[[some title - PIE-175",
+    });
+    const fake = harness((input) => {
+      if (input.action === "tree.index") {
+        return { ...snapshot([selected], selected), workIdPrefix: "PIE" };
+      }
+      if (input.action === "pages.complete") {
+        return {
+          addresses: [{
+            address: "PIE-175",
+            normalizedAddress: "pie-175",
+            blockId: "pie-175-id",
+            kind: "work-id",
+            title: "PIE-175 — Stable links",
+          }],
+          completeness: { kind: "complete" },
+        };
+      }
+      if(input.action === "blocks.context")return {selected:block(input.blockId),ancestors:[],children:[]};
+      return undefined;
+    });
+    const controller = createTreeController(fake.effects);
+    await controller.initialize();
+    await controller.handleKeypress("e", { name: "e" }, "pass");
+
+    await controller.handleKeypress("", { name: "tab" }, "pass");
+    expect(fake.calls.filter((call) => call.action === "pages.complete")).toContainEqual({
+      action: "pages.complete",
+      query: "PIE-175",
+      limit: 20,
+    });
+    await controller.handleKeypress("", { name: "tab" }, "pass");
+    expect(controller.view().quickInput).toBe(
+      "[[PIE-175|some title - PIE-175]]",
+    );
+  });
+
+
+  test("honors key precedence for close and detail-toggle inputs", async () => {
+    const selected = block("selected");
+    const fake = harness((input) => {
+      if (input.action === "tree.index") return snapshot([selected], selected);
+      return undefined;
+    });
+    const controller = createTreeController(fake.effects);
+    await controller.initialize();
+
+    const callsBeforeClose = fake.calls.length;
+    await controller.handleKeypress("q", { name: "q", ctrl: true }, "pass");
+    expect(fake.stops).toBe(1);
+    expect(fake.calls).toHaveLength(callsBeforeClose);
+
+    await controller.handleKeypress(".", { name: "." }, "modified-enter");
+    expect(fake.calls.map((call) => String(call.action))).not.toContain("view.toggleMultiline");
+    expect(blockRow(controller.view().rows[0]).multilineExpanded).toBe(true);
+    expect(fake.calls.some((call) => call.action === "ui.command.send")).toBe(false);
+    expect(controller.view().status).toBe("Block detail expanded");
+  });
+
+  test("pages within one expanded block and resets on reconnect or selection change", async () => {
+    const text = Array.from({ length: 20 }, (_, index) => `line ${index + 1}`).join("\n");
+    const expanded = block("expanded", {
+      text,
+      displayText: text,
+    });
+    const next = block("next", { position: 1 });
+    const fake = harness((input) =>
+      input.action === "tree.index"
+        ? snapshot([expanded, next], expanded)
+        : undefined,
+    );
+    const controller = createTreeController(fake.effects);
+    await controller.initialize();
+    await controller.handleKeypress(".", { name: "." }, "modified-enter");
+
+    renderViewport(controller, 80, 11);
+    await controller.handleKeypress("", { name: "pagedown" }, "pass");
+    expect(controller.view().expandedBlockOffset).toBe(5);
+    expect(controller.view().status).toBe("Expanded block rows 6-10/20");
+    renderViewport(controller, 80, 11);
+    await controller.handleKeypress("", { name: "pagedown" }, "pass");
+    renderViewport(controller, 80, 11);
+    await controller.handleKeypress("", { name: "pagedown" }, "pass");
+    expect(controller.view().expandedBlockOffset).toBe(15);
+    expect(controller.view().status).toBe("Expanded block rows 16-20/20");
+
+    renderViewport(controller, 80, 11);
+    await controller.handleKeypress("", { name: "pageup" }, "pass");
+    expect(controller.view().expandedBlockOffset).toBe(10);
+    expect(controller.view().status).toBe("Expanded block rows 11-15/20");
+
+    await controller.handleConnect();
+    expect(controller.view().expandedBlockOffset).toBe(0);
+    expect(controller.view().status).toBe("");
+    renderViewport(controller, 80, 11);
+    await controller.handleKeypress("", { name: "pagedown" }, "pass");
+    expect(controller.view().expandedBlockOffset).toBe(5);
+
+    await controller.handleKeypress("", { name: "down" }, "pass");
+    expect(selectedBlockRow(controller).canonicalId).toBe("next");
+    expect(controller.view().expandedBlockOffset).toBe(0);
+    expect(controller.view().status).toBe("");
+  });
+
+  test("revalidates an expanded reference on sequence changes and releases exact bodies on collapse", async () => {
+    const source = block("source01", { text: "Body\n((target01))", displayText: "Body\n((Old title))" });
+    let target = block("target01", { text: "Old title", displayText: "Old title", position: 1 });
+    let sequence = 1;
+    const fake = harness(input => input.action === "tree.index"
+      ? { ...snapshot([source, target], source), sequence }
+      : undefined);
+    const controller = createTreeController(fake.effects);
+    await controller.initialize();
+    expect(controller.view().expandedDocuments.size).toBe(0);
+    expect(fake.calls.filter(call => call.action === "get")).toHaveLength(0);
+    await controller.handleKeypress(".", { name: "." }, "pass");
+    expect(controller.view().expandedDocuments.get(source.id)?.resolved.text).toBe("Body\n((Old title))");
+    const reads = fake.calls.filter(call => call.action === "get").length;
+    await controller.handleConnect();
+    expect(fake.calls.filter(call => call.action === "get")).toHaveLength(reads);
+
+    target = { ...target, revision: 2, text: "New title", displayText: "New title" };
+    sequence = 2;
+    await controller.handleServiceEvent(event("content", target.id));
+    expect(controller.view().expandedDocuments.get(source.id)?.resolved.text).toBe("Body\n((New title))");
+    expect(selectedBlockRow(controller).canonicalId).toBe(source.id);
+    await controller.handleKeypress(".", { name: "." }, "pass");
+    expect(controller.view().expandedDocuments.size).toBe(0);
+  });
+
+  test("pages through the decorated rows of an expanded virtual branch", async () => {
+    const text = [
+      "A".repeat(70),
+      ...Array.from({ length: 10 }, (_, index) => `detail ${index + 1}`),
+      "[type::virtual-branch] [query::status=Next]",
+    ].join("\n");
+    const definition = block("view", {
+      text,
+      displayText: text,
+      properties: [
+        { key: "type", value: "virtual-branch" },
+        { key: "query", value: "status=Next" },
+      ],
+    });
+    const match = block("match", {
+      properties: [{ key: "status", value: "Next" }],
+    });
+    const fake = harness((input) => {
+      if (input.action === "tree.index") return snapshot([definition], definition);
+      if (input.action === "tree.query") {
+        return { blocks: [match], completeness: { kind: "complete" } };
+      }
+      return undefined;
+    });
+    const controller = createTreeController(fake.effects);
+    await controller.initialize();
+    await controller.handleKeypress(".", { name: "." }, "modified-enter");
+    const branchState = controller.view().branchStates.get("view")!;
+    const decoratedText = decorateVirtualBranchDefinitionText(text, branchState);
+    const totalRows = layoutExpandedBlock({
+      text: decoratedText,
+      width: 80,
+      depth: 0,
+      marker: "•",
+      author: " ",
+    }).length;
+    const pageSize = 6;
+
+    for (let index = 0; index < 10; index += 1) {
+      renderViewport(controller);
+    await controller.handleKeypress("", { name: "pagedown" }, "pass");
+    }
+
+    const expectedOffset = totalRows - pageSize;
+    expect(controller.view().expandedBlockOffset).toBe(expectedOffset);
+    expect(controller.view().status).toBe(
+      `Expanded block rows ${expectedOffset + 1}-${totalRows}/${totalRows}`,
+    );
+  });
+
+  test("collapses projected results through the shared definition disclosure", async () => {
+    const definition = block("view", {
+      properties: [
+        { key: "type", value: "virtual-branch" },
+        { key: "query", value: "status=Next" },
+      ],
+    });
+    const match = block("match", {
+      properties: [{ key: "status", value: "Next" }],
+    });
+    const fake = harness((input) => {
+      if (input.action === "tree.index") return snapshot([definition], definition);
+      if (input.action === "tree.query") {
+        return { blocks: [match], completeness: { kind: "complete" } };
+      }
+      return undefined;
+    });
+    const controller = createTreeController(fake.effects);
+    await controller.initialize();
+
+    expect(controller.view().rows[0]).toMatchObject({
+      rowId: definition.id,
+      hasChildren: true,
+      collapsed: false,
+    });
+    expect(controller.view().rows.map((row) => row.rowId)).toEqual([
+      definition.id,
+      `occurrence:${definition.id}:${match.id}`,
+    ]);
+
+    await controller.handleDisclosure(definition.id);
+    expect(controller.view().rows).toHaveLength(1);
+    expect(controller.view().rows[0]).toMatchObject({
+      rowId: definition.id,
+      hasChildren: true,
+      collapsed: true,
+    });
+
+    await controller.handleServiceEvent(event("content"));
+    expect(controller.view().rows).toHaveLength(1);
+    expect(blockRow(controller.view().rows[0]).collapsed).toBe(true);
+
+    await controller.handleDisclosure(definition.id);
+    expect(controller.view().rows.map((row) => row.rowId)).toEqual([
+      definition.id,
+      `occurrence:${definition.id}:${match.id}`,
+    ]);
+
+    await controller.handleKeypress("", { name: "left" }, "pass");
+    expect(controller.view().rows).toHaveLength(1);
+    expect(blockRow(controller.view().rows[0]).collapsed).toBe(true);
+
+    await controller.handleKeypress("", { name: "right" }, "pass");
+    expect(controller.view().rows).toHaveLength(2);
+    expect(blockRow(controller.view().rows[0]).collapsed).toBe(false);
+
+    await controller.handleKeypress("", { name: "space" }, "pass");
+    expect(controller.view().rows).toHaveLength(1);
+    await controller.handleKeypress("", { name: "space" }, "pass");
+    expect(controller.view().rows).toHaveLength(2);
+  });
+
+  test("projects generic Next, Doing, and Done branches and requeries on content and connect", async () => {
+    const nextView = block("next-view", {
+      properties: [
+        { key: "type", value: "virtual-branch" },
+        { key: "query", value: "status=Next" },
+      ],
+    });
+    const doingView = block("doing-view", {
+      properties: [
+        { key: "type", value: "virtual-branch" },
+        { key: "query", value: "status=Doing" },
+      ],
+    });
+    const doneView = block("done-view", {
+      properties: [
+        { key: "type", value: "virtual-branch" },
+        { key: "query", value: "status=Done" },
+      ],
+    });
+    const next = block("next", { properties: [{ key: "status", value: "Next" }] });
+    const doing = block("doing", { properties: [{ key: "status", value: "Doing" }] });
+    const done = block("done", { properties: [{ key: "status", value: "Done" }] });
+    const physical = [nextView, doingView, doneView, next, doing, done];
+    let queryCount = 0;
+    const fake = harness((input) => {
+      if (input.action === "tree.index") return snapshot(physical, nextView);
+      if (input.action === "tree.query") {
+        queryCount += 1;
+        const status = input.query.filters?.[0]?.value;
+        const match = physical.find((candidate) =>
+          candidate.properties.some((property) => property.key === "status" && property.value === status)
+        );
+        return { blocks: match ? [match] : [], completeness: { kind: "complete" } };
+      }
+      return undefined;
+    });
+    const controller = createTreeController(fake.effects);
+
+    await controller.initialize();
+
+    expect(controller.view().rows.map((row) => row.rowId)).toEqual([
+      "next-view",
+      "occurrence:next-view:next",
+      "doing-view",
+      "occurrence:doing-view:doing",
+      "done-view",
+      "occurrence:done-view:done",
+      "next",
+      "doing",
+      "done",
+    ]);
+    expect(controller.view().branchStates.get("doing-view")).toEqual(expect.objectContaining({
+      queried: true,
+      count: 1,
+      queryError: null,
+      completeness: { kind: "complete" },
+    }));
+    expect(controller.view().physicalBlocksById.size).toBe(6);
+
+    await controller.handleServiceEvent(event("content"));
+    await controller.handleConnect();
+    expect(queryCount).toBe(9);
+  });
+
+  test("creates one property-aware canonical child beneath the configured parent", async () => {
+    const parent = block("cards");
+    const definition = block("doing-view", {
+      properties: [
+        { key: "type", value: "virtual-branch" },
+        { key: "query", value: "status=Doing" },
+        { key: "create", value: "status=Doing" },
+        { key: "create-parent", value: parent.id },
+      ],
+    });
+    let created: VisibleBlock | null = null;
+    const effectOrder: string[] = [];
+    const fake = harness((input) => {
+      effectOrder.push(input.action);
+      if (input.action === "tree.index") {
+        const physical = created ? [definition, parent, created] : [definition, parent];
+        return snapshot(physical, definition);
+      }
+      if (input.action === "tree.query") {
+        return {
+          blocks: created ? [created] : [],
+          completeness: { kind: "complete" },
+        };
+      }
+      if (input.action === "create") {
+        created = block("created", {
+          parentId: input.parentId,
+          text: input.text,
+          displayText: input.text,
+          properties: [{ key: "status", value: "Doing" }],
+        });
+        return created;
+      }
+      return undefined;
+    });
+    const controller = createTreeController(fake.effects);
+    await controller.initialize();
+    effectOrder.length = 0;
+
+    await controller.handleKeypress("a", { name: "a" }, "pass");
+    await controller.handleKeypress("Task [status::Next]", { sequence: "Task [status::Next]" }, "pass");
+    await controller.handleKeypress("", { name: "return" }, "pass");
+
+    expect(fake.calls.filter((call) => call.action === "create")).toEqual([{
+      action: "create",
+      parentId: "cards",
+      text: "Task [status::Doing]",
+      author: "user",
+    }]);
+    expect(effectOrder).toEqual([
+      "create",
+      "tree.index",
+      "views.read",
+      "tree.query",
+      "browsing-context.publish",
+    ]);
+    expect(fake.calls.some((call) => call.action === "move")).toBe(false);
+    expect(controller.view().rows[controller.view().selectedIndex]?.rowId).toBe("created");
+  });
+
+  test("selects the visual successor beyond a deleted physical subtree before deletion", async () => {
+    const parent = block("parent", { hasChildren: true });
+    const child = block("child", { parentId: parent.id, depth: 1 });
+    const successor = block("successor", { position: 1 });
+    let physical = [parent, child, successor];
+    let selected: Block | null = parent;
+    const fake = harness((input) => {
+      if (input.action === "tree.index") return snapshot(physical, selected);
+      if (input.action === "browsing-context.publish") {
+        selected = physical.find((candidate) => candidate.id === publishedBlockId(input)) ?? null;
+        return undefined;
+      }
+      if (input.action === "delete") {
+        physical = physical.filter((candidate) => candidate.id === successor.id);
+        return undefined;
+      }
+      return undefined;
+    });
+    const controller = createTreeController(fake.effects);
+    await controller.initialize();
+
+    await controller.handleKeypress("", { name: "delete" }, "pass");
+    await controller.handleKeypress("y", { name: "y" }, "pass");
+
+    const deleteIndex = fake.calls.findIndex((call) => call.action === "delete");
+    expect(fake.calls[deleteIndex - 1]).toEqual({ action: "browsing-context.publish", sourceClientId: "tree-test", contextId: "tree-test-context", target: { kind: "block", blockId: successor.id } });
+    expect(controller.view().rows[controller.view().selectedIndex]?.rowId).toBe(successor.id);
+  });
+
+  test("accounts for removed projected rows above a deleted physical row", async () => {
+    const definition = block("view", {
+      properties: [
+        { key: "type", value: "virtual-branch" },
+        { key: "query", value: "status=Doing" },
+      ],
+    });
+    const card = block("card", {
+      position: 1,
+      properties: [{ key: "status", value: "Doing" }],
+    });
+    const successor = block("successor", { position: 2 });
+    const tail = block("tail", { position: 3 });
+    let cardPresent = true;
+    let physical = [definition, card, successor, tail];
+    let selected: Block | null = card;
+    const fake = harness((input) => {
+      if (input.action === "tree.index") return snapshot(physical, selected);
+      if (input.action === "tree.query") {
+        return {
+          blocks: cardPresent ? [card] : [],
+          completeness: { kind: "complete" },
+        };
+      }
+      if (input.action === "browsing-context.publish") {
+        selected = physical.find((candidate) => candidate.id === publishedBlockId(input)) ?? null;
+        return undefined;
+      }
+      if (input.action === "delete") {
+        cardPresent = false;
+        physical = [definition, successor, tail];
+        return undefined;
+      }
+      return undefined;
+    });
+    const controller = createTreeController(fake.effects);
+    await controller.initialize();
+    await controller.handleKeypress("", { name: "down" }, "pass");
+    expect(controller.view().rows[controller.view().selectedIndex]?.rowId).toBe(card.id);
+
+    await controller.handleKeypress("", { name: "delete" }, "pass");
+    await controller.handleKeypress("y", { name: "y" }, "pass");
+
+    expect(controller.view().rows[controller.view().selectedIndex]?.rowId).toBe(successor.id);
+  });
+
+  test("reloads deferred content when delete confirmation is cancelled", async () => {
+    const selected = block("selected");
+    const added = block("added", { position: 1 });
+    let physical = [selected];
+    const fake = harness((input) =>
+      input.action === "tree.index" ? snapshot(physical, selected) : undefined
+    );
+    const controller = createTreeController(fake.effects);
+    await controller.initialize();
+    await controller.handleKeypress("", { name: "delete" }, "pass");
+
+    physical = [selected, added];
+    await controller.handleServiceEvent(event("content", added.id));
+    expect(controller.view().refreshPending).toBe(true);
+    await controller.handleKeypress("n", { name: "n" }, "pass");
+
+    expect(controller.view().mode).toBe("browse");
+    expect(controller.view().refreshPending).toBe(false);
+    expect(controller.view().rows.map((row) => row.rowId)).toEqual([selected.id, added.id]);
+    expect(fake.calls.some((call) => call.action === "delete")).toBe(false);
+  });
+
+  test("selects the previous visual row when deleting the final row", async () => {
+    const previous = block("previous");
+    const deleted = block("deleted", { position: 1 });
+    let physical = [previous, deleted];
+    let selected: Block | null = deleted;
+    const fake = harness((input) => {
+      if (input.action === "tree.index") return snapshot(physical, selected);
+      if (input.action === "browsing-context.publish") {
+        selected = physical.find((candidate) => candidate.id === publishedBlockId(input)) ?? null;
+        return undefined;
+      }
+      if (input.action === "delete") {
+        physical = [previous];
+        return undefined;
+      }
+      return undefined;
+    });
+    const controller = createTreeController(fake.effects);
+    await controller.initialize();
+
+    await controller.handleKeypress("", { name: "delete" }, "pass");
+    await controller.handleKeypress("y", { name: "y" }, "pass");
+
+    expect(controller.view().rows[controller.view().selectedIndex]?.rowId).toBe(previous.id);
+    expect(fake.calls.findIndex((call) => call.action === "browsing-context.publish")).toBeLessThan(
+      fake.calls.findIndex((call) => call.action === "delete"),
+    );
+  });
+
+  test("skips projected rows owned by a deleted virtual-branch definition", async () => {
+    const definition = block("view", {
+      properties: [
+        { key: "type", value: "virtual-branch" },
+        { key: "query", value: "status=Doing" },
+      ],
+    });
+    const successor = block("successor", { position: 1 });
+    const card = block("card", {
+      position: 2,
+      properties: [{ key: "status", value: "Doing" }],
+    });
+    let physical = [definition, successor, card];
+    let selected: Block | null = definition;
+    const fake = harness((input) => {
+      if (input.action === "tree.index") return snapshot(physical, selected);
+      if (input.action === "tree.query") {
+        return { blocks: [card], completeness: { kind: "complete" } };
+      }
+      if (input.action === "browsing-context.publish") {
+        selected = physical.find((candidate) => candidate.id === publishedBlockId(input)) ?? null;
+        return undefined;
+      }
+      if (input.action === "delete") {
+        physical = [successor, card];
+        return undefined;
+      }
+      return undefined;
+    });
+    const controller = createTreeController(fake.effects);
+    await controller.initialize();
+
+    await controller.handleKeypress("", { name: "delete" }, "pass");
+    await controller.handleKeypress("y", { name: "y" }, "pass");
+
+    expect(lastCall(fake.calls, "browsing-context.publish")).toEqual({ action: "browsing-context.publish", sourceClientId: "tree-test", contextId: "tree-test-context", target: { kind: "block", blockId: successor.id } });
+    expect(controller.view().rows[controller.view().selectedIndex]?.rowId).toBe(successor.id);
+  });
+
+  test("keeps deletion focus at the visual position when the fallback row vanishes with a surviving occurrence", async () => {
+    const laneView = block("lane-view", {
+      properties: [
+        { key: "type", value: "virtual-branch" },
+        { key: "query", value: "lane=first" },
+      ],
+    });
+    const target = block("target", { position: 1 });
+    const card = block("card", {
+      position: 2,
+      properties: [{ key: "lane", value: "first" }],
+    });
+    const tail = block("tail", { position: 3 });
+    let deleted = false;
+    let serviceSelected: Block | null = laneView;
+    const fake = harness((input) => {
+      if (input.action === "tree.index") {
+        // The fallback row's canonical block also disappears externally, while its
+        // occurrence in the lane view survives.
+        return snapshot(deleted ? [laneView, tail] : [laneView, target, card, tail], serviceSelected);
+      }
+      if (input.action === "tree.query") {
+        return { blocks: [card], completeness: { kind: "complete" } };
+      }
+      if (input.action === "browsing-context.publish") {
+        serviceSelected = publishedBlockId(input) === tail.id ? tail : serviceSelected;
+        return undefined;
+      }
+      if (input.action === "delete") {
+        deleted = true;
+        return undefined;
+      }
+      return undefined;
+    });
+    const controller = createTreeController(fake.effects);
+    await controller.initialize();
+    await controller.handleKeypress("", { name: "down" }, "pass");
+    await controller.handleKeypress("", { name: "down" }, "pass");
+    expect(controller.view().rows[controller.view().selectedIndex]?.rowId).toBe("target");
+
+    await controller.handleKeypress("", { name: "delete" }, "pass");
+    await controller.handleKeypress("y", { name: "y" }, "pass");
+
+    expect(lastCall(fake.calls, "delete")).toEqual({ action: "delete", blockId: "target", mutation: { author: "user", actorId: "tree" } });
+    expect(controller.view().rows[controller.view().selectedIndex]?.rowId).toBe("tail");
+    expect(controller.view().rows[controller.view().selectedIndex]?.rowId).not.toBe(
+      "occurrence:lane-view:card",
+    );
+  });
+
+  test("keeps occurrence identity while editing and routes allowed effects to the canonical block", async () => {
+    const definition = block("view", {
+      properties: [
+        { key: "type", value: "virtual-branch" },
+        { key: "query", value: "status=Doing" },
+      ],
+    });
+    let card: VisibleBlock | null = block("card", {
+      text: "Card",
+      displayText: "Card",
+      properties: [{ key: "status", value: "Doing" }, { key: "file", value: "card.txt" }],
+    });
+    let openedFilePath = "";
+    const fake = harness((input) => {
+      const physical = card ? [definition, card] : [definition];
+      if (input.action === "tree.index") return snapshot(physical, definition);
+      if (input.action === "tree.query") {
+        return { blocks: card ? [card] : [], completeness: { kind: "complete" } };
+      }
+      if (input.action === "update" && card) {
+        card = { ...card, text: input.text, displayText: input.text };
+        return card;
+      }
+      if (input.action === "files.read") {
+        openedFilePath = input.path;
+        return { absolutePath: "/workspace/card.txt", displayPath: "card.txt", text: "card",
+          revision: { kind: "filesystem", mtimeNs: "1", size: "4", contentHash: "a".repeat(64) },
+          contentHash: "a".repeat(64), capturedAt: "2026-09-19T00:00:00.000Z" };
+      }
+      if (input.action === "delete") {
+        card = null;
+        return undefined;
+      }
+      return undefined;
+    });
+    const controller = createTreeController(fake.effects);
+    await controller.initialize();
+    await controller.handleKeypress("", { name: "down" }, "pass");
+
+    await controller.handleKeypress(".", { name: "." }, "modified-enter");
+    expect(fake.calls.map((call) => String(call.action))).not.toContain("view.toggleMultiline");
+    expect(controller.view().rows[controller.view().selectedIndex]?.rowId).toBe(
+      "occurrence:view:card",
+    );
+    expect(selectedBlockRow(controller).multilineExpanded).toBe(true);
+
+    await controller.handleKeypress("f", { name: "f" }, "pass");
+    expect(openedFilePath).toBe("card.txt");
+    await controller.handleKeypress("", { name: "escape" }, "pass");
+
+    await controller.handleKeypress("e", { name: "e" }, "pass");
+    await controller.handleKeypress("!", { sequence: "!" }, "pass");
+    await controller.handleKeypress("", { name: "return" }, "pass");
+    expect(lastCall(fake.calls, "update")).toEqual({
+      action: "update",
+      blockId: "card",
+      text: "Card!",
+      expectedRevision: 1,
+      mutation: { author: "user", actorId: "tree" },
+    });
+    expect(controller.view().rows[controller.view().selectedIndex]?.rowId).toBe(
+      "occurrence:view:card",
+    );
+
+    await controller.handleKeypress("", { name: "e", ctrl: true }, "pass");
+    expect(lastCall(fake.calls, "ui.command.send")).toEqual({
+      action: "ui.command.send",
+      command: { targetClientId: "detail-test", command: "edit", targetRegion: "detail", target: { kind: "block", blockId: "card" } },
+    });
+    await controller.handleKeypress("", { name: "up" }, "pass");
+    expect(controller.view().rows[controller.view().selectedIndex]?.rowId).toBe(
+      "occurrence:view:card",
+    );
+
+    await controller.handleKeypress("", { name: "delete" }, "pass");
+    await controller.handleKeypress("y", { name: "y" }, "pass");
+    expect(lastCall(fake.calls, "delete")).toEqual({
+      action: "delete",
+      blockId: "card",
+      mutation: { author: "user", actorId: "tree" },
+    });
+    const deleteIndex = fake.calls.findIndex((call) => call.action === "delete");
+    expect(fake.calls[deleteIndex - 1]).toEqual({ action: "browsing-context.publish", sourceClientId: "tree-test", contextId: "tree-test-context", target: { kind: "block", blockId: "view" } });
+    expect(controller.view().rows[controller.view().selectedIndex]?.rowId).toBe("view");
+    expect(controller.view().status).toBe("Moved to Trash");
+    expect(JSON.stringify(fake.calls)).not.toContain("occurrence:");
+  });
+
+  test("reveals a virtual occurrence's physical source and returns to its exact row", async () => {
+    const definition = block("view", {
+      properties: [
+        { key: "type", value: "virtual-branch" },
+        { key: "query", value: "status=Doing" },
+      ],
+    });
+    const parent = block("parent", { position: 1, hasChildren: true });
+    const card = block("card", {
+      parentId: parent.id,
+      position: 0,
+      depth: 1,
+      text: "Card",
+      displayText: "Card",
+      properties: [{ key: "status", value: "Doing" }],
+    });
+    const fake = harness((input) => {
+      if (input.action === "tree.index") {
+        return snapshot([definition, parent, card], definition);
+      }
+      if (input.action === "tree.query") {
+        return { blocks: [card], completeness: { kind: "complete" } };
+      }
+      if (input.action === "get") return card;
+      return undefined;
+    });
+    const controller = createTreeController(fake.effects);
+    await controller.initialize();
+    await controller.handleRowClick(parent.id);
+    await controller.handleKeypress("", { name: "space" }, "pass");
+    await controller.handleRowClick("occurrence:view:card");
+
+    await controller.handleKeypress("R", { name: "r", shift: true }, "pass");
+
+    expect(controller.view().rows[controller.view().selectedIndex]).toMatchObject({
+      rowId: card.id,
+      canonicalId: card.id,
+      kind: "physical",
+    });
+    expect(controller.view().rows.map((row) => row.rowId)).toContain(card.id);
+    expect(fake.focused).toEqual(["outliner"]);
+    expect(fake.calls.some((call) => call.action === "navigation.dispatch")).toBe(false);
+
+    await controller.handleKeypress("", { name: "left", meta: true }, "pass");
+
+    expect(controller.view().rows[controller.view().selectedIndex]?.rowId).toBe(
+      "occurrence:view:card",
+    );
+  });
+
+  test("falls back at a vanished occurrence's visual position instead of its physical row", async () => {
+    const definition = block("view", {
+      properties: [
+        { key: "type", value: "virtual-branch" },
+        { key: "query", value: "status=Doing" },
+      ],
+    });
+    const context = block("context", { position: 1 });
+    const card = block("card", {
+      position: 2,
+      properties: [{ key: "status", value: "Doing" }],
+    });
+    let matches = true;
+    const fake = harness((input) => {
+      if (input.action === "tree.index") {
+        return snapshot([definition, context, card], definition);
+      }
+      if (input.action === "tree.query") {
+        return { blocks: matches ? [card] : [], completeness: { kind: "complete" } };
+      }
+      return undefined;
+    });
+    const controller = createTreeController(fake.effects);
+    await controller.initialize();
+    await controller.handleKeypress("", { name: "down" }, "pass");
+    expect(controller.view().rows[controller.view().selectedIndex]?.rowId).toBe(
+      "occurrence:view:card",
+    );
+
+    matches = false;
+    await controller.handleServiceEvent(event("content"));
+
+    expect(controller.view().rows[controller.view().selectedIndex]?.rowId).toBe("context");
+    expect(lastCall(fake.calls, "browsing-context.publish")).toEqual({ action: "browsing-context.publish", sourceClientId: "tree-test", contextId: "tree-test-context", target: { kind: "block", blockId: "context" } });
+  });
+
+  test("does not retarget a vanished occurrence to its Trash occurrence", async () => {
+    const doingView = block("doing-view", {
+      properties: [
+        { key: "type", value: "virtual-branch" },
+        { key: "query", value: "status=Doing" },
+      ],
+    });
+    const trashView = block("trash-view", {
+      position: 1,
+      properties: [
+        { key: "type", value: "virtual-branch" },
+        { key: "system-view", value: "trash" },
+        { key: "query", value: "deleted=true" },
+      ],
+    });
+    const context = block("context", { position: 2 });
+    const card = block("card", {
+      position: 3,
+      properties: [{ key: "status", value: "Doing" }],
+    });
+    const trashedCard = {
+      ...card,
+      deletedAt: "deleted",
+      effectiveDeletedRootId: card.id,
+    };
+    let deleted = false;
+    let serviceSelected: Block | null = doingView;
+    const fake = harness((input) => {
+      if (input.action === "tree.index") {
+        const active = deleted ? [doingView, trashView, context] : [doingView, trashView, context, card];
+        return snapshot(active, serviceSelected);
+      }
+      if (input.action === "tree.query") {
+        if (input.query.includeDeleted) {
+          return {
+            blocks: deleted ? [trashedCard] : [],
+            completeness: { kind: "complete" },
+          };
+        }
+        return {
+          blocks: deleted ? [] : [card],
+          completeness: { kind: "complete" },
+        };
+      }
+      if (input.action === "browsing-context.publish") {
+        serviceSelected = publishedBlockId(input) === trashView.id
+          ? trashView
+          : publishedBlockId(input) === card.id
+            ? card
+            : serviceSelected;
+      }
+      return undefined;
+    });
+    const controller = createTreeController(fake.effects);
+    await controller.initialize();
+    await controller.handleKeypress("", { name: "down" }, "pass");
+    expect(controller.view().rows[controller.view().selectedIndex]?.rowId).toBe(
+      "occurrence:doing-view:card",
+    );
+
+    deleted = true;
+    serviceSelected = trashedCard;
+    await controller.handleServiceEvent(event("content", card.id));
+
+    expect(controller.view().rows[controller.view().selectedIndex]?.rowId).toBe(trashView.id);
+    expect(controller.view().rows[controller.view().selectedIndex]?.rowId).not.toBe(
+      "occurrence:trash-view:card",
+    );
+    expect(lastCall(fake.calls, "browsing-context.publish")).toEqual({ action: "browsing-context.publish", sourceClientId: "tree-test", contextId: "tree-test-context", target: { kind: "block", blockId: trashView.id } });
+  });
+
+  test("uses the same visual index when one of several occurrences disappears", async () => {
+    const firstView = block("first-view", {
+      properties: [
+        { key: "type", value: "virtual-branch" },
+        { key: "query", value: "lane=first" },
+      ],
+    });
+    const secondView = block("second-view", {
+      properties: [
+        { key: "type", value: "virtual-branch" },
+        { key: "query", value: "lane=second" },
+      ],
+    });
+    const card = block("card");
+    let secondMatches = true;
+    const fake = harness((input) => {
+      if (input.action === "tree.index") {
+        return snapshot([firstView, secondView, card], firstView);
+      }
+      if (input.action === "tree.query") {
+        const lane = input.query.filters?.[0]?.value;
+        return {
+          blocks: lane === "first" || secondMatches ? [card] : [],
+          completeness: { kind: "complete" },
+        };
+      }
+      return undefined;
+    });
+    const controller = createTreeController(fake.effects);
+    await controller.initialize();
+    await controller.handleKeypress("", { name: "down" }, "pass");
+    await controller.handleKeypress("", { name: "down" }, "pass");
+    await controller.handleKeypress("", { name: "down" }, "pass");
+    expect(controller.view().rows[controller.view().selectedIndex]?.rowId).toBe(
+      "occurrence:second-view:card",
+    );
+
+    secondMatches = false;
+    await controller.handleServiceEvent(event("content"));
+
+    expect(controller.view().rows[controller.view().selectedIndex]?.rowId).toBe("card");
+  });
+
+  test("exposes truncated, failed, read-only, and invalid branch state with explicit status", async () => {
+    const parent = block("parent");
+    const limited = block("limited", {
+      properties: [
+        { key: "type", value: "virtual-branch" },
+        { key: "query", value: "status=Doing" },
+        { key: "limit", value: "2" },
+      ],
+    });
+    const failed = block("failed", {
+      properties: [
+        { key: "type", value: "virtual-branch" },
+        { key: "query", value: "status=Next" },
+      ],
+    });
+    const readOnly = block("readonly", {
+      properties: [
+        { key: "type", value: "virtual-branch" },
+        { key: "query", value: "status=Done" },
+      ],
+    });
+    const invalid = block("invalid", {
+      properties: [
+        { key: "type", value: "virtual-branch" },
+        { key: "query", value: "status=Next" },
+        { key: "query", value: "status=Doing" },
+      ],
+    });
+    const matches = [block("one"), block("two"), block("three")];
+    const physical = [limited, failed, readOnly, invalid, parent, ...matches];
+    const fake = harness((input) => {
+      if (input.action === "tree.index") return snapshot(physical, readOnly);
+      if (input.action === "tree.query") {
+        const status = input.query.filters?.[0]?.value;
+        if (status === "Next") throw new Error("query unavailable");
+        return {
+          blocks: status === "Doing" ? matches : [],
+          completeness: { kind: "complete" },
+        };
+      }
+      return undefined;
+    });
+    const controller = createTreeController(fake.effects);
+    await controller.initialize();
+
+    expect(controller.view().branchStates.get("limited")).toEqual(expect.objectContaining({
+      count: 2,
+      completeness: { kind: "truncated", limit: 2 },
+    }));
+    expect(controller.view().branchStates.get("failed")?.queryError).toBe("query unavailable");
+    expect(controller.view().branchStates.get("invalid")?.queried).toBe(false);
+
+    await controller.handleKeypress("a", { name: "a" }, "pass");
+    expect(controller.view().status).toBe(
+      "Virtual branch is read-only: configure create and create-parent",
+    );
+    await controller.handleServiceEvent({
+      id: "reveal-invalid",
+      domain: "ui",
+      action: "ui.command.send",
+      sequence: 2,
+      command: { targetClientId: "tree-test", command: "reveal", target: { kind: "block", blockId: "invalid" },  },
+    });
+    await controller.handleKeypress("a", { name: "a" }, "pass");
+    expect(controller.view().status).toContain("Virtual branch is invalid:");
+  });
+
+  test.each(["direct", "nested"])("reorders the selected %s appearance when a branch is also projected elsewhere", async (appearance) => {
+    const outer = block("outer", {
+      properties: [
+        { key: "type", value: "virtual-branch" },
+        { key: "query", value: "folder=views" },
+      ],
+    });
+    const definition = block("view", {
+      properties: [
+        { key: "type", value: "virtual-branch" },
+        { key: "query", value: "status=Doing" },
+        { key: "folder", value: "views" },
+      ],
+    });
+    const first = block("first", {
+      properties: [{ key: "status", value: "Doing" }],
+    });
+    const second = block("second", {
+      position: 1,
+      properties: [{ key: "status", value: "Doing" }],
+    });
+    let ranks: VirtualOccurrenceRank[] = [];
+    const fake = harness((input) => {
+      if (input.action === "tree.index") {
+        return snapshot([outer, definition, first, second], definition, {
+          virtualOccurrenceRanks: ranks,
+        });
+      }
+      if (input.action === "tree.query") {
+        return { blocks: input.query.filters?.some(filter => filter.key === "folder") ? [definition] : [first, second], completeness: { kind: "complete" } };
+      }
+      if (input.action === "virtual.occurrences.reorder") {
+        ranks = input.orderedBlockIds.map((blockId, rank) => ({
+          viewId: input.viewId,
+          blockId,
+          rank,
+        }));
+        return ranks;
+      }
+      return undefined;
+    });
+    const controller = createTreeController(fake.effects);
+    await controller.initialize();
+    const selectedRowId = appearance === "direct"
+      ? "occurrence:view:first"
+      : "occurrence:outer:view/occurrence:view:first";
+    await controller.handleRowClick(selectedRowId);
+    await controller.handleServiceEvent(event("browsing-context", first.id));
+    expect(controller.view().rows[controller.view().selectedIndex]?.rowId).toBe(
+      selectedRowId,
+    );
+    fake.calls.length = 0;
+
+    await controller.handleKeypress("", { name: "down", meta: true }, "pass");
+
+    expect(lastCall(fake.calls, "virtual.occurrences.reorder")).toEqual({
+      action: "virtual.occurrences.reorder",
+      viewId: definition.id,
+      orderedBlockIds: [second.id, first.id],
+    });
+    expect(
+      controller.view().rows
+        .filter((row) => row.kind === "physical")
+        .map((row) => row.canonicalId),
+    ).toEqual([outer.id, definition.id, first.id, second.id]);
+    expect(controller.view().rows[controller.view().selectedIndex]?.rowId).toBe(
+      selectedRowId,
+    );
+    expect(controller.view().status).toBe(
+      "Moved down within virtual branch; canonical order unchanged",
+    );
+    for (const parentRowId of [definition.id, "occurrence:outer:view"]) {
+      expect(controller.view().rows.filter(row => isBlockTreeRow(row) &&
+        row.kind === "occurrence" && row.parentRowId === parentRowId)
+        .map(row => isBlockTreeRow(row) && row.canonicalId)).toEqual([second.id, first.id]);
+    }
+    expect(fake.calls.some((call) => call.action === "move")).toBe(false);
+
+    fake.calls.length = 0;
+    await controller.handleKeypress("", { name: "down", meta: true }, "pass");
+    expect(controller.view().status).toBe(
+      "Already last in virtual branch; canonical order unchanged",
+    );
+    expect(fake.calls.some((call) => call.action === "virtual.occurrences.reorder")).toBe(false);
+  });
+
+  test("disables manual occurrence reorder for timestamp-sorted branches", async () => {
+    const definition = block("sorted-view", {
+      properties: [
+        { key: "type", value: "virtual-branch" },
+        { key: "query", value: "status=Done" },
+        { key: "sort", value: "updated" },
+        { key: "direction", value: "desc" },
+      ],
+    });
+    const first = block("newest", { properties: [{ key: "status", value: "Done" }] });
+    const second = block("older", {
+      position: 1,
+      properties: [{ key: "status", value: "Done" }],
+    });
+    const fake = harness((input) => {
+      if (input.action === "tree.index") return snapshot([definition, first, second]);
+      if (input.action === "tree.query") {
+        expect(input.query.sort).toEqual({ field: "updated", direction: "desc" });
+        return { blocks: [first, second], completeness: { kind: "complete" } };
+      }
+      return undefined;
+    });
+    const controller = createTreeController(fake.effects);
+    await controller.initialize();
+    await controller.handleKeypress("", { name: "down" }, "pass");
+    fake.calls.length = 0;
+
+    await controller.handleKeypress("", { name: "down", meta: true }, "pass");
+
+    expect(controller.view().status).toBe(
+      "Virtual branch is sorted by updated desc; manual reorder is disabled",
+    );
+    expect(fake.calls.some((call) => call.action === "virtual.occurrences.reorder")).toBe(false);
+    await controller.handleAction("tree.menu.open");
+    expect(controller.view().actionMenuItems?.some(item => item.id.startsWith("tree.reorder."))).toBe(false);
+  });
+
+  test("projected child commit rechecks changed bounds without discarding the draft", async () => {
+    const store = new OutlinerStore(":memory:");
+    try {
+      const card = store.create("Card\n[fixture::child]");
+      const definition = store.create("View\n[type::virtual-branch] [query::fixture=child] [child-depth::1]");
+      const fake = harness(() => undefined);
+      const fallback = fake.effects.request;
+      fake.effects.request = async <T>(input: RequestInput): Promise<T> => {
+        if (input.action === "tree.index") return store.readTreeIndex(input.view) as T;
+        if (input.action === "tree.query") return store.queryTree(input.query) as T;
+        if (input.action === "views.read") return store.readSavedView(input.viewId, input, "tree") as T;
+        if (input.action === "get") return store.get(input.blockId) as T;
+        return fallback(input);
+      };
+      const controller = createTreeController(fake.effects);
+      await controller.initialize();
+      await controller.revealBlock(definition.id);
+      await controller.handleKeypress("", { name: "down" }, "pass");
+      await controller.handleKeypress("a", { name: "a" }, "pass");
+      await controller.handleKeypress("Feedback", {}, "pass");
+      store.update(definition.id, definition.text.replace("child-depth::1", "child-depth::0"), definition.revision);
+      await expect(controller.handleKeypress("", { name: "return" }, "pass")).rejects.toThrow("child-depth 0");
+      expect(store.children(card.id)).toEqual([]);
+      expect(controller.view().mode).toBe("add-child");
+      expect(controller.view().quickInput).toBe("Feedback");
+      expect(fake.calls.some(input => input.action === "create")).toBe(false);
+    } finally { store.close(); }
+  });
+
+  test("Tree projects saved-view membership from the service read, not a client query", async () => {
+    const store = new OutlinerStore(":memory:");
+    try {
+      const view = store.create("Queue [type::virtual-branch] [query::lane=next] [limit::2] [child-depth::0]");
+      const items = ["Alpha", "Beta", "Gamma"].map(name => store.create(`${name} [lane::next]`));
+      store.reorderVirtualOccurrences(view.id, [items[2]!.id, items[0]!.id, items[1]!.id]);
+      const calls: string[] = [];
+      const fake = harness(() => undefined);
+      const fallback = fake.effects.request;
+      fake.effects.request = async <T>(input: RequestInput): Promise<T> => {
+        calls.push(input.action);
+        if (input.action === "tree.index") return store.readTreeIndex(input.view) as T;
+        if (input.action === "views.read") return store.readSavedView(input.viewId, input, "tree") as T;
+        if (input.action === "tree.query" || input.action === "blocks.query") throw new Error("Tree must not evaluate views itself");
+        return fallback(input);
+      };
+      const controller = createTreeController(fake.effects);
+      await controller.initialize();
+      const roots = controller.view().rows.filter(isBlockTreeRow)
+        .filter(row => row.kind === "occurrence" && row.viewId === view.id && row.relativeDepth === 0);
+      expect(roots.map(row => row.canonicalId)).toEqual(store.readSavedView(view.id).blocks.map(block => block.id));
+      expect(roots.map(row => row.canonicalId)).toEqual([items[2]!.id, items[0]!.id]);
+      expect(controller.view().branchStates.get(view.id)).toEqual(expect.objectContaining({
+        count: 2, completeness: { kind: "truncated", limit: 2 },
+        truncation: expect.objectContaining({ rootQuery: true }),
+      }));
+      expect(calls).toContain("views.read");
+    } finally { store.close(); }
+  });
+
+  test("projected definition creates its own child and retries a failed move without duplicating it", async () => {
+    const store = new OutlinerStore(":memory:");
+    try {
+      const unrelated = store.create("Creation destination");
+      const card = store.create(`Inner view\n[type::virtual-branch] [query::fixture=absent] [fixture::child] [create::fixture=absent] [create-parent::${unrelated.id}]`);
+      const definition = store.create("Outer view\n[type::virtual-branch] [query::fixture=child] [child-depth::1] [expanded::false]");
+      const fake = harness(() => undefined);
+      const fallback = fake.effects.request;
+      let moves = 0;
+      fake.effects.request = async <T>(input: RequestInput): Promise<T> => {
+        if (input.action === "tree.index") return store.readTreeIndex(input.view) as T;
+        if (input.action === "tree.query") return store.queryTree(input.query) as T;
+        if (input.action === "views.read") return store.readSavedView(input.viewId, input, "tree") as T;
+        if (input.action === "get") return store.get(input.blockId) as T;
+        if (input.action === "create") return store.create(input.text, input.parentId, input.author) as T;
+        if (input.action === "update") return store.update(input.blockId, input.text, input.expectedRevision) as T;
+        if (input.action === "move") {
+          if (++moves === 1) throw new Error("Transient move failure");
+          return store.move(input.blockId, input.parentId, input.position) as T;
+        }
+        return fallback(input);
+      };
+      const controller = createTreeController(fake.effects);
+      await controller.initialize();
+      await controller.revealBlock(definition.id);
+      await controller.handleKeypress("", { name: "down" }, "pass");
+      await controller.handleKeypress("a", { name: "a" }, "pass");
+      await controller.handleKeypress("Feedback", {}, "pass");
+      await expect(controller.handleKeypress("", { name: "return" }, "pass")).rejects.toThrow("Transient move failure");
+      const created = store.children(card.id)[0]!;
+      expect(created.text).toBe("Feedback");
+      await controller.handleKeypress(" revised", {}, "pass");
+      await controller.handleKeypress("", { name: "return" }, "pass");
+      expect(store.children(card.id).map(b => [b.id, b.text])).toEqual([[created.id, "Feedback revised"]]);
+      expect(store.children(unrelated.id)).toEqual([]);
+      expect(selectedBlockRow(controller).rowId).toBe(`occurrence:${definition.id}:${card.id}:${created.id}`);
+    } finally { store.close(); }
+  });
+
+  test.each(["full", "overlapping"])("%s virtual row budget refuses child creation before opening input", async (shape) => {
+    const definition = block("view", { properties: [{ key: "type", value: "virtual-branch" }, { key: "query", value: "fixture=child" }, { key: "limit", value: "1000" }] });
+    const cards = shape === "full"
+      ? Array.from({ length: 1000 }, (_, i) => block(`card-${i}`, { properties: [{ key: "fixture", value: "child" }] }))
+      : [block("ancestor", { hasChildren: true }), block("target", { parentId: "ancestor", depth: 1 }),
+        ...Array.from({ length: 996 }, (_, i) => block(`context-${i}`, { parentId: "ancestor", depth: 1 }))];
+    const roots = shape === "full" ? cards : cards.slice(0, 2);
+    const fake = harness(input => {
+      if (input.action === "tree.index") return snapshot([definition, ...cards], definition);
+      if (input.action === "tree.query") return { blocks: roots, completeness: { kind: "complete" } };
+    });
+    const controller = createTreeController(fake.effects);
+    await controller.initialize();
+    await controller.handleRowClick(`occurrence:view:${shape === "full" ? "card-0" : "target"}`);
+    await controller.handleKeypress("a", { name: "a" }, "pass");
+    expect(controller.view().mode).toBe("browse");
+    expect(controller.view().status).toContain("row budget");
+    expect(fake.calls.some(input => input.action === "create")).toBe(false);
+  });
+
+  test("keeps occurrence sibling and indent effects disabled and left selects its definition", async () => {
+    const definition = block("view", {
+      properties: [
+        { key: "type", value: "virtual-branch" },
+        { key: "query", value: "status=Doing" },
+      ],
+    });
+    const card = block("card", { properties: [{ key: "status", value: "Doing" }] });
+    const fake = harness((input) => {
+      if (input.action === "tree.index") {
+        return snapshot([definition, card], definition);
+      }
+      if (input.action === "tree.query") {
+        return { blocks: [card], completeness: { kind: "complete" } };
+      }
+      return undefined;
+    });
+    const controller = createTreeController(fake.effects);
+    await controller.initialize();
+    await controller.handleKeypress("", { name: "down" }, "pass");
+    fake.calls.length = 0;
+
+    await controller.handleKeypress("", { name: "right" }, "pass");
+    await controller.handleKeypress("", { name: "space" }, "pass");
+    await controller.handleKeypress("s", { name: "s" }, "pass");
+    await controller.handleKeypress("", { name: "tab" }, "pass");
+    await controller.handleKeypress("", { name: "tab", shift: true }, "pass");
+
+    expect(controller.view().status).toBe(
+      "Virtual occurrence outdent is disabled; canonical hierarchy unchanged",
+    );
+    expect(fake.calls.some((call) =>
+      ["toggle", "move", "create", "get", "children"].includes(call.action)
+    )).toBe(false);
+
+    await controller.handleKeypress("", { name: "left" }, "pass");
+    expect(controller.view().rows[controller.view().selectedIndex]?.rowId).toBe("view");
+    expect(fake.calls.at(-1)).toEqual({ action: "browsing-context.publish", sourceClientId: "tree-test", contextId: "tree-test-context", target: { kind: "block", blockId: "view" } });
+  });
+
+
+  test("navigates and discloses contextual descendants by row identity", async () => {
+    const definition = block("view", {
+      properties: [
+        { key: "type", value: "virtual-branch" },
+        { key: "query", value: "status=Doing" },
+      ],
+    });
+    const first = block("first", {
+      hasChildren: true,
+      properties: [{ key: "status", value: "Doing" }],
+    });
+    const child = block("child", {
+      parentId: first.id,
+      depth: 1,
+    });
+    const second = block("second", {
+      position: 1,
+      properties: [{ key: "status", value: "Doing" }],
+    });
+    const physical = [definition, first, child, second];
+    const fake = harness((input) => {
+      if (input.action === "tree.index") return snapshot(physical, definition);
+      if (input.action === "tree.query") {
+        return { blocks: [first, second], completeness: { kind: "complete" } };
+      }
+      return undefined;
+    });
+    const controller = createTreeController(fake.effects);
+    const rootRowId = "occurrence:view:first";
+    const childRowId = "occurrence:view:first:child";
+
+    await controller.initialize();
+    await controller.handleKeypress("", { name: "down" }, "pass");
+    await controller.handleKeypress("", { name: "right" }, "pass");
+    expect(controller.view().rows[controller.view().selectedIndex]?.rowId).toBe(childRowId);
+
+    await controller.handleServiceEvent(event("content"));
+    expect(controller.view().rows[controller.view().selectedIndex]?.rowId).toBe(childRowId);
+    fake.calls.length = 0;
+    await controller.handleKeypress("", { name: "down", meta: true }, "pass");
+    expect(controller.view().status).toBe(
+      "Virtual occurrence reorder is disabled; canonical hierarchy unchanged",
+    );
+    expect(fake.calls.some((call) => call.action === "virtual.occurrences.reorder")).toBe(false);
+    await controller.handleAction("tree.menu.open");
+    expect(controller.view().actionMenuItems?.some(item => item.id.startsWith("tree.reorder."))).toBe(false);
+    await controller.handleKeypress("", { name: "escape" }, "pass");
+
+    await controller.handleKeypress("", { name: "left" }, "pass");
+    expect(controller.view().rows[controller.view().selectedIndex]?.rowId).toBe(rootRowId);
+    await controller.handleKeypress("", { name: "left" }, "pass");
+    expect(controller.view().rows[controller.view().selectedIndex]).toEqual(
+      expect.objectContaining({ rowId: rootRowId, collapsed: true, hasChildren: true }),
+    );
+    expect(controller.view().rows.some((row) => row.rowId === childRowId)).toBe(false);
+    await controller.handleKeypress("", { name: "right" }, "pass");
+    await controller.handleKeypress("", { name: "right" }, "pass");
+    expect(controller.view().rows[controller.view().selectedIndex]?.rowId).toBe(childRowId);
+
+    await controller.handleDisclosure(rootRowId);
+    expect(controller.view().rows[controller.view().selectedIndex]?.rowId).toBe(rootRowId);
+    expect(controller.view().rows.some((row) => row.rowId === childRowId)).toBe(false);
+    await controller.handleDisclosure(rootRowId);
+    expect(controller.view().rows.some((row) => row.rowId === childRowId)).toBe(true);
+  });
+
+  test("restores Trash roots and requires the exact identifier for permanent purge", async () => {
+    const definition = block("trash-view", {
+      text: "Trash [type::virtual-branch] [query::deleted=true]",
+      properties: [
+        { key: "type", value: "virtual-branch" },
+        { key: "query", value: "deleted=true" },
+      ],
+    });
+    const deleted = block("deleted-block", {
+      text: "PIE-999 deleted [work-id::PIE-999]",
+      properties: [{ key: "work-id", value: "PIE-999" }],
+      deletedAt: "deleted-at",
+      effectiveDeletedRootId: "deleted-block",
+    });
+    const makeTrashHarness = () => {
+      let present = true;
+      const fake = harness((input) => {
+        if (input.action === "tree.index") {
+          return snapshot([definition], definition);
+        }
+        if (input.action === "tree.query") {
+          return {
+            blocks: present ? [deleted] : [],
+            completeness: { kind: "complete" },
+          };
+        }
+        if (input.action === "trash.restore" || input.action === "trash.purge") {
+          present = false;
+          return deleted;
+        }
+        return undefined;
+      });
+      return fake;
+    };
+
+    const restoreFake = makeTrashHarness();
+    const restoreController = createTreeController(restoreFake.effects);
+    await restoreController.initialize();
+    await restoreController.handleKeypress("", { name: "down" }, "pass");
+    restoreFake.calls.length = 0;
+    await restoreController.handleKeypress("r", { name: "r" }, "pass");
+    expect(restoreFake.calls).toContainEqual({
+      action: "trash.restore",
+      blockId: deleted.id,
+      mutation: { author: "user", actorId: "tree" },
+    });
+    expect(restoreController.view().status).toBe("Restored from Trash");
+
+    const purgeFake = makeTrashHarness();
+    const purgeController = createTreeController(purgeFake.effects);
+    await purgeController.initialize();
+    await purgeController.handleKeypress("", { name: "down" }, "pass");
+    await purgeController.handleKeypress("p", { name: "p" }, "pass");
+    expect(purgeController.view().mode).toBe("purge");
+    for (const character of "PIE-999") {
+      await purgeController.handleKeypress(character, { name: character }, "pass");
+    }
+    await purgeController.handleKeypress("", { name: "return" }, "pass");
+    expect(purgeFake.calls).toContainEqual({
+      action: "trash.purge",
+      blockId: deleted.id,
+      confirmation: "PIE-999",
+    });
+    expect(purgeFake.calls.at(-1)).toEqual({ action: "browsing-context.publish", sourceClientId: "tree-test", contextId: "tree-test-context", target: { kind: "block", blockId: definition.id } });
+    expect(purgeController.view().status).toBe("Permanently purged");
+  });
+});
+
+test("isolates Tree attention and reveals only on explicit instruction", async () => {
+  const first = block("first");
+  const target = block("target", { position: 1 });
+  const fake = harness((input) =>
+    input.action === "tree.index" ? snapshot([first, target], first) : undefined
+  );
+  const controller = createTreeController(fake.effects);
+  await controller.initialize();
+  const mark = normalizeAttentionMark({
+    markId: "tree-attention",
+    targetClientId: "tree-test",
+    target: { kind: "block", sourceBlockId: target.id },
+    tone: "info",
+    sender: "agent-test",
+  }, {
+    clientId: "tree-test",
+    role: "tree",
+    contextId: "tree-test-context",
+  }, target);
+  const attention = attentionClientState("tree-test", [mark], 1);
+
+  await controller.handleServiceEvent({
+    id: "other-attention",
+    domain: "attention",
+    action: "attention.mark",
+    sequence: 2,
+    attention: { ...attention, targetClientId: "other-tree" },
+  });
+  expect(controller.view().attention.marks).toEqual([]);
+  expect(selectedBlockRow(controller).canonicalId).toBe(first.id);
+
+  await controller.handleServiceEvent({
+    id: "targeted-attention",
+    domain: "attention",
+    action: "attention.mark",
+    sequence: 3,
+    blockId: target.id,
+    attention,
+    attentionInstruction: { markId: mark.markId, reveal: true, focus: true },
+  });
+  expect(controller.view().attention.currentMarkId).toBe(mark.markId);
+  expect(selectedBlockRow(controller).canonicalId).toBe(target.id);
+  expect(fake.focused).toEqual(["outliner"]);
+  expect(fake.calls.some((call) => call.action === "selection.set")).toBe(false);
+
+  await controller.handleKeypress("", { name: "x", ctrl: true }, "pass");
+  expect(controller.view().attention.marks).toEqual([]);
+  expect(controller.view().status).toBe("Attention cue acknowledged; active marks remain");
+});
+
+test("the file viewer uses service content while retaining the authored line range", async () => {
+  const reference = block("file-reference", {
+    text: "Today [file::today.txt] [line-start::2] [line-end::2]",
+    properties: [
+      { key: "file", value: "today.txt" },
+      { key: "line-start", value: "2" },
+      { key: "line-end", value: "2" },
+    ],
+  });
+  const fake = harness(input => {
+    if (input.action === "tree.index") return snapshot([reference], reference);
+    if (input.action === "files.read") return {
+      absolutePath: "/service/today.txt", displayPath: "today.txt", text: "first\nSERVER SECOND\nlast",
+      revision: { kind: "filesystem", mtimeNs: "1", size: "24", contentHash: "a".repeat(64) },
+      contentHash: "a".repeat(64), capturedAt: "2026-09-19T00:00:00.000Z",
+    };
+  });
+  const controller = createTreeController(fake.effects);
+  await controller.initialize();
+  await controller.handleKeypress("f", { name: "f" }, "pass");
+  expect(controller.view().mode).toBe("viewer");
+  expect(controller.view().viewerLines).toEqual(["SERVER SECOND"]);
+  expect(controller.view().viewerPath).toBe("today.txt:2");
+});
+
+
+test("an independent Tree inspects locally without creating a Detail", async () => {
+  const a = block("local-a", {text: "SOURCE LOCAL ALPHA"});
+  const b = block("local-b", {text: "SOURCE LOCAL BETA"});
+  const fake = harness(input => {
+    if (input.action === "navigation.link.get") return {source:{clientId:"tree-test",region:"tree"},destination:{clientId:"detail-test",region:"detail"},destinations:[{view:{clientId:"detail-test",region:"detail"},label:"Reader"}]};
+    if (input.action === "tree.index") return snapshot([a, b], a);
+    if (input.action === "browsing-context.publish") return {contextId: "tree-test-context", target: input.target, preview: {sourceClientId:"tree-test",targetClientId:"tree-test",targetRegion:"tree",intent:"preview",resolution:"self",command:{command:"preview",targetClientId:"tree-test",targetRegion:"tree",target:input.target}}};
+  });
+  const controller = createTreeController(fake.effects);
+  await controller.initialize();
+  await controller.handleRowClick("local-b");
+  for (let n = 0; n < 20 && !controller.view().localPreview?.document.resolvedText.includes("SOURCE LOCAL BETA"); n++) await Promise.resolve();
+  expect(controller.view().localPreview?.document.resolvedText).toContain("SOURCE LOCAL BETA");
+  expect(fake.createdDetails).toEqual([]);
+  expect(fake.calls.some(call => call.action === "navigation.dispatch")).toBe(false);
+  await controller.handleKeypress("", {name: "f7"}, "pass");
+  expect(controller.view().localPreview?.focused).toBe(true);
+  await controller.handleKeypress("", {name: "return"}, "pass");
+  expect(lastCall(fake.calls, "navigation.dispatch")).toEqual({action: "navigation.dispatch", sourceClientId: "tree-test", intent: "open", target: {kind: "block", blockId: "local-b"}});
+  await controller.handleKeypress("", {name: "f7", shift: true}, "pass");
+  expect(controller.view().localPreview).toBeNull();
+  expect(lastCall(fake.calls, "clients.update")).toEqual({action: "clients.update", clientId: "tree-test", previewTarget: null});
+  expect(fake.createdDetails).toEqual([]);
+});
+
+
+test("breadcrumb strip scroll does not navigate; ancestor focus and Back retain viewport", async () => {
+  const blocks=[block("root",{hasChildren:true}),block("child",{parentId:"root",depth:1,hasChildren:true}),block("leaf",{parentId:"child",depth:2})];
+  const fake=harness(input=>input.action === "tree.index" ? snapshot(blocks,blocks[0]!) : undefined);
+  const controller=createTreeController(fake.effects);await controller.initialize();
+  await controller.handleRowClick("leaf");controller.setViewportStart(1);controller.setBreadcrumbStart(2);
+  expect(controller.view().breadcrumbs?.map(item=>item.rowId)).toEqual(["root","child","leaf"]);
+  const calls=fake.calls.length;
+  await controller.handleAction("tree.breadcrumb.left");
+  expect(controller.view().breadcrumbStart).toBe(1);
+  expect(controller.view().root).toBeNull();expect(controller.view().scrollStartEntryIndex).toBe(1);
+  expect(selectedBlockRow(controller).rowId).toBe("leaf");expect(fake.calls.length).toBe(calls);
+  await controller.handleAction("tree.breadcrumb.focus:child");
+  expect(controller.view().root?.rowId).toBe("child");
+  expect(controller.view().breadcrumbs?.map(item=>item.rowId)).toEqual(["root","child"]);
+  await controller.handleKeypress("",{name:"left",meta:true},"pass");
+  expect(controller.view().root).toBeNull();expect(selectedBlockRow(controller).rowId).toBe("leaf");
+  expect(controller.view().scrollStartEntryIndex).toBe(1);
+});
+
+test("breadcrumbs follow the projected occurrence instead of the canonical storage parent", async () => {
+  const storage=block("storage",{hasChildren:true});
+  const note=block("note",{parentId:storage.id,depth:1});
+  const hub=block("hub",{properties:[{key:"type",value:"virtual-branch"},{key:"query",value:"fixture=note"}]});
+  const fake=harness(input=>input.action === "tree.index" ? snapshot([storage,note,hub],hub) : input.action === "tree.query" ? {blocks:[note],completeness:{kind:"complete"}} : undefined);
+  const controller=createTreeController(fake.effects);await controller.initialize();
+  await controller.handleRowClick("occurrence:hub:note");
+  expect(controller.view().breadcrumbs?.map(({rowId,kind})=>[rowId,kind])).toEqual([["hub","physical"],["occurrence:hub:note","occurrence"]]);
+  await controller.handleAction("tree.breadcrumb.focus:hub");
+  expect(controller.view().root?.rowId).toBe("hub");
+  await controller.handleKeypress("",{name:"left",meta:true},"pass");
+  expect(selectedBlockRow(controller).rowId).toBe("occurrence:hub:note");
+  await controller.handleAction("tree.location");
+  const location = controller.view().actionMenuItems!.find(item => item.label === "note")!;
+  expect(location).toBeDefined();
+  await controller.handleAction(location.id);
+  expect(controller.view().mode).toBe("browse");
+  expect(controller.view().root?.rowId).toBe("occurrence:hub:note");
+  await controller.handleKeypress("",{name:"left",meta:true},"pass");
+  expect(selectedBlockRow(controller).rowId).toBe("occurrence:hub:note");
+});
+
+test("indentation toggle is reversible, local to each Tree, and does not change navigation", async () => {
+  const root = block("root", {hasChildren: true});
+  const child = block("child", {parentId: "root", depth: 1});
+  const fake = harness(input => input.action === "tree.index" ? snapshot([root, child], child) : undefined);
+  const first = createTreeController(fake.effects);
+  const second = createTreeController(fake.effects);
+  await first.initialize(); await second.initialize();
+  first.setViewportStart(1);
+  const before = first.view();
+  const callCount = fake.calls.length;
+  await first.handleKeypress("", {name: "i", meta: true}, "pass");
+  expect(first.view().indentationMode).toBe("selection");
+  expect(second.view().indentationMode).toBe("viewport");
+  expect(first.view().root).toEqual(before.root);
+  expect(first.view().selectedIndex).toBe(before.selectedIndex);
+  expect(first.view().scrollStartEntryIndex).toBe(1);
+  expect(fake.calls.length).toBe(callCount);
+  await first.handleAction("tree.indentation.toggle");
+  expect(first.view().indentationMode).toBe("viewport");
+});
+
+test("paging uses the reflowed breadcrumb viewport without skipping numbered lines", async () => {
+  const parents=Array.from({length:12},(_,i)=>block(`parent${i}`,{parentId:i ? `parent${i-1}` : null,depth:i,hasChildren:true}));
+  const text=Array.from({length:25},(_,i)=>`line${i+1} body`).join("\n");
+  const note=block("deep-note",{parentId:"parent11",depth:12,text,displayText:text});
+  const fake=harness(input=>input.action === "tree.index" ? snapshot([...parents,note],note) : undefined);
+  const controller=createTreeController(fake.effects);await controller.initialize();await controller.handleRowClick(note.id);
+  await controller.handleKeypress(".",{name:"."},"modified-enter");
+  const seen=new Set<number>();
+  for(let page=0;page<6;page++) {
+    const rendered=renderViewport(controller,40,12);
+    expect(rendered.expandedPage?.pageSize).toBe(6);
+    expect(rendered.expandedPage?.totalRows).toBe(25);
+    for(const match of rendered.frame.matchAll(/line(\d+) body/g)) seen.add(Number(match[1]));
+    await controller.handleKeypress("",{name:"pagedown"},"pass");
+  }
+  expect([...seen].sort((a,b)=>a-b)).toEqual(Array.from({length:25},(_,i)=>i+1));
+});
+
+
+test("Tree close Preview leaves the composed Detail retention alone when no local Preview exists", async () => {
+  const first = block("paired-selection");
+  const fake = harness(input => input.action === "tree.index" ? snapshot([first], first) : undefined);
+  const controller = createTreeController(fake.effects);
+  await controller.initialize();
+  expect(controller.view().localPreview).toBeNull();
+  fake.calls.length = 0;
+  await controller.handleKeypress("", {name: "f7", shift: true}, "pass");
+  expect(fake.calls.filter(call => call.action === "clients.update")).toEqual([]);
+});
+
+
+test("Tree destination picker labels distinguish linking from opening once", async () => {
+  const a = block("destination-labels");
+  const fake = harness(input => {
+    if (input.action === "tree.index") return snapshot([a], a);
+    if (input.action === "navigation.link.get") return {source: {clientId: "tree-test", region: "tree"}, destination: null, destinations: []};
+  });
+  const controller = createTreeController(fake.effects);
+  await controller.initialize();
+  for (const purpose of ["link", "open"] as const) {
+    await controller.handleAction(purpose === "link" ? "tree.navigation.link" : "tree.navigation.once");
+    expect(controller.view().destinationPurpose).toBe(purpose);
+    for (const width of [80, 120]) {
+      const frame = renderTreeFrame(controller.view(), width, 24).frame;
+      if (purpose === "open") {
+        expect(frame).toContain("Open once in… · Tree");
+        expect(frame).toContain("Enter open once");
+        expect(frame).not.toContain("Link destination · Tree");
+        expect(frame).not.toContain("Alt+L link destination");
+      } else {
+        expect(frame).toContain("Link destination · Tree");
+        expect(frame).toContain("Enter link");
+        expect(frame).toContain("Alt+L link destination");
+        expect(frame).not.toContain("Open once in… · Tree");
+      }
+    }
+    await controller.handleAction("tree.cancel");
+    expect(controller.view().destinationPurpose).toBeUndefined();
+  }
+  expect(fake.calls.some(input => input.action === "navigation.link.set")).toBe(false);
+});
+
+test("Alt+L is available while local Preview owns focus, and Escape returns to Tree",async()=>{
+ const a=block("preview-keyboard",{text:"Readable source"});
+ const fake=harness(input=>{
+   if(input.action==="tree.index")return snapshot([a],a);
+   if(input.action==="browsing-context.publish")return{contextId:"tree-test-context",target:input.target,preview:{sourceClientId:"tree-test",targetClientId:"tree-test",targetRegion:"tree",intent:"preview",resolution:"self",command:{command:"preview",targetClientId:"tree-test",targetRegion:"tree",target:input.target}}};
+   if(input.action==="navigation.link.get")return{source:{clientId:"tree-test",region:"tree"},destination:null,destinations:[]};
+ });
+ const selection=new DocumentPreviewInput();
+ fake.effects.previewSelectionInput=selection;
+ fake.effects={...fake.effects,actionKeymap:new OutlinerActionKeymap('<test>', {'tree.reader.comment':['m'],'tree.reader.select':['Alt+V']})};
+ const controller=createTreeController(fake.effects);await controller.initialize();
+ for(let i=0;i<30&&!controller.view().localPreview;i++)await Promise.resolve();
+ await controller.handleKeypress("",{name:"p",meta:true},"pass");expect(controller.view().localPreview?.focused).toBe(true);
+ await controller.handleKeypress("",{name:"l",meta:true},"pass");expect(controller.view().mode).toBe("action-menu");expect(controller.view().destinationInstructions).toContain("create a Detail");
+ await controller.handleKeypress("",{name:"escape"},"pass");expect(controller.view().mode).toBe("browse");
+ await controller.handleKeypress('?',{name:'?'},'pass');
+ expect(controller.view().actionMenuItems).toEqual(expect.arrayContaining([expect.objectContaining({id:'tree.reader.comment',binding:'m'})]));
+ await controller.handleKeypress('',{name:'escape'},'pass');
+ await controller.handleKeypress('c',{name:'c'},'pass');
+ expect(controller.view().localPreview?.comment).toBeUndefined();
+ const rendered=renderTreeFrame(controller.view(),80,30);
+ expect(rendered.frame).toContain('m comment');
+ selection.render(rendered.frame.split('\n'),rendered.preview,controller.view().localPreview);
+ await controller.handleKeypress('',{name:'v',meta:true},'pass');
+ expect(controller.view().localPreview?.selecting).toBe(true);
+ await controller.handleKeypress('',{name:'end',shift:true},'pass');
+ await controller.handleKeypress('m',{name:'m'},'pass');
+ expect(controller.view().localPreview?.comment?.target?.anchor.kind).toBe('text-quote');
+ await controller.handleKeypress('',{name:'escape'},'pass');
+ await controller.handleKeypress("",{name:"escape"},"pass");expect(controller.view().localPreview?.focused).toBe(false);
+});
+
+
+import {DocumentPreviewInput} from "../src/document-preview-input";
+import {parseTreeWheel} from "../src/tree-mouse";
+test("wheel over Tree does not scroll adjacent focused Preview",async()=>{
+ const a=block("preview-review",{text:Array.from({length:100},(_,i)=>`Line ${i}`).join("\n")});
+ const fake=harness(input=>{
+  if(input.action==="tree.index")return snapshot([a],a);
+  if(input.action==="browsing-context.publish")return{contextId:"tree-test-context",target:input.target,preview:{sourceClientId:"tree-test",targetClientId:"tree-test",targetRegion:"tree",intent:"preview",resolution:"self",command:{command:"preview",targetClientId:"tree-test",targetRegion:"tree",target:input.target}}};
+ });
+ fake.effects.terminalWidth=()=>120;fake.effects.terminalHeight=()=>30;
+ const controller=createTreeController(fake.effects);await controller.initialize();
+ for(let i=0;i<50&&controller.view().localPreview?.document.canonicalText.startsWith("Loading");i++)await Promise.resolve();
+ await controller.handleKeypress("",{name:"p",meta:true},"pass");
+ const view=controller.view(),rendered=renderTreeFrame(view,120,30);
+ const input=new DocumentPreviewInput();input.render(rendered.frame.split("\n"),rendered.preview,view.localPreview);
+ const wheel="\x1b[<65;5;5M";
+ expect(input.handle(wheel,{focus:v=>controller.focusLocalPreview(v),scroll:d=>controller.scrollLocalPreview(d),resize:f=>controller.resizeLocalPreview(f),invoke:id=>controller.handleAction(id)},()=>{},()=>{})).toBe(false);
+ const before=controller.view().localPreview!.offset;
+ await controller.handleTreeWheel(parseTreeWheel(wheel)!);
+ expect(controller.view().localPreview!.offset).toBe(before);
+});
+
+test("a Tree-directed Preview stays local even while linked Details exist", async () => {
+  const note = block("local-linked", {text: "LOCAL DESPITE LINKED DETAIL"});
+  const fake = harness(input => {
+    if (input.action === "tree.index") return snapshot([note], note);
+    if (input.action === "browsing-context.publish") return {contextId:"tree-test-context", target:input.target,
+      preview:{sourceClientId:"tree-test",targetClientId:"tree-test",targetRegion:"tree",intent:"preview",resolution:"self",command:{command:"preview",targetClientId:"tree-test",targetRegion:"tree",target:input.target}}};
+  });
+  const controller=createTreeController(fake.effects); await controller.initialize();
+  await controller.handleRowClick(note.id);
+  for(let i=0;i<30&&!controller.view().localPreview?.document.resolvedText.includes("LOCAL DESPITE LINKED DETAIL");i++) await Promise.resolve();
+  expect(controller.view().localPreview?.document.resolvedText).toContain("LOCAL DESPITE LINKED DETAIL");
+  expect(fake.createdDetails).toEqual([]);
+  expect(fake.calls.some(c=>c.action==='navigation.dispatch')).toBe(false);
+});
+
+test("Tree links a new Detail beside the chosen anchor", async () => {
+  const note=block('placement-source'); const created: unknown[][]=[];
+  const fake=harness(input=>input.action==='tree.index'?snapshot([note],note):input.action==='navigation.link.get'?{
+    source:{clientId:'tree-test',region:'tree'},destination:null,destinations:[
+      {view:{clientId:'remote',region:'detail'},label:'Remote',otherLocation:true},
+      {view:{clientId:'anchor',region:'detail'},label:'My Reference',placementPaneId:'w1:p9'}
+    ]}:undefined);
+  fake.effects.createDetailDestination=async(...args)=>{created.push(args);return {clientId:"created",region:"detail"};};
+  const c=createTreeController(fake.effects); await c.initialize();
+  await c.handleAction('tree.navigation.link'); await c.handleAction('destination:place-right');
+  expect(c.view().destinationPurpose).toBe('place');
+  expect(c.view().actionMenuItems?.map(i=>i.id)).toEqual(['placement:1','placement:back']);
+  await c.handleAction('placement:1');
+  expect(created).toEqual([[note.id,{kind:'split',direction:'right',targetPaneId:'w1:p9'}]]);
+  expect(c.view().mode).toBe('browse');
+  expect(fake.calls.filter(i=>i.action==='navigation.link.set')).toEqual([{action:'navigation.link.set',source:{clientId:'tree-test',region:'tree'},destination:{clientId:'created',region:'detail'}}]);
+});
+
+test('Tree link controls explain active filters without discarding their text', async () => {
+ const note=block('filter-link'); const fake=harness(input=>input.action==='tree.index'?snapshot([note],note):undefined);
+ const c=createTreeController(fake.effects);await c.initialize();
+ await c.handleAction('tree.filter.properties'); await c.handlePaste('my filter');
+ await c.handleAction('tree.navigation.link');
+ expect(c.view().mode).toBe('filter');expect(c.view().quickInput).toBe('my filter');expect(c.view().status).toContain('Finish or cancel');
+ await c.handleKeypress('',{name:'l',meta:true},'pass');
+ expect(c.view().mode).toBe('filter');expect(c.view().quickInput).toBe('my filter');expect(c.view().status).toContain('Finish or cancel');
+ await c.handleKeypress('L',{name:'l',shift:true},'pass');expect(c.view().quickInput).toBe('my filterL');
+});
+
+test('Tree sidebar choices link the exact newly created destination',async()=>{
+ for(const scope of ['outliner','tab'] as const) for(const side of ['left','right'] as const){
+ const note=block('sidebar-source');const calls:unknown[][]=[];
+ const fake=harness(input=>input.action==='tree.index'?snapshot([note],note):input.action==='navigation.link.get'?{source:{clientId:'tree-test',region:'tree'},destination:null,destinations:[]}:undefined);
+ fake.effects.createDetailDestination=async(...args)=>{calls.push(args);return {clientId:"created",region:"detail"};};
+ const c=createTreeController(fake.effects);await c.initialize();await c.handleAction('tree.navigation.link');await c.handleAction(`destination:sidebar-${scope}-${side}`);
+ expect(calls).toEqual([[note.id,{kind:'sidebar',scope,side}]]);expect(c.view().mode).toBe('browse');expect(fake.calls.filter(i=>i.action==='navigation.link.set')).toEqual([{action:'navigation.link.set',source:{clientId:'tree-test',region:'tree'},destination:{clientId:'created',region:'detail'}}]);
+ }
+});
+
+test('Tree key inspector opens from the menu without changing the selected document',async()=>{
+ const note=block('inspect-input');const fake=harness(input=>input.action==='tree.index'?snapshot([note],note):undefined);
+ let opened=0;fake.effects.openKeyInspector=()=>{opened++;};const c=createTreeController(fake.effects);await c.initialize();
+ await c.handleAction('tree.menu.open');await c.handleAction('tree.debug.keys');
+ expect(opened).toBe(1);expect(c.view().mode).toBe('browse');const row=c.view().rows[c.view().selectedIndex];expect(isBlockTreeRow(row) && row.canonicalId).toBe(note.id);
+ expect(fake.calls.some(i=>['update','navigation.link.set','ui.command.send'].includes(i.action))).toBe(false);
+});
+
+test('failed destination creation leaves the Tree link unchanged',async()=>{
+ const note=block('failed-sidebar');
+ const fake=harness(input=>input.action==='tree.index'?snapshot([note],note):input.action==='navigation.link.get'?{source:{clientId:'tree-test',region:'tree'},destination:{clientId:'existing',region:'detail'},destinations:[]}:undefined);
+ fake.effects.createDetailDestination=async()=>{throw new Error('Creation failed; layout restored');};
+ const c=createTreeController(fake.effects);await c.initialize();await c.handleAction('tree.navigation.link');await c.handleAction('destination:sidebar-outliner-left');
+ expect(fake.calls.some(i=>i.action==='navigation.link.set')).toBe(false);
+ expect(c.view().status).toContain('layout restored');
+});
+
+test('ordinary Tree split does not change its linked destination',async()=>{
+ const note=block('ordinary-split');const fake=harness(input=>input.action==='tree.index'?snapshot([note],note):undefined);
+ const c=createTreeController(fake.effects);await c.initialize();await c.handleAction('tree.detail.right');
+ expect(fake.createdDetails).toEqual([note.id]);
+ expect(fake.calls.some(i=>i.action==='navigation.link.set')).toBe(false);
+});
+
+test('late publication preview events cannot reload or replace the latest local Preview',async()=>{
+ const a=block('preview-a',{text:'Older preview'}),b=block('preview-b',{text:'Newest preview'});
+ const fake=harness(input=>input.action==='tree.index'?snapshot([a,b],a):input.action==='browsing-context.publish'?{contextId:'tree-test-context',target:input.target,preview:{sourceClientId:'tree-test',targetClientId:'tree-test',targetRegion:'tree',intent:'preview',resolution:'self',command:{command:'preview',targetClientId:'tree-test',targetRegion:'tree',target:input.target}}}:undefined);
+ const c=createTreeController(fake.effects);await c.initialize();await c.handleRowClick(b.id);await setImmediate();
+ expect(c.view().localPreview?.target).toEqual({kind:'block',blockId:b.id});
+ const reads=fake.calls.filter(i=>i.action==='get').length;
+ await c.handleServiceEvent({id:'stale-publication',sequence:20,domain:'ui',action:'browsing-context.publish',command:{command:'preview',targetClientId:'tree-test',targetRegion:'tree',target:{kind:'block',blockId:a.id}}});await setImmediate();
+ expect(c.view().localPreview?.target).toEqual({kind:'block',blockId:b.id});
+ expect(fake.calls.filter(i=>i.action==='get').length).toBe(reads);
+ await c.handleServiceEvent({id:'explicit-preview',sequence:21,domain:'ui',action:'navigation.dispatch',command:{command:'preview',targetClientId:'tree-test',targetRegion:'tree',target:{kind:'block',blockId:a.id}}});await setImmediate();
+ expect(c.view().localPreview?.target).toEqual({kind:'block',blockId:a.id});
+});
+
+test('a configured New Tree action remains available while Preview owns focus',async()=>{
+ const note=block('new-tree-preview');const fake=harness(input=>input.action==='tree.index'?snapshot([note],note):input.action==='browsing-context.publish'?{contextId:'tree-test-context',target:input.target,preview:{targetClientId:'tree-test',targetRegion:'tree'}}:undefined);
+ fake.effects={...fake.effects,actionKeymap:new OutlinerActionKeymap('<test>',{'tree.pane.new':['Alt+N']})};
+ const roots:unknown[]=[];fake.effects.createTreePane=async root=>{roots.push(root);};
+ const c=createTreeController(fake.effects);await c.initialize();await c.handleRowClick(note.id);await setImmediate();c.focusLocalPreview();
+ await c.handleKeypress('n',{name:'n',meta:true},'pass');expect(roots).toEqual([null]);
+});
+
+test('Inbox destination chooser retains selection, cancel returns to Inbox and one-off opens its output',async()=>{
+ const note=block('inbox-source'),output=block('inbox-output');
+ const fake=harness(input=>{
+  if(input.action==='tree.index')return snapshot([note,output],note);
+  if(input.action==='inbox.status')return{enabled:true,paused:false,state:'idle',pending:0,message:'ready',attentionCount:0,attentionOnly:!!input.attentionOnly,resultsOffset:0,resultsTruncated:false,results:input.attentionOnly?[]:[{id:'receipt',sourceId:note.id,sourceTitle:'Source',outputIds:[output.id],state:'applied',summary:'Filed',createdAt:'2026-09-23'}]};
+  if(input.action==='navigation.dispatch' && !input.destination)throw Error('No linked destination');
+  if(input.action==='navigation.link.get')return{source:{clientId:'tree-test',region:'tree'},destination:null,destinations:[{view:{clientId:'detail-test',region:'detail'},label:'Reader'}]};
+ });
+ const c=createTreeController(fake.effects);await c.initialize();await c.handleAction('tree.inbox.open');
+ await c.handleAction('tree.menu.open');await c.handleAction('tree.inbox.preview.source');expect(c.view().inbox?.targets[c.view().inbox!.targetIndex]?.id).toBe(note.id);
+ await c.handleAction('tree.menu.open');await c.handleAction('tree.inbox.preview.output');expect(c.view().inbox?.targets[c.view().inbox!.targetIndex]?.id).toBe(output.id);
+ await c.handleKeypress('',{name:'return',meta:true},'pass');expect(c.view().recoveryHelp).toContain('Open here');
+ await c.handleKeypress('l',{name:'l'},'pass');expect(c.view().mode).toBe('action-menu');
+ await c.handleKeypress('',{name:'escape'},'pass');expect(c.view().mode).toBe('inbox');expect(c.view().inbox?.selected?.id).toBe('receipt');
+ await c.handleAction('tree.navigation.once');await c.handleAction('destination:0');
+ expect(c.view().mode).toBe('inbox');expect(lastCall(fake.calls,'navigation.dispatch')).toMatchObject({target:{kind:'block',blockId:output.id},destination:{clientId:'detail-test',region:'detail'}});
+ await c.handleAction('tree.navigation.link');await c.handleAction('destination:0');expect(lastCall(fake.calls,'navigation.link.set')).toMatchObject({destination:{clientId:'detail-test',region:'detail'}});
+ await c.handleKeypress('',{name:'escape'},'pass');expect(c.view().mode).toBe('browse');expect(fake.stops).toBe(0);
+});
+
+test('all Inbox chooser paths resolve live content and expose creation and stale-reader failures',async()=>{
+ const note=block('live-source'),output=block('deleted-output');let stale=false;
+ const fake=harness(input=>{
+  if(input.action==='tree.index')return snapshot([note],note);
+  if(input.action==='get') {if(input.blockId===output.id)throw new Error(`Block not found: ${output.id}`);if(input.blockId===note.id)return note;}
+  if(input.action==='inbox.status')return{enabled:true,paused:false,state:'idle',pending:0,message:'ready',attentionCount:0,attentionOnly:!!input.attentionOnly,resultsOffset:0,resultsTruncated:false,results:input.attentionOnly?[]:[{id:'receipt',sourceId:note.id,sourceTitle:'Source',outputIds:[output.id],state:'applied',summary:'Filed',createdAt:'2026-09-23'}]};
+  if(input.action==='navigation.link.get')return{source:{clientId:'tree-test',region:'tree'},destination:null,destinations:stale?[]:[{view:{clientId:'reader',region:'detail'},label:'Reader'}]};
+  if(input.action==='navigation.link.set'&&stale)throw new Error('Reader disconnected');
+ });
+ const c=createTreeController(fake.effects);await c.initialize();await c.handleAction('tree.inbox.open');
+ await c.handleAction('tree.navigation.once');await c.handleAction('destination:0');
+ expect(lastCall(fake.calls,'navigation.dispatch')).toMatchObject({target:{kind:'block',blockId:note.id}});
+ let created='';fake.effects.createDetailDestination=async(id)=>{created=id;throw new Error('Pane startup timed out');};
+ c.view().inbox!.targetIndex=0;
+ await c.handleAction('tree.navigation.link');await c.handleAction('destination:new-right');
+ expect(created).toBe(note.id);expect(c.view().inbox?.notice).toContain('Pane startup timed out');
+ await c.handleAction('tree.navigation.link');stale=true;await c.handleAction('destination:0');
+ expect(c.view().mode).toBe('action-menu');expect(c.view().status).toBe('Reader disconnected');
+ await c.handleKeypress('',{name:'escape'},'pass');expect(c.view().mode).toBe('inbox');expect(c.view().inbox?.notice).toBe('Reader disconnected');
+});
+
+test('Preview hides persistently while browsing and keeps independent docking preferences',async()=>{
+ const a=block('pref-a'),b=block('pref-b');
+ const fake=harness(input=>input.action==='tree.index'?snapshot([a,b],a):input.action==='browsing-context.publish'?{contextId:'tree-test-context',target:input.target,preview:{targetClientId:'tree-test',targetRegion:'tree'}}:undefined);
+ const c=createTreeController(fake.effects);await c.initialize();await c.handleRowClick(a.id);await setImmediate();
+ await c.handleAction('tree.preview.bottom');c.resizeLocalPreview(.7);
+ await c.handleAction('tree.preview.close');await c.handleRowClick(b.id);await setImmediate();
+ expect(c.view().localPreview).toBeNull();expect(c.view().previewPreferences).toMatchObject({enabled:false,dock:'bottom',bottomFraction:.7});
+ await c.handleAction('tree.preview.toggle');expect(c.view().localPreview?.target).toEqual({kind:'block',blockId:b.id});
+ expect(c.view().previewPreferences?.bottomFraction).toBe(.7);
+ const other=createTreeController(fake.effects);expect(other.view().previewPreferences).toMatchObject({enabled:true,dock:'auto',bottomFraction:.55});
+});
+
+test('Inbox Preview chooser retries the browsed target after a protected destination rejects Open',async()=>{
+ const source=block('inbox-original'),target=block('preview-target');let reject=true;
+ const fake=harness(input=>{
+  if(input.action==='tree.index')return snapshot([source,target],source);
+  if(input.action==='inbox.status')return{enabled:true,paused:false,state:'idle',pending:0,message:'ready',attentionCount:0,attentionOnly:!!input.attentionOnly,resultsOffset:0,resultsTruncated:false,results:input.attentionOnly?[]:[{id:'receipt',sourceId:source.id,sourceTitle:'Source',outputIds:[],state:'applied',summary:'Filed',createdAt:'2026-09-23'}]};
+  if(input.action==='navigation.link.get')return{source:{clientId:'tree-test',region:'tree'},destination:null,destinations:[{view:{clientId:'reader',region:'detail'},label:'Reader'}]};
+  if(input.action==='navigation.dispatch'&&!input.destination)throw Error('No linked destination');
+  if(input.action==='navigation.dispatch'&&reject)throw Error('Reader has a draft');
+ });
+ const c=createTreeController(fake.effects);await c.initialize();await c.handleAction('tree.inbox.open');await setImmediate();
+ await c.handleAction('preview.link:'+encodeURIComponent('pi-outliner://block/preview-target'));
+ await c.handleAction('preview.open');expect(c.view().recoveryHelp).toContain('Open here');
+ await c.handleAction('destination.choose');expect(c.view().mode).toBe('action-menu');
+ await c.handleAction('destination:0');expect(c.view().mode).toBe('action-menu');
+ reject=false;await c.handleAction('destination:0');
+ expect(lastCall(fake.calls,'navigation.dispatch')).toMatchObject({target:{kind:'block',blockId:target.id}});
+});
+
+
+test('missing Tree destination offers exact-target Open here by keyboard or mouse without linking',async()=>{
+ const source=block('recovery-source'),target=block('recovery-target');
+ const fake=harness(input=>{
+  if(input.action==='tree.index')return snapshot([source,target],source);
+  if(input.action==='navigation.dispatch'||input.action==='navigation.resolve')throw Error('No linked destination');
+ });
+ const c=createTreeController(fake.effects);await c.initialize();
+ await c.handleLink('pi-outliner://block/recovery-target');
+ expect(c.view().recoveryHelp).toContain('Open here');
+ expect(c.view().localPreview?.target).not.toEqual({kind:'block',blockId:target.id});
+ await c.handleKeypress('',{name:'return'},'pass');
+ expect(c.view().localPreview?.target).toEqual({kind:'block',blockId:target.id});
+ expect(selectedBlockRow(c).canonicalId).toBe(source.id);
+ expect(c.view().recoveryHelp).toBeUndefined();
+ expect(fake.calls.some(input=>input.action==='navigation.link.set')).toBe(false);
+ await c.handleLink('pi-outliner://block/recovery-source');
+ await c.handleAction('destination.here');
+ expect(c.view().localPreview?.target).toEqual({kind:'block',blockId:source.id});
+ await c.handleLink('pi-outliner://block/recovery-target');
+ await c.handleRowClick(target.id);
+ expect(c.view().recoveryHelp).toBeUndefined();
+ await c.handleAction('destination.here');
+ expect(fake.calls.some(input=>input.action==='navigation.link.set')).toBe(false);
+});
+
+test('cancelled Tree recovery never creates an unresolved page',async()=>{
+ const source=block('page-source');
+ const fake=harness(input=>{
+  if(input.action==='tree.index')return snapshot([source],source);
+  if(input.action==='navigation.resolve')throw Error('No linked destination');
+ });
+ const c=createTreeController(fake.effects);await c.initialize();
+ await c.handleLink('pi-outliner://page/Future%20Page');
+ expect(c.view().recoveryHelp).toContain('Open here');
+ await c.handleKeypress('',{name:'escape'},'pass');
+ expect(fake.calls.some(input=>input.action==='pages.follow')).toBe(false);
+ expect(fake.stops).toBe(0);
+});
+
+test('Inbox missing destination opens browsed Preview target locally and preserves receipt',async()=>{
+ const source=block('inbox-origin'),target=block('inbox-followed');
+ const fake=harness(input=>{
+  if(input.action==='tree.index')return snapshot([source,target],source);
+  if(input.action==='inbox.status')return{enabled:true,paused:false,state:'idle',pending:0,message:'ready',attentionCount:0,attentionOnly:!!input.attentionOnly,resultsOffset:0,resultsTruncated:false,results:input.attentionOnly?[]:[{id:'receipt',sourceId:source.id,sourceTitle:'Source',outputIds:[],state:'applied',summary:'Filed',createdAt:'2026-09-23'}]};
+  if(input.action==='navigation.dispatch')throw Error('Linked destination closed');
+ });
+ const c=createTreeController(fake.effects);await c.initialize();await c.handleAction('tree.inbox.open');await setImmediate();
+ await c.handleAction('preview.link:'+encodeURIComponent('pi-outliner://block/inbox-followed'));
+ await c.handleAction('preview.open');expect(c.view().recoveryHelp).toContain('Open here');
+ await c.handleAction('destination.here');
+ expect(c.view().mode).toBe('inbox');expect(c.view().inbox?.selected?.id).toBe('receipt');
+ expect(c.view().inbox?.reader.state?.target).toEqual({kind:'block',blockId:target.id});
+ expect(c.view().inbox?.reader.state?.canBack).toBe(true);
+ expect(fake.calls.some(input=>input.action==='navigation.link.set')).toBe(false);
+});
+
+
+test('late missing-destination replies cannot restore cancelled Preview recovery',async()=>{
+ const source=block('late-origin'),target=block('late-followed');const gate=Promise.withResolvers<never>();
+ const fake=harness(input=>{
+  if(input.action==='tree.index')return snapshot([source,target],source);
+  if(input.action==='navigation.dispatch')return gate.promise;
+ });
+ const c=createTreeController(fake.effects);await c.initialize();
+ const opening=c.handleLink('pi-outliner://block/late-followed');await setImmediate();
+ await c.handleKeypress('',{name:'escape'},'pass');gate.reject(Error('No linked destination'));await opening;
+ expect(c.view().recoveryHelp).toBeUndefined();
+});
+
+test('compact recovery controls retain valid OSC links and dispatch mouse actions',async()=>{
+ const {DocumentPreviewInput}=await import('../src/document-preview-input');
+ const {stripTerminalSequences,getOsc8LinkAtColumn}=await import('@earendil-works/pi-tui');
+ const source=block('compact-source');
+ const fake=harness(input=>{
+  if(input.action==='tree.index')return snapshot([source],source);
+  if(input.action==='navigation.dispatch')throw Error('No linked destination');
+ });
+ const c=createTreeController(fake.effects);await c.initialize();
+ await c.handleLink('pi-outliner://block/compact-source');await c.handleAction('destination.here');
+ await c.handleAction('preview.open');
+ for(const [width,height] of [[80,8],[80,40]]){
+  const rendered=renderTreeFrame(c.view(),width!,height!,0,{clearScreen:false});
+  const lines=rendered.frame.split('\n');const footer=lines.find(line=>line.includes('destination.here'))!;
+  expect(stripTerminalSequences(footer)).toContain('[Esc: Cancel]');
+  expect(getOsc8LinkAtColumn(footer,2)).toBe('pi-outliner-action:destination.here');
+  // The recovery controls sit in the pane's hint row, outside Preview, so Preview never swallows the click.
+  expect(lines.indexOf(footer)).toBe(lines.length-1);
+  if(rendered.preview){
+   const input=new DocumentPreviewInput();input.render(lines,rendered.preview,c.view().localPreview);
+   let invoked='';
+   const handled=input.handle(`\x1b[<0;3;${lines.length}M`,{focus(){},scroll(){},resize(){},async invoke(action){invoked=action;}},()=>{},()=>{});
+   expect(handled).toBe(false);expect(invoked).toBe('');
+  }
+ }
+});
+
+
+test('authored Open cannot adopt a changed selection after delayed successful preflight',async()=>{
+ const source=block('authored-pending'),target=block('authored-target'),next=block('new-selection');
+ const gate=Promise.withResolvers<unknown>();
+ const group={completeness:{kind:'complete'},invalidCount:0,diagnostics:[],entries:[]};
+ const fake=harness(input=>{
+  if(input.action==='tree.index')return snapshot([source,target,next],source);
+  if(input.action==='blocks.authored-links')return{kind:'ready',ownerId:source.id,ownerTextDigest:authoredTextDigest(source.text),resources:group,outlinks:{...group,entries:[{kind:'outlink',key:'target',label:'Target',firstSpan:{start:0,end:1},occurrenceCount:1,referenceKind:'block',resolution:{kind:'ready',target:{kind:'block',blockId:target.id},title:'Target'}}]}};
+  if(input.action==='navigation.resolve')return gate.promise;
+  if(input.action==='navigation.dispatch')throw Error('No linked destination');
+ });
+ const c=createTreeController(fake.effects);await c.initialize();await c.handleAction('tree.authored-links.toggle');
+ const row=c.view().rows.find(row=>row.kind==='authored-link')!;
+ await c.handleRowClick(row.rowId);
+ const opening=c.handleKeypress('',{name:'return'},'pass');await setImmediate();
+ await c.handleRowClick(next.id);gate.resolve({sourceClientId:'tree-test',targetClientId:'reader',intent:'open',resolution:'linked'});await opening;
+ expect(c.view().recoveryHelp).toBeUndefined();
+ expect(fake.calls.some(input=>input.action==='navigation.dispatch')).toBe(false);
+});
+
+test('nested connection disclosure supports mouse, keyboard, independent siblings and typed Preview/Open',async()=>{
+ const a=block('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'),b=block('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb');
+ const fake=harness(input=>{
+  if(input.action==='tree.index')return snapshot([a,b],a);
+  if(input.action==='blocks.authored-links'){
+   const owner=input.ownerBlockId===a.id?a:b,target=owner===a?b:a;
+   return{kind:'ready',ownerId:owner.id,ownerTextDigest:authoredTextDigest(owner.text),outlinks:{entries:[{kind:'outlink',key:target.id,label:target.id,referenceKind:'block',occurrenceCount:1,firstSpan:{start:0,end:1},resolution:{kind:'ready',target:{kind:'block',blockId:target.id},title:target.id}}],completeness:{kind:'complete'},invalidCount:0,diagnostics:[]},resources:{entries:[],completeness:{kind:'complete'},invalidCount:0,diagnostics:[]}};
+  }
+ });
+ const c=createTreeController(fake.effects);await c.initialize();await c.handleAction('tree.authored-links.toggle');
+ const child=(owner:string)=>{const r=c.view().rows.find(r=>r.kind==='authored-link'&&r.owner.rowId===owner);if(!r)throw Error('missing child');return r;};
+ const first=child(a.id);await c.handleRowClick(first.rowId);
+ await c.handleKeypress('',{name:'right'},'pass');const second=child(first.rowId);
+ await c.handleRowClick(second.rowId);await c.handleAction('tree.authored-links.toggle');
+ expect(child(second.rowId)).toBeDefined();
+ expect(lastCall(fake.calls,'browsing-context.publish')).toMatchObject({target:{kind:'block',blockId:a.id}});
+ await c.handleAction('tree.read');expect(lastCall(fake.calls,'navigation.dispatch')).toMatchObject({target:{kind:'block',blockId:a.id}});
+ await c.handleDisclosure(first.rowId);expect(c.view().rows.some(r=>r.rowId===second.rowId)).toBe(false);
+ await c.handleDisclosure(first.rowId);expect(child(second.rowId)).toBeDefined();
+ expect(lastCall(fake.calls,'browsing-context.publish')).toMatchObject({target:{kind:'block',blockId:b.id}});
+ await c.handleRowClick(second.rowId);await c.handleKeypress('',{name:'left'},'pass');
+ expect(c.view().rows.some(r=>r.kind==='authored-link'&&r.owner.rowId===second.rowId)).toBe(false);
+ expect(fake.calls.some(c=>['create','update','resources.follow-authored'].includes(c.action))).toBe(false);
+});
+
+test('connection disclosure on a collapsed parent restores physical children',async()=>{
+ const parent=block('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',{hasChildren:true}),kid=block('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',{parentId:parent.id,depth:1});
+ const fake=harness(input=>input.action==='tree.index'?snapshot([parent,kid],parent):input.action==='blocks.authored-links'?{kind:'owner-unavailable',ownerId:parent.id,reason:'missing'}:undefined);
+ const c=createTreeController(fake.effects);await c.initialize();await c.handleDisclosure(parent.id);
+ expect(c.view().rows.some(r=>isBlockTreeRow(r)&&r.canonicalId===kid.id)).toBe(false);
+ await c.handleAction('tree.authored-links.toggle');
+ expect(c.view().rows.some(r=>isBlockTreeRow(r)&&r.canonicalId===kid.id)).toBe(true);
+ await c.handleDisclosure(parent.id);await c.handleAction('tree.authored-links.toggle');
+ await c.handleServiceEvent(event('content',parent.id));
+ expect(c.view().rows.some(r=>isBlockTreeRow(r)&&r.canonicalId===kid.id)).toBe(false);
+});
+
+test('refresh preserves a surviving generated selection and refreshes hidden descendants on group reopen',async()=>{
+ let a=block('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'),b=block('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb');let readsB=0;
+ const fake=harness(input=>{
+  if(input.action==='tree.index')return snapshot([a,b],a);
+  if(input.action==='blocks.authored-links'){
+   const owner=input.ownerBlockId===a.id?a:b,target=owner===a?b:a;if(owner===b)readsB++;
+   return{kind:'ready',ownerId:owner.id,ownerTextDigest:authoredTextDigest(owner.text),outlinks:{entries:[{kind:'outlink',key:target.id,label:target.id,referenceKind:'block',occurrenceCount:1,firstSpan:{start:0,end:1},resolution:{kind:'ready',target:{kind:'block',blockId:target.id},title:target.id}}],completeness:{kind:'complete'},invalidCount:0,diagnostics:[]},resources:{entries:[],completeness:{kind:'complete'},invalidCount:0,diagnostics:[]}};
+  }
+ });
+ const c=createTreeController(fake.effects);await c.initialize();await c.handleAction('tree.authored-links.toggle');
+ const link=c.view().rows.find(r=>r.kind==='authored-link')!;await c.handleDisclosure(link.rowId);
+ a={...a,text:'Changed heading',displayText:'Changed heading',revision:2};await c.handleServiceEvent(event('content',a.id));
+ expect(c.view().rows[c.view().selectedIndex]?.rowId).toBe(link.rowId);
+ const group=c.view().rows.find(r=>r.kind==='authored-link-header'&&r.owner.rowId===a.id&&r.group==='outlinks')!;
+ await c.handleDisclosure(group.rowId);const before=readsB;await c.handleServiceEvent(event('content',b.id));
+ expect(readsB).toBe(before);await c.handleDisclosure(group.rowId);expect(readsB).toBe(before+1);
+});
+
+test('Tree Enter keeps focus; a quick repeat focuses only the same unchanged route',async()=>{
+ let now=1000;
+ const clock=spyOn(Date,'now').mockImplementation(()=>now);
+ const a=block('read-a'),b=block('read-b');
+ const fake=harness(input=>input.action==='tree.index'?snapshot([a,b]):undefined);
+ const c=createTreeController(fake.effects);
+ const opens=()=>fake.calls.filter(call=>call.action==='navigation.dispatch'&&call.intent==='open');
+ try{
+  await c.initialize();
+  await c.handleKeypress('',{name:'return'},'pass');
+  expect(opens().at(-1)).toMatchObject({focusTarget:false,target:{blockId:a.id}});
+  now+=200;
+  await c.handleKeypress('',{name:'return'},'pass');
+  expect(opens().at(-1)).toMatchObject({focusTarget:true,target:{blockId:a.id}});
+  await c.handleKeypress('',{name:'down'},'pass');
+  await c.handleKeypress('',{name:'return'},'pass');
+  expect(opens().at(-1)).toMatchObject({focusTarget:false,target:{blockId:b.id}});
+  now+=1001;
+  await c.handleKeypress('',{name:'return'},'pass');
+  expect(opens().at(-1)).toMatchObject({focusTarget:false});
+  await c.handleKeypress('',{name:'return',meta:true},'pass');
+  expect(opens().at(-1)).toMatchObject({focusTarget:true});
+  await c.handleKeypress('',{name:'return'},'pass');
+  expect(opens().at(-1)).toMatchObject({focusTarget:false});
+  await c.handleRowClick(b.id);
+  await c.handleKeypress('',{name:'return'},'pass');
+  expect(opens().at(-1)).toMatchObject({focusTarget:false});
+ }finally{clock.mockRestore();}
+});
+
+test('Tree Enter repeat window starts when a slow Open completes',async()=>{
+ let now=1000;
+ const clock=spyOn(Date,'now').mockImplementation(()=>now);
+ const a=block('read-a');
+ const fake=harness(input=>{
+  if(input.action==='tree.index')return snapshot([a]);
+  if(input.action==='navigation.dispatch'&&input.intent==='open')now+=1500;
+ });
+ const c=createTreeController(fake.effects);
+ const opens=()=>fake.calls.filter(call=>call.action==='navigation.dispatch'&&call.intent==='open');
+ try{
+  await c.initialize();
+  await c.handleKeypress('',{name:'return'},'pass');
+  expect(opens().at(-1)).toMatchObject({focusTarget:false});
+  now+=200;
+  await c.handleKeypress('',{name:'return'},'pass');
+  expect(opens().at(-1)).toMatchObject({focusTarget:true});
+ }finally{clock.mockRestore();}
+});
+
+test('failed Open and changed destinations never arm a focus transfer',async()=>{
+ const clock=spyOn(Date,'now').mockImplementation(()=>1000);
+ const a=block('read-a');let fail=true,targetClientId='detail-test';
+ const fake=harness(input=>{
+  if(input.action==='tree.index')return snapshot([a]);
+  if(input.action==='navigation.resolve')return {sourceClientId:'tree-test',targetClientId,intent:input.intent,resolution:'linked'};
+  if(input.action==='navigation.dispatch'&&input.intent==='open'){
+   if(fail)throw Error('Destination is protected');
+   return {sourceClientId:'tree-test',targetClientId,intent:'open',resolution:'linked',command:{command:'open',targetClientId,target:input.target}};
+  }
+ });
+ const c=createTreeController(fake.effects);
+ const open=()=>c.handleAction('tree.read');
+ const last=()=>lastCall(fake.calls,'navigation.dispatch');
+ try{
+  await c.initialize();
+  await open();expect(c.view().status).toContain('protected');
+  fail=false;await open();expect(last()).toMatchObject({focusTarget:false});
+  targetClientId='another-detail';await open();expect(last()).toMatchObject({focusTarget:false,destination:{clientId:targetClientId,region:'detail'}});
+  await c.handleServiceEvent({...event('view'),action:'navigation.link.set'});
+  await open();expect(last()).toMatchObject({focusTarget:false});
+ }finally{clock.mockRestore();}
+});
+
+test('comment groups hide discussion without hiding ordinary children and disclose per occurrence', async () => {
+  const host = block('discussion-host', {hasChildren:true});
+  const ordinary = block('ordinary-child', {parentId:host.id,depth:1});
+  const comment = (id:string, parentId=host.id, reply=false) => block(id, {parentId,depth:reply?2:1,
+    properties:[{key:'type',value:reply?'annotation-reply':'annotation'},
+      {key:'annotation-status',value:'open'}, ...(reply?[{key:'parent-annotation',value:parentId}]:[])]});
+  const first = {...comment('first-comment'),hasChildren:true};
+  const reply = comment('reply',first.id,true);
+  const second = comment('second-comment');
+  const third = {...comment('third-comment'),author:'agent' as const};
+  const definition = block('discussion-view', {properties:[{key:'type',value:'virtual-branch'}, {key:'query',value:'fixture=discussion'}, {key:'child-depth',value:'2'}]});
+  let physical = [host,first,reply,ordinary,second,third,definition];
+  const fake = harness(input => {
+    if(input.action==='tree.index')return snapshot(physical,host);
+    if(input.action==='tree.query')return {blocks:[host],completeness:{kind:'complete'}};
+  });
+  const c=createTreeController(fake.effects); await c.initialize();
+  const groups=()=>c.view().rows.filter(row=>row.kind==='comment-group');
+  expect(groups()).toHaveLength(2);
+  expect(canonicalRowIds(c.view().rows).filter(id=>id==='ordinary-child')).toHaveLength(2);
+  expect(canonicalRowIds(c.view().rows)).not.toContain(first.id);
+  const physicalGroup=groups().find(row=>row.owner.rowId===host.id)!;
+  const virtualGroup=groups().find(row=>row.owner.rowId!==host.id)!;
+  expect(physicalGroup).toMatchObject({collapsed:true,threadCount:3});
+  await c.handleDisclosure(physicalGroup.rowId);
+  expect(groups().find(row=>row.rowId===virtualGroup.rowId)?.collapsed).toBe(true);
+  expect(canonicalRowIds(c.view().rows).filter(id=>id===first.id)).toHaveLength(1);
+  const shown=c.view().rows;
+  expect(shown.find(row=>row.rowId===reply.id)?.depth).toBe(3);
+  expect(shown.findIndex(row=>row.rowId===ordinary.id)).toBeLessThan(shown.findIndex(row=>row.rowId===physicalGroup.rowId));
+  await c.handleRowClick(second.id); await c.handleKeypress('',{name:'left'},'pass');
+  expect(c.view().rows[c.view().selectedIndex]?.rowId).toBe(physicalGroup.rowId);
+  await c.handleKeypress('',{name:'left'},'pass');
+  expect(canonicalRowIds(c.view().rows)).not.toContain(first.id);
+  await c.handleAction('tree.edit'); await c.handleAction('tree.delete');
+  expect(c.view().mode).toBe('browse');
+  expect(fake.calls.some(input=>['create','update','move','delete'].includes(input.action))).toBe(false);
+  const late=comment('background-comment'); physical=[...physical.slice(0,-1),late,definition];
+  await c.handleServiceEvent(event('content',late.id));
+  expect(groups().every(row=>row.collapsed)).toBe(true);
+  await c.revealBlock(reply.id);
+  expect(selectedBlockRow(c).canonicalId).toBe(reply.id);
+  expect(groups().find(row=>row.rowId===virtualGroup.rowId)?.collapsed).toBe(true);
+  await c.handleRowClick(virtualGroup.rowId); await c.handleKeypress('',{name:'return'},'pass');
+  expect(canonicalRowIds(c.view().rows).filter(id=>id===reply.id)).toHaveLength(2);
+  await c.handleDisclosure(physicalGroup.rowId);
+  expect(canonicalRowIds(c.view().rows).filter(id=>id===reply.id)).toHaveLength(1);
+  const rendered=renderTreeFrame(c.view(),60,30);
+  expect(rendered.frame).toContain('Comments'); expect(rendered.frame).toContain('4 threads');
+  expect(Object.values(rendered.mouseTargets).some(target=>target?.rowId===physicalGroup.rowId&&target.disclosureColumn>=0)).toBe(true);
+  await c.handleRowClick(physicalGroup.rowId); await c.handleAction('tree.selection.toggle');
+  expect(c.view().collectedIds?.size).toBe(0);
+  await c.handleRowClick(host.id); await c.handleAction('tree.filter');
+  await c.handlePaste('first-comment');
+  expect(canonicalRowIds(c.view().rows)).toContain(first.id);
+  await c.handleKeypress('',{name:'return'},'pass');
+  await c.handleRowClick(first.id);
+  await c.handleKeypress('.',{name:'.'},'pass');
+  expect(selectedBlockRow(c).multilineExpanded).toBe(true);
+  await c.handleAction('tree.filter.clear');
+  expect(groups().find(row=>row.rowId===physicalGroup.rowId)?.collapsed).toBe(true);
+  expect(groups().find(row=>row.rowId===virtualGroup.rowId)?.collapsed).toBe(false);
+});
+
+test("a right-click or the pin key on a menu item pins it to the bar the menu was opened from, and clicks on the bar run it", async () => {
+  const {mkdtempSync, readFileSync, rmSync} = await import("node:fs");
+  const {tmpdir} = await import("node:os");
+  const {join} = await import("node:path");
+  const root = mkdtempSync(join(tmpdir(), "tree-pins-"));
+  try {
+    const path = join(root, "ui.json");
+    const source = block("pin-source");
+    const fake = harness(input => input.action === "tree.index" ? snapshot([source], source) : undefined);
+    const controller = createTreeController({...fake.effects, uiConfig: new OutlinerUiConfig(path)});
+    await controller.initialize();
+    await controller.handleAction("tree.menu.open");
+    const items = controller.view().actionMenuItems!;
+    const goto = items.find(item => item.id === "tree.goto")!;
+    expect(controller.view().actionMenuBar).toBe("tree");
+    expect(controller.view().actionMenuPinned?.has("tree.goto")).toBe(false);
+    await controller.handleSecondaryClick({column: 3, row: 4}, `pi-outliner-action:${goto.id}`);
+    expect(controller.view().mode).toBe("action-menu");
+    expect(controller.view().actionMenuPinned?.has("tree.goto")).toBe(true);
+    expect(JSON.parse(readFileSync(path, "utf8")).bar.tree).toContain("tree.goto");
+    expect(controller.view().bar?.map(button => button.actionId)).toContain("tree.goto");
+    // The pin key unpins the highlighted item.
+    await controller.handleKeypress("", {name: "return", meta: true}, "modified-enter");
+    expect(controller.view().actionMenuPinned?.has("tree.goto")).toBe(false);
+    expect(JSON.parse(readFileSync(path, "utf8")).bar.tree).not.toContain("tree.goto");
+    await controller.handleKeypress("", {name: "escape"}, "pass");
+    expect(controller.view().mode).toBe("browse");
+    // A right-click outside a menu opens it; it never pins.
+    await controller.handleSecondaryClick({column: 3, row: 4}, "pi-outliner-action:tree.goto");
+    expect(controller.view().mode).toBe("action-menu");
+    expect(JSON.parse(readFileSync(path, "utf8")).bar.tree).not.toContain("tree.goto");
+  } finally { rmSync(root, {recursive: true, force: true}); }
+});
+
+test("Preview's dock buttons show which dock is on, and Auto is an on/off toggle", async () => {
+  const source = block("dock-source");
+  const fake = harness(input => input.action === "tree.index" ? snapshot([source], source) : undefined);
+  const controller = createTreeController(fake.effects);
+  await controller.initialize();
+  const glyphs = () => controller.view().previewBar!.map(button => `${button.text}${button.active ? "*" : ""}`);
+  expect(glyphs()).toEqual(["[▐]", "[▄]", "[◙]", "[×]"]);
+  await controller.handleAction("tree.preview.bottom");
+  expect(glyphs()).toEqual(["[▐]", "[▄]*", "[○]", "[×]"]);
+  await controller.handleAction("tree.preview.auto");
+  expect(controller.view().previewPreferences?.dock).toBe("auto");
+  await controller.handleAction("tree.preview.auto");
+  expect(controller.view().previewPreferences?.dock).not.toBe("auto");
+});
+
+test("a status flashes: it shows until it expires, then the hint row returns", async () => {
+  const source = block("flash-source");
+  const fake = harness(input => input.action === "tree.index" ? snapshot([source], source) : undefined);
+  const controller = createTreeController({...fake.effects, statusFlashMs: 20});
+  await controller.initialize();
+  await controller.handleAction("tree.preview.auto");
+  expect(controller.view().status).toBe("Preview stays below");
+  const invalidations = fake.invalidations;
+  await new Promise(resolve => setTimeout(resolve, 60));
+  expect(controller.view().status).toBe("");
+  expect(fake.invalidations).toBeGreaterThan(invalidations);
+  // The same message set again flashes again.
+  await controller.handleAction("tree.preview.auto");
+  await controller.handleAction("tree.preview.auto");
+  expect(controller.view().status).toBe("Preview stays below");
+});

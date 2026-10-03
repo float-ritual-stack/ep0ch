@@ -1,0 +1,6245 @@
+import { BACKLINK_QUERY_LIMIT } from "../src/backlink-view";
+import {observeDocument} from "../src/document-provenance";
+import {captureAnnotationPassage} from "../src/document-annotation";
+import {SourceSpannedMarkdown} from "../src/source-spanned-markdown";
+import {projectDetailRead} from '../src/detail-embeds';
+import {generatedDocument} from '../src/document-provenance';
+import {getMarkdownTheme,initTheme} from "@earendil-works/pi-coding-agent";
+initTheme(undefined, false);
+import type {OutlinerNavigationTarget} from "../src/types";
+import { DetailReadingSurface } from "../src/detail-reading-surface";
+import { CURSOR_MARKER, stripTerminalSequences } from "@earendil-works/pi-tui";
+import { describe, expect, test } from "bun:test";
+import {
+  attentionClientState,
+  normalizeAttentionMark,
+} from "../src/attention";
+import { createAnnotationAnchor, createAnnotationReferenceContext } from "../src/annotations";
+import { emptyAttentionState } from "../src/attention";
+import { BufferComposer, bufferComposerEditorBody } from "../src/buffer-composer";
+import {
+  DETAIL_BLOCK_CACHE_TARGET_LIMIT,
+  createDetailController,
+  renderedSelectionAnnotationTarget,
+  visibleBacklinkSources,
+  type DetailControllerOptions,
+  type DetailEffects,
+  type DetailReadyDocument,
+  type DetailViewport,
+} from "../src/detail-controller";
+import { composedTreeNavigation } from "../src/composed-surface";
+import { OutlinerActionKeymap } from "../src/outliner-actions";
+import { detailBacklinkRegions, renderBacklinksDocument } from "../src/detail-pi-preview";
+import { resolveAnnotationReferences } from "../src/detail-annotations";
+import { detailPropertyInspectorRegions } from "../src/property-inspector";
+import { buildDetailAnsiPreview, renderDetailLines } from "../src/detail-renderer";
+import type { ReferencedFile } from "../src/files";
+import type { OutlinerLinkTarget } from "../src/outliner-links";
+import { patchPropertyText } from "../src/properties";
+import { deriveResourceCapabilityReport } from "../src/resources";
+import {
+  negotiateResourcePresentation,
+  TUI_RESOURCE_PRESENTATION_CONTEXT,
+} from "../src/resource-presentation";
+import type {
+  AnnotationRecord,
+  AnnotationReconcileInput,
+  AnnotationResolutionEvent,
+  AnnotationTarget,
+  AnnotationThread,
+  BacklinkCollection,
+  BacklinkQuery,
+  Block,
+  BlockSearchQuery,
+  OutlinerEvent,
+  OutlinerUiCommand,
+  PageAddressCollection,
+  SelectionContext,
+  ResourceDescription,
+  ResolvedBlockReferences,
+  VisibleBlockCollection,
+} from "../src/types";
+
+const viewport: DetailViewport = { width: 60, height: 12 };
+
+function resourceFrame(controller:ReturnType<typeof createDetailController>) {
+  const reader=new SourceSpannedMarkdown(getMarkdownTheme(),text=>text,undefined,false,undefined,true);
+  expect(controller.state.resolvedProvenance).not.toBeNull();
+  reader.setContent(controller.state.resolvedProvenance!,[],false);
+  reader.render(60);
+  return reader.renderedFrame!;
+}
+
+function makeBlock(overrides: Partial<Block> = {}): Block {
+  return {
+    revision: 1,
+    id: "block-1",
+    parentId: null,
+    position: 0,
+    text: "Raw block text",
+    author: "user",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "version-1",
+    properties: [],
+    ...overrides,
+  };
+}
+
+
+function filePreview(overrides: Partial<ReferencedFile> = {}): ReferencedFile {
+  return {
+    absolutePath: "/workspace/src/example.ts",
+    displayPath: "src/example.ts",
+    sourcePath: "src/example.ts",
+    lines: ["one", "two", "three", "four", "five", "six", "seven", "eight"],
+    firstLine: 10,
+    sourceVersion: `1770000000000000000:39:${"a".repeat(64)}`,
+    sourceHash: "filesystem-content-hash",
+    capturedAt: "2026-02-02T00:00:00.000Z",
+    ...overrides,
+  };
+}
+
+function fileResource(path: string): ResourceDescription["resource"] {
+  return {
+    id: "30000000-0000-4000-8000-000000000001",
+    sourceId: "20000000-0000-4000-8000-000000000001",
+    provider: "filesystem",
+    address: { kind: "filesystem", path },
+    version: 1,
+    addressVersion: 1,
+    mediaType: "text/plain",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+  };
+}
+
+function annotationRecord(
+  target: AnnotationTarget,
+  overrides: Partial<AnnotationRecord> = {},
+): AnnotationRecord {
+  const block = makeBlock({ id: "annotation-1", text: "Comment\n[type::annotation]\nBody" });
+  const event: AnnotationResolutionEvent = {
+    id: "resolution-1",
+    annotationId: block.id,
+    sequence: 0,
+    sourceRepresentation: target.representation,
+    targetRepresentation: target.representation,
+    resolvedTarget: target,
+    method: {
+      kind: "codec",
+      codecId: "text-quote",
+      codecVersion: 1,
+      method: "capture",
+    },
+    reviewer: { kind: "system", id: "annotation-repository" },
+    confidence: 1,
+    candidates: [],
+    status: "resolved",
+    appliesCurrent: true,
+    createdAt: "2026-01-01T00:00:00.000Z",
+  };
+  return {
+    block,
+    originalTarget: target,
+    resolvedTarget: target,
+    currentResolution: event,
+    resolutionHistory: [event],
+    body: "Body",
+    source: "user",
+    lifecycle: "open",
+    ...overrides,
+  };
+}
+
+
+interface Harness {
+  controller: ReturnType<typeof createDetailController>;
+  effects: DetailEffects;
+  calls: {
+    selections: number;
+    setSelections: string[];
+    projectedReads: string[];
+    projectedReadHosts: Array<string | undefined>;
+    updates: Array<{ blockId: string; text: string; expectedRevision: number }>;
+    externalDrafts: Array<Parameters<DetailEffects["editExternalDraft"]>[0]>;
+    filesystemWrites: Array<Parameters<DetailEffects["writeFilesystemResource"]>[0]>;
+    propertyPatches: Array<Parameters<DetailEffects["patchProperties"]>[0]>;
+    creates: Array<Parameters<DetailEffects["createAnnotation"]>[0]>;
+    restores: string[];
+    histories: Array<"back" | "forward">;
+    followedReferences: OutlinerLinkTarget[];
+    queries: BlockSearchQuery[];
+    backlinkQueries: BacklinkQuery[];
+    navigationDispatches: Array<{
+      blockId: string;
+      intent: "preview" | "open" | "reveal";
+      preserveSource: boolean;
+      fragmentId?: string;
+      focusTarget?: boolean;
+    }>;
+    pageQueries: Array<{ query: string | undefined; limit: number }>;
+    focuses: number;
+    selfFocuses: number;
+    currentBlocks: Array<string | null>;
+    propertyInspectorPanes: string[];
+    backlinkPeeks: Array<Parameters<DetailEffects["openBacklinkPeek"]>[0]>;
+    virtualNavigators: string[];
+    virtualNavigatorAdapters: Array<"bookmark" | "mentions" | undefined>;
+    bookmarkToggles: string[];
+    openedDetails: Array<{
+      blockId: string;
+      direction: "right" | "down";
+      fragmentId?: string;
+    }>;
+    copiedTexts: string[];
+    filesystemInterns: string[];
+    reconciles: AnnotationReconcileInput[];
+  };
+  setSelection(selection: SelectionContext): void;
+  setUpdate(implementation: DetailEffects["updateBlock"]): void;
+  setExternalEdit(implementation: DetailEffects["editExternalDraft"]): void;
+  setQueryResults(results: VisibleBlockCollection[]): void;
+  setBacklinkResults(results: BacklinkCollection[]): void;
+  setPageQueryResults(results: PageAddressCollection[]): void;
+  setFocusError(error: Error | null): void;
+}
+
+function createHarness(
+  initial: Block,
+  referencedFile: ReferencedFile | null = null,
+  resolveReferences: DetailEffects["resolveReferences"] = async (text) => ({
+    text: `resolved:${text}`,
+    references: [],
+    workIdPrefix: "PIE",
+  }),
+  projectRead: DetailEffects["projectRead"] = async (text) => ({
+    text,
+    provenance: generatedDocument(text, "controlled test projection"),
+    embeds: [],
+    embedRanges: [],
+  }),
+  controllerOptions: DetailControllerOptions = {},
+  onChange: Parameters<typeof createDetailController>[1] = () => {},
+): Harness {
+  let selection: SelectionContext = { selected: initial, ancestors: [], children: [] };
+  let update: DetailEffects["updateBlock"] = async (input) => makeBlock({
+    id: input.blockId,
+    text: input.text,
+    revision: input.expectedRevision + 1,
+    updatedAt: "version-2",
+    properties: initial.properties,
+  });
+  let externalEdit: DetailEffects["editExternalDraft"] = async (input) => ({
+    text: input.text,
+    changed: false,
+    recoveryPath: "/tmp/unchanged-draft",
+    cleanup() {},
+  });
+  let queryResults: VisibleBlockCollection[] = [];
+  let backlinkResults: BacklinkCollection[] = [];
+  let focusError: Error | null = null;
+  let bookmarkRecord: Block | null = null;
+  let pageQueryResults: PageAddressCollection[] = [];
+  let annotationThreads: AnnotationThread[] = [];
+  const calls: Harness["calls"] = {
+    selections: 0,
+    setSelections: [],
+    projectedReads: [],
+    projectedReadHosts: [],
+    updates: [],
+    externalDrafts: [],
+    filesystemWrites: [],
+    creates: [],
+    restores: [],
+    histories: [],
+    followedReferences: [],
+    queries: [],
+    backlinkQueries: [],
+    navigationDispatches: [],
+    pageQueries: [],
+    focuses: 0,
+    selfFocuses: 0,
+    currentBlocks: [],
+    propertyInspectorPanes: [],
+    propertyPatches: [],
+    backlinkPeeks: [],
+    openedDetails: [],
+    virtualNavigators: [],
+    virtualNavigatorAdapters: [],
+    bookmarkToggles: [],
+    copiedTexts: [],
+    filesystemInterns: [],
+    reconciles: [],
+  };
+  const effects: DetailEffects = {
+    clientId: "detail-test",
+    enqueueViewUpdate(update) { update(); },
+    browsingContextId: "context-test",
+    focusSelf() {
+      calls.selfFocuses += 1;
+    },
+    async getBrowsingContext() {
+      calls.selections += 1;
+      return {
+        contextId: "context-test",
+        target: selection.selected
+          ? { kind: "block", blockId: selection.selected.id }
+          : null,
+      };
+    },
+    async loadTarget(target) {
+      if (target.kind === "block") {
+        calls.selections += 1;
+        const context = selection.selected?.id === target.blockId
+          ? selection
+          : {
+              selected: makeBlock({ id: target.blockId, text: `Target ${target.blockId}` }),
+              ancestors: [],
+              children: [],
+            };
+        return { kind: "block", target, context };
+      }
+      const source = {
+        id: "20000000-0000-4000-8000-000000000001",
+        name: "Test files",
+        provider: "filesystem" as const,
+        boundary: { kind: "filesystem" as const, root: "/workspace" },
+        policy: { deniedCapabilities: [] },
+        version: 1,
+        createdAt: "created",
+        updatedAt: "updated",
+      };
+      const resource = {
+        id: target.resourceId,
+        sourceId: source.id,
+        provider: "filesystem" as const,
+        address: { kind: "filesystem" as const, path: "notes/example.md" },
+        version: 1,
+        addressVersion: 1,
+        mediaType: "text/markdown",
+        createdAt: "created",
+        updatedAt: "updated",
+      };
+      return {
+        kind: "resource",
+        target,
+        description: {
+          resource,
+          source,
+          requestedRevision: target.revision ?? null,
+          capabilities: deriveResourceCapabilityReport(source, true),
+          web: null,
+          webHistory: null,
+          webStatus: null,
+          remoteEntity: null,
+          remoteStatus: null,
+          availableCommands: [],
+        },
+      };
+    },
+    async setCurrentTarget(target) {
+      calls.currentBlocks.push(target?.kind === "block" ? target.blockId : null);
+    },
+    async dispatchNavigation(target, intent, options) {
+      const blockTarget = target.kind === "block" ? target : null;
+      calls.navigationDispatches.push({
+        blockId: target.kind === "block" ? target.blockId : target.resourceId,
+        intent,
+        preserveSource: options?.preserveSource === true,
+        ...(blockTarget?.fragmentId ? { fragmentId: blockTarget.fragmentId } : {}),
+        ...(options?.focusTarget ? { focusTarget: true } : {}),
+      });
+      const targetClientId = options?.preserveSource ? "detail-other" : "detail-test";
+      let command: OutlinerUiCommand;
+      if (intent === "reveal") {
+        if (!blockTarget) throw new Error("Cannot reveal a resource in a Tree");
+        command = {
+          targetClientId,
+          command: "reveal",
+          target: blockTarget,
+          ...(options?.focusTarget ? { focus: true } : {}),
+        };
+      } else {
+        command = {
+          targetClientId,
+          command: intent,
+          target,
+          ...(options?.focusTarget ? { focus: true } : {}),
+        };
+      }
+      return {
+        sourceClientId: "detail-test",
+        targetClientId,
+        intent,
+        resolution: "linked",
+        command,
+      };
+    },
+    resolveReferences,
+    async projectRead(text, hostBlockId, hostRevision) {
+      calls.projectedReads.push(text);
+      calls.projectedReadHosts.push(hostBlockId);
+      return projectRead(text, hostBlockId, hostRevision);
+    },
+    async queryBacklinks(query) {
+      calls.backlinkQueries.push(query);
+      return backlinkResults.shift() ?? {
+        targetBlockId: query.targetBlockId,
+        sources: [],
+        completeness: { kind: "complete" },
+      };
+    },
+    openBacklinkPeek(input) {
+      calls.backlinkPeeks.push(input);
+    },
+    openDetailPane(target, direction) {
+      calls.openedDetails.push({
+        blockId: target.kind === "block" ? target.blockId : target.resourceId,
+        direction,
+        ...(target.kind === "block" && target.fragmentId
+          ? { fragmentId: target.fragmentId }
+          : {}),
+      });
+    },
+    copyText(text) {
+      calls.copiedTexts.push(text);
+    },
+    async editExternalDraft(input) {
+      calls.externalDrafts.push(input);
+      return externalEdit(input);
+    },
+    async writeFilesystemResource(input) {
+      calls.filesystemWrites.push(input);
+      const loaded = await effects.loadTarget({
+        kind: "resource",
+        resourceId: input.resourceId,
+      });
+      if (loaded.kind !== "resource") {
+        throw new Error("Expected a filesystem Resource test target");
+      }
+      return loaded.description;
+    },
+    async resolveNavigation(intent) {
+      return {
+        sourceClientId: "detail-test",
+        targetClientId: "detail-test",
+        intent,
+        resolution: "linked",
+      };
+    },
+    async updateBlock(input) {
+      calls.updates.push(input);
+      return update(input);
+    },
+    async patchProperties(input) {
+      calls.propertyPatches.push(input);
+      const current = selection.selected?.id === input.blockId
+        ? selection.selected
+        : makeBlock({ id: input.blockId });
+      const updated = makeBlock({
+        ...current,
+        text: patchPropertyText(current.text, input.operations),
+        revision: current.revision + 1,
+        updatedAt: "version-2",
+      });
+      if (selection.selected?.id === input.blockId) {
+        selection = { ...selection, selected: updated };
+      }
+      return updated;
+    },
+    async restoreBlock(blockId) {
+      calls.restores.push(blockId);
+      if (selection.selected?.id === blockId) {
+        selection = {
+          ...selection,
+          selected: makeBlock({ ...selection.selected, deletedAt: undefined, effectiveDeletedRootId: undefined }),
+        };
+      }
+      return selection.selected!;
+    },
+    async followResourceOccurrence(target) {
+      calls.followedReferences.push(target);
+      const block = selection.selected!;
+      return { resource: fileResource("same.md"), created: false,
+        referenceContext: createAnnotationReferenceContext(block, target.occurrence!.start, target.occurrence!.end),
+      };
+    },
+    async resolveReference(target) {
+      calls.followedReferences.push(target);
+      const blockId = target.kind === "block" ? target.value : `resolved-${target.kind}`;
+      return {
+        block: selection.selected?.id === blockId
+          ? selection.selected
+          : makeBlock({ id: blockId, text: `Target ${blockId}` }),
+        ...(target.fragmentId ? { fragmentId: target.fragmentId } : {}),
+      };
+    },
+    async createAnnotation(input) {
+      calls.creates.push(input);
+      const record = annotationRecord(input.input.target, {
+        body: input.input.body,
+        source: input.input.source,
+      });
+      annotationThreads = [{ ...record, replies: [] }];
+      return {
+        annotations: [record],
+        deduplicated: false,
+      };
+    },
+    async replyAnnotation() { throw new Error("No reply handler configured"); },
+    async setAnnotationLifecycle() { throw new Error("No lifecycle handler configured"); },
+    async internFilesystem(path) {
+      calls.filesystemInterns.push(path);
+      return {
+        resource: fileResource(path),
+        created: false,
+      };
+    },
+    async lookupFilesystem(path) {
+      return fileResource(path);
+    },
+    async refreshResource() {
+      throw new Error("No web resource configured");
+    },
+    openExternal() {},
+    async getAnnotation(annotationId) {
+      const thread = annotationThreads.find(({ block }) => block.id === annotationId);
+      if (!thread) throw new Error(`Missing annotation ${annotationId}`);
+      return thread;
+    },
+    async listAnnotations() {
+      return annotationThreads;
+    },
+    async reconcileAnnotations(input) {
+      calls.reconciles.push(input);
+      return { threads: annotationThreads, changed: true };
+    },
+    async getAttention() {
+      return emptyAttentionState("detail-test");
+    },
+    async acknowledgeAttention() {
+      return emptyAttentionState("detail-test");
+    },
+    async queryBlocks(query) {
+      calls.queries.push(query);
+      return queryResults.shift() ?? { blocks: [], completeness: { kind: "complete" } };
+    },
+    async queryPageAddresses(query, limit) {
+      calls.pageQueries.push({ query, limit });
+      return (pageQueryResults.length>1?pageQueryResults.shift():pageQueryResults[0]) ?? { addresses: [], completeness: { kind: "complete" } };
+    },
+    async readFile() {
+      if (!referencedFile) throw new Error("file unavailable");
+      return referencedFile;
+    },
+    async completeFiles(query) {
+      return query === "src/"
+        ? [
+            { sourcePath: "src/components/", isDirectory: true },
+            { sourcePath: "src/detail.ts", isDirectory: false },
+          ]
+        : [];
+    },
+    async focusOutliner() {
+      calls.focuses += 1;
+      if (focusError) throw focusError;
+    },
+    openPropertyInspectorPane(blockId) {
+      calls.propertyInspectorPanes.push(blockId);
+      return "pane-inspector";
+    },
+    openVirtualBranchNavigator(viewId, adapter) {
+      calls.virtualNavigators.push(viewId);
+      calls.virtualNavigatorAdapters.push(adapter);
+    },
+    async bookmarkStatus(targetBlockId) {
+      return {
+        root: makeBlock({ id: "bookmarks-root", text: "Bookmarks" }),
+        targetBlockId,
+        record: bookmarkRecord,
+      };
+    },
+    async toggleBookmark(targetBlockId) {
+      calls.bookmarkToggles.push(targetBlockId);
+      bookmarkRecord = bookmarkRecord
+        ? null
+        : makeBlock({ id: "bookmark-record", text: "Bookmark record" });
+      return {
+        bookmarked: bookmarkRecord !== null,
+        record: bookmarkRecord ?? makeBlock({ id: "bookmark-record", deletedAt: "deleted" }),
+        root: makeBlock({ id: "bookmarks-root", text: "Bookmarks" }),
+        target: selection.selected?.id === targetBlockId
+          ? selection.selected
+          : makeBlock({ id: targetBlockId }),
+      };
+    },
+    async bookmarksRoot() {
+      return makeBlock({ id: "bookmarks-root", text: "Bookmarks" });
+    },
+  };
+  return {
+    controller: createDetailController(effects, onChange, controllerOptions),
+    effects,
+    calls,
+    setSelection(next) {
+      selection = next;
+    },
+    setUpdate(implementation) {
+      update = implementation;
+    },
+    setExternalEdit(implementation) {
+      externalEdit = implementation;
+    },
+    setQueryResults(next) {
+      queryResults = [...next];
+    },
+    setBacklinkResults(next) {
+      backlinkResults = [...next];
+    },
+    setPageQueryResults(next) {
+      pageQueryResults = [...next];
+    },
+    setFocusError(error) {
+      focusError = error;
+    },
+  };
+}
+
+function event(domain: OutlinerEvent["domain"], command?: OutlinerEvent["command"]): OutlinerEvent {
+  return { id: "event-1", domain, action: "changed", sequence: 1, command };
+}
+
+describe("detail controller projection and deferred refresh", () => {
+  test("recent mentions reports launch success and failure as status", async () => {
+    const harness = createHarness(makeBlock());
+    await harness.controller.initialize();
+    await harness.controller.dispatch({ type: "mentions.open" }, viewport);
+    expect(harness.controller.state.status).toBe("Opened recent agent mentions");
+    harness.effects.openVirtualBranchNavigator = async () => { throw new Error("Virtual branch navigator popup requires Herdr"); };
+    await harness.controller.dispatch({ type: "mentions.open" }, viewport);
+    expect(harness.controller.state.status).toBe("Virtual branch navigator popup requires Herdr");
+  });
+
+  test("mention events do not reload a document or defer refresh during editing", async () => {
+    const harness = createHarness(makeBlock());
+    await harness.controller.initialize();
+    const document = harness.controller.state.document;
+    const reads = harness.calls.selections;
+    for (const action of ["mentions.ingest", "mentions.clear"]) {
+      await harness.controller.onServiceEvent({ ...event("mentions"), action }, viewport);
+    }
+    expect(harness.controller.state.document).toBe(document);
+    expect(harness.calls.selections).toBe(reads);
+    await harness.controller.dispatch({ type: "edit.begin" }, viewport);
+    await harness.controller.dispatch({ type: "buffer.insert", text: "keep this draft" }, viewport);
+    const draft = harness.controller.state.buffer.text;
+    for (const action of ["mentions.ingest", "mentions.clear"]) {
+      await harness.controller.onServiceEvent({ ...event("mentions"), action }, viewport);
+    }
+    expect(harness.controller.state.buffer.text).toBe(draft);
+    expect(harness.controller.state.refreshPending).toBe(false);
+    await harness.controller.onServiceEvent(event("content"), viewport);
+    expect(harness.controller.state.refreshPending).toBe(true);
+  });
+
+  for (const action of ["clients.update", "navigation.link.set", "clients.unregister"]) {
+    test(`${action} updates header state without reloading a selected file`, async () => {
+      const harness = createHarness(makeBlock({text: "File", properties: [{key: "file", value: "src/example.ts"}]}), filePreview({lines: Array.from({length: 60}, (_, i) => `Line ${i}`)}));
+      await harness.controller.initialize();
+      await harness.controller.dispatch({type: "file.selection.toggle"}, viewport);
+      await harness.controller.dispatch({type: "file.navigate", direction: "end"}, viewport);
+      const before = harness.controller.state;
+      const retained = {document: before.document, file: before.referencedFile, cursor: before.fileCursor, offset: before.fileOffset, reads: harness.calls.selections};
+      expect(before.selectionAnchor).toBe(0);
+      expect(retained.offset).toBeGreaterThan(0);
+      let fileReads = 0;
+      const readFile = harness.effects.readFile;
+      harness.effects.readFile = async (...args) => {fileReads++; return readFile(...args);};
+      await harness.controller.onServiceEvent({id: "header-event", domain: "view", action, clientId: "another-reader", sequence: 1}, viewport);
+      expect(harness.controller.state.selectionAnchor).toBe(0);
+      expect(harness.controller.state.fileCursor).toBe(retained.cursor);
+      expect(harness.controller.state.fileOffset).toBe(retained.offset);
+      expect(harness.controller.state.document).toBe(retained.document);
+      expect(harness.controller.state.referencedFile).toBe(retained.file);
+      expect(harness.calls.selections).toBe(retained.reads);
+      expect(fileReads).toBe(0);
+    });
+    test(`${action} leaves Resource content and scroll untouched`, async () => {
+      const harness = createHarness(makeBlock(), null, undefined, undefined, {initialTarget: {kind: "resource", resourceId: "resource-1"}});
+      await harness.controller.initialize();
+      await harness.controller.dispatch({type: "preview.navigate", direction: "bottom"}, viewport);
+      const document = harness.controller.state.document;
+      const offset = harness.controller.state.previewOffset;
+      expect(offset).toBeGreaterThan(0);
+      let reads = 0;
+      const loadTarget = harness.effects.loadTarget;
+      harness.effects.loadTarget = async target => {reads++; return loadTarget(target);};
+      await harness.controller.onServiceEvent({id: "header-event", domain: "view", action, clientId: "another-reader", sequence: 1}, viewport);
+      expect(harness.controller.state.document).toBe(document);
+      expect(harness.controller.state.previewOffset).toBe(offset);
+      expect(reads).toBe(0);
+    });
+  }
+  test("creates a reader beside the chosen pane without moving the invoking document or selection", async () => {
+    const harness = createHarness(makeBlock({id: "retained-source", text: "Source text"}));
+    const opened: unknown[][] = [];
+    harness.effects.openDetailPane = (...args) => { opened.push(args); };
+    const controller = createDetailController(harness.effects);
+    await controller.initialize();
+    await controller.dispatch({type: "file.selection.toggle"}, viewport);
+    const target = controller.state.target;
+    await controller.dispatch({type: "pane.open", direction: "right", targetPaneId: "w1:p4"}, viewport);
+    expect(opened).toEqual([[target, "right", "w1:p4"]]);
+    expect(controller.state.target).toEqual(target);
+    expect(controller.state.selectionAnchor).toBe(0);
+  });
+  test("changing a header destination preserves the invoking reader's edit and selection state", async () => {
+    const harness = createHarness(makeBlock({id: "editing-source", text: "Original document"}));
+    const destination = {clientId: "other-reader", region: "detail" as const};
+    harness.effects.chooseDestination = async () => destination;
+    const linked: unknown[] = [];
+    harness.effects.setDestination = async value => { linked.push(value); return "Other reader"; };
+    const controller = createDetailController(harness.effects);
+    await controller.initialize();
+    await controller.dispatch({type: "edit.begin"}, viewport);
+    controller.state.buffer.replaceText("Unsaved draft");
+    await controller.dispatch({type: "file.selection.toggle"}, viewport);
+    controller.state.propertyInspector.filterDraft = "retained filter";
+    const target = controller.state.target;
+    await controller.dispatch({type: "navigation.link"}, viewport);
+    expect(linked).toEqual([destination]);
+    expect(controller.state.target).toEqual(target);
+    expect(controller.state.mode).toBe("edit");
+    expect(controller.state.buffer.text).toBe("Unsaved draft");
+    expect(controller.state.selectionAnchor).toBe(0);
+    expect(controller.state.propertyInspector.filterDraft).toBe("retained filter");
+  });
+  test("scrolls past annotation evidence and history to the final comment line", async () => {
+    const source = makeBlock({ text: Array.from({ length: 20 }, (_, i) => `Captured evidence ${i}`).join("\n") });
+    const target = renderedSelectionAnnotationTarget({
+      context: { selected: source, ancestors: [], children: [] },
+      resolvedSelectedText: source.text,
+      projectedSelectedText: source.text,
+    }, {
+      quote: source.text, snapshotText: source.text, capturedAt: "2026-09-19T12:00:00.000Z",
+      hostBlockId: source.id, paneId: "w1:p2", contentRevision: 1, contextId: "context-test",
+      detailClientId: "detail-test", validation: "detail-pointer",
+    });
+    const annotation = makeBlock({ id: "annotation-1", text: "Evidence comment\n[type::annotation]\nFinal comment sentinel", properties: [{ key: "type", value: "annotation" }] });
+    const harness = createHarness(annotation, null, async text => ({ text, references: [] }));
+    harness.effects.getAnnotation = async () => ({ ...annotationRecord(target, { block: annotation, body: "Final comment sentinel" }), replies: [] });
+    await harness.controller.initialize();
+    expect(renderDetailLines(harness.controller.state, viewport).join("\n")).not.toContain("Final comment sentinel");
+    await harness.controller.dispatch({ type: "preview.navigate", direction: "bottom" }, viewport);
+    expect(renderDetailLines(harness.controller.state, viewport).join("\n")).toContain("Final comment sentinel");
+  });
+
+  test("paints uncached primary content while projection is still pending", async () => {
+    const block = makeBlock({ id: "cold-primary", text: "Readable primary document" });
+    const projection = Promise.withResolvers<Awaited<ReturnType<DetailEffects["projectRead"]>>>();
+    const started = Promise.withResolvers<void>();
+    const enriched = Promise.withResolvers<void>();
+    const painted: string[] = [];
+    const harness = createHarness(
+      block,
+      null,
+      async (text) => ({ text, references: [] }),
+      () => {
+        started.resolve();
+        return projection.promise;
+      },
+      {},
+      (state) => {
+        if (state.document.kind === "ready") painted.push(state.resolvedSelectedText);
+        if (state.resolvedSelectedText === "Enriched document") enriched.resolve();
+      },
+    );
+    const loading = harness.controller.initialize();
+    try {
+      await started.promise;
+      expect(painted).toContain("Readable primary document");
+      expect(harness.controller.state.context.selected?.id).toBe(block.id);
+    } finally {
+      projection.resolve({ text: "Enriched document", provenance: generatedDocument("Enriched document", "controlled test projection"), embeds: [], embedRanges: [] });
+      await loading;
+    }
+    await enriched.promise;
+    expect(harness.controller.state.resolvedSelectedText).toBe("Enriched document");
+  });
+
+  test("releases the input lane for editing while cold projection is pending", async () => {
+    const block = makeBlock({ id: "cold-editable", text: "Exact editable source" });
+    const projection = Promise.withResolvers<Awaited<ReturnType<DetailEffects["projectRead"]>>>();
+    const started = Promise.withResolvers<void>();
+    const deferredForDraft = Promise.withResolvers<void>();
+    const harness = createHarness(block, null, async text => ({ text, references: [] }), () => {
+      started.resolve();
+      return projection.promise;
+    });
+    harness.effects.enqueueViewUpdate = update => {
+      update();
+      if (harness.controller.state.refreshPending) deferredForDraft.resolve();
+    };
+    const input = harness.controller.initialize().then(async () => {
+      await harness.controller.dispatch({ type: "edit.begin" }, viewport);
+      await harness.controller.dispatch({ type: "buffer.insert", text: " + draft" }, viewport);
+      return true;
+    });
+    let deadline: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await started.promise;
+      const completed = await Promise.race([
+        input,
+        new Promise<boolean>(resolve => { deadline = setTimeout(() => resolve(false), 1000); }),
+      ]);
+      expect(completed).toBe(true);
+      expect(harness.controller.state.mode).toBe("edit");
+      expect(harness.controller.state.buffer.text).toBe("Exact editable source + draft");
+    } finally {
+      clearTimeout(deadline);
+      projection.resolve({ text: "Optional presentation", provenance: generatedDocument("Optional presentation", "controlled test projection"), embeds: [], embedRanges: [] });
+      await input;
+    }
+    await deferredForDraft.promise;
+    expect(harness.controller.state.mode).toBe("edit");
+    expect(harness.controller.state.buffer.text).toBe("Exact editable source + draft");
+  });
+
+  test("gates derived references but allows explicit targets while resolution is pending", async () => {
+    const text = "Open ((550e8400-e29b-41d4-a716-446655440123|reference))";
+    const resolution = Promise.withResolvers<ResolvedBlockReferences>();
+    const started = Promise.withResolvers<void>();
+    const resolved = Promise.withResolvers<void>();
+    const harness = createHarness(makeBlock({ text }), null, () => {
+      started.resolve();
+      return resolution.promise;
+    }, undefined, {}, state => {
+      if (state.resolvedSelectedText === "Resolved reference") resolved.resolve();
+    });
+    try {
+      await harness.controller.initialize();
+      await started.promise;
+      for (const type of ["reference.follow", "reference.reveal"] as const) {
+        await harness.controller.dispatch({ type }, viewport);
+        expect(harness.controller.state.destinationChooser.active).toBe(false);
+        expect(harness.controller.state.status).toContain("References are not ready");
+      }
+      expect(harness.calls.navigationDispatches).toEqual([]);
+      await harness.controller.dispatch({
+        type: "reference.open",
+        target: { kind: "block", value: "explicit-target" },
+      }, viewport);
+      expect(harness.controller.state.destinationChooser.active).toBe(true);
+      await harness.controller.handleDestinationChooserKeypress("", { name: "escape" });
+    } finally {
+      resolution.resolve({ text: "Resolved reference", references: [] });
+      await resolved.promise;
+    }
+    await harness.controller.dispatch({ type: "reference.follow" }, viewport);
+    expect(harness.controller.state.destinationChooser.active).toBe(true);
+    await harness.controller.handleDestinationChooserKeypress("", { name: "escape" });
+  });
+
+  test("ANSI ordinary preview exposes every full thread and reply through its existing scroll", async () => {
+    const text = "Source title\nSource phrase";
+    const harness = createHarness(makeBlock({ text }), null, async text => ({ text, references: [] }));
+    harness.effects.reconcileAnnotations = async input => {
+      const target: AnnotationTarget = { representation: input.newRepresentation,
+        anchor: { kind: "text-quote", start: 0, end: 6, exact: "Source", prefix: "", suffix: "" } };
+      const first = annotationRecord(target, { block: makeBlock({ id: "first-thread" }), body: "First body " + "wide ".repeat(24) + "WRAPPED-END" });
+      const second = annotationRecord(target, { block: makeBlock({ id: "orphan-thread" }), body: "Orphan body\nFINAL-BODY" });
+      return { threads: [{ ...first, replies: [] }, { ...second, resolvedTarget: null,
+        currentResolution: { ...second.currentResolution, status: "orphaned" },
+        replies: [{ ...annotationRecord(target, { body: "Agent reply\nFINAL-REPLY", source: "agent" }), parentAnnotationId: second.block.id }],
+      }], changed: true };
+    };
+    await harness.controller.initialize();
+    const frames: string[] = [];
+    const ansiViewport = (): DetailViewport => ({ ...viewport, preview: buildDetailAnsiPreview(harness.controller.state, viewport.width) });
+    for (let step = 0; step < 30; step += 1) {
+      frames.push(renderDetailLines(harness.controller.state, ansiViewport()).map(stripTerminalSequences).join("\n"));
+      await harness.controller.dispatch({ type: "preview.navigate", direction: "down" }, ansiViewport());
+    }
+    expect(frames.join("\n")).toContain("WRAPPED-END");
+    expect(frames.join("\n")).toContain("FINAL-BODY");
+    expect(frames.join("\n")).toContain("FINAL-REPLY");
+    expect(frames.some(frame => frame.includes("Agent reply\nFINAL-REPLY"))).toBe(true);
+    await harness.controller.dispatch({ type: "annotation.thread.move", delta: -1 }, ansiViewport());
+    expect(renderDetailLines(harness.controller.state, ansiViewport()).map(stripTerminalSequences).join("\n")).toContain("▶ Comment 2 · open");
+    await harness.controller.dispatch({ type: "annotation.selection.begin" }, ansiViewport());
+    expect(harness.controller.state.mode).toBe("preview");
+    expect(harness.controller.state.status).toContain("Scroll to source text");
+    await harness.controller.dispatch({ type: "preview.navigate", direction: "top" }, ansiViewport());
+    await harness.controller.dispatch({ type: "annotation.selection.begin" }, ansiViewport());
+    expect(harness.controller.state.mode).toBe("select");
+  });
+
+  test("annotation events preserve a Resource reader and its viewport", async () => {
+    const harness = createHarness(makeBlock(), null, undefined, undefined, {
+      initialTarget: { kind: "resource", resourceId: "resource-1" },
+    });
+    await harness.controller.initialize();
+    await harness.controller.dispatch({ type: "preview.navigate", direction: "bottom" }, viewport);
+    const before = harness.controller.state.document;
+    const offset = harness.controller.state.previewOffset;
+    expect(offset).toBeGreaterThan(0);
+    await harness.controller.onServiceEvent({ id: "annotation-event", domain: "content", action: "annotations.lifecycle", sequence: 1 }, viewport);
+    expect(harness.controller.state.document).toBe(before);
+    expect(harness.controller.state.previewOffset).toBe(offset);
+  });
+
+  test("lifecycle events preserve a direct annotation's evidence viewport", async () => {
+    const block = makeBlock({ id: "annotation-root", text: "Comment\n[type::annotation]\n[status::open]\nBody", properties: [{ key: "type", value: "annotation" }] });
+    const source = Array.from({ length: 35 }, (_, i) => `Quote line ${i}`).join("\n");
+    const target: AnnotationTarget = {
+      representation: { id: "source-representation", subject: { kind: "block", blockId: "source" },
+        sourceSnapshot: { kind: "block", blockId: "source", updatedAt: "version-1", contentHash: "hash" },
+        adapter: null, mediaType: "text/plain", contentHash: "hash", capturedAt: "2026-09-20T00:00:00.000Z" },
+      anchor: { kind: "text-quote", start: 0, end: source.length, exact: source, prefix: "", suffix: "" },
+    };
+    const harness = createHarness(block, null, async text => ({ text, references: [] }));
+    let thread: AnnotationThread = { ...annotationRecord(target, { block }), replies: [] };
+    harness.effects.getAnnotation = async () => thread;
+    harness.effects.listAnnotations = async () => [thread];
+    harness.effects.setAnnotationLifecycle = async input => {
+      const updated = { ...thread.block, text: thread.block.text.replace(`status::${thread.lifecycle}`, `status::${input.lifecycle}`), revision: thread.block.revision + 1 };
+      thread = { ...thread, block: updated, lifecycle: input.lifecycle };
+      harness.setSelection({ selected: updated, ancestors: [], children: [] });
+      return thread;
+    };
+    await harness.controller.initialize();
+    await harness.controller.dispatch({ type: "preview.navigate", direction: "bottom" }, viewport);
+    const before = harness.controller.state.previewOffset;
+    expect(before).toBeGreaterThan(0);
+    for (const lifecycle of ["resolved", "open"] as const) {
+      await harness.controller.dispatch({ type: "annotation.thread.lifecycle" }, viewport);
+      const refresh = Promise.withResolvers<AnnotationThread[]>();
+      harness.effects.listAnnotations = () => refresh.promise;
+      await harness.controller.onServiceEvent({ id: "annotation-change", domain: "content", action: "annotations.lifecycle", sequence: 1, blockId: block.id }, viewport);
+      expect(harness.controller.state.previewOffset).toBe(before);
+      expect(harness.controller.state.context.selected?.revision).toBe(thread.block.revision);
+      expect(harness.controller.state.annotationThreads[0]?.lifecycle).toBe(lifecycle);
+      refresh.resolve([thread]);
+      await refresh.promise;
+    }
+  });
+
+  test("thread navigation orders source ranges and reaches ambiguous and orphaned comments", async () => {
+    const text = "Title\nFirst phrase\nLast phrase";
+    const harness = createHarness(makeBlock({ text }), null, async text => ({ text, references: [] }));
+    harness.effects.reconcileAnnotations = async input => {
+      const thread = (id: string, exact: string, status: "resolved" | "ambiguous" | "orphaned" = "resolved"): AnnotationThread => {
+        const start = text.indexOf(exact);
+        const record = annotationRecord({ representation: input.newRepresentation,
+          anchor: { kind: "text-quote", start, end: start + exact.length, exact, prefix: "", suffix: "" } },
+          { block: makeBlock({ id }), body: id });
+        return { ...record, currentResolution: { ...record.currentResolution, status },
+          resolvedTarget: status === "resolved" ? record.resolvedTarget : null, replies: [] };
+      };
+      return { threads: [thread("last", "Last"), thread("orphan", "First", "orphaned"),
+        thread("first", "First"), thread("ambiguous", "First", "ambiguous")], changed: true };
+    };
+    await harness.controller.initialize();
+    const target = harness.controller.state.target;
+    for (const id of ["first", "last", "ambiguous", "orphan", "first"]) {
+      await harness.controller.dispatch({ type: "annotation.thread.move", delta: 1 }, viewport);
+      expect(harness.controller.state.selectedAnnotationId).toBe(id);
+      expect(harness.controller.state.target).toEqual(target);
+    }
+    expect(harness.controller.state.status).toContain("wrapped");
+    await harness.controller.dispatch({ type: "annotation.thread.move", delta: -1 }, viewport);
+    expect(harness.controller.state.selectedAnnotationId).toBe("orphan");
+    expect(harness.calls.updates).toEqual([]);
+  });
+
+  test("reply retry, cancel, resolve and reopen preserve the source and viewport", async () => {
+    const text = "Title\nPhrase\nLast line";
+    const harness = createHarness(makeBlock({ text }), null, async text => ({ text, references: [] }));
+    let thread: AnnotationThread;
+    harness.effects.reconcileAnnotations = async input => {
+      thread ??= { ...annotationRecord({ representation: input.newRepresentation,
+        anchor: { kind: "text-quote", start: 6, end: 12, exact: "Phrase", prefix: "", suffix: "" } }), replies: [] };
+      return { threads: [thread], changed: true };
+    };
+    harness.effects.getAnnotation = async () => thread;
+    const submissions: Array<Parameters<DetailEffects["replyAnnotation"]>[0]> = [];
+    harness.effects.replyAnnotation = async input => {
+      submissions.push(input);
+      if (submissions.length === 1) throw new Error("Reply transport failed");
+      const reply = { ...annotationRecord(thread.originalTarget, { block: makeBlock({ id: "reply-1" }), body: input.input.body }), parentAnnotationId: thread.block.id };
+      thread = { ...thread, replies: [reply] };
+      return { annotations: [reply], deduplicated: false };
+    };
+    harness.effects.setAnnotationLifecycle = async input => {
+      thread = { ...thread, lifecycle: input.lifecycle, block: { ...thread.block, revision: thread.block.revision + 1 } };
+      return thread;
+    };
+    await harness.controller.initialize();
+    await harness.controller.dispatch({ type: "annotation.thread.move", delta: 1 }, viewport);
+    await harness.controller.dispatch({ type: "preview.navigate", direction: "bottom" }, viewport);
+    const target = harness.controller.state.target;
+    const offset = harness.controller.state.previewOffset;
+    const source = harness.controller.state.context.selected;
+    await harness.controller.dispatch({ type: "annotation.thread.reply" }, viewport);
+    const requestId = harness.controller.state.annotationReplyDraft!.requestId;
+    expect(harness.controller.state.annotationDraft).toBeUndefined();
+    await harness.controller.dispatch({ type: "buffer.insert", text: "Human reply\nsecond line" }, viewport);
+    await harness.controller.dispatch({ type: "buffer.save" }, viewport);
+    expect(harness.controller.state.mode).toBe("comment");
+    expect(harness.controller.state.status).toBe("Reply transport failed");
+    expect(harness.controller.state.buffer.text).toBe("Human reply\nsecond line");
+    await harness.controller.dispatch({ type: "buffer.save" }, viewport);
+    expect(submissions.map(input => input.requestId)).toEqual([requestId, requestId]);
+    expect(submissions[1]!.input).toEqual({ annotationId: "annotation-1", body: "Human reply\nsecond line", source: "user" });
+    expect(harness.controller.state.annotationThreads[0]!.replies[0]!.body).toBe("Human reply\nsecond line");
+    expect(harness.controller.state.annotationReplyDraft).toBeUndefined();
+    for (const lifecycle of ["resolved", "open"] as const) {
+      await harness.controller.dispatch({ type: "annotation.thread.lifecycle" }, viewport);
+      expect(harness.controller.state.annotationThreads[0]!.lifecycle).toBe(lifecycle);
+    }
+    await harness.controller.dispatch({ type: "annotation.thread.reply" }, viewport);
+    await harness.controller.dispatch({ type: "buffer.cancel" }, viewport);
+    expect(harness.controller.state.mode).toBe("preview");
+    expect(harness.controller.state.target).toEqual(target);
+    expect(harness.controller.state.previewOffset).toBe(offset);
+    expect(harness.controller.state.context.selected).toBe(source);
+    expect(harness.calls.focuses).toBe(0);
+    expect(harness.calls.updates).toEqual([]);
+  });
+
+  test("paints annotation enrichment that arrives after the primary document", async () => {
+    const annotations = Promise.withResolvers<Awaited<ReturnType<DetailEffects["reconcileAnnotations"]>>>();
+    const frames: number[] = [];
+    let captured: AnnotationReconcileInput | undefined;
+    const harness = createHarness(makeBlock(), null, undefined, undefined, {}, state => {
+      frames.push(state.annotationThreads.length);
+    });
+    harness.effects.reconcileAnnotations = input => {
+      captured = input;
+      return annotations.promise;
+    };
+    await harness.controller.initialize();
+    expect(harness.controller.state.document.kind).toBe("ready");
+    expect(captured).toBeDefined();
+    const thread = { ...annotationRecord({
+      representation: captured!.newRepresentation,
+      anchor: { kind: "text-quote" as const, start: 0, end: 3, exact: "Raw", prefix: "", suffix: " block text" },
+    }), replies: [] };
+    annotations.resolve({ threads: [thread], changed: true });
+    await annotations.promise;
+    expect(frames).toContain(1);
+  });
+
+  test("resolves block-reference titles in comment and reply text with one request", async () => {
+    const referenced = "30000000-0000-4000-8000-000000000003";
+    const other = "30000000-0000-4000-8000-000000000004";
+    const harness = createHarness(makeBlock());
+    const resolveText = harness.effects.resolveReferences;
+    const resolved: string[] = [];
+    harness.effects.resolveReferences = async text => {
+      if (!text.includes(referenced)) return resolveText(text);
+      resolved.push(text);
+      return {text, references: [
+        {blockId: referenced, status: "resolved", title: "Referenced title"},
+        {blockId: other, status: "missing"},
+      ]};
+    };
+    harness.effects.reconcileAnnotations = async input => {
+      const thread = annotationRecord({
+        representation: input.newRepresentation,
+        anchor: { kind: "text-quote" as const, start: 0, end: 3, exact: "Raw", prefix: "", suffix: " block text" },
+      });
+      const body = `See ((${referenced}))`;
+      return { threads: [{ ...thread, body, replies: [
+        { ...thread, body: "Plain [[Page]] reply" },
+        { ...thread, body: `Also ((${referenced})) and ((${other}))` },
+      ] }], changed: false };
+    };
+    await harness.controller.initialize();
+    await Bun.sleep(0);
+    // Every comment's references travel together, once each.
+    expect(resolved).toEqual([`((${referenced}))\n((${other}))`]);
+    expect([...harness.controller.state.annotationReferences ?? []]).toEqual([
+      [`See ((${referenced}))`, "See ((Referenced title))"],
+      [`Also ((${referenced})) and ((${other}))`, `Also ((Referenced title)) and ((${other}))`],
+    ]);
+  });
+
+  test("a stalled or malformed comment reference resolve degrades to linked block IDs", async () => {
+    const referenced = "30000000-0000-4000-8000-000000000003";
+    const thread = { body: `See ((${referenced}))`, replies: [{ body: `Again ((${referenced}))` }] } as AnnotationThread;
+    let calls = 0;
+    const stalled = resolveAnnotationReferences([thread], () => { calls += 1; return new Promise(() => {}); }, 20);
+    const started = performance.now();
+    expect(await stalled).toEqual(new Map());
+    expect(performance.now() - started).toBeLessThan(1000);
+    expect(calls).toBe(1);
+    expect(await resolveAnnotationReferences([thread], async () => ({ references: [] }), 20)).toEqual(new Map());
+    expect(await resolveAnnotationReferences([thread], async () => { throw new Error("offline"); }, 20)).toEqual(new Map());
+    expect(await resolveAnnotationReferences([{ body: "No references", replies: [] } as unknown as AnnotationThread],
+      () => { calls += 1; return new Promise(() => {}); }, 20)).toEqual(new Map());
+    expect(calls).toBe(1);
+  });
+
+  test("removes old annotation ranges before painting a changed block revision", async () => {
+    const original = makeBlock({ text: "Original source\nOld document" });
+    const annotations = Promise.withResolvers<Awaited<ReturnType<DetailEffects["reconcileAnnotations"]>>>();
+    const paints: Array<{ revision: number | undefined; annotations: number }> = [];
+    const harness = createHarness(original, null, undefined, undefined, {}, state => {
+      paints.push({ revision: state.context.selected?.revision, annotations: state.annotationThreads.length });
+    });
+    harness.effects.reconcileAnnotations = async input => ({ threads: [{ ...annotationRecord({
+      representation: input.newRepresentation,
+      anchor: { kind: "text-quote", start: 0, end: 8, exact: "Original", prefix: "", suffix: " source" },
+    }), replies: [] }], changed: true });
+    await harness.controller.initialize();
+    await new Promise<void>(resolve => setImmediate(resolve));
+    expect(harness.controller.state.annotationThreads).toHaveLength(1);
+    harness.effects.reconcileAnnotations = () => annotations.promise;
+    harness.setSelection({ selected: makeBlock({ text: "Different replacement\nNew document", revision: 2 }), ancestors: [], children: [] });
+    try {
+      await harness.controller.onServiceEvent(event("content"), viewport);
+      expect(harness.controller.state.context.selected?.revision).toBe(2);
+      expect(paints.filter(paint => paint.revision === 2).length).toBeGreaterThan(0);
+      expect(paints.filter(paint => paint.revision === 2).every(paint => paint.annotations === 0)).toBe(true);
+    } finally {
+      annotations.resolve({ threads: [], changed: true });
+    }
+  });
+
+  test("clears retained annotations when a file changes without a block revision change", async () => {
+    const block = makeBlock({ properties: [{ key: "file", value: "src/example.ts" }] });
+    const original = filePreview({ lines: ["Original source"], sourceHash: "old-file" });
+    const annotations = Promise.withResolvers<Awaited<ReturnType<DetailEffects["reconcileAnnotations"]>>>();
+    const paints: Array<{ hash: string | undefined; annotations: number }> = [];
+    const harness = createHarness(block, original, undefined, undefined, {}, state => {
+      paints.push({ hash: state.referencedFile?.sourceHash, annotations: state.annotationThreads.length });
+    });
+    harness.effects.reconcileAnnotations = async input => ({ threads: [{ ...annotationRecord({
+      representation: input.newRepresentation,
+      anchor: { kind: "text-quote", start: 0, end: 8, exact: "Original", prefix: "", suffix: " source" },
+    }), replies: [] }], changed: true });
+    await harness.controller.initialize();
+    await new Promise<void>(resolve => setImmediate(resolve));
+    expect(harness.controller.state.annotationThreads).toHaveLength(1);
+    harness.effects.readFile = async () => filePreview({ lines: ["Changed source"], sourceHash: "new-file" });
+    harness.effects.reconcileAnnotations = () => annotations.promise;
+    try {
+      await harness.controller.onServiceEvent(event("content"), viewport);
+      expect(harness.controller.state.context.selected?.revision).toBe(block.revision);
+      expect(harness.controller.state.referencedFile?.sourceHash).toBe("new-file");
+      expect(paints.filter(paint => paint.hash === "new-file").every(paint => paint.annotations === 0)).toBe(true);
+    } finally {
+      annotations.resolve({ threads: [], changed: true });
+    }
+  });
+
+  test("preserves the readable primary document when optional projection fails", async () => {
+    const projection = Promise.withResolvers<Awaited<ReturnType<DetailEffects["projectRead"]>>>();
+    const failed = Promise.withResolvers<void>();
+    const block = makeBlock({ text: "Readable despite enrichment failure" });
+    const harness = createHarness(block, null, undefined, () => projection.promise, {}, state => {
+      if (state.readStatus === "failed") failed.resolve();
+    });
+    await harness.controller.initialize();
+    projection.reject(new Error("projection unavailable"));
+    await failed.promise;
+    expect(harness.controller.state.document.kind).toBe("ready");
+    expect(harness.controller.state.resolvedSelectedText).toBe(block.text);
+    expect(harness.controller.state.status).toContain("projection unavailable");
+    await harness.controller.dispatch({ type: "edit.begin" }, viewport);
+    expect(harness.controller.state.buffer.text).toBe(block.text);
+  });
+
+  test("opens explicit targets after optional projection fails", async () => {
+    const projection = Promise.withResolvers<Awaited<ReturnType<DetailEffects["projectRead"]>>>();
+    const failed = Promise.withResolvers<void>();
+    const harness = createHarness(makeBlock(), null, undefined, () => projection.promise, {}, state => {
+      if (state.readStatus === "failed") failed.resolve();
+    });
+    await harness.controller.initialize();
+    projection.reject(new Error("projection unavailable"));
+    await failed.promise;
+    for (const type of ["reference.follow", "reference.reveal"] as const) {
+      await harness.controller.dispatch({ type }, viewport);
+      expect(harness.controller.state.status).toContain("References are not ready");
+    }
+    expect(harness.calls.navigationDispatches).toEqual([]);
+    expect(harness.controller.state.destinationChooser.active).toBe(false);
+    await harness.controller.dispatch({
+      type: "reference.open",
+      target: { kind: "block", value: "explicit-target" },
+      routing: "linked",
+    }, viewport);
+    expect(harness.calls.navigationDispatches).toEqual([{
+      blockId: "explicit-target",
+      intent: "open",
+      preserveSource: false,
+    }]);
+    expect(harness.controller.state.context.selected?.id).toBe("explicit-target");
+  });
+
+  test("an old resolved preview cannot replace the newer target or its scroll", async () => {
+    const first = makeBlock({ id: "delayed-first", text: "First primary" });
+    const oldResolution = Promise.withResolvers<ResolvedBlockReferences>();
+    const firstStarted = Promise.withResolvers<void>();
+    const completion = Promise.withResolvers<void>();
+    const harness = createHarness(first, null, text => {
+      if (text !== first.text) return Promise.resolve({ text, references: [] });
+      firstStarted.resolve();
+      return oldResolution.promise;
+    });
+    await harness.controller.initialize();
+    await firstStarted.promise;
+    harness.setSelection({ selected: makeBlock({ id: "current-second", text: "Current line\n".repeat(30) }), ancestors: [], children: [] });
+    await harness.controller.onServiceEvent(event("ui", {
+      targetClientId: "detail-test", command: "open", target: { kind: "block", blockId: "current-second" },
+    }), viewport);
+    await harness.controller.dispatch({ type: "preview.navigate", direction: "pagedown" }, viewport);
+    const scroll = harness.controller.state.previewOffset;
+    expect(scroll).toBeGreaterThan(0);
+    const newest = harness.controller.state.resolvedSelectedText;
+    harness.effects.enqueueViewUpdate = update => { update(); completion.resolve(); };
+    oldResolution.resolve({ text: "Obsolete resolved first", references: [] });
+    await completion.promise;
+    expect(harness.controller.state.target).toEqual({ kind: "block", blockId: "current-second" });
+    expect(harness.controller.state.resolvedSelectedText).toBe(newest);
+    expect(harness.controller.state.previewOffset).toBe(scroll);
+  });
+
+  test("refreshes expanded backlinks once without holding the primary navigation lane", async () => {
+    const harness = createHarness(makeBlock());
+    await harness.controller.initialize();
+    await harness.controller.dispatch({ type: "backlinks.toggle" }, viewport);
+    const result = Promise.withResolvers<BacklinkCollection>();
+    const started = Promise.withResolvers<void>();
+    let requests = 0;
+    harness.effects.queryBacklinks = () => { requests += 1; started.resolve(); return result.promise; };
+    const refresh = harness.controller.onServiceEvent(event("content"), viewport);
+    let deadline: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await started.promise;
+      const completed = await Promise.race([
+        refresh.then(() => true),
+        new Promise<boolean>(resolve => { deadline = setTimeout(() => resolve(false), 1000); }),
+      ]);
+      expect(completed).toBe(true);
+      expect(requests).toBe(1);
+    } finally {
+      clearTimeout(deadline);
+      result.resolve({ targetBlockId: "block-1", sources: [], completeness: { kind: "complete" } });
+      await refresh;
+    }
+  });
+
+  test("finishes backlink loading after the same target is revalidated during a pending read", async () => {
+    const harness = createHarness(makeBlock());
+    await harness.controller.initialize();
+    await harness.controller.dispatch({ type: "backlinks.toggle" }, viewport);
+    const old = Promise.withResolvers<BacklinkCollection>();
+    const current = { targetBlockId: "block-1", sources: [], completeness: { kind: "complete" as const } };
+    let requests = 0;
+    harness.effects.queryBacklinks = () => ++requests === 1 ? old.promise : Promise.resolve(current);
+    await harness.controller.onServiceEvent(event("content"), viewport);
+    expect(harness.controller.state.backlinks.loading).toBe(true);
+    await harness.controller.onServiceEvent(event("ui", {
+      targetClientId: "detail-test", command: "preview", target: { kind: "block", blockId: "block-1" },
+    }), viewport);
+    old.resolve(current);
+    await old.promise;
+    expect(harness.controller.state.backlinks.loading).toBe(false);
+    expect(harness.controller.state.backlinks.collection).toEqual(current);
+  });
+
+  test("displays enrichment deferred during editing after the draft is cancelled", async () => {
+    const held = Promise.withResolvers<ResolvedBlockReferences>();
+    const deferred = Promise.withResolvers<void>();
+    let reads = 0;
+    const harness = createHarness(makeBlock({ text: "See ((target01))" }), null, async () => {
+      reads += 1;
+      if (reads === 1) return { text: "See ((Old target))", references: [] };
+      if (reads === 2) return held.promise;
+      return { text: "See ((New target))", references: [] };
+    });
+    await harness.controller.initialize();
+    expect(harness.controller.state.resolvedSelectedText).toBe("See ((Old target))");
+    harness.effects.enqueueViewUpdate = update => {
+      update();
+      if (harness.controller.state.refreshPending) deferred.resolve();
+    };
+    await harness.controller.onServiceEvent(event("content"), viewport);
+    await harness.controller.dispatch({ type: "edit.begin" }, viewport);
+    held.resolve({ text: "See ((New target))", references: [] });
+    await deferred.promise;
+    expect(harness.controller.state.buffer.text).toBe("See ((target01))");
+    expect(harness.controller.state.resolvedSelectedText).toBe("See ((Old target))");
+    await harness.controller.dispatch({ type: "buffer.cancel" }, viewport);
+    await harness.controller.refreshPendingSelection();
+    await new Promise<void>(resolve => setImmediate(resolve));
+    expect(harness.controller.state.resolvedSelectedText).toBe("See ((New target))");
+    expect(harness.controller.state.refreshPending).toBe(false);
+  });
+
+  test("chooses annotation before file and preserves raw text for editing", async () => {
+    const block = makeBlock({
+      text: "Raw ((reference))",
+      properties: [
+        { key: "file", value: "src/example.ts" },
+        { key: "type", value: "annotation" },
+      ],
+    });
+    const harness = createHarness(block, filePreview());
+
+    await harness.controller.initialize();
+    expect(harness.controller.state.mode).toBe("annotation");
+    expect(harness.controller.state.resolvedSelectedText).toBe("resolved:Raw ((reference))");
+    expect(harness.calls.currentBlocks).toEqual([]);
+
+
+    await harness.controller.dispatch({ type: "edit.begin" }, viewport);
+    expect(harness.controller.state.buffer.text).toBe("Raw ((reference))");
+    expect(harness.controller.state.mode).toBe("edit");
+  });
+
+  test("copies the exact editor selection through the terminal effect", async () => {
+    const harness = createHarness(makeBlock({ text: "alpha beta\ngamma" }));
+    await harness.controller.initialize();
+    await harness.controller.dispatch({ type: "edit.begin" }, viewport);
+    await harness.controller.dispatch({
+      type: "editor.cursor.place",
+      visualRow: 0,
+      contentColumn: 2,
+    }, viewport);
+    await harness.controller.dispatch({
+      type: "editor.cursor.place",
+      visualRow: 1,
+      contentColumn: 3,
+      extend: true,
+    }, viewport);
+
+    await harness.controller.dispatch({ type: "buffer.copy" }, viewport);
+    expect(harness.calls.copiedTexts).toEqual(["pha beta\ngam"]);
+    expect(harness.controller.state.status).toBe("Copied 12 characters");
+
+    await harness.controller.dispatch({
+      type: "editor.cursor.place",
+      visualRow: 0,
+      contentColumn: 0,
+    }, viewport);
+    await harness.controller.dispatch({ type: "buffer.copy" }, viewport);
+    expect(harness.calls.copiedTexts).toEqual(["pha beta\ngam"]);
+    expect(harness.controller.state.status).toBe("No text selected");
+  });
+
+  test("keeps wheel viewport movement independent until cursor input resumes following", async () => {
+    const text = Array.from({ length: 30 }, (_, index) => `line ${index}`).join("\n");
+    const harness = createHarness(makeBlock({ text }));
+    const smallViewport: DetailViewport = { width: 24, editorWidth: 24, height: 10 };
+    await harness.controller.initialize();
+    await harness.controller.dispatch({ type: "edit.begin" }, smallViewport);
+    const cursor = {
+      row: harness.controller.state.buffer.row,
+      column: harness.controller.state.buffer.column,
+    };
+    const cursorOffset = harness.controller.state.editorVisualOffset;
+
+    await harness.controller.dispatch(
+      { type: "editor.viewport.scroll", delta: -4 },
+      smallViewport,
+    );
+    expect(harness.controller.state.editorVisualOffset).toBe(cursorOffset - 4);
+    expect(harness.controller.state.editorViewportManual).toBe(true);
+    expect({
+      row: harness.controller.state.buffer.row,
+      column: harness.controller.state.buffer.column,
+    }).toEqual(cursor);
+
+    await harness.controller.dispatch(
+      { type: "buffer.move", direction: "left" },
+      smallViewport,
+    );
+    expect(harness.controller.state.editorViewportManual).toBe(false);
+    expect(harness.controller.state.editorVisualOffset).toBe(cursorOffset);
+
+    await harness.controller.dispatch(
+      { type: "editor.cursor.place", visualRow: 0, contentColumn: 0 },
+      smallViewport,
+    );
+    expect({
+      row: harness.controller.state.buffer.row,
+      column: harness.controller.state.buffer.column,
+    }).toEqual({ row: 0, column: 0 });
+    expect(harness.controller.state.editorVisualOffset).toBe(0);
+
+    const originalText = harness.controller.state.buffer.text;
+    await harness.controller.dispatch({ type: "draft-preview.link.toggle" }, {
+      ...smallViewport,
+      width: 120,
+      editorWidth: 60,
+    });
+    expect(harness.controller.state.draftPreviewLinked).toBe(true);
+    expect(harness.controller.state.buffer.text).toBe(originalText);
+    await harness.controller.dispatch({ type: "viewport.changed" }, smallViewport);
+    expect(harness.controller.state.draftPreviewLinked).toBe(false);
+  });
+  test("refreshes generated read projection on content events without changing canonical text", async () => {
+    const selected = makeBlock({ text: "Recommendation\n!((view-next))" });
+    let version = 1;
+    const harness = createHarness(
+      selected,
+      null,
+      async (text) => ({ text, references: [] }),
+      async () => ({
+        text: `Recommendation\nEmbedded view version ${version}\n- ((result-one))`,
+        provenance: generatedDocument(`Recommendation\nEmbedded view version ${version}\n- ((result-one))`, "controlled test projection"),
+        embeds: [{
+          blockId: "view-next",
+          status: "ready",
+          count: 1,
+          completeness: { kind: "complete" },
+        }],
+        embedRanges: [{ startLine: 1, endLine: 2 }],
+      }),
+    );
+
+    await harness.controller.initialize();
+    expect(harness.controller.state.projectedSelectedText).toContain("version 1");
+    expect(harness.controller.state.embedStates[0]?.status).toBe("ready");
+
+    version = 2;
+    await harness.controller.onServiceEvent(event("content"), viewport);
+
+    expect(harness.controller.state.projectedSelectedText).toContain("version 2");
+    expect(harness.controller.state.context.selected?.text).toBe(selected.text);
+    expect(harness.calls.projectedReads).toEqual([selected.text, selected.text]);
+    expect(harness.calls.projectedReadHosts).toEqual([selected.id, selected.id]);
+  });
+
+  test("Detail replaces source evidence when hidden anchors change without changing the displayed text", async () => {
+    const initial = makeBlock({text:'Plan ^before',revision:1});
+    const harness = createHarness(initial,null,async text=>({text,references:[]}),
+      (text,hostBlockId,hostRevision)=>projectDetailRead({async request(){throw Error('Plain note needs no projection reads');}},text,{hostBlockId,hostRevision}));
+    await harness.controller.initialize();
+    const observation = () => {
+      const run=harness.controller.state.resolvedProvenance!.runs[0]!;
+      if(run.origin.kind!=='source')throw Error('Expected canonical note evidence');
+      return run.origin.slices[0]!.document;
+    };
+    expect(harness.controller.state.resolvedSelectedText).toBe('Plan');
+    expect(observation()).toMatchObject({text:'Plan ^before',revision:1});
+    const beforeHash=observation().hash;
+    const updated={...initial,text:'Plan ^after',revision:2};
+    harness.setSelection({selected:updated,ancestors:[],children:[]});
+    await harness.controller.onServiceEvent(event('content'),viewport);
+    expect(harness.controller.state.resolvedSelectedText).toBe('Plan');
+    expect(observation()).toMatchObject({text:'Plan ^after',revision:2});
+    expect(observation().hash).not.toBe(beforeHash);
+  });
+
+  test("force-refreshes a cached projection when a view event leaves block revisions unchanged", async () => {
+    const selected = makeBlock({ text: "Embedded\n!((view-next))" });
+    let projectionVersion = 1;
+    const harness = createHarness(
+      selected,
+      null,
+      async (text) => ({ text, references: [] }),
+      async () => ({
+        text: `Embedded projection ${projectionVersion}`,
+        provenance: generatedDocument(`Embedded projection ${projectionVersion}`, "controlled test projection"),
+        embeds: [],
+        embedRanges: [],
+      }),
+    );
+    await harness.controller.initialize();
+    expect(harness.controller.state.projectedSelectedText).toBe("Embedded projection 1");
+
+    projectionVersion = 2;
+    await harness.controller.onServiceEvent(event("view"), viewport);
+
+    expect(harness.controller.state.context.selected?.updatedAt).toBe(selected.updatedAt);
+    expect(harness.controller.state.projectedSelectedText).toBe("Embedded projection 2");
+    expect(harness.calls.projectedReads).toEqual([selected.text, selected.text]);
+  });
+
+  test("toggles embedded item backgrounds per Detail without changing projection data", async () => {
+    const selected = makeBlock({ text: "Recommendation\n!((view-next))" });
+    const harness = createHarness(selected);
+    await harness.controller.initialize();
+
+    expect(harness.controller.state.embedBackgroundEnabled).toBe(true);
+    await harness.controller.dispatch({ type: "embed-background.toggle" }, viewport);
+    expect(harness.controller.state.embedBackgroundEnabled).toBe(false);
+    expect(harness.controller.state.status).toBe("Embedded item backgrounds hidden");
+    await harness.controller.dispatch({ type: "embed-background.toggle" }, viewport);
+    expect(harness.controller.state.embedBackgroundEnabled).toBe(true);
+    expect(harness.controller.state.status).toBe("Embedded item backgrounds shown");
+  });
+
+  test("keeps trashed blocks read-only and restores direct Trash roots explicitly", async () => {
+    const deleted = makeBlock({
+      deletedAt: "deleted-at",
+      effectiveDeletedRootId: "block-1",
+    });
+    const harness = createHarness(deleted);
+    await harness.controller.initialize();
+
+    expect(harness.controller.state.status).toContain("In Trash");
+    await harness.controller.dispatch({ type: "edit.begin" }, viewport);
+    expect(harness.controller.state.mode).toBe("preview");
+    expect(harness.controller.state.status).toContain("restore before editing");
+
+    await harness.controller.dispatch({ type: "trash.restore" }, viewport);
+    expect(harness.calls.restores).toEqual([deleted.id]);
+    expect(harness.controller.state.context.selected?.effectiveDeletedRootId).toBeUndefined();
+    expect(harness.controller.state.status).toBe("Restored from Trash");
+  });
+
+  test("keeps inherited Trash descendants read-only without offering direct restore", async () => {
+    const deletedFile = makeBlock({
+      effectiveDeletedRootId: "deleted-root",
+      properties: [{ key: "file", value: "src/example.ts" }],
+    });
+    const harness = createHarness(deletedFile, filePreview());
+    await harness.controller.initialize();
+
+    expect(harness.controller.state.status).toBe(
+      "In Trash — read-only · restore its direct Trash root",
+    );
+    await harness.controller.dispatch({ type: "comment.begin" }, viewport);
+    expect(harness.controller.state.mode).toBe("file");
+    expect(harness.controller.state.status).toContain("restore before adding annotations");
+    expect(harness.calls.creates).toEqual([]);
+  });
+
+  test("reveals the current Detail target without following its references", async () => {
+    const source = makeBlock({ id: "current-block", text: "See ((target01))" });
+    const harness = createHarness(source);
+    await harness.controller.initialize();
+
+    await harness.controller.dispatch({ type: "current.reveal" }, viewport);
+
+    expect(harness.calls.navigationDispatches).toEqual([{
+      blockId: source.id,
+      intent: "reveal",
+      preserveSource: false,
+      focusTarget: true,
+    }]);
+    expect(harness.calls.followedReferences).toEqual([]);
+    expect(harness.controller.state.context.selected?.id).toBe(source.id);
+    expect(harness.controller.state.status).toBe("Revealed See ((target01))");
+  });
+
+  test("opens the generic navigator only for the current virtual branch", async () => {
+    const view = makeBlock({
+      id: "next-view",
+      text: "Next\n[type::virtual-branch]",
+      properties: [{ key: "type", value: "virtual-branch" }],
+    });
+    const harness = createHarness(view);
+    await harness.controller.initialize();
+
+    await harness.controller.dispatch({ type: "virtual-branch.open" }, viewport);
+    expect(harness.calls.virtualNavigators).toEqual([view.id]);
+
+    const ordinary = createHarness(makeBlock({ id: "ordinary", text: "Ordinary" }));
+    await ordinary.controller.initialize();
+    await ordinary.controller.dispatch({ type: "virtual-branch.open" }, viewport);
+    expect(ordinary.calls.virtualNavigators).toEqual([]);
+    expect(ordinary.controller.state.status).toBe("Current block is not a virtual branch");
+  });
+
+  test("toggles the current bookmark and opens its adapted navigator", async () => {
+    const target = makeBlock({ id: "bookmark-target", text: "Bookmark target" });
+    const harness = createHarness(target);
+    await harness.controller.initialize();
+
+    await harness.controller.dispatch({ type: "bookmark.toggle" }, viewport);
+    expect(harness.calls.bookmarkToggles).toEqual([target.id]);
+    expect(harness.controller.state.status).toBe("Bookmarked");
+
+    await harness.controller.dispatch({ type: "bookmark.toggle" }, viewport);
+    expect(harness.controller.state.status).toBe("Bookmark removed");
+
+    await harness.controller.dispatch({ type: "bookmarks.open" }, viewport);
+    expect(harness.calls.virtualNavigators).toEqual(["bookmarks-root"]);
+    expect(harness.calls.virtualNavigatorAdapters).toEqual(["bookmark"]);
+    expect(harness.controller.state.context.selected?.id).toBe(target.id);
+  });
+
+  test("reports bookmark failures and does not bookmark Trash targets", async () => {
+    const target = makeBlock({ id: "bookmark-target", text: "Bookmark target" });
+    const statusFailure = createHarness(target);
+    await statusFailure.controller.initialize();
+    statusFailure.effects.bookmarkStatus = async () => {
+      throw new Error("Bookmark target is unavailable");
+    };
+    await statusFailure.controller.dispatch({ type: "bookmark.toggle" }, viewport);
+    expect(statusFailure.controller.state.status).toBe("Bookmark target is unavailable");
+
+    const toggleFailure = createHarness(target);
+    await toggleFailure.controller.initialize();
+    toggleFailure.effects.toggleBookmark = async () => {
+      throw new Error("Bookmark changed; refresh and retry");
+    };
+    await toggleFailure.controller.dispatch({ type: "bookmark.toggle" }, viewport);
+    expect(toggleFailure.controller.state.status).toBe("Bookmark changed; refresh and retry");
+
+    const deleted = createHarness(makeBlock({
+      id: "deleted-target",
+      deletedAt: "deleted-at",
+      effectiveDeletedRootId: "deleted-target",
+    }));
+    await deleted.controller.initialize();
+    await deleted.controller.dispatch({ type: "bookmark.toggle" }, viewport);
+    expect(deleted.calls.bookmarkToggles).toEqual([]);
+    expect(deleted.controller.state.status).toBe("Block is in Trash; restore before bookmarking");
+  });
+
+  test("keeps navigation history local and loads deleted targets read-only", async () => {
+    const source = makeBlock({ text: "See ((target01))" });
+    const harness = createHarness(source);
+    await harness.controller.initialize();
+
+    await harness.controller.dispatch({ type: "reference.follow" }, viewport);
+    expect(harness.controller.state.destinationChooser).toMatchObject({
+      active: true,
+      target: {
+        target: { kind: "block", blockId: "target01" },
+      },
+    });
+    expect(harness.controller.state.context.selected?.id).toBe(source.id);
+    await harness.controller.handleDestinationChooserKeypress("", { name: "return" });
+    expect(harness.calls.followedReferences).toEqual([{ kind: "block", value: "target01" }]);
+    expect(harness.controller.state.context.selected?.id).toBe("target01");
+
+    harness.setSelection({
+      selected: makeBlock({
+        id: "deleted1",
+        deletedAt: "deleted-at",
+        effectiveDeletedRootId: "deleted1",
+      }),
+      ancestors: [],
+      children: [],
+    });
+    await harness.controller.onServiceEvent(
+      event("ui", { targetClientId: "detail-test", command: "reveal", target: { kind: "block", blockId: "deleted1" } }),
+      viewport,
+    );
+    await harness.controller.dispatch({ type: "navigation.back" }, viewport);
+    expect(harness.controller.state.context.selected?.id).toBe("target01");
+    await harness.controller.dispatch({ type: "navigation.forward" }, viewport);
+    expect(harness.controller.state.context.selected).toMatchObject({
+      id: "deleted1",
+      effectiveDeletedRootId: "deleted1",
+    });
+    expect(harness.controller.state.mode).toBe("preview");
+
+    await harness.controller.dispatch({ type: "edit.begin" }, viewport);
+    expect(harness.controller.state.status).toContain("restore before editing");
+  });
+
+  test("multiple Resource occurrences use Properties without interning until an occurrence is chosen", async () => {
+    const source = makeBlock({ id: "source-block-001", updatedAt: "2026-01-01T00:00:00.000Z", text: "References\n\nOne [file::same.md] and two [file::same.md]." });
+    const harness = createHarness(source);
+    await harness.controller.initialize();
+    await harness.controller.dispatch({ type: "reference.follow" }, viewport);
+    expect(harness.controller.state.propertyInspector.expanded).toBe(true);
+    expect(harness.controller.state.status).toContain("Choose a reference");
+    expect(harness.calls.followedReferences).toEqual([]);
+    const entry = harness.controller.state.propertyInspector.model!.entries[1]!;
+    harness.controller.setPreviewRegions(detailPropertyInspectorRegions(harness.controller.state));
+    await harness.controller.dispatch({ type: "property-inspector.disclosure.toggle" }, viewport);
+    await harness.controller.dispatch({ type: "reference.follow" }, viewport);
+    harness.controller.setPreviewRegions(detailPropertyInspectorRegions(harness.controller.state));
+    expect(harness.controller.state.previewRegions.focusedRegionId).toBe(
+      harness.controller.state.propertyInspector.model!.entries[0]!.occurrenceId,
+    );
+    await harness.controller.dispatch({
+      type: "property-inspector.target.open", occurrenceId: entry.occurrenceId, intent: "open",
+    }, viewport);
+    expect(harness.calls.followedReferences).toEqual([]);
+    await harness.controller.handleDestinationChooserKeypress("", { name: "return" });
+    expect(harness.calls.followedReferences).toEqual([{
+      kind: "reference", value: source.id, preserveSource: false,
+      occurrence: { revision: source.revision, start: entry.start, end: entry.end },
+    }]);
+    expect(harness.controller.state.target).toMatchObject({ kind: "resource",
+      referenceContext: { sourceText: source.text, anchor: { start: entry.start, end: entry.end } },
+    });
+  });
+
+  test("comments on the focused reference occurrence without opening or interning its Resource", async () => {
+    const source = makeBlock({ id: "source-block-001", updatedAt: "2026-01-01T00:00:00.000Z",
+      text: "References\n\nFirst [file::same.md].\nSecond [file::same.md]." });
+    const harness = createHarness(source);
+    await harness.controller.initialize();
+    await harness.controller.dispatch({ type: "reference.follow" }, viewport);
+    harness.controller.setPreviewRegions(detailPropertyInspectorRegions(harness.controller.state));
+    const entry = harness.controller.state.propertyInspector.model!.entries[1]!;
+    harness.controller.state.previewRegions.focusedRegionId = entry.occurrenceId;
+    await harness.controller.dispatch({ type: "annotation.comment.direct", capture: null }, viewport);
+    expect(harness.controller.state.mode).toBe("comment");
+    expect(harness.controller.state.annotationDraft?.target.referenceContext?.anchor.start).toBe(entry.start);
+    expect(harness.calls.followedReferences).toEqual([]);
+    await harness.controller.dispatch({ type: "buffer.insert", text: "Second use only" }, viewport);
+    await harness.controller.dispatch({ type: "buffer.save" }, viewport);
+    expect(harness.calls.creates[0]?.input.target.referenceContext?.anchor.start).toBe(entry.start);
+    expect(harness.controller.state.context.selected?.text).toBe(source.text);
+  });
+
+  test("navigation history distinguishes two uses of the same Resource", async () => {
+    const source = makeBlock({ id: "source-block-001", updatedAt: "2026-01-01T00:00:00.000Z",
+      text: "References\n\nFirst [file::same.md].\nSecond [file::same.md]." });
+    const harness = createHarness(source);
+    await harness.controller.initialize();
+    const target = (start: number) => ({ kind: "resource" as const, resourceId: fileResource("same.md").id,
+      referenceContext: createAnnotationReferenceContext(source, start, start + 15) });
+    const first = target(source.text.indexOf("[file::"));
+    const second = target(source.text.lastIndexOf("[file::"));
+    for (const target of [first, second]) {
+      await harness.controller.onServiceEvent(event("ui", { targetClientId: "detail-test", command: "open", target }), viewport);
+      expect(harness.controller.state.target).toEqual(target);
+    }
+    await harness.controller.dispatch({ type: "navigation.back" }, viewport);
+    expect(harness.controller.state.target).toEqual(first);
+    await harness.controller.dispatch({ type: "navigation.forward" }, viewport);
+    expect(harness.controller.state.target).toEqual(second);
+  });
+
+  test("follows a durable fragment reference to its anchored preview line", async () => {
+    const source = makeBlock({ text: "See ((target01^decision|the approved boundary))" });
+    const target = makeBlock({
+      id: "target01",
+      text: "Target\n\nIntro\n\n## Decision ^decision\nBody",
+    });
+    const harness = createHarness(source);
+    await harness.controller.initialize();
+    harness.setSelection({ selected: target, ancestors: [], children: [] });
+
+    await harness.controller.dispatch({ type: "reference.follow" }, viewport);
+    expect(harness.calls.navigationDispatches).toEqual([]);
+    await harness.controller.handleDestinationChooserKeypress("", { name: "return" });
+
+    expect(harness.calls.followedReferences).toEqual([{
+      kind: "block",
+      value: target.id,
+      fragmentId: "decision",
+    }]);
+    expect(harness.calls.navigationDispatches).toEqual([{
+      blockId: target.id,
+      intent: "open",
+      preserveSource: false,
+      fragmentId: "decision",
+    }]);
+    expect(harness.controller.state.context.selected?.id).toBe(target.id);
+    expect(harness.controller.state.previewOffset).toBe(4);
+
+    const renamed = makeBlock({
+      ...target,
+      text: "Target\n\nIntro revised\n\n## Renamed decision ^decision\nBody",
+
+      updatedAt: "renamed-version",
+    });
+    harness.setSelection({ selected: renamed, ancestors: [], children: [] });
+    await harness.controller.onServiceEvent(event("content"), viewport);
+    expect(harness.controller.state.target).toMatchObject({ kind: "block", fragmentId: "decision" });
+    expect(harness.controller.state.previewOffset).toBe(4);
+
+    await harness.controller.dispatch({ type: "navigation.back" }, viewport);
+    await harness.controller.dispatch({ type: "navigation.forward" }, viewport);
+    expect(harness.controller.state.context.selected?.id).toBe(target.id);
+    expect(harness.controller.state.target).toMatchObject({ kind: "block", fragmentId: "decision" });
+    expect(harness.controller.state.previewOffset).toBe(4);
+  });
+  test("opens a resource target without creating block context", async () => {
+    const initial = makeBlock({ id: "block-anchor", text: "Anchor" });
+    const harness = createHarness(initial);
+    await harness.controller.initialize();
+
+    await harness.controller.onServiceEvent(event("ui", {
+      targetClientId: "detail-test",
+      command: "open",
+      target: {
+        kind: "resource",
+        resourceId: "10000000-0000-4000-8000-000000000001",
+      },
+    }), viewport);
+
+    expect(harness.controller.state.target).toEqual({
+      kind: "resource",
+      resourceId: "10000000-0000-4000-8000-000000000001",
+    });
+    expect(harness.controller.state.resource).toMatchObject({
+      address: { kind: "filesystem", path: "notes/example.md" },
+      mediaType: "text/markdown",
+    });
+    expect(harness.controller.state.context).toEqual({
+      selected: null,
+      ancestors: [],
+      children: [],
+    });
+    expect(harness.controller.state.resolvedSelectedText).toContain(
+      "10000000-0000-4000-8000-000000000001",
+    );
+    expect(harness.controller.state.resolvedProvenance?.runs.map(run=>run.origin)).toEqual([
+      {kind:'generated',reason:'resource presentation and diagnostics'},
+    ]);
+
+    await harness.controller.dispatch({ type: "navigation.back" }, viewport);
+    expect(harness.controller.state.target).toEqual({
+      kind: "block",
+      blockId: initial.id,
+    });
+  });
+
+  test("edits and annotates filesystem Resources through their source representation", async () => {
+    const harness = createHarness(makeBlock({ id: "block-anchor" }));
+    const resourceId = "10000000-0000-4000-8000-000000000001";
+    const source = {
+      id: "20000000-0000-4000-8000-000000000001",
+      name: "Filesystem fixture",
+      provider: "filesystem" as const,
+      boundary: { kind: "filesystem" as const, root: "/workspace" },
+      policy: { deniedCapabilities: [] },
+      version: 1,
+      createdAt: "created",
+      updatedAt: "updated",
+    };
+    const resource = {
+      id: resourceId,
+      sourceId: source.id,
+      provider: "filesystem" as const,
+      address: { kind: "filesystem" as const, path: "notes/example.md" },
+      version: 1,
+      addressVersion: 1,
+      mediaType: "text/markdown",
+      createdAt: "created",
+      updatedAt: "updated",
+    };
+    const text = "# Filesystem fixture\n\nAnnotate this exact line.";
+    const description: ResourceDescription = {
+      resource,
+      source,
+      requestedRevision: null,
+      capabilities: deriveResourceCapabilityReport(source, true, ["read", "write"]),
+      filesystem: {
+        text,
+        contentHash: "filesystem-content-hash",
+        capturedAt: "2026-09-17T00:00:00.000Z",
+        revision: {
+          resourceId,
+          addressVersion: 1,
+          revision: { kind: "filesystem", mtimeNs: "1", size: String(text.length) },
+        },
+      },
+      pdf: null,
+      pdfHistory: null,
+      web: null,
+      webHistory: null,
+      webStatus: null,
+      remoteEntity: null,
+      remoteStatus: null,
+      computed: null,
+      computedStatus: null,
+      computedFailure: null,
+      availableCommands: [],
+    };
+    const loadTarget = harness.effects.loadTarget;
+    harness.effects.loadTarget = async (target) => target.kind === "resource"
+      ? {
+          kind: "resource",
+          target: { kind: "resource", resourceId },
+          description,
+        }
+      : loadTarget(target);
+
+    await harness.controller.initialize();
+    await harness.controller.onServiceEvent(event("ui", {
+      targetClientId: "detail-test",
+      command: "open",
+      target: { kind: "resource", resourceId },
+    }), viewport);
+
+    const contentEvidence=harness.controller.state.resolvedProvenance;
+    expect(contentEvidence?.text).toBe(text);
+    expect(contentEvidence?.runs).toMatchObject([{start:0,end:text.length,mapping:'linear',origin:{kind:'source',slices:[{
+      start:0,end:text.length,document:{subject:{kind:'resource',resourceId},text,resource:{revision:{resourceId,addressVersion:1,revision:{kind:'filesystem',mtimeNs:'1',size:String(text.length)}},adapter:{id:'filesystem.text',version:1}}},
+    }]}}]);
+    await harness.controller.dispatch({ type: "edit.begin" }, viewport);
+    expect(harness.controller.state.mode).toBe("edit");
+    expect(harness.controller.state.status).toBe("Editing filesystem Resource");
+    expect(harness.controller.state.buffer.text).toBe(text);
+    await harness.controller.dispatch({ type: "buffer.select-all" }, viewport);
+    await harness.controller.dispatch({
+      type: "buffer.insert",
+      text: "# Filesystem fixture\n\nInline edit.",
+    }, viewport);
+    await harness.controller.dispatch({ type: "buffer.save" }, viewport);
+    expect(harness.calls.filesystemWrites[0]).toEqual({
+      resourceId,
+      text: "# Filesystem fixture\n\nInline edit.",
+      expectedRevision: description.filesystem!.revision,
+    });
+    expect(harness.controller.state.status).toBe("Filesystem Resource saved");
+
+    let externalDraftCleaned = false;
+    harness.setExternalEdit(async (input) => {
+      expect(input).toEqual({
+        kind: "filesystem-resource",
+        resourceId,
+        text,
+        expectedRevision: description.filesystem!.revision,
+      });
+      return {
+        text: "# Filesystem fixture\n\nExternal edit.",
+        changed: true,
+        recoveryPath: "/tmp/filesystem-resource-draft",
+        cleanup() {
+          externalDraftCleaned = true;
+        },
+      };
+    });
+    await harness.controller.dispatch({ type: "edit.external" }, viewport);
+    expect(harness.calls.filesystemWrites[1]).toEqual({
+      resourceId,
+      text: "# Filesystem fixture\n\nExternal edit.",
+      expectedRevision: description.filesystem!.revision,
+    });
+    expect(externalDraftCleaned).toBe(true);
+    expect(harness.controller.state.status).toBe("Filesystem Resource updated from $EDITOR");
+
+    await harness.controller.dispatch({ type: "resource.refresh" }, viewport);
+    expect(harness.controller.state.status).toBe("Filesystem Resource reopened from disk");
+    await harness.controller.dispatch({
+      type: "annotation.selection.begin",
+      sourceLine: 2,
+      sourceColumn: 0,
+    }, viewport);
+    expect(harness.controller.state.status).toBe(
+      "extend the rendered selection, then press c",
+    );
+    expect(harness.controller.state.mode).toBe("select");
+    expect(harness.controller.state.buffer.text).toBe(text);
+
+    await harness.controller.dispatch({
+      type: "annotation.selection.place",
+      row: 2,
+      column: 8,
+      extend: true,
+    }, viewport);
+    await harness.controller.dispatch({ type: "comment.begin" }, viewport);
+    await harness.controller.dispatch({ type: "buffer.insert", text: "Filesystem note" }, viewport);
+    await harness.controller.dispatch({ type: "buffer.save" }, viewport);
+
+    const created = harness.calls.creates[0]!.input;
+    expect(created.target.representation).toMatchObject({
+      subject: { kind: "resource", resourceId },
+      sourceSnapshot: {
+        kind: "resource",
+        resourceId,
+        sourceSnapshotId: null,
+      },
+      adapter: { id: "filesystem.text", version: 1 },
+    });
+    expect(created.target.anchor).toMatchObject({
+      kind: "text-quote",
+      exact: "Annotate",
+    });
+  });
+
+  test("opens, annotates, refreshes, and externally opens cached web Markdown", async () => {
+    const harness = createHarness(makeBlock({ id: "block-anchor" }));
+    const target = {
+      kind: "resource" as const,
+      resourceId: "10000000-0000-4000-8000-000000000001",
+    };
+    const source = {
+      id: "20000000-0000-4000-8000-000000000001",
+      name: "Web fixture",
+      provider: "web" as const,
+      boundary: { kind: "web" as const, baseUrl: "https://example.com/" },
+      policy: { deniedCapabilities: [] },
+      version: 1,
+      createdAt: "created",
+      updatedAt: "updated",
+    };
+    const resource = {
+      id: target.resourceId,
+      sourceId: source.id,
+      provider: "web" as const,
+      address: { kind: "web" as const, url: "https://example.com/article" },
+      version: 1,
+      addressVersion: 1,
+      mediaType: "text/html",
+      createdAt: "created",
+      updatedAt: "updated",
+    };
+    const description = (markdown: string, revision: string): ResourceDescription => {
+      const sourceSnapshot = {
+        id: `source-snapshot-${revision}`,
+        resourceId: resource.id,
+        addressVersion: resource.addressVersion,
+        canonicalUrl: resource.address.url,
+        contentHash: revision.repeat(64).slice(0, 64),
+        revision: {
+          resourceId: resource.id,
+          addressVersion: resource.addressVersion,
+          revision: {
+            kind: "web" as const,
+            validator: { kind: "etag" as const, value: revision, weak: false },
+          },
+        },
+        fetchedAt: "2026-09-17T12:00:00.000Z",
+        bodyAvailable: true,
+        evictedAt: null,
+      };
+      const representation = {
+        id: `representation-${revision}`,
+        sourceSnapshotId: sourceSnapshot.id,
+        mediaType: "text/markdown" as const,
+        adapter: { id: "fixture", version: 1 },
+        contentHash: revision.repeat(64).slice(0, 64),
+        derivedAt: "2026-09-17T12:00:01.000Z",
+        contentAvailable: true,
+        evictedAt: null,
+      };
+      const result: ResourceDescription = {
+        resource,
+        source,
+        requestedRevision: null,
+        capabilities: deriveResourceCapabilityReport(source, true),
+        web: {
+          markdown,
+          sourceSnapshot,
+          representation,
+        },
+        webHistory: {
+          sourceSnapshots: [sourceSnapshot],
+          representations: [representation],
+        },
+        webStatus: {
+          freshness: "fresh",
+          checkedAt: "2026-09-17T12:00:02.000Z",
+          lastError: null,
+        },
+        remoteEntity: null,
+        remoteStatus: null,
+        availableCommands: [],
+      };
+      return {
+        ...result,
+        presentation: negotiateResourcePresentation(result, {
+          ...TUI_RESOURCE_PRESENTATION_CONTEXT,
+          providerAccess: { credentials: "available", connectivity: "available" },
+        }),
+      };
+    };
+    let current = description("# First\n\nStable quote", "a");
+    const externalUrls: string[] = [];
+    harness.effects.loadTarget = async () => ({ kind: "resource", target, description: current });
+    harness.effects.refreshResource = async () => {
+      current = description("# Second\n\nChanged page", "b");
+      return current;
+    };
+    harness.effects.openExternal = (url) => {
+      externalUrls.push(url);
+    };
+    await harness.controller.initialize();
+    await harness.controller.onServiceEvent(event("ui", {
+      targetClientId: "detail-test",
+      command: "open",
+      target,
+    }), viewport);
+    expect(harness.calls.reconciles.at(-1)).toMatchObject({
+      subject: { kind: "resource", resourceId: resource.id },
+      newRepresentation: { id: "representation-a" },
+      content: "# First\n\nStable quote",
+    });
+    const reconcilesBeforeContentEvent = harness.calls.reconciles.length;
+    await harness.controller.onServiceEvent(event("content"), viewport);
+    expect(harness.calls.reconciles).toHaveLength(reconcilesBeforeContentEvent + 1);
+    const loadLatestTarget = harness.effects.loadTarget;
+    const pinnedTarget = {
+      ...target,
+      revision: current.web!.sourceSnapshot.revision,
+    };
+    harness.effects.loadTarget = async (candidate) => candidate.kind === "resource" &&
+        candidate.revision
+      ? {
+          kind: "resource",
+          target: candidate,
+          description: { ...current, requestedRevision: candidate.revision },
+        }
+      : loadLatestTarget(candidate);
+    const reconcilesBeforePinnedOpen = harness.calls.reconciles.length;
+    await harness.controller.onServiceEvent(event("ui", {
+      targetClientId: "detail-test",
+      command: "open",
+      target: pinnedTarget,
+    }), viewport);
+    expect(harness.calls.reconciles).toHaveLength(reconcilesBeforePinnedOpen);
+    harness.effects.loadTarget = loadLatestTarget;
+    await harness.controller.onServiceEvent(event("ui", {
+      targetClientId: "detail-test",
+      command: "open",
+      target,
+    }), viewport);
+
+    expect(harness.controller.state.resolvedSelectedText.startsWith("# First\n\nStable quote"))
+      .toBe(true);
+    expect(harness.controller.state.resolvedSelectedText).toContain(
+      "- Freshness: **fresh**",
+    );
+    expect(harness.controller.state.resolvedSelectedText).toContain(
+      "- Source snapshot ID: `source-snapshot-a`",
+    );
+    expect(harness.controller.state.resolvedSelectedText).toContain(
+      `- Source hash: \`${"a".repeat(64)}\``,
+    );
+    expect(harness.controller.state.resolvedSelectedText).toContain(
+      "- Provider revision: web ETag a",
+    );
+    expect(harness.controller.state.resolvedSelectedText).toContain(
+      "- Fetched: 2026-09-17T12:00:00.000Z",
+    );
+    expect(harness.controller.state.resolvedSelectedText).toContain(
+      "- Representation ID: `representation-a`",
+    );
+    expect(harness.controller.state.resolvedSelectedText).toContain(
+      "- Adapter: `fixture@1`",
+    );
+    expect(harness.controller.state.resolvedSelectedText).toContain(
+      `- Representation hash: \`${"a".repeat(64)}\``,
+    );
+    expect(harness.controller.state.resolvedSelectedText).toContain(
+      "- Derived: 2026-09-17T12:00:01.000Z",
+    );
+    expect(harness.controller.state.resolvedSelectedText).toContain(
+      "## Retained history\n\n- Source snapshots: 1\n- Representations: 1",
+    );
+
+    current = description("# Workspace collection\n\nFresh history state", "a");
+    await harness.controller.onServiceEvent(event("resource-catalog"), viewport);
+    expect(harness.controller.state.resolvedSelectedText).toContain("Fresh history state");
+
+    for (
+      const [freshness, guidance] of [
+        ["stale", "older than the freshness window"],
+        ["unknown", "Provider freshness has not been checked"],
+        ["refreshing", "Refresh is reconciling with the provider"],
+        ["failed", "The last refresh failed"],
+      ] as const
+    ) {
+      current = {
+        ...current,
+        webStatus: {
+          freshness,
+          checkedAt: "2026-09-17T12:00:02.000Z",
+          lastError: freshness === "failed" ? "fixture offline" : null,
+        },
+      };
+      await harness.controller.onServiceEvent({
+        ...event("resource-catalog"),
+        resourceId: resource.id,
+      }, viewport);
+      expect(harness.controller.state.resolvedSelectedText).toContain(
+        `- Freshness: **${freshness}**`,
+      );
+      expect(harness.controller.state.resolvedSelectedText).toContain(guidance);
+    }
+    current = description("# First\n\nStable **quote**", "a");
+    await harness.controller.onServiceEvent({
+      ...event("resource-catalog"),
+      resourceId: resource.id,
+    }, viewport);
+    const frame=resourceFrame(harness.controller);
+    const row=frame.lines.findIndex(line=>stripTerminalSequences(line).trimEnd()==='Stable quote');
+    expect(row).toBeGreaterThanOrEqual(0);
+    const directCapture=harness.controller.captureResourceSelection(
+      frame.select({row,column:0},{row,column:12}),frame.lines.join('\n'),1);
+    expect(directCapture).toMatchObject({kind:'resource',resourceId:resource.id,representationId:'representation-a'});
+    await harness.controller.dispatch({
+      type: "annotation.comment.direct",
+      capture: directCapture,
+    }, viewport);
+    expect(harness.controller.state.mode).toBe("comment");
+    const capturedTarget=harness.controller.state.annotationDraft!.target;
+    expect(capturedTarget).toMatchObject({representation:{subject:{kind:'resource',resourceId:resource.id},
+      sourceSnapshot:{kind:'rendered'}},anchor:{kind:'text-quote',exact:'Stable quote',start:null,end:null}});
+    expect(capturedTarget.passage?.documents[0]?.text).toBe('# First\n\nStable **quote**');
+    expect(capturedTarget.passage?.fragments.flatMap(fragment=>fragment.kind==='source'?fragment.slices.map(slice=>
+      [slice.anchor.start,slice.anchor.end,slice.anchor.exact]):[])).toEqual([[9,16,'Stable '],[18,23,'quote']]);
+    await harness.controller.dispatch({ type: "buffer.cancel" }, viewport);
+    current = description("# Changed\n\nNew representation", "b");
+    await harness.controller.onServiceEvent({
+      ...event("resource-catalog"),
+      resourceId: resource.id,
+    }, viewport);
+    await harness.controller.dispatch({
+      type: "annotation.comment.direct",
+      capture: directCapture,
+    }, viewport);
+    expect(harness.controller.state.mode).toBe("preview");
+    expect(harness.controller.state.status).toBe(
+      "The Resource representation changed after the selection was captured",
+    );
+    current = description("# First\n\nStable quote", "a");
+    await harness.controller.onServiceEvent({
+      ...event("resource-catalog"),
+      resourceId: resource.id,
+    }, viewport);
+
+    await harness.controller.dispatch({
+      type: "annotation.selection.begin",
+      sourceLine: 2,
+      sourceColumn: 0,
+    }, viewport);
+    await harness.controller.dispatch({
+      type: "annotation.selection.place",
+      row: 2,
+      column: 12,
+      extend: true,
+    }, viewport);
+    await harness.controller.dispatch({ type: "comment.begin" }, viewport);
+    await harness.controller.dispatch({ type: "buffer.insert", text: "Keep this evidence" }, viewport);
+    await harness.controller.dispatch({ type: "buffer.save" }, viewport);
+    const created = harness.calls.creates[0]!.input;
+    expect(created.target.anchor).toMatchObject({
+      kind: "text-quote",
+      exact: "Stable quote",
+    });
+    expect(created.body).toBe("Keep this evidence");
+    expect(created.target.representation.sourceSnapshot).toMatchObject({
+      kind: "resource",
+      sourceSnapshotId: "source-snapshot-a",
+    });
+    expect(created.target.representation.id).toBe("representation-a");
+    expect(harness.controller.state.annotationThreads[0]?.body).toBe("Keep this evidence");
+
+    await harness.controller.dispatch({ type: "resource.open-external" }, viewport);
+    expect(externalUrls).toEqual(["https://example.com/article"]);
+    await harness.controller.dispatch({ type: "resource.refresh" }, viewport);
+    expect(harness.controller.state.resolvedSelectedText.startsWith("# Second\n\nChanged page"))
+      .toBe(true);
+    expect(harness.controller.state.status).toBe("Web resource refreshed");
+    expect(harness.calls.reconciles.at(-1)).toMatchObject({
+      subject: { kind: "resource", resourceId: resource.id },
+      newRepresentation: { id: "representation-b" },
+      content: "# Second\n\nChanged page",
+    });
+
+
+    const unavailable = description("# Unavailable", "c");
+    current = {
+      ...unavailable,
+      web: null,
+      webStatus: {
+        freshness: "unknown",
+        checkedAt: null,
+        lastError: null,
+      },
+      webError: "fixture offline",
+    };
+    current = {
+      ...current,
+      presentation: negotiateResourcePresentation(current, {
+        ...TUI_RESOURCE_PRESENTATION_CONTEXT,
+        providerAccess: { credentials: "available", connectivity: "available" },
+      }),
+    };
+    await harness.controller.onServiceEvent({
+      ...event("resource-catalog"),
+      resourceId: resource.id,
+    }, viewport);
+    expect(harness.controller.state.resolvedSelectedText).toContain(
+      "- Freshness: **unknown**",
+    );
+    expect(harness.controller.state.resolvedSelectedText).toContain(
+      "No local snapshot is available. Press r to refresh explicitly.",
+    );
+    expect(harness.controller.state.resolvedSelectedText).toContain(
+      "Opening this resource only reads local storage and never contacts the provider.",
+    );
+    expect(harness.controller.state.resolvedSelectedText).not.toContain("# Unavailable");
+    await harness.controller.dispatch({ type: "resource.open-external" }, viewport);
+    expect(externalUrls).toEqual([
+      "https://example.com/article",
+      "https://example.com/article",
+    ]);
+
+    current = {
+      ...current,
+      source: {
+        ...source,
+        policy: { deniedCapabilities: ["open-external"] },
+      },
+    };
+    current = {
+      ...current,
+      presentation: negotiateResourcePresentation(current, {
+        ...TUI_RESOURCE_PRESENTATION_CONTEXT,
+        providerAccess: { credentials: "available", connectivity: "available" },
+      }),
+    };
+    await harness.controller.onServiceEvent({
+      ...event("resource-catalog"),
+      resourceId: resource.id,
+    }, viewport);
+    await harness.controller.dispatch({ type: "resource.open-external" }, viewport);
+    expect(externalUrls).toHaveLength(2);
+    expect(harness.controller.state.status).toBe(
+      "Workspace policy denies open-external",
+    );
+    await harness.controller.dispatch({
+      type: "resource.open-url",
+      url: "https://example.com/linked",
+    }, viewport);
+    expect(externalUrls).toEqual([
+      "https://example.com/article",
+      "https://example.com/article",
+      "https://example.com/linked",
+    ]);
+    expect(harness.controller.state.status).toBe("Opened URL externally");
+  });
+  test("renders retained remote entities, refreshes them, and opens only negotiated deep links", async () => {
+    const harness = createHarness(makeBlock({ id: "remote-anchor" }));
+    const target = {
+      kind: "resource" as const,
+      resourceId: "10000000-0000-4000-8000-000000000255",
+    };
+    const source = {
+      id: "20000000-0000-4000-8000-000000000255",
+      name: "Product Jira",
+      provider: "jira" as const,
+      boundary: {
+        kind: "jira" as const,
+        origin: "https://jira.example.test",
+        project: "PIE",
+        credentialEnv: "JIRA_TOKEN",
+      },
+      policy: { deniedCapabilities: [] },
+      version: 1,
+      createdAt: "created",
+      updatedAt: "updated",
+    };
+    const resource = {
+      id: target.resourceId,
+      sourceId: source.id,
+      provider: "jira" as const,
+      address: { kind: "jira" as const, entityId: "10042", key: "PIE-255" },
+      version: 1,
+      addressVersion: 1,
+      mediaType: "text/markdown",
+      createdAt: "created",
+      updatedAt: "updated",
+    };
+    const describe = (
+      markdown: string,
+      availableCommands: ResourceDescription["availableCommands"],
+    ): ResourceDescription => {
+      const result: ResourceDescription = {
+        resource,
+        source,
+        requestedRevision: null,
+        capabilities: deriveResourceCapabilityReport(source, true),
+        web: null,
+        webHistory: null,
+        webStatus: null,
+        remoteEntity: {
+          title: "Remote entities",
+          metadata: {
+            status: "In Progress",
+            labels: ["resources", "providers"],
+            parent: null,
+          },
+          markdown,
+          externalUrl: "https://jira.example.test/browse/PIE-255",
+          sourceSnapshot: {
+            contentHash: "c".repeat(64),
+            provider: "jira",
+            resourceId: resource.id,
+            addressVersion: 1,
+            entityId: "10042",
+            locator: "PIE-255",
+            revision: {
+              resourceId: resource.id,
+              addressVersion: 1,
+              revision: {
+                kind: "jira",
+                validator: {
+                  kind: "updated-at",
+                  value: "2026-09-17T12:00:00.000Z",
+                },
+              },
+            },
+            fetchedAt: "2026-09-17T12:00:01.000Z",
+          },
+          representation: {
+            mediaType: "text/markdown",
+            adapter: { id: "jira.issue-markdown", version: 1 },
+            contentHash: "d".repeat(64),
+            derivedAt: "2026-09-17T12:00:02.000Z",
+          },
+          commandDescriptors: [{
+            provider: "jira",
+            command: "comment.create",
+            label: "Provider-advertised command",
+            input: {
+              body: { type: "string", required: true, maxLength: 10_000 },
+            },
+          }],
+        },
+        remoteStatus: {
+          freshness: "fresh",
+          checkedAt: "2026-09-17T12:00:03.000Z",
+          lastError: null,
+        },
+        availableCommands,
+      };
+      return {
+        ...result,
+        presentation: negotiateResourcePresentation(result, {
+          ...TUI_RESOURCE_PRESENTATION_CONTEXT,
+          providerAccess: { credentials: "available", connectivity: "available" },
+        }),
+      };
+    };
+    let current = describe("# Remote entities\n\nRetained Jira body.", []);
+    const externalUrls: string[] = [];
+    harness.effects.loadTarget = async () => ({ kind: "resource", target, description: current });
+    harness.effects.refreshResource = async () => {
+      current = describe("# Remote entities\n\nRefreshed Jira body.", [{
+        provider: "jira",
+        command: "comment.create",
+        label: "Create comment",
+        input: {
+          body: { type: "string", required: true, maxLength: 10_000 },
+        },
+      }]);
+      return current;
+    };
+    harness.effects.openExternal = (url) => {
+      externalUrls.push(url);
+    };
+
+    await harness.controller.initialize();
+    await harness.controller.onServiceEvent(event("ui", {
+      targetClientId: "detail-test",
+      command: "open",
+      target,
+    }), viewport);
+
+    const rendered = harness.controller.state.resolvedSelectedText;
+    expect(rendered.startsWith("# Remote entities\n\nRetained Jira body.")).toBe(true);
+    expect(harness.controller.state.resolvedProvenance?.runs).toMatchObject([
+      {start:0,end:38,origin:{kind:'source',slices:[{start:0,end:38,document:{
+        subject:{kind:'resource',resourceId:target.resourceId},text:'# Remote entities\n\nRetained Jira body.',
+        resource:{revision:{revision:{kind:'jira',validator:{kind:'updated-at',value:'2026-09-17T12:00:00.000Z'}}},adapter:{id:'jira.issue-markdown',version:1}},
+      }}]}},
+      {start:38,origin:{kind:'generated',reason:'resource presentation and diagnostics'}},
+    ]);
+    expect(rendered).toContain('"status": "In Progress"');
+    expect(rendered).toContain('"labels": [');
+    expect(rendered).toContain("- Provider revision: Jira updated-at 2026-09-17T12:00:00.000Z");
+    expect(rendered).toContain("- Entity ID: `10042`");
+    expect(rendered).toContain("- Adapter: `jira.issue-markdown@1`");
+    expect(rendered).toContain("- Freshness: **fresh**");
+    expect(rendered).not.toContain("Provider-advertised command");
+    expect(rendered).not.toContain("## Available commands");
+
+    await harness.controller.dispatch({ type: "resource.open-external" }, viewport);
+    expect(externalUrls).toEqual(["https://jira.example.test/browse/PIE-255"]);
+    await harness.controller.dispatch({ type: "resource.refresh" }, viewport);
+    expect(harness.controller.state.status).toBe("Jira resource refreshed");
+    expect(harness.controller.state.resolvedSelectedText).toContain("Refreshed Jira body.");
+    expect(harness.controller.state.resolvedSelectedText).toContain("## Available commands");
+    expect(harness.controller.state.resolvedSelectedText).toContain("Create comment");
+    expect(harness.controller.state.resolvedSelectedText).not.toContain(
+      "Provider-advertised command",
+    );
+  });
+
+  test("keeps application deep-link-only resources useful without inline content", async () => {
+    const harness = createHarness(makeBlock({ id: "application-anchor" }));
+    const target = {
+      kind: "resource" as const,
+      resourceId: "10000000-0000-4000-8000-000000000256",
+    };
+    const source = {
+      id: "20000000-0000-4000-8000-000000000256",
+      name: "Team chat",
+      provider: "application" as const,
+      boundary: {
+        kind: "application" as const,
+        scheme: "slack",
+        authority: "channel",
+        namespace: "workspace",
+      },
+      policy: { deniedCapabilities: [] },
+      version: 1,
+      createdAt: "created",
+      updatedAt: "updated",
+    };
+    const result: ResourceDescription = {
+      resource: {
+        id: target.resourceId,
+        sourceId: source.id,
+        provider: "application",
+        address: { kind: "application", uri: "slack://channel/workspace/C0123" },
+        version: 1,
+        addressVersion: 1,
+        mediaType: null,
+        createdAt: "created",
+        updatedAt: "updated",
+      },
+      source,
+      requestedRevision: null,
+      capabilities: deriveResourceCapabilityReport(source, true),
+      web: null,
+      webHistory: null,
+      webStatus: null,
+      remoteEntity: null,
+      remoteStatus: null,
+      availableCommands: [],
+    };
+    let description: ResourceDescription = {
+      ...result,
+      presentation: negotiateResourcePresentation(result, TUI_RESOURCE_PRESENTATION_CONTEXT),
+    };
+    const externalUrls: string[] = [];
+    harness.effects.loadTarget = async () => ({ kind: "resource", target, description });
+    harness.effects.openExternal = (url) => {
+      externalUrls.push(url);
+    };
+
+    await harness.controller.initialize();
+    await harness.controller.onServiceEvent(event("ui", {
+      targetClientId: "detail-test",
+      command: "open",
+      target,
+    }), viewport);
+
+    expect(harness.controller.state.resolvedSelectedText).toContain(
+      "# slack://channel/workspace/C0123",
+    );
+    expect(harness.controller.state.resolvedSelectedText).toContain(
+      "- Provider: `application`",
+    );
+    expect(harness.controller.state.resolvedSelectedText).toContain(
+      "- External URL: `slack://channel/workspace/C0123`",
+    );
+    expect(harness.controller.state.resolvedSelectedText).toContain(
+      "- Open externally: Press Alt+O",
+    );
+    expect(harness.controller.state.resolvedSelectedText).not.toContain(
+      "Retained Jira body",
+    );
+    await harness.controller.dispatch({ type: "resource.open-external" }, viewport);
+    expect(externalUrls).toEqual(["slack://channel/workspace/C0123"]);
+    description = {
+      ...result,
+      presentation: negotiateResourcePresentation(result, {
+        ...TUI_RESOURCE_PRESENTATION_CONTEXT,
+        host: {
+          ...TUI_RESOURCE_PRESENTATION_CONTEXT.host,
+          capabilities: ["read", "refresh"],
+        },
+      }),
+    };
+    await harness.controller.onServiceEvent({
+      ...event("resource-catalog"),
+      resourceId: result.resource.id,
+    }, viewport);
+    expect(harness.controller.state.resolvedSelectedText).toContain(
+      "This Detail host has no open-external executor",
+    );
+    await harness.controller.dispatch({ type: "resource.open-external" }, viewport);
+    expect(externalUrls).toEqual(["slack://channel/workspace/C0123"]);
+  });
+
+  test("selects PDF page evidence and refreshes filesystem PDFs", async () => {
+    const harness = createHarness(makeBlock());
+    const target = {
+      kind: "resource" as const,
+      resourceId: "30000000-0000-4000-8000-000000000254",
+    };
+    const markdown = "## Page 1\n\nStable PDF quote";
+    const quoteStart = markdown.indexOf("Stable PDF quote");
+    const source = {
+      id: "20000000-0000-4000-8000-000000000254",
+      name: "PDF files",
+      provider: "filesystem" as const,
+      boundary: { kind: "filesystem" as const, root: "/workspace" },
+      policy: { deniedCapabilities: [] },
+      version: 1,
+      createdAt: "created",
+      updatedAt: "updated",
+    };
+    const resource = {
+      id: target.resourceId,
+      sourceId: source.id,
+      provider: "filesystem" as const,
+      address: { kind: "filesystem" as const, path: "evidence.pdf" },
+      version: 1,
+      addressVersion: 1,
+      mediaType: "application/pdf",
+      createdAt: "created",
+      updatedAt: "updated",
+    };
+    const revision = {
+      resourceId: resource.id,
+      addressVersion: 1,
+      revision: { kind: "filesystem" as const, mtimeNs: "1", size: "10" },
+    };
+    const snapshot = {
+      id: "pdf-snapshot",
+      resourceId: resource.id,
+      addressVersion: 1,
+      locator: "evidence.pdf",
+      contentHash: "a".repeat(64),
+      revision,
+      capturedAt: "2026-09-17T12:00:00.000Z",
+      bytesAvailable: true,
+      evictedAt: null,
+    };
+    const representation = {
+      id: "pdf-text-representation",
+      sourceSnapshotId: snapshot.id,
+      mediaType: "text/markdown" as const,
+      adapter: { id: "fixture.pdf-text", version: 1 },
+      contentHash: "b".repeat(64),
+      derivedAt: "2026-09-17T12:00:01.000Z",
+      contentAvailable: true,
+      evictedAt: null,
+    };
+    const nativeRepresentation = {
+      ...representation,
+      id: "pdf-native-representation",
+      mediaType: "application/pdf" as const,
+      adapter: { id: "builtin.pdf-native", version: 1 },
+      contentHash: snapshot.contentHash,
+    };
+    const description: ResourceDescription = {
+      resource,
+      source,
+      requestedRevision: null,
+      capabilities: deriveResourceCapabilityReport(source, true),
+      pdf: {
+        markdown,
+        pages: [{
+          page: 1,
+          width: 300,
+          height: 400,
+          start: 0,
+          end: markdown.length,
+          spans: [{
+            start: quoteStart,
+            end: markdown.length,
+            region: { x: 36, y: 40, width: 120, height: 16 },
+          }],
+        }],
+        sourceSnapshot: snapshot,
+        representation,
+        nativeRepresentation,
+      },
+      pdfHistory: {
+        sourceSnapshots: [snapshot],
+        representations: [representation, nativeRepresentation],
+      },
+      web: null,
+      webHistory: null,
+      webStatus: null,
+      remoteEntity: null,
+      remoteStatus: null,
+      availableCommands: [],
+    };
+    harness.effects.loadTarget = async () => ({ kind: "resource", target, description });
+    let refreshes = 0;
+    harness.effects.refreshResource = async () => {
+      refreshes += 1;
+      return description;
+    };
+    await harness.controller.initialize();
+    await harness.controller.onServiceEvent(event("ui", {
+      targetClientId: "detail-test",
+      command: "open",
+      target,
+    }), viewport);
+    await harness.controller.dispatch({ type: "resource.refresh" }, viewport);
+    expect(refreshes).toBe(1);
+    expect(harness.controller.state.status).toBe("PDF resource refreshed");
+
+    const bufferBeforeSelection = harness.controller.state.buffer;
+    const documentLines = harness.controller.state.resolvedSelectedText.split("\n");
+    for (const sourceLine of [markdown.split("\n").length, documentLines.indexOf("## PDF resource")]) {
+      expect(sourceLine).toBeGreaterThanOrEqual(markdown.split("\n").length);
+      await harness.controller.dispatch({
+        type: "annotation.selection.begin",
+        sourceLine,
+        sourceColumn: 0,
+      }, viewport);
+      expect(harness.controller.state.mode).toBe("preview");
+      expect(harness.controller.state.buffer).toBe(bufferBeforeSelection);
+      expect(harness.controller.state.annotationDraft).toBeUndefined();
+      expect(harness.controller.state.status).toBe(
+        "Select PDF text, not resource metadata, before adding annotations",
+      );
+    }
+
+    await harness.controller.dispatch({
+      type: "annotation.selection.begin",
+      sourceLine: 2,
+      sourceColumn: 0,
+    }, viewport);
+    await harness.controller.dispatch({
+      type: "annotation.selection.place",
+      row: 2,
+      column: "Stable PDF quote".length,
+      extend: true,
+    }, viewport);
+    await harness.controller.dispatch({ type: "comment.begin" }, viewport);
+    expect(harness.controller.state.annotationDraft?.target).toMatchObject({
+      representation: {
+        id: representation.id,
+        sourceSnapshot: { kind: "resource", sourceSnapshotId: snapshot.id },
+      },
+      anchor: {
+        kind: "pdf-page-region",
+        page: 1,
+        exact: "Stable PDF quote",
+        regions: [{ x: 36, y: 40, width: 120, height: 16 }],
+      },
+    });
+  });
+  test("ignores a late resource load after a newer mixed-target navigation", async () => {
+    const initial = makeBlock({ id: "block-anchor", text: "Anchor" });
+    const harness = createHarness(initial);
+    await harness.controller.initialize();
+    const originalLoadTarget = harness.effects.loadTarget;
+    const slowTarget = {
+      kind: "resource" as const,
+      resourceId: "10000000-0000-4000-8000-000000000001",
+    };
+    const slow = Promise.withResolvers<DetailReadyDocument>();
+
+    harness.effects.loadTarget = (target) =>
+      target.kind === "resource" && target.resourceId === slowTarget.resourceId
+        ? slow.promise
+        : originalLoadTarget(target);
+
+    const slowNavigation = harness.controller.onServiceEvent(event("ui", {
+      targetClientId: "detail-test",
+      command: "open",
+      target: slowTarget,
+    }), viewport);
+    await harness.controller.onServiceEvent(event("ui", {
+      targetClientId: "detail-test",
+      command: "open",
+      target: { kind: "block", blockId: "newer-block" },
+    }), viewport);
+    slow.resolve(await originalLoadTarget(slowTarget));
+    await slowNavigation;
+
+    expect(harness.controller.state.document).toMatchObject({
+      kind: "ready",
+      document: {
+        kind: "block",
+        target: { blockId: "newer-block" },
+      },
+    });
+  });
+
+  test("retains a failed resource target without invoking block projections", async () => {
+    const harness = createHarness(makeBlock({ id: "block-anchor" }));
+    await harness.controller.initialize();
+    const projectedBefore = harness.calls.projectedReads.length;
+    harness.effects.loadTarget = async () => {
+      throw new Error("provider offline");
+    };
+    const target = {
+      kind: "resource" as const,
+      resourceId: "10000000-0000-4000-8000-000000000009",
+    };
+
+    await harness.controller.onServiceEvent(event("ui", {
+      targetClientId: "detail-test",
+      command: "open",
+      target,
+    }), viewport);
+
+    expect(harness.controller.state.document).toEqual({
+      kind: "failed",
+      target,
+      message: "provider offline",
+    });
+    expect(harness.controller.state.target).toEqual(target);
+    expect(harness.calls.projectedReads).toHaveLength(projectedBefore);
+  });
+
+  test("returns through document history after opening its link", async () => {
+    const previous = makeBlock({ id: "previous-block", text: "Previous" });
+    const previewed = makeBlock({ id: "c021d559-preview", text: "See linked block" });
+    const harness = createHarness(previous);
+    await harness.controller.initialize();
+
+    harness.setSelection({ selected: previewed, ancestors: [], children: [] });
+    await harness.controller.onServiceEvent(
+      event("ui", { targetClientId: "detail-test", command: "preview", target: { kind: "block", blockId: previewed.id } }),
+      viewport,
+    );
+    await harness.controller.dispatch({
+      type: "reference.open",
+      target: { kind: "block", value: "linked-block" },
+    }, viewport);
+    expect(harness.controller.state.context.selected?.id).toBe(previewed.id);
+    await harness.controller.handleDestinationChooserKeypress("", { name: "return" });
+    expect(harness.controller.state.context.selected?.id).toBe("linked-block");
+
+    await harness.controller.dispatch({ type: "navigation.back" }, viewport);
+    expect(harness.controller.state.context.selected?.id).toBe(previewed.id);
+    await harness.controller.dispatch({ type: "navigation.forward" }, viewport);
+    expect(harness.controller.state.context.selected?.id).toBe("linked-block");
+  });
+
+  test("routes plain-click links directly to the linked Detail", async () => {
+    const source = makeBlock({ id: "plain-source", text: "See ((plain-target#decision))" });
+    const harness = createHarness(source);
+    await harness.controller.initialize();
+
+    await harness.controller.dispatch({
+      type: "reference.open",
+      target: { kind: "block", value: "plain-target", fragmentId: "decision" },
+      routing: "linked",
+    }, viewport);
+
+    expect(harness.controller.state.destinationChooser.active).toBe(false);
+    expect(harness.calls.navigationDispatches).toEqual([{
+      blockId: "plain-target",
+      intent: "open",
+      preserveSource: false,
+      fragmentId: "decision",
+    }]);
+    expect(harness.controller.state.context.selected?.id).toBe("plain-target");
+    expect(harness.controller.state.target).toMatchObject({ kind: "block", fragmentId: "decision" });
+  });
+
+  test("reports a missing linked destination without replacing Current or opening another pane", async () => {
+    const source = makeBlock({ id: "locked-source", text: "See ((locked-target))" });
+    const harness = createHarness(source);
+    await harness.controller.initialize();
+    harness.effects.dispatchNavigation = async () => {
+      throw new Error(
+        "No linked destination · choose a Detail",
+      );
+    };
+
+    await harness.controller.dispatch({
+      type: "reference.open",
+      target: { kind: "block", value: "locked-target" },
+      routing: "linked",
+    }, viewport);
+    expect(harness.controller.state.destinationChooser.openHereOnEnter).toBe(true);
+
+    expect(harness.controller.state.destinationChooser.active).toBe(true);
+    expect(harness.controller.state.context.selected?.id).toBe(source.id);
+    expect(harness.calls.openedDetails).toEqual([]);
+    await harness.controller.handleDestinationChooserKeypress("", {name:"return"});
+    expect(harness.controller.state.context.selected?.id).toBe("locked-target");
+    expect(harness.controller.state.destinationChooser.active).toBe(false);
+  });
+  test("defers chooser routing without navigating an available Detail", async () => {
+    const source = makeBlock({ id: "modified-source", text: "See ((modified-target))" });
+    const harness = createHarness(source);
+    await harness.controller.initialize();
+
+    await harness.controller.dispatch({
+      type: "reference.open",
+      target: { kind: "block", value: "modified-target" },
+      routing: "chooser",
+    }, viewport);
+
+    expect(harness.controller.state.destinationChooser.active).toBe(true);
+    expect(harness.calls.navigationDispatches).toEqual([]);
+    expect(harness.controller.state.context.selected?.id).toBe(source.id);
+  });
+
+  test("keeps missing targets and mutable buffers safe on plain-click routing", async () => {
+    const editing = createHarness(makeBlock({
+      id: "editing-source",
+      text: "See ((editing-target))",
+    }));
+    await editing.controller.initialize();
+    await editing.controller.dispatch({ type: "edit.begin" }, viewport);
+    await editing.controller.dispatch({
+      type: "reference.open",
+      target: { kind: "block", value: "editing-target" },
+      routing: "linked",
+    }, viewport);
+    expect(editing.calls.navigationDispatches).toEqual([]);
+    expect(editing.controller.state.destinationChooser.active).toBe(false);
+    expect(editing.controller.state.status).toBe(
+      "Finish or cancel the active edit before opening another target",
+    );
+
+    const missing = createHarness(makeBlock({
+      id: "missing-source",
+      text: "See ((missing-target))",
+    }));
+    await missing.controller.initialize();
+    missing.effects.resolveReference = async () => {
+      throw new Error("No block matches missing-target");
+    };
+    await expect(missing.controller.dispatch({
+      type: "reference.open",
+      target: { kind: "block", value: "missing-target" },
+      routing: "linked",
+    }, viewport)).rejects.toThrow("No block matches missing-target");
+    expect(missing.calls.navigationDispatches).toEqual([]);
+    expect(missing.controller.state.context.selected?.id).toBe("missing-source");
+  });
+
+  test("keeps Current unchanged until a destination is confirmed", async () => {
+    const source = makeBlock({ id: "source-block", text: "See ((target01))" });
+    const harness = createHarness(source);
+    await harness.controller.initialize();
+
+    await harness.controller.dispatch({ type: "reference.follow" }, viewport);
+
+    expect(harness.controller.state.context.selected?.id).toBe(source.id);
+    expect(harness.controller.state.destinationChooser.active).toBe(true);
+    expect(harness.calls.navigationDispatches).toEqual([]);
+    await harness.controller.handleDestinationChooserKeypress("", { name: "escape" });
+    expect(harness.controller.state.context.selected?.id).toBe(source.id);
+  });
+
+  test("replaces Current only after explicit Shift+R", async () => {
+    const source = makeBlock({ id: "locked-source", text: "See ((target01))" });
+    const harness = createHarness(source);
+    await harness.controller.initialize();
+    await harness.controller.dispatch({ type: "reference.follow" }, viewport);
+
+    expect(harness.controller.state.context.selected?.id).toBe(source.id);
+    await harness.controller.handleDestinationChooserKeypress("R", {
+      name: "r",
+      shift: true,
+    });
+
+    expect(harness.controller.state.context.selected?.id).toBe("target01");
+    expect(harness.calls.navigationDispatches).toEqual([]);
+  });
+
+  test("routes explicit split choices without mutating the current Detail", async () => {
+    for (const [input, direction] of [
+      ["r", "right"],
+      ["d", "down"],
+    ] as const) {
+      const source = makeBlock({ id: `source-${direction}`, text: "See ((target01))" });
+      const harness = createHarness(source);
+      await harness.controller.initialize();
+      await harness.controller.dispatch({ type: "reference.follow" }, viewport);
+      await harness.controller.handleDestinationChooserKeypress(input, { name: input });
+
+      expect(harness.calls.openedDetails).toEqual([{ blockId: "target01", direction }]);
+      expect(harness.controller.state.context.selected?.id).toBe(source.id);
+      expect(harness.controller.state.destinationChooser.active).toBe(false);
+    }
+  });
+  test("uses configured directional bindings in the Detail destination chooser", async () => {
+    const actionKeymap = new OutlinerActionKeymap("<test>", {
+      "detail.pane.right": ["Shift+ArrowRight"],
+      "detail.pane.below": ["Shift+ArrowDown"],
+    });
+    for (const [keyName, direction] of [
+      ["right", "right"],
+      ["down", "down"],
+    ] as const) {
+      const source = makeBlock({ id: `source-${direction}`, text: "See ((target01))" });
+      const harness = createHarness(source);
+      const controller = createDetailController(harness.effects, undefined, { actionKeymap });
+      await controller.initialize();
+      await controller.dispatch({ type: "reference.follow" }, viewport);
+      await controller.handleDestinationChooserKeypress("", {
+        name: keyName,
+        shift: true,
+      });
+
+      expect(harness.calls.openedDetails).toEqual([{ blockId: "target01", direction }]);
+      expect(controller.state.context.selected?.id).toBe(source.id);
+      expect(controller.state.destinationChooser.active).toBe(false);
+    }
+  });
+
+
+  test("preserves fragment identity when explicitly splitting after a missing destination", async () => {
+    const source = makeBlock({ text: "See ((target01^decision))" });
+
+    const explicit = createHarness(source);
+    await explicit.controller.initialize();
+    await explicit.controller.dispatch({ type: "reference.follow" }, viewport);
+    await explicit.controller.handleDestinationChooserKeypress("d", { name: "d" });
+    expect(explicit.calls.openedDetails).toEqual([{
+      blockId: "target01",
+      direction: "down",
+      fragmentId: "decision",
+    }]);
+
+    const fallback = createHarness(source);
+    fallback.effects.dispatchNavigation = async () => {
+      throw new Error("No linked destination · choose a Detail");
+    };
+    await fallback.controller.initialize();
+    await fallback.controller.dispatch({ type: "reference.follow" }, viewport);
+    await fallback.controller.handleDestinationChooserKeypress("", { name: "return" });
+    expect(fallback.calls.openedDetails).toEqual([]);
+    await fallback.controller.handleDestinationChooserKeypress("r", {name: "r"});
+    expect(fallback.calls.openedDetails).toEqual([{
+      blockId: "target01",
+      direction: "right",
+      fragmentId: "decision",
+    }]);
+  });
+
+  test("applies a split Detail's startup fragment once", async () => {
+    const target = makeBlock({
+      id: "target01",
+      text: "Target\n\n## Decision ^decision\nBody",
+    });
+    const harness = createHarness(
+      target,
+      null,
+      undefined,
+      undefined,
+      { initialTarget: { kind: "block", blockId: target.id, fragmentId: "decision" } },
+    );
+
+    await harness.controller.initialize();
+
+    expect(harness.controller.state.target).toMatchObject({ kind: "block", fragmentId: "decision" });
+    expect(harness.controller.state.previewOffset).toBe(2);
+  });
+
+  test("keeps explicit linked choice available after all Details reject it", async () => {
+    const source = makeBlock({ text: "See ((target01))" });
+    const harness = createHarness(source);
+    harness.effects.dispatchNavigation = async () => {
+      throw new Error("No linked destination · choose a Detail");
+    };
+    await harness.controller.initialize();
+    await harness.controller.dispatch({ type: "reference.follow" }, viewport);
+    await harness.controller.handleDestinationChooserKeypress("f", { name: "f" });
+
+    expect(harness.controller.state.destinationChooser.active).toBe(true);
+    expect(harness.controller.state.destinationChooser.status).toContain(
+      "No linked destination",
+    );
+    expect(harness.calls.openedDetails).toEqual([]);
+    expect(harness.controller.state.context.selected?.id).toBe(source.id);
+  });
+
+  test("dismisses a pending destination choice on timeout and target change", async () => {
+    let dismissOnIdle = () => {};
+    const source = makeBlock({ id: "source-block", text: "See ((target01))" });
+    const harness = createHarness(
+      source,
+      null,
+      undefined,
+      undefined,
+      {
+        destinationTimeoutMs: 1_000,
+        destinationScheduler: {
+          set(callback) {
+            dismissOnIdle = callback;
+            return callback;
+          },
+          clear() {},
+        },
+      },
+    );
+    await harness.controller.initialize();
+    await harness.controller.dispatch({ type: "reference.follow" }, viewport);
+    dismissOnIdle();
+    expect(harness.controller.state.destinationChooser.active).toBe(false);
+    expect(harness.calls.navigationDispatches).toEqual([]);
+    expect(harness.calls.followedReferences).toEqual([]);
+
+    await harness.controller.dispatch({ type: "reference.follow" }, viewport);
+    harness.setSelection({
+      selected: makeBlock({ id: "other-target", text: "Other" }),
+      ancestors: [],
+      children: [],
+    });
+    await harness.controller.onServiceEvent(
+      event("ui", { targetClientId: "detail-test", command: "preview", target: { kind: "block", blockId: "other-target" },  }),
+      viewport,
+    );
+    expect(harness.controller.state.destinationChooser.active).toBe(false);
+    expect(harness.calls.followedReferences).toEqual([]);
+  });
+
+  test("disposes a pending choice when only the current fragment changes", async () => {
+    const source = makeBlock({
+      id: "source-block",
+      text: "## First ^first\nSee ((target01))\n## Second ^second",
+    });
+    const ready = Promise.withResolvers<void>();
+    const harness = createHarness(
+      source,
+      null,
+      undefined,
+      undefined,
+      { initialTarget: { kind: "block", blockId: source.id, fragmentId: "first" } },
+      state => { if (state.readStatus === "ready") ready.resolve(); },
+    );
+    await harness.controller.initialize();
+    await ready.promise;
+    await harness.controller.dispatch({ type: "reference.follow" }, viewport);
+    expect(harness.controller.state.destinationChooser.active).toBe(true);
+
+    await harness.controller.onServiceEvent(
+      event("ui", {
+        targetClientId: "detail-test",
+        command: "replace",
+        target: { kind: "block", blockId: source.id, fragmentId: "second" },
+      }),
+      viewport,
+    );
+
+    expect(harness.controller.state.target).toMatchObject({ kind: "block", fragmentId: "second" });
+    expect(harness.controller.state.destinationChooser.active).toBe(false);
+    expect(harness.calls.followedReferences).toEqual([]);
+  });
+
+  test("follows symbolic references through the page-address path", async () => {
+    const harness = createHarness(makeBlock({ text: "See [[Future Page]]" }));
+    await harness.controller.initialize();
+
+    await harness.controller.dispatch({ type: "reference.follow" }, viewport);
+
+    expect(harness.calls.followedReferences).toEqual([]);
+    await harness.controller.handleDestinationChooserKeypress("f", { name: "f" });
+    expect(harness.calls.followedReferences).toEqual([{
+      kind: "page",
+      value: "Future Page",
+    }]);
+  });
+
+  test("follows bare Work IDs for the configured project prefix", async () => {
+    const harness = createHarness(
+      makeBlock({ text: "See ABC-001 and PIE-001" }),
+      null,
+      async (text) => ({ text, references: [], workIdPrefix: "ABC" }),
+    );
+    await harness.controller.initialize();
+
+    await harness.controller.dispatch({ type: "reference.follow" }, viewport);
+
+    expect(harness.controller.state.workIdPrefix).toBe("ABC");
+    expect(harness.calls.followedReferences).toEqual([]);
+    await harness.controller.handleDestinationChooserKeypress("f", { name: "f" });
+    expect(harness.calls.followedReferences).toEqual([{
+      kind: "work",
+      value: "ABC-001",
+    }]);
+  });
+
+  test("defaults ordinary file blocks to file mode and other blocks to preview", async () => {
+    const fileHarness = createHarness(
+      makeBlock({ properties: [{ key: "file", value: "src/example.ts" }] }),
+      filePreview(),
+    );
+    const previewHarness = createHarness(makeBlock());
+
+    await fileHarness.controller.initialize();
+    await previewHarness.controller.initialize();
+
+    expect(fileHarness.controller.state.mode).toBe("file");
+    expect(previewHarness.controller.state.mode).toBe("preview");
+  });
+
+  test("navigates every line introduced by resolved references", async () => {
+    const resolvedLines = ["Reference", "expanded line one", "expanded line two", "expanded line three"];
+    const harness = createHarness(
+      makeBlock({ text: "((reference))" }),
+      null,
+      async () => ({ text: resolvedLines.join("\n"), references: [] }),
+    );
+    await harness.controller.initialize();
+
+    expect(harness.controller.state.context.selected?.text.split(/\r?\n/)).toHaveLength(1);
+    for (let line = 1; line < resolvedLines.length; line += 1) {
+      await harness.controller.dispatch({ type: "preview.navigate", direction: "down" }, viewport);
+      expect(harness.controller.state.previewOffset).toBe(line);
+    }
+  });
+
+  test("jumps preview navigation to semantic top and bottom boundaries", async () => {
+    const harness = createHarness(
+      makeBlock({ text: "one\ntwo\nthree\nfour" }),
+      null,
+      async (text) => ({ text, references: [] }),
+    );
+    await harness.controller.initialize();
+
+    await harness.controller.dispatch({ type: "preview.navigate", direction: "bottom" }, viewport);
+    expect(harness.controller.state.previewOffset).toBe(3);
+    await harness.controller.dispatch({ type: "preview.navigate", direction: "top" }, viewport);
+    expect(harness.controller.state.previewOffset).toBe(0);
+  });
+
+  test("defers content refresh while rejecting navigation during an edit", async () => {
+    const harness = createHarness(makeBlock());
+    await harness.controller.initialize();
+    await harness.controller.dispatch({ type: "edit.begin" }, viewport);
+    await harness.controller.dispatch({ type: "buffer.insert", text: "!" }, viewport);
+    const protectedText = harness.controller.state.buffer.text;
+    const selectionLoads = harness.calls.selections;
+
+    await harness.controller.onServiceEvent(event("content"), viewport);
+    await harness.controller.onServiceEvent(
+      event("ui", { targetClientId: "detail-test", command: "edit", target: { kind: "block", blockId: "other-block" } }),
+      viewport,
+    );
+
+    expect(harness.controller.state.refreshPending).toBe(true);
+    expect(harness.controller.state.buffer.text).toBe(protectedText);
+    expect(harness.calls.selections).toBe(selectionLoads);
+    expect(harness.calls.setSelections).toEqual([]);
+
+    await harness.controller.dispatch({ type: "buffer.cancel" }, viewport);
+    expect(harness.controller.state.mode).toBe("preview");
+    await harness.controller.refreshPendingSelection();
+    expect(harness.calls.selections).toBe(selectionLoads + 1);
+    expect(harness.controller.state.refreshPending).toBe(false);
+    expect(harness.controller.state.context.selected?.id).toBe("block-1");
+  });
+
+  test("connect marks a comment buffer pending without replacing it", async () => {
+    const block = makeBlock({ properties: [{ key: "file", value: "src/example.ts" }] });
+    const harness = createHarness(block, filePreview());
+    await harness.controller.initialize();
+    await harness.controller.dispatch({ type: "comment.begin" }, viewport);
+    await harness.controller.dispatch({ type: "buffer.insert", text: "keep me" }, viewport);
+    const loads = harness.calls.selections;
+
+    await harness.controller.onServiceConnect(viewport);
+
+    expect(harness.controller.state.mode).toBe("comment");
+    expect(harness.controller.state.buffer.text).toBe("keep me");
+    expect(harness.controller.state.refreshPending).toBe(true);
+    expect(harness.calls.selections).toBe(loads);
+    expect(harness.calls.currentBlocks).toEqual([block.id]);
+  });
+  test("keeps disclosure overrides on refresh but clears them for an exact target change", async () => {
+    const harness = createHarness(makeBlock());
+    const region = {
+      id: "annotation:block-1:0",
+      kind: "annotation" as const,
+      sourceSpan: null,
+      parentId: null,
+      childIds: [],
+      focusable: true,
+      disclosure: { defaultExpanded: false, expanded: false },
+      activation: {
+        type: "annotation.disclosure.toggle" as const,
+        regionId: "annotation:block-1:0",
+      },
+    };
+    await harness.controller.initialize();
+    harness.controller.setPreviewRegions([region]);
+    await harness.controller.dispatch({
+      type: "preview.action",
+      action: region.activation,
+    }, viewport);
+    expect(harness.controller.state.previewRegions.disclosureOverrides.get(region.id))
+      .toBe(true);
+
+    await harness.controller.onServiceEvent(
+      event("ui", { targetClientId: "detail-test", command: "preview", target: { kind: "block", blockId: "other-block" },  }),
+      viewport,
+    );
+    expect(harness.controller.state.target).toEqual({ kind: "block", blockId: "other-block" });
+    expect(harness.controller.state.previewRegions.disclosureOverrides.size).toBe(0);
+
+    harness.controller.setPreviewRegions([region]);
+    await harness.controller.dispatch({
+      type: "preview.action",
+      action: region.activation,
+    }, viewport);
+    await harness.controller.onServiceEvent(event("content"), viewport);
+    harness.controller.setPreviewRegions([region]);
+    expect(harness.controller.state.previewRegions.disclosureOverrides.get(region.id))
+      .toBe(true);
+    expect(harness.controller.state.previewRegions.regions[0]!.disclosure?.expanded)
+      .toBe(true);
+  });
+
+  test("paints an A→B→A cache hit before unchanged revalidation settles", async () => {
+    const first = makeBlock({ id: "cache-a", text: "Cached A", updatedAt: "a-1" });
+    const paints: Array<{ id: string | null; projected: string }> = [];
+    const harness = createHarness(
+      first,
+      null,
+      async (text) => ({ text, references: [] }),
+      async (text) => ({ text, provenance: generatedDocument(text, "controlled test projection"), embeds: [], embedRanges: [] }),
+      {},
+      (state) => {
+        paints.push({
+          id: state.context.selected?.id ?? null,
+          projected: state.projectedSelectedText,
+        });
+      },
+    );
+    await harness.controller.initialize();
+    const originalLoadTarget = harness.effects.loadTarget;
+    await harness.controller.onServiceEvent(event("ui", {
+      targetClientId: "detail-test",
+      command: "preview",
+      target: { kind: "block", blockId: "cache-b" },
+    }), viewport);
+    const revalidation = Promise.withResolvers<DetailReadyDocument>();
+    harness.effects.loadTarget = (target) =>
+      target.kind === "block" && target.blockId === first.id
+        ? revalidation.promise
+        : originalLoadTarget(target);
+
+    const revisit = harness.controller.onServiceEvent(event("ui", {
+      targetClientId: "detail-test",
+      command: "preview",
+      target: { kind: "block", blockId: first.id },
+    }), viewport);
+
+    expect(harness.controller.state.context.selected?.id).toBe(first.id);
+    expect(harness.controller.state.projectedSelectedText).toBe(first.text);
+    expect(paints.at(-1)).toEqual({ id: first.id, projected: first.text });
+    const immediatePaintCount = paints.length;
+    const projectionsBeforeRevalidation = harness.calls.projectedReads.length;
+    revalidation.resolve({
+      kind: "block",
+      target: { kind: "block", blockId: first.id },
+      context: { selected: first, ancestors: [], children: [] },
+    });
+    await revisit;
+
+    expect(paints).toHaveLength(immediatePaintCount);
+    expect(harness.calls.projectedReads).toHaveLength(projectionsBeforeRevalidation + 1);
+  });
+
+  test("atomically replaces a cached projection when the authoritative edit revision changes", async () => {
+    const first = makeBlock({ id: "changed-a", text: "Old A", updatedAt: "a-1" });
+    const paints: Array<{ revision: number | null; projected: string }> = [];
+    const harness = createHarness(
+      first,
+      null,
+      async (text) => ({ text, references: [] }),
+      async (text) => ({ text: `projected:${text}`, provenance: generatedDocument(`projected:${text}`, "controlled test projection"), embeds: [], embedRanges: [] }),
+      {},
+      (state) => {
+        paints.push({
+          revision: state.context.selected?.revision ?? null,
+          projected: state.projectedSelectedText,
+        });
+      },
+    );
+    await harness.controller.initialize();
+    const originalLoadTarget = harness.effects.loadTarget;
+    await harness.controller.onServiceEvent(event("ui", {
+      targetClientId: "detail-test",
+      command: "preview",
+      target: { kind: "block", blockId: "changed-b" },
+    }), viewport);
+    const revalidation = Promise.withResolvers<DetailReadyDocument>();
+    harness.effects.loadTarget = (target) =>
+      target.kind === "block" && target.blockId === first.id
+        ? revalidation.promise
+        : originalLoadTarget(target);
+
+    const revisit = harness.controller.onServiceEvent(event("ui", {
+      targetClientId: "detail-test",
+      command: "preview",
+      target: { kind: "block", blockId: first.id },
+    }), viewport);
+    expect(harness.controller.state.context.selected?.revision).toBe(1);
+    expect(harness.controller.state.projectedSelectedText).toBe("projected:Old A");
+
+    const changed = makeBlock({ id: first.id, text: "New A", revision: 2, updatedAt: "a-1" });
+    revalidation.resolve({
+      kind: "block",
+      target: { kind: "block", blockId: first.id },
+      context: { selected: changed, ancestors: [], children: [] },
+    });
+    await revisit;
+
+    expect(harness.controller.state.context.selected?.revision).toBe(2);
+    expect(harness.controller.state.projectedSelectedText).toBe("projected:New A");
+    expect(paints).not.toContainEqual({
+      revision: 2,
+      projected: "projected:Old A",
+    });
+  });
+
+  test("evicts the least-recently-used block target at the fixed cache bound", async () => {
+    const first = makeBlock({ id: "evicted-a", text: "First" });
+    const harness = createHarness(first);
+    await harness.controller.initialize();
+    for (let index = 0; index < DETAIL_BLOCK_CACHE_TARGET_LIMIT; index += 1) {
+      await harness.controller.onServiceEvent(event("ui", {
+        targetClientId: "detail-test",
+        command: "preview",
+        target: { kind: "block", blockId: `cache-target-${index}` },
+      }), viewport);
+    }
+    const originalLoadTarget = harness.effects.loadTarget;
+    const reload = Promise.withResolvers<DetailReadyDocument>();
+    harness.effects.loadTarget = (target) =>
+      target.kind === "block" && target.blockId === first.id
+        ? reload.promise
+        : originalLoadTarget(target);
+
+    const revisit = harness.controller.onServiceEvent(event("ui", {
+      targetClientId: "detail-test",
+      command: "preview",
+      target: { kind: "block", blockId: first.id },
+    }), viewport);
+
+    expect(harness.controller.state.document).toEqual({
+      kind: "loading",
+      target: { kind: "block", blockId: first.id },
+    });
+    reload.resolve({
+      kind: "block",
+      target: { kind: "block", blockId: first.id },
+      context: { selected: first, ancestors: [], children: [] },
+    });
+    await revisit;
+  });
+
+  test("suppresses an obsolete cached revalidation before the newest preview loads", async () => {
+    const first = makeBlock({ id: "superseded-a", text: "Old A", updatedAt: "a-1" });
+    const paints: string[] = [];
+    const harness = createHarness(
+      first,
+      null,
+      async (text) => ({ text, references: [] }),
+      async (text) => ({ text, provenance: generatedDocument(text, "controlled test projection"), embeds: [], embedRanges: [] }),
+      {},
+      (state) => {
+        if (state.context.selected) {
+          paints.push(`${state.context.selected.id}:${state.context.selected.text}`);
+        }
+      },
+    );
+    await harness.controller.initialize();
+    const originalLoadTarget = harness.effects.loadTarget;
+    await harness.controller.onServiceEvent(event("ui", {
+      targetClientId: "detail-test",
+      command: "preview",
+      target: { kind: "block", blockId: "superseded-b" },
+    }), viewport);
+    const obsolete = Promise.withResolvers<DetailReadyDocument>();
+    harness.effects.loadTarget = (target) =>
+      target.kind === "block" && target.blockId === first.id
+        ? obsolete.promise
+        : originalLoadTarget(target);
+    const staleLoad = harness.controller.onServiceEvent(event("ui", {
+      targetClientId: "detail-test",
+      command: "preview",
+      target: { kind: "block", blockId: first.id },
+    }), viewport);
+
+    harness.controller.supersedePassivePreview();
+    obsolete.resolve({
+      kind: "block",
+      target: { kind: "block", blockId: first.id },
+      context: {
+        selected: makeBlock({ id: first.id, text: "Obsolete A", updatedAt: "a-2" }),
+        ancestors: [],
+        children: [],
+      },
+    });
+    await staleLoad;
+    await harness.controller.onServiceEvent(event("ui", {
+      targetClientId: "detail-test",
+      command: "preview",
+      target: { kind: "block", blockId: "superseded-c" },
+    }), viewport);
+
+    expect(harness.controller.state.context.selected?.id).toBe("superseded-c");
+    expect(paints).not.toContain("superseded-a:Obsolete A");
+  });
+
+});
+
+describe("detail controller saves and annotations", () => {
+  test("Comment without a selection stays a general note comment and preserves its draft target", async () => {
+    const note = makeBlock({ text: "A note\n\nSome useful context" });
+    const { controller, calls } = createHarness(note, null, async text => ({ text, references: [] }));
+    await controller.initialize();
+    await controller.dispatch({ type: "annotation.comment.direct", capture: null }, viewport);
+    expect(controller.state.mode).toBe("comment");
+    expect(controller.state.annotationDraft?.target).toMatchObject({
+      representation: { subject: { kind: "block", blockId: note.id }, sourceSnapshot: { kind: "block", updatedAt: note.updatedAt } },
+      anchor: { kind: "whole-subject" },
+    });
+    await controller.dispatch({ type: "buffer.insert", text: "Looks ready" }, viewport);
+    await controller.handleUiCommand({ command: "preview", targetClientId: "detail-test", target: { kind: "block", blockId: "elsewhere" } }, viewport);
+    expect(controller.state.buffer.text).toBe("Looks ready");
+    expect(controller.state.target).toEqual({ kind: "block", blockId: note.id });
+    await controller.dispatch({ type: "buffer.save" }, viewport);
+    expect(calls.creates).toHaveLength(1);
+    expect(calls.creates[0]!.input).toMatchObject({ body: "Looks ready", target: { anchor: { kind: "whole-subject" } } });
+    const comments = buildDetailAnsiPreview(controller.state, 40).annotationLines.join("\n");
+    expect(comments).toContain("general");
+    expect(comments).not.toContain("unpositioned");
+    expect(comments).not.toContain("Original quote:");
+    await controller.dispatch({ type: "annotation.comment.direct", capture: null }, viewport);
+    await controller.dispatch({ type: "buffer.cancel" }, viewport);
+    expect(controller.state.mode).toBe("preview");
+    expect(calls.focuses).toBe(0);
+    expect(calls.creates).toHaveLength(1);
+  });
+
+  test("external-editor return combines independent edits without a recovery modal",async()=>{
+    const {OutlinerStore}=await import("../src/store");
+    const {EditRecoveryRepository}=await import("../src/edit-recovery");
+    const store=new OutlinerStore(":memory:"),repository=new EditRecoveryRepository(store);
+    try {
+      const base=store.create("Note\n\nOriginal body"),harness=createHarness(base);
+      harness.effects.recovery={retain:async input=>repository.start(input),list:async id=>repository.list(id),commit:async(record,text)=>repository.commit(record.id,record.revision,text,record.latest.revision,{author:"user",actorId:"detail"}),separate:async record=>repository.separate(record.id,record.revision,{author:"user",actorId:"detail"})};
+      let choice:"later"|"proposal"="later",reviews=0;
+      harness.effects.reviewRecovery=async records=>{reviews++;return {action:choice,record:records[0]!};};
+      const returned=base.text+"\n\nLong new writing 日本語";
+      harness.setExternalEdit(async()=>{
+        store.update(base.id,"Note [type::note]\n\nOriginal body",base.revision,{author:"agent",actorId:"assistance"});
+        return {text:returned,changed:true,recoveryPath:"durable/draft.md",cleanup(){},recoveryInput:{id:crypto.randomUUID(),blockId:base.id,baseRevision:base.revision,baseText:base.text,prelaunchText:base.text,draftText:returned,source:"external-editor"}};
+      });
+      await harness.controller.initialize();await harness.controller.dispatch({type:"edit.external"},viewport);
+      expect(harness.controller.state.buffer.text).toBe(returned.replace("Note","Note [type::note]"));
+      expect(reviews).toBe(0);expect(harness.controller.state.recoveryAccepted).toBe(true);
+      expect(repository.list(base.id)[0]?.originalDraft).toBe(returned);
+      await harness.controller.dispatch({type:"buffer.save"},viewport);
+      expect(reviews).toBe(0);
+      expect(store.get(base.id)?.text).toBe("Note [type::note]\n\nOriginal body\n\nLong new writing 日本語");
+      expect(repository.list(base.id)).toHaveLength(0);
+    }finally{store.close();}
+  });
+
+  for(const scenario of ["undo","undo twice","edit after undo","redo","undo later edit","redo later edit","reopen editor"] as const){
+    test(`automatic merge acceptance follows buffer history: ${scenario}`,async()=>{
+      const {OutlinerStore}=await import("../src/store");
+      const {EditRecoveryRepository}=await import("../src/edit-recovery");
+      const store=new OutlinerStore(":memory:"),repository=new EditRecoveryRepository(store);
+      try{
+        const base=store.create("Note\n\nOriginal body"),h=createHarness(base);
+        const draft=base.text+"\n\nNew writing",latestText=base.text.replace("Note","Note [type::note]");
+        const merged=draft.replace("Note","Note [type::note]");
+        let reviews=0,choice:"later"|"manual"="later";
+        h.effects.recovery={retain:async input=>repository.start(input),list:async id=>repository.list(id),commit:async(record,text)=>repository.commit(record.id,record.revision,text,record.latest.revision,{author:"user",actorId:"detail"}),separate:async record=>repository.separate(record.id,record.revision,{author:"user",actorId:"detail"})};
+        h.effects.reviewRecovery=async records=>{reviews++;return {action:choice,record:records[0]!};};
+        h.setExternalEdit(async()=>{
+          store.update(base.id,latestText,base.revision);
+          return {text:draft,changed:true,recoveryPath:"draft.md",cleanup(){},recoveryInput:{id:crypto.randomUUID(),blockId:base.id,baseRevision:base.revision,baseText:base.text,prelaunchText:base.text,draftText:draft,source:"external-editor"}};
+        });
+        await h.controller.initialize();await h.controller.dispatch({type:"edit.external"},viewport);
+        expect(h.controller.state.buffer.text).toBe(merged);
+        if(scenario==="reopen editor"){
+          const current=store.get(base.id)!;
+          h.setExternalEdit(async()=>({text:merged,changed:false,recoveryPath:"draft.md",cleanup(){},recoveryInput:{id:crypto.randomUUID(),blockId:base.id,baseRevision:current.revision,baseText:current.text,prelaunchText:merged,draftText:merged,source:"external-editor"}}));
+          await h.controller.dispatch({type:"edit.external"},viewport);
+        }
+        if(scenario==="undo later edit"||scenario==="redo later edit")await h.controller.dispatch({type:"buffer.insert",text:" extra"},viewport);
+        await h.controller.dispatch({type:"buffer.undo"},viewport);
+        if(scenario==="undo twice")await h.controller.dispatch({type:"buffer.undo"},viewport);
+        if(scenario==="edit after undo")await h.controller.dispatch({type:"buffer.insert",text:" extra"},viewport);
+        if(scenario==="redo"||scenario==="redo later edit")await h.controller.dispatch({type:"buffer.redo"},viewport);
+        const accepted=scenario==="redo"||scenario==="undo later edit"||scenario==="redo later edit";
+        expect(h.controller.state.recoveryAccepted).toBe(accepted);
+        const beforeSave=h.controller.state.buffer.text;
+        await h.controller.dispatch({type:"buffer.save"},viewport);
+        expect(reviews).toBe(accepted?0:1);
+        expect(store.get(base.id)?.text).toBe(accepted?beforeSave:latestText);
+        if(!accepted){
+          expect(h.controller.state.buffer.text).toBe(beforeSave);
+          expect(repository.list(base.id).some(record=>record.originalDraft===draft)).toBe(true);
+          if(scenario==="undo"||scenario==="edit after undo"){
+            choice="manual";
+            await h.controller.dispatch({type:"buffer.save"},viewport);
+            await h.controller.dispatch({type:"buffer.save"},viewport);
+            expect(reviews).toBe(2);expect(store.get(base.id)?.text).toBe(beforeSave);
+          }
+        }
+      }finally{store.close();}
+    });
+  }
+
+  test("unchanged external editor return preserves an existing unsaved Detail draft",async()=>{
+    const {OutlinerStore}=await import("../src/store");
+    const {EditRecoveryRepository}=await import("../src/edit-recovery");
+    const store=new OutlinerStore(":memory:"),repository=new EditRecoveryRepository(store);
+    try {
+      const base=store.create("Canonical"),harness=createHarness(base);
+      harness.effects.recovery={retain:async input=>repository.start(input),list:async(id,history)=>repository.list(id,history),commit:async(record,text)=>repository.commit(record.id,record.revision,text,record.latest.revision,{author:"user",actorId:"detail"}),separate:async record=>repository.separate(record.id,record.revision,{author:"user",actorId:"detail"})};
+      await harness.controller.initialize();await harness.controller.dispatch({type:"edit.begin"},viewport);
+      const draft="Existing unsaved writing";harness.controller.state.buffer.replaceText(draft);
+      let cleaned=false;
+      harness.setExternalEdit(async()=>({text:draft,changed:false,recoveryPath:"draft.md",cleanup(){cleaned=true;},recoveryInput:{id:crypto.randomUUID(),blockId:base.id,baseRevision:base.revision,baseText:base.text,prelaunchText:draft,draftText:draft,source:"external-editor"}}));
+      await harness.controller.dispatch({type:"edit.external"},viewport);
+      expect(repository.list(base.id)[0]?.originalDraft).toBe(draft);expect(cleaned).toBe(true);
+      expect(harness.controller.state.buffer.text).toBe(draft);expect(store.get(base.id)?.text).toBe("Canonical");
+    }finally{store.close();}
+  });
+
+  test("ordinary Detail save conflicts retain the draft and require explicit review before retry",async()=>{
+    const {OutlinerStore}=await import("../src/store");
+    const {EditRecoveryRepository}=await import("../src/edit-recovery");
+    const store=new OutlinerStore(":memory:"),repository=new EditRecoveryRepository(store);
+    try {
+      const base=store.create("Ordinary editor"),harness=createHarness(base);
+      harness.effects.recovery={retain:async input=>repository.start(input),list:async id=>repository.list(id),commit:async(record,text)=>repository.commit(record.id,record.revision,text,record.latest.revision,{author:"user",actorId:"detail"}),separate:async record=>repository.separate(record.id,record.revision,{author:"user",actorId:"detail"})};
+      harness.effects.updateBlock=async input=>store.update(input.blockId,input.text,input.expectedRevision,{author:"user",actorId:"detail"});
+      await harness.controller.initialize();await harness.controller.dispatch({type:"edit.begin"},viewport);
+      harness.controller.state.buffer.replaceText("My unsaved long text");
+      store.update(base.id,"Other writer",base.revision,{author:"agent",actorId:"other"});
+      await harness.controller.dispatch({type:"buffer.save"},viewport);
+      expect(harness.controller.state.mode).toBe("edit");expect(harness.controller.state.buffer.text).toBe("My unsaved long text");
+      expect(repository.list(base.id)[0]?.originalDraft).toBe("My unsaved long text");
+      expect(store.get(base.id)?.text).toBe("Other writer");
+    }finally{store.close();}
+  });
+
+  for (const recovered of [false,true]) for (const failure of ["projectRead","resolveReferences"] as const) {
+    test(`successful ${recovered ? "recovery" : "ordinary"} save does not retain a false conflict after ${failure} fails`,async()=>{
+      const {OutlinerStore}=await import("../src/store");
+      const {EditRecoveryRepository}=await import("../src/edit-recovery");
+      const store=new OutlinerStore(":memory:"),repository=new EditRecoveryRepository(store);
+      try {
+        const base=store.create("Original"),harness=createHarness(base);
+        let retained=0;
+        harness.effects.recovery={retain:async input=>{retained++;return repository.start(input);},list:async id=>repository.list(id),commit:async(record,text)=>repository.commit(record.id,record.revision,text,record.latest.revision,{author:"user",actorId:"detail"}),separate:async record=>repository.separate(record.id,record.revision,{author:"user",actorId:"detail"})};
+        harness.effects.updateBlock=async input=>store.update(input.blockId,input.text,input.expectedRevision,{author:"user",actorId:"detail"});
+        await harness.controller.initialize();await harness.controller.dispatch({type:"edit.begin"},viewport);
+        harness.controller.state.buffer.replaceText("Saved writing");
+        if(recovered){
+          repository.start({id:crypto.randomUUID(),blockId:base.id,baseRevision:base.revision,baseText:base.text,prelaunchText:base.text,draftText:"Saved writing",source:"save-conflict"});
+          harness.controller.state.buffer.replaceText(base.text);
+          harness.effects.reviewRecovery=async records=>({action:"manual",record:records[0]!});
+          await harness.controller.dispatch({type:"edit.recover"},viewport);
+        }
+        harness.effects[failure]=async()=>{throw Error("Read unavailable");};
+        await harness.controller.dispatch({type:"buffer.save"},viewport);
+        expect(store.get(base.id)?.text).toBe("Saved writing");
+        expect(harness.controller.state.context.selected?.revision).toBe(store.get(base.id)?.revision);
+        expect(retained).toBe(0);expect(repository.list(base.id)).toEqual([]);
+        expect(harness.controller.state.recovery).toBeUndefined();
+        expect(harness.controller.state.status).toBe("Saved; display refresh failed · Read unavailable");
+      }finally{store.close();}
+    });
+  }
+
+  for (const localFailure of [false,true]) for (const focusFailure of [false,true]) {
+    test(`cancel ${localFailure ? "keeps an unjournaled edit open" : "closes a locally retained edit"} with focus failure ${focusFailure}`,async()=>{
+      const {OutlinerStore}=await import("../src/store");
+      const {EditRecoveryRepository}=await import("../src/edit-recovery");
+      const {EditRecoveryRetainedLocallyError}=await import("../src/edit-recovery-client");
+      const store=new OutlinerStore(":memory:"),repository=new EditRecoveryRepository(store);
+      try {
+        const base=store.create("Original"),harness=createHarness(base);
+        let retained=0;
+        harness.effects.recovery={retain:async()=>{retained++;throw localFailure ? Error("Disk full") : new EditRecoveryRetainedLocallyError("Disconnected");},list:async id=>repository.list(id),commit:async(record,text)=>repository.commit(record.id,record.revision,text,record.latest.revision,{author:"user",actorId:"detail"}),separate:async record=>repository.separate(record.id,record.revision,{author:"user",actorId:"detail"})};
+        await harness.controller.initialize();await harness.controller.dispatch({type:"edit.begin"},viewport);
+        repository.start({id:crypto.randomUUID(),blockId:base.id,baseRevision:base.revision,baseText:base.text,prelaunchText:base.text,draftText:"Retained draft",source:"save-conflict"});
+        harness.effects.reviewRecovery=async records=>({action:"manual",record:records[0]!});
+        await harness.controller.dispatch({type:"edit.recover"},viewport);
+        harness.controller.state.buffer.replaceText("More writing");
+        if(focusFailure)harness.setFocusError(Error("Focus unavailable"));
+        if(localFailure){
+          await expect(harness.controller.dispatch({type:"buffer.cancel"},viewport)).rejects.toThrow("Disk full");
+          expect(harness.controller.state.mode).toBe("edit");
+        }else{
+          await harness.controller.dispatch({type:"buffer.cancel"},viewport);
+          expect(harness.controller.state.mode).toBe("preview");
+          expect(harness.controller.state.status).toContain("Writing retained locally; the service did not acknowledge it · Disconnected");
+          if(focusFailure)expect(harness.controller.state.status).toContain("Focus unavailable");
+          expect(harness.controller.state.recoveryAccepted).toBe(false);
+        }
+        expect(harness.controller.state.buffer.text).toBe("More writing");
+        expect(store.get(base.id)?.text).toBe("Original");expect(retained).toBe(1);
+      }finally{store.close();}
+    });
+  }
+
+  for (const choice of ["keep", "remove", "changed-draft"] as const) {
+    test(`item-address removal confirmation ${choice} preserves the intended draft and canonical note`, async () => {
+      const {OutlinerStore} = await import("../src/store");
+      const store = new OutlinerStore(":memory:");
+      try {
+        const block = store.create("# Plan\n\n- [ ] First ^first\n- [ ] Second ^second");
+        const draft = "# Plan\n\n- [ ] Second ^second";
+        const h = createHarness(block);
+        h.setUpdate(async input => store.update(input.blockId, input.text, input.expectedRevision, {author: "user"}, "text", input.identityChanges));
+        let asked = 0;
+        h.effects.confirmListItemRemoval = async ids => {
+          asked++;
+          expect(ids).toEqual(["first"]);
+          if (choice === "changed-draft") h.controller.state.buffer.insert(" new writing");
+          return choice !== "keep";
+        };
+        await h.controller.initialize();
+        await h.controller.dispatch({type: "edit.begin"}, viewport);
+        h.controller.state.buffer.replaceText(draft);
+        await h.controller.dispatch({type: "buffer.save"}, viewport);
+        expect(asked).toBe(1);
+        expect(store.require(block.id).text).toBe(choice === "remove" ? draft : block.text);
+        expect(h.controller.state.mode).toBe(choice === "remove" ? "preview" : "edit");
+        if (choice === "changed-draft") expect(h.controller.state.buffer.text).toContain("new writing");
+        else expect(h.controller.state.buffer.text).toBe(draft);
+        expect(h.controller.state.busy).toBe(false);
+      } finally {store.close();}
+    });
+  }
+
+  test("sends the raw buffer with the selected optimistic version", async () => {
+    const harness = createHarness(makeBlock({ text: "raw", updatedAt: "original-version" }));
+    await harness.controller.initialize();
+    await harness.controller.dispatch({ type: "edit.begin" }, viewport);
+    await harness.controller.dispatch({ type: "buffer.insert", text: " changed" }, viewport);
+    await harness.controller.dispatch({ type: "buffer.save" }, viewport);
+
+    expect(harness.calls.updates).toEqual([
+      { blockId: "block-1", text: "raw changed", expectedRevision: 1 },
+    ]);
+    expect(harness.controller.state.context.selected?.updatedAt).toBe("version-2");
+    expect(harness.controller.state.resolvedSelectedText).toBe("resolved:raw changed");
+    expect(harness.controller.state.mode).toBe("preview");
+  });
+
+  test("starts a canonical draft and imports an empty external edit without saving", async () => {
+    const harness = createHarness(makeBlock({
+      text: "canonical",
+      updatedAt: "original-version",
+    }));
+    harness.setExternalEdit(async (input) => {
+      expect(input).toEqual({
+        kind: "block",
+        blockId: "block-1",
+        baseText: "canonical",
+        text: "canonical",
+        expectedRevision: 1,
+      });
+      return {
+        text: "",
+        changed: true,
+        recoveryPath: "/tmp/empty-draft",
+        cleanup() {},
+      };
+    });
+    await harness.controller.initialize();
+
+    await harness.controller.dispatch({ type: "edit.external" }, viewport);
+
+    expect(harness.controller.state.mode).toBe("edit");
+    expect(harness.controller.state.buffer.text).toBe("");
+    expect(harness.calls.updates).toEqual([]);
+    await harness.controller.dispatch({ type: "buffer.cancel" }, viewport);
+    expect(harness.controller.state.context.selected?.text).toBe("canonical");
+    expect(harness.calls.updates).toEqual([]);
+  });
+
+  test("round-trips the exact unsaved draft as one undoable edit before optimistic save", async () => {
+    const harness = createHarness(makeBlock({
+      text: "canonical",
+      updatedAt: "original-version",
+    }));
+    await harness.controller.initialize();
+    await harness.controller.dispatch({ type: "edit.begin" }, viewport);
+    await harness.controller.dispatch({ type: "buffer.select-all" }, viewport);
+    await harness.controller.dispatch({
+      type: "buffer.insert",
+      text: "unsaved draft\nline two",
+    }, viewport);
+    harness.controller.state.buffer.placeCursor(0, 2);
+    harness.controller.state.buffer.placeCursor(1, 4, true);
+    const priorSelection = harness.controller.state.buffer.selectionRange;
+    let cleanedExternalDraft = false;
+    harness.setExternalEdit(async (input) => {
+      expect(input.text).toBe("unsaved draft\nline two");
+      return {
+        text: "editor draft\nwith several\nchanged lines",
+        changed: true,
+        recoveryPath: "/tmp/changed-draft",
+        cleanup() {
+          expect(harness.controller.state.buffer.text).toBe(
+            "editor draft\nwith several\nchanged lines",
+          );
+          cleanedExternalDraft = true;
+        },
+      };
+    });
+
+    await harness.controller.dispatch({ type: "edit.external" }, viewport);
+    expect(harness.controller.state.buffer.text).toBe(
+      "editor draft\nwith several\nchanged lines",
+    );
+    expect(cleanedExternalDraft).toBe(true);
+    await harness.controller.dispatch({ type: "buffer.undo" }, viewport);
+    expect(harness.controller.state.buffer.text).toBe("unsaved draft\nline two");
+    expect(harness.controller.state.buffer.selectionRange).toEqual(priorSelection);
+    await harness.controller.dispatch({ type: "buffer.redo" }, viewport);
+    await harness.controller.dispatch({ type: "buffer.save" }, viewport);
+    expect(harness.calls.updates).toEqual([{
+      blockId: "block-1",
+      text: "editor draft\nwith several\nchanged lines",
+      expectedRevision: 1,
+    }]);
+  });
+
+  test("treats an unchanged external file as a no-op", async () => {
+    const harness = createHarness(makeBlock({ text: "unchanged" }));
+    await harness.controller.initialize();
+
+    await harness.controller.dispatch({ type: "edit.external" }, viewport);
+    await harness.controller.dispatch({ type: "buffer.undo" }, viewport);
+
+    expect(harness.controller.state.buffer.text).toBe("unchanged");
+    expect(harness.controller.state.status).toBe("Nothing to undo");
+  });
+
+  test("treats an equivalent returned draft as unchanged and cleans its recovery file", async () => {
+    const harness = createHarness(makeBlock({ text: "canonical" }));
+    await harness.controller.initialize();
+    await harness.controller.dispatch({ type: "edit.begin" }, viewport);
+    await harness.controller.dispatch({
+      type: "buffer.insert",
+      text: "\nunsaved",
+    }, viewport);
+    let cleaned = false;
+    harness.setExternalEdit(async (input) => ({
+      text: input.text,
+      changed: true,
+      recoveryPath: "/tmp/equivalent-draft",
+      cleanup() {
+        cleaned = true;
+      },
+    }));
+
+    await harness.controller.dispatch({ type: "edit.external" }, viewport);
+
+    expect(harness.controller.state.buffer.text).toBe("canonical\nunsaved");
+    expect(harness.controller.state.status).toBe("$EDITOR returned an unchanged draft");
+    expect(harness.controller.state.busy).toBe(false);
+    expect(cleaned).toBe(true);
+    expect(harness.calls.updates).toEqual([]);
+    await harness.controller.dispatch({ type: "buffer.undo" }, viewport);
+    expect(harness.controller.state.buffer.text).toBe("canonical");
+    await harness.controller.dispatch({ type: "buffer.undo" }, viewport);
+    expect(harness.controller.state.status).toBe("Nothing to undo");
+  });
+
+  test("keeps the exact draft after a recoverable external editor failure", async () => {
+    const harness = createHarness(makeBlock({ text: "canonical" }));
+    await harness.controller.initialize();
+    await harness.controller.dispatch({ type: "edit.begin" }, viewport);
+    await harness.controller.dispatch({ type: "buffer.insert", text: " unsaved" }, viewport);
+    harness.setExternalEdit(async () => {
+      throw new Error(
+        "editor exited with status 2. Recoverable editor file: /tmp/recovery/draft.md",
+      );
+    });
+
+    await harness.controller.dispatch({ type: "edit.external" }, viewport);
+
+    expect(harness.controller.state.mode).toBe("edit");
+    expect(harness.controller.state.buffer.text).toBe("canonical unsaved");
+    expect(harness.controller.state.status).toContain("/tmp/recovery/draft.md");
+    expect(harness.calls.updates).toEqual([]);
+  });
+
+  test("never serializes generated backlink projection content", async () => {
+    const harness = createHarness(makeBlock({ text: "raw", updatedAt: "original-version" }));
+    harness.setBacklinkResults([{
+      targetBlockId: "block-1",
+      sources: [{
+        blockId: "source-block",
+        title: "Generated backlink",
+        parentContext: "Top level",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-02T00:00:00.000Z",
+        occurrenceCount: 1,
+        referenceGroups: [{ kind: "block", count: 1 }],
+        occurrences: [{
+          kind: "block",
+          label: "((block-1))",
+          snippet: "Generated backlink snippet",
+          start: 0,
+          end: 11,
+        }],
+        occurrencesTruncated: false,
+      }],
+      completeness: { kind: "complete" },
+    }]);
+    await harness.controller.initialize();
+    await harness.controller.dispatch({ type: "backlinks.toggle" }, viewport);
+    await harness.controller.dispatch({ type: "edit.begin" }, viewport);
+    await harness.controller.dispatch({ type: "buffer.insert", text: " changed" }, viewport);
+    await harness.controller.dispatch({ type: "buffer.save" }, viewport);
+
+    expect(harness.calls.updates).toEqual([
+      { blockId: "block-1", text: "raw changed", expectedRevision: 1 },
+    ]);
+  });
+
+  test("replaces a motion-selected range before an optimistic save", async () => {
+    const harness = createHarness(makeBlock({
+      text: "alpha beta",
+      updatedAt: "original-version",
+    }));
+    await harness.controller.initialize();
+    await harness.controller.dispatch({ type: "edit.begin" }, viewport);
+    await harness.controller.dispatch(
+      { type: "buffer.move", direction: "word-left" },
+      viewport,
+    );
+    await harness.controller.dispatch(
+      { type: "buffer.move", direction: "home", extend: true },
+      viewport,
+    );
+
+    expect(harness.controller.state.buffer.selectionRange).toEqual({
+      start: { row: 0, column: 0 },
+      end: { row: 0, column: 6 },
+    });
+
+    await harness.controller.dispatch({ type: "buffer.insert", text: "A " }, viewport);
+    await harness.controller.dispatch({ type: "buffer.save" }, viewport);
+    expect(harness.calls.updates).toEqual([
+      { blockId: "block-1", text: "A beta", expectedRevision: 1 },
+    ]);
+  });
+
+  test("consumes a pending refresh after a successful optimistic save", async () => {
+    const harness = createHarness(makeBlock({ text: "draft" }));
+    await harness.controller.initialize();
+    await harness.controller.dispatch({ type: "edit.begin" }, viewport);
+    await harness.controller.dispatch({ type: "buffer.insert", text: "!" }, viewport);
+    harness.setSelection({
+      selected: makeBlock({ text: "draft!", updatedAt: "version-2" }),
+      ancestors: [],
+      children: [],
+    });
+    await harness.controller.onServiceEvent(event("content"), viewport);
+
+    await harness.controller.dispatch({ type: "buffer.save" }, viewport);
+
+    expect(harness.controller.state.refreshPending).toBe(false);
+    expect(harness.controller.state.context.selected?.updatedAt).toBe("version-2");
+  });
+
+  test("keeps the editable buffer and pending refresh on an optimistic conflict", async () => {
+    const harness = createHarness(makeBlock({ text: "draft" }));
+    harness.setUpdate(async () => {
+      throw new Error("Block changed since it was loaded");
+    });
+    await harness.controller.initialize();
+    await harness.controller.dispatch({ type: "edit.begin" }, viewport);
+    await harness.controller.onServiceEvent(event("content"), viewport);
+    await harness.controller.dispatch({ type: "buffer.insert", text: "!" }, viewport);
+    await harness.controller.dispatch({ type: "buffer.save" }, viewport);
+
+    expect(harness.controller.state.mode).toBe("edit");
+    expect(harness.controller.state.buffer.text).toBe("draft!");
+    expect(harness.controller.state.refreshPending).toBe(true);
+    expect(harness.controller.state.status).toBe("Block changed since it was loaded");
+  });
+
+  test("serializes a normalized reversed file range into a child annotation", async () => {
+    const block = makeBlock({ properties: [{ key: "file", value: "src/example.ts" }] });
+    const harness = createHarness(block, filePreview());
+    await harness.controller.initialize();
+    await harness.controller.dispatch({ type: "file.navigate", direction: "end" }, viewport);
+    await harness.controller.dispatch({ type: "file.selection.toggle" }, viewport);
+    await harness.controller.dispatch({ type: "file.navigate", direction: "home" }, viewport);
+    await harness.controller.dispatch({ type: "comment.begin" }, viewport);
+    await harness.controller.dispatch({ type: "buffer.insert", text: "  Explain this range.  " }, viewport);
+    await harness.controller.dispatch({ type: "buffer.save" }, viewport);
+
+    expect(harness.calls.creates).toHaveLength(1);
+    expect(harness.calls.creates[0].input.target).toMatchObject({
+      representation: {
+        subject: {
+          kind: "resource",
+          resourceId: "30000000-0000-4000-8000-000000000001",
+        },
+        sourceSnapshot: { kind: "resource" },
+      },
+      anchor: { kind: "text-quote", start: 0, exact: "one\ntwo\nthree\nfour\nfive\nsix\nseven\neight" },
+    });
+    expect(harness.calls.creates[0].input.body).toBe("Explain this range.");
+    expect(harness.calls.creates[0].input.source).toBe("user");
+    expect(harness.controller.state.mode).toBe("file");
+    expect(harness.controller.state.selectionAnchor).toBeNull();
+    expect(harness.controller.state.status).toBe("Annotation added for lines 10-17");
+  });
+
+  test("uses file evidence rather than host block versions for filesystem representations", async () => {
+    const first = createHarness(
+      makeBlock({
+        id: "file-host-1",
+        updatedAt: "host-version-1",
+        properties: [{ key: "file", value: "src/example.ts" }],
+      }),
+      filePreview(),
+    );
+    const second = createHarness(
+      makeBlock({
+        id: "file-host-2",
+        updatedAt: "host-version-2",
+        properties: [{ key: "file", value: "src/example.ts" }],
+      }),
+      filePreview(),
+    );
+    for (const harness of [first, second]) {
+      await harness.controller.initialize();
+      await harness.controller.dispatch({ type: "comment.begin" }, viewport);
+    }
+    expect(first.calls.filesystemInterns).toContain("/workspace/src/example.ts");
+    expect(second.calls.filesystemInterns).toContain("/workspace/src/example.ts");
+
+    expect(first.controller.state.annotationDraft?.target.representation).toEqual(
+      second.controller.state.annotationDraft?.target.representation,
+    );
+    expect(first.controller.state.annotationDraft?.target.representation.sourceSnapshot)
+      .toMatchObject({
+        kind: "resource",
+        revision: {
+          revision: {
+            kind: "filesystem",
+            mtimeNs: "1770000000000000000",
+            size: "39",
+          },
+        },
+      });
+  });
+
+
+  test("opens and reveals filesystem annotations through Resource content", async () => {
+    const file = filePreview();
+    const harness = createHarness(
+      makeBlock({ properties: [{ key: "file", value: file.sourcePath }] }),
+      file,
+    );
+    await harness.controller.initialize();
+    await harness.controller.dispatch({ type: "comment.begin" }, viewport);
+    await harness.controller.dispatch({ type: "buffer.insert", text: "Inspect this line" }, viewport);
+    await harness.controller.dispatch({ type: "buffer.save" }, viewport);
+    Object.assign(harness.controller.state as unknown as {  }, {
+      
+    });
+    const annotation = harness.controller.state.annotationThreads[0]!;
+    const annotationId = annotation.block.id;
+    const resourceId = "30000000-0000-4000-8000-000000000001";
+    const source = {
+      id: "20000000-0000-4000-8000-000000000001",
+      name: "Test files",
+      provider: "filesystem" as const,
+      boundary: { kind: "filesystem" as const, root: "/workspace" },
+      policy: { deniedCapabilities: [] },
+      version: 1,
+      createdAt: "created",
+      updatedAt: "updated",
+    };
+    const resource = {
+      id: resourceId,
+      sourceId: source.id,
+      provider: "filesystem" as const,
+      address: { kind: "filesystem" as const, path: file.sourcePath },
+      version: 1,
+      addressVersion: 1,
+      mediaType: "text/plain",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    };
+    const revision = {
+      resourceId,
+      addressVersion: 1,
+      revision: {
+        kind: "filesystem" as const,
+        mtimeNs: "1770000000000000000",
+        size: "39",
+      },
+    };
+    const content = file.lines.join("\n");
+    const description: ResourceDescription = {
+      resource,
+      source,
+      requestedRevision: null,
+      capabilities: deriveResourceCapabilityReport(source, true, ["read"]),
+      filesystem: {
+        text: content,
+        contentHash: file.sourceHash!,
+        capturedAt: file.capturedAt!,
+        revision,
+      },
+      web: null,
+      webHistory: null,
+      webStatus: null,
+      remoteEntity: null,
+      remoteStatus: null,
+      availableCommands: [],
+    };
+    const unrelatedFile = filePreview({
+      absolutePath: "/workspace/other.ts",
+      displayPath: "other.ts",
+      sourcePath: "other.ts",
+    });
+    harness.effects.readFile = async () => unrelatedFile;
+    const internFilesystem = harness.effects.internFilesystem;
+    harness.effects.internFilesystem = async (path) => {
+      const receipt = await internFilesystem(path);
+      if (path === unrelatedFile.absolutePath && receipt.resource.provider === "filesystem") {
+        return {
+          ...receipt,
+          resource: {
+            ...receipt.resource,
+            id: "30000000-0000-4000-8000-000000000099",
+            address: { kind: "filesystem", path: unrelatedFile.sourcePath },
+          },
+        };
+      }
+      return receipt;
+    };
+    harness.effects.loadTarget = async (candidate) => candidate.kind === "resource"
+      ? { kind: "resource", target: candidate, description }
+      : {
+          kind: "block",
+          target: candidate,
+          context: {
+            selected: {
+              ...annotation.block,
+              properties: [{ key: "type", value: "annotation" }],
+            },
+            ancestors: [
+              makeBlock({
+                id: "unrelated-file-host",
+                properties: [{ key: "file", value: unrelatedFile.sourcePath }],
+              }),
+            ],
+            children: [],
+          },
+        };
+
+    await harness.controller.onServiceEvent(event("ui", {
+      targetClientId: "detail-test",
+      command: "open",
+      target: { kind: "block", blockId: annotationId },
+    }), viewport);
+    expect(harness.controller.state.referencedFile).toBeNull();
+    await harness.controller.dispatch({ type: "annotation.reveal" }, viewport);
+    expect(harness.controller.state.resolvedSelectedText).toBe(content);
+    expect(harness.controller.state.context.selected).toBeNull();
+    expect(harness.controller.state.status).toBe("Revealed resolved text quote 0-3");
+    expect(harness.controller.state.previewOffset).toBe(0);
+  });
+
+  test("keeps the comment composer cursor visible across newlines, wrapping, and resize", async () => {
+    const { controller } = createHarness(makeBlock());
+    let composerViewport: DetailViewport = { width: 80, height: 24 };
+    await controller.initialize();
+    await controller.dispatch({
+      type: "comment.begin",
+      sourceRange: { start: 0, end: 1 },
+    }, composerViewport);
+    composerViewport.editorBody = bufferComposerEditorBody(composerViewport.width);
+    const composer = new BufferComposer(() => ({
+      title: "Comment",
+      context: "R",
+      buffer: controller.state.buffer,
+      placeholder: "",
+      commitAction: "Ctrl+S",
+      cancelAction: "Esc",
+      viewportOffset: controller.state.editorVisualOffset,
+    }));
+    const body = () => composer.render(composerViewport.width).slice(3, 6);
+
+    await controller.dispatch({
+      type: "buffer.insert",
+      text: "line1\nline2\nline3\nline4",
+    }, composerViewport);
+    expect(body().some((line) => line.includes("line4"))).toBe(true);
+    expect(body().some((line) => line.includes(CURSOR_MARKER))).toBe(true);
+
+    for (let index = 0; index < 3; index += 1) {
+      await controller.dispatch({ type: "buffer.move", direction: "up" }, composerViewport);
+    }
+    expect(body()[0]).toContain("line1");
+    expect(body()[0]).toContain(CURSOR_MARKER);
+
+    await controller.dispatch({ type: "buffer.select-all" }, composerViewport);
+    composerViewport = { width: 20, height: 24, editorBody: bufferComposerEditorBody(20) };
+    await controller.dispatch({
+      type: "buffer.insert",
+      text: `${"A".repeat(15)}${"B".repeat(15)}${"C".repeat(14)}`,
+    }, composerViewport);
+    expect(stripTerminalSequences(body()[0]!)).toContain("A".repeat(15));
+    expect(stripTerminalSequences(body()[1]!)).toContain("B".repeat(15));
+    expect(body()[2]).toContain(CURSOR_MARKER);
+
+    composerViewport = { width: 16, height: 24, editorBody: bufferComposerEditorBody(16) };
+    await controller.dispatch({ type: "viewport.changed" }, composerViewport);
+    expect(body()[2]).toContain(CURSOR_MARKER);
+    expect(stripTerminalSequences(body()[2]!)).toContain("C".repeat(11));
+
+    composerViewport = { width: 20, height: 24, editorBody: bufferComposerEditorBody(20) };
+    await controller.dispatch({ type: "viewport.changed" }, composerViewport);
+    expect(stripTerminalSequences(body()[0]!)).toContain("A".repeat(15));
+    expect(body()[2]).toContain(CURSOR_MARKER);
+  });
+
+  test("selects an exact block source range and opens a local comment composer", async () => {
+    const harness = createHarness(makeBlock({ text: "alpha 🧭 beta\nsecond" }));
+    await harness.controller.initialize();
+    await harness.controller.dispatch({ type: "annotation.selection.begin" }, viewport);
+    expect(harness.controller.state.mode).toBe("select");
+
+    for (let index = 0; index < 7; index += 1) {
+      await harness.controller.dispatch({
+        type: "buffer.move",
+        direction: "right",
+        extend: true,
+      }, viewport);
+    }
+    expect(harness.controller.state.buffer.selectedText).toBe("alpha 🧭");
+    await harness.controller.dispatch({ type: "comment.begin" }, viewport);
+    expect(harness.controller.state.mode).toBe("comment");
+    expect(harness.controller.state.annotationDraft?.target).toMatchObject({
+      representation: {
+        subject: { kind: "block", blockId: "block-1" },
+        sourceSnapshot: { kind: "block" },
+      },
+      anchor: { kind: "text-quote", start: 0, end: 8, exact: "alpha 🧭" },
+    });
+
+    await harness.controller.dispatch({ type: "buffer.insert", text: "Keep this bearing." }, viewport);
+    await harness.controller.dispatch({ type: "buffer.save" }, viewport);
+    expect(harness.calls.creates).toHaveLength(1);
+    expect(harness.calls.creates[0].input.body).toBe("Keep this bearing.");
+    expect(harness.controller.state.mode).toBe("preview");
+    expect(harness.controller.state.status).toBe("Annotation added for source range 0-8");
+  });
+
+  test("opens a contextual composer directly from an exact rendered range", async () => {
+    const excerpt =
+      "1. Open the block in **Detail**.\n2. Press **`v`** to enter read-only source selec";
+    const text = `${"x".repeat(141)}${excerpt} trailing`;
+    const harness = createHarness(makeBlock({ text }));
+    await harness.controller.initialize();
+
+    await harness.controller.dispatch({
+      type: "comment.begin",
+      sourceRange: { start: 141, end: 222 },
+    }, viewport);
+
+    expect(harness.controller.state.mode).toBe("comment");
+    expect(harness.controller.state.context.selected?.id).toBe("block-1");
+    expect(harness.controller.state.annotationDraft?.target).toMatchObject({
+      representation: {
+        subject: { kind: "block", blockId: "block-1" },
+        sourceSnapshot: { kind: "block" },
+      },
+      anchor: { kind: "text-quote", start: 141, end: 222, exact: excerpt },
+    });
+
+    await harness.controller.dispatch({
+      type: "buffer.insert",
+      text: "Keep the reader and selection visible.",
+    }, viewport);
+    await harness.controller.dispatch({ type: "buffer.save" }, viewport);
+
+    expect(harness.controller.state.mode).toBe("preview");
+    expect(harness.controller.state.context.selected?.id).toBe("block-1");
+    expect(harness.calls.creates[0].input.target).toMatchObject({
+      representation: {
+        subject: { kind: "block", blockId: "block-1" },
+      },
+      anchor: { kind: "text-quote", start: 141, end: 222, exact: excerpt },
+    });
+  });
+
+  test("opens the composer from one revision-validated native canonical selection", async () => {
+    const block = makeBlock({ text: "alpha βeta gamma" });
+    const harness = createHarness(
+      block,
+      null,
+      async (text) => ({ text, references: [] }),
+    );
+    await harness.controller.initialize();
+    const capture = {
+      quote: "βeta",
+      capturedAt: "2026-01-02T03:04:05.000Z",
+      hostBlockId: block.id,
+      paneId: "w1:p2",
+      contentRevision: 42,
+      contextId: "context-test",
+      detailClientId: "detail-test",
+      validation: "herdr-keybinding" as const,
+      snapshotText: "Block Detail\n\nalpha βeta gamma",
+    };
+    const event = {
+      id: "native-comment",
+      domain: "ui" as const,
+      action: "ui.command.send",
+      sequence: 1,
+      command: {
+        targetClientId: "detail-test",
+        command: "comment.selection" as const,
+        renderedSelection: capture,
+      },
+    };
+
+    // A same-source comment handoff may pass the service selection guard, but
+    // the receiving editor must still refuse it while a draft is active.
+    await harness.controller.dispatch({type: "edit.begin"}, viewport);
+    await harness.controller.dispatch({type: "buffer.insert", text: "UNSAVED"}, viewport);
+    const protectedDraft = harness.controller.state.buffer.text;
+    await harness.controller.onServiceEvent(event, viewport);
+    expect(harness.controller.state.mode).toBe("edit");
+    expect(harness.controller.state.buffer.text).toBe(protectedDraft);
+    expect(harness.controller.state.status).toContain("Finish or cancel");
+    await harness.controller.dispatch({type: "buffer.cancel"}, viewport);
+
+    await harness.controller.onServiceEvent(event, viewport);
+    expect(harness.controller.state.mode).toBe("comment");
+    expect(harness.controller.state.annotationDraft?.target).toMatchObject({
+      representation: {
+        subject: { kind: "block", blockId: block.id },
+        sourceSnapshot: {
+          kind: "rendered",
+          observation: { quote: "βeta", contentRevision: 42, projection: "canonical" },
+        },
+      },
+      anchor: { kind: "text-quote", exact: "βeta" },
+    });
+    await harness.controller.dispatch({ type: "buffer.cancel" }, viewport);
+    expect(harness.calls.creates).toEqual([]);
+
+    await harness.controller.onServiceEvent({ ...event, sequence: 2 }, viewport);
+    await harness.controller.dispatch({ type: "buffer.insert", text: "Keep this quote." }, viewport);
+    await harness.controller.dispatch({ type: "buffer.save" }, viewport);
+    expect(harness.calls.creates[0]!.input.target).toMatchObject({
+      representation: {
+        sourceSnapshot: {
+          kind: "rendered",
+          observation: { quote: "βeta", contentRevision: 42 },
+        },
+      },
+      anchor: { kind: "text-quote", exact: "βeta" },
+    });
+  });
+
+  test("opens the composer from one directly dragged Detail selection", async () => {
+    const block = makeBlock({ text: "alpha βeta gamma" });
+    const harness = createHarness(
+      block,
+      null,
+      async (text) => ({ text, references: [] }),
+    );
+    await harness.controller.initialize();
+    const observed = observeDocument({kind: "block", blockId: block.id}, block.text, block.revision);
+    const passage = captureAnnotationPassage({text: "βeta gamma", origins: [
+      {kind: "source", slices: [{document: observed, start: 6, end: 10}, {document: observed, start: 11, end: 16}]},
+    ]});
+
+    await harness.controller.dispatch({
+      type: "annotation.comment.direct",
+      capture: {
+        kind: "rendered",
+        capture: {
+          quote: passage.quote,
+          passage,
+          capturedAt: "2026-09-17T12:00:00.000Z",
+          hostBlockId: block.id,
+          paneId: "w1:p2",
+          contentRevision: 43,
+          contextId: "context-test",
+          detailClientId: "detail-test",
+          validation: "detail-pointer",
+          snapshotText: "Block Detail\n\nalpha βeta gamma",
+        },
+      },
+    }, viewport);
+
+    expect(harness.controller.state.mode).toBe("comment");
+    expect(harness.controller.state.annotationDraft?.target).toMatchObject({
+      representation: {
+        sourceSnapshot: {
+          kind: "rendered",
+          observation: {
+            quote: passage.quote,
+            contentRevision: 43,
+            validation: "detail-pointer",
+          },
+        },
+      },
+      anchor: { kind: "text-quote", exact: passage.quote, start: null, end: null },
+      passage,
+    });
+    await harness.controller.dispatch({type: "buffer.insert", text: "Keep these separate slices"}, viewport);
+    await harness.controller.dispatch({type: "buffer.save"}, viewport);
+    expect(harness.calls.creates).toHaveLength(1);
+    expect(harness.calls.creates[0]!.input.target.passage).toEqual(passage);
+  });
+  test("does not invent a source anchor when chrome duplicates the rendered quote", async () => {
+    const block = makeBlock({ text: "alpha βeta gamma" });
+    const harness = createHarness(
+      block,
+      null,
+      async (text) => ({ text, references: [] }),
+    );
+    await harness.controller.initialize();
+
+    expect(renderedSelectionAnnotationTarget(harness.controller.state, {
+      quote: "βeta",
+      capturedAt: "2026-01-02T03:04:05.000Z",
+      hostBlockId: block.id,
+      paneId: "w1:p2",
+      contentRevision: 42,
+      contextId: "context-test",
+      detailClientId: "detail-test",
+      validation: "herdr-keybinding",
+      snapshotText: "βeta appears in chrome\nalpha βeta gamma",
+    })).toMatchObject({
+      representation: {
+        subject: { kind: "block", blockId: block.id },
+        sourceSnapshot: {
+          kind: "rendered",
+          observation: { quote: "βeta", projection: "canonical" },
+        },
+      },
+      anchor: {
+        kind: "text-quote",
+        start: null,
+        end: null,
+        exact: "βeta",
+      },
+    });
+  });
+
+  test("reveals a captured passage's host without treating pane offsets as source offsets", async () => {
+    const block = makeBlock({ text: "Hub\n\nGenerated result\n\nUnrelated ending" });
+    const harness = createHarness(block, null, async (text) => ({ text, references: [] }));
+    await harness.controller.initialize();
+    await harness.controller.dispatch({
+      type: "annotation.comment.direct",
+      capture: { kind: "rendered", capture: {
+        quote: "Generated result", capturedAt: "2026-09-19T12:00:00.000Z", hostBlockId: block.id,
+        paneId: "w1:p2", contentRevision: 43, contextId: "context-test", detailClientId: "detail-test",
+        validation: "detail-pointer", snapshotText: `History\n${"Chrome\n".repeat(15)}${block.text}`,
+      } },
+    }, viewport);
+    await harness.controller.dispatch({ type: "buffer.insert", text: "Keep captured evidence" }, viewport);
+    await harness.controller.dispatch({ type: "buffer.save" }, viewport);
+    const annotation = harness.controller.state.annotationThreads[0]!;
+    harness.effects.loadTarget = async (target) => {
+      if (target.kind !== "block") throw new Error("Expected block");
+      const selected = target.blockId === block.id ? block : {
+        ...annotation.block, properties: [{ key: "type", value: "annotation" }],
+      };
+      return { kind: "block", target, context: { selected, ancestors: [], children: [] } };
+    };
+    await harness.controller.onServiceEvent(event("ui", {
+      targetClientId: "detail-test", command: "open", target: { kind: "block", blockId: annotation.block.id },
+    }), viewport);
+    await harness.controller.dispatch({ type: "annotation.reveal" }, viewport);
+    expect(harness.controller.state.context.selected?.id).toBe(block.id);
+    expect(harness.controller.state.previewOffset).toBe(0);
+    expect(harness.controller.state.status).toContain("unpositioned");
+    expect(harness.controller.state.annotationThreads[0]!.originalTarget).toEqual(annotation.originalTarget);
+  });
+
+
+  test("stores a hub result as observed passage provenance without a source range", async () => {
+    const block = makeBlock({ text: "Roadmap Hub\n!((next-items))" });
+    const rendered = "Roadmap Hub\nPIE-300 — Rendered title\nQuery result body";
+    const harness = createHarness(
+      block,
+      null,
+      async (text) => ({ text, references: [] }),
+      async () => ({
+        text: rendered,
+        provenance: generatedDocument(rendered, "controlled test projection"),
+        embeds: [{ blockId: "next-items", status: "ready", count: 2 }],
+        embedRanges: [{ startLine: 1, endLine: 2 }],
+      }),
+    );
+    await harness.controller.initialize();
+    const quote = "PIE-300 — Rendered title\nQuery result body";
+
+    await harness.controller.onServiceEvent({
+      id: "hub-native-comment",
+      domain: "ui",
+      action: "ui.command.send",
+      sequence: 1,
+      command: {
+        targetClientId: "detail-test",
+        command: "comment.selection",
+        renderedSelection: {
+          quote,
+          capturedAt: "2026-01-02T03:04:05.000Z",
+          hostBlockId: block.id,
+          paneId: "w1:p2",
+          contentRevision: 84,
+          contextId: "context-test",
+          detailClientId: "detail-test",
+          validation: "herdr-keybinding",
+          snapshotText: `Block Detail\n\n${rendered}`,
+        },
+      },
+    }, viewport);
+
+    expect(harness.controller.state.annotationDraft?.target).toMatchObject({
+      representation: {
+        subject: { kind: "block", blockId: block.id },
+        sourceSnapshot: {
+          kind: "rendered",
+          observation: {
+            quote,
+            contentRevision: 84,
+            projection: "generated",
+          },
+        },
+      },
+      anchor: { kind: "text-quote", exact: quote },
+    });
+    await harness.controller.dispatch({ type: "buffer.insert", text: "Discuss this result." }, viewport);
+    await harness.controller.dispatch({ type: "buffer.save" }, viewport);
+    expect(harness.calls.creates[0]!.input.target).toMatchObject({
+      representation: {
+        sourceSnapshot: {
+          kind: "rendered",
+          observation: { quote, projection: "generated" },
+        },
+      },
+      anchor: { kind: "text-quote", exact: quote },
+    });
+  });
+
+  test("rejects an empty annotation without leaving comment mode", async () => {
+    const block = makeBlock({ properties: [{ key: "file", value: "src/example.ts" }] });
+    const harness = createHarness(block, filePreview());
+    await harness.controller.initialize();
+    await harness.controller.dispatch({ type: "comment.begin" }, viewport);
+    await harness.controller.dispatch({ type: "buffer.save" }, viewport);
+
+    expect(harness.calls.creates).toEqual([]);
+    expect(harness.controller.state.mode).toBe("comment");
+    expect(harness.controller.state.status).toBe("Annotation body cannot be empty");
+  });
+});
+
+describe("detail controller undo and redo", () => {
+  test("restores edit groups and resets history across cancel boundaries", async () => {
+    const harness = createHarness(makeBlock({ text: "base" }));
+    await harness.controller.initialize();
+    await harness.controller.dispatch({ type: "edit.begin" }, viewport);
+    await harness.controller.dispatch({ type: "buffer.insert", text: " one" }, viewport);
+    await harness.controller.dispatch({ type: "buffer.insert", text: "!" }, viewport);
+    expect(harness.controller.state.buffer.text).toBe("base one!");
+
+    await harness.controller.dispatch({ type: "buffer.undo" }, viewport);
+    expect(harness.controller.state.buffer.text).toBe("base one");
+    expect(harness.controller.state.status).toBe("Undo");
+    await harness.controller.dispatch({ type: "buffer.undo" }, viewport);
+    expect(harness.controller.state.buffer.text).toBe("base");
+
+    await harness.controller.dispatch({ type: "buffer.redo" }, viewport);
+    expect(harness.controller.state.buffer.text).toBe("base one");
+    await harness.controller.dispatch({ type: "buffer.redo" }, viewport);
+    expect(harness.controller.state.buffer.text).toBe("base one!");
+    expect(harness.controller.state.status).toBe("Redo");
+
+    await harness.controller.dispatch({ type: "buffer.cancel" }, viewport);
+    await harness.controller.dispatch({ type: "edit.begin" }, viewport);
+    await harness.controller.dispatch({ type: "buffer.undo" }, viewport);
+    expect(harness.controller.state.buffer.text).toBe("base");
+    expect(harness.controller.state.status).toBe("Nothing to undo");
+  });
+});
+
+describe("detail controller wrapped editor scrolling", () => {
+  test("tracks the cursor by wrapped visual rows across movement and resize", async () => {
+    const text = Array.from({ length: 18 }, (_, index) => `item-${index + 1}`).join(" ");
+    const harness = createHarness(makeBlock({ text }));
+    const narrowViewport = { width: 20, height: 8 };
+    await harness.controller.initialize();
+
+    await harness.controller.dispatch({ type: "edit.begin" }, narrowViewport);
+    const endOffset = harness.controller.state.editorVisualOffset;
+    expect(endOffset).toBeGreaterThan(0);
+
+    await harness.controller.dispatch(
+      { type: "buffer.move", direction: "home" },
+      narrowViewport,
+    );
+    expect(harness.controller.state.editorVisualOffset).toBe(0);
+
+    await harness.controller.dispatch(
+      { type: "buffer.move", direction: "end" },
+      narrowViewport,
+    );
+    expect(harness.controller.state.editorVisualOffset).toBe(endOffset);
+
+    await harness.controller.dispatch(
+      { type: "viewport.changed" },
+      { width: 14, height: 8 },
+    );
+    expect(harness.controller.state.editorVisualOffset).toBeGreaterThan(endOffset);
+    expect(harness.controller.state.buffer.text).toBe(text);
+  });
+});
+
+describe("detail controller completion, navigation, and focus", () => {
+  test("queries registered page addresses and applies their authored label", async () => {
+    const harness = createHarness(makeBlock({ text: "See [[rel" }));
+    harness.setPageQueryResults([{
+      addresses: [{
+        address: "release-notes",
+        normalizedAddress: "release-notes",
+        blockId: "release-id",
+        kind: "page",
+        title: "Release Notes",
+      }],
+      completeness: { kind: "truncated", limit: 20 },
+    }]);
+    await harness.controller.initialize();
+    await harness.controller.dispatch({ type: "edit.begin" }, viewport);
+    await harness.controller.dispatch({ type: "completion.open" }, viewport);
+
+    expect(harness.calls.pageQueries).toEqual([{ query: "rel", limit: 20 }]);
+    expect(harness.calls.queries).toEqual([]);
+    expect(harness.controller.state.status).toBe("Showing first 20 matches");
+    await harness.controller.dispatch({ type: "completion.accept" }, viewport);
+    expect(harness.controller.state.buffer.text).toBe("See [[release-notes]]");
+    expect(harness.controller.state.completion).toBeNull();
+    expect(harness.controller.state.status).toBe("");
+  });
+
+  test("accepts Work-ID completion as a titled canonical wikilink", async () => {
+    const harness = createHarness(makeBlock({ text: "See [[PIE-126" }));
+    harness.setPageQueryResults([{
+      addresses: [{
+        address: "PIE-126",
+        normalizedAddress: "pie-126",
+        blockId: "target-block-126",
+        kind: "work-id",
+        title: "PIE-126 — Render oversized Tree expansions",
+      }],
+      completeness: { kind: "complete" },
+    }]);
+    await harness.controller.initialize();
+    await harness.controller.dispatch({ type: "edit.begin" }, viewport);
+    await harness.controller.dispatch({ type: "completion.open" }, viewport);
+    expect(harness.controller.state.completion?.items[0]?.label).toBe(
+      "PIE-126 — Render oversized Tree expansions",
+    );
+    await harness.controller.dispatch({ type: "completion.accept" }, viewport);
+
+    expect(harness.controller.state.buffer.text).toBe(
+      "See [[PIE-126|PIE-126 — Render oversized Tree expansions]]",
+    );
+  });
+
+  test("creates a stable heading anchor only when fragment completion is accepted", async () => {
+    const target = makeBlock({
+      id: "fragment-target",
+      text: "Target\n\n## Durable heading\nBody",
+    });
+    const harness = createHarness(makeBlock({ text: "See ((fragment-target#durable" }));
+    harness.setQueryResults([{
+      blocks: [{ ...target, depth: 0, hasChildren: false, displayText: target.text }],
+      completeness: { kind: "complete" },
+    }]);
+    await harness.controller.initialize();
+    await harness.controller.dispatch({ type: "edit.begin" }, viewport);
+    await harness.controller.dispatch({ type: "completion.open" }, viewport);
+
+    expect(harness.calls.updates).toEqual([]);
+    expect(harness.controller.state.completion?.items).toMatchObject([{
+      label: "Target › # Durable heading · create anchor",
+      insertion: "((fragment-target^durable-heading))",
+      anchor: {
+        blockId: "fragment-target",
+        fragmentId: "durable-heading",
+        lineIndex: 2,
+      },
+    }]);
+
+
+    await harness.controller.dispatch({ type: "completion.accept" }, viewport);
+    expect(harness.calls.updates).toMatchObject([{
+      blockId: "fragment-target",
+      text: "Target\n\n## Durable heading ^durable-heading\nBody",
+      expectedRevision: target.revision,
+    }]);
+    expect(harness.controller.state.buffer.text).toBe(
+      "See ((fragment-target^durable-heading))",
+    );
+    expect(harness.controller.state.status).toBe("Created fragment · ^durable-heading");
+  });
+  test("stages a same-block heading anchor in the current buffer before inserting its reference", async () => {
+    const source = makeBlock({
+      id: "current-block",
+      text: "## Local heading\n\nSee ((current-block#local",
+    });
+    const harness = createHarness(source);
+    harness.setQueryResults([{
+      blocks: [{ ...source, depth: 0, hasChildren: false, displayText: source.text }],
+      completeness: { kind: "complete" },
+    }]);
+    await harness.controller.initialize();
+    await harness.controller.dispatch({ type: "edit.begin" }, viewport);
+    await harness.controller.dispatch({ type: "completion.open" }, viewport);
+    await harness.controller.dispatch({ type: "completion.accept" }, viewport);
+
+    expect(harness.calls.updates).toEqual([]);
+    expect(harness.controller.state.buffer.text).toBe(
+      "## Local heading ^local-heading\n\nSee ((current-block^local-heading))",
+    );
+    expect(harness.controller.state.buffer.undo()).toBe(true);
+    expect(harness.controller.state.buffer.text).toBe(
+      "## Local heading\n\nSee ((current-block#local",
+    );
+  });
+
+  test("reuses an existing fragment anchor without updating its target", async () => {
+    const target = makeBlock({
+      id: "fragment-target",
+      text: "Target\n\nParagraph ^stable-paragraph",
+    });
+    const harness = createHarness(makeBlock({ text: "See ((fragment-target^stable" }));
+    harness.setQueryResults([{
+      blocks: [{ ...target, depth: 0, hasChildren: false, displayText: target.text }],
+      completeness: { kind: "complete" },
+    }]);
+    const originalLoad = harness.effects.loadTarget;
+    harness.effects.loadTarget = async requested => requested.kind === "block" && requested.blockId === target.id
+      ? {kind:"block",target:requested,context:{selected:target,ancestors:[],children:[]}}
+      : originalLoad(requested);
+    await harness.controller.initialize();
+    await harness.controller.dispatch({ type: "edit.begin" }, viewport);
+    await harness.controller.dispatch({ type: "completion.open" }, viewport);
+    await harness.controller.dispatch({ type: "completion.accept" }, viewport);
+
+    expect(harness.calls.updates).toEqual([]);
+    expect(harness.controller.state.buffer.text).toBe(
+      "See ((fragment-target^stable-paragraph))",
+    );
+  });
+
+  test("completes directories without closing and files with a closing bracket", async () => {
+    const harness = createHarness(makeBlock({ text: "[file::src/" }));
+    await harness.controller.initialize();
+    await harness.controller.dispatch({ type: "edit.begin" }, viewport);
+    await harness.controller.dispatch({ type: "completion.open" }, viewport);
+    expect(harness.controller.state.completion?.items.map((item) => item.insertion)).toEqual([
+      "[file::src/components/",
+      "[file::src/detail.ts]",
+    ]);
+  });
+
+  test("keeps the file cursor visible when the viewport shrinks", async () => {
+    const block = makeBlock({ properties: [{ key: "file", value: "src/example.ts" }] });
+    const harness = createHarness(block, filePreview());
+    const shortViewport = { width: 40, height: 9 };
+    await harness.controller.initialize();
+    await harness.controller.dispatch({ type: "file.navigate", direction: "pagedown" }, shortViewport);
+    await harness.controller.dispatch({ type: "file.selection.toggle" }, shortViewport);
+    await harness.controller.dispatch({ type: "file.navigate", direction: "end" }, shortViewport);
+
+    expect(harness.controller.state.fileCursor).toBe(7);
+    expect(harness.controller.state.fileOffset).toBe(5);
+    expect(harness.controller.state.selectionAnchor).toBe(3);
+
+    await harness.controller.dispatch({ type: "viewport.changed" }, { width: 40, height: 6 });
+    expect(harness.controller.state.fileOffset).toBe(7);
+  });
+
+  test("opens the raw block preview from file mode", async () => {
+    const block = makeBlock({ properties: [{ key: "file", value: "src/example.ts" }] });
+    const harness = createHarness(block, filePreview());
+    await harness.controller.initialize();
+
+    await harness.controller.dispatch({ type: "view.block" }, viewport);
+
+    expect(harness.controller.state.mode).toBe("preview");
+    expect(harness.controller.state.previewOffset).toBe(0);
+  });
+
+  test("preserves focus failures when an announcement was requested", async () => {
+    const harness = createHarness(makeBlock());
+    harness.setFocusError(new Error("pane missing"));
+    await harness.controller.initialize();
+
+    await harness.controller.dispatch({ type: "focus.outliner" }, viewport);
+    expect(harness.controller.state.status).toBe("pane missing");
+    await harness.controller.dispatch({ type: "focus.outliner", announce: true }, viewport);
+    expect(harness.controller.state.status).toBe("pane missing");
+    expect(harness.calls.focuses).toBe(2);
+  });
+
+  test("a targeted preview updates the reader without stealing focus", async () => {
+    const initial = makeBlock({ id: "block-1", text: "Initial" });
+    const next = makeBlock({ id: "block-2", text: "Next" });
+    const harness = createHarness(initial);
+    await harness.controller.initialize();
+    harness.setSelection({ selected: next, ancestors: [], children: [] });
+
+    await harness.controller.onServiceEvent(
+      event("ui", { targetClientId: "detail-test", command: "preview", target: { kind: "block", blockId: next.id },  }),
+      viewport,
+    );
+
+    expect(harness.controller.state.target).toEqual({ kind: "block", blockId: next.id });
+    expect(harness.controller.state.status).toBe(
+      "Preview",
+    );
+    expect(harness.calls.selfFocuses).toBe(0);
+  });
+
+  test("an open with focus false navigates with history but leaves focus with its sender", async () => {
+    const initial = makeBlock({ id: "block-1", text: "Initial" });
+    const next = makeBlock({ id: "block-2", text: "Next" });
+    const harness = createHarness(initial);
+    await harness.controller.initialize();
+    harness.setSelection({ selected: next, ancestors: [], children: [] });
+
+    await harness.controller.onServiceEvent(
+      event("ui", { targetClientId: "detail-test", command: "open", target: { kind: "block", blockId: next.id }, focus: false }),
+      viewport,
+    );
+
+    expect(harness.controller.state.target).toEqual({ kind: "block", blockId: next.id });
+    expect(harness.controller.state.status).toBe("Opened here");
+    expect(harness.calls.selfFocuses).toBe(0);
+  });
+
+  test("an ordinary open focuses its destination", async () => {
+    const first = makeBlock();
+    const second = makeBlock({ id: "block-2", text: "second", updatedAt: "version-2" });
+    const harness = createHarness(first);
+    await harness.controller.initialize();
+    harness.setSelection({ selected: second, ancestors: [], children: [] });
+
+    await harness.controller.onServiceEvent(
+      event("ui", { targetClientId: "detail-test", command: "open", target: { kind: "block", blockId: "block-2" } }),
+      viewport,
+    );
+
+    expect(harness.controller.state.context.selected?.id).toBe("block-2");
+    expect(harness.calls.selfFocuses).toBe(1);
+  });
+
+  test("an explicit replace retargets the invoking Detail", async () => {
+    const first = makeBlock();
+    const second = makeBlock({ id: "block-2", text: "second", updatedAt: "version-2" });
+    const harness = createHarness(first);
+    await harness.controller.initialize();
+    harness.setSelection({ selected: second, ancestors: [], children: [] });
+
+    await harness.controller.onServiceEvent(
+      event("ui", { targetClientId: "detail-test", command: "replace", target: { kind: "block", blockId: second.id } }),
+      viewport,
+    );
+
+    expect(harness.controller.state.context.selected?.id).toBe(second.id);
+    expect(harness.controller.state.status).toBe(
+      "Replaced here",
+    );
+    expect(harness.calls.selfFocuses).toBe(1);
+  });
+
+  test("entering edit mode retains the current target", async () => {
+    const harness = createHarness(makeBlock());
+    await harness.controller.initialize();
+
+    await harness.controller.dispatch({ type: "edit.begin" }, viewport);
+
+    expect(harness.controller.state.mode).toBe("edit");
+    expect(harness.controller.state.status).toBe("Editing");
+  });
+});
+
+describe("detail backlink loading and navigation", () => {
+  test("does not query while collapsed and caches loaded results until invalidated", async () => {
+    const first = makeBlock({ id: "block-1", text: "First" });
+    const second = makeBlock({ id: "block-2", text: "Second" });
+    const harness = createHarness(first);
+    harness.setBacklinkResults([
+      {
+        targetBlockId: second.id,
+        sources: [],
+        completeness: { kind: "complete" },
+      },
+      {
+        targetBlockId: second.id,
+        sources: [],
+        completeness: { kind: "complete" },
+      },
+    ]);
+
+    await harness.controller.initialize();
+    harness.setSelection({ selected: second, ancestors: [], children: [] });
+    await harness.controller.onServiceEvent(
+      event("ui", { targetClientId: "detail-test", command: "preview", target: { kind: "block", blockId: second.id },  }),
+      viewport,
+    );
+    expect(harness.calls.backlinkQueries).toEqual([]);
+
+    await harness.controller.dispatch({ type: "backlinks.toggle" }, viewport);
+    expect(harness.calls.backlinkQueries).toEqual([{ targetBlockId: second.id, limit: BACKLINK_QUERY_LIMIT }]);
+
+    await harness.controller.dispatch({ type: "backlinks.toggle" }, viewport);
+    await harness.controller.dispatch({ type: "backlinks.toggle" }, viewport);
+    expect(harness.calls.backlinkQueries).toHaveLength(1);
+
+    await harness.controller.onServiceEvent(event("content"), viewport);
+    expect(harness.calls.backlinkQueries).toEqual([
+      { targetBlockId: second.id, limit: BACKLINK_QUERY_LIMIT },
+      { targetBlockId: second.id, limit: BACKLINK_QUERY_LIMIT },
+    ]);
+  });
+
+  test("reloads an expanded backlink projection when its target changes", async () => {
+    const first = makeBlock({ id: "block-1", text: "First" });
+    const second = makeBlock({ id: "block-2", text: "Second" });
+    const harness = createHarness(first);
+    harness.setBacklinkResults([
+      {
+        targetBlockId: first.id,
+        sources: [],
+        completeness: { kind: "complete" },
+      },
+      {
+        targetBlockId: second.id,
+        sources: [],
+        completeness: { kind: "complete" },
+      },
+    ]);
+    await harness.controller.initialize();
+    await harness.controller.dispatch({ type: "backlinks.toggle" }, viewport);
+
+    harness.setSelection({ selected: second, ancestors: [], children: [] });
+    await harness.controller.onServiceEvent(
+      event("ui", { targetClientId: "detail-test", command: "preview", target: { kind: "block", blockId: second.id },  }),
+      viewport,
+    );
+
+    expect(harness.calls.backlinkQueries).toEqual([
+      { targetBlockId: first.id, limit: BACKLINK_QUERY_LIMIT },
+      { targetBlockId: second.id, limit: BACKLINK_QUERY_LIMIT },
+    ]);
+    expect(harness.controller.state.backlinks.collection?.targetBlockId).toBe(second.id);
+  });
+
+  test("dispatches generated backlink targets with source preservation", async () => {
+    const source = makeBlock({ id: "hub-block", text: "Hub" });
+    const harness = createHarness(source);
+    await harness.controller.initialize();
+
+    await harness.controller.dispatch({
+      type: "reference.open",
+      target: {
+        kind: "block",
+        value: "source-block",
+        preserveSource: true,
+      },
+    }, viewport);
+    expect(harness.calls.navigationDispatches).toEqual([]);
+    expect(harness.controller.state.context.selected?.id).toBe(source.id);
+    await harness.controller.handleDestinationChooserKeypress("f", { name: "f" });
+
+    expect(harness.calls.navigationDispatches).toEqual([{
+      blockId: "source-block",
+      intent: "open",
+      preserveSource: true,
+    }]);
+    expect(harness.controller.state.context.selected?.id).toBe(source.id);
+    expect(harness.controller.state.status).toContain("linked Detail");
+
+    await harness.controller.dispatch({
+      type: "reference.open",
+      target: {
+        kind: "block",
+        value: "ancestor-block",
+        intent: "reveal",
+      },
+    }, viewport);
+    expect(harness.calls.navigationDispatches.at(-1)).toEqual({
+      blockId: "ancestor-block",
+      intent: "reveal",
+      preserveSource: false,
+      focusTarget: true,
+    });
+  });
+
+  test("peeks the selected backlink and preserves explicit reveal navigation", async () => {
+    const hub = makeBlock({ id: "hub-block", text: "Hub" });
+    const harness = createHarness(hub);
+    harness.setBacklinkResults([{
+      targetBlockId: hub.id,
+      sources: [
+        {
+          blockId: "source-one",
+          title: "Source one",
+          parentContext: "Top level",
+          createdAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-04T00:00:00.000Z",
+          occurrenceCount: 1,
+          referenceGroups: [{ kind: "block", count: 1 }],
+          occurrences: [],
+          occurrencesTruncated: false,
+        },
+        {
+          blockId: "source-two",
+          title: "Source two",
+          parentContext: "Top level",
+          createdAt: "2026-01-03T00:00:00.000Z",
+          updatedAt: "2026-01-02T00:00:00.000Z",
+          occurrenceCount: 1,
+          referenceGroups: [{ kind: "page", count: 1 }],
+          occurrences: [],
+          occurrencesTruncated: false,
+        },
+      ],
+      completeness: { kind: "complete" },
+    }]);
+    await harness.controller.initialize();
+    await harness.controller.dispatch({ type: "backlinks.toggle" }, viewport);
+    harness.controller.setPreviewRegions(detailBacklinkRegions(harness.controller.state));
+    await harness.controller.dispatch({
+      type: "preview.focus.set",
+      regionId: "backlink:source-two",
+    }, viewport);
+    await harness.controller.dispatch({ type: "preview.activate" }, viewport);
+    await harness.controller.dispatch({ type: "backlinks.reveal" }, viewport);
+
+    expect(harness.controller.state.backlinks.selectedIndex).toBe(1);
+    expect(harness.calls.backlinkPeeks).toEqual([{
+      sourceClientId: "detail-test",
+      browsingContextId: "context-test",
+      targetBlockId: "hub-block",
+      selectedSourceBlockId: "source-two",
+      view: {
+        filter: "",
+        sortField: "updated",
+        sortDirection: "desc",
+        showRelated: false,
+        showResolved: false,
+        kind: null,
+        stage: "all",
+      },
+    }]);
+    expect(harness.calls.navigationDispatches).toEqual([
+      { blockId: "source-two", intent: "reveal", preserveSource: false, focusTarget: true },
+    ]);
+    expect(harness.controller.state.context.selected?.id).toBe(hub.id);
+    expect(harness.controller.state.status).toBe("Revealed Source two");
+  });
+
+  test("restores the exact inline backlink row after a popup selection command", async () => {
+    const hub = makeBlock({ id: "hub-block", text: "Hub" });
+    const harness = createHarness(hub);
+    harness.setBacklinkResults([{
+      targetBlockId: hub.id,
+      sources: [
+        {
+          blockId: "source-one",
+          title: "Source one",
+          parentContext: "Top level",
+          createdAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-02T00:00:00.000Z",
+          occurrenceCount: 1,
+          referenceGroups: [{ kind: "block", count: 1 }],
+          occurrences: [],
+          occurrencesTruncated: false,
+        },
+        {
+          blockId: "source-two",
+          title: "Source two",
+          parentContext: "Top level",
+          createdAt: "2026-01-02T00:00:00.000Z",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+          occurrenceCount: 1,
+          referenceGroups: [{ kind: "block", count: 1 }],
+          occurrences: [],
+          occurrencesTruncated: false,
+        },
+      ],
+      completeness: { kind: "complete" },
+    }]);
+    await harness.controller.initialize();
+    await harness.controller.dispatch({ type: "backlinks.toggle" }, viewport);
+
+    await harness.controller.onServiceEvent(event("ui", {
+      targetClientId: "detail-test",
+      command: "backlinks.select",
+      targetBlockId: hub.id,
+      sourceBlockId: "source-two",
+    }), viewport);
+
+    expect(harness.controller.state.context.selected?.id).toBe(hub.id);
+    expect(harness.controller.state.backlinks.selectedIndex).toBe(1);
+    expect(harness.controller.state.previewRegions.focusedRegionId).toBe("backlink:source-two");
+    expect(harness.calls.selfFocuses).toBe(1);
+  });
+
+  test("filters fuzzily, cycles timestamp sorting, and toggles source detail", async () => {
+    const hub = makeBlock({ id: "hub-block", text: "Hub" });
+    const harness = createHarness(hub);
+    harness.setBacklinkResults([{
+      targetBlockId: hub.id,
+      sources: [
+        {
+          blockId: "alpha-source",
+          title: "Alpha source",
+          parentContext: "Research",
+          createdAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-04T00:00:00.000Z",
+          occurrenceCount: 1,
+          referenceGroups: [{ kind: "block", count: 1 }],
+          occurrences: [{
+            kind: "block",
+            label: "synthetic",
+            snippet: "Project integration evidence - phase 1 had 5 findings and 1 follow-up",
+            start: 0,
+            end: 9,
+          }],
+          occurrencesTruncated: false,
+        },
+        {
+          blockId: "gamma-source",
+          title: "Gamma source",
+          parentContext: "Architecture",
+          createdAt: "2026-01-03T00:00:00.000Z",
+          updatedAt: "2026-01-02T00:00:00.000Z",
+          occurrenceCount: 1,
+          referenceGroups: [{ kind: "property", propertyKey: "source-block", count: 1 }],
+          occurrences: [],
+          occurrencesTruncated: false,
+        },
+      ],
+      completeness: { kind: "complete" },
+    }]);
+    await harness.controller.initialize();
+    await harness.controller.dispatch({ type: "backlinks.toggle" }, viewport);
+
+    expect(visibleBacklinkSources(harness.controller.state.backlinks).map((source) => source.blockId))
+      .toEqual(["alpha-source", "gamma-source"]);
+    await harness.controller.dispatch({ type: "backlinks.sort.cycle" }, viewport);
+    expect(visibleBacklinkSources(harness.controller.state.backlinks).map((source) => source.blockId))
+      .toEqual(["gamma-source", "alpha-source"]);
+
+    await harness.controller.dispatch({ type: "backlinks.filter.begin" }, viewport);
+    await harness.controller.dispatch({ type: "backlinks.filter.input", text: "gm" }, viewport);
+    await harness.controller.dispatch({ type: "backlinks.filter.commit" }, viewport);
+    expect(visibleBacklinkSources(harness.controller.state.backlinks).map((source) => source.blockId))
+      .toEqual(["gamma-source"]);
+
+    await harness.controller.dispatch({ type: "backlinks.source.toggle" }, viewport);
+    expect(harness.controller.state.backlinks.expandedSourceIds).toEqual(
+      new Set(["gamma-source"]),
+    );
+
+    harness.controller.state.backlinks.filter = "PIE-151";
+    expect(visibleBacklinkSources(harness.controller.state.backlinks)).toEqual([]);
+  });
+});
+
+describe("Detail property inspector integration", () => {
+  const relatedBlockId = "550e8400-e29b-41d4-a716-446655440010";
+  const source = [
+    "PIE-154 property fixture [type::design-note]",
+    `[related-to:: ${relatedBlockId}]`,
+    "[related-to:: 550e8400-e29b-41d4-a716-446655440011]",
+    "[page:: Planning / Inbox]",
+    "",
+    "ctx:: body-line",
+    "Body [work-id:: PIE-171] [unknown-key:: kept]",
+  ].join("\n");
+
+  test("routes a plain-click typed Property target to the linked Detail", async () => {
+    const targetId = "8a3a9c31-58ff-48d1-9d25-95db5f78e9eb";
+    const harness = createHarness(makeBlock({
+      id: "property-source",
+      text: `Property source\n[related-to::${targetId}]`,
+    }));
+    await harness.controller.initialize();
+    const entry = harness.controller.state.propertyInspector.model?.entries.find(
+      (candidate) => candidate.target?.kind === "block",
+    );
+    expect(entry).toBeDefined();
+
+    await harness.controller.dispatch({
+      type: "property-inspector.target.open",
+      occurrenceId: entry!.occurrenceId,
+      intent: "open",
+      routing: "linked",
+    }, viewport);
+
+    expect(harness.controller.state.destinationChooser.active).toBe(false);
+    expect(harness.calls.navigationDispatches).toEqual([{
+      blockId: targetId,
+      intent: "open",
+      preserveSource: false,
+    }]);
+    expect(harness.controller.state.context.selected?.id).toBe(targetId);
+  });
+
+  test("preserves a dedicated inspector when directly routing a typed target", async () => {
+    const targetId = "8a3a9c31-58ff-48d1-9d25-95db5f78e9eb";
+    const harness = createHarness(makeBlock({
+      id: "property-source",
+      text: `Property source\n[related-to::${targetId}]`,
+    }));
+    const controller = createDetailController(harness.effects, undefined, {
+      propertyInspectorPresentation: "dedicated",
+    });
+    await controller.initialize();
+    const entry = controller.state.propertyInspector.model?.entries.find(
+      (candidate) => candidate.target?.kind === "block",
+    );
+    expect(entry).toBeDefined();
+
+    await controller.dispatch({
+      type: "property-inspector.target.open",
+      occurrenceId: entry!.occurrenceId,
+      intent: "open",
+      routing: "linked",
+    }, viewport);
+
+    expect(controller.state.destinationChooser.active).toBe(false);
+    expect(harness.calls.navigationDispatches).toEqual([{
+      blockId: targetId,
+      intent: "open",
+      preserveSource: true,
+    }]);
+    expect(controller.state.context.selected?.id).toBe("property-source");
+  });
+
+  test("opens a dedicated inspector current target in a sibling Detail", async () => {
+    const harness = createHarness(makeBlock({ id: "property-source", text: source }));
+    const controller = createDetailController(harness.effects, undefined, {
+      propertyInspectorPresentation: "dedicated",
+    });
+    await controller.initialize();
+
+    await controller.onServiceEvent(
+      event("ui", { targetClientId: "detail-test", command: "preview", target: { kind: "block", blockId: "routed-property-target" },  }),
+      viewport,
+    );
+    await controller.dispatch({ type: "pane.open", direction: "down" }, viewport);
+
+    expect(controller.state.context.selected?.id).toBe("routed-property-target");
+    expect(harness.calls.openedDetails).toEqual([{
+      blockId: "routed-property-target",
+      direction: "down",
+    }]);
+    expect(controller.state.propertyInspector.presentation).toBe("dedicated");
+  });
+
+  test("keeps inspector interaction ephemeral and routes typed targets through Detail navigation", async () => {
+    const harness = createHarness(makeBlock({ id: "property-source", text: source }));
+    const controller = createDetailController(harness.effects, undefined, {
+      propertyInspectorPresentation: "dedicated",
+    });
+    await controller.initialize();
+
+    expect(controller.state.propertyInspector.model?.canonicalText).toBe(source);
+    expect(controller.state.propertyInspector.model?.entries.map((entry) => entry.scope))
+      .toEqual(["block", "block", "block", "block", "line", "inline", "inline"]);
+
+    await controller.dispatch({ type: "property-inspector.group.cycle" }, viewport);
+    await controller.dispatch({ type: "property-inspector.filter.begin" }, viewport);
+    await controller.dispatch({ type: "property-inspector.filter.input", text: "related" }, viewport);
+    await controller.dispatch({ type: "property-inspector.filter.commit" }, viewport);
+    await controller.dispatch({ type: "property-inspector.viewport.navigate", direction: "down" }, viewport);
+    await controller.dispatch({ type: "property-inspector.pane.open" }, viewport);
+
+    const target = controller.state.propertyInspector.model?.entries.find(
+      (entry) => entry.value === relatedBlockId,
+    );
+    expect(target?.target?.kind).toBe("block");
+    await controller.dispatch({
+      type: "property-inspector.target.open",
+      occurrenceId: target!.occurrenceId,
+      intent: "open",
+    }, viewport);
+    await controller.handleDestinationChooserKeypress("r", { name: "r" });
+    const pageTarget = controller.state.propertyInspector.model!.entries.find(
+      (entry) => entry.target?.kind === "page",
+    )!;
+    const workTarget = controller.state.propertyInspector.model!.entries.find(
+      (entry) => entry.target?.kind === "work-id",
+    )!;
+    for (const entry of [pageTarget, workTarget]) {
+      await controller.dispatch({
+        type: "property-inspector.target.open",
+        occurrenceId: entry.occurrenceId,
+        intent: "open",
+      }, viewport);
+      await controller.handleDestinationChooserKeypress("r", { name: "r" });
+    }
+    const plain = controller.state.propertyInspector.model!.entries.find(
+      (entry) => entry.key === "unknown-key",
+    )!;
+    const followedBeforePlain = harness.calls.followedReferences.length;
+    await controller.dispatch({
+      type: "property-inspector.target.open",
+      occurrenceId: plain.occurrenceId,
+      intent: "open",
+    }, viewport);
+
+    expect(harness.calls.propertyInspectorPanes).toEqual(["property-source"]);
+    expect(harness.calls.followedReferences).toContainEqual({
+      kind: "block",
+      value: relatedBlockId,
+      preserveSource: true,
+    });
+    expect(harness.calls.followedReferences).toContainEqual({
+      kind: "page",
+      value: "Planning / Inbox",
+      preserveSource: true,
+    });
+    expect(harness.calls.followedReferences).toContainEqual({
+      kind: "work",
+      value: "PIE-171",
+      preserveSource: true,
+    });
+    expect(harness.calls.followedReferences).toHaveLength(followedBeforePlain);
+    expect(controller.state.status).toBe("unknown-key has no navigation target");
+    expect(harness.calls.updates).toEqual([]);
+    expect(controller.state.context.selected?.text).toBe(source);
+  });
+
+
+  test("tabs to the inline disclosure and expands it with activation", async () => {
+    const harness = createHarness(makeBlock({ text: "Subject [status::planned]" }));
+    const controller = harness.controller;
+    await controller.initialize();
+    controller.setPreviewRegions(detailPropertyInspectorRegions(controller.state));
+
+    await controller.dispatch({ type: "preview.focus.move", delta: 1 }, viewport);
+    expect(controller.state.previewRegions.focusedRegionId).toBe("property-inspector");
+    await controller.dispatch({ type: "preview.activate" }, viewport);
+    expect(controller.state.propertyInspector.expanded).toBe(true);
+
+    controller.setPreviewRegions(detailPropertyInspectorRegions(controller.state));
+    await controller.dispatch({ type: "preview.focus.move", delta: 1 }, viewport);
+    expect(controller.state.previewRegions.focusedRegionId).toBe(
+      controller.state.propertyInspector.model!.entries[0]!.occurrenceId,
+    );
+  });
+  test("edits one focused property through an optimistic canonical patch", async () => {
+    const canonical = "Subject [status::planned] [owner::evan]";
+    const harness = createHarness(makeBlock({ id: "property-source", text: canonical }));
+    const controller = createDetailController(harness.effects, undefined, {
+      propertyInspectorPresentation: "dedicated",
+    });
+    await controller.initialize();
+    const status = controller.state.propertyInspector.model!.entries[0]!;
+    controller.state.previewRegions.focusedRegionId = status.occurrenceId;
+
+    await controller.dispatch({ type: "property-inspector.edit.begin" }, viewport);
+    expect(controller.isBufferMode()).toBe(true);
+    expect(controller.state.propertyInspector.edit?.buffer.text).toBe("planned");
+    await controller.dispatch({ type: "property-inspector.edit.select-all" }, viewport);
+    await controller.dispatch({ type: "property-inspector.edit.insert", text: "complete" }, viewport);
+    expect(controller.state.context.selected?.text).toBe(canonical);
+
+    await controller.dispatch({ type: "property-inspector.edit.commit" }, viewport);
+
+    expect(harness.calls.propertyPatches).toEqual([{
+      blockId: "property-source",
+      expectedRevision: 1,
+      operations: [{ op: "replace", ordinal: 0, value: "complete" }],
+    }]);
+    expect(controller.state.context.selected?.text).toBe(
+      "Subject [status::complete] [owner::evan]",
+    );
+    expect(controller.state.propertyInspector.model?.entries.map((entry) => entry.value))
+      .toEqual(["complete", "evan"]);
+    expect(controller.state.propertyInspector.edit).toBeNull();
+    expect(controller.state.previewRegions.focusedRegionId).toBe(
+      controller.state.propertyInspector.model!.entries[0]!.occurrenceId,
+    );
+    expect(controller.isBufferMode()).toBe(false);
+  });
+
+  test("rejects navigation while a property draft is active", async () => {
+    const sourceBlock = makeBlock({
+      id: "property-source",
+      text: "Subject [status::planned]",
+    });
+    const harness = createHarness(
+      sourceBlock,
+      null,
+      async (text) => ({ text: `resolved:${text}`, references: [] }),
+      async (text, hostBlockId) => {
+        if (hostBlockId === sourceBlock.id && text.includes("[status::complete]")) {
+          throw new Error("stale edited-target projection");
+        }
+        return { text, provenance: generatedDocument(text, "controlled test projection"), embeds: [], embedRanges: [] };
+      },
+    );
+    const controller = createDetailController(harness.effects, undefined, {
+      propertyInspectorPresentation: "dedicated",
+    });
+    await controller.initialize();
+    const status = controller.state.propertyInspector.model!.entries[0]!;
+    controller.state.previewRegions.focusedRegionId = status.occurrenceId;
+    await controller.dispatch({ type: "property-inspector.edit.begin" }, viewport);
+    await controller.dispatch({ type: "property-inspector.edit.select-all" }, viewport);
+    await controller.dispatch({
+      type: "property-inspector.edit.insert",
+      text: "complete",
+    }, viewport);
+    await controller.onServiceEvent(
+      event("ui", { targetClientId: "detail-test", command: "edit", target: { kind: "block", blockId: "other-block" },  }),
+      viewport,
+    );
+    expect(controller.state.refreshPending).toBe(false);
+
+    await controller.dispatch({ type: "property-inspector.edit.commit" }, viewport);
+
+    expect(controller.state.refreshPending).toBe(false);
+    expect(controller.state.target).toEqual({kind: "block", blockId: "property-source"});
+    expect(controller.state.propertyInspector.edit).toBeNull();
+    expect(controller.state.context.selected?.text).toContain("complete");
+  });
+});
+
+test("reveals exact targeted attention without mutating source or durable annotations", async () => {
+  const selected = makeBlock({ text: "first line\npoint here\nlast line" });
+  const harness = createHarness(selected);
+  await harness.controller.initialize();
+  const start = selected.text.indexOf("point");
+  const mark = normalizeAttentionMark({
+    markId: "attention-one",
+    targetClientId: "detail-test",
+    target: {
+      kind: "block",
+      sourceBlockId: selected.id,
+      anchor: createAnnotationAnchor(
+        selected.text,
+        start,
+        start + "point here".length,
+        selected.updatedAt,
+      ),
+    },
+    tone: "current",
+    sender: "agent-test",
+    reveal: true,
+    focus: true,
+  }, {
+    clientId: "detail-test",
+    role: "detail",
+    contextId: "context-test",
+  }, selected);
+  const attention = attentionClientState("detail-test", [mark], 1);
+
+  await harness.controller.onServiceEvent({
+    id: "attention-event",
+    domain: "attention",
+    action: "attention.mark",
+    sequence: 1,
+    blockId: selected.id,
+    attention,
+    attentionInstruction: {
+      markId: mark.markId,
+      reveal: true,
+      focus: true,
+    },
+  }, viewport);
+
+  expect(harness.controller.state.target).toEqual({ kind: "block", blockId: selected.id });
+  expect(harness.controller.state.attentionRevealSourceLine).toBe(1);
+  expect(harness.controller.state.previewOffset).toBe(1);
+  expect(harness.controller.state.mode).toBe("preview");
+  expect(harness.controller.state.annotationThreads).toEqual([]);
+  expect(harness.controller.state.context.selected?.text).toBe(selected.text);
+  expect(harness.controller.state.status).toBe(`Attention · source range ${start}-${start + 10}`);
+  expect(harness.calls.selfFocuses).toBe(1);
+
+  await harness.controller.onServiceEvent({
+    id: "other-client",
+    domain: "attention",
+    action: "attention.clear",
+    sequence: 1,
+    attention: { ...attention, targetClientId: "detail-other" },
+  }, viewport);
+  expect(harness.controller.state.attention.currentMarkId).toBe(mark.markId);
+
+  await harness.controller.dispatch({ type: "attention.acknowledge" }, viewport);
+  expect(harness.controller.state.attention.marks).toEqual([]);
+  expect(harness.controller.state.status).toBe(
+    "Attention cue acknowledged; active marks remain",
+  );
+});
+
+test("Detail waits for service file contents before exposing a file preview", async () => {
+  const block = makeBlock({ properties: [{ key: "file", value: "today.txt" }] });
+  const harness = createHarness(block);
+  harness.effects.readFile = async () => filePreview({ lines: ["SERVICE CONTENT"] });
+  await harness.controller.initialize();
+  expect(harness.controller.state.referencedFile?.lines).toEqual(["SERVICE CONTENT"]);
+  expect(harness.controller.state.mode).toBe("file");
+});
+
+test("a delayed file read cannot attach its bytes to a newer Detail target", async () => {
+  const first = makeBlock({ id: "delayed-file", properties: [{ key: "file", value: "old.txt" }] });
+  const harness = createHarness(first);
+  const entered = Promise.withResolvers<void>();
+  const delayed = Promise.withResolvers<ReferencedFile>();
+  harness.effects.readFile = async () => { entered.resolve(); return delayed.promise; };
+  const opening = harness.controller.initialize();
+  await entered.promise;
+  await harness.controller.onServiceEvent(event("ui", {
+    targetClientId: "detail-test", command: "preview", target: { kind: "block", blockId: "new-target" },
+  }), viewport);
+  delayed.resolve(filePreview({ lines: ["OLD FILE CONTENT"] }));
+  await opening;
+  expect(harness.controller.state.context.selected?.id).toBe("new-target");
+  expect(harness.controller.state.referencedFile).toBeNull();
+  expect(harness.controller.state.mode).toBe("preview");
+});
+
+for (const outcome of ["resolved", "rejected"] as const) {
+  test(`view.block supersedes a pending file read that is ${outcome}`, async () => {
+    const block = makeBlock({ properties: [{ key: "file", value: "today.txt" }] });
+    const harness = createHarness(block, filePreview());
+    await harness.controller.initialize();
+    await harness.controller.dispatch({ type: "view.block" }, viewport);
+    const entered = Promise.withResolvers<void>();
+    const delayed = Promise.withResolvers<ReferencedFile>();
+    harness.effects.readFile = async () => { entered.resolve(); return delayed.promise; };
+    const opening = harness.controller.dispatch({ type: "view.file" }, viewport);
+    await entered.promise;
+    await harness.controller.dispatch({ type: "view.block" }, viewport);
+    await harness.controller.dispatch({ type: "status.set", message: "Block view selected" }, viewport);
+    if (outcome === "resolved") delayed.resolve(filePreview({ lines: ["OBSOLETE CONTENT"] }));
+    else delayed.reject(new Error("Obsolete file error"));
+    await opening;
+    expect(harness.controller.state.mode).toBe("preview");
+    expect(harness.controller.state.context.selected?.id).toBe(block.id);
+    expect(harness.controller.state.referencedFile).toBeNull();
+    expect(harness.controller.state.status).toBe("Block view selected");
+  });
+}
+
+test("view.block cancels file bytes without cancelling target publication", async () => {
+  const harness = createHarness(makeBlock());
+  await harness.controller.initialize();
+  await harness.controller.onServiceConnect(viewport);
+  const block = makeBlock({ id: "pending-file", properties: [{ key: "file", value: "today.txt" }] });
+  harness.setSelection({ selected: block, ancestors: [], children: [] });
+  const entered = Promise.withResolvers<void>();
+  const delayed = Promise.withResolvers<ReferencedFile>();
+  harness.effects.readFile = async () => { entered.resolve(); return delayed.promise; };
+  const opening = harness.controller.onServiceEvent(event("ui", {
+    targetClientId: "detail-test", command: "preview", target: { kind: "block", blockId: block.id },
+  }), viewport);
+  await entered.promise;
+  await harness.controller.dispatch({ type: "view.block" }, viewport);
+  delayed.resolve(filePreview({ lines: ["OBSOLETE CONTENT"] }));
+  await opening;
+  expect(harness.controller.state.mode).toBe("preview");
+  expect(harness.controller.state.context.selected?.id).toBe(block.id);
+  expect(harness.controller.state.referencedFile).toBeNull();
+  expect(harness.calls.currentBlocks.at(-1)).toBe(block.id);
+});
+
+test("a cached file revisit publishes the completed service preview", async () => {
+  const first = makeBlock({ id: "cached-file", properties: [{ key: "file", value: "today.txt" }] });
+  const paints: Array<readonly string[] | null> = [];
+  const harness = createHarness(first, filePreview({ lines: ["SERVICE FILE"] }), undefined, undefined, {}, state => {
+    paints.push(state.referencedFile?.lines ?? null);
+  });
+  await harness.controller.initialize();
+  await harness.controller.onServiceEvent(event("ui", {
+    targetClientId: "detail-test", command: "preview", target: { kind: "block", blockId: "another-block" },
+  }), viewport);
+  await harness.controller.onServiceEvent(event("ui", {
+    targetClientId: "detail-test", command: "preview", target: { kind: "block", blockId: first.id },
+  }), viewport);
+  expect(harness.controller.state.referencedFile?.lines).toEqual(["SERVICE FILE"]);
+  expect(paints.at(-1)).toEqual(["SERVICE FILE"]);
+});
+
+
+test("composed Tree sends its logical source region through explicit navigation", async () => {
+  const harness = createHarness(makeBlock());
+  await harness.controller.initialize();
+  const calls: unknown[] = [];
+  const navigation = composedTreeNavigation({
+    client: {async request<T>(input: import("../src/client").RequestInput) {
+      calls.push(input);
+      return {targetClientId: "chosen-detail"} as T;
+    }},
+    clientId: "detail-test", contextId: "context-test", detail: harness.controller,
+    viewport: () => viewport, revealBlock: async () => {}, schedulePreview() {},
+  });
+  expect((await navigation.resolve("open", {preserveSource: true})).targetClientId).toBe("chosen-detail");
+  await navigation.dispatch({kind: "block", blockId: "linked-target"}, "open");
+  expect(calls).toEqual([
+    {action: "navigation.resolve", sourceClientId: "detail-test", sourceRegion: "tree", intent: "open", preserveSource: true},
+    {action: "navigation.dispatch", sourceClientId: "detail-test", sourceRegion: "tree", intent: "open", target: {kind: "block", blockId: "linked-target"}},
+  ]);
+});
+
+test("retained pointer selections preserve occurrence or global scope across navigation", async () => {
+  const host = makeBlock({ id: "context-host", updatedAt: "2026-09-19T00:00:00.000Z", text: "First [file::same.md].\nSecond [file::same.md]." });
+  const harness = createHarness(host);
+  const load = harness.effects.loadTarget;
+  const resource = fileResource("same.md");
+  harness.effects.loadTarget = async target => {
+    const loaded = await load(target);
+    if (loaded.kind !== "resource") return loaded;
+    return { ...loaded, description: { ...loaded.description, filesystem: {
+      text: "Shared file passage", contentHash: "a".repeat(64), capturedAt: "2026-09-19T00:00:00.000Z",
+      revision: { resourceId: resource.id, resourceVersion: 1, addressVersion: 1,
+        revision: { kind: "filesystem", mtimeNs: "1", size: "19", contentHash: "a".repeat(64) } },
+    } } };
+  };
+  await harness.controller.initialize();
+  const target = (start: number) => ({ kind: "resource" as const, resourceId: resource.id,
+    referenceContext: createAnnotationReferenceContext(host, start, start + 15) });
+  const first = target(host.text.indexOf("[file::"));
+  const second = target(host.text.lastIndexOf("[file::"));
+  await harness.controller.onServiceEvent(event("ui", { targetClientId: "detail-test", command: "open", target: first }), viewport);
+  const frame=resourceFrame(harness.controller);
+  const capture = harness.controller.captureResourceSelection(frame.select({row:0,column:0},{row:0,column:6}),frame.lines.join('\n'),1);
+  expect(capture).not.toBeNull();
+  await harness.controller.onServiceEvent(event("ui", { targetClientId: "detail-test", command: "open", target: second }), viewport);
+  await harness.controller.dispatch({ type: "annotation.comment.direct", capture }, viewport);
+  expect(harness.controller.state.mode).toBe("preview");
+  expect(harness.controller.state.annotationDraft).toBeUndefined();
+  expect(harness.controller.state.status).toContain("reference context changed");
+  await harness.controller.onServiceEvent(event("ui", { targetClientId: "detail-test", command: "open", target: { kind: "resource", resourceId: resource.id } }), viewport);
+  await harness.controller.dispatch({ type: "annotation.comment.direct", capture }, viewport);
+  expect(harness.controller.state.annotationDraft).toBeUndefined();
+  const globalFrame=resourceFrame(harness.controller);
+  const globalCapture = harness.controller.captureResourceSelection(globalFrame.select({row:0,column:0},{row:0,column:6}),globalFrame.lines.join('\n'),2);
+  await harness.controller.onServiceEvent(event("ui", { targetClientId: "detail-test", command: "open", target: first }), viewport);
+  await harness.controller.dispatch({ type: "annotation.comment.direct", capture: globalCapture }, viewport);
+  expect(harness.controller.state.annotationDraft).toBeUndefined();
+  await harness.controller.dispatch({ type: "annotation.comment.direct", capture }, viewport);
+  expect(harness.controller.state.mode).toBe("comment");
+  expect(harness.controller.state.annotationDraft?.target.referenceContext).toEqual(first.referenceContext);
+});
+
+
+describe("retained Current and local Preview", () => {
+  test("passive inspection leaves Current draft, undo, history and scroll intact; Keep protects then promotes", async () => {
+    const current = createHarness(makeBlock({id: "current", text: "Current canonical"}));
+    const preview = createHarness(makeBlock({id: "initial-preview"}));
+    await current.controller.initialize();
+    await preview.controller.initialize();
+    const surface = new DetailReadingSurface(current.controller, preview.controller, () => {}, async () => {});
+    await current.controller.dispatch({type: "edit.begin"}, viewport);
+    await current.controller.dispatch({type: "buffer.insert", text: "UNSAVED"}, viewport);
+    const draft = current.controller.state.buffer.text;
+    await current.controller.handleUiCommand({command: "focus", targetClientId: "detail-test"}, viewport);
+    expect(current.calls.selfFocuses).toBeGreaterThan(0);
+    expect(current.controller.state.buffer.text).toBe(draft);
+    const editorOffset = current.controller.state.editorVisualOffset;
+    for (const blockId of ["inspect-a", "inspect-b", "inspect-c"]) {
+      await surface.receive({command: "preview", targetClientId: "detail-test", target: {kind: "block", blockId}}, viewport);
+      expect(current.controller.state.target).toEqual({kind: "block", blockId: "current"});
+      expect(current.controller.state.buffer.text).toBe(draft);
+      expect(current.controller.state.editorVisualOffset).toBe(editorOffset);
+    }
+    surface.toggleFocus();
+    expect(surface.active).toBe(preview.controller);
+    expect(await surface.keepPreview(viewport)).toBe(false);
+    expect(current.calls.updates).toHaveLength(0);
+    surface.toggleFocus();
+    await current.controller.dispatch({type: "buffer.undo"}, viewport);
+    expect(current.controller.state.buffer.text).toBe("Current canonical");
+    await current.controller.dispatch({type: "buffer.cancel"}, viewport);
+    expect(await surface.keepPreview(viewport)).toBe(true);
+    expect(current.controller.state.target).toEqual({kind: "block", blockId: "inspect-c"});
+    expect(surface.previewVisible).toBe(false);
+    await current.controller.dispatch({type: "navigation.back"}, viewport);
+    expect(current.controller.state.target).toEqual({kind: "block", blockId: "current"});
+    expect(current.calls.updates).toHaveLength(0);
+  });
+
+  test("a held older Preview cannot overwrite a newer one or Current", async () => {
+    const current = createHarness(makeBlock({id: "current"}));
+    const preview = createHarness(makeBlock({id: "initial-preview"}));
+    await current.controller.initialize();
+    const read = preview.effects.loadTarget;
+    const held = Promise.withResolvers<void>();
+    preview.effects.loadTarget = async target => {
+      if (target.kind === "block" && target.blockId === "older") await held.promise;
+      return read(target);
+    };
+    const surface = new DetailReadingSurface(current.controller, preview.controller, () => {}, async () => {});
+    const older = surface.receive({command: "preview", targetClientId: "detail-test", target: {kind: "block", blockId: "older"}}, viewport);
+    await surface.receive({command: "preview", targetClientId: "detail-test", target: {kind: "block", blockId: "newer"}}, viewport);
+    held.resolve(); await older;
+    expect(preview.controller.state.target).toEqual({kind: "block", blockId: "newer"});
+    expect(current.controller.state.target).toEqual({kind: "block", blockId: "current"});
+    await surface.closePreview();
+    expect(surface.active).toBe(current.controller);
+  });
+});
+
+
+test("closing a Resource Preview releases the target across service reconnect", async () => {
+  const current = createHarness(makeBlock({id: "retained"}));
+  const preview = createHarness(makeBlock());
+  const published: unknown[] = [];
+  preview.effects.getBrowsingContext = async () => ({contextId: "context-test", target: null});
+  preview.effects.setCurrentTarget = async target => { published.push(target); };
+  const surface = new DetailReadingSurface(current.controller, preview.controller, () => {}, async () => {published.push(null);});
+  await current.controller.initialize();
+  await preview.controller.onServiceConnect(viewport);
+  await surface.receive({command: "preview", targetClientId: "detail-test", target: {kind: "resource", resourceId: "closed-resource"}}, viewport);
+  expect(preview.controller.state.target).toEqual({kind: "resource", resourceId: "closed-resource"});
+  await surface.closePreview();
+  published.length = 0;
+  preview.controller.onServiceDisconnect();
+  await preview.controller.onServiceConnect(viewport);
+  expect(published.length).toBeGreaterThan(0);
+  expect(published.every(target => target === null)).toBe(true);
+  expect(preview.controller.state.target).toBeNull();
+  expect(current.controller.state.target).toEqual({kind: "block", blockId: "retained"});
+});
+
+test("Preview native thread actions stay in place and protect both reader drafts", async () => {
+  const current = createHarness(makeBlock({id: "retained", text: "Retained document"}), null, async text => ({text, references: []}));
+  const preview = createHarness(makeBlock({id: "inspected", text: "Target inspected"}), null, async text => ({text, references: []}));
+  let thread: AnnotationThread;
+  const replied: unknown[] = [];
+  const lifecycles: unknown[] = [];
+  for (const harness of [current, preview]) {
+    harness.effects.reconcileAnnotations = async input => {
+      if (input.newRepresentation.subject.kind !== "block" || input.newRepresentation.subject.blockId !== "inspected") return {threads: [], changed: false};
+      thread ??= {...annotationRecord({representation: input.newRepresentation, anchor: {kind: "text-quote", start: 0, end: 6, exact: "Target", prefix: "", suffix: ""}}), replies: []};
+      return {threads: [thread], changed: false};
+    };
+    harness.effects.replyAnnotation = async input => {
+      replied.push(input.input);
+      const reply = {...annotationRecord(thread.originalTarget, {block: makeBlock({id: "reply"}), body: input.input.body}), parentAnnotationId: thread.block.id};
+      thread = {...thread, replies: [reply]};
+      return {annotations: [reply], deduplicated: false};
+    };
+    harness.effects.getAnnotation = async () => thread;
+    harness.effects.setAnnotationLifecycle = async input => { lifecycles.push(input); thread = {...thread, lifecycle: input.lifecycle}; return thread; };
+  }
+  const queuedPaints: Array<() => void> = [];
+  current.effects.enqueueViewUpdate = update => { queuedPaints.push(update); };
+  await current.controller.initialize(); await preview.controller.initialize();
+  await preview.controller.dispatch({type: "annotation.thread.move", delta: 1}, viewport);
+  const surface = new DetailReadingSurface(current.controller, preview.controller, () => {}, async () => {});
+  surface.previewVisible = true; surface.focused = "preview";
+  await current.controller.dispatch({type: "edit.begin"}, viewport);
+  await current.controller.dispatch({type: "buffer.insert", text: "UNSAVED"}, viewport);
+  const draft = current.controller.state.buffer.text;
+  await surface.activatePreviewAction({type: "annotation.thread.reply", annotationId: "annotation-1"}, viewport);
+  expect(current.controller.state.buffer.text).toBe(draft);
+  expect(preview.controller.state.mode).toBe("comment");
+  expect(preview.controller.state.annotationReplyDraft?.annotationId).toBe("annotation-1");
+  await preview.controller.dispatch({type: "buffer.insert", text: "Exact native reply"}, viewport);
+  await surface.closePreview();
+  expect(surface.previewVisible).toBe(true);
+  expect(preview.controller.state.buffer.text).toBe("Exact native reply");
+  expect(await surface.keepPreview(viewport)).toBe(false);
+  await surface.receive({command: "preview", targetClientId: "detail-test", target: {kind: "block", blockId: "different"}}, viewport);
+  expect(preview.controller.state.target).toEqual({kind: "block", blockId: "inspected"});
+  expect(preview.controller.state.buffer.text).toBe("Exact native reply");
+  expect(current.controller.state.target).toEqual({kind: "block", blockId: "retained"});
+  await preview.controller.dispatch({type: "buffer.save"}, viewport);
+  expect(current.controller.state.buffer.text).toBe(draft);
+  expect(replied).toEqual([{annotationId: "annotation-1", body: "Exact native reply", source: "user"}]);
+  await surface.activatePreviewAction({type: "annotation.thread.lifecycle", annotationId: "annotation-1"}, viewport);
+  expect(lifecycles).toEqual([{annotationId: "annotation-1", lifecycle: "resolved"}]);
+  expect(current.calls.updates).toEqual([]);
+});
+
+
+test("protected local Open preserves its failure instead of reporting success", async () => {
+  const current = createHarness(makeBlock({id: "retained-current", text: "Current draft"}));
+  let surface: DetailReadingSurface;
+  const preview = createHarness(makeBlock({id: "inspection"}), null, undefined, undefined, {
+    openHere: target => surface.openHere(target, viewport),
+  });
+  surface = new DetailReadingSurface(current.controller, preview.controller, () => {}, async () => {});
+  await current.controller.initialize();
+  await surface.receive({command: "preview", targetClientId: "detail-test", target: {kind: "block", blockId: "inspection"}}, viewport);
+  await current.controller.dispatch({type: "edit.begin"}, viewport);
+  await current.controller.dispatch({type: "buffer.insert", text: "UNSAVED"}, viewport);
+  const draft = current.controller.state.buffer.text;
+  const intent = {type: "reference.open" as const, target: {kind: "block" as const, value: "linked-target"}};
+  await expect(preview.controller.dispatch({...intent, routing: "linked"}, viewport)).rejects.toThrow("Finish or cancel the Current draft");
+  expect(preview.controller.state.status).toContain("Finish or cancel the Current draft");
+  expect(preview.controller.state.status).not.toContain("Opened");
+  expect(current.controller.state.target).toEqual({kind: "block", blockId: "retained-current"});
+  expect(current.controller.state.buffer.text).toBe(draft);
+  expect(surface.previewVisible).toBe(true);
+  await preview.controller.dispatch(intent, viewport);
+  await preview.controller.handleDestinationChooserKeypress("", {name: "return"});
+  expect(preview.controller.state.destinationChooser.status).toContain("Open failed: Finish or cancel the Current draft");
+  expect(current.controller.state.buffer.text).toBe(draft);
+  await preview.controller.handleDestinationChooserKeypress("", {name: "escape"});
+});
+
+test("targeted focus navigates while protected focus preserves the Current draft", async () => {
+  const harness = createHarness(makeBlock({id: "original"}));
+  await harness.controller.initialize();
+  await harness.controller.handleUiCommand({command: "focus", targetClientId: "detail-test", target: {kind: "block", blockId: "focused-target"}}, viewport);
+  expect(harness.controller.state.target).toEqual({kind: "block", blockId: "focused-target"});
+  expect(harness.calls.selfFocuses).toBe(1);
+  await harness.controller.dispatch({type: "edit.begin"}, viewport);
+  await harness.controller.dispatch({type: "buffer.insert", text: "UNSAVED"}, viewport);
+  const draft = harness.controller.state.buffer.text;
+  await harness.controller.handleUiCommand({command: "focus", targetClientId: "detail-test", target: {kind: "block", blockId: "rejected-target"}}, viewport);
+  expect(harness.controller.state.target).toEqual({kind: "block", blockId: "focused-target"});
+  expect(harness.controller.state.buffer.text).toBe(draft);
+  expect(harness.controller.state.status).toContain("Open rejected");
+  const focuses = harness.calls.selfFocuses;
+  await harness.controller.handleUiCommand({command: "focus", targetClientId: "detail-test"}, viewport);
+  expect(harness.calls.selfFocuses).toBe(focuses + 1);
+  expect(harness.controller.state.buffer.text).toBe(draft);
+});
+
+
+test("link confirmation names the chosen document and cancel leaves the existing link alone", async () => {
+  const harness = createHarness(makeBlock());
+  await harness.controller.initialize();
+  const destination = {clientId: "opaque-client-id", region: "detail" as const};
+  const linked: unknown[] = [];
+  harness.effects.chooseDestination = async () => destination;
+  harness.effects.setDestination = async value => {linked.push(value); return "Project notes · Research › Writing\x1b[2J";};
+  await harness.controller.dispatch({type: "navigation.link"}, viewport);
+  expect(linked).toEqual([destination]);
+  expect(harness.controller.state.status).toBe("Open → Project notes · Research › Writing · Alt+L changes destination");
+  const status = harness.controller.state.status;
+  harness.effects.chooseDestination = async () => undefined;
+  await harness.controller.dispatch({type: "navigation.link"}, viewport);
+  expect(linked).toHaveLength(1);
+  expect(harness.controller.state.status).toBe(status);
+});
+
+
+test("keyboard reference Open offers local recovery immediately and protects unsaved edits", async()=>{
+ const source=makeBlock({id:"keyboard-source",text:"See ((target01))"});
+ const h=createHarness(source);await h.controller.initialize();
+ h.effects.resolveNavigation=async()=>{throw Error("No linked destination");};
+ await h.controller.dispatch({type:"reference.follow"},viewport);
+ expect(h.controller.state.destinationChooser.openHereOnEnter).toBe(true);
+ expect(h.controller.state.context.selected?.id).toBe(source.id);
+ await h.controller.handleDestinationChooserKeypress("",{name:"return"});
+ expect(h.controller.state.context.selected?.id).toBe("target01");
+ expect(h.calls.navigationDispatches).toEqual([]);
+});
+
+test("a late missing-destination reply cannot reopen recovery after Detail is released",async()=>{
+ const h=createHarness(makeBlock({id:"pending-source",text:"Source"}));await h.controller.initialize();
+ const gate=Promise.withResolvers<never>();h.effects.dispatchNavigation=()=>gate.promise;
+ const opening=h.controller.dispatch({type:"reference.open",target:{kind:"block",value:"target01"},routing:"linked"},viewport);
+ await new Promise(resolve=>setTimeout(resolve,0));h.controller.releaseDocument();
+ gate.reject(Error("No linked destination"));await opening;
+ expect(h.controller.state.destinationChooser.active).toBe(false);
+});
+
+test("activating a focused document body link uses canonical destination routing",async()=>{
+ const target='550e8400-e29b-41d4-a716-446655440000';
+ const source=makeBlock({text:`Source\n\n((${target}|Linked body))`});
+ const h=createHarness(source);await h.controller.initialize();
+ h.controller.setPreviewRegions([{id:'body',kind:'body-link',sourceSpan:null,parentId:null,childIds:[],focusable:true,disclosure:null,activation:{type:'link.open',uri:`pi-outliner://block/${target}`}}]);
+ await h.controller.dispatch({type:'preview.focus.move',delta:1},viewport);
+ await h.controller.dispatch({type:'preview.activate'},viewport);
+ await h.controller.handleDestinationChooserKeypress('r',{name:'r'});
+ expect(h.calls.followedReferences).toContainEqual({kind:'block',value:target});
+ expect(h.calls.updates).toEqual([]);
+});
+
+for(const editing of [false,true])test(`authored file activation previews locally and retains ${editing?'an unsaved draft':'Current note'}`,async()=>{
+ const source=makeBlock({id:'file-note',updatedAt:'2026-09-23T00:00:00.000Z',text:'Daily project note\n\n[file::same.md]'});
+ const previewed:OutlinerNavigationTarget[]=[];
+ const h=createHarness(source,null,undefined,undefined,{previewHere:async target=>{previewed.push(target);}});
+ await h.controller.initialize();
+ if(editing){await h.controller.dispatch({type:'edit.begin'},viewport);h.controller.state.buffer.replaceText(source.text+'\nUnsaved thoughts');}
+ const before=h.controller.state.buffer.text;
+ const start=source.text.indexOf('[file::'),end=start+'[file::same.md]'.length;
+ await h.controller.dispatch({type:'reference.open',target:{kind:'reference',value:source.id,occurrence:{revision:source.revision,start,end}},routing:'linked'},viewport);
+ expect(previewed).toHaveLength(1);expect(previewed[0]?.kind).toBe('resource');
+ expect(h.controller.state.context.selected?.id).toBe(source.id);expect(h.controller.state.buffer.text).toBe(before);
+ expect(h.calls.navigationDispatches).toEqual([]);expect(h.calls.followedReferences).toHaveLength(1);
+ expect(h.controller.state.destinationChooser.active).toBe(false);
+});
+
+test('an older authored file resolution cannot replace the newer Preview intent',async()=>{
+ const source=makeBlock({id:'file-note',updatedAt:'2026-09-23T00:00:00.000Z',text:'Daily note\n\n[file::first.md] [file::second.md]'}),previewed:OutlinerNavigationTarget[]=[];
+ const h=createHarness(source,null,undefined,undefined,{previewHere:async target=>{previewed.push(target);}});
+ await h.controller.initialize();
+ const follow=h.effects.followResourceOccurrence,slow=Promise.withResolvers<Awaited<ReturnType<typeof follow>>>();
+ let count=0;h.effects.followResourceOccurrence=async target=>++count===1?slow.promise:follow(target);
+ const target=(file:string)=>{const token=`[file::${file}]`,start=source.text.indexOf(token);return {kind:'reference' as const,value:source.id,occurrence:{revision:source.revision,start,end:start+token.length}};};
+ const first=h.controller.dispatch({type:'reference.open',target:target('first.md'),routing:'linked'},viewport);
+ await h.controller.dispatch({type:'reference.open',target:target('second.md'),routing:'linked'},viewport);
+ slow.resolve(await follow(target('first.md')));await first;
+ expect(previewed).toHaveLength(1);
+ expect(previewed[0]?.kind==='resource'&&previewed[0].referenceContext?.anchor.kind==='text-quote'&&previewed[0].referenceContext.anchor.exact).toContain('second.md');
+});
+
+test('an explicit non-focusing Open loads Current and still protects its draft',async()=>{
+ const h=createHarness(makeBlock({id:'original'}));
+ await h.controller.initialize();
+ await h.controller.handleUiCommand({command:'open',targetClientId:'detail-test',target:{kind:'block',blockId:'read-target'},focus:false},viewport);
+ expect(h.controller.state.target).toEqual({kind:'block',blockId:'read-target'});
+ expect(h.calls.selfFocuses).toBe(0);
+ await h.controller.handleUiCommand({command:'open',targetClientId:'detail-test',target:{kind:'block',blockId:'read-target'},focus:true},viewport);
+ expect(h.calls.selfFocuses).toBe(1);
+ await h.controller.dispatch({type:'edit.begin'},viewport);
+ await h.controller.dispatch({type:'buffer.insert',text:'KEEP THIS DRAFT'},viewport);
+ const draft=h.controller.state.buffer.text;
+ await h.controller.handleUiCommand({command:'open',targetClientId:'detail-test',target:{kind:'block',blockId:'other'},focus:false},viewport);
+ expect(h.controller.state.target).toEqual({kind:'block',blockId:'read-target'});
+ expect(h.controller.state.buffer.text).toBe(draft);
+ expect(h.calls.selfFocuses).toBe(1);
+});
+
+for(const undoAfterConflict of [false,true])test(`a later overlapping edit invalidates an automatically combined editor draft with undo ${undoAfterConflict}`,async()=>{
+ const {OutlinerStore}=await import('../src/store');
+ const {EditRecoveryRepository}=await import('../src/edit-recovery');
+ const store=new OutlinerStore(':memory:'),repository=new EditRecoveryRepository(store);
+ try{
+  const base=store.create('Scratch\n\nOriginal body'),h=createHarness(base);let reviews=0;
+  h.effects.recovery={retain:async input=>repository.start(input),list:async id=>repository.list(id),commit:async(record,text)=>repository.commit(record.id,record.revision,text,record.latest.revision,{author:'user',actorId:'detail'}),separate:async record=>repository.separate(record.id,record.revision,{author:'user',actorId:'detail'})};
+  h.effects.reviewRecovery=async records=>{reviews++;return {action:'later',record:records[0]!};};
+  const draft=base.text.replace('Original body','My body');
+  h.setExternalEdit(async()=>{
+   store.update(base.id,base.text.replace('Scratch','Scratch [type::note]'),base.revision);
+   return {text:draft,changed:true,recoveryPath:'draft.md',cleanup(){},recoveryInput:{id:crypto.randomUUID(),blockId:base.id,baseRevision:base.revision,baseText:base.text,prelaunchText:base.text,draftText:draft,source:'external-editor'}};
+  });
+  await h.controller.initialize();await h.controller.dispatch({type:'edit.external'},viewport);
+   expect(reviews).toBe(0);
+   if(undoAfterConflict)await h.controller.dispatch({type:'buffer.insert',text:' extra'},viewport);
+   const current=store.get(base.id)!;
+   const latest=store.update(base.id,current.text.replace('Original body','Other body'),current.revision);
+   await h.controller.dispatch({type:'buffer.save'},viewport);
+   expect(h.controller.state.status).toContain('Save did not apply');
+   if(undoAfterConflict){
+    await h.controller.dispatch({type:'buffer.undo'},viewport);
+    expect(h.controller.state.recoveryAccepted).toBe(false);
+   }
+   await h.controller.dispatch({type:'buffer.save'},viewport);
+  expect(reviews).toBe(1);expect(store.get(base.id)?.text).toBe(latest.text);
+  expect(h.controller.state.buffer.text).toContain('My body');
+  expect(repository.list(base.id).some(r=>r.originalDraft===draft)).toBe(true);
+ }finally{store.close();}
+});
+
+test('retrying a clean ordinary save conflict combines without opening recovery review',async()=>{
+ const {OutlinerStore}=await import('../src/store');
+ const {EditRecoveryRepository}=await import('../src/edit-recovery');
+ const store=new OutlinerStore(':memory:'),repository=new EditRecoveryRepository(store);
+ try{
+  const base=store.create('Note\n\nBody'),h=createHarness(base);let reviews=0;
+  h.effects.recovery={retain:async input=>repository.start(input),list:async id=>repository.list(id),commit:async(record,text)=>repository.commit(record.id,record.revision,text,record.latest.revision,{author:'user',actorId:'detail'}),separate:async record=>repository.separate(record.id,record.revision,{author:'user',actorId:'detail'})};
+  h.effects.updateBlock=async input=>store.update(input.blockId,input.text,input.expectedRevision);
+  h.effects.reviewRecovery=async records=>{reviews++;return {action:'later',record:records[0]!};};
+  await h.controller.initialize();await h.controller.dispatch({type:'edit.begin'},viewport);
+  h.controller.state.buffer.replaceText(base.text+'\nMore writing');
+  store.update(base.id,base.text.replace('Note','Note [type::note]'),base.revision);
+  await h.controller.dispatch({type:'buffer.save'},viewport);
+  expect(h.controller.state.status).toContain('Save did not apply');
+  await h.controller.dispatch({type:'buffer.save'},viewport);
+  expect(reviews).toBe(0);expect(store.get(base.id)?.text).toBe('Note [type::note]\n\nBody\nMore writing');
+  expect(repository.list(base.id)).toHaveLength(0);
+ }finally{store.close();}
+});
+
+test("property actions copy the chosen occurrence and follow its URL without editing", async () => {
+  const url = "https://example.test/threads/DEMO-762?thread=123.456&channel=alpha#reply";
+  const source = `Draft [state::waiting] [state::ready] [link::${url}]`;
+  const harness = createHarness(makeBlock({text: source}));
+  const opened: string[] = [];
+  harness.effects.openExternal = url => {opened.push(url);};
+  await harness.controller.initialize();
+  const entries = harness.controller.state.propertyInspector.model!.entries;
+  await harness.controller.dispatch({type: "property-inspector.value.copy", occurrenceId: entries[1]!.occurrenceId}, viewport);
+  await harness.controller.dispatch({type: "property-inspector.value.copy", occurrenceId: entries[2]!.occurrenceId}, viewport);
+  expect(harness.calls.copiedTexts).toEqual(["ready", url]);
+  expect(opened).toEqual([]);
+  expect(harness.controller.state.status).toContain("sent to terminal clipboard");
+  await harness.controller.dispatch({type: "property-inspector.target.open", occurrenceId: entries[2]!.occurrenceId, intent: "open"}, viewport);
+  expect(opened).toEqual([url]);
+  expect(harness.calls.copiedTexts).toEqual(["ready", url]);
+  expect(harness.controller.state.context.selected?.text).toBe(source);
+  expect(harness.controller.state.context.selected?.revision).toBe(1);
+  expect(harness.controller.state.propertyInspector.edit).toBeNull();
+  harness.effects.copyText = () => {throw Error("clipboard unavailable");};
+  await harness.controller.dispatch({type: "property-inspector.value.copy", occurrenceId: entries[1]!.occurrenceId}, viewport);
+  expect(harness.controller.state.status).toContain("clipboard unavailable");
+  await harness.controller.dispatch({type: "property-inspector.value.copy", occurrenceId: "stale-row"}, viewport);
+  expect(harness.controller.state.status).toContain("no longer available");
+});
+
+
+test.each([
+  {uri: "pi-outliner://resource/30000000-0000-4000-8000-000000000001", target: {kind: "resource", resourceId: "30000000-0000-4000-8000-000000000001"}, intent: "open"},
+  {uri: "pi-outliner://block/30000000-0000-4000-8000-000000000002?fragment=step-two&intent=reveal", target: {kind: "block", blockId: "30000000-0000-4000-8000-000000000002", fragmentId: "step-two"}, intent: "reveal"},
+  {uri: "pi-outliner://block/30000000-0000-4000-8000-000000000002?preserveSource=1", target: {kind: "block", blockId: "30000000-0000-4000-8000-000000000002"}, intent: "open"},
+])("property navigation preserves the complete raw URI: $uri", async ({uri, target, intent}) => {
+  const harness = createHarness(makeBlock({text: `Links\nlink:: ${uri}`}));
+  const navigations: unknown[] = [];
+  const navigate = harness.effects.dispatchNavigation;
+  harness.effects.dispatchNavigation = async (target, intent, options) => {
+    navigations.push({target, intent});
+    return navigate(target, intent, options);
+  };
+  await harness.controller.initialize();
+  const entry = harness.controller.state.propertyInspector.model!.entries[0]!;
+  await harness.controller.dispatch({type: "property-inspector.target.open", occurrenceId: entry.occurrenceId, intent: "open"}, viewport);
+  expect(navigations).toEqual([{target, intent}]);
+  if (uri.includes("preserveSource=1")) {
+    expect(harness.calls.navigationDispatches[0]?.preserveSource).toBe(true);
+    expect(harness.controller.state.context.selected?.id).toBe("block-1");
+  }
+});
+
+test("embedded property links retain separate targets while copy and edit own the whole occurrence", async () => {
+  const value = "Read https://example.test/one then [Second](https://example.test/two?mode=read&v=2)";
+  const harness = createHarness(makeBlock({text: `Links\nlinks:: ${value}`}));
+  const opened: string[] = [];
+  harness.effects.openExternal = url => {opened.push(url);};
+  await harness.controller.initialize();
+  await harness.controller.dispatch({type: "property-inspector.disclosure.toggle"}, viewport);
+  const regions = detailPropertyInspectorRegions(harness.controller.state);
+  const targets = regions.filter(region => region.activation?.type === "property-inspector.target.open");
+  expect(targets).toHaveLength(2);
+  for (const target of targets) {
+    await harness.controller.dispatch({type: "preview.action", action: target.activation!}, viewport);
+  }
+  expect(opened).toEqual(["https://example.test/one", "https://example.test/two?mode=read&v=2"]);
+  await harness.controller.dispatch({type: "property-inspector.value.copy"}, viewport);
+  expect(harness.calls.copiedTexts).toEqual([value]);
+  expect(harness.controller.state.previewRegions.focusedRegionId).toBe(targets[1]!.id);
+  await harness.controller.dispatch({type: "property-inspector.edit.begin"}, viewport);
+  expect(harness.controller.state.propertyInspector.edit?.buffer.text).toBe(value);
+  await harness.controller.dispatch({type: "property-inspector.edit.cancel"}, viewport);
+  expect(harness.controller.state.context.selected?.revision).toBe(1);
+});
+
+describe("faceted backlinks in Detail", () => {
+  // Fictional: a garden-club ticket referenced by letters, a day page and comments.
+  function faceted(
+    blockId: string,
+    title: string,
+    updatedAt: string,
+    facets: NonNullable<BacklinkCollection["sources"][number]["facets"]>,
+  ): BacklinkCollection["sources"][number] {
+    return {
+      blockId, title, parentContext: "Club", createdAt: updatedAt, updatedAt,
+      occurrenceCount: 1, referenceGroups: [{ kind: "work-id", count: 1 }],
+      occurrences: [], occurrencesTruncated: false, facets,
+    };
+  }
+  const letter = (stage: "waiting" | "done") => ({
+    kind: "letter", kindLabel: "Letter", placement: "other" as const,
+    stage: { property: "outbox", value: stage, bucket: stage },
+  });
+
+  async function openPanel() {
+    const hub = makeBlock({ id: "hub-block", text: "Ticket" });
+    const harness = createHarness(hub);
+    harness.setBacklinkResults([{
+      targetBlockId: hub.id,
+      completeness: { kind: "complete" },
+      sources: [
+        faceted("letter-done", "Thank-you", "2031-02-05T00:00:00.000Z", letter("done")),
+        faceted("letter-waiting", "Ask for trays", "2031-02-01T00:00:00.000Z", letter("waiting")),
+        faceted("day", "Monday", "2031-02-04T00:00:00.000Z", { kind: "day-page", kindLabel: "Day page", placement: "other" }),
+        faceted("self", "Ticket", "2031-02-06T00:00:00.000Z", { kind: "note", kindLabel: "Note", placement: "self" }),
+        faceted("resolved", "Old question", "2031-02-03T00:00:00.000Z", {
+          kind: "comment", kindLabel: "Comment", placement: "other", comment: { resolved: true },
+        }),
+      ],
+    }]);
+    await harness.controller.initialize();
+    await harness.controller.dispatch({ type: "backlinks.toggle" }, viewport);
+    harness.controller.setPreviewRegions(detailBacklinkRegions(harness.controller.state));
+    return harness;
+  }
+  const rows = (harness: Awaited<ReturnType<typeof openPanel>>) =>
+    visibleBacklinkSources(harness.controller.state.backlinks).map((source) => source.blockId);
+
+  test("opens with groups collapsed to their open items and asks for enough sources to count", async () => {
+    const harness = await openPanel();
+    expect(harness.calls.backlinkQueries).toEqual([{ targetBlockId: "hub-block", limit: BACKLINK_QUERY_LIMIT }]);
+    expect(rows(harness)).toEqual(["letter-waiting"]);
+    expect(harness.controller.state.previewRegions.regions
+      .filter((region) => region.kind === "backlink-group").map((region) => region.id))
+      .toEqual(["backlink-group:letter", "backlink-group:day-page"]);
+  });
+
+  test("Tab reaches a collapsed group's open rows between the headers", async () => {
+    const harness = await openPanel();
+    const order: string[] = [];
+    for (let step = 0; step < 4; step += 1) {
+      await harness.controller.dispatch({ type: "preview.focus.move", delta: 1 }, viewport);
+      order.push(harness.controller.state.previewRegions.focusedRegionId ?? "");
+    }
+    expect(order).toEqual([
+      "backlink-group:letter", "backlink:letter-waiting", "backlink-group:day-page", "backlink-group:letter",
+    ]);
+  });
+
+  test("a group header opens by pointer and by keyboard focus", async () => {
+    const harness = await openPanel();
+    // Pointer: the header link activates its group.
+    await harness.controller.dispatch({
+      type: "preview.action",
+      action: { type: "backlink.group.disclosure.toggle", kind: "letter" },
+    }, viewport);
+    expect(rows(harness)).toEqual(["letter-waiting", "letter-done"]);
+    // Keyboard: Tab to a header, then `.` (source disclosure) folds that group.
+    harness.controller.setPreviewRegions(detailBacklinkRegions(harness.controller.state));
+    await harness.controller.dispatch({ type: "preview.focus.set", regionId: "backlink-group:day-page" }, viewport);
+    await harness.controller.dispatch({ type: "backlinks.source.toggle" }, viewport);
+    expect(rows(harness)).toEqual(["letter-waiting", "letter-done", "day"]);
+    await harness.controller.dispatch({ type: "preview.activate" }, viewport);
+    expect(rows(harness)).toEqual(["letter-waiting", "letter-done"]);
+  });
+
+  test("status-line controls toggle hidden sources, kinds, stages and sort", async () => {
+    const harness = await openPanel();
+    const control = (name: "kind" | "stage" | "resolved" | "related" | "sort") =>
+      harness.controller.dispatch({ type: "preview.action", action: { type: "backlinks.control", control: name } }, viewport);
+    const backlinks = harness.controller.state.backlinks;
+
+    await control("resolved");
+    expect(backlinks.showResolved).toBe(true);
+    await control("related");
+    expect(backlinks.showRelated).toBe(true);
+    await control("kind");
+    // Kind order follows group order: groups with open items first.
+    expect(backlinks.kindFilter).toBe("letter");
+    expect(rows(harness)).toEqual(["letter-waiting", "letter-done"]);
+    await control("stage");
+    expect(backlinks.stageFilter).toBe("open");
+    expect(rows(harness)).toEqual(["letter-waiting"]);
+    for (let step = 0; step < 4; step += 1) await control("sort");
+    expect([backlinks.sortField, backlinks.sortDirection]).toEqual(["title", "asc"]);
+  });
+
+  test("folding a group while a filter is active does nothing and says why", async () => {
+    const harness = await openPanel();
+    await harness.controller.dispatch({ type: "backlinks.stage.cycle" }, viewport);
+    await harness.controller.dispatch({ type: "backlinks.group.toggle", kind: "letter" }, viewport);
+    expect(harness.controller.state.backlinks.expandedKinds.has("letter")).toBe(false);
+    expect(harness.controller.state.status).toBe("Clear the filter to fold groups");
+  });
+
+  test("against a service without the facets capability, Detail shows one flat list", async () => {
+    const hub = makeBlock({ id: "hub-block", text: "Ticket" });
+    const harness = createHarness(hub);
+    // An older service returns the same sources with no `facets`.
+    harness.setBacklinkResults([{
+      targetBlockId: hub.id,
+      completeness: { kind: "complete" },
+      sources: ["older", "newer", "self"].map((blockId, index) => ({
+        blockId, title: blockId, parentContext: "Club",
+        createdAt: `2031-02-0${index + 1}T00:00:00.000Z`, updatedAt: `2031-02-0${index + 1}T00:00:00.000Z`,
+        occurrenceCount: 1, referenceGroups: [{ kind: "work-id" as const, count: 1 }],
+        occurrences: [], occurrencesTruncated: false,
+      })),
+    }]);
+    await harness.controller.initialize();
+    await harness.controller.dispatch({ type: "backlinks.toggle" }, viewport);
+    const regions = detailBacklinkRegions(harness.controller.state);
+    expect(regions.some((region) => region.kind === "backlink-group")).toBe(false);
+    // Nothing is hidden: the target's own row stays, newest first.
+    expect(visibleBacklinkSources(harness.controller.state.backlinks).map((source) => source.blockId))
+      .toEqual(["self", "newer", "older"]);
+    const document = renderBacklinksDocument(harness.controller.state, 100);
+    expect(document).toContain("3 of 3 match · [Sort: Updated ↓]");
+    expect(document).not.toContain("Kind:");
+  });
+
+  test("a Peek selection inside a folded group opens that group", async () => {
+    const harness = await openPanel();
+    await harness.controller.onServiceEvent(event("ui", {
+      targetClientId: "detail-test",
+      command: "backlinks.select",
+      targetBlockId: "hub-block",
+      sourceBlockId: "letter-done",
+    }), viewport);
+    expect(rows(harness)).toEqual(["letter-waiting", "letter-done"]);
+    expect(harness.controller.state.backlinks.selectedIndex).toBe(1);
+  });
+});
+
+describe("resource projections in Detail", () => {
+  test("a projection without a Resource (no key, ambiguous, not registered) repaints on any catalog change", async () => {
+    for (const status of ["no-key", "ambiguous", "not-registered"] as const) {
+      const selected = makeBlock({ text: "Vendor call\n- jira::" });
+      const harness = createHarness(selected, null, undefined, async (text) => ({
+        text, provenance: generatedDocument(text, "test resource projection"), embeds: [], embedRanges: [],
+        resourceProjections: [{ anchor: { kind: "directive" as const, line: 1, start: 12, end: 20 }, provider: "jira" as const,
+          label: "Jira", propertyKey: "jira", options: { unknown: [] }, status, fields: [] }],
+      }));
+      await harness.controller.initialize();
+      await Promise.resolve();
+      const reads = harness.calls.projectedReads.length;
+      // A new Source can make a key claimable; a new Resource can register it.
+      await harness.controller.onServiceEvent({ ...event("resource-catalog"), sourceId: "source-new" }, viewport);
+      await Promise.resolve();
+      expect(harness.calls.projectedReads.length).toBeGreaterThan(reads);
+    }
+  });
+
+  test("a resource change to a projected ticket repaints the note; unrelated changes do not", async () => {
+    const selected = makeBlock({ text: "Vendor call ACME-60\n- jira::" });
+    let summary = "Before refresh";
+    const projection = () => ({
+      anchor: { kind: "directive" as const, line: 1, start: 22, end: 28 },
+      provider: "jira" as const, label: "Jira", propertyKey: "jira", options: { unknown: [] },
+      status: "ready" as const, key: "ACME-60", resourceId: "resource-60", sourceId: "source-tickets",
+      summary, fields: [],
+    });
+    const harness = createHarness(selected, null, undefined, async (text) => {
+      const projected = `${text}\n- Jira ACME-60 · ${summary}`;
+      return { text: projected, provenance: generatedDocument(projected, "test resource projection"), embeds: [],
+        embedRanges: [{ startLine: 2, endLine: 2, inserted: { afterSourceLine: 1, lineCount: 1 } }],
+        resourceProjections: [projection()] };
+    });
+    await harness.controller.initialize();
+    await Promise.resolve();
+    expect(harness.controller.state.projectedSelectedText).toContain("Before refresh");
+    const reads = harness.calls.projectedReads.length;
+
+    await harness.controller.onServiceEvent({ ...event("resource-catalog"), resourceId: "resource-other", sourceId: "source-other" }, viewport);
+    expect(harness.calls.projectedReads.length).toBe(reads);
+
+    summary = "After refresh";
+    await harness.controller.onServiceEvent({ ...event("resource-catalog"), resourceId: "resource-60" }, viewport);
+    await Promise.resolve();
+    expect(harness.calls.projectedReads.length).toBeGreaterThan(reads);
+    expect(harness.controller.state.projectedSelectedText).toContain("After refresh");
+  });
+});
+
+test("status.flash is a routine notice: it clears itself so compact Detail's hints return", async () => {
+  const harness = createHarness(makeBlock());
+  await harness.controller.initialize();
+  await harness.controller.dispatch({ type: "status.flash", message: "Detail chrome: full" }, viewport);
+  expect(harness.controller.state.status).toBe("Detail chrome: full");
+  await new Promise(resolve => setTimeout(resolve, 3_100));
+  expect(harness.controller.state.status).toBe("");
+  await harness.controller.dispatch({ type: "status.set", message: "Bars unchanged: broken" }, viewport);
+  await new Promise(resolve => setTimeout(resolve, 3_100));
+  expect(harness.controller.state.status).toBe("Bars unchanged: broken");
+}, 10_000);
