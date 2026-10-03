@@ -105,6 +105,11 @@ export interface Pane {
   render(w: number, h: number, focused: boolean, desk: DeskApi, typing?: boolean): PaneView;
   /** Return true when the pane used the key. */
   key(k: Key, desk: DeskApi): boolean;
+  /**
+   * A key the tile takes ahead of the desk's own (tab cycles tiles) and its kind's (a river column's ← →): a reader's
+   * while its current element is a live figure's (its tabs, its density).
+   */
+  claims?(k: Key): boolean;
   click?(x: number, y: number, desk: DeskApi): void;
   wheel?(dir: 1 | -1, desk: DeskApi): void;
   select?(m: Msg | null, desk: DeskApi): void;
@@ -196,6 +201,7 @@ export class ReaderPane implements Pane {
    */
   constructor(readonly follows = false) {}
   get msg() { return this.surface.msg; }
+  claims(k: Key): boolean { return !this.holdsKeys && this.surface.claims(k); }
   /** Held on its note (p, or alt+⏎): it doesn't follow the current note. */
   get holding() { return this.held; }
   get draft() { return this.surface.draft; }

@@ -13,6 +13,9 @@
 //   stat/kpi  items: [{ label, query|view }] → each value is a live count
 //   rank      group: <property> → a bar per value, counted
 //   table     columns: [title, <property>, updated, author, …]
+//   tabs      group: <property> → one tab per value, each a table of its results (columns: as table);
+//             order: [values…] first (shown even when empty), then the rest alphabetically, no value last;
+//             limit: rows per tab (50); the question itself asks for up to 1000 results
 //   timeline  one event per block, dated by updated/created or date: <property>; now: "<filter>"
 //   meter     value = share of results matching done: "<filter>"
 import type { Msg } from "./board";
@@ -94,6 +97,28 @@ const field = (m: Msg, key: string): string =>
   key === "title" ? subject(m) : key === "updated" ? date(m.updatedAt) : key === "created" ? date(m.createdAt)
     : key === "author" ? m.author ?? "" : m.props[key] ?? "";
 
+/** A result with no value for a figure's `group:` property. */
+export const NONE = "—";
+/** What a tabs figure asks for (the service's most), and its rows per tab unless `limit:` says. */
+const TABS_FETCH = 1000, TABS_PER = 50;
+
+/** Results by their value of property `key`, in the order they came (rank and tabs group the same way). */
+function groupBy(items: readonly Msg[], key: string): Map<string, Msg[]> {
+  const out = new Map<string, Msg[]>();
+  for (const m of items) { const v = m.props[key] ?? NONE; const g = out.get(v); if (g) g.push(m); else out.set(v, [m]); }
+  return out;
+}
+
+/**
+ * A table's props from results (a `::graph-table`, or one tab of a `::graph-tabs`): `columns:` (title and updated
+ * when left out) as headers unless `headers:` names them, a row per result and its note's id, and which column is
+ * the title (the one density wraps).
+ */
+function tableOf(p: Props, items: readonly Msg[]) {
+  const cols: string[] = p.columns ?? ["title", "updated"];
+  return { headers: p.headers ?? cols, rows: items.map(m => cols.map(c => field(m, c))), blocks: items.map(m => m.id), titleColumn: Math.max(0, cols.indexOf("title")) };
+}
+
 export interface Resolved { props: Props; status: string | null; waiting: boolean; error?: string }
 
 /**
@@ -114,7 +139,8 @@ export function resolveLive(kind: string, p: Props): Resolved | null {
     });
     return { props: { ...p, items }, status: "live", waiting, error };
   }
-  const a = answer(p);
+  // A tabs figure groups every result, so it asks for all of them; its `limit:` is per tab.
+  const a = answer(kind === "tabs" ? { ...p, limit: TABS_FETCH } : p);
   if (!a) return null;
   if (a.state === "error") return { props: p, status: null, waiting: false, error: a.error };
   if (a.state === "loading" && !a.items.length) return { props: p, status: null, waiting: true };
@@ -127,14 +153,23 @@ export function resolveLive(kind: string, p: Props): Resolved | null {
     case "check":
       return { status, waiting: false, props: { ...p, items: items.map(m => ({ label: subject(m), done: isDone(m), note: p.note ? field(m, p.note) || undefined : undefined, block: m.id })) } };
     case "rank": {
-      const key = String(p.group ?? "status");
-      const counts = new Map<string, number>();
-      for (const m of items) { const v = m.props[key] ?? "—"; counts.set(v, (counts.get(v) ?? 0) + 1); }
-      return { status, waiting: false, props: { ...p, items: [...counts].sort((x, y) => y[1] - x[1]).map(([label, value]) => ({ label, value })) } };
+      const groups = groupBy(items, String(p.group ?? "status"));
+      return { status, waiting: false, props: { ...p, items: [...groups].sort((x, y) => y[1].length - x[1].length).map(([label, ms]) => ({ label, value: ms.length })) } };
     }
-    case "table": {
-      const cols: string[] = p.columns ?? ["title", "updated"];
-      return { status, waiting: false, props: { ...p, headers: p.headers ?? cols, rows: items.map(m => cols.map(c => field(m, c))), blocks: items.map(m => m.id) } };
+    case "table":
+      return { status, waiting: false, props: { ...p, ...tableOf(p, items) } };
+    case "tabs": {
+      // One tab per value of `group:`, the values `order:` lists first (even with nothing in them), then the rest
+      // alphabetically (a count changing never moves a tab under the person's pointer), results with no value last.
+      const groups = groupBy(items, String(p.group ?? "status"));
+      const order: string[] = Array.isArray(p.order) ? p.order.map(String) : [];
+      const rest = [...groups.keys()].filter(v => !order.includes(v)).sort((x, y) => (x === NONE ? 1 : y === NONE ? -1 : x.localeCompare(y)));
+      const per = Math.max(1, Number(p.limit) || TABS_PER);
+      const tabs = [...order, ...rest].map(value => {
+        const ms = groups.get(value) ?? [];
+        return { value, count: ms.length, more: Math.max(0, ms.length - per), ...tableOf(p, ms.slice(0, per)) };
+      });
+      return { status, waiting: false, props: { ...p, tabs, truncated: a.truncated } };
     }
     case "timeline":
       return { status, waiting: false, props: { ...p, events: items.map(m => ({ date: p.date ? field(m, p.date) : date(p.sort === "created" ? m.createdAt : m.updatedAt), label: subject(m), state: now?.has(m.id) ? "now" : undefined, block: m.id })) } };

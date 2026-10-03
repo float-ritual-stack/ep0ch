@@ -4,7 +4,7 @@
 import { media, MEDIA_LINE, type Media } from "./media";
 import { balanceTags, BOLD, C, extractLinks, fg, type LinkRange, pad, RESET, splitVisible, stripTags, styleMarks, trimTagged, UNBOLD, width as vwidth } from "./style";
 import { colourBody, wrap } from "./text";
-import { frame, isGraphStart, reframeAscii, renderGraph } from "./graphs";
+import { frame, isGraphStart, reframeAscii, renderGraph, type FiguresEnv } from "./graphs";
 import { linkBlockLines, linkBlockAt, renderLinkBlock } from "./links";
 import { EMBED, stripMarks, type LinkTarget } from "./refs";
 import { BUILTIN_CALLOUT_REGISTRY, calloutBlocks, stripQuotes, type CalloutBlock, type CalloutRegistry } from "@ep0ch/outline-core/callouts";
@@ -32,7 +32,13 @@ export interface DocEnv {
    * Tag `text` as a link to a row's note (a live figure's check item, event or table row), so the reader
    * can step to it and a click opens it (PIE-441). Without it (an embed, a draft's preview) rows are text.
    */
-  link?: (block: string, text: string) => string;
+  link?: (block: string, text: string, figure?: string) => string;
+  /**
+   * The reader's hold on the body's live figures (src/graphs.ts FiguresEnv): each one's chosen tab and density, its
+   * tabs and density as controls, and what each drew. Without it (an embed, a draft's preview) a figure draws its first
+   * tab at its YAML's density, as text.
+   */
+  figures?: FiguresEnv;
   /**
    * Tag `text` as a link to any target (an inline `::links` component's rows: a note, a ticket's block, a
    * Resource), so the reader steps to it and opens it. Without it the rows are text.
@@ -243,7 +249,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
       const yaml: string[] = [];
       let dashes = 0;
       for (i++; i < src.length && !/^\s*::\s*$/.test(src[i]!); i++) { if (/^\s*---\s*$/.test(src[i]!)) { dashes++; continue; } if (dashes === 1) yaml.push(src[i]!); }
-      out.push(...renderGraph(gk, yaml.join("\n"), W, env.link));
+      out.push(...renderGraph(gk, yaml.join("\n"), W, env.link, env.figures));
       continue;
     }
 

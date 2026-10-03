@@ -160,12 +160,31 @@ items:
 | `stat` / `kpi` | `items: [{ label, query \| view }]`, each a live count | `items` |
 | `rank` | `group: <property>`, a bar per value | `items` |
 | `table` | `columns: [title, <property>, updated, author, …]`; a row opens its note | `headers`, `rows` |
+| `tabs` | `group: <property>`, a tab per value with its count, each a `table` (`columns:`); `order: [a, b]` first (shown even when empty), the rest alphabetically; `limit:` rows per tab | (hand-authored tabs are planned, PIE-533) |
 | `timeline` | one event per block, dated by `date: <property>` or updated; `now: "<filter>"` | `items` |
 | `meter` | the share of results matching `done: "<filter>"` | `value` |
 | `funnel`, `waterfall`, `spark`, `plot`, `gantt`, `tree` | static only | `steps`, `data`, `labels`, `nodes` … |
 
-Live blocks also take `limit:`, `sort: updated|created` and `direction:`. An agent can paste the fenced ASCII
-figure form (` ```+--- [ TITLE ] ---+ `) and it is re-framed to fit the pane.
+Live blocks also take `limit:`, `sort: updated|created` and `direction:`. A `table` or `tabs` takes
+`density: compact | cozy | comfortable` (titles on one line, up to two, up to three with a blank line between rows;
+a wrapped title hangs past its work id); it is only the default: the person switches tabs and density in their
+reader (`figure.tab`, `figure.density`), which never writes the note. Group a long status list into one `tabs`
+figure rather than one table per status:
+
+```
+::graph-tabs
+---
+title: Workboard
+query: "type=roadmap-item"
+group: work-stage
+order: [doing, review, validate, queued]
+columns: [title, priority, updated]
+density: cozy
+---
+::
+```
+
+An agent can paste the fenced ASCII figure form (` ```+--- [ TITLE ] ---+ `) and it is re-framed to fit the pane.
 
 **Links** (`packages/door/src/links.ts`). `::links` lists a note's Outlinks, Resources (`[file::…]`, `jira::`
 tickets; `!` marks one that's unavailable) and Backlinks, answered by the service on every render, the same

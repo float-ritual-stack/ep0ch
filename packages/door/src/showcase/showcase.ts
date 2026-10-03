@@ -221,6 +221,12 @@ export const SECTIONS: Section[] = [
     stage(n, show) { const r = new ReaderPane(); return deskOf({ title: "showcase · live", panes: [r] }, show, [[r, n.figures]]); },
   },
   {
+    key: "tabs", need: "switch a live figure's tabs, or how many lines its rows take", part: "a figure's reading state: ::graph-tabs (a query's results grouped by a property, a tab each) and a table's density, kept by the reader, switched by figure.tab and figure.density (tab shift+tab ← →, =, a click, act)", files: "src/graphs.ts, src/live.ts, src/surface/note.ts",
+    aside: "[ ] onto a tab, then ← → or tab shift+tab switch; = steps compact, cozy, comfortable (titles wrap past PLOT-1 — ); a click on a tab or ≡ does the same; the note is never written; two readers of one note, each with its own tab and density",
+    // Two readers on one note: each keeps its own tab and density.
+    stage(n, show) { const a = new ReaderPane(), b = new ReaderPane(); return deskOf({ title: "showcase · tabs", panes: [a, b], layout: ([x, y]) => row(0.5, x!, y!) }, show, [[a, n.plotJobs], [b, n.plotJobs]]); },
+  },
+  {
     key: "projection", need: "show a Resource's stored details in a note", part: "resource projections: resources.projection.read (the open is the one step); a ticket the extension keeps as a block drawn by ticketRegion under its jira:: line or after a ticket page's notes ([ ] ⏎ opens the ticket block, r or a click on its age refreshes, y copies)", files: "src/projection.ts, src/surface/note.ts, src/doc.ts",
     aside: "made-up tickets from a made-up extension (src/showcase/tickets, a contract 2 folder); the service fetches and keeps them as blocks, the door only reads",
     stage(n, show) {
@@ -488,7 +494,7 @@ export class Showcase implements Screen {
 /** The showcase's own actions: which section is shown. Keys and clicks on the index call the same code. */
 export const SHOWCASE_ACTIONS = actionSet<Showcase>()("showcase", {
   "section.try": def({
-    summary: "go into a section's stage (name=<1-21> or its key, else the one shown): the person's keys and mouse go to the part itself until its own esc brings them back to the index. The person's only: an agent acts in the stage with its actions (`act` reaches the shown section's)",
+    summary: "go into a section's stage (name=<1-22> or its key, else the one shown): the person's keys and mouse go to the part itself until its own esc brings them back to the index. The person's only: an agent acts in the stage with its actions (`act` reaches the shown section's)",
     keys: "⏎ → l tab, click in the stage",
     touches: "screen", replay: "safe", person: "going into a section gives it the person's keys; an agent runs the shown section's own actions instead",
     args: { name: { type: "string", optional: true, about: "the section's number or key; the one shown when left out" } },
@@ -499,7 +505,7 @@ export const SHOWCASE_ACTIONS = actionSet<Showcase>()("showcase", {
     },
   }),
   "section": def({
-    summary: "show a section (name=<1-21> or its key: note, actions, edit, search, drafts, panes, screens, kinds, terminal, preview, screen, spine, entity, presence, live, projection, extensions, selection, service, session, callouts); refused to an agent while the person is in one", keys: "↑↓ j k, 1-9 0, click, wheel",
+    summary: "show a section (name=<1-22> or its key: note, actions, edit, search, drafts, panes, screens, kinds, terminal, preview, screen, spine, entity, presence, live, tabs, projection, extensions, selection, service, session, callouts); refused to an agent while the person is in one", keys: "↑↓ j k, 1-9 0, click, wheel",
     touches: "screen", replay: "safe", says: r => `showed section ${r.section} (${r.key})`,
     args: { name: { type: "string", about: "the section's number or key" } },
     run({ name }, s) {
