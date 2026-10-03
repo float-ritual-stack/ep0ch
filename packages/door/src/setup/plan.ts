@@ -311,7 +311,6 @@ export const sessionName = (s: SessionFact) => `${s.outline}${s.machine ? ` on $
 
 /**
  * One door session (PIE-418) against the checkout: handed to a new daemon on its code (`do`), or why not (`skip`).
- * The session from before sessions were per outline (`old`) is always moved over: that's how it gets its own folder.
  */
 export function sessionVerdict(s: SessionFact, f: Facts, repo: Pick<Step, "status">): { status: "do" | "skip"; why: string } {
   const c = f.repo.checkout, who = `${sessionName(s)} (pid ${s.pid})`;
@@ -321,7 +320,6 @@ export function sessionVerdict(s: SessionFact, f: Facts, repo: Pick<Step, "statu
   if (repo.status === "manual" || c.branch !== "main") return { status: "skip", why: `the ep0ch checkout is left for you (not main, or not fast-forwardable), so ${who} stays on ${short(s.commit)}` };
   const updates = repo.status === "do" && c.behind > 0;
   const target = updates ? c.upstream : c.head;
-  if (s.old) return { status: "do", why: `${who} is from before sessions were per outline: a new daemon on the checkout's code takes it over in ${s.outline}'s own folder; its ${s.programs} program${s.programs === 1 ? "" : "s"} keep running and its ${s.clients} terminal${s.clients === 1 ? "" : "s"} attach again` };
   if (s.commit && s.commit === target) return { status: "skip", why: `${who} runs the current code (${short(s.commit)})` };
   return { status: "do", why: `${who} runs ${short(s.commit)}, the checkout ${updates ? "will be" : "is"} at ${short(target)}: a new daemon on that code takes it over; its ${s.programs} program${s.programs === 1 ? "" : "s"} keep running and its ${s.clients} terminal${s.clients === 1 ? "" : "s"} attach again` };
 }

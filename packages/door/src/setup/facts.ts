@@ -418,12 +418,7 @@ export async function gatherFacts(o: GatherOptions = {}): Promise<Facts> {
 /** The door sessions in the person's state dir (EP0CH_STATE, else their default), one per outline, that answer. */
 async function doorSessions(env: Record<string, string | undefined>): Promise<SessionFact[]> {
   const { runningSessions } = await import("../session/place");
-  const { oldSession } = await import("../session/old-session");
   const root = env.EP0CH_STATE ?? defaultStateDir(env);
-  const old = await oldSession(root);
-  return [
-    ...(old ? [{ outline: old.outline, ...(old.machine ? { machine: old.machine } : {}), pid: old.pid, dir: old.dir, commit: old.commit, clients: old.clients, programs: old.programs, old: true }] : []),
-    ...(await runningSessions(root)).map(({ info: i }) => ({ outline: i.place.outline, ...(i.place.machine ? { machine: i.place.machine } : {}), ...(i.place.socket ? { socket: i.place.socket } : {}), pid: i.pid, dir: i.code.dir, commit: i.code.commit, clients: i.clients.length, programs: i.terminals.length + (i.kept?.length ?? 0) })),
-  ];
+  return (await runningSessions(root)).map(({ info: i }) => ({ outline: i.place.outline, ...(i.place.machine ? { machine: i.place.machine } : {}), ...(i.place.socket ? { socket: i.place.socket } : {}), pid: i.pid, dir: i.code.dir, commit: i.code.commit, clients: i.clients.length, programs: i.terminals.length + (i.kept?.length ?? 0) }));
 }
 

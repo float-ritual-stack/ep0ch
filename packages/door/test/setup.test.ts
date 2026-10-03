@@ -271,12 +271,6 @@ describe("the door sessions (PIE-418), one per outline", () => {
     expect(step.why).toContain("seed-library on allotment (pid 4321) runs 40aaaaa");
     expect(step.why).toContain("garden (pid 99) runs the current code");
   });
-  test("the session from before sessions were per outline is always moved over", () => {
-    const f = current();
-    const step = buildPlan({ ...f, sessions: [session({ old: true, commit: f.repo.checkout.head })] }, opts()).steps.at(-1)!;
-    expect(step).toMatchObject({ status: "do", commands: [`${ep0ch()}session upgrade --all`] });
-    expect(step.why).toContain("from before sessions were per outline");
-  });
   test("a deps-only update keeps HEAD; a checkout left for the person isn't handed to", () => {
     const f = current();
     const ahead = { ...f, repo: { ...f.repo, checkout: checkout(REPO, { head: "50ccccc", upstream: "1111111aaaa", ahead: 2 }), deps: { needed: true, why: "a package is missing" } } };

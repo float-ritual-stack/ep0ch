@@ -48,7 +48,7 @@ export function doctorChecks(f: Facts): Check[] {
     if (!f.sessions.length) add("ep0ch", "sessions", "info", `none running · \`${ep0ch().trim()}\` starts one`);
     for (const sx of f.sessions) {
       const v = sessionVerdict(sx, f, { status: "skip" });
-      add("ep0ch", `session ${sessionName(sx)}`, v.status === "do" ? "behind" : /another checkout|left for you/.test(v.why) ? "info" : "ok", `pid ${sx.pid} · ${sx.clients} terminal${sx.clients === 1 ? "" : "s"} attached · ${sx.programs} program${sx.programs === 1 ? "" : "s"} in its tiles; ${v.why}`, v.status === "do" ? (sx.old ? `${ep0ch()}session upgrade` : `${ep0ch(process.env, sx)}session upgrade ${sessionFlags({ place: sx })}`) : undefined);
+      add("ep0ch", `session ${sessionName(sx)}`, v.status === "do" ? "behind" : /another checkout|left for you/.test(v.why) ? "info" : "ok", `pid ${sx.pid} · ${sx.clients} terminal${sx.clients === 1 ? "" : "s"} attached · ${sx.programs} program${sx.programs === 1 ? "" : "s"} in its tiles; ${v.why}`, v.status === "do" ? `${ep0ch(process.env, sx)}session upgrade ${sessionFlags({ place: sx })}` : undefined);
     }
   }
 
