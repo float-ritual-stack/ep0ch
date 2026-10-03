@@ -387,7 +387,7 @@ export class NoteSurface {
    */
   figureUI = new Map<string, FigureChoice>();
   /** The figures the last layout drew (their tabs, counts, what's chosen): what `figure.tab` and `figures` name. */
-  private figuresDrawn: FigureInfo[] = [];
+  figuresDrawn: FigureInfo[] = [];
   /** The thread a Reply control asked to answer: the thread list opening next starts the reply there. */
   private replyOn: string | null = null;
   /** The fold point selected (its key), which `f` and ⏎ fold or unfold: the current element, when it's a fold. */
@@ -908,7 +908,7 @@ export class NoteSurface {
       link: (block, x, figure) => tagged(drawn, { block, role: "row", ...(figure ? { figure: { figure } } : {}) }, x),
       figures: this.printed ? { all: true, seen: f => figures.push(f) } : {
         ui: key => this.figureUI.get(key),
-        tag: (c, x) => tagged(drawn, { role: "figure", figure: c, label: c.tab ?? "density" }, x),
+        tag: (c, x) => tagged(drawn, { role: "figure", figure: c, label: c.tab ?? `≡ density ${this.figureUI.get(c.figure)?.density ?? ""}`.trim() }, x),
         seen: f => figures.push(f),
       },
       tag: (to, x) => tagged(drawn, to, x), note: m.id,
@@ -2057,14 +2057,8 @@ export class NoteSurface {
     if (e.kind === "comment") { if (select) this.setExpanded(e.thread!, !this.expanded.has(e.thread!)); host.redraw(); return { thread: e.thread, expanded: this.expanded.has(e.thread!) }; }
     if (e.kind === "control" && e.link?.proposal?.op) return this.proposalControl(e.link.proposal.op, e.link.proposal.id, host);
     // A live figure's tab shows it; its density control steps to the next density.
-    if (e.kind === "figure" && e.link?.figure) {
-      const c = e.link.figure, f = this.figuresDrawn.find(x => x.key === c.figure);
-      if (!f) return null;
-      if (c.tab !== undefined) this.setFigureTab(f, c.tab, select);
-      else this.setFigureDensity(f, nextDensity(f.density));
-      host.redraw();
-      return { figure: f.n, title: f.title, ...(c.tab !== undefined ? { tab: c.tab } : { density: f.density }) };
-    }
+    // (element.open sends an agent's through figure.tab and figure.density itself, with their rules.)
+    if (e.kind === "figure" && e.link?.figure) { this.pressFigure(e.link.figure, host); return null; }
     if (e.kind === "control") return this.useControl(e, host);
     // A step's box opens its status choice under it (the person's; an agent sets a status by task.status).
     if (e.kind === "task") { if (select) this.openPicker(e); host.redraw(); return { step: e.task?.step.itemId ?? null, choice: select }; }
@@ -2355,7 +2349,7 @@ export class NoteSurface {
     const figure = String(f.n), e = this.inView();
     if (f.tabs && (k.kind === "tab" || k.kind === "backtab" || k.kind === "left" || k.kind === "right")) return { name: "figure.tab", args: { figure, by: k.kind === "tab" || k.kind === "right" ? 1 : -1 } };
     if (ch(k) === "=") return { name: "figure.density", args: { figure } };
-    if (k.kind === "enter" && e?.kind === "figure") return e.link?.figure?.tab !== undefined ? { name: "figure.tab", args: { figure, n: e.link.figure.tab } } : { name: "figure.density", args: { figure } };
+    if (k.kind === "enter" && e?.kind === "figure") return e.link?.figure?.tab !== undefined ? { name: "figure.tab", args: { figure, tab: e.link.figure.tab } } : { name: "figure.density", args: { figure } };
     return null;
   }
 
@@ -2366,10 +2360,17 @@ export class NoteSurface {
   claims(k: Key): boolean { return !!this.figureKey(k); }
 
   /** A click (or ⏎ through `open`) on a figure's control: the action its key runs. */
-  private pressFigure(c: FigureControl, host: SurfaceHost) {
+  /** An agent's (or anyone's) `element.open` on a figure's control: figure.tab or figure.density as `actor`. */
+  runFigureControl(c: FigureControl, host: SurfaceHost, actor: Actor): Promise<unknown> {
+    const f = this.figuresDrawn.find(x => x.key === c.figure);
+    if (!f) throw new ActionRefused("that figure isn't drawn now (figures lists what is)");
+    return NOTE_ACTIONS.run(c.tab !== undefined ? "figure.tab" : "figure.density", c.tab !== undefined ? { figure: String(f.n), tab: c.tab } : { figure: String(f.n) }, { surface: this, host }, actor);
+  }
+
+  pressFigure(c: FigureControl, host: SurfaceHost) {
     const f = this.figuresDrawn.find(x => x.key === c.figure);
     if (!f) return;
-    if (c.tab !== undefined) void this.runKey("figure.tab", { figure: String(f.n), n: c.tab }, host);
+    if (c.tab !== undefined) void this.runKey("figure.tab", { figure: String(f.n), tab: c.tab }, host);
     else void this.runKey("figure.density", { figure: String(f.n) }, host);
   }
 
@@ -4155,6 +4156,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       const e = surface.element(i);
       if (fresh && e.kind !== "link" && e.kind !== "row" && e.kind !== "embed") throw new ActionRefused(`fresh opens a link, a row or an embed; element ${i} is a ${e.kind}`);
       // A step's box opens the person's status choice; an agent sets the status itself.
+      // A live figure's tab or density control: the figure's own action, with its rules and its provenance.
+      if (e.kind === "figure" && e.link?.figure) {
+        return surface.runFigureControl(e.link.figure, host, actor);
+      }
       if (e.kind === "task" && actor.kind === "agent") throw new ActionRefused(`element ${i} is a step's status control; an agent sets it with task.status n=… to=done|todo|waiting|problem (tasks lists the steps)`);
       // An extension's line (PIE-512): its head runs the line's primary action, a control its own; an agent's
       // run is the agent's (said on the status bar), and what it writes is the extension's (ext:<id>).
@@ -4626,20 +4631,22 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     keys: "tab shift+tab or ← → while a figure's tab or row is the [ ] position, ⏎ on a tab, click a tab",
     touches: "tile", while: "typing", replay: "safe", way: "an agent switches tabs in a reader the person isn't typing in",
     args: {
-      n: { type: "string", optional: true, about: "the tab: its number from 1, or its value (doing, review…)" },
+      n: { type: "string", optional: true, about: "the tab: its number from 1, or its value (doing, review…) when that isn't a number" },
+      tab: { type: "string", optional: true, about: "the tab by its value exactly, a number too (a click and enter on a tab pass this)" },
       by: { type: "number", optional: true, about: "1 the next tab, -1 the previous one" },
       figure: { type: "string", optional: true, about: "which tabs figure: its number among the note's figures (figures lists them), or its title" },
     },
-    run({ n, by, figure }, { surface, host }, actor) {
+    run({ n, by, tab, figure }, { surface, host }, actor) {
       surface.requireNote();
-      if ((n === undefined) === (by === undefined)) throw new ActionRefused("say n= (a tab's number or value) or by=1|-1");
+      if ([n, by, tab].filter(x => x !== undefined).length !== 1) throw new ActionRefused("say one of n= (a tab's number or value), tab= (its value) or by=1|-1");
       const f = surface.figureNamed(figure, "tabs"), tabs = f.tabs ?? [];
       if (!tabs.length) throw new ActionRefused(`${f.title} has no tabs: its question has no results yet`);
       let i: number;
       if (by !== undefined) { const at = Math.max(0, tabs.findIndex(t => t.value === f.tab)); i = (at + (by < 0 ? -1 : 1) + tabs.length) % tabs.length; }
+      else if (tab !== undefined) i = tabs.findIndex(t => t.value === tab);
       else { const v = String(n).trim(); i = /^\d+$/.test(v) ? Number(v) - 1 : tabs.findIndex(t => t.value.toLowerCase() === v.toLowerCase()); }
       const t = tabs[i];
-      if (!t) throw new ActionRefused(`${f.title} has no tab ${n}; its tabs: ${tabs.map((x, j) => `${j + 1} ${x.value}`).join(", ")}`);
+      if (!t) throw new ActionRefused(`${f.title} has no tab ${n ?? tab}; its tabs: ${tabs.map((x, j) => `${j + 1} ${x.value}`).join(", ")}`);
       surface.setFigureTab(f, t.value, actor.kind === "user");
       surface.noteAgent(actor, `showed the ${t.value} tab of ${f.title}`);
       host.redraw();

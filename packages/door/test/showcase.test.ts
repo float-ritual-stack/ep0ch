@@ -594,6 +594,11 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect(((await app.act({ action: "figures", tile: "2", as: "test-agent" })) as any).figures[0].tab).toBe("doing");
     expect(await app.act({ action: "figure.tab", tile: "1", args: { n: "2" }, as: "test-agent" })).toMatchObject({ tab: "review" });
     await expect(app.act({ action: "figure.tab", tile: "1", args: { n: "nope" }, as: "test-agent" })).rejects.toThrow(/no tab nope; its tabs: 1 doing, 2 review/);
+    // element.open on a tab, as an agent, is figure.tab (its rules, its provenance): the right reader's 5th tab.
+    const els = await app.act({ action: "elements", tile: "2", as: "test-agent" }) as any;
+    const queued = els.elements.find((e: any) => e.kind === "figure" && e.label.startsWith("queued"));
+    expect(await app.act({ action: "element.open", tile: "2", args: { n: queued.n }, as: "test-agent" })).toMatchObject({ tab: "queued" });
+    expect(await app.act({ action: "figure.tab", tile: "2", args: { tab: "doing" }, as: "test-agent" })).toMatchObject({ tab: "doing" });
     // Density: compact cuts the long title with …; cozy wraps it to two lines, hanging past "PLOT-3 — "; comfortable three.
     await until(() => half().includes("PLOT-3 — Mend"), "the review tab");
     expect(half()).toMatch(/PLOT-3 — Mend the netting[^\n]*…/);

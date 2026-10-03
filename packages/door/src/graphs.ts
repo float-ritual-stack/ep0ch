@@ -57,6 +57,7 @@ function bar(frac: number, n: number, on = ACCENT): string {
  * key of the figure the row is in, so the figure's keys (tabs, density) work while the row is the current element.
  */
 export type RowLink = (block: string, text: string, figure?: string) => string;
+// rowLinks splits what `link` returns around a placeholder: a RowLink only wraps its text in tags, never records it.
 const rowLink = (link: RowLink | undefined, block: unknown, text: string, figure?: string) => (link && typeof block === "string" ? link(block, text, figure) : text);
 /**
  * Every line of a row that stands for one note, tagged as that one link: a row a density wraps over two or three
@@ -92,6 +93,12 @@ export interface FigureInfo { key: string; n: number; kind: string; title: strin
  * figure draws its first tab at the density its YAML says, as text.
  */
 export interface FiguresEnv {
+  /**
+   * Counted as the figures are drawn, in reading order, callouts' bodies included (one env for a whole layout): each
+   * figure's number, and how many before it had its title. A figure's key is its title and that count, so adding a
+   * figure with another title above it keeps its tab and density.
+   */
+  drawn?: { n: number; titles: Map<string, number> };
   ui?(key: string): { tab?: string; density?: Density } | undefined;
   tag?(c: FigureControl, text: string): string;
   seen?(info: FigureInfo): void;
@@ -250,7 +257,8 @@ const KINDS: Record<string, (p: Props, w: number, link?: RowLink, ui?: FigureUI)
     const tabs: { value: string; count: number; more: number }[] = p.tabs ?? [];
     if (!tabs.length) return [];
     const sel = tabs.find(t => t.value === ui?.tab) ?? tabs[0]!;
-    const plus = p.truncated ? "+" : "";
+    // A question that came back cut (over 1000 results): the counts are at least these, said once after the bar.
+    const plus = "";
     const table = (t: Props) => (t.rows?.length ? KINDS.table!(t, w, link, ui) : [fg(DIM) + `nothing in ${t.value}` + RESET])
       .concat(t.more ? [fg(DIM) + `${t.more} more · limit: ${p.limit ?? 50} a tab` + RESET] : []);
     if (ui?.all) {
@@ -270,6 +278,7 @@ const KINDS: Record<string, (p: Props, w: number, link?: RowLink, ui?: FigureUI)
       at += lw;
     }
     bars.push({ text, under });
+    if (p.truncated) bars.push({ text: fg(DIM) + "more results than one question answers: counts are at least these" + RESET, under: "" });
     return [...bars.flatMap(b => [b.text + RESET, b.under]), ...table({ ...sel, limit: p.limit, titleColumn: (sel as Props).titleColumn, density: p.density })];
   },
 };
@@ -287,12 +296,15 @@ export function isGraphStart(line: string): string | null {
  * that stand for a note are tagged with it, so the reader steps to them and opens them (PIE-441). `figures`: the
  * reader's hold on its figures (its chosen tab and density for this one, `n`th in the note), see FiguresEnv.
  */
-export function renderGraph(kind: string, yaml: string, W: number, link?: RowLink, figures?: FiguresEnv, n = 1): string[] {
+export function renderGraph(kind: string, yaml: string, W: number, link?: RowLink, figures?: FiguresEnv): string[] {
   let props: Props = {};
   try { props = (Bun.YAML.parse(yaml) as Props) ?? {}; }
   catch (e) { return frame(kind, [fg(C.lred) + `bad YAML: ${(e as Error).message}` + RESET], W); }
   // The figure's name in its reader: where it is in the note, and its title.
-  const title = String(props.title ?? kind), key = `${n}:${title}`;
+  const title = String(props.title ?? kind), count = figures ? (figures.drawn ??= { n: 0, titles: new Map() }) : { n: 0, titles: new Map<string, number>() };
+  const n = ++count.n, same = count.titles.get(title) ?? 0;
+  count.titles.set(title, same + 1);
+  const key = `${title}#${same}`;
   const chosen = figures?.ui?.(key);
   const ui: FigureUI = { key, density: chosen?.density ?? (isDensity(props.density) ? props.density : "compact"), ...(chosen?.tab !== undefined ? { tab: chosen.tab } : {}), ...(figures?.tag ? { tag: figures.tag } : {}), ...(figures?.all ? { all: true } : {}) };
   // A block with query:/view: is answered from the outline now, not from copied values.

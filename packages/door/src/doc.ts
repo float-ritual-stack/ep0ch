@@ -200,10 +200,6 @@ export function renderDoc(body: string, env: DocEnv): Doc {
   // A checklist step's stable id (` ^task-<uuid>`, added by the service, e.g. when a step gets a comment)
   // is bookkeeping, not prose.
   const src = body.split("\n").map(l => l.replace(TASK_ID, ""));
-  // Each figure's place among the body's figures (from 1), counted whether or not a fold hides one: with its title,
-  // what names it in the reader (its chosen tab and density are kept by that name).
-  const figureN = new Map<number, number>();
-  { let fenced = false; src.forEach((l, i) => { if (/^\s*```/.test(l)) fenced = !fenced; else if (!fenced && isGraphStart(l)) figureN.set(i, figureN.size + 1); }); }
   const source: number[] = [], heads: Doc["heads"] = [];
   const at = new Map((env.folds?.points ?? []).map(p => [p.line, p]));
   const callouts = new Map(calloutBlocks(src).map(c => [c.line, c]));
@@ -253,7 +249,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
       const yaml: string[] = [];
       let dashes = 0;
       for (i++; i < src.length && !/^\s*::\s*$/.test(src[i]!); i++) { if (/^\s*---\s*$/.test(src[i]!)) { dashes++; continue; } if (dashes === 1) yaml.push(src[i]!); }
-      out.push(...renderGraph(gk, yaml.join("\n"), W, env.link, env.figures, figureN.get(from) ?? 1));
+      out.push(...renderGraph(gk, yaml.join("\n"), W, env.link, env.figures));
       continue;
     }
 
