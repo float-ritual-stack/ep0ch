@@ -155,7 +155,7 @@ describe('register', () => {
       'ingest',
     ])
     expect(ingest.init?.cwd).toBe(WORKSPACE)
-    expect(ingest.init?.env).toEqual({ OUTLINER_WORKSPACE_ROOT: WORKSPACE, EP0CH_WS: 'garden' })
+    expect(ingest.init?.env).toEqual({ OUTLINER_WORKSPACE_ROOT: WORKSPACE, EP0CH_WS: 'garden', EP0CH_MACHINE: '' })
     expect(JSON.parse(ingest.init?.stdin ?? '')).toEqual({
       workspaceRoot: WORKSPACE,
       agent: 'claude',
@@ -176,7 +176,7 @@ describe('register', () => {
     await session.clock.settle()
     const ingest = session.delivered()[1]!
     expect(ingest.init?.cwd).toBe(nested)
-    expect(ingest.init?.env).toEqual({ OUTLINER_WORKSPACE_ROOT: nested, EP0CH_WS: 'mod-notes' })
+    expect(ingest.init?.env).toEqual({ OUTLINER_WORKSPACE_ROOT: nested, EP0CH_WS: 'mod-notes', EP0CH_MACHINE: '' })
     expect(JSON.parse(ingest.init?.stdin ?? '').workspaceRoot).toBe(nested)
   })
 
@@ -684,7 +684,7 @@ describe('register', () => {
       '--author', 'agent', '--actor', 'claude-code', '--session', 'session-1',
     ])
     expect(run.init?.cwd).toBe(WORKSPACE)
-    expect(run.init?.env).toEqual({ OUTLINER_WORKSPACE_ROOT: WORKSPACE, EP0CH_WS: 'garden' })
+    expect(run.init?.env).toEqual({ OUTLINER_WORKSPACE_ROOT: WORKSPACE, EP0CH_WS: 'garden', EP0CH_MACHINE: '' })
 
     await $.tool.call({ tool: 'mcp__pi-outliner__work_complete', item: 'PIE-8', deliveries: ['d-1', 'PIE-8/door'], proof: 'Proof\n\nChecked.' })
     const completed = session.runs.findLast(candidate => candidate.argv.includes('complete'))!

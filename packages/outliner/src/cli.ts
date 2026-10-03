@@ -12,7 +12,7 @@ import {
 } from "./block-focus";
 import { createOutlinerClient, OutlinerRequestError, type RequestInput } from "./client";
 import { requireClientIdForRole } from "./client-target";
-import { boundFolderOf, clientSocket, outlinesLayout, resolveClientPaths, resolveOutlinesFolder, whichOutlineFor, writeDotEp0ch } from "./paths";
+import { boundFolderOf, clientSocket, machineFor, outlinesLayout, resolveClientPaths, resolveOutlinesFolder, whichOutlineFor, writeDotEp0ch } from "./paths";
 import { attachHostedOutline, importHostedOutline, listHostedOutlines, outlineHostClient } from "./outline-host-client";
 import { navigateOutlinerLink, parseOutlinerLinkUri, resolveOutlinerLinkTarget } from "./outliner-links";
 import { blockDisplayTitle } from "./references";
@@ -237,7 +237,7 @@ async function runOutlinesCommand(group: "outlines" | "outline" | "init", args: 
   try {
     const host = await outlineHostClient();
     const hostOrThrow = () => {
-      if (!host) throw new Error(`No outline host answers at ${clientSocket().socket}; start it (systemctl --user start outliner-host, or bun packages/outliner/src/host-main.ts)`);
+      if (!host) throw new Error(`No outline host answers at ${clientSocket(process.env, machineFor()).socket}; start it (systemctl --user start outliner-host, or bun packages/outliner/src/host-main.ts)`);
       return host;
     };
     if (group === "outlines") {
@@ -258,8 +258,11 @@ async function runOutlinesCommand(group: "outlines" | "outline" | "init", args: 
       const folder = values.folder || positionals[0] ? asked : guess!.folder;
       // $HOME, / or a folder right under / would name every folder below it: only when asked for by --folder.
       if (!values.folder && tooBroadToName(folder, process.env.HOME || homedir())) throw new Error(`${folder} is too broad to name an outline for every folder below it; run init in a project folder, or pass --folder ${folder} to mean it`);
-      const attached = await attachHostedOutline(hostOrThrow(), name, true);
-      const file = writeDotEp0ch(folder, name, { replace: true });
+      // On another machine's host (EP0CH_MACHINE, the folder's .ep0ch), the machine is written beside the name.
+      const at = { ...process.env, OUTLINER_WORKSPACE_ROOT: folder };
+      const machine = clientSocket(at, machineFor(at)).machine;
+      const attached = await attachHostedOutline(values.folder ? (await outlineHostClient(at)) ?? hostOrThrow() : hostOrThrow(), name, true);
+      const file = writeDotEp0ch(folder, name, { replace: true, ...(machine ? { machine } : {}) });
       console.log(values.json ? JSON.stringify({ ...attached, file }, null, 2) : `${attached.created ? "created" : "picked"} outline ${name}; ${file} names it`);
       return 0;
     }

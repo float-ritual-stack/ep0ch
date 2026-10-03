@@ -1991,7 +1991,7 @@ In Tree, open `?` and choose **Workspace and connection** for a read-only report
 
 The report groups Client, Connection and Service information. Drag to copy visible text, or click a field's **Copy** action for its complete value. `Tab` / `Shift+Tab` focus fields and `c` copies the focused value; `?` lists actions and configured bindings. Arrow/Page keys scroll, and `Esc` returns to Tree. Copy values omit labels, existence notes and visual wrap breaks. Copying never changes the connection or protects navigation. “Sent to terminal clipboard” reports the request; clipboard acceptance still depends on the terminal/SSH host.
 
-For this machine's host the report gives the outline's database path (`<outlines>/<name>.sqlite`) and whether it is there. For a remote host (`EP0CH_SOCKET`) it distinguishes the forwarded client socket from the host and the storage that host reports. A folder that names no outline is reported with the name init would offer. Diagnosis never creates an outline, writes a `.ep0ch`, restores backups, migrates data, or starts a host. A failed remote connection names the socket and suggests checking its SSH tunnel and canonical service.
+For this machine's host the report gives the outline's database path (`<outlines>/<name>.sqlite`) and whether it is there. For another machine's host (`machine` in the `.ep0ch`, `EP0CH_MACHINE` or `EP0CH_SOCKET`) it distinguishes the forwarded client socket from the host and the storage that host reports; it never starts the forward. A folder that names no outline is reported with the name init would offer. Diagnosis never creates an outline, writes a `.ep0ch`, restores backups, migrates data, or starts a host. A failed remote connection names the socket and says how to start the machine's forward and check its host.
 
 ### Quick capture Inbox
 
@@ -2510,27 +2510,25 @@ navigates the projected example notes. It does not touch your workspace.
 
 ### Remote client mode
 
-A workstation can render Tree and Detail panes locally while another host owns
-the outline host and its databases. Forward the host's Unix socket over SSH:
+A workstation can render Tree and Detail panes locally while another machine runs
+the outline host and its databases. Name the machine by its ssh config name (a
+`Host` in `~/.ssh/config`) in the folder's `.ep0ch`, beside the outline:
 
-```sshconfig
-Host float-box-outliner
-  HostName float-box
-  User evan
-  LocalForward /absolute/local/float-box.sock /absolute/remote/outlines/.host/host.sock
-  StreamLocalBindUnlink yes
-  ExitOnForwardFailure yes
+```toml
+ws = "pie"
+machine = "float-box"
 ```
 
-Keep that tunnel running with `ssh -NT float-box-outliner`, and point clients at it with `EP0CH_SOCKET`:
-
-```sh
-EP0CH_SOCKET=/absolute/local/float-box.sock EP0CH_WS=pie herdr plugin action invoke open --plugin float.pi-outliner
-EP0CH_SOCKET=/absolute/local/float-box.sock ep0ch --ws pie
-```
-
-The outline is named the same way as on the host's own machine (`--ws`, `EP0CH_WS`, a `.ep0ch`); the remote host
-is asked for it. Every pane an opener starts gets the same `EP0CH_SOCKET` and `EP0CH_WS`.
+or for one run with `EP0CH_MACHINE=float-box` (`ep0ch --machine float-box` for the
+door). The first client that needs it asks the machine where its host listens
+(`ep0ch status --json` there) and forwards that socket to
+`~/outlines/.remote/float-box.sock` with one ssh connection that outlives it
+(ControlPersist, ExitOnForwardFailure, StreamLocalBindUnlink, ServerAlive); every
+other client on the workstation shares it, and a client whose connection is gone
+starts it again. ssh must log in without asking (a key or an agent). The outline is
+named the same way as on the host's own machine; every pane an opener starts gets the
+same `EP0CH_WS` and `EP0CH_MACHINE`. `EP0CH_SOCKET` still names any host's socket
+outright, the low-level way.
 
 Install or link the same revision on both machines (client and host must be on the same `PROTOCOL`), run the
 host only on the canonical machine, then invoke `open` on the workstation. Remote mode never creates a local

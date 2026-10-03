@@ -1,7 +1,7 @@
 import {statSync} from 'node:fs';
 import {hostname} from 'node:os';
 import {createOutlinerClient} from './client';
-import {outlinesLayout,resolveClientPaths,resolveOutlinesFolder,invocationFolder} from './paths';
+import {outlinesLayout,remoteHint,resolveClientPaths,resolveOutlinesFolder,invocationFolder} from './paths';
 import {checkServiceCompatibility} from './service-compatibility';
 import {PROTOCOL} from '@ep0ch/outline-core/protocol';
 import type {OutlinerServiceStatus} from './types';
@@ -31,23 +31,24 @@ export async function inspectWorkspaceConnection(env:NodeJS.ProcessEnv=process.e
  let paths;
  try{paths=resolveClientPaths(env);}catch(error){note(`Configuration error: ${error instanceof Error?error.message:String(error)}`);note('Fix the named setting or .ep0ch before launching; nothing was created.');return finish(false);}
  section('Connection');
- field('Connection',paths.mode);field('Endpoint',paths.socket,`${presence(paths.socket)}${paths.mode==='remote'?'; EP0CH_SOCKET':''}`);
+ field('Connection',paths.mode);field('Endpoint',paths.socket,`${presence(paths.socket)}${paths.mode==='remote'?(paths.machine?`; the forward to ${paths.machine}`:'; EP0CH_SOCKET'):''}`);
  const how={env:'EP0CH_WS (or --ws)',file:`${paths.configPath}`,pane:"the invoking pane's outline"} as const;
  field('Outline',paths.outline??'none',paths.outline?how[paths.outlineSource??'env']:`${paths.unnamed}${paths.guess?`; init offers "${paths.guess.name}" for ${paths.guess.folder}`:''}`);
  if(paths.outline&&paths.mode==='host')field('Database',paths.database,presence(paths.database));
- else if(paths.mode==='remote')note('Storage belongs to the host at the other end of EP0CH_SOCKET. The forwarded socket is local; it is not the database.');
+ else if(paths.mode==='remote')note(`Storage belongs to the host at the other end of ${paths.machine?`the forward to ${paths.machine}`:'EP0CH_SOCKET'}. The forwarded socket is local; it is not the database.`);
  section('Service');
  if(!paths.outline){note('Name an outline first: ep0ch init, ep0ch --ws <name>, or a .ep0ch here.');return finish(false);}
  try{
-  const service=await createOutlinerClient(paths).request<OutlinerServiceStatus>({action:'ping'},1500);
+  // Diagnosis starts nothing: a machine's forward that isn't up is reported, not started.
+  const service=await createOutlinerClient({...paths,machine:undefined}).request<OutlinerServiceStatus>({action:'ping'},1500);
   field('Service',`${service.status}; protocol ${service.protocolVersion}`);
   if(service.location){field('Service host',service.location.hostname);field('Service database',service.location.database);field('Outline folder',service.location.stateDirectory);}
   const problem=checkServiceCompatibility(service);
-  if(problem){note(`${problem.message} The endpoint is reachable; this is not a tunnel failure.`);return finish(false);}
+  if(problem){note(`${problem.message} The endpoint is reachable; this is not a forwarding failure.`);return finish(false);}
   return finish(true);
  }catch(error){
   note(`Connection failed: ${error instanceof Error?error.message:String(error)}`);
-  note(paths.mode==='host'?`Check that the outline host runs (it is a service; its socket is ${outlinesLayout(env).socket}) and has the outline "${paths.outline}".`:'Check the SSH socket tunnel and the outline host at its other end.');
+  note(paths.mode==='host'?`Check that the outline host runs (it is a service; its socket is ${outlinesLayout(env).socket}) and has the outline "${paths.outline}".`:remoteHint(paths));
   return finish(false);
  }
 }

@@ -7,13 +7,15 @@
 // there (`chooseOutline`): never a guess taken silently. Each writes `.ep0ch`, so the next `ep0ch` there is direct.
 import { readFileSync, renameSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline/promises";
-import { join, resolve } from "node:path";
-import { DOT_EP0CH, formatDotEp0ch, freeOutlineName as freeName, isOutlineName, slugifyOutlineName, tooBroadToName } from "@ep0ch/outline-core/outline-location";
+import { dirname, join, resolve } from "node:path";
+import { DOT_EP0CH, formatDotEp0ch, freeOutlineName as freeName, isMachineName, isOutlineName, slugifyOutlineName, tooBroadToName } from "@ep0ch/outline-core/outline-location";
 import { homedir } from "node:os";
 import { hostLive, hostSocketOf, outlinesDir, resolveTarget, type Target } from "./discover";
 import { hostRequest, type HostedOutline, OUTLINE_NAME } from "./socket";
+import { forwardTo } from "./machine";
 
-export type OutlineCommand =
+/** `machine`: `--machine <ssh-name>`, the host that machine's, through its forward (else the one rule: runOutlineCommand). */
+export type OutlineCommand = { machine?: string } & (
   | { op: "list"; json: boolean }
   | { op: "attach"; name: string; json: boolean }
   | { op: "create"; name: string; json: boolean }
@@ -21,12 +23,21 @@ export type OutlineCommand =
   | { op: "stop"; name: string; json: boolean }
   | { op: "delete"; name: string; yes: boolean; json: boolean }
   | { op: "init"; name?: string; json: boolean }
-  | { op: "status"; json: boolean };
+  | { op: "status"; json: boolean });
 
-export const OUTLINE_USAGE = "ep0ch outline list | attach <name> | create <name> | import <database.sqlite> <name> | stop <name> | delete <name> [--yes]   (each with --json); ep0ch init [<name>]";
+export const OUTLINE_USAGE = "ep0ch outline list | attach <name> | create <name> | import <database.sqlite> <name> | stop <name> | delete <name> [--yes]   (each with --json and --machine <ssh-name>); ep0ch init [<name>]";
 
 /** `args` after `outline` (or `["status", …]`, `["init", …]`): the command, or why it isn't one. */
-export function parseOutlineArgs(args: readonly string[], cwd = process.cwd()): OutlineCommand | { error: string } {
+export function parseOutlineArgs(argsIn: readonly string[], cwd = process.cwd()): OutlineCommand | { error: string } {
+  const at = argsIn.indexOf("--machine");
+  const machine = at >= 0 ? argsIn[at + 1] : undefined;
+  if (at >= 0 && (!machine || machine.startsWith("-"))) return { error: "--machine needs a machine: an ssh config name (a Host in ~/.ssh/config)" };
+  if (machine !== undefined && !isMachineName(machine)) return { error: `--machine ${JSON.stringify(machine)} isn't an ssh config name` };
+  const parsed = parseCommand(at >= 0 ? argsIn.filter((_, i) => i !== at && i !== at + 1) : argsIn, cwd);
+  return "error" in parsed || !machine ? parsed : { ...parsed, machine };
+}
+
+function parseCommand(args: readonly string[], cwd: string): OutlineCommand | { error: string } {
   const json = args.includes("--json"), yes = args.includes("--yes");
   const words = args.filter(a => !a.startsWith("--"));
   const [op, ...rest] = words;
@@ -57,23 +68,24 @@ export function formatOutlines(outlines: readonly HostedOutline[]): string {
   return outlines.map(o => `${o.name.padEnd(w)}  ${flags(o).padEnd(14)}  ${o.database}`).join("\n");
 }
 
-/** What `delete` does to this outline, in words, before it's done. */
-export function deletionPlan(o: HostedOutline): string {
-  return `move the outline "${o.name}" (its database and its folder) to ${join(outlinesDir(), ".deleted")}/; nothing is erased`;
+/** What `delete` does to this outline, in words, before it's done (in its host's outlines folder, on its machine). */
+export function deletionPlan(o: HostedOutline, machine?: string): string {
+  return `move the outline "${o.name}" (its database and its folder) to ${join(dirname(o.database), ".deleted")}/${machine ? ` on ${machine}` : ""}; nothing is erased`;
 }
 
-/** The host's socket: EP0CH_SOCKET when it is one (a tunnel to another machine's host), else this machine's. */
+/** The host's socket: EP0CH_SOCKET when it names one outright, else this machine's. */
 export function hostSocket(env: Record<string, string | undefined> = process.env): string {
   return env.EP0CH_SOCKET || hostSocketOf(env);
 }
 
 /**
- * Names `folder`'s outline: writes `<folder>/.ep0ch` (`ws = "<name>"`), beside and renamed over so a reader never
- * sees half. Refuses to replace one that names another outline unless `replace`.
+ * Names `folder`'s outline: writes `<folder>/.ep0ch` (`ws = "<name>"`, and `machine = "<ssh-name>"` for one on another
+ * machine), beside and renamed over so a reader never sees half. Refuses to replace one that names another outline
+ * unless `replace`.
  */
-export function writeDotEp0ch(folder: string, name: string, replace = false): string {
+export function writeDotEp0ch(folder: string, name: string, replace = false, machine?: string): string {
   const file = join(resolve(folder), DOT_EP0CH);
-  const text = formatDotEp0ch(name);
+  const text = formatDotEp0ch(name, machine);
   let current: string | undefined;
   try { current = readFileSync(file, "utf8"); } catch { current = undefined; }
   if (current === text) return file;
@@ -88,7 +100,7 @@ export function writeDotEp0ch(folder: string, name: string, replace = false): st
  * name, else its own); the outline is attached, created when nobody has it yet, and `.ep0ch` written in the
  * guessed folder (or here, with a name given).
  */
-export async function initHere(name: string | undefined, path: string, cwd = process.cwd()): Promise<{ name: string; created: boolean; file: string }> {
+export async function initHere(name: string | undefined, path: string, cwd = process.cwd(), machine?: string): Promise<{ name: string; created: boolean; file: string }> {
   const target = resolveTarget([], { ...process.env, EP0CH_WS: "" }, cwd);
   if ("error" in target) throw new Error(target.error);
   const guess = "unnamed" in target ? target.guess : undefined;
@@ -100,26 +112,41 @@ export async function initHere(name: string | undefined, path: string, cwd = pro
   // $HOME, / or a folder right under / would name every folder below it.
   if (tooBroadToName(resolve(folder), process.env.HOME || homedir())) throw new Error(`${folder} is too broad to name an outline for every folder below it; run ep0ch init in a project folder`);
   const r = await hostRequest<{ created: boolean }>(path, "outlines.attach", { name: chosen, create: true });
-  return { name: chosen, created: r.created, file: writeDotEp0ch(folder, chosen, true) };
+  return { name: chosen, created: r.created, file: writeDotEp0ch(folder, chosen, true, machine) };
 }
 
 /**
  * Runs a parsed command other than an interactive `attach` (main opens the door for that). Resolves to the
  * exit code. `ask` confirms a delete; without a terminal and without `--yes`, a delete is refused.
  */
-export async function runOutlineCommand(cmd: OutlineCommand, out = console.log, err = console.error,
+export async function runOutlineCommand(cmdIn: OutlineCommand, out = console.log, err = console.error,
   ask: (question: string) => Promise<boolean> = confirm): Promise<number> {
-  const path = hostSocket();
+  let cmd = cmdIn;
+  // Which host, by the one rule (resolveTarget): --machine, EP0CH_SOCKET, EP0CH_MACHINE, this folder's .ep0ch. `status`
+  // is this machine's host unless --machine names another (what another machine asks of it: src/machine.ts there).
+  let path = hostSocket(), machine = cmd.machine;
+  if (cmd.op !== "status" || cmd.machine) {
+    const t = resolveTarget(cmd.machine ? ["--machine", cmd.machine] : []);
+    if ("error" in t) { err(`ep0ch: ${t.error}`); return 1; }
+    path = t.path; machine = t.machine;
+  }
+  if (machine) {
+    try { path = (await forwardTo(machine)).socket; }
+    catch (e) { err(`ep0ch: can't reach the outline host on ${machine}: ${(e as Error).message}`); return 1; }
+  }
+  cmd = machine ? { ...cmd, machine } : cmd;
   const status = await hostLive(path);
   if (!status) { err(`ep0ch: no outline host answers at ${path}; start it (systemctl --user start outliner-host, or bun packages/outliner/src/host-main.ts)`); return 1; }
+  const on = cmd.machine ? ` on ${cmd.machine}` : "";
   const print = (value: unknown, text: string) => out(cmd.json ? JSON.stringify(value, null, 2) : text);
   try {
     switch (cmd.op) {
       case "status": {
         const list = await hostRequest<{ defaultOutline?: string; outlines: HostedOutline[] }>(path, "outlines.list");
         const open = list.outlines.filter(o => o.open).map(o => o.name);
-        print({ socket: status.socket, folder: outlinesDir(), open, outlines: list.outlines },
-          [`host      ${status.socket}`, `outlines  ${outlinesDir()} (${list.outlines.length})`, `open      ${open.join(", ") || "none"}`].join("\n"));
+        const folder = cmd.machine ? (list.outlines[0] ? dirname(list.outlines[0].database) : null) : outlinesDir();
+        print({ socket: status.socket, folder, open, outlines: list.outlines, ...(cmd.machine ? { machine: cmd.machine } : {}) },
+          [`host      ${status.socket}${on}`, `outlines  ${folder ?? "?"}${on} (${list.outlines.length})`, `open      ${open.join(", ") || "none"}`].join("\n"));
         return 0;
       }
       case "list": {
@@ -128,23 +155,23 @@ export async function runOutlineCommand(cmd: OutlineCommand, out = console.log, 
         return 0;
       }
       case "init": {
-        const r = await initHere(cmd.name, path);
-        print(r, `${r.created ? "created" : "picked"} outline ${r.name}; ${r.file} names it`);
+        const r = await initHere(cmd.name, path, process.cwd(), cmd.machine);
+        print(r, `${r.created ? "created" : "picked"} outline ${r.name}${on}; ${r.file} names it`);
         return 0;
       }
       case "attach": {
         const r = await hostRequest<{ outline: HostedOutline; created: boolean }>(path, "outlines.attach", { name: cmd.name, create: true });
-        print(r, `${r.created ? "created" : "attached"} outline ${cmd.name}`);
+        print(r, `${r.created ? "created" : "attached"} outline ${cmd.name}${on}`);
         return 0;
       }
       case "create": {
         const r = await hostRequest<HostedOutline>(path, "outlines.create", { name: cmd.name });
-        print(r, `created outline ${r.name}`);
+        print(r, `created outline ${r.name}${on}`);
         return 0;
       }
       case "import": {
         const r = await hostRequest<HostedOutline & { imported: { blocks: number; properties: number; pageAddresses: number; workIds: number } }>(path, "outlines.import", { path: cmd.path, name: cmd.name }, 600_000);
-        print(r, `imported ${cmd.path} as outline ${r.name}: ${r.imported.blocks} blocks, ${r.imported.properties} properties, ${r.imported.pageAddresses} page addresses, ${r.imported.workIds} work ids`);
+        print(r, `imported ${cmd.path}${cmd.machine ? ` (a file on ${cmd.machine})` : ""} as outline ${r.name}${on}: ${r.imported.blocks} blocks, ${r.imported.properties} properties, ${r.imported.pageAddresses} page addresses, ${r.imported.workIds} work ids`);
         return 0;
       }
       case "stop": {
@@ -155,8 +182,8 @@ export async function runOutlineCommand(cmd: OutlineCommand, out = console.log, 
       case "delete": {
         const list = await hostRequest<{ outlines: HostedOutline[] }>(path, "outlines.list");
         const target = list.outlines.find(o => o.name === cmd.name);
-        if (!target) { err(`ep0ch: no outline named "${cmd.name}" on this host`); return 1; }
-        const plan = deletionPlan(target);
+        if (!target) { err(`ep0ch: no outline named "${cmd.name}" on this host${on}`); return 1; }
+        const plan = deletionPlan(target, cmd.machine);
         if (!cmd.yes && !(await ask(`This will ${plan}. Delete? [y/N] `))) { err(`ep0ch: not deleted (pass --yes to ${plan})`); return 1; }
         const r = await hostRequest<{ name: string; movedTo: string }>(path, "outlines.delete", { name: cmd.name });
         print(r, `moved outline ${r.name} to ${r.movedTo}`);
@@ -260,10 +287,16 @@ export async function nameTheOutline(args: string[], interactive = !!process.std
   say: (line: string) => void = line => console.error(line)): Promise<{ args: string[] } | { error: string } | null> {
   const target = resolveTarget(args);
   if ("error" in target) return { error: target.error };
-  // Named: said explicitly from here on, so a session started now (or its next daemon) opens this outline whatever
-  // its folder's .ep0ch says later.
-  if (!("unnamed" in target)) return { args: args.includes("--ws") ? args : [...args, "--ws", target.outline] };
+  // Named: said explicitly from here on (the machine too), so a session started now (or its next daemon) opens this
+  // outline whatever its folder's .ep0ch or EP0CH_MACHINE says later.
+  const on = target.machine && !args.includes("--machine") ? ["--machine", target.machine] : [];
+  // The forward is started here, in the person's terminal, where ssh can ask their agent for the key; a session's
+  // daemon (which outlives the terminal, and its agent) then finds it up.
+  if (target.machine) {
+    try { await forwardTo(target.machine); } catch (e) { return { error: `can't reach the outline host on ${target.machine}: ${(e as Error).message}` }; }
+  }
+  if (!("unnamed" in target)) return { args: [...(args.includes("--ws") ? args : [...args, "--ws", target.outline]), ...on] };
   if (!interactive) return { error: unnamedHelp(target) };
   const name = await chooseOutline(target, ask, say);
-  return name ? { args: [...args, "--ws", name] } : null;
+  return name ? { args: [...args, "--ws", name, ...on] } : null;
 }

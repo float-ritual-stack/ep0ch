@@ -70,21 +70,23 @@ export function mentionsModeOf(option: unknown, environment: string | undefined,
 
 /**
  * The folder a session's Outliner CLI runs start from. A bound folder (folder
- * mode: its nearest `.ep0ch`) is `pinned` to the outline `bound-folder` found:
- * its CLI runs go there whatever Claude's environment says. A strict-mode
- * folder is the CLI's to resolve, as before folder mode.
+ * mode: its nearest `.ep0ch`) is `pinned` to the outline `bound-folder` found,
+ * on the machine it names (none: this one): its CLI runs go there whatever
+ * Claude's environment says. A strict-mode folder is the CLI's to resolve, as
+ * before folder mode.
  */
-export type Workspace = { root: string; outline?: string; pinned?: true }
+export type Workspace = { root: string; outline?: string; machine?: string; pinned?: true }
 
 /**
  * The environment an Outliner CLI run gets for a workspace: its folder and,
- * when pinned, the outline its `.ep0ch` names, over an inherited EP0CH_WS, so
- * the write lands where the folder was found bound.
+ * when pinned, the outline its `.ep0ch` names and its machine (empty for this
+ * one), over an inherited EP0CH_WS or EP0CH_MACHINE, so the write lands where
+ * the folder was found bound.
  */
 export function workspaceEnvOf(workspace: Workspace): Record<string, string> {
   return {
     OUTLINER_WORKSPACE_ROOT: workspace.root,
-    ...(workspace.pinned && workspace.outline ? { EP0CH_WS: workspace.outline } : {}),
+    ...(workspace.pinned && workspace.outline ? { EP0CH_WS: workspace.outline, EP0CH_MACHINE: workspace.machine ?? '' } : {}),
   }
 }
 
@@ -96,12 +98,13 @@ export function boundWorkspaceOf(stdout: string, cwd: string): Workspace | null 
   let answer: unknown
   try { answer = JSON.parse(stdout) } catch { return null }
   if (!answer || typeof answer !== 'object') return null
-  const { bound, folder, outline } = answer as Record<string, unknown>
+  const { bound, folder, outline, machine } = answer as Record<string, unknown>
   if (bound !== true || typeof folder !== 'string') return null
   const root = absolutePath(folder)
   if (root === null || workspaceForCwd(cwd, [root]) !== root) return null
   // A `.ep0ch` always names its outline; an answer without one is not a binding.
-  return typeof outline === 'string' && outline !== '' ? { root, outline, pinned: true } : null
+  if (typeof outline !== 'string' || outline === '') return null
+  return { root, outline, ...(typeof machine === 'string' && machine !== '' ? { machine } : {}), pinned: true }
 }
 
 /**

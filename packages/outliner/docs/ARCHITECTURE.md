@@ -475,13 +475,16 @@ for every client (the door applies the same function), first match wins:
 1. `--ws <name>`: the CLI's global flag (passed on as `EP0CH_WS`), `ep0ch --ws`;
 2. `EP0CH_WS=<name>`;
 3. the nearest `.ep0ch` walking up from the client's folder (`OUTLINER_WORKSPACE_ROOT` for a pane, which runs
-   from the plugin root; else the cwd). It holds only `ws = "<name>"`; a malformed one is an error naming the
-   file, never read as "no outline";
+   from the plugin root; else the cwd). It holds names only, `ws = "<name>"` and, for an outline on another
+   machine, `machine = "<ssh-name>"`; a malformed one is an error naming the file, never read as "no outline";
 4. nothing: unnamed, with the init guess (the git repository root's name, else the folder's; none for `$HOME`,
    `/` or a folder right under `/`). A client for an unnamed folder refuses every request; nothing guesses.
 
-[`resolveClientPaths()`](../src/paths.ts) applies it: the socket (`EP0CH_SOCKET`, a host elsewhere, else this
-machine's `<outlines>/.host/host.sock`), the outline, and where the client keeps its own files
+The machine: `EP0CH_MACHINE`, else the `machine` of the nearest `.ep0ch` when it names the same outline (so an opener
+passing the outline on as `EP0CH_WS` keeps its machine; every pane opener passes `EP0CH_MACHINE` too).
+
+[`resolveClientPaths()`](../src/paths.ts) applies it: the socket (`EP0CH_SOCKET`, named outright, else the
+machine's forward `<outlines>/.remote/<ssh-name>.sock`, else this machine's `<outlines>/.host/host.sock`), the outline, and where the client keeps its own files
 (`<outlines>/.clients/<name>/`). `boundFolderOf` (CLI `bound-folder`) is the nearest `.ep0ch` alone: what follows
 a folder on its own (the Claude mod) asks it. `writeDotEp0ch` is the one writer of a `.ep0ch`. `doctor` prints the
 folder, the outlines folder, the endpoint and the outline with how it was chosen, or why none is.
@@ -538,8 +541,10 @@ so all panes of a session land on one outline. A folder that names none gets the
 [Herdr lifecycle](#herdr-lifecycle)); the **choose-outline** action opens it as a switcher, whose choice
 replaces the folder's `.ep0ch`.
 
-**Remote clients.** `EP0CH_SOCKET` names a host on another machine (an SSH-forwarded socket); the outline is
-named the same way. Remote mode gives requests a network-appropriate deadline and never starts a host or makes a
+**Remote clients.** A machine (an ssh config name, from `EP0CH_MACHINE` or the `.ep0ch`) is reached through one
+ssh forward per machine, shared by every client: outline-core's `ensureForward` (`src/machine.ts`) with the
+outliner's I/O (`src/machine-forward.ts`); `createOutlinerClient` starts it before a request finds nobody there and
+before each watcher (re)connect. `EP0CH_SOCKET` names a host's socket outright. The outline is named the same way. Remote mode gives requests a network-appropriate deadline and never starts a host or makes a
 local database.
 
 Remote Tree and Detail registrations own their Herdr topology. They publish the

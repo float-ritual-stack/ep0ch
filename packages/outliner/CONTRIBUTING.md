@@ -177,11 +177,14 @@ source evidence or distinguish authored glyphs from controls.
   `.publish/`). The door applies the same function; nobody restates it.
 - `src/paths.ts` applies it with the disk and the environment:
   `resolveClientPaths` is the one place a client decides its socket (EP0CH_SOCKET,
-  else this machine's host) and outline; `boundFolderOf` (CLI: `outliner
+  else the named machine's forward, else this machine's host) and outline; `boundFolderOf` (CLI: `outliner
   bound-folder`) is the nearest `.ep0ch` and never a guess, so what follows a
   folder on its own (the Claude mod) reaches no outline from an unnamed folder;
   `writeDotEp0ch` is the one writer of a `.ep0ch`. Every pane opener forwards
-  `OUTLINE_ENV` (`EP0CH_OUTLINES`, `EP0CH_SOCKET`, `EP0CH_WS`); a new one must too.
+  `OUTLINE_ENV` (`EP0CH_OUTLINES`, `EP0CH_SOCKET`, `EP0CH_WS`, `EP0CH_MACHINE`); a new one must too.
+  `src/machine-forward.ts` gives outline-core's forward rule (`ensureForward`) the
+  outliner's I/O; a client for a machine's outline starts the forward before it
+  connects and whenever its connection is gone.
   `resolveInvocationPaths` in `src/outline-host-client.ts` owns which outline a
   Herdr action invoked from a pane uses (the pane's registered outline first).
 - `src/outline-host.ts` owns the outline host: one listener
@@ -262,8 +265,8 @@ CLI and agent requests use the same outline and environment (`--ws`, `EP0CH_WS`,
 the folder's `.ep0ch`). `bun src/cli.ts outlines` lists the host's outlines by
 name, open or not (`--json` for agents); `bun src/cli.ts doctor` reports the
 folder, the outlines folder, the socket and the outline it resolves, read-only.
-A remote client sets `EP0CH_SOCKET` to an SSH-forwarded host socket; see
-[remote client mode](README.md#remote-client-mode).
+A client of another machine's outline names the machine (`EP0CH_MACHINE`, or
+`machine = "<ssh-name>"` in the `.ep0ch`); see [remote client mode](README.md#remote-client-mode).
 
 An agent sandbox can expose a socket file while a connection to its host
 listener returns `ENOENT`. That error alone does not establish a service outage.

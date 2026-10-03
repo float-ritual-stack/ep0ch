@@ -61,8 +61,10 @@ One outline host per machine serves every outline in `~/outlines` (`EP0CH_OUTLIN
 from anywhere, then `EP0CH_WS`, then the nearest `.ep0ch` from the folder up (it holds `ws = "<name>"`). A name
 nobody has yet is created. A folder that names none asks the person: init (its folder's or repository's name
 offered), pick one of the host's, or import an older database; each writes `.ep0ch`. Without a terminal it says
-what to run instead, and an agent never answers that prompt for the person. `EP0CH_SOCKET` or a socket path is
-a host on another machine (an ssh tunnel), asked for the same name. `outline list`, `status` and `clients` never
+what to run instead, and an agent never answers that prompt for the person. An outline on another machine is
+named by `--machine <ssh-name>`, `EP0CH_MACHINE` or the `.ep0ch`'s `machine = "<ssh-name>"`: the door reaches it
+through a shared ssh forward (`~/outlines/.remote/<ssh-name>.sock`) and starts it again when it drops.
+`ep0ch --remote <ssh-name>` is the door session running there, in this terminal. `outline list`, `status` and `clients` never
 create. The status bar and `peek` show `host · outline`. Delete moves an outline to `.deleted/`; pass `--yes`
 only when the person asked for it.
 

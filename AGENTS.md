@@ -79,11 +79,17 @@ Both histories are kept: `git log --follow` and `git blame` reach back into ep0c
 ## Outlines by name
 
 Which outline a client opens (PIE-530, `outline-core/src/outline-location.ts`), first match wins: `--ws
-<name>`, then `EP0CH_WS`, then the nearest `.ep0ch` walking up from the folder (it holds only
-`ws = "<name>"`). Nothing else names one: a folder that names none gets init, pick or import, never a guess
-taken silently and never a default. Outlines are `<EP0CH_OUTLINES or ~/outlines>/<name>.sqlite`, each with its
-own folder `<name>/` beside it; the host's socket and lock are in `.host/`. `EP0CH_SOCKET` is a host on
-another machine (an ssh tunnel).
+<name>`, then `EP0CH_WS`, then the nearest `.ep0ch` walking up from the folder. It holds names only:
+`ws = "<name>"`, and `machine = "<ssh-name>"` for an outline on another machine. Nothing else names one: a
+folder that names none gets init, pick or import, never a guess taken silently and never a default. Outlines are
+`<EP0CH_OUTLINES or ~/outlines>/<name>.sqlite`, each with its own folder `<name>/` beside it; the host's socket
+and lock are in `.host/`.
+
+Which machine, first match wins: `--machine <ssh-name>`, then `EP0CH_MACHINE`, then the `machine` of the
+nearest `.ep0ch` when it names the same outline. A machine is an ssh config name; ssh owns its keys and hops. Every client
+reaches it through one shared ssh forward, `<outlines>/.remote/<ssh-name>.sock`, started by the first client that
+needs it (outline-core's `src/machine.ts`, `ensureForward`). `EP0CH_SOCKET` names any host's socket outright, the
+low-level escape hatch.
 
 ## Schema and protocol: one version
 
@@ -124,6 +130,11 @@ MacBook). It does not support every version a client ever connected with.
   - start it through `packages/door/scripts/test-door-env.sh`, which unsets every `EP0CH_*` you inherit and runs
     the agent drawer on `EP0CH_DAILY_AGENT=sh` (the person's shell exports their Herdr daily agent: see the
     real-pane recipe in the ep0ch-core skill). Never attach to or type into a Herdr pane you didn't make.
+- A test door or test that names a machine (`--machine`, `EP0CH_MACHINE`, a `.ep0ch`'s `machine`) runs with
+  `EP0CH_OUTLINES` under a temp dir (its forwards live in `.remote/` there, never `~/outlines/.remote`) and
+  `EP0CH_SSH` pointing at the fake ssh (`packages/outliner/test/fake-ssh.ts`, through a two-line shell wrapper), whose
+  "other machine" is a scratch host of its own (`FAKE_SSH_HOME`, `FAKE_SSH_OUTLINES` under the temp dir). Spawned
+  processes get the environment passed explicitly: Bun's spawn doesn't see changes made to `process.env`.
 - `EP0CH_CONTROL` moves the control socket; `EP0CH_STATE` moves everything else the door writes (layouts,
   drafts, marks, `lastcall.json`, snaps, `ctrl+e` files, the media cache, and the default socket). Set both.
   Two doors on one `EP0CH_STATE` share marks, but the desk layout is whichever saves last; the second is warned.

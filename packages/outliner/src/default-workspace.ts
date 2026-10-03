@@ -231,7 +231,7 @@ const FEATURE_TOUR_SECTIONS = [
   {
     key: "surfaces", title: "Use linked panes or the combined-surface experiment",
     lines: [
-      "Normal Tree and Detail are separate Herdr panes. A project-scoped SSH socket configuration lets them use a remote service while other projects stay local; start the tunnel before opening that remote workspace.",
+      "Normal Tree and Detail are separate Herdr panes. A folder whose `.ep0ch` names a machine (`machine = \"<ssh-name>\"`, an ssh config name) has them use that machine's outline host, through an ssh forward they start themselves, while other folders stay local.",
       "",
       "The opt-in Herdr action `open-composed` places Tree and Detail in one application-owned surface. F6 switches regions; q returns from Detail to Tree. Selection, history, scroll, drafts and Current/Preview state remain local to their owning view.",
       "",

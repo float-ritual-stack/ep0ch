@@ -5,8 +5,8 @@ import { clientRows, formatClients } from "../src/control";
 import { outliner, Scratch } from "./scratch";
 
 const MAIN = join(import.meta.dir, "../src/main.ts");
-const run = async (...args: string[]) => {
-  const p = Bun.spawn(["bun", MAIN, ...args], { stdout: "pipe", stderr: "pipe", env: { ...process.env, EP0CH_CONTROL: "/nonexistent/ep0ch-test.sock" } });
+const run = async (args: string[], env: Record<string, string> = {}) => {
+  const p = Bun.spawn(["bun", MAIN, ...args], { stdout: "pipe", stderr: "pipe", env: { ...process.env, EP0CH_CONTROL: "/nonexistent/ep0ch-test.sock", ...env } });
   const [out, err, code] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
   return { out, err, code };
 };
@@ -32,7 +32,7 @@ describe("ep0ch clients", () => {
 
 describe("ep0ch command", () => {
   test("help prints the usage and exits 0", async () => {
-    const r = await run("help");
+    const r = await run(["help"]);
     expect(r.code).toBe(0);
     expect(r.out).toContain("ep0ch clients");
     expect(r.out).toContain("ep0ch try");
@@ -41,7 +41,7 @@ describe("ep0ch command", () => {
   });
 
   test("clients against a socket with no service says no carrier and exits 1", async () => {
-    const r = await run("clients", "/nonexistent/ep0ch-test/outliner.sock");
+    const r = await run(["clients"], { EP0CH_SOCKET: "/nonexistent/ep0ch-test/outliner.sock" });
     expect(r.code).toBe(1);
     expect(r.err).toContain("no carrier");
   });
@@ -54,7 +54,7 @@ describe.skipIf(!outliner)("ep0ch clients against a scratch service", () => {
   afterAll(async () => { await scratch.dispose(); });
 
   test("lists the service's clients and exits 0", async () => {
-    const r = await run("clients", sock);
+    const r = await run(["clients"], { EP0CH_SOCKET: sock, EP0CH_WS: scratch.name });
     expect(r.code).toBe(0);
     expect(r.out.trim().length).toBeGreaterThan(0);
     expect(r.out).toMatch(/^(role\s+pane|no clients connected)/);

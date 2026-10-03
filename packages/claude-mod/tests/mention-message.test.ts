@@ -74,6 +74,10 @@ describe('mention-message', () => {
     expect(boundWorkspaceOf('{"bound":true,"folder":"garden","outline":"garden"}', '/work/garden')).toBeNull()
     expect(boundWorkspaceOf('{"bound":true,"folder":"/work/garden"}', '/work/garden')).toBeNull()
     expect(boundWorkspaceOf('Unknown command', '/work/garden')).toBeNull()
+    // A .ep0ch on another machine pins the machine too, so an inherited EP0CH_MACHINE never moves a write.
+    const far = boundWorkspaceOf('{"bound":true,"folder":"/work/far","outline":"pie","machine":"box-a"}', '/work/far')
+    expect(far).toEqual({ root: '/work/far', outline: 'pie', machine: 'box-a', pinned: true })
+    expect(workspaceEnvOf(far!)).toEqual({ OUTLINER_WORKSPACE_ROOT: '/work/far', EP0CH_WS: 'pie', EP0CH_MACHINE: 'box-a' })
   })
 
   test("the session's workspace: opt-outs first, then the binding; strict mode lists only", async () => {
@@ -90,6 +94,6 @@ describe('mention-message', () => {
   test("a bound workspace's CLI environment pins the outline that bound it; a strict-mode one is the CLI's to resolve", async () => {
     expect(workspaceEnvOf({ root: '/work/garden' })).toEqual({ OUTLINER_WORKSPACE_ROOT: '/work/garden' })
     expect(workspaceEnvOf({ root: '/work/jam/notes', outline: 'jam-shelf', pinned: true }))
-      .toEqual({ OUTLINER_WORKSPACE_ROOT: '/work/jam/notes', EP0CH_WS: 'jam-shelf' })
+      .toEqual({ OUTLINER_WORKSPACE_ROOT: '/work/jam/notes', EP0CH_WS: 'jam-shelf', EP0CH_MACHINE: '' })
   })
 })

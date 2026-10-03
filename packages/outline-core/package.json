@@ -2,7 +2,7 @@
   "name": "@ep0ch/outline-core",
   "private": true,
   "type": "module",
-  "description": "The code the outline service and its clients share: the wire protocol, the property grammar, the draft.patch compare and the search matcher. Pure: no I/O.",
+  "description": "The code the outline service and its clients share: the wire protocol, the property grammar, the draft.patch compare, the search matcher, which outline a client opens and the forward to another machine's host. Pure: no I/O (callers pass it).",
   "exports": {
     "./*": "./src/*.ts"
   },
