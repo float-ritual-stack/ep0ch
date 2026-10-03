@@ -55,25 +55,30 @@ describe("which outline (PIE-530)", () => {
   });
 
   test("a .ep0ch names a machine beside the outline: an ssh config name, never a path, a user@ or an option", () => {
-    expect(formatDotEp0ch("pie", "float-2")).toBe('ws = "pie"\nmachine = "float-2"\n');
-    expect(parseDotEp0ch('# on the box\nmachine = "float-2"\nws = "pie"\n', "/a/.ep0ch")).toEqual({ name: "pie", machine: "float-2" });
+    expect(formatDotEp0ch("jam-shelf", "box-a")).toBe('ws = "jam-shelf"\nmachine = "box-a"\n');
+    expect(parseDotEp0ch('# on the box\nmachine = "box-a"\nws = "jam-shelf"\n', "/a/.ep0ch")).toEqual({ name: "jam-shelf", machine: "box-a" });
     expect(() => parseDotEp0ch('ws = "pie"\nmachine = "a"\nmachine = "b"', "/a/.ep0ch")).toThrow("at most one");
-    expect(() => parseDotEp0ch('machine = "float-2"', "/a/.ep0ch")).toThrow("names no outline");
-    for (const bad of ["/home/sam/box", "sam@box", "-oProxyCommand=x", "box:22", ""]) {
+    expect(() => parseDotEp0ch('machine = "box-a"', "/a/.ep0ch")).toThrow("names no outline");
+    for (const bad of ["/home/sam/box", "sam@box", "-oProxyCommand=x", "box:22", "", "b".repeat(33)]) {
       expect(isMachineName(bad)).toBe(false);
       expect(() => parseDotEp0ch(`ws = "pie"\nmachine = "${bad}"`, "/a/.ep0ch")).toThrow();
     }
     expect(() => formatDotEp0ch("pie", "sam@box")).toThrow("isn't a machine name");
   });
 
-  test("the machine: --machine, then EP0CH_MACHINE, then the machine of the .ep0ch that named the outline", () => {
-    const fs = disk({ "/work/far/.ep0ch": 'ws = "pie"\nmachine = "box-a"\n', "/work/near/.ep0ch": 'ws = "garden"\n' });
-    expect(whichOutline({ folder: "/work/far/notes", home: HOME, fs })).toMatchObject({ name: "pie", machine: "box-a", machineSource: "file" });
-    expect(whichOutline({ machineEnv: "box-b", folder: "/work/far", home: HOME, fs })).toMatchObject({ name: "pie", machine: "box-b", machineSource: "env" });
-    expect(whichOutline({ machineFlag: "box-c", machineEnv: "box-b", folder: "/work/far", home: HOME, fs })).toMatchObject({ name: "pie", machine: "box-c", machineSource: "flag" });
-    // A .ep0ch is read whole: an outline named by --ws or EP0CH_WS takes no machine from a file that named another.
+  test("the machine: --machine, then EP0CH_MACHINE, then the machine of the .ep0ch that names the same outline", () => {
+    const fs = disk({ "/work/far/.ep0ch": 'ws = "jam-shelf"\nmachine = "box-a"\n', "/work/near/.ep0ch": 'ws = "garden"\n', "/work/bad/.ep0ch": "nonsense" });
+    expect(whichOutline({ folder: "/work/far/notes", home: HOME, fs })).toMatchObject({ name: "jam-shelf", machine: "box-a", machineSource: "file" });
+    expect(whichOutline({ machineEnv: "box-b", folder: "/work/far", home: HOME, fs })).toMatchObject({ name: "jam-shelf", machine: "box-b", machineSource: "env" });
+    expect(whichOutline({ machineFlag: "box-c", machineEnv: "box-b", folder: "/work/far", home: HOME, fs })).toMatchObject({ name: "jam-shelf", machine: "box-c", machineSource: "flag" });
+    // A .ep0ch is read whole: --ws or EP0CH_WS naming its outline keeps its machine (an opener passing the outline on
+    // as EP0CH_WS); naming another takes none from it.
+    expect(whichOutline({ flag: "jam-shelf", folder: "/work/far/notes", home: HOME, fs })).toMatchObject({ name: "jam-shelf", source: "flag", machine: "box-a", machineSource: "file" });
+    expect(whichOutline({ env: "jam-shelf", folder: "/work/far", home: HOME, fs })).toMatchObject({ name: "jam-shelf", source: "env", machine: "box-a" });
     expect(whichOutline({ flag: "garden", folder: "/work/far", home: HOME, fs })).toEqual({ kind: "named", name: "garden", source: "flag" });
     expect(whichOutline({ env: "garden", folder: "/work/far", home: HOME, fs })).toEqual({ kind: "named", name: "garden", source: "env" });
+    // --ws from a folder whose .ep0ch can't be read still names its outline (here), as before.
+    expect(whichOutline({ flag: "garden", folder: "/work/bad", home: HOME, fs })).toEqual({ kind: "named", name: "garden", source: "flag" });
     expect(whichOutline({ flag: "garden", machineFlag: "box-a", folder: "/", home: HOME, fs })).toMatchObject({ name: "garden", machine: "box-a" });
     expect("machine" in whichOutline({ folder: "/work/near", home: HOME, fs })).toBe(false);
     // Nothing names an outline: the machine named is still said (the home base opens on it).

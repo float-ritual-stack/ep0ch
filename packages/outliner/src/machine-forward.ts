@@ -1,15 +1,16 @@
-// An outline on another machine (EP0CH_MACHINE, a `.ep0ch`'s `machine = "<ssh-name>"`): the outliner's side of the
-// forward. The rule is outline-core's `ensureForward` (src/machine.ts there), the same one the door applies; this file
-// gives it the outliner's I/O. Every client of a machine's outline (Tree, Detail, the CLI the Claude mod runs) calls
-// `forwardFor` before it connects and whenever its connection is gone, so the first one to need the forward starts it
-// and the rest share it. EP0CH_SSH names the ssh to run (tests give a fake one).
-import { closeSync, mkdirSync, openSync, rmSync, statSync } from "node:fs";
+// An outline on another machine (EP0CH_MACHINE, a `.ep0ch`'s `machine = "<ssh-name>"`): the Node side of the forward.
+// The rule is outline-core's `ensureForward` (src/machine.ts there); this file is the one `MachineIO` it is given, the
+// outliner's and the door's (packages/door/src/machine.ts imports it). Every client of a machine's outline (Tree,
+// Detail, the CLI the Claude mod runs, the door) starts the forward before it connects and whenever its connection is
+// gone, so the first one to need it starts it and the rest share it. EP0CH_SSH names the ssh to run (tests give a
+// fake one).
+import { closeSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeSync } from "node:fs";
 import { connect } from "node:net";
 import { setTimeout as sleep } from "node:timers/promises";
-import { ensureForward, type Forward, type MachineIO } from "@ep0ch/outline-core/machine";
+import { ensureForward, type Forward, type ForwardOptions, type MachineIO } from "@ep0ch/outline-core/machine";
 
 /** Whether an outline host answers on `socket`: `outlines.list` answered, not only a connect (ssh accepts on a forward's end either way). */
-function hostAnswers(socket: string, timeoutMs = 3_000): Promise<boolean> {
+export function hostAnswers(socket: string, timeoutMs = 3_000): Promise<boolean> {
   return new Promise(settle => {
     const s = connect(socket);
     let buffer = "";
@@ -28,44 +29,56 @@ function hostAnswers(socket: string, timeoutMs = 3_000): Promise<boolean> {
   });
 }
 
-async function run(argv: string[], timeoutMs: number): Promise<{ code: number; out: string; err: string }> {
-  try {
-    const child = Bun.spawn(argv, { stdin: "ignore", stdout: "pipe", stderr: "pipe", env: { ...process.env } });
-    const timer = setTimeout(() => child.kill(), timeoutMs);
-    // `ssh -f` leaves its connection holding these pipes: read until the command exits, not until they close.
-    const out = new Response(child.stdout).text(), err = new Response(child.stderr).text();
-    const code = await child.exited;
-    clearTimeout(timer);
-    const settle = (text: Promise<string>) => Promise.race([text, sleep(200).then(() => "")]);
-    return { code, out: await settle(out), err: await settle(err) };
-  } catch (error) {
-    return { code: 127, out: "", err: error instanceof Error ? error.message : String(error) };
-  }
+/** The world as the forward rule touches it, for a process with environment `env` (what ssh is run with). */
+export function nodeMachineIO(env: NodeJS.ProcessEnv = process.env): MachineIO {
+  return {
+    async run(argv, timeoutMs, how) {
+      try {
+        // A detached run (`ssh -f`) leaves its connection behind: it gets none of this process's pipes to hold.
+        const io = how?.detached ? "ignore" as const : "pipe" as const;
+        const child = Bun.spawn(argv, { stdin: "ignore", stdout: io, stderr: io, env: { ...env } });
+        const timer = setTimeout(() => child.kill(), timeoutMs);
+        const [out, err, code] = await Promise.all([
+          io === "pipe" ? new Response(child.stdout as ReadableStream).text() : "",
+          io === "pipe" ? new Response(child.stderr as ReadableStream).text() : "",
+          child.exited,
+        ]);
+        clearTimeout(timer);
+        return { code, out, err };
+      } catch (error) {
+        return { code: 127, out: "", err: error instanceof Error ? error.message : String(error) };
+      }
+    },
+    answers: socket => hostAnswers(socket),
+    privateDir(dir) {
+      mkdirSync(dir, { recursive: true, mode: 0o700 });
+      const stat = statSync(dir);
+      if (!stat.isDirectory() || (process.getuid && stat.uid !== process.getuid()) || (stat.mode & 0o077) !== 0) {
+        throw new Error(`${dir} isn't yours alone (it needs mode 700): no forward`);
+      }
+    },
+    read(path) { try { return readFileSync(path, "utf8"); } catch { return null; } },
+    remove(path) { rmSync(path, { force: true }); },
+    createExclusive(path, text) {
+      let fd: number;
+      try { fd = openSync(path, "wx", 0o600); }
+      catch (error) { if ((error as NodeJS.ErrnoException).code === "EEXIST") return false; throw error; }
+      try { writeSync(fd, text); } finally { closeSync(fd); }
+      return true;
+    },
+    pid: process.pid,
+    alive(pid) { try { process.kill(pid, 0); return true; } catch (error) { return (error as NodeJS.ErrnoException).code === "EPERM"; } },
+    now: () => Date.now(),
+    sleep: ms => sleep(ms),
+  };
 }
 
-export const outlinerMachineIO: MachineIO = {
-  run,
-  answers: socket => hostAnswers(socket),
-  privateDir(dir) {
-    mkdirSync(dir, { recursive: true, mode: 0o700 });
-    const stat = statSync(dir);
-    if (!stat.isDirectory() || (process.getuid && stat.uid !== process.getuid()) || (stat.mode & 0o077) !== 0) {
-      throw new Error(`${dir} isn't yours alone (it needs mode 700): no forward`);
-    }
-  },
-  remove(path) { rmSync(path, { force: true }); },
-  createExclusive(path) {
-    try { closeSync(openSync(path, "wx", 0o600)); return true; }
-    catch (error) { if ((error as NodeJS.ErrnoException).code === "EEXIST") return false; throw error; }
-  },
-  ageMs(path) { try { return Date.now() - statSync(path).mtimeMs; } catch { return null; } },
-  sleep: ms => sleep(ms),
-};
+/** What `ensureForward` and `forwardState` are given for the outlines folder `outlines` (its `.remote/` holds the forward). */
+export function forwardOptions(outlines: string, env: NodeJS.ProcessEnv = process.env): ForwardOptions {
+  return { ssh: env.EP0CH_SSH?.trim() || "ssh", outlines, io: nodeMachineIO(env) };
+}
 
-/**
- * The machine's forward in `outlines` (the outlines folder the client resolved, whose `.remote/` holds it), answering:
- * found up, or started. Throws with what went wrong and what to do.
- */
+/** The machine's forward in `outlines`, answering: found up, or started. Throws with what went wrong and what to do. */
 export function forwardFor(machine: string, outlines: string, env: NodeJS.ProcessEnv = process.env): Promise<Forward> {
-  return ensureForward(machine, { ssh: env.EP0CH_SSH?.trim() || "ssh", outlines, io: outlinerMachineIO });
+  return ensureForward(machine, forwardOptions(outlines, env));
 }

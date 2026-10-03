@@ -1,65 +1,41 @@
 // Other machines, by their ssh config names: `--machine <name>` (an outline on that machine, through the forward
 // outline-core's `ensureForward` keeps: src/machine.ts there has the rule), and `--remote <name>` (this terminal
-// attached to the door session running there). Here: the door's side of it, the I/O the rule is given, the machines
-// the person has opened (`machines.json` in the state dir, for the home base and `ep0ch doctor`), and the remote door.
+// attached to the door session running there). Here: the door's side of it (the I/O the rule is given is the
+// outliner's, one for both clients: packages/outliner/src/machine-forward.ts), the machines the person has opened
+// (`machines.json` in the state dir, for `ep0ch doctor`), and the remote door.
 //
 // EP0CH_SSH names the ssh to run (tests give a fake one); ssh is the default.
-import { closeSync, openSync, readFileSync, rmSync, statSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { ensureForward, type Forward, type ForwardState, forwardState, type MachineIO } from "@ep0ch/outline-core/machine";
+import { type Forward, type ForwardState, forwardState } from "@ep0ch/outline-core/machine";
+import { forwardFor, forwardOptions } from "@ep0ch/outliner/src/machine-forward";
 import { isMachineName } from "@ep0ch/outline-core/outline-location";
-import { hostLive, outlinesDir } from "./discover";
-import { privateDir, readState, writeState } from "./state";
+import { hostLive, outlinesDir, resolveTarget } from "./discover";
+import { readState, writeState } from "./state";
 
 type Env = Record<string, string | undefined>;
 
 /** The ssh this door runs: EP0CH_SSH, else `ssh`. */
 export const sshBin = (env: Env = process.env) => env.EP0CH_SSH?.trim() || "ssh";
 
-/** The world, as the forward rule touches it: processes, the host socket, the lock. */
-export const machineIO: MachineIO = {
-  async run(argv, timeoutMs) {
-    try {
-      // The environment as it is now (EP0CH_SSH's fake in a test reads what the test set), not as the process began.
-      const p = Bun.spawn(argv, { stdin: "ignore", stdout: "pipe", stderr: "pipe", env: { ...process.env } });
-      const timer = setTimeout(() => p.kill(), timeoutMs);
-      // `ssh -f` leaves its connection running with these pipes: read until it exits, not until they close.
-      const out = new Response(p.stdout).text(), err = new Response(p.stderr).text();
-      const code = await p.exited;
-      clearTimeout(timer);
-      const settle = (t: Promise<string>) => Promise.race([t, Bun.sleep(200).then(() => "")]);
-      return { code, out: await settle(out), err: await settle(err) };
-    } catch (e) { return { code: 127, out: "", err: (e as Error).message }; }
-  },
-  answers: async socket => !!(await hostLive(socket, 3000)),
-  privateDir(dir) { if (!privateDir(dir, true)) throw new Error(`${dir} isn't yours alone (it needs mode 700): no forward`); },
-  remove(path) { rmSync(path, { force: true }); },
-  createExclusive(path) {
-    try { closeSync(openSync(path, "wx", 0o600)); return true; }
-    catch (e) { if ((e as NodeJS.ErrnoException).code === "EEXIST") return false; throw e; }
-  },
-  ageMs(path) { try { return Date.now() - statSync(path).mtimeMs; } catch { return null; } },
-  sleep: ms => Bun.sleep(ms),
-};
-
-const forwardOptions = (env: Env) => ({ ssh: sshBin(env), outlines: outlinesDir(env), io: machineIO });
+const options = (env: Env) => forwardOptions(outlinesDir(env), env as NodeJS.ProcessEnv);
 
 /** The machine's forward, answering (started when it isn't), or why not. */
 export function forwardTo(machine: string, env: Env = process.env): Promise<Forward> {
-  return ensureForward(machine, forwardOptions(env));
+  return forwardFor(machine, outlinesDir(env), env as NodeJS.ProcessEnv);
 }
 
 /** What a forward's start was, in a few words for the status bar. */
 export function forwardSaying(machine: string, f: Forward): string | null {
-  return f.how === "up" ? null : f.how === "restarted" ? `the forward to ${machine} was replaced` : `started the forward to ${machine}`;
+  return f.how === "up" ? null : `started the forward to ${machine}`;
 }
 
-/** A machine as the home base and `ep0ch doctor` show it: its forward, and its outlines when the forward answers. */
+/** A machine as `ep0ch doctor` shows it: its forward, and its outlines when the forward answers. */
 export interface MachineStatus extends ForwardState { outlines: string[] | null }
 
 /** The machine's forward as it is now, and its outlines when it answers: nothing is started. */
 export async function machineStatus(machine: string, env: Env = process.env): Promise<MachineStatus> {
-  const s = await forwardState(machine, forwardOptions(env));
+  const s = await forwardState(machine, options(env));
   const live = s.answers ? await hostLive(s.socket, 3000) : null;
   return { ...s, outlines: live ? live.outlines : null };
 }
@@ -121,9 +97,19 @@ export function remoteOf(args: readonly string[]): { machine: string; rest: stri
   return { machine, rest: args.filter((_, i) => i !== at && i !== at + 1) };
 }
 
+/**
+ * The door's flags as they go to the machine: the outline this folder names there (its `.ep0ch` says that machine) as
+ * `--ws`, when none is given; never `--machine` naming the machine itself (it is the door's own host there).
+ */
+export function remoteArgs(machine: string, rest: readonly string[], target: ReturnType<typeof resolveTarget>): string[] {
+  const own = rest.filter((a, i) => !((a === "--machine" && rest[i + 1] === machine) || (rest[i - 1] === "--machine" && a === machine)));
+  if (own.includes("--ws") || "error" in target || !("outline" in target) || target.machine !== machine) return own;
+  return ["--ws", target.outline, ...own];
+}
+
 /** Run the door there, in this terminal, until it ends: ssh's exit code. */
 export async function remoteDoor(machine: string, rest: readonly string[]): Promise<number> {
   rememberMachine(machine);
-  const p = Bun.spawn(remoteDoorArgv(machine, rest), { stdio: ["inherit", "inherit", "inherit"], env: { ...process.env } });
+  const p = Bun.spawn(remoteDoorArgv(machine, remoteArgs(machine, rest, resolveTarget(rest))), { stdio: ["inherit", "inherit", "inherit"], env: { ...process.env } });
   return await p.exited;
 }

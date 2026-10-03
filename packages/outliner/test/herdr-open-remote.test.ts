@@ -20,16 +20,24 @@ afterEach(() => {
   }
 });
 
-for (const mode of ["focus-or-open", "open-tree"] as const) test(`remote Herdr ${mode} keeps the tunnel and the folder's outline, and opens only its required panes`, async () => {
+for (const [mode, via] of [["focus-or-open", "socket"], ["open-tree", "socket"], ["focus-or-open", "machine"]] as const) test(`remote Herdr ${mode} (${via === "socket" ? "EP0CH_SOCKET" : "the .ep0ch's machine"}) keeps the host and the folder's outline, and opens only its required panes`, async () => {
   const directory = mkdtempSync(join(tmpdir(), "pi-outliner-remote-herdr-"));
   temporaryDirectories.push(directory);
   const workspaceRoot = join(directory, "workspace");
   mkdirSync(workspaceRoot);
-  // The host at the other end of the tunnel (EP0CH_SOCKET), and the folder's .ep0ch naming its outline.
+  // The host on the other machine (EP0CH_SOCKET names it, or the .ep0ch names its machine), and the folder's .ep0ch
+  // naming its outline.
   const host = new OutlineHost({ outlinesFolder: join(directory, "remote-outlines"), log: () => {} });
   await host.start();
   await host.create("garden");
-  writeFileSync(join(workspaceRoot, ".ep0ch"), 'ws = "garden"\n');
+  writeFileSync(join(workspaceRoot, ".ep0ch"), via === "socket" ? 'ws = "garden"\n' : 'ws = "garden"\nmachine = "box-a"\n');
+  // The machine is reached through the fake ssh: its `ep0ch status --json` says where the host is.
+  const bin = join(directory, "bin");
+  mkdirSync(bin);
+  writeFileSync(join(bin, "ssh"), `#!/bin/sh\nexec ${process.execPath} ${join(import.meta.dir, "fake-ssh.ts")} "$@"\n`);
+  writeFileSync(join(bin, "ep0ch"), `#!/bin/sh\necho '${JSON.stringify({ socket: host.socketPath })}'\n`);
+  for (const f of ["ssh", "ep0ch"]) chmodSync(join(bin, f), 0o755);
+  mkdirSync(join(directory, "far-home"));
   const canonical = { socket: host.socketPath };
   const foreignConnected = Promise.withResolvers<void>();
   const foreignWatcher = new OutlinerClient(canonical.socket, undefined, "garden").watch({
@@ -133,8 +141,13 @@ if (args[0] === "pane" && args[1] === "get") {
         HERDR_PANE_ID: "workspace:pane",
         OUTLINER_WORKSPACE_ROOT: workspaceRoot,
         EP0CH_OUTLINES: join(directory, "local-outlines"),
-        EP0CH_SOCKET: canonical.socket,
+        EP0CH_SOCKET: via === "socket" ? canonical.socket : undefined,
         EP0CH_WS: undefined,
+        EP0CH_MACHINE: undefined,
+        EP0CH_SSH: join(bin, "ssh"),
+        FAKE_SSH_HOME: join(directory, "far-home"),
+        FAKE_SSH_OUTLINES: join(directory, "remote-outlines"),
+        FAKE_SSH_BIN: bin,
       },
       stdout: "pipe",
       stderr: "pipe",
@@ -161,11 +174,13 @@ if (args[0] === "pane" && args[1] === "get") {
       .map((args) => args[args.indexOf("--entrypoint") + 1]);
     expect(openedEntrypoints).toEqual(mode === "open-tree" ? ["outliner"] : ["outliner", "detail"]);
     for (const args of calls.filter((call) => call.includes("--entrypoint"))) {
-      // Every pane goes through the same tunnel to the same outline, whatever its own environment says.
-      expect(args).toContain(`EP0CH_SOCKET=${canonical.socket}`);
+      // Every pane reaches the same host for the same outline, whatever its own environment says.
+      if (via === "socket") expect(args).toContain(`EP0CH_SOCKET=${canonical.socket}`);
       expect(args).toContain("EP0CH_WS=garden");
+      expect(args).toContain(`EP0CH_MACHINE=${via === "socket" ? "" : "box-a"}`);
     }
   } finally {
+    try { process.kill(Number(readFileSync(join(directory, "local-outlines", ".remote", "box-a.ctl"), "utf8"))); } catch { /* none started */ }
     stopPaneRegistration = true;
     const openedPaneWatchers = await registerOpenedPanes;
     await Promise.all(openedPaneWatchers.map((watcher) => watcher.stop()));

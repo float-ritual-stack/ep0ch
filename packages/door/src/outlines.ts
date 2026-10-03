@@ -14,7 +14,7 @@ import { hostLive, hostSocketOf, outlinesDir, resolveTarget, type Target } from 
 import { hostRequest, type HostedOutline, OUTLINE_NAME } from "./socket";
 import { forwardTo } from "./machine";
 
-/** `machine`: the host is that machine's, through its forward (`--machine <ssh-name>`, else EP0CH_MACHINE). */
+/** `machine`: `--machine <ssh-name>`, the host that machine's, through its forward (else the one rule: runOutlineCommand). */
 export type OutlineCommand = { machine?: string } & (
   | { op: "list"; json: boolean }
   | { op: "attach"; name: string; json: boolean }
@@ -28,11 +28,11 @@ export type OutlineCommand = { machine?: string } & (
 export const OUTLINE_USAGE = "ep0ch outline list | attach <name> | create <name> | import <database.sqlite> <name> | stop <name> | delete <name> [--yes]   (each with --json and --machine <ssh-name>); ep0ch init [<name>]";
 
 /** `args` after `outline` (or `["status", …]`, `["init", …]`): the command, or why it isn't one. */
-export function parseOutlineArgs(argsIn: readonly string[], cwd = process.cwd(), env: Record<string, string | undefined> = process.env): OutlineCommand | { error: string } {
+export function parseOutlineArgs(argsIn: readonly string[], cwd = process.cwd()): OutlineCommand | { error: string } {
   const at = argsIn.indexOf("--machine");
-  const machine = at >= 0 ? argsIn[at + 1] : env.EP0CH_MACHINE?.trim() || undefined;
+  const machine = at >= 0 ? argsIn[at + 1] : undefined;
   if (at >= 0 && (!machine || machine.startsWith("-"))) return { error: "--machine needs a machine: an ssh config name (a Host in ~/.ssh/config)" };
-  if (machine !== undefined && !isMachineName(machine)) return { error: `${at >= 0 ? "--machine" : "EP0CH_MACHINE"} ${JSON.stringify(machine)} isn't an ssh config name` };
+  if (machine !== undefined && !isMachineName(machine)) return { error: `--machine ${JSON.stringify(machine)} isn't an ssh config name` };
   const parsed = parseCommand(at >= 0 ? argsIn.filter((_, i) => i !== at && i !== at + 1) : argsIn, cwd);
   return "error" in parsed || !machine ? parsed : { ...parsed, machine };
 }
@@ -119,13 +119,22 @@ export async function initHere(name: string | undefined, path: string, cwd = pro
  * Runs a parsed command other than an interactive `attach` (main opens the door for that). Resolves to the
  * exit code. `ask` confirms a delete; without a terminal and without `--yes`, a delete is refused.
  */
-export async function runOutlineCommand(cmd: OutlineCommand, out = console.log, err = console.error,
+export async function runOutlineCommand(cmdIn: OutlineCommand, out = console.log, err = console.error,
   ask: (question: string) => Promise<boolean> = confirm): Promise<number> {
-  let path = hostSocket();
-  if (cmd.machine) {
-    try { path = (await forwardTo(cmd.machine)).socket; }
-    catch (e) { err(`ep0ch: can't reach the outline host on ${cmd.machine}: ${(e as Error).message}`); return 1; }
+  let cmd = cmdIn;
+  // Which host, by the one rule (resolveTarget): --machine, EP0CH_SOCKET, EP0CH_MACHINE, this folder's .ep0ch. `status`
+  // is this machine's host unless --machine names another (what another machine asks of it: src/machine.ts there).
+  let path = hostSocket(), machine = cmd.machine;
+  if (cmd.op !== "status" || cmd.machine) {
+    const t = resolveTarget(cmd.machine ? ["--machine", cmd.machine] : []);
+    if ("error" in t) { err(`ep0ch: ${t.error}`); return 1; }
+    path = t.path; machine = t.machine;
   }
+  if (machine) {
+    try { path = (await forwardTo(machine)).socket; }
+    catch (e) { err(`ep0ch: can't reach the outline host on ${machine}: ${(e as Error).message}`); return 1; }
+  }
+  cmd = machine ? { ...cmd, machine } : cmd;
   const status = await hostLive(path);
   if (!status) { err(`ep0ch: no outline host answers at ${path}; start it (systemctl --user start outliner-host, or bun packages/outliner/src/host-main.ts)`); return 1; }
   const on = cmd.machine ? ` on ${cmd.machine}` : "";
@@ -162,7 +171,7 @@ export async function runOutlineCommand(cmd: OutlineCommand, out = console.log, 
       }
       case "import": {
         const r = await hostRequest<HostedOutline & { imported: { blocks: number; properties: number; pageAddresses: number; workIds: number } }>(path, "outlines.import", { path: cmd.path, name: cmd.name }, 600_000);
-        print(r, `imported ${cmd.path}${on} as outline ${r.name}: ${r.imported.blocks} blocks, ${r.imported.properties} properties, ${r.imported.pageAddresses} page addresses, ${r.imported.workIds} work ids`);
+        print(r, `imported ${cmd.path}${cmd.machine ? ` (a file on ${cmd.machine})` : ""} as outline ${r.name}${on}: ${r.imported.blocks} blocks, ${r.imported.properties} properties, ${r.imported.pageAddresses} page addresses, ${r.imported.workIds} work ids`);
         return 0;
       }
       case "stop": {
@@ -281,11 +290,13 @@ export async function nameTheOutline(args: string[], interactive = !!process.std
   // Named: said explicitly from here on (the machine too), so a session started now (or its next daemon) opens this
   // outline whatever its folder's .ep0ch or EP0CH_MACHINE says later.
   const on = target.machine && !args.includes("--machine") ? ["--machine", target.machine] : [];
-  if (!("unnamed" in target)) return { args: [...(args.includes("--ws") ? args : [...args, "--ws", target.outline]), ...on] };
-  if (!interactive) return { error: unnamedHelp(target) };
+  // The forward is started here, in the person's terminal, where ssh can ask their agent for the key; a session's
+  // daemon (which outlives the terminal, and its agent) then finds it up.
   if (target.machine) {
     try { await forwardTo(target.machine); } catch (e) { return { error: `can't reach the outline host on ${target.machine}: ${(e as Error).message}` }; }
   }
+  if (!("unnamed" in target)) return { args: [...(args.includes("--ws") ? args : [...args, "--ws", target.outline]), ...on] };
+  if (!interactive) return { error: unnamedHelp(target) };
   const name = await chooseOutline(target, ask, say);
   return name ? { args: [...args, "--ws", name, ...on] } : null;
 }

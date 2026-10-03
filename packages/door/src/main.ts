@@ -132,6 +132,12 @@ if (!(how.mode === "attach" && (how.running || !process.stdin.isTTY))) {
   if ("error" in named) { console.error(`ep0ch: ${named.error}`); process.exit(1); }
   args = named.args;
 }
+// Attaching to a session that runs: a machine it names gets its forward started from here, where ssh has the person's
+// agent (the session's daemon has none of its own), so `ep0ch --machine <name>` again brings a dropped forward back.
+if (how.mode === "attach" && how.running) {
+  const t = resolveTarget(args);
+  if (!("error" in t) && t.machine) await forwardTo(t.machine).catch(e => console.error(`ep0ch: can't reach the outline host on ${t.machine}: ${(e as Error).message}`));
+}
 if (how.mode === "attach") process.exit(await attachDoor(args, how));
 // A door in its own terminal: an `ep0ch` in one of its tiles opens a door of its own there too, never a session on
 // this state dir.

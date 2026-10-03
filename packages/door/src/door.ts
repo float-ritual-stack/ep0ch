@@ -70,7 +70,7 @@ export async function openDoor(o: DoorOpen): Promise<Door> {
  * The outline the door opens on (`--ws <name>`, EP0CH_WS, the folder's `.ep0ch`, on this machine's host, a machine's
  * through its forward, or EP0CH_SOCKET's: resolveTarget), connected and answering; or what's wrong, to print. The door
  * opens a session, so it attaches to its outline and creates it when nobody has yet (like herdr --session <name>). A
- * folder that names none got the home base before this (src/main.ts); here it is an error that says what to run.
+ * folder that names none was asked about before this (src/main.ts); here it is an error that says what to run.
  *
  * On a machine, the forward is started when it isn't up, and again whenever the outline connection drops: the status
  * bar says so (SocketBoard.prepare).
@@ -87,7 +87,12 @@ export async function connectTarget(args: readonly string[]): Promise<{ board: S
     rememberMachine(machine);
   }
   const board = new SocketBoard(target.path, undefined, target.outline);
-  if (machine) board.prepare = async () => forwardSaying(machine, await forwardTo(machine));
+  // Started again as the connection comes back; a start that fails says how the person starts it (a session's daemon
+  // has no ssh agent of its own: their terminal does).
+  if (machine) board.prepare = async () => {
+    try { return forwardSaying(machine, await forwardTo(machine)); }
+    catch (e) { throw new Error(`${(e as Error).message} · \`ep0ch --machine ${machine}\` in a terminal starts the forward again`); }
+  };
   let created = false;
   try { created = (await attachTarget(target)).created; }
   catch (e) { board.close(); return { error: `can't open the outline "${target.outline}" on ${target.path}\n  ${(e as Error).message}` }; }

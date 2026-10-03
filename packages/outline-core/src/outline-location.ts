@@ -10,9 +10,9 @@
 // 4. Nothing: the client offers init (with a guess: the folder's name, or its repository's), pick or import.
 //    Accepting the guess writes `.ep0ch`, so renaming the folder later changes nothing.
 //
-// On which machine (first match wins): `--machine <ssh-name>`, then `EP0CH_MACHINE`, then the `machine` of the
-// `.ep0ch` that named the outline (a `.ep0ch` is read whole: an outline named by `--ws` or EP0CH_WS takes no machine
-// from a file that named another). None: this machine. A machine is an ssh config name (a `Host` alias in
+// On which machine (first match wins): `--machine <ssh-name>`, then `EP0CH_MACHINE`, then the `machine` of the nearest
+// `.ep0ch` when it names the same outline (a `.ep0ch` is read whole: `--ws jam-shelf` in a folder whose `.ep0ch` says
+// jam-shelf on box-a is jam-shelf on box-a; an outline it doesn't name takes no machine from it). None: this machine. A machine is an ssh config name (a `Host` alias in
 // `~/.ssh/config`); ssh owns its keys, hops and address, and there is no registry of machines here. A client reaches
 // it through an ssh forward to that machine's host socket, at `<outlines>/.remote/<machine>.sock` (src/machine.ts).
 //
@@ -53,10 +53,11 @@ export function freeOutlineName(base: string, taken: Iterable<string>): string {
 }
 
 /**
- * A machine's name: an ssh config name (a `Host` alias such as `float-2` or `laptop`), never a path, a user@ or an
- * option (`-o…`): letters, digits, `.`, `_` and `-`, starting with a letter or digit, up to 64.
+ * A machine's name: an ssh config name (a `Host` alias such as `box-a` or `laptop`), never a path, a user@ or an
+ * option (`-o…`): letters, digits, `.`, `_` and `-`, starting with a letter or digit, up to 32 (its forward's socket
+ * path must stay short).
  */
-export const MACHINE_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+export const MACHINE_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$/;
 export function isMachineName(name: unknown): name is string {
   return typeof name === "string" && MACHINE_NAME_PATTERN.test(name);
 }
@@ -147,7 +148,8 @@ export type WhichOutline =
 
 /**
  * The rule, first match wins: `flag` (`--ws`), then `env` (EP0CH_WS), then the nearest `.ep0ch`; else unnamed. The
- * machine: `machineFlag` (`--machine`), then `machineEnv` (EP0CH_MACHINE), then the `.ep0ch` that named the outline.
+ * machine: `machineFlag` (`--machine`), then `machineEnv` (EP0CH_MACHINE), then the nearest `.ep0ch` when it names
+ * the same outline (an opener that passes the outline on as EP0CH_WS keeps its machine).
  */
 export function whichOutline(o: { flag?: string; env?: string; machineFlag?: string; machineEnv?: string; folder: string; home: string; fs: LocationReader }): WhichOutline {
   const flag = o.flag?.trim(), env = o.env?.trim(), mflag = o.machineFlag?.trim(), menv = o.machineEnv?.trim();
@@ -155,13 +157,16 @@ export function whichOutline(o: { flag?: string; env?: string; machineFlag?: str
   if (menv && !isMachineName(menv)) throw new Error(`EP0CH_MACHINE=${JSON.stringify(menv)} isn't an ssh config name (${MACHINE_NAME_PATTERN.source})`);
   const on = (fromFile?: string): OnMachine =>
     mflag ? { machine: mflag, machineSource: "flag" } : menv ? { machine: menv, machineSource: "env" } : fromFile ? { machine: fromFile, machineSource: "file" } : {};
+  // Named by --ws or EP0CH_WS: the folder's .ep0ch gives its machine only when it names the same outline (one that
+  // can't be read gives none here; it is said when it's what names the outline).
+  const sameAs = (name: string) => { try { const d = nearestDotEp0ch(o.folder, o.fs); return d?.name === name ? d.machine : undefined; } catch { return undefined; } };
   if (flag) {
     if (!isOutlineName(flag)) throw new Error(`--ws ${JSON.stringify(flag)} isn't an outline name (${OUTLINE_NAME_PATTERN.source})`);
-    return { kind: "named", name: flag, source: "flag", ...on() };
+    return { kind: "named", name: flag, source: "flag", ...on(sameAs(flag)) };
   }
   if (env) {
     if (!isOutlineName(env)) throw new Error(`EP0CH_WS=${JSON.stringify(env)} isn't an outline name (${OUTLINE_NAME_PATTERN.source})`);
-    return { kind: "named", name: env, source: "env", ...on() };
+    return { kind: "named", name: env, source: "env", ...on(sameAs(env)) };
   }
   const folder = resolve(o.folder);
   const dot = nearestDotEp0ch(folder, o.fs);

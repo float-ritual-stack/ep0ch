@@ -480,7 +480,8 @@ for every client (the door applies the same function), first match wins:
 4. nothing: unnamed, with the init guess (the git repository root's name, else the folder's; none for `$HOME`,
    `/` or a folder right under `/`). A client for an unnamed folder refuses every request; nothing guesses.
 
-The machine: `EP0CH_MACHINE`, else the `machine` of the `.ep0ch` that named the outline.
+The machine: `EP0CH_MACHINE`, else the `machine` of the nearest `.ep0ch` when it names the same outline (so an opener
+passing the outline on as `EP0CH_WS` keeps its machine; every pane opener passes `EP0CH_MACHINE` too).
 
 [`resolveClientPaths()`](../src/paths.ts) applies it: the socket (`EP0CH_SOCKET`, named outright, else the
 machine's forward `<outlines>/.remote/<ssh-name>.sock`, else this machine's `<outlines>/.host/host.sock`), the outline, and where the client keeps its own files

@@ -108,8 +108,9 @@ A machine is an ssh config name: a `Host` in `~/.ssh/config` (`float-2`, `laptop
 address; the door keeps no list of machines of its own.
 
 - **`--machine <ssh-name>`**: the door here, the outline there. Which machine, first match wins: `--machine`,
-  `EP0CH_MACHINE`, then the `machine` of the `.ep0ch` that named the outline (an outline named by `--ws` or
-  `EP0CH_WS` takes no machine from a file). A `.ep0ch` for a folder whose outline lives on another machine:
+  `EP0CH_MACHINE`, then the `machine` of the nearest `.ep0ch` when it names the same outline (`--ws jam-shelf` in a
+  folder whose `.ep0ch` puts jam-shelf on box-a is box-a's; another name there is this machine's). A `.ep0ch` for a
+  folder whose outline lives on another machine:
 
       ws = "pie"
       machine = "float-2"
@@ -120,12 +121,16 @@ address; the door keeps no list of machines of its own.
   door, so a second door, Tree and Detail, and the CLI share it. When it drops (the network went), the door starts
   it again as its connection comes back, and the status bar says so ("reconnected · started the forward to
   float-2 · caught up 3 changes"). ssh must log in without asking (a key or an agent: `ssh float-2 true`).
-  `ep0ch outline list|create|… --machine <ssh-name>` and `ep0ch init --machine <ssh-name>` (which writes the
-  `machine` line) work on that machine's host. `ep0ch doctor` shows each machine's forward.
+  `ep0ch outline list|create|…` and `ep0ch init` go to the machine by the same rule (`--machine`, `EP0CH_MACHINE`,
+  the folder's `.ep0ch`; init writes the `machine` line); `ep0ch status` is this machine's host unless `--machine`
+  names another. A session's daemon has no ssh agent of its own: `ep0ch` starts the forward from the terminal before
+  it starts or attaches to one, and a forward that drops while nobody's terminal can start it says so on the status
+  bar. `ep0ch doctor` shows each machine's forward.
 - **`--remote <ssh-name> [door flags]`**: this terminal attached to the door session running on that machine,
   as `herdr --remote` does: `ssh -t <ssh-name> ep0ch [door flags]` in a login shell there, with `TERM`,
   `COLORTERM`, `EP0CH_KITTY`, `TERM_PROGRAM` and `LANG` carried over. The door runs there, so the drop shell and
-  `$EDITOR` on a `ctrl+e` file run there too, on its files.
+  `$EDITOR` on a `ctrl+e` file run there too, on its files. The outline this folder names on that machine (its
+  `.ep0ch` says that machine) goes as `--ws` when no `--ws` is given.
 - **`EP0CH_SOCKET`** names any host's socket outright, the low-level way; with it no machine is used.
 - **`EP0CH_SSH`** names the ssh to run (tests give a fake one).
 

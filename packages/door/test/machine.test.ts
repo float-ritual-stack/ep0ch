@@ -81,14 +81,31 @@ describe("--machine: an outline on another machine, through the forward", () => 
     opened.board.close();
   }, 30_000);
 
+  test("a session is started with the machine said, its forward started from the terminal first", async () => {
+    const { nameTheOutline } = await import("../src/outlines");
+    const before = forwards();
+    process.kill(forwarderPid());
+    await Bun.sleep(200);
+    expect(await nameTheOutline(["--machine", "box-a", "--ws", "garden"], false)).toEqual({ args: ["--machine", "box-a", "--ws", "garden"] });
+    expect(forwards()).toBe(before + 1);
+    const folder = join(here, "far-session");
+    mkdirSync(folder, { recursive: true });
+    writeFileSync(join(folder, ".ep0ch"), 'ws = "garden"\nmachine = "box-a"\n');
+    const cwd = process.cwd();
+    process.chdir(folder);
+    try { expect(await nameTheOutline(["--desk"], false)).toEqual({ args: ["--desk", "--ws", "garden", "--machine", "box-a"] }); }
+    finally { process.chdir(cwd); }
+  }, 30_000);
+
   test("a .ep0ch names the machine beside the outline; a machine nobody reaches is said with what to do", async () => {
     const folder = join(here, "far-notes");
     mkdirSync(join(folder, "deep"), { recursive: true });
     writeFileSync(join(folder, ".ep0ch"), 'ws = "garden"\nmachine = "box-a"\n');
     const { resolveTarget } = await import("../src/discover");
     expect(resolveTarget([], process.env, join(folder, "deep"))).toMatchObject({ outline: "garden", machine: "box-a", why: `the outline garden (${join(folder, ".ep0ch")}) on box-a` });
-    // --ws from anywhere is this machine's, unless --machine says otherwise.
-    expect("machine" in resolveTarget(["--ws", "garden"], process.env, folder)).toBe(false);
+    // --ws naming the folder's outline keeps its machine; naming another is this machine's, unless --machine says so.
+    expect(resolveTarget(["--ws", "garden"], process.env, folder)).toMatchObject({ outline: "garden", machine: "box-a" });
+    expect("machine" in resolveTarget(["--ws", "fern"], process.env, folder)).toBe(false);
     expect(resolveTarget(["--machine", "box-a"], { ...process.env, EP0CH_SOCKET: "/fictional/elsewhere.sock" }, folder)).toEqual({ error: "--machine box-a and EP0CH_SOCKET both name a host; leave one out" });
     const { forwardTo } = await import("../src/machine");
     process.env.FAKE_SSH_DOWN = "1";
@@ -100,6 +117,20 @@ describe("--machine: an outline on another machine, through the forward", () => 
     const env = { ...process.env } as Record<string, string>;
     const list = Bun.spawnSync([process.execPath, "src/main.ts", "outline", "list", "--machine", "box-a", "--json"], { cwd: DOOR, env });
     expect(JSON.parse(list.stdout.toString()).outlines.map((o: { name: string }) => o.name)).toContain("garden");
+    // In a folder whose .ep0ch names the machine, the outline commands go there by the one rule; init keeps its machine.
+    const far = join(here, "far-init");
+    mkdirSync(far, { recursive: true });
+    writeFileSync(join(far, ".ep0ch"), 'ws = "garden"\nmachine = "box-a"\n');
+    const there = Bun.spawnSync([process.execPath, join(DOOR, "src/main.ts"), "outline", "list", "--json"], { cwd: far, env });
+    expect(JSON.parse(there.stdout.toString()).outlines.map((o: { name: string }) => o.name)).toContain("garden");
+    const init = Bun.spawnSync([process.execPath, join(DOOR, "src/main.ts"), "init", "fern", "--json"], { cwd: far, env });
+    expect(JSON.parse(init.stdout.toString())).toMatchObject({ name: "fern", created: true });
+    expect(readFileSync(join(far, ".ep0ch"), "utf8")).toBe('ws = "fern"\nmachine = "box-a"\n');
+    const { hostRequest } = await import("../src/socket");
+    expect((await hostRequest<{ outlines: { name: string }[] }>(host.sock, "outlines.list")).outlines.map(o => o.name)).toContain("fern");
+    // `status` is this machine's host unless --machine names another: what another machine is asked.
+    const status = Bun.spawnSync([process.execPath, join(DOOR, "src/main.ts"), "status", "--json"], { cwd: far, env });
+    expect(status.exitCode).toBe(1);
     const { machineStatus } = await import("../src/machine");
     expect(await machineStatus("box-a")).toMatchObject({ machine: "box-a", answers: true, connected: true, outlines: expect.arrayContaining(["garden"]) });
     const { doctorChecks } = await import("../src/setup/doctor");
@@ -112,8 +143,15 @@ describe("--machine: an outline on another machine, through the forward", () => 
 describe("--remote: this terminal on the door session running on another machine", () => {
   test("ssh -t to the machine, ep0ch there in a login shell with this terminal's variables", async () => {
     const { remoteDoorArgv } = await import("../src/machine");
-    const argv = remoteDoorArgv("box-a", ["--ws", "pie", "--board"], { EP0CH_SSH: "ssh", TERM: "xterm-kitty", COLORTERM: "truecolor", EP0CH_KITTY: "1" });
-    expect(argv).toEqual(["ssh", "-t", "--", "box-a", `exec env TERM=xterm-kitty COLORTERM=truecolor EP0CH_KITTY=1 "\${SHELL:-/bin/sh}" -lc 'exec ep0ch --ws pie --board'`]);
+    const argv = remoteDoorArgv("box-a", ["--ws", "garden", "--board"], { EP0CH_SSH: "ssh", TERM: "xterm-kitty", COLORTERM: "truecolor", EP0CH_KITTY: "1" });
+    expect(argv).toEqual(["ssh", "-t", "--", "box-a", `exec env TERM=xterm-kitty COLORTERM=truecolor EP0CH_KITTY=1 "\${SHELL:-/bin/sh}" -lc 'exec ep0ch --ws garden --board'`]);
+    // The outline this folder names on that machine goes as --ws; --machine naming the machine itself doesn't go.
+    const { remoteArgs } = await import("../src/machine");
+    const named = { path: "/x", outline: "garden", attach: true as const, remote: true, machine: "box-a", why: "" };
+    expect(remoteArgs("box-a", ["--board"], named)).toEqual(["--ws", "garden", "--board"]);
+    expect(remoteArgs("box-a", ["--machine", "box-a", "--desk"], named)).toEqual(["--ws", "garden", "--desk"]);
+    expect(remoteArgs("box-b", ["--board"], named)).toEqual(["--board"]);
+    expect(remoteArgs("box-a", ["--ws", "fern"], named)).toEqual(["--ws", "fern"]);
     // Words survive the remote shell as they were (the door's own arguments, quotes and spaces kept).
     const { shellWord } = await import("../src/machine");
     const words = ["--layout", "it's mine", "a b", "$HOME", "plain"];

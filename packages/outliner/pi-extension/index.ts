@@ -995,7 +995,7 @@ async function ensureService(focus: boolean): Promise<void> {
     throw new Error(`${paths.unnamed}. Name one: \`ep0ch init\` here, or EP0CH_WS=<name>; in Herdr, open the Outliner to choose one.`);
   }
   // The outline host is a service of its own (systemd or launchd); Pi never starts one. A host that is
-  // restarting is waited for, as a remote tunnel is. Herdr's open attaches the outline, creating it when its
+  // restarting is waited for, as another machine's is. Herdr's open attaches the outline, creating it when its
   // .ep0ch names one that doesn't exist yet.
   if (process.env.HERDR_ENV === "1") {
     const { stdout } = await execFileAsync("bun", [

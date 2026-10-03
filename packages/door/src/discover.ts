@@ -1,7 +1,7 @@
 // Which outline `ep0ch` opens, and on which host (PIE-530). The rule is outline-core's `whichOutline`, the same one
 // the outliner's Herdr panes, CLI and Claude mod apply: `--ws <name>` from anywhere, then EP0CH_WS, then the nearest
 // `.ep0ch` walking up from the folder. Nothing else names an outline: a folder that names none gets init, pick or
-// import (the home base, src/home.ts), never a guess and never a default. The host is this machine's (its socket under
+// import (src/outlines.ts), never a guess and never a default. The host is this machine's (its socket under
 // the outlines folder, EP0CH_OUTLINES or ~/outlines); another machine's, through its forward, when one is named
 // (`--machine <ssh-name>`, EP0CH_MACHINE, the `.ep0ch`'s `machine`: src/machine.ts); or EP0CH_SOCKET, the low-level
 // way to name any host's socket.
@@ -53,7 +53,7 @@ export async function hostLive(path: string, timeoutMs = 1500): Promise<HostStat
  * Where the door connects, and which outline it names there. `attach`: the door opens a session, so it asks the
  * host for the outline with `create` (like `herdr --session <name>`): a name someone wrote down (`--ws`, EP0CH_WS,
  * a `.ep0ch`) is made when nobody has yet, and `created` says so on screen. `unnamed`: nothing names one here; the
- * door opens the home base. `machine`: the host is that machine's, `path` the local end of its forward (started as
+ * door asks (init, pick or import). `machine`: the host is that machine's, `path` the local end of its forward (started as
  * the door connects). `remote`: the host isn't this machine's (a machine's, or a socket named outright).
  */
 export type Target =

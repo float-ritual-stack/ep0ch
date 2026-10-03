@@ -14,14 +14,15 @@ import type { HostedOutlineAttachment, HostedOutlineList, HostedOutlineSummary, 
  */
 export async function outlineHostClient(env: NodeJS.ProcessEnv = process.env, timeoutMs = 3_000): Promise<OutlinerClient | undefined> {
   const { socket, machine } = clientSocket(env, machineFor(env));
-  if (machine) await forwardFor(machine, resolveOutlinesFolder(env), env).catch(() => undefined);
+  // A forward that can't be started says why (no ssh login, no ep0ch there), never "no host answers".
+  if (machine) await forwardFor(machine, resolveOutlinesFolder(env), env);
   if (await socketAbsent(socket, 500)) return undefined;
   return new OutlinerClient(socket, timeoutMs);
 }
 
 /**
- * The host client once the host answers, waiting up to `waitMs` like a remote client waits for its tunnel: a host
- * that is restarting comes back. Undefined when it never answers.
+ * The host client once the host answers, waiting up to `waitMs`: a host that is restarting comes back. Undefined when
+ * it never answers; a machine's forward that can't be started throws why at once.
  */
 export async function waitForOutlineHost(env: NodeJS.ProcessEnv = process.env, waitMs = 60_000): Promise<OutlinerClient | undefined> {
   const deadline = Date.now() + waitMs;
@@ -66,7 +67,8 @@ export async function resolveInvocationPaths(env: NodeJS.ProcessEnv, paneId: str
   if (paneId && !env.EP0CH_WS?.trim()) {
     const host = await waitForOutlineHost(env, waitMs);
     const outline = host ? await registeredPaneOutline(host, paneId).catch(() => undefined) : undefined;
-    if (outline) return { ...resolveClientPaths({ ...env, EP0CH_WS: outline }), outlineSource: "pane" };
+    // The pane is on that outline on the host just asked: the machine it is on, too (none: this one).
+    if (outline) return { ...resolveClientPaths({ ...env, EP0CH_WS: outline, EP0CH_MACHINE: env.EP0CH_SOCKET?.trim() ? "" : machineFor(env) ?? "" }), outlineSource: "pane" };
   }
   return resolveClientPaths(env);
 }

@@ -144,7 +144,7 @@ await reportStartupErrors(async () => {
   // A session attaches to its outline by name, creating it when its .ep0ch or EP0CH_WS names one nobody made yet
   // (like `tmux new -A`); the host itself is a service of its own (systemd, launchd).
   const name = paths.outline!;
-  // A host that is restarting comes back: wait for it as for a remote tunnel, never fall back.
+  // A host that is restarting comes back: wait for it (longer for another machine's), never fall back.
   const host = await waitForOutlineHost({ ...process.env, OUTLINER_WORKSPACE_ROOT: workspaceRoot }, paths.mode === "remote" ? 60_000 : 15_000);
   if (!host) {
     throw new Error(paths.mode === "remote"
@@ -198,10 +198,10 @@ await reportStartupErrors(async () => {
       "--no-focus",
     ];
     for (const name of OUTLINE_ENV) {
-      if (name !== "EP0CH_WS" && process.env[name] !== undefined) args.push("--env", `${name}=${process.env[name]}`);
+      if (name !== "EP0CH_WS" && name !== "EP0CH_MACHINE" && process.env[name] !== undefined) args.push("--env", `${name}=${process.env[name]}`);
     }
-    // Every pane lands on the same outline, whatever its environment would resolve.
-    args.push("--env", `EP0CH_WS=${name}`);
+    // Every pane lands on the same outline on the same machine, whatever its environment would resolve.
+    args.push("--env", `EP0CH_WS=${name}`, "--env", `EP0CH_MACHINE=${paths.machine ?? ""}`);
     for (const [key, value] of Object.entries(options.env ?? {})) {
       args.push("--env", `${key}=${value}`);
     }

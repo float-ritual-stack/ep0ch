@@ -72,6 +72,7 @@ async function choose(): Promise<void> {
   const relaunch = relaunchEnvironment(process.env, context.workspaceRoot, context.paneId);
   // The chosen outline opens whatever else the environment says (a folder too broad to name has no .ep0ch).
   relaunch.EP0CH_WS = plan.name;
+  relaunch.EP0CH_MACHINE = clientSocket(process.env, machineFor()).machine ?? "";
   spawn(process.execPath, relaunchArgs(context.mode, context.clientId), {
     env: relaunch,
     detached: true,
