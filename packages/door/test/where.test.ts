@@ -108,6 +108,20 @@ function deps(env: Record<string, string>, o: { peek?: any; panes?: any[] | null
 }
 
 describe("ep0ch where", () => {
+  test("the facts the Claude mod's binding card reads: this machine and folder, the door's outline and its machine, the Herdr pane", async () => {
+    const env = { EP0CH_NEST: "ssh:pts/5 › door:30/daily/dock.agent:claude › herdr:door-claude", EP0CH_CONTROL: "/s/agent-door-claude.sock", EP0CH_TILE: "claude" };
+    const peek = { screen: { screen: "Daily", pid: 30, outline: "orchard", host: "far-box", machine: "far", dock: { tile: { id: "dock.agent", name: "claude" }, shown: true, herdr: { pane: "door-claude" } }, state: { kind: "daily" } } };
+    const d = { ...deps(env, { alive: [30], ttys: ["pts/5"], panes: [{ pane_id: "w4:p1", label: "door-claude" }], peek }), hostname: () => "near-box", cwd: () => "/work/notes" };
+    const w = await where(d);
+    expect(w.here).toEqual({ machine: "near-box", folder: "/work/notes" });
+    expect(w.herdr).toEqual({ pane: "door-claude", label: "door-claude", agent: true });
+    expect(w.door).toMatchObject({ outline: "orchard", host: "far-box", machine: "far", tile: { dock: true } });
+    expect(formatWhere(w)).toContain("this runs on near-box in /work/notes");
+    // A door on this machine's host names no machine; outside Herdr there is no pane.
+    const local = await where(deps({ EP0CH_CONTROL: "/c/door.sock" }, { peek: { screen: { pid: 4, outline: "orchard", host: "near-box", state: {} } } }));
+    expect([local.door?.machine, local.door?.host, local.herdr, local.here]).toEqual([null, "near-box", null, { machine: null, folder: null }]);
+  });
+
   test("in the door's drop shell: the shell layer is live, and the keys are the shell's while the door waits", async () => {
     const env = { EP0CH_NEST: "ssh:pts/5 › shell:4242", EP0CH_CONTROL: "/c/door.sock", EP0CH_IN_DOOR: "1" };
     const peek = { screen: { screen: "main menu", pid: 4242, suspended: "shell", state: { kind: "main menu" } } };

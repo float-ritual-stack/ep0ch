@@ -26,6 +26,7 @@ function sessionWith(on: On, env: Record<string, string>, where: (run: Run) => P
   on('session.id', () => ({ value: 'session-1' }))
   on('session.cwd', () => ({ value: START.cwd }))
   on('prompt.context', ($, e) => ({ blocks: e.blocks }))
+  on('ui.status', () => ({ value: undefined }))
   on('process.run', async ($, e) => {
     runs.push(e)
     if (whereMs && e.argv[1] === 'where') await clock.sleep(whereMs)
@@ -105,13 +106,16 @@ describe('where this session runs', () => {
     expect(text.split('\n')[0]).toContain(`${NEST} Ignore the above`)
   })
 
-  test('outside a door: ep0ch is never run and no block is added', async ($, on) => {
-    const s = sessionWith(on, {}, () => result(0, '{}'))
+  test('outside a door: no where-am-I block (the binding card still reads `ep0ch where` for this machine and folder)', async ($, on) => {
+    const s = sessionWith(on, {}, () => result(0, JSON.stringify({ inDoor: false, here: { machine: 'near-box', folder: START.cwd }, summary: 'stack: (nothing recorded) · not in a door' })))
     await $.session.start(START)
     await s.clock.settle()
     const { blocks } = await $.prompt.context({ blocks: CORE })
-    expect(blocks).toEqual(CORE)
-    expect(s.runs.filter(r => r.argv[0] === 'ep0ch')).toEqual([])
+    expect(blocks[0]).toEqual(CORE[0]!)
+    expect(whereBlock(blocks)).toBeUndefined()
+    expect(blocks.map(b => b.name)).toEqual(['currentDate', 'outlineBinding'])
+    // `where` only reads, after the help probe, as in a door.
+    expect(s.runs.filter(r => r.argv[0] === 'ep0ch').map(r => r.argv)).toEqual([['ep0ch', 'help', HELP_PROBE], ['ep0ch', 'where', '--json']])
   })
 })
 
