@@ -159,9 +159,9 @@ export function remoteArgs(machine: string, rest: readonly string[], target: Ret
   return ["--ws", target.outline, ...own];
 }
 
-/** Run the door there, in this terminal, until it ends: ssh's exit code. */
-export async function remoteDoor(machine: string, rest: readonly string[]): Promise<number> {
+/** Run the door there with flags `there` (remoteArgs, as nameRemoteOutline checked them), in this terminal, until it ends: ssh's exit code. */
+export async function remoteDoor(machine: string, there: readonly string[]): Promise<number> {
   rememberMachine(machine);
-  const p = Bun.spawn(remoteDoorArgv(machine, remoteArgs(machine, rest, resolveTarget(rest))), { stdio: ["inherit", "inherit", "inherit"], env: { ...process.env } });
+  const p = Bun.spawn(remoteDoorArgv(machine, there), { stdio: ["inherit", "inherit", "inherit"], env: { ...process.env } });
   return await p.exited;
 }

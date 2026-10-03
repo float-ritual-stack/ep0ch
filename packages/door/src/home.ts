@@ -43,8 +43,10 @@ import type { SessionInfo } from "./session/protocol";
 /**
  * What the home base opens on: the folder it was started in, the name and folder `.ep0ch` would get there, a machine
  * named (`--machine`, EP0CH_MACHINE), and the host socket the rule names for this machine (EP0CH_SOCKET's, or its own).
+ * `missing`: the door was asked for an outline that machine doesn't have (PIE-545). Nothing was made; the home base
+ * says so and offers the ways on first: the one on this machine (when it has one), making it there, cancel.
  */
-export interface HomeArgs { folder: string; guess?: { name: string; folder: string }; machine?: string; socket?: string }
+export interface HomeArgs { folder: string; guess?: { name: string; folder: string }; machine?: string; socket?: string; missing?: { outline: string; machine: string } }
 
 /** What was chosen: the outline, on which machine (none: this one), the `.ep0ch` written, and by whom (an agent's id). */
 export interface HomeChoice { outline: string; machine?: string; wrote?: string; by?: string }
@@ -59,6 +61,7 @@ type Row =
   | { t: "import" }
   | { t: "machine"; machine: string }
   | { t: "add" }
+  | { t: "offer"; act: "open" | "create" | "cancel"; name?: string; machine?: string }
   | { t: "note"; text: string }
   | { t: "gap" };
 type Pick = Exclude<Row, { t: "head" } | { t: "note" } | { t: "gap" }>;
@@ -66,7 +69,7 @@ const picks = (r: Row): r is Pick => r.t !== "head" && r.t !== "note" && r.t !==
 const on = (machine?: string) => (machine ? ` on ${machine}` : "");
 const sessionKey = (outline: string, machine?: string) => `${machine ?? ""}/${outline}`;
 /** A choice's identity: it stays picked while rows come and go around it (a machine connecting, a list read). */
-const idOf = (r: Pick) => `${r.t}:${"name" in r ? r.name : ""}:${"machine" in r ? r.machine ?? "" : ""}`;
+const idOf = (r: Pick) => `${r.t}:${r.t === "offer" ? r.act : ""}:${"name" in r ? r.name ?? "" : ""}:${"machine" in r ? r.machine ?? "" : ""}`;
 
 export class HomePane implements Pane {
   readonly kind = "home";
@@ -80,14 +83,26 @@ export class HomePane implements Pane {
   private picked = "";
   private readonly view = new RowView();
   private shownRows: Row[] = [];
-  constructor(readonly args: HomeArgs) {}
+  constructor(readonly args: HomeArgs) {
+    // A missing outline starts on cancel, never on making one: ⏎ alone makes nothing. Once this machine's outlines are
+    // read and it has one, on opening that (load).
+    if (args.missing) this.picked = idOf({ t: "offer", act: "cancel" });
+  }
 
   title() { return `home base · ${hostname()}`; }
   hint() { return "j k pick · ⏎ open · n new · i import · a add machine · x forget · r reload · q quit"; }
 
+  /** The missing outline (args.missing), and whether this machine has one of that name, once its outlines are read. */
+  private missing() {
+    const m = this.args.missing;
+    return m ? { ...m, localHas: !!this.here.outlines?.includes(m.outline) } : null;
+  }
+
   /** The picked choice's place among the choices (0 when it's gone). */
   get at(): number { return Math.max(0, this.choices().findIndex(c => idOf(c) === this.picked)); }
-  set at(n: number) { const c = this.choices()[n]; if (c) this.picked = idOf(c); }
+  set at(n: number) { const c = this.choices()[n]; if (c) { this.picked = idOf(c); this.moved = true; } }
+  /** The cursor was moved: what it starts on (below) no longer follows the outlines read. */
+  private moved = false;
 
   init(desk: DeskApi) {
     for (const m of [...(this.args.machine ? [this.args.machine] : []), ...usedMachines().map(u => u.name)]) {
@@ -105,6 +120,8 @@ export class HomePane implements Pane {
       hostLive(socket, 3000).then(live => {
         this.here = live ? { outlines: live.outlines, problem: "", busy: "" }
           : { outlines: null, problem: `no outline host answers at ${socket} · start it: systemctl --user start outliner-host (launchctl on macOS)`, busy: "" };
+        const m = this.missing();
+        if (m?.localHas && !this.moved) this.picked = idOf({ t: "offer", act: "open", name: m.outline });
       }),
       ...[...this.machines.keys()].map(m => this.loadMachine(m)),
       runningSessions().then(rs => { this.running = new Map(rs.map(r => [sessionKey(r.info.place.outline, r.info.place.machine), r.info])); }, () => {}),
@@ -124,7 +141,15 @@ export class HomePane implements Pane {
 
   /** The rows, in order: this machine's outlines and what to add there, then each machine and its outlines, then "add". */
   rows(): Row[] {
-    const rows: Row[] = [{ t: "head", text: `this machine · ${hostname()}` }];
+    const rows: Row[] = [];
+    const m = this.missing();
+    if (m) {
+      rows.push({ t: "head", text: `${m.machine} has no outline ${m.outline}` },
+        { t: "note", text: `nothing was created there · ${this.here.outlines ? (m.localHas ? "this machine has one" : "neither has this machine") : "asking this machine…"}` });
+      if (m.localHas) rows.push({ t: "offer", act: "open", name: m.outline });
+      rows.push({ t: "offer", act: "create", name: m.outline, machine: m.machine }, { t: "offer", act: "cancel" }, { t: "gap" });
+    }
+    rows.push({ t: "head", text: `this machine · ${hostname()}` });
     const list = (p: Place, machine?: string) => {
       if (p.busy) rows.push({ t: "note", text: p.busy });
       else if (p.problem && machine === undefined) rows.push({ t: "note", text: p.problem });
@@ -157,6 +182,7 @@ export class HomePane implements Pane {
         return `   ${r.name}  ${fg(C.lgreen)}● running${fg(C.dark)} · ${n ? `${n} attached` : "none attached"}${RESET}`;
       }
       case "new": return `   + new outline${on(r.machine)}…`;
+      case "offer": return r.act === "open" ? `   open ${r.name} on this machine` : r.act === "create" ? `   + create ${r.name} on ${r.machine}` : "   cancel: open nothing";
       case "import": return "   ↓ import a database…";
       case "add": return " + add a machine…";
       case "machine": {
@@ -195,6 +221,11 @@ export class HomePane implements Pane {
 
   /** What ⏎ or a click on a row runs, as the person. */
   private choose(r: Pick, desk: DeskApi): boolean {
+    if (r.t === "offer") {
+      const [action, args] = r.act === "open" ? ["home.open", { outline: r.name }] : r.act === "create" ? ["home.new", { name: r.name, machine: r.machine }] : ["home.cancel", {}];
+      void desk.press?.(this, HOME_ACTIONS, action as string, args as Record<string, unknown>);
+      return true;
+    }
     const args: Record<string, unknown> =
       r.t === "outline" ? { outline: r.name, ...(r.machine ? { machine: r.machine } : {}) }
       : r.t === "new" ? (r.machine ? { machine: r.machine } : {})
@@ -220,11 +251,12 @@ export class HomePane implements Pane {
   describe() {
     return {
       folder: this.args.folder, ...(this.args.guess ? { writes: `${this.args.guess.folder}/.ep0ch` } : {}),
+      ...(this.missing() ? { missing: this.missing() } : {}),
       here: { host: hostname(), outlines: this.here.outlines, ...(this.here.problem ? { problem: this.here.problem } : {}) },
       machines: [...this.machines].map(([m, p]) => ({ machine: m, outlines: p.outlines, ...(p.problem ? { state: p.problem } : {}) })),
       choices: this.choices().map((r, i) => {
         const s = r.t === "outline" ? this.running.get(sessionKey(r.name, r.machine)) : undefined;
-        return { n: i + 1, kind: r.t, ...("name" in r ? { outline: r.name } : {}), ...("machine" in r && r.machine ? { machine: r.machine } : {}), ...(s ? { session: { pid: s.pid, attached: s.clients.filter(c => !c.watch).length } } : {}) };
+        return { n: i + 1, kind: r.t, ...(r.t === "offer" ? { act: r.act } : {}), ...("name" in r && r.name ? { outline: r.name } : {}), ...("machine" in r && r.machine ? { machine: r.machine } : {}), ...(s ? { session: { pid: s.pid, attached: s.clients.filter(c => !c.watch).length } } : {}) };
       }),
       picked: this.at + 1,
     };
@@ -246,7 +278,7 @@ export class HomePane implements Pane {
     const info = [
       "|15e p 0 c h |08· |11home base",
       `|07${hostname()} |08· ${n === undefined ? "asking…" : `${n} outline${n === 1 ? "" : "s"}`} · ${this.machines.size} other machine${this.machines.size === 1 ? "" : "s"}`,
-      `|08${this.args.guess ? `opening one offers to write ${this.args.guess.folder}/.ep0ch` : `${this.args.folder} names no outline`}`,
+      this.args.missing ? `|12${this.args.missing.machine} has no outline ${this.args.missing.outline} |08· nothing was created` : `|08${this.args.guess ? `opening one offers to write ${this.args.guess.folder}/.ep0ch` : `${this.args.folder} names no outline`}`,
     ];
     if (!logo) { info.slice(0, 2).forEach((l, i) => canvas.text(1, r.row + i, paint(l), r.cols - 2)); return []; }
     const drawn = drawLogo(canvas, r, ctx, logo, "home-logo", info);
@@ -450,6 +482,17 @@ export const HOME_ACTIONS = actionSet<KindHost>()("home", {
       return { forgot: machine };
     },
   }),
+  "home.cancel": def({
+    summary: "leave the home base, opening nothing (as q does): what the missing outline's cancel runs", keys: "click",
+    touches: "screen", replay: "ask",
+    args: {},
+    run(_, { desk }) {
+      const home = homeOf(desk);
+      if (!home.cancel) throw new ActionRefused("this home base can't be left by an action: q leaves it");
+      home.cancel();
+      return { cancelled: true };
+    },
+  }),
   "home.reload": def({
     summary: "ask every host again: this machine's and each machine's forward as it is", keys: "r",
     touches: "nothing", replay: "safe",
@@ -458,11 +501,12 @@ export const HOME_ACTIONS = actionSet<KindHost>()("home", {
   }),
 });
 
-/** What a home tile was made with (its spec's `state`), checked: the folder, the guess offered, a machine named. */
+/** What a home tile was made with (its spec's `state`), checked: the folder, the guess offered, a machine named, the outline it lacks. */
 function homeArgsOf(x: unknown): HomeArgs {
   const o = (x && typeof x === "object" ? x : {}) as Record<string, any>;
   const guess = o.guess && typeof o.guess.name === "string" && typeof o.guess.folder === "string" ? { name: o.guess.name as string, folder: o.guess.folder as string } : undefined;
-  return { folder: typeof o.folder === "string" ? o.folder : process.cwd(), ...(guess ? { guess } : {}), ...(isMachineName(o.machine) ? { machine: o.machine } : {}) };
+  const missing = o.missing && isOutlineName(o.missing.outline) && isMachineName(o.missing.machine) ? { outline: o.missing.outline as string, machine: o.missing.machine as string } : undefined;
+  return { folder: typeof o.folder === "string" ? o.folder : process.cwd(), ...(guess ? { guess } : {}), ...(isMachineName(o.machine) ? { machine: o.machine } : {}), ...(missing ? { missing } : {}) };
 }
 
 /** The home base as a tile kind: the list, its actions, its band and what `peek` says. */

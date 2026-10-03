@@ -97,12 +97,14 @@ The outliner's outline host serves every outline on the machine by name: `<name>
 The door opens outlines like Herdr sessions (PIE-530):
 
     ep0ch --ws jam-shelf              that outline, from anywhere; created if nobody has it yet ("created outline jam-shelf")
-    ep0ch --machine float-2 --ws pie  that outline on another machine (an ssh config name), through a forward
+    ep0ch --machine float-2 --ws pie  that outline on another machine (an ssh config name), through a forward; one
+                                      that machine doesn't have is never made there: the home base offers the choices
+                                      (--create makes it there on purpose)
     ep0ch --remote float-2            this terminal on the door session running on that machine
     ep0ch                             the outline this folder names: EP0CH_WS, else the nearest .ep0ch from here up
     ep0ch init [<name>]               name this folder's outline: write .ep0ch (ws = "<name>"), creating the outline;
                                       without a name, the folder's (or its git repository's)
-    ep0ch outline list | attach <name> | create <name> | import <database.sqlite> <name>
+    ep0ch outline list | attach <name> [--create] | create <name> | import <database.sqlite> <name>
                 | stop <name> | delete <name> [--yes]     (each with --json)
     ep0ch status                      the host's socket, its outlines folder and the open outlines
 
@@ -128,6 +130,12 @@ Bare `ep0ch` where nothing names an outline opens the home base: a screen like a
 - **Choosing an outline** opens the door on it. Started in a folder that can be named (not `$HOME`, `/` or one
   right under `/`), the home base offers to write its `.ep0ch` (`ws`, and `machine` for one on another machine), so
   the next `ep0ch` there opens it directly, or to open it this time only.
+- **An outline the machine doesn't have** (PIE-545): `--machine box-a --ws fern` (or `--remote box-a --ws fern`, or a
+  `.ep0ch` naming box-a) where box-a has no fern makes nothing there. The home base opens saying so ("box-a has no
+  outline fern · nothing was created there"), with the ways on first: open the one on this machine (when it has one;
+  the cursor starts there, else on cancel), create it on box-a, or cancel. Without a terminal it is an error with
+  the same choices as commands (`ep0ch --ws fern`, `ep0ch --machine box-a --ws fern --create`). On this machine a
+  name nobody has yet is still created, as `herdr --session` does.
 
 | Key | Mouse | `act` |
 |---|---|---|
@@ -139,6 +147,7 @@ Bare `ep0ch` where nothing names an outline opens the home base: a screen like a
 | `a` | a click on `+ add a machine…` | `home.add machine=` |
 | `x` on a machine | | `home.forget machine=` |
 | `r` | | `home.reload` |
+| `⏎` on an offer (an outline the machine lacks) | a click on it | `home.open outline=` (the one here), `home.new name= machine=` (create it there), `home.cancel` |
 | `q`, `esc` | the hint row's `q` | quits: nothing is opened |
 
 What a choice needs typed or picked (a name, a file, a machine, whether to write `.ep0ch`) is a list picker over
@@ -169,7 +178,10 @@ address; the door keeps no list of machines of its own.
   float-2 · caught up 3 changes"). ssh must log in without asking (a key or an agent: `ssh float-2 true`).
   `ep0ch outline list|create|…` and `ep0ch init` go to the machine by the same rule (`--machine`, `EP0CH_MACHINE`,
   the folder's `.ep0ch`; init writes the `machine` line); `ep0ch status` is this machine's host unless `--machine`
-  names another. A session's daemon has no ssh agent of its own: `ep0ch` starts the forward from the terminal before
+  names another. Nothing makes an outline on another machine without being told to: the door, `outline attach` and
+  `init` refuse one the machine doesn't have, with the commands, unless `--create` is given (`outline create` and
+  the home base's `+ new outline on <machine>…` are the other ways); Tree and Detail on a `.ep0ch` naming another
+  machine refuse it too. A session's daemon has no ssh agent of its own: `ep0ch` starts the forward from the terminal before
   it starts or attaches to one, and a forward that drops while nobody's terminal can start it says so on the status
   bar. `ep0ch doctor` shows each machine's forward.
 - **`--remote <ssh-name> [door flags]`**: this terminal attached to the door session running on that machine,

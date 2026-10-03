@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -301,6 +301,34 @@ test("delete moves an outline and its folder aside; nothing is erased", async ()
   expect(existsSync(join(deleted.movedTo, "uncle.sqlite"))).toBe(true);
   expect(existsSync(layoutOf(root).database("uncle"))).toBe(false);
   expect(host.list().outlines).toEqual([]);
+  // Its owner lock and the journal SQLite leaves beside it go too: nothing of uncle's is left in the outlines folder.
+  expect(readdirSync(layoutOf(root).root).filter(f => f.startsWith("uncle"))).toEqual([]);
+});
+
+test("delete removes the outline's owner lock and its journal, and is refused while another process holds the lock", async () => {
+  const root = scratch();
+  const host = await startHost(root);
+  await host.create("aunt");
+  await host.create("cousin");
+  const lock = `${realpathSync(layoutOf(root).database("aunt"))}.owner.sqlite`;
+  expect(existsSync(lock)).toBe(true);
+  writeFileSync(`${lock}-journal`, "");                     // as a crashed opener can leave it
+  await host.delete("aunt");
+  expect(existsSync(lock)).toBe(false);
+  expect(existsSync(`${lock}-journal`)).toBe(false);
+  // Held by another process while it's deleted: refused, and nothing moved.
+  await ok(host.socketPath, { action: "outlines.close", name: "cousin" });
+  const cousinLock = `${realpathSync(layoutOf(root).database("cousin"))}.owner.sqlite`;
+  const holder = Bun.spawn([process.execPath, "-e", `const { Database } = require("bun:sqlite"); const d = new Database(${JSON.stringify(cousinLock)}, { create: true }); d.exec("BEGIN IMMEDIATE"); console.log("held"); setInterval(() => {}, 1000);`], { stdout: "pipe" });
+  try {
+    const reader = holder.stdout.getReader();
+    await reader.read();
+    await expect(host.delete("cousin")).rejects.toThrow("nothing was moved");
+    expect(existsSync(layoutOf(root).database("cousin"))).toBe(true);
+    expect(existsSync(cousinLock)).toBe(true);
+  } finally { holder.kill(); await holder.exited; }
+  await host.delete("cousin");
+  expect(existsSync(cousinLock)).toBe(false);
 });
 
 test("a second host on the same outlines folder is refused, and a connection stays with its first outline", async () => {

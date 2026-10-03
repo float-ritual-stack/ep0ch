@@ -31,7 +31,7 @@ Then:
 | | |
 |---|---|
 | `ep0ch` | the outline this folder names in `.ep0ch`; with none, the home base (open, new, import, here or on a machine) |
-| `ep0ch --ws garden` | an outline by name, from anywhere (a name nobody has yet is created) |
+| `ep0ch --ws garden` | an outline by name, from anywhere (a name nobody has yet is created on this machine; on another, only with `--create`) |
 | `ep0ch --machine box-a` | the door here, the outline on that machine (an ssh config name), over a shared forward |
 | `ep0ch --remote box-a` | this terminal on the door session running there |
 | `ep0ch --showcase` | every shared part of the door, live, on its own seeded outline of made-up notes |

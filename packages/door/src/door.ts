@@ -85,7 +85,8 @@ export async function openDoor(o: DoorOpen): Promise<Door> {
 /**
  * The outline the door opens on (`--ws <name>`, EP0CH_WS, the folder's `.ep0ch`, on this machine's host, a machine's
  * through its forward, or EP0CH_SOCKET's: resolveTarget), connected and answering; or what's wrong, to print. The door
- * opens a session, so it attaches to its outline and creates it when nobody has yet (like herdr --session <name>). A
+ * opens a session, so it attaches to its outline and creates it when nobody has yet (like herdr --session <name>): on
+ * this machine only, unless `--create` (mayCreate, PIE-545). A
  * folder that names none was asked about before this (src/main.ts); here it is an error that says what to run.
  *
  * On a machine, the forward is started when it isn't up, and again whenever the outline connection drops: the status
@@ -110,8 +111,8 @@ export async function connectTarget(args: readonly string[]): Promise<{ board: S
     catch (e) { throw new Error(`${(e as Error).message} · \`ep0ch --machine ${machine}\` in a terminal starts the forward again`); }
   };
   let created = false;
-  try { created = (await attachTarget(target)).created; }
-  catch (e) { board.close(); return { error: `can't open the outline "${target.outline}" on ${target.path}\n  ${(e as Error).message}` }; }
+  try { created = (await attachTarget(target, args)).created; }
+  catch (e) { board.close(); return { error: `can't open the outline "${target.outline}"${machine ? ` on ${machine}` : ""} (${target.path})\n  ${(e as Error).message.replaceAll("\n", "\n  ")}` }; }
   try {
     const service = await board.info();
     const notice = [created ? `created outline ${target.outline}${machine ? ` on ${machine}` : ""}` : "", forwarded ?? ""].filter(Boolean).join(" · ") || undefined;
@@ -158,8 +159,10 @@ export async function homeBase(args: HomeArgs): Promise<HomeChoice | null> {
     door = await openDoor({
       term, mirror: m, info: () => term.info, board, args: [],
       start: async app => {
-        app.home = { choose(c) { choice = c; app.quit(); } };
-        app.push(openScreen("home", { folder: args.folder, ...(args.guess ? { guess: args.guess } : {}), ...(args.machine ? { machine: args.machine } : {}) }));
+        // The door ends just after the action that ended it has answered (an agent's `act` hears what it did).
+        const leave = () => void setTimeout(() => app.quit(), 50);
+        app.home = { choose(c) { choice = c; leave(); }, cancel() { choice = null; leave(); } };
+        app.push(openScreen("home", { folder: args.folder, ...(args.guess ? { guess: args.guess } : {}), ...(args.machine ? { machine: args.machine } : {}), ...(args.missing ? { missing: args.missing } : {}) }));
       },
       done: () => end(),
     });

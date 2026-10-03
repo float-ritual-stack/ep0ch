@@ -28,14 +28,24 @@ function isPrivateDatabase(databasePath: string): boolean {
     (databasePath.startsWith("file:") && /(^file::memory:)|[?&]mode=memory(&|$)/.test(databasePath));
 }
 
+/**
+ * The owner lock of the database at `databasePath`: the path every opener locks (`<canonical path>.owner.sqlite`), and
+ * the files SQLite keeps for it, for an outline's delete to remove once it holds the lock itself (outline-host.ts).
+ */
+export function ownerLockOf(databasePath: string): { path: string; files: string[] } {
+  const canonicalPath = existsSync(databasePath)
+    ? realpathSync(databasePath)
+    : join(realpathSync(dirname(databasePath)), basename(databasePath));
+  const path = `${canonicalPath}.owner.sqlite`;
+  return { path, files: [path, `${path}-journal`, `${path}-wal`, `${path}-shm`] };
+}
+
 export function acquireWorkspaceOwnership(databasePath: string): () => void {
   // A memory database has no file another process could open; a lock file
   // beside it would land in the working directory as `:memory:.owner.sqlite`.
   if (isPrivateDatabase(databasePath)) return () => {};
-  const canonicalPath = existsSync(databasePath)
-    ? realpathSync(databasePath)
-    : join(realpathSync(dirname(databasePath)), basename(databasePath));
   // One SQLite writer reservation owns the workspace; the sidecar stores no data.
-  // Keep its inode: unlinking it would let contenders lock different files.
-  return acquireLockFile(`${canonicalPath}.owner.sqlite`);
+  // Keep its inode while the workspace is in use: unlinking it would let contenders lock different files (only a
+  // delete removes it, holding it, once the database has moved away).
+  return acquireLockFile(ownerLockOf(databasePath).path);
 }

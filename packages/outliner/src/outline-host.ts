@@ -21,7 +21,7 @@ import {
   type OutlinerServiceStatus,
 } from "./types";
 import { probeSocket } from "./socket-probe";
-import { acquireLockFile, acquireWorkspaceOwnership } from "./workspace-ownership";
+import { acquireLockFile, acquireWorkspaceOwnership, ownerLockOf } from "./workspace-ownership";
 
 /*
  * The outline host (PIE-457, PIE-530): one process per user and machine, one socket, any number of outlines, like
@@ -368,14 +368,26 @@ export class OutlineHost {
     this.busy.add(name);
     try {
       await this.closeOutline(name);
-      const movedTo = join(this.layout.deleted, `${name}-${new Date().toISOString().replace(/[:.]/g, "-")}`);
-      mkdirSync(movedTo, { recursive: true });
-      // The lock file stays: a contender may hold it (workspace-ownership.ts).
-      for (const suffix of ["", "-wal", "-shm"]) {
-        if (lstatOrUndefined(`${database}${suffix}`)) renameSync(`${database}${suffix}`, join(movedTo, `${name}.sqlite${suffix}`));
+      // Its owner lock (`<name>.sqlite.owner.sqlite`, workspace-ownership.ts) is held while it moves, so nobody opens it
+      // half moved; then, once nothing else can hold it, removed with its journal: it stores no data, and left behind
+      // it is clutter in the outlines folder. Held by another process (a contender is opening it right now), the
+      // delete is refused and nothing moves.
+      const lock = ownerLockOf(database);
+      let release: () => void;
+      try { release = acquireLockFile(lock.path, `Outline "${name}"`); }
+      catch (error) { throw new Error(`${(error as Error).message}; nothing was moved: stop what holds it, then delete it again`, { cause: error }); }
+      try {
+        const movedTo = join(this.layout.deleted, `${name}-${new Date().toISOString().replace(/[:.]/g, "-")}`);
+        mkdirSync(movedTo, { recursive: true });
+        for (const suffix of ["", "-wal", "-shm"]) {
+          if (lstatOrUndefined(`${database}${suffix}`)) renameSync(`${database}${suffix}`, join(movedTo, `${name}.sqlite${suffix}`));
+        }
+        if (lstatOrUndefined(this.layout.folder(name))) renameSync(this.layout.folder(name), join(movedTo, name));
+        for (const file of lock.files) rmSync(file, { force: true });
+        return { name, movedTo };
+      } finally {
+        release();
       }
-      if (lstatOrUndefined(this.layout.folder(name))) renameSync(this.layout.folder(name), join(movedTo, name));
-      return { name, movedTo };
     } finally {
       this.busy.delete(name);
     }

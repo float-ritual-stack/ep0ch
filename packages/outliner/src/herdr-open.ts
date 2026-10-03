@@ -160,9 +160,14 @@ await reportStartupErrors(async () => {
       : `No outline host answers at ${paths.socket} (outline "${name}" for ${workspaceRoot}). The host runs as a service: systemctl --user start outliner-host (Linux), launchctl kickstart gui/$(id -u)/io.ep0ch.outliner-host (macOS), or bun packages/outliner/src/host-main.ts.`);
   }
   // Only the modes that open panes create a missing outline: Pi's `service-only` check, `focus-existing` and
-  // `find-detail` open nothing, so they only attach.
-  const create = mode !== "service-only" && mode !== "focus-existing" && mode !== "find-detail";
-  const attachment = await attachHostedOutline(host, name, create);
+  // `find-detail` open nothing, so they only attach. And only on this machine (PIE-545): on another machine a name
+  // nobody has there is refused with what to run, never made (a typo, or a name meant for this machine, would make an
+  // empty outline there). Making one there is said on purpose: `ep0ch outline create <name> --machine <m>`.
+  const create = mode !== "service-only" && mode !== "focus-existing" && mode !== "find-detail" && !paths.machine;
+  const attachment = await attachHostedOutline(host, name, create).catch((error: unknown) => {
+    if (!paths.machine || !/^No outline named/.test((error as Error).message)) throw error;
+    throw new Error(`${paths.machine} has no outline ${name}. Nothing was created. Create it there on purpose: ep0ch outline create ${name} --machine ${paths.machine} (or ep0ch --machine ${paths.machine} --ws ${name} --create); open another: ep0ch outline list --all`);
+  });
   const attached = { name, created: attachment.created, source: {
     env: "EP0CH_WS", file: paths.configPath ?? ".ep0ch", pane: "the invoking pane's outline",
   }[paths.outlineSource ?? "env"] };

@@ -38,7 +38,7 @@ class Home {
   code: number | null = null;
   readonly env: Record<string, string>;
   readonly proc: ReturnType<typeof Bun.spawn>;
-  constructor(cwd: string) {
+  constructor(cwd: string, args: string[] = []) {
     this.env = {
       PATH: process.env.PATH!, TERM: "xterm-256color", LANG: "C.UTF-8", HOME: join(dir, "home"),
       EP0CH_OUTLINES: here.outlines, EP0CH_STATE: join(dir, "state"), EP0CH_CONTROL: join(dir, "state", "door.sock"),
@@ -47,7 +47,7 @@ class Home {
       XDG_STATE_HOME: join(dir, "xs"), XDG_CACHE_HOME: join(dir, "xc"),
     };
     const pty = new Bun.Terminal({ cols: 120, rows: 40, data: (_t, d) => { this.out += Buffer.from(d).toString("latin1"); } });
-    this.proc = Bun.spawn(["bun", MAIN, "--no-daemon"], { terminal: pty, env: this.env, cwd });
+    this.proc = Bun.spawn(["bun", MAIN, "--no-daemon", ...args], { terminal: pty, env: this.env, cwd });
     void this.proc.exited.then(c => { this.code = c; });
     this.pty = pty;
   }
@@ -137,6 +137,73 @@ describe.skipIf(!outliner)("the home base", () => {
       expect(existsSync(join(dir, "work/attic/.ep0ch"))).toBe(false);
     } finally { await h.end(); }
   }, 60_000);
+});
+
+describe.skipIf(!outliner)("an outline the machine doesn't have (PIE-545): the home base says so and offers the ways on", () => {
+  const farNames = async () => (await hostRequest<{ outlines: { name: string }[] }>(far.sock, "outlines.list")).outlines.map(o => o.name);
+  const offers = (home: any) => home.choices.filter((c: any) => c.kind === "offer").map((c: any) => [c.act, c.outline ?? null, c.machine ?? null]);
+
+  test("by act: the offers are listed, nothing was made there, and creating it there opens it", async () => {
+    await here.create("plum");
+    const h = new Home(join(dir, "work"), ["--machine", "box-a", "--ws", "plum"]);
+    try {
+      await h.on(p => p.screen === "home base" && p.state?.home?.missing?.localHas === true, "the home base, saying box-a has no plum");
+      const home = await h.home();
+      expect(home.missing).toEqual({ outline: "plum", machine: "box-a", localHas: true });
+      expect(offers(home)).toEqual([["open", "plum", null], ["create", "plum", "box-a"], ["cancel", null, null]]);
+      expect(home.picked).toBe(1);                            // on the one here, never on making one there
+      expect(h.out).toContain("box-a has no outline plum");
+      expect(await farNames()).not.toContain("plum");
+      const made = await h.cli("act", "home.new", "name=plum", "machine=box-a", "--as", "home-test");
+      expect(made.out + made.err).toContain("plum");
+      const door = await h.on(p => p.screen !== "home base" && p.outline === "plum", "the door on plum on box-a");
+      expect(door.outline).toBe("plum");
+      expect(await farNames()).toContain("plum");
+    } finally { await h.end(); }
+  }, 60_000);
+
+  test("by keys: ⏎ on the first offer opens the one on this machine; nothing is made there", async () => {
+    await here.create("quince");
+    const h = new Home(join(dir, "work"), ["--machine", "box-a", "--ws", "quince"]);
+    try {
+      await h.on(p => p.state?.home?.missing?.localHas === true, "the offers, with the one here");
+      h.type("\r");
+      const door = await h.on(p => p.screen !== "home base" && p.outline === "quince", "the door on quince here");
+      expect(door.outline).toBe("quince");
+      expect(await farNames()).not.toContain("quince");
+    } finally { await h.end(); }
+  }, 60_000);
+
+  test("cancel, by a click and by act: nothing is opened or made; with none here either, only create and cancel are offered", async () => {
+    const h = new Home(join(dir, "work"), ["--machine", "box-a", "--ws", "rowan"]);
+    try {
+      await h.on(p => p.state?.home?.missing && p.state.home.here.outlines, "the offers");
+      const home = await h.home();
+      expect(home.missing).toEqual({ outline: "rowan", machine: "box-a", localHas: false });
+      expect(offers(home)).toEqual([["create", "rowan", "box-a"], ["cancel", null, null]]);
+      expect(home.choices[home.picked - 1]).toMatchObject({ kind: "offer", act: "cancel" });
+      const cancelled = await h.cli("act", "home.cancel", "--as", "home-test");
+      expect(cancelled.out + cancelled.err).toContain("cancelled");
+      await until(() => h.code !== null, "the home base to end", 10_000);
+      expect(h.code).toBe(1);
+      expect(await farNames()).not.toContain("rowan");
+      expect((await hostRequest<{ outlines: { name: string }[] }>(here.sock, "outlines.list")).outlines.map(o => o.name)).not.toContain("rowan");
+    } finally { await h.end(); }
+    // The cancel row by mouse: the row's place on screen, clicked.
+    const m = new Home(join(dir, "work"), ["--machine", "box-a", "--ws", "rowan"]);
+    try {
+      await m.on(p => p.state?.home?.missing && p.state.home.here.outlines, "the offers again");
+      const screen = await m.cli("peek");
+      const lines = screen.out.slice(screen.out.indexOf("\n}\n") + 3).split("\n");
+      const row = lines.findIndex(l => l.includes("cancel: open nothing"));
+      expect(row).toBeGreaterThan(0);
+      const col = lines[row]!.indexOf("cancel") + 1;
+      m.type(`\x1b[<0;${col};${row + 1}M\x1b[<0;${col};${row + 1}m`);
+      await until(() => m.code !== null, "the click on cancel to end it", 10_000);
+      expect(m.code).toBe(1);
+      expect(await farNames()).not.toContain("rowan");
+    } finally { await m.end(); }
+  }, 90_000);
 });
 
 test("ssh config names: Host aliases and what Include brings, without patterns", async () => {

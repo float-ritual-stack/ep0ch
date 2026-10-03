@@ -51,8 +51,9 @@ export async function hostLive(path: string, timeoutMs = 1500): Promise<HostStat
 
 /**
  * Where the door connects, and which outline it names there. `attach`: the door opens a session, so it asks the
- * host for the outline with `create` (like `herdr --session <name>`): a name someone wrote down (`--ws`, EP0CH_WS,
- * a `.ep0ch`) is made when nobody has yet, and `created` says so on screen. `unnamed`: nothing names one here; the
+ * host for the outline (like `herdr --session <name>`): a name someone wrote down (`--ws`, EP0CH_WS, a `.ep0ch`) is
+ * made when nobody has yet on this machine, and `created` says so on screen; on another machine only with
+ * `--create` (mayCreate in src/outlines.ts, PIE-545). `unnamed`: nothing names one here; the
  * door opens the home base. `machine`: the host is that machine's, `path` the local end of its forward (started as
  * the door connects). `remote`: the host isn't this machine's (a machine's, or a socket named outright).
  */

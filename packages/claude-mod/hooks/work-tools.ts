@@ -31,6 +31,14 @@ function expected(input: Record<string, unknown>): string[] {
   return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? ['--expected', String(value)] : []
 }
 
+/**
+ * `--name=value`, one word: a value that begins with `--` (a title about `--machine`) is the option's value, never
+ * read as an option of its own ("argument is ambiguous").
+ */
+function opt(name: string, value: string): string {
+  return `--${name}=${value}`
+}
+
 function schema(properties: Json, required: string[]): Json {
   return { type: 'object', properties, required, additionalProperties: false }
 }
@@ -55,12 +63,12 @@ export const WORK_TOOLS: readonly WorkToolDefinition[] = [
       const tracks = Array.isArray(input.tracks) ? input.tracks.filter((track): track is string => typeof track === 'string') : []
       const [title, project, arc, priority] = ['title', 'project', 'arc', 'priority'].map(key => text(input, key))
       if (!title || !project || !arc || !priority || tracks.length === 0) return 'Give a title, project, arc, priority and at least one track.'
-      const args = ['work', 'create', '--title', title, '--project', project, '--arc', arc, '--priority', priority,
-        ...tracks.flatMap(track => ['--track', track])]
+      const args = ['work', 'create', opt('title', title), opt('project', project), opt('arc', arc), opt('priority', priority),
+        ...tracks.map(track => opt('track', track))]
       const stage = text(input, 'stage')
       const batch = text(input, 'batch')
-      if (stage) args.push('--stage', stage)
-      if (batch) args.push('--batch', batch)
+      if (stage) args.push(opt('stage', stage))
+      if (batch) args.push(opt('batch', batch))
       const body = text(input, 'body')
       return body ? { args: [...args, '--stdin'], stdin: body } : { args }
     },
@@ -121,11 +129,11 @@ export const WORK_TOOLS: readonly WorkToolDefinition[] = [
       const [item, repo] = [text(input, 'item'), text(input, 'repo')]
       const pr = input.pr
       if (!item || !repo || typeof pr !== 'number' || !Number.isSafeInteger(pr) || pr < 1) return 'Give the item, repo and PR number.'
-      const args = ['work', 'deliver', item, '--repo', repo, '--pr', String(pr)]
+      const args = ['work', 'deliver', item, opt('repo', repo), opt('pr', String(pr))]
       const [key, base, branch] = [text(input, 'key'), text(input, 'base'), text(input, 'branch')]
-      if (key) args.push('--key', key)
-      if (base) args.push('--base', base)
-      if (branch) args.push('--branch', branch)
+      if (key) args.push(opt('key', key))
+      if (base) args.push(opt('base', base))
+      if (branch) args.push(opt('branch', branch))
       return { args }
     },
   },
