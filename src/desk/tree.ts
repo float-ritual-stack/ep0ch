@@ -21,6 +21,7 @@ import { USER, type Actor, type OutlineEvent } from "../socket";
 import { shortId } from "../refs";
 import { ActionRefused, ActionSet } from "../surface/actions";
 import { C, dim, fg, pad, RESET, selected, width } from "../style";
+import { Fold } from "../fold";
 import { RowView } from "../scroll";
 import { ch, isUp, isDown, type Key } from "../term";
 import { runOwn, type DeskApi, type Pane, type PaneView } from "./panes";
@@ -82,8 +83,7 @@ export function rowWords(r: TreeRow, panelOpen: boolean): { mark: string; text: 
 export class TreePane implements Pane {
   readonly kind = "tree";
   private roots: Msg[] | null = null;
-  private kids = new Map<string, Msg[] | "loading">();
-  private open = new Set<string>();
+  private readonly fold = new Fold();
   /** Authored links shown under a row, by the row's key (an occurrence: the same note twice keeps two). */
   private panels = new Map<string, LinkPanel>();
   /** Notes read for link rows, so a preview following the tree can show the selected one. */
@@ -123,16 +123,7 @@ export class TreePane implements Pane {
   private rebuild() {
     const was = this.rows[this.sel]?.key, wasDepth = this.rows[this.sel]?.depth;
     const out: TreeRow[] = [];
-    const walk = (list: Msg[], depth: number) => {
-      for (const m of list) {
-        const key = `b:${m.id}`;
-        out.push({ kind: "block", key, depth, m });
-        this.panelRows(key, depth + 1, out);
-        const k = this.kids.get(m.id);
-        if (this.open.has(m.id) && Array.isArray(k)) walk(k, depth + 1);
-      }
-    };
-    walk(this.roots ?? [], 0);
+    this.fold.walk(this.roots ?? [], (m, depth) => { const key = `b:${m.id}`; out.push({ kind: "block", key, depth, m }); this.panelRows(key, depth + 1, out); });
     this.rows = out;
     // The selection stays on its row; a row folded away hands it to the nearest row it was under.
     let i = was ? out.findIndex(r => r.key === was) : -1;
@@ -194,13 +185,8 @@ export class TreePane implements Pane {
     }
   }
 
-  private async expand(m: Msg, desk: DeskApi): Promise<void> {
-    this.open.add(m.id);
-    if (!this.kids.has(m.id)) {
-      this.kids.set(m.id, "loading"); desk.redraw();
-      try { this.kids.set(m.id, await desk.ctx.board.children(m.id)); } catch { this.kids.set(m.id, []); }
-    }
-    this.rebuild(); desk.redraw();
+  private expand(m: Msg, desk: DeskApi, on = true): Promise<void> {
+    return this.fold.show(m.id, on, id => desk.ctx.board.children(id), () => { this.rebuild(); desk.redraw(); });
   }
 
   /** The selection moved to row `sel`: the row's note becomes the current one (a link row's is read first). */
@@ -292,15 +278,15 @@ export class TreePane implements Pane {
   foldRow(i: number, open: boolean | undefined, desk: DeskApi, agent = false): { row: number; open: boolean } {
     const r = this.rows[i];
     if (!r) throw new ActionRefused(`no row ${i + 1}; the tree has ${this.rows.length}`);
-    const isOpen = r.kind === "block" ? this.open.has(r.m.id) : r.kind === "group" ? r.open : r.kind === "kind" ? r.expanded : this.panels.has(r.key);
+    const isOpen = r.kind === "block" ? this.fold.open.has(r.m.id) : r.kind === "group" ? r.open : r.kind === "kind" ? r.expanded : this.panels.has(r.key);
     const want = open ?? !isOpen;
     if (want === isOpen) return { row: i + 1, open: isOpen };
     if (agent && !want) {
       const d = r.depth;
       for (let j = i + 1; j < this.rows.length && this.rows[j]!.depth > d; j++) if (j === this.sel) throw new ActionRefused(`the person's selection is under row ${i + 1}; an agent doesn't fold it away`);
     }
-    if (r.kind === "block") { if (want) void this.expand(r.m, desk); else { this.open.delete(r.m.id); this.rebuild(); } }
-    else if (r.kind === "group" || r.kind === "kind") this.fold(r, want);
+    if (r.kind === "block") void this.expand(r.m, desk, want);
+    else if (r.kind === "group" || r.kind === "kind") this.foldGroup(r, want);
     else this.toggleLinks(i, desk, want, agent);
     desk.redraw();
     return { row: i + 1, open: want };
@@ -310,7 +296,7 @@ export class TreePane implements Pane {
   parentRow(i: number): number { const d = this.rows[i]?.depth ?? 0; return this.rows.findLastIndex((r, j) => j < i && r.depth < d); }
 
   /** Open or fold a group row (Outlinks, Resources, Backlinks, or a backlink kind). */
-  private fold(r: TreeRow, open?: boolean) {
+  private foldGroup(r: TreeRow, open?: boolean) {
     const p = this.panels.get(r.kind === "group" || r.kind === "kind" ? r.owner : "");
     if (!p) return;
     if (r.kind === "group") { if (open ?? !r.open) p.shut.delete(r.group); else p.shut.add(r.group); }
@@ -336,7 +322,7 @@ export class TreePane implements Pane {
     const agent = actor.kind === "agent";
     if (r.kind === "group" || r.kind === "kind") {
       if (agent && (r.kind === "group" ? r.open : r.expanded)) this.refuseAgentFold(r.key, i);
-      this.fold(r); desk.redraw();
+      this.foldGroup(r); desk.redraw();
       const p = this.panels.get(r.owner);
       return { row: i + 1, open: r.kind === "group" ? !p?.shut.has(r.group) : !!p?.kinds.has(r.group.kind) };
     }
@@ -416,9 +402,9 @@ export class TreePane implements Pane {
       const on = this.view.top + i === this.sel;
       const indent = "  ".repeat(r.depth);
       if (r.kind === "block") {
-        const k = this.kids.get(r.m.id);
+        const k = this.fold.kids.get(r.m.id);
         const leaf = Array.isArray(k) && k.length === 0 && !this.panels.has(r.key);
-        const mark = k === "loading" ? "…" : leaf ? "·" : this.open.has(r.m.id) || this.panels.has(r.key) ? "▾" : "▸";
+        const mark = k === "loading" ? "…" : leaf ? "·" : this.fold.open.has(r.m.id) || this.panels.has(r.key) ? "▾" : "▸";
         const tag = (r.m.props["work-id"] ?? r.m.props.status ?? r.m.props.type ?? "").slice(0, 14);
         const room = Math.max(4, w - (tag ? tag.length + 1 : 0));
         if (on) return selected(focused) + pad(`${indent}${mark} ${subject(r.m)}`, room) + (tag ? " " + tag : "") + RESET;
@@ -454,7 +440,7 @@ export class TreePane implements Pane {
     if (ch(k) === "L") { this.run(desk, "tree.links", { n: this.sel + 1 }); return true; }
     const right = k.kind === "right" || ch(k) === "l", left = k.kind === "left" || ch(k) === "h", space = ch(k) === " ";
     const linkRow = row.kind !== "block" && row.kind !== "group" && row.kind !== "kind";
-    const open = row.kind === "block" ? this.open.has(row.m.id) : row.kind === "group" ? row.open : row.kind === "kind" ? row.expanded : this.panels.has(row.key);
+    const open = row.kind === "block" ? this.fold.open.has(row.m.id) : row.kind === "group" ? row.open : row.kind === "kind" ? row.expanded : this.panels.has(row.key);
     // A note's children, a group of links, a link's own links (one hop, as the Tree's ▸): → l open, ← h fold, space either way.
     const foldable = !linkRow || !!rowBlock(row);
     if (foldable && (space || (right && !open) || (left && open))) {

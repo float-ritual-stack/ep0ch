@@ -12,7 +12,7 @@ import { subject } from "../board";
 import { backlinkView, DEFAULT_BACKLINK_VIEW_OPTIONS, describeBacklinkView } from "../backlinks";
 import { Canvas, type Rect } from "../canvas";
 import type { Placement } from "../kitty";
-import { USER, type Actor, type OutlineEvent } from "../socket";
+import type { Actor, OutlineEvent } from "../socket";
 import { C, fg, pad, paint, RESET, selected } from "../style";
 import { wrap } from "../text";
 import { ch, isUp, isDown, type Key } from "../term";
@@ -42,7 +42,6 @@ import { ScreenTile } from "../desk/screen-tile";
 import { servingSession } from "../session/session-term";
 import { loadShowcase, SEED, type SeedName } from "./seed";
 import { PROPERTY_GRAMMAR_VERSION } from "../vendor/property-grammar";
-import { SEARCH_MATCH_VERSION } from "../vendor/search-match";
 import { RowView } from "../scroll";
 
 type Notes = Partial<Record<SeedName, Msg>>;
@@ -117,15 +116,6 @@ export const SECTIONS: Section[] = [
     },
   },
   {
-    key: "search", need: "find a note by text: a search, (( and [[ completion, a list filter", part: "the one search: tree.search (searchBlocks) from the note you're in, Jev after a pause; the vendored matcher for lists the door holds", files: "src/socket.ts, src/surface/completer.ts, src/desk/desk.ts, src/vendor/search-match.ts",
-    aside: "a typo, a dash or the words in another order still find the note (pi-herdr-outliner src/search-match.ts has the rungs) · (( and [[ in any draft ask the same search from the draft's note · the backlinks drawer and a river column's / filter with the vendored copy",
-    stage(n, show) {
-      const r = new ReaderPane();
-      // The desk's / overlay, opened as the person opens it, on a typo, from the shed note.
-      return deskOf({ title: "showcase · search", panes: [r], layout: ([a]) => leaf(a!) }, show, [[r, n.shed]], d => { if (n.shed) d.setCurrent(n.shed); void d.searchNotes("bike shde", undefined, USER); });
-    },
-  },
-  {
     key: "drafts", need: "write a draft somewhere: a note's text, a comment or reply, a new card", part: "the draft session (DraftSession): open with what was put aside, the hold, key and leave, submit, stale refusal, recordAs and the agent rule, behind three target adapters (blockTarget, commentTarget, cardTarget)", files: "src/draft-session.ts, src/comment.ts, src/desk/delivery.ts",
     aside: "the left reader is in an edit (a block's draft, held on the service), the right one writing a comment: click away from either and it's saved or kept as unsent the same way; the board's composer (n, N) is the third adapter",
     stage(n, show) {
@@ -139,7 +129,7 @@ export const SECTIONS: Section[] = [
   },
   {
     key: "panes", need: "open, split, zoom, close tiles; drawers; lock a shape", part: "the layout tree: tiles in containers (splits, tab sets, drawers, columns) with a policy each, floats and spines, one engine for the desk and the screens built on it, the board a preset (^W then o x z s HJKL < > + -, p a drawer, c a spine, f a float, P the policy; alt+k locks; the board's x o T B { } < >); tile.* layout.* actions (pane.* their older names); tile kinds from one registry", files: "src/desk/layout.ts, src/desk/drop.ts, src/desk/tile-kinds.ts, src/desk/builtin-tiles.ts, src/desk/pane-actions.ts, src/desk/panes.ts, src/desk/desk.ts",
-    aside: "the board (section 6) and the river are screen specs on this engine (PIE-511, PIE-515): the river's columns are a flow",
+    aside: "the board (section 5) and the river are screen specs on this engine (PIE-511, PIE-515): the river's columns are a flow",
     stage(n, show) {
       const tree = new TreePane(), r = new ReaderPane(true), th = new ThreadPane(), act = new ActivityPane();
       // The thread and the activity panes are one tab set (PIE-413): drag a header onto another to make one.
@@ -202,7 +192,7 @@ export const SECTIONS: Section[] = [
   },
   {
     key: "entity", need: "show children, outlinks, backlinks, resources", part: "entity navigation: u, [ ] and ⏎ on links in the surface; children in the thread tile; a row's links in the tree (L)", files: "src/surface/note.ts, src/desk/tree.ts, src/authored.ts, references.backlinks in src/socket.ts, src/backlinks.ts",
-    aside: "the tree's L (tree.links): a row's outlinks, resources and backlinks as the outliner's Tree shows them (blocks.authored-links); ⏎ on a resource shows what the service stores for it · backlinks: the board's drawer (section 6, b) and the backlinks tile (^W o l; the welcome's), one drawing, grouped and filtered as Detail does (src/backlinks.ts, src/desk/backlinks-pane.ts, PIE-442)",
+    aside: "the tree's L (tree.links): a row's outlinks, resources and backlinks as the outliner's Tree shows them (blocks.authored-links); ⏎ on a resource shows what the service stores for it · backlinks: the board's drawer (section 5, b) and the backlinks tile (^W o l; the welcome's), one drawing, grouped and filtered as Detail does (src/backlinks.ts, src/desk/backlinks-pane.ts, PIE-442)",
     stage(n, show) {
       const tree = new TreePane(), r = new ReaderPane(true), th = new ThreadPane();
       return deskOf({ title: "showcase · entity", panes: [tree, r, th], layout: ([a, b, c]) => pair("row", 0.34, leaf(a!), row(0.6, b!, c!)) }, show, [], d => { if (n.shed) { d.setCurrent(n.shed); void tree.showLinksOf(n.shed, d); } });
@@ -478,7 +468,7 @@ export class Showcase implements Screen {
 /** The showcase's own actions: which section is shown. Keys and clicks on the index call the same code. */
 export const SHOWCASE_ACTIONS = new ActionSet<{ "section": { name: string }; "section.try": { name?: string } }, Showcase>("showcase", {
   "section.try": {
-    summary: "go into a section's stage (name=<1-20> or its key, else the one shown): the person's keys and mouse go to the part itself until its own esc brings them back to the index. The person's only: an agent acts in the stage with its actions (`act` reaches the shown section's)",
+    summary: "go into a section's stage (name=<1-19> or its key, else the one shown): the person's keys and mouse go to the part itself until its own esc brings them back to the index. The person's only: an agent acts in the stage with its actions (`act` reaches the shown section's)",
     keys: "⏎ → l tab, click in the stage",
     touches: "screen", replay: "safe", person: "going into a section gives it the person's keys; an agent runs the shown section's own actions instead",
     args: { name: { type: "string", optional: true, about: "the section's number or key; the one shown when left out" } },
@@ -489,7 +479,7 @@ export const SHOWCASE_ACTIONS = new ActionSet<{ "section": { name: string }; "se
     },
   },
   "section": {
-    summary: "show a section (name=<1-20> or its key: note, actions, edit, search, drafts, panes, screens, kinds, terminal, preview, screen, spine, entity, presence, live, projection, extensions, selection, service, session); refused to an agent while the person is in one", keys: "↑↓ j k, 1-9 0, click, wheel",
+    summary: "show a section (name=<1-19> or its key: note, actions, edit, drafts, panes, screens, kinds, terminal, preview, screen, spine, entity, presence, live, projection, extensions, selection, service, session); refused to an agent while the person is in one", keys: "↑↓ j k, 1-9 0, click, wheel",
     touches: "screen", replay: "safe", says: r => `showed section ${r.section} (${r.key})`,
     args: { name: { type: "string", about: "the section's number or key" } },
     run({ name }, s) {
@@ -606,8 +596,6 @@ export class ServicePane implements Pane {
       return !lane || !p ? "no lanes" : p.kind === "refused" ? `refused: ${p.reason}` : `${subject(lane)}: born with ${p.born.map(x => `${x.key}=${x.value}`).join(" ") || "nothing"}${p.needs.length ? ` · needs ${p.needs.join(" and ")}` : ""}`;
     });
     say("property grammar (vendored)", `version ${PROPERTY_GRAMMAR_VERSION} · src/vendor/property-grammar.ts, the outliner's own file`);
-    if (n.shed) await tryIt(`tree.search ("shde", a typo, from ${SEED.shed})`, async () => { const r = await b.searchBlocks("shde", { near: n.shed!.id }); return `${r.matches.length} hit(s): ${r.matches.slice(0, 3).map(m => m.title).join(", ") || "none"}`; });
-    say("search matcher (vendored)", `version ${SEARCH_MATCH_VERSION} · src/vendor/search-match.ts, the outliner's own file: the backlinks and column filters`);
     if (n.notebook) await tryIt("properties.preview (notebook text)", async () => { const r = await b.previewPropertyList(n.notebook!.text); return r.map(p => `${p.key}::${p.value}`).join(" "); });
     if (n.shed) await tryIt(`references.backlinks (${SEED.shed})`, async () => { const c = await b.backlinks(n.shed!.id); return `${describeBacklinkView(backlinkView(c, DEFAULT_BACKLINK_VIEW_OPTIONS), DEFAULT_BACKLINK_VIEW_OPTIONS, new Set()).status}: ${c.sources.map(x => x.title).join(", ") || "none"}`; });
     await tryIt("changes.since (last 5)", async () => { const r = await b.changesSince(Math.max(0, (b.lastSequence ?? 0) - 5), 5); return r.kind === "reset" ? `reset: ${r.reason}` : `${r.changes.length} change(s), next #${r.nextSequence}`; });

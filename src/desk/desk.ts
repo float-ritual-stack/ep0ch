@@ -19,7 +19,6 @@ import type { ScreenKeys } from "../whereabouts";
 import { leaveSaid, NOTE_ACTIONS, type OpenHow, type SurfaceHost } from "../surface/note";
 import { keepEditFile } from "../surface/editor";
 import { LineInput } from "../surface/line";
-import { jevOff, notConfigured, SEARCH_JEV_PAUSE_MS } from "../surface/completer";
 import { Modes } from "../surface/modes";
 import { ListPicker, pickRow } from "../surface/picker";
 import { readState, writeState } from "../state";
@@ -2098,8 +2097,6 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost, 
 
   /** Run an action by name as the person (the layout picker's ⏎, the policy panel's rows). */
   run(name: string, args: Record<string, unknown>, reader?: string) { this.cmd(name, args, reader); }
-  /** Put the overlay on top away (the search, the layout picker, the policy panel). */
-  closeOverlay() { const o = this.overlays.top(); if (o) this.overlays.drop(o); }
 
   /** The policy panel's containers over tile `tile`: the screen, then each one down to it. */
   policyNodes(tile: number): { label: string; node: Container | null }[] {
@@ -2505,7 +2502,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost, 
       return { overlay: true, query: q };
     }
     if (q.length < 2) throw new ActionRefused("search needs query=<at least 2 characters>");
-    const hits = await this.ctx.board.search(q, Math.max(1, Math.min(100, limit ?? 30)), { near: this.current?.id });
+    const hits = await this.ctx.board.search(q, Math.max(1, Math.min(100, limit ?? 30)));
     return { query: q, hits: hits.map((m, i) => ({ n: i + 1, id: m.id, title: subject(m), ...(m.props["work-id"] ? { workId: m.props["work-id"] } : {}) })) };
   }
 
@@ -3206,21 +3203,20 @@ function layoutPicker(items: { name: string; saved: boolean; builtin: boolean }[
   return new ListPicker({
     name: "layouts", items: () => items,
     row: (it, _i, on, w) => [pickRow(` ${it.name}${it.saved ? (it.builtin ? " · saved over the built-in" : " · saved") : " · built-in"}`, on, w)],
-    choose: (it, _i, d) => { d.closeOverlay(); d.run("layout.load", { name: it.name }); },
-    close: d => d.closeOverlay(),
+    choose: (it, _i, d) => d.run("layout.load", { name: it.name }),
     frame: (a, n) => ({ rect: centred(a, Math.min(60, a.cols - 4), Math.min(a.rows - 4, n + 2)), title: "load a layout", foot: "↑↓ pick · ⏎ load · esc" }),
   });
 }
 
 /** ^W w: the name to save the layout as (the layout's own, typed over). */
 function layoutSaver(name: string): DeskPicker {
-  const input = new LineInput(name, 40, true);
-  return new ListPicker({
+  const input = new LineInput(name, true);
+  const p: DeskPicker = new ListPicker({
     name: "layouts", items: () => [], row: () => [], input, choose() {},
-    close: d => d.closeOverlay(),
-    keys: (k, d) => { if (k.kind !== "enter") return false; d.closeOverlay(); if (input.text.trim()) d.run("layout.save", { name: input.text.trim() }); return true; },
+    keys: (k, d) => { if (k.kind !== "enter") return false; p.close(d); if (input.text.trim()) d.run("layout.save", { name: input.text.trim() }); return true; },
     frame: a => { const w = Math.min(60, a.cols - 4); return { rect: centred(a, w, 3), title: "save the layout as", foot: "⏎ save · esc", head: [" " + input.show(w - 4)] }; },
   });
+  return p;
 }
 
 /**
@@ -3233,10 +3229,9 @@ function policyPanel(d: Desk, tile: number): DeskPicker {
   const nodes = () => { const ns = d.policyNodes(tile); node = Math.min(node, ns.length - 1); return ns; };
   const rows = () => d.policyRows(tile, nodes()[node]!.node);
   const p: DeskPicker = new ListPicker<ReturnType<Desk["policyRows"]>[number], Desk>({
-    name: "policy", items: rows, closers: "q",
+    name: "policy", items: rows, closers: "q", stays: true,
     row: (r, _i, on, w) => [pickRow(` ${r.label}`, on, Math.max(20, Math.min(52, w - 26))) + fg(C.lcyan) + ` ${r.value}` + RESET],
     choose: r => r.run?.(),
-    close: () => d.closeOverlay(),
     keys: k => {
       const c = ch(k);
       if (k.kind === "left" || c === "h" || k.kind === "right" || c === "l") { node = Math.max(0, Math.min(nodes().length - 1, node + (k.kind === "left" || c === "h" ? -1 : 1))); p.sel = 0; return true; }
@@ -3260,53 +3255,30 @@ function policyPanel(d: Desk, tile: number): DeskPicker {
   return p;
 }
 
-/**
- * `/`: the service's search (the one search, `tree.search`) as it's typed, from the desk's current note (nearer
- * notes first), the hits on the left, the one picked read on the right; ⏎ opens it. A pause asks Jev to re-order
- * the same hits, used only if the query and the pick haven't moved, and the picked hit stays picked.
- */
+/** `/`: the service's search as it's typed, the hits on the left, the one picked read on the right; ⏎ opens it. */
 function searchOverlay(d: Desk, q: string): DeskPicker {
-  let hits: Msg[] = [], busy = false, timer: Timer | null = null, seq = 0, jev: "asking" | "ranked" | undefined;
+  let hits: Msg[] = [], busy = false, timer: Timer | null = null, seq = 0;
   const input = new LineInput(q);
-  const near = () => d.current?.id;
-  const stop = () => { if (timer) clearTimeout(timer); timer = null; seq++; };
-  const askJev = (n: number, t: string) => {
-    if (t.length < 3 || hits.length < 2 || jevOff.has(d.ctx.board)) return;
-    timer = setTimeout(() => {
-      if (n !== seq) return;
-      const sel = p.sel, id = hits[sel]?.id;
-      jev = "asking"; d.redraw();
-      d.ctx.board.search(t, 30, { semantic: true, near: near() }).then(h => {
-        if (h.semantic && notConfigured(h.semantic)) jevOff.add(d.ctx.board);
-        if (n !== seq) return;
-        const at = h.findIndex(m => m.id === id);
-        if (p.sel !== sel || hits[sel]?.id !== id || at < 0) { jev = undefined; d.redraw(); return; }
-        hits = h; p.sel = at; jev = h.semantic?.status === "ranked" ? "ranked" : undefined; d.redraw();
-      }, () => { if (n === seq) { jev = undefined; d.redraw(); } });
-    }, SEARCH_JEV_PAUSE_MS);
-  };
   const run = () => {
     if (timer) clearTimeout(timer);
-    const n = ++seq, t = input.text.trim();
-    jev = undefined;
+    const t = input.text.trim();
     if (t.length < 2) { hits = []; return; }
     timer = setTimeout(() => {
+      const n = ++seq;
       busy = true; d.redraw();
-      d.ctx.board.search(t, 30, { near: near() }).then(h => { if (n === seq) { hits = h; p.sel = 0; busy = false; d.redraw(); askJev(n, t); } }, () => { busy = false; });
+      d.ctx.board.search(t, 30).then(h => { if (n === seq) { hits = h; p.sel = 0; busy = false; d.redraw(); } }, () => { busy = false; });
     }, 250);
   };
   const p: ListPicker<Msg, Desk> = new ListPicker<Msg, Desk>({
     name: "search", items: () => hits, input, typed: run,
     row: (m, _i, on, w) => [pickRow(` ${m.props["work-id"] && !subject(m).startsWith(m.props["work-id"]) ? m.props["work-id"] + " " : ""}${subject(m)}`, on, w)],
-    // Closing stops a pending ask: no Jev call for a search that's gone.
-    choose: m => { stop(); d.closeOverlay(); d.run("open", { id: m.id }); },
-    close: () => { stop(); d.closeOverlay(); },
+    choose: m => d.run("open", { id: m.id }),
     frame: a => {
       const rect: Rect = { col: Math.floor(a.cols * 0.1), row: Math.floor(a.rows * 0.12), cols: Math.floor(a.cols * 0.8), rows: Math.floor(a.rows * 0.72) };
       const w = rect.cols - 2, listW = Math.floor(w * 0.42), m = hits[p.sel];
       return {
         rect, title: "search the board", foot: "↑↓ pick · ⏎ open · esc close",
-        head: [paint("|14/ ") + input.show(w - 20) + paint(` ${busy ? "|08searching…" : `|08${hits.length} hit(s)${jev === "ranked" ? " · jev ranked" : jev === "asking" ? " · jev…" : ""}`}`), fg(C.blue) + "─".repeat(w) + RESET],
+        head: [paint("|14/ ") + input.show(w - 20) + paint(` ${busy ? "|08searching…" : `|08${hits.length} hit(s)`}`), fg(C.blue) + "─".repeat(w) + RESET],
         side: { w: listW, lines: m ? [fg(C.white) + subject(m) + RESET, ...previewLines(m, w - listW - 3)] : [] },
       };
     },

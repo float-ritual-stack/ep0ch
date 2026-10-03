@@ -268,8 +268,6 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     // The list scrolls: the note set's header and the registry are on screen; the desk set is further down.
     actions: ["NOTE_ACTIONS · src/surface/note.ts", "the action registry · src/surface/actions.ts"],
     edit: ["Kitchen whiteboard", "properties · 6"],
-    // The desk's search overlay on a typo ("shde"), from the shed note: the shed is found.
-    search: ["search the board", "bike shde", "Bike shed"],
     // The draft session: an edit open on the left, a comment being written on the right.
     drafts: ["editing · Kitchen whiteboard", "comment · Allotment notebook"],
     panes: ["outline", "thread", "│ 4 activity", "Kitchen sink"],
@@ -313,8 +311,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
   });
 
   test("the index works by mouse: a click picks a section; a click in the part gives it the keys, esc gives them back", async () => {
-    press({ kind: "mouse", action: "down", button: 0, x: 3, y: 2 + 11 * 2 }); press({ kind: "mouse", action: "up", button: 0, x: 3, y: 2 + 11 * 2 });
-    expect(S().sel).toBe(11);                                      // the spine section
+    press({ kind: "mouse", action: "down", button: 0, x: 3, y: 2 + 10 * 2 }); press({ kind: "mouse", action: "up", button: 0, x: 3, y: 2 + 10 * 2 });
+    expect(S().sel).toBe(10);                                      // the spine section
     const r = S().stageRect;
     press({ kind: "mouse", action: "down", button: 0, x: r.col + 5, y: r.row + 5 }); press({ kind: "mouse", action: "up", button: 0, x: r.col + 5, y: r.row + 5 });
     expect(S().focus).toBe("stage");
@@ -352,9 +350,9 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect(S().focus).toBe("index");
     (app as any).lastInput = 0;
     const r = await app.act({ action: "section", args: { name: "selection" }, as: "test-agent" }) as any;
-    expect(r).toEqual({ section: 18, key: "selection" });
+    expect(r).toEqual({ section: 17, key: "selection" });
     expect(S().focus).toBe("index");
-    expect((app as any).message).toContain("an agent (test-agent) showed section 18");
+    expect((app as any).message).toContain("an agent (test-agent) showed section 17");
     const listed = (app.actions() as any).actions.map((a: any) => a.name);
     expect(listed).toContain("section");
     expect(listed).toContain("select");

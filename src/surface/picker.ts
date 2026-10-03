@@ -1,7 +1,8 @@
 // A list to pick from, as a mode (src/surface/modes.ts): the desk's layout picker, policy panel and search, the
 // board's hub picker, mover and steps, a reader's status choice. It holds every key while open: ↑ ↓ (j k when
 // nothing is typed), Tab, Home End, PgUp PgDn and the wheel move the cursor (a RowView); ⏎ or a click on a row
-// chooses; esc, a closing letter or a click outside puts it away. A line typed above the list is a LineInput.
+// chooses, and puts it away unless it `stays`; esc, a closing letter or a click outside puts it away. Put away, it has
+// `ended` (its mode stack lets it go). A line typed above the list is a LineInput.
 import type { Canvas, Rect } from "../canvas";
 import { RowView } from "../scroll";
 import { bg, C, fg, pad, RESET, selected } from "../style";
@@ -18,7 +19,10 @@ export interface PickerSpec<T, H> {
   /** An item's rows, `w` cells wide; `on`: the cursor is on it (`pickRow` lights it). */
   row(it: T, i: number, on: boolean, w: number): string[];
   choose(it: T, i: number, host: H): void;
-  close(host: H): void;
+  /** It stays open after a choice (the policy panel, the steps). */
+  stays?: boolean;
+  /** Put away by esc, a closing letter or a click outside: what else that does. */
+  closed?(host: H): void;
   /** Keys and clicks of its own before the list's (the steps' x w !, the policy's h l + - and containers). */
   keys?(k: Key, host: H): boolean;
   clicked?(x: number, y: number, host: H): boolean;
@@ -41,7 +45,12 @@ export class ListPicker<T, H> implements Mode<H> {
   /** Rows an item takes (as last drawn), and the list's width when something is drawn beside it. */
   private per = 1;
   private listW = Infinity;
+  private done = false;
   constructor(readonly spec: PickerSpec<T, H>) {}
+
+  ended() { return this.done; }
+  /** Put it away, as esc does. */
+  close(host: H) { this.spec.closed?.(host); this.done = true; }
 
   get name() { return this.spec.name; }
   get items(): readonly T[] { return this.spec.items(); }
@@ -55,6 +64,7 @@ export class ListPicker<T, H> implements Mode<H> {
     const it = this.items[i];
     if (it === undefined) return;
     this.sel = i;
+    if (!this.spec.stays) this.done = true;
     this.spec.choose(it, i, host);
   }
 
@@ -65,7 +75,7 @@ export class ListPicker<T, H> implements Mode<H> {
       return true;
     }
     const c = ch(k), input = this.spec.input;
-    if (k.kind === "esc" || (!input && c && this.spec.closers?.includes(c))) { this.spec.close(host); return true; }
+    if (k.kind === "esc" || (!input && c && this.spec.closers?.includes(c))) { this.close(host); return true; }
     if (this.spec.keys?.(k, host)) return true;
     const was = input?.text;
     if (input?.key(k)) { if (input.text !== was) this.spec.typed?.(host); return true; }
@@ -83,7 +93,7 @@ export class ListPicker<T, H> implements Mode<H> {
     const r = this.box, hit = r && x > r.col && x < Math.min(r.col + r.cols - 1, r.col + 1 + this.listW) ? this.hits.find(h => h.y === y) : undefined;
     if (!r) return;                                          // never drawn (the reader's status choice): not its click
     if (hit) this.pick(hit.i, host);
-    else if (!this.spec.clicked?.(x, y, host) && (!r || x < r.col || x >= r.col + r.cols || y < r.row || y >= r.row + r.rows)) this.spec.close(host);
+    else if (!this.spec.clicked?.(x, y, host) && (!r || x < r.col || x >= r.col + r.cols || y < r.row || y >= r.row + r.rows)) this.close(host);
   }
 
   /** The list's rows in `h` rows of `w` cells, the cursor's item in view; `at` is the screen row the first is drawn on. */

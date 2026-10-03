@@ -4,14 +4,13 @@
 // the counts add up.
 //
 // A mirror of pi-herdr-outliner `src/backlink-view.ts` (`backlinkView`, `backlinkGroupRows`, the sort,
-// stage and kind cycles), `isOpenBacklinkStage` (`src/backlink-facets.ts`), the group-expanded rule in
-// `src/detail-controller.ts`, and the row and status text in `src/detail-pi-preview.ts`, line for line, so the
-// board's drawer shows what Detail shows. Its text filter is the one search's matcher (src/vendor/search-match.ts).
+// stage and kind cycles), `isOpenBacklinkStage` (`src/backlink-facets.ts`), `subsequenceScore`
+// (`src/block-focus.ts`), the group-expanded rule in `src/detail-controller.ts`, and the row and status
+// text in `src/detail-pi-preview.ts`, line for line, so the board's drawer shows what Detail shows.
 // test/backlinks.test.ts checks it against the service's own functions. The door never derives a facet:
 // against a service without them the view is one flat list, as Detail's is.
 
 import { ellipsize, width } from "./style";
-import { matchesSearchText } from "./vendor/search-match";
 
 export const BACKLINK_STAGE_BUCKETS = ["waiting", "draft", "active", "done"] as const;
 /** Normalized lifecycle bucket; waiting, draft and active are open. */
@@ -127,15 +126,37 @@ export function isOpenBacklinkStage(bucket: BacklinkStageBucket | undefined): bo
   return bucket === "waiting" || bucket === "draft" || bucket === "active";
 }
 
+/** The Goto search's fuzzy match (pi-herdr-outliner `subsequenceScore`); ≥ 900 counts as a match here. */
+export function subsequenceScore(query: string, candidate: string): number {
+  if (!query || query.length > candidate.length) return 0;
+  let queryIndex = 0;
+  let previousMatch = -1;
+  let gaps = 0;
+  for (let index = 0; index < candidate.length && queryIndex < query.length; index += 1) {
+    if (candidate[index] !== query[queryIndex]) continue;
+    if (previousMatch >= 0) gaps += index - previousMatch - 1;
+    previousMatch = index;
+    queryIndex += 1;
+  }
+  if (queryIndex !== query.length || gaps > query.length * 2) return 0;
+  return Math.max(1, 1_000 - gaps - Math.max(0, candidate.length - query.length));
+}
+
+function normalizeFilter(value: string): string {
+  return value.normalize("NFKC").toLowerCase().replace(/\s+/g, " ").trim();
+}
+
 function matchesText(source: BacklinkSource, query: string): boolean {
-  return matchesSearchText(query, [
+  if (!query) return true;
+  const fields = [
     source.title,
     source.parentContext,
     source.facets?.kindLabel ?? "",
     source.facets?.stage?.value ?? "",
     ...source.referenceGroups.map(group => group.kind === "property" ? group.propertyKey : group.kind),
     ...source.occurrences.map(occurrence => occurrence.snippet),
-  ]);
+  ].map(normalizeFilter);
+  return fields.some(field => field.includes(query) || subsequenceScore(query, field) >= 900);
 }
 
 function matchesStage(source: BacklinkSource, stage: BacklinkStageFilter): boolean {
@@ -166,7 +187,7 @@ function compareSources(options: BacklinkViewOptions, faceted: boolean) {
 export function backlinkView(collection: BacklinkCollection | null, options: Readonly<BacklinkViewOptions>): BacklinkView {
   const all = collection?.sources ?? [];
   const faceted = all.length > 0 && all.every(source => source.facets !== undefined);
-  const query = options.filter;
+  const query = normalizeFilter(options.filter);
   let hiddenRelated = 0;
   let hiddenResolved = 0;
   const shown: BacklinkSource[] = [];
