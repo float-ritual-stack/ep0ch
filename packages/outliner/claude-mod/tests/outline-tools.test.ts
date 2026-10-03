@@ -59,11 +59,11 @@ function sessionIn(on: On, answer: (run: Run) => ProcessRunResult | undefined, e
     const given = answer(e)
     if (given) return { value: given }
     if (e.argv[0] === 'herdr') return { value: result(0, HERDR_LISTING) }
-    // The garden folder is bound to an outline (its client.json); every other folder is unbound.
+    // The garden folder's .ep0ch names an outline; every other folder is unbound.
     if (e.argv.includes('bound-folder')) {
       const folder = e.argv.at(-1)!
       return { value: result(0, folder === WORKSPACE || folder.startsWith(`${WORKSPACE}/`)
-        ? `{"bound":true,"source":"client","folder":"${WORKSPACE}","mode":"host","outline":"garden"}\n`
+        ? `{"bound":true,"folder":"${WORKSPACE}","outline":"garden"}\n`
         : `{"bound":false,"folder":"${folder}"}\n`) }
     }
     if (e.argv.includes('work-id-status')) return { value: result(0, '{"prefix":"PIE","observedPrefixes":["PIE"]}') }
@@ -118,7 +118,7 @@ describe('outline tools', () => {
       expect(run.argv).toEqual([...CLI, 'agent', call.operation, '--stdin', '--actor', 'claude-code', '--session', 'session-1'])
       expect(JSON.parse(run.init!.stdin!)).toEqual(call.json)
       expect(run.init?.cwd).toBe(WORKSPACE)
-      expect(run.init?.env).toEqual({ OUTLINER_WORKSPACE_ROOT: WORKSPACE, OUTLINER_OUTLINE: 'garden', OUTLINER_CONFIG_PATH: '' })
+      expect(run.init?.env).toEqual({ OUTLINER_WORKSPACE_ROOT: WORKSPACE, EP0CH_WS: 'garden' })
     }
   })
 

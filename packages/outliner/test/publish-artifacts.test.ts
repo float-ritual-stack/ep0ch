@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { OutlinerClient } from "../src/client";
-import { resolvePaths } from "../src/paths";
+import { scratchOutline } from "./scratch-outline";
 import { Publisher } from "../src/publish";
 import { ArtifactCompiler, artifactPackageFor, inlineScript, MERMAID_MODULE, TAILWIND_PLAY_CDN } from "../src/publish-artifacts";
 import { OutlinerServer } from "../src/server";
@@ -29,7 +29,7 @@ async function setup(options: { artifactCacheDirectory?: string | null } = {}) {
   cleanups.push(() => rmSync(root, { recursive: true, force: true }));
   const workspace = join(root, "garden");
   mkdirSync(workspace);
-  const paths = resolvePaths({ OUTLINER_STATE_DIR: join(root, "state"), OUTLINER_WORKSPACE_ROOT: workspace });
+  const paths = scratchOutline(root, { folder: workspace });
   const store = new OutlinerStore(paths.database, { workspaceRoot: workspace });
   const server = new OutlinerServer(store, paths.socket);
   await server.start();

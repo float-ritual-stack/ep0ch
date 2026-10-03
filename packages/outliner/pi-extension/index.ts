@@ -3,7 +3,7 @@ import { readSavedView, type SavedViewReadResult } from "../src/saved-view-read"
 import { clientSupportsRole } from "../src/types";
 import { checkServiceCompatibility } from "../src/service-compatibility";
 import {CHECKLIST_MARKS} from "../src/checklist-items";
-import { execFile, spawn, type ChildProcess } from "node:child_process";
+import { execFile } from "node:child_process";
 import { hostname } from "node:os";
 import { dirname, join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
@@ -45,7 +45,7 @@ import {
   type PullRequestSnapshot,
 } from "./delivery-lifecycle";
 import { inspectWorkEnvironment, type ExtensionExec } from "./work-environment";
-import { resolveClientPaths, resolveStateRoot } from "../src/paths"
+import { resolveClientPaths } from "../src/paths"
 import { waitForOutlineHost } from "../src/outline-host-client"
 import { completeWorkItem, propertyTransition, typedArtifactText } from "../src/work-tools";
 import { currentPaneIdentity } from "../src/pane-control";
@@ -114,7 +114,6 @@ const execFileAsync = promisify(execFile);
 const extensionRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 let paths = resolveClientPaths();
 let client = createOutlinerClient(paths);
-let headlessServer: ChildProcess | null = null;
 
 export type OutlinerHostActorId = "omp" | "pi";
 
@@ -992,27 +991,12 @@ async function ensureService(focus: boolean): Promise<void> {
     if (!focus || process.env.HERDR_ENV !== "1") return;
   }
 
-  if (!service && paths.mode === "remote") {
-    throw new Error(
-      `Remote Outliner service is unavailable at ${paths.socket}; start the SSH tunnel and retry`,
-    );
+  if (paths.unnamed) {
+    throw new Error(`${paths.unnamed}. Name one: \`ep0ch init\` here, or EP0CH_WS=<name>; in Herdr, open the Outliner to choose one.`);
   }
-  // The outline host is a service of its own; Pi never starts one (nor a hash
-  // service in its place). A host that is restarting is waited for, as a remote
-  // tunnel is. Herdr's open still attaches the outline.
-  if (!service && paths.mode === "host" && process.env.HERDR_ENV !== "1") {
-    if (paths.unnamed) throw new Error(paths.unnamed);
-    const host = await waitForOutlineHost(resolveStateRoot());
-    const answered = host ? await client.request<OutlinerServiceStatus>({ action: "ping" }).catch(() => null) : null;
-    if (answered) {
-      assertCompatibleProtocol(answered);
-      return;
-    }
-    throw new Error(
-      `The outline "${paths.outline}" is not available on the outline host at ${paths.socket}; start the host, or open the outline from Herdr to create it`,
-    );
-  }
-
+  // The outline host is a service of its own (systemd or launchd); Pi never starts one. A host that is
+  // restarting is waited for, as a remote tunnel is. Herdr's open attaches the outline, creating it when its
+  // .ep0ch names one that doesn't exist yet.
   if (process.env.HERDR_ENV === "1") {
     const { stdout } = await execFileAsync("bun", [
       "run",
@@ -1027,18 +1011,21 @@ async function ensureService(focus: boolean): Promise<void> {
         OUTLINER_WORKSPACE_ROOT: paths.workspaceRoot,
       },
     });
-    // Opening never creates an outline: Herdr now shows the chooser instead of a service.
     let opened: { outline?: unknown } = {};
     try { opened = JSON.parse(stdout.trim().split("\n").at(-1) ?? "{}"); } catch { /* Older launchers print other output. */ }
     if (opened.outline === "missing") {
-      throw new Error(`No outline for ${paths.workspaceRoot} yet. Choose one in the Choose outline popup (or New outline here), then retry.`);
+      throw new Error(`No outline for ${paths.workspaceRoot} yet. Choose one in the Choose outline popup, then retry.`);
     }
-  } else if (!headlessServer) {
-    headlessServer = spawn("bun", ["run", join(extensionRoot, "src", "server-main.ts")], {
-      cwd: extensionRoot,
-      stdio: "ignore",
-      env: { ...process.env, OUTLINER_WORKSPACE_ROOT: paths.workspaceRoot },
-    });
+  } else if (!service) {
+    const host = await waitForOutlineHost();
+    const answered = host ? await client.request<OutlinerServiceStatus>({ action: "ping" }).catch(() => null) : null;
+    if (answered) {
+      assertCompatibleProtocol(answered);
+      return;
+    }
+    throw new Error(paths.mode === "remote"
+      ? `The outline host at ${paths.socket} (EP0CH_SOCKET) is unavailable or has no outline "${paths.outline}"; start the SSH tunnel and retry`
+      : `The outline "${paths.outline}" is not available on the outline host at ${paths.socket}; start the host (systemctl --user start outliner-host), or create it with \`ep0ch init ${paths.outline}\``);
   }
   await waitForService();
 }
@@ -3458,10 +3445,7 @@ export function createOutlinerExtension(actorId: OutlinerHostActorId) {
     await focusRunner?.stop();
     focusRunner = null;
     focusRegistry = null;
-    if (headlessServer) {
-      headlessServer.kill("SIGTERM");
-      headlessServer = null;
-    }
+
   });
   };
 }

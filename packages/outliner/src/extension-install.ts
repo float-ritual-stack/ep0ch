@@ -222,7 +222,7 @@ const USAGE = `usage: outliner ext ls
 
 interface ExtClient { request<T>(input: Record<string, unknown>): Promise<T> }
 
-/** The running service for this folder or `OUTLINER_OUTLINE`, or null when none answers. */
+/** The running service for this folder's outline or EP0CH_WS's, or null when none answers. */
 async function serviceClient(): Promise<ExtClient | null> {
   try {
     const { resolveClientPaths } = await import("./paths");
@@ -285,7 +285,7 @@ export async function runExtCommand(args: readonly string[], connect: () => Prom
       const [extension, action, ...extra] = positionals;
       if (!extension || !action || extra.length) throw new Error(USAGE);
       const client = await connect();
-      if (!client) throw new Error("No outline service answers here (start it, or name one with OUTLINER_OUTLINE)");
+      if (!client) throw new Error("No outline service answers here (start the outline host, or name an outline with EP0CH_WS or a .ep0ch)");
       const argsMap = Object.fromEntries((values.arg ?? []).map((pair) => {
         const at = pair.indexOf("=");
         if (at < 1) throw new Error(`--arg takes key=value, not ${pair}`);

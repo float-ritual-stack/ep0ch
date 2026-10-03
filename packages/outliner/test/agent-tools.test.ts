@@ -8,7 +8,7 @@ import { droppedStructure } from "../src/draft-patch";
 import { changesSince, READ_CHILDREN_MAX_CHARS, referenceTarget, shortDiff } from "../src/agent-tools";
 import { requireCapabilities } from "../src/service-compatibility";
 import type { OutlinerServiceStatus } from "../src/types";
-import { resolvePaths } from "../src/paths";
+import { scratchOutline } from "./scratch-outline";
 import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
 
@@ -26,8 +26,7 @@ function isolatedEnv(extra: Record<string, string>): Record<string, string> {
 
 async function setup() {
   const root = mkdtempSync(join(tmpdir(), "outliner-agent-tools-"));
-  const env = { OUTLINER_STATE_DIR: join(root, "state"), OUTLINER_WORKSPACE_ROOT: root };
-  const paths = resolvePaths(env);
+  const { env, ...paths } = scratchOutline(root);
   const store = new OutlinerStore(paths.database, { workspaceRoot: root });
   const server = new OutlinerServer(store, paths.socket);
   await server.start();

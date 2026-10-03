@@ -29,7 +29,7 @@ export function workspacesOf(value: unknown, home?: string): string[] {
     const entry = home && (typed === '~' || typed.startsWith('~/')) ? home.replace(/\/+$/, '') + typed.slice(1) : typed
     if (entry === '') return []
     if (!entry.startsWith('/') || entry.includes('=')) {
-      throw Error(`Outliner workspaces entry "${entry}" is not an absolute folder; list folders only, and bind a folder to an outline in its client.json (the choose-outline action)`)
+      throw Error(`Outliner workspaces entry "${entry}" is not an absolute folder; list folders only, and name a folder's outline in its .ep0ch (ep0ch init)`)
     }
     return [entry.replace(/(?<=.)\/+$/, '')]
   })
@@ -48,10 +48,9 @@ export function effectiveWorkspaces(option: unknown, environment: string | undef
 /**
  * How a session's folder finds its outline:
  *
- * - `folder`: the nearest folder bound to an outline, the way every Outliner
- *   client resolves it (`bound-folder`: a `client.json`, or an outline root the
- *   host serves). The folder list opts folders out. An unbound folder feeds
- *   nothing; it never falls back to a default outline.
+ * - `folder`: the nearest folder whose `.ep0ch` names an outline, the way every
+ *   client resolves it (`bound-folder`). The folder list opts folders out. An
+ *   unbound folder feeds nothing; it never falls back to a guess.
  * - `allowlist`: only the listed folders, as before folder mode (the strict mode).
  */
 export type MentionsMode = 'folder' | 'allowlist'
@@ -71,22 +70,21 @@ export function mentionsModeOf(option: unknown, environment: string | undefined,
 
 /**
  * The folder a session's Outliner CLI runs start from. A bound folder (folder
- * mode) is `pinned` to the outline `bound-folder` found, `outline` when it
- * names a host outline: its CLI runs go there whatever Claude's environment
- * says. A strict-mode folder is the CLI's to resolve, as before folder mode.
+ * mode: its nearest `.ep0ch`) is `pinned` to the outline `bound-folder` found:
+ * its CLI runs go there whatever Claude's environment says. A strict-mode
+ * folder is the CLI's to resolve, as before folder mode.
  */
 export type Workspace = { root: string; outline?: string; pinned?: true }
 
 /**
  * The environment an Outliner CLI run gets for a workspace: its folder and,
- * when pinned, the outline that bound it, blanking an inherited
- * OUTLINER_OUTLINE or OUTLINER_CONFIG_PATH so the write lands where the folder
- * was found bound (`resolveClientPaths` reads an empty one as unset).
+ * when pinned, the outline its `.ep0ch` names, over an inherited EP0CH_WS, so
+ * the write lands where the folder was found bound.
  */
 export function workspaceEnvOf(workspace: Workspace): Record<string, string> {
   return {
     OUTLINER_WORKSPACE_ROOT: workspace.root,
-    ...(workspace.pinned ? { OUTLINER_OUTLINE: workspace.outline ?? '', OUTLINER_CONFIG_PATH: '' } : {}),
+    ...(workspace.pinned && workspace.outline ? { EP0CH_WS: workspace.outline } : {}),
   }
 }
 
@@ -98,16 +96,12 @@ export function boundWorkspaceOf(stdout: string, cwd: string): Workspace | null 
   let answer: unknown
   try { answer = JSON.parse(stdout) } catch { return null }
   if (!answer || typeof answer !== 'object') return null
-  const { bound, source, folder, outline } = answer as Record<string, unknown>
+  const { bound, folder, outline } = answer as Record<string, unknown>
   if (bound !== true || typeof folder !== 'string') return null
   const root = absolutePath(folder)
   if (root === null || workspaceForCwd(cwd, [root]) !== root) return null
-  const named = typeof outline === 'string' && outline !== '' ? outline : undefined
-  if (source === 'host-root') return named ? { root, outline: named, pinned: true } : null
-  // A client.json naming a host outline is pinned to it; a local or remote choice is the folder's config to resolve.
-  if (source !== 'client') return null
-  const { mode } = answer as Record<string, unknown>
-  return mode === 'host' ? (named ? { root, outline: named, pinned: true } : null) : { root, pinned: true }
+  // A `.ep0ch` always names its outline; an answer without one is not a binding.
+  return typeof outline === 'string' && outline !== '' ? { root, outline, pinned: true } : null
 }
 
 /**

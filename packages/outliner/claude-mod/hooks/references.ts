@@ -144,7 +144,7 @@ export function isProtectedDestination(reason: string): boolean {
 export function detailSplitArgv(split: {
   paneId: string
   workspace: string
-  /** The outline, when the folder's own client.json doesn't name it (a root only the host records). */
+  /** The outline the folder's `.ep0ch` names. */
   outline?: string
   sessionId: string
   blockId: string
@@ -161,7 +161,7 @@ export function detailSplitArgv(split: {
     '--no-focus',
     '--cwd', split.workspace,
     '--env', `OUTLINER_WORKSPACE_ROOT=${split.workspace}`,
-    ...(split.outline ? ['--env', `OUTLINER_OUTLINE=${split.outline}`] : []),
+    ...(split.outline ? ['--env', `EP0CH_WS=${split.outline}`] : []),
     '--env', `OUTLINER_BROWSING_CONTEXT_ID=${split.sessionId}`,
     '--env', `OUTLINER_DETAIL_TARGET=${encodeURIComponent(JSON.stringify(target))}`,
   ]

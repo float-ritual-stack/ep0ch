@@ -20,10 +20,10 @@ const REMOTE_REQUEST_TIMEOUT_MS = 30_000;
 
 export interface OutlinerClientEndpoint {
   socket: string;
-  mode: "local" | "remote" | "host";
-  /** The outline every request names; the socket must be an outline host. */
+  mode: "remote" | "host";
+  /** The outline every request names. */
   outline?: string;
-  /** Host mode without an outline (`resolveFolderOutline` rule 4): why none is named. */
+  /** Why no outline is named (no EP0CH_WS, no `.ep0ch`): a client for this endpoint refuses every request. */
   unnamed?: string;
 }
 
@@ -32,19 +32,13 @@ export function createOutlinerClient(endpoint: OutlinerClientEndpoint): Outliner
     endpoint.socket,
     endpoint.mode === "remote" ? REMOTE_REQUEST_TIMEOUT_MS : LOCAL_REQUEST_TIMEOUT_MS,
     endpoint.outline,
-    // On the host, a client without a name would reach the default outline: refuse instead.
-    endpoint.mode === "host" && !endpoint.outline ? endpoint.unnamed ?? "No outline is named for this folder" : undefined,
+    // A client without a name would reach the host's default outline, or none: refuse instead.
+    !endpoint.outline ? endpoint.unnamed ?? "No outline is named for this folder" : undefined,
   );
 }
 
-/**
- * A service that does not advertise `request.outline` ignores the field, so a
- * client that names an outline refuses it rather than read the wrong outline.
- */
+/** A client that names an outline refuses an answer for another one rather than read the wrong outline. */
 export function requireOutlineRouting(service: OutlinerServiceStatus, socketPath: string, outline: string): void {
-  if (!service.capabilities?.includes("request.outline")) {
-    throw new Error(`The Outliner service at ${socketPath} serves one outline and cannot route to the outline "${outline}" (no request.outline capability). Start the outline host, or unset OUTLINER_OUTLINE / the folder's outline binding.`);
-  }
   if (service.outline?.name !== undefined && service.outline.name !== outline) {
     throw new Error(`The outline host at ${socketPath} answered for "${service.outline.name}", not "${outline}"`);
   }

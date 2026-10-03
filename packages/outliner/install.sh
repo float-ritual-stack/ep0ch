@@ -2,7 +2,7 @@
 set -eu
 
 PLUGIN_ID="float.pi-outliner"
-PLUGIN_SOURCE="${PI_OUTLINER_PLUGIN_SOURCE:-float-ritual-stack/pi-herdr-outliner}"
+PLUGIN_SOURCE="${PI_OUTLINER_PLUGIN_SOURCE:-float-ritual-stack/ep0ch/packages/outliner}"
 INSTALLER_SCHEMA="1"
 MIN_BUN_VERSION="1.3.0"
 MIN_HERDR_VERSION="0.9.0"

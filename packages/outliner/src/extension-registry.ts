@@ -377,8 +377,8 @@ export class ExtensionRegistry {
       host: hostname(),
       env: {
         OUTLINER_EXTENSION: extension.id,
-        ...(outline ? { OUTLINER_OUTLINE: outline } : {}),
-        ...(socket ? { OUTLINER_SOCKET_PATH: socket } : {}),
+        ...(outline ? { EP0CH_WS: outline } : {}),
+        ...(socket ? { EP0CH_SOCKET: socket } : {}),
       },
       actions: (tile.actions ?? []).flatMap((id) => actions.filter((action) => action.id === id)),
       policy: tile.policy ?? {},

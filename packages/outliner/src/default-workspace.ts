@@ -181,7 +181,7 @@ const FEATURE_TOUR_SECTIONS = [
   {
     key: "prompts", title: "Tune the AI instructions",
     lines: [
-      "The service seeds editable `prompts/inbox-editor.md`, `prompts/inbox-relationships.json`, `prompts/goto-ranking.json`, `prompts/note-assistance.json` and `prompts/note-answer.md` beneath this workspace's state directory. `OUTLINER_PROMPT_DIR` can select a different complete directory.",
+      "The service seeds editable `prompts/inbox-editor.md`, `prompts/inbox-relationships.json`, `prompts/goto-ranking.json`, `prompts/note-assistance.json` and `prompts/note-answer.md` in the outline's own folder (`~/outlines/<name>/`). `OUTLINER_PROMPT_DIR` can select a different complete directory.",
       "",
       "Create ordinary file Resource references to those runtime files, open in Detail, press e, and save with Ctrl+S. Use the service host's paths, including when the client is remote. Packaged defaults in a source checkout are not the live workspace configuration.",
       "",
@@ -243,7 +243,7 @@ const FEATURE_TOUR_SECTIONS = [
   {
     key: "outlines-publishing", title: "Outlines by name, publishing and other clients",
     lines: [
-      "One outline host per machine serves every outline by name. `bun run cli outlines` lists them; `OUTLINER_OUTLINE=<name>` or `--outline <name>` picks one. A folder binds to an outline through its `client.json`. Opening from Herdr in an unbound folder shows Choose outline and never creates an outline by itself.",
+      "One outline host per machine serves every outline in `~/outlines` by name (`<name>.sqlite`). `ep0ch outline list` lists them. Which one a client opens: `--ws <name>`, else `EP0CH_WS`, else the nearest `.ep0ch` file (`ws = \"<name>\"`) from its folder up. A folder that names none gets init, pick or import (Choose outline in Herdr); nothing is created by a guess.",
       "",
       "Give a block `[publish::true]` or `[publish::<slug>]` and `outliner publish serve` shows it read-only at `/p/<page or slug>`, along with an attached HTML page, claude.ai artifact, SVG, Mermaid or Markdown file. `[publish::false]` opts one block out; `[publish::never]` keeps it and everything under it off every page, embed and link. `[publish::public]` or `[publish::public:<slug>]` also opens a note to anyone with the link, the way a shared doc does: `--public-port` serves only those notes, with no index, and an embed of a note that isn't public shows nothing of it.",
       "",

@@ -4,7 +4,7 @@ import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import { outlinerLinkUri } from "../src/outliner-links";
 import { OutlinerClient } from "../src/client";
-import { resolvePaths } from "../src/paths";
+import { scratchOutline } from "./scratch-outline";
 import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
 
@@ -13,12 +13,7 @@ const repositoryRoot = join(import.meta.dir, "..");
 test("Herdr link action delegates an exact block URI to shared focus and reveal", async () => {
   const directory = mkdtempSync(join(tmpdir(), "pi-outliner-link-action-"));
   const workspaceRoot = join(directory, "workspace");
-  const stateRoot = join(directory, "state");
-  const paths = resolvePaths({
-    ...process.env,
-    OUTLINER_WORKSPACE_ROOT: workspaceRoot,
-    OUTLINER_STATE_DIR: stateRoot,
-  });
+  const paths = scratchOutline(directory, { folder: workspaceRoot });
   const store = new OutlinerStore(paths.database);
   const target = store.create("Clickable target [type::decision]");
   const initialSelectionId = store.getSelection().selected?.id;
@@ -83,9 +78,8 @@ test("Herdr link action delegates an exact block URI to shared focus and reveal"
             focused_pane_cwd: workspaceRoot,
             focused_pane_id: "pane-a",
           }),
-          OUTLINER_STATE_DIR: stateRoot,
-          OUTLINER_REMOTE: "0",
-          OUTLINER_SOCKET_PATH: "",
+          ...paths.env,
+          EP0CH_SOCKET: "",
         },
         stdout: "pipe",
         stderr: "pipe",

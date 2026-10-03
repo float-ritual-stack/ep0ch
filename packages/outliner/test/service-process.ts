@@ -1,14 +1,16 @@
+import { mkdirSync } from "node:fs";
 import { join } from "node:path";
+import { OutlinerStore } from "../src/store";
+import { outlineLayout } from "../../outline-core/src/outline-location";
 
 /**
- * A real service process for tests, in a scratch state root. `env` replaces the
- * defaults; nothing inherits the caller's Outliner settings, so a test never
- * reaches a real outline. `startup()` resolves with the ready line, or null if
- * the service exits first.
+ * A real outline host process for tests, over a scratch outlines folder. `env` replaces the defaults; nothing
+ * inherits the caller's settings, so a test never reaches a real outline. `startup()` resolves with the ready
+ * line, or null if the host exits first.
  */
 export function launchService(env: Record<string, string | undefined>) {
-  const child = Bun.spawn([process.execPath, join(import.meta.dir, "../src/server-main.ts")], {
-    env: { PATH: process.env.PATH, OUTLINER_REMOTE: "0", OUTLINER_INBOX_AGENT: "0", ...env },
+  const child = Bun.spawn([process.execPath, join(import.meta.dir, "../src/host-main.ts")], {
+    env: { PATH: process.env.PATH, OUTLINER_INBOX_AGENT: "0", ...env },
     stdout: "pipe", stderr: "pipe", stdin: "ignore",
     timeout: 15_000, killSignal: "SIGKILL",
   });
@@ -32,11 +34,18 @@ export function launchService(env: Record<string, string | undefined>) {
   return { child, stderr, startup };
 }
 
-/** The environment of a service for `project` under a scratch directory. */
-export function scratchServiceEnv(root: string, project = "project"): Record<string, string> {
-  return {
-    OUTLINER_WORKSPACE_ROOT: join(root, project),
-    OUTLINER_STATE_DIR: join(root, "state"),
-    XDG_CONFIG_HOME: join(root, "config"),
-  };
+/**
+ * The environment of a host over `<root>/outlines` whose default outline is `name`, made first (the host never
+ * creates its default), and where its socket and database are.
+ */
+export function scratchServiceEnv(root: string, name = "scratch"): Record<string, string> {
+  const layout = outlineLayout(join(root, "outlines"));
+  mkdirSync(layout.root, { recursive: true });
+  new OutlinerStore(layout.database(name), { workspaceRoot: layout.folder(name) }).close();
+  return { EP0CH_OUTLINES: layout.root, EP0CH_DEFAULT_WS: name, XDG_CONFIG_HOME: join(root, "config") };
+}
+
+export function scratchServicePaths(root: string, name = "scratch") {
+  const layout = outlineLayout(join(root, "outlines"));
+  return { socket: layout.socket, database: layout.database(name), folder: layout.folder(name) };
 }

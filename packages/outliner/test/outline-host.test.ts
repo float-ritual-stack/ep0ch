@@ -1,14 +1,13 @@
 import { afterEach, expect, test } from "bun:test";
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { OutlinerClient } from "../src/client";
 import { OutlineHost } from "../src/outline-host";
-import { hostedOutlinePaths } from "../src/paths";
+import { outlineLayout } from "../../outline-core/src/outline-location";
 import { OutlinerStore } from "../src/store";
 import type { Block, HostedOutlineList, HostedOutlineSummary, OutlinerEvent, OutlinerResponse, OutlinerServiceStatus } from "../src/types";
-import { launchService, scratchServiceEnv } from "./service-process";
 
 const cleanups: (() => Promise<void> | void)[] = [];
 afterEach(async () => {
@@ -22,8 +21,11 @@ function scratch(): string {
   return root;
 }
 
-async function startHost(stateRoot: string, defaultOutline?: string): Promise<OutlineHost> {
-  const host = new OutlineHost({ stateRoot, defaultOutline, log: () => {} });
+/** The outlines folder under a scratch root. */
+const layoutOf = (root: string) => outlineLayout(join(root, "outlines"));
+
+async function startHost(root: string, defaultOutline?: string): Promise<OutlineHost> {
+  const host = new OutlineHost({ outlinesFolder: layoutOf(root).root, defaultOutline, log: () => {} });
   await host.start();
   cleanups.push(() => host.close());
   return host;
@@ -90,8 +92,8 @@ async function eventually(check: () => boolean, what: string): Promise<void> {
 }
 
 test("one socket serves two outlines, routed by the request's outline", async () => {
-  const stateRoot = scratch();
-  const host = await startHost(stateRoot, "bob");
+  const root = scratch();
+  const host = await startHost(root, "bob");
   await host.create("bob");
   await host.create("fred");
 
@@ -111,17 +113,19 @@ test("one socket serves two outlines, routed by the request's outline", async ()
 
   const fredPing = await ok<OutlinerServiceStatus>(host.socketPath, { action: "ping", outline: "fred" });
   expect(fredPing.outline?.name).toBe("fred");
-  expect(fredPing.capabilities).toEqual(expect.arrayContaining(["blocks.read", "request.outline", "ping.host"]));
   expect(fredPing.host).toEqual({ socket: host.socketPath, defaultOutline: "bob", outlines: ["bob", "fred"] });
-  expect(fredPing.location?.database).toBe(realpathSync(hostedOutlinePaths(stateRoot, "fred").database));
-  expect(fredPing.location?.stateDirectory).toBe(hostedOutlinePaths(stateRoot, "fred").sideFolder);
-  // Side files live in the outline's own folder.
-  expect(existsSync(join(hostedOutlinePaths(stateRoot, "fred").sideFolder, "prompts"))).toBe(true);
+  // The outline is `<outlines>/fred.sqlite`, its own folder `<outlines>/fred/` beside it; the host's socket is private.
+  expect(fredPing.location?.database).toBe(layoutOf(root).database("fred"));
+  expect(fredPing.location?.stateDirectory).toBe(layoutOf(root).folder("fred"));
+  expect(fredPing.location?.workspaceRoot).toBe(layoutOf(root).folder("fred"));
+  expect(existsSync(join(layoutOf(root).folder("fred"), "prompts"))).toBe(true);
+  expect(host.socketPath).toBe(join(root, "outlines", ".host", "host.sock"));
+  expect(statSync(layoutOf(root).hostDir).mode & 0o777).toBe(0o700);
 });
 
 test("an unnamed outline, an unknown outline and a bad name are refused without creating anything", async () => {
-  const stateRoot = scratch();
-  const host = await startHost(stateRoot, "bob");
+  const root = scratch();
+  const host = await startHost(root, "bob");
   const missingDefault = await send(host.socketPath, { action: "get", blockId: "x" });
   expect(missingDefault.ok).toBe(false);
   expect(!missingDefault.ok && missingDefault.error).toContain('No outline named "bob"');
@@ -129,17 +133,15 @@ test("an unnamed outline, an unknown outline and a bad name are refused without 
   expect(!unknown.ok && unknown.error).toContain('No outline named "uncle"');
   const invalid = await send(host.socketPath, { action: "get", outline: "Not A Slug", blockId: "x" });
   expect(!invalid.ok && invalid.error).toContain("outline must be an outline name");
-  expect(existsSync(hostedOutlinePaths(stateRoot, "bob").database)).toBe(false);
-  expect(existsSync(hostedOutlinePaths(stateRoot, "uncle").database)).toBe(false);
+  expect(existsSync(layoutOf(root).database("bob"))).toBe(false);
+  expect(existsSync(layoutOf(root).database("uncle"))).toBe(false);
   expect(host.list()).toEqual({ defaultOutline: "bob", outlines: [] });
 
   const noDefault = await startHost(scratch());
   const pong = await ok<OutlinerServiceStatus>(noDefault.socketPath, { action: "ping" });
-  expect(pong.capabilities).toEqual(expect.arrayContaining(["outlines.create", "outlines.list", "ping.host"]));
-  expect(pong.capabilities).not.toContain("blocks.read");
   expect(pong.host).toEqual({ socket: noDefault.socketPath, outlines: [] });
   const unnamed = await send(noDefault.socketPath, { action: "get", blockId: "x" });
-  expect(!unnamed.ok && unnamed.error).toContain("no default outline");
+  expect(!unnamed.ok && unnamed.error).toContain("Name the outline");
 });
 
 test("a subscription on one outline does not see another outline's changes", async () => {
@@ -164,7 +166,7 @@ test("an unmodified OutlinerClient talks to the host's default outline", async (
   const host = await startHost(scratch(), "bandit");
   await host.create("bandit");
   const client = new OutlinerClient(host.socketPath);
-  const status = await client.requireCompatibleService(["blocks.read", "ping.outline"]);
+  const status = await client.request<OutlinerServiceStatus>({ action: "ping" });
   expect(status.outline?.name).toBe("bandit");
   expect(status.host?.defaultOutline).toBe("bandit");
   const note = await client.request<Block>({ action: "create", text: "Bandit's fictional bone" });
@@ -183,32 +185,33 @@ test("an unmodified OutlinerClient talks to the host's default outline", async (
   await eventually(() => events.some(event => event.domain === "content"), "a content event on the default outline");
 });
 
-test("create makes a new empty outline and refuses a taken name", async () => {
-  const stateRoot = scratch();
-  const host = await startHost(stateRoot);
+test("create makes a new empty outline, keeps a folder already there, and refuses a taken name", async () => {
+  const root = scratch();
+  const host = await startHost(root);
   const created = await ok<HostedOutlineSummary>(host.socketPath, { action: "outlines.create", name: "uncle" });
-  expect(created).toEqual({ name: "uncle", database: hostedOutlinePaths(stateRoot, "uncle").database, adopted: false, open: true, default: false, root: hostedOutlinePaths(stateRoot, "uncle").sideFolder });
+  expect(created).toEqual({ name: "uncle", database: layoutOf(root).database("uncle"), folder: layoutOf(root).folder("uncle"), open: true });
+  expect(lstatSync(layoutOf(root).database("uncle")).isFile()).toBe(true);
 
   const again = await send(host.socketPath, { action: "outlines.create", name: "uncle" });
   expect(!again.ok && again.error).toContain('An outline named "uncle" already exists');
   const badName = await send(host.socketPath, { action: "outlines.create", name: "../uncle" });
   expect(!badName.ok && badName.error).toContain("short slug");
-  // A leftover side folder is not reused.
-  mkdirSync(hostedOutlinePaths(stateRoot, "fred").sideFolder, { recursive: true });
-  const leftover = await send(host.socketPath, { action: "outlines.create", name: "fred" });
-  expect(!leftover.ok && leftover.error).toContain("refusing to reuse");
-  expect(existsSync(hostedOutlinePaths(stateRoot, "fred").database)).toBe(false);
+  // Files kept in `<outlines>/fred/` before it had an outline stay, and become its folder.
+  mkdirSync(join(layoutOf(root).folder("fred"), "pub"), { recursive: true });
+  writeFileSync(join(layoutOf(root).folder("fred"), "pub", "fictional-page.html"), "<p>Fred's fictional page</p>\n");
+  await ok(host.socketPath, { action: "outlines.create", name: "fred" });
+  expect(readFileSync(join(layoutOf(root).folder("fred"), "pub", "fictional-page.html"), "utf8")).toContain("fictional page");
 });
 
 test("outlines.list shows each outline, open or not, and creates nothing", async () => {
-  const stateRoot = scratch();
-  const first = new OutlineHost({ stateRoot, log: () => {} });
+  const root = scratch();
+  const first = new OutlineHost({ outlinesFolder: layoutOf(root).root, log: () => {} });
   await first.start();
   await first.create("bob");
   await first.create("fred");
   await first.close();
 
-  const host = await startHost(stateRoot, "fred");
+  const host = await startHost(root, "fred");
   // The default opens with the host, before any request; bob opens on its first.
   expect(host.list().outlines.map(outline => [outline.name, outline.open])).toEqual([["bob", false], ["fred", true]]);
   await ok(host.socketPath, { action: "ping", outline: "bob" });
@@ -216,26 +219,26 @@ test("outlines.list shows each outline, open or not, and creates nothing", async
   expect(listed).toEqual({
     defaultOutline: "fred",
     outlines: [
-      { name: "bob", database: hostedOutlinePaths(stateRoot, "bob").database, adopted: false, open: true, default: false, root: hostedOutlinePaths(stateRoot, "bob").sideFolder },
-      { name: "fred", database: hostedOutlinePaths(stateRoot, "fred").database, adopted: false, open: true, default: true, root: hostedOutlinePaths(stateRoot, "fred").sideFolder },
+      { name: "bob", database: layoutOf(root).database("bob"), folder: layoutOf(root).folder("bob"), open: true },
+      { name: "fred", database: layoutOf(root).database("fred"), folder: layoutOf(root).folder("fred"), open: true, default: true },
     ],
   });
   expect(host.list()).toEqual(listed);
 });
 
 test("one outline failing to open does not affect the others", async () => {
-  const stateRoot = scratch();
-  const host = await startHost(stateRoot, "bob");
+  const root = scratch();
+  const host = await startHost(root, "bob");
   await host.create("bob");
   await host.create("bandit");
   // uncle's database is not a database at all.
-  writeFileSync(hostedOutlinePaths(stateRoot, "uncle").database, "these are fictional crumbs, not SQLite\n".repeat(200));
+  writeFileSync(layoutOf(root).database("uncle"), "these are fictional crumbs, not SQLite\n".repeat(200));
   const corrupt = await send(host.socketPath, { action: "ping", outline: "uncle" });
   expect(!corrupt.ok && corrupt.error).toContain('Outline "uncle" could not be opened');
 
   // fred's database is held by another owner.
-  const held = hostedOutlinePaths(stateRoot, "fred").database;
-  const owner = new OutlinerStore(held, { workspaceRoot: stateRoot });
+  const held = layoutOf(root).database("fred");
+  const owner = new OutlinerStore(held, { workspaceRoot: root });
   cleanups.push(() => owner.close());
   const locked = await send(host.socketPath, { action: "ping", outline: "fred" });
   expect(!locked.ok && locked.error).toContain("already owned");
@@ -252,79 +255,58 @@ test("one outline failing to open does not affect the others", async () => {
   expect((await ok<OutlinerServiceStatus>(host.socketPath, { action: "ping", outline: "fred" })).outline?.name).toBe("fred");
 });
 
-test("adopt serves a standalone service's database where it lies, refused while that service holds it", async () => {
+test("import makes a new outline from an older database, which is only read; refused while another process holds it", async () => {
   const elsewhere = scratch();
-  const env = scratchServiceEnv(elsewhere, "fred-project");
-  mkdirSync(env.OUTLINER_WORKSPACE_ROOT!, { recursive: true });
-  const service = launchService({ ...env, OUTLINER_OUTLINE_NAME: "fred-project" });
-  cleanups.push(async () => { service.child.kill("SIGKILL"); await service.child.exited; });
-  const ready = await service.startup();
-  if (!ready) throw new Error(`The standalone service did not start: ${await service.stderr}`);
-  const standalone = new OutlinerClient(String(ready.socket));
-  const note = await standalone.request<Block>({ action: "create", text: "Fred's fictional map, written before adoption" });
-  const database = String(ready.database);
+  const database = join(elsewhere, "fictional-old", "outliner.sqlite");
+  const store = new OutlinerStore(database, { workspaceRoot: elsewhere });
+  const note = store.create("Fred's fictional map, written before the import [page::fictional-map]");
 
-  const stateRoot = scratch();
-  const host = await startHost(stateRoot, "fred");
-  const refused = await send(host.socketPath, { action: "outlines.adopt", path: database, name: "fred" });
+  const root = scratch();
+  const host = await startHost(root);
+  const refused = await send(host.socketPath, { action: "outlines.import", path: database, name: "fred" });
   expect(!refused.ok && refused.error).toContain("in use by another outliner process");
-  expect(existsSync(hostedOutlinePaths(stateRoot, "fred").database)).toBe(false);
+  expect(existsSync(layoutOf(root).database("fred"))).toBe(false);
 
-  service.child.kill("SIGTERM");
-  await service.child.exited;
-  const adopted = await ok<HostedOutlineSummary>(host.socketPath, { action: "outlines.adopt", path: database, name: "fred" });
-  // fred is the default, so adopting it opens it at once and its lock is never left free.
-  expect(adopted).toEqual({ name: "fred", database: realpathSync(database), adopted: true, open: true, default: true, root: env.OUTLINER_WORKSPACE_ROOT! });
-  expect(JSON.parse(readFileSync(join(stateRoot, "outlines", "fred.json"), "utf8"))).toEqual({ root: env.OUTLINER_WORKSPACE_ROOT! });
-  const link = hostedOutlinePaths(stateRoot, "fred").database;
-  expect(lstatSync(link).isSymbolicLink()).toBe(true);
-  expect(readlinkSync(link)).toBe(realpathSync(database));
-  // No side folder in the host: the adopted outline's side files stay beside its database.
-  expect(existsSync(hostedOutlinePaths(stateRoot, "fred").sideFolder)).toBe(false);
+  store.close();
+  const before = statSync(database);
+  const imported = await ok<HostedOutlineSummary & { imported: Record<string, number> }>(host.socketPath, { action: "outlines.import", path: database, name: "fred" });
+  expect(imported).toMatchObject({ name: "fred", database: layoutOf(root).database("fred"), folder: layoutOf(root).folder("fred"), open: true });
+  expect(lstatSync(layoutOf(root).database("fred")).isFile()).toBe(true);
+  const after = statSync(database);
+  expect([after.size, after.mtimeMs]).toEqual([before.size, before.mtimeMs]);
+  expect((await ok<Block>(host.socketPath, { action: "get", outline: "fred", blockId: note.id })).text).toContain("Fred's fictional map");
 
-  const client = new OutlinerClient(host.socketPath);
-  expect((await client.request<Block>({ action: "get", blockId: note.id })).text).toBe("Fred's fictional map, written before adoption");
-  const status = await client.request<OutlinerServiceStatus>({ action: "ping" });
-  expect(status.location?.workspaceRoot).toBe(env.OUTLINER_WORKSPACE_ROOT!);
-  expect(status.location?.stateDirectory).toBe(realpathSync(join(database, "..")));
-
-  // The same database under a second name, a taken name, and a non-outliner file are refused.
-  const twice = await send(host.socketPath, { action: "outlines.adopt", path: database, name: "uncle" });
-  expect(!twice.ok && twice.error).toContain('already served by this host as "fred"');
-  const taken = await send(host.socketPath, { action: "outlines.adopt", path: database, name: "fred" });
+  // A taken name, a non-outliner file, a relative path and an outline of this host are refused.
+  const taken = await send(host.socketPath, { action: "outlines.import", path: database, name: "fred" });
   expect(!taken.ok && taken.error).toContain('An outline named "fred" already exists');
   const notes = join(elsewhere, "fictional-notes.txt");
   writeFileSync(notes, "Uncle's fictional shopping list\n");
-  const notSqlite = await send(host.socketPath, { action: "outlines.adopt", path: notes, name: "uncle" });
+  const notSqlite = await send(host.socketPath, { action: "outlines.import", path: notes, name: "uncle" });
   expect(!notSqlite.ok && notSqlite.error).toContain("not an outliner database");
-  const relative = await send(host.socketPath, { action: "outlines.adopt", path: "fictional.sqlite", name: "uncle" });
+  const relative = await send(host.socketPath, { action: "outlines.import", path: "fictional.sqlite", name: "uncle" });
   expect(!relative.ok && relative.error).toContain("absolute path");
+  const own = await send(host.socketPath, { action: "outlines.import", path: layoutOf(root).database("fred"), name: "uncle" });
+  expect(!own.ok && own.error).toContain("already an outline here");
+  expect(existsSync(layoutOf(root).database("uncle"))).toBe(false);
 });
 
-test("adopting a database that does not record its folder needs an explicit root", async () => {
-  const elsewhere = scratch();
-  const database = join(elsewhere, "bandit-state", "outliner.sqlite");
-  const store = new OutlinerStore(database, { workspaceRoot: elsewhere });
-  store.create("Bandit's fictional stick");
-  store.close();
-  const stateRoot = scratch();
-  const host = await startHost(stateRoot);
-  const guessed = await send(host.socketPath, { action: "outlines.adopt", path: database, name: "bandit" });
-  expect(!guessed.ok && guessed.error).toContain("does not record the folder it belongs to");
-  expect(existsSync(hostedOutlinePaths(stateRoot, "bandit").database)).toBe(false);
-  const notFolder = await send(host.socketPath, { action: "outlines.adopt", path: database, name: "bandit", root: join(elsewhere, "missing-folder") });
-  expect(!notFolder.ok && notFolder.error).toContain("is not a folder");
-  const adopted = await ok<HostedOutlineSummary>(host.socketPath, { action: "outlines.adopt", path: database, name: "bandit", root: elsewhere });
-  expect(adopted.root).toBe(elsewhere);
-  expect((await ok<OutlinerServiceStatus>(host.socketPath, { action: "ping", outline: "bandit" })).location?.workspaceRoot).toBe(elsewhere);
+test("delete moves an outline and its folder aside; nothing is erased", async () => {
+  const root = scratch();
+  const host = await startHost(root);
+  await host.create("uncle");
+  const deleted = await host.delete("uncle");
+  expect(deleted.movedTo.startsWith(layoutOf(root).deleted)).toBe(true);
+  expect(existsSync(join(deleted.movedTo, "uncle.sqlite"))).toBe(true);
+  expect(existsSync(layoutOf(root).database("uncle"))).toBe(false);
+  expect(host.list().outlines).toEqual([]);
 });
 
-test("a second host on the same state root is refused, and a connection stays with its first outline", async () => {
-  const stateRoot = scratch();
-  const host = await startHost(stateRoot, "bob");
+test("a second host on the same outlines folder is refused, and a connection stays with its first outline", async () => {
+  const root = scratch();
+  const host = await startHost(root, "bob");
   await host.create("bob");
   await host.create("fred");
-  const second = new OutlineHost({ stateRoot, log: () => {} });
+  const second = new OutlineHost({ outlinesFolder: layoutOf(root).root, log: () => {} });
   await expect(second.start()).rejects.toThrow("outline host lock is already owned");
   expect((await ok<OutlinerServiceStatus>(host.socketPath, { action: "ping" })).outline?.name).toBe("bob");
 
@@ -351,7 +333,7 @@ test("a second host on the same state root is refused, and a connection stays wi
   expect(!answers[1]!.ok && answers[1]!.error).toContain('serves the outline "bob"');
 });
 
-test("a single-outline service refuses host requests", async () => {
+test("a lone OutlinerServer refuses host requests", async () => {
   const root = scratch();
   const store = new OutlinerStore(join(root, "outliner.sqlite"), { workspaceRoot: root });
   const { OutlinerServer } = await import("../src/server");
@@ -359,23 +341,23 @@ test("a single-outline service refuses host requests", async () => {
   await server.start();
   cleanups.push(async () => { await server.close(); store.close(); });
   const response = await send(join(root, "outliner.sock"), { action: "outlines.list" });
-  expect(!response.ok && response.error).toContain("answered by an outline host");
+  expect(!response.ok && response.error).toContain("answered by the outline host");
   const status = await ok<OutlinerServiceStatus>(join(root, "outliner.sock"), { action: "ping" });
   expect(status.host).toBeUndefined();
-  expect(status.capabilities).not.toContain("request.outline");
 });
 
-test("the host process and the outlines CLI: create, adopt refusals and list go through the host", async () => {
+test("the host process and the CLI: create, import refusals, init and list go through the host", async () => {
   const root = scratch();
-  const env = { PATH: process.env.PATH, OUTLINER_STATE_DIR: join(root, "state"), XDG_CONFIG_HOME: join(root, "config"), OUTLINER_INBOX_AGENT: "0", OUTLINER_DEFAULT_OUTLINE: "bob" };
-  const cli = (...args: string[]) => {
-    const run = Bun.spawnSync([process.execPath, join(import.meta.dir, "../src/cli.ts"), ...args], { env, cwd: root, timeout: 15_000 });
+  const outlines = join(root, "outlines");
+  const env = { PATH: process.env.PATH, HOME: root, EP0CH_OUTLINES: outlines, XDG_CONFIG_HOME: join(root, "config"), OUTLINER_INBOX_AGENT: "0", EP0CH_DEFAULT_WS: "bob" };
+  const cli = (cwd: string, ...args: string[]) => {
+    const run = Bun.spawnSync([process.execPath, join(import.meta.dir, "../src/cli.ts"), ...args], { env, cwd, timeout: 15_000 });
     return { code: run.exitCode, stdout: run.stdout.toString(), stderr: run.stderr.toString() };
   };
   // Without a host, create is refused rather than made some other way.
-  const offline = cli("outline", "create", "bob");
+  const offline = cli(root, "outline", "create", "bob");
   expect(offline.code).toBe(1);
-  expect(offline.stderr).toContain("No outline host is running");
+  expect(offline.stderr).toContain("No outline host answers");
 
   const child = Bun.spawn([process.execPath, join(import.meta.dir, "../src/host-main.ts")], { env, stdout: "pipe", stderr: "pipe", timeout: 15_000, killSignal: "SIGKILL" });
   cleanups.push(async () => { child.kill("SIGTERM"); await child.exited; });
@@ -387,21 +369,34 @@ test("the host process and the outlines CLI: create, adopt refusals and list go 
     output += new TextDecoder().decode(chunk.value);
   }
   reader.releaseLock();
-  expect(JSON.parse(output.split("\n")[0]!)).toEqual({ status: "ready", socket: join(root, "state", "outliner.sock"), outlines: join(root, "state", "outlines"), defaultOutline: "bob" });
+  expect(JSON.parse(output.split("\n")[0]!)).toEqual({ status: "ready", socket: join(outlines, ".host", "host.sock"), outlines, defaultOutline: "bob" });
 
-  expect(cli("outline", "create", "bob").code).toBe(0);
-  const duplicate = cli("outline", "create", "bob");
+  expect(cli(root, "outline", "create", "bob").code).toBe(0);
+  const duplicate = cli(root, "outline", "create", "bob");
   expect(duplicate.code).toBe(1);
   expect(duplicate.stderr).toContain('An outline named "bob" already exists');
-  const missing = cli("outline", "adopt", "fictional-missing.sqlite", "fred");
+  const missing = cli(root, "outline", "import", "fictional-missing.sqlite", "fred");
   expect(missing.code).toBe(1);
   expect(missing.stderr).toContain(`No database at ${join(root, "fictional-missing.sqlite")}`);
 
-  const listed = cli("outlines", "--json");
+  // init in a project folder: the outline named after it, created, and its .ep0ch written.
+  const project = join(root, "work", "jam-shelf");
+  mkdirSync(join(project, "notes"), { recursive: true });
+  const init = cli(project, "init");
+  expect(init.code).toBe(0);
+  expect(init.stdout).toContain("created outline jam-shelf");
+  expect(readFileSync(join(project, ".ep0ch"), "utf8")).toBe('ws = "jam-shelf"\n');
+  // From a subfolder, the CLI now talks to that outline.
+  const note = cli(join(project, "notes"), "create", "--text", "Jam shelf's fictional label");
+  expect(note.code, note.stderr).toBe(0);
+  const pinged = cli(join(project, "notes"), "--ws", "jam-shelf", "ping");
+  expect(pinged.code, pinged.stderr).toBe(0);
+
+  const listed = cli(root, "outlines", "--json");
   expect(listed.code).toBe(0);
   const parsed = JSON.parse(listed.stdout);
-  expect(parsed.host).toEqual({ socket: join(root, "state", "outliner.sock"), defaultOutline: "bob" });
-  expect(parsed.outlines.map((outline: HostedOutlineSummary & { hosted: boolean; status: string }) => [outline.name, outline.hosted, outline.default, outline.open, outline.status]))
-    .toEqual([["bob", true, true, true, "running"]]);
-  expect(cli("outlines").stdout).toContain("bob  hosted  open  default");
+  expect(parsed).toMatchObject({ folder: outlines, socket: join(outlines, ".host", "host.sock"), defaultOutline: "bob" });
+  expect(parsed.outlines.map((outline: HostedOutlineSummary) => [outline.name, outline.default ?? false, outline.open]))
+    .toEqual([["bob", true, true], ["jam-shelf", false, true]]);
+  expect(cli(root, "outlines").stdout).toContain("bob  open  default");
 });

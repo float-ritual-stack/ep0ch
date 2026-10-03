@@ -1847,29 +1847,26 @@ export interface OutlinerServiceStatus {
 /** The outline host behind a socket: one per user and machine, serving outlines by name. */
 export interface OutlinerHostStatus {
   socket: string;
-  /** Where requests without `outline` go; absent when the host has none. */
+  /** Where requests without `outline` go; absent when the host has none (it is for tests and scripts). */
   defaultOutline?: string;
-  /** Every outline in the host's `outlines/` folder, open or not. */
+  /** Every outline in the outlines folder, open or not. */
   outlines: string[];
 }
 
-/** One outline a host serves (`outlines.list`, `outlines.create`, `outlines.adopt`). */
+/** One outline a host serves (`outlines.list`, `outlines.create`, `outlines.import`, `outlines.attach`). */
 export interface HostedOutlineSummary {
   name: string;
-  /** The database file; for an adopted outline, where the link points. */
+  /** `<outlines>/<name>.sqlite`. */
   database: string;
-  /** True when the entry links to a database that lives elsewhere. */
-  adopted: boolean;
-  /** The folder the outline belongs to (its workspace root), when known. */
-  root?: string;
+  /** `<outlines>/<name>/`: its side files, and the root its relative file links resolve against. */
+  folder: string;
   /** Open in this host process now. Outlines open on their first request. */
   open: boolean;
-  default: boolean;
-  /** Why the database cannot be reached, for an adopted link whose target is gone. */
-  problem?: string;
+  /** The host's default outline (tests and scripts). */
+  default?: boolean;
 }
 
-/** `outlines.attach`: the outline, open, and whether this request created it. */
+/** `outlines.attach`: the outline, and whether this call created it. */
 export interface HostedOutlineAttachment {
   outline: HostedOutlineSummary;
   created: boolean;
@@ -1882,12 +1879,10 @@ export interface HostedPaneOutline {
   role?: OutlinerClientRole;
 }
 
-/** `outlines.delete`: where the outline's files went (an adopted outline's database is left where it lies). */
+/** `outlines.delete`: where the outline's files went (nothing is erased). */
 export interface HostedOutlineDeletion {
   name: string;
-  adopted: boolean;
-  /** The folder the created outline's files were moved into; absent for an adopted outline. */
-  movedTo?: string;
+  movedTo: string;
 }
 
 export interface HostedOutlineList {
@@ -1895,15 +1890,9 @@ export interface HostedOutlineList {
   outlines: HostedOutlineSummary[];
 }
 
-/**
- * How an outline is addressed: by name, through its by-name socket. The service
- * keeps serving when it cannot write its descriptor or link, so either path is
- * absent when that part does not exist.
- */
+/** How the service names its outline in `ping`. */
 export interface OutlinerServiceOutline {
   name: string;
-  descriptorPath?: string;
-  byNameSocket?: string;
 }
 
 export interface ResourceProviderCommandResult {
@@ -1937,9 +1926,9 @@ export type OutlinerRequestAction =
   | { id: string; action: "ping" }
   /** Answered by the outline host itself (capabilities `outlines.*`); a single-outline service refuses them. */
   | { id: string; action: "outlines.list" }
-  | { id: string; action: "outlines.create"; name: string; root?: string }
-  | { id: string; action: "outlines.adopt"; path: string; name: string; root?: string }
-  | { id: string; action: "outlines.attach"; name: string; create?: boolean; root?: string }
+  | { id: string; action: "outlines.create"; name: string }
+  | { id: string; action: "outlines.import"; path: string; name: string }
+  | { id: string; action: "outlines.attach"; name: string; create?: boolean }
   | { id: string; action: "outlines.pane"; paneId: string; hostname: string }
   | { id: string; action: "outlines.close"; name: string }
   | { id: string; action: "outlines.delete"; name: string }

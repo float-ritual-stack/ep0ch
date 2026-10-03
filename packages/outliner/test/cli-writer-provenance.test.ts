@@ -4,7 +4,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { resolvePaths } from "../src/paths";
+import { scratchOutline } from "./scratch-outline";
 import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
 
@@ -22,8 +22,7 @@ async function runCli(args: string[], env: Record<string, string>) {
 async function setup() {
   const stateDir = mkdtempSync(join(tmpdir(), "pi-outliner-cli-writer-state-"));
   const workspaceRoot = mkdtempSync(join(tmpdir(), "pi-outliner-cli-writer-workspace-"));
-  const env = { OUTLINER_STATE_DIR: stateDir, OUTLINER_WORKSPACE_ROOT: workspaceRoot };
-  const paths = resolvePaths(env);
+  const { env, ...paths } = scratchOutline(stateDir, { folder: workspaceRoot });
   const store = new OutlinerStore(paths.database);
   const server = new OutlinerServer(store, paths.socket);
   await server.start();

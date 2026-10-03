@@ -53,9 +53,8 @@ let references: ReferenceContext | undefined
 let loadingReferences: Promise<void> | undefined
 /**
  * The environment an Outliner CLI run gets for one workspace: its bound
- * folder, whose client.json the CLI resolves the outline from itself (so every
- * client lands on the same outline), and the outline's name for a root only
- * the host records.
+ * folder, and the outline its `.ep0ch` names, so the run lands on that outline
+ * whatever Claude's environment says.
  */
 const envFor = workspaceEnvOf
 /** Each reason the session's workspace could not be found is toasted once. */
@@ -343,9 +342,9 @@ async function sessionWorkspace($: EngineInterface, options: PluginOptions, purp
   // Strict mode limits what feeds Recent Mentions; the tools and links still work in any bound folder.
   if (mode === 'allowlist' ? purpose === 'mentions' || listedHere !== null : listedHere !== null) return sessionWorkspaceOf(cwd, mode, listed, null)
   // A remote socket in Claude's environment would take every CLI run elsewhere than the folder's binding.
-  const [remote, socket] = await Promise.all([$.env.get('OUTLINER_REMOTE'), $.env.get('OUTLINER_SOCKET_PATH')])
-  if (remote?.trim() === '1' || socket?.trim()) {
-    throw Error("OUTLINER_REMOTE / OUTLINER_SOCKET_PATH in Claude's environment would send it elsewhere than this folder's outline; unset them, or use strict mode (PI_OUTLINER_MENTIONS_MODE=allowlist)")
+  const socket = await $.env.get('EP0CH_SOCKET')
+  if (socket?.trim()) {
+    throw Error("EP0CH_SOCKET in Claude's environment would send it to another machine's host than this folder's outline; unset it, or use strict mode (PI_OUTLINER_MENTIONS_MODE=allowlist)")
   }
   const root = await outlinerRootOf($)
   if (!root) return null

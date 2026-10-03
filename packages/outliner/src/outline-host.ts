@@ -1,11 +1,12 @@
 import { Database } from "bun:sqlite";
-import { closeSync, existsSync, lstatSync, mkdirSync, openSync, readdirSync, readlinkSync, readSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, closeSync, existsSync, lstatSync, mkdirSync, openSync, readdirSync, readSync, realpathSync, renameSync, rmSync, statSync, unlinkSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
-import { basename, dirname, isAbsolute, join, resolve } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 import { aiPromptDirectory, initializeAiPrompts } from "./ai-prompts";
 import type { HerdrRuntimeRegistry } from "./herdr-registry";
-import { readOutlineDescriptor } from "./known-outlines";
-import { hostedOutlinePaths, hostedOutlineRoot, OUTLINE_NAME_PATTERN, outlineHostPaths } from "./paths";
+import { importOutline, type ImportReport } from "./outline-import";
+import { isOutlineName, OUTLINE_NAME_PATTERN } from "./paths";
+import { outlineLayout } from "../../outline-core/src/outline-location";
 import { OutlinerServer } from "./server";
 import { OutlinerStore } from "./store";
 import {
@@ -25,23 +26,21 @@ import { probeSocket } from "./socket-probe";
 import { acquireLockFile, acquireWorkspaceOwnership } from "./workspace-ownership";
 
 /*
- * The outline host (PIE-457): one process per user and machine, one socket,
- * any number of outlines, like a tmux server. Whatever is in `outlines/` exists;
- * nothing else is scanned, hashed or registered, and an outline is only ever
- * born through `outlines.create`.
+ * The outline host (PIE-457, PIE-530): one process per user and machine, one socket, any number of outlines, like
+ * a tmux server. Outlines live in one folder (EP0CH_OUTLINES, else `~/outlines`): `<name>.sqlite` is the outline,
+ * `<name>/` its own folder (prompts, assistant sessions, files it links relatively). Whatever `.sqlite` is there
+ * exists; nothing is scanned elsewhere, hashed or registered, and an outline is only ever born through
+ * `outlines.create` (or `outlines.attach` with `create`) or `outlines.import`.
  *
- * Every connection talks to one outline (one request, or one subscription), so
- * the host reads only the first line, picks the outline its `outline` field
- * names (or the default), and hands the socket and what it already read to that
- * outline's OutlinerServer, which serves it exactly as a standalone service would.
+ * Every connection talks to one outline (one request, or one subscription), so the host reads only the first
+ * line, picks the outline its `outline` field names (or the default, when the host has one), and hands the socket
+ * and what it already read to that outline's OutlinerServer, which serves it exactly as it would alone.
  */
 
 export interface HostedOutline {
   name: string;
-  /** The real database path (an adopted link resolved). */
   database: string;
-  adopted: boolean;
-  /** Side files: prompts, assistant sessions. */
+  /** The outline's own folder: side files, and the root its relative file links resolve against. */
   stateDirectory: string;
   workspaceRoot: string;
   promptDirectory: string;
@@ -50,8 +49,9 @@ export interface HostedOutline {
 }
 
 export interface OutlineHostOptions {
-  stateRoot: string;
-  /** Where requests without `outline` go. It must already exist; the host never creates it. */
+  /** The outlines folder (`resolveOutlinesFolder`). */
+  outlinesFolder: string;
+  /** Where requests without `outline` go (tests and scripts that hold one outline). It must already exist; the host never creates it. */
   defaultOutline?: string;
   /** Shared by every outline: Herdr's panes are one machine-wide fact. */
   herdrRegistry?: HerdrRuntimeRegistry;
@@ -64,13 +64,9 @@ export interface OutlineHostOptions {
   log?: (message: string) => void;
 }
 
-const HOST_ACTIONS = new Set(["outlines.list", "outlines.create", "outlines.adopt", "outlines.attach", "outlines.close", "outlines.delete", "outlines.pane"]);
+const HOST_ACTIONS = new Set(["outlines.list", "outlines.create", "outlines.import", "outlines.attach", "outlines.close", "outlines.delete", "outlines.pane"]);
 /** A first line longer than this is not a request; the connection is dropped. */
 const MAX_FIRST_LINE = 64 * 1024 * 1024;
-
-function isOutlineName(name: unknown): name is string {
-  return typeof name === "string" && OUTLINE_NAME_PATTERN.test(name);
-}
 
 function requireName(name: unknown): string {
   if (!isOutlineName(name)) {
@@ -100,9 +96,9 @@ function hasSqliteHeader(path: string): boolean {
   }
 }
 
-/** Whether a SQLite file has the outliner's tables. Opens without creating or migrating anything. */
+/** Whether a SQLite file has the outliner's tables. Opens read-only; creates and migrates nothing. */
 function isOutlinerDatabase(path: string): boolean {
-  const database = new Database(path, { create: false, readwrite: true });
+  const database = new Database(path, { readonly: true });
   try {
     const tables = database.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('blocks', 'metadata')").all();
     return tables.length === 2;
@@ -111,44 +107,25 @@ function isOutlinerDatabase(path: string): boolean {
   }
 }
 
-/** The root a slice-1 descriptor beside an `outliner.sqlite` records, if it reads cleanly. */
-function descriptorRoot(database: string): string | undefined {
-  if (basename(database) !== "outliner.sqlite") return undefined;
-  const descriptor = readOutlineDescriptor(dirname(database));
-  return descriptor.kind === "ok" ? resolve(descriptor.descriptor.root) : undefined;
-}
-
-/** `outlines/<name>.json`: what the host records about an outline beside it: `{ root }`, its folder. */
-function outlineSettingsPath(stateRoot: string, name: string): string {
-  return join(outlineHostPaths(stateRoot).outlines, `${name}.json`);
-}
-
-function realOrSelf(path: string): string {
-  try { return realpathSync(path); } catch { return path; }
-}
-
 export class OutlineHost {
   readonly socketPath: string;
   readonly outlinesFolder: string;
   readonly defaultOutline: string | undefined;
+  private readonly layout: ReturnType<typeof outlineLayout>;
   private listener: Server | null = null;
   private readonly opened = new Map<string, HostedOutline>();
   private readonly opening = new Map<string, Promise<HostedOutline>>();
-  /** Outlines whose files are being moved away; they must not reopen meanwhile. */
-  private readonly deleting = new Set<string>();
+  /** Outlines whose files are being moved away or written; they must not open meanwhile. */
+  private readonly busy = new Set<string>();
   private readonly connections = new Set<Socket>();
   private closing = false;
   private releaseHostLock: (() => void) | undefined;
 
   constructor(private readonly options: OutlineHostOptions) {
-    const paths = outlineHostPaths(options.stateRoot);
-    this.socketPath = paths.socket;
-    this.outlinesFolder = paths.outlines;
+    this.layout = outlineLayout(options.outlinesFolder);
+    this.socketPath = this.layout.socket;
+    this.outlinesFolder = this.layout.root;
     this.defaultOutline = options.defaultOutline === undefined ? undefined : requireName(options.defaultOutline);
-  }
-
-  private get stateRoot(): string {
-    return resolve(this.options.stateRoot);
   }
 
   private log(message: string): void {
@@ -156,22 +133,22 @@ export class OutlineHost {
   }
 
   /**
-   * Takes the host lock (`<state root>/outliner.host.lock`), opens the default
-   * outline so its database is held from the start, then listens. A default
-   * that cannot open is logged loudly; the host still serves the others.
+   * Takes the host lock (`.host/host.lock`), opens the default outline when there is one so its database is held
+   * from the start, then listens on `.host/host.sock`. `.host/` is kept private (0700): on macOS a socket's own
+   * mode is not checked, so its folder is what keeps other users out.
    */
   async start(): Promise<void> {
-    mkdirSync(dirname(this.socketPath), { recursive: true });
-    // `outlines/` marks the state root as host-served for clients (outlineHostConfigured), running or not.
     mkdirSync(this.outlinesFolder, { recursive: true });
-    this.releaseHostLock = acquireLockFile(join(this.stateRoot, "outliner.host.lock"), "The outline host lock");
+    mkdirSync(this.layout.hostDir, { recursive: true, mode: 0o700 });
+    chmodSync(this.layout.hostDir, 0o700);
+    this.releaseHostLock = acquireLockFile(this.layout.lock, "The outline host lock");
     try {
       // Only a host holds the lock, so a socket file here is left by one that died, unless something else answers on it.
       if ((await probeSocket(this.socketPath, 250)) === "answers") throw new Error(`Something already listens at ${this.socketPath}`);
       if (existsSync(this.socketPath)) unlinkSync(this.socketPath);
       if (this.defaultOutline) {
-        if (!lstatOrUndefined(hostedOutlinePaths(this.stateRoot, this.defaultOutline).database)) {
-          this.log(`DEFAULT OUTLINE MISSING: "${this.defaultOutline}" is not in ${this.outlinesFolder}; requests without an outline fail until it is created or adopted.`);
+        if (!lstatOrUndefined(this.layout.database(this.defaultOutline))) {
+          this.log(`DEFAULT OUTLINE MISSING: "${this.defaultOutline}" is not in ${this.outlinesFolder}; requests without an outline fail until it is created.`);
         } else {
           await this.open(this.defaultOutline).catch(error => {
             this.log(`DEFAULT OUTLINE FAILED TO OPEN: "${this.defaultOutline}": ${error instanceof Error ? error.message : String(error)}. Requests without an outline fail until it opens.`);
@@ -224,8 +201,8 @@ export class OutlineHost {
   status(): OutlinerHostStatus {
     return {
       socket: this.socketPath,
-      ...(this.defaultOutline ? { defaultOutline: this.defaultOutline } : {}),
       outlines: this.names(),
+      ...(this.defaultOutline ? { defaultOutline: this.defaultOutline } : {}),
     };
   }
 
@@ -240,23 +217,13 @@ export class OutlineHost {
   }
 
   private summary(name: string): HostedOutlineSummary {
-    const { database } = hostedOutlinePaths(this.stateRoot, name);
-    const adopted = lstatOrUndefined(database)?.isSymbolicLink() ?? false;
-    let real = database;
-    let problem: string | undefined;
-    if (adopted) {
-      try { real = realpathSync(database); }
-      catch { real = resolve(dirname(database), readlinkSync(database)); problem = `The adopted database is missing: ${real}`; }
-    }
-    const root = this.opened.get(name)?.workspaceRoot ?? this.workspaceRootFor(name, adopted, real);
     return {
-      name, database: real, adopted, open: this.opened.has(name), default: name === this.defaultOutline,
-      ...(root ? { root } : {}),
-      ...(problem ? { problem } : {}),
+      name, database: this.layout.database(name), folder: this.layout.folder(name), open: this.opened.has(name),
+      ...(name === this.defaultOutline ? { default: true } : {}),
     };
   }
 
-  /** Every outline in `outlines/`, open or not. Reads only; never creates anything. */
+  /** Every outline in the folder, open or not. Reads only; never creates anything. */
   list(): HostedOutlineList {
     return {
       ...(this.defaultOutline ? { defaultOutline: this.defaultOutline } : {}),
@@ -264,139 +231,105 @@ export class OutlineHost {
     };
   }
 
-  /**
-   * The folder an outline belongs to: the root recorded in `outlines/<name>.json`
-   * (adopt writes it, and create or attach with `root`), else for an adopted
-   * database its slice-1 descriptor's root, else, for an outline created
-   * without a root, its side folder. Undefined when none is known.
-   */
-  private workspaceRootFor(name: string, adopted: boolean, database: string): string | undefined {
-    let recorded: string | undefined;
-    try { recorded = hostedOutlineRoot(this.stateRoot, name); } catch { recorded = undefined; }
-    if (recorded) return recorded;
-    if (adopted) return descriptorRoot(database);
-    return hostedOutlinePaths(this.stateRoot, name).sideFolder;
-  }
-
   private refuseTaken(name: string): void {
-    const paths = hostedOutlinePaths(this.stateRoot, name);
-    if (lstatOrUndefined(paths.database)) throw new Error(`An outline named "${name}" already exists in ${this.outlinesFolder}`);
-    if (lstatOrUndefined(paths.sideFolder)) throw new Error(`${paths.sideFolder} already exists; refusing to reuse it for a new outline named "${name}"`);
+    if (lstatOrUndefined(this.layout.database(name))) throw new Error(`An outline named "${name}" already exists in ${this.outlinesFolder}`);
+    if (this.busy.has(name)) throw new Error(`Outline "${name}" is being changed; try again`);
   }
 
-  /**
-   * Creates a new, empty outline and opens it. Refuses a name already in use; never overwrites.
-   * `root`, the folder the outline is for (session openers pass the invoking,
-   * bound or repository folder), is recorded in `outlines/<name>.json`: the
-   * outline's resources, file links, Inbox and `ping.location` use it, and a
-   * folder-name guess from another folder does not take this outline (paths.ts).
-   */
-  async create(nameInput: unknown, rootInput?: unknown): Promise<HostedOutlineSummary> {
-    const name = requireName(nameInput);
-    if (rootInput !== undefined && (typeof rootInput !== "string" || !isAbsolute(rootInput))) throw new Error("An outline's root must be an absolute folder path");
-    if (typeof rootInput === "string" && !lstatOrUndefined(rootInput)?.isDirectory()) throw new Error(`The outline's root ${rootInput} is not a folder`);
-    this.refuseTaken(name);
-    const settings = outlineSettingsPath(this.stateRoot, name);
-    if (rootInput !== undefined && lstatOrUndefined(settings)) throw new Error(`${settings} already exists; refusing to reuse it for "${name}"`);
-    const paths = hostedOutlinePaths(this.stateRoot, name);
+  /** Claims `<name>.sqlite` exclusively (an empty file), so two creates or imports can never share a name. */
+  private claim(name: string): string {
+    const database = this.layout.database(name);
     mkdirSync(this.outlinesFolder, { recursive: true });
-    // Claim the name exclusively before anything else, so two creates cannot share a file.
-    try { closeSync(openSync(paths.database, "wx", 0o600)); }
+    try { closeSync(openSync(database, "wx", 0o600)); }
     catch (error) {
       if (errorCode(error) === "EEXIST") throw new Error(`An outline named "${name}" already exists in ${this.outlinesFolder}`);
       throw error;
     }
-    let wroteSettings = false;
+    return database;
+  }
+
+  /** Removes what a failed create or import made: the claimed file and its SQLite side files. Never the lock file. */
+  private unclaim(name: string): void {
+    for (const suffix of ["", "-wal", "-shm"]) rmSync(`${this.layout.database(name)}${suffix}`, { force: true });
+  }
+
+  /**
+   * Creates a new, empty outline and opens it. Refuses a name already in use; never overwrites. Its folder
+   * `<name>/` may exist already (files kept there before it had an outline); it is used as it is.
+   */
+  async create(nameInput: unknown): Promise<HostedOutlineSummary> {
+    const name = requireName(nameInput);
+    this.refuseTaken(name);
+    this.claim(name);
     try {
-      if (typeof rootInput === "string") {
-        writeFileSync(settings, `${JSON.stringify({ root: resolve(rootInput) }, null, 2)}\n`, { flag: "wx", mode: 0o600 });
-        wroteSettings = true;
-      }
-      mkdirSync(paths.sideFolder);
       await this.open(name);
     } catch (error) {
-      if (wroteSettings) rmSync(settings, { force: true });
-      // Only what this call made: the claimed empty file, its SQLite side files and the new folder.
-      // Never the `.owner.sqlite` lock file: a contender may hold it (workspace-ownership.ts).
-      for (const suffix of ["", "-wal", "-shm"]) rmSync(`${paths.database}${suffix}`, { force: true });
-      rmSync(paths.sideFolder, { recursive: true, force: true });
+      this.unclaim(name);
       throw error;
     }
     return this.summary(name);
   }
 
   /**
-   * Serves an existing outliner database where it lies, under `name`: a symlink
-   * `outlines/<name>.sqlite` to its real path, and `outlines/<name>.json`
-   * recording the folder it belongs to. Its side files stay beside it. The root
-   * is `root`, else the root its slice-1 descriptor records; with neither it is
-   * refused, never guessed. Also refused: a taken name, a database already in
-   * this host, a file that is not an outliner database, and one another process
-   * holds. The default outline is opened at once, so its lock is never left free.
+   * A new outline from an older database (PIE-530): a fresh `<name>.sqlite` holding what matters from `path`
+   * (`importOutline`: its blocks, properties, page addresses and work ids), never the file itself, which is only
+   * read. Refused: a taken name, a file that is not an outliner database, and one another process serves.
    */
-  async adopt(pathInput: unknown, nameInput: unknown, rootInput?: unknown): Promise<HostedOutlineSummary> {
+  async importDatabase(pathInput: unknown, nameInput: unknown): Promise<HostedOutlineSummary & { imported: ImportReport }> {
     const name = requireName(nameInput);
-    if (typeof pathInput !== "string" || !isAbsolute(pathInput)) throw new Error("outlines.adopt needs the database's absolute path");
-    if (rootInput !== undefined && (typeof rootInput !== "string" || !isAbsolute(rootInput))) throw new Error("outlines.adopt root must be an absolute folder path");
-    this.refuseTaken(name);
-    const settings = outlineSettingsPath(this.stateRoot, name);
-    if (lstatOrUndefined(settings)) throw new Error(`${settings} already exists; refusing to reuse it for "${name}"`);
+    if (typeof pathInput !== "string" || !isAbsolute(pathInput)) throw new Error("outlines.import needs the database's absolute path");
     let real: string;
     try { real = realpathSync(pathInput); }
     catch { throw new Error(`No database at ${pathInput}`); }
     if (!statSync(real).isFile()) throw new Error(`${pathInput} is not a database file`);
-    const already = this.list().outlines.find(outline => realOrSelf(outline.database) === real);
-    if (already) throw new Error(`${real} is already served by this host as "${already.name}"`);
+    if (dirname(real) === this.outlinesFolder && real.endsWith(".sqlite")) throw new Error(`${real} is already an outline here`);
     if (!hasSqliteHeader(real)) throw new Error(`${real} is not an outliner database (not a SQLite file)`);
-    // The same check a starting service makes: a database another process serves is refused.
+    // A database another process serves is still changing: refuse rather than copy half of it.
     let release: () => void;
     try { release = acquireWorkspaceOwnership(real); }
     catch (error) {
       if (!(error instanceof Error && error.message.startsWith("Outliner workspace is already owned"))) throw error;
-      throw new Error(`${real} is in use by another outliner process; stop it before adopting the database`, { cause: error });
+      throw new Error(`${real} is in use by another outliner process; stop it before importing the database`, { cause: error });
     }
-    let outliner: boolean;
+    let imported: ImportReport;
+    this.refuseTaken(name);
+    this.busy.add(name);
     try {
-      outliner = isOutlinerDatabase(real);
+      if (!isOutlinerDatabase(real)) throw new Error(`${real} is not an outliner database (no blocks and metadata tables)`);
+      const target = this.layout.database(name);
+      // The import makes the file itself; nothing may be there.
+      try {
+        imported = importOutline(real, target);
+      } catch (error) {
+        this.unclaim(name);
+        throw error;
+      }
     } finally {
+      this.busy.delete(name);
       release();
     }
-    if (!outliner) throw new Error(`${real} is not an outliner database (no blocks and metadata tables)`);
-    const root = typeof rootInput === "string" ? resolve(rootInput) : descriptorRoot(real);
-    if (!root) {
-      throw new Error(`${real} does not record the folder it belongs to (no readable outline.json beside it); adopt it with a root: \`outliner outline adopt <path> ${name} --root <folder>\``);
-    }
-    if (!lstatOrUndefined(root)?.isDirectory()) throw new Error(`The adopted outline's root ${root} is not a folder`);
-    mkdirSync(this.outlinesFolder, { recursive: true });
-    writeFileSync(settings, `${JSON.stringify({ root }, null, 2)}\n`, { flag: "wx", mode: 0o600 });
-    try { symlinkSync(real, hostedOutlinePaths(this.stateRoot, name).database); }
-    catch (error) {
-      rmSync(settings, { force: true });
-      if (errorCode(error) === "EEXIST") throw new Error(`An outline named "${name}" already exists in ${this.outlinesFolder}`);
+    try {
+      await this.open(name);
+    } catch (error) {
+      this.unclaim(name);
       throw error;
     }
-    if (name === this.defaultOutline) {
-      try { await this.open(name); }
-      catch (error) { return { ...this.summary(name), problem: `Adopted, but the default outline could not open: ${error instanceof Error ? error.message : String(error)}` }; }
-    }
-    return this.summary(name);
+    return { ...this.summary(name), imported };
   }
 
   /**
-   * Opens an outline by name, as a client session starts: like `tmux new -A`,
-   * it creates the outline first when `create` is set and none has the name.
-   * A plain read never creates; only a session opener asks for `create`, and
-   * passes `root`, the folder a created outline records.
+   * Opens an outline by name, as a client session starts: like `tmux new -A`, it creates the outline first when
+   * `create` is set and none has the name. A plain read never creates; only a session opener asks for `create`.
    */
-  async attach(nameInput: unknown, create: boolean, root?: unknown): Promise<HostedOutlineAttachment> {
+  async attach(nameInput: unknown, create: boolean): Promise<HostedOutlineAttachment> {
     const name = requireName(nameInput);
-    if (!lstatOrUndefined(hostedOutlinePaths(this.stateRoot, name).database)) {
-      if (!create) throw new Error(`No outline named "${name}" in ${this.outlinesFolder}; create it with \`outliner outline create ${name}\``);
+    if (!lstatOrUndefined(this.layout.database(name))) {
+      if (!create) throw new Error(`No outline named "${name}" in ${this.outlinesFolder}; create it with \`ep0ch init ${name}\``);
       try {
-        return { outline: await this.create(name, root), created: true };
+        return { outline: await this.create(name), created: true };
       } catch (error) {
         // Another session created it a moment ago: attach to that one.
-        if (!lstatOrUndefined(hostedOutlinePaths(this.stateRoot, name).database)) throw error;
+        if (!lstatOrUndefined(this.layout.database(name))) throw error;
       }
     }
     await this.open(name);
@@ -404,10 +337,8 @@ export class OutlineHost {
   }
 
   /**
-   * Stops serving one outline and releases its database. It is not a lock:
-   * its next request opens it again, and live panes reconnect at once, so an
-   * outline with open panes reopens right away. Close the panes first to keep
-   * it closed.
+   * Stops serving one outline and releases its database. It is not a lock: its next request opens it again, and
+   * live panes reconnect at once. Close the panes first to keep it closed.
    */
   async closeOutline(nameInput: unknown): Promise<HostedOutlineSummary> {
     const name = requireName(nameInput);
@@ -417,50 +348,39 @@ export class OutlineHost {
       this.opened.delete(name);
       try { await outline.server.close(); } finally { outline.store.close(); }
     }
-    if (!lstatOrUndefined(hostedOutlinePaths(this.stateRoot, name).database)) throw new Error(`No outline named "${name}" in ${this.outlinesFolder}`);
+    if (!lstatOrUndefined(this.layout.database(name))) throw new Error(`No outline named "${name}" in ${this.outlinesFolder}`);
     return this.summary(name);
   }
 
   /**
-   * Removes an outline from the host. Nothing is erased: an adopted outline's
-   * link is removed and its database stays where it lies; a created outline's
-   * database and side folder move to `<state root>/deleted/<name>-<time>/`.
-   * The default outline is refused.
+   * Removes an outline from the host. Nothing is erased: its database and its folder move to
+   * `.deleted/<name>-<time>/`. The default outline is refused.
    */
   async delete(nameInput: unknown): Promise<HostedOutlineDeletion> {
     const name = requireName(nameInput);
     if (name === this.defaultOutline) throw new Error(`"${name}" is this host's default outline; it cannot be deleted while the host serves it as the default`);
-    const paths = hostedOutlinePaths(this.stateRoot, name);
-    const entry = lstatOrUndefined(paths.database);
-    if (!entry) throw new Error(`No outline named "${name}" in ${this.outlinesFolder}`);
-    if (this.deleting.has(name)) throw new Error(`Outline "${name}" is already being deleted`);
-    this.deleting.add(name);
+    const database = this.layout.database(name);
+    if (!lstatOrUndefined(database)) throw new Error(`No outline named "${name}" in ${this.outlinesFolder}`);
+    if (this.busy.has(name)) throw new Error(`Outline "${name}" is already being changed`);
+    this.busy.add(name);
     try {
       await this.closeOutline(name);
-      const settings = outlineSettingsPath(this.stateRoot, name);
-      if (entry.isSymbolicLink()) {
-        unlinkSync(paths.database);
-        rmSync(settings, { force: true });
-        return { name, adopted: true };
-      }
-      const movedTo = join(this.stateRoot, "deleted", `${name}-${new Date().toISOString().replace(/[:.]/g, "-")}`);
+      const movedTo = join(this.layout.deleted, `${name}-${new Date().toISOString().replace(/[:.]/g, "-")}`);
       mkdirSync(movedTo, { recursive: true });
       // The lock file stays: a contender may hold it (workspace-ownership.ts).
       for (const suffix of ["", "-wal", "-shm"]) {
-        if (lstatOrUndefined(`${paths.database}${suffix}`)) renameSync(`${paths.database}${suffix}`, join(movedTo, `${name}.sqlite${suffix}`));
+        if (lstatOrUndefined(`${database}${suffix}`)) renameSync(`${database}${suffix}`, join(movedTo, `${name}.sqlite${suffix}`));
       }
-      if (lstatOrUndefined(paths.sideFolder)) renameSync(paths.sideFolder, join(movedTo, name));
-      if (lstatOrUndefined(settings)) renameSync(settings, join(movedTo, `${name}.json`));
-      return { name, adopted: false, movedTo };
+      if (lstatOrUndefined(this.layout.folder(name))) renameSync(this.layout.folder(name), join(movedTo, name));
+      return { name, movedTo };
     } finally {
-      this.deleting.delete(name);
+      this.busy.delete(name);
     }
   }
 
   /**
-   * The outline a live pane is registered on (`hostname` + Herdr `paneId`), so
-   * a Herdr action invoked from that pane uses its outline rather than
-   * re-resolving the folder. Only open outlines have live panes. Reads only.
+   * The outline a live pane is registered on (`hostname` + Herdr `paneId`), so a Herdr action invoked from that
+   * pane uses its outline rather than re-resolving the folder. Only open outlines have live panes. Reads only.
    */
   paneOutline(paneInput: unknown, hostInput: unknown): HostedPaneOutline {
     if (typeof paneInput !== "string" || !paneInput || typeof hostInput !== "string" || !hostInput) throw new Error("outlines.pane needs a paneId and a hostname");
@@ -474,7 +394,7 @@ export class OutlineHost {
   /** Opens an outline on first use and keeps it open. A failure is that outline's alone and is retried next time. */
   open(name: string): Promise<HostedOutline> {
     if (this.closing) return Promise.reject(new Error("The outline host is stopping"));
-    if (this.deleting.has(name)) return Promise.reject(new Error(`Outline "${name}" is being deleted`));
+    if (this.busy.has(name) && !this.opening.has(name)) return Promise.reject(new Error(`Outline "${name}" is being changed`));
     const opened = this.opened.get(name);
     if (opened) return Promise.resolve(opened);
     const pending = this.opening.get(name);
@@ -486,17 +406,13 @@ export class OutlineHost {
 
   private async openNow(nameInput: string): Promise<HostedOutline> {
     const name = requireName(nameInput);
-    const paths = hostedOutlinePaths(this.stateRoot, name);
-    const entry = lstatOrUndefined(paths.database);
-    if (!entry) throw new Error(`No outline named "${name}" in ${this.outlinesFolder}; create it with \`outliner outline create ${name}\``);
-    const adopted = entry.isSymbolicLink();
-    let database: string;
-    try { database = realpathSync(paths.database); }
-    catch { throw new Error(`Outline "${name}" links to a database that is missing: ${resolve(this.outlinesFolder, readlinkSync(paths.database))}`); }
-    const stateDirectory = adopted ? dirname(database) : paths.sideFolder;
-    const workspaceRoot = this.workspaceRootFor(name, adopted, database);
-    if (!workspaceRoot) throw new Error(`Outline "${name}" does not record the folder it belongs to; write {"root": "<folder>"} to ${outlineSettingsPath(this.stateRoot, name)}`);
-    if (!adopted) mkdirSync(stateDirectory, { recursive: true });
+    const database = this.layout.database(name);
+    const entry = lstatOrUndefined(database);
+    if (!entry) throw new Error(`No outline named "${name}" in ${this.outlinesFolder}; create it with \`ep0ch init ${name}\``);
+    if (!entry.isFile()) throw new Error(`${database} is not a file; an outline is a database file in ${this.outlinesFolder}, never a link`);
+    const stateDirectory = this.layout.folder(name);
+    const workspaceRoot = stateDirectory;
+    mkdirSync(stateDirectory, { recursive: true });
     let store: OutlinerStore;
     try {
       store = new OutlinerStore(database, { workspaceRoot });
@@ -512,7 +428,7 @@ export class OutlineHost {
       server.setHost(() => this.status());
       server.startHosted();
       if (this.closing) throw new Error("The outline host is stopping");
-      const outline: HostedOutline = { name, database, adopted, stateDirectory, workspaceRoot, promptDirectory, store, server };
+      const outline: HostedOutline = { name, database, stateDirectory, workspaceRoot, promptDirectory, store, server };
       this.opened.set(name, outline);
       try { await this.options.onOpen?.(outline); }
       catch (error) { this.log(`Outline "${name}": ${error instanceof Error ? error.message : String(error)}`); }
@@ -584,7 +500,7 @@ export class OutlineHost {
     }
     const name = named ?? this.defaultOutline;
     if (!name) {
-      fail(new Error("This outline host has no default outline; name one with `outline` in the request"));
+      fail(new Error("Name the outline: every request to the outline host carries `outline: <name>` (see `ep0ch outline list`)"));
       return;
     }
     let outline: HostedOutline;
@@ -613,9 +529,9 @@ export class OutlineHost {
   private handleHostAction(request: Record<string, unknown>): Promise<unknown> | unknown {
     switch (request.action) {
       case "outlines.list": return this.list();
-      case "outlines.create": return this.create(request.name, request.root);
-      case "outlines.adopt": return this.adopt(request.path, request.name, request.root);
-      case "outlines.attach": return this.attach(request.name, request.create === true, request.root);
+      case "outlines.create": return this.create(request.name);
+      case "outlines.import": return this.importDatabase(request.path, request.name);
+      case "outlines.attach": return this.attach(request.name, request.create === true);
       case "outlines.pane": return this.paneOutline(request.paneId, request.hostname);
       case "outlines.close": return this.closeOutline(request.name);
       case "outlines.delete": return this.delete(request.name);

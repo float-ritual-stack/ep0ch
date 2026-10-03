@@ -12,13 +12,13 @@ const args = Object.fromEntries(process.argv.slice(2).flatMap((arg) => {
   const match = /^--([a-z][a-z0-9-]*)=(.*)$/.exec(arg);
   return match ? [[match[1]!, match[2]!]] : [];
 }));
-const socketPath = process.env.OUTLINER_SOCKET_PATH;
-const outline = process.env.OUTLINER_OUTLINE;
+const socketPath = process.env.EP0CH_SOCKET;
+const outline = process.env.EP0CH_WS;
 
 /** One request to the outline service: a JSON line out, a JSON line back. */
 function request<T>(body: Record<string, unknown>): Promise<T> {
   return new Promise((resolve, reject) => {
-    if (!socketPath) return reject(new Error("no OUTLINER_SOCKET_PATH: open this tile from the door"));
+    if (!socketPath) return reject(new Error("no EP0CH_SOCKET: open this tile from the door"));
     const socket = connect(socketPath);
     let buffer = "";
     socket.on("data", (chunk) => {

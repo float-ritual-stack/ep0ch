@@ -2,14 +2,15 @@ import { HerdrRuntimeRegistry } from "./herdr-registry";
 import { HerdrRegistryRunner } from "./herdr-runtime";
 import { OutlineHost } from "./outline-host";
 import { startOutlineInbox } from "./outline-inbox";
-import { resolveStateRoot } from "./paths";
+import { resolveOutlinesFolder } from "./paths";
 
 /*
- * The outline host: one per user and machine, on `<state root>/outliner.sock`.
- * `OUTLINER_DEFAULT_OUTLINE` names the outline that requests without `outline`
- * reach; it must already be in `outlines/` (created or adopted). Outlines open
- * on their first request. A failure to start is said on stderr only: the host
- * has no per-folder state directory to log into, and makes none.
+ * The outline host: one per user and machine, serving every outline in the
+ * outlines folder (EP0CH_OUTLINES, else `~/outlines`) by name, on
+ * `<outlines>/.host/host.sock`. Outlines open on their first request.
+ * `EP0CH_DEFAULT_WS` names an outline for requests without `outline` (tests and
+ * scripts that hold one outline); the person's clients always name theirs. A
+ * failure to start is said on stderr only.
  */
 // One outline's fault must not take the others down: log it and keep serving.
 // A request's own failure is already answered as an error to that request.
@@ -35,14 +36,14 @@ process.on("uncaughtException", error => contain("uncaught error", error.stack ?
 process.on("unhandledRejection", reason => contain("unhandled rejection", reason instanceof Error ? reason.stack ?? reason.message : String(reason)));
 
 try {
-  const stateRoot = resolveStateRoot();
+  const outlinesFolder = resolveOutlinesFolder();
   const herdrSocketPath = process.env.HERDR_SOCKET_PATH;
   const herdrRegistry = herdrSocketPath === undefined ? undefined : new HerdrRuntimeRegistry();
   const herdrRunner = herdrRegistry && herdrSocketPath ? new HerdrRegistryRunner(herdrRegistry, herdrSocketPath) : null;
   let stopping = false;
-  const defaultOutline = process.env.OUTLINER_DEFAULT_OUTLINE?.trim() || undefined;
+  const defaultOutline = process.env.EP0CH_DEFAULT_WS?.trim() || undefined;
   const host = new OutlineHost({
-    stateRoot,
+    outlinesFolder,
     defaultOutline,
     herdrRegistry,
     promptDirectory: process.env.OUTLINER_PROMPT_DIR,

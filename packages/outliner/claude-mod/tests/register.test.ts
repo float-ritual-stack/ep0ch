@@ -24,10 +24,10 @@ const ANSWER: TurnCompleteInput = {
 
 type Run = { argv: readonly string[]; init?: ProcessRunInit }
 
-/** `bound-folder`'s answer: WORKSPACE is bound to an outline by its client.json; every other folder is unbound. */
+/** `bound-folder`'s answer: WORKSPACE's .ep0ch names an outline; every other folder is unbound. */
 function boundToWorkspace(folder: string): string {
   return folder === WORKSPACE || folder.startsWith(`${WORKSPACE}/`)
-    ? JSON.stringify({ bound: true, source: 'client', folder: WORKSPACE, configPath: '/config/outliner--0a1b2c3d4e5f/client.json', mode: 'host', outline: 'garden' })
+    ? JSON.stringify({ bound: true, folder: WORKSPACE, configPath: `${WORKSPACE}/.ep0ch`, outline: 'garden' })
     : JSON.stringify({ bound: false, folder })
 }
 
@@ -155,7 +155,7 @@ describe('register', () => {
       'ingest',
     ])
     expect(ingest.init?.cwd).toBe(WORKSPACE)
-    expect(ingest.init?.env).toEqual({ OUTLINER_WORKSPACE_ROOT: WORKSPACE, OUTLINER_OUTLINE: 'garden', OUTLINER_CONFIG_PATH: '' })
+    expect(ingest.init?.env).toEqual({ OUTLINER_WORKSPACE_ROOT: WORKSPACE, EP0CH_WS: 'garden' })
     expect(JSON.parse(ingest.init?.stdin ?? '')).toEqual({
       workspaceRoot: WORKSPACE,
       agent: 'claude',
@@ -170,26 +170,14 @@ describe('register', () => {
     const nested = `${WORKSPACE}/projects/mod`
     // projects/ has a binding of its own (to another outline), nearer than the workspace's.
     const session = sessionIn(on, `${nested}/src`, succeeding, '', {}, folder =>
-      result(0, folder.startsWith(`${nested}/`) ? `{"bound":true,"source":"client","folder":"${nested}","mode":"host","outline":"mod-notes"}` : boundToWorkspace(folder), ''))
+      result(0, folder.startsWith(`${nested}/`) ? `{"bound":true,"folder":"${nested}","outline":"mod-notes"}` : boundToWorkspace(folder), ''))
     await session.begin(() => $.session.start({ ...START, cwd: `${nested}/src` }))
     await $.turn.complete(ANSWER)
     await session.clock.settle()
     const ingest = session.delivered()[1]!
     expect(ingest.init?.cwd).toBe(nested)
-    expect(ingest.init?.env).toEqual({ OUTLINER_WORKSPACE_ROOT: nested, OUTLINER_OUTLINE: 'mod-notes', OUTLINER_CONFIG_PATH: '' })
+    expect(ingest.init?.env).toEqual({ OUTLINER_WORKSPACE_ROOT: nested, EP0CH_WS: 'mod-notes' })
     expect(JSON.parse(ingest.init?.stdin ?? '').workspaceRoot).toBe(nested)
-  })
-
-  test('an outline root the host serves: its outline is named, since no client.json names it', async ($, on) => {
-    const root = '/work/jam-shelf/notes'
-    const session = sessionIn(on, `${root}/drafts`, succeeding, '', {}, () =>
-      result(0, `{"bound":true,"source":"host-root","folder":"${root}","outline":"jam-shelf"}`, ''))
-    await session.begin(() => $.session.start({ ...START, cwd: `${root}/drafts` }))
-    await $.turn.complete(ANSWER)
-    await session.clock.settle()
-    const ingest = session.delivered()[1]!
-    expect(ingest.init?.cwd).toBe(root)
-    expect(ingest.init?.env).toEqual({ OUTLINER_WORKSPACE_ROOT: root, OUTLINER_OUTLINE: 'jam-shelf', OUTLINER_CONFIG_PATH: '' })
   })
 
   test('an unbound folder: nothing is ingested, nothing linked, and no outline is guessed or defaulted', async ($, on) => {
@@ -209,7 +197,7 @@ describe('register', () => {
 
   test('an answer the CLI binds outside the session folder is not trusted', async ($, on) => {
     const session = sessionIn(on, '/home/sam/scratch', succeeding, '', {}, () =>
-      result(0, `{"bound":true,"source":"client","folder":"${WORKSPACE}","mode":"host","outline":"garden"}`, ''))
+      result(0, `{"bound":true,"folder":"${WORKSPACE}","outline":"garden"}`, ''))
     await session.begin(() => $.session.start({ ...START, cwd: '/home/sam/scratch' }))
     await $.turn.complete(ANSWER)
     await session.clock.settle()
@@ -267,16 +255,8 @@ describe('register', () => {
     }
   })
 
-  test("OUTLINER_REMOTE=0 (this machine) is not a remote socket: the bound folder feeds", async ($, on) => {
-    const session = sessionIn(on, WORKSPACE, succeeding, '', { OUTLINER_REMOTE: '0' })
-    await session.begin(() => $.session.start(START))
-    await $.turn.complete(ANSWER)
-    await session.clock.settle()
-    expect(session.runs.filter(run => run.argv.includes('ingest'))).toHaveLength(1)
-  })
-
   test("a remote socket in Claude's environment: nothing is fed, and it says why once", async ($, on) => {
-    const session = sessionIn(on, WORKSPACE, succeeding, '', { OUTLINER_REMOTE: '1', OUTLINER_SOCKET_PATH: '/elsewhere/outliner.sock' })
+    const session = sessionIn(on, WORKSPACE, succeeding, '', { EP0CH_SOCKET: '/elsewhere/host.sock' })
     await session.begin(() => $.session.start(START))
     await $.turn.complete(ANSWER)
     await $.turn.complete({ ...ANSWER, turnId: 'turn-2' })
@@ -284,7 +264,7 @@ describe('register', () => {
     expect(session.bindings).toEqual([])
     expect(session.runs).toEqual([])
     expect(session.toasts).toHaveLength(1)
-    expect(session.toasts[0]).toContain('OUTLINER_REMOTE / OUTLINER_SOCKET_PATH')
+    expect(session.toasts[0]).toContain('EP0CH_SOCKET')
   })
 
   test('strict allowlist mode: a bound folder that is not listed feeds nothing', async ($, on) => {
@@ -373,7 +353,7 @@ describe('register', () => {
     expect(text).toBe(ANSWER.answer)
     expect(session.runs.filter(run => run.argv.includes('ingest'))).toEqual([])
     expect(session.toasts).toEqual([
-      `Outliner recent mentions unavailable: Outliner workspaces entry "${WORKSPACE}=fred" is not an absolute folder; list folders only, and bind a folder to an outline in its client.json (the choose-outline action)`,
+      `Outliner recent mentions unavailable: Outliner workspaces entry "${WORKSPACE}=fred" is not an absolute folder; list folders only, and name a folder's outline in its .ep0ch (ep0ch init)`,
     ])
   })
 
@@ -704,7 +684,7 @@ describe('register', () => {
       '--author', 'agent', '--actor', 'claude-code', '--session', 'session-1',
     ])
     expect(run.init?.cwd).toBe(WORKSPACE)
-    expect(run.init?.env).toEqual({ OUTLINER_WORKSPACE_ROOT: WORKSPACE, OUTLINER_OUTLINE: 'garden', OUTLINER_CONFIG_PATH: '' })
+    expect(run.init?.env).toEqual({ OUTLINER_WORKSPACE_ROOT: WORKSPACE, EP0CH_WS: 'garden' })
 
     await $.tool.call({ tool: 'mcp__pi-outliner__work_complete', item: 'PIE-8', deliveries: ['d-1', 'PIE-8/door'], proof: 'Proof\n\nChecked.' })
     const completed = session.runs.findLast(candidate => candidate.argv.includes('complete'))!

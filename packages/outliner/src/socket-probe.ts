@@ -21,3 +21,9 @@ export function probeSocket(socket: string, timeoutMs = 1_000): Promise<SocketPr
       done(error.code === "ENOENT" ? "absent" : error.code === "ECONNREFUSED" || error.code === "ENOTSOCK" ? "refused" : "silent"));
   });
 }
+
+/** Whether nothing serves a socket: its file is missing or a connection is refused. A slow or busy listener counts as present. */
+export async function socketAbsent(socket: string, timeoutMs = 1_000): Promise<boolean> {
+  const probe = await probeSocket(socket, timeoutMs);
+  return probe === "absent" || probe === "refused";
+}

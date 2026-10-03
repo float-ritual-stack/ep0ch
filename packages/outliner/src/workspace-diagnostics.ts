@@ -1,12 +1,10 @@
 import {statSync} from 'node:fs';
 import {hostname} from 'node:os';
-import {join} from 'node:path';
 import {createOutlinerClient} from './client';
-import {outlineHostPaths,resolveClientConfigPath,resolveClientPaths,resolvePaths,resolveStateRoot} from './paths';
+import {outlinesLayout,resolveClientPaths,resolveOutlinesFolder,invocationFolder} from './paths';
 import {checkServiceCompatibility} from './service-compatibility';
 import {OUTLINER_MIN_SERVICE_PROTOCOL,OUTLINER_PROTOCOL_VERSION,type OutlinerServiceStatus} from './types';
 import {sanitizeDynamicText} from './terminal';
-import {openStartupErrorLogPath} from './startup-error';
 
 export type WorkspaceReportEntry =
  | {kind:'section';title:string}
@@ -18,7 +16,7 @@ function presence(path:string):string {
  try{const stat=statSync(path);return stat.isSocket()?'socket exists':stat.isDirectory()?'directory exists':'file exists';}
  catch(error){return error instanceof Error&&'code' in error&&error.code==='ENOENT'?'missing':`cannot inspect: ${error instanceof Error?error.message:String(error)}`;}
 }
-/** Read-only diagnosis: never starts a service, opens SQLite, creates state or searches/moves backups. */
+/** Read-only diagnosis: never starts a host, opens SQLite, creates an outline or writes a `.ep0ch`. */
 export async function inspectWorkspaceConnection(env:NodeJS.ProcessEnv=process.env):Promise<WorkspaceReport> {
  const entries:WorkspaceReportEntry[]=[];
  const section=(title:string)=>entries.push({kind:'section',title});
@@ -26,46 +24,29 @@ export async function inspectWorkspaceConnection(env:NodeJS.ProcessEnv=process.e
  const note=(text:string)=>entries.push({kind:'note',text});
  const finish=(ok:boolean):WorkspaceReport=>({ok,entries,lines:entries.map(entry=>sanitizeDynamicText(entry.kind==='section'?`\n${entry.title}`:entry.kind==='note'?entry.text:`${entry.label}: ${entry.value}${entry.note?` (${entry.note})`:''}`))});
  section('Client');
- field('Workspace',resolvePaths(env).workspaceRoot);
- field('Client host',hostname());field('Bun',process.execPath);field('Client protocol',String(OUTLINER_PROTOCOL_VERSION),`needs service ≥ ${OUTLINER_MIN_SERVICE_PROTOCOL}`);field('Config',resolveClientConfigPath(env));
+ field('Folder',invocationFolder(env));
+ field('Client host',hostname());field('Bun',process.execPath);field('Client protocol',String(OUTLINER_PROTOCOL_VERSION),`needs service ≥ ${OUTLINER_MIN_SERVICE_PROTOCOL}`);
+ field('Outlines folder',resolveOutlinesFolder(env),env.EP0CH_OUTLINES?'from EP0CH_OUTLINES':'default');
  let paths;
- try{paths=resolveClientPaths(env);}catch(error){note(`Configuration error: ${error instanceof Error?error.message:String(error)}`);note('Fix the named configuration before launching; no state or database was created.');return finish(false);}
+ try{paths=resolveClientPaths(env);}catch(error){note(`Configuration error: ${error instanceof Error?error.message:String(error)}`);note('Fix the named setting or .ep0ch before launching; nothing was created.');return finish(false);}
  section('Connection');
- field('Connection',paths.mode);field('Endpoint',paths.socket,presence(paths.socket));
- {
-  const hostSocket=outlineHostPaths(resolveStateRoot(env)).socket;
-  const stateRootSource=env.OUTLINER_STATE_DIR?'state root from OUTLINER_STATE_DIR':'default state root';
-  field('Host',hostSocket,`${presence(hostSocket)}; ${stateRootSource}; ${paths.mode==='host'?'used':paths.outline?'not used: remote socket':'not used'}`);
-  const how={env:'OUTLINER_OUTLINE',bound:`bound: ${paths.configPath??"the folder's client.json"}`,repository:"repository guess: the git repository root's name, as a host is set up and nothing else is chosen",folder:"folder guess: the folder's name, as a host is set up and nothing else is chosen",pane:"the invoking pane's outline"} as const;
-  field('Outline name',paths.outline??(paths.unnamed?'none: this folder needs an explicit name':'none (the endpoint serves one outline)'),paths.outline?how[paths.outlineSource??'env']:paths.unnamed);
- }
- if(env.OUTLINER_REMOTE!==undefined)note('Connection mode selected by OUTLINER_REMOTE; project client.json is bypassed.');
- else if(env.OUTLINER_OUTLINE?.trim())note('Outline selected by OUTLINER_OUTLINE; project client.json is bypassed.');
- else field('Config presence',presence(resolveClientConfigPath(env)));
- {const log=openStartupErrorLogPath(env);field('Client startup logs',log??'not written (no state directory exists yet)',log?'check timestamp':undefined);}
- if(paths.mode==='local'){
-  section('Local storage');
-  field('Local state',paths.stateDir,presence(paths.stateDir));field('Local database',paths.database,presence(paths.database));
-  if(presence(paths.database)==='missing')note('Database is missing at this resolved location. It may be a new workspace or moved storage; this report cannot distinguish them. Locate your saved database/backup before starting a replacement.');
- }else if(paths.mode==='host')note(`Storage belongs to the outline host: ${paths.database} (or where that link points). This report never creates the outline.`);
- else note('Storage belongs to the remote service. The forwarded socket is local; it is not the database.');
- section('Backup');
- if(paths.mode==='local')field('Conventional backup directory (not a catalog)',join(paths.stateDir,'backups'),presence(join(paths.stateDir,'backups')));
- note('Manual backup locations are unknown; saved copies may be elsewhere.');
- section('Service storage');
+ field('Connection',paths.mode);field('Endpoint',paths.socket,`${presence(paths.socket)}${paths.mode==='remote'?'; EP0CH_SOCKET':''}`);
+ const how={env:'EP0CH_WS (or --ws)',file:`${paths.configPath}`,pane:"the invoking pane's outline"} as const;
+ field('Outline',paths.outline??'none',paths.outline?how[paths.outlineSource??'env']:`${paths.unnamed}${paths.guess?`; init offers "${paths.guess.name}" for ${paths.guess.folder}`:''}`);
+ if(paths.outline&&paths.mode==='host')field('Database',paths.database,presence(paths.database));
+ else if(paths.mode==='remote')note('Storage belongs to the host at the other end of EP0CH_SOCKET. The forwarded socket is local; it is not the database.');
+ section('Service');
+ if(!paths.outline){note('Name an outline first: ep0ch init, ep0ch --ws <name>, or a .ep0ch here.');return finish(false);}
  try{
   const service=await createOutlinerClient(paths).request<OutlinerServiceStatus>({action:'ping'},1500);
   field('Service',`${service.status}; protocol ${service.protocolVersion}`);
-  field('Service capabilities',service.capabilities?.length?service.capabilities.join(', '):'none reported');
-  if(service.location){
-   field('Service host',service.location.hostname);field('Service workspace',service.location.workspaceRoot);field('Service database',service.location.database);field('Service state',service.location.stateDirectory);note('Service backup locations: not registered; manual copies may be elsewhere.');
-  }else note('Service storage identity: not reported by this service version.');
+  if(service.location){field('Service host',service.location.hostname);field('Service database',service.location.database);field('Outline folder',service.location.stateDirectory);}
   const problem=checkServiceCompatibility(service);
   if(problem){note(`${problem.message} The endpoint is reachable; this is not a tunnel failure.`);return finish(false);}
   return finish(true);
  }catch(error){
   note(`Connection failed: ${error instanceof Error?error.message:String(error)}`);
-  note(paths.mode==='host'?`Check that the outline host runs (it is a service) and has the outline "${paths.outline}"; opening it from Herdr creates it, a read never does.`:paths.mode==='remote'?'Check the SSH socket tunnel and the canonical service on its host. Do not initialize a local database to repair a remote connection.':'Check the service startup log and the resolved database location. If storage was moved, recover or configure its intended location before starting the service.');
+  note(paths.mode==='host'?`Check that the outline host runs (it is a service; its socket is ${outlinesLayout(env).socket}) and has the outline "${paths.outline}".`:'Check the SSH socket tunnel and the outline host at its other end.');
   return finish(false);
  }
 }

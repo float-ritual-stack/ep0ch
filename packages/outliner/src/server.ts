@@ -57,7 +57,7 @@ import {
 } from "./resource-presentation";
 import { probeSocket } from "./socket-probe";
 import { WorkflowManager } from "./workflows";
-import { resolveFolderOutline } from "./paths";
+import { boundFolderOf } from "./paths";
 import {
   OUTLINER_CAPABILITIES,
   OUTLINER_HOST_CAPABILITIES,
@@ -363,13 +363,11 @@ export class OutlinerServer {
   }
 
   /** The host serving this outline; `ping` then reports it and the host's capabilities. */
-  /** On a host, whether a folder resolves to this outline (its binding, or its folder-name guess). */
+  /** On a host, whether a folder names this outline (its nearest `.ep0ch`). */
   private folderOpensThisOutline(folder: string): boolean {
     const name = this.hosted ? this.outline?.name : undefined;
     if (!name) return false;
-    const found = resolveFolderOutline(folder);
-    const outline = found.kind === "bound" ? (found.config as { outline?: unknown }).outline : found.kind === "guess" ? found.outline : undefined;
-    return outline === name;
+    try { return boundFolderOf(folder)?.outline === name; } catch { return false; }
   }
 
   setHost(status: () => OutlinerHostStatus): void {
@@ -1836,12 +1834,12 @@ export class OutlinerServer {
           break;
         case "outlines.list":
         case "outlines.create":
-        case "outlines.adopt":
+        case "outlines.import":
         case "outlines.attach":
         case "outlines.close":
         case "outlines.delete":
         case "outlines.pane":
-          throw new Error(`${action} is answered by an outline host; this service runs one outline`);
+          throw new Error(`${action} is answered by the outline host, never by one outline`);
         case "blocks.query":
           result = request.fields === undefined
             ? this.store.queryBlocks(request.query)

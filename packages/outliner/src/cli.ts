@@ -1,8 +1,7 @@
 import { createBlockComment } from "./block-comments";
 import { readSavedView } from "./saved-view-read";
 import {inspectWorkspaceConnection} from './workspace-diagnostics';
-import { realpathSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
 import { parseArgs, type ParseArgsOptionsConfig } from "node:util";
 import { normalizePropertyQueryScope, parsePropertyFilterClause } from "./block-query";
 import {
@@ -11,13 +10,11 @@ import {
 } from "./block-focus";
 import { createOutlinerClient, OutlinerRequestError, type RequestInput } from "./client";
 import { requireClientIdForRole } from "./client-target";
-import { boundFolderOf, outlineHostPaths, resolveClientConfigRoot, resolveClientPaths, resolveStateRoot, stateDirPaths } from "./paths";
-import { listKnownOutlines, type KnownOutline } from "./known-outlines";
-import { outlineHostClient } from "./outline-host-client";
-import { renameOutline, setOutlineRoot } from "./outline-names";
+import { boundFolderOf, clientSocket, outlinesLayout, resolveClientPaths, resolveOutlinesFolder, whichOutlineFor, writeDotEp0ch } from "./paths";
+import { attachHostedOutline, importHostedOutline, listHostedOutlines, outlineHostClient } from "./outline-host-client";
 import { navigateOutlinerLink, parseOutlinerLinkUri, resolveOutlinerLinkTarget } from "./outliner-links";
 import { blockDisplayTitle } from "./references";
-import type { BlockActivityKind, HostedOutlineList, HostedOutlineSummary, BlockReadField, BlockSearchQuery, CaptureReceipt, MutationProvenance, RoadmapItemCreateInput } from "./types";
+import type { BlockActivityKind, HostedOutlineDeletion, HostedOutlineSummary, BlockReadField, BlockSearchQuery, CaptureReceipt, MutationProvenance, RoadmapItemCreateInput } from "./types";
 import {
   completeWorkItem,
   createWorkItem,
@@ -31,26 +28,22 @@ import {
 } from "./work-tools";
 
 /**
- * `outliner --outline <name> <command> …` (or `--outline=<name>`) is
- * `OUTLINER_OUTLINE=<name>`: the command talks to that outline on the outline
- * host. Like `tmux -L` or `herdr --session`, it is a global flag before the
- * command, so it is never taken from another flag's value (`--text --outline`).
- * Plain commands never create the outline; only a session opener (herdr-open,
- * the door) attaches with create.
+ * `outliner --ws <name> <command> …` (or `--ws=<name>`) is `EP0CH_WS=<name>`: the command talks to that outline.
+ * Like `tmux -L` or `herdr --session`, it is a global flag before the command, so it is never taken from another
+ * flag's value (`--text --ws`). Plain commands never create the outline; `init` and the session openers (Herdr,
+ * the door) do.
  */
-while (process.argv[2] === "--outline" || process.argv[2]?.startsWith("--outline=")) {
+while (process.argv[2] === "--ws" || process.argv[2]?.startsWith("--ws=")) {
   const argument = process.argv[2]!;
-  const value = argument === "--outline" ? process.argv[3] : argument.slice("--outline=".length);
-  if (!value || value.startsWith("-")) throw new Error("--outline requires an outline name");
-  process.env.OUTLINER_OUTLINE = value;
-  process.argv.splice(2, argument === "--outline" ? 2 : 1);
+  const value = argument === "--ws" ? process.argv[3] : argument.slice("--ws=".length);
+  if (!value || value.startsWith("-")) throw new Error("--ws requires an outline name");
+  process.env.EP0CH_WS = value;
+  process.argv.splice(2, argument === "--ws" ? 2 : 1);
 }
 /**
- * `bound-folder [folder]`: the nearest folder, from `folder` (default: this
- * one) up, explicitly bound to an outline (`boundFolderOf`), as one JSON line:
- * `{ bound: true, source, folder, outline?, … }`, or `{ bound: false, folder }`.
- * Never a guessed outline. Reads only; needs no service. The Claude mod asks it
- * which outline a session's folder feeds.
+ * `bound-folder [folder]`: the nearest folder, from `folder` (default: this one) up, whose `.ep0ch` names an
+ * outline, as one JSON line: `{ bound: true, folder, configPath, outline }`, or `{ bound: false, folder }`. Never a
+ * guess. Reads only; needs no service. The Claude mod asks it which outline a session's folder feeds.
  */
 if (process.argv[2] === "bound-folder") {
   const [folderArgument, ...extra] = process.argv.slice(3);
@@ -115,11 +108,11 @@ if (process.argv[2] === "ext") {
   const { runExtCommand } = await import("./extension-install");
   process.exit(await runExtCommand(process.argv.slice(3)));
 }
-if (process.argv[2] === "outlines" || process.argv[2] === "outline") {
+if (process.argv[2] === "outlines" || process.argv[2] === "outline" || process.argv[2] === "init") {
   process.exit(await runOutlinesCommand(process.argv[2], process.argv.slice(3)));
 }
 /**
- * `publish serve [--port N] [--root DIR]… [--max-bytes N] [--base-path /pub] [--allow-host NAME]… [--artifact-cache DIR] [--public-port N] [--public-url URL] [--public-bind ADDR] [--outline NAME]`:
+ * `publish serve [--port N] [--root DIR]… [--max-bytes N] [--base-path /pub] [--allow-host NAME]… [--artifact-cache DIR] [--public-port N] [--public-url URL] [--public-bind ADDR] [--ws NAME]`:
  * serves blocks carrying `[publish::…]` read-only on 127.0.0.1 (src/publish.ts).
  * React artifacts compile into `--artifact-cache` (default `<state root>/publish/artifacts`).
  * `--public-port` adds the public listener (only `[publish::public]` notes, no index) for
@@ -134,19 +127,19 @@ if (process.argv[2] === "publish") {
 async function runPublishCommand(operation: string | undefined, args: string[]): Promise<number> {
   try {
     if (operation !== "serve" && operation !== "list") {
-      throw new Error("publish expects: serve [--port N] [--root DIR]… [--max-bytes N] [--base-path /pub] [--allow-host NAME]… [--artifact-cache DIR] [--public-port N] [--public-url URL] [--public-bind ADDR] [--outline NAME] | list [--public-url URL] [--json]");
+      throw new Error("publish expects: serve [--port N] [--root DIR]… [--max-bytes N] [--base-path /pub] [--allow-host NAME]… [--artifact-cache DIR] [--public-port N] [--public-url URL] [--public-bind ADDR] [--ws NAME] | list [--public-url URL] [--json]");
     }
     const { values } = parseArgs({
       args, strict: true,
       options: {
         port: { type: "string" }, root: { type: "string", multiple: true }, "max-bytes": { type: "string" },
-        "base-path": { type: "string" }, "allow-host": { type: "string", multiple: true }, outline: { type: "string" },
+        "base-path": { type: "string" }, "allow-host": { type: "string", multiple: true }, ws: { type: "string" },
         "artifact-cache": { type: "string" }, "public-port": { type: "string" }, "public-url": { type: "string" },
         "public-bind": { type: "string" },
         json: { type: "boolean" },
       },
     });
-    if (values.outline) process.env.OUTLINER_OUTLINE = values.outline;
+    if (values.ws) process.env.EP0CH_WS = values.ws;
     const port = values.port === undefined ? 8790 : Number(values.port);
     const maxBytes = values["max-bytes"] === undefined ? undefined : Number(values["max-bytes"]);
     if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error("--port must be a port number");
@@ -164,7 +157,7 @@ async function runPublishCommand(operation: string | undefined, args: string[]):
       ...(maxBytes === undefined ? {} : { maxBytes }),
       ...(values["base-path"] === undefined ? {} : { basePath: values["base-path"] }),
       ...(values["allow-host"] === undefined ? {} : { allowedHosts: values["allow-host"] }),
-      artifactCacheDirectory: resolve(values["artifact-cache"] ?? join(resolveStateRoot(), "publish", "artifacts")),
+      artifactCacheDirectory: resolve(values["artifact-cache"] ?? `${outlinesLayout().publish}/artifacts`),
       ...(publicUrl ? { publicUrl } : {}),
       log: line => console.error(line),
     });
@@ -182,7 +175,7 @@ async function runPublishCommand(operation: string | undefined, args: string[]):
     console.log(JSON.stringify({
       status: "publishing", url: `http://127.0.0.1:${server.port}${publisher.basePath}/`,
       ...(publicServer ? { publicListener: `http://${publicBind.includes(":") ? `[${publicBind}]` : publicBind}:${publicServer.port}${publisher.publicBase.basePath}/p/…`, publicUrl: `${publisher.publicBase.origin ?? ""}${publisher.publicBase.basePath}` } : {}),
-      outline: status.outline?.name ?? process.env.OUTLINER_OUTLINE ?? null, roots: publisher.roots,
+      outline: status.outline?.name ?? process.env.EP0CH_WS ?? null, roots: publisher.roots,
     }));
     const stopped = Promise.withResolvers<void>();
     for (const signal of ["SIGINT", "SIGTERM"] as const) process.once(signal, () => stopped.resolve());
@@ -198,113 +191,65 @@ async function runPublishCommand(operation: string | undefined, args: string[]):
 }
 const paths = resolveClientPaths();
 
-function describeOutline(outline: KnownOutline): string {
-  const name = outline.name ?? (outline.descriptor === "missing" ? "(no descriptor yet)" : outline.descriptor === "invalid" ? "(descriptor unreadable)" : "(no name)");
-  const lines = [`${name}  ${outline.status}  ${outline.location}${outline.label !== outline.name ? `  "${outline.label}"` : ""}`];
-  lines.push(`  root     ${outline.root ?? "unknown"}`);
-  if (outline.name) lines.push(`  address  ${outline.byNameSocket}`);
-  lines.push(`  socket   ${outline.socket}`);
-  if (outline.stateDir) lines.push(`  storage  ${outline.stateDir}`);
-  for (const alias of outline.aliases) lines.push(`  alias    ${alias}`);
-  return lines.join("\n");
-}
-
 function describeHostedOutline(outline: HostedOutlineSummary): string {
-  const flags = ["hosted", outline.open ? "open" : "closed", ...(outline.default ? ["default"] : []), ...(outline.adopted ? ["adopted"] : [])];
-  return [
-    `${outline.name}  ${flags.join("  ")}`,
-    `  root     ${outline.root ?? "unknown"}`,
-    `  database ${outline.database}`,
-    ...(outline.problem ? [`  problem  ${outline.problem}`] : []),
-  ].join("\n");
+  const flags = [outline.open ? "open" : "closed", ...(outline.default ? ["default"] : [])];
+  return [`${outline.name}  ${flags.join("  ")}`, `  database ${outline.database}`, `  folder   ${outline.folder}`].join("\n");
 }
+
+const OUTLINE_USAGE = "outline create <name> | import <database.sqlite> <name> | close <name> | delete <name>   (each with --json); init [<name>] [--folder <dir>]";
 
 /**
- * One row of `outlines`: a slice-1 stored outline (`hosted: false`) or an
- * outline host's (`hosted: true`). A hosted row's status is `running` when
- * the host has it open, `stopped` when not yet opened or closed, and `broken`
- * when its database is missing (see `problem`).
+ * `outlines [--json]` lists the outline host's outlines. `outline create|import|close|delete` go through the
+ * host. `init [<name>] [--folder <dir>]` names a folder's outline (PIE-530): it attaches to `<name>` (default: the
+ * folder's guess, its repository's or its own name), creating it when there is none, and writes `<folder>/.ep0ch`.
+ * None of them needs the invoking folder's own outline, so they run before it resolves.
  */
-type ListedOutline =
-  | (KnownOutline & { hosted: false })
-  | (Omit<KnownOutline, "status"> & { hosted: true; status: "running" | "stopped" | "broken" } & Omit<HostedOutlineSummary, "name" | "root">);
-
-function hostedRow(outline: HostedOutlineSummary, socket: string): ListedOutline {
-  return {
-    ...outline, hosted: true, socket, label: outline.name, name: outline.name, aliases: [],
-    location: "local", status: outline.problem ? "broken" : outline.open ? "running" : "stopped",
-  };
-}
-
-function realOrSelf(path: string): string {
-  try { return realpathSync(path); } catch { return resolve(path); }
-}
-
-/** Stored (slice-1) outlines whose database a hosted outline has adopted are listed once, as the hosted row. */
-function notAdopted(stored: readonly KnownOutline[], hosted: readonly HostedOutlineSummary[]): KnownOutline[] {
-  const served = new Set(hosted.map(outline => realOrSelf(outline.database)));
-  return stored.filter(outline => !outline.stateDir || !served.has(realOrSelf(stateDirPaths(outline.stateDir).database)));
-}
-
-
-/**
- * `outlines [--json]` lists the outline host's outlines when a host runs under
- * the state root, and otherwise lists outlines by scanning the state root and
- * client configs. `outline create|adopt` go through the host; `outline
- * set-root|rename` change a slice-1 descriptor explicitly. None of them needs
- * the invoking folder's own outline, so they run before it resolves.
- */
-async function runOutlinesCommand(group: "outlines" | "outline", args: string[]): Promise<number> {
-  const stateRoot = resolveStateRoot();
+async function runOutlinesCommand(group: "outlines" | "outline" | "init", args: string[]): Promise<number> {
   try {
+    const host = await outlineHostClient();
+    const hostOrThrow = () => {
+      if (!host) throw new Error(`No outline host answers at ${clientSocket().socket}; start it (systemctl --user start outliner-host, or bun packages/outliner/src/host-main.ts)`);
+      return host;
+    };
     if (group === "outlines") {
       const { values } = parseArgs({ args, strict: true, options: { json: { type: "boolean" } } });
-      // One listing either way: slice-1 stored outlines, then a running host's.
-      const host = await outlineHostClient(stateRoot);
-      const hosted = host ? await host.request<HostedOutlineList>({ action: "outlines.list" }) : undefined;
-      const stored = notAdopted(await listKnownOutlines({ stateRoot, configRoot: resolveClientConfigRoot() }), hosted?.outlines ?? []);
-      const outlines: ListedOutline[] = [
-        ...stored.map(outline => ({ ...outline, hosted: false as const })),
-        ...(host && hosted ? hosted.outlines.map(outline => hostedRow(outline, host.socketPath)) : []),
-      ];
-      if (values.json) {
-        console.log(JSON.stringify({
-          stateRoot,
-          ...(host ? { host: { socket: host.socketPath, ...(hosted?.defaultOutline ? { defaultOutline: hosted.defaultOutline } : {}) } } : {}),
-          outlines,
-        }, null, 2));
-      } else {
-        console.log(outlines.length
-          ? [...stored.map(describeOutline), ...(hosted?.outlines ?? []).map(describeHostedOutline)].join("\n\n")
-          : `No outlines in ${stateRoot}.`);
-      }
+      const listed = await listHostedOutlines(hostOrThrow());
+      if (values.json) console.log(JSON.stringify({ folder: resolveOutlinesFolder(), socket: hostOrThrow().socketPath, ...listed }, null, 2));
+      else console.log(listed.outlines.length ? listed.outlines.map(describeHostedOutline).join("\n\n") : `No outlines in ${resolveOutlinesFolder()}.`);
+      return 0;
+    }
+    if (group === "init") {
+      const { values, positionals } = parseArgs({ args, allowPositionals: true, strict: true, options: { json: { type: "boolean" }, folder: { type: "string" } } });
+      if (positionals.length > 1) throw new Error(`init expects: [<name>] [--folder <dir>]`);
+      const asked = resolve(values.folder ?? process.cwd());
+      const which = whichOutlineFor(asked, { ...process.env, EP0CH_WS: "" });
+      const guess = which.kind === "unnamed" ? which.guess : undefined;
+      const name = positionals[0] ?? guess?.name;
+      if (!name) throw new Error(which.kind === "named" ? `${which.file} already names "${which.name}"` : `${asked} is too broad to name an outline after; name one: init <name>`);
+      const folder = values.folder || positionals[0] ? asked : guess!.folder;
+      const attached = await attachHostedOutline(hostOrThrow(), name, true);
+      const file = writeDotEp0ch(folder, name, { replace: true });
+      console.log(values.json ? JSON.stringify({ ...attached, file }, null, 2) : `${attached.created ? "created" : "picked"} outline ${name}; ${file} names it`);
       return 0;
     }
     const [operation, ...operands] = args;
-    const { values, positionals } = parseArgs({ args: operands, allowPositionals: true, strict: true, options: { json: { type: "boolean" }, root: { type: "string" } } });
-    if (operation === "create" || operation === "adopt") {
-      const wanted = operation === "create" ? 1 : 2;
-      if (positionals.length !== wanted) throw new Error(operation === "create" ? "outline create expects: <name> [--root <folder>]" : "outline adopt expects: <database path> <name> [--root <folder>]");
-      const host = await outlineHostClient(stateRoot);
-      if (!host) throw new Error(`No outline host is running at ${outlineHostPaths(stateRoot).socket}; start it with \`bun run host\``);
-      const created = operation === "create"
-        ? await host.request<HostedOutlineSummary>({ action: "outlines.create", name: positionals[0]!, ...(values.root ? { root: resolve(values.root) } : {}) })
-        : await host.request<HostedOutlineSummary>({
-          action: "outlines.adopt", path: resolve(positionals[0]!), name: positionals[1]!,
-          ...(values.root ? { root: resolve(values.root) } : {}),
-        });
-      console.log(values.json ? JSON.stringify(created, null, 2) : describeHostedOutline(created));
-      return 0;
-    }
-    let descriptor;
-    if (operation === "set-root" && positionals.length === 2) {
-      descriptor = await setOutlineRoot({ stateRoot, name: positionals[0]!, root: positionals[1]! });
-    } else if (operation === "rename" && positionals.length === 2) {
-      descriptor = await renameOutline({ stateRoot, from: positionals[0]!, to: positionals[1]! });
+    const { values, positionals } = parseArgs({ args: operands, allowPositionals: true, strict: true, options: { json: { type: "boolean" } } });
+    const print = (value: unknown, text: string) => console.log(values.json ? JSON.stringify(value, null, 2) : text);
+    if (operation === "create" && positionals.length === 1) {
+      const created = await hostOrThrow().request<HostedOutlineSummary>({ action: "outlines.create", name: positionals[0]! });
+      print(created, describeHostedOutline(created));
+    } else if (operation === "import" && positionals.length === 2) {
+      const imported = await importHostedOutline(hostOrThrow(), resolve(positionals[0]!), positionals[1]!);
+      print(imported, `${describeHostedOutline(imported)}\n  imported ${Object.entries(imported.imported).map(([table, count]) => `${count} ${table}`).join(", ")}`);
+    } else if (operation === "close" && positionals.length === 1) {
+      const closed = await hostOrThrow().request<HostedOutlineSummary>({ action: "outlines.close", name: positionals[0]! });
+      print(closed, `closed outline ${closed.name}; its next request opens it again`);
+    } else if (operation === "delete" && positionals.length === 1) {
+      const deleted = await hostOrThrow().request<HostedOutlineDeletion>({ action: "outlines.delete", name: positionals[0]! });
+      print(deleted, `moved outline ${deleted.name} to ${deleted.movedTo}`);
     } else {
-      throw new Error("outline expects: create <name> [--root <folder>] | adopt <database path> <name> [--root <folder>] | set-root <name|storage-key> <path> | rename <name|storage-key> <new-name>");
+      throw new Error(`expects: ${OUTLINE_USAGE}`);
     }
-    console.log(values.json ? JSON.stringify(descriptor, null, 2) : `${descriptor.name}  ${descriptor.root}`);
     return 0;
   } catch (error) {
     console.error(`error: ${error instanceof Error ? error.message : String(error)}`);

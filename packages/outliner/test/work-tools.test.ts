@@ -3,7 +3,7 @@ import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { resolvePaths } from "../src/paths";
+import { scratchOutline } from "./scratch-outline";
 import { parsePropertyRecords } from "../src/properties";
 import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
@@ -40,8 +40,7 @@ async function runCli(env: Record<string, string>, args: string[], stdin?: strin
  */
 async function setup() {
   const root = mkdtempSync(join(tmpdir(), "outliner-work-tools-"));
-  const env = { OUTLINER_STATE_DIR: join(root, "state"), OUTLINER_WORKSPACE_ROOT: root };
-  const paths = resolvePaths(env);
+  const { env, ...paths } = scratchOutline(root);
   const store = new OutlinerStore(paths.database, { workspaceRoot: root });
   const server = new OutlinerServer(store, paths.socket);
   await server.start();
@@ -374,8 +373,7 @@ test("an item body is replaced below its title and property lines", async () => 
 
 test("a service older than this client is refused with a restart instruction", async () => {
   const root = mkdtempSync(join(tmpdir(), "outliner-work-old-"));
-  const env = { OUTLINER_STATE_DIR: join(root, "state"), OUTLINER_WORKSPACE_ROOT: root };
-  const socket = resolvePaths(env).socket;
+  const { env, socket } = scratchOutline(root);
   Bun.spawnSync(["mkdir", "-p", join(socket, "..")]);
   const old = createServer((connection) => connection.on("data", (chunk) => {
     const { id } = JSON.parse(String(chunk).split("\n")[0]!);

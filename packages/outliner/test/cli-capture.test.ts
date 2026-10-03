@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { resolvePaths } from "../src/paths";
+import { scratchOutline } from "./scratch-outline";
 import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
 
@@ -47,11 +47,7 @@ async function runCli(
 async function setup() {
   const stateDir = mkdtempSync(join(tmpdir(), "pi-outliner-cli-capture-state-"));
   const workspaceRoot = mkdtempSync(join(tmpdir(), "pi-outliner-cli-capture-workspace-"));
-  const env = {
-    OUTLINER_STATE_DIR: stateDir,
-    OUTLINER_WORKSPACE_ROOT: workspaceRoot,
-  };
-  const paths = resolvePaths(env);
+  const { env, ...paths } = scratchOutline(stateDir, { folder: workspaceRoot });
   const store = new OutlinerStore(paths.database);
   const server = new OutlinerServer(store, paths.socket);
   await server.start();
@@ -156,10 +152,7 @@ test("reports service failure without writing a fallback", async () => {
     "offline",
     "--request-id",
     "offline-request",
-  ], {
-    OUTLINER_STATE_DIR: stateDir,
-    OUTLINER_WORKSPACE_ROOT: workspaceRoot,
-  });
+  ], scratchOutline(stateDir, { folder: workspaceRoot }).env);
   expect(result.exitCode).not.toBe(0);
   expect(result.stdout).toBe("");
   expect(result.stderr).toContain("ENOENT");

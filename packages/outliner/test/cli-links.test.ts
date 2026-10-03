@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { OutlinerClient, type OutlinerWatcher } from "../src/client";
 import { outlinerLinkUri, resourceOccurrenceLink } from "../src/outliner-links";
-import { resolvePaths } from "../src/paths";
+import { scratchOutline } from "./scratch-outline";
 import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
 import type { OutlinerClientRegistration, OutlinerUiCommand } from "../src/types";
@@ -16,8 +16,7 @@ afterEach(async () => {
 
 async function setup() {
   const root = mkdtempSync(join(tmpdir(), "outliner-cli-links-"));
-  const env = { OUTLINER_STATE_DIR: join(root, "state"), OUTLINER_WORKSPACE_ROOT: root };
-  const paths = resolvePaths(env);
+  const { env, ...paths } = scratchOutline(root);
   const store = new OutlinerStore(paths.database, { workspaceRoot: root });
   const server = new OutlinerServer(store, paths.socket);
   const client = new OutlinerClient(paths.socket);
@@ -159,7 +158,7 @@ test("resolve answers a link's block without navigating or creating a page", asy
   const ticket = store.create("Ticket [page::HUB-001]");
   const page = store.create("Daily notes [page::Daily notes]");
   const other = store.create("Plain block");
-  const env = { ...process.env, OUTLINER_STATE_DIR: join(store.workspaceRoot!, "state"), OUTLINER_WORKSPACE_ROOT: store.workspaceRoot! };
+  const env = { ...process.env, ...scratchOutline(store.workspaceRoot!).env };
   const resolve = async (url: string) => {
     const child = Bun.spawn(["bun", "src/cli.ts", "resolve", url], {
       cwd: join(import.meta.dir, ".."), env, stdin: "ignore", stdout: "pipe", stderr: "pipe",

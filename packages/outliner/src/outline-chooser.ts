@@ -1,19 +1,27 @@
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { basename } from "node:path";
-import type { KnownOutline } from "./known-outlines";
-import { type OutlinerClientConfig, slugifyOutlineName } from "./paths";
+import { isOutlineName, slugifyOutlineName } from "./paths";
 import type { HostedOutlineSummary } from "./types";
 import { sanitizeDynamicText, type TerminalKey } from "./terminal";
 import { parseTreePrimaryClick, parseTreeWheelEvent } from "./tree-mouse";
+
+/**
+ * The Choose outline popup (PIE-530): a folder that names no outline (no EP0CH_WS, no `.ep0ch`) picks one of the
+ * host's outlines, starts a new one (its name offered from the folder's), or imports an older database. Each
+ * writes `.ep0ch` into the guessed folder, so the folder names its outline from then on; a folder too broad to name
+ * one after (`~`, `/tmp`) opens the choice this time only.
+ */
 
 /** What the launcher tells the chooser popup about the open it interrupted. */
 export interface OutlineChooserContext {
   mode: string;
   workspaceRoot: string;
   rootSource: string;
+  /** The name init offers, and the folder its `.ep0ch` goes in; absent for a folder too broad to name one after. */
+  guess?: { name: string; folder: string };
   paneId?: string;
   clientId?: string;
-  /** The switcher: the folder may already have an outline, and a choice replaces it. */
+  /** The switcher: the folder may already name an outline, and a choice replaces its `.ep0ch`. */
   switch?: boolean;
 }
 
@@ -23,10 +31,12 @@ export function parseOutlineChooserContext(value: string | undefined): OutlineCh
   if (typeof parsed.mode !== "string" || typeof parsed.workspaceRoot !== "string" || typeof parsed.rootSource !== "string") {
     throw new Error("OUTLINER_CHOOSER_CONTEXT must name mode, workspaceRoot and rootSource");
   }
+  const guess = parsed.guess && typeof parsed.guess.name === "string" && typeof parsed.guess.folder === "string" ? parsed.guess : undefined;
   return {
     mode: parsed.mode,
     workspaceRoot: parsed.workspaceRoot,
     rootSource: parsed.rootSource,
+    ...(guess ? { guess: { name: guess.name, folder: guess.folder } } : {}),
     ...(typeof parsed.paneId === "string" ? { paneId: parsed.paneId } : {}),
     ...(typeof parsed.clientId === "string" ? { clientId: parsed.clientId } : {}),
     ...(parsed.switch === true ? { switch: true } : {}),
@@ -34,44 +44,42 @@ export function parseOutlineChooserContext(value: string | undefined): OutlineCh
 }
 
 export type OutlineChooserRow =
-  | { kind: "outline"; outline: KnownOutline }
   | { kind: "hosted"; outline: HostedOutlineSummary }
-  | { kind: "new" };
+  | { kind: "new" }
+  | { kind: "import" };
+
+/** A line being typed: the new outline's name, or the path of the database to import. */
+export interface ChooserInput { row: "new" | "import"; text: string }
 
 export class OutlineChooser {
-  rows: OutlineChooserRow[] = [{ kind: "new" }];
+  rows: OutlineChooserRow[] = [{ kind: "new" }, { kind: "import" }];
   index = 0;
   loading = true;
   busy = false;
   status = "";
+  input: ChooserInput | undefined;
+  /** The names the host has. */
+  names = new Set<string>();
 
   constructor(readonly context: OutlineChooserContext) {}
 
   get selected(): OutlineChooserRow | undefined { return this.rows[this.index]; }
 
-  /** Set when an outline host answers: rows are its outlines, and "new" creates one there. */
-  host: { socket: string; names: Set<string> } | undefined;
-
-  setOutlines(outlines: readonly KnownOutline[]): void {
-    this.rows = [...outlines.map(outline => ({ kind: "outline", outline }) as const), { kind: "new" }];
-    this.index = Math.min(this.index, this.rows.length - 1);
-    this.loading = false;
-  }
-
-  setHostedOutlines(socket: string, outlines: readonly HostedOutlineSummary[]): void {
-    this.host = { socket, names: new Set(outlines.map(outline => outline.name)) };
-    this.rows = [...outlines.map(outline => ({ kind: "hosted", outline }) as const), { kind: "new" }];
+  setHostedOutlines(outlines: readonly HostedOutlineSummary[]): void {
+    this.names = new Set(outlines.map(outline => outline.name));
+    this.rows = [...outlines.map(outline => ({ kind: "hosted", outline }) as const), { kind: "new" }, { kind: "import" }];
     this.index = Math.min(this.index, this.rows.length - 1);
     this.loading = false;
   }
 
   move(delta: number): void {
+    if (this.input) return;
     this.index = Math.max(0, Math.min(this.rows.length - 1, this.index + delta));
     this.status = "";
   }
 
   select(index: number): void {
-    if (index < 0 || index >= this.rows.length) return;
+    if (index < 0 || index >= this.rows.length || this.input) return;
     this.index = index;
     this.status = "";
   }
@@ -82,6 +90,14 @@ export type ChooserIntent = "choose" | "close" | "changed" | null;
 export function chooserKey(chooser: OutlineChooser, key: TerminalKey): ChooserIntent {
   // Once a choice is being saved, closing would record it without opening anything.
   if (chooser.busy) return null;
+  if (chooser.input) {
+    if (key.name === "escape") { chooser.input = undefined; chooser.status = ""; return "changed"; }
+    if (key.ctrl && key.name === "c") return "close";
+    if (key.name === "return") return "choose";
+    if (key.name === "backspace") { chooser.input.text = [...chooser.input.text].slice(0, -1).join(""); return "changed"; }
+    if (!key.ctrl && !key.meta && key.sequence && /^[^\x00-\x1f\x7f]+$/.test(key.sequence)) { chooser.input.text += key.sequence; return "changed"; }
+    return null;
+  }
   if (key.name === "escape" || (key.ctrl && key.name === "c")) return "close";
   if (key.name === "return") return "choose";
   if (key.name === "up" || key.name === "k") { chooser.move(-1); return "changed"; }
@@ -109,25 +125,36 @@ export function chooserMouse(chooser: OutlineChooser, sequence: string, width: n
   if (!click || click.row < LIST_TOP || click.row >= LIST_TOP + layout.slots * 2 || click.column < 2 || click.column >= layout.inner + 2) return null;
   const index = layout.start + Math.floor((click.row - LIST_TOP) / 2);
   if (!chooser.rows[index]) return null;
+  // A click on the row being typed in submits it; a click elsewhere leaves the typing first.
+  if (chooser.input) {
+    if (chooser.rows[index]?.kind === chooser.input.row) return "choose";
+    chooser.input = undefined;
+    chooser.select(index);
+    return "changed";
+  }
   chooser.select(index);
   return "choose";
 }
 
-function describeHosted(outline: HostedOutlineSummary): { title: string; detail: string } {
-  const flags = [outline.open ? "\x1b[32mopen\x1b[0m" : "\x1b[2mclosed\x1b[0m", ...(outline.default ? ["default"] : []), ...(outline.adopted ? ["adopted"] : [])];
-  return {
-    title: `${sanitizeDynamicText(outline.name)}  ${flags.join("  ")}`,
-    detail: sanitizeDynamicText(outline.root ?? outline.database),
-  };
+/** The first free name from `base`: itself, then `-2`, `-3`… */
+export function freeOutlineName(base: string, taken: ReadonlySet<string>): string {
+  if (!taken.has(base)) return base;
+  for (let n = 2; ; n++) {
+    const suffix = `-${n}`;
+    const candidate = `${base.slice(0, 32 - suffix.length).replace(/-+$/, "")}${suffix}`;
+    if (!taken.has(candidate)) return candidate;
+  }
 }
 
-function describe(outline: KnownOutline): { title: string; detail: string } {
-  const status = outline.status === "running" ? "\x1b[32mrunning\x1b[0m" : "\x1b[2mstopped\x1b[0m";
-  const where = `${outline.name && outline.name !== outline.label ? `${outline.name} · ` : ""}${outline.root ?? `root unknown · ${outline.stateKey ?? outline.socket}`}`;
-  const aliases = outline.aliases.length ? ` · also ${outline.aliases.map(alias => sanitizeDynamicText(alias)).join(", ")}` : "";
+/** The name a new outline is offered: the folder's guess, free on this host. */
+export function newOutlineName(context: OutlineChooserContext, taken: ReadonlySet<string>): string {
+  return freeOutlineName(context.guess?.name ?? "outline", taken);
+}
+
+function describeHosted(outline: HostedOutlineSummary): { title: string; detail: string } {
   return {
-    title: `${sanitizeDynamicText(outline.label)}  ${status}${outline.location === "remote" ? "  \x1b[2mremote socket\x1b[0m" : ""}`,
-    detail: `${sanitizeDynamicText(where)}${aliases}`,
+    title: `${sanitizeDynamicText(outline.name)}  ${outline.open ? "\x1b[32mopen\x1b[0m" : "\x1b[2mclosed\x1b[0m"}`,
+    detail: sanitizeDynamicText(outline.database),
   };
 }
 
@@ -142,69 +169,69 @@ export function renderChooserFrame(chooser: OutlineChooser, width: number, heigh
   };
   const bordered = (line: string) => ` │${fit(line)}│ `;
   const root = sanitizeDynamicText(chooser.context.workspaceRoot);
+  const where = chooser.context.guess ? `writes ${sanitizeDynamicText(chooser.context.guess.folder)}/.ep0ch` : "this time only (the folder is too broad to name)";
   const list: string[] = [];
   for (const [offset, row] of chooser.rows.slice(start, start + slots).entries()) {
     const active = start + offset === chooser.index;
-    const text = row.kind === "new"
-      ? chooser.host
-        ? { title: "+ New outline here", detail: `Creates the outline "${newHostedOutlineName(chooser.context.workspaceRoot, chooser.host.names)}" on the outline host` }
-        : { title: "+ New outline here", detail: `Creates a new database for ${root}` }
-      : row.kind === "hosted" ? describeHosted(row.outline) : describe(row.outline);
+    const typing = chooser.input && chooser.input.row === row.kind ? chooser.input : undefined;
+    let text: { title: string; detail: string };
+    if (row.kind === "new") {
+      text = typing
+        ? { title: `+ New outline: ${sanitizeDynamicText(typing.text)}▏`, detail: `Enter creates it and ${where} · Esc back` }
+        : { title: "+ New outline", detail: `Named "${newOutlineName(chooser.context, chooser.names)}" (you can change it); ${where}` };
+    } else if (row.kind === "import") {
+      text = typing
+        ? { title: `↓ Import from: ${sanitizeDynamicText(typing.text)}▏`, detail: `An older .sqlite's full path; Enter makes a new outline from it and ${where}` }
+        : { title: "↓ Import a database", detail: "A new outline holding an older file's notes, properties, pages and work ids; the file is only read" };
+    } else {
+      const hosted = describeHosted(row.outline);
+      text = { title: hosted.title, detail: `${hosted.detail} · picking it ${where}` };
+    }
     const title = fit(`${active ? "›" : " "} ${text.title}`);
     list.push(active ? `\x1b[48;5;238m\x1b[1m${title}\x1b[0m` : title);
     list.push(`  \x1b[2m${text.detail}\x1b[0m`);
   }
-  const count = chooser.rows.length - 1;
+  const count = chooser.rows.length - 2;
   const heading = chooser.loading
     ? "Looking for outlines…"
-    : count ? `Use one of ${count} known outline${count === 1 ? "" : "s"}, or start a new one:` : "No other outlines found. Start a new one:";
+    : count ? `Pick one of ${count} outline${count === 1 ? "" : "s"}, start a new one, or import one:` : "No outlines yet. Start a new one, or import one:";
   const output = ["", ` ┌${"─".repeat(inner)}┐ `,
-    bordered(chooser.context.switch ? `\x1b[1;36mChoose the outline for\x1b[0m ${root}` : `\x1b[1;36mNo outline for\x1b[0m ${root}`),
+    bordered(chooser.context.switch ? `\x1b[1;36mChoose the outline for\x1b[0m ${root}` : `\x1b[1;36mNo outline is named for\x1b[0m ${root}`),
     bordered(`\x1b[2mResolved from ${sanitizeDynamicText(chooser.context.rootSource)}. Nothing has been created.\x1b[0m`),
     bordered(heading)];
   for (let row = 0; row < listHeight; row++) output.push(bordered(list[row] ?? ""));
   output.push(bordered(chooser.status ? `\x1b[33m${sanitizeDynamicText(chooser.status)}\x1b[0m` : ""));
-  output.push(bordered("\x1b[2m↑/↓ j/k move · Enter or click choose · wheel scroll · Esc close\x1b[0m"),
+  output.push(bordered(chooser.input
+    ? "\x1b[2mtype · Backspace erase · Enter or click do it · Esc back\x1b[0m"
+    : "\x1b[2m↑/↓ j/k move · Enter or click choose · wheel scroll · Esc close\x1b[0m"),
     ` └${"─".repeat(inner)}┘ `);
   return output.slice(0, height);
 }
 
 /**
- * The name "New outline here" gives on a host. One rule with the folder-name
- * guess (`resolveFolderOutline`): both start from the folder's name as a slug.
- * The guess attaches to an outline that already has the name; this explicit
- * "new" never does: it takes the first free `-2`, `-3`… suffix instead.
- */
-export function newHostedOutlineName(workspaceRoot: string, taken: ReadonlySet<string>): string {
-  const base = slugifyOutlineName(basename(workspaceRoot));
-  if (!taken.has(base)) return base;
-  for (let n = 2; ; n++) {
-    const suffix = `-${n}`;
-    const candidate = `${base.slice(0, 32 - suffix.length).replace(/-+$/, "")}${suffix}`;
-    if (!taken.has(candidate)) return candidate;
-  }
-}
-
-/**
- * What choosing a row does: the config to record, an outline service to start
- * first (no host), or an outline to create on the host first.
+ * What choosing a row does: open an outline (`pick`), create it first (`create`), make it from a database
+ * (`import`), start typing a name or a path (`input`), or refuse. `dotFolder` is where `.ep0ch` is written, when
+ * the folder may be named.
  */
 export type ChooserPlan =
-  | { kind: "write"; config: OutlinerClientConfig & { workspaceRoot: string }; startServiceFor?: string; createOutline?: string }
+  | { kind: "pick"; name: string; dotFolder?: string }
+  | { kind: "create"; name: string; dotFolder?: string }
+  | { kind: "import"; path: string; name: string; dotFolder?: string }
+  | { kind: "input"; input: ChooserInput }
   | { kind: "refuse"; message: string };
 
-export function planChoice(row: OutlineChooserRow, workspaceRoot: string, host?: { names: ReadonlySet<string> }): ChooserPlan {
-  if (row.kind === "hosted") return { kind: "write", config: { mode: "host", workspaceRoot, outline: row.outline.name } };
-  if (row.kind === "new" && host) {
-    const name = newHostedOutlineName(workspaceRoot, host.names);
-    return { kind: "write", config: { mode: "host", workspaceRoot, outline: name }, createOutline: name };
+export function planChoice(chooser: OutlineChooser, row: OutlineChooserRow): ChooserPlan {
+  const dot = chooser.context.guess ? { dotFolder: chooser.context.guess.folder } : {};
+  if (row.kind === "hosted") return { kind: "pick", name: row.outline.name, ...dot };
+  const input = chooser.input?.row === row.kind ? chooser.input : undefined;
+  if (!input) return { kind: "input", input: { row: row.kind, text: row.kind === "new" ? newOutlineName(chooser.context, chooser.names) : "" } };
+  const text = input.text.trim();
+  if (row.kind === "new") {
+    if (!isOutlineName(text)) return { kind: "refuse", message: `"${text}" isn't an outline name: lowercase letters, digits and hyphens, up to 32` };
+    if (chooser.names.has(text)) return { kind: "refuse", message: `There is already an outline named "${text}"; pick it from the list instead` };
+    return { kind: "create", name: text, ...dot };
   }
-  if (row.kind === "new") return { kind: "write", config: { mode: "local", workspaceRoot } };
-  const { outline } = row;
-  const config = { mode: "remote" as const, workspaceRoot, socketPath: outline.socket, label: outline.label };
-  if (outline.status === "running" || outline.location === "remote") return { kind: "write", config };
-  if (!outline.root) {
-    return { kind: "refuse", message: `${outline.label} is stopped and its folder is unknown; open it from its own folder first.` };
-  }
-  return { kind: "write", config, startServiceFor: outline.root };
+  if (!text.startsWith("/")) return { kind: "refuse", message: "Type the database's full path (it starts with /)" };
+  const base = chooser.context.guess?.name ?? slugifyOutlineName(basename(text).replace(/\.sqlite$/, ""));
+  return { kind: "import", path: text, name: freeOutlineName(base, chooser.names), ...dot };
 }

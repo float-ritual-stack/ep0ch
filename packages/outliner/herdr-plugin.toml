@@ -9,12 +9,6 @@ platforms = ["linux", "macos"]
 command = ["/bin/sh", "scripts/run-bun.sh", "install", "--frozen-lockfile"]
 
 [[panes]]
-id = "service"
-title = "Outliner Service"
-placement = "tab"
-command = ["/bin/sh", "scripts/run-bun.sh", "run", "src/server-main.ts"]
-
-[[panes]]
 id = "outliner"
 title = "Outliner"
 placement = "split"

@@ -10,9 +10,7 @@ import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, test } from "bun:test";
 import { OutlinerClient, type OutlinerWatcher } from "../src/client";
-import { resolvePaths } from "../src/paths";
-import { OutlinerServer } from "../src/server";
-import { OutlinerStore } from "../src/store";
+import { OutlineHost } from "../src/outline-host";
 import type { OutlinerClientRegistration } from "../src/types";
 
 const temporaryDirectories: string[] = [];
@@ -22,22 +20,19 @@ afterEach(() => {
   }
 });
 
-for (const mode of ["focus-or-open", "open-tree"] as const) test(`remote Herdr ${mode} preserves connection overrides and opens only its required panes`, async () => {
+for (const mode of ["focus-or-open", "open-tree"] as const) test(`remote Herdr ${mode} keeps the tunnel and the folder's outline, and opens only its required panes`, async () => {
   const directory = mkdtempSync(join(tmpdir(), "pi-outliner-remote-herdr-"));
   temporaryDirectories.push(directory);
   const workspaceRoot = join(directory, "workspace");
-  const stateRoot = join(directory, "state");
   mkdirSync(workspaceRoot);
-  const canonical = resolvePaths({
-    OUTLINER_WORKSPACE_ROOT: workspaceRoot,
-    OUTLINER_STATE_DIR: stateRoot,
-  });
-  mkdirSync(canonical.stateDir, { recursive: true });
-  const store = new OutlinerStore(canonical.database, { workspaceRoot });
-  const server = new OutlinerServer(store, canonical.socket);
-  await server.start();
+  // The host at the other end of the tunnel (EP0CH_SOCKET), and the folder's .ep0ch naming its outline.
+  const host = new OutlineHost({ outlinesFolder: join(directory, "remote-outlines"), log: () => {} });
+  await host.start();
+  await host.create("garden");
+  writeFileSync(join(workspaceRoot, ".ep0ch"), 'ws = "garden"\n');
+  const canonical = { socket: host.socketPath };
   const foreignConnected = Promise.withResolvers<void>();
-  const foreignWatcher = new OutlinerClient(canonical.socket).watch({
+  const foreignWatcher = new OutlinerClient(canonical.socket, undefined, "garden").watch({
     client: {
       clientId: "float-box-tree",
       role: "tree",
@@ -56,11 +51,6 @@ for (const mode of ["focus-or-open", "open-tree"] as const) test(`remote Herdr $
 
   const herdr = join(directory, "fake-herdr");
   const logPath = join(directory, "herdr-calls.jsonl");
-  const configPath = join(directory, "client.json");
-  writeFileSync(configPath, JSON.stringify({
-    mode: "remote",
-    socketPath: canonical.socket,
-  }));
   writeFileSync(
     herdr,
     `#!/usr/bin/env bun
@@ -91,7 +81,7 @@ if (args[0] === "pane" && args[1] === "get") {
   const registerOpenedPanes = (async (): Promise<OutlinerWatcher[]> => {
     const watchers: OutlinerWatcher[] = [];
     function register(role: "tree" | "detail", paneId: string): void {
-      watchers.push(new OutlinerClient(canonical.socket).watch({
+      watchers.push(new OutlinerClient(canonical.socket, undefined, "garden").watch({
         client: {
           clientId: `opened-local-${role}`,
           role,
@@ -142,10 +132,9 @@ if (args[0] === "pane" && args[1] === "get") {
         HERDR_BIN_PATH: herdr,
         HERDR_PANE_ID: "workspace:pane",
         OUTLINER_WORKSPACE_ROOT: workspaceRoot,
-        OUTLINER_STATE_DIR: stateRoot,
-        OUTLINER_REMOTE: undefined,
-        OUTLINER_SOCKET_PATH: undefined,
-        OUTLINER_CONFIG_PATH: configPath,
+        EP0CH_OUTLINES: join(directory, "local-outlines"),
+        EP0CH_SOCKET: canonical.socket,
+        EP0CH_WS: undefined,
       },
       stdout: "pipe",
       stderr: "pipe",
@@ -160,7 +149,7 @@ if (args[0] === "pane" && args[1] === "get") {
     expect(exitCode).toBe(0);
     expect(stderr).toBe("");
     const result = JSON.parse(stdout) as Record<string, unknown>;
-    expect(result.servicePane).toBeNull();
+    expect(result.outline).toBe("garden");
     expect(result.outlinerPane).toBe("workspace:outliner");
     expect(result.detailPane).toBe(mode === "open-tree" ? undefined : "workspace:detail");
 
@@ -172,16 +161,15 @@ if (args[0] === "pane" && args[1] === "get") {
       .map((args) => args[args.indexOf("--entrypoint") + 1]);
     expect(openedEntrypoints).toEqual(mode === "open-tree" ? ["outliner"] : ["outliner", "detail"]);
     for (const args of calls.filter((call) => call.includes("--entrypoint"))) {
-      expect(args).toContain(`OUTLINER_CONFIG_PATH=${configPath}`);
-      expect(args).not.toContain("OUTLINER_REMOTE=1");
-      expect(args).not.toContain(`OUTLINER_SOCKET_PATH=${canonical.socket}`);
+      // Every pane goes through the same tunnel to the same outline, whatever its own environment says.
+      expect(args).toContain(`EP0CH_SOCKET=${canonical.socket}`);
+      expect(args).toContain("EP0CH_WS=garden");
     }
   } finally {
     stopPaneRegistration = true;
     const openedPaneWatchers = await registerOpenedPanes;
     await Promise.all(openedPaneWatchers.map((watcher) => watcher.stop()));
     await foreignWatcher.stop();
-    await server.close();
-    store.close();
+    await host.close();
   }
 }, 10_000);

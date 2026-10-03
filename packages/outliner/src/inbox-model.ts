@@ -13,7 +13,7 @@ import { loadInboxPrompts, loadNotePrompts, PromptFileError, type InboxPrompts }
 import type { InboxModel, InboxModelContext, InboxPlan, InboxUsage } from "./inbox-types";
 import type { Block } from "./types";
 import { AssistantSession } from "./assistant-session";
-import { resolvePaths } from "./paths";
+
 
 const JEV_MODEL = "jev-1.13.0";
 const JEV_INPUT_PRICE = 0.042 / 1_000_000;
@@ -353,9 +353,7 @@ export function createInboxModel(options: InboxModelOptions = {}): InboxModel {
           return result(inventory); },
       }) as typeof customTools[number]);
       const workspaceRoot = options.workspaceRoot ?? process.cwd();
-      trace = new AssistantSession(workspaceRoot, options.sessionDirectory ?? join(
-        resolvePaths({ ...process.env, OUTLINER_WORKSPACE_ROOT: workspaceRoot }).stateDir, "assistant-sessions",
-      ), source.id, context.purpose ?? "edit");
+      trace = new AssistantSession(workspaceRoot, options.sessionDirectory ?? join(workspaceRoot, "assistant-sessions"), source.id, context.purpose ?? "edit");
       const retain = (outcome: "completed" | "failed" | "canceled") => {
         usage.piSessions = [trace!.finish(outcome)];
         context.reportUsage?.(snapshotUsage());
