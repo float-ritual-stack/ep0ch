@@ -121,4 +121,15 @@ describe.skipIf(!outliner)("a flow on the desk, against a scratch outline", () =
     // The columns a followed link opened keep their notes (details, saved with the layout).
     await until(() => tile(columns()[1]!)?.showing?.id === notes.boat.id && tile(columns()[2]!)?.showing?.id === notes.tide.id, "the columns' notes back");
   });
+
+  test("a river column's own keys are the same on the desk as on the river: x closes it, h moves the keys left", async () => {
+    const r = await mine("tile.open", { kind: "river.column", source: "roots", where: "right" }, "tree") as { tile: string };
+    await mine("tile.focus", {}, r.tile);
+    expect(get().focus).toBe(r.tile);
+    key({ kind: "char", ch: "h" });
+    expect(get().focus).not.toBe(r.tile);
+    await mine("tile.focus", {}, r.tile);
+    key({ kind: "char", ch: "x" });
+    await until(() => !tile(r.tile), "the column closed by its x");
+  });
 });

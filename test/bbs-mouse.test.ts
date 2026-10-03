@@ -8,7 +8,7 @@ import type { Ctx, Screen } from "../src/app";
 import type { Msg } from "../src/board";
 import { shellRunner } from "../src/drop";
 import { members, packs } from "../src/packs";
-import { ArtViewer, Conferences, FileAreas, Goodbye, Help, LastCallers, Logon, MainMenu, MessageList, MessageReader, Stats, WhoOnline } from "../src/screens";
+import { ArtViewer, Conferences, FileAreas, Goodbye, Help, Logon, MainMenu, MessageList, MessageReader, Stats } from "../src/screens";
 import { Showcase } from "../src/showcase/showcase";
 import { Desk } from "../src/desk/desk";
 import type { Activity } from "../src/socket";
@@ -162,10 +162,10 @@ describe.skipIf(!art)("the main menu by mouse", () => {
     s.key({ kind: "right" });
     expect(selected(m)).toBe("W");
     s.key({ kind: "enter" });
-    expect(s.top()).toBeInstanceOf(WhoOnline);
+    expect((s.top() as Desk).spec.name).toBe("who");
     s.stack.pop();
     s.key({ kind: "char", ch: "l" });
-    expect(s.top()).toBeInstanceOf(LastCallers);
+    expect((s.top() as Desk).spec.name).toBe("lastcall");
   });
 });
 
@@ -252,19 +252,6 @@ describe("the other BBS lists by mouse", () => {
     expect(s.top().title).toBe("The compost bays need turning");
   });
 
-  test("last callers: a click selects, a second reads; the wheel moves the selection", async () => {
-    const s = on(new LastCallers());
-    s.top().enter!(s.ctx);
-    await tick();
-    s.click("Kettle rota");
-    s.click("Kettle rota");
-    expect((s.top() as any).index).toBe(2);
-    s.stack.pop();
-    s.mouse("wheel-up", 5, 8);
-    s.key({ kind: "enter" });
-    expect((s.top() as any).index).toBe(1);
-  });
-
   test.skipIf(!art)("file areas: a click selects a pack, a click on it (or the description under it) browses it", () => {
     const s = on(new FileAreas());
     const name = packs()[1]!.split("/").at(-1)!.toUpperCase();
@@ -317,10 +304,7 @@ describe("the BBS screens with keys and no mouse, until now", () => {
     expect(s.top()).toBeInstanceOf(MainMenu);
   });
 
-  test("who's online and stats: Q back is clickable", () => {
-    const w = on(new WhoOnline());
-    w.click("Q back");
-    expect(w.stack.length).toBe(0);
+  test("stats: Q back is clickable", () => {
     const st = on(new Stats());
     st.click("Q back");
     expect(st.stack.length).toBe(0);

@@ -13,7 +13,6 @@ import { shortId } from "../refs";
 import { ActionRefused, ActionSet } from "../surface/actions";
 import { Dispatcher } from "../surface/dispatch";
 import { ART_ACTIONS, type ArtAbout } from "../art-actions";
-import { WHO_ACTIONS, type WhoRow } from "../who-actions";
 import { NOTE_ACTIONS, NoteSurface, propertyChange, sessionStart, type OpenHow, type SessionKind, type SurfaceHost } from "../surface/note";
 import { artLines, C, dim, fg, pad, RESET, selected } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
@@ -471,6 +470,7 @@ export class ActivityPane implements Pane {
     return false;
   }
   click(_x: number, y: number, desk: DeskApi) { const i = this.view.top + y; if (i < (this.rows?.length ?? 0) && i !== this.sel) runOwn(ACTIVITY_ACTIONS, "activity.pick", { n: i + 1 }, { pane: this, desk }); }
+  headControls(_w: number, desk: DeskApi) { return [{ text: "r reload", sgr: fg(C.grey), press: () => runOwn(ACTIVITY_ACTIONS, "activity.reload", {}, { pane: this, desk }) }]; }
   wheel(dir: 1 | -1, desk: DeskApi) { const i = this.sel + dir; if (i >= 0 && i < (this.rows?.length ?? 0)) runOwn(ACTIVITY_ACTIONS, "activity.pick", { n: i + 1 }, { pane: this, desk }); }
 }
 
@@ -481,15 +481,11 @@ export class WhoPane implements Pane {
   private asking = new Set<string>();
   title() { return `who's online${this.callers ? ` · ${this.callers.length}` : ""}`; }
   hint() { return "r refresh"; }
-  private desk: DeskApi | null = null;
   init(desk: DeskApi) { this.load(desk); }
   onEvent(desk: DeskApi) { this.load(desk); }
-  /** Ask again (who.refresh, src/who-actions.ts: the BBS Who's Online's too). */
-  refresh() { if (this.desk) this.load(this.desk); }
   /** The callers as last read, as who.refresh answers them. */
-  rows(): WhoRow[] { return (this.callers ?? []).map((c, i) => ({ n: i + 1, name: c.name, host: c.host, activity: c.activity, target: c.target ?? null, reading: c.target ? this.names.get(c.target) ?? null : null })); }
+  rows() { return (this.callers ?? []).map((c, i) => ({ n: i + 1, name: c.name, host: c.host, activity: c.activity, target: c.target ?? null, reading: c.target ? this.names.get(c.target) ?? null : null })); }
   load(desk: DeskApi) {
-    this.desk = desk;
     desk.ctx.board.callers().then(c => {
       this.callers = c; desk.redraw();
       // Titles only, in one read where the service can (blocks.read).
@@ -512,7 +508,17 @@ export class WhoPane implements Pane {
     };
   }
   key(k: Key, desk: DeskApi): boolean { if (ch(k) === "r") { runOwn(WHO_ACTIONS, "who.refresh", {}, { pane: this, desk }); return true; } return false; }
+  headControls(_w: number, desk: DeskApi) { return [{ text: "r refresh", sgr: fg(C.grey), press: () => runOwn(WHO_ACTIONS, "who.refresh", {}, { pane: this, desk }) }]; }
 }
+
+export const WHO_ACTIONS = new ActionSet<{ "who.refresh": Record<string, never> }, { pane: WhoPane; desk: DeskApi }>("who", {
+  "who.refresh": {
+    summary: "ask the outline again who is attached (every Tree, Detail, door and agent); answers the callers as they were before the new answer lands", keys: "r, a click on r refresh",
+    touches: "nothing", replay: "safe",
+    args: {},
+    run(_, { pane, desk }) { pane.load(desk); return { callers: pane.rows() }; },
+  },
+});
 
 // ── the ep0ch art as a pane ──────────────────────────────────────────────────
 
@@ -609,7 +615,7 @@ export const ACTIVITY_ACTIONS = new ActionSet<{ "activity.pick": { n?: number; o
     },
   },
   "activity.reload": {
-    summary: "read recent activity again", keys: "r",
+    summary: "read recent activity again", keys: "r, a click on r reload",
     touches: "nothing", replay: "safe",
     args: {},
     run(_, { pane, desk }) { pane.reload(desk); return { reloading: true }; },

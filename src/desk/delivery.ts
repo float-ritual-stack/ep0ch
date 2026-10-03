@@ -40,15 +40,11 @@ function boardTree(hub: string): SavedTree {
 const LANES_HINT = "|08 |15g|08 boards · |15h l|08 lane · |15j k|08 card · |15⏎|08 detail · |15H L|08 move · |15m|08 move to... · |15n|08 new card · |15N|08 note under · |15s|08 steps · |15d d|08 trash · |15i|08 properties · |15C|08 comment · |15c|08 collapse · |15alt+c|08 open all · |15t|08 outline · |15b|08 backlinks · |15tab|08 area · |15q|08 menu";
 const READER_HINT = "|08 |15tab|08 area · |15c|08 collapse · |15t|08 outline · |15b|08 backlinks of this reader · |15o|08 pop out · |15x|08 close · |15{ } < >|08 size · |15q esc|08 lanes";
 
-/**
- * The board as a screen spec. `hub`: the hub to show (`--board <id>`); `persist: false` keeps its layout and the hub
- * remembered in memory only (the showcase's board).
- */
-export function boardSpec(args: { hub?: unknown; persist?: unknown } = {}): ScreenSpec {
+/** The board as a screen spec. `hub`: the hub to show (`--board <id>`). */
+export function boardSpec(args: { hub?: unknown } = {}): ScreenSpec {
   const hub = typeof args.hub === "string" ? args.hub : "";
   return {
-    name: "board", title: "board", digits: false, home: "lanes", lands: "readers",
-    ...(args.persist === false ? {} : { saves: "delivery.json" }),
+    name: "board", title: "board", digits: false, home: "lanes", lands: "readers", saves: "delivery.json",
     layout: { focus: "preview", policy: { opensInto: "readers" }, root: boardTree(hub) },
     keys: [
       { key: "g", action: "board.hub" },

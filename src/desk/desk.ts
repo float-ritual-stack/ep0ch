@@ -171,9 +171,11 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost, 
    * A screen from its spec: its tiles in its layout, its title, keys, hint and band. One that `saves` comes back as it
    * was left (the desk's desk.json); `opts.layout` lays it out as that named layout instead (the desk's alt+d, --layout).
    * `opts.given`: tiles the host made (the showcase's), by name, used for the spec's leaves of those names.
+   * `opts.writes: false`: it reads its save but never writes it (the board in a tile: the board screen owns delivery.json).
    */
-  constructor(readonly spec: ScreenSpec = deskSpec(), opts: { layout?: string; given?: ReadonlyMap<string, Pane> } = {}) {
+  constructor(readonly spec: ScreenSpec = deskSpec(), opts: { layout?: string; given?: ReadonlyMap<string, Pane>; writes?: boolean } = {}) {
     this.title = spec.title;
+    this.writes = opts.writes ?? true;
     this.given = opts.given ?? new Map();
     this.marksStore = new LocalMarks(!!spec.layouts);
     // An extension's kind that comes or goes while the door runs (PIE-512): its tiles are made again.
@@ -460,8 +462,9 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost, 
   layoutSpec(): LayoutSpec { return { ...this.saved(), focus: this.nameOf(this.focus), rule: this.rule }; }
   private savedPolicy() { return Object.keys(this.layout.policy).length ? { policy: { ...this.layout.policy } } : {}; }
 
+  private readonly writes: boolean;
   protected save() {
-    if (!this.spec.saves) return;
+    if (!this.spec.saves || !this.writes) return;
     const models = Object.fromEntries([...this.models].map(([cid, m]) => [this.columnsIn().find(c => c.id === cid)?.key ?? cid, m.save?.()] as const).filter(([, v]) => v !== undefined));
     writeState(this.spec.saves, { ...this.saved(), focus: this.all().indexOf(this.focus), rule: this.rule, ...(this.layoutName ? { layout: this.layoutName } : {}), rev: this.layout.rev, next: { tile: this.nextId, node: this.layout.nextNode }, ...(Object.keys(models).length ? { models } : {}) } satisfies SavedDesk);
   }
@@ -1664,7 +1667,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost, 
       if (this.numbered) put(`${this.numberOf(id)}`, fg(focused ? C.white : C.dark), id);
       this.putMarks(id, put, xNow, r.row);
       put(`${this.numbered ? " " : ""}${this.panes.get(id)!.title()}`, fg(focused ? C.lcyan : C.cyan), id);
-      return this.headerTail(id, put, xNow, r.row);
+      return this.headerEnd(id, put, xNow, max, r.row);
     } else put(`${this.numLabel(id)}${this.panes.get(id)!.headName?.() ?? this.nameOf(id)}`, fg(focused ? C.white : C.grey), id);
     this.putMarks(id, put, xNow, r.row);
     const p = this.panes.get(id)!;
@@ -1674,15 +1677,21 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost, 
     const what = label !== undefined ? null : p instanceof ReaderPane && p.msg && !p.msg.id.startsWith("file:") ? `${p.title()} · ${subject(p.msg)}` : p.title();
     if (label) put(` ${label}`, "");
     else if (what && what !== this.nameOf(id)) put(` ${what}`, fg(focused ? C.lcyan : C.cyan));
-    // Controls the tile puts on its header where they fit (the backlinks' status), each a click; room is kept for the
-    // drawer's own glyph and [×] and how far down it is.
-    const ctl = p.headControls?.(max - x - (drawerOf(this.root, id) ? 14 : 0) - 8, this) ?? null;
+    return this.headerEnd(id, put, xNow, max, r.row);
+  }
+
+  /**
+   * Controls the tile puts on its header where they fit (the backlinks' status, who's online's refresh), each a click;
+   * room is kept for the drawer's own glyph and [×] and how far down it is. Then the header's tail.
+   */
+  private headerEnd(id: number, put: (text: string, sgr: string) => void, xNow: () => number, max: number, row: number): string {
+    const ctl = this.panes.get(id)!.headControls?.(max - xNow() - (drawerOf(this.root, id) ? 14 : 0) - 8, this) ?? null;
     if (ctl?.length) {
       this.headCtl.add(id);
       put(" ·", fg(C.dark));
-      ctl.forEach((c, i) => { if (i) put(" ·", fg(C.dark)); const from = xNow() + 1; put(` ${c.text}`, c.sgr); if (c.press) this.headPresses.push({ id, row: r.row, from, to: xNow(), press: c.press }); });
+      ctl.forEach((c, i) => { if (i) put(" ·", fg(C.dark)); const from = xNow() + 1; put(` ${c.text}`, c.sgr); if (c.press) this.headPresses.push({ id, row, from, to: xNow(), press: c.press }); });
     }
-    return this.headerTail(id, put, xNow, r.row);
+    return this.headerTail(id, put, xNow, row);
   }
 
   /**
@@ -1983,8 +1992,9 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost, 
     }
     // A float has the keys: H J K L move it (float.place), as dragging its title does.
     if (this.isFloat(this.focus) && "HJKL".includes(c0) && c0 && !focused?.holdsKeys) return this.cmd("float.place", { dx: c0 === "H" ? -4 : c0 === "L" ? 4 : 0, dy: c0 === "K" ? -2 : c0 === "J" ? 2 : 0 }, this.nameOf(this.focus));
-    // A key its kind gives an action of its own (a terminal the person isn't in: ⏎ or e starts typing in it).
-    const pressed = pane ? kindOf(pane)?.press?.(pane, k) : null;
+    // A key its kind gives an action of its own (a terminal the person isn't in: ⏎ or e starts typing in it; a river
+    // column's h l w p x g), never while the person types (a filter, an edit opening).
+    const pressed = pane && !this.personTyping() ? kindOf(pane)?.press?.(pane, k) : null;
     if (pressed) return this.cmd(pressed.action, pressed.args ?? {}, this.nameOf(this.focus));
     const readOnly = pane instanceof ReaderPane && pane.readOnly;
     // Not while the tile takes typed text of its own (a river column's / filter): e, i and C are letters there.
@@ -3301,7 +3311,7 @@ export const DESK_ACTIONS = new ActionSet<{ "open": { id: string; from?: string;
   },
   "search": {
     summary: "find notes by text (the service's search): query= answers the hits, numbered from 1, each with its id and title; nothing on screen moves. The person's (/) opens the search overlay, ⏎ there opens the hit (`open`)",
-    keys: "/",
+    keys: "/; river column: g",
     touches: "nothing", replay: "safe",
     args: { query: { type: "string", optional: true, about: "the text to find (at least 2 characters)" }, limit: { type: "number", optional: true, about: "how many hits (default 30, at most 100)" } },
     run({ query, limit }, { d }, actor) { return d.searchNotes(query, limit, actor); },

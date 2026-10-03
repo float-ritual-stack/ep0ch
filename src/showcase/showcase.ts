@@ -31,9 +31,9 @@ import { BOARD_ACTIONS } from "../desk/lanes";
 import { boardScreen } from "../desk/screen-specs";
 import { COLUMN_ACTIONS } from "../river/column";
 import { ActivityPane, ReaderPane, ThreadPane, TreePane, WhoPane, type DeskApi, type Pane, type PaneView } from "../desk/panes";
-import { LastCallers, MessageReader, SHELL_ACTIONS, WhoOnline } from "../screens";
+import { MessageReader, SHELL_ACTIONS } from "../screens";
 import { columnsOf, leaf, pair, splitOf, type LNode } from "../desk/screen-layout";
-import { FramedScreen, ScreenPane } from "./frame";
+import { FramedScreen } from "./frame";
 import { PreviewPane } from "../desk/preview";
 import { PtyPane } from "../desk/pty";
 import { serviceKind, tileKinds } from "../desk/tile-kinds";
@@ -60,7 +60,6 @@ export interface Section {
 /** Put a note in a reader once its desk is open (readers on a stage keep their own notes). */
 type Shower = (after: (ctx: Ctx) => void) => void;
 
-const PARALLEL = "parallel version, to consolidate";
 /** Two panes side by side, the first `ratio` of the width. */
 const row = (ratio: number, a: number, b: number): LNode => pair("row", ratio, leaf(a), leaf(b));
 
@@ -95,7 +94,7 @@ export const SECTIONS: Section[] = [
     stage(n, show) {
       const r = new ReaderPane();
       // The BBS message reader hosts the same surface (PIE-426): its header, the surface's body and keys.
-      const bbs = new ScreenPane("the same NoteSurface in the BBS message reader · src/screens.ts", m => (m ? new MessageReader([m], 0) : null), true);
+      const bbs = new ScreenTile("exhibit", {}, { label: "the same NoteSurface in the BBS message reader · src/screens.ts", make: m => (m ? new MessageReader([m], 0) : null) });
       return deskOf({ title: "showcase · note", panes: [r, bbs], layout: ([a, b]) => row(0.5, a!, b!) }, show, [], d => { if (n.notebook) d.setCurrent(n.notebook); });
     },
   },
@@ -203,12 +202,7 @@ export const SECTIONS: Section[] = [
     key: "presence", need: "show who's here or recent activity", part: "presence: WhoPane and ActivityPane over clients.list, activity.recent", files: "src/desk/panes.ts",
     stage(_n, show) {
       const who = new WhoPane(), act = new ActivityPane();
-      const whoBbs = new ScreenPane(`${PARALLEL} · WhoOnline · src/screens.ts`, () => new WhoOnline());
-      const lastBbs = new ScreenPane(`${PARALLEL} · LastCallers · src/screens.ts`, () => new LastCallers());
-      return deskOf({
-        title: "showcase · presence", panes: [who, act, whoBbs, lastBbs],
-        layout: ([a, b, c, e]) => pair("row", 0.5, pair("col", 0.35, leaf(a!), leaf(b!)), pair("col", 0.35, leaf(c!), leaf(e!))),
-      }, show, []);
+      return deskOf({ title: "showcase · presence", panes: [who, act], layout: ([a, b]) => pair("col", 0.35, leaf(a!), leaf(b!)) }, show, []);
     },
   },
   {

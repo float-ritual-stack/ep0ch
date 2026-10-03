@@ -170,7 +170,7 @@ describe.skipIf(!outliner)("the BBS shell, against a scratch outline", () => {
       expect(top().title).toBe("who's online");
       const out: any = await act("who.refresh");
       expect(Array.isArray(out.callers)).toBe(true);
-      expect(top().dispatch!.list().actions.map((a: any) => a.name)).toEqual(["who.refresh"]);
+      expect(top().dispatch!.list().actions.map((a: any) => a.name)).toContain("who.refresh");
       home();
     });
 

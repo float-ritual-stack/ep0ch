@@ -5,9 +5,8 @@ import { ch } from "../term";
 // the entry; it never asks which kind a tile is.
 import { subject, type Msg } from "../board";
 import { BACKLINKS_ACTIONS, BacklinksPane } from "./backlinks-pane";
-import { ACTIVITY_ACTIONS, ActivityPane, ArtPane, READER_ACTIONS, ReaderPane, sessionName, THREAD_ACTIONS, ThreadPane, TreePane, WhoPane, type Pane } from "./panes";
+import { ACTIVITY_ACTIONS, ActivityPane, ArtPane, READER_ACTIONS, ReaderPane, sessionName, THREAD_ACTIONS, ThreadPane, TreePane, WHO_ACTIONS, WhoPane, type Pane } from "./panes";
 import { ART_ACTIONS } from "../art-actions";
-import { WHO_ACTIONS } from "../who-actions";
 import { PreviewPane, sourceName, sourceOf } from "./preview";
 import { PtyPane } from "./pty";
 import { PTY_ACTIONS } from "./pty-actions";
