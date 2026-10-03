@@ -44,7 +44,7 @@ describe("architecture map", () => {
     }
     // Then and now: a finding's review commits and the current ones are both there.
     expect(data).toContain(`/tree/${"c".repeat(40)}`);
-    expect(data).toContain(`/blob/${"a".repeat(40)}/docs/review/`);
+    expect(data).toContain(`/blob/${"a".repeat(40)}/packages/door/docs/review/`);
   });
 
   test("a dirty checkout is stamped on the page", async () => {

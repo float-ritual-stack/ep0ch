@@ -4,8 +4,8 @@
   "about": "Every structure in the door and the outliner (packages/door, packages/outliner of the ep0ch repository), where it stands on the ladder, what it rests on and what is still open. Regenerated after each round of changes with `bun scripts/architecture-map.ts`; the generator checks every file:line below against the checkouts before it draws anything.",
   "verified": { "door": "11a6080", "outliner": "5700d45", "on": "2026-10-01" },
   "repos": {
-    "door": { "name": "ep0ch packages/door", "url": "https://github.com/float-ritual-stack/ep0ch/tree/main/packages/door", "branch": "main" },
-    "outliner": { "name": "ep0ch packages/outliner", "url": "https://github.com/float-ritual-stack/ep0ch/tree/main/packages/outliner", "branch": "main" }
+    "door": { "name": "ep0ch packages/door", "url": "https://github.com/float-ritual-stack/ep0ch", "dir": "packages/door", "branch": "main" },
+    "outliner": { "name": "ep0ch packages/outliner", "url": "https://github.com/float-ritual-stack/ep0ch", "dir": "packages/outliner", "branch": "main" }
   },
   "ladder": [
     { "id": "accidental", "about": "it exists because something needed it; nobody owns it as a system" },
@@ -145,7 +145,7 @@
       "does": "One socket serves several outlines by name (pie, a pilot outline, a sandbox); clients name the outline on each request.",
       "built": "OutlineHost answers outlines.list/create/import/attach/close/delete/pane and routes every other request to the named outline's server.",
       "refs": [
-        { "r": "outliner", "p": "src/outline-host.ts", "l": 108, "m": "export class OutlineHost" },
+        { "r": "outliner", "p": "src/outline-host.ts", "l": 118, "m": "export class OutlineHost" },
         { "r": "outliner", "p": "src/outline-host.ts", "l": 65, "m": "const HOST_ACTIONS" }
       ],
       "questions": [ { "text": "Folder to outline is still worked out on each client (the door's discover.ts); an `outlines.resolve` on the host would say it once.", "finding": "A-F13", "route": "service track" } ]
@@ -267,7 +267,7 @@
         { "r": "door", "p": "src/literal.ts", "l": 1, "m": "Literal regions (PIE-422)" },
         { "r": "door", "p": "src/inline.ts", "l": 1, "m": "Inline Markdown in read mode" },
         { "r": "door", "p": "src/components.ts", "l": 4, "m": "document-renderers.json" },
-        { "r": "door", "p": "src/backlinks.ts", "l": 187, "m": "export function backlinkView" }
+        { "r": "door", "p": "src/backlinks.ts", "l": 166, "m": "export function backlinkView" }
       ],
       "questions": [ { "text": "Pure paint-time grammar belongs in outline-core, imported as the property grammar is; the component registry is a host call. (Folder-to-outline moved to outline-core's outline-location.ts, PIE-530.)", "finding": "A-F13", "route": "service track" } ]
     },
@@ -346,8 +346,8 @@
       "does": "screen.open, screen.back, screen.list on every screen; list.select, list.open, list.read on the BBS lists; screen.shell drops to the person's login shell (the menu's !, the desk's ^W !) and the door comes back where it was, an agent's refused. Esc never logs off; q is back below the menu. An agent can't move the person's screen while they type.",
       "built": "SHELL_ACTIONS and LIST_ACTIONS in screens.ts; the menu's letters, Enter and clicks run them; the App's dispatcher holds the shell's set (a screen's own action of the same name first); a move of the person's screen declares touches: screen, and the actor rule guards it (PIE-514).",
       "refs": [
-        { "r": "door", "p": "src/screens.ts", "l": 403, "m": "export const SHELL_ACTIONS" },
-        { "r": "door", "p": "src/screens.ts", "l": 623, "m": "export const LIST_ACTIONS" },
+        { "r": "door", "p": "src/screens.ts", "l": 404, "m": "export const SHELL_ACTIONS" },
+        { "r": "door", "p": "src/screens.ts", "l": 624, "m": "export const LIST_ACTIONS" },
         { "r": "door", "p": "src/surface/dispatch.ts", "l": 140, "m": "export function actorRule" },
         { "r": "door", "p": "src/app.ts", "l": 540, "m": "async act(req" },
         { "r": "door", "p": "src/drop.ts", "l": 50, "m": "export async function runLoginShell" }
@@ -359,7 +359,7 @@
       "built": "Hundreds of in-place comparisons (422 by a grep for c === / ch(k) === / k.kind === at 07d82c9; 86 in delivery.ts, 47 in the river's old screen), each screen with its own priority order.",
       "refs": [
         { "r": "door", "p": "src/desk/lanes.ts", "l": 1131, "m": "if (c === \"m\") { this.openMover(); return true; }" },
-        { "r": "door", "p": "src/screens.ts", "l": 35, "m": "const isBack" }
+        { "r": "door", "p": "src/screens.ts", "l": 36, "m": "const isBack" }
       ],
       "questions": [
         { "text": "No keymap: share the outliner's keybindings.json shape, with scopes and collision checks.", "finding": "C-F10", "route": "PIE-492" },
@@ -371,7 +371,7 @@
       "id": "door.hits", "name": "Hit-testing", "group": "door", "chapter": "actions", "ladder": "accidental", "dependsOn": ["kept.terminal"],
       "does": "What the mouse is over, turned into a key or an action.",
       "built": "Ten private maps. Pointer on the BBS screens is the right shape: a spot sends a key back through key(), so click and key are one path.",
-      "refs": [ { "r": "door", "p": "src/screens.ts", "l": 56, "m": "class Pointer" } ],
+      "refs": [ { "r": "door", "p": "src/screens.ts", "l": 57, "m": "class Pointer" } ],
       "questions": [
         { "text": "One hit map instead of ten.", "finding": "C-F8", "route": "PIE-492" },
         { "text": "The right button is the left button: context menus from the pane's actions.", "finding": "C-F5", "route": "PIE-492" }
@@ -600,7 +600,7 @@
       "built": "setup/: facts, model, plan, apply, doctor.",
       "refs": [
         { "r": "door", "p": "src/setup/facts.ts", "l": 39, "m": "export async function run" },
-        { "r": "door", "p": "src/setup/model.ts", "l": 151, "m": "MIN_BUN = \"1.3.0\"" }
+        { "r": "door", "p": "src/setup/model.ts", "l": 169, "m": "MIN_BUN = \"1.3.0\"" }
       ],
       "questions": [
         { "text": "~/backups/ep0ch isn't configurable.", "finding": "B-F17", "route": "PIE-494" },
@@ -657,8 +657,8 @@
       "does": "The logon, the main menu, the message lists and reader, Stats, the art viewer, Goodbye: the door as a 1997 BBS. Who's Online and Last Callers are the who and activity tiles as screen specs (the menu's W and L).",
       "built": "Screen classes in screens.ts. The art screens are compositions and stay as they are; the lists now take actions.",
       "refs": [
-        { "r": "door", "p": "src/screens.ts", "l": 243, "m": "export class MainMenu" },
-        { "r": "door", "p": "src/screens.ts", "l": 815, "m": "export class MessageReader" }
+        { "r": "door", "p": "src/screens.ts", "l": 244, "m": "export class MainMenu" },
+        { "r": "door", "p": "src/screens.ts", "l": 816, "m": "export class MessageReader" }
       ],
       "questions": []
     },
@@ -737,8 +737,8 @@
       "does": "list, create, update and the rest for scripts and agents, with author and actor on every write; door-open shows a block in the door.",
       "built": "cli.ts over the outliner client; door-open goes to the door's control socket.",
       "refs": [
-        { "r": "outliner", "p": "src/cli.ts", "l": 589, "m": "case \"list\"" },
-        { "r": "outliner", "p": "src/cli.ts", "l": 104, "m": "\"door-open\"" }
+        { "r": "outliner", "p": "src/cli.ts", "l": 593, "m": "case \"list\"" },
+        { "r": "outliner", "p": "src/cli.ts", "l": 106, "m": "\"door-open\"" }
       ]
     },
     {

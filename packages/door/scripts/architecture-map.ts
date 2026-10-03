@@ -34,7 +34,7 @@ interface Step { label: string; at: string; what: string; gap?: boolean; ref: Re
 interface MapData {
   version: number; title: string; about: string;
   verified: { door: string; outliner: string; on: string };
-  repos: Record<RepoId, { name: string; url: string; branch: string }>;
+  repos: Record<RepoId, { name: string; url: string; dir?: string; branch: string }>;
   ladder: { id: Ladder; about: string }[];
   groups: { id: string; name: string; motto?: string; about: string }[];
   /** Each review, and the commits it read ("then"). */
@@ -183,7 +183,7 @@ const DOTS = ".".repeat(240);
 
 /** A citation at the commit it was checked at. */
 function refUrl(d: MapData, pins: Pins, ref: Ref): string {
-  return `${d.repos[ref.r].url}/blob/${pins.now[ref.r]}/${ref.p}#L${ref.l}`;
+  return `${d.repos[ref.r].url}/blob/${pins.now[ref.r]}/${d.repos[ref.r].dir ? `${d.repos[ref.r].dir}/` : ""}${ref.p}#L${ref.l}`;
 }
 const refWhere = (ref: Ref) => `${ref.r === "outliner" ? "outliner " : ""}${ref.p}:${ref.l}`;
 function refLink(d: MapData, pins: Pins, ref: Ref): string {
@@ -193,7 +193,7 @@ function refLink(d: MapData, pins: Pins, ref: Ref): string {
 function findingUrl(d: MapData, pins: Pins, id: string): string {
   const f = d.findings.find(x => x.id === id);
   const review = d.reviews[id.split("-")[0]!]!;
-  return `${d.repos.door.url}/blob/${pins.now.door}/${review.path}#L${f?.line ?? 1}`;
+  return `${d.repos.door.url}/blob/${pins.now.door}/${d.repos.door.dir ? `${d.repos.door.dir}/` : ""}${review.path}#L${f?.line ?? 1}`;
 }
 /** What the review read, then: each repo's tree at the review's commit. */
 function thenUrls(d: MapData, pins: Pins, id: string): { door: string; outliner: string; label: string } {
