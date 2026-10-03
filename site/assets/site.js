@@ -27,7 +27,7 @@
         : pre.textContent;
       const done = label => { btn.dataset.state = label === "copied" ? "done" : ""; btn.textContent = label; setTimeout(() => { btn.textContent = "copy"; btn.dataset.state = ""; }, 1600); };
       try { await navigator.clipboard.writeText(text.replace(/\n$/, "")); done("copied"); }
-      catch { const r = document.createRange(); r.selectNodeContents(pre); const s = getSelection(); s.removeAllRanges(); s.addRange(r); done("selected: ⌘C"); }
+      catch { const r = document.createRange(); r.selectNodeContents(pre); const s = getSelection(); s.removeAllRanges(); s.addRange(r); done("selected: copy it"); }
     });
   }
 
@@ -44,7 +44,9 @@
   }
 
   // Casts: asciinema-player on a .cast whose `m` events are the chapters. The list on the page is drawn from the
-  // cast's own markers once it loads, so a re-recorded tour can't leave stale chapters behind.
+  // cast's own markers once it loads, so a re-recorded tour can't leave stale chapters behind. One timeline: the
+  // cast's own times (no idle-time limit), so the player's clock, its markers and the listed times agree. The
+  // player's `marker` event moves the current chapter; the poll only catches a scrub on the progress bar.
   const clock = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
   for (const fig of document.querySelectorAll("figure.cast[data-cast]")) {
     const screen = fig.querySelector(".cast-screen"), list = fig.querySelector(".chapters");
@@ -62,10 +64,10 @@
         return li;
       }));
       const total = fig.querySelector("[data-cast-length]");
-      if (total) total.textContent = `${clock(end + 3)} · ${marks.length} chapters`;
+      if (total) total.textContent = `${clock(end)} · ${marks.length} chapters`;
       screen.replaceChildren();
       const player = AsciinemaPlayer.create({ data: text }, screen, {
-        cols: head.width, rows: head.height, fit: "width", theme: "ep0ch", idleTimeLimit: 2,
+        cols: head.width, rows: head.height, fit: "width", theme: "ep0ch",
         terminalFontFamily: getComputedStyle(document.documentElement).getPropertyValue("--font-mono"),
         poster: "npt:0:0.5", preload: true,
       });

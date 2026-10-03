@@ -56,7 +56,7 @@
       <header class="page-head">
         <span class="kind">Guide</span>
         <h1>Add a callout type</h1>
-        <p class="lede">Give your outline its own callout, <code>&gt; [!recipe]</code> with its own icon and tone, by writing one note. Use it when the same kind of aside keeps turning up in your notes: recipes, decisions, incidents. Every client draws it, the editor offers it while you type, and the type picker lists it.</p>
+        <p class="lede">Give your outline its own callout, <code>&gt; [!recipe]</code> with its own icon and tone, by writing one note. Use it when the same kind of aside keeps turning up in your notes: recipes, decisions, incidents. Every client draws it, the editor offers it while you type, and the type choice lists it.</p>
         <p class="meta"><span>kind <b>configuration · a note</b></span><span><b>3 steps</b>, no code, no restart</span><span>needs <b>PIE-538</b></span></p>
       </header>
 
@@ -78,25 +78,34 @@
         <h2 id="concept"><span class="n">1</span>A type is a note</h2>
         <div class="prose">
           <p>An outline's callout types are the thirteen built-ins plus every note that has a <code>[callout-type::name]</code> property. Properties on the same note set the type's icon, tone, title and other names.</p>
-          <p>The outline host answers the list. The door's reader, its completer and its type picker read it, and so does the outliner's Detail, all through one registry in outline-core. Edit the note and every client draws the new type within a second.</p>
+          <p>The outline host answers the list. The door's reader, its completer and its type choice read it, and so does the outliner's Detail, all through one registry in outline-core. Edit the note and every client draws the new type within a second.</p>
         </div>
       </section>
 
       <section aria-labelledby="example">
         <h2 id="example"><span class="n">2</span>Make one</h2>
-        <div class="prose"><p>These run against the outline your folder names. To try them somewhere safe, run them in a folder whose <code>.ep0ch</code> names a scratch outline.</p></div>
+        <div class="prose"><p>Try it on an outline of its own first. Make one, and name it in a folder's <code>.ep0ch</code>, so <code>ep0ch</code> run there opens it:</p></div>
+        <div class="code"><div class="code-head"><span class="file">shell</span><span class="lang">bash</span><button class="copy" type="button">copy</button></div><pre><code><span class="tk-k">ep0ch</span> outline create kitchen-test
+mkdir -p ~/kitchen-test &amp;&amp; cd ~/kitchen-test
+echo <span class="tk-s">'ws = "kitchen-test"'</span> &gt; .ep0ch</code></pre></div>
+        <div class="prose"><p>Then <code>ep0ch</code> in that folder opens the door on it. Write each note below as a new note: on the board, press <kbd>N</kbd>, paste the text, and press <kbd>ctrl</kbd><kbd>s</kbd>.</p></div>
         <ol class="try" id="try-recipe">
           <li>
             <button class="box" type="button" aria-label="Mark step 1 done"></button>
             <p class="do">Declare the type: a note named for what it is, with the type's properties.</p>
-            <div class="code" data-run="sh"><div class="code-head"><span class="file">shell</span><span class="lang">bash</span><button class="copy" type="button">copy</button></div><pre><code><span class="tk-k">outliner</span> create --text <span class="tk-s">'Recipe callouts [callout-type::recipe] [callout-icon::♨] [callout-tone::green] [callout-aliases::dish]'</span></code></pre></div>
-            <p class="see">the new note as JSON, with four properties.</p>
+            <div class="code" data-run="note" data-query="callout-type=recipe" data-expect="Recipe callouts"><div class="code-head"><span class="file">note · Recipe callouts</span><span class="lang">markdown</span><button class="copy" type="button">copy</button></div><pre><code>Recipe callouts [callout-type::recipe] [callout-icon::♨] [callout-tone::green] [callout-aliases::dish]</code></pre></div>
+            <p class="see">the note, with four properties under its title.</p>
           </li>
           <li>
             <button class="box" type="button" aria-label="Mark step 2 done"></button>
             <p class="do">Use it in a note, by its name and by its alias.</p>
-            <div class="code" data-run="sh"><div class="code-head"><span class="file">shell</span><span class="lang">bash</span><button class="copy" type="button">copy</button></div><pre><code><span class="tk-k">outliner</span> create --text <span class="tk-s">$'Sunday soup [menu::sunday]\n\n&gt; [!recipe] Soup stock\n&gt; Bones, an onion, two bay leaves.\n&gt; &gt; [!dish]- Leftovers\n&gt; &gt; Freeze in jars, two fingers from the top.'</span></code></pre></div>
-            <p class="see">a second note, its text exactly as written.</p>
+            <div class="code" data-run="note" data-query="menu=sunday" data-expect="♨ Soup stock"><div class="code-head"><span class="file">note · Sunday soup</span><span class="lang">markdown</span><button class="copy" type="button">copy</button></div><pre><code>Sunday soup [menu::sunday]
+
+&gt; [!recipe] Soup stock
+&gt; Bones, an onion, two bay leaves.
+&gt; &gt; [!dish]- Leftovers
+&gt; &gt; Freeze in jars, two fingers from the top.</code></pre></div>
+            <p class="see">the reader draws <b>♨ Soup stock</b> straight away.</p>
           </li>
           <li>
             <button class="box" type="button" aria-label="Mark step 3 done"></button>
@@ -109,9 +118,13 @@
 
       <section aria-labelledby="restyle">
         <h2 id="restyle"><span class="n">3</span>Change it</h2>
-        <div class="prose"><p>The note is the type, so change the note. Open it in the door (<kbd>e</kbd> to edit, <kbd>ctrl</kbd><kbd>s</kbd> to save) or in Detail. Here the tone moves to amber, the type gets a title for callouts written without one, and a second alias.</p></div>
+        <div class="prose"><p>The note is the type, so change the note. Open it in the door (<kbd>e</kbd> to edit, <kbd>ctrl</kbd><kbd>s</kbd> to save) or in Detail, and change its first line. Here the tone moves to amber, the type gets a title for callouts written without one, and a second alias.</p></div>
         <div class="code"><div class="code-head"><span class="file">note · Recipe callouts</span><span class="lang">diff</span><button class="copy" type="button">copy</button></div><pre class="diff" data-run="edit" data-query="callout-type=recipe"><code><span class="del">Recipe callouts [callout-type::recipe] [callout-icon::♨] [callout-tone::green] [callout-aliases::dish]</span><span class="add">Recipe callouts [callout-type::recipe] [callout-icon::♨] [callout-tone::amber] [callout-title::Recipe] [callout-aliases::dish, meal]</span></code></pre><div class="says">copy gives the <b>+</b> line: the note's new first line</div></div>
-        <div class="code" data-run="sh"><div class="code-head"><span class="file">shell</span><span class="lang">bash</span><button class="copy" type="button">copy</button></div><pre><code><span class="tk-k">outliner</span> create --text <span class="tk-s">$'Tuesday [menu::tuesday]\n\n&gt; [!meal]\n&gt; Soup again.'</span></code></pre></div>
+        <div class="prose"><p>Then a new note that uses the alias <code>meal</code> and no title:</p></div>
+        <div class="code" data-run="note" data-query="menu=tuesday" data-expect="♨ Recipe"><div class="code-head"><span class="file">note · Tuesday</span><span class="lang">markdown</span><button class="copy" type="button">copy</button></div><pre><code>Tuesday [menu::tuesday]
+
+&gt; [!meal]
+&gt; Soup again.</code></pre></div>
         <div class="code" data-run="sh" data-expect="♨ Recipe"><div class="code-head"><span class="file">shell</span><span class="lang">bash</span><button class="copy" type="button">copy</button></div><pre><code><span class="tk-k">ep0ch</span> show $(<span class="tk-k">ep0ch</span> find --ids --query <span class="tk-s">"menu=tuesday"</span>)</code></pre></div>
         <pre class="term" aria-label="The restyled type, as the door draws it"><span style="color:var(--term-15)">Tuesday                                                     </span>
 <span style="color:var(--term-6)">user · 10-03-26 (12:49)</span><span style="color:var(--term-8)"> · i 1 property                      </span>

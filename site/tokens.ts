@@ -2,8 +2,9 @@
 // exactly what the door wears. Run after a theme changes: `bun site/tokens.ts` writes site/assets/tokens.css.
 //
 // Roles, not colour names: a page asks for `--ink-link`, never "light cyan". The map below is the door's own
-// reading of its palette (theme.ts's comments, outline-core's callout tones, src/callouts.ts's TONE).
+// reading of its palette (theme.ts's comments; the callout tones are src/callouts.ts's TONE itself).
 import { THEMES, type Rgb, type Theme } from "../packages/door/src/theme";
+import { TONE } from "../packages/door/src/callouts";
 
 const P = { black: 0, blue: 1, green: 2, cyan: 3, red: 4, magenta: 5, brown: 6, grey: 7, dark: 8, lblue: 9, lgreen: 10, lcyan: 11, lred: 12, lmagenta: 13, yellow: 14, white: 15 } as const;
 const hex = ([r, g, b]: Rgb) => `#${[r, g, b].map(v => v.toString(16).padStart(2, "0")).join("")}`;
@@ -35,9 +36,8 @@ function roles(t: Theme): Record<string, string> {
     "ink-add": hex(c("lgreen")),                        // a diff's added line
     "ink-remove": hex(c("lred")),                       // a diff's removed line
     "ink-error": hex(c("lred")),
-    // Callout tones (outline-core CalloutTone → the door's TONE)
-    "tone-blue": hex(c("lcyan")), "tone-green": hex(c("lgreen")), "tone-violet": hex(c("lmagenta")),
-    "tone-amber": hex(c("yellow")), "tone-coral": hex(c("lred")), "tone-neutral": hex(c("grey")),
+    // Callout tones: the door's own map (src/callouts.ts TONE, outline-core's CalloutTone to a palette colour)
+    ...Object.fromEntries(Object.entries(TONE).map(([tone, i]) => [`tone-${tone}`, hex(t.palette[i]!)])),
     // The 16 cells colours, for the cast player's terminal (casts mostly carry their own RGB)
     ...Object.fromEntries(t.palette.map((rgb, i) => [`term-${i}`, hex(rgb)])),
   };

@@ -203,15 +203,19 @@ calm/night switch).
 
 `bun site/check.ts` is the done-check.
 
-- **Pages:** every page paints its ground before its first link or script, and declares `color-scheme: dark`.
+- **Pages:** every page paints its ground before its first link or script, in the calm theme's own ground and
+  text colours, and declares `color-scheme: dark`.
   Each page is screenshotted in headless Chromium three ways: with every stylesheet and script stripped (what
   paints before they arrive), at 1280×900 and at 400×860. Each must have a dark ground and under 3% light
   pixels.
-- **Samples:** on a scratch outline host it starts under a temp dir, it runs every example marked to run, in
-  page order:
-  - `data-run="sh"`: the block's text in bash, with `outliner` and `ep0ch` from this checkout;
-  - `data-run="note"` with `data-query`: the block's text made a note, then drawn with `ep0ch show`;
-  - `data-run="edit"` with `data-query`: a diff's `+` lines become the first lines of the note the query finds.
+- **Samples:** on a scratch outline host it starts under a temp dir (ready when it answers
+  `ep0ch outline create`, not when its socket appears), it runs every example marked to run, in page order, with
+  only what a reader has: `ep0ch` on PATH, and no `outliner`:
+  - `data-run="sh"`: the block's text in bash;
+  - `data-run="note"` with `data-query`: the block's text made a note (what a reader writes in the door), then
+    drawn with `ep0ch show`;
+  - `data-run="edit"` with `data-query`: a diff's `+` lines become the first lines of the note the query finds,
+    done when the host reads the note back changed.
 
   `data-expect` is text the output must contain. Examples that need a running door (`act` lines) are the actions
   `showcase.test.ts` drives.
