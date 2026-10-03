@@ -11,6 +11,7 @@ import { Help, MainMenu } from "../src/screens";
 import { FIGURE_KINDS, LANES, loadShowcase, SEED, seedShowcase, type Seeded } from "../src/showcase/seed";
 import { SECTIONS, Showcase, SHOWCASE_ACTIONS } from "../src/showcase/showcase";
 import { SocketBoard } from "../src/socket";
+import { C, fg } from "../src/style";
 import { jevOff } from "../src/surface/completer";
 import type { Key } from "../src/term";
 import { outliner, Scratch, until } from "./scratch";
@@ -273,7 +274,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     preview: ["preview · tree", "outline"],
     screen: ["board ·", "preview · board"],
     spine: ["Queued", "Doing", "Review", "Done", "HOME-003"],
-    entity: ["Bike shed", "REPLIES 2", "COMMENTS 1 open · 1 resolved", "← backlinks (", "resources (1)"],
+    entity: ["Bike shed", "The pump's spare valves are on the kitchen whiteboard.", "REPLIES 2", "COMMENTS 1 open · 1 resolved", "← backlinks (", "resources (1)"],
     presence: ["who's online", "last callers · live"],
     live: ["GARDEN CHORES (LIVE QUERY)", "live · 3 results", "HOUSE JOBS BY ARC (LIVE)"],
     projection: ["Jira ACME-12 · Rollout checklist for the vendor switch", "Jira ACME-14 · Label printer drops the last line", "Jira · ambiguous: ACME-20, ACME-21", "Jira ACME-30 · not registered", "can't fetch: item was not found"],
@@ -378,6 +379,26 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     // Again: that preview, not a second one.
     expect(await app.act({ action: "tile.preview", tile: "reader", as: "test-agent" })).toMatchObject({ tile: "reader-preview", existing: true });
     expect(tiles().filter(t => t.name.startsWith("reader-preview")).length).toBe(1);
+    expect(S().focus).toBe("index");
+  }, 20_000);
+
+  test("links (PIE-541): a labelled ref inside italics is drawn in its link colour, italic, with every escape whole; an agent follows it", async () => {
+    (app as any).lastInput = 0;
+    expect(await app.act({ action: "section", args: { name: "entity" }, as: "test-agent" })).toMatchObject({ key: "entity" });
+    const stage = () => { screen(); return S().stage(SECTIONS.findIndex(s => s.key === "entity")).top; };
+    const tiles = () => stage().layoutGet().tiles as any[];
+    await until(() => tiles().find(t => t.name === "reader")?.showing?.id === seeded.notes.shed.id, "the shed in the reader", 5000);
+    await until(() => screen().includes("The pump's spare valves are on the kitchen whiteboard."), "the italic line drawn", 5000);
+    const raw = sc.render(app).lines;
+    expect(raw.join("\n").match(/(?<!\x1b)\[[\d;]*m/g)).toBeNull();
+    const row = raw.find(l => plain(l).includes("The pump's spare valves"))!;
+    const at = row.indexOf("the kitchen whiteboard");
+    expect(row.slice(0, at)).toContain("\x1b[3m");
+    expect(row.slice(0, at).split("\x1b[").at(-1)).toBe(fg(C.lcyan).slice(2));
+    // The note's first link is the one in italics.
+    expect(JSON.stringify(await app.act({ action: "link.select", tile: "reader", args: { n: 1 }, as: "test-agent" }))).toContain("the kitchen whiteboard");
+    const f = await app.act({ action: "link.follow", tile: "reader", args: { n: 1 }, as: "test-agent" }) as any;
+    expect(f.opened).toBe(seeded.notes.whiteboard.id);
     expect(S().focus).toBe("index");
   }, 20_000);
 

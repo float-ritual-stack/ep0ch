@@ -119,11 +119,13 @@ const WHITEBOARD = [
   "In a list, Enter starts the next item at the same level; Tab and Shift+Tab nest it; Ctrl+P previews.",
 ].join("\n");
 
-const SHED = [
+// A labelled block ref inside italics (PIE-541): the link keeps its colour inside the emphasis.
+const shedText = (whiteboardId: string) => [
   `${SEED.shed} [page::${SEED.shed}] [room::garden]`,
   "",
   "Three bikes, one pump, and a lock that sticks in the cold.",
   "The spare inner tubes hang on the left hook.",
+  `_The pump's spare valves are on ((${whiteboardId}|the kitchen whiteboard))._`,
   "Tyre pressures are on the maker's page: [web::https://example.org/bike-care/tyres] (a Resource: b lists it with the note's links).",
   "",
   "::links",
@@ -371,7 +373,7 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
   notes.gardenView = await make(notes.root.id, `${SEED.gardenView} [type::virtual-branch] [query::type=chore area=garden]`);
 
   notes.whiteboard = await make(notes.root.id, WHITEBOARD);
-  notes.shed = await make(notes.root.id, SHED);
+  notes.shed = await make(notes.root.id, shedText(notes.whiteboard.id));
   await make(notes.shed.id, "Puncture kit\nPatches, glue, two tyre levers.");
   await make(notes.shed.id, "Chain oil\nThe dry lube, not the wet one.", SEED_AGENT);
   // A small checklist under the whiteboard, for the notebook's anchored embed of one step.
@@ -405,8 +407,8 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
 
   // Comment threads on the shed: one open, one resolved with a reply.
   const quote = (text: string, q: string) => ({ quote: q, start: text.indexOf(q) });
-  const open = await board.comment("showcase-open", notes.shed.id, notes.shed.revision!, "Is the lock still sticking? A drop of graphite might do it.", quote(SHED, "a lock that sticks in the cold"), SEED_AGENT);
-  const resolved = await board.comment("showcase-resolved", notes.shed.id, notes.shed.revision!, "Which hook are the inner tubes on?", quote(SHED, "The spare inner tubes"));
+  const open = await board.comment("showcase-open", notes.shed.id, notes.shed.revision!, "Is the lock still sticking? A drop of graphite might do it.", quote(notes.shed.text, "a lock that sticks in the cold"), SEED_AGENT);
+  const resolved = await board.comment("showcase-resolved", notes.shed.id, notes.shed.revision!, "Which hook are the inner tubes on?", quote(notes.shed.text, "The spare inner tubes"));
   await board.reply("showcase-reply", resolved.id, "The left one; I've written it in.", SEED_AGENT);
   await board.setLifecycle(resolved.id, "resolved");
 

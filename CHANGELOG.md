@@ -230,6 +230,8 @@ move into one repository (PIE-530).
   `no door answered at <path>`.
 - The showcase index scrolls, so no section is cut off.
 - Inline code that wraps onto the next row is code on both rows; no stray backtick is left showing.
+- A line that several comment threads quote gets one mark in the margin (yellow while any is open). Each extra mark
+  used to print a colour code as text, such as `[38;2;230;206;120m`, at the start of the line (PIE-541).
 - `outliner --help` (and `-h`, `help`, or no command) prints the CLI's usage; it used to throw, or list the folder's
   outline. An unknown command says so and exits 2.
 - `ep0ch --help` lists `ep0ch outline list --all` and `--lines`.

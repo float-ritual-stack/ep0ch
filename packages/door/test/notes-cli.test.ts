@@ -102,6 +102,14 @@ describe.skipIf(!outliner)("ep0ch find and show against a scratch host", () => {
     await make("flow", "Delivery flow");
     await make("queued", "Queued chores [type::virtual-branch] [query::type=chore]", ids.flow);
     await make("folded", "Shed rota\n\n> [!note]- Who has the key\n> Sam, on Saturdays.");
+    // PIE-541: links inside emphasis, and a line three comment threads quote (fictional).
+    const shedRef = (label?: string) => `((${ids.shed}${label ? `|${label}` : ""}))`;
+    await make("emph", ["Shed log", "", `_The rota is in the child blocks below: ${shedRef("Rota")}._`, `_Plain ${shedRef()} in italics._`, `**Bold ${shedRef("Shed")} and ${shedRef()}.**`].join("\n"));
+    const last = `_The rota is in the child blocks below: ${shedRef("Rota")}._`;
+    for (const [i, body] of ["Who keeps the key?", "Add Sam.", "Done in May."].entries()) {
+      const note = (await board.get(ids.emph!))!;
+      await board.comment(`pie541-${i}`, ids.emph!, note.revision!, body, { quote: last, start: note.text.indexOf(last) });
+    }
     await make("figures", ["Garden figures [count::2]", "", "::graph-check", "---", "title: Chores (live query)", 'query: "type=chore"', "---", "::", "", `See ((${ids.shed}|the shed)).`, "", "::links", ""].join("\n"));
     board.close();
   });
@@ -164,6 +172,22 @@ describe.skipIf(!outliner)("ep0ch find and show against a scratch host", () => {
     expect(ansi.out.split("\n").map(l => visible(l).trimEnd())).toEqual(plain.out.split("\n"));
     // ((id)) as a picker outputs it is taken as the id.
     expect((await run(["show", `((${ids.oil}))`, "--width", "40"], env)).out).toBe(plain.out);
+  });
+
+  test("show: links inside italics and bold are drawn in colour, and a line with several comment threads gets one mark (PIE-541)", async () => {
+    const plain = await run(["show", ids.emph!, "--width", "120"], env);
+    expect(plain.code).toBe(0);
+    const lines = plain.out.trimEnd().split("\n");
+    expect(plain.out).not.toContain("[38;2;");
+    expect(lines).toContain("▐The rota is in the child blocks below: Rota.");
+    expect(lines).toContain(" Plain Bike shed in italics.");
+    expect(lines).toContain(" Bold Shed and Bike shed.");
+    const ansi = (await run(["show", ids.emph!, "--width", "120", "--ansi"], env)).out;
+    // Every SGR is a whole escape: none is left as text with its ESC cut off.
+    expect(ansi.match(/(?<!\x1b)\[[\d;]*m/g)).toBeNull();
+    const rota = ansi.split("\n").find(l => visible(l).includes("The rota"))!;
+    expect(rota.split("▐").length).toBe(2);
+    expect(rota).toContain("\x1b[3m");
   });
 
   test("show --cells: the same drawing as cells a Raster paints, row by row, colours kept", async () => {

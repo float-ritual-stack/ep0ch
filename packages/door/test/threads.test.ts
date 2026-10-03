@@ -43,6 +43,31 @@ describe("a thread inline, without a service", () => {
   });
 });
 
+describe("several threads on one passage, without a service (PIE-541)", () => {
+  const TEXT = "Shed jobs\n_Oil the chain, see ((5eed0000-2222-4222-8333-444444444444|the rota))._\nThe pump lives by the door.";
+  const quote = "Oil the chain";
+  const at = TEXT.indexOf(quote);
+  const thread = (n: number, open: boolean) => ({ id: `c0ffee0${n}-1111-4222-8333-444444444444`, author: "sam", body: `Note ${n}.`, quote, at: Date.now() - 60_000, open, start: at, end: at + quote.length, replies: [] });
+  const host = (comments: unknown[]) => ({ ctx: { board: { ancestors: async () => [], comments: async () => comments }, flash() {}, t: { cellW: 9, cellH: 16 }, graphics: false } as any, redraw() {}, navigate() {} });
+  const note = { id: "5eed0000-1111-4222-8333-444444444444", text: TEXT, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "you", revision: 1, props: {} };
+
+  test("the margin gets one mark, whole escapes only, yellow while any of them is open; each thread is still an element", async () => {
+    for (const threads of [[thread(1, false), thread(2, true), thread(3, false)], [thread(1, false), thread(2, false)]]) {
+      const s = new NoteSurface(), h = host(threads);
+      s.show(note, h);
+      await until(() => s.comments?.length === threads.length, "the comments");
+      const lines = s.render(80, 20, h).lines;
+      const row = lines.find(l => plain(l).includes("Oil the chain"))!;
+      expect(row.match(/(?<!\x1b)\[[\d;]*m/g)).toBeNull();
+      expect(plain(row).trimEnd()).toBe("▐Oil the chain, see the rota.");
+      expect(row.split("▐").length).toBe(2);
+      const before = row.slice(0, row.indexOf("▐")).split("\x1b[0m").at(-1)!;
+      expect(before.includes(fg(C.yellow))).toBe(threads.some(t => t.open));
+      expect(s.describeElements().filter(e => e.kind === "comment").length).toBe(threads.length);
+    }
+  });
+});
+
 describe.skipIf(!outliner)("comment threads inline, against a scratch outline", () => {
   const scratch = new Scratch();
   let board: SocketBoard, app: App, b: Desk, hub: any, note: any;

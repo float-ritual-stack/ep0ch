@@ -836,9 +836,13 @@ export class NoteSurface {
     }
     // The document keeps a minimum width of its own (callouts, tables); a narrower column clips it.
     const body = doc.lines.map(l => (width(l) + 1 > w ? pad(" " + l, w) : " " + l));
-    // Comment marks sit in the body's margin, on the first row of the lines each quote spans.
+    // Comment marks sit in the body's margin, on the first row of the lines each quote spans. Threads on one
+    // row share its one margin cell (PIE-541: drawing each in turn cut the escape of the one before), yellow
+    // while any of them is open; each stays its own element.
     const marks = this.commentMarks(m, doc, noteLines);
-    for (const k of marks) body[k.row] = fg(k.open ? C.yellow : C.dark) + "▐" + RESET + body[k.row]!.slice(1);
+    const margin = new Map<number, boolean>();
+    for (const k of marks) margin.set(k.row, (margin.get(k.row) ?? false) || k.open);
+    for (const [row, open] of margin) body[row] = fg(open ? C.yellow : C.dark) + "▐" + RESET + body[row]!.slice(1);
     const elems = this.elementsOf(doc, drawn, marks, controls, summaryLinks, points, top, head, summaryRow);
     return (this.laid = { m, key, doc, drawn, picks, controls, body, marks, lines: noteLines, elems });
   }
