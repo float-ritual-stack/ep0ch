@@ -198,12 +198,17 @@ router of its own; `hooks/detail-view.ts` is its pure half.
     references as buttons under it (hotkeys 1 to 9), since cells hold no links;
   - **desktop and VS Code:** `Markdown`: the note's first line as a heading, its
     text as written (lists, headings, callouts as quotes, `::` figures fenced
-    under their name), its children as a nested list, and every `[[page]]`,
+    under their name, a one-line `::links` as code), its children as a nested
+    list, and every `[[page]]`,
     `((block))` and Work ID as a link.
-- **What it reads:** the outliner's own read of the note and its children
-  (`outliner list --subtree <id> --limit 200`); where that fails, `ep0ch show
-  <id> --source` (the note alone, from an `ep0ch` whose help lists it). Cut on
-  whole blocks to Markdown's 10,000 characters, saying the rest is in the outline.
+- **What it reads:** the door's export of the note and its children (`ep0ch
+  export <id> --children --out -`, PIE-534: the body as written, children as
+  nested lists; its front matter dropped), from an `ep0ch` whose help lists it;
+  else the outliner's read (`outliner list --subtree <id> --limit 200`) laid out
+  the same way. Escapes and control characters are taken out; it is cut on a
+  whole line to Markdown's 10,000 characters, saying the rest is in the outline
+  (as when the outliner's read was cut short). The read runs off the open queue,
+  so a slow one never holds the next open.
 - **Links:** a link pressed (desktop's `onLinkPress` on the keyed Markdown, or a
   link button) goes through `openNote` again, which lands here: the pane walks
   to it, with history. **b** goes back (from the first note, to the mentions

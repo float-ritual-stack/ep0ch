@@ -510,20 +510,26 @@ describe('register', () => {
       ],
       [OTHER]: [{ id: OTHER, parentId: null, position: 0, depth: 0, text: 'Other page\nThe chain oil is the wax one.' }],
     }
-    /** The installed Outliner and ep0ch, answering for the two notes; `outliner: false` has the outliner's read fail. */
-    function answering(options: { outliner?: boolean; cells?: boolean } = {}) {
+    /** The export of each note: front matter, the body, children as nested lists (as `ep0ch export --children` prints it). */
+    const EXPORTED: Record<string, string> = {
+      [BLOCK]: `---\nid: "${BLOCK}"\nauthor: "user"\n---\nDaily notes\n[type::note]\n## Today\n- rode to the shed\n\n- Bring the [[Other page]] list, see PIE-7\n`,
+      [OTHER]: `---\nid: "${OTHER}"\n---\nOther page\nThe chain oil is the wax one.\n`,
+    }
+    /** The installed Outliner and ep0ch, answering for the two notes; `export: false` is an ep0ch older than export. */
+    function answering(options: { export?: boolean; cells?: boolean } = {}) {
       return (run: Run): ProcessRunResult => {
         if (run.argv.includes('resolve')) {
           const uri = run.argv.at(-1)!
           return ok(uri.includes('Other') || uri.includes(OTHER) ? `{"id":"${OTHER}","title":"Other page"}` : `{"id":"${BLOCK}","title":"Daily notes"}`)
         }
         if (run.argv.includes('--subtree')) {
-          if (options.outliner === false) return result(1, '', 'error: Outliner service is not reachable\n')
-          return ok(JSON.stringify({ blocks: SUBTREES[run.argv[run.argv.indexOf('--subtree') + 1]!] ?? [] }))
+          return ok(JSON.stringify({ blocks: SUBTREES[run.argv[run.argv.indexOf('--subtree') + 1]!] ?? [], completeness: { kind: 'complete' } }))
         }
         if (run.argv[0] === 'ep0ch') {
-          if (run.argv[1] === 'help') return ok('  ep0ch show <id>… [--source | --ansi | --cells] [--width <n>] [--rows <n>]\n')
-          if (run.argv.includes('--source')) return ok('Daily notes\nRead by ep0ch, see [[Other page]].\n')
+          if (run.argv[1] === 'help') {
+            return ok(`  ep0ch show <id>… [--source | --ansi | --cells] [--width <n>] [--rows <n>]\n${options.export === false ? '' : '  ep0ch export [<id>…] [--query "<expression>"]\n'}`)
+          }
+          if (run.argv[1] === 'export') return ok(EXPORTED[run.argv[2]!]!)
           if (run.argv.includes('--cells') && options.cells !== false) {
             const width = Number(run.argv[run.argv.indexOf('--width') + 1])
             // One row of 'A' in white on black: [codePoint, fg, bg] as u32 LE, base64.
@@ -561,10 +567,11 @@ describe('register', () => {
       expect(opened).toEqual([DETAIL, DETAIL])
       expect(session.toasts).toEqual([])
       expect(herdrOpens(session.runs)).toEqual([])
-      // The outliner's own read of the note and its children, in the session's workspace.
-      const read = session.runs.find(run => run.argv.includes('--subtree'))!
-      expect(read.argv.slice(3)).toEqual(['list', '--subtree', BLOCK, '--limit', '200'])
+      // The door's export of the note and its children, on the session's outline.
+      const read = session.runs.find(run => run.argv[1] === 'export')!
+      expect(read.argv).toEqual(['ep0ch', 'export', BLOCK, '--children', '--format', 'md', '--out', '-'])
       expect(read.init?.cwd).toBe(WORKSPACE)
+      expect(read.init?.env).toMatchObject({ EP0CH_WS: 'garden' })
 
       const pane = await detail($, 'desktop')
       expect(await titleOf(pane)).toBe('Daily notes')
@@ -615,6 +622,8 @@ describe('register', () => {
       expect(shown).toMatchObject({ result: 'Showing Daily notes in the mentions pane beside this conversation.' })
       // The agent's show copies nothing.
       expect(copied).toEqual([])
+      // The note is read off the open queue: show answers once the pane is open.
+      await session.clock.settle()
 
       const pane = await detail($, 'vscode')
       expect((await pane.find({ key: 'detail-body' }))?.type).toBe('Markdown')
@@ -653,20 +662,21 @@ describe('register', () => {
       expect(session.toasts).toEqual([])
     })
 
-    test("the outliner can't read it: ep0ch show --source does (the note alone), its links still navigate", async ($, on) => {
-      const session = sessionIn(on, WORKSPACE, answering({ outliner: false }), '', NOT_IN_HERDR)
+    test("no ep0ch with export: the outliner's read, laid out the same way, its links still links", async ($, on) => {
+      const session = sessionIn(on, WORKSPACE, answering({ export: false }), '', NOT_IN_HERDR)
       panesIn(on)
       on('tool.register', ($, e) => ({ value: { tool: `mcp__pi-outliner__${e.name}` } }))
       await session.begin(() => $.session.start(START))
       await $.tool.call({ tool: 'mcp__pi-outliner__show', reference: `((${BLOCK}))` })
-      const source = session.runs.find(run => run.argv.includes('--source'))!
-      expect(source.argv).toEqual(['ep0ch', 'show', BLOCK, '--source'])
-      expect(source.init?.cwd).toBe(WORKSPACE)
-      expect(source.init?.env).toMatchObject({ EP0CH_WS: 'garden' })
+      await session.clock.settle()
+      expect(session.runs.some(run => run.argv[1] === 'export')).toBe(false)
+      const read = session.runs.find(run => run.argv.includes('--subtree'))!
+      expect(read.argv.slice(3)).toEqual(['list', '--subtree', BLOCK, '--limit', '200'])
+      expect(read.init?.cwd).toBe(WORKSPACE)
       const body = await (await detail($, 'desktop')).find({ key: 'detail-body' })
       expect(body?.props.text).toBe(
-        '# Daily notes\nRead by ep0ch, see [Other page](https://pi-outliner.invalid/page/Other%20page).\n\n' +
-        '_The note alone: `ep0ch show --source` reads no children._',
+        '# Daily notes\n[type::note]\n## Today\n- rode to the shed\n\n' +
+        '- Bring the [Other page](https://pi-outliner.invalid/page/Other%20page) list, see [PIE-7](https://pi-outliner.invalid/work/PIE-7)',
       )
     })
 

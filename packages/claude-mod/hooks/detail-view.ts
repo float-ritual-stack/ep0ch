@@ -12,12 +12,13 @@ import { linkifyReferences } from './references'
  * (a pane opened beside it would be a tab behind it, out of sight).
  *
  * The note is drawn by BlockView, one renderer per surface: the door's cells
- * on the terminal, Markdown elsewhere. The Markdown is the outliner's read of
- * the note and its children (`outliner list --subtree <id>`), or `ep0ch show
- * <id> --source` (the note alone) where the outliner can't answer, with its
- * references as links. A link pressed navigates within the pane, with history:
- * back and forward. On the terminal, whose cells hold no links, the references
- * are buttons under the drawing.
+ * on the terminal, Markdown elsewhere. The Markdown is the door's own export of
+ * the note and its children (`ep0ch export <id> --children`, PIE-534: the body
+ * verbatim, children as nested lists), or, where no usable `ep0ch` is on PATH,
+ * the outliner's read (`outliner list --subtree <id>`) laid out the same way;
+ * its references become links. A link pressed navigates within the pane, with
+ * history: back and forward. On the terminal, whose cells hold no links, the
+ * references are buttons under the drawing.
  *
  * This file is the pure half (routing, history, what a read means, the tree);
  * register.ts holds the state and runs the commands, since only it holds `$`.
@@ -42,18 +43,11 @@ export function routeOf(env: { EP0CH_CONTROL?: string | undefined; HERDR_PANE_ID
   return 'here'
 }
 
-/**
- * The extra argument `ep0ch help` is asked with: a socket path that never
- * exists, so an ep0ch older than `help` stops at "no carrier" rather than
- * opening a door (block-view.ts' probe, for the same reason).
- */
-export const SOURCE_PROBE = '/nonexistent/ep0ch-source-probe.sock'
+/** `ep0ch help` lists `export`: this ep0ch writes a note and its children as Markdown. */
+export const knowsExport = (help: string): boolean => /^\s*ep0ch export\b/m.test(help)
 
-/** `ep0ch help` lists `show … --source`: this ep0ch prints a note's text as written. */
-export const knowsSource = (help: string): boolean => /^\s*ep0ch show\b.*--source/m.test(help)
-
-/** The `ep0ch show` argv that prints a note's text as written. */
-export const sourceArgv = (id: string): string[] => ['ep0ch', 'show', id, '--source']
+/** The `ep0ch export` argv: the note and everything under it, as Markdown, to stdout. */
+export const exportArgv = (id: string): string[] => ['ep0ch', 'export', id, '--children', '--format', 'md', '--out', '-']
 
 /** What the headings say for the here route. */
 export const OPENS_HERE = 'opens here'
@@ -91,20 +85,24 @@ export function historyOf(value: unknown): DetailHistory {
 }
 
 /**
- * A note's text as Markdown: its first line a heading (unless it is one), and
- * each `::component` block (a live figure, `::links`) fenced under its name,
- * since only the door draws them live.
+ * Markdown as the pane shows it: the note's first line a heading (unless it is
+ * one), and each `::component` (a live figure, which only the door draws live)
+ * as code: one with a body (`::graph-table` … `::`) fenced under its name, a
+ * one-line kind (`::links`, `::backlinks`) as an inline code line.
  */
-export function noteMarkdown(text: string, heading: boolean): string {
-  const lines = text.replace(/\n+$/, '').split('\n')
+export function displayMarkdown(text: string): string {
+  const lines = text.split('\n')
   const out: string[] = []
   let inComponent = false
   lines.forEach((line, i) => {
-    if (i === 0 && heading && line.trim() && !/^#{1,6}\s/.test(line)) return void out.push(`# ${line.trim()}`)
-    const opens = !inComponent && /^::[\w-]+\s*$/.exec(line)
-    if (opens) {
+    if (i === 0 && line.trim() && !/^#{1,6}\s/.test(line)) return void out.push(`# ${line.trim()}`)
+    const name = !inComponent && /^\s*::([\w-]+)\s*$/.exec(line)?.[1]
+    if (name) {
+      // Fenced only when its closing `::` follows; else it is one line.
+      const closes = lines.slice(i + 1).some(rest => rest.trim() === '::')
+      if (!closes) return void out.push(`\`::${name}\``)
       inComponent = true
-      return void out.push(`\`\`\`${line.slice(2).trim()}`)
+      return void out.push(`\`\`\`${name}`)
     }
     if (inComponent && line.trim() === '::') {
       inComponent = false
@@ -112,40 +110,35 @@ export function noteMarkdown(text: string, heading: boolean): string {
     }
     out.push(line)
   })
-  if (inComponent) out.push('```')
   return out.join('\n')
 }
 
-type SubtreeBlock = { id: string; parentId: string | null; position: number; text: string }
-
-/** `outliner list --subtree <id>`' blocks, the note first then its descendants in outline order, with depths below it; null for anything else. */
-export function subtreeOf(stdout: string, id: string): { text: string; depth: number }[] | null {
-  let parsed: unknown
-  try { parsed = JSON.parse(stdout) } catch { return null }
-  const raw = (parsed as { blocks?: unknown } | null)?.blocks
-  if (!Array.isArray(raw)) return null
-  const blocks: SubtreeBlock[] = raw.flatMap((b: Record<string, unknown>) =>
-    b && typeof b.id === 'string' && typeof b.text === 'string'
-      ? [{ id: b.id, parentId: typeof b.parentId === 'string' ? b.parentId : null, position: Number(b.position) || 0, text: b.text }]
-      : [])
-  const root = blocks.find(b => b.id === id)
-  if (!root) return null
-  const children = new Map<string, SubtreeBlock[]>()
-  for (const b of blocks) if (b.parentId) children.set(b.parentId, [...(children.get(b.parentId) ?? []), b])
-  const out: { text: string; depth: number }[] = []
-  const walk = (b: SubtreeBlock, depth: number) => {
-    out.push({ text: b.text, depth })
-    for (const child of (children.get(b.id) ?? []).sort((x, y) => x.position - y.position)) walk(child, depth + 1)
-  }
-  walk(root, 0)
-  return out
+/** `ep0ch export`'s Markdown without its front matter (the note's identity): the body and its children. */
+export function exportBodyOf(stdout: string): string | null {
+  const body = stdout.replace(/^---\n[\s\S]*?\n---\n/, '').replace(/\s+$/, '')
+  return body.trim() ? body : null
 }
 
-/** One descendant as a list item, nested by its depth, its later lines under its first. */
-function listItem(text: string, depth: number): string {
-  const indent = '  '.repeat(Math.max(0, depth - 1))
-  const [first = '', ...rest] = noteMarkdown(text, false).split('\n')
-  return [`${indent}- ${first}`, ...rest.map(line => (line ? `${indent}  ${line}` : ''))].join('\n')
+/**
+ * `outliner list --subtree <id>`' answer laid out as the export lays a note
+ * out: its text, a blank line, then its descendants as nested list items, in
+ * the order and depth the service gives. Null for anything that isn't one.
+ */
+export function subtreeMarkdownOf(stdout: string, id: string): { markdown: string; isTruncated: boolean } | null {
+  let parsed: unknown
+  try { parsed = JSON.parse(stdout) } catch { return null }
+  const { blocks, completeness } = (parsed ?? {}) as { blocks?: unknown; completeness?: { kind?: unknown } }
+  if (!Array.isArray(blocks)) return null
+  const [root, ...rest] = blocks as { id?: unknown; text?: unknown; depth?: unknown }[]
+  if (!root || root.id !== id || typeof root.text !== 'string') return null
+  const items = rest.flatMap(b => {
+    if (typeof b?.text !== 'string') return []
+    const indent = '  '.repeat(Math.max(0, (Number(b.depth) || 1) - 1))
+    const [first = '', ...more] = b.text.replace(/\n+$/, '').split('\n')
+    return [[`${indent}- ${first}`, ...more.map(line => (line ? `${indent}  ${line}` : ''))].join('\n')]
+  })
+  const markdown = [root.text.replace(/\n+$/, ''), ...(items.length ? ['', ...items] : [])].join('\n')
+  return { markdown, isTruncated: completeness?.kind !== undefined && completeness.kind !== 'complete' }
 }
 
 /** Every stand-in link in linkified Markdown, once each, with its text. */
@@ -157,32 +150,25 @@ export function linksOf(markdown: string): DetailLink[] {
   return [...seen].map(([href, label]) => ({ href, label }))
 }
 
+/** What Markdown can't hold: escape sequences and control characters other than tab and newline. */
+const sanitized = (text: string) => text.replace(/\r\n?/g, '\n').replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '').replace(/[\x00-\x08\x0b-\x1f\x7f]/g, '')
+
 /**
- * The detail view's source from a read: the note (a heading and its text),
- * then its descendants as a nested list, each with its references as links
- * (`prefixes`: the outline's Work-ID prefixes). Cut on whole blocks to fit
- * Markdown's bound, saying the rest is in the outline.
+ * The detail view's source from a read: shown as `displayMarkdown` lays it
+ * out, its references as links (`prefixes`: the outline's Work-ID prefixes),
+ * cut on a whole line to fit Markdown's bound, saying the rest is in the
+ * outline (as when the read itself was cut short).
  */
-export function detailSourceOf(blocks: readonly { text: string; depth: number }[], prefixes: readonly string[], from: 'outliner' | 'ep0ch'): DetailSource {
-  const chunks: string[] = []
-  let size = 0
-  let isTruncated = false
-  for (const [i, block] of blocks.entries()) {
-    const chunk = linkifyReferences(i === 0 ? noteMarkdown(block.text, true) : listItem(block.text, block.depth), prefixes).text
-    if (size + chunk.length + 2 > MARKDOWN_BUDGET) {
-      isTruncated = true
-      // The note itself too long: its first lines, cut on a line.
-      if (i === 0) chunks.push(chunk.slice(0, MARKDOWN_BUDGET).replace(/\n[^\n]*$/, ''))
-      break
-    }
-    // The note's text, a blank line, then its descendants as one list.
-    chunks.push(i === 1 ? `\n${chunk}` : chunk)
-    size += chunk.length + 1
+export function detailSourceOf(markdown: string, prefixes: readonly string[], from: 'ep0ch' | 'outliner', isCut = false): DetailSource {
+  let text = linkifyReferences(displayMarkdown(sanitized(markdown)), prefixes).text
+  let isTruncated = isCut
+  if (text.length > MARKDOWN_BUDGET) {
+    isTruncated = true
+    const cut = text.lastIndexOf('\n', MARKDOWN_BUDGET)
+    text = text.slice(0, cut > 0 ? cut : MARKDOWN_BUDGET)
   }
-  let markdown = chunks.join('\n')
-  if (isTruncated) markdown += '\n\n_More of it is in the outline._'
-  else if (from === 'ep0ch') markdown += '\n\n_The note alone: `ep0ch show --source` reads no children._'
-  return { kind: 'source', markdown, links: linksOf(markdown), from, isTruncated }
+  if (isTruncated) text += '\n\n_More of it is in the outline._'
+  return { kind: 'source', markdown: text, links: linksOf(text).slice(0, 256), from, isTruncated }
 }
 
 /** What the detail view draws with: the surface's table. */

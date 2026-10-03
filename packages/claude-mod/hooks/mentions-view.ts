@@ -81,7 +81,7 @@ export function mentionRowsOf(stdout: string): MentionRow[] {
  * `beside`: what the Outliner's `find-detail` found beside Claude in its Herdr
  * workspace (the Detail a press reuses), unknown until it answers.
  */
-export function opensIn(env: { EP0CH_CONTROL?: string; HERDR_PANE_ID?: string; HERDR_WORKSPACE_ID?: string }, beside?: DetailBeside): string {
+export function opensIn(env: { EP0CH_CONTROL?: string | undefined; HERDR_PANE_ID?: string | undefined; HERDR_WORKSPACE_ID?: string | undefined }, beside?: DetailBeside): string {
   const route = routeOf(env)
   if (route === 'door') return 'opens in this door'
   if (route === 'herdr') {

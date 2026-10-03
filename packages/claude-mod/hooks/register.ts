@@ -42,22 +42,22 @@ import {
   DEFAULT_PREFS,
   type SiteElements,
 } from './mentions-view'
-import { BlockView, type BlockViewElements, type BlockViewProps, type BlockViewSource, blockViewId, loadBlockView, viewColumns } from './block-view'
+import { BlockView, type BlockViewElements, type BlockViewProps, type BlockViewSource, blockViewId, ep0chHelp, loadBlockView, viewColumns } from './block-view'
 import {
   currentOf,
   DETAIL_ROWS,
   detailSourceOf,
   detailTree,
   historyOf,
-  knowsSource,
+  knowsExport,
   listed,
   moved,
   pushed,
   routeOf,
-  SOURCE_PROBE,
-  sourceArgv,
+  exportArgv,
+  exportBodyOf,
   SUBTREE_LIMIT,
-  subtreeOf,
+  subtreeMarkdownOf,
   type DetailElements,
 } from './detail-view'
 import type { DetailEntry, DetailSource, MentionRow, MentionsList, MentionsPrefs } from '../types'
@@ -171,9 +171,8 @@ export function register(on: On, options: PluginOptions): void {
   // A pane opened only for a note (the band the choice) closed by them leaves the band; the pane opens on the list next.
   on('ui.close', async ($, e, next) => {
     const result = await next(e)
-    if (e.id === MENTIONS_PANE && e.origin.kind === 'person' && (await mentionsPrefsOf($)).placement === 'pane') {
-      await keepMentionsPrefs($, { ...(await mentionsPrefsOf($)), placement: 'off' })
-    }
+    const prefs = await mentionsPrefsOf($)
+    if (e.id === MENTIONS_PANE && e.origin.kind === 'person' && prefs.placement === 'pane') await keepMentionsPrefs($, { ...prefs, placement: 'off' })
     if (e.id === MENTIONS_PANE) await $.state.set(DETAIL, listed(await detailHistoryOf($)))
     if (e.id === MENTIONS_PANE) $.ui.invalidate('ui.render')
     return result
@@ -184,6 +183,7 @@ export function register(on: On, options: PluginOptions): void {
   // or Herdr nothing is seated: the note opens there.
   on('ui.press', { plugin: 'pi-outliner' }, async ($, e, next) => {
     const opensNote = /^mention-\d+$/.test(e.element) || (e.element === 'outliner-references' && !!e.link && outlinerUriOf(e.link.href) !== null)
+    // The cached variables read without waiting, so the press reaches its closure before anything queued after it.
     if (opensNote && references?.workspace && routeOf(routeEnv ?? await routeEnvOf($)) === 'here') {
       await $.ui.open({ id: MENTIONS_PANE, title: MENTIONS_TITLE }).catch(() => {})
     }
@@ -717,12 +717,10 @@ function openNote($: EngineInterface, workspace: Workspace | null, uri: string, 
 }
 
 async function openNow($: EngineInterface, workspace: Workspace | null, uri: string, actor: string): Promise<Shown> {
-  const [control, tile, tileId, paneId, herdrWorkspace] = await Promise.all([
-    $.env.get('EP0CH_CONTROL'),
+  const [{ EP0CH_CONTROL: control, HERDR_PANE_ID: paneId, HERDR_WORKSPACE_ID: herdrWorkspace }, tile, tileId] = await Promise.all([
+    routeEnvOf($),
     $.env.get('EP0CH_TILE'),
     $.env.get('EP0CH_TILE_ID'),
-    $.env.get('HERDR_PANE_ID'),
-    $.env.get('HERDR_WORKSPACE_ID'),
   ])
   // Found on first use: outside a door and Herdr, a block id needs no installed Outliner to be named.
   let installed: Promise<string | null> | undefined
@@ -770,7 +768,7 @@ async function openNow($: EngineInterface, workspace: Workspace | null, uri: str
     return { title: await showInHerdrPane($, outliner, workspace, uri), place: 'pane' }
   }
   // Neither a door nor Herdr: here, in the mentions pane. A page or Work ID that doesn't resolve is the refusal.
-  // A block id needs no resolving: where the outliner can't answer, `ep0ch show --source` may still read it.
+  // A block id needs no resolving: where the outliner can't answer, `ep0ch export` may still read it.
   if (workspace) {
     const blockId = outlinerBlockIdOf(uri)
     const { id, title } = await resolve().catch(error => {
@@ -861,10 +859,7 @@ const DETAIL_BESIDE = { plugin: 'pi-outliner', key: 'detailBeside' } as const
  * last answer.
  */
 async function refreshDetailBeside($: EngineInterface, workspace: Workspace): Promise<void> {
-  const [control, paneId, herdrWorkspace] = await Promise.all([
-    $.env.get('EP0CH_CONTROL'), $.env.get('HERDR_PANE_ID'), $.env.get('HERDR_WORKSPACE_ID'),
-  ])
-  if (control || !paneId || !herdrWorkspace) return
+  if (routeOf(await routeEnvOf($)) !== 'herdr') return
   try {
     const found = await runHerdrOpen($, workspace, ['--mode', 'find-detail'])
     if (found.exitCode !== 0) return
@@ -1004,12 +999,10 @@ async function drawMentions(
   workspace: Workspace,
   option: PluginOptions,
 ): Promise<RenderElement> {
-  const [prefs, list, control, paneId, herdrWorkspace, beside] = await Promise.all([
+  const [prefs, list, env, beside] = await Promise.all([
     mentionsPrefsOf($),
     mentionsListOf($),
-    $.env.get('EP0CH_CONTROL'),
-    $.env.get('HERDR_PANE_ID'),
-    $.env.get('HERDR_WORKSPACE_ID'),
+    routeEnvOf($),
     $.state.get(DETAIL_BESIDE).then(({ value }) => value),
   ])
   const width = previewWidthOf(site, columns)
@@ -1021,7 +1014,7 @@ async function drawMentions(
   }
   return mentionsTree(ui, {
     site, columns, prefs, list, previews,
-    opens: opensIn({ ...(control ? { EP0CH_CONTROL: control } : {}), ...(paneId ? { HERDR_PANE_ID: paneId } : {}), ...(herdrWorkspace ? { HERDR_WORKSPACE_ID: herdrWorkspace } : {}) }, beside),
+    opens: opensIn(env, beside),
     open: (row: MentionRow, surface: RenderSurface) => void openMention($, workspace, row, surface),
     choose: change => void chooseMentions($, change, option),
   })
@@ -1098,7 +1091,11 @@ async function openReference($: EngineInterface, workspace: Workspace, href: str
  */
 async function openUri($: EngineInterface, workspace: Workspace, uri: string, surface: RenderSurface): Promise<string | null> {
   try {
-    await openNote($, workspace, uri, await actorFor($, {}))
+    const shown = await openNote($, workspace, uri, await actorFor($, {}))
+    // Here, from a press the pane couldn't be seated by (a door that had quit): say where it went.
+    if (shown.place === 'here' && shown.waits) {
+      $.ui.toast(`${shown.title || outlinerLabelOf(uri)} is open in the mentions pane, not on screen yet (${shown.waits}); /mentions pane shows it.`, { timeoutMs: 8000 })
+    }
     return null
   } catch (error) {
     if (error instanceof NotOpenedHere) {
@@ -1134,42 +1131,48 @@ async function routeEnvOf($: EngineInterface): Promise<RouteEnv> {
 
 /**
  * openNote's third case: the note in the mentions pane, in place of its
- * list, pushed on its history and read again. The pane is opened (a press
- * seated it already); one opened unasked waits on a narrow terminal, and
- * `waits` says so.
+ * list, pushed on its history. The pane is opened (a press seated it
+ * already); one opened unasked waits on a narrow terminal, and `waits` says
+ * so. The note is read off the open queue, so a slow read never holds the
+ * next open; each read lands as the latest for its note.
  */
 async function showHere($: EngineInterface, workspace: Workspace, entry: DetailEntry): Promise<Shown> {
   await $.state.set(DETAIL, pushed(await detailHistoryOf($), entry))
   const opened = await openMentionsPane($)
-  await $.state.set({ ...DETAIL_SOURCES, id: entry.id }, await readDetail($, workspace, entry.id))
+  $.clock.after(0, () => void readDetail($, workspace, entry.id)
+    .then(source => $.state.set({ ...DETAIL_SOURCES, id: entry.id }, source))
+    .catch(() => {}))
   return { title: entry.title, place: 'here', ...(opened.isPlaced ? {} : { waits: opened.reason }) }
 }
 
 /**
- * A note's text for the detail view: the outliner's read of it and its
- * children (`list --subtree`), else `ep0ch show --source` (the note alone)
- * from an ep0ch whose help lists it, else why neither could.
+ * A note's text for the detail view: the door's export of it and its
+ * children (`ep0ch export <id> --children`, from an ep0ch whose help lists
+ * it), else the outliner's read (`list --subtree`), else why neither could.
  */
 async function readDetail($: EngineInterface, workspace: Workspace, id: string): Promise<DetailSource> {
   const prefixes = references?.prefixes ?? []
-  let why: string
+  const run = (argv: readonly string[], init?: Parameters<EngineInterface['process']['run']>[1]) => $.process.run(argv, init)
+  let why = 'no ep0ch on PATH with export (ep0ch install)'
   try {
-    const ran = await runOutliner($, workspace, ['list', '--subtree', id, '--limit', String(SUBTREE_LIMIT)])
-    const blocks = ran.exitCode === 0 ? subtreeOf(ran.stdout, id) : null
-    if (blocks) return detailSourceOf(blocks, prefixes, 'outliner')
-    why = ran.exitCode === 0 ? 'the outliner found no such block' : failureReasonOf(ran.stderr) || 'the outliner could not read it'
+    // An ep0ch older than `export` (or than `help`) never runs it: the probe socket stops one at "no carrier".
+    const help = await ep0chHelp(run)
+    if (help !== null && knowsExport(help)) {
+      const ran = await $.process.run(exportArgv(id), { cwd: workspace.root, env: envFor(workspace), timeoutMs: 15_000 })
+      const body = ran.exitCode === 0 ? exportBodyOf(ran.stdout) : null
+      if (body) return detailSourceOf(body, prefixes, 'ep0ch')
+      why = failureReasonOf(ran.stderr).replace(/^ep0ch: /, '') || 'ep0ch export printed nothing'
+    }
   } catch (error) {
     why = error instanceof Error ? error.message : String(error)
   }
   try {
-    // An ep0ch older than `show --source` (or than `help`) never runs it: the probe socket stops one at "no carrier".
-    const help = await $.process.run(['ep0ch', 'help', SOURCE_PROBE], { timeoutMs: 5000 })
-    if (help.exitCode === 0 && knowsSource(help.stdout)) {
-      const ran = await $.process.run(sourceArgv(id), { cwd: workspace.root, env: envFor(workspace), timeoutMs: 15_000 })
-      if (ran.exitCode === 0 && ran.stdout.trim()) return detailSourceOf([{ text: ran.stdout, depth: 0 }], prefixes, 'ep0ch')
-    }
-  } catch {
-    // Not on PATH: the outliner's reason stands.
+    const ran = await runOutliner($, workspace, ['list', '--subtree', id, '--limit', String(SUBTREE_LIMIT)])
+    const read = ran.exitCode === 0 ? subtreeMarkdownOf(ran.stdout, id) : null
+    if (read) return detailSourceOf(read.markdown, prefixes, 'outliner', read.isTruncated)
+    why += `; ${ran.exitCode === 0 ? 'the outliner found no such block' : failureReasonOf(ran.stderr) || 'the outliner could not read it'}`
+  } catch (error) {
+    why += `; ${error instanceof Error ? error.message : String(error)}`
   }
   return { kind: 'missing', why }
 }

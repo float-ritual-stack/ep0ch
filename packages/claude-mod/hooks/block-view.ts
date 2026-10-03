@@ -69,11 +69,27 @@ export type BlockViewSource = { cwd?: string; env?: Record<string, string> }
 /** Runs a host command: `$.process.run`, handed in by the hooks module (only it holds `$`). */
 export type RunCommand = (argv: readonly string[], init?: ProcessRunInit) => Promise<ProcessRunResult>
 
-let probed: Promise<boolean> | undefined
+let helped: Promise<string | null> | undefined
 
-/** Forgets whether `ep0ch` draws cells, so it is asked again (an `ep0ch install` mid-session; tests). */
+/** Forgets what `ep0ch help` said, so it is asked again (an `ep0ch install` mid-session; tests). */
 export function resetBlockViewProbe(): void {
-  probed = undefined
+  helped = undefined
+}
+
+/**
+ * `ep0ch help`'s text, asked once a module load (with the probe socket, so an
+ * ep0ch older than `help` opens nothing), or null where there is no usable
+ * `ep0ch`: what each of the mod's `ep0ch` commands checks before it runs
+ * (`--cells` here, `export` for the detail view).
+ */
+export function ep0chHelp(run: RunCommand): Promise<string | null> {
+  return (helped ??= run(['ep0ch', 'help', BLOCK_VIEW_PROBE], { timeoutMs: 5000 })
+    .then(help => (help.exitCode === 0 ? help.stdout : null), () => null))
+}
+
+/** An answer that didn't serve: asked again next time (an `ep0ch install` mid-session). */
+export function forgetEp0chHelp(): void {
+  helped = undefined
 }
 
 /**
@@ -83,10 +99,9 @@ export function resetBlockViewProbe(): void {
 export async function loadBlockView(run: RunCommand, id: string, width: number, source: BlockViewSource = {}, rows = MAX_ROWS): Promise<BlockViewData> {
   try {
     // Once a module load: an ep0ch older than `--cells` never runs `show` with it, nor one older than `show` at all.
-    const knows = await (probed ??= run(['ep0ch', 'help', BLOCK_VIEW_PROBE], { timeoutMs: 5000 })
-      .then(help => help.exitCode === 0 && knowsCells(help.stdout), () => false))
-    if (!knows) {
-      probed = undefined
+    const help = await ep0chHelp(run)
+    if (help === null || !knowsCells(help)) {
+      forgetEp0chHelp()
       return { kind: 'text', why: 'ep0ch is not on PATH, or too old to draw cells (ep0ch install)' }
     }
     const ran = await run(blockViewArgv(id, width, rows), { ...source, timeoutMs: 15_000 })
@@ -97,7 +112,7 @@ export async function loadBlockView(run: RunCommand, id: string, width: number, 
     const cells = blockCellsOf(ran.stdout)
     return cells ? { kind: 'cells', ...clipRows(cells, rows) } : { kind: 'text', why: 'ep0ch show --cells printed no cells' }
   } catch (error) {
-    probed = undefined
+    forgetEp0chHelp()
     return { kind: 'text', why: error instanceof Error ? error.message : String(error) }
   }
 }
@@ -145,9 +160,10 @@ export function BlockView(ui: BlockViewElements, { key, data, surface, maxRows, 
   }
   if (data === undefined && surface === 'terminal') return ui.Text({ dimColor: true, children: '  drawing…' })
   if (text?.trim() && links) {
+    // Whole: the detail view's Markdown is already bounded, and its last line may say the rest is in the outline.
     return ui.Markdown({
       key,
-      text: firstLines(text.trim(), maxRows),
+      text: text.trim(),
       ...(links.hrefs.length ? { pressableLinks: links.hrefs.slice(0, 256), onLinkPress: (link, press) => links.press(link.href, press.surface) } : {}),
     })
   }
