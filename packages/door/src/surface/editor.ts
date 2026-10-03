@@ -8,7 +8,7 @@ import { DRAFT_ACTIONS, keepCopy, patchLabel, type Draft } from "../edit";
 import { USER, type Actor } from "../socket";
 import { stateSub } from "../state";
 import { C, fg, pad, RESET } from "../style";
-import { rule } from "../text";
+import { rule, words } from "../text";
 import { ownTerminal, type Handover, type TileProgram } from "../term";
 import { agentLabel } from "./actions";
 import { COMPLETION_HINT, COMPLETION_ROWS, completerOf, completionOf, renderCompletion } from "./completer";
@@ -175,7 +175,7 @@ export function openInEditor(ctx: Suspender, d: Draft, held: () => boolean = () 
   };
   const tidyUp = () => rmSync(dir, { recursive: true, force: true });
   // Where the view has tiles, the editor runs in one beside the note (PIE-417); the draft comes back when it exits.
-  if (ctx.inTile?.({ cmd: [...editor.trim().split(/\s+/), path], file: path, name: "edit" }, c => { try { back(c); } finally { tidyUp(); } })) {
+  if (ctx.inTile?.({ cmd: [...words(editor), path], file: path, name: "edit" }, c => { try { back(c); } finally { tidyUp(); } })) {
     d.note = `editing in ${editor} beside · the draft comes back when it exits`;
     return Promise.resolve();
   }

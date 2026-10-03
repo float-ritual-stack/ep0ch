@@ -13,7 +13,7 @@
 // (television draws on stderr when its stdout isn't a terminal) and the door reads its answer after. Its environment is
 // the drop shell's, or a terminal tile's (EP0CH_CONTROL names this door either way), plus the door's outline
 // (EP0CH_SOCKET, EP0CH_WS), so a channel that asks `ep0ch find` reads the outline this draft is in.
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { keepCopy, type Draft } from "./edit";
@@ -64,6 +64,28 @@ export const pickRunner: { run: (terminal: Handover, run: ReturnType<typeof pick
 /** Drafts with a picker open beside them: a second ctrl+t meanwhile says so, rather than open a second tile. */
 const picking = new WeakSet<Draft>();
 
+/** This door's open pickers' folders: gone with the door, even when it quits while a picker tile runs. */
+const open = new Set<string>();
+let sweeping = false;
+const sweepOnExit = () => {
+  if (sweeping) return;
+  sweeping = true;
+  process.once("exit", () => { for (const dir of open) rmSync(dir, { recursive: true, force: true }); });
+};
+
+/** The pick folders a door that ended without tidying (kill -9) left in `pick/`: removed. A choice in one was never made. */
+export function sweepPicks(alive: (pid: number) => boolean): void {
+  const root = stateSub("pick");
+  if (!root) return;
+  let names: string[] = [];
+  try { names = readdirSync(root); } catch { return; }
+  for (const d of names) {
+    const pid = Number(d.split("-")[0]);
+    if (!pid || pid === process.pid || alive(pid)) continue;
+    rmSync(join(root, d), { recursive: true, force: true });
+  }
+}
+
 /**
  * Run the picker (in a tile beside the note where the screen has tiles, else in the person's terminal) and insert what
  * it printed at the draft's cursor, as `by` typed it. `held`: whether the draft is still open when the picker returns; a
@@ -77,6 +99,8 @@ export async function pickInto(ctx: Suspender, d: Draft, outline: { socket: stri
   const channel = o.channel ?? channelOf();
   const picker = `${pickerOf()}${channel ? ` ${channel}` : ""}`;
   const back = (code: number | null): Picked => {
+    // No code: its tile closed before it exited (or its terminal went), so whatever it wrote on the way out isn't a choice.
+    if (code === null) return { nothing: `${picker} closed before a choice; nothing inserted` };
     let printed = "";
     try { printed = readFileSync(out, "utf8"); } catch { /* nothing chosen */ }
     const text = pickedText(printed);
@@ -84,15 +108,21 @@ export async function pickInto(ctx: Suspender, d: Draft, outline: { socket: stri
     // error went with its screen); 127 is sh's "not found".
     if (!text) return { nothing: code === 127 ? `${picker} exited 127: not found (EP0CH_PICKER names the picker); nothing inserted`
       : code === 1 ? `nothing chosen in ${picker}, or it has no ${channel ? `"${channel}"` : "such"} channel (tv's come from ext/television: ep0ch install --apply)`
-      : code === 0 || code === 130 ? `nothing chosen in ${picker}` : `${picker} exited ${code ?? "without a code"}; nothing inserted` };
+      : code === 0 || code === 130 ? `nothing chosen in ${picker}`
+      // 143 or 129: ended by a signal (its terminal hung up) before a choice.
+      : code === 143 || code === 129 ? `${picker} closed before a choice; nothing inserted`
+      : `${picker} exited ${code}; nothing inserted` };
     if (o.held && !o.held()) return { kept: text, at: keepCopy(text + "\n", "picked"), why: `the draft closed while ${picker} was open` };
+    // Saved meanwhile (the tile left the reader free): the text that went is the one saved, so the choice is kept, not
+    // pasted into a draft the save is landing from.
+    if (d.busy) return { kept: text, at: keepCopy(text + "\n", "picked"), why: `the draft was being saved when ${picker} returned` };
     const put = atCursor(d, text);
     d.pasteText(put, o.by ?? USER);
     d.note = `inserted from ${picker}`;
     return { inserted: put };
   };
-  picking.add(d);
-  const tidy = () => { picking.delete(d); rmSync(dir, { recursive: true, force: true }); };
+  picking.add(d); open.add(dir); sweepOnExit();
+  const tidy = () => { picking.delete(d); open.delete(dir); rmSync(dir, { recursive: true, force: true }); };
   // Beside the note, in a terminal tile with the person's keys: the draft stays in view while they choose.
   const beside = await new Promise<Picked | null>((resolve, reject) => {
     try {

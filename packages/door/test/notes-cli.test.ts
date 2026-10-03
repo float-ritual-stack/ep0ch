@@ -174,3 +174,44 @@ describe.skipIf(!outliner)("ep0ch find and show against a scratch host", () => {
     expect([unnamed.code, unnamed.err]).toEqual([1, expect.stringContaining("no outline is named here")]);
   });
 });
+
+describe("the ep0ch channel's lines (ext/television's ep0ch-tv)", () => {
+  const TV = join(import.meta.dir, "../ext/television/bin/ep0ch-tv");
+  // The channel's templates take the id the way tv's replace does; what tv shows and matches is the line less its escapes.
+  const ID = /^.*\x1b\]8;;ep0ch:([0-9A-Za-z_-]+)\x1b.*$/;
+  const shown = (l: string) => l.replace(/\x1b\][^\x1b]*\x1b\\/g, "").replace(/\x1b\[[0-9;]*m/g, "");
+  const row = (id: string, parentId: string | null, depth: number, title: string, props: Record<string, string> = {}) =>
+    ({ id, parentId, depth, title, props, updatedAt: 0, position: 0, author: "you", createdAt: 0, hasChildren: false });
+  let dir = "";
+  beforeAll(() => { dir = mkdtempSync(join(tmpdir(), "ep0ch-tv-")); });
+  afterAll(() => rmSync(dir, { recursive: true, force: true }));
+  const tv = async (args: string[], lines: string) => {
+    const main = join(dir, "main.ts");
+    await Bun.write(main, "process.stdout.write(process.env.FAKE_FIND ?? '');\n");
+    const p = Bun.spawn([TV, ...args], { stdout: "pipe", stderr: "pipe", env: { ...process.env, EP0CH_DOOR_MAIN: main, FAKE_FIND: lines } });
+    const [out, err, code] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
+    return { out, err, code };
+  };
+
+  test("each line shows the tree, coloured, and gives back its whole id; the id is neither shown nor matched", async () => {
+    const rows = treeOf([
+      row("4f6648f1-aaaa", null, 0, "Bike shed"),
+      row("ae755888-bbbb", "4f6648f1-aaaa", 1, "Tools 'n' \"spares\" ]8;;ep0ch:fake\tlist", { type: "place" }),
+      row("cf2e02f5-cccc", "ae755888-bbbb", 2, "Chain oil"),
+    ])!;
+    const { out, code } = await tv(["tree"], rows.map(treeLine).join("\n") + "\n");
+    expect(code).toBe(0);
+    const lines = out.split("\n").filter(Boolean);
+    expect(lines.map(l => l.replace(ID, "$1"))).toEqual(["4f6648f1-aaaa", "ae755888-bbbb", "cf2e02f5-cccc"]);
+    expect(lines.map(shown)).toEqual(["Bike shed", "└─ Tools 'n' \"spares\" ]8;;ep0ch:fake list  · place", "   └─ Chain oil"]);
+    expect(lines[0]).toContain("\x1b[33;1m");                       // a level's titles in their colour
+  });
+
+  test("an id handed back is only an id's letters: anything else is refused before a command sees it", async () => {
+    for (const bad of ["x'; touch nope", "", "a b"]) {
+      const r = await tv(["preview", bad], "");
+      expect(r.code).toBe(2);
+      expect(r.err).toContain("not a note id");
+    }
+  });
+});

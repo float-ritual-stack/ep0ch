@@ -32,7 +32,7 @@ import { SPINE } from "../spine";
 // ── what the module reads: the tree queries, re-exported so callers import only this module ──
 export {
   chainOf, columnsOf, dividerAt, dockedTiles, dragShare, drawerOf, drawers, EDGE_GLYPH, EDGE_WORD, effective, flowOf, isDir, isLine, kidsOf, leaf, leaves, neighbour, node, nodeById,
-  pair, parentNode, parentOf, policyOf, revive as reviveTree, shown, splitOf, tabsOf, visible, POLICY_KEYS,
+  pair, parentNode, parentOf, policyOf, revive as reviveTree, shown, splitAxis, splitOf, tabsOf, visible, POLICY_KEYS,
 } from "./layout";
 /** A copy of a tree to build on (a screen's preset as it's made); the state's own is never changed in place. */
 export { clone as copyTree } from "./layout";

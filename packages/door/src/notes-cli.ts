@@ -42,9 +42,10 @@ const field = (s: string) => printable(s.replace(/[\t\r\n]+/g, " ")).trim();
 export const foundLine = (f: Found) => [f.id, field(f.title), field(f.path)].join("\t");
 
 /** Every note in the tree index, newest first: its title (the preview's first line) and its ancestors' titles as its path (` › `, as the service's). */
-export function everyNote(index: readonly IndexBlock[]): Found[] {
+/** A note's ancestors' titles as its path (` › `, as the service's), from the tree index by id. */
+function pathsOf(index: readonly IndexBlock[]): (b: IndexBlock) => string {
   const by = new Map(index.map(b => [b.id, b]));
-  const pathOf = (b: IndexBlock) => {
+  return b => {
     const up: string[] = [];
     const seen = new Set([b.id]);
     for (let p = b.parentId; p && !seen.has(p) && up.length < 12; p = by.get(p)?.parentId ?? null) {
@@ -55,6 +56,11 @@ export function everyNote(index: readonly IndexBlock[]): Found[] {
     }
     return up.join(" › ").slice(-500);
   };
+}
+
+/** Every note in the tree index, newest first: its title (the preview's first line) and its ancestors' titles as its path. */
+export function everyNote(index: readonly IndexBlock[]): Found[] {
+  const pathOf = pathsOf(index);
   return [...index].sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id)).map(b => ({ id: b.id, title: previewTitle(b.title), path: pathOf(b) }));
 }
 
@@ -96,7 +102,7 @@ export function treeOf(index: readonly IndexBlock[], root?: string, levels = TRE
     later[d] = true;
     later.length = d + 1;
   }
-  const paths = new Map(everyNote(index).map(f => [f.id, f.path]));
+  const pathOf = pathsOf(index);
   const open: boolean[] = [];    // open[k]: the ancestor at depth k has a later sibling, so its rail goes on down
   return rows.map((b, i) => {
     const d = b.depth;
@@ -105,7 +111,7 @@ export function treeOf(index: readonly IndexBlock[], root?: string, levels = TRE
     const kept = rails.length > levels - 1 ? [`…${d}`.padEnd(3) + " ", ...rails.slice(rails.length - (levels - 2))] : rails;
     const glyphs = d === 0 ? "" : kept.join("") + (last[i] ? "└─ " : "├─ ");
     const title = previewTitle(b.title);
-    return { id: b.id, title, path: paths.get(b.id) ?? "", depth: d, glyphs, about: aboutOf(b.props, title) };
+    return { id: b.id, title, path: pathOf(b), depth: d, glyphs, about: aboutOf(b.props, title) };
   });
 }
 

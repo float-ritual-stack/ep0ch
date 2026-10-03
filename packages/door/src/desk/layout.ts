@@ -329,9 +329,15 @@ export function beside<I>(root: LNode<I>, target: I | { key: string }, add: LNod
   return go(root);
 }
 
+/**
+ * The axis a split of `r` goes along: its longer side (a cell is about 1:2, so "longer" is cols ≥ 2.2 × rows). `wide`: what
+ * opens wants width more than height (a picker's list), so it goes beside only when that still leaves it wider than tall.
+ */
+export const splitAxis = (r: Rect, wide = false): Axis => (r.cols >= r.rows * (wide ? 4 : 2.2) ? "row" : "col");
+
 /** Split leaf `id` so `add` appears beside it, half each; along its longer axis unless told (the desk's `^W o`). */
 export function split<I>(n: LNode<I>, id: I, add: I, r: Rect, dir?: Axis): LNode<I> {
-  return beside(n, id, leaf(add), { dir: dir ?? (r.cols >= r.rows * 2.2 ? "row" : "col") });
+  return beside(n, id, leaf(add), { dir: dir ?? splitAxis(r) });
 }
 
 /** Add a leaf to the named split (or columns) at `index` (default the end) with `weight`. */

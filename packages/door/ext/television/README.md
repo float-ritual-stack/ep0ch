@@ -98,7 +98,7 @@ code.
   OSC 8 link (`ESC ]8;;ep0ch:<id> ESC \`). tv drops escapes from what it shows and from what it matches, so the id is
   out of view and the letters you type never match its hex (an id after a tab, or past the right edge, would be
   matched: tv matches an ansi line whole, and a `display` template can't colour). The templates take it from the raw
-  line with `{replace:s/^.*\]8;;ep0ch:([0-9A-Za-z_-]+).*$/$1/}`, where `git-log`'s take the hash with
+  line with `{replace:s/^.*\x1b\]8;;ep0ch:([0-9A-Za-z_-]+)\x1b.*$/$1/}` (and `ep0ch-tv` takes nothing but an id's letters), where `git-log`'s take the hash with
   `{strip_ansi|split: :0}` (`strip_ansi` drops the link with its id). An outline reference needs the whole id (a short
   one doesn't resolve), so it is whole and out of view rather than shortened. tv runs a source
   once and filters as you type. `ep0ch find <words>` is the service's forgiving ranker (as `((` and Goto rank), for

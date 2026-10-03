@@ -24,7 +24,7 @@ door=${EP0CH_DOOR_MAIN:-$(readlink -f "$here/../../../src/main.ts")}
 ep0ch() { bun "$door" "$@"; }
 # A note as tv's ep0ch channel lists it (ansi = true): the line as shown, coloured, then the note's id in an empty OSC 8
 # link (`ESC ]8;;ep0ch:<id> ESC \\`). tv drops escapes from what it shows and matches, so the id is out of view and typing
-# never matches its hex; the channel's templates take it from the raw line ({replace:s/^.*]8;;ep0ch:(…).*$/$1/}). A
+# never matches its hex; the channel's templates take it from the raw line ({replace:s/^.*ESC]8;;ep0ch:(…)ESC.*$/$1/}). A
 # title's colour follows its depth, so a level reads down the tree; the rails and what it is are dim. In: id, title,
 # context, depth, glyphs (tab-separated).
 shown() {
@@ -43,6 +43,12 @@ panel() {
 }
 cmd=${1:-}
 [ $# -gt 0 ] && shift
+# A note's id, as the channel's templates hand it over (tv puts it in the command unescaped): letters, digits, - and _
+# only, so a line the template didn't match (a title's text, quotes and all) never reaches a command.
+case "$cmd" in
+  preview|open|detail)
+    case "${1:-}" in ''|*[!0-9A-Za-z_-]*) printf 'ep0ch-tv: %s: not a note id\n' "${1:-}" >&2; exit 2 ;; esac ;;
+esac
 case "$cmd" in
   tree)
     root=${1:-${EP0CH_TV_ROOT:-}}

@@ -20,10 +20,10 @@ command = [
 ansi = true
 no_sort = true
 frecency = false
-output = "(({replace:s/^.*\\]8;;ep0ch:([0-9A-Za-z_-]+).*$/$1/}))"
+output = "(({replace:s/^.*\\x1b\\]8;;ep0ch:([0-9A-Za-z_-]+)\\x1b.*$/$1/}))"
 
 [preview]
-command = "ep0ch-tv preview '{replace:s/^.*\\]8;;ep0ch:([0-9A-Za-z_-]+).*$/$1/}'"
+command = "ep0ch-tv preview '{replace:s/^.*\\x1b\\]8;;ep0ch:([0-9A-Za-z_-]+)\\x1b.*$/$1/}'"
 
 [ui.preview_panel]
 size = 60
@@ -35,10 +35,10 @@ ctrl-d = "actions:detail"
 
 [actions.open]
 description = "Open in the door (ep0ch open, as the agent television)"
-command = "ep0ch-tv open '{replace:s/^.*\\]8;;ep0ch:([0-9A-Za-z_-]+).*$/$1/}'"
+command = "ep0ch-tv open '{replace:s/^.*\\x1b\\]8;;ep0ch:([0-9A-Za-z_-]+)\\x1b.*$/$1/}'"
 mode = "fork"
 
 [actions.detail]
 description = "Show in the Outliner's Tree and its Detail"
-command = "ep0ch-tv detail '{replace:s/^.*\\]8;;ep0ch:([0-9A-Za-z_-]+).*$/$1/}'"
+command = "ep0ch-tv detail '{replace:s/^.*\\x1b\\]8;;ep0ch:([0-9A-Za-z_-]+)\\x1b.*$/$1/}'"
 mode = "fork"

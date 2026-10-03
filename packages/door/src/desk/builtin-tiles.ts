@@ -15,7 +15,8 @@ import { laneTileName, QUERY_ACTIONS, QueryPane } from "./query";
 import { HUB_SOURCE } from "./lanes";
 import { riverColumnKind } from "../river/column";
 import { kindOf, registerTileKind, registerTileSource, tileKind, tileSource, type TileKind } from "./tile-kinds";
-import { DetailPane, dailyDraft, editor, shell, words } from "./tiles";
+import { DetailPane, dailyDraft, editor, shell } from "./tiles";
+import { words } from "../text";
 import { TREE_ACTIONS } from "./tree";
 
 /** A reader of any sort (reader, detail, preview): notes open into it, and an open edit is work. */

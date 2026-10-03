@@ -115,3 +115,6 @@ export const rule = (w: number, label = "") => {
 
 /** A note's id as given: a bare id, or a block reference as written (`((id))`, what a picker prints). */
 export const blockIdOf = (s: string) => s.replace(/^\(\((.+)\)\)$/, "$1");
+
+/** A command line as words, split on whitespace (the daily agent's EP0CH_DAILY_AGENT, $EDITOR for ctrl+e). */
+export const words = (s: string) => s.trim().split(/\s+/).filter(Boolean);
