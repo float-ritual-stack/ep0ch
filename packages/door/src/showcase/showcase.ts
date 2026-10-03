@@ -150,7 +150,7 @@ export const SECTIONS: Section[] = [
   },
   {
     key: "screens", need: "make a screen (the welcome, the brief, Waiting, a pinned page, the desk itself)", part: "a screen spec on the desk, the only screen host: containers and tiles by kind, a key map naming actions, a hint, a band, where opens land (ScreenSpec; specData and readSpec, screen.spec); what it does beyond layout is its tiles' kinds'", files: "src/desk/screen-spec.ts, src/desk/screen-specs.ts, src/brief/brief.ts",
-    aside: "the brief here is its spec: one tile of the brief kind, which knows the briefs and steps them (, .); `act screen.spec` reads it as the data a note would hold · the home base is a spec the same way (`home`): bare `ep0ch` in a folder whose .ep0ch names no outline opens it, to open, make or import one here or on a machine",
+    aside: "the brief here is its spec: one tile of the brief kind, which knows the briefs and steps them (, .); `act screen.spec` reads it as the data a note would hold · the home base is a spec the same way (`home`): bare `ep0ch` in a folder that names no outline (no --ws, EP0CH_WS or .ep0ch) opens it, to open, make or import one here or on a machine",
     stage: () => openScreen("brief"),
   },
   {

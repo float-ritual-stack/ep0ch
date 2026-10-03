@@ -29,7 +29,7 @@ move into one repository (PIE-530).
 - **A database made before schema versions** is refused at open, with the command that stamps it. Back it up, stop
   the host, then run `bun packages/outliner/scripts/migrations/0001-stamp.ts ~/outlines/<name>.sqlite` once. It
   stamps only a database whose shape matches a fresh one.
-- **Restart the host, then the doors.** The host and every client speak protocol 83 and refuse any other number,
+- **Restart the host, then the doors.** The host and every client speak protocol 83; a client refuses a host on any other number,
   saying which side to update. `ep0ch install --apply` restarts the host. Restart doors and Claude sessions that
   should run the new code.
 - **Delete `~/.config/pi-herdr-outliner/document-renderers.json`** if you have one. Nothing reads it now.
@@ -100,8 +100,8 @@ move into one repository (PIE-530).
 ### Search
 
 - **Forgiving search.** Goto, Detail's `((` and `[[` completion, the door's `[[` (`pages.complete`), the desk's `/`
-  search and `ep0ch find` (`tree.search`), Inbox history search, the Backlinks filter and the river's text filter
-  share one matcher (outline-core's `search-match.ts`). Punctuation folds ("Claude - now" finds "claude
+  search and `ep0ch find` (`tree.search`), Inbox history search and the Backlinks filter share one
+  matcher (outline-core's `search-match.ts`). Punctuation folds ("Claude - now" finds "claude
   now"). Words match in any order. A longer word may be off by a typo or two ("party hast" finds "party hats").
   When all but one word match, the result still shows, below every exact match.
 - **Search from the note you are writing** (the outliner's Detail). `((` and `[[` rank from the draft's note:
@@ -110,7 +110,7 @@ move into one repository (PIE-530).
   too.
 - **In the door, not yet.** The door's `((` asks `blocks.query` (every word, any order, no typo allowance) and its
   searches send neither the draft's note nor ask for Jev: #142 built that, and #143, merged a minute later, undid it
-  in `src/surface/completer.ts`. It is reported for a follow-up fix.
+  in `packages/door/src/surface/completer.ts`. It is reported for a follow-up fix.
 - `blocks.query`'s `text` (agent tools, `list --text`) matches every word in any order, not one phrase.
 
 ### Links and resources on every screen
@@ -118,7 +118,8 @@ move into one repository (PIE-530).
 - **One links model**: a block's Outlinks, Resources and Backlinks, in the Tree's order and words, drawn the same
   way in four places:
   - the tree's `L` panel;
-  - the links tile (the backlinks tile, extended): its filter covers the three groups, `.` folds a group, and its
+  - the links tile (the backlinks tile, extended): its filter covers the three groups (the backlinks with the forgiving matcher, outlinks and resources by plain
+    words for now), `.` folds a group, and its
     preview shows the selected row;
   - a river column, under its replies: `j` and `k` walk into the rows, ⏎ opens one in the next column, and `b` or a
     click on `── ▾ links` folds them;
@@ -208,7 +209,8 @@ move into one repository (PIE-530).
   `pane.float`, `pane.pin`, `agent.enter`, `agent.leave`, `agent.toggle`, `agent.height`, `focus`, `focus.set`,
   `focus.clear`, `layout.restore`, `reader.collapse`, `reader.expand`, and the river's old short names). Use the
   canonical names `ep0ch actions` lists.
-- New actions: `links` (an agent's reads the links and returns them; the person's list is left alone),
+- New actions: `links` (an agent's opens a links tile where the screen has none, and never moves the person's
+  keys; refused in a river column, where `column.links` is the way),
   `column.links` and `column.link` in the river, and `home.pick`, `home.open`, `home.new`, `home.import`,
   `home.connect`, `home.add`, `home.forget` and `home.reload` on the home base. An agent's `home.open` writes
   `.ep0ch` only with `write=true`, and the door says which agent opened the outline.

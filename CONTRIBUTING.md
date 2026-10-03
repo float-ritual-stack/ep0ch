@@ -77,7 +77,7 @@ Every review, by the author before opening the PR and by the reviewer, goes thro
   showcase section and seed content (`packages/door/src/showcase/`)? Is a new outliner shared part named in its
   Source boundaries or `docs/ARCHITECTURE.md` so the next change finds it?
 - **Demo it in the kitchen sink:** a user-visible feature gets a showcase section or note in the same PR, live
-  where possible (`ep0ch --showcase`), as every reuse-map row has its section, and its test drives that section
+  where possible (`ep0ch --showcase`), as each reuse-map row gets its section, and its test drives that section
   through `act` and checks the result (`packages/door/test/showcase.test.ts`). If it can't be shown there, the PR
   says why.
 

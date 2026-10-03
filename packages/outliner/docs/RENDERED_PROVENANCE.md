@@ -336,7 +336,7 @@ not become ambiguous merely because the service inserted an ID earlier in the
 host. Original observations remain immutable; later unrelated edits still use
 the quote fallback, retaining ambiguity where identity cannot be established.
 
-Protocol 81 carries passage observations and resolutions. Upgrade the service
+Protocol 81 added passage observations and resolutions (one `PROTOCOL` now, in outline-core). Upgrade the service
 and readers together; the database preserves older annotation representations.
 
 ### Renderer ownership decision

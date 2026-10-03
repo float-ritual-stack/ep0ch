@@ -139,7 +139,7 @@ The feed is the desk's, and every view built on it (the brief, the pinned pages,
 | `actions` | everything the screen can do |
 
 Two reads need no door at all, only the outline: `ep0ch find <words>… [--lines|--json]` (the service's forgiving
-ranker, as `((` and Goto rank; `--recent`, `--tree [<root id>]`) and `ep0ch show <id> [--width <n>] [--ansi]` (the
+ranker, as Goto and `[[` rank; `--recent`, `--tree [<root id>]`) and `ep0ch show <id> [--width <n>] [--ansi]` (the
 note drawn by the note surface, as a reader draws it). Both take `--ws` and `--machine`.
 
 ## The shell: screens and lists
@@ -330,7 +330,7 @@ gesture; see the README's desk section and `docs/UI-GRAMMAR.md` §7.
 | `projection.refresh` | `tile`, `block` (a page or a ticket block; default the reader's), `line` | fetches the tickets it shows now and runs its extensions' lines (`resources.projection.refresh`): with `line`, only that line (an output or component runs again, an `@name` request is asked again); without it, every line and every `@name` request not answered yet. The service writes as the extension (`ext:jira`, `ext:moon`), never as the agent or the person, and records who ran it as who asked (`asked by an agent (<id>)` on the line); said on the status bar |
 | `ext.<extension>.<action>` | `block` (the note with the handler line, or the block it acts on), `line` (when the note has several of that handler's lines) | an extension's action, named as `extensions.list` names it (`ext.fancy-horror.ward`, `ext.<id>.keep`): the service runs it (`extensions.act`) and what it writes is attributed `ext:<id>`; the status bar says `an agent (<id>) · Fancy Horror: …`. On every screen. A tile kind's actions (`ext.tarot.draw`, `ext.tarot.keep`) take `tile=<the tile>`; `block` defaults to the tile's own; a block action a tile lists (`ext.tarot.keep`) runs on any screen with `block=` too. Who asked goes with it, recorded as the change feed's `requestedBy`. Bound and unbound as the service's extensions change |
 | `links` | `tile` (a reader) | `b`: the reader's note's outlinks, resources and backlinks (one links model, `src/links.ts`) in the screen's links tile, opening one below the reader where the screen has none. An agent's aims or opens it and leaves the person's keys where they are; a screen with no room refuses and names `::links` |
-| `column.links`, `column.link` | `tile` (a river column); `on`; `n` (a links row, from 1), `fresh` | a river column's links under its replies, and opening one in the next column; refused on the column the person has the keys in, with the agent's way named |
+| `column.links`, `column.link` | `tile` (a river column); `on`; `n` (a links row, from 1), `fresh` | a river column's links under its replies, and opening one in the next column; `column.links` is refused on the column the person has the keys in, with the agent's way named |
 | `home.pick`, `home.open`, `home.new`, `home.import`, `home.connect`, `home.add`, `home.forget`, `home.reload` | `n`; `outline`, `machine`, `write`; `name`; `path` | the home base (bare `ep0ch` where nothing names an outline). An agent's `home.open` writes the folder's `.ep0ch` only with `write=true`; what the person's would ask for (a name, a file, a machine) an agent passes as arguments |
 | the note actions | `edit.*`, `comment.*`, `link.follow`, `block.tint` (PIE-423's focus mark), `select*`, … | in the reader named; an agent's edit or comment is never the person's until they enter it |
 

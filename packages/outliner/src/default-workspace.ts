@@ -66,7 +66,7 @@ const DOCUMENTATION_SECTIONS = [
       "- Register a human-facing symbolic address with `[page::address]` and reference it as `[[address]]`. Rename the page by editing that token: the old address stays an alias, so existing links keep resolving. Deleting the token frees the address.",
       "- Wrap example syntax in `<!-- literal -->` … `<!-- /literal -->` lines so `[key::value]` and `#tags` inside are shown, not indexed.",
       "",
-      "Every embed reports failures or truncation explicitly, and a document projects at most 16. Detail shows one level. The service's `transclusions.read` nests embeds to depth 3 by default (6 at most), stops at cycles and expands at most 64 per read; ep0ch-door and published pages use it.",
+      "Every embed reports failures or truncation explicitly, and a document projects at most 16. Detail shows one level. The service's `transclusions.read` nests embeds to depth 3 by default (6 at most), stops at cycles and expands at most 64 per read; the ep0ch door and published pages use it.",
       "",
       "Complete when changing the source updates every composed reading surface without copied prose.",
     ],

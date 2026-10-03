@@ -36,7 +36,7 @@ Then:
 | `ep0ch --remote box-a` | this terminal on the door session running there |
 | `ep0ch --showcase` | every shared part of the door, live, on its own seeded outline of made-up notes |
 | `ep0ch find <words>`, `ep0ch show <id>` | the service's forgiving search, and a note drawn as the door draws it, at your shell |
-| an ssh login | on a host set up for it, lands straight in the door |
+| an ssh login | lands straight in the door where the host's login shell runs `ep0ch` (the door README, "Getting started") |
 
 `ep0ch help` lists every command.
 

@@ -26,7 +26,7 @@ pages, publishing, extensions), and `ep0ch-core` for changing this code (includi
     ep0ch where [--json]             which door, tile and Herdr pane this process runs in, and where the keys are
     ep0ch clients [--ws <name>]      who is connected to the outline (every role)
     ep0ch find [<words>… | --recent | --tree [<root>]] [--lines | --json]
-                                     notes, ranked as (( and Goto rank them; no door needed
+                                     notes, ranked as Goto and [[ rank them; no door needed
     ep0ch show <id> [--width <n>]    a note drawn as a reader draws it, as text; no door needed
     ep0ch peek                       the screen as text plus structured state
     ep0ch actions                    what the current screen can do, with arguments and keys
@@ -36,7 +36,7 @@ pages, publishing, extensions), and `ep0ch-core` for changing this code (includi
     ep0ch subscribe [type,…]         the door's live feed, one JSON event per line
     ep0ch snap [out.png]             exactly what the terminal shows
     ep0ch try --ws <name> --copy     your own door on a private copy of an outline
-    ep0ch session list | attach --watch | end   the door session in this state dir
+    ep0ch session list | attach --watch | end   this folder's outline's session (or --ws <name>)
     ep0ch --skill [<name>]           the stack's skills, or the path of one
     ep0ch doctor [--json]            the whole stack's state (✓ ! ✗) with a fix command for each; read-only
     ep0ch install [--json]           the update plan (a dry run); --apply runs it
@@ -97,7 +97,7 @@ only when the person asked for it.
   without a terminal, and its control socket answers whether or not a terminal is attached. To see it as a terminal does,
   `ep0ch session attach --watch` in a pane of your own (read-only, never the person's keys). Never attach to the
   person's session without `--watch`: your keys would be theirs. Ending it (`session.end`, `ep0ch session end`) is
-  the person's; a session you started on your own `EP0CH_STATE` you end yourself (`EP0CH_STATE=… ep0ch session end --yes`),
+  the person's; a session you started on your own `EP0CH_STATE` you end yourself (`EP0CH_STATE=… ep0ch session end --all --yes`),
   or it keeps running after your pane is gone.
 - Name yourself: `EP0CH_AGENT=<your-id>` once, or `--as` on each `act` and `open`. The door records and shows
   it. `ext:<id>` is an extension's and is refused: only the outline service writes as an extension. To run
@@ -184,7 +184,7 @@ yourself (path 1): `/exit`, then `claude --continue`.
   content; `open` registers a Resource first if it must), `backlinks.view filter=…` filters. In the outline tree,
   `tree.links n=<row>` shows a row's links under it and `tree.pick n=<row> [open=true]` picks one (`peek`'s
   `tree.rows` numbers them). Folding a group (`backlinks.fold`) is the person's view.
-- **Search:** `search query=<words>` answers the service's ranked hits (as `((` and Goto rank them); nothing
+- **Search:** `search query=<words>` answers the service's ranked hits (as Goto and `[[` rank them); nothing
   on screen moves. `ep0ch find <words>` is the same without a door.
 - **The desk:** `layout.get` (tiles, splits and tab sets by stable id, and `rev`), `tile.open`, `layout.move`,
   `block.mark reason=…` to ask for the person's attention. Pass `expected=<rev>` when you name by place.

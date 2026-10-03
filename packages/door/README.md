@@ -422,7 +422,7 @@ A checkout from before `install` gets it by hand, once:
 | `ep0ch try …` | `scripts/try-it.sh`: the door on a private copy (`--copy`), or on the showcase outline (`--showcase`, `--reset`) |
 | `ep0ch init [<name>]`, `ep0ch outline …`, `ep0ch status` | name this folder's outline, and the host's outlines (see [Outlines on the outline host](#outlines-on-the-outline-host)) |
 | `ep0ch --skill [--all] [<name>]` | the stack's skills (this door's `skills/` and the outliner's `pi-extension/skills/`: the installed plugin's, found through Herdr, else packages/outliner beside the door), or the path of one skill's `SKILL.md`; `--all` adds contributor skills |
-| `ep0ch find [<words>… \| --recent \| --tree [<root id>]] [--lines \| --json]` | the outline's notes for a picker or a script: with words, the service's ranked search (as `((` and Goto rank them, at most 30); `--recent`, its newest 30; `--tree`, the outline (or the notes under the root) depth first in the service's order, drawn with `├─ │ └─` (past ten levels the outer rails become `…<depth>`); without, every note, newest first. `--lines` prints `id<TAB>title<TAB>path`, and with `--tree` then `<TAB>depth<TAB>glyphs<TAB>about` (work id, stage, type); television's `ep0ch` channel reads them |
+| `ep0ch find [<words>… \| --recent \| --tree [<root id>]] [--lines \| --json]` | the outline's notes for a picker or a script: with words, the service's ranked search (as Goto and `[[` rank them, at most 30); `--recent`, its newest 30; `--tree`, the outline (or the notes under the root) depth first in the service's order, drawn with `├─ │ └─` (past ten levels the outer rails become `…<depth>`); without, every note, newest first. `--lines` prints `id<TAB>title<TAB>path`, and with `--tree` then `<TAB>depth<TAB>glyphs<TAB>about` (work id, stage, type); television's `ep0ch` channel reads them |
 | `ep0ch show <id> [--ansi \| --cells] [--width <n>] [--rows <n>]` | the note drawn as a reader draws it (the note surface), at that width; `--ansi` keeps its colours (a picker's preview); `--cells` prints it as JSON cells for a program that paints a grid (the Claude mod's BlockView draws them as a `Raster`; `src/cells.ts` has the format); `--rows` keeps the first rows, for a preview |
 | `ep0ch outline list --all [--lines]` | every outline you can open from here: this machine's, then each machine you've opened before (a machine not connected now says so; nothing is started) |
 | `ep0ch clients [--ws <name>] [--machine <ssh-name>]` | who's connected to the outline: every role, observers and roles this door doesn't know yet |
@@ -1026,7 +1026,7 @@ The board's new-card composer is the same control too.
   the agent's, and refused if that note changed since it was offered). The popup never keeps a key it doesn't use: with nothing to choose, `Enter`,
   arrows and `Esc` do what they do in a draft, the first `Esc` only closes the popup, and `Tab` outside a
   token indents.
-- **Agents edit above while you type** (pi-herdr-outliner PIE-501, `draft.patch`). An open draft is held on
+- **Agents edit above while you type** (the outliner's PIE-501, `draft.patch`). An open draft is held on
   the service, on a lease the door renews every 5 s, so an agent's compare-and-swap on a span of the note
   lands in your draft instead of the saved note. It applies only while the text it read is still there (at
   or near where it saw it), above the `@request` line it names (or, without one, above the block your cursor
@@ -1055,7 +1055,7 @@ The board's new-card composer is the same control too.
 - **Scroll indicators:** a reader whose note is longer than its frame shows a thumb on the frame's right
   border and how far down it is in the title (`· 42%`): board readers, floats and the desk's reader.
 - **Properties:** the service decides which `[key::value]` tokens are properties (one followed by more
-  text on its line is plain text). The service's `properties.preview` (pi-herdr-outliner PIE-401) reads
+  text on its line is plain text). The service's `properties.preview` (the outliner's PIE-401) reads
   them first: the first `Ctrl+S` on a draft that would change them says which and writes nothing; `Ctrl+S`
   again saves.
 - **Attribution:** door edits are recorded as `author: user`, `actorId: ep0ch-door:<hostname>`, like the
@@ -1246,7 +1246,7 @@ opens a link or an embed beside or in a new column, and a step's box opens its s
 
 ### Extensions in a note
 
-An extension the outline service runs (pi-herdr-outliner `docs/extensions/README.md`, PIE-507) answers a
+An extension the outline service runs ([the outliner's extensions guide](../outliner/docs/extensions/README.md), PIE-507) answers a
 line by its key (`moon:: 2026-10-26`, `horoscope:: virgo`, `fancy-horror:: virgo`) or an `@name` request
 (`@tidy`). The reader draws what the service kept for each line in a shaded region after it, the way it
 draws a ticket (PIE-512):
@@ -1446,7 +1446,7 @@ Card bodies come from `children`. The layout is saved to `river.json` (the desk'
 
 Kitty graphics are used only where cells can't do it, and every word stays real terminal text:
 
-- **Art** is rasterized with the 9×16 VGA font from `../ep0ch/ep0ch.html` and placed under the text layer.
+- **Art** is rasterized with the 9×16 VGA font (lifted from ep0ch.html into `src/vga.ts`) and placed under the text layer.
   Menu and logon art are placed one art cell per terminal cell, so live text lands exactly in the art's slots.
   The viewer keeps true VGA proportions.
 - **CRT**: scanlines and a phosphor bloom at the lowest Kitty layer, so they show through default-background cells only.

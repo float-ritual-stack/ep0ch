@@ -192,8 +192,8 @@ The root `CONTRIBUTING.md` has the checklist, architecture pass first
   uses it. Name every place it built its own instead (a second drawer, a screen-only layout, a key with no
   action, a switch on a tile kind's name). Expect at least one; fix it or say why not.
 - **Is it in the kitchen sink?** A user-visible feature gets a showcase section or note in the same PR, live
-  where possible (`ep0ch --showcase`), as every reuse-map row has its section, and its test drives that section
-  through `act` (`test/showcase.test.ts`); if it can't be shown, the PR says why.
+  where possible (`ep0ch --showcase`), as each reuse-map row gets its section, and its test drives that section
+  through `act` (`packages/door/test/showcase.test.ts`); if it can't be shown, the PR says why.
 
 After a big push or two, review the system as a whole: one lens per reviewer (architecture and reuse,
 portability and runtime, daily-driver interaction), reporting, not fixing. Then refresh the docs (README and
