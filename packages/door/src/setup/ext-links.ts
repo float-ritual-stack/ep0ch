@@ -1,7 +1,8 @@
 // The door's userland extensions (packages/door/ext/<name>/), as `ep0ch install` sees them: each folder that has an
 // `ext.json` may ask for its files to be linked where another program finds them (television's cable files, a helper
 // on PATH). Install makes those links and says each one; it never replaces a file or link it didn't make, and it
-// takes away only its own links whose file is gone (an extension deleted, a file renamed). Deleting an ext folder
+// takes away only its own links whose file is gone (an extension deleted, a file renamed), found in the folders it
+// recorded linking into (`ext-links.json` in the door's state) and those the extensions there now link into. Deleting an ext folder
 // leaves the door as it was: nothing in the door imports one.
 //
 // ext.json:
@@ -9,7 +10,7 @@
 //                                                 { "from": "bin", "into": ["@bin"] }] }
 // `from` is a folder in the extension; each file in it is linked by its name into the first `into` that applies: one
 // starting `$NAME` applies when NAME is set, `~/` is the home folder, `@bin` the folder `ep0ch` is linked in.
-import { existsSync, lstatSync, readdirSync, readFileSync, readlinkSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 
 type Env = Record<string, string | undefined>;
@@ -56,9 +57,10 @@ function stateOf(dest: string, src: string): ExtLink["state"] {
  * Every extension under `extRoot` with an ext.json, its links resolved against this machine (`which` finds a program
  * on PATH), and the links install made earlier whose file is gone.
  */
-export function extFacts(extRoot: string, o: { env: Env; home: string; bin: string | null; which: (name: string) => string | null }): { exts: ExtFacts[]; stale: StaleLink[] } {
+export function extFacts(extRoot: string, o: { env: Env; home: string; bin: string | null; which: (name: string) => string | null; record?: string }): { root: string; exts: ExtFacts[]; stale: StaleLink[]; record?: string } {
   const exts: ExtFacts[] = [];
-  const dirs = new Set<string>();
+  // The folders install linked into before (its record), so the last extension deleted still has its links found.
+  const dirs = new Set<string>(o.record ? madeLinks(o.record).map(d => dirname(d)) : []);
   let names: string[] = [];
   try { names = readdirSync(extRoot).filter(n => existsSync(join(extRoot, n, "ext.json"))).sort(); } catch { /* no ext/ */ }
   for (const name of names) {
@@ -90,14 +92,31 @@ export function extFacts(extRoot: string, o: { env: Env; home: string; bin: stri
     try { entries = readdirSync(d); } catch { continue; }
     for (const e of entries) {
       const dest = join(d, e);
-      try {
-        if (!lstatSync(dest).isSymbolicLink()) continue;
-        const target = resolve(d, readlinkSync(dest));
-        if (target.startsWith(root) && !existsSync(target)) stale.push({ dest, target });
-      } catch { /* gone meanwhile */ }
+      if (staleLinkInto(dest, root)) stale.push({ dest, target: resolve(d, readlinkSync(dest)) });
     }
   }
-  return { exts, stale };
+  return { root: extRoot, exts, stale, ...(o.record ? { record: o.record } : {}) };
+}
+
+/** The links install made, as it recorded them (`ext-links.json` in the door's state). */
+export function madeLinks(record: string): string[] {
+  try { const l = JSON.parse(readFileSync(record, "utf8"))?.links; return Array.isArray(l) ? l.filter((d: unknown) => typeof d === "string") : []; } catch { return []; }
+}
+
+/** Keep the record: the links made now added, the ones taken away dropped. */
+export function recordLinks(record: string, made: readonly string[], removed: readonly string[]): void {
+  const now = [...new Set([...madeLinks(record), ...made])].filter(d => !removed.includes(d)).sort();
+  mkdirSync(dirname(record), { recursive: true, mode: 0o700 });
+  writeFileSync(record, JSON.stringify({ links: now }, null, 2) + "\n");
+}
+
+/** Whether `dest` is a link into the extensions folder `extRoot` whose file is gone: the only kind install takes away. */
+export function staleLinkInto(dest: string, extRoot: string): boolean {
+  try {
+    if (!lstatSync(dest).isSymbolicLink()) return false;
+    const target = resolve(dirname(dest), readlinkSync(dest));
+    return target.startsWith(resolve(extRoot) + "/") && !existsSync(target);
+  } catch { return false; }
 }
 
 /** The folder `ep0ch` is linked in, for `@bin`: where the link on PATH is when it's this checkout's, else none. */

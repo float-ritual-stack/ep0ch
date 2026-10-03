@@ -344,12 +344,7 @@ exits 1), and · for information:
 4. **Link `ep0ch`** in the first directory that is on PATH and writable, of `~/.local/bin`,
    `/opt/homebrew/bin` and `/usr/local/bin`, saying which. Never sudo. A link there to another checkout's door
    (the old ep0ch-door) is pointed here; one elsewhere is left to you, with the command.
-5. **Link the door's extensions** (`packages/door/ext/<name>/`): an extension's `ext.json` names files to link where
-   another program finds them (television's cable files in `$TELEVISION_CONFIG/cable` or
-   `~/.config/television/cable`, a helper beside `ep0ch`), when the program it needs is on PATH. Each link made is
-   said; a file or link there that isn't install's is never replaced (it's said, and left); install's own links
-   whose file is gone (an extension deleted) are taken away. See `ext/television/README.md`.
-6. **Restart the outline host** after the checkout updated in the same run, or when it speaks another protocol:
+5. **Restart the outline host** after the checkout updated in the same run, or when it speaks another protocol:
    through its unit, `launchctl kickstart -k gui/<uid>/<label>` on macOS (`io.ep0ch.outliner-host`) or
    `systemctl --user restart <unit>` on Linux, then waits for a new process to answer and checks it speaks the
    checkout's protocol. The doors and panes on it reconnect by themselves. A host that's set up but not answering
@@ -357,10 +352,17 @@ exits 1), and · for information:
    the unit doesn't run (another process answers its socket), or a unit that needs changing (another checkout's
    `host-main.ts`, settings from before outlines by name) is left to you, with the change. Only a unit whose
    `EP0CH_OUTLINES` (default `~/outlines`) is this outlines folder counts as its unit.
-7. **Hand the door session to the new code** (see [Sessions](#sessions-quit-is-detach)), when one runs from this
+6. **Hand the door session to the new code** (see [Sessions](#sessions-quit-is-detach)), when one runs from this
    checkout on an older commit: `ep0ch session upgrade`. The programs in its tiles keep running, its screens and
    open edits come back, and every attached terminal (a pane, an ssh login) starts again on the new code and
    attaches by itself.
+7. **Link the door's extensions** (`packages/door/ext/<name>/`): an extension's `ext.json` names files to link where
+   another program finds them (television's cable files in `$TELEVISION_CONFIG/cable` or
+   `~/.config/television/cable`, a helper beside `ep0ch`), when the program it needs is on PATH. Each link made is
+   said; a file or link there that isn't install's is never replaced (it's said, and left); install's own links
+   whose file is gone (an extension deleted, even the last) are taken away: it keeps a record of what it linked
+   (`ext-links.json` in the door's state). It runs last, so a link that fails never holds up the rest. A file of yours
+   where a link would go is said each run, not left as a step. See `ext/television/README.md`.
 
 A checkout that isn't on `main`, has diverged, is behind with local changes, or couldn't be fetched is left
 for you, with what to do. Install never writes a database (it only copies them), never creates or opens an outline,
@@ -401,7 +403,7 @@ A checkout from before `install` gets it by hand, once:
 | `ep0ch try …` | `scripts/try-it.sh`: the door on a private copy (`--copy`), or on the showcase outline (`--showcase`, `--reset`) |
 | `ep0ch init [<name>]`, `ep0ch outline …`, `ep0ch status` | name this folder's outline, and the host's outlines (see [Outlines on the outline host](#outlines-on-the-outline-host)) |
 | `ep0ch --skill [--all] [<name>]` | the stack's skills (this door's `skills/` and the outliner's `pi-extension/skills/`: the installed plugin's, found through Herdr, else packages/outliner beside the door), or the path of one skill's `SKILL.md`; `--all` adds contributor skills |
-| `ep0ch find [<words>…] [--lines \| --json]` | the outline's notes for a picker or a script: with words, the service's ranked search (as `((` and Goto rank them, at most 30); without, every note, newest first. `--lines` prints `id<TAB>title<TAB>path` (television's `ep0ch` channel reads it) |
+| `ep0ch find [<words>… \| --recent] [--lines \| --json]` | the outline's notes for a picker or a script: with words, the service's ranked search (as `((` and Goto rank them, at most 30); `--recent`, its newest 30; without, every note, newest first. `--lines` prints `id<TAB>title<TAB>path` (television's `ep0ch` channel reads it) |
 | `ep0ch show <id> [--ansi] [--width <n>]` | the note drawn as a reader draws it (the note surface), at that width; `--ansi` keeps its colours (a picker's preview) |
 | `ep0ch outline list --all [--lines]` | every outline you can open from here: this machine's, then each machine you've opened before (a machine not connected now says so; nothing is started) |
 | `ep0ch clients [--ws <name>] [--machine <ssh-name>]` | who's connected to the outline: every role, observers and roles this door doesn't know yet |

@@ -14,14 +14,14 @@ import { previewTitle, SocketBoard, type IndexBlock } from "./socket";
 import { readState } from "./state";
 import { MARKS, TAGS, visible } from "./style";
 import { NoteSurface, type SurfaceHost } from "./surface/note";
-import { paintable, printable } from "./text";
+import { blockIdOf, paintable, printable } from "./text";
 import { setTheme, startTheme } from "./theme";
 import type { Ctx } from "./app";
 
-export const NOTES_USAGE = `  ep0ch find [<words>…] [--lines | --json] [--ws <name>] [--machine <ssh-name>]
+export const NOTES_USAGE = `  ep0ch find [<words>… | --recent] [--lines | --json] [--ws <name>] [--machine <ssh-name>]
                                    notes: with words, the service's ranked search (as (( and Goto rank them, at
-                                   most 30); without, every note, newest first. --lines prints one per line,
-                                   id<TAB>title<TAB>path, for a picker
+                                   most 30); --recent, its newest 30; without, every note, newest first. --lines
+                                   prints one per line, id<TAB>title<TAB>path, for a picker
   ep0ch show <id> [--ansi] [--width <n>] [--ws <name>] [--machine <ssh-name>]
                                    the note drawn as a reader draws it, at that width (default the terminal's,
                                    else 80); --ansi keeps its colours`;
@@ -45,9 +45,9 @@ export function everyNote(index: readonly IndexBlock[]): Found[] {
       seen.add(p);
       const a = by.get(p);
       if (!a) break;
-      up.unshift(previewTitle(a.title));
+      up.unshift(previewTitle(a.title).slice(0, 90));
     }
-    return up.join(" › ");
+    return up.join(" › ").slice(-500);
   };
   return [...index].sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id)).map(b => ({ id: b.id, title: previewTitle(b.title), path: pathOf(b) }));
 }
@@ -66,7 +66,9 @@ const without = (args: string[], valued: string[], bare: string[]) =>
 
 /** The board of the outline the rule names, its protocol checked; or why not. */
 async function boardFor(args: string[]): Promise<SocketBoard | { error: string }> {
-  const target = resolveTarget(args);
+  // Only the flags that name an outline: a search word with a `/` isn't a socket path.
+  const named = ["--ws", "--machine"].flatMap(f => { const at = args.indexOf(f); return at >= 0 ? [f, args[at + 1]!] : []; });
+  const target = resolveTarget(named);
   if ("error" in target) return target;
   if ("unnamed" in target) return { error: `no outline is named here (${target.unnamed}); pass --ws <name>` };
   if (target.machine) {
@@ -83,16 +85,19 @@ export interface Out { out: (s: string) => void; err: (s: string) => void; colum
 /** `ep0ch find …`: its exit code. */
 export async function findCommand(argsIn: string[], io: Out = { out: console.log, err: console.error }): Promise<number> {
   const args = argsIn.slice(1);
-  const lines = args.includes("--lines"), json = args.includes("--json");
+  const lines = args.includes("--lines"), json = args.includes("--json"), recent = args.includes("--recent");
+  if (lines && json) { io.err("ep0ch: find prints --lines or --json, not both"); return 2; }
   for (const f of ["--ws", "--machine"]) { const v = flag(args, f); if (typeof v === "object") { io.err(`ep0ch: ${v.error}`); return 2; } }
-  const words = without(args, ["--ws", "--machine"], ["--lines", "--json"]);
+  const words = without(args, ["--ws", "--machine"], ["--lines", "--json", "--recent"]);
+  if (recent && words.length) { io.err("ep0ch: find --recent takes no words"); return 2; }
   const unknown = words.find(w => w.startsWith("--"));
   if (unknown) { io.err(`ep0ch: find doesn't take ${unknown}\n${NOTES_USAGE}`); return 2; }
   const board = await boardFor(args);
   if ("error" in board) { io.err(`ep0ch: ${board.error}`); return 1; }
   try {
     const query = words.join(" ").trim();
-    const found = query ? await board.ranked(query) : everyNote(await board.index());
+    // --recent: the service's own answer to an empty search (the newest notes), without reading the whole index.
+    const found = query || recent ? await board.ranked(query) : everyNote(await board.index());
     if (json) io.out(JSON.stringify(found, null, 2));
     else if (lines) { for (const f of found) io.out(foundLine(f)); }
     else if (!found.length) io.out(query ? `nothing matches ${query}` : "the outline has no notes");
@@ -148,7 +153,7 @@ export async function showCommand(argsIn: string[], io: Out = { out: console.log
   try {
     // The person's theme, as their door draws in it (EP0CH_THEME, else the one last chosen).
     setTheme(startTheme(process.env.EP0CH_THEME, readState<{ name?: string }>("theme.json")?.name));
-    const lines = await drawNote(board, id.replace(/^\(\(|\)\)$/g, ""), width);
+    const lines = await drawNote(board, blockIdOf(id), width);
     if (!lines) { io.err(`ep0ch: no note ${id} in this outline`); return 1; }
     for (const l of lines) io.out(ansi ? l : visible(l).trimEnd());
     return 0;

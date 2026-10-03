@@ -7,7 +7,7 @@ imports this folder. Delete it and the door works as before; the next `ep0ch ins
 | Channel | What it lists | Enter prints | Other keys |
 |---|---|---|---|
 | `tv ep0ch` | every note in the outline, newest first, as `title · path` (tv matches on both) | `((id))` for each note chosen | `ctrl-g` opens it in the running door; `ctrl-d` shows it in the Outliner's Tree and its Detail |
-| `tv ep0ch-files [<folder>]` | the files under `<folder>` (default: here), relative | `[file::<absolute path>]` for each file chosen | |
+| `tv ep0ch-files [<folder>]` | the files under `<folder>` (default: here), relative; a path holding a `'` or a `]` is left out (tv pastes fields into commands unescaped, and `]` would end the token) | `[file::<absolute path>]` for each file chosen | |
 | `tv ep0ch-outlines` | this machine's outlines, then each machine you've opened before, with its outlines | opens the door on it: `ep0ch --ws <name> [--machine <ssh-name>]` | |
 
 `Tab` picks several entries (tv's `toggle_selection`); Enter prints one output per line, in the order picked. The
@@ -53,7 +53,8 @@ take `((id))` as the id). `ep0ch-outlines` isn't for a trigger: its Enter opens 
 
 `ep0ch install --apply` links the files `ext.json` names, when `tv` is on PATH: the cable files into
 `$TELEVISION_CONFIG/cable` (else `~/.config/television/cable`) and `bin/ep0ch-tv` beside `ep0ch`. It says each link,
-and never replaces a file it didn't make. By hand:
+and never replaces a file it didn't make; it records what it linked (`ext-links.json` in the door's state), so after
+this folder is deleted the next install takes those links away. By hand:
 
 ```sh
 ln -s "$PWD"/cable/*.toml ~/.config/television/cable/

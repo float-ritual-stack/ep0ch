@@ -61,6 +61,11 @@ describe.skipIf(!outliner)("ep0ch find and show against a scratch host", () => {
     const r = await run(["find", "oil", "chian", "--lines"], env);
     expect(r.code).toBe(0);
     expect(r.out.split("\n")[0]).toBe(`${ids.oil}\tChain oil\tBike shed`);
+    // A word with a slash is a word, never read as a socket path.
+    expect((await run(["find", "oil/chain", "--lines"], env)).code).toBe(0);
+    const recent = (await run(["find", "--recent", "--lines"], env)).out.split("\n").filter(Boolean);
+    expect(recent.length).toBeGreaterThan(0);
+    expect(recent.every(l => l.split("\t").length === 3)).toBe(true);
     const json = JSON.parse((await run(["find", "bike", "--json"], env)).out);
     expect(json[0]).toEqual({ id: ids.shed, title: "Bike shed", path: "" });
   });
@@ -87,6 +92,8 @@ describe.skipIf(!outliner)("ep0ch find and show against a scratch host", () => {
     expect((await run(["show", ids.oil!, "--width", "3"], env)).code).toBe(2);
     expect((await run(["show"], env)).code).toBe(2);
     expect((await run(["find", "--bogus"], env)).code).toBe(2);
+    expect((await run(["find", "--lines", "--json"], env)).code).toBe(2);
+    expect((await run(["find", "--recent", "oil"], env)).code).toBe(2);
     // A folder (and home) that names no outline: said, never a guess.
     const nowhere = mkdtempSync(join(tmpdir(), "ep0ch-find-"));
     const unnamed = await run(["find", "--lines"], { EP0CH_SOCKET: sock, EP0CH_WS: "", HOME: nowhere }, nowhere);

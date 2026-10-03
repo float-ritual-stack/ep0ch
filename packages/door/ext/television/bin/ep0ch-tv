@@ -9,8 +9,8 @@
 #   ep0ch-tv detail <id>               show it in the Outliner's Tree and its linked Detail (outliner goto)
 #   ep0ch-tv files                     files under this folder: absolute path, then as shown
 #   ep0ch-tv file-preview <path>       a file's start
-#   ep0ch-tv outlines                  this machine's outlines and the machines opened before: name, machine, as shown
-#   ep0ch-tv outline-preview <name> <machine>   an outline's newest notes
+#   ep0ch-tv outlines                  this machine's outlines and the machines opened before: name, machine, problem, as shown
+#   ep0ch-tv outline-preview <name> <machine> <problem>   an outline's newest notes
 #   ep0ch-tv launch <name> <machine>   the door on that outline (exec)
 #
 # Which outline: the door's rule (--ws, EP0CH_WS, EP0CH_SOCKET, the folder's .ep0ch). Run from the door's ctrl+t, the
@@ -22,7 +22,7 @@ ep0ch() { bun "$door" "$@"; }
 tab=$(printf '\t')
 # tv's preview panel, in columns: its share of the terminal (the cable files ask for 60%) less its border.
 panel() {
-  cols=$(stty size </dev/tty 2>/dev/null | cut -d' ' -f2) || cols=""
+  cols=$(stty size 2>/dev/null </dev/tty | cut -d' ' -f2) || cols=""
   [ -n "$cols" ] || cols=${COLUMNS:-120}
   w=$((cols * ${EP0CH_TV_PREVIEW:-60} / 100 - 6))
   [ "$w" -ge 20 ] || w=20
@@ -46,26 +46,32 @@ case "$cmd" in
       printf 'ep0ch-tv: the Outliner says: %s\n  (it shows a note in a running Tree and its Detail: open them first, Herdr'"'"'s Outliner: open)\n' "${why:-$out}" >&2; sleep 3
     fi ;;
   files)
-    if command -v fd >/dev/null 2>&1; then fd --type f --hidden --exclude .git --absolute-path
-    else find "$PWD" -type f -not -path '*/.git/*'; fi | awk -v cwd="$PWD/" -v OFS='\t' '{ r = $0; if (index(r, cwd) == 1) r = substr(r, length(cwd) + 1); print $0, r }' ;;
+    # A path tv would paste into a shell command or a [file::…] token can't hold a quote or a ]: those are left out
+    # (tv puts a field into its commands as it is, unescaped).
+    fd=$(command -v fd || command -v fdfind || true)
+    if [ -n "$fd" ]; then "$fd" --type f --hidden --exclude .git --absolute-path
+    else find "$PWD" \( -name .git -o -name node_modules \) -prune -o -type f -print; fi |
+      awk -v cwd="$PWD/" -v OFS='\t' '/['"'"'\]\t]/ { next } { r = $0; if (index(r, cwd) == 1) r = substr(r, length(cwd) + 1); print $0, r }' ;;
   file-preview)
-    if command -v bat >/dev/null 2>&1; then bat --color=always --style=numbers --line-range=:200 "$1"
+    if [ -s "$1" ] && ! grep -Iq . "$1" 2>/dev/null; then printf '(a binary file, %s bytes)\n' "$(wc -c <"$1" | tr -d ' ')"; exit 0; fi
+    bat=$(command -v bat || command -v batcat || true)
+    if [ -n "$bat" ]; then "$bat" --color=always --style=numbers --line-range=:200 "$1"
     else head -n 200 "$1"; fi ;;
   outlines)
-    ep0ch outline list --all --lines | awk -F'\t' -v OFS='\t' '{ where = ($2 == "" ? "this machine" : "on " $2); print $1, $2, ($1 == "" ? "· " where "  (" $3 ")" : $1 "  · " where) }' ;;
+    ep0ch outline list --all --lines | awk -F'\t' -v OFS='\t' '{ where = ($2 == "" ? "this machine" : "on " $2); print $1, $2, $3, ($1 == "" ? "· " where "  (" $3 ")" : $1 "  · " where) }' ;;
   outline-preview)
-    if [ -z "$1" ]; then printf '%s is %s.\nEnter opens the door there: it connects, then asks which outline.\n' "${2:-the machine}" "not connected"; exit 0; fi
+    if [ -z "$1" ]; then printf '%s: %s.\nEnter opens the door there: it connects, then asks which outline.\n' "${2:-this machine}" "${3:-not connected}"; exit 0; fi
     name=$1 machine=${2:-}
     set -- --ws "$name"
     [ -n "$machine" ] && set -- "$@" --machine "$machine"
     printf 'newest notes in %s%s\n\n' "$name" "${machine:+ on $machine}"
-    ep0ch find --lines "$@" | head -n 60 | cut -f2 ;;
+    ep0ch find --recent --lines "$@" | cut -f2 ;;
   launch)
     name=$1 machine=${2:-}
     set --
     [ -n "$name" ] && set -- --ws "$name"
     [ -n "$machine" ] && set -- "$@" --machine "$machine"
-    exec "$door" "$@" ;;
+    exec bun "$door" "$@" ;;
   *)
     sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2 ;;
 esac

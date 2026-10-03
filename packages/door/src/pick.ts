@@ -14,7 +14,7 @@
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Draft } from "./edit";
+import { keepCopy, type Draft } from "./edit";
 import { controlPath } from "./control";
 import { shellCwd, shellEnv } from "./drop";
 import { USER, type Actor } from "./socket";
@@ -50,7 +50,7 @@ export function atCursor(d: Draft, text: string): string {
   return before && !/\s$/.test(before) ? ` ${text}` : text;
 }
 
-export type Picked = { inserted: string } | { nothing: string } | { kept: string; why: string };
+export type Picked = { inserted: string } | { nothing: string } | { kept: string; at: string; why: string };
 
 /** How a draft hands the terminal to the picker (a test gives its own). */
 export const pickRunner: { run: (terminal: Handover, run: ReturnType<typeof pickerRun>) => Promise<number | null> } = {
@@ -59,8 +59,11 @@ export const pickRunner: { run: (terminal: Handover, run: ReturnType<typeof pick
 
 /**
  * Run the picker in the person's terminal and insert what it printed at the draft's cursor, as `by` typed it. `held`:
- * whether the draft is still open when the picker returns; a choice made for a draft that closed meanwhile isn't lost,
- * it's said (`kept`). Resolves once the picker is done.
+ * whether the draft is still open when the picker returns; a choice made for a draft that closed meanwhile isn't lost:
+ * it's copied to disk (`drafts/`, as ctrl+e's text is) and said (`kept`, `at`). Resolves once the picker is done.
+ *
+ * It takes the whole terminal even on a desk, where ctrl+e's editor opens in a tile beside the note: the picker is a
+ * moment's choice whose answer the draft waits on, not a second place to work.
  */
 export async function pickInto(ctx: Suspender, d: Draft, outline: { socket: string; name?: string }, o: { channel?: string; held?: () => boolean; by?: Actor } = {}): Promise<Picked> {
   const dir = mkdtempSync(join(stateSub("pick") ?? tmpdir(), `${process.pid}-`));
@@ -73,10 +76,12 @@ export async function pickInto(ctx: Suspender, d: Draft, outline: { socket: stri
     let printed = "";
     try { printed = readFileSync(out, "utf8"); } catch { /* nothing chosen */ }
     const text = pickedText(printed);
-    // tv and fzf exit 0, 1 or 130 when nothing was chosen (esc, ctrl+c); 127 is sh's "not found".
+    // tv and fzf exit 0 or 130 when nothing was chosen (esc, ctrl+c); tv exits 1 on a channel it doesn't have too (its
+    // error went with its screen); 127 is sh's "not found".
     if (!text) return { nothing: code === 127 ? `${picker} exited 127: not found (EP0CH_PICKER names the picker); nothing inserted`
-      : code === 0 || code === 1 || code === 130 ? `nothing chosen in ${picker}` : `${picker} exited ${code ?? "without a code"}; nothing inserted` };
-    if (o.held && !o.held()) return { kept: text, why: `the draft closed while ${picker} was open` };
+      : code === 1 ? `nothing chosen in ${picker}, or it has no ${channel ? `"${channel}"` : "such"} channel (tv's come from ext/television: ep0ch install --apply)`
+      : code === 0 || code === 130 ? `nothing chosen in ${picker}` : `${picker} exited ${code ?? "without a code"}; nothing inserted` };
+    if (o.held && !o.held()) return { kept: text, at: keepCopy(text + "\n", "picked"), why: `the draft closed while ${picker} was open` };
     const put = atCursor(d, text);
     d.pasteText(put, o.by ?? USER);
     d.note = `inserted from ${picker}`;

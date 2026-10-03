@@ -864,7 +864,7 @@ export class Lanes implements SourceModel {
     const d = C0.session.draft, board = this.host.ctx.board;
     if (d.busy) throw new ActionRefused("the new card is being created");
     const r = await pickInto(this.host.ctx, d, { socket: board.path, name: board.outline }, { ...(channel !== undefined ? { channel } : {}), held: () => this.composer?.session.draft === d });
-    if ("kept" in r) this.host.ctx.flash(`${r.why}: ${r.kept}`, 12000);
+    if ("kept" in r) this.host.ctx.flash(`${r.why}: ${r.kept} · copied to ${r.at}`, 12000);
     else if ("nothing" in r) d.note = r.nothing;
     this.host.redraw();
     return r;

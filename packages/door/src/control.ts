@@ -9,6 +9,7 @@
 // The socket is the door's shell: whoever can connect can do what the person can, including start a program in
 // a terminal tile. So it is 0600, in a folder that is the user's alone (0700, owner checked, the same check as
 // the nvim tiles' sockets); a folder anyone else can reach is refused and the door runs without it.
+import { blockIdOf } from "./text";
 import { chmodSync, existsSync, lstatSync, mkdirSync, readdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { connect, createServer, type Server } from "node:net";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
@@ -170,7 +171,7 @@ export async function controlClient(args: string[]): Promise<number> {
     if (cmd === "open" && (!arg || arg.includes("="))) throw new Error("open needs a block id: open <id> [from=<tile>] [--as <your id>]");
     req = cmd === "snap" ? (arg ? { cmd, data: true } : { cmd })
       // A block reference as written (`((id))`, what a picker prints) names the same note.
-      : cmd === "open" ? { cmd: "act", ...(await parseActArgs(["open", `id=${arg!.replace(/^\(\((.+)\)\)$/, "$1")}`, ...args.slice(2)])) }
+      : cmd === "open" ? { cmd: "act", ...(await parseActArgs(["open", `id=${blockIdOf(arg!)}`, ...args.slice(2)])) }
       : cmd === "act" ? { cmd, ...(await parseActArgs(args.slice(1))) } : { cmd };
   } catch (e) { console.error((e as Error).message); return 1; }
   // An agent names itself once per shell: EP0CH_AGENT=claude-7 (or --as on each act and open).

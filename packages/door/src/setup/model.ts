@@ -167,7 +167,7 @@ export interface Facts {
    */
   session?: { pid: number; dir: string; commit: string | null; clients: number; programs: number } | null;
   /** The door's userland extensions (packages/door/ext/) and the links they ask for; undefined when not looked for. */
-  ext?: { exts: ExtFacts[]; stale: StaleLink[] };
+  ext?: { root: string; exts: ExtFacts[]; stale: StaleLink[]; record?: string };
 }
 
 /** The plugin's actions the Outliner installer binds keys to. */

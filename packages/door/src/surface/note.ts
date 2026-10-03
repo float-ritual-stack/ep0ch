@@ -1316,7 +1316,7 @@ export class NoteSurface {
       ...(channel !== undefined ? { channel } : {}),
       held: () => this.draft === d || this.session?.composer === d,
     });
-    if ("kept" in r) host.ctx.flash(`${r.why}: ${r.kept}`, 12000);
+    if ("kept" in r) host.ctx.flash(`${r.why}: ${r.kept} · copied to ${r.at}`, 12000);
     else if ("nothing" in r) d.note = r.nothing;
     host.redraw();
     return r;
@@ -3631,13 +3631,11 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "draft.pick": def({
     summary: "insert from a picker in this reader's edit or comment: the person's terminal goes to the picker (EP0CH_PICKER, default tv) on a channel (default EP0CH_PICK_CHANNEL, else ep0ch), and what they choose goes in at the cursor, space-separated. The person's only: it takes their terminal",
-    keys: "ctrl+t, a click on [insert] in the edit's title row",
+    keys: "ctrl+t, a click on [insert] in the edit's, comment's or reply's title row",
     touches: "draft", draft: "type", replay: "ask",
     person: "an agent doesn't hand the person's terminal to a picker; put text in their draft with draft.patch, or in an edit it opened with edit.text",
     args: { channel: { type: "string", optional: true, about: "the picker's argument (a television channel: ep0ch, ep0ch-files …); empty for none" } },
     async run({ channel }, { surface, host }) {
-      const away = host.ctx.suspended?.();
-      if (away) throw new ActionRefused(`the terminal is already handed over (${away})`);
       return await surface.pick(host, channel);
     },
   }),

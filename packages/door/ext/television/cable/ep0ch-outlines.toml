@@ -8,13 +8,13 @@ requirements = ["ep0ch-tv"]
 
 [source]
 command = "ep0ch-tv outlines"
-display = "{split:\\t:2}"
+display = "{split:\\t:3}"
 output = "{split:\\t:0}"
 no_sort = true
 frecency = false
 
 [preview]
-command = "ep0ch-tv outline-preview '{split:\\t:0}' '{split:\\t:1}'"
+command = "ep0ch-tv outline-preview '{split:\\t:0}' '{split:\\t:1}' '{split:\\t:2}'"
 
 [ui.preview_panel]
 size = 50

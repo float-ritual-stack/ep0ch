@@ -24,7 +24,7 @@ export interface Step {
   /** A checkout whose remote couldn't be reached (the fetch failed): whether it's current isn't known. */
   unchecked?: true;
   /** ext: the links to make (src → dest) and the stale ones to take away (dest), as the commands say. */
-  links?: { make: { src: string; dest: string }[]; remove: string[] };
+  links?: { make: { src: string; dest: string }[]; remove: string[]; extRoot: string; record?: string };
 }
 
 export interface Plan { steps: Step[]; notes: string[] }
@@ -156,9 +156,10 @@ export function extStep(f: Facts): Step {
   const commands = [...remove.map(d => `rm ${d}   # its file is gone`), ...make.map(l => `ln -s ${l.src} ${l.dest}`)];
   if (make.length || remove.length) {
     const what = [make.length ? `${make.length} to link` : "", remove.length ? `${remove.length} stale to take away` : ""].filter(Boolean).join(", ");
-    return { id: "ext", title, status: "do", why: `${what}${said ? ` · ${said}` : ""}`, commands, links: { make, remove } };
+    return { id: "ext", title, status: "do", why: `${what}${said ? ` · ${said}` : ""}`, commands,
+      links: { make, remove, extRoot: f.ext!.root, ...(f.ext?.record ? { record: f.ext.record } : {}) } };
   }
-  if (taken.length) return { id: "ext", title, status: "manual", why: `${said}; move them aside to let install link its own, then rerun`, commands: [] };
+  // A file of the person's own where a link would go is theirs to keep: said each run, never a step left for them.
   return { id: "ext", title, status: "skip", why: `${ours ? `${ours} linked` : "nothing to link"}${said ? ` · ${said}` : ""}`, commands: [] };
 }
 
@@ -330,10 +331,11 @@ export function buildPlan(f: Facts, o: PlanOptions): Plan {
   const repo = repoStep(f);
   const plugin = pluginStep(f);
   const link = linkStep(f);
+  // Last: an optional link that fails never stops the host's restart or the session's upgrade.
   const ext = f.ext ? [extStep(f)] : [];
   const host = hostStep(f, repo.status === "do" && f.repo.checkout.behind > 0);
   const session = sessionStep(f, repo);
   const backup = backupStep(f, o, [repo, plugin, link, host].some(s => s.status === "do"));
   // The session last: handed to the new code once everything under it is current.
-  return { steps: [backup, repo, plugin, link, ...ext, host, session], notes: planNotes(f) };
+  return { steps: [backup, repo, plugin, link, host, session, ...ext], notes: planNotes(f) };
 }

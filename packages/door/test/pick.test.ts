@@ -2,12 +2,14 @@
 // printed at the cursor. Here the picker is a shell line that prints (no tv): the real handover path, the output
 // file, the environment it's given, and what goes in. No service: the reader's host is a stand-in.
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import { Draft } from "../src/edit";
 import { atCursor, channelOf, pickedText, pickerOf, pickerRun, pickInto, pickRunner } from "../src/pick";
 import { USER } from "../src/socket";
 import { editorClick, renderEditor } from "../src/surface/editor";
 import { NOTE_ACTIONS, NoteSurface, type SurfaceHost } from "../src/surface/note";
 import { Dispatcher } from "../src/surface/dispatch";
+import { BOARD_ACTIONS } from "../src/desk/lanes";
 import { runProgram, type Handover } from "../src/term";
 import type { Msg } from "../src/board";
 
@@ -69,6 +71,8 @@ describe("pickInto: the terminal handed over, the choice put in", () => {
   test("nothing chosen, or a picker that isn't there: nothing goes in, and the draft says so", async () => {
     const d = draft("as it was", 2);
     expect(await withEnv({ EP0CH_PICKER: "true" }, () => pickInto(stepAside(), d, OUTLINE))).toEqual({ nothing: "nothing chosen in true ep0ch" });
+    // tv exits 1 for esc and for a channel it doesn't have (the extension not installed): both said.
+    expect(await withEnv({ EP0CH_PICKER: "false" }, () => pickInto(stepAside(), d, OUTLINE))).toEqual({ nothing: expect.stringContaining('or it has no "ep0ch" channel') });
     const gone = await withEnv({ EP0CH_PICKER: "no-such-picker-here 2>/dev/null" }, () => pickInto(stepAside(), d, OUTLINE));
     expect(gone).toEqual({ nothing: expect.stringContaining("exited 127: not found") });
     expect([d.text, d.dirty]).toEqual(["as it was", false]);
@@ -77,7 +81,8 @@ describe("pickInto: the terminal handed over, the choice put in", () => {
   test("a draft that closed while the picker was open gets nothing; the choice is handed back to be said", async () => {
     const d = draft("closed", 6);
     const r = await withEnv({ EP0CH_PICKER: "echo" }, () => pickInto(stepAside(), d, OUTLINE, { channel: "((a1))", held: () => false }));
-    expect(r).toEqual({ kept: "((a1))", why: "the draft closed while echo ((a1)) was open" });
+    expect(r).toEqual({ kept: "((a1))", at: expect.stringContaining("picked-"), why: "the draft closed while echo ((a1)) was open" });
+    expect(readFileSync((r as { at: string }).at, "utf8")).toBe("((a1))\n");
     expect(d.text).toBe("closed");
   });
 });
@@ -109,6 +114,8 @@ describe("ctrl+t and [insert] in a reader's edit (draft.pick)", () => {
     try {
       const d = Dispatcher.of(NOTE_ACTIONS, { surface: s, host: h }, () => h.ctx as any);
       await expect(d.act({ action: "draft.pick", args: {} }, { kind: "agent", id: "helper-3" })).rejects.toThrow(/an agent doesn't hand the person's terminal to a picker/);
+      // The board's new card says the same, through the same rule.
+      expect(BOARD_ACTIONS.def("composer.pick")!.person).toContain("an agent doesn't hand the person's terminal to a picker");
     } finally { pickRunner.run = was; }
     expect(ran).toEqual([]);
   });
