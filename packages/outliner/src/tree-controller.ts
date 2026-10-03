@@ -10,7 +10,7 @@ import {TreeConnections} from "./tree-connections";
 import {TreeWorkingSelection} from "./tree-working-selection";
 import {OpenDestinationChooser, destinationRecoveryKey, missingNavigationDestination, type OpenDestinationTarget} from "./open-destination-chooser";
 import type {DetailDestinationPlacement} from "./detail-pane-placement";
-import type {ChangeFeedPage, MutationProvenance, OutlinerCapability, OutlinerServiceStatus, OutlinerViewAddress} from "./types";
+import type {ChangeFeedPage, MutationProvenance, OutlinerServiceStatus, OutlinerViewAddress} from "./types";
 import {checkServiceCompatibility} from "./service-compatibility";
 import {DocumentPreview, type DocumentPreviewState} from './document-preview';
 import {autoPreviewDock, treePreviewFrame, defaultPreviewPreferences, type PreviewPreferences} from './tree-preview';
@@ -377,14 +377,6 @@ function fallbackRowBeforeDelete(
   );
   return survivingRows[Math.max(0, fallbackIndex)] ?? null;
 }
-
-/**
- * Capabilities every process hosting a Tree controller requires at startup:
- * saved views are read with views.read, and virtual-child admission sends a
- * saved view's parsed `where` with tree.query, which an older service would
- * ignore and answer unfiltered.
- */
-export const TREE_SERVICE_CAPABILITIES: readonly OutlinerCapability[] = ["views.read", "query.expression"];
 
 export function createTreeController(effects: TreeControllerEffects): TreeController {
   let baseRows: TreeRow[] = [];
@@ -2174,8 +2166,8 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
    * catalog bookkeeping), so a later sequence with no visible change is one.
    * A sequence only means something within one database, so a service now
    * using a different database, or one that did not answer `ping`, is not
-   * asked. Neither is a service without the `changes.since` capability; like
-   * a failed request, each falls back to a full reload.
+   * asked. Neither is a service on another protocol; like a failed request,
+   * each falls back to a full reload.
    */
   async function changesSince(
     sequence: number | null,
@@ -2183,7 +2175,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
   ): Promise<"outline" | "resource-catalog" | "none"> {
     if (sequence === null || !service?.sameDatabase) return "outline";
     try {
-      if (checkServiceCompatibility(service.status, ["changes.since"])) return "outline";
+      if (checkServiceCompatibility(service.status)) return "outline";
       const page = await effects.request<ChangeFeedPage>({ action: "changes.since", sequence, limit: 1 });
       if (page.kind === "reset" || page.changes.length > 0) return "outline";
       return page.sequence > sequence ? "resource-catalog" : "none";

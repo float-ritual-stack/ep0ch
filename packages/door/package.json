@@ -18,6 +18,7 @@
     "typescript": "^5.6.0"
   },
   "dependencies": {
+    "@ep0ch/outline-core": "workspace:*",
     "@xterm/headless": "6.0.0"
   }
 }

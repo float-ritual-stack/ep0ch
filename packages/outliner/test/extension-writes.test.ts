@@ -8,7 +8,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSy
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { OutlinerClient } from "../src/client";
-import { applyLocated, locateSpans } from "../src/draft-patch-compare";
+import { applyLocated, locateSpans } from "@ep0ch/outline-core/draft-patch-compare";
 import { wholeTextSpan } from "../src/extension-calls";
 import { addExtension, formatExtensionsList, runExtCommand } from "../src/extension-install";
 import { cleanExtensionText, inertBlockdown } from "../src/extension-records";
@@ -114,8 +114,6 @@ test("a client can't write as ext:<id>, by any of the ways a request names its w
   expect(store.get(note.id)).toMatchObject({ text: "Garden plan, tidied" });
   // Reading one extension's activity by its id is a filter, not a claim.
   await client.request({ action: "activity.recent", actorId: "ext:moon" });
-  const ping = await client.request<{ capabilities: string[] }>({ action: "ping" });
-  expect(ping.capabilities).toEqual(expect.arrayContaining(["mutations.ext-reserved", "extensions.act.requester"]));
 });
 
 test("a request line an extension's write leaves is the baseline: the person's next save neither runs it nor misses one they add", async () => {

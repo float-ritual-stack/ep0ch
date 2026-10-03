@@ -11,7 +11,7 @@ import {
   MAX_EMBEDS_PER_DOCUMENT, readFragment, readTransclusions, TRANSCLUSION_DEFAULT_DEPTH, TRANSCLUSION_MAX_DEPTH,
   TRANSCLUSION_MAX_BYTES, TRANSCLUSION_MAX_NODES, TRANSCLUSION_WORDING, type FragmentRead, type TransclusionNode, type TransclusionRead,
 } from "../src/transclusions";
-import { OUTLINER_CAPABILITIES, type Block, type ChecklistUpdateReceipt, type OutlinerServiceStatus } from "../src/types";
+import type { Block, ChecklistUpdateReceipt } from "../src/types";
 
 const block = (id: string, text: string, extra: Partial<Block> = {}): Block => ({
   id, text, parentId: null, position: 0, revision: 1, createdAt: "", updatedAt: "", author: "user", properties: [],
@@ -171,7 +171,7 @@ test("missing, trashed, missing and duplicate fragments, and a virtual branch ar
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const c of cleanups.splice(0)) await c(); });
 
-test("fragments.read and transclusions.read round-trip through the service, advertised as capabilities", async () => {
+test("fragments.read and transclusions.read round-trip through the service", async () => {
   const directory = mkdtempSync(join(tmpdir(), "pi-outliner-transclusions-"));
   const store = new OutlinerStore(join(directory, "outliner.sqlite"));
   const socket = join(directory, "outliner.sock");
@@ -179,9 +179,6 @@ test("fragments.read and transclusions.read round-trip through the service, adve
   await server.start();
   cleanups.push(async () => { await server.close(); store.close(); rmSync(directory, { recursive: true, force: true }); });
   const client = new OutlinerClient(socket);
-  const ping = await client.request<OutlinerServiceStatus>({ action: "ping" });
-  expect(ping.capabilities).toEqual(expect.arrayContaining(["fragments.read", "transclusions.read"]));
-  expect(OUTLINER_CAPABILITIES).toContain("transclusions.read");
 
   const source = await client.request<Block>({ action: "create", text: garden });
   const plan = await client.request<Block>({ action: "create", text: `Week plan\n!((${source.id}^t-d4e5f6))` });

@@ -24,7 +24,7 @@ async function service(texts:string[]) {
   return {dir,store,client,notes:texts.map(text=>store.create(text))};
 }
 
-async function fixture(options:{unsupported?:string;withheldCapability?:string}={}) {
+async function fixture(options:{unsupported?:string;olderProtocol?:boolean}={}) {
   const {dir,client,notes}=await service(Array.from("ABC",letter=>`Fictional note ${letter}`));
   // Tree's requests go to `target`, which a test may point at another service.
   let target: OutlinerClient|null=client;
@@ -39,8 +39,8 @@ async function fixture(options:{unsupported?:string;withheldCapability?:string}=
   const request=<T,>(input:RequestInput):Promise<T>=>{requests.push(input.action);
     if(!target)return Promise.reject(new Error("Workspace service unavailable"));
     if(input.action===options.unsupported)return Promise.reject(new Error(`Unknown action: ${input.action}`));
-    if(input.action==="ping"&&options.withheldCapability)return client.request<OutlinerServiceStatus>(input).then(status=>
-      ({...status,capabilities:status.capabilities?.filter(capability=>capability!==options.withheldCapability)}) as never);
+    if(input.action==="ping"&&options.olderProtocol)return client.request<OutlinerServiceStatus>(input).then(status=>
+      ({...status,protocolVersion:status.protocolVersion-1}) as never);
     return target.request<T>(input);};
   const controller=createTreeController({clientId:"tree",browsingContextId:"tree-context",workspaceRoot:dir,request,
     navigation:serviceTreeNavigation({request},"tree","tree-context"),
@@ -104,8 +104,8 @@ test("Tree reconnects without reloading when the feed reports no outline change"
   expect(created.id).toBeTruthy();
 });
 
-test("Tree reloads on reconnect, without asking the feed, when the service lacks the changes.since capability",async()=>{
-  const f=await fixture({withheldCapability:"changes.since"});
+test("Tree reloads on reconnect, without asking the feed, when the service speaks another protocol",async()=>{
+  const f=await fixture({olderProtocol:true});
   const before=f.indexReads();
   f.controller.handleDisconnect();
   await f.controller.handleConnect();

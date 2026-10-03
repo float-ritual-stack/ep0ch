@@ -2,6 +2,7 @@ import { createBlockComment } from "../src/block-comments";
 import { readSavedView, type SavedViewReadResult } from "../src/saved-view-read";
 import { clientSupportsRole } from "../src/types";
 import { checkServiceCompatibility } from "../src/service-compatibility";
+import { PROTOCOL } from "@ep0ch/outline-core/protocol";
 import {CHECKLIST_MARKS} from "../src/checklist-items";
 import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { hostname } from "node:os";
@@ -63,7 +64,6 @@ import {
 } from "../src/work-environment";
 import { resourceAddressLabel } from "../src/resources";
 import {
-  OUTLINER_PROTOCOL_VERSION,
   type AnnotationBatchOperation,
   type AnnotationBatchReceipt,
   type AnnotationAgentPromptPackage,
@@ -930,8 +930,8 @@ function assertCompatibleProtocol(service: OutlinerServiceStatus): void {
   const problem = checkServiceCompatibility(service);
   if (!problem) return;
   // A stale extension recovers with /reload; an old service needs a restart.
-  throw new Error(problem.reason === "client-too-old"
-    ? `Outliner protocol ${service.protocolVersion} no longer serves this session's extension protocol ${OUTLINER_PROTOCOL_VERSION}. Run /reload, then retry.`
+  throw new Error(service.protocolVersion > PROTOCOL
+    ? `Outliner protocol ${service.protocolVersion} is newer than this session's extension protocol ${PROTOCOL}. Run /reload, then retry.`
     : problem.message);
 }
 
@@ -3201,7 +3201,7 @@ export function createOutlinerExtension(actorId: OutlinerHostActorId) {
     }),
     async execute(_id, params) {
       await ensureService(false);
-      await client.requireCompatibleService(["views.read"]);
+      await client.requireCompatibleService();
       return queryToolResult(await readSavedView(client, params.viewId, params));
     },
   });
@@ -3237,7 +3237,7 @@ export function createOutlinerExtension(actorId: OutlinerHostActorId) {
     }),
     async execute(_id, params) {
       await ensureService(false);
-      if (params.expression !== undefined) await client.requireCompatibleService(["query.expression"]);
+      if (params.expression !== undefined) await client.requireCompatibleService();
       const collection = await client.request<VisibleBlockCollection>({
         action: "blocks.query",
         query: { ...params, limit: params.limit ?? 100 },
@@ -3259,7 +3259,7 @@ export function createOutlinerExtension(actorId: OutlinerHostActorId) {
     }),
     async execute(toolCallId, params, _signal, _onUpdate, context) {
       await ensureService(false);
-      await client.requireCompatibleService(["mutations.provenance"]);
+      await client.requireCompatibleService();
       return toolResult(await client.request<Block>({
         action: "move",
         ...params,

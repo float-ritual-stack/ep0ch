@@ -5,12 +5,12 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { OutlinerClient } from "../src/client";
-import { applyLocated, blockStartAt, locateSpan, locateSpanForced, locateSpans, mapOffset, markStart, spanContext, utf16Range, type DraftPatchSpan } from "../src/draft-patch-compare";
+import { applyLocated, blockStartAt, locateSpan, locateSpanForced, locateSpans, mapOffset, markStart, spanContext, utf16Range, type DraftPatchSpan } from "@ep0ch/outline-core/draft-patch-compare";
 import { DRAFT_PROPOSAL_MAX_PAYLOAD, DraftHolds, draftPatchPolicy, draftPatchTextPolicy, parseProposal, proposalText, structuralTokens, withProposalStatus, type DraftHolderRequest, type DraftPatchResult } from "../src/draft-patch";
 import { tidyAboveMark, tidyLine } from "../src/draft-patch-demo";
 import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
-import type { Block, OutlinerEvent, OutlinerServiceStatus } from "../src/types";
+import type { Block, OutlinerEvent } from "../src/types";
 
 const cleanups: Array<() => Promise<void> | void> = [];
 afterEach(async () => {
@@ -203,13 +203,6 @@ describe("the proof agent's tidy", () => {
 });
 
 describe("draft.patch over the protocol", () => {
-  test("advertises its capabilities and the compare's version", async () => {
-    const { client } = await service();
-    const ping = await client.request<OutlinerServiceStatus>({ action: "ping" });
-    expect(ping.capabilities).toEqual(expect.arrayContaining(["drafts.hold", "drafts.read", "draft.patch", "draft.proposal.apply", "draft.proposal.dismiss", "ping.draftPatchCompare"]));
-    expect(ping.draftPatchCompare).toEqual({ version: 2 });
-  });
-
   test("with no live draft it patches the saved note under a revision check, as the agent", async () => {
     const { store, client } = await service();
     const note = store.create("Garden plan\nThe beans   go along  the fence.\n\n@tidy tidy this");

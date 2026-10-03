@@ -24,7 +24,7 @@ import {
   spanContext,
   type DraftPatchSpan,
   type LocatedSpan,
-} from "./draft-patch-compare";
+} from "@ep0ch/outline-core/draft-patch-compare";
 import {
   DRAFT_PATCH_POLICIES,
   DRAFT_PROPOSAL_TYPE,

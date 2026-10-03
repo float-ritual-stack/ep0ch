@@ -21,7 +21,7 @@ import {
   type OutlinerActionKeymap,
 } from "./outliner-actions";
 import { blockDisplayTitle } from "./references";
-import { matchesSearchText, prepareSearchQuery } from "./search-match";
+import { matchesSearchText, prepareSearchQuery } from "@ep0ch/outline-core/search-match";
 import { sanitizeDynamicText, type TerminalInputAction, type TerminalKey } from "./terminal";
 import { hideLiteralMarkers } from "./document-presentation";
 import {

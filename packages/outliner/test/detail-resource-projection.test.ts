@@ -6,7 +6,8 @@ import { projectedSourceLine, renderDetailReadPreviewLines } from "../src/detail
 import { parsePropertyRecords } from "../src/properties";
 import type { ResourceProjection } from "../src/resource-projection";
 import { sanitizeDynamicText } from "../src/terminal";
-import { OUTLINER_PROTOCOL_VERSION, type Block } from "../src/types";
+import { PROTOCOL } from "@ep0ch/outline-core/protocol";
+import type { Block } from "../src/types";
 
 // Fictional tickets in project ACME.
 
@@ -31,7 +32,7 @@ function requester(projections: ResourceProjection[], blocks: Block[] = []) {
     async request<T>(input: RequestInput): Promise<T> {
       calls.push(input);
       if (input.action === "ping") {
-        return { status: "ready", protocolVersion: OUTLINER_PROTOCOL_VERSION, capabilities: ["views.read", "resources.projection"] } as T;
+        return { status: "ready", protocolVersion: PROTOCOL } as T;
       }
       if (input.action === "resources.projection.read") return { blockId: input.blockId, revision: 1, projections } as T;
       if (input.action === "get") {
@@ -123,7 +124,7 @@ test("a failing projection read leaves the note as authored, and notes without p
       calls.push(input.action);
       if (input.action === failOn) throw new Error(`${failOn} failed`);
       if (input.action === "ping") {
-        return { status: "ready", protocolVersion: OUTLINER_PROTOCOL_VERSION, capabilities: ["resources.projection"] } as T;
+        return { status: "ready", protocolVersion: PROTOCOL } as T;
       }
       throw new Error(`Unexpected action: ${input.action}`);
     },

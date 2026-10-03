@@ -9,7 +9,6 @@ import {
 import { resolveBacklinkRelation } from "../src/backlinks";
 import { OutlinerClient } from "../src/client";
 import { OutlinerServer } from "../src/server";
-import { requireCapabilities } from "../src/service-compatibility";
 import { OutlinerStore } from "../src/store";
 import { ROADMAP_WORK_STAGES, type BacklinkCollection, type BacklinkSource, type Block } from "../src/types";
 
@@ -230,12 +229,8 @@ describe("backlink facet protocol", () => {
     return { workspace, client: new OutlinerClient(socket) };
   }
 
-  test("the service advertises references.backlinks.facets and returns facets over the socket", async () => {
+  test("the service returns backlink facets over the socket", async () => {
     const { workspace, client } = await service();
-    const status = await client.requireCompatibleService(["references.backlinks.facets"]);
-    expect(status.capabilities).toContain("references.backlinks.facets");
-    expect(() => requireCapabilities({ ...status, capabilities: ["blocks.read"] }, ["references.backlinks.facets"]))
-      .toThrow("references.backlinks.facets");
 
     const target = workspace.create("Seed swap [page::Seed Swap]");
     const source = workspace.create("Letter about [[Seed Swap]] [type::letter] [outbox::draft]");

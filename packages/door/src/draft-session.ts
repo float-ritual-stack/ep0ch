@@ -15,7 +15,7 @@ import { ActionRefused, agentLabel, type DraftUse } from "./surface/actions";
 import { completionKey, type Completer } from "./surface/completer";
 import { stateDir } from "./state";
 import type { Key } from "./term";
-import { markStart } from "./vendor/draft-patch-compare";
+import { markStart } from "@ep0ch/outline-core/draft-patch-compare";
 
 // ── the target adapters' seam ─────────────────────────────────────────────────
 

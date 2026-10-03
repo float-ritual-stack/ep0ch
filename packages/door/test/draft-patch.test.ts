@@ -11,7 +11,7 @@ import { ACTOR_ID, actorIdOf, mutationFor, SocketBoard, type Actor } from "../sr
 import { visible } from "../src/style";
 import { NoteSurface, NOTE_ACTIONS, type SurfaceHost } from "../src/surface/note";
 import type { Key } from "../src/term";
-import { applyLocated, locateSpans } from "../src/vendor/draft-patch-compare";
+import { applyLocated, locateSpans } from "@ep0ch/outline-core/draft-patch-compare";
 import { outliner, Scratch, until } from "./scratch";
 
 const char = (ch: string): Key => ({ kind: "char", ch });
@@ -23,17 +23,6 @@ const span = (text: string, observed: string, replacement: string) => {
   const start = text.indexOf(observed);
   return { observed, replacement, range: { start, end: start + observed.length }, unit: "utf16" as const };
 };
-
-describe("the vendored compare", () => {
-  const VENDORED = join(import.meta.dir, "../src/vendor/draft-patch-compare.ts");
-  /** When pi-herdr-outliner changes src/draft-patch-compare.ts: copy it over the vendored file, and put its checksum here. */
-  const PINNED_SHA256 = "e38e425afaa818c610d66f52b31fd09f9292b96dac60f4a2511b78ad5132a159";
-  test("is the outliner's file, byte for byte", () => {
-    expect(createHash("sha256").update(readFileSync(VENDORED)).digest("hex")).toBe(PINNED_SHA256);
-    const theirs = outliner && join(outliner, "src/draft-patch-compare.ts");
-    if (theirs && existsSync(theirs)) expect(readFileSync(VENDORED, "utf8")).toBe(readFileSync(theirs, "utf8"));
-  });
-});
 
 describe("a patch in a draft being typed in", () => {
   const TEXT = "Morning plan\nThe beans   go along  the fence.\nwater  them ^beds\n\n@tidy tidy this\n";

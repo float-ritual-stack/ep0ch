@@ -14,7 +14,7 @@ import { USER, type Actor, type SocketBoard } from "../socket";
 import { bg, C, chip, fg, pad, RESET } from "../style";
 import type { Key } from "../term";
 import { printable } from "../text";
-import { withoutPropertyTokens } from "../vendor/property-grammar";
+import { withoutPropertyTokens } from "@ep0ch/outline-core/property-grammar";
 
 /** At most this many candidates per lookup, as in the outliner. */
 export const COMPLETION_LIMIT = 20;

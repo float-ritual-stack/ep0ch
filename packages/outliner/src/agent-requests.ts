@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { DraftPatchInput, DraftPatchResult } from "./draft-patch";
-import type { DraftPatchSpan } from "./draft-patch-compare";
+import type { DraftPatchSpan } from "@ep0ch/outline-core/draft-patch-compare";
 import { durationMs, DEFAULT_DEADLINE_MS } from "./extension-manifest";
 import { cleanExtensionText, extensionActorId, inertBlockdown } from "./extension-records";
 import type { ExtensionRegistry } from "./extension-registry";

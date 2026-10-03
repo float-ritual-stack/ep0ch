@@ -1,5 +1,5 @@
 import { parsePropertyRecords } from "./properties";
-import { PROPERTY_KEY_SOURCE, PROPERTY_TOKEN_SOURCE } from "./property-grammar";
+import { PROPERTY_KEY_SOURCE, PROPERTY_TOKEN_SOURCE } from "@ep0ch/outline-core/property-grammar";
 
 /**
  * Context-scoped resolution: "the nearest X" for a position in a block.

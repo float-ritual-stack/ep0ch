@@ -111,7 +111,6 @@ test("one socket serves two outlines, routed by the request's outline", async ()
 
   const fredPing = await ok<OutlinerServiceStatus>(host.socketPath, { action: "ping", outline: "fred" });
   expect(fredPing.outline?.name).toBe("fred");
-  expect(fredPing.capabilities).toEqual(expect.arrayContaining(["blocks.read", "request.outline", "ping.host"]));
   expect(fredPing.host).toEqual({ socket: host.socketPath, defaultOutline: "bob", outlines: ["bob", "fred"] });
   expect(fredPing.location?.database).toBe(realpathSync(hostedOutlinePaths(stateRoot, "fred").database));
   expect(fredPing.location?.stateDirectory).toBe(hostedOutlinePaths(stateRoot, "fred").sideFolder);
@@ -135,8 +134,6 @@ test("an unnamed outline, an unknown outline and a bad name are refused without 
 
   const noDefault = await startHost(scratch());
   const pong = await ok<OutlinerServiceStatus>(noDefault.socketPath, { action: "ping" });
-  expect(pong.capabilities).toEqual(expect.arrayContaining(["outlines.create", "outlines.list", "ping.host"]));
-  expect(pong.capabilities).not.toContain("blocks.read");
   expect(pong.host).toEqual({ socket: noDefault.socketPath, outlines: [] });
   const unnamed = await send(noDefault.socketPath, { action: "get", blockId: "x" });
   expect(!unnamed.ok && unnamed.error).toContain("no default outline");
@@ -164,7 +161,7 @@ test("an unmodified OutlinerClient talks to the host's default outline", async (
   const host = await startHost(scratch(), "bandit");
   await host.create("bandit");
   const client = new OutlinerClient(host.socketPath);
-  const status = await client.requireCompatibleService(["blocks.read", "ping.outline"]);
+  const status = await client.requireCompatibleService();
   expect(status.outline?.name).toBe("bandit");
   expect(status.host?.defaultOutline).toBe("bandit");
   const note = await client.request<Block>({ action: "create", text: "Bandit's fictional bone" });
@@ -362,7 +359,6 @@ test("a single-outline service refuses host requests", async () => {
   expect(!response.ok && response.error).toContain("answered by an outline host");
   const status = await ok<OutlinerServiceStatus>(join(root, "outliner.sock"), { action: "ping" });
   expect(status.host).toBeUndefined();
-  expect(status.capabilities).not.toContain("request.outline");
 });
 
 test("the host process and the outlines CLI: create, adopt refusals and list go through the host", async () => {

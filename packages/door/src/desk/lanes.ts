@@ -15,7 +15,7 @@ import { bg, C, chip, ellipsize, fg, pad, paint, RESET } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
 import { ago } from "../text";
 import { applyMove, describeChanges, NO_PLAN, planMoves, type MovePlan } from "../move";
-import { PROPERTY_KEY_SOURCE } from "../vendor/property-grammar";
+import { PROPERTY_KEY_SOURCE } from "@ep0ch/outline-core/property-grammar";
 import { clamp, wheelRows } from "../scroll";
 import { DRAFT_ACTIONS } from "../edit";
 import { cardTarget, DraftSession, openDraftOf, type DraftCommand, type LeaveResult } from "../draft-session";

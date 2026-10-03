@@ -10,7 +10,7 @@ import { OutlinerClient } from "../src/client";
 import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
 import { requestLines } from "../src/agent-requests";
-import { applyLocated, locateSpans } from "../src/draft-patch-compare";
+import { applyLocated, locateSpans } from "@ep0ch/outline-core/draft-patch-compare";
 import type { DraftHolderRequest } from "../src/draft-patch";
 import { requestPassages } from "../src/note-content";
 import type { ExtensionsListResult } from "../src/extension-registry";

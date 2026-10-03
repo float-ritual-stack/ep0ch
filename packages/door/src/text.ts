@@ -1,6 +1,6 @@
 // Text helpers shared by the BBS screens and the desk panes.
 import { balanceStyles, balanceTags, C, fg, glyphWidth, graphemes, MARKS, RESET, stripTags, styleMarks, width } from "./style";
-import { isEscapedAt, propertyTokenPattern } from "./vendor/property-grammar";
+import { isEscapedAt, propertyTokenPattern } from "@ep0ch/outline-core/property-grammar";
 
 // ── what may reach the terminal (PIE-510) ──
 // A note's title, an extension's name, a service error: any of them can hold bytes a terminal acts on (an OSC 52

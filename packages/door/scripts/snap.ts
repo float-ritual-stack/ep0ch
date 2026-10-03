@@ -691,7 +691,7 @@ if (scenario === "journey") {
   const said = () => console.log(`  status: ${(app as any).message || "(none)"} · refreshes ${JSON.stringify(S.refreshes)}`);
   app.push(new MainMenu()); app.push(B);
   await snap("1-board", 2500);
-  console.log(`  service: ${[...(board.capabilities ?? ["(no capability list)"])].join(", ")} · lanes by ${S.lanes.map((l: any) => l.read?.by).join(",")}`);
+  console.log(`  service: protocol ${board.protocol ?? "?"} · lanes by ${S.lanes.map((l: any) => l.read?.by).join(",")}`);
   // The preview follows the selected card: Queued, Paint the shed.
   S.lane = S.lanes.findIndex((l: any) => l.name === "Queued"); S.lanes[S.lane].sel = S.lanes[S.lane].items.findIndex((m: any) => m.id === shed.id); S.follow(); app.redraw();
   await snap("2-preview", 1000);

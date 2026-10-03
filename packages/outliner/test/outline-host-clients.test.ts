@@ -20,7 +20,6 @@ import {
 import { detectOutline } from "../src/known-outlines";
 import { registeredPaneOutline, resolveInvocationPaths } from "../src/outline-host-client";
 import { dispatchNativeSelectionComment } from "../src/herdr-comment-selection";
-import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
 import type { Block, HostedOutlineAttachment, OutlinerClientRegistration, OutlinerEvent, OutlinerServiceStatus } from "../src/types";
 
@@ -56,7 +55,7 @@ test("a client that names its outline reads and watches that outline through the
   const fredNote = await fred.request<Block>({ action: "create", text: "Fred's fictional compass" });
   expect((await fred.request<Block>({ action: "get", blockId: fredNote.id })).text).toBe("Fred's fictional compass");
   await expect(bob.request({ action: "get", blockId: fredNote.id })).rejects.toThrow("Block not found");
-  expect((await fred.requireCompatibleService(["request.outline"])).outline?.name).toBe("fred");
+  expect((await fred.requireCompatibleService()).outline?.name).toBe("fred");
 
   const connected = Promise.withResolvers<void>();
   const events: OutlinerEvent[] = [];
@@ -76,28 +75,6 @@ test("a client that names its outline reads and watches that outline through the
   // The Tree's registration is on fred only.
   expect((await fred.request<OutlinerClientRegistration[]>({ action: "clients.list" })).map(client => client.clientId)).toContain("fred-tree");
   expect((await bob.request<OutlinerClientRegistration[]>({ action: "clients.list" })).map(client => client.clientId)).not.toContain("fred-tree");
-});
-
-test("a client that names an outline refuses a single-outline service", async () => {
-  const root = scratch();
-  const store = new OutlinerStore(join(root, "outliner.sqlite"), { workspaceRoot: root });
-  const server = new OutlinerServer(store, join(root, "outliner.sock"));
-  await server.start();
-  cleanups.push(async () => { await server.close(); store.close(); });
-  const named = new OutlinerClient(join(root, "outliner.sock"), 3_000, "fred");
-  await expect(named.request({ action: "get", blockId: "x" })).rejects.toThrow('cannot route to the outline "fred"');
-  await expect(named.requireCompatibleService()).rejects.toThrow("no request.outline capability");
-  const errors: Error[] = [];
-  const watcher = named.watch({
-    client: { clientId: "fred-tree", contextId: "fred-context", role: "tree" },
-    onEvent() {},
-    onError: error => { errors.push(error); },
-  });
-  cleanups.push(() => watcher.stop());
-  const deadline = Date.now() + 3_000;
-  while (errors.length === 0 && Date.now() < deadline) await Bun.sleep(10);
-  expect(errors[0]?.message).toContain("cannot route");
-  expect(await new OutlinerClient(join(root, "outliner.sock")).request<OutlinerServiceStatus>({ action: "ping" })).toMatchObject({ status: "ready" });
 });
 
 test("resolution: OUTLINER_OUTLINE, then a folder's binding, then the folder's name when a host runs", () => {

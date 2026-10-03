@@ -191,8 +191,8 @@ async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[
         delete launchEnv.HERDR_PANE_ID;
         await must([process.execPath, "run", join(pluginRoot, "src/herdr-open.ts"), "--mode", "service-only"],
           `the old service stopped but the new one didn't start; reopen the Outliner in ${s.root} (its open key) to start it`, { env: launchEnv, timeoutMs: 90_000, onLine: child });
-        const answer = await hostRequest<{ protocolVersion?: number; capabilities?: string[] }>(s.socket, "ping", {}, 3000).catch(() => null);
-        const missing = answer ? staleness({ protocol: answer.protocolVersion, capabilities: answer.capabilities ?? null }, f.expected, f.plugin!.protocol) : ["no answer"];
+        const answer = await hostRequest<{ protocolVersion?: number }>(s.socket, "ping", {}, 3000).catch(() => null);
+        const missing = answer ? staleness({ protocol: answer.protocolVersion }, f.plugin!.protocol) : ["no answer"];
         if (missing.length) throw new StepFailed(`${label} restarted but still lacks ${missing.join(", ")}`, `check ${s.stateDir}/service-startup-error.log, then reopen the Outliner in ${s.root}`);
         say(`restarted ${label} (protocol ${answer!.protocolVersion}); reopen its Tree and Detail panes`);
       }
@@ -208,7 +208,7 @@ async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[
       const back = await waitFor(async () => (was === undefined || (await unitState(u)).pid !== was) && !!(await hostLive(f.host.socket)), 30_000);
       if (!back) throw new StepFailed(`${u.kind} ${verb}ed ${u.name}, but nothing answers at ${f.host.socket} after 30s`, `see ${logs}; the doors on it wait and reconnect once it answers`);
       const now = await hostFacts(dirname(f.host.socket), f.platform, f.home);
-      const missing = now.running ? staleness(now, f.expected, f.plugin?.protocol ?? null) : ["no answer"];
+      const missing = now.running ? staleness(now, f.plugin?.protocol ?? null) : ["no answer"];
       if (missing.length) throw new StepFailed(`the host ${verb}ed but still lacks ${missing.join(", ")}`, `check that ${u.path} runs the installed plugin's src/host-main.ts, then ${hostUnitCommand(u, "restart")}`);
       say(`${verb}ed the outline host (${u.kind} ${u.name}${now.protocol ? `, protocol ${now.protocol}` : ""}); doors and panes on it reconnect`);
       return;
@@ -279,14 +279,14 @@ async function setup(args: readonly string[], io: SetupIO, env: Env, json: boole
     if (step.id === "restart" && plan.steps.some(s => s.id === "plugin" && s.status === "do")) {
       const plugin = await pluginFacts({ ...env, HERDR_BIN_PATH: current.herdr.path ?? "herdr" }, false);
       const services = await serviceFacts(env.OUTLINER_STATE_DIR ?? join(current.home, ".local/state/pi-herdr-outliner"));
-      current = { ...current, plugin, services, expected: plugin?.capabilities ?? current.expected };
+      current = { ...current, plugin, services };
       step = restartStep(current, options, false);
     }
     // The host too: asked again after the plugin update, and restarted because of it.
     if (step.id === "host" && plan.steps.some(s => s.id === "plugin" && s.status === "do")) {
       const plugin = current.plugin === facts.plugin ? await pluginFacts({ ...env, HERDR_BIN_PATH: current.herdr.path ?? "herdr" }, false) : current.plugin;
       const host = await hostFacts(dirname(current.host.socket), current.platform, current.home);
-      current = { ...current, plugin, host, expected: plugin?.capabilities ?? current.expected };
+      current = { ...current, plugin, host };
       step = hostStep(current, true);
     }
     if (step.status !== "do") { stepLines(step, i, true).forEach(l => say(l)); results.push(step); continue; }

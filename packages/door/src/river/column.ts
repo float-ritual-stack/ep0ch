@@ -17,7 +17,7 @@ import { C, fg, pad, paint, RESET, selected, visible } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
 import { ago, wrap } from "../text";
 import { scrolled, wheelRows } from "../scroll";
-import { withoutPropertyTokens } from "../vendor/property-grammar";
+import { withoutPropertyTokens } from "@ep0ch/outline-core/property-grammar";
 import { ReaderPane, runOwn, type DeskApi, type PaneView } from "../desk/panes";
 import type { ScreenSpec } from "../desk/screen-spec";
 import type { KindHost, TileKind, TileKindName } from "../desk/tile-kinds";

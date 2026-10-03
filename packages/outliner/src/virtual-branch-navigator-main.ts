@@ -333,7 +333,7 @@ process.on("SIGHUP", () => stop(129));
 
 try {
   // Bookmark scopes query blocks.query with the parsed view, which may carry a `where` expression.
-  if (!mentions) await client.requireCompatibleService(launch.adapter === "bookmark" ? ["query.expression"] : ["views.read"]);
+  if (!mentions) await client.requireCompatibleService();
   await controller.initialize();
   const navigatorClientId = `navigator-${crypto.randomUUID()}`;
   const watcher = client.watch({

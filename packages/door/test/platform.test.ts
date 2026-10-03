@@ -12,7 +12,8 @@ import { boardScreen } from "./board-view";
 import type { Desk } from "../src/desk/desk";
 import { ReaderPane, WhoPane, type DeskApi } from "../src/desk/panes";
 import { answer, setLiveSource } from "../src/live";
-import { ACTOR_ID, OUTLINE_CAPABILITIES, SocketBoard, type OutlineEvent } from "../src/socket";
+import { PROTOCOL } from "@ep0ch/outline-core/protocol";
+import { ACTOR_ID, SocketBoard, type OutlineEvent } from "../src/socket";
 import type { Key } from "../src/term";
 import type { ViewRead } from "../src/views";
 import { outliner, Scratch, until } from "./scratch";
@@ -97,8 +98,7 @@ describe("reconnecting to a fake service", () => {
   // Just enough of the protocol to drop the event connection and watch the door catch up.
   let server: Server, path = "", clients: Socket[] = [];
   let feed: (sequence: number) => unknown = () => ({ kind: "changes", changes: [], nextSequence: 0, completeness: { kind: "complete" }, sequence: 0 });
-  const ALL = [...OUTLINE_CAPABILITIES] as string[];
-  let caps: string[] | undefined = ALL, protocol = 82;
+  let protocol = PROTOCOL;
   let subscribeSequence = 10;
   const onSubscribe: ((s: Socket) => void)[] = [];
   const change = (seq: number, id: number, blockId: string) => ({ sequence: seq, changeId: id, action: "update", kind: "edit", blockId, parentId: null, revision: 2, recordedAt: "" });
@@ -112,7 +112,7 @@ describe("reconnecting to a fake service", () => {
         for (let i = buf.indexOf("\n"); i >= 0; i = buf.indexOf("\n")) {
           const r = JSON.parse(buf.slice(0, i)); buf = buf.slice(i + 1);
           const reply = (result: unknown) => s.write(JSON.stringify({ id: r.id, ok: true, result, sequence: subscribeSequence }) + "\n");
-          if (r.action === "ping") reply({ status: "ready", protocolVersion: protocol, ...(caps ? { capabilities: caps } : {}), location: { hostname: "fake", workspaceRoot: "/fake" } });
+          if (r.action === "ping") reply({ status: "ready", protocolVersion: protocol, location: { hostname: "fake", workspaceRoot: "/fake" } });
           else if (r.action === "events.subscribe") { reply({ subscribed: true }); onSubscribe.shift()?.(s); }
           else if (r.action === "changes.since") {
             const page = feed(r.sequence);
@@ -141,7 +141,7 @@ describe("reconnecting to a fake service", () => {
   };
 
   test("missed changes are replayed in order; live ones wait for the catch-up and aren't delivered twice", async () => {
-    caps = ALL; subscribeSequence = 10;
+    subscribeSequence = 10;
     const { b, events, states, drop } = await connect();
     expect(b.lastSequence).toBe(10);
     let second: Socket | null = null;
@@ -164,21 +164,20 @@ describe("reconnecting to a fake service", () => {
     b.close();
   });
 
-  test("a service older than the door is refused at once, with the fix named", async () => {
-    for (const [p, c, why] of [[82, ALL.filter(x => x !== "views.planWrite"), /without views\.planWrite/], [82, undefined, /without blocks\.read/], [80, ALL, /protocol 80/]] as const) {
-      protocol = p; caps = c as string[] | undefined;
+  test("a service on another protocol is refused at once, with the side to update named", async () => {
+    for (const [p, fix] of [[PROTOCOL - 1, "restart the outline host on current code"], [PROTOCOL + 1, "update the door (ep0ch install --apply)"]] as const) {
+      protocol = p;
       const b = new SocketBoard(path, 2000);
       const refused = b.info();
-      await expect(refused).rejects.toThrow(why);
-      await expect(refused).rejects.toThrow("is older than this door");
-      await expect(refused).rejects.toThrow("`ep0ch install --apply`, or restart the outline host");
+      await expect(refused).rejects.toThrow(`this door speaks protocol ${PROTOCOL} and the outline host protocol ${p}`);
+      await expect(refused).rejects.toThrow(fix);
       b.close();
     }
-    protocol = 82; caps = ALL;
+    protocol = PROTOCOL;
   });
 
   test("a feed reset is a reset event and the cursor follows the service", async () => {
-    caps = ALL; subscribeSequence = 10;
+    subscribeSequence = 10;
     const c = await connect();
     feed = () => ({ kind: "reset", reason: "sequence-ahead", oldestSequence: 0, sequence: 4 });
     c.drop();

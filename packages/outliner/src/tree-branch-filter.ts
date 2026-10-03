@@ -1,4 +1,4 @@
-import {matchesSearchText,prepareSearchQuery} from './search-match';
+import {matchesSearchText,prepareSearchQuery} from '@ep0ch/outline-core/search-match';
 import type {OutlinerRequester} from './client-target';
 import type {Block,TreeIndexBlock} from './types';
 import type {TreeRow,VirtualBranchProjection} from './virtual-branches';

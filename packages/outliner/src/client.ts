@@ -1,6 +1,6 @@
 import { createConnection, type Socket } from "node:net";
-import { requireCapabilities } from "./service-compatibility";
-import type { OutlinerCapability, OutlinerRequestProblem, OutlinerServiceStatus } from "./types";
+import { requireCompatible } from "./service-compatibility";
+import type { OutlinerRequestProblem, OutlinerServiceStatus } from "./types";
 import type {
   OutlinerClientRegistration,
   OutlinerEvent,
@@ -37,14 +37,8 @@ export function createOutlinerClient(endpoint: OutlinerClientEndpoint): Outliner
   );
 }
 
-/**
- * A service that does not advertise `request.outline` ignores the field, so a
- * client that names an outline refuses it rather than read the wrong outline.
- */
+/** A host that answers for another outline than the one named is refused rather than read. */
 export function requireOutlineRouting(service: OutlinerServiceStatus, socketPath: string, outline: string): void {
-  if (!service.capabilities?.includes("request.outline")) {
-    throw new Error(`The Outliner service at ${socketPath} serves one outline and cannot route to the outline "${outline}" (no request.outline capability). Start the outline host, or unset OUTLINER_OUTLINE / the folder's outline binding.`);
-  }
   if (service.outline?.name !== undefined && service.outline.name !== outline) {
     throw new Error(`The outline host at ${socketPath} answered for "${service.outline.name}", not "${outline}"`);
   }
@@ -205,10 +199,10 @@ export class OutlinerClient {
     readonly refusal?: string,
   ) {}
 
-  /** Rejects a service that is too old or lacks a capability the caller will use. */
-  async requireCompatibleService(needed: readonly OutlinerCapability[] = []): Promise<OutlinerServiceStatus> {
+  /** Rejects a service that speaks another protocol (outline-core's PROTOCOL). */
+  async requireCompatibleService(): Promise<OutlinerServiceStatus> {
     const service = await this.request<OutlinerServiceStatus>({ action: "ping" });
-    requireCapabilities(service, needed);
+    requireCompatible(service);
     return service;
   }
 

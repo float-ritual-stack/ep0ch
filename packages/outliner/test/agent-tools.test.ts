@@ -6,8 +6,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { droppedStructure } from "../src/draft-patch";
 import { changesSince, READ_CHILDREN_MAX_CHARS, referenceTarget, shortDiff } from "../src/agent-tools";
-import { requireCapabilities } from "../src/service-compatibility";
-import type { OutlinerServiceStatus } from "../src/types";
 import { resolvePaths } from "../src/paths";
 import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
@@ -337,20 +335,15 @@ test("references, dropped structure and the short diff", () => {
   expect(shortDiff("same", "same")).toBe("");
 });
 
-test("the service advertises activity.actor, and an actor filter is never sent to one without it", async () => {
+test("an actor filter reaches the service, and a service on another protocol is never asked", async () => {
   const { cli } = await setup();
-  // The scratch service offers it: the CLI checks before asking.
   expect((await cli(["activity", "--author", "agent", "--actor", "garden-agent"])).exitCode).toBe(0);
 
-  const status = { protocolVersion: 82, capabilities: ["mutations.provenance"] } as unknown as OutlinerServiceStatus;
   const sent: unknown[] = [];
   const older = {
     request: async <T>(input: unknown) => { sent.push(input); return { entries: [], cursor: 0 } as T; },
-    requireCompatibleService: async (needed: readonly string[] = []) => requireCapabilities(status, needed as never),
+    requireCompatibleService: async () => { throw new Error("this Outliner client speaks protocol 83 and the outline host protocol 82"); },
   };
-  await expect(changesSince(older, { since: "2026-03-01T00:00:00Z", actor: "garden-agent" })).rejects.toThrow("does not support activity.actor");
+  await expect(changesSince(older, { since: "2026-03-01T00:00:00Z", actor: "garden-agent" })).rejects.toThrow("the outline host protocol 82");
   expect(sent).toEqual([]);
-  // Without an actor, an older service is asked as before.
-  await changesSince(older, { since: "2026-03-01T00:00:00Z", author: "agent" });
-  expect(sent).toHaveLength(1);
 });

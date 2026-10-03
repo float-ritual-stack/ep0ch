@@ -54,6 +54,7 @@
     "@earendil-works/pi-ai": "^0.84.2",
     "@earendil-works/pi-coding-agent": "^0.84.2",
     "@earendil-works/pi-tui": "0.84.2",
+    "@ep0ch/outline-core": "workspace:*",
     "callscript": "^0.1.0",
     "diff": "8.0.4",
     "entities": "8.1.0",

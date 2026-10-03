@@ -1,4 +1,6 @@
 import { chmod, cp, lstat, mkdir, readdir, rename, rm, writeFile } from "node:fs/promises";
+import { checkServiceCompatibility } from "./service-compatibility";
+import type { OutlinerServiceStatus } from "./types";
 import { existsSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
@@ -228,9 +230,8 @@ async function serviceClient(): Promise<ExtClient | null> {
     const { resolveClientPaths } = await import("./paths");
     const { createOutlinerClient } = await import("./client");
     const client = createOutlinerClient(resolveClientPaths());
-    const status = await client.request<{ capabilities?: string[] }>({ action: "ping" });
-    // An older service has no extension registry: read the folders here instead.
-    if (!status.capabilities?.includes("extensions.list")) return null;
+    // A service on another protocol isn't asked: read the folders here instead.
+    if (checkServiceCompatibility(await client.request<OutlinerServiceStatus>({ action: "ping" }))) return null;
     return client as unknown as ExtClient;
   } catch {
     return null;

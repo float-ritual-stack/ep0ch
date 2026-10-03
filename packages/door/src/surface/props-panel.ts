@@ -10,7 +10,7 @@ import type { PropertyRecord } from "../socket";
 import { ellipsize, bg, C, fg, pad, RESET, width } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
 import { rule } from "../text";
-import { withoutPropertyTokens } from "../vendor/property-grammar";
+import { withoutPropertyTokens } from "@ep0ch/outline-core/property-grammar";
 import { RowView } from "../scroll";
 import { LineInput } from "./line";
 

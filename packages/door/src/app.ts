@@ -472,7 +472,7 @@ export class App implements Ctx {
   describe() {
     const s = this.stack.at(-1);
     const b = this.board;
-    const service = { capabilities: b.capabilities ? [...b.capabilities] : null, offline: this.offline, sequence: b.lastSequence };
+    const service = { protocol: b.protocol, offline: this.offline, sequence: b.lastSequence };
     // pid and nest: which process this door is and what it runs in (`ep0ch where` checks them against EP0CH_NEST).
     return { screen: s?.title, stack: this.stack.map(x => x.title), pid: process.pid, ...(this.term.session ? { session: this.term.session() } : {}), nest: doorNest(process.env) || null, suspended: this.away, video: this.video, host: this.host, workspace: this.workspace,
       ...(this.outline ? { outline: this.outline } : {}), service, dock: this.dock.describe(),

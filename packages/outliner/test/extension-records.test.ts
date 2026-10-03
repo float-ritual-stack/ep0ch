@@ -14,7 +14,7 @@ import { parsePropertyRecords } from "../src/properties";
 import { createBlockComment } from "../src/block-comments";
 import { readSavedView } from "../src/saved-view-read";
 import type { ResourceProjectionReadResult } from "../src/resource-projection";
-import type { BacklinkCollection, Block, ChangeFeedPage, OutlinerServiceStatus, PageAddressResolution } from "../src/types";
+import type { BacklinkCollection, Block, ChangeFeedPage, PageAddressResolution } from "../src/types";
 import { FAKE_TOKEN, installJira, startFakeJira, type FakeIssue } from "./fake-jira";
 
 const TOKEN_ENV = "OUTLINER_FAKE_JIRA_TOKEN_WAVE_A";
@@ -112,11 +112,6 @@ async function setup(options: { extraSources?: { origin: string; project: string
 
 test("saving a ticket page fetches the ticket in the background, as a real child block the extension owns", async () => {
   const { fake, store, client, create, recordOf, visibleChangesSince } = await setup();
-  const status = await client.request<OutlinerServiceStatus>({ action: "ping" });
-  expect(status.capabilities).toEqual(expect.arrayContaining([
-    "extensions.records", "resources.projection.materialize", "resources.projection.refresh",
-    "resources.observer-reads", "resources.follow-authored.provenance", "blocks.authored-links", "activity.extensions",
-  ]));
 
   fake.delayMs = 400;
   const before = store.sequence;

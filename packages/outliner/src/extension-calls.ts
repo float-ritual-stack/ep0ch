@@ -11,7 +11,7 @@ import { handlerCalls, mayHaveHandlerLines, type HandlerCall } from "./extension
 import { DEFAULT_DEADLINE_MS, durationMs, type LoadedExtension } from "./extension-manifest";
 import { requestLines } from "./agent-requests";
 import type { DraftPatchInput, DraftPatchResult } from "./draft-patch";
-import type { DraftPatchSpan } from "./draft-patch-compare";
+import type { DraftPatchSpan } from "@ep0ch/outline-core/draft-patch-compare";
 import { cleanExtensionText, extensionActorId, inertBlockdown, recordBlockText, type ExtensionRecordData } from "./extension-records";
 import type { ExtensionActionEntry, ExtensionRegistry } from "./extension-registry";
 import { parsePropertyRecords } from "./properties";

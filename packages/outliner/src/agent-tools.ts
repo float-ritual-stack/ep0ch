@@ -17,7 +17,7 @@ import { randomUUID } from "node:crypto";
 import { createBlockComment } from "./block-comments";
 import { parsePropertyFilterClause } from "./block-query";
 import { DRAFT_PATCH_POLICIES, droppedStructure, type DraftPatchPolicyName, type DraftPatchResult } from "./draft-patch";
-import type { DraftPatchSpan } from "./draft-patch-compare";
+import type { DraftPatchSpan } from "@ep0ch/outline-core/draft-patch-compare";
 import { parseOutlinerLinkUri, resolveOutlinerLinkTarget, type OutlinerLinkTarget } from "./outliner-links";
 import { pageAddressReferences } from "./page-addresses";
 import { blockDisplayTitle, blockReferenceOccurrences } from "./references";
@@ -34,14 +34,13 @@ import type {
   BlockProperty,
   BlockSearchQuery,
   MutationProvenance,
-  OutlinerCapability,
   PropertyFilter,
   VisibleBlockCollection,
 } from "./types";
 
-/** The client these operations use: requests, and the capability check before an additive one. */
+/** The client these operations use: requests, and the protocol check before a write or a newer read. */
 export interface AgentToolsClient extends WorkToolsClient {
-  requireCompatibleService(needed?: readonly OutlinerCapability[]): Promise<unknown>;
+  requireCompatibleService(): Promise<unknown>;
 }
 
 /** The agent a write is attributed to: always `author: agent`, with its actor id and session. */
@@ -303,7 +302,7 @@ export async function findBlocks(client: AgentToolsClient, input: FindInput): Pr
     if (["text", "property", "hasKey", "query", "under"].some(key => given(key as keyof FindInput))) {
       throw new WorkToolRefusal("A view is read on its own; drop text, property, hasKey, query and under");
     }
-    await client.requireCompatibleService(["views.read"]);
+    await client.requireCompatibleService();
     const view = await resolveRef(client, input.view!);
     const read = await readSavedView(client, view.id, { limit });
     if (read.errors.length) throw new WorkToolRefusal(`The view ${view.id} can't be read: ${read.errors.join("; ")}`);
@@ -327,7 +326,7 @@ export async function findBlocks(client: AgentToolsClient, input: FindInput): Pr
     ...(given("under") ? { subtreeRootId: (await resolveRef(client, input.under!)).id } : {}),
   };
   // An older service ignores `expression` and would return unfiltered results.
-  if (query.expression !== undefined) await client.requireCompatibleService(["query.expression"]);
+  if (query.expression !== undefined) await client.requireCompatibleService();
   const found = await client.request<VisibleBlockCollection>({ action: "blocks.query", query });
   return { blocks: found.blocks.map(findRow), complete: found.completeness.kind === "complete" };
 }
@@ -447,7 +446,7 @@ export async function createBlock(
   const position = input.position === undefined ? undefined : boundedInteger(input.position, "position", 0, 0, 1_000_000);
   let block = await client.request<Block>({ action: "create", text, parentId, author: "agent", provenance: provenanceOf(actor) });
   if (position !== undefined) {
-    await client.requireCompatibleService(["mutations.provenance"]);
+    await client.requireCompatibleService();
     block = await client.request<Block>({ action: "move", blockId: block.id, parentId, position, mutation: mutationOf(actor) });
   }
   return { id: block.id, ref: `((${block.id}))`, revision: block.revision, parentId: block.parentId };
@@ -595,7 +594,7 @@ export async function changesSince(
   }
   const before = input.before === undefined ? undefined : boundedInteger(input.before, "before", 1, 1, Number.MAX_SAFE_INTEGER);
   const actor = typeof input.actor === "string" && input.actor.trim() ? input.actor.trim() : undefined;
-  await client.requireCompatibleService(["mutations.provenance", ...(actor || before ? ["activity.actor" as const] : [])]);
+  await client.requireCompatibleService();
   const authors = (input.author ? [input.author] : actor ? ["agent", "system", "user"] : ["user", "agent", "system"]) as BlockAuthor[];
   // One more than asked (the service's cap is 100), to tell a full page from a cut one.
   const asked = Math.min(limit + 1, 100);
@@ -676,7 +675,7 @@ export async function patchDraft(
       throw new WorkToolRefusal("Each patch needs observed (the exact text you read, never empty) and replacement");
     }
   }
-  await client.requireCompatibleService(["draft.patch"]);
+  await client.requireCompatibleService();
   const block = await writableBlock(client, input.ref);
   return client.request<DraftPatchResult>({
     action: "draft.patch",

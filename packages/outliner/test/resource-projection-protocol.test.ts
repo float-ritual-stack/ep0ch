@@ -10,7 +10,7 @@ import type { ResourceProjection, ResourceProjectionReadResult } from "../src/re
 import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
 import { readResourceProjections, type ResourceProjectionDataSource } from "../src/resource-projection";
-import type { OutlinerServiceStatus, RemoteEntityDocument, ResourceSource } from "../src/types";
+import type { RemoteEntityDocument, ResourceSource } from "../src/types";
 
 // Fictional project and tickets. Nothing here contacts a provider.
 const cleanups: Array<() => Promise<void>> = [];
@@ -104,8 +104,6 @@ const read = (client: OutlinerClient, blockId: string, line?: number) =>
 
 test("the service advertises resources.projection and reads stored snapshots without contacting the provider", async () => {
   const { store, client, provider, register } = await start();
-  const status = await client.request<OutlinerServiceStatus>({ action: "ping" });
-  expect(status.capabilities).toContain("resources.projection");
 
   const ready = register("ACME-12");
   await store.resources.refresh(ready, true);
