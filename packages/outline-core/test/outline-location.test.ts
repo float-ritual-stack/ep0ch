@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
-  formatDotEp0ch, guessOutline, type LocationReader, nearestDotEp0ch, outlineLayout, outlinesFolder, parseDotEp0ch,
+  formatDotEp0ch, guessOutline, outlineOfFile, type LocationReader, nearestDotEp0ch, outlineLayout, outlinesFolder, parseDotEp0ch,
   slugifyOutlineName, whichOutline,
 } from "../src/outline-location";
 
@@ -64,4 +64,12 @@ describe("which outline (PIE-530)", () => {
     ]);
     expect(slugifyOutlineName("Évan's Fictional Garden!")).toBe("evan-s-fictional-garden");
   });
+});
+
+test("only <name>.sqlite files are outlines: the owner lock, WAL and other files beside them are not", () => {
+  expect(outlineOfFile("garden.sqlite")).toBe("garden");
+  expect(outlineOfFile("garden.sqlite.owner.sqlite")).toBeNull();
+  expect(outlineOfFile("garden.sqlite-wal")).toBeNull();
+  expect(outlineOfFile("notes.txt")).toBeNull();
+  expect(outlineOfFile(".sqlite")).toBeNull();
 });
