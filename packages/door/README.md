@@ -140,8 +140,10 @@ Bare `ep0ch` where nothing names an outline opens the home base: a screen like a
 | `q`, `esc` | the hint row's `q` | quits: nothing is opened |
 
 What a choice needs typed or picked (a name, a file, a machine, whether to write `.ep0ch`) is a list picker over
-the screen; ⏎ or a click on its row does it, `esc` goes back. The home base runs before any door session; with
-one running, `ep0ch` attaches to it as before. Opened by name on a door that is on an outline, it shows what it
+the screen; ⏎ or a click on its row does it, `esc` goes back. The home base runs before any door session, and
+bare `ep0ch` in a folder that names no outline opens it even when exactly one session runs: which outline is never a
+silent guess (the root `AGENTS.md`, "Outlines by name"). The outlines with a running session are marked there, and
+choosing one attaches to it; `ep0ch session attach` names the only running session outright. Opened by name on a door that is on an outline, it shows what it
 shows but makes, connects and opens nothing.
 
 ### Outlines on other machines

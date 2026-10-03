@@ -10,7 +10,7 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
-Since October 2, 2026: door pull requests #136 to #159, the outliner's #280 to #282 (in pi-herdr-outliner), and the
+Since October 2, 2026: pull requests #136 to #162, the outliner's #280 to #282 (in pi-herdr-outliner), and the
 move into one repository (PIE-530).
 
 ### Update: what to run
@@ -77,6 +77,25 @@ move into one repository (PIE-530).
 - **`ep0ch --showcase [--reset]`** opens the showcase on its own seeded outline of made-up notes (the same as
   `ep0ch try --showcase`). `--reset` seeds it again. Before, it opened the showcase screen on this folder's outline
   and asked for a seeded database.
+
+### One door session per outline
+
+- **A session per outline,** like `herdr --session <name>`. `ep0ch`, `ep0ch --ws <name>` and `--machine <m> --ws
+  <name>` attach to that outline's session, starting it when none runs. Before, one session held the whole state
+  dir and naming another outline was refused. Bare `ep0ch` in a folder that names no outline still opens the home
+  base, even with one session running: which outline is never guessed. The home base marks outlines whose session
+  runs (`● running · 1 attached`), and choosing one attaches.
+- **`ep0ch session list`** shows every session (outline, machine, pid, code, terminals, programs). `attach`, `end`,
+  `upgrade` and `restart` act on this folder's (or `--ws`'s) outline, else the only one running; `upgrade --all`,
+  `restart --all` and `end --all` act on every one. `install --apply` hands every session behind the checkout to the
+  new code.
+- **One outline's own state lives in its folder** of the state dir (`sessions/local/<name>/`, or
+  `sessions/<ssh-name>/<name>/`): its session, its desk, river and board layouts, its last call, marks and drafts put
+  aside. The theme, named layouts, machines and the dock stay shared.
+- **An error that tells you to run something shows the exact command,** filled in for this machine (with
+  `EP0CH_STATE=` when it isn't the default).
+- The one-off move of a session from before this ran on both machines and is gone (#162): a state dir's old
+  top-level session files are ignored.
 
 ### Search
 
@@ -171,6 +190,16 @@ move into one repository (PIE-530).
 - `ep0ch session list` shows ages as the rest of the door does (`up 2d`). `ep0ch act` and `peek` with no door say
   `no door answered at <path>`.
 - The showcase index scrolls, so no section is cut off.
+
+### Recent mentions in Claude Code, and BlockView
+
+- **The Claude mod shows Recent Mentions** in a band above the prompt or a pane beside the transcript (`m` moves it,
+  `x` hides it, `p` previews, `s` all conversations; `/mentions band|pane|off|preview|scope`). A click or a
+  mention's number opens it through the mod's one open: in a door tile, in that door; in Herdr, Claude's own
+  Detail; elsewhere a toast with the exact `ep0ch show <id> --ws <outline>` command, copied.
+- **Previews are the door's own drawing** (BlockView): `ep0ch show <id> --cells [--width N] [--rows N]` prints the
+  note surface as cells, and the mod paints them. Without a usable `ep0ch` it shows the note's text.
+- `outliner mentions list` takes `--agent`, `--session` and `--limit`.
 
 ### For agents
 
