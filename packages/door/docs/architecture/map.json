@@ -49,7 +49,7 @@
     { "id": "A-F10", "line": 187, "title": "Hit-testing, frames and hint rows are per screen", "status": "open", "route": "PIE-492" },
     { "id": "A-F11", "line": 197, "title": "The property-token regex copied 9 times, with a different key rule", "status": "resolved", "by": "#62, outliner #250" },
     { "id": "A-F12", "line": 211, "title": "The door ports the query language and plans moves the service couldn't", "status": "resolved", "by": "#62, outliner #250" },
-    { "id": "A-F13", "line": 223, "title": "Grammar mirrors should be one module the outliner exports", "status": "partial", "by": "#62", "note": "the property grammar, the draft.patch compare and the search matcher are one module in outline-core both sides import; literal regions, inline Markdown, components, backlinks and folder-to-outline are still mirrors", "route": "service track" },
+    { "id": "A-F13", "line": 223, "title": "Grammar mirrors should be one module the outliner exports", "status": "partial", "by": "#62", "note": "the property grammar, the draft.patch compare and the search matcher are one module in outline-core both sides import; literal regions, inline Markdown, backlinks and folder-to-outline are still mirrors", "route": "service track" },
     { "id": "A-F14", "line": 241, "title": "Attention marks are door-local; nvim marks stored by line number", "status": "open", "route": "PIE-423" },
     { "id": "A-F15", "line": 249, "title": "Tile kinds are a closed union in 5 places; the desk dispatches by class", "status": "partial", "by": "#95, #105", "note": "an open tile-kind registry (src/desk/tile-kinds.ts); extensions register kinds through serviceKind (#97). PIE-510: a terminal's actions are the terminal kind's (PTY_ACTIONS, inherited by an extension's program kinds), and the desk asks the kind for keys and clicks (press), a screen tile's keys, actions and ticks (takesKeys, act, tick) and a gone kind's held work (holdsWork, whenFree); class checks in desk.ts 43 to 30 (PtyPane 19 to 10, ScreenTile 4 to 0). Left: terminal-only data (nvim marks, temp files, its screen text, a running program's close) and ReaderPane checks that mean a note reader, the note surface's host", "route": "PIE-493" },
     { "id": "A-F16", "line": 263, "title": "Import direction: the tile layer and the protocol import features", "status": "open", "route": "PIE-493" },
@@ -276,13 +276,13 @@
       "does": "The one reader: render, fold, elements and the ruler, links and history, comments, steps, selection, edit. Hosted by the board, the desk, the river, the BBS reader and the hub screens.",
       "built": "NoteSurface behind the SurfaceHost seam; its actions are NOTE_ACTIONS, so a person's key and an agent's act run the same code. staleOn says whether a change makes its note stale (a trash too) and reread reads it again, coalesced: every host asks the surface, none keeps its own rule (#104). What takes its keys besides reading (a status choice, the property panel, the edit, the comment session) is a mode in its ModeStack, precedence stated once (PIE-516).",
       "refs": [
-        { "r": "door", "p": "src/surface/note.ts", "l": 328, "m": "export class NoteSurface" },
+        { "r": "door", "p": "src/surface/note.ts", "l": 327, "m": "export class NoteSurface" },
         { "r": "door", "p": "src/surface/modes.ts", "l": 102, "m": "export class ModeStack" },
         { "r": "door", "p": "src/surface/modes.ts", "l": 20, "m": "export const PRECEDENCE" },
-        { "r": "door", "p": "src/surface/note.ts", "l": 62, "m": "export interface SurfaceHost" },
-        { "r": "door", "p": "src/surface/note.ts", "l": 3528, "m": "export const NOTE_ACTIONS" },
-        { "r": "door", "p": "src/surface/note.ts", "l": 542, "m": "staleOn(e: OutlineEvent): boolean" },
-        { "r": "door", "p": "src/surface/note.ts", "l": 559, "m": "reread(host: SurfaceHost)" }
+        { "r": "door", "p": "src/surface/note.ts", "l": 61, "m": "export interface SurfaceHost" },
+        { "r": "door", "p": "src/surface/note.ts", "l": 3522, "m": "export const NOTE_ACTIONS" },
+        { "r": "door", "p": "src/surface/note.ts", "l": 539, "m": "staleOn(e: OutlineEvent): boolean" },
+        { "r": "door", "p": "src/surface/note.ts", "l": 556, "m": "reread(host: SurfaceHost)" }
       ]
     },
     {

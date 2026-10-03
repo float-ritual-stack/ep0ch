@@ -279,7 +279,7 @@ const result = await runHerdrScenario({
         const width=visibleWidth(text.split('\n')[0]!);
         return (columns===220?width>80:width<70)&&rows.length===2&&!/^[+−] /.test(rows[0]!)&&/^[+−] /.test(rows[1]!);
       });
-      await s.checkpoint(`17-checklist-result-${columns}`);
+      await s.checkpoint(`13-checklist-result-${columns}`);
     }
     assert.equal((await s.client.request<Block>({action:'get',blockId:plan.id})).text,plan.text);
     await s.record('checklist-result-evidence',{resultThreads,input:'attached-terminal drag, comment save, wide/narrow independent result gutter'});

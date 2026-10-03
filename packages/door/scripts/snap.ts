@@ -159,8 +159,8 @@ if (scenario === "board2") {
 }
 if (scenario === "rendering") {
   // PIE-444: the showcase notebook's Formatting section in a desk reader (bold, italic, struck out, code,
-  // Markdown links, a labelled block ref) with
-  // the reader's element on its first Markdown link, then the same note in the BBS reader (To: its to::).
+  // Markdown links, a labelled block ref) with the reader's element on its first Markdown link, then the
+  // same note in the BBS reader (To: its to::).
   const { seedShowcase } = await import("../src/showcase/seed");
   const seeded = await seedShowcase(board);
   board.subscribe(e => app.event(e));

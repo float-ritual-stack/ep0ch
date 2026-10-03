@@ -80,9 +80,9 @@ The shared fixture corpus must include Unicode, escapes/entities, links, lists,
 callouts, tables, nested/repeated/fragment embeds, saved views, failed embeds and
 truncation. Assert independent expected source slices and copied text, across
 widths and selection modes. Exercise actual Detail and Preview selection,
-commenting, links and resize with private fixtures. Responsive table and status
-component slices use this interface; neither introduces a separate task store,
-annotation model or focus system.
+commenting, links and resize with private fixtures. Responsive tables use this
+interface; they introduce no separate task store, annotation model or focus
+system.
 
 ### Current migration boundary
 
@@ -360,25 +360,3 @@ checklist actions and annotation reconciliation in their existing domain owners;
 this change does not introduce a general UI framework or another document store.
 
 Checklist results retain their view query and matched source-item header (excluding status and fragment ID) in the occurrence path. A child displayed within its parent result stays distinct from the same child displayed as an independent result, including when the entire view is embedded. Edits to the matched header use the ordinary conservative quote reconciliation; result order is never an identity.
-
-
-### Catalog/spec/renderer comparison
-
-[json-render's documented separation](https://json-render.dev/docs) distinguishes
-an allowed component catalog, a declarative specification, and platform-specific
-implementations. The useful pattern here is the separation of data from rendering;
-adopting its generated element tree is unnecessary for one authored summary.
-
-For this slice, the installed manifest selects a supported host layout, the
-readable fence supplies the specification, and the existing pi-tui document frame
-is the platform binding. This is our adaptation of that separation, not a
-json-render-compatible spec. A second React/Ink tree would duplicate selection,
-focus and provenance ownership without improving the current acceptance path.
-Keep producer execution and future action capabilities outside this presentation
-contract; reconsider a richer catalog when a second layout needs one.
-
-Installation decisions are retained per document load, including failures, and
-shared with folded and callout layouts. Preview may rebuild its layout for a new
-width, focus or theme, but reuses those decisions. New source content or reopening
-creates a fresh catalog. Rendered frames still contain newly measured geometry
-and current source data; no cache of source observations is introduced.

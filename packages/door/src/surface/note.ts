@@ -779,7 +779,7 @@ export class NoteSurface {
     const top = head.length, t = host?.ctx.t;
     const key = `${w}x${h}|${top}|${summaryRow}|${m.revision ?? ""}|${m.text.length}|${host?.ctx.graphics ? 1 : 0}|${t?.cellW}x${t?.cellH}`;
     if (onlyScrolled() && this.laid?.m === m && this.laid.key === key) return this.laid;
-    const env = this.docEnv(m, Math.max(1, w - 1), host, Math.max(4, Math.round((h - head.length) * 0.8)));
+    const env = this.docEnv(Math.max(1, w - 1), host, Math.max(4, Math.round((h - head.length) * 0.8)));
     // Every link drawn (the body's, an embed's title, results, text and step boxes) is tagged with its place in `drawn`.
     const drawn: Link[] = [];
     // Resource projections (PIE-445): each drawn after the last body line at or above its anchor (a ticket
@@ -843,7 +843,7 @@ export class NoteSurface {
    * What the note's body is drawn with, at `width`: images laid out when the host draws Kitty graphics (and why not
    * when it doesn't).
    */
-  private docEnv(m: Msg, width: number, host: SurfaceHost | undefined, maxImageRows: number): DocEnv {
+  private docEnv(width: number, host: SurfaceHost | undefined, maxImageRows: number): DocEnv {
     const t = host?.ctx.t, graphics = !!host?.ctx.graphics;
     const noImages = graphics ? undefined : t?.kitty ? "video: cells · alt+v draws images" : "no Kitty graphics in this terminal";
     return { width, cellW: t?.cellW ?? 9, cellH: t?.cellH ?? 18, graphics, noImages, maxImageRows, unfold: this.unfold };
@@ -918,7 +918,7 @@ export class NoteSurface {
     this.drawn = null;
     this.digesting = true;
     const drawn: Link[] = [];
-    const { doc: rendered, points } = this.body(m, this.docEnv(m, Math.max(1, w), host, maxImageRows), src, drawn);
+    const { doc: rendered, points } = this.body(m, this.docEnv(Math.max(1, w), host, maxImageRows), src, drawn);
     const { doc, picks } = this.pickerRows(rendered, drawn, Math.max(1, w));
     this.elems = this.elementsOf(doc, drawn, [], [], [], points, 0, [], 0);
     this.keepCurrent(host);
