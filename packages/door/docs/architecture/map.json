@@ -760,7 +760,7 @@
       "does": "Outliner tools inside Claude Code; `show` opens a note in the door from Claude's own tile, where that tile's opens land.",
       "built": "register.ts registers the tools; door-open --from $EP0CH_TILE.",
       "refs": [
-        { "r": "outliner", "p": "../claude-mod/hooks/register.ts", "l": 688, "m": "['--from', from]" },
+        { "r": "outliner", "p": "../claude-mod/hooks/register.ts", "l": 708, "m": "['--from', from]" },
         { "r": "outliner", "p": "src/door-control.ts", "l": 63, "m": "export async function openInDoor" }
       ]
     },
