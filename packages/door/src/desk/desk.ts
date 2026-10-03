@@ -2562,6 +2562,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    */
   enterTerminal(name: string, p: PtyPane, send: string | undefined): TileDone {
     if (this.panes.get(this.focus) !== p) throw new ActionRefused(`${name} doesn't have the keys · tile.focus first`);
+    // The person going in (a click, e or ⏎) is them using it: its program's copy reaches their clipboard (PtyPane.copied).
+    p.personClickAt = Date.now();
     if (!p.running && p.exited !== null) { p.restart(); return { tile: name, restarted: true }; }
     if (!p.running) throw new ActionRefused(`${name}'s program hasn't started`);
     this.ptyIn = p; this.chord = null;

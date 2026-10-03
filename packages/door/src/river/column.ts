@@ -711,7 +711,10 @@ export class RiverColumn extends ReaderPane {
     if (!sel) throw new ActionRefused("nothing is selected · drag across the text, or v and move");
     const text = sel.text(rowsOf(this.drawn?.lines ?? []));
     if (!text.trim()) throw new ActionRefused("nothing to copy: only blanks are selected");
-    if (actor.kind !== "agent") { desk.ctx.copy?.(text); desk.ctx.flash(`copied ${[...text].length} chars`); }
+    if (actor.kind !== "agent") {
+      if (desk.ctx.copy?.(text) === false) throw new ActionRefused(`not copied: ${[...text].length} chars is more than the clipboard takes`);
+      desk.ctx.flash(`copied ${[...text].length} chars`);
+    }
     return { chars: [...text].length, text };
   }
 

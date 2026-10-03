@@ -6,7 +6,7 @@ import { ActionRefused, agentLabel, traceActions, type ActRequest } from "./surf
 import { Dispatcher } from "./surface/dispatch";
 import { screenKeys, whereabouts, type ScreenKeys, type Whereabouts } from "./whereabouts";
 import { SHELL_ACTIONS } from "./screens";
-import { isCopyKey, osc52 } from "./surface/selection";
+import { COPY_MAX, isCopyKey, osc52, uncopied, type Uncopied } from "./surface/selection";
 import { bg, C, chip, fg, headOf, pad, RESET, tailFrom, width } from "./style";
 import { printable } from "./text";
 import { OPTION_AS_ALT_HINT, OPTION_KEYS, optionKeysOn, pasteKeys, type Handover, type Key, type Term, type TermInfo, type TileProgram } from "./term";
@@ -67,8 +67,12 @@ export interface Ctx {
   quit(): void;
   redraw(): void;
   flash(msg: string, ms?: number): void;
-  /** Put text on the terminal's clipboard (OSC 52; Herdr and Ghostty pass it on), and say "copied to clipboard" over the screen. */
-  copy?(text: string): void;
+  /**
+   * Put text on the terminal's clipboard (OSC 52; Herdr and Ghostty pass it on), and say "copied to clipboard" over the
+   * screen; `from`: a terminal tile's name, when its program copied it ("copied from <tile>"). False when nothing was
+   * copied (over COPY_MAX, or a tile's copy the door didn't pass on: `Uncopied`), and the toast says why.
+   */
+  copy?(text: string | Uncopied, from?: string): boolean;
   cycleVideo(): void;
   /** Draw in this theme from now on (`theme.set`): every screen at once, the terminal's ground too, and kept for next time. */
   setTheme?(name: ThemeName): void;
@@ -408,15 +412,25 @@ export class App implements Ctx {
   /**
    * The person's clipboard (OSC 52), and a "copied to clipboard" toast over the bottom of the screen for a
    * moment, as Herdr's `ui.toast.clipboard` shows: the status bar's "copied N chars" is easy to miss. Every
-   * copy in the door comes here (a reader's selection, a property's value, a step's link). Never an agent's.
+   * copy in the door comes here (a reader's selection, a property's value, a step's link), and a terminal tile's
+   * program's own OSC 52 (`from`: the tile's name), passed on. Never an agent's. In a session it goes to the client
+   * with the keys, never a watcher (SessionTerm.write). Over COPY_MAX it says so and copies nothing.
    */
-  copy(text: string) {
+  copy(text: string | Uncopied, from?: string): boolean {
+    const no: Uncopied | null = typeof text !== "string" ? text : Buffer.byteLength(text) > COPY_MAX ? { tooBig: Buffer.byteLength(text) } : null;
+    if (no || typeof text !== "string") {
+      // Long enough to read why, and what to do (click in the tile, then copy again).
+      this.toast = { text: uncopied(no ?? (text as Uncopied), from), until: Date.now() + TOAST_MS * 3, ok: false };
+      this.redraw();
+      return false;
+    }
     this.term.write(osc52(text));
-    this.toast = { text: `copied to clipboard · ${[...text].length} chars`, until: Date.now() + TOAST_MS };
+    this.toast = { text: `${from ? `copied from ${from}` : "copied to clipboard"} · ${[...text].length} chars`, until: Date.now() + TOAST_MS, ok: true };
     this.redraw();
+    return true;
   }
   /** What the toast says and until when (App.copy); the tick takes it away. */
-  toast: { text: string; until: number } | null = null;
+  toast: { text: string; until: number; ok: boolean } | null = null;
   /** The terminal's default text and background are the theme's (OSC 10, 11), so uncoloured cells sit on its ground. */
   private grounded = false;
   private ground() {
@@ -762,7 +776,7 @@ export class App implements Ctx {
       // Images under the drawer would show through it.
       placements = placements.filter(p => p.row + p.rows <= d.rect.row);
     } else this.dock.rect = null;
-    if (this.toast) lines = withToast(lines, this.toast.text, cols);
+    if (this.toast) lines = withToast(lines, this.toast.text, cols, this.toast.ok);
     lines.push(this.statusBar(s, cols));
     // The display draws it in its video mode (CP437 and the tube under kitty+crt; a terminal tile's program output too).
     this.display.show(lines, placements);
@@ -805,12 +819,12 @@ export const TOAST_MS = 1500;
  * The toast laid over the screen's lines (the status bar not among them): one row, bottom centre, two rows above
  * the status bar, over whatever is drawn there; the rest of that row stays as it was.
  */
-export function withToast(lines: string[], text: string, cols: number): string[] {
-  const t = ` ✓ ${text} `, w = Math.min(width(t), cols);
+export function withToast(lines: string[], text: string, cols: number, ok = true): string[] {
+  const t = ` ${ok ? "✓" : "✗"} ${text} `, w = Math.min(width(t), cols);
   const row = Math.max(0, lines.length - 2), at = Math.max(0, Math.floor((cols - w) / 2));
   const out = [...lines];
   const line = out[row] ?? "";
-  out[row] = headOf(line, at) + RESET + chip(C.cyan) + pad(t, w) + RESET + tailFrom(line, at + w);
+  out[row] = headOf(line, at) + RESET + chip(ok ? C.cyan : C.red) + pad(t, w) + RESET + tailFrom(line, at + w);
   return out;
 }
 

@@ -153,6 +153,123 @@ export function paintRange(line: string, from: number, to: number, style: string
 export const osc52 = (text: string) => `\x1b]52;c;${Buffer.from(text).toString("base64")}\x07`;
 
 /**
+ * The most the door puts on the clipboard at once, in UTF-8 bytes: its own copies and a terminal tile's program's
+ * alike (App.copy). Its OSC 52 is under 700 KB, inside tmux's 1 MB limit on one escape sequence.
+ */
+export const COPY_MAX = 512 * 1024;
+/** How recently the person must have typed, pasted or clicked in a terminal tile for its program's copy to reach them. */
+export const TILE_COPY_RECENT_MS = 2 * 60_000;
+/**
+ * A copy the door didn't make: over COPY_MAX (`tooBig` bytes), or a terminal tile's program asking while the person
+ * hadn't typed, pasted or clicked in that tile within TILE_COPY_RECENT_MS (`away`: an agent typing into a shell nobody
+ * is using can't fill the person's clipboard).
+ */
+export type Uncopied = { tooBig: number } | { away: true };
+/** What the door says about a copy it didn't make (App.copy's toast). */
+export const uncopied = (u: Uncopied, from?: string) =>
+  `not copied${from ? ` from ${from}` : ""} · ${"away" in u ? `you haven't typed or clicked in it for ${TILE_COPY_RECENT_MS / 60_000} min · click in it, then copy again` : `${Math.ceil(u.tooBig / 1024)} KB is more than the clipboard takes (${COPY_MAX / 1024} KB)`}`;
+/** The longest OSC 52 body (`c;<base64>`) a tile's program can send that fits COPY_MAX. */
+const OSC52_BODY_MAX = Math.ceil(COPY_MAX / 3) * 4 + 8;
+const OSC52_START = "\x1b]52;";
+
+/** What a terminal tile's program put on the clipboard: its text, or how big a write over COPY_MAX was. */
+export type Clip = { text: string } | { tooBig: number };
+
+/**
+ * A terminal tile's program's clipboard writes (OSC 52), found in what it writes, so the door can pass them on to
+ * the person's terminal: the tile's emulator (headless xterm) would swallow them. Only writes: the clipboard `c` or
+ * the default one (an empty selection), with a base64 payload. A read (`?`) is dropped, so a program can't read the
+ * person's clipboard, and so are other selections, a clear (an empty payload) and bad base64. BEL or ST (`ESC \`)
+ * ends one; a sequence cut across the program's writes is held until its end comes. Fed latin1 text (a byte a char).
+ */
+export class Osc52Reader {
+  /** `scan`: looking for one to start; `body`: in one, its payload kept; `skip`: in one too long, only counted. */
+  private mode: "scan" | "body" | "skip" = "scan";
+  /** The end of what was scanned that could be the start of one (ESC, ESC ], …). */
+  private tail = "";
+  /** The body so far, in pieces (joined once, at its end: a body that comes a byte at a time stays linear). */
+  private parts: string[] = [];
+  private size = 0;
+  /** The body's first bytes (its selection), kept when one too long is only counted: only the clipboard's is said. */
+  private head = "";
+  /** The last write ended on an ESC: the next one's first byte says whether it was ST. */
+  private esc = false;
+
+  /** Start over (the program's output starts over: a resync). */
+  reset() { this.mode = "scan"; this.tail = ""; this.parts = []; this.size = 0; this.head = ""; this.esc = false; }
+
+  feed(chunk: string): Clip[] {
+    const out: Clip[] = [];
+    let p = 0;
+    while (p < chunk.length) {
+      if (this.mode === "scan") {
+        if (this.tail) {
+          // The last write ended on what could be its start: does this one go on with it?
+          const t = this.tail, s = t + chunk.slice(p, p + OSC52_START.length - t.length);
+          this.tail = "";
+          if (s === OSC52_START) { p += OSC52_START.length - t.length; this.open(); continue; }
+          if (OSC52_START.startsWith(s)) { this.tail = s; return out; }
+        }
+        const i = chunk.indexOf(OSC52_START, p);
+        if (i < 0) {
+          for (let k = Math.min(OSC52_START.length - 1, chunk.length - p); k > 0; k--) if (OSC52_START.startsWith(chunk.slice(chunk.length - k))) { this.tail = chunk.slice(chunk.length - k); break; }
+          return out;
+        }
+        p = i + OSC52_START.length;
+        this.open();
+        continue;
+      }
+      if (this.esc) {
+        // An ESC ended the last write: `\` makes it ST; anything else cut the sequence off (and starts something else).
+        this.esc = false;
+        if (chunk[p] === "\\") { this.end(out, true); p += 1; }
+        else { this.end(out, false); this.tail = "\x1b"; }
+        continue;
+      }
+      const e = oscEnd(chunk, p);
+      const piece = chunk.slice(p, e < 0 ? chunk.length : e);
+      this.size += piece.length;
+      if (this.mode === "body") {
+        if (this.size > OSC52_BODY_MAX) { this.mode = "skip"; this.head = this.parts.join("").slice(0, 2) + piece.slice(0, 2); this.parts = []; }
+        else this.parts.push(piece);
+      }
+      if (e < 0) return out;
+      if (chunk[e] === "\x07") { this.end(out, true); p = e + 1; }
+      else if (e + 1 >= chunk.length) { this.esc = true; return out; }
+      else if (chunk[e + 1] === "\\") { this.end(out, true); p = e + 2; }
+      else { this.end(out, false); p = e; }
+    }
+    return out;
+  }
+
+  private open() { this.mode = "body"; this.parts = []; this.size = 0; this.head = ""; this.esc = false; }
+
+  /** The sequence ended: properly (BEL or ST), or cut off by another ESC. */
+  private end(out: Clip[], ok: boolean) {
+    // One too long is said only when it ended properly and was for the clipboard; one cut off, or another selection's, is dropped.
+    if (this.mode === "skip") { if (ok && /^c?;/.test(this.head)) out.push({ tooBig: Math.floor((this.size * 3) / 4) }); }
+    else if (ok) { const t = clipText(this.parts.join("")); if (t !== null) out.push({ text: t }); }
+    this.mode = "scan"; this.parts = []; this.size = 0; this.head = "";
+  }
+}
+
+/** Where an OSC from `from` ends: its BEL or the ESC of its ST (or of what cut it off); -1 when not yet. */
+function oscEnd(s: string, from: number): number {
+  for (let i = from; i < s.length; i++) { const c = s.charCodeAt(i); if (c === 7 || c === 27) return i; }
+  return -1;
+}
+
+/** An OSC 52 body (`<selection>;<payload>`) as the text to copy, or null when it isn't a write to the clipboard. */
+function clipText(body: string): string | null {
+  const semi = body.indexOf(";");
+  if (semi < 0) return null;
+  const sel = body.slice(0, semi), data = body.slice(semi + 1);
+  if (sel !== "" && sel !== "c") return null;
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(data) || data.length % 4 === 1) return null;
+  return Buffer.from(data, "base64").toString("utf8");
+}
+
+/**
  * Whether a mouse selection copies when the button comes up: on unless `EP0CH_COPY_ON_SELECT` is 0, off, no or
  * false (Herdr's `ui.copy_on_select`). Read at each release, so a door started either way can be told apart.
  */

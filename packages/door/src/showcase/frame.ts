@@ -83,7 +83,7 @@ function frameCtx(f: FramedScreen): Ctx {
     quit: () => o().quit(),
     redraw: () => o().redraw(),
     flash: m => o().flash(m),
-    copy: text => o().copy?.(text),
+    copy: (text, from) => o().copy?.(text, from) ?? false,
     cycleVideo: () => o().cycleVideo(),
     setTheme: name => o().setTheme?.(name),
     suspend: ((run: () => Promise<unknown>, what?: string) => o().suspend(run, what)) as Ctx["suspend"],
