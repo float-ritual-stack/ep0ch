@@ -510,6 +510,9 @@ describe('register', () => {
   test('in neither a door nor Herdr, a click and show say so, with the exact command and the ((id)) to copy, never failing silently', async ($, on) => {
     const session = sessionIn(on, WORKSPACE, succeeding, '', NOT_IN_HERDR)
     on('tool.register', ($, e) => ({ value: { tool: `mcp__pi-outliner__${e.name}` } }))
+    // A clipboard that takes nothing: the message is then said whole.
+    const copied: string[] = []
+    on('ui.copy', ($, e) => { copied.push(e.text); return { value: { isCopied: false, reason: 'no-clipboard' } } })
     await session.begin(() => $.session.start(START))
     const drawn = await mountReply($, 'See [[Daily notes]].')
 
@@ -519,8 +522,11 @@ describe('register', () => {
     const message = `Can't open Daily notes here: this session is not in an ep0ch-door tile, nor in Herdr. Read it with \`ep0ch show ${BLOCK} --ws garden\`, or copy ((${BLOCK})) to open it in the Outliner.`
     expect(session.toasts).toEqual([message])
 
+    // The person's click tried the clipboard with the command; the agent's show never touches it.
+    expect(copied).toEqual([`ep0ch show ${BLOCK} --ws garden`])
     const shown = await $.tool.call({ tool: 'mcp__pi-outliner__show', reference: '[[Daily notes]]' })
     expect(shown.deny).toBe(message)
+    expect(copied).toHaveLength(1)
     expect(session.runs.some(run => run.argv.includes('door-open') || run.argv.includes('link'))).toBe(false)
     expect(splitOf(session.runs)).toBeUndefined()
   })

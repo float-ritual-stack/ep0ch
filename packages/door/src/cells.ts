@@ -6,8 +6,9 @@
 // standard padded base64 of little-endian u32 triplets `[codePoint, foreground, background]`, a colour `0x00RRGGBB`
 // or `DEFAULT_COLOUR` for the terminal's own. A Raster takes one width-1 BMP character a cell, so a wide glyph (CJK,
 // most emoji) becomes U+FFFD in its first cell and a blank in its second (the columns stay where the reader put
-// them), and a glyph outside the BMP or with a combining mark that can't stand alone becomes U+FFFD; `replaced`
-// counts them. Bold, italic and underline have no place in a cell and are dropped; inverse swaps the colours.
+// them), a glyph outside the BMP becomes U+FFFD, and a combining mark is dropped from the glyph it joins; `replaced`
+// counts each. Bold, italic and underline have no place in a cell and are dropped; inverse swaps the colours it names
+// (the terminal's own stay its own: no bright guess).
 import { SGR_TO_VGA, VGA_RGB } from "./ansi";
 import { Canvas } from "./canvas";
 import { glyphWidth } from "./style";
@@ -51,7 +52,7 @@ export function sgrColours(sgr: string): { fg: number; bg: number } {
       } else if ((p === 38 || p === 48) && ps[i + 1] === 5) i += 2;   // 256 colours: the door doesn't write them; left as they were
     }
   }
-  return inverse ? { fg: bg === DEFAULT_COLOUR ? 0 : bg, bg: fg === DEFAULT_COLOUR ? 0xcccccc : fg } : { fg, bg };
+  return inverse ? { fg: bg, bg: fg } : { fg, bg };
 }
 
 /** The code point a cell holds: its glyph when that is one width-1 BMP character (a combining mark after it dropped, and counted), else U+FFFD. */

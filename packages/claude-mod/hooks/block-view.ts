@@ -39,11 +39,11 @@ export const MAX_ROWS = 24
 export const BLOCK_VIEW_PROBE = '/nonexistent/ep0ch-cells-probe.sock'
 
 /** `ep0ch help` lists `show … --cells`: this ep0ch draws cells (an older `show` would refuse the flag; one older than `show` would open a door). */
-export const knowsCells = (help: string): boolean => /^\s*ep0ch show\b.*--cells/m.test(help)
+export const knowsCells = (help: string): boolean => /^\s*ep0ch show\b.*--cells.*--rows/m.test(help)
 
-/** The `ep0ch show` argv for one block at one width. */
-export function blockViewArgv(id: string, width: number): string[] {
-  return ['ep0ch', 'show', id, '--cells', '--width', String(width)]
+/** The `ep0ch show` argv for one block at one width: its first rows only, so a long note is never drawn whole. */
+export function blockViewArgv(id: string, width: number, rows = MAX_ROWS): string[] {
+  return ['ep0ch', 'show', id, '--cells', '--width', String(width), '--rows', String(rows)]
 }
 
 /** `ep0ch show --cells`' answer, checked: whole rows of cells for its width, or null. */
@@ -70,6 +70,11 @@ export type BlockViewSource = { cwd?: string; env?: Record<string, string> }
 export type RunCommand = (argv: readonly string[], init?: ProcessRunInit) => Promise<ProcessRunResult>
 
 let probed: Promise<boolean> | undefined
+
+/** Forgets whether `ep0ch` draws cells, so it is asked again (an `ep0ch install` mid-session; tests). */
+export function resetBlockViewProbe(): void {
+  probed = undefined
+}
 
 /**
  * Draws block `id` at `width` columns through the door's CLI. Never throws:

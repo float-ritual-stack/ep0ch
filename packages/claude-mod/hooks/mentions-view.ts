@@ -1,7 +1,8 @@
-import type { RenderElement } from 'claude-code'
+import type { RenderElement, RenderSurface } from 'claude-code'
 
 import type { MentionRow, MentionsList, MentionsPlacement, MentionsPrefs } from '../types'
 import type { BlockViewElements } from './block-view'
+import { MENTIONS_AGENT } from './mention-message'
 
 /**
  * Recent mentions inside Claude Code: the blocks this conversation's answers
@@ -28,10 +29,11 @@ import type { BlockViewElements } from './block-view'
 export const PANE_ID = 'outliner-mentions'
 /** Where the person's choices are kept across sessions. */
 export const PREFS_STORE_KEY = 'mentions-view'
-/** The agent this mod ingests answers as (mentionMessageOf). */
-const AGENT = 'claude'
 /** At most this many mentions: one hotkey each, 1 to 9. */
 export const MENTION_LIMIT = 9
+
+/** Lines of a block's text kept, for where the door can't draw it: the most a preview shows. */
+const TEXT_LINES = 8
 
 export const DEFAULT_PREFS: MentionsPrefs = { placement: 'band', previews: false, scope: 'conversation' }
 
@@ -47,7 +49,7 @@ export function prefsOf(stored: unknown): MentionsPrefs {
 
 /** The `outliner mentions list` arguments for a scope. */
 export function mentionsListArgs(scope: MentionsPrefs['scope'], sessionId: string): string[] {
-  return ['mentions', 'list', '--limit', String(MENTION_LIMIT), ...(scope === 'conversation' ? ['--agent', AGENT, '--session', sessionId] : [])]
+  return ['mentions', 'list', '--limit', String(MENTION_LIMIT), ...(scope === 'conversation' ? ['--agent', MENTIONS_AGENT, '--session', sessionId] : [])]
 }
 
 /** `outliner mentions list`'s entries as rows; [] for anything that isn't its answer. */
@@ -64,7 +66,8 @@ export function mentionRowsOf(stdout: string): MentionRow[] {
       revision: Number.isInteger(block?.revision) ? block.revision : null,
       title: typeof entry.title === 'string' && entry.title ? entry.title : entry.address,
       address: entry.address,
-      text: typeof block?.text === 'string' ? block.text : '',
+      // Only what a text preview can show: the state holds nine of these and every draw reads them.
+      text: typeof block?.text === 'string' ? block.text.split('\n').slice(0, TEXT_LINES).join('\n') : '',
       mentionedAt: typeof entry.mentionedAt === 'string' ? entry.mentionedAt : '',
       excerpt: typeof entry.excerpt === 'string' ? entry.excerpt : '',
       ...(block ? {} : { unavailable: typeof entry.unavailableReason === 'string' ? entry.unavailableReason : 'no longer available' }),
@@ -114,8 +117,11 @@ export const choicesText = (p: MentionsPrefs): string =>
 /** How many rows a preview takes: a few in the band, more in the pane. */
 export const PREVIEW_ROWS = { band: 6, pane: 8 } as const
 
-/** A preview sits under its entry (indented in the pane): as wide as what's left of the body. */
-export const previewWidthOf = (site: 'band' | 'pane', columns: number): number => Math.max(20, site === 'pane' ? columns - 4 : columns - 1)
+/** A preview sits under its entry (indented in the pane, after its number in the band): as wide as what's left of the body. */
+export const previewWidthOf = (site: 'band' | 'pane', columns: number): number => Math.max(20, site === 'pane' ? columns - 4 : columns - 3)
+
+/** Whether the band has anything to say: mentions, or a note or reason. An empty one leaves the slot to others. */
+export const bandHasContent = (list: MentionsList): boolean => list.rows.length > 0 || !!list.note || !!list.why
 
 /** Which rows get a preview (by index): none with previews off; in the band, the newest two that resolve. */
 export function previewedRows(site: 'band' | 'pane', prefs: MentionsPrefs, rows: readonly MentionRow[]): number[] {
@@ -137,8 +143,8 @@ export type MentionsModel = {
   opens: string
   /** Each previewed row's BlockView, by row index. */
   previews: ReadonlyMap<number, RenderElement>
-  /** A mention pressed (its button or hotkey). */
-  open: (row: MentionRow) => void
+  /** A mention pressed (its button or hotkey), on the surface that pressed it. */
+  open: (row: MentionRow, surface: RenderSurface) => void
   /** A control pressed: the choices it makes. */
   choose: (change: (p: MentionsPrefs) => MentionsPrefs) => void
 }
@@ -156,11 +162,13 @@ export function mentionsTree(ui: SiteElements, m: MentionsModel): RenderElement 
   ]
   const heading = `Mentioned${p.scope === 'workspace' ? ' (all conversations)' : ''}`
   const entry = (row: MentionRow, i: number) => row.id
-    ? Button({ key: `mention-${i + 1}`, hotkey: String(i + 1), plain: true, label: line(row.title, site === 'band' ? 28 : width - 3), onPress: () => m.open(row) })
+    ? Button({ key: `mention-${i + 1}`, hotkey: String(i + 1), plain: true, label: line(row.title, site === 'band' ? 28 : width - 3), onPress: (press: { surface: RenderSurface }) => m.open(row, press.surface) })
     : Text({ dimColor: true, children: `${i + 1}: ${line(row.title, 24)} (gone)` })
   const empty = list.why ? `(${line(list.why, width - 2)})` : list.loaded ? '(nothing mentioned yet)' : '(reading…)'
 
   if (site === 'band') {
+    // Which mention each preview is: its number, beside the drawing.
+    const numbered = [...m.previews].map(([i, preview]) => Box({ flexDirection: 'row', children: [Box({ width: 2, flexShrink: 0, children: Text({ dimColor: true, children: String(i + 1) }) }), preview] }))
     return Box({
       key: 'mentions-band', flexDirection: 'column', children: [
         Box({ flexDirection: 'row', flexWrap: 'wrap', columnGap: 2, children: [
@@ -169,7 +177,7 @@ export function mentionsTree(ui: SiteElements, m: MentionsModel): RenderElement 
           ...controls,
         ] }),
         ...(list.note ? [Text({ dimColor: true, children: list.note })] : []),
-        ...[...m.previews.values()],
+        ...numbered,
       ],
     })
   }

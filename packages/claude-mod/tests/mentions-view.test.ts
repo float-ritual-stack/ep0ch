@@ -1,7 +1,8 @@
 import type { On, ProcessRunInit, ProcessRunResult } from 'claude-code'
 import { describe, expect, mock, test, tier } from 'claude-code/testing'
 
-import { mentionRowsOf, prefsOf } from '../hooks/mentions-view'
+import { mentionRowsOf, mentionsListArgs, prefsOf } from '../hooks/mentions-view'
+import { resetBlockViewProbe } from '../hooks/block-view'
 
 tier('user')
 
@@ -42,7 +43,7 @@ const NEITHER = { HERDR_PANE_ID: '', HERDR_WORKSPACE_ID: '' }
  * as an installed Outliner, a fake `ep0ch` and Herdr would; `ep0ch` is the
  * door's CLI only (`help`, `show --cells`), never its source.
  */
-function sessionIn(on: On, env: Record<string, string>, stored: Record<string, unknown> = {}, ep0ch: 'cells' | 'missing' = 'cells') {
+function sessionIn(on: On, env: Record<string, string>, stored: Record<string, unknown> = {}, ep0ch: 'cells' | 'missing' = 'cells', placed = true, listed = LISTED) {
   const runs: Run[] = []
   const toasts: string[] = []
   const opened: string[] = []
@@ -60,7 +61,7 @@ function sessionIn(on: On, env: Record<string, string>, stored: Record<string, u
   on('session.cwd', () => ({ value: WORKSPACE }))
   on('tool.register', ($, e) => ({ value: { tool: `mcp__pi-outliner__${e.name}` } }))
   on('command.register', ($, e) => ({ value: { command: e.name } }))
-  on('ui.open', ($, e) => { opened.push(e.id); return { value: { isPlaced: true } } })
+  on('ui.open', ($, e) => { opened.push(e.id); return { value: placed ? { isPlaced: true } : { isPlaced: false, reason: 'opened unasked under 144 columns (120 now)' } } })
   on('ui.close', ($, e) => { closed.push(e.id); return { value: undefined } })
   on('ui.toast', ($, e) => { toasts.push(e.text); return { value: undefined } })
   on('process.run', ($, e) => {
@@ -73,19 +74,20 @@ function sessionIn(on: On, env: Record<string, string>, stored: Record<string, u
     }
     if (cmd === 'ep0ch') {
       if (ep0ch === 'missing') throw Error('ep0ch: not found')
-      if (sub === 'help') return ok('  ep0ch show <id> [--ansi | --cells] [--width <n>]\n')
+      if (sub === 'help') return ok('  ep0ch show <id> [--ansi | --cells] [--width <n>] [--rows <n>]\n')
       const width = Number(e.argv[e.argv.indexOf('--width') + 1])
       return ok(JSON.stringify({ id: e.argv[2], columns: width, rows: 2, cells: CELLS(width), replaced: 0 }))
     }
     if (e.argv.includes('bound-folder')) return ok(JSON.stringify({ bound: true, folder: WORKSPACE, outline: 'garden' }))
     if (e.argv.includes('work-id-status')) return ok('{"prefix":"PIE"}')
-    if (e.argv.includes('mentions')) return ok(LISTED)
+    if (e.argv.includes('mentions')) return ok(listed)
     if (e.argv.includes('resolve')) return ok(`{"id":"${BLOCK}","title":"Chain oil"}`)
     if (e.argv.includes('clients')) return ok(JSON.stringify([{ clientId: 'claude-pane', role: 'detail', contextId: 'session-1', runtime: { paneId: 'w:p3' } }]))
     if (e.argv.includes('link')) return ok('{"title":"Chain oil"}')
     if (e.argv.includes('door-open')) return ok('{"reader":"centre"}')
     return ok('{}')
   })
+  resetBlockViewProbe()
   async function begin($: any) {
     await $.session.start({ surface: 'terminal', isInteractive: true, cwd: WORKSPACE })
     await clock.settle()
@@ -148,6 +150,18 @@ describe('Recent mentions in Claude Code', () => {
     expect(await (await band($)).find({ key: 'engine' })).toBeDefined()
   })
 
+  test('a pane opened unasked on a narrow terminal waits: said once, with how to have the band', async ($, on) => {
+    const session = sessionIn(on, IN_HERDR, { 'mentions-view': { placement: 'pane', previews: false, scope: 'conversation' } }, 'cells', false)
+    await session.begin($)
+    expect(session.toasts).toEqual(['The Recent mentions pane waits: opened unasked under 144 columns (120 now). /mentions band shows them above the prompt instead.'])
+  })
+
+  test('an empty band leaves the slot: nothing mentioned yet draws the engine\'s own', async ($, on) => {
+    const session = sessionIn(on, IN_HERDR, {}, 'cells', true, JSON.stringify({ entries: [] }))
+    await session.begin($)
+    expect(await (await band($)).find({ key: 'engine' })).toBeDefined()
+  })
+
   test('/mentions picks by keys too: off hides both, pane opens it, a word it doesn\'t know is the usage', async ($, on) => {
     const session = sessionIn(on, IN_HERDR)
     await session.begin($)
@@ -175,8 +189,8 @@ describe('Recent mentions in Claude Code', () => {
     // The door's CLI drew it in the session's outline, from its folder; nothing else of the door's was reached.
     const drew = session.runs.filter(run => run.argv[0] === 'ep0ch' && run.argv[1] === 'show')
     expect(drew.map(run => run.argv)).toEqual([
-      ['ep0ch', 'show', BLOCK, '--cells', '--width', '56'],
-      ['ep0ch', 'show', OTHER, '--cells', '--width', '56'],
+      ['ep0ch', 'show', BLOCK, '--cells', '--width', '56', '--rows', '24'],
+      ['ep0ch', 'show', OTHER, '--cells', '--width', '56', '--rows', '24'],
     ])
     expect(drew[0]!.init?.cwd).toBe(WORKSPACE)
     expect(drew[0]!.init?.env).toMatchObject({ EP0CH_WS: 'garden' })
@@ -189,10 +203,10 @@ describe('Recent mentions in Claude Code', () => {
     expect(session.runs.length).toBe(before)
     expect((await again.find({ key: 'mention-preview-1' }))?.type).toBe('Raster')
 
-    // The band previews its newest few, as wide as the band.
+    // The band previews its newest two, as wide as the band: a new width is drawn after a pause, once.
     const inBand = await band($, 80)
-    await session.clock.settle()
-    expect((await inBand.find({ key: 'mention-preview-1' }))?.props.columns).toBe(79)
+    await session.clock.advance(300)
+    expect((await inBand.find({ key: 'mention-preview-1' }))?.props.columns).toBe(77)
   })
 
   test('previews without a usable ep0ch: the block\'s text, as Markdown; the desktop draws the text too', async ($, on) => {
@@ -276,6 +290,8 @@ describe('Recent mentions in Claude Code', () => {
       [OTHER, 1, 'Bike shed', null],
     ])
     expect(mentionRowsOf('nope')).toEqual([])
+    // Every conversation's mentions: no --agent or --session.
+    expect(mentionsListArgs('workspace', 'session-1')).toEqual(['mentions', 'list', '--limit', '9'])
     expect(prefsOf({ placement: 'sideways', previews: 'yes' })).toEqual({ placement: 'band', previews: false, scope: 'conversation' })
   })
 })

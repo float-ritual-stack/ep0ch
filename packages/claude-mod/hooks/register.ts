@@ -28,6 +28,7 @@ import {
 import { actorOf, DOOR_TOOLS, doorActArgv, OUTLINE_TOOLS, peekOf } from './outline-tools'
 import { WORK_TOOLS } from './work-tools'
 import {
+  bandHasContent,
   choicesText,
   COMMAND_USAGE,
   commandChoice,
@@ -115,11 +116,11 @@ export function register(on: On, options: PluginOptions): void {
   // outline's own mentions.list, each press opened by openNote like every other click.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     // Read before anything else, so the band is drawn again when the list first lands (the outline is found then).
-    const [prefs] = await Promise.all([mentionsPrefsOf($), mentionsListOf($)])
-    // A module reloaded mid-session may not see its session.start: find the outline off the draw, once.
-    if (!references && !loadingReferences) $.clock.after(0, () => void refreshMentions($, option))
+    const [prefs, list] = await Promise.all([mentionsPrefsOf($), mentionsListOf($)])
+    // A module reloaded mid-session may not see its session.start: start mentions off the draw, once.
+    if (!mentionsStarting) $.clock.after(0, () => void startMentionsOnce($, option))
     const workspace = references?.workspace
-    if (e.props.hasSurvey || !workspace || prefs.placement !== 'band') return next(e)
+    if (e.props.hasSurvey || !workspace || prefs.placement !== 'band' || !bandHasContent(list)) return next(e)
     return drawMentions($, e, $.ui.resolve(e) as unknown as SiteElements, 'band', e.props.bodyColumns, workspace, option)
   })
 
@@ -147,12 +148,9 @@ export function register(on: On, options: PluginOptions): void {
 
   on('session.start', async ($, e, next) => {
     const result = await next(e)
-    $.clock.after(0, () => void (async () => {
-      await loadReferences($, option)
-      await startMentions($, option)
-      // The band was drawn before the outline was found (or by the module before a reload): draw it again.
-      $.ui.invalidate('ui.render')
-    })().catch(() => {}))
+    // A session start (or the module's reload) starts mentions again: the command, the kept choices, the list.
+    mentionsStarting = undefined
+    $.clock.after(0, () => void startMentionsOnce($, option))
     // Off the start's dispatch: a slow or missing `ep0ch` never holds the session up.
     whereLoad = new Promise(resolve => {
       $.clock.after(0, () => void loadWhere($).then(resolve, () => resolve(null)))
@@ -281,7 +279,7 @@ export function register(on: On, options: PluginOptions): void {
             key: 'outliner-references',
             text,
             pressableLinks: hrefs.slice(0, 256),
-            onLinkPress: link => void openReference($, workspace, link.href),
+            onLinkPress: (link, press) => void openReference($, workspace, link.href, press.surface),
           }),
         }),
       ],
@@ -713,7 +711,7 @@ async function openNow($: EngineInterface, workspace: Workspace | null, uri: str
   // A block is named by its title where the outline has one; a page or Work ID as it was written.
   const label = (outlinerBlockIdOf(uri) && found?.title) || outlinerLabelOf(uri)
   // The exact command that draws it in any terminal, with only the outline host running: the door's renderer.
-  const command = found ? `ep0ch show ${found.id}${workspace?.outline ? ` --ws ${workspace.outline}` : ''}` : null
+  const command = found ? `ep0ch show ${found.id}${workspace ? outlineFlags(workspace) : ''}` : null
   const how = found
     ? `Read it with \`${command}\`, or copy ((${found.id})) to open it in the Outliner.`
     : `Copy ${outlinerReferenceOf(uri)} to open it in the Outliner.`
@@ -795,6 +793,8 @@ async function mentionsListOf($: EngineInterface): Promise<MentionsList> {
   return (await $.state.get(MENTIONS_LIST)).value ?? { rows: [], loaded: false }
 }
 const BLOCK_VIEWS = { plugin: 'pi-outliner', key: 'blockViews' } as const
+/** The mentions' start in flight or done, so the session's start and a reloaded module's first draw start it once. */
+let mentionsStarting: Promise<void> | undefined
 /** BlockView drawings being loaded, so a redraw before one lands doesn't start it again. */
 const loadingViews = new Set<string>()
 
@@ -804,6 +804,25 @@ const loadingViews = new Set<string>()
  * the engine seats the pane only where it is a sidebar (from 144 columns);
  * below that it waits. It never opens with focus: the prompt keeps the keys.
  */
+async function startMentionsOnce($: EngineInterface, option: PluginOptions): Promise<void> {
+  mentionsStarting ??= (async () => {
+    await loadReferences($, option)
+    await startMentions($, option)
+    // The band was drawn before the outline was found (or by the module before a reload): draw it again.
+    $.ui.invalidate('ui.render')
+  })().catch(() => {})
+  return mentionsStarting
+}
+
+/**
+ * Seats the pane, never with focus. Opened unasked on a terminal too narrow
+ * for a sidebar, it waits undrawn: said once, with how to have the band now.
+ */
+async function openMentionsPane($: EngineInterface): Promise<void> {
+  const placed = await $.ui.open({ id: MENTIONS_PANE, title: 'Mentions' })
+  if (!placed.isPlaced) $.ui.toast(`The Recent mentions pane waits: ${placed.reason}. /mentions band shows them above the prompt instead.`, { timeoutMs: 8000 })
+}
+
 async function startMentions($: EngineInterface, option: PluginOptions): Promise<void> {
   await $.command.register({
     name: 'mentions',
@@ -813,7 +832,7 @@ async function startMentions($: EngineInterface, option: PluginOptions): Promise
   const kept = prefsOf(await $.store.get(PREFS_STORE_KEY))
   await $.state.set(MENTIONS_PREFS, kept)
   await refreshMentions($, option)
-  if (kept.placement === 'pane' && references?.workspace) await $.ui.open({ id: MENTIONS_PANE, title: 'Mentions' })
+  if (kept.placement === 'pane' && references?.workspace) await openMentionsPane($)
 }
 
 /** Writes the choices for this session and the next ones. */
@@ -830,7 +849,7 @@ async function chooseMentions($: EngineInterface, change: (p: MentionsPrefs) => 
   const before = await mentionsPrefsOf($)
   const next = prefsOf(change(before))
   await keepMentionsPrefs($, next)
-  if (next.placement === 'pane') await $.ui.open({ id: MENTIONS_PANE, title: 'Mentions' })
+  if (next.placement === 'pane') await openMentionsPane($)
   else if (before.placement === 'pane') await $.ui.close({ id: MENTIONS_PANE })
   if (next.placement === 'off' && before.placement !== 'off') $.ui.toast('Recent mentions hidden; /mentions band or /mentions pane shows them again.', { timeoutMs: 6000 })
   if (next.scope !== before.scope) await refreshMentions($, option)
@@ -888,15 +907,15 @@ async function drawMentions(
   return mentionsTree(ui, {
     site, columns, prefs, list, previews,
     opens: opensIn({ ...(control ? { EP0CH_CONTROL: control } : {}), ...(paneId ? { HERDR_PANE_ID: paneId } : {}), ...(herdrWorkspace ? { HERDR_WORKSPACE_ID: herdrWorkspace } : {}) }),
-    open: (row: MentionRow) => void openMention($, workspace, row),
+    open: (row: MentionRow, surface: RenderSurface) => void openMention($, workspace, row, surface),
     choose: change => void chooseMentions($, change, option),
   })
 }
 
 /** A mention pressed: the one open; where nothing here can open it, its band or pane keeps the command to run. */
-async function openMention($: EngineInterface, workspace: Workspace, row: MentionRow): Promise<void> {
+async function openMention($: EngineInterface, workspace: Workspace, row: MentionRow, surface: RenderSurface): Promise<void> {
   const said = row.id
-    ? await openUri($, workspace, `pi-outliner://block/${row.id}`)
+    ? await openUri($, workspace, `pi-outliner://block/${row.id}`, surface)
     : `Can't open ${row.address}: ${row.unavailable ?? 'it no longer resolves'}`
   if (!row.id) $.ui.toast(said!, { timeoutMs: 6000 })
   const { note: _, ...list } = await mentionsListOf($)
@@ -905,8 +924,10 @@ async function openMention($: EngineInterface, workspace: Workspace, row: Mentio
 
 /**
  * `<BlockView id width/>` for any render hook of this mod: the block as the
- * door draws it (hooks/block-view.ts), kept for the session by block,
- * revision and width and read so the site redraws when it lands. The first
+ * door draws it (hooks/block-view.ts), the latest drawing kept for the session
+ * per block and read so the site redraws when it lands. It is drawn again for a
+ * new width, or a new `revision` when the caller passes one (without it, an
+ * edit isn't seen this session). `source` defaults to the session's outline. The first
  * draw loads it off the render (a render hook never runs the CLI itself), and
  * only the terminal asks for cells; another surface draws the block's text.
  */
@@ -916,23 +937,32 @@ async function drawBlock(
   ui: BlockViewElements,
   view: { key: string; id: string; revision?: number | null; width: number; maxRows: number; text?: string; source?: BlockViewSource },
 ): Promise<RenderElement> {
-  const viewId = blockViewId(view.id, view.revision, view.width)
+  const at = blockViewId(view.id, view.revision, view.width)
   const terminal = e.surface === 'terminal'
-  const { value } = terminal ? await $.state.get({ ...BLOCK_VIEWS, id: viewId }) : { value: undefined }
-  if (value === undefined && terminal && !loadingViews.has(viewId)) {
-    loadingViews.add(viewId)
-    $.clock.after(0, () => void loadBlockView((argv, init) => $.process.run(argv, init), view.id, viewColumns(view.width), view.source)
-      .then(data => $.state.set({ ...BLOCK_VIEWS, id: viewId }, data))
+  // One drawing kept a block, the latest: an older revision or width is shown until the new one lands.
+  const { value } = terminal ? await $.state.get({ ...BLOCK_VIEWS, id: view.id }) : { value: undefined }
+  if (value?.at !== at && terminal && !loadingViews.has(view.id)) {
+    loadingViews.add(view.id)
+    const workspace = references?.workspace
+    const source = view.source ?? (workspace ? { cwd: workspace.root, env: envFor(workspace) } : {})
+    // A first drawing at once; a new width after a pause, so a resize being dragged draws once, not at each width.
+    $.clock.after(value ? 300 : 0, () => void loadBlockView((argv, init) => $.process.run(argv, init), view.id, viewColumns(view.width), source)
+      .then(data => $.state.set({ ...BLOCK_VIEWS, id: view.id }, { at, data }))
       .catch(() => {})
-      .finally(() => loadingViews.delete(viewId)))
+      .finally(() => loadingViews.delete(view.id)))
   }
-  return BlockView(ui, { key: view.key, data: value, surface: e.surface, maxRows: view.maxRows, ...(view.text === undefined ? {} : { text: view.text }) })
+  return BlockView(ui, { key: view.key, data: value?.data, surface: e.surface, maxRows: view.maxRows, ...(view.text === undefined ? {} : { text: view.text }) })
+}
+
+/** The flags that name a workspace's outline to `ep0ch`: its name, and its machine when it is on another. */
+function outlineFlags(workspace: Workspace): string {
+  return `${workspace.outline ? ` --ws ${workspace.outline}` : ''}${workspace.machine ? ` --machine ${workspace.machine}` : ''}`
 }
 
 /** A click on a reference: opened by `openNote`, or a toast saying why not. */
-async function openReference($: EngineInterface, workspace: Workspace, href: string): Promise<void> {
+async function openReference($: EngineInterface, workspace: Workspace, href: string, surface: RenderSurface): Promise<void> {
   const uri = outlinerUriOf(href)
-  if (uri) await openUri($, workspace, uri)
+  if (uri) await openUri($, workspace, uri, surface)
 }
 
 /**
@@ -942,7 +972,7 @@ async function openReference($: EngineInterface, workspace: Workspace, href: str
  * a toast's card shows its first lines. Resolves to that message, null once
  * opened (or another failure was toasted).
  */
-async function openUri($: EngineInterface, workspace: Workspace, uri: string): Promise<string | null> {
+async function openUri($: EngineInterface, workspace: Workspace, uri: string, surface: RenderSurface): Promise<string | null> {
   try {
     await openNote($, workspace, uri, await actorFor($, {}))
     return null
@@ -950,7 +980,8 @@ async function openUri($: EngineInterface, workspace: Workspace, uri: string): P
     if (error instanceof NotOpenedHere) {
       let copied = false
       if (error.command) {
-        try { copied = (await $.ui.copy({ text: error.command })).isCopied } catch { copied = false }
+        // To the clipboard of the surface the person pressed on.
+        try { copied = (await $.ui.copy({ text: error.command, surface })).isCopied } catch { copied = false }
       }
       const said = copied ? `Copied \`${error.command}\`: it reads ${error.label} in any terminal (${error.why}).` : error.message
       $.ui.toast(said, { timeoutMs: 12_000 })

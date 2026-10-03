@@ -142,6 +142,8 @@ mod's own. It is read again after each answer is ingested.
   the choice is kept across sessions (`$.store`, `mentions-view`). Closing the
   pane with its mark keeps it hidden. `/mentions [band | pane | off | preview |
   scope]` makes the same choices by keys; `/mentions` alone shows a hidden band.
+  The band draws only once there is something to show, so an empty one leaves
+  the slot above the prompt to others.
 - **Preview:** `p` turns on a small preview of each block (the newest two in the
   band, every one in the pane), drawn by the door ([BlockView](#blockview)).
 - **Scope:** `s` switches between this conversation's mentions and every
@@ -155,7 +157,8 @@ mod's own. It is read again after each answer is ingested.
 - Every action is a Button with a hotkey: by mouse, or by keys once the band or
   pane holds them (ctrl+x tab, or a click). The pane never opens with focus, so
   the prompt keeps the keys; opened at session start (the pane was the choice),
-  Claude Code seats it only where it is a sidebar (from 144 columns).
+  Claude Code seats it only where it is a sidebar (from 144 columns); below
+  that it waits, and a toast says so once, with `/mentions band`.
 
 ## BlockView
 
@@ -163,7 +166,7 @@ mod's own. It is read again after each answer is ingested.
 or band of the mod (`drawBlock` in `hooks/register.ts` is `<BlockView id
 width/>` for a render hook: it keeps each drawing for the session by block,
 revision and width, and loads it off the draw). It is glue, not a renderer: it
-runs the door's CLI, `ep0ch show <id> --cells --width <n>`, whose JSON is a
+runs the door's CLI, `ep0ch show <id> --cells --width <n> --rows 24`, whose JSON is a
 `Raster`'s cells as the API documents them (row-major, base64 of u32 LE
 `[codePoint, fg, bg]`, `0x01000000` the terminal's own colour), and hands the
 rows on. Only the outline host has to run: no door, no Herdr.
@@ -177,7 +180,12 @@ rows on. Only the outline host has to run: no door, no Herdr.
 - Where the CLI can't draw (no `ep0ch` on PATH, one older than `--cells`, which
   `ep0ch help` is asked first as `where` is, or no host answering), and on a
   surface without `Raster` (desktop), the block's text is drawn by `Markdown`.
-- Widths are 10 to 200 columns; a preview keeps at most 24 rows.
+- Widths are 10 to 200 columns; the door encodes at most 24 rows (`--rows`), so
+  a long note is never drawn whole.
+- One drawing is kept per block, the latest: a new width is drawn after a short
+  pause (a resize being dragged draws once), a new revision when the caller
+  passes `revision` (without it, an edit isn't seen until the session restarts).
+  `source` defaults to the session's outline (its folder and `EP0CH_WS`).
 
 ## Workboard tools
 

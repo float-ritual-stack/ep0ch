@@ -20,6 +20,8 @@ describe("cells", () => {
     expect(sgrColours("\x1b[31m")).toEqual({ fg: 0xaa0000, bg: DEFAULT_COLOUR });
     expect(sgrColours("\x1b[38;2;9;9;9m\x1b[0m")).toEqual({ fg: DEFAULT_COLOUR, bg: DEFAULT_COLOUR });
     expect(sgrColours("\x1b[38;2;255;0;0m\x1b[48;2;0;0;255m\x1b[7m")).toEqual({ fg: 0x0000ff, bg: 0xff0000 });
+    // The terminal's own colours stay its own under inverse: no bright guess.
+    expect(sgrColours("\x1b[7m")).toEqual({ fg: DEFAULT_COLOUR, bg: DEFAULT_COLOUR });
     const [first] = decode(linesToCells(["\x1b[38;2;255;136;0mA\x1b[0mB"], 2).cells);
     expect(first).toEqual([0x41, 0xff8800, DEFAULT_COLOUR]);
   });
@@ -31,5 +33,8 @@ describe("cells", () => {
     // Outside the BMP (an emoji) likewise; box drawing and blocks are width 1 and kept.
     const e = linesToCells(["😀─█"], 4);
     expect(decode(e.cells).map(c => c[0])).toEqual([REPLACEMENT, 0x20, 0x2500, 0x2588]);
+    // A combining mark is dropped from the glyph it joins, and counted.
+    const c = linesToCells(["e\u0301x"], 2);
+    expect([decode(c.cells).map(x => x[0]), c.replaced]).toEqual([[0x65, 0x78], 1]);
   });
 });

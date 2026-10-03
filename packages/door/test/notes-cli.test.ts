@@ -173,6 +173,10 @@ describe.skipIf(!outliner)("ep0ch find and show against a scratch host", () => {
     // The title is drawn in a colour of the theme's, not the terminal's own (bit 24).
     expect(cell(0, 0)[1]! & 0x01000000).toBe(0);
     expect((await run(["show", ids.oil!, "--cells", "--ansi"], env)).code).toBe(2);
+    // A preview asks for its first rows only: the whole note is never encoded.
+    const two = JSON.parse((await run(["show", ids.oil!, "--width", "40", "--cells", "--rows", "2"], env)).out) as { rows: number; cells: string };
+    expect([two.rows, two.cells]).toEqual([2, grid.cells.slice(0, 2 * 40 * 16)]);
+    expect((await run(["show", ids.oil!, "--rows", "0"], env)).code).toBe(2);
   });
 
   test("refusals: no such note, a bad width, nothing to show, an outline nobody names", async () => {

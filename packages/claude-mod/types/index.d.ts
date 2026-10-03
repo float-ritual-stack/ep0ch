@@ -10,6 +10,9 @@ export type BlockCells = { id: string; columns: number; rows: number; cells: str
 /** A block ready to draw: the door's cells, or why there are none (its text is drawn instead). */
 export type BlockViewData = ({ kind: 'cells' } & BlockCells) | { kind: 'text'; why: string }
 
+/** One block's drawing kept for the session: the latest only, `at` naming the revision and width it was drawn for. */
+export type BlockViewEntry = { at: string; data: BlockViewData }
+
 /** Where Recent mentions shows: a compact band above the prompt, a pane beside the transcript, or nowhere. */
 export type MentionsPlacement = 'band' | 'pane' | 'off'
 
@@ -48,8 +51,8 @@ declare module 'claude-code' {
     'pi-outliner': {
       mentionsPrefs: MentionsPrefs
       mentions: MentionsList
-      /** BlockView drawings, by `<id>@<revision>@<width>`. */
-      blockViews: StateFamily<BlockViewData>
+      /** BlockView drawings, by block id: the latest one each. */
+      blockViews: StateFamily<BlockViewEntry>
     }
   }
 }
