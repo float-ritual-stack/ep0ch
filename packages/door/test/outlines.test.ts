@@ -156,6 +156,8 @@ describe("which outline the door opens (PIE-530)", () => {
       expect(r.error).toContain(`ep0ch init (starts "jam-shelf", writing ${plain}/.ep0ch)`);
       expect(r.error).toContain("ep0ch outline import <database.sqlite> <name>");
       expect(await nameTheOutline(["--ws", "pie"], false)).toEqual({ args: ["--ws", "pie"] });
+      writeDotEp0ch(plain, "jam-shelf");
+      expect(await nameTheOutline(["--desk"], false)).toEqual({ args: ["--desk", "--ws", "jam-shelf"] });
     } finally {
       process.chdir(cwd);
       for (const [k, v] of Object.entries(saved)) v === undefined ? delete process.env[k] : process.env[k] = v;
@@ -221,7 +223,7 @@ describe.skipIf(!hostOutliner)("the door against a scratch outline host", () => 
     expect((await run(join(moved, "beds"), "clients")).code).toBe(0);
     const nameless = await run(host.folder("nameless"), "clients");
     expect(nameless.code).toBe(1);
-    expect(nameless.err).toContain("no outline is named");
+    expect(nameless.err).toContain("Name the outline");
   });
 
   test("init, pick and import when a folder names nothing; each writes .ep0ch, and q opens nothing", async () => {

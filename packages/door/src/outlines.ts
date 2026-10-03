@@ -262,7 +262,9 @@ export async function nameTheOutline(args: string[], interactive = !!process.std
   say: (line: string) => void = line => console.error(line)): Promise<{ args: string[] } | { error: string } | null> {
   const target = resolveTarget(args);
   if ("error" in target) return { error: target.error };
-  if (!("unnamed" in target)) return { args };
+  // Named: said explicitly from here on, so a session started now (or its next daemon) opens this outline whatever
+  // its folder's .ep0ch says later.
+  if (!("unnamed" in target)) return { args: args.includes("--ws") ? args : [...args, "--ws", target.outline] };
   if (!interactive) return { error: unnamedHelp(target) };
   const name = await chooseOutline(target, ask, say);
   return name ? { args: [...args, "--ws", name] } : null;

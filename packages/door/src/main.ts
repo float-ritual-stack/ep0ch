@@ -96,8 +96,8 @@ if (args[0] === "clients") {
   // EP0CH_SOCKET for a host elsewhere (src/discover.ts, resolveTarget).
   const target = resolveTarget(args);
   if ("error" in target) { console.error(`ep0ch: ${target.error}`); process.exit(1); }
-  if ("unnamed" in target) { console.error(`ep0ch: ${target.unnamed}; name one with --ws <name>`); process.exit(1); }
-  const board = new SocketBoard(target.path, undefined, target.outline);
+  // A folder that names none asks the host as it is (its default outline, when it has one, else its refusal).
+  const board = new SocketBoard(target.path, undefined, "outline" in target ? target.outline : undefined);
   try { console.log(formatClients(clientRows(await board.request<any[]>("clients.list")))); }
   catch (e) { console.error(`ep0ch: no carrier on ${board.path}\n  ${(e as Error).message}`); board.close(); process.exit(1); }
   board.close();
