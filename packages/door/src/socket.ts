@@ -326,6 +326,15 @@ const annotationAuthor = (actor: Actor = USER) =>
     ? { author: "agent", source: "agent", provenance: { actorId: recordedActorId(actor) } }
     : { author: COMMENT_AUTHOR, source: COMMENT_AUTHOR };
 
+/** What `tree.search` answers (the outliner's `GotoSearchCollection`). */
+export interface SearchHits {
+  matches: { block: { id: string; revision: number }; title: string; path: string; snippet: string; exact: boolean; reason?: "linked" | "near" | "yours" }[];
+  completeness: { kind: string; limit?: number };
+  semantic: { status: "lexical" | "ranked" | "unavailable"; message?: string };
+}
+/** How a search is asked: `semantic` has Jev re-order the candidates; `near` is the note it's asked from. */
+export interface SearchOptions { semantic?: boolean; near?: string }
+
 export class SocketBoard implements Board {
   private sock: Socket | null = null;
   private waiting = new Map<string, { resolve: (v: any) => void; reject: (e: Error) => void; timer: Timer }>();
@@ -562,22 +571,22 @@ export class SocketBoard implements Board {
     return out.slice(0, limit);
   }
 
-  /** The service's ranked matches for `text` (`tree.search`), best first: each note's id, title and path (its ancestors). */
-  async ranked(text: string): Promise<{ id: string; title: string; path: string }[]> {
-    const r = await this.request<{ matches: { block: { id: string }; title: string; path: string }[] }>("tree.search", { query: text });
-    return r.matches.map(m => ({ id: m.block.id, title: m.title, path: m.path }));
+  /**
+   * The one search (`tree.search`, as Tree's Goto ranks: the rungs are outline-core's search-match.ts): the
+   * service's order, best first. `semantic` asks Jev to re-order the candidates (`semantic.status` says whether it
+   * did); `near` is the note the person is in (`contextBlockId`): nearer notes first inside each rung, and an empty
+   * `text` lists what's linked and edited around it.
+   */
+  searchBlocks(text: string, opts: SearchOptions = {}): Promise<SearchHits> {
+    return this.request<SearchHits>("tree.search", { query: text, ...(opts.semantic ? { semantic: true } : {}), ...(opts.near ? { contextBlockId: opts.near } : {}) });
   }
 
-  /**
-   * Notes matching `text`, best first, as Tree's goto ranks them (`tree.search`: the service's order, an exact
-   * title before a title that starts with the words, before one that holds them, before a mention in a body),
-   * read whole for a preview.
-   */
-  async search(text: string, limit: number): Promise<Msg[]> {
-    const ids = (await this.ranked(text)).slice(0, Math.min(1000, limit)).map(m => m.id);
-    if (!ids.length) return [];
-    const by = new Map((await this.readBlocks(ids)).blocks.map(m => [m.id, m]));
-    return ids.flatMap(id => by.get(id) ?? []);
+  /** `searchBlocks`, at most `limit` hits read whole for a preview, with what Jev did (`semantic`). */
+  async search(text: string, limit: number, opts: SearchOptions = {}): Promise<Msg[] & { semantic?: SearchHits["semantic"] }> {
+    const r = await this.searchBlocks(text, opts);
+    const ids = r.matches.slice(0, Math.min(1000, limit)).map(m => m.block.id);
+    const by = new Map((ids.length ? (await this.readBlocks(ids)).blocks : []).map(m => [m.id, m]));
+    return Object.assign(ids.flatMap(id => by.get(id) ?? []), { semantic: r.semantic });
   }
 
   async callers(): Promise<Caller[]> {
@@ -1001,20 +1010,19 @@ export class SocketBoard implements Board {
 
   // ── reference completion (the lookups Tree, Detail and Quick Capture use) ────────────────────────
 
-  /** Named addresses (pages, aliases, Work IDs) containing `query`. */
-  completePages(query: string | undefined, limit: number) {
-    return this.request<{ addresses: { address: string; blockId: string; kind: string; title: string }[]; completeness: { kind: string; limit?: number } }>("pages.complete", { ...(query ? { query } : {}), limit });
+  /**
+   * Named addresses (pages, aliases, Work IDs) matching `query`, by address or their note's title, ranked as
+   * `searchBlocks` is; `semantic` and `near` as there.
+   */
+  completePages(query: string | undefined, limit: number, opts: SearchOptions = {}) {
+    return this.request<{ addresses: { address: string; blockId: string; kind: string; title: string }[]; completeness: { kind: string; limit?: number }; semantic?: SearchHits["semantic"] }>("pages.complete", {
+      ...(query ? { query } : {}), limit, ...(opts.semantic ? { semantic: true } : {}), ...(opts.near ? { contextBlockId: opts.near } : {}),
+    });
   }
 
   /** Workspace paths starting with `prefix`. */
   completeFiles(prefix: string) {
     return this.request<{ sourcePath: string; isDirectory: boolean }[]>("files.complete", { prefix });
-  }
-
-  /** Whole blocks matching a text search, as `blocks.query` ranks them, with whether the list was cut. */
-  async findBlocks(text: string | undefined, limit: number): Promise<{ blocks: Msg[]; truncated: number | null }> {
-    const r = await this.request<{ blocks: WireBlock[]; completeness: { kind: string; limit?: number } }>("blocks.query", { query: { ...(text ? { text } : {}), limit } });
-    return { blocks: r.blocks.map(b => toMsg(b)), truncated: r.completeness?.kind === "truncated" ? r.completeness.limit ?? limit : null };
   }
 
   /** A block with its ancestors. */

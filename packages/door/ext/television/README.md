@@ -73,6 +73,16 @@ have commands open these channels, add triggers to your tv `config.toml` (this e
 Then `ep0ch show <ctrl+t>` picks a note and puts `((id))` on the line, shell-quoted (`ep0ch show` and `ep0ch open`
 take `((id))` as the id). `ep0ch-outlines` isn't for a trigger: its Enter opens the door rather than printing.
 
+`ep0ch show` takes several ids, so a multi-select (Tab in tv) needs no loop:
+
+```sh
+ep0ch show $(tv ep0ch)                          # each note drawn as a reader draws it, a blank line between
+ep0ch show --source $(tv ep0ch) >> notes.md     # each note's text as written, --- between: Markdown to keep
+```
+
+`--source` prints the text exactly as written (properties, links and `::` blocks verbatim, no header, no wrapping);
+without it, the reader's drawing (a header, a rule, wrapped lines), meant for a terminal.
+
 ## Install
 
 `ep0ch install --apply` links the files `ext.json` names, when `tv` is on PATH: the cable files into
@@ -101,7 +111,7 @@ code.
   line with `{replace:s/^.*\x1b\]8;;ep0ch:([0-9A-Za-z_-]+)\x1b.*$/$1/}` (and `ep0ch-tv` takes nothing but an id's letters), where `git-log`'s take the hash with
   `{strip_ansi|split: :0}` (`strip_ansi` drops the link with its id). An outline reference needs the whole id (a short
   one doesn't resolve), so it is whole and out of view rather than shortened. tv runs a source
-  once and filters as you type. `ep0ch find <words>` is the service's forgiving ranker (as `((` and Goto rank), for
+  once and filters as you type. `ep0ch find <words>` is the service's forgiving ranker (as Goto, `/` and `((` rank), for
   scripts.
 - **Preview width:** tv tells a preview command nothing about its panel (it runs the command with stdout to a pipe,
   and sets no `COLUMNS`). `ep0ch-tv preview` reads the terminal's width from `/dev/tty` (`stty size`) and takes the

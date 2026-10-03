@@ -97,6 +97,12 @@ describe.skipIf(!outliner)("ep0ch find and show against a scratch host", () => {
     await make("oil", "Chain oil\nThe **wax** one, not the spray. See ((" + "x" + ")).", ids.shed);
     await make("gone", "Old padlock code\nNobody needs this.", ids.shed);
     await board.trash(ids.gone!);
+    await make("chore1", "Water the beans [type::chore]");
+    await make("chore2", "Turn the compost [type::chore]");
+    await make("flow", "Delivery flow");
+    await make("queued", "Queued chores [type::virtual-branch] [query::type=chore]", ids.flow);
+    await make("folded", "Shed rota\n\n> [!note]- Who has the key\n> Sam, on Saturdays.");
+    await make("figures", ["Garden figures [count::2]", "", "::graph-check", "---", "title: Chores (live query)", 'query: "type=chore"', "---", "::", "", `See ((${ids.shed}|the shed)).`, "", "::links", ""].join("\n"));
     board.close();
   });
   afterAll(async () => { await scratch.dispose(); });
@@ -177,6 +183,57 @@ describe.skipIf(!outliner)("ep0ch find and show against a scratch host", () => {
     const two = JSON.parse((await run(["show", ids.oil!, "--width", "40", "--cells", "--rows", "2"], env)).out) as { rows: number; cells: string };
     expect([two.rows, two.cells]).toEqual([2, grid.cells.slice(0, 2 * 40 * 16)]);
     expect((await run(["show", ids.oil!, "--rows", "0"], env)).code).toBe(2);
+  });
+
+  test("show draws a live figure and ::links from the outline, as the door does", async () => {
+    const r = await run(["show", ids.figures!, "--width", "60"], env);
+    expect(r.code).toBe(0);
+    expect(r.out).not.toContain("no outline connection");
+    expect(r.out).toContain("Water the beans");                  // the figure's query, answered by the service
+    expect(r.out).toContain("Turn the compost");
+    expect(r.out).toContain("Bike shed");                         // ::links: its outlink, resolved
+  });
+
+  test("show draws a view note with its results, from the service's views.read, as an embedded view is drawn", async () => {
+    const r = await run(["show", `((${ids.queued}))`, "--width", "60"], env);
+    expect(r.code).toBe(0);
+    expect(r.out).toContain("≡ Queued chores · 2 results");
+    expect(r.out).toContain("∙ Water the beans");
+    expect(r.out).toContain("∙ Turn the compost");
+    // A note that isn't a view gets no results block.
+    expect((await run(["show", ids.shed!, "--width", "60"], env)).out).not.toContain("≡");
+    // --source is the text as written: no results.
+    expect((await run(["show", ids.queued!, "--source"], env)).out).toBe("Queued chores [type::virtual-branch] [query::type=chore]\n");
+  });
+
+  test("show prints a folded callout unfolded, with no key hints: nobody can press z in a file", async () => {
+    const r = await run(["show", ids.folded!, "--width", "60"], env);
+    expect(r.code).toBe(0);
+    expect(r.out).toContain("Sam, on Saturdays.");
+    expect(r.out).not.toContain("folded");
+    expect(r.out).not.toContain("z unfolds");
+    expect((await run(["show", ids.folded!, "--source"], env)).out).toBe("Shed rota\n\n> [!note]- Who has the key\n> Sam, on Saturdays.\n");
+  });
+
+  test("show --source: each note's text exactly as written, several ids, --- between them; plain show takes several too", async () => {
+    const one = await run(["show", ids.figures!, "--source"], env);
+    expect(one.code).toBe(0);
+    expect(one.out).toContain("Garden figures [count::2]\n\n::graph-check\n---\ntitle: Chores (live query)");
+    expect(one.out).toContain(`See ((${ids.shed}|the shed)).`);
+    expect(one.out).toContain("\n::links");
+    expect(one.out).not.toContain("─");                            // no header, no rule, nothing wrapped
+    const two = await run(["show", "--source", ids.shed!, `((${ids.oil}))`], env);
+    expect(two.code).toBe(0);
+    expect(two.out).toBe("Bike shed\nWhere the bikes live.\n\n---\n\nChain oil\nThe **wax** one, not the spray. See ((x)).\n");
+    const drawn = await run(["show", ids.shed!, ids.oil!, "--width", "40"], env);
+    expect(drawn.code).toBe(0);
+    expect(drawn.out.split("\n")[0]).toBe("Bike shed");
+    expect(drawn.out).toContain("Where the bikes live.\n\nChain oil\n");    // a blank line between the drawings
+    // One missing id among several: said, the others still printed, exit 1.
+    const missing = await run(["show", "--source", ids.shed!, "00000000-0000-4000-8000-000000000000"], env);
+    expect([missing.code, missing.err]).toEqual([1, expect.stringContaining("no note")]);
+    expect(missing.out).toContain("Where the bikes live.");
+    expect((await run(["show", ids.shed!, "--source", "--cells"], env)).code).toBe(2);
   });
 
   test("refusals: no such note, a bad width, nothing to show, an outline nobody names", async () => {

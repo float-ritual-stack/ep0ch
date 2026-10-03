@@ -22,6 +22,7 @@ import {
   type BacklinkCollection, type BacklinkSource, type BacklinkViewGroup, type BacklinkViewOptions,
 } from "./backlinks";
 import type { Msg } from "./board";
+import { matchesSearchText, prepareSearchQuery } from "@ep0ch/outline-core/search-match";
 import { USER, type Actor, type SocketBoard } from "./socket";
 import type { LinkTarget } from "./refs";
 import { ActionRefused } from "./surface/actions";
@@ -63,14 +64,6 @@ export interface LinkView {
 /** Separates a row's key from its group's (the tree nests a row's own links under its key). */
 export const SEP = " > ";
 
-/** Whether an outlink or resource matches the filter: its words, as drawn, contain every word typed. */
-function matches(filter: string, words: { text: string; context: string }): boolean {
-  const f = filter.trim().toLowerCase();
-  if (!f) return true;
-  const hay = `${words.text} ${words.context}`.toLowerCase();
-  return f.split(/\s+/).every(w => hay.includes(w));
-}
-
 /**
  * The rows of one block's links, in the Tree's order (Outlinks, Resources, Backlinks), each group's entries under
  * its header while it's open. An Outlinks or Resources group with nothing to say isn't shown; Backlinks always is.
@@ -79,7 +72,8 @@ function matches(filter: string, words: { text: string; context: string }): bool
  */
 export function linkRows(data: LinkData, view: LinkView, prefix = "", depth = 0): LinkRow[] {
   const out: LinkRow[] = [];
-  const filter = view.backlinks.filter ?? "";
+  // The one matcher (outline-core's search-match.ts), as the backlinks' filter: prepared once for every row.
+  const filter = prepareSearchQuery(view.backlinks.filter ?? "");
   for (const { group } of LINK_GROUPS) {
     if (view.only && !view.only.has(group)) continue;
     const key = prefix + group;
@@ -115,7 +109,8 @@ export function linkRows(data: LinkData, view: LinkView, prefix = "", depth = 0)
             const row: LinkRow = e.kind === "outlink"
               ? { kind: "outlink", key: key + SEP + e.key, depth: depth + 1, link: e }
               : { kind: "resource", key: key + SEP + e.key, depth: depth + 1, link: e as AuthoredResourceLink };
-            if (matches(filter, linkWords(row))) entries.push(row);
+            const w = linkWords(row);
+            if (matchesSearchText(filter, [w.text, w.context])) entries.push(row);
           }
           count = entries.length;
         }

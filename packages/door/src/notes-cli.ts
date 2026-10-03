@@ -8,10 +8,16 @@
 // `find --tree [<root>]` lists them as the outline holds them: the tree index in the service's own order (depth first,
 // children by position, as Tree draws it), each row with its depth and the `├─ │ └─` that draw it.
 //
-// `show <id>` draws the note as a reader draws it: the note surface (`NoteSurface.render`), at the width asked for,
-// in the person's theme, never a second renderer. `--ansi` keeps its colours; without it, plain text. `--cells` prints
-// the same drawing as JSON cells (src/cells.ts) for a program that paints a grid: a Claude Code mod's Raster.
+// `show <id>…` draws each note as a reader draws it: the note surface (`NoteSurface.render`), at the width asked for,
+// in the person's theme, its live figures and `::links` answered by the outline (connectFigures, as the door's App
+// connects them), folded callouts unfolded (no key works in what it prints), a view note followed by its results
+// (views.read, drawn as an embedded view is: viewRegion), never a second renderer. `--ansi` keeps its colours;
+// without it, plain text. `--cells` prints the same drawing as JSON cells (src/cells.ts) for a program that paints a
+// grid: a Claude Code mod's Raster. `--source` prints each note's text as written, for a file to keep.
 import { linesToCells } from "./cells";
+import { connectFigures } from "./graphs";
+import { viewRegion } from "./embeds";
+import { readView } from "./views";
 import { resolveTarget } from "./discover";
 import { redundantLabel } from "./authored";
 import { forwardTo } from "./machine";
@@ -25,17 +31,22 @@ import { setTheme, startTheme } from "./theme";
 import type { Ctx } from "./app";
 
 export const NOTES_USAGE = `  ep0ch find [<words>… | --recent | --tree [<root id>]] [--lines | --json] [--ws <name>] [--machine <ssh-name>]
-                                   notes: with words, the service's ranked search (as (( and Goto rank them, at
+                                   notes: with words, the service's ranked search, tree.search (the ranker
+                                   Goto, the door's / and (( use, asked from no note and without Jev; at
                                    most 30); --recent, its newest 30; --tree, the outline (or the notes under
                                    <root id>) depth first, as Tree draws it; without, every note, newest first.
                                    --lines prints one per line, id<TAB>title<TAB>path, for a picker; with --tree,
                                    then <TAB>depth<TAB>glyphs<TAB>about (├─ │ └─; about: work-id · stage · type)
-  ep0ch show <id> [--ansi | --cells] [--width <n>] [--rows <n>] [--ws <name>] [--machine <ssh-name>]
-                                   the note drawn as a reader draws it, at that width (default the terminal's,
-                                   else 80); --ansi keeps its colours; --cells prints it as JSON {id, columns,
-                                   rows, cells, replaced}: cells row-major, base64 of u32 LE [codePoint, fg, bg]
-                                   (0x00RRGGBB, 0x01000000 the terminal's own), one width-1 BMP glyph a cell,
-                                   U+FFFD for a wider one (counted in replaced); --rows keeps the first n rows`;
+  ep0ch show <id>… [--source | --ansi | --cells] [--width <n>] [--rows <n>] [--ws <name>] [--machine <ssh-name>]
+                                   each note drawn as a reader draws it, at that width (default the terminal's,
+                                   else 80), live figures, ::links and a view's results answered by the
+                                   outline, folded callouts open, a blank line between notes; --source prints each note's text exactly as written
+                                   (properties, links and :: blocks verbatim, no header, no wrapping), a ---
+                                   line between notes; --ansi keeps the drawing's colours; --cells prints each
+                                   as a line of JSON {id, columns, rows, cells, replaced}: cells row-major,
+                                   base64 of u32 LE [codePoint, fg, bg] (0x00RRGGBB, 0x01000000 the
+                                   terminal's own), one width-1 BMP glyph a cell, U+FFFD for a wider one
+                                   (counted in replaced); --rows keeps the first n rows`;
 
 /** One note as `find` lists it. */
 export interface Found { id: string; title: string; path: string }
@@ -181,7 +192,7 @@ export async function findCommand(argsIn: string[], io: Out = { out: console.log
     }
     const query = words.join(" ").trim();
     // --recent: the service's own answer to an empty search (the newest notes), without reading the whole index.
-    const found = query || recent ? await board.ranked(query) : everyNote(await board.index());
+    const found = query || recent ? (await board.searchBlocks(query)).matches.map(m => ({ id: m.block.id, title: m.title, path: m.path })) : everyNote(await board.index());
     if (json) io.out(JSON.stringify(found, null, 2));
     else if (lines) { for (const f of found) io.out(foundLine(f)); }
     else if (!found.length) io.out(query ? `nothing matches ${query}` : "the outline has no notes");
@@ -207,7 +218,11 @@ export async function drawNote(board: SocketBoard, id: string, width: number, se
   // A reader's host with nothing else to host: no graphics (an image is named on its line), no history, no keys.
   const ctx = { board, t: { cols: width, rows: 1000, cellW: 9, cellH: 18, kitty: false }, graphics: false, flash() {}, redraw() {} } as unknown as Ctx;
   const host: SurfaceHost = { ctx, redraw() { arrived = true; }, navigate() {} };
+  // Live figures and ::links ask this outline, as in the door; an answer arriving draws the note again.
+  connectFigures(board, () => { arrived = true; });
   const surface = new NoteSurface(), tall = 100_000, end = Date.now() + settle.max;
+  // Nobody presses a key in what show prints: folded callouts come unfolded, with no "z unfolds".
+  surface.unfold = true;
   surface.show(m, host);
   surface.render(width, tall, host);
   while (Date.now() < end) {
@@ -218,21 +233,24 @@ export async function drawNote(board: SocketBoard, id: string, width: number, se
   }
   const lines = surface.render(width, tall, host).lines.map(l => paintable(l).replace(TAGS, "").replace(MARKS, ""));
   while (lines.length && !visible(lines.at(-1)!).trim()) lines.pop();
+  // A view note (a virtual branch) with its results, as the service reads them (views.read) and an embedded view
+  // draws them; the service says which notes are views ("unsupported" for any other).
+  const view = await readView(board, m);
+  if (view.status !== "unsupported" && view.status !== "missing") lines.push("", ...viewRegion(m, view, width, undefined).map(l => paintable(l).replace(TAGS, "").replace(MARKS, "")));
   return lines;
 }
 
-/** `ep0ch show <id> …`: its exit code. */
+/** `ep0ch show <id>… …`: its exit code. */
 export async function showCommand(argsIn: string[], io: Out = { out: console.log, err: console.error, columns: process.stdout.columns }): Promise<number> {
   const args = argsIn.slice(1);
   for (const f of ["--ws", "--machine", "--width", "--rows"]) { const v = flag(args, f); if (typeof v === "object") { io.err(`ep0ch: ${v.error}`); return 2; } }
-  const ansi = args.includes("--ansi"), cells = args.includes("--cells");
-  if (ansi && cells) { io.err("ep0ch: show prints --ansi or --cells, not both"); return 2; }
+  const ansi = args.includes("--ansi"), cells = args.includes("--cells"), source = args.includes("--source");
+  if (Number(ansi) + Number(cells) + Number(source) > 1) { io.err("ep0ch: show prints the drawing, --ansi, --cells or --source: one of them"); return 2; }
   const rowsArg = flag(args, "--rows") as string | undefined;
   const rows = rowsArg === undefined ? Infinity : Number(rowsArg);
   if (rowsArg !== undefined && (!Number.isInteger(rows) || rows < 1)) { io.err("ep0ch: --rows takes a number of rows, 1 or more"); return 2; }
-  const rest = without(args, ["--ws", "--machine", "--width", "--rows"], ["--ansi", "--cells"]);
-  const [id, ...more] = rest;
-  if (!id || more.length || id.startsWith("--")) { io.err(`ep0ch: show takes one note's id\n${NOTES_USAGE}`); return 2; }
+  const ids = without(args, ["--ws", "--machine", "--width", "--rows"], ["--ansi", "--cells", "--source"]);
+  if (!ids.length || ids.some(id => id.startsWith("--"))) { io.err(`ep0ch: show takes notes' ids (${ids.find(id => id.startsWith("--")) ?? "none given"})\n${NOTES_USAGE}`); return 2; }
   const wArg = flag(args, "--width") as string | undefined;
   const width = wArg !== undefined ? Number(wArg) : io.columns || 80;
   if (!Number.isInteger(width) || width < 10 || width > 1000) { io.err(`ep0ch: --width takes a number of columns, 10 to 1000`); return 2; }
@@ -240,14 +258,21 @@ export async function showCommand(argsIn: string[], io: Out = { out: console.log
   if ("error" in board) { io.err(`ep0ch: ${board.error}`); return 1; }
   try {
     // The person's theme, as their door draws in it (EP0CH_THEME, else the one last chosen).
-    setTheme(startTheme(process.env.EP0CH_THEME, readState<{ name?: string }>("theme.json")?.name));
-    const lines = await drawNote(board, blockIdOf(id), width);
-    if (!lines) { io.err(`ep0ch: no note ${id} in this outline`); return 1; }
-    // A preview asks for its first rows: a long note's whole drawing is never encoded or sent.
-    const kept = lines.slice(0, rows);
-    if (cells) io.out(JSON.stringify({ id: blockIdOf(id), ...linesToCells(kept, width) }));
-    else for (const l of kept) io.out(ansi ? l : visible(l).trimEnd());
-    return 0;
+    if (!source) setTheme(startTheme(process.env.EP0CH_THEME, readState<{ name?: string }>("theme.json")?.name));
+    let code = 0, shown = 0;
+    for (const id of ids) {
+      // --source: the note's text as written; else the drawing (a JSON object a line with --cells).
+      const text = source ? (await board.get(blockIdOf(id)))?.text : undefined;
+      const lines = source ? (text === undefined ? null : text.replace(/\n+$/, "").split("\n")) : await drawNote(board, blockIdOf(id), width);
+      if (!lines) { io.err(`ep0ch: no note ${id} in this outline`); code = 1; continue; }
+      // A preview asks for its first rows: a long note's whole drawing is never encoded or sent.
+      const kept = lines.slice(0, rows);
+      if (cells) { io.out(JSON.stringify({ id: blockIdOf(id), ...linesToCells(kept, width) })); continue; }
+      // Notes apart: a blank line, and a --- line between sources (a Markdown file's rule).
+      if (shown++) { io.out(""); if (source) { io.out("---"); io.out(""); } }
+      for (const l of kept) io.out(source ? l : ansi ? l : visible(l).trimEnd());
+    }
+    return code;
   } catch (e) {
     io.err(`ep0ch: ${(e as Error).message}`);
     return 1;

@@ -4,7 +4,19 @@
 //   ```+--- [ TITLE ] ---+  the official fenced ASCII an agent pastes, re-framed to fit the pane
 import { BOLD, C, ellipsize, fg, headOf, pad, RESET, SPARK_STEPS, UNBOLD, width as vwidth } from "./style";
 import { wrap } from "./text";
-import { resolveLive } from "./live";
+import { resolveLive, setLiveSource } from "./live";
+import { setLinksSource } from "./links";
+import type { SocketBoard } from "./socket";
+
+/**
+ * The outline a note's live parts ask (a figure's `query:` or `view:`, the `::links` components) and what repaints
+ * when an answer arrives. Every host of the note surface connects them here: the door's App, and `ep0ch show`
+ * (src/notes-cli.ts), so a note draws the same at a shell as in a reader.
+ */
+export function connectFigures(board: SocketBoard, redraw: () => void): void {
+  setLiveSource(board, redraw);
+  setLinksSource(board, redraw);
+}
 
 const ACCENT = C.lcyan, DIM = C.dark, INK = C.grey, HI = C.white;
 

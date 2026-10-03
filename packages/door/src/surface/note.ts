@@ -33,7 +33,7 @@ import { Dispatcher } from "./dispatch";
 import { NOBODY } from "../whereabouts";
 import { draftState, editHint, editorClick, openInEditor, renderEditor, writtenBy } from "./editor";
 import { pickInto, type Picked } from "../pick";
-import { completerFor, completerOf, completionOf, insertCompletion, lookupCompletion, type CompletionBoard } from "./completer";
+import { completerFor, completerOf, completionOf, insertCompletion, lookupCompletion, nearOf, type CompletionBoard } from "./completer";
 import { completionTargetAtCursor } from "../completion";
 import { checkValue, propertyRows, PropertyPanel, valueTarget, valueView, type PropRow } from "./props-panel";
 import { ModeStack, type ReaderMode } from "./modes";
@@ -2330,10 +2330,9 @@ export class NoteSurface {
       else if (p?.status === "missing") { host.ctx.flash(`[[${l.page}]] · Missing target`); return null; }
     }
     if (!target && l.page) {
-      const hits = await host.ctx.board.search(l.page, 25).catch(() => [] as Msg[]);
-      const p = l.page.toLowerCase();
-      target = hits.find(m => m.props["work-id"]?.toLowerCase() === p || m.props.page?.toLowerCase() === p)
-        ?? hits.find(m => subject(m).toLowerCase().startsWith(p)) ?? null;
+      // Not a registered address: the one search's answer, when it is exactly that (an id, or the title as folded).
+      const hit = (await host.ctx.board.searchBlocks(l.page).catch(() => null))?.matches[0];
+      if (hit?.exact) target = await host.ctx.board.get(hit.block.id);
     }
     if (!target) { host.ctx.flash(`nothing answers at ${l.block ?? `[[${l.page}]]`}`); return null; }
     // `((id^fragment))` (PIE-425): the reader the note opens in scrolls to the fragment and marks it.
@@ -3585,7 +3584,11 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       const still = () => !!d && !!at && d.text === at.text && d.row === at.row && d.col === at.col;
       const own = surface.draft ? { blockId: surface.draft.blockId, text: surface.draft.text } : undefined;
       const prefix = await board.workIdPrefix().catch(() => null);
-      const r = await lookupCompletion(board, target, prefix, own);
+      // What the person's popup shows, when it is open on this token (Jev's order included), so insert=n is
+      // the nth they see; else the same lookup it makes, from the same note (with no draft, the note read here).
+      const shown = d ? completionOf(d) : null;
+      const r = shown && !shown.loading && shown.target.kind === target.kind && shown.target.start === target.start && shown.target.query === target.query
+        ? shown : await lookupCompletion(board, target, prefix, own, { near: nearOf(d, own) ?? surface.msg?.id });
       const out = {
         kind: target.kind, query: target.query, message: r.message || undefined, truncated: r.truncated ?? undefined,
         items: r.items.map((it, i) => ({ n: i + 1, label: it.label, insertion: it.insertion, kind: it.kind, blockId: it.blockId, address: it.address, fragmentId: it.fragmentId, context: it.context || undefined })),
@@ -3846,7 +3849,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "links": def({
-    summary: "show this reader's note's links (its Outlinks, Resources and Backlinks, the links model the outliner's Tree shows) in the screen's links tile: it aims at this note, its drawer opens, and the person's keys go to it; on a screen without one a links tile opens below the reader with a preview following its selection. An agent's opens or aims it and leaves the person's keys where they are. A note can list them inline too: ::links, ::resources, ::backlinks",
+    summary: "show this reader's note's links (its Outlinks, Resources and Backlinks, the links model the outliner's Tree shows) in the screen's links tile: it aims at this note, its drawer opens, and the person's keys go to it; on a screen without one a links tile opens below the reader with a preview following its selection. An agent's never aims the person's links tile: where the screen has one, it answers this note's links (the tile keeps its note and selection); where there's none, it opens one of its own below the reader, on this note. Either way the person's keys stay where they are. A note can list them inline too: ::links, ::resources, ::backlinks",
     keys: "b",
     touches: "shape", replay: "safe", says: () => "showed the links",
     args: {},

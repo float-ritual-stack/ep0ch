@@ -139,10 +139,10 @@ const FINDING = [
   "- **Any order:** `whiteboard kitchen` finds the Kitchen whiteboard.",
   "- **Punctuation folds:** `bike-shed` is `bike shed`.",
   "- **All but one word:** a note holding every word but one still shows, below every full match.",
-  "- **In a draft:** `[[` completes pages on the same ranker, `((` finds blocks holding every word.",
+  "- **In a draft:** `[[` and `((` ask the same ranker from the note you're writing, nearer notes first. Press esc, then e here, and type `((` and the notebook's name with a letter missing from each word.",
   "",
   "> [!note] Jev",
-  "> Where the outline host has a Jev key, Tree's Goto can ask Jev to re-order the same hits. The showcase's host has none and the door asks without it, so the order you see here is the text ranker's.",
+  "> Where the outline host has a Jev key, a pause in `/`, `((` or `[[` asks Jev to re-order the same hits, told the note you're in: the footer says `jev…`, then `jev ranked`, and what you picked stays picked. Without a key the order is the text ranker's.",
   "",
   "From a shell, `ep0ch find` with the same words prints the same hits; `ep0ch show <id>` prints a note as a reader draws it.",
 ].join("\n");

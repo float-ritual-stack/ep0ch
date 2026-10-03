@@ -57,9 +57,11 @@ const USAGE = `ep0ch: a BBS door into an outline
                                    in this terminal instead
   ep0ch init [<name>] [--json]     name this folder's outline: attach to it (creating it when nobody has),
                                    and write .ep0ch; without a name, the folder's (or its repository's)
-  ep0ch outline list | attach <name> | create <name> | import <database.sqlite> <name>
+  ep0ch outline list [--all] [--lines] | attach <name> | create <name> | import <database.sqlite> <name>
                 | stop <name> | delete <name> [--yes]      [--json]
-                                   the host's outlines: attach opens the door on one (the same as
+                                   the host's outlines: --all lists every machine's (this one's, then each
+                                   machine opened before, one not connected said, nothing started), --lines
+                                   as name<TAB>machine<TAB>problem; attach opens the door on one (the same as
                                    --ws <name>); import makes a new outline from an older database (its
                                    notes, properties, pages and work ids; the file is only read); stop
                                    releases its database; delete moves it to .deleted/, after asking

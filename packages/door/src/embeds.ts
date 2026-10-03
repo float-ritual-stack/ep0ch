@@ -225,8 +225,8 @@ function heading(id: string, fragment: string | undefined, text: string, w: numb
   return shade(fg(colour) + (loud ? BOLD : "") + tagged(sink, to, shown) + (loud ? UNBOLD : "") + (proposal ? proposalControls(proposal, sink) : "") + RESET, w);
 }
 
-/** A virtual branch's results, as Detail lists them. */
-function viewRegion(target: Msg, v: ViewRead, w: number, sink: LinkTarget[] | undefined): string[] {
+/** A virtual branch's results, as Detail lists them: an embedded view's, and `ep0ch show` on a view note. */
+export function viewRegion(target: Msg, v: ViewRead, w: number, sink: LinkTarget[] | undefined): string[] {
   const S = (line: string) => shade(line, w), title = printable(subject(target));
   const head = (text: string, colour?: number) => heading(target.id, undefined, text, w, sink, colour);
   if (v.status === "invalid") return [head(`≡ ${title} · CONFIG ERROR`, C.lred), ...v.errors.map(e => S(fg(C.lred) + "  " + printable(e) + RESET))];

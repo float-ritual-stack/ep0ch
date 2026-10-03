@@ -69,6 +69,25 @@ function cut(s: string, w: number): [string, string] {
 const len = (s: string) => Bun.stringWidth(NO_ROOM.test(s) ? stripTags(s).replace(MARKS, "") : s);
 const NO_ROOM = /[\uE000-\uE008\u{100000}-\u{10FFFD}]/u;
 
+/**
+ * One line's rows with each inline code span the wrap cut closed at the row's end and opened again on the next, so
+ * colourBody, which colours a row alone, draws both halves as code and no backtick is left showing. A backtick with
+ * no closer later in the line is text, left as it is.
+ */
+function balanceCode(rows: string[]): string[] {
+  if (rows.length < 2 || !rows.some(r => r.includes("`"))) return rows;
+  const ticks = rows.map(r => r.split("`").length - 1);
+  let open = false, after = ticks.reduce((a, b) => a + b, 0);
+  return rows.map((r, i) => {
+    after -= ticks[i]!;
+    let on = open;
+    for (const ch of r) if (ch === "`") on = !on;
+    const row = (open ? "`" : "") + r;
+    open = on && after > 0;
+    return open ? row + "`" : row;
+  });
+}
+
 /** `text` in rows of at most `w` cells. A width under 1 (a narrow pane, deep indentation) wraps at 1: `cut` must always make progress. */
 export function wrap(text: string, w: number): string[] {
   w = w >= 1 ? Math.floor(w) : 1;
@@ -78,13 +97,15 @@ export function wrap(text: string, w: number): string[] {
     // `n`: the line's width so far, kept as words are added (measuring the whole line for each word made a
     // long paragraph's wrap quadratic).
     let line = "", n = 0;
+    const rows: string[] = [];
     for (const word of raw.split(/(\s+)/)) {
       const wl = len(word);
-      if (n + wl > w && line.trim()) { out.push(line.trimEnd()); line = word.trimStart(); n = len(line); }
+      if (n + wl > w && line.trim()) { rows.push(line.trimEnd()); line = word.trimStart(); n = len(line); }
       else { line += word; n += wl; }
-      while (n > w) { const [head, tail] = cut(line, w); out.push(head); line = tail; n = len(line); }
+      while (n > w) { const [head, tail] = cut(line, w); rows.push(head); line = tail; n = len(line); }
     }
-    out.push(line);
+    rows.push(line);
+    out.push(...balanceCode(rows));
   }
   // A link cut by the wrap is closed at each line's end and re-opened on the next, and a bold or italic
   // span carries on, so each row stands alone.

@@ -11,8 +11,9 @@ import { bg, C, chip, fg, headOf, pad, RESET, tailFrom, width } from "./style";
 import { printable } from "./text";
 import { OPTION_AS_ALT_HINT, OPTION_KEYS, optionKeysOn, pasteKeys, type Handover, type Key, type Term, type TermInfo, type TileProgram } from "./term";
 import { paintingScroll } from "./scroll";
-import { invalidateLive, setLiveSource } from "./live";
-import { invalidateLinks, setLinksSource } from "./links";
+import { invalidateLive } from "./live";
+import { invalidateLinks } from "./links";
+import { connectFigures } from "./graphs";
 import { resourceChanged } from "./projection";
 import { EXT_ACTIONS, loadExtensions } from "./extensions";
 import { invalidatePropertyErrors } from "./props";
@@ -264,8 +265,7 @@ export class App implements Ctx {
     // Raw input while the person types in the agent drawer or a terminal tile: the drawer first, then the
     // screen says where it goes (Term keeps mouse and ctrl+]).
     (term as { rawSink?: unknown }).rawSink = () => this.dock.rawInput(this.dockRun) ?? this.stack.at(-1)?.rawInput?.() ?? null;
-    setLiveSource(board, () => this.redraw());
-    setLinksSource(board, () => this.redraw());
+    connectFigures(board, () => this.redraw());
     board.onConnection = (state, detail) => { this.offline = state === "lost"; this.flash(state === "lost" ? detail : `reconnected · ${detail}`); };
     term.onResize(() => this.redraw());
     this.timer = setInterval(() => this.tick(), 33);
