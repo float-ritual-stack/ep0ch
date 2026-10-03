@@ -73,6 +73,51 @@ export type DetailSource =
   | { kind: 'source'; markdown: string; links: DetailLink[]; from: 'outliner' | 'ep0ch'; isTruncated: boolean }
   | { kind: 'missing'; why: string }
 
+/** Where this Claude is bound (hooks/binding.ts, PIE-546). */
+/** What the card reads from `ep0ch where --json`; null fields: not known. */
+export type WhereFacts = {
+  inDoor: boolean
+  /** The machine Claude runs on (its hostname) and its folder. */
+  here: { machine: string | null; folder: string | null }
+  /** The innermost Herdr pane: its label when Herdr gave one, and whether it is the door agent's own pane. */
+  herdr: { pane: string; label: string | null; agent: boolean } | null
+  door: null | {
+    /** A door answers on EP0CH_CONTROL now. */
+    answers: boolean
+    outline: string | null
+    /** The ssh name the door reached its outline's machine by (null: this machine's host). */
+    machine: string | null
+    /** The outline host's machine, by its own name. */
+    host: string | null
+    /** In the door's agent drawer, rather than a tile on its desk. */
+    drawer: boolean
+    /** The tile's name (`claude`), when in a tile. */
+    tile: string | null
+  }
+}
+
+/** How the folder's outline was looked up: found, none named, opted out, or the lookup failed (why). */
+export type FolderFacts =
+  | { kind: 'bound'; workspace: { root: string; outline?: string; machine?: string; pinned?: true } }
+  | { kind: 'unbound' }
+  | { kind: 'opted-out'; root: string }
+  | { kind: 'failed'; why: string }
+
+export type BindingFacts = {
+  folder: FolderFacts
+  /** null: `ep0ch where` could not run (not on PATH, too old, no answer); `why` says which. */
+  where: WhereFacts | null
+  whereWhy?: string
+  /** Claude's folder (the session's cwd), and HOME for writing it short. */
+  cwd: string
+  home?: string
+  /** The door's control socket is set: the door tools are registered and act there. */
+  doorTools: boolean
+}
+
+/** The binding card above the prompt: shown at the start and after /clear until hidden; its facts once read. */
+export type BindingCard = { shown: boolean; facts: BindingFacts | null }
+
 declare module 'claude-code' {
   interface PluginState {
     'pi-outliner': {
@@ -86,6 +131,8 @@ declare module 'claude-code' {
       detail: DetailHistory
       /** What the detail view draws, by block id: the latest read of each. */
       detailSources: StateFamily<DetailSource>
+      /** Where this Claude is bound (hooks/binding.ts): the card's facts (null: still being read), and whether it shows. */
+      binding: BindingCard
     }
   }
 }

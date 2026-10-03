@@ -6,6 +6,7 @@
 // It answers with no door ("not in a door"), with a door gone, and with a door older than the fields it reads
 // (`pid`, `nest`, tile ids): it says what it couldn't check instead of guessing.
 import { existsSync, readFileSync } from "node:fs";
+import { hostname } from "node:os";
 import { ask } from "./jsonl";
 import { alive } from "./state";
 import { herdrBin, herdrRunner, type HerdrRun } from "./desk/herdr-agent";
@@ -21,8 +22,14 @@ export interface Where {
   /** The nest with the outer layers the environment shows and the nest lacks (a shell ssh'd straight in). */
   nest: string;
   layers: WhereLayer[];
+  /** Where this process runs: its machine (hostname) and folder (PIE-546: the Claude mod's binding card says it). */
+  here: { machine: string | null; folder: string | null };
+  /** The innermost Herdr pane this runs in: its id, its label when Herdr says, and whether it is the door agent's own pane. */
+  herdr: { pane: string; label: string | null; agent: boolean } | null;
   door: null | {
     pid: number | null; control: string | null; answers: boolean; screen: string | null; outline: string | null; workspace: string | null;
+    /** The machine the door's outline host runs on (its hostname), and the ssh name the door reached it by (null: this machine's host). */
+    host: string | null; machine: string | null;
     /** `dock`: the tile is the door's agent drawer (PIE-498), not a desk tile. */
     tile: { id: string | null; name: string | null; found: boolean; shown: boolean | null; focused: boolean | null; descends: boolean | null; dock?: boolean } | null;
     /** The door that answers isn't the one in the nest: the Herdr agent's pane, now shown by another door. */
@@ -45,6 +52,9 @@ export interface WhereDeps {
   ttyExists(tty: string): boolean;
   /** This process's ancestors' pids, nearest first (empty where it can't tell). */
   ancestors(pid: number): number[];
+  /** This machine's name, and this process's folder (left out: not known). */
+  hostname?(): string;
+  cwd?(): string;
 }
 
 /** `peek` on a control socket; null when nothing answers in `timeoutMs`. Reads only. */
@@ -88,6 +98,7 @@ export const realDeps = (): WhereDeps => {
     env: process.env, pid: process.pid, peek: p => peekDoor(p),
     herdr: bin ? herdrRunner(bin, 3000) : null,
     alive, ttyExists: t => existsSync(`/dev/${t}`), ancestors: procAncestors,
+    hostname, cwd: () => process.cwd(),
   };
 };
 
@@ -134,6 +145,8 @@ export async function where(d: WhereDeps): Promise<Where> {
   const door: Where["door"] = inDoor ? {
     pid: answeringPid ?? inner?.pid ?? null, control, answers: !!peek, moved,
     screen: peek?.screen?.screen ?? null, outline: peek?.screen?.outline ?? null, workspace: peek?.screen?.workspace ?? null,
+    host: typeof peek?.screen?.host === "string" && peek.screen.host ? peek.screen.host : null,
+    machine: typeof peek?.screen?.machine === "string" && peek.screen.machine ? peek.screen.machine : null,
     tile: myTileId || myTileName || agentPane ? {
       id: tile?.id ?? myTileId, name: tile?.name ?? myTileName, found: !!tile,
       shown: tile ? tile.shown !== false : null, focused: tile ? !!tile.focused : null,
@@ -185,7 +198,11 @@ export async function where(d: WhereDeps): Promise<Where> {
     ? { mine: true, typing: true, tile: null, text: "the person is in the door's shell (the door waits under it until it exits)" }
     : keysOf(peek, desk, door, agentPane, paneList, env);
   const summary = summaryOf(nest, layers, keys, inDoor);
-  return { inDoor, recorded, nest, layers, door, keys, summary };
+  const here = { machine: d.hostname?.() || null, folder: d.cwd?.() || null };
+  const innerHerdr = herdrs.at(-1);
+  const pane = innerHerdr ? herdrPane(innerHerdr.pane) : null;
+  const herdr = innerHerdr ? { pane: innerHerdr.pane, label: typeof pane?.label === "string" && pane.label ? pane.label : null, agent: agentPane !== null } : null;
+  return { inDoor, recorded, nest, here, herdr, layers, door, keys, summary };
 }
 
 function tileLayer(id: string | null, name: string, t: NonNullable<Where["door"]>["tile"], peek: any, desk: any, moved: boolean): WhereLayer {
@@ -241,6 +258,7 @@ export function formatWhere(w: Where): string {
   const width = Math.max(0, ...w.layers.map(l => l.label.length));
   for (const l of w.layers) out.push(`  ${MARK(l.live)} ${l.kind.padEnd(5)} ${l.label.padEnd(width)}  ${l.why}`);
   out.push(`keys: ${w.keys.text}`);
+  if (w.here.machine || w.here.folder) out.push(`this runs on ${w.here.machine ?? "this machine"}${w.here.folder ? ` in ${w.here.folder}` : ""}`);
   return out.join("\n");
 }
 

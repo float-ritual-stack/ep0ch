@@ -60,6 +60,7 @@ export async function openDoor(o: DoorOpen): Promise<Door> {
     app.host = o.service.host;
     app.workspace = o.service.workspace;
     app.outline = o.service.outline;
+    app.machine = o.place?.machine;
     o.board.subscribe(e => app.event(e));
     // The service's extensions (PIE-512): their lines, actions and tile kinds, bound as soon as the list is read.
     void app.loadExtensions();

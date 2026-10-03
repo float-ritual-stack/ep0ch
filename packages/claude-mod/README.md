@@ -119,10 +119,39 @@ A click, `show` and `door_open` share one open (`openNote` in
   `FORCE_HYPERLINK=1` in the settings `env` block to draw the text alone.
 - A target the Outliner cannot resolve is a toast, never a new page.
 
+### Where this Claude is bound
+
+So nobody has to ask which outline Claude's tools reach (PIE-546), the mod says it three ways, from one set of facts:
+
+- **A card** in the band above the prompt, at the start and again after `/clear`, until `h` (or its
+  hide button) puts it away; `/outline` shows it again and prints it. It says, in plain words:
+  - **outline:** the one the outline, workboard and mention tools use, and its machine (`harbor, on far
+    (another machine)`, or `garden, on this machine (near-box)`); or "none: the … tools are off";
+  - **why:** the `.ep0ch` that names it, or that nothing names one here, with the exact command that binds the
+    folder (`ep0ch init harbor --machine far` in a door: the door's outline; else `ep0ch init <name>`);
+  - **careful** (yellow): the folder names one outline and the door Claude sits in is on another. The outline
+    tools write to the folder's; the door tools act in the door's;
+  - **Claude:** the machine and folder Claude runs in;
+  - **door:** the agent drawer or a tile of which door, or not in a door, and the Herdr pane;
+  - **tools:** one set, from this mod.
+
+  Beside Recent mentions the card keeps to the binding (outline, why, the yellow line), so the mentions'
+  keys stay on screen.
+- **A status line** that stays: `outline: harbor @ far · folder, door` (or `· folder · ⚠ door is …`,
+  `none (tools off) · … · ep0ch init …`). The folder's outline and `where` are read again on a turn at most
+  every 30s (the Work-ID prefixes kept), so a door that reconnected or changed, or a new `.ep0ch`, shows, and the
+  tools follow the same read.
+- **The model's context**: the same lines as a block (`outlineBinding`) of the first prompt (and after `/clear`),
+  made again when a later read changes them, or when the first prompt came before the first read landed.
+
+The facts come from two places, never guessed: the folder's outline as the tools found it (`bound-folder`,
+above), and `ep0ch where --json` (this machine and folder, the door, its outline and machine, the Herdr pane).
+`where` runs at the start in or out of a door; without a usable `ep0ch` the card says the door wasn't checked.
+
 ### Where this session runs
 
-In a door tile (`EP0CH_NEST` or `EP0CH_CONTROL` set), the mod runs `ep0ch where
---json` when the session starts. The first prompt then carries its one-line
+In a door tile (`EP0CH_NEST` or `EP0CH_CONTROL` set), the mod uses `ep0ch where
+--json` (run when the session starts). The first prompt then carries its one-line
 summary as a context block (`whereAmI`), not a pane: the layers the session runs
 in, outermost first (`ssh:pts/5 › herdr:w1:p1 › door:<pid>/desk/t1:claude`, the door's
 `EP0CH_NEST`), which of them are live, and where the person's keys are. Claude
@@ -135,7 +164,7 @@ then doesn't have to guess from the repo name or a window title.
 - Without a usable `ep0ch` (not on PATH, too old, an error, or no answer within
   1.5s of the first prompt), the block has the variables alone and says they are unchecked.
 - It never blocks or fails the session: the work runs after the start, and any
-  failure leaves the context as it was. Outside a door, nothing is added.
+  failure leaves the context as it was. Outside a door, this block isn't added (the binding card's is).
 
 ## Recent mentions in Claude Code
 

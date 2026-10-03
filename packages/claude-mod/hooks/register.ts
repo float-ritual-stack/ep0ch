@@ -1,4 +1,4 @@
-import type { EngineInterface, On, PluginOptions, RenderElement, RenderSurface, UiOpenResult } from 'claude-code'
+import type { EngineInterface, On, PluginOptions, RenderElement, RenderInput, RenderSurface, UiOpenResult } from 'claude-code'
 
 import {
   boundWorkspaceOf,
@@ -74,6 +74,25 @@ import {
   whereSummaryOf,
   whereText,
 } from './where'
+import {
+  BINDING_BLOCK,
+  BINDING_COMMAND,
+  type BindingFacts,
+  bindingText,
+  cardLines,
+  type CardElements,
+  cardTree,
+  type FolderFacts,
+  statusLine,
+  type WhereFacts,
+  whereFactsOf,
+} from './binding'
+
+type AbovePromptRender = RenderInput<'AbovePrompt'>
+/** The binding card's state: written here, in this file, as the engine lists what a module reads and writes. */
+const BINDING_STATE = { plugin: 'pi-outliner', key: 'binding' } as const
+/** One run of `ep0ch where --json`: its summary (null: it didn't answer) and the facts the binding card reads. */
+type WhereRun = { summary: string | null; facts: WhereFacts | null; why?: string }
 
 /**
  * What drawing a reply needs, read once per session: the Outliner workspace the
@@ -81,10 +100,12 @@ import {
  * nothing is linked) and its Work-ID prefixes. A render hook only reads, so
  * this is loaded beside it, not in it.
  */
-type ReferenceContext = { workspace: Workspace | null; prefixes: string[]; why?: string }
+type ReferenceContext = { workspace: Workspace | null; prefixes: string[]; why?: string; optedOut?: string }
 let references: ReferenceContext | undefined
 /** The load in flight, so a tool call made while the session starts waits for it rather than being refused. */
 let loadingReferences: Promise<void> | undefined
+/** Its first half in flight: the session's workspace found (`references.workspace` set), before the Work-ID prefixes. */
+let loadingWorkspace: Promise<void> | undefined
 /**
  * The environment an Outliner CLI run gets for one workspace: its bound
  * folder, and the outline its `.ep0ch` names, so the run lands on that outline
@@ -96,10 +117,18 @@ const toldWorkspaceFailures = new Set<string>()
 /** Shows run one at a time, so concurrent clicks and tool calls split one pane. */
 let showQueue: Promise<unknown> = Promise.resolve()
 /**
- * Where this session runs (`ep0ch where`'s summary), started at session.start
- * for the first prompt's context; null outside a door.
+ * `ep0ch where --json`, run once at session.start (and again when the binding
+ * is read again): its summary for the first prompt's context in a door, and
+ * the facts the binding card reads.
  */
-let whereLoad: Promise<string | null> | undefined
+let whereLoad: Promise<WhereRun> | undefined
+/** Where this Claude is bound (hooks/binding.ts): the load in flight, and when the last one started (the session clock). */
+let bindingLoad: Promise<BindingFacts> | undefined
+let bindingReadAt = -Infinity
+/** A turn reads the binding again at most this often, so a door upgrade or reconnect shows within a turn or two. */
+const BINDING_REFRESH_MS = 30_000
+/** How long the first prompt waits for the binding before saying it is still being looked up: as long as for `where`. */
+const BINDING_WAIT_MS = WHERE_WAIT_MS
 
 /**
  * Registers Recent Mentions: each completed main-loop answer in a folder bound
@@ -126,21 +155,18 @@ export function register(on: On, options: PluginOptions): void {
   const option = options
   // Recent mentions in Claude Code itself (hooks/mentions-view.ts): a band above the prompt or a pane, over the
   // outline's own mentions.list, each press opened by openNote like every other click.
+  // The band above the prompt: the binding card (at the start and after /clear, until hidden) over Recent mentions.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
-    // Read before anything else, so the band is drawn again when the list first lands (the outline is found then).
-    const [prefs, list] = await Promise.all([mentionsPrefsOf($), mentionsListOf($)])
-    // A module reloaded mid-session may not see its session.start: start mentions off the draw, once.
-    if (!mentionsStarting) $.clock.after(0, () => void startMentionsOnce($, option))
-    const workspace = references?.workspace
-    if (e.props.hasSurvey || !workspace || prefs.placement === 'off' || !bandHasContent(list)) return next(e)
-    // The pane chosen but not on screen (it waits below the width an unasked pane needs, or the engine dropped it):
-    // the band stands in, its `m` showing the pane, so the mentions never vanish.
-    if (prefs.placement === 'pane' && await paneIsPlaced($)) return next(e)
-    try {
-      return await drawMentions($, e, $.ui.resolve(e) as unknown as SiteElements, 'band', e.props.bodyColumns, workspace, option)
-    } catch (error) {
-      return $.ui.resolve(e).Text({ dimColor: true, children: `Recent mentions could not be drawn: ${error instanceof Error ? error.message : String(error)}` })
-    }
+    const [card, below] = await Promise.all([$.state.get(BINDING_STATE).then(({ value }) => value), mentionsBand($, e, next, option)])
+    if (e.props.hasSurvey || !card?.shown) return below.tree
+    const ui = $.ui.resolve(e) as unknown as CardElements
+    // Beside Recent mentions, or in a short band, the card says the binding alone, so the mentions' keys stay on screen.
+    const compact = below.isMentions || e.props.maxRows < 16
+    const drawn = cardTree(ui, card.facts ?? null, {
+      columns: e.props.bodyColumns, compact,
+      hide: () => void (async () => $.state.set(BINDING_STATE, { facts: (await $.state.get(BINDING_STATE)).value?.facts ?? null, shown: false }))(),
+    })
+    return ui.Box({ flexDirection: 'column', children: [drawn, below.tree] })
   })
 
   on('ui.render', { component: 'Pane', requestId: MENTIONS_PANE }, async ($, e) => {
@@ -203,10 +229,17 @@ export function register(on: On, options: PluginOptions): void {
     // A session start (or the module's reload) starts mentions again: the command, the kept choices, the list.
     mentionsStarting = undefined
     $.clock.after(0, () => void startMentionsOnce($, option))
-    // Off the start's dispatch: a slow or missing `ep0ch` never holds the session up.
+    // Off the start's dispatch: a slow or missing `ep0ch` never holds the session up. The binding card shows from
+    // the start (saying it is looking) and fills in when `where` and the folder's outline are read.
     whereLoad = new Promise(resolve => {
-      $.clock.after(0, () => void loadWhere($).then(resolve, () => resolve(null)))
+      $.clock.after(0, () => void runWhere($).then(resolve, () => resolve({ summary: null, facts: null, why: 'ep0ch where failed' })))
     })
+    bindingLoad = undefined
+    bindingGiven = undefined
+    ep0chKnowsWhere = null
+    await $.state.set(BINDING_STATE, { shown: true, facts: (await $.state.get(BINDING_STATE)).value?.facts ?? null })
+    $.ui.status(statusLine(null))
+    $.clock.after(0, () => void readBinding($, option, false).catch(() => {}))
     await $.tool.register({
       name: 'show',
       description:
@@ -246,15 +279,43 @@ export function register(on: On, options: PluginOptions): void {
     const result = await next(e)
     try {
       const env = await doorEnvOf($)
-      if (!inDoorEnv(env)) return result
       // Before session.start's work is queued (or after a reload): start it once, here.
-      const load = (whereLoad ??= loadWhere($).catch(() => null))
-      const summary = (await Promise.race([load, $.clock.sleep(WHERE_WAIT_MS).then(() => null)])) ?? envSummaryOf(env)
-      const block = { name: WHERE_BLOCK, text: whereText(summary) }
-      return { ...result, blocks: [...result.blocks.filter(b => b.name !== WHERE_BLOCK), block] }
+      const load = (whereLoad ??= runWhere($).catch(() => ({ summary: null, facts: null })))
+      const facts = (bindingLoad ?? readBinding($, option, false)).catch(() => null)
+      const [ran, bound] = await Promise.all([
+        inDoorEnv(env) ? Promise.race([load, $.clock.sleep(WHERE_WAIT_MS).then(() => null)]) : null,
+        Promise.race([facts, $.clock.sleep(BINDING_WAIT_MS).then(() => null)]),
+      ])
+      const blocks = result.blocks.filter(b => b.name !== WHERE_BLOCK && b.name !== BINDING_BLOCK)
+      if (inDoorEnv(env)) blocks.push({ name: WHERE_BLOCK, text: whereText(ran?.summary ?? envSummaryOf(env)) })
+      bindingGiven = bound ? bindingText(bound) : null
+      blocks.push({
+        name: BINDING_BLOCK,
+        // Still looking: the context is made again when it lands (readBinding).
+        text: bindingGiven ?? 'Which outline this Claude session is bound to is still being looked up.',
+      })
+      return { ...result, blocks }
     } catch {
       return result
     }
+  })
+
+  // /clear starts the conversation afresh: the card shows again, read anew, and the next first prompt carries it.
+  on('session.end', async ($, e, next) => {
+    const result = await next(e)
+    if (e.reason !== 'clear') return result
+    // The next conversation's first prompt reads this one, never the read before the /clear.
+    bindingGiven = undefined
+    void readBinding($, option, true).catch(() => {})
+    await $.state.set(BINDING_STATE, { shown: true, facts: (await $.state.get(BINDING_STATE)).value?.facts ?? null })
+    return result
+  })
+
+  // `/outline`: the card again, read anew, and its words in the transcript.
+  on('command.run', { command: BINDING_COMMAND }, async ($) => {
+    const facts = await readBinding($, option, true)
+    await $.state.set(BINDING_STATE, { shown: true, facts })
+    return { text: cardLines(facts).map(l => `${l.label ? `${l.label}: ` : ''}${l.text}`).join('\n') }
   })
 
   for (const tool of WORK_TOOLS) {
@@ -343,6 +404,8 @@ export function register(on: On, options: PluginOptions): void {
     const result = await next(e)
     // A module reloaded mid-session never sees its session.start.
     if (!references) $.clock.after(0, () => void loadReferences($, option))
+    // The binding read again now and then, so the status line follows a door's upgrade or reconnect, or a new .ep0ch.
+    else if ((await $.clock.now()) - bindingReadAt >= BINDING_REFRESH_MS) $.clock.after(0, () => void readBinding($, option, true).catch(() => {}))
     if (!isIngestible(e)) return result
     // Off the turn's dispatch: finding the folder's outline runs the CLI, and a slow one never delays the answer.
     $.clock.after(0, () => void (async () => {
@@ -372,6 +435,25 @@ export function register(on: On, options: PluginOptions): void {
   })
 }
 
+/** Recent mentions in the band (`isMentions`), or the engine's band (`next`) when there are none to show. */
+async function mentionsBand($: EngineInterface, e: AbovePromptRender, next: (e: AbovePromptRender) => Promise<RenderElement>, option: PluginOptions): Promise<{ tree: RenderElement; isMentions: boolean }> {
+  const engine = async () => ({ tree: await next(e), isMentions: false })
+  // Read before anything else, so the band is drawn again when the list first lands (the outline is found then).
+  const [prefs, list] = await Promise.all([mentionsPrefsOf($), mentionsListOf($)])
+  // A module reloaded mid-session may not see its session.start: start mentions off the draw, once.
+  if (!mentionsStarting) $.clock.after(0, () => void startMentionsOnce($, option))
+  const workspace = references?.workspace
+  if (e.props.hasSurvey || !workspace || prefs.placement === 'off' || !bandHasContent(list)) return engine()
+  // The pane chosen but not on screen (it waits below the width an unasked pane needs, or the engine dropped it):
+  // the band stands in, its `m` showing the pane, so the mentions never vanish.
+  if (prefs.placement === 'pane' && await paneIsPlaced($)) return engine()
+  try {
+    return { tree: await drawMentions($, e, $.ui.resolve(e) as unknown as SiteElements, 'band', e.props.bodyColumns, workspace, option), isMentions: true }
+  } catch (error) {
+    return { tree: $.ui.resolve(e).Text({ dimColor: true, children: `Recent mentions could not be drawn: ${error instanceof Error ? error.message : String(error)}` }), isMentions: true }
+  }
+}
+
 const NOT_BOUND = "This session's folder is not bound to an Outliner outline (bind it with the choose-outline action), or it is opted out."
 
 const PLUGIN_ID = 'float.pi-outliner'
@@ -386,28 +468,83 @@ async function doorEnvOf($: EngineInterface): Promise<DoorEnv> {
   return { EP0CH_NEST, EP0CH_CONTROL, EP0CH_TILE, EP0CH_TILE_ID }
 }
 
+/** Whether this session's `ep0ch` knows `where` (its help asked once): null until asked. */
+let ep0chKnowsWhere: boolean | null = null
+
 /**
- * `ep0ch where --json`'s one-line summary when this session runs in a door
- * (EP0CH_NEST or EP0CH_CONTROL set); the variables alone when `ep0ch` isn't
- * on PATH, is too old or fails; null outside a door. `where` only reads.
+ * `ep0ch where --json`, in a door or not, run in the session's folder: its
+ * one-line summary (null when it didn't answer: not on PATH, too old, an
+ * error) and the facts the binding card reads. `where` only reads.
  */
-async function loadWhere($: EngineInterface): Promise<string | null> {
-  const env = await doorEnvOf($)
-  if (!inDoorEnv(env)) return null
+async function runWhere($: EngineInterface): Promise<WhereRun> {
   try {
     // An ep0ch older than `where` would read `where` as a socket path and open a door on the terminal-less
     // session (attaching, maybe creating, an outline): its help must list `where` first. An ep0ch older than
     // `help` (before ep0ch-door #31) reads `help` the same way; the probe socket it then picks instead of
     // the default one doesn't exist, so it stops at "no carrier" before opening anything.
-    const help = await $.process.run(['ep0ch', 'help', HELP_PROBE], { timeoutMs: 5000 })
-    if (help.exitCode !== 0 || !knowsWhere(help.stdout)) return envSummaryOf(env)
-    const ran = await $.process.run(['ep0ch', 'where', '--json'], { timeoutMs: WHERE_TIMEOUT_MS })
-    const summary = ran.exitCode === 0 ? whereSummaryOf(ran.stdout) : null
-    if (summary) return summary
+    if (ep0chKnowsWhere === null) {
+      const help = await $.process.run(['ep0ch', 'help', HELP_PROBE], { timeoutMs: 5000 })
+      ep0chKnowsWhere = help.exitCode === 0 && knowsWhere(help.stdout)
+    }
+    if (!ep0chKnowsWhere) return { summary: null, facts: null, why: 'this ep0ch is too old for `where`; update it with `ep0ch install --apply`' }
+    const ran = await $.process.run(['ep0ch', 'where', '--json'], { cwd: await $.session.cwd(), timeoutMs: WHERE_TIMEOUT_MS })
+    if (ran.exitCode !== 0) return { summary: null, facts: null, why: failureReasonOf(ran.stderr) || '`ep0ch where` failed' }
+    return { summary: whereSummaryOf(ran.stdout), facts: whereFactsOf(ran.stdout) }
   } catch {
-    // Not on PATH, or it didn't answer in time: the variables alone.
+    return { summary: null, facts: null, why: 'no `ep0ch` on PATH, or `ep0ch where` did not answer in time' }
   }
-  return envSummaryOf(env)
+}
+
+/** Each read of the binding is numbered: only the newest one writes the card and the status line. */
+let bindingGeneration = 0
+/** The binding text the first prompt's context was given (null: that it was still being looked up), to redo it on a change. */
+let bindingGiven: string | null | undefined
+
+/**
+ * Reads where this Claude is bound: the folder's outline as the tools found it
+ * (`references`, from `bound-folder`) and `ep0ch where --json`; then the card,
+ * the status line and (when it changed) the model's context show it. `again`:
+ * read both anew (a /clear, `/outline`, a turn now and then); else the
+ * session's first reads are used. It waits for the workspace only, never the
+ * Work-ID prefixes.
+ */
+function readBinding($: EngineInterface, option: PluginOptions, again: boolean): Promise<BindingFacts> {
+  if (!again && bindingLoad) return bindingLoad
+  const generation = ++bindingGeneration
+  const where = again || !whereLoad ? runWhere($) : whereLoad
+  whereLoad = where
+  const load = (async () => {
+    bindingReadAt = await $.clock.now()
+    if (again || !references) {
+      void loadReferences($, option)
+      await loadingWorkspace
+    }
+    const [ran, cwd, home, control] = await Promise.all([where, $.session.cwd(), $.env.get('HOME'), $.env.get('EP0CH_CONTROL')])
+    const facts: BindingFacts = {
+      folder: folderFactsOf(),
+      where: ran.facts,
+      ...(ran.facts ? {} : { whereWhy: ran.why ?? '`ep0ch where` did not answer' }),
+      cwd,
+      ...(home ? { home } : {}),
+      doorTools: !!control?.trim(),
+    }
+    if (generation !== bindingGeneration) return facts
+    await $.state.set(BINDING_STATE, { shown: (await $.state.get(BINDING_STATE)).value?.shown ?? true, facts })
+    $.ui.status(statusLine(facts))
+    // The model was told something else (or that it was still looking): its context is made again.
+    if (bindingGiven !== undefined && bindingGiven !== bindingText(facts)) $.ui.invalidate('prompt.context')
+    return facts
+  })()
+  bindingLoad = load
+  return load
+}
+
+/** The folder's outline as the tools found it (`references`): bound, none named, opted out, or why it couldn't be found. */
+function folderFactsOf(): FolderFacts {
+  if (references?.workspace) return { kind: 'bound', workspace: references.workspace }
+  if (references?.why) return { kind: 'failed', why: references.why }
+  if (references?.optedOut) return { kind: 'opted-out', root: references.optedOut }
+  return references ? { kind: 'unbound' } : { kind: 'failed', why: "the folder's outline was not read yet" }
 }
 
 /**
@@ -442,7 +579,7 @@ async function outlinerRootOf($: EngineInterface): Promise<string | null> {
  * asks. A disabled Outliner is null; a CLI that cannot answer (one older than
  * `bound-folder`) throws with why, and nothing is fed.
  */
-async function sessionWorkspace($: EngineInterface, options: PluginOptions, purpose: 'mentions' | 'tools'): Promise<Workspace | null> {
+async function sessionWorkspace($: EngineInterface, options: PluginOptions, purpose: 'mentions' | 'tools', note: { optedOut?: string } = {}): Promise<Workspace | null> {
   const [listedEnv, modeEnv, home, cwd] = await Promise.all([
     $.env.get('PI_OUTLINER_MENTIONS_WORKSPACES'),
     $.env.get('PI_OUTLINER_MENTIONS_MODE'),
@@ -452,6 +589,8 @@ async function sessionWorkspace($: EngineInterface, options: PluginOptions, purp
   const listed = effectiveWorkspaces(options.workspaces, listedEnv, home)
   const mode = mentionsModeOf(options.mode, modeEnv, listed)
   const listedHere = workspaceForCwd(cwd, listed)
+  // In folder mode a listed folder is opted out: said on the binding card as it is, never worked out again there.
+  if (mode === 'folder' && listedHere !== null) note.optedOut = listedHere
   // Strict mode limits what feeds Recent Mentions; the tools and links still work in any bound folder.
   if (mode === 'allowlist' ? purpose === 'mentions' || listedHere !== null : listedHere !== null) return sessionWorkspaceOf(cwd, mode, listed, null)
   // A remote socket in Claude's environment would take every CLI run elsewhere than the folder's binding.
@@ -613,26 +752,43 @@ async function runDoorTool(
  * IDs not.
  */
 function loadReferences($: EngineInterface, option: PluginOptions): Promise<void> {
-  return (loadingReferences ??= readReferences($, option).finally(() => { loadingReferences = undefined }))
+  if (loadingReferences) return loadingReferences
+  const workspace = (loadingWorkspace = readWorkspace($, option))
+  return (loadingReferences = workspace.then(() => readPrefixes($)).finally(() => {
+    loadingReferences = undefined
+    loadingWorkspace = undefined
+  }))
 }
 
-async function readReferences($: EngineInterface, option: PluginOptions): Promise<void> {
+/**
+ * The first half of loadReferences: the session's workspace, as the tools use it. A workspace found again keeps
+ * its Work-ID prefixes (links don't flicker while they are read again); a new one starts with none.
+ */
+async function readWorkspace($: EngineInterface, option: PluginOptions): Promise<void> {
   routeEnv = undefined
   await routeEnvOf($).catch(() => undefined)
+  const note: { optedOut?: string } = {}
+  let workspace: Workspace | null
   try {
-    let workspace: Workspace | null
-    try {
-      workspace = await sessionWorkspace($, option, 'tools')
-    } catch (error) {
-      // Why no outline could be found: the tools' refusal says it.
-      references = { workspace: null, prefixes: [], why: error instanceof Error ? error.message : String(error) }
-      return
-    }
-    if (!workspace) {
-      references = { workspace: null, prefixes: [] }
-      return
-    }
-    references = { workspace, prefixes: [] }
+    workspace = await sessionWorkspace($, option, 'tools', note)
+  } catch (error) {
+    // Why no outline could be found: the tools' refusal says it.
+    references = { workspace: null, prefixes: [], why: error instanceof Error ? error.message : String(error) }
+    return
+  }
+  if (!workspace) {
+    references = { workspace: null, prefixes: [], ...(note.optedOut ? { optedOut: note.optedOut } : {}) }
+    return
+  }
+  const same = references?.workspace && JSON.stringify(references.workspace) === JSON.stringify(workspace)
+  references = { workspace, prefixes: same ? references!.prefixes : [] }
+}
+
+/** The second half: the workspace's Work-ID prefixes. A service that cannot answer leaves pages and block references linked, bare IDs not. */
+async function readPrefixes($: EngineInterface): Promise<void> {
+  const workspace = references?.workspace
+  if (!workspace) return
+  try {
     const root = await outlinerRootOf($)
     if (!root) return
     const status = await $.process.run(
@@ -643,7 +799,7 @@ async function readReferences($: EngineInterface, option: PluginOptions): Promis
     const { prefix, observedPrefixes } = JSON.parse(status.stdout) as { prefix?: unknown; observedPrefixes?: unknown }
     const prefixes = [prefix, ...(Array.isArray(observedPrefixes) ? observedPrefixes : [])]
       .filter((value): value is string => typeof value === 'string')
-    references = { workspace, prefixes: [...new Set(prefixes)] }
+    if (references?.workspace === workspace) references = { workspace, prefixes: [...new Set(prefixes)] }
   } catch {
     // Linking is a convenience: the reply is drawn as before.
   }
@@ -936,6 +1092,11 @@ async function startMentions($: EngineInterface, option: PluginOptions): Promise
     name: 'mentions',
     description: 'Recent mentions of the outline: in a band above the prompt or a pane beside the transcript, with block previews; or hidden',
     argumentHint: '[band | pane | off | preview | scope]',
+  })
+  // Here too, so a module reloaded mid-session (which starts mentions from its first draw) has it.
+  await $.command.register({
+    name: BINDING_COMMAND,
+    description: 'Where this Claude is bound: the outline its tools use and its machine, why, where Claude runs, the door and Herdr pane',
   })
   const kept = prefsOf(await $.store.get(PREFS_STORE_KEY))
   await $.state.set(MENTIONS_PREFS, kept)

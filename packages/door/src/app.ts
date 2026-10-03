@@ -233,6 +233,8 @@ export class App implements Ctx {
   host = "";
   workspace = "";
   outline: string | undefined;
+  /** The ssh name of the machine the outline is on, when the door reached it there (`--machine`, a `.ep0ch`'s `machine`). */
+  machine: string | undefined;
   /** The video mode (the display's: in a session, the client with the person's keys). */
   get video(): Video { return this.display.video; }
   set video(v: Video) { this.display.video = v; }
@@ -487,7 +489,7 @@ export class App implements Ctx {
     const service = { protocol: b.protocol, offline: this.offline, sequence: b.lastSequence };
     // pid and nest: which process this door is and what it runs in (`ep0ch where` checks them against EP0CH_NEST).
     return { screen: s?.title, stack: this.stack.map(x => x.title), pid: process.pid, ...(this.term.session ? { session: this.term.session() } : {}), nest: doorNest(process.env) || null, suspended: this.away, video: this.video, host: this.host, workspace: this.workspace,
-      ...(this.outline ? { outline: this.outline } : {}), service, dock: this.dock.describe(),
+      ...(this.outline ? { outline: this.outline } : {}), ...(this.machine ? { machine: this.machine } : {}), service, dock: this.dock.describe(),
       // Where the person is (PIE-514): the same answer every agent rule reads, so an agent can see why it was refused.
       person: (({ idle, ...w }) => ({ ...w, idle: Number.isFinite(idle) ? Math.round(idle) : null }))(this.person()), state: s?.describe?.() ?? null };
   }
