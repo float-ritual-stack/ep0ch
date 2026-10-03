@@ -2,7 +2,7 @@
 // they typing in, are they busy". Every rule about an agent and the person's keys reads it: the dispatcher's actor
 // rule (src/surface/dispatch.ts), the layout engine's `ctx.person` (src/desk/screen-layout.ts, the desk's and the
 // host layer's), and through them the draft session's rule. Before, each screen asked its own questions
-// (personTyping, holdsKeys, personIn, isEntered, dockHoldsKeys, holdsFocus, `=== this.focus`) and each rule picked
+// (holdsKeys, personIn, isEntered, dockHoldsKeys, holdsFocus, `=== this.focus`) and each rule picked
 // some of them; now a screen says once where the person's keys are on it (`Screen.keys`), the App adds the host
 // layer, the shell and the clock, and every rule asks the same thing.
 

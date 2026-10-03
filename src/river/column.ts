@@ -684,7 +684,7 @@ export const COLUMN_ACTIONS = new ActionSet<{
       if (!v) throw new ActionRefused(`the selected note in ${tile} has no ${key}::; pass value=`);
       if (!desk.within) throw new ActionRefused("a column of the same property opens on a screen with tiles");
       const r = await desk.within("tile.open", { kind: "river.column", source: `tag:${key}=${v}`, where: "next" }, actor, pane) as { tile: string };
-      if (actor.kind !== "agent") await desk.within("tile.focus", {}, actor, desk.paneNamed?.(r.tile));
+      if (actor.kind !== "agent") await desk.within("tile.focus", {}, actor, desk.pane?.(r.tile));
       return { tile: r.tile, from: tile, key, value: v };
     },
   },
@@ -698,7 +698,7 @@ export const COLUMN_ACTIONS = new ActionSet<{
       if (!m) throw new ActionRefused(`nothing is selected in ${tile}`);
       if (!desk.within) throw new ActionRefused("a column splits on a screen with tiles");
       const r = await desk.within("tile.open", { kind: "river.column", source: `block:${m.id}`, where: "down" }, actor, pane) as { tile: string };
-      if (actor.kind !== "agent") await desk.within("tile.focus", {}, actor, desk.paneNamed?.(r.tile));
+      if (actor.kind !== "agent") await desk.within("tile.focus", {}, actor, desk.pane?.(r.tile));
       return { tile: r.tile, from: tile, id: m.id };
     },
   },

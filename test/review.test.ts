@@ -237,7 +237,7 @@ describe.skipIf(!outliner)("the review's findings, against a scratch outline", (
     expect(got.length).toBe(4);
     expect(D().prefix).toBe("");
     expect(D().layoutName).toBe("terminal-day");
-    expect(D().personTyping()).toBe(true);
+    expect(D().holdsKeys()).toBe(true);
     await expect(act("tile.focus", {}, "middle")).rejects.toThrow(/the person is typing/);
     t.holdsKeys = () => false;
     D().closeId(idOf("kanban"));

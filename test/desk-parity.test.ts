@@ -89,11 +89,11 @@ describe.skipIf(!outliner)("the desk's keys are actions, and agents' runs of the
     await expect(act("tile.enter", {}, "shell")).rejects.toThrow(/tile\.type/);
     await D().dispatch.act({ action: "tile.focus", args: {}, tile: "shell" }, { kind: "user" });
     expect(await ran(char("e"))).toEqual(["tile.enter"]);
-    expect(D().inPty()).toBe(true);
+    expect(D().rawKeys()).toBe(true);
     await expect(act("tile.leave")).rejects.toThrow(/keys are theirs/);
-    expect(D().inPty()).toBe(true);
+    expect(D().rawKeys()).toBe(true);
     expect(await ran(ctrl("]"))).toEqual(["tile.leave"]);
-    expect(D().inPty()).toBe(false);
+    expect(D().rawKeys()).toBe(false);
   });
 
   test("a terminal's actions are its kind's (PIE-510): keys, a click and act reach them through the registry", async () => {
@@ -115,9 +115,9 @@ describe.skipIf(!outliner)("the desk's keys are actions, and agents' runs of the
     const stop = traceActions(x => runs.push(x));
     try { key({ kind: "mouse", action: "down", button: 0, x: r.col + 3, y: r.row + 2 }); key({ kind: "mouse", action: "up", button: 0, x: r.col + 3, y: r.row + 2 }); await Bun.sleep(20); } finally { stop(); }
     expect(runs.filter(x => x.name === "tile.enter").map(x => x.scope)).toEqual(["terminal"]);
-    expect(D().inPty()).toBe(true);
+    expect(D().rawKeys()).toBe(true);
     await D().dispatch.act({ action: "tile.leave", args: {} }, { kind: "user" });
-    expect(D().inPty()).toBe(false);
+    expect(D().rawKeys()).toBe(false);
   });
 
   test("a terminal's ⏎ runs tile.enter; an agent's tile.type with no reader never guesses between terminals", async () => {

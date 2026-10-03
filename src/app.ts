@@ -156,12 +156,10 @@ export interface Screen {
    * (`ep0ch-door actions` lists them). A screen without one has only the shell's.
    */
   readonly dispatch?: Dispatcher;
-  /** Every key is the screen's, ctrl+c included: the person is typing in a terminal tile (PIE-417). */
+  /** Every key is the screen's, ctrl+c included, and a paste goes to it whole: the person is typing in a terminal tile (PIE-417). */
   rawKeys?(): boolean;
   /** Where raw input bytes go right now (a running terminal tile the person is in), or null to decode keys. */
   rawInput?(): ((bytes: string) => void) | null;
-  /** The screen takes a paste whole (`{kind:"paste"}`); otherwise App gives it the pasted text as keys. */
-  acceptsPaste?(): boolean;
   /** Leaving the screen would end something (programs running in tiles): said, and asked twice. */
   leaveWarning?(): string | null;
   /**
@@ -615,7 +613,7 @@ export class App implements Ctx {
     // alt+v and alt+t turn the video mode and the theme on every screen (but in a terminal tile, whose keys are its program's).
     if (k.kind === "alt" && (k.ch === "v" || k.ch === "t") && !this.stack.at(-1)?.rawKeys?.()) { void this.dispatch.press(k.ch === "v" ? "video.cycle" : "theme.cycle"); return; }
     // A paste goes whole to a screen that takes it (a terminal tile); anywhere else it's typed, key by key.
-    if (k.kind === "paste" && !this.stack.at(-1)?.acceptsPaste?.()) {
+    if (k.kind === "paste" && !this.stack.at(-1)?.rawKeys?.()) {
       for (const key of pasteKeys(k.text)) this.key(key);
       return;
     }

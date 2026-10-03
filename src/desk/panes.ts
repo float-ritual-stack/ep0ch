@@ -58,7 +58,7 @@ export interface DeskApi {
   /** The keys to tile `p`, as `tile.focus` gives them; an agent's never moves them. */
   focusPane?(p: Pane, actor: Actor): void;
   /** The person's keys are held here right now (typing, a picker, a ^W chord): a screen's own key waits. */
-  personTyping?(): boolean;
+  holdsKeys?(): boolean;
   /** Tile `p` is on screen now (not in a shut drawer, not a hidden tab). */
   shownNow?(p: Pane): boolean;
   /** Where back (-1) or forward (1) from tile `p`'s column of a flow goes: that column's tile's title, or null. */
@@ -68,7 +68,7 @@ export interface DeskApi {
   /** How tile `p` shows in its flow: full, peek or spine (undefined outside one). */
   coverOf?(p: Pane): "full" | "peek" | "spine" | undefined;
   /** The tile named `name` on this screen. */
-  paneNamed?(name: string): Pane | undefined;
+  pane?(name: string): Pane | undefined;
   /** Tile `p`'s name (what `tile=` and `open from=` take). */
   nameOfPane?(p: Pane): string;
   /** Tile `p` is in a drawer (not docked in the layout). */

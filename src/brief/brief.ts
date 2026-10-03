@@ -79,7 +79,7 @@ export class BriefReader extends ReaderPane {
   /** `,` and `.` step a day (brief.step), wherever the brief is (its own screen, a tile on the desk), unless the person types. */
   override key(k: Key, desk: DeskApi): boolean {
     const c = ch(k);
-    if ((c === "," || c === ".") && !this.holdsKeys && !desk.personTyping?.()) { void desk.press?.(this, BRIEF_ACTIONS, "brief.step", { by: c === "," ? -1 : 1 }); return true; }
+    if ((c === "," || c === ".") && !this.holdsKeys && !desk.holdsKeys?.()) { void desk.press?.(this, BRIEF_ACTIONS, "brief.step", { by: c === "," ? -1 : 1 }); return true; }
     return super.key(k, desk);
   }
   /** The desk's current note changed: the brief stays. */

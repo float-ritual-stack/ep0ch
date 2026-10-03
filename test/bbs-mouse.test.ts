@@ -11,8 +11,11 @@ import { members, packs } from "../src/packs";
 import { ArtViewer, Conferences, FileAreas, Goodbye, Help, Logon, MainMenu, MessageList, MessageReader, Stats } from "../src/screens";
 import { Showcase } from "../src/showcase/showcase";
 import { Desk } from "../src/desk/desk";
+import { openScreen } from "../src/desk/screen-specs";
 import type { Activity } from "../src/socket";
 import type { Key } from "../src/term";
+import { hintSpots, keyName, keyOfName } from "../src/surface/actions";
+import { C, fg, paint, RESET } from "../src/style";
 
 const plain = (s: string) => s.replace(/\x1b\[[\d;]*m/g, "");
 const tick = () => new Promise(r => setTimeout(r, 0));
@@ -30,7 +33,7 @@ function door(cols = 120, rows = 40) {
     board: {
       changedSince: async () => MSGS, children: async () => [MSGS[2]!], roots: async () => MSGS.slice(0, 2),
       activity: async (): Promise<Activity[]> => MSGS.map((m, i) => ({ cursor: i, block: m, author: "user", actor: m.author!, kind: "edit", at: m.updatedAt })),
-      callers: async () => [], clientId: "me",
+      callers: async () => [], index: async () => [], ancestors: async () => [], clientId: "me",
     },
     push(s: Screen) { stack.push(s); }, pop() { stack.pop(); }, replace(s: Screen) { stack.pop(); stack.push(s); },
     redraw() {}, flash() {}, quit() {}, cycleVideo() {},
@@ -318,4 +321,71 @@ describe("the BBS screens with keys and no mouse, until now", () => {
     s.mouse("down", 5, 5); s.mouse("up", 5, 5);
     expect(s.top()).toBeInstanceOf(MainMenu);
   });
+});
+
+describe("the desk's screens are left by mouse too: the hint row's keys are clickable", () => {
+  for (const name of ["who", "lastcall", "waiting", "brief", "welcome", "river"]) test(`${name}: a click on "q menu" goes back, as q does`, async () => {
+    const s = on(new MainMenu());
+    const desk = openScreen(name);
+    s.stack.push(desk); desk.enter?.(s.ctx);
+    await tick();
+    // A row too narrow for every part: "? more" shows them all above it, each as clickable.
+    if (!s.lines().some(l => l.includes("q menu"))) s.click("? more");
+    const rows = s.lines();
+    const y = rows.findLastIndex(l => l.includes("q menu"));
+    expect(y).toBeGreaterThan(0);
+    s.mouse("down", rows[y]!.indexOf("q menu") + 2, y); s.mouse("up", rows[y]!.indexOf("q menu") + 2, y);
+    await tick();
+    expect(s.top()).toBeInstanceOf(MainMenu);
+  });
+
+  test("a click on a part that names no key does nothing", () => {
+    const s = on(new MainMenu());
+    const desk = openScreen("who");
+    s.stack.push(desk); desk.enter?.(s.ctx);
+    const rows = s.lines();
+    const y = rows.findLastIndex(l => l.includes("drag a title"));
+    s.mouse("down", rows[y]!.indexOf("drag a title") + 1, y);
+    expect((s.top() as Desk).spec.name).toBe("who");
+  });
+});
+
+describe("a hint row's clickable keys (hintSpots)", () => {
+  const KEY = [fg(C.white), fg(C.grey)];
+  test("a part that starts with one key drawn as a key is one; several keys, a gesture, a subject or a status isn't", () => {
+    const row = paint("|08 Tab/1-9 focus · |15^W|08 window · |15j k|08 scroll · |15drag|08 a title moves · |15q|08 menu · |03a quick idea · |14zoomed");
+    const spots = hintSpots(row, KEY);
+    expect(spots.map(s => keyName(s.key))).toEqual(["ctrl+w", "q"]);
+    expect(plain(row).slice(spots[1]!.from, spots[1]!.to)).toBe("q menu");
+    // An edit's own hint is grey through: its words are what the keys do there, never a click that types them.
+    expect(hintSpots(fg(C.grey) + "ctrl+s save · esc done · tab indent" + RESET, KEY)).toEqual([]);
+  });
+
+  test("keyOfName is keyName's inverse", () => {
+    for (const n of ["q", "Q", "?", "space", "enter", "esc", "tab", "shift+tab", "backspace", "delete", "pgup", "pgdn", "home", "end", "up", "down", "left", "right", "alt+enter", "shift+enter", "ctrl+enter", "alt+left", "alt+right", "ctrl+w", "alt+k", "super+c"])
+      expect(keyName(keyOfName(n)!)).toBe(n);
+    expect(keyOfName("click")).toBeNull();
+  });
+
+  test("a ^W chord's keys box takes clicks too: m there is ^W m", () => {
+    const s = on(new MainMenu(), door(80, 30));
+    const desk = openScreen("who") as Desk;
+    s.stack.push(desk); desk.enter(s.ctx);
+    s.key({ kind: "char", ch: "w", ctrl: true });
+    s.click("m move");
+    expect(s.lines().some(l => l.includes("move beside"))).toBe(true);
+  });
+});
+
+test("under the desk's own overlay (the search) the hint row's keys aren't clicks: the overlay keeps the click", () => {
+  const s = on(new MainMenu());
+  const desk = openScreen("who") as Desk;
+  s.stack.push(desk); desk.enter(s.ctx);
+  s.key({ kind: "char", ch: "/" });
+  expect(s.lines().some(l => l.includes("search the board"))).toBe(true);
+  const rows = s.lines(), y = rows.findLastIndex(l => l.includes("q menu"));
+  if (y >= 0) s.mouse("down", rows[y]!.indexOf("q menu") + 2, y);
+  // The overlay took the click (a click outside it puts it away); nothing was typed into its filter.
+  expect(s.top()).toBe(desk);
+  expect((desk as any).overlays.top()?.spec.input?.text ?? "").toBe("");
 });

@@ -224,7 +224,7 @@ describe.skipIf(!outliner)("the agent interface, against a scratch outline", () 
       await mine("tile.focus", "tree");
       await act("open", { id: fence }, "side");
       await until(() => desk.dispatch.tile("side")?.shows === fence, "the note in side");
-      const side = () => (desk.paneNamed("side") as ReaderPane).surface;
+      const side = () => (desk.pane("side") as ReaderPane).surface;
       await until(() => side().describe().links.length === 2, "its links");
       // A web link: the agent is given the address; nothing outside the door opens, and the screen says so.
       expect(await act("link.follow", { n: 1 }, "side")).toMatchObject({ opened: null, outside: "browser", url: "https://example.invalid/fence", launched: false });
@@ -247,7 +247,7 @@ describe.skipIf(!outliner)("the agent interface, against a scratch outline", () 
   }, 20_000);
 
   test("an open naming no tile lands where opens land, even the note the person reads: said on screen, never their keys, never a reader they type in", async () => {
-    const mid = () => (desk.paneNamed("middle") as ReaderPane);
+    const mid = () => (desk.pane("middle") as ReaderPane);
     // The person on the tree, whose opens land in middle: the agent's tile-less open shows the note there (the
     // designed "show the person" path), their keys stay on the tree, and it's said on the status bar.
     await mine("tile.focus", "tree");

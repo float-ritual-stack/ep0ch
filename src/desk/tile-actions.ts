@@ -7,6 +7,7 @@
 import type { Actor } from "../socket";
 import { ActionRefused, ActionSet } from "../surface/actions";
 import { EDGE_WORD, isDir, type Axis, type Dir, type Policy } from "./screen-layout";
+import type { Desk } from "./desk";
 import { tileNoun, type TileKindName } from "./tile-kinds";
 
 export type Where = Dir | "tabs" | "next" | "edge-left" | "edge-right" | "edge-up" | "edge-down";
@@ -26,54 +27,11 @@ export interface TileDone { tile: string; [k: string]: unknown }
 export interface NewTile { kind: TileKindName; name?: string; cmd?: string; file?: string; source?: string; note?: string; page?: string; cwd?: string; view?: string }
 
 /**
- * The view that holds the tiles (the desk). `sel` names a tile by name, by id (`t4`), by its number on screen
- * (`#3`) or `focused` (PIE-491). Any of its actions takes `expected=<rev>`, checked before it runs.
- */
-export interface TileHost {
-  ctx: { flash(msg: string): void };
-  moveTile(sel: string | undefined, to: string | undefined, where: Where, index: number | undefined, actor: Actor): TileDone;
-  openTile(t: NewTile, at: string | undefined, where: Where, actor: Actor): TileDone | Promise<TileDone>;
-  closeTile(sel: string | undefined, actor: Actor): TileDone;
-  resizeTile(sel: string | undefined, axis: Axis, by: number, actor: Actor): TileDone;
-  zoomTile(sel: string | undefined, on: boolean | undefined, actor: Actor): TileDone;
-  floatTile(sel: string | undefined, actor: Actor): TileDone;
-  linkTile(sel: string | undefined, to: string | undefined, actor: Actor): TileDone;
-  selectTab(sel: string | undefined, by: number | undefined, actor: Actor): TileDone;
-  focusTile(sel: string | undefined, actor: Actor): TileDone;
-  pinTile(sel: string | undefined, on: boolean | undefined, edge: Dir | "other" | undefined, actor: Actor, container?: string): TileDone;
-  collapseTile(sel: string | undefined, on: boolean | undefined, actor: Actor): TileDone;
-  widenTile(sel: string | undefined, actor: Actor): TileDone;
-  travelTile(sel: string | undefined, dir: -1 | 1, actor: Actor): TileDone;
-  dockTile(sel: string | undefined, on: boolean | undefined, actor: Actor): TileDone;
-  neighbourOf(sel: string | undefined, dir: Dir): string;
-  placeFloat(sel: string | undefined, a: { dx?: number; dy?: number; col?: number; row?: number; cols?: number; rows?: number }, actor: Actor): TileDone;
-  lockScreen(on: boolean | undefined, actor: Actor): { locked: boolean; changed: boolean };
-  setPolicy(sel: string | undefined, node: string | undefined, set: Policy, clear: string[], actor: Actor): { node: string; policy: Policy };
-  policyGet(sel: string | undefined): unknown;
-  drawerTile(sel: string | undefined, open: boolean | undefined, actor: Actor, container?: string): TileDone;
-  previewTile(sel: string | undefined, where: Where, actor: Actor): TileDone | Promise<TileDone>;
-  tileInfo(sel: string | undefined): unknown;
-  saveLayout(name: string, actor: Actor): TileDone | { layout: string; [k: string]: unknown };
-  loadLayout(name: string, actor: Actor): { layout: string; [k: string]: unknown } | Promise<{ layout: string; [k: string]: unknown }>;
-  layouts(): unknown;
-  layoutGet(): unknown;
-  resizeBorder(at: { path?: string; split?: string }, border: number, share: number, actor: Actor): TileDone | { split: string | undefined; [k: string]: unknown };
-  evenOut(actor: Actor): { even: true };
-  swapTile(sel: string | undefined, to: string, actor: Actor): TileDone;
-  viewGet(sel: string | undefined): unknown;
-  scrollTo(sel: string | undefined, at: { line?: number; text?: string; block?: string }, actor: Actor): TileDone;
-  markBlock(sel: string | undefined, m: { id?: string; line?: number; reason: string }, actor: Actor): Promise<unknown>;
-  unmark(n: number | undefined, id: string | undefined, actor: Actor): Promise<unknown>;
-  marks(): unknown;
-  nextMark(actor: Actor): TileDone | { mark: null };
-}
-
-/**
  * What a tile action runs on: the desk, and the tile `tile=` named (by its name: the dispatcher read the grammar).
  * An agent's change is said on screen with who made it (each def's `says`); the person's own isn't (they see it
  * happen), unless it `confirms`: something the screen doesn't show (a layout saved, where a drag put a tile).
  */
-interface On { d: TileHost; reader?: string }
+interface On { d: Desk; reader?: string }
 
 const loadLayout = {
   summary: "replace the layout with the one saved by name (or the built-in daily, river, board or desk). Tiles with the same name and kind are kept as they are (a running program, a reader's note); a running program or an unsaved edit the new layout has no place for is kept as a shut drawer, never ended. Refused to an agent while the person is typing",
@@ -151,8 +109,7 @@ export const TILE_ACTIONS = new ActionSet<{
     touches: "nothing", replay: "ask", confirms: true, says: (_, a) => `saved the layout as ${a.name}`,
     args: { name: { type: "string", about: "the name to save it under (daily replaces the built-in daily)" } },
     run({ name }, { d }, actor) {
-      const r = d.saveLayout(name, actor);
-      return r;
+      return d.saveLayout(name, actor);
     },
   },
   "layout.load": loadLayout,
@@ -167,8 +124,7 @@ export const TILE_ACTIONS = new ActionSet<{
       index: { type: "number", optional: true, about: "with where=tabs: the place among the tabs (0 first)" },
     },
     run({ to, where, index }, { d, reader }, actor) {
-      const r = d.moveTile(reader, to, whereOf(where, "layout.move", "right"), index, actor);
-      return r;
+      return d.moveTile(reader, to, whereOf(where, "layout.move", "right"), index, actor);
     },
   },
   "tile.open": {
@@ -189,8 +145,7 @@ export const TILE_ACTIONS = new ActionSet<{
       where: { type: "string", optional: true, about: "left, right, up, down or tabs (default right); next: the column after its own in a flow" },
     },
     async run({ kind, to, where, ...t }, { d, reader }, actor) {
-      const r = await d.openTile({ kind: kind as TileKindName, ...t }, to ?? reader, whereOf(where, "tile.open", "right"), actor);
-      return r;
+      return await d.openTile({ kind: kind as TileKindName, ...t }, to ?? reader, whereOf(where, "tile.open", "right"), actor);
     },
   },
   "tile.close": {
@@ -199,8 +154,7 @@ export const TILE_ACTIONS = new ActionSet<{
     touches: "shape", replay: "ask", says: r => `closed ${r.tile}`,
     args: {},
     run(_, { d, reader }, actor) {
-      const r = d.closeTile(reader, actor);
-      return r;
+      return d.closeTile(reader, actor);
     },
   },
   "tile.resize": {
@@ -211,8 +165,7 @@ export const TILE_ACTIONS = new ActionSet<{
     run({ by, axis }, { d, reader }, actor) {
       if (!Number.isInteger(by) || by === 0 || Math.abs(by) > 20) throw new ActionRefused("tile.resize: by is a whole number of steps, -20 to 20, not 0");
       if (axis !== undefined && axis !== "row" && axis !== "col") throw new ActionRefused(`tile.resize: axis is row (across) or col (down), not ${axis}`);
-      const r = d.resizeTile(reader, (axis ?? "row") as Axis, by, actor);
-      return r;
+      return d.resizeTile(reader, (axis ?? "row") as Axis, by, actor);
     },
   },
   "tile.zoom": {
@@ -221,8 +174,7 @@ export const TILE_ACTIONS = new ActionSet<{
     touches: "shape", replay: "safe", says: r => `${r.zoomed ? "zoomed" : "unzoomed"} ${r.tile}`,
     args: { on: { type: "boolean", optional: true, about: "true zooms, false unzooms; default toggles" } },
     run({ on }, { d, reader }, actor) {
-      const r = d.zoomTile(reader, on, actor);
-      return r;
+      return d.zoomTile(reader, on, actor);
     },
   },
   "tile.float": {
@@ -231,8 +183,7 @@ export const TILE_ACTIONS = new ActionSet<{
     touches: "shape", replay: "safe", says: r => `${r.floated ? "popped out" : "docked"} ${r.tile}`,
     args: {},
     run(_, { d, reader }, actor) {
-      const r = d.floatTile(reader, actor);
-      return r;
+      return d.floatTile(reader, actor);
     },
   },
   "tile.link": {
@@ -241,8 +192,7 @@ export const TILE_ACTIONS = new ActionSet<{
     touches: "shape", replay: "safe", says: (r, a) => (a.to ? `linked ${r.tile} → ${a.to}` : `unlinked ${r.tile}`),
     args: { to: { type: "string", optional: true, tile: true, about: "the tile its opens land in; left out, the link is taken away" } },
     run({ to }, { d, reader }, actor) {
-      const r = d.linkTile(reader, to, actor);
-      return r;
+      return d.linkTile(reader, to, actor);
     },
   },
   "tile.focus": {
@@ -252,8 +202,7 @@ export const TILE_ACTIONS = new ActionSet<{
     args: { dir: { type: "string", optional: true, about: "left, right, up or down: the tile that way from tile= (in a flow: the column before or after)" } },
     run({ dir }, { d, reader }, actor) {
       if (dir !== undefined && !isDir(dir)) throw new ActionRefused(`tile.focus: dir is left, right, up or down, not ${dir}`);
-      const r = d.focusTile(dir ? d.neighbourOf(reader, dir) : reader, actor);
-      return r;
+      return d.focusTile(dir ? d.neighbourOf(reader, dir) : reader, actor);
     },
   },
   "tile.pin": {
@@ -263,8 +212,7 @@ export const TILE_ACTIONS = new ActionSet<{
     args: { on: { type: "boolean", optional: true, about: "false puts it in a drawer, true docks it again" }, edge: { type: "string", optional: true, about: "left, right, up or down: the outer edge the drawer slides from; other: the opposite side to where it is (docked, it stays docked there)" }, container: { type: "string", optional: true, about: "a split (s<n>) to put in the drawer whole, instead of the tile's own slot" } },
     run({ on, edge, container }, { d, reader }, actor) {
       if (edge !== undefined && !isDir(edge) && edge !== "other") throw new ActionRefused(`tile.pin: edge is left, right, up, down or other, not ${edge}`);
-      const r = d.pinTile(reader, on, edge as Dir | "other" | undefined, actor, container);
-      return r;
+      return d.pinTile(reader, on, edge as Dir | "other" | undefined, actor, container);
     },
   },
   "tile.collapse": {
@@ -275,8 +223,7 @@ export const TILE_ACTIONS = new ActionSet<{
     touches: "shape", replay: "safe", says: r => (r.changed === false ? null : `${r.collapsed ? "folded" : "opened"} ${r.tile}`),
     args: { on: { type: "boolean", optional: true, about: "true folds it, false opens it; default toggles" } },
     run({ on }, { d, reader }, actor) {
-      const r = d.collapseTile(reader, on, actor);
-      return r;
+      return d.collapseTile(reader, on, actor);
     },
   },
   "tile.travel": {
@@ -302,8 +249,7 @@ export const TILE_ACTIONS = new ActionSet<{
     touches: "shape", replay: "safe", says: r => `widened ${r.tile}`,
     args: {},
     run(_, { d, reader }, actor) {
-      const r = d.widenTile(reader, actor);
-      return r;
+      return d.widenTile(reader, actor);
     },
   },
   "float.place": {
@@ -316,8 +262,7 @@ export const TILE_ACTIONS = new ActionSet<{
       cols: { type: "number", optional: true, about: "its width" }, rows: { type: "number", optional: true, about: "its height" },
     },
     run(args, { d, reader }, actor) {
-      const r = d.placeFloat(reader, args, actor);
-      return r;
+      return d.placeFloat(reader, args, actor);
     },
   },
   "layout.lock": {
@@ -326,8 +271,7 @@ export const TILE_ACTIONS = new ActionSet<{
     touches: "shape", replay: "safe", confirms: true, says: r => (r.changed ? (r.locked ? "locked the screen (alt+k unlocks)" : "unlocked the screen") : null),
     args: { on: { type: "boolean", optional: true, about: "true locks, false unlocks; default toggles" } },
     run({ on }, { d }, actor) {
-      const r = d.lockScreen(on, actor);
-      return r;
+      return d.lockScreen(on, actor);
     },
   },
   "layout.policy": {
@@ -366,8 +310,7 @@ export const TILE_ACTIONS = new ActionSet<{
     touches: "shape", replay: "safe", says: r => `${r.open ? "opened" : "shut"} drawer ${r.tile}`,
     args: { open: { type: "boolean", optional: true, about: "true opens it, false shuts it" }, container: { type: "string", optional: true, about: "the drawer's id (d<n>), when it isn't the innermost one holding tile=" } },
     run({ open, container }, { d, reader }, actor) {
-      const r = d.drawerTile(reader, open, actor, container);
-      return r;
+      return d.drawerTile(reader, open, actor, container);
     },
   },
   "tile.preview": {
@@ -376,8 +319,7 @@ export const TILE_ACTIONS = new ActionSet<{
     touches: "shape", replay: "safe", says: r => `opened ${tileNoun("preview", r.tile)}`,
     args: { where: { type: "string", optional: true, about: "left, right, up, down or tabs (default right)" } },
     async run({ where }, { d, reader }, actor) {
-      const r = await d.previewTile(reader, whereOf(where, "tile.preview", "right"), actor);
-      return r;
+      return await d.previewTile(reader, whereOf(where, "tile.preview", "right"), actor);
     },
   },
   "tile.info": {
@@ -402,13 +344,13 @@ export const TILE_ACTIONS = new ActionSet<{
     summary: "every split shares its room equally", keys: "^W =",
     touches: "shape", replay: "safe", says: () => "evened out the layout",
     args: {},
-    run(_, { d }, actor) { const r = d.evenOut(actor); return r; },
+    run(_, { d }, actor) { return d.evenOut(actor); },
   },
   "layout.swap": {
     summary: "tile=<tile> and tile to=<tile> trade places", keys: "^W s (the next tile)",
     touches: "shape", replay: "safe", says: (r, a) => `swapped ${r.tile} and ${a.to}`,
     args: { to: { type: "string", tile: true, about: "the tile it trades places with" } },
-    run({ to }, { d, reader }, actor) { const r = d.swapTile(reader, to, actor); return r; },
+    run({ to }, { d, reader }, actor) { return d.swapTile(reader, to, actor); },
   },
   "view.get": {
     summary: "what each tile has in view: a reader's note and its lines in view (first, last) with the scroll; the outline's selected row; a terminal's screen, and for nvim its cursor, lines in view and file; tile=<tile> for one",
@@ -420,21 +362,21 @@ export const TILE_ACTIONS = new ActionSet<{
     summary: "scroll tile=<tile> so a note line (line=<n>, 1 the subject) or the first line with text=<words> is at the top. It moves what's in view, not the person's [ ] position, selection or keys. block=<id> checks the tile shows that note (open it there first: open id=… tile=…)",
     touches: "tile", while: "typing", replay: "safe", way: "an agent doesn't scroll the reader they type in", says: r => `scrolled ${r.tile}`,
     args: { line: { type: "number", optional: true, about: "the note line to bring to the top" }, text: { type: "string", optional: true, about: "or: the first line with these words" }, block: { type: "string", optional: true, about: "the note the tile must be showing" } },
-    run(at, { d, reader }, actor) { const r = d.scrollTo(reader, at, actor); return r; },
+    run(at, { d, reader }, actor) { return d.scrollTo(reader, at, actor); },
   },
   "block.mark": {
     summary: "an attention mark, with the reason and who set it: on block id=<id> (default: the note tile=<tile> shows), framed and labelled in every tile that shows it; or on line=<n> of an nvim tile (tile=<tile>), as an extmark with virtual text. It stays until dismissed and never moves the person's focus, selection or cursor",
     keys: "alt+m steps through marks; a click on a tile's ◆ label dismisses it",
     touches: "nothing", replay: "safe", says: (_, a) => `marked: ${a.reason}`,
     args: { id: { type: "string", optional: true, about: "the block (note) id" }, line: { type: "number", optional: true, about: "an nvim tile's line (1-based)" }, reason: { type: "string", about: "what it's about, in a few words (\"needs your call\")" } },
-    async run(m, { d, reader }, actor) { const r = await d.markBlock(reader, m, actor); return r; },
+    async run(m, { d, reader }, actor) { return await d.markBlock(reader, m, actor); },
   },
   "block.unmark": {
     summary: "dismiss mark n=<n> (marks.list numbers them), or every mark on block id=<id>, or (neither) the marks on what tile=<tile> shows",
     keys: "a click on a tile's ◆ label; alt+x dismisses the focused tile's",
     touches: "nothing", replay: "safe", says: () => "dismissed a mark",
     args: { n: { type: "number", optional: true, about: "the mark's number" }, id: { type: "string", optional: true, about: "a block id" } },
-    async run({ n, id }, { d, reader }, actor) { void reader; const r = await d.unmark(n, id, actor); return r; },
+    async run({ n, id }, { d, reader }, actor) { return await d.unmark(n, id, actor); },
   },
   "marks.list": {
     summary: "every attention mark: its number, block or tile and line, reason, who set it, when, and the tiles showing it",
@@ -456,8 +398,7 @@ export const TILE_ACTIONS = new ActionSet<{
     args: { by: { type: "number", optional: true, about: "1 next, -1 previous; left out, that tab is shown" } },
     run({ by }, { d, reader }, actor) {
       if (by !== undefined && by !== 1 && by !== -1) throw new ActionRefused("tab.select: by is 1 or -1");
-      const r = d.selectTab(reader, by, actor);
-      return r;
+      return d.selectTab(reader, by, actor);
     },
   },
 });

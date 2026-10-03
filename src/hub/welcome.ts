@@ -258,7 +258,7 @@ export class WelcomeList implements Pane {
     const other = d.msg?.id !== m.id, pv = this.preview(desk);
     if (other) d.surface.track(() => d.hold(m, desk));
     if (pv && (pv.msg?.id === m.id || (other && actor.kind !== "agent"))) pv.show(null, desk);
-    if (focus && actor.kind !== "agent" && !desk.personTyping?.()) desk.focusPane?.(d, actor);
+    if (focus && actor.kind !== "agent" && !desk.holdsKeys?.()) desk.focusPane?.(d, actor);
     const items = this.items ?? [], i = items.findIndex(x => x.id === m.id);
     const s: Shown = { id: m.id, title: subject(m), welcome: m.props[WELCOME_KEY] ?? null, n: i >= 0 ? i + 1 : null, of: items.length };
     desk.redraw();
