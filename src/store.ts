@@ -22,8 +22,10 @@ import { extensionActorId, extensionWriteRefusal, type ExtensionRecordOwner } fr
 import { authoredTextDigest } from "./authored-links";
 import { resolveBacklinkRelation } from "./backlinks";
 import { rankBlockFocusMatches } from "./block-focus";
+import { rankTextSearchMatches, searchTextTerms } from "./search-match";
 import { normalizeBlockReadFields, normalizeBlockReadIds, projectBlock } from "./block-projection";
 import { gotoCandidates } from "./goto-search";
+import { contextList, searchContext, sortByContext, type SearchContext } from "./search-context";
 import {
   BOOKMARKS_SYSTEM_VIEW,
   BOOKMARK_TYPE,
@@ -125,6 +127,8 @@ import type {
   PageAddressFollowResult,
   PageAddressKind,
   PageAddressMatch,
+  BlockCollectionCompleteness,
+  GotoSearchCollection,
   PageAddressRecord,
   PageAddressRemoval,
   PageAddressResolution,
@@ -2819,46 +2823,90 @@ export class OutlinerStore {
     })();
   }
 
-  completePageAddresses(query: string | undefined, requestedLimit: number): PageAddressCollection {
+  /**
+   * Named addresses for `[[`, best first. With a query, the shared search ranker (src/search-match.ts) matches
+   * it against each address and its note's title, so `[[fat cats` finds the Work ID of "Fat cats in party
+   * hats" and `[[gardn bed` finds `garden-beds`; equal matches go page, Work ID, alias, then by address.
+   */
+  completePageAddresses(query: string | undefined, requestedLimit: number, contextBlockId?: string): PageAddressCollection & { context?: GotoSearchCollection["context"] } {
+    const { addresses, completeness, context } = this.rankPageAddresses(query, requestedLimit, contextBlockId);
+    return { addresses: addresses.map(({ exact: _exact, ...address }) => address), completeness, ...(context ? { context } : {}) };
+  }
+
+  /** Whether `normalizedAddress` still names `blockId`, a live note (after a Jev ranking, which takes seconds). */
+  pageAddressLive(normalizedAddress: string, blockId: string): boolean {
+    return !!this.database.query(`
+      SELECT 1 FROM page_addresses address JOIN blocks block ON block.id = address.block_id
+      WHERE address.normalized_address = ? AND address.block_id = ? AND block.effective_deleted_root_id IS NULL
+    `).get(normalizedAddress, blockId);
+  }
+
+  /**
+   * `completePageAddresses`, each address saying whether it is the query itself (Jev never reorders those).
+   * With `contextBlockId` (the note being edited), addresses whose notes are nearer it come first inside each
+   * rung, then the more recently edited; an empty query starts with what its parent and siblings link to,
+   * then notes near it, then the person's recent edits.
+   */
+  rankPageAddresses(query: string | undefined, requestedLimit: number, contextBlockId?: string): { addresses: (PageAddressMatch & { exact: boolean })[]; completeness: BlockCollectionCompleteness; context?: GotoSearchCollection["context"] } {
     if (!Number.isInteger(requestedLimit) || requestedLimit <= 0) {
       throw new Error("Page address completion limit must be a positive integer");
     }
+    if (typeof query === "string" && query.length > 500) throw new Error("Page address query must be at most 500 characters");
     const limit = Math.min(requestedLimit, 100);
-    let normalizedQuery = "";
     try {
-      normalizedQuery = query?.trim()
-        ? normalizePageAddress(query).normalizedAddress
-        : "";
+      if (query?.trim()) normalizePageAddress(query);
     } catch {
       return { addresses: [], completeness: { kind: "complete" } };
     }
-    const rows = this.database.query(`
-      SELECT address.normalized_address, address.display_address, address.block_id, address.kind, block.text
-      FROM page_addresses address
-      JOIN blocks block ON block.id = address.block_id
-      WHERE block.effective_deleted_root_id IS NULL
-        AND INSTR(address.normalized_address, ?) > 0
-      ORDER BY
-        CASE WHEN SUBSTR(address.normalized_address, 1, LENGTH(?)) = ? THEN 0 ELSE 1 END,
-        CASE address.kind WHEN 'page' THEN 0 WHEN 'work-id' THEN 1 ELSE 2 END,
-        address.normalized_address,
-        address.block_id
-      LIMIT ?
-    `).all(
-      normalizedQuery,
-      normalizedQuery,
-      normalizedQuery,
-      limit + 1,
-    ) as PageAddressMatchRow[];
-    const complete = rows.length <= limit;
-    const addresses: PageAddressMatch[] = rows.slice(0, limit).map((row) => ({
-      ...this.pageAddressRecord(row),
-      title: firstLineWithoutPropertyTokens(row.text)?.trim() || row.block_id,
-    }));
-    return {
-      addresses,
-      completeness: complete ? { kind: "complete" } : { kind: "truncated", limit },
-    };
+    return this.database.transaction(() => {
+      const rows = this.database.query(`
+        SELECT address.normalized_address, address.display_address, address.block_id, address.kind, block.text
+        FROM page_addresses address
+        JOIN blocks block ON block.id = address.block_id
+        WHERE block.effective_deleted_root_id IS NULL
+      `).all() as PageAddressMatchRow[];
+      const kindOrder = (kind: string) => kind === "page" ? 0 : kind === "work-id" ? 1 : 2;
+      const byAddress = (a: PageAddressMatchRow, b: PageAddressMatchRow) =>
+        kindOrder(a.kind) - kindOrder(b.kind) || a.normalized_address.localeCompare(b.normalized_address) || a.block_id.localeCompare(b.block_id);
+      const titleOf = (row: PageAddressMatchRow) => firstLineWithoutPropertyTokens(row.text)?.trim() || row.block_id;
+      let context: SearchContext | null = null;
+      let byId: Map<string, Block> = new Map();
+      if (contextBlockId !== undefined) {
+        byId = new Map([...this.loadGraph().byId].filter(([, block]) => !block.effectiveDeletedRootId && !block.deletedAt));
+        context = searchContext(byId, contextBlockId);
+      }
+      let ranked: { row: PageAddressMatchRow; exact: boolean }[];
+      if (query?.trim()) {
+        // No id: an address is found by what it says, never by the uuid of the note it names.
+        // A title's letters scattered in order (`text-fuzzy`) are too loose for an address: the address's own are kept.
+        const matches = rankTextSearchMatches(rows.map(row => ({ id: "", title: row.display_address, text: `${row.display_address}\n${titleOf(row)}`, row })), query.trim())
+          .filter(match => match.kind !== "text-fuzzy");
+        if (context) {
+          const sorted = sortByContext(matches.map(match => ({ match, block: byId.get(match.document.row.block_id)!, kind: match.kind, inTitle: match.inTitle, edits: match.edits })).filter(entry => entry.block), context,
+            (a, b) => byAddress(a.match.document.row, b.match.document.row));
+          ranked = sorted.map(({ match }) => ({ row: match.document.row, exact: match.kind === "exact-title" }));
+        } else {
+          ranked = matches.sort((a, b) => b.score - a.score || byAddress(a.document.row, b.document.row))
+            .map(match => ({ row: match.document.row, exact: match.kind === "exact-title" }));
+        }
+      } else {
+        rows.sort(byAddress);
+        if (context) {
+          const order = new Map(contextList([...byId.values()], byId, context, Infinity, reference => {
+            const resolved = this.resolvePageAddressFromCurrentRead(reference);
+            return resolved.status === "resolved" ? resolved.block?.id : undefined;
+          }).map(({ block }, index) => [block.id, index]));
+          const at = (row: PageAddressMatchRow) => order.get(row.block_id) ?? Number.MAX_SAFE_INTEGER;
+          rows.sort((a, b) => at(a) - at(b) || byAddress(a, b));
+        }
+        ranked = rows.map(row => ({ row, exact: false }));
+      }
+      return {
+        addresses: ranked.slice(0, limit).map(({ row, exact }) => ({ ...this.pageAddressRecord(row), title: titleOf(row), exact })),
+        completeness: ranked.length <= limit ? { kind: "complete" as const } : { kind: "truncated" as const, limit },
+        ...(context ? { context: { blockId: context.block.id, ...context.note } } : {}),
+      };
+    })();
   }
 
   renamePageAddress(
@@ -3331,7 +3379,7 @@ export class OutlinerStore {
   }
 
   focusTree(query: string): TreeFocusCollection {
-    if (typeof query !== "string") throw new Error("Tree focus query must be text");
+    if (typeof query !== "string" || query.length > 500) throw new Error("Tree focus query must be text of at most 500 characters");
     return this.database.transaction(() => {
       const blocks = [...this.loadGraph().byId.values()].filter(block => !block.effectiveDeletedRootId);
       const matches = rankBlockFocusMatches(blocks, query, 21);
@@ -3344,11 +3392,19 @@ export class OutlinerStore {
     })();
   }
 
-  searchTree(query: string) {
+  /** Goto's candidates for `query`; `contextBlockId` is the note it is asked from (see `search.context`). */
+  searchTree(query: string, contextBlockId?: string) {
     return this.database.transaction(() => {
       const normalized = typeof query === "string" ? tryNormalizePageAddress(query) : null;
       const address = normalized ? this.resolvePageAddressFromCurrentRead(normalized) : null;
-      return gotoCandidates([...this.loadGraph().byId.values()], query, address?.status === "resolved" ? address.block?.id : undefined);
+      return gotoCandidates([...this.loadGraph().byId.values()], query, {
+        exactAddressId: address?.status === "resolved" ? address.block?.id : undefined,
+        contextBlockId,
+        resolveAddress: reference => {
+          const resolved = this.resolvePageAddressFromCurrentRead(reference);
+          return resolved.status === "resolved" ? resolved.block?.id : undefined;
+        },
+      });
     })();
   }
 
@@ -3482,8 +3538,12 @@ export class OutlinerStore {
     }
     predicates.push("block.effective_deleted_root_id IS NULL");
     if (query.text) {
-      predicates.push("INSTR(LOWER(block.text), LOWER(?)) > 0");
-      parameters.push(query.text);
+      // Every word, in any order, punctuation folded (src/search-match.ts): "Claude now" finds "Claude - now".
+      // A query of punctuation alone is matched as typed.
+      for (const term of searchTextTerms(query.text)) {
+        predicates.push("INSTR(LOWER(block.text), LOWER(?)) > 0");
+        parameters.push(term);
+      }
     }
     const where = predicates.length > 0 ? `WHERE ${predicates.join(" AND ")}` : "";
     const selected = columns === "ids"
@@ -3769,7 +3829,8 @@ export class OutlinerStore {
     options: LoadedGraphTraversalOptions,
   ): VisibleBlock[] {
     const blocks: VisibleBlock[] = [];
-    const filterText = options.text?.toLowerCase();
+    // The same words the ranked path's SQL requires (searchTextTerms): every one, in any order.
+    const filterTerms = options.text ? searchTextTerms(options.text) : [];
     const deletedMode = options.deletedMode ?? "active";
     const propertyScope = options.propertyScope ?? "block";
     const where = options.where ? compileQueryExpression(options.where, options.now) : null;
@@ -3796,7 +3857,7 @@ export class OutlinerStore {
           matchesFilters(propertyRecords, options.filters, propertyScope)) &&
         (!where || where({ ...block, childProperties: () => (graph.byParent.get(block.id) ?? [])
           .filter((child) => !child.effectiveDeletedRootId).map((child) => child.properties) }, propertyRecords, propertyScope)) &&
-        (!filterText || block.text.toLowerCase().includes(filterText));
+        (!filterTerms.length || filterTerms.every(term => block.text.toLowerCase().includes(term)));
       if (matches) {
         const children = (graph.byParent.get(block.id) ?? []).filter((child) =>
           deletedMode === "active" ? !child.effectiveDeletedRootId : true

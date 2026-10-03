@@ -1160,6 +1160,65 @@ only its candidate's bounded evidence. At most two requests run concurrently,
 with a 2.2-second provider deadline. Model replies are validated and candidate
 revisions rechecked before returning the first 30 matches with completeness.
 
+### Forgiving search
+
+`src/search-match.ts` is the one text matcher: `tree.search` (Goto, Detail's and Quick Capture's `((`,
+and the door's `((` popup and search overlay), `tree.focus`, `inbox.search`, `pages.complete` (`[[`),
+the fragment search's note order, the Backlinks filter, Tree's branch filter and the virtual-branch
+navigator's filter all rank or filter with it (`matchesSearchText` for a list, with the query prepared
+once). Matching inside one note's text (a fragment's heading, an annotation's quote, a draft patch's
+observed span) and the action menu's command filter are not searches over notes and keep their own rules. It imports nothing; ep0ch-door keeps it byte for byte
+for filtering lists it already holds, and `ping` reports `searchMatch.version`. Capability
+`search.forgiving` names it.
+
+Both sides are folded first: NFKC, lower case, apostrophes dropped, every other run of punctuation,
+symbols and spaces made one space, so "Claude - now", "Claude—now" and "claude now" are equal. A
+document scores on the first rung it reaches; a rung is a tier, and nothing inside one lifts a match
+above it:
+
+| Rung | When |
+|---|---|
+| `exact-id`, `id-prefix` | the query is the id, or starts it (4 characters or more) |
+| `exact-title`, `title-prefix`, `title-contains` | the folded title is, starts with or holds the folded query |
+| `text-contains` | the folded text holds it |
+| `title-terms` | every term is in the title, any order |
+| `text-terms` | every term is in the title or text |
+| `typo-terms` | every term matches, at least one only within its typo budget |
+| `partial-terms` | all but one term matches (two terms or more) |
+| `some-terms` | fewer terms match as typed, one of them 3 characters or more |
+| `title-fuzzy`, `text-fuzzy` | the query's letters appear in order, close together |
+
+Terms are the folded query's words without filler words. A term's typo budget is a
+Damerau–Levenshtein distance (an adjacent swap is one edit) to a word, or for terms of 5 characters
+or more to the start of one: 1 for 4–7 characters, 2 for 8 or more. Shorter terms, terms without a
+letter (numbers, dates) and words under 4 characters match only as typed. `tree.focus` never focuses a
+`typo-terms`, `partial-terms` or `some-terms` match without asking, even a lone one. So a typo or a missing word never puts a note above one that
+holds every word as typed ("cats" finds "Fat cats" before "Cast list").
+
+Each note's folded text, words and title are cached by the text itself (two generations of 50,000
+strings, warm for an outline of ~25,000 notes), so a search folds only what changed. On a copy of a 1,900-note outline a warm `tree.search`
+takes 70–105 ms (of it ~35 ms reading the graph, 20–50 ms ranking), against ~150 ms for the
+substring-only matcher it replaced; the first search after a start, which fills the cache, ~335 ms.
+
+`pages.complete` ranks named addresses with the same matcher against each address and its note's
+title, so `[[fat cats` finds the Work ID of "Fat cats in party hats"; equal matches go page, Work ID,
+alias, then by address; a title's scattered letters (`text-fuzzy`) don't count for an address. It takes
+`semantic` as `tree.search` does (asynchronous dispatch only). `blocks.query` `text` matches every word
+(split where the matcher folds, apostrophes kept: `searchTextTerms`), in any order, the same on the SQL
+and the in-memory path, not one phrase.
+
+**From a note** (capability `search.context`): `tree.search` and `pages.complete` take
+`contextBlockId`, the note being edited. Inside each rung, a match with more of the query in its title
+still comes first (a title is better evidence than a mention in a body), then one with fewer typo
+edits; among equals, matches nearer the
+note in the physical tree come first (hops up from the note to the shared ancestor: its own subtree, then siblings', then cousins',
+then other roots; virtual branches don't count), then the more recently edited. An empty
+`tree.search` lists what the note's parent and siblings link to (`((id))` and `[[address]]`, the most
+recently edited linking note first; `reason: "linked"`), then notes within two hops, newest first
+(`near`), then the person's own recent edits (`yours`); an empty `pages.complete` puts those notes'
+addresses first. The answer names the note (`context`), and Jev's state carries its title and path
+(`{ query, note: { title, path } }`).
+
 `GotoController` owns only transient query, result selection, preview, and scroll
 state. Generation checks discard old searches and previews; typing is coalesced
 and semantic requests debounced. Navigation goes through existing Tree/Detail
