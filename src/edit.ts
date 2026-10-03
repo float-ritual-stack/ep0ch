@@ -5,7 +5,7 @@ import { mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs
 import { join } from "node:path";
 import type { Msg } from "./board";
 import { whoOf, USER, type Actor } from "./socket";
-import { ActionRefused, ActionSet } from "./surface/actions";
+import { ActionRefused, actionSet, def, type ArgsOfSet } from "./surface/actions";
 import { isCopyKey, SELECT_BG } from "./surface/selection";
 import { stateDir } from "./state";
 import { bg, C, chip, fg, RESET } from "./style";
@@ -766,16 +766,7 @@ export const whenPut = (at: number) => {
 
 // ── the draft's actions: keys, clicks and `act` all run these ───────────────
 
-export interface DraftActionArgs {
-  "draft.newline": { plain?: boolean };
-  "draft.indent": { from?: number; to?: number };
-  "draft.outdent": { from?: number; to?: number };
-  "draft.place": { line: number; col?: number; extend?: boolean };
-  "draft.scroll": { by: number };
-  "draft.preview": { on?: boolean };
-  "draft.undo": Record<string, never>;
-  "draft.copy": Record<string, never>;
-}
+export type DraftActionArgs = ArgsOfSet<typeof DRAFT_ACTIONS>;
 
 /**
  * What the draft does besides typing, as actions: Enter's list continuation, Tab and Shift+Tab, a click or a
@@ -783,50 +774,50 @@ export interface DraftActionArgs {
  * (through the note actions of the same names), where the draft session's agent rule decides first
  * (`agentRefusal`: a draft the agent opened and alone typed in).
  */
-export const DRAFT_ACTIONS = new ActionSet<DraftActionArgs, Draft>("draft", {
-  "draft.newline": {
+export const DRAFT_ACTIONS = actionSet<Draft>()("draft", {
+  "draft.newline": def({
     summary: "a line break at the cursor; on a list item the next item at the same level (an empty item goes up a level or ends the list); plain=true just breaks", keys: "enter (alt+enter or shift+enter plain)",
     touches: "draft", draft: "type", replay: "ask",
     args: { plain: { type: "boolean", optional: true, about: "no list continuation" } },
     run({ plain }, d, actor) { const t = d.text; d.newline(!!plain); if (d.text !== t) d.wrote(actor); return { line: d.row + 1, col: d.col }; },
-  },
-  "draft.indent": {
+  }),
+  "draft.indent": def({
     summary: "indent the cursor's line (or the selection's lines, or from..to) one level: a list item goes under the item above", keys: "tab",
     touches: "draft", draft: "type", replay: "ask",
     args: { from: { type: "number", optional: true, about: "first line, from 1" }, to: { type: "number", optional: true, about: "last line, from 1" } },
     run({ from, to }, d, actor) { const n = from ? d.indent(1, from - 1, (to ?? from) - 1) : d.indent(1); if (n) d.wrote(actor); return { lines: n }; },
-  },
-  "draft.outdent": {
+  }),
+  "draft.outdent": def({
     summary: "outdent the cursor's line (or the selection's lines, or from..to) one level: a list item back to its parent's", keys: "shift+tab",
     touches: "draft", draft: "type", replay: "ask",
     args: { from: { type: "number", optional: true, about: "first line, from 1" }, to: { type: "number", optional: true, about: "last line, from 1" } },
     run({ from, to }, d, actor) { const n = from ? d.indent(-1, from - 1, (to ?? from) - 1) : d.indent(-1); if (n) d.wrote(actor); return { lines: n }; },
-  },
-  "draft.place": {
+  }),
+  "draft.place": def({
     summary: "put the draft's cursor at a line and column; extend=true selects from where it was", keys: "click, drag",
     touches: "draft", draft: "type", replay: "safe",
     args: { line: { type: "number", about: "line, from 1" }, col: { type: "number", optional: true, about: "column, from 1 (default the end)" }, extend: { type: "boolean", optional: true, about: "select from the cursor to here" } },
     run({ line, col, extend }, d, actor) { d.place(line - 1, col === undefined ? Infinity : col - 1, !!extend); d.follow = true; return { line: d.row + 1, col: d.col + 1 }; },
-  },
-  "draft.scroll": {
+  }),
+  "draft.scroll": def({
     summary: "scroll the draft's view by rows; the cursor stays (the next key brings it back into view)", keys: "wheel",
     touches: "draft", draft: "type", replay: "safe",
     args: { by: { type: "number", about: "rows, negative up" } },
     run({ by }, d, actor) { d.scrollBy(by); return { following: d.follow }; },
-  },
-  "draft.undo": {
+  }),
+  "draft.undo": def({
     summary: "take back the last edit an agent's draft.patch made in this draft (an agent: only its own); one patch is one undo", keys: "ctrl+z",
     touches: "draft", draft: "safe", replay: "ask",
     args: {},
     async run(_, d, actor) { const said = d.undoPatch(actor); return { undone: said, left: d.patches.length }; },
-  },
-  "draft.preview": {
+  }),
+  "draft.preview": def({
     summary: "show or hide the draft's Markdown preview under it, drawn by the reader's renderer", keys: "ctrl+p, a click on ◧ preview",
     touches: "draft", draft: "type", replay: "safe",
     args: { on: { type: "boolean", optional: true, about: "default: toggle" } },
     run({ on }, d, actor) { d.preview = on ?? !d.preview; return { preview: d.preview }; },
-  },
-  "draft.copy": {
+  }),
+  "draft.copy": def({
     summary: "the draft's selected text, returned. The host puts the person's on their clipboard (an agent's never). A drag in a draft doesn't copy by itself, unlike a reader's: typing or a paste replaces what's selected there", keys: "cmd+c",
     touches: "draft", draft: "type", replay: "safe",
     args: {},
@@ -835,7 +826,7 @@ export const DRAFT_ACTIONS = new ActionSet<DraftActionArgs, Draft>("draft", {
       if (!text) throw new ActionRefused("nothing is selected in the draft · drag across the text, then cmd+c");
       return { text, chars: [...text].length };
     },
-  },
+  }),
 });
 
 /** How a patch's writer is named where it landed: `tidy` for an agent, `you` for the person. */

@@ -19,7 +19,7 @@ import {
 import { subject, type Msg } from "../board";
 import { USER, type Actor, type OutlineEvent } from "../socket";
 import { shortId } from "../refs";
-import { ActionRefused, ActionSet } from "../surface/actions";
+import { ActionRefused, actionSet, def } from "../surface/actions";
 import { C, dim, fg, pad, RESET, selected, width } from "../style";
 import { Fold } from "../fold";
 import { RowView } from "../scroll";
@@ -490,12 +490,8 @@ function rowOf(pane: TreePane, n: number | undefined, id: string | undefined): n
   return pane.selectedRow;
 }
 
-export const TREE_ACTIONS = new ActionSet<{
-  "tree.links": { n?: number; id?: string; show?: boolean };
-  "tree.pick": { n?: number; id?: string; open?: boolean };
-  "tree.fold": { n?: number; id?: string; open?: boolean };
-}, TreeOn>("tree", {
-  "tree.fold": {
+export const TREE_ACTIONS = actionSet<TreeOn>()("tree", {
+  "tree.fold": def({
     summary: "open (open=true) or fold (open=false) a row of the outline tree, else the other way: a note's children, a group of links. n (from 1) or id, else the selected row. An agent's never folds away the rows the person's selection is in",
     keys: "l → space h ←, click on a row's mark",
     touches: "nothing", replay: "safe", says: r => `${r.open ? "opened" : "folded"} row ${r.row} of the outline`,
@@ -508,8 +504,8 @@ export const TREE_ACTIONS = new ActionSet<{
       const i = rowOf(pane, n, id);
       return pane.foldRow(i, open, desk, actor.kind === "agent");
     },
-  },
-  "tree.links": {
+  }),
+  "tree.links": def({
     summary: "show or hide the authored links under a row of the outline tree (tile=<its name>), as the outliner's Tree does: its outlinks, resources and backlinks, grouped; n (as peek's rows, from 1) or id, else the selected row; show=true or false, else the other way. Registers nothing",
     keys: "L · l → space on a link · a click on a link's mark",
     touches: "nothing", replay: "safe", says: r => `${r.shown ? "showed" : "hid"} the links under row ${r.row}`,
@@ -522,8 +518,8 @@ export const TREE_ACTIONS = new ActionSet<{
       const i = rowOf(pane, n, id);
       return { row: i + 1, shown: pane.toggleLinks(i, desk, show, actor.kind === "agent") };
     },
-  },
-  "tree.pick": {
+  }),
+  "tree.pick": def({
     summary: "pick a row of the outline tree: n (from 1) or id. As the person: the selection moves there; open=true opens it as ⏎ does (a note where the tree's opens go, a group folds, a resource is registered if it must be and its stored content shown). An agent's never moves the person's selection or keys: its pick shows the row's note where the tree's selection goes, its open opens it there",
     keys: "j k ↑ ↓ PgUp PgDn Home End h ← (to the row above), click, wheel (pick) · ⏎ (open)",
     // open=true may register a resource and opens a note: a restarted door asks first (replay is per action).
@@ -541,5 +537,5 @@ export const TREE_ACTIONS = new ActionSet<{
       if (!agent) pane.selectRow(i, desk, !open);
       return open ? pane.openRow(i, desk, actor) : agent ? pane.showRow(i, desk, actor) : { row: i + 1, id: rowBlock(pane.list()[i]) ?? undefined };
     },
-  },
+  }),
 });

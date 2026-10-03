@@ -8,7 +8,7 @@
 // cursor and collapse survive a refill; the board never lays its lanes out itself.
 import { subject, type Msg } from "../board";
 import { USER, type Actor, type OutlineEvent, type SocketBoard } from "../socket";
-import { ActionRefused, ActionSet } from "../surface/actions";
+import { ActionRefused, actionSet, def } from "../surface/actions";
 import { C, fg, pad, RESET, selected } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
 import { ago } from "../text";
@@ -238,11 +238,8 @@ export class QueryPane implements Pane {
 
 /** A query tile's actions on the desk: which card is picked (and opened), and reading the view again. */
 export interface QueryOn { pane: QueryPane; desk: DeskApi }
-export const QUERY_ACTIONS = new ActionSet<{
-  "query.pick": { n?: number; id?: string; by?: number; open?: boolean };
-  "query.reload": Record<string, never>;
-}, QueryOn>("query", {
-  "query.pick": {
+export const QUERY_ACTIONS = actionSet<QueryOn>()("query", {
+  "query.pick": def({
     summary: "pick a card in a query tile (tile=<its name>): n (from 1), id, or by=<cards> from the selected one; it becomes what the tile shows (a preview following it shows it), open=true opens it as ⏎ does. An agent's pick is its own: the person's cursor stays (open=true opens it where the tile's opens go). On the board, card.select is the lanes' own",
     keys: "j k ↑ ↓ PgUp PgDn, ⏎ (open), click on a card (again: open), wheel",
     touches: "nothing", replay: "safe", says: (r, a) => `${a.open ? "opened" : "picked"} "${r.title.slice(0, 40)}"`,
@@ -259,8 +256,8 @@ export const QUERY_ACTIONS = new ActionSet<{
       if (id !== undefined && i < 0) throw new ActionRefused(`${pane.name} doesn't list ${id}`);
       return pane.pick(i, !!open, desk, actor);
     },
-  },
-  "query.reload": {
+  }),
+  "query.reload": def({
     summary: "read a query tile's view again from the service", keys: "r",
     touches: "nothing", replay: "safe", says: r => `read ${r.lane} again`,
     args: {},
@@ -268,5 +265,5 @@ export const QUERY_ACTIONS = new ActionSet<{
       await pane.load(desk);
       return { lane: pane.name, count: pane.items?.length ?? 0 };
     },
-  },
+  }),
 });

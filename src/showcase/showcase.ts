@@ -16,7 +16,7 @@ import type { Actor, OutlineEvent } from "../socket";
 import { C, fg, pad, paint, RESET, selected } from "../style";
 import { wrap } from "../text";
 import { ch, isUp, isDown, type Key } from "../term";
-import { ActionRefused, ActionSet, type ActionInfo, type ActRequest } from "../surface/actions";
+import { ActionRefused, actionSet, def, type ActionInfo, type ActRequest } from "../surface/actions";
 import { Dispatcher } from "../surface/dispatch";
 import { screenKeys } from "../whereabouts";
 import { NOTE_ACTIONS } from "../surface/note";
@@ -466,8 +466,8 @@ export class Showcase implements Screen {
 }
 
 /** The showcase's own actions: which section is shown. Keys and clicks on the index call the same code. */
-export const SHOWCASE_ACTIONS = new ActionSet<{ "section": { name: string }; "section.try": { name?: string } }, Showcase>("showcase", {
-  "section.try": {
+export const SHOWCASE_ACTIONS = actionSet<Showcase>()("showcase", {
+  "section.try": def({
     summary: "go into a section's stage (name=<1-19> or its key, else the one shown): the person's keys and mouse go to the part itself until its own esc brings them back to the index. The person's only: an agent acts in the stage with its actions (`act` reaches the shown section's)",
     keys: "⏎ → l tab, click in the stage",
     touches: "screen", replay: "safe", person: "going into a section gives it the person's keys; an agent runs the shown section's own actions instead",
@@ -477,8 +477,8 @@ export const SHOWCASE_ACTIONS = new ActionSet<{ "section": { name: string }; "se
       s.pick(i, true);
       return { section: i + 1, key: SECTIONS[i]!.key, in: s.focusName() === "stage" };
     },
-  },
-  "section": {
+  }),
+  "section": def({
     summary: "show a section (name=<1-19> or its key: note, actions, edit, drafts, panes, screens, kinds, terminal, preview, screen, spine, entity, presence, live, projection, extensions, selection, service, session); refused to an agent while the person is in one", keys: "↑↓ j k, 1-9 0, click, wheel",
     touches: "screen", replay: "safe", says: r => `showed section ${r.section} (${r.key})`,
     args: { name: { type: "string", about: "the section's number or key" } },
@@ -489,7 +489,7 @@ export const SHOWCASE_ACTIONS = new ActionSet<{ "section": { name: string }; "se
       s.pick(i, false);
       return { section: i + 1, key: SECTIONS[i]!.key };
     },
-  },
+  }),
 });
 
 // ── the panes only the showcase has: the action list and what the service answers ──────────────────

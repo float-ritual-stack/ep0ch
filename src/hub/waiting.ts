@@ -13,7 +13,7 @@ import { type Actor, type SocketBoard } from "../socket";
 import { C, fg, pad, RESET, selected } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
 import { ago } from "../text";
-import { ActionRefused, ActionSet, type ActRequest } from "../surface/actions";
+import { ActionRefused, actionSet, def, type ActRequest } from "../surface/actions";
 import type { DeskApi, Pane, PaneView } from "../desk/panes";
 import type { ScreenSpec } from "../desk/screen-spec";
 import type { KindHost, TileKind } from "../desk/tile-kinds";
@@ -179,8 +179,8 @@ function pick(list: WaitingPane, desk: DeskApi, which: { n?: number; id?: string
 }
 
 /** Which waiting item is shown, and reading the list again. The keys, a click and `act` call the same code. */
-export const WAITING_ACTIONS = new ActionSet<{ "waiting.pick": { n?: number; id?: string }; "waiting.reload": Record<string, never> }, KindHost>("waiting", {
-  "waiting.pick": {
+export const WAITING_ACTIONS = actionSet<KindHost>()("waiting", {
+  "waiting.pick": def({
     summary: "show a waiting item in the reader: n (1 is the longest wait, as describe lists them) or id; refused to an agent while the person is typing here", keys: "j k ↑ ↓ click",
     touches: "screen", replay: "safe", says: r => `showed what ${r.who} owes (${r.n} of ${r.of})`,
     args: { n: { type: "number", about: "its place in the list, from 1", optional: true }, id: { type: "string", about: "the item's block id", optional: true } },
@@ -188,13 +188,13 @@ export const WAITING_ACTIONS = new ActionSet<{ "waiting.pick": { n?: number; id?
       if ((a.n === undefined) === (a.id === undefined)) throw new ActionRefused("waiting.pick takes n or id, one of them");
       return pick(pane as WaitingPane, desk, a, actor);
     },
-  },
-  "waiting.reload": {
+  }),
+  "waiting.reload": def({
     summary: "ask the outline again what's waiting (it also does when the outline changes)", keys: "r",
     touches: "nothing", replay: "safe",
     args: {},
     async run(_, { pane, desk }) { const w = pane as WaitingPane; await w.load(desk); return { waiting: w.items?.length ?? 0 }; },
-  },
+  }),
 });
 
 /** The waiting list as a tile kind: the list, its actions, and what `peek` says about it. */

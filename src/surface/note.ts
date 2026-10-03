@@ -29,7 +29,7 @@ import { whoOf, EditConflict, mutationFor, Offline, recordedActorId, Refused, US
 import { ellipsize, dim, C, extractLinks, fg, LINK_END, linkTag, pad, RESET, width } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
 import { ago, bbsDate, rule, wrap } from "../text";
-import { ActionRefused, ActionSet, agentLabel, asActor, type ActionDef } from "./actions";
+import { ActionRefused, actionSet, def, agentLabel, asActor, type ActionDef, type ArgsOf, type ArgsOfSet } from "./actions";
 import { Dispatcher } from "./dispatch";
 import { NOBODY } from "../whereabouts";
 import { draftState, editHint, editorClick, openInEditor, renderEditor, writtenBy } from "./editor";
@@ -238,7 +238,15 @@ const opens = (e: Element) => e.kind === "link" || e.kind === "row" || e.kind ==
  * maybe a passage, drawn with the reading ruler's tint and the one who set it named in the header. Kept as
  * what was named, and found again on each render, so a rewrap or a refresh keeps it on its text.
  */
-export interface FocusSpec { block?: string; line?: number; to?: number; quote?: string; near?: number }
+/** What `block.tint` marks: a block, note lines or a passage (PIE-423's focus mark). */
+const TINT_ARGS = {
+  block: { type: "string", optional: true, about: "a block id (or its first 8+ characters): this note, or one it embeds or links" },
+  line: { type: "number", optional: true, about: "a note line (1 is the subject)" },
+  to: { type: "number", optional: true, about: "with line: the last note line" },
+  quote: { type: "string", optional: true, about: "the note's exact words, as stored (the same shape as a comment's quote)" },
+  near: { type: "number", optional: true, about: "with quote, when the words occur more than once: the offset to be nearest" },
+} as const;
+export type FocusSpec = ArgsOf<typeof TINT_ARGS>;
 /** A comment mark: the margin row it's drawn on, and the rows of the lines its quote spans. */
 interface Mark { thread: string; open: boolean; row: number; rows: [number, number]; label: string }
 /** A thread control where the last render drew it: its body row, and columns in the body's own cells (no margin). */
@@ -3362,74 +3370,20 @@ export const SESSION_ACTIONS: Record<SessionKind, { name: "edit" | "passage.sele
 };
 
 /** Each action's arguments. */
-export interface NoteActionArgs extends DraftActionArgs {
-  "edit": { external?: boolean };
-  "edit.text": { text: string };
-  "edit.save": Record<string, never>;
-  "edit.reload": Record<string, never>;
-  "edit.close": { discard?: boolean };
-  "session.leave": Record<string, never>;
-  "link.select": { n: number };
-  "elements": Record<string, never>;
-  "element.select": { n?: number; by?: number };
-  "element.open": { n?: number; fresh?: boolean };
-  "block.tint": FocusSpec;
-  "block.untint": Record<string, never>;
-  "link.follow": { n?: number; fresh?: boolean };
-  "up": Record<string, never>;
-  "projection.refresh": { block?: string; line?: number };
-  "back": Record<string, never>;
-  "forward": Record<string, never>;
-  "passage.select": { quote?: string; near?: number };
-  "comment.write": { body: string; invitation?: string; base?: string };
-  "comment.send": Record<string, never>;
-  "comment.reload": Record<string, never>;
-  "comment": { quote: string; body: string; near?: number };
-  "comment.close": { discard?: boolean };
-  "threads": Record<string, never>;
-  "thread.toggle": { thread: string; expand?: boolean };
-  "reply": { thread: string; body: string };
-  "resolve": { thread: string; open?: boolean };
-  "props": { full?: boolean };
-  "props.copy": { n?: number; key?: string };
-  "props.follow": { n?: number; key?: string };
-  "props.edit": { n?: number; key?: string; value: string; revision?: number };
-  "props.close": Record<string, never>;
-  "props.summary": { keys?: string; toggle?: string; reset?: boolean };
-  "complete": { text?: string; insert?: number; invitation?: string };
-  "folds": Record<string, never>;
-  "fold": FoldArgs & { all?: boolean };
-  "unfold": FoldArgs & { all?: boolean };
-  "fold.toggle": FoldArgs;
-  "fold.select": { by: number };
-  "scroll": { by?: number; to?: string };
-  "callouts": { show?: boolean };
-  "select.mode": Record<string, never>;
-  "select": { text?: string; line?: number; to?: number; n?: number };
-  "select.copy": { source?: boolean };
-  "select.clear": Record<string, never>;
-  "tasks": Record<string, never>;
-  "task.status": StepArgs & { to: string };
-  "task.undo": Record<string, never>;
-  "task.link": StepArgs & { copy?: boolean };
-  "task.menu": StepArgs;
-  "proposal.apply": { id?: string };
-  "proposal.dismiss": { id?: string };
-}
-interface StepArgs { n?: number; id?: string; block?: string }
+export type NoteActionArgs = ArgsOfSet<typeof NOTE_ACTIONS>;
 
 const STEP_ARGS = {
   n: { type: "number", optional: true, about: "which step, from 1, as tasks lists them (in the note and inside its embeds)" },
   id: { type: "string", optional: true, about: "the step's id: t-8a6d7f, ^t-8a6d7f, or <block>^t-8a6d7f" },
   block: { type: "string", optional: true, about: "with id: the note the step is in (its id or first 8+ characters), when the id is in more than one" },
 } as const;
-interface FoldArgs { text?: string; line?: number; n?: number }
 
 const FOLD_ARGS = {
   text: { type: "string", optional: true, about: "a heading's or list item's text (## optional; a unique start is enough)" },
   line: { type: "number", optional: true, about: "a line of the note (1 is the subject): the heading or item on it, or else the innermost one around it" },
   n: { type: "number", optional: true, about: "which fold point, from 1, as folds lists them" },
 } as const;
+type FoldArgs = ArgsOf<typeof FOLD_ARGS>;
 
 /** The fold point `text`, `line` or `n` names in the note the reader shows (the whole note, waited for). */
 async function foldTarget(surface: NoteSurface, args: FoldArgs): Promise<FoldPoint> {
@@ -3562,39 +3516,7 @@ async function travelAction(dir: -1 | 1, { surface, host }: On, actor: Actor) {
   return { went: word, showing: m ? { id: m.id, title: subject(m) } : null, history: surface.describeHistory() };
 }
 
-/** A tint in the reading ruler's colour on a block, note lines or a passage, with who set it (PIE-423's focus mark). */
-const TINT: ActionDef<FocusSpec, On> = {
-    summary: "tint a block in this reader (PIE-423's focus mark): a block (this note, or one it embeds or links), note lines, or an exact passage, tinted like the reading ruler with who set it named, and scrolled into view. The person's [ ] position, selection and keys aren't moved",
-    touches: "nothing", replay: "safe",
-    args: {
-      block: { type: "string", optional: true, about: "a block id (or its first 8+ characters): this note, or one it embeds or links" },
-      line: { type: "number", optional: true, about: "a note line (1 is the subject)" },
-      to: { type: "number", optional: true, about: "with line: the last note line" },
-      quote: { type: "string", optional: true, about: "the note's exact words, as stored (the same shape as a comment's quote)" },
-      near: { type: "number", optional: true, about: "with quote, when the words occur more than once: the offset to be nearest" },
-    },
-    async run(spec, { surface, host }, actor) {
-      await surface.whole();
-      const r = surface.setFocus(spec, actor);
-      host.ctx.flash(`${agentLabel(actor)} marked ${r.marked}`);
-      host.redraw();
-      return { ...r, by: whoOf(actor) };
-    },
-  };
-const UNTINT: ActionDef<Record<string, never>, On> = {
-    summary: "take away the tint (block.tint) in this reader (esc does it for the person once nothing else is selected)", keys: "esc",
-    touches: "nothing", replay: "safe",
-    args: {},
-    run(_, { surface, host }, actor) {
-      const had = surface.focusMark;
-      surface.focusMark = null;
-      if (had && actor.kind === "user") host.ctx.flash(`let go of the focus mark ${agentLabel(had.by)} set`);
-      host.redraw();
-      return { cleared: !!had, ...(had ? { by: whoOf(had.by) } : {}) };
-    },
-  };
-
-export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActionArgs, On>("note", {
+export const NOTE_ACTIONS = actionSet<On>()("note", {
   // The draft's own actions (Enter's list continuation, Tab, Shift+Tab, a click, the wheel, the preview),
   // on this reader's edit or the comment being written: the same code its keys and mouse run.
   "draft.newline": forwardDraft("draft.newline"),
@@ -3605,7 +3527,7 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
   "draft.preview": forwardDraft("draft.preview"),
   "draft.undo": forwardDraft("draft.undo"),
   "draft.copy": forwardDraft("draft.copy"),
-  "complete": {
+  "complete": def({
     summary: "reference completion, as typing [[, (( or [file:: offers it: the candidates for text (such as [[PIE-4, ((beds, ((garden#, [file::src/), or at the open draft's cursor; insert=n puts the nth into the draft",
     keys: "[[ (( [file:: while writing; tab, ctrl+space · up/down, enter/tab, esc",
     // Looking candidates up reads; putting one in types in the draft at its cursor: an agent's only in a draft it
@@ -3658,8 +3580,8 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
       host.redraw();
       return { ...out, inserted: item.insertion, dirty: d.dirty };
     },
-  },
-  "edit": {
+  }),
+  "edit": def({
     summary: "open the note for editing (its whole text, at the revision the service has now); external=true hands it to $EDITOR (ctrl+e, also from an open edit or a comment or reply being written)", keys: "e, ctrl+e",
     touches: "draft", draft: "write", replay: "ask",
     args: { external: { type: "boolean", optional: true, about: "hand the draft to $EDITOR (the person's keys only)" } },
@@ -3676,8 +3598,8 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
       surface.noteAgent(actor, "opened this note for editing");
       return { id: d.blockId, baseRevision: d.base };
     },
-  },
-  "edit.text": {
+  }),
+  "edit.text": def({
     summary: "replace the draft's whole text (opens the edit first if needed); like text coming back from $EDITOR. An agent's replaces only an edit it opened, never while the person types in that reader (draft.patch lands in theirs)",
     touches: "draft", draft: "replace", replay: "ask",
     args: { text: { type: "string", about: "subject line, body and [key::value] properties" } },
@@ -3689,14 +3611,14 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
       host.redraw();
       return { dirty: s.dirty, keptYourDraftAt: kept ?? undefined };
     },
-  },
-  "edit.save": {
+  }),
+  "edit.save": def({
     summary: "save the draft, checked against the revision it started from; a property change is shown first and needs a second save", keys: "ctrl+s",
     touches: "draft", draft: "leave", replay: "ask",
     args: {},
     run: (_, { surface, host }, actor) => saveDraft(surface, host, actor),
-  },
-  "edit.reload": {
+  }),
+  "edit.reload": def({
     summary: "after the note changed elsewhere: start over from its current text (the draft is copied to disk first)", keys: "ctrl+r",
     touches: "draft", draft: "type", replay: "ask",
     args: {},
@@ -3706,8 +3628,8 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
       await surface.reload(host);
       return { baseRevision: surface.draft?.base, note: surface.draft?.note };
     },
-  },
-  "edit.close": {
+  }),
+  "edit.close": def({
     summary: "close the edit; unsaved changes need discard=true (and are put aside as unsent, with a copy on disk: e brings the person's back)", keys: "esc (twice when unsaved)",
     touches: "draft", draft: "leave", replay: "ask",
     args: { discard: { type: "boolean", optional: true, about: "close even with unsaved changes" } },
@@ -3718,21 +3640,21 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
       host.redraw();
       return r;
     },
-  },
-  "session.leave": {
+  }),
+  "session.leave": def({
     summary: "leave the edit or comment as a click elsewhere does: an unchanged edit closes; a changed one is saved against its revision, or kept as unsent (e brings it back) when the save is refused; a comment or reply is kept as unsent, never sent. The person's gesture: an agent leaves only a session it opened",
     keys: "a click outside it, ^W then a window key (desk)",
     touches: "draft", draft: "leave", replay: "ask",
     args: {},
     run: (_, { surface, host }, actor) => surface.leave(host, actor),
-  },
-  "link.select": {
+  }),
+  "link.select": def({
     summary: "select the note's nth link (1 is the first); element.select picks any element a reader draws", keys: "[ ] (on a link)",
     touches: "tile", replay: "safe", way: "an agent selects a link in a reader the person isn't in, or follows one by number (link.follow n=)",
     args: { n: { type: "number", about: "which link, from 1" } },
     run({ n }, { surface, host }) { surface.requireNote(); surface.selectLink(n - 1); host.redraw(); return surface.describe().links[n - 1]; },
-  },
-  "link.follow": {
+  }),
+  "link.follow": def({
     summary: "follow the selected link (or the nth); where it opens is the view's call; fresh=true opens it in a new reader", keys: "enter, alt+enter, click on a link",
     touches: "tile", replay: "ask", way: "following a link there would move what they're reading · an agent follows one in another reader (tile=), or opens the note with open id= naming no tile (it lands where opens land)",
     args: {
@@ -3753,8 +3675,8 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
       if (m) surface.noteAgent(actor, `followed a link to ${subject(m).slice(0, 40)}`);
       return m ? { opened: m.id, title: subject(m) } : { opened: null };
     },
-  },
-  "elements": {
+  }),
+  "elements": def({
     summary: "list what [ ] steps through in this reader, in reading order: links, folds, figure rows, embeds, comment marks (the current one marked)",
     touches: "nothing", replay: "safe",
     args: {},
@@ -3763,8 +3685,8 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
       surface.requireDrawn();
       return { elements: surface.describeElements() };
     },
-  },
-  "element.select": {
+  }),
+  "element.select": def({
     summary: "put the person's [ ] position on the nth element (elements lists them), or by=1 / by=-1 the next or previous one (from the view when none is current); n=0 lets go of it. The reading ruler follows. An agent's is refused: the position is the person's (block.tint marks something for them)", keys: "[ ], click, esc lets go",
     touches: "tile", replay: "safe", person: "the [ ] position is the person's; block.tint marks a block for them without moving it",
     args: {
@@ -3784,8 +3706,8 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
       host.redraw();
       return surface.describeElements()[n! - 1];
     },
-  },
-  "element.open": {
+  }),
+  "element.open": def({
     summary: "do what enter does on an element: a link follows (where is the view's call), a fold toggles, a row or an embed opens its note, a comment mark opens its thread; fresh=true opens a link, row or embed in a new reader. An agent's leaves the person's [ ] position alone, is refused in the reader they have, and never opens the browser (it is given the address)", keys: "enter, alt+enter, a click",
     touches: "tile", replay: "ask", way: "opening an element there would move what they're reading · an agent opens one in another reader (tile=), opens the note with open id=, or folds a section with fold or unfold",
     args: {
@@ -3813,7 +3735,7 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
       }
       // A proposal's [apply] [dismiss] run its action as whoever asks (an agent dismisses only its own).
       if (e.kind === "control" && e.link?.proposal?.op) {
-        const r = await NOTE_ACTIONS.run(e.link.proposal.op === "apply" ? "proposal.apply" : "proposal.dismiss", { id: e.link.proposal.id }, on, actor);
+        const r: unknown = await NOTE_ACTIONS.run(e.link.proposal.op === "apply" ? "proposal.apply" : "proposal.dismiss", { id: e.link.proposal.id }, on, actor);
         return { element: i, kind: e.kind, ...(r && typeof r === "object" ? r : {}) };
       }
       // An expanded thread's controls are the person's view of it; an agent acts on the thread itself.
@@ -3835,11 +3757,34 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
       host.redraw();
       return { element: i, kind: e.kind, ...(r && typeof r === "object" && "id" in r ? { opened: (r as Msg).id, title: subject(r as Msg) } : r && typeof r === "object" ? r : {}) };
     },
-  },
+  }),
   // A tint (PIE-423's focus mark): "focus" is the person's keys only, so the tint is block.tint.
-  "block.tint": TINT,
-  "block.untint": UNTINT,
-  "projection.refresh": {
+  // A tint in the reading ruler's colour, with who set it.
+  "block.tint": def({
+    summary: "tint a block in this reader (PIE-423's focus mark): a block (this note, or one it embeds or links), note lines, or an exact passage, tinted like the reading ruler with who set it named, and scrolled into view. The person's [ ] position, selection and keys aren't moved",
+    touches: "nothing", replay: "safe",
+    args: TINT_ARGS,
+    async run(spec, { surface, host }, actor) {
+      await surface.whole();
+      const r = surface.setFocus(spec, actor);
+      host.ctx.flash(`${agentLabel(actor)} marked ${r.marked}`);
+      host.redraw();
+      return { ...r, by: whoOf(actor) };
+    },
+  }),
+  "block.untint": def({
+    summary: "take away the tint (block.tint) in this reader (esc does it for the person once nothing else is selected)", keys: "esc",
+    touches: "nothing", replay: "safe",
+    args: {},
+    run(_, { surface, host }, actor) {
+      const had = surface.focusMark;
+      surface.focusMark = null;
+      if (had && actor.kind === "user") host.ctx.flash(`let go of the focus mark ${agentLabel(had.by)} set`);
+      host.redraw();
+      return { cleared: !!had, ...(had ? { by: whoOf(had.by) } : {}) };
+    },
+  }),
+  "projection.refresh": def({
     summary: "fetch the tickets a note shows now (a page's, or the ticket block's own), and run its extensions' lines again (PIE-507): block=<id> (line=<index> for one line: an output, a component, an @name request is asked again, a record fetched), else the one the [ ] position is on, else the note's (every ticket and handler line, and every @name request not answered yet). Who runs it is who asked (an @name line says so). The service runs them and writes as the extension; the region repaints", keys: "r, a click on a ticket's age or a line's [r run again]",
     touches: "nothing", replay: "ask",
     args: {
@@ -3853,8 +3798,8 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
       if (!t) throw new ActionRefused("no note with tickets here");
       return surface.refreshTickets(host, t.block, actor, t.line);
     },
-  },
-  "up": {
+  }),
+  "up": def({
     summary: "go to the note's parent. An agent's is refused on the reader the person has", keys: "u (U too in the message reader)",
     touches: "tile", replay: "safe", way: "up would move what they're reading · an agent goes up in another reader (tile=), or opens the parent with open id=",
     args: {},
@@ -3864,22 +3809,22 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
       if (!m) throw new ActionRefused("the note has no parent");
       return { opened: m.id, title: subject(m) };
     },
-  },
-  "back": {
+  }),
+  "back": def({
     summary: "go back to the note this reader showed before it followed a link, went up, or had a note opened into it (an agent's open too), scrolled and with its [ ] position as it was. An agent's is refused on the reader the person has focused",
     keys: "alt+←, backspace, the mouse's back button, a click on ← back",
     touches: "tile", replay: "safe", way: "back would move what they're reading · an agent goes back only in another reader (name it with tile=)",
     args: {},
     run: (_, on, actor) => travelAction(-1, on, actor),
-  },
-  "forward": {
+  }),
+  "forward": def({
     summary: "go forward again to where back came from, scrolled and with its [ ] position as it was. An agent's is refused on the reader the person has focused",
     keys: "alt+→, the mouse's forward button, a click on forward →",
     touches: "tile", replay: "safe", way: "forward would move what they're reading · an agent goes forward only in another reader (name it with tile=)",
     args: {},
     run: (_, on, actor) => travelAction(1, on, actor),
-  },
-  "passage.select": {
+  }),
+  "passage.select": def({
     summary: "start a comment: pick a passage of the note's source text by its exact words (default: the first line with text)", keys: "C, then j k J K h l H L",
     touches: "draft", draft: "type", replay: "ask",
     args: {
@@ -3897,8 +3842,8 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
       host.redraw();
       return { revision: s.msg.revision, quote: p.quote, start: p.from };
     },
-  },
-  "comment.write": {
+  }),
+  "comment.write": def({
     summary: "write the comment (or reply) text: on a picked passage this is Enter, then the text. An agent's replaces only a comment it opened, never one the person is writing; invited (their @name line), it rewrites the text above that line, once", keys: "enter, then typing",
     touches: "draft", draft: "text", replay: "ask",
     args: {
@@ -3925,8 +3870,8 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
       host.redraw();
       return { dirty: s.composer.dirty, keptYourDraftAt: kept ?? undefined };
     },
-  },
-  "comment.reload": {
+  }),
+  "comment.reload": def({
     summary: "after a send refused because the note moved on: find the quote again in the note's current text (nearest where it was), or pick the passage again when its words are gone; the comment's text stays", keys: "ctrl+r",
     touches: "draft", draft: "type", replay: "ask",
     args: {},
@@ -3938,14 +3883,14 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
       host.redraw();
       return { mode: s.mode, note: s.note || s.composer?.note || null };
     },
-  },
-  "comment.send": {
+  }),
+  "comment.send": def({
     summary: "send the comment or reply; a retry of the same text can't land twice", keys: "ctrl+s",
     touches: "draft", draft: "leave", replay: "ask",
     args: {},
     run: (_, { surface, host }, actor) => sendComment(surface, host, actor),
-  },
-  "comment": {
+  }),
+  "comment": def({
     summary: "comment on a passage in one step: passage.select, comment.write, comment.send",
     touches: "draft", draft: "type", replay: "ask",
     args: {
@@ -3958,8 +3903,8 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
       await NOTE_ACTIONS.run("comment.write", { body }, on, actor);
       return NOTE_ACTIONS.run("comment.send", {}, on, actor);
     },
-  },
-  "comment.close": {
+  }),
+  "comment.close": def({
     summary: "close the comment session; unsent text needs discard=true (and is put aside as unsent, with a copy on disk)", keys: "esc",
     touches: "draft", draft: "leave", replay: "ask",
     args: { discard: { type: "boolean", optional: true, about: "close even with unsent text" } },
@@ -3971,8 +3916,8 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
       surface.closeSession(); host.redraw();
       return { closed: true, keptAt: r?.keptAt };
     },
-  },
-  "threads": {
+  }),
+  "threads": def({
     summary: "show the note's comment threads (the person's opens on the comment mark the [ ] position is on); in the list, j k move and PgUp PgDn and the wheel scroll it", keys: "m; j k PgUp PgDn wheel in the list",
     touches: "tile", replay: "safe", way: "the thread list would cover what they're reading · an agent lists threads in another reader (tile=)",
     args: {},
@@ -3982,8 +3927,8 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
       host.redraw();
       return { threads: s.threads.map(t => ({ id: t.id, open: t.open, author: t.author, quote: t.quote, body: t.body, replies: t.replies.length })) };
     },
-  },
-  "thread.toggle": {
+  }),
+  "thread.toggle": def({
     summary: "expand a comment thread inline under its passage (its comment, replies and Select, Reply, Resolve controls), or collapse it; expand=true or false sets it. The person's reading state: an agent's is refused (threads, reply and resolve act on a thread without changing their view)", keys: "enter or a click on a comment mark",
     touches: "tile", replay: "safe", person: "which threads are expanded is the person's reading state; threads, reply and resolve act on a thread without changing their view",
     args: {
@@ -3997,8 +3942,8 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
       host.redraw();
       return { thread: id, expanded: surface.expanded.has(id) };
     },
-  },
-  "reply": {
+  }),
+  "reply": def({
     summary: "reply to a comment thread and send it", keys: "m, j k, r, typing, ctrl+s",
     touches: "draft", draft: "type", replay: "ask",
     args: { thread: { type: "string", about: "the thread's id (or its first 6+ characters)" }, body: { type: "string", about: "the reply's text" } },
@@ -4009,8 +3954,8 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
       s.writing!.replace(body, actor);
       return sendComment(on.surface, on.host, actor);
     },
-  },
-  "resolve": {
+  }),
+  "resolve": def({
     summary: "resolve a comment thread, or reopen it with open=true. It opens the thread list in the reader: an agent's is refused on the reader the person has", keys: "m, j k, x",
     touches: "tile", replay: "ask", way: "the thread list would cover what they're reading · an agent resolves it in another reader (tile=)",
     args: { thread: { type: "string", about: "the thread's id (or its first 6+ characters)" }, open: { type: "boolean", optional: true, about: "reopen instead of resolving" } },
@@ -4025,8 +3970,8 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
       surface.noteAgent(actor, open ? "reopened a comment" : "resolved a comment");
       return { lifecycle: want };
     },
-  },
-  "props": {
+  }),
+  "props": def({
     summary: "open the property panel: every property token (repeats and block/line/inline scope kept), with the summary line's keys", keys: "i, I (full)",
     touches: "nothing", replay: "safe",
     args: { full: { type: "boolean", optional: true, about: "fill the reader instead of sitting above the note" } },
@@ -4039,8 +3984,8 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
       host.redraw();
       return { id: m.id, revision: m.revision, summary: surface.summary(m), scopes: t.state === "ready" ? "service" : "block only", rows: surface.rows(m, t.state === "ready" ? t.tokens : null).map(r => describeRow(r, surface.src, m.text)) };
     },
-  },
-  "props.copy": {
+  }),
+  "props.copy": def({
     summary: "a property's value, returned (the person's own y copies it to their clipboard; an agent's never does)", keys: "i, tab, y",
     touches: "nothing", replay: "safe",
     args: ROW_ARGS,
@@ -4057,8 +4002,8 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
       host.redraw();
       return { key: row.key, value: row.value };
     },
-  },
-  "props.follow": {
+  }),
+  "props.follow": def({
     summary: "open what a block, page or Work-ID value names; where it opens is the view's call. An agent's is refused on the reader the person has", keys: "i, tab, o",
     touches: "tile", replay: "ask", way: "following it there would move what they're reading · an agent follows it in another reader (tile=), or opens the note with open id=",
     args: ROW_ARGS,
@@ -4070,8 +4015,8 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
       surface.noteAgent(actor, `followed ${row.key} to ${subject(m).slice(0, 40)}`);
       return { opened: m.id, title: subject(m) };
     },
-  },
-  "props.edit": {
+  }),
+  "props.edit": def({
     summary: "replace one property value: a properties.patch of that token, refused if the note changed since it was read", keys: "i, tab, enter or e, typing, enter",
     touches: "draft", draft: "write", replay: "ask",
     args: {
@@ -4104,8 +4049,8 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
       host.redraw();
       return { saved: true, key: row.key, from: row.value, to, revision: saved.revision ?? null, fromRevision: m.revision, recordedAs: mutationFor(actor) };
     },
-  },
-  "props.close": {
+  }),
+  "props.close": def({
     summary: "close the property panel (a value being typed must be saved or cancelled first)", keys: "esc, i, q",
     touches: "tile", while: "typing", replay: "safe", way: "the property panel they're in is theirs to close",
     args: {},
@@ -4115,8 +4060,8 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
       host.redraw();
       return { closed: true };
     },
-  },
-  "props.summary": {
+  }),
+  "props.summary": def({
     summary: "choose the summary line's keys (yours, on this machine); a view's [summary-properties::] still decides for its notes", keys: "i, tab, s",
     touches: "screen", replay: "safe",
     args: {
@@ -4131,8 +4076,8 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
       const m = surface.msg;
       return { yours: summaryKeys(null), here: m ? surface.summary(m) : null };
     },
-  },
-  "fold.select": {
+  }),
+  "fold.select": def({
     summary: "put the person's ( ) fold selection on the next (by=1) or previous (by=-1) heading or list item drawn; f or enter then folds it. The person's reading state: an agent's is refused (fold, unfold and fold.toggle name a fold point)", keys: "( )",
     touches: "tile", replay: "safe", person: "the ( ) selection is the person's; fold, unfold and fold.toggle name a fold point (folds lists them)",
     args: { by: { type: "number", about: "1 the next fold point, -1 the previous one" } },
@@ -4142,8 +4087,8 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
       host.redraw();
       return surface.describe().folds ?? null;
     },
-  },
-  "scroll": {
+  }),
+  "scroll": def({
     summary: "scroll the reader's note by rows (by=, negative is up) or to=top / to=end; the person's [ ] position is let go, as their own scrolling does. An agent's is refused on the reader the person has focused (view.scrollTo on the desk scrolls without touching their position)", keys: "j k ↑ ↓, PgUp PgDn, space, Home End, wheel",
     touches: "tile", replay: "safe", way: "its scroll is theirs; an agent scrolls a reader with view.scrollTo (desk), which leaves their [ ] position alone",
     args: {
@@ -4160,8 +4105,8 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
       host.redraw();
       return surface.viewport();
     },
-  },
-  "callouts": {
+  }),
+  "callouts": def({
     summary: "show every callout's body, or fold them back to their titles (show= sets it, else it toggles). The person's reading state: an agent's is refused", keys: "z",
     touches: "tile", replay: "safe", person: "whether callouts are open is the person's reading state; an agent reads the note's text (peek, elements)",
     args: { show: { type: "boolean", optional: true, about: "true shows the bodies, false folds them; left out, it toggles" } },
@@ -4170,8 +4115,8 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
       host.redraw();
       return { callouts: surface.unfold ? "shown" : "folded" };
     },
-  },
-  "select.mode": {
+  }),
+  "select.mode": def({
     summary: "select by keys: v starts where the reading is (h j k l, PgUp PgDn, Home End move the end; y copies, esc or v leaves), or takes over a selection made with the mouse. The person's only: an agent selects with select text= or line=", keys: "v",
     touches: "tile", replay: "safe", person: "the keyboard selection is the person's; an agent selects with select text=… or line=…, drawn as its own",
     args: {},
@@ -4181,8 +4126,8 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
       host.redraw();
       return surface.describeSelection(surface.selection!);
     },
-  },
-  "folds": {
+  }),
+  "folds": def({
     summary: "list the note's fold points (headings, and list items with nested lines): which are folded, and the line each is on",
     touches: "nothing", replay: "safe",
     args: {},
@@ -4192,20 +4137,20 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
       const shown = new Set(surface.visibleFolds(m).map(p => p.key));
       return { folds: points.map((p, i) => ({ n: i + 1, kind: p.kind, level: p.level, text: p.text, line: lines[p.line]! + 1, hidden: p.hidden, folded: surface.folded.has(p.key), shown: shown.has(p.key) })) };
     },
-  },
-  "fold": {
+  }),
+  "fold": def({
     summary: "fold a heading (hiding through the next heading of its level or higher) or a list item (hiding its nested items and continuation lines); all=true folds every outermost one (F when nothing is folded). Reading state only: the note's text never changes", keys: "( ) then f or enter, click, F",
     touches: "tile", while: "typing", replay: "safe", way: "an agent folds a reader the person isn't typing in",
     args: { ...FOLD_ARGS, all: { type: "boolean", optional: true, about: "fold every outermost heading and list item" } },
     run: (args, on, actor) => runFold(true, args, on, actor),
-  },
-  "unfold": {
+  }),
+  "unfold": def({
     summary: "unfold a heading or list item; all=true unfolds everything (F when something is folded)", keys: "( ) then f or enter, click, F",
     touches: "tile", while: "typing", replay: "safe", way: "an agent unfolds a reader the person isn't typing in",
     args: { ...FOLD_ARGS, all: { type: "boolean", optional: true, about: "unfold everything in this reader" } },
     run: (args, on, actor) => runFold(false, args, on, actor),
-  },
-  "fold.toggle": {
+  }),
+  "fold.toggle": def({
     summary: "fold a heading or list item, or unfold it if it's folded; with none named, the person's: the one ( ) selected, else the section being read", keys: "f, enter, click",
     touches: "tile", while: "typing", replay: "safe", way: "an agent folds a reader the person isn't typing in",
     args: FOLD_ARGS,
@@ -4222,8 +4167,8 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
       host.redraw();
       return foldResult(surface, p);
     },
-  },
-  "select": {
+  }),
+  "select": def({
     summary: "select text in the note as the reader draws it: text= (links read as their titles) or line= to= (1 is the subject). An agent's selection is its own, drawn in its own tint; the person's is never touched", keys: "drag, double/triple click, v then h j k l",
     touches: "nothing", replay: "safe",
     args: {
@@ -4243,8 +4188,8 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
       host.redraw();
       return out;
     },
-  },
-  "select.copy": {
+  }),
+  "select.copy": def({
     summary: "copy the selection: what's drawn, or source=true for its markup. The person's goes to their clipboard (OSC 52), and a selection they make with the mouse is copied when the button comes up (copy on select; EP0CH_COPY_ON_SELECT=0 turns it off); an agent's is returned to it and never touches the person's clipboard", keys: "y, Y, cmd+c, the [y copy] control, the release of a drag (or a double or triple click)",
     touches: "nothing", replay: "safe",
     args: { source: { type: "boolean", optional: true, about: "the note's own text (markup) instead of what's drawn" } },
@@ -4266,8 +4211,8 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
       surface.noteAgent(actor, `copied ${[...text].length} chars`);
       return { copied: [...text].length, text, clipboard: false };
     },
-  },
-  "tasks": {
+  }),
+  "tasks": def({
     summary: "list the checklist steps this reader draws, in the note and inside its embeds (anchored ones too), in reading order: status, id, the note each is in",
     touches: "nothing", replay: "safe",
     args: {},
@@ -4276,8 +4221,8 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
       surface.requireDrawn();
       return { steps: surface.describeSteps() };
     },
-  },
-  "task.status": {
+  }),
+  "task.status": def({
     summary: "set a checklist step's status (done, todo, waiting, problem) through checklist.update, checked against the step as it was read; recorded as whoever asks (an agent by its id) and said on screen. Works on steps inside embeds: the change is to the note the step is in",
     keys: "[ ] to a step, then ⏎ or a click on its box and x o w !; space toggles done / to do. With no step named, the person's: the status choice open, else the step that is the current element",
     touches: "draft", draft: "write", replay: "ask",
@@ -4288,15 +4233,15 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
       const e = surface.stepFor(which, actor) ?? (await surface.whole(), surface.stepNamed(which));
       return surface.changeStep(e.task!, status, host, actor);
     },
-  },
-  "task.undo": {
+  }),
+  "task.undo": def({
     summary: "undo the last step status change made in this reader while reading this note (an agent undoes its own, the person theirs); refused if the step changed again since",
     keys: "ctrl+z",
     touches: "draft", draft: "write", replay: "ask",
     args: {},
     run: (_, { surface, host }, actor) => surface.undoStep(host, actor),
-  },
-  "task.link": {
+  }),
+  "task.link": def({
     summary: "a step's link ((note^id)), giving the step a stable id first if it has none; the person's copies it to their clipboard, an agent's is returned. copy=false only gives the step its id (Make addressable)",
     keys: "the status choice's y (Copy step link) and a (Make addressable)",
     touches: "draft", draft: "write", replay: "ask",
@@ -4305,8 +4250,8 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
       const e = surface.stepFor(which, actor) ?? (await surface.whole(), surface.stepNamed(which));
       return surface.changeStep(e.task!, copy === false ? "address" : "copy-link", host, actor);
     },
-  },
-  "task.menu": {
+  }),
+  "task.menu": def({
     summary: "open a step's status choice under its box, as ⏎ or a click does (the person's; an agent uses task.status)",
     keys: "⏎ or a click (or right-click) on a step's box",
     touches: "tile", replay: "safe", person: "the status choice is the person's; an agent sets a step with task.status",
@@ -4317,8 +4262,8 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
       host.redraw();
       return { open: true, step: e.task!.step.itemId ?? null, choices: STEP_CHOICES.map(c => ({ id: c.id, key: c.key, label: c.label })) };
     },
-  },
-  "proposal.apply": {
+  }),
+  "proposal.apply": def({
     summary: "apply anyway (PIE-501): the edit an agent's draft.patch proposed when it couldn't apply, as an ordinary edit by whoever runs this; on the proposal whose embed or control is the current element, the proposal shown, or id. Refused, with why, on one whose passage was already gone when it was proposed ([proposal-applies::no]: only dismiss is offered)", keys: "A, a click on [apply]",
     touches: "nothing", replay: "ask",
     args: { id: { type: "string", optional: true, about: "the proposal block's id (default: the one whose embed or control is the current element, else the note shown)" } },
@@ -4337,8 +4282,8 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
         throw new ActionRefused(err instanceof Error ? err.message : String(err));
       } finally { host.redraw(); }
     },
-  },
-  "proposal.dismiss": {
+  }),
+  "proposal.dismiss": def({
     summary: "dismiss a proposal (PIE-501) without applying it: the service (draft.proposal.dismiss) takes its embed line out of the note it was proposed under (or the draft of it being written), marks it dismissed and puts it in Trash, all recorded as whoever runs this. An agent dismisses only its own proposals; the person, any", keys: "X, a click on [dismiss]",
     touches: "nothing", replay: "ask",
     args: { id: { type: "string", optional: true, about: "the proposal block's id (default: the one whose embed or control is the current element, else the note shown)" } },
@@ -4355,8 +4300,8 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
         throw new ActionRefused(err instanceof Error ? err.message : String(err));
       } finally { host.redraw(); }
     },
-  },
-  "select.clear": {
+  }),
+  "select.clear": def({
     summary: "let go of the selection (an agent's own; the person's is theirs to clear)", keys: "esc, v (leaving the keyboard selection), click",
     touches: "nothing", replay: "safe",
     args: {},
@@ -4366,5 +4311,5 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
       host.redraw();
       return { cleared: had };
     },
-  },
+  }),
 });
