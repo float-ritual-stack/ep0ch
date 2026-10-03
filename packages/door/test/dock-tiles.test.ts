@@ -234,6 +234,26 @@ describe.skipIf(!outliner)("the dock: any tile, moved whole between screens", ()
     } finally { d.app.quit(); }
   });
 
+  test("the dock's agent: listed for an agent, chosen by act (saved for this session), the picker by alt+g", async () => {
+    const d = await door();
+    try {
+      const listed = await d.app.act({ action: "host.agent", args: {}, as: AS }) as any;
+      expect(listed.agents.map((a: any) => a.name)).toContain("shell");
+      await expect(d.app.act({ action: "host.agent", args: { name: "no-such-agent" }, as: AS })).rejects.toThrow(/no agent no-such-agent here; installed: shell/);
+      const r = await d.app.act({ action: "host.agent", args: { name: "shell" }, as: AS }) as any;
+      expect(r).toMatchObject({ agent: "shell", herdr: false });
+      expect(JSON.parse(readFileSync(join(outlineState(), "dock-agent.json"), "utf8"))).toEqual({ agent: "shell" });
+      // EP0CH_DAILY_AGENT (cat, here) still overrides it, and the door says so.
+      expect((d.app.describe() as any).dock.runs.why.program).toContain("EP0CH_DAILY_AGENT");
+      // The person's alt+g: the picker, over the dock.
+      d.A.lastInput = 0;
+      d.key({ kind: "alt", ch: "g" });
+      expect(d.app.dock.open).toBe(true);
+      expect(d.paint().some(l => l.includes("the dock's agent"))).toBe(true);
+      d.key({ kind: "esc" });
+    } finally { d.app.quit(); }
+  });
+
   test("saved: the next door's dock has the tile back (dock-tiles.json), the drawer as it was", async () => {
     const d = await door();
     await d.app.act({ action: "host.dock", args: {}, tile: "thread", as: AS });

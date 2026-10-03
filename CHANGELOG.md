@@ -33,6 +33,10 @@ move into one repository (PIE-530).
   saying which side to update. `ep0ch install --apply` restarts the host. Restart doors and Claude sessions that
   should run the new code.
 - **Delete `~/.config/pi-herdr-outliner/document-renderers.json`** if you have one. Nothing reads it now.
+- **Your shell's dock settings (float-2's `~/.bashrc`).** Delete `EP0CH_HERDR_AGENT_CMD` (nothing reads it) and
+  `EP0CH_DAILY_AGENT` (it overrides the dock's choice in every door), and choose in the dock instead (`alt+g`, "claude
+  · in Herdr"). Drop `EP0CH_DAILY_CWD` to let each outline's dock start in its project or outline folder.
+  `~/.local/bin/door-claude` isn't used any more. An old `door-claude` Herdr pane stays until you close it.
 - **The dock's program and folder.** With `EP0CH_DAILY_AGENT` unset the dock now runs a shell. If you set
   `EP0CH_DAILY_CWD` to pin its Claude to a folder, drop it to let the dock follow the outline (the project's `.ep0ch`
   folder, else the outline's own); `ep0ch doctor` shows the result. An existing Herdr `door-claude` pane keeps the
@@ -245,6 +249,22 @@ move into one repository (PIE-530).
     between notes, for a Markdown file (`ep0ch show --source $(tv ep0ch) >> notes.md`);
   - `ep0ch outline list --all`: every outline, here and on the machines you opened;
   - `ep0ch open ((id))` takes the bracketed form.
+
+### No dead panes; choose the dock's agent; one agent per outline session (PIE-498)
+
+- **Quitting an agent leaves you a shell.** Every agent, in the dock or a terminal tile (`claude`, `codex`, `pi`, the
+  Herdr pane's too), starts inside your login shell. When it exits or crashes, the tile says `claude exited · shell`
+  and is your shell, in the same folder with the same environment: `claude --resume`, another agent, anything.
+  Nothing restarts it behind your back.
+- **Choose the dock's agent.** `alt+g` opens a picker of the agents installed here (Herdr's agent kinds found on
+  your PATH, each also "in Herdr" when Herdr is installed) and a shell; the choice is saved per outline session
+  (`host.agent name=<agent> [herdr=true] [default=true]`). `alt+s` opens a new shell in the dock. `ep0ch doctor`
+  lists each session's dock agent, where the choice came from, and the command to change it.
+- **One Herdr agent per outline session.** The Herdr pane is the session's own (`door-<outline>[-<machine>]`),
+  started with that session's `EP0CH_CONTROL`; a door on another outline never attaches it. Ending a session closes
+  its pane.
+- **Plain `claude`.** The dock no longer starts `door-claude` or adds `--continue` by itself (only `agent.restart`
+  does, when you ask). `EP0CH_HERDR_AGENT_CMD` is gone: the agent is the dock's choice.
 
 ### The dock: any tile travels with you (PIE-498)
 

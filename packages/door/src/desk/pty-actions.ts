@@ -53,7 +53,7 @@ export const PTY_ACTIONS = actionSet<On>()("terminal", {
     // person types in. Cleared (on=false), the warning comes back: anyone, any time.
     touches: "tile", touchesWith: a => (a.on === false ? "nothing" : "tile"), while: "typing", way: "an agent doesn't flag the terminal they're typing in (quitting would no longer warn that it ends its program)",
     replay: "ask", says: (r, a) => (a.on === false ? `${r.tile} no longer shows an agent in Herdr` : `${r.tile} shows ${a.pane} in Herdr (quitting the door leaves it running)`),
-    args: { pane: { type: "string", optional: true, about: "the Herdr pane's label (door-claude)" }, name: { type: "string", optional: true, about: "the agent's name in Herdr (door; a test door's door-<hash>)" }, on: { type: "boolean", optional: true, about: "false: the tile no longer shows a Herdr agent" } },
+    args: { pane: { type: "string", optional: true, about: "the Herdr pane's label (door-<outline>)" }, name: { type: "string", optional: true, about: "the agent's name in Herdr (door; a test door's door-<hash>)" }, on: { type: "boolean", optional: true, about: "false: the tile no longer shows a Herdr agent" } },
     run({ pane: label, name, on }, { pane, desk, tile }, actor) {
       return host(desk).herdrTerminal(tile, pane, label, on, actor, name);
     },

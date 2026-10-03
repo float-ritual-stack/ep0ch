@@ -147,7 +147,7 @@ When interaction changes, drive the real door in a terminal pane, by keys and by
 ```sh
 # in packages/door (of the live checkout, or your worktree of it)
 mkdir -p -m 700 /tmp/claude-$(id -u); d=$(mktemp -d /tmp/claude-$(id -u)/e5-XXXX); chmod 700 "$d"  # short: a socket path over ~104 bytes fails
-# scripts/test-door-env.sh unsets every inherited EP0CH_* (EP0CH_DAILY_AGENT, EP0CH_HERDR_AGENT_CMD, EP0CH_DAILY_CWD,
+# scripts/test-door-env.sh unsets every inherited EP0CH_* (EP0CH_DAILY_AGENT, EP0CH_DAILY_CWD,
 # EP0CH_LANDING, EP0CH_NOW_PAGE by name too) inside the session, sets EP0CH_DAILY_AGENT=sh and EP0CH_DAEMON=0 (the door
 # in the pane, not a session that outlives it), then what you pass (EP0CH_DAEMON=1 to test a session).
 tmux new-session -d -s try -x 160 -y 48 \
@@ -166,10 +166,10 @@ tmux kill-session -t try; rm -rf "$d"           # then check no host-main.ts (or
 ```
 
 - **Never the person's agent.** Start every test door through `scripts/test-door-env.sh` (or
-  `env -u EP0CH_DAILY_AGENT -u EP0CH_HERDR_AGENT_CMD -u EP0CH_DAILY_CWD -u EP0CH_LANDING -u EP0CH_NOW_PAGE
+  `env -u EP0CH_DAILY_AGENT -u EP0CH_DAILY_CWD -u EP0CH_LANDING -u EP0CH_NOW_PAGE
   EP0CH_DAILY_AGENT=sh …`, with any other inherited `EP0CH_*` unset too). As a backstop, a door on its own
   `EP0CH_STATE` or `EP0CH_CONTROL` refuses to start the Herdr daily agent (`doorScope`, src/desk/herdr-agent.ts);
-  `EP0CH_HERDR_SCOPED=1` gives it one of its own (`door-claude-<hash>`), never the person's. Never attach to or type
+  `EP0CH_HERDR_SCOPED=1` gives it one of its own (`door-<outline>-<hash>`), never the person's. Never attach to or type
   into a Herdr pane you didn't make; kill only your own pids.
 - **Short paths.** Unix sockets fail past about 104 bytes. The scratchpad folders agents get are too long:
   use `mktemp -d /tmp/…`.

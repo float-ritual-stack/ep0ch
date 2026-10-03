@@ -2,8 +2,9 @@
 // Herdr pane, so Herdr lists it, other agents message it (`herdr agent prompt door …`) and it outlives the
 // door; the tile is a client attached to that pane (`herdr terminal attach`), not the agent's owner.
 //
-// - The pane is found by its label (`door-claude`) on the default Herdr server (HERDR_SOCKET_PATH, else
-//   Herdr's own default). Missing, it is made: a tab labelled `door-claude` in a workspace labelled `door`
+// - The pane is the outline session's own (`sessionSlug`: `door-<outline>[-<machine>]`, from `--session`), found by its
+//   label on the default Herdr server (HERDR_SOCKET_PATH, else Herdr's own default). Missing, it is made: a tab so
+//   labelled in a workspace labelled `door`
 //   (made too if missing), in EP0CH_DAILY_CWD or the tile's folder (the dock's rule), without taking Herdr's focus. The agent
 //   is started there with `exec`, so /exit ends the pane, and named `door` once Herdr sees it.
 // - The tile attaches without --takeover. If another door's tile already has it (or later takes it), this
@@ -14,7 +15,7 @@
 // - Only the person's own door (the default state dir and a control socket in it) uses those names. A door on
 //   its own EP0CH_STATE or EP0CH_CONTROL (a test door, the showcase) refuses to start a Herdr agent at all, and
 //   says why; with EP0CH_HERDR_SCOPED=1 it gets its own pane, name and workspace, suffixed with a hash of that
-//   state (`doorScope`). It never attaches to, or types into, the person's `door-claude` (a test door once
+//   state (`doorScope`). It never attaches to, or types into, the person's panes (a test door once
 //   inherited EP0CH_DAILY_AGENT from ~/.bashrc and did). A door that sets neither (only a scratch EP0CH_SOCKET)
 //   is the person's to this rule: the repository's AGENTS.md says to set both.
 //
@@ -32,7 +33,8 @@ import { dirname, join, resolve } from "node:path";
 import { ask, JsonLines } from "../jsonl";
 import { appendNest } from "../nest";
 import { alive, defaultStateDir, isInside, stateDir } from "../state";
-import { AGENT_VARS, agentVars, DOOR_START_VARS, lineWithContinue } from "./agent-env";
+import { AGENT_VARS, agentVars, DOOR_START_VARS, withContinue } from "./agent-env";
+import { inLoginShell, shellQuote } from "./dock-program";
 
 export interface Ran { code: number; out: string; err: string }
 /** Runs one `herdr` command to completion (a fake one in tests). */
@@ -49,8 +51,11 @@ export interface AgentConfig {
   workspace: string;
   /** Where a new pane starts. */
   cwd: string;
-  /** The agent's command line, as the pane's shell runs it (after `exec`). */
-  cmd: string;
+  /** The agent's command, and as one line. */
+  agent: string[];
+  /** The person's login shell the agent starts in, and leaves them in ($SHELL). */
+  shell?: string;
+  readonly cmd: string;
   /** The env a new pane gets (`agentVars`: EP0CH_CONTROL the link, EP0CH_NEST ending in `herdr:<pane label>`). */
   env: Record<string, string>;
   /**
@@ -81,23 +86,54 @@ export function doorScope(env: Record<string, string | undefined>): string | nul
   return createHash("sha256").update(inState ? state : `${state}\0${control}`).digest("hex").slice(0, 8);
 }
 
-/** The defaults, from the environment the door gave the tile. */
-export function agentConfig(env: Record<string, string | undefined> = process.env, which = (c: string) => Bun.which(c)): AgentConfig {
+/**
+ * A session's own names in Herdr (one session per outline, PIE-418): `door-<outline>[-<machine>]`, lower case, letters,
+ * digits and dashes; a long one cut, with a short hash so two never meet. None named (the launcher run by hand): `door`.
+ */
+export function sessionSlug(session: string | null | undefined): string {
+  if (!session) return "door";
+  const s = session.toLowerCase().replace(/@/g, "-").replace(/[^a-z0-9-]+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
+  const full = `door-${s}`;
+  return full.length <= 40 ? full : `${full.slice(0, 31).replace(/-$/, "")}-${createHash("sha256").update(session).digest("hex").slice(0, 8)}`;
+}
+
+/** What the launcher is told on its command line: whose session it is, and the agent to start (`--agent <agent…>`). */
+export interface LaunchArgs { session?: string | null; agent?: string[] }
+/** `--session <label> --agent <agent…>`, as the dock passes them (src/desk/dock-program.ts `herdrCmd`). */
+export function launchArgs(argv: readonly string[]): LaunchArgs {
+  const out: LaunchArgs = {};
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === "--session" && argv[i + 1]) out.session = argv[++i]!;
+    else if (argv[i] === "--agent" || argv[i] === "--") { const a = argv.slice(i + 1); if (a.length) out.agent = [...a]; break; }
+  }
+  return out;
+}
+
+/**
+ * The defaults, from the environment the door gave the tile and the launcher's arguments: the pane is the session's
+ * own (`sessionSlug`), so a door on another outline never attaches it; the agent is the one the dock chose (plain
+ * `claude` when none is named: `--continue` only when a restart asks for it).
+ */
+export function agentConfig(env: Record<string, string | undefined> = process.env, which = (c: string) => Bun.which(c), args: LaunchArgs = {}): AgentConfig {
+  void which;
   const scope = doorScope(env);
   const scoped = (s: string) => (scope ? `${s}-${scope}` : s);
-  const pane = scoped(env.EP0CH_HERDR_PANE || "door-claude");
+  const slug = sessionSlug(args.session);
+  const pane = scoped(env.EP0CH_HERDR_PANE || (args.session ? slug : "door-claude"));
   const link = join(stateDir(), `agent-${pane.replace(/[^\w.-]/g, "_")}.sock`);
   const vars = agentVars(env, { tile: env.EP0CH_TILE || "claude", control: link, tileId: env.EP0CH_TILE_ID, nest: appendNest(env.EP0CH_NEST, `herdr:${pane}`) });
   return {
     pane,
     scope,
-    name: scoped(env.EP0CH_HERDR_NAME || "door"),
+    name: scoped(env.EP0CH_HERDR_NAME || slug),
     workspace: scoped(env.EP0CH_HERDR_WORKSPACE || "door"),
     // The folder the dock started this launcher in (src/desk/dock-program.ts: the person's EP0CH_DAILY_CWD, the
     // project's .ep0ch folder, the outline's folder, or where the door started), never the door's own PWD.
     cwd: env.EP0CH_DAILY_CWD?.trim().replace(/^~(?=$|\/)/, env.HOME ?? "~") || process.cwd(),
-    // A restart (`agent.restart`) keeps the conversation: a bare `claude` gets --continue (door-claude does it itself).
-    cmd: ((c: string) => (env.EP0CH_AGENT_CONTINUE === "1" ? lineWithContinue(c) : c))(env.EP0CH_HERDR_AGENT_CMD?.trim() || (which("door-claude") ? "door-claude" : "claude")),
+    // A restart (`agent.restart`) keeps the conversation: a bare `claude` gets --continue then, and only then.
+    shell: env.SHELL || "sh",
+    agent: ((a: string[]) => (env.EP0CH_AGENT_CONTINUE === "1" ? withContinue(a) : a))(args.agent?.length ? args.agent : ["claude"]),
+    get cmd() { return this.agent.map(shellQuote).join(" "); },
     // The pane's nest: the tile's that made it, then the pane itself. Another door may show it later
     // (`ep0ch where` follows EP0CH_CONTROL to the door that shows it now).
     env: vars,
@@ -162,7 +198,7 @@ export async function findOrCreate(herdr: HerdrRun, cfg: AgentConfig): Promise<F
   if (made.code !== 0 || !root?.pane_id || !root?.terminal_id) throw new Error(`herdr couldn't make the agent's pane: ${made.err.trim() || made.out.trim()}`);
   const pane = String(root.pane_id);
   await herdr(["pane", "rename", pane, cfg.pane]);
-  // `exec`: the agent is the pane's program, so /exit ends the pane and the next ⏎ in the tile starts afresh.
+  // The agent inside the person's login shell: /exit (or a crash) leaves a working shell in the pane, never a dead one.
   const ran = await herdr(["pane", "run", pane, runLine(cfg)]);
   if (ran.code !== 0) throw new Error(`herdr couldn't start ${cfg.cmd}: ${ran.err.trim()}`);
   return { kind: "pane", pane, terminal: String(root.terminal_id), created: true };
@@ -172,7 +208,8 @@ export async function findOrCreate(herdr: HerdrRun, cfg: AgentConfig): Promise<F
  * The pane's command: `exec` the agent (so /exit ends the pane), without what the pane mustn't inherit from the
  * Herdr server (`env -u`, Linux and macOS alike).
  */
-export const runLine = (cfg: Pick<AgentConfig, "cmd" | "unset">) => `exec ${cfg.unset.length ? `env ${cfg.unset.map(k => `-u ${k}`).join(" ")} ` : ""}${cfg.cmd}`;
+export const runLine = (cfg: Pick<AgentConfig, "agent" | "unset" | "shell">, shell = cfg.shell ?? "sh") =>
+  `exec ${cfg.unset.length ? `env ${cfg.unset.map(k => `-u ${k}`).join(" ")} ` : ""}${inLoginShell(cfg.agent, shell).map(shellQuote).join(" ")}`;
 
 /**
  * Names the agent once Herdr has seen it start (a name needs a detected agent): retried every half second.
@@ -326,20 +363,21 @@ function watch(bin: string, terminal: string): Promise<"takeover" | "quit" | "cl
 }
 
 /** What a door on its own state says instead of starting a Herdr agent (`doorScope`). */
-export const SCOPED_REFUSAL = "not started: this door runs on its own EP0CH_STATE or EP0CH_CONTROL, and the Herdr daily agent is the person's · EP0CH_DAILY_AGENT=sh gives this door a shell; EP0CH_HERDR_SCOPED=1 gives it a Herdr agent of its own (door-claude-<hash>)";
+export const SCOPED_REFUSAL = "not started: this door runs on its own EP0CH_STATE or EP0CH_CONTROL, and the Herdr daily agent is the person's · EP0CH_DAILY_AGENT=sh gives this door a shell; EP0CH_HERDR_SCOPED=1 gives it a Herdr agent of its own (door-<outline>-<hash>)";
 
 /** The whole walk; resolves to the exit code the tile shows. `script` is the wrapper's own path (for the namer). */
-export async function main(script: string, env = process.env): Promise<number> {
+export async function main(script: string, env = process.env, args: LaunchArgs = {}): Promise<number> {
   // A ctrl+c meant for the agent must never end the wrapper (the tile's pty sends it to the whole group).
   process.on("SIGINT", () => {});
-  const cfg = agentConfig(env);
+  const cfg = agentConfig(env, undefined, args);
   // A door on its own state (a test door, the showcase) never starts or attaches to a Herdr agent unless it asks
   // to: it inherited the person's daily agent from their shell, and that agent is theirs.
   if (cfg.scope && env.EP0CH_HERDR_SCOPED !== "1") {
     process.stderr.write(`${SCOPED_REFUSAL}\r\n`);
     return 1;
   }
-  const direct = () => onTerminal(["sh", "-c", `exec ${cfg.cmd}`]).then(r => r.code);
+  // No Herdr: the agent here, inside the person's login shell (no dead tile when it exits).
+  const direct = () => onTerminal(inLoginShell(cfg.agent, env.SHELL || "sh")).then(r => r.code);
   const bin = herdrBin(env);
   if (!bin) return direct();
   const herdr = herdrRunner(bin);
@@ -382,5 +420,18 @@ export async function cli(script: string, argv: string[]): Promise<number> {
     const bin = herdrBin();
     return bin && (await nameWhenReady(herdrRunner(bin), pane, name)) ? 0 : 1;
   }
-  return main(script);
+  // A session ended (src/session/daemon.ts): its own agent pane closes, never another session's.
+  if (flag === "--close" && pane) {
+    const bin = herdrBin();
+    return bin && (await closeSessionPane(herdrRunner(bin), pane)) ? 0 : 1;
+  }
+  return main(script, process.env, launchArgs(argv));
+}
+
+/** Close the pane labelled `label` (a session's own, `sessionSlug`): true when it was there and closed. */
+export async function closeSessionPane(herdr: HerdrRun, label: string): Promise<boolean> {
+  if (!/^door-[a-z0-9-]+$/.test(label) || label === "door-claude") return false;
+  const panes = json((await herdr(["pane", "list"])).out)?.result?.panes;
+  const hit = Array.isArray(panes) ? panes.find((p: any) => p?.label === label) : null;
+  return !!hit?.pane_id && (await herdr(["pane", "close", String(hit.pane_id)])).code === 0;
 }

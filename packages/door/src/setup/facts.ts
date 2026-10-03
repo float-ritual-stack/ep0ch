@@ -410,6 +410,18 @@ export async function gatherFacts(o: GatherOptions = {}): Promise<Facts> {
     here,
     dock: (({ cmd, cwd, programWhy, folderWhy }) => ({ cmd, cwd, programWhy, folderWhy }))(dockProgram({ env, outline: here?.outline ?? null, machine: here?.machine ?? null, start: here?.folder ?? process.cwd(), home })),
     machines,
+    docks: await (async () => {
+      const { placeDirs, readPlace } = await import("../session/place");
+      const { sessionSlug } = await import("../desk/herdr-agent");
+      const root = env.EP0CH_STATE ?? defaultStateDir(env);
+      return placeDirs(root).flatMap(dir => {
+        const pl = readPlace(dir);
+        if (!pl) return [];
+        const p = dockProgram({ env, outline: pl.outline, machine: pl.machine ?? null, dir, state: root, home });
+        const session = `${pl.outline}${pl.machine ? `@${pl.machine}` : ""}`;
+        return [{ session, cmd: p.cmd, programWhy: p.programWhy, from: p.from, ...(p.herdr ? { pane: sessionSlug(session) } : {}) }];
+      });
+    })(),
     claude: { settingsPath, settingsDirs, envDirs: splitDirs(env.CLAUDE_CODE_PLUGIN_DIRS), ...(mentions ? { mentions } : {}), ...(env.FORCE_HYPERLINK !== undefined ? { forceHyperlink: env.FORCE_HYPERLINK } : {}), ...(agents ? { agents } : {}) },
     sessions,
     ext: extFacts(join(repo.door, "ext"), { env, home, bin: binDirOf(found, target === real(repo.entry)) ?? chooseLinkDir(linkDirs), which: n => which(n, pathDirs), record }),

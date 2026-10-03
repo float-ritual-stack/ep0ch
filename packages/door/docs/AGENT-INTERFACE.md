@@ -66,13 +66,13 @@ characters (past that, the oldest layers after the first become one `…`). `src
 | a Herdr pane | the door, from `HERDR_PANE_ID` before it drops it, unless the nest already ends in a Herdr layer | `herdr:w1:p1` |
 | a door tile | the door, for each terminal tile (`tileEnv`) | `door:<pid>/<layout or view>/<tile id>:<tile name>` |
 | the dock | the door, for its own tab (PIE-498); a terminal docked from a screen keeps the layer it started with | `door:<pid>/dock/dock.agent:claude` |
-| the daily agent's Herdr pane | the Herdr launcher (`scripts/door-agent-herdr.ts`), for the pane it makes | `herdr:door-claude` (the pane's label) |
+| the daily agent's Herdr pane | the Herdr launcher (`scripts/door-agent-herdr.ts`), for the pane it makes | `herdr:door-<outline>` (the pane's label) |
 
 The three routes:
 
     ssh:pts/5 › door:1388380/desk/t1:claude                               # plain ssh: a door, a tile
     ssh:pts/5 › herdr:w1:p1 › door:1388380/desk/t1:claude                 # the door in a Herdr pane
-    ssh:pts/5 › herdr:w1:p1 › door:1388380/dock/dock.agent:claude › herdr:door-claude   # the dock's agent in Herdr
+    ssh:pts/5 › herdr:w1:p1 › door:1388380/dock/dock.agent:claude › herdr:door-pie   # the dock's agent in Herdr, the pie session's own pane
 
 The nest says how the program was started, not what is true now: a tile moved to another layout keeps its
 launch place, and the agent's Herdr pane keeps the door that made it while another door shows it.
@@ -193,11 +193,13 @@ shell), and any tile can join it and leave it whole. It's pulled up from the sta
 
 | Action | Args | Keys, mouse | Agent rules |
 |---|---|---|---|
+| `host.agent` | `name` (an agent installed here, or `shell`), `herdr` (run it in the session's own Herdr pane), `default` (for every outline, not only this session) | `alt+g` (the person's picker), ⏎ in it | no name: an agent gets the list (`agents`, `now`, `from`), the person the picker. Saved for the outline's session; it starts inside the person's login shell from the dock's own tab's next start, never in place of one running (`agent.restart` does that); `EP0CH_DAILY_AGENT` still overrides it. Said on screen |
+| `host.shell` | | `alt+s` | a new shell (`$SHELL`, the dock's folder) as a dock tab: the person's is shown and takes their keys; an agent's opens behind the tab shown |
 | `host.toggle` | `open` (true, false; left out, it toggles) | `alt+a`, a click on the chip; `Esc` (after `ctrl+]`) puts it away | pulling it up is a move of the person's screen: refused while they're typing (in the drawer too) and within 2s of their last key, as `screen.open` is; said on the status bar and in the drawer's title. Never enters it: their keys stay where they were. Refused to put it away while they're in it |
 | `host.size` | `share` (0.2 to 0.9 of the rows above the status bar) | drag its top edge; `alt+A` steps 40, 50, 60, 75% | refused while they're in it |
 | `agent.type` | `text` (`\n` ⏎, `\e` Esc) | the person types in the drawer | refused while the person types in it, and while it isn't running; said on the status bar. The agent is no screen's tile, so `tile.type` doesn't reach it |
 | `agent.knows` | | the chip says it: `· door tools`, `· started before update ⟳`, `· no door tools ⟳` | read-only: the agent process's own environment and start time against the installed Claude mod (`current`, `stale`, `no-door`, `unknown`, with why) |
-| `agent.restart` | | a click on the chip's `⟳`; `alt+R` | that agent's process alone is asked to exit (SIGTERM, SIGKILL after 8s) and the same command runs again, keeping the conversation (in Herdr: a new `door-claude` pane). Refused while the person types in the drawer, or within 10s of their last key in the agent; said on the status bar |
+| `agent.restart` | | a click on the chip's `⟳`; `alt+R` | that agent's process alone is asked to exit (SIGTERM, SIGKILL after 8s) and the same command runs again, keeping the conversation (in Herdr: the session's own pane again). Refused while the person types in the drawer, or within 10s of their last key in the agent; said on the status bar |
 
 Its own program is told `EP0CH_TILE_ID=dock.agent` and `EP0CH_TILE=claude` (`shell` for a shell), and its nest
 layer is `door:<pid>/dock/dock.agent:claude`. The Herdr launcher's `tile.herdr tile=dock.agent` reaches the App on

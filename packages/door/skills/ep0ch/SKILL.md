@@ -124,19 +124,18 @@ It never moves the person's focus, and a door's refusal is the answer, never a r
 `src/desk/agent-env.ts`): `EP0CH_CONTROL`, `EP0CH_TILE`, `EP0CH_TILE_ID`, `EP0CH_NEST`, `EP0CH_IN_DOOR`, and
 the door's `EP0CH_STATE` and `EP0CH_SOCKET` when it has them.
 1. `^W o s` on the desk, then `claude` in that shell: a terminal tile's program.
-2. `D`, then the `daily` layout's `claude` tile: the door's own agent. Where `EP0CH_DAILY_AGENT` names the
-   Herdr launcher (`scripts/door-agent-herdr.ts`) it runs in Herdr (the `door-claude` pane, `EP0CH_CONTROL` a
-   link the launcher points at the attached door); elsewhere plain `claude` in the tile.
-3. The `▲ claude` chip on the status bar, or `alt+a`: the dock, a drawer over any screen; its own tab runs the same
-   agent as 2 (`EP0CH_DAILY_AGENT`; unset, a shell), and any tile docked there travels with the person.
+2. The `▲ claude` chip on the status bar, or `alt+a`: the dock, a drawer over any screen. Its own tab runs the
+   agent chosen for the outline's session (`alt+g`, `host.agent name=<agent> [herdr=true]`; `EP0CH_DAILY_AGENT`
+   overrides it; none chosen: a shell). Chosen "in Herdr", it runs in the session's own pane (`door-<outline>`,
+   `EP0CH_CONTROL` a link the launcher points at the attached door). Any tile docked there travels with the person.
+   Every agent starts inside the person's login shell: when it exits, the tile is their shell, nothing restarted.
 
 **A Claude reads these, and the mod, only as it starts.** If the mod changed after it started (a `git pull` of
 the ep0ch checkout), or it started without them, it has no door tools or old ones. The chip says so:
 `▲ claude · door tools` when current, `▲ claude · started before update ⟳` (or `no door tools ⟳`) when not.
 `ep0ch act agent.knows` says the same with why; `ep0ch doctor` lists every door agent on an older mod.
 A click on `⟳`, `alt+R` or `ep0ch act agent.restart` restarts the door's agent, keeping the conversation
-(`door-claude` continues; a bare `claude` gets `--continue`; in Herdr it comes back in a new `door-claude`
-pane). Your `agent.restart` is refused while the person types in the agent. A `claude` you started in a tile
+(a bare `claude` gets `--continue` on this restart only; in Herdr it comes back in the session's pane). Your `agent.restart` is refused while the person types in the agent. A `claude` you started in a tile
 yourself (path 1): `/exit`, then `claude --continue`.
 
 - **Who it's from:** each act and open goes with `--as`: the call's `actor`, else `OUTLINER_ACTOR`, else

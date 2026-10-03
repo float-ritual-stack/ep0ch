@@ -275,7 +275,7 @@ describe("the dock", () => {
       expect(d.app.describe().dock).toMatchObject({ herdr: { pane: "door-claude" } });
       d.type("\x04");                                            // ctrl+d: cat ends
       await wait(() => d.app.dock.state() === "exited");
-      expect(d.app.dock.chipText()).toBe("▼ claude · exited 0");
+      expect(d.app.dock.chipText()).toBe("▼ claude · exited 0 · shell");   // the agent gone, its shell left (no dead pane)
     } finally { d.app.quit(); d.app.dock.tile?.kill(); }
   });
 

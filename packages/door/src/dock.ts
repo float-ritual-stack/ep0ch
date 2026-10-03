@@ -34,7 +34,14 @@ import { alive } from "./state";
 import { controlPath } from "./control";
 import { ESCAPE_CHORD, isEscapeChord, PtyPane, type PtySpec } from "./desk/pty";
 import { rawKey } from "./kbd";
-import { dockProgram, type DockProgram } from "./desk/dock-program";
+import { choiceFile, detectAgents, dockProgram, HERDR_LAUNCHER, sessionLabel, shellQuote, type DockAgent, type DockProgram } from "./desk/dock-program";
+import { sessionSlug } from "./desk/herdr-agent";
+import { readPlace } from "./session/place";
+import { outlineState, stateDir } from "./state";
+import { centred, ListPicker, pickRow } from "./surface/picker";
+import { spawn as spawnDetached } from "node:child_process";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 import { Desk, type MovedTile } from "./desk/desk";
 import type { ScreenSpec } from "./desk/screen-spec";
 import type { TileDone, Where } from "./desk/tile-actions";
@@ -66,8 +73,10 @@ export function hostSpec(persist = true): ScreenSpec {
 /** The dock's own tile: a terminal whose header says what runs in it (claude, shell), its tile name staying `dock.agent`. */
 class DockTile extends PtyPane {
   override readonly kind = DOCK_KIND;
-  constructor(spec: PtySpec, private readonly shows: string) { super(spec); }
+  constructor(spec: PtySpec, public shows: string) { super(spec); }
   headName() { return this.shows; }
+  /** The agent chosen now runs at its next start (agent.restart, or the next door): never in place of one running. */
+  retarget(p: DockProgram) { Object.assign(this.run, { cmd: p.cmd, cwd: p.cwd, label: p.name }); this.shows = p.name; }
 }
 /** The dock's own kind, registered once: a terminal's actions and keys, closable and draggable off (its policy). */
 function registerDockKind() {
@@ -174,7 +183,78 @@ export class AgentDock {
   }
 
   /** The dock's own program and folder, for the outline the door is on. */
-  private program(): DockProgram { const c = this.host.ctx?.(); return dockProgram({ outline: c?.outline ?? null, machine: (c as { machine?: string } | undefined)?.machine ?? null }); }
+  private program(): DockProgram {
+    const c = this.host.ctx?.(), pl = this.persist ? readPlace(outlineState()) : null;
+    return dockProgram({ outline: c?.outline ?? pl?.outline ?? null, machine: pl?.machine ?? null, dir: this.persist ? outlineState() : null, state: this.persist ? stateDir() : null });
+  }
+  /** This outline's session, as its Herdr pane and doctor name it (`pie-hole@float-2`). */
+  private session(): string | null { const c = this.host.ctx?.(), pl = this.persist ? readPlace(outlineState()) : null; return sessionLabel({ outline: c?.outline ?? pl?.outline ?? null, machine: pl?.machine ?? null }); }
+
+  /** The agents to choose from here (installed, a shell first; each in Herdr too when Herdr is). */
+  agents(): DockAgent[] { return detectAgents({ session: this.session() }); }
+
+  /**
+   * The person's (or an agent's) choice of the dock's own agent: saved for this outline's session (or, `dflt`, as
+   * the default for every outline). The dock's own tab runs it from its next start; one running now keeps running
+   * (nothing is restarted behind the person's back): agent.restart starts the new one in its place.
+   */
+  choose(name: string, herdr: boolean, dflt: boolean, actor: Actor): Record<string, unknown> {
+    const all = this.agents(), hit = all.find(a => a.name === name && !!a.herdr === herdr);
+    if (!hit) throw new ActionRefused(`no agent ${name}${herdr ? " in Herdr" : ""} here; installed: ${all.map(a => `${a.name}${a.herdr ? " (herdr=true)" : ""}`).join(", ")}`);
+    if (!this.persist) throw new ActionRefused("this dock saves nothing (a test's)");
+    const file = choiceFile(dflt ? stateDir() : outlineState());
+    try { mkdirSync(dirname(file), { recursive: true, mode: 0o700 }); writeFileSync(file, JSON.stringify({ agent: name, ...(herdr ? { herdr: true } : {}) }), { mode: 0o600 }); }
+    catch (e) { throw new ActionRefused(`couldn't save the choice in ${file}: ${(e as Error).message}`); }
+    this.prog = this.program();
+    const p = this.p, running = !!p?.running;
+    if (p instanceof DockTile) p.retarget(this.prog);
+    this.picking = false;
+    const env = this.prog.from === "env" ? ` · EP0CH_DAILY_AGENT (${process.env.EP0CH_DAILY_AGENT}) still overrides it in this door` : "";
+    this.host.flash(running ? `${this.prog.name} chosen for the dock · what runs there now keeps running: alt+R starts ${this.prog.name} in its place${env}` : `${this.prog.name} chosen for the dock${env}`, 8000);
+    this.host.redraw();
+    void actor;
+    return { agent: name, herdr, saved: dflt ? "default" : this.session() ?? "session", runs: this.prog.cmd, startsNow: !running };
+  }
+
+  /** The picker over the dock: the agents installed here; ⏎ chooses one (host.agent), esc leaves it as it is. */
+  pick(): { picking: boolean } {
+    const d = this.desk;
+    if (!d) throw new ActionRefused("the dock isn't ready");
+    if (!this.open) this.set(true, USER);
+    this.do({ op: "focus", tile: HOST_TILES }, USER);
+    this.picking = true;
+    const now = this.prog;
+    d.overlay(new ListPicker<DockAgent, Desk>({
+      name: "dock agent", items: () => this.agents(),
+      row: (a, _i, on, w) => [pickRow(` ${a.name}${a.herdr ? " · in Herdr (outlives the door)" : ""}${a.name === now.name && a.herdr === now.herdr ? " · now" : ""}  ${a.cmd.at(-1) === a.name ? "" : a.cmd.join(" ")}`, on, w)],
+      choose: a => { void this.run?.("host.agent", { name: a.name, ...(a.herdr ? { herdr: true } : {}) }); },
+      frame: (r, n) => ({ rect: centred(r, Math.min(64, r.cols - 2), Math.min(r.rows - 1, n + 2)), title: "the dock's agent", foot: "↑↓ pick · ⏎ choose · esc · it starts in your shell" }),
+    }));
+    this.host.redraw();
+    return { picking: true };
+  }
+  /** The dock's picker is up (or was offered this time it was pulled up). */
+  private picking = false;
+  /** How the dock runs its own actions as the person (the App's dispatcher), for the picker's choice. */
+  run: ((name: string, args: Record<string, unknown>) => Promise<unknown>) | null = null;
+
+  /** A new shell in the dock, in its folder, as a tab shown (alt+s): the person's keys go into it; an agent's never do. */
+  async newShell(actor: Actor): Promise<TileDone> {
+    const d = this.desk;
+    if (!d) throw new ActionRefused("the dock isn't ready");
+    if (actor.kind !== "agent" && !this.open) this.set(true, actor);
+    const done = await d.openTile({ kind: "pty", cmd: shellQuote(process.env.SHELL || "sh"), cwd: this.prog.cwd }, DOCK_TILE_ID, "tabs", actor);
+    if (actor.kind !== "agent") { this.do({ op: "focus", tile: HOST_TILES }, actor); d.run("tab.select", {}, done.tile); this.intoShown(); }
+    this.host.redraw();
+    return done;
+  }
+
+  /** The session ended: its own Herdr pane closes (never another session's: the pane is named for this one). */
+  closeOwnPane(): boolean {
+    const label = this.p?.herdr?.pane, session = this.session();
+    if (!label || !session || !label.startsWith(sessionSlug(session))) return false;
+    try { spawnDetached(process.execPath, [HERDR_LAUNCHER, "--close", label], { detached: true, stdio: "ignore" }).unref(); return true; } catch { return false; }
+  }
   /** What the dock's own tab is called (claude, shell): the chip's name. */
   get name(): string { return this.prog.name; }
   /** What it runs and where, and why (`ep0ch doctor`, peek). */
@@ -271,7 +351,8 @@ export class AgentDock {
     if (this.p) return this.p;
     this.prog = this.program();
     const a = this.prog;
-    const p = new DockTile({ cmd: a.cmd, cwd: a.cwd, label: a.name, agent: true }, a.name);
+    // An agent starts inside the person's login shell (PtyPane: no dead tile when it exits); a shell is just the shell.
+    const p = new DockTile({ cmd: a.cmd, cwd: a.cwd, label: a.name, agent: true, inShell: a.name !== "shell" }, a.name);
     p.tileId = DOCK_TILE_ID;
     p.place = "dock";
     // The dock's own program is the dock's (dock.json): a session's next daemon adopts it by that.
@@ -299,7 +380,7 @@ export class AgentDock {
   state(now = Date.now()): AgentState {
     const p = this.p;
     if (!p || (!p.running && p.exited === null)) return "off";
-    if (p.exited !== null) return "exited";
+    if (p.exited !== null || p.agentExit !== null) return "exited";
     if (p.programTitle === WATCH_TITLE) return "watching";
     if (p.herdr) {
       this.pollHerdr(now);
@@ -337,7 +418,7 @@ export class AgentDock {
     if (this.dropHover) { const sc = this.host.screen?.(); if (!(sc instanceof Desk) || !sc.draggedTile()) this.dropHover = null; }
     const s = this.state(now);
     if (s !== "off" && s !== "exited") this.pollKnows(now);
-    const what = this.restarting ? "restarting" : s === "off" ? "" : s === "blocked" ? "needs you" : s === "exited" ? `exited ${this.p?.exited ?? ""}`.trim() : s;
+    const what = this.restarting ? "restarting" : s === "off" ? "" : s === "blocked" ? "needs you" : s === "exited" ? (this.p?.exited === null && this.p?.agentExit !== null ? `exited ${this.p.agentExit} · shell` : `exited ${this.p?.exited ?? ""}`.trim()) : s;
     const knows = this.restarting || s === "off" || s === "exited" ? "" : knowsLabel(this.knows);
     // The dock's own name, then how many more tiles it holds (`▲ claude +2`): a drag over it says it docks there.
     const more = this.d ? this.tabs().length - 1 : 0;
@@ -394,7 +475,7 @@ export class AgentDock {
   /**
    * Restart the agent so it starts with the door's environment and the installed mod, keeping the conversation:
    * - in a terminal tile (or the drawer), its program is asked to exit (SIGTERM; SIGKILL after 8s), then the same
-   *   command runs again (a bare `claude` with --continue; door-claude continues by itself);
+   *   command runs again (a bare `claude` with --continue);
    * - in Herdr, the process in the agent's pane alone is asked to exit, the pane closes with it, and the tile's
    *   launcher runs again: it makes a new pane with today's variables and starts the agent there, continuing.
    * Nothing but that one agent process (and this door's own launcher for it) is signalled.
@@ -454,8 +535,11 @@ export class AgentDock {
     else { this.openedBy = null; this.capture = null; this.dragging = false; }
     this.d?.shownAs(this.shown);
     this.save();
+    // Pulled up by the person with no agent chosen for this session yet: the picker is offered (once a door).
+    if (open && actor.kind !== "agent" && this.prog.from === "none" && !this.offered && this.persist && this.host.ctx?.()) { this.offered = true; this.pick(); }
     this.host.redraw();
   }
+  private offered = false;
 
   /** The person's keys go into the tab the drawer shows: a terminal there takes them (its program types), as tile.enter does. */
   private intoShown(send?: string) {
@@ -636,7 +720,7 @@ export class AgentDock {
       ? `${fg(C.yellow)}every key goes to ${name === DOCK_TILE_ID ? this.name : name} · ${ESCAPE_CHORD} back to the ${screen} · alt+a puts it away`
       : this.entered
       ? `${fg(C.yellow)}in the dock, on ${name === DOCK_TILE_ID ? this.name : name}${d?.pane(name) instanceof PtyPane ? " · ⏎ types in it" : ""} · ^W a undocks it · ^W ] [ other tabs · Esc or ${ESCAPE_CHORD} back to the ${screen} · alt+a puts it away`
-      : `${fg(C.dark)}click in it or ${ESCAPE_CHORD} to type · alt+a or Esc puts it away · alt+A height · ^W a docks a tile, ^W A brings a tab here`;
+      : `${fg(C.dark)}click in it or ${ESCAPE_CHORD} to type · alt+s new shell · alt+g agent · alt+a or Esc puts it away · alt+A height · ^W a docks a tile, ^W A brings a tab here`;
     canvas.text(1, r.rows - 1, hint + RESET, cols - 2);
     return { rect: r, lines: canvas.lines(), placements };
   }
@@ -665,6 +749,8 @@ export class AgentDock {
       if (isEscapeChord(k)) { run("host.leave", {}); return true; }
       if (isAlt(k, "a")) { run("host.toggle", { open: false }); return true; }
       if (isAlt(k, "A")) { run("host.size", { share: nextStep(this.share) }); return true; }
+      if (isAlt(k, "s")) { run("host.shell", {}); return true; }
+      if (isAlt(k, "g")) { run("host.agent", {}); return true; }
       const d = this.desk;
       if (!d) return true;
       // Esc and q step back out of the dock (to the screen) where its tab isn't using them; never the screen's back.
@@ -675,6 +761,9 @@ export class AgentDock {
     }
     if (isAlt(k, "a")) { run("host.toggle", {}); return true; }
     if (isAlt(k, "R")) { run("agent.restart", {}); return true; }
+    // alt+s: a new shell in the dock, here; alt+g: choose the dock's agent (its picker). On every screen, as alt+a.
+    if (isAlt(k, "s")) { run("host.shell", {}); return true; }
+    if (isAlt(k, "g")) { run("host.agent", {}); return true; }
     if (this.shown && isEscapeChord(k)) return this.chordBack(screen, run);
     if (this.shown && isAlt(k, "A")) { run("host.size", { share: nextStep(this.share) }); return true; }
     // Esc puts it away when the screen isn't using it (an edit, a filter, a terminal the person is in).
@@ -820,7 +909,7 @@ export function nextStep(share: number): number {
 }
 
 /** How the dock's keys and clicks run its actions: as the person, a refusal said on the status bar. */
-export type DockRun = (name: "host.toggle" | "host.size" | "agent.restart" | "host.enter" | "host.leave", args: Record<string, unknown>) => void;
+export type DockRun = (name: "host.toggle" | "host.size" | "agent.restart" | "host.enter" | "host.leave" | "host.shell" | "host.agent", args: Record<string, unknown>) => void;
 
 /** What `agent.restart` answers once the agent runs again. */
 export interface RestartDone { restarted: boolean; herdr?: string; was: AgentKnows["state"] | null }
@@ -862,6 +951,28 @@ export const DOCK_ACTIONS = actionSet<DockOn>()("dock", {
       return { open: dock.open, entered: dock.entered, share: dock.share, state: dock.state() };
     },
   }),
+  "host.shell": def({
+    summary: "a new shell in the dock (the person's $SHELL, in the dock's folder), as a tab shown: the person's goes into it; an agent's opens it behind the tab shown, their keys where they were",
+    keys: "alt+s (on every screen, and in the dock)",
+    touches: "shape", replay: "ask",
+    says: (out: { tile?: string }) => `· opened a shell in the dock (${out.tile ?? "shell"})`,
+    args: {},
+    run(_, { dock }, actor) { return dock.newShell(actor); },
+  }),
+  "host.agent": def({
+    summary: "the dock's own agent (its first tab): name=<agent> chooses one installed here (claude, codex, pi, … or shell; herdr=true runs it in Herdr, where it outlives the door), saved for this outline's session (default=true: for every outline). It starts inside the person's login shell, from the dock's own tab's next start: one running keeps running (agent.restart starts the new one in its place). No name: the person's picker of the agents installed here. EP0CH_DAILY_AGENT, when set, still overrides it",
+    keys: "alt+g (the picker; on every screen, and in the dock), ⏎ in it",
+    touches: "screen", replay: "ask",
+    says: (out: { agent?: string }) => (out.agent ? `· chose ${out.agent} for the dock` : null),
+    args: { name: { type: "string", optional: true, about: "the agent: claude, codex, pi, … or shell (host.agent with no name lists them on screen)" }, herdr: { type: "boolean", optional: true, about: "run it in this session's own Herdr pane (it outlives the door)" }, default: { type: "boolean", optional: true, about: "the default for every outline's session, not only this one" } },
+    run({ name, herdr, default: dflt }, { dock }, actor) {
+      if (!name) {
+        if (actor.kind === "agent") return { agents: dock.agents().map(a => ({ name: a.name, cmd: a.cmd, ...(a.herdr ? { herdr: true } : {}) })), now: dock.runs.name, from: dock.runs.from };
+        return dock.pick();
+      }
+      return dock.choose(name, !!herdr, !!dflt, actor);
+    },
+  }),
   "host.size": def({
     summary: "how much of the screen the dock covers, as a share of the rows above the status bar (0.2 to 0.9); over a screen, the screen under it doesn't move; beside one, the screen is drawn shorter",
     keys: "drag the drawer's top edge; alt+A steps 40%, 50%, 60%, 75%",
@@ -874,7 +985,7 @@ export const DOCK_ACTIONS = actionSet<DockOn>()("dock", {
     },
   }),
   "agent.restart": def({
-    summary: "restart the agent (▲ claude) so it starts with the door's environment (EP0CH_CONTROL, EP0CH_NEST …) and the installed Claude mod: that agent alone is asked to exit (SIGTERM, SIGKILL after 8s) and the same command runs again, keeping the conversation (door-claude continues; a bare claude gets --continue). In Herdr it comes back in a new door-claude pane. An agent's restart is refused while the person types in it, and is said on screen",
+    summary: "restart the agent (▲ claude) so it starts with the door's environment (EP0CH_CONTROL, EP0CH_NEST …) and the installed Claude mod: that agent alone is asked to exit (SIGTERM, SIGKILL after 8s) and the same command runs again, keeping the conversation (a bare claude gets --continue on this restart). In Herdr it comes back in the session's own pane. An agent's restart is refused while the person types in it, and is said on screen",
     keys: `a click on ${RESTART_GLYPH} at the end of the ▲ claude chip (shown when it started without the door's variables, or without door tools); alt+R`,
     touches: "tile", while: "typing", replay: "ask", way: "an agent doesn't restart it under them",
     says: (out: { name?: string }) => ({ text: `· restarted ${out?.name ?? "the dock's program"}`, ms: 6000 }),
@@ -921,7 +1032,7 @@ export const HOST_TILE_ACTIONS = actionSet<{ dock: AgentDock }>()("host", {
   "tile.herdr": def({
     summary: "the host layer's agent (tile=dock.agent) lives in Herdr pane pane=<label> (on=false: it no longer does): quitting the door then ends only the attach",
     touches: "nothing", replay: "ask",
-    args: { pane: { type: "string", optional: true, about: "the Herdr pane's label (door-claude)" }, name: { type: "string", optional: true, about: "the agent's name in Herdr (door; a test door's door-<hash>)" }, on: { type: "boolean", optional: true, about: "false: it no longer shows a Herdr agent" } },
+    args: { pane: { type: "string", optional: true, about: "the Herdr pane's label (door-<outline>)" }, name: { type: "string", optional: true, about: "the agent's name in Herdr (door; a test door's door-<hash>)" }, on: { type: "boolean", optional: true, about: "false: it no longer shows a Herdr agent" } },
     run({ pane, name, on }, { dock }) {
       const p = dock.tile;
       if (!p) throw new ActionRefused(`${DOCK_TILE_ID} hasn't started`);

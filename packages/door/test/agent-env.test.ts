@@ -151,7 +151,7 @@ describe("one set of agent variables, whichever way the agent is started", () =>
     // The pane mustn't inherit how a door was started from the Herdr server's own environment.
     const run = calls.find(c => c.startsWith("pane run"))!;
     for (const k of DOOR_START_VARS) expect(run).toContain(`-u ${k}`);
-    expect(run).toMatch(/exec env (-u \w+ )+claude$/);
+    expect(run).toMatch(/exec env (-u \w+ )+\S+ -l -c 'claude; c=\$\?; /);
   });
 
   test("a terminal tile opened without a name (^W o s) tells its program the name the desk gave it", async () => {
@@ -169,8 +169,8 @@ describe("one set of agent variables, whichever way the agent is started", () =>
   test("a launcher run by hand (no tile id) unsets any EP0CH_TILE_ID the Herdr server has", () => {
     const cfg = agentConfig({ HOME: "/h", PWD: "/w", EP0CH_TILE: "claude" }, () => null);
     expect(cfg.unset).toContain("EP0CH_TILE_ID");
-    expect(runLine(cfg)).toBe(`exec env ${cfg.unset.map(k => `-u ${k}`).join(" ")} claude`);
-    expect(runLine({ cmd: "door-claude", unset: [] })).toBe("exec door-claude");
+    expect(runLine(cfg, "sh")).toMatch(new RegExp(`^exec env ${cfg.unset.map(k => `-u ${k}`).join(" ")} sh -l -c 'claude; `));
+    expect(runLine({ agent: ["pi"], unset: [] }, "zsh")).toMatch(/^exec zsh -l -c 'pi; c=\$\?; .*exec zsh -l'$/);
   });
 
   test("a restart keeps the conversation: a bare claude gets --continue, door-claude and a claude told what to resume are left as they are", () => {
@@ -183,7 +183,7 @@ describe("one set of agent variables, whichever way the agent is started", () =>
     expect(lineWithContinue("claude --model x")).toBe("claude --model x --continue");
     expect(lineWithContinue("door-claude")).toBe("door-claude");
     expect(agentConfig({ HOME: "/h", PWD: "/w", EP0CH_AGENT_CONTINUE: "1" }, () => null).cmd).toBe("claude --continue");
-    expect(agentConfig({ HOME: "/h", PWD: "/w", EP0CH_AGENT_CONTINUE: "1" }, () => "/bin/door-claude").cmd).toBe("door-claude");
+    expect(agentConfig({ HOME: "/h", PWD: "/w", EP0CH_AGENT_CONTINUE: "1" }, () => "/bin/door-claude").cmd).toBe("claude --continue");
   });
 });
 
@@ -306,16 +306,19 @@ describe("what a running agent knows", () => {
     const mod = installMod();
     const t = await tile([standin], "claude", "t7", "daily");
     try {
+      // The agent runs inside the tile's login shell (no dead tiles): it's found by its tile, not the shell's pid.
+      const ours = (a: { env: Record<string, string> | null }) => a.env?.EP0CH_TILE_ID === "t7";
+      for (let i = 0; i < 50 && !(await doorAgents(process.env, process.platform, [mod])).some(ours); i++) await Bun.sleep(100);
       let found = await doorAgents(process.env, process.platform, [mod]);
-      const mine = found.find(a => a.pid === t.pid);
+      const mine = found.find(ours);
       expect(mine?.knows.state).toBe("current");
       updateMod(mod);
       found = await doorAgents(process.env, process.platform, [mod]);
-      expect(found.find(a => a.pid === t.pid)?.knows.state).toBe("current");
-      const stale = found.filter(a => a.pid === t.pid).map(a => ({ ...a, knows: { state: "stale", why: "started by an older door" } }));
+      expect(found.find(ours)?.knows.state).toBe("current");
+      const stale = found.filter(ours).map(a => ({ ...a, knows: { state: "stale", why: "started by an older door" } }));
       const facts = { claude: { agents: stale } } as unknown as Facts;
       const [check] = doorAgentChecks(facts);
-      expect(check).toMatchObject({ group: "claude", name: `agent ${t.pid}`, status: "behind" });
+      expect(check).toMatchObject({ group: "claude", name: `agent ${stale[0]!.pid}`, status: "behind" });
       expect(check!.detail).toContain("door:");
       expect(check!.fix).toContain("/exit");                              // a tile's own claude: restarted by hand
       // The door's agent (its tile id, or its Herdr pane made by an older door) is restarted by the chip.

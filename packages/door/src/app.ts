@@ -282,6 +282,7 @@ export class App implements Ctx {
     this.dock = new AgentDock({ redraw: () => this.redraw(), statusChanged: () => this.statusChanged(), flash: (m, ms) => this.flash(m, ms), screen: () => this.stack.at(-1), person: () => this.person(), ctx: () => this });
     // The drawer's keys and clicks run the host layer's actions as the person, through the App's dispatcher.
     this.dockRun = (name, args) => { void this.dispatch.pressIn(DOCK_ACTIONS, name, args); };
+    this.dock.run = (name, args) => this.dispatch.pressIn(DOCK_ACTIONS, name, args);
     term.onKey(k => this.key(k));
     term.onBatch?.(run => this.batched(run));
     // Raw input while the person types in the dock or a terminal tile: the drawer first, then the

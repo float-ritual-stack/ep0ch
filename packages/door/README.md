@@ -456,8 +456,7 @@ A checkout from before `install` gets it by hand, once:
 | `EP0CH_SCROLL_ROWS` | rows one wheel report scrolls a reader, a draft, a column or a scrollback (1 to 20, default 1). A trackpad then moves the text with your fingers, and a mouse wheel in Ghostty (three reports a notch) moves 3 rows a notch; in a terminal that sends one report a notch (xterm, most Linux terminals) set 3. In lists (the tree, a lane, the BBS lists) a report moves the selection one row |
 | `EP0CH_OBSERVE` | `0` skips registering as an observer (then the door is not in Who's Online and gets no live events) |
 | `EP0CH_NOW_PAGE` | the page the welcome screen (C) shows while no note is tagged `welcome`, and the `daily` layout's "now" tile shows (default `claude-now`); `EP0CH_NOW_LABEL` names it |
-| `EP0CH_DAILY_AGENT` | the command the dock's own tab runs (unset: a shell, `$SHELL`; the host layer's, with no tile on any screen); `scripts/door-agent-herdr.ts` runs it inside Herdr (see [The daily agent in Herdr](#the-daily-agent-in-herdr)) |
-| `EP0CH_HERDR_AGENT_CMD` | the agent that wrapper starts in its Herdr pane (default `door-claude` when it's on PATH, else `claude`) |
+| `EP0CH_DAILY_AGENT` | overrides the dock's own agent for this door (a test door's `sh`, a one-off): unset, the dock runs the agent chosen for the outline's session (`alt+g`, `host.agent`), else a shell. The dock's choice is the way to set it; see [The dock](#the-dock-pie-498) |
 | `EP0CH_DAILY_DRAFT` | the file the `daily` layout's editor tile opens (default `scratch.md` in the door's state) |
 
 ## Sessions: quit is detach
@@ -522,7 +521,7 @@ sends and sends what you type. A terminal inside the session (one of its tiles, 
   the phone's, attaches to that outline's session instead of starting a door of its own; a dropped connection only
   detaches. With no terminal (a script, an agent's shell, ssh without `-t`) `ep0ch` starts no session: it says so,
   and `--no-daemon` opens the door there.
-- **The daily agent stays Herdr's.** `▲ claude` in the dock attaches to the `door-claude` pane in Herdr
+- **The daily agent stays Herdr's.** With an agent chosen "in Herdr", the dock attaches to its session's own pane in Herdr
   ([The daily agent in Herdr](#the-daily-agent-in-herdr)), and that stays so: the session now keeps the attach alive
   between terminals and across upgrades (the drawer's program is in the terminal host), and Herdr keeps the agent
   itself alive through anything the session can't survive (the session ended, the terminal host's own upgrade, a
@@ -672,23 +671,28 @@ the drawer; a terminal you made yourself stays yours.
 
 ### The daily agent in Herdr
 
-With `EP0CH_DAILY_AGENT=<checkout>/scripts/door-agent-herdr.ts`, the daily layout's agent runs in a Herdr
-pane and the tile shows it. Herdr lists it (`herdr agent list`), other agents message it
-(`herdr agent prompt door "…"`), and it keeps running when the door quits.
+Choose an agent "in Herdr" in the dock's picker (`alt+g`; `host.agent name=claude herdr=true`) and the dock's
+own tab runs it in a Herdr pane of this outline's session and shows it. Herdr lists it (`herdr agent list`), other
+agents message it (`herdr agent prompt door-<outline> "…"`), and it keeps running when the door quits.
 
-- **Where it runs.** The wrapper looks on the default Herdr server (`HERDR_SOCKET_PATH`, else Herdr's own
-  default) for the pane labelled `door-claude`.
-  - If the pane isn't there, the wrapper makes it: a tab in the workspace labelled `door` (made too if
-    missing), in `EP0CH_DAILY_CWD` or the tile's folder, without taking Herdr's focus.
-  - It starts `EP0CH_HERDR_AGENT_CMD` there with `exec` (default `door-claude` if it's on PATH, else
-    `claude`), so `/exit` ends the pane. Once Herdr detects the agent, the wrapper names it `door`.
+- **Where it runs.** The launcher (`scripts/door-agent-herdr.ts --session <outline>[@machine] --agent <agent>`)
+  looks on the default Herdr server (`HERDR_SOCKET_PATH`, else Herdr's own default) for this session's own pane,
+  labelled `door-<outline>` (`door-pie-hole-float-2` for one on a machine; a long name is cut, with a short hash).
+  Sessions are one per outline, so each has its own agent, started with that session's `EP0CH_CONTROL`: a door on
+  another outline never attaches it.
+  - If the pane isn't there, the launcher makes it: a tab in the workspace labelled `door` (made too if
+    missing), in the dock's folder, without taking Herdr's focus.
+  - It starts the agent there inside your login shell (`$SHELL -l -c '<agent>; exec $SHELL -l'`): `/exit`, or a
+    crash, leaves a working shell in the pane, never a dead one. Once Herdr detects the agent, the launcher names
+    it like the pane.
+  - Ending the session (`E`, `ep0ch session end`) closes its pane; never another session's, never an old `door-claude`.
   - `EP0CH_HERDR_PANE`, `EP0CH_HERDR_NAME` and `EP0CH_HERDR_WORKSPACE` change those three names.
   - Only your own door uses them: the default state dir with its control socket in it. A door on its own
     `EP0CH_STATE` or `EP0CH_CONTROL` (a test door, the showcase) starts no Herdr agent and says why; with
-    `EP0CH_HERDR_SCOPED=1` it adds a hash of that state to all three (`door-claude-1a2b3c4d`). Either way it
-    never attaches to, or types into, your `door-claude`.
+    `EP0CH_HERDR_SCOPED=1` it adds a hash of that state to all three (`door-garden-1a2b3c4d`). Either way it
+    never attaches to, or types into, your own panes.
   - Two doors starting at once make one pane: the wrapper looks for it and makes it holding a lock beside the
-    link below (`agent-door-claude.sock.lock`).
+    link below (`agent-door-<outline>.sock.lock`).
 - **The tile is attached, not the owner.** The tile runs `herdr terminal attach` on the pane.
   - `ctrl+b q` detaches: the tile says the program exited, and `⏎` attaches again. `ctrl+b ctrl+b` sends a
     `ctrl+b` to the agent (Herdr's attach keeps `ctrl+b` for itself).
@@ -699,7 +703,7 @@ pane and the tile shows it. Herdr lists it (`herdr agent list`), other agents me
   twice for it (it still does for other programs running in tiles).
   - The next door's daily tile attaches to it again.
   - In Herdr (on float-2, or from the laptop, where float-2's panes show under the `ep0ch` machine) it is
-    the `door-claude` pane in the `door` workspace, named `door` in the agent list. Open it there to carry on.
+    the session's `door-<outline>` pane in the `door` workspace, named the same in the agent list. Open it there to carry on.
 - **A second door** attaches without `--takeover`, so it doesn't take the agent from the door showing it.
   If another door has the agent, the tile watches it read-only instead: Herdr's observer stream, drawn at
   the tile's size.
@@ -716,10 +720,10 @@ pane and the tile shows it. Herdr lists it (`herdr agent list`), other agents me
   - The wrapper tells the door it attached (`tile.herdr`, as its tile), so quitting the door says it ends only
     the attach. The door no longer reads this from the tile's title, which any program can set.
   - The agent's pane gets the same variables as an agent in a tile (one function, `agentVars` in
-    `src/desk/agent-env.ts`): `EP0CH_NEST` (the tile's, then `herdr:door-claude`), `EP0CH_TILE`,
+    `src/desk/agent-env.ts`): `EP0CH_NEST` (the tile's, then `herdr:door-<outline>`), `EP0CH_TILE`,
     `EP0CH_TILE_ID`, `EP0CH_IN_DOOR`, the door's `EP0CH_STATE` and `EP0CH_SOCKET` when it has them, and an
     `EP0CH_CONTROL` that is a link in the door's state
-    (`agent-door-claude.sock`). The wrapper points the link at its door's socket each time it attaches.
+    (`agent-door-<outline>.sock`). The launcher points the link at its door's socket each time it attaches.
     The agent is started with `env -u` for what the pane mustn't inherit from the Herdr server's own
     environment (how a door was started, an agent variable this door doesn't set).
   - So `ep0ch act …` and the Outliner's `show` from the agent reach the door that shows it now.
@@ -747,8 +751,18 @@ welcome. It's a drawer of tabs above every screen (the host layer's). Its first 
 tile can join it and leave it again: a terminal with a Claude in it, a reader, the tree, a query tile. The chip at
 the start of the status bar's right part, `▲ claude` (`▲ shell +2` with two tiles docked), pulls it up.
 
-- **What its own tab runs.** `EP0CH_DAILY_AGENT` when you set one (`claude`; the Herdr launcher,
-  `scripts/door-agent-herdr.ts`, for the Claude in Herdr below), else a shell. It starts in `EP0CH_DAILY_CWD` when
+- **What its own tab runs: your choice, per outline.** `alt+g` (or `host.agent`) opens a picker of the agents
+  installed here (`claude`, `codex`, `pi`, `gemini`, `opencode`, `aider` and the rest of Herdr's agent kinds found
+  on your PATH), each also "in Herdr" when Herdr is installed, and a shell. The choice is saved for this outline's
+  session (`dock-agent.json` in its folder of the state dir; `host.agent default=true` makes it the default for
+  every outline). Pulling the dock up with nothing chosen yet offers the picker; until then it's a shell.
+  `EP0CH_DAILY_AGENT` overrides it for one door. A new choice starts at the tab's next start: what runs now keeps
+  running (`alt+R` starts the new one in its place). `ep0ch doctor` lists each session's dock agent, where the
+  choice came from, and the command to change it.
+- **No dead panes.** Every agent, in the dock or in a terminal tile, starts inside your login shell. When it exits
+  or crashes, the tile says so (`claude exited · shell`) and is your shell, in the same folder with the same
+  environment: `claude --resume`, `claude --continue`, another agent, anything. Nothing restarts it behind your back.
+- **A new shell, here.** `alt+s` opens a new shell as a tab in the dock, in its folder (`host.shell`). It starts in `EP0CH_DAILY_CWD` when
   you set it; else the folder of the `.ep0ch` naming this outline above where the door started (the project); else
   the outline's own folder (`~/outlines/<name>/`); else where the door started. `ep0ch doctor` says which and why
   (`dock  runs … in …`). Claude Code's `/resume` lists one folder's conversations, so the folder is yours or the
@@ -789,8 +803,7 @@ the start of the status bar's right part, `▲ claude` (`▲ shell +2` with two 
   daily desk: the screen is drawn shorter while it's up), or not at all (a screen that keeps the whole screen).
 - **Putting it away.** `alt+a` again, a click on the chip, or `Esc` once you've left it with `ctrl+]`.
 - **Its height.** Drag its top edge, or press `alt+A` to step through 40%, 50%, 60% and 75%.
-- **One agent, one home.** Its own tab runs `EP0CH_DAILY_AGENT` (with the Herdr launcher, the agent in the `door-claude`
-  pane), and it starts the first time you pull it up. It's the host layer's (PIE-513): a layout on the same
+- **One agent, one home.** Its own tab runs the agent chosen for this session (in Herdr: the session's own pane), and it starts the first time you pull it up. It's the host layer's (PIE-513): a layout on the same
   engine as the screens, its drawer a tab set whose first tab is the agent, above every screen. No screen has a
   copy of it, so one door never attaches twice; leaving a screen never ends it.
 - **What it's doing.** The chip says `working` while the agent writes to its screen and `idle` after. With the
@@ -806,14 +819,14 @@ the start of the status bar's right part, `▲ claude` (`▲ shell +2` with two 
   `git pull` in the Outliner), or it was started without the door's variables (by an older door, say, in a
   Herdr pane made before), the chip says `started before update ⟳` (or `no door tools ⟳`). The door reads
   this from the agent's own process: its environment (`/proc/<pid>/environ` on Linux, `ps eww` on macOS; in
-  Herdr, the process in the `door-claude` pane, `herdr pane process-info`) and its start time, against the
+  Herdr, the process in the session's pane, `herdr pane process-info`) and its start time, against the
   newest file of the mod Claude Code loads (`CLAUDE_CODE_PLUGIN_DIRS` in `~/.claude/settings.json`), every 15s.
   `agent.knows` says the same, with why.
 - **Restarting it.** A click on `⟳` (the chip's last cell), `alt+R`, or `agent.restart`. Only that agent's
   process is asked to exit (SIGTERM; SIGKILL after 8s), then the same command runs again, keeping the
-  conversation: `door-claude` continues by itself, and a bare `claude` is given `--continue`. With the agent in
-  Herdr, its pane closes with it and the launcher makes a new `door-claude` pane, with today's variables, and
-  starts it there, continuing. An agent's `agent.restart` is refused while you're typing in the agent, or
+  conversation: a bare `claude` is given `--continue` (only by this explicit restart; a fresh start is plain
+  `claude`). With the agent in Herdr, its pane closes with it and the launcher makes the session's pane again,
+  with today's variables, and starts it there, continuing. An agent's `agent.restart` is refused while you're typing in the agent, or
   within 10s of your last key in it.
 - **Agents.** `host.toggle [open=true|false]` and `host.size share=0.2…0.9`, `agent.type text=…`, `agent.knows` and `agent.restart` work on every screen through
   `ep0ch act`. An agent's pull waits until you've been idle 2s and you aren't typing, is said on the status bar

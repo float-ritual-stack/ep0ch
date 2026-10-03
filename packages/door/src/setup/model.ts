@@ -147,6 +147,8 @@ export interface Facts {
   here?: HereFacts;
   /** What a door opened here gives its dock as its own tab (src/desk/dock-program.ts): the program, the folder, and why. */
   dock?: { cmd: string[]; cwd: string; programWhy: string; folderWhy: string };
+  /** Each outline session's dock: what its own tab runs, where the choice came from, and its own Herdr pane when it runs there. */
+  docks?: { session: string; cmd: string[]; programWhy: string; from: string; pane?: string }[];
   claude: {
     settingsPath: string;
     /** CLAUDE_CODE_PLUGIN_DIRS in Claude Code's settings (what new sessions load); null when unset. */
