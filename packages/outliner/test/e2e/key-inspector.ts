@@ -108,7 +108,7 @@ const result = await runHerdrScenario({
           for (const {pid} of processInfo.result.process_info.foreground_processes) {
             try {
               const entries = new Map((await readFile(`/proc/${pid}/environ`, "utf8")).split("\0").map(entry => {const at = entry.indexOf("="); return [entry.slice(0, at), entry.slice(at + 1)];}));
-              const expected = {HERDR_SOCKET_PATH: status.socket, HERDR_PANE_ID: pane, OUTLINER_DETAIL_RENDERER: "ansi", OUTLINER_DEBUG_KEYS: "1", OUTLINER_STATE_DIR: isolation.effectiveEnvironment.OUTLINER_STATE_DIR!};
+              const expected = {HERDR_SOCKET_PATH: status.socket, HERDR_PANE_ID: pane, OUTLINER_DETAIL_RENDERER: "ansi", OUTLINER_DEBUG_KEYS: "1", EP0CH_OUTLINES: isolation.effectiveEnvironment.EP0CH_OUTLINES!};
               if (Object.entries(expected).every(([key, value]) => entries.get(key) === value)) return {pid, cwd: await realpath(`/proc/${pid}/cwd`), environment: expected};
             } catch { /* The shell can be replaced by the actual pane process. */ }
           }

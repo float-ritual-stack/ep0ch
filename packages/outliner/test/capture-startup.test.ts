@@ -32,8 +32,8 @@ test("changed write entrypoints reject an incompatible service before touching d
     ]) {
       const child = Bun.spawn([process.execPath, ...args], {
         cwd: join(import.meta.dir, ".."),
-        env: { ...process.env, HERDR_ENV: "1", OUTLINER_REMOTE: "1", OUTLINER_SOCKET_PATH: socketPath,
-          OUTLINER_WORKSPACE_ROOT: root, OUTLINER_STATE_DIR: join(root, "state") },
+        env: { ...process.env, HERDR_ENV: "1", EP0CH_SOCKET: socketPath, EP0CH_WS: "scratch",
+          OUTLINER_WORKSPACE_ROOT: root, EP0CH_OUTLINES: join(root, "state") },
         stdin: "ignore", stdout: "pipe", stderr: "pipe", timeout: 3_000,
       });
       const [exitCode, stderr] = await Promise.all([child.exited, new Response(child.stderr).text()]);

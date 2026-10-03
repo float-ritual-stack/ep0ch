@@ -6,7 +6,7 @@ import { Term } from "./term";
 import { clientRows, controlClient, formatClients } from "./control";
 import { skillCommand } from "./skills";
 import { resolveTarget } from "./discover";
-import { parseOutlineArgs, runOutlineCommand } from "./outlines";
+import { nameTheOutline, parseOutlineArgs, runOutlineCommand } from "./outlines";
 import { Mirror } from "./mirror";
 import { setupCommand } from "./setup/apply";
 import { whereCommand } from "./where";
@@ -14,9 +14,9 @@ import { connectTarget, guardDoor, openDoor, writeLastCall, type Door } from "./
 import { attachDoor, doorMode, sessionCommand } from "./session/client";
 
 let args = process.argv.slice(2);
-const USAGE = `ep0ch: a BBS door into a pi-herdr-outliner outline
+const USAGE = `ep0ch: a BBS door into an outline
 
-  ep0ch [--ws <name> | --ws <root> | <socket>] [--board [<hub-id>] | --desk | --layout <name> | --river | --brief | --welcome | --showcase]
+  ep0ch [--ws <name>] [<socket>] [--board [<hub-id>] | --desk | --layout <name> | --river | --brief | --welcome | --showcase]
                                    open the door (the logon, then the main menu, by default);
                                    --layout daily opens the desk laid out as a named layout (daily,
                                    river, board, desk, or one saved with ^W w);
@@ -24,10 +24,12 @@ const USAGE = `ep0ch: a BBS door into a pi-herdr-outliner outline
                                    EP0CH_LANDING=brief lands on it after the logon;
                                    --welcome opens the welcome notes ([welcome::1] first), and
                                    EP0CH_LANDING=welcome lands there after the logon.
-                                   With an outline host running, --ws <name> opens that outline,
-                                   creating it if there is none (like herdr --session <name>); with
-                                   nothing named, the folder's bound outline, else the outline named
-                                   after the folder. A --ws with a / is a folder root, as before
+                                   Which outline: --ws <name> from anywhere, else EP0CH_WS, else the
+                                   nearest .ep0ch from this folder up (it holds ws = "<name>"). A name
+                                   nobody has yet is created (like herdr --session <name>). A folder that
+                                   names none asks: init (the folder's name offered), pick or import.
+                                   Outlines are <name>.sqlite in EP0CH_OUTLINES (~/outlines); a socket
+                                   argument or EP0CH_SOCKET is a host elsewhere (an ssh tunnel)
   ep0ch session list [--json] | attach [--watch] | end [--yes] | upgrade [--clients] | restart
                                    the door session in this state dir: who's attached and what runs in its
                                    tiles; attach to it (--watch: read-only); end it (asks while programs run);
@@ -35,12 +37,15 @@ const USAGE = `ep0ch: a BBS door into a pi-herdr-outliner outline
                                    running; --clients only restarts the terminals); restart does so anyway.
                                    The door is a session: quitting detaches, ep0ch attaches again; --no-daemon
                                    (or EP0CH_DAEMON=0) opens the door in this terminal instead
-  ep0ch outline list | attach <name> | create <name> | adopt <path> <name> [--root <dir>]
+  ep0ch init [<name>] [--json]     name this folder's outline: attach to it (creating it when nobody has),
+                                   and write .ep0ch; without a name, the folder's (or its repository's)
+  ep0ch outline list | attach <name> | create <name> | import <database.sqlite> <name>
                 | stop <name> | delete <name> [--yes]      [--json]
                                    the host's outlines: attach opens the door on one (the same as
-                                   --ws <name>); stop releases its database; delete unlinks an adopted
-                                   outline or moves a created one to deleted/, after asking
-  ep0ch status [--json]            the outline host: its socket, default outline, open outlines
+                                   --ws <name>); import makes a new outline from an older database (its
+                                   notes, properties, pages and work ids; the file is only read); stop
+                                   releases its database; delete moves it to .deleted/, after asking
+  ep0ch status [--json]            the outline host: its socket, its outlines folder, open outlines
   ep0ch doctor [--json]            every piece of the stack (bun, the Outliner plugin, this checkout, ep0ch on
                                    PATH, outline services, Herdr and its keys, the Claude mod): ✓ current,
                                    ! behind, ✗ missing, with the command that fixes each. Read-only
@@ -50,10 +55,10 @@ const USAGE = `ep0ch: a BBS door into a pi-herdr-outliner outline
                                    and this checkout (fast-forward only, bun install when needed) and links
                                    ep0ch on PATH; each step is skipped when current. --restart-services also
                                    restarts per-folder services running old code (they are working panes)
-  ep0ch try --ws <root> [--copy --outliner <checkout>] [--hub <id>]
-  ep0ch try --showcase [--reset] --outliner <checkout>
+  ep0ch try --ws <name> [--copy] [--hub <id>]
+  ep0ch try --showcase [--reset]
                                    the door on a private copy, or on the showcase outline (scripts/try-it.sh)
-  ep0ch clients [--ws <root> | <socket>]
+  ep0ch clients [--ws <name>] [<socket>]
                                    who is connected to the service, every role (observers too)
   ep0ch peek | actions | snap <png> | open <id> | act <action> [key=value ...]
                                    drive a running door; EP0CH_CONTROL names which one. open <id> is
@@ -77,18 +82,19 @@ if (args[0] === "try") {
 if (args[0] === "where") process.exit(await whereCommand(args.slice(1)));
 if (args[0] === "session") process.exit(await sessionCommand(args.slice(1)));
 if (["peek", "snap", "open", "actions", "act", "subscribe"].includes(args[0] ?? "")) process.exit(await controlClient(args));
-if (args[0] === "outline" || args[0] === "status") {
-  const cmd = parseOutlineArgs(args[0] === "status" ? args : args.slice(1));
+if (args[0] === "outline" || args[0] === "status" || args[0] === "init") {
+  const cmd = parseOutlineArgs(args[0] === "outline" ? args.slice(1) : args);
   if ("error" in cmd) { console.error(`ep0ch: ${cmd.error}`); process.exit(2); }
   // `outline attach <name>` opens the door on it, as --ws <name> does; with --json it only attaches.
   if (cmd.op === "attach" && !cmd.json) args = ["--ws", cmd.name, ...args.slice(3).filter(a => a !== "--json")];
   else process.exit(await runOutlineCommand(cmd));
 }
 if (args[0] === "clients") {
-  // Which service, and which outline on a host: --ws <name|root>, a socket, EP0CH_SOCKET, the folder's binding
-  // or name on a running host, else the workspace this directory is in (src/discover.ts, resolveTarget).
-  const target = await resolveTarget(args);
+  // Which host, and which outline on it: --ws <name>, EP0CH_WS, the folder's .ep0ch; a socket argument or
+  // EP0CH_SOCKET for a host elsewhere (src/discover.ts, resolveTarget).
+  const target = resolveTarget(args);
   if ("error" in target) { console.error(`ep0ch: ${target.error}`); process.exit(1); }
+  if ("unnamed" in target) { console.error(`ep0ch: ${target.unnamed}; name one with --ws <name>`); process.exit(1); }
   const board = new SocketBoard(target.path, undefined, target.outline);
   try { console.log(formatClients(clientRows(await board.request<any[]>("clients.list")))); }
   catch (e) { console.error(`ep0ch: no carrier on ${board.path}\n  ${(e as Error).message}`); board.close(); process.exit(1); }
@@ -97,6 +103,14 @@ if (args[0] === "clients") {
 }
 // The door: attached to this state dir's session (started when sessions are on and none runs), or in this terminal.
 const how = await doorMode(args);
+// A door about to open on an outline of its own (no session to attach to): which outline. A folder that names none
+// asks the person (init, pick or import) and goes on with --ws <their choice> (PIE-530).
+if (!(how.mode === "attach" && how.running)) {
+  const named = await nameTheOutline(args);
+  if (!named) process.exit(1);
+  if ("error" in named) { console.error(`ep0ch: ${named.error}`); process.exit(1); }
+  args = named.args;
+}
 if (how.mode === "attach") process.exit(await attachDoor(args, how));
 // A door in its own terminal: an `ep0ch` in one of its tiles opens a door of its own there too, never a session on
 // this state dir.

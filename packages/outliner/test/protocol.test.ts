@@ -2662,7 +2662,7 @@ test.each(["remote", "custom"] as const)(
     await listening.promise;
 
     const client = mode === "remote"
-      ? createOutlinerClient({ socket: socketPath, mode })
+      ? createOutlinerClient({ socket: socketPath, mode, outline: "scratch" })
       : new OutlinerClient(socketPath, 5_000);
     const watcher = client.watch({
       client: { clientId: "delayed-tree", role: "tree", contextId: "delayed-tree" },

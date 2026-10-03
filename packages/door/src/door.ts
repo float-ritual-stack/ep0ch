@@ -9,7 +9,7 @@ import { startScreens } from "./start";
 import type { BoardInfo } from "./board";
 import { Offline, SocketBoard } from "./socket";
 import { resolveTarget } from "./discover";
-import { attachTarget } from "./outlines";
+import { attachTarget, unnamedHelp } from "./outlines";
 import { alive, claimState, readLastCall, readState, writeLastCall } from "./state";
 import { recoverEdits } from "./surface/editor";
 import type { TermInfo } from "./term";
@@ -66,22 +66,22 @@ export async function openDoor(o: DoorOpen): Promise<Door> {
 }
 
 /**
- * The service the door opens on (`--ws <name|root>`, a socket, EP0CH_SOCKET, the folder's binding: resolveTarget),
- * connected and answering; or what's wrong, to print. The door opens a session, so it attaches to its outline and
- * creates it when there is none (like herdr --session <name>).
+ * The outline the door opens on (`--ws <name>`, EP0CH_WS, the folder's `.ep0ch`, on this machine's host or
+ * EP0CH_SOCKET's: resolveTarget), connected and answering; or what's wrong, to print. The door opens a session, so
+ * it attaches to its outline and creates it when nobody has yet (like herdr --session <name>). A folder that names
+ * none was asked about before this (src/main.ts, `chooseOutline`); here it is an error that says what to run.
  */
 export async function connectTarget(args: readonly string[]): Promise<{ board: SocketBoard; service: BoardInfo; notice?: string } | { error: string }> {
-  const target = await resolveTarget(args);
+  const target = resolveTarget(args);
   if ("error" in target) return { error: target.error };
+  if ("unnamed" in target) return { error: unnamedHelp(target) };
   const board = new SocketBoard(target.path, undefined, target.outline);
   let created = false;
-  if (target.attach && target.outline) {
-    try { created = (await attachTarget(target)).created; }
-    catch (e) { board.close(); return { error: `can't open the outline "${target.outline}" on ${target.path}\n  ${(e as Error).message}` }; }
-  }
+  try { created = (await attachTarget(target)).created; }
+  catch (e) { board.close(); return { error: `can't open the outline "${target.outline}" on ${target.path}\n  ${(e as Error).message}` }; }
   try {
     const service = await board.info();
-    const notice = created ? `created outline ${target.outline}` : target.notice;
+    const notice = created ? `created outline ${target.outline}` : undefined;
     return { board, service, ...(notice ? { notice } : {}) };
   } catch (e) {
     board.close();

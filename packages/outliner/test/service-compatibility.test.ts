@@ -77,8 +77,8 @@ test("the CLI refuses a service on another protocol without sending its request"
   const root = temporaryDirectory();
   const child = Bun.spawn([process.execPath, "src/cli.ts", "changes", "--since", "0"], {
     cwd: join(import.meta.dir, ".."),
-    env: { ...process.env, OUTLINER_REMOTE: "1", OUTLINER_SOCKET_PATH: socket,
-      OUTLINER_WORKSPACE_ROOT: root, OUTLINER_STATE_DIR: join(root, "state") },
+    env: { ...process.env, EP0CH_SOCKET: socket, EP0CH_WS: "scratch",
+      OUTLINER_WORKSPACE_ROOT: root, EP0CH_OUTLINES: join(root, "state") },
     stdin: "ignore", stdout: "pipe", stderr: "pipe", timeout: 5_000,
   });
   const [exitCode, stderr] = await Promise.all([child.exited, new Response(child.stderr).text()]);

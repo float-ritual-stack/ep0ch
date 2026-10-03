@@ -56,17 +56,17 @@ export async function attachDoor(args: string[], how: { running: boolean }): Pro
 }
 
 /**
- * The outline the door flags name (`--ws <name|root>`, a socket path, EP0CH_SOCKET), as resolveTarget names it (its
- * service's socket, and the outline on it): the same resolution the session made when it started, without asking the
- * service (an outline not open yet is opened by the session that starts). Null when they name none: the session in the
- * state dir is attached to, whichever outline it's on.
+ * The outline the door flags name (`--ws <name>`, EP0CH_WS, a socket path, EP0CH_SOCKET), as resolveTarget names
+ * it (its host's socket, and the outline on it): the same resolution the session made when it started, without
+ * asking the host (an outline not open yet is opened by the session that starts). Null when they name none (a
+ * folder's `.ep0ch` doesn't count): the session in the state dir is attached to, whichever outline it's on.
  */
 export async function namedTarget(args: readonly string[], env: Record<string, string | undefined> = process.env): Promise<{ socket: string; outline?: string } | { error: string } | null> {
-  const named = args.includes("--ws") || args.some((a, i) => a.includes("/") && !["--board", "--ws", "--root"].includes(args[i - 1] ?? "")) || !!env.EP0CH_SOCKET;
+  const named = args.includes("--ws") || args.some((a, i) => a.includes("/") && !a.startsWith("--") && !["--board", "--ws", "--layout"].includes(args[i - 1] ?? "")) || !!env.EP0CH_SOCKET || !!env.EP0CH_WS;
   if (!named) return null;
-  const t = await resolveTarget(args, env);
+  const t = resolveTarget(args, env);
   if ("error" in t) return { error: t.error };
-  return { socket: resolve(t.path), ...(t.outline ? { outline: t.outline } : {}) };
+  return { socket: resolve(t.path), ...("outline" in t ? { outline: t.outline } : {}) };
 }
 
 /**

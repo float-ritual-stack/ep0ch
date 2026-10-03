@@ -386,6 +386,6 @@ test("a service older than this client is refused with a restart instruction", a
   });
   const result = await runCli(isolatedEnv(env), ["work", "stage", "PIE-001", "doing"]);
   expect(result.exitCode).toBe(1);
-  expect(result.stderr).toContain("uses protocol 1");
-  expect(result.stderr).toContain("Restart the service");
+  expect(result.stderr).toContain("the outline host protocol 1: restart the outline host");
+  expect(result.stderr).toContain("restart the outline host on current code");
 });

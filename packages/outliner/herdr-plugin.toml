@@ -8,6 +8,14 @@ platforms = ["linux", "macos"]
 [[build]]
 command = ["/bin/sh", "scripts/run-bun.sh", "install", "--frozen-lockfile"]
 
+# The outline host in a Herdr tab, for a machine where it doesn't run as a service (systemd, launchd).
+# Nothing opens it by itself: `herdr plugin pane open --plugin float.pi-outliner --entrypoint service`.
+[[panes]]
+id = "service"
+title = "Outline Host"
+placement = "tab"
+command = ["/bin/sh", "scripts/run-bun.sh", "run", "src/host-main.ts"]
+
 [[panes]]
 id = "outliner"
 title = "Outliner"

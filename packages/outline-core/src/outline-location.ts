@@ -14,9 +14,9 @@
 // assistant sessions, files it links relatively). `<outlines>` is EP0CH_OUTLINES, else `~/outlines`. An outline is
 // found by name, never by path.
 import { basename, dirname, join, resolve } from "node:path";
+import { OUTLINE_NAME_PATTERN } from "./protocol";
 
-/** A short slug that names an outline; the file is `<name>.sqlite`. */
-export const OUTLINE_NAME_PATTERN = /^[a-z0-9][a-z0-9-]{0,31}$/;
+export { OUTLINE_NAME_PATTERN };
 
 export function isOutlineName(name: unknown): name is string {
   return typeof name === "string" && OUTLINE_NAME_PATTERN.test(name);

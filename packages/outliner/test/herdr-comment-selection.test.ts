@@ -73,7 +73,7 @@ test("dispatches the immutable quote with pane revision and projection identity 
     HERDR_ENV: "1",
     HERDR_SOCKET_PATH: "/tmp/herdr.sock",
     OUTLINER_WORKSPACE_ROOT: "/workspace/project",
-    OUTLINER_STATE_DIR: "/tmp/outliner-state",
+    EP0CH_OUTLINES: "/tmp/outliner-state",
     HERDR_PLUGIN_CONTEXT_JSON: JSON.stringify({
       invocation_source: "keybinding",
       focused_pane_id: "w1:p2",
@@ -131,7 +131,7 @@ test("rejects a pane rerender between selection validation and dispatch", async 
       HERDR_ENV: "1",
       HERDR_SOCKET_PATH: "/tmp/herdr.sock",
       OUTLINER_WORKSPACE_ROOT: "/workspace/project",
-      OUTLINER_STATE_DIR: "/tmp/outliner-state",
+      EP0CH_OUTLINES: "/tmp/outliner-state",
       HERDR_PLUGIN_CONTEXT_JSON: JSON.stringify({
         invocation_source: "keybinding",
         focused_pane_id: "w1:p2",

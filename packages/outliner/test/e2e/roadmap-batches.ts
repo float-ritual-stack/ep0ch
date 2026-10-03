@@ -55,9 +55,8 @@ const result = await runHerdrScenario({
     const agentProcess = async (mode: string, sessionFile?: string) => {
       const process = Bun.spawn(["bun", fileURLToPath(new URL("./roadmap-agent-session.ts", import.meta.url)),
         mode, session.artifactDirectory, batch.id, items[0]!.id, items[1]!.id, ...(sessionFile ? [sessionFile] : [])], {
-        cwd: session.projectRoot, env: { ...Bun.env, HERDR_ENV: "0", OUTLINER_REMOTE: "1",
-          OUTLINER_SOCKET_PATH: session.client.socketPath, OUTLINER_WORKSPACE_ROOT: session.projectRoot,
-          OUTLINER_CONFIG_PATH: `${session.artifactDirectory}/absent-client-config.json` }, stdout: "pipe", stderr: "pipe",
+        cwd: session.projectRoot, env: { ...Bun.env, HERDR_ENV: "0", EP0CH_SOCKET: session.client.socketPath, 
+          EP0CH_WS: "scratch", OUTLINER_WORKSPACE_ROOT: session.projectRoot }, stdout: "pipe", stderr: "pipe",
       });
       const [stdout, stderr, code] = await Promise.all([new Response(process.stdout).text(), new Response(process.stderr).text(), process.exited]);
       await session.record(`pi-session-${mode}`, { stdout, stderr, code });

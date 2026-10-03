@@ -20,7 +20,7 @@ await writeFile(${JSON.stringify(join(session.artifactDirectory,'notify-adapter.
 await child.exited;`);
  const notify=[process.execPath,wrapper];
  const final=`Read [[mention-alpha]] and PIE-001, then ${beta.id}.`;
- const child=Bun.spawn(['codex','exec','--ephemeral','--skip-git-repo-check','-C',session.projectRoot,'-c',`notify=${JSON.stringify(notify)}`,'--json',`This is a completed-response integration check. Do not use tools or inspect files. Reply with precisely this one sentence: ${final}`],{env:{...process.env,OUTLINER_REMOTE:"1",OUTLINER_SOCKET_PATH:session.client.socketPath},stdout:'pipe',stderr:'pipe'});
+ const child=Bun.spawn(['codex','exec','--ephemeral','--skip-git-repo-check','-C',session.projectRoot,'-c',`notify=${JSON.stringify(notify)}`,'--json',`This is a completed-response integration check. Do not use tools or inspect files. Reply with precisely this one sentence: ${final}`],{env:{...process.env,EP0CH_SOCKET:session.client.socketPath,EP0CH_WS:"scratch"},stdout:'pipe',stderr:'pipe'});
  const timer=setTimeout(()=>child.kill(),90000);
  const [stdout,stderr,code]=await Promise.all([new Response(child.stdout).text(),new Response(child.stderr).text(),child.exited]);clearTimeout(timer);
  await writeFile(join(session.artifactDirectory,'codex-completion.jsonl'),stdout);

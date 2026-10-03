@@ -43,7 +43,7 @@ test("saved-view reads match Tree root order while preserving pane-independent m
     expect(await client.request<WorkspaceSnapshot>({action: "workspace.snapshot"})).toEqual(before);
     const proc = Bun.spawn([process.execPath, "run", "src/cli.ts", "view", view.id, "--limit", "10"], {
       cwd: join(import.meta.dir, ".."), stdout: "pipe", stderr: "pipe",
-      env: {...process.env, OUTLINER_WORKSPACE_ROOT: root, OUTLINER_REMOTE: "1", OUTLINER_SOCKET_PATH: socket},
+      env: {...process.env, OUTLINER_WORKSPACE_ROOT: root, EP0CH_SOCKET: socket, EP0CH_WS: "scratch"},
     });
     const stdout = await new Response(proc.stdout).text();
     const stderr = await new Response(proc.stderr).text();

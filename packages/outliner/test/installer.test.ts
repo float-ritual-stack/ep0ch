@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { writeClientConfig } from "../src/paths";
+import { writeDotEp0ch } from "../src/paths";
 
 for (const source of [undefined, "", 'model = "example"\n']) {
   test(`mentions installer handles ${source === undefined ? "missing" : source === "" ? "empty" : "existing"} config`, async () => {
@@ -134,9 +134,9 @@ command = "float.pi-outliner.obsolete"
 });
 
 async function runClaudeModInstaller(configDir: string, ...args: string[]) {
-  // A scratch state and config root: the installer asks which listed folders are bound to an outline.
+  // A scratch outlines and config root: the installer asks which listed folders name an outline (.ep0ch).
   const child = Bun.spawn([process.execPath, join(import.meta.dir, "../scripts/install-claude-mod.ts"), ...args], {
-    env: { ...process.env, CLAUDE_CONFIG_DIR: configDir, OUTLINER_STATE_DIR: join(configDir, "outliner-state"), XDG_CONFIG_HOME: join(configDir, "xdg") },
+    env: { ...process.env, CLAUDE_CONFIG_DIR: configDir, EP0CH_OUTLINES: join(configDir, "outlines"), XDG_CONFIG_HOME: join(configDir, "xdg") },
     stdout: "pipe", stderr: "pipe",
   });
   const [exitCode, stdout, stderr] = await Promise.all([
@@ -225,7 +225,7 @@ test("Claude mod installer leaves a list from before folder mode opted out until
   const bound = join(directory, "garden");
   try {
     await mkdir(bound, { recursive: true });
-    writeClientConfig({ XDG_CONFIG_HOME: join(directory, "xdg"), OUTLINER_STATE_DIR: join(directory, "outliner-state") }, { mode: "host", workspaceRoot: bound, outline: "fred-notes" });
+    writeDotEp0ch(bound, "fred-notes");
     await writeFile(settingsPath, JSON.stringify({ env: { PI_OUTLINER_MENTIONS_WORKSPACES: `${bound}:/scratch/unbound` } }));
     const kept = await runClaudeModInstaller(directory);
     expect(kept.exitCode).toBe(0);

@@ -1,7 +1,7 @@
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { OutlinerStore } from "../src/store";
-import { outlineLayout } from "../../outline-core/src/outline-location";
+import { outlineLayout } from "@ep0ch/outline-core/outline-location";
 
 /**
  * A real outline host process for tests, over a scratch outlines folder. `env` replaces the defaults; nothing

@@ -11,17 +11,19 @@ import { BACKLINK_QUERY_LIMIT, type BacklinkCollection } from "./backlinks";
 import type { ResourceProjectionRead } from "./projection";
 import type { ExtensionActResult, ExtensionList } from "./extensions";
 import { resourceStored, type AuthoredLinksSnapshot, type AuthoredResourceReference, type ResourceDescription } from "./authored";
-import { OUTLINE_NAME_PATTERN, protocolMismatch } from "@ep0ch/outline-core/protocol";
+import { type HostedOutlineSummary, OUTLINE_NAME_PATTERN, type OutlinerHostStatus, protocolMismatch } from "@ep0ch/outline-core/protocol";
+import { outlineLayout, outlinesFolder } from "@ep0ch/outline-core/outline-location";
 import { jsonLine, JsonLines } from "./jsonl";
 
-export const DEFAULT_SOCKET = process.env.EP0CH_SOCKET ?? `${process.env.HOME}/.local/state/pi-herdr-outliner/float-box.sock`;
+/** The host a board talks to when none is named: EP0CH_SOCKET (a host elsewhere), else this machine's. */
+export const DEFAULT_SOCKET = process.env.EP0CH_SOCKET || outlineLayout(outlinesFolder({ EP0CH_OUTLINES: process.env.EP0CH_OUTLINES }, process.env.HOME ?? "")).socket;
 /** An outline's name on a host: a short slug (outline-core's OUTLINE_NAME_PATTERN). */
 export const OUTLINE_NAME = OUTLINE_NAME_PATTERN;
 
-/** What `ping` without an outline says about an outline host (absent from a single-outline service). */
-export interface HostStatus { socket: string; defaultOutline?: string; outlines: string[] }
-/** One outline on a host, as `outlines.list|attach|create|adopt|close` describe it. */
-export interface HostedOutline { name: string; database: string; adopted: boolean; open: boolean; default: boolean; root?: string; problem?: string }
+/** What the outline host says about itself (outline-core's wire type). */
+export type HostStatus = OutlinerHostStatus;
+/** One outline on a host, as `outlines.list|attach|create|import|close` describe it (outline-core's wire type). */
+export type HostedOutline = HostedOutlineSummary;
 
 /**
  * A request to the outline host itself (`outlines.*`, or `ping` for the host), on a short connection of

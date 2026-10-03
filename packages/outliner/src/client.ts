@@ -62,7 +62,7 @@ export class OutlinerWatcher {
     private readonly socketPath: string,
     private readonly handlers: OutlinerWatchHandlers,
     private readonly acknowledgementTimeoutMs = LOCAL_REQUEST_TIMEOUT_MS,
-    /** Names the outline on the subscribe line; `verify` confirms the service routes by it first. */
+    /** Names the outline on the subscribe line; `verify`, when set, is asked first (a client that names no outline refuses there). */
     private readonly outline?: string,
     private readonly verify?: () => Promise<void>,
   ) {
@@ -188,7 +188,6 @@ export class OutlinerRequestError extends Error {
 }
 
 export class OutlinerClient {
-  private routingChecked: Promise<void> | undefined;
 
   constructor(
     readonly socketPath: string,
@@ -207,35 +206,14 @@ export class OutlinerClient {
   }
 
   /**
-   * With an outline, the first request confirms by ping that the service routes
-   * by name (`request.outline`); every request then carries `outline`. A ping
-   * is itself checked on its answer.
+   * Every request carries `outline` (the host routes its connection by it); a ping's answer is checked to be
+   * that outline's.
    */
   async request<T>(input: RequestInput, timeoutMs = this.requestTimeoutMs): Promise<T> {
     if (this.refusal) throw new Error(this.refusal);
-    if (!this.outline) return this.send<T>(input, timeoutMs);
-    if (input.action === "ping") {
-      const status = await this.send<OutlinerServiceStatus>(input, timeoutMs);
-      requireOutlineRouting(status, this.socketPath, this.outline);
-      this.routingChecked ??= Promise.resolve();
-      return status as T;
-    }
-    await this.checkRouting(timeoutMs);
-    return this.send<T>(input, timeoutMs);
-  }
-
-  private checkRouting(timeoutMs = this.requestTimeoutMs): Promise<void> {
-    if (this.refusal) return Promise.reject(new Error(this.refusal));
-    if (!this.outline) return Promise.resolve();
-    const outline = this.outline;
-    this.routingChecked ??= this.send<OutlinerServiceStatus>({ action: "ping" }, timeoutMs)
-      .then(status => requireOutlineRouting(status, this.socketPath, outline))
-      .catch(error => {
-        // A service that was down may come back as the host; ask again next time.
-        this.routingChecked = undefined;
-        throw error;
-      });
-    return this.routingChecked;
+    const answer = await this.send<T>(input, timeoutMs);
+    if (this.outline && input.action === "ping") requireOutlineRouting(answer as OutlinerServiceStatus, this.socketPath, this.outline);
+    return answer;
   }
 
   private send<T>(input: RequestInput, timeoutMs: number): Promise<T> {
@@ -276,7 +254,8 @@ export class OutlinerClient {
   }
 
   watch(handlers: OutlinerWatchHandlers): OutlinerWatcher {
+    const refusal = this.refusal;
     return new OutlinerWatcher(this.socketPath, handlers, this.requestTimeoutMs, this.outline,
-      this.outline || this.refusal ? () => this.checkRouting() : undefined);
+      refusal ? () => Promise.reject(new Error(refusal)) : undefined);
   }
 }

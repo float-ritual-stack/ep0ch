@@ -1,6 +1,6 @@
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { outlineLayout } from "../../outline-core/src/outline-location";
+import { outlineLayout } from "@ep0ch/outline-core/outline-location";
 
 /**
  * A scratch outline as every client resolves it (PIE-530): the outlines folder `<root>/outlines`, the outline

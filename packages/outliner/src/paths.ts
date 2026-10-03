@@ -10,9 +10,9 @@ import {
   outlinesFolder,
   whichOutline,
   type WhichOutline,
-} from "../../outline-core/src/outline-location";
+} from "@ep0ch/outline-core/outline-location";
 
-export { isOutlineName, OUTLINE_NAME_PATTERN, slugifyOutlineName } from "../../outline-core/src/outline-location";
+export { isOutlineName, OUTLINE_NAME_PATTERN, slugifyOutlineName } from "@ep0ch/outline-core/outline-location";
 
 /*
  * Where outlines live and which one a client opens (PIE-530). The rule itself is outline-core's

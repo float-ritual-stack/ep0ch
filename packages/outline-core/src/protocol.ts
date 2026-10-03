@@ -65,3 +65,62 @@ export interface OutlinerRequestProblem {
 export type OutlinerResponse =
   | { id: string; ok: true; result: unknown; sequence: number }
   | { id: string; ok: false; error: string; problem?: OutlinerRequestProblem; sequence: number };
+
+// ── The outline host: `ping` and `outlines.*` (packages/outliner src/outline-host.ts) ──
+
+/** How the service names its outline in `ping`. */
+export interface OutlinerServiceOutline {
+  name: string;
+}
+
+/** The outline host behind a socket: one per user and machine, serving outlines by name. */
+export interface OutlinerHostStatus {
+  socket: string;
+  /** Where requests without `outline` go; absent when the host has none (it is for tests and scripts). */
+  defaultOutline?: string;
+  /** Every outline in the outlines folder, open or not. */
+  outlines: string[];
+}
+
+/** What `ping` answers. */
+export interface OutlinerServiceStatus {
+  status: "ready";
+  /** The service's PROTOCOL; a client refuses any other number (`protocolMismatch`). */
+  protocolVersion: number;
+  location?: { hostname: string; workspaceRoot: string; database: string; stateDirectory: string };
+  /** The outline answering. */
+  outline?: OutlinerServiceOutline;
+  /** The host that routed the request. */
+  host?: OutlinerHostStatus;
+}
+
+/** One outline a host serves (`outlines.list`, `outlines.create`, `outlines.import`, `outlines.attach`). */
+export interface HostedOutlineSummary {
+  name: string;
+  /** `<outlines>/<name>.sqlite`. */
+  database: string;
+  /** `<outlines>/<name>/`: its side files, and the root its relative file links resolve against. */
+  folder: string;
+  /** Open in this host process now. Outlines open on their first request. */
+  open: boolean;
+  /** The host's default outline (tests and scripts). */
+  default?: boolean;
+}
+
+/** `outlines.list`. */
+export interface HostedOutlineList {
+  defaultOutline?: string;
+  outlines: HostedOutlineSummary[];
+}
+
+/** `outlines.attach`: the outline, open, and whether this request created it. */
+export interface HostedOutlineAttachment {
+  outline: HostedOutlineSummary;
+  created: boolean;
+}
+
+/** `outlines.delete`: where the outline's files went (nothing is erased). */
+export interface HostedOutlineDeletion {
+  name: string;
+  movedTo: string;
+}

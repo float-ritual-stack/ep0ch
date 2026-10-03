@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import {readFile} from "node:fs/promises";
 import {dirname,join} from "node:path";
 import {visibleWidth} from "@earendil-works/pi-tui";
-import {resolveClientConfigPath} from "../../src/paths";
 import type {Block,OutlinerServiceStatus} from "../../src/types";
 import {runHerdrScenario} from "./herdr-runner";
 
@@ -29,7 +28,7 @@ const result=await runHerdrScenario({
     const open=async(pane:string)=>{
       await session.focus(pane);await session.keys(pane,"?");
       await session.text(pane,"Workspace and connection");await session.keys(pane,"enter");
-      await session.waitVisible(pane,"Workspace:");
+      await session.waitVisible(pane,"Folder:");
     };
     const focusField=async(pane:string,label:string)=>{
       for(let i=0;i<24;i++){
@@ -65,21 +64,21 @@ const result=await runHerdrScenario({
     const selectedHeader=header.slice(0,header.indexOf('Client host:')+'Client host:'.length);
     await copied(()=>terminal.write(`\x1b[<0;${location!.column+1};${location!.row+1}M\x1b[<32;${end!.column+'Client host:'.length+1};${end!.row+1}M\x1b[<0;${end!.column+'Client host:'.length+1};${end!.row+1}m`),path+'\n'+selectedHeader);
     await session.checkpoint("workspace-drag-copy");
-    const config=resolveClientConfigPath({OUTLINER_WORKSPACE_ROOT:session.projectRoot,XDG_CONFIG_HOME:join(dirname(session.projectRoot),'xdg-config')});
-    await focusField(tree,'Config');
+    const config=join(dirname(session.projectRoot),'outlines');
+    await focusField(tree,'Outlines folder');
     await copied(()=>session.keys(tree,'c'),config);
     if(composed){
       const client=(await session.registrations()).find(c=>c.role==='composed')!;
       await session.client.request({action:'ui.command.send',command:{targetClientId:client.clientId,targetRegion:'detail',command:'focus'}});
     }
-    const hit=await point('[Copy]','› Config:');
+    const hit=await point('[Copy]','› Outlines folder:');
     await copied(()=>terminal.write(`\x1b[<0;${hit!.column+1};${hit!.row+1}M\x1b[<0;${hit!.column+1};${hit!.row+1}m`),config);
     await copied(()=>session.keys(tree,'c'),config);
     if(composed){
       // Keep a drag that leaves Tree inside the diagnostic content rectangle.
       const frame=(await session.visible(tree)).split('\n');
       // Use the visibly rendered first fragment of the config value as the selection oracle.
-      const fieldRow=frame.findIndex(line=>line.includes('› Config:'));
+      const fieldRow=frame.findIndex(line=>line.includes('› Outlines folder:'));
       const treeWidth=/^─+/.exec(frame[1]!)![0].length;
       const prefix=frame[fieldRow+1]!.slice(0,treeWidth).trimEnd().trimStart();
       const start=await point(prefix);
@@ -87,7 +86,7 @@ const result=await runHerdrScenario({
     }
 
     await resize(composed?220:110,50);
-    await session.waitFor('narrow config rendered',()=>session.visible(tree),frame=>frame.includes('› Config:')&&!frame.includes(config));
+    await session.waitFor('narrow config rendered',()=>session.visible(tree),frame=>frame.includes('› Outlines folder:')&&!frame.includes(config));
     const payload=await copied(()=>session.keys(tree,'c'),config);
     await session.checkpoint('narrow-complete-value');
     await terminal.write('\x1b[6~');
@@ -117,7 +116,7 @@ const result=await runHerdrScenario({
     await open(remote.tree);
     await focusField(remote.tree,'Service database');
     await copied(()=>session.keys(remote.tree,'c'),service.location!.database);
-    await focusField(remote.tree,'Workspace');
+    await focusField(remote.tree,'Folder');
     await copied(()=>session.keys(remote.tree,'c'),remote.workspaceRoot);
     assert.notEqual(remote.workspaceRoot,service.location!.workspaceRoot);
     await session.checkpoint('remote-ownership');

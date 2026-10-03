@@ -66,7 +66,7 @@ test("ambiguous, absent and mismatched comment passages fail without writing; ex
   expect(whole.annotations[0]!.originalTarget.anchor).toEqual({kind:"whole-subject"});
   const args=[process.execPath,"run","src/cli.ts","comment","--id",block.id,"--expected",String(block.revision),"--request-id","cli-comment","--quote","repeated","--start",String(block.text.indexOf("repeated")),"--text","CLI feedback"];
   const invoke=async()=>{
-    const proc=Bun.spawn(args,{cwd:join(import.meta.dir,".."),env:{...process.env,OUTLINER_WORKSPACE_ROOT:root,OUTLINER_REMOTE:"1",OUTLINER_SOCKET_PATH:socket},stdout:"pipe",stderr:"pipe"});
+    const proc=Bun.spawn(args,{cwd:join(import.meta.dir,".."),env:{...process.env,OUTLINER_WORKSPACE_ROOT:root,EP0CH_SOCKET:socket,EP0CH_WS:"scratch"},stdout:"pipe",stderr:"pipe"});
     const stdout=await new Response(proc.stdout).text(),stderr=await new Response(proc.stderr).text();expect(await proc.exited,stderr).toBe(0);return JSON.parse(stdout) as AnnotationBatchReceipt;
   };
   const cli=await invoke();expect(cli.annotations[0]!.body).toBe("CLI feedback");expect((await invoke()).deduplicated).toBe(true);

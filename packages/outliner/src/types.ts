@@ -1,6 +1,7 @@
 import type { Block, BlockAuthor, BlockProperty } from "@ep0ch/outline-core/protocol";
 // The wire types both sides share live in outline-core (protocol.ts); re-exported for the service's modules.
 export type { Block, BlockAuthor, BlockProperty, OutlinerRequestProblem, OutlinerResponse } from "@ep0ch/outline-core/protocol";
+export type { HostedOutlineAttachment, HostedOutlineDeletion, HostedOutlineList, HostedOutlineSummary, OutlinerHostStatus, OutlinerServiceOutline, OutlinerServiceStatus } from "@ep0ch/outline-core/protocol";
 import type { MentionMessage, MentionScope } from "./mentions-types";
 import type { FragmentCandidateQuery } from "./fragment-search";
 import type { AuthoredResourceReference } from "./resource-references";
@@ -1647,62 +1648,6 @@ export interface HostedPaneOutline {
   role?: OutlinerClientRole;
 }
 
-/** How the service names its outline in `ping`. */
-export interface OutlinerServiceOutline {
-  name: string;
-}
-
-/** The outline host behind a socket: one per user and machine, serving outlines by name. */
-export interface OutlinerHostStatus {
-  socket: string;
-  /** Where requests without `outline` go; absent when the host has none (it is for tests and scripts). */
-  defaultOutline?: string;
-  /** Every outline in the outlines folder, open or not. */
-  outlines: string[];
-}
-
-/** What `ping` answers. */
-export interface OutlinerServiceStatus {
-  status: "ready";
-  /** The service's PROTOCOL; a client refuses any other number (`protocolMismatch`). */
-  protocolVersion: number;
-  location?: { hostname: string; workspaceRoot: string; database: string; stateDirectory: string };
-  /** The outline answering. */
-  outline?: OutlinerServiceOutline;
-  /** The host that routed the request. */
-  host?: OutlinerHostStatus;
-}
-
-/** One outline a host serves (`outlines.list`, `outlines.create`, `outlines.import`, `outlines.attach`). */
-export interface HostedOutlineSummary {
-  name: string;
-  /** `<outlines>/<name>.sqlite`. */
-  database: string;
-  /** `<outlines>/<name>/`: its side files, and the root its relative file links resolve against. */
-  folder: string;
-  /** Open in this host process now. Outlines open on their first request. */
-  open: boolean;
-  /** The host's default outline (tests and scripts). */
-  default?: boolean;
-}
-
-/** `outlines.list`. */
-export interface HostedOutlineList {
-  defaultOutline?: string;
-  outlines: HostedOutlineSummary[];
-}
-
-/** `outlines.attach`: the outline, open, and whether this request created it. */
-export interface HostedOutlineAttachment {
-  outline: HostedOutlineSummary;
-  created: boolean;
-}
-
-/** `outlines.delete`: where the outline's files went (nothing is erased). */
-export interface HostedOutlineDeletion {
-  name: string;
-  movedTo: string;
-}
 
 export interface ResourceProviderCommandResult {
   readonly receipt: ResourceProviderCommandReceipt;

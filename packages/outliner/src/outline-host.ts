@@ -7,7 +7,7 @@ import { aiPromptDirectory, initializeAiPrompts } from "./ai-prompts";
 import type { HerdrRuntimeRegistry } from "./herdr-registry";
 import { importOutline, type ImportReport } from "./outline-import";
 import { isOutlineName, OUTLINE_NAME_PATTERN } from "./paths";
-import { outlineLayout } from "../../outline-core/src/outline-location";
+import { outlineLayout } from "@ep0ch/outline-core/outline-location";
 import { OutlinerServer } from "./server";
 import { OutlinerStore } from "./store";
 import {

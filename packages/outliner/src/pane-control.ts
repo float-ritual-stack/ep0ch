@@ -9,6 +9,7 @@ import type { BacklinkViewOptions } from "./backlink-view";
 
 export type PaneEntrypoint =
   | "composed"
+  | "service"
   | "outliner"
   | "detail"
   | "capture"

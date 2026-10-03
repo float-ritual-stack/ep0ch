@@ -22,7 +22,7 @@ test("remote file references read service bytes without registering a Resource",
   try {
     await server.start();
     const client = createOutlinerClient(resolveClientPaths({
-      OUTLINER_WORKSPACE_ROOT: clientRoot, OUTLINER_REMOTE: "1", OUTLINER_SOCKET_PATH: socket,
+      OUTLINER_WORKSPACE_ROOT: clientRoot, EP0CH_SOCKET: socket, EP0CH_WS: "scratch",
       XDG_CONFIG_HOME: join(root, "config"),
     }));
     const sequence = store.sequence;
@@ -56,7 +56,7 @@ test("file completions name the service workspace without creating Sources", asy
   try {
     await server.start();
     const client = createOutlinerClient(resolveClientPaths({
-      OUTLINER_WORKSPACE_ROOT: clientRoot, OUTLINER_REMOTE: "1", OUTLINER_SOCKET_PATH: socket,
+      OUTLINER_WORKSPACE_ROOT: clientRoot, EP0CH_SOCKET: socket, EP0CH_WS: "scratch",
       XDG_CONFIG_HOME: join(root, "config"),
     }));
     const sequence = store.sequence, sources = store.resources.listSources();
@@ -80,7 +80,7 @@ test("passive file reads preserve configured read policy and symlink confinement
   const socket = join(root, "outliner.sock"), server = new OutlinerServer(store, socket);
   try {
     await server.start();
-    const client = createOutlinerClient(resolveClientPaths({ OUTLINER_REMOTE: "1", OUTLINER_SOCKET_PATH: socket, OUTLINER_WORKSPACE_ROOT: root, XDG_CONFIG_HOME: join(root, "config") }));
+    const client = createOutlinerClient(resolveClientPaths({ EP0CH_SOCKET: socket, EP0CH_WS: "scratch", OUTLINER_WORKSPACE_ROOT: root, XDG_CONFIG_HOME: join(root, "config") }));
     const sequence = store.sequence;
     await expect(client.request({ action: "files.read", path: "restricted/secret.txt" }))
       .rejects.toThrow("Workspace policy denies reading");

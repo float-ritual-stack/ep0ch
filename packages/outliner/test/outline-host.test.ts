@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { OutlinerClient } from "../src/client";
 import { OutlineHost } from "../src/outline-host";
-import { outlineLayout } from "../../outline-core/src/outline-location";
+import { outlineLayout } from "@ep0ch/outline-core/outline-location";
 import { OutlinerStore } from "../src/store";
 import type { Block, HostedOutlineList, HostedOutlineSummary, OutlinerEvent, OutlinerResponse, OutlinerServiceStatus } from "../src/types";
 
@@ -389,8 +389,10 @@ test("the host process and the CLI: create, import refusals, init and list go th
   // From a subfolder, the CLI now talks to that outline.
   const note = cli(join(project, "notes"), "create", "--text", "Jam shelf's fictional label");
   expect(note.code, note.stderr).toBe(0);
-  const pinged = cli(join(project, "notes"), "--ws", "jam-shelf", "ping");
-  expect(pinged.code, pinged.stderr).toBe(0);
+  // --ws from anywhere reaches the same outline.
+  const found = cli(root, "--ws", "jam-shelf", "list", "--text", "fictional label");
+  expect(found.code, found.stderr).toBe(0);
+  expect(found.stdout).toContain("Jam shelf's fictional label");
 
   const listed = cli(root, "outlines", "--json");
   expect(listed.code).toBe(0);

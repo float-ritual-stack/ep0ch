@@ -359,7 +359,7 @@ test("tarot (a tile kind): listed for the door's registry; its program keeps a r
     actions: [{ name: "ext.tarot.draw", key: "d", on: "tile:reading" }, { name: "ext.tarot.keep", key: "k", on: "block" }],
   });
   expect(tile.command[0]).toBe(process.execPath);
-  expect(tile.env.OUTLINER_SOCKET_PATH).toBeDefined();
+  expect(tile.env.EP0CH_SOCKET).toBeDefined();
 
   // An agent draws without a tile.
   const drawn = await client.request<{ message: string }>({ action: "extensions.act", extension: "tarot", extensionAction: "draw" });
@@ -382,7 +382,7 @@ test("tarot (a tile kind): listed for the door's registry; its program keeps a r
 test.skipIf(process.platform !== "linux" || !Bun.which("script"))("tarot's tile fits a narrow tile: no line is wider than the tile, so nothing wraps (PIE-509)", async () => {
   const dir = join(import.meta.dir, "../extensions/tarot");
   // A real terminal 20 columns wide (util-linux script), as a door's narrow tile is.
-  const program = Bun.spawn(["script", "-qec", `stty cols 20 rows 12; exec ${process.execPath} tile.ts`, "/dev/null"], { cwd: dir, env: { ...process.env, OUTLINER_SOCKET_PATH: "" }, stdin: "pipe", stdout: "pipe" });
+  const program = Bun.spawn(["script", "-qec", `stty cols 20 rows 12; exec ${process.execPath} tile.ts`, "/dev/null"], { cwd: dir, env: { ...process.env, EP0CH_SOCKET: "" }, stdin: "pipe", stdout: "pipe" });
   await Bun.sleep(800);
   program.stdin.write("q");
   await program.stdin.flush();

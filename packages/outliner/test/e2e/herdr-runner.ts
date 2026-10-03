@@ -3,7 +3,7 @@ import { Database } from "bun:sqlite";
 import { Terminal as Screen } from "@xterm/headless";
 import { createHash } from "node:crypto";
 import { spawn, type ChildProcess } from "node:child_process";
-import { appendFileSync, closeSync, existsSync, openSync } from "node:fs";
+import { appendFileSync, closeSync, openSync } from "node:fs";
 import {
   appendFile,
   mkdir,
@@ -20,7 +20,8 @@ import { dirname, join, resolve, sep } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { OutlinerClient } from "../../src/client";
 import { checkServiceCompatibility } from "../../src/service-compatibility";
-import { resolvePaths, writeClientConfig, type OutlinerPaths } from "../../src/paths";
+import { type OutlinerPaths, writeDotEp0ch } from "../../src/paths";
+import { outlineLayout } from "@ep0ch/outline-core/outline-location";
 import { readHerdrPaneSnapshot, type HerdrPaneSnapshot } from "../../src/herdr-comment-selection";
 import { forwardService, type ForwardedRequest, type OptionalResponseMatch, type ComposedResponseMatch, type ResponseBarrier } from "./service-forwarder";
 import {
@@ -135,7 +136,6 @@ type HerdrStatus = {
   session: string;
 };
 type ActionOutput = {
-  servicePane: string;
   treePane: string;
   detailPane: string;
   browsingContextId: string;
@@ -396,7 +396,7 @@ function makeEnvironment(options: {
     XDG_RUNTIME_DIR: options.runtimeHome,
     HERDR_ENV: "1",
     HERDR_BIN_PATH: options.herdrBinary,
-    OUTLINER_STATE_DIR: options.outlinerState,
+    EP0CH_OUTLINES: options.outlinerState,
     OUTLINER_KEYBINDINGS_PATH: options.keymapPath,
     OUTLINER_DETAIL_RENDERER: "pi-tui",
     OUTLINER_INBOX_AGENT: "0",
@@ -471,7 +471,6 @@ function parseProcessInfo(text: string): ProcessInfo {
 function parseActionOutput(text: string): ActionOutput {
   const output = recordValue(parseJson(text, "plugin action stdout"), "plugin action stdout");
   return {
-    servicePane: stringValue(output, "servicePane", "plugin action stdout"),
     treePane: stringValue(output, "outlinerPane", "plugin action stdout"),
     detailPane: stringValue(output, "detailPane", "plugin action stdout"),
     browsingContextId: stringValue(output, "browsingContextId", "plugin action stdout"),
@@ -498,13 +497,13 @@ async function readProcessEnvironment(pid: number): Promise<Record<string, strin
     "XDG_DATA_HOME",
     "XDG_CACHE_HOME",
     "XDG_RUNTIME_DIR",
-    "OUTLINER_STATE_DIR",
+    "EP0CH_OUTLINES",
+    "EP0CH_SOCKET",
+    "EP0CH_WS",
     "OUTLINER_KEYBINDINGS_PATH",
     "OUTLINER_DETAIL_RENDERER",
     "OUTLINER_PROMPT_DIR",
     "OUTLINER_WORKSPACE_ROOT",
-    "OUTLINER_REMOTE",
-    "OUTLINER_SOCKET_PATH",
     "OUTLINER_BROWSING_CONTEXT_ID",
   ];
   const selected: Record<string, string> = {};
@@ -531,7 +530,7 @@ function environmentMatches(
     environment.HERDR_TAB_ID === pane.tabId &&
     environment.HERDR_WORKSPACE_ID === pane.workspaceId &&
     environment.XDG_CONFIG_HOME === expected.XDG_CONFIG_HOME &&
-    environment.OUTLINER_STATE_DIR === expected.OUTLINER_STATE_DIR &&
+    environment.EP0CH_OUTLINES === expected.EP0CH_OUTLINES &&
     environment.OUTLINER_KEYBINDINGS_PATH === expected.OUTLINER_KEYBINDINGS_PATH &&
     environment.OUTLINER_DETAIL_RENDERER === expected.OUTLINER_DETAIL_RENDERER &&
     environment.OUTLINER_PROMPT_DIR === expected.OUTLINER_PROMPT_DIR;
@@ -630,7 +629,13 @@ export async function runHerdrScenario(scenarioInput: Scenario): Promise<Scenari
   const dataHome = join(runRoot, "xdg-data");
   const cacheHome = join(runRoot, "xdg-cache");
   const runtimeHome = join(runRoot, "xdg-runtime");
-  const outlinerState = join(runRoot, "outliner-state");
+  const outlinerState = join(runRoot, "outlines");
+  /** The run's outline: `project` in its own outlines folder, named by the project's `.ep0ch`; its host's socket. */
+  const OUTLINE_NAME = "project";
+  const projectPaths = (): OutlinerPaths => {
+    const layout = outlineLayout(outlinerState);
+    return { socket: layout.socket, database: layout.database(OUTLINE_NAME), stateDir: layout.folder(OUTLINE_NAME), workspaceRoot: projectRoot };
+  };
   const keymapPath = join(runRoot, "empty-keymap.json");
   const sessionName = `pie267-${crypto.randomUUID().slice(0, 8)}`;
   const pluginRoot = await realpath(resolve(import.meta.dir, "../.."));
@@ -721,10 +726,7 @@ export async function runHerdrScenario(scenarioInput: Scenario): Promise<Scenari
 
   const getRegistrations = async (): Promise<OutlinerClientRegistration[]> => {
     if (!herdrStatus) throw new Error("Outliner service is not ready");
-    const paths = resolvePaths({
-      OUTLINER_STATE_DIR: outlinerState,
-      OUTLINER_WORKSPACE_ROOT: projectRoot,
-    });
+    const paths = projectPaths();
     return new OutlinerClient(paths.socket).request<OutlinerClientRegistration[]>({
       action: "clients.list",
     });
@@ -859,10 +861,7 @@ export async function runHerdrScenario(scenarioInput: Scenario): Promise<Scenari
     const requireOwned = (paneId: string): void => {
       if (!owned.has(paneId)) throw new Error(`Pane ${JSON.stringify(paneId)} is not owned by this scenario`);
     };
-    const client = new OutlinerClient(resolvePaths({
-      OUTLINER_STATE_DIR: outlinerState,
-      OUTLINER_WORKSPACE_ROOT: projectRoot,
-    }).socket);
+    const client = new OutlinerClient(projectPaths().socket);
     return {
       projectRoot,
       artifactDirectory,
@@ -969,9 +968,9 @@ export async function runHerdrScenario(scenarioInput: Scenario): Promise<Scenari
       },
       rejectCompetingService() {
         return runCommand({
-          args: [process.execPath, "run", join(pluginRoot, "src/server-main.ts")],
+          args: [process.execPath, "run", join(pluginRoot, "src/host-main.ts")],
           cwd: pluginRoot,
-          env: { ...environment, OUTLINER_WORKSPACE_ROOT: projectRoot, HERDR_SOCKET_PATH: herdrStatus!.socket },
+          env: { ...environment, HERDR_SOCKET_PATH: herdrStatus!.socket },
           artifacts,
           signal: abort.signal,
           expectedExitCode: 1,
@@ -988,8 +987,7 @@ export async function runHerdrScenario(scenarioInput: Scenario): Promise<Scenari
         });
         const opened = parseResult((await runHerdr(["plugin", "pane", "open", "--plugin", PLUGIN_ID,
           "--entrypoint", "service", "--workspace", location.workspaceId, "--no-focus",
-          "--env", `OUTLINER_WORKSPACE_ROOT=${projectRoot}`,
-          "--env", `OUTLINER_STATE_DIR=${outlinerState}`])).stdout, "plugin_pane_opened", "restarted service");
+          "--env", `EP0CH_OUTLINES=${outlinerState}`])).stdout, "plugin_pane_opened", "restarted service");
         const pane = parsePane(recordValue(opened.plugin_pane, "service plugin pane").pane, "restarted service pane");
         ownedPanes.service = pane.paneId;
         owned.add(pane.paneId);
@@ -1067,7 +1065,7 @@ export async function runHerdrScenario(scenarioInput: Scenario): Promise<Scenari
         if (scenarioInput.layout !== "composed" || fault.composedForwarder) {
           throw new Error("Response barriers require one owned composed surface");
         }
-        const socket = resolvePaths({OUTLINER_STATE_DIR: outlinerState, OUTLINER_WORKSPACE_ROOT: projectRoot}).socket;
+        const socket = projectPaths().socket;
         if (!resolve(socket).startsWith(`${resolve(runRoot)}${sep}`) || !(await stat(socket)).isSocket()) {
           throw new Error("Composed response barriers require this run's service socket");
         }
@@ -1090,7 +1088,7 @@ export async function runHerdrScenario(scenarioInput: Scenario): Promise<Scenari
         const contextId = crypto.randomUUID();
         const workspaceId = (await getRegistrations()).find(value => value.runtime?.paneId === ownedPanes.tree)?.runtime?.workspaceId;
         if (!workspaceId) throw new Error("Owned Tree has no verified workspace");
-        const socket = resolvePaths({ OUTLINER_STATE_DIR: outlinerState, OUTLINER_WORKSPACE_ROOT: projectRoot }).socket;
+        const socket = projectPaths().socket;
         if (treeTransport === "forwarded") {
           resources.treeForwarder = await forwardService(join(runRoot, "tree-forward.sock"), socket);
         }
@@ -1099,15 +1097,15 @@ export async function runHerdrScenario(scenarioInput: Scenario): Promise<Scenari
         }
         const clientEnvironment = {
           OUTLINER_WORKSPACE_ROOT: workspaceRoot,
-          OUTLINER_REMOTE: "1",
-          OUTLINER_SOCKET_PATH: socket,
+          EP0CH_SOCKET: socket,
+          EP0CH_WS: OUTLINE_NAME,
           OUTLINER_BROWSING_CONTEXT_ID: contextId,
           OUTLINER_DETAIL_RENDERER: renderer,
         };
         const open = async (entrypoint: "outliner" | "detail", target: string): Promise<string> => {
           const forwarder = entrypoint === "outliner" ? resources.treeForwarder : resources.detailForwarder;
           const paneEnvironment = forwarder
-            ? { ...clientEnvironment, OUTLINER_SOCKET_PATH: forwarder.socketPath }
+            ? { ...clientEnvironment, EP0CH_SOCKET: forwarder.socketPath }
             : clientEnvironment;
           const output = await runHerdr([
             "plugin", "pane", "open", "--plugin", PLUGIN_ID, "--entrypoint", entrypoint,
@@ -1369,15 +1367,17 @@ export async function runHerdrScenario(scenarioInput: Scenario): Promise<Scenari
       keymapSha256: hash(await readFile(keymapPath)),
       outlinerState,
       effectiveEnvironment: Object.fromEntries(
-        Object.entries(environment).filter(([key]) => key.startsWith("XDG_") || key.startsWith("OUTLINER_") || key === "HERDR_ENV" || key === "HERDR_BIN_PATH"),
+        Object.entries(environment).filter(([key]) => key.startsWith("XDG_") || key.startsWith("OUTLINER_") || key.startsWith("EP0CH_") || key === "HERDR_ENV" || key === "HERDR_BIN_PATH"),
       ),
     });
 
     await setPhase("prepare-fixture");
-    const preparedPaths = resolvePaths({ OUTLINER_STATE_DIR: outlinerState, OUTLINER_WORKSPACE_ROOT: projectRoot });
+    const preparedPaths = projectPaths();
+    // A scenario may seed its outline through a server of its own on the host's socket, before the host runs.
+    await mkdir(outlineLayout(outlinerState).hostDir, { recursive: true, mode: 0o700 });
     await scenario.prepare(projectRoot, preparedPaths);
-    // Opening never creates an outline by itself; the fixture chooses a new outline here.
-    if (!existsSync(preparedPaths.database)) writeClientConfig(environment, { mode: "local", workspaceRoot: projectRoot });
+    // The project names its outline; opening creates it when the scenario made none.
+    writeDotEp0ch(projectRoot, OUTLINE_NAME);
 
     await setPhase("start-herdr");
     const stdoutFd = openSync(join(artifactDirectory, "herdr-server.stdout.log"), "a");
@@ -1467,7 +1467,7 @@ export async function runHerdrScenario(scenarioInput: Scenario): Promise<Scenari
       "XDG_DATA_HOME",
       "XDG_CACHE_HOME",
       "XDG_RUNTIME_DIR",
-      "OUTLINER_STATE_DIR",
+      "EP0CH_OUTLINES",
       "OUTLINER_KEYBINDINGS_PATH",
       "OUTLINER_DETAIL_RENDERER",
       "OUTLINER_PROMPT_DIR",
@@ -1498,6 +1498,18 @@ export async function runHerdrScenario(scenarioInput: Scenario): Promise<Scenari
     const launcherCwd = await realpath(launcher.foregroundCwd ?? launcher.cwd ?? "");
     if (launcherCwd !== projectRoot) throw new Error(`Launcher cwd was ${launcherCwd}, expected ${projectRoot}`);
     await artifacts.write("workspace.json", workspaceOutput);
+
+    await setPhase("start-host");
+    // The outline host runs as a service of its own; here, in a tab of this private workspace.
+    const hostOpened = parseResult((await runHerdr(["plugin", "pane", "open", "--plugin", PLUGIN_ID,
+      "--entrypoint", "service", "--workspace", workspaceId, "--no-focus",
+      "--env", `EP0CH_OUTLINES=${outlinerState}`])).stdout, "plugin_pane_opened", "host pane");
+    const hostPane = parsePane(recordValue(hostOpened.plugin_pane, "host plugin pane").pane, "host pane").paneId;
+    await poll({
+      label: "the outline host answering", timeoutMs: STARTUP_TIMEOUT_MS, signal: abort.signal, artifacts,
+      read: () => new OutlinerClient(projectPaths().socket).request<{ outlines: unknown[] }>({ action: "outlines.list" }, 500),
+      accept: value => Array.isArray(value.outlines),
+    });
 
     await setPhase("invoke-plugin");
     const actionId = scenario.layout === "composed" ? "open-composed" : "open";
@@ -1559,12 +1571,12 @@ export async function runHerdrScenario(scenarioInput: Scenario): Promise<Scenari
     if (await realpath(action.workspaceRoot) !== projectRoot) {
       throw new Error(`Plugin action used workspace root ${action.workspaceRoot}, expected ${projectRoot}`);
     }
-    const paneIds = [launcher.paneId, action.servicePane, action.treePane, ...(scenario.layout === "composed" ? [] : [action.detailPane])];
+    const paneIds = [launcher.paneId, hostPane, action.treePane, ...(scenario.layout === "composed" ? [] : [action.detailPane])];
     if (scenario.layout === "composed" && action.treePane !== action.detailPane) throw new Error("Composed launch did not return one primary pane");
     if (new Set(paneIds).size !== paneIds.length) throw new Error("Plugin action returned duplicate owned pane IDs");
     panes = {
       launcher: launcher.paneId,
-      service: action.servicePane,
+      service: hostPane,
       tree: action.treePane,
       detail: action.detailPane,
     };
@@ -1584,10 +1596,7 @@ export async function runHerdrScenario(scenarioInput: Scenario): Promise<Scenari
     }
 
     await setPhase("verify-readiness");
-    const paths = resolvePaths({
-      OUTLINER_STATE_DIR: outlinerState,
-      OUTLINER_WORKSPACE_ROOT: projectRoot,
-    });
+    const paths = projectPaths();
     const outliner = new OutlinerClient(paths.socket);
     await poll({
       label: "compatible Outliner service",
@@ -1655,7 +1664,7 @@ export async function runHerdrScenario(scenarioInput: Scenario): Promise<Scenari
 
     processEvidence = await Promise.all([
       verifyProcess(launcher.paneId, projectRoot),
-      verifyProcess(action.servicePane, pluginRoot),
+      verifyProcess(hostPane, pluginRoot),
       verifyProcess(action.treePane, pluginRoot),
       ...(scenario.layout === "composed" ? [] : [verifyProcess(action.detailPane, pluginRoot)]),
     ]);
@@ -1698,10 +1707,7 @@ export async function runHerdrScenario(scenarioInput: Scenario): Promise<Scenari
         }
       }
       try {
-        const paths = resolvePaths({
-          OUTLINER_STATE_DIR: outlinerState,
-          OUTLINER_WORKSPACE_ROOT: projectRoot,
-        });
+        const paths = projectPaths();
         await stat(paths.database);
         const evidenceDatabase = new Database(paths.database, { readonly: true, create: false });
         try {

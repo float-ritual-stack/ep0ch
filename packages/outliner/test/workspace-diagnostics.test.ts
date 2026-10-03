@@ -1,37 +1,39 @@
 import {expect,test} from 'bun:test';
-import {mkdtempSync,rmSync,existsSync,renameSync,readFileSync,writeFileSync,mkdirSync} from 'node:fs';
+import {mkdtempSync,rmSync,existsSync,writeFileSync,mkdirSync} from 'node:fs';
 import {tmpdir} from 'node:os';
-import {join,dirname} from 'node:path';
+import {join} from 'node:path';
 import {inspectWorkspaceConnection} from '../src/workspace-diagnostics';
-import {resolvePaths,resolveClientConfigPath} from '../src/paths';
 import {OutlinerServer} from '../src/server';
 import {OutlinerStore} from '../src/store';
+import {scratchOutline} from './scratch-outline';
 
-test('moved root storage stays missing, backup unchanged, working child retains own database',async()=>{
+test('a folder naming an outline: the outline, its database and the answering service; a missing one is said, not made',async()=>{
  const root=mkdtempSync(join(tmpdir(),'workspace-info-'));
- const env={OUTLINER_WORKSPACE_ROOT:join(root,'workspace'),OUTLINER_STATE_DIR:join(root,'state'),OUTLINER_REMOTE:'0'};
- const parent=resolvePaths(env),childEnv={...env,OUTLINER_WORKSPACE_ROOT:join(env.OUTLINER_WORKSPACE_ROOT,'notes')},child=resolvePaths(childEnv);
- const original=new OutlinerStore(parent.database,{workspaceRoot:parent.workspaceRoot});original.create('PARENT PRESERVED');original.close();
- const backup=parent.stateDir+'-saved';renameSync(parent.stateDir,backup);const bytes=readFileSync(join(backup,'outliner.sqlite'));
- const store=new OutlinerStore(child.database,{workspaceRoot:child.workspaceRoot});const note=store.create('CHILD PRESERVED');const server=new OutlinerServer(store,child.socket);await server.start();
+ const project=join(root,'garden');mkdirSync(join(project,'beds'),{recursive:true});writeFileSync(join(project,'.ep0ch'),'ws = "garden"\n');
+ const scratch=scratchOutline(root,{name:'garden',folder:join(project,'beds')});
+ const env={HOME:root,EP0CH_OUTLINES:scratch.outlines,OUTLINER_WORKSPACE_ROOT:join(project,'beds')};
  try{
-  const missing=await inspectWorkspaceConnection(env);expect(missing.ok).toBe(false);expect(missing.lines.join('\n')).toContain(parent.database);expect(missing.lines.join('\n')).toContain('new workspace or moved storage');expect(existsSync(parent.stateDir)).toBe(false);expect(readFileSync(join(backup,'outliner.sqlite'))).toEqual(bytes);
-  const working=await inspectWorkspaceConnection(childEnv);expect(working.ok).toBe(true);expect(working.lines.join('\n')).toContain(`Service database: ${child.database}`);expect(store.get(note.id)?.text).toBe('CHILD PRESERVED');
- }finally{await server.close();store.close();rmSync(root,{recursive:true,force:true});}
-});
-test('remote unavailable and invalid config are reported without creating local storage',async()=>{
- const root=mkdtempSync(join(tmpdir(),'workspace-info-'));
- const env={OUTLINER_WORKSPACE_ROOT:root,OUTLINER_STATE_DIR:join(root,'state'),XDG_CONFIG_HOME:join(root,'config')};
- try{
-  const path=resolveClientConfigPath(env);mkdirSync(dirname(path),{recursive:true});writeFileSync(path,JSON.stringify({mode:'remote',socketPath:join(root,'forward.sock')}));
-  const report=await inspectWorkspaceConnection(env);const text=report.lines.join('\n');expect(report.ok).toBe(false);expect(text).toContain('SSH socket tunnel');expect(text).not.toContain('Local database:');expect(text).toContain('Storage belongs to the remote service');expect(existsSync(env.OUTLINER_STATE_DIR)).toBe(false);
-  writeFileSync(path,'{broken');const broken=await inspectWorkspaceConnection(env);expect(broken.lines.join('\n')).toContain(`Workspace: ${root}`);expect(broken.lines.join('\n')).toContain(`Invalid JSON in Outliner client config at ${path}`);expect(existsSync(env.OUTLINER_STATE_DIR)).toBe(false);
+  const missing=await inspectWorkspaceConnection(env);const text=missing.lines.join('\n');
+  expect(missing.ok).toBe(false);expect(text).toContain(`Outline: garden (${join(project,'.ep0ch')})`);expect(text).toContain(`Database: ${scratch.database} (missing)`);expect(text).toContain('Connection failed');
+  expect(existsSync(scratch.database)).toBe(false);
+  const store=new OutlinerStore(scratch.database,{workspaceRoot:scratch.stateDir});const server=new OutlinerServer(store,scratch.socket);await server.start();
+  try{const working=await inspectWorkspaceConnection(env);expect(working.ok).toBe(true);expect(working.lines.join('\n')).toContain(`Service database: ${scratch.database}`);}
+  finally{await server.close();store.close();}
  }finally{rmSync(root,{recursive:true,force:true});}
 });
-test('doctor CLI reports failed connection with paths and nonzero status without initializing a database',async()=>{
+test('a remote socket and a broken .ep0ch are reported without creating anything',async()=>{
+ const root=mkdtempSync(join(tmpdir(),'workspace-info-'));
+ const env={HOME:root,OUTLINER_WORKSPACE_ROOT:root,EP0CH_OUTLINES:join(root,'outlines'),EP0CH_SOCKET:join(root,'forward.sock'),EP0CH_WS:'garden'};
+ try{
+  const report=await inspectWorkspaceConnection(env);const text=report.lines.join('\n');expect(report.ok).toBe(false);expect(text).toContain('Check the SSH socket tunnel');expect(text).toContain('Storage belongs to the host at the other end of EP0CH_SOCKET');expect(existsSync(env.EP0CH_OUTLINES)).toBe(false);
+  writeFileSync(join(root,'.ep0ch'),'{broken');const broken=await inspectWorkspaceConnection({...env,EP0CH_WS:undefined});expect(broken.lines.join('\n')).toContain(`Folder: ${root}`);expect(broken.lines.join('\n')).toContain(`${join(root,'.ep0ch')} must hold one line`);expect(existsSync(env.EP0CH_OUTLINES)).toBe(false);
+ }finally{rmSync(root,{recursive:true,force:true});}
+});
+test('doctor CLI reports a folder that names no outline, nonzero, without making anything',async()=>{
  const root=mkdtempSync(join(tmpdir(),'workspace-doctor-'));
  try{
-  const child=Bun.spawn([process.execPath,'src/cli.ts','doctor','--json'],{env:{...process.env,OUTLINER_WORKSPACE_ROOT:root,OUTLINER_STATE_DIR:join(root,'state'),OUTLINER_REMOTE:'0',OUTLINER_SOCKET_PATH:undefined},stdout:'pipe',stderr:'pipe'});
-  const text=await new Response(child.stdout).text();expect(await child.exited).toBe(1);expect(JSON.parse(text).lines.join('\n')).toContain(`Workspace: ${root}`);expect(existsSync(join(root,'state'))).toBe(false);
+  const child=Bun.spawn([process.execPath,'src/cli.ts','doctor','--json'],{env:{...process.env,HOME:root,OUTLINER_WORKSPACE_ROOT:join(root,'jam-shelf'),EP0CH_OUTLINES:join(root,'outlines'),EP0CH_SOCKET:undefined,EP0CH_WS:undefined},stdout:'pipe',stderr:'pipe'});
+  const text=await new Response(child.stdout).text();expect(await child.exited).toBe(1);const lines=JSON.parse(text).lines.join('\n');
+  expect(lines).toContain(`Folder: ${join(root,'jam-shelf')}`);expect(lines).toContain('init offers "jam-shelf"');expect(existsSync(join(root,'outlines'))).toBe(false);
  }finally{rmSync(root,{recursive:true,force:true});}
 });
