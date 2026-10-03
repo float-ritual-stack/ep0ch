@@ -163,4 +163,6 @@ MacBook). It does not support every version a client ever connected with.
 - **door**: every UI change is an action; the parity tests (`test/parity-*.test.ts`) catch one that isn't.
   Snapshots that changed are looked at. Interaction changes get a real-pane pass.
 - **claude-mod**: a hooks module can't import application code; it runs the outliner's CLI from the Herdr
-  plugin root. A session's folder feeds the outline its nearest `.ep0ch` names, or nothing.
+  plugin root, and draws a block through the door's (`ep0ch show --cells`, BlockView). A session's folder feeds
+  the outline its nearest `.ep0ch` names, or nothing. Only `hooks/register.ts` is handed `$` (the engine
+  refuses `$` passed across an import), so the other files are pure: parsing, argv and trees.

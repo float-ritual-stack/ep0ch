@@ -11,7 +11,7 @@ export const VGA_RGB: readonly [number, number, number][] = [
   [85, 85, 85], [85, 85, 255], [85, 255, 85], [85, 255, 255], [255, 85, 85], [255, 85, 255], [255, 255, 85], [255, 255, 255],
 ];
 // SGR 30–37 order (black red green yellow blue magenta cyan white) → VGA palette index.
-const SGR_TO_VGA = [0, 4, 2, 6, 1, 5, 3, 7];
+export const SGR_TO_VGA = [0, 4, 2, 6, 1, 5, 3, 7];
 
 /** One screen cell. `code` is the CP437 byte, so the rasterizer can index the font directly. */
 export interface Cell { code: number; fg: number; bg: number }

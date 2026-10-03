@@ -4,9 +4,12 @@ import type { TurnCompleteInput } from 'claude-code'
  * The host-neutral contract `mentions.ingest` takes; `src/mentions-types.ts`
  * owns it. Restated here because a hooks module cannot import application code.
  */
+/** The agent this mod ingests Claude's answers as, and reads their mentions back by. */
+export const MENTIONS_AGENT = 'claude'
+
 export type MentionMessage = {
   workspaceRoot: string
-  agent: 'claude'
+  agent: typeof MENTIONS_AGENT
   sessionId: string
   messageId: string
   text: string
@@ -183,7 +186,7 @@ export function mentionMessageOf(
   if (!isIngestible(e) || workspace === null) return null
   return {
     workspaceRoot: workspace.root,
-    agent: 'claude',
+    agent: MENTIONS_AGENT,
     sessionId: session.id,
     messageId: e.turnId,
     text: e.answer,

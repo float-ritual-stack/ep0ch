@@ -116,6 +116,9 @@ export class Canvas {
     for (let i = 0; i < size; i++) this.text(r.col + r.cols - 1, r.row + 1 + pos + i, sgr + "█" + RESET, 1);
   }
 
+  /** The cells as written, row by row: each a glyph (`""` for a wide glyph's spacer) and the SGR it's drawn in. */
+  grid(): readonly (readonly Readonly<Cell>[])[] { return this.cells; }
+
   lines(): string[] {
     return this.cells.map(line => {
       let out = "", last = "";

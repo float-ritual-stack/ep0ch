@@ -7,6 +7,7 @@ the Outliner's `mentions.ingest` contract. It works the same way as the Codex St
 UUIDs in the answer then show up in Tree/Detail `?` → **Recent mentions**.
 
 - Only main-loop answers are sent. Subagent runs, interruptions, refusals and errors are skipped.
+- They also show in Claude Code itself: [Recent mentions in Claude Code](#recent-mentions-in-claude-code).
 
 ## Which outline: the session's folder
 
@@ -92,7 +93,10 @@ A click, `show` and `door_open` share one open (`openNote` in
    tile drops Herdr's pane variables, so this is a plain Herdr pane, or the
    daily agent's Herdr pane after its door quit.
 3. **Anywhere else**: a toast (or the tool's denial) saying it can't open the
-   note here and why, with its `((id))` to copy. A click never fails silently.
+   note here and why, with the exact command that reads it in any terminal
+   (`ep0ch show <id> --ws <outline>`, the door's renderer, needing only the
+   outline host) and its `((id))` to copy. A click also copies that command.
+   A click never fails silently.
 
 - The pane is recognized by its browsing context, which is the Claude session
   id, so it survives plugin reloads and resumed sessions. Close it and the next
@@ -123,6 +127,65 @@ then doesn't have to guess from the repo name or a window title.
   1.5s of the first prompt), the block has the variables alone and says they are unchecked.
 - It never blocks or fails the session: the work runs after the start, and any
   failure leaves the context as it was. Outside a door, nothing is added.
+
+## Recent mentions in Claude Code
+
+The blocks this conversation's answers mentioned show beside it, read from the
+same retained history Tree and Detail show (`outliner mentions list --agent
+claude --session <id>`, the service's `mentions.list`), never a list of the
+mod's own. It is read again after each answer is ingested.
+
+- **Where:** a compact **band** above the prompt (one row: `1: Bike shed  2:
+  Chain oil  …  p: previews  s: all conversations  m: to pane  x: hide`), or a
+  fuller **pane** beside the transcript (each mention with what was written,
+  when, and the words around it). `m` moves it between them, `x` hides it, and
+  the choice is kept across sessions (`$.store`, `mentions-view`). Closing the
+  pane with its mark keeps it hidden. `/mentions [band | pane | off | preview |
+  scope]` makes the same choices by keys; `/mentions` alone shows a hidden band.
+  The band draws only once there is something to show, so an empty one leaves
+  the slot above the prompt to others.
+- **Preview:** `p` turns on a small preview of each block (the newest two in the
+  band, every one in the pane), drawn by the door ([BlockView](#blockview)).
+- **Scope:** `s` switches between this conversation's mentions and every
+  conversation's in the outline, as the Tree's `s` does.
+- **Open:** a click, or the mention's number, opens it through the one open
+  every click, `show` and `door_open` share ([Where a note opens](#where-a-note-opens)):
+  in the door this session runs in, as the agent, never taking focus; else
+  Claude's own Detail in Herdr; else the command that reads it anywhere
+  (`ep0ch show <id> --ws <outline>`) is copied, said in a toast and kept in the
+  band or pane. The pane's heading says which it will be.
+- Every action is a Button with a hotkey: by mouse, or by keys once the band or
+  pane holds them (ctrl+x tab, or a click). The pane never opens with focus, so
+  the prompt keeps the keys; opened at session start (the pane was the choice),
+  Claude Code seats it only where it is a sidebar (from 144 columns); below
+  that it waits, and a toast says so once, with `/mentions band`.
+
+## BlockView
+
+`hooks/block-view.ts` draws an outline block as the door draws it, in any pane
+or band of the mod (`drawBlock` in `hooks/register.ts` is `<BlockView id
+width/>` for a render hook: it keeps each drawing for the session by block,
+revision and width, and loads it off the draw). It is glue, not a renderer: it
+runs the door's CLI, `ep0ch show <id> --cells --width <n> --rows 24`, whose JSON is a
+`Raster`'s cells as the API documents them (row-major, base64 of u32 LE
+`[codePoint, fg, bg]`, `0x01000000` the terminal's own colour), and hands the
+rows on. Only the outline host has to run: no door, no Herdr.
+
+- Cells rather than styled spans: a `Raster` is one leaf the terminal paints
+  exactly as the door laid it out (rules, tables, colours), with nothing to wrap
+  again, and `$.ui.blit` can repaint it in place.
+- A `Raster` cell is one width-1 BMP character: the door sends U+FFFD and a blank
+  for a wide glyph (CJK, most emoji), so the columns after it stay put, and
+  counts them in `replaced`. Bold, italic and underline have no place in a cell.
+- Where the CLI can't draw (no `ep0ch` on PATH, one older than `--cells`, which
+  `ep0ch help` is asked first as `where` is, or no host answering), and on a
+  surface without `Raster` (desktop), the block's text is drawn by `Markdown`.
+- Widths are 10 to 200 columns; the door encodes at most 24 rows (`--rows`), so
+  a long note is never drawn whole.
+- One drawing is kept per block, the latest: a new width is drawn after a short
+  pause (a resize being dragged draws once), a new revision when the caller
+  passes `revision` (without it, an edit isn't seen until the session restarts).
+  `source` defaults to the session's outline (its folder and `EP0CH_WS`).
 
 ## Workboard tools
 

@@ -1,4 +1,4 @@
-import type { EngineInterface, On, PluginOptions } from 'claude-code'
+import type { EngineInterface, On, PluginOptions, RenderElement, RenderSurface } from 'claude-code'
 
 import {
   boundWorkspaceOf,
@@ -27,6 +27,26 @@ import {
 } from './references'
 import { actorOf, DOOR_TOOLS, doorActArgv, OUTLINE_TOOLS, peekOf } from './outline-tools'
 import { WORK_TOOLS } from './work-tools'
+import {
+  bandHasContent,
+  choicesText,
+  COMMAND_USAGE,
+  commandChoice,
+  mentionRowsOf,
+  mentionsListArgs,
+  mentionsTree,
+  opensIn,
+  PANE_ID as MENTIONS_PANE,
+  PREFS_STORE_KEY,
+  PREVIEW_ROWS,
+  prefsOf,
+  previewedRows,
+  previewWidthOf,
+  DEFAULT_PREFS,
+  type SiteElements,
+} from './mentions-view'
+import { BlockView, type BlockViewElements, type BlockViewSource, blockViewId, loadBlockView, viewColumns } from './block-view'
+import type { MentionRow, MentionsList, MentionsPrefs } from '../types'
 import {
   type DoorEnv,
   doorTileOf,
@@ -92,10 +112,45 @@ let whereLoad: Promise<string | null> | undefined
  */
 export function register(on: On, options: PluginOptions): void {
   const option = options
+  // Recent mentions in Claude Code itself (hooks/mentions-view.ts): a band above the prompt or a pane, over the
+  // outline's own mentions.list, each press opened by openNote like every other click.
+  on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
+    // Read before anything else, so the band is drawn again when the list first lands (the outline is found then).
+    const [prefs, list] = await Promise.all([mentionsPrefsOf($), mentionsListOf($)])
+    // A module reloaded mid-session may not see its session.start: start mentions off the draw, once.
+    if (!mentionsStarting) $.clock.after(0, () => void startMentionsOnce($, option))
+    const workspace = references?.workspace
+    if (e.props.hasSurvey || !workspace || prefs.placement !== 'band' || !bandHasContent(list)) return next(e)
+    return drawMentions($, e, $.ui.resolve(e) as unknown as SiteElements, 'band', e.props.bodyColumns, workspace, option)
+  })
+
+  on('ui.render', { component: 'Pane', requestId: MENTIONS_PANE }, async ($, e) => {
+    await mentionsListOf($)
+    const workspace = references?.workspace
+    if (!workspace) return $.ui.resolve(e).Text({ dimColor: true, children: references ? NOT_BOUND : "Finding this folder's outline…" })
+    return drawMentions($, e, $.ui.resolve(e) as unknown as SiteElements, 'pane', e.props.bodyColumns, workspace, option)
+  })
+
+  // The person closing the pane (its mark, ctrl+x x) is their choice too: kept as hidden.
+  on('ui.close', async ($, e, next) => {
+    const result = await next(e)
+    if (e.id === MENTIONS_PANE && e.origin.kind === 'person') await keepMentionsPrefs($, { ...(await mentionsPrefsOf($)), placement: 'off' })
+    return result
+  })
+
+  on('command.run', { command: 'mentions' }, async ($, e) => {
+    const change = commandChoice(e.args)
+    if (!change) return { text: COMMAND_USAGE }
+    const chosen = await chooseMentions($, change, option)
+    await refreshMentions($, option)
+    return { text: choicesText(chosen) }
+  })
 
   on('session.start', async ($, e, next) => {
     const result = await next(e)
-    $.clock.after(0, () => void loadReferences($, option))
+    // A session start (or the module's reload) starts mentions again: the command, the kept choices, the list.
+    mentionsStarting = undefined
+    $.clock.after(0, () => void startMentionsOnce($, option))
     // Off the start's dispatch: a slow or missing `ep0ch` never holds the session up.
     whereLoad = new Promise(resolve => {
       $.clock.after(0, () => void loadWhere($).then(resolve, () => resolve(null)))
@@ -224,7 +279,7 @@ export function register(on: On, options: PluginOptions): void {
             key: 'outliner-references',
             text,
             pressableLinks: hrefs.slice(0, 256),
-            onLinkPress: link => void openReference($, workspace, link.href),
+            onLinkPress: (link, press) => void openReference($, workspace, link.href, press.surface),
           }),
         }),
       ],
@@ -250,10 +305,15 @@ export function register(on: On, options: PluginOptions): void {
       }
       const message = mentionMessageOf(e, { id: await $.session.id() }, workspace)
       if (!message || !workspace) return
-      await deliver($, message, workspace).catch((error: unknown) => {
+      try {
+        await deliver($, message, workspace)
+      } catch (error) {
         const reason = error instanceof Error ? error.message : String(error)
         $.ui.toast(`Outliner recent mentions unavailable: ${reason}`, { timeoutMs: 6000 })
-      })
+        return
+      }
+      // The band and pane read the list again; a failure there never touches the delivery.
+      await refreshMentions($, option).catch(() => {})
     })())
     return result
   })
@@ -410,6 +470,16 @@ async function actorFor($: EngineInterface, input: Record<string, unknown>): Pro
   return actorOf(input, { ...(OUTLINER_ACTOR ? { OUTLINER_ACTOR } : {}), ...(EP0CH_AGENT ? { EP0CH_AGENT } : {}) })
 }
 
+/** Runs the installed CLI in the session's workspace for a read: its whole result, any exit code. */
+async function runOutliner($: EngineInterface, workspace: Workspace, args: string[]) {
+  const root = await outlinerRootOf($)
+  if (!root) throw Error('the Outliner plugin is disabled')
+  return $.process.run(
+    ['/bin/sh', `${root}/scripts/run-bun.sh`, `${root}/src/cli.ts`, ...args],
+    { cwd: workspace.root, env: envFor(workspace), timeoutMs: 30_000 },
+  )
+}
+
 /**
  * Runs the installed CLI in the session's workspace with this session as the
  * write's provenance (`--session`). Resolves to its output; a refusal throws
@@ -528,10 +598,15 @@ async function readReferences($: EngineInterface, option: PluginOptions): Promis
 type Shown = { title: string; place: 'door' | 'pane'; reader?: string }
 
 /**
- * Neither a door nor Herdr took the note: the message says why and gives its
- * `((id))` to copy. Shown as it is, never prefixed.
+ * Neither a door nor Herdr took the note: the message says why, with the
+ * command that reads it anywhere and its `((id))` to copy. Shown as it is,
+ * never prefixed. `command` and `label` are for a click, which copies it.
  */
-class NotOpenedHere extends Error {}
+class NotOpenedHere extends Error {
+  constructor(message: string, readonly label: string, readonly why: string, readonly command: string | null) {
+    super(message)
+  }
+}
 
 /** A tool's denial for a note it couldn't open: NotOpenedHere as it is, any other reason after the reference. */
 function deniedText(error: unknown, reference: string): string {
@@ -558,7 +633,8 @@ function shownText({ title, place, reader }: Shown, reference: string): string {
  * 2. In Herdr: Claude's own Detail, the pane this session split below the
  *    Claude pane, reused while it lives, else split anew. It never navigates
  *    the person's Trees or Details, and never takes focus.
- * 3. Otherwise a NotOpenedHere saying why, with the note's `((id))` to copy.
+ * 3. Otherwise a NotOpenedHere saying why, with the exact command that draws
+ *    it (`ep0ch show <id> --ws <outline>`) and its `((id))` to copy.
  *
  * `workspace` is the session's Outliner workspace: needed to resolve a page or
  * Work ID and for Herdr; a block id opens in a door without one. Opens run one
@@ -625,15 +701,21 @@ async function openNow($: EngineInterface, workspace: Workspace | null, uri: str
     return { title: await showInHerdrPane($, outliner, workspace, uri), place: 'pane' }
   }
   why += paneId && herdrWorkspace ? ", and its folder is not bound to an Outliner outline for a Herdr pane" : ', nor in Herdr'
-  const label = outlinerLabelOf(uri)
-  let ref: string
+  let found: { id: string; title?: string } | null
   try {
-    ref = `((${(await resolve()).id}))`
+    found = await resolve()
   } catch {
-    // Unresolved here: the reference as the outline writes it.
-    ref = outlinerReferenceOf(uri)
+    // Unresolved here: the reference as the outline writes it, and no command.
+    found = null
   }
-  throw new NotOpenedHere(`Can't open ${label} here: ${why}. Copy ${ref} to open it in the Outliner.`)
+  // A block is named by its title where the outline has one; a page or Work ID as it was written.
+  const label = (outlinerBlockIdOf(uri) && found?.title) || outlinerLabelOf(uri)
+  // The exact command that draws it in any terminal, with only the outline host running: the door's renderer.
+  const command = found ? `ep0ch show ${found.id}${workspace ? outlineFlags(workspace) : ''}` : null
+  const how = found
+    ? `Read it with \`${command}\`, or copy ((${found.id})) to open it in the Outliner.`
+    : `Copy ${outlinerReferenceOf(uri)} to open it in the Outliner.`
+  throw new NotOpenedHere(`Can't open ${label} here: ${why}. ${how}`, label, why, command)
 }
 
 async function showInHerdrPane(
@@ -696,15 +778,217 @@ async function showInHerdrPane(
   return title ?? ''
 }
 
+// Session state through `$.state` itself, not the state library: the module has no runtime import of 'claude-code'
+// (the outliner's tests load it under plain Bun).
+const MENTIONS_PREFS = { plugin: 'pi-outliner', key: 'mentionsPrefs' } as const
+const MENTIONS_LIST = { plugin: 'pi-outliner', key: 'mentions' } as const
+
+/** The choices in force (the defaults before the session's start read the kept ones). Read while drawing, it redraws the site on a change. */
+async function mentionsPrefsOf($: EngineInterface): Promise<MentionsPrefs> {
+  return prefsOf((await $.state.get(MENTIONS_PREFS)).value ?? DEFAULT_PREFS)
+}
+
+/** The mentions shown. Read while drawing, it redraws the site when they change. */
+async function mentionsListOf($: EngineInterface): Promise<MentionsList> {
+  return (await $.state.get(MENTIONS_LIST)).value ?? { rows: [], loaded: false }
+}
+const BLOCK_VIEWS = { plugin: 'pi-outliner', key: 'blockViews' } as const
+/** The mentions' start in flight or done, so the session's start and a reloaded module's first draw start it once. */
+let mentionsStarting: Promise<void> | undefined
+/** BlockView drawings being loaded, so a redraw before one lands doesn't start it again. */
+const loadingViews = new Set<string>()
+
+/**
+ * At session start: the `/mentions` command, the choices kept from the last
+ * session, the list, and the pane when that was the choice. Opened unasked,
+ * the engine seats the pane only where it is a sidebar (from 144 columns);
+ * below that it waits. It never opens with focus: the prompt keeps the keys.
+ */
+async function startMentionsOnce($: EngineInterface, option: PluginOptions): Promise<void> {
+  mentionsStarting ??= (async () => {
+    await loadReferences($, option)
+    await startMentions($, option)
+    // The band was drawn before the outline was found (or by the module before a reload): draw it again.
+    $.ui.invalidate('ui.render')
+  })().catch(() => {})
+  return mentionsStarting
+}
+
+/**
+ * Seats the pane, never with focus. Opened unasked on a terminal too narrow
+ * for a sidebar, it waits undrawn: said once, with how to have the band now.
+ */
+async function openMentionsPane($: EngineInterface): Promise<void> {
+  const placed = await $.ui.open({ id: MENTIONS_PANE, title: 'Mentions' })
+  if (!placed.isPlaced) $.ui.toast(`The Recent mentions pane waits: ${placed.reason}. /mentions band shows them above the prompt instead.`, { timeoutMs: 8000 })
+}
+
+async function startMentions($: EngineInterface, option: PluginOptions): Promise<void> {
+  await $.command.register({
+    name: 'mentions',
+    description: 'Recent mentions of the outline: in a band above the prompt or a pane beside the transcript, with block previews; or hidden',
+    argumentHint: '[band | pane | off | preview | scope]',
+  })
+  const kept = prefsOf(await $.store.get(PREFS_STORE_KEY))
+  await $.state.set(MENTIONS_PREFS, kept)
+  await refreshMentions($, option)
+  if (kept.placement === 'pane' && references?.workspace) await openMentionsPane($)
+}
+
+/** Writes the choices for this session and the next ones. */
+async function keepMentionsPrefs($: EngineInterface, next: MentionsPrefs): Promise<void> {
+  await $.state.set(MENTIONS_PREFS, next)
+  await $.store.set(PREFS_STORE_KEY, next)
+}
+
+/**
+ * A choice from a button, a hotkey or `/mentions`: kept, and the pane seated
+ * or taken down to match; a new scope reads the list again.
+ */
+async function chooseMentions($: EngineInterface, change: (p: MentionsPrefs) => MentionsPrefs, option: PluginOptions): Promise<MentionsPrefs> {
+  const before = await mentionsPrefsOf($)
+  const next = prefsOf(change(before))
+  await keepMentionsPrefs($, next)
+  if (next.placement === 'pane') await openMentionsPane($)
+  else if (before.placement === 'pane') await $.ui.close({ id: MENTIONS_PANE })
+  if (next.placement === 'off' && before.placement !== 'off') $.ui.toast('Recent mentions hidden; /mentions band or /mentions pane shows them again.', { timeoutMs: 6000 })
+  if (next.scope !== before.scope) await refreshMentions($, option)
+  return next
+}
+
+/**
+ * Reads this session's mentions (or the outline's, by the chosen scope) the
+ * way Tree and Detail do: the installed CLI's `mentions list`, the service's
+ * `mentions.list`. Nothing in a folder bound to no outline; a failure keeps
+ * the rows shown and says why.
+ */
+async function refreshMentions($: EngineInterface, option: PluginOptions): Promise<void> {
+  if (!references) await loadReferences($, option)
+  const workspace = references?.workspace
+  if (!workspace) {
+    await $.state.set(MENTIONS_LIST, { rows: [], loaded: true, why: "this session's folder names no outline" })
+    return
+  }
+  try {
+    const ran = await runOutliner($, workspace, mentionsListArgs((await mentionsPrefsOf($)).scope, await $.session.id()))
+    if (ran.exitCode !== 0) throw Error(failureReasonOf(ran.stderr) || 'mentions list failed')
+    const rows = mentionRowsOf(ran.stdout)
+    await $.state.set(MENTIONS_LIST, { rows, loaded: true })
+  } catch (error) {
+    const why = error instanceof Error ? error.message : String(error)
+    await $.state.set(MENTIONS_LIST, { rows: (await mentionsListOf($)).rows, loaded: true, why })
+  }
+}
+
+/** The band's or the pane's tree, its previews drawn by BlockView. */
+async function drawMentions(
+  $: EngineInterface,
+  e: { surface: RenderSurface },
+  ui: SiteElements,
+  site: 'band' | 'pane',
+  columns: number,
+  workspace: Workspace,
+  option: PluginOptions,
+): Promise<RenderElement> {
+  const [prefs, list, control, paneId, herdrWorkspace] = await Promise.all([
+    mentionsPrefsOf($),
+    mentionsListOf($),
+    $.env.get('EP0CH_CONTROL'),
+    $.env.get('HERDR_PANE_ID'),
+    $.env.get('HERDR_WORKSPACE_ID'),
+  ])
+  const width = previewWidthOf(site, columns)
+  const source = { cwd: workspace.root, env: envFor(workspace) }
+  const previews = new Map<number, RenderElement>()
+  for (const i of previewedRows(site, prefs, list.rows)) {
+    const row = list.rows[i]!
+    previews.set(i, await drawBlock($, e, ui, { key: `mention-preview-${i + 1}`, id: row.id!, revision: row.revision, width, maxRows: PREVIEW_ROWS[site], text: row.text, source }))
+  }
+  return mentionsTree(ui, {
+    site, columns, prefs, list, previews,
+    opens: opensIn({ ...(control ? { EP0CH_CONTROL: control } : {}), ...(paneId ? { HERDR_PANE_ID: paneId } : {}), ...(herdrWorkspace ? { HERDR_WORKSPACE_ID: herdrWorkspace } : {}) }),
+    open: (row: MentionRow, surface: RenderSurface) => void openMention($, workspace, row, surface),
+    choose: change => void chooseMentions($, change, option),
+  })
+}
+
+/** A mention pressed: the one open; where nothing here can open it, its band or pane keeps the command to run. */
+async function openMention($: EngineInterface, workspace: Workspace, row: MentionRow, surface: RenderSurface): Promise<void> {
+  const said = row.id
+    ? await openUri($, workspace, `pi-outliner://block/${row.id}`, surface)
+    : `Can't open ${row.address}: ${row.unavailable ?? 'it no longer resolves'}`
+  if (!row.id) $.ui.toast(said!, { timeoutMs: 6000 })
+  const { note: _, ...list } = await mentionsListOf($)
+  await $.state.set(MENTIONS_LIST, said ? { ...list, note: said } : list)
+}
+
+/**
+ * `<BlockView id width/>` for any render hook of this mod: the block as the
+ * door draws it (hooks/block-view.ts), the latest drawing kept for the session
+ * per block and read so the site redraws when it lands. It is drawn again for a
+ * new width, or a new `revision` when the caller passes one (without it, an
+ * edit isn't seen this session). `source` defaults to the session's outline. The first
+ * draw loads it off the render (a render hook never runs the CLI itself), and
+ * only the terminal asks for cells; another surface draws the block's text.
+ */
+async function drawBlock(
+  $: EngineInterface,
+  e: { surface: RenderSurface },
+  ui: BlockViewElements,
+  view: { key: string; id: string; revision?: number | null; width: number; maxRows: number; text?: string; source?: BlockViewSource },
+): Promise<RenderElement> {
+  const at = blockViewId(view.id, view.revision, view.width)
+  const terminal = e.surface === 'terminal'
+  // One drawing kept a block, the latest: an older revision or width is shown until the new one lands.
+  const { value } = terminal ? await $.state.get({ ...BLOCK_VIEWS, id: view.id }) : { value: undefined }
+  if (value?.at !== at && terminal && !loadingViews.has(view.id)) {
+    loadingViews.add(view.id)
+    const workspace = references?.workspace
+    const source = view.source ?? (workspace ? { cwd: workspace.root, env: envFor(workspace) } : {})
+    // A first drawing at once; a new width after a pause, so a resize being dragged draws once, not at each width.
+    $.clock.after(value ? 300 : 0, () => void loadBlockView((argv, init) => $.process.run(argv, init), view.id, viewColumns(view.width), source)
+      .then(data => $.state.set({ ...BLOCK_VIEWS, id: view.id }, { at, data }))
+      .catch(() => {})
+      .finally(() => loadingViews.delete(view.id)))
+  }
+  return BlockView(ui, { key: view.key, data: value?.data, surface: e.surface, maxRows: view.maxRows, ...(view.text === undefined ? {} : { text: view.text }) })
+}
+
+/** The flags that name a workspace's outline to `ep0ch`: its name, and its machine when it is on another. */
+function outlineFlags(workspace: Workspace): string {
+  return `${workspace.outline ? ` --ws ${workspace.outline}` : ''}${workspace.machine ? ` --machine ${workspace.machine}` : ''}`
+}
+
 /** A click on a reference: opened by `openNote`, or a toast saying why not. */
-async function openReference($: EngineInterface, workspace: Workspace, href: string): Promise<void> {
+async function openReference($: EngineInterface, workspace: Workspace, href: string, surface: RenderSurface): Promise<void> {
   const uri = outlinerUriOf(href)
-  if (!uri) return
+  if (uri) await openUri($, workspace, uri, surface)
+}
+
+/**
+ * A press on a reference or a mention: opened by `openNote`, or a toast saying
+ * why not. Where nothing here can open it, the command that reads it is put on
+ * the clipboard (the person asked to see it) and the toast leads with it, since
+ * a toast's card shows its first lines. Resolves to that message, null once
+ * opened (or another failure was toasted).
+ */
+async function openUri($: EngineInterface, workspace: Workspace, uri: string, surface: RenderSurface): Promise<string | null> {
   try {
     await openNote($, workspace, uri, await actorFor($, {}))
+    return null
   } catch (error) {
-    if (error instanceof NotOpenedHere) return $.ui.toast(error.message, { timeoutMs: 12_000 })
+    if (error instanceof NotOpenedHere) {
+      let copied = false
+      if (error.command) {
+        // To the clipboard of the surface the person pressed on.
+        try { copied = (await $.ui.copy({ text: error.command, surface })).isCopied } catch { copied = false }
+      }
+      const said = copied ? `Copied \`${error.command}\`: it reads ${error.label} in any terminal (${error.why}).` : error.message
+      $.ui.toast(said, { timeoutMs: 12_000 })
+      return said
+    }
     const reason = error instanceof Error ? error.message : String(error)
     $.ui.toast(`Could not open ${outlinerLabelOf(uri)} in the Outliner: ${reason}`, { timeoutMs: 6000 })
+    return null
   }
 }

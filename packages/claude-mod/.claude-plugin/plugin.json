@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "description": "Pi Outliner integration for Claude Code, following the outline the session folder is bound to: typed outline, workboard and door tools for agents (read, find, edit, comment, changes, draft.patch, ep0ch act), clickable references, and completed responses that mention [[pages]], ((block ids)) or Work IDs in the Outliner's Recent Mentions navigator.",
   "author": { "name": "evan" },
+  "types": "./types/index.d.ts",
   "userConfig": {
     "workspaces": {
       "type": "string",

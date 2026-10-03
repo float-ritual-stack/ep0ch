@@ -16,6 +16,7 @@ import { boundFolderOf, clientSocket, machineFor, outlinesLayout, resolveClientP
 import { attachHostedOutline, importHostedOutline, listHostedOutlines, outlineHostClient } from "./outline-host-client";
 import { navigateOutlinerLink, parseOutlinerLinkUri, resolveOutlinerLinkTarget } from "./outliner-links";
 import { blockDisplayTitle } from "./references";
+import type { MentionCollection } from "./mentions-types";
 import type { BlockActivityKind, HostedOutlineDeletion, HostedOutlineSummary, BlockReadField, BlockSearchQuery, CaptureReceipt, MutationProvenance, RoadmapItemCreateInput } from "./types";
 import {
   completeWorkItem,
@@ -544,9 +545,15 @@ switch (command) {
   case "mentions": {
     const operation=rest[0]??"list";
     if(operation==="ingest") request={action:"mentions.ingest",message:JSON.parse(await Bun.stdin.text())};
-    else if(operation==="list") request={action:"mentions.list"};
+    else if(operation==="list"){
+      // One conversation's (both --agent and --session, as the Tree's s key scopes it), newest first, at most --limit.
+      const {values}=parseArgs({args:rest.slice(1),strict:true,options:{agent:{type:"string"},session:{type:"string"},limit:{type:"string"}}});
+      if((values.agent===undefined)!==(values.session===undefined))throw Error("mentions list scopes to one conversation: give both --agent and --session, or neither");
+      if(values.limit!==undefined&&!/^\d+$/.test(values.limit))throw Error("--limit must be a whole number, 1 to 100");
+      request={action:"mentions.list",...values.agent!==undefined?{scope:{agent:values.agent,sessionId:values.session!}}:{},...values.limit!==undefined?{limit:Number(values.limit)}:{}};
+    }
     else if(operation==="clear") request={action:"mentions.clear"};
-    else throw Error("mentions expects ingest (JSON stdin), list, or clear");
+    else throw Error("mentions expects ingest (JSON stdin), list [--agent <a> --session <id>] [--limit <n>], or clear");
     break;
   }
   case "view": {
@@ -1047,6 +1054,10 @@ if (command === "capture") {
     ...(capturedFromBlockId ? { capturedFromBlockId } : {}),
     deduplicated: receipt.deduplicated,
   }, null, 2));
+} else if (command === "mentions" && (rest[0] ?? "list") === "list") {
+  // Each entry with the title Tree and Detail show for it (its block's, else the address it was written as).
+  const found = result as MentionCollection;
+  console.log(JSON.stringify({ ...found, entries: found.entries.map(entry => ({ ...entry, title: entry.block ? blockDisplayTitle(entry.block) : entry.address })) }, null, 2));
 } else {
   console.log(JSON.stringify(result, null, 2));
 }
