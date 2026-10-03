@@ -2,6 +2,7 @@ import type { RenderElement, RenderSurface } from 'claude-code'
 
 import type { DetailBeside, MentionRow, MentionsList, MentionsPlacement, MentionsPrefs } from '../types'
 import type { BlockViewElements } from './block-view'
+import { OPENS_HERE, routeOf } from './detail-view'
 import { MENTIONS_AGENT } from './mention-message'
 
 /**
@@ -16,8 +17,8 @@ import { MENTIONS_AGENT } from './mention-message'
  * choice is kept across sessions. Each mention can show a small preview of
  * its block, drawn by the door's renderer (BlockView; `p` toggles). A press
  * opens the block through the mod's one open (`openNote`): in the door this
- * session runs in, else the Outliner Detail beside Claude in Herdr, else a toast with the
- * exact command. Every action is a Button with a hotkey, so it works by mouse
+ * session runs in, else the Outliner Detail beside Claude in Herdr, else here,
+ * in the mod's detail pane (hooks/detail-view.ts). Every action is a Button with a hotkey, so it works by mouse
  * and by keys once the band or pane holds them (ctrl+x tab, or a click); the
  * pane never opens with focus, so the prompt keeps the keys.
  *
@@ -80,13 +81,14 @@ export function mentionRowsOf(stdout: string): MentionRow[] {
  * `beside`: what the Outliner's `find-detail` found beside Claude in its Herdr
  * workspace (the Detail a press reuses), unknown until it answers.
  */
-export function opensIn(env: { EP0CH_CONTROL?: string; HERDR_PANE_ID?: string; HERDR_WORKSPACE_ID?: string }, beside?: DetailBeside): string {
-  if (env.EP0CH_CONTROL) return 'opens in this door'
-  if (env.HERDR_PANE_ID && env.HERDR_WORKSPACE_ID) {
+export function opensIn(env: { EP0CH_CONTROL?: string | undefined; HERDR_PANE_ID?: string | undefined; HERDR_WORKSPACE_ID?: string | undefined }, beside?: DetailBeside): string {
+  const route = routeOf(env)
+  if (route === 'door') return 'opens in this door'
+  if (route === 'herdr') {
     if (beside?.found === 'refused') return `can't open beside you: ${beside.why}`
     return beside?.found === 'detail' ? 'opens in the Outliner Detail beside you' : 'opens in a new Outliner Detail beside you'
   }
-  return 'not in a door or Herdr: a press says how to open it'
+  return `${OPENS_HERE}, in a detail pane`
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i

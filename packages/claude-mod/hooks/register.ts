@@ -1,4 +1,4 @@
-import type { EngineInterface, On, PluginOptions, RenderElement, RenderSurface } from 'claude-code'
+import type { EngineInterface, On, PluginOptions, RenderElement, RenderSurface, UiOpenResult } from 'claude-code'
 
 import {
   boundWorkspaceOf,
@@ -42,8 +42,25 @@ import {
   DEFAULT_PREFS,
   type SiteElements,
 } from './mentions-view'
-import { BlockView, type BlockViewElements, type BlockViewSource, blockViewId, loadBlockView, viewColumns } from './block-view'
-import type { MentionRow, MentionsList, MentionsPrefs } from '../types'
+import { BlockView, type BlockViewElements, type BlockViewProps, type BlockViewSource, blockViewId, ep0chHelp, loadBlockView, viewColumns } from './block-view'
+import {
+  currentOf,
+  DETAIL_ROWS,
+  detailSourceOf,
+  detailTree,
+  historyOf,
+  knowsExport,
+  listed,
+  moved,
+  pushed,
+  routeOf,
+  exportArgv,
+  exportBodyOf,
+  SUBTREE_LIMIT,
+  subtreeMarkdownOf,
+  type DetailElements,
+} from './detail-view'
+import type { DetailEntry, DetailSource, MentionRow, MentionsList, MentionsPrefs } from '../types'
 import {
   type DoorEnv,
   doorTileOf,
@@ -127,11 +144,13 @@ export function register(on: On, options: PluginOptions): void {
   })
 
   on('ui.render', { component: 'Pane', requestId: MENTIONS_PANE }, async ($, e) => {
-    await mentionsListOf($)
+    const [, history] = await Promise.all([mentionsListOf($), detailHistoryOf($)])
     const workspace = references?.workspace
     if (!workspace) return $.ui.resolve(e).Text({ dimColor: true, children: references ? NOT_BOUND : "Finding this folder's outline…" })
     // A drawing that throws makes the engine drop the pane (`ui.close`, origin unload): say why in it instead.
     try {
+      // No door or Herdr around: a note opened here shows in the pane in place of the list (hooks/detail-view.ts).
+      if (history.isShown) return await drawDetail($, e, $.ui.resolve(e) as unknown as DetailElements & BlockViewElements, e.props.bodyColumns)
       return await drawMentions($, e, $.ui.resolve(e) as unknown as SiteElements, 'pane', e.props.bodyColumns, workspace, option)
     } catch (error) {
       return $.ui.resolve(e).Text({ dimColor: true, children: `Recent mentions could not be drawn: ${error instanceof Error ? error.message : String(error)}` })
@@ -149,11 +168,26 @@ export function register(on: On, options: PluginOptions): void {
 
   // The person closing the pane (its mark, ctrl+x x) is their choice too: kept as hidden. Any other close (the
   // engine dropping it) leaves the choice, and the band stands in for it.
+  // A pane opened only for a note (the band the choice) closed by them leaves the band; the pane opens on the list next.
   on('ui.close', async ($, e, next) => {
     const result = await next(e)
-    if (e.id === MENTIONS_PANE && e.origin.kind === 'person') await keepMentionsPrefs($, { ...(await mentionsPrefsOf($)), placement: 'off' })
+    const prefs = await mentionsPrefsOf($)
+    if (e.id === MENTIONS_PANE && e.origin.kind === 'person' && prefs.placement === 'pane') await keepMentionsPrefs($, { ...prefs, placement: 'off' })
+    if (e.id === MENTIONS_PANE) await $.state.set(DETAIL, listed(await detailHistoryOf($)))
     if (e.id === MENTIONS_PANE) $.ui.invalidate('ui.render')
     return result
+  })
+
+  // A press that opens a note here seats the mentions pane from the press itself: an open made with the press's `$`
+  // answers the person, so the engine places it at any width (openNote's open that follows finds it up). In a door
+  // or Herdr nothing is seated: the note opens there.
+  on('ui.press', { plugin: 'pi-outliner' }, async ($, e, next) => {
+    const opensNote = /^mention-\d+$/.test(e.element) || (e.element === 'outliner-references' && !!e.link && outlinerUriOf(e.link.href) !== null)
+    // The cached variables read without waiting, so the press reaches its closure before anything queued after it.
+    if (opensNote && references?.workspace && routeOf(routeEnv ?? await routeEnvOf($)) === 'here') {
+      await $.ui.open({ id: MENTIONS_PANE, title: MENTIONS_TITLE }).catch(() => {})
+    }
+    return next(e)
   })
 
   on('command.run', { command: 'mentions' }, async ($, e) => {
@@ -178,7 +212,8 @@ export function register(on: On, options: PluginOptions): void {
       description:
         'Show an Outliner note in the Outliner Detail beside this conversation in Herdr (the one linked to the ' +
         "Tree in this Herdr workspace, or one opened when there is none), so the person can read it beside the chat. " +
-        "When this session runs in an ep0ch-door tile, it opens in that door, where its tile's opens land, instead. " +
+        "When this session runs in an ep0ch-door tile, it opens in that door, where its tile's opens land, instead; " +
+        'with neither (the desktop app, VS Code, a terminal outside Herdr), in this mod\'s mentions pane beside the chat. ' +
         'It never moves their focus, and a Detail they are editing in refuses it. Use it when pointing the person at a note matters; ' +
         'references in replies are already clickable.',
       inputSchema: {
@@ -582,6 +617,8 @@ function loadReferences($: EngineInterface, option: PluginOptions): Promise<void
 }
 
 async function readReferences($: EngineInterface, option: PluginOptions): Promise<void> {
+  routeEnv = undefined
+  await routeEnvOf($).catch(() => undefined)
   try {
     let workspace: Workspace | null
     try {
@@ -612,8 +649,12 @@ async function readReferences($: EngineInterface, option: PluginOptions): Promis
   }
 }
 
-/** Where a note was opened: the door this session runs in (and the reader tile it landed in), or the Outliner Detail beside Claude in Herdr. */
-type Shown = { title: string; place: 'door' | 'pane'; reader?: string }
+/**
+ * Where a note was opened: the door this session runs in (and the reader tile
+ * it landed in), the Outliner Detail beside Claude in Herdr (`pane`), or the
+ * mod's mentions pane here (`here`, and why the engine hasn't placed it yet).
+ */
+type Shown = { title: string; place: 'door' | 'pane' | 'here'; reader?: string; waits?: string }
 
 /**
  * Neither a door nor Herdr took the note: the message says why, with the
@@ -633,9 +674,11 @@ function deniedText(error: unknown, reference: string): string {
 }
 
 /** How `show` and `door_open` report where a note went. */
-function shownText({ title, place, reader }: Shown, reference: string): string {
-  const where = place === 'door' ? (reader ? `in the door's ${reader} reader` : 'in the door') : 'in the Outliner Detail beside you'
-  return `Showing ${title || reference} ${where}.`
+function shownText({ title, place, reader, waits }: Shown, reference: string): string {
+  const where = place === 'door'
+    ? (reader ? `in the door's ${reader} reader` : 'in the door')
+    : place === 'here' ? 'in the mentions pane beside this conversation' : 'in the Outliner Detail beside you'
+  return `Showing ${title || reference} ${where}${waits ? ` (the pane is not on screen yet: ${waits})` : ''}.`
 }
 
 /**
@@ -653,8 +696,14 @@ function shownText({ title, place, reader }: Shown, reference: string): string {
  *    Tree in Claude's Herdr workspace, else one opened below that Tree, else a
  *    new Tree and Detail beside Claude. The Detail is navigated there, never
  *    taking focus; a Detail mid-edit refuses it.
- * 3. Otherwise a NotOpenedHere saying why, with the exact command that draws
- *    it (`ep0ch show <id> --ws <outline>`) and its `((id))` to copy.
+ * 3. Here, with neither (the desktop app, VS Code, a terminal outside Herdr):
+ *    the mod's own pane (`showHere`): the mentions pane shows the note in
+ *    place of its list (hooks/detail-view.ts), drawn by BlockView, its links
+ *    navigating within it, back to the list; the command that reads it
+ *    anywhere is its copy button.
+ * 4. Without the session's outline to read it in: a NotOpenedHere saying why,
+ *    with the exact command that draws it (`ep0ch show <id> --ws <outline>`)
+ *    and its `((id))` to copy.
  *
  * `workspace` is the session's Outliner workspace: needed to resolve a page or
  * Work ID and for Herdr; a block id opens in a door without one. Opens run one
@@ -668,12 +717,10 @@ function openNote($: EngineInterface, workspace: Workspace | null, uri: string, 
 }
 
 async function openNow($: EngineInterface, workspace: Workspace | null, uri: string, actor: string): Promise<Shown> {
-  const [control, tile, tileId, paneId, herdrWorkspace] = await Promise.all([
-    $.env.get('EP0CH_CONTROL'),
+  const [{ EP0CH_CONTROL: control, HERDR_PANE_ID: paneId, HERDR_WORKSPACE_ID: herdrWorkspace }, tile, tileId] = await Promise.all([
+    routeEnvOf($),
     $.env.get('EP0CH_TILE'),
     $.env.get('EP0CH_TILE_ID'),
-    $.env.get('HERDR_PANE_ID'),
-    $.env.get('HERDR_WORKSPACE_ID'),
   ])
   // Found on first use: outside a door and Herdr, a block id needs no installed Outliner to be named.
   let installed: Promise<string | null> | undefined
@@ -719,6 +766,16 @@ async function openNow($: EngineInterface, workspace: Workspace | null, uri: str
   }
   if (paneId && herdrWorkspace && workspace) {
     return { title: await showInHerdrPane($, outliner, workspace, uri), place: 'pane' }
+  }
+  // Neither a door nor Herdr: here, in the mentions pane. A page or Work ID that doesn't resolve is the refusal.
+  // A block id needs no resolving: where the outliner can't answer, `ep0ch export` may still read it.
+  if (workspace) {
+    const blockId = outlinerBlockIdOf(uri)
+    const { id, title } = await resolve().catch(error => {
+      if (blockId) return { id: blockId, title: undefined }
+      throw error
+    })
+    return showHere($, workspace, { uri, id, title: title ?? '' })
   }
   why += paneId && herdrWorkspace ? ", and its folder is not bound to an Outliner outline for a Herdr pane" : ', nor in Herdr'
   let found: { id: string; title?: string } | null
@@ -802,10 +859,7 @@ const DETAIL_BESIDE = { plugin: 'pi-outliner', key: 'detailBeside' } as const
  * last answer.
  */
 async function refreshDetailBeside($: EngineInterface, workspace: Workspace): Promise<void> {
-  const [control, paneId, herdrWorkspace] = await Promise.all([
-    $.env.get('EP0CH_CONTROL'), $.env.get('HERDR_PANE_ID'), $.env.get('HERDR_WORKSPACE_ID'),
-  ])
-  if (control || !paneId || !herdrWorkspace) return
+  if (routeOf(await routeEnvOf($)) !== 'herdr') return
   try {
     const found = await runHerdrOpen($, workspace, ['--mode', 'find-detail'])
     if (found.exitCode !== 0) return
@@ -859,11 +913,14 @@ async function startMentionsOnce($: EngineInterface, option: PluginOptions): Pro
  * terminal too narrow for an unrequested pane, it waits undrawn; the band
  * stands in for it meanwhile, its `m` showing the pane.
  */
-async function openMentionsPane($: EngineInterface): Promise<void> {
-  await $.ui.open({ id: MENTIONS_PANE, title: 'Mentions' })
+async function openMentionsPane($: EngineInterface): Promise<UiOpenResult> {
+  const opened = await $.ui.open({ id: MENTIONS_PANE, title: MENTIONS_TITLE })
   // Placed or waiting, the band reads whether it is up: it stands in while the pane waits.
   $.ui.invalidate('ui.render')
+  return opened
 }
+
+const MENTIONS_TITLE = 'Mentions'
 
 /** Whether the mentions pane is open and on screen; one that waits undrawn, or was dropped, is not. */
 async function paneIsPlaced($: EngineInterface): Promise<boolean> {
@@ -942,12 +999,10 @@ async function drawMentions(
   workspace: Workspace,
   option: PluginOptions,
 ): Promise<RenderElement> {
-  const [prefs, list, control, paneId, herdrWorkspace, beside] = await Promise.all([
+  const [prefs, list, env, beside] = await Promise.all([
     mentionsPrefsOf($),
     mentionsListOf($),
-    $.env.get('EP0CH_CONTROL'),
-    $.env.get('HERDR_PANE_ID'),
-    $.env.get('HERDR_WORKSPACE_ID'),
+    routeEnvOf($),
     $.state.get(DETAIL_BESIDE).then(({ value }) => value),
   ])
   const width = previewWidthOf(site, columns)
@@ -959,7 +1014,7 @@ async function drawMentions(
   }
   return mentionsTree(ui, {
     site, columns, prefs, list, previews,
-    opens: opensIn({ ...(control ? { EP0CH_CONTROL: control } : {}), ...(paneId ? { HERDR_PANE_ID: paneId } : {}), ...(herdrWorkspace ? { HERDR_WORKSPACE_ID: herdrWorkspace } : {}) }, beside),
+    opens: opensIn(env, beside),
     open: (row: MentionRow, surface: RenderSurface) => void openMention($, workspace, row, surface),
     choose: change => void chooseMentions($, change, option),
   })
@@ -988,23 +1043,32 @@ async function drawBlock(
   $: EngineInterface,
   e: { surface: RenderSurface },
   ui: BlockViewElements,
-  view: { key: string; id: string; revision?: number | null; width: number; maxRows: number; text?: string; source?: BlockViewSource },
+  view: {
+    key: string; id: string; revision?: number | null; width: number; maxRows: number; text?: string; source?: BlockViewSource
+    /** A drawing kept apart from the previews' (the detail view's, taller): its own slot, rows and links. */
+    slot?: string; rows?: number; links?: BlockViewProps['links']
+  },
 ): Promise<RenderElement> {
   const at = blockViewId(view.id, view.revision, view.width)
   const terminal = e.surface === 'terminal'
+  const kept = view.slot ? `${view.slot}:${view.id}` : view.id
   // One drawing kept a block, the latest: an older revision or width is shown until the new one lands.
-  const { value } = terminal ? await $.state.get({ ...BLOCK_VIEWS, id: view.id }) : { value: undefined }
-  if (value?.at !== at && terminal && !loadingViews.has(view.id)) {
-    loadingViews.add(view.id)
+  const { value } = terminal ? await $.state.get({ ...BLOCK_VIEWS, id: kept }) : { value: undefined }
+  if (value?.at !== at && terminal && !loadingViews.has(kept)) {
+    loadingViews.add(kept)
     const workspace = references?.workspace
     const source = view.source ?? (workspace ? { cwd: workspace.root, env: envFor(workspace) } : {})
     // A first drawing at once; a new width after a pause, so a resize being dragged draws once, not at each width.
-    $.clock.after(value ? 300 : 0, () => void loadBlockView((argv, init) => $.process.run(argv, init), view.id, viewColumns(view.width), source)
-      .then(data => $.state.set({ ...BLOCK_VIEWS, id: view.id }, { at, data }))
+    $.clock.after(value ? 300 : 0, () => void loadBlockView((argv, init) => $.process.run(argv, init), view.id, viewColumns(view.width), source, view.rows)
+      .then(data => $.state.set({ ...BLOCK_VIEWS, id: kept }, { at, data }))
       .catch(() => {})
-      .finally(() => loadingViews.delete(view.id)))
+      .finally(() => loadingViews.delete(kept)))
   }
-  return BlockView(ui, { key: view.key, data: value?.data, surface: e.surface, maxRows: view.maxRows, ...(view.text === undefined ? {} : { text: view.text }) })
+  return BlockView(ui, {
+    key: view.key, data: value?.data, surface: e.surface, maxRows: view.maxRows,
+    ...(view.text === undefined ? {} : { text: view.text }),
+    ...(view.links ? { links: view.links } : {}),
+  })
 }
 
 /** The flags that name a workspace's outline to `ep0ch`: its name, and its machine when it is on another. */
@@ -1027,7 +1091,11 @@ async function openReference($: EngineInterface, workspace: Workspace, href: str
  */
 async function openUri($: EngineInterface, workspace: Workspace, uri: string, surface: RenderSurface): Promise<string | null> {
   try {
-    await openNote($, workspace, uri, await actorFor($, {}))
+    const shown = await openNote($, workspace, uri, await actorFor($, {}))
+    // Here, from a press the pane couldn't be seated by (a door that had quit): say where it went.
+    if (shown.place === 'here' && shown.waits) {
+      $.ui.toast(`${shown.title || outlinerLabelOf(uri)} is open in the mentions pane, not on screen yet (${shown.waits}); /mentions pane shows it.`, { timeoutMs: 8000 })
+    }
     return null
   } catch (error) {
     if (error instanceof NotOpenedHere) {
@@ -1044,4 +1112,104 @@ async function openUri($: EngineInterface, workspace: Workspace, uri: string, su
     $.ui.toast(`Could not open ${outlinerLabelOf(uri)} in the Outliner: ${reason}`, { timeoutMs: 6000 })
     return null
   }
+}
+
+const DETAIL = { plugin: 'pi-outliner', key: 'detail' } as const
+const DETAIL_SOURCES = { plugin: 'pi-outliner', key: 'detailSources' } as const
+
+type RouteEnv = { EP0CH_CONTROL: string | undefined; HERDR_PANE_ID: string | undefined; HERDR_WORKSPACE_ID: string | undefined }
+/** The variables openNote routes by, read once a module load: a press hook then decides without waiting. */
+let routeEnv: RouteEnv | undefined
+
+async function routeEnvOf($: EngineInterface): Promise<RouteEnv> {
+  if (routeEnv) return routeEnv
+  const [EP0CH_CONTROL, HERDR_PANE_ID, HERDR_WORKSPACE_ID] = await Promise.all([
+    $.env.get('EP0CH_CONTROL'), $.env.get('HERDR_PANE_ID'), $.env.get('HERDR_WORKSPACE_ID'),
+  ])
+  return (routeEnv = { EP0CH_CONTROL, HERDR_PANE_ID, HERDR_WORKSPACE_ID })
+}
+
+/**
+ * openNote's third case: the note in the mentions pane, in place of its
+ * list, pushed on its history. The pane is opened (a press seated it
+ * already); one opened unasked waits on a narrow terminal, and `waits` says
+ * so. The note is read off the open queue, so a slow read never holds the
+ * next open; each read lands as the latest for its note.
+ */
+async function showHere($: EngineInterface, workspace: Workspace, entry: DetailEntry): Promise<Shown> {
+  await $.state.set(DETAIL, pushed(await detailHistoryOf($), entry))
+  const opened = await openMentionsPane($)
+  $.clock.after(0, () => void readDetail($, workspace, entry.id)
+    .then(source => $.state.set({ ...DETAIL_SOURCES, id: entry.id }, source))
+    .catch(() => {}))
+  return { title: entry.title, place: 'here', ...(opened.isPlaced ? {} : { waits: opened.reason }) }
+}
+
+/**
+ * A note's text for the detail view: the door's export of it and its
+ * children (`ep0ch export <id> --children`, from an ep0ch whose help lists
+ * it), else the outliner's read (`list --subtree`), else why neither could.
+ */
+async function readDetail($: EngineInterface, workspace: Workspace, id: string): Promise<DetailSource> {
+  const prefixes = references?.prefixes ?? []
+  const run = (argv: readonly string[], init?: Parameters<EngineInterface['process']['run']>[1]) => $.process.run(argv, init)
+  let why = 'no ep0ch on PATH with export (ep0ch install)'
+  try {
+    // An ep0ch older than `export` (or than `help`) never runs it: the probe socket stops one at "no carrier".
+    const help = await ep0chHelp(run)
+    if (help !== null && knowsExport(help)) {
+      const ran = await $.process.run(exportArgv(id), { cwd: workspace.root, env: envFor(workspace), timeoutMs: 15_000 })
+      const body = ran.exitCode === 0 ? exportBodyOf(ran.stdout) : null
+      if (body) return detailSourceOf(body, prefixes, 'ep0ch')
+      why = failureReasonOf(ran.stderr).replace(/^ep0ch: /, '') || 'ep0ch export printed nothing'
+    }
+  } catch (error) {
+    why = error instanceof Error ? error.message : String(error)
+  }
+  try {
+    const ran = await runOutliner($, workspace, ['list', '--subtree', id, '--limit', String(SUBTREE_LIMIT)])
+    const read = ran.exitCode === 0 ? subtreeMarkdownOf(ran.stdout, id) : null
+    if (read) return detailSourceOf(read.markdown, prefixes, 'outliner', read.isTruncated)
+    why += `; ${ran.exitCode === 0 ? 'the outliner found no such block' : failureReasonOf(ran.stderr) || 'the outliner could not read it'}`
+  } catch (error) {
+    why += `; ${error instanceof Error ? error.message : String(error)}`
+  }
+  return { kind: 'missing', why }
+}
+
+/** The detail view's history. Read while drawing, it redraws the pane when it changes. */
+async function detailHistoryOf($: EngineInterface) {
+  return historyOf((await $.state.get(DETAIL)).value)
+}
+
+/** The detail view's tree: its history's current note, drawn by BlockView, its links opened here by openNote. */
+async function drawDetail($: EngineInterface, e: { surface: RenderSurface }, ui: DetailElements & BlockViewElements, columns: number): Promise<RenderElement> {
+  const history = await detailHistoryOf($)
+  const entry = currentOf(history)
+  const workspace = references?.workspace ?? null
+  const source = entry ? (await $.state.get({ ...DETAIL_SOURCES, id: entry.id })).value : undefined
+  // A link pressed goes through the one open: with no door or Herdr around, that is this pane again.
+  const follow = (href: string, surface: RenderSurface) => void (workspace && openReference($, workspace, href, surface))
+  const body = entry && source?.kind === 'source'
+    ? await drawBlock($, e, ui, {
+        key: 'detail-body', slot: 'detail', id: entry.id, width: Math.max(20, columns - 1), maxRows: DETAIL_ROWS, rows: DETAIL_ROWS,
+        text: source.markdown, links: { hrefs: source.links.map(link => link.href), press: follow },
+        ...(workspace ? { source: { cwd: workspace.root, env: envFor(workspace) } } : {}),
+      })
+    : null
+  const command = entry ? `ep0ch show ${entry.id}${workspace ? outlineFlags(workspace) : ''}` : null
+  const go = (move: (h: typeof history) => typeof history) => void (async () => $.state.set(DETAIL, move(await detailHistoryOf($))))()
+  return detailTree(ui, {
+    history, source, body, surface: e.surface, columns, command,
+    back: () => go(h => moved(h, -1)),
+    forward: () => go(h => moved(h, 1)),
+    list: () => go(listed),
+    copy: surface => void (async () => {
+      if (!command) return
+      let copied = false
+      try { copied = (await $.ui.copy({ text: command, surface })).isCopied } catch { copied = false }
+      $.ui.toast(copied ? `Copied \`${command}\`: it reads the note in any terminal.` : `Read it in any terminal with \`${command}\`.`, { timeoutMs: 8000 })
+    })(),
+    follow,
+  })
 }

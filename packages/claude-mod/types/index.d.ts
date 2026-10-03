@@ -52,6 +52,27 @@ export type MentionRow = {
  */
 export type MentionsList = { rows: MentionRow[]; loaded: boolean; why?: string; note?: string }
 
+/** One note opened in the detail view: what was asked for, and the block it resolved to. */
+export type DetailEntry = { uri: string; id: string; title: string }
+
+/**
+ * The detail view's history: the notes opened in the mentions pane, which one
+ * it shows (back and forward move `at`), and whether the pane shows it or the list.
+ */
+export type DetailHistory = { entries: DetailEntry[]; at: number; isShown: boolean }
+
+/** A reference in a note shown in the detail view: its stand-in href and its text. */
+export type DetailLink = { href: string; label: string }
+
+/**
+ * A note's text for the detail view, read by the outliner (the note and its
+ * children) or by `ep0ch show --source` (the note alone), as Markdown with its
+ * references as stand-in links; or why it couldn't be read.
+ */
+export type DetailSource =
+  | { kind: 'source'; markdown: string; links: DetailLink[]; from: 'outliner' | 'ep0ch'; isTruncated: boolean }
+  | { kind: 'missing'; why: string }
+
 declare module 'claude-code' {
   interface PluginState {
     'pi-outliner': {
@@ -61,6 +82,10 @@ declare module 'claude-code' {
       blockViews: StateFamily<BlockViewEntry>
       /** What the Outliner's find-detail found beside Claude in Herdr: what the heading's "opens in" says. */
       detailBeside: DetailBeside
+      /** The detail view's history (no door or Herdr: a press opens the note here). */
+      detail: DetailHistory
+      /** What the detail view draws, by block id: the latest read of each. */
+      detailSources: StateFamily<DetailSource>
     }
   }
 }

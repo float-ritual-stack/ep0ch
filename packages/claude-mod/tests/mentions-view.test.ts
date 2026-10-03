@@ -88,6 +88,10 @@ function sessionIn(on: On, env: Record<string, string>, stored: Record<string, u
     if (e.argv.includes('bound-folder')) return ok(JSON.stringify({ bound: true, folder: WORKSPACE, outline: 'garden' }))
     if (e.argv.includes('work-id-status')) return ok('{"prefix":"PIE"}')
     if (e.argv.includes('mentions')) return ok(listed)
+    if (e.argv.includes('--subtree')) {
+      const id = e.argv[e.argv.indexOf('--subtree') + 1]
+      return ok(JSON.stringify({ blocks: [{ id, parentId: null, position: 0, depth: 0, text: id === BLOCK ? 'Chain oil\nThe wax one, not the spray.' : 'Bike shed\nWhere the bikes live.' }] }))
+    }
     if (e.argv.includes('resolve')) return ok(`{"id":"${BLOCK}","title":"Chain oil"}`)
     if (herdrOpens([e], 'find-detail').length) return ok(JSON.stringify(beside === 'refused' ? { detailClientId: null, why: 'Multiple live Tree clients are registered in tab w:t1' } : { detailClientId: beside }))
     if (herdrOpens([e], 'ensure-detail').length && beside === 'refused') return { value: { ...result(1, ''), stderr: 'Outliner could not open: Multiple live Tree clients are registered in tab w:t1\n' } }
@@ -318,31 +322,46 @@ describe('Recent mentions in Claude Code', () => {
       expect(session.toasts).toEqual(['Could not open ' + BLOCK + ' in the Outliner: Multiple live Tree clients are registered in tab w:t1'])
     })
 
-    test('neither: the command that reads it is copied, the toast leads with it, and the band keeps it', async ($, on) => {
-      const session = sessionIn(on, NEITHER)
+    test('neither (the desktop app, a terminal outside Herdr): the heading says it opens here, and a press opens the detail pane, seated by the press', async ($, on) => {
+      const session = sessionIn(on, NEITHER, { 'mentions-view': { placement: 'pane', previews: false, scope: 'conversation' } })
       const copied: string[] = []
       on('ui.copy', ($, e) => { copied.push(e.text); return { value: { isCopied: true } } })
       await session.begin($)
-      const drawn = await band($)
-      await drawn.press({ key: 'mention-1' })
+      const shown = await pane($, 'desktop')
+      expect(await shown.find({ type: 'Text', text: /· opens here, in a detail pane$/ })).toBeDefined()
+      session.opened.length = 0
+      session.runs.length = 0
+      await shown.press({ key: 'mention-1' })
       await session.clock.settle()
-      const command = `ep0ch show ${BLOCK} --ws garden`
-      expect(copied).toEqual([command])
-      const said = `Copied \`${command}\`: it reads Chain oil in any terminal (this session is not in an ep0ch-door tile, nor in Herdr).`
-      expect(session.toasts).toEqual([said])
-      expect((await drawn.find({ type: 'Text', text: said }))).toBeDefined()
-      await drawn.unmount()
-      expect((await (await pane($)).find({ type: 'Text', text: /a press says how to open it/ }))).toBeDefined()
+      // The press seats it (the person's ask, placed at any width), then openNote opens it there.
+      expect(session.opened).toEqual([PANE, PANE])
+      expect(session.runs.find(run => run.argv.includes('--subtree'))?.argv.slice(3)).toEqual(['list', '--subtree', BLOCK, '--limit', '200'])
+      // The pane shows the note in place of the list.
+      const detail = shown
+      expect((await detail.find({ key: 'detail-body' }))?.props.text).toBe('# Chain oil\nThe wax one, not the spray.')
+      expect(await detail.find({ key: 'mention-1' })).toBeUndefined()
+      // Nothing copied or toasted: the command is the pane's copy button now.
+      expect(copied).toEqual([])
+      expect(session.toasts).toEqual([])
+      expect(await detail.find({ key: 'detail-copy' })).toBeDefined()
+      expect(session.runs.some(run => run.argv.includes('link') || run.argv.includes('door-open'))).toBe(false)
+      // Back is the list again.
+      await detail.press({ key: 'detail-back' })
+      await session.clock.settle()
+      expect(await detail.find({ key: 'mention-1' })).toBeDefined()
     })
 
-    test('neither, and no clipboard: the whole message, with the exact command and the ((id)) to copy', async ($, on) => {
+    test('neither, from the band on the terminal: the pane opens on the note', async ($, on) => {
       const session = sessionIn(on, NEITHER)
       await session.begin($)
+      session.opened.length = 0
       await (await band($)).press({ key: 'mention-1' })
       await session.clock.settle()
-      expect(session.toasts).toEqual([
-        `Can't open Chain oil here: this session is not in an ep0ch-door tile, nor in Herdr. Read it with \`ep0ch show ${BLOCK} --ws garden\`, or copy ((${BLOCK})) to open it in the Outliner.`,
-      ])
+      expect(session.opened).toEqual([PANE, PANE])
+      const shown = await pane($)
+      expect((await shown.find({ type: 'Text', text: 'Chain oil' }))).toBeDefined()
+      expect(session.toasts).toEqual([])
+      expect(session.kept().placement).toBe('band')
     })
   })
 

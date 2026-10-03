@@ -497,28 +497,207 @@ describe('register', () => {
     expect(empty.deny).toContain('Give a Work ID')
   })
 
-  test('in neither a door nor Herdr, a click and show say so, with the exact command and the ((id)) to copy, never failing silently', async ($, on) => {
-    const session = sessionIn(on, WORKSPACE, succeeding, '', NOT_IN_HERDR)
-    on('tool.register', ($, e) => ({ value: { tool: `mcp__pi-outliner__${e.name}` } }))
-    // A clipboard that takes nothing: the message is then said whole.
-    const copied: string[] = []
-    on('ui.copy', ($, e) => { copied.push(e.text); return { value: { isCopied: false, reason: 'no-clipboard' } } })
-    await session.begin(() => $.session.start(START))
-    const drawn = await mountReply($, 'See [[Daily notes]].')
+  describe('in neither a door nor Herdr: the note opens here, in the mentions pane (openNote\'s third case)', () => {
+    const OTHER = '66666666-7777-4888-8999-aaaaaaaaaaaa'
+    const CHILD = '77777777-8888-4999-8aaa-bbbbbbbbbbbb'
+    const DETAIL = 'outliner-mentions'
+    const ok = (stdout: string) => result(0, stdout, '')
+    /** Two notes: Daily notes (a child linking [[Other page]] and PIE-7) and Other page. */
+    const SUBTREES: Record<string, unknown[]> = {
+      [BLOCK]: [
+        { id: BLOCK, parentId: null, position: 0, depth: 0, text: 'Daily notes\n[type::note]\n## Today\n- rode to the shed' },
+        { id: CHILD, parentId: BLOCK, position: 0, depth: 1, text: 'Bring the [[Other page]] list, see PIE-7' },
+      ],
+      [OTHER]: [{ id: OTHER, parentId: null, position: 0, depth: 0, text: 'Other page\nThe chain oil is the wax one.' }],
+    }
+    /** The export of each note: front matter, the body, children as nested lists (as `ep0ch export --children` prints it). */
+    const EXPORTED: Record<string, string> = {
+      [BLOCK]: `---\nid: "${BLOCK}"\nauthor: "user"\n---\nDaily notes\n[type::note]\n## Today\n- rode to the shed\n\n- Bring the [[Other page]] list, see PIE-7\n`,
+      [OTHER]: `---\nid: "${OTHER}"\n---\nOther page\nThe chain oil is the wax one.\n`,
+    }
+    /** The installed Outliner and ep0ch, answering for the two notes; `export: false` is an ep0ch older than export. */
+    function answering(options: { export?: boolean; cells?: boolean } = {}) {
+      return (run: Run): ProcessRunResult => {
+        if (run.argv.includes('resolve')) {
+          const uri = run.argv.at(-1)!
+          return ok(uri.includes('Other') || uri.includes(OTHER) ? `{"id":"${OTHER}","title":"Other page"}` : `{"id":"${BLOCK}","title":"Daily notes"}`)
+        }
+        if (run.argv.includes('--subtree')) {
+          return ok(JSON.stringify({ blocks: SUBTREES[run.argv[run.argv.indexOf('--subtree') + 1]!] ?? [], completeness: { kind: 'complete' } }))
+        }
+        if (run.argv[0] === 'ep0ch') {
+          if (run.argv[1] === 'help') {
+            return ok(`  ep0ch show <id>… [--source | --ansi | --cells] [--width <n>] [--rows <n>]\n${options.export === false ? '' : '  ep0ch export [<id>…] [--query "<expression>"]\n'}`)
+          }
+          if (run.argv[1] === 'export') return ok(EXPORTED[run.argv[2]!]!)
+          if (run.argv.includes('--cells') && options.cells !== false) {
+            const width = Number(run.argv[run.argv.indexOf('--width') + 1])
+            // One row of 'A' in white on black: [codePoint, fg, bg] as u32 LE, base64.
+            const words = new Uint32Array(width * 3).fill(0x01000000)
+            for (let i = 0; i < width; i++) words[i * 3] = 0x41
+            let binary = ''
+            for (const byte of new Uint8Array(words.buffer)) binary += String.fromCharCode(byte)
+            return ok(JSON.stringify({ id: run.argv[2], columns: width, rows: 1, cells: btoa(binary), replaced: 0 }))
+          }
+          return result(1, '', 'ep0ch: no\n')
+        }
+        return succeeding(run)
+      }
+    }
+    /** The engine's panes: each open recorded, placed (or waiting, `placed: false`). */
+    function panesIn(on: On, placed = true) {
+      const opened: string[] = []
+      on('ui.open', ($, e) => { opened.push(e.id); return { value: placed ? { isPlaced: true } : { isPlaced: false, reason: 'opened unasked under 144 columns (120 now)' } } })
+      on('ui.close', () => ({ value: undefined }))
+      return opened
+    }
+    const detail = ($: any, surface: 'terminal' | 'desktop' | 'vscode') =>
+      $.ui.mount({ plugin: 'pi-outliner', surface, component: 'Pane', requestId: DETAIL, props: { title: 'Mentions', isFocused: false, bodyColumns: 60, placement: 'dock', scroll: { top: 0, bodyRows: 30, rows: 0 }, view: {} } })
+    const titleOf = async (pane: any) => (await pane.find({ type: 'Text', text: /^(Daily notes|Other page)$/ }))?.text
 
-    await drawn.press({ key: 'outliner-references', link: { href: 'https://pi-outliner.invalid/page/Daily%20notes' } })
-    await session.clock.settle()
-    // The exact command that draws it in any terminal with only the outline host running, and the ((id)) to copy.
-    const message = `Can't open Daily notes here: this session is not in an ep0ch-door tile, nor in Herdr. Read it with \`ep0ch show ${BLOCK} --ws garden\`, or copy ((${BLOCK})) to open it in the Outliner.`
-    expect(session.toasts).toEqual([message])
+    test('desktop: a click opens the note in the pane as Markdown (heading, list, links); a link navigates there, back, forward, back to the list', async ($, on) => {
+      const session = sessionIn(on, WORKSPACE, answering(), '', NOT_IN_HERDR)
+      const opened = panesIn(on)
+      await session.begin(() => $.session.start({ ...START, surface: 'desktop' }))
+      const reply = await $.ui.mount({ plugin: 'pi-outliner', surface: 'desktop', component: 'AssistantMessage', props: { text: 'See [[Daily notes]].', isFirstOfReply: true } })
 
-    // The person's click tried the clipboard with the command; the agent's show never touches it.
-    expect(copied).toEqual([`ep0ch show ${BLOCK} --ws garden`])
-    const shown = await $.tool.call({ tool: 'mcp__pi-outliner__show', reference: '[[Daily notes]]' })
-    expect(shown.deny).toBe(message)
-    expect(copied).toHaveLength(1)
-    expect(session.runs.some(run => run.argv.includes('door-open') || run.argv.includes('link'))).toBe(false)
-    expect(herdrOpens(session.runs, 'ensure-detail')).toEqual([])
+      await reply.press({ key: 'outliner-references', link: { href: 'https://pi-outliner.invalid/page/Daily%20notes' } })
+      await session.clock.settle()
+      // Seated by the press itself (the person's ask), then opened by openNote; nothing copied, no toast, no Herdr.
+      expect(opened).toEqual([DETAIL, DETAIL])
+      expect(session.toasts).toEqual([])
+      expect(herdrOpens(session.runs)).toEqual([])
+      // The door's export of the note and its children, on the session's outline.
+      const read = session.runs.find(run => run.argv[1] === 'export')!
+      expect(read.argv).toEqual(['ep0ch', 'export', BLOCK, '--children', '--format', 'md', '--out', '-'])
+      expect(read.init?.cwd).toBe(WORKSPACE)
+      expect(read.init?.env).toMatchObject({ EP0CH_WS: 'garden' })
+
+      const pane = await detail($, 'desktop')
+      expect(await titleOf(pane)).toBe('Daily notes')
+      expect(await pane.find({ type: 'Text', text: /^opens here: no door or Herdr around/ })).toBeDefined()
+      const body = await pane.find({ key: 'detail-body' })
+      expect(body?.type).toBe('Markdown')
+      expect(body?.props.text).toBe(
+        '# Daily notes\n[type::note]\n## Today\n- rode to the shed\n\n' +
+        '- Bring the [Other page](https://pi-outliner.invalid/page/Other%20page) list, see [PIE-7](https://pi-outliner.invalid/work/PIE-7)',
+      )
+      expect(body?.props.dimColor).toBeUndefined()
+      expect(body?.props.pressableLinks).toEqual(['https://pi-outliner.invalid/page/Other%20page', 'https://pi-outliner.invalid/work/PIE-7'])
+      // Desktop's links are in the Markdown: no link buttons.
+      expect(await pane.find({ key: 'detail-link-1' })).toBeUndefined()
+      // Back from the first note is the mentions list.
+      expect((await pane.find({ key: 'detail-back' }))?.text).toBe('← mentions')
+
+      // A link in the note opens in the pane, through the same open.
+      await pane.press({ key: 'detail-body', link: { href: 'https://pi-outliner.invalid/page/Other%20page' } })
+      await session.clock.settle()
+      expect(await titleOf(pane)).toBe('Other page')
+      expect((await pane.find({ key: 'detail-body' }))?.props.text).toBe('# Other page\nThe chain oil is the wax one.')
+      expect(await pane.find({ type: 'Text', text: /2 of 2/ })).toBeDefined()
+
+      expect((await pane.find({ key: 'detail-back' }))?.text).toBe('← Daily notes')
+      await pane.press({ key: 'detail-back' })
+      await session.clock.settle()
+      expect(await titleOf(pane)).toBe('Daily notes')
+      await pane.press({ key: 'detail-forward' })
+      await session.clock.settle()
+      expect(await titleOf(pane)).toBe('Other page')
+      // `l`: straight back to the list, from any depth.
+      await pane.press({ key: 'detail-list' })
+      await session.clock.settle()
+      expect(await pane.find({ key: 'detail-body' })).toBeUndefined()
+      expect(await pane.find({ type: 'Text', text: /^Mentioned · opens here, in a detail pane$/ })).toBeDefined()
+      expect(session.toasts).toEqual([])
+    })
+
+    test('vscode draws Markdown too; the copy button keeps the command that reads it anywhere', async ($, on) => {
+      const session = sessionIn(on, WORKSPACE, answering(), '', NOT_IN_HERDR)
+      panesIn(on)
+      const copied: string[] = []
+      on('ui.copy', ($, e) => { copied.push(e.text); return { value: { isCopied: true } } })
+      on('tool.register', ($, e) => ({ value: { tool: `mcp__pi-outliner__${e.name}` } }))
+      await session.begin(() => $.session.start(START))
+      const shown = await $.tool.call({ tool: 'mcp__pi-outliner__show', reference: '[[Daily notes]]' })
+      expect(shown).toMatchObject({ result: 'Showing Daily notes in the mentions pane beside this conversation.' })
+      // The agent's show copies nothing.
+      expect(copied).toEqual([])
+      // The note is read off the open queue: show answers once the pane is open.
+      await session.clock.settle()
+
+      const pane = await detail($, 'vscode')
+      expect((await pane.find({ key: 'detail-body' }))?.type).toBe('Markdown')
+      await pane.press({ key: 'detail-copy' })
+      await session.clock.settle()
+      expect(copied).toEqual([`ep0ch show ${BLOCK} --ws garden`])
+      expect(session.toasts).toEqual([`Copied \`ep0ch show ${BLOCK} --ws garden\`: it reads the note in any terminal.`])
+    })
+
+    test('terminal outside Herdr: the door draws it (BlockView cells), its references are buttons, and a button navigates there', async ($, on) => {
+      const session = sessionIn(on, WORKSPACE, answering(), '', NOT_IN_HERDR)
+      const opened = panesIn(on)
+      await session.begin(() => $.session.start(START))
+      const drawn = await mountReply($, 'See [[Daily notes]].')
+      await drawn.press({ key: 'outliner-references', link: { href: 'https://pi-outliner.invalid/page/Daily%20notes' } })
+      await session.clock.settle()
+      expect(opened[0]).toBe(DETAIL)
+
+      const pane = await detail($, 'terminal')
+      await session.clock.settle()
+      const body = await pane.find({ key: 'detail-body' })
+      expect(body?.type).toBe('Raster')
+      // Drawn tall, at the pane's width, kept apart from the previews' drawings.
+      const show = session.runs.find(run => run.argv[0] === 'ep0ch' && run.argv.includes('--cells'))!
+      expect(show.argv).toEqual(['ep0ch', 'show', BLOCK, '--cells', '--width', '59', '--rows', '400'])
+      const link = await pane.find({ key: 'detail-link-1' })
+      expect([link?.type, link?.props.hotkey, link?.text]).toEqual(['Button', '1', 'Other page'])
+      expect((await pane.find({ key: 'detail-link-2' }))?.text).toBe('PIE-7')
+
+      await pane.press({ key: 'detail-link-1' })
+      await session.clock.settle()
+      expect(await titleOf(pane)).toBe('Other page')
+      await pane.press({ key: 'detail-back' })
+      await session.clock.settle()
+      expect(await titleOf(pane)).toBe('Daily notes')
+      expect(session.toasts).toEqual([])
+    })
+
+    test("no ep0ch with export: the outliner's read, laid out the same way, its links still links", async ($, on) => {
+      const session = sessionIn(on, WORKSPACE, answering({ export: false }), '', NOT_IN_HERDR)
+      panesIn(on)
+      on('tool.register', ($, e) => ({ value: { tool: `mcp__pi-outliner__${e.name}` } }))
+      await session.begin(() => $.session.start(START))
+      await $.tool.call({ tool: 'mcp__pi-outliner__show', reference: `((${BLOCK}))` })
+      await session.clock.settle()
+      expect(session.runs.some(run => run.argv[1] === 'export')).toBe(false)
+      const read = session.runs.find(run => run.argv.includes('--subtree'))!
+      expect(read.argv.slice(3)).toEqual(['list', '--subtree', BLOCK, '--limit', '200'])
+      expect(read.init?.cwd).toBe(WORKSPACE)
+      const body = await (await detail($, 'desktop')).find({ key: 'detail-body' })
+      expect(body?.props.text).toBe(
+        '# Daily notes\n[type::note]\n## Today\n- rode to the shed\n\n' +
+        '- Bring the [Other page](https://pi-outliner.invalid/page/Other%20page) list, see [PIE-7](https://pi-outliner.invalid/work/PIE-7)',
+      )
+    })
+
+    test('show opened unasked on a narrow terminal: the pane waits, and show says so', async ($, on) => {
+      const session = sessionIn(on, WORKSPACE, answering(), '', NOT_IN_HERDR)
+      panesIn(on, false)
+      on('tool.register', ($, e) => ({ value: { tool: `mcp__pi-outliner__${e.name}` } }))
+      await session.begin(() => $.session.start(START))
+      const shown = await $.tool.call({ tool: 'mcp__pi-outliner__show', reference: '[[Daily notes]]' })
+      expect(shown).toMatchObject({ result: 'Showing Daily notes in the mentions pane beside this conversation (the pane is not on screen yet: opened unasked under 144 columns (120 now)).' })
+    })
+
+    test("a folder bound to no outline: nothing to read it in, so show says so with the command and the ((id)) to copy", async ($, on) => {
+      const session = sessionIn(on, '/elsewhere', answering(), '', NOT_IN_HERDR)
+      const opened = panesIn(on)
+      on('tool.register', ($, e) => ({ value: { tool: `mcp__pi-outliner__${e.name}` } }))
+      await session.begin(() => $.session.start({ ...START, cwd: '/elsewhere' }))
+      const shown = await $.tool.call({ tool: 'mcp__pi-outliner__show', reference: `((${BLOCK}))` })
+      expect(shown.deny).toBe(`Can't open ${BLOCK} here: this session is not in an ep0ch-door tile, nor in Herdr. Read it with \`ep0ch show ${BLOCK}\`, or copy ((${BLOCK})) to open it in the Outliner.`)
+      expect(opened).toEqual([])
+    })
   })
 
   describe('in an ep0ch-door tile', () => {
@@ -638,19 +817,21 @@ describe('register', () => {
       expect(herdrOpens(session.runs, 'ensure-detail')).toEqual([])
     })
 
-    test('with no door answering and no Herdr, a click says so and gives the ((id)) to copy', async ($, on) => {
+    test('with no door answering (it quit) and no Herdr, a click opens the note here, in the detail pane', async ($, on) => {
       const session = sessionIn(on, WORKSPACE, run =>
         run.argv.includes('door-open') ? result(3, '', 'error: no door at /state/x (ECONNREFUSED)\n') : succeeding(run),
       '', { ...NOT_IN_HERDR, ...DOOR })
+      const opened: string[] = []
+      on('ui.open', ($, e) => { opened.push(e.id); return { value: { isPlaced: true } } })
       await session.begin(() => $.session.start(START))
       const drawn = await mountReply($, 'See PIE-7.')
 
       await drawn.press({ key: 'outliner-references', link: { href: 'https://pi-outliner.invalid/work/PIE-7' } })
       await session.clock.settle()
 
-      expect(session.toasts).toEqual([
-        `Can't open PIE-7 here: no door answers on ${DOOR.EP0CH_CONTROL} (it quit?), nor in Herdr. Read it with \`ep0ch show ${BLOCK} --ws garden\`, or copy ((${BLOCK})) to open it in the Outliner.`,
-      ])
+      // Not seated by the press (a door was named), but opened once the door didn't answer.
+      expect(opened).toEqual(['outliner-mentions'])
+      expect(session.toasts).toEqual([])
     })
 
     test('a click on a reference opens it in the door too', async ($, on) => {

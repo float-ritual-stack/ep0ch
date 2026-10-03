@@ -95,11 +95,16 @@ A click, `show` and `door_open` share one open (`openNote` in
    shows the note there. A door
    tile drops Herdr's pane variables, so this is a plain Herdr pane, or the
    daily agent's Herdr pane after its door quit.
-3. **Anywhere else**: a toast (or the tool's denial) saying it can't open the
-   note here and why, with the exact command that reads it in any terminal
-   (`ep0ch show <id> --ws <outline>`, the door's renderer, needing only the
-   outline host) and its `((id))` to copy. A click also copies that command.
-   A click never fails silently.
+3. **Here** (neither: the desktop app's Code tab, VS Code, a terminal outside
+   Herdr): the mentions pane shows the note in place of its list
+   ([The note here](#the-note-here)). A press seats the pane itself, so it is
+   placed at any width; `show` opens it as the agent's own, which waits below
+   144 columns and says so.
+4. **Without the session's outline** (an unbound folder, a block id given to
+   `show`): a toast (or the tool's denial) saying it can't open the note here
+   and why, with the exact command that reads it in any terminal (`ep0ch show
+   <id>`, the door's renderer, needing only the outline host) and its `((id))`
+   to copy. A click never fails silently.
 
 - Only the invoking Herdr workspace's Trees count: a Detail in another workspace
   is never "beside you". Two Trees in one tab is the Outliner's refusal, said in a
@@ -155,12 +160,12 @@ mod's own. It is read again after each answer is ingested.
 - **Open:** a click, or the mention's number, opens it through the one open
   every click, `show` and `door_open` share ([Where a note opens](#where-a-note-opens)):
   in the door this session runs in, as the agent, never taking focus; else
-  the Outliner Detail beside Claude in Herdr; else the command that reads it anywhere
-  (`ep0ch show <id> --ws <outline>`) is copied, said in a toast and kept in the
-  band or pane. The pane's heading says which it will be: in Herdr, "opens in
-  the Outliner Detail beside you" when the Outliner's `find-detail` (which opens
-  nothing) finds one, else "opens in a new Outliner Detail beside you". It asks
-  again each time the list is read.
+  the Outliner Detail beside Claude in Herdr; else here, in the pane, in place
+  of the list ([The note here](#the-note-here)). The pane's heading says which
+  it will be: "opens in this door"; in Herdr, "opens in the Outliner Detail
+  beside you" when the Outliner's `find-detail` (which opens nothing) finds one,
+  else "opens in a new Outliner Detail beside you"; with neither, "opens here, in
+  a detail pane". It asks again each time the list is read.
 - Every action is a Button with a hotkey: by mouse, or by keys once the band or
   pane holds them. The keys are Claude Code's, and each site's last line says them:
   - **ctrl+x tab** moves the keys to the band (or the pane) and back to the prompt;
@@ -179,6 +184,40 @@ mod's own. It is read again after each answer is ingested.
   reading `show pane`, so the mentions never vanish. The `m` press opens the pane
   from its own `ui.press` hook: an open from the drawing's closure counts as the
   plugin's, not the person's, and used to leave a narrow terminal with neither.
+
+## The note here
+
+With no door or Herdr around, a note opens in the mod's own pane: the mentions
+pane shows it in place of the list (a second pane would be a tab behind the
+first, out of sight). It is the third case of the one open (`openNote`), not a
+router of its own; `hooks/detail-view.ts` is its pure half.
+
+- **What it shows:** the note's title, "opens here: no door or Herdr around",
+  then the note drawn by [BlockView](#blockview), one renderer per surface:
+  - **terminal:** the door's cells (`ep0ch show <id> --cells --rows 400`), its
+    references as buttons under it (hotkeys 1 to 9), since cells hold no links;
+  - **desktop and VS Code:** `Markdown`: the note's first line as a heading, its
+    text as written (lists, headings, callouts as quotes, `::` figures fenced
+    under their name, a one-line `::links` as code), its children as a nested
+    list, and every `[[page]]`,
+    `((block))` and Work ID as a link.
+- **What it reads:** the door's export of the note and its children (`ep0ch
+  export <id> --children --out -`, PIE-534: the body as written, children as
+  nested lists; its front matter dropped), from an `ep0ch` whose help lists it;
+  else the outliner's read (`outliner list --subtree <id> --limit 200`) laid out
+  the same way. Escapes and control characters are taken out; it is cut on a
+  whole line to Markdown's 10,000 characters, saying the rest is in the outline
+  (as when the outliner's read was cut short). The read runs off the open queue,
+  so a slow one never holds the next open.
+- **Links:** a link pressed (desktop's `onLinkPress` on the keyed Markdown, or a
+  link button) goes through `openNote` again, which lands here: the pane walks
+  to it, with history. **b** goes back (from the first note, to the mentions
+  list), **f** forward, **l** straight to the list, **c** copies the command that
+  reads it in any terminal (`ep0ch show <id> --ws <outline>`), now a secondary
+  button rather than what a press does.
+- Opened for a note while the band is the choice, closing the pane keeps the
+  band; it opens on the list next time.
+- Not yet: folding children in the pane.
 
 ## BlockView
 
@@ -199,9 +238,10 @@ rows on. Only the outline host has to run: no door, no Herdr.
   counts them in `replaced`. Bold, italic and underline have no place in a cell.
 - Where the CLI can't draw (no `ep0ch` on PATH, one older than `--cells`, which
   `ep0ch help` is asked first as `where` is, or no host answering), and on a
-  surface without `Raster` (desktop), the block's text is drawn by `Markdown`.
-- Widths are 10 to 200 columns; the door encodes at most 24 rows (`--rows`), so
-  a long note is never drawn whole.
+  surface without `Raster` (desktop), the block's text is drawn by `Markdown`:
+  dim for a preview; with `links`, the note here, its references pressed.
+- Widths are 10 to 200 columns; a preview asks the door for at most 24 rows
+  (`--rows`), the note here for 400.
 - One drawing is kept per block, the latest: a new width is drawn after a short
   pause (a resize being dragged draws once), a new revision when the caller
   passes `revision` (without it, an edit isn't seen until the session restarts).
