@@ -7,6 +7,7 @@ import { homedir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
 import { hostLive, hostSocketOf, outlinesDir, resolveTarget } from "../discover";
 import { outlinerPlugin } from "../skills";
+import { outlineOfFile } from "@ep0ch/outline-core/outline-location";
 import { doorAgents } from "../desk/agent-env";
 import { hostRequest, type HostedOutline } from "../socket";
 import { type Checkout, type DatabaseFacts, type Deps, detectPlatform, type Facts, type HereFacts, type HostFacts, type HostUnit, KEYED_ACTIONS, PLUGIN_ID, type PluginFacts, type RepoFacts, type UnitState } from "./model";
@@ -280,8 +281,7 @@ export async function hostFacts(folder: string, platform: Facts["platform"], hom
 export function databases(folder: string): DatabaseFacts[] {
   if (!existsSync(folder)) return [];
   return readdirSync(folder, { withFileTypes: true })
-    .filter(e => e.isFile() && e.name.endsWith(".sqlite"))
-    .map(e => ({ name: e.name.replace(/\.sqlite$/, ""), path: join(folder, e.name) }))
+    .flatMap(e => { const name = e.isFile() ? outlineOfFile(e.name) : null; return name ? [{ name, path: join(folder, e.name) }] : []; })
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 

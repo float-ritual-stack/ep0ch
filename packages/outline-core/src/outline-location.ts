@@ -22,6 +22,12 @@ export function isOutlineName(name: unknown): name is string {
   return typeof name === "string" && OUTLINE_NAME_PATTERN.test(name);
 }
 
+/** The outline a file in the outlines folder is, by its name (`pie.sqlite` → `pie`), or null for anything else there. */
+export function outlineOfFile(file: string): string | null {
+  const name = file.endsWith(".sqlite") ? file.slice(0, -".sqlite".length) : "";
+  return isOutlineName(name) ? name : null;
+}
+
 /** Text as an outline name: lowercase, hyphens for runs of anything else, at most 32. */
 export function slugifyOutlineName(text: string): string {
   const slug = text.normalize("NFKD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-")

@@ -7,7 +7,7 @@ import { aiPromptDirectory, initializeAiPrompts } from "./ai-prompts";
 import type { HerdrRuntimeRegistry } from "./herdr-registry";
 import type { ImportReport } from "./outline-import";
 import { isOutlineName, OUTLINE_NAME_PATTERN } from "./paths";
-import { DOT_EP0CH, formatDotEp0ch, outlineLayout } from "@ep0ch/outline-core/outline-location";
+import { DOT_EP0CH, formatDotEp0ch, outlineLayout, outlineOfFile } from "@ep0ch/outline-core/outline-location";
 import { OutlinerServer } from "./server";
 import { OutlinerStore } from "./store";
 import {
@@ -218,10 +218,7 @@ export class OutlineHost {
     let entries: string[];
     try { entries = readdirSync(this.outlinesFolder); }
     catch (error) { if (errorCode(error) === "ENOENT") return []; throw error; }
-    return entries
-      .filter(entry => entry.endsWith(".sqlite") && isOutlineName(entry.slice(0, -".sqlite".length)))
-      .map(entry => entry.slice(0, -".sqlite".length))
-      .sort();
+    return entries.map(outlineOfFile).filter(name => name !== null).sort();
   }
 
   private summary(name: string): HostedOutlineSummary {
