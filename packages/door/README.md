@@ -84,6 +84,8 @@ The outliner's outline host serves every outline on the machine by name: `<name>
 The door opens outlines like Herdr sessions (PIE-530):
 
     ep0ch --ws jam-shelf              that outline, from anywhere; created if nobody has it yet ("created outline jam-shelf")
+    ep0ch --machine float-2 --ws pie  that outline on another machine (an ssh config name), through a forward
+    ep0ch --remote float-2            this terminal on the door session running on that machine
     ep0ch                             the outline this folder names: EP0CH_WS, else the nearest .ep0ch from here up
     ep0ch init [<name>]               name this folder's outline: write .ep0ch (ws = "<name>"), creating the outline;
                                       without a name, the folder's (or its git repository's)
@@ -96,10 +98,36 @@ the Claude mod): `--ws`, then `EP0CH_WS`, then the nearest `.ep0ch`. Nothing els
 that names none, `ep0ch` asks before it opens: start a new outline (the folder's or repository's name offered),
 pick one of the host's, or import an older database (a new outline holding its notes, properties, pages and work
 ids; the file is only read); each writes `.ep0ch`, so the next `ep0ch` there opens directly, and moving or
-renaming the folder changes nothing. Without a terminal it says what to run instead. `EP0CH_SOCKET` or a socket
-path is a host on another machine (an ssh tunnel), asked for the same name. Every request and the subscription
+renaming the folder changes nothing. Without a terminal it says what to run instead. Every request and the subscription
 name the outline. The status bar and `peek` show `host · outline`. Only opening the door (or `init`) creates an
 outline; the listings and `clients` never do (`src/discover.ts`, `resolveTarget`; `src/outlines.ts`).
+
+### Outlines on other machines
+
+A machine is an ssh config name: a `Host` in `~/.ssh/config` (`float-2`, `laptop`). ssh owns its keys, hops and
+address; the door keeps no list of machines of its own.
+
+- **`--machine <ssh-name>`**: the door here, the outline there. Which machine, first match wins: `--machine`,
+  `EP0CH_MACHINE`, then the `machine` of the `.ep0ch` that named the outline (an outline named by `--ws` or
+  `EP0CH_WS` takes no machine from a file). A `.ep0ch` for a folder whose outline lives on another machine:
+
+      ws = "pie"
+      machine = "float-2"
+
+  The door asks the machine where its outline host listens (`ep0ch status --json` there, in a login shell), then
+  forwards that socket to `~/outlines/.remote/<ssh-name>.sock` (folder mode 0700) with one ssh connection
+  (`-M`, ControlPersist, ExitOnForwardFailure, StreamLocalBindUnlink, ServerAlive). That connection outlives the
+  door, so a second door, Tree and Detail, and the CLI share it. When it drops (the network went), the door starts
+  it again as its connection comes back, and the status bar says so ("reconnected · started the forward to
+  float-2 · caught up 3 changes"). ssh must log in without asking (a key or an agent: `ssh float-2 true`).
+  `ep0ch outline list|create|… --machine <ssh-name>` and `ep0ch init --machine <ssh-name>` (which writes the
+  `machine` line) work on that machine's host. `ep0ch doctor` shows each machine's forward.
+- **`--remote <ssh-name> [door flags]`**: this terminal attached to the door session running on that machine,
+  as `herdr --remote` does: `ssh -t <ssh-name> ep0ch [door flags]` in a login shell there, with `TERM`,
+  `COLORTERM`, `EP0CH_KITTY`, `TERM_PROGRAM` and `LANG` carried over. The door runs there, so the drop shell and
+  `$EDITOR` on a `ctrl+e` file run there too, on its files.
+- **`EP0CH_SOCKET`** names any host's socket outright, the low-level way; with it no machine is used.
+- **`EP0CH_SSH`** names the ssh to run (tests give a fake one).
 
 ## Try it
 
@@ -317,7 +345,8 @@ A checkout from before `install` gets it by hand, once:
 
     ep0ch                           # the outline this folder names (EP0CH_WS, else its .ep0ch; else it asks)
     ep0ch --ws pie                  # an outline by name, from anywhere
-    ep0ch /path/to/host.sock        # a host elsewhere (an ssh-forwarded socket), as EP0CH_SOCKET
+    ep0ch --machine float-2         # this folder's outline on another machine (an ssh config name)
+    ep0ch --remote float-2          # the door session running on another machine, in this terminal
     ep0ch --showcase | --desk | --layout <name> | --river | --brief | --welcome | --board [<hub-id>]
 
 `ep0ch help` lists everything. Besides opening the door:
@@ -328,7 +357,7 @@ A checkout from before `install` gets it by hand, once:
 | `ep0ch try …` | `scripts/try-it.sh`: the door on a private copy (`--copy`), or on the showcase outline (`--showcase`, `--reset`) |
 | `ep0ch init [<name>]`, `ep0ch outline …`, `ep0ch status` | name this folder's outline, and the host's outlines (see [Outlines on the outline host](#outlines-on-the-outline-host)) |
 | `ep0ch --skill [--all] [<name>]` | the stack's skills (this door's `skills/` and the outliner's `pi-extension/skills/`: the installed plugin's, found through Herdr, else packages/outliner beside the door), or the path of one skill's `SKILL.md`; `--all` adds contributor skills |
-| `ep0ch clients [--ws <name>] [<socket>]` | who's connected to the outline: every role, observers and roles this door doesn't know yet |
+| `ep0ch clients [--ws <name>] [--machine <ssh-name>]` | who's connected to the outline: every role, observers and roles this door doesn't know yet |
 | `ep0ch session list`, `attach [--watch]`, `end [--yes]`, `upgrade [--clients]`, `restart` | the door session in this state dir (see [Sessions](#sessions-quit-is-detach)): who's attached and what runs, attach to it (`--watch`: read-only), end it, hand it to a new daemon on this checkout's code (its programs keep running) |
 | `ep0ch peek`, `actions`, `snap <png>`, `open <id>`, `act <action> key=value …` | drive a running door (see [Letting an agent see what you see](#letting-an-agent-see-what-you-see-and-do-what-you-do)); `EP0CH_CONTROL` names which door |
 
@@ -338,7 +367,9 @@ A checkout from before `install` gets it by hand, once:
 |---|---|
 | `EP0CH_WS` | the outline's name, as `--ws` (over a folder's `.ep0ch`) |
 | `EP0CH_OUTLINES` | the outlines folder (default `~/outlines`): `<name>.sqlite`, and the host's socket in `.host/` |
-| `EP0CH_SOCKET` | a host elsewhere: its socket path (same as the argument), asked for the same outline name |
+| `EP0CH_MACHINE` | the machine the outline is on, as `--machine` (over a `.ep0ch`'s `machine`): an ssh config name |
+| `EP0CH_SOCKET` | a host's socket path named outright (the low-level way; no machine is used), asked for the same outline name |
+| `EP0CH_SSH` | the ssh `--machine` and `--remote` run (default `ssh`) |
 | `EP0CH_DAEMON` | `0` (or `--no-daemon`) opens the door in this terminal, as before sessions: quitting it ends it. Otherwise the door is a session (see [Sessions](#sessions-quit-is-detach)): the one in the state dir attached to, started first when none runs. Tests and `scripts/test-door-env.sh` set `0`; pass `EP0CH_DAEMON=1` to try a session there |
 | `EP0CH_PACKS` | folder holding the `woe*.zip` packs (default `/opt/float/bbs/inbox/evan`) |
 | `EP0CH_KITTY` | `1` / `0` forces graphics on or off |

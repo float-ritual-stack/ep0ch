@@ -11,11 +11,12 @@ import { Mirror } from "./mirror";
 import { whereCommand } from "./where";
 import { connectTarget, guardDoor, openDoor, writeLastCall, type Door } from "./door";
 import { attachDoor, doorMode, sessionCommand } from "./session/client";
+import { forwardTo, remoteDoor, remoteOf } from "./machine";
 
 let args = process.argv.slice(2);
 const USAGE = `ep0ch: a BBS door into an outline
 
-  ep0ch [--ws <name>] [<socket>] [--board [<hub-id>] | --desk | --layout <name> | --river | --brief | --welcome | --showcase]
+  ep0ch [--ws <name>] [--machine <ssh-name>] [--board [<hub-id>] | --desk | --layout <name> | --river | --brief | --welcome | --showcase]
                                    open the door (the logon, then the main menu, by default);
                                    --layout daily opens the desk laid out as a named layout (daily,
                                    river, board, desk, or one saved with ^W w);
@@ -27,8 +28,16 @@ const USAGE = `ep0ch: a BBS door into an outline
                                    nearest .ep0ch from this folder up (it holds ws = "<name>"). A name
                                    nobody has yet is created (like herdr --session <name>). A folder that
                                    names none asks: init (the folder's name offered), pick or import.
-                                   Outlines are <name>.sqlite in EP0CH_OUTLINES (~/outlines); a socket
-                                   argument or EP0CH_SOCKET is a host elsewhere (an ssh tunnel)
+                                   Outlines are <name>.sqlite in EP0CH_OUTLINES (~/outlines).
+                                   Which machine: --machine <ssh-name> (a Host in ~/.ssh/config), else
+                                   EP0CH_MACHINE, else the machine = "<ssh-name>" of the .ep0ch that named
+                                   the outline; none is this machine. The door keeps an ssh forward to that
+                                   machine's outline host (~/outlines/.remote/<ssh-name>.sock), shared by
+                                   every client here and started again when it drops. EP0CH_SOCKET names
+                                   a host's socket outright
+  ep0ch --remote <ssh-name> [door flags]
+                                   this terminal on the door session running on that machine (ssh -t
+                                   <ssh-name> ep0ch [door flags]), like herdr --remote
   ep0ch session list [--json] | attach [--watch] | end [--yes] | upgrade [--clients] | restart
                                    the door session in this state dir: who's attached and what runs in its
                                    tiles; attach to it (--watch: read-only); end it (asks while programs run);
@@ -58,7 +67,7 @@ const USAGE = `ep0ch: a BBS door into an outline
   ep0ch try --ws <name> [--copy] [--hub <id>]
   ep0ch try --showcase [--reset]
                                    the door on a private copy, or on the showcase outline (scripts/try-it.sh)
-  ep0ch clients [--ws <name>] [<socket>]
+  ep0ch clients [--ws <name>] [--machine <ssh-name>]
                                    who is connected to the service, every role (observers too)
   ep0ch peek | actions | snap <png> | open <id> | act <action> [key=value ...]
                                    drive a running door; EP0CH_CONTROL names which one. open <id> is
@@ -73,6 +82,10 @@ const USAGE = `ep0ch: a BBS door into an outline
                                    path of one skill's SKILL.md; --all adds contributor skills
   ep0ch help`;
 if (["help", "--help", "-h"].includes(args[0] ?? "")) { console.log(USAGE); process.exit(0); }
+// --remote <machine>: the door runs there; this terminal only carries it (src/machine.ts).
+const remote = remoteOf(args);
+if (remote && "error" in remote) { console.error(`ep0ch: ${remote.error}`); process.exit(2); }
+if (remote) process.exit(await remoteDoor(remote.machine, remote.rest));
 if (args[0] === "doctor" || args[0] === "install") {
   const { setupCommand } = await import("./setup/apply");
   process.exit(await setupCommand(args, { out: console.log, err: console.error, terminal: process.stdout }));
@@ -89,14 +102,18 @@ if (args[0] === "outline" || args[0] === "status" || args[0] === "init") {
   const cmd = parseOutlineArgs(args[0] === "outline" ? args.slice(1) : args);
   if ("error" in cmd) { console.error(`ep0ch: ${cmd.error}`); process.exit(2); }
   // `outline attach <name>` opens the door on it, as --ws <name> does; with --json it only attaches.
-  if (cmd.op === "attach" && !cmd.json) args = ["--ws", cmd.name, ...args.slice(3).filter(a => a !== "--json")];
+  if (cmd.op === "attach" && !cmd.json) {
+    const rest = args.slice(1).filter((a, i, all) => a !== "attach" && a !== cmd.name && a !== "--machine" && all[i - 1] !== "--machine");
+    args = ["--ws", cmd.name, ...(cmd.machine ? ["--machine", cmd.machine] : []), ...rest];
+  }
   else process.exit(await runOutlineCommand(cmd));
 }
 if (args[0] === "clients") {
-  // Which host, and which outline on it: --ws <name>, EP0CH_WS, the folder's .ep0ch; a socket argument or
-  // EP0CH_SOCKET for a host elsewhere (src/discover.ts, resolveTarget).
+  // Which host, and which outline on it: --ws <name>, EP0CH_WS, the folder's .ep0ch; --machine, EP0CH_MACHINE or the
+  // .ep0ch's machine for another machine's host, EP0CH_SOCKET for any host's socket (src/discover.ts, resolveTarget).
   const target = resolveTarget(args);
   if ("error" in target) { console.error(`ep0ch: ${target.error}`); process.exit(1); }
+  if (target.machine) await forwardTo(target.machine).catch(e => { console.error(`ep0ch: can't reach the outline host on ${target.machine}: ${(e as Error).message}`); process.exit(1); });
   // A folder that names none asks the host as it is (its default outline, when it has one, else its refusal).
   const board = new SocketBoard(target.path, undefined, "outline" in target ? target.outline : undefined);
   try { console.log(formatClients(clientRows(await board.request<any[]>("clients.list")))); }

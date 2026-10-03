@@ -1,17 +1,20 @@
 import { hostname } from "node:os";
 import { setTimeout as sleep } from "node:timers/promises";
 import { OutlinerClient } from "./client";
-import { clientSocket, type OutlinerClientPaths, resolveClientPaths } from "./paths";
+import { clientSocket, machineFor, type OutlinerClientPaths, resolveClientPaths, resolveOutlinesFolder } from "./paths";
+import { forwardFor } from "./machine-forward";
 import { socketAbsent } from "./socket-probe";
 import type { ImportReport } from "./outline-import";
 import type { HostedOutlineAttachment, HostedOutlineList, HostedOutlineSummary, HostedPaneOutline } from "./types";
 
 /**
- * A client for the outline host's own requests (`outlines.*`): this machine's host, or EP0CH_SOCKET's when set;
- * undefined when none answers there. It names no outline.
+ * A client for the outline host's own requests (`outlines.*`): this machine's host, the named machine's through its
+ * forward (EP0CH_MACHINE, the folder's `.ep0ch`; started here when it isn't up), or EP0CH_SOCKET's when set; undefined
+ * when none answers there. It names no outline.
  */
 export async function outlineHostClient(env: NodeJS.ProcessEnv = process.env, timeoutMs = 3_000): Promise<OutlinerClient | undefined> {
-  const { socket } = clientSocket(env);
+  const { socket, machine } = clientSocket(env, machineFor(env));
+  if (machine) await forwardFor(machine, resolveOutlinesFolder(env), env).catch(() => undefined);
   if (await socketAbsent(socket, 500)) return undefined;
   return new OutlinerClient(socket, timeoutMs);
 }

@@ -23,7 +23,8 @@ outline popup writes it). The installed CLI answers (`outliner bound-folder
   used, so an unrelated session never reaches your outline.
 - Mentions, links, `show`, the workboard and outline tools all use that folder
   and the outline its `.ep0ch` names: the mod passes that name as `EP0CH_WS`,
-  over an inherited one, so Claude's environment never moves a write elsewhere.
+  over an inherited one (and its `machine`, as `EP0CH_MACHINE`, empty for this
+  one), so Claude's environment never moves a write elsewhere.
   With `EP0CH_SOCKET` (a host on another machine) in Claude's environment
   nothing is fed (one toast); use strict mode for that setup.
 - The folder is found when the session starts (links and tools) and again after

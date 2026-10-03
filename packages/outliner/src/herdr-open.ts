@@ -14,7 +14,7 @@ import {
   pluginInvocationWorkspaceRootSource,
   type PaneEntrypoint,
 } from "./pane-control";
-import { OUTLINE_ENV, resolveClientPaths } from "./paths";
+import { OUTLINE_ENV, remoteHint, resolveClientPaths } from "./paths";
 import { attachHostedOutline, resolveInvocationPaths, waitForOutlineHost } from "./outline-host-client";
 import type { OutlineChooserContext } from "./outline-chooser";
 import { waitForCompatibleService } from "./service-compatibility";
@@ -145,10 +145,10 @@ await reportStartupErrors(async () => {
   // (like `tmux new -A`); the host itself is a service of its own (systemd, launchd).
   const name = paths.outline!;
   // A host that is restarting comes back: wait for it as for a remote tunnel, never fall back.
-  const host = await waitForOutlineHost(process.env, paths.mode === "remote" ? 60_000 : 15_000);
+  const host = await waitForOutlineHost({ ...process.env, OUTLINER_WORKSPACE_ROOT: workspaceRoot }, paths.mode === "remote" ? 60_000 : 15_000);
   if (!host) {
     throw new Error(paths.mode === "remote"
-      ? `No outline host answers at ${paths.socket} (EP0CH_SOCKET). Check the SSH tunnel and the host at its other end.`
+      ? `No outline host answers at ${paths.socket}${paths.machine ? ` (on ${paths.machine})` : " (EP0CH_SOCKET)"}. ${remoteHint(paths)}`
       : `No outline host answers at ${paths.socket} (outline "${name}" for ${workspaceRoot}). The host runs as a service: systemctl --user start outliner-host (Linux), launchctl kickstart gui/$(id -u)/io.ep0ch.outliner-host (macOS), or bun packages/outliner/src/host-main.ts.`);
   }
   // Only the modes that open panes create a missing outline: Pi's `service-only` check and `focus-existing` open
@@ -223,7 +223,7 @@ await reportStartupErrors(async () => {
   }).catch((error: unknown) => {
     const lastResponse = (error instanceof Error ? error.message : String(error)).replace(/\.$/, "");
     throw new Error(`Compatible outliner service did not become ready at ${paths.socket}. ${lastResponse}. ${remote
-      ? "Check the SSH tunnel and the outline host at its other end."
+      ? remoteHint(paths)
       : `Check the outline host (it runs as a service) and the outline "${paths.outline}".`}`);
   });
 

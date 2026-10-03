@@ -25,8 +25,8 @@ test('a remote socket and a broken .ep0ch are reported without creating anything
  const root=mkdtempSync(join(tmpdir(),'workspace-info-'));
  const env={HOME:root,OUTLINER_WORKSPACE_ROOT:root,EP0CH_OUTLINES:join(root,'outlines'),EP0CH_SOCKET:join(root,'forward.sock'),EP0CH_WS:'garden'};
  try{
-  const report=await inspectWorkspaceConnection(env);const text=report.lines.join('\n');expect(report.ok).toBe(false);expect(text).toContain('Check the SSH socket tunnel');expect(text).toContain('Storage belongs to the host at the other end of EP0CH_SOCKET');expect(existsSync(env.EP0CH_OUTLINES)).toBe(false);
-  writeFileSync(join(root,'.ep0ch'),'{broken');const broken=await inspectWorkspaceConnection({...env,EP0CH_WS:undefined});expect(broken.lines.join('\n')).toContain(`Folder: ${root}`);expect(broken.lines.join('\n')).toContain(`${join(root,'.ep0ch')} must hold one line`);expect(existsSync(env.EP0CH_OUTLINES)).toBe(false);
+  const report=await inspectWorkspaceConnection(env);const text=report.lines.join('\n');expect(report.ok).toBe(false);expect(text).toContain('Check what serves EP0CH_SOCKET');expect(text).toContain('Storage belongs to the host at the other end of EP0CH_SOCKET');expect(existsSync(env.EP0CH_OUTLINES)).toBe(false);
+  writeFileSync(join(root,'.ep0ch'),'{broken');const broken=await inspectWorkspaceConnection({...env,EP0CH_WS:undefined});expect(broken.lines.join('\n')).toContain(`Folder: ${root}`);expect(broken.lines.join("\n")).toContain(`${join(root,".ep0ch")} must hold ws = "<name>"`);expect(existsSync(env.EP0CH_OUTLINES)).toBe(false);
  }finally{rmSync(root,{recursive:true,force:true});}
 });
 test('doctor CLI reports a folder that names no outline, nonzero, without making anything',async()=>{

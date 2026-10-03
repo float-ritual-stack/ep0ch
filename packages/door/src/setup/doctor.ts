@@ -83,6 +83,14 @@ export function doctorChecks(f: Facts): Check[] {
     else add("outlines", "this folder", "info", `${f.here.folder}: ${f.here.unnamed}${f.here.guess ? `; ep0ch init would start "${f.here.guess}"` : ""}`);
   }
 
+  // other machines: each one's forward, as it is (doctor starts none)
+  for (const m of f.machines ?? []) {
+    const what = `${m.socket}${m.here ? " (this folder's)" : ""}`;
+    if (m.answers) add("machines", m.machine, "ok", `forward up at ${what}; serves ${m.outlines?.length ? m.outlines.join(", ") : "no outlines yet"}`);
+    else if (m.connected) add("machines", m.machine, "behind", `connected, but no outline host answers through ${what}`, `ssh ${m.machine} ep0ch status (its host), or ep0ch --machine ${m.machine} (starts the forward again)`);
+    else add("machines", m.machine, "info", `no forward running (${what}) · a door on it starts one (ep0ch --machine ${m.machine})`);
+  }
+
   // Herdr
   if (!f.herdr.path) add("herdr", "herdr", "missing", "not on PATH", "see https://herdr.dev");
   else {

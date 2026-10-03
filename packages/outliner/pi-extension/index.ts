@@ -46,7 +46,7 @@ import {
   type PullRequestSnapshot,
 } from "./delivery-lifecycle";
 import { inspectWorkEnvironment, type ExtensionExec } from "./work-environment";
-import { resolveClientPaths } from "../src/paths"
+import { remoteHint, resolveClientPaths } from "../src/paths"
 import { waitForOutlineHost } from "../src/outline-host-client"
 import { completeWorkItem, propertyTransition, typedArtifactText } from "../src/work-tools";
 import { currentPaneIdentity } from "../src/pane-control";
@@ -1024,7 +1024,7 @@ async function ensureService(focus: boolean): Promise<void> {
       return;
     }
     throw new Error(paths.mode === "remote"
-      ? `The outline host at ${paths.socket} (EP0CH_SOCKET) is unavailable or has no outline "${paths.outline}"; start the SSH tunnel and retry`
+      ? `The outline host at ${paths.socket}${paths.machine ? ` (on ${paths.machine})` : " (EP0CH_SOCKET)"} is unavailable or has no outline "${paths.outline}". ${remoteHint(paths)}`
       : `The outline "${paths.outline}" is not available on the outline host at ${paths.socket}; start the host (systemctl --user start outliner-host), or create it with \`ep0ch init ${paths.outline}\``);
   }
   await waitForService();

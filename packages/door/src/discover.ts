@@ -1,12 +1,15 @@
 // Which outline `ep0ch` opens, and on which host (PIE-530). The rule is outline-core's `whichOutline`, the same one
 // the outliner's Herdr panes, CLI and Claude mod apply: `--ws <name>` from anywhere, then EP0CH_WS, then the nearest
 // `.ep0ch` walking up from the folder. Nothing else names an outline: a folder that names none gets init, pick or
-// import (src/outlines.ts), never a guess and never a default. The host is this machine's (its socket under the
-// outlines folder, EP0CH_OUTLINES or ~/outlines), or EP0CH_SOCKET / a socket path argument for a host elsewhere.
+// import (the home base, src/home.ts), never a guess and never a default. The host is this machine's (its socket under
+// the outlines folder, EP0CH_OUTLINES or ~/outlines); another machine's, through its forward, when one is named
+// (`--machine <ssh-name>`, EP0CH_MACHINE, the `.ep0ch`'s `machine`: src/machine.ts); or EP0CH_SOCKET, the low-level
+// way to name any host's socket.
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { type LocationReader, outlineLayout, outlinesFolder, whichOutline } from "@ep0ch/outline-core/outline-location";
+import { forwardPaths } from "@ep0ch/outline-core/machine";
 import { hostRequest, type HostStatus } from "./socket";
 
 export { slugifyOutlineName as slugOutlineName } from "@ep0ch/outline-core/outline-location";
@@ -50,36 +53,50 @@ export async function hostLive(path: string, timeoutMs = 1500): Promise<HostStat
  * Where the door connects, and which outline it names there. `attach`: the door opens a session, so it asks the
  * host for the outline with `create` (like `herdr --session <name>`): a name someone wrote down (`--ws`, EP0CH_WS,
  * a `.ep0ch`) is made when nobody has yet, and `created` says so on screen. `unnamed`: nothing names one here; the
- * door offers init (with `guess`), pick or import before it opens.
+ * door opens the home base. `machine`: the host is that machine's, `path` the local end of its forward (started as
+ * the door connects). `remote`: the host isn't this machine's (a machine's, or a socket named outright).
  */
 export type Target =
-  | { path: string; why: string; outline: string; attach: true; remote: boolean }
-  | { path: string; unnamed: string; folder: string; guess?: { name: string; folder: string }; remote: boolean }
+  | { path: string; why: string; outline: string; attach: true; remote: boolean; machine?: string }
+  | { path: string; unnamed: string; folder: string; guess?: { name: string; folder: string }; remote: boolean; machine?: string }
   | { error: string };
 
-/** A socket path given as an argument: a value with a `/` that isn't a flag's value. */
-const socketArgument = (args: readonly string[]) =>
-  args.find((a, i) => a.includes("/") && !a.startsWith("--") && !["--board", "--ws", "--layout"].includes(args[i - 1] ?? ""));
+/** A flag's value: absent, the value, or why it's missing. */
+function flagValue(args: readonly string[], flag: string, what: string): string | undefined | { error: string } {
+  const at = args.indexOf(flag);
+  if (at < 0) return undefined;
+  const v = args[at + 1];
+  return !v || v.startsWith("--") ? { error: `${flag} needs ${what}` } : v;
+}
 
 /**
- * The target: the host (a socket argument, else EP0CH_SOCKET, else this machine's), and the outline by the rule
- * (`--ws`, EP0CH_WS, the nearest `.ep0ch` from `cwd`). Reads only; asks nothing of the host.
+ * The target: the host (EP0CH_SOCKET, else the named machine's forward, else this machine's),
+ * and the outline by the rule (`--ws`, EP0CH_WS, the nearest `.ep0ch` from `cwd`; the machine by `--machine`,
+ * EP0CH_MACHINE, that `.ep0ch`). Reads only; asks nothing of the host and starts no forward.
  */
 export function resolveTarget(args: readonly string[], env: Env = process.env, cwd = process.cwd()): Target {
-  const wsAt = args.indexOf("--ws");
-  const ws = wsAt >= 0 ? args[wsAt + 1] : undefined;
-  if (wsAt >= 0 && (!ws || ws.startsWith("--"))) return { error: "--ws needs an outline name (ep0ch outline list)" };
+  const ws = flagValue(args, "--ws", "an outline name (ep0ch outline list)");
+  if (typeof ws === "object") return ws;
   if (ws?.includes("/")) return { error: `--ws takes an outline's name, not a folder (${ws}); a folder names its outline in its .ep0ch (ep0ch init there)` };
-  const socketArg = socketArgument(args);
-  const explicit = socketArg ?? env.EP0CH_SOCKET?.trim();
-  const path = explicit || hostSocketOf(env);
-  const remote = !!explicit;
+  // A socket path as an argument named a host once; EP0CH_SOCKET does now. Refused, never read as "this machine's".
+  const path0 = args.find((a, i) => a.includes("/") && !a.startsWith("--") && !["--board", "--ws", "--layout", "--machine"].includes(args[i - 1] ?? ""));
+  if (path0) return { error: `${path0}: a host's socket is named by EP0CH_SOCKET=${path0} (or the machine it is on by --machine <ssh-name>), not as an argument` };
+  const machineFlag = flagValue(args, "--machine", "a machine: an ssh config name (a Host in ~/.ssh/config)");
+  if (typeof machineFlag === "object") return machineFlag;
+  const explicit = env.EP0CH_SOCKET?.trim();
+  if (explicit && machineFlag) return { error: `--machine ${machineFlag} and EP0CH_SOCKET both name a host; leave one out` };
   let which;
-  try { which = whichOutline({ flag: ws, env: env.EP0CH_WS, folder: resolve(cwd), home: homeOf(env), fs: disk }); }
+  try { which = whichOutline({ flag: ws, env: env.EP0CH_WS, machineFlag, machineEnv: env.EP0CH_MACHINE, folder: resolve(cwd), home: homeOf(env), fs: disk }); }
   catch (e) { return { error: (e as Error).message }; }
+  // A socket named outright is the host, whatever machine a file or EP0CH_MACHINE names.
+  const machine = explicit ? undefined : which.machine;
+  const path = explicit || (machine ? forwardPaths(outlinesDir(env), machine).socket : hostSocketOf(env));
+  const on = machine ? { machine } : {};
+  const remote = !!explicit || !!machine;
   if (which.kind === "unnamed") {
-    return { path, unnamed: which.reason, folder: which.folder, ...(which.guess ? { guess: which.guess } : {}), remote };
+    return { path, unnamed: which.reason, folder: which.folder, ...(which.guess ? { guess: which.guess } : {}), remote, ...on };
   }
   const how = which.source === "flag" ? `--ws ${which.name}` : which.source === "env" ? `EP0CH_WS=${which.name}` : which.file!;
-  return { path, outline: which.name, attach: true, remote, why: `the outline ${which.name} (${how})${remote ? ` on ${path}` : ""}` };
+  const where = machine ? ` on ${machine}${which.machineSource === "flag" ? "" : which.machineSource === "env" ? " (EP0CH_MACHINE)" : ""}` : explicit ? ` on ${path}` : "";
+  return { path, outline: which.name, attach: true, remote, ...on, why: `the outline ${which.name} (${how})${where}` };
 }

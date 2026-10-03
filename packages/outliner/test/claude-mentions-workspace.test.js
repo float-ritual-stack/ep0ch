@@ -60,7 +60,7 @@ test("the session's workspace: opt-outs first, then the binding; strict mode lis
  expect(sessionWorkspaceOf('/work/garden/src','folder',['/work'],bound)).toBeNull();
  expect(sessionWorkspaceOf('/work/garden/src','allowlist',['/work/garden'],null)).toEqual({root:'/work/garden'});
  expect(sessionWorkspaceOf('/work/garden/src','allowlist',[],bound)).toBeNull();
- expect(workspaceEnvOf({root:'/w',outline:'o',pinned:true})).toEqual({OUTLINER_WORKSPACE_ROOT:'/w',EP0CH_WS:'o'});
+ expect(workspaceEnvOf({root:'/w',outline:'o',pinned:true})).toEqual({OUTLINER_WORKSPACE_ROOT:'/w',EP0CH_WS:'o',EP0CH_MACHINE:''});
  expect(workspaceEnvOf({root:'/w'})).toEqual({OUTLINER_WORKSPACE_ROOT:'/w'});
 });
 
@@ -131,7 +131,7 @@ test('folder mode: a reply in a bound folder\'s subfolder reaches the outline it
  expect(bound?.argv.at(-1)).toBe(join(root,'projects','mod'));
  const ingest=runs.find(run=>run.argv.includes('ingest'));
  expect(ingest?.init.cwd).toBe(root);
- expect(ingest?.init.env).toEqual({OUTLINER_WORKSPACE_ROOT:root,EP0CH_WS:'scratch'});
+ expect(ingest?.init.env).toEqual({OUTLINER_WORKSPACE_ROOT:root,EP0CH_WS:'scratch',EP0CH_MACHINE:''});
  expect(JSON.parse(ingest?.init.stdin).workspaceRoot).toBe(root);
  expect(entries.map(entry=>entry.block?.id)).toEqual([target.id]);
 },15000);

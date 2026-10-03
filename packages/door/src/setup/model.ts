@@ -109,8 +109,11 @@ export interface UnitState { active: boolean | null; pid?: number; lastExit?: st
 /** An outline database on this machine (`<outlines>/<name>.sqlite`), by its name. */
 export interface DatabaseFacts { name: string; path: string }
 
-/** Which outline this folder opens (discover.resolveTarget): its name and why, or why none. */
-export interface HereFacts { folder: string; outline?: string; why?: string; unnamed?: string; guess?: string }
+/** Which outline this folder opens (discover.resolveTarget): its name and why, or why none; and on which machine. */
+export interface HereFacts { folder: string; outline?: string; why?: string; unnamed?: string; guess?: string; machine?: string }
+
+/** Another machine the person opens outlines on (src/machine.ts): its forward as it is, and its outlines when it answers. */
+export interface MachineFacts { machine: string; socket: string; answers: boolean; connected: boolean; outlines: string[] | null; here?: boolean }
 
 export interface Facts {
   platform: Platform;
@@ -134,6 +137,8 @@ export interface Facts {
   linkDirs: { dir: string; onPath: boolean; writable: boolean; existing?: "link" | "broken-link" | "file" }[];
   host: HostFacts;
   databases: DatabaseFacts[];
+  /** The machines opened from the state dir, and the one this folder names: each one's forward. */
+  machines?: MachineFacts[];
   /** Which outline the folder install runs in opens. */
   here?: HereFacts;
   claude: {

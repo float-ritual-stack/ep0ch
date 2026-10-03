@@ -14,7 +14,7 @@ import {
   type ChooserIntent,
 } from "./outline-chooser";
 import { reportCurrentPaneWorkspace } from "./pane-control";
-import { clientSocket, writeDotEp0ch } from "./paths";
+import { clientSocket, machineFor, writeDotEp0ch } from "./paths";
 import { isTreeMouseSequence } from "./tree-mouse";
 
 if (process.env.HERDR_ENV !== "1") throw new Error("The outline chooser requires Herdr");
@@ -59,7 +59,9 @@ async function choose(): Promise<void> {
       await importHostedOutline(host, plan.path, plan.name);
     }
     // The folder names its outline from now on; the switcher replaces what it named.
-    if (plan.dotFolder) writeDotEp0ch(plan.dotFolder, plan.name, { replace: context.switch === true });
+    // On another machine's host (EP0CH_MACHINE, the folder's .ep0ch), the machine is written beside the name.
+    const machine = clientSocket(process.env, machineFor()).machine;
+    if (plan.dotFolder) writeDotEp0ch(plan.dotFolder, plan.name, { replace: context.switch === true, ...(machine ? { machine } : {}) });
   } catch (error) {
     chooser.busy = false;
     chooser.status = error instanceof Error ? error.message : String(error);

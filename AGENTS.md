@@ -79,11 +79,17 @@ Both histories are kept: `git log --follow` and `git blame` reach back into ep0c
 ## Outlines by name
 
 Which outline a client opens (PIE-530, `outline-core/src/outline-location.ts`), first match wins: `--ws
-<name>`, then `EP0CH_WS`, then the nearest `.ep0ch` walking up from the folder (it holds only
-`ws = "<name>"`). Nothing else names one: a folder that names none gets init, pick or import, never a guess
-taken silently and never a default. Outlines are `<EP0CH_OUTLINES or ~/outlines>/<name>.sqlite`, each with its
-own folder `<name>/` beside it; the host's socket and lock are in `.host/`. `EP0CH_SOCKET` is a host on
-another machine (an ssh tunnel).
+<name>`, then `EP0CH_WS`, then the nearest `.ep0ch` walking up from the folder. It holds names only:
+`ws = "<name>"`, and `machine = "<ssh-name>"` for an outline on another machine. Nothing else names one: a
+folder that names none gets init, pick or import, never a guess taken silently and never a default. Outlines are
+`<EP0CH_OUTLINES or ~/outlines>/<name>.sqlite`, each with its own folder `<name>/` beside it; the host's socket
+and lock are in `.host/`.
+
+Which machine, first match wins: `--machine <ssh-name>`, then `EP0CH_MACHINE`, then the `machine` of the
+`.ep0ch` that named the outline. A machine is an ssh config name; there is no registry of machines. Every client
+reaches it through one shared ssh forward, `<outlines>/.remote/<ssh-name>.sock`, started by the first client that
+needs it (outline-core's `src/machine.ts`, `ensureForward`). `EP0CH_SOCKET` names any host's socket outright, the
+low-level escape hatch.
 
 ## Schema and protocol: one version
 

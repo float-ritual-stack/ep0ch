@@ -1,5 +1,6 @@
 import { createConnection, type Socket } from "node:net";
 import { requireCompatible } from "./service-compatibility";
+import { forwardFor } from "./machine-forward";
 import type { OutlinerRequestProblem, OutlinerServiceStatus } from "./types";
 import type {
   OutlinerClientRegistration,
@@ -21,6 +22,10 @@ const REMOTE_REQUEST_TIMEOUT_MS = 30_000;
 export interface OutlinerClientEndpoint {
   socket: string;
   mode: "remote" | "host";
+  /** The machine whose host `socket` forwards to: the client starts the forward when nothing answers there. */
+  machine?: string;
+  /** The outlines folder `socket` was resolved in (its `.remote/` holds the machine's forward). */
+  outlinesFolder?: string;
   /** The outline every request names. */
   outline?: string;
   /** Why no outline is named (no EP0CH_WS, no `.ep0ch`): a client for this endpoint refuses every request. */
@@ -28,14 +33,19 @@ export interface OutlinerClientEndpoint {
 }
 
 export function createOutlinerClient(endpoint: OutlinerClientEndpoint): OutlinerClient {
+  const machine = endpoint.machine, outlines = endpoint.outlinesFolder;
   return new OutlinerClient(
     endpoint.socket,
     endpoint.mode === "remote" ? REMOTE_REQUEST_TIMEOUT_MS : LOCAL_REQUEST_TIMEOUT_MS,
     endpoint.outline,
     // A client without a name would reach the host's default outline, or none: refuse instead.
     !endpoint.outline ? endpoint.unnamed ?? "No outline is named for this folder" : undefined,
+    machine && outlines ? async () => { await forwardFor(machine, outlines); } : undefined,
   );
 }
+
+/** A connection that found nobody at the socket (no file, or nobody listening): what a forward that isn't up looks like. */
+const nobodyThere = (error: unknown) => ["ENOENT", "ECONNREFUSED", "ENOTSOCK"].includes((error as NodeJS.ErrnoException)?.code ?? "");
 
 /** A client that names an outline refuses an answer for another one rather than read the wrong outline. */
 export function requireOutlineRouting(service: OutlinerServiceStatus, socketPath: string, outline: string): void {
@@ -196,6 +206,8 @@ export class OutlinerClient {
     readonly outline?: string,
     /** Set when no outline could be named: every request and subscription fails with it. */
     readonly refusal?: string,
+    /** Makes the socket answer when nobody does (a machine's forward, started): run before a retry and every reconnect. */
+    private readonly ensure?: () => Promise<void>,
   ) {}
 
   /** Rejects a service that speaks another protocol (outline-core's PROTOCOL). */
@@ -211,7 +223,13 @@ export class OutlinerClient {
    */
   async request<T>(input: RequestInput, timeoutMs = this.requestTimeoutMs): Promise<T> {
     if (this.refusal) throw new Error(this.refusal);
-    const answer = await this.send<T>(input, timeoutMs);
+    let answer: T;
+    try { answer = await this.send<T>(input, timeoutMs); }
+    catch (error) {
+      if (!this.ensure || !nobodyThere(error)) throw error;
+      await this.ensure();
+      answer = await this.send<T>(input, timeoutMs);
+    }
     if (this.outline && input.action === "ping") requireOutlineRouting(answer as OutlinerServiceStatus, this.socketPath, this.outline);
     return answer;
   }
@@ -255,7 +273,8 @@ export class OutlinerClient {
 
   watch(handlers: OutlinerWatchHandlers): OutlinerWatcher {
     const refusal = this.refusal;
+    // A machine's forward is checked (and started again when it dropped) before every connect and reconnect.
     return new OutlinerWatcher(this.socketPath, handlers, this.requestTimeoutMs, this.outline,
-      refusal ? () => Promise.reject(new Error(refusal)) : undefined);
+      refusal ? () => Promise.reject(new Error(refusal)) : this.ensure);
   }
 }

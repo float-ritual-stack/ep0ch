@@ -48,7 +48,7 @@ class Door {
   /** `ctty`: the pty is the door's controlling terminal (as under sshd), so closing it sends the door SIGHUP. */
   constructor(readonly env: Record<string, string>, args: string[] = ["--desk"], preload?: string, ctty = false) {
     this.pty = new Bun.Terminal({ cols: 140, rows: 40, data: (_t, d) => { this.out += Buffer.from(d).toString("latin1"); } });
-    this.proc = Bun.spawn([...(ctty ? CTTY : []), "bun", ...(preload ? ["--preload", preload] : []), MAIN, ...args, "--ws", scratch.name, scratch.sock], { terminal: this.pty, env });
+    this.proc = Bun.spawn([...(ctty ? CTTY : []), "bun", ...(preload ? ["--preload", preload] : []), MAIN, ...args, "--ws", scratch.name], { terminal: this.pty, env: { ...env, EP0CH_SOCKET: scratch.sock } });
     void this.proc.exited.then(c => { this.code = c; });
   }
   get control() { return this.env.EP0CH_CONTROL!; }
@@ -325,7 +325,7 @@ describe("offline says offline (F24, C F17)", () => {
     b2.close();
     const { env } = sandbox();
     const pty = new Bun.Terminal({ cols: 140, rows: 40, data: () => {} });
-    const proc = Bun.spawn(["bun", MAIN, "--desk", "--ws", own.name, own.sock], { terminal: pty, env });
+    const proc = Bun.spawn(["bun", MAIN, "--desk", "--ws", own.name], { terminal: pty, env: { ...env, EP0CH_SOCKET: own.sock } });
     try {
       await until(() => existsSync(env.EP0CH_CONTROL!), "the door", 20_000);
       const cli = async (...args: string[]) => {

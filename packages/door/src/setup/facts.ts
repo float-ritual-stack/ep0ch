@@ -6,6 +6,7 @@ import { accessSync, constants, existsSync, lstatSync, readdirSync, readFileSync
 import { homedir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
 import { hostLive, hostSocketOf, outlinesDir, resolveTarget } from "../discover";
+import { machineStatus, usedMachines } from "../machine";
 import { outlinerPlugin } from "../skills";
 import { outlineOfFile } from "@ep0ch/outline-core/outline-location";
 import { doorAgents } from "../desk/agent-env";
@@ -289,8 +290,9 @@ export function databases(folder: string): DatabaseFacts[] {
 export function hereFacts(folder: string, env: Env): HereFacts {
   const t = resolveTarget([], env, folder);
   if ("error" in t) return { folder, unnamed: t.error };
-  if ("unnamed" in t) return { folder, unnamed: t.unnamed, ...(t.guess ? { guess: t.guess.name } : {}) };
-  return { folder, outline: t.outline, why: t.why };
+  const on = t.machine ? { machine: t.machine } : {};
+  if ("unnamed" in t) return { folder, unnamed: t.unnamed, ...(t.guess ? { guess: t.guess.name } : {}), ...on };
+  return { folder, outline: t.outline, why: t.why, ...on };
 }
 
 /** The repo around this door: packages/door is two folders under its root. */
@@ -386,6 +388,10 @@ export async function gatherFacts(o: GatherOptions = {}): Promise<Facts> {
     mentions = { listed: /[^\s:,]/.test(String(settingsEnv?.PI_OUTLINER_MENTIONS_WORKSPACES ?? "")), ...(mode ? { mode } : {}) };
   } catch { /* none */ }
 
+  const here = hereFacts(o.cwd ?? process.cwd(), { ...env, HOME: home });
+  const named = [...new Set([...(here.machine ? [here.machine] : []), ...usedMachines(env.EP0CH_STATE ?? defaultStateDir(env)).map(m => m.name)])];
+  const machines = await part("the machines' forwards", Promise.all(named.map(async m => ({ ...(await machineStatus(m, { ...env, HOME: home })), ...(m === here.machine ? { here: true } : {}) }))));
+
   return {
     platform, home, pathDirs,
     bun: { path: bunPath, version: bunVersion },
@@ -396,7 +402,8 @@ export async function gatherFacts(o: GatherOptions = {}): Promise<Facts> {
     linkDirs,
     host,
     databases: databases(folder),
-    here: hereFacts(o.cwd ?? process.cwd(), { ...env, HOME: home }),
+    here,
+    machines,
     claude: { settingsPath, settingsDirs, envDirs: splitDirs(env.CLAUDE_CODE_PLUGIN_DIRS), ...(mentions ? { mentions } : {}), ...(env.FORCE_HYPERLINK !== undefined ? { forceHyperlink: env.FORCE_HYPERLINK } : {}), ...(agents ? { agents } : {}) },
     session,
   };

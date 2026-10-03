@@ -809,6 +809,13 @@ export class SocketBoard implements Board {
   reconnectMs = 250;
   /** Told when the event connection drops and when it's back (with what the catch-up did). */
   onConnection: (state: "lost" | "restored", detail: string) => void = () => {};
+  /**
+   * Run before each reconnect: what the path needs to answer again (a machine's forward, started again when it
+   * dropped). What it did is said with the next `onConnection`; a throw is said, and the reconnect waits and retries.
+   */
+  prepare: (() => Promise<string | null>) | null = null;
+  /** What `prepare` did, said when the connection is back. */
+  private prepared: string | null = null;
 
   /**
    * Register as an observer and stream events; the door then shows up in Who's Online, like any caller.
@@ -842,7 +849,9 @@ export class SocketBoard implements Board {
           sub.lost = false;
           const rest = held ?? []; held = null;
           for (const e of rest) this.deliver(e);
-          this.onConnection("restored", reset ? `reloaded everything (${reset})` : `caught up ${replayed} change${replayed === 1 ? "" : "s"}`);
+          const did = this.prepared ? `${this.prepared} · ` : "";
+          this.prepared = null;
+          this.onConnection("restored", `${did}${reset ? `reloaded everything (${reset})` : `caught up ${replayed} change${replayed === 1 ? "" : "s"}`}`);
         });
         return;
       }
@@ -861,14 +870,31 @@ export class SocketBoard implements Board {
       // request opens a new one.
       if (!this.waiting.size && this.sock) { this.sock.end(); this.sock = null; }
       if (subscribed || !sub.lost) { sub.lost = true; this.onConnection("lost", "outline connection lost · reconnecting"); }
-      const wait = Math.min(5000, this.reconnectMs * 2 ** sub.attempt++);
-      sub.retry = setTimeout(() => this.openEvents(true), wait);
+      this.retryEvents(sub);
     });
     s.on("connect", () => s.write(jsonLine({
       id: "sub", action: "events.subscribe", client: { clientId: this.clientId, role: "observer", contextId: this.clientId },
       ...(this.outline ? { outline: this.outline } : {}),
     })));
     this.events = s;
+  }
+
+  /** Open the events again after a wait that grows per failed try, `prepare` run first. */
+  private retryEvents(sub: NonNullable<SocketBoard["sub"]>) {
+    const wait = Math.min(5000, this.reconnectMs * 2 ** sub.attempt++);
+    sub.retry = setTimeout(async () => {
+      if (this.closing || this.sub !== sub) return;
+      if (this.prepare) {
+        try { this.prepared = (await this.prepare()) ?? this.prepared; }
+        catch (e) {
+          this.onConnection("lost", `${e instanceof Error ? e.message : String(e)} · trying again`);
+          this.retryEvents(sub);
+          return;
+        }
+        if (this.closing || this.sub !== sub) return;
+      }
+      this.openEvents(true);
+    }, wait);
   }
 
   /** One event to the screens, once: a change the catch-up already replayed isn't delivered again. */

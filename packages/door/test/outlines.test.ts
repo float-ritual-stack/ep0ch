@@ -126,8 +126,7 @@ describe("which outline the door opens (PIE-530)", () => {
     expect(resolveTarget(["--ws", "float-hub"], env, deep)).toEqual({ path: host, outline: "float-hub", attach: true, remote: false, why: "the outline float-hub (--ws float-hub)" });
     expect(resolveTarget([], { ...env, EP0CH_WS: "pie" }, deep)).toMatchObject({ outline: "pie", why: "the outline pie (EP0CH_WS=pie)" });
     expect(resolveTarget([], env, deep)).toEqual({ path: host, outline: "garden", attach: true, remote: false, why: `the outline garden (${join(garden, ".ep0ch")})` });
-    // A socket argument or EP0CH_SOCKET is a host elsewhere, asked for the same name.
-    expect(resolveTarget(["/fictional/tunnel.sock"], env, deep)).toMatchObject({ path: "/fictional/tunnel.sock", outline: "garden", remote: true });
+    // EP0CH_SOCKET names a host's socket outright, asked for the same name.
     expect(resolveTarget([], { ...env, EP0CH_SOCKET: "/fictional/env.sock" }, deep)).toMatchObject({ path: "/fictional/env.sock", outline: "garden", remote: true });
     // --ws takes a name, never a folder.
     expect(resolveTarget(["--ws", "./garden"], env, base)).toMatchObject({ error: expect.stringContaining("takes an outline's name, not a folder") });
