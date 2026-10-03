@@ -3,9 +3,9 @@
 # prints ((id)) for each note chosen (Tab picks several); ctrl-g opens the one under the cursor in the running door,
 # ctrl-d in the Outliner's Tree and Detail.
 # Which outline: the door's rule (--ws, EP0CH_WS, the folder's .ep0ch); from the door's ctrl+t, the draft's outline.
-# Each line is what's shown, then a tab and the note's id: tv shows and matches the part before the tab, and the
-# templates take the id from after it. The source's order is kept (no_sort, no frecency), as the git-log channel keeps
-# git's. (Not ansi = true: tv matches an ansi line whole, so typed letters would match the hidden id's hex.)
+# Each line is coloured as shown (ansi = true), with the note's id in an empty OSC 8 link after it (ep0ch:<id>): tv
+# drops escapes from what it shows and matches, so typing never matches the id's hex, and the templates take it from the
+# raw line. The source's order is kept (no_sort, no frecency), as the git-log channel keeps git's.
 [metadata]
 name = "ep0ch"
 description = "Notes in the outline as a tree, the newest, or all (ctrl-s): Enter puts ((id)), ctrl-g opens it in the door, ctrl-d in the Outliner's Detail"
@@ -17,17 +17,17 @@ command = [
   { name = "Recent", run = "ep0ch-tv recent" },
   { name = "All", run = "ep0ch-tv all" },
 ]
-display = "{split:\\t:0}"
+ansi = true
 no_sort = true
 frecency = false
-output = "(({split:\\t:-1}))"
+output = "(({replace:s/^.*\\]8;;ep0ch:([0-9A-Za-z_-]+).*$/$1/}))"
 
 [preview]
-command = "ep0ch-tv preview '{split:\\t:-1}'"
+command = "ep0ch-tv preview '{replace:s/^.*\\]8;;ep0ch:([0-9A-Za-z_-]+).*$/$1/}'"
 
 [ui.preview_panel]
 size = 60
-header = "{split:\\t:0|replace:s/^[│├└─… 0-9]*[├└]─ //|replace:s/  · .*$//|trim}"
+header = "{strip_ansi|replace:s/^[│├└─… 0-9]*[├└]─ //|replace:s/  · .*$//|trim}"
 
 [keybindings]
 ctrl-g = "actions:open"
@@ -35,10 +35,10 @@ ctrl-d = "actions:detail"
 
 [actions.open]
 description = "Open in the door (ep0ch open, as the agent television)"
-command = "ep0ch-tv open '{split:\\t:-1}'"
+command = "ep0ch-tv open '{replace:s/^.*\\]8;;ep0ch:([0-9A-Za-z_-]+).*$/$1/}'"
 mode = "fork"
 
 [actions.detail]
 description = "Show in the Outliner's Tree and its Detail"
-command = "ep0ch-tv detail '{split:\\t:-1}'"
+command = "ep0ch-tv detail '{replace:s/^.*\\]8;;ep0ch:([0-9A-Za-z_-]+).*$/$1/}'"
 mode = "fork"

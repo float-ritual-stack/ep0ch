@@ -6,7 +6,7 @@ imports this folder. Delete it and the door works as before; the next `ep0ch ins
 
 | Channel | What it lists | Enter prints | Other keys |
 |---|---|---|---|
-| `tv ep0ch` | the outline's notes, three ways (`ctrl-s` cycles): **Tree**, the outline depth first as Tree orders it, drawn with `├─ │ └─`, what a note is (work id, stage, type) beside it; **Recent**, the newest notes; **All**, every note, newest first, as `title · path` (tv matches on what's shown) | `((id))` for each note chosen | `ctrl-g` opens it in the running door; `ctrl-d` shows it in the Outliner's Tree and its Detail |
+| `tv ep0ch` | the outline's notes, three ways (`ctrl-s` cycles): **Tree**, the outline depth first as Tree orders it, drawn with `├─ │ └─`, each level's titles in their own colour and what a note is (work id, stage, type) dim beside it; **Recent**, the newest notes; **All**, every note, newest first, as `title · path` (tv matches on what's shown) | `((id))` for each note chosen | `ctrl-g` opens it in the running door; `ctrl-d` shows it in the Outliner's Tree and its Detail |
 | `tv ep0ch-files [<folder>]` | the files under `<folder>` (default: here), relative; a path holding a `'` or a `]` is left out (tv pastes fields into commands unescaped, and `]` would end the token) | `[file::<absolute path>]` for each file chosen | |
 | `tv ep0ch-outlines` | this machine's outlines, then each machine you've opened before, with its outlines | opens the door on it: `ep0ch --ws <name> [--machine <ssh-name>]` | |
 
@@ -93,11 +93,14 @@ code.
 - **Sources:** `ep0ch find --tree [<root>] --lines` prints the outline depth first, in the service's own order (its
   tree index, the walk Tree draws), each note with its depth and the `├─ │ └─` that draw its place (past ten levels the
   outer rails become `…<depth>`, so a deep title stays in view); `ep0ch find --recent --lines` and `ep0ch find --lines`
-  print the newest and every note as `id<TAB>title<TAB>path`. `ep0ch-tv` puts each as the line shown, a tab, then the
-  id: tv shows and matches the part before the tab (`display = "{split:\t:0}"`) and the templates take the id from after
-  it (`{split:\t:-1}`), as `git-log`'s take the hash with `{strip_ansi|split: :0}`. An outline reference needs the whole
-  id (a short one doesn't resolve), so it is whole and out of view. Not `ansi = true`, as `git-log` is: tv matches an
-  ansi line whole, so the letters you type would match the hidden ids' hex, and a `display` template can't colour. tv runs a source
+  print the newest and every note as `id<TAB>title<TAB>path`. `ep0ch-tv` colours them as git's `--color` colours a log
+  (`ansi = true`, `no_sort`, no frecency, as the `git-log` channel) and puts the note's id after the line in an empty
+  OSC 8 link (`ESC ]8;;ep0ch:<id> ESC \`). tv drops escapes from what it shows and from what it matches, so the id is
+  out of view and the letters you type never match its hex (an id after a tab, or past the right edge, would be
+  matched: tv matches an ansi line whole, and a `display` template can't colour). The templates take it from the raw
+  line with `{replace:s/^.*\]8;;ep0ch:([0-9A-Za-z_-]+).*$/$1/}`, where `git-log`'s take the hash with
+  `{strip_ansi|split: :0}` (`strip_ansi` drops the link with its id). An outline reference needs the whole id (a short
+  one doesn't resolve), so it is whole and out of view rather than shortened. tv runs a source
   once and filters as you type. `ep0ch find <words>` is the service's forgiving ranker (as `((` and Goto rank), for
   scripts.
 - **Preview width:** tv tells a preview command nothing about its panel (it runs the command with stdout to a pipe,

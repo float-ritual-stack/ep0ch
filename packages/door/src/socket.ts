@@ -609,10 +609,10 @@ export class SocketBoard implements Board {
   async index(): Promise<IndexBlock[]> {
     // Its own connection: the service answers one socket strictly in order, and this call takes seconds.
     const lane = new SocketBoard(this.path, 90_000, this.outline);
-    const r = await lane.request<{ blocks: any[]; physicalBlockIds?: string[] }>("tree.index", {}).finally(() => lane.close());
-    // The service's walk is `physicalBlockIds`; `blocks` is a map of them (and of a view's rows, which this asks for none of).
+    const r = await lane.request<{ blocks: any[]; physicalBlockIds: string[] }>("tree.index", {}).finally(() => lane.close());
+    // The service's walk is `physicalBlockIds`; `blocks` holds them by id (and a view's rows, which this asks for none of).
     const by = new Map(r.blocks.map(b => [b.id, b]));
-    const order: any[] = Array.isArray(r.physicalBlockIds) ? r.physicalBlockIds.map((id: string) => by.get(id)).filter(Boolean) : r.blocks;
+    const order: any[] = r.physicalBlockIds.map(id => by.get(id)).filter(Boolean);
     return order.map(b => ({
       id: b.id, parentId: b.parentId ?? null, position: b.position ?? 0, depth: b.depth ?? 0, title: String(b.preview ?? "").trim() || "(untitled)",
       author: b.actorId ?? b.author ?? "?", createdAt: Date.parse(b.createdAt), updatedAt: Date.parse(b.updatedAt),
