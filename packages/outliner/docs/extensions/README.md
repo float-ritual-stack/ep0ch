@@ -556,7 +556,7 @@ saves it like any built-in kind; the engine never switches on its name.
   "command": ["/home/you/.bun/bin/bun", "tile.ts"],
   "cwd": "/home/you/.config/pi-herdr-outliner/extensions/tarot",
   "host": "float-2",
-  "env": { "OUTLINER_EXTENSION": "tarot", "OUTLINER_OUTLINE": "pie", "OUTLINER_SOCKET_PATH": "/run/…/outliner.sock" },
+  "env": { "OUTLINER_EXTENSION": "tarot", "EP0CH_WS": "pie", "EP0CH_SOCKET": "/home/…/outlines/.host/host.sock" },
   "actions": [
     { "id": "draw", "name": "ext.tarot.draw", "label": "Draw a card", "on": "tile:reading", "key": "d", "effects": "read" },
     { "id": "keep", "name": "ext.tarot.keep", "label": "Keep the reading", "on": "block", "key": "k", "effects": "write" }
@@ -582,7 +582,7 @@ When `extensions.changed` arrives the door reads `tileKinds` again: a removed ex
 their kind is gone instead of running something else.
 
 **The program** draws itself in the tile's terminal and reaches the outline only through the service
-(`extensions.act` on `OUTLINER_SOCKET_PATH`, naming `OUTLINER_OUTLINE`), or through `EP0CH_CONTROL`
+(`extensions.act` on `EP0CH_SOCKET`, naming `EP0CH_WS`), or through `EP0CH_CONTROL`
 for door actions. So what it writes is attributed to the extension, exactly as when an agent runs the
 same action with no tile open.
 

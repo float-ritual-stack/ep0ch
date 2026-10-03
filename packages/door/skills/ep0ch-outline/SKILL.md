@@ -1,6 +1,6 @@
 ---
 name: ep0ch-outline
-description: Use when an agent works inside a person's pi-herdr-outliner outline on their behalf, shaping it to their needs while they work - writing or tidying notes, adding properties, making views, boards and pages, welcome notes and briefings, publishing a page, adding an extension for a need, or showing them something in their ep0ch door. Covers how they write (properties by placement, soft links, links not directions), outline_edit vs outline_patch, views and hubs, pages and [welcome::n], publishing and [publish::never], the four extension kinds, and where the live guides are.
+description: Use when an agent works inside a person's outline on their behalf, shaping it to their needs while they work - writing or tidying notes, adding properties, making views, boards and pages, welcome notes and briefings, publishing a page, adding an extension for a need, or showing them something in their ep0ch door. Covers how they write (properties by placement, soft links, links not directions), outline_edit vs outline_patch, views and hubs, pages and [welcome::n], publishing and [publish::never], the four extension kinds, and where the live guides are.
 ---
 
 # ep0ch-outline: working in someone's outline
@@ -14,8 +14,8 @@ For changing the code instead, use `ep0ch-core`. For driving their door (peek, a
 ## Start here
 
 1. **Know which outline.** In a door tile, the session's first prompt says where you are (`ep0ch where`). Else
-   `outliner outlines --json` (or `ep0ch outline list`) and name it: `--outline <name>`. Never write to
-   whichever outline a folder happened to guess.
+   `outliner outlines --json` (or `ep0ch outline list`) and name it: `--ws <name>`. Never write to
+   an outline you guessed: a folder names its outline only in its `.ep0ch`.
 2. **Load the outline's own guide** with the `outliner-documentation` skill's steps: find
    `system-doc=agent-documentation-guide`, then read it whole. It owns how documentation is structured there:
    hierarchy owns, references connect, transclusions compose, properties classify, virtual branches project.
@@ -35,9 +35,9 @@ In Claude with the Outliner's Claude mod: `outline_read`, `outline_find`, `outli
 the same operations as `outliner agent <operation> --json '{…}' --actor <id>`.
 
 - **The tools follow the folder Claude runs in.** They (and Recent Mentions and the links in replies) use the
-  outline its nearest bound folder names: a `client.json` (the choose-outline action) or an outline root the
-  host serves; `outliner bound-folder` says which. Installing the mod (`scripts/install-claude-mod.ts`) needs
-  no folder. In a folder bound to no outline they refuse and nothing is sent: bind it, don't work around it.
+  outline its nearest `.ep0ch` names (`ws = "<name>"`, written by `ep0ch init` or the Choose outline popup);
+  `outliner bound-folder` says which. Installing the mod (`scripts/install-claude-mod.ts`) needs no folder. In a
+  folder that names no outline they refuse and nothing is sent: name it (ask the person), don't work around it.
 
 - **Read before you write,** the whole text. A ref is an id, `((id))`, `[[page]]` or a Work ID, never a title.
 - With the raw CLI, `outliner read <id>` returns the title, not the text: read with `list --subtree <id>
@@ -116,7 +116,7 @@ Publish only when they asked for that page. `[publish::true]` (or `[publish::<sl
 its subtree at `/p/<address>` on their network. **An embed shows the embedded note's text whether or not
 that note is published:** lock private material first with `[publish::never]` (it and everything under it
 stay off every page, embed and link). `[publish::false]` just leaves one note out. Check with
-`outliner publish list --outline <name>`. The outline's guide has a Publishing section.
+`outliner --ws <name> publish list`. The outline's guide has a Publishing section.
 
 **Anyone with the link.** `[publish::public]` (or `[publish::public:<slug>]`) also opens the note to anyone
 who has its link, on the internet (claude.ai, ChatGPT and phones can fetch it). Use it only when they ask to
@@ -153,13 +153,13 @@ All four kinds work end to end in the door and the service (PIE-507, PIE-512): t
 `extensions.list` says, and an extension added or removed shows up or goes away without a restart.
 Everything an extension writes is attributed `author: agent`, `actorId: ext:<id>`, whoever asked.
 
-An extension is a folder: in the outline's own `extensions/<id>/` (it travels with that outline), or the
+An extension is a folder: in the outline's own `extensions/<id>/` (under `~/outlines/<name>/`; it travels with that outline), or the
 service host's user folder (`~/.config/pi-herdr-outliner/extensions/<id>/`, every outline): `extension.json`,
 the code, `config.json` (secrets as references, never literals). `outliner ext ls` lists them, `outliner ext add
 <id>` copies a built-in example (moon, horoscope, fancy-horror, tarot, tidy, jira) into the user folder, or with
 `--outline-folder <outline root>` into the outline's, `outliner ext remove <id>` takes it away (both apply
-without a restart), and `outliner ext act <id> <action> --block <id>` runs an action. The contract and worked examples are pi-herdr-outliner
-`docs/extensions/README.md`. Test one against a scratch service, never their live folder. For a need, pick the
+without a restart), and `outliner ext act <id> <action> --block <id>` runs an action. The contract and worked examples are packages/outliner
+`docs/extensions/README.md`. Test one against a scratch host, never their live folder. For a need, pick the
 smallest kind that serves it, copy the nearest built-in, and say what it runs and what it costs (`effects: read | spend | write`).
 
 ## Rules

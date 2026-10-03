@@ -663,7 +663,7 @@ supervise the outliner service; neither is a shortcut for this plan.
 
 ## Execution and completion requirements
 
-Use the existing [contribution verification rules](../CONTRIBUTING.md#verification).
+Use the existing [contribution verification rules](../../../CONTRIBUTING.md#verification).
 For each work package in this plan:
 
 1. Recheck the defect on the current branch. Record what is observed, inferred,
@@ -722,6 +722,6 @@ Unverified behavior and blocking reason:
 Merged-main verification (when claiming delivered):
 ```
 
-The root [AGENTS.md](../AGENTS.md) directs implementation agents to these
+The repository's [AGENTS.md](../../../AGENTS.md) directs implementation agents to these
 verification requirements. Keep completion evidence on the canonical work item;
 planned acceptance criteria are not evidence that an implementation exists.

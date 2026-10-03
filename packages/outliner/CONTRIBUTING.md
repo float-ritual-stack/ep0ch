@@ -1,18 +1,22 @@
-# Contributing
+# Contributing to the outliner
 
-Pi Herdr Outliner is developed through live dogfooding. Changes must preserve canonical data, make incomplete results explicit, and prove behavior in the actual Tree or Detail surface.
+The repository's [AGENTS.md](../../AGENTS.md) and [CONTRIBUTING.md](../../CONTRIBUTING.md) have the workflow,
+verification, review checklist, protocol and schema policy, branches and PRs. This file is the outliner's own:
+its source boundaries, correctness invariants and the Herdr live smoke test. The outliner is developed through
+live dogfooding: changes preserve canonical data, make incomplete results explicit, and prove behavior in the
+actual Tree or Detail surface.
 
 ## Setup
 
 ```sh
-bun install --frozen-lockfile
-herdr plugin link . --enabled
-bun run check
+bun install --frozen-lockfile          # at the repository root
+herdr plugin link packages/outliner --enabled
+bun run check                          # here, or at the root for every package
 bun test
 ```
 
 `herdr plugin link` does not execute manifest `[[build]]` commands. Install
-dependencies in the checkout first. Plugin pane entrypoints execute from the
+dependencies at the repository root first. Plugin pane entrypoints execute from the
 linked plugin root; pass the target project through `OUTLINER_WORKSPACE_ROOT`
 rather than overriding `herdr plugin pane open --cwd`.
 Outliner terminals report that project through OSC 7 so Herdr's global actions
@@ -34,9 +38,14 @@ herdr plugin action invoke open-here --plugin float.pi-outliner
 
 `ensure-detail` focuses or creates a Detail for the Tree selected from the
 invoking pane/tab. `open-here` always creates a new linked Tree/Detail browsing
-context beside the invoking pane. None of them creates an outline: a folder
-without a project `client.json` or database gets the **Choose outline** popup
-(`src/choose-outline-main.ts`), and only its **New outline here** creates one. Tree and Detail
+context beside the invoking pane. None of them guesses an outline: a folder
+that names none (no `EP0CH_WS`, no `.ep0ch` here or above) gets the **Choose
+outline** popup (`src/choose-outline-main.ts`), which picks one of the host's
+outlines, starts a new one (the folder's or repository's name offered) or imports
+an older database, and writes the folder's `.ep0ch`. A name a `.ep0ch` or
+`EP0CH_WS` gives that nobody has yet is created on open (like `tmux new -A`).
+The host itself runs as a service (systemd, launchd); the plugin's `service`
+pane runs it in a Herdr tab, opened only by hand. Tree and Detail
 `Option+Shift+Right` / `Option+Shift+Down` create ordinary independent right/down Details.
 All pane identities come from live Herdr topology rather than labels or
 remembered pane IDs.
@@ -90,12 +99,6 @@ source evidence or distinguish authored glyphs from controls.
   imports it to find tokens while it paints; no other file restates the key rule.
   Any change to what it matches bumps `PROTOCOL`. Where a token counts as a
   property (code, literal regions, scope) stays with `properties.preview`.
-- `src/schema.ts` owns the database's schema and its version (`SCHEMA_VERSION`,
-  stamped in `PRAGMA user_version`): every table, index and trigger is created
-  there, including those one subsystem uses alone, and `openSchema` creates a
-  new file or refuses another version. No other file creates or alters a table.
-  `src/outline-import.ts` (`outliner import`) is the one way to carry an outline
-  into a new database, table by table by column name.
 - `src/view-writes.ts` owns what a write into a saved view must change
   (`views.planWrite`): the property patch that moves a block into a view, or the
   properties, text or roadmap-item input a new block there is born with, and the
@@ -166,34 +169,38 @@ source evidence or distinguish authored glyphs from controls.
   `audienceIndex`), never a second publisher: add an audience rule there, and
   keep its stricter embed rule (`EmbedExpansion.shareable`) in `renderEmbed`.
 - `pi-extension/index.ts` is a host adapter, not a second implementation of the service.
-- `src/known-outlines.ts` owns whether a folder has an outline (`detectOutline`)
-  and the read-only list of outlines on this machine (`listKnownOutlines`,
-  reading each database's `outline.json`); the outline chooser, the launcher and
-  `outliner outlines` use it. `writeClientConfig` in `src/paths.ts`
-  is the one writer of a project `client.json`.
-- `resolveFolderOutline` in `src/paths.ts` owns the folder rule (nearest bound
-  folder, else repository name, else folder name, never `$HOME`, `/` or `/tmp`);
-  `resolveClientPaths` uses it and the door mirrors it, rather than guessing names
-  themselves. `boundFolderOf` (CLI: `outliner bound-folder`) is its rule 1 with
-  no guess, plus host-recorded roots: what follows a folder on its own (the
-  Claude mod) asks it, so an unbound folder reaches no outline. `resolveInvocationPaths` in `src/outline-host-client.ts` owns
-  which outline a Herdr action invoked from a pane uses (the pane's registered
-  outline first).
-- `src/outline-names.ts` owns every write of an outline's identity: the
-  descriptor, the `by-name/<name>.sock` link, `OUTLINER_OUTLINE` resolution for
-  the service, and `outline rename|set-root`. A name addresses an outline; the
-  hash directory is storage. Derive lists of outlines by scanning; never keep one.
-- `src/outline-host.ts` owns the outline host: one listener for every outline
-  in `<state root>/outlines/`, routing each connection by its first line's
-  `outline` to that outline's `OutlinerServer`, and the host requests
-  (`outlines.list|create|adopt`). `OutlinerServer` stays per outline and never
-  learns about other outlines; `paths.ts` owns the host's layout
-  (`outlineHostPaths`, `hostedOutlinePaths`). `src/outline-inbox.ts` starts an
-  outline's Inbox agent for both the host and the single-outline service.
-- `resolveClientPaths` in `src/paths.ts` is the one place a client decides its
-  endpoint and outline (env, binding, folder guess); `src/outline-host-client.ts`
-  is the client side of the host's own requests (`outlines.list|attach`). Every
-  pane opener forwards `OUTLINER_OUTLINE`; a new one must too.
+- outline-core's `outline-location.ts` owns which outline a client opens (PIE-530):
+  `--ws <name>`, then `EP0CH_WS`, then the nearest `.ep0ch` walking up (it holds
+  only `ws = "<name>"`), else unnamed with the init guess (the repository's or the
+  folder's name, never `$HOME`, `/` or `/tmp`), and the outlines folder's layout
+  (`<outlines>/<name>.sqlite`, `<name>/`, `.host/`, `.clients/`, `.deleted/`,
+  `.publish/`). The door applies the same function; nobody restates it.
+- `src/paths.ts` applies it with the disk and the environment:
+  `resolveClientPaths` is the one place a client decides its socket (EP0CH_SOCKET,
+  else this machine's host) and outline; `boundFolderOf` (CLI: `outliner
+  bound-folder`) is the nearest `.ep0ch` and never a guess, so what follows a
+  folder on its own (the Claude mod) reaches no outline from an unnamed folder;
+  `writeDotEp0ch` is the one writer of a `.ep0ch`. Every pane opener forwards
+  `OUTLINE_ENV` (`EP0CH_OUTLINES`, `EP0CH_SOCKET`, `EP0CH_WS`); a new one must too.
+  `resolveInvocationPaths` in `src/outline-host-client.ts` owns which outline a
+  Herdr action invoked from a pane uses (the pane's registered outline first).
+- `src/outline-host.ts` owns the outline host: one listener
+  (`<outlines>/.host/host.sock`, its lock beside it) for every `<name>.sqlite`
+  in the outlines folder, routing each connection by its first line's `outline`
+  to that outline's `OutlinerServer`, and the host requests
+  (`outlines.list|create|import|attach|close|delete|pane`). An outline's folder
+  `<name>/` holds its side files and is the root its relative file links resolve
+  against. `OutlinerServer` stays per outline and never learns about other
+  outlines. Derive lists of outlines by scanning the folder; never keep one.
+  `src/outline-inbox.ts` starts an outline's Inbox agent.
+- `src/outline-chooser.ts` and `src/choose-outline-main.ts` are the Herdr popup
+  for a folder that names no outline: pick, new or import, then `.ep0ch`.
+- `src/schema.ts` owns the database's schema and its version (`SCHEMA_VERSION`,
+  stamped in `PRAGMA user_version`): every table, index and trigger is created
+  there, and `openSchema` creates a new file or refuses another version. No other
+  file creates or alters a table. `src/outline-import.ts` (`outliner import`,
+  the host's `outlines.import`) is the one way to carry an outline into a new
+  database, table by table by column name.
 - `src/draft-patch.ts` owns `draft.patch` (PIE-501), compare-and-swap on a span
   of a note's text by an agent while the person may be typing: the two
   policies (`edit`, the default, is `droppedLinkedStructure` from
@@ -244,18 +251,18 @@ source evidence or distinguish authored glyphs from controls.
 
 Reuse these seams. Do not add a second property parser, context resolver, query path, authoritative block cache, or independent persistence layer. A bounded disposable Detail preview cache may retain service-owned revisions but never authorizes writes.
 
-Before adding a feature, look for the renderer, component or action that already does it; every PR review checks this in its [architecture pass](#architecture-pass).
+Before adding a feature, look for the renderer, component or action that already does it; every PR review checks this in its [architecture pass](../../CONTRIBUTING.md#1-architecture-pass).
 
 ## Workboard lifecycle
 
 ### Connecting to the running service
 
 Resolve the endpoint through `resolveClientPaths()` in `src/paths.ts`, so the
-CLI and agent requests use the same project configuration and environment.
-`bun src/cli.ts outlines` lists every outline in the state root by name, with
-its status, root, by-name socket and storage directory (`--json` for agents).
-While a service runs, `<state root>/by-name/<name>.sock` reaches it.
-Remote clients connect to the configured SSH-forwarded socket; see
+CLI and agent requests use the same outline and environment (`--ws`, `EP0CH_WS`,
+the folder's `.ep0ch`). `bun src/cli.ts outlines` lists the host's outlines by
+name, open or not (`--json` for agents); `bun src/cli.ts doctor` reports the
+folder, the outlines folder, the socket and the outline it resolves, read-only.
+A remote client sets `EP0CH_SOCKET` to an SSH-forwarded host socket; see
 [remote client mode](README.md#remote-client-mode).
 
 An agent sandbox can expose a socket file while a connection to its host
@@ -278,11 +285,10 @@ restarts, socket removal, and writable database access are not connection probes
 
 If a Herdr launch fails, Outliner reports the cause with a Herdr notification
 (when notification delivery is enabled) and retains the most recent failure in
-`service-startup-error.log` or `open-startup-error.log` in the resolved workspace
-state directory. Opening never creates that directory: when it does not exist
-yet, `open-startup-error.log` goes to the state root (`OUTLINER_STATE_DIR`), or
-only to stderr and the notification when the state root is missing too. These files include a timestamp; an old error is not evidence
-that the current process failed. Action output is also available through
+`<outlines>/.host/open-startup-error.log` when that folder exists (opening never
+creates it), else only on stderr and in the notification. The host's own
+failures are on its stderr (the journal under systemd). The log includes a
+timestamp; an old error is not evidence that the current process failed. Action output is also available through
 `herdr plugin log list --plugin float.pi-outliner --limit 3`.
 
 Bookmarks query, limit and summary columns are editable view preferences.
@@ -292,32 +298,18 @@ They do not change bookmark ownership and must not prevent service startup.
 
 Before planning, changing roadmap state or reporting delivery, read the live
 **How this workboard works** block `d5b3e557-a166-4c50-baad-7a0ed8db8fe6` through
-the configured Outliner service. It owns the working flow and scope decisions.
+the outline host. It owns the working flow and scope decisions.
 The [roadmap operations reference](pi-extension/skills/outliner-workflow/references/roadmap-items.md)
 documents creation, batch membership, lifecycle transitions, ranking and migration.
 Keep current task status and verification evidence on the canonical work item.
-
-## Branches and commits
-
-Use one focused branch per roadmap item:
-
-```text
-feature/<behavior>
-fix/<bug>
-docs/<topic>
-```
-
-Keep commits reviewable. Do not include runtime databases, sockets, logs, session exports, screenshots, or unrelated local command files.
-
-Prefer clean cutovers: migrate every caller, test, and import, then remove obsolete code. Do not leave compatibility aliases unless an external consumer requires one.
 
 ## Correctness invariants
 
 ### Canonical service
 
-- Only the service process opens writable SQLite. E2E oracles may use read-only connections for assertions and consistent backups.
+- Only the host process opens writable SQLite. E2E oracles may use read-only connections for assertions and consistent backups.
 - Tree, Detail, CLI, and agent tools are clients.
-- Workspace root resolution must be identical across processes.
+- Outline resolution must be identical across processes (outline-core's `whichOutline`).
 - Restarts reconstruct from service snapshots and events.
 
 ### Queries
@@ -366,32 +358,15 @@ Prefer clean cutovers: migrate every caller, test, and import, then remove obsol
 
 ## Verification
 
-### Static and behavioral checks
-
-Run the complete suite once after the implementation is stable:
-
-```sh
-bun run check
-bun test
-```
-
-During development, focused tests are appropriate. Final proof must include the full suite.
-
-Tests should defend observable contracts:
-
-- canonical graph and cycle invariants,
-- optimistic conflicts,
-- query completeness,
-- virtual occurrence behavior,
-- terminal width/security,
-- cursor/selection transitions, and
-- restart reconstruction.
-
-Avoid tests that merely inspect source text or implementation plumbing.
+The checks and the full suites are in the repository's
+[Verification](../../CONTRIBUTING.md#verification). The Herdr journeys
+(`bun run test:e2e:*`) run a private Herdr session of their own
+(`test/e2e/herdr-runner.ts`): its own outlines folder, the host in a tab of a
+private workspace, the project's outline named by its `.ep0ch`.
 
 ### Live smoke test
 
-Changes to Tree, Detail, pane orchestration, or the service require a live Herdr smoke test.
+Changes to Tree, Detail, pane orchestration, or the host require a live Herdr smoke test.
 
 For Detail-only feature work, restart Detail on the feature branch and exercise the changed path. Cancel any destructive editing smoke without saving.
 
@@ -402,7 +377,7 @@ panes in this order:
 
 1. Detail
 2. Tree
-3. Service
+3. The outline host (`systemctl --user restart outliner-host`, or its launchd job)
 
 Then invoke:
 
@@ -410,7 +385,7 @@ Then invoke:
 herdr plugin action invoke open --plugin float.pi-outliner
 ```
 
-Read returned pane IDs from the plugin log. Wait for the service output `herdr_registry_ready`. Verify Tree and Detail against the merged main checkout.
+Read returned pane IDs from the plugin log. Wait for the host's output `herdr_registry_ready`. Verify Tree and Detail against the merged main checkout.
 
 Do not reuse remembered pane IDs after closing panes.
 
@@ -448,120 +423,9 @@ Report implemented, exercised (with the actual journey), merged, deployed and
 owner-accepted separately. Lead with what the user can now do and remaining
 limits; test counts support that claim. A private merged-main run is not evidence
 that the shared session or another device runs that version. Apply task transitions
-through the live workboard guide referenced by AGENTS.md; link new ideas separately
+through the live workboard guide referenced by the root AGENTS.md; link new ideas separately
 from the scope whose acceptance is being recorded.
 Keep exact source revisions, protocol, artifacts and untested paths in the proof.
-
-## Pull requests
-
-A PR should state:
-
-- the observable problem,
-- the chosen behavior and invariants,
-- preserved contracts,
-- exact verification commands/results, and
-- live pane proof when applicable.
-
-### Architecture pass
-
-Every review, by the author before opening the PR and by the reviewer, checks
-that the change used the architecture before checking anything else:
-
-- **Reuse:** it builds on the existing renderers, components and actions instead
-  of a parallel implementation: PreviewRegions
-  ([src/detail-preview-regions.ts](src/detail-preview-regions.ts)), the property
-  inspector ([src/property-inspector.ts](src/property-inspector.ts)), reference
-  completion ([src/reference-completion.ts](src/reference-completion.ts)), saved-view
-  reads ([src/saved-view-read.ts](src/saved-view-read.ts), `views.read`) and the
-  action list ([src/outliner-actions.ts](src/outliner-actions.ts)). See also
-  [Source boundaries](#source-boundaries).
-- **Boundary:** the service owns truth and meaning; clients own presentation. A
-  client asks the service what a view contains, what a property means or what
-  changed; it does not re-derive it.
-- **Protocol:** any wire change bumps `PROTOCOL`, as in
-  [Protocol and schema changes](#protocol-and-schema-changes).
-- **Did you really?** List each shared part the brief or PR said it would use,
-  and check the diff actually uses it. Name any place where it built its own
-  instead: a second renderer or parser, a client re-deriving what the service
-  owns, a tool path that skips the shared action list, a switch on a kind's name.
-  Expect at least one; fix it or say why not. The same rule is in ep0ch-door's
-  review checklist and the `ep0ch-core` skill.
-- **Docs:** a new shared part is named in the docs (Source boundaries or
-  [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)) so the next change finds it.
-
-A parallel implementation needs a reason written in the PR.
-
-Address actionable review comments with minimal fixes. Reply with the validating evidence and resolve the review thread. Re-run affected checks after the fix and wait for follow-up review before merging.
-
-Before patching a finding, fetch and inspect the current remote head and any bot
-patch already in flight. Assign one active writer for that finding; defer
-overlapping automation where supported. If automation cannot be paused, reconcile
-its result before another patch. After a remote change, verify the combined source
-and update the PR's evidence and description to the exact revision being reviewed.
-
-CodeRabbit’s generic docstring warning is advisory in this repository. Add comments only when they explain a non-obvious invariant; do not add weightless comments to satisfy a percentage.
-
-## Protocol and schema changes
-
-Client and service must speak the same protocol. There is one number,
-`PROTOCOL` in outline-core (`packages/outline-core/src/protocol.ts`); `ping`
-reports the service's as `protocolVersion`, and every client refuses a service
-whose number differs from its own, older or newer, with words that name the
-side to update (`protocolMismatch`). The outliner applies it in
-[src/service-compatibility.ts](src/service-compatibility.ts) (the Herdr launcher
-and panes wait through `waitForCompatibleService`); the door in
-`SocketBoard.info()`. There are no capability lists and no minimums: the
-long-running host and a remote door on another checkout are the case the one
-check is for.
-
-Bump `PROTOCOL` with:
-
-- any wire change: a new action, a new or changed request or response field, a
-  changed meaning, a removal;
-- any change to what outline-core's shared modules match or compute (the
-  property grammar, the draft.patch compare, the search matcher), since both
-  sides must agree on them.
-
-Both sides import outline-core; never copy a shared module into a client. Add
-round-trip coverage for the change, and restart the complete topology (the
-outline host, then its clients) when it ships.
-
-`src/schema.ts` owns the database's one schema (PIE-530): the CREATE statements
-of the current version and nothing else, stamped in `PRAGMA user_version`. A new,
-empty file gets them; any other database whose version isn't `SCHEMA_VERSION` is
-refused at open, with its version and the command that upgrades it. The runtime
-never inspects an old shape and never migrates.
-
-If the SQLite schema changes:
-
-1. Change the CREATE statements in `src/schema.ts` and bump `SCHEMA_VERSION`.
-2. Write a one-off script, `scripts/migrations/<NNNN>-<what>.ts`, that takes a
-   database from the previous version to the new one (on a file no service is
-   serving) and stamps it. `0001-stamp.ts` is the model: it checks the shape
-   before it stamps.
-3. Back up, then run it by hand on the outlines that matter (on float-2 and the
-   MacBook). Name the script in `openSchema`'s refusal for the old version.
-4. Delete the script once those outlines are upgraded; git keeps it.
-5. For a change too large for a script, make a fresh database and import
-   (`outliner import <old.sqlite> <new.sqlite>`, `src/outline-import.ts`), which
-   reads tables by column name.
-
-If property-parser behavior changes, bump `PROPERTY_PARSER_VERSION`: the store
-parses every block again on its next open (`block_properties` and the page
-addresses declared there are derived), without touching block text or timestamps.
-
-## Documentation
-
-Update documentation when a change affects:
-
-- installation or startup,
-- keyboard controls,
-- protocol/schema invariants,
-- process boundaries,
-- runtime paths, or
-- shipped versus planned behavior.
-
-Do not duplicate the full roadmap into Markdown. The workboard is canonical; repository docs describe durable architecture and workflow.
 
 ## Historical and future-port notes
 

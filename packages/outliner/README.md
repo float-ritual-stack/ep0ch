@@ -1,10 +1,12 @@
-# Pi Herdr Outliner
+# The outliner (Pi Herdr Outliner)
 
-A persistent, local-first block outliner shared by a person and coding agents.
+A persistent, local-first block outliner shared by a person and coding agents. It is `packages/outliner` of the
+`ep0ch` repository: the outline host, its Herdr clients, the CLI and the publisher. The door
+(`packages/door`) is the other client; the shared pure code is `packages/outline-core`.
 
-Pi Herdr Outliner runs as a SQLite service with two terminal clients. One
-[outline host](#the-outline-host) per machine serves every outline by
-[name](#outline-names) (`pie`, `jam-shelf`); a folder binds to one outline.
+It runs as a SQLite service with two terminal clients. One [outline host](#the-outline-host) per machine
+serves every outline in `~/outlines` by [name](#which-outline-a-client-opens) (`pie`, `jam-shelf`); a folder
+names its outline in a `.ep0ch`.
 
 - **Tree** — navigate, create, edit, move, filter, and project blocks.
 - **Detail** — read Markdown, inspect referenced files, annotate line ranges, and edit long-form block text.
@@ -29,8 +31,8 @@ addressable as `[[outliner-tour]]`.
 | Tune the AI's instructions | [Editable prompt files](#editing-ai-prompts) |
 | Share notes and track work with an agent | [Agent tools, stages, and batches](#agent-integration) |
 | Put a note or an attached page at a URL | [Publishing blocks](#publishing-blocks) |
-| Open a named outline from any folder | [Outline names](#outline-names) and `bun run cli outlines` |
-| Let Claude Code see, open and edit notes | The [Claude Code mod](claude-mod/README.md): Recent Mentions, clickable references, `show`, workboard and `outline_*` tools, and `door_*` tools in ep0ch-door tiles |
+| Open a named outline from any folder | [Which outline a client opens](#which-outline-a-client-opens) and `bun run cli outlines` |
+| Let Claude Code see, open and edit notes | The [Claude Code mod](../claude-mod/README.md): Recent Mentions, clickable references, `show`, workboard and `outline_*` tools, and `door_*` tools in ep0ch-door tiles |
 
 The [combined Tree/Detail surface](#combined-tree-and-detail-experiment) and
 [automatic Inbox editor](#automatic-inbox-agent) are shipped experiments. The
@@ -102,8 +104,8 @@ No shared user host is used.
 ## Current capabilities
 
 - SQLite-backed hierarchical blocks with stable UUIDs, sibling order, authors, timestamps, and one canonical graph per outline.
-- One outline host per user and machine serves any number of named outlines on one socket. Folders bind to an outline through `client.json` or a folder-name guess; opening from Herdr in an unbound folder shows **Choose outline** and never creates one by itself. See [The outline host](#the-outline-host).
-- Versioned JSON-lines RPC over a Unix socket. `ping` reports the service protocol (`PROTOCOL` in outline-core); a client refuses a service on any other number and names the side to update (see [Protocol and schema changes](CONTRIBUTING.md#protocol-and-schema-changes)).
+- One outline host per user and machine serves every outline in `~/outlines` (`<name>.sqlite`) on one socket. Which one a client opens is `--ws`, `EP0CH_WS` or the nearest `.ep0ch`; opening from Herdr in a folder that names none shows **Choose outline** (pick, new or import) and never guesses. See [The outline host](#the-outline-host).
+- Versioned JSON-lines RPC over a Unix socket. `ping` reports the service protocol (`PROTOCOL` in outline-core); a client refuses a service on any other number and names the side to update (see [Protocol and schema](../../CONTRIBUTING.md#protocol-and-schema)).
 - Reactive canonical content/view broadcasts, per-process Tree/Detail/observer registration with operation protection, exact-client UI commands, and source-aware `preview | open | reveal` navigation.
 - Durable resources have UUID identities independent of blocks and mutable locators. Provider-qualified Sources bind filesystem roots or remote namespaces; overlapping Sources remain distinct, relocations preserve Resource IDs, provider revisions remain explicit, and capability resolution reports blockers across provider, credentials, workspace policy, host, and connectivity. Registered Detail hosts declare Surface, Placement, renderer, capability, credential, and connectivity facts; open/describe/refresh deterministically negotiate cached Markdown, embedded-browser, native-document, metadata, or external-link representations without changing Resource identity. PDF is a media type reachable through filesystem and web Sources: one captured binary snapshot can produce both native PDF and page-aware Markdown representations through versioned replaceable extractors.
 - Each Tree owns its cursor, occurrence selection, filter, viewport, collapsed rows, multiline expansion, explicit-navigation history, and browsing context; moving a standalone Tree updates its own local Preview; composed Tree updates its embedded Detail Preview, while Current stays in place.
@@ -111,7 +113,7 @@ No shared user host is used.
 - Exact block and fragment references using `((block-id))` and `((block-id^fragment-id))`, resolved to display titles in read mode while raw text remains editable.
 - Unique normalized symbolic addresses from explicit `[page::address]` declarations and Work IDs, with aliases, explicit removal, bounded completion, dangling links, and transactional create-on-follow. Editing the `[page::…]` text renames the page (the old address stays an alias) or, when the token is deleted, frees it.
 - Literal regions (`<!-- literal -->` … `<!-- /literal -->`) show property and hashtag syntax as text without indexing it.
-- Workspace-scoped monotonic Work-ID allocation adopts a clean existing prefix or requires explicit configuration, optimistically assigns the next immutable ID, and never reuses reserved or purged identifiers.
+- Outline-scoped monotonic Work-ID allocation requires an explicitly configured prefix, optimistically assigns the next immutable ID, and never reuses reserved or purged identifiers.
 - Atomic canonical roadmap-item creation discovers the single project work queue, validates UUID relationships and complete routing metadata, allocates the immutable Work ID, and returns matching virtual-branch memberships in one transaction.
 - Plain-clickable Work IDs, canonical UUIDs, exact references, and `[[address]]` links inside Tree/Detail, with OSC 8 `pi-outliner://` links retained for external terminal interoperability.
 - Tree can project a selected block's Outlinks, Resources and Backlinks as read-only generated branches. Enumeration never creates pages, Resources, Sources, or provider traffic. Explicit activation follows or creates unresolved ordinary `[[page]]` links and human-authored `[file::…]`, `[web::…]`, `[jira::…]`, and `[app::…]` Resources; unresolved Work IDs stay unavailable.
@@ -323,13 +325,12 @@ Use `--yes` for a non-interactive install with existing or default shortcuts,
 `sh install.sh --help` for all options.
 
 When Claude Code is installed, an interactive run also offers the
-[Claude Code mod](claude-mod/README.md). It updates the `env` block of
-`~/.claude/settings.json`: function hooks on, and the installed `claude-mod/`
-in `CLAUDE_CODE_PLUGIN_DIRS` in place of any other copy. The file is backed up
-first. There is no workspace to configure: each Claude session follows its
-folder, and the nearest folder bound to an outline (its `client.json`, or an
-outline root the host serves) gets its Recent Mentions, links and tools. A
-session in an unbound folder feeds nothing. Pass `--claude-mod` to install it
+[Claude Code mod](../claude-mod/README.md). It updates the `env` block of
+`~/.claude/settings.json`: function hooks on, and `packages/claude-mod` beside
+the plugin in `CLAUDE_CODE_PLUGIN_DIRS` in place of any other copy. The file is
+backed up first. There is nothing to configure: each Claude session follows its
+folder, and the outline its nearest `.ep0ch` names gets its Recent Mentions,
+links and tools. A session in a folder that names none feeds nothing. Pass `--claude-mod` to install it
 without prompting, `--claude-exclude /absolute/folder` (repeatable) to opt a
 folder out, `--claude-workspace /absolute/project` (repeatable) for strict
 mode (only those folders feed, bound or not), or `--no-claude-mod` to skip it.
@@ -337,7 +338,7 @@ mode (only those folders feed, bound or not), or `--no-claude-mod` to skip it.
 ### Install manually from GitHub
 
 ```sh
-herdr plugin install float-ritual-stack/pi-herdr-outliner --ref main
+herdr plugin install float-ritual-stack/ep0ch/packages/outliner --ref main
 herdr plugin list --plugin float.pi-outliner
 ```
 
@@ -350,13 +351,13 @@ you need a reproducible revision.
 ### Link a development checkout
 
 ```sh
-git clone https://github.com/float-ritual-stack/pi-herdr-outliner.git
-cd pi-herdr-outliner
+git clone https://github.com/float-ritual-stack/ep0ch.git
+cd ep0ch
 bun install --frozen-lockfile
-herdr plugin link . --enabled
+herdr plugin link packages/outliner --enabled
 ```
 
-Run these commands from the repository root. `plugin link` registers the
+Run these commands from the repository root (the plugin root is `packages/outliner`). `plugin link` registers the
 working directory but does not run manifest build commands. A GitHub install
 cannot replace a locally linked copy; run
 `herdr plugin unlink float.pi-outliner` before switching that installation to
@@ -364,9 +365,9 @@ the managed GitHub source.
 
 The plugin manifest is [`herdr-plugin.toml`](herdr-plugin.toml). Runtime
 entrypoints execute from the installed or linked plugin root. The invoking
-project is passed separately through `OUTLINER_WORKSPACE_ROOT`, so opening the
-Outliner from another project does not change where Herdr resolves
-`src/*.ts`.
+folder is passed separately through `OUTLINER_WORKSPACE_ROOT` (and its outline as
+`EP0CH_WS`), so opening the Outliner from another project does not change where
+Herdr resolves `src/*.ts`.
 
 Manifest commands launch Bun through `scripts/run-bun.sh`. The launcher checks
 `BUN_INSTALL`, the server's inherited `PATH`, and the standard
@@ -399,7 +400,7 @@ herdr plugin action invoke open --plugin float.pi-outliner
 
 The manifest exposes three workspace/tab/pane actions:
 
-- `open` preserves one **Outliner Service** tab. With no live Tree it opens an
+- `open`: with no live Tree it opens an
   **Outliner** Tree and **Outliner Detail** beside the invoking pane with one
   fresh browsing context, then focuses the Tree. Otherwise it selects the Tree
   by the invoking pane, then an unambiguous Tree in the current tab, workspace,
@@ -412,27 +413,26 @@ The manifest exposes three workspace/tab/pane actions:
   the current tab. The pair shares a fresh ephemeral browsing context and the
   new Tree receives focus.
 
-Opening never creates an outline by itself. A folder has an outline when it has
-a project `client.json` (local or remote; a local one still counts under
-`OUTLINER_REMOTE=0`), an existing database in its state directory, an explicit
-`OUTLINER_CONFIG_PATH`, or remote mode set through `OUTLINER_REMOTE=1`. Otherwise every
-action above (and `prefix+u`) shows a **Choose outline** popup instead. It says
-which folder was resolved and from where (the invoking pane's directory or the
-Herdr workspace root), lists the outlines this machine knows about (state
-directories that hold a database, and project configs that point at a socket)
-with running or stopped status, and offers **New outline here**. Use ↑/↓ or
-j/k and Enter, or click a row; the wheel scrolls and Esc closes without creating
-anything. Choosing an outline writes the folder's `client.json` in remote mode
-with that outline's socket, so the next open in that folder connects directly;
-a stopped local outline whose folder is known is started first, both when you
-choose it and on later opens (after a restart, say). If its folder is unknown the
-open says so instead of waiting on the socket. The chooser never writes through
-an explicit `OUTLINER_CONFIG_PATH`. A Tree or Detail pane stands for the project
-it reports, not the plugin checkout it runs from. **New outline
-here** writes a local `client.json` and only then creates the database. The Pi
-extension's background `service-only` start refuses a folder without an outline
-rather than creating one; `/outliner` there reports that the chooser is open and
-connects to the chosen outline on the next call.
+Opening never guesses an outline. The folder's outline is `EP0CH_WS`, else the
+nearest `.ep0ch` from the folder up (see [Which outline a client opens](#which-outline-a-client-opens));
+a name nobody has yet is created on open. A folder that names none gets a
+**Choose outline** popup instead, from every action above (and `prefix+u`). It
+says which folder was resolved and from where (the invoking pane's directory or
+the Herdr workspace root), lists the host's outlines, and offers **New outline**
+(the folder's or its repository's name, editable) and **Import a database** (a
+new outline from an older `.sqlite`; the file is only read). Use ↑/↓ or j/k and
+Enter, or click a row; while typing a name or a path, Enter does it and Esc goes
+back; the wheel scrolls and Esc closes without creating anything. A choice writes
+`.ep0ch` in the guessed folder (the repository root, or the folder), so the next
+open there is direct; a folder too broad to name an outline after (`$HOME`, `/tmp`)
+opens the choice this time only. A Tree or Detail pane stands for the folder it
+reports, not the plugin checkout it runs from. The outline host is a service of
+its own (systemd, launchd); with none answering, opening says how to start it.
+The plugin's `service` pane runs the host in a Herdr tab when opened by hand
+(`herdr plugin pane open --plugin float.pi-outliner --entrypoint service`). The
+Pi extension's background `service-only` start refuses a folder without an
+outline rather than creating one; `/outliner` there reports that the chooser is
+open and connects to the chosen outline on the next call.
 
 Invoke any action as
 `herdr plugin action invoke <action> --plugin float.pi-outliner`.
@@ -722,8 +722,8 @@ of the service (`blocks.query`, `pages.resolve`, `files.read` and the content
 event feed) and listens on `127.0.0.1` only; exposing it is Tailscale's job.
 
 ```sh
-bun run cli publish serve --outline pie --port 8790 --base-path /pub [--root ~/writing]… [--max-bytes 1048576] [--allow-host NAME]… [--artifact-cache DIR] [--public-port 8791 --public-url https://HOST.ts.net:8443/share]
-bun run cli publish list --outline pie [--public-url URL] [--json]
+bun run cli publish serve --ws pie --port 8790 --base-path /pub [--root ~/writing]… [--max-bytes 1048576] [--allow-host NAME]… [--artifact-cache DIR] [--public-port 8791 --public-url https://HOST.ts.net:8443/share]
+bun run cli publish list --ws pie [--public-url URL] [--json]
 ```
 
 **Publish a block** by giving it a `[publish::…]` property:
@@ -910,7 +910,7 @@ listener to this machine's tailnet address instead of 127.0.0.1 and proxy to it:
 
 ```sh
 # on the publishing machine (ExecStart or the shell)
-outliner publish serve --outline pie --port 8790 --base-path /pub \
+outliner publish serve --ws pie --port 8790 --base-path /pub \
   --public-port 8791 --public-bind "$(tailscale ip -4)" --public-url https://share.example.org/share
 ```
 
@@ -954,7 +954,7 @@ above.
   `ARTIFACT_PACKAGES` (`src/publish-artifacts.ts`).
 - Packages are fetched the first time an artifact needs them, with `bun add
   --exact --ignore-scripts` into the artifact cache (`--artifact-cache`, default
-  `<state root>/publish/artifacts`, i.e. `$OUTLINER_STATE_DIR/publish/artifacts`).
+  `<outlines>/.publish/artifacts`, i.e. `~/outlines/.publish/artifacts`).
   Compiled bundles are cached there by a hash of the source, the shims and the
   Bun version (`builds/`, the 200 newest up to 256 MiB kept) and in memory, so
   editing the file compiles it again and an unchanged file is served from the
@@ -1020,11 +1020,11 @@ Wants=outliner-host.service
 
 [Service]
 Type=simple
-WorkingDirectory=%h/projects/pi-herdr-outliner
-Environment=OUTLINER_STATE_DIR=%h/.local/state/pi-herdr-outliner
+WorkingDirectory=%h/projects/ep0ch/packages/outliner
+Environment=EP0CH_OUTLINES=%h/outlines
 Environment=PATH=%h/.bun/bin:/usr/local/bin:/usr/bin:/bin
-UnsetEnvironment=OUTLINER_SOCKET_PATH OUTLINER_WORKSPACE_ROOT
-ExecStart=%h/.bun/bin/bun src/cli.ts publish serve --outline pie --port 8790 --base-path /pub
+UnsetEnvironment=EP0CH_SOCKET OUTLINER_WORKSPACE_ROOT
+ExecStart=%h/.bun/bin/bun src/cli.ts publish serve --ws pie --port 8790 --base-path /pub
 Restart=always
 RestartSec=3
 NoNewPrivileges=yes
@@ -1872,7 +1872,7 @@ is such a date; anything else is a `note`. The stage is the source's own, else
 the stage of the block that supplied the kind. The mapping is the data table `DEFAULT_BACKLINK_FACET_RULES` in
 `src/backlink-facets.ts`, not a list of workspace types.
 
-Work IDs are allocated through the service rather than by scanning in a client. `work-ids.status` reports the configured prefix, observed legacy prefixes, and next ID; `work-ids.configure` explicitly chooses the workspace prefix; `work-ids.allocate` optimistically appends the next ID to an opted-in canonical block or atomically replaces its single configured `[work-id::<PREFIX>-XXX]` self-assignment marker. A clean existing prefix is adopted automatically, while ambiguous legacy prefixes remain visible but unconfigured. Canonical manual IDs for the configured prefix advance the same allocator; malformed, noncanonical, or out-of-prefix property values remain inert text metadata. The reservation ledger retains owning UUIDs after purge.
+Work IDs are allocated through the service rather than by scanning in a client. `work-ids.status` reports the configured prefix, observed legacy prefixes, and next ID; `work-ids.configure` explicitly chooses the workspace prefix; `work-ids.allocate` optimistically appends the next ID to an opted-in canonical block or atomically replaces its single configured `[work-id::<PREFIX>-XXX]` self-assignment marker. A prefix is never adopted automatically: observed prefixes remain visible but unconfigured until `work-ids.configure` sets one. Canonical manual IDs for the configured prefix advance the same allocator; malformed, noncanonical, or out-of-prefix property values remain inert text metadata. The reservation ledger retains owning UUIDs after purge.
 
 For a human writing notes, the intended promotion flow is: write freely, decide a block has become durable work, then ask the agent to assign it a Work ID. The agent calls `outliner_work_id` rather than guessing a number. Typing `PIE-NNN` or `[[PIE-NNN]]` only references an existing assignment; it never allocates one.
 
@@ -1987,11 +1987,11 @@ while ordinary virtual-occurrence ranks provide optional manual order.
 
 ### Workspace and connection diagnosis
 
-In Tree, open `?` and choose **Workspace and connection** for a read-only report of the invoking workspace, project config, endpoint, protocol and storage paths. Or run `bun src/cli.ts doctor` from the plugin checkout with `OUTLINER_WORKSPACE_ROOT` set to the workspace to inspect (`--json` for structured output). The command works when startup fails and exits nonzero for configuration, transport or protocol errors.
+In Tree, open `?` and choose **Workspace and connection** for a read-only report of the invoking folder, the outlines folder, the outline it names and how, the endpoint, protocol and storage paths. Or run `bun src/cli.ts doctor` from the plugin checkout with `OUTLINER_WORKSPACE_ROOT` set to the folder to inspect (`--json` for structured output). The command works when startup fails and exits nonzero for configuration, transport or protocol errors.
 
-The report groups Client, Connection, Storage and Backup information. Drag to copy visible text, or click a field's **Copy** action for its complete value. `Tab` / `Shift+Tab` focus fields and `c` copies the focused value; `?` lists actions and configured bindings. Arrow/Page keys scroll, and `Esc` returns to Tree. Copy values omit labels, existence notes and visual wrap breaks. Copying never changes the connection or protects navigation. “Sent to terminal clipboard” reports the request; clipboard acceptance still depends on the terminal/SSH host.
+The report groups Client, Connection and Service information. Drag to copy visible text, or click a field's **Copy** action for its complete value. `Tab` / `Shift+Tab` focus fields and `c` copies the focused value; `?` lists actions and configured bindings. Arrow/Page keys scroll, and `Esc` returns to Tree. Copy values omit labels, existence notes and visual wrap breaks. Copying never changes the connection or protects navigation. “Sent to terminal clipboard” reports the request; clipboard acceptance still depends on the terminal/SSH host.
 
-For local connections the report gives the exact state/database paths and the presence of a conventional backup directory. Manual backup locations are not registered and may be elsewhere. For remote connections it distinguishes the forwarded client socket from the service host and canonical storage reported by that service. Older services may not report storage identity. A missing local database can mean either a new workspace or moved storage: diagnosis does not initialize it, restore backups, migrate data, or start a service. A failed remote connection names the socket and suggests checking its SSH tunnel and canonical service.
+For this machine's host the report gives the outline's database path (`<outlines>/<name>.sqlite`) and whether it is there. For a remote host (`EP0CH_SOCKET`) it distinguishes the forwarded client socket from the host and the storage that host reports. A folder that names no outline is reported with the name init would offer. Diagnosis never creates an outline, writes a `.ep0ch`, restores backups, migrates data, or starts a host. A failed remote connection names the socket and suggests checking its SSH tunnel and canonical service.
 
 ### Quick capture Inbox
 
@@ -2172,9 +2172,8 @@ Inbox effort routing (PIE-331) keeps coherent captures on Jev-only keep/metadata
 
 ### Editing AI prompts
 
-The service keeps editable prompt files in its workspace state directory:
-`~/.local/state/pi-herdr-outliner/<workspace-key>/prompts/` (or beneath the configured
-`OUTLINER_STATE_DIR`). They are seeded once from the versioned `prompts/` defaults.
+The host keeps editable prompt files in each outline's own folder:
+`~/outlines/<name>/prompts/` (beneath `EP0CH_OUTLINES` when set). They are seeded once from the versioned `prompts/` defaults.
 Restarting or upgrading does not replace existing files. `OUTLINER_PROMPT_DIR`
 selects another complete directory; explicit directories are never populated or
 silently mixed with defaults.
@@ -2429,128 +2428,72 @@ The same bounded context budget can include up to five distinct blocks recently 
 
 ## Persistence and isolation
 
-By default, runtime state lives at:
+Every outline lives in one folder, the outlines folder (`EP0CH_OUTLINES`, default `~/outlines`):
 
 ```text
-~/.local/state/pi-herdr-outliner/<workspace-hash>/
+~/outlines/
+  pie.sqlite            the outline (its WAL and owner-lock files beside it)
+  pie/                  its own folder: prompts/, assistant-sessions/, extensions/, and the files it links relatively
+  .host/                the outline host's socket and lock (mode 0700)
+  .clients/pie/         a client's own files for pie (editor drafts)
+  .deleted/             where `outline delete` moves an outline; nothing is erased
+  .publish/             the publisher's artifact cache
 ```
 
-Each resolved workspace root receives a distinct 12-character SHA-256 key containing:
-
-- `outliner.sqlite`
-- `outliner.sock`
-- remembered plugin-pane metadata
-
-Override the root with `OUTLINER_WORKSPACE_ROOT` and the base state directory with `OUTLINER_STATE_DIR`.
-Only the service and an explicit **New outline here** create this directory;
-opening a folder without an outline does not.
+An outline is found by its name, never by a path or a hash. Opening a folder that names no outline creates
+nothing.
 
 ### The outline host
 
-One host per user and machine serves any number of outlines on one socket,
-`<state root>/outliner.sock`, by name. Outlines live in `<state root>/outlines/`
-as `<name>.sqlite` (or a symlink to an adopted database), with a created
-outline's side files in `<name>/`. See
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#the-outline-host).
+One host per user and machine serves every outline in the outlines folder on one socket,
+`<outlines>/.host/host.sock`, by name. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#the-outline-host).
 
 ```sh
-OUTLINER_DEFAULT_OUTLINE=jam-shelf bun run host   # requests without `outline` go to jam-shelf
-bun run cli outline create jam-shelf               # the only way an outline is born
-bun run cli outline adopt /backups/fig-crate/outliner.sqlite fig-crate --root /work/fig-crate   # serve it where it lies
-bun run cli outlines                               # lists through the host when one runs
+bun run host                                       # serves ~/outlines (EP0CH_OUTLINES)
+bun run cli outline create jam-shelf               # an empty outline
+bun run cli outline import /backups/old.sqlite fig-crate   # a new outline from an older database (read only)
+bun run cli init                                   # name this folder's outline (.ep0ch), creating it
+bun run cli outlines                               # the host's outlines
 ```
 
-A request names its outline with `"outline": "<name>"`; without it, it reaches
-the default. Clients pick their outline like `herdr --session <name>`:
-`OUTLINER_OUTLINE=<name>` (or the CLI's global `outliner --outline <name> <command>`),
-else one folder rule (`resolveFolderOutline` in `src/paths.ts`):
+A request names its outline with `"outline": "<name>"`. `EP0CH_DEFAULT_WS=<name>` gives the host a default for
+requests that name none: it is for tests and scripts that hold one outline; people's clients always name theirs.
+Outlines open on their first request; one that fails to open (a database on another schema version, one another
+process holds) fails alone and is tried again next time.
 
-1. the nearest bound folder, walking up: its `client.json`
-   (`{ "workspaceRoot": "/work/fred", "outline": "fred" }`, or a local or remote choice);
-2. otherwise, inside a git work tree, a guess: the repository root's name;
-3. otherwise a guess: the folder's own name;
-4. never a guess for `$HOME`, `/` or a folder directly under `/` (`/tmp`, `/opt`):
-   those need an explicit name, and Ctrl-b u shows the chooser there.
+### Which outline a client opens
 
-A guess applies once a host is set up (its `outlines/` folder exists), even
-while it restarts, and never takes an outline that records another folder.
-Ctrl-b u opens the guessed outline, creating it on first open ("Created outline
-jam-shelf") with that folder as its root; **Outliner: choose this folder's
-outline** switches a folder to another, and its "New outline here" takes a free
-`-2` suffix rather than attach. Herdr actions invoked from an outliner pane stay
-on that pane's outline. Reads (`list`, `read`, `doctor`) never create an
-outline. The Claude mod follows a session's folder by rule 1 only (or an
-outline root the host records, never one as broad as `$HOME`; `outliner
-bound-folder` says which): it never takes a guess, so an unbound folder feeds
-no outline. Ctrl-b u's guess records its folder as the outline's root, which
-binds it from then on. The single-outline service (`bun run server`)
-does not start for a folder that belongs to the host.
+One rule for every client (PIE-530, outline-core's `src/outline-location.ts`; the door applies the same
+function), first match wins:
 
-### Outline names
+1. `--ws <name>` (the CLI's global `outliner --ws <name> <command>`, `ep0ch --ws <name>`), from anywhere;
+2. `EP0CH_WS=<name>`, for shells and scripts (and what every pane opener passes on);
+3. the nearest `.ep0ch` walking up from the folder (like `.git` or `.nvmrc`). It holds only a name,
+   `ws = "fred"`, never a path or a hash, so moving or renaming the folder changes nothing;
+4. nothing: the folder names no outline. Ctrl-b u shows **Choose outline** (pick one of the host's, start a new
+   one with the folder's or its repository's name offered, or import an older database; each writes `.ep0ch`),
+   `ep0ch` asks the same on its terminal, and a read (`list`, `read`, `doctor`) says what to run. `$HOME`, `/`
+   and folders right under `/` are never offered as a name.
 
-A name is the way to address an outline; the hash directory is only where it is
-stored. Each database describes itself in `outline.json` beside
-`outliner.sqlite`:
+A name a `.ep0ch` or `EP0CH_WS` gives that nobody has yet is created when a session opens it (Ctrl-b u, the
+door: like `tmux new -A`, "Created outline jam-shelf"); reads never create one. **Outliner: choose this folder's
+outline** switches a folder's `.ep0ch`. Herdr actions invoked from an outliner pane stay on that pane's outline.
+The Claude mod follows a session's folder by its `.ep0ch` only (`outliner bound-folder` says which), so a
+folder that names none feeds no outline.
 
-```json
-{ "name": "jam-shelf", "root": "/work/jam-shelf", "host": "float-box", "created": "…", "updated": "…" }
-```
+### Schema
 
-`name` is a slug (`[a-z0-9][a-z0-9-]{0,31}`), unique within the state root, and
-`label` is optional. The service writes the descriptor on start (atomically)
-and records the folder it serves as `root`. A new outline is named by
-`OUTLINER_OUTLINE_NAME`, or else by its folder's basename as a slug, with a
-numeric suffix (`jam-shelf-2`) when another outline already has it. An existing
-descriptor keeps its name; only `outline rename` changes it. Nobody edits a
-registry of outlines: every list is a scan of the state root.
-
-While it runs, the service keeps `<state root>/by-name/<name>.sock`, a symlink
-to its real socket, and removes it on a clean stop. `ping` reports
-`outline: { name, descriptorPath, byNameSocket }`.
-`outline` is absent from a service running unnamed, and
-each path is absent when that part could not be written.
-
-Names never take a service down. If the descriptor or the link cannot be
-written, the service logs why (`Outline name: …` on stderr) and keeps serving on
-its hash socket. An unreadable or empty `outline.json` is left in place and
-shown as invalid by `outlines`; the service takes its name from a `by-name`
-link that points at it, or otherwise runs unnamed until the file is fixed or
-removed. `OUTLINER_OUTLINE_NAME` never renames an existing outline; the service
-warns when it differs. Only folders named like a storage key (12 lowercase hex
-characters) are scanned, so a backup beside them is not an outline. The service
-refuses to start only when another running service has its name, or when a new
-outline would take a name another outline holds; a stopped copy carrying the
-name this outline already has is a warning.
-
-```sh
-bun run cli outlines            # every outline: name, status, root, address, storage, aliases
-bun run cli outlines --json     # the same for agents; creates nothing
-bun run cli outline rename jam-shelf fig-crate        # only while stopped
-bun run cli outline set-root jam-shelf /work/moved/jam-shelf
-```
-
-Both commands accept a storage key (the 12-hex folder name) in place of the
-name, and refuse a name that more than one stored outline carries, listing
-their storage keys.
-
-`outlines` includes databases that have no descriptor yet (they get one the
-next time their service starts) and folders whose client config points at an
-outline, as aliases.
-
-**Moving an outline's folder.** Stop the service, move the folder, then run
-`outline set-root <name> <new folder>`; storage stays where it is. The new
-folder hashes to a different state directory, so start the service by name:
-`OUTLINER_OUTLINE=<name> bun run server` selects the database whose descriptor
-has that name and serves its recorded root. Starting by folder at the new root
-is refused rather than creating a second, empty outline. Clients still find a
-local outline by its folder's hash; until they resolve names, point a moved
-folder's client config at the by-name socket.
+The store's schema is the CREATE statements of one version (`src/schema.ts`), stamped in
+`PRAGMA user_version`. A database on any other version is refused at open, with its version and the command
+that upgrades it; the runtime never migrates. A schema change ships with a one-off script in
+`scripts/migrations/`, run by hand on the outlines that matter; `outliner import` carries what matters into a
+fresh database instead (see the repository's [CONTRIBUTING.md](../../CONTRIBUTING.md#protocol-and-schema)).
 
 Browsing contexts, Detail targets/history, Tree presentation state, and live
 Herdr client identities are intentionally ephemeral and are not stored in
 `outliner.sqlite`. Canonical content remains shared and durable.
 
-Back up `outliner.sqlite` before experimenting with migrations. Do not copy a live database without also accounting for SQLite WAL files.
+Back up `<name>.sqlite` before experimenting with a migration (`sqlite3 ~/outlines/<name>.sqlite ".backup <file>"`). Do not copy a live database without also accounting for SQLite WAL files.
 
 A truly empty database receives the default Workspace roots plus one canonical
 Documentation hub. Seed version 5 keeps the agent documentation guide and adds
@@ -2558,7 +2501,7 @@ Documentation hub. Seed version 5 keeps the agent documentation guide and adds
 prompts, work stages and batches, and the combined-surface experiment. The seed
 is ordinary, editable workspace content and runs only once; restarts and package
 upgrades never overwrite local guide changes.
-The schema remains migration-owned rather than being distributed as a prebuilt
+The schema is created by the store (`src/schema.ts`) rather than distributed as a prebuilt
 SQLite database.
 
 `bun run test:e2e:documentation` opens that actual seed in an isolated Herdr
@@ -2568,54 +2511,30 @@ navigates the projected example notes. It does not touch your workspace.
 ### Remote client mode
 
 A workstation can render Tree and Detail panes locally while another host owns
-the canonical service and SQLite database. Forward the service's Unix socket
-over SSH:
+the outline host and its databases. Forward the host's Unix socket over SSH:
 
 ```sshconfig
 Host float-box-outliner
   HostName float-box
   User evan
-  LocalForward /absolute/local/float-box.sock /absolute/remote/outliner.sock
+  LocalForward /absolute/local/float-box.sock /absolute/remote/outlines/.host/host.sock
   StreamLocalBindUnlink yes
   ExitOnForwardFailure yes
 ```
 
-Keep that tunnel running with `ssh -NT float-box-outliner`. Client endpoint
-selection is project-scoped. From the invoking project, print its config path:
+Keep that tunnel running with `ssh -NT float-box-outliner`, and point clients at it with `EP0CH_SOCKET`:
 
 ```sh
-bun -e 'import { resolveClientConfigPath } from "/path/to/pi-herdr-outliner/src/paths.ts"; console.log(resolveClientConfigPath({ ...process.env, OUTLINER_WORKSPACE_ROOT: process.cwd() }))'
+EP0CH_SOCKET=/absolute/local/float-box.sock EP0CH_WS=pie herdr plugin action invoke open --plugin float.pi-outliner
+EP0CH_SOCKET=/absolute/local/float-box.sock ep0ch --ws pie
 ```
 
-The path has the form
-`~/.config/pi-herdr-outliner/projects/<workspace-name>--<stable-hash>/client.json`.
-Create it with the local invoking workspace identity and forwarded socket:
+The outline is named the same way as on the host's own machine (`--ws`, `EP0CH_WS`, a `.ep0ch`); the remote host
+is asked for it. Every pane an opener starts gets the same `EP0CH_SOCKET` and `EP0CH_WS`.
 
-```json
-{
-  "workspaceRoot": "/absolute/local/project",
-  "mode": "remote",
-  "socketPath": "/absolute/local/float-box.sock",
-  "label": "float-box:/absolute/remote/project"
-}
-```
-
-Projects without this file use their local per-project database when one
-exists; opening one with neither shows the outline chooser described under
-[Open the workspace](#open-the-workspace) rather than creating a database. The chooser
-writes this same file when you pick another outline.
-`OUTLINER_CONFIG_PATH` explicitly selects another config. For one-off shells,
-`OUTLINER_REMOTE=1` with an absolute `OUTLINER_SOCKET_PATH` overrides project
-configuration; `OUTLINER_REMOTE=0` forces local mode.
-
-The former machine-global `~/.config/pi-herdr-outliner/client.json` is not
-applied automatically. If it remains and no project config exists, startup
-reports a migration error with the derived destination path. Move the file,
-replace `"remote": true` with `"mode": "remote"`, and retain `socketPath`.
-
-Install or link the same Outliner revision on both hosts, start the service only
-on the canonical host, then invoke `open` normally on the workstation. Remote
-mode never creates a local service pane or database. Tree and Detail register
+Install or link the same revision on both machines (client and host must be on the same `PROTOCOL`), run the
+host only on the canonical machine, then invoke `open` on the workstation. Remote mode never creates a local
+host or database. Tree and Detail register
 their workstation hostname and live Herdr topology with the canonical service,
 so routing remains local to that host even when pane IDs overlap.
 
@@ -2658,7 +2577,7 @@ frames and forwarded request counts. Parse plus projection p95 must stay below
 100/250 ms at 1,000/5,000 blocks, and mutation-to-frame p95 below one second.
 These are same-host measurements; they do not establish SSH or bandwidth latency.
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the workboard lifecycle, verification rules, and PR/restart workflow. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for service boundaries, protocol flow, persistence, projections, and failure behavior.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the outliner's source boundaries, invariants and live smoke test, and the repository's [CONTRIBUTING.md](../../CONTRIBUTING.md) for verification and the PR workflow. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for service boundaries, protocol flow, persistence, projections, and failure behavior.
 
 ### Real Herdr keyboard E2E
 
@@ -2945,7 +2864,7 @@ Other hosts can post the same `{workspaceRoot, agent, sessionId, messageId, text
 contract using `mentions.ingest`, or JSON stdin to `bun src/cli.ts mentions ingest`.
 Repeated message identity with identical text is idempotent; different text under
 the same identity is rejected. No Pi or Claude adapter is installed automatically;
-for Claude Code, load the mod in [`claude-mod/`](claude-mod/README.md).
+for Claude Code, load the mod in [`claude-mod/`](../claude-mod/README.md).
 
 
 ### Conditional virtual-branch disclosure

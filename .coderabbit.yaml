@@ -17,4 +17,5 @@ reviews:
   path_filters:
     - "!bun.lock"
     - "!**/*.lock"
-    - "!docs/review/**"
+    - "!packages/*/docs/review/**"
+    - "!packages/*/docs/research/**"

@@ -16,7 +16,7 @@
 //   says why; with EP0CH_HERDR_SCOPED=1 it gets its own pane, name and workspace, suffixed with a hash of that
 //   state (`doorScope`). It never attaches to, or types into, the person's `door-claude` (a test door once
 //   inherited EP0CH_DAILY_AGENT from ~/.bashrc and did). A door that sets neither (only a scratch EP0CH_SOCKET)
-//   is the person's to this rule: AGENTS.md says to set both.
+//   is the person's to this rule: the repository's AGENTS.md says to set both.
 //
 // The agent's pane gets what an agent in a terminal tile gets (`agentVars`, src/desk/agent-env.ts): EP0CH_TILE,
 // EP0CH_TILE_ID, EP0CH_IN_DOOR, EP0CH_NEST (the tile's, then `herdr:<pane label>`: src/nest.ts), the door's

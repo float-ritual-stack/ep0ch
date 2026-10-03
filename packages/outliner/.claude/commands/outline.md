@@ -11,7 +11,8 @@ Plugin invocation:
 Use the invocation's `log_id` to find that exact entry in `herdr plugin log list --plugin float.pi-outliner`. If it is still running, check again. Read the successful log's JSON `stdout`; never guess pane or client IDs.
 
 After the action succeeds:
-- If `stdout` contains `outlinerPane` and `detailPane`, verify both with `herdr pane read` and verify `servicePane` with `herdr pane list`.
+- If `stdout` contains `outlinerPane` and `detailPane`, verify both with `herdr pane read`. `outline` names the outline they opened on (`outlineCreated` says whether the open made it).
+- If `stdout` has `"outline": "missing"`, the folder names no outline: the Choose outline popup is open; report that and let the person pick.
 - If `stdout` contains `focusedClientId`, verify the focused **Outliner** pane with `herdr pane list`.
 - Report whether the action opened a new pair or focused one live Tree.
 

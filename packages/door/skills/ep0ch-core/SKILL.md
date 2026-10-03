@@ -1,14 +1,17 @@
 ---
 name: ep0ch-core
-description: Use when changing the code of ep0ch-door or pi-herdr-outliner (the outline service, Tree/Detail, the Claude mod, the door): before planning a feature, while building it, when testing it against a scratch service or in a real terminal pane, when reviewing a PR, and when merging and deploying. Covers where the architecture and reuse maps are, the layout words, actions as the only UI path, two clients over one outline, scratch-only testing, the real-pane recipe, the review checklist and the deploy steps.
+description: Use when changing the code of the ep0ch repository (outline-core, the outliner's host, Tree/Detail and CLI, the Claude mod, the door): before planning a feature, while building it, when testing it against a scratch host or in a real terminal pane, when reviewing a PR, and when merging and deploying. Covers where the architecture and reuse maps are, the layout words, actions as the only UI path, two clients over one outline, scratch-only testing, the real-pane recipe, the review checklist and the deploy steps.
 ---
 
 # ep0ch-core: changing the door or the outliner
 
-Two repos, one system. **pi-herdr-outliner** is the outline service (it owns truth and meaning), its Herdr
-clients Tree, Detail and Preview, the CLI, the publisher and the Claude mod. **ep0ch-door** is the terminal
-door people use every day: screens built from tiles, all over one note surface. This skill is a map. The
-rules live in the repos' docs; read the ones a change touches, and trust them over this page.
+One repo, `ep0ch`, four packages. **packages/outliner** is the outline host (it owns truth and meaning), its
+Herdr clients Tree, Detail and Preview, the CLI and the publisher. **packages/door** is the terminal door people
+use every day: screens built from tiles, all over one note surface. **packages/outline-core** is the pure code
+both import (the property grammar, the draft.patch compare, the search matcher, `PROTOCOL` and the wire types,
+which outline a client opens). **packages/claude-mod** is the Claude Code mod. This skill is a map. The rules
+live in the repository's `AGENTS.md` and `CONTRIBUTING.md` and the packages' docs; read the ones a change
+touches, and trust them over this page.
 
 For working *in* an outline for someone, rather than on the code, use `ep0ch-outline`. For driving a door,
 use `ep0ch`.
@@ -17,15 +20,16 @@ use `ep0ch`.
 
 | Before you… | Read |
 |---|---|
-| plan any door feature | ep0ch-door `docs/UI-GRAMMAR.md`, [Before adding a feature](../../docs/UI-GRAMMAR.md#before-adding-a-feature) (the reuse map) and the glossary (§1) |
-| plan any outliner feature | pi-herdr-outliner `CONTRIBUTING.md`, "Source boundaries" and "Architecture pass"; `docs/ARCHITECTURE.md` |
-| touch the agent interface | ep0ch-door `docs/AGENT-INTERFACE.md`; the Claude mod's `claude-mod/README.md` |
-| change workboard state | the live **How this workboard works** block (pi-herdr-outliner `AGENTS.md` names it) and the `outliner-workflow` skill's roadmap reference |
-| build or change an extension | pi-herdr-outliner `docs/extensions/README.md` (the contract, the four kinds, `@name` agents, worked examples); the door draws what `extensions.list` gives (`src/extensions.ts`) |
-| change the protocol | pi-herdr-outliner `CONTRIBUTING.md`, "Protocol and schema changes": any wire change bumps `PROTOCOL` in outline-core |
-| need the whole picture | the architecture map, `docs/architecture/map.json` in the door: every structure in both repos, its ladder position and its open questions; `bun scripts/architecture-map.ts` checks its citations and draws it |
+| plan any door feature | packages/door `docs/UI-GRAMMAR.md`, [Before adding a feature](../../docs/UI-GRAMMAR.md#before-adding-a-feature) (the reuse map) and the glossary (§1) |
+| plan any outliner feature | packages/outliner `CONTRIBUTING.md`, "Source boundaries"; the root `CONTRIBUTING.md`, "Architecture pass"; `docs/ARCHITECTURE.md` |
+| touch the agent interface | packages/door `docs/AGENT-INTERFACE.md`; `packages/claude-mod/README.md` |
+| change workboard state | the live **How this workboard works** block (the root `AGENTS.md` names it) and the `outliner-workflow` skill's roadmap reference |
+| build or change an extension | packages/outliner `docs/extensions/README.md` (the contract, the four kinds, `@name` agents, worked examples); the door draws what `extensions.list` gives (`src/extensions.ts`) |
+| change the protocol or the schema | the root `AGENTS.md`, "Schema and protocol: one version", and `CONTRIBUTING.md`, "Protocol and schema": any wire change bumps `PROTOCOL` in outline-core; a schema change bumps `SCHEMA_VERSION` with a one-off script in `packages/outliner/scripts/migrations/` |
+| change which outline a client opens | outline-core `src/outline-location.ts` (PIE-530): one rule for every client |
+| need the whole picture | the architecture map, `docs/architecture/map.json` in the door: every structure in the door and the outliner, its ladder position and its open questions; `bun scripts/architecture-map.ts` checks its citations and draws it |
 
-Then both repos' `AGENTS.md` and `CONTRIBUTING.md`. They are short and they are the contract.
+Then the root `AGENTS.md` and `CONTRIBUTING.md`. They are short and they are the contract.
 
 ## Rules that shape every change
 
@@ -106,30 +110,35 @@ Then both repos' `AGENTS.md` and `CONTRIBUTING.md`. They are short and they are 
 
 Never write to a real outline or touch the person's door. Their door may be on the default control socket.
 
-- **Tests:** `EP0CH_OUTLINER=<pi-herdr-outliner checkout> bun test` in the door; each test starts its own
-  service with `Scratch` (`test/scratch.ts`). In the outliner, `bun run check` and `bun test`. Fixtures are
-  fictional: made-up notes, names and ids.
+- **Tests:** `bun run check` and `bun run test` at the root, or `bun test` in a package. The door's tests start
+  their own outline host with `Scratch` or `ScratchHost` (`test/scratch.ts`, which finds `../outliner`;
+  `EP0CH_OUTLINER` overrides it): a scratch outlines folder, one outline `scratch` as the host's default. Fixtures
+  are fictional: made-up notes, names and ids.
 - **Snapshots:** `bun scripts/snap.ts <scenario>` writes PNGs to `out/`. Open them; a snapshot nobody looked
-  at isn't evidence. Writing scenarios need `EP0CH_SOCKET=<scratch socket>` and `EP0CH_SNAP_WRITES=1`.
+  at isn't evidence. Writing scenarios need `EP0CH_SOCKET=<scratch host socket>` and `EP0CH_SNAP_WRITES=1`.
 - **Your own door:** set `EP0CH_STATE` and `EP0CH_CONTROL` under a temp folder and pass the same
   `EP0CH_CONTROL` to every `peek`, `act`, `snap` or `open`. `EP0CH_STATE` moves everything else the door
-  writes (layouts, drafts, marks, the media cache).
-- **Real outline shapes without real writes:** `ep0ch try --ws <root> --copy --outliner <checkout>` serves a
-  private copy of that outline's database from its own service, deleted on exit. Never copy its content
-  into fixtures, commits or PRs; report counts and shapes only.
+  writes (layouts, drafts, marks, the media cache). Point it at a scratch host with `EP0CH_OUTLINES=<temp
+  outlines folder>` and `--ws <name>`, never at `~/outlines`.
+- **A scratch host by hand:** `EP0CH_OUTLINES=$d/outlines EP0CH_DEFAULT_WS=garden bun packages/outliner/src/host-main.ts`,
+  then `EP0CH_OUTLINES=$d/outlines ep0ch init garden` (or `ep0ch outline create garden`). Its socket is
+  `$d/outlines/.host/host.sock`.
+- **Real outline shapes without real writes:** `ep0ch try --ws <name> --copy` serves a private copy of that
+  outline's database from a host of its own, deleted on exit. Never copy its content into fixtures, commits or
+  PRs; report counts and shapes only.
 
 ### The real-pane pass
 
 When interaction changes, drive the real door in a terminal pane, by keys and by mouse:
 
 ```sh
-# in the door checkout (or your worktree of it)
+# in packages/door (of the live checkout, or your worktree of it)
 mkdir -p -m 700 /tmp/claude-$(id -u); d=$(mktemp -d /tmp/claude-$(id -u)/e5-XXXX); chmod 700 "$d"  # short: a socket path over ~104 bytes fails
 # scripts/test-door-env.sh unsets every inherited EP0CH_* (EP0CH_DAILY_AGENT, EP0CH_HERDR_AGENT_CMD, EP0CH_DAILY_CWD,
 # EP0CH_LANDING, EP0CH_NOW_PAGE by name too) inside the session, sets EP0CH_DAILY_AGENT=sh and EP0CH_DAEMON=0 (the door
 # in the pane, not a session that outlives it), then what you pass (EP0CH_DAEMON=1 to test a session).
 tmux new-session -d -s try -x 160 -y 48 \
-  "scripts/test-door-env.sh EP0CH_STATE=$d/s scripts/try-it.sh --showcase --outliner <pi-herdr-outliner checkout>"
+  "scripts/test-door-env.sh EP0CH_STATE=$d/s scripts/try-it.sh --showcase"   # its own host, outline `showcase`
 C=$d/s/showcase/door/door.sock                  # the showcase sets its own EP0CH_CONTROL; it prints it
 EP0CH_CONTROL=$C bun src/main.ts peek           # the screen as text, plus state
 EP0CH_CONTROL=$C bun src/main.ts act layout.get --as <your-id>
@@ -138,7 +147,7 @@ tmux send-keys -t try -l $'\e[<0;6;7M'; tmux send-keys -t try -l $'\e[<0;6;7m'  
 tmux send-keys -t try -l $'\e[<65;6;7M'                       # wheel down (64 is up)
 tmux capture-pane -p -t try                                   # or: bun src/main.ts snap out.png
 EP0CH_STATE=$d/s ep0ch session end --yes      # a session (EP0CH_DAEMON=1) and its terminal host outlive the pane: end yours
-tmux kill-session -t try; rm -rf "$d"           # then check no server-main.ts (or `session serve`, `session pty-host`) of yours is left
+tmux kill-session -t try; rm -rf "$d"           # then check no host-main.ts (or `session serve`, `session pty-host`) of yours is left
 ```
 
 - **Never the person's agent.** Start every test door through `scripts/test-door-env.sh` (or
@@ -154,16 +163,18 @@ tmux kill-session -t try; rm -rf "$d"           # then check no server-main.ts (
   add 32 to the button. In Herdr, `herdr pane send-text <pane> …` sends the same bytes.
 - Check results with `peek`, `layout.get` or `view.get` on *your* control socket, and with your eyes on
   `capture-pane` or `snap`. Injected keys don't prove a physical keyboard, ssh or macOS path: say so.
-- For an outliner Tree/Detail change, CONTRIBUTING's "Live smoke test" and "User-workflow walkthrough"
-  are the equivalent.
+- For an outliner Tree/Detail change, packages/outliner `CONTRIBUTING.md`'s "Live smoke test" and
+  "User-workflow walkthrough" are the equivalent. Tree (`src/outliner.ts`) and Detail (`src/detail-main.ts`)
+  also run in a plain tmux pane against a scratch host (`EP0CH_OUTLINES`, `EP0CH_WS`); the Herdr journeys
+  (`bun run test:e2e:*`) run a private Herdr session of their own.
 
 Verify the whole experience yourself, the way the person would use it daily, not one acceptance check at a
 time. Hand back one thing to try, never a checklist of increments.
 
 ## Review
 
-Both repos' CONTRIBUTING has the checklist, architecture pass first. Door: ep0ch-door `CONTRIBUTING.md`,
-[Review checklist](../../CONTRIBUTING.md#review-checklist). The question that catches the most:
+The root `CONTRIBUTING.md` has the checklist, architecture pass first
+([Review checklist](../../../../CONTRIBUTING.md#review-checklist)). The question that catches the most:
 
 - **Did you really?** List each shared part the brief or PR said it would use and check the diff actually
   uses it. Name every place it built its own instead (a second drawer, a screen-only layout, a key with no
@@ -171,12 +182,12 @@ Both repos' CONTRIBUTING has the checklist, architecture pass first. Door: ep0ch
 
 After a big push or two, review the system as a whole: one lens per reviewer (architecture and reuse,
 portability and runtime, daily-driver interaction), reporting, not fixing. Then refresh the docs (README and
-CHANGELOG, the demo hubs, the fresh-workspace seed, the showcase and skills, the regenerated architecture map).
+CHANGELOG, the demo hubs, the fresh-outline seed, the showcase and skills, the regenerated architecture map).
 
 ## Branches, PRs, merging
 
-- Work in a worktree (`git worktree add -b <branch> ../<repo>-<slug> origin/main`). Never switch branches in
-  the live checkouts: they are what runs.
+- Work in a worktree (`git worktree add -b <branch> ../ep0ch-<slug> origin/main`). Never switch branches in
+  the live checkout: it is what runs.
 - One coherent PR per change. A feature split across agents uses a feature branch: slices branch from it
   (`<feature>/<slice>`) and open PRs into it; one PR goes from the feature branch to main.
 - Paid review runs on PRs into main. Put `[skip review]` in the title of docs-only, mechanical or small PRs
@@ -187,16 +198,20 @@ CHANGELOG, the demo hubs, the fresh-workspace seed, the showcase and skills, the
 
 ## Deploy and back up
 
-- **Back up before touching a live database** by hand: `outliner outlines --json` names each outline's
-  storage; `sqlite3 <db> ".backup ~/backups/<name>-<UTC stamp>.sqlite"`. A bad `update` is only recoverable
-  from a backup: the service keeps no earlier text.
+- **Back up before touching a live database** by hand: every outline is `~/outlines/<name>.sqlite`;
+  `sqlite3 ~/outlines/<name>.sqlite ".backup ~/backups/<name>-<UTC stamp>.sqlite"`. A bad `update` is only
+  recoverable from a backup: the host keeps no earlier text.
 - **`ep0ch doctor`** (read-only) says what's behind. **`ep0ch install`** prints the plan; `--apply` backs up
-  every outline to `~/backups/ep0ch/`, fast-forwards both checkouts, links `ep0ch`, and restarts the outline
-  host when the plugin changed. See the door README, "Install and update".
-- **After an outliner merge,** restart the outline host on new code (`systemctl --user restart
+  every outline to `~/backups/ep0ch/`, fast-forwards the checkout, links `ep0ch`, and restarts the outline
+  host when its code changed. See the door README, "Install and update".
+- **A schema change** ships with its one-off script: back up, stop the host, run
+  `bun packages/outliner/scripts/migrations/<NNNN>-*.ts ~/outlines/<name>.sqlite` on each outline that matters,
+  start the host. A database on another version is refused at open, never migrated by the runtime.
+- **After an outliner or outline-core merge,** restart the outline host on new code (`systemctl --user restart
   outliner-host.service` on Linux, `launchctl kickstart -k gui/$(id -u)/io.ep0ch.outliner-host` on macOS).
   Doors and panes reconnect by themselves. A Claude started before the mod changed has old tools until it
   restarts (`ep0ch act agent.restart` for the door's agent).
-- **After a door merge,** pull the live checkout; `ep0ch` links to it. Restart doors that should run the
+- **After a door merge,** pull the live checkout; `ep0ch` links to its packages/door. A `PROTOCOL` bump needs
+  the host and the doors (and a remote door on another machine) on the same code. Restart doors that should run the
   new code; say what you restarted and how to reopen it.
 - Report implemented, exercised, merged, deployed and accepted separately.

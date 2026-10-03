@@ -29,7 +29,7 @@ terminal tile's program gets `EP0CH_IN_DOOR=1` too, so that shell doesn't open a
 The words used here for screens, tiles, readers and actions are defined in the
 [UI grammar and glossary](docs/UI-GRAMMAR.md), with an audit of every screen against them.
 Before adding a feature, check its [reuse map](docs/UI-GRAMMAR.md#before-adding-a-feature).
-[AGENTS.md](AGENTS.md) has the workflow for agents, and [CONTRIBUTING.md](CONTRIBUTING.md) has
+[AGENTS.md](../../AGENTS.md) has the workflow for agents, and [CONTRIBUTING.md](../../CONTRIBUTING.md) has
 verification and the review checklist. Agents load the stack's skills (`ep0ch --skill` lists them):
 `ep0ch` to drive a door, `ep0ch-outline` to work in an outline for someone, `ep0ch-core` to change this
 code or the outliner's, `daily-brief` for the morning brief. The [architecture map](docs/architecture/map.json) records every
@@ -79,39 +79,40 @@ One walk through the door, in the order you meet things. Each step has its own s
 
 ## Outlines on the outline host
 
-With pi-herdr-outliner's outline host running (one socket per machine, `<state>/outliner.sock`, holding any
-number of outlines by name), the door opens outlines like Herdr sessions:
+The outliner's outline host serves every outline on the machine by name: `<name>.sqlite` in `~/outlines`
+(`EP0CH_OUTLINES`), each with its own folder `<name>/` beside it, on one socket (`~/outlines/.host/host.sock`).
+The door opens outlines like Herdr sessions (PIE-530):
 
-    ep0ch --ws jam-shelf              that outline; created if there is none ("created outline jam-shelf")
-    ep0ch --ws /work/fred             the folder's outline: the nearest bound folder (client.json), else
-                                      the git repository root's name, else the folder's own name
-    ep0ch                             the same for the current directory
-    ep0ch outline list | attach <name> | create <name> | adopt <path> <name> [--root <dir>]
+    ep0ch --ws jam-shelf              that outline, from anywhere; created if nobody has it yet ("created outline jam-shelf")
+    ep0ch                             the outline this folder names: EP0CH_WS, else the nearest .ep0ch from here up
+    ep0ch init [<name>]               name this folder's outline: write .ep0ch (ws = "<name>"), creating the outline;
+                                      without a name, the folder's (or its git repository's)
+    ep0ch outline list | attach <name> | create <name> | import <database.sqlite> <name>
                 | stop <name> | delete <name> [--yes]     (each with --json)
-    ep0ch status                      the host's socket, default outline and open outlines
+    ep0ch status                      the host's socket, its outlines folder and the open outlines
 
-This is the outliner's folder rule (`resolveFolderOutline`), mirrored in `outlineForFolder`: a folder
-with its own hash database, or a `local`/`remote` choice, keeps its connection; `$HOME`, `/` and folders
-directly under `/` name no outline, nor does a guess whose outline records another folder. For those the
-door opens the host's default outline and says so ("no outline for ~, opened the default: pie"), where
-the outliner refuses: the door is interactive and shows the name. A created outline records its folder.
-`EP0CH_SOCKET` or a socket path still overrides the choice. Every request and the subscription name the
-outline, and a single-outline service is refused when an outline is named. The status bar and `peek` show
-`host · outline`. Only opening the door creates an outline; the listings and `clients` never do. Without a
-host, `--ws <root>` and discovery work as before (`src/discover.ts`, `resolveTarget`, `outlineForFolder`).
+The rule is outline-core's `whichOutline`, the one every client applies (the outliner's Herdr panes, its CLI,
+the Claude mod): `--ws`, then `EP0CH_WS`, then the nearest `.ep0ch`. Nothing else names an outline. In a folder
+that names none, `ep0ch` asks before it opens: start a new outline (the folder's or repository's name offered),
+pick one of the host's, or import an older database (a new outline holding its notes, properties, pages and work
+ids; the file is only read); each writes `.ep0ch`, so the next `ep0ch` there opens directly, and moving or
+renaming the folder changes nothing. Without a terminal it says what to run instead. `EP0CH_SOCKET` or a socket
+path is a host on another machine (an ssh tunnel), asked for the same name. Every request and the subscription
+name the outline. The status bar and `peek` show `host · outline`. Only opening the door (or `init`) creates an
+outline; the listings and `clients` never do (`src/discover.ts`, `resolveTarget`; `src/outlines.ts`).
 
 ## Try it
 
-    scripts/try-it.sh --ws /home/evan/test
+    scripts/try-it.sh --ws pie
 
-opens the board of that workspace's running service. Edits, moves and comments there are real.
+opens the board of that outline on this machine's host. Edits, moves and comments there are real.
 
-    scripts/try-it.sh --ws /home/evan/test --copy --outliner <pi-herdr-outliner checkout>
+    scripts/try-it.sh --ws pie --copy
 
-makes a private copy of the workspace's database (`sqlite3 .backup`, read-only on the original), serves it
-from its own service built from that checkout, and opens the board on it. Use it to try the door on a
-service with features the running one doesn't have yet (`views.read`, the change feed). Writes stay in
-the copy, and the copy is deleted when the door exits. `--hub <block-id>` picks the board.
+makes a private copy of the outline's database (`sqlite3 .backup`, read-only on the original), serves it
+from a host of its own built from this repository's outliner (or `--outliner <dir>`), and opens the board on
+it. Use it to try the door on code the running host doesn't have yet. Writes stay in the copy, and the copy is
+deleted when the door exits. `--hub <block-id>` picks the board.
 
 A journey to try, whichever service it is:
 
@@ -123,12 +124,12 @@ A journey to try, whichever service it is:
 5. With another client (Detail, the CLI), edit the note while it's open with `e`: the draft says
    "changed elsewhere" and a save is refused, never overwriting. Change a card's stage elsewhere: its lanes
    update by themselves.
-6. Restart the service: the status bar says `offline`, then `reconnected · caught up N changes`.
+6. Restart the host: the status bar says `offline`, then `reconnected · caught up N changes`.
 
 ## The showcase
 
-    scripts/try-it.sh --showcase --outliner <pi-herdr-outliner checkout>
-    scripts/try-it.sh --showcase --reset --outliner <pi-herdr-outliner checkout>
+    scripts/try-it.sh --showcase
+    scripts/try-it.sh --showcase --reset
 
 opens the showcase (PIE-439): the shared door parts, live, in nineteen sections, one per row of the reuse map
 ([Before adding a feature](docs/UI-GRAMMAR.md#before-adding-a-feature)) in the map's order. The map's
@@ -318,9 +319,9 @@ A door checkout from before `install` gets it by hand, once:
     bun install
     ln -s "$PWD/src/main.ts" ~/.local/bin/ep0ch    # once: the ep0ch command (or: ep0ch install --apply)
 
-    ep0ch                           # this folder's outline on the outline host (else the workspace this folder is in)
-    ep0ch /path/to/outliner.sock
-    ep0ch --ws /path/to/workspace   # the socket of that workspace's service
+    ep0ch                           # the outline this folder names (EP0CH_WS, else its .ep0ch; else it asks)
+    ep0ch --ws pie                  # an outline by name, from anywhere
+    ep0ch /path/to/host.sock        # a host elsewhere (an ssh-forwarded socket), as EP0CH_SOCKET
     ep0ch --showcase | --desk | --layout <name> | --river | --brief | --welcome | --board [<hub-id>]
 
 `ep0ch help` lists everything. Besides opening the door:
@@ -329,8 +330,9 @@ A door checkout from before `install` gets it by hand, once:
 |---|---|
 | `ep0ch doctor`, `ep0ch install [--apply]` | the stack's state, and bringing it up to date (see [Install and update](#install-and-update)) |
 | `ep0ch try …` | `scripts/try-it.sh`: the door on a private copy (`--copy`), or on the showcase outline (`--showcase`, `--reset`) |
-| `ep0ch --skill [--all] [<name>]` | the stack's skills (this door's `skills/` and the installed Outliner plugin's, found through Herdr), or the path of one skill's `SKILL.md`; `--all` adds contributor skills |
-| `ep0ch clients [--ws <root> \| <socket>]` | who's connected to the service: every role, observers and roles this door doesn't know yet |
+| `ep0ch init [<name>]`, `ep0ch outline …`, `ep0ch status` | name this folder's outline, and the host's outlines (see [Outlines on the outline host](#outlines-on-the-outline-host)) |
+| `ep0ch --skill [--all] [<name>]` | the stack's skills (this door's `skills/` and the outliner's `pi-extension/skills/`: the installed plugin's, found through Herdr, else packages/outliner beside the door), or the path of one skill's `SKILL.md`; `--all` adds contributor skills |
+| `ep0ch clients [--ws <name>] [<socket>]` | who's connected to the outline: every role, observers and roles this door doesn't know yet |
 | `ep0ch session list`, `attach [--watch]`, `end [--yes]`, `upgrade [--clients]`, `restart` | the door session in this state dir (see [Sessions](#sessions-quit-is-detach)): who's attached and what runs, attach to it (`--watch`: read-only), end it, hand it to a new daemon on this checkout's code (its programs keep running) |
 | `ep0ch peek`, `actions`, `snap <png>`, `open <id>`, `act <action> key=value …` | drive a running door (see [Letting an agent see what you see](#letting-an-agent-see-what-you-see-and-do-what-you-do)); `EP0CH_CONTROL` names which door |
 
@@ -338,7 +340,9 @@ A door checkout from before `install` gets it by hand, once:
 
 | Env | Meaning |
 |---|---|
-| `EP0CH_SOCKET` | socket path (same as the argument) |
+| `EP0CH_WS` | the outline's name, as `--ws` (over a folder's `.ep0ch`) |
+| `EP0CH_OUTLINES` | the outlines folder (default `~/outlines`): `<name>.sqlite`, and the host's socket in `.host/` |
+| `EP0CH_SOCKET` | a host elsewhere: its socket path (same as the argument), asked for the same outline name |
 | `EP0CH_DAEMON` | `0` (or `--no-daemon`) opens the door in this terminal, as before sessions: quitting it ends it. Otherwise the door is a session (see [Sessions](#sessions-quit-is-detach)): the one in the state dir attached to, started first when none runs. Tests and `scripts/test-door-env.sh` set `0`; pass `EP0CH_DAEMON=1` to try a session there |
 | `EP0CH_PACKS` | folder holding the `woe*.zip` packs (default `/opt/float/bbs/inbox/evan`) |
 | `EP0CH_KITTY` | `1` / `0` forces graphics on or off |
@@ -1631,26 +1635,24 @@ The service has no auth or read-only mode, so these limits are the door's own di
     EP0CH_SOCKET=<scratch sock> EP0CH_SNAP_WRITES=1 bun scripts/snap.ts comment   # quotes, comments, replies, resolves, races a second writer
     EP0CH_SOCKET=<scratch sock> EP0CH_SNAP_WRITES=1 bun scripts/snap.ts agent     # an agent drives the board through the control socket: open, edit, save, comment, move
     EP0CH_SOCKET=<scratch sock> EP0CH_SNAP_WRITES=1 bun scripts/snap.ts props     # a roadmap-like card: summary line, panel (inline, full, edit, a refused edit, follow), every embed state
-    EP0CH_OUTLINER=<checkout> bun scripts/snap.ts journey   # its own scratch service: the whole journey above, restart included
-    EP0CH_OUTLINER=<checkout> bun scripts/snap.ts kanban    # its own scratch service: OR lanes, a move and a refusal, n, steps, trash and undo
-    EP0CH_OUTLINER=<checkout> bun scripts/snap.ts showcase  # its own scratch service, seeded like the showcase: every section, a board spine, an edit with completion, a click, an agent
-    EP0CH_OUTLINER=<checkout> bun scripts/snap.ts fold      # its own scratch service: fold by keys, a click and F, an edit elsewhere keeps folds, an agent unfolds, the desk
-    EP0CH_OUTLINER=<checkout> bun scripts/snap.ts tree-links   # its own scratch service: the tree's L, a link's links, a file and a ticket shown
-    EP0CH_OUTLINER=<checkout> bun scripts/snap.ts backlinks    # its own scratch service: the board's backlinks drawer as Detail shows it, a kind and a filter
-    EP0CH_OUTLINER=<checkout> bun scripts/snap.ts steps     # its own scratch service: nested and anchored embeds, a cycle, a step's status choice, an agent's change
+    bun scripts/snap.ts journey   # its own scratch host: the whole journey above, restart included
+    bun scripts/snap.ts kanban    # its own scratch host: OR lanes, a move and a refusal, n, steps, trash and undo
+    bun scripts/snap.ts showcase  # its own scratch host, seeded like the showcase: every section, a board spine, an edit with completion, a click, an agent
+    bun scripts/snap.ts fold      # its own scratch host: fold by keys, a click and F, an edit elsewhere keeps folds, an agent unfolds, the desk
+    bun scripts/snap.ts tree-links   # its own scratch host: the tree's L, a link's links, a file and a ticket shown
+    bun scripts/snap.ts backlinks    # its own scratch host: the board's backlinks drawer as Detail shows it, a kind and a filter
+    bun scripts/snap.ts steps     # its own scratch host: nested and anchored embeds, a cycle, a step's status choice, an agent's change
 
 `test/kanban.test.ts` creates cards and notes, sets steps, trashes and restores, and moves into OR lanes
 by keys and through the control socket, with the service's plans (`views.planWrite`; its planning is
-tested in pi-herdr-outliner's `test/view-writes.test.ts`). `test/edit.test.ts`, `test/move.test.ts` and `test/comment.test.ts` save, move, comment and race real
-writes against a throwaway outliner service they start themselves (own state dir and workspace, Inbox
-agents off). `test/platform.test.ts` adapts to what that service advertises: `views.read`, which lanes a
-change asks again, a dropped connection's catch-up, a service restart
-(graceful, with the door connected) and a feed reset. Run it with `EP0CH_OUTLINER` pointing at an older
-and a newer checkout to cover both the fallbacks and the new paths. `test/move.test.ts` also checks every lane after the
+tested in the outliner's `test/view-writes.test.ts`). `test/edit.test.ts`, `test/move.test.ts` and `test/comment.test.ts` save, move, comment and race real
+writes against a throwaway outline host they start themselves (`test/scratch.ts`: its own outlines folder,
+one outline, Inbox agents off). `test/platform.test.ts` covers which lanes a change asks again, a dropped
+connection's catch-up, a host restart (graceful, with the door connected), a feed reset, and a host on another
+`PROTOCOL` refused with the side to update. `test/move.test.ts` also checks every lane after the
 moves against the outliner's own `saved-view-read.ts`, and `test/grammar.test.ts` the door's titles
-against the service's property parser. Point
-`EP0CH_OUTLINER` at a pi-herdr-outliner checkout (default `../pi-herdr-outliner`); without one those tests
-skip. The `edit`, `move`, `comment`, `agent` and `props` snapshots write too, so they refuse to run
+against the service's property parser. The tests find the outliner beside the door (`../outliner`;
+`EP0CH_OUTLINER` overrides it). The `edit`, `move`, `comment`, `agent` and `props` snapshots write too, so they refuse to run
 unless `EP0CH_SNAP_WRITES=1` and `EP0CH_SOCKET` is set explicitly to a socket under the temp dir whose
 service serves a workspace there too (a scratch service): they never fall back to the default socket.
 

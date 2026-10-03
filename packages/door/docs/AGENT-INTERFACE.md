@@ -471,7 +471,7 @@ the person does:
   reader or detail shows where it's opened: never the tree's row or a root, so opened from the tree with no
   `note=` it keeps nothing until given one); its actions are its kind's (`act ext.tarot.keep tile=<tile>`),
   and a block action (`ext.tarot.keep block=<id>`) works without the tile too. The program in
-  it gets the service's `OUTLINER_SOCKET_PATH`, `OUTLINER_OUTLINE` and `OUTLINER_EXTENSION`, plus the door's
+  it gets the host's socket and the outline's name (`EP0CH_SOCKET`, `EP0CH_WS`) and `OUTLINER_EXTENSION`, plus the door's
   own `EP0CH_CONTROL`, and its args as `--name=value`. `layout.get` shows its `args`; a tile whose kind went
   away is `unregistered` and says why.
 
