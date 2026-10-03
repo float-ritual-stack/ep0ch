@@ -11,6 +11,11 @@ import { EMBED, presentLinks, stripMarks } from "./refs";
 export interface DocEnv {
   width: number; cellW: number; cellH: number; graphics: boolean; maxImageRows: number; unfold: boolean;
   /**
+   * Why images aren't drawn (`graphics` off): said on each image's line ("no Kitty graphics in this terminal").
+   * Without it (an embed, a draft's preview) the line names the image and says nothing about graphics.
+   */
+  noImages?: string;
+  /**
    * Draw the `n`th transclusion (`!((id))`, `!((id^fragment))`) of the document, `width` wide (an embedded
    * note's own are drawn by its region, nested as the service projects them). Without it the token stays
    * text.
@@ -257,7 +262,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
         ref.row = out.length;
         out.push(fg(C.dark) + pad(`${label} · ${name} · ${img.width}×${img.height}${kind === "video" ? " · poster frame" : ""} · [ ] then ⏎ opens it`, W) + RESET);
       } else if (entry.state === "ready") {
-        out.push(fg(C.cyan) + pad(`${label} · ${name} · ${entry.image.width}×${entry.image.height} (Kitty graphics off)`, W) + RESET);
+        out.push(fg(C.cyan) + pad(`${label} · ${name}${env.noImages ? ` · ${env.noImages}` : ""} · ${entry.image.width}×${entry.image.height}`, W) + RESET);
       } else if (entry.state === "loading") {
         out.push(fg(C.dark) + pad(`◌ ${label} · ${name} · loading…`, W) + RESET);
       } else {

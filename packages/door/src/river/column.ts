@@ -10,6 +10,7 @@ import { bodyLinesOf, subject, type Msg } from "../board";
 import { USER, type Actor, type IndexBlock, type OutlineEvent, type SocketBoard } from "../socket";
 import { ActionRefused, actionSet, def, keyName } from "../surface/actions";
 import { historyRow, IN_TRASH, type Link } from "../surface/note";
+import { inWindow, type Placement } from "../kitty";
 import { Gesture, isCopyKey, lineAt, modeKey, paintRange, rowsOf, SELECT_BG, Selection, selectionHint, wordAt, type Pos } from "../surface/selection";
 import { presentLinks } from "../refs";
 import { readState, writeState } from "../state";
@@ -142,6 +143,8 @@ export class RiverColumn extends ReaderPane {
   private rows: HitRow[] = [];
   /** Rows above the cards (the filter's line): a click's row there isn't a card's. */
   private headRows = 0;
+  /** The note's images on the column's rows (before its scroll), from its digest. */
+  private images: Placement[] = [];
   private digestOf_: { key: string; m: Msg; s: Msg | null; dg: ReturnType<ReaderPane["surface"]["digest"]> } | undefined;
   private shown?: { key: string; at: number };
   private gesture = new Gesture();
@@ -270,7 +273,9 @@ export class RiverColumn extends ReaderPane {
     this.headRows = head.length;
     const room = Math.max(1, h - head.length - foot.length);
     const view = this.view(w, room, focused);
-    return { lines: [...head, ...view, ...foot].slice(0, h).map(l => pad(l, w)) };
+    // The note's images, as a reader tile hands its own to the desk: cut to the rows the column shows.
+    const placements = this.images.flatMap(p => inWindow(p, this.top, room, head.length) ?? []);
+    return { lines: [...head, ...view, ...foot].slice(0, h).map(l => pad(l, w)), placements };
   }
 
   private tagLines(w: number): string[] {
@@ -283,6 +288,7 @@ export class RiverColumn extends ReaderPane {
   private view(w: number, rows: number, active: boolean): string[] {
     const desk = this.desk;
     const all: (HitRow & { text: string })[] = [];
+    this.images = [];
     const push = (text: string, card = -1, replies = false) => all.push({ text, card, replies });
     if (this.error) push(fg(C.lred) + this.error + RESET);
     const root = this.rootOf();
@@ -297,7 +303,8 @@ export class RiverColumn extends ReaderPane {
       // The note's body through the shared surface's renderer (its digest): links as Detail reads them, transclusions,
       // step controls; a click on a link opens it in the next column; `[ ]` walks its elements; the column scrolls.
       if (this.surface.msg?.id !== m.id) this.surface.show(m, host);
-      const dg = this.digest(m, w - 1), at = all.length;
+      const dg = this.digest(m, w - 1, Math.max(4, Math.round(rows * 0.8))), at = all.length;
+      this.images = dg.placements.map(p => ({ ...p, row: p.row + at, col: p.col + 1 }));
       const byRow = new Map<number, { from: number; to: number; link: Link }[]>();
       for (const x of dg.links) { const r = byRow.get(x.row); const l = { from: x.from + 1, to: x.to + 1, link: x.link }; if (r) r.push(l); else byRow.set(x.row, [l]); }
       // A heading (or a list item's mark) is a fold point, as in a reader: a click on it folds or unfolds it.
@@ -366,10 +373,10 @@ export class RiverColumn extends ReaderPane {
    * The note's digest through the shared surface. A peek reuses its last one while nothing it depends on changed (it
    * draws its whole note under its neighbour, and a long one every frame would make every key cost that much).
    */
-  private digest(m: Msg, w: number) {
-    const key = `${this.gen}|${w}|${m.revision ?? ""}|${this.surface.cursorKey}`, d = this.digestOf_;
+  private digest(m: Msg, w: number, maxImageRows: number) {
+    const key = `${this.gen}|${w}|${maxImageRows}|${this.desk?.ctx.graphics ? 1 : 0}|${m.revision ?? ""}|${this.surface.cursorKey}`, d = this.digestOf_;
     if (d && d.key === key && d.m === m && d.s === this.surface.msg && this.desk?.coverOf?.(this) === "peek") return d.dg;
-    const dg = this.surface.digest(m, w, this.host(this.desk!));
+    const dg = this.surface.digest(m, w, this.host(this.desk!), maxImageRows);
     this.digestOf_ = { key, m, s: this.surface.msg, dg };
     return dg;
   }
