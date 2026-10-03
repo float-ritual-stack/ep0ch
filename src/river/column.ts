@@ -23,7 +23,7 @@ import type { ScreenSpec } from "../desk/screen-spec";
 import type { KindHost, TileKind, TileKindName } from "../desk/tile-kinds";
 import type { TileSpec } from "../desk/tiles";
 import { LineInput } from "../surface/line";
-import { matchesSearchText } from "../vendor/search-match";
+import { Fold } from "../fold";
 
 /** A property notice or an agent line in a column the person isn't in clears after this long on screen. */
 export const BANNER_MS = 30_000;
@@ -70,15 +70,17 @@ export function parseFilter(s: string): Clause[] {
   });
 }
 export const filterText = (f: Clause[]) => f.map(c => `${c.exclude ? "-" : ""}${c.key === "text" ? "" : c.key + ":"}${c.value}`).join(" ");
-function passes(m: Msg, f: Clause[]): boolean {
-  return f.every(c => {
-    const v = c.key === "author" ? m.author ?? "" : c.key === "text" ? m.text : m.props[c.key];
-    // A word: the one search's matcher (punctuation folded, a typo forgiven); an excluded word only as typed.
-    const hit = c.key === "text" ? matchesSearchText(c.value, [m.text], { typos: !c.exclude })
-      : c.value === "*" ? v !== undefined : (v ?? "").toLowerCase() === c.value.toLowerCase();
+/** The clauses the service's query has no word for: who wrote the note (`author:`) and its text (a bare word). */
+const ownClause = (c: Clause) => c.key === "author" || c.key === "text";
+function passesOwn(m: Msg, f: Clause[]): boolean {
+  return f.filter(ownClause).every(c => {
+    const hit = c.key === "text" ? m.text.toLowerCase().includes(c.value.toLowerCase()) : c.value === "*" || (m.author ?? "").toLowerCase() === c.value.toLowerCase();
     return c.exclude ? !hit : hit;
   });
 }
+/** The rest, property clauses, as the service's query (`query.matches` answers which notes it holds for): `key:*` is `key`. */
+export const filterQuery = (f: Clause[]) =>
+  f.filter(c => !ownClause(c)).map(c => `${c.exclude === !c.value ? "" : "NOT "}${c.key}${c.value === "*" || !c.value ? "" : `="${c.value.replace(/[\\"]/g, "\\$&")}"`}`).join(" ");
 /** The properties `#` offers to follow: a note's own, but the machinery the door keeps. */
 const followable = (m: Msg | undefined): [string, string][] => (m ? Object.entries(m.props).filter(([key]) => !["source-block", "proof", "work-batch"].includes(key)).slice(0, 9) : []);
 
@@ -121,8 +123,7 @@ export class RiverColumn extends ReaderPane {
   root: Msg | null = null;
   items: Msg[] | null = null;
   /** Notes whose replies show in place, and those replies as read. */
-  readonly open = new Set<string>();
-  readonly kids = new Map<string, Msg[] | "loading">();
+  readonly fold = new Fold();
   /** The selected card (by row) and the first row drawn. */
   sel = 0;
   top = 0;
@@ -150,6 +151,9 @@ export class RiverColumn extends ReaderPane {
   private justFocused = false;
   private reload: Timer | null = null;
   private gen = 0;
+  /** The listed notes the filter's property clauses hold for (`query.matches`), and which ask it is. */
+  private matched: Set<string> | null = null;
+  private asked = 0;
   private desk: DeskApi | null = null;
 
   constructor(public source: Source, public filter: Clause[] = []) { super(false); }
@@ -203,7 +207,7 @@ export class RiverColumn extends ReaderPane {
   override hold(m: Msg, desk: DeskApi) {
     this.desk = desk;
     this.source = { kind: "block", id: m.id };
-    this.root = m; this.items = null; this.sel = 0; this.top = 0;
+    this.root = m; this.items = null; this.sel = 0; this.top = 0; this.matched = null; this.asked++;
     this.surface.show(m, this.host(desk));
     this.load(desk);
   }
@@ -213,7 +217,7 @@ export class RiverColumn extends ReaderPane {
     this.desk = desk;
     const b = desk.ctx.board;
     indexOf(b).refresh(b, () => desk.redraw());
-    const done = (items: Msg[]) => { this.items = items; this.error = undefined; this.sel = Math.min(this.sel, Math.max(0, items.length - 1)); this.showSelected(desk); desk.redraw(); };
+    const done = (items: Msg[]) => { this.items = items; this.error = undefined; this.sel = Math.min(this.sel, Math.max(0, items.length - 1)); this.showSelected(desk); void this.match(desk); desk.redraw(); };
     const fail = (e: Error) => { this.error = e.message; desk.redraw(); };
     if (this.source.kind === "roots") b.roots().then(done, fail);
     else if (this.source.kind === "tag") b.byProp(this.source.key, this.source.value).then(done, fail);
@@ -235,19 +239,21 @@ export class RiverColumn extends ReaderPane {
   /** The rows the column lists: its notes (the filter applied), with replies shown in place under theirs. */
   flat(): Row[] {
     const out: Row[] = [];
-    const walk = (list: Msg[], depth: number) => {
-      for (const m of list) {
-        if (depth === 0 && !passes(m, this.filter)) continue;
-        out.push({ m, depth });
-        const k = this.kids.get(m.id);
-        if (this.open.has(m.id) && Array.isArray(k)) walk(k, depth + 1);
-      }
-    };
-    walk(this.items ?? [], 0);
+    this.fold.walk(this.items ?? [], (m, depth) => { if (depth === 0 && !this.passes(m)) return false; out.push({ m, depth }); });
     return out;
   }
   /** How many notes it lists (its filter applied), not counting replies shown in place. */
-  listed(): number { return (this.items ?? []).filter(m => passes(m, this.filter)).length; }
+  listed(): number { return (this.items ?? []).filter(m => this.passes(m)).length; }
+  /** A listed note its filter keeps: the property clauses as the service answered them (none while it's asked). */
+  private passes(m: Msg): boolean { return passesOwn(m, this.filter) && (!filterQuery(this.filter) || !!this.matched?.has(m.id)); }
+  /** Ask the service which listed notes the filter's property clauses hold for (the last answer stands meanwhile). */
+  private async match(desk: DeskApi): Promise<void> {
+    const q = filterQuery(this.filter), items = this.items, asked = ++this.asked;
+    if (!q || !items) { this.matched = null; return; }
+    try { const ids = await desk.ctx.board.matchQuery(q, items.map(m => m.id)); if (asked === this.asked) { this.matched = ids; this.showSelected(desk); } }
+    catch (e) { if (asked === this.asked) this.error = `filter: ${(e as Error).message}`; }
+    desk.redraw();
+  }
 
   /** A link is selected in its note: ⏎ follows it instead of opening the selected card. */
   private linked(): boolean { return !!this.surface.msg && this.surface.msg.id === this.noteOf()?.id && this.surface.describe().links.some(l => l.selected); }
@@ -317,12 +323,13 @@ export class RiverColumn extends ReaderPane {
       // Links read as their titles here too (not as raw ((ids))); an embed reads as its title.
       const gist = visible(presentLinks(bodyLines(m).slice(0, 2).join(" ").replace(/!\(\(/g, "(("), false, desk ? { board: desk.ctx.board, redraw: () => desk.redraw() } : null, m.text));
       for (const l of wrap(gist, tw).slice(0, 2)) push(rail + " " + fg(C.grey) + pad(l, tw) + RESET, n);
-      const k = this.kids.get(m.id), count = idx?.count(m.id) ?? (Array.isArray(k) ? k.length : undefined);
+      const k = this.fold.kids.get(m.id), count = idx?.count(m.id) ?? (Array.isArray(k) ? k.length : undefined);
       if (k === "loading") push(rail + " " + fg(C.dark) + "» loading replies…" + RESET, n, true);
-      else if (count) push(rail + " " + fg(C.cyan) + (this.open.has(m.id) ? `▾ ${repliesWord(count)} · hide` : `» ${repliesWord(count)}`) + RESET, n, true);
+      else if (count) push(rail + " " + fg(C.cyan) + (this.fold.open.has(m.id) ? `▾ ${repliesWord(count)} · hide` : `» ${repliesWord(count)}`) + RESET, n, true);
       push(rail, n);
     });
     if (!this.items && !this.error) push(fg(C.dark) + "dialing…" + RESET);
+    else if (filterQuery(this.filter) && !this.matched && !this.error) push(fg(C.dark) + "filtering…" + RESET);
     // The selected card comes into view only when the selection moved to it (keys, a click); a repaint or the wheel
     // leaves the scroll alone, so a note longer than the column can be read to its end (PIE-465).
     const first = all.findIndex(l => l.card === this.sel), last = all.findLastIndex(l => l.card === this.sel);
@@ -586,23 +593,16 @@ export class RiverColumn extends ReaderPane {
   replies(id: string | undefined, open: boolean | undefined, desk: DeskApi): { id: string; open: boolean } {
     const m = id ? this.flat().find(r => r.m.id === id || (id.length >= 8 && r.m.id.startsWith(id)))?.m : this.flat()[this.sel]?.m;
     if (!m) throw new ActionRefused(id ? `${this.titleOf()} doesn't list ${id}` : `nothing is selected in ${this.titleOf()}`);
-    if (open === undefined || open !== this.open.has(m.id)) {
-      if (this.open.has(m.id)) this.open.delete(m.id);
-      else {
-        this.open.add(m.id);
-        if (!this.kids.has(m.id)) {
-          this.kids.set(m.id, "loading");
-          desk.ctx.board.children(m.id).then(k => { this.kids.set(m.id, k); desk.redraw(); }, () => { this.kids.set(m.id, []); desk.redraw(); });
-        }
-      }
-      desk.redraw();
-    }
-    return { id: m.id, open: this.open.has(m.id) };
+    const shown = this.fold.open.has(m.id);
+    if (open !== shown) void this.fold.show(m.id, !shown, id => desk.ctx.board.children(id), () => desk.redraw());
+    return { id: m.id, open: this.fold.open.has(m.id) };
   }
 
-  /** `column.filter`: what it lists, by the river's filter grammar; the selection goes back to the top. */
-  setFilter(query: string, desk: DeskApi): { filter: string; listed: number } {
-    this.filter = parseFilter(query); this.sel = 0; this.top = 0;
+  /** `column.filter`: what it lists, by the river's filter grammar (its property clauses the service's query); the selection goes back to the top. */
+  async setFilter(query: string, desk: DeskApi): Promise<{ filter: string; listed: number }> {
+    this.filter = parseFilter(query); this.sel = 0; this.top = 0; this.matched = null;
+    if (this.error?.startsWith("filter:")) this.error = undefined;
+    await this.match(desk);
     this.showSelected(desk);
     desk.redraw();
     return { filter: filterText(this.filter), listed: this.listed() };
@@ -671,7 +671,7 @@ export const COLUMN_ACTIONS = new ActionSet<{
     keys: "/ then typing, ⏎ or alt+⏎ (esc cancels)",
     touches: "tile", replay: "safe", way: "an agent doesn't change what it lists under them (a filter goes back to the top) · search finds notes; open or column.tag puts a column of your own beside, or act on another column", says: r => `filtered ${r.tile}${r.filter ? ` by ${r.filter}` : " (cleared)"}`,
     args: { query: { type: "string", about: "clauses: key:value, -key:value, author:x, or words" } },
-    run: ({ query }, { pane, desk, tile }) => ({ tile, ...columnOf(pane).setFilter(query, desk) }),
+    run: async ({ query }, { pane, desk, tile }) => ({ tile, ...(await columnOf(pane).setFilter(query, desk)) }),
   },
   "column.tag": {
     summary: "open a column of every note with the same property (key::value, the river's virtual branch) next to a river column; value defaults to the selected note's. The person's # then 1-9 gives them the column; an agent's leaves their keys",

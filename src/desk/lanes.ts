@@ -516,10 +516,10 @@ export class Lanes implements SourceModel {
   /** The boards to pick from: ⏎ or a click shows one (board.hub id=), esc or q puts it away (board.hub close=true). */
   private hubList(items: { hub: Msg; lanes: number }[]): HubPicker {
     return new ListPicker({
-      name: "hubs", items: () => items, closers: "q",
+      name: "hubs", items: () => items, closers: "q", stays: true,             // useHub puts it away once the board is shown
       row: (it, _i, on, w) => [pickRow(` ${subject(it.hub)}  ${fg(C.dark)}${it.lanes} lanes · ${ago(it.hub.updatedAt)}`, on, w)],
       choose: it => void this.run("board.hub", { id: it.hub.id }),
-      close: () => void this.run("board.hub", { close: true }),
+      closed: () => void this.run("board.hub", { close: true }),
       clicked: () => true,                                     // a click beside it isn't a choice, nor a way out
       frame: (a, n) => ({ rect: { col: Math.round(a.cols * 0.2), row: Math.round(a.rows * 0.15), cols: Math.round(a.cols * 0.6), rows: Math.min(a.rows - 4, n + 4) }, title: `pick a board · ${this.host.ctx.workspace}`, foot: "⏎ open · esc back" }),
     });
@@ -682,11 +682,9 @@ export class Lanes implements SourceModel {
         return [pickRow(` ${on ? ">" : " "} ${l.name}  ${fg(C.dark)}${l.read?.status === "ready" ? l.def?.props.query ?? "" : l.read?.status ?? "loading"}`, on, w, C.white), pad(`     ${what}`, w) + RESET];
       },
       choose: (_, i) => {
-        this.mover = null;
         if (this.card()?.id !== card.id || this.lane !== from) return this.host.ctx.flash("the selection changed · not moved");
         if (i !== from) void this.run("card.move", { lane: this.lanes[i]!.name, card: card.id });
       },
-      close: () => { this.mover = null; },
       frame: a => ({ rect: { col: Math.round(a.cols * 0.15), row: Math.round(a.rows * 0.12), cols: Math.round(a.cols * 0.7), rows: Math.min(a.rows - 4, this.lanes.length * 2 + 3) }, title: `move · ${ellipsize(subject(card), Math.round(a.cols * 0.7) - 20)}`, foot: "enter move · esc back" }),
     }), { card, from, plans: null as MovePlan[] | null });
     M.sel = from;
@@ -978,10 +976,9 @@ export class Lanes implements SourceModel {
       void this.host.pressAction(BOARD_ACTIONS, "step.set", { step: String(S.sel + 1), status, card: S.card.id }, undefined, why => { S.note = why; return `not changed: ${why}`; }, { shown: { item: it, revision: S.read.revision } });
     };
     const S: Steps = Object.assign(new ListPicker<ChecklistStep, Lanes>({
-      name: "steps", items: () => S.read?.items ?? [], closers: "qs",
+      name: "steps", items: () => S.read?.items ?? [], closers: "qs", stays: true,
       row: (it, _i, on, w) => [pickRow(` ${"  ".repeat(it.depth)}${MARK[it.status]} ${stepText(it.text)}`, on, w, COLOR[it.status])],
       choose: () => set(),
-      close: () => { this.steps = null; },
       keys: k => { const c = ch(k), to = ({ " ": undefined, x: "done", w: "waiting", "!": "problem" } as Record<string, StepStatus | undefined>)[c]; if (!(c in { " ": 1, x: 1, w: 1, "!": 1 })) return false; set(to); return true; },
       frame: (a, n) => {
         const done = S.read?.items.filter(i => i.status === "done").length ?? 0;

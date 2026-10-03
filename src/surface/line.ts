@@ -8,7 +8,7 @@ export class LineInput {
   cursor: number;
   /** Prefilled (a layout's own name): the first key typed replaces it, ⏎ keeps it. */
   private fresh: boolean;
-  constructor(public text = "", private readonly max = Infinity, prefilled = false) { this.cursor = [...text].length; this.fresh = prefilled && !!text; }
+  constructor(public text = "", prefilled = false) { this.cursor = [...text].length; this.fresh = prefilled && !!text; }
 
   /** A key for the line: true when it took it (typed, erased or moved), false when it's the caller's (⏎, esc, ↑ ↓…). */
   key(k: Key): boolean {
@@ -22,7 +22,7 @@ export class LineInput {
     }
     if (k.kind === "char") {
       if (this.fresh) return set([...k.ch], [...k.ch].length);
-      return cs.length >= this.max ? true : set([...cs.slice(0, at), ...k.ch, ...cs.slice(at)], at + [...k.ch].length);
+      return set([...cs.slice(0, at), ...k.ch, ...cs.slice(at)], at + [...k.ch].length);
     }
     if (k.kind === "backspace") return this.fresh ? set([], 0) : set([...cs.slice(0, Math.max(0, at - 1)), ...cs.slice(at)], Math.max(0, at - 1));
     if (k.kind === "delete") return set([...cs.slice(0, at), ...cs.slice(at + 1)], at);

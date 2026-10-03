@@ -1,11 +1,9 @@
 // Reference completion in the edit control (PIE-416): typing `[[`, `((` or `[file::` in a draft offers
-// pages and Work IDs, blocks and fragments, or workspace paths, from the service's lookups (`pages.complete`,
-// `tree.search`: the one search, Goto's ranker, forgiving punctuation, order and typos; `fragments.candidates`,
-// `files.complete`, `blocks.context`), so the door keeps no index, ranking or fragment rules of its own. The
-// draft's note is the search's context: nearer notes first, and `((` alone lists what's linked and edited
-// around it. A pause asks Jev to re-order the same candidates; the selected one stays selected. Keep typing
-// to filter, up/down choose, Enter or Tab inserts, Esc dismisses; Tab or Ctrl+Space asks again. The popup
-// never keeps a key it doesn't use: with nothing to choose, Enter, arrows and Esc do what they always do.
+// pages and Work IDs, blocks and fragments, or workspace paths, the way Tree, Detail and Quick Capture
+// do, from the same service lookups (`pages.complete`, `blocks.query`, `fragments.candidates`,
+// `files.complete`, `blocks.context`), so the door keeps no index and no fragment rules of its own. Keep typing to filter, up/down choose,
+// Enter or Tab inserts, Esc dismisses; Tab or Ctrl+Space asks again. The popup never keeps a key it
+// doesn't use: with nothing to choose, Enter, arrows and Esc do what they always do in a draft.
 import { subject, type Msg } from "../board";
 import {
   completionTargetAtCursor, completionWindow, pageAddressCompletion, pageCompletionLookupQuery, parseFragmentCompletionQuery,
@@ -20,16 +18,12 @@ import { withoutPropertyTokens } from "../vendor/property-grammar";
 
 /** At most this many candidates per lookup, as in the outliner. */
 export const COMPLETION_LIMIT = 20;
-/** How long typing pauses before Jev is asked to re-order the candidates: the popup's and the desk's search overlay's. */
-export const SEARCH_JEV_PAUSE_MS = 300;
-/** Services that said Jev isn't configured there: not asked again this run (each ask is a round trip, and when configured, paid). */
-export const jevOff = new WeakSet<object>();
 /** The popup's tallest: a header, three candidates with the selected one's context, and the footer. */
 export const COMPLETION_ROWS = 8;
 export const COMPLETION_HINT = "up/down or wheel choose · enter/tab/click inserts · esc dismisses";
 
 /** The service lookups completion needs (SocketBoard has them). */
-export type CompletionBoard = Pick<SocketBoard, "completePages" | "completeFiles" | "searchBlocks" | "blockContext" | "workIdPrefix" | "fragmentCandidates" | "ensureFragment" | "readFragment">;
+export type CompletionBoard = Pick<SocketBoard, "completePages" | "completeFiles" | "findBlocks" | "blockContext" | "workIdPrefix" | "fragmentCandidates" | "ensureFragment" | "readFragment">;
 
 export interface CompletionItem {
   label: string;
@@ -55,60 +49,33 @@ export interface CompletionLookup {
   truncated: number | null;
   /** Empty or partial: said in words instead of an empty popup. */
   message: string;
-  /** Jev re-ordered the list (`ranked`), is being asked (`asking`), or never was. */
-  jev?: "asking" | "ranked";
-  /** The service has no Jev configured: don't ask again. */
-  jevOff?: boolean;
 }
-
-/** The note a draft's search asks from: its own note, else the note it's about (a comment's, a new card's view). */
-export const nearOf = (d: Draft | null | undefined, own?: OwnNote): string | undefined => own?.blockId ?? d?.near;
-
-/** How the lookup is asked: `semantic` has Jev re-order it; `near` is the note the draft writes in. */
-export interface LookupOptions { semantic?: boolean; near?: string }
 
 /** The note a note draft is writing, for `((#heading` in itself; comments and replies have none. */
 export interface OwnNote { blockId: string; text: string }
 
 const title = (m: Msg) => subject({ ...m, text: m.text.replace(/ \^[A-Za-z0-9][A-Za-z0-9_-]{0,63}\s*$/m, "") }).replace(/\s{2,}/g, " ");
-const REASON = { linked: "linked from here", near: "near here", yours: "you edited" } as const;
-/** The service's snippet of a hit, its first line left out when it's the title the row already shows. */
-const hitSnippet = (title: string, text: string) => {
-  const lines = text.split(/\r?\n/);
-  return (withoutPropertyTokens(lines[0] ?? "").trim().startsWith(title.slice(0, 24)) ? lines.slice(1) : lines)
-    .map(withoutPropertyTokens).join(" ").replace(/\s+/g, " ").trim().slice(0, 240);
-};
 const snippet = (text: string) => text.split(/\r?\n/).slice(1).map(withoutPropertyTokens).join(" ").replace(/\s+/g, " ").trim().slice(0, 240);
 
-export const notConfigured = (semantic: { status: string; message?: string }) => semantic.status === "unavailable" && /not configured/i.test(semantic.message ?? "");
-
 /** The candidates for one token: the same lookups and insertions the outliner's editors use. */
-export async function lookupCompletion(board: CompletionBoard, target: CompletionTarget, prefix: string | null, own?: OwnNote, opts: LookupOptions = {}): Promise<CompletionLookup> {
-  let items: CompletionItem[] = [], truncated: number | null = null, empty = "", partial = "", ranked = false, off = false;
+export async function lookupCompletion(board: CompletionBoard, target: CompletionTarget, prefix: string | null, own?: OwnNote): Promise<CompletionLookup> {
+  let items: CompletionItem[] = [], truncated: number | null = null, empty = "", partial = "";
   if (target.kind === "file") {
     const files = await board.completeFiles(target.query);
     items = files.slice(0, COMPLETION_LIMIT).map(f => ({ label: f.sourcePath, kind: f.isDirectory ? "folder" : "file", insertion: `[file::${f.sourcePath}${f.isDirectory ? "" : "]"}` }));
     if (files.length > COMPLETION_LIMIT) truncated = COMPLETION_LIMIT;
     empty = "no matching files";
   } else if (target.kind === "page") {
-    const r = await board.completePages(pageCompletionLookupQuery(target.query, prefix) || undefined, COMPLETION_LIMIT, opts);
+    const r = await board.completePages(pageCompletionLookupQuery(target.query, prefix) || undefined, COMPLETION_LIMIT);
     items = r.addresses.map(a => ({ ...pageAddressCompletion(a, target.query, prefix), blockId: a.blockId, address: a.address, kind: a.kind }));
     if (r.completeness.kind === "truncated") truncated = r.completeness.limit ?? COMPLETION_LIMIT;
-    ranked = r.semantic?.status === "ranked";
-    off = !!r.semantic && notConfigured(r.semantic);
     empty = "no matching named addresses; [[target|label]] labels a target, ((...)) searches blocks";
   } else {
     const fragment = parseFragmentCompletionQuery(target.query);
     if (!fragment) {
-      // The one search (`tree.search`), from the draft's note: what Goto, the desk's `/` and Jev rank.
-      const r = await board.searchBlocks(target.query, opts);
-      if (r.matches.length > COMPLETION_LIMIT || r.completeness.kind === "truncated") truncated = COMPLETION_LIMIT;
-      items = r.matches.slice(0, COMPLETION_LIMIT).map(m => ({
-        label: m.title, blockId: m.block.id, kind: m.reason ? `block · ${REASON[m.reason]}` : "block", insertion: `((${m.block.id}))`,
-        context: [m.path, hitSnippet(m.title, m.snippet)].filter(Boolean).join(" » "),
-      }));
-      ranked = r.semantic.status === "ranked";
-      off = notConfigured(r.semantic);
+      const r = await board.findBlocks(target.query || undefined, COMPLETION_LIMIT);
+      truncated = r.truncated;
+      items = r.blocks.map(b => ({ label: title(b), blockId: b.id, kind: "block", context: snippet(b.text), insertion: `((${b.id}))` }));
       empty = "no matching blocks";
     } else {
       // `((garden#beds` / `((garden^be`: the service searches every note by its own fragment rules
@@ -128,7 +95,7 @@ export async function lookupCompletion(board: CompletionBoard, target: Completio
     }
   }
   const message = items.length ? partial || (truncated ? `showing the first ${truncated} matches` : "") : [partial && `partial search: ${partial}`, empty].filter(Boolean).join(" · ");
-  return { items, truncated, message, ...(ranked ? { jev: "ranked" as const } : {}), ...(off ? { jevOff: true } : {}) };
+  return { items, truncated, message };
 }
 
 /**
@@ -200,72 +167,27 @@ export class Completer {
 
   dismiss(): void {
     this.generation++;
-    this.stopJev();
     if (!this.state) return;
     this.state = null;
     this.redraw();
-  }
-
-  private near(): string | undefined { return nearOf(this.d, this.own()); }
-
-  private jevTimer: ReturnType<typeof setTimeout> | null = null;
-  private stopJev(): void { if (this.jevTimer) clearTimeout(this.jevTimer); this.jevTimer = null; }
-
-  /**
-   * After a pause, ask the service again with Jev re-ordering the same candidates. The answer is used only if
-   * nothing moved meanwhile (the query, the cursor, the selection), and the selected candidate stays selected.
-   */
-  private askJev(generation: number, target: CompletionTarget): void {
-    this.stopJev();
-    const fragment = target.kind === "block" && parseFragmentCompletionQuery(target.query);
-    if (target.kind === "file" || fragment || target.query.trim().length < 3 || jevOff.has(this.board)) return;
-    // Jev re-orders the service's candidates (up to 30 for ((): one beyond the 20 shown can come into view.
-    this.jevTimer = setTimeout(async () => {
-      this.jevTimer = null;
-      const s = this.state;
-      if (!s || !this.current(generation) || s.loading || s.items.length < 2 || this.accepting || this.d.busy) return;
-      const index = s.index, chosen = s.items[index]?.insertion;
-      s.jev = "asking";
-      this.redraw();
-      try {
-        const r = await lookupCompletion(this.board, target, this.prefix ?? null, this.own(), { semantic: true, near: this.near() });
-        if (r.jevOff) jevOff.add(this.board);
-        const now = this.state;
-        if (now !== s) return;
-        // Anything moved meanwhile (the pick, the cursor, a save or an insert under way): the answer isn't used.
-        if (!this.current(generation) || now.index !== index || now.items[index]?.insertion !== chosen || this.accepting || this.d.busy) { now.jev = undefined; this.redraw(); return; }
-        const at = r.items.findIndex(i => i.insertion === chosen);
-        if (at < 0) { now.jev = undefined; this.redraw(); return; }
-        this.state = { ...r, target, index: at, loading: false, at: now.at };
-        this.redraw();
-        void this.enrich(generation);
-      } catch {
-        if (this.state === s) { s.jev = undefined; this.redraw(); }
-      }
-    }, SEARCH_JEV_PAUSE_MS);
   }
 
   /** Look up the token at the cursor (or close the popup when the cursor isn't in one). */
   async refresh(): Promise<void> {
     const target = this.target();
     if (!target || this.d.busy) { this.dismiss(); return; }
-    this.stopJev();
-    // A re-ask of the same query keeps the pick; a changed query picks its best match.
-    const same = this.state?.target.kind === target.kind && this.state.target.query === target.query;
-    const generation = ++this.generation, was = same ? this.state?.items[this.state.index]?.insertion : undefined;
+    const generation = ++this.generation, was = this.state?.items[this.state.index]?.insertion;
     this.state = { target, items: this.state?.items ?? [], index: this.state?.index ?? 0, truncated: null, message: "finding references...", loading: true, at: this.here() };
     this.redraw();
     try {
       // Only an answer is kept for the draft: a failed lookup is asked again next time, as the outliner does.
       if (this.prefix === undefined) this.prefix = await this.board.workIdPrefix().catch(() => undefined);
-      const r = await lookupCompletion(this.board, target, this.prefix ?? null, this.own(), { near: this.near() });
-      if (r.jevOff) jevOff.add(this.board);
+      const r = await lookupCompletion(this.board, target, this.prefix ?? null, this.own());
       if (!this.current(generation)) return;
       const index = Math.max(0, r.items.findIndex(i => i.insertion === was));
       this.state = { ...r, target, index, loading: false, at: this.state!.at };
       this.redraw();
       void this.enrich(generation);
-      this.askJev(generation, target);
     } catch (e) {
       if (this.current(generation)) { this.state = { ...this.state!, items: [], loading: false, message: `lookup failed: ${e instanceof Error ? e.message : String(e)}` }; this.redraw(); }
     }
@@ -331,7 +253,7 @@ export function completerFor(d: Draft, board: unknown, redraw: () => void, own?:
   const had = byDraft.get(d);
   if (had) return had;
   const b = board as Partial<CompletionBoard> | null;
-  if (!b || typeof b.completePages !== "function" || typeof b.searchBlocks !== "function") return null;
+  if (!b || typeof b.completePages !== "function" || typeof b.findBlocks !== "function") return null;
   const c = new Completer(d, b as CompletionBoard, redraw, own);
   byDraft.set(d, c);
   return c;
@@ -402,9 +324,7 @@ export function renderCompletion(s: CompletionState, w: number, h: number, rows:
     out.push(sel ? line(`» ${it.label}`, chip(C.cyan)) : line(`  ${it.label}`, fg(C.grey), bg(C.blue)));
     if (sel && out.length < h - Number(footer)) rows.push(i), out.push(line(`    ${it.kind} · ${it.context || it.insertion}`, fg(C.lcyan), bg(C.blue)));
   }
-  // Whether Jev ordered the list, said quietly first, where a narrow popup doesn't cut it.
-  const jev = s.jev === "ranked" ? "jev ranked · " : s.jev === "asking" ? "jev… · " : "";
-  if (footer) rows.push(null), out.push(line(` ${jev}${s.message || COMPLETION_HINT}`, fg(s.message ? C.yellow : C.grey), bg(C.blue)));
+  if (footer) rows.push(null), out.push(line(` ${s.message || COMPLETION_HINT}`, fg(s.message ? C.yellow : C.grey), bg(C.blue)));
   rows.length = Math.min(rows.length, h);
   return out.slice(0, h);
 }

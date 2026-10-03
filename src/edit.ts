@@ -68,8 +68,6 @@ export class Draft {
   /** The note's properties when the draft opened, as the service parsed them, to report what a save changed. */
   baseProps: Record<string, string>;
 
-  /** The note this draft is about (its target's `near`): reference completion searches from there. */
-  near?: string;
   /** Agents' patches applied to this draft, newest last: ctrl+z (`draft.undo`) takes back the last one. */
   patches: PatchUnit[] = [];
   /** Where agents' patches just landed, lit until `until`. */

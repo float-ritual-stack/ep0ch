@@ -411,6 +411,19 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
     expect(out.filter).toBe("Thin");
     expect(out.listed).toBe(1);
     expect((app as any).message).toContain(`an agent (${AS}) filtered`);
+    // A property clause is the service's query (query.matches), a word or author: the column's own.
+    const lib2 = (await act("tile.open", { kind: "river.column", source: "roots", where: "next" }, own.reader)) as { tile: string };
+    await until(() => (paneOf(lib2.tile).items?.length ?? 0) >= 3, "a second Library");
+    const listed = () => paneOf(lib2.tile).flat().map((r: any) => r.m.id);
+    expect(await act("column.filter", { query: "stage:queued" }, lib2.tile)).toMatchObject({ listed: 2 });
+    expect(listed().sort()).toEqual([notes.beans.id, notes.squash.id].sort());
+    expect(await act("column.filter", { query: "-stage:queued beans" }, lib2.tile)).toMatchObject({ listed: 0 });
+    expect(await act("column.filter", { query: "stage:* squash" }, lib2.tile)).toMatchObject({ listed: 1 });
+    expect(listed()).toEqual([notes.squash.id]);
+    // An empty value: `stage:` is a note without one, `-stage:` one with it.
+    expect(await act("column.filter", { query: "-stage: squash" }, lib2.tile)).toMatchObject({ listed: 1 });
+    expect(await act("column.filter", { query: "stage: squash" }, lib2.tile)).toMatchObject({ listed: 0 });
+    await act("tile.close", {}, lib2.tile);
     expect(focused()).toBe(was);
     expect(river.holdsKeys()).toBe(false);                       // the person's filter input was never opened
     await act("tile.close", {}, own.reader);

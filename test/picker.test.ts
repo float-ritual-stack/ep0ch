@@ -17,7 +17,7 @@ function picker(n: number, more: Partial<ConstructorParameters<typeof ListPicker
   const p = new ListPicker<string, null>({
     name: "test", items: () => items, closers: "q",
     row: (it, _i, on, w) => [pickRow(` ${it}`, on, w)],
-    choose: it => said.push(`chose ${it}`), close: () => said.push("closed"),
+    choose: it => said.push(`chose ${it}`), closed: () => said.push("closed"),
     frame: a => ({ rect: { col: 2, row: 1, cols: 30, rows: 8 }, title: "pick", foot: "⏎ · esc" }),
     ...more,
   });
@@ -52,6 +52,19 @@ describe("a list picker", () => {
     expect(draw().join("\n")).toContain("fictional item 18"); // moving up doesn't move the view
     p.key(click(39, 11), null);
     expect(said.at(-1)).toBe("closed");
+  });
+
+  test("a choice or esc puts it away and its stack lets it go; one that stays is put away by esc only", () => {
+    const a = picker(3);
+    a.p.key({ kind: "enter" }, null);
+    expect(a.p.ended()).toBe(true);
+    const b = picker(3, { stays: true }), stack = new Modes<null, ListPicker<string, null>>();
+    stack.push(b.p);
+    b.p.key({ kind: "enter" }, null);
+    expect(stack.top()).toBe(b.p);
+    b.p.key({ kind: "esc" }, null);
+    expect(stack.top()).toBeNull();
+    expect(b.said).toEqual(["chose fictional item 1", "closed"]);
   });
 
   test("one that wraps goes round; its own keys come first", () => {
@@ -96,17 +109,14 @@ describe("a line input", () => {
     expect(l.text).toBe("");
   });
 
-  test("a prefilled line: the first key replaces it, backspace empties it; at most max characters", () => {
-    const a = new LineInput("desk", 40, true);
+  test("a prefilled line: the first key replaces it, backspace empties it", () => {
+    const a = new LineInput("desk", true);
     expect(visible(a.show(30))).toContain("⏎ keeps it");
     a.key(char("m"));
     expect(a.text).toBe("m");
-    const b = new LineInput("desk", 40, true);
+    const b = new LineInput("desk", true);
     b.key({ kind: "backspace" });
     expect(b.text).toBe("");
-    const c = new LineInput("abc", 3);
-    c.key(char("d"));
-    expect(c.text).toBe("abc");
   });
 
   test("shown with its cursor, scrolled to it, in the width it's given, wide glyphs whole", () => {

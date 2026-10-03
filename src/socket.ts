@@ -13,7 +13,6 @@ import type { ExtensionActResult, ExtensionList } from "./extensions";
 import { resourceStored, type AuthoredLinksSnapshot, type AuthoredResourceReference, type ResourceDescription } from "./authored";
 import { PROPERTY_GRAMMAR_VERSION } from "./vendor/property-grammar";
 import { jsonLine, JsonLines } from "./jsonl";
-import { SEARCH_MATCH_VERSION } from "./vendor/search-match";
 
 export const DEFAULT_SOCKET = process.env.EP0CH_SOCKET ?? `${process.env.HOME}/.local/state/pi-herdr-outliner/float-box.sock`;
 /** The protocol the door speaks, and the oldest service it reads. */
@@ -56,20 +55,7 @@ export const OUTLINE_CAPABILITIES = ["blocks.read", "properties.preview", "views
    * (`extensions.agents`, PIE-501). PIE-510: `extensions.act` takes who asks (`extensions.act.requester`, the
    * change feed's `requestedBy`), and only the service writes as an extension (`mutations.ext-reserved`).
    */
-  "extensions.list", "extensions.outputs", "extensions.act", "extensions.agents", "extensions.act.requester", "mutations.ext-reserved",
-  /**
-   * One search (pi-herdr-outliner src/search-match.ts): `tree.search` and `pages.complete` fold punctuation, forgive
-   * typos and rank all-but-one-word matches below full ones (`search.forgiving`); both take the note being edited
-   * (`search.context`); `ping.searchMatch` reports the matcher src/vendor/search-match.ts copies for list filters.
-   */
-  "search.forgiving", "search.context", "ping.searchMatch"] as const;
-/** What `tree.search` answers (pi-herdr-outliner `GotoSearchCollection`). */
-export interface SearchHits {
-  matches: { block: { id: string; revision: number }; title: string; path: string; snippet: string; exact: boolean; reason?: "linked" | "near" | "yours" }[];
-  completeness: { kind: string; limit?: number };
-  semantic: { status: "lexical" | "ranked" | "unavailable"; message?: string };
-}
-
+  "extensions.list", "extensions.outputs", "extensions.act", "extensions.agents", "extensions.act.requester", "mutations.ext-reserved"] as const;
 /** An outline's name on a host: a short slug, as the outliner's OUTLINE_NAME_PATTERN. */
 export const OUTLINE_NAME = /^[a-z0-9][a-z0-9-]{0,31}$/;
 
@@ -504,7 +490,7 @@ export class SocketBoard implements Board {
   toMsgs(blocks: WireBlock[]): Msg[] { return blocks.map(b => toMsg(b)); }
 
   async info(): Promise<BoardInfo> {
-    const r = await this.request<{ protocolVersion: number; minClientProtocol?: number; capabilities?: string[]; location: { hostname: string; workspaceRoot: string }; outline?: { name: string }; host?: HostStatus; propertyGrammar?: { version: number }; searchMatch?: { version: number } }>("ping");
+    const r = await this.request<{ protocolVersion: number; minClientProtocol?: number; capabilities?: string[]; location: { hostname: string; workspaceRoot: string }; outline?: { name: string }; host?: HostStatus; propertyGrammar?: { version: number } }>("ping");
     // A single-outline service ignores `outline` and would serve its own outline: never read the wrong one.
     if (this.outline && !r.capabilities?.includes("request.outline"))
       throw new Error(`${this.path} serves one outline and can't route by name (no request.outline), so it can't open the outline "${this.outline}"; start the outline host, or name a folder root with --ws <root>`);
@@ -519,14 +505,10 @@ export class SocketBoard implements Board {
     this.capabilities = new Set(r.capabilities);
     // The door finds [key::value] tokens while it paints with its copy of the outliner's grammar; a
     // different version on the service means titles may hide or show tokens differently from Detail.
-    const grammar = r.propertyGrammar?.version, matcher = r.searchMatch?.version;
-    const warning = [
-      grammar !== undefined && grammar !== PROPERTY_GRAMMAR_VERSION
-        && `this outline's property grammar is version ${grammar} and this door's copy is ${PROPERTY_GRAMMAR_VERSION}: titles may show or hide [key::value] differently from Detail until the door is updated`,
-      // Searches are the service's; only the lists the door filters itself (backlinks, a river column) use the copy.
-      matcher !== undefined && matcher !== SEARCH_MATCH_VERSION
-        && `this outline's search matcher is version ${matcher} and this door's copy is ${SEARCH_MATCH_VERSION}: a list filter may match differently from search until the door is updated`,
-    ].filter(Boolean).join("; ") || undefined;
+    const grammar = r.propertyGrammar?.version;
+    const warning = grammar !== undefined && grammar !== PROPERTY_GRAMMAR_VERSION
+      ? `this outline's property grammar is version ${grammar} and this door's copy is ${PROPERTY_GRAMMAR_VERSION}: titles may show or hide [key::value] differently from Detail until the door is updated`
+      : undefined;
     return {
       host: r.location.hostname, workspace: r.location.workspaceRoot, protocol: r.protocolVersion, blocks: null, capabilities: r.capabilities!,
       ...(warning ? { warning } : {}),
@@ -635,21 +617,16 @@ export class SocketBoard implements Board {
   }
 
   /**
-   * The one search (`tree.search`, as Tree's Goto ranks: the rungs are pi-herdr-outliner's src/search-match.ts):
-   * the service's order, best first, at most 30. `semantic` asks Jev to re-order the candidates (`semantic.status`
-   * says whether it did); `near` is the note the person is in (`contextBlockId`): nearer notes first inside each
-   * rung, and an empty `text` lists what's linked and edited around it.
+   * Notes matching `text`, best first, as Tree's goto ranks them (`tree.search`: the service's order, an exact
+   * title before a title that starts with the words, before one that holds them, before a mention in a body),
+   * read whole for a preview.
    */
-  searchBlocks(text: string, opts: { semantic?: boolean; near?: string } = {}): Promise<SearchHits> {
-    return this.request<SearchHits>("tree.search", { query: text, ...(opts.semantic ? { semantic: true } : {}), ...(opts.near ? { contextBlockId: opts.near } : {}) });
-  }
-
-  /** `searchBlocks`, the hits read whole for a preview, with what Jev did (`semantic`). */
-  async search(text: string, limit: number, opts: { semantic?: boolean; near?: string } = {}): Promise<Msg[] & { semantic?: SearchHits["semantic"] }> {
-    const r = await this.searchBlocks(text, opts);
-    const ids = r.matches.slice(0, Math.min(1000, limit)).map(m => m.block.id);
-    const by = new Map((ids.length ? (await this.readBlocks(ids)).blocks : []).map(m => [m.id, m]));
-    return Object.assign(ids.flatMap(id => by.get(id) ?? []), { semantic: r.semantic });
+  async search(text: string, limit: number): Promise<Msg[]> {
+    const ranked = await this.request<{ matches: { block: { id: string } }[] }>("tree.search", { query: text });
+    const ids = ranked.matches.slice(0, Math.min(1000, limit)).map(m => m.block.id);
+    if (!ids.length) return [];
+    const by = new Map((await this.readBlocks(ids)).blocks.map(m => [m.id, m]));
+    return ids.flatMap(id => by.get(id) ?? []);
   }
 
   async callers(): Promise<Caller[]> {
@@ -749,10 +726,10 @@ export class SocketBoard implements Board {
     return (await this.request<{ plans: { viewId: string; plan: CreatePlan }[] }>("views.planWrite", { viewIds: [viewId], text })).plans[0]!.plan;
   }
 
-  /** Which of `blockIds` the saved-view query `expression` holds for (`query.matches`). */
+  /** Which of `blockIds` the query `expression` holds for (`query.matches`, a thousand ids a request). */
   async matchQuery(expression: string, blockIds: string[]): Promise<Set<string>> {
-    if (!blockIds.length) return new Set();
-    return new Set((await this.request<{ blockIds: string[] }>("query.matches", { expression, blockIds })).blockIds);
+    const asks = Array.from({ length: Math.ceil(blockIds.length / 1000) }, (_, i) => this.request<{ blockIds: string[] }>("query.matches", { expression, blockIds: blockIds.slice(i * 1000, i * 1000 + 1000) }));
+    return new Set((await Promise.all(asks)).flatMap(r => r.blockIds));
   }
 
   /** What changed after `sequence` (PIE-399), or an explicit reset. */
@@ -1041,19 +1018,20 @@ export class SocketBoard implements Board {
 
   // ── reference completion (the lookups Tree, Detail and Quick Capture use) ────────────────────────
 
-  /**
-   * Named addresses (pages, aliases, Work IDs) matching `query`, by address or their note's title, ranked as
-   * `searchBlocks` is; `semantic` and `near` as there.
-   */
-  completePages(query: string | undefined, limit: number, opts: { semantic?: boolean; near?: string } = {}) {
-    return this.request<{ addresses: { address: string; blockId: string; kind: string; title: string }[]; completeness: { kind: string; limit?: number }; semantic?: SearchHits["semantic"] }>("pages.complete", {
-      ...(query ? { query } : {}), limit, ...(opts.semantic ? { semantic: true } : {}), ...(opts.near ? { contextBlockId: opts.near } : {}),
-    });
+  /** Named addresses (pages, aliases, Work IDs) containing `query`. */
+  completePages(query: string | undefined, limit: number) {
+    return this.request<{ addresses: { address: string; blockId: string; kind: string; title: string }[]; completeness: { kind: string; limit?: number } }>("pages.complete", { ...(query ? { query } : {}), limit });
   }
 
   /** Workspace paths starting with `prefix`. */
   completeFiles(prefix: string) {
     return this.request<{ sourcePath: string; isDirectory: boolean }[]>("files.complete", { prefix });
+  }
+
+  /** Whole blocks matching a text search, as `blocks.query` ranks them, with whether the list was cut. */
+  async findBlocks(text: string | undefined, limit: number): Promise<{ blocks: Msg[]; truncated: number | null }> {
+    const r = await this.request<{ blocks: WireBlock[]; completeness: { kind: string; limit?: number } }>("blocks.query", { query: { ...(text ? { text } : {}), limit } });
+    return { blocks: r.blocks.map(b => toMsg(b)), truncated: r.completeness?.kind === "truncated" ? r.completeness.limit ?? limit : null };
   }
 
   /** A block with its ancestors. */

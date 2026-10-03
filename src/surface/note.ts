@@ -33,7 +33,7 @@ import { ActionRefused, ActionSet, agentLabel, asActor, type ActionDef } from ".
 import { Dispatcher } from "./dispatch";
 import { NOBODY } from "../whereabouts";
 import { draftState, editHint, editorClick, openInEditor, renderEditor, writtenBy } from "./editor";
-import { completerFor, completerOf, completionOf, insertCompletion, lookupCompletion, nearOf, type CompletionBoard } from "./completer";
+import { completerFor, completerOf, completionOf, insertCompletion, lookupCompletion, type CompletionBoard } from "./completer";
 import { completionTargetAtCursor } from "../completion";
 import { checkValue, propertyRows, PropertyPanel, valueTarget, valueView, type PropRow } from "./props-panel";
 import { ModeStack, type ReaderMode } from "./modes";
@@ -2301,9 +2301,10 @@ export class NoteSurface {
       else if (p?.status === "missing") { host.ctx.flash(`[[${l.page}]] · Missing target`); return null; }
     }
     if (!target && l.page) {
-      // Not a registered address: the one search's answer, when it is exactly that (an id, or the title as folded).
-      const hit = (await host.ctx.board.searchBlocks(l.page).catch(() => null))?.matches[0];
-      if (hit?.exact) target = await host.ctx.board.get(hit.block.id);
+      const hits = await host.ctx.board.search(l.page, 25).catch(() => [] as Msg[]);
+      const p = l.page.toLowerCase();
+      target = hits.find(m => m.props["work-id"]?.toLowerCase() === p || m.props.page?.toLowerCase() === p)
+        ?? hits.find(m => subject(m).toLowerCase().startsWith(p)) ?? null;
     }
     if (!target) { host.ctx.flash(`nothing answers at ${l.block ?? `[[${l.page}]]`}`); return null; }
     // `((id^fragment))` (PIE-425): the reader the note opens in scrolls to the fragment and marks it.
@@ -2371,9 +2372,9 @@ export class NoteSurface {
   /** A status choice's list, from choice `sel`: j k Tab round it, ⏎ or a choice's letter chooses, esc or q cancels. */
   choices(sel: number): Picker["list"] {
     const list = new ListPicker<(typeof STEP_CHOICES)[number], SurfaceHost>({
-      name: "choice", items: () => STEP_CHOICES, wraps: true, closers: "q", row: () => [],
+      name: "choice", items: () => STEP_CHOICES, wraps: true, closers: "q", stays: true, row: () => [],
       choose: (_, i, host) => void this.choose(i, host),
-      close: host => { this.picker = null; host.redraw(); },                                  // a cancel: as it was
+      closed: host => { this.picker = null; host.redraw(); },                                  // a cancel: as it was
       keys: (k, host) => { const i = STEP_CHOICES.findIndex(x => x.key === ch(k)); if (i >= 0) void this.choose(i, host); return i >= 0; },
     });
     list.sel = sel;
@@ -3637,11 +3638,7 @@ export const NOTE_ACTIONS: ActionSet<NoteActionArgs, On> =new ActionSet<NoteActi
       const still = () => !!d && !!at && d.text === at.text && d.row === at.row && d.col === at.col;
       const own = surface.draft ? { blockId: surface.draft.blockId, text: surface.draft.text } : undefined;
       const prefix = await board.workIdPrefix().catch(() => null);
-      // What the person's popup shows, when it is open on this token (Jev's order included), so insert=n is
-      // the nth they see; else the same lookup it makes, from the same note.
-      const shown = d ? completionOf(d) : null;
-      const r = shown && !shown.loading && shown.target.kind === target.kind && shown.target.start === target.start && shown.target.query === target.query
-        ? shown : await lookupCompletion(board, target, prefix, own, { near: nearOf(d, own) });
+      const r = await lookupCompletion(board, target, prefix, own);
       const out = {
         kind: target.kind, query: target.query, message: r.message || undefined, truncated: r.truncated ?? undefined,
         items: r.items.map((it, i) => ({ n: i + 1, label: it.label, insertion: it.insertion, kind: it.kind, blockId: it.blockId, address: it.address, fragmentId: it.fragmentId, context: it.context || undefined })),
