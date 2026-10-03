@@ -12,7 +12,7 @@ import { subject } from "../board";
 import { backlinkView, DEFAULT_BACKLINK_VIEW_OPTIONS, describeBacklinkView } from "../backlinks";
 import { Canvas, type Rect } from "../canvas";
 import type { Placement } from "../kitty";
-import type { Actor, OutlineEvent } from "../socket";
+import { USER, type Actor, type OutlineEvent } from "../socket";
 import { C, fg, pad, paint, RESET, selected } from "../style";
 import { wrap } from "../text";
 import { ch, isUp, isDown, type Key } from "../term";
