@@ -641,8 +641,6 @@ Use made-up data. The runtime is the same one the live service uses.
   (ep0ch-door PIE-512); moving them still needs a query input in the `run` contract (a handler that
   declares the query it reads, evaluated by the service). The primitives here are
   the target they move to.
-- **Renderers for `component:` fences** (status-summary, `document-renderers.json`) still use the
-  reader host's registry; they move to `extensions.list` with the door's renderer work.
 - **Actions in Detail.** The service lists them with keys and labels; the door binds them
   (ep0ch-door PIE-512), Detail doesn't yet. Until then in Detail: `outliner ext act` and `extensions.act`.
 - **The same request twice in one note.** Requests are known by their words: a second `@tidy` line

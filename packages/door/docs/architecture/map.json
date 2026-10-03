@@ -111,7 +111,7 @@
     { "id": "terminal", "title": "Terminal tiles and Herdr", "lede": "A tile can run a program: a pty from Bun, the screen through @xterm/headless. An agent that must outlive the door runs in a Herdr pane the tile attaches to. Every exit goes through one teardown." },
     { "id": "screens", "title": "Screens as specs", "lede": "Every screen is a spec on the one screen host, the desk: containers and tiles by kind, a key map naming actions, a hint, a band, where opens land, all plain data. The desk, the welcome, the brief, Waiting, a pinned page, the board (its lanes a hub source's columns) and the river (a flow) are specs, and no class extends Desk (PIE-515); the BBS screens are outside the tree."},
     { "id": "agents", "title": "Agents via act and peek", "lede": "A second actor drives the door over its control socket: peek and snap to see, act to do, subscribe for the live feed. An agent's action is attributed and never takes the person's focus, selection or keys." },
-    { "id": "extensions", "title": "Extensions", "lede": "What a third party can add: resource providers and component renderers in the outliner, and, in the door, any program in a terminal tile that drives the door over EP0CH_CONTROL. Tile kinds, keys and screens can't be added yet." }
+    { "id": "extensions", "title": "Extensions", "lede": "What a third party can add: resource providers and rich components in the outliner, and, in the door, any program in a terminal tile that drives the door over EP0CH_CONTROL. Tile kinds, keys and screens can't be added yet." }
   ],
   "structures": [
     {
@@ -261,15 +261,14 @@
     },
     {
       "id": "door.mirrors", "name": "Grammar mirrors", "group": "door", "chapter": "socket", "ladder": "accidental", "dependsOn": ["door.socketboard"],
-      "does": "Literal regions, inline Markdown, component renderers and the backlink view, drawn the way the outliner draws them.",
-      "built": "Ports of the outliner's rules, parity-tested against the checkout. components.ts reads the outliner's renderer config on the door's machine, which is wrong for a remote door.",
+      "does": "Literal regions, inline Markdown and the backlink view, drawn the way the outliner draws them.",
+      "built": "Ports of the outliner's rules, parity-tested against the checkout.",
       "refs": [
         { "r": "door", "p": "src/literal.ts", "l": 1, "m": "Literal regions (PIE-422)" },
         { "r": "door", "p": "src/inline.ts", "l": 1, "m": "Inline Markdown in read mode" },
-        { "r": "door", "p": "src/components.ts", "l": 4, "m": "document-renderers.json" },
         { "r": "door", "p": "src/backlinks.ts", "l": 166, "m": "export function backlinkView" }
       ],
-      "questions": [ { "text": "Pure paint-time grammar belongs in outline-core, imported as the property grammar is; the component registry is a host call. (Folder-to-outline moved to outline-core's outline-location.ts, PIE-530.)", "finding": "A-F13", "route": "service track" } ]
+      "questions": [ { "text": "Pure paint-time grammar belongs in outline-core, imported as the property grammar is. (Folder-to-outline moved to outline-core's outline-location.ts, PIE-530.)", "finding": "A-F13", "route": "service track" } ]
     },
 
     {
@@ -765,13 +764,6 @@
         { "r": "outliner", "p": "extensions/jira/extension.json", "l": 2, "m": "\"contract\": 2" }
       ],
       "questions": [ { "text": "Credential lookup is macOS-only (keychain); on Linux a keychain credential is unavailable.", "finding": "B-F15", "route": "PIE-494" } ]
-    },
-    {
-      "id": "svc.renderers", "name": "Component renderers", "group": "service", "chapter": "extensions", "ladder": "provisional", "dependsOn": ["svc.store"],
-      "does": "component: fences drawn from a renderer registry (labelled values, one layout so far), in Detail and the door.",
-      "built": "document-components.ts reads the registry from the host's config.",
-      "refs": [ { "r": "outliner", "p": "src/document-components.ts", "l": 48, "m": "document-renderers.json" } ],
-      "questions": [ { "text": "The door mirrors the registry from its own machine's config; for a remote door the service should render.", "finding": "A-F13", "route": "service track" } ]
     },
     {
       "id": "door.exthost", "name": "Extensions in the door", "group": "door", "chapter": "extensions", "ladder": "provisional", "was": "accidental", "dependsOn": ["door.pty", "door.control", "door.tilekinds", "door.actions"],

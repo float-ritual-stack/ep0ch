@@ -182,11 +182,6 @@ shows the same rows in a links tile beside it.
 **Callouts and tables.** `> [!note] Title` (also `summary`, `warning`…) draws a box. A Markdown table draws as
 a real table with wrapped cells.
 
-**Document renderers.** A fence ` ```component:<name> ` drawn by a renderer registered on the reader's host in
-`~/.config/pi-herdr-outliner/document-renderers.json`. `status` is installed (`label :: value` per line,
-`packages/outliner/extensions/status-summary/README.md`). A renderer that isn't installed keeps the code block
-and says why.
-
 **Extension lines** (next section): `moon:: 2026-10-26`, `jira:: PC-1234`, `horoscope:: virgo`,
 `fancy-horror:: virgo`, `@tidy`. `outliner ext ls` lists what this outline has.
 

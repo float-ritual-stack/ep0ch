@@ -1,4 +1,3 @@
-import {documentComponent, DocumentRendererCatalog} from './document-components';
 import {sourceTable,type TableNode} from './document-tables';
 import {Marked,type Token,type Tokens,type Links} from 'marked';
 import {decodeHTMLStrict} from 'entities';
@@ -125,7 +124,6 @@ type LayoutNode = (
   | {kind:'list';items:{marker:DocumentGlyph[];children:LayoutNode[]}[];loose:boolean}
   | {kind:'code';lines:DocumentGlyph[][];language:string}
   | {kind:'table';table:TableNode;header:DocumentGlyph[][];rows:DocumentGlyph[][][]}
-  | {kind:'labelled-values';entries:{label:DocumentGlyph[];value:DocumentGlyph[]}[]}
   | {kind:'rule'}
 ) & {blankAfter:boolean};
 
@@ -164,7 +162,7 @@ function codeBody(source:MappedDocument,expected:string,indented:boolean):Mapped
   const body=stripLinePrefixes(sliceDocument(source,start,end),line=>Math.min(open[1]!.length,/^ */.exec(line)![0].length));
   return matchBody(body,expected);
 }
-function compileBlocks(document:MappedDocument,path:string,definitions:Links|undefined,catalog:DocumentRendererCatalog):LayoutNode[]|null {
+function compileBlocks(document:MappedDocument,path:string,definitions:Links|undefined):LayoutNode[]|null {
   const lexer=new parser.Lexer(parser.defaults);
   if(definitions)lexer.tokens.links=definitions;
   const tokens=lexer.lex(document.text),nodes:LayoutNode[]=[];let cursor=0;
@@ -183,7 +181,7 @@ function compileBlocks(document:MappedDocument,path:string,definitions:Links|und
     }
     if(token.type==='blockquote') {
       const body=matchBody(stripLinePrefixes(source,line=>/^ {0,3}> ?/.exec(line)?.[0].length??0),token.text);
-      const children=body&&compileBlocks(body,nodePath,tokens.links,catalog);if(!children)return null;
+      const children=body&&compileBlocks(body,nodePath,tokens.links);if(!children)return null;
       nodes.push({kind:'quote',children,blankAfter});continue;
     }
     if(token.type==='list') {
@@ -210,7 +208,7 @@ function compileBlocks(document:MappedDocument,path:string,definitions:Links|und
           body=sliceDocument(body,checkbox[0].length);
         }
         const matched=matchBody(body,item.text);if(!matched)return null;
-        const children=compileBlocks(matched,`${nodePath}/item:${itemIndex}`,tokens.links,catalog);if(!children)return null;
+        const children=compileBlocks(matched,`${nodePath}/item:${itemIndex}`,tokens.links);if(!children)return null;
         items.push({marker,children});
       }
       if(source.text.slice(itemCursor).trim())return null;
@@ -218,20 +216,6 @@ function compileBlocks(document:MappedDocument,path:string,definitions:Links|und
     }
     if(token.type==='code') {
       const body=codeBody(source,token.text,token.codeBlockStyle==='indented');if(!body)return null;
-      const component = documentComponent(token.lang ?? '', body, nodePath, catalog);
-      if (component?.kind === 'labelled-values') {
-        const entries = component.entries.map(entry => ({
-          label: inline(entry.label, ['bold'], undefined, `${entry.id}/label`),
-          value: inline(entry.value, [], undefined, `${entry.id}/value`),
-        }));
-        if (entries.every(entry => entry.label && entry.value)) {
-          nodes.push({kind: 'labelled-values', entries: entries as {label: DocumentGlyph[]; value: DocumentGlyph[]}[], blankAfter});
-          continue;
-        }
-        nodes.push({kind: 'flow', glyphs: generatedGlyphs('Component unavailable: unsupported inline content', 'component diagnostic', true), blankAfter: true});
-      } else if (component) {
-        nodes.push({kind: 'flow', glyphs: generatedGlyphs(`Component unavailable: ${component.reason}`, 'component diagnostic', true), blankAfter: true});
-      }
       let offset=0;
       const lines=body.text.split('\n').map(line=>{const mapped=sliceDocument(body,offset,offset+line.length);offset+=line.length+1;return documentGlyphs(mapped,['codeBlock']);});
       nodes.push({kind:'code',lines,language:token.lang??'',blankAfter});continue;
@@ -334,17 +318,6 @@ function tableCards(node:TableLayout,width:number):Row[] {
   return rows;
 }
 
-/** Responsive labelled values use the same attributed glyphs as table cells.
- * Separators are useful copied punctuation, not source-backed decorations. */
-function layoutLabelledValues(entries: readonly {label: DocumentGlyph[]; value: DocumentGlyph[]}[], width: number): Row[] {
-  const items = entries.map(entry => [...entry.label,
-    ...generatedGlyphs(': ', 'component label separator', true), ...entry.value]);
-  const separator = generatedGlyphs(' · ', 'component item separator', true);
-  const natural = items.reduce((sum, item) => sum + glyphWidth(item), 0) + (items.length - 1) * 3;
-  if (natural <= width) return [items.flatMap((item, index) => index ? [...separator, ...item] : item)];
-  return items.flatMap(item => wrapDocumentGlyphs(item, width));
-}
-
 function layout(nodes:readonly LayoutNode[],width:number,theme:MarkdownTheme,listDepth=0):Row[] {
   const rows:Row[]=[];
   for(const node of nodes) {
@@ -387,7 +360,6 @@ function layout(nodes:readonly LayoutNode[],width:number,theme:MarkdownTheme,lis
       }
       rows.push(...wrapDocumentGlyphs(generatedGlyphs('```','code fence',false,['codeBlockBorder']),width));
     } else if(node.kind==='table')rows.push(...layoutTable(node,width));
-    else if(node.kind==='labelled-values')rows.push(...layoutLabelledValues(node.entries,width));
     else rows.push(generatedGlyphs('─'.repeat(Math.min(width,80)),'horizontal rule',false,['hr']));
     if(node.blankAfter)rows.push([]);
   }
@@ -400,9 +372,9 @@ export class AttributedMarkdown implements Component {
   private constructor(private readonly nodes:readonly LayoutNode[],private readonly theme:MarkdownTheme,private readonly linksEnabled:boolean){}
   // Raw and code/HTML slices reach glyphs verbatim, so terminal controls are
   // stripped here rather than trusting every caller to sanitize first.
-  static compile(document:MappedDocument,theme:MarkdownTheme,linksEnabled:boolean,path='root',catalog=new DocumentRendererCatalog()):AttributedMarkdown|null {
+  static compile(document:MappedDocument,theme:MarkdownTheme,linksEnabled:boolean,path='root'):AttributedMarkdown|null {
     document=sanitizeReaderDocument(document);
-    const nodes=document.text.trim()?compileBlocks(normalized(document),path,undefined,catalog):[];
+    const nodes=document.text.trim()?compileBlocks(normalized(document),path,undefined):[];
     return nodes?new AttributedMarkdown(nodes,theme,linksEnabled):null;
   }
   static compileInline(document:MappedDocument,theme:MarkdownTheme,linksEnabled:boolean):AttributedMarkdown|null {

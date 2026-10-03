@@ -4,6 +4,14 @@ This file records notable user-facing changes. The project remains active dogfoo
 
 ## [Unreleased]
 
+### Component fences removed
+
+- The ` ```component:<name> ` fence and its renderer registry are gone: Detail, Tree Preview,
+  Inbox Preview and the door no longer read `document-renderers.json` (or
+  `OUTLINER_DOCUMENT_RENDERERS`), and the `status-summary` example is removed. Such a fence is
+  now an ordinary code block. Live `::graph-*` figures and rich component extensions cover the
+  need. `~/.config/pi-herdr-outliner/document-renderers.json` can be deleted.
+
 ### One repository, outlines by name, one version (PIE-530)
 
 - ep0ch-door and pi-herdr-outliner are one repository, `ep0ch` (bun workspaces):
