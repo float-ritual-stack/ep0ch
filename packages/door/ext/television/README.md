@@ -77,7 +77,7 @@ take `((id))` as the id). `ep0ch-outlines` isn't for a trigger: its Enter opens 
 
 `ep0ch install --apply` links the files `ext.json` names, when `tv` is on PATH: the cable files into
 `$TELEVISION_CONFIG/cable` (else `~/.config/television/cable`) and `bin/ep0ch-tv` beside `ep0ch`. It says each link,
-and never replaces a file it didn't make; it records what it linked (`ext-links.json` in the door's state), so after
+and never replaces a file it didn't make; it records what it linked (`install-links.json` in the door's state), so after
 this folder is deleted the next install takes those links away. By hand:
 
 ```sh

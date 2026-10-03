@@ -8,6 +8,7 @@ import { delimiter, join, resolve } from "node:path";
 import { hostLive, hostSocketOf, outlinesDir, resolveTarget } from "../discover";
 import { machineStatus, usedMachines } from "../machine";
 import { binDirOf, extFacts } from "./ext-links";
+import { skillLinkFacts } from "./skill-links";
 import { outlinerPlugin } from "../skills";
 import { outlineOfFile } from "@ep0ch/outline-core/outline-location";
 import { doorAgents } from "../desk/agent-env";
@@ -393,6 +394,8 @@ export async function gatherFacts(o: GatherOptions = {}): Promise<Facts> {
   const named = [...new Set([...(here.machine ? [here.machine] : []), ...usedMachines(env.EP0CH_STATE ?? defaultStateDir(env)).map(m => m.name)])];
   const machines = await part("the machines' forwards", Promise.all(named.map(async m => ({ ...(await machineStatus(m, { ...env, HOME: home })), ...(m === here.machine ? { here: true } : {}) }))));
 
+  // What install linked (links.ts), one record for every kind of link it owns.
+  const record = join(env.EP0CH_STATE ?? defaultStateDir(env), "install-links.json");
   return {
     platform, home, pathDirs,
     bun: { path: bunPath, version: bunVersion },
@@ -407,7 +410,8 @@ export async function gatherFacts(o: GatherOptions = {}): Promise<Facts> {
     machines,
     claude: { settingsPath, settingsDirs, envDirs: splitDirs(env.CLAUDE_CODE_PLUGIN_DIRS), ...(mentions ? { mentions } : {}), ...(env.FORCE_HYPERLINK !== undefined ? { forceHyperlink: env.FORCE_HYPERLINK } : {}), ...(agents ? { agents } : {}) },
     session,
-    ext: extFacts(join(repo.door, "ext"), { env, home, bin: binDirOf(found, target === real(repo.entry)) ?? chooseLinkDir(linkDirs), which: n => which(n, pathDirs), record: join(env.EP0CH_STATE ?? defaultStateDir(env), "ext-links.json") }),
+    ext: extFacts(join(repo.door, "ext"), { env, home, bin: binDirOf(found, target === real(repo.entry)) ?? chooseLinkDir(linkDirs), which: n => which(n, pathDirs), record }),
+    skills: skillLinkFacts({ door: repo.door, outliner: repo.outliner, env, home, record }),
   };
 }
 

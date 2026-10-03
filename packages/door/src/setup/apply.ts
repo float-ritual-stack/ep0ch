@@ -11,7 +11,7 @@ import { Progress, progressMode, size, type Task, type Terminal } from "./progre
 import { type Facts, PLUGIN_SOURCE, short, staleness } from "./model";
 import { backupDirOf, buildPlan, hostMainOf, hostStep, hostUnitArgv, hostUnitCommand, type Plan, type PlanOptions, type Step, type StepStatus } from "./plan";
 import { hostLive } from "../discover";
-import { recordLinks, staleLinkInto } from "./ext-links";
+import { applyLinks, LinkFailed } from "./links";
 
 type Env = Record<string, string | undefined>;
 export const SETUP_USAGE = "ep0ch doctor [--json] | ep0ch install [--apply] [--json]";
@@ -155,8 +155,9 @@ async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[
       say(`${link} → ${f.repo.entry}`);
       return;
     }
-    case "ext": {
-      if (step.links) linkExtensions(step.links, say);
+    case "ext":
+    case "skills": {
+      if (step.links) applyLinks(step.links, say);
       return;
     }
     case "host": {
@@ -175,28 +176,6 @@ async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[
       return;
     }
   }
-}
-
-/**
- * The ext step's links: each stale one taken away (only while it's still a link whose file is gone), each missing one
- * made (a symlink never replaces anything: if something came there since the plan, it fails and says so).
- */
-export function linkExtensions(links: NonNullable<Step["links"]>, say: (s: string) => void): void {
-  const removed: string[] = [], made: string[] = [];
-  try {
-    for (const dest of links.remove) {
-      // Still a link into ext/ whose file is gone (it was, when the plan was made): never anything else.
-      if (staleLinkInto(dest, links.extRoot)) { unlinkSync(dest); removed.push(dest); say(`took away ${dest} (its file is gone)`); }
-    }
-    for (const l of links.make) {
-      try {
-        mkdirSync(dirname(l.dest), { recursive: true });
-        symlinkSync(l.src, l.dest);
-      } catch (e) { throw new StepFailed(`linking ${l.dest} failed: ${(e as Error).message}`, `nothing there was replaced; link it by hand: ln -s ${l.src} ${l.dest}`); }
-      made.push(l.dest);
-      say(`${l.dest} → ${l.src}`);
-    }
-  } finally { if (links.record) recordLinks(links.record, made, removed); }
 }
 
 /** Paths under the home directory as ~/…, for people (--json keeps them whole). */
@@ -277,7 +256,7 @@ async function setup(args: readonly string[], io: SetupIO, env: Env, json: boole
       results.push({ ...step, done });
     } catch (e) {
       task.end(false);
-      const error = (e as Error).message, recover = e instanceof StepFailed ? e.recover : "rerun ep0ch install to see the plan";
+      const error = (e as Error).message, recover = e instanceof StepFailed || e instanceof LinkFailed ? e.recover : "rerun ep0ch install to see the plan";
       results.push({ ...step, done, error, recover });
       if (json) io.out(JSON.stringify({ platform: facts.platform, apply: true, ok: false, steps: results, notes: plan.notes }, null, 2));
       else io.err(`    ✗ ${error}\n    recover: ${recover}\n    stopped: nothing after step ${i + 1} ran`);

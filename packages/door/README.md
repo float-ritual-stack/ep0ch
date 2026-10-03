@@ -361,8 +361,16 @@ exits 1), and · for information:
    `~/.config/television/cable`, a helper beside `ep0ch`), when the program it needs is on PATH. Each link made is
    said; a file or link there that isn't install's is never replaced (it's said, and left); install's own links
    whose file is gone (an extension deleted, even the last) are taken away: it keeps a record of what it linked
-   (`ext-links.json` in the door's state). It runs last, so a link that fails never holds up the rest. A file of yours
+   (`install-links.json` in the door's state). It runs last, so a link that fails never holds up the rest. A file of yours
    where a link would go is said each run, not left as a step. See `ext/television/README.md`.
+8. **Link the agent skills** where Claude Code finds them, `~/.claude/skills/<name>` (`$CLAUDE_CONFIG_DIR/skills`), and
+   `~/.agents/skills/<name>` when that folder exists: every skill in `packages/door/skills/`, and of the outliner's
+   Pi skills (`pi-extension/skills/`) the one that also says how with Claude Code's tools, `outliner-documentation`
+   (the others need Pi-only tools). The same rules as the extensions' links (`src/setup/links.ts`, one record), and
+   one more: a symlink that is another checkout's copy of the same skill (same folder name, same `name:` in its
+   SKILL.md, the old ep0ch-door's say) is replaced, so `/ep0ch-core` never reads a stale copy. A real folder there,
+   or a link to some other skill, is yours: said and left. `ep0ch doctor`'s `skills` group shows each link: ✓ into
+   this checkout, ! a link elsewhere (with `ln -sfn …`), ✗ missing (with `ln -s …`).
 
 A checkout that isn't on `main`, has diverged, is behind with local changes, or couldn't be fetched is left
 for you, with what to do. Install never writes a database (it only copies them), never creates or opens an outline,
