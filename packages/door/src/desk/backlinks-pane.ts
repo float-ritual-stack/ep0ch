@@ -120,9 +120,10 @@ export class BacklinksPane implements Pane {
 
   /** The source tile shows another note: its backlinks are asked for. */
   private sync(desk: DeskApi) {
-    // A Resource or a file shown in the source tile isn't a block: nothing links to it here.
+    // A Resource or a file shown in the source tile isn't a block: nothing links to it, so the list stays on the note
+    // it listed (one of its resources opened from here: the list is still there to go on from).
     const shown = desk.tileShowing?.(this.source) ?? null;
-    let m = isOutlineNote(shown) ? shown : null;
+    let m = isOutlineNote(shown) ? shown : shown ? this.target : null;
     // A note named outright stays until the source moves on from what it showed then.
     if (this.named && (m?.id ?? null) === this.named.over) m = this.named.m;
     else this.named = null;
@@ -208,7 +209,7 @@ export class BacklinksPane implements Pane {
   render(w: number, h: number, focused: boolean, desk: DeskApi): PaneView {
     this.sync(desk);
     this.controls = [];
-    if (!this.target) return { lines: [fg(C.dark) + pad(`the backlinks of what ${this.source} shows land here`, w) + RESET] };
+    if (!this.target) return { lines: [fg(C.dark) + pad(`the links of what ${this.source} shows land here`, w) + RESET] };
     if (this.problem) return { lines: [fg(C.lred) + pad(this.problem, w) + RESET] };
     if (!this.data) return { lines: [fg(C.dark) + pad("asking the service…", w) + RESET] };
     const rows = this.rows();
