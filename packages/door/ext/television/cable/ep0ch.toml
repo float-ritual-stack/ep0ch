@@ -1,0 +1,33 @@
+# The outline's notes (packages/door/ext/television). Enter prints ((id)) for each note chosen (Tab picks several);
+# ctrl-g opens the one under the cursor in the running door, ctrl-d in the Outliner's Tree and Detail.
+# Which outline: the door's rule (--ws, EP0CH_WS, the folder's .ep0ch); from the door's ctrl+t, the draft's outline.
+[metadata]
+name = "ep0ch"
+description = "Notes in the outline: Enter puts ((id)), ctrl-g opens it in the door, ctrl-d in the Outliner's Detail"
+requirements = ["ep0ch-tv"]
+
+[source]
+command = "ep0ch-tv notes"
+display = "{split:\\t:3}"
+output = "(({split:\\t:0}))"
+
+[preview]
+command = "ep0ch-tv preview '{split:\\t:0}'"
+
+[ui.preview_panel]
+size = 60
+header = "{split:\\t:1}"
+
+[keybindings]
+ctrl-g = "actions:open"
+ctrl-d = "actions:detail"
+
+[actions.open]
+description = "Open in the door (ep0ch open, as the agent television)"
+command = "ep0ch-tv open '{split:\\t:0}'"
+mode = "fork"
+
+[actions.detail]
+description = "Show in the Outliner's Tree and its Detail"
+command = "ep0ch-tv detail '{split:\\t:0}'"
+mode = "fork"

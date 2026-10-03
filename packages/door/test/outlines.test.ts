@@ -11,6 +11,7 @@ import { attachTarget, deletionPlan, formatOutlines, nameTheOutline, parseOutlin
 import { PROTOCOL } from "@ep0ch/outline-core/protocol";
 import { type HostedOutline, hostRequest, SocketBoard, type OutlineEvent } from "../src/socket";
 import { hostOutliner, ScratchHost, until } from "./scratch";
+import { everyOutline } from "../src/machine";
 
 /** A fake service on a Unix socket: records every line and answers with `answer(request)`. */
 async function fakeService(path: string, answer: (r: any) => unknown) {
@@ -80,6 +81,7 @@ describe("SocketBoard with an outline", () => {
 describe("ep0ch outline arguments", () => {
   test("each command, --json and --yes", () => {
     expect(parseOutlineArgs(["list", "--json"])).toEqual({ op: "list", json: true });
+    expect(parseOutlineArgs(["list", "--all", "--lines"])).toEqual({ op: "list", json: false, all: true, lines: true });
     expect(parseOutlineArgs(["attach", "jam-shelf"])).toEqual({ op: "attach", name: "jam-shelf", json: false });
     expect(parseOutlineArgs(["create", "uncle", "--json"])).toEqual({ op: "create", name: "uncle", json: true });
     expect(parseOutlineArgs(["stop", "fred"])).toEqual({ op: "stop", name: "fred", json: false });
@@ -276,6 +278,18 @@ describe.skipIf(!hostOutliner)("the door against a scratch outline host", () => 
     expect(JSON.parse(deleted.out).movedTo).toContain(join(host.outlines, ".deleted"));
     const after = JSON.parse((await run(host.root, "outline", "list", "--json")).out).outlines.map((o: any) => o.name);
     expect(after).not.toContain("bandit");
+  });
+
+  test("outline list --all: this machine's outlines, then each machine opened before, not connected said (nothing started)", async () => {
+    const state = mkdtempSync(join(tmpdir(), "ep0ch-every-"));
+    writeFileSync(join(state, "machines.json"), JSON.stringify({ machines: [{ name: "box-a", at: 1 }] }));
+    try {
+      const every = await everyOutline(host.sock, { ...host.env, EP0CH_STATE: state, EP0CH_SSH: "/bin/false" });
+      expect(every.filter(o => !o.machine).map(o => o.name)).toEqual(expect.arrayContaining(["bob", "fred"]));
+      expect(every.at(-1)).toEqual({ machine: "box-a", problem: "not connected" });
+      const lines = await run(host.root, "outline", "list", "--lines");
+      expect(lines.out.split("\n")).toContain("bob\t\t");
+    } finally { rmSync(state, { recursive: true, force: true }); }
   });
 
   test("--ws jam-pot creates the outline on first open and attaches on the next; ep0ch clients never creates", async () => {

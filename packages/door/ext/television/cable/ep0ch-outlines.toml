@@ -1,0 +1,28 @@
+# Outlines to open (packages/door/ext/television): this machine's, then each machine opened before, as the door's home
+# base lists them. Enter opens the door on the one chosen (ep0ch --ws <name> [--machine <ssh-name>]); on a machine
+# that isn't connected, the door connects and asks which outline.
+[metadata]
+name = "ep0ch-outlines"
+description = "Outlines here and on the machines you've opened: Enter opens the door on one"
+requirements = ["ep0ch-tv"]
+
+[source]
+command = "ep0ch-tv outlines"
+display = "{split:\\t:2}"
+output = "{split:\\t:0}"
+no_sort = true
+frecency = false
+
+[preview]
+command = "ep0ch-tv outline-preview '{split:\\t:0}' '{split:\\t:1}'"
+
+[ui.preview_panel]
+size = 50
+
+[keybindings]
+enter = "actions:launch"
+
+[actions.launch]
+description = "Open the door on this outline"
+command = "ep0ch-tv launch '{split:\\t:0}' '{split:\\t:1}'"
+mode = "execute"

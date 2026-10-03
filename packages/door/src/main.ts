@@ -12,6 +12,7 @@ import { whereCommand } from "./where";
 import { connectTarget, guardDoor, homeBase, openDoor, writeLastCall, type Door } from "./door";
 import { attachDoor, doorMode, sessionCommand } from "./session/client";
 import { forwardTo, remoteDoor, remoteOf } from "./machine";
+import { findCommand, NOTES_USAGE, showCommand } from "./notes-cli";
 
 let args = process.argv.slice(2);
 const USAGE = `ep0ch: a BBS door into an outline
@@ -69,6 +70,7 @@ const USAGE = `ep0ch: a BBS door into an outline
   ep0ch try --ws <name> [--copy] [--hub <id>]
   ep0ch try --showcase [--reset]
                                    the door on a private copy, or on the showcase outline (scripts/try-it.sh)
+${NOTES_USAGE}
   ep0ch clients [--ws <name>] [--machine <ssh-name>]
                                    who is connected to the service, every role (observers too)
   ep0ch peek | actions | snap <png> | open <id> | act <action> [key=value ...]
@@ -97,6 +99,8 @@ if (args[0] === "try") {
   const run = Bun.spawn(["sh", join(import.meta.dir, "../scripts/try-it.sh"), ...args.slice(1)], { stdio: ["inherit", "inherit", "inherit"] });
   process.exit(await run.exited);
 }
+if (args[0] === "find") process.exit(await findCommand(args));
+if (args[0] === "show") process.exit(await showCommand(args));
 if (args[0] === "where") process.exit(await whereCommand(args.slice(1)));
 if (args[0] === "session") process.exit(await sessionCommand(args.slice(1)));
 if (["peek", "snap", "open", "actions", "act", "subscribe"].includes(args[0] ?? "")) process.exit(await controlClient(args));

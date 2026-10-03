@@ -169,7 +169,8 @@ export async function controlClient(args: string[]): Promise<number> {
     // `open <id> [from=<tile>] [tile=<tile>] [--as <id>]` is `act open id=<id> …`: one way to open a note.
     if (cmd === "open" && (!arg || arg.includes("="))) throw new Error("open needs a block id: open <id> [from=<tile>] [--as <your id>]");
     req = cmd === "snap" ? (arg ? { cmd, data: true } : { cmd })
-      : cmd === "open" ? { cmd: "act", ...(await parseActArgs(["open", `id=${arg}`, ...args.slice(2)])) }
+      // A block reference as written (`((id))`, what a picker prints) names the same note.
+      : cmd === "open" ? { cmd: "act", ...(await parseActArgs(["open", `id=${arg!.replace(/^\(\((.+)\)\)$/, "$1")}`, ...args.slice(2)])) }
       : cmd === "act" ? { cmd, ...(await parseActArgs(args.slice(1))) } : { cmd };
   } catch (e) { console.error((e as Error).message); return 1; }
   // An agent names itself once per shell: EP0CH_AGENT=claude-7 (or --as on each act and open).

@@ -1,0 +1,19 @@
+# Files to reference in a note (packages/door/ext/television): `tv ep0ch-files <folder>`. Tab picks several; Enter
+# prints [file::<absolute path>] for each, the Resource token the outline recognises (a file on the outline host's
+# machine: pick files there).
+[metadata]
+name = "ep0ch-files"
+description = "Files to reference in a note: Tab picks several, Enter puts [file::<path>] for each"
+requirements = ["ep0ch-tv"]
+
+[source]
+command = "ep0ch-tv files"
+display = "{split:\\t:1}"
+output = "[file::{split:\\t:0}]"
+
+[preview]
+command = "ep0ch-tv file-preview '{split:\\t:0}'"
+
+[ui.preview_panel]
+size = 55
+header = "{split:\\t:1}"

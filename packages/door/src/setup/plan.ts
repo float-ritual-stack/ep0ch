@@ -10,7 +10,7 @@ import { type Checkout, type DatabaseFacts, type Deps, type Facts, type HostUnit
 
 /** do: runs with --apply. skip: already current. manual: needs a person (the hint says what). */
 export type StepStatus = "do" | "skip" | "manual";
-export type StepId = "backup" | "repo" | "plugin" | "link" | "host" | "session";
+export type StepId = "backup" | "repo" | "plugin" | "link" | "ext" | "host" | "session";
 
 export interface Step {
   id: StepId;
@@ -23,6 +23,8 @@ export interface Step {
   backups?: (DatabaseFacts & { dest: string })[];
   /** A checkout whose remote couldn't be reached (the fetch failed): whether it's current isn't known. */
   unchecked?: true;
+  /** ext: the links to make (src → dest) and the stale ones to take away (dest), as the commands say. */
+  links?: { make: { src: string; dest: string }[]; remove: string[] };
 }
 
 export interface Plan { steps: Step[]; notes: string[] }
@@ -133,6 +135,31 @@ export function linkStep(f: Facts): Step {
   if (existing === "broken-link") return { id: "link", title, status: "do", why: `replace the broken link ${dir}/ep0ch (the first writable PATH directory)`, commands: [`ln -sfn ${entry} ${dir}/ep0ch`] };
   if (existing) return { id: "link", title, status: "manual", why: `${dir}/ep0ch exists but doesn't run (not executable?); remove it, then rerun`, commands: [] };
   return { id: "link", title, status: "do", why: `${dir} is the first writable PATH directory of ${f.linkDirs.map(d => d.dir).join(", ")}`, commands: [`ln -s ${entry} ${dir}/ep0ch`] };
+}
+
+/**
+ * The door's extensions' links (src/setup/ext-links.ts): each one missing is made, each of install's own whose file is
+ * gone is taken away, and what's there already and isn't install's is left as it is, said.
+ */
+export function extStep(f: Facts): Step {
+  const title = "Link the door's extensions (packages/door/ext)";
+  const exts = f.ext?.exts ?? [];
+  const make = exts.flatMap(e => e.links.filter(l => l.state === "missing").map(l => ({ src: l.src, dest: l.dest })));
+  const remove = (f.ext?.stale ?? []).map(s => s.dest);
+  const taken = exts.flatMap(e => e.links.filter(l => l.state === "taken").map(l => l.dest));
+  const ours = exts.reduce((n, e) => n + e.links.filter(l => l.state === "ours").length, 0);
+  const skipped = exts.filter(e => e.problem).map(e => `${e.name}: ${e.problem}`);
+  const said = [
+    ...(taken.length ? [`left as they are (not install's): ${taken.join(", ")}`] : []),
+    ...(skipped.length ? [`not linked: ${skipped.join("; ")}`] : []),
+  ].join(" · ");
+  const commands = [...remove.map(d => `rm ${d}   # its file is gone`), ...make.map(l => `ln -s ${l.src} ${l.dest}`)];
+  if (make.length || remove.length) {
+    const what = [make.length ? `${make.length} to link` : "", remove.length ? `${remove.length} stale to take away` : ""].filter(Boolean).join(", ");
+    return { id: "ext", title, status: "do", why: `${what}${said ? ` · ${said}` : ""}`, commands, links: { make, remove } };
+  }
+  if (taken.length) return { id: "ext", title, status: "manual", why: `${said}; move them aside to let install link its own, then rerun`, commands: [] };
+  return { id: "ext", title, status: "skip", why: `${ours ? `${ours} linked` : "nothing to link"}${said ? ` · ${said}` : ""}`, commands: [] };
 }
 
 export function backupStep(f: Facts, o: PlanOptions, anythingElse: boolean): Step {
@@ -303,9 +330,10 @@ export function buildPlan(f: Facts, o: PlanOptions): Plan {
   const repo = repoStep(f);
   const plugin = pluginStep(f);
   const link = linkStep(f);
+  const ext = f.ext ? [extStep(f)] : [];
   const host = hostStep(f, repo.status === "do" && f.repo.checkout.behind > 0);
   const session = sessionStep(f, repo);
   const backup = backupStep(f, o, [repo, plugin, link, host].some(s => s.status === "do"));
   // The session last: handed to the new code once everything under it is current.
-  return { steps: [backup, repo, plugin, link, host, session], notes: planNotes(f) };
+  return { steps: [backup, repo, plugin, link, ...ext, host, session], notes: planNotes(f) };
 }

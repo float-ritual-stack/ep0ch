@@ -33,6 +33,7 @@ import { ActionRefused, actionSet, def, agentLabel, asActor, type ActionDef, typ
 import { Dispatcher } from "./dispatch";
 import { NOBODY } from "../whereabouts";
 import { draftState, editHint, editorClick, openInEditor, renderEditor, writtenBy } from "./editor";
+import { pickInto, type Picked } from "../pick";
 import { completerFor, completerOf, completionOf, insertCompletion, lookupCompletion, type CompletionBoard } from "./completer";
 import { completionTargetAtCursor } from "../completion";
 import { checkValue, propertyRows, PropertyPanel, valueTarget, valueView, type PropRow } from "./props-panel";
@@ -1131,7 +1132,7 @@ export class NoteSurface {
   private renderDraft(d: Draft, m: Msg, w: number, h: number, src: Source | null): string[] {
     const by = writtenBy(d, "save");
     return renderEditor(d, {
-      preview: (t, pw) => draftPreview(t, pw, src),
+      preview: (t, pw) => draftPreview(t, pw, src), pick: true,
       title: `editing · ${subject(m)}`,
       status: [
         fg(C.brown) + pad(`rev ${d.base} · ${draftState(d)}`, w) + RESET,
@@ -1202,6 +1203,7 @@ export class NoteSurface {
       run: cmd => {
         if (cmd === "save") void this.runKey("edit.save", {}, host, true);
         else if (cmd === "editor") void this.runKey("edit", { external: true }, host);
+        else if (cmd === "pick") void this.runKey("draft.pick", {}, host);
         else if (cmd === "reload") void this.runKey("edit.reload", {}, host);
         else if (cmd === "copy") void this.runKey("draft.copy", {}, host);
         // Esc closes an unchanged edit; esc, esc on changed text puts it aside as unsent (never dropped), and says where.
@@ -1302,6 +1304,24 @@ export class NoteSurface {
     host.redraw();
   }
 
+  /**
+   * Ctrl+T: insert from a picker (src/pick.ts) into the edit or the comment being written: the person's terminal goes
+   * to the picker, and what they chose comes back at the cursor. Resolves once it's in (or said why not).
+   */
+  async pick(host: SurfaceHost, channel?: string): Promise<Picked> {
+    const d = this.draft ?? (this.session?.mode === "compose" ? this.session.composer : null);
+    if (!d) throw new ActionRefused("nothing is being written in this reader; edit, or comment.write, opens a draft");
+    if (d.busy) throw new ActionRefused("the save is still landing");
+    const r = await pickInto(host.ctx, d, { socket: host.ctx.board.path, name: host.ctx.board.outline }, {
+      ...(channel !== undefined ? { channel } : {}),
+      held: () => this.draft === d || this.session?.composer === d,
+    });
+    if ("kept" in r) host.ctx.flash(`${r.why}: ${r.kept}`, 12000);
+    else if ("nothing" in r) d.note = r.nothing;
+    host.redraw();
+    return r;
+  }
+
   // ── comments ───────────────────────────────────────────────────────────────
 
   async loadComments(host: SurfaceHost): Promise<void> {
@@ -1332,6 +1352,7 @@ export class NoteSurface {
       setMsg: m => { if (this.msg?.id === m.id) { this.msg = { ...m, childIds: m.childIds.length ? m.childIds : this.msg.childIds }; this.links = linksOf(this.msg); } },
       reloadComments: async () => { await this.loadComments(host); return this.comments ?? []; },
       external: d => this.external(host, d),
+      pick: () => void this.runKey("draft.pick", {}, host),
       complete: d => this.completer(d, host),
       flash: m => host.ctx.flash(m),
       redraw: () => host.redraw(),
@@ -1533,7 +1554,7 @@ export class NoteSurface {
     if (d.busy) return false;
     if (completerOf(d)?.click(y)) return true;
     if (completionOf(d)) return false;
-    this.editPress = editorClick(d, x, y);
+    this.editPress = editorClick(d, x, y, false, USER, { pick: () => void this.runKey("draft.pick", {}, host) });
     if (this.editPress) host.redraw();
     return this.editPress;
   }
@@ -3606,6 +3627,18 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       if (external) void openInEditor(host.ctx, d, () => surface.draft === d).then(() => host.redraw());
       surface.noteAgent(actor, "opened this note for editing");
       return { id: d.blockId, baseRevision: d.base };
+    },
+  }),
+  "draft.pick": def({
+    summary: "insert from a picker in this reader's edit or comment: the person's terminal goes to the picker (EP0CH_PICKER, default tv) on a channel (default EP0CH_PICK_CHANNEL, else ep0ch), and what they choose goes in at the cursor, space-separated. The person's only: it takes their terminal",
+    keys: "ctrl+t, a click on [insert] in the edit's title row",
+    touches: "draft", draft: "type", replay: "ask",
+    person: "an agent doesn't hand the person's terminal to a picker; put text in their draft with draft.patch, or in an edit it opened with edit.text",
+    args: { channel: { type: "string", optional: true, about: "the picker's argument (a television channel: ep0ch, ep0ch-files …); empty for none" } },
+    async run({ channel }, { surface, host }) {
+      const away = host.ctx.suspended?.();
+      if (away) throw new ActionRefused(`the terminal is already handed over (${away})`);
+      return await surface.pick(host, channel);
     },
   }),
   "edit.text": def({

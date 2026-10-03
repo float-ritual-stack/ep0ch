@@ -344,7 +344,12 @@ exits 1), and · for information:
 4. **Link `ep0ch`** in the first directory that is on PATH and writable, of `~/.local/bin`,
    `/opt/homebrew/bin` and `/usr/local/bin`, saying which. Never sudo. A link there to another checkout's door
    (the old ep0ch-door) is pointed here; one elsewhere is left to you, with the command.
-5. **Restart the outline host** after the checkout updated in the same run, or when it speaks another protocol:
+5. **Link the door's extensions** (`packages/door/ext/<name>/`): an extension's `ext.json` names files to link where
+   another program finds them (television's cable files in `$TELEVISION_CONFIG/cable` or
+   `~/.config/television/cable`, a helper beside `ep0ch`), when the program it needs is on PATH. Each link made is
+   said; a file or link there that isn't install's is never replaced (it's said, and left); install's own links
+   whose file is gone (an extension deleted) are taken away. See `ext/television/README.md`.
+6. **Restart the outline host** after the checkout updated in the same run, or when it speaks another protocol:
    through its unit, `launchctl kickstart -k gui/<uid>/<label>` on macOS (`io.ep0ch.outliner-host`) or
    `systemctl --user restart <unit>` on Linux, then waits for a new process to answer and checks it speaks the
    checkout's protocol. The doors and panes on it reconnect by themselves. A host that's set up but not answering
@@ -352,7 +357,7 @@ exits 1), and · for information:
    the unit doesn't run (another process answers its socket), or a unit that needs changing (another checkout's
    `host-main.ts`, settings from before outlines by name) is left to you, with the change. Only a unit whose
    `EP0CH_OUTLINES` (default `~/outlines`) is this outlines folder counts as its unit.
-6. **Hand the door session to the new code** (see [Sessions](#sessions-quit-is-detach)), when one runs from this
+7. **Hand the door session to the new code** (see [Sessions](#sessions-quit-is-detach)), when one runs from this
    checkout on an older commit: `ep0ch session upgrade`. The programs in its tiles keep running, its screens and
    open edits come back, and every attached terminal (a pane, an ssh login) starts again on the new code and
    attaches by itself.
@@ -396,6 +401,9 @@ A checkout from before `install` gets it by hand, once:
 | `ep0ch try …` | `scripts/try-it.sh`: the door on a private copy (`--copy`), or on the showcase outline (`--showcase`, `--reset`) |
 | `ep0ch init [<name>]`, `ep0ch outline …`, `ep0ch status` | name this folder's outline, and the host's outlines (see [Outlines on the outline host](#outlines-on-the-outline-host)) |
 | `ep0ch --skill [--all] [<name>]` | the stack's skills (this door's `skills/` and the outliner's `pi-extension/skills/`: the installed plugin's, found through Herdr, else packages/outliner beside the door), or the path of one skill's `SKILL.md`; `--all` adds contributor skills |
+| `ep0ch find [<words>…] [--lines \| --json]` | the outline's notes for a picker or a script: with words, the service's ranked search (as `((` and Goto rank them, at most 30); without, every note, newest first. `--lines` prints `id<TAB>title<TAB>path` (television's `ep0ch` channel reads it) |
+| `ep0ch show <id> [--ansi] [--width <n>]` | the note drawn as a reader draws it (the note surface), at that width; `--ansi` keeps its colours (a picker's preview) |
+| `ep0ch outline list --all [--lines]` | every outline you can open from here: this machine's, then each machine you've opened before (a machine not connected now says so; nothing is started) |
 | `ep0ch clients [--ws <name>] [--machine <ssh-name>]` | who's connected to the outline: every role, observers and roles this door doesn't know yet |
 | `ep0ch session list`, `attach [--watch]`, `end [--yes]`, `upgrade [--clients]`, `restart` | the door session in this state dir (see [Sessions](#sessions-quit-is-detach)): who's attached and what runs, attach to it (`--watch`: read-only), end it, hand it to a new daemon on this checkout's code (its programs keep running) |
 | `ep0ch peek`, `actions`, `snap <png>`, `open <id>`, `act <action> key=value …` | drive a running door (see [Letting an agent see what you see](#letting-an-agent-see-what-you-see-and-do-what-you-do)); `EP0CH_CONTROL` names which door |
@@ -408,6 +416,7 @@ A checkout from before `install` gets it by hand, once:
 | `EP0CH_OUTLINES` | the outlines folder (default `~/outlines`): `<name>.sqlite`, and the host's socket in `.host/` |
 | `EP0CH_MACHINE` | the machine the outline is on, as `--machine` (over a `.ep0ch`'s `machine`): an ssh config name |
 | `EP0CH_SOCKET` | a host's socket path named outright (the low-level way; no machine is used), asked for the same outline name |
+| `EP0CH_PICKER`, `EP0CH_PICK_CHANNEL` | the picker `Ctrl+T` hands a draft's terminal to (default `tv`), and its argument (default `ep0ch`; empty for none) |
 | `EP0CH_SSH` | the ssh `--machine` and `--remote` run (default `ssh`) |
 | `EP0CH_DAEMON` | `0` (or `--no-daemon`) opens the door in this terminal, as before sessions: quitting it ends it. Otherwise the door is a session (see [Sessions](#sessions-quit-is-detach)): the one in the state dir attached to, started first when none runs. Tests and `scripts/test-door-env.sh` set `0`; pass `EP0CH_DAEMON=1` to try a session there |
 | `EP0CH_PACKS` | folder holding the `woe*.zip` packs (default `/opt/float/bbs/inbox/evan`) |
@@ -915,13 +924,14 @@ Every reader is the same **note surface** (`src/surface/note.ts`): it draws the 
 the edit, the passage picker and the comment threads, the property warning and "changed elsewhere", and
 keeps unsaved text safe. A view only gives it a rectangle, of any width, and says where a followed link
 opens. Writing a note and writing a comment use one edit control (`src/surface/editor.ts`): the same
-frame, the same status line, the same keys (`Ctrl+S`, `Ctrl+E` to `$EDITOR`, `Esc`, twice when unsaved).
+frame, the same status line, the same keys (`Ctrl+S`, `Ctrl+E` to `$EDITOR`, `Ctrl+T` to a picker, `Esc`, twice when unsaved).
 The board's new-card composer is the same control too.
 
 | Keys | Action |
 |---|---|
 | `e` | edit in place; the draft is the note's whole text: subject line, body and `[key::value]` properties |
 | `Ctrl+E` | hand the draft to `$VISUAL` / `$EDITOR` (then `vi`); what comes back replaces the draft |
+| `Ctrl+T`, or a click on `[insert]` | **insert from a picker** (`draft.pick`, src/pick.ts): the terminal goes to `tv ep0ch` (television's outline channel, from `ext/television`), and what you choose there (Tab picks several) goes in at the cursor, space-separated: `((id))` for a note, `[file::path]` from `ep0ch-files` (`ctrl-t` in tv switches channel). `EP0CH_PICKER` names another picker (`fzf -m`), `EP0CH_PICK_CHANNEL` its argument (empty for none). In a comment or reply and the board's new card too. The person's only: an agent writes with `draft.patch` |
 | `Ctrl+S` | save |
 | `Ctrl+R` | after the note changed elsewhere: load the current text (your draft is copied to disk first) |
 | `Esc` | close; with unsaved changes it asks for a second `Esc`, which **puts the draft aside** (below); with a selection, the first `Esc` only lets go of it |

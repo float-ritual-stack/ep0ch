@@ -95,6 +95,30 @@ export function sshConfigNames(env: Env = process.env): string[] {
   return [...names].sort();
 }
 
+// ── every outline the person can open from here ──
+
+/** An outline someone can open from here (`machine`: none is this machine), or a machine whose outlines can't be read now (no `name`, a `problem`). */
+export interface KnownOutline { name?: string; machine?: string; problem?: string }
+
+/**
+ * This machine's host's outlines, then each machine the person has opened (the most recent first) with its outlines,
+ * read as the home base and `ep0ch doctor` read them (`hostLive`, `machineStatus`): no forward is started, so a machine
+ * not connected now is one row saying so.
+ */
+export async function everyOutline(socket: string, env: Env = process.env): Promise<KnownOutline[]> {
+  const here = hostLive(socket, 3000).then((live): KnownOutline[] => live
+    ? live.outlines.map(name => ({ name }))
+    : [{ problem: `no outline host answers at ${socket}` }]);
+  const there = usedMachines(env.EP0CH_STATE).map(async ({ name: machine }): Promise<KnownOutline[]> => {
+    try {
+      const s = await machineStatus(machine, env);
+      if (s.outlines) return s.outlines.length ? s.outlines.map(name => ({ name, machine })) : [{ machine, problem: "no outlines yet" }];
+      return [{ machine, problem: s.connected ? "connected, but no outline host answers" : "not connected" }];
+    } catch (e) { return [{ machine, problem: (e as Error).message }]; }
+  });
+  return (await Promise.all([here, ...there])).flat();
+}
+
 // ── the door session on another machine ──
 
 /** A word for a remote shell, as it is: single-quoted. */

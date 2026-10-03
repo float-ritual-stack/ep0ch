@@ -2,7 +2,7 @@
 // its steps in order, each saying what it did, and stops at the first failure with the recovery. Outlines are only
 // ever copied; no outline is created; no unit, Herdr config or plugin link is changed.
 import { Database } from "bun:sqlite";
-import { chmodSync, existsSync, mkdirSync, rmSync, statSync, symlinkSync, unlinkSync } from "node:fs";
+import { chmodSync, existsSync, lstatSync, mkdirSync, rmSync, statSync, symlinkSync, unlinkSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { formatDoctor, doctorReport } from "./doctor";
@@ -154,6 +154,10 @@ async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[
       say(`${link} → ${f.repo.entry}`);
       return;
     }
+    case "ext": {
+      linkExtensions(step.links ?? { make: [], remove: [] }, say);
+      return;
+    }
     case "host": {
       const u = f.host.unit!;
       const verb = f.host.running ? "restart" : "start";
@@ -169,6 +173,23 @@ async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[
       say(`${verb}ed the outline host (${u.kind} ${u.name}${now.protocol ? `, protocol ${now.protocol}` : ""}); doors and panes on it reconnect`);
       return;
     }
+  }
+}
+
+/**
+ * The ext step's links: each stale one taken away (only while it's still a link whose file is gone), each missing one
+ * made (a symlink never replaces anything: if something came there since the plan, it fails and says so).
+ */
+export function linkExtensions(links: NonNullable<Step["links"]>, say: (s: string) => void): void {
+  for (const dest of links.remove) {
+    try { if (lstatSync(dest).isSymbolicLink() && !existsSync(dest)) { unlinkSync(dest); say(`took away ${dest} (its file is gone)`); } } catch { /* gone already */ }
+  }
+  for (const l of links.make) {
+    try {
+      mkdirSync(dirname(l.dest), { recursive: true });
+      symlinkSync(l.src, l.dest);
+    } catch (e) { throw new StepFailed(`linking ${l.dest} failed: ${(e as Error).message}`, `nothing there was replaced; link it by hand: ln -s ${l.src} ${l.dest}`); }
+    say(`${l.dest} → ${l.src}`);
   }
 }
 

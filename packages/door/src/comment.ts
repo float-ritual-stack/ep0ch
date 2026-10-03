@@ -156,6 +156,8 @@ export interface CommentEnv {
   setMsg(m: Msg): void;
   reloadComments(): Promise<Comment[]>;
   external(d: Draft): void;
+  /** Insert from a picker at the comment's cursor (ctrl+t), as the edit does: its host's `draft.pick`. */
+  pick?(): void;
   /** The composer's reference completion, when the connection can look references up. */
   complete?(d: Draft): Completer | null;
   /** Who sends what this session writes: the person at the keys unless an agent is acting. */
@@ -243,6 +245,7 @@ export class CommentSession {
         run: cmd => {
           if (cmd === "save") void this.send(env);
           else if (cmd === "editor") env.external(d);
+          else if (cmd === "pick") env.pick?.();
           else if (cmd === "reload") void this.relocate(env);
           else if (cmd === "close" || cmd === "discard") {
             // Esc on nothing typed goes back; the second esc on typed text puts it aside as unsent (its session's).
@@ -422,7 +425,7 @@ export class CommentSession {
       return renderEditor(d, {
         title: t.kind === "quote" ? `comment · ${title}` : `reply to ${t.thread.author} · ${title}`,
         status: [state ?? status(d.note || this.note || (d.dirty ? "unsent" : "type the comment"), d.note ? C.yellow : d.dirty ? C.yellow : C.dark)],
-        context: q, by: writtenBy(d, "send"), preview,
+        context: q, by: writtenBy(d, "send"), preview, pick: true,
       }, w, h);
     }
     // threads
