@@ -374,7 +374,8 @@ export class RiverColumn extends ReaderPane {
    * draws its whole note under its neighbour, and a long one every frame would make every key cost that much).
    */
   private digest(m: Msg, w: number, maxImageRows: number) {
-    const key = `${this.gen}|${w}|${maxImageRows}|${this.desk?.ctx.graphics ? 1 : 0}|${m.revision ?? ""}|${this.surface.cursorKey}`, d = this.digestOf_;
+    const t = this.desk?.ctx.t;
+    const key = `${this.gen}|${w}|${maxImageRows}|${this.desk?.ctx.graphics ? 1 : 0}|${t?.kitty ? 1 : 0}|${t?.cellW}x${t?.cellH}|${m.revision ?? ""}|${this.surface.cursorKey}`, d = this.digestOf_;
     if (d && d.key === key && d.m === m && d.s === this.surface.msg && this.desk?.coverOf?.(this) === "peek") return d.dg;
     const dg = this.surface.digest(m, w, this.host(this.desk!), maxImageRows);
     this.digestOf_ = { key, m, s: this.surface.msg, dg };

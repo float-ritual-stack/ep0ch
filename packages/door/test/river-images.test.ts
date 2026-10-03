@@ -75,6 +75,7 @@ describe.skipIf(!outliner)("a river column places its note's images, cut to what
   const scratch = new Scratch();
   let board: SocketBoard, app: App, river: Desk;
   let photo: { id: string };
+  let term: { info: { cols: number } } & Record<string, unknown>;
   const V = () => view(river);
   const frame = () => river.render(river.ctx);
   const images = (ps: Placement[] | undefined) => (ps ?? []).filter(p => p.key.includes("img:"));
@@ -85,7 +86,7 @@ describe.skipIf(!outliner)("a river column places its note's images, cut to what
     board = new SocketBoard(await scratch.start());
     const filler = Array.from({ length: 80 }, (_, i) => `Row ${i + 1} under the photo.`).join("\n");
     photo = await board.request("create", { parentId: null, text: `Seed tray photos\n## Trays\n[img:: ${PNG}]\n${filler}`, author: "agent" });
-    const term = { info: { cols: 120, rows: 40, cellW: 9, cellH: 16, kitty: true }, write() {}, paint() {}, invalidate() {}, onKey() {}, onResize() {}, stop() {}, resume() {} };
+    term = { info: { cols: 120, rows: 40, cellW: 9, cellH: 16, kitty: true } as { cols: number }, write() {}, paint() {}, invalidate() {}, onKey() {}, onResize() {}, stop() {}, resume() {} };
     app = new App(term as any, board, Date.now(), () => {});
     board.subscribe(e => app.event(e));
     river = openScreen("river") as Desk;
@@ -160,7 +161,7 @@ describe.skipIf(!outliner)("a river column places its note's images, cut to what
     await mine("tile.focus", {}, s.reader);
     await mine("tile.widen", {}, s.reader);
     // An 80-column terminal: the short note wide, the long one squeezed to a peek beside it.
-    app.term.info.cols = 80;
+    term.info.cols = 80;
     const lc = V().byNote(longNote.id)!, sc = V().byNote(short.id)!;
     await until(() => !!sc.items, "the short note's replies");
     const f = frame();
@@ -174,8 +175,8 @@ describe.skipIf(!outliner)("a river column places its note's images, cut to what
     expect(rule).toBeGreaterThan(0);
     for (const l of inside.slice(rule + 1, -1)) expect(l).toMatch(/^│ *│$/);
     expect(inside.join("\n")).not.toContain("runs on");
-    // Nor do the long one's images (it has none as a peek; a tile drawn over another's placements takes them away).
-    app.term.info.cols = 120;
-    for (const p of f.placements ?? []) expect(p.col < r.col + r.cols && p.col + p.cols > r.col && p.row < r.row + r.rows && p.row + p.rows > r.row && !p.key.startsWith(`p`)).toBe(false);
+    // Nor does any image: the short note has none, and a tile drawn over another takes away the placements under it.
+    term.info.cols = 120;
+    for (const p of f.placements ?? []) expect(p.col < r.col + r.cols && p.col + p.cols > r.col && p.row < r.row + r.rows && p.row + p.rows > r.row).toBe(false);
   });
 });

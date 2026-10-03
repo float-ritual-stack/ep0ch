@@ -790,7 +790,7 @@ export class NoteSurface {
     const extDraw = {
       note: m.id,
       markdown: (text: string, width: number) => renderDoc(presentLinks(printableBlock(text), false, null), {
-        ...env, width, graphics: false, folds: undefined, after: undefined, embed: undefined, task: undefined, link: undefined, literal: undefined, present: undefined, keepTags: false,
+        ...env, width, graphics: false, noImages: undefined, folds: undefined, after: undefined, embed: undefined, task: undefined, link: undefined, literal: undefined, present: undefined, keepTags: false,
       }).lines,
       row: (block: string, text: string) => tagged(drawn, { block, role: "row" }, text),
       hostKeys: host?.ownKeys ?? "",
@@ -878,7 +878,7 @@ export class NoteSurface {
         lit = new Set(lines.flatMap((l, i) => (inside.has(l) ? [i] : [])));
       } else ({ text, lines, literal: lit } = readableSource(target, src));
       return renderDoc(presentLinks(text, true, src, target.text, drawn), {
-        ...env, width, graphics: false, literal: lit, keepTags: true, folds: undefined, after: undefined,
+        ...env, width, graphics: false, noImages: undefined, literal: lit, keepTags: true, folds: undefined, after: undefined,
         present: t => presentLinks(t, false, src, target.text, drawn),
         link: (block, t) => tagged(drawn, { block, role: "row" }, t),
         embed: hooks.embed, task: (i, box) => hooks.task(lines[i] ?? -1, box),

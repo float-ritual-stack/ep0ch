@@ -1533,7 +1533,6 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     for (const [id, r] of floats) {
       const shade: Rect = { ...r, cols: r.cols + 1, rows: r.rows + 1 };
       placements = placements.filter(p => !overlaps(p, shade));
-      canvas.clear(r, bg(C.black));
       // A drop shadow on the right and below, then the tile, then its ◢ corner (drag it to size the float).
       for (let y = r.row + 1; y <= Math.min(area.row + area.rows - 1, r.row + r.rows); y++) canvas.text(r.col + r.cols, y, fg(C.dark) + "▒" + RESET, 1);
       if (r.row + r.rows < area.row + area.rows) canvas.text(r.col + 1, r.row + r.rows, fg(C.dark) + "▒".repeat(Math.max(0, Math.min(r.cols, cols - r.col - 1))) + RESET, cols);
@@ -1616,8 +1615,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const cover = this.cover(id);
     if ((this.collapsed.has(id) || cover === "spine") && r0.cols <= SPINE) return this.drawSpineTile(canvas, id, r0, focused);
     const r = this.boxOf(id, r0);
-    // Every cell of the box is the tile's: rows its view leaves short show nothing of a tile drawn under it.
-    canvas.clear(r);
+    // Every cell of the box is the tile's: rows its view leaves short show nothing of a tile drawn under it (a drawer's
+    // or a float's on the black it slides over).
+    canvas.clear(r, drawer || float ? bg(C.black) : "");
     const inner: Rect = { col: r.col + 1, row: r.row + 1, cols: r.cols - 2, rows: r.rows - 2 };
     const typing = pane === this.ptyIn && focused;
     // The header first: a tile that puts controls on it (the backlinks' status) draws its body knowing it did.
