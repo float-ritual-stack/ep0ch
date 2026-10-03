@@ -1,6 +1,6 @@
 ---
 name: ep0ch-outline
-description: Use when an agent works inside a person's outline on their behalf, shaping it to their needs while they work - writing or tidying notes, adding properties, making views, boards and pages, welcome notes and briefings, publishing a page, adding an extension for a need, or showing them something in their ep0ch door. Covers how they write (properties by placement, soft links, links not directions), outline_edit vs outline_patch, views and hubs, pages and [welcome::n], publishing and [publish::never], the four extension kinds, and where the live guides are.
+description: Use when an agent works inside a person's outline on their behalf, shaping it to their needs while they work - writing or tidying notes, adding properties, making views, boards and pages, welcome notes and briefings, publishing a page, writing live figures and components into a note (::graph-* with query or view, callouts, component fences), adding an extension for a need, or showing them something in their ep0ch door. Covers how they write (properties by placement, soft links, links not directions), outline_edit vs outline_patch, views and hubs, pages and [welcome::n], publishing and [publish::never], the components a note can hold, the four extension kinds, and where the live guides are.
 ---
 
 # ep0ch-outline: working in someone's outline
@@ -124,6 +124,54 @@ share that note outside their network, and only for a note with nothing private 
 subtree is shown. The public listener has no index, and an embed there of a note that isn't public shows
 "not shared", but the note's own text and children are public. `publish list` shows the public URL in its
 PUBLIC column. Removing `public` takes the note off at once.
+
+## Components you can write in a note
+
+A note can hold more than text. Reach for these before writing a table or a status by hand. Each is part of the
+note's text, so it travels, publishes, and shows as readable source wherever it isn't drawn.
+
+**Live figures** (`packages/door/src/graphs.ts`, `live.ts`). A `::graph-<kind>` block whose YAML between `---`
+lines is the figure, closed by `::`. With `query:` (the virtual-branch syntax, parsed by the service) or
+`view: ((id))` (a saved view), it is answered from the outline on every render, so status lives in one place
+and every figure agrees. Prefer live over pasting counts that go stale.
+
+```
+::graph-stat
+---
+title: My tickets
+items:
+  - { label: doing, query: "type=ticket stage=doing" }
+  - { label: waiting, query: "type=ticket stage=waiting" }
+---
+::
+```
+
+| kind | live from a query or view | static props |
+|---|---|---|
+| `check` | one row per block; `done: "<filter>"` ticks them | `items` |
+| `stat` / `kpi` | `items: [{ label, query \| view }]`, each a live count | `items` |
+| `rank` | `group: <property>`, a bar per value | `items` |
+| `table` | `columns: [title, <property>, updated, author, …]`; a row opens its note | `headers`, `rows` |
+| `timeline` | one event per block, dated by `date: <property>` or updated; `now: "<filter>"` | `items` |
+| `meter` | the share of results matching `done: "<filter>"` | `value` |
+| `funnel`, `waterfall`, `spark`, `plot`, `gantt`, `tree` | static only | `steps`, `data`, `labels`, `nodes` … |
+
+Live blocks also take `limit:`, `sort: updated|created` and `direction:`. An agent can paste the fenced ASCII
+figure form (` ```+--- [ TITLE ] ---+ `) and it is re-framed to fit the pane.
+
+**Callouts and tables.** `> [!note] Title` (also `summary`, `warning`…) draws a box. A Markdown table draws as
+a real table with wrapped cells.
+
+**Document renderers.** A fence ` ```component:<name> ` drawn by a renderer registered on the reader's host in
+`~/.config/pi-herdr-outliner/document-renderers.json`. `status` is installed (`label :: value` per line,
+`packages/outliner/extensions/status-summary/README.md`). A renderer that isn't installed keeps the code block
+and says why.
+
+**Extension lines** (next section): `moon:: 2026-10-26`, `jira:: PC-1234`, `horoscope:: virgo`,
+`fancy-horror:: virgo`, `@tidy`. `outliner ext ls` lists what this outline has.
+
+If you add a new component kind, add it here and to the showcase. A component agents don't know about doesn't
+exist for them.
 
 ## Extensions: adding one for a need
 
