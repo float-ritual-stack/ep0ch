@@ -58,7 +58,9 @@ export function checkoutStep(c: Checkout, deps: Deps | null, name: string): Pick
   if (!c.branch) return { status: "manual", why: `${name} has a detached HEAD; git -C ${c.root} switch main, then rerun`, commands: [] };
   if (c.branch !== "main") return { status: "manual", why: `${name} is on branch ${c.branch}, not main; git -C ${c.root} switch main, then rerun`, commands: [] };
   if (!c.upstream) return { status: "manual", why: `${name} has no origin/main to compare with (${c.fetchError ?? "no remote named origin"})`, commands: [] };
-  const fetched = c.fetchError ? ` (as of the last fetch; this one failed: ${c.fetchError})` : "";
+  // A real fetch failure says git's error and the command that retries it; a race with another git process
+  // (fetchRaced) isn't one: that process wrote origin/main, and it's used.
+  const fetched = c.fetchError ? ` (as of the last fetch; this one failed: ${c.fetchError}; retry: git -C ${c.root} fetch origin main)` : c.fetchRaced ? " (the fetch raced another git process; used the ref it wrote)" : "";
   if (c.ahead > 0 && c.behind > 0) return { status: "manual", why: `${name} has diverged: ${c.ahead} ahead and ${c.behind} behind origin/main; merge or rebase by hand${fetched}`, commands: [] };
   if (c.behind > 0 && c.dirty) return { status: "manual", why: `${name} is ${c.behind} behind origin/main but has local changes; commit or stash them (git -C ${c.root} status), then rerun`, commands: [] };
   if (c.behind > 0) {
@@ -145,11 +147,11 @@ export function linkStep(f: Facts): Step {
  */
 function linksStep(id: "ext" | "skills", title: string, links: readonly OwnedLink[], stale: readonly StaleLink[], roots: readonly string[], record: string | undefined, notes: string[] = []): Step {
   const { work, taken, ours } = linkWork(links, stale, roots, record);
-  const said = [...(taken.length ? [`left as they are (not install's): ${taken.map(l => l.dest).join(", ")}`] : []), ...notes].join(" · ");
+  const said = [...(taken.length ? [`left as they are (not install's): ${taken.map(l => l.dest).join(", ")}`] : []), ...notes].join("; ");
   const counts = linkCounts(work);
-  if (counts) return { id, title, status: "do", why: `${counts}${said ? ` · ${said}` : ""}`, commands: linkCommands(work), links: work };
+  if (counts) return { id, title, status: "do", why: `${counts}${said ? `; ${said}` : ""}`, commands: linkCommands(work), links: work };
   // A file of the person's own where a link would go is theirs to keep: said each run, never a step left for them.
-  return { id, title, status: "skip", why: `${ours ? `${ours} linked` : "nothing to link"}${said ? ` · ${said}` : ""}`, commands: [] };
+  return { id, title, status: "skip", why: `${ours ? `${ours} linked` : "nothing to link"}${said ? `; ${said}` : ""}`, commands: [] };
 }
 
 /** The door's extensions' links (src/setup/ext-links.ts). */
@@ -157,7 +159,7 @@ export function extStep(f: Facts): Step {
   const exts = f.ext?.exts ?? [];
   const skipped = exts.filter(e => e.problem).map(e => `${e.name}: ${e.problem}`);
   return linksStep("ext", "Link the door's extensions (packages/door/ext)", exts.flatMap(e => e.links), f.ext?.stale ?? [], f.ext ? [f.ext.root] : [], f.ext?.record,
-    skipped.length ? [`not linked: ${skipped.join("; ")}`] : []);
+    skipped.map(x => `not linked: ${x}`));
 }
 
 /** The shipped agent skills' links where Claude Code (and ~/.agents) finds them (src/setup/skill-links.ts). */
@@ -312,16 +314,26 @@ export const sessionName = (s: SessionFact) => `${s.outline}${s.machine ? ` on $
 /**
  * One door session (PIE-418) against the checkout: handed to a new daemon on its code (`do`), or why not (`skip`).
  */
-export function sessionVerdict(s: SessionFact, f: Facts, repo: Pick<Step, "status">): { status: "do" | "skip"; why: string } {
+export interface SessionVerdict {
+  status: "do" | "skip";
+  why: string;
+  /** The same without the session's name and pid, for a line that already shows them (doctor's). */
+  brief: string;
+  /** do: the commit the session is handed to. */
+  target?: string | null;
+}
+
+export function sessionVerdict(s: SessionFact, f: Facts, repo: Pick<Step, "status">): SessionVerdict {
   const c = f.repo.checkout, who = `${sessionName(s)} (pid ${s.pid})`;
-  if (resolve(s.dir) !== resolve(f.repo.door)) return { status: "skip", why: `${who} runs another checkout's door, ${s.dir}; run install from that one` };
+  if (resolve(s.dir) !== resolve(f.repo.door)) return { status: "skip", why: `${who} runs another checkout's door, ${s.dir}; run install from that one`, brief: `runs another checkout's door, ${s.dir}; run install from that one` };
   // A checkout left for the person (another branch, a detached HEAD, diverged, local changes in the way) isn't code to
   // hand the session to.
-  if (repo.status === "manual" || c.branch !== "main") return { status: "skip", why: `the ep0ch checkout is left for you (not main, or not fast-forwardable), so ${who} stays on ${short(s.commit)}` };
+  if (repo.status === "manual" || c.branch !== "main") return { status: "skip", why: `the ep0ch checkout is left for you (not main, or not fast-forwardable), so ${who} stays on ${short(s.commit)}`, brief: `stays on ${short(s.commit)}: the ep0ch checkout is left for you (not main, or not fast-forwardable)` };
   const updates = repo.status === "do" && c.behind > 0;
   const target = updates ? c.upstream : c.head;
-  if (s.commit && s.commit === target) return { status: "skip", why: `${who} runs the current code (${short(s.commit)})` };
-  return { status: "do", why: `${who} runs ${short(s.commit)}, the checkout ${updates ? "will be" : "is"} at ${short(target)}: a new daemon on that code takes it over; its ${s.programs} program${s.programs === 1 ? "" : "s"} keep running and its ${s.clients} terminal${s.clients === 1 ? "" : "s"} attach again` };
+  if (s.commit && s.commit === target) return { status: "skip", why: `${who} runs the current code (${short(s.commit)})`, brief: `runs the current code (${short(s.commit)})` };
+  return { status: "do", target, why: `${who} runs ${short(s.commit)}, the checkout ${updates ? "will be" : "is"} at ${short(target)}: a new daemon on that code takes it over; its ${s.programs} program${s.programs === 1 ? "" : "s"} keep running and its ${s.clients} terminal${s.clients === 1 ? "" : "s"} attach again`,
+    brief: `runs ${short(s.commit)}; the checkout ${updates ? "will be" : "is"} at ${short(target)}` };
 }
 
 /**

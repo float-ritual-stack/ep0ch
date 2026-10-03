@@ -9,13 +9,13 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { backupDatabase, formatPlan, setupCommand, tilde } from "../src/setup/apply";
+import { backupDatabase, formatPlan, handoverLines, linkSummary, setupCommand, tilde } from "../src/setup/apply";
 import { applyLinks } from "../src/setup/links";
 import { skillLinkFacts } from "../src/setup/skill-links";
 import { extFacts } from "../src/setup/ext-links";
 import { PROTOCOL } from "@ep0ch/outline-core/protocol";
 import { doctorChecks, formatDoctor, MARK, skillChecks, versionAtLeast } from "../src/setup/doctor";
-import { claudeModIn, databases, depsState, herdrKeys, hostFacts, hostUnit, launchdState, openOutlineToPing, systemdState } from "../src/setup/facts";
+import { claudeModIn, databases, depsState, fetchRace, herdrKeys, hostFacts, hostUnit, launchdState, openOutlineToPing, systemdState } from "../src/setup/facts";
 import { type Checkout, detectPlatform, type Facts, type HostFacts, type HostUnit, type SessionFact, staleness } from "../src/setup/model";
 import { backupName, buildPlan, checkoutStep, chooseLinkDir, extStep, skillsStep, hostStep, hostUnitArgv, linkCandidates, type PlanOptions, stamp, unitChanges } from "../src/setup/plan";
 
@@ -246,8 +246,45 @@ describe("the plan", () => {
     const text = formatPlan(f, buildPlan(f, opts()), false);
     expect(text).toContain("dry run");
     expect(text).toMatch(/^1 → Back up every outline$/m);
-    expect(text).toContain(`float-hub: ${HOME}/outlines/float-hub.sqlite → ${HOME}/backups/ep0ch/20260314T092653Z/float-hub.sqlite`);
+    expect(text).toContain(`into ${HOME}/backups/ep0ch/20260314T092653Z\n    float-hub\n`);
     expect(text).toMatch(/^2 → Update the ep0ch checkout$/m);
+  });
+
+  test("the dry run says the backup folders once and the outlines by name; the sessions to hand over as a table", () => {
+    const f = laptop({
+      databases: ["bbs", "boops", "float-hub"].map(name => ({ name, path: `${HOME}/outlines/${name}.sqlite` })),
+      sessions: [
+        { outline: "pie-hole", machine: "allotment", pid: 80455, dir: `${REPO}/packages/door`, commit: "40aaaaa", clients: 0, programs: 0 },
+        { outline: "float-bbs-test", pid: 82395, dir: `${REPO}/packages/door`, commit: "40aaaaa", clients: 0, programs: 1 },
+        { outline: "garden", pid: 99, dir: `${HOME}/old/ep0ch-door`, commit: "40aaaaa", clients: 1, programs: 2 },
+      ],
+    });
+    const text = formatPlan(f, buildPlan(f, opts()), false);
+    expect(text).toContain([
+      "1 → Back up every outline",
+      `    before anything changes: a consistent copy (VACUUM INTO) of each ${HOME}/outlines/*.sqlite, integrity-checked, into ${HOME}/backups/ep0ch/20260314T092653Z`,
+      "    bbs · boops · float-hub",
+      "2 → Update the ep0ch checkout",
+    ].join("\n"));
+    expect(text).toContain([
+      "6 → Hand the door sessions to the new code",
+      "    a new daemon on 49bbbbb takes each over; its programs keep running and its terminals attach again",
+      "    outline                pid    runs     programs  terminals",
+      "    pie-hole on allotment  80455  40aaaaa  0         0",
+      "    float-bbs-test         82395  40aaaaa  1         0",
+      `    garden (pid 99) runs another checkout's door, ${HOME}/old/ep0ch-door; run install from that one`,
+      `    $ ${ep0ch()}session upgrade --all`,
+    ].join("\n"));
+    expect(text).not.toMatch(/terminals attach again; /);
+  });
+
+  test("a fetch that raced another git process isn't an error; a real one says git's error and the retry", () => {
+    const raced = checkoutStep(checkout(REPO, { head: "40aaaaa", upstream: "49bbbbb", behind: 1, fetchRaced: true }), null, "the ep0ch checkout");
+    expect(raced.why).toBe("1 commit behind origin/main (40aaaaa → 49bbbbb) (the fetch raced another git process; used the ref it wrote)");
+    const failed = checkoutStep(checkout(REPO, { head: "40aaaaa", upstream: "49bbbbb", behind: 1, fetchError: "fatal: unable to access" }), null, "the ep0ch checkout");
+    expect(failed.why).toContain(`this one failed: fatal: unable to access; retry: git -C ${REPO} fetch origin main`);
+    expect(fetchRace("error: cannot lock ref 'refs/remotes/origin/main': is at 3e4c033e3 but expected 24a9517e2")).toBe(true);
+    expect(fetchRace("fatal: unable to access 'https://example.invalid/': Could not resolve host")).toBe(false);
   });
 
   test("no unit for the host: a note says what one runs (install doesn't create units)", () => {
@@ -283,6 +320,35 @@ describe("the door sessions (PIE-418), one per outline", () => {
     const f = current();
     expect(buildPlan({ ...f, sessions: [session({ commit: f.repo.checkout.head })] }, opts()).steps.at(-1)!.why).toContain("runs the current code");
     expect(buildPlan(laptop({ sessions: [session({ dir: "/Users/wren/old/ep0ch-door" })] }), opts()).steps.at(-1)!.why).toContain("runs another checkout's door");
+  });
+});
+
+describe("what --apply did, scannable", () => {
+  test("handed-over sessions: a table, the code they moved between said once", () => {
+    const h = (name: string, pid: [number, number], programs: number, code: [string, string] = ["24a9517e2", "3e4c033e3"]) => ({ name, pid, code, programs, terminals: 0 });
+    expect(handoverLines([h("pie-hole on allotment", [80455, 95769], 0), h("float-bbs-test", [82395, 95806], 1), h("bbs", [80486, 95790], 0)])).toEqual([
+      "    ✓ handed over to new daemons, 24a9517 → 3e4c033; programs kept running, terminals attaching again",
+      "      outline                pid          programs  terminals",
+      "      pie-hole on allotment  80455→95769  0         0",
+      "      float-bbs-test         82395→95806  1         0",
+      "      bbs                    80486→95790  0         0",
+    ]);
+    // Sessions that came from different code: each row says its own.
+    expect(handoverLines([h("pie", [1, 2], 0), h("bbs", [3, 4], 2, ["1111111aa", "3e4c033e3"])])).toEqual([
+      "    ✓ handed over to new daemons; programs kept running, terminals attaching again",
+      "      outline  pid  programs  terminals  code",
+      "      pie      1→2  0         0          24a9517 → 3e4c033",
+      "      bbs      3→4  2         0          1111111 → 3e4c033",
+    ]);
+  });
+  test("links: one line per folder and kind, by name", () => {
+    expect(linkSummary({ roots: [], remove: [`${HOME}/.claude/skills/old-skill`],
+      replace: [{ src: `${REPO}/x/ep0ch`, dest: `${HOME}/.agents/skills/ep0ch`, was: "/elsewhere/ep0ch" }],
+      make: ["ep0ch", "ep0ch-core", "daily-brief"].map(n => ({ src: `${REPO}/packages/door/skills/${n}`, dest: `${HOME}/.claude/skills/${n}` })) })).toEqual([
+      `    ✓ took away (their files are gone) in ${HOME}/.claude/skills/: old-skill`,
+      `    ✓ replaced another checkout's in ${HOME}/.agents/skills/: ep0ch`,
+      `    ✓ linked in ${HOME}/.claude/skills/: ep0ch · ep0ch-core · daily-brief`,
+    ]);
   });
 });
 
@@ -607,7 +673,7 @@ describe("the door's extensions (packages/door/ext): their links", () => {
     expect(on(d, { TELLY_CONFIG: join(d.home, "elsewhere") }).exts[0]!.links[0]!.dest).toBe(join(d.home, "elsewhere", "cable", "files.toml"));
     const without = on(d, {}, () => null);
     expect(without.exts[0]).toMatchObject({ links: [], problem: "telly isn't on PATH" });
-    expect(extStep(withExt(without))).toMatchObject({ status: "skip", why: "nothing to link · not linked: telly: telly isn't on PATH" });
+    expect(extStep(withExt(without))).toMatchObject({ status: "skip", why: "nothing to link; not linked: telly: telly isn't on PATH" });
   });
 
   test("deleting the extension, the last one: install's recorded links are taken away next time, and nothing else", () => {

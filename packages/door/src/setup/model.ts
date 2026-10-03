@@ -34,6 +34,11 @@ export interface Checkout {
   dirty: boolean;
   /** Why `git fetch` failed; the comparison is then against the last fetch. */
   fetchError?: string;
+  /**
+   * The fetch lost a race for origin/main's lock to another git process fetching at the same moment ("cannot lock
+   * ref … is at … but expected …"): that process wrote the ref, so it's fresh, and no error.
+   */
+  fetchRaced?: true;
 }
 
 /** Whether `bun install` is needed in a checkout, and why. */

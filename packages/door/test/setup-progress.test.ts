@@ -276,8 +276,9 @@ describe("the whole command, in a scratch home", () => {
     expect(await setupCommand(["install", "--apply"], { out: s => out.push(s), err: s => out.push(s), env: piped.env, repoRoot: piped.repoRoot, platform: "linux", now, terminal: { isTTY: false, write: () => { throw new Error("not a terminal"); } } })).toBe(0);
     const text = out.join("\n");
     expect(text).not.toMatch(ESC);
-    expect(text).toContain("1 → Back up every outline\n");
-    expect(text).toContain("    ✓ field-notes: ~/outlines/field-notes.sqlite → ~/backups/ep0ch/20260314T092653Z/field-notes.sqlite (integrity ok)");
+    // The step's title, the folders once, then a short line per outline in columns: not the plan's paragraph again.
+    expect(text).toMatch(/1 → Back up every outline\n {4}~\/outlines\/\*\.sqlite → ~\/backups\/ep0ch\/20260314T092653Z\/ \(VACUUM INTO, integrity-checked\)\n {4}✓ field-notes   +[\d.]+ KB  integrity ok\n {4}✓ seed-library  +[\d.]+ KB  integrity ok\n/);
+    expect(text).not.toContain("before anything changes");
     expect(existsSync(join(piped.h, ".local/bin/ep0ch"))).toBe(true);
   });
 });

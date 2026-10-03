@@ -51,6 +51,30 @@ export const bar = (done: number, total: number, cells = 12) => {
   return `[${"█".repeat(full)}${"░".repeat(cells - full)}]`;
 };
 
+/** Rows as aligned columns (two spaces between), each line after `indent`; the last column isn't padded. */
+export function table(rows: readonly (readonly string[])[], indent = "    "): string[] {
+  const widths: number[] = [];
+  for (const r of rows) r.forEach((c, i) => { widths[i] = Math.max(widths[i] ?? 0, width(c)); });
+  return rows.map(r => `${indent}${r.map((c, i) => (i < r.length - 1 ? c + " ".repeat(widths[i]! - width(c)) : c)).join("  ")}`.trimEnd());
+}
+
+/**
+ * A sentence's parts joined with "; " at the top level, one per line (a "; " inside parentheses stays): a
+ * semicolon-joined paragraph made scannable.
+ */
+export function clauses(s: string): string[] {
+  const out: string[] = [];
+  let depth = 0, start = 0;
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if (ch === "(") depth++;
+    else if (ch === ")") depth = Math.max(0, depth - 1);
+    else if (ch === ";" && s[i + 1] === " " && depth === 0) { out.push(s.slice(start, i)); start = i + 2; }
+  }
+  out.push(s.slice(start));
+  return out.filter(Boolean);
+}
+
 /** A running step (or a phase like checking the stack) as the reporter shows it. */
 export interface TaskHead {
   /** "2": the step's number; none for a phase. */

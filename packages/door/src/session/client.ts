@@ -339,7 +339,11 @@ function reattach(message: string, o: { args?: string[]; watch?: boolean }): voi
  * come back, every terminal attaches again. One on this code already (or `clients`) only has its terminals start again;
  * `handoff` hands over whatever code it runs (`ep0ch session restart`). What happened, said; `ok` false when it failed.
  */
-export async function upgradeSession(place: Place, o: { clients?: boolean; handoff?: boolean } = {}): Promise<{ ok: boolean; message: string }> {
+/** A session handed to a new daemon, as data (install's table): pids and commits before and after. */
+export interface Handover { name: string; pid: [number, number | null]; code: [string | null, string | null]; programs: number; terminals: number }
+export interface UpgradeResult { ok: boolean; message: string; handover?: Handover }
+
+export async function upgradeSession(place: Place, o: { clients?: boolean; handoff?: boolean } = {}): Promise<UpgradeResult> {
   const path = sessionSocket(place.dir), name = placeLabel(place);
   const before = await sessionInfo(path);
   if (!before) return { ok: false, message: `no session runs for ${name} · \`${ep0ch(process.env, place)}${sessionFlags({ place })}\` starts one` };
@@ -353,15 +357,16 @@ export async function upgradeSession(place: Place, o: { clients?: boolean; hando
   if (r?.t !== "ask" || r.message !== "handed over") return { ok: false, message: `${name}: ${r?.t === "ask" ? r.message : "the session didn't answer the handoff"}` };
   const after = await sessionInfo(path);
   const progs = before.terminals.length, n = before.clients.length;
-  return { ok: true, message: `${name}: the session was handed over: pid ${before.pid} → ${after?.pid ?? "?"}, code ${before.code.commit?.slice(0, 9) ?? "?"} → ${after?.code.commit?.slice(0, 9) ?? "?"} · ${progs} program${progs === 1 ? "" : "s"} kept running · ${n} terminal${n === 1 ? "" : "s"} attaching again` };
+  return { ok: true, message: `${name}: the session was handed over: pid ${before.pid} → ${after?.pid ?? "?"}, code ${before.code.commit?.slice(0, 9) ?? "?"} → ${after?.code.commit?.slice(0, 9) ?? "?"} · ${progs} program${progs === 1 ? "" : "s"} kept running · ${n} terminal${n === 1 ? "" : "s"} attaching again`,
+    handover: { name, pid: [before.pid, after?.pid ?? null], code: [before.code.commit ?? null, after?.code.commit ?? null], programs: progs, terminals: n } };
 }
 
 /**
  * Every session on this state dir onto the checkout's code (`session upgrade --all`, `ep0ch install`), one by one. One
  * already on this code is left as it is (its terminals aren't restarted) unless `clients` or `handoff` asks for that.
  */
-export async function upgradeAll(o: { clients?: boolean; handoff?: boolean } = {}): Promise<{ ok: boolean; message: string }[]> {
-  const out: { ok: boolean; message: string }[] = [];
+export async function upgradeAll(o: { clients?: boolean; handoff?: boolean } = {}): Promise<UpgradeResult[]> {
+  const out: UpgradeResult[] = [];
   const { commit: here, dir: checkout } = codeVersion();
   for (const r of await runningSessions()) {
     const place = { ...r.info.place, dir: r.dir };
