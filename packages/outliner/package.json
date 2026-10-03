@@ -4,10 +4,13 @@
   "description": "Persistent local-first block outliner shared by Herdr users and Pi agents",
   "repository": {
     "type": "git",
-    "url": "https://github.com/float-ritual-stack/pi-herdr-outliner.git"
+    "url": "https://github.com/float-ritual-stack/ep0ch.git"
   },
   "private": true,
   "type": "module",
+  "exports": {
+    "./machine-forward": "./src/machine-forward.ts"
+  },
   "scripts": {
     "outliner": "bun run src/outliner.ts",
     "profile:tree": "bun run scripts/profile-tree.ts",

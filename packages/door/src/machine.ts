@@ -9,7 +9,7 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join } from "node:path";
 import { type Forward, type ForwardState, forwardState } from "@ep0ch/outline-core/machine";
-import { forwardFor, forwardOptions } from "@ep0ch/outliner/src/machine-forward";
+import { forwardFor, forwardOptions } from "@ep0ch/outliner/machine-forward";
 import { isMachineName } from "@ep0ch/outline-core/outline-location";
 import { hostLive, outlinesDir, resolveTarget } from "./discover";
 import { readState, writeState } from "./state";
