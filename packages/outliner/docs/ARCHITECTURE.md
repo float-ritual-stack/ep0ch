@@ -1638,11 +1638,14 @@ for a compatible protocol.
 - `open` focuses the Tree selected by invoking
   pane, unambiguous current tab, workspace, or project. If none exists, it runs
   the same pair creation as `open-here`; ambiguity is an error.
-- `ensure-detail` applies the same Tree selection and focuses its saved linked
-  Detail identity, independent of geometry. With no link, this explicit host
-  action opens and links a Detail below the Tree in its browsing context. An
-  unavailable linked destination fails explicitly. With no Tree it opens a
-  complete pair.
+- `ensure-detail` applies the same Tree selection, among the invoking
+  workspace's Trees, and focuses its saved linked Detail identity, independent
+  of geometry. With no link, this explicit host action opens and links a Detail
+  below the Tree in its browsing context. An unavailable linked destination
+  fails explicitly. With no Tree in the workspace it opens a complete pair.
+  `--no-focus` moves no focus; `find-detail` (one finder, `findDetail`) reports
+  the Detail it would reuse and opens nothing. The Claude mod's Herdr opens go
+  through these two.
 - `open-here` always generates a browsing-context UUID, opens a Tree to the right
   of the invoking pane and a Detail below that Tree with the same UUID, and
   focuses the Tree.

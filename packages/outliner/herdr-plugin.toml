@@ -85,7 +85,7 @@ command = ["/bin/sh", "scripts/run-bun.sh", "run", "src/herdr-link-open.ts"]
 [[actions]]
 id = "ensure-detail"
 title = "Outliner: open or focus Detail"
-description = "Focus an existing Detail in this tab, preferring the Tree-linked one, or create one when the tab has none."
+description = "Focus the Detail linked to this workspace's Tree, or create one (with a Tree when the workspace has none)."
 contexts = ["workspace", "tab", "pane"]
 command = ["/bin/sh", "scripts/run-bun.sh", "run", "src/herdr-open.ts", "--mode", "ensure-detail"]
 

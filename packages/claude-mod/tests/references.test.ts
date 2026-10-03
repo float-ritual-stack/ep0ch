@@ -1,6 +1,6 @@
 import { describe, expect, test, tier } from 'claude-code/testing'
 
-import { detailSplitArgv, linkifyReferences, outlinerReferenceOf, outlinerUriFor, outlinerUriOf, scratchPaneOf } from '../hooks/references'
+import { linkifyReferences, outlinerReferenceOf, outlinerUriFor, outlinerUriOf } from '../hooks/references'
 
 tier('user')
 
@@ -61,28 +61,6 @@ describe('references', () => {
     expect(outlinerUriOf(`${STAND_IN}resource/x`)).toBeNull()
     expect(outlinerUriOf(`${STAND_IN}work/PIE-1/extra`)).toBeNull()
     expect(outlinerUriOf('https://example.com/work/PIE-1')).toBeNull()
-  })
-
-  test('the Detail split opens below the Claude pane, unfocused, on the target', async () => {
-    const argv = detailSplitArgv({ paneId: 'w:p9', workspace: '/work/a b', sessionId: 'session-1', blockId: UUID, fragmentId: 'f1' })
-    expect(argv.slice(0, 4)).toEqual(['herdr', 'plugin', 'pane', 'open'])
-    expect(argv).toContain('--no-focus')
-    const env = argv.filter((_, index) => argv[index - 1] === '--env')
-    expect(env[0]).toBe('OUTLINER_WORKSPACE_ROOT=/work/a b')
-    expect(env[1]).toBe('OUTLINER_BROWSING_CONTEXT_ID=session-1')
-    expect(JSON.parse(decodeURIComponent(env[2]!.split('=')[1]!))).toEqual({ kind: 'block', blockId: UUID, fragmentId: 'f1' })
-  })
-
-  test("Claude's pane is the live Detail carrying this session's browsing context", async () => {
-    const clients = [
-      { clientId: 'tree-here', role: 'tree', paneId: 'w:p1', contextId: 'session-1' },
-      { clientId: 'other-detail', role: 'detail', paneId: 'w:p2', contextId: 'someone' },
-      { clientId: 'gone', role: 'detail', paneId: 'w:p8', contextId: 'session-1' },
-      { clientId: 'mine', role: 'detail', paneId: 'w:p3', contextId: 'session-1' },
-    ]
-    const panes = new Map([['w:p1', 'w:t1'], ['w:p2', 'w:t1'], ['w:p3', 'w:t2']])
-    expect(scratchPaneOf(clients, panes, 'session-1')?.clientId).toBe('mine')
-    expect(scratchPaneOf(clients, panes, 'session-2')).toBeNull()
   })
 
   test('a reference as the model writes it becomes an Outliner URI', async () => {

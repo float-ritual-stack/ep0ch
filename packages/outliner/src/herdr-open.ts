@@ -56,6 +56,7 @@ await reportStartupErrors(async () => {
   if (
     mode !== "focus-or-open" &&
     mode !== "ensure-detail" &&
+    mode !== "find-detail" &&
     mode !== "open-here" &&
     mode !== "open-tree" &&
     mode !== "open-composed" &&
@@ -77,6 +78,9 @@ await reportStartupErrors(async () => {
   ) {
     throw new Error(`--client cannot be used with --mode ${mode}`);
   }
+  // `--no-focus`: ensure-detail for a caller beside the person (Claude's mentions), never moving their keys.
+  const focus = !process.argv.includes("--no-focus");
+  if (!focus && mode !== "ensure-detail") throw new Error(`--no-focus is only for --mode ensure-detail`);
   if (process.env.HERDR_ENV !== "1") throw new Error("The outliner workspace action must run inside Herdr");
 
   // The outline chooser continues an open with the folder it was asked about.
@@ -113,7 +117,7 @@ await reportStartupErrors(async () => {
   const resolved = resolveClientPaths({ ...process.env, OUTLINER_WORKSPACE_ROOT: workspaceRoot, ...(paneOutline ? { EP0CH_WS: paneOutline } : {}) });
   // Nothing names an outline here (no EP0CH_WS, no .ep0ch): ask, never guess. The switcher always asks.
   if (!resolved.outline || mode === "choose-outline") {
-    if (mode === "service-only") {
+    if (mode === "service-only" || mode === "find-detail") {
       throw new Error(`No outline for ${resolved.workspaceRoot} (resolved from ${rootSource}). ${resolved.unnamed ? `${resolved.unnamed}. ` : ""}Open the Outliner from Herdr in that folder to choose, create or import one.`);
     }
     const context: OutlineChooserContext = {
@@ -151,9 +155,9 @@ await reportStartupErrors(async () => {
       ? `No outline host answers at ${paths.socket}${paths.machine ? ` (on ${paths.machine})` : " (EP0CH_SOCKET)"}. ${remoteHint(paths)}`
       : `No outline host answers at ${paths.socket} (outline "${name}" for ${workspaceRoot}). The host runs as a service: systemctl --user start outliner-host (Linux), launchctl kickstart gui/$(id -u)/io.ep0ch.outliner-host (macOS), or bun packages/outliner/src/host-main.ts.`);
   }
-  // Only the modes that open panes create a missing outline: Pi's `service-only` check and `focus-existing` open
-  // nothing, so they only attach.
-  const create = mode !== "service-only" && mode !== "focus-existing";
+  // Only the modes that open panes create a missing outline: Pi's `service-only` check, `focus-existing` and
+  // `find-detail` open nothing, so they only attach.
+  const create = mode !== "service-only" && mode !== "focus-existing" && mode !== "find-detail";
   const attachment = await attachHostedOutline(host, name, create);
   const attached = { name, created: attachment.created, source: {
     env: "EP0CH_WS", file: paths.configPath ?? ".ep0ch", pane: "the invoking pane's outline",
@@ -292,6 +296,7 @@ await reportStartupErrors(async () => {
   async function openHere(): Promise<{
         outlinerPane: string;
     detailPane: string;
+    detailClientId: string;
     browsingContextId: string;
     workspaceRoot: string;
   }> {
@@ -311,7 +316,7 @@ await reportStartupErrors(async () => {
       direction: "down",
       env: { OUTLINER_BROWSING_CONTEXT_ID: browsingContextId },
     });
-    execFileSync(herdr, ["plugin", "pane", "focus", detailPane], {
+    if (focus) execFileSync(herdr, ["plugin", "pane", "focus", detailPane], {
       stdio: "ignore",
       timeout: HERDR_SYNC_TIMEOUT_MS,
     });
@@ -320,11 +325,11 @@ await reportStartupErrors(async () => {
       waitForClientPane(detailPane, "detail"),
     ]);
     await createOutlinerClient(paths).request({action: "navigation.link.set", source: {clientId: treeView.clientId, region: "tree"}, destination: {clientId: detailView.clientId, region: "detail"}});
-    execFileSync(herdr, ["plugin", "pane", "focus", outlinerPane], {
+    if (focus) execFileSync(herdr, ["plugin", "pane", "focus", outlinerPane], {
       stdio: "ignore",
       timeout: HERDR_SYNC_TIMEOUT_MS,
     });
-    return { outlinerPane, detailPane, browsingContextId, workspaceRoot };
+    return { outlinerPane, detailPane, detailClientId: detailView.clientId, browsingContextId, workspaceRoot };
   }
 
   async function openComposed() {
@@ -337,42 +342,58 @@ await reportStartupErrors(async () => {
     return {outlinerPane: pane, detailPane: pane, browsingContextId, workspaceRoot};
   }
 
+  /**
+   * The one Detail finder: the Tree for this invocation (its pane, else its tab, else its workspace) and the
+   * Detail linked to it. Trees are looked for in the invoking pane's workspace only, so another workspace's
+   * Detail is never "this tab's". `tree` is undefined when the workspace has none.
+   */
+  async function findDetail(): Promise<{
+    clients: OutlinerClientRegistration[];
+    tree?: OutlinerClientRegistration;
+    detail?: OutlinerClientRegistration;
+  }> {
+    const clients = localHerdrClients(await listLiveClients(createOutlinerClient(paths)));
+    const workspaceId = requestedClientId ? undefined : invocationPane?.workspace_id;
+    const trees = clients.filter((candidate) => clientSupportsRole(candidate, "tree") &&
+      (!workspaceId || candidate.runtime?.workspaceId === workspaceId));
+    if (trees.length === 0 && !requestedClientId) return { clients };
+    const tree = selectTreeClientForInvocation(trees, invocationTarget(), requestedClientId);
+    const link = await createOutlinerClient(paths).request<NavigationLinkState>({action: "navigation.link.get", source: {clientId: tree.clientId, region: "tree"}});
+    const detail = selectLinkedDetailClient(clients, link.destination);
+    return { clients, tree, ...(detail ? { detail } : {}) };
+  }
+
   async function ensureDetail(): Promise<{
         treePane: string;
     detailPane: string;
+    detailClientId: string;
     browsingContextId: string;
     opened: boolean;
     workspaceRoot: string;
   }> {
     const client = createOutlinerClient(paths);
-    const clients = localHerdrClients(await listLiveClients(client));
-    const trees = clients.filter((candidate) => clientSupportsRole(candidate, "tree"));
-    if (trees.length === 0 && !requestedClientId) {
+    const { tree, detail: existing } = await findDetail();
+    if (!tree) {
       const opened = await openHere();
       return {
         treePane: opened.outlinerPane,
         detailPane: opened.detailPane,
+        detailClientId: opened.detailClientId,
         browsingContextId: opened.browsingContextId,
         opened: true,
         workspaceRoot,
       };
     }
-    const tree = selectTreeClientForInvocation(
-      trees,
-      invocationTarget(),
-      requestedClientId,
-    );
     const treePane = tree.runtime?.paneId;
     if (!treePane) throw new Error("The selected Outliner Tree has no live Herdr pane");
-    const link = await client.request<NavigationLinkState>({action: "navigation.link.get", source: {clientId: tree.clientId, region: "tree"}});
-    const existing = selectLinkedDetailClient(clients, link.destination);
     if (existing) {
-      await sendClientCommand(client, existing.clientId, { command: "focus", targetRegion: "detail" });
+      if (focus) await sendClientCommand(client, existing.clientId, { command: "focus", targetRegion: "detail" });
       const detailPane = existing.runtime?.paneId;
       if (!detailPane) throw new Error("The selected Outliner Detail has no live Herdr pane");
       return {
         treePane,
         detailPane,
+        detailClientId: existing.clientId,
         browsingContextId: existing.contextId,
         opened: false,
         workspaceRoot,
@@ -384,19 +405,39 @@ await reportStartupErrors(async () => {
       direction: "down",
       env: { OUTLINER_BROWSING_CONTEXT_ID: tree.contextId },
     });
-    execFileSync(herdr, ["plugin", "pane", "focus", detailPane], {
+    if (focus) execFileSync(herdr, ["plugin", "pane", "focus", detailPane], {
       stdio: "ignore",
       timeout: HERDR_SYNC_TIMEOUT_MS,
     });
     const detailView = await waitForClientPane(detailPane, "detail");
-    await createOutlinerClient(paths).request({action: "navigation.link.set", source: {clientId: tree.clientId, region: "tree"}, destination: {clientId: detailView.clientId, region: "detail"}});
+    await client.request({action: "navigation.link.set", source: {clientId: tree.clientId, region: "tree"}, destination: {clientId: detailView.clientId, region: "detail"}});
     return {
       treePane,
       detailPane,
+      detailClientId: detailView.clientId,
       browsingContextId: tree.contextId,
       opened: true,
       workspaceRoot,
     };
+  }
+
+  /**
+   * What ensure-detail would reuse, opening and focusing nothing: the Detail's client and pane, or null. A
+   * selection ensure-detail would refuse (two Trees in the tab, a dead link) is null with its reason, not a failure:
+   * a caller asking in the background (the Claude mod's heading) never raises a Herdr notification for it.
+   */
+  async function reportDetail(): Promise<{ detailClientId: string | null; detailPane: string | null; treePane: string | null; why?: string; workspaceRoot: string }> {
+    try {
+      const { tree, detail } = await findDetail();
+      return {
+        detailClientId: detail?.clientId ?? null,
+        detailPane: detail?.runtime?.paneId ?? null,
+        treePane: tree?.runtime?.paneId ?? null,
+        workspaceRoot,
+      };
+    } catch (error) {
+      return { detailClientId: null, detailPane: null, treePane: null, why: error instanceof Error ? error.message : String(error), workspaceRoot };
+    }
   }
   let result: object;
   if (mode === "service-only") {
@@ -409,6 +450,8 @@ await reportStartupErrors(async () => {
     result = await openHere();
   } else if (mode === "ensure-detail") {
     result = await ensureDetail();
+  } else if (mode === "find-detail") {
+    result = await reportDetail();
   } else if (mode === "focus-existing") {
     result = await focusExisting();
   } else {

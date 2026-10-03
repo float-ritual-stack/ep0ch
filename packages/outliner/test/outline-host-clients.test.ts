@@ -252,7 +252,7 @@ test("the chooser picks one of the host's outlines, starts one named after the f
  * as a real pane would, on the outline its `EP0CH_WS` names (Tree for
  * `outliner`, Detail for `detail`), in pane `workspace:<entrypoint>`.
  */
-async function openWithFakeHerdr(options: { root: string; host: OutlineHost; folder: string; mode?: string; paneId?: string; env?: Record<string, string> }) {
+async function openWithFakeHerdr(options: { root: string; host: OutlineHost; folder: string; mode?: string; paneId?: string; env?: Record<string, string>; args?: string[] }) {
   const { root, host, folder } = options;
   const herdr = join(root, "fake-herdr");
   const logPath = join(root, "herdr-calls.jsonl");
@@ -293,7 +293,7 @@ if (args[0] === "pane" && args[1] === "get") {
     }
   })();
   try {
-    const child = Bun.spawn(["bun", "run", "src/herdr-open.ts", "--mode", options.mode ?? "open-here"], {
+    const child = Bun.spawn(["bun", "run", "src/herdr-open.ts", "--mode", options.mode ?? "open-here", ...options.args ?? []], {
       cwd: join(import.meta.dir, ".."),
       env: {
         PATH: process.env.PATH, HOME: root, HERDR_ENV: "1", HERDR_BIN_PATH: herdr, HERDR_PANE_ID: options.paneId ?? "workspace:pane",
@@ -312,12 +312,13 @@ if (args[0] === "pane" && args[1] === "get") {
 }
 
 /** A live pane already on `outline`, as a Tree or Detail registers it. */
-async function livePane(host: OutlineHost, outline: string, role: "tree" | "detail", paneId: string, contextId = `${outline}-context`) {
+async function livePane(host: OutlineHost, outline: string, role: "tree" | "detail", paneId: string, contextId = `${outline}-context`, where: { workspaceId?: string; events?: OutlinerEvent[] } = {}) {
   const connected = Promise.withResolvers<void>();
+  const workspaceId = where.workspaceId ?? "workspace";
   const watcher = new OutlinerClient(host.socketPath, 3_000, outline).watch({
-    client: { clientId: `${outline}-${role}-${paneId}`, role, contextId, runtime: { hostname: hostname(), paneId, workspaceId: "workspace", tabId: "workspace:tab" } },
+    client: { clientId: `${outline}-${role}-${paneId}`, role, contextId, runtime: { hostname: hostname(), paneId, workspaceId, tabId: `${workspaceId}:tab` } },
     onConnect: connected.resolve,
-    onEvent() {},
+    onEvent(event) { where.events?.push(event); },
   });
   cleanups.push(() => watcher.stop());
   await connected.promise;
@@ -402,6 +403,110 @@ test("Herdr actions stay on the outline the invoking pane is on, not the folder'
   expect(JSON.parse(focused.stdout.trim().split("\n").at(-1)!)).toMatchObject({ outline: "fred", outlineCreated: false });
   expect(host.list().outlines.map(outline => outline.name)).toEqual(["bob", "fred"]);
 }, 40_000);
+
+/** The Herdr calls that open a pane, by entrypoint, and the ones that move focus. */
+function paneCalls(calls: string[][]) {
+  const opens = calls.filter(call => call[0] === "plugin" && call[2] === "open");
+  return {
+    opened: opens.map(call => call[call.indexOf("--entrypoint") + 1]),
+    unfocusedOpens: opens.every(call => call.includes("--no-focus")),
+    focuses: calls.filter(call => call.includes("focus")),
+  };
+}
+
+test("ensure-detail --no-focus reuses the Tree's linked Detail without focusing it, and find-detail names it", async () => {
+  const root = scratch();
+  const host = await startHost(root);
+  await host.create("fred");
+  const folder = join(root, "fred-folder");
+  mkdirSync(folder);
+  writeDotEp0ch(folder, "fred");
+  const events: OutlinerEvent[] = [];
+  await livePane(host, "fred", "tree", "workspace:tree");
+  await livePane(host, "fred", "detail", "workspace:admin-detail", "fred-context", { events });
+  await new OutlinerClient(host.socketPath, 3_000, "fred").request({ action: "navigation.link.set", source: { clientId: "fred-tree-workspace:tree", region: "tree" }, destination: { clientId: "fred-detail-workspace:admin-detail", region: "detail" } });
+
+  // From a shell pane beside them (Claude's), in the same workspace.
+  const found = await openWithFakeHerdr({ root, host, folder, mode: "find-detail", paneId: "workspace:claude" });
+  expect(found.stderr).toBe("");
+  expect(JSON.parse(found.stdout.trim())).toMatchObject({ detailClientId: "fred-detail-workspace:admin-detail", detailPane: "workspace:admin-detail", treePane: "workspace:tree" });
+  expect(paneCalls(found.calls)).toMatchObject({ opened: [], focuses: [] });
+
+  const ensured = await openWithFakeHerdr({ root, host, folder, mode: "ensure-detail", paneId: "workspace:claude", args: ["--no-focus"] });
+  expect(ensured.stderr).toBe("");
+  expect(JSON.parse(ensured.stdout.trim())).toMatchObject({ detailClientId: "fred-detail-workspace:admin-detail", detailPane: "workspace:admin-detail", opened: false });
+  expect(paneCalls(ensured.calls)).toMatchObject({ opened: [], focuses: [] });
+  expect(events.filter(event => event.command)).toEqual([]);
+
+  // Without the flag, the Herdr action still focuses it.
+  await openWithFakeHerdr({ root, host, folder, mode: "ensure-detail", paneId: "workspace:claude" });
+  for (let wait = 0; wait < 50 && !events.some(event => event.command); wait++) await Bun.sleep(20);
+  expect(events.filter(event => event.command).map(event => event.command?.command)).toEqual(["focus"]);
+}, 40_000);
+
+test("ensure-detail --no-focus opens a Detail below a Tree with none linked, and focuses nothing", async () => {
+  const root = scratch();
+  const host = await startHost(root);
+  await host.create("fred");
+  const folder = join(root, "fred-folder");
+  mkdirSync(folder);
+  writeDotEp0ch(folder, "fred");
+  await livePane(host, "fred", "tree", "workspace:tree");
+  const found = await openWithFakeHerdr({ root, host, folder, mode: "find-detail", paneId: "workspace:claude" });
+  expect(JSON.parse(found.stdout.trim())).toMatchObject({ detailClientId: null, treePane: "workspace:tree" });
+  const ensured = await openWithFakeHerdr({ root, host, folder, mode: "ensure-detail", paneId: "workspace:claude", args: ["--no-focus"] });
+  expect(ensured.stderr).toBe("");
+  expect(JSON.parse(ensured.stdout.trim())).toMatchObject({ treePane: "workspace:tree", detailPane: "workspace:detail", detailClientId: "fred-detail-0", opened: true });
+  expect(paneCalls(ensured.calls)).toEqual({ opened: ["detail"], unfocusedOpens: true, focuses: [] });
+}, 40_000);
+
+test("ensure-detail --no-focus with no Tree in this workspace opens a Tree and Detail, focusing neither; another workspace's Detail is not this one's", async () => {
+  const root = scratch();
+  const host = await startHost(root);
+  await host.create("fred");
+  const folder = join(root, "fred-folder");
+  mkdirSync(folder);
+  writeDotEp0ch(folder, "fred");
+  const elsewhere = { workspaceId: "elsewhere" };
+  await livePane(host, "fred", "tree", "elsewhere:tree", "fred-context", elsewhere);
+  await livePane(host, "fred", "detail", "elsewhere:detail", "fred-context", elsewhere);
+  await new OutlinerClient(host.socketPath, 3_000, "fred").request({ action: "navigation.link.set", source: { clientId: "fred-tree-elsewhere:tree", region: "tree" }, destination: { clientId: "fred-detail-elsewhere:detail", region: "detail" } });
+  const found = await openWithFakeHerdr({ root, host, folder, mode: "find-detail", paneId: "workspace:claude" });
+  expect(JSON.parse(found.stdout.trim())).toMatchObject({ detailClientId: null, treePane: null });
+  const ensured = await openWithFakeHerdr({ root, host, folder, mode: "ensure-detail", paneId: "workspace:claude", args: ["--no-focus"] });
+  expect(ensured.stderr).toBe("");
+  expect(JSON.parse(ensured.stdout.trim())).toMatchObject({ treePane: "workspace:outliner", detailPane: "workspace:detail", detailClientId: "fred-detail-1", opened: true });
+  expect(paneCalls(ensured.calls)).toEqual({ opened: ["outliner", "detail"], unfocusedOpens: true, focuses: [] });
+}, 40_000);
+
+test("find-detail reports a selection ensure-detail would refuse as none, with why, and opens nothing", async () => {
+  const root = scratch();
+  const host = await startHost(root);
+  await host.create("fred");
+  const folder = join(root, "fred-folder");
+  mkdirSync(folder);
+  writeDotEp0ch(folder, "fred");
+  await livePane(host, "fred", "tree", "workspace:tree-a");
+  await livePane(host, "fred", "tree", "workspace:tree-b");
+  const found = await openWithFakeHerdr({ root, host, folder, mode: "find-detail", paneId: "workspace:claude" });
+  expect(found.exitCode).toBe(0);
+  expect(JSON.parse(found.stdout.trim())).toMatchObject({ detailClientId: null, why: "Multiple live Tree clients are registered in tab workspace:tab" });
+  expect(found.calls.some(call => call[0] === "notification")).toBe(false);
+  const ensured = await openWithFakeHerdr({ root, host, folder, mode: "ensure-detail", paneId: "workspace:claude", args: ["--no-focus"] });
+  expect(ensured.exitCode).not.toBe(0);
+  expect(ensured.stderr).toContain("Multiple live Tree clients are registered in tab workspace:tab");
+}, 40_000);
+
+test("--no-focus is refused outside ensure-detail", async () => {
+  const root = scratch();
+  const host = await startHost(root);
+  const folder = join(root, "fred-folder");
+  mkdirSync(folder);
+  writeDotEp0ch(folder, "fred");
+  const refused = await openWithFakeHerdr({ root, host, folder, mode: "open-here", args: ["--no-focus"] });
+  expect(refused.exitCode).not.toBe(0);
+  expect(refused.stderr).toContain("--no-focus is only for --mode ensure-detail");
+}, 30_000);
 
 test("focus-existing opens nothing, so it never creates the outline a .ep0ch names", async () => {
   const root = scratch();

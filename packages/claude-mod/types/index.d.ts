@@ -53,6 +53,8 @@ declare module 'claude-code' {
       mentions: MentionsList
       /** BlockView drawings, by block id: the latest one each. */
       blockViews: StateFamily<BlockViewEntry>
+      /** Whether the Outliner's find-detail found a Detail beside Claude in Herdr: what the heading's "opens in" says. */
+      adminDetail: boolean
     }
   }
 }

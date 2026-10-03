@@ -16,7 +16,7 @@ import { MENTIONS_AGENT } from './mention-message'
  * choice is kept across sessions. Each mention can show a small preview of
  * its block, drawn by the door's renderer (BlockView; `p` toggles). A press
  * opens the block through the mod's one open (`openNote`): in the door this
- * session runs in, else Claude's own Detail in Herdr, else a toast with the
+ * session runs in, else the Outliner Detail beside Claude in Herdr, else a toast with the
  * exact command. Every action is a Button with a hotkey, so it works by mouse
  * and by keys once the band or pane holds them (ctrl+x tab, or a click); the
  * pane never opens with focus, so the prompt keeps the keys.
@@ -75,10 +75,14 @@ export function mentionRowsOf(stdout: string): MentionRow[] {
   })
 }
 
-/** Where a press opens a block, as the person reads it (openNote's order). */
-export function opensIn(env: { EP0CH_CONTROL?: string; HERDR_PANE_ID?: string; HERDR_WORKSPACE_ID?: string }): string {
+/**
+ * Where a press opens a block, as the person reads it (openNote's order).
+ * `adminDetail`: whether the Outliner's `find-detail` found a Detail beside
+ * Claude in its Herdr workspace (the one a press reuses).
+ */
+export function opensIn(env: { EP0CH_CONTROL?: string; HERDR_PANE_ID?: string; HERDR_WORKSPACE_ID?: string }, adminDetail = false): string {
   if (env.EP0CH_CONTROL) return 'opens in this door'
-  if (env.HERDR_PANE_ID && env.HERDR_WORKSPACE_ID) return "opens in Claude's Outliner Detail"
+  if (env.HERDR_PANE_ID && env.HERDR_WORKSPACE_ID) return adminDetail ? 'opens in the Outliner Detail beside you' : 'opens in a new Outliner Detail beside you'
   return 'not in a door or Herdr: a press says how to open it'
 }
 

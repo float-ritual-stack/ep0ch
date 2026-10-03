@@ -405,10 +405,14 @@ The manifest exposes three workspace/tab/pane actions:
   fresh browsing context, then focuses the Tree. Otherwise it selects the Tree
   by the invoking pane, then an unambiguous Tree in the current tab, workspace,
   or project, and focuses that exact client. Ambiguity fails explicitly.
-- `ensure-detail` applies the same Tree selection and focuses its saved linked
-  Detail, wherever that pane has moved. If the Tree has no link, this explicit
-  host action creates a Detail below it and links the pair. An unavailable linked
-  destination reports an error. With no Tree it opens a complete pair.
+- `ensure-detail` applies the same Tree selection, among the Trees in the
+  invoking pane's workspace, and focuses its saved linked Detail, wherever that
+  pane has moved. If the Tree has no link, this explicit host action creates a
+  Detail below it and links the pair. An unavailable linked destination reports
+  an error. With no Tree in the workspace it opens a complete pair. `--no-focus`
+  does the same without moving focus, and `--mode find-detail` only reports the
+  Detail it would reuse (`detailClientId`, or null), opening nothing: the Claude
+  mod opens a mention in that Detail beside it this way.
 - `open-here` always creates a new Tree/Detail pair beside the invoking pane in
   the current tab. The pair shares a fresh ephemeral browsing context and the
   new Tree receives focus.

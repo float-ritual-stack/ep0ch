@@ -52,15 +52,16 @@ passes an unset option as an empty string, so an empty option always falls back
 to the variable. An entry that isn't an absolute folder (a relative path, or
 `folder=name`), or an unknown mode, is an error shown as a toast, never skipped.
 
-## Clickable references and Claude's Outliner pane
+## Clickable references and the Outliner Detail beside Claude
 
 In a bound folder, Work IDs (its outline's prefixes), `[[pages]]` and
 `((block references))` in Claude's replies are drawn as links. In an ep0ch-door
 tile a click opens the note in that door ([Where a note opens](#where-a-note-opens)).
-In Herdr a plain click shows the target in **Claude's own Outliner Detail**: a pane split below the
-Claude pane the first time, then reused for every later click in the session.
-It never navigates your Trees or Details and never takes focus; move or resize
-it as you like. References in code and existing links are left alone.
+In Herdr a plain click shows the target in **the Outliner Detail beside Claude**: the admin
+Detail linked to the Tree in Claude's Herdr workspace, else a Detail opened below that Tree,
+else a new Tree and Detail beside Claude. The Outliner finds or opens it (its own
+`ensure-detail`, run with `--no-focus`), so there is one Detail finder. It never takes
+focus. References in code and existing links are left alone.
 
 Claude can put a note there too, with the `mcp__pi-outliner__show` tool (a Work
 ID, `[[page]]`, `((uuid))` or `pi-outliner://` URI).
@@ -89,7 +90,10 @@ A click, `show` and `door_open` share one open (`openNote` in
    - If the door takes the request but doesn't answer within 5s, it says so;
      it isn't shown in Herdr too.
    - Only if no door answers there (the door quit) does it go on.
-2. **In Herdr** (`HERDR_PANE_ID` set): Claude's own Detail, as above. A door
+2. **In Herdr** (`HERDR_PANE_ID` set): the Outliner Detail beside Claude, as above:
+   the installed Outliner's `src/herdr-open.ts --mode ensure-detail --no-focus` names it
+   (`detailClientId`), then `outliner link <uri> --detail-client <id> --no-focus`
+   shows the note there. A door
    tile drops Herdr's pane variables, so this is a plain Herdr pane, or the
    daily agent's Herdr pane after its door quit.
 3. **Anywhere else**: a toast (or the tool's denial) saying it can't open the
@@ -98,10 +102,9 @@ A click, `show` and `door_open` share one open (`openNote` in
    outline host) and its `((id))` to copy. A click also copies that command.
    A click never fails silently.
 
-- The pane is recognized by its browsing context, which is the Claude session
-  id, so it survives plugin reloads and resumed sessions. Close it and the next
-  click splits a new one.
-- If you are editing in Claude's pane, a click or `show` is refused with a toast
+- Only the invoking Herdr workspace's Trees count: a Detail in another workspace
+  is never "beside you". Two Trees in one tab is the Outliner's refusal, said in a toast.
+- If you are editing in that Detail, a click or `show` is refused with a toast
   (the Outliner protects active edits) rather than opening a second pane.
 - Clicks reach the mod in the fullscreen terminal (`"tui": "fullscreen"`).
 - Links carry `https://pi-outliner.invalid/...` stand-ins, because Claude Code only
@@ -151,9 +154,12 @@ mod's own. It is read again after each answer is ingested.
 - **Open:** a click, or the mention's number, opens it through the one open
   every click, `show` and `door_open` share ([Where a note opens](#where-a-note-opens)):
   in the door this session runs in, as the agent, never taking focus; else
-  Claude's own Detail in Herdr; else the command that reads it anywhere
+  the Outliner Detail beside Claude in Herdr; else the command that reads it anywhere
   (`ep0ch show <id> --ws <outline>`) is copied, said in a toast and kept in the
-  band or pane. The pane's heading says which it will be.
+  band or pane. The pane's heading says which it will be: in Herdr, "opens in
+  the Outliner Detail beside you" when the Outliner's `find-detail` (which opens
+  nothing) finds one, else "opens in a new Outliner Detail beside you". It asks
+  again each time the list is read.
 - Every action is a Button with a hotkey: by mouse, or by keys once the band or
   pane holds them (ctrl+x tab, or a click). The pane never opens with focus, so
   the prompt keeps the keys; opened at session start (the pane was the choice),
