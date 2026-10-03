@@ -21,6 +21,7 @@ import { controlPath } from "../control";
 import { appendNest, doorLayer, doorNest } from "../nest";
 import { agentVars, DOOR_START_VARS, withContinue } from "./agent-env";
 import { KbdModes, keyBytes, translateReports } from "../kbd";
+import { type Clip, Osc52Reader, TILE_COPY_RECENT_MS } from "../surface/selection";
 import { localPtys, ptyBackend, type PtyMeta, type PtyProc } from "./pty-backend";
 
 const { Terminal: XTerm } = xterm as unknown as { Terminal: new (o: Record<string, unknown>) => XTermLike };
@@ -169,6 +170,8 @@ export class PtyPane implements Pane {
   lastOutput = 0;
   /** When the person last typed or pasted into it (an agent's `tile.type` doesn't count): `agent.restart` waits for them. */
   personKeyAt = 0;
+  /** When the person last clicked in it or went into it (a click, e or ⏎: tile.enter; the drawer's host.enter). */
+  personClickAt = 0;
   /** The next start only: a restart that keeps the conversation (`withContinue`, and the Herdr launcher told so). */
   private continueNext = false;
   /** It asked for SGR mouse reports (mode 1006): clicks and drags are sent that way. */
@@ -240,14 +243,21 @@ export class PtyPane implements Pane {
       const kbdReply = this.kbd.observe(s);
       if (kbdReply && answer) this.proc?.write(kbdReply);
     };
+    // Its clipboard writes (OSC 52), which the emulator would swallow, go on to the person's terminal through the
+    // door's own copy (App.copy: the client with the keys, a "copied from <tile>" toast). Never in a replay: what a
+    // kept program wrote before was copied then.
+    const clip = new Osc52Reader();
     const data = (d: Uint8Array) => {
       this.lastOutput = Date.now();
-      modes(Buffer.from(d).toString("latin1"), true);
+      const s = Buffer.from(d).toString("latin1");
+      modes(s, true);
+      for (const c of clip.feed(s)) this.copied(c);
       term.write(d, () => this.soon());
     };
     // The host had to drop some of its output (this daemon fell behind): the emulator starts over from all it kept.
     this.resync = replay => {
       replaying = true;
+      clip.reset();
       (term as unknown as { reset(): void }).reset();
       modes(Buffer.from(replay).toString("latin1"), false);
       term.write(replay, () => { replaying = false; this.soon(); });
@@ -329,6 +339,19 @@ export class PtyPane implements Pane {
     this.soon();
     const f = this.onExit; this.onExit = null;
     f?.(this.exited);
+  }
+
+  /**
+   * The program put `c` on the clipboard (OSC 52): passed on as the door's own copy, said as this tile's. Only while the
+   * person is using the tile (they typed, pasted or clicked in it within TILE_COPY_RECENT_MS, whoever typed since): a
+   * program in a tile they haven't used lately (an agent's shell, `tile.type`) can't fill their clipboard; the toast
+   * says it didn't, and to click in it and copy again.
+   */
+  private copied(c: Clip) {
+    // Named as its header names it (claude, sh), not by its layout name.
+    const from = this.run.shows ?? (basename(this.run.cmd[0] ?? "") || this.tileName || "a terminal tile");
+    const theirs = Date.now() - Math.max(this.personKeyAt, this.personClickAt) < TILE_COPY_RECENT_MS;
+    this.desk?.ctx.copy?.(!theirs ? { away: true } : "text" in c ? c.text : c, from);
   }
 
   /** Start the emulator over from what the program wrote (a host's resync). */
@@ -436,6 +459,8 @@ export class PtyPane implements Pane {
 
   /** A mouse event at x, y in the tile: to the program when it asked, else the wheel scrolls back. */
   mouse(k: Extract<Key, { kind: "mouse" }>, x: number, y: number): boolean {
+    // Only the person's mouse comes here (an agent has none): a click in it is them using it, whatever the program asked.
+    if (k.action === "down") this.personClickAt = Date.now();
     const mode = this.term?.modes.mouseTrackingMode ?? "none";
     if (this.wantsMouse()) {
       if (k.action === "drag" && mode !== "drag" && mode !== "any") return true;

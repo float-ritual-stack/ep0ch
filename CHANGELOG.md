@@ -41,6 +41,17 @@ move into one repository (PIE-530).
 - **Television (optional).** With `tv` on your PATH, `ep0ch install --apply` links the outline's channels into
   television's cable folder.
 
+### Copy from a program in a terminal tile (PIE-537)
+
+- **A program's copy reaches your clipboard.** Its OSC 52 (Claude Code's "sent N chars via OSC 52") goes on to your
+  terminal through the door's own copy, in a session to the terminal with the keys (never a watcher), and a toast says
+  "✓ copied from claude · N chars". Before, the terminal tile swallowed it.
+- **Only from a tile you're using:** one you typed, pasted or clicked in within the last two minutes, so an agent
+  typing into a shell you haven't touched can't fill your clipboard. Otherwise nothing is copied and the toast says "✗ not copied from
+  claude · you haven't typed or clicked in it for 2 min · click in it, then copy again".
+- Only writes pass: a program can't read your clipboard. Over 512 KB nothing is copied, and the door's own copies have
+  the same limit. The kitchen sink's terminal section shows it (`ep0ch --showcase`, section 9).
+
 ### A mention opens right in Claude, with no door or Herdr around (PIE-542)
 
 - **In the Claude desktop app (Code tab), VS Code or a terminal outside Herdr**, a press on a mention or a reference

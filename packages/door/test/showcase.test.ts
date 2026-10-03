@@ -1,6 +1,7 @@
 // PIE-439: the showcase. Its seed (every section's content, written through the service), the
 // `scripts/try-it.sh --showcase --reset` path putting it back, and the screen drawing each reuse-map
 // section with its real part, by keys, mouse and act. Scratch services only; the seed is fictional.
+import { osc52 } from "../src/surface/selection";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -237,6 +238,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
   const scratch = new Scratch();
   let board: SocketBoard, app: App, sc: Showcase, seeded: Seeded;
   let key: (k: Key) => void = () => {};
+  const written: string[] = [];
+  let painted: string[] = [];
   const press = (k: Key) => key(k);
   const ch = (c: string) => press({ kind: "char", ch: c });
   const screen = () => sc.render(app).lines.map(plain).join("\n");
@@ -248,7 +251,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     seeded = await scratch.seedShowcase();
     board = new SocketBoard(scratch.sock);
     await board.info();
-    const term = { info: { cols: 200, rows: 60, cellW: 9, cellH: 16, kitty: false }, write() {}, paint() {}, invalidate() {}, onKey(f: any) { key = f; }, onResize() {}, stop() {}, resume() {} };
+    const term = { info: { cols: 200, rows: 60, cellW: 9, cellH: 16, kitty: false }, write(s: string) { written.push(s); }, paint(l: string[]) { painted = l; }, invalidate() {}, onKey(f: any) { key = f; }, onResize() {}, stop() {}, resume() {} };
     app = new App(term as any, board, Date.now(), () => {});
     board.subscribe(e => app.event(e));
     sc = new Showcase();
@@ -402,6 +405,41 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     const f = await app.act({ action: "link.follow", tile: "reader", args: { n: 1 }, as: "test-agent" }) as any;
     expect(f.opened).toBe(seeded.notes.whiteboard.id);
     expect(S().focus).toBe("index");
+  }, 20_000);
+
+  test("terminal: the tile's program copies (OSC 52), and the door passes it on to the person's terminal, said as the tile's", async () => {
+    (app as any).lastInput = 0;
+    expect(await app.act({ action: "section", args: { name: "terminal" }, as: "test-agent" })).toMatchObject({ key: "terminal" });
+    await until(() => screen().includes("copy from it as Claude Code does"), "the shell in the stage", 8000);
+    const copying = (what: string, done: string) => `printf '\\033]52;c;?\\007'; printf '\\033]52;c;%s\\007' "$(printf '${what}' | base64)"; echo ${done}-$((6*7))`;
+    const before = written.length;
+    const copies = () => written.slice(before).filter(w => w.includes("\x1b]52;"));
+    // An agent typing it into the shell: the person isn't using the tile, so it isn't passed on, and the toast says so.
+    for (let i = 0; ; i++) {
+      try { await app.act({ action: "tile.type", tile: "t2", args: { text: copying("Pull the bindweed", "agent") + "\\n" }, as: "test-agent" }); break; }
+      catch (e) { if (i > 50 || !/isn't running/.test((e as Error).message)) throw e; await Bun.sleep(100); }
+    }
+    await until(() => screen().includes("agent-42"), "the agent's command to run", 8000);
+    await until(() => (app as any).toast?.text === "not copied from sh · you haven't typed or clicked in it for 2 min · click in it, then copy again", "the toast", 5000);
+    app.redraw(); await until(() => painted.map(plain).join("\n").includes("✗ not copied from sh · you haven't typed or clicked in it for 2 min · click in it, then copy again"), "the toast drawn", 3000);
+    expect(copies()).toEqual([]);
+    // The person clicks in the tile and types it.
+    const r = S().stageRect, t = (S().stages.get(SECTIONS.findIndex(s => s.key === "terminal")).top.describe().panes as any[]).find(x => x.kind === "pty");
+    const at = { x: r.col + t.rect.col + 3, y: r.row + t.rect.row + 3 };
+    press({ kind: "mouse", action: "down", button: 0, ...at }); press({ kind: "mouse", action: "up", button: 0, ...at });
+    for (const c of copying("Turn the compost", "copied")) ch(c);
+    press({ kind: "enter" });
+    await until(() => copies().length > 0, "the copy written to the terminal", 8000);
+    await Bun.sleep(150);
+    expect(copies()).toEqual([osc52("Turn the compost")]);
+    expect((app as any).toast?.text).toBe("copied from sh · 16 chars");
+    app.redraw(); await until(() => painted.map(plain).join("\n").includes("✓ copied from sh · 16 chars"), "the toast drawn", 3000);
+    // Back to the door: the click a moment ago still counts, so the same agent's copy now reaches the person.
+    press({ kind: "char", ch: "]", ctrl: true });
+    await app.act({ action: "tile.type", tile: "t2", args: { text: copying("Mulch the roses", "again") + "\\n" }, as: "test-agent" });
+    await until(() => copies().length > 1, "the second copy written to the terminal", 8000);
+    expect(copies().at(-1)).toBe(osc52("Mulch the roses"));
+    press({ kind: "esc" });
   }, 20_000);
 
   test("search, driven by an agent: the section's own desk answers the service's forgiving search, the person's overlay left alone", async () => {

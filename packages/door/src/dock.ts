@@ -491,6 +491,8 @@ export class AgentDock {
     // Into the tab the drawer shows (the agent, its first).
     const dr = hostDrawer(this.layer);
     this.do({ op: "focus", tile: (dr && shownTiles(dr.kid)[0]) ?? DOCK_TILE_ID }, USER);
+    // The person going in is them using it: its program's copy reaches their clipboard (PtyPane.copied).
+    this.pane().personClickAt = Date.now();
     if (!p.running && p.exited !== null) {
       if (restart) { p.restart(); this.host.redraw(); return { entered: true, restarted: true }; }
       this.host.flash(`${DOCK_NAME} exited · ⏎ runs it again · ${ESCAPE_CHORD} back to the screen`);
@@ -546,7 +548,8 @@ export class AgentDock {
     const pane = this.pane();
     if (k.action === "down") {
       if (!this.entered) run("host.enter", {});
-      if (pane.wantsMouse() && y >= 0 && x >= 0) { this.capture = r; pane.mouse(k, x, y); }
+      // A click in it is the person using it (PtyPane.mouse), whether or not its program takes the mouse.
+      if (y >= 0 && x >= 0) { if (pane.wantsMouse()) this.capture = r; pane.mouse(k, x, y); }
       this.host.redraw();
       return true;
     }

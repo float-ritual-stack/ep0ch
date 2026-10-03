@@ -1049,7 +1049,7 @@ export class NoteSurface {
    * the clipboard is theirs, so an agent gets the value in its reply instead.
    */
   copyValue(r: PropRow, host: SurfaceHost) {
-    host.ctx.copy?.(r.value);
+    if (host.ctx.copy?.(r.value) === false) return;
     if (this.panel) this.panel.note = `copied ${r.key}: ${printable(r.value).slice(0, 60)}`;
   }
 
@@ -3172,7 +3172,8 @@ export class NoteSurface {
     }
     if (!text.trim()) { host.ctx.flash("nothing to copy: only blanks are selected"); return null; }
     const chars = [...text].length;
-    host.ctx.copy?.(text);
+    // Over COPY_MAX nothing is copied: App.copy's toast says why, and the action is refused.
+    if (host.ctx.copy?.(text) === false) throw new ActionRefused(`not copied: ${chars} chars is more than the clipboard takes`);
     host.ctx.flash(`copied ${chars} chars${said}`);
     return { text, chars, ...(src ? { exact: src.exact, lines: [src.lines[0] + 1, src.lines[1] + 1] as [number, number] } : {}) };
   }
@@ -3572,8 +3573,7 @@ function forwardDraft<K extends keyof DraftActionArgs>(name: K): ActionDef<Draft
       // The person's copy reaches their clipboard, as the reader's select.copy does; an agent's is only returned.
       if (name === "draft.copy" && actor.kind === "user") {
         const c = r as { text: string; chars: number };
-        host.ctx.copy?.(c.text);
-        host.ctx.flash(`copied ${c.chars} chars`);
+        if (host.ctx.copy?.(c.text) !== false) host.ctx.flash(`copied ${c.chars} chars`);
       }
       surface.noteAgent(actor, `used ${name} in the draft`);
       host.redraw();
