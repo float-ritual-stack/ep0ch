@@ -1,5 +1,6 @@
 // EPD-001: editing from a reader. The draft model and key decoding run anywhere; the save and
 // conflict tests start a throwaway outliner service (never a real outline) and skip without one.
+import { Scratch, outliner as scratchOutliner } from "./scratch";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -128,11 +129,10 @@ describe("conflicts are read, not just worded", () => {
 
 // ── against a scratch outliner service ────────────────────────────────────────
 
-const outliner = [process.env.EP0CH_OUTLINER, resolve(import.meta.dir, "../../pi-herdr-outliner")]
-  .find(p => p && existsSync(join(p, "src/server-main.ts")));
+const outliner = scratchOutliner;
 
 describe.skipIf(!outliner)("editing against a scratch outline", () => {
-  let root = "", proc: Subprocess | null = null, board: SocketBoard, other: SocketBoard;
+  let root = "", scratch: Scratch | null = null, board: SocketBoard, other: SocketBoard;
   const flashes: string[] = [];
   const desk = () => ({
     ctx: { board, flash: (m: string) => flashes.push(m), redraw() {}, suspend: (run: () => void) => run(), t: { cellW: 9, cellH: 18 }, graphics: false },
@@ -149,32 +149,19 @@ describe.skipIf(!outliner)("editing against a scratch outline", () => {
   };
 
   beforeAll(async () => {
-    root = mkdtempSync(join(tmpdir(), "ep0ch-edit-test-"));
-    for (const d of ["ws", "state", "config", "door"]) mkdirSync(join(root, d));
+    scratch = new Scratch();
+    const path = await scratch.start();
+    root = scratch.root;
     process.env.EP0CH_STATE = join(root, "door");       // refused drafts are copied here, not into real state
-    const env: Record<string, string> = {
-      ...(process.env as Record<string, string>),
-      OUTLINER_STATE_DIR: join(root, "state"), OUTLINER_WORKSPACE_ROOT: join(root, "ws"), XDG_CONFIG_HOME: join(root, "config"),
-      OUTLINER_INBOX_AGENT: "0", OUTLINER_NOTE_ASSISTANCE: "0",
-    };
-    for (const k of HERDR_VARS) delete env[k];
-    proc = Bun.spawn(["bun", "src/server-main.ts"], { cwd: outliner, env, stdout: "ignore", stderr: "ignore" });
-    let sock = "";
-    await until(() => {
-      const dirs = existsSync(join(root, "state")) ? readdirSync(join(root, "state")) : [];
-      sock = dirs.map(d => join(root, "state", d, "outliner.sock")).find(existsSync) ?? "";
-      return !!sock;
-    }, "the scratch service socket", 15_000);
-    board = new SocketBoard(sock);
-    other = new SocketBoard(sock);
+    board = new SocketBoard(path);
+    other = new SocketBoard(path);
     const info = await board.info();
-    expect(info.workspace).toBe(join(root, "ws"));      // it really is the scratch outline
+    expect(info.workspace).toBe(scratch.workspace);      // it really is the scratch outline
   }, 20_000);
 
   afterAll(() => {
-    board?.close(); other?.close(); proc?.kill();
+    board?.close(); other?.close(); void scratch?.dispose();
     delete process.env.EP0CH_STATE;
-    if (root) rmSync(root, { recursive: true, force: true });
   });
 
   test("e, type, ctrl+s: the service has the new text at the next revision, attributed to the door", async () => {

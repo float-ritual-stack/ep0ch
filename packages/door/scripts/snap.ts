@@ -50,10 +50,10 @@ const fakeTerm = {
   onResize() {},
 };
 let bytes = 0;
-// `bbs`, `brief`, `backlinks`, `tree-links`, `showcase`, `select`, `spines`, `journey`, `kanban`, `river-write`, `scroll`, `complete`, `fold`, `elements` and `steps` run their own scratch service (EP0CH_OUTLINER=<pi-herdr-outliner checkout>).
+// `bbs`, `brief`, `backlinks`, `tree-links`, `showcase`, `select`, `spines`, `journey`, `kanban`, `river-write`, `scroll`, `complete`, `fold`, `elements` and `steps` run their own scratch outline host (this repository's packages/outliner, or EP0CH_OUTLINER).
 const scratch = scenario === "themes" || scenario === "bbs" || scenario === "brief" || scenario === "projection" || scenario === "backlinks" || scenario === "tree-links" || scenario === "showcase" || scenario === "rendering" || scenario === "select" || scenario === "spines" || scenario === "journey" || scenario === "kanban" || scenario === "river-write" || scenario === "scroll" || scenario === "complete" || scenario === "fold" || scenario === "elements" || scenario === "steps" ? await (async () => {
   const { outliner, Scratch } = await import("../test/scratch");
-  if (!outliner) { console.error(`${scenario} starts its own scratch service: set EP0CH_OUTLINER to a pi-herdr-outliner checkout`); process.exit(2); }
+  if (!outliner) { console.error(`${scenario} starts its own scratch outline host: set EP0CH_OUTLINER to the outliner package`); process.exit(2); }
   return new Scratch();
 })() : null;
 const board = new SocketBoard(scratch ? await scratch.start() : undefined);

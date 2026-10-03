@@ -1,14 +1,16 @@
-// A throwaway outliner service for tests: its own state, workspace and config dirs, background agents
-// off, Herdr unset. Never a real outline. `restart()` stops it and starts it again on the same state,
-// the way a deploy would. `seedShowcase()` writes the showcase outline (src/showcase/seed.ts) into it.
+// A throwaway outline host for tests, over its own outlines folder (EP0CH_OUTLINES) with one outline, `scratch`,
+// as the host's default, and its own config dir; background agents off, Herdr unset. Never a real outline.
+// `restart()` stops it and starts it again on the same folder, the way a deploy would. `seedShowcase()` writes the
+// showcase outline (src/showcase/seed.ts) into it.
 import { copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import type { Subprocess } from "bun";
 import { HERDR_VARS } from "../src/desk/pty";
 
-export const outliner = [process.env.EP0CH_OUTLINER, resolve(import.meta.dir, "../../pi-herdr-outliner")]
-  .find(p => p && existsSync(join(p, "src/server-main.ts")));
+/** The outliner package: EP0CH_OUTLINER, else this repository's packages/outliner. */
+export const outliner = [process.env.EP0CH_OUTLINER, resolve(import.meta.dir, "../../outliner")]
+  .find(p => p && existsSync(join(p, "src/host-main.ts")));
 
 export const until = async (ok: () => boolean, what: string, ms = 5000) => {
   const end = Date.now() + ms;
@@ -54,34 +56,42 @@ export class Scratch {
   readonly root: string;
   sock = "";
   private proc: Subprocess | null = null;
-  /** `root`: serve that directory's ws/state/config (the layout scripts/try-it.sh --showcase uses) instead of a new temp dir. */
-  constructor(root?: string) {
+  /** `root`: serve that directory's outlines/config (the layout scripts/try-it.sh --showcase uses) instead of a new temp dir. */
+  constructor(root?: string, readonly name = "scratch") {
     this.root = root ?? scratchDir("ep0ch-scratch-");
-    for (const d of ["ws", "state", "config", "door"]) mkdirSync(join(this.root, d), { recursive: true, mode: 0o700 });
+    for (const d of ["outlines", "config", "door"]) mkdirSync(join(this.root, d), { recursive: true, mode: 0o700 });
   }
-  get workspace() { return join(this.root, "ws"); }
+  /** The outlines folder the host serves. */
+  get outlines() { return join(this.root, "outlines"); }
+  /** The outline's own folder (`<outlines>/<name>/`): the root its relative file links resolve against. */
+  get workspace() { return join(this.outlines, this.name); }
+  /** The environment an `ep0ch` (or outliner) command uses to reach this outline. */
+  get env(): Record<string, string> { return { EP0CH_OUTLINES: this.outlines, EP0CH_WS: this.name, XDG_CONFIG_HOME: join(this.root, "config") }; }
   /** The service's process id, while it runs. */
   get pid() { return this.proc?.pid; }
 
+  /** Starts the host (its default outline is this one, so a board that names none reads it) and makes the outline. */
   async start(): Promise<string> {
     const env: Record<string, string> = {
       ...(process.env as Record<string, string>),
-      OUTLINER_STATE_DIR: join(this.root, "state"), OUTLINER_WORKSPACE_ROOT: this.workspace, XDG_CONFIG_HOME: join(this.root, "config"),
+      EP0CH_OUTLINES: this.outlines, EP0CH_DEFAULT_WS: this.name, XDG_CONFIG_HOME: join(this.root, "config"),
       OUTLINER_INBOX_AGENT: "0", OUTLINER_NOTE_ASSISTANCE: "0",
     };
-    for (const k of HERDR_VARS) delete env[k];
-    this.proc = Bun.spawn(["bun", "src/server-main.ts"], { cwd: outliner!, env, stdout: "ignore", stderr: "ignore" });
-    const ping = async (path: string) => {
-      const { SocketBoard } = await import("../src/socket");
+    for (const k of [...HERDR_VARS, "EP0CH_SOCKET", "EP0CH_WS"]) delete env[k];
+    this.proc = Bun.spawn(["bun", "src/host-main.ts"], { cwd: outliner!, env, stdout: "ignore", stderr: "ignore" });
+    const path = join(this.outlines, ".host", "host.sock");
+    const { hostRequest, SocketBoard } = await import("../src/socket");
+    const ping = async () => {
       const b = new SocketBoard(path, 1000);
       try { await b.info(); return true; } catch { return false; } finally { b.close(); }
     };
     const end = Date.now() + 20_000;
     for (;;) {
-      const dirs = existsSync(join(this.root, "state")) ? readdirSync(join(this.root, "state")) : [];
-      const path = dirs.map(d => join(this.root, "state", d, "outliner.sock")).find(existsSync);
-      if (path && await ping(path)) return (this.sock = path);
-      if (Date.now() > end) throw new Error("the scratch service didn't start");
+      if (existsSync(path)) {
+        try { await hostRequest(path, "outlines.attach", { name: this.name, create: true }, 2000); } catch { /* not up yet */ }
+        if (await ping()) return (this.sock = path);
+      }
+      if (Date.now() > end) throw new Error("the scratch outline host didn't start");
       await Bun.sleep(50);
     }
   }
@@ -128,26 +138,27 @@ export class Scratch {
   async dispose() { await this.stop(2000); rmSync(this.root, { recursive: true, force: true }); }
 }
 
-/** A pi-herdr-outliner checkout with the outline host (PIE-457): EP0CH_OUTLINER_HOST, else `outliner` if it has one. */
+/** The outliner package with the outline host: EP0CH_OUTLINER_HOST, else `outliner`. */
 export const hostOutliner = [process.env.EP0CH_OUTLINER_HOST, outliner]
   .find(p => p && existsSync(join(p, "src/host-main.ts")));
 
 /**
- * A throwaway outline host (one socket, outlines by name) in its own state and config dirs, background
- * agents off, Herdr unset. `folder(name)` makes a fictional folder beside it for binding and naming tests.
+ * A throwaway outline host (one socket, outlines by name) over its own outlines folder, with no outline yet and,
+ * unless asked, no default: what a person's machine is like. Background agents off, Herdr unset. `folder(name)`
+ * makes a fictional folder beside it for naming tests (a `.ep0ch` there, or none).
  */
 export class ScratchHost {
   readonly root: string;
   private proc: Subprocess | null = null;
   constructor() {
     this.root = scratchDir("ep0ch-host-");
-    for (const d of ["state", "config", "door", "folders"]) mkdirSync(join(this.root, d), { recursive: true });
+    for (const d of ["outlines", "config", "door", "folders", "home"]) mkdirSync(join(this.root, d), { recursive: true });
   }
-  get state() { return join(this.root, "state"); }
+  get outlines() { return join(this.root, "outlines"); }
   get config() { return join(this.root, "config"); }
-  get sock() { return join(this.state, "outliner.sock"); }
-  /** The environment a door or `ep0ch` command uses to find this host. */
-  get env(): Record<string, string> { return { OUTLINER_STATE_DIR: this.state, XDG_CONFIG_HOME: this.config }; }
+  get sock() { return join(this.outlines, ".host", "host.sock"); }
+  /** The environment a door or `ep0ch` command uses to find this host (HOME is the scratch's, so no real .ep0ch is read above it). */
+  get env(): Record<string, string> { return { EP0CH_OUTLINES: this.outlines, XDG_CONFIG_HOME: this.config, HOME: join(this.root, "home") }; }
   folder(name: string): string { const p = join(this.root, "folders", name); mkdirSync(p, { recursive: true }); return p; }
 
   async start(defaultOutline?: string): Promise<string> {
@@ -155,8 +166,8 @@ export class ScratchHost {
       ...(process.env as Record<string, string>), ...this.env,
       OUTLINER_INBOX_AGENT: "0", OUTLINER_NOTE_ASSISTANCE: "0",
     };
-    for (const k of [...HERDR_VARS, "OUTLINER_DEFAULT_OUTLINE", "EP0CH_SOCKET"]) delete env[k];
-    if (defaultOutline) env.OUTLINER_DEFAULT_OUTLINE = defaultOutline;
+    for (const k of [...HERDR_VARS, "EP0CH_DEFAULT_WS", "EP0CH_SOCKET", "EP0CH_WS"]) delete env[k];
+    if (defaultOutline) env.EP0CH_DEFAULT_WS = defaultOutline;
     this.proc = Bun.spawn(["bun", "src/host-main.ts"], { cwd: hostOutliner!, env, stdout: "ignore", stderr: "ignore" });
     const { hostLive } = await import("../src/discover");
     const end = Date.now() + 20_000;

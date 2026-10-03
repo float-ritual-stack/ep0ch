@@ -1,6 +1,6 @@
 // Read-only protocol probe: bun scripts/probe.ts
 import { connect } from "node:net";
-const SOCK = process.env.EP0CH_SOCKET ?? `${process.env.HOME}/.local/state/pi-herdr-outliner/float-box.sock`;
+const SOCK = process.env.EP0CH_SOCKET ?? `${process.env.EP0CH_OUTLINES ?? `${process.env.HOME}/outlines`}/.host/host.sock`;
 const reqs = [
   { action: "ping" },
   { action: "children", parentId: null },

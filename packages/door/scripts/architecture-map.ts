@@ -9,7 +9,7 @@
 //
 //   bun scripts/architecture-map.ts --allow-dirty   draw from a checkout with changes, stamped "dirty"
 //
-// The outliner checkout is EP0CH_OUTLINER (as for the tests), else ../pi-herdr-outliner.
+// The outliner package is EP0CH_OUTLINER (as for the tests), else ../outliner.
 // Every GitHub link is pinned: a citation to the full commit it was checked at, a finding's "then" to the
 // commits its review read. A checkout with uncommitted changes isn't a commit, so the run refuses unless told.
 // With script the page is an isometric walk (scripts/architecture-map/: iso.ts places the blocks, app.js and
@@ -55,7 +55,7 @@ export interface Pins {
 
 const ROOT = resolve(import.meta.dir, "..");
 const MAP = join(ROOT, "docs/architecture/map.json");
-const OUTLINER = resolve(process.env.EP0CH_OUTLINER ?? join(ROOT, "../pi-herdr-outliner"));
+const OUTLINER = resolve(process.env.EP0CH_OUTLINER ?? join(ROOT, "../outliner"));
 const CHECKOUT: Record<RepoId, string> = { door: ROOT, outliner: OUTLINER };
 
 function git(dir: string, ...args: string[]): string | undefined {

@@ -2,6 +2,7 @@
 // planning is tested in pi-herdr-outliner's test/view-writes.test.ts); the moves run through the real
 // board (keys, the move picker, a mouse drag) against a throwaway outliner service it starts itself
 // (never a real outline), and skip without one.
+import { Scratch, outliner as scratchOutliner } from "./scratch";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -22,11 +23,10 @@ const until = async (ok: () => boolean, what: string, ms = 5000) => {
 };
 // ── against a scratch outliner service ────────────────────────────────────────
 
-const outliner = [process.env.EP0CH_OUTLINER, resolve(import.meta.dir, "../../pi-herdr-outliner")]
-  .find(p => p && existsSync(join(p, "src/server-main.ts")));
+const outliner = scratchOutliner;
 
 describe.skipIf(!outliner)("moving cards against a scratch outline", () => {
-  let root = "", proc: Subprocess | null = null, sock: SocketBoard, other: SocketBoard;
+  let root = "", scratch: Scratch | null = null, sock: SocketBoard, other: SocketBoard;
   let hub: any, cards: Record<string, any> = {};
   const flashes: string[] = [];
   const T = { cols: 200, rows: 60, cellW: 9, cellH: 16, kitty: false };
@@ -60,26 +60,14 @@ describe.skipIf(!outliner)("moving cards against a scratch outline", () => {
   const selected = () => { const l = B().lanes[B().lane]; return { lane: l.name, id: l.items?.[l.sel]?.id }; };
 
   beforeAll(async () => {
-    root = mkdtempSync(join(tmpdir(), "ep0ch-move-test-"));
-    for (const d of ["ws", "state", "config", "door"]) mkdirSync(join(root, d));
+    scratch = new Scratch();
+    const path = await scratch.start();
+    root = scratch.root;
     process.env.EP0CH_STATE = join(root, "door");       // the board's layout file goes here, not into real state
-    const env: Record<string, string> = {
-      ...(process.env as Record<string, string>),
-      OUTLINER_STATE_DIR: join(root, "state"), OUTLINER_WORKSPACE_ROOT: join(root, "ws"), XDG_CONFIG_HOME: join(root, "config"),
-      OUTLINER_INBOX_AGENT: "0", OUTLINER_NOTE_ASSISTANCE: "0",
-    };
-    for (const k of HERDR_VARS) delete env[k];
-    proc = Bun.spawn(["bun", "src/server-main.ts"], { cwd: outliner, env, stdout: "ignore", stderr: "ignore" });
-    let path = "";
-    await until(() => {
-      const dirs = existsSync(join(root, "state")) ? readdirSync(join(root, "state")) : [];
-      path = dirs.map(d => join(root, "state", d, "outliner.sock")).find(existsSync) ?? "";
-      return !!path;
-    }, "the scratch service socket", 15_000);
     sock = new SocketBoard(path);
     other = new SocketBoard(path);
     const info = await sock.info();
-    expect(info.workspace).toBe(join(root, "ws"));      // it really is the scratch outline
+    expect(info.workspace).toBe(scratch.workspace);      // it really is the scratch outline
 
     hub = await create(null, "Scratch move board");
     for (const [name, q] of [
@@ -108,9 +96,8 @@ describe.skipIf(!outliner)("moving cards against a scratch outline", () => {
   }, 30_000);
 
   afterAll(() => {
-    sock?.close(); other?.close(); proc?.kill();
+    sock?.close(); other?.close(); void scratch?.dispose();
     delete process.env.EP0CH_STATE;
-    if (root) rmSync(root, { recursive: true, force: true });
   });
 
   test("one clause: L/H patch work-stage, attributed to the door; the card lands in the lane, still selected", async () => {

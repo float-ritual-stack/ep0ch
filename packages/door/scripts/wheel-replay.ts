@@ -2,7 +2,7 @@
 // scratch service, a long fictional note open in the desk's reader, and wheel reports written into the pty
 // as a terminal sends them. Each painted frame is parsed (xterm headless) for the first note line in view.
 // Prints, per stream: frames, lines scrolled per report, each frame's step and the gaps between frames.
-//   EP0CH_OUTLINER=<pi-herdr-outliner checkout> bun scripts/wheel-replay.ts [slow read fast wheel notch ssh]
+//   bun scripts/wheel-replay.ts [slow read fast wheel notch ssh]
 //   LINES=1500 the note's length (default 600); RICH=1 gives each line bold, a link and a property (it wraps
 //   to two rows at the reader's width, so a row is half a line).
 import { mkdtempSync } from "node:fs";

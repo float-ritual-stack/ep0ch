@@ -1,6 +1,6 @@
 // Seed the showcase outline (src/showcase/seed.ts) through a service's socket. scripts/try-it.sh
 // --showcase runs it on first start and after --reset; it refuses an outline that already has one.
-//   bun scripts/showcase.ts seed <outliner socket> [<the service's XDG_CONFIG_HOME> [<pi-herdr-outliner checkout>]]
+//   bun scripts/showcase.ts seed <host socket> [<the host's XDG_CONFIG_HOME> [<the outliner package>]]
 // With the config dir, the made-up ticket extension is installed there and a ticket fetched (PIE-445); with
 // the checkout too, its example extensions (moon, horoscope, fancy-horror, tarot, tidy; PIE-512).
 import { seedShowcase } from "../src/showcase/seed";

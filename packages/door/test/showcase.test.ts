@@ -22,7 +22,7 @@ import { ComponentCatalog, documentComponent } from "../src/components";
 function servingState(base: string, proc = "/proc"): string[] {
   if (!existsSync(proc)) return [];
   return readdirSync(proc).filter(p => /^\d+$/.test(p)).filter(p => {
-    try { return readFileSync(`${proc}/${p}/environ`, "utf8").split("\0").includes(`OUTLINER_STATE_DIR=${base}/state`); } catch { return false; }
+    try { return readFileSync(`${proc}/${p}/environ`, "utf8").split("\0").includes(`EP0CH_OUTLINES=${base}/outlines`); } catch { return false; }
   });
 }
 const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch { return false; } };
@@ -137,7 +137,7 @@ describe.skipIf(!outliner)("scripts/try-it.sh --showcase --reset", () => {
     try { expect(documentComponent("component:status", "Beds dug :: 2", new ComponentCatalog())).toEqual({ kind: "labelled-values", entries: [{ label: "Beds dug", value: "2" }] }); }
     finally { if (prior === undefined) delete process.env.OUTLINER_DOCUMENT_RENDERERS; else process.env.OUTLINER_DOCUMENT_RENDERERS = prior; }
     // An edit on the showcase outline, through its own service on the same state.
-    let svc = new Scratch(base);
+    let svc = new Scratch(base, "showcase");
     let board = new SocketBoard(await svc.start());
     let wb = (await loadShowcase(board))!.notes.whiteboard!;
     const original = wb.text;
@@ -147,14 +147,14 @@ describe.skipIf(!outliner)("scripts/try-it.sh --showcase --reset", () => {
     const again = run();
     expect(again.exitCode).toBe(0);
     expect(again.stdout.toString()).not.toContain("seeded");
-    svc = new Scratch(base); board = new SocketBoard(await svc.start());
+    svc = new Scratch(base, "showcase"); board = new SocketBoard(await svc.start());
     expect((await loadShowcase(board))!.notes.whiteboard!.text).toContain("Buy more lemons.");
     board.close(); await svc.stop();
     // …and --reset deletes it and reseeds.
     const reset = run("--reset");
     expect(reset.exitCode).toBe(0);
     expect(reset.stdout.toString()).toContain("reset: deleted");
-    svc = new Scratch(base); board = new SocketBoard(await svc.start());
+    svc = new Scratch(base, "showcase"); board = new SocketBoard(await svc.start());
     const back = (await loadShowcase(board))!;
     expect(back.notes.whiteboard!.text).toBe(original);
     expect((await board.roots()).filter(r => r.props.type === "showcase").length).toBe(1);
@@ -204,7 +204,7 @@ describe.skipIf(!outliner || !existsSync("/proc"))("scripts/try-it.sh --showcase
   }, 60_000);
 
   test("a pidfile naming the showcase's own service is used: no second service, and it keeps running", async () => {
-    const svc = new Scratch(base);
+    const svc = new Scratch(base, "showcase");
     await svc.start();
     try {
       writeFileSync(pidfile, `${svc.pid}\n`);
@@ -222,12 +222,12 @@ describe.skipIf(!outliner || !existsSync("/proc"))("scripts/try-it.sh --showcase
     const fake = mkdtempSync(join(tmpdir(), "ep0ch-fake-outliner-"));
     const started = join(fake, "pid");
     mkdirSync(join(fake, "src"));
-    writeFileSync(join(fake, "src/server-main.ts"), `require("node:fs").writeFileSync(${JSON.stringify(started)}, String(process.pid)); setInterval(() => {}, 1000);\n`);
+    writeFileSync(join(fake, "src/host-main.ts"), `require("node:fs").writeFileSync(${JSON.stringify(started)}, String(process.pid)); setInterval(() => {}, 1000);\n`);
     try {
       rmSync(base, { recursive: true, force: true });
       const r = run([], { EP0CH_TRY_START_CHECKS: "10" }, fake);
       expect(r.exitCode).toBe(1);
-      expect(r.stderr.toString()).toContain("the private service didn't start");
+      expect(r.stderr.toString()).toContain("the private host didn't start");
       const pid = Number(readFileSync(started, "utf8"));
       await until(() => !alive(pid), "the stand-in service stopped", 3000).catch(() => {});
       const left = alive(pid);

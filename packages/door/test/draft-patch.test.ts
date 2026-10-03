@@ -191,7 +191,7 @@ describe.skipIf(!outliner)("draft.patch between a scratch service and the door",
   const patchDemo = async (id: string) => {
     const p = Bun.spawn(["bun", "src/cli.ts", "patch-demo", "--block", id, "--tidy-above", tidyMark], {
       cwd: outliner!, stdout: "pipe", stderr: "pipe",
-      env: { ...process.env, OUTLINER_STATE_DIR: join(scratch.root, "state"), OUTLINER_WORKSPACE_ROOT: scratch.workspace, XDG_CONFIG_HOME: join(scratch.root, "config"), OUTLINER_REMOTE: "1", OUTLINER_SOCKET_PATH: scratch.sock },
+      env: { ...process.env, ...scratch.env, EP0CH_SOCKET: scratch.sock },
     });
     const [out, err] = [await new Response(p.stdout).text(), await new Response(p.stderr).text()];
     if ((await p.exited) !== 0) throw new Error(err || out);

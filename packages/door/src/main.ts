@@ -8,7 +8,6 @@ import { skillCommand } from "./skills";
 import { resolveTarget } from "./discover";
 import { nameTheOutline, parseOutlineArgs, runOutlineCommand } from "./outlines";
 import { Mirror } from "./mirror";
-import { setupCommand } from "./setup/apply";
 import { whereCommand } from "./where";
 import { connectTarget, guardDoor, openDoor, writeLastCall, type Door } from "./door";
 import { attachDoor, doorMode, sessionCommand } from "./session/client";
@@ -73,7 +72,10 @@ const USAGE = `ep0ch: a BBS door into an outline
                                    path of one skill's SKILL.md; --all adds contributor skills
   ep0ch help`;
 if (["help", "--help", "-h"].includes(args[0] ?? "")) { console.log(USAGE); process.exit(0); }
-if (args[0] === "doctor" || args[0] === "install") process.exit(await setupCommand(args, { out: console.log, err: console.error, terminal: process.stdout }));
+if (args[0] === "doctor" || args[0] === "install") {
+  const { setupCommand } = await import("./setup/apply");
+  process.exit(await setupCommand(args, { out: console.log, err: console.error, terminal: process.stdout }));
+}
 if (args.includes("--skill")) { const r = skillCommand(args); (r.code ? console.error : console.log)(r.out); process.exit(r.code); }
 if (args[0] === "try") {
   const run = Bun.spawn(["sh", join(import.meta.dir, "../scripts/try-it.sh"), ...args.slice(1)], { stdio: ["inherit", "inherit", "inherit"] });
