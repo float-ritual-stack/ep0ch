@@ -161,10 +161,23 @@ mod's own. It is read again after each answer is ingested.
   nothing) finds one, else "opens in a new Outliner Detail beside you". It asks
   again each time the list is read.
 - Every action is a Button with a hotkey: by mouse, or by keys once the band or
-  pane holds them (ctrl+x tab, or a click). The pane never opens with focus, so
-  the prompt keeps the keys; opened at session start (the pane was the choice),
-  Claude Code seats it only where it is a sidebar (from 144 columns); below
-  that it waits, and a toast says so once, with `/mentions band`.
+  pane holds them. The keys are Claude Code's, and each site's last line says them:
+  - **ctrl+x tab** moves the keys to the band (or the pane) and back to the prompt;
+    Esc hands them back too. A click on it does the same.
+  - There, **Tab** and the **arrows** move between the mentions (the pane lists
+    them before its controls), **Enter** or the mention's **digit** opens it, and
+    `p`, `s`, `m`, `x` are the controls.
+  - **ctrl+x ctrl+a** folds the band (its `[-]`); **ctrl+x x** closes the pane,
+    which keeps it hidden until `/mentions pane` (or `/mentions`).
+- The pane never opens with focus, so the prompt keeps the keys. `m` (and
+  `/mentions pane`, every time, even when the pane is already the choice) opens
+  it as the person's own ask, placed at any width. Opened at session start (the
+  pane was the choice), Claude Code seats it only from 144 columns (110 once you
+  opened it): below that it waits undrawn, and so does a pane the engine drops.
+  While the pane is chosen but not on screen, the band stands in for it, its `m`
+  reading `show pane`, so the mentions never vanish. The `m` press opens the pane
+  from its own `ui.press` hook: an open from the drawing's closure counts as the
+  plugin's, not the person's, and used to leave a narrow terminal with neither.
 
 ## BlockView
 

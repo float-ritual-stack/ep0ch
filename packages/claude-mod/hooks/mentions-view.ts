@@ -153,6 +153,14 @@ export type MentionsModel = {
   choose: (change: (p: MentionsPrefs) => MentionsPrefs) => void
 }
 
+/**
+ * The engine's keys for the band and the pane, as their hint lines say them: ctrl+x tab moves the keys to the
+ * band or pane and back to the prompt (Esc hands them back too); there Tab and the arrows move, Enter or a
+ * hotkey presses. ctrl+x ctrl+a folds the band; ctrl+x x closes the pane (kept hidden until /mentions pane).
+ */
+export const BAND_KEYS = 'ctrl+x tab: keys here and back · tab/arrows move · enter or 1-9 opens · ctrl+x ctrl+a: fold'
+export const PANE_KEYS = 'ctrl+x tab: keys here and back · tab/arrows move · enter or 1-9 opens · ctrl+x x: close · /mentions pane: show it again'
+
 /** The band's or the pane's tree: the mentions as buttons (hotkeys 1 to 9), their previews, and the controls. */
 export function mentionsTree(ui: SiteElements, m: MentionsModel): RenderElement {
   const { Box, Button, Text } = ui
@@ -161,7 +169,9 @@ export function mentionsTree(ui: SiteElements, m: MentionsModel): RenderElement 
   const controls = [
     Button({ key: 'mentions-previews', hotkey: 'p', plain: true, label: p.previews ? 'previews off' : 'previews', onPress: () => m.choose(x => ({ ...x, previews: !x.previews })) }),
     Button({ key: 'mentions-scope', hotkey: 's', plain: true, label: p.scope === 'conversation' ? 'all conversations' : 'this conversation', onPress: () => m.choose(x => ({ ...x, scope: x.scope === 'conversation' ? 'workspace' : 'conversation' })) }),
-    Button({ key: 'mentions-move', hotkey: 'm', plain: true, label: site === 'band' ? 'to pane' : 'to band', onPress: () => m.choose(x => ({ ...x, placement: site === 'band' ? 'pane' : 'band' })) }),
+    // Pressed, register.ts's ui.press hook moves it (the person's open places the pane at any width); this closure is
+    // what a press would do without that hook. In the band standing in for a waiting pane, `m` shows the pane.
+    Button({ key: 'mentions-move', hotkey: 'm', plain: true, label: site === 'pane' ? 'to band' : p.placement === 'pane' ? 'show pane' : 'to pane', onPress: () => m.choose(x => ({ ...x, placement: site === 'band' ? 'pane' : 'band' })) }),
     Button({ key: 'mentions-hide', hotkey: 'x', plain: true, label: 'hide', onPress: () => m.choose(x => ({ ...x, placement: 'off' })) }),
   ]
   const heading = `Mentioned${p.scope === 'workspace' ? ' (all conversations)' : ''}`
@@ -182,6 +192,7 @@ export function mentionsTree(ui: SiteElements, m: MentionsModel): RenderElement 
         ] }),
         ...(list.note ? [Text({ dimColor: true, children: list.note })] : []),
         ...numbered,
+        Text({ dimColor: true, wrap: 'truncate-end', children: BAND_KEYS }),
       ],
     })
   }
@@ -198,12 +209,14 @@ export function mentionsTree(ui: SiteElements, m: MentionsModel): RenderElement 
       ],
     })
   })
+  // The mentions before the controls: Tab and the arrows reach them first, as in the band.
   return Box({
     key: 'mentions-pane', flexDirection: 'column', children: [
-      Text({ bold: true, wrap: 'truncate-end', children: `${heading} · ${m.opens}` }),
-      Box({ flexDirection: 'row', flexWrap: 'wrap', columnGap: 2, marginBottom: 1, children: controls }),
+      Box({ marginBottom: 1, children: Text({ bold: true, children: `${heading} · ${m.opens}` }) }),
       ...(list.note ? [Box({ marginBottom: 1, children: Text({ dimColor: true, children: list.note }) })] : []),
-      ...(items.length ? items : [Text({ dimColor: true, children: empty })]),
+      ...(items.length ? items : [Box({ marginBottom: 1, children: Text({ dimColor: true, children: empty }) })]),
+      Box({ flexDirection: 'row', flexWrap: 'wrap', columnGap: 2, children: controls }),
+      Text({ dimColor: true, children: PANE_KEYS }),
     ],
   })
 }

@@ -66,8 +66,11 @@ function sessionIn(on: On, env: Record<string, string>, stored: Record<string, u
   on('session.cwd', () => ({ value: WORKSPACE }))
   on('tool.register', ($, e) => ({ value: { tool: `mcp__pi-outliner__${e.name}` } }))
   on('command.register', ($, e) => ({ value: { command: e.name } }))
-  on('ui.open', ($, e) => { opened.push(e.id); return { value: placed ? { isPlaced: true } : { isPlaced: false, reason: 'opened unasked under 144 columns (120 now)' } } })
-  on('ui.close', ($, e) => { closed.push(e.id); return { value: undefined } })
+  // The engine's record of the open panes, as `$.ui.panes()` reads it: placed, or waiting on a narrow terminal.
+  const panes = new Map<string, boolean>()
+  on('ui.open', ($, e) => { opened.push(e.id); panes.set(e.id, placed); return { value: placed ? { isPlaced: true } : { isPlaced: false, reason: 'opened unasked under 144 columns (120 now)' } } })
+  on('ui.close', ($, e) => { closed.push(e.id); panes.delete(e.id); return { value: undefined } })
+  on('ui.panes', () => ({ value: [...panes].map(([id, isPlaced]) => ({ id, title: 'Mentions', isShown: isPlaced, isFocused: false, isPlaced })) }))
   on('ui.toast', ($, e) => { toasts.push(e.text); return { value: undefined } })
   on('process.run', ($, e) => {
     runs.push(e)
@@ -161,10 +164,39 @@ describe('Recent mentions in Claude Code', () => {
     expect(await (await band($)).find({ key: 'engine' })).toBeDefined()
   })
 
-  test('a pane opened unasked on a narrow terminal waits: said once, with how to have the band', async ($, on) => {
+  test('a pane that waits (opened unasked on a narrow terminal): the band stands in, its m shows the pane, and the choice stays the pane', async ($, on) => {
     const session = sessionIn(on, IN_HERDR, { 'mentions-view': { placement: 'pane', previews: false, scope: 'conversation' } }, 'cells', false)
     await session.begin($)
-    expect(session.toasts).toEqual(['The Recent mentions pane waits: opened unasked under 144 columns (120 now). /mentions band shows them above the prompt instead.'])
+    expect(session.opened).toEqual([PANE])
+    const drawn = await band($)
+    expect((await drawn.find({ key: 'mention-1' }))?.text).toBe('Chain oil')
+    expect((await drawn.find({ key: 'mentions-move' }))?.text).toContain('show pane')
+    // Which engine keys reach it, said on the band itself.
+    expect(await drawn.find({ type: 'Text', text: /ctrl\+x tab: keys here/ })).toBeDefined()
+    expect(session.toasts).toEqual([])
+    // Its m opens the pane again (from the press: the person's ask), keeping the choice.
+    await drawn.press({ key: 'mentions-move' })
+    expect(session.opened).toEqual([PANE, PANE])
+    expect(session.kept().placement).toBe('pane')
+  })
+
+  test('/mentions pane opens the pane every time, even when the kept choice is already the pane', async ($, on) => {
+    const session = sessionIn(on, IN_HERDR, { 'mentions-view': { placement: 'pane', previews: false, scope: 'conversation' } })
+    await session.begin($)
+    await $.command.run({ command: 'mentions', args: 'pane' } as any)
+    await $.command.run({ command: 'mentions', args: 'pane' } as any)
+    await $.command.run({ command: 'mentions', args: '' } as any)
+    expect(session.opened).toEqual([PANE, PANE, PANE, PANE])
+  })
+
+  test('the pane lists the mentions before its controls, so Tab and the arrows reach them first, and says its keys', async ($, on) => {
+    const session = sessionIn(on, IN_HERDR)
+    await session.begin($)
+    const shown = await pane($)
+    const keys = JSON.stringify(await shown.find({ key: 'mentions-pane' }))
+    expect(keys.indexOf('"mention-1"')).toBeGreaterThan(-1)
+    expect(keys.indexOf('"mention-1"')).toBeLessThan(keys.indexOf('"mentions-previews"'))
+    expect(await shown.find({ type: 'Text', text: /ctrl\+x x: close · \/mentions pane: show it again/ })).toBeDefined()
   })
 
   test('an empty band leaves the slot: nothing mentioned yet draws the engine\'s own', async ($, on) => {

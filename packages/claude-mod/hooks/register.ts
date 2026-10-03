@@ -115,21 +115,44 @@ export function register(on: On, options: PluginOptions): void {
     // A module reloaded mid-session may not see its session.start: start mentions off the draw, once.
     if (!mentionsStarting) $.clock.after(0, () => void startMentionsOnce($, option))
     const workspace = references?.workspace
-    if (e.props.hasSurvey || !workspace || prefs.placement !== 'band' || !bandHasContent(list)) return next(e)
-    return drawMentions($, e, $.ui.resolve(e) as unknown as SiteElements, 'band', e.props.bodyColumns, workspace, option)
+    if (e.props.hasSurvey || !workspace || prefs.placement === 'off' || !bandHasContent(list)) return next(e)
+    // The pane chosen but not on screen (it waits below the width an unasked pane needs, or the engine dropped it):
+    // the band stands in, its `m` showing the pane, so the mentions never vanish.
+    if (prefs.placement === 'pane' && await paneIsPlaced($)) return next(e)
+    try {
+      return await drawMentions($, e, $.ui.resolve(e) as unknown as SiteElements, 'band', e.props.bodyColumns, workspace, option)
+    } catch (error) {
+      return $.ui.resolve(e).Text({ dimColor: true, children: `Recent mentions could not be drawn: ${error instanceof Error ? error.message : String(error)}` })
+    }
   })
 
   on('ui.render', { component: 'Pane', requestId: MENTIONS_PANE }, async ($, e) => {
     await mentionsListOf($)
     const workspace = references?.workspace
     if (!workspace) return $.ui.resolve(e).Text({ dimColor: true, children: references ? NOT_BOUND : "Finding this folder's outline…" })
-    return drawMentions($, e, $.ui.resolve(e) as unknown as SiteElements, 'pane', e.props.bodyColumns, workspace, option)
+    // A drawing that throws makes the engine drop the pane (`ui.close`, origin unload): say why in it instead.
+    try {
+      return await drawMentions($, e, $.ui.resolve(e) as unknown as SiteElements, 'pane', e.props.bodyColumns, workspace, option)
+    } catch (error) {
+      return $.ui.resolve(e).Text({ dimColor: true, children: `Recent mentions could not be drawn: ${error instanceof Error ? error.message : String(error)}` })
+    }
   })
 
-  // The person closing the pane (its mark, ctrl+x x) is their choice too: kept as hidden.
+  // `m` (to the pane, or back to the band) in the press's own hook: an open made with this `$` answers the person's
+  // press, so the engine places the pane at any width. One made from the drawing's closure is the plugin's own, and
+  // waits below 144 columns: the pane never showed and the band was gone.
+  on('ui.press', { plugin: 'pi-outliner', element: 'mentions-move' }, async ($, e) => {
+    const placement = e.component === 'Pane' ? 'band' : 'pane'
+    await chooseMentions($, x => ({ ...x, placement }), option)
+    return { element: e.element }
+  })
+
+  // The person closing the pane (its mark, ctrl+x x) is their choice too: kept as hidden. Any other close (the
+  // engine dropping it) leaves the choice, and the band stands in for it.
   on('ui.close', async ($, e, next) => {
     const result = await next(e)
     if (e.id === MENTIONS_PANE && e.origin.kind === 'person') await keepMentionsPrefs($, { ...(await mentionsPrefsOf($)), placement: 'off' })
+    if (e.id === MENTIONS_PANE) $.ui.invalidate('ui.render')
     return result
   })
 
@@ -818,12 +841,23 @@ async function startMentionsOnce($: EngineInterface, option: PluginOptions): Pro
 }
 
 /**
- * Seats the pane, never with focus. Opened unasked on a terminal too narrow
- * for a sidebar, it waits undrawn: said once, with how to have the band now.
+ * Seats the pane, never with focus. Opened unasked (the session's start) on a
+ * terminal too narrow for an unrequested pane, it waits undrawn; the band
+ * stands in for it meanwhile, its `m` showing the pane.
  */
 async function openMentionsPane($: EngineInterface): Promise<void> {
-  const placed = await $.ui.open({ id: MENTIONS_PANE, title: 'Mentions' })
-  if (!placed.isPlaced) $.ui.toast(`The Recent mentions pane waits: ${placed.reason}. /mentions band shows them above the prompt instead.`, { timeoutMs: 8000 })
+  await $.ui.open({ id: MENTIONS_PANE, title: 'Mentions' })
+  // Placed or waiting, the band reads whether it is up: it stands in while the pane waits.
+  $.ui.invalidate('ui.render')
+}
+
+/** Whether the mentions pane is open and on screen; one that waits undrawn, or was dropped, is not. */
+async function paneIsPlaced($: EngineInterface): Promise<boolean> {
+  try {
+    return (await $.ui.panes()).some(pane => pane.id === MENTIONS_PANE && pane.isPlaced)
+  } catch {
+    return false
+  }
 }
 
 async function startMentions($: EngineInterface, option: PluginOptions): Promise<void> {
