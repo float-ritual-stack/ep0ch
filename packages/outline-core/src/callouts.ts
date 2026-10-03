@@ -85,6 +85,8 @@ export function calloutIconFits(icon: string): boolean {
   if (cps.length !== 1) return false;
   const c = cps[0]!.codePointAt(0)!;
   if (c < 0x20 || (c >= 0x7f && c <= 0x9f)) return false;
+  // Nothing that takes no column of its own: a combining mark, a zero-width space or joiner, a format character.
+  if (/[\p{M}\p{Cf}\p{Z}]/u.test(cps[0]!)) return false;
   const wide = (c >= 0x1100 && c <= 0x115f) || (c >= 0x2e80 && c <= 0xa4cf) || (c >= 0xac00 && c <= 0xd7a3) || (c >= 0xf900 && c <= 0xfaff)
     || (c >= 0xfe30 && c <= 0xfe4f) || (c >= 0xff00 && c <= 0xff60) || (c >= 0xffe0 && c <= 0xffe6) || c >= 0x1f000 || (c >= 0x2600 && c <= 0x27bf && EMOJI_PRESENTATION.has(c));
   return !wide;
@@ -166,16 +168,30 @@ export function parseCalloutHeader(content: string): CalloutHeader | null {
 /**
  * Each callout in `lines`, outermost first in reading order: its header line, `end` (the line after its last), its
  * quote depth, and its header. A callout runs over the lines quoted at least as deep as its header, up to one
- * less deep or another callout's header at its depth; one inside it is quoted deeper (`> > [!warning]`).
+ * less deep or another callout's header at its depth; one inside it is quoted deeper (`> > [!warning]`). A line
+ * inside a code fence (at any depth: ```` > ``` ```` opens one in a callout) is code, never a header. A line
+ * without `>` ends a callout (no lazy continuation), as in Detail and the door alike.
  */
 export interface CalloutBlock extends CalloutHeader { line: number; end: number; depth: number }
 export function calloutBlocks(lines: readonly string[]): CalloutBlock[] {
   const q = lines.map(quoteDepth), out: CalloutBlock[] = [];
+  const header = (i: number) => (q[i]!.depth && !fenced[i] ? parseCalloutHeader(q[i]!.content) : null);
+  // Which lines are code: a fence opens at the depth its line is quoted to and closes there (or when the quote it's
+  // in ends).
+  const fenced: boolean[] = [];
+  let fence: { depth: number; mark: string } | null = null;
   q.forEach(({ depth, content }, i) => {
-    const h = depth ? parseCalloutHeader(content) : null;
+    if (fence && depth < fence.depth) fence = null;
+    const m = /^\s{0,3}(`{3,}|~{3,})/.exec(fence ? stripQuotes(lines[i]!, fence.depth) : content);
+    if (fence) { fenced.push(true); if (m && m[1]![0] === fence.mark[0] && m[1]!.length >= fence.mark.length) fence = null; return; }
+    fenced.push(false);
+    if (m) fence = { depth, mark: m[1]! };
+  });
+  q.forEach(({ depth }, i) => {
+    const h = header(i);
     if (!h) return;
     let end = i + 1;
-    while (end < lines.length && q[end]!.depth >= depth && !(q[end]!.depth === depth && parseCalloutHeader(q[end]!.content))) end++;
+    while (end < lines.length && q[end]!.depth >= depth && !(q[end]!.depth === depth && header(end))) end++;
     out.push({ ...h, line: i, end, depth });
   });
   return out;
@@ -196,7 +212,7 @@ export function rewriteCalloutHeader(line: string, change: { type?: string; fold
 
 /**
  * The callout type being typed at column `col` of `line` (`> [!wa`, `> > [!`): where its `[!` starts, where a choice
- * replaces up to (through a `]` and `+`/`-` already there), and what's typed. Null anywhere else.
+ * replaces up to (through a `]` already there; a `+` or `-` after it stays), and what's typed. Null anywhere else.
  */
 export function calloutTypeAtCursor(line: string, col: number): { start: number; end: number; query: string } | null {
   const before = line.slice(0, Math.max(0, Math.min(col, line.length)));

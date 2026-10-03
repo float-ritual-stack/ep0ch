@@ -183,10 +183,10 @@ export type LinkTarget = {
 };
 
 /**
- * A callout as the reader drew it: the note, its header's note line and how that line read (what a type change is
- * checked against), the note's revision, and its fold point's key when it has one (a body to fold).
+ * A callout as the reader drew it: the note, its header's note line and how that line read (a change is checked
+ * against that line, and written at the revision the service has now), and its fold point's key when it has one.
  */
-export interface CalloutRef { block: string; line: number; header: string; revision?: number; type: string; fold: "+" | "-" | null; foldKey: string | null }
+export interface CalloutRef { block: string; line: number; header: string; type: string; fold: "+" | "-" | null; foldKey: string | null }
 
 /** How a `((…))` reads: the label or title (with `^fragment`), and what's wrong with it, as Detail says it. */
 export function refView(id: string, fragment: string | undefined, label: string | undefined, r: ReferenceResolution | undefined): LinkView {

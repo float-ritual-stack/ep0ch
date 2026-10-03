@@ -517,7 +517,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect(S().focus).toBe("stage");
     ch("]"); ch("]");
     press({ kind: "enter" });
-    await until(() => screen().includes("note · now") && screen().includes("↓ 8 more"), "the type choice", 5000);
+    await until(() => screen().includes("note · now") && screen().includes("make it start folded (-)"), "the type choice, every choice drawn", 5000);
     expect(screen()).toContain("note · now");
     ch("j"); press({ kind: "enter" });
     await reads(t => t.includes("> [!abstract] note"), "the type changed");

@@ -296,8 +296,21 @@ export function renderDoc(body: string, env: DocEnv): Doc {
       const body = src.slice(i + 1, cb.end).map(l => stripQuotes(l, cb.depth));
       // The reader's fold point folds it; without one (an embed, `ep0ch show`), `-` starts it folded unless unfolded.
       const fp2 = env.folds ? at.get(i) : undefined;
-      const folded = fp2 ? env.folds!.folded.has(fp2.key) : cb.fold === "-" && !env.unfold;
+      // A title-only callout has nothing to fold, whatever its `-` says.
+      const folded = body.length > 0 && (fp2 ? env.folds!.folded.has(fp2.key) : cb.fold === "-" && !env.unfold);
       const selected = !!fp2 && env.folds!.selected === fp2.key;
+      // Too narrow for a frame inside a frame (deep nesting in a thin reader): its title, then its body, unframed.
+      if (W < 16) {
+        const tag = env.callout?.(i, cb) ?? ((x: string) => x);
+        out.push(fg(colour) + pad(`${tag(t.icon)} ${BOLD}${cb.title || t.title}${UNBOLD}`, W) + RESET);
+        if (body.length && !folded) {
+          const sub = renderDoc(body.join("\n"), { ...env, keepTags: true, embed: undefined, after: undefined, task: undefined, folds: undefined, callout: undefined, literal: undefined });
+          mark();
+          sub.lines.forEach((l, r) => { out.push(l); source.push(i + 1 + (sub.source[r] ?? 0)); });
+        }
+        i = cb.end - 1;
+        continue;
+      }
       const bw = Math.max(12, W), inner = bw - 4;
       const tag = env.callout?.(i, cb) ?? ((x: string) => x);
       const glyph = fp2 ? (selected ? fg(C.yellow) : "") + (folded ? "▸" : "▾") + fg(colour) + " " : "";
@@ -322,8 +335,10 @@ export function renderDoc(body: string, env: DocEnv): Doc {
       out.push(fg(colour) + "╭─" + BOLD + head + UNBOLD + "─".repeat(Math.max(0, bw - 3 - vwidth(head) - vwidth(label) - (label ? 1 : 0))) + (label ? fg(C.dark) + label + fg(colour) + "─" : "") + "╮" + RESET);
       const framed = (l: string) => fg(colour) + "│ " + RESET + pad(l, inner) + fg(colour) + " │" + RESET;
       if (folded) {
-        const n = body.filter(l => l.trim()).length;
-        out.push(fg(colour) + "│ " + fg(C.dark) + pad(`▸ ${n} line${n === 1 ? "" : "s"} folded · ${fp2 ? "f or a click on the title unfolds" : "z unfolds"}`, inner) + fg(colour) + " │" + RESET);
+        const n = body.filter(l => l.trim()).length, said = `▸ ${n} line${n === 1 ? "" : "s"} folded`;
+        // The hint gives way by width, whole words at a time, never cut mid-word.
+        const hint = (fp2 ? [`${said} · f or a click on the title unfolds`, `${said} · f`] : [`${said} · z unfolds`]).find(x => vwidth(x) <= inner) ?? said;
+        out.push(fg(colour) + "│ " + fg(C.dark) + pad(hint, inner) + fg(colour) + " │" + RESET);
       } else {
         for (const l of spill ? wrap(spill, inner) : []) out.push(fg(colour) + "│ " + BOLD + pad(l, inner) + UNBOLD + " │" + RESET);
         // A title-only callout is just the titled frame; no empty row inside.

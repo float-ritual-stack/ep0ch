@@ -953,7 +953,7 @@ function startWatcher(): void {
       if (!runtimeInitialized) firstWatcherConnection.reject(error);
       else serviceEventScheduler.scheduleWork(() => controller.onServiceError(error));
     },
-    onEvent: (event) => { destinationDisplay.onEvent(event); serviceEventScheduler.schedule(event); calloutTypesSoon(); },
+    onEvent: (event) => { destinationDisplay.onEvent(event); serviceEventScheduler.schedule(event); if (event.domain === "content") calloutTypesSoon(); },
   });
 }
 

@@ -71,6 +71,11 @@ describe("callout grammar", () => {
       [4, 6, 1, "faq", "-", "Are callouts foldable?"],
       [7, 8, 1, "tip", null, "Title-only callout"],
     ]);
+    // Code is code: a header in a fence (at the top, or inside a callout) is text, and a fence keeps its callout going.
+    expect(calloutBlocks(["```", "> [!note] in code", "```", "> [!tip] real", "> ```", "> > [!warning] in code too", "> ```", "> after"]).map(b => [b.line, b.end, b.type]))
+      .toEqual([[3, 8, "tip"]]);
+    expect(calloutIconFits("\u0301")).toBe(false);
+    expect(calloutIconFits("\u200b")).toBe(false);
     // A callout's header at its own depth ends the one before.
     expect(calloutBlocks(["> [!note] a", "> x", "> [!tip] b", "> y"]).map(b => [b.line, b.end])).toEqual([[0, 2], [2, 4]]);
   });

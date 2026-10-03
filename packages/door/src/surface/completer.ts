@@ -18,7 +18,7 @@ import type { Key } from "../term";
 import { printable } from "../text";
 import { withoutPropertyTokens } from "@ep0ch/outline-core/property-grammar";
 import type { CalloutRegistry } from "@ep0ch/outline-core/callouts";
-import { calloutsOf, TONE } from "../callouts";
+import { calloutsReady, TONE } from "../callouts";
 
 /** At most this many candidates per lookup, as in the outliner. */
 export const COMPLETION_LIMIT = 20;
@@ -91,7 +91,7 @@ export async function lookupCompletion(board: CompletionBoard, target: Completio
   let items: CompletionItem[] = [], truncated: number | null = null, empty = "", partial = "", ranked = false, off = false;
   if (target.kind === "callout") {
     // The outline's callout types (PIE-538): the one list the reader draws and the type choice offers.
-    items = calloutCandidates(calloutsOf({ board, redraw: () => {} }), target.query);
+    items = calloutCandidates(await calloutsReady({ board, redraw: () => {} }), target.query);
     empty = `no callout type starts ${JSON.stringify(target.query)}; [!${target.query}] still draws, in neutral (declare it with [callout-type::${target.query || "name"}])`;
   } else if (target.kind === "file") {
     const files = await board.completeFiles(target.query);

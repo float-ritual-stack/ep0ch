@@ -6,7 +6,7 @@ import { BUILTIN_CALLOUT_REGISTRY, calloutRegistry, type CalloutRegistry, type C
 import { anyChangeSince, changeClock } from "./refs";
 import { C } from "./style";
 
-interface Kept { registry: CalloutRegistry; raw: string; problems: string[]; at: number; when: number; asking: boolean; waking?: boolean }
+interface Kept { registry: CalloutRegistry; raw: string; problems: string[]; at: number; when: number; asking: boolean; waking?: boolean; answer?: Promise<unknown> }
 const keptBy = new WeakMap<object, Kept>();
 /** How soon after an answer a change asks again: a burst of edits makes one more question, not one each. */
 const AGAIN_MS = 1000;
@@ -26,7 +26,7 @@ export function calloutsOf(src: { board: unknown; redraw(): void } | null | unde
   }
   const at = changeClock(), entry: Kept = { registry: hit?.registry ?? BUILTIN_CALLOUT_REGISTRY, raw: hit?.raw ?? "[]", problems: hit?.problems ?? [], at, when: Date.now(), asking: true };
   keptBy.set(b, entry);
-  b.calloutTypes().then(
+  entry.answer = b.calloutTypes().then(
     r => {
       const raw = JSON.stringify(r.types), same = raw === entry.raw;
       keptBy.set(b, { registry: same ? entry.registry : calloutRegistry(r.types), raw, problems: r.problems, at, when: Date.now(), asking: false });
@@ -44,6 +44,16 @@ export function calloutsStamp(registry: CalloutRegistry): number {
   let n = genOf.get(registry);
   if (n === undefined) genOf.set(registry, (n = ++gen));
   return n;
+}
+
+/**
+ * The outline's callout types once the question out now (if any) is answered: what the completer offers, so the
+ * first `> [!` typed already lists the outline's own types.
+ */
+export async function calloutsReady(src: { board: unknown; redraw(): void }): Promise<CalloutRegistry> {
+  calloutsOf(src);
+  await keptBy.get(src.board as object)?.answer?.catch(() => {});
+  return calloutsOf(src);
 }
 
 /** What's wrong with the outline's callout declarations, as the service last said. */

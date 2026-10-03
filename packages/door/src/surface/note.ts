@@ -18,7 +18,7 @@ import { EXT_ACTIONS, extensionNamed, handlerKeyAction } from "../extensions";
 import { metadataLines, printable, setUserSummaryKeys, summaryKeys, summarySegments, tokensFor, tokensOf, type Source } from "../props";
 import { type CalloutRef, LINK_OFF, LINK_ON, MD_LINK, outlineChanged, PAGE, pageView, pageOf, presentLinks, REF, resourceTokensOf, refKey, referencesIn, refView, workIdPrefix, shortId, type LinkTarget } from "../refs";
 import { isOutlineNote, openResource, RESOURCE_NOTE, resourceTarget } from "../authored";
-import { changeOf, parseStatus, STEP_CHOICES, STEP_MARKS, stepChanged, StepHistory, stepLink, stepsLoading, stepsOf, stepStillOn, stepTitle, statusWord, type StepChoice, type StepRef } from "../steps";
+import { changeOf, parseStatus, STEP_CHOICES, STEP_MARKS, stepChanged, UndoHistory, stepLink, stepsLoading, stepsOf, stepStillOn, stepTitle, statusWord, type StepChoice, type StepRef } from "../steps";
 import { destinationOf, external, externalOpenCommand, fileOpenCommand } from "../open";
 import { Draft, DRAFT_ACTIONS, sameParty, type DraftActionArgs } from "../edit";
 import { agentRefusal, blockTarget, DraftSession, leaveSaid, propertyChange, unsentOn, type Ended, type LeaveResult } from "../draft-session";
@@ -464,9 +464,9 @@ export class NoteSurface {
   get picker(): Picker | null { return (this.modes.get("picker") as PickerMode | null)?.picker ?? null; }
   set picker(p: Picker | null) { if (p) this.modes.push(this.pickerMode(p)); else this.modes.drop("picker"); }
   /** The step changes made in this reader, for Undo (ctrl+z, `task.undo`): each party undoes its own. */
-  readonly stepHistory = new StepHistory();
+  readonly stepHistory = new UndoHistory();
   /** The callout changes made in this reader (PIE-538), for Undo: each party undoes its own. */
-  readonly calloutHistory = new StepHistory<CalloutUndo>();
+  readonly calloutHistory = new UndoHistory<CalloutUndo>();
   /** The step that last got its id here: its element key before and after (see keepCurrent). */
   private stepRenamed: { was: string; now: string } | null = null;
   /** The keys the last host keeps for itself (SurfaceHost.ownKeys), for the hint. */
@@ -899,7 +899,7 @@ export class NoteSurface {
     return (i, b) => {
       const line = noteLines[i];
       if (line === undefined) return null;
-      const ref: CalloutRef = { block: m.id, line, header: text[line] ?? "", revision: m.revision, type: b.type, fold: b.fold, foldKey: points.find(p => p.line === i && p.kind === "callout")?.key ?? null };
+      const ref: CalloutRef = { block: m.id, line, header: text[line] ?? "", type: b.type, fold: b.fold, foldKey: points.find(p => p.line === i && p.kind === "callout")?.key ?? null };
       const n = drawn.push({ role: "callout", block: m.id, callout: ref }) - 1;
       // Tagged only: the top edge is drawn in the callout's tone, not as a link.
       return (x: string) => linkTag(n) + x + LINK_END;
@@ -968,7 +968,7 @@ export class NoteSurface {
     const current = this.elems.find(e => e.key === this.cur);
     const lines = doc.lines.map((l, r) => (current && r >= current.ruler[0] && r < current.ruler[1] ? paintRange(pad(l, w), 0, w, RULER_BG) : l));
     const links = doc.links.flatMap(r => (drawn[r.n] ? [{ row: r.line, from: r.from, to: r.to, link: drawn[r.n]! }] : []));
-    for (const [i, row] of (picks?.rows ?? []).entries()) if (Number.isFinite(row)) links.push({ row, from: 0, to: w, link: { role: this.picker?.kind === "callout" ? "callout" : "task", choice: i } });
+    for (const [i, row] of (picks?.rows ?? []).entries()) links.push({ row, from: 0, to: w, link: { role: this.picker?.kind === "callout" ? "callout" : "task", choice: i } });
     const folds = doc.heads.flatMap(h => { const n = points.findIndex(p => p.key === h.key); return n < 0 ? [] : [{ row: h.row, cols: h.cols, n: n + 1 }]; });
     return { lines, links, folds, placements: imagePlacements(doc.images, 0), current: current ? current.row : null, key: current?.key ?? null };
   }
@@ -2564,7 +2564,7 @@ export class NoteSurface {
   calloutsIn(m: Msg): CalloutRef[] {
     const { text, lines, points } = this.foldsIn(m), all = m.text.split("\n");
     return calloutBlocks(text.split("\n")).map(b => ({
-      block: m.id, line: lines[b.line]!, header: all[lines[b.line]!] ?? "", revision: m.revision, type: b.type, fold: b.fold,
+      block: m.id, line: lines[b.line]!, header: all[lines[b.line]!] ?? "", type: b.type, fold: b.fold,
       foldKey: points.find(p => p.line === b.line && p.kind === "callout")?.key ?? null,
     }));
   }
@@ -2597,8 +2597,10 @@ export class NoteSurface {
     const board = host.ctx.board;
     const no = agentRefusal(actor, { board, blockId: ref.block });
     if (no) throw new ActionRefused(no);
-    const m = await this.whole();
-    if (m.id !== ref.block) throw new ActionRefused("the reader moved to another note; choose again");
+    // The note as the service has it now: the header must still read as drawn, and the save names this revision.
+    const m = await board.get(ref.block);
+    if (!m) throw new ActionRefused("that note isn't there any more");
+    if (m.revision === undefined) throw new ActionRefused("this note has no revision to check a change against; nothing was changed");
     const lines = m.text.split("\n"), was = lines[ref.line];
     if (was !== ref.header) { host.ctx.flash("that callout changed since it was drawn · nothing was changed · choose again"); throw new ActionRefused("that callout changed since it was drawn; nothing was changed (callout.list reads it again)"); }
     const next = rewriteCalloutHeader(was, change);
@@ -2607,7 +2609,7 @@ export class NoteSurface {
     if (next === was) return { block: m.id, line: ref.line + 1, changed: false, header: was, revision: m.revision ?? null };
     lines[ref.line] = next;
     let saved: Msg;
-    try { saved = await board.update(m.id, lines.join("\n"), m.revision!, actor); } catch (e) {
+    try { saved = await board.update(m.id, lines.join("\n"), m.revision, actor); } catch (e) {
       outlineChanged([m.id]);
       const why = `not changed: ${e instanceof EditConflict ? "the note changed elsewhere since it was read; choose again" : e instanceof Error ? e.message : String(e)}`;
       host.ctx.flash(why); host.redraw();
@@ -2631,14 +2633,14 @@ export class NoteSurface {
     if (!e) { const why = "no callout change to undo in this note"; host.ctx.flash(why); throw new ActionRefused(why); }
     const no = agentRefusal(actor, { board: host.ctx.board, blockId: e.block });
     if (no) { host.ctx.flash(no); throw new ActionRefused(no); }
-    const m = await this.whole(), lines = m.text.split("\n");
-    if (m.id !== e.block || lines[e.line] !== e.after) {
+    const m = (await host.ctx.board.get(e.block)) ?? { id: "", text: "", revision: undefined } as unknown as Msg, lines = m.text.split("\n");
+    if (m.id !== e.block || lines[e.line] !== e.after || m.revision === undefined) {
       this.calloutHistory.drop(e);
       const why = "couldn't undo: that callout changed again since"; host.ctx.flash(why); throw new ActionRefused(why);
     }
     lines[e.line] = e.before;
     let saved: Msg;
-    try { saved = await host.ctx.board.update(m.id, lines.join("\n"), m.revision!, actor); } catch (err) {
+    try { saved = await host.ctx.board.update(m.id, lines.join("\n"), m.revision, actor); } catch (err) {
       outlineChanged([m.id]);
       const why = `couldn't undo: ${err instanceof Error ? err.message : String(err)}`; host.ctx.flash(why); host.redraw(); throw new ActionRefused(why);
     }
@@ -3423,8 +3425,6 @@ function pickerPanel(ref: StepRef, sel: number, note: string, busy: boolean, W: 
   return { lines, rows };
 }
 
-/** How many of a callout's type choices are drawn at once: a window around the one the keys are on. */
-const CALLOUT_PANEL_ROWS = 7;
 /**
  * A callout's type choice (PIE-538), `W` cells wide: the outline's types (the one list, src/callouts.ts), each with its
  * icon in its tone and its other names, its type now marked; then whether it starts folded or open, the `-` or `+`.
@@ -3434,24 +3434,19 @@ function calloutPanel(ref: CalloutRef, P: Picker, W: number): { lines: string[];
   const now = types.resolve(ref.type)?.name ?? ref.type;
   const title = ` [!${printable(ref.type)}] ${printable(calloutTitle(ref))} `;
   const lines = [edge + "┌─" + fg(C.white) + (width(title) > room ? pad(title, room) : title + edge + "─".repeat(Math.max(0, room - width(title)))) + RESET];
-  // A window of the list around the choice the keys are on (the reader stays readable around it); `rows[i]` is choice
-  // i's line, NaN when it's outside the window.
-  const items = P.list.items, shown = Math.min(items.length, CALLOUT_PANEL_ROWS);
-  const from = Math.max(0, Math.min(P.list.sel - Math.floor(shown / 2), items.length - shown));
-  const rows: number[] = items.map(() => NaN);
-  if (from > 0) lines.push(edge + "│" + fg(C.dark) + pad(` ↑ ${from} more`, inner) + RESET);
+  // Every choice drawn, as the step choice draws its own, so each is a click away; the reader brings the panel into
+  // view when it opens, and scrolls (the wheel) over a tall one.
+  const items = P.list.items, rows: number[] = [];
   items.forEach((c, i) => {
-    if (i < from || i >= from + shown) return;
     const t = c.id.startsWith("type:") ? types.resolve(c.id.slice(5)) : null;
     const on = i === P.list.sel, base = on ? SELECT_BG + fg(C.white) : fg(C.lcyan);
     const icon = t ? (on ? "" : fg(TONE[t.tone])) + t.icon + base + " " : "  ";
     // "now" next to the name, before the aliases a narrow reader cuts.
     const mark = t?.name === now ? " · now" : "";
     const label = t ? `${t.name}${mark}${t.aliases.length ? ` · ${t.aliases.join(", ")}` : ""}${t.block ? " · this outline's" : ""}` : c.label;
-    rows[i] = lines.length;
+    rows.push(lines.length);
     lines.push(edge + "│" + base + " " + icon + pad(label, Math.max(1, inner - 3 - (c.key ? 3 : 0))) + (c.key ? ` ${c.key} ` : "") + RESET);
   });
-  if (from + shown < items.length) lines.push(edge + "│" + fg(C.dark) + pad(` ↓ ${items.length - from - shown} more`, inner) + RESET);
   if (P.note) lines.push(edge + "│" + fg(P.busy ? C.dark : C.lred) + pad(` ${printable(P.note)}`, inner) + RESET);
   const foot = " ⏎ choose · - folded · + open · esc cancel ";
   lines.push(edge + "└─" + fg(C.dark) + (width(foot) > room ? pad(foot, room) : foot + edge + "─".repeat(Math.max(0, room - width(foot)))) + RESET);

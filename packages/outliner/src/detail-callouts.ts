@@ -23,7 +23,7 @@ import {
   type DetailCalloutStyle,
   type DetailCalloutTheme,
 } from "./detail-callout-theme";
-import { BUILTIN_CALLOUT_REGISTRY, parseCalloutHeader } from "@ep0ch/outline-core/callouts";
+import { BUILTIN_CALLOUT_REGISTRY, calloutBlocks, quoteDepth, stripQuotes } from "@ep0ch/outline-core/callouts";
 
 export type DetailCalloutFoldMarker = "+" | "-" | null;
 
@@ -64,18 +64,6 @@ interface MutableCallout {
   id: string;
 }
 
-function quoteContent(text: string): { depth: number; content: string } {
-  let cursor = 0;
-  let depth = 0;
-  while (cursor < text.length) {
-    const match = /^[ \t]{0,3}>[ \t]?/.exec(text.slice(cursor));
-    if (!match) break;
-    cursor += match[0].length;
-    depth += 1;
-  }
-  return { depth, content: text.slice(cursor) };
-}
-
 function sourceLines(source: string): SourceLine[] {
   const lines: SourceLine[] = [];
   let start = 0;
@@ -85,7 +73,7 @@ function sourceLines(source: string): SourceLine[] {
     const end = newline < 0 ? source.length : newline + 1;
     const raw = source.slice(start, end);
     const text = raw.endsWith("\n") ? raw.slice(0, -1).replace(/\r$/, "") : raw;
-    const quoted = quoteContent(text);
+    const quoted = quoteDepth(text);
     lines.push({ raw, text, start, end, index, quoteDepth: quoted.depth, content: quoted.content });
     start = end;
     index += 1;
@@ -93,15 +81,8 @@ function sourceLines(source: string): SourceLine[] {
   return lines;
 }
 
-function stripQuoteDepth(text: string, depth: number): string {
-  let cursor = 0;
-  for (let level = 0; level < depth; level += 1) {
-    const match = /^[ \t]{0,3}>[ \t]?/.exec(text.slice(cursor));
-    if (!match) break;
-    cursor += match[0].length;
-  }
-  return text.slice(cursor);
-}
+/** `text` without its first `depth` levels of quote: outline-core's, as the door strips them. */
+const stripQuoteDepth = stripQuotes;
 
 export function parseDetailCallouts(
   source: string,
@@ -110,27 +91,16 @@ export function parseDetailCallouts(
   const lines = sourceLines(source);
   const callouts: MutableCallout[] = [];
 
-  for (const line of lines) {
-    if (line.quoteDepth === 0) continue;
-    // The grammar and the type list are outline-core's (PIE-538): the door reads them the same way.
-    const header = parseCalloutHeader(line.content);
-    if (!header) continue;
+  // Where each callout is, nested, and where it ends (code fences included) is outline-core's grammar (PIE-538),
+  // the door's too; Detail keeps only the region tree and its source offsets.
+  for (const block of calloutBlocks(lines.map((line) => line.text))) {
+    const line = lines[block.line]!;
+    const header = block;
     const calloutType = header.type;
     const known = (theme.registry ?? BUILTIN_CALLOUT_REGISTRY).resolve(calloutType);
     const style = (theme.registry ?? BUILTIN_CALLOUT_REGISTRY).style(calloutType);
     const foldMarker = header.fold;
-    let endLine = line.index;
-    for (let next = line.index + 1; next < lines.length; next += 1) {
-      const candidate = lines[next]!;
-      if (
-        candidate.quoteDepth < line.quoteDepth ||
-        (candidate.quoteDepth === line.quoteDepth &&
-          parseCalloutHeader(candidate.content))
-      ) {
-        break;
-      }
-      endLine = next;
-    }
+    const endLine = block.end - 1;
     const end = lines[endLine]?.end ?? line.end;
     const parent = [...callouts].reverse().find((candidate) =>
       candidate.depth < line.quoteDepth && candidate.end >= line.start
