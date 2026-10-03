@@ -1057,6 +1057,8 @@ export class NoteSurface {
       } else ({ text, lines, literal: lit } = readableSource(target, src));
       return renderDoc(presentLinks(text, true, src, target.text, drawn), {
         ...env, width, graphics: false, noImages: undefined, literal: lit, keepTags: true, folds: undefined, after: undefined,
+        // A fragment's figure isn't its note's figure block: the note's child bullets are the whole note's rows.
+        nested: !!part,
         link: (block, t) => tagged(drawn, { block, role: "row" }, t),
         tag: (to, t) => tagged(drawn, to, t), note: target.id,
         embed: hooks.embed, task: (i, box) => hooks.task(lines[i] ?? -1, box),

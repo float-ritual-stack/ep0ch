@@ -107,6 +107,10 @@ describe.skipIf(!outliner)("ep0ch find and export against a scratch host", () =>
     await make("ask", "Ask the neighbour about netting\nShe has a spare roll.", ids.order);
     await make("compost", "Compost rota [type::errand]\nTurn it on Sundays.");
     await make("view", "Errands [type::virtual-branch] [query::type=errand]");
+    // A figure block (its rows its child bullets) and a live figure, for export's ASCII twin.
+    await make("beans", "Bean rows [type::figures]\n::graph-timeline\n---\ntitle: Bean rows\n---\n::\n\n::graph-check\n---\ntitle: errands (live)\nquery: \"type=errand\"\n---\n::");
+    await make("sow", "Apr: sow under glass", ids.beans);
+    await make("plant", "**May: plant out**", ids.beans);
     board.close();
   });
   afterAll(async () => { for (const d of dirs) rmSync(d, { recursive: true, force: true }); await scratch.dispose(); });
@@ -132,6 +136,20 @@ describe.skipIf(!outliner)("ep0ch find and export against a scratch host", () =>
   test("find --json: block records, built by the service", async () => {
     const [r] = JSON.parse((await run(["find", "--query", "tag=spring", "--json"], env)).out) as BlockRecord[];
     expect(r).toMatchObject({ id: ids.order, title: "Seed order for the plot", parent: ids.plot, children: [ids.ask], properties: [{ key: "type", values: ["errand"] }, { key: "ctx", values: ["2026-03-09 @ 09:27:29 AM"] }, { key: "tag", values: ["seeds", "spring"] }], tasks: [{ status: "todo", text: "order the beans" }] });
+  }, 30_000);
+
+  test("export md writes each figure as its ASCII twin, answered from the outline; --source keeps the block", async () => {
+    const r = await run(["export", ids.beans!], env);
+    expect(r.code).toBe(0);
+    expect(r.out).not.toContain("::graph-");
+    expect(r.out).toMatch(/\+-+ \[ BEAN ROWS \] -+\+/);
+    expect(r.out).toContain("| ●  Apr  sow under glass");
+    expect(r.out).toContain("| ●  May  plant out");
+    expect(r.out).toMatch(/\[ \]  Seed order for the plot/);
+    expect(r.out).toContain("live · 2 results |");
+    expect(r.out).not.toMatch(/\x1b/);
+    const raw = await run(["export", ids.beans!, "--source"], env);
+    expect(raw.out).toContain("::graph-timeline\n---\ntitle: Bean rows");
   }, 30_000);
 
   test("export md to a folder: front matter verbatim, deterministic, a manifest only when asked", async () => {

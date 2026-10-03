@@ -8,10 +8,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { App } from "../src/app";
 import { GRAPH_KINDS } from "../src/graphs";
+import { liveBoard } from "../src/live";
 import { Help, MainMenu } from "../src/screens";
-import { FIGURE_KINDS, LANES, loadShowcase, SEED, seedShowcase, type Seeded } from "../src/showcase/seed";
+import { FIGURE_KINDS, LANES, MARKDOWN_KINDS, loadShowcase, SEED, seedShowcase, type Seeded } from "../src/showcase/seed";
 import { SECTIONS, Showcase, SHOWCASE_ACTIONS } from "../src/showcase/showcase";
 import { SocketBoard } from "../src/socket";
+import { drawNote } from "../src/notes-cli";
 import { C, fg } from "../src/style";
 import { jevOff } from "../src/surface/completer";
 import type { Key } from "../src/term";
@@ -33,7 +35,7 @@ const plain = (s: string) => s.replace(/\x1b\[[\d;]*[A-Za-z]/g, "").replace(/[\u
 
 test("the README's showcase says what SECTIONS registers: how many, the act range, and every key in the action's summary", () => {
   const readme = readFileSync(join(import.meta.dir, "../README.md"), "utf8");
-  const words = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen", "twenty", "twenty-one", "twenty-two", "twenty-three"];
+  const words = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen", "twenty", "twenty-one", "twenty-two", "twenty-three", "twenty-four", "twenty-five", "twenty-six"];
   expect(readme).toContain(`live, in ${words[SECTIONS.length]} sections`);
   expect(readme).toContain(`act section name=<1-${SECTIONS.length}|key>`);
   const summary = SHOWCASE_ACTIONS.list().find((a: any) => a.name === "section")!.summary;
@@ -54,8 +56,8 @@ test("the help screen says which screens write to the outline, not that the door
   expect(text).toContain("recorded as you, or as the agent that did them");
 });
 
-test("the figures note has every ::graph-* kind the door draws", () => {
-  expect([...FIGURE_KINDS].sort() as string[]).toEqual([...GRAPH_KINDS].sort());
+test("the showcase has every ::graph-* kind the door draws: the figures note the first ones, the Markdown figures and keys notes the newer", () => {
+  expect([...FIGURE_KINDS, ...MARKDOWN_KINDS, "keys"].sort() as string[]).toEqual([...GRAPH_KINDS].sort());
 });
 
 describe.skipIf(!outliner)("the showcase seed", () => {
@@ -110,6 +112,12 @@ describe.skipIf(!outliner)("the showcase seed", () => {
     expect((await board.children(seeded.notes.shed.id)).filter(k => !k.props.type?.startsWith("annotation")).map(k => k.text.split("\n")[0])).toEqual(["Puncture kit", "Chain oil"]);
     for (const k of FIGURE_KINDS) expect(seeded.notes.figures.text).toContain(`::graph-${k}\n`);
     expect(seeded.notes.figures.text).toContain(`view: ((${seeded.notes.gardenView.id}))`);
+    for (const k of MARKDOWN_KINDS) expect(seeded.notes.markdownFigures.text).toContain(`::graph-${k}\n`);
+    expect(seeded.notes.keys.text).toContain("::graph-keys\n");
+    // The figure block it transcludes: a note that is a figure, its rows its child bullets.
+    const block = (await board.children(seeded.notes.markdownFigures.id)).find(k => k.text.startsWith("Bean rows\n::graph-timeline"))!;
+    expect(seeded.notes.markdownFigures.text).toContain(`!((${block.id}))`);
+    expect((await board.children(block.id)).map(k => k.text)).toEqual(["Apr: sow under glass", "**May: plant out** — when the nights are warm", "*Jun: first picking*"]);
   });
 
   test("seeding twice is refused", async () => {
@@ -292,6 +300,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     callouts: ["Callouts, as Obsidian writes them", "Can callouts be nested?", "Yes!, they can.", "Recipe callouts"],
     // This test's terminal has no Kitty graphics: each image's line says what it is, with its controls.
     images: ["Pictures of the plot", "▀ header allotment-dusk.jpg", "▣ seed-packet.webp · no Kitty graphics in this terminal", "[−][+] [◂][▸] [▀]", "▣ allotment-notice.png"],
+    // The Markdown figures on the left (a decision first), the keys read from the registry on the right.
+    figures: ["Figures, written in Markdown", "SQUASH BEDS", "Raised beds", "The reader's keys", "[e]"],
   };
 
   test("one section per reuse-map row, in the map's order, each labelled with its part and file, drawn by the part", async () => {
@@ -715,6 +725,61 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     await until(() => !S().stages.get(S().sel).top.describe().panes[0].editing, "the edit closed", 5000);
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
   }, 30_000);
+
+  test("figures (mdxcn): every Markdown kind drawn, live ones answered; a figure block's child bullets open their notes by act, keys and mouse", async () => {
+    (app as any).lastInput = 0;
+    expect(await app.act({ action: "section", args: { name: "figures" }, as: "test-agent" })).toEqual({ section: SECTIONS.findIndex(x => x.key === "figures") + 1, key: "figures" });
+    // Each kind, by what its Markdown drew; the live decision and uptime answered from the seeded notes.
+    const shown = [
+      "● Raised beds", "× Straight into the clay", "○ Grow bags",                       // decision, from Markdown
+      "THE PLOT'S DECISIONS (LIVE)", "Netting the whole plot",                          // decision, live
+      "> Ada", "Bo", "goes to look",                                                   // chat
+      "PHOTO DRIVE BACKUPS (LIVE)", "2026-02-16", "2026-03-11",                         // uptime, live (source: backups)
+      "SEEDS SOWN", "March 2026", "[11]", "seed potatoes in",                            // activity, calendar
+      "[1] close the tap", "[2] three turns of PTFE tape",                              // annotate
+      "— Ada, the allotment newsletter",                                               // a quote's byline
+      "BEAN ROWS (CHILD BULLETS)", "May  plant out", "live · child notes",                                    // the figure block's child bullets
+    ];
+    // The whole note as a reader draws it (`ep0ch show`'s drawing, the surface itself): every kind there.
+    // On a connection of its own, as `ep0ch show` from a shell beside the door would be.
+    const own = new SocketBoard(scratch.sock);
+    await own.info();
+    const drawn = (await drawNote(own, seeded.notes.markdownFigures.id, 100))!.map(plain).join("\n");
+    for (const m of shown) expect(drawn).toContain(m);
+    const keys = (await drawNote(own, seeded.notes.keys.id, 100))!.map(plain).join("\n");
+    own.close();
+    for (const m of ["THE READER (FROM THE REGISTRY)", "[e]", "edit", "[g] then [d]", "[ctrl][k]"]) expect(keys).toContain(m);
+    // drawNote listened for the door's answers: it never took the door's live connection.
+    expect(liveBoard()).toBe((app as any).board);
+    // The left reader scrolls: read every element's label instead of the screen for what's below it.
+    const els = async () => ((await app.act({ action: "elements", tile: "reader", as: "test-agent" })) as any).elements as { n: number; kind: string; label: string; current?: boolean }[];
+    for (let end = Date.now() + 8000; !(await els()).some(e => e.kind === "row" && e.label.includes("plant out")); await Bun.sleep(50))
+      if (Date.now() > end) throw new Error("timed out waiting for the figure block's child rows as elements");
+    const rows = (await els()).filter(e => e.kind === "row");
+    // The live decision's rows and the child bullets are rows; the Markdown ones (no note behind them) aren't.
+    expect(rows.map(r => r.label)).toEqual(expect.arrayContaining(["Raised beds for the squash", "sow under glass", "plant out", "first picking"]));
+    expect(rows.some(r => r.label === "Raised beds")).toBe(false);
+    const may = rows.find(r => r.label === "plant out")!;
+    // An agent opens a child bullet's note in another reader (never the person's).
+    const opened = await app.act({ action: "element.open", tile: "reader", args: { n: may.n, fresh: true }, as: "test-agent" }) as any;
+    expect(JSON.stringify(opened)).toContain("plant out");
+    // The person, by keys: into the stage, [ ] to the row, ⏎ opens its note in the reader.
+    press({ kind: "enter" });
+    expect(S().focus).toBe("stage");
+    for (let i = 0; i < 80 && !(await els()).find(e => e.current && e.label === "sow under glass"); i++) ch("]");
+    expect((await els()).find(e => e.current)?.label).toBe("sow under glass");
+    press({ kind: "enter" });
+    await until(() => screen().includes("Apr: sow under glass") && !screen().includes("SQUASH BEDS"), "the child bullet's note open in the reader", 5000);
+    // Back (backspace), where the reader was, then by mouse: a click on another child row opens its note.
+    press({ kind: "backspace" });
+    // Back where it was, the figure block's row on screen (the reader keeps its place).
+    const rowAt = () => sc.render(app).lines.map(plain).findIndex(l => /┊ ●  Apr  sow under glass/.test(l));
+    await until(() => rowAt() >= 0, "back on the figures note, the child row on screen", 5000);
+    const y = rowAt(), x = sc.render(app).lines.map(plain)[y]!.indexOf("sow under glass") + 2;
+    press({ kind: "mouse", action: "down", button: 0, x, y }); press({ kind: "mouse", action: "up", button: 0, x, y });
+    await until(() => !screen().includes("BEAN ROWS (CHILD BULLETS)"), "the child bullet's note opened by a click", 5000);
+    for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+  }, 40_000);
 
   test("on an outline without the showcase it says so and writes nothing", async () => {
     const other = new Scratch();

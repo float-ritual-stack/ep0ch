@@ -41,6 +41,32 @@ move into one repository (PIE-530).
 - **Television (optional).** With `tv` on your PATH, `ep0ch install --apply` links the outline's channels into
   television's cable folder.
 
+### Figures written in Markdown, and seven new kinds (ideas from mdxcn.dev)
+
+- **A figure's rows can be Markdown.** After a `::graph-*` block's `---` YAML (or instead of it), write rows:
+  `**bold**` is now, chosen or the accent; `*italic*` next, rejected or receding; `- label: value` is a row;
+  `x — note` adds a muted side note; `a → b → c` is a path; `ok*40` is a run of forty in any list of values.
+  timeline, check, rank, funnel, stat/kpi and spark/plot read them. Where the YAML gives the same field, the YAML
+  wins. One reading for every client (outline-core's `figure-markdown.ts`).
+- **A figure block's child bullets are its rows.** A note whose body is a figure takes its child notes as rows
+  (`rows: children` asks anywhere): each row opens its note by `[ ]` and `⏎`, a click, or `element.open`.
+- **New kinds:** `decision` (● chosen, × rejected, ○ open, each with its reason; live over notes with a
+  `decision-state`), `chat` (speakers, the first one prompted, asides dim), `keys` (keycaps like `[ctrl][k]`;
+  `actions: note` reads the door's own keys from the action registry), `uptime` (a glyph a day and the % ok),
+  `activity` (a contribution grid), `calendar` (one month, marks and today) and `annotate` (code with numbered
+  callouts). The README's "mdxcn figures" lists each one's Markdown and live forms.
+- **Backups as an uptime strip.** `::graph-uptime` with `source: backups` draws the `[type::backup-run]` notes
+  that `bun packages/door/scripts/backup-runs.ts --ws pie --source restic -- ~/.local/bin/ep0ch-snapshot` adds,
+  one per run, with its status from the backup's exit code. Nothing is hooked up for you: add that line to the
+  timer's unit when you want it.
+- **A quote's byline.** In a `> [!quote]`, a last line starting `— ` is drawn as the attribution, to the right, the
+  source after a comma muted, in the door and in Detail.
+- **`ep0ch export` writes figures as ASCII.** Each `::graph-*` becomes its drawing in mdxcn's fenced frame
+  (`+---[ TITLE ]---+`, 60 wide, no colour, live ones answered first), so an exported file reads as the door shows
+  it. `--source` keeps the blocks as written.
+- **The showcase** has a `figures` section: every new kind in its Markdown form, live ones, the figure block and
+  the reader's keys read from the registry.
+
 ### Fixed: the outline tile showed a note as it was when the desk opened
 
 The desk's outline tile (and the board's outline drawer) read its rows once. A note saved in the reader, in Detail or by
