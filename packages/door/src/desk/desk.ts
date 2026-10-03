@@ -1517,20 +1517,26 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     this.hits = [...[...floats].reverse(), ...[...this.slid].reverse().flatMap(d => [...d.placed.rects]), ...docked];
     this.heads = []; this.markHits = []; this.spines = []; this.drawerLabels = []; this.drawerCloses = []; this.headPresses = []; this.headCtl.clear();
     let placements: Placement[] = top && band ? band.kind.draw(band.pane, canvas, { col: 0, row: 0, cols, rows: top }, this) : [];
-    for (const [id, r] of docked) placements.push(...this.drawTile(canvas, id, r));
+    // A tile drawn over another (a flow's column over a peek's box, a drawer, a float) takes away the images under it;
+    // drawTile paints every cell of its box.
+    const lay = (id: number, r: Rect, drawer = false, float = false) => {
+      const box = this.boxOf(id, r);
+      placements = placements.filter(p => !overlaps(p, box));
+      placements.push(...this.drawTile(canvas, id, r, drawer, float));
+    };
+    for (const [id, r] of docked) lay(id, r);
     for (const d of this.slid) {
       canvas.clear(d.rect, bg(C.black));
       placements = placements.filter(p => !overlaps(p, d.rect));
-      for (const [id, r] of d.placed.rects) placements.push(...this.drawTile(canvas, id, r, true));
+      for (const [id, r] of d.placed.rects) lay(id, r, true);
     }
     for (const [id, r] of floats) {
       const shade: Rect = { ...r, cols: r.cols + 1, rows: r.rows + 1 };
       placements = placements.filter(p => !overlaps(p, shade));
-      canvas.clear(r, bg(C.black));
       // A drop shadow on the right and below, then the tile, then its ◢ corner (drag it to size the float).
       for (let y = r.row + 1; y <= Math.min(area.row + area.rows - 1, r.row + r.rows); y++) canvas.text(r.col + r.cols, y, fg(C.dark) + "▒" + RESET, 1);
       if (r.row + r.rows < area.row + area.rows) canvas.text(r.col + 1, r.row + r.rows, fg(C.dark) + "▒".repeat(Math.max(0, Math.min(r.cols, cols - r.col - 1))) + RESET, cols);
-      placements.push(...this.drawTile(canvas, id, r, false, true));
+      lay(id, r, false, true);
       canvas.text(r.col + r.cols - 1, r.row + r.rows - 1, fg(C.yellow) + "◢" + RESET, 1);
     }
     this.drawEmpty(canvas);
@@ -1543,6 +1549,12 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (this.hintFull && (this.hintMoreOpen || this.prefix)) { this.drawHintMore(canvas, cols, rows); placements = []; }
     canvas.text(0, rows - 2, hint, cols);
     return { lines: canvas.lines(), placements };
+  }
+
+  /** Where tile `id`, placed at `r0`, is drawn: a flow's peek in its whole box (its right side under its neighbour), else `r0`. */
+  private boxOf(id: number, r0: Rect): Rect {
+    if (this.cover(id) !== "peek") return r0;
+    return this.placed.boxes?.get(id) ?? this.slid.find(d => d.placed.boxes?.has(id))?.placed.boxes?.get(id) ?? r0;
   }
 
   /** A float's rectangle as drawn: kept on the screen as it is now (its own stays as it was put, for a larger screen). */
@@ -1602,7 +1614,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // side under its neighbour (drawn after it), like a drawer (PIE-513).
     const cover = this.cover(id);
     if ((this.collapsed.has(id) || cover === "spine") && r0.cols <= SPINE) return this.drawSpineTile(canvas, id, r0, focused);
-    const r = cover === "peek" ? this.placed.boxes?.get(id) ?? this.slid.find(d => d.placed.boxes?.has(id))?.placed.boxes?.get(id) ?? r0 : r0;
+    const r = this.boxOf(id, r0);
+    // Every cell of the box is the tile's: rows its view leaves short show nothing of a tile drawn under it (a drawer's
+    // or a float's on the black it slides over).
+    canvas.clear(r, drawer || float ? bg(C.black) : "");
     const inner: Rect = { col: r.col + 1, row: r.row + 1, cols: r.cols - 2, rows: r.rows - 2 };
     const typing = pane === this.ptyIn && focused;
     // The header first: a tile that puts controls on it (the backlinks' status) draws its body knowing it did.
@@ -1706,6 +1721,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
 
   private drawSpineTile(canvas: Canvas, id: number, r: Rect, focused: boolean): Placement[] {
     const p = this.panes.get(id)!;
+    canvas.clear(r);
     const sp = p.spine?.() ?? { title: this.nameOf(id) };
     const out = drawSpine(canvas, r, { key: `spine:${id}`, title: sp.title, colour: focused ? C.white : C.cyan, marks: sp.marks, cellStyle: focused ? selected() : undefined }, this.ctx);
     this.spines.push([id, r]);

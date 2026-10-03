@@ -11,7 +11,7 @@ import type { Ctx } from "../app";
 import { subject, titleLine, type Msg } from "../board";
 import { literalLines } from "../literal";
 import { CommentSession, type CommentEnv } from "../comment";
-import { foldPoints, renderDoc, type Doc, type DocEnv, type FoldPoint } from "../doc";
+import { foldPoints, renderDoc, type Doc, type DocEnv, type DocImage, type FoldPoint } from "../doc";
 import { embedRegion, embedsLoading, embedStepChanged, isOpenProposal, NOT_APPLICABLE, proposalApplies, proposalControls, SHADE, type EmbedBody } from "../embeds";
 import { extensionRegion, projectionRegion, projectionsOf, resourceChanged, RUN_AGAIN, ticketBlocksOf, ticketRegion, type ResourceProjection, type TicketPart } from "../projection";
 import { EXT_ACTIONS, extensionNamed, handlerKeyAction } from "../extensions";
@@ -23,7 +23,7 @@ import { ComponentCatalog } from "../components";
 import { destinationOf, external, externalOpenCommand, fileOpenCommand } from "../open";
 import { Draft, DRAFT_ACTIONS, sameParty, type DraftActionArgs } from "../edit";
 import { agentRefusal, blockTarget, DraftSession, leaveSaid, propertyChange, unsentOn, type Ended, type LeaveResult } from "../draft-session";
-import type { Placement } from "../kitty";
+import { inWindow, type Placement } from "../kitty";
 import type { Scroll } from "../canvas";
 import { whoOf, EditConflict, mutationFor, Offline, recordedActorId, Refused, USER, type Actor, type ChecklistStep, type Comment, type OutlineEvent, type PropertyRecord } from "../socket";
 import { ellipsize, dim, C, extractLinks, fg, LINK_END, linkTag, pad, RESET, width } from "../style";
@@ -722,16 +722,8 @@ export class NoteSurface {
     this.scroll = Math.max(0, Math.min(this.scroll, this.maxScroll));
     this.drawn = { w, top: head.length, scroll: this.scroll, room, doc, lines: noteLines, head, body };
     this.selectionControl(w);
-    const placements: Placement[] = [];
-    for (const im of doc.images) {
-      const top = im.line - this.scroll, bottom = top + im.rows;
-      if (bottom <= 0 || top >= room) continue;
-      const cutTop = Math.max(0, -top), cutBottom = Math.max(0, bottom - room);
-      const visible = im.rows - cutTop - cutBottom;
-      const img = im.media.image;
-      const crop = cutTop || cutBottom ? { x: 0, y: Math.round((cutTop / im.rows) * img.height), w: img.width, h: Math.max(1, Math.round((visible / im.rows) * img.height)) } : undefined;
-      placements.push({ key: `img:${img.key}:${im.line}`, image: img, col: 1, row: head.length + Math.max(0, top), cols: im.cols, rows: visible, z: -1, crop });
-    }
+    // The body's images, one column in (its margin), cut to the rows shown.
+    const placements = imagePlacements(doc.images, 1).flatMap(p => inWindow(p, this.scroll, room, head.length) ?? []);
     // Where the links landed on screen: below the header, one column in (the body's margin), scrolled.
     // Each is the element it is, so a click also puts `[ ]` there.
     const keyOf = new Map(this.elems.filter(e => e.link).map(e => [`${e.row}:${e.from}`, e.key]));
@@ -784,7 +776,7 @@ export class NoteSurface {
     const top = head.length, t = host?.ctx.t;
     const key = `${w}x${h}|${top}|${summaryRow}|${m.revision ?? ""}|${m.text.length}|${host?.ctx.graphics ? 1 : 0}|${t?.cellW}x${t?.cellH}`;
     if (onlyScrolled() && this.laid?.m === m && this.laid.key === key) return this.laid;
-    const env = this.docEnv(m, Math.max(1, w - 1), t, !!host?.ctx.graphics, Math.max(4, Math.round((h - head.length) * 0.8)));
+    const env = this.docEnv(m, Math.max(1, w - 1), host, Math.max(4, Math.round((h - head.length) * 0.8)));
     // Every link drawn (the body's, an embed's title, results, text and step boxes) is tagged with its place in `drawn`.
     const drawn: Link[] = [];
     // Resource projections (PIE-445): each drawn after the last body line at or above its anchor (a ticket
@@ -798,7 +790,7 @@ export class NoteSurface {
     const extDraw = {
       note: m.id,
       markdown: (text: string, width: number) => renderDoc(presentLinks(printableBlock(text), false, null), {
-        ...env, width, graphics: false, folds: undefined, after: undefined, embed: undefined, task: undefined, link: undefined, literal: undefined, present: undefined, keepTags: false,
+        ...env, width, graphics: false, noImages: undefined, folds: undefined, after: undefined, embed: undefined, task: undefined, link: undefined, literal: undefined, present: undefined, keepTags: false,
       }).lines,
       row: (block: string, text: string) => tagged(drawn, { block, role: "row" }, text),
       hostKeys: host?.ownKeys ?? "",
@@ -844,10 +836,15 @@ export class NoteSurface {
     return (this.laid = { m, key, doc, drawn, picks, controls, body, marks, lines: noteLines, elems });
   }
 
-  /** What the note's body is drawn with, at `width`: component renderers resolved once per note shown, as Detail does. */
-  private docEnv(m: Msg, width: number, t: { cellW?: number; cellH?: number } | undefined, graphics: boolean, maxImageRows: number): DocEnv {
+  /**
+   * What the note's body is drawn with, at `width`: images laid out when the host draws Kitty graphics (and why not
+   * when it doesn't), component renderers resolved once per note shown, as Detail does.
+   */
+  private docEnv(m: Msg, width: number, host: SurfaceHost | undefined, maxImageRows: number): DocEnv {
     if (this.components.for !== m.id) this.components = { for: m.id, catalog: new ComponentCatalog() };
-    return { width, cellW: t?.cellW ?? 9, cellH: t?.cellH ?? 18, graphics, maxImageRows, unfold: this.unfold, components: this.components.catalog };
+    const t = host?.ctx.t, graphics = !!host?.ctx.graphics;
+    const noImages = graphics ? undefined : t?.kitty ? "video: cells · alt+v draws images" : "no Kitty graphics in this terminal";
+    return { width, cellW: t?.cellW ?? 9, cellH: t?.cellH ?? 18, graphics, noImages, maxImageRows, unfold: this.unfold, components: this.components.catalog };
   }
 
   /** The note's body for the reader and a host's digest (folds, links, embeds, steps, tagged into `drawn`); `more`: the reader's own. */
@@ -881,7 +878,7 @@ export class NoteSurface {
         lit = new Set(lines.flatMap((l, i) => (inside.has(l) ? [i] : [])));
       } else ({ text, lines, literal: lit } = readableSource(target, src));
       return renderDoc(presentLinks(text, true, src, target.text, drawn), {
-        ...env, width, graphics: false, literal: lit, keepTags: true, folds: undefined, after: undefined,
+        ...env, width, graphics: false, noImages: undefined, literal: lit, keepTags: true, folds: undefined, after: undefined,
         present: t => presentLinks(t, false, src, target.text, drawn),
         link: (block, t) => tagged(drawn, { block, role: "row" }, t),
         embed: hooks.embed, task: (i, box) => hooks.task(lines[i] ?? -1, box),
@@ -910,14 +907,16 @@ export class NoteSurface {
    * surface's (`( )`, `f`, `F`, `fold n=`), drawn ▾/▸ as a reader draws them. `current`: the row of the current
    * element (a fold `( )` selected is one), for the host to keep in view; `links`: where each link, step box
    * and status-choice row landed, by row, in the returned lines' cells; `folds`: each fold point's heading row,
-   * its width in cells and its number (`fold.toggle n=`), for a click on it.
+   * its width in cells and its number (`fold.toggle n=`), for a click on it; `placements`: its images, laid out as the
+   * reader lays them out whenever the host draws Kitty graphics (at most `maxImageRows` tall), by row and column of
+   * the returned lines, for the host to cut to what it shows (`inWindow`) and hand to the desk as a reader tile does.
    */
-  digest(m: Msg, w: number, host: SurfaceHost): { lines: string[]; links: { row: number; from: number; to: number; link: Link }[]; folds: { row: number; cols: number; n: number }[]; current: number | null; key: string | null } {
+  digest(m: Msg, w: number, host: SurfaceHost, maxImageRows = 8): { lines: string[]; links: { row: number; from: number; to: number; link: Link }[]; folds: { row: number; cols: number; n: number }[]; placements: Placement[]; current: number | null; key: string | null } {
     const src = this.use(host);
     this.drawn = null;
     this.digesting = true;
     const drawn: Link[] = [];
-    const { doc: rendered, points } = this.body(m, this.docEnv(m, Math.max(1, w), host.ctx.t, false, 8), src, drawn);
+    const { doc: rendered, points } = this.body(m, this.docEnv(m, Math.max(1, w), host, maxImageRows), src, drawn);
     const { doc, picks } = this.pickerRows(rendered, drawn, Math.max(1, w));
     this.elems = this.elementsOf(doc, drawn, [], [], [], points, 0, [], 0);
     this.keepCurrent(host);
@@ -926,7 +925,7 @@ export class NoteSurface {
     const links = doc.links.flatMap(r => (drawn[r.n] ? [{ row: r.line, from: r.from, to: r.to, link: drawn[r.n]! }] : []));
     for (const [i, row] of (picks?.rows ?? []).entries()) links.push({ row, from: 0, to: w, link: { role: "task", choice: i } });
     const folds = doc.heads.flatMap(h => { const n = points.findIndex(p => p.key === h.key); return n < 0 ? [] : [{ row: h.row, cols: h.cols, n: n + 1 }]; });
-    return { lines, links, folds, current: current ? current.row : null, key: current?.key ?? null };
+    return { lines, links, folds, placements: imagePlacements(doc.images, 0), current: current ? current.row : null, key: current?.key ?? null };
   }
 
   /** A fold whose heading or item is gone (or reworded) is dropped, so it never hides a different section. */
@@ -3306,6 +3305,10 @@ function forwardDraft<K extends keyof DraftActionArgs>(name: K): ActionDef<Draft
     },
   };
 }
+
+/** A body's images as placements on its own rows, `col` cells in, under the text (cut to a window with `inWindow`). */
+const imagePlacements = (images: readonly DocImage[], col: number): Placement[] =>
+  images.map(im => ({ key: `img:${im.media.image.key}:${im.line}`, image: im.media.image, col, row: im.line, cols: im.cols, rows: im.rows, z: -1 }));
 
 /** A draft's live preview (PIE-496): the readers' own body renderer, without folds, embeds or link tags. */
 export function draftPreview(text: string, w: number, src: Source | null = null): string[] {
