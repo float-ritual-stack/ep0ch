@@ -19,6 +19,7 @@ import type { ScreenKeys } from "../whereabouts";
 import { leaveSaid, NOTE_ACTIONS, type OpenHow, type SurfaceHost } from "../surface/note";
 import { keepEditFile } from "../surface/editor";
 import { LineInput } from "../surface/line";
+import { jevOff, notConfigured, SEARCH_JEV_PAUSE_MS } from "../surface/completer";
 import { Modes } from "../surface/modes";
 import { ListPicker, pickRow } from "../surface/picker";
 import { readState, writeState } from "../state";
@@ -3268,17 +3269,19 @@ function searchOverlay(d: Desk, q: string): DeskPicker {
   let hits: Msg[] = [], busy = false, timer: Timer | null = null, seq = 0, jev: "asking" | "ranked" | undefined;
   const input = new LineInput(q);
   const near = () => d.current?.id;
+  const stop = () => { if (timer) clearTimeout(timer); timer = null; seq++; };
   const askJev = (n: number, t: string) => {
-    if (t.length < 3 || hits.length < 2) return;
+    if (t.length < 3 || hits.length < 2 || jevOff.has(d.ctx.board)) return;
     timer = setTimeout(() => {
       if (n !== seq) return;
       const sel = p.sel, id = hits[sel]?.id;
       jev = "asking"; d.redraw();
       d.ctx.board.search(t, 30, { semantic: true, near: near() }).then(h => {
+        if (h.semantic && notConfigured(h.semantic)) jevOff.add(d.ctx.board);
         if (n !== seq) return;
         const at = h.findIndex(m => m.id === id);
         if (p.sel !== sel || hits[sel]?.id !== id || at < 0) { jev = undefined; d.redraw(); return; }
-        hits = h; p.sel = at; jev = h.ranked ? "ranked" : undefined; d.redraw();
+        hits = h; p.sel = at; jev = h.semantic?.status === "ranked" ? "ranked" : undefined; d.redraw();
       }, () => { if (n === seq) { jev = undefined; d.redraw(); } });
     }, SEARCH_JEV_PAUSE_MS);
   };
@@ -3295,8 +3298,9 @@ function searchOverlay(d: Desk, q: string): DeskPicker {
   const p: ListPicker<Msg, Desk> = new ListPicker<Msg, Desk>({
     name: "search", items: () => hits, input, typed: run,
     row: (m, _i, on, w) => [pickRow(` ${m.props["work-id"] && !subject(m).startsWith(m.props["work-id"]) ? m.props["work-id"] + " " : ""}${subject(m)}`, on, w)],
-    choose: m => { d.closeOverlay(); d.run("open", { id: m.id }); },
-    close: () => d.closeOverlay(),
+    // Closing stops a pending ask: no Jev call for a search that's gone.
+    choose: m => { stop(); d.closeOverlay(); d.run("open", { id: m.id }); },
+    close: () => { stop(); d.closeOverlay(); },
     frame: a => {
       const rect: Rect = { col: Math.floor(a.cols * 0.1), row: Math.floor(a.rows * 0.12), cols: Math.floor(a.cols * 0.8), rows: Math.floor(a.rows * 0.72) };
       const w = rect.cols - 2, listW = Math.floor(w * 0.42), m = hits[p.sel];
@@ -3310,9 +3314,6 @@ function searchOverlay(d: Desk, q: string): DeskPicker {
   if (q) run();
   return p;
 }
-
-/** How long the search overlay's typing pauses before Jev is asked to re-order the hits. */
-const SEARCH_JEV_PAUSE_MS = 600;
 
 interface DeskOn { d: Desk; reader?: string }
 

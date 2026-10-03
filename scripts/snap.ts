@@ -200,9 +200,9 @@ if (scenario === "showcase") {
   await Bun.sleep(800);
   for (let i = 0; i < SECTIONS.length; i++) {
     if (i < 10) ch(i === 9 ? "0" : String(i + 1)); else press({ kind: "down" });
-    await snap(`${String(i + 1).padStart(2, "0")}-${SECTIONS[i]!.key}`, i === 4 || i === 7 ? 2500 : 1200);
+    await snap(`${String(i + 1).padStart(2, "0")}-${SECTIONS[i]!.key}`, i === 5 || i === 8 ? 2500 : 1200);
   }
-  ch("5"); press({ kind: "enter" }); ch("c");                                           // the board: collapse a lane to a spine
+  ch("6"); press({ kind: "enter" }); ch("c");                                           // the board: collapse a lane to a spine
   await snap("12-board-spine", 1000);
   press({ kind: "esc" });                                                               // the board's own back key
   ch("3"); press({ kind: "enter" }); ch("e"); await Bun.sleep(600); for (const c of " [[Bike") ch(c);  // edit, and complete a page

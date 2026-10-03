@@ -1595,7 +1595,8 @@ Reads: `ping`, `children`, `blocks.context`, `blocks.query`, `tree.index`, `refe
 `events.subscribe` as an `observer`, which puts the door in `clients.list` until it exits. When the service
 has them: `views.read`, `blocks.read`, `properties.preview` and `changes.since`, and `blocks.query`
 `expression` with `query.expression`. While a draft completes a reference: `pages.complete`, `files.complete`,
-`blocks.query` `text` and `blocks.context` (an "Unsupported action" is remembered for the session).
+`tree.search` (the one search, from the draft's note; `semantic` after a pause), `fragments.candidates` and
+`blocks.context` (an "Unsupported action" is remembered for the session).
 
 Writes, only on an explicit key or an agent's `act` (then attributed `author: agent` and its actor id):
 

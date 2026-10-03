@@ -644,12 +644,12 @@ export class SocketBoard implements Board {
     return this.request<SearchHits>("tree.search", { query: text, ...(opts.semantic ? { semantic: true } : {}), ...(opts.near ? { contextBlockId: opts.near } : {}) });
   }
 
-  /** `searchBlocks`, the hits read whole for a preview, with whether Jev ranked them. */
-  async search(text: string, limit: number, opts: { semantic?: boolean; near?: string } = {}): Promise<Msg[] & { ranked?: boolean }> {
+  /** `searchBlocks`, the hits read whole for a preview, with what Jev did (`semantic`). */
+  async search(text: string, limit: number, opts: { semantic?: boolean; near?: string } = {}): Promise<Msg[] & { semantic?: SearchHits["semantic"] }> {
     const r = await this.searchBlocks(text, opts);
     const ids = r.matches.slice(0, Math.min(1000, limit)).map(m => m.block.id);
     const by = new Map((ids.length ? (await this.readBlocks(ids)).blocks : []).map(m => [m.id, m]));
-    return Object.assign(ids.flatMap(id => by.get(id) ?? []), { ranked: r.semantic.status === "ranked" });
+    return Object.assign(ids.flatMap(id => by.get(id) ?? []), { semantic: r.semantic });
   }
 
   async callers(): Promise<Caller[]> {

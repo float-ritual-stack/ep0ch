@@ -140,6 +140,7 @@ describe("Jev re-orders after a pause, never moving the selection (a fake servic
   test("the selected candidate stays selected as Jev re-orders the list, the draft's note is the context, and the footer says so", async () => {
     const { board, asked } = fake();
     const d = new Draft("note-1", 1, "");
+    d.near = "note-1";                                                    // as DraftSession.open sets it from its target
     const c = completerFor(d, board, () => {})!;
     for (const ch of "((party hats") completionKey(d, char(ch), c);
     await until(() => !!c.state && !c.state.loading && c.state.items.length === 3, "the lexical lookup");
@@ -183,7 +184,43 @@ describe("Jev re-orders after a pause, never moving the selection (a fake servic
     await new Promise(r => setTimeout(r, 30));
     expect(c.state!.items.map(i => i.blockId)).toEqual(["b1", "b2", "b3"]);
     expect(c.state!.index).toBe(1);
-    expect(c.state!.jev).toBe("asking");
+    expect(c.state!.jev).toBeUndefined();                                 // the footer doesn't stay on "jev…"
+  });
+
+  test("a comment's draft searches from the note it's on; an insert under way drops Jev's answer", async () => {
+    let release = () => {};
+    const { board, asked } = fake(semantic => semantic ? new Promise<void>(r => { release = r; }) : Promise.resolve());
+    const d = new Draft("comment:note-9", 1, "");
+    d.near = "note-9";
+    const c = completerFor(d, board, () => {})!;
+    for (const ch of "((party hats") completionKey(d, char(ch), c);
+    await until(() => c.state?.jev === "asking", "Jev asked");
+    expect(asked.every(a => a.near === "note-9")).toBe(true);
+    const accepting = c.accept();                                         // Enter while Jev thinks
+    release();
+    expect(await accepting).toBe(true);
+    expect(d.text).toBe("((b1))");
+  });
+
+  test("a service without Jev configured is not asked again", async () => {
+    let semanticAsks = 0;
+    const board = {
+      completePages: async () => ({ addresses: [], completeness: { kind: "complete" } }),
+      completeFiles: async () => [],
+      searchBlocks: async (_q: string, opts: { semantic?: boolean } = {}) => {
+        if (opts.semantic) semanticAsks++;
+        return { matches: lexical, completeness: { kind: "complete" }, semantic: opts.semantic ? { status: "unavailable", message: "Jev is not configured; showing text matches" } : { status: "lexical" } };
+      },
+      blockContext: async (id: string) => ({ selected: { id, text: "x" }, ancestors: [] }),
+      workIdPrefix: async () => "HOME",
+    };
+    const d = new Draft("note-1", 1, "");
+    const c = completerFor(d, board, () => {})!;
+    for (const ch of "((party") completionKey(d, char(ch), c);
+    await until(() => semanticAsks === 1 && c.state?.jev === undefined, "the one ask");
+    for (const ch of " hats") completionKey(d, char(ch), c);
+    await new Promise(r => setTimeout(r, 450));
+    expect(semanticAsks).toBe(1);
   });
 });
 
