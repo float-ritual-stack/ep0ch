@@ -129,6 +129,8 @@ const SHED = [
   "",
   "Three bikes, one pump, and a lock that sticks in the cold.",
   "The spare inner tubes hang on the left hook.",
+  "",
+  "::backlinks",
 ].join("\n");
 
 const RECIPE = [

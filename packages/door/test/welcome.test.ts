@@ -190,7 +190,7 @@ describe.skipIf(!outliner)("the welcome screen", () => {
     // By the mouse: a click on a backlink row shows it in the preview.
     tileOf<WelcomePreview>("preview").show(null, top());
     await until(() => tileOf<BacklinksPane>("backlinks").target?.id === n.kettle.id && tileOf<BacklinksPane>("backlinks").data !== null, "the kettle's backlinks, read again");
-    const r = at("Tea shelf", at("backlinks · The kettle").y);
+    const r = at("Tea shelf", at("links · The kettle").y);
     mouse(r.x, r.y);
     await until(() => tileOf<WelcomePreview>("preview").msg?.id === n.shelf.id, "the clicked backlink in the preview");
   });
@@ -202,7 +202,7 @@ describe.skipIf(!outliner)("the welcome screen", () => {
     await app.act({ action: "welcome.read", args: { id: n.kettle.id } });
     await until(() => tileOf<BacklinksPane>("backlinks").target?.id === n.kettle.id && tileOf<BacklinksPane>("backlinks").data !== null, "the kettle's backlinks");
     tileOf<WelcomePreview>("preview").show(null, top());
-    tileOf<BacklinksPane>("backlinks").sel = tileOf<BacklinksPane>("backlinks").rows().findIndex(r => r.kind === "source");
+    tileOf<BacklinksPane>("backlinks").sel = tileOf<BacklinksPane>("backlinks").rows().findIndex(r => r.kind === "backlink");
     const first = (tileOf<BacklinksPane>("backlinks").rows()[tileOf<BacklinksPane>("backlinks").sel] as any).source.blockId as string;
     const before = JSON.stringify((top().describe() as any).panes.map((p: any) => p.rect));
     const order: string[] = [];
@@ -212,7 +212,7 @@ describe.skipIf(!outliner)("the welcome screen", () => {
     // Giving a tile the keys never moves a tile.
     expect(JSON.stringify((top().describe() as any).panes.map((p: any) => p.rect))).toBe(before);
     // No tile numbers in the headers: the digits pick notes here.
-    expect(screen()).toContain("backlinks · The kettle");
+    expect(screen()).toContain("links · The kettle");
     expect(screen()).not.toMatch(/\.\. ?\d (welcome|backlinks|preview)/);
   });
 
@@ -311,7 +311,7 @@ describe.skipIf(!outliner)("a backlinks tile on the desk", () => {
     const reader = desk.pane("reader") as ReaderPane, bl = desk.pane("backlinks") as BacklinksPane;
     app.push(desk);
     desk.setCurrent(lamp);
-    await until(() => bl.target?.id === lamp.id && bl.data !== null && bl.rows().some(r => r.kind === "source"), "the lamp's backlinks");
+    await until(() => bl.target?.id === lamp.id && bl.data !== null && bl.rows().some(r => r.kind === "backlink"), "the lamp's backlinks");
     await app.act({ action: "tile.focus", tile: "backlinks" });
     const d = desk as any;
     d.key({ kind: "char", ch: "j" }, d.ctx);

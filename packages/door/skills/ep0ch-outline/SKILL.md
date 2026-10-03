@@ -159,6 +159,26 @@ items:
 Live blocks also take `limit:`, `sort: updated|created` and `direction:`. An agent can paste the fenced ASCII
 figure form (` ```+--- [ TITLE ] ---+ `) and it is re-framed to fit the pane.
 
+**Links** (`packages/door/src/links.ts`). `::links` lists a note's Outlinks, Resources (`[file::…]`, `jira::`
+tickets; `!` marks one that's unavailable) and Backlinks, answered by the service on every render, the same
+rows as the door's links tile. `::outlinks`, `::resources` and `::backlinks` list one group. One line, the words
+after the name filter the rows (`::resources jira`), or a `((ref))` names whose links. Or a block closed by `::`
+before a blank line, each line `of:`, `filter:`, `title:` or `groups:` (Comark's `---` lines are allowed). Each
+row is a link the reader opens: a note, a ticket's block, a resource's stored content. Detail shows the source.
+
+```
+::resources jira
+
+::backlinks
+of: ((0b0c4d58-1a2b-4c3d-8e9f-001122334455|the plan))
+filter: outbox
+title: Who's waiting on the plan
+::
+```
+
+Use it on a hub or a ticket page instead of pasting a list of related notes that goes stale. `b` in any reader
+shows the same rows in a links tile beside it.
+
 **Callouts and tables.** `> [!note] Title` (also `summary`, `warning`…) draws a box. A Markdown table draws as
 a real table with wrapped cells.
 

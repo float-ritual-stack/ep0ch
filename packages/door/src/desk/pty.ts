@@ -504,7 +504,7 @@ export { keyBytes };
 /** A mouse event at x, y (0-based, in the tile) as the program asked: SGR (1006) or the old X10 bytes. */
 export function mouseBytes(k: Extract<Key, { kind: "mouse" }>, x: number, y: number, sgr: boolean): string | null {
   const mods = (k.mods ?? 0) & 28;
-  let b = k.action === "wheel-up" ? 64 : k.action === "wheel-down" ? 65 : k.button & 3;
+  let b = k.action === "wheel-up" ? 64 : k.action === "wheel-down" ? 65 : k.action === "wheel-left" ? 66 : k.action === "wheel-right" ? 67 : k.button & 3;
   if (k.action === "drag") b += 32;
   b += mods;
   if (sgr) return `\x1b[<${b};${x + 1};${y + 1}${k.action === "up" ? "m" : "M"}`;

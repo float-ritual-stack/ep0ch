@@ -249,7 +249,7 @@ export function keyName(k: Key): string | null {
     case "alt-right": return "alt+right";
     case "back": return "alt+left";
     case "forward": return "alt+right";
-    case "mouse": return k.action === "wheel-up" || k.action === "wheel-down" ? "wheel" : k.action === "drag" ? "drag" : "click";
+    case "mouse": return k.action === "wheel-up" || k.action === "wheel-down" ? "wheel" : k.action === "wheel-left" || k.action === "wheel-right" ? "sideways" : k.action === "drag" ? "drag" : "click";
     case "paste": return null;
     default: return k.kind;
   }

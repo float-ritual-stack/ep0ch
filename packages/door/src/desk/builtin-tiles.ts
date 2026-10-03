@@ -163,7 +163,8 @@ const builtins = (): TileKind[] => [
     describe: p => (p as QueryPane).describe(),
   },
   {
-    kind: "backlinks", about: "the backlinks of what another tile shows (source=tile:<name>)",
+    kind: "backlinks", about: "the links of what another tile shows (source=tile:<name>): its outlinks, resources and backlinks",
+    aim: p => p as BacklinksPane, companion: "preview",
     keys: [{ key: "l", label: "backlinks", spec: at => ({ source: `tile:${at.name}` }) }],
     make: s => { const src = s.source && sourceOf(s.source); return new BacklinksPane(src && "tile" in src ? src.tile : "reader", s.groups === "open"); },
     actions: BACKLINKS_ACTIONS,

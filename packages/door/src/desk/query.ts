@@ -15,7 +15,7 @@ import { ago } from "../text";
 import { describeChanges, type MovePlan } from "../move";
 import { readView, type ViewRead } from "../views";
 import { summarySegments, viewSummaryKeys } from "../props";
-import { clamp, RowView, wheelRows } from "../scroll";
+import { clamp, RowView, wheelRows, type RowPress } from "../scroll";
 import { hasUnsent } from "../draft-session";
 import { runOwn, type DeskApi, type Pane, type PaneView } from "./panes";
 
@@ -82,7 +82,7 @@ export class QueryPane implements Pane {
    */
   managed = false;
   /** What it's a lane of (the board's lanes, the hub source's model in src/desk/lanes.ts): its keys and mouse are theirs. */
-  model: { laneKeys(k: Key): boolean; laneMouse(k: Extract<Key, { kind: "mouse" }>): boolean } | null = null;
+  model: { laneKeys(k: Key): boolean; laneMouse(k: Extract<Key, { kind: "mouse" }>, press?: RowPress): boolean } | null = null;
   /** The board's hint for its lanes (c collapse · H L move); the tile's own otherwise. */
   boardHint: string | null = null;
   private asked = 0;
@@ -218,14 +218,16 @@ export class QueryPane implements Pane {
     if (c === "r") { this.run(desk, "query.reload", {}); return true; }
     return false;
   }
-  /** A click picks a card; a click on the selected card opens it; the wheel moves the cursor. */
-  mouse(k: Extract<Key, { kind: "mouse" }>, _x: number, y: number, desk: DeskApi): boolean {
-    // A lane on the board: a card pressed, dragged to another lane, clicked again to open; the wheel (its model's).
-    if (this.model) return this.model.laneMouse(k);
+  /** A click picks a card (as j k), a double click or an alt-, ctrl- or middle-click opens it (⏎, RowView.press); the wheel moves the cursor. */
+  mouse(k: Extract<Key, { kind: "mouse" }>, _x: number, y: number, desk: DeskApi, press?: RowPress): boolean {
+    // A lane on the board: a card pressed, dragged to another lane, opened by a double click; the wheel (its model's).
+    if (this.model) return this.model.laneMouse(k, press);
     if (k.action === "wheel-up" || k.action === "wheel-down") { if (this.items?.length) this.run(desk, "query.pick", { by: wheelRows(k.action === "wheel-up" ? -1 : 1) }); return true; }
     if (k.action !== "down") return true;
     const i = this.rowAt(y);
-    if (i >= 0) this.run(desk, "query.pick", { n: i + 1, ...(i === this.sel ? { open: true } : {}) });
+    if (i < 0) return true;
+    const g = this.cursor.press(i, press ?? { mods: k.mods ?? 0, button: k.button });
+    this.run(desk, "query.pick", { n: i + 1, ...(g === "open" || g === "fresh" ? { open: true } : {}) });
     return true;
   }
 
@@ -241,7 +243,7 @@ export interface QueryOn { pane: QueryPane; desk: DeskApi }
 export const QUERY_ACTIONS = actionSet<QueryOn>()("query", {
   "query.pick": def({
     summary: "pick a card in a query tile (tile=<its name>): n (from 1), id, or by=<cards> from the selected one; it becomes what the tile shows (a preview following it shows it), open=true opens it as ⏎ does. An agent's pick is its own: the person's cursor stays (open=true opens it where the tile's opens go). On the board, card.select is the lanes' own",
-    keys: "j k ↑ ↓ PgUp PgDn, ⏎ (open), click on a card (again: open), wheel",
+    keys: "j k ↑ ↓ PgUp PgDn, click, wheel (pick) · ⏎, double click, alt- ctrl- or middle-click (open)",
     touches: "nothing", replay: "safe", says: (r, a) => `${a.open ? "opened" : "picked"} "${r.title.slice(0, 40)}"`,
     args: {
       n: { type: "number", optional: true, about: "the card, from 1" },

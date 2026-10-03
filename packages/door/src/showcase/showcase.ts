@@ -30,6 +30,7 @@ import { PANE_ACTIONS } from "../desk/pane-actions";
 import { BOARD_ACTIONS } from "../desk/lanes";
 import { COLUMN_ACTIONS } from "../river/column";
 import { ActivityPane, ReaderPane, ThreadPane, TreePane, WhoPane, type DeskApi, type Pane, type PaneView } from "../desk/panes";
+import { BacklinksPane } from "../desk/backlinks-pane";
 import { MessageReader, SHELL_ACTIONS } from "../screens";
 import { columnsOf, leaf, pair, splitOf, type LNode } from "../desk/screen-layout";
 import { FramedScreen } from "./frame";
@@ -189,11 +190,11 @@ export const SECTIONS: Section[] = [
     stage(n) { return openScreen("board", { hub: n.hub?.id, persist: false }); },
   },
   {
-    key: "entity", need: "show children, outlinks, backlinks, resources", part: "entity navigation: u, [ ] and ⏎ on links in the surface; children in the thread tile; a row's links in the tree (L)", files: "src/surface/note.ts, src/desk/tree.ts, src/authored.ts, references.backlinks in src/socket.ts, src/backlinks.ts",
-    aside: "the tree's L (tree.links): a row's outlinks, resources and backlinks as the outliner's Tree shows them (blocks.authored-links); ⏎ on a resource shows what the service stores for it · backlinks: the board's drawer (section 5, b) and the backlinks tile (^W o l; the welcome's), one drawing, grouped and filtered as Detail does (src/backlinks.ts, src/desk/backlinks-pane.ts, PIE-442)",
+    key: "entity", need: "show children, outlinks, backlinks, resources", part: "entity navigation: u, [ ] and ⏎ on links in the surface; children in the thread tile; one links model (src/links.ts) drawn three ways: a row's links in the tree (L), the links tile (b in any reader), the inline ::links in a note", files: "src/surface/note.ts, src/links.ts, src/desk/tree.ts, src/desk/backlinks-pane.ts, src/authored.ts, references.backlinks in src/socket.ts, src/backlinks.ts",
+    aside: "one model, one row: the tree's L (tree.links), the links tile under the reader (b; the board's drawer, section 5) and the shed note's own ::backlinks are the same rows (src/links.ts linkRows, linkRowLine) · Outlinks and Resources from blocks.authored-links, Backlinks grouped and filtered as Detail does · moving onto a resource shows what the service stores for it, read only; ⏎ registers and opens · the mouse as the keys: a click selects, a double click is ⏎, an alt-, ctrl- or middle-click alt+⏎",
     stage(n, show) {
-      const tree = new TreePane(), r = new ReaderPane(true), th = new ThreadPane();
-      return deskOf({ title: "showcase · entity", panes: [tree, r, th], layout: ([a, b, c]) => pair("row", 0.34, leaf(a!), row(0.6, b!, c!)) }, show, [], d => { if (n.shed) { d.setCurrent(n.shed); void tree.showLinksOf(n.shed, d); } });
+      const tree = new TreePane(), r = new ReaderPane(true), th = new ThreadPane(), links = new BacklinksPane("reader", true);
+      return deskOf({ title: "showcase · entity", panes: [tree, r, links, th], layout: ([a, b, c, e]) => pair("row", 0.3, leaf(a!), pair("row", 0.66, pair("col", 0.62, leaf(b!), leaf(c!)), leaf(e!))) }, show, [], d => { if (n.shed) { d.setCurrent(n.shed); void tree.showLinksOf(n.shed, d); } });
     },
   },
   {
@@ -401,6 +402,7 @@ export class Showcase implements Screen {
     }
     // The wheel: the stage under the pointer scrolls; over the index it moves between sections.
     if (inStage && f) { f.key(rel); return this.ctx.redraw(); }
+    if (k.action !== "wheel-up" && k.action !== "wheel-down") return;
     const to = this.sel + (k.action === "wheel-down" ? 1 : -1);
     if (k.x < this.indexW && to >= 0 && to < SECTIONS.length) this.run("section", { name: String(to + 1) });
   }

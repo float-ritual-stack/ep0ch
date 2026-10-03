@@ -8,6 +8,7 @@ import { LINK_END, linkTag, stripMarks } from "./style";
 import type { ReferenceResolution, PageResolution, SocketBoard } from "./socket";
 import type { StepRef } from "./steps";
 import { isOutlineNote, type AuthoredLinksSnapshot, type AuthoredResourceLink } from "./authored";
+import { linkBlockLines } from "./links";
 
 /** The service's exact reference: `((id))`, `((id^fragment))`, `((id|label))`, `((id^fragment|label))`. */
 export const REF = /\(\(([A-Za-z0-9_-]{8,})(?:\^([A-Za-z0-9][A-Za-z0-9_-]{0,63}))?(?:\|((?:(?!\)\))[^\r\n])+))?\)\)/g;
@@ -212,7 +213,10 @@ export function presentLinks(text: string, embeds: boolean, src: Source | null |
   // figure (`::graph-*` to `::`): its YAML is the figure's question, and a `view: ((id))` in it must still
   // name the id when the figure reads it (src/live.ts); drawn as a link, the id would be gone.
   const fencedAt: boolean[] = [];
-  return text.split("\n").map(line => {
+  // An inline links component (`::links` to its `::`, src/links.ts) is left as typed too: an `of: ((id))` in it names whose.
+  const lines = text.split("\n"), linkLines = linkBlockLines(lines);
+  return lines.map((line, i) => {
+    if (!fenced && !figure && linkLines.has(i)) { fencedAt.push(true); return line; }
     if (!fenced && (figure ? /^\s*::\s*$/.test(line) : GRAPH_START.test(line))) { figure = !figure; fencedAt.push(true); return line; }
     if (!figure && /^\s*```/.test(line)) { fenced = !fenced; fencedAt.push(true); return line; }
     fencedAt.push(fenced || figure);

@@ -74,6 +74,19 @@ export interface TileKind {
    */
   readonly follower?: boolean;
   /**
+   * A list about a note that `b` aims (the links tile: a reader's note's Outlinks, Resources and Backlinks): the
+   * tile as the desk aims it, and the kind of tile opened beside it to follow its selection when a screen has
+   * none and `b` opens one (`companion`, a preview).
+   */
+  aim?(p: Pane): AimedList;
+  /**
+   * What one step of the sideways wheel (a trackpad's swipe, -1 left, 1 right) does in it, where its content is
+   * horizontal (a river column: the column beside, as h l): an action run in the tile, or null. Without it the
+   * sideways wheel does nothing there.
+   */
+  sideways?(p: Pane, dir: 1 | -1): { action: string; args?: Record<string, unknown> } | null;
+  readonly companion?: TileKindName;
+  /**
    * Take a note opened into it (its link's target, or where a screen's agent opens land, `ScreenSpec.lands`): null when
    * it did, else why not ("holds an edit"). `by`: who opened it (an agent's open never moves the person's keys).
    */
@@ -172,6 +185,8 @@ export function kindNoun(kind: string): string {
 }
 /** A tile as a message names it: its kind's word, and its name when that says more ("a terminal tile (editor)"). */
 export const tileNoun = (kind: string, tile: string): string => `${kindNoun(kind)}${tile.replace(/-\d+$/, "") === kind ? "" : ` (${tile})`}`;
+/** A list `b` aims at a note (TileKind.aim): what it lists the links of, and how it's told. */
+export interface AimedList extends Pane { source: string; show(m: Msg, desk: DeskApi): Promise<void>; describe(): unknown }
 /** Every kind, in the order registered (the built-ins first). */
 export const tileKinds = (): TileKind[] => [...registry.values()];
 /** A pane's entry (a pane a view brought that isn't registered, the showcase's exhibit, has none). */

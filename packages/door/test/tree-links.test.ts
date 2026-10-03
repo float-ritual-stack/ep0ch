@@ -204,7 +204,7 @@ describe.skipIf(!outliner)("the tree's links, against a scratch outline", () => 
     await until(() => rows().some(r => r.text.startsWith("→ outlinks (2)")), "shown again");
   }, 60_000);
 
-  test("space and h fold a group; l opens it; a click on a group folds it too", async () => {
+  test("space and h fold a group; l opens it; a click on a group's mark folds it too", async () => {
     selectRow("→ outlinks");
     ch(" ");
     await until(() => !rows().some(r => r.text.startsWith("soil-test")), "outlinks folded");
@@ -212,17 +212,24 @@ describe.skipIf(!outliner)("the tree's links, against a scratch outline", () => 
     await until(() => rows().some(r => r.text.startsWith("soil-test")), "outlinks open");
     ch("h");
     await until(() => !rows().some(r => r.text.startsWith("soil-test")), "folded by h");
-    clickTree("→ outlinks");
+    clickTree("→ outlinks", true);
     await until(() => rows().some(r => r.text.startsWith("soil-test")), "opened by a click");
   }, 60_000);
 
-  test("⏎ on an outlink opens its note in the reader and gives it the keys; a click on one opens it too", async () => {
+  test("⏎ on an outlink opens its note in the reader and gives it the keys; a click selects one (shown as j k would), a double click opens it", async () => {
     selectRow("soil-test → Soil test results");
     press({ kind: "enter" });
     await shows(n.soil.id);
     expect(focusName()).toBe("reader");
     D().focus = [...D().panes.entries()].find(([, p]: any) => p.kind === "tree")![0];
     clickTree("the shed list → Tool shed");
+    await until(() => desk.current?.id === n.shed.id, "the outlink shown where the tree's selection goes");
+    expect(focusName()).toBe("tree");
+    await Bun.sleep(450);                                                     // two clicks apart are two single clicks
+    clickTree("the shed list → Tool shed");
+    expect(focusName()).toBe("tree");
+    clickTree("the shed list → Tool shed");
+    await until(() => focusName() === "reader", "the reader given the keys by the double click");
     await shows(n.shed.id);
   }, 60_000);
 
@@ -330,6 +337,7 @@ describe.skipIf(!outliner)("the tree's links, against a scratch outline", () => 
   }, 60_000);
 
   test("in a reader, a resource token the service names is a link: a click shows the Resource", async () => {
+    await Bun.sleep(300);                                                       // the last test's tree pick shows its row 90 ms on: let it land first
     await app.act({ action: "open", args: { id: n.plan.id }, as: "walker-7" });
     await until(() => reader().msg?.id === n.plan.id && !reader().msg!.partial, "the plan in the reader");
     const rect = () => { desk.render(D().ctx); return D().placed.rects.get([...D().panes.entries()].find(([, p]: any) => p.kind === "reader")![0]); };

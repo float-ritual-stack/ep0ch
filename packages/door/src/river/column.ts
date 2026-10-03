@@ -13,11 +13,14 @@ import { historyRow, IN_TRASH, type Link } from "../surface/note";
 import { inWindow, type Placement } from "../kitty";
 import { Gesture, isCopyKey, lineAt, modeKey, paintRange, rowsOf, SELECT_BG, Selection, selectionHint, wordAt, type Pos } from "../surface/selection";
 import { presentLinks } from "../refs";
+import { describeLinkRow, linkNote, linkRowLine, linkRows, linksOf, type LinkGroupName, type LinkRow } from "../links";
+import { isOutlineNote } from "../authored";
+import { backlinkView, DEFAULT_BACKLINK_VIEW_OPTIONS } from "../backlinks";
 import { readState, writeState } from "../state";
 import { C, fg, pad, paint, RESET, selected, visible } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
 import { ago, wrap } from "../text";
-import { scrolled, wheelRows } from "../scroll";
+import { RowPresses, scrolled, sideways, wheelRows, type RowPress } from "../scroll";
 import { withoutPropertyTokens } from "@ep0ch/outline-core/property-grammar";
 import { ReaderPane, runOwn, type DeskApi, type PaneView } from "../desk/panes";
 import type { ScreenSpec } from "../desk/screen-spec";
@@ -38,7 +41,7 @@ export type Source = { kind: "roots" } | { kind: "block"; id: string } | { kind:
 interface Clause { key: string; value: string; exclude: boolean }
 interface Row { m: Msg; depth: number }
 /** A row as drawn: its card (-1: none), whether it's the replies toggle, the links on it, the history row's parts. */
-type HitRow = { card: number; replies: boolean; links?: { from: number; to: number; link: Link }[]; history?: { from: number; to: number; dir: -1 | 1 }[]; fold?: { to: number; n: number } };
+type HitRow = { card: number; replies: boolean; linksHead?: boolean; links?: { from: number; to: number; link: Link }[]; history?: { from: number; to: number; dir: -1 | 1 }[]; fold?: { to: number; n: number } };
 
 /** A source as a tile spec writes it: `roots`, `block:<id>`, `tag:<key>=<value>`. */
 export const sourceText = (s: Source) => (s.kind === "roots" ? "roots" : s.kind === "block" ? `block:${s.id}` : `tag:${s.key}=${s.value}`);
@@ -148,7 +151,16 @@ export class RiverColumn extends ReaderPane {
   private digestOf_: { key: string; m: Msg; s: Msg | null; dg: ReturnType<ReaderPane["surface"]["digest"]> } | undefined;
   private shown?: { key: string; at: number };
   private gesture = new Gesture();
-  private down: { row?: HitRow; link?: Link; fold?: number; same: boolean; dragging: boolean } | null = null;
+  /** Presses on its cards: a second on the same card soon after is a double click. */
+  private presses = new RowPresses();
+  /**
+   * A block column's links, under its replies (the shared links model, src/links.ts, as the links tile and the
+   * inline `::links` draw them): whether they show (`b`, a click on their header), and which groups are folded.
+   * Their rows follow the cards in the column's selection: j k walk on into them, ⏎ opens one in the next column.
+   */
+  linksShown = true;
+  private linkShut = new Set<LinkGroupName>();
+  private down: { row?: HitRow; link?: Link; fold?: number; same: boolean; fresh?: boolean; dragging: boolean } | null = null;
   private editDrag = false;
   /** The keys came here just now (a click that focuses it only focuses it). */
   private justFocused = false;
@@ -193,7 +205,7 @@ export class RiverColumn extends ReaderPane {
     if (this.mode === "filter") return paint(`|14/ filter this column: |15${this.input.plain()}|08 · type:hub -status:done author:codex word · |15⏎|08 apply · |15esc|08 cancel`);
     if (this.mode === "tags") return paint(this.tagChoices.length ? `|14same property|08 · ${this.tagChoices.map(([k, v], i) => `|15${i + 1}|08 ${k}:: |11${v}`).join("|08 · ")}|08 · |15esc|08 cancel` : "|14same property|08 · this note has no properties to follow · |15esc|08 back");
     if (this.surface.editing || this.linked()) return this.surface.hint();
-    return "j k notes · ⏎ open beside · space replies · / filter this column · # same property · s split · v select";
+    return "j k notes and links · ⏎ open beside · space replies · b links · / filter this column · # same property · s split · v select";
   }
   override spine() {
     const hold = this.surface.draft ? "✎" : this.surface.session ? "¶" : "";
@@ -245,6 +257,38 @@ export class RiverColumn extends ReaderPane {
     this.fold.walk(this.items ?? [], (m, depth) => { if (depth === 0 && !this.passes(m)) return false; out.push({ m, depth }); });
     return out;
   }
+  /** A block column's links as rows (none in the Library or a #tag column, or while they're hidden). */
+  linkList(): LinkRow[] {
+    const root = this.source.kind === "block" ? this.rootOf() : null;
+    if (!root || !this.linksShown || !isOutlineNote(root)) return [];
+    const data = linksOf(root.id) ?? { links: { kind: "loading" }, backlinks: { kind: "loading" } };
+    // Every backlink kind open: a column is read top to bottom, not unfolded row by row.
+    const kinds = data.backlinks.kind === "ready" ? new Set(backlinkView(data.backlinks.value, DEFAULT_BACKLINK_VIEW_OPTIONS).kinds.map(k => k.kind)) : new Set<string>();
+    return linkRows(data, { shut: this.linkShut, kinds, backlinks: DEFAULT_BACKLINK_VIEW_OPTIONS });
+  }
+  /** Show or hide its links (`b`, a click on their header). */
+  toggleLinks(on: boolean | undefined, desk: DeskApi): { shown: boolean } {
+    this.linksShown = on ?? !this.linksShown;
+    const n = this.flat().length;
+    if (!this.linksShown && this.sel >= n) this.sel = Math.max(0, n - 1);
+    desk.redraw();
+    return { shown: this.linksShown };
+  }
+  /** ⏎ (or a double click) on link row `j`: a group folds or opens; a link opens in the next column (alt+⏎: a new one). */
+  async openLink(j: number, fresh: boolean, desk: DeskApi, actor: Actor = USER): Promise<Record<string, unknown>> {
+    const r = this.linkList()[j];
+    if (!r) throw new ActionRefused(`no link row ${j + 1} in ${this.titleOf()}`);
+    if (r.kind === "group" || r.kind === "kind") {
+      if (actor.kind === "agent") throw new ActionRefused("which groups are folded is the person's view · peek reads every row (noteLinks)");
+      if (r.kind === "group") { if (this.linkShut.has(r.group)) this.linkShut.delete(r.group); else this.linkShut.add(r.group); }
+      desk.redraw();
+      return { group: r.kind === "group" ? r.group : r.group.kind };
+    }
+    const { note } = await linkNote(r, desk.ctx.board, "open", actor);
+    this.host(desk).navigate(note, { link: true, by: actor, ...(fresh ? { fresh: true } : {}) });
+    return { opened: note.id };
+  }
+
   /** How many notes it lists (its filter applied), not counting replies shown in place. */
   listed(): number { return (this.items ?? []).filter(m => this.passes(m)).length; }
   /** A listed note its filter keeps: the property clauses as the service answered them (none while it's asked). */
@@ -335,6 +379,15 @@ export class RiverColumn extends ReaderPane {
       else if (count) push(rail + " " + fg(C.cyan) + (this.fold.open.has(m.id) ? `▾ ${repliesWord(count)} · hide` : `» ${repliesWord(count)}`) + RESET, n, true);
       push(rail, n);
     });
+    // Its links under its replies, a group that folds as replies do: the links tile's rows, in the column's selection.
+    if (this.source.kind === "block" && root && isOutlineNote(root)) {
+      const label = `── ${this.linksShown ? "▾" : "▸"} links `;
+      all.push({ text: fg(C.blue) + label + "─".repeat(Math.max(0, w - label.length)) + RESET, card: -1, replies: false, linksHead: true });
+      this.linkList().forEach((r, j) => {
+        const n = flat.length + j, on = n === this.sel;
+        push((on ? fg(active ? C.lcyan : C.grey) + "▌" + RESET : " ") + linkRowLine(r, { cols: w - 1, selected: on && active, focused: active }), n);
+      });
+    }
     if (!this.items && !this.error) push(fg(C.dark) + "dialing…" + RESET);
     else if (filterQuery(this.filter) && !this.matched && !this.error) push(fg(C.dark) + "filtering…" + RESET);
     // The selected card comes into view only when the selection moved to it (keys, a click); a repaint or the wheel
@@ -352,7 +405,7 @@ export class RiverColumn extends ReaderPane {
     this.drawn = { lines: all.map(l => l.text), w };
     if (this.text && this.text.w !== w) this.text = null;
     const shown = all.slice(this.top, this.top + rows);
-    this.rows = shown.map(l => ({ card: l.card, replies: l.replies, links: l.links, history: l.history, fold: l.fold }));
+    this.rows = shown.map(l => ({ card: l.card, replies: l.replies, links: l.links, history: l.history, fold: l.fold, ...(l.linksHead ? { linksHead: true } : {}) }));
     return shown.map((l, i) => { const span = this.text?.span(this.top + i); return span ? paintRange(l.text, span[0], span[1], SELECT_BG) : l.text; });
   }
 
@@ -360,6 +413,11 @@ export class RiverColumn extends ReaderPane {
   override host(desk: DeskApi) {
     const h = super.host(desk), redraw = h.redraw;
     h.redraw = () => { this.gen++; redraw(); };
+    // `b` (the note action links): this column's own links, under its replies, rather than a links tile beside it.
+    h.links = async actor => {
+      if (actor.kind === "agent") throw new ActionRefused("showing or hiding a column's links changes what the person reads · peek reads them (noteLinks)");
+      return this.toggleLinks(undefined, desk);
+    };
     // Back and forward are the flow's (its trail): the surface's own history keys and actions go there.
     h.history = {
       peek: dir => desk.travelPeek?.(this, dir) ?? null,
@@ -424,11 +482,18 @@ export class RiverColumn extends ReaderPane {
       if (k.kind === "home" || k.kind === "end") { this.run(desk, "column.select", { by: k.kind === "home" ? -1e9 : 1e9 }); return true; }
       // ⏎ opens the selected note in the next column (the flow's), alt+⏎ in a new one even when a column has it.
       if (k.kind === "enter" || k.kind === "alt-enter") {
+        const fl = this.flat().length;
+        if (this.sel >= fl && this.linkList()[this.sel - fl]) { this.run(desk, "column.link", { n: this.sel - fl + 1, ...(k.kind === "alt-enter" ? { fresh: true } : {}) }); return true; }
         const m = this.flat()[this.sel]?.m;
         if (m) void desk.perform?.("open", { id: m.id, from: desk.nameOfPane?.(this) ?? "", ...(k.kind === "alt-enter" ? { fresh: true } : {}) }, USER);
         return true;
       }
-      if (c === " ") { if (this.flat()[this.sel]) this.run(desk, "column.replies"); return true; }
+      if (c === " ") {
+        const fl = this.flat().length, r = this.linkList()[this.sel - fl];
+        if (this.sel >= fl && (r?.kind === "group" || r?.kind === "kind")) this.run(desk, "column.link", { n: this.sel - fl + 1 });
+        else if (this.flat()[this.sel]) this.run(desk, "column.replies");
+        return true;
+      }
       if (c === "s") { this.run(desk, "column.split"); return true; }
       if (c === "/") { this.mode = "filter"; this.input = new LineInput(filterText(this.filter)); desk.redraw(); return true; }
       if (c === "#") { this.tagChoices = followable(this.flat()[this.sel]?.m ?? (this.source.kind === "block" ? this.rootOf() ?? undefined : undefined)); this.mode = "tags"; desk.redraw(); return true; }
@@ -484,8 +549,9 @@ export class RiverColumn extends ReaderPane {
 
   // ── the mouse (every event inside the tile; x, y in it) ──
 
-  mouse(k: Extract<Key, { kind: "mouse" }>, x: number, y: number, desk: DeskApi): boolean {
+  mouse(k: Extract<Key, { kind: "mouse" }>, x: number, y: number, desk: DeskApi, press?: RowPress): boolean {
     this.desk = desk;
+    if (sideways(k)) return false;                                              // the flow's: its kind steps to the column beside
     if (this.surface.editing && this.surface.msg) {
       // In an edit: the surface's own (the cursor placed, a completion picked, a drag selecting in the draft).
       if (k.action === "down") { this.editDrag = this.surface.click(x, y, this.host(desk)); }
@@ -519,14 +585,18 @@ export class RiverColumn extends ReaderPane {
     if (k.action !== "down") return true;
     this.seen();
     const row = y >= this.headRows ? this.rows[y - this.headRows] : undefined;
+    if (row?.linksHead) { this.run(desk, "column.links"); return true; }
     const back = row?.history?.find(h => x >= h.from && x < h.to);
     if (back) { void desk.perform?.("tile.travel", { dir: back.dir < 0 ? "back" : "forward" }, USER, this); return true; }
     const link = row?.links?.find(l => x >= l.from && x < l.to);
-    // Only a click in the column that already had the keys opens a card: the first one only focuses.
-    const same = !this.justFocused && !!row && row.card >= 0 && this.sel === row.card;
+    // A card escalates as every list's row does (RowPresses): a click selects it, a double click or an alt-, ctrl- or
+    // middle-click opens it in the next column (⏎); the click that gave the column the keys only selects.
+    const g = row && row.card >= 0 && !link ? this.presses.press(row.card, { mods: k.mods ?? 0, button: k.button, focusing: press?.focusing ?? this.justFocused }) : "select";
+    const same = g === "open" || g === "fresh";
+    if (!(row && row.card >= 0 && !link)) this.presses.forget();                 // a press elsewhere: the next on a card starts afresh
     if (row && row.card >= 0 && !link) this.run(desk, "column.select", { n: row.card + 1, scroll: false });
     const fold = !link && row?.fold && x >= 1 && x <= row.fold.to ? row.fold.n : undefined;
-    this.down = { row, link: link?.link, ...(fold !== undefined ? { fold } : {}), same, dragging: false };
+    this.down = { row, link: link?.link, ...(fold !== undefined ? { fold } : {}), same, ...(g === "fresh" ? { fresh: true } : {}), dragging: false };
     if (row && row.card >= 0) this.gesture.forget();
     const n = this.gesture.press(x, y);
     const rows = this.drawn && rowsOf(this.drawn.lines);
@@ -549,6 +619,9 @@ export class RiverColumn extends ReaderPane {
     const m = this.flat()[row.card]?.m;
     if (m && row.replies) return this.run(desk, "column.replies", { id: m.id });
     if (m && d.same) void desk.perform?.("open", { id: m.id, from: desk.nameOfPane?.(this) ?? "" }, USER);
+    // A link row: the same escalation (a double click or a modifier click opens it in the next column).
+    const fl = this.flat().length;
+    if (!m && d.same && row.card >= fl) this.run(desk, "column.link", { n: row.card - fl + 1, ...(d.fresh ? { fresh: true } : {}) });
   }
 
   // ── the outline changed ──
@@ -571,14 +644,25 @@ export class RiverColumn extends ReaderPane {
 
   /** `column.select`: a card by id, the nth row, or rows from the selected one, as j k and a click do. */
   pick(to: { id?: string; n?: number; by?: number; scroll?: boolean }, desk: DeskApi, actor: Actor = USER): { selected: string; n: number } {
-    const rows = this.flat(), { id, n, by } = to;
-    if (!rows.length) throw new ActionRefused(`${this.titleOf()} lists nothing${this.filter.length ? " (it's filtered)" : ""}`);
+    const rows = this.flat(), links = this.linkList(), total = rows.length + links.length, { id, n, by } = to;
+    if (!total) throw new ActionRefused(`${this.titleOf()} lists nothing${this.filter.length ? " (it's filtered)" : ""}`);
+    // Its cards, then its links' rows (j k walk on into them).
     const i = id !== undefined ? rows.findIndex(r => r.m.id === id || (id.length >= 8 && r.m.id.startsWith(id)))
-      : n !== undefined ? (Number.isInteger(n) && n >= 1 && n <= rows.length ? n - 1 : -2)
-      : by !== undefined ? Math.max(0, Math.min(rows.length - 1, this.sel + Math.trunc(by)))
+      : n !== undefined ? (Number.isInteger(n) && n >= 1 && n <= total ? n - 1 : -2)
+      : by !== undefined ? Math.max(0, Math.min(total - 1, this.sel + Math.trunc(by)))
       : -3;
     if (i === -3) throw new ActionRefused("column.select needs id=, n= or by=");
-    if (i === -2) throw new ActionRefused(`${this.titleOf()} lists ${rows.length}; n is 1-${rows.length}`);
+    if (i === -2) throw new ActionRefused(`${this.titleOf()} lists ${total}; n is 1-${total}`);
+    if (i >= rows.length) {
+      this.sel = i;
+      if (to.scroll === false) this.shownSel = i;
+      if (!this.surface.editing) this.surface.clearLink();
+      const r = links[i - rows.length]!;
+      // The person's pick shows the row's note where the river's selection goes (a preview following it), read only.
+      if (actor.kind !== "agent" && desk.showFrom) void linkNote(r, desk.ctx.board, "show").then(({ note }) => { if (this.sel === i) desk.showFrom?.(this, note); }, () => {});
+      desk.redraw();
+      return { selected: r.key, n: i + 1 };
+    }
     if (i < 0) throw new ActionRefused(`${this.titleOf()} doesn't list ${id}${this.filter.length ? " (it's filtered)" : ""}`);
     this.sel = i;
     if (to.scroll === false) this.shownSel = i;              // already in view (a click): nothing scrolls
@@ -631,6 +715,7 @@ export class RiverColumn extends ReaderPane {
     return {
       ...super.describe(), title: this.titleOf(), source: this.source, filter: filterText(this.filter), listed: this.items ? this.listed() : null,
       selected: this.flat()[this.sel]?.m.id ?? null, note: note ? { id: note.id, title: subject(note) } : null,
+      ...(this.source.kind === "block" ? { noteLinks: { shown: this.linksShown, rows: this.linkList().map((r, j) => describeLinkRow(r, this.flat().length + j + 1, this.flat().length + j === this.sel)) } } : {}),
       ...(this.mode ? { typing: this.mode } : {}),
     };
   }
@@ -653,6 +738,20 @@ export const COLUMN_ACTIONS = actionSet<KindHost>()("river", {
       scroll: { type: "boolean", optional: true, about: "false leaves the column's scroll as it is (a click on a card in view)" },
     },
     run: ({ id, n, by, scroll }, { pane, desk, tile }, actor) => ({ tile, ...columnOf(pane).pick({ id, n, by, scroll }, desk, actor) }),
+  }),
+  "column.links": def({
+    summary: "show or hide a river column's links under its replies: its note's Outlinks, Resources and Backlinks, the links tile's rows (on=true or false, default toggles). Their rows follow the cards in column.select's n",
+    keys: "b, a click on the ── links header",
+    touches: "tile", replay: "safe", way: "an agent doesn't change what they're reading · peek reads the column's links, or act on another column",
+    args: { on: { type: "boolean", optional: true, about: "true shows, false hides; default toggles" } },
+    run: ({ on }, { pane, desk, tile }) => ({ tile, ...columnOf(pane).toggleLinks(on, desk) }),
+  }),
+  "column.link": def({
+    summary: "open link row n (from 1, counted from the first links row) of a river column in the next column, as ⏎ on it does (fresh=true: a new column, as alt+⏎); on a group's header it folds or opens the group. A Resource is registered if it must be and shown",
+    keys: "⏎ alt+⏎ space on a links row, a double click or an alt-, ctrl- or middle-click on one",
+    touches: "nothing", replay: "ask", says: () => "opened a link",
+    args: { n: { type: "number", about: "the links row, from 1" }, fresh: { type: "boolean", optional: true, about: "a new column, as alt+⏎" } },
+    run: async ({ n, fresh }, { pane, desk, tile }, actor) => ({ tile, ...(await columnOf(pane).openLink(n - 1, !!fresh, desk, actor)) }),
   }),
   "column.replies": def({
     summary: "show or hide a listed note's replies in place in a river column (the selected one, or id=; open= true or false, default toggles)", keys: "space, a click on » replies",
@@ -732,6 +831,8 @@ export function riverColumnKind(): TileKind {
     start: (p, env) => (p as RiverColumn).load(env.desk),
     actions: COLUMN_ACTIONS,
     press: (_p, k) => FLOW_KEYS[keyName(k) ?? ""] ?? null,
+    // A swipe sideways steps to the column beside, as h and l do.
+    sideways: (_p, dir) => FLOW_KEYS[dir < 0 ? "left" : "right"] ?? null,
     accepts: { notes: true },
     take: (p, m, desk) => { const c = p as RiverColumn; if (c.holdsKeys || c.editing) return "holds an edit or a comment"; c.hold(m, desk); return null; },
     holdsWork: p => (p as RiverColumn).unsaved() || (p as RiverColumn).editing,

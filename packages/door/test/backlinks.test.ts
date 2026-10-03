@@ -265,18 +265,21 @@ describe.skipIf(!outliner)("the board's backlinks drawer: Detail's facets and de
     const p = peek();
     expect(p.faceted).toBe(true);
     expect(p.status).toBe("7 of 9 match · 1 this note hidden · 1 resolved hidden · Kind: all · Stage: all · Sort: Updated ↓");
-    expect(p.rows.map((r: any) => r.text.split(" — ")[0])).toEqual([
-      "+ Outbox item 4 (1 waiting · 1 draft · 2 done)", "Offer spare onion sets", "Ask Ana about bean seed",   // open first, then updated ↓
-      ...p.rows.slice(3).map((r: any) => r.text.split(" — ")[0]),
+    // The links model's groups: no outlinks or resources here, so Backlinks alone, Detail's kind groups under it.
+    expect(p.rows.map((r: any) => r.text)).toEqual([
+      "← backlinks (7)", "Outbox item 4", "Offer spare onion sets", "Ask Ana about bean seed",   // open first, then updated ↓
+      ...p.rows.slice(4).map((r: any) => r.text),
     ]);
-    expect(p.rows.slice(3).every((r: any) => r.group)).toBe(true);                 // the other groups, folded (nothing open in them)
+    expect(p.rows[1].context).toBe("(1 waiting · 1 draft · 2 done)");
+    expect(p.rows.slice(4).every((r: any) => r.kind === "kind" && r.open === false)).toBe(true);   // the other kinds, folded (nothing open in them)
     expect(p.rows.find((r: any) => r.selected).id).toBe(ids.draft);               // the first source, not a header
     const lines = drawer();
     expect(lines[0]).toBe(p.status);
     // One line per row, the breadcrumb and reference suffix on the same line.
-    expect(lines[1]).toContain("+ Outbox item 4 (1 waiting · 1 draft · 2 done)");
-    expect(lines[2]).toMatch(/^ {3}Offer spare onion sets — draft · .*block reference ×1/);
-    expect(lines[3]).toMatch(/^ {3}Ask Ana about bean seed — waiting/);
+    expect(lines[1]).toContain("▾ ← backlinks (7)");
+    expect(lines[2]).toContain("  + Outbox item 4 (1 waiting · 1 draft · 2 done)");
+    expect(lines[3]).toMatch(/^ {4}← Offer spare onion sets — draft · .*block reference ×1/);
+    expect(lines[4]).toMatch(/^ {4}← Ask Ana about bean seed — waiting/);
     await until(() => B().linksPreview.msg?.id === ids.draft, "the preview on the selected source");
   }, 20_000);
 
@@ -380,6 +383,10 @@ describe.skipIf(!outliner)("the board's backlinks drawer: Detail's facets and de
     expect(peek().groups.find((g: any) => g.kind === "comment").expanded).toBe(true);
     clickText("backlinks", "− Comment 1");
     expect(peek().groups.find((g: any) => g.kind === "comment").expanded).toBe(false);
+    // A click on a row selects it and shows it (as j k); a double click opens it (⏎).
+    clickText("backlinks", "Offer spare onion sets");
+    await until(() => B().linksPreview.msg?.id === ids.draft, "the clicked row in the preview");
+    expect(B().details.length).toBe(0);
     clickText("backlinks", "Offer spare onion sets");
     await until(() => B().details[0]?.msg?.id === ids.draft, "the source in a detail");
     expect(BV.where(b)).toBe("detail0");
@@ -389,6 +396,29 @@ describe.skipIf(!outliner)("the board's backlinks drawer: Detail's facets and de
     await until(() => B().linksPreview.msg?.id === ids.waiting, "the preview");
     key({ kind: "alt-enter" });
     await until(() => B().details.length === 2 && B().details.some((d: any) => d.msg?.id === ids.waiting), "a second detail");
+  }, 20_000);
+
+  test("a click into the drawer while the lanes have the keys only focuses it and selects the row: it never opens one; a modifier or middle click opens a new detail", async () => {
+    await openDrawer();
+    BV.at(b, "lanes");
+    expect(BV.where(b)).toBe("lanes");
+    const press = (text: string, more: Record<string, unknown> = {}) => {
+      const r = rect("backlinks"), lines = frame();
+      for (let y = r.row; y < r.row + r.rows; y++) { const x = lines[y]!.indexOf(text, r.col); if (x >= 0 && x < r.col + r.cols) { key({ kind: "mouse", action: "down", button: 0, x: x + 1, y, ...more } as Key); key({ kind: "mouse", action: "up", button: 0, x: x + 1, y, ...more } as Key); return; } }
+      throw new Error(`"${text}" isn't drawn`);
+    };
+    press("Ask Ana about bean seed");
+    expect(BV.where(b)).toBe("backlinks");
+    await until(() => B().linksPreview.msg?.id === ids.waiting, "the row shown in the drawer's preview");
+    await Bun.sleep(150);
+    expect(B().details.length).toBe(0);                                       // the bug: a first click opened a detail
+    await Bun.sleep(450);                                                     // apart: two single clicks, not a double
+    press("Offer spare onion sets", { mods: 8 });                             // alt-click: alt+⏎, a new detail
+    await until(() => B().details.some((d: any) => d.msg?.id === ids.draft), "a detail from an alt-click");
+    BV.at(b, "backlinks");
+    await Bun.sleep(450);
+    press("Ask Ana about bean seed", { button: 1 });                          // middle click: the same
+    await until(() => B().details.some((d: any) => d.msg?.id === ids.waiting), "a detail from a middle click");
   }, 20_000);
 
   test("an agent reads the same view with its own options and changes none of the person's; the person's act sets theirs", async () => {

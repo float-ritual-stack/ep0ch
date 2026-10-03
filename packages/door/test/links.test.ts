@@ -222,6 +222,10 @@ describe.skipIf(!outliner)("clicking links and backlinks opens them, against a s
     await until(() => !!B().linksTile.data?.sources.length, "the backlinks");
     // Grouped as Detail groups them (PIE-442): a note isn't an open item, so its group opens first.
     click(where(frame(), "+ Note 1", rect("backlinks")));
+    // A click selects it (the preview shows it); a double click opens it, as ⏎.
+    click(where(frame(), "Sunday list", rect("backlinks")));
+    await whole(B().linksPreview, n.sunday.id);
+    expect(B().details.length).toBe(0);
     click(where(frame(), "Sunday list", rect("backlinks")));
     await until(() => B().details[0]?.msg?.id === n.sunday.id, "the source in a detail");
     expect(BV.where(b)).toBe("detail0");
@@ -235,7 +239,7 @@ describe.skipIf(!outliner)("clicking links and backlinks opens them, against a s
     expect(B().linksPreview.msg.id).toBe(n.sunday.id);
   }, 20_000);
 
-  test("only the backlinks rows drawn are clickable: not the frame, the status line, nor the spare rows under the last source", async () => {
+  test("only the links rows drawn are clickable: not the frame, the status line, nor the spare rows under the last source", async () => {
     await fresh();
     key(char("b"));
     await until(() => !!B().linksTile.data?.sources.length, "the backlinks");
@@ -252,14 +256,17 @@ describe.skipIf(!outliner)("clicking links and backlinks opens them, against a s
     await Bun.sleep(50);
     expect(L.sel).toBe(0);
     expect(B().details.length).toBe(0);
-    click({ x: r.col + 3, y: r.row + head + fit });                            // the last source drawn opens
+    click({ x: r.col + 3, y: r.row + head + fit });                            // the last source drawn: a double click opens it
+    click({ x: r.col + 3, y: r.row + head + fit });
     expect(L.sel).toBe(fit - 1);
     await until(() => B().details[0]?.msg?.id === one.blockId, "the source in a detail");
     // A short list leaves spare rows under it: a click there does nothing.
     L.data = { ...L.data, sources: L.data.sources.slice(0, 2) };
     BV.at(b, "backlinks"); L.sel = 0; L.top = 0;
     const before = B().details.length;
-    click({ x: r.col + 3, y: r.row + head + 3 });
+    const under = r.row + head + L.rows().length + 1;                           // under the last row drawn
+    click({ x: r.col + 3, y: under });
+    click({ x: r.col + 3, y: under });
     await Bun.sleep(50);
     expect(L.sel).toBe(0);
     expect(B().details.length).toBe(before);
