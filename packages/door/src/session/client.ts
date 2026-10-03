@@ -357,8 +357,13 @@ export async function upgradeSession(place: Place, o: { clients?: boolean; hando
   if (r?.t !== "ask" || r.message !== "handed over") return { ok: false, message: `${name}: ${r?.t === "ask" ? r.message : "the session didn't answer the handoff"}` };
   const after = await sessionInfo(path);
   const progs = before.terminals.length, n = before.clients.length;
-  return { ok: true, message: `${name}: the session was handed over: pid ${before.pid} → ${after?.pid ?? "?"}, code ${before.code.commit?.slice(0, 9) ?? "?"} → ${after?.code.commit?.slice(0, 9) ?? "?"} · ${progs} program${progs === 1 ? "" : "s"} kept running · ${n} terminal${n === 1 ? "" : "s"} attaching again`,
-    handover: { name, pid: [before.pid, after?.pid ?? null], code: [before.code.commit ?? null, after?.code.commit ?? null], programs: progs, terminals: n } };
+  const handover: Handover = { name, pid: [before.pid, after?.pid ?? null], code: [before.code.commit ?? null, after?.code.commit ?? null], programs: progs, terminals: n };
+  return { ok: true, message: handoverMessage(handover), handover };
+}
+
+/** A handover as one sentence (`session upgrade`, install's --json); install's terminal shows it as a table row. */
+export function handoverMessage(h: Handover): string {
+  return `${h.name}: the session was handed over: pid ${h.pid[0]} → ${h.pid[1] ?? "?"}, code ${h.code[0]?.slice(0, 9) ?? "?"} → ${h.code[1]?.slice(0, 9) ?? "?"} · ${h.programs} program${h.programs === 1 ? "" : "s"} kept running · ${h.terminals} terminal${h.terminals === 1 ? "" : "s"} attaching again`;
 }
 
 /**

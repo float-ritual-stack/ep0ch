@@ -1,7 +1,7 @@
 // `ep0ch doctor`: every piece of the stack, its state (✓ current, ! behind, ✗ missing, · for information)
 // and the exact command that fixes it. Read-only; built from the facts (model.ts) so tests describe machines.
 import { basename, dirname } from "node:path";
-import { lnCommand, sh } from "./links";
+import { byFolder, lnCommand, sh } from "./links";
 import { clauses } from "./progress";
 import { PROTOCOL } from "@ep0ch/outline-core/protocol";
 import { DOCK_TILE_ID } from "../desk/agent-env";
@@ -132,9 +132,7 @@ export function skillChecks(f: Facts): Check[] {
   const out: Check[] = [];
   const add = (name: string, status: CheckStatus, detail: string, fix?: string) => out.push({ group: "skills", name, status, detail, ...(fix ? { fix } : {}) });
   // The links already this checkout's: one line per folder, by name (the folder is the line's name).
-  const ok = new Map<string, string[]>();
-  for (const l of f.skills.links) if (l.state === "ours") ok.set(dirname(l.dest), [...(ok.get(dirname(l.dest)) ?? []), basename(l.dest)]);
-  for (const [dir, names] of ok) add(`${basename(dirname(dir))}/${basename(dir)}`, "ok", `${names.length} linked into this checkout: ${names.join(" · ")}`);
+  for (const [dir, names] of byFolder(f.skills.links.filter(l => l.state === "ours").map(l => l.dest))) add(`${basename(dirname(dir))}/${basename(dir)}`, "ok", `${names.length} linked into this checkout: ${names.join(" · ")}`);
   for (const l of f.skills.links) {
     const name = basename(l.dest);
     if (l.state === "ours") continue;

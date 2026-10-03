@@ -4,7 +4,7 @@
 import { Database } from "bun:sqlite";
 import { chmodSync, existsSync, lstatSync, mkdirSync, rmSync, statSync, symlinkSync, unlinkSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, dirname, join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { formatDoctor, doctorReport } from "./doctor";
 import { depsState, gatherFacts, hostFacts, type OnLine, pluginCode, pluginFacts, run, stopRunning, unitState } from "./facts";
 import { clauses, Progress, progressMode, size, table, type Task, type Terminal } from "./progress";
@@ -12,7 +12,7 @@ import { type Facts, PLUGIN_SOURCE, short, staleness } from "./model";
 import { backupDirOf, buildPlan, hostMainOf, hostStep, hostUnitArgv, hostUnitCommand, type Plan, type PlanOptions, repoStep, sessionName, sessionVerdict, type Step, type StepStatus } from "./plan";
 import { hostLive } from "../discover";
 import type { Handover } from "../session/client";
-import { applyLinks, LinkFailed, type LinkWork } from "./links";
+import { applyLinks, byFolder, LinkFailed, type LinkWork } from "./links";
 
 type Env = Record<string, string | undefined>;
 export const SETUP_USAGE = "ep0ch doctor [--json] | ep0ch install [--apply] [--json]";
@@ -100,12 +100,8 @@ export function handoverLines(hs: readonly Handover[]): string[] {
 
 /** Links made, replaced and taken away, one line per folder and kind: `✓ linked in ~/.claude/skills/: a · b`. */
 export function linkSummary(w: LinkWork): string[] {
-  const by = new Map<string, string[]>();
-  const add = (what: string, dest: string) => { const k = `${what} ${dirname(dest)}/`; by.set(k, [...(by.get(k) ?? []), basename(dest)]); };
-  for (const d of w.remove) add("took away (their files are gone) in", d);
-  for (const l of w.replace) add("replaced another checkout's in", l.dest);
-  for (const l of w.make) add("linked in", l.dest);
-  return [...by].map(([k, names]) => `    ✓ ${k}: ${names.join(" · ")}`);
+  const kinds: [string, string[]][] = [["took away (their files are gone) in", w.remove], ["replaced another checkout's in", w.replace.map(l => l.dest)], ["linked in", w.make.map(l => l.dest)]];
+  return kinds.flatMap(([what, dests]) => [...byFolder(dests)].map(([dir, names]) => `    ✓ ${what} ${dir}/: ${names.join(" · ")}`));
 }
 
 class StepFailed extends Error { constructor(message: string, readonly recover: string) { super(message); } }

@@ -8,7 +8,7 @@
 //   - what it made is recorded (`install-links.json` in the door's state), so the folders it linked into are looked
 //     in again for stale links after the last thing linking there is gone (or the folder stopped being one it links into).
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, renameSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 
 /** What's at a link's place: nothing, this link, another checkout's copy (replaced), or anything else (left alone). */
 export type LinkState = "missing" | "ours" | "replace" | "taken";
@@ -112,6 +112,13 @@ export function linkCommands(w: LinkWork, gone = "its file is gone"): string[] {
 export function linkCounts(w: LinkWork): string {
   return [w.make.length ? `${w.make.length} to link` : "", w.replace.length ? `${w.replace.length} to replace (another checkout's)` : "",
     w.remove.length ? `${w.remove.length} stale to take away` : ""].filter(Boolean).join(", ");
+}
+
+/** Paths grouped by their folder, in order: each folder with its entries' names (`~/.claude/skills` → ep0ch, ep0ch-core). */
+export function byFolder(paths: readonly string[]): Map<string, string[]> {
+  const out = new Map<string, string[]>();
+  for (const p of paths) out.set(dirname(p), [...(out.get(dirname(p)) ?? []), basename(p)]);
+  return out;
 }
 
 /** A link that couldn't be made: what happened, and the command that does it by hand. */

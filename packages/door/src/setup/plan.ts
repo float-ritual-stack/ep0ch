@@ -317,7 +317,7 @@ export const sessionName = (s: SessionFact) => `${s.outline}${s.machine ? ` on $
 export interface SessionVerdict {
   status: "do" | "skip";
   why: string;
-  /** The same without the session's name and pid, for a line that already shows them (doctor's). */
+  /** `why` without the session's name and pid, for a line that already shows them (doctor's). */
   brief: string;
   /** do: the commit the session is handed to. */
   target?: string | null;
@@ -325,15 +325,15 @@ export interface SessionVerdict {
 
 export function sessionVerdict(s: SessionFact, f: Facts, repo: Pick<Step, "status">): SessionVerdict {
   const c = f.repo.checkout, who = `${sessionName(s)} (pid ${s.pid})`;
-  if (resolve(s.dir) !== resolve(f.repo.door)) return { status: "skip", why: `${who} runs another checkout's door, ${s.dir}; run install from that one`, brief: `runs another checkout's door, ${s.dir}; run install from that one` };
+  const verdict = (status: "do" | "skip", brief: string, target?: string | null): SessionVerdict => ({ status, why: `${who} ${brief}`, brief, ...(target !== undefined ? { target } : {}) });
+  if (resolve(s.dir) !== resolve(f.repo.door)) return verdict("skip", `runs another checkout's door, ${s.dir}; run install from that one`);
   // A checkout left for the person (another branch, a detached HEAD, diverged, local changes in the way) isn't code to
   // hand the session to.
-  if (repo.status === "manual" || c.branch !== "main") return { status: "skip", why: `the ep0ch checkout is left for you (not main, or not fast-forwardable), so ${who} stays on ${short(s.commit)}`, brief: `stays on ${short(s.commit)}: the ep0ch checkout is left for you (not main, or not fast-forwardable)` };
+  if (repo.status === "manual" || c.branch !== "main") return verdict("skip", `stays on ${short(s.commit)}: the ep0ch checkout is left for you (not main, or not fast-forwardable)`);
   const updates = repo.status === "do" && c.behind > 0;
   const target = updates ? c.upstream : c.head;
-  if (s.commit && s.commit === target) return { status: "skip", why: `${who} runs the current code (${short(s.commit)})`, brief: `runs the current code (${short(s.commit)})` };
-  return { status: "do", target, why: `${who} runs ${short(s.commit)}, the checkout ${updates ? "will be" : "is"} at ${short(target)}: a new daemon on that code takes it over; its ${s.programs} program${s.programs === 1 ? "" : "s"} keep running and its ${s.clients} terminal${s.clients === 1 ? "" : "s"} attach again`,
-    brief: `runs ${short(s.commit)}; the checkout ${updates ? "will be" : "is"} at ${short(target)}` };
+  if (s.commit && s.commit === target) return verdict("skip", `runs the current code (${short(s.commit)})`);
+  return verdict("do", `runs ${short(s.commit)}, the checkout ${updates ? "will be" : "is"} at ${short(target)}: a new daemon on that code takes it over; its ${s.programs} program${s.programs === 1 ? "" : "s"} keep running and its ${s.clients} terminal${s.clients === 1 ? "" : "s"} attach again`, target);
 }
 
 /**
