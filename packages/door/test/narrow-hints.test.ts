@@ -128,8 +128,8 @@ describe.skipIf(!outliner)("hint rows at 120 columns", () => {
     key(ctrl("w")); key(char("f"));
     expect(d.layoutGet().floats.map((f: any) => f.tile)).toEqual(["side"]);
     const frame = lines().join("\n");
-    expect(frame).toContain("^W f dock");
-    expect(frame).not.toContain("o dock");
+    expect(frame).toContain("^W f back in");
+    expect(frame).not.toContain("o back in");
     key(ctrl("w")); key(char("f"));
     expect(d.layoutGet().floats).toEqual([]);
   });

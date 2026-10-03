@@ -23,6 +23,8 @@ import { groundSeq, setTheme as useTheme, theme, type ThemeName } from "./theme"
 import { writeState } from "./state";
 import { AgentDock, DOCK_ACTIONS, DOCK_TILE_ID, HOST_AGENT_TILE, HOST_TILE_ACTIONS, overlay, type DockRun } from "./dock";
 import type { HostMode } from "./desk/screen-layout";
+import type { Desk } from "./desk/desk";
+import type { TileDone, Where } from "./desk/tile-actions";
 import type { HomeChoice } from "./home";
 
 /** Changes whose record names the one block they touched (a move or trash carries a subtree). */
@@ -48,8 +50,22 @@ export type AppTerm = Pick<Term, "info" | "write" | "onKey" | "onResize" | "inva
 
 export type { Video };
 
+/** The host layer's dock as a screen's tiles reach it (PIE-498): `host.dock` moves a tile in or out through it. */
+export interface HostLayer {
+  /** `d` is the dock's own desk (its tiles, the drawer's tabs). */
+  isDock(d: unknown): boolean;
+  /** Tile `name` of screen `from` into the dock, whole. */
+  dock(from: Desk, name: string, actor: Actor): TileDone;
+  /** The docked tile the dock shows now (not its own tab), or null. */
+  shownTab(): string | null;
+  /** Docked tile `name` back into the screen shown, beside `to` (where). */
+  undock(name: string, to: string | undefined, where: Where | undefined, actor: Actor): TileDone;
+}
+
 export interface Ctx {
   t: TermInfo;
+  /** The host layer's dock, where a tile goes to travel across screens (absent: none here). */
+  readonly hostLayer?: HostLayer;
   /** "What changed" includes extension writes (`changes.extensions`); off by default. */
   extensionChanges?: boolean;
   /** Extension writes since logon, counted apart from `events`. */
@@ -185,13 +201,15 @@ export interface Screen {
   viewState?(): ViewState;
   /** The edits open here, by tile: what a session's next daemon opens again after a handoff (src/session/restore.ts). */
   reopen?(): { action: string; tile: string; args?: Record<string, unknown> }[];
-  /** No agent drawer and no chip here (the logon, the logoff: the person isn't in yet, or is leaving). */
+  /** No dock and no chip here (the logon, the logoff: the person isn't in yet, or is leaving). */
   noDock?: boolean;
   /**
-   * Where the host layer (the agent drawer) may appear over this screen, as its spec says (PIE-513, its policy's
+   * Where the host layer (the dock) may appear over this screen, as its spec says (PIE-513, its policy's
    * `host`): `over` it (the default), `beside` it (the screen drawn shorter), or `none` (it keeps the whole screen).
    */
   hostMode?(): HostMode;
+  /** The tiles shown here, when they're a desk inside this screen (the showcase's stage): where an undocked tile lands. */
+  tilesHere?(): Desk | undefined;
 }
 
 /**
@@ -218,6 +236,8 @@ export function agentActor(as?: string): Actor {
 }
 
 export class App implements Ctx {
+  /** The host layer's dock, as a screen's tiles reach it (`host.dock`). */
+  get hostLayer(): HostLayer { return this.dock; }
   private stack: Screen[] = [];
   /** Where frames go: this terminal (a Painter over it), or every client of a session (src/session/). */
   private readonly display: Display;
@@ -257,12 +277,12 @@ export class App implements Ctx {
     this.display = isDisplay(term) ? term : new Painter(term as RawTerm);
     this.ground();
     // The host layer (PIE-513): above every screen, kept across switches; the agent is its drawer's first tab.
-    this.dock = new AgentDock({ redraw: () => this.redraw(), statusChanged: () => this.statusChanged(), flash: (m, ms) => this.flash(m, ms), screen: () => this.stack.at(-1), person: () => this.person() });
+    this.dock = new AgentDock({ redraw: () => this.redraw(), statusChanged: () => this.statusChanged(), flash: (m, ms) => this.flash(m, ms), screen: () => this.stack.at(-1), person: () => this.person(), ctx: () => this });
     // The drawer's keys and clicks run the host layer's actions as the person, through the App's dispatcher.
     this.dockRun = (name, args) => { void this.dispatch.pressIn(DOCK_ACTIONS, name, args); };
     term.onKey(k => this.key(k));
     term.onBatch?.(run => this.batched(run));
-    // Raw input while the person types in the agent drawer or a terminal tile: the drawer first, then the
+    // Raw input while the person types in the dock or a terminal tile: the drawer first, then the
     // screen says where it goes (Term keeps mouse and ctrl+]).
     (term as { rawSink?: unknown }).rawSink = () => this.dock.rawInput(this.dockRun) ?? this.stack.at(-1)?.rawInput?.() ?? null;
     connectFigures(board, () => this.redraw());
@@ -530,7 +550,9 @@ export class App implements Ctx {
    */
   readonly dispatch: Dispatcher = new Dispatcher({ title: "door", ctx: () => this }, [
     { set: HOST_TILE_ACTIONS, takes: "screen", claims: req => req.action === "tile.herdr" && req.tile === DOCK_TILE_ID, on: () => ({ dock: this.dock }) },
-    { set: DOCK_ACTIONS, takes: "none", fixed: () => HOST_AGENT_TILE, on: (_, how) => ({ dock: this.dock, ctx: how.ctx, here: this.stack.at(-1) }) },
+    { set: DOCK_ACTIONS, takes: "none", fixed: () => ({ ...HOST_AGENT_TILE, label: `${this.dock.name} in the dock` }), on: (_, how) => ({ dock: this.dock, ctx: how.ctx, here: this.stack.at(-1) }) },
+    // A tile the screen shown doesn't have but the dock does (tile=, PIE-498): the dock's desk answers it.
+    { claims: req => this.dock.routes(req, this.stack.at(-1)), delegate: () => this.dock.desk?.dispatch, listed: false },
     { set: SHELL_ACTIONS, takes: "none", claims: req => SHELL_ACTIONS.has(req.action) && !this.stack.at(-1)?.dispatch?.has(req.action), on: (_, how) => ({ ctx: how.ctx, here: this.stack.at(-1), again: (name: string, args: Record<string, unknown>) => this.dispatch.act({ action: name, args }, how.actor) }) },
     { set: EXT_ACTIONS, takes: "none", claims: req => EXT_ACTIONS.has(req.action) && !(!!this.stack.at(-1)?.dispatch?.has(req.action) && (req.tile !== undefined || req.args?.block === undefined)), on: (_, how) => ({ ctx: how.ctx }) },
     { delegate: () => this.stack.at(-1)?.dispatch },
@@ -620,7 +642,7 @@ export class App implements Ctx {
         return;
       }
     }
-    // The agent drawer first (PIE-498): its keys while the person is in it, alt+a anywhere, its chip and its rows.
+    // The dock first (PIE-498): its keys while the person is in it, alt+a anywhere, its chip and its rows.
     if (this.dock.key(k, this.stack.at(-1), this.term.info.rows, this.dockRun)) return;
     // alt+v and alt+t turn the video mode and the theme on every screen (but in a terminal tile, whose keys are its program's).
     if (k.kind === "alt" && (k.ch === "v" || k.ch === "t") && !this.stack.at(-1)?.rawKeys?.()) { void this.dispatch.press(k.ch === "v" ? "video.cycle" : "theme.cycle"); return; }
@@ -651,7 +673,7 @@ export class App implements Ctx {
 
   /**
    * A Mac terminal that types Option as characters sends ¬ for alt+l. Where nobody is typing text (no edit,
-   * filter, panel, terminal tile or the agent drawer holds the keys), such a character is the alt key it
+   * filter, panel, terminal tile or the dock holds the keys), such a character is the alt key it
    * stands for, and the first one says once which terminal setting sends alt itself. In text it stays what
    * was typed (façade, µm). Only on a US-like keyboard (optionKeysOn: by the locale, or EP0CH_OPTION_KEYS).
    */
@@ -747,7 +769,7 @@ export class App implements Ctx {
     const s = this.stack.at(-1);
     if (!s) return;
     const { cols, rows } = this.term.info;
-    // The agent drawer (the host layer's, PIE-513) is laid over the screen's bottom rows: over one, the screen drew at
+    // The dock (the host layer's, PIE-513) is laid over the screen's bottom rows: over one, the screen drew at
     // its full size under it; beside one, the screen drew in the rows above it (App.t).
     this.dock.active = !s.noDock;
     const frame = s.render(this);
@@ -757,9 +779,9 @@ export class App implements Ctx {
     if (this.dock.shown) {
       const d = this.dock.render(cols, rows, s.title);
       lines = overlay(lines, d);
-      // Images under the drawer would show through it.
-      placements = placements.filter(p => p.row + p.rows <= d.rect.row);
-    } else this.dock.rect = null;
+      // Images under the drawer would show through it; the dock's tiles' own are drawn in it.
+      placements = [...placements.filter(p => p.row + p.rows <= d.rect.row), ...(this.graphics ? d.placements : [])];
+    } else { this.dock.rect = null; this.dock.desk?.shownAs(false); }
     if (this.toast) lines = withToast(lines, this.toast.text, cols);
     lines.push(this.statusBar(s, cols));
     // The display draws it in its video mode (CP437 and the tube under kitty+crt; a terminal tile's program output too).

@@ -1,53 +1,86 @@
-// The host layer (PIE-513; the dock's first slice was PIE-498): what stays with the person on every screen, above
-// the screen layer that is swapped per screen. It is a layout on the one layout engine (`hostLayer` in
-// src/desk/screen-layout.ts): a slot for whatever screen is shown, beside a real drawer of tabs whose first tab is
-// the agent, one terminal tile (`PtyPane`, the terminal tile's own code) that belongs to the App, not to a screen.
-// It runs what `dailyAgent()` says (the Herdr launcher on float-2, so the agent lives in a Herdr pane and outlives
-// the door), and it starts the first time it's pulled up. A chip on the status bar (`▲ claude`) pulls the drawer
-// up. Where it appears is the screen's to say (its policy's `host`): `over` its lower rows, the screen drawn at
-// its full size under it (the default); `beside` it, the screen drawn shorter (the daily desk); or `none`.
+// The host layer and its dock (PIE-513; PIE-498): what stays with the person on every screen, above the screen layer
+// that is swapped per screen. It is a layout on the one layout engine (`hostLayer` in src/desk/screen-layout.ts): a
+// slot for whatever screen is shown, beside a drawer. The drawer is the dock: it holds tiles that belong to the App,
+// not to a screen, as tabs, and they travel with the person across screens. Its first tab is the dock's own program
+// (`dockProgram`, src/desk/dock-program.ts: EP0CH_DAILY_AGENT, else a shell, in the folder that rule names); any tile
+// joins it (`host.dock`, ^W a, a drag onto the chip or the drawer) and leaves it into the screen shown the same ways.
+// A tile moved in or out is the same tile: its program runs on (a session's terminal host keeps it under the key it
+// started with, `PtyPane.keptKey`), its note, history and draft stay.
 //
-// A tile has one home: the agent lives here, and no screen has a copy of it (the daily layout has no agent tile). One door never attaches to the
-// Herdr pane twice. The person's keys move through the host layer's own transitions: pulled up by the person,
-// they go to the agent; put away (or ctrl+]), back to the screen slot, where the screen's own focus is exactly
-// as they left it. An agent's pull never takes them.
+// The dock's tiles live on one desk of their own (`hostSpec`: a tab set on the one screen host, saved in
+// dock-tiles.json in the outline's folder of the state dir), so a docked reader edits, a docked tree opens, a docked
+// terminal types exactly as on any screen: no second tile host. The host layer places that desk; its drawer is the
+// only drawer the dock has. A chip on the status bar (`▲ claude`, `▲ shell +2`) pulls it up. Where it appears is the
+// screen's to say (its policy's `host`): `over` its lower rows (the default), `beside` it (the screen drawn shorter),
+// or `none`.
 //
-// Everything is an action (`DOCK_ACTIONS`: `host.toggle`, `host.size`, `host.enter`, `host.leave`; and the agent's own `agent.type`, `agent.knows`,
-// `agent.restart`): the
-// chip's click, alt+a, Esc, the drawer's dragged top edge, alt+A, the chip's ⟳ and alt+R call them, and so does an
-// agent over `act`. An agent may pull it up
-// only under the actor rule for what changes the person's screen (`touches: "screen"`, PIE-514: never while the
-// person types, never within 2s of their last key), it's said on the status bar and in the drawer's title, and an
-// agent never enters it: its keys stay where they were. Whether it's open and how tall is saved in the door's state (dock.json), so it's still
-// there after a screen switch and after a restart; with Herdr it's the same session everywhere.
+// The person's keys move through the host layer's own transitions: pulled up by the person, they go to the dock's tab
+// shown; put away (or ctrl+]), back to the screen slot, where the screen's own focus is exactly as they left it. An
+// agent's pull never takes them.
 //
-// The chip also says what the agent knows (src/desk/agent-env.ts): `door tools` when it started in a door (a mod
-// changed since reloads into it live); `started before update ⟳` when an older door started it without some of
-// the door's variables, or `no door tools ⟳`, read from the agent process's own environment (in Herdr: the
-// pane's process). ⟳ restarts it, keeping
-// the conversation; an agent's restart waits until the person isn't typing in it.
+// Everything is an action (`DOCK_ACTIONS`: `host.toggle`, `host.size`, `host.enter`, `host.leave`; `host.dock` is a
+// tile action on every screen and in the dock; and the dock's own program's `agent.type`, `agent.knows`,
+// `agent.restart`). An agent may pull it up only under the actor rule for what changes the person's screen
+// (`touches: "screen"`, PIE-514), it's said on the status bar and in the drawer's title, and an agent never enters it.
+// Whether it's open and how tall is saved in dock.json, so it's still there after a screen switch and a restart.
+//
+// The chip also says what the dock's agent knows (src/desk/agent-env.ts): `door tools`, or `started before update ⟳`
+// / `no door tools ⟳` (⟳ restarts it, keeping the conversation).
 import type { Ctx, Screen } from "./app";
 import { Canvas, type Rect } from "./canvas";
 import { agentConfig, herdrBin, herdrRunner, WATCH_TITLE, type HerdrRun } from "./desk/herdr-agent";
-import { DOCK_NAME, DOCK_TILE_ID, judgeAgent, knowsLabel, modDirs, modStamp, readAgent, RESTART_GLYPH, type AgentKnows } from "./desk/agent-env";
+import { DOCK_TILE_ID, judgeAgent, knowsLabel, modDirs, modStamp, readAgent, RESTART_GLYPH, type AgentKnows } from "./desk/agent-env";
 import { alive } from "./state";
 import { controlPath } from "./control";
-import type { DeskApi } from "./desk/panes";
-import { ESCAPE_CHORD, isEscapeChord, PtyPane } from "./desk/pty";
+import { ESCAPE_CHORD, isEscapeChord, PtyPane, type PtySpec } from "./desk/pty";
 import { rawKey } from "./kbd";
-import { dailyAgent } from "./desk/tiles";
-import { apply as applyLayout, shown as shownTiles, hostDrawer, hostLayer, HOST_SCREEN, placeHost, type Ctx as LayoutCtx, type HostMode, type LayoutState, type Op, type TileFacts } from "./desk/screen-layout";
+import { dockProgram, type DockProgram } from "./desk/dock-program";
+import { Desk, type MovedTile } from "./desk/desk";
+import type { ScreenSpec } from "./desk/screen-spec";
+import type { TileDone, Where } from "./desk/tile-actions";
+import { kindOf, registerTileKind, tileKind, UnavailableTile } from "./desk/tile-kinds";
+import { PTY_ACTIONS } from "./desk/pty-actions";
+import { apply as applyLayout, hostDrawer, hostLayer, HOST_SCREEN, placeHost, type Ctx as LayoutCtx, type HostMode, type LayoutState, type Op, type TileFacts } from "./desk/screen-layout";
 import { readState, writeState } from "./state";
 import { USER, type Actor } from "./socket";
-import { ActionRefused, actionSet, def, agentLabel } from "./surface/actions";
+import { ActionRefused, actionSet, def, agentLabel, type ActRequest } from "./surface/actions";
 import { actorRule, type TileRef } from "./surface/dispatch";
 import { HOST_AGENT, type Whereabouts } from "./whereabouts";
-import { bg, C, fg, RESET } from "./style";
-import type { Key } from "./term";
+import { bg, C, chip as chipStyle, fg, pad, RESET, width } from "./style";
+import { ch, type Key } from "./term";
+import type { Placement } from "./kitty";
 
-/** The dock agent's tile id and name: what `EP0CH_TILE_ID` and `EP0CH_TILE` tell its program (never a desk id, `t<n>`). */
+/** The dock's own tile's id and name (`dock.agent`): what `EP0CH_TILE_ID` tells its program (never a desk id, `t<n>`). */
 export { DOCK_TILE_ID };
-export { DOCK_NAME };
+/** The host layer's drawer holds the dock's desk: one leaf, its tiles the drawer's tabs. */
+export const HOST_TILES = "dock.tiles";
+/** The dock's own tile's kind: a terminal the dock owns (EP0CH_DAILY_AGENT, else a shell), its first tab, never closed or moved out. */
+export const DOCK_KIND = "dock.own";
+/** The dock's desk as a screen spec: one tab set, the dock's own tile first; what's docked joins it as tabs. */
+export function hostSpec(persist = true): ScreenSpec {
+  return {
+    name: "dock", title: "dock", digits: false, ...(persist ? { saves: "dock-tiles.json" } : {}),
+    layout: { focus: DOCK_TILE_ID, root: { t: "tabs", tabs: [{ t: "leaf", kind: DOCK_KIND, name: DOCK_TILE_ID }], active: 0 } as never },
+  };
+}
+/** The dock's own tile: a terminal whose header says what runs in it (claude, shell), its tile name staying `dock.agent`. */
+class DockTile extends PtyPane {
+  override readonly kind = DOCK_KIND;
+  constructor(spec: PtySpec, private readonly shows: string) { super(spec); }
+  headName() { return this.shows; }
+}
+/** The dock's own kind, registered once: a terminal's actions and keys, closable and draggable off (its policy). */
+function registerDockKind() {
+  if (tileKind(DOCK_KIND)) return;
+  const pty = tileKind("pty");
+  registerTileKind({
+    kind: DOCK_KIND, about: "the dock's own program (EP0CH_DAILY_AGENT, else a shell): the dock's first tab, the host layer's", noun: "a terminal tile",
+    make: () => new UnavailableTile(DOCK_KIND, "the dock's own tab is the dock's (alt+a pulls it up)"),
+    inherits: [PTY_ACTIONS], policy: { closable: false, draggable: false },
+    ...(pty?.press ? { press: pty.press } : {}), ...(pty?.holdsWork ? { holdsWork: pty.holdsWork } : {}), ...(pty?.whenFree ? { whenFree: pty.whenFree } : {}),
+    ...(pty?.view ? { view: pty.view } : {}), ...(pty?.describe ? { describe: pty.describe } : {}),
+  });
+}
 /** The drawer's height, as a share of the rows above the status bar: at least this, at most that. */
 export const MIN_SHARE = 0.2, MAX_SHARE = 0.9;
 /** alt+A steps through these. */
@@ -80,6 +113,8 @@ export interface DockHost {
   flash(msg: string, ms?: number): void;
   /** The screen shown (the screen layer): where it lets the host layer appear. */
   screen?(): Screen | undefined;
+  /** The App as its screens see it: the dock's desk is entered with it (absent in a test's bare dock: no tiles but its own). */
+  ctx?(): Ctx | undefined;
   /** Where the person is (the shell's query, PIE-514): the host layer's operations are applied with it. */
   person?(): Whereabouts;
 }
@@ -102,7 +137,11 @@ export class AgentDock {
   /** Where the drawer was last drawn (full width, above the status bar), and the chip on the status bar. */
   rect: Rect | null = null;
   chipAt: { from: number; to: number; row: number } | null = null;
-  private p: PtyPane | null = null;
+  private p: DockTile | null = null;
+  /** The dock's tiles, on a desk of their own (made the first time it's needed, with the App as its ctx). */
+  private d: Desk | null = null;
+  /** What the dock's own tile runs, read when it's made. */
+  private prog: DockProgram;
   /**
    * ctrl+]: when the person last left the drawer with it (a second one within CHORD_MS goes back in and sends
    * the agent a ctrl+], as a terminal tile's does), and when one last went by to the screen (its own second).
@@ -113,8 +152,6 @@ export class AgentDock {
   private dragging = false;
   private capture: Rect | null = null;
   private herdrState: { state: AgentState; at: number } | null = null;
-  /** What the tile's own code asks of a desk: a repaint, and a flash (it has no setsid or perl to start with). */
-  private readonly api = { redraw: () => this.changed(), ctx: { flash: (m: string, ms?: number) => this.host.flash(m, ms) } } as unknown as DeskApi;
   private polling = false;
   private lastPoll = 0;
   /** What the running agent knows (null: not read yet, or not running); the pid it was read from. */
@@ -130,8 +167,54 @@ export class AgentDock {
     const s = persist ? readState<Partial<DockSaved>>("dock.json") : null;
     const open = !!s && typeof s === "object" && s.open === true;
     const share = s && typeof s.share === "number" && Number.isFinite(s.share) ? clamp(s.share) : 0.5;
-    this.layer = hostLayer({ tabs: [DOCK_TILE_ID], names: new Map([[DOCK_TILE_ID, DOCK_NAME]]), share, open });
+    this.layer = hostLayer({ tabs: [HOST_TILES], names: new Map([[HOST_TILES, HOST_TILES]]), share, open });
+    this.prog = this.program();
+    registerDockKind();
   }
+
+  /** The dock's own program and folder, for the outline the door is on. */
+  private program(): DockProgram { const c = this.host.ctx?.(); return dockProgram({ outline: c?.outline ?? null, machine: (c as { machine?: string } | undefined)?.machine ?? null }); }
+  /** What the dock's own tab is called (claude, shell): the chip's name. */
+  get name(): string { return this.prog.name; }
+  /** What it runs and where, and why (`ep0ch doctor`, peek). */
+  get runs(): DockProgram { return this.prog; }
+
+  /**
+   * The dock's desk, made the first time it's needed (with the App to enter it): its own tile first, then what was
+   * docked when the door last ran (dock-tiles.json), each tile adopting its program as it's first drawn.
+   */
+  get desk(): Desk | null {
+    if (this.d) return this.d;
+    const ctx = this.host.ctx?.();
+    if (!ctx) return null;
+    const d = new Desk(hostSpec(this.persist), { given: new Map([[DOCK_TILE_ID, this.pane()]]), where: () => this.whereIn() });
+    this.d = d;
+    d.enter(ctx);
+    d.shownAs(this.shown);
+    return d;
+  }
+  /** Where the person is, as the dock's desk sees it: in it while they're in the drawer, else nowhere on it. */
+  private whereIn(): Whereabouts {
+    const w = this.host.person?.();
+    const base: Whereabouts = w ?? { focus: null, typingIn: null, busy: false, keys: "screen", screen: null, idle: Infinity, away: null };
+    if (!this.entered || !this.d) return { ...base, focus: null, typingIn: null };
+    const k = this.d.keys();
+    return { ...base, focus: k.focus, typingIn: k.typingIn ?? k.focus, busy: true, keys: "host" };
+  }
+  /** `d` is the dock's desk. */
+  isDock(d: unknown): boolean { return !!d && d === this.d; }
+  /** The dock's tiles, as tabs: the dock's own first. */
+  tabs(): { name: string; id: string; kind: string; title: string; shown: boolean; focused: boolean; pid?: number }[] {
+    const d = this.desk;
+    if (!d) return [{ name: DOCK_TILE_ID, id: DOCK_TILE_ID, kind: DOCK_KIND, title: this.name, shown: true, focused: this.entered }];
+    const g = d.layoutGet() as { tiles: { name: string; id: string; kind: string; title: string; shown: boolean; focused: boolean }[] };
+    // A terminal's pid: `ep0ch where` from its program finds it here, though it started on another screen (its EP0CH_TILE_ID was that one's).
+    return g.tiles.map(t => { const p = d.pane(t.name), pid = p instanceof PtyPane ? p.pid : undefined; return { name: t.name, id: t.id, kind: t.kind, title: t.title, shown: t.shown, focused: this.entered && t.focused, ...(pid ? { pid } : {}) }; });
+  }
+  /** The tab the drawer shows now. */
+  private shownTabOf(): { name: string; kind: string } | null { const t = this.tabs().find(x => x.shown); return t ? { name: t.name, kind: t.kind } : null; }
+  /** The docked tile the drawer shows now (^W A brings it to the screen), never the dock's own tab: else the last docked. */
+  shownTab(): string | null { const t = this.tabs().filter(x => x.name !== DOCK_TILE_ID); return (t.find(x => x.shown) ?? t.at(-1))?.name ?? null; }
 
   // ── the host layer, on the layout engine ──
 
@@ -144,20 +227,20 @@ export class AgentDock {
     const i = t.kids.findIndex(k => k.t === "drawer"), sum = t.weights.reduce((a, w) => a + w, 0) || 1;
     return Math.round(((t.weights[i] ?? 0.5) / sum) * 1000) / 1000;
   }
-  /** The person is in the drawer: every key but ctrl+], alt+a and alt+A is the agent's. Never set by an agent. */
+  /** The person is in the drawer: every key but ctrl+], alt+a and alt+A is the dock's tab's. Never set by an agent. */
   get entered(): boolean { return this.keys !== HOST_SCREEN && this.open && this.mode !== "none"; }
   /** Where the screen shown lets the host layer appear: its policy's `host` (a screen without a dock: none). */
   get mode(): HostMode { const s = this.host.screen?.(); return s?.noDock ? "none" : s?.hostMode?.() ?? "over"; }
   /** What the host layer's tiles are: the screen slot (it never closes or moves), the agent's terminal. */
   private facts(id: string): TileFacts {
     if (id === HOST_SCREEN) return { kind: "screen", policy: { closable: false, draggable: false } };
-    return { kind: "pty", ...(this.p?.running ? { running: this.p.run.cmd[0] ?? "the agent" } : {}) };
+    return { kind: "dock", ...(this.p?.running ? { running: this.p.run.cmd[0] ?? "the agent" } : {}) };
   }
   /** Who acts, and where the person is (the shell's one answer): in the agent, or busy on the screen. */
   private ctx(actor: Actor, rows = 30, cols = 100): LayoutCtx<string> {
     return {
       actor, area: { col: 0, row: 0, cols, rows: Math.max(1, rows - 1) }, tile: id => this.facts(id), screenHost: this.mode,
-      person: { focus: this.keys, typingIn: this.entered ? DOCK_TILE_ID : null, busy: this.entered || !!this.host.person?.().busy, ...(this.host.person ? { held: actorRule({ touches: "screen" }, actor, this.host.person(), {}) } : {}) },
+      person: { focus: this.keys, typingIn: this.entered ? HOST_TILES : null, busy: this.entered || !!this.host.person?.().busy, ...(this.host.person ? { held: actorRule({ touches: "screen" }, actor, this.host.person(), {}) } : {}) },
     };
   }
   /** One operation on the host layer, for `actor`: its new state and where the keys are now, or the refusal thrown. */
@@ -175,23 +258,22 @@ export class AgentDock {
   // ── the one agent tile (the host layer's first tab) ──
 
   /**
-   * The agent's tile, made the first time it's asked for; its program starts when it's first drawn. It runs what
-   * `dailyAgent()` says when it's made; one not started yet is made again when that has changed since.
+   * The dock's own tile, made the first time it's asked for; its program starts when it's first drawn. It runs what
+   * `dockProgram()` says when it's made (the dock's desk is given it, so it's made once).
    */
   pane(): PtyPane {
-    const a = dailyAgent();
-    if (this.p && (this.started || same(this.p, a))) return this.p;
-    const p = new PtyPane({ cmd: a.cmd, ...(a.cwd ? { cwd: a.cwd } : {}), label: DOCK_NAME, agent: true });
+    if (this.p) return this.p;
+    this.prog = this.program();
+    const a = this.prog;
+    const p = new DockTile({ cmd: a.cmd, cwd: a.cwd, label: a.name, agent: true }, a.name);
     p.tileId = DOCK_TILE_ID;
     p.place = "dock";
-    // The drawer's agent is the dock's (dock.json): a session's next daemon adopts it by that.
+    // The dock's own program is the dock's (dock.json): a session's next daemon adopts it by that.
     if (this.persist) p.home = "dock.json";
-    // The program's output repaints whatever shows it: the drawer, a desk tile, or only the chip.
-    p.init(this.api);
     this.p = p;
     return p;
   }
-  /** The tile when it has been made (nothing is started by asking). */
+  /** The dock's own tile when it has been made (nothing is started by asking). */
   get tile(): PtyPane | null { return this.p; }
   /** Its program has been started (it runs, or it ran and exited). */
   private get started(): boolean { return !!this.p && (this.p.running || this.p.exited !== null); }
@@ -249,7 +331,13 @@ export class AgentDock {
     if (s !== "off" && s !== "exited") this.pollKnows(now);
     const what = this.restarting ? "restarting" : s === "off" ? "" : s === "blocked" ? "needs you" : s === "exited" ? `exited ${this.p?.exited ?? ""}`.trim() : s;
     const knows = this.restarting || s === "off" || s === "exited" ? "" : knowsLabel(this.knows);
-    return { head: `${this.open ? "▼" : "▲"} ${DOCK_NAME}${what ? ` · ${what}` : ""}`, knows: knows ? ` · ${knows}` : "" };
+    // The dock's own name, then how many more tiles it holds (`▲ claude +2`): a drag over it says it docks there.
+    const more = this.d ? this.tabs().length - 1 : 0;
+    const out = { head: `${this.open ? "▼" : "▲"} ${this.name}${more > 0 ? ` +${more}` : ""}${what ? ` · ${what}` : ""}`, knows: knows ? ` · ${knows}` : "" };
+    // A drag over it says it docks there, in the chip's own width: the chip doesn't move under the pointer.
+    // (The status bar's right part is right-aligned: a longer chip grows leftwards, a shorter one is padded.)
+    if (this.dropHover) { const say = `⤓ dock ${this.dropHover}`, w = width(out.head + out.knows); return { head: width(say) >= w ? say : pad(say, w), knows: "" }; }
+    return out;
   }
 
   /** The chip ends in ⟳: a click on it restarts the agent. */
@@ -335,27 +423,45 @@ export class AgentDock {
     const s = this.state(now);
     const c = s === "working" ? C.yellow : s === "blocked" ? C.lmagenta : s === "exited" ? C.lred : s === "watching" ? C.lcyan : C.white;
     const { head, knows } = this.chipParts(now);
+    if (this.dropHover) return `${chipStyle(C.yellow, C.black)}${head}${bg(C.blue)}${fg(C.lcyan)}`;
     return `${bg(this.open ? C.cyan : C.blue)}${fg(c)}${head}${knows && this.offersRestart ? fg(C.yellow) : ""}${knows}${bg(C.blue)}${fg(C.lcyan)}`;
   }
+  /** A tile dragged over the dock (its chip, its drawer): what a release there does (the chip and the drawer light up). */
+  private dropHover: string | null = null;
 
   // ── actions ──
 
   /**
-   * Pull it up or put it away, by the host layer's drawer operation: the person's pull gives the agent their keys
-   * (the module's transition), an agent's never does; put away, the keys go back to the screen slot. On a screen
+   * Pull it up or put it away, by the host layer's drawer operation: the person's pull gives the dock's tab shown their
+   * keys (the module's transition), an agent's never does; put away, the keys go back to the screen slot. On a screen
    * that keeps the whole screen (host none) it's refused, with why.
    */
   set(open: boolean, actor: Actor) {
     // An agent's pull of a drawer that's up already changes nothing; the person's goes into it.
     if (open && this.open && actor.kind === "agent") return;
     if (open) this.pane();
-    this.do({ op: "drawer", tile: DOCK_TILE_ID, open }, actor);
-    if (open && actor.kind !== "agent") this.do({ op: "focus", tile: DOCK_TILE_ID }, actor);
+    this.do({ op: "drawer", tile: HOST_TILES, open }, actor);
+    if (open && actor.kind !== "agent") { this.do({ op: "focus", tile: HOST_TILES }, actor); this.intoShown(); }
     if (open) this.openedBy = actor.kind === "agent" ? (this.entered ? null : actor) : null;
     else { this.openedBy = null; this.capture = null; this.dragging = false; }
+    this.d?.shownAs(this.shown);
     this.save();
     this.host.redraw();
   }
+
+  /** The person's keys go into the tab the drawer shows: a terminal there takes them (its program types), as tile.enter does. */
+  private intoShown(send?: string) {
+    const d = this.desk, t = this.shownTabOf();
+    if (!d || !t) return;
+    const p = d.pane(t.name);
+    if (d.focusedName() !== t.name) d.run("tile.focus", {}, t.name);
+    // A terminal not started yet starts as it's first drawn: the keys go into it then (render).
+    if (p instanceof PtyPane && !p.running && p.exited === null) { this.wantIn = { send }; return; }
+    this.wantIn = null;
+    if (p instanceof PtyPane && p.running) d.run("tile.enter", send ? { send } : {}, t.name);
+  }
+  /** The person went into the dock before its terminal started: their keys go into it once it has. */
+  private wantIn: { send?: string } | null = null;
 
   /** Its height, by the host layer's own split (the drawer's share, the screen slot the rest), for `actor`. */
   height(share: number, actor: Actor = USER) {
@@ -367,11 +473,86 @@ export class AgentDock {
 
   private save() { if (this.persist) writeState("dock.json", { open: this.open, share: this.share } satisfies DockSaved); }
 
+  // ── the dock: tiles in and out, whole (host.dock) ──
+
+  /**
+   * Tile `name` of screen `from` into the dock, as a tab: the layout's `take` there, then its `open` here, both asked
+   * first so nothing moves unless both may. The same instance: its program runs on, its note and history stay. The
+   * person's dock pulls the drawer up on it (their keys with it when they had them); an agent's adds the tab behind
+   * the one shown and leaves the drawer and the keys as they are.
+   */
+  dock(from: Desk, name: string, actor: Actor): TileDone {
+    const d = this.desk;
+    if (!d) throw new ActionRefused("the dock isn't ready (no screen is shown yet)");
+    if (from === d) throw new ActionRefused(`${name} is in the dock already`);
+    const kind = (from.pane(name) as { kind?: string } | undefined)?.kind ?? "tile";
+    const out = from.takeRefusal(name, actor);
+    if (out) throw new ActionRefused(out);
+    const spec = { name, spec: { t: "leaf" as const, kind } };
+    const into = d.bringRefusal(spec, undefined, "tabs", actor);
+    if (into) throw new ActionRefused(`the dock doesn't take ${name}: ${into}`);
+    const moved = from.takeOut(name, actor);
+    const done = this.bring(d, moved, undefined, "tabs", actor, () => from.bringIn(moved, undefined, undefined, USER));
+    if (actor.kind !== "agent") {
+      // Shown on its tab, the drawer up; the keys come along only when they were in it.
+      d.run("tab.select", {}, done.tile);
+      if (!this.open && this.mode !== "none") this.do({ op: "drawer", tile: HOST_TILES, open: true }, actor);
+      if (moved.typing && this.open) { this.do({ op: "focus", tile: HOST_TILES }, actor); this.intoShown(); }
+      this.save();
+    }
+    this.d?.shownAs(this.shown);
+    this.host.redraw();
+    return { ...done, docked: true, from: moved.from };
+  }
+
+  /**
+   * Docked tile `name` back into the screen shown, beside `to` (`where`), the same way round: asked there and here
+   * first, then moved. The dock's own tab stays (its policy). The person's keys go with it when they were in it.
+   */
+  undock(name: string, to: string | undefined, where: Where | undefined, actor: Actor): TileDone {
+    const d = this.desk, shown = this.host.screen?.();
+    if (!d) throw new ActionRefused("the dock isn't ready");
+    // The screen's own tiles: a desk, or a desk inside it (the showcase's section).
+    const screen = shown instanceof Desk ? shown : shown?.tilesHere?.();
+    if (!screen || screen === d) throw new ActionRefused(`the ${shown?.title ?? "screen"} has no tiles to put ${name} among · open one with tiles (D the desk, K the board, R the river), then host.dock on=false tile=${name}`);
+    const out = d.takeRefusal(name, actor);
+    if (out) throw new ActionRefused(out);
+    const kind = (d.pane(name) as { kind?: string } | undefined)?.kind ?? "tile";
+    const into = screen.bringRefusal({ name, spec: { t: "leaf", kind } }, to, where, actor);
+    if (into) throw new ActionRefused(`the ${screen.title} doesn't take ${name} there: ${into}`);
+    const wasIn = this.entered;
+    const moved = d.takeOut(name, actor);
+    const done = this.bring(screen, moved, to, where, actor, () => d.bringIn(moved, undefined, "tabs", USER));
+    // The person's keys were in it in the drawer: they go with it, back on the screen.
+    if (wasIn && actor.kind !== "agent") { this.do({ op: "focus", tile: HOST_SCREEN }, actor); screen.focusTile(done.tile, actor); }
+    this.host.redraw();
+    return { ...done, docked: false, into: screen.title };
+  }
+
+  /** `bringIn`, and if it's refused after all (a race), the tile goes back where it came from: never lost. */
+  private bring(to: Desk, moved: MovedTile, at: string | undefined, where: Where | undefined, actor: Actor, back: () => unknown): TileDone {
+    try { return to.bringIn(moved, at, where, actor); }
+    catch (e) { try { back(); } catch { /* nowhere: it's ended below */ } throw e; }
+  }
+
+  /**
+   * An agent's `act` naming a tile the screen shown doesn't have but the dock does: the dock's desk answers it
+   * (tile.type into a docked terminal, a note action in a docked reader, host.dock on=false).
+   */
+  routes(req: ActRequest, top: Screen | undefined): boolean {
+    if (!req.tile || req.tile === "focused" || req.tile === DOCK_TILE_ID && req.action === "tile.herdr") return false;
+    if (top?.dispatch?.tile?.(req.tile)) return false;
+    const d = this.desk;
+    return !!d && !!d.dispatch.tile(req.tile) && d.dispatch.takes(req);
+  }
+
   describe() {
     const p = this.p;
     return {
       open: this.open, shown: this.shown, entered: this.entered, share: Math.round(this.share * 100) / 100, host: this.mode,
-      rect: this.shown ? this.rect : null, state: this.state(), tile: { id: DOCK_TILE_ID, name: DOCK_NAME },
+      rect: this.shown ? this.rect : null, state: this.state(), tile: { id: DOCK_TILE_ID, name: this.name },
+      runs: { cmd: this.prog.cmd, cwd: this.prog.cwd, why: { program: this.prog.programWhy, folder: this.prog.folderWhy } },
+      tiles: this.tabs(),
       knows: this.knows ? { ...this.knows, pid: this.knowsPid } : null, ...(this.restarting ? { restarting: true } : {}),
       ...(this.openedBy?.kind === "agent" ? { openedBy: this.openedBy.id } : {}),
       ...(p?.herdr ? { herdr: p.herdr } : {}),
@@ -379,83 +560,98 @@ export class AgentDock {
     };
   }
 
-  /** Quitting the door would end the agent (it runs in the drawer itself, not in Herdr): said, and asked twice. */
+  /** Quitting the door would end what runs in the dock (not in Herdr): said, and asked twice. */
   leaveWarning(): string | null {
     const p = this.p;
-    return p?.running && !p.herdr ? `${p.title()} is running in the agent drawer · quitting ends it · again within 3s quits` : null;
+    if (p?.running && !p.herdr) return `${p.title()} is running in the dock · quitting ends it · again within 3s quits`;
+    const docked = this.d ? this.tabs().filter(t => t.name !== DOCK_TILE_ID).map(t => this.d!.pane(t.name)).filter((x): x is PtyPane => x instanceof PtyPane && x.running) : [];
+    return docked.length ? `${docked.map(x => x.title()).join(", ")} ${docked.length === 1 ? "runs" : "run"} in the dock · quitting ends ${docked.length === 1 ? "it" : "them"} · again within 3s quits` : null;
   }
 
   // ── drawing ──
 
   /**
    * The drawer's rows over (or beside) a screen `rows` tall (the last row is the status bar): the host layer placed
-   * by the layout engine, as the screen shown lets it appear. At least a frame and a row of the program, while room.
+   * by the layout engine, as the screen shown lets it appear. At least its bar, a tile's frame and a row of it.
    */
   place(cols: number, rows: number): Rect {
     this.rows = rows; this.cols = cols;
     const room = rows - 1;
-    // The engine's answer as it is (the drawer's own `min` keeps a frame and a row): `besideRows` reads the same one.
     const d = placeHost(this.layer, { col: 0, row: 0, cols, rows: room }, this.mode === "none" ? "over" : this.mode).drawer;
     return d ?? { col: 0, row: room, cols, rows: 0 };
   }
 
-  /** The drawer, full width, laid over the screen's bottom rows: its lines, from row `rect.row`. */
-  render(cols: number, rows: number, screen: string): { rect: Rect; lines: string[] } {
+  /**
+   * The drawer, full width, laid over the screen's bottom rows: its bar (what's in it, who pulled it up, the edge to
+   * drag), the dock's desk (its tiles, the tab shown, tabs in its header when it holds more than one), and its keys.
+   */
+  render(cols: number, rows: number, screen: string): { rect: Rect; lines: string[]; placements: Placement[] } {
     const r = this.place(cols, rows);
     this.rect = r;
     const canvas = new Canvas(cols, r.rows);
-    const box: Rect = { col: 0, row: 0, cols, rows: r.rows };
-    canvas.clear(box, bg(C.black));
+    canvas.clear({ col: 0, row: 0, cols, rows: r.rows }, bg(C.black));
     const p = this.pane();
     const by = this.openedBy ? ` · ${fg(C.lmagenta)}pulled up by ${agentLabel(this.openedBy)}${fg(C.yellow)}` : "";
     const watching = this.state() === "watching";
     const where = watching ? ` · ${fg(C.lcyan)}another door has it${fg(C.yellow)}` : p.herdr ? ` · in Herdr (${p.herdr.pane})` : "";
-    const title = `${fg(this.entered ? C.yellow : C.white)}${this.chipText()}${fg(C.yellow)}${where}${by} ${fg(C.dark)}· ↕ drag this edge`;
-    // A second door only watches: its ⏎ would take the agent's pane from the door that has it, so it says so.
+    const edge = this.dropHover ? C.yellow : this.entered ? C.yellow : C.brown;
+    const title = this.dropHover ? `${chipStyle(C.yellow, C.black)} ⤓ release: dock ${this.dropHover} ${bg(C.black)}` : `${fg(this.entered ? C.yellow : C.white)}${this.chipText()}${fg(C.yellow)}${where}${by} ${fg(C.dark)}· ↕ drag this edge · ⤓ drop a tile here`;
+    canvas.text(0, 0, `${fg(edge)}${"═".repeat(2)} ${title} ${fg(edge)}${"═".repeat(Math.max(0, cols))}${RESET}`, cols);
+    let placements: Placement[] = [];
+    const d = this.desk;
+    if (d && r.rows >= 4) {
+      d.shownAs(true);
+      // The desk draws its tiles in the rows between the bar and the drawer's own key row (its hint row isn't drawn:
+      // the frame's own hint and the drawer's row say the keys).
+      const info = { cols, rows: r.rows, cellW: 9, cellH: 16, kitty: false };
+      const frame = d.render({ t: info } as unknown as Ctx);
+      frame.lines.slice(0, r.rows - 2).forEach((l, i) => canvas.text(0, 1 + i, l, cols));
+      // Drawn, a terminal the person went into has started: their keys go into it now.
+      if (this.wantIn && this.entered) { const w = this.wantIn; queueMicrotask(() => { if (this.wantIn === w) this.intoShown(w.send); }); }
+      placements = (frame.placements ?? []).filter(pl => pl.row + pl.rows <= r.rows - 2).map(pl => ({ ...pl, row: pl.row + r.row + 1 }));
+    }
+    const name = this.shownTabOf()?.name ?? this.name;
     const hint = watching
       ? `${fg(C.lcyan)}${this.entered ? "⏎ takes it over from the other door · q stops watching" : "click in it, then ⏎ takes it over from the other door"} · ${this.entered ? ESCAPE_CHORD : "alt+a"} ${this.entered ? `back to the ${screen}` : "puts it away"}`
+      : this.entered && d?.rawKeys()
+      ? `${fg(C.yellow)}every key goes to ${name === DOCK_TILE_ID ? this.name : name} · ${ESCAPE_CHORD} back to the ${screen} · alt+a puts it away`
       : this.entered
-      ? `${fg(C.yellow)}every key goes to ${DOCK_NAME} · ${ESCAPE_CHORD} back to the ${screen} · alt+a puts it away`
-      : `${fg(C.dark)}click in it or ${ESCAPE_CHORD} to type · alt+a or Esc puts it away · alt+A height`;
-    canvas.box(box, fg(this.entered ? C.yellow : C.brown), title, hint);
-    const inner = { cols: cols - 2, rows: r.rows - 2 };
-    if (inner.cols >= 2 && inner.rows >= 1) {
-      const view = p.render(inner.cols, inner.rows, this.entered, this.api, this.entered);
-      view.lines.slice(0, inner.rows).forEach((l, i) => canvas.text(1, 1 + i, l, inner.cols));
-    }
-    return { rect: r, lines: canvas.lines() };
+      ? `${fg(C.yellow)}in the dock, on ${name === DOCK_TILE_ID ? this.name : name}${d?.pane(name) instanceof PtyPane ? " · ⏎ types in it" : ""} · ^W a undocks it · ^W ] [ other tabs · Esc or ${ESCAPE_CHORD} back to the ${screen} · alt+a puts it away`
+      : `${fg(C.dark)}click in it or ${ESCAPE_CHORD} to type · alt+a or Esc puts it away · alt+A height · ^W a docks a tile, ^W A brings a tab here`;
+    canvas.text(1, r.rows - 1, hint + RESET, cols - 2);
+    return { rect: r, lines: canvas.lines(), placements };
   }
 
   // ── keys and the mouse (App.key gives them here first) ──
 
-  /** Raw input while the person is in the drawer and the agent runs: every byte is its, but alt+a and alt+A. */
+  /** Raw input while the person is in the drawer and a terminal there runs: every byte is its, but alt+a and alt+A. */
   rawInput(run: DockRun): ((bytes: string) => void) | null {
-    const p = this.p;
-    if (!this.shown || !this.entered || !p?.running) return null;
+    if (!this.shown || !this.entered) return null;
+    const raw = this.d?.rawInput();
+    if (!raw) return null;
     return (s: string) => {
       // As legacy ESC-and-a-letter or as a Kitty keyboard report (src/kbd.ts).
       const k = rawKey(s);
       if (k?.kind === "alt" && k.ch === "a") return run("host.toggle", { open: false });
       if (k?.kind === "alt" && k.ch === "A") return run("host.size", { share: nextStep(this.share) });
-      p.inputRaw(s);
+      raw(s);
     };
   }
 
   /** A key or a mouse event, before the screen: true when the dock took it. `screen` is the one under it. */
   key(k: Key, screen: Screen | undefined, rows: number, run: DockRun): boolean {
     if (!this.active) return false;
-    if (k.kind === "mouse") return this.mouse(k, rows, run);
+    if (k.kind === "mouse") return this.mouse(k, screen, rows, run);
     if (this.shown && this.entered) {
-      const p = this.pane();
       if (isEscapeChord(k)) { run("host.leave", {}); return true; }
       if (isAlt(k, "a")) { run("host.toggle", { open: false }); return true; }
       if (isAlt(k, "A")) { run("host.size", { share: nextStep(this.share) }); return true; }
-      if (!p.running) {
-        if (k.kind === "enter") run("host.enter", { restart: true });
-        else this.host.flash(`${DOCK_NAME} exited · ⏎ runs it again · ${ESCAPE_CHORD} back to the ${screen?.title ?? "screen"}`);
-        return true;
-      }
-      if (k.kind === "paste") p.paste(k.text); else p.typed(k);
+      const d = this.desk;
+      if (!d) return true;
+      // Esc and q step back out of the dock (to the screen) where its tab isn't using them; never the screen's back.
+      if ((k.kind === "esc" || (k.kind === "char" && !k.ctrl && k.ch === "q")) && !d.holdsKeys()) { run("host.leave", { quiet: true }); return true; }
+      const ctx = this.host.ctx?.();
+      if (ctx) d.key(k, ctx);
       return true;
     }
     if (isAlt(k, "a")) { run("host.toggle", {}); return true; }
@@ -469,94 +665,133 @@ export class AgentDock {
 
   /**
    * ctrl+] with the drawer up and the person out of it: back in (the keyboard's way, as a click is), or, right
-   * after leaving it with ctrl+], back in with a ctrl+] sent to the agent. A screen's own ctrl+] comes first: in
-   * its terminal tile it leaves the tile, and its second right after goes to that tile's program.
+   * after leaving it with ctrl+], back in with a ctrl+] sent to the terminal there. A screen's own ctrl+] comes
+   * first: in its terminal tile it leaves the tile, and its second right after goes to that tile's program.
    */
   private chordBack(screen: Screen | undefined, run: DockRun): boolean {
     const now = Date.now();
-    if (now - this.leftAt < CHORD_MS && this.p?.running) { run("host.enter", { send: "\x1d" }); return true; }
+    if (now - this.leftAt < CHORD_MS) { run("host.enter", { send: "\x1d" }); return true; }
     if (screen?.rawKeys?.() || now - this.passedAt < CHORD_MS) { this.passedAt = now; return false; }
     run("host.enter", {});
     return true;
   }
 
   /**
-   * The person goes into the drawer (ctrl+], a click in it): their keys are the agent's. One that exited waits
-   * for ⏎ (`restart`): going in only says so.
+   * The person goes into the drawer (ctrl+], a click in it): their keys are the tab shown's. A terminal that exited
+   * waits for ⏎ (`restart`): going in only says so.
    */
   enter(send?: string, restart = false): { entered: boolean; restarted?: boolean } {
-    if (!this.shown) throw new ActionRefused("the agent drawer is put away · alt+a pulls it up");
-    const p = this.pane();
+    if (!this.shown) throw new ActionRefused("the dock is put away · alt+a pulls it up");
     this.leftAt = 0; this.openedBy = null;
-    // Into the tab the drawer shows (the agent, its first).
-    const dr = hostDrawer(this.layer);
-    this.do({ op: "focus", tile: (dr && shownTiles(dr.kid)[0]) ?? DOCK_TILE_ID }, USER);
-    if (!p.running && p.exited !== null) {
-      if (restart) { p.restart(); this.host.redraw(); return { entered: true, restarted: true }; }
-      this.host.flash(`${DOCK_NAME} exited · ⏎ runs it again · ${ESCAPE_CHORD} back to the screen`);
+    this.do({ op: "focus", tile: HOST_TILES }, USER);
+    const d = this.desk, t = this.shownTabOf(), q = t && d ? d.pane(t.name) : undefined;
+    if (q instanceof PtyPane && !q.running && q.exited !== null) {
+      if (restart) { d!.run("tile.restart", {}, t!.name); this.host.redraw(); return { entered: true, restarted: true }; }
+      this.host.flash(`${t!.name === DOCK_TILE_ID ? this.name : t!.name} exited · ⏎ runs it again · ${ESCAPE_CHORD} back to the screen`);
+      d!.run("tile.focus", {}, t!.name);
       this.host.redraw();
       return { entered: true };
     }
-    if (send && p.running) { p.input(send); this.host.flash(`sent ${ESCAPE_CHORD} to ${DOCK_NAME}`); }
+    this.intoShown(send);
+    if (send && q instanceof PtyPane && q.running) this.host.flash(`sent ${ESCAPE_CHORD} to ${t!.name === DOCK_TILE_ID ? this.name : t!.name}`);
     this.host.redraw();
     return { entered: true };
   }
 
   /** The person's keys go back to the screen (ctrl+], a click above the drawer); the drawer stays up. */
   leave(screen: Screen | undefined, said = true): { entered: boolean } {
-    if (!this.entered) throw new ActionRefused("the person isn't in the agent drawer");
-    // Back to the screen slot: the screen's own focus is as they left it.
+    if (!this.entered) throw new ActionRefused("the person isn't in the dock");
+    // Back to the screen slot: the screen's own focus is as they left it. A terminal there stops taking keys.
     this.do({ op: "focus", tile: HOST_SCREEN }, USER);
+    this.d?.stopTyping();
+    this.wantIn = null;
     this.leftAt = Date.now();
-    if (said) this.host.flash(`back to the ${screen?.title ?? "screen"} · ${ESCAPE_CHORD} or a click goes back in (${ESCAPE_CHORD} again now sends it to ${DOCK_NAME}) · Esc or alt+a puts it away`);
+    if (said) this.host.flash(`back to the ${screen?.title ?? "screen"} · ${ESCAPE_CHORD} or a click goes back in (${ESCAPE_CHORD} again now sends it to ${this.name}) · Esc or alt+a puts it away`);
     this.host.redraw();
     return { entered: false };
   }
 
-  private mouse(k: Extract<Key, { kind: "mouse" }>, rows: number, run: DockRun): boolean {
-    const p = this.p;
+  /** The dock's desk's rows on the terminal: the drawer's, below its bar. */
+  private deskRow(): number { return (this.rect?.row ?? 0) + 1; }
+
+  private mouse(k: Extract<Key, { kind: "mouse" }>, screen: Screen | undefined, rows: number, run: DockRun): boolean {
     if (this.dragging) {
       // Dragged past the ends (onto the status row, or the top): as far as it goes, not a refusal.
       if (k.action === "drag") { const room = rows - 1; run("host.size", { share: clamp((room - Math.max(1, k.y)) / room) }); }
       if (k.action === "up") this.dragging = false;
       return true;
     }
+    const r = this.shown ? this.rect : null;
+    const chip = this.chipAt;
+    const onChip = !!chip && k.y === chip.row && k.x >= chip.from && k.x < chip.to;
+    const inDrawer = !!r && k.y >= r.row && k.y < r.row + r.rows;
+    // A screen's tile dragged by its title over the dock (the chip, the drawer): it lights up; released, it docks.
+    const dragged = screen instanceof Desk && screen !== this.d ? screen.draggedTile() : null;
+    if (dragged) {
+      const over = onChip || inDrawer;
+      const hover = over ? dragged : null;
+      if (hover !== this.dropHover) { this.dropHover = hover; (screen as Desk).dockHover(hover ? "⤓ release: into the dock" : null); this.host.redraw(); }
+      if (!over) return false;
+      if (k.action === "up") {
+        this.dropHover = null;
+        (screen as Desk).cancelDrag();
+        void (screen as Desk).perform("host.dock", { on: true }, USER, dragged);
+      }
+      return true;
+    }
+    // A tab of the dock dragged by its title out of the drawer, over the screen: where it would land there, by the
+    // screen's own drop zones; released there, it's undocked into that place.
+    const out = this.d?.draggedTile() ?? null;
+    if (out && r && k.y < r.row && (k.action === "drag" || k.action === "up")) {
+      if (k.action === "up") this.capture = null;
+      const kind = this.tabs().find(t => t.name === out)?.kind ?? "tile";
+      const target = screen instanceof Desk ? screen.foreignAt(k.x, k.y, { name: out, kind }) : null;
+      if (k.action === "up") {
+        this.d!.cancelDrag();
+        if (screen instanceof Desk) screen.cancelDrag();
+        if (!target) this.host.flash(`not moved: ${out} stays in the dock · drop it on a tile's side, its header or centre, or the screen's edge`);
+        else if (target.refused) this.host.flash(`not moved: ${target.refused}`);
+        else this.undockRun(out, target.to, target.where);
+      }
+      return true;
+    }
+    if (out && r && k.y >= r.row && screen instanceof Desk) screen.cancelDrag();
     if (this.capture) {
-      const c = this.capture;
-      if (k.action === "drag" || k.action === "up") p?.mouse({ ...k }, k.x - c.col - 1, k.y - c.row - 1);
+      // A press in the drawer keeps the mouse until the button comes up (a terminal's drag, a tab dragged).
+      if (k.action === "drag" || k.action === "up") this.d?.key({ ...k, y: k.y - this.deskRow() }, this.host.ctx!()!);
       if (k.action === "up") this.capture = null;
       return true;
     }
-    const chip = this.chipAt;
-    if (chip && k.y === chip.row && k.x >= chip.from && k.x < chip.to) {
+    if (onChip) {
       // ⟳, the chip's last cell when it offers one, restarts the agent; anywhere else on the chip toggles the drawer.
-      if (k.action === "down") run(this.offersRestart && k.x >= chip.to - 1 ? "agent.restart" : "host.toggle", {});
+      if (k.action === "down") run(this.offersRestart && k.x >= chip!.to - 1 ? "agent.restart" : "host.toggle", {});
       return true;
     }
-    const r = this.shown ? this.rect : null;
     if (!r) return false;
-    const inside = k.y >= r.row && k.y < r.row + r.rows;
-    if (!inside) {
+    if (!inDrawer) {
       // A click on the screen above hands the keys back to it; the drawer stays up.
       if (k.action === "down" && this.entered) run("host.leave", { quiet: true });
       return false;
     }
     if (k.action === "down" && k.y === r.row) { this.dragging = true; return true; }
-    const x = k.x - r.col - 1, y = k.y - r.row - 1;
-    const pane = this.pane();
+    if (k.y === r.row + r.rows - 1 && k.action === "down") return true;      // the drawer's key row
+    const ctx = this.host.ctx?.(), d = this.desk;
+    if (!ctx || !d) return true;
     if (k.action === "down") {
-      if (!this.entered) run("host.enter", {});
-      if (pane.wantsMouse() && y >= 0 && x >= 0) { this.capture = r; pane.mouse(k, x, y); }
-      this.host.redraw();
-      return true;
+      if (!this.entered) { this.do({ op: "focus", tile: HOST_TILES }, USER); this.leftAt = 0; this.openedBy = null; }
+      this.capture = r;
     }
-    if (k.action === "wheel-up" || k.action === "wheel-down") pane.mouse(k, Math.max(0, x), Math.max(0, y));
+    d.key({ ...k, y: k.y - this.deskRow() }, ctx);
+    this.host.redraw();
     return true;
   }
-}
 
-/** The tile runs this program in this folder. */
-const same = (p: PtyPane, a: { cmd: string[]; cwd?: string }) => p.run.cmd.join("\0") === a.cmd.join("\0") && (p.run.cwd ?? "") === (a.cwd ?? "");
+  /** A tab dragged out and dropped on the screen: undocked there, as the person. */
+  private undockRun(name: string, to: string | undefined, where: Where) {
+    const d = this.d;
+    if (d) void d.perform("host.dock", { on: false, ...(to ? { to } : {}), where }, USER, name);
+  }
+}
 
 /** alt+A: the next height step after `share` (past the last, the first). */
 export function nextStep(share: number): number {
@@ -579,7 +814,7 @@ export interface DockOn { dock: AgentDock; ctx: Ctx; here: Screen | undefined }
 /** The dock's actions: on every screen, as the shell's are. */
 export const DOCK_ACTIONS = actionSet<DockOn>()("dock", {
   "host.enter": def({
-    summary: "go into the agent drawer: the person's keys go to the agent until ctrl+]; restart=true runs one that exited again (⏎ on it). The person's only: an agent's would take their keys",
+    summary: "go into the dock: the person's keys go to the agent until ctrl+]; restart=true runs one that exited again (⏎ on it). The person's only: an agent's would take their keys",
     keys: "ctrl+], click in the drawer, ⏎ on an exited agent; ctrl+] then ctrl+] sends ctrl+] to it",
     touches: "screen", replay: "safe",
     person: "going into the drawer takes the person's keys; an agent pulls it up with host.toggle and leaves their keys where they are",
@@ -587,8 +822,8 @@ export const DOCK_ACTIONS = actionSet<DockOn>()("dock", {
     run({ send, restart }, { dock }) { return dock.enter(send, restart); },
   }),
   "host.leave": def({
-    summary: "the person's keys go back to the screen from the agent drawer; the drawer stays up. The person's only",
-    keys: "ctrl+], click on the screen above the drawer",
+    summary: "the person's keys go back to the screen from the dock; the drawer stays up. The person's only",
+    keys: "ctrl+], esc or q in the dock (where its tab isn't using them), a click on the screen above the drawer",
     touches: "screen", replay: "safe",
     person: "the person's keys are theirs: an agent doesn't take them out of the drawer",
     args: { quiet: { type: "boolean", optional: true, about: "say nothing on the status bar (a click away)" } },
@@ -598,7 +833,7 @@ export const DOCK_ACTIONS = actionSet<DockOn>()("dock", {
     summary: "pull the host layer's drawer (the agent, its first tab) up over or beside the screen, as the screen lets it (its policy's host), or put it away (open=true/false; neither toggles). The person's pull gives it their keys; an agent's never does, waits until they're idle, and is said on screen. Refused on a screen that keeps the whole screen (host none)",
     keys: "alt+a, a click on the ▲ claude chip in the status bar; Esc (or ctrl+] then Esc) puts it away",
     touches: "screen", replay: "safe",
-    says: out => ({ text: `· ${out.open ? "pulled up" : "put away"} the agent drawer`, ms: 6000 }),
+    says: out => ({ text: `· ${out.open ? "pulled up" : "put away"} the dock`, ms: 6000 }),
     args: { open: { type: "boolean", optional: true, about: "true pulls it up, false puts it away; left out, it toggles" } },
     run({ open }, { dock }, actor) {
       const want = open ?? !dock.open;
@@ -607,7 +842,7 @@ export const DOCK_ACTIONS = actionSet<DockOn>()("dock", {
     },
   }),
   "host.size": def({
-    summary: "how much of the screen the agent drawer covers, as a share of the rows above the status bar (0.2 to 0.9); over a screen, the screen under it doesn't move; beside one, the screen is drawn shorter",
+    summary: "how much of the screen the dock covers, as a share of the rows above the status bar (0.2 to 0.9); over a screen, the screen under it doesn't move; beside one, the screen is drawn shorter",
     keys: "drag the drawer's top edge; alt+A steps 40%, 50%, 60%, 75%",
     touches: "tile", while: "typing", replay: "safe", way: "an agent doesn't resize it under them",
     args: { share: { type: "number", about: "0.2 to 0.9 (0.5: half the screen)" } },
@@ -621,28 +856,28 @@ export const DOCK_ACTIONS = actionSet<DockOn>()("dock", {
     summary: "restart the agent (▲ claude) so it starts with the door's environment (EP0CH_CONTROL, EP0CH_NEST …) and the installed Claude mod: that agent alone is asked to exit (SIGTERM, SIGKILL after 8s) and the same command runs again, keeping the conversation (door-claude continues; a bare claude gets --continue). In Herdr it comes back in a new door-claude pane. An agent's restart is refused while the person types in it, and is said on screen",
     keys: `a click on ${RESTART_GLYPH} at the end of the ▲ claude chip (shown when it started without the door's variables, or without door tools); alt+R`,
     touches: "tile", while: "typing", replay: "ask", way: "an agent doesn't restart it under them",
-    says: () => ({ text: `· restarted ${DOCK_NAME}`, ms: 6000 }),
+    says: (out: { name?: string }) => ({ text: `· restarted ${out?.name ?? "the dock's program"}`, ms: 6000 }),
     args: {},
     async run(_, { dock, ctx }, actor) {
       const p = dock.tile;
       // The agent's own window: the person who typed into it lately may be about to again.
       const idle = Date.now() - (p?.personKeyAt ?? 0);
       if (actor.kind === "agent" && p && idle < RESTART_IDLE_MS) throw new ActionRefused(`the person typed into the agent ${(idle / 1000).toFixed(1)}s ago; try again once they've left it ${RESTART_IDLE_MS / 1000}s`);
-      ctx.flash(`restarting ${DOCK_NAME}${p?.herdr ? ` in Herdr (${p.herdr.pane})` : ""} · the conversation is kept`, 6000);
-      return dock.restart();
+      ctx.flash(`restarting ${dock.name}${p?.herdr ? ` in Herdr (${p.herdr.pane})` : ""} · the conversation is kept`, 6000);
+      return dock.restart().then(r => ({ ...r, name: dock.name }));
     },
   }),
   "agent.type": def({
     summary: "send the agent (▲ claude, the host layer's agent) text as typed: \\n is ⏎, \\e Esc. The agent lives in the host layer, never as a tile on a screen, so this is how another agent types to it (tile.type types into a screen's terminal tile). Refused while the person is typing in it, and while it isn't running",
     keys: "the person types in the drawer (ctrl+], a click in it)",
     touches: "tile", while: "typing", replay: "ask", way: "an agent doesn't type there",
-    says: () => `· typed to ${DOCK_NAME}`,
+    says: (out: { tile?: string }) => `· typed to ${out?.tile ?? "the dock"}`,
     args: { text: { type: "string", about: "what to type (\\n ⏎, \\e Esc)" } },
     run({ text }, { dock }) {
       const p = dock.tile;
-      if (!p?.running) throw new ActionRefused(`${DOCK_NAME} isn't running · alt+a pulls it up and starts it`);
+      if (!p?.running) throw new ActionRefused(`${dock.name} isn't running · alt+a pulls it up and starts it`);
       p.input(text.replace(/\\n/g, "\r").replace(/\\e/g, "\x1b"));
-      return { tile: DOCK_NAME, chars: text.length };
+      return { tile: dock.name, chars: text.length };
     },
   }),
   "agent.knows": def({
@@ -655,7 +890,7 @@ export const DOCK_ACTIONS = actionSet<DockOn>()("dock", {
 });
 
 /** The host layer's agent as the actor rule sees it: the tile an agent's typing, resizing or restarting would be under. */
-export const HOST_AGENT_TILE: TileRef = { name: HOST_AGENT, kind: "pty", label: `${DOCK_NAME} in the agent drawer` };
+export const HOST_AGENT_TILE: TileRef = { name: HOST_AGENT, kind: "pty", label: "the dock's own terminal" };
 
 /**
  * `tile.herdr` for the host layer's agent (`tile=dock.agent`): the same rule as a desk terminal's (PTY_ACTIONS), said by

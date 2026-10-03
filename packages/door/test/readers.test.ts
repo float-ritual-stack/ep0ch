@@ -401,7 +401,7 @@ describe.skipIf(!outliner)("readers always scroll, against a scratch outline", (
     BV.at(b, "float0");
     key(char("o"));
     expect(B().floats.length).toBe(1);
-    expect(message()).toContain("not docked: the other tiles in readers hold edits or comments");
+    expect(message()).toContain("not put back: the other tiles in readers hold edits or comments");
     for (const d of B().details) await mine("edit.close", { discard: true }, nm(d));
   });
 

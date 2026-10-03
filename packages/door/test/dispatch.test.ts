@@ -434,7 +434,7 @@ describe.skipIf(!outliner)("routing on the desk, the board and the river: tile.t
     expect(V().columns.map(c => V().name(c))).toEqual([lib, a.reader]);
     const b = await act("open", { id: notes.peas.id, from: a.reader });
     expect(V().columns.map(c => V().name(c))).toEqual([lib, a.reader, b.reader]);
-    await act("tile.dock", { on: true }, b.reader);                                    // docked: full width, its note actions run
+    await act("tile.hold", { on: true }, b.reader);                                    // docked: full width, its note actions run
     expect(await act("open", { id: notes.beans.id, from: lib })).toMatchObject({ reader: a.reader });   // its own column, found
     // A note action by the block a column shows, by its name and by its stable id.
     expect(await act("folds", {}, notes.peas.id)).toMatchObject({ reader: b.reader });

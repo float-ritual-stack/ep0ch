@@ -5,7 +5,7 @@
 //
 // Focus and the layout are two things: moving the person's keys between columns never moves a column. The anchor
 // moves only on an explicit shift (widen), an open that would not otherwise show the new column full, or a key move
-// to a column the strip doesn't show at all. Ported from the River screen's own model (its docked columns, from and
+// to a column the strip doesn't show at all. Ported from the River screen's own model (its held columns, from and
 // ahead, squeeze, place, widen, close, back and forward), so the river became a screen on the one engine (PIE-515:
 // `src/river/column.ts`, a flow of river columns).
 //
@@ -31,7 +31,7 @@ export interface PlacedColumn { i: number; cover: Cover; rect: Rect; box: Rect }
 
 /**
  * Where each column of the flow goes in `width` cells, built around the anchor (never around focus). The anchor
- * first, then the column the person was reading (`keep`), then docked columns and those holding work, then by
+ * first, then the column the person was reading (`keep`), then held columns and those holding work, then by
  * distance; with too many even as spines, the ones nearest the anchor. Leftover room shows more of the peeks first,
  * then goes to the anchor, so the strip fills its room. River.layout(), as a pure function of the flow.
  */
@@ -42,13 +42,13 @@ export function squeeze<I>(f: Flow<I>, width: number, holds?: (id: I) => boolean
   const anchor = Math.max(0, columnOf(f, f.anchor));
   const keepAt = columnOf(f, f.keep);
   const keep = keepAt === anchor ? -1 : keepAt;
-  const docked = new Set((f.docked ?? []).map(id => columnOf(f, id)).filter(i => i >= 0));
+  const held = new Set((f.held ?? []).map(id => columnOf(f, id)).filter(i => i >= 0));
   const busy = (i: number) => !!holds && leaves(f.kids[i]!).some(id => holds(id));
   const shown = [...f.kids.keys()].sort((a, b) => Math.abs(a - anchor) - Math.abs(b - anchor) || b - a)
     .slice(0, Math.max(1, Math.floor(width / SPINE))).sort((a, b) => a - b);
   const cover = new Map<number, Cover>(shown.map(i => [i, "spine"]));
   let spare = width - shown.length * SPINE;
-  const rank = (i: number) => (i === anchor ? -1 : i === keep ? 0.25 : docked.has(i) || busy(i) ? 0.5 : Math.abs(i - anchor));
+  const rank = (i: number) => (i === anchor ? -1 : i === keep ? 0.25 : held.has(i) || busy(i) ? 0.5 : Math.abs(i - anchor));
   for (const i of [...shown].sort((a, b) => rank(a) - rank(b) || b - a)) {
     if (spare >= FULL - SPINE) { cover.set(i, "full"); spare -= FULL - SPINE; }
     else if (spare >= PEEK - SPINE) { cover.set(i, "peek"); spare -= PEEK - SPINE; }
@@ -124,12 +124,12 @@ export function setAhead<I>(f: Flow<I>, to: number, from: number) {
   const t = trailOf(f, to);
   if (t) t.ahead = back; else (f.trail ??= []).push({ tile, ahead: back });
 }
-/** Dock or undock column `i` (docked, it resists compression). Docking lets go of the column kept full: the dock is the newer choice. */
-export function setDocked<I>(f: Flow<I>, i: number, on: boolean) {
+/** Hold column `i` or let it go (held, it resists compression). Holding lets go of the column kept full: the hold is the newer choice. */
+export function setHeld<I>(f: Flow<I>, i: number, on: boolean) {
   const ids = f.kids[i] ? leaves(f.kids[i]!) : [];
-  f.docked = (f.docked ?? []).filter(id => !ids.includes(id));
-  if (on && ids.length) { f.docked.push(ids[0]!); delete f.keep; }
-  if (!f.docked.length) delete f.docked;
+  f.held = (f.held ?? []).filter(id => !ids.includes(id));
+  if (on && ids.length) { f.held.push(ids[0]!); delete f.keep; }
+  if (!f.held.length) delete f.held;
 }
 
 /**
@@ -187,7 +187,7 @@ export function tidyFlow<I>(f: Flow<I>): Flow<I> {
   const out: Flow<I> = { ...f };
   for (const k of ["anchor", "keep", "read"] as const) if (out[k] !== undefined && !here.has(out[k]!)) delete out[k];
   if (out.anchor === undefined && out.kids.length) out.anchor = tileOfColumn(out, 0);
-  if (out.docked) { out.docked = out.docked.filter(id => here.has(id)); if (!out.docked.length) delete out.docked; }
+  if (out.held) { out.held = out.held.filter(id => here.has(id)); if (!out.held.length) delete out.held; }
   if (out.trail) {
     out.trail = out.trail.filter(t => here.has(t.tile)).map(t => ({ tile: t.tile, ...(t.from !== undefined && here.has(t.from) ? { from: t.from } : {}), ...(t.ahead !== undefined && here.has(t.ahead) ? { ahead: t.ahead } : {}) })).filter(t => t.from !== undefined || t.ahead !== undefined);
     if (!out.trail.length) delete out.trail;

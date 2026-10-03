@@ -273,7 +273,7 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
     const shoot: any = await act("open", { id: notes.shoot.id, from: beansR });
     expect(focused()).toBe(was);
     await until(() => !!paneOf(shoot.reader).root, "the shoot column");
-    if (coverOf(shoot.reader) !== "full") expect(await act("tile.dock", { on: true }, shoot.reader)).toMatchObject({ docked: true });
+    if (coverOf(shoot.reader) !== "full") expect(await act("tile.hold", { on: true }, shoot.reader)).toMatchObject({ held: true });
     expect(focused()).toBe(was);
     expect(await act("up", {}, shoot.reader)).toMatchObject({ opened: notes.peas.id });
     expect(focused()).toBe(was);
@@ -281,8 +281,8 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
     expect(peasR).toBeTruthy();
     await until(() => !!paneOf(peasR).root, "the parent's column");
     // The peas column may be squeezed now; docking widens it without moving the person.
-    await act("tile.dock", { on: false }, shoot.reader);
-    if (coverOf(peasR) !== "full") await act("tile.dock", { on: true }, peasR);
+    await act("tile.hold", { on: false }, shoot.reader);
+    if (coverOf(peasR) !== "full") await act("tile.hold", { on: true }, peasR);
     expect(await act("link.follow", { n: 1 }, peasR)).toMatchObject({ opened: notes.beans.id });
     expect(focused()).toBe(was);
     await act("column.select", { id: notes.beans.id }, lib());
@@ -322,7 +322,7 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
   test("a property notice and an agent line in a column the person isn't in clear once shown a while", async () => {
     const peasR = readerOf(notes.peas.id)!, p = paneOf(peasR);
     await mine("tile.focus", {}, lib());
-    if (coverOf(peasR) !== "full") await act("tile.dock", { on: true }, peasR);
+    if (coverOf(peasR) !== "full") await act("tile.hold", { on: true }, peasR);
     const text = (await current(notes.peas.id)).text.replace("Sow the peas", "Sow the peas [stage::doing]");
     await act("edit.text", { text }, peasR);
     expect(await act("edit.save", {}, peasR)).toMatchObject({ saved: false });   // the property warning first
@@ -336,7 +336,7 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
     key(char("k"));
     expect(screen()).not.toContain("properties changed: +stage=doing");
     expect(screen()).not.toContain(`an agent (${AS}) saved this note`);
-    await act("tile.dock", { on: false }, peasR);
+    await act("tile.hold", { on: false }, peasR);
   });
 
   test("another client's save marks the column's draft, never replaces it; leaving copies it out", async () => {

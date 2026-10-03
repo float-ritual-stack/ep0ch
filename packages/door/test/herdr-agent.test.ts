@@ -169,7 +169,7 @@ describe("the defaults", () => {
     expect(c).toMatchObject({ pane: "door-claude", name: "door", workspace: "door" });
     expect(c.env.EP0CH_TILE).toBe("claude");
     expect(c.env.EP0CH_CONTROL).toBe(c.link);
-    expect(agentConfig(base, () => null).cwd).toBe("/somewhere");
+    expect(agentConfig(base, () => null).cwd).toBe(process.cwd());   // the folder the dock started it in, never the door's PWD
   });
 });
 

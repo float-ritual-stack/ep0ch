@@ -1,6 +1,7 @@
 // What this machine's stack looks like (model.ts's Facts), gathered read-only: git (fetch and ls-remote
 // only), Herdr's own answers, the outline host's socket (`ping`, `outlines.list`), the file system. Nothing
 // here writes a database, starts a host or changes a config.
+import { dockProgram } from "../desk/dock-program";
 import { defaultStateDir } from "../state";
 import { accessSync, constants, existsSync, lstatSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
@@ -407,6 +408,7 @@ export async function gatherFacts(o: GatherOptions = {}): Promise<Facts> {
     host,
     databases: databases(folder),
     here,
+    dock: (({ cmd, cwd, programWhy, folderWhy }) => ({ cmd, cwd, programWhy, folderWhy }))(dockProgram({ env, outline: here?.outline ?? null, machine: here?.machine ?? null, start: here?.folder ?? process.cwd(), home })),
     machines,
     claude: { settingsPath, settingsDirs, envDirs: splitDirs(env.CLAUDE_CODE_PLUGIN_DIRS), ...(mentions ? { mentions } : {}), ...(env.FORCE_HYPERLINK !== undefined ? { forceHyperlink: env.FORCE_HYPERLINK } : {}), ...(agents ? { agents } : {}) },
     sessions,

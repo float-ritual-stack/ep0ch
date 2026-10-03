@@ -171,7 +171,7 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     return { top, depth: A().stack.length, lines, about: mask.has(-1) ? "" : about, holds: app.person().busy, video: app.video, dock: drawer() };
   };
   /**
-   * The agent drawer over the screen: up or put away, the person in it or not, its height. Its rows are the
+   * The dock over the screen: up or put away, the person in it or not, its height. Its rows are the
    * agent's terminal (they change by themselves), so the drawer is compared by these, not by what it draws.
    */
   const drawer = () => { const d = A().dock; return `${d.shown}|${d.entered}|${d.share}`; };
@@ -194,7 +194,7 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
   const freshIn = async (label: string, make: () => Screen | Promise<Screen>, setup: Key[] = []): Promise<Set<number>> => {
     for (const s of [...A().stack.splice(0), ...A().background.splice(0)]) end(s);
     (Desk as any).kept = null;
-    // The agent drawer is the App's, over every screen: put away, its program ended.
+    // The dock is the App's, over every screen: put away, its program ended.
     const dock = A().dock;
     // Put away by its own operation (the host layer changes only through the layout engine).
     if (dock.open) dock.set(false, { kind: "user" });
@@ -217,7 +217,7 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     // A second look only when the first asked the service for something (what it draws once that comes).
     for (let i = 0; i < 2; i++) { const n = asked; snap(new Set()); await settle(); if (asked === n) break; }
     // Until it holds still (a terminal's prompt arriving), at most a second. Only a terminal draws by itself
-    // (in a tile, or the agent drawer's): without one, a settle and one more look is enough.
+    // (in a tile, or the dock's): without one, a settle and one more look is enough.
     ptyDrew = false;
     for (let i = 0, was = snap(new Set()); i < 50; i++) { if (ptyDrew || dock.p || i > 0) await Bun.sleep(5); await settle(); const now = snap(new Set()); if (alike(was, now)) break; was = now; }
     const id = `${label}\0${setup.map(named).join(" ")}`;
@@ -422,7 +422,7 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
   const RIVER: Scenario[] = [
     ["river: a column beside", river, [{ kind: "enter" }]],
     ["river: replies shown", river, [k(" ")]],
-    ["river: a docked column and a stacked pane", river, [{ kind: "enter" }, k("p"), k("s")]],
+    ["river: a held column and a stacked pane", river, [{ kind: "enter" }, k("p"), k("s")]],
   ];
 
   // ── the desk and the views built on it, in their other states ──

@@ -82,7 +82,7 @@ only when the person asked for it.
 
 ## Which door you reach
 
-- **Inside a door** (a terminal tile, the agent drawer, the daily agent's Herdr pane, the door's drop shell),
+- **Inside a door** (a terminal tile, the dock, the daily agent's Herdr pane, the door's drop shell),
   `EP0CH_CONTROL` is already that door's socket, `EP0CH_TILE` your tile's name and `EP0CH_NEST` the layers
   you run in. Run `ep0ch where` first: it checks each layer and says whether the person is typing in your
   tile. Open notes with `ep0ch open <block> from=$EP0CH_TILE` (the same as `ep0ch act open id=<block>
@@ -127,7 +127,8 @@ the door's `EP0CH_STATE` and `EP0CH_SOCKET` when it has them.
 2. `D`, then the `daily` layout's `claude` tile: the door's own agent. Where `EP0CH_DAILY_AGENT` names the
    Herdr launcher (`scripts/door-agent-herdr.ts`) it runs in Herdr (the `door-claude` pane, `EP0CH_CONTROL` a
    link the launcher points at the attached door); elsewhere plain `claude` in the tile.
-3. The `▲ claude` chip on the status bar, or `alt+a`: the same agent as 2, in a drawer over any screen.
+3. The `▲ claude` chip on the status bar, or `alt+a`: the dock, a drawer over any screen; its own tab runs the same
+   agent as 2 (`EP0CH_DAILY_AGENT`; unset, a shell), and any tile docked there travels with the person.
 
 **A Claude reads these, and the mod, only as it starts.** If the mod changed after it started (a `git pull` of
 the ep0ch checkout), or it started without them, it has no door tools or old ones. The chip says so:
@@ -179,10 +180,13 @@ yourself (path 1): `/exit`, then `claude --continue`.
 
 ## Useful actions beyond notes
 
-- **The agent drawer** (every screen; the host layer's, PIE-513): `host.toggle [open=true|false]`, `host.size
-  share=0.2…0.9`, `agent.type text=…` (the agent is no screen's tile,
-  so `tile.type` doesn't reach it), `agent.knows`, `agent.restart`. It never takes the person's keys; you can't put
-  it away, resize it, type in it or restart its agent while they type in it. `peek` shows it as `dock` (with `knows`).
+- **The dock** (every screen; the host layer's, PIE-498, PIE-513): `host.toggle [open=true|false]`, `host.size
+  share=0.2…0.9`, `agent.type text=…` (to its own program), `agent.knows`, `agent.restart`. `host.dock tile=<t>`
+  moves a tile into it whole (its program keeps running), `host.dock on=false tile=<t> to=<tile> where=<side>` back
+  out into the screen shown; `tile=` naming a docked tile reaches it there (`tile.type tile=kettle`). Put your own
+  tile in: `host.dock tile=$EP0CH_TILE_ID`. It never takes the person's keys; you can't dock the tile they type in,
+  put it away, resize it, type in it or restart its agent while they type in it. `peek` shows it as `dock` (with
+  `knows`, `runs` and `tiles`).
 - **Links** (one model on every screen: Outlinks, Resources, Backlinks). `links tile=<reader>` aims the
   screen's links tile at that reader's note (or opens one below it), leaving the person's keys where they are;
   `backlinks.pick n=<row> [open=true]` shows or opens a row (a note, a ticket's block, a Resource's stored
@@ -205,7 +209,7 @@ yourself (path 1): `/exit`, then `claude --continue`.
   saved view's cards in a tile.
 - **The river** is a screen spec on the desk too: its columns are `river.column` tiles in a flow (`library`, then
   `column`, `column2`…). `open id= from=<column>` puts a note in the column after it; `column.select`, `column.filter`,
-  `column.tag` act in a column (never the one the person has the keys in); `tile.widen` and `tile.dock` shape it.
+  `column.tag` act in a column (never the one the person has the keys in); `tile.widen` and `tile.hold` (held full) shape it.
 - The full list and the rules for each are in the door's `docs/AGENT-INTERFACE.md`.
 
 ## When something looks wrong

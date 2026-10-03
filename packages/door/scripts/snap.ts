@@ -1078,7 +1078,7 @@ if (scenario === "desk") {
   press({ kind: "char", ch: "w", ctrl: true }); ch("o"); ch("b");
   await snap("4-added-art", 1500);
   press({ kind: "char", ch: "w", ctrl: true }); ch("L");
-  await snap("5-docked-right", 800);
+  await snap("5-moved-to-right-edge", 800);
   ch("/"); for (const c of "PIE-367") ch(c);
   await snap("6-search", 3500);
   press({ kind: "enter" });

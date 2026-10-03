@@ -1,4 +1,4 @@
-// PIE-498, PIE-513: the agent drawer, the host layer's. One terminal tile belongs to the App, the first tab of the
+// PIE-498, PIE-513: the dock, the host layer's. One terminal tile belongs to the App, the first tab of the
 // host layer's drawer, pulled up from the status bar's chip (or alt+a) over any screen without the screen
 // reflowing (or beside it, the screen drawn shorter, where the screen says so); its actions (`host.toggle`,
 // `host.size`) are what the keys, the clicks and `act` run; it's
@@ -19,7 +19,7 @@ import type { Key } from "../src/term";
 import { where as whereIs } from "../src/where";
 import { outliner, Scratch, until } from "./scratch";
 
-const wait = (ok: () => boolean) => until(ok, "the agent drawer");
+const wait = (ok: () => boolean) => until(ok, "the dock");
 const plain = (s: string) => s.replace(/\x1b\[[\d;]*m/g, "").replace(/\x1b\[[^m]*m/g, "");
 const ALT = (ch: string): Key => ({ kind: "alt", ch });
 const ESC: Key = { kind: "esc" };
@@ -34,7 +34,11 @@ beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "ep0ch-dock-"));
   for (const k of ENV) saved[k] = process.env[k];
   process.env.EP0CH_STATE = join(dir, "state");
-  process.env.EP0CH_DAILY_AGENT = "cat";
+  // A stand-in Claude: cat, under the name claude (the dock calls its own tab by what it runs).
+  const claude = join(dir, "claude");
+  writeFileSync(claude, "#!/bin/sh\nexec cat \"$@\"\n");
+  chmodSync(claude, 0o755);
+  process.env.EP0CH_DAILY_AGENT = claude;
   delete process.env.EP0CH_DAILY_CWD;
   // The daily layout's editor tile: a stand-in too, on a scratch file.
   process.env.VISUAL = "true";
@@ -71,7 +75,7 @@ function door(rows = 30, cols = 100) {
   return { app, term, screen, renders, paint, type, key: (k: Key) => key(k), A: app as any };
 }
 
-describe("the agent drawer", () => {
+describe("the dock", () => {
   test("the chip is on the status bar on every screen but the logon; alt+a pulls the drawer up over the screen without reflowing it", async () => {
     const d = door();
     try {
@@ -226,10 +230,10 @@ describe("the agent drawer", () => {
       d.key(mouse("down", 10, 27)); d.key(mouse("up", 10, 27));
       expect(d.app.dock.entered).toBe(true);
       d.A.lastInput = 0;
-      await expect(d.app.act({ action: "host.toggle", args: { open: false }, as: "claude-7" })).rejects.toThrow(/typing in the agent drawer/);
-      await expect(d.app.act({ action: "host.size", args: { share: 0.6 }, as: "claude-7" })).rejects.toThrow(/typing in claude in the agent drawer/);
+      await expect(d.app.act({ action: "host.toggle", args: { open: false }, as: "claude-7" })).rejects.toThrow(/typing in the dock/);
+      await expect(d.app.act({ action: "host.size", args: { share: 0.6 }, as: "claude-7" })).rejects.toThrow(/typing in claude in the dock/);
       // Nor move their screen.
-      await expect(d.app.act({ action: "screen.open", args: { name: "S" }, as: "claude-7" })).rejects.toThrow(/typing in the agent drawer/);
+      await expect(d.app.act({ action: "screen.open", args: { name: "S" }, as: "claude-7" })).rejects.toThrow(/typing in the dock/);
     } finally { d.app.quit(); d.app.dock.tile?.kill(); }
   });
 
@@ -277,7 +281,7 @@ describe("the agent drawer", () => {
 
   test("a second door's drawer says it's only watching the Herdr pane, and that ⏎ would take it from the other door", async () => {
     // The launcher, refused the attach because another door has the pane, watches it and titles its terminal so.
-    const watcher = join(dir, "watcher");
+    const watcher = join(dir, "claude-watcher");
     writeFileSync(watcher, `#!/bin/sh\nprintf '\\033]2;%s\\007' ${JSON.stringify(WATCH_TITLE)}\nexec cat\n`);
     chmodSync(watcher, 0o755);
     process.env.EP0CH_DAILY_AGENT = watcher;
@@ -363,7 +367,7 @@ describe("the agent drawer", () => {
         pid: 1, peek: async () => peek, herdr: null, alive: () => true, ttyExists: () => true, ancestors: () => [],
       });
       expect(w.door?.tile).toMatchObject({ id: DOCK_TILE_ID, found: true, dock: true, shown: true });
-      expect(w.layers.find(l => l.kind === "tile")?.why).toContain("the agent drawer");
+      expect(w.layers.find(l => l.kind === "tile")?.why).toContain("the dock");
       expect(w.keys).toMatchObject({ mine: true, typing: true });
     } finally { d.app.quit(); d.app.dock.tile?.kill(); }
   });
@@ -427,7 +431,7 @@ describe.skipIf(!outliner)("the drawer and the daily desk, against a scratch out
       d.key(ALT("a"));                                           // the person's pull: they're in it
       await wait(() => d.app.dock.tile?.running === true);
       expect(d.app.dock.entered).toBe(true);
-      await expect(d.app.act({ action: "agent.type", args: { text: "rm notes\\n" }, as: "claude-7" })).rejects.toThrow(/typing in claude in the agent drawer/);
+      await expect(d.app.act({ action: "agent.type", args: { text: "rm notes\\n" }, as: "claude-7" })).rejects.toThrow(/typing in claude in the dock/);
       await expect(d.app.act({ action: "tile.type", tile: "claude", args: { text: "seed list" }, as: "claude-7" })).rejects.toThrow(/no tile claude|claude/);
       d.key(CTRL_RB);                                            // out of it: an agent may type there again
       const r: any = await d.app.act({ action: "agent.type", args: { text: "seed list" }, as: "claude-7" });

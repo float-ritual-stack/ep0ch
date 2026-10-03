@@ -1,5 +1,5 @@
 // PIE-513: the flow container, the river's columns on the one layout engine: its squeeze, its calm focus, its explicit
-// shift, opens into the next column, back and forward, docked columns, held at layout level through the screen-layout
+// shift, opens into the next column, back and forward, held columns, held at layout level through the screen-layout
 // module's interface: no App, no Scratch. Since PIE-515 the river is a flow of river columns (src/river/column.ts).
 // Fictional tiles.
 import { describe, expect, test } from "bun:test";
@@ -73,14 +73,14 @@ describe("the squeeze: full → peek → spine around the wide column", () => {
     expect([...p.rects.values()].reduce((a, r) => a + r.cols, 0)).toBe(60);
   });
 
-  test("a docked column, and one holding work (a draft), resist compression; docking lets go of the kept column", () => {
+  test("a held column, and one holding work (a draft), resist compression; holding lets go of the kept column", () => {
     AREA = wide(220); holding = new Set();
     let s = river(5);
     expect(covers(s)[1]).toBe("spine");
-    s = ok(s, { op: "flow.dock", tile: 1, on: true }).state;
+    s = ok(s, { op: "flow.hold", tile: 1, on: true }).state;
     expect(covers(s)[1]).not.toBe("spine");
     expect(flowIn(s).keep).toBeUndefined();
-    s = ok(s, { op: "flow.dock", tile: 1, on: false }).state;
+    s = ok(s, { op: "flow.hold", tile: 1, on: false }).state;
     holding = new Set([1]);
     expect(covers(s)[1]).not.toBe("spine");
     holding = new Set();
@@ -227,7 +227,7 @@ describe("the explicit shift, docking, closing, back and forward", () => {
     no(s, { op: "flow.widen", tile: 9 }, /no tile/);
     const locked = ok(s, { op: "policy", node: flowIn(s).id!, set: { locked: true }, clear: [] }).state;
     no(locked, { op: "flow.widen", tile: 1 }, /is locked: widening is refused/);
-    no(locked, { op: "flow.dock", tile: 1, on: true }, /is locked: docking a column is refused/);
+    no(locked, { op: "flow.hold", tile: 1, on: true }, /is locked: holding a column is refused/);
     // An agent's widen never squeezes the column the person types in; elsewhere it shifts, the keys staying put.
     no(s, { op: "flow.widen", tile: 1 }, /the person is typing in c3, a column of this flow; an agent's widen would squeeze it/, AGENT, { focus: 3, typingIn: 3, busy: true });
     // reveal (tile.preview's) brings a column off the strip on; an agent's never shifts the strip the person types in.
@@ -255,18 +255,18 @@ describe("the explicit shift, docking, closing, back and forward", () => {
     AREA = wide(220);
     const tree: LNode = splitOf("row", [leaf(10), flowOf([leaf(1), leaf(2), leaf(3)], { anchor: 2 })], [0.2, 0.8]);
     let s = init({ tree, names: new Map([[10, "tree"], [1, "c1"], [2, "c2"], [3, "c3"]]) });
-    s = ok(s, { op: "flow.dock", tile: 1, on: true }).state;
+    s = ok(s, { op: "flow.hold", tile: 1, on: true }).state;
     s = ok(s, { op: "open", tile: 4, kind: "reader", name: "c4", at: { kind: "next", from: 3 } }, PERSON, { focus: 3 }).state;
     const saved = serialize(s, id => ({ t: "leaf" as const, n: s.names.get(id)! }));
     const ids = new Map([...s.names].map(([id, n]) => [n, id]));
     const back = init({ tree: reviveTree(saved.root as any, (l: { n: string }) => ids.get(l.n)!), names: s.names });
     const f0 = flowIn(s), f1 = flowIn(back);
     expect(f1.anchor).toBe(f0.anchor);
-    expect(f1.docked).toEqual(f0.docked);
+    expect(f1.held).toEqual(f0.held);
     expect(f1.trail).toEqual(f0.trail);
     const v = describeLayout(back, id => back.names.get(id)!) as any;
     expect(v.kids[1].flow).toBe(true);
-    expect(v.kids[1].docked).toEqual(["c1"]);
+    expect(v.kids[1].held).toEqual(["c1"]);
     // The tree tile beside it keeps its share; the flow squeezes in what's left.
     expect(place(back, AREA).rects.get(10)!.cols).toBe(44);
     void copyTree;

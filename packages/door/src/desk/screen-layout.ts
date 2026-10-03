@@ -7,11 +7,11 @@
 // The rules live here, checked inside every operation, so no caller can break them one operation at a time (the
 // round-2 review's B7–B11, C3, C4 came from callers doing exactly that):
 // - a float has no place in the tree: nothing goes beside it or into its tabs, it swaps with nothing, it doesn't
-//   fold or go in a drawer, until it's docked; it docks only where the containers there take it;
+//   fold, until it's back in the layout; it lands only where the containers there take it (a drawer takes it in one step);
 // - the nearest policy wins, and a lock above locks everything below; an agent undoes only a lock it set;
 // - an agent never moves, floats, pins or closes the tile the person is typing in, never moves their keys while
 //   they type, and never hides the tab they have;
-// - a container's rule outlives a move that leaves it one tile; something docked always stays to slide over; the
+// - a container's rule outlives a move that leaves it one tile; something pinned always stays to slide over; the
 //   screen is never blank; the keys never stay on a hidden tile;
 // - in a flow, focus never moves the layout (only a widen, an open that needs it, or a key to a column off the strip).
 //
@@ -21,9 +21,9 @@
 // painting stay the desk's. Internal: the tree arithmetic (`layout.ts`) and the flow's squeeze (`flow.ts`).
 import type { Rect } from "../canvas";
 import { byOf, type Actor } from "../socket";
-import { arrive, columnOf, leaving, setAhead, setDocked, setFrom, squeeze, tileOfColumn, travelTarget, widen as widenFlow, type Cover } from "./flow";
+import { arrive, columnOf, leaving, setAhead, setHeld, setFrom, squeeze, tileOfColumn, travelTarget, widen as widenFlow, type Cover } from "./flow";
 import {
-  activate, besideSlot, chainOf, clone, cycle, describeTree, dockedTiles, drawerOf, drawers, drawerToEdge, edge, effective, even, forgetIds, has, insert, isLine, kidsOf, leaf, leaves, move,
+  activate, besideSlot, chainOf, clone, cycle, describeTree, pinnedTiles, drawerOf, drawers, drawerToEdge, edge, effective, even, forgetIds, has, insert, isLine, kidsOf, leaf, leaves, move,
   node, nodeById, normalise, parentOf, placeScreen, policyOf, remove, resize, serialize as serializeTree, shown, tabInto, tabsOf, unwrapDrawer, visible, wrapDrawer, wrapNodeDrawer,
   POLICY_KEYS, type Axis, type Container, type Dir, type Drawer, type Effective, type Flow, type Float, type HostMode, type Line, type LNode, type Place, type PlacedScreen, type PlaceOpts, type Policy,
 } from "./layout";
@@ -31,7 +31,7 @@ import { SPINE } from "../spine";
 
 // ── what the module reads: the tree queries, re-exported so callers import only this module ──
 export {
-  chainOf, columnsOf, dividerAt, dockedTiles, dragShare, drawerOf, drawers, EDGE_GLYPH, EDGE_WORD, effective, flowOf, isDir, isLine, kidsOf, leaf, leaves, neighbour, node, nodeById,
+  chainOf, columnsOf, dividerAt, pinnedTiles, dragShare, drawerOf, drawers, EDGE_GLYPH, EDGE_WORD, effective, flowOf, isDir, isLine, kidsOf, leaf, leaves, neighbour, node, nodeById,
   pair, parentNode, parentOf, policyOf, revive as reviveTree, shown, splitAxis, splitOf, tabsOf, visible, POLICY_KEYS,
 } from "./layout";
 /** A copy of a tree to build on (a screen's preset as it's made); the state's own is never changed in place. */
@@ -62,7 +62,7 @@ export interface LayoutState<I = number> {
   readonly policy: Policy;
   /** The locks an agent set ("screen", or a container's id): an agent undoes only these; the person's are theirs. */
   readonly locks: readonly string[];
-  /** A drawer docked keeps its policy here, by what it held: put back in a drawer, it slides as it did. */
+  /** A drawer pinned keeps its policy here, by what it held: put back in a drawer, it slides as it did. */
   readonly remembered: ReadonlyMap<string, Policy | undefined>;
   /** The layout's revision: a new one each time its shape changes (`expected=` is checked against it). */
   readonly rev: number;
@@ -98,6 +98,8 @@ export interface Person<I = number> {
   typingIn: I | null;
   /** The person's keys are held (typing anywhere, a picker or panel open, a ^W chord): an agent doesn't move them. */
   busy: boolean;
+  /** Their keys are on this layout at all (false: on another screen, or in the index around a framed one): `focus` is only its own. */
+  here?: boolean;
   /**
    * Why an agent may not move their keys now, as the shell's one rule says it (`actorRule` for `touches: "screen"`:
    * busy, away, or at the keys in the last 2s), or null. Left out, being busy is the rule.
@@ -130,6 +132,8 @@ export type At<I = number> = Place<I>
 export type Op<I = number> =
   | { op: "open"; tile: I; kind: string; name?: string; loose?: boolean; at: At<I>; keys?: false; link?: I }
   | { op: "close"; tile: I; gone?: boolean }
+  /** A tile leaves this layout whole, to go on elsewhere (the host layer's drawer, PIE-498): moved, not closed. */
+  | { op: "take"; tile: I }
   | { op: "move"; tile: I; to: Place<I> }
   | { op: "swap"; tile: I; with: I }
   | { op: "float"; tile: I; at?: At<I> }
@@ -153,7 +157,7 @@ export type Op<I = number> =
   | { op: "source"; container: string; source: string }
   | { op: "flow.widen"; tile: I }
   | { op: "flow.travel"; tile: I; dir: -1 | 1 }
-  | { op: "flow.dock"; tile: I; on?: boolean }
+  | { op: "flow.hold"; tile: I; on?: boolean }
   | { op: "remember"; key: string; policy: Policy };
 
 /** The answer: the new state (and where the person's keys are now), or the refusal and its reason, nothing done. */
@@ -270,7 +274,7 @@ export function refusal<I>(s: LayoutState<I>, op: Op<I>, ctx: Ctx<I>): string | 
 }
 
 /**
- * Never a blank screen: when every tile is in a shut drawer (a layout saved that way, the docked tiles closed), the
+ * Never a blank screen: when every tile is in a shut drawer (a layout saved that way, the pinned tiles closed), the
  * drawer holding the keys opens (else the first), and the keys go to a tile that shows.
  */
 function neverBlank<I>(d: Draft<I>) {
@@ -448,9 +452,9 @@ class Step<I> {
   }
   /** The shape can't change around tile `id`: it, or a container over it, is locked. */
   private shape(id: I, what: string) { const e = this.policyAt(id); refuse(e.locked ? this.lockedWhy(e, what) : null); }
-  /** A float has no place in the tree: whatever needs one waits until it's docked. */
+  /** A float has no place in the tree: whatever needs one waits until it's back in the layout. */
   private notFloat(id: I, what: string) {
-    refuse(this.isFloat(id) ? `${this.name(id)} is a float: ${what} needs a tile in the layout · ^W f (o on the board) or a click on its ⧉ docks it first` : null);
+    refuse(this.isFloat(id) ? `${this.name(id)} is a float: ${what} needs a tile in the layout · ^W f (o on the board) or a click on its ⧉ puts it back first` : null);
   }
   /** An agent never moves, floats or pins the tile the person is typing in. */
   private guard(id: I, what: string) {
@@ -534,13 +538,14 @@ class Step<I> {
     switch (op.op) {
       case "open": return this.open(op);
       case "close": return this.close(op.tile, !!op.gone);
+      case "take": return this.take(op.tile);
       case "move": return this.move(op.tile, op.to);
       case "swap": return this.swap(op.tile, op.with);
       case "float":
-        // Popping a tile out or docking it moves the tile the person has: an agent doesn't, typing or not (as it
+        // Popping a tile out or putting it back moves the tile the person has: an agent doesn't, typing or not (as it
         // doesn't close or fold it).
         if (this.agent && op.tile === this.d.focus) refuse(`${this.name(op.tile)} has the person's keys; an agent doesn't float it`);
-        return this.isFloat(op.tile) ? this.dock(op.tile, op.at) : this.float(op.tile);
+        return this.isFloat(op.tile) ? this.land(op.tile, op.at) : this.float(op.tile);
       case "place": return this.place(op);
       case "pin": return this.pin(op.tile, op.on, op.edge, op.container);
       case "drawer": return this.drawer(op.tile, op.open, op.container);
@@ -561,7 +566,7 @@ class Step<I> {
       case "source": return this.source(op.container, op.source);
       case "flow.widen": return this.widen(op.tile);
       case "flow.travel": return this.travel(op.tile, op.dir);
-      case "flow.dock": return this.dockColumn(op.tile, op.on);
+      case "flow.hold": return this.holdColumn(op.tile, op.on);
       case "remember": return this.rememberPolicy(op.key, op.policy);
     }
   }
@@ -653,6 +658,26 @@ class Step<I> {
       if (this.agent && id === this.d.focus) refuse(`${name} has the person's keys; an agent doesn't close it`);
       if (this.agent && f.running) refuse(`${name} is running ${f.running}; an agent doesn't end it`);
     }
+    this.lift(id);
+    this.d.answer = { tile: name };
+  }
+  /**
+   * A tile leaves this layout whole (to the host layer's drawer, or from it to a screen): its program, note and history
+   * go with it, so nothing is closed. It moves, so the move rules ask: not out of a locked shape or a container that
+   * keeps its tiles, never the tile the person types in (nor, for an agent, the one with their keys), never the last.
+   */
+  private take(id: I) {
+    this.present(id);
+    const name = this.name(id);
+    this.guard(id, "move");
+    this.drag(id);
+    if (!this.isFloat(id) && leaves(this.d.tree).length <= 1) refuse(`${name} is the screen's last tile: it stays (the screen is never blank)`);
+    if (this.agent && this.ctx.person.here !== false && id === this.d.focus) refuse(`${name} has the person's keys; an agent doesn't take it away`);
+    this.lift(id);
+    this.d.answer = { tile: name, taken: true };
+  }
+  /** Tile `id` out of the tree (or the floats), its flow column passed on, the keys to its heir. */
+  private lift(id: I) {
     const float = this.isFloat(id);
     // Its flow column goes with it: the wide place and the one kept full pass on as the river's do, and the keys
     // go to the column before it (the one after, for the first), as the river's do.
@@ -665,7 +690,6 @@ class Step<I> {
     this.d.tree = normalise(next);
     this.forget(id);
     if (this.d.focus === id) this.d.focus = (heir !== undefined && has(this.d.tree, heir) ? heir : undefined) ?? visible(this.d.tree).find(x => !this.d.collapsed.has(x)) ?? visible(this.d.tree)[0] ?? this.all()[0]!;
-    this.d.answer = { tile: name };
   }
   /** A tile gone: its float, its spine, its name, its links and those to it. */
   private forget(id: I) {
@@ -681,7 +705,7 @@ class Step<I> {
     this.guard(src, "move");
     this.drag(src);
     this.into(this.facts(src).kind, this.name(src), to);
-    // A float moved into the tree docks there: it isn't a float any more.
+    // A float moved into the tree lands there: it isn't a float any more.
     if (this.isFloat(src)) {
       this.d.floats = this.d.floats.filter(f => f.id !== src);
       this.putAt(src, to);
@@ -744,20 +768,20 @@ class Step<I> {
     this.d.answer = { floated: true };
   }
   /**
-   * A float docked: where `at` says (else beside the tile the person has, or the last docked tile), when the
-   * containers there take it (locked, droppable, accepts, as any move asks); else beside the first docked tile whose
+   * A float back in the layout: where `at` says (else beside the tile the person has, or the last pinned tile), when the
+   * containers there take it (locked, droppable, accepts, as any move asks); else beside the first pinned tile whose
    * containers do, else along an outer edge; refused, with the first place's reason, when nothing takes it.
    */
-  private dock(id: I, at?: At<I>) {
+  private land(id: I, at?: At<I>) {
     this.guard(id, "float");
     const e = effective([{ by: "screen", policy: this.d.policy }]);
-    if (e.locked) refuse(this.lockedWhy(e, `docking ${this.name(id)}`));
+    if (e.locked) refuse(this.lockedWhy(e, `putting ${this.name(id)} back`));
     const kind = this.facts(id).kind, name = this.name(id);
     const why = (next: LNode<I>): string | null => {
       if (!has(next, id)) return `there's no place for ${name} in the layout`;
       const e = effective([{ by: "screen", policy: this.d.policy }, ...chainOf(next, id).map(c => ({ by: c.id ?? c.t, policy: c.policy }))]);
-      if (e.locked) return this.lockedWhy(e, `docking ${name}`);
-      if (!e.droppable) return `${this.whose(e.by.droppable)} takes no drops (droppable off): ${name} doesn't dock there`;
+      if (e.locked) return this.lockedWhy(e, `putting ${name} back`);
+      if (!e.droppable) return `${this.whose(e.by.droppable)} takes no drops (droppable off): ${name} doesn't land there`;
       if (e.accepts && !e.accepts.includes(kind)) return `${this.whose(e.by.accepts)} takes only ${e.accepts.join(", ") || "nothing"}: not ${name} (${kind})`;
       return null;
     };
@@ -768,13 +792,13 @@ class Step<I> {
       try { this.putAt(id, to); return this.d.tree; } finally { this.d.tree = keep; }
     };
     const focus = this.d.focus;
-    const base = this.isFloat(focus) || focus === id || !has(this.d.tree, focus) ? (dockedTiles(this.d.tree).at(-1) ?? leaves(this.d.tree).at(-1)!) : focus;
+    const base = this.isFloat(focus) || focus === id || !has(this.d.tree, focus) ? (pinnedTiles(this.d.tree).at(-1) ?? leaves(this.d.tree).at(-1)!) : focus;
     const first = tryAt(at ?? { kind: "split", target: base, dir: "right" });
     const refused = why(first);
     let next: LNode<I> | null = refused ? null : first;
     if (!next) {
-      // Beside a docked tile only: one in a drawer would put the float where it isn't shown (a shut drawer).
-      const tries: At<I>[] = [...dockedTiles(this.d.tree).map(t => ({ kind: "split" as const, target: t, dir: "right" as const })), ...(["right", "down", "left", "up"] as Dir[]).map(dir => ({ kind: "edge" as const, dir }))];
+      // Beside a pinned tile only: one in a drawer would put the float where it isn't shown (a shut drawer).
+      const tries: At<I>[] = [...pinnedTiles(this.d.tree).map(t => ({ kind: "split" as const, target: t, dir: "right" as const })), ...(["right", "down", "left", "up"] as Dir[]).map(dir => ({ kind: "edge" as const, dir }))];
       for (const t of tries) { const n = tryAt(t); if (!why(n)) { next = n; break; } }
     }
     if (!next) refuse(refused);
@@ -806,7 +830,16 @@ class Step<I> {
 
   private pin(id: I, on: boolean | undefined, edgeTo: Dir | undefined, container?: string) {
     this.present(id);
-    this.notFloat(id, "a drawer");
+    // A float goes into a drawer in one step: it lands back in the layout (where the containers take it, as ^W f
+    // would), then its drawer wraps it, both in this one transaction (refused whole, it stays the float it was).
+    // on=true puts it back pinned outright.
+    if (this.isFloat(id)) {
+      if (this.agent && id === this.d.focus) refuse(`${this.name(id)} has the person's keys; an agent doesn't move it`);
+      if (container !== undefined) refuse(`${this.name(id)} is a float: no container holds it · tile.pin without container= puts it in a drawer of its own`);
+      this.land(id);
+      if (on === true) { this.d.answer = { pinned: true, floated: false }; return; }
+      on = false;
+    }
     const name = this.name(id), focus = this.d.focus;
     // A whole container (a split of tiles: the board's outline and its preview) goes into a drawer as one.
     if (container !== undefined && on !== true) {
@@ -824,7 +857,7 @@ class Step<I> {
       this.shape(id, `putting ${container} in a drawer`);
       const open = !this.agent || leaves(c!).includes(focus);
       const next = inDrawer && edgeTo ? drawerToEdge(this.d.tree, inDrawer, edgeTo) : wrapNodeDrawer(this.d.tree, c!, edgeTo, open);
-      if (!next) refuse(`${container} is the whole layout, holds every tile still docked, or is in a drawer already; a drawer needs something to slide over`);
+      if (!next) refuse(`${container} is the whole layout, holds every tile still pinned, or is in a drawer already; a drawer needs something to slide over`);
       this.d.tree = normalise(next!);
       const now = drawerOf(this.d.tree, id);
       if (now && !inDrawer) this.remember(now, container);
@@ -850,7 +883,7 @@ class Step<I> {
       // The person's drawer opens on what they have; an agent's starts shut unless it holds their keys.
       const open = !this.agent || (tabsOf(this.d.tree, id)?.ids ?? [id]).includes(focus);
       const next = wrapDrawer(this.d.tree, id, edgeTo, open);
-      if (!next) refuse(`${name} is the last tile docked (or its tab set is the whole layout); a drawer needs something to slide over`);
+      if (!next) refuse(`${name} is the last tile pinned (or its tab set is the whole layout); a drawer needs something to slide over`);
       this.d.tree = normalise(next!);
       const nd = drawerOf(this.d.tree, id);
       if (nd) this.remember(nd, this.drawerKey(nd));
@@ -874,7 +907,7 @@ class Step<I> {
     const inside = leaves(dr!.kid);
     if (!want && inside.includes(this.d.focus)) this.mayMoveKeys("shut the drawer they have");
     // The last drawer showing anything stays open: shut, the screen would be blank (every tile in a drawer).
-    if (!want && dr!.open) { dr!.open = false; const none = !visible(this.d.tree).length; dr!.open = true; if (none) refuse(`${dr!.id ?? "the drawer"} is all the screen shows: shut, nothing would be left · ^W p on a tile in it docks it`); }
+    if (!want && dr!.open) { dr!.open = false; const none = !visible(this.d.tree).length; dr!.open = true; if (none) refuse(`${dr!.id ?? "the drawer"} is all the screen shows: shut, nothing would be left · ^W p on a tile in it pins it`); }
     if (dr!.open === want) this.d.changed = false;
     dr!.open = want;
     if (want) { if (!this.agent && !this.ctx.person.busy) { this.d.focus = visible(dr!.kid).find(x => x === id) ?? visible(dr!.kid)[0] ?? id; activate(this.d.tree, this.d.focus); } }
@@ -908,7 +941,7 @@ class Step<I> {
     refuse(this.resizeWhy(n, op.border));
     const border = op.border, f = Math.max(0.08, Math.min(0.92, op.share));
     const sum = n.weights[border]! + n.weights[border + 1]!;
-    // A drawer sliding over takes no room: only its own size changes, and the docked kids keep their shares.
+    // A drawer sliding over takes no room: only its own size changes, and the pinned kids keep their shares.
     const slides = (k: LNode<I> | undefined) => k?.t === "drawer" && k.policy?.overlay !== false;
     const di = slides(n.kids[border]) ? border : slides(n.kids[border + 1]) ? border + 1 : -1;
     if (di >= 0) {
@@ -1164,18 +1197,18 @@ class Step<I> {
     if (coversOf(this.d, f.flow, this.ctx.area, x => !!this.facts(x).holds).get(to) !== "full") widenFlow(f.flow, to);
     this.d.answer = { tile: this.name(this.d.focus) };
   }
-  /** Dock the tile's column (it resists compression, as the river's `p` does) or let it go; default toggles. */
-  private dockColumn(id: I, on: boolean | undefined) {
+  /** Hold the tile's column (it resists compression, as the river's `p` does) or let it go; default toggles. */
+  private holdColumn(id: I, on: boolean | undefined) {
     const f = this.flowOf(id);
     const e = this.ofNode(f.flow);
-    if (e.locked) refuse(this.lockedWhy(e, "docking a column"));
-    const was = (f.flow.docked ?? []).some(t => columnOf(f.flow, t) === f.ci);
+    if (e.locked) refuse(this.lockedWhy(e, "holding a column"));
+    const was = (f.flow.held ?? []).some(t => columnOf(f.flow, t) === f.ci);
     const want = on ?? !was;
     if (want === was) this.d.changed = false;
-    setDocked(f.flow, f.ci, want);
-    this.d.answer = { docked: want };
+    setHeld(f.flow, f.ci, want);
+    this.d.answer = { held: want };
   }
-  /** A view's own drawer's policy, kept for when it's put back in a drawer after a restart docked (only when none is kept). */
+  /** A view's own drawer's policy, kept for when it's put back in a drawer after a restart pinned (only when none is kept). */
   private rememberPolicy(key: string, policy: Policy) {
     if (this.d.remembered.has(key)) { this.d.changed = false; return; }
     this.d.remembered.set(key, policyOf(policy));
@@ -1199,7 +1232,7 @@ export function keepOnScreen(r0: Rect, area: Rect): Rect {
 // The person's keys move through the same transitions: a drawer opened by the person takes them (to the tab shown),
 // shut it gives them back to the screen slot, where the screen's own focus is exactly as they left it. The screen
 // spec says where the host layer may appear (its policy's `host`), read by `placeHost` and by the drawer operation
-// (`ctx.screenHost`). The shelf is the same drawer docked to the status bar instead of an edge.
+// (`ctx.screenHost`). It's the dock (PIE-498): any tile docked there travels with the person across screens.
 
 /** The host layer's tile for the screen shown: the screen layer's place in it. */
 export const HOST_SCREEN = "screen";

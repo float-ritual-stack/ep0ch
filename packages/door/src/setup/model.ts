@@ -145,6 +145,8 @@ export interface Facts {
   machines?: MachineFacts[];
   /** Which outline the folder install runs in opens. */
   here?: HereFacts;
+  /** What a door opened here gives its dock as its own tab (src/desk/dock-program.ts): the program, the folder, and why. */
+  dock?: { cmd: string[]; cwd: string; programWhy: string; folderWhy: string };
   claude: {
     settingsPath: string;
     /** CLAUDE_CODE_PLUGIN_DIRS in Claude Code's settings (what new sessions load); null when unset. */

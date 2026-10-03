@@ -7,7 +7,6 @@
 //
 // Screen notes in the outline (PIE-412's slice 3) aren't built yet, so layouts live in the door's state
 // only; the saved form is the same one desk.json uses, ready to be written into a note when they are.
-import { homedir } from "node:os";
 import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { readState, stateDir, writeState } from "../state";
@@ -35,6 +34,11 @@ export interface TileSpec {
   cmd?: string[];
   cwd?: string;
   file?: string;
+  /**
+   * The key its program runs under in a session's terminal host, when that isn't `<home>:<its id>`: a terminal tile moved
+   * between screens or into the dock (PIE-498) adopts its own program after a restart by it.
+   */
+  kept?: string;
   /** A preview's source: `tile:<name>` or `file:<path>`; a backlinks tile's: `tile:<name>`. */
   source?: string;
   /** A board tile: false when its own preview strip is collapsed and a preview tile follows it instead. */
@@ -126,13 +130,6 @@ export class DetailPane extends ReaderPane {
 export const shell = () => process.env.SHELL || "sh";
 /** The editor the daily layout starts: $VISUAL, $EDITOR, nvim where it's installed, else vi. */
 export const editor = () => process.env.VISUAL || process.env.EDITOR || (Bun.which("nvim") ? "nvim" : "vi");
-
-/** The daily agent's program and folder, read now: EP0CH_DAILY_AGENT ("claude" unset) and EP0CH_DAILY_CWD (~ allowed; unset, the door's own folder). */
-export function dailyAgent(): { cmd: string[]; cwd?: string } {
-  const cmd = words(process.env.EP0CH_DAILY_AGENT || "claude");
-  const cwd = process.env.EP0CH_DAILY_CWD?.trim().replace(/^~(?=$|\/)/, homedir());
-  return { cmd: cmd.length ? cmd : ["claude"], ...(cwd ? { cwd } : {}) };
-}
 
 /** The daily scratch file the editor tile opens: EP0CH_DAILY_DRAFT, or scratch.md in the door's state. */
 export function dailyDraft(): string {

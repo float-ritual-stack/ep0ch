@@ -59,7 +59,7 @@ const builtins = (): TileKind[] => [
     shows: p => (p as TreePane).selected(),
     view: p => { const m = (p as TreePane).selected(); return { viewport: { selected: m?.id ?? null, title: m ? subject(m) : null } }; },
     describe: (p, full) => (full ? { tree: (p as TreePane).describe() } : {}),
-    // The outline as a screen shows it: open (on screen), pinned (docked, not in a drawer), its side, and its rows when shown.
+    // The outline as a screen shows it: open (on screen), pinned (in the layout, not in a drawer), its side, and its rows when shown.
     peek: (p, desk) => { const open = desk.shownNow?.(p) ?? true; return { outline: { open, pinned: !desk.inDrawer?.(p), side: desk.sideOf?.(p) ?? "left", ...(open ? { rows: (p as TreePane).describe() } : {}) } }; },
   },
   { kind: "reader", about: "a reader that follows the current note", keys: [{ key: "r", label: "reader" }], make: () => new ReaderPane(true), ...reading, actions: READER_ACTIONS },
@@ -107,7 +107,7 @@ const builtins = (): TileKind[] => [
       { key: "e", label: "editor", spec: () => { const f = dailyDraft(); return { cmd: [...words(editor()), f], file: f, name: "editor" }; } },
       { key: "s", label: "shell" },
     ],
-    make: s => new PtyPane({ cmd: s.cmd?.length ? s.cmd : [shell()], cwd: s.cwd, file: s.file, label: s.name }),
+    make: s => { const p = new PtyPane({ cmd: s.cmd?.length ? s.cmd : [shell()], cwd: s.cwd, file: s.file, label: s.name }); if (typeof s.kept === "string" && s.kept) p.keptKey = s.kept; return p; },
     actions: PTY_ACTIONS,
     // ⏎ or e on a terminal the person isn't in, or a click in it while its program runs: they type in it.
     press: (p, k) => (k.kind === "mouse" ? ((p as PtyPane).running ? { action: "tile.enter" } : null) : k.kind === "enter" || ch(k) === "e" ? { action: "tile.enter" } : null),

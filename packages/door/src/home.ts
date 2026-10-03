@@ -477,7 +477,7 @@ export const HOME_KIND: TileKind = {
   peek: p => ({ home: (p as HomePane).describe() }),
 };
 
-/** The home base: one tile, the whole screen, no agent drawer over it (nothing to work on yet). */
+/** The home base: one tile, the whole screen, no dock over it (nothing to work on yet). */
 export function homeSpec(args: Partial<HomeArgs> = {}): ScreenSpec {
   return {
     name: "home", title: "home base", band: "home", digits: false,

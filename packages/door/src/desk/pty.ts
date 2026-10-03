@@ -75,7 +75,7 @@ process.on("exit", () => { for (const p of LIVE) if (p.ownProcess) p.kill(); });
  * temp file, whose text was copied out) ends, rather than run on in the terminal host with no tile to adopt it.
  */
 export function endUnkept(): void { for (const p of [...LIVE]) if (!p.keptAs) p.kill(); }
-/** Every program running in a terminal tile (and the agent drawer) right now: what ending a session would stop. */
+/** Every program running in a terminal tile (and the dock) right now: what ending a session would stop. */
 export const livePrograms = (): readonly PtyPane[] => [...LIVE].filter(p => p.running);
 
 /** The escape chord: ctrl+] leaves the terminal, the keys go back to the door. */
@@ -164,7 +164,16 @@ export class PtyPane implements Pane {
    * Which tile it is across session daemons (`<home>:<tile id>`): a new daemon adopts the program kept under it. Null
    * for a tile no layout restores (a ctrl+e editor on a temp file, a showcase's exhibit).
    */
-  get keptAs(): string | null { return this.run.temp || !this.home || !this.tileId ? null : `${this.home}:${this.tileId}`; }
+  get keptAs(): string | null { return this.run.temp ? null : this.keptKey ?? this.ownKey; }
+  /** `<home>:<tile id>` as the tile's place says it now. */
+  private get ownKey(): string | null { return !this.home || !this.tileId ? null : `${this.home}:${this.tileId}`; }
+  /**
+   * The key its program was started (or adopted) under, kept for the program's life: a tile moved to another screen or
+   * into the dock (PIE-498) gets a new id there, but its program is still the one the terminal host keeps under this.
+   */
+  keptKey: string | null = null;
+  /** What a save adds so a moved tile adopts its program after a restart: the key it runs under, when not its own. */
+  get movedKey(): string | null { return this.keptKey && this.keptKey !== this.ownKey ? this.keptKey : null; }
   /** When the program last wrote anything (Date.now()): the dock's chip calls an agent working while it does (PIE-498). */
   lastOutput = 0;
   /** When the person last typed or pasted into it (an agent's `tile.type` doesn't count): `agent.restart` waits for them. */
@@ -189,7 +198,7 @@ export class PtyPane implements Pane {
   onView: ((v: NvimView) => void) | null = null;
 
   constructor(readonly run: PtySpec) {}
-  spec(): Record<string, unknown> { return { cmd: this.run.cmd, ...(this.run.cwd ? { cwd: this.run.cwd } : {}), ...(this.run.file ? { file: this.run.file } : {}), ...(this.run.agent ? { agent: true as const } : {}) }; }
+  spec(): Record<string, unknown> { return { cmd: this.run.cmd, ...(this.run.cwd ? { cwd: this.run.cwd } : {}), ...(this.run.file ? { file: this.run.file } : {}), ...(this.run.agent ? { agent: true as const } : {}), ...(this.movedKey ? { kept: this.movedKey } : {}) }; }
   dispose() { this.kill(); this.term?.dispose(); this.term = null; }
 
   get running() { return !!this.proc && this.exited === null; }
@@ -259,6 +268,8 @@ export class PtyPane implements Pane {
     this.continueNext = false;
     // The program a session kept for this tile, when there is one (a run again, `keep`, starts a new one).
     const key = this.keptAs, kept = key && !keep ? backend.adopt(key, this.run.cmd, data) : null;
+    // Its program is known by this key from now on, wherever the tile goes.
+    if (key) this.keptKey = key;
     if (kept) {
       this.proc = kept.proc;
       // What it wrote, at the size it wrote it, its modes followed (its mouse encoding, its keyboard protocol) and its

@@ -4,7 +4,7 @@
 //
 // - The pane is found by its label (`door-claude`) on the default Herdr server (HERDR_SOCKET_PATH, else
 //   Herdr's own default). Missing, it is made: a tab labelled `door-claude` in a workspace labelled `door`
-//   (made too if missing), in EP0CH_DAILY_CWD or the tile's folder, without taking Herdr's focus. The agent
+//   (made too if missing), in EP0CH_DAILY_CWD or the tile's folder (the dock's rule), without taking Herdr's focus. The agent
 //   is started there with `exec`, so /exit ends the pane, and named `door` once Herdr sees it.
 // - The tile attaches without --takeover. If another door's tile already has it (or later takes it), this
 //   tile watches read-only (`terminal session observe`) and ⏎ takes it over; `q` stops watching.
@@ -93,7 +93,9 @@ export function agentConfig(env: Record<string, string | undefined> = process.en
     scope,
     name: scoped(env.EP0CH_HERDR_NAME || "door"),
     workspace: scoped(env.EP0CH_HERDR_WORKSPACE || "door"),
-    cwd: env.EP0CH_DAILY_CWD?.trim().replace(/^~(?=$|\/)/, env.HOME ?? "~") || env.PWD || process.cwd(),
+    // The folder the dock started this launcher in (src/desk/dock-program.ts: the person's EP0CH_DAILY_CWD, the
+    // project's .ep0ch folder, the outline's folder, or where the door started), never the door's own PWD.
+    cwd: env.EP0CH_DAILY_CWD?.trim().replace(/^~(?=$|\/)/, env.HOME ?? "~") || process.cwd(),
     // A restart (`agent.restart`) keeps the conversation: a bare `claude` gets --continue (door-claude does it itself).
     cmd: ((c: string) => (env.EP0CH_AGENT_CONTINUE === "1" ? lineWithContinue(c) : c))(env.EP0CH_HERDR_AGENT_CMD?.trim() || (which("door-claude") ? "door-claude" : "claude")),
     // The pane's nest: the tile's that made it, then the pane itself. Another door may show it later

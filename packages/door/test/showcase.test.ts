@@ -271,6 +271,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     screens: ["daily brief · 2026-03-11", "2 of 2 briefs"],
     kinds: ["tile kinds", "tree ^W o t", "backlinks ^W o l"],
     terminal: ["a terminal tile: sh in a pty the door owns", "shell"],
+    dock: ["the kettle: a terminal tile to dock", "kettle"],
     preview: ["preview · tree", "outline"],
     screen: ["board ·", "preview · board"],
     spine: ["Queued", "Doing", "Review", "Done", "HOME-003"],
@@ -310,8 +311,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
   });
 
   test("the index works by mouse: a click picks a section; a click in the part gives it the keys, esc gives them back", async () => {
-    press({ kind: "mouse", action: "down", button: 0, x: 3, y: 2 + 11 * 2 }); press({ kind: "mouse", action: "up", button: 0, x: 3, y: 2 + 11 * 2 });
-    expect(S().sel).toBe(11);                                      // the spine section
+    press({ kind: "mouse", action: "down", button: 0, x: 3, y: 2 + 12 * 2 }); press({ kind: "mouse", action: "up", button: 0, x: 3, y: 2 + 12 * 2 });
+    expect(S().sel).toBe(12);                                      // the spine section
     const r = S().stageRect;
     press({ kind: "mouse", action: "down", button: 0, x: r.col + 5, y: r.row + 5 }); press({ kind: "mouse", action: "up", button: 0, x: r.col + 5, y: r.row + 5 });
     expect(S().focus).toBe("stage");
@@ -349,9 +350,9 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect(S().focus).toBe("index");
     (app as any).lastInput = 0;
     const r = await app.act({ action: "section", args: { name: "selection" }, as: "test-agent" }) as any;
-    expect(r).toEqual({ section: 18, key: "selection" });
+    expect(r).toEqual({ section: 19, key: "selection" });
     expect(S().focus).toBe("index");
-    expect((app as any).message).toContain("an agent (test-agent) showed section 18");
+    expect((app as any).message).toContain("an agent (test-agent) showed section 19");
     const listed = (app.actions() as any).actions.map((a: any) => a.name);
     expect(listed).toContain("section");
     expect(listed).toContain("select");
@@ -402,6 +403,36 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     const f = await app.act({ action: "link.follow", tile: "reader", args: { n: 1 }, as: "test-agent" }) as any;
     expect(f.opened).toBe(seeded.notes.whiteboard.id);
     expect(S().focus).toBe("index");
+  }, 20_000);
+
+  test("the dock section, driven through act: the kettle docks, a section switch keeps it (the same pid), and it undocks into another section", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "dock" }, as: "test-agent" });
+    await until(() => marks.dock!.every(m => screen().includes(m)), "the dock section");
+    const stage = () => S().stages.get(S().sel).top;
+    const kettle = () => stage().pane("kettle");
+    await until(() => kettle()?.running === true, "the kettle runs");
+    const pid = kettle().pid;
+    const out = await app.act({ action: "host.dock", args: {}, tile: "kettle", as: "test-agent" }) as any;
+    expect(out).toMatchObject({ tile: "kettle", docked: true });
+    expect(stage().pane("kettle")).toBeUndefined();
+    expect((app as any).message).toContain("an agent (test-agent) docked kettle");
+    // Another section: a screen switch. The dock still has it, the same program.
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "preview" }, as: "test-agent" });
+    expect(app.dock.tabs().map(t => t.name)).toContain("kettle");
+    expect((app.dock.desk!.pane("kettle") as any).pid).toBe(pid);
+    expect((app.describe() as any).dock.tiles.map((t: any) => t.name)).toContain("kettle");
+    // Pulled up by the agent (the person's keys stay put), then undocked into this section beside its tree.
+    (app as any).lastInput = 0;
+    await app.act({ action: "host.toggle", args: { open: true }, as: "test-agent" });
+    expect(app.dock.open).toBe(true);
+    expect(app.dock.entered).toBe(false);
+    const back = await app.act({ action: "host.dock", args: { on: false, to: "tree", where: "right" }, tile: "kettle", as: "test-agent" }) as any;
+    expect(back).toMatchObject({ tile: "kettle", docked: false });
+    expect(stage().pane("kettle").pid).toBe(pid);
+    expect(stage().pane("kettle").running).toBe(true);
+    await app.act({ action: "host.toggle", args: { open: false }, as: "test-agent" });
   }, 20_000);
 
   test("search, driven by an agent: the section's own desk answers the service's forgiving search, the person's overlay left alone", async () => {

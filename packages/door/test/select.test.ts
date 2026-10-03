@@ -546,8 +546,8 @@ describe.skipIf(!outliner)("selecting in the board, the desk and the river, agai
     const fr = () => B().describe().floats.at(-1).rect;
     frame();
     const was = { ...fr() };
-    drag({ x: was.col + 4, y: was.row }, { x: was.col + 10, y: was.row + 2 });
-    expect([fr().col, fr().row]).toEqual([was.col + 10 - 4, was.row + 2]);
+    drag({ x: was.col + 6, y: was.row }, { x: was.col + 12, y: was.row + 2 });   // the title, past the ⧉ (which puts it back)
+    expect([fr().col, fr().row]).toEqual([was.col + 12 - 6, was.row + 2]);
     const r = fr(), corner = { x: r.col + r.cols - 1, y: r.row + r.rows - 1 };
     drag(corner, { x: corner.x + 5, y: corner.y + 1 });
     expect([fr().cols, fr().rows]).toEqual([was.cols + 5, was.rows + 1]);
