@@ -1,13 +1,13 @@
 import { Database } from "bun:sqlite";
 import { PROTOCOL } from "@ep0ch/outline-core/protocol";
-import { chmodSync, closeSync, existsSync, lstatSync, mkdirSync, openSync, readdirSync, readSync, realpathSync, renameSync, rmSync, statSync, unlinkSync } from "node:fs";
+import { chmodSync, closeSync, existsSync, lstatSync, mkdirSync, openSync, readdirSync, readSync, realpathSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
 import { dirname, isAbsolute, join } from "node:path";
 import { aiPromptDirectory, initializeAiPrompts } from "./ai-prompts";
 import type { HerdrRuntimeRegistry } from "./herdr-registry";
 import { importOutline, type ImportReport } from "./outline-import";
 import { isOutlineName, OUTLINE_NAME_PATTERN } from "./paths";
-import { outlineLayout } from "@ep0ch/outline-core/outline-location";
+import { DOT_EP0CH, formatDotEp0ch, outlineLayout } from "@ep0ch/outline-core/outline-location";
 import { OutlinerServer } from "./server";
 import { OutlinerStore } from "./store";
 import {
@@ -407,6 +407,9 @@ export class OutlineHost {
     const stateDirectory = this.layout.folder(name);
     const workspaceRoot = stateDirectory;
     mkdirSync(stateDirectory, { recursive: true });
+    // The outline's own folder names it, so a program working there (an agent, a publisher) reaches this outline.
+    const dotEp0ch = join(stateDirectory, DOT_EP0CH);
+    if (!lstatOrUndefined(dotEp0ch)) writeFileSync(dotEp0ch, formatDotEp0ch(name), { flag: "wx", mode: 0o644 });
     let store: OutlinerStore;
     try {
       store = new OutlinerStore(database, { workspaceRoot });

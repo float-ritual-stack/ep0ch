@@ -119,6 +119,8 @@ test("one socket serves two outlines, routed by the request's outline", async ()
   expect(fredPing.location?.stateDirectory).toBe(layoutOf(root).folder("fred"));
   expect(fredPing.location?.workspaceRoot).toBe(layoutOf(root).folder("fred"));
   expect(existsSync(join(layoutOf(root).folder("fred"), "prompts"))).toBe(true);
+  // The outline's own folder names it, so a program working there reaches it.
+  expect(readFileSync(join(layoutOf(root).folder("fred"), ".ep0ch"), "utf8")).toBe('ws = "fred"\n');
   expect(host.socketPath).toBe(join(root, "outlines", ".host", "host.sock"));
   expect(statSync(layoutOf(root).hostDir).mode & 0o777).toBe(0o700);
 });
