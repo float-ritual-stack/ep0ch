@@ -1,6 +1,10 @@
 // `ep0ch doctor` and `ep0ch install` (PIE-450): what a machine's stack looks like, as plain data. `facts.ts`
-// gathers it (read-only: git, Herdr, the outline sockets, the file system); `doctor.ts` and `plan.ts` only
+// gathers it (read-only: git, Herdr, the outline host's socket, the file system); `doctor.ts` and `plan.ts` only
 // read it, so the tests describe a machine instead of needing one.
+//
+// The stack is one checkout (the ep0ch repo: packages/outliner is the Herdr plugin and the outline host,
+// packages/door is `ep0ch`, the Claude mod is in it too) and one outline host serving `<outlines>/<name>.sqlite`
+// by name (PIE-530).
 import type { DoorAgent } from "../desk/agent-env";
 import type { HostedOutline } from "../socket";
 
@@ -51,25 +55,32 @@ export interface PluginFacts {
   actions: string[];
 }
 
-/** A per-folder outline service: `<state>/<hash>/`, its socket and database. */
-export interface ServiceFacts {
-  stateDir: string;
-  socket: string;
-  database: string | null;
-  running: boolean;
-  name?: string;
-  root?: string;
-  protocol?: number;
-  /** The Herdr pane running it (`service-pane.json`), when the Outliner started it in one. */
-  paneId?: string;
+/** The ep0ch checkout: one repo, its packages, and the protocol its code speaks. */
+export interface RepoFacts {
+  /** The repo root (the git checkout). */
+  root: string;
+  checkout: Checkout;
+  /** `bun install` at the repo root (one workspace for every package). */
+  deps: Deps;
+  /** packages/door/src/main.ts: what `ep0ch` on PATH links to. */
+  entry: string;
+  /** packages/door: the door's code, what a door session runs. */
+  door: string;
+  /** packages/outliner: the Herdr plugin's root and the outline host's code. */
+  outliner: string;
+  /** The Claude mod's folder (packages/claude-mod, or packages/outliner/claude-mod), when there is one. */
+  claudeMod: string | null;
+  /** The Claude mod's installer script, when there is one. */
+  claudeModInstaller: string | null;
+  /** The protocol this checkout's code speaks (packages/outline-core/src/protocol.ts, read in a fresh process). */
+  protocol: number | null;
 }
 
 export interface HostFacts {
+  /** The outlines folder: EP0CH_OUTLINES, else ~/outlines. */
+  folder: string;
   socket: string;
-  /** An outline host is set up here (its `outlines/` folder). */
-  configured: boolean;
   running: boolean;
-  defaultOutline?: string;
   outlines: HostedOutline[];
   protocol?: number;
   /** The service unit that runs it, when there is one. Install restarts the host through it; it never edits it. */
@@ -84,6 +95,10 @@ export interface HostUnit {
   name: string;
   /** The host-main.ts it runs, as its file says. */
   program?: string;
+  /** The outlines folder it serves: its EP0CH_OUTLINES, else ~/outlines. */
+  outlines: string;
+  /** What it still sets from before outlines by name (PIE-530): settings the host no longer reads. */
+  stale: string[];
   /** What launchd or systemd says about it now (absent when it wasn't asked). */
   state?: UnitState;
 }
@@ -91,8 +106,11 @@ export interface HostUnit {
 /** A unit's state: `active` null when launchd or systemd couldn't say. */
 export interface UnitState { active: boolean | null; pid?: number; lastExit?: string; detail: string }
 
-/** An outline database on this machine, and the name its backup takes. */
-export interface DatabaseFacts { name: string; path: string; from: "host" | "folder" }
+/** An outline database on this machine (`<outlines>/<name>.sqlite`), by its name. */
+export interface DatabaseFacts { name: string; path: string }
+
+/** Which outline this folder opens (discover.resolveTarget): its name and why, or why none. */
+export interface HereFacts { folder: string; outline?: string; why?: string; unnamed?: string; guess?: string }
 
 export interface Facts {
   platform: Platform;
@@ -104,21 +122,20 @@ export interface Facts {
     path: string | null; version: string | null;
     /** The server answers `herdr status server`; null when there's no herdr to ask. */
     server: boolean | null;
-    /** This command runs in a Herdr pane (HERDR_ENV=1): the Outliner's launcher only starts services there. */
-    inside: boolean;
     configPath: string;
     /** The key bound to each of the plugin's actions in config.toml (action id → key). */
     keys: Record<string, string>;
   };
   plugin: PluginFacts | null;
-  door: { checkout: Checkout; deps: Deps; entry: string };
+  repo: RepoFacts;
   /** The first `ep0ch` on PATH, what it resolves to, and whether that's this checkout. */
   ep0ch: { found: string | null; target: string | null; pointsHere: boolean };
   /** The link directories in preference order, whether each is on PATH and writable. */
   linkDirs: { dir: string; onPath: boolean; writable: boolean; existing?: "link" | "broken-link" | "file" }[];
   host: HostFacts;
-  services: ServiceFacts[];
   databases: DatabaseFacts[];
+  /** Which outline the folder install runs in opens. */
+  here?: HereFacts;
   claude: {
     settingsPath: string;
     /** CLAUDE_CODE_PLUGIN_DIRS in Claude Code's settings (what new sessions load); null when unset. */
@@ -147,10 +164,11 @@ export interface Facts {
 /** The plugin's actions the Outliner installer binds keys to. */
 export const KEYED_ACTIONS = ["open-here", "open-tree", "comment-selection", "capture"] as const;
 export const PLUGIN_ID = "float.pi-outliner";
-export const PLUGIN_SOURCE = "float-ritual-stack/pi-herdr-outliner";
+/** A managed install of the plugin: the repo, and the plugin's folder in it. */
+export const PLUGIN_SOURCE = "float-ritual-stack/ep0ch/packages/outliner";
 export const MIN_BUN = "1.3.0";
 
-/** A running service is stale when it speaks another protocol than the current code (outline-core's PROTOCOL). */
+/** A running host is stale when it speaks another protocol than the current code (outline-core's PROTOCOL). */
 export function staleness(s: { protocol?: number }, protocol: number | null): string[] {
   return protocol !== null && s.protocol !== undefined && s.protocol !== protocol ? [`protocol ${protocol} (runs ${s.protocol})`] : [];
 }

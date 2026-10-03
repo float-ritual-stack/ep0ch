@@ -48,9 +48,13 @@ export function outlinerPlugin(env: Record<string, string | undefined> = process
   } catch { return null; }
 }
 
-/** The installed Outliner plugin's root, as Herdr reports it; null when Herdr or the plugin isn't there. */
+/**
+ * The Outliner's root: the plugin Herdr runs, else this repo's packages/outliner beside the door (one checkout
+ * holds both); null when neither is there.
+ */
 export function outlinerRoot(): string | null {
-  return outlinerPlugin()?.plugin_root ?? null;
+  const sibling = resolve(import.meta.dir, "../../outliner");
+  return outlinerPlugin()?.plugin_root ?? (existsSync(join(sibling, "herdr-plugin.toml")) ? sibling : null);
 }
 
 /** Where to look: shipped skills, and contributor skills with `all`. */

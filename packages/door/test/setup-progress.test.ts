@@ -211,14 +211,14 @@ test("a timed-out command keeps what it had said (the diagnosis) before the time
 });
 
 describe("the whole command, in a scratch home", () => {
-  /** A fictional home: two outline databases, ~/.local/bin on PATH, a door that isn't a git checkout. */
+  /** A fictional home: two outlines in ~/outlines, ~/.local/bin on PATH, an ep0ch checkout that isn't a git checkout. */
   function home(name: string) {
     const h = join(scratch, name);
-    const outlines = join(h, ".local/state/pi-herdr-outliner/outlines");
+    const outlines = join(h, "outlines");
     mkdirSync(outlines, { recursive: true });
     mkdirSync(join(h, ".local/bin"), { recursive: true });
-    mkdirSync(join(h, "door/src"), { recursive: true });
-    writeFileSync(join(h, "door/src/main.ts"), "");
+    mkdirSync(join(h, "ep0ch/packages/door/src"), { recursive: true });
+    writeFileSync(join(h, "ep0ch/packages/door/src/main.ts"), "");
     for (const n of ["field-notes", "seed-library"]) {
       const db = new Database(join(outlines, `${n}.sqlite`));
       db.run("CREATE TABLE notes (id TEXT, body TEXT)");
@@ -226,16 +226,16 @@ describe("the whole command, in a scratch home", () => {
       db.close();
     }
     const env = { HOME: h, PATH: [join(h, ".local/bin"), dirname(process.execPath), "/usr/bin", "/bin"].join(":"), TERM: "xterm-256color" };
-    return { h, env, doorRoot: join(h, "door") };
+    return { h, env, repoRoot: join(h, "ep0ch") };
   }
 
   test("--json is unchanged by a terminal: nothing drawn, the same JSON", async () => {
-    const { env, doorRoot } = home("json");
+    const { env, repoRoot } = home("json");
     const drawn: string[] = [];
     const terminal: Terminal = { isTTY: true, columns: 80, write: s => { drawn.push(s); } };
     const a: string[] = [], b: string[] = [];
-    expect(await setupCommand(["install", "--json"], { out: s => a.push(s), err: s => a.push(s), env, doorRoot, platform: "linux", terminal })).toBe(0);
-    expect(await setupCommand(["install", "--json"], { out: s => b.push(s), err: s => b.push(s), env, doorRoot, platform: "linux" })).toBe(0);
+    expect(await setupCommand(["install", "--json"], { out: s => a.push(s), err: s => a.push(s), env, repoRoot, platform: "linux", terminal })).toBe(0);
+    expect(await setupCommand(["install", "--json"], { out: s => b.push(s), err: s => b.push(s), env, repoRoot, platform: "linux" })).toBe(0);
     expect(drawn).toEqual([]);
     expect(a).toHaveLength(1);
     expect(a.join("")).not.toMatch(ESC);
@@ -244,11 +244,11 @@ describe("the whole command, in a scratch home", () => {
   });
 
   test("doctor at a terminal: the check spins, then goes; the report follows as before", async () => {
-    const { env, doorRoot } = home("doctor");
+    const { env, repoRoot } = home("doctor");
     const drawn: string[] = [];
     const out: string[] = [];
     const terminal: Terminal = { isTTY: true, columns: 80, write: s => { drawn.push(s); } };
-    await setupCommand(["doctor"], { out: s => out.push(s), err: s => out.push(s), env, doorRoot, platform: "linux", terminal });
+    await setupCommand(["doctor"], { out: s => out.push(s), err: s => out.push(s), env, repoRoot, platform: "linux", terminal });
     expect(visible(drawn.join(""))).toContain("Checking the stack · ");
     expect(drawn.at(-1)).toBe("\x1b[?25h");
     expect(out.join("\n")).toStartWith("ep0ch doctor · linux · ~");
@@ -261,23 +261,23 @@ describe("the whole command, in a scratch home", () => {
     const errs: string[] = [];
     const terminal: Terminal = { isTTY: true, columns: 100, write: s => { drawn.push(s); } };
     const now = new Date("2026-03-14T09:26:53Z");
-    expect(await setupCommand(["install", "--apply"], { out: () => {}, err: s => errs.push(s), env: live.env, doorRoot: live.doorRoot, platform: "linux", now, terminal })).toBe(0);
+    expect(await setupCommand(["install", "--apply"], { out: () => {}, err: s => errs.push(s), env: live.env, repoRoot: live.repoRoot, platform: "linux", now, terminal })).toBe(0);
     expect(errs).toEqual([]);
     const screen = visible(drawn.join("")).replaceAll("\x1b[K", "");
     expect(screen).toContain("    [░░░░░░░░░░░░] 0/2 · field-notes");
-    expect(screen).toMatch(/1 ✓ Back up every local outline database · \d+\.\ds\n/);
+    expect(screen).toMatch(/1 ✓ Back up every outline · \d+\.\ds\n/);
     expect(screen).toMatch(/4 ✓ Put ep0ch on PATH · \d+\.\ds\n/);
-    expect(screen).toContain("2 ! Update the Outliner plugin");
-    expect(readdirSync(join(live.h, "backups/ep0ch")).sort()).toEqual(["field-notes-20260314T092653Z.sqlite", "seed-library-20260314T092653Z.sqlite"]);
+    expect(screen).toContain("3 ! The Outliner plugin in Herdr");
+    expect(readdirSync(join(live.h, "backups/ep0ch/20260314T092653Z")).sort()).toEqual(["field-notes.sqlite", "seed-library.sqlite"]);
     expect(lstatSync(join(live.h, ".local/bin/ep0ch")).isSymbolicLink()).toBe(true);
 
     const piped = home("apply-piped");
     const out: string[] = [];
-    expect(await setupCommand(["install", "--apply"], { out: s => out.push(s), err: s => out.push(s), env: piped.env, doorRoot: piped.doorRoot, platform: "linux", now, terminal: { isTTY: false, write: () => { throw new Error("not a terminal"); } } })).toBe(0);
+    expect(await setupCommand(["install", "--apply"], { out: s => out.push(s), err: s => out.push(s), env: piped.env, repoRoot: piped.repoRoot, platform: "linux", now, terminal: { isTTY: false, write: () => { throw new Error("not a terminal"); } } })).toBe(0);
     const text = out.join("\n");
     expect(text).not.toMatch(ESC);
-    expect(text).toContain("1 → Back up every local outline database\n");
-    expect(text).toContain("    ✓ field-notes: ~/.local/state/pi-herdr-outliner/outlines/field-notes.sqlite → ~/backups/ep0ch/field-notes-20260314T092653Z.sqlite (integrity ok)");
+    expect(text).toContain("1 → Back up every outline\n");
+    expect(text).toContain("    ✓ field-notes: ~/outlines/field-notes.sqlite → ~/backups/ep0ch/20260314T092653Z/field-notes.sqlite (integrity ok)");
     expect(existsSync(join(piped.h, ".local/bin/ep0ch"))).toBe(true);
   });
 });
