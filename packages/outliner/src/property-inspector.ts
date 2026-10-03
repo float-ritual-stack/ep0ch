@@ -4,7 +4,8 @@ import {linkOutlinerMarkdown, parseOutlinerLinkUri} from "./outliner-links";
 import type { DetailState } from "./detail-controller";
 import type { PreviewRegion } from "./detail-preview-regions";
 import { pageAddressReferences, tryNormalizePageAddress } from "./page-addresses";
-import { parsePropertyRecords } from "./properties";
+import { parsePropertyRecords, scanPropertyLiteralRanges } from "./properties";
+import { headerLine } from "@ep0ch/outline-core/header-line";
 import { blockReferenceOccurrences } from "./references";
 import type { PropertyPlacement, PropertyRecord, PropertyScope, PropertySyntax } from "./types";
 import { isCanonicalWorkId } from "./work-ids";
@@ -55,6 +56,8 @@ export interface PropertyInspectorEntry {
   readonly placement: PropertyPlacement;
   readonly scope: PropertyScope;
   readonly syntax: PropertySyntax;
+  /** One of the header line's chips (outline-core's header-line.ts): what an export moves into front matter. */
+  readonly header: boolean;
   readonly target: PropertyInspectorTarget | null;
   readonly valueParts: readonly PropertyValuePart[];
 }
@@ -191,12 +194,13 @@ export function createPropertyInspectorModel(
   const resources = new Set(authoredResourceReferenceOccurrences(canonicalText)
     .filter(reference => reference.kind === "authored-resource")
     .map(reference => reference.start));
+  const header = new Set(headerLine(canonicalText, scanPropertyLiteralRanges(canonicalText)).chips.map(chip => chip.start));
   const entries = parsePropertyRecords(canonicalText).map((record): PropertyInspectorEntry => {
     const occurrenceId = propertyInspectorOccurrenceId(blockId, record);
     const resource = resources.has(record.start);
     const valueParts = resource ? [] : propertyValueParts(record.value, occurrenceId);
     const firstUri = valueParts.find(part => part.uri)?.uri;
-    return {...record, occurrenceId, valueParts,
+    return {...record, occurrenceId, valueParts, header: header.has(record.start),
       target: resource ? {kind: "resource-reference", source: "authored-reference"}
         : classifyPropertyInspectorTarget(record.key, record.value) ??
           (firstUri ? {kind: "link", uri: firstUri, source: "value"} : null)};
@@ -218,9 +222,12 @@ export function propertyInspectorAuthoredDocument(document: MappedDocument): Map
   const records = parsePropertyRecords(canonicalText).filter((record) => record.scope === "block" && record.syntax !== "hashtag");
   if (records.length === 0) return document;
 
+  // The header line's ` -` separators go with its chips (outline-core's header-line.ts).
+  const cuts = [...records, ...headerLine(canonicalText, scanPropertyLiteralRanges(canonicalText)).dashes]
+    .sort((left, right) => left.start - right.start);
   const parts: MappedDocument[] = [];
   let cursor = 0;
-  for (const record of records) {
+  for (const record of cuts) {
     parts.push(sliceDocument(document, cursor, record.start));
     cursor = record.end;
   }

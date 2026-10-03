@@ -141,7 +141,9 @@ The feed is the desk's, and every view built on it (the brief, the pinned pages,
 Two reads need no door at all, only the outline: `ep0ch find <words>… [--lines|--json]` (the service's forgiving
 ranker, as Goto, `/` and `((` rank; `--recent`, `--tree [<root id>]`) and `ep0ch show <id>… [--width <n>] [--ansi |
 --cells | --source]` (each note drawn by the note surface, as a reader draws it, live figures and `::links` answered;
-`--source`, its text as written). Both take `--ws` and `--machine`.
+`--source`, its text as written). Both take `--ws` and `--machine`. `ep0ch find --query "<expression>"` (`--view
+<id>`, `--under <id>`, `--ids`, `--json` for block records) lists what the outline says a query holds for, and `ep0ch
+export` writes notes out as Markdown or JSON (PIE-534; the door README has the flags).
 
 ## The shell: screens and lists
 

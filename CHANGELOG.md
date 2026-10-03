@@ -41,6 +41,35 @@ move into one repository (PIE-530).
 - **Television (optional).** With `tv` on your PATH, `ep0ch install --apply` links the outline's channels into
   television's cable folder.
 
+### Find by query, export to Markdown or JSON (PIE-534)
+
+- **`ep0ch find --query "<expression>"`** lists the notes a query holds for, as the outline evaluates it: the saved
+  views' grammar (properties, `OR`, `NOT`, parentheses, `created`/`updated` ranges such as `updated >= -7d`), in
+  outline order. `--view <id>` lists a saved view's members, `--under <id>` a subtree; they combine with each other
+  and with words. `--updated-after`, `--updated-before`, `--created-after` and `--created-before` only write the
+  query (`--updated-after 2026-03-01` is `updated > 2026-03-01`, a whole UTC day).
+- **`--ids` prints `((id))` a line**, and `show` and `export` take `((id))` or a bare id: `ep0ch show $(ep0ch find
+  --ids --query type=errand)`. **`find --json` now prints block records** (below) instead of `{id, title, path}`
+  rows; `--tree --json` keeps its rows.
+- **`ep0ch export`** writes notes out as files: the ids given and anything find's flags select, `--children` for
+  what's under them, `--format md|json`, `--out <dir>` (stdout without), `--split`, `--resolve-links`, `--manifest`.
+  In Markdown the note's header line (the `[k::v]` chips ending its first line) moves into YAML front matter, values
+  verbatim strings and a repeated key a list, with the note's id, parent, created, updated and author; the prose
+  that shared line 1 stays the body's first line, the rest is verbatim, children are nested lists (files of their
+  own with `--split`). Output is deterministic: sorted JSON keys, outline order, one timestamp format, no export
+  time except in `manifest.json`.
+- **A block as a record:** one shape in outline-core (`block-record.ts`: title, header, properties as lists, fields,
+  children, tasks with status, links, backlinks, resources, created, updated, author), built by the outline host
+  (`blocks.records`). PIE-533 reads the same shape.
+- **` - ` between header chips:** `Seed order [type::errand] - [area::garden]` gives both chips to the block, and the
+  title is "Seed order" (before, every chip but the last was an inline aside, and a chips-only line's title was
+  "-"). The header line is one definition in outline-core (`header-line.ts`): the parser, every title, the door and
+  Detail's property table (which now says `header` for those chips) use it. The host re-reads every note's
+  properties once on its next start (property parser version 5); text and timestamps are untouched.
+- **tv:** `ep0ch-tv query "<expression>"` is a source for the `ep0ch` channel (`tv ep0ch --source-command 'ep0ch-tv
+  query "type=chore updated >= -7d"'`).
+- **Protocol 84:** restart the outline host on this code (`ep0ch install --apply`), then the doors.
+
 ### One repository, outlines by name (PIE-530)
 
 - The packages: `packages/outline-core` (the shared pure code: the protocol, the property grammar, the search

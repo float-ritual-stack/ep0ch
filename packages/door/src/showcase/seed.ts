@@ -6,10 +6,9 @@
 //
 // Deterministic: the same blocks, text and order every run. Ids and timestamps are the service's, so
 // everything that reads the seed finds it by title under the root, never by id.
-import type { Msg } from "../board";
+import { titleLine, type Msg } from "../board";
 import type { Actor, SocketBoard } from "../socket";
 import { installExamples, installTickets, refreshTicket, registerTicket, SHOWCASE_TICKETS, ticketSource } from "./tickets/install";
-import { withoutPropertyTokens } from "@ep0ch/outline-core/property-grammar";
 
 /** The root's marker: the showcase screen finds its outline by this property, and never seeds itself. */
 export const SHOWCASE_MARK = { key: "type", value: "showcase" } as const;
@@ -29,6 +28,7 @@ export const SEED = {
   figures: "Allotment figures",
   recipe: "Lentil soup",
   finding: "Finding things in the house notes",
+  errand: "Seed order for the plot",
   tickets: "Depot supplier call about ACME-12",
   omens: "Omens for the allotment week",
   brief: "Daily brief — 2026-03-11",
@@ -145,6 +145,21 @@ const FINDING = [
   "> Where the outline host has a Jev key, a pause in `/`, `((` or `[[` asks Jev to re-order the same hits, told the note you're in: the footer says `jev…`, then `jev ranked`, and what you picked stays picked. Without a key the order is the text ranker's.",
   "",
   "From a shell, `ep0ch find` with the same words prints the same hits; `ep0ch show <id>` prints a note as a reader draws it.",
+  "",
+  "## From a shell: queries and files",
+  "",
+  "- **A query:** `ep0ch find --query \"type=errand tag=spring\" --ids` prints `((id))` a line, as the outline evaluates it (the saved views' grammar, with `updated >= -7d` and the like); `--view <id>` reads a view, `--under <id>` a subtree, and `--updated-after 2026-03-01` only writes the query.",
+  "- **Into show:** `ep0ch show $(ep0ch find --ids --query type=errand)` draws each one.",
+  `- **As files:** \`ep0ch export --query type=errand --children --out ./notes\` writes Markdown: the Seed order note's header line becomes front matter (\`ctx\` stays a string, the two \`tag\`s a list), its children nested lists. \`--format json\` writes block records.`,
+].join("\n");
+
+/** The search section's errand: a header line with ` - ` between its chips, for `find --query` and `export`. */
+const ERRAND = [
+  `${SEED.errand} [type::errand] - [area::garden] - [ctx::2026-03-09 @ 09:27:29 AM] [tag::seeds] [tag::spring]`,
+  "Broad beans and leeks, two packets each.",
+  "when:: before Friday",
+  "- [ ] order the beans",
+  "- [x] measure the bed",
 ].join("\n");
 
 const RECIPE = [
@@ -365,6 +380,8 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
   notes.figures = await make(notes.root.id, figuresText(notes.gardenView.id));
   notes.recipe = await make(notes.root.id, RECIPE);
   notes.finding = await make(notes.root.id, FINDING);
+  notes.errand = await make(notes.root.id, ERRAND);
+  await make(notes.errand.id, "Ask the neighbour about netting\nShe has a spare roll.");
   await seedTickets(board, opts.ticketsConfig);
   notes.tickets = await make(notes.root.id, TICKETS);
   await make(notes.tickets.id, TICKET_PAGE);
@@ -405,7 +422,7 @@ export async function findShowcase(board: SocketBoard): Promise<Msg | null> {
 }
 
 /** The first line without its property tokens: how the seed names a note. */
-export const titleOf = (m: Msg) => withoutPropertyTokens(m.text.split("\n")[0]!).replace(/\s{2,}/g, " ").trim();
+export const titleOf = (m: Msg) => titleLine(m.text).text.replace(/\s{2,}/g, " ").trim();
 
 /** The seeded notes on this outline by name, found by title under the root (null: no showcase here). */
 export async function loadShowcase(board: SocketBoard): Promise<{ root: Msg; notes: Partial<Record<SeedName, Msg>> } | null> {

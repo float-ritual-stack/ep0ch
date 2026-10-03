@@ -16,6 +16,12 @@ export const PROPERTY_TOKEN_SOURCE = String.raw`\[(${PROPERTY_KEY_SOURCE})::(${P
 
 export const PROPERTY_KEY_PATTERN = new RegExp(`^${PROPERTY_KEY_SOURCE}$`);
 
+/**
+ * A hashtag's value (after the `#`): letters, digits, `_`, marks and `-`, `/` between segments (`#garden/beds`). A
+ * hashtag is a property (`tag`) when its value holds a letter and it starts a word; the parser says where.
+ */
+export const HASHTAG_VALUE_PATTERN = /[\p{L}\p{N}_][\p{L}\p{M}\p{N}_-]*(?:\/[\p{L}\p{N}_][\p{L}\p{M}\p{N}_-]*)*/u;
+
 /** A fresh global pattern for `[key::value]` tokens (match[1] the key as written, match[2] the raw value). */
 export function propertyTokenPattern(): RegExp {
   return new RegExp(PROPERTY_TOKEN_SOURCE, "g");

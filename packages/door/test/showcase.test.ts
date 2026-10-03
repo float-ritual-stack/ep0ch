@@ -374,6 +374,32 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect(S().focus).toBe("index");
   }, 20_000);
 
+  test("search, from a shell (PIE-534): the section opened through act; find --query, show $(find --ids) and export answer from the same outline", async () => {
+    (app as any).lastInput = 0;
+    expect(await app.act({ action: "section", args: { name: "search" }, as: "test-agent" })).toEqual({ section: 4, key: "search" });
+    // The section's note says what to try from a shell, under the search overlay the section opens with.
+    await until(() => screen().includes("From a shell"), "the finding note's shell section");
+    expect(SECTIONS.find(x => x.key === "search")!.aside).toContain("ep0ch export");
+    const cli = async (...args: string[]) => {
+      const p = Bun.spawn(["bun", join(import.meta.dir, "../src/main.ts"), ...args], { stdout: "pipe", stderr: "pipe", env: { ...process.env, EP0CH_SOCKET: scratch.sock, EP0CH_WS: scratch.name, EP0CH_CONTROL: "/nonexistent/ep0ch-test.sock" } });
+      const [out, err, code] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
+      return { out, err, code };
+    };
+    const errand = seeded.notes.errand.id;
+    const found = await cli("find", "--query", "type=errand tag=spring", "--ids");
+    expect(found.out.trim()).toBe(`((${errand}))`);
+    const shown = await cli("show", "--width", "70", found.out.trim());
+    expect(shown.out.split("\n")[0]).toBe("Seed order for the plot");          // the ` - ` separators aren't in the title
+    const out = mkdtempSync(join(tmpdir(), "ep0ch-sink-export-"));
+    try {
+      expect((await cli("export", "--query", "type=errand", "--children", "--out", out)).code).toBe(0);
+      const file = readFileSync(join(out, `seed-order-for-the-plot-${errand.slice(0, 8)}.md`), "utf8");
+      expect(file).toContain('type: "errand"\narea: "garden"\nctx: "2026-03-09 @ 09:27:29 AM"\ntag:\n  - "seeds"\n  - "spring"\n---\nSeed order for the plot\nBroad beans');
+      expect(file).toContain("\n- Ask the neighbour about netting\n  She has a spare roll.\n");
+    } finally { rmSync(out, { recursive: true, force: true }); }
+    expect(S().focus).toBe("index");
+  }, 30_000);
+
   test("search: (( forgives a typo and another order through act, from the note read there; / asks from that note, then Jev keeps the pick", async () => {
     (app as any).lastInput = 0;
     const finding = seeded.notes.finding.id;

@@ -1699,7 +1699,13 @@ CLI: `bun run cli properties-preview --text '<draft>'` or `--stdin`.
 
 The property token grammar lives in one place, outline-core's
 `property-grammar.ts`, which the parser, the query language, context resolution
-and the door share. To place a block into a saved view, ask
+and the door share. The header line (the run of `[key::value]` chips that ends a note's
+first line, blanks or ` - ` between them) is outline-core's `header-line.ts`: the
+parser gives those chips block scope, titles leave them and their separators out,
+Detail's property table says `header` for them, and `ep0ch export` moves them into
+front matter. `blocks.records` answers blocks as records (outline-core's
+`block-record.ts`: header, properties as lists, fields, children, tasks, links,
+backlinks, resources), at most 200 ids a request. To place a block into a saved view, ask
 `views.planWrite` for the property patch each view
 needs, or why no patch can satisfy its query; `query.matches` says which of given
 blocks a query holds for. See [ARCHITECTURE](docs/ARCHITECTURE.md#saved-view-write-plans-viewsplanwrite).

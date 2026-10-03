@@ -29,6 +29,7 @@ import {
   normalizeAttentionMark,
 } from "./attention";
 import { readAuthoredLinks } from "./authored-links";
+import { readBlockRecords } from "./block-records";
 import { normalizeResourceProjectionRequest, readResourceProjections, type ResourceProjectionReadResult } from "./resource-projection";
 import { ExtensionSync } from "./extension-sync";
 import { ExtensionCalls } from "./extension-calls";
@@ -1842,6 +1843,9 @@ export class OutlinerServer {
         case "blocks.read":
           result = this.store.readBlocks(request.ids, request.fields);
           break;
+        case "blocks.records":
+          result = readBlockRecords(this.store, request.ids);
+          break;
         case "views.read": {
           const options = { limit: request.limit, offset: request.offset, expectedRevision: request.expectedRevision };
           result = request.format === "tree"
@@ -1862,7 +1866,7 @@ export class OutlinerServer {
           break;
         }
         case "query.matches":
-          result = this.store.matchQuery(request.expression, request.blockIds);
+          result = this.store.matchQuery(request.expression, request.blockIds, { text: request.text, subtreeRootId: request.subtreeRootId });
           break;
         case "blocks.authored-links":
           result = readAuthoredLinks(this.store, request.ownerBlockId);

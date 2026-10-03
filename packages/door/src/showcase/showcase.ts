@@ -115,8 +115,8 @@ export const SECTIONS: Section[] = [
     },
   },
   {
-    key: "search", need: "find a note by words", part: "the service's one search: tree.search, Goto's forgiving ranker (punctuation folded, any word order, a typo or two), behind the desk's / (and the river's g), (( in a draft and ep0ch find; [[ on pages.complete; from the note you're in, Jev after a pause", files: "src/socket.ts, src/desk/desk.ts, src/surface/completer.ts, src/notes-cli.ts, outline-core/src/search-match.ts",
-    aside: "the overlay opens with \"alotment notebok\" typed: two typos, the notebook still first, and notes holding all but one word below it · type to search again, ⏎ opens the hit in the reader · the note under it says what to try; esc puts the overlay away, then e in the note and (( with the same typos finds it the same way · `ep0ch find` answers the same from a shell",
+    key: "search", need: "find a note by words", part: "the service's one search: tree.search, Goto's forgiving ranker (punctuation folded, any word order, a typo or two), behind the desk's / (and the river's g), (( in a draft and ep0ch find; [[ on pages.complete; from the note you're in, Jev after a pause", files: "src/socket.ts, src/desk/desk.ts, src/surface/completer.ts, src/notes-cli.ts, outline-core/src/search-match.ts, src/export.ts",
+    aside: "the overlay opens with \"alotment notebok\" typed: two typos, the notebook still first, and notes holding all but one word below it · type to search again, ⏎ opens the hit in the reader · the note under it says what to try; esc puts the overlay away, then e in the note and (( with the same typos finds it the same way · `ep0ch find` answers the same from a shell · from a shell the outline also evaluates queries, views and subtrees (`ep0ch find --query … --ids`, `ep0ch export … --out <dir>`: the Seed order note's header line becomes front matter)",
     stage(n, show) {
       const r = new ReaderPane();
       // The overlay asks from the desk's current note, as the person's / does: nearer notes first, and Jev told it.

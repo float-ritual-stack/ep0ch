@@ -1,5 +1,6 @@
 import { protectedCodeRanges } from "./markdown-code-ranges";
-import { isEscapedAt, PROPERTY_KEY_PATTERN, PROPERTY_KEY_SOURCE, propertyTokenPattern } from "@ep0ch/outline-core/property-grammar";
+import { HASHTAG_VALUE_PATTERN, isEscapedAt, PROPERTY_KEY_PATTERN, PROPERTY_KEY_SOURCE, propertyTokenPattern } from "@ep0ch/outline-core/property-grammar";
+import { headerLine } from "@ep0ch/outline-core/header-line";
 import { blockReferenceEnvelopeRanges } from "./reference-envelopes";
 import type {
   BlockProperty,
@@ -12,9 +13,8 @@ import type {
 
 const BARE_PROPERTY_PATTERN = new RegExp(String.raw`^([ \t]*)(${PROPERTY_KEY_SOURCE})::[ \t]*`);
 const DIRECTIVE_LINE_PATTERN = new RegExp(String.raw`^([ \t]*)(?:([-*+])[ \t]+)?(${PROPERTY_KEY_SOURCE})::`);
-const HASHTAG_VALUE_PATTERN = /[\p{L}\p{N}_][\p{L}\p{M}\p{N}_-]*(?:\/[\p{L}\p{N}_][\p{L}\p{M}\p{N}_-]*)*/u;
 
-export const PROPERTY_PARSER_VERSION = 4;
+export const PROPERTY_PARSER_VERSION = 5;
 
 export interface SourceRange {
   start: number;
@@ -451,13 +451,11 @@ export function parsePropertyRecords(text: string): PropertyRecord[] {
   const firstNonblankLine = lines.findIndex((line) =>
     containsNonWhitespace(text, line.start, line.contentEnd)
   );
-  let subjectLine = -1;
   let preambleStart = -1;
   if (firstNonblankLine >= 0) {
     if (purePropertyLines.has(firstNonblankLine)) {
       preambleStart = firstNonblankLine;
     } else {
-      subjectLine = firstNonblankLine;
       let cursor = firstNonblankLine + 1;
       while (
         cursor < lines.length &&
@@ -467,6 +465,13 @@ export function parsePropertyRecords(text: string): PropertyRecord[] {
       }
       if (purePropertyLines.has(cursor)) preambleStart = cursor;
     }
+  }
+
+  // The header line's chips (outline-core's one definition: the run of chips ending the first line, blanks or ` - `
+  // between them) belong to the block, whatever separates them.
+  const header = new Set(headerLine(text, literalRanges).chips.map((chip) => chip.start));
+  for (const candidate of candidates) {
+    if (header.has(candidate.start) && candidate.placement === "inline") candidate.placement = "trailing-metadata";
   }
 
   let preambleEnd = preambleStart;
@@ -484,11 +489,7 @@ export function parsePropertyRecords(text: string): PropertyRecord[] {
       candidate.line <= preambleEnd
     ) {
       scope = "block";
-    } else if (
-      candidate.line === subjectLine &&
-      candidate.syntax === "bracket" &&
-      candidate.placement === "trailing-metadata"
-    ) {
+    } else if (candidate.syntax === "bracket" && header.has(candidate.start)) {
       scope = "block";
     } else {
       scope = candidate.syntax === "bare" ? "line" : "inline";
@@ -575,11 +576,21 @@ export function previewPropertyParse(text: unknown): PropertyParsePreview {
 }
 
 export function stripPropertyTokens(text: string): string {
-  return removeRanges(text, parsePropertyRecords(text).filter(property => property.syntax !== "hashtag"));
+  return removeRanges(text, withHeaderDashes(text, parsePropertyRecords(text).filter(property => property.syntax !== "hashtag")));
+}
+
+/**
+ * Property ranges with the header line's ` -` separators added (outline-core's header-line.ts), in order: what a title
+ * takes out of the first line.
+ */
+export function withHeaderDashes<T extends SourceRange>(text: string, ranges: readonly T[]): (T | SourceRange)[] {
+  const dashes = headerLine(text, scanPropertyLiteralRanges(text)).dashes;
+  return dashes.length ? [...ranges, ...dashes].sort((left, right) => left.start - right.start) : [...ranges];
 }
 
 export function firstLineWithoutPropertyTokens(text: string): string | undefined {
-  const tokens = parsePropertyRecords(text).filter(property => property.syntax !== "hashtag");
+  // The header's chips go with the ` - ` between and before them: `Seed order - [a::1] - [b::2]` is "Seed order".
+  const tokens = withHeaderDashes(text, parsePropertyRecords(text).filter(property => property.syntax !== "hashtag"));
   // Matched literal-region markers are hidden in Detail, so they are never the title.
   const markerStarts = literalMarkerLineStarts(text);
   let tokenIndex = 0;

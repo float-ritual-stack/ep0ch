@@ -3,14 +3,13 @@
 // copied, followed (block, page and Work-ID values) and edited in place: an edit is one `properties.patch`
 // of that token, checked against the revision the panel read, so it never overwrites someone else's change.
 // The surface owns the panel and runs its actions; this file draws it and turns keys into intents.
-import type { Msg } from "../board";
+import { titleLine, type Msg } from "../board";
 import { printable, type Source } from "../props";
 import { pageOf, refView, referencesIn, shortId } from "../refs";
 import type { PropertyRecord } from "../socket";
 import { ellipsize, bg, C, fg, pad, RESET, width } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
 import { rule } from "../text";
-import { withoutPropertyTokens } from "@ep0ch/outline-core/property-grammar";
 import { RowView } from "../scroll";
 import { LineInput } from "./line";
 
@@ -66,7 +65,7 @@ export function valueView(r: PropRow, src: Source | null, noteText?: string): st
   }
   if (r.target && "page" in r.target) {
     const p = pageOf(r.target.page, src);
-    return p?.status === "missing" ? `${v} · Missing target` : p?.block ? `${v}  ${withoutPropertyTokens(printable(p.block.text.split("\n")[0] ?? "")).trim().slice(0, 60)}` : v;
+    return p?.status === "missing" ? `${v} · Missing target` : p?.block ? `${v}  ${printable(titleLine(p.block.text).text).slice(0, 60)}` : v;
   }
   return v;
 }
