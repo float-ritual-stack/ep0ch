@@ -7,6 +7,8 @@ import { colourBody, wrap } from "./text";
 import { frame, isGraphStart, reframeAscii, renderGraph } from "./graphs";
 import { linkBlockLines, linkBlockAt, renderLinkBlock } from "./links";
 import { EMBED, stripMarks, type LinkTarget } from "./refs";
+import { BUILTIN_CALLOUT_REGISTRY, calloutBlocks, stripQuotes, type CalloutBlock, type CalloutRegistry } from "@ep0ch/outline-core/callouts";
+import { TONE } from "./callouts";
 
 export interface DocEnv {
   width: number; cellW: number; cellH: number; graphics: boolean; maxImageRows: number; unfold: boolean;
@@ -61,6 +63,13 @@ export interface DocEnv {
    * note's own document, whose tags the note's render turns into places (src/embeds.ts).
    */
   keepTags?: boolean;
+  /** The outline's callout types (src/callouts.ts): what `[!type]` draws as. Without it, the built-ins. */
+  callouts?: CalloutRegistry;
+  /**
+   * A callout's icon and type on body line `line` (its header): what tags them both as one control (the reader's
+   * type choice, PIE-538), or null to leave them text. Without it (a draft's preview, an embed) they're text.
+   */
+  callout?: (line: number, block: CalloutBlock) => ((text: string) => string) | null;
 }
 export interface DocImage { line: number; rows: number; cols: number; media: Extract<Media, { state: "ready" }> }
 /**
@@ -74,13 +83,14 @@ export interface Doc { lines: string[]; images: DocImage[]; media: { path: strin
 
 /**
  * A place the reader can fold: a heading (hiding everything through the next heading of the same or a
- * higher level) or a list item with nested items or continuation lines under it. `line` is its body
+ * higher level), a list item with nested items or continuation lines under it, or a callout with a body
+ * (PIE-538: `level` is its quote depth; `start` folded for `[!type]-`, which the reader folds when it first sees it). `line` is its body
  * line, `end` the line after the last it hides (trailing blank lines stay shown), `hidden` how many of
  * those have text. `key` names it across edits elsewhere in the note: its anchor (`^beds`) when it has
  * one, else its kind, level and text (without a step's box) with how many identical headings or items
  * come before it, folding or not.
  */
-export interface FoldPoint { key: string; kind: "heading" | "list"; level: number; text: string; line: number; end: number; hidden: number }
+export interface FoldPoint { key: string; kind: "heading" | "list" | "callout"; level: number; text: string; line: number; end: number; hidden: number; start?: "folded" }
 
 // Inline Markdown (bold, italic, strikethrough) arrives as style marks from presentLinks, placed before the
 // text was wrapped; colourBody turns them into SGR.
@@ -123,7 +133,7 @@ export function foldPoints(body: string, anchors: readonly (string | undefined)[
   const trim = (from: number, to: number) => { while (to > from && !src[to - 1]!.trim()) to--; return to; };
   const out: FoldPoint[] = [];
   const seen = new Map<string, number>();
-  const add = (kind: FoldPoint["kind"], level: number, text: string, line: number, end: number) => {
+  const add = (kind: FoldPoint["kind"], level: number, text: string, line: number, end: number, start?: "folded") => {
     const plain = text.replace(TASK_ID, "").trim().replace(/\s+/g, " ");
     // A step's box ([ ] or [x]) isn't part of its name: ticking it keeps its fold. Every occurrence counts
     // toward the ordinal, empty ones too, so an earlier `## Notes` gaining a body doesn't renumber this one.
@@ -132,11 +142,22 @@ export function foldPoints(body: string, anchors: readonly (string | undefined)[
     seen.set(base, n + 1);
     if (end <= line + 1) return;
     const hidden = src.slice(line + 1, end).filter(l => l.trim()).length;
-    out.push({ key: anchors[line] ? `^${anchors[line]}` : `${base}#${n}`, kind, level, text: plain, line, end, hidden });
+    out.push({ key: anchors[line] ? `^${anchors[line]}` : `${base}#${n}`, kind, level, text: plain, line, end, hidden, ...(start ? { start } : {}) });
   };
+  // A callout is named by its depth and its title as written, never its type: choosing another type keeps its fold.
+  const callouts = new Map(calloutBlocks(src).map(c => [c.line, c]));
   for (let i = 0; i < src.length; i++) {
     if (!foldable(i)) continue;
     const line = src[i]!;
+    const cb = callouts.get(i);
+    if (cb) {
+      const shown = cb.title || BUILTIN_CALLOUT_REGISTRY.style(cb.type).title;
+      add("callout", cb.depth, cb.title, i, cb.end, cb.fold === "-" ? "folded" : undefined);
+      // Its label is the title as drawn (the type's own title when it has none).
+      const p = out.at(-1);
+      if (p?.line === i && p.kind === "callout") p.text = shown;
+      continue;
+    }
     const h = line.match(HEADING);
     if (h) {
       const level = h[1]!.length;
@@ -164,16 +185,6 @@ export function foldPoints(body: string, anchors: readonly (string | undefined)[
   return out;
 }
 
-const CALLOUT: Record<string, [string, number]> = {
-  note: ["✎", C.lcyan], info: ["ℹ", C.lcyan], todo: ["☐", C.lcyan],
-  tip: ["✦", C.lgreen], hint: ["✦", C.lgreen], important: ["✦", C.lgreen], success: ["✓", C.lgreen], check: ["✓", C.lgreen], done: ["✓", C.lgreen],
-  question: ["?", C.yellow], help: ["?", C.yellow], faq: ["?", C.yellow],
-  warning: ["⚠", C.yellow], caution: ["⚠", C.yellow], attention: ["⚠", C.yellow],
-  danger: ["✗", C.lred], error: ["✗", C.lred], bug: ["✗", C.lred], failure: ["✗", C.lred], fail: ["✗", C.lred], missing: ["✗", C.lred], problem: ["!", C.lred],
-  summary: ["≡", C.lmagenta], abstract: ["≡", C.lmagenta], tldr: ["≡", C.lmagenta],
-  example: ["◆", C.lblue], quote: ["❝", C.grey], cite: ["❝", C.grey],
-};
-
 export function renderDoc(body: string, env: DocEnv): Doc {
   const out: string[] = [];
   const images: DocImage[] = [];
@@ -185,6 +196,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
   const src = body.split("\n").map(l => l.replace(TASK_ID, ""));
   const source: number[] = [], heads: Doc["heads"] = [];
   const at = new Map((env.folds?.points ?? []).map(p => [p.line, p]));
+  const callouts = new Map(calloutBlocks(src).map(c => [c.line, c]));
   const lit = (i: number) => !!env.literal?.has(i);
   // Each row comes from the line its construct started on: rows pushed since then are filled in here.
   let from = 0;
@@ -207,7 +219,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
 
     // A heading or a list item the reader can fold: its disclosure, and nothing it hides when folded.
     const fp = at.get(i);
-    if (fp && env.folds) {
+    if (fp && env.folds && fp.kind !== "callout") {
       const folded = env.folds.folded.has(fp.key), selected = env.folds.selected === fp.key;
       const rows = prose(line, W, { folded, selected, hidden: fp.hidden }, lit(i), env.task && (box => env.task!(i, box)));
       heads.push({ key: fp.key, row: out.length, cols: fp.kind === "heading" ? W : fp.level + line.trimStart().search(/\s/) + 2 });
@@ -276,41 +288,76 @@ export function renderDoc(body: string, env: DocEnv): Doc {
       continue;
     }
 
-    // Callout: > [!type]± title, then > lines.
-    const co = line.match(/^\s*>\s*\[!(\w+)\]([+-]?)\s*(.*)$/);
-    if (co) {
-      const body: string[] = [], bodyLit: boolean[] = [];
-      for (i++; i < src.length && /^\s*>/.test(src[i]!); i++) { body.push(src[i]!.replace(/^\s*> ?/, "")); bodyLit.push(lit(i)); }
-      i--;
-      const type = co[1]!.toLowerCase();
-      const [icon, colour] = CALLOUT[type] ?? ["▌", C.cyan];
-      const folded = co[2] === "-" && !env.unfold;
-      const bw = Math.max(12, W);
-      const inner = bw - 4;
+    // Callout (PIE-538): > [!type]± title, then its lines, each quoted at least as deep; one quoted deeper is a
+    // callout inside it, drawn by this same renderer in its frame, to any depth.
+    const cb = callouts.get(i);
+    if (cb) {
+      const t = (env.callouts ?? BUILTIN_CALLOUT_REGISTRY).style(cb.type), colour = TONE[t.tone];
+      const body = src.slice(i + 1, cb.end).map(l => stripQuotes(l, cb.depth));
+      // The reader's fold point folds it; without one (an embed, `ep0ch show`), `-` starts it folded unless unfolded.
+      const fp2 = env.folds ? at.get(i) : undefined;
+      // A title-only callout has nothing to fold, whatever its `-` says.
+      const folded = body.length > 0 && (fp2 ? env.folds!.folded.has(fp2.key) : cb.fold === "-" && !env.unfold);
+      const selected = !!fp2 && env.folds!.selected === fp2.key;
+      // Too narrow for a frame inside a frame (deep nesting in a thin reader): its title, then its body, unframed.
+      if (W < 16) {
+        const tag = env.callout?.(i, cb) ?? ((x: string) => x);
+        out.push(fg(colour) + pad(`${tag(t.icon)} ${BOLD}${cb.title || t.title}${UNBOLD}`, W) + RESET);
+        if (body.length && !folded) {
+          const sub = renderDoc(body.join("\n"), { ...env, keepTags: true, embed: undefined, after: undefined, task: undefined, folds: undefined, callout: undefined, literal: undefined });
+          mark();
+          sub.lines.forEach((l, r) => { out.push(l); source.push(i + 1 + (sub.source[r] ?? 0)); });
+        }
+        i = cb.end - 1;
+        continue;
+      }
+      const bw = Math.max(12, W), inner = bw - 4;
+      const tag = env.callout?.(i, cb) ?? ((x: string) => x);
+      const glyph = fp2 ? (selected ? fg(C.yellow) : "") + (folded ? "▸" : "▾") + fg(colour) + " " : "";
+      // The type, named on the top edge when the title is the author's own; with the icon, the control that changes it.
+      const typeName = cb.title && cb.title.toLowerCase() !== t.title.toLowerCase() ? cb.type : "";
       // A title too long for the top edge keeps a short head there and flows the rest into the box.
-      let title = co[3]?.trim() || type[0]!.toUpperCase() + type.slice(1);
+      let title = cb.title || t.title;
       let spill = "";
       // Counted and cut in visible characters: a link's tags take no room and are never split, and a link
       // open at the cut is closed on the top edge (a folded callout drops the spill) and re-opened in it.
-      const room = bw - 8 - [...icon].length;
+      const room = bw - 8 - [...t.icon].length - (glyph ? 2 : 0);
       if (vwidth(title) > room) {
         const seen = [...stripTags(title)];
         const cut = seen.lastIndexOf(" ", room - 1);
-        const [h, t] = splitVisible(title, cut > room * 0.4 ? cut : room - 1);
-        spill = trimTagged(t);
+        const [h, rest] = splitVisible(title, cut > room * 0.4 ? cut : room - 1);
+        spill = trimTagged(rest);
         title = trimTagged(h) + " …";
       }
-      const head = ` ${icon} ${title} `;
-      out.push(fg(colour) + "╭─" + BOLD + head + UNBOLD + "─".repeat(Math.max(0, bw - 3 - vwidth(head))) + "╮" + RESET);
+      const head = ` ${glyph}${tag(t.icon)} ${selected ? fg(C.yellow) : ""}${title}${fg(colour)} `;
+      const label = typeName && bw - 3 - vwidth(head) >= typeName.length + 4 ? ` ${tag(typeName)} ` : "";
+      if (fp2) heads.push({ key: fp2.key, row: out.length, cols: W });
+      out.push(fg(colour) + "╭─" + BOLD + head + UNBOLD + "─".repeat(Math.max(0, bw - 3 - vwidth(head) - vwidth(label) - (label ? 1 : 0))) + (label ? fg(C.dark) + label + fg(colour) + "─" : "") + "╮" + RESET);
+      const framed = (l: string) => fg(colour) + "│ " + RESET + pad(l, inner) + fg(colour) + " │" + RESET;
       if (folded) {
-        out.push(fg(colour) + "│ " + fg(C.dark) + pad(`▸ ${body.length} line${body.length === 1 ? "" : "s"} folded · z unfolds`, inner) + fg(colour) + " │" + RESET);
+        const n = body.filter(l => l.trim()).length, said = `▸ ${n} line${n === 1 ? "" : "s"} folded`;
+        // The hint gives way by width, whole words at a time, never cut mid-word.
+        const hint = (fp2 ? [`${said} · f or a click on the title unfolds`, `${said} · f`] : [`${said} · z unfolds`]).find(x => vwidth(x) <= inner) ?? said;
+        out.push(fg(colour) + "│ " + fg(C.dark) + pad(hint, inner) + fg(colour) + " │" + RESET);
       } else {
         for (const l of spill ? wrap(spill, inner) : []) out.push(fg(colour) + "│ " + BOLD + pad(l, inner) + UNBOLD + " │" + RESET);
         // A title-only callout is just the titled frame; no empty row inside.
-        body.forEach((b, k) => { for (const l of b ? wrap(b, inner, BODY) : [""])
-          out.push(fg(colour) + "│ " + RESET + pad(inlineOf(l, bodyLit[k]), inner) + fg(colour) + " │" + RESET); });
+        if (body.length) {
+          const off = i + 1, inside = (n: number) => n > i && n < cb.end;
+          const sub = renderDoc(body.join("\n"), {
+            ...env, width: inner, graphics: false, keepTags: true, embed: undefined, after: undefined, task: undefined,
+            literal: new Set([...(env.literal ?? [])].filter(inside).map(n => n - off)),
+            folds: env.folds && { ...env.folds, points: env.folds.points.filter(p => inside(p.line)).map(p => ({ ...p, line: p.line - off, end: p.end - off })) },
+            callout: env.callout && ((n, b) => env.callout!(n + off, { ...b, line: b.line + off, end: b.end + off, depth: b.depth + cb.depth })),
+          });
+          mark();
+          const base = out.length;
+          sub.lines.forEach((l, r) => { out.push(framed(l)); source.push(off + (sub.source[r] ?? 0)); });
+          for (const h of sub.heads) heads.push({ ...h, row: base + h.row, cols: W });
+        }
       }
       out.push(fg(colour) + "╰" + "─".repeat(bw - 2) + "╯" + RESET);
+      i = cb.end - 1;
       continue;
     }
 

@@ -158,7 +158,7 @@ export interface LinkView { text: string; missing: boolean }
 export type LinkTarget = {
   /** A resource token (`[file::…]`, `[jira::KEY]`): its Resource is shown as a note, as the tree's resource rows are. */
   resource?: AuthoredResourceLink;
-  block?: string; fragment?: string; label?: string; page?: string; media?: string; url?: string; role?: "embed" | "row" | "resource" | "task" | "control"; reason?: string;
+  block?: string; fragment?: string; label?: string; page?: string; media?: string; url?: string; role?: "embed" | "row" | "resource" | "task" | "control" | "callout"; reason?: string;
   /**
    * An agent's open proposal (PIE-501): on its embed's source line, the proposal it shows; with `op`, one of
    * the controls drawn there (role "control"), which runs `proposal.apply` or `proposal.dismiss` on it.
@@ -176,9 +176,17 @@ export type LinkTarget = {
   refreshLine?: number;
   /** A checklist step's box (role "task", PIE-472): the step, where it is, and the revision it was read at. */
   task?: StepRef;
-  /** A row of a step's open status choice (role "task"): which choice, from 0. */
+  /** A row of a step's open status choice (role "task") or of a callout's type choice (role "callout"): which, from 0. */
   choice?: number;
+  /** A callout's icon or type (role "callout", PIE-538): ⏎ or a click opens its type choice. */
+  callout?: CalloutRef;
 };
+
+/**
+ * A callout as the reader drew it: the note, its header's note line and how that line read (a change is checked
+ * against that line, and written at the revision the service has now), and its fold point's key when it has one.
+ */
+export interface CalloutRef { block: string; line: number; header: string; type: string; fold: "+" | "-" | null; foldKey: string | null }
 
 /** How a `((…))` reads: the label or title (with `^fragment`), and what's wrong with it, as Detail says it. */
 export function refView(id: string, fragment: string | undefined, label: string | undefined, r: ReferenceResolution | undefined): LinkView {

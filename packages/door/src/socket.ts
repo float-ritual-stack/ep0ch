@@ -97,6 +97,7 @@ export interface Change {
 /** The spans of a `draft.patch` as the service passes them on (@ep0ch/outline-core/draft-patch-compare). */
 export type { DraftPatchSpan } from "@ep0ch/outline-core/draft-patch-compare";
 import type { DraftPatchSpan } from "@ep0ch/outline-core/draft-patch-compare";
+import type { CalloutType } from "@ep0ch/outline-core/callouts";
 
 /**
  * What the service asks the door holding a draft (a `draft` event), and the answer the door sends back. A patch
@@ -515,6 +516,11 @@ export class SocketBoard implements Board {
   /** The workspace's configured Work-ID prefix (`PIE`), or null when none is configured. */
   async workIdPrefix(): Promise<string | null> {
     return (await this.request<{ workIdPrefix?: string }>("references.resolve", { text: "" })).workIdPrefix ?? null;
+  }
+
+  /** The outline's callout types (PIE-538): the types its notes declare with `[callout-type::name]`, and what's wrong with any. */
+  async calloutTypes(): Promise<{ types: CalloutType[]; problems: string[]; complete: boolean }> {
+    return this.request<{ types: CalloutType[]; problems: string[]; complete: boolean }>("callouts.types", {});
   }
 
   /** What a `[[page]]` address or Work ID points at. Never follows (`pages.follow` would create a stub). */

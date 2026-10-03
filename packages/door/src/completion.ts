@@ -3,8 +3,9 @@
 // how a page or Work-ID is written (`[[WORK-ID|title]]`, else `[[address]]`), Work-ID recognition
 // (src/work-ids.ts), and how a typed `((note#heading` / `((note^anchor` splits. Fragments themselves are
 // the service's (see below).
+import { calloutTypeAtCursor } from "@ep0ch/outline-core/callouts";
 
-export type CompletionKind = "page" | "block" | "file";
+export type CompletionKind = "page" | "block" | "file" | "callout";
 
 export interface CompletionTarget {
   kind: CompletionKind;
@@ -21,8 +22,13 @@ const TARGET_SYNTAX: ReadonlyArray<{ kind: CompletionKind; opening: string; clos
   { kind: "file", opening: "[file::", closing: "]" },
 ];
 
-/** The innermost unclosed `[[`, `((` or `[file::` before the cursor, or null. */
+/**
+ * The innermost unclosed `[[`, `((` or `[file::` before the cursor, or a callout's type being typed (`> [!wa`,
+ * PIE-538, by outline-core's callout grammar), or null.
+ */
 export function completionTargetAtCursor(line: string, column: number): CompletionTarget | null {
+  const callout = calloutTypeAtCursor(line, column);
+  if (callout) return { kind: "callout", ...callout };
   const end = Math.max(0, Math.min(column, line.length));
   const beforeCursor = line.slice(0, end);
   let target: CompletionTarget | null = null;

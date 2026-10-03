@@ -40,6 +40,8 @@ const CP437_CODES = new Map<string, number>([...[...CP437_LOW].slice(1).map((c, 
  * ◢ corner as ┘, drawer handles' arrows, an ellipsis as ·, an old sparkline's steps as _ ▄ █, the river's types.
  */
 export const CP437_NEAREST: ReadonlyMap<string, string> = new Map([
+  // Callout icons (outline-core's callouts.ts, and the showcase's own type).
+  ["△", "▲"], ["※", "*"], ["♨", "☼"],
   ["◆", "♦"], ["◇", "♦"], ["▸", "►"], ["▶", "►"], ["◂", "◄"], ["▾", "▼"], ["⇤", "←"], ["⇐", "←"], ["⇒", "→"], ["⇓", "↓"], ["⇥", "→"],
   ["⤒", "↑"], ["⤓", "↓"], ["⇱", "↑"], ["⠿", "■"], ["▭", "■"], ["✉", "■"], ["⌖", "☼"], ["⟳", "☼"], ["✦", "☼"], ["⊙", "☼"], ["⏎", "◄"],
   ["—", "─"], ["–", "-"], ["−", "-"], ["✓", "√"], ["✗", "x"], ["×", "x"], ["□", "○"], ["☐", "○"], ["◌", "○"], ["◎", "○"], ["▣", "◙"],

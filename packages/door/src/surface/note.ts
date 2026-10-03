@@ -16,9 +16,9 @@ import { embedRegion, embedsLoading, viewResults, embedStepChanged, isOpenPropos
 import { extensionRegion, projectionRegion, projectionsOf, resourceChanged, RUN_AGAIN, ticketBlocksOf, ticketRegion, type ResourceProjection, type TicketPart } from "../projection";
 import { EXT_ACTIONS, extensionNamed, handlerKeyAction } from "../extensions";
 import { metadataLines, printable, setUserSummaryKeys, summaryKeys, summarySegments, tokensFor, tokensOf, type Source } from "../props";
-import { LINK_OFF, LINK_ON, MD_LINK, outlineChanged, PAGE, pageView, pageOf, presentLinks, REF, resourceTokensOf, refKey, referencesIn, refView, workIdPrefix, shortId, type LinkTarget } from "../refs";
+import { type CalloutRef, LINK_OFF, LINK_ON, MD_LINK, outlineChanged, PAGE, pageView, pageOf, presentLinks, REF, resourceTokensOf, refKey, referencesIn, refView, workIdPrefix, shortId, type LinkTarget } from "../refs";
 import { isOutlineNote, openResource, RESOURCE_NOTE, resourceTarget } from "../authored";
-import { changeOf, parseStatus, STEP_CHOICES, STEP_MARKS, stepChanged, StepHistory, stepLink, stepsLoading, stepsOf, stepStillOn, stepTitle, statusWord, type StepChoice, type StepRef } from "../steps";
+import { changeOf, parseStatus, STEP_CHOICES, STEP_MARKS, stepChanged, UndoHistory, stepLink, stepsLoading, stepsOf, stepStillOn, stepTitle, statusWord, type StepChoice, type StepRef } from "../steps";
 import { destinationOf, external, externalOpenCommand, fileOpenCommand } from "../open";
 import { Draft, DRAFT_ACTIONS, sameParty, type DraftActionArgs } from "../edit";
 import { agentRefusal, blockTarget, DraftSession, leaveSaid, propertyChange, unsentOn, type Ended, type LeaveResult } from "../draft-session";
@@ -39,6 +39,8 @@ import { checkValue, propertyRows, PropertyPanel, valueTarget, valueView, type P
 import { ModeStack, type ReaderMode } from "./modes";
 import { LineInput } from "./line";
 import { ListPicker } from "./picker";
+import { calloutProblems, calloutsOf, calloutsStamp, TONE } from "../callouts";
+import { calloutBlocks, rewriteCalloutHeader, type CalloutRegistry } from "@ep0ch/outline-core/callouts";
 import { AGENT_BG, cellsOf, Gesture, isCopyKey, lineAt, modeKey, paintRange, RULER_BG, SELECT_BG, Selection, selectionHint, THREAD_BG, wordAt, type Pos, type SelectRows } from "./selection";
 
 /**
@@ -122,7 +124,7 @@ export interface ReaderHistory {
  * Where a reader was (PIE-453), so back comes back to it as it was: the note, how far down, the `[ ]`
  * position (the current element and link), and the reading state kept per note (folds, expanded threads).
  */
-interface Place { msg: Msg; scroll: number; cur: string | null; link: number; folded: string[]; expanded: string[] }
+interface Place { msg: Msg; scroll: number; cur: string | null; link: number; folded: string[]; expanded: string[]; seen: string[] }
 /** How many places back (and forward) a reader keeps. */
 const HISTORY = 50;
 
@@ -193,7 +195,7 @@ const sameLink = (a: Link, b: Link) => a.resource?.key === b.resource?.key && a.
 /** `copy`: the selection's copy control (PIE-419), which copies what's drawn or its source. */
 /** `elem`: the `[ ]` element the link is (PIE-441); `thread`: a comment mark in the margin, or a control of a thread expanded under its passage (PIE-420). */
 /** `history`: the history row's `← back` (-1) or `forward →` (1), PIE-453. */
-/** `pick`: a row of a step's status choice (PIE-472), by its index in STEP_CHOICES. */
+/** `pick`: a row of the open choice (a step's status, PIE-472; a callout's type, PIE-538), by its index. */
 type Hit = { row: number; from: number; to: number } & ({ link: Link; value?: string; elem?: string } | { prop: number; follow: boolean } | { copy: "visible" | "source" } | { thread: string; elem: string } | { history: -1 | 1 } | { pick: number });
 
 /**
@@ -202,7 +204,7 @@ type Hit = { row: number; from: number; to: number } & ({ link: Link; value?: st
  * figure's row, an embedded view's result), an embed (its title), a resource projection (its region, PIE-445)
  * and a comment mark (in the margin).
  */
-export type ElementKind = "link" | "fold" | "row" | "embed" | "comment" | "control" | "resource" | "task";
+export type ElementKind = "link" | "fold" | "row" | "embed" | "comment" | "control" | "resource" | "task" | "callout";
 /** The controls of a comment thread expanded inline (PIE-420), as Detail has them: Select, Reply, Resolve or Reopen. */
 export type ThreadControl = "select" | "reply" | "resolve";
 /**
@@ -215,6 +217,8 @@ interface Element {
   link?: Link; value?: string; fold?: string; thread?: string; control?: ThreadControl;
   /** A checklist step's box (PIE-472): the step as it was read where it's drawn. */
   task?: StepRef;
+  /** A callout's icon and type (PIE-538): the callout as it was read where it's drawn. */
+  callout?: CalloutRef;
 }
 /** What ⏎ does on an element, for the hint. `open`: a fold is folded, a comment mark's thread is expanded. */
 const verbOf = (e: Element, open: boolean) =>
@@ -222,7 +226,7 @@ const verbOf = (e: Element, open: boolean) =>
   : e.kind === "fold" ? (open ? "unfold" : "fold") : e.kind === "comment" ? (open ? "collapse its thread" : "expand its thread")
   : e.kind === "control" && e.link?.proposal?.op ? (e.link.proposal.op === "apply" ? "apply it anyway" : "dismiss it")
   : e.kind === "control" ? (e.control === "select" ? "select its passage" : e.control === "reply" ? "reply" : e.label.startsWith("Reopen") ? "reopen" : "resolve")
-  : e.kind === "row" ? "open its note" : e.kind === "embed" ? "open it" : e.kind === "task" ? "status"
+  : e.kind === "row" ? "open its note" : e.kind === "embed" ? "open it" : e.kind === "task" ? "status" : e.kind === "callout" ? "choose its type"
   : e.kind === "resource" ? (e.link?.url ? "open the ticket's page" : "say why there's nothing to open") : e.link?.resource ? "show the resource" : e.link?.media || e.link?.url ? "open" : "follow";
 /** What ⏎ does on an extension's line or control (PIE-512): its action's label, or run it again. */
 function extVerb(x: NonNullable<LinkTarget["ext"]>): string {
@@ -314,13 +318,17 @@ export { leaveSaid, propertyChange, type LeaveResult };
  * A step's status choice, open under its box (PIE-472): the step's element key, the choice the keys are on,
  * and what the last choice said. The person's alone (an agent sets a status by `task.status`).
  */
-/** A step's status choice: the step (its element key), the choices as a list picker, what the last choice said. */
-interface Picker { key: string; list: ListPicker<(typeof STEP_CHOICES)[number], SurfaceHost>; note: string; busy: boolean }
+/**
+ * The choice open under an element: a step's status (PIE-472) or a callout's type (PIE-538). The element (its key),
+ * the choices as a list picker, what the last choice said.
+ */
+interface Choice { id: string; label: string; key: string }
+interface Picker { key: string; kind?: "callout"; list: ListPicker<Choice, SurfaceHost>; note: string; busy: boolean; types?: CalloutRegistry }
 /** The reader's four modes (src/surface/modes.ts), each with what it's about. */
 type DraftMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { session: DraftSession; describe(): ReturnType<DraftSession["describe"]> & { writtenBy: string | null } };
 type CommentMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { session: CommentSession; describe(): ReturnType<CommentSession["describe"]> };
 type PanelMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { panel: PropertyPanel; describe(): { open: string; selected: number; note: string | null; editing: { n: number; key: string; text: string; revision: number; changedElsewhere: boolean; note: string | null } | null; rows: ReturnType<typeof describeRow>[] } | null };
-type PickerMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { picker: Picker; describe(): { step: string | null; selected: string | undefined; note: string | null } };
+type PickerMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { picker: Picker; describe(): { step?: string | null; callout?: string | null; choices?: string[]; selected: string | undefined; note: string | null } };
 
 /** Agent actions that open an edit or a comment session on the note. */
 const STARTS_SESSION = new Set(["edit", "edit.text", "passage.select", "comment.write", "comment", "threads", "reply", "resolve"]);
@@ -369,6 +377,11 @@ export class NoteSurface {
     else if (this.foldSel !== null) this.cur = null;
   }
   private foldsOf: string | null = null;
+  /**
+   * The fold points this reader has met in its note: a callout written `[!type]-` is folded when it's first met
+   * (PIE-538), and after that it's the person's to open or fold, like any other.
+   */
+  private foldSeen = new Set<string>();
   private foldCache: { text: string; points: FoldPoint[]; lines: number[] } | null = null;
   /** The last reading render: where the body starts, how far it's scrolled, and its rows' sources and fold heads. */
   private drawn: { w: number; top: number; scroll: number; room: number; doc: Doc; lines: number[]; head: string[]; body: string[] } | null = null;
@@ -451,7 +464,9 @@ export class NoteSurface {
   get picker(): Picker | null { return (this.modes.get("picker") as PickerMode | null)?.picker ?? null; }
   set picker(p: Picker | null) { if (p) this.modes.push(this.pickerMode(p)); else this.modes.drop("picker"); }
   /** The step changes made in this reader, for Undo (ctrl+z, `task.undo`): each party undoes its own. */
-  readonly stepHistory = new StepHistory();
+  readonly stepHistory = new UndoHistory();
+  /** The callout changes made in this reader (PIE-538), for Undo: each party undoes its own. */
+  readonly calloutHistory = new UndoHistory<CalloutUndo>();
   /** The step that last got its id here: its element key before and after (see keepCurrent). */
   private stepRenamed: { was: string; now: string } | null = null;
   /** The keys the last host keeps for itself (SurfaceHost.ownKeys), for the hint. */
@@ -585,7 +600,7 @@ export class NoteSurface {
     // An edit, a comment or a value being typed holds the reader on its note.
     if (this.modes.editing && m?.id !== this.msg?.id) return false;
     if (m?.id !== this.msg?.id) { this.notice = ""; this.agent = null; this.agentDraft = null; this.focusMark = null; this.picker = null; this.clearSelections(); if (this.panel) { this.panel.sel = 0; this.panel.view.reset(); this.panel.note = ""; } }
-    if ((m?.id ?? null) !== this.foldsOf) { this.folded.clear(); this.expanded.clear(); this.foldsOf = m?.id ?? null; }
+    if ((m?.id ?? null) !== this.foldsOf) { this.folded.clear(); this.foldSeen.clear(); this.expanded.clear(); this.foldsOf = m?.id ?? null; }
     this.msg = m; this.scroll = 0; this.maxScroll = Infinity; this.letGo(); this.elems = []; this.crumbs = "…"; this.unread = "";
     this.links = m ? linksOf(m) : [];
     if (m?.id !== this.commentsFor) { this.comments = null; this.commentsFor = ""; }
@@ -716,7 +731,8 @@ export class NoteSurface {
       else if (b > this.scroll + room) this.scroll = Math.max(0, Math.min(a, b - room));
     };
     const current = this.elems.find(e => e.key === this.cur);
-    if (this.reveal && current) bringIn([current.row, current.row + 1]);
+    // An open choice under it (a step's status, a callout's type) comes in with it, as far as the element allows.
+    if (this.reveal && current) bringIn([current.row, picks && this.picker?.key === current.key ? Math.max(current.row + 1, top + picks.at + picks.lines) : current.row + 1]);
     this.reveal = false;
     const markRows = this.focusMark ? this.focusRows(this.focusMark.spec, m, doc, noteLines, top) : null;
     // A followed fragment comes to the top (a line of what's above it kept); an agent's mark only as far as needed.
@@ -777,7 +793,8 @@ export class NoteSurface {
    */
   private layOut(m: Msg, w: number, h: number, head: string[], summaryRow: number, summaryLinks: { from: number; to: number; link: Link; key: string }[], host: SurfaceHost | undefined, src: Source | null): Laid {
     const top = head.length, t = host?.ctx.t;
-    const key = `${w}x${h}|${top}|${summaryRow}|${m.revision ?? ""}|${m.text.length}|${host?.ctx.graphics ? 1 : 0}|${t?.cellW}x${t?.cellH}`;
+    // The outline's callout types too: a type declared (or its answer arriving) draws the note again.
+    const key = `${w}x${h}|${top}|${summaryRow}|${m.revision ?? ""}|${m.text.length}|${host?.ctx.graphics ? 1 : 0}|${t?.cellW}x${t?.cellH}|${calloutsStamp(calloutsOf(src))}`;
     if (onlyScrolled() && this.laid?.m === m && this.laid.key === key) return this.laid;
     const env = this.docEnv(Math.max(1, w - 1), host, Math.max(4, Math.round((h - head.length) * 0.8)));
     // Every link drawn (the body's, an embed's title, results, text and step boxes) is tagged with its place in `drawn`.
@@ -854,7 +871,7 @@ export class NoteSurface {
   private docEnv(width: number, host: SurfaceHost | undefined, maxImageRows: number): DocEnv {
     const t = host?.ctx.t, graphics = !!host?.ctx.graphics;
     const noImages = graphics ? undefined : t?.kitty ? "video: cells · alt+v draws images" : "no Kitty graphics in this terminal";
-    return { width, cellW: t?.cellW ?? 9, cellH: t?.cellH ?? 18, graphics, noImages, maxImageRows, unfold: this.unfold };
+    return { width, cellW: t?.cellW ?? 9, cellH: t?.cellH ?? 18, graphics, noImages, maxImageRows, unfold: this.unfold, callouts: calloutsOf(this.src) };
   }
 
   /** The note's body for the reader and a host's digest (folds, links, embeds, steps, tagged into `drawn`); `more`: the reader's own. */
@@ -863,12 +880,30 @@ export class NoteSurface {
     this.keepFolds(points);
     const doc = renderDoc(presentLinks(text, true, src, m.text, drawn, tokens), {
       ...env, literal, ...this.bodyHooks(m, lines, env, src, drawn),
+      callout: this.calloutHook(m, lines, points, drawn),
       folds: { points, folded: this.folded, selected: this.foldSel },
       link: (block, x) => tagged(drawn, { block, role: "row" }, x),
       tag: (to, x) => tagged(drawn, to, x), note: m.id,
       ...more?.(text, lines),
     });
     return { doc, points, lines };
+  }
+
+  /**
+   * Each callout's icon and type as one control (PIE-538): ⏎ or a click opens its type choice. It names the callout by
+   * its header's note line and how that line reads now, so a type change is checked against what was drawn.
+   */
+  private calloutHook(m: Msg, noteLines: readonly number[], points: readonly FoldPoint[], drawn: Link[]): DocEnv["callout"] {
+    if (!isOutlineNote(m) || m.partial) return undefined;
+    const text = m.text.split("\n");
+    return (i, b) => {
+      const line = noteLines[i];
+      if (line === undefined) return null;
+      const ref: CalloutRef = { block: m.id, line, header: text[line] ?? "", type: b.type, fold: b.fold, foldKey: points.find(p => p.line === i && p.kind === "callout")?.key ?? null };
+      const n = drawn.push({ role: "callout", block: m.id, callout: ref }) - 1;
+      // Tagged only: the top edge is drawn in the callout's tone, not as a link.
+      return (x: string) => linkTag(n) + x + LINK_END;
+    };
   }
 
   /**
@@ -933,7 +968,7 @@ export class NoteSurface {
     const current = this.elems.find(e => e.key === this.cur);
     const lines = doc.lines.map((l, r) => (current && r >= current.ruler[0] && r < current.ruler[1] ? paintRange(pad(l, w), 0, w, RULER_BG) : l));
     const links = doc.links.flatMap(r => (drawn[r.n] ? [{ row: r.line, from: r.from, to: r.to, link: drawn[r.n]! }] : []));
-    for (const [i, row] of (picks?.rows ?? []).entries()) links.push({ row, from: 0, to: w, link: { role: "task", choice: i } });
+    for (const [i, row] of (picks?.rows ?? []).entries()) links.push({ row, from: 0, to: w, link: { role: this.picker?.kind === "callout" ? "callout" : "task", choice: i } });
     const folds = doc.heads.flatMap(h => { const n = points.findIndex(p => p.key === h.key); return n < 0 ? [] : [{ row: h.row, cols: h.cols, n: n + 1 }]; });
     return { lines, links, folds, placements: imagePlacements(doc.images, 0), current: current ? current.row : null, key: current?.key ?? null };
   }
@@ -941,6 +976,8 @@ export class NoteSurface {
   /** A fold whose heading or item is gone (or reworded) is dropped, so it never hides a different section. */
   private keepFolds(points: readonly FoldPoint[]) {
     const keys = new Set(points.map(p => p.key));
+    // A callout that starts folded (`[!type]-`) is folded when the reader first meets it (unless z shows callouts).
+    for (const p of points) if (!this.foldSeen.has(p.key)) { this.foldSeen.add(p.key); if (p.start === "folded" && !this.unfold) this.folded.add(p.key); }
     for (const k of this.folded) if (!keys.has(k)) this.folded.delete(k);
     if (this.foldSel && !keys.has(this.foldSel)) this.foldSel = null;
   }
@@ -1515,7 +1552,7 @@ export class NoteSurface {
   /** A step's status choice (PIE-472), open under its box: its keys until a choice or esc; a click elsewhere closes it. */
   private pickerMode(p: Picker): PickerMode {
     return {
-      name: "picker", of: p, picker: p, word: "status choice",
+      name: "picker", of: p, picker: p, word: p.kind === "callout" ? "type choice" : "status choice",
       // Not a session: it holds no note, and hosts give it the keys first by `choosing`.
       holdsKeys: false, editing: () => false, covers: () => false,
       key: (k, host) => this.pickerKey(k, host),
@@ -1527,9 +1564,12 @@ export class NoteSurface {
       },
       rows: () => null,
       leave: async () => ({ left: "nothing" }),
-      hint: () => `status · ${STEP_CHOICES.map(c => `${c.key} ${c.id === "copy-link" ? "copy link" : c.id === "address" ? "addressable" : statusWord(c.id)}`).join(" · ")} · j k ⏎ choose · esc cancel`,
+      hint: () => p.kind === "callout" ? "callout type · j k ⏎ choose · - start folded · + start open · esc cancel"
+        : `status · ${STEP_CHOICES.map(c => `${c.key} ${c.id === "copy-link" ? "copy link" : c.id === "address" ? "addressable" : statusWord(c.id)}`).join(" · ")} · j k ⏎ choose · esc cancel`,
       state: () => null,
-      describe: () => ({ step: this.elems.find(e => e.key === p.key)?.label ?? null, selected: STEP_CHOICES[p.list.sel]?.id, note: p.note || null }),
+      describe: () => p.kind === "callout"
+        ? { callout: this.elems.find(e => e.key === p.key)?.label ?? null, selected: p.list.items[p.list.sel]?.id, choices: p.list.items.map(c => c.id), note: p.note || null }
+        : { step: this.elems.find(e => e.key === p.key)?.label ?? null, selected: STEP_CHOICES[p.list.sel]?.id, note: p.note || null },
     };
   }
 
@@ -1619,7 +1659,12 @@ export class NoteSurface {
     // A step that's the current element in view (PIE-472): space toggles it done or to do, as Detail's does;
     // ctrl+z undoes the last step change made here.
     if (c === " ") { const e = this.inView(); if (e?.kind === "task" && e.task) { void this.runKey("task.status", { to: e.task.step.status === "done" ? "todo" : "done" }, host, true); return true; } }
-    if (k.kind === "char" && k.ctrl && k.ch === "z") { void this.runKey("task.undo", {}, host, true); return true; }
+    // ctrl+z undoes the last change made here, a step's status or a callout's header, whichever came last.
+    if (k.kind === "char" && k.ctrl && k.ch === "z") {
+      const at = this.msg?.id ?? "", c = this.calloutHistory.last("you", at), st = this.stepHistory.last("you", at);
+      void this.runKey(c && (!st || (c.seq ?? 0) > (st.seq ?? 0)) ? "callout.undo" : "task.undo", {}, host, true);
+      return true;
+    }
     if (k.kind === "pgdn" || c === " " || k.kind === "pgup") { void this.runKey("scroll", { by: k.kind === "pgup" ? -15 : 15 }, host); return true; }
     // [ ] walk every element in reading order (PIE-441); ( ) below stays the folds-only jump.
     if (c === "]" || c === "[") { void this.runKey("element.select", { by: c === "]" ? 1 : -1 }, host); return true; }
@@ -1783,6 +1828,12 @@ export class NoteSurface {
   setFold(p: FoldPoint, on: boolean, select = true) {
     if (on) this.folded.add(p.key); else this.folded.delete(p.key);
     if (select) { this.foldSel = p.key; this.link = -1; this.reveal = true; }
+  }
+
+  /** z: every callout open (`open`), or each back as written (`[!type]-` folded, the rest open). Reading state only. */
+  showCallouts(open: boolean) {
+    if (!this.msg || this.msg.partial) return;
+    for (const p of this.foldsIn(this.msg).points) if (p.kind === "callout") { if (!open && p.start === "folded") this.folded.add(p.key); else this.folded.delete(p.key); }
   }
 
   /**
@@ -1971,6 +2022,8 @@ export class NoteSurface {
     if (e.kind === "control") return this.useControl(e, host);
     // A step's box opens its status choice under it (the person's; an agent sets a status by task.status).
     if (e.kind === "task") { if (select) this.openPicker(e); host.redraw(); return { step: e.task?.step.itemId ?? null, choice: select }; }
+    // A callout's icon or type opens its type choice under it (the person's; an agent changes it by callout.type).
+    if (e.kind === "callout") { if (select) this.openCalloutPicker(e); host.redraw(); return { callout: e.label, choice: select, types: calloutsOf(this.src).types.map(t => t.name) }; }
     const how: OpenHow = { link: true, fresh };
     const l = e.link!;
     if (e.value !== undefined) return this.followValue({ key: e.value, target: l.block ? { block: l.block } : { page: l.page! } }, host, how);
@@ -2092,7 +2145,7 @@ export class NoteSurface {
     const out: Element[] = [];
     const seen = new Map<string, number>();
     const keyOf = (kind: string, l: Link) => {
-      const id = kind === "task" && l.task ? taskBase(l.task) : l.proposal?.op ? `control:proposal:${l.proposal.op}:${l.proposal.id}` : `${kind}:${[l.block ?? "", l.fragment ?? "", l.label ?? "", l.page ?? "", l.media ?? "", l.url ?? ""].join("|")}`;
+      const id = kind === "task" && l.task ? taskBase(l.task) : kind === "callout" && l.callout ? calloutBase(l.callout) : l.proposal?.op ? `control:proposal:${l.proposal.op}:${l.proposal.id}` : `${kind}:${[l.block ?? "", l.fragment ?? "", l.label ?? "", l.page ?? "", l.media ?? "", l.url ?? ""].join("|")}`;
       const n = seen.get(id) ?? 0;
       seen.set(id, n + 1);
       return `${id}#${n}`;
@@ -2126,8 +2179,9 @@ export class NoteSurface {
       else if (kind === "task" && l.task?.via) ruler = [top + r.line, top + r.line + 1];
       // An extension's control is its own row.
       else if (kind === "control" && l.ext) ruler = [top + r.line, top + r.line + 1];
-      const label = kind === "task" && l.task ? `${STEP_MARKS[l.task.step.status]} ${stepTitle(l.task.step)}${l.task.via ? ` · in ${l.task.via}` : ""}` : rs.map(x => text(doc.lines[x.line]!, x.from, x.to)).join(" ");
-      out.push({ key: keyOf(kind, l), kind, row: top + r.line, from: r.from + 1, to: r.to + 1, ruler, label, link: l, ...(l.task ? { task: l.task } : {}) });
+      const label = kind === "task" && l.task ? `${STEP_MARKS[l.task.step.status]} ${stepTitle(l.task.step)}${l.task.via ? ` · in ${l.task.via}` : ""}`
+        : kind === "callout" && l.callout ? `[!${l.callout.type}] ${calloutTitle(l.callout)}` : rs.map(x => text(doc.lines[x.line]!, x.from, x.to)).join(" ");
+      out.push({ key: keyOf(kind, l), kind, row: top + r.line, from: r.from + 1, to: r.to + 1, ruler, label, link: l, ...(l.task ? { task: l.task } : {}), ...(l.callout ? { callout: l.callout } : {}) });
     }
     for (const x of doc.media) out.push({ key: keyOf("link", { media: x.path }), kind: "link", row: top + x.row, from: 1, to: 1 + width(doc.lines[x.row] ?? ""), ruler: block(x.row), label: x.path.split("/").pop() ?? x.path, link: { media: x.path } });
     for (const hd of doc.heads) {
@@ -2273,7 +2327,12 @@ export class NoteSurface {
    */
   open(l: Link, host: SurfaceHost, fresh = false): Promise<Msg | Outside | null> {
     // A step's box opens its status choice; a row of an open choice chooses it (PIE-472).
-    if (l.role === "task" && l.choice !== undefined) { void this.choose(l.choice, host); return Promise.resolve(null); }
+    if ((l.role === "task" || l.role === "callout") && l.choice !== undefined) { void this.choose(l.choice, host); return Promise.resolve(null); }
+    if (l.role === "callout" && l.callout) {
+      const e = this.elems.find(x => x.link === l) ?? this.elems.find(x => x.callout && calloutBase(x.callout) === calloutBase(l.callout!));
+      if (e) { this.openCalloutPicker(e); host.redraw(); }
+      return Promise.resolve(null);
+    }
     if (l.proposal?.op) { void this.proposalControl(l.proposal.op, l.proposal.id, host); return Promise.resolve(null); }
     if (l.role === "task" && l.task) {
       const e = this.elems.find(x => x.link === l) ?? this.elems.find(x => x.task && taskBase(x.task) === taskBase(l.task!));
@@ -2392,7 +2451,7 @@ export class NoteSurface {
     if (P && !drawn(P.key) && !loading && !P.busy) {
       this.picker = null;
       if (this.cur === P.key) this.letGo();
-      host?.ctx.flash("that step changed while its status choice was open · nothing was changed · choose again");
+      host?.ctx.flash(P.kind === "callout" ? "that callout changed while its type choice was open · nothing was changed · choose again" : "that step changed while its status choice was open · nothing was changed · choose again");
     }
   }
 
@@ -2405,9 +2464,39 @@ export class NoteSurface {
     this.picker = { key: e.key, list: this.choices(e.task.step.status === "done" ? 1 : 0), note: "", busy: false };
   }
 
+  /**
+   * A callout's type choice (PIE-538), opened on its icon or type (⏎, a click): the person's, the current element
+   * meanwhile. It lists the outline's types (the one list) and offers to make it start folded or open.
+   */
+  openCalloutPicker(e: Element) {
+    const c = e.callout;
+    if (!c) return;
+    this.setElem(e);
+    this.reveal = true;
+    const types = calloutsOf(this.src);
+    const items: Choice[] = [
+      ...types.types.map(t => ({ id: `type:${t.name}`, label: `${t.name}${t.aliases.length ? ` · ${t.aliases.join(", ")}` : ""}${t.block ? " · this outline's" : ""}`, key: "" })),
+      c.fold === "-" ? { id: "start:open", label: "make it start open (+)", key: "+" } : { id: "start:folded", label: "make it start folded (-)", key: "-" },
+    ];
+    const list = new ListPicker<Choice, SurfaceHost>({
+      name: "choice", items: () => items, wraps: true, closers: "q", stays: true, row: () => [],
+      choose: (_, i, host) => void this.choose(i, host),
+      closed: host => { this.picker = null; host.redraw(); },
+      keys: (k, host) => {
+        const want = ch(k) === "-" ? "start:folded" : ch(k) === "+" ? "start:open" : null;
+        if (!want) return false;
+        const i = items.findIndex(x => x.id === want);
+        if (i >= 0) void this.choose(i, host); else host.ctx.flash(`it starts ${want === "start:open" ? "open" : "folded"} already`);
+        return true;
+      },
+    });
+    list.sel = Math.max(0, items.findIndex(x => x.id === `type:${types.resolve(c.type)?.name ?? ""}`));
+    this.picker = { key: e.key, kind: "callout", list, note: "", busy: false, types };
+  }
+
   /** A status choice's list, from choice `sel`: j k Tab round it, ⏎ or a choice's letter chooses, esc or q cancels. */
   choices(sel: number): Picker["list"] {
-    const list = new ListPicker<(typeof STEP_CHOICES)[number], SurfaceHost>({
+    const list = new ListPicker<Choice, SurfaceHost>({
       name: "choice", items: () => STEP_CHOICES, wraps: true, closers: "q", stays: true, row: () => [],
       choose: (_, i, host) => void this.choose(i, host),
       closed: host => { this.picker = null; host.redraw(); },                                  // a cancel: as it was
@@ -2427,6 +2516,7 @@ export class NoteSurface {
 
   /** Choice `i` of the open status choice, for the person: the step as drawn now. */
   private async choose(i: number, host: SurfaceHost) {
+    if (this.picker?.kind === "callout") return this.chooseCallout(i, host);
     const P = this.picker, choice = STEP_CHOICES[i];
     if (!P || P.busy || !choice) return;
     const e = this.elems.find(x => x.key === P.key);
@@ -2445,6 +2535,121 @@ export class NoteSurface {
       if (this.picker === P) { P.busy = false; P.note = err instanceof Error ? err.message : String(err); }
     }
     host.redraw();
+  }
+
+  /** The element of a callout's icon drawn now, or null (folded away). */
+  calloutElement(c: CalloutRef): Element | null {
+    return this.elems.find(e => e.kind === "callout" && e.callout && e.callout.block === c.block && e.callout.line === c.line) ?? null;
+  }
+
+  /** Choice `i` of the open callout type choice, for the person: callout.type or callout.start, as their key. */
+  private async chooseCallout(i: number, host: SurfaceHost) {
+    const P = this.picker, choice = P?.list.items[i];
+    if (!P || P.busy || !choice) return;
+    P.busy = true; P.list.sel = i; P.note = "…"; host.redraw();
+    try {
+      let refused: string | null = null;
+      const note = (why: string) => { refused = why; return null; };
+      if (choice.id.startsWith("type:")) await this.runKey("callout.type", { to: choice.id.slice(5) }, host, note);
+      else await this.runKey("callout.start", { folded: choice.id === "start:folded" }, host, note);
+      if (refused) throw new Error(refused);
+      if (this.picker === P) this.picker = null;
+    } catch (err) {
+      if (this.picker === P) { P.busy = false; P.note = err instanceof Error ? err.message : String(err); }
+    }
+    host.redraw();
+  }
+
+  /** The callouts in the note as written (outermost first, in reading order), each as the reader would name it. */
+  calloutsIn(m: Msg): CalloutRef[] {
+    const { text, lines, points } = this.foldsIn(m), all = m.text.split("\n");
+    return calloutBlocks(text.split("\n")).map(b => ({
+      block: m.id, line: lines[b.line]!, header: all[lines[b.line]!] ?? "", type: b.type, fold: b.fold,
+      foldKey: points.find(p => p.line === b.line && p.kind === "callout")?.key ?? null,
+    }));
+  }
+
+  /**
+   * The callout a person's key means when it names none (the one whose type choice is open, else the current
+   * element in view), or the one `n` (from callout.list) or `line` (its header's note line, 1 the subject) names.
+   */
+  async calloutNamed({ n, line }: { n?: number; line?: number }, actor: Actor): Promise<CalloutRef> {
+    if (n === undefined && line === undefined) {
+      if (actor.kind === "agent") throw new ActionRefused("say which callout: n= (callout.list lists them) or line=");
+      const P = this.picker, e = P?.kind === "callout" ? this.elems.find(x => x.key === P.key) : this.inView();
+      if (e?.kind === "callout" && e.callout) return e.callout;
+      throw new ActionRefused("say which callout: n= or line= (callout.list lists them), or put [ ] on a callout's icon");
+    }
+    const all = this.calloutsIn(await this.whole());
+    const listed = () => all.slice(0, 12).map((c, i) => `${i + 1} line ${c.line + 1} [!${c.type}] ${calloutTitle(c).slice(0, 24)}`).join("; ") || "none";
+    const hit = n !== undefined ? all[n - 1] : all.find(c => c.line + 1 === line);
+    if (!hit) throw new ActionRefused(`no such callout in this note (${listed()})`);
+    return hit;
+  }
+
+  /**
+   * Change a callout's header (PIE-538): its type, or whether it starts folded (its `+`/`-`), one line rewritten
+   * through the note's ordinary save (`update`), recorded as `actor`'s, checked against the revision read now and
+   * the header as it was drawn; an agent never underneath a draft someone has open on the note. Undo (ctrl+z,
+   * callout.undo) puts the line back.
+   */
+  async changeCallout(ref: CalloutRef, change: { type?: string; fold?: "+" | "-" | null }, host: SurfaceHost, actor: Actor) {
+    const board = host.ctx.board;
+    const no = agentRefusal(actor, { board, blockId: ref.block });
+    if (no) throw new ActionRefused(no);
+    // The note as the service has it now: the header must still read as drawn, and the save names this revision.
+    const m = await board.get(ref.block);
+    if (!m) throw new ActionRefused("that note isn't there any more");
+    if (m.revision === undefined) throw new ActionRefused("this note has no revision to check a change against; nothing was changed");
+    const lines = m.text.split("\n"), was = lines[ref.line];
+    if (was !== ref.header) { host.ctx.flash("that callout changed since it was drawn · nothing was changed · choose again"); throw new ActionRefused("that callout changed since it was drawn; nothing was changed (callout.list reads it again)"); }
+    const next = rewriteCalloutHeader(was, change);
+    if (next === null) throw new ActionRefused("that line isn't a callout's header any more");
+    const what = change.type !== undefined ? `[!${ref.type}] → [!${change.type}]` : `starts ${change.fold === "-" ? "folded" : "open"}`;
+    if (next === was) return { block: m.id, line: ref.line + 1, changed: false, header: was, revision: m.revision ?? null };
+    lines[ref.line] = next;
+    let saved: Msg;
+    try { saved = await board.update(m.id, lines.join("\n"), m.revision, actor); } catch (e) {
+      outlineChanged([m.id]);
+      const why = `not changed: ${e instanceof EditConflict ? "the note changed elsewhere since it was read; choose again" : e instanceof Error ? e.message : String(e)}`;
+      host.ctx.flash(why); host.redraw();
+      throw new ActionRefused(why);
+    }
+    outlineChanged([m.id]);
+    if (this.msg?.id === m.id) this.refresh({ ...saved, childIds: this.msg.childIds });
+    // "Make it start folded" folds it here too; "start open" opens it.
+    if (change.fold !== undefined && ref.foldKey && actor.kind === "user") { if (change.fold === "-") this.folded.add(ref.foldKey); else this.folded.delete(ref.foldKey); }
+    this.calloutHistory.push({ block: m.id, line: ref.line, before: was, after: next, by: partyOf(actor), context: this.msg?.id ?? m.id });
+    const said = `callout ${printable(calloutTitle(ref)).slice(0, 30)}: ${what}`;
+    host.ctx.flash(said);
+    this.noteAgent(actor, said);
+    host.redraw();
+    return { block: m.id, line: ref.line + 1, changed: true, header: next, revision: saved.revision ?? null, recordedAs: mutationFor(actor) };
+  }
+
+  /** Undo the last callout change `actor` made while reading this note: its header line back, if it still reads as left. */
+  async undoCallout(host: SurfaceHost, actor: Actor) {
+    const e = this.msg ? this.calloutHistory.last(partyOf(actor), this.msg.id) : null;
+    if (!e) { const why = "no callout change to undo in this note"; host.ctx.flash(why); throw new ActionRefused(why); }
+    const no = agentRefusal(actor, { board: host.ctx.board, blockId: e.block });
+    if (no) { host.ctx.flash(no); throw new ActionRefused(no); }
+    const m = (await host.ctx.board.get(e.block)) ?? { id: "", text: "", revision: undefined } as unknown as Msg, lines = m.text.split("\n");
+    if (m.id !== e.block || lines[e.line] !== e.after || m.revision === undefined) {
+      this.calloutHistory.drop(e);
+      const why = "couldn't undo: that callout changed again since"; host.ctx.flash(why); throw new ActionRefused(why);
+    }
+    lines[e.line] = e.before;
+    let saved: Msg;
+    try { saved = await host.ctx.board.update(m.id, lines.join("\n"), m.revision, actor); } catch (err) {
+      outlineChanged([m.id]);
+      const why = `couldn't undo: ${err instanceof Error ? err.message : String(err)}`; host.ctx.flash(why); host.redraw(); throw new ActionRefused(why);
+    }
+    this.calloutHistory.drop(e);
+    outlineChanged([m.id]);
+    if (this.msg?.id === m.id) this.refresh({ ...saved, childIds: this.msg.childIds });
+    const said = `undid the callout change: ${printable(e.before.trim()).slice(0, 40)}`;
+    host.ctx.flash(said); this.noteAgent(actor, said); host.redraw();
+    return { block: m.id, line: e.line + 1, header: e.before, revision: saved.revision ?? null, recordedAs: mutationFor(actor) };
   }
 
   /**
@@ -2607,18 +2812,20 @@ export class NoteSurface {
     if (!P) return { doc, picks: null };
     const seen = new Map<string, number>(), first = new Map<number, number>();
     for (const r of doc.links) if (!first.has(r.n)) first.set(r.n, r.line);
-    let hit: { line: number; ref: StepRef } | null = null;
+    let hit: { line: number; ref?: StepRef; callout?: CalloutRef } | null = null;
     for (const [n, line] of first) {
       const l = drawn[n];
-      if (l?.role !== "task" || !l.task) continue;
-      const base = taskBase(l.task), k = seen.get(base) ?? 0;
+      const base = l?.role === "task" && l.task ? taskBase(l.task) : l?.role === "callout" && l.callout ? calloutBase(l.callout) : null;
+      if (!base) continue;
+      const k = seen.get(base) ?? 0;
       seen.set(base, k + 1);
-      if (`${base}#${k}` === P.key) { hit = { line, ref: l.task }; break; }
+      if (`${base}#${k}` === P.key) { hit = { line, ref: l!.task, callout: l!.callout }; break; }
     }
     if (!hit) return { doc, picks: null };
     let at = hit.line + 1;
-    if (!hit.ref.via) while (at < doc.source.length && doc.source[at] === doc.source[hit.line]) at++;
-    const { lines, rows } = pickerPanel(hit.ref, P.list.sel, P.note, P.busy, W);
+    // A step's choice goes under its item; a callout's right under its top edge.
+    if (hit.ref && !hit.ref.via) while (at < doc.source.length && doc.source[at] === doc.source[hit.line]) at++;
+    const { lines, rows } = hit.callout ? calloutPanel(hit.callout, P, W) : pickerPanel(hit.ref!, P.list.sel, P.note, P.busy, W);
     const { doc: out } = withRows(doc, [{ at, lines }]);
     return { doc: out, picks: { at, lines: lines.length, rows: rows.map(r => at + r) } };
   }
@@ -2655,7 +2862,7 @@ export class NoteSurface {
   /** Where the reader is now, as back would come back to it. */
   private place(): Place | null {
     const m = this.msg;
-    return m ? { msg: m, scroll: this.scroll, cur: this.cur, link: this.link, folded: [...this.folded], expanded: [...this.expanded] } : null;
+    return m ? { msg: m, scroll: this.scroll, cur: this.cur, link: this.link, folded: [...this.folded], expanded: [...this.expanded], seen: [...this.foldSeen] } : null;
   }
 
   /**
@@ -2705,7 +2912,7 @@ export class NoteSurface {
     stack.pop();
     if (here) (dir < 0 ? this.aheads : this.backs).push(here);
     this.scroll = to.scroll; this.cur = to.cur; this.link = to.link;
-    this.folded = new Set(to.folded); this.expanded = new Set(to.expanded);
+    this.folded = new Set(to.folded); this.expanded = new Set(to.expanded); this.foldSeen = new Set(to.seen);
     // The element comes into view if the history row now under the note would hide it (only that far).
     this.reveal = to.cur !== null;
     host.redraw();
@@ -3184,6 +3391,15 @@ export class NoteSurface {
  * still itself and another step that moved into its place is not it.
  */
 const taskBase = (t: StepRef) => `task:${t.block}|${t.step.itemId ? `^${t.step.itemId}` : `ev:${t.step.evidence}`}`;
+/**
+ * A callout's element key, before its `#n`: its note, depth and title as written, never its line or its type, so
+ * choosing another type keeps the `[ ]` position on it (as its fold point's key does).
+ */
+const calloutBase = (c: CalloutRef) => { const b = calloutBlocks([c.header])[0]; return `callout:${c.block}|${b?.depth ?? 0}|${b?.title ?? c.header.trim()}`; };
+/** A callout's title as written, else its type's. */
+const calloutTitle = (c: CalloutRef) => calloutBlocks([c.header])[0]?.title || c.type;
+/** A callout type change, for undo: the header line before and after, and who made it while reading which note. */
+interface CalloutUndo { block: string; line: number; before: string; after: string; by: string; context: string }
 /** Who a step change is for Undo: the person, or the agent by its id. */
 const partyOf = (a: Actor) => (a.kind === "agent" ? `agent:${a.id}` : "you");
 
@@ -3205,6 +3421,34 @@ function pickerPanel(ref: StepRef, sel: number, note: string, busy: boolean, W: 
   });
   if (note) lines.push(edge + "│" + fg(busy ? C.dark : C.lred) + pad(` ${printable(note)}`, inner) + RESET);
   const foot = ` ⏎ choose · esc cancel${ref.via ? ` · in ${ref.via}` : ""} `;
+  lines.push(edge + "└─" + fg(C.dark) + (width(foot) > room ? pad(foot, room) : foot + edge + "─".repeat(Math.max(0, room - width(foot)))) + RESET);
+  return { lines, rows };
+}
+
+/**
+ * A callout's type choice (PIE-538), `W` cells wide: the outline's types (the one list, src/callouts.ts), each with its
+ * icon in its tone and its other names, its type now marked; then whether it starts folded or open, the `-` or `+`.
+ */
+function calloutPanel(ref: CalloutRef, P: Picker, W: number): { lines: string[]; rows: number[] } {
+  const edge = fg(C.yellow), inner = Math.max(8, W - 2), room = Math.max(0, W - 2), types = P.types!;
+  const now = types.resolve(ref.type)?.name ?? ref.type;
+  const title = ` [!${printable(ref.type)}] ${printable(calloutTitle(ref))} `;
+  const lines = [edge + "┌─" + fg(C.white) + (width(title) > room ? pad(title, room) : title + edge + "─".repeat(Math.max(0, room - width(title)))) + RESET];
+  // Every choice drawn, as the step choice draws its own, so each is a click away; the reader brings the panel into
+  // view when it opens, and scrolls (the wheel) over a tall one.
+  const items = P.list.items, rows: number[] = [];
+  items.forEach((c, i) => {
+    const t = c.id.startsWith("type:") ? types.resolve(c.id.slice(5)) : null;
+    const on = i === P.list.sel, base = on ? SELECT_BG + fg(C.white) : fg(C.lcyan);
+    const icon = t ? (on ? "" : fg(TONE[t.tone])) + t.icon + base + " " : "  ";
+    // "now" next to the name, before the aliases a narrow reader cuts.
+    const mark = t?.name === now ? " · now" : "";
+    const label = t ? `${t.name}${mark}${t.aliases.length ? ` · ${t.aliases.join(", ")}` : ""}${t.block ? " · this outline's" : ""}` : c.label;
+    rows.push(lines.length);
+    lines.push(edge + "│" + base + " " + icon + pad(label, Math.max(1, inner - 3 - (c.key ? 3 : 0))) + (c.key ? ` ${c.key} ` : "") + RESET);
+  });
+  if (P.note) lines.push(edge + "│" + fg(P.busy ? C.dark : C.lred) + pad(` ${printable(P.note)}`, inner) + RESET);
+  const foot = " ⏎ choose · - folded · + open · esc cancel ";
   lines.push(edge + "└─" + fg(C.dark) + (width(foot) > room ? pad(foot, room) : foot + edge + "─".repeat(Math.max(0, room - width(foot)))) + RESET);
   return { lines, rows };
 }
@@ -3296,7 +3540,7 @@ function findQuote(text: string, quote: string, near?: number): number {
 const sameId = (named: string, id: string | undefined) => !!id && (named === id || (named.length >= 8 && id.startsWith(named)));
 
 /** `## Beds`, `- dig the bed`: a fold point as the hint, `peek` and the fold actions name it. */
-const foldLabel = (p: FoldPoint) => `${p.kind === "heading" ? "#".repeat(p.level) : "-"} ${printable(p.text)}`;
+const foldLabel = (p: FoldPoint) => `${p.kind === "heading" ? "#".repeat(p.level) : p.kind === "callout" ? ">".repeat(p.level) : "-"} ${printable(p.text)}`;
 
 /** A panel row as `peek` and the props actions report it. */
 const describeRow = (r: PropRow, src: Source | null, text: string) => ({
@@ -3344,7 +3588,7 @@ const imagePlacements = (images: readonly DocImage[], col: number): Placement[] 
 
 /** A draft's live preview (PIE-496): the readers' own body renderer, without folds, embeds or link tags. */
 export function draftPreview(text: string, w: number, src: Source | null = null): string[] {
-  return renderDoc(presentLinks(text, false, src, text), { width: Math.max(10, w), cellW: 9, cellH: 18, graphics: false, maxImageRows: 8, unfold: true }).lines;
+  return renderDoc(presentLinks(text, false, src, text), { width: Math.max(10, w), cellW: 9, cellH: 18, graphics: false, maxImageRows: 8, unfold: true, callouts: calloutsOf(src) }).lines;
 }
 
 /** The proposal `proposal.apply` or `proposal.dismiss` acts on: `id`, else the one whose embed or control is the current element, else the open proposal shown. */
@@ -3410,8 +3654,13 @@ const STEP_ARGS = {
   block: { type: "string", optional: true, about: "with id: the note the step is in (its id or first 8+ characters), when the id is in more than one" },
 } as const;
 
+const CALLOUT_ARGS = {
+  n: { type: "number", optional: true, about: "which callout, from 1, as callout.list lists them (outermost first, in reading order)" },
+  line: { type: "number", optional: true, about: "its header's line in the note (1 is the subject)" },
+} as const;
+
 const FOLD_ARGS = {
-  text: { type: "string", optional: true, about: "a heading's or list item's text (## optional; a unique start is enough)" },
+  text: { type: "string", optional: true, about: "a heading's, list item's or callout's text (## optional; a unique start is enough)" },
   line: { type: "number", optional: true, about: "a line of the note (1 is the subject): the heading or item on it, or else the innermost one around it" },
   n: { type: "number", optional: true, about: "which fold point, from 1, as folds lists them" },
 } as const;
@@ -3425,8 +3674,8 @@ async function foldTarget(surface: NoteSurface, args: FoldArgs): Promise<FoldPoi
 /** The same in a note already read whole: a key or click on what's drawn doesn't wait (PIE-506). */
 function foldPointIn(surface: NoteSurface, m: Msg, { text, line, n }: FoldArgs): FoldPoint {
   const { points, lines } = surface.foldsIn(m);
-  if ([text, line, n].filter(x => x !== undefined).length !== 1) throw new ActionRefused("say which heading or list item: one of text=, line= or n= (folds lists them)");
-  if (!points.length) throw new ActionRefused("this note has no headings or nested lists to fold");
+  if ([text, line, n].filter(x => x !== undefined).length !== 1) throw new ActionRefused("say which heading, list item or callout: one of text=, line= or n= (folds lists them)");
+  if (!points.length) throw new ActionRefused("this note has no headings, nested lists or callouts to fold");
   const listed = (ps: FoldPoint[]) => ps.slice(0, 8).map(p => `line ${lines[p.line]! + 1} ${foldLabel(p)}`).join("; ");
   if (n !== undefined) {
     const p = points[n - 1];
@@ -3447,7 +3696,7 @@ function foldPointIn(surface: NoteSurface, m: Msg, { text, line, n }: FoldArgs):
   const reads = (p: FoldPoint) => [p.text.toLowerCase(), p.text.replace(/^\[.\]\s+/, "").toLowerCase()];
   let hits = pool.filter(p => reads(p).includes(want));
   if (!hits.length) hits = pool.filter(p => reads(p).some(r => r.startsWith(want)));
-  if (!hits.length) throw new ActionRefused(`no heading or list item reads ${JSON.stringify(text)}; the note's are: ${listed(points)}`);
+  if (!hits.length) throw new ActionRefused(`nothing foldable reads ${JSON.stringify(text)}; the note's are: ${listed(points)}`);
   if (hits.length > 1) throw new ActionRefused(`${hits.length} match ${JSON.stringify(text)} (${listed(hits)}); pass line= or n=`);
   return hits[0]!;
 }
@@ -3469,7 +3718,7 @@ async function runFold(on: boolean, { all, ...which }: FoldArgs & { all?: boolea
     const m = now ?? await surface.whole();
     const changed = surface.foldAll(on, actor.kind === "user");
     surface.noteAgent(actor, on ? "folded the note's sections" : "unfolded the whole note");
-    if (actor.kind === "user") host.ctx.flash(changed ? `${on ? "folded" : "unfolded"} ${changed}` : "this note has no headings or nested lists to fold");
+    if (actor.kind === "user") host.ctx.flash(changed ? `${on ? "folded" : "unfolded"} ${changed}` : "this note has no headings, nested lists or callouts to fold");
     host.redraw();
     return { changed, foldedNow: surface.foldsIn(m).points.filter(q => surface.folded.has(q.key)).map(foldLabel) };
   }
@@ -4139,12 +4388,12 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "fold.select": def({
-    summary: "put the person's ( ) fold selection on the next (by=1) or previous (by=-1) heading or list item drawn; f or enter then folds it. The person's reading state: an agent's is refused (fold, unfold and fold.toggle name a fold point)", keys: "( )",
+    summary: "put the person's ( ) fold selection on the next (by=1) or previous (by=-1) heading, list item or callout drawn; f or enter then folds it. The person's reading state: an agent's is refused (fold, unfold and fold.toggle name a fold point)", keys: "( )",
     touches: "tile", replay: "safe", person: "the ( ) selection is the person's; fold, unfold and fold.toggle name a fold point (folds lists them)",
     args: { by: { type: "number", about: "1 the next fold point, -1 the previous one" } },
     run({ by }, { surface, host }, actor) {
       const m = surface.requireNote();
-      if (m.partial || !surface.stepFold(by < 0 ? -1 : 1)) throw new ActionRefused("this note has no headings or nested lists to fold");
+      if (m.partial || !surface.stepFold(by < 0 ? -1 : 1)) throw new ActionRefused("this note has no headings, nested lists or callouts to fold");
       host.redraw();
       return surface.describe().folds ?? null;
     },
@@ -4168,11 +4417,12 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "callouts": def({
-    summary: "show every callout's body, or fold them back to their titles (show= sets it, else it toggles). The person's reading state: an agent's is refused", keys: "z",
+    summary: "open every callout, or put them back as written (those with [!type]- folded); show= sets it, else it toggles. The person's reading state: an agent's is refused (fold and unfold name one callout)", keys: "z",
     touches: "tile", replay: "safe", person: "whether callouts are open is the person's reading state; an agent reads the note's text (peek, elements)",
     args: { show: { type: "boolean", optional: true, about: "true shows the bodies, false folds them; left out, it toggles" } },
-    run({ show }, { surface, host }, actor) {
+    run({ show }, { surface, host }) {
       surface.unfold = show ?? !surface.unfold;
+      surface.showCallouts(surface.unfold);
       host.redraw();
       return { callouts: surface.unfold ? "shown" : "folded" };
     },
@@ -4200,24 +4450,24 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "fold": def({
-    summary: "fold a heading (hiding through the next heading of its level or higher) or a list item (hiding its nested items and continuation lines); all=true folds every outermost one (F when nothing is folded). Reading state only: the note's text never changes", keys: "( ) then f or enter, click, F",
+    summary: "fold a heading (hiding through the next heading of its level or higher) , a list item (hiding its nested items and continuation lines) or a callout (to its title); all=true folds every outermost one (F when nothing is folded). Reading state only: the note's text never changes", keys: "( ) then f or enter, click, F",
     touches: "tile", while: "typing", replay: "safe", way: "an agent folds a reader the person isn't typing in",
     args: { ...FOLD_ARGS, all: { type: "boolean", optional: true, about: "fold every outermost heading and list item" } },
     run: (args, on, actor) => runFold(true, args, on, actor),
   }),
   "unfold": def({
-    summary: "unfold a heading or list item; all=true unfolds everything (F when something is folded)", keys: "( ) then f or enter, click, F",
+    summary: "unfold a heading, list item or callout; all=true unfolds everything (F when something is folded)", keys: "( ) then f or enter, click, F",
     touches: "tile", while: "typing", replay: "safe", way: "an agent unfolds a reader the person isn't typing in",
     args: { ...FOLD_ARGS, all: { type: "boolean", optional: true, about: "unfold everything in this reader" } },
     run: (args, on, actor) => runFold(false, args, on, actor),
   }),
   "fold.toggle": def({
-    summary: "fold a heading or list item, or unfold it if it's folded; with none named, the person's: the one ( ) selected, else the section being read", keys: "f, enter, click",
+    summary: "fold a heading, list item or callout, or unfold it if it's folded; with none named, the person's: the one ( ) selected, else the section being read", keys: "f, enter, click",
     touches: "tile", while: "typing", replay: "safe", way: "an agent folds a reader the person isn't typing in",
     args: FOLD_ARGS,
     async run(args, { surface, host }, actor) {
       const none = args.text === undefined && args.line === undefined && args.n === undefined;
-      if (none && actor.kind === "agent") throw new ActionRefused("say which heading or list item: one of text=, line= or n= (folds lists them)");
+      if (none && actor.kind === "agent") throw new ActionRefused("say which heading, list item or callout: one of text=, line= or n= (folds lists them)");
       const at = none ? surface.foldTargetAtKeys() : null;
       if (none && !at) throw new ActionRefused("nothing to fold here · ( ) pick a heading or a list item");
       const now = surface.msg;
@@ -4294,6 +4544,63 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       const e = surface.stepFor(which, actor) ?? (await surface.whole(), surface.stepNamed(which));
       return surface.changeStep(e.task!, status, host, actor);
     },
+  }),
+  "callout.list": def({
+    summary: "list the note's callouts (PIE-538), outermost first in reading order: line, type, title, whether it starts folded and whether it's folded here; and the outline's callout types (the built-ins and those its notes declare with [callout-type::name])",
+    touches: "nothing", replay: "safe",
+    args: {},
+    async run(_, { surface }) {
+      const m = await surface.whole(), types = calloutsOf(surface.src);
+      return {
+        callouts: surface.calloutsIn(m).map((c, i) => ({ n: i + 1, line: c.line + 1, type: c.type, known: !!types.resolve(c.type), title: calloutBlocks([c.header])[0]?.title || types.style(c.type).title, starts: c.fold === "-" ? "folded" : "open", folded: !!c.foldKey && surface.folded.has(c.foldKey) })),
+        types: types.types.map(t => ({ name: t.name, title: t.title, icon: t.icon, tone: t.tone, aliases: t.aliases, ...(t.block ? { declaredIn: t.block } : {}) })),
+        problems: surface.src ? calloutProblems(surface.src.board) : [],
+      };
+    },
+  }),
+  "callout.menu": def({
+    summary: "open a callout's type choice under its top edge, as ⏎ or a click on its icon or type does (the person's; an agent uses callout.type and callout.start)",
+    keys: "⏎ or a click on a callout's icon or type",
+    touches: "tile", replay: "safe", person: "the type choice is the person's; an agent changes a callout with callout.type or callout.start",
+    args: CALLOUT_ARGS,
+    async run(which, { surface, host }, actor) {
+      const c = await surface.calloutNamed(which, actor);
+      surface.requireDrawn();
+      const e = surface.calloutElement(c);
+      if (!e) throw new ActionRefused("that callout's icon isn't drawn here (it's inside a folded callout or section; unfold it first)");
+      surface.openCalloutPicker(e);
+      host.redraw();
+      return { open: true, callout: e.label, types: calloutsOf(surface.src).types.map(t => t.name) };
+    },
+  }),
+  "callout.type": def({
+    summary: "change a callout's type (PIE-538): its header's [!type] rewritten through the note's save, checked against the revision read now and the header as drawn, recorded as whoever asks and said on screen; ctrl+z (callout.undo) puts it back. to= is any type the outline has (callout.list), or a new name",
+    keys: "the type choice's ⏎ (open it with ⏎ or a click on a callout's icon or type)",
+    touches: "draft", draft: "write", replay: "ask",
+    args: { ...CALLOUT_ARGS, to: { type: "string", about: "the type to write: a name or alias the outline has (callout.list), or a new name" } },
+    async run({ to, ...which }, { surface, host }, actor) {
+      const name = to.trim().toLowerCase();
+      if (!/^[a-z0-9][a-z0-9_-]{0,31}$/.test(name)) throw new ActionRefused(`to is a type's name (letters, digits, - and _), not ${JSON.stringify(to)}`);
+      const c = await surface.calloutNamed(which, actor);
+      return surface.changeCallout(c, { type: name }, host, actor);
+    },
+  }),
+  "callout.start": def({
+    summary: "make a callout start folded (folded=true writes [!type]-) or open (folded=false writes [!type]+): the one change to the text that folding ever makes, through the note's save like callout.type. Folding it in a reader is fold or f, which never writes",
+    keys: "the type choice's - and +",
+    touches: "draft", draft: "write", replay: "ask",
+    args: { ...CALLOUT_ARGS, folded: { type: "boolean", about: "true: it starts folded (-); false: it starts open (+)" } },
+    async run({ folded, ...which }, { surface, host }, actor) {
+      const c = await surface.calloutNamed(which, actor);
+      return surface.changeCallout(c, { fold: folded ? "-" : "+" }, host, actor);
+    },
+  }),
+  "callout.undo": def({
+    summary: "undo the last callout change (type or start) made in this reader while reading this note (an agent undoes its own, the person theirs); refused if the callout changed again since",
+    keys: "ctrl+z (when a callout change was the last change made here)",
+    touches: "draft", draft: "write", replay: "ask",
+    args: {},
+    run: (_, { surface, host }, actor) => surface.undoCallout(host, actor),
   }),
   "task.undo": def({
     summary: "undo the last step status change made in this reader while reading this note (an agent undoes its own, the person theirs); refused if the step changed again since",

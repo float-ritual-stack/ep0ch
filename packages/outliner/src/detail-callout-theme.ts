@@ -1,4 +1,5 @@
 import { visibleWidth } from "@earendil-works/pi-tui";
+import { BUILTIN_CALLOUTS, UNKNOWN_CALLOUT_ICON, type CalloutRegistry, type CalloutTone, type CalloutType } from "@ep0ch/outline-core/callouts";
 
 export interface DetailCalloutStyle {
   foreground: string;
@@ -10,6 +11,11 @@ export interface DetailCalloutStyle {
 export interface DetailCalloutTheme {
   readonly types: Readonly<Record<string, DetailCalloutStyle>>;
   readonly fallback: DetailCalloutStyle;
+  /**
+   * The outline's callout types (PIE-538, `callouts.types`): which names and aliases mean which type, and the types the
+   * outline declares. Detail sets it once the service answers; without it, outline-core's built-ins.
+   */
+  registry?: CalloutRegistry;
 }
 
 export interface DetailCalloutThemeResolution {
@@ -50,23 +56,15 @@ const NEUTRAL: Omit<DetailCalloutStyle, "glyph"> = {
   accent: "#AAB7C4",
 };
 
+/** Each tone (outline-core's, one per type) in Detail's true-colour palette. */
+export const DETAIL_CALLOUT_TONES: Readonly<Record<CalloutTone, Omit<DetailCalloutStyle, "glyph">>> = {
+  blue: BLUE, green: GREEN, violet: VIOLET, amber: AMBER, coral: CORAL, neutral: NEUTRAL,
+};
+
+/** The built-in types (outline-core's one list: their names, icons and tones), in Detail's palette. */
 export const DEFAULT_DETAIL_CALLOUT_THEME: DetailCalloutTheme = {
-  types: {
-    abstract: { ...BLUE, glyph: "≡" },
-    note: { ...BLUE, glyph: "●" },
-    info: { ...BLUE, glyph: "i" },
-    todo: { ...BLUE, glyph: "□" },
-    tip: { ...GREEN, glyph: "◆" },
-    success: { ...GREEN, glyph: "✓" },
-    question: { ...VIOLET, glyph: "?" },
-    warning: { ...AMBER, glyph: "!" },
-    failure: { ...CORAL, glyph: "×" },
-    danger: { ...CORAL, glyph: "△" },
-    bug: { ...CORAL, glyph: "※" },
-    example: { ...VIOLET, glyph: "◇" },
-    quote: { ...NEUTRAL, glyph: "❯" },
-  },
-  fallback: { ...NEUTRAL, glyph: "●" },
+  types: Object.fromEntries(BUILTIN_CALLOUTS.map((type) => [type.name, { ...DETAIL_CALLOUT_TONES[type.tone], glyph: type.icon }])),
+  fallback: { ...NEUTRAL, glyph: UNKNOWN_CALLOUT_ICON },
 };
 
 const COLOR_PATTERN = /^#[0-9a-f]{6}$/i;
@@ -165,10 +163,16 @@ export function detailCalloutThemeFromEnvironment(
   }
 }
 
+/**
+ * How a callout of `canonicalType` is painted: a type the outline declares (or restyles) in its own icon and tone,
+ * a built-in as the theme has it, anything else as the fallback.
+ */
 export function detailCalloutStyle(
   theme: DetailCalloutTheme,
   canonicalType: string,
+  type: CalloutType | null = theme.registry?.resolve(canonicalType) ?? null,
 ): DetailCalloutStyle {
+  if (type?.block) return { ...DETAIL_CALLOUT_TONES[type.tone], glyph: type.icon };
   return Object.hasOwn(theme.types, canonicalType)
     ? theme.types[canonicalType]!
     : theme.fallback;

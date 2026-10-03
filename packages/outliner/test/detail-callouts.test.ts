@@ -114,7 +114,7 @@ describe("Detail Obsidian callouts", () => {
     expect(regions.map(({ canonicalType, title, icon }) => ({ canonicalType, title, icon })))
       .toEqual([
         { canonicalType: "question", title: "Ask us anything", icon: "?" },
-        { canonicalType: "warning", title: "Warning", icon: "!" },
+        { canonicalType: "warning", title: "Warning", icon: "⚠" },
         { canonicalType: "ship-status", title: "Fleet", icon: "●" },
       ]);
   });
@@ -209,10 +209,10 @@ describe("Detail Obsidian callouts", () => {
 
     expect(lines.every((line) => visibleWidth(line) === 32)).toBe(true);
     expect(lines.map((line) => stripTerminalSequences(line).trimEnd())).toEqual([
-      "│ • ● Note",
-      "│ • i Info",
-      "│ • ! Warning",
-      "│ • ◆ Tip",
+      "│ • ✎ Note",
+      "│ • ℹ Info",
+      "│ • ⚠ Warning",
+      "│ • ✦ Tip",
       "│ • ✓ Success",
       "│ • ? Question",
       "│ • ● Unknown",
@@ -292,23 +292,23 @@ describe("Detail Obsidian callouts", () => {
     ].join("\n");
 
     expect(compactRender(stacked)).toEqual([
-      "│ • i First",
-      "│ • ● Second",
+      "│ • ℹ First",
+      "│ • ✎ Second",
     ]);
     expect(compactRender(quotedBlank)).toEqual([
-      "│ • i First",
-      "│ • ● Second",
+      "│ • ℹ First",
+      "│ • ✎ Second",
     ]);
     expect(compactRender(separated)).toEqual([
-      "│ • i First",
+      "│ • ℹ First",
       "",
-      "│ • ● Second",
+      "│ • ✎ Second",
     ]);
     expect(compactRender(doubleSeparated)).toEqual([
-      "│ • i First",
+      "│ • ℹ First",
       "",
       "",
-      "│ • ● Second",
+      "│ • ✎ Second",
     ]);
 
     const regions = parseDetailCallouts(separated);

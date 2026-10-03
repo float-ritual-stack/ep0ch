@@ -116,6 +116,41 @@ describe("the popup opens on typing, never on moving the cursor (a fake service)
   });
 });
 
+describe("callout types after > [! (PIE-538): the outline's one list, in the same popup", () => {
+  const board = {
+    completePages: async () => ({ addresses: [], completeness: { kind: "complete" } }),
+    completeFiles: async () => [],
+    searchBlocks: async () => ({ matches: [], completeness: { kind: "complete" }, semantic: { status: "lexical" } }),
+    blockContext: async () => ({ selected: null, ancestors: [] }),
+    workIdPrefix: async () => null,
+    calloutTypes: async () => ({ types: [{ name: "recipe", title: "Recipe", icon: "♨", tone: "green", aliases: ["dish"], block: "decl-1" }], problems: [] }),
+  };
+
+  test("typing > [! offers every type with its icon; what's typed narrows it, an alias too; Enter writes [!name]", async () => {
+    const d = new Draft("b1", 1, "Pantry\n");
+    d.row = 1; d.col = 0;
+    const c = completerFor(d, board, () => {})!;
+    for (const ch of "> [!") completionKey(d, char(ch), c);
+    await until(() => !!c.state && !c.state.loading, "the types");
+    expect(c.state!.target).toMatchObject({ kind: "callout", query: "" });
+    expect(c.state!.items.map(i => i.insertion)).toContain("[!warning]");
+    const drawn = renderCompletion(c.state!, 60, 8).map(visible).join("\n");
+    expect(drawn).toContain("callout types 1/");
+    expect(drawn).toContain("✎ note");
+    // An alias finds its type: this outline's own, with its icon.
+    for (const ch of "di") completionKey(d, char(ch), c);
+    await until(() => !!c.state && !c.state.loading && c.state.items[0]?.insertion === "[!recipe]", "the outline's own type");
+    expect(c.state!.items[0]).toMatchObject({ label: "♨ recipe (dish)", kind: "callout · this outline's" });
+    for (let i = 0; i < 2; i++) completionKey(d, { kind: "backspace" } as Key, c);
+    for (const ch of "wa") completionKey(d, char(ch), c);
+    await until(() => !!c.state && !c.state.loading && c.state.target.query === "wa", "warning");
+    expect(c.state!.items[0]!.insertion).toBe("[!warning]");
+    completionKey(d, K("enter"), c);
+    await until(() => d.lines[1] === "> [!warning]", "the insert");
+    expect(completionOf(d)).toBeNull();
+  });
+});
+
 describe("Jev re-orders after a pause, never moving the selection (a fake service)", () => {
   const hit = (id: string, title: string) => ({ block: { id, revision: 1 }, title, path: "Garden", snippet: title, exact: false });
   const lexical = [hit("b1", "Party hats"), hit("b2", "Party lights"), hit("b3", "Fat cats in party hats")];
@@ -469,7 +504,7 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     expect(e.d.lines.at(-1)).toBe("  ");
     expect(e.pop()).toBeNull();
     e.press(ctrl("`"));                                                   // ctrl+space with nothing to complete
-    expect(e.d.note).toContain("[[, (( or [file::");
+    expect(e.d.note).toContain("[[, ((, [file:: or a callout's > [!");
   });
 
   test("Tab and Ctrl+Space ask again after Esc; Ctrl+S saves with the popup open", async () => {

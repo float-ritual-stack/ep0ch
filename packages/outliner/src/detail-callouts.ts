@@ -23,6 +23,7 @@ import {
   type DetailCalloutStyle,
   type DetailCalloutTheme,
 } from "./detail-callout-theme";
+import { BUILTIN_CALLOUT_REGISTRY, calloutBlocks, quoteDepth, stripQuotes } from "@ep0ch/outline-core/callouts";
 
 export type DetailCalloutFoldMarker = "+" | "-" | null;
 
@@ -63,52 +64,6 @@ interface MutableCallout {
   id: string;
 }
 
-const CALLOUT_TYPES: Record<string, { canonical: string; title: string }> = {
-  note: { canonical: "note", title: "Note" },
-  abstract: { canonical: "abstract", title: "Abstract" },
-  summary: { canonical: "abstract", title: "Abstract" },
-  tldr: { canonical: "abstract", title: "Abstract" },
-  info: { canonical: "info", title: "Info" },
-  todo: { canonical: "todo", title: "Todo" },
-  tip: { canonical: "tip", title: "Tip" },
-  hint: { canonical: "tip", title: "Tip" },
-  important: { canonical: "tip", title: "Tip" },
-  success: { canonical: "success", title: "Success" },
-  check: { canonical: "success", title: "Success" },
-  done: { canonical: "success", title: "Success" },
-  question: { canonical: "question", title: "Question" },
-  help: { canonical: "question", title: "Question" },
-  faq: { canonical: "question", title: "Question" },
-  warning: { canonical: "warning", title: "Warning" },
-  caution: { canonical: "warning", title: "Warning" },
-  attention: { canonical: "warning", title: "Warning" },
-  failure: { canonical: "failure", title: "Failure" },
-  fail: { canonical: "failure", title: "Failure" },
-  missing: { canonical: "failure", title: "Failure" },
-  danger: { canonical: "danger", title: "Danger" },
-  error: { canonical: "danger", title: "Danger" },
-  bug: { canonical: "bug", title: "Bug" },
-  example: { canonical: "example", title: "Example" },
-  quote: { canonical: "quote", title: "Quote" },
-  cite: { canonical: "quote", title: "Quote" },
-};
-
-function fallbackTitle(type: string): string {
-  return type.replace(/[-_]+/g, " ").replace(/\b\p{L}/gu, (letter) => letter.toUpperCase());
-}
-
-function quoteContent(text: string): { depth: number; content: string } {
-  let cursor = 0;
-  let depth = 0;
-  while (cursor < text.length) {
-    const match = /^[ \t]{0,3}>[ \t]?/.exec(text.slice(cursor));
-    if (!match) break;
-    cursor += match[0].length;
-    depth += 1;
-  }
-  return { depth, content: text.slice(cursor) };
-}
-
 function sourceLines(source: string): SourceLine[] {
   const lines: SourceLine[] = [];
   let start = 0;
@@ -118,7 +73,7 @@ function sourceLines(source: string): SourceLine[] {
     const end = newline < 0 ? source.length : newline + 1;
     const raw = source.slice(start, end);
     const text = raw.endsWith("\n") ? raw.slice(0, -1).replace(/\r$/, "") : raw;
-    const quoted = quoteContent(text);
+    const quoted = quoteDepth(text);
     lines.push({ raw, text, start, end, index, quoteDepth: quoted.depth, content: quoted.content });
     start = end;
     index += 1;
@@ -126,15 +81,8 @@ function sourceLines(source: string): SourceLine[] {
   return lines;
 }
 
-function stripQuoteDepth(text: string, depth: number): string {
-  let cursor = 0;
-  for (let level = 0; level < depth; level += 1) {
-    const match = /^[ \t]{0,3}>[ \t]?/.exec(text.slice(cursor));
-    if (!match) break;
-    cursor += match[0].length;
-  }
-  return text.slice(cursor);
-}
+/** `text` without its first `depth` levels of quote: outline-core's, as the door strips them. */
+const stripQuoteDepth = stripQuotes;
 
 export function parseDetailCallouts(
   source: string,
@@ -143,26 +91,16 @@ export function parseDetailCallouts(
   const lines = sourceLines(source);
   const callouts: MutableCallout[] = [];
 
-  for (const line of lines) {
-    if (line.quoteDepth === 0) continue;
-    const marker = /^\[!([^\]\r\n]+)\]([+-]?)(?:[ \t]+(.*))?[ \t]*$/.exec(line.content);
-    if (!marker) continue;
-    const calloutType = marker[1]!.trim().toLowerCase();
-    if (!calloutType) continue;
-    const known = CALLOUT_TYPES[calloutType];
-    const foldMarker = marker[2] === "+" || marker[2] === "-" ? marker[2] : null;
-    let endLine = line.index;
-    for (let next = line.index + 1; next < lines.length; next += 1) {
-      const candidate = lines[next]!;
-      if (
-        candidate.quoteDepth < line.quoteDepth ||
-        (candidate.quoteDepth === line.quoteDepth &&
-          /^\[![^\]\r\n]+\][+-]?(?:[ \t]+.*)?[ \t]*$/.test(candidate.content))
-      ) {
-        break;
-      }
-      endLine = next;
-    }
+  // Where each callout is, nested, and where it ends (code fences included) is outline-core's grammar (PIE-538),
+  // the door's too; Detail keeps only the region tree and its source offsets.
+  for (const block of calloutBlocks(lines.map((line) => line.text))) {
+    const line = lines[block.line]!;
+    const header = block;
+    const calloutType = header.type;
+    const known = (theme.registry ?? BUILTIN_CALLOUT_REGISTRY).resolve(calloutType);
+    const style = (theme.registry ?? BUILTIN_CALLOUT_REGISTRY).style(calloutType);
+    const foldMarker = header.fold;
+    const endLine = block.end - 1;
     const end = lines[endLine]?.end ?? line.end;
     const parent = [...callouts].reverse().find((candidate) =>
       candidate.depth < line.quoteDepth && candidate.end >= line.start
@@ -171,12 +109,12 @@ export function parseDetailCallouts(
     const path = parent
       ? `${parent.id.split(":", 2)[1]}.${siblings.length}`
       : `${siblings.length}`;
-    const canonicalType = known?.canonical ?? calloutType;
+    const canonicalType = known?.name ?? calloutType;
     const current: MutableCallout = {
       calloutType,
       canonicalType,
-      title: marker[3]?.trim() || known?.title || fallbackTitle(calloutType),
-      icon: detailCalloutStyle(theme, canonicalType).glyph,
+      title: header.title || style.title,
+      icon: detailCalloutStyle(theme, canonicalType, known).glyph,
       foldMarker,
       depth: line.quoteDepth,
       headerLine: line.index,

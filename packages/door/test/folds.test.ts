@@ -218,16 +218,25 @@ describe("a reader's folds, without a service", () => {
     expect(s.sourceLineAt(0)).toBe(null);                  // the header isn't the body
   });
 
-  test("callouts still fold with z inside an unfolded section", () => {
+  test("callouts are fold points (PIE-538): [!type]- starts folded, then ( ) f, a click on the title and z fold or open it", () => {
     const s = new NoteSurface(), h = host();
-    s.show(note("Callouts\n## Notes\n> [!tip]- Frost\n> Nothing out before May."), h);
-    expect(body(s, h)).toContain("z unfolds");
-    s.key(char("z"), h);
+    s.show(note("Callouts\n## Notes\n> [!tip]- Frost\n> Nothing out before May.\n> > [!warning] Slugs\n> > After rain."), h);
+    expect(body(s, h)).toContain("3 lines folded");
+    expect(body(s, h)).not.toContain("Nothing out");
+    s.key(char("z"), h);                                             // every callout open
     expect(body(s, h)).toContain("Nothing out before May.");
-    s.key(char(")"), h); s.key(char("f"), h);
-    expect(body(s, h)).not.toContain("Frost");
-    s.key(char("f"), h);
-    expect(body(s, h)).toContain("Nothing out before May.");      // z's choice is kept under the fold
+    expect(body(s, h)).toContain("After rain.");
+    s.key(char("z"), h);                                             // back as written
+    expect(body(s, h)).not.toContain("Nothing out");
+    s.key(char(")"), h); s.key(char(")"), h); s.key(char("f"), h);   // ## Notes, then the callout: f opens it
+    expect(body(s, h)).toContain("Nothing out before May.");
+    expect(s.describe().folds!.selected).toBe("> Frost");
+    // The nested callout is a fold point of its own: a click on its title folds it, its text is never touched.
+    const lines = s.render(60, 40, h).lines.map(plain), slugs = lines.findIndex(l => l.includes("Slugs"));
+    expect(s.click(30, slugs, h)).toBe(true);
+    expect(body(s, h)).not.toContain("After rain.");
+    expect(s.describe().folds!.folded).toEqual([">> Slugs"]);
+    expect(s.msg!.text).toContain("> [!tip]- Frost");
   });
 
   test("agent actions: fold, unfold, fold.toggle by text, line or n; folds lists them; refusals say why", async () => {
@@ -248,7 +257,7 @@ describe("a reader's folds, without a service", () => {
     expect(await act("unfold", { n: 1 })).toMatchObject({ folded: false });
     expect(await act("unfold", { all: true })).toMatchObject({ changed: 2, foldedNow: [] });
     expect(await act("fold", { all: true })).toMatchObject({ changed: 3 });
-    await expect(act("fold", { text: "Compost heap" })).rejects.toThrow('no heading or list item reads "Compost heap"; the note\'s are: line 4 ## Beds');
+    await expect(act("fold", { text: "Compost heap" })).rejects.toThrow('nothing foldable reads "Compost heap"; the note\'s are: line 4 ## Beds');
     await expect(act("fold", {})).rejects.toThrow("one of text=, line= or n=");
     await expect(act("fold", { line: 1 })).rejects.toThrow("line 1 is the subject");
     await expect(act("fold", { line: 2 })).rejects.toThrow("line 2 isn't a heading or a list item with nested lines, nor inside one");

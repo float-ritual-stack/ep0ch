@@ -32,7 +32,7 @@ const plain = (s: string) => s.replace(/\x1b\[[\d;]*[A-Za-z]/g, "").replace(/[\u
 
 test("the README's showcase says what SECTIONS registers: how many, the act range, and every key in the action's summary", () => {
   const readme = readFileSync(join(import.meta.dir, "../README.md"), "utf8");
-  const words = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen", "twenty"];
+  const words = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen", "twenty", "twenty-one", "twenty-two"];
   expect(readme).toContain(`live, in ${words[SECTIONS.length]} sections`);
   expect(readme).toContain(`act section name=<1-${SECTIONS.length}|key>`);
   const summary = SHOWCASE_ACTIONS.list().find((a: any) => a.name === "section")!.summary;
@@ -284,6 +284,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     service: ["views.read ((Garden chores))", "ready · 3 block(s)", "references.backlinks (Bike shed)"],
     // This door runs in its own terminal (the test's App), so the section says so; in a session it lists the terminals.
     session: ["this door runs in its own terminal (--no-daemon)", "session"],
+    // Obsidian's examples, nested three deep; the right reader declares a type of the outline's own.
+    callouts: ["Callouts, as Obsidian writes them", "Can callouts be nested?", "Yes!, they can.", "Recipe callouts"],
   };
 
   test("one section per reuse-map row, in the map's order, each labelled with its part and file, drawn by the part", async () => {
@@ -478,6 +480,59 @@ describe.skipIf(!outliner)("the showcase screen", () => {
       expect(S().focus).toBe("index");
     } finally { board.searchBlocks = real; }
   }, 20_000);
+
+  test("callouts (PIE-538): Obsidian's examples drawn nested and folded; folds, types and starts by keys, mouse and act", async () => {
+    const id = seeded.notes.callouts.id, text = async () => (await board.get(id))!.text;
+    const reads = async (has: (t: string) => boolean, what: string) => { const end = Date.now() + 5000; while (!has(await text())) { if (Date.now() > end) throw new Error(`timed out waiting for ${what}`); await Bun.sleep(30); } };
+    (app as any).lastInput = 0;
+    expect(await app.act({ action: "section", args: { name: "callouts" }, as: "test-agent" })).toEqual({ section: SECTIONS.length, key: "callouts" });
+    await until(() => screen().includes("You can even use multiple") && screen().includes("♨ Soup stock"), "the nested example drawn, with the outline's own type", 8000);
+    let shown = screen();
+    expect(shown).toContain("feel the power");                             // [!note]+ starts open
+    expect(shown).not.toContain("can you see me");                         // [!note]- starts folded
+    expect(shown).toContain("♨ Soup stock");                               // dish: an alias of the outline's own recipe type
+    expect(shown).toMatch(/│ │ ╭─ ◆ You can even use multiple/);           // a frame in a frame in a frame
+    // The list, as an agent reads it: every callout outermost first, and the outline's types.
+    const list = await app.act({ action: "callout.list", as: "test-agent" }) as any;
+    expect(list.callouts.map((c: any) => [c.type, c.title, c.starts])).toEqual([
+      ["note", "note", "open"], ["warning", "warning", "open"], ["note", "collapse", "folded"], ["note", "expando", "open"],
+      ["question", "Can callouts be nested?", "open"], ["todo", "Yes!, they can.", "open"], ["example", "You can even use multiple layers of nesting.", "open"],
+      ["faq", "Are callouts foldable?", "folded"], ["tip", "Title-only callout", "open"], ["tip", "Callouts can have custom titles", "open"], ["info", "Info", "open"], ["dish", "Soup stock", "open"],
+    ]);
+    expect(list.types.find((t: any) => t.name === "recipe")).toMatchObject({ icon: "♨", tone: "green", aliases: ["dish"], declaredIn: seeded.notes.calloutType.id });
+    // An agent unfolds one: reading state only, the text untouched.
+    expect(await app.act({ action: "unfold", args: { text: "collapse" }, as: "test-agent" })).toMatchObject({ kind: "callout", folded: false });
+    await until(() => screen().includes("can you see me"), "the folded callout opened");
+    // An agent changes a type and a start through the note's save, attributed; its undo puts the line back.
+    const typed = await app.act({ action: "callout.type", args: { n: 2, to: "danger" }, as: "test-agent" }) as any;
+    expect(typed).toMatchObject({ changed: true, header: "> > [!danger] warning", recordedAs: { author: "agent", actorId: "test-agent" } });
+    expect(await text()).toContain("> > [!danger] warning\n> > body body");
+    await app.act({ action: "callout.undo", as: "test-agent" });
+    expect(await text()).toContain("> > [!warning] warning");
+    await app.act({ action: "callout.start", args: { line: (await text()).split("\n").indexOf("> [!note]+ expando") + 1, folded: true }, as: "test-agent" });
+    expect(await text()).toContain("> [!note]- expando");
+    await expect(app.act({ action: "callout.menu", args: { n: 1 }, as: "test-agent" })).rejects.toThrow();   // the type choice is the person's
+    // The person, by keys: into the stage, [ ] to the first callout's icon, ⏎ opens the type choice, j ⏎ picks the next type.
+    press({ kind: "enter" });
+    expect(S().focus).toBe("stage");
+    ch("]"); ch("]");
+    press({ kind: "enter" });
+    await until(() => screen().includes("note · now") && screen().includes("make it start folded (-)"), "the type choice, every choice drawn", 5000);
+    expect(screen()).toContain("note · now");
+    ch("j"); press({ kind: "enter" });
+    await reads(t => t.includes("> [!abstract] note"), "the type changed");
+    // ctrl+z: the last change here (the callout's) put back.
+    press({ kind: "char", ch: "z", ctrl: true });
+    await reads(t => t.includes("> [!note] note\n"), "the change undone");
+    // By mouse: a click on the nested warning's title folds it.
+    await until(() => screen().includes("body body"), "the nested warning drawn");
+    // In the left reader (the right one shows the type's declaration).
+    const rows = sc.render(app).lines.map(plain), y = rows.findIndex(l => /╭─ ▾ ⚠ warning/.test(l)), x = rows[y]!.search(/╭─ ▾ ⚠ warning/) + 8;
+    press({ kind: "mouse", action: "down", button: 0, x, y }); press({ kind: "mouse", action: "up", button: 0, x, y });
+    await until(() => !screen().includes("body body"), "the nested callout folded by a click");
+    expect(await text()).toContain("> > [!warning] warning");                // folding never writes
+    for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+  }, 30_000);
 
   test("on an outline without the showcase it says so and writes nothing", async () => {
     const other = new Scratch();
