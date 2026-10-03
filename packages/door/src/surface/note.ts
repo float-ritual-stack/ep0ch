@@ -19,7 +19,6 @@ import { metadataLines, printable, setUserSummaryKeys, summaryKeys, summarySegme
 import { LINK_OFF, LINK_ON, MD_LINK, outlineChanged, PAGE, pageView, pageOf, presentLinks, REF, resourceTokensOf, refKey, referencesIn, refView, workIdPrefix, shortId, type LinkTarget } from "../refs";
 import { isOutlineNote, openResource, RESOURCE_NOTE, resourceTarget } from "../authored";
 import { changeOf, parseStatus, STEP_CHOICES, STEP_MARKS, stepChanged, StepHistory, stepLink, stepsLoading, stepsOf, stepStillOn, stepTitle, statusWord, type StepChoice, type StepRef } from "../steps";
-import { ComponentCatalog } from "../components";
 import { destinationOf, external, externalOpenCommand, fileOpenCommand } from "../open";
 import { Draft, DRAFT_ACTIONS, sameParty, type DraftActionArgs } from "../edit";
 import { agentRefusal, blockTarget, DraftSession, leaveSaid, propertyChange, unsentOn, type Ended, type LeaveResult } from "../draft-session";
@@ -370,8 +369,6 @@ export class NoteSurface {
     else if (this.foldSel !== null) this.cur = null;
   }
   private foldsOf: string | null = null;
-  /** The component renderers resolved for the note shown (src/components.ts): read once per note, not per render. */
-  private components: { for: string | null; catalog: ComponentCatalog } = { for: null, catalog: new ComponentCatalog() };
   private foldCache: { text: string; points: FoldPoint[]; lines: number[] } | null = null;
   /** The last reading render: where the body starts, how far it's scrolled, and its rows' sources and fold heads. */
   private drawn: { w: number; top: number; scroll: number; room: number; doc: Doc; lines: number[]; head: string[]; body: string[] } | null = null;
@@ -782,7 +779,7 @@ export class NoteSurface {
     const top = head.length, t = host?.ctx.t;
     const key = `${w}x${h}|${top}|${summaryRow}|${m.revision ?? ""}|${m.text.length}|${host?.ctx.graphics ? 1 : 0}|${t?.cellW}x${t?.cellH}`;
     if (onlyScrolled() && this.laid?.m === m && this.laid.key === key) return this.laid;
-    const env = this.docEnv(m, Math.max(1, w - 1), host, Math.max(4, Math.round((h - head.length) * 0.8)));
+    const env = this.docEnv(Math.max(1, w - 1), host, Math.max(4, Math.round((h - head.length) * 0.8)));
     // Every link drawn (the body's, an embed's title, results, text and step boxes) is tagged with its place in `drawn`.
     const drawn: Link[] = [];
     // Resource projections (PIE-445): each drawn after the last body line at or above its anchor (a ticket
@@ -796,7 +793,7 @@ export class NoteSurface {
     const extDraw = {
       note: m.id,
       markdown: (text: string, width: number) => renderDoc(presentLinks(printableBlock(text), false, null), {
-        ...env, width, graphics: false, noImages: undefined, folds: undefined, after: undefined, embed: undefined, task: undefined, link: undefined, literal: undefined, present: undefined, keepTags: false,
+        ...env, width, graphics: false, noImages: undefined, folds: undefined, after: undefined, embed: undefined, task: undefined, link: undefined, literal: undefined, keepTags: false,
       }).lines,
       row: (block: string, text: string) => tagged(drawn, { block, role: "row" }, text),
       hostKeys: host?.ownKeys ?? "",
@@ -844,13 +841,12 @@ export class NoteSurface {
 
   /**
    * What the note's body is drawn with, at `width`: images laid out when the host draws Kitty graphics (and why not
-   * when it doesn't), component renderers resolved once per note shown, as Detail does.
+   * when it doesn't).
    */
-  private docEnv(m: Msg, width: number, host: SurfaceHost | undefined, maxImageRows: number): DocEnv {
-    if (this.components.for !== m.id) this.components = { for: m.id, catalog: new ComponentCatalog() };
+  private docEnv(width: number, host: SurfaceHost | undefined, maxImageRows: number): DocEnv {
     const t = host?.ctx.t, graphics = !!host?.ctx.graphics;
     const noImages = graphics ? undefined : t?.kitty ? "video: cells · alt+v draws images" : "no Kitty graphics in this terminal";
-    return { width, cellW: t?.cellW ?? 9, cellH: t?.cellH ?? 18, graphics, noImages, maxImageRows, unfold: this.unfold, components: this.components.catalog };
+    return { width, cellW: t?.cellW ?? 9, cellH: t?.cellH ?? 18, graphics, noImages, maxImageRows, unfold: this.unfold };
   }
 
   /** The note's body for the reader and a host's digest (folds, links, embeds, steps, tagged into `drawn`); `more`: the reader's own. */
@@ -859,7 +855,6 @@ export class NoteSurface {
     this.keepFolds(points);
     const doc = renderDoc(presentLinks(text, true, src, m.text, drawn, tokens), {
       ...env, literal, ...this.bodyHooks(m, lines, env, src, drawn),
-      present: x => presentLinks(x, false, src, m.text, drawn, tokens),
       folds: { points, folded: this.folded, selected: this.foldSel },
       link: (block, x) => tagged(drawn, { block, role: "row" }, x),
       tag: (to, x) => tagged(drawn, to, x), note: m.id,
@@ -886,7 +881,6 @@ export class NoteSurface {
       } else ({ text, lines, literal: lit } = readableSource(target, src));
       return renderDoc(presentLinks(text, true, src, target.text, drawn), {
         ...env, width, graphics: false, noImages: undefined, literal: lit, keepTags: true, folds: undefined, after: undefined,
-        present: t => presentLinks(t, false, src, target.text, drawn),
         link: (block, t) => tagged(drawn, { block, role: "row" }, t),
         tag: (to, t) => tagged(drawn, to, t), note: target.id,
         embed: hooks.embed, task: (i, box) => hooks.task(lines[i] ?? -1, box),
@@ -924,7 +918,7 @@ export class NoteSurface {
     this.drawn = null;
     this.digesting = true;
     const drawn: Link[] = [];
-    const { doc: rendered, points } = this.body(m, this.docEnv(m, Math.max(1, w), host, maxImageRows), src, drawn);
+    const { doc: rendered, points } = this.body(m, this.docEnv(Math.max(1, w), host, maxImageRows), src, drawn);
     const { doc, picks } = this.pickerRows(rendered, drawn, Math.max(1, w));
     this.elems = this.elementsOf(doc, drawn, [], [], [], points, 0, [], 0);
     this.keepCurrent(host);

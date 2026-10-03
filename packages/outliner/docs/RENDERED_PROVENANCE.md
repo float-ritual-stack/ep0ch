@@ -80,9 +80,9 @@ The shared fixture corpus must include Unicode, escapes/entities, links, lists,
 callouts, tables, nested/repeated/fragment embeds, saved views, failed embeds and
 truncation. Assert independent expected source slices and copied text, across
 widths and selection modes. Exercise actual Detail and Preview selection,
-commenting, links and resize with private fixtures. Responsive table and status
-component slices use this interface; neither introduces a separate task store,
-annotation model or focus system.
+commenting, links and resize with private fixtures. Responsive tables use this
+interface; they introduce no separate task store, annotation model or focus
+system.
 
 ### Current migration boundary
 
@@ -339,36 +339,6 @@ the quote fallback, retaining ambiguity where identity cannot be established.
 Protocol 81 carries passage observations and resolutions. Upgrade the service
 and readers together; the database preserves older annotation representations.
 
-### Shared table and status component example
-
-`component:status` fences can use the installed declarative renderer in
-[the status-summary package](../extensions/status-summary/README.md). Its
-`label :: value` rows compile to the same attributed glyphs and immutable frame
-as ordinary table cells. Wide layouts place values side by side; narrow layouts
-stack and wrap them. Inline formatting and links retain source slices and link
-identity across widths, including wide Unicode labels.
-
-This first presentation contract is bounded local JSON, separate from Resource
-fetching. The package chooses the host's `labelled-values` layout. Compilation
-reads installation enablement and manifest version; resizing a compiled document
-performs no I/O, network call, model judgment or note mutation. A missing,
-disabled or invalid renderer shows a reason and the original fenced text.
-
-Source-backed values remain exact; producer-supplied derived values keep result
-identity and dependency observations. Label separators and other presentation
-punctuation are generated, even when included in useful copied text. Comments
-use the existing passage capture and persistence path. The native journey shows
-the component beside an ordinary table in Detail and Tree Preview, resizes it,
-and captures a comment whose label and value are discontiguous source slices.
-
-The PIE-382 lifecycle journey additionally verifies a separately installed
-manifest, disable/remove/re-enable without rebuilding, editing fallback source,
-source export through the external editor, live note-value changes, and Inbox Preview link/copy/comment
-behavior across resize. Reopening a note compiles changed installation settings;
-resize does not reread them. General executable renderers, installation UI and
-automatic configuration watching are outside this first slice. There is one
-declarative layout, with no second task store or UI focus tree.
-
 ### Renderer ownership decision
 
 Use an Outliner-owned attributed Markdown renderer with PiTUI's terminal width,
@@ -390,25 +360,3 @@ checklist actions and annotation reconciliation in their existing domain owners;
 this change does not introduce a general UI framework or another document store.
 
 Checklist results retain their view query and matched source-item header (excluding status and fragment ID) in the occurrence path. A child displayed within its parent result stays distinct from the same child displayed as an independent result, including when the entire view is embedded. Edits to the matched header use the ordinary conservative quote reconciliation; result order is never an identity.
-
-
-### Catalog/spec/renderer comparison
-
-[json-render's documented separation](https://json-render.dev/docs) distinguishes
-an allowed component catalog, a declarative specification, and platform-specific
-implementations. The useful pattern here is the separation of data from rendering;
-adopting its generated element tree is unnecessary for one authored summary.
-
-For this slice, the installed manifest selects a supported host layout, the
-readable fence supplies the specification, and the existing pi-tui document frame
-is the platform binding. This is our adaptation of that separation, not a
-json-render-compatible spec. A second React/Ink tree would duplicate selection,
-focus and provenance ownership without improving the current acceptance path.
-Keep producer execution and future action capabilities outside this presentation
-contract; reconsider a richer catalog when a second layout needs one.
-
-Installation decisions are retained per document load, including failures, and
-shared with folded and callout layouts. Preview may rebuild its layout for a new
-width, focus or theme, but reuses those decisions. New source content or reopening
-creates a fresh catalog. Rendered frames still contain newly measured geometry
-and current source data; no cache of source observations is introduced.

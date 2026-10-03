@@ -159,9 +159,8 @@ if (scenario === "board2") {
 }
 if (scenario === "rendering") {
   // PIE-444: the showcase notebook's Formatting section in a desk reader (bold, italic, struck out, code,
-  // Markdown links, a labelled block ref, the status panel with the outliner's renderer installed) with
-  // the reader's element on its first Markdown link, then the same note in the BBS reader (To: its to::).
-  scratch!.installRenderers();
+  // Markdown links, a labelled block ref) with the reader's element on its first Markdown link, then the
+  // same note in the BBS reader (To: its to::).
   const { seedShowcase } = await import("../src/showcase/seed");
   const seeded = await seedShowcase(board);
   board.subscribe(e => app.event(e));
@@ -191,7 +190,6 @@ if (scenario === "showcase") {
   // section, then a few interactions: a section's own keys, a click on the index, an agent's act.
   const { seedShowcase } = await import("../src/showcase/seed");
   const { Showcase, SECTIONS } = await import("../src/showcase/showcase");
-  scratch!.installRenderers();                            // as scripts/try-it.sh --showcase installs it
   await seedShowcase(board, { ticketsConfig: join(scratch!.root, "config") });   // made-up tickets, as try-it installs them
   board.subscribe(e => app.event(e));
   const sc = new Showcase();
@@ -218,7 +216,6 @@ if (scenario === "brief") {
   // the day before by `,`, back by `.`, a click on a live figure's row (it opens beside the brief), and
   // a link followed by [ ] and ⏎.
   const { seedShowcase } = await import("../src/showcase/seed");
-  scratch!.installRenderers();
   await seedShowcase(board);
   board.subscribe(e => app.event(e));
   app.push(new MainMenu());

@@ -49,7 +49,7 @@
     { "id": "A-F10", "line": 187, "title": "Hit-testing, frames and hint rows are per screen", "status": "open", "route": "PIE-492" },
     { "id": "A-F11", "line": 197, "title": "The property-token regex copied 9 times, with a different key rule", "status": "resolved", "by": "#62, outliner #250" },
     { "id": "A-F12", "line": 211, "title": "The door ports the query language and plans moves the service couldn't", "status": "resolved", "by": "#62, outliner #250" },
-    { "id": "A-F13", "line": 223, "title": "Grammar mirrors should be one module the outliner exports", "status": "partial", "by": "#62", "note": "the property grammar, the draft.patch compare and the search matcher are one module in outline-core both sides import; literal regions, inline Markdown, components, backlinks and folder-to-outline are still mirrors", "route": "service track" },
+    { "id": "A-F13", "line": 223, "title": "Grammar mirrors should be one module the outliner exports", "status": "partial", "by": "#62", "note": "the property grammar, the draft.patch compare and the search matcher are one module in outline-core both sides import; literal regions, inline Markdown, backlinks and folder-to-outline are still mirrors", "route": "service track" },
     { "id": "A-F14", "line": 241, "title": "Attention marks are door-local; nvim marks stored by line number", "status": "open", "route": "PIE-423" },
     { "id": "A-F15", "line": 249, "title": "Tile kinds are a closed union in 5 places; the desk dispatches by class", "status": "partial", "by": "#95, #105", "note": "an open tile-kind registry (src/desk/tile-kinds.ts); extensions register kinds through serviceKind (#97). PIE-510: a terminal's actions are the terminal kind's (PTY_ACTIONS, inherited by an extension's program kinds), and the desk asks the kind for keys and clicks (press), a screen tile's keys, actions and ticks (takesKeys, act, tick) and a gone kind's held work (holdsWork, whenFree); class checks in desk.ts 43 to 30 (PtyPane 19 to 10, ScreenTile 4 to 0). Left: terminal-only data (nvim marks, temp files, its screen text, a running program's close) and ReaderPane checks that mean a note reader, the note surface's host", "route": "PIE-493" },
     { "id": "A-F16", "line": 263, "title": "Import direction: the tile layer and the protocol import features", "status": "open", "route": "PIE-493" },
@@ -111,7 +111,7 @@
     { "id": "terminal", "title": "Terminal tiles and Herdr", "lede": "A tile can run a program: a pty from Bun, the screen through @xterm/headless. An agent that must outlive the door runs in a Herdr pane the tile attaches to. Every exit goes through one teardown." },
     { "id": "screens", "title": "Screens as specs", "lede": "Every screen is a spec on the one screen host, the desk: containers and tiles by kind, a key map naming actions, a hint, a band, where opens land, all plain data. The desk, the welcome, the brief, Waiting, a pinned page, the board (its lanes a hub source's columns) and the river (a flow) are specs, and no class extends Desk (PIE-515); the BBS screens are outside the tree."},
     { "id": "agents", "title": "Agents via act and peek", "lede": "A second actor drives the door over its control socket: peek and snap to see, act to do, subscribe for the live feed. An agent's action is attributed and never takes the person's focus, selection or keys." },
-    { "id": "extensions", "title": "Extensions", "lede": "What a third party can add: resource providers and component renderers in the outliner, and, in the door, any program in a terminal tile that drives the door over EP0CH_CONTROL. Tile kinds, keys and screens can't be added yet." }
+    { "id": "extensions", "title": "Extensions", "lede": "What a third party can add: resource providers and rich components in the outliner, and, in the door, any program in a terminal tile that drives the door over EP0CH_CONTROL. Tile kinds, keys and screens can't be added yet." }
   ],
   "structures": [
     {
@@ -261,15 +261,14 @@
     },
     {
       "id": "door.mirrors", "name": "Grammar mirrors", "group": "door", "chapter": "socket", "ladder": "accidental", "dependsOn": ["door.socketboard"],
-      "does": "Literal regions, inline Markdown, component renderers and the backlink view, drawn the way the outliner draws them.",
-      "built": "Ports of the outliner's rules, parity-tested against the checkout. components.ts reads the outliner's renderer config on the door's machine, which is wrong for a remote door.",
+      "does": "Literal regions, inline Markdown and the backlink view, drawn the way the outliner draws them.",
+      "built": "Ports of the outliner's rules, parity-tested against the checkout.",
       "refs": [
         { "r": "door", "p": "src/literal.ts", "l": 1, "m": "Literal regions (PIE-422)" },
         { "r": "door", "p": "src/inline.ts", "l": 1, "m": "Inline Markdown in read mode" },
-        { "r": "door", "p": "src/components.ts", "l": 4, "m": "document-renderers.json" },
         { "r": "door", "p": "src/backlinks.ts", "l": 166, "m": "export function backlinkView" }
       ],
-      "questions": [ { "text": "Pure paint-time grammar belongs in outline-core, imported as the property grammar is; the component registry is a host call. (Folder-to-outline moved to outline-core's outline-location.ts, PIE-530.)", "finding": "A-F13", "route": "service track" } ]
+      "questions": [ { "text": "Pure paint-time grammar belongs in outline-core, imported as the property grammar is. (Folder-to-outline moved to outline-core's outline-location.ts, PIE-530.)", "finding": "A-F13", "route": "service track" } ]
     },
 
     {
@@ -281,9 +280,9 @@
         { "r": "door", "p": "src/surface/modes.ts", "l": 102, "m": "export class ModeStack" },
         { "r": "door", "p": "src/surface/modes.ts", "l": 20, "m": "export const PRECEDENCE" },
         { "r": "door", "p": "src/surface/note.ts", "l": 62, "m": "export interface SurfaceHost" },
-        { "r": "door", "p": "src/surface/note.ts", "l": 3528, "m": "export const NOTE_ACTIONS" },
-        { "r": "door", "p": "src/surface/note.ts", "l": 542, "m": "staleOn(e: OutlineEvent): boolean" },
-        { "r": "door", "p": "src/surface/note.ts", "l": 559, "m": "reread(host: SurfaceHost)" }
+        { "r": "door", "p": "src/surface/note.ts", "l": 3543, "m": "export const NOTE_ACTIONS" },
+        { "r": "door", "p": "src/surface/note.ts", "l": 540, "m": "staleOn(e: OutlineEvent): boolean" },
+        { "r": "door", "p": "src/surface/note.ts", "l": 557, "m": "reread(host: SurfaceHost)" }
       ]
     },
     {
@@ -765,13 +764,6 @@
         { "r": "outliner", "p": "extensions/jira/extension.json", "l": 2, "m": "\"contract\": 2" }
       ],
       "questions": [ { "text": "Credential lookup is macOS-only (keychain); on Linux a keychain credential is unavailable.", "finding": "B-F15", "route": "PIE-494" } ]
-    },
-    {
-      "id": "svc.renderers", "name": "Component renderers", "group": "service", "chapter": "extensions", "ladder": "provisional", "dependsOn": ["svc.store"],
-      "does": "component: fences drawn from a renderer registry (labelled values, one layout so far), in Detail and the door.",
-      "built": "document-components.ts reads the registry from the host's config.",
-      "refs": [ { "r": "outliner", "p": "src/document-components.ts", "l": 48, "m": "document-renderers.json" } ],
-      "questions": [ { "text": "The door mirrors the registry from its own machine's config; for a remote door the service should render.", "finding": "A-F13", "route": "service track" } ]
     },
     {
       "id": "door.exthost", "name": "Extensions in the door", "group": "door", "chapter": "extensions", "ladder": "provisional", "was": "accidental", "dependsOn": ["door.pty", "door.control", "door.tilekinds", "door.actions"],

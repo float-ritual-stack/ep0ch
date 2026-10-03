@@ -1,8 +1,8 @@
 import {blockAnnotationRepresentation} from "../../src/annotation-representations";
 import {createTextQuoteAnchor,createAnnotationReferenceContext} from '../../src/annotations';
 import assert from 'node:assert/strict';
-import {mkdir,readFile,writeFile} from 'node:fs/promises';
-import {dirname,join,resolve} from 'node:path';
+import {readFile,writeFile} from 'node:fs/promises';
+import {join} from 'node:path';
 import {visibleWidth} from '@earendil-works/pi-tui';
 import {checklistItems} from '../../src/checklist-items';
 import type {AnnotationThread, Block, InternResourceReceipt} from '../../src/types';
@@ -12,11 +12,6 @@ const result = await runHerdrScenario({
   name: 'rendered-passage',
   async prepare(root) {
     await writeFile(join(root,'resource-passage.md'),'# Resource passage\n\nStable **quote** &amp; tail\n');
-    const config = join(dirname(root), 'xdg-config', 'pi-herdr-outliner');
-    await mkdir(config, {recursive: true});
-    await writeFile(join(config, 'document-renderers.json'), JSON.stringify({version: 1, renderers: {
-      status: {manifest: resolve(import.meta.dir, '../../extensions/status-summary/manifest.json'), enabled: true},
-    }}));
   },
   async run(s) {
     const terminal = await s.attachClient();
@@ -255,56 +250,6 @@ const result = await runHerdrScenario({
     await s.checkpoint('12-legacy-exact-open');
     assert.equal((await s.client.request<Block>({action:'get',blockId:legacy.id})).text,legacy.text);
 
-    const component = await s.client.request<Block>({action:'create', text:
-      '# Responsive summary\n\n```component:status\nTo do :: 4\n[Waiting for review](https://example.test/review) :: 4\nDone 界 :: 5\n```\n\n'+
-      '| Stage | Count |\n| --- | ---: |\n| Waiting | 4 |\n| Done | 5 |'});
-    await s.client.request({action:'navigation.dispatch',sourceClientId:tree.clientId,sourceRegion:'tree',intent:'open',
-      target:{kind:'block',blockId:component.id},destination:{clientId:detail.clientId,region:'detail'}});
-    await terminal.resize(260, 65);
-    await s.waitVisible(s.panes.detail, 'To do: 4 · Waiting for review: 4 · Done 界: 5');
-    await s.checkpoint('13-status-panel-wide');
-    await terminal.resize(100, 65);
-    await s.waitFor('status panel stacks without losing values',()=>s.visible(s.panes.detail),text=>
-      text.includes('To do: 4')&&text.includes('Waiting for review: 4')&&text.includes('Done 界: 5')&&!text.includes(' · Waiting'));
-    await s.checkpoint('14-status-panel-narrow');
-    await s.client.request({action:'ui.command.send', command:{targetClientId:tree.clientId, command:'preview',
-      target:{kind:'block',blockId:component.id}}});
-    await s.waitVisible(s.panes.tree, 'Waiting for review: 4');
-    await s.checkpoint('15-status-panel-tree-preview');
-    await s.focus(s.panes.detail);
-    const componentQuote = 'Done 界: 5';
-    const componentPoint = await s.waitFor('status value on the attached Detail', async () => {
-      const lines = (await terminal.visible()).split('\n');
-      const header = lines.findIndex(line => line.includes('● Current'));
-      const row = lines.findIndex((line, row) => row > header && line.includes(componentQuote));
-      return row < 0 ? null : {row, column: visibleWidth(lines[row]!.slice(0, lines[row]!.indexOf(componentQuote)))};
-    }, point => !!point);
-    const componentBefore = (await readFile(transcript, 'utf8')).length;
-    const componentEnd = componentPoint!.column + visibleWidth(componentQuote);
-    await terminal.write(`\x1b[<0;${componentPoint!.column+1};${componentPoint!.row+1}M\x1b[<32;${componentEnd};${componentPoint!.row+1}M\x1b[<0;${componentEnd};${componentPoint!.row+1}m`);
-    const componentCopies = await s.waitFor('component clipboard', async () => [
-      ...(await readFile(transcript,'utf8')).slice(componentBefore).matchAll(/\x1b\]52;[^;]*;([A-Za-z0-9+/=]+)/g),
-    ].map(match => Buffer.from(match[1]!, 'base64').toString()), values => values.length > 0);
-    assert.deepEqual(componentCopies, [componentQuote]);
-    await s.keys(s.panes.detail, 'c');
-    await s.waitVisible(s.panes.detail, 'Comment');
-    await s.text(s.panes.detail, 'Status value source evidence');
-    await terminal.write('\x13');
-    const componentThreads = await s.waitFor('component annotation saved', () => s.client.request<AnnotationThread[]>({
-      action:'annotations.list',query:{subject:{kind:'block',blockId:component.id},includeResolved:true},
-    }), values => values.some(thread => thread.body === 'Status value source evidence'));
-    const componentThread = componentThreads.find(thread => thread.body === 'Status value source evidence')!;
-    assert.equal(componentThread.originalTarget.passage?.quote, componentQuote);
-    const componentSlices = componentThread.originalTarget.passage!.fragments.flatMap(fragment =>
-      fragment.kind === 'source' ? fragment.slices.map(slice => slice.anchor.exact) : []);
-    assert.deepEqual(componentSlices, ['Done 界', '5']);
-    await s.waitFor('component comment reaches the reader',()=>s.visible(s.panes.detail),text=>/^\+ Done 界: 5/m.test(text));
-    await s.keys(s.panes.detail, ']');
-    await s.waitVisible(s.panes.detail, 'Status value source evidence');
-    await s.checkpoint('16-status-panel-comment');
-    await s.record('component-passage-evidence', {componentCopies, componentThread, componentSlices});
-    assert.equal((await s.client.request<Block>({action:'get',blockId:component.id})).text,component.text);
-
     const plan=await s.client.request<Block>({action:'create',text:'# Nested plan [project::result-proof]\n\n- [ ] Parent [owner::alex] ^parent\n  - [ ] Child [owner::alex] ^child'});
     const view=await s.client.request<Block>({action:'create',text:'# Selected results\n[type::checklist-view] [plans::project=result-proof] [query::owner=alex]'});
     await s.client.request({action:'navigation.dispatch',sourceClientId:tree.clientId,sourceRegion:'tree',intent:'open',
@@ -334,7 +279,7 @@ const result = await runHerdrScenario({
         const width=visibleWidth(text.split('\n')[0]!);
         return (columns===220?width>80:width<70)&&rows.length===2&&!/^[+−] /.test(rows[0]!)&&/^[+−] /.test(rows[1]!);
       });
-      await s.checkpoint(`17-checklist-result-${columns}`);
+      await s.checkpoint(`13-checklist-result-${columns}`);
     }
     assert.equal((await s.client.request<Block>({action:'get',blockId:plan.id})).text,plan.text);
     await s.record('checklist-result-evidence',{resultThreads,input:'attached-terminal drag, comment save, wide/narrow independent result gutter'});

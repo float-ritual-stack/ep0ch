@@ -1,6 +1,6 @@
 ---
 name: ep0ch-outline
-description: Use when an agent works inside a person's outline on their behalf, shaping it to their needs while they work - writing or tidying notes, adding properties, making views, boards and pages, welcome notes and briefings, publishing a page, writing live figures and components into a note (::graph-* with query or view, callouts, component fences), adding an extension for a need, or showing them something in their ep0ch door. Covers how they write (properties by placement, soft links, links not directions), outline_edit vs outline_patch, views and hubs, pages and [welcome::n], publishing and [publish::never], the components a note can hold, the four extension kinds, and where the live guides are.
+description: Use when an agent works inside a person's outline on their behalf, shaping it to their needs while they work - writing or tidying notes, adding properties, making views, boards and pages, welcome notes and briefings, publishing a page, writing live figures and components into a note (::graph-* with query or view, callouts), adding an extension for a need, or showing them something in their ep0ch door. Covers how they write (properties by placement, soft links, links not directions), outline_edit vs outline_patch, views and hubs, pages and [welcome::n], publishing and [publish::never], the components a note can hold, the four extension kinds, and where the live guides are.
 ---
 
 # ep0ch-outline: working in someone's outline
@@ -181,11 +181,6 @@ shows the same rows in a links tile beside it.
 
 **Callouts and tables.** `> [!note] Title` (also `summary`, `warning`…) draws a box. A Markdown table draws as
 a real table with wrapped cells.
-
-**Document renderers.** A fence ` ```component:<name> ` drawn by a renderer registered on the reader's host in
-`~/.config/pi-herdr-outliner/document-renderers.json`. `status` is installed (`label :: value` per line,
-`packages/outliner/extensions/status-summary/README.md`). A renderer that isn't installed keeps the code block
-and says why.
 
 **Extension lines** (next section): `moon:: 2026-10-26`, `jira:: PC-1234`, `horoscope:: virgo`,
 `fancy-horror:: virgo`, `@tidy`. `outliner ext ls` lists what this outline has.

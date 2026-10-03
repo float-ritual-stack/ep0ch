@@ -1,4 +1,3 @@
-import {DocumentRendererCatalog} from './document-components';
 import {createHash} from 'node:crypto';
 import {AttributedMarkdown} from './attributed-markdown';
 import {DocumentFrame,generatedGlyphs,paintDocumentRows,type DocumentGlyph} from './document-frame';
@@ -242,10 +241,10 @@ interface MappedComponent extends Component {
 class CalloutMarkdown implements MappedComponent {
   private readonly attributed:AttributedMarkdown|null;
   private readonly fallback:Component;
-  constructor(source:MappedDocument,theme:MarkdownTheme,trackLinks:boolean,private readonly paint?:((text:string)=>string),piece=0,renderers=new DocumentRendererCatalog()) {
+  constructor(source:MappedDocument,theme:MarkdownTheme,trackLinks:boolean,private readonly paint?:((text:string)=>string),piece=0) {
     const key=source.runs.some(run=>run.origin.kind!=='generated')?documentProvenanceKey(source):`${piece}:${source.text}`;
     const path='callout-body:'+createHash('sha256').update(key).digest('hex').slice(0,20);
-    this.attributed=AttributedMarkdown.compile(source,theme,trackLinks,path,renderers);
+    this.attributed=AttributedMarkdown.compile(source,theme,trackLinks,path);
     const markdown=trackLinks?new LinkAwareMarkdown(source.text,theme):new Markdown(source.text,0,0,theme);
     if(paint){const box=new Box(0,0,paint);box.addChild(markdown);this.fallback=box;}else this.fallback=markdown;
   }
@@ -264,13 +263,12 @@ function markdownComponents(
   theme: MarkdownTheme,
   decoration: DetailCalloutDecoration | undefined,
   trackLinks = false,
-  renderers = new DocumentRendererCatalog(),
 ): MappedComponent[] {
   const components:MappedComponent[]=[];
   let parts:MappedDocument[]=[],decorated=false,pieceStart=0;
   const flush=()=>{
     const document=concatDocuments(parts);parts=[];
-    if(document.text)components.push(new CalloutMarkdown(document,theme,trackLinks,decorated?decoration?.decorate:undefined,pieceStart,renderers));
+    if(document.text)components.push(new CalloutMarkdown(document,theme,trackLinks,decorated?decoration?.decorate:undefined,pieceStart));
   };
   for(const line of lines) {
     const next=lineIsDecorated(line.index,decoration);
@@ -337,7 +335,6 @@ class CalloutNode {
     private readonly decoration?: DetailCalloutDecoration,
     private readonly calloutTheme: DetailCalloutTheme = DEFAULT_DETAIL_CALLOUT_THEME,
     private readonly trackLinks = false,
-    private readonly renderers = new DocumentRendererCatalog(),
   ) {
     this.pieces = [];
     let cursor = region.headerLine + 1;
@@ -356,7 +353,6 @@ class CalloutNode {
           decoration,
           calloutTheme,
           trackLinks,
-          renderers,
         ),
       });
       cursor = child.sourceSpan!.endLine + 1;
@@ -373,7 +369,6 @@ class CalloutNode {
       this.theme,
       this.decoration,
       this.trackLinks,
-      this.renderers,
     );
     this.pieces.push(...components.map((component) => ({ component })));
   }
@@ -457,7 +452,6 @@ export class DetailCalloutDocument implements Component {
     decoration?: DetailCalloutDecoration,
     calloutTheme: DetailCalloutTheme = DEFAULT_DETAIL_CALLOUT_THEME,
     trackLinks = false,
-    renderers = new DocumentRendererCatalog(),
   ) {
     const source=typeof input==='string'?generatedDocument(input,'unobserved callout document'):input;
     const lines = sourceLines(source.text);
@@ -480,7 +474,6 @@ export class DetailCalloutDocument implements Component {
             theme,
             decoration,
             trackLinks,
-            renderers,
           ).map((component) => ({ component })));
         }
       }
@@ -497,7 +490,6 @@ export class DetailCalloutDocument implements Component {
           decoration,
           calloutTheme,
           trackLinks,
-          renderers,
         ),
       });
       cursor = root.sourceSpan!.endLine + 1;
@@ -511,7 +503,6 @@ export class DetailCalloutDocument implements Component {
         theme,
         decoration,
         trackLinks,
-        renderers,
       ).map((component) => ({ component })));
     }
   }

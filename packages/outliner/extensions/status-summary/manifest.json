@@ -1,6 +1,0 @@
-{
-  "contract": 1,
-  "id": "outliner.status-summary",
-  "version": 1,
-  "renderer": { "layout": "labelled-values" }
-}

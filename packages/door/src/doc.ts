@@ -2,12 +2,11 @@
 // callouts as boxes, Markdown tables as real tables with wrapped multi-line cells, and
 // media lines as image slots the caller fills with Kitty placements.
 import { media, MEDIA_LINE, type Media } from "./media";
-import { balanceTags, BOLD, C, extractLinks, fg, type LinkRange, pad, RESET, splitVisible, stripTags, STYLE, styleMarks, trimTagged, UNBOLD, width as vwidth } from "./style";
-import { ComponentCatalog, documentComponent } from "./components";
+import { balanceTags, BOLD, C, extractLinks, fg, type LinkRange, pad, RESET, splitVisible, stripTags, styleMarks, trimTagged, UNBOLD, width as vwidth } from "./style";
 import { colourBody, wrap } from "./text";
 import { frame, isGraphStart, reframeAscii, renderGraph } from "./graphs";
 import { linkBlockLines, linkBlockAt, renderLinkBlock } from "./links";
-import { EMBED, presentLinks, stripMarks, type LinkTarget } from "./refs";
+import { EMBED, stripMarks, type LinkTarget } from "./refs";
 
 export interface DocEnv {
   width: number; cellW: number; cellH: number; graphics: boolean; maxImageRows: number; unfold: boolean;
@@ -44,17 +43,6 @@ export interface DocEnv {
    * plain. Links and Markdown still render, as the service and Detail treat them.
    */
   literal?: ReadonlySet<number>;
-  /**
-   * The renderers this note load resolved (src/components.ts), so a redraw never reads their files again.
-   * Without it each render resolves them afresh.
-   */
-  components?: ComponentCatalog;
-  /**
-   * Present text the renderer takes from inside a fence: a component's labels and values, which support
-   * links and Markdown as Detail's do. The reader passes presentLinks with its link list, so they are
-   * links `[ ]` stops on. Without it they read as links do without a service (labels, short ids).
-   */
-  present?: (text: string) => string;
   /**
    * Rows the reader inserts after body line `line` (-1: above the first), drawn once that line's construct
    * is (after a whole table, fence or callout), and not when a fold hides the line: a resource projection's
@@ -250,12 +238,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
     if (fence) {
       const code: string[] = [];
       for (i++; i < src.length && !/^\s*```/.test(src[i]!); i++) code.push(src[i]!);
-      // A component fence (```component:status): its renderer's panel, or why there isn't one above the
-      // code as typed, as Detail shows it.
-      const component = documentComponent(fence[1]!.trim(), code.join("\n"), env.components ?? new ComponentCatalog());
-      if (component?.kind === "labelled-values") { out.push(...labelledValues(component.entries, W, env.present ?? (t => presentLinks(t, false, null)))); continue; }
-      if (component) for (const l of wrap(`Component unavailable: ${component.reason}`, W)) out.push(fg(C.yellow) + l + RESET);
-      const figure = component ? null : reframeAscii(code, W);
+      const figure = reframeAscii(code, W);
       if (figure) { out.push(...figure); continue; }
       if (fence[1]) out.push(fg(C.dark) + `╭ ${fence[1].trim()}` + RESET);
       for (const c of code) for (const piece of chunk(c, W - 2)) out.push(fg(C.blue) + "│ " + fg(C.lcyan) + piece + RESET);
@@ -405,18 +388,6 @@ function prose(line: string, W: number, fold?: Disclosure, literal = false, task
   }
   if (!line.trim()) return [""];
   return wrap(line, W).map(inline);
-}
-
-/**
- * Detail's `labelled-values` layout: `label: value` items, the label bold, on one row joined by ` · ` when
- * they all fit, else one item to a row, wrapped. `present` gives a label or value its links and styles.
- */
-function labelledValues(entries: readonly { label: string; value: string }[], W: number, present: (s: string) => string): string[] {
-  const [on, off] = STYLE.bold;
-  const items = entries.map(e => on + present(e.label) + off + ": " + present(e.value));
-  const natural = items.reduce((n, it) => n + vwidth(it), 0) + (items.length - 1) * 3;
-  if (natural <= W) return [inlineOf(items.join(" · "))];
-  return items.flatMap(it => wrap(it, W).map(l => inlineOf(l)));
 }
 
 function chunk(s: string, w: number): string[] {

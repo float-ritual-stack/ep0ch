@@ -1,16 +1,11 @@
 // PIE-444: door readers draw a note the way Detail does. Markdown links read as their text and open their
 // destination (a web page in the browser, a pi-outliner:// link in the door); bold, italic and struck-out
 // text are styled, on every row they wrap onto, by CommonMark's rules (checked against marked, which
-// Detail parses with); a ```component:status fence is drawn by the renderer installed on the reader's
-// host, with Detail's registry, layout and reasons (checked against the service's own function); and the
-// BBS reader, which drew raw text, now draws its body with the same renderer and addresses a message to
+// Detail parses with); and the BBS reader, which drew raw text, now draws its body with the same renderer and addresses a message to
 // its `to::`. Fictional notes; the service ones run against a throwaway outliner only.
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Msg } from "../src/board";
-import { ComponentCatalog, documentComponent } from "../src/components";
 import { renderDoc, type DocEnv } from "../src/doc";
 import { emphasis } from "../src/inline";
 import { destinationOf, external, externalOpenCommand, fileOpenCommand } from "../src/open";
@@ -166,103 +161,10 @@ describe("Markdown links", () => {
   });
 });
 
-describe("component fences", () => {
-  const dir = mkdtempSync(join(tmpdir(), "ep0ch-components-"));
-  const registry = join(dir, "document-renderers.json"), manifest = join(dir, "status.json");
-  const MANIFEST = { contract: 1, id: "outliner.status-summary", version: 1, renderer: { layout: "labelled-values" } };
-  const install = (renderers: unknown, m: unknown = MANIFEST) => {
-    writeFileSync(registry, JSON.stringify({ version: 1, renderers }));
-    writeFileSync(manifest, JSON.stringify(m));
-  };
-  const prior = process.env.OUTLINER_DOCUMENT_RENDERERS;
-  beforeAll(() => { process.env.OUTLINER_DOCUMENT_RENDERERS = registry; });
-  afterAll(() => {
-    if (prior === undefined) delete process.env.OUTLINER_DOCUMENT_RENDERERS; else process.env.OUTLINER_DOCUMENT_RENDERERS = prior;
-    rmSync(dir, { recursive: true, force: true });
-  });
-  const STATUS = "```component:status\nTo do :: 4\n[Waiting on seeds](https://example.org/seeds) :: **2**\nDone :: 5\n```";
-  const body = (text: string, w = 60) => { const { draw } = setup(`Status\n${text}`); return draw(w).map(l => plain(l).trim()); };
-
-  test("installed, it's the status panel: one row when it fits, a row each when it doesn't; no code", () => {
-    install({ status: { manifest, enabled: true } });
-    const wide = body(STATUS);
-    expect(wide).toContain("To do: 4 · Waiting on seeds: 2 · Done: 5");
-    expect(wide.join("\n")).not.toContain("component:status");
-    const narrow = body(STATUS, 24);
-    expect(narrow).toEqual(expect.arrayContaining(["To do: 4", "Waiting on seeds: 2", "Done: 5"]));
-  });
-
-  test("its labels are bold, its values take Markdown, and a link in it is an element ⏎ opens", () => {
-    install({ status: { manifest, enabled: true } });
-    const runs: string[][] = [], run = external.run;
-    external.run = cmd => { runs.push(cmd); };
-    try {
-      const { s, h, draw } = setup(`Status\n${STATUS}`);
-      const row = draw().find(l => plain(l).includes("To do:"))!;
-      expect(row).toContain(`${BOLD}To do`);
-      expect(row).toContain(`${BOLD}2`);
-      s.key(char("]"), h); draw();
-      expect(s.describe().elements!.current).toMatchObject({ kind: "link", label: "Waiting on seeds" });
-      s.key({ kind: "enter" }, h);
-      expect(runs).toEqual([externalOpenCommand("https://example.org/seeds")]);
-    } finally { external.run = run; }
-  });
-
-  test("unavailable, it says why above the code as typed, as Detail does", () => {
-    install({ status: { manifest, enabled: false } });
-    const off = body(STATUS);
-    expect(off).toContain("Component unavailable: renderer is disabled");
-    expect(off.join("\n")).toContain("│ To do :: 4");
-    install({ other: { manifest, enabled: true } });
-    expect(body(STATUS)).toContain("Component unavailable: renderer is not installed");
-    rmSync(registry);
-    expect(body(STATUS, 90)).toContain("Component unavailable: renderer installation is unavailable or invalid");
-    expect(body("```python\nprint(1)\n```").join("\n")).not.toContain("Component unavailable");
-  });
-
-  test("a note's renderers are read once while it's shown, not on every redraw", () => {
-    install({ status: { manifest, enabled: true } });
-    const { draw } = setup(`Status\n${STATUS}`);
-    expect(draw().map(plain).join("\n")).toContain("To do: 4");
-    install({ status: { manifest, enabled: false } });
-    expect(draw().map(plain).join("\n")).toContain("To do: 4");
-  });
-
-  test.skipIf(!outliner)("the door reads the registry, the manifest and the rows exactly as the service does", async () => {
-    const { documentComponent: service } = await import(join(outliner!, "src/document-components.ts"));
-    const { observeDocument, sourceDocument } = await import(join(outliner!, "src/document-provenance.ts"));
-    const doc = (t: string) => sourceDocument(observeDocument({ kind: "block", blockId: "synthetic-status" }, t, 1));
-    const theirs = (lang: string, b: string) => {
-      const c = service(lang, doc(b), "root");
-      return c && (c.kind === "unavailable" ? c : { kind: c.kind, entries: c.entries.map((e: any) => ({ label: e.label.text, value: e.value.text })) });
-    };
-    const rows = "To do :: 4\n  Waiting :: 2  \n\nDone 界 :: 5";
-    const SETUPS: [string, () => void][] = [
-      ["installed", () => install({ status: { manifest, enabled: true } })],
-      ["disabled", () => install({ status: { manifest, enabled: false } })],
-      ["not installed", () => install({ other: { manifest, enabled: true } })],
-      ["no registry", () => rmSync(registry, { force: true })],
-      ["relative manifest", () => install({ status: { manifest: "status.json", enabled: true } })],
-      ["extra registry key", () => { writeFileSync(registry, JSON.stringify({ version: 1, renderers: { status: { manifest, enabled: true } }, extra: 1 })); }],
-      ["string enabled", () => install({ status: { manifest, enabled: "true" } })],
-      ["bad manifest", () => install({ status: { manifest, enabled: true } }, { ...MANIFEST, contract: 99 })],
-      ["manifest extra key", () => install({ status: { manifest, enabled: true } }, { ...MANIFEST, x: 1 })],
-      ["fractional version", () => install({ status: { manifest, enabled: true } }, { ...MANIFEST, version: 1.5 })],
-      ["not JSON", () => { writeFileSync(registry, "{"); }],
-      ["a directory", () => { rmSync(registry, { force: true }); mkdirSync(registry); }],
-    ];
-    const FENCES: [string, string][] = [
-      ["component:status", rows], ["component:status", ""], ["component:status", "no separator here"],
-      ["component:status", Array.from({ length: 65 }, (_, i) => `r${i} :: ${i}`).join("\n")], ["component:status", "a :: b".padEnd(17 * 1024, " ")],
-      ["component:Bad", rows], ["component:", rows], ["component:status extra", rows], ["python", rows],
-    ];
-    for (const [name, prepare] of SETUPS) {
-      rmSync(registry, { recursive: true, force: true });
-      prepare();
-      for (const [lang, b] of FENCES) expect({ name, lang, c: documentComponent(lang, b, new ComponentCatalog()) }).toEqual({ name, lang, c: theirs(lang, b) });
-    }
-    rmSync(registry, { recursive: true, force: true });
-  });
+test("a ```component:<name> fence is a code block like any other, drawn as code", () => {
+  const { draw } = setup("Status\n```component:status\nTo do :: 4\n```");
+  const lines = draw().map(l => plain(l).trim());
+  expect(lines).toEqual(expect.arrayContaining(["╭ component:status", "│ To do :: 4"]));
 });
 
 describe.skipIf(!outliner)("the BBS reader, against a scratch outline", () => {
@@ -282,14 +184,9 @@ describe.skipIf(!outliner)("the BBS reader, against a scratch outline", () => {
 
   test("draws its body like every reader: labelled refs, Markdown links, bold, metadata lines hidden", async () => {
     const kettle = await create(null, "Descale the kettle");
-    const msg = await create(null, `Allotment meeting [to::the plot committee]\n[season::autumn]\n\nBring ((${kettle.id}|the kettle)) and read [the rules](https://example.org/rules).\nThe **gate code** changed.\n\n\`\`\`component:status\nBeds dug :: 2\n[Waiting on seeds](https://example.org/seeds) :: 4\n\`\`\``);
-    const prior = process.env.OUTLINER_DOCUMENT_RENDERERS;
-    expect(scratch.installRenderers()).not.toBeNull();
-    let lines: string[];
-    try { lines = await draw((await board.get(msg.id))!); }
-    finally { if (prior === undefined) delete process.env.OUTLINER_DOCUMENT_RENDERERS; else process.env.OUTLINER_DOCUMENT_RENDERERS = prior; }
+    const msg = await create(null, `Allotment meeting [to::the plot committee]\n[season::autumn]\n\nBring ((${kettle.id}|the kettle)) and read [the rules](https://example.org/rules).\nThe **gate code** changed.`);
+    const lines = await draw((await board.get(msg.id))!);
     const text = lines.map(plain).join("\n");
-    expect(text).toContain("Beds dug: 2 · Waiting on seeds: 4");
     expect(text).toContain("Bring the kettle and read the rules.");
     expect(text).not.toContain("((");
     expect(text).not.toContain("](");

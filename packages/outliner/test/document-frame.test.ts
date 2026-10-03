@@ -1,6 +1,3 @@
-import {mkdtempSync,writeFileSync,rmSync} from 'node:fs';
-import {tmpdir} from 'node:os';
-import {join,resolve} from 'node:path';
 import {expect,test} from 'bun:test';
 import {stripTerminalSequences,visibleWidth,type MarkdownTheme} from '@earendil-works/pi-tui';
 import {parseDetailCallouts} from '../src/detail-callouts';
@@ -336,71 +333,17 @@ test('styled repeated embeds retain separate occurrences and exact source after 
   expect(frame.select({row:0,column:0},{row:2,column:6}).text).toBe(selected.text);
 });
 
-
-test('installed status renderer shares exact cells, link identity and responsive copy with tables', () => {
-  const directory = mkdtempSync(join(tmpdir(), 'outliner-components-'));
-  const registry = join(directory, 'renderers.json');
-  const prior = process.env.OUTLINER_DOCUMENT_RENDERERS;
-  process.env.OUTLINER_DOCUMENT_RENDERERS = registry;
-  const installation = {version: 1, renderers: {status: {
-    manifest: resolve('extensions/status-summary/manifest.json'), enabled: true,
-  }}};
-  writeFileSync(registry, JSON.stringify(installation));
-  try {
-    const text = '```component:status\nTo do :: 4\n[Waiting](https://example.test/waiting) :: 4\nDone 界 :: 5\n```';
-    const document = sourceDocument(observeDocument({kind: 'block', blockId: 'synthetic-status'}, text, 1));
-    const {component, frame} = reader(document, 70);
-    expect(frame.lines.map(line => line.trimEnd())).toEqual(['To do: 4 · Waiting: 4 · Done 界: 5']);
-    const value = frame.cells.find(cell => cell.text === '5')!;
-    expect(ranges(value.origins)).toEqual([[text.indexOf('5'), text.indexOf('5') + 1]]);
-    const link = component.renderedLinks.find(link => link.uri === 'https://example.test/waiting')!;
-    expect(link.label).toBe('Waiting');
-    for (const width of [16, 8, 2, 70]) {
-      component.render(width);
-      const current = component.renderedFrame!;
-      expect(current.lines.every(line => visibleWidth(line) <= width)).toBe(true);
-      expect(new Set(component.renderedLinks.map(link => link.occurrenceId))).toEqual(new Set([link.occurrenceId]));
-      expect(ranges(current.cells.find(cell => cell.text === '5')!.origins)).toEqual([[text.indexOf('5'), text.indexOf('5') + 1]]);
-      if (width === 16) expect(current.select({row: 0, column: 0}, {row: current.lines.length - 1, column: width}).text)
-        .toBe('To do: 4\nWaiting: 4\nDone 界: 5');
-    }
-    // Derived results remain copyable but cannot acquire an exact label/value anchor.
-    const result = observeDocument({kind: 'resource', resourceId: 'synthetic-result'}, '4', 2);
-    const derived = reader(concatDocuments([
-      sourceDocument(observeDocument({kind: 'block', blockId: 'synthetic-definition'}, '```component:status\nWaiting :: ')),
-      atomicDocument('4', {kind: 'derived', resultId: 'waiting-count', result,
-        dependencies: [{document: observeDocument({kind: 'block', blockId: 'synthetic-task'}, '- [~] Wait'), start: 0, end: 3}]}),
-      generatedDocument('\n```', 'component closing fence'),
-    ]), 30).frame;
-    const count = derived.cells.find(cell => cell.text === '4')!;
-    const copied = derived.select({row: count.row, column: count.column}, {row: count.row, column: count.column + 1});
-    expect(copied.text).toBe('4');
-    expect(ranges(copied.origins)).toEqual([]);
-    expect(copied.origins).toEqual([{kind: 'derived', resultId: 'waiting-count', result,
-      dependencies: [{document: observeDocument({kind: 'block', blockId: 'synthetic-task'}, '- [~] Wait'), start: 0, end: 3}]}]);
-
-    // A renderer is presentation only; disabling it keeps the editable source.
-    installation.renderers.status.enabled = false;
-    writeFileSync(registry, JSON.stringify(installation));
-    component.setContent(document, [], false);
-    component.render(70);
-    expect(component.renderedFrame!.lines.join('\n')).toContain('renderer is disabled');
-    expect(component.renderedFrame!.lines.join('\n')).toContain('To do :: 4');
-    expect(document.text).toBe(text);
-    installation.renderers.status.enabled = true;
-    writeFileSync(registry, JSON.stringify(installation));
-    const malformed = reader(sourceDocument(observeDocument({kind: 'block', blockId: 'synthetic-invalid'},
-      '```component:status\nkeep this original prose\n```')), 60).frame;
-    expect(malformed.lines.join('\n')).toContain('expected up to 64');
-    expect(malformed.lines.join('\n')).toContain('keep this original prose');
-    writeFileSync(registry, '{}');
-    const unavailable = reader(document, 70).frame;
-    expect(unavailable.lines.join('\n')).toContain('installation is unavailable or invalid');
-    expect(unavailable.lines.join('\n')).toContain('To do :: 4');
-
-  } finally {
-    if (prior === undefined) delete process.env.OUTLINER_DOCUMENT_RENDERERS;
-    else process.env.OUTLINER_DOCUMENT_RENDERERS = prior;
-    rmSync(directory, {recursive: true, force: true});
-  }
+test('a derived result stays copyable but never acquires an exact source anchor', () => {
+  const result = observeDocument({kind: 'resource', resourceId: 'synthetic-result'}, '4', 2);
+  const derived = reader(concatDocuments([
+    sourceDocument(observeDocument({kind: 'block', blockId: 'synthetic-definition'}, 'Waiting: ')),
+    atomicDocument('4', {kind: 'derived', resultId: 'waiting-count', result,
+      dependencies: [{document: observeDocument({kind: 'block', blockId: 'synthetic-task'}, '- [~] Wait'), start: 0, end: 3}]}),
+  ]), 30).frame;
+  const count = derived.cells.find(cell => cell.text === '4')!;
+  const copied = derived.select({row: count.row, column: count.column}, {row: count.row, column: count.column + 1});
+  expect(copied.text).toBe('4');
+  expect(ranges(copied.origins)).toEqual([]);
+  expect(copied.origins).toEqual([{kind: 'derived', resultId: 'waiting-count', result,
+    dependencies: [{document: observeDocument({kind: 'block', blockId: 'synthetic-task'}, '- [~] Wait'), start: 0, end: 3}]}]);
 });

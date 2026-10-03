@@ -2,7 +2,7 @@
 // as the host's default, and its own config dir; background agents off, Herdr unset. Never a real outline.
 // `restart()` stops it and starts it again on the same folder, the way a deploy would. `seedShowcase()` writes the
 // showcase outline (src/showcase/seed.ts) into it.
-import { copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import type { Subprocess } from "bun";
@@ -116,23 +116,6 @@ export class Scratch {
     const { seedShowcase } = await import("../src/showcase/seed");
     const b = new SocketBoard(this.sock);
     try { await b.info(); return await seedShowcase(b, { ticketsConfig: join(this.root, "config") }); } finally { b.close(); }
-  }
-
-  /**
-   * Install the outliner's status renderer (its extensions/status-summary manifest) for readers in this
-   * process, the way a reader host installs it (PIE-444): a registry under this scratch's config dir, named
-   * by OUTLINER_DOCUMENT_RENDERERS. Returns the registry's path, or null without the manifest.
-   */
-  installRenderers(): string | null {
-    const source = join(outliner ?? "", "extensions/status-summary/manifest.json");
-    if (!outliner || !existsSync(source)) return null;
-    const dir = join(this.root, "config", "pi-herdr-outliner");
-    mkdirSync(dir, { recursive: true });
-    const manifest = join(dir, "status.json"), registry = join(dir, "document-renderers.json");
-    copyFileSync(source, manifest);
-    writeFileSync(registry, JSON.stringify({ version: 1, renderers: { status: { manifest, enabled: true } } }));
-    process.env.OUTLINER_DOCUMENT_RENDERERS = registry;
-    return registry;
   }
 
   async dispose() { await this.stop(2000); rmSync(this.root, { recursive: true, force: true }); }
