@@ -8,7 +8,9 @@
 //
 // Answers are kept per connection and per note, like embeds (src/embeds.ts): read again when the note (or
 // the block its key came from) changes, or when a `resource-catalog` event names a Resource it shows.
-// Without the `resources.projection` capability nothing is read and nothing extra is drawn.
+// The door and the service speak one PROTOCOL (outline-core), so there is no capability to check: without an
+// outline connection, or in a note whose text names no Resource (mayHaveProjections), nothing is read and nothing
+// extra is drawn.
 import { subject, type Msg } from "./board";
 import { shade } from "./embeds";
 import { printable, type Source } from "./props";

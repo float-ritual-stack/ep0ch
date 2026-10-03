@@ -139,8 +139,9 @@ The feed is the desk's, and every view built on it (the brief, the pinned pages,
 | `actions` | everything the screen can do |
 
 Two reads need no door at all, only the outline: `ep0ch find <words>… [--lines|--json]` (the service's forgiving
-ranker, as Goto and `[[` rank; `--recent`, `--tree [<root id>]`) and `ep0ch show <id> [--width <n>] [--ansi]` (the
-note drawn by the note surface, as a reader draws it). Both take `--ws` and `--machine`.
+ranker, as Goto, `/` and `((` rank; `--recent`, `--tree [<root id>]`) and `ep0ch show <id>… [--width <n>] [--ansi |
+--cells | --source]` (each note drawn by the note surface, as a reader draws it, live figures and `::links` answered;
+`--source`, its text as written). Both take `--ws` and `--machine`.
 
 ## The shell: screens and lists
 

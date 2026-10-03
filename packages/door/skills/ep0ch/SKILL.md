@@ -26,8 +26,8 @@ pages, publishing, extensions), and `ep0ch-core` for changing this code (includi
     ep0ch where [--json]             which door, tile and Herdr pane this process runs in, and where the keys are
     ep0ch clients [--ws <name>]      who is connected to the outline (every role)
     ep0ch find [<words>… | --recent | --tree [<root>]] [--lines | --json]
-                                     notes, ranked as Goto and [[ rank them; no door needed
-    ep0ch show <id> [--width <n>]    a note drawn as a reader draws it, as text; no door needed
+                                     notes, ranked as Goto, / and (( rank them; no door needed
+    ep0ch show <id>… [--width <n>]   notes drawn as a reader draws them, as text; --source: as written; no door needed
     ep0ch peek                       the screen as text plus structured state
     ep0ch actions                    what the current screen can do, with arguments and keys
     ep0ch act <action> [key=value…] [--as <agent-id>]
@@ -184,7 +184,7 @@ yourself (path 1): `/exit`, then `claude --continue`.
   content; `open` registers a Resource first if it must), `backlinks.view filter=…` filters. In the outline tree,
   `tree.links n=<row>` shows a row's links under it and `tree.pick n=<row> [open=true]` picks one (`peek`'s
   `tree.rows` numbers them). Folding a group (`backlinks.fold`) is the person's view.
-- **Search:** `search query=<words>` answers the service's ranked hits (as Goto and `[[` rank them); nothing
+- **Search:** `search query=<words>` answers the service's ranked hits (as Goto, `/` and `((` rank them, from the desk's current note); nothing
   on screen moves. `ep0ch find <words>` is the same without a door.
 - **The desk:** `layout.get` (tiles, splits and tab sets by stable id, and `rev`), `tile.open`, `layout.move`,
   `block.mark reason=…` to ask for the person's attention. Pass `expected=<rev>` when you name by place.

@@ -163,6 +163,11 @@ describe.skipIf(!outliner)("the links tile, b, and the inline component, against
     await until(() => rows().some(r => r.kind === "outlink"), "the plan's links");
     await app.act({ action: "backlinks.view", tile: "backlinks", args: { filter: "shed" } });
     expect(rows().filter(r => r.kind !== "group").map(r => r.text)).toEqual(["the shed list → Tool shed inventory"]);
+    // outline-core's matcher, as the backlinks' filter: a typo and another word order still find the link.
+    await app.act({ action: "backlinks.view", tile: "backlinks", args: { filter: "inventroy shde" } });
+    expect(rows().filter(r => r.kind !== "group").map(r => r.text)).toEqual(["the shed list → Tool shed inventory"]);
+    await app.act({ action: "backlinks.view", tile: "backlinks", args: { filter: "rota bedz" } });
+    expect(rows().filter(r => r.kind === "resource").length).toBe(1);
     await app.act({ action: "backlinks.view", tile: "backlinks", args: { filter: "" } });
     await D().dispatch.act({ action: "backlinks.fold", tile: "backlinks", args: { kind: "outlinks" } }, USER);
     expect(rows().find(r => r.group === "outlinks").open).toBe(false);
@@ -183,6 +188,10 @@ describe.skipIf(!outliner)("the links tile, b, and the inline component, against
     expect(focusName()).toBe("reader");
     await Bun.sleep(100);
     expect({ target: list().target?.id, sel: list().sel }).toEqual(was);
+    // What `ep0ch actions` tells an agent says the same: its call reads, it never aims the person's list.
+    const summary = ((app.actions() as any).actions as any[]).find(a => a.name === "links").summary as string;
+    expect(summary).not.toMatch(/agent's opens or aims/);
+    expect(summary).toContain("never aims the person's");
   }, 60_000);
 
   test("refusals: a resource has no links; a screen without room says so; an agent doesn't fold a river column's groups", async () => {

@@ -99,18 +99,20 @@ move into one repository (PIE-530).
 
 ### Search
 
-- **Forgiving search.** Goto, Detail's `((` and `[[` completion, the door's `[[` (`pages.complete`), the desk's `/`
-  search and `ep0ch find` (`tree.search`), Inbox history search and the Backlinks filter share one
-  matcher (outline-core's `search-match.ts`). Punctuation folds ("Claude - now" finds "claude
-  now"). Words match in any order. A longer word may be off by a typo or two ("party hast" finds "party hats").
-  When all but one word match, the result still shows, below every exact match.
-- **Search from the note you are writing** (the outliner's Detail). `((` and `[[` rank from the draft's note:
-  nearer notes come first. An empty `((` lists what the note's parent and siblings link to, then nearby notes, then
-  your recent edits. `[[` also finds a work id by its note's title. Jev, when the host has a key, is told the note
-  too.
-- **In the door, not yet.** The door's `((` asks `blocks.query` (every word, any order, no typo allowance) and its
-  searches send neither the draft's note nor ask for Jev: #142 built that, and #143, merged a minute later, undid it
-  in `packages/door/src/surface/completer.ts`. It is reported for a follow-up fix.
+- **Forgiving search.** Goto, Detail's and the door's `((` (`tree.search`) and `[[` (`pages.complete`)
+  completion, the door's `/` search and `ep0ch find` (`tree.search`), Inbox history search, the Backlinks filter,
+  the links tile's Outlinks and Resources filter and a river column's `/` words share one matcher (outline-core's
+  `search-match.ts`). Punctuation folds ("Claude - now" finds "claude now"). Words match in any order. A longer
+  word may be off by a typo or two ("party hast" finds "party hats"). When all but one word match, the result
+  still shows, below every exact match.
+- **Search from the note you are writing**, in Detail and in the door. `((` and `[[` rank from the draft's note (the
+  note being edited, the one a comment is on, a new note's parent, a new card's view): nearer notes come first. An
+  empty `((` lists what the note's parent and siblings link to, then nearby notes, then your recent edits. `[[`
+  also finds a work id by its note's title. The door's `/` searches from the note you are on.
+- **Jev after a pause.** Where the host has a Jev key, a 300 ms pause in the door's `((`, `[[` or `/` asks Jev to
+  re-order the same hits, told the note. What you picked stays picked; if you moved or typed meanwhile, the answer
+  is dropped. The footer says `jev…` while it asks and `jev ranked` after. A host without a key is asked once.
+- In a river column's `/`, `-word` now hides exactly the notes `word` would show (a typo included).
 - `blocks.query`'s `text` (agent tools, `list --text`) matches every word in any order, not one phrase.
 
 ### Links and resources on every screen
@@ -174,7 +176,9 @@ move into one repository (PIE-530).
 - **New commands** for pickers and scripts:
   - `ep0ch find [words… | --recent | --tree [<root id>]] [--lines | --json]`: the service's ranked search, the
     newest notes, the outline as a tree, or every note;
-  - `ep0ch show <id> [--ansi] [--width <n>]`: a note drawn as a reader draws it;
+  - `ep0ch show <id>… [--source | --ansi | --cells] [--width <n>]`: each note drawn as a reader draws it, its live
+    figures, `::links` and a view note's results answered by the outline, folded callouts open (no key hints); `--source` prints each note's text exactly as written, `---`
+    between notes, for a Markdown file (`ep0ch show --source $(tv ep0ch) >> notes.md`);
   - `ep0ch outline list --all`: every outline, here and on the machines you opened;
   - `ep0ch open ((id))` takes the bracketed form.
 
@@ -191,6 +195,10 @@ move into one repository (PIE-530).
 - `ep0ch session list` shows ages as the rest of the door does (`up 2d`). `ep0ch act` and `peek` with no door say
   `no door answered at <path>`.
 - The showcase index scrolls, so no section is cut off.
+- Inline code that wraps onto the next row is code on both rows; no stray backtick is left showing.
+- `outliner --help` (and `-h`, `help`, or no command) prints the CLI's usage; it used to throw, or list the folder's
+  outline. An unknown command says so and exits 2.
+- `ep0ch --help` lists `ep0ch outline list --all` and `--lines`.
 
 ### Recent mentions in Claude Code, and BlockView
 

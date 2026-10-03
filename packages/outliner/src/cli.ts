@@ -43,6 +43,60 @@ while (process.argv[2] === "--ws" || process.argv[2]?.startsWith("--ws=")) {
   process.env.EP0CH_WS = value;
   process.argv.splice(2, argument === "--ws" ? 2 : 1);
 }
+const OUTLINE_USAGE = "outline create <name> | import <database.sqlite> <name> | close <name> | delete <name>   (each with --json); init [<name>] [--folder <dir>]";
+
+/** `outliner --help`, `-h`, `help` and a bare `outliner`: what it does, never a command run on the folder's outline. */
+const USAGE = `usage: outliner [--ws <name>] <command> [options]
+
+The outline host's command line: each command asks the outline this folder names (--ws, EP0CH_WS, the nearest
+.ep0ch). Writes take --author user|agent|system and --actor <id> (--session <id>); an agent names itself.
+
+Reading
+  list [--filter key=value]… [--query <expression>] [--text <words>] [--subtree <id>] [--limit <n>] [--fields <f,…>]
+  read <id>… [--fields <f,…>]          blocks by id, whole or the fields named
+  view <view id> [--limit <n>] [--offset <n>] [--expected <revision>]
+                                       a saved view's members, as the service reads them
+  ticket <id> [--line <n>]             a Resource projection in a block
+  goto <id, prefix or words> [--limit <n>] [--client <tree client id>]
+                                       the block that best matches, selected in Tree
+  resolve <pi-outliner:// url>         where a link points
+  activity [--limit <n>] [--since <time>] [--after <cursor>] [--author …] [--actor <id>] [--kinds <k,…>]
+  changes --since <sequence> [--limit <n>]
+  selection | clients [--role <role>] | properties-preview --text <text>
+  mentions list [--agent <a> --session <id>] [--limit <n>] | ingest (JSON on stdin) | clear
+
+Writing
+  create --text <text> [--parent <id>]   capture --text <text> | --stdin
+  update --id <id> --text <text> --expected <revision>
+  move --id <id> --parent <id|root> [--position <n>]
+  delete --id <id> | restore --id <id>
+  comment --id <id> --expected <revision> --text <text> | --stdin [--quote <text> …]
+  agent read|edit …                    an agent's read and edit (JSON), as the Pi extension's tools
+  work …, note …                       roadmap items and notes ("outliner work" lists them)
+  work-id-status | work-id-configure --prefix <P> | work-id-allocate
+
+Panes, links and the door
+  select --id <id>                     the block Tree selects
+  link <pi-outliner:// url> [--tree-client <id> | --detail-client <id> | --source-client <id> …]
+  door-open <id> [--control <socket>] [--actor <id>] [--from <tile>]
+
+Outlines
+  outlines [--json]                    the host's outlines
+  ${OUTLINE_USAGE}
+  import <source.sqlite> <target.sqlite> [--json]
+                                       a new outline database from an older one (no host needed)
+  bound-folder [<folder>]              the nearest folder whose .ep0ch names an outline
+
+Publishing and extensions
+  publish serve [--port <n>] [--root <dir>]… [--public-url <url>] … | publish list [--json]
+  ext …                                install and list extensions
+
+More in README.md, "Headless service and CLI".`;
+if (["--help", "-h", "help", undefined].includes(process.argv[2])) {
+  console.log(USAGE);
+  process.exit(0);
+}
+
 /**
  * `import <source.sqlite> <target.sqlite> [--json]`: a new outline database at
  * `target` with the current schema, filled from `source` (opened read-only):
@@ -226,7 +280,6 @@ function describeHostedOutline(outline: HostedOutlineSummary): string {
   return [`${outline.name}  ${flags.join("  ")}`, `  database ${outline.database}`, `  folder   ${outline.folder}`].join("\n");
 }
 
-const OUTLINE_USAGE = "outline create <name> | import <database.sqlite> <name> | close <name> | delete <name>   (each with --json); init [<name>] [--folder <dir>]";
 
 /**
  * `outlines [--json]` lists the outline host's outlines. `outline create|import|close|delete` go through the
@@ -513,7 +566,7 @@ async function runAgentCommand(args: string[]): Promise<number> {
   }
 }
 
-const [command = "list", ...rest] = process.argv.slice(2);
+const [command = "", ...rest] = process.argv.slice(2);
 const client = createOutlinerClient(paths);
 let request: RequestInput | null = null;
 let directResult: unknown;
@@ -1021,7 +1074,8 @@ switch (command) {
     break;
   }
   default:
-    throw new Error(`Unknown command: ${command}`);
+    console.error(`error: unknown command: ${command}; outliner --help lists them`);
+    process.exit(2);
 }
 
 // Older services treat an absent timestamp token as an unconditional update.

@@ -411,6 +411,10 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
     expect(out.filter).toBe("Thin");
     expect(out.listed).toBe(1);
     expect((app as any).message).toContain(`an agent (${AS}) filtered`);
+    // A bare word is outline-core's matcher (a typo forgiven, punctuation folded); -word lists what word leaves out.
+    expect(await act("column.filter", { query: "seedlngs" }, own.reader)).toMatchObject({ listed: 1 });
+    expect(await act("column.filter", { query: "hands-width" }, own.reader)).toMatchObject({ listed: 1 });
+    expect(await act("column.filter", { query: "-seedlngs" }, own.reader)).toMatchObject({ listed: 1 });
     // A property clause is the service's query (query.matches), a word or author: the column's own.
     const lib2 = (await act("tile.open", { kind: "river.column", source: "roots", where: "next" }, own.reader)) as { tile: string };
     await until(() => (paneOf(lib2.tile).items?.length ?? 0) >= 3, "a second Library");

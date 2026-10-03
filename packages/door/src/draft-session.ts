@@ -12,7 +12,7 @@ import { subject, type Msg } from "./board";
 import { DRAFT_ACTIONS, pruneOld, sameParty, tidy, whenPut, PATCH_FLASH_MS, Draft, type DraftAction, type DraftActionArgs } from "./edit";
 import { actorIdOf, EditConflict, isExtensionWriter, Refused, USER, type Actor, type Comment, type CommentPassage, type DraftAnswer, type DraftHoldHandle, type DraftRequest, type SocketBoard } from "./socket";
 import { ActionRefused, agentLabel, type DraftUse } from "./surface/actions";
-import { completionKey, type Completer } from "./surface/completer";
+import { completerOf, completionKey, type Completer } from "./surface/completer";
 import { outlineState } from "./state";
 import type { Key } from "./term";
 import { markStart } from "@ep0ch/outline-core/draft-patch-compare";
@@ -42,6 +42,8 @@ export interface DraftTarget {
   readonly verb: "save" | "send" | "create";
   /** The block it edits in place: held on the service while open (`drafts.hold`), and what the agent rule keys on. */
   readonly blockId?: string;
+  /** The note it's written about (the edited note, the commented one, the parent, the view): `((` and `[[` search from there. */
+  readonly near?: string;
   /** A click away writes it (an edit), or puts it aside unsent (a comment, a reply, a new card: sending is explicit). */
   readonly leaveWrites: boolean;
   /**
@@ -140,6 +142,7 @@ export class DraftSession {
     const by = init.by ?? USER;
     if (target.blockId) { const why = agentRefusal(by, { board: env.board, blockId: target.blockId }); if (why) throw new ActionRefused(why); }
     const s = new DraftSession(target, new Draft(target.blockId ?? target.place, init.base ?? 0, init.text ?? "", init.props ?? {}), by, env);
+    s.draft.near = target.near;
     if (by.kind !== "agent") s.restore();
     if (target.blockId) {
       registry(env.board).add(s);
@@ -453,6 +456,8 @@ export class DraftSession {
     this.hold?.release();
     this.hold = null;
     registry(this.env.board).delete(this);
+    // Its popup goes with it, and a Jev re-order still waiting for its pause is never asked.
+    completerOf(this.draft)?.dismiss();
     this.env.closed?.(how, this);
   }
 
@@ -590,7 +595,7 @@ export function blockTarget(m: Msg, o: {
   const redraw = () => o.redraw?.();
   return {
     place: `edit:${m.id}`, back: "e brings it back", label: m.id.slice(0, 8), what: `the edit to “${subject(m).slice(0, 40)}”`,
-    verb: "save", blockId: m.id, leaveWrites: true,
+    verb: "save", blockId: m.id, near: m.id, leaveWrites: true,
     async submit(s, by, { asked, away }) {
       const d = s.draft;
       if (!d.dirty) return { ok: true, said: "nothing changed" };
@@ -698,7 +703,7 @@ export function commentTarget(o: {
   const no = (why: string, more: { stale?: boolean; again?: boolean } = {}): Outcome => { o.refused?.(why, !!more.stale); return { ok: false, why, ...more }; };
   const key = (t: CommentWhere, body: string) => JSON.stringify(t.kind === "quote" ? ["comment", t.blockId, t.revision, t.passage.start, t.passage.quote, body] : ["reply", t.thread.id, body]);
   return {
-    place: w0.kind === "quote" ? `comment:${o.note.id}` : `reply:${w0.thread.id}`,
+    place: w0.kind === "quote" ? `comment:${o.note.id}` : `reply:${w0.thread.id}`, near: o.note.id,
     back: w0.kind === "quote" ? "C and a passage bring it back" : "r on the thread brings it back",
     label: `${o.note.id.slice(0, 8)}-${w0.kind === "quote" ? "comment" : "reply"}`,
     what: `the ${w0.kind === "quote" ? "comment" : "reply"} on ${title}`,
@@ -757,7 +762,7 @@ export function cardTarget(o:
   const card = o.kind === "card";
   const label = card ? `new-card-${slug(o.lane)}` : `new-note-${o.parent.id.slice(0, 8)}`;
   return {
-    place: card ? `card:${o.view}` : `child:${o.parent.id}`,
+    place: card ? `card:${o.view}` : `child:${o.parent.id}`, near: card ? o.view : o.parent.id,
     back: card ? `n in ${o.lane} brings it back` : "N on the card brings it back",
     label,
     what: card ? `the new card in ${o.lane}` : `the new note under “${subject(o.parent).slice(0, 40)}”`,

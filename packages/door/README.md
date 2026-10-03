@@ -76,7 +76,8 @@ One walk through the door, in the order you meet things. Each step has its own s
 8. **Write.** `e` in any reader edits the note. `Enter` continues a list, `Tab` and `Shift+Tab` nest and
    outdent, `Ctrl+P` previews, `Ctrl+S` saves (the first press says which properties would change). `Esc`
    twice puts unsaved text aside as **unsent**; `e` on the same note brings it back. `[[` completes
-   pages with the service's forgiving matcher (a typo or two), `((` notes with every word in any order, and `Ctrl+T`
+   pages and `((` notes with the service's forgiving search (a typo or two, any order), nearer the note you're writing
+   first, Jev re-ordering after a pause where the host has a key, and `Ctrl+T`
    (or a click on `[insert]`) opens television's `ep0ch` channel in a tile beside the draft (the whole terminal on the board): pick notes (Tab for
    several) and their `((id))`s go in at the cursor ([Editing notes](#editing-notes)).
 9. **On a Mac,** set the terminal to send Option as Alt (Ghostty `macos-option-as-alt = true`, kitty
@@ -422,8 +423,8 @@ A checkout from before `install` gets it by hand, once:
 | `ep0ch try …` | `scripts/try-it.sh`: the door on a private copy (`--copy`), or on the showcase outline (`--showcase`, `--reset`) |
 | `ep0ch init [<name>]`, `ep0ch outline …`, `ep0ch status` | name this folder's outline, and the host's outlines (see [Outlines on the outline host](#outlines-on-the-outline-host)) |
 | `ep0ch --skill [--all] [<name>]` | the stack's skills (this door's `skills/` and the outliner's `pi-extension/skills/`: the installed plugin's, found through Herdr, else packages/outliner beside the door), or the path of one skill's `SKILL.md`; `--all` adds contributor skills |
-| `ep0ch find [<words>… \| --recent \| --tree [<root id>]] [--lines \| --json]` | the outline's notes for a picker or a script: with words, the service's ranked search (as Goto and `[[` rank them, at most 30); `--recent`, its newest 30; `--tree`, the outline (or the notes under the root) depth first in the service's order, drawn with `├─ │ └─` (past ten levels the outer rails become `…<depth>`); without, every note, newest first. `--lines` prints `id<TAB>title<TAB>path`, and with `--tree` then `<TAB>depth<TAB>glyphs<TAB>about` (work id, stage, type); television's `ep0ch` channel reads them |
-| `ep0ch show <id> [--ansi \| --cells] [--width <n>] [--rows <n>]` | the note drawn as a reader draws it (the note surface), at that width; `--ansi` keeps its colours (a picker's preview); `--cells` prints it as JSON cells for a program that paints a grid (the Claude mod's BlockView draws them as a `Raster`; `src/cells.ts` has the format); `--rows` keeps the first rows, for a preview |
+| `ep0ch find [<words>… \| --recent \| --tree [<root id>]] [--lines \| --json]` | the outline's notes for a picker or a script: with words, the service's ranked search (`tree.search`, the ranker Goto, `/` and `((` use, asked from no note and without Jev; at most 30); `--recent`, its newest 30; `--tree`, the outline (or the notes under the root) depth first in the service's order, drawn with `├─ │ └─` (past ten levels the outer rails become `…<depth>`); without, every note, newest first. `--lines` prints `id<TAB>title<TAB>path`, and with `--tree` then `<TAB>depth<TAB>glyphs<TAB>about` (work id, stage, type); television's `ep0ch` channel reads them |
+| `ep0ch show <id>… [--source \| --ansi \| --cells] [--width <n>] [--rows <n>]` | each note drawn as a reader draws it (the note surface), at that width, its live figures and `::links` answered by the outline and a view note's results under it (`views.read`, drawn as an embedded view), folded callouts open (no key hints), a blank line between notes; `--source` prints each note's text exactly as written (properties, links, `::` blocks; no header, no wrapping), `---` between notes, for a Markdown file (`ep0ch show --source $(tv ep0ch) >> notes.md`); `--ansi` keeps the colours (a picker's preview); `--cells` prints each as a line of JSON cells for a program that paints a grid (the Claude mod's BlockView draws them as a `Raster`; `src/cells.ts` has the format); `--rows` keeps the first rows, for a preview |
 | `ep0ch outline list --all [--lines]` | every outline you can open from here: this machine's, then each machine you've opened before (a machine not connected now says so; nothing is started) |
 | `ep0ch clients [--ws <name>] [--machine <ssh-name>]` | who's connected to the outline: every role, observers and roles this door doesn't know yet |
 | `ep0ch session list`, `attach [--watch]`, `end [--yes] [--all]`, `upgrade [--clients] [--all]`, `restart` | the door sessions, one per outline (see [Sessions](#sessions-quit-is-detach)): every one listed with who's attached and what runs; attach to this folder's (or `--ws`'s), end it, hand it to a new daemon on this checkout's code (its programs keep running); `--all` for every session |
@@ -1014,7 +1015,9 @@ The board's new-card composer is the same control too.
 
 - **Reference completion** works in every draft, comments and replies included, the way Tree, Detail and
   Quick Capture do it, from the same service lookups, so the door keeps no index: `[[` offers pages,
-  aliases and Work IDs (`pages.complete`), `((` blocks by text (`blocks.query`), `((note#heading` or
+  aliases and Work IDs (`pages.complete`), `((` blocks by the one search (`tree.search`, Goto's forgiving ranker),
+  both asked from the draft's note and, after a 300 ms pause, re-ordered by Jev where the host has a key (the footer
+  says `jev ranked`; the picked candidate stays picked), `((note#heading` or
   `((note^id` fragments across every note (`fragments.candidates`, by the service's fragment rules; the
   door has none of its own), and `[file::` workspace paths (`files.complete`). The selected candidate
   shows where it sits and how it starts (`blocks.context`). A Work ID inserts `[[WORK-ID|title]]` (or

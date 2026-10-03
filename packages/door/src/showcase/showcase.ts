@@ -115,11 +115,12 @@ export const SECTIONS: Section[] = [
     },
   },
   {
-    key: "search", need: "find a note by words", part: "the service's one search: tree.search, Goto's forgiving ranker (punctuation folded, any word order, a typo or two), behind the desk's / (and the river's g) and ep0ch find; [[ on pages.complete, (( on blocks.query", files: "src/socket.ts, src/desk/desk.ts, src/surface/completer.ts, src/notes-cli.ts, outline-core/src/search-match.ts",
-    aside: "the overlay opens with \"alotment notebok\" typed: two typos, the notebook still first, and notes holding all but one word below it · type to search again, ⏎ opens the hit in the reader · the note under it says what to try; esc puts the overlay away · `ep0ch find` answers the same from a shell",
+    key: "search", need: "find a note by words", part: "the service's one search: tree.search, Goto's forgiving ranker (punctuation folded, any word order, a typo or two), behind the desk's / (and the river's g), (( in a draft and ep0ch find; [[ on pages.complete; from the note you're in, Jev after a pause", files: "src/socket.ts, src/desk/desk.ts, src/surface/completer.ts, src/notes-cli.ts, outline-core/src/search-match.ts",
+    aside: "the overlay opens with \"alotment notebok\" typed: two typos, the notebook still first, and notes holding all but one word below it · type to search again, ⏎ opens the hit in the reader · the note under it says what to try; esc puts the overlay away, then e in the note and (( with the same typos finds it the same way · `ep0ch find` answers the same from a shell",
     stage(n, show) {
       const r = new ReaderPane();
-      return deskOf({ title: "showcase · search", panes: [r] }, show, [[r, n.finding]], d => { void d.searchNotes("alotment notebok", undefined, USER); });
+      // The overlay asks from the desk's current note, as the person's / does: nearer notes first, and Jev told it.
+      return deskOf({ title: "showcase · search", panes: [r] }, show, [[r, n.finding]], d => { if (n.finding) d.setCurrent(n.finding); void d.searchNotes("alotment notebok", undefined, USER); });
     },
   },
   {

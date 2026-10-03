@@ -11,6 +11,7 @@ import { Help, MainMenu } from "../src/screens";
 import { FIGURE_KINDS, LANES, loadShowcase, SEED, seedShowcase, type Seeded } from "../src/showcase/seed";
 import { SECTIONS, Showcase, SHOWCASE_ACTIONS } from "../src/showcase/showcase";
 import { SocketBoard } from "../src/socket";
+import { jevOff } from "../src/surface/completer";
 import type { Key } from "../src/term";
 import { outliner, Scratch, until } from "./scratch";
 
@@ -371,6 +372,44 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     const lentil = await app.act({ action: "search", args: { query: "soup, lentil" }, as: "test-agent" }) as any;
     expect(lentil.hits[0].title).toBe("Lentil soup");
     expect(S().focus).toBe("index");
+  }, 20_000);
+
+  test("search: (( forgives a typo and another order through act, from the note read there; / asks from that note, then Jev keeps the pick", async () => {
+    (app as any).lastInput = 0;
+    const finding = seeded.notes.finding.id;
+    const asked: { query: string; semantic: boolean; near?: string }[] = [];
+    const real = board.searchBlocks.bind(board);
+    // Jev, as a host with a key would answer: the same hits, reversed, said "ranked".
+    board.searchBlocks = async (text, opts = {}) => {
+      asked.push({ query: text, semantic: !!opts.semantic, near: opts.near });
+      const r = await real(text, { ...opts, semantic: false });
+      return opts.semantic ? { ...r, matches: [...r.matches].reverse(), semantic: { status: "ranked" } } : r;
+    };
+    // A scratch host has no Jev key (test/scratch.ts): the overlay that said so is asked again, of the stand-in.
+    jevOff.delete(board);
+    try {
+      S().stages.delete(3);                                       // the search stage built again, its overlay asking the stand-in
+      expect(await app.act({ action: "section", args: { name: "search" }, as: "test-agent" })).toEqual({ section: 4, key: "search" });
+      await until(() => screen().includes("hit(s)"), "the stage's overlay", 5000);
+      // (( in the reader's note: the same search a draft's popup asks, with a typo in each word, then another order.
+      const typo = await app.act({ action: "complete", args: { text: "((alotment notebok" }, as: "test-agent" }) as any;
+      expect(typo).toMatchObject({ kind: "block", query: "alotment notebok" });
+      expect(typo.items[0]).toMatchObject({ n: 1, label: "Allotment notebook", insertion: `((${seeded.notes.notebook.id}))` });
+      const order = await app.act({ action: "complete", args: { text: "((soup lentl" }, as: "test-agent" }) as any;
+      expect(order.items[0].label).toBe("Lentil soup");
+      expect(asked.filter(a => a.query === "soup lentl").map(a => a.near)).toEqual([finding]);
+      // The / overlay the section opened asked from the note under it; after a pause, Jev's order with the pick kept.
+      await until(() => screen().includes("jev ranked"), "Jev's order in the overlay", 5000);
+      expect(asked.some(a => a.query === "alotment notebok" && a.semantic && a.near === finding)).toBe(true);
+      expect(screen().split("\n").find(l => l.includes("/ alotment notebok"))).toContain("jev ranked");
+      // Jev's order (the stand-in reversed it) puts another note first, and the notebook, picked before, is still the
+      // one read on the right: the first list row and the picked note share the overlay's first row.
+      const rows = screen().split("\n"), at = rows.findIndex(l => l.includes("/ alotment notebok"));
+      const first = rows[at + 2]!;
+      expect(first).not.toMatch(/│ Allotment notebook\s+│ Allotment notebook/);
+      expect(first).toMatch(/│ Allotment notebook\s+│/);
+      expect(S().focus).toBe("index");
+    } finally { board.searchBlocks = real; }
   }, 20_000);
 
   test("on an outline without the showcase it says so and writes nothing", async () => {

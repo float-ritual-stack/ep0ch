@@ -8,6 +8,9 @@ import { join, resolve } from "node:path";
 import type { Subprocess } from "bun";
 import { HERDR_VARS } from "../src/desk/pty";
 
+/** Jev's key (the outliner's search-ranking.ts and note assistance read it): a scratch host never gets it. */
+const NO_JEV = ["TYPESAFE_API_KEY"];
+
 /** The outliner package: EP0CH_OUTLINER, else this repository's packages/outliner. */
 export const outliner = [process.env.EP0CH_OUTLINER, resolve(import.meta.dir, "../../outliner")]
   .find(p => p && existsSync(join(p, "src/host-main.ts")));
@@ -77,7 +80,8 @@ export class Scratch {
       EP0CH_OUTLINES: this.outlines, EP0CH_DEFAULT_WS: this.name, XDG_CONFIG_HOME: join(this.root, "config"),
       OUTLINER_INBOX_AGENT: "0", OUTLINER_NOTE_ASSISTANCE: "0",
     };
-    for (const k of [...HERDR_VARS, "EP0CH_SOCKET", "EP0CH_WS"]) delete env[k];
+    // No Jev key: a scratch host answers searches with text matches only, never a paid call.
+    for (const k of [...HERDR_VARS, ...NO_JEV, "EP0CH_SOCKET", "EP0CH_WS"]) delete env[k];
     this.proc = Bun.spawn(["bun", "src/host-main.ts"], { cwd: outliner!, env, stdout: "ignore", stderr: "ignore" });
     const path = join(this.outlines, ".host", "host.sock");
     const { hostRequest, SocketBoard } = await import("../src/socket");
@@ -149,7 +153,7 @@ export class ScratchHost {
       ...(process.env as Record<string, string>), ...this.env,
       OUTLINER_INBOX_AGENT: "0", OUTLINER_NOTE_ASSISTANCE: "0",
     };
-    for (const k of [...HERDR_VARS, "EP0CH_DEFAULT_WS", "EP0CH_SOCKET", "EP0CH_WS"]) delete env[k];
+    for (const k of [...HERDR_VARS, ...NO_JEV, "EP0CH_DEFAULT_WS", "EP0CH_SOCKET", "EP0CH_WS"]) delete env[k];
     if (defaultOutline) env.EP0CH_DEFAULT_WS = defaultOutline;
     this.proc = Bun.spawn(["bun", "src/host-main.ts"], { cwd: hostOutliner!, env, stdout: "ignore", stderr: "ignore" });
     const { hostLive } = await import("../src/discover");
