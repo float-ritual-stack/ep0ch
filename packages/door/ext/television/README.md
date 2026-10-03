@@ -14,7 +14,16 @@ imports this folder. Delete it and the door works as before; the next `ep0ch ins
 from each of the `ep0ch` channel's sources.
 
 A Tree of part of the outline: `EP0CH_TV_ROOT=<id> tv ep0ch` (tv takes no channel argument: its second word is a
-folder), or `tv ep0ch --source-command "ep0ch-tv tree <id>"`. The channel keeps its sources' order (`no_sort`, no
+folder), or `tv ep0ch --source-command "ep0ch-tv tree <id>"`. The notes a query holds for, as the outline evaluates it
+(`ep0ch find --query`: the saved views' grammar, in outline order):
+
+```sh
+tv ep0ch --source-command 'ep0ch-tv query "type=chore updated >= -7d"'
+EP0CH_TV_QUERY="type=errand tag=spring" tv ep0ch --source-command "ep0ch-tv query"
+ep0ch show $(tv ep0ch --source-command 'ep0ch-tv query "type=errand"')    # pick some, draw them
+```
+
+The channel keeps its sources' order (`no_sort`, no
 frecency), as the `git-log` channel keeps git's: typing narrows the tree without reordering it, and Recent and All stay
 newest first.
 
@@ -30,8 +39,9 @@ Kitchen sink  · showcase
 │  └─ Comment on “The spare inner tubes”  · annotation
 │     └─ Comment on “The spare inner tubes”  · annotation-reply
 └─ Allotment figures
-``` The
-preview of a note is the note as the door draws it (`ep0ch show <id> --ansi`, the note surface), of a file its start
+```
+
+The preview of a note is the note as the door draws it (`ep0ch show <id> --ansi`, the note surface), of a file its start
 (`bat` when it's there), of an outline its newest notes. `ctrl-x` lists a channel's actions, `ctrl-t` switches channel.
 
 ## Which outline
@@ -103,7 +113,8 @@ code.
 - **Sources:** `ep0ch find --tree [<root>] --lines` prints the outline depth first, in the service's own order (its
   tree index, the walk Tree draws), each note with its depth and the `├─ │ └─` that draw its place (past ten levels the
   outer rails become `…<depth>`, so a deep title stays in view); `ep0ch find --recent --lines` and `ep0ch find --lines`
-  print the newest and every note as `id<TAB>title<TAB>path`. `ep0ch-tv` colours them as git's `--color` colours a log
+  print the newest and every note as `id<TAB>title<TAB>path`, and `ep0ch find --query "<expression>" --lines` the notes a
+  query holds for (`ep0ch-tv query`). `ep0ch-tv` colours them as git's `--color` colours a log
   (`ansi = true`, `no_sort`, no frecency, as the `git-log` channel) and puts the note's id after the line in an empty
   OSC 8 link (`ESC ]8;;ep0ch:<id> ESC \`). tv drops escapes from what it shows and from what it matches, so the id is
   out of view and the letters you type never match its hex (an id after a tab, or past the right edge, would be

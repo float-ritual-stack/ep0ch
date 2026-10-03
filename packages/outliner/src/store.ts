@@ -20,7 +20,7 @@ import { blockAnnotationRepresentation } from "./annotation-representations";
 import { RESOURCE_DIRECTIVE_PROVIDERS } from "./resource-references";
 import { extensionActorId, extensionWriteRefusal, type ExtensionRecordOwner } from "./extension-records";
 import { authoredTextDigest } from "./authored-links";
-import { resolveBacklinkRelation } from "./backlinks";
+import { backlinkSourceIds, resolveBacklinkRelation } from "./backlinks";
 import { rankBlockFocusMatches } from "./block-focus";
 import { rankTextSearchMatches, searchTextTerms } from "@ep0ch/outline-core/search-match";
 import { normalizeBlockReadFields, normalizeBlockReadIds, projectBlock } from "./block-projection";
@@ -45,6 +45,7 @@ import {
 } from "./block-query";
 import {
   firstLineWithoutPropertyTokens,
+  withHeaderDashes,
   literalMarkerLineRanges,
   formatProperty,
   matchingPropertyRecords,
@@ -678,7 +679,7 @@ function compactTreeBlock(
   const markerLines = literalMarkerLineRanges(title);
   if (metadata.properties.length) {
     replaceRanges([
-      ...parsePropertyRecords(title).filter(record => record.syntax !== "hashtag"),
+      ...withHeaderDashes(title, parsePropertyRecords(title).filter(record => record.syntax !== "hashtag")),
       ...markerLines,
     ].sort((left, right) => left.start - right.start), "");
     let lineStart = 0;
@@ -2695,37 +2696,45 @@ export class OutlinerStore {
   queryBacklinks(input: BacklinkQuery): BacklinkCollection {
     return this.database.transaction(() => {
       const query = { ...input, targetBlockId: input.targetBlockId.trim() };
-      const graph = this.loadGraph();
-      const target = graph.byId.get(query.targetBlockId);
+      const context = this.backlinkContextFromCurrentRead();
+      const target = context.blocksById.get(query.targetBlockId);
       if (!target) throw new Error(`Block not found: ${query.targetBlockId}`);
-
-      const orderedBlocks: Block[] = [];
-      const visit = (block: Block): void => {
-        orderedBlocks.push(block);
-        for (const child of graph.byParent.get(block.id) ?? []) visit(child);
-      };
-      for (const root of graph.byParent.get(null) ?? []) visit(root);
-
-      const addressRows = this.database.query(
-        "SELECT normalized_address, block_id FROM page_addresses ORDER BY normalized_address",
-      ).all() as Array<{ normalized_address: string; block_id: string }>;
-      const addressTargets = new Map(
-        addressRows.map((row) => [row.normalized_address, row.block_id]),
-      );
-      // A ticket key with no page of its own links to its ticket page (PIE-408's ticket keys).
-      for (const [key, blockId] of this.ticketPagesFromCurrentRead()) {
-        const normalized = tryNormalizePageAddress(key)?.normalizedAddress;
-        if (normalized && !addressTargets.has(normalized)) addressTargets.set(normalized, blockId);
-      }
-      return resolveBacklinkRelation({
-        query,
-        target,
-        orderedBlocks,
-        blocksById: graph.byId,
-        addressTargets,
-        workIdPrefix: this.workIdAllocatorFromCurrentRead()?.prefix ?? null,
-      });
+      return resolveBacklinkRelation({ query, target, ...context });
     })();
+  }
+
+  /** The ids of the active blocks linking to each of `ids` (the backlink relation, one pass), in outline order. */
+  backlinkSources(ids: readonly string[]): Map<string, string[]> {
+    return this.database.transaction(() => backlinkSourceIds(this.backlinkContextFromCurrentRead(), new Set(ids)))();
+  }
+
+  /** What the backlink relation reads: every block in outline order, page addresses and ticket keys, the Work-ID prefix. */
+  private backlinkContextFromCurrentRead() {
+    const graph = this.loadGraph();
+    const orderedBlocks: Block[] = [];
+    const visit = (block: Block): void => {
+      orderedBlocks.push(block);
+      for (const child of graph.byParent.get(block.id) ?? []) visit(child);
+    };
+    for (const root of graph.byParent.get(null) ?? []) visit(root);
+
+    const addressRows = this.database.query(
+      "SELECT normalized_address, block_id FROM page_addresses ORDER BY normalized_address",
+    ).all() as Array<{ normalized_address: string; block_id: string }>;
+    const addressTargets = new Map(
+      addressRows.map((row) => [row.normalized_address, row.block_id]),
+    );
+    // A ticket key with no page of its own links to its ticket page (PIE-408's ticket keys).
+    for (const [key, blockId] of this.ticketPagesFromCurrentRead()) {
+      const normalized = tryNormalizePageAddress(key)?.normalizedAddress;
+      if (normalized && !addressTargets.has(normalized)) addressTargets.set(normalized, blockId);
+    }
+    return {
+      orderedBlocks,
+      blocksById: graph.byId,
+      addressTargets,
+      workIdPrefix: this.workIdAllocatorFromCurrentRead()?.prefix ?? null,
+    };
   }
 
   resolvePageAddress(address: string): PageAddressResolution {
@@ -3218,20 +3227,43 @@ export class OutlinerStore {
     })();
   }
 
-  /** query.matches: which of `ids` (active blocks) the query holds for, with saved-view semantics. */
-  matchQuery(expression: unknown, ids: unknown): { blockIds: string[] } {
-    if (typeof expression !== "string" || !expression.trim()) throw new Error("Query match needs a query expression");
+  /**
+   * query.matches: which of `ids` (active blocks) the query holds for, with saved-view semantics, in the order given.
+   * `text` (every word, any order) and `subtreeRootId` (that block and those under it) narrow it as in `blocks.query`;
+   * with either, the expression may be left out.
+   */
+  matchQuery(expression: unknown, ids: unknown, narrow: { text?: unknown; subtreeRootId?: unknown } = {}): { blockIds: string[] } {
+    const { text, subtreeRootId } = narrow;
+    if (text !== undefined && typeof text !== "string") throw new Error("Query match text must be a string");
+    if (subtreeRootId !== undefined && (typeof subtreeRootId !== "string" || !subtreeRootId)) throw new Error("Query match subtreeRootId must be a block ID");
+    const narrowed = !!(typeof text === "string" && text.trim()) || subtreeRootId !== undefined;
+    if (expression !== undefined && typeof expression !== "string") throw new Error("Query match needs a query expression");
+    if (!(typeof expression === "string" && expression.trim()) && !narrowed) throw new Error("Query match needs a query expression");
     if (!Array.isArray(ids) || ids.length > 1000 || ids.some(id => typeof id !== "string")) throw new Error("Query match needs blockIds: an array of at most 1000 block IDs");
-    const { filters, where } = parseSearchExpression(expression);
+    const { filters, where } = typeof expression === "string" && expression.trim() ? parseSearchExpression(expression) : { filters: [], where: undefined };
     if (filters.some(filter => filter.key === "deleted")) throw new Error("deleted=true selects Trash; it isn't a property to match");
     const test = where ? compileQueryExpression(where) : null;
-    return this.database.transaction(() => ({
-      blockIds: (ids as string[]).filter(id => {
-        const block = this.getFromCurrentRead(id);
-        return !!block && !block.effectiveDeletedRootId && matchesFilters(block.properties, filters) &&
-          (!test || test({ ...block, childProperties: () => this.childrenFromCurrentRead(block.id).map((child) => child.properties) }, block.properties));
-      }),
-    }))();
+    const terms = typeof text === "string" ? searchTextTerms(text) : [];
+    return this.database.transaction(() => {
+      if (typeof subtreeRootId === "string") this.require(subtreeRootId);
+      const under = (block: Block) => {
+        if (typeof subtreeRootId !== "string") return true;
+        const seen = new Set<string>();
+        for (let at: Block | null = block; at && !seen.has(at.id); at = at.parentId ? this.getFromCurrentRead(at.parentId) : null) {
+          if (at.id === subtreeRootId) return true;
+          seen.add(at.id);
+        }
+        return false;
+      };
+      return {
+        blockIds: (ids as string[]).filter(id => {
+          const block = this.getFromCurrentRead(id);
+          return !!block && !block.effectiveDeletedRootId && matchesFilters(block.properties, filters) &&
+            terms.every(term => block.text.toLowerCase().includes(term)) && under(block) &&
+            (!test || test({ ...block, childProperties: () => this.childrenFromCurrentRead(block.id).map((child) => child.properties) }, block.properties));
+        }),
+      };
+    })();
   }
 
   /** Reads many blocks in one consistent read, reduced to the requested fields. */

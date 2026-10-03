@@ -2,6 +2,7 @@
 import { literalLines } from "./literal";
 import { printable } from "./text";
 import { withoutPropertyTokens } from "@ep0ch/outline-core/property-grammar";
+import { withoutHeaderDashes } from "@ep0ch/outline-core/header-line";
 
 export interface Msg {
   id: string;
@@ -65,7 +66,8 @@ export function titleLine(text: string): { line: number; text: string } {
     if (lit?.markers.has(i)) continue;
     const l = lines[i]!;
     if (first < 0 && l.trim()) first = i;
-    const t = (lit?.inside.has(i) ? l : withoutPropertyTokens(l)).trim();
+    // The first line is the header line: its chips' ` - ` separators go with them (outline-core's header-line.ts).
+    const t = (lit?.inside.has(i) ? l : withoutPropertyTokens(first === i ? withoutHeaderDashes(l) : l)).trim();
     if (t) return { line: i, text: t };
   }
   return { line: first, text: "" };

@@ -27,14 +27,29 @@ import { NoteSurface, type SurfaceHost } from "./surface/note";
 import { blockIdOf, paintable, printable } from "./text";
 import { setTheme, startTheme } from "./theme";
 import type { Ctx } from "./app";
+import { recordJson } from "@ep0ch/outline-core/block-record";
 
-export const NOTES_USAGE = `  ep0ch find [<words>… | --recent | --tree [<root id>]] [--lines | --json] [--ws <name>] [--machine <ssh-name>]
+export const NOTES_USAGE = `  ep0ch find [<words>… | --recent | --tree [<root id>]] [--ids | --lines | --json] [--ws <name>] [--machine <ssh-name>]
+  ep0ch find [<words>…] [--query "<expression>"] [--view <id>] [--under <id>]
+             [--updated-after|--updated-before|--created-after|--created-before <date>] [--ids | --lines | --json]
                                    notes: with words, the service's ranked search, tree.search (the ranker
                                    Goto, the door's / and (( use, asked from no note and without Jev; at
                                    most 30); --recent, its newest 30; --tree, the outline (or the notes under
                                    <root id>) depth first, as Tree draws it; without, every note, newest first.
-                                   --lines prints one per line, id<TAB>title<TAB>path, for a picker; with --tree,
-                                   then <TAB>depth<TAB>glyphs<TAB>about (├─ │ └─; about: work-id · stage · type)
+                                   --query takes the saved views' grammar, evaluated by the outline
+                                   ("type=chore area=garden", OR, NOT, ( ), created/updated ranges such as
+                                   "updated >= -7d"); --view the members of a saved view (type::virtual-branch),
+                                   in its order; --under the notes under that one (itself included). They
+                                   combine with each other and with words (then every word, any order: the
+                                   service's text filter), in outline order, at most 1000. The date flags only
+                                   write the query (--updated-after 2026-03-01 is "updated > 2026-03-01": a
+                                   date is a whole UTC day; -7d, today, an ISO time also do).
+                                   --ids prints ((id)) a line, for $(…) (ep0ch show $(ep0ch find --ids …));
+                                   --lines one per line, id<TAB>title<TAB>path, for a picker; with --tree,
+                                   then <TAB>depth<TAB>glyphs<TAB>about (├─ │ └─; about: work-id · stage · type);
+                                   --json each note as a block record (outline-core's block-record.ts: title,
+                                   header, properties as lists, children, tasks, links, backlinks, resources,
+                                   created, updated, author), keys sorted; with --tree, the rows
   ep0ch show <id>… [--source | --ansi | --cells] [--width <n>] [--rows <n>] [--ws <name>] [--machine <ssh-name>]
                                    each note drawn as a reader draws it, at that width (default the terminal's,
                                    else 80), live figures, ::links and a view's results answered by the
@@ -145,7 +160,7 @@ const without = (args: string[], valued: string[], bare: string[]) =>
   args.filter((a, i) => !valued.includes(a) && !valued.includes(args[i - 1] ?? "") && !bare.includes(a));
 
 /** The board of the outline the rule names, its protocol checked; or why not. */
-async function boardFor(args: string[]): Promise<SocketBoard | { error: string }> {
+export async function boardFor(args: string[]): Promise<SocketBoard | { error: string }> {
   // Only the flags that name an outline: a search word with a `/` isn't a socket path.
   const named = ["--ws", "--machine"].flatMap(f => { const at = args.indexOf(f); return at >= 0 ? [f, args[at + 1]!] : []; });
   const target = resolveTarget(named);
@@ -162,18 +177,102 @@ async function boardFor(args: string[]): Promise<SocketBoard | { error: string }
 
 export interface Out { out: (s: string) => void; err: (s: string) => void; columns?: number; tty?: boolean }
 
+/** Which notes, by the outline's own reading: a query, a saved view, a subtree, words, or ids given. */
+export interface Selection { ids: string[]; query?: string; view?: string; under?: string; words: string[]; dates: string[] }
+
+/** The flags that select notes and take a value, and the query clause each date flag writes. */
+export const SELECT_FLAGS = ["--query", "--view", "--under", "--updated-after", "--updated-before", "--created-after", "--created-before"];
+const DATE_CLAUSES: Record<string, string> = {
+  "--updated-after": "updated >", "--updated-before": "updated <", "--created-after": "created >", "--created-before": "created <",
+};
+
+/** The selection flags of `args` (their values, ((id)) or bare ids alike); `rest` is the other words. */
+export function selectionOf(args: string[]): { selection: Omit<Selection, "ids" | "words">; rest: string[] } | { error: string } {
+  const sel: Omit<Selection, "ids" | "words"> = { dates: [] };
+  for (const f of SELECT_FLAGS) {
+    const v = flag(args, f);
+    if (typeof v === "object") return v;
+    if (v === undefined) continue;
+    if (args.filter(a => a === f).length > 1) return { error: `${f} is given once` };
+    if (f === "--query") sel.query = v;
+    else if (f === "--view") sel.view = blockIdOf(v);
+    else if (f === "--under") sel.under = blockIdOf(v);
+    else if (/\s/.test(v.trim())) return { error: `${f} takes one date or time (2026-03-01, -7d, today, 2026-03-01T09:00Z), not ${v}` };
+    else sel.dates.push(`${DATE_CLAUSES[f]} ${v.trim()}`);
+  }
+  return { selection: sel, rest: without(args, SELECT_FLAGS, []) };
+}
+
+/** The query a selection asks: --query (grouped) and each date clause, ANDed; undefined when there's none. */
+export const selectionQuery = (s: Pick<Selection, "query" | "dates">) =>
+  [s.query?.trim() ? `(${s.query.trim()})` : "", ...s.dates].filter(Boolean).join(" ") || undefined;
+
+/** Whether a selection asks the outline anything beyond ids. */
+export const selects = (s: Selection) => !!(s.query || s.view || s.under || s.dates.length || s.words.length);
+
+/**
+ * The notes a selection names, in order: the ids given, then a view's members in the view's order (narrowed by the
+ * query, the subtree and words through `query.matches`), or else the notes a query, a subtree and words hold for, in
+ * outline order (`blocks.query`). The outline evaluates all of it. `truncated` says what was cut at its limits.
+ */
+export async function selectNotes(board: SocketBoard, s: Selection): Promise<{ ids: string[]; truncated?: string } | { error: string }> {
+  const ids = s.ids.map(blockIdOf);
+  const expression = selectionQuery(s), text = s.words.join(" ").trim() || undefined;
+  const filtered = !!(expression || text || s.under);
+  let truncated: string | undefined;
+  let found: string[] = [];
+  const refused = (e: unknown) => {
+    const why = (e as Error).message;
+    if (s.under && why.includes(`Block not found: ${s.under}`)) return { error: `no note ${s.under} in this outline (--under takes a note's id: ep0ch find --tree --lines lists them)` };
+    return { error: `the outline can't read that query: ${why}\n  the grammar is the saved views': ep0ch find --query "type=chore (area=garden OR area=kitchen) updated >= -7d"` };
+  };
+  if (s.view) {
+    const members: string[] = [];
+    for (let offset = 0; ;) {
+      const r = await board.readSavedView(s.view, { limit: 1000, offset });
+      if (r.status !== "ready") {
+        const why = r.problems?.map(p => p.message).join("; ") || r.errors.join("; ") || r.status;
+        return { error: `the view ${s.view} can't be read (${r.status}): ${why}\n  ${r.status === "missing" || r.status === "unsupported" ? "the outline's views: ep0ch find --query type=virtual-branch" : `its definition: ep0ch show ${s.view} --source`}` };
+      }
+      members.push(...r.blocks.map(b => b.id));
+      if (r.nextOffset === undefined) break;
+      if (members.length >= MAX_VIEW_MEMBERS) { truncated = `the view's first ${MAX_VIEW_MEMBERS} members`; break; }
+      offset = r.nextOffset;
+    }
+    try {
+      const keep = filtered ? await board.matchQuery(expression ?? "", members, { ...(text ? { text } : {}), ...(s.under ? { subtreeRootId: s.under } : {}) }) : null;
+      found = keep ? members.filter(id => keep.has(id)) : members;
+    } catch (e) { return refused(e); }
+  } else if (filtered) {
+    try {
+      const q = await board.queryIds({ expression, text, subtreeRootId: s.under });
+      if (q.truncated) truncated = "the outline's first 1000 matches";
+      found = q.ids;
+    } catch (e) { return refused(e); }
+  }
+  const seen = new Set<string>();
+  return { ids: [...ids, ...found].filter(id => !seen.has(id) && !!seen.add(id)), ...(truncated ? { truncated } : {}) };
+}
+
+/** The most of a view's members a selection reads (ten pages of the service's thousand). */
+export const MAX_VIEW_MEMBERS = 10_000;
+
 /** `ep0ch find …`: its exit code. */
 export async function findCommand(argsIn: string[], io: Out = { out: console.log, err: console.error }): Promise<number> {
   const args = argsIn.slice(1);
-  const lines = args.includes("--lines"), json = args.includes("--json"), recent = args.includes("--recent");
-  if (lines && json) { io.err("ep0ch: find prints --lines or --json, not both"); return 2; }
+  const lines = args.includes("--lines"), json = args.includes("--json"), recent = args.includes("--recent"), idsOut = args.includes("--ids");
+  if (Number(lines) + Number(json) + Number(idsOut) > 1) { io.err("ep0ch: find prints --ids, --lines or --json: one of them"); return 2; }
   for (const f of ["--ws", "--machine"]) { const v = flag(args, f); if (typeof v === "object") { io.err(`ep0ch: ${v.error}`); return 2; } }
+  const picked = selectionOf(args);
+  if ("error" in picked) { io.err(`ep0ch: ${picked.error}`); return 2; }
+  const sel = picked.selection;
+  const asked = !!(sel.query || sel.view || sel.under || sel.dates.length);
   // --tree takes the root's id as its value when one follows.
   const treeAt = args.indexOf("--tree"), tree = treeAt >= 0;
   const root = tree && args[treeAt + 1] !== undefined && !args[treeAt + 1]!.startsWith("--") ? blockIdOf(args[treeAt + 1]!) : undefined;
-  const words = without(args, ["--ws", "--machine", ...(root !== undefined ? ["--tree"] : [])], ["--lines", "--json", "--recent", "--tree"]);
-  if (recent && words.length) { io.err("ep0ch: find --recent takes no words"); return 2; }
-  if (tree && (recent || words.length)) { io.err("ep0ch: find --tree takes a root id at most, and no words or --recent"); return 2; }
+  const words = without(picked.rest, ["--ws", "--machine", ...(root !== undefined ? ["--tree"] : [])], ["--lines", "--json", "--recent", "--tree", "--ids"]);
+  if (recent && (words.length || asked)) { io.err("ep0ch: find --recent takes no words, --query, --view or --under"); return 2; }
+  if (tree && (recent || words.length || asked)) { io.err("ep0ch: find --tree takes a root id at most, and no words, --recent, --query, --view or --under (find --under <id> lists a subtree in outline order)"); return 2; }
   const unknown = words.find(w => w.startsWith("--"));
   if (unknown) { io.err(`ep0ch: find doesn't take ${unknown}\n${NOTES_USAGE}`); return 2; }
   const board = await boardFor(args);
@@ -182,24 +281,45 @@ export async function findCommand(argsIn: string[], io: Out = { out: console.log
     if (tree) {
       const rows = treeOf(await board.index(), root);
       if (!rows) { io.err(`ep0ch: no note ${root} in this outline`); return 1; }
-      if (json) io.out(JSON.stringify(rows, null, 2));
+      if (idsOut) { for (const f of rows) io.out(`((${f.id}))`); }
+      else if (json) io.out(JSON.stringify(rows, null, 2));
       else if (lines) { for (const f of rows) io.out(treeLine(f)); }
       else if (!rows.length) io.out("the outline has no notes");
       else for (const f of rows) io.out(`${f.id.slice(0, 8)}  ${f.glyphs}${field(f.title)}${f.about ? `  · ${f.about}` : ""}`);
       return 0;
     }
     const query = words.join(" ").trim();
-    // --recent: the service's own answer to an empty search (the newest notes), without reading the whole index.
-    const found = query || recent ? (await board.searchBlocks(query)).matches.map(m => ({ id: m.block.id, title: m.title, path: m.path })) : everyNote(await board.index());
-    if (json) io.out(JSON.stringify(found, null, 2));
+    let found: Found[];
+    if (asked) {
+      // --query, --view, --under (and words with them): the outline's own reading, in outline (or the view's) order.
+      const picked = await selectNotes(board, { ids: [], ...sel, words });
+      if ("error" in picked) { io.err(`ep0ch: ${picked.error}`); return 1; }
+      if (picked.truncated) io.err(`ep0ch: only ${picked.truncated}; narrow it (another clause, --under <id>)`);
+      if (idsOut) { for (const id of picked.ids) io.out(`((${id}))`); return 0; }
+      if (json) return await printRecords(board, picked.ids, io);
+      const index = await board.index(), by = new Map(index.map(b => [b.id, b])), pathOf = pathsOf(index);
+      found = picked.ids.flatMap(id => { const b = by.get(id); return b ? [{ id, title: previewTitle(b.title), path: pathOf(b) }] : []; });
+    } else {
+      // --recent: the service's own answer to an empty search (the newest notes), without reading the whole index.
+      found = query || recent ? (await board.searchBlocks(query)).matches.map(m => ({ id: m.block.id, title: m.title, path: m.path })) : everyNote(await board.index());
+    }
+    if (idsOut) { for (const f of found) io.out(`((${f.id}))`); }
+    else if (json) return await printRecords(board, found.map(f => f.id), io);
     else if (lines) { for (const f of found) io.out(foundLine(f)); }
-    else if (!found.length) io.out(query ? `nothing matches ${query}` : "the outline has no notes");
+    else if (!found.length) io.out(asked ? "nothing matches" : query ? `nothing matches ${query}` : "the outline has no notes");
     else for (const f of found) io.out(`${f.id.slice(0, 8)}  ${field(f.title)}${f.path ? `  · ${field(f.path)}` : ""}`);
     return 0;
   } catch (e) {
     io.err(`ep0ch: ${(e as Error).message}`);
     return 1;
   } finally { board.close(); }
+}
+
+/** Notes as block records, a JSON array with its keys sorted (outline-core's recordJson). */
+async function printRecords(board: SocketBoard, ids: string[], io: Out): Promise<number> {
+  const { records } = await board.records(ids);
+  io.out(recordJson(records).trimEnd());
+  return 0;
 }
 
 /** How long `show` waits for what a reader reads after the note (link titles, embeds, steps, projections) to stop arriving. */

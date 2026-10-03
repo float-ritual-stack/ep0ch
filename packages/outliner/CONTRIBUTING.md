@@ -100,6 +100,15 @@ source evidence or distinguish authored glyphs from controls.
   imports it to find tokens while it paints; no other file restates the key rule.
   Any change to what it matches bumps `PROTOCOL`. Where a token counts as a
   property (code, literal regions, scope) stays with `properties.preview`.
+- `header-line.ts` in outline-core owns a note's header line: the run of chips that
+  ends its first line (blanks or ` - ` between them), its prose, the ` -`
+  separators a title leaves out, and the front-matter mapping and its inverse. The
+  parser's block scope for those chips, every title (`firstLineWithoutPropertyTokens`,
+  the tree index, the door's `titleLine`), Detail's property table (`header`) and
+  `ep0ch export` use it; none decides the header line itself.
+- `block-record.ts` in outline-core is the block-as-a-record shape (PIE-534, for
+  PIE-533) and its one builder; `src/block-records.ts` builds records from the
+  service's own reads (`blocks.records`), and every consumer reads that shape.
 - `src/view-writes.ts` owns what a write into a saved view must change
   (`views.planWrite`): the property patch that moves a block into a view, or the
   properties, text or roadmap-item input a new block there is born with, and the

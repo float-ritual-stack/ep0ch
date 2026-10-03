@@ -8,7 +8,7 @@
 // checkouts.
 
 /** The wire protocol both sides of this checkout speak. */
-export const PROTOCOL = 83;
+export const PROTOCOL = 84;
 
 /**
  * Why a service speaking `serviceProtocol` can't serve this client, in words that name both numbers and the side

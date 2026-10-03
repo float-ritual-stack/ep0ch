@@ -1686,11 +1686,16 @@ export type OutlinerRequestAction =
   | { id: string; action: "outlines.delete"; name: string }
   | { id: string; action: "blocks.query"; query: BlockSearchQuery; fields?: BlockReadField[] }
   | { id: string; action: "blocks.read"; ids: string[]; fields?: BlockReadField[] }
+  /** Blocks as records (outline-core's block-record.ts: properties, header, children, tasks, links, backlinks, resources). Reads only. */
+  | { id: string; action: "blocks.records"; ids: string[] }
   | ({ id: string; action: "views.read"; viewId: string; format?: "full" | "tree" } & SavedViewReadOptions)
   /** Capability `views.planWrite`: what a move of `blockId` into each view, or a new block with `text`, must change. Reads only. */
   | ({ id: string; action: "views.planWrite" } & ViewWritePlanRequest)
-  /** Capability `query.matches`: which of `blockIds` a query holds for (the saved-view grammar). Reads only. */
-  | { id: string; action: "query.matches"; expression: string; blockIds: string[] }
+  /**
+   * Capability `query.matches`: which of `blockIds` a query holds for (the saved-view grammar), narrowed by `text` and
+   * `subtreeRootId` as `blocks.query` narrows (either lets the expression be left out). Reads only.
+   */
+  | { id: string; action: "query.matches"; expression?: string; blockIds: string[]; text?: string; subtreeRootId?: string }
   | { id: string; action: "blocks.authored-links"; ownerBlockId: string }
   /** Capability `resources.projection`. Stored ticket details for provider lines; never fetches. */
   | {

@@ -19,6 +19,11 @@ const PROBES = [
   "Water the [bed_2::east] rows [kind::herb]",
   "Escaped \\[kind::herb] stays",
   "[type::task] [work-stage::doing]\nThe real title [plot.row::3]",
+  // The header line (outline-core's header-line.ts): ` - ` between the chips goes with them.
+  "Seed order [type::errand] - [area::garden]",
+  "[type::list] - [area::kitchen]\nTea and oats",
+  "Shed jobs [type::list] #bikes - [area::shed]",
+  "Ask [who::Sam] - about the gate",
 ];
 const strip = (s: string) => s.replace(/\x1b\[[\d;]*m/g, "");
 

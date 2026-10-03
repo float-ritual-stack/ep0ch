@@ -187,6 +187,38 @@ function backlinkSource(
   };
 }
 
+/** Every reference in one source block, in order, with the block it points at (undefined: nothing in this outline). */
+function sourceOccurrences(
+  source: Block,
+  addressTargets: ReadonlyMap<string, string>,
+  workIdPrefix: string | null,
+): (BacklinkRelationOccurrence & { target: string | undefined })[] {
+  const propertyRecords = parsePropertyRecords(source.text);
+  return [
+    ...outlinerReferenceOccurrences(source.text, workIdPrefix, propertyRecords),
+    ...propertyReferenceOccurrences(source.text, propertyRecords),
+  ]
+    .sort((left, right) => left.start - right.start)
+    .map((occurrence) => ({ ...occurrence, target: occurrenceTarget(occurrence, addressTargets, workIdPrefix) }));
+}
+
+/**
+ * For many targets at once, the ids of the active blocks that link to each (the same relation as
+ * `resolveBacklinkRelation`, in one pass over the outline), in outline order.
+ */
+export function backlinkSourceIds(
+  input: Omit<BacklinkRelationInput, "query" | "target" | "blocksById" | "facetRules">,
+  targets: ReadonlySet<string>,
+): Map<string, string[]> {
+  const out = new Map<string, string[]>([...targets].map((id) => [id, []]));
+  for (const source of input.orderedBlocks) {
+    if (source.effectiveDeletedRootId) continue;
+    const linked = new Set(sourceOccurrences(source, input.addressTargets, input.workIdPrefix).map((o) => o.target));
+    for (const target of linked) if (target && targets.has(target)) out.get(target)!.push(source.id);
+  }
+  return out;
+}
+
 export function resolveBacklinkRelation(input: BacklinkRelationInput): BacklinkCollection {
   const query = normalizeBacklinkQuery(input.query);
   if (input.target.id !== query.targetBlockId) {
@@ -196,16 +228,8 @@ export function resolveBacklinkRelation(input: BacklinkRelationInput): BacklinkC
   const matches: BacklinkSource[] = [];
   for (const source of input.orderedBlocks) {
     if (source.effectiveDeletedRootId && !query.includeDeleted) continue;
-    const propertyRecords = parsePropertyRecords(source.text);
-    const occurrences = [
-      ...outlinerReferenceOccurrences(source.text, input.workIdPrefix, propertyRecords),
-      ...propertyReferenceOccurrences(source.text, propertyRecords),
-    ]
-      .sort((left, right) => left.start - right.start)
-      .filter(
-        (occurrence) =>
-          occurrenceTarget(occurrence, input.addressTargets, input.workIdPrefix) === input.target.id,
-      );
+    const occurrences = sourceOccurrences(source, input.addressTargets, input.workIdPrefix)
+      .filter((occurrence) => occurrence.target === input.target.id);
     if (occurrences.length === 0) continue;
     matches.push(backlinkSource(
       source,

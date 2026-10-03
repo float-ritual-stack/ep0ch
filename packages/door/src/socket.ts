@@ -4,6 +4,7 @@
 // started from, so a stale one is refused instead of overwriting someone else's change; a comment names
 // the note's revision and an exact quote, and carries a requestId, so a retry after a lost answer
 // returns the comment that was already saved instead of adding a second one.
+import type { BlockRecord } from "@ep0ch/outline-core/block-record";
 import { connect, type Socket } from "node:net";
 import { homedir, hostname } from "node:os";
 import type { Board, BoardInfo, Caller, Msg } from "./board";
@@ -673,9 +674,33 @@ export class SocketBoard implements Board {
   /**
    * A saved view's members as the service evaluates them (PIE-397 `views.read`), as list rows.
    */
-  async readSavedView(viewId: string): Promise<SavedViewRead> {
-    const r = await this.request<Omit<SavedViewRead, "blocks"> & { blocks: WireBlock[] }>("views.read", { viewId, format: "tree" });
+  async readSavedView(viewId: string, page: { limit?: number; offset?: number } = {}): Promise<SavedViewRead> {
+    const r = await this.request<Omit<SavedViewRead, "blocks"> & { blocks: WireBlock[] }>("views.read", { viewId, format: "tree", ...page });
     return { ...r, blocks: r.blocks.map(b => toMsg(b)) };
+  }
+
+  /**
+   * The ids of the blocks a query holds for, in outline order (`blocks.query`): `expression` in the saved-view grammar
+   * and `text` (every word, any order) as the service evaluates them, under `subtreeRootId` (itself included). At most
+   * 1000; `truncated` when there were more.
+   */
+  async queryIds(q: { expression?: string; text?: string; subtreeRootId?: string }, limit = 1000): Promise<{ ids: string[]; truncated: boolean }> {
+    const r = await this.request<{ blocks: { id: string }[]; completeness: { kind: string } }>("blocks.query", {
+      query: { limit: Math.min(1000, limit), ...(q.expression ? { expression: q.expression } : {}), ...(q.text ? { text: q.text } : {}), ...(q.subtreeRootId ? { subtreeRootId: q.subtreeRootId } : {}) },
+      fields: ["id"],
+    });
+    return { ids: r.blocks.map(b => b.id), truncated: r.completeness.kind !== "complete" };
+  }
+
+  /** Blocks as records (`blocks.records`, outline-core's block-record.ts), in the order asked, 200 a request (the service's most; each request is one backlink pass over the outline). */
+  async records(ids: string[]): Promise<{ records: BlockRecord[]; unavailable: { id: string; status: "missing" | "trashed" }[] }> {
+    const out: { records: BlockRecord[]; unavailable: { id: string; status: "missing" | "trashed" }[] } = { records: [], unavailable: [] };
+    for (let i = 0; i < ids.length; i += 200) {
+      const r = await this.request<typeof out>("blocks.records", { ids: ids.slice(i, i + 200) });
+      out.records.push(...r.records);
+      out.unavailable.push(...r.unavailable);
+    }
+    return out;
   }
 
   /**
@@ -692,9 +717,12 @@ export class SocketBoard implements Board {
     return (await this.request<{ plans: { viewId: string; plan: CreatePlan }[] }>("views.planWrite", { viewIds: [viewId], text })).plans[0]!.plan;
   }
 
-  /** Which of `blockIds` the query `expression` holds for (`query.matches`, a thousand ids a request). */
-  async matchQuery(expression: string, blockIds: string[]): Promise<Set<string>> {
-    const asks = Array.from({ length: Math.ceil(blockIds.length / 1000) }, (_, i) => this.request<{ blockIds: string[] }>("query.matches", { expression, blockIds: blockIds.slice(i * 1000, i * 1000 + 1000) }));
+  /**
+   * Which of `blockIds` the query `expression` holds for (`query.matches`, a thousand ids a request), narrowed by `text`
+   * (every word) and `subtreeRootId` as `blocks.query` narrows.
+   */
+  async matchQuery(expression: string, blockIds: string[], narrow: { text?: string; subtreeRootId?: string } = {}): Promise<Set<string>> {
+    const asks = Array.from({ length: Math.ceil(blockIds.length / 1000) }, (_, i) => this.request<{ blockIds: string[] }>("query.matches", { ...(expression ? { expression } : {}), ...narrow, blockIds: blockIds.slice(i * 1000, i * 1000 + 1000) }));
     return new Set((await Promise.all(asks)).flatMap(r => r.blockIds));
   }
 

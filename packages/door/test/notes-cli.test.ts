@@ -145,8 +145,9 @@ describe.skipIf(!outliner)("ep0ch find and show against a scratch host", () => {
     const recent = (await run(["find", "--recent", "--lines"], env)).out.split("\n").filter(Boolean);
     expect(recent.length).toBeGreaterThan(0);
     expect(recent.every(l => l.split("\t").length === 3)).toBe(true);
+    // --json: each note as a block record (outline-core's block-record.ts), keys sorted.
     const json = JSON.parse((await run(["find", "bike", "--json"], env)).out);
-    expect(json[0]).toEqual({ id: ids.shed, title: "Bike shed", path: "" });
+    expect(json[0]).toMatchObject({ id: ids.shed, title: "Bike shed", parent: null, children: [ids.oil] });
   });
 
   test("show: the note as a reader draws it, at the width asked for; --ansi keeps the colours", async () => {
@@ -282,6 +283,18 @@ describe("the ep0ch channel's lines (ext/television's ep0ch-tv)", () => {
     expect(lines.map(l => l.replace(ID, "$1"))).toEqual(["4f6648f1-aaaa", "ae755888-bbbb", "cf2e02f5-cccc"]);
     expect(lines.map(shown)).toEqual(["Bike shed", "└─ Tools 'n' \"spares\" ]8;;ep0ch:fake list  · place", "   └─ Chain oil"]);
     expect(lines[0]).toContain("\x1b[33;1m");                       // a level's titles in their colour
+  });
+
+  test("query: the notes a query holds for (find --query --lines), shown the same way; none named is refused", async () => {
+    const main = join(dir, "args.ts");
+    await Bun.write(main, "console.error(JSON.stringify(process.argv.slice(2))); process.stdout.write('ab12cd34-eeee\\tSeed order\\tAllotment plot\\n');\n");
+    const p = Bun.spawn([TV, "query", "type=errand tag=spring"], { stdout: "pipe", stderr: "pipe", env: { ...process.env, EP0CH_DOOR_MAIN: main } });
+    const [out, err] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
+    expect(JSON.parse(err)).toEqual(["find", "--query", "type=errand tag=spring", "--lines"]);
+    expect(out.split("\n").filter(Boolean).map(shown)).toEqual(["Seed order  · Allotment plot"]);
+    expect(out.replace(/\n$/, "").replace(ID, "$1")).toBe("ab12cd34-eeee");
+    const none = await tv(["query"], "");
+    expect([none.code, none.err]).toEqual([2, expect.stringContaining('ep0ch-tv query "type=chore')]);
   });
 
   test("an id handed back is only an id's letters: anything else is refused before a command sees it", async () => {

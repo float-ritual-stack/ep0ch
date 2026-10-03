@@ -135,7 +135,8 @@ function propertyTableLines(
     const key = `${marker}[**${escapeInspectorMarkdown(entry.key)}**](${focusUri})`;
     const value = propertyEntryValue(state, entry);
     const source = `#${entry.ordinal} · L${entry.line + 1}:C${entry.column + 1}`;
-    const scope = `[${entry.scope}](${focusUri})`;
+    // A header chip is block scope, and the one an export moves into front matter: said as `header`.
+    const scope = `[${entry.header ? "header" : entry.scope}](${focusUri})`;
     const sourceLink = `[${source}](${focusUri})`;
     lines.push(
       narrow

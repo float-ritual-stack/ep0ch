@@ -35,7 +35,12 @@ In Claude with the Claude mod (packages/claude-mod): `outline_read`, `outline_fi
 `outline_changes`, the `work_*` tools and `note_section`; in a door tile also `door_where`, `door_peek`,
 `door_act`, `door_open`. The table is in `packages/claude-mod/README.md`, "Outline tools". Other agents run
 the same operations as `outliner agent <operation> --json '{…}' --actor <id>`; `ep0ch find <words>` and
-`ep0ch show <id>` read (ranked search, a note drawn as text) with no door and no mod.
+`ep0ch show <id>` read (ranked search, a note drawn as text) with no door and no mod. `ep0ch find --query
+"type=task updated >= -7d" --ids` (or `--view <id>`, `--under <id>`) lists what the outline says a query holds for, as
+`((id))` lines for `ep0ch show $(…)`; `--json` gives each as a block record (header, properties as lists, children,
+tasks, links, backlinks). `ep0ch export … --out <dir>` writes notes as Markdown, the header line's chips in front
+matter. Write header chips with blanks or ` - ` between them (`Seed order [type::errand] - [area::garden]`): both
+belong to the block; text after a chip makes it an inline aside.
 
 - **The tools follow the folder Claude runs in.** They (and Recent Mentions and the links in replies) use the
   outline its nearest `.ep0ch` names (`ws = "<name>"`, written by `ep0ch init` or the Choose outline popup);
