@@ -15,7 +15,7 @@ flowchart LR
     Herdr[Herdr plugin action] --> Service
     Herdr --> Tree
     Herdr --> Detail
-    Door[ep0ch-door] -->|snapshot + events + draft holds| Service
+    Door[ep0ch door] -->|snapshot + events + draft holds| Service
     Service --> Extensions[Extension processes, one per call]
 ```
 
@@ -162,7 +162,7 @@ Every pane draws its chrome from three shared parts, never its own:
   (a stale pin is left off with a warning, not the whole file), reloads
   atomically (a file that doesn't parse keeps what is shown), and writes a pin on
   top of the file as it is now, keeping kinds and keys it doesn't know. That
-  last rule is what lets ep0ch-door (PIE-492) share the file and its shape:
+  last rule is what lets the door (PIE-492) share the file and its shape:
   `{"bar": {"<kind>": ["<action id>", …]}, "chrome": {"<kind>": "compact"|"full"}}`.
 - [`reader-chrome.ts`](../src/reader-chrome.ts) draws the bar
   (`renderPaneBar`: identity, pinned buttons, `[⋯]`, dropping buttons that
@@ -344,7 +344,7 @@ invalidates it on canonical content/address events. One relation primitive
 reverses exact block references, normalized page addresses, Work IDs, and
 block-valued properties such as `[source-block::<block-id>]`. Each projected
 source carries canonical created/updated timestamps plus normalized relation
-groups. With the `references.backlinks.facets` capability each source also
+groups. Each source also
 carries service-derived facets (kind, placement relative to the target, stage bucket,
 comment resolution) from the data table in
 [`backlink-facets.ts`](../src/backlink-facets.ts); clients group and filter on
@@ -720,19 +720,19 @@ Do not leave older editors running across this upgrade.
 - compact Tree reads: `tree.index`
 - bounded search: `blocks.query` (optional `fields` projection), `tree.query`, `tree.focus`
 - saved-view evaluation: `views.read`
-- saved-view writes (capability `views.planWrite`): `views.planWrite { viewIds, blockId | text }` plans, without writing, the property patch that moves a block into each view or what a new block there is born with (see "Saved-view write plans"); `query.matches { expression, blockIds }` (capability `query.matches`) returns which of those active blocks a saved-view query holds for
+- saved-view writes: `views.planWrite { viewIds, blockId | text }` plans, without writing, the property patch that moves a block into each view or what a new block there is born with (see "Saved-view write plans"); `query.matches { expression, blockIds }` returns which of those active blocks a saved-view query holds for
 - the property grammar: outline-core's `property-grammar.ts`, which the service parses with and clients import to find tokens while painting
-- fragments and transclusions (PIE-424; capabilities `fragments.read`, `transclusions.read`): `fragments.read { blockId, fragmentId }` returns a `((id^fragment))` slice (kind, label, note lines, offsets and the text a reader shows) or `missing` / `duplicate`; `transclusions.read { targets, hostBlockId?, maxDepth? }` projects `!((id))` and `!((id^fragment))` as readers show them, nested to a bounded depth (default 3, ceiling 6), cycle-safe by `(block, fragment)` on the path from the host, at most 16 per document and 64 per read, each note sent once (`blocks`) with its steps once (`checklists`, without their text or properties) and each projection naming the lines it shows (`shownLines`), at most 512 KB of notes and steps per read (past it `EMBED TOO LARGE`); every failure carries its reader wording. Notes are parsed once per text and revision (kept across reads), and a document's embeds aren't scanned past the 17th. `fragments.candidates { query: { noteQuery?, fragmentQuery, mode, limit?, draft? } }` searches every active note for `((note#…` / `((note^…` completion (`src/fragment-search.ts`); an unanchored heading comes with the anchor it would get, and `fragments.ensure { blockId, lineIndex, expectedRevision, mutation }` writes it, revision-checked. `src/transclusions.ts` owns these rules; Detail's embed projection takes its limit and wording from it
+- fragments and transclusions (PIE-424): `fragments.read { blockId, fragmentId }` returns a `((id^fragment))` slice (kind, label, note lines, offsets and the text a reader shows) or `missing` / `duplicate`; `transclusions.read { targets, hostBlockId?, maxDepth? }` projects `!((id))` and `!((id^fragment))` as readers show them, nested to a bounded depth (default 3, ceiling 6), cycle-safe by `(block, fragment)` on the path from the host, at most 16 per document and 64 per read, each note sent once (`blocks`) with its steps once (`checklists`, without their text or properties) and each projection naming the lines it shows (`shownLines`), at most 512 KB of notes and steps per read (past it `EMBED TOO LARGE`); every failure carries its reader wording. Notes are parsed once per text and revision (kept across reads), and a document's embeds aren't scanned past the 17th. `fragments.candidates { query: { noteQuery?, fragmentQuery, mode, limit?, draft? } }` searches every active note for `((note#…` / `((note^…` completion (`src/fragment-search.ts`); an unanchored heading comes with the anchor it would get, and `fragments.ensure { blockId, lineIndex, expectedRevision, mutation }` writes it, revision-checked. `src/transclusions.ts` owns these rules; Detail's embed projection takes its limit and wording from it
 - resource identity and documents: `resource-sources.create | list | get` and `resources.intern | intern-filesystem | get | relocate | describe | open | refresh`
-- resource projections (capability `resources.projection`): `resources.projection.read` returns stored details for a block's provider lines and ticket-page property; it never registers, refreshes or contacts a provider
+- resource projections: `resources.projection.read` returns stored details for a block's provider lines and ticket-page property; it never registers, refreshes or contacts a provider
 - resource retention: `resources.retention.get | configure | inspect | pin | unpin | reference | unreference` and explicit `resources.collect` eviction/purge passes
 - computed producers: `computed.invocations.create`, `computed.invocations.revise`, `computed.handlers.resolve`, `computed.executions.list`, and async `computed.execute`
 - browsing contexts and Tree previews: `browsing-context.get`, `browsing-context.publish`
 - typed navigation: `navigation.resolve` preflight and `navigation.dispatch` with explicit block/resource targets and `preview | open | reveal`; resource targets cannot use block-Tree `reveal`
 - selection-neutral capture: `capture.create`
 - delivery identity: `deliveries.ensure`
-- mutations: `create`, `update`, `move`, `delete` (move to Trash), `trash.restore`, `trash.purge`; `move`, `delete` and `trash.restore` take an optional `mutation` (capability `mutations.provenance`)
-- activity: `activity.recent` returns each block's latest recorded change by one author. Edits (`text`, `properties`) by default; `kinds` (capability `mutations.provenance`) adds `move`, `delete` and `restore`, which are recorded only when the request declared a `mutation` (Tree and Detail declare the person, the Inbox worker `inbox-agent`). A trashed block is listed only for the entry that trashed it, and only while it is still a Trash root
+- mutations: `create`, `update`, `move`, `delete` (move to Trash), `trash.restore`, `trash.purge`; `move`, `delete` and `trash.restore` take an optional `mutation`
+- activity: `activity.recent` returns each block's latest recorded change by one author. Edits (`text`, `properties`) by default; `kinds` adds `move`, `delete` and `restore`, which are recorded only when the request declared a `mutation` (Tree and Detail declare the person, the Inbox worker `inbox-agent`). A trashed block is listed only for the entry that trashed it, and only while it is still a Trash root
 - properties: `properties.patch`, `properties.catalog`, `properties.inventory`, read-only draft parsing `properties.preview`
 - virtual ordering: `virtual.occurrences.reorder`
 - references: `references.resolve`, `references.backlinks`
@@ -917,8 +917,8 @@ interface OutlinerChange {
 Existing event fields are unchanged; `change` is additive. `actor` is the
 provenance a request declared (`mutation`, or `author`/`provenance`); a created
 block reports its stored provenance. `move`, `delete` and `trash.restore` carry
-an optional `mutation` behind the `mutations.provenance` capability; without it
-(older clients, `trash.purge`, the Inbox worker) they have no actor. Actors are self-declared, not
+an optional `mutation`; without it (`trash.purge`, a request that names none)
+they have no actor. Actors are self-declared, not
 authenticated. The primary block is not the only block a change may touch: a
 move reorders siblings and a delete carries its subtree. Annotation requests
 report `annotate` for each created or edited block and draft saves `draft`;
@@ -1008,7 +1008,7 @@ The service normalizes every query before regular graph traversal or ranked virt
 
 Property filters default to block metadata. Explicit `line`, `inline`, or `all` queries use the same derived index and return matching record context—scope, ordinal, line, column, and source span—on each result. Human text surfaces share one minimal property-filter parser: whitespace-separated positive-AND clauses, `key` presence, `key=value`/`key::value` equality, and double-quoted spaced values with `\\` and `\"` escapes. Tree and Pi commands use the expression parser; each repeated CLI `--filter` is parsed as one clause so a shell-quoted value containing spaces remains exact. Virtual branches persist the canonical expression in `[query::…]`; their omitted scope therefore remains block-only. Agent tools remain structured and bypass the shorthand.
 
-The `query.expression` capability adds the boolean query grammar (see README "Bounded block queries"). `parseSearchExpression` lexes clauses with the same tokenizer; a query without `AND`/`OR`/`NOT`, parentheses or `created`/`updated` comparisons returns the flat positive-AND filters, so existing meanings, the ranked SQL path and the `deleted=true` compatibility filter are unchanged. Otherwise it returns a `where` expression. Those keywords and prefixes were syntax errors before, and a trailing `)` closes a group only while one is open. The service normalizes `expression` text and structured `where` (depth ≤ 32, ≤ 200 leaves), ANDs them with `filters`, and evaluates the compiled predicate during graph traversal with relative times resolved once per read. Ranked (`rankViewId`) queries with an expression are ordered in memory with the same rule as the ranked SQL: manual ranks, then canonical preorder. Syntax errors return an error response with `problem: { code: "query-syntax", field: "expression", position }`; invalid structured expressions use `query-invalid`. The client rejects with `OutlinerRequestError` carrying that problem. Saved views parse `[query::…]` with the same function, so views.read reports invalid grammar with the property and position. An older service would ignore both fields and return unfiltered results, so every client that sends `expression` or `where` first requires `query.expression`: CLI `list --query`, `outliner_query` with `expression`, Tree (the Advanced property filter sends a client-parsed `where` with `tree.index`, and virtual-child admission sends `where` with `tree.query`), including the Tree inside a composed Detail surface, and bookmark navigators.
+`blocks.query`'s `expression` takes the boolean query grammar (see README "Bounded block queries"). `parseSearchExpression` lexes clauses with the same tokenizer; a query without `AND`/`OR`/`NOT`, parentheses or `created`/`updated` comparisons returns the flat positive-AND filters, so existing meanings, the ranked SQL path and the `deleted=true` compatibility filter are unchanged. Otherwise it returns a `where` expression. Those keywords and prefixes were syntax errors before, and a trailing `)` closes a group only while one is open. The service normalizes `expression` text and structured `where` (depth ≤ 32, ≤ 200 leaves), ANDs them with `filters`, and evaluates the compiled predicate during graph traversal with relative times resolved once per read. Ranked (`rankViewId`) queries with an expression are ordered in memory with the same rule as the ranked SQL: manual ranks, then canonical preorder. Syntax errors return an error response with `problem: { code: "query-syntax", field: "expression", position }`; invalid structured expressions use `query-invalid`. The client rejects with `OutlinerRequestError` carrying that problem. Saved views parse `[query::…]` with the same function, so views.read reports invalid grammar with the property and position. An older service would ignore both fields and return unfiltered results, so every client that sends `expression` or `where` first requires `query.expression`: CLI `list --query`, `outliner_query` with `expression`, Tree (the Advanced property filter sends a client-parsed `where` with `tree.index`, and virtual-child admission sends `where` with `tree.query`), including the Tree inside a composed Detail surface, and bookmark navigators.
 
 Grammar and evaluation details: a trailing `)` that balances a `(` in the same unquoted clause stays in the value, so `((k=f(x)))` matches `f(x)`. Impossible ISO dates and times fail rather than rolling over. Nothing re-evaluates relative ranges on a timer; Tree re-reads views on workspace change events. The `problem` names `field: "expression"` only when the request's `expression` was parsed; syntax errors from other text (a saved definition) carry only the code and message. Roadmap receipts evaluate each view's parsed configuration exactly as `views.read` does.
 
@@ -1070,7 +1070,7 @@ alias, then by address; a title's scattered letters (`text-fuzzy`) don't count f
 (split where the matcher folds, apostrophes kept: `searchTextTerms`), in any order, the same on the SQL
 and the in-memory path, not one phrase.
 
-**From a note** (capability `search.context`): `tree.search` and `pages.complete` take
+**From a note**: `tree.search` and `pages.complete` take
 `contextBlockId`, the note being edited. Inside each rung, a match with more of the query in its title
 still comes first (a title is better evidence than a mention in a body), then one with fewer typo
 edits; among equals, matches nearer the
@@ -1300,7 +1300,7 @@ refused there.
 
 ### Saved-view reads (`views.read`)
 
-The `views.read` capability adds the one evaluator of saved-view membership:
+`views.read` is the one evaluator of saved-view membership:
 
 ```ts
 { action: "views.read"; viewId: string; limit?: number; offset?: number;
@@ -1704,7 +1704,7 @@ keeps its hold, so nothing is written to the saved note under its draft: patches
 to it become proposals, at once rather than after another wait, until the door
 is heard from again (a heartbeat or an answer), its lease runs out or it
 disconnects. Any other note is written under a revision check
-(or against its current text with `current`, capability `draft.patch.current`).
+(or against its current text with `current`).
 A patch over several notes applies together or not at all: the drafts are
 patched, then the saved notes in one transaction, and a failure reverts the
 drafts already patched.
@@ -1807,7 +1807,7 @@ old) and marks requests a restart cut off as `failed`. Every write is
 
 ## The door's control socket
 
-[`src/door-control.ts`](../src/door-control.ts) is a client of ep0ch-door's
+[`src/door-control.ts`](../src/door-control.ts) is a client of the door's
 control socket (the door's `docs/AGENT-INTERFACE.md`): one JSON request per line,
 one answer per line. The door owns what its actions do; this only asks.
 `openInDoor` asks for an agent's `open` (`from` a tile, then the door's own
@@ -1864,7 +1864,7 @@ src/component-primitives.ts   shared component primitives and render targets
 src/resource-extensions.ts    one process per extension call; legacy registry path
 src/extension-install.ts      `outliner ext ls|add|remove|act`
 src/agent-requests.ts         `@name` request lines and their agents
-src/door-control.ts           client of ep0ch-door's control socket
+src/door-control.ts           client of the door's control socket
 pi-extension/index.ts         Pi/OMP commands, tools, context hook
 ```
 

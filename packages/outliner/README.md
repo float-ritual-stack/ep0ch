@@ -15,7 +15,7 @@ The same service is exposed to Pi/OMP as agent tools, so notes, decisions, quest
 
 > **Status:** active dogfood. The plugin is installable from the GitHub source checkout, but there is not yet a stable tagged release; schema and interaction details can still change.
 
-See [`CHANGELOG.md`](CHANGELOG.md) for notable changes after the first dogfood tag.
+See the repository's [`CHANGELOG.md`](../../CHANGELOG.md) for notable changes.
 
 After [opening the workspace](#open-the-workspace), start with these controls.
 `?` in either pane shows the effective bindings and every available action.
@@ -32,7 +32,7 @@ addressable as `[[outliner-tour]]`.
 | Share notes and track work with an agent | [Agent tools, stages, and batches](#agent-integration) |
 | Put a note or an attached page at a URL | [Publishing blocks](#publishing-blocks) |
 | Open a named outline from any folder | [Which outline a client opens](#which-outline-a-client-opens) and `bun run cli outlines` |
-| Let Claude Code see, open and edit notes | The [Claude Code mod](../claude-mod/README.md): Recent Mentions, clickable references, `show`, workboard and `outline_*` tools, and `door_*` tools in ep0ch-door tiles |
+| Let Claude Code see, open and edit notes | The [Claude Code mod](../claude-mod/README.md): Recent Mentions, clickable references, `show`, workboard and `outline_*` tools, and `door_*` tools in door tiles |
 
 The [combined Tree/Detail surface](#combined-tree-and-detail-experiment) and
 [automatic Inbox editor](#automatic-inbox-agent) are shipped experiments. The
@@ -119,7 +119,7 @@ No shared user host is used.
 - Tree can project a selected block's Outlinks, Resources and Backlinks as read-only generated branches. Enumeration never creates pages, Resources, Sources, or provider traffic. Explicit activation follows or creates unresolved ordinary `[[page]]` links and human-authored `[file::…]`, `[web::…]`, `[jira::…]`, and `[app::…]` Resources; unresolved Work IDs stay unavailable.
 - Property-driven virtual branches (saved views) evaluated by the service (`views.read`), with `OR`, `NOT`, parentheses and `created`/`updated` ranges in `[query::…]`, ranked or timestamp-sorted canonical roots, contextual descendants to `[child-depth::0..8]` (default 2), `[expanded::false]` and `[expand-when::…]` disclosure, a 1,000-row branch budget, canonical child creation from a branch, and persisted manual root ordering. `views.planWrite` tells a client what patch moves a block into a view.
 - Tree multi-select collects items for bulk ranking and canonical copy; the Advanced property filter accepts the same boolean grammar, and a filter can stay inside one branch.
-- The service owns fragment slices and nested transclusion (`fragments.read`, `transclusions.read`, used by ep0ch-door and published pages); Detail shows one level of embeds with the same limits and wording.
+- The service owns fragment slices and nested transclusion (`fragments.read`, `transclusions.read`, used by the door and published pages); Detail shows one level of embeds with the same limits and wording.
 - Detail Backlinks are grouped by kind and stage from service facets, with the note itself, its descendants and resolved comments hidden by default.
 - Fresh databases seed version 6 of the Documentation hub: an addressable feature tour, the agent documentation guide, native transclusions, a working virtual branch, and authored block, page, file, web, SSH-application, and Jira reference examples. Existing workspaces keep their customized content.
 - Agent-created blocks retain immutable creator provenance. Every later text or property mutation, and every move, trash and restore, records its own `user`, `agent`, or `system` identity plus available actor, session, and task IDs, so edit attribution never depends on the creator. CLI writes take `--author`/`--actor`, and `bun run cli activity` reads the record.
@@ -290,8 +290,11 @@ runs its producer.
 ### Install with the helper
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/float-ritual-stack/pi-herdr-outliner/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/float-ritual-stack/ep0ch/main/packages/outliner/install.sh | sh
 ```
+
+The repository is private today, so that URL needs GitHub access; from a clone, `sh packages/outliner/install.sh`
+runs the same helper. With the whole stack checked out, `ep0ch install` (the door's) is the usual path.
 
 The helper supports Linux and macOS. It checks Bun 1.3+, Herdr 0.9+, and Git,
 offers to install missing dependencies, installs or refreshes the managed
@@ -315,7 +318,7 @@ including its configured remote connection. Press Enter to accept the keys,
 type alternatives at the prompts, or pass them explicitly:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/float-ritual-stack/pi-herdr-outliner/main/install.sh |
+curl -fsSL https://raw.githubusercontent.com/float-ritual-stack/ep0ch/main/packages/outliner/install.sh |
   sh -s -- --open-key prefix+y --comment-key prefix+shift+y --capture-key prefix+shift+c
 ```
 
@@ -619,13 +622,13 @@ from the workspace's saved selection only as a starting point.
 
 ### Headless service and CLI
 
-The service can run without Herdr:
+The outline host can run without Herdr:
 
 ```sh
-bun run server
+bun run host
 ```
 
-In another terminal, from the same workspace root:
+In another terminal, from a folder whose `.ep0ch` names the outline (or with `--ws <name>` / `EP0CH_WS`):
 
 ```sh
 bun run cli list
@@ -672,7 +675,7 @@ bun run cli work-id-allocate --id <block-uuid> --expected <revision>
 
 Text updates require the integer `revision` returned by the read before editing. Omitting `--expected` or saving an old revision fails without replacing newer text. Sibling moves do not invalidate an unchanged text draft.
 
-`create`, `update`, `move`, `delete` (to Trash) and `restore` (from Trash) record who wrote: `--author user|agent|system` (default `user`), `--actor <id>` (default `cli` for the person's writes; required with `--author agent`) and `--session <id>`. An agent passes `--author agent --actor <its id>`, so the change feed, activity and Detail attribute the write to it, not to the person. `activity` reads the same record (`activity.recent`): edits by default, and moves, trashing and restores with `--kinds`. Attributed moves and Trash operations need a service with the `mutations.provenance` capability.
+`create`, `update`, `move`, `delete` (to Trash) and `restore` (from Trash) record who wrote: `--author user|agent|system` (default `user`), `--actor <id>` (default `cli` for the person's writes; required with `--author agent`) and `--session <id>`. An agent passes `--author agent --actor <its id>`, so the change feed, activity and Detail attribute the write to it, not to the person. `activity` reads the same record (`activity.recent`): edits by default, and moves, trashing and restores with `--kinds`.
 
 `view` and the agent tool `outliner_view` read a saved virtual branch's matching
 canonical roots in branch order through the service's `views.read`, the same
@@ -694,14 +697,12 @@ the view without changing it. Check completeness even with an override. Other
 kinds, including checklist views, are reported as unsupported rather than
 reinterpreted. Agent responses also report presentation omissions separately
 from query completeness; use the CLI or read individual blocks when large bodies
-exceed the tool budget. `views.read` requires a service that reports the
-`views.read` capability.
+exceed the tool budget.
 
 Clients that need to follow the outline subscribe with `events.subscribe`;
 content events carry the changed block's parent, revision, change kind and
 declared actor. After a disconnect, `changes.since` returns what was missed, in
-order, or an explicit reset when history is no longer retained. Services that
-support it advertise the `changes.since` capability. See
+order, or an explicit reset when history is no longer retained. See
 [Change feed](docs/ARCHITECTURE.md#change-feed).
 
 The CLI resolves the same workspace-scoped socket and database as the service. `goto` accepts a full UUID, unique short prefix, or unambiguous fuzzy title/content query. Eight-character IDs are convenience labels, not a uniqueness guarantee; ambiguous queries return full-UUID candidates without changing selection. Work-ID configuration is normally one-time; allocation requires the exact block UUID and its latest integer `revision`, available in bounded `list` results. A successful allocation atomically persists both the immutable reservation and the block's `[work-id::…]` property/address; a failed request consumes neither the number nor a reservation.
@@ -1167,7 +1168,7 @@ code; a kind listed in the file replaces that kind's defaults.
   `full` (adds location, counts, destination and status rows; Preview adds its
   shortcut row). **View → Tree chrome**, **Preview chrome** and **Detail chrome**
   switch it from the menu and write the file.
-- Kinds and keys this client doesn't know are kept untouched, so ep0ch-door can
+- Kinds and keys this client doesn't know are kept untouched, so the door can
   share the file (PIE-492): its tile kinds use the same `bar` and `chrome` maps.
 
 Pinned buttons show their glyph when the action has one, otherwise its label:
@@ -1237,6 +1238,15 @@ with omitted matches marked. Jev reranks this candidate pool; it cannot recover
 notes outside it. Missing credentials, provider failure, or a 2.2-second deadline
 leave ordinary search usable. Once you select a result, delayed ranking keeps
 your displayed list and selection stable. Exact identities bypass ranking.
+
+The text matching is forgiving, and it is one matcher (outline-core's `src/search-match.ts`) for Goto, Inbox
+history search, Detail's `[[` and `((` completion, the door's `[[`, `/` search and `ep0ch find`, and the Backlinks
+filter:
+punctuation folds ("Claude - now" is "claude now"), words match in any order, a longer word may be off by a
+typo or two ("party hast" finds "party hats"), and all but one word still matches, ranked below every match
+as typed. Completing inside a note sends that note (`contextBlockId` on `tree.search` and `pages.complete`):
+nearer notes come first inside each rung, and an empty query lists what its parent and siblings link to,
+nearby notes, then your recent edits. Jev is told the note too.
 The actions and displayed shortcuts use the normal keybinding configuration.
 
 Reveal source preserves exact occurrence history: after jumping from a virtual
@@ -1416,8 +1426,7 @@ narrowing filter opens every group. `k` and `t` cycle the kind and stage
 filters, `h` and `n` show resolved comments and this note, and `s` cycles
 updated, created and title sorting in both directions. A group header's `+`/`−`,
 `Enter` on a focused header, or `.` toggles the group. `.` or the clickable
-`+`/`−` on a source row expands only that source's occurrence snippets. Against
-a service without the facets capability, Detail shows one flat list. Results are cached for that target and
+`+`/`−` on a source row expands only that source's occurrence snippets. Results are cached for that target and
 invalidated by canonical content/address events. Generated rows never enter the
 edit buffer or saved `Block.text`; clicking a source row selects and highlights
 it, while `Enter` or `Ctrl`/`Meta`-click opens a reversible preview over the
@@ -1752,12 +1761,6 @@ created < 2026-09-01T12:00Z
   `blocks.query` rejects them with a `problem` giving `code`, the request
   `field` (`expression`) and the 0-based `position` within it; `views.read` reports `status: "invalid"` with the
   `query` property and position.
-- **Service:** the grammar requires a service that reports the
-  `query.expression` capability. CLI `list --query` and
-  `outliner_query.expression` check for it before sending, and Tree and bookmark
-  navigators, which send a parsed `where` for the Advanced property filter, when
-  admitting new children or when scoping a bookmark, require it at startup.
-  Queries without `expression` or `where` need no capability.
 
 The Tree **Advanced property filter** accepts the same grammar. A clause list
 still reaches the service as plain `filters` (so `deleted=true` still selects
@@ -1826,7 +1829,7 @@ Generated embed output is read-only, refreshes after canonical content events,
 and Detail does not expand an embed inside an embed. Missing/deleted targets, fragment failures,
 invalid definitions, query failures, truncation, and the 16-embed document limit
 remain explicit. Clients that need nesting ask the service's `transclusions.read`
-(default depth 3, ceiling 6, cycle-safe, 64 embeds per read); ep0ch-door and
+(default depth 3, ceiling 6, cycle-safe, 64 embeds per read); the door and
 published pages use it. Detail takes its limit, pattern and wording from the same
 rules (`src/transclusions.ts`).
 
@@ -1859,8 +1862,7 @@ navigation, symbolic occurrences resolve through `page_addresses`, and only
 occurrences resolving to the requested canonical target become backlinks.
 Unresolved symbolic text is not a backlink. Deleted source blocks are opt-in;
 querying an existing deleted target remains supported and explicit. Results are
-bounded by source block and report `complete` or `truncated`. A service with
-the `references.backlinks.facets` capability adds `facets` to each source: its
+bounded by source block and report `complete` or `truncated`. The service adds `facets` to each source: its
 `kind` and `kindLabel`, its `placement` relative to the target (`self`, `descendant` or
 `other`), its `stage` (the first declared of `work-stage`, `outbox`, `stage` or
 `status`, with a `waiting`/`draft`/`active`/`done` bucket for known values) and,
@@ -2472,7 +2474,7 @@ function), first match wins:
    `ws = "fred"`, never a path or a hash, so moving or renaming the folder changes nothing;
 4. nothing: the folder names no outline. Ctrl-b u shows **Choose outline** (pick one of the host's, start a new
    one with the folder's or its repository's name offered, or import an older database; each writes `.ep0ch`),
-   `ep0ch` asks the same on its terminal, and a read (`list`, `read`, `doctor`) says what to run. `$HOME`, `/`
+   `ep0ch` opens its home base (the same choices, and outlines on other machines), and a read (`list`, `read`, `doctor`) says what to run. `$HOME`, `/`
    and folders right under `/` are never offered as a name.
 
 A name a `.ep0ch` or `EP0CH_WS` gives that nobody has yet is created when a session opens it (Ctrl-b u, the
@@ -2491,7 +2493,7 @@ fresh database instead (see the repository's [CONTRIBUTING.md](../../CONTRIBUTIN
 
 Browsing contexts, Detail targets/history, Tree presentation state, and live
 Herdr client identities are intentionally ephemeral and are not stored in
-`outliner.sqlite`. Canonical content remains shared and durable.
+the outline's `<name>.sqlite`. Canonical content remains shared and durable.
 
 Back up `<name>.sqlite` before experimenting with a migration (`sqlite3 ~/outlines/<name>.sqlite ".backup <file>"`). Do not copy a live database without also accounting for SQLite WAL files.
 
@@ -2891,7 +2893,7 @@ explicitly opened. **Reset view expansion** discards those choices and reevaluat
 
 ### Extensions
 
-An extension is a folder in `<outline root>/extensions/` or `~/.config/pi-herdr-outliner/extensions/`.
+An extension is a folder in the outline's own `<outlines>/<name>/extensions/` or `~/.config/pi-herdr-outliner/extensions/`.
 The service watches both and loads a folder as soon as it appears, with no restart; deleting it
 removes everything it added. There are four kinds: **data** put into a block as if copied in
 (`moon:: 2026-10-26`, `jira:: PC-12`), **inline output** shown under a line (`horoscope:: virgo`), a

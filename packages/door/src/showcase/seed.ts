@@ -28,6 +28,7 @@ export const SEED = {
   shed: "Bike shed",
   figures: "Allotment figures",
   recipe: "Lentil soup",
+  finding: "Finding things in the house notes",
   tickets: "Depot supplier call about ACME-12",
   omens: "Omens for the allotment week",
   brief: "Daily brief — 2026-03-11",
@@ -114,7 +115,7 @@ const WHITEBOARD = [
   "- Saturday",
   "  - clean the oven, then the fridge shelves nobody has touched since the spring clean",
   "    - [ ] buy the oven cleaner",
-  "Press e to edit; type [[ for a page, (( for a block, [file:: for a file.",
+  "Press e to edit; type [[ for a page, (( for a block, [file:: for a file; ctrl+t puts in notes or files another program picks (tv ep0ch).",
   "In a list, Enter starts the next item at the same level; Tab and Shift+Tab nest it; Ctrl+P previews.",
 ].join("\n");
 
@@ -123,8 +124,27 @@ const SHED = [
   "",
   "Three bikes, one pump, and a lock that sticks in the cold.",
   "The spare inner tubes hang on the left hook.",
+  "Tyre pressures are on the maker's page: [web::https://example.org/bike-care/tyres] (a Resource: b lists it with the note's links).",
   "",
-  "::backlinks",
+  "::links",
+].join("\n");
+
+/** The search section's note: what the forgiving search finds, tried on this outline's own titles. */
+const FINDING = [
+  SEED.finding,
+  "",
+  "Press / (on the river, g) and type. The outline host ranks what you type, the same way for every client:",
+  "",
+  "- **Typos:** the search above was opened with a letter missing from each word, and the notebook on the plot is still first; a longer word may be off by a letter or two.",
+  "- **Any order:** `whiteboard kitchen` finds the Kitchen whiteboard.",
+  "- **Punctuation folds:** `bike-shed` is `bike shed`.",
+  "- **All but one word:** a note holding every word but one still shows, below every full match.",
+  "- **In a draft:** `[[` completes pages on the same ranker, `((` finds blocks holding every word.",
+  "",
+  "> [!note] Jev",
+  "> Where the outline host has a Jev key, Tree's Goto can ask Jev to re-order the same hits. The showcase's host has none and the door asks without it, so the order you see here is the text ranker's.",
+  "",
+  "From a shell, `ep0ch find` with the same words prints the same hits; `ep0ch show <id>` prints a note as a reader draws it.",
 ].join("\n");
 
 const RECIPE = [
@@ -344,6 +364,7 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
   notes.notebook = await make(notes.root.id, notebookText(notes.whiteboard.id, cards[3]!.id, tap.id));
   notes.figures = await make(notes.root.id, figuresText(notes.gardenView.id));
   notes.recipe = await make(notes.root.id, RECIPE);
+  notes.finding = await make(notes.root.id, FINDING);
   await seedTickets(board, opts.ticketsConfig);
   notes.tickets = await make(notes.root.id, TICKETS);
   await make(notes.tickets.id, TICKET_PAGE);

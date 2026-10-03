@@ -30,21 +30,26 @@ Then:
 
 | | |
 |---|---|
-| `ep0ch` | the outline this folder names in `.ep0ch`; with none, the home base (pick, new, import) |
-| `ep0ch --ws pie` | an outline by name, from anywhere |
-| `ep0ch --machine float-2` | the door here, the outline on that machine (an ssh name), over a shared forward |
-| `ep0ch --remote float-2` | this terminal on the door session running there |
-| `ssh ep0ch` | on a host set up for it, lands straight in the door |
+| `ep0ch` | the outline this folder names in `.ep0ch`; with none, the home base (open, new, import, here or on a machine) |
+| `ep0ch --ws garden` | an outline by name, from anywhere (a name nobody has yet is created) |
+| `ep0ch --machine box-a` | the door here, the outline on that machine (an ssh config name), over a shared forward |
+| `ep0ch --remote box-a` | this terminal on the door session running there |
+| `ep0ch --showcase` | every shared part of the door, live, on its own seeded outline of made-up notes |
+| `ep0ch find <words>`, `ep0ch show <id>` | the service's forgiving search, and a note drawn as the door draws it, at your shell |
+| an ssh login | on a host set up for it, lands straight in the door |
+
+`ep0ch help` lists every command.
 
 A folder names its outline with a two-line `.ep0ch`, names only:
 
 ```
-ws = "pie"
-machine = "float-2"   # optional
+ws = "garden"
+machine = "box-a"   # optional
 ```
 
 ## Where to read next
 
+- [CHANGELOG.md](CHANGELOG.md): what changed, and what to run after an update.
 - [packages/door/README.md](packages/door/README.md): the door, screen by screen.
 - [packages/outliner/README.md](packages/outliner/README.md): the outline host, Tree/Detail, the CLI and publishing.
 - [packages/outliner/docs/extensions/README.md](packages/outliner/docs/extensions/README.md): userland extensions (data, inline output, rich components, tiles, `@agents`).

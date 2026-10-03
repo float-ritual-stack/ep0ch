@@ -37,6 +37,11 @@ Both histories are kept: `git log --follow` and `git blame` reach back into ep0c
   whether it really used them.
 - If no shared part fits, extend one or say in the PR why not. Don't add a parallel reader, pane model, search,
   editor or presence view.
+- **Demo it in the kitchen sink.** Every reuse-map row has a showcase section, and a user-visible feature gets a
+  showcase section or note in the same PR, live where possible (`ep0ch --showcase`; `packages/door/src/showcase/`).
+  The demo is also its end-to-end test: `test/showcase.test.ts` opens the section on the seeded outline, drives it
+  through `act` and checks the result, so a feature can't quietly break its own demo. If it can't be shown there,
+  the PR says why.
 - For AI feature design, semantic judgments, or TypeSafe/Jev integration, use the installed `typesafe-ai`
   skill, resolved through the agent's skill catalog. Follow its live-documentation workflow before choosing
   primitives or writing API calls. If the skill is unavailable, start with the

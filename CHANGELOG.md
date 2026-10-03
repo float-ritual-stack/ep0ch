@@ -1,60 +1,219 @@
 # Changelog
 
-This file records notable user-facing changes. The project remains active dogfood, so protocol and storage contracts can still change before a stable release.
+Notable changes to ep0ch, for the people who use it: what you can now do, what changed, and what you must run.
+One file for the whole repository (outline-core, the outliner, the door and the Claude mod). The project is
+active dogfood: the protocol and the schema still change, one version at a time.
+
+Before the two repositories became one (October 3, 2026), the door kept no changelog; its merged pull requests
+are its record. The outliner's entries from then are kept below, under
+[Outliner, before the one repository](#outliner-before-the-one-repository).
 
 ## [Unreleased]
 
-### Component fences removed
+Since October 2, 2026: door pull requests #136 to #159, the outliner's #280 to #282 (in pi-herdr-outliner), and the
+move into one repository (PIE-530).
 
-- The ` ```component:<name> ` fence and its renderer registry are gone: Detail, Tree Preview,
-  Inbox Preview and the door no longer read `document-renderers.json` (or
-  `OUTLINER_DOCUMENT_RENDERERS`), and the `status-summary` example is removed. Such a fence is
-  now an ordinary code block. Live `::graph-*` figures and rich component extensions cover the
-  need. `~/.config/pi-herdr-outliner/document-renderers.json` can be deleted.
+### Update: what to run
 
-### One repository, outlines by name, one version (PIE-530)
+- **One checkout.** ep0ch-door and pi-herdr-outliner are now one repository, `ep0ch`
+  (`git@github.com:float-ritual-stack/ep0ch.git`). Clone it, run `bun install` at its root, and link `ep0ch` to
+  `packages/door/src/main.ts`. Point Herdr's plugin at the same checkout: `herdr plugin link packages/outliner
+  --enabled`.
+- **Then `ep0ch doctor`, then `ep0ch install --apply`.** Doctor says what is behind and the command for each. The
+  install backs up every `~/outlines/*.sqlite` to `~/backups/ep0ch/<time>/`, fast-forwards the checkout, links
+  `ep0ch` and restarts the outline host. A host unit from before PIE-530 (another checkout's `host-main.ts`,
+  `OUTLINER_STATE_DIR`, `OUTLINER_DEFAULT_OUTLINE`) is shown the exact change to make; the install never edits it.
+- **Outlines live in `~/outlines`.** Each is `<name>.sqlite` (`EP0CH_OUTLINES` moves the folder). To bring an older
+  database over, make a new outline from it: `ep0ch outline import <old.sqlite> <name>` (or `outliner import`). The
+  old file is only read.
+- **A database made before schema versions** is refused at open, with the command that stamps it. Back it up, stop
+  the host, then run `bun packages/outliner/scripts/migrations/0001-stamp.ts ~/outlines/<name>.sqlite` once. It
+  stamps only a database whose shape matches a fresh one.
+- **Restart the host, then the doors.** The host and every client speak protocol 83 and refuse any other number,
+  saying which side to update. `ep0ch install --apply` restarts the host. Restart doors and Claude sessions that
+  should run the new code.
+- **Delete `~/.config/pi-herdr-outliner/document-renderers.json`** if you have one. Nothing reads it now.
+- **Agent skills.** `ep0ch doctor` checks the links in `~/.claude/skills/` (and `~/.agents/skills/` when it exists)
+  for the stack's skills, and `ep0ch install --apply` makes them, or replaces a link into an old `ep0ch-door`
+  checkout or a deleted worktree. It never touches a real folder or another skill's link. If you ran an earlier
+  install that linked television's channels, rename `ext-links.json` to `install-links.json` in the door's state
+  folder (`$XDG_STATE_HOME/ep0ch-door`, or `EP0CH_STATE`).
+- **Television (optional).** With `tv` on your PATH, `ep0ch install --apply` links the outline's channels into
+  television's cable folder.
 
-- ep0ch-door and pi-herdr-outliner are one repository, `ep0ch` (bun workspaces):
-  `packages/outline-core` (pure shared code), `packages/outliner` (this package; the
-  Herdr plugin root), `packages/door` and `packages/claude-mod`. Both histories are
-  kept. Install the plugin from `float-ritual-stack/ep0ch/packages/outliner`, or
-  link `packages/outliner`.
-- Outlines live in `~/outlines` (`EP0CH_OUTLINES`) as `<name>.sqlite` with a folder
-  `<name>/` beside it; the host's socket is `~/outlines/.host/host.sock`. Which
-  outline a client opens: `--ws <name>`, then `EP0CH_WS`, then the nearest `.ep0ch`
-  (`ws = "<name>"`). A folder that names none gets init, pick or import (the Choose
-  outline popup, `ep0ch`'s prompt, `outliner init`), never a guess. `EP0CH_SOCKET`
-  is a host on another machine.
-- Removed: per-folder `client.json`, path-hash state folders, `outline.json`
-  descriptors, `by-name/` links, `outline adopt|rename|set-root`, the single-outline
-  service (`server-main.ts`; the plugin's `service` pane now runs the host), and
-  `OUTLINER_STATE_DIR`, `OUTLINER_OUTLINE`, `OUTLINER_REMOTE`, `OUTLINER_SOCKET_PATH`,
-  `OUTLINER_CONFIG_PATH`, `OUTLINER_DEFAULT_OUTLINE` (`EP0CH_DEFAULT_WS` is the
-  host's default for tests and scripts). New: `outlines.import`, `outliner import`,
-  `outliner init`, `outliner --ws`.
-- Protocol 83: client and service must match; one `PROTOCOL` in outline-core
-  replaces the capability lists and minimums, and a mismatch names the side to
-  update. The door imports outline-core instead of keeping vendored copies.
-- Schema version 1 (`PRAGMA user_version`, `src/schema.ts`): a database on any other
-  version is refused at open with the command that upgrades it. The runtime's
-  detect-old-shape migrations, the roadmap migration and the legacy annotation
-  conversion are gone; `scripts/migrations/0001-stamp.ts` stamps an existing database
-  whose shape matches, once, by hand.
+### One repository, outlines by name (PIE-530)
 
-### Forgiving search, and search from a note
+- The packages: `packages/outline-core` (the shared pure code: the protocol, the property grammar, the search
+  matcher, which outline a client opens), `packages/outliner` (the outline host, Tree, Detail and Preview in Herdr,
+  the CLI, the publisher; the Herdr plugin root), `packages/door` (ep0ch) and `packages/claude-mod`. Both histories
+  are kept.
+- One outline host per machine serves every outline in `~/outlines` by name. Its socket and lock are in
+  `~/outlines/.host/`.
+- Which outline a client opens, first match wins: `--ws <name>`, then `EP0CH_WS`, then the nearest `.ep0ch` from
+  the folder up. `.ep0ch` holds names only: `ws = "<name>"`, and optionally `machine = "<ssh-name>"`. `ep0ch init
+  [<name>]` writes it. An outline's own folder (`~/outlines/<name>/`) names it too.
+- A folder that names no outline is never given a guess. The door opens the home base; Herdr shows the Choose
+  outline popup; `outliner init` and `ep0ch init` name one.
+- `ep0ch outline list | attach | create | import | stop | delete` and `ep0ch status` manage the host's outlines.
+  The outliner's CLI takes `--ws <name>` before a command.
+- `ep0ch doctor` says which outline this folder opens. It no longer lists the host's owner lock
+  (`<name>.sqlite.owner`) as an outline: one rule in outline-core says which files are outlines.
 
-- Goto, Inbox history search, `[[` completion and the Backlinks filter share one
-  matcher (`src/search-match.ts`): punctuation folds ("Claude - now" is "claude
-  now"), words match in any order, a longer word may be off by a typo or two
-  ("party hast" finds "party hats"), and all but one word still matches, always
-  below every match as typed. `[[` also finds a Work ID by its note's title.
-- `blocks.query` `text` matches every word, in any order, not one phrase.
-- `tree.search` and `pages.complete` take `contextBlockId`, the note being
-  edited: nearer notes first inside each rung; an empty search lists what its
-  parent and siblings link to, nearby notes, then your recent edits. Jev's
-  ranking is told the note too (the `goto-ranking.json` prompt says so).
-- `ping` reports `searchMatch` for clients that copy the matcher; capabilities
-  `search.forgiving`, `search.context` and `ping.searchMatch`.
+### Starting ep0ch
+
+- **The home base.** `ep0ch` in a folder that names no outline opens a door screen instead of a text prompt. It
+  lists this machine's outlines and the machines you opened from here, with each one's outlines. Open one, make a
+  new one (`n`), import one (`i`), add a machine from `~/.ssh/config` (`a`), forget one (`x`), reload (`r`).
+  Choosing an outline offers to write the folder's `.ep0ch`, or to open it this time only. It works by keys, by
+  mouse (one click on a row chooses it) and by `act` (`home.*`).
+- **Another machine.** `ep0ch --machine <ssh-name>` runs the door here on an outline served by that machine's
+  host. `EP0CH_MACHINE` and a `.ep0ch`'s `machine` line do the same. Every client on this machine shares one ssh
+  forward per machine (`~/outlines/.remote/<ssh-name>.sock`). A door starts it again when it drops, and says so on
+  the status bar. `ep0ch doctor` shows each forward's state. Herdr panes and the Claude mod follow the same rule.
+- **`ep0ch --remote <ssh-name>`** puts this terminal on the door session running on that machine (`ssh -t
+  <ssh-name> ep0ch …`), so the drop shell and `$EDITOR` run where the door is.
+- **The positional socket argument is gone.** `ep0ch <socket>` is refused and says what to use. `EP0CH_SOCKET`
+  still names a host's socket outright.
+- **`ep0ch --showcase [--reset]`** opens the showcase on its own seeded outline of made-up notes (the same as
+  `ep0ch try --showcase`). `--reset` seeds it again. Before, it opened the showcase screen on this folder's outline
+  and asked for a seeded database.
+
+### Search
+
+- **Forgiving search.** Goto, Detail's `((` and `[[` completion, the door's `[[` (`pages.complete`), the desk's `/`
+  search and `ep0ch find` (`tree.search`), Inbox history search, the Backlinks filter and the river's text filter
+  share one matcher (outline-core's `search-match.ts`). Punctuation folds ("Claude - now" finds "claude
+  now"). Words match in any order. A longer word may be off by a typo or two ("party hast" finds "party hats").
+  When all but one word match, the result still shows, below every exact match.
+- **Search from the note you are writing** (the outliner's Detail). `((` and `[[` rank from the draft's note:
+  nearer notes come first. An empty `((` lists what the note's parent and siblings link to, then nearby notes, then
+  your recent edits. `[[` also finds a work id by its note's title. Jev, when the host has a key, is told the note
+  too.
+- **In the door, not yet.** The door's `((` asks `blocks.query` (every word, any order, no typo allowance) and its
+  searches send neither the draft's note nor ask for Jev: #142 built that, and #143, merged a minute later, undid it
+  in `src/surface/completer.ts`. It is reported for a follow-up fix.
+- `blocks.query`'s `text` (agent tools, `list --text`) matches every word in any order, not one phrase.
+
+### Links and resources on every screen
+
+- **One links model**: a block's Outlinks, Resources and Backlinks, in the Tree's order and words, drawn the same
+  way in four places:
+  - the tree's `L` panel;
+  - the links tile (the backlinks tile, extended): its filter covers the three groups, `.` folds a group, and its
+    preview shows the selected row;
+  - a river column, under its replies: `j` and `k` walk into the rows, ⏎ opens one in the next column, and `b` or a
+    click on `── ▾ links` folds them;
+  - inline in a note: `::links`, `::outlinks`, `::resources` and `::backlinks`, drawn in a figure's frame. Words
+    after the name filter the rows (`::resources jira`).
+- **`b` in any reader** shows the note's links. It aims the screen's links tile, or opens one below the reader with
+  its preview beside it.
+- **Resources.** Previewing a Resource only reads (its stored content, or the Jira extension's ticket block). One
+  that isn't registered says that ⏎ registers it. ⏎ registers and fetches it once, as the Tree's ⏎ does.
+
+### The mouse does what the keys do
+
+- In lists (the tree, the links tile, list pickers, the query tile, the board's lanes, the river's cards and link
+  rows): a click selects and previews, like `j`/`k`; two presses on the same row within 400 ms are ⏎; alt-click,
+  ctrl-click or a middle click is alt+⏎. The click that gives a tile the keys only selects.
+- **Sideways wheel** (a trackpad swipe) moves one step: the next river column, or the next lane on the board.
+  Terminal tiles get the real wheel bytes.
+- **Every desk screen leaves by mouse.** The keys drawn in a hint row (and in its `? more` box, and a `^W` chord's
+  keys box) are clickable: `q menu`, `/ search`, `alt+k lock` and the rest.
+- The board's mover and steps, the layout picker and the search take the mouse: a click on a lane moves the card,
+  a click on a step checks it off, a click on a layout loads it.
+- The mouse's back button runs a screen's `alt+←`, as in the river.
+
+### River and tiles
+
+- **River columns draw a note's images** in a terminal with Kitty graphics, scrolling and cropping with the column.
+  Where images can't be drawn, the label says why (`no Kitty graphics in this terminal`, or `alt+v draws
+  images`).
+- **A tile paints its whole box.** Text from a column behind a short one no longer shows through.
+- **A river column owns its keys** on any desk: `h l ← → w p x g` and back/forward work there as in the river.
+- **The river's property filter asks the service.** `type:hub`, `-status:done` and `key:*` match as the service
+  matches (any of a note's values for the key). `type:` lists notes without a `type`, `-type:` notes with one. A
+  key the service refuses is said as the column's error.
+- **Fixed:** typing `e`, `i` or `C` in a river column's `/` filter started an edit, the property panel or a comment
+  instead of typing the letter.
+
+### Television, and ctrl+t inserts from a picker
+
+- **The outline in [television](https://github.com/alexpasmantier/television)**, as a door extension
+  (`packages/door/ext/television/`, deletable):
+  - `tv ep0ch`: the outline's notes, with three sources (`ctrl-s` cycles them): Tree (depth first, drawn with
+    `├─ │ └─`; `EP0CH_TV_ROOT=<id>` roots it), Recent and All. The preview is the note as the door draws it. Enter
+    prints `((id))` per note (Tab picks several), `ctrl-g` opens it in the running door (attributed to
+    `television`), and `ctrl-d` shows it in the Outliner's Tree and Detail.
+  - `tv ep0ch-files`: files, printed as `[file::<path>]` Resource tokens.
+  - `tv ep0ch-outlines`: this machine's outlines and the remembered machines'. Enter opens the door on one.
+- **ctrl+t in a draft** (an edit, a comment, a reply or a new card), or a click on `[insert]` in the edit frame's
+  title row, opens the picker in a terminal tile beside the note and inserts what you choose at the cursor. `^W x`
+  closes it without inserting. On a screen with no room for a tile (the board), the picker gets the whole terminal.
+  `EP0CH_PICKER` (default `tv`) and `EP0CH_PICK_CHANNEL` (default `ep0ch`) change what runs. It is the person's
+  action: an agent's `draft.pick` is refused.
+- **New commands** for pickers and scripts:
+  - `ep0ch find [words… | --recent | --tree [<root id>]] [--lines | --json]`: the service's ranked search, the
+    newest notes, the outline as a tree, or every note;
+  - `ep0ch show <id> [--ansi] [--width <n>]`: a note drawn as a reader draws it;
+  - `ep0ch outline list --all`: every outline, here and on the machines you opened;
+  - `ep0ch open ((id))` takes the bracketed form.
+
+### Smaller changes you may notice
+
+- Who's Online (`W`) and Last Callers (`L`) are desk screens: tiles with the desk's keys, mouse and `act`. In Last
+  Callers, ⏎ shows the note in a reader beside the list.
+- A board or river tile opens as its screen was last saved, and what changes in the tile isn't saved over the
+  screen's own layout. The board screen (`K`) no longer comes back with its preview folded.
+- Every line input has ← → Home End and delete. A layout's name can be longer than 40 characters while you type;
+  ⏎ then says it is too long.
+- Lists keep their view where the wheel left it. The board's steps list no longer jumps when you move up from the
+  bottom. Titles are cut by terminal cells, so CJK and emoji titles fit their room.
+- `ep0ch session list` shows ages as the rest of the door does (`up 2d`). `ep0ch act` and `peek` with no door say
+  `no door answered at <path>`.
+- The showcase index scrolls, so no section is cut off.
+
+### For agents
+
+- `ep0ch act` names a tile with `tile=` only. `reader=` and `--reader` as names for it, the `reader` tile alias and
+  the old `{cmd:"open"}` request are gone, and so are the action aliases (`pane.close`, `pane.resize`, `pane.zoom`,
+  `pane.float`, `pane.pin`, `agent.enter`, `agent.leave`, `agent.toggle`, `agent.height`, `focus`, `focus.set`,
+  `focus.clear`, `layout.restore`, `reader.collapse`, `reader.expand`, and the river's old short names). Use the
+  canonical names `ep0ch actions` lists.
+- New actions: `links` (an agent's reads the links and returns them; the person's list is left alone),
+  `column.links` and `column.link` in the river, and `home.pick`, `home.open`, `home.new`, `home.import`,
+  `home.connect`, `home.add`, `home.forget` and `home.reload` on the home base. An agent's `home.open` writes
+  `.ep0ch` only with `write=true`, and the door says which agent opened the outline.
+- `draft.pick` and `composer.pick` are the person's: an agent is refused.
+- The Claude mod: `door_act` takes `tile`. `show`, `door_open` and a click on a reference name the tile they come
+  from; when the door doesn't know it, the note goes where the door's opens land, never into the reader the person
+  is on. A folder whose `.ep0ch` names a machine gives Claude's tools that machine too (`EP0CH_MACHINE`).
+- Action argument types come from each action's schema, so a wrong argument is caught when the door is built.
+
+### Removed
+
+- **Component fences.** A ` ```component:<name> ` fence is an ordinary code block now. The document-renderer
+  registry (`document-renderers.json`, `OUTLINER_DOCUMENT_RENDERERS`) and its one example (`status-summary`) are
+  gone. Live `::graph-*` figures and rich component extensions cover the need.
+- **Capability negotiation.** One number, `PROTOCOL` in outline-core (now 83), replaces the capability lists and
+  the minimum protocol. `ping` no longer reports `propertyGrammar`, `draftPatchCompare` or `searchMatch`, and the
+  door's grammar-mismatch warning is gone.
+- **Copies of shared code.** The door imports outline-core; its vendored copies of the property grammar, the
+  draft.patch compare and the search matcher are gone. The door reaches the outliner only through the outliner's
+  declared exports, and a test holds it.
+- **Per-folder outlines.** `client.json`, path-hash state folders, `outline.json` descriptors, `by-name/` links,
+  `outline adopt|rename|set-root`, the single-outline service, and `OUTLINER_STATE_DIR`, `OUTLINER_OUTLINE`,
+  `OUTLINER_REMOTE`, `OUTLINER_SOCKET_PATH`, `OUTLINER_CONFIG_PATH` and `OUTLINER_DEFAULT_OUTLINE`. (`EP0CH_DEFAULT_WS`
+  is the host's default outline, for tests and scripts.)
+- **Runtime migrations.** The schema has one version (`PRAGMA user_version`, now 1). The store's
+  detect-old-shape steps, the roadmap migration and the legacy annotation conversion are gone.
+- **Older doors and services.** The door's code for services without today's actions, and its saved-layout
+  migrators. A saved `desk.json` or `layouts.json` from before the board became a screen spec is reset.
+
+## Outliner, before the one repository
+
+These entries were pi-herdr-outliner's changelog, from its first dogfood tag (August 22, 2026) to October 2, 2026.
+Pull request numbers in them (`#270`) are pi-herdr-outliner's. Some describe things since replaced, such as
+`client.json` and capability lists; the [Unreleased](#unreleased) section above says what replaced them.
 
 ### Pane bars you choose, glyph dock buttons, and a chrome budget (PIE-525)
 
@@ -168,7 +327,7 @@ This file records notable user-facing changes. The project remains active dogfoo
 - `outliner ext add <name|path>`, `ext remove <name>`, `ext ls` (from the running
   service) and `ext act`. Detail draws handler outputs and its `r` refreshes a
   note's tickets and extension lines. See
-  [docs/extensions/README.md](docs/extensions/README.md).
+  [docs/extensions/README.md](packages/outliner/docs/extensions/README.md).
 
 ### Merged without an entry, Sep 30 – Oct 1 (added in the PIE-510 cleanup)
 
@@ -753,7 +912,7 @@ These shipped with README or PR notes but no changelog line. Newest first.
 - Roadmap items use `work-stage` alone, with Queued replacing Next and Superseded separate from accepted Done. Item-side `work-batch` references preserve committed scope through progress, pause, and completion. Resume and unchanged PR synchronization preserve explicit review/rework state. [#137](https://github.com/float-ritual-stack/pi-herdr-outliner/pull/137)
 - Fresh databases use workspace seed version 5. **Explore the Outliner** adds addressable feature guides and working reading/projection examples beside the existing agent documentation guide and authored-links example. Existing databases retain their customized content; package upgrades do not reinstall the seed.
 - The guided installer and portable runtime discovery support source-checkout installation. Actual Herdr keyboard journeys use isolated workspaces and retain failure evidence. [#82](https://github.com/float-ritual-stack/pi-herdr-outliner/pull/82), [#83](https://github.com/float-ritual-stack/pi-herdr-outliner/pull/83), [#114](https://github.com/float-ritual-stack/pi-herdr-outliner/pull/114)
-- The current JSON-lines RPC protocol is **78**. Restart the service and all clients together when upgrading across incompatible versions; [`src/types.ts`](src/types.ts) owns the current version.
+- The current JSON-lines RPC protocol is **78**. Restart the service and all clients together when upgrading across incompatible versions; `src/types.ts` owned the version then (today it is `PROTOCOL` in outline-core).
 
 ### Known limits
 
@@ -762,9 +921,8 @@ These shipped with README or PR notes but no changelog line. Newest first.
 - Metadata-only Resource fields cannot yet receive direct Detail comments. Tracked as PIE-262.
 - Computed and remote-entity cached Markdown cannot yet create direct Detail text annotations. Tracked as PIE-264.
 
-## [0.1.0-dogfood.1] - 2026-08-22
+### [0.1.0-dogfood.1] - 2026-08-22
 
 - First tagged dogfood build of the workspace-scoped Outliner service, Tree, Detail, block graph, properties, references, virtual branches, and Pi/OMP integration.
 
-[Unreleased]: https://github.com/float-ritual-stack/pi-herdr-outliner/compare/v0.1.0-dogfood.1...HEAD
 [0.1.0-dogfood.1]: https://github.com/float-ritual-stack/pi-herdr-outliner/releases/tag/v0.1.0-dogfood.1

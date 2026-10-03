@@ -17,8 +17,8 @@ and new revision. Refusals print one `error: …` line and exit 1.
 bun src/cli.ts work create --title … --project … --arc … --track … --priority … [--stage queued] [--stdin|--body-file f]
 bun src/cli.ts work stage PIE-123 doing [--expected N]
 bun src/cli.ts work set PIE-123 priority high [--expected N]
-bun src/cli.ts work set PIE-123/door delivery-stage complete [--expected N]
-bun src/cli.ts work deliver PIE-123 --repo owner/name --pr 42 [--key door] [--base main] [--branch feature/x]
+bun src/cli.ts work set PIE-123/site delivery-stage complete [--expected N]
+bun src/cli.ts work deliver PIE-123 --repo owner/name --pr 42 [--key site] [--base main] [--branch feature/x]
 bun src/cli.ts work complete PIE-123 [--delivery <uuid|key|name>]… [--all-merged] --proof-file proof.md|--stdin|--proof-block <uuid>
 bun src/cli.ts work body PIE-123 --file body.md|--stdin [--expected N]
 bun src/cli.ts note section <uuid> "Heading" --file section.md|--stdin [--expected N]
@@ -32,15 +32,15 @@ from the delivery's.
 
 ### Items with several deliveries
 
-An item can ship through more than one PR, one delivery each: say the Outliner
-change and a door change in another repository. Each delivery has a key
+An item can ship through more than one PR, one delivery each: say the ep0ch
+change and a site change in another repository. Each delivery has a key
 `PIE-123/<name>`.
 
-- **Recording.** `work deliver --key door` records the PR as `PIE-123/door`
-  (`--key PIE-123/door` is the same). Without `--key`, a PR whose repository and
+- **Recording.** `work deliver --key site` records the PR as `PIE-123/site`
+  (`--key PIE-123/site` is the same). Without `--key`, a PR whose repository and
   branch a delivery already records syncs that delivery; otherwise the first
   delivery is `primary`, and once primary records another repository the new one
-  is named after its repository (`owner/ep0ch-door` → `PIE-123/ep0ch-door`). A
+  is named after its repository (`owner/garden-site` → `PIE-123/garden-site`). A
   second branch in primary's own repository, or a key that already records other
   branches, is refused with a request for `--key <name>`.
 - **Completing.** `work complete` covers deliveries named with `--delivery`
