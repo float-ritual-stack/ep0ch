@@ -137,11 +137,8 @@ async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[
     case "session": {
       // The daemon starts its successor from its checkout, now on the new code.
       const { upgradeAll } = await import("../session/client");
-      const { upgradeOld } = await import("../session/old-session");
       const { ep0ch } = await import("../session/place");
-      // The session from before sessions were per outline, once (a one-off): moved into its outline's folder.
-      const old = await upgradeOld();
-      const rs = [...(old ? [old] : []), ...(await upgradeAll())];
+      const rs = await upgradeAll();
       for (const r of rs) if (r.ok) say(r.message);
       const failed = rs.filter(r => !r.ok);
       if (failed.length) throw new StepFailed(`handing ${failed.length === 1 ? "a door session" : `${failed.length} door sessions`} over failed: ${failed.map(r => r.message).join("; ")}`, `the sessions run on as they were; \`${ep0ch()}session upgrade --all\` tries again, and \`${ep0ch()}session list\` says what runs`);

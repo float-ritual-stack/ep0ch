@@ -22,7 +22,7 @@ import type { SessionInfo } from "./protocol";
 type Env = Record<string, string | undefined>;
 
 /** Which outline, and where it is: on this machine's host, a machine's (by its ssh name), or a host's socket named outright. */
-export interface OutlineKey { outline: string; machine?: string; socket?: string }
+interface OutlineKey { outline: string; machine?: string; socket?: string }
 export interface Place extends OutlineKey { dir: string }
 
 /**

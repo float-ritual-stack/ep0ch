@@ -28,7 +28,6 @@ import { HostPtys, ptyHostSocket, servePtyHost } from "./pty-host";
 import { forgetSession } from "./restore";
 import { askSession, sessionEnv, startSession, TERMINAL_VARS, waitFor } from "./start";
 import { ep0ch, pickSession, placeFor, placeLabel, readPlace, runningSessions, sessionFlags, sessionInfo, sessionSocket, waitingHosts, type Place, type Running } from "./place";
-import { afterOldEnded, leftoverSaying, oldSession, oldSessionSaying, oldSocketPath, upgradeOld } from "./old-session";
 export { sessionInfo };
 import { encode, Frames, PROTOCOL, type DaemonMsg, type Hello, type SessionInfo } from "./protocol";
 
@@ -52,15 +51,11 @@ export async function attachDoor(args: string[]): Promise<number> {
     console.error(`ep0ch: not a terminal, so no session is started or attached · \`${ep0ch()}--no-daemon\` opens the door here, \`${ep0ch()}session list\` says what runs`);
     return 1;
   }
-  const old = await oldSession();
-  if (old) { console.error(`ep0ch: ${oldSessionSaying(old)}`); return 1; }
   const place = placeFor(args);
   if (!place) { console.error(`ep0ch: no outline is named here · \`${ep0ch()}--ws <name>\` names one (\`${ep0ch()}outline list\` lists them)`); return 1; }
   if ("error" in place) { console.error(`ep0ch: ${place.error}`); return 1; }
   const path = sessionSocket(place.dir);
   if (!(await listening(path))) {
-    const left = leftoverSaying(place);
-    if (left) console.error(`ep0ch: ${left}`);
     const started = await startSession(place.dir, args.filter(a => a !== "--daemon"));
     // Another `ep0ch` started it a moment before: that one is waited for, then attached to.
     if (!started.ok && !(started.error.startsWith(LOCKED) && (await waitFor(path, 15_000)))) {
@@ -121,17 +116,13 @@ export async function sessionCommand(args: string[]): Promise<number> {
   const flag = (f: string) => { const i = rest.indexOf(f); if (i >= 0) rest.splice(i, 1); return i >= 0; };
   const all = flag("--all");
   if (cmd === "list" || cmd === undefined) {
-    const running = await runningSessions(), old = await oldSession();
+    const running = await runningSessions();
     if (rest.includes("--json")) { console.log(JSON.stringify(running.map(r => r.info))); return 0; }
-    if (old) console.log(`${old.outline}${old.machine ? ` on ${old.machine}` : ""} · session ${old.pid} from before sessions were per outline · ${old.clients} terminal${old.clients === 1 ? "" : "s"} attached, ${old.programs} program${old.programs === 1 ? "" : "s"}\n  \`${ep0ch()}session upgrade\` moves it into its outline's folder, \`${ep0ch()}session end\` ends it\n`);
     console.log(formatSessions(running, await waitingHosts()));
     return 0;
   }
   if (cmd === "upgrade" || cmd === "restart") {
     const o = { clients: flag("--clients"), handoff: cmd === "restart" };
-    // The old session first, whichever was asked: there's one way to move it, and this is it.
-    const old = await upgradeOld();
-    if (old) { (old.ok ? console.log : console.error)(`ep0ch: ${old.message}`); if (!old.ok || !all) return old.ok ? 0 : 1; }
     if (all) {
       const rs = await upgradeAll(o);
       if (!rs.length) { console.log(`ep0ch: no session runs on ${stateDir()}`); return 0; }
@@ -150,8 +141,6 @@ export async function sessionCommand(args: string[]): Promise<number> {
     const at = rest.indexOf("--wait"), wait = at >= 0 ? Number(rest[at + 1]) || 30 : 0;
     if (at >= 0) rest.splice(at, 2);
     const orStart = flag("--or-start"), watch = flag("--watch");
-    const old = await oldSession();
-    if (old) { console.error(`ep0ch: ${oldSessionSaying(old)}`); return 1; }
     // Nothing named and waiting (a terminal attaching again after a handoff): the only session, once its successor serves.
     let place = await pickSession(rest, "attach");
     for (const until = Date.now() + wait * 1000; "error" in place && wait && placeFor(rest) === null && Date.now() < until;) { await Bun.sleep(250); place = await pickSession(rest, "attach"); }
@@ -168,18 +157,11 @@ export async function sessionCommand(args: string[]): Promise<number> {
   }
   if (cmd === "end") {
     const force = flag("--yes") || flag("-y");
-    const old = await oldSession();
-    if (old) {
-      if (!(await endSession(oldSocketPath(stateDir()), `the session from before sessions were per outline (pid ${old.pid}, on ${old.outline})`, force, `${ep0ch()}session end --yes`))) return 1;
-      const moved = await afterOldEnded(old);
-      if (moved) console.log(`ep0ch: ${moved}`);
-      if (!all) return 0;
-    }
     if (all) {
       // Every session, and every terminal host left running by a session whose daemon stopped.
       const running = await runningSessions(), waiting = (await waitingHosts()).map(d => readPlace(d) ?? { outline: d, dir: d });
       const n = running.length + waiting.length;
-      if (!n) { if (!old) console.log(`ep0ch: no session runs on ${stateDir()}`); return 0; }
+      if (!n) { console.log(`ep0ch: no session runs on ${stateDir()}`); return 0; }
       const names = [...running.map(r => placeLabel(r.info.place)), ...waiting.map(p => `${placeLabel(p)}'s terminal host`)].join(", ");
       if (!force) {
         if (!process.stdin.isTTY) { console.error(`ep0ch: ${n} session${n === 1 ? "" : "s"} run (${names}) · \`${ep0ch()}session end --all --yes\` ends them all`); return 1; }

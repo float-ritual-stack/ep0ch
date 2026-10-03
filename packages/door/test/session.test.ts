@@ -24,7 +24,6 @@ import { doorMode, runEnv } from "../src/session/client";
 import { sessionEnv, startSession } from "../src/session/start";
 import { ancestors, detachedSaying, takeLock } from "../src/session/daemon";
 import { controlFor, ep0ch, pickSession, placeFor, placeOf, runningSessions, sessionFile, sessionFlags, sessionInfo as infoOn, sessionSocket, type Place } from "../src/session/place";
-import { adoptOldFiles, adoptOnStart, leftoverSaying, oldSessionSaying } from "../src/session/old-session";
 import { ensurePtyHost, frame, HostFrames, HOST_PROTOCOL, ptyHostSocket } from "../src/session/pty-host";
 import { restore, screenSteps, type Checkpoint } from "../src/session/restore";
 import { MainMenu } from "../src/screens";
@@ -896,58 +895,6 @@ describe("where a session lives (src/session/place.ts)", () => {
     expect(join(a.dir, "door-4194304.sock").length).toBeLessThanOrEqual(103);
     expect(placeOf({ outline: "seed-library-and-tool-shed-notes", machine: "allotment-north" }, root, {}).dir).toBe(a.dir);
     expect(placeOf({ outline: "seed-library-and-tool-shed-notex", machine: "allotment-north" }, root, {}).dir).not.toBe(a.dir);
-  });
-
-  test("the session from before sessions were per outline: its files moved into its outline's folder once, what's there kept", async () => {
-    const root = mkdtempSync(join(tmpdir(), "ep0ch-old-"));
-    try {
-      writeFileSync(join(root, "desk.json"), "{\"old\":1}");
-      writeFileSync(join(root, "lastcall.json"), "{\"at\":5}");
-      writeFileSync(join(root, "session.json"), "{}");
-      writeFileSync(join(root, "theme.json"), "{\"name\":\"calm\"}");
-      const place = placeOf({ outline: "garden" }, root, { HOME: root });
-      require("node:fs").mkdirSync(place.dir, { recursive: true });
-      writeFileSync(join(place.dir, "lastcall.json"), "{\"at\":9}");
-      const said = await adoptOldFiles(place, root);
-      expect(said).toContain("desk.json");
-      expect(readFileSync(join(place.dir, "desk.json"), "utf8")).toBe("{\"old\":1}");
-      expect(readFileSync(join(place.dir, "lastcall.json"), "utf8")).toBe("{\"at\":9}");   // the folder's own, kept
-      expect(existsSync(join(root, "desk.json")) || existsSync(join(root, "session.json"))).toBe(false);
-      expect(readFileSync(join(root, "theme.json"), "utf8")).toContain("calm");            // shared: stays
-      expect(await adoptOldFiles(place, root)).toBeNull();                                   // once
-      expect(oldSessionSaying({ pid: 4242, outline: "garden" })).toContain(`  ${ep0ch()}session upgrade `);
-    } finally { rmSync(root, { recursive: true, force: true }); }
-  });
-
-  test("a starting session takes them over only when the old one handed over or died on its outline; otherwise it says the mv", async () => {
-    const root = mkdtempSync(join(tmpdir(), "ep0ch-old-"));
-    const env = { HOME: root, EP0CH_OUTLINES: join(root, "outlines") };
-    const keep = { EP0CH_OUTLINES: process.env.EP0CH_OUTLINES, EP0CH_STATE: process.env.EP0CH_STATE };
-    process.env.EP0CH_OUTLINES = env.EP0CH_OUTLINES; process.env.EP0CH_STATE = root;
-    try {
-      const garden = placeOf({ outline: "garden" }, root, env), orchard = placeOf({ outline: "orchard" }, root, env);
-      // Left by an old session that ended on the old code: no outline named, so nothing is guessed; the mv is said.
-      writeFileSync(join(root, "desk.json"), "{\"old\":1}");
-      expect(await adoptOnStart(orchard, false, root)).toBeNull();
-      expect(await adoptOnStart(orchard, true, root)).toBeNull();          // a handover, but not from the old session
-      const said = leftoverSaying(orchard, root)!;
-      expect(said).toContain(`ep0ch session end --ws orchard && mkdir -p ${orchard.dir} && mv ${join(root, "desk.json")} ${orchard.dir}/`);
-      // An old daemon that died on garden left its session.json naming it: orchard's start leaves the files, garden's takes them.
-      writeFileSync(join(root, "session.json"), JSON.stringify({ outline: { outline: "garden", socket: join(env.EP0CH_OUTLINES, ".host", "host.sock") } }));
-      expect(leftoverSaying(orchard, root)).toBeNull();
-      expect(await adoptOnStart(orchard, false, root)).toBeNull();
-      expect(await adoptOnStart(garden, false, root)).toContain("desk.json");
-      expect(readFileSync(join(garden.dir, "desk.json"), "utf8")).toBe("{\"old\":1}");
-      expect(existsSync(join(root, "session.json"))).toBe(false);
-      // Handed over by the old daemon: its checkpoint is in the state dir itself.
-      writeFileSync(join(root, "session-state.json"), "{\"v\":2}");
-      writeFileSync(join(root, "marks.json"), "[]");
-      expect(await adoptOnStart(orchard, true, root)).toContain("marks.json");
-      expect(existsSync(join(orchard.dir, "session-state.json"))).toBe(true);
-    } finally {
-      for (const [k, v] of Object.entries(keep)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
-      rmSync(root, { recursive: true, force: true });
-    }
   });
 });
 

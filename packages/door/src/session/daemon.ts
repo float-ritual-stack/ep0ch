@@ -27,7 +27,6 @@ import { serveAs, SessionTerm, type Link, type SessionClient } from "./session-t
 import { encode, Frames, PROTOCOL, type ClientMsg, type DaemonMsg, type Hello, type SessionInfo } from "./protocol";
 import { startSession, waitFor } from "./start";
 import { ep0ch, placeFor, placeLabel, recordPlace, sessionFile, sessionFlags, sessionLock, sessionSocket, type Place } from "./place";
-import { adoptOnStart } from "./old-session";
 export { sessionFile, sessionLog, sessionSocket } from "./place";
 
 /** The checkout this code runs from, and its commit (an upgrade compares them). */
@@ -102,8 +101,6 @@ export async function serve(args: string[]): Promise<never> {
   // How this daemon came to be: handed a session by the one before it (an upgrade), or after one that stopped.
   const handedOver = process.env.EP0CH_SESSION_RESTORE === "upgrade";
   delete process.env.EP0CH_SESSION_RESTORE;
-  // Once (a one-off): a session from before sessions were per outline, handed over to this one or died on its outline.
-  const moved = await adoptOnStart(place, handedOver);
   const opened = await connectTarget(args);
   if ("error" in opened) { ready({ ok: false, error: opened.error }); console.error(`ep0ch session: ${opened.error}`); process.exit(1); }
   const checkpoint = readCheckpoint();
@@ -188,7 +185,6 @@ export async function serve(args: string[]): Promise<never> {
   // session too: ending it says so.
   app.quitWarning = () => { const n = host.unadopted().length; return n ? `${n} program${n === 1 ? "" : "s"} kept in the terminal host for a screen not opened since the handoff · ending the session ends ${n === 1 ? "it" : "them"} · again within 3s ends it` : null; };
   host.onLost = () => { if (!over) app.flash("the terminal host went away: the programs in the session's tiles ended (⏎ on a tile runs its program again)", 20_000); };
-  if (moved) app.flash(moved, 20_000);
   if (endedOld) app.flash(`the terminal host was older than this door: its ${endedOld} program${endedOld === 1 ? "" : "s"} ended, and the tiles start them again`, 20_000);
   // Said once the screens have been drawn (their tiles adopt their programs as they are).
   if (restored || keptPrograms) setTimeout(() => {
