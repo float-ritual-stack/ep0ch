@@ -9,7 +9,7 @@ import { SHELL_ACTIONS } from "./screens";
 import { isCopyKey, osc52 } from "./surface/selection";
 import { bg, C, chip, fg, headOf, pad, RESET, tailFrom, width } from "./style";
 import { printable } from "./text";
-import { OPTION_AS_ALT_HINT, OPTION_KEYS, optionKeysOn, pasteKeys, type Handover, type Key, type Term, type TermInfo } from "./term";
+import { OPTION_AS_ALT_HINT, OPTION_KEYS, optionKeysOn, pasteKeys, type Handover, type Key, type Term, type TermInfo, type TileProgram } from "./term";
 import { paintingScroll } from "./scroll";
 import { invalidateLive, setLiveSource } from "./live";
 import { invalidateLinks, setLinksSource } from "./links";
@@ -105,10 +105,11 @@ export interface Ctx {
   /** What has the terminal while the door is suspended ("shell", "editor"), or null. */
   suspended?(): string | null;
   /**
-   * Run an editor on `path` in a terminal tile beside the note instead of suspending the door (PIE-417):
-   * true when the screen has tiles and opened one; `done` is called with its exit code when it ends.
+   * Run a program for a moment in a terminal tile beside the note instead of suspending the door (PIE-417): ctrl+e's
+   * editor, ctrl+t's picker. True when the screen has tiles and opened one; `done` is called with its exit code when it
+   * ends, and the tile closes.
    */
-  editInTile?(path: string, cmd: string, done: (code: number | null) => void): boolean;
+  inTile?(p: TileProgram, done: (code: number | null) => void): boolean;
   lastCall: number;
   events: number;          // outline changes seen since the menu last looked
   /** The screen stack, bottom first (the shell's actions read it: `screen.list`, what `screen.back` leaves). */
@@ -177,8 +178,8 @@ export interface Screen {
   dispose?(): void | "keep";
   /** Why the screen can't be left now (it would end something and has no way back), or null. */
   leaveRefusal?(): string | null;
-  /** See Ctx.editInTile. */
-  editInTile?(path: string, cmd: string, done: (code: number | null) => void): boolean;
+  /** See Ctx.inTile. */
+  inTile?(p: TileProgram, done: (code: number | null) => void): boolean;
   /** What the person sees, for `view.subscribe`: diffed after every paint and pushed as events. */
   viewState?(): ViewState;
   /** The edits open here, by tile: what a session's next daemon opens again after a handoff (src/session/restore.ts). */
@@ -322,7 +323,7 @@ export class App implements Ctx {
     this.flash(dirty.length ? "an edit isn't saved · ctrl+s saves it · again within 3s leaves (the draft is copied to disk)" : warn!);
     return false;
   }
-  editInTile(path: string, cmd: string, done: (code: number | null) => void): boolean { return this.stack.at(-1)?.editInTile?.(path, cmd, done) ?? false; }
+  inTile(p: TileProgram, done: (code: number | null) => void): boolean { return this.stack.at(-1)?.inTile?.(p, done) ?? false; }
   confirmQuit(): boolean { return this.leaving([...this.stack, ...this.background], true); }
   get detaches(): boolean { return !!this.term.detachActive; }
   typingOn(): unknown { return this.term.typingOn?.() ?? null; }

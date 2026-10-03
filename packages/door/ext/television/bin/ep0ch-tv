@@ -3,7 +3,10 @@
 # is one line of work on the door's CLI (`ep0ch find`, `ep0ch show`, `ep0ch open`, `ep0ch outline list`), from the
 # checkout this script is in, so the channels and the door are always the same code.
 #
-#   ep0ch-tv notes                     every note: id, title, path, and what tv shows
+#   ep0ch-tv tree [<root id>]          the outline depth first (or the notes under the root; EP0CH_TV_ROOT names one too),
+#                                      drawn with ├─ │ └─: as tv shows it, then a tab and the note's id
+#   ep0ch-tv recent                    the newest notes, the same way
+#   ep0ch-tv all                       every note, newest first, the same way
 #   ep0ch-tv preview <id>              the note as the door draws it, as wide as tv's preview panel
 #   ep0ch-tv open <id>                 open it in the running door (EP0CH_CONTROL, else the person's), as the agent `television`
 #   ep0ch-tv detail <id>               show it in the Outliner's Tree and its linked Detail (outliner goto)
@@ -20,6 +23,17 @@ here=$(dirname "$(readlink -f "$0")")
 door=${EP0CH_DOOR_MAIN:-$(readlink -f "$here/../../../src/main.ts")}
 ep0ch() { bun "$door" "$@"; }
 tab=$(printf '\t')
+# A note as tv's ep0ch channel lists it (ansi = true): the line as shown, coloured, then a tab and the id, which the
+# channel's templates take back with {strip_ansi|split:\t:-1}. Blanks before the tab put the id past the list's right
+# edge: the list shows the tree, and the id is still the entry's (an outline reference needs the whole id). A title's
+# colour follows its depth, so a level reads down the tree; the rails and what it is are dim. In: id, title, context,
+# depth, glyphs (tab-separated).
+shown() {
+  awk -F'\t' -v OFS='' -v e="$(printf '\033')" '
+    BEGIN { n = split("33;1 36 32 35 34", hue, " "); away = sprintf("%200s", "") }
+    { c = ($4 == "" ? "37" : hue[($4 % n) + 1])
+      print e "[90m" $5 e "[" c "m" $2 e "[0m", ($3 == "" ? "" : e "[90m  · " $3 e "[0m"), away, "\t", $1 }'
+}
 # tv's preview panel, in columns: its share of the terminal (the cable files ask for 60%) less its border.
 panel() {
   cols=$(stty size 2>/dev/null </dev/tty | cut -d' ' -f2) || cols=""
@@ -31,8 +45,13 @@ panel() {
 cmd=${1:-}
 [ $# -gt 0 ] && shift
 case "$cmd" in
-  notes)
-    ep0ch find --lines | awk -F'\t' -v OFS='\t' '{ print $1, $2, $3, ($3 == "" ? $2 : $2 "  · " $3) }' ;;
+  tree)
+    root=${1:-${EP0CH_TV_ROOT:-}}
+    ep0ch find --tree ${root:+"$root"} --lines | awk -F'\t' -v OFS='\t' '{ print $1, $2, $6, $4, $5 }' | shown ;;
+  recent)
+    ep0ch find --recent --lines | awk -F'\t' -v OFS='\t' '{ print $1, $2, $3, "", "" }' | shown ;;
+  all)
+    ep0ch find --lines | awk -F'\t' -v OFS='\t' '{ print $1, $2, $3, "", "" }' | shown ;;
   preview)
     ep0ch show "$1" --ansi --width "$(panel)" ;;
   open)

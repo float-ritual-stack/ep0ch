@@ -91,9 +91,9 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     // Over the whole door, as on a screen without tiles, not in a tile beside the note (PIE-417): whether that
     // tile's editor had exited by the time the probe looked was a race, so runs explored different input states.
     // The tile's own path is desk-tiles.test.ts's (a fake editor that waits).
-    const editInTile = Desk.prototype.editInTile;
-    Desk.prototype.editInTile = () => false;
-    restore.push(() => { Desk.prototype.editInTile = editInTile; });
+    const inTile = Desk.prototype.inTile;
+    Desk.prototype.inTile = () => false;
+    restore.push(() => { Desk.prototype.inTile = inTile; });
     // A terminal that drew may still be printing (a prompt arriving): fresh() waits for it to hold still.
     const ptyRender = PtyPane.prototype.render;
     PtyPane.prototype.render = function (this: PtyPane, ...a: Parameters<typeof ptyRender>) { ptyDrew = true; return ptyRender.apply(this, a); };

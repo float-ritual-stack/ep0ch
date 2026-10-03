@@ -88,7 +88,7 @@ function frameCtx(f: FramedScreen): Ctx {
     setTheme: name => o().setTheme?.(name),
     suspend: ((run: () => Promise<unknown>, what?: string) => o().suspend(run, what)) as Ctx["suspend"],
     suspended: () => o().suspended?.() ?? null,
-    editInTile: (path, cmd, done) => o().editInTile?.(path, cmd, done) ?? false,
+    inTile: (p, done) => o().inTile?.(p, done) ?? false,
     idleFor: () => o().idleFor?.() ?? Infinity,
     // Where the person is, as seen from inside the frame: its screen has their focus only while the frame has it.
     person: () => within(o().person?.() ?? NOBODY, f.focused(), screenKeys(f.top)),

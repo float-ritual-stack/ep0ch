@@ -115,6 +115,13 @@ export interface HandoverOpts { cwd?: string; env?: Record<string, string>; bann
  * the client with the person's keys (its client runs the program there, src/session/client.ts).
  */
 export interface Handover { run(argv: string[], o?: HandoverOpts): Promise<number | null> }
+/**
+ * A program the door runs for a moment in a terminal tile beside what the person is reading (`Ctx.inTile`, PIE-417):
+ * ctrl+e's $EDITOR on a draft's file, ctrl+t's picker. `name` is the tile's; `file` the file it edits; `env` the door's
+ * own settings for it (EP0CH_* too; null unsets one); `shows` what its title calls the program; `wide`: it wants width
+ * more than height (a picker's list), so it may go below the reader rather than beside it.
+ */
+export interface TileProgram { cmd: string[]; name: string; cwd?: string; file?: string; env?: Record<string, string | null>; shows?: string; wide?: boolean }
 
 /** `argv` with this process's terminal as its stdio, `banner` printed first: its exit code. */
 export async function runProgram(argv: string[], o: HandoverOpts = {}): Promise<number | null> {

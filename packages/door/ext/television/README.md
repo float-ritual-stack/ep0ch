@@ -6,11 +6,31 @@ imports this folder. Delete it and the door works as before; the next `ep0ch ins
 
 | Channel | What it lists | Enter prints | Other keys |
 |---|---|---|---|
-| `tv ep0ch` | every note in the outline, newest first, as `title · path` (tv matches on both) | `((id))` for each note chosen | `ctrl-g` opens it in the running door; `ctrl-d` shows it in the Outliner's Tree and its Detail |
+| `tv ep0ch` | the outline's notes, three ways (`ctrl-s` cycles): **Tree**, the outline depth first as Tree orders it, drawn with `├─ │ └─`, each level's titles in their own colour and what a note is (work id, stage, type) dim beside it; **Recent**, the newest notes; **All**, every note, newest first, as `title · path` (tv matches on what's shown) | `((id))` for each note chosen | `ctrl-g` opens it in the running door; `ctrl-d` shows it in the Outliner's Tree and its Detail |
 | `tv ep0ch-files [<folder>]` | the files under `<folder>` (default: here), relative; a path holding a `'` or a `]` is left out (tv pastes fields into commands unescaped, and `]` would end the token) | `[file::<absolute path>]` for each file chosen | |
 | `tv ep0ch-outlines` | this machine's outlines, then each machine you've opened before, with its outlines | opens the door on it: `ep0ch --ws <name> [--machine <ssh-name>]` | |
 
-`Tab` picks several entries (tv's `toggle_selection`); Enter prints one output per line, in the order picked. The
+`Tab` picks several entries (tv's `toggle_selection`); Enter prints one output per line. A note's preview is the same
+from each of the `ep0ch` channel's sources.
+
+A Tree of part of the outline: `EP0CH_TV_ROOT=<id> tv ep0ch` (tv takes no channel argument: its second word is a
+folder), or `tv ep0ch --source-command "ep0ch-tv tree <id>"`. The channel keeps its sources' order (`no_sort`, no
+frecency), as the `git-log` channel keeps git's: typing narrows the tree without reordering it, and Recent and All stay
+newest first.
+
+```
+Kitchen sink  · showcase
+├─ House jobs  · work-queue
+│  ├─ HOME-001 — Fix the back gate latch  · queued · roadmap-item
+│  └─ HOME-002 — Bleed the radiators  · queued · roadmap-item
+├─ Kitchen whiteboard
+│  └─ Kitchen tap
+├─ Bike shed
+│  ├─ Puncture kit
+│  └─ Comment on “The spare inner tubes”  · annotation
+│     └─ Comment on “The spare inner tubes”  · annotation-reply
+└─ Allotment figures
+``` The
 preview of a note is the note as the door draws it (`ep0ch show <id> --ansi`, the note surface), of a file its start
 (`bat` when it's there), of an outline its newest notes. `ctrl-x` lists a channel's actions, `ctrl-t` switches channel.
 
@@ -26,8 +46,12 @@ outline the draft is in: the door passes `EP0CH_SOCKET` and `EP0CH_WS`.
 ## In the door: ctrl+t
 
 In any draft (an edit, a comment or reply, the board's new card) `ctrl+t`, or a click on `[insert]` in its title
-row, hands the terminal to `tv ep0ch` the way `ctrl+e` hands it to `$EDITOR`. What you choose goes in at the cursor,
-space-separated. Switch to `ep0ch-files` with tv's `ctrl-t` to put in files. That action is the door's (`draft.pick`,
+row, opens `tv ep0ch` where `ctrl+e` opens `$EDITOR`: on the desk and the river, in a terminal tile beside (or below) the
+note, with your keys (the draft stays in view); on a screen without tiles or with a locked shape (the board), over the
+whole terminal. What you choose
+goes in at the cursor, space-separated, and the tile closes. Switch to `ep0ch-files` with tv's `ctrl-t` to put in
+files. `ctrl+]` leaves the tile for the door with tv still open; another `ctrl+t` on that draft meanwhile opens no
+second one. That action is the door's (`draft.pick`,
 src/pick.ts) and knows nothing of tv: `EP0CH_PICKER` names another picker (`fzf -m`), and `EP0CH_PICK_CHANNEL`
 its argument (default `ep0ch`, empty for none).
 
@@ -66,11 +90,19 @@ code.
 
 ## How it works
 
-- **Source:** `ep0ch find --lines` prints every note as `id<TAB>title<TAB>path`; tv runs a source once and filters
-  as you type, so the channel lists them all and tv's matcher ranks them. `ep0ch find <words>` is the service's
-  forgiving ranker (as `((` and Goto rank), for scripts.
+- **Sources:** `ep0ch find --tree [<root>] --lines` prints the outline depth first, in the service's own order (its
+  tree index, the walk Tree draws), each note with its depth and the `├─ │ └─` that draw its place (past ten levels the
+  outer rails become `…<depth>`, so a deep title stays in view); `ep0ch find --recent --lines` and `ep0ch find --lines`
+  print the newest and every note as `id<TAB>title<TAB>path`. `ep0ch-tv` colours them as git's `--color` colours a log
+  (`ansi = true`) and puts the id after the line's last tab, past the list's right edge: the templates take it back with
+  `{strip_ansi|split:\t:-1}`, as `git-log`'s take the hash with `{strip_ansi|split: :0}`. An outline reference needs the
+  whole id (a short one doesn't resolve), so it is whole and kept out of view rather than shortened. tv runs a source
+  once and filters as you type. `ep0ch find <words>` is the service's forgiving ranker (as `((` and Goto rank), for
+  scripts.
 - **Preview width:** tv tells a preview command nothing about its panel (it runs the command with stdout to a pipe,
   and sets no `COLUMNS`). `ep0ch-tv preview` reads the terminal's width from `/dev/tty` (`stty size`) and takes the
   channel's preview share (60%) less the border; `EP0CH_TV_PREVIEW` changes the share it assumes.
 - **Output:** tv prints each chosen entry's `output` template on its own line, and draws its screen on stderr when
-  its stdout isn't a terminal: that's how the door's `ctrl+t` reads the choice.
+  its stdout isn't a terminal: that's how the door's `ctrl+t` reads the choice. The door runs `tv ep0ch > <file>` (a
+  private file in its state); in a tile, tv's stderr is the tile's terminal, so it draws there, and the door reads the
+  file when tv exits.

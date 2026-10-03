@@ -27,7 +27,7 @@ import { readState, writeState } from "../state";
 import { containerKeys, leafNames, savedNodes, specData, type ScreenSpec } from "./screen-spec";
 import { bg, C, chip as chipStyle, fg, fitHint, headOf, pad, paint, RESET, selected, width } from "../style";
 import { themed } from "../theme";
-import { ch, type Key } from "../term";
+import { ch, type Key, type TileProgram } from "../term";
 import { colourBody, wrap } from "../text";
 import { emphasis } from "../inline";
 import { presentLinks } from "../refs";
@@ -47,7 +47,7 @@ import { PreviewPane } from "./preview";
 import { LocalMarks, markLabel, type Mark, type MarkStore } from "./marks";
 import { TILE_ACTIONS, type NewTile, type TileDone, type Where } from "./tile-actions";
 import { DOCK_NAME, DOCK_TILE_ID } from "./agent-env";
-import { builtin, DetailPane, type SavedFloat, isTileKind, layoutNamed, layoutNames, makeTile, saveLayout, tileKindNames, tileNameProblem, words, type LayoutSpec, type OpenRule, type SavedTree, type TileSpec } from "./tiles";
+import { builtin, DetailPane, type SavedFloat, isTileKind, layoutNamed, layoutNames, makeTile, saveLayout, tileKindNames, tileNameProblem, type LayoutSpec, type OpenRule, type SavedTree, type TileSpec } from "./tiles";
 import { allKindActions, kindActions, kindForKey, kindNoun, kindOf, lastKindOf, tileKinds, tileSource, unwatchTileKinds, watchTileKinds, wasTileKind, type ColumnsHost, type SourceModel, type TileEnv, type TileKind, type TileKindName } from "./tile-kinds";
 
 /**
@@ -2598,23 +2598,35 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return { layout: this.layoutName, rev: this.layout.rev, rule: this.rule, focus: this.nameOf(this.focus), zoom: this.zoom !== null ? this.nameOf(this.zoom) : null, locked: this.screenLocked(), ...this.savedPolicy(), tree: describeLayout(this.layout, id => this.nameOf(id), id => this.tileId(id)), floats: this.floats.map(f => ({ tile: this.nameOf(f.id), id: this.tileId(f.id), rect: this.floatRect(f) })), tiles: this.all().map(id => this.tileView(id)) };
   }
 
-  /** Ctrl+E in a reader (PIE-417): the editor runs in a terminal tile beside it, not over the whole door. */
-  editInTile(path: string, cmd: string, done: (code: number | null) => void): boolean {
+  /**
+   * A program for a moment beside the reader the person is in (PIE-417): ctrl+e's editor, ctrl+t's picker. It runs in a
+   * terminal tile with their keys, not over the whole door; when it exits, `done` hears its code, the tile closes and the
+   * keys go back to the reader.
+   */
+  inTile(p: TileProgram, done: (code: number | null) => void): boolean {
     const at = this.focus;
-    // A locked screen keeps its shape: the editor runs over the whole door instead (as on a screen without tiles).
+    // A locked screen keeps its shape: the program runs over the whole door instead (as on a screen without tiles).
     if (!this.panes.has(at) || this.screenLocked()) return false;
-    // In a flow (the river's columns) the editor is the next column, at reading width; elsewhere it splits beside.
-    const where: At<number> = this.inFlow(at) ? { kind: "next", from: at } : { kind: "split", target: at, dir: "right" };
-    const r = this.ask({ op: "open", tile: this.nextId, kind: "pty", name: "edit", loose: true, at: where });
+    // In a flow (the river's columns) it is the next column, at reading width; elsewhere it splits beside, or below for a
+    // program that wants width (a picker's list) when beside would leave it narrower than tall (a cell is about 1:2).
+    const r0 = this.hits.find(([x]) => x === at)?.[1];
+    const dir = p.wide && r0 && r0.cols < r0.rows * 4 ? "down" : "right";
+    const where: At<number> = this.inFlow(at) ? { kind: "next", from: at } : { kind: "split", target: at, dir };
+    const r = this.ask({ op: "open", tile: this.nextId, kind: "pty", name: p.name, loose: true, at: where });
     if (!r.ok) return false;
-    const pane = makeTile({ kind: "pty", cmd: [...words(cmd), path], file: path, name: "edit" }) as PtyPane;
-    pane.run.temp = true;
+    // Never kept in a layout (its program and files go with the door), so its spec is the door's own, never a saved one.
+    const pane = new PtyPane({ cmd: p.cmd, ...(p.cwd ? { cwd: p.cwd } : {}), ...(p.file ? { file: p.file } : {}), ...(p.env ? { own: p.env } : {}), ...(p.shows ? { shows: p.shows } : {}), label: p.name, temp: true });
     const id = this.put(pane);
     this.commit(r);
     this.startTile(id);
+    // The person was in the reader's edit: they come back into it, typing where they left off.
+    const from = this.panes.get(at), wasIn = from instanceof ReaderPane && this.entered.in(from);
     pane.onExit = code => {
       done(code);
-      if (this.panes.has(id)) { this.closeId(id); if (this.panes.has(at)) this.keysTo(at); }
+      if (this.panes.has(id)) {
+        this.closeId(id);
+        if (this.panes.has(at)) { this.keysTo(at); if (wasIn && this.panes.get(at) === from) this.entered.enter(from as ReaderPane); }
+      }
       this.save(); this.redraw();
     };
     this.focus = id; this.ptyIn = pane;

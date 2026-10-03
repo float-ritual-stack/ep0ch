@@ -336,6 +336,36 @@ describe.skipIf(!outliner)("the desk as tiles, against a scratch outline", () =>
     key({ kind: "esc" }); key({ kind: "esc" });
     process.env.EDITOR = "tail -f";
   }, 20_000);
+  test("ctrl+t in an edit on the desk opens the picker in a tile beside it with the keys; what it prints goes in, and the tile closes", async () => {
+    const script = join(scratch.root, "door", "fake-picker.sh");
+    // A picker that waits for a key in its tile, then prints a choice naming the outline it was given.
+    writeFileSync(script, `#!/bin/sh\nread k\n[ -S "$EP0CH_SOCKET" ] && echo "(($EP0CH_WS-$1-$k))"\n`);
+    chmodSync(script, 0o755);
+    const was = process.env.EP0CH_PICKER;
+    process.env.EP0CH_PICKER = script;
+    try {
+      if (!(app as any).stack.includes(desk)) app.push(desk);
+      // The note the ctrl+e test left an edit put aside on: e takes it up again.
+      await mine("open", { id: notes.beans.id }, "middle");
+      const at = [...D().names].find(([, v]: any) => v === "middle")[0];
+      const mid = D().panes.get(at);
+      await until(() => mid.msg?.id === notes.beans.id && !mid.msg.partial, "beans in middle");
+      D().focus = at;
+      key(char("e"));
+      await until(() => !!mid.draft, "the edit open");
+      key(ctrl("t"));
+      await until(() => get().tiles.some(t => t.name === "pick" && t.terminal?.running), "the picker's tile", 8000);
+      expect(get().focus).toBe("pick");                               // the person's keys are in it
+      expect(mid.draft.note).toContain("beside");
+      for (const c of "ok") key(char(c));
+      key({ kind: "enter" });
+      // The board here names no outline (the host's default): the picker is given its socket, and no EP0CH_WS.
+      await until(() => mid.draft.text.includes("((-ep0ch-ok))"), "the choice in the draft", 8000);
+      await until(() => !get().tiles.some(t => t.name === "pick"), "the picker's tile closed");
+      expect(get().focus).toBe("middle");                             // and the keys back in the edit
+      key({ kind: "esc" }); key({ kind: "esc" });
+    } finally { if (was === undefined) delete process.env.EP0CH_PICKER; else process.env.EP0CH_PICKER = was; }
+  }, 20_000);
   test("a header's title moves the tile; the bare line after it is the border above, so pressing it resizes the tile", async () => {
     if (!(app as any).stack.includes(desk)) app.push(desk);
     await mine("layout.load", { name: "terminal-day" });

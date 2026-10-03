@@ -1,22 +1,32 @@
-# The outline's notes (packages/door/ext/television). Enter prints ((id)) for each note chosen (Tab picks several);
-# ctrl-g opens the one under the cursor in the running door, ctrl-d in the Outliner's Tree and Detail.
+# The outline's notes (packages/door/ext/television). Three sources, ctrl-s cycles them: Tree (the outline depth first,
+# drawn with ├─ │ └─, or the notes under EP0CH_TV_ROOT), Recent (the newest notes), All (every note, newest first). Enter
+# prints ((id)) for each note chosen (Tab picks several); ctrl-g opens the one under the cursor in the running door,
+# ctrl-d in the Outliner's Tree and Detail.
 # Which outline: the door's rule (--ws, EP0CH_WS, the folder's .ep0ch); from the door's ctrl+t, the draft's outline.
+# Each line is coloured as shown (ansi = true), with the note's id after its last tab: the templates take it back from
+# there. The source's order is kept (no_sort, no frecency), as the git-log channel keeps git's.
 [metadata]
 name = "ep0ch"
-description = "Notes in the outline: Enter puts ((id)), ctrl-g opens it in the door, ctrl-d in the Outliner's Detail"
+description = "Notes in the outline as a tree, the newest, or all (ctrl-s): Enter puts ((id)), ctrl-g opens it in the door, ctrl-d in the Outliner's Detail"
 requirements = ["ep0ch-tv"]
 
 [source]
-command = "ep0ch-tv notes"
-display = "{split:\\t:3}"
-output = "(({split:\\t:0}))"
+command = [
+  { name = "Tree", run = "ep0ch-tv tree" },
+  { name = "Recent", run = "ep0ch-tv recent" },
+  { name = "All", run = "ep0ch-tv all" },
+]
+ansi = true
+no_sort = true
+frecency = false
+output = "(({strip_ansi|split:\\t:-1}))"
 
 [preview]
-command = "ep0ch-tv preview '{split:\\t:0}'"
+command = "ep0ch-tv preview '{strip_ansi|split:\\t:-1}'"
 
 [ui.preview_panel]
 size = 60
-header = "{split:\\t:1}"
+header = "{strip_ansi|split:\\t:0|replace:s/^[│├└─… 0-9]*[├└]─ //|replace:s/  · .*$//|trim}"
 
 [keybindings]
 ctrl-g = "actions:open"
@@ -24,10 +34,10 @@ ctrl-d = "actions:detail"
 
 [actions.open]
 description = "Open in the door (ep0ch open, as the agent television)"
-command = "ep0ch-tv open '{split:\\t:0}'"
+command = "ep0ch-tv open '{strip_ansi|split:\\t:-1}'"
 mode = "fork"
 
 [actions.detail]
 description = "Show in the Outliner's Tree and its Detail"
-command = "ep0ch-tv detail '{split:\\t:0}'"
+command = "ep0ch-tv detail '{strip_ansi|split:\\t:-1}'"
 mode = "fork"

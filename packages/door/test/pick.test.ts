@@ -49,6 +49,8 @@ describe("what a picker printed, as it goes in", () => {
     expect("EP0CH_MACHINE" in r.env || "EP0CH_LANDING" in r.env).toBe(false);
     expect(r.argv.slice(0, 2)).toEqual(["sh", "-c"]);
     expect(r.argv.at(-1)).toBe("ep0ch");
+    // What the door sets over a terminal tile's own environment: the same outline, the machine unset.
+    expect(r.own).toEqual({ EP0CH_SOCKET: OUTLINE.socket, EP0CH_WS: "garden", EP0CH_MACHINE: null, EP0CH_PICK_OUT: "/tmp/out.txt" });
   });
 });
 
@@ -84,6 +86,44 @@ describe("pickInto: the terminal handed over, the choice put in", () => {
     expect(r).toEqual({ kept: "((a1))", at: expect.stringContaining("picked-"), why: "the draft closed while echo ((a1)) was open" });
     expect(readFileSync((r as { at: string }).at, "utf8")).toBe("((a1))\n");
     expect(d.text).toBe("closed");
+  });
+});
+
+describe("pickInto on a screen with tiles: the picker beside the note", () => {
+  /** A screen's `inTile`: the program runs (here as a plain child, its stdout to the file as sh sends it) and `done` hears its code. */
+  const tiles = (seen: { name?: string; shows?: string; env?: Record<string, string | null> }[], log: string[] = []) => ({
+    ...stepAside(log),
+    inTile(p: { cmd: string[]; name: string; shows?: string; env?: Record<string, string | null> }, done: (code: number | null) => void) {
+      seen.push({ name: p.name, shows: p.shows, env: p.env });
+      const env: Record<string, string> = { ...process.env } as Record<string, string>;
+      for (const [k, v] of Object.entries(p.env ?? {})) { if (v === null) delete env[k]; else env[k] = v; }
+      void runProgram(p.cmd, { env }).then(done);
+      return true;
+    },
+  });
+
+  test("it runs in a tile, not the person's terminal; the choice goes in when it exits, and a second ctrl+t meanwhile opens nothing", async () => {
+    const d = draft("Ask about the shed", 9), seen: { name?: string; shows?: string; env?: Record<string, string | null> }[] = [], log: string[] = [];
+    const r = await withEnv({ EP0CH_PICKER: `sh -c 'sleep 0.2; echo "(($EP0CH_WS-$1))"' sh` }, async () => {
+      const first = pickInto(tiles(seen, log), d, OUTLINE, { channel: "c1" });
+      expect(d.note).toContain("beside");
+      expect(await pickInto(tiles(seen, log), d, OUTLINE)).toEqual({ nothing: expect.stringContaining("already open beside") });
+      return await first;
+    });
+    expect(r).toEqual({ inserted: " ((garden-c1))" });
+    expect(d.text).toBe("Ask about ((garden-c1)) the shed");
+    expect(log).toEqual([]);                                          // the terminal was never handed over
+    expect(seen).toEqual([{ name: "pick", shows: expect.stringContaining("c1"), env: expect.objectContaining({ EP0CH_WS: "garden", EP0CH_MACHINE: null }) }]);
+    // Done: the next ctrl+t opens a picker again.
+    await withEnv({ EP0CH_PICKER: "true" }, () => pickInto(tiles(seen), d, OUTLINE));
+    expect(seen.length).toBe(2);
+  });
+
+  test("a screen that can't open a tile (no tiles, a locked screen): the person's terminal, as before", async () => {
+    const d = draft("", 0), log: string[] = [];
+    const ctx = { ...stepAside(log), inTile: () => false };
+    expect(await withEnv({ EP0CH_PICKER: "echo" }, () => pickInto(ctx, d, OUTLINE, { channel: "((a1))" }))).toEqual({ inserted: "((a1))" });
+    expect(log).toEqual(["picker"]);
   });
 });
 
