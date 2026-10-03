@@ -112,3 +112,6 @@ export const rule = (w: number, label = "") => {
   const l = label ? `${fg(C.blue)}──(${fg(C.lcyan)} ${label} ${fg(C.blue)})` : "";
   return fg(C.blue) + l + "─".repeat(Math.max(0, w - width(l))) + RESET;
 };
+
+/** A note's id as given: a bare id, or a block reference as written (`((id))`, what a picker prints). */
+export const blockIdOf = (s: string) => s.replace(/^\(\((.+)\)\)$/, "$1");

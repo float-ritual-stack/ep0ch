@@ -20,6 +20,7 @@ import { clamp, sideways, SidewaysWheel, wheelRows, type RowPress } from "../scr
 import { DRAFT_ACTIONS } from "../edit";
 import { cardTarget, DraftSession, openDraftOf, type DraftCommand, type LeaveResult } from "../draft-session";
 import { editHint, editorClick, openInEditor, renderEditor, writtenBy } from "../surface/editor";
+import { pickInto, type Picked } from "../pick";
 import { completerFor, completerOf } from "../surface/completer";
 import { Modes } from "../surface/modes";
 import { ListPicker, pickRow } from "../surface/picker";
@@ -243,7 +244,7 @@ export class Lanes implements SourceModel {
       const inside = !!r && k.x >= r.col && k.y >= r.row && k.x < r.col + r.cols && k.y < r.row + r.rows;
       const inText = !!r && k.x > r.col && k.y > r.row && k.x < r.col + r.cols - 1 && k.y < r.row + r.rows - 1;
       if (r && pop && k.action === "down" && inText && pop.click(k.y - r.row - 1)) { this.host.redraw(); return true; }
-      if (r && (k.action === "down" || k.action === "drag") && (inText || k.action === "drag") && editorClick(d, k.x - r.col - 1, k.y - r.row - 1, k.action === "drag")) { this.host.redraw(); return true; }
+      if (r && (k.action === "down" || k.action === "drag") && (inText || k.action === "drag") && editorClick(d, k.x - r.col - 1, k.y - r.row - 1, k.action === "drag", USER, { pick: () => void this.host.pressAction(BOARD_ACTIONS, "composer.pick", {}) })) { this.host.redraw(); return true; }
       if (k.action !== "down" || inside) return true;
       if (d.busy) { this.host.ctx.flash("the new card is being created · wait for it"); return true; }
       void this.host.pressAction(BOARD_ACTIONS, "composer.leave").then(r => { const said = r ? leaveSaid(r as LeaveResult) : null; if (said) this.host.ctx.flash(said, 8000); this.host.redraw(); });
@@ -826,6 +827,7 @@ export class Lanes implements SourceModel {
     const C0 = this.composer!, d = C0.session.draft;
     if (cmd === "save") void this.submitComposer();
     else if (cmd === "editor") void openInEditor(this.host.ctx, d, () => this.composer?.session.draft === d).then(() => this.host.redraw());
+    else if (cmd === "pick") void this.host.pressAction(BOARD_ACTIONS, "composer.pick", {});
     // cmd+c: the draft's selection to the person's clipboard, through the draft's copy action.
     else if (cmd === "copy") void Dispatcher.of(DRAFT_ACTIONS, d, () => this.host.ctx).press("draft.copy").then(r => { const c = r as { text: string; chars: number } | undefined; if (c) { this.host.ctx.copy?.(c.text); this.host.ctx.flash(`copied ${c.chars} chars`); } this.host.redraw(); });
     // Esc on nothing typed closes it; esc, esc on typed text puts it aside as unsent (never created), and says where.
@@ -851,6 +853,19 @@ export class Lanes implements SourceModel {
     if (C0.session.dirty && !discard) throw new ActionRefused("there's typed text; ctrl+s creates it, discard=true puts it aside as unsent");
     const r = C0.session.close(discard);
     if (r.said) this.host.ctx.flash(r.said, 8000);
+    this.host.redraw();
+    return r;
+  }
+
+  /** Ctrl+T in the composer: insert from a picker at its cursor (src/pick.ts), as in every draft. */
+  async pickComposer(channel?: string): Promise<Picked> {
+    const C0 = this.composer;
+    if (!C0) throw new ActionRefused("no new card or note is being written");
+    const d = C0.session.draft, board = this.host.ctx.board;
+    if (d.busy) throw new ActionRefused("the new card is being created");
+    const r = await pickInto(this.host.ctx, d, { socket: board.path, name: board.outline }, { ...(channel !== undefined ? { channel } : {}), held: () => this.composer?.session.draft === d });
+    if ("kept" in r) this.host.ctx.flash(`${r.why}: ${r.kept} · copied to ${r.at}`, 12000);
+    else if ("nothing" in r) d.note = r.nothing;
     this.host.redraw();
     return r;
   }
@@ -1233,7 +1248,7 @@ export class Lanes implements SourceModel {
       line(`a child note of ${titleOf(C0.parent, 60)}`, C.cyan),
       line(d.note || "the first line is the title", d.note.startsWith("not created") ? C.lred : C.dark),
     ];
-    const lines = renderEditor(d, { title: C0.kind === "card" ? `new card in ${C0.lane.name}` : "new note", status, by: writtenBy(d, "save"), preview: draftPreview }, w, r.rows - 2);
+    const lines = renderEditor(d, { title: C0.kind === "card" ? `new card in ${C0.lane.name}` : "new note", status, by: writtenBy(d, "save"), preview: draftPreview, pick: true }, w, r.rows - 2);
     this.composerAt = r;
     lines.forEach((l, i) => canvas.text(r.col + 1, r.row + 1 + i, l, w));
   }
@@ -1325,6 +1340,15 @@ export const BOARD_ACTIONS = actionSet<BoardOn>()("board", {
     touches: "draft", draft: "leave", replay: "ask", person: "the new card or note being written is the person's; an agent doesn't close it (card.create writes its own)",
     args: {},
     run(_, { model }) { return lanesOf({ model }).leaveComposer(); },
+  }),
+  "composer.pick": def({
+    summary: "insert from a picker in the new card or note being written: the person's terminal goes to the picker (EP0CH_PICKER, default tv) on a channel (default EP0CH_PICK_CHANNEL, else ep0ch), and what they choose goes in at the cursor, space-separated. The person's own: it takes their terminal",
+    keys: "ctrl+t, a click on [insert] in its title row",
+    touches: "draft", draft: "type", replay: "ask", person: "an agent doesn't hand the person's terminal to a picker; card.create and note.create write their own text",
+    args: { channel: { type: "string", optional: true, about: "the picker's argument (a television channel: ep0ch, ep0ch-files …); empty for none" } },
+    run({ channel }, { model }) {
+      return lanesOf({ model }).pickComposer(channel);
+    },
   }),
   "composer.close": def({
     summary: "close the new card or note being written: unchanged, it goes; typed text needs discard=true, and is put aside as unsent (n or N brings it back). The person's own",

@@ -27,6 +27,8 @@ export interface EditFrame {
    * same body renderer every reader uses). With it the frame offers the preview (ctrl+p, or its control).
    */
   preview?: (text: string, w: number) => string[];
+  /** The host can insert from a picker (ctrl+t, src/pick.ts): the frame offers it as a control too. */
+  pick?: boolean;
 }
 
 /**
@@ -35,11 +37,17 @@ export interface EditFrame {
  * so a click in the host's cells finds them (`editorClick`).
  */
 export function renderEditor(d: Draft, f: EditFrame, w: number, h: number): string[] {
-  // The control, where there's room for it beside the title (a narrow river column has ctrl+p).
-  const ctl = f.preview && w >= 40 ? (d.preview ? "[hide preview]" : "[preview]") : "";
-  const tw = Math.max(1, w - (ctl ? ctl.length + 1 : 0));
+  // The controls, where there's room for them beside the title (a narrow river column has ctrl+t and ctrl+p).
+  const pv = f.preview && w >= 40 ? (d.preview ? "[hide preview]" : "[preview]") : "";
+  const pk = f.pick && w >= 56 ? "[insert]" : "";
+  const ctls = [...(pk ? [{ text: pk, action: "pick" as const }] : []), ...(pv ? [{ text: pv, action: "preview" as const }] : [])];
+  const cw = ctls.reduce((n, c) => n + c.text.length + 1, 0);
+  const tw = Math.max(1, w - cw);
+  const controls: NonNullable<Draft["frame"]>["controls"] = [];
+  let x = tw + 1;
+  for (const c of ctls) { controls.push({ row: 0, from: x, to: x + c.text.length, action: c.action }); x += c.text.length + 1; }
   const top = [
-    fg(C.yellow) + pad(`» ${f.title}`, tw) + (ctl ? " " + fg(C.lcyan) + ctl : "") + RESET,
+    fg(C.yellow) + pad(`» ${f.title}`, tw) + ctls.map(c => " " + fg(C.lcyan) + c.text).join("") + RESET,
     ...f.status,
     ...(f.by ? [fg(C.lmagenta) + pad(f.by, w) + RESET] : []),
     ...(f.context ?? []),
@@ -49,7 +57,7 @@ export function renderEditor(d: Draft, f: EditFrame, w: number, h: number): stri
   // The preview takes the lower half, once there's room for both.
   const ph = f.preview && d.preview && all >= 6 ? Math.floor(all / 2) : 0;
   const room = all - ph;
-  d.frame = { row: top.length, col: 1, rows: room, controls: ctl ? [{ row: 0, from: tw + 1, to: tw + 1 + ctl.length, action: "preview" }] : [] };
+  d.frame = { row: top.length, col: 1, rows: room, controls };
   const below = ph ? previewRows(d, f.preview!, w, ph) : [];
   const pop = completionOf(d), c = completerOf(d);
   if (c) c.drawn = null;
@@ -87,13 +95,15 @@ function previewRows(d: Draft, render: (text: string, w: number) => string[], w:
 
 /**
  * A click (or the press of a drag) in the host's cells, over a draft drawn by `renderEditor`: on the
- * preview control it toggles the preview; on the text it puts the cursor there (`extend`: a drag, selecting
- * from where it was). Both are the draft's actions. False when the click wasn't on either.
+ * preview control it toggles the preview; on the insert control it runs the host's `pick` (its insert-from-a-picker
+ * action); on the text it puts the cursor there (`extend`: a drag, selecting from where it was). All are actions.
+ * False when the click wasn't on any.
  */
-export function editorClick(d: Draft, x: number, y: number, extend = false, actor: Actor = USER): boolean {
+export function editorClick(d: Draft, x: number, y: number, extend = false, actor: Actor = USER, on: { pick?: () => void } = {}): boolean {
   const f = d.frame;
   if (!f) return false;
   const ctl = !extend ? f.controls.find(c => c.row === y && x >= c.from && x < c.to) : undefined;
+  if (ctl?.action === "pick") { on.pick?.(); return true; }
   if (ctl) { void DRAFT_ACTIONS.run("draft.preview", {}, d, actor); return true; }
   if (!extend && (y < f.row || y >= f.row + f.rows)) return false;
   const p = d.posAt(x - f.col, Math.max(0, Math.min(f.rows - 1, y - f.row)));
@@ -106,7 +116,7 @@ export function editHint(d: Draft, o: { save: "save" | "send"; reload?: string |
   if (completionOf(d)) return `${COMPLETION_HINT} · ctrl+s ${o.save}`;
   // The ways out first (a narrow hint row cuts the end), then the list keys and the preview.
   const last = d.patches.at(-1);
-  return `ctrl+s ${o.save} · esc ${d.dirty ? "twice puts it aside" : o.close ?? "done"}${last ? ` · ctrl+z undo ${patchLabel(last.by)}'s edit` : ""} · ctrl+e $EDITOR${o.reload ? ` · ctrl+r ${o.reload}` : ""} · tab indent · shift+tab out · ctrl+p preview`;
+  return `ctrl+s ${o.save} · esc ${d.dirty ? "twice puts it aside" : o.close ?? "done"}${last ? ` · ctrl+z undo ${patchLabel(last.by)}'s edit` : ""} · ctrl+e $EDITOR${o.reload ? ` · ctrl+r ${o.reload}` : ""} · ctrl+t insert · tab indent · shift+tab out · ctrl+p preview`;
 }
 
 /** A note draft's state, for its status line. */

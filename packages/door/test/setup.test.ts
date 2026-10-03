@@ -8,12 +8,13 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { backupDatabase, formatPlan, setupCommand, tilde } from "../src/setup/apply";
+import { backupDatabase, formatPlan, linkExtensions, setupCommand, tilde } from "../src/setup/apply";
+import { extFacts } from "../src/setup/ext-links";
 import { PROTOCOL } from "@ep0ch/outline-core/protocol";
 import { doctorChecks, formatDoctor, versionAtLeast } from "../src/setup/doctor";
 import { claudeModIn, databases, depsState, herdrKeys, hostFacts, hostUnit, launchdState, openOutlineToPing, systemdState } from "../src/setup/facts";
 import { type Checkout, detectPlatform, type Facts, type HostFacts, type HostUnit, staleness } from "../src/setup/model";
-import { backupName, buildPlan, checkoutStep, chooseLinkDir, hostStep, hostUnitArgv, linkCandidates, type PlanOptions, stamp, unitChanges } from "../src/setup/plan";
+import { backupName, buildPlan, checkoutStep, chooseLinkDir, extStep, hostStep, hostUnitArgv, linkCandidates, type PlanOptions, stamp, unitChanges } from "../src/setup/plan";
 
 const scratch = mkdtempSync(join(tmpdir(), "ep0ch-setup-"));
 afterAll(() => rmSync(scratch, { recursive: true, force: true }));
@@ -537,4 +538,90 @@ describe("never opening an outline to look at it", () => {
       expect(seen.map(r => r.action)).not.toContain("ping");
     } finally { server.stop(true); }
   });
+});
+
+describe("the door's extensions (packages/door/ext): their links", () => {
+  /** A door with one extension asking for two cable files and a helper on PATH, in a scratch home. */
+  function door() {
+    const root = mkdtempSync(join(scratch, "ext-")), ext = join(root, "door", "ext", "telly");
+    mkdirSync(join(ext, "cable"), { recursive: true }); mkdirSync(join(ext, "bin"));
+    writeFileSync(join(ext, "cable", "notes.toml"), "# a channel\n");
+    writeFileSync(join(ext, "cable", "files.toml"), "# a channel\n");
+    writeFileSync(join(ext, "bin", "telly-help"), "#!/bin/sh\n");
+    writeFileSync(join(ext, "ext.json"), JSON.stringify({ requires: ["telly"], links: [
+      { from: "cable", into: ["$TELLY_CONFIG/cable", "~/.config/telly/cable"] }, { from: "bin", into: ["@bin"] }] }));
+    const home = join(root, "home"), bin = join(home, ".local/bin");
+    mkdirSync(bin, { recursive: true });
+    return { extRoot: join(root, "door", "ext"), ext, home, bin, cable: join(home, ".config/telly/cable") };
+  }
+  const on = (d: ReturnType<typeof door>, env: Record<string, string> = {}, which = (n: string) => (n === "telly" ? "/usr/bin/telly" : null)) =>
+    extFacts(d.extRoot, { env, home: d.home, bin: d.bin, which, record: join(d.home, "state", "ext-links.json") });
+  const withExt = (ext: Facts["ext"]): Facts => ({ ...current(), ext });
+
+  test("a first install links each file where its program finds it, and says each one", () => {
+    const d = door();
+    const facts = on(d);
+    expect(facts.exts[0]!.links.map(l => [l.dest, l.state])).toEqual([
+      [join(d.cable, "files.toml"), "missing"], [join(d.cable, "notes.toml"), "missing"], [join(d.bin, "telly-help"), "missing"]]);
+    const step = extStep(withExt(facts));
+    expect([step.status, step.why]).toEqual(["do", "3 to link"]);
+    expect(step.commands).toContain(`ln -s ${join(d.ext, "cable", "notes.toml")} ${join(d.cable, "notes.toml")}`);
+    expect(statuses(withExt(facts))).toEqual(["backup:skip", "repo:skip", "plugin:skip", "link:skip", "host:skip", "session:skip", "ext:do"]);
+    const said: string[] = [];
+    linkExtensions(step.links!, s => said.push(s));
+    expect(said).toEqual(expect.arrayContaining([`${join(d.cable, "notes.toml")} → ${join(d.ext, "cable", "notes.toml")}`]));
+    // A second run has nothing to do.
+    expect(extStep(withExt(on(d)))).toMatchObject({ status: "skip", why: "3 linked" });
+  });
+
+  test("a file that isn't install's is never replaced: left as it is, and said", () => {
+    const d = door();
+    mkdirSync(d.cable, { recursive: true });
+    writeFileSync(join(d.cable, "notes.toml"), "# the person's own\n");
+    const step = extStep(withExt(on(d)));
+    expect(step.status).toBe("do");
+    expect(step.why).toContain(`left as they are (not install's): ${join(d.cable, "notes.toml")}`);
+    expect(step.links!.make.map(l => l.dest)).not.toContain(join(d.cable, "notes.toml"));
+    linkExtensions(step.links!, () => {});
+    expect(readFileSync(join(d.cable, "notes.toml"), "utf8")).toBe("# the person's own\n");
+    // And if one appears between the plan and the apply, the link fails rather than replacing it.
+    const late = door(), plan = extStep(withExt(on(late)));
+    mkdirSync(late.cable, { recursive: true });
+    writeFileSync(join(late.cable, "files.toml"), "# arrived since\n");
+    expect(() => linkExtensions(plan.links!, () => {})).toThrow(/linking .*files\.toml failed/);
+    expect(readFileSync(join(late.cable, "files.toml"), "utf8")).toBe("# arrived since\n");
+  });
+
+  test("$NAME applies when it's set; a program not on PATH links nothing and says why", () => {
+    const d = door();
+    expect(on(d, { TELLY_CONFIG: join(d.home, "elsewhere") }).exts[0]!.links[0]!.dest).toBe(join(d.home, "elsewhere", "cable", "files.toml"));
+    const without = on(d, {}, () => null);
+    expect(without.exts[0]).toMatchObject({ links: [], problem: "telly isn't on PATH" });
+    expect(extStep(withExt(without))).toMatchObject({ status: "skip", why: "nothing to link · not linked: telly: telly isn't on PATH" });
+  });
+
+  test("deleting the extension, the last one: install's recorded links are taken away next time, and nothing else", () => {
+    const d = door();
+    linkExtensions(extStep(withExt(on(d))).links!, () => {});
+    writeFileSync(join(d.cable, "someone-elses.toml"), "# not ours\n");
+    rmSync(d.extRoot, { recursive: true, force: true });
+    const facts = on(d);
+    expect(facts.exts).toEqual([]);
+    expect(facts.stale.map(s => s.dest).sort()).toEqual([join(d.bin, "telly-help"), join(d.cable, "files.toml"), join(d.cable, "notes.toml")].sort());
+    const step = extStep(withExt(facts));
+    expect([step.status, step.why]).toEqual(["do", "3 stale to take away"]);
+    linkExtensions(step.links!, () => {});
+    expect(existsSync(join(d.cable, "someone-elses.toml"))).toBe(true);
+    expect(existsSync(join(d.cable, "notes.toml"))).toBe(false);
+    expect(extStep(withExt(on(d)))).toMatchObject({ status: "skip" });
+  });
+
+  test("a file of the person's own where a link would go: said every run, never a step left for them", () => {
+    const d = door();
+    linkExtensions(extStep(withExt(on(d))).links!, () => {});
+    rmSync(join(d.cable, "notes.toml"));
+    writeFileSync(join(d.cable, "notes.toml"), "# mine now\n");
+    expect(extStep(withExt(on(d)))).toMatchObject({ status: "skip", why: expect.stringContaining("left as they are (not install's)") });
+  });
+
 });

@@ -2,7 +2,7 @@
 // its steps in order, each saying what it did, and stops at the first failure with the recovery. Outlines are only
 // ever copied; no outline is created; no unit, Herdr config or plugin link is changed.
 import { Database } from "bun:sqlite";
-import { chmodSync, existsSync, mkdirSync, rmSync, statSync, symlinkSync, unlinkSync } from "node:fs";
+import { chmodSync, existsSync, lstatSync, mkdirSync, rmSync, statSync, symlinkSync, unlinkSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { formatDoctor, doctorReport } from "./doctor";
@@ -11,6 +11,7 @@ import { Progress, progressMode, size, type Task, type Terminal } from "./progre
 import { type Facts, PLUGIN_SOURCE, short, staleness } from "./model";
 import { backupDirOf, buildPlan, hostMainOf, hostStep, hostUnitArgv, hostUnitCommand, type Plan, type PlanOptions, type Step, type StepStatus } from "./plan";
 import { hostLive } from "../discover";
+import { recordLinks, staleLinkInto } from "./ext-links";
 
 type Env = Record<string, string | undefined>;
 export const SETUP_USAGE = "ep0ch doctor [--json] | ep0ch install [--apply] [--json]";
@@ -154,6 +155,10 @@ async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[
       say(`${link} → ${f.repo.entry}`);
       return;
     }
+    case "ext": {
+      if (step.links) linkExtensions(step.links, say);
+      return;
+    }
     case "host": {
       const u = f.host.unit!;
       const verb = f.host.running ? "restart" : "start";
@@ -170,6 +175,28 @@ async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[
       return;
     }
   }
+}
+
+/**
+ * The ext step's links: each stale one taken away (only while it's still a link whose file is gone), each missing one
+ * made (a symlink never replaces anything: if something came there since the plan, it fails and says so).
+ */
+export function linkExtensions(links: NonNullable<Step["links"]>, say: (s: string) => void): void {
+  const removed: string[] = [], made: string[] = [];
+  try {
+    for (const dest of links.remove) {
+      // Still a link into ext/ whose file is gone (it was, when the plan was made): never anything else.
+      if (staleLinkInto(dest, links.extRoot)) { unlinkSync(dest); removed.push(dest); say(`took away ${dest} (its file is gone)`); }
+    }
+    for (const l of links.make) {
+      try {
+        mkdirSync(dirname(l.dest), { recursive: true });
+        symlinkSync(l.src, l.dest);
+      } catch (e) { throw new StepFailed(`linking ${l.dest} failed: ${(e as Error).message}`, `nothing there was replaced; link it by hand: ln -s ${l.src} ${l.dest}`); }
+      made.push(l.dest);
+      say(`${l.dest} → ${l.src}`);
+    }
+  } finally { if (links.record) recordLinks(links.record, made, removed); }
 }
 
 /** Paths under the home directory as ~/…, for people (--json keeps them whole). */

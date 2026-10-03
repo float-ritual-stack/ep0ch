@@ -70,7 +70,7 @@ export interface SessionEnv {
 export type Ended = "written" | "closed" | "aside";
 
 /** What a key in a draft asks its host to run as an action (the key path is the action path, PIE-506). */
-export type DraftCommand = "save" | "close" | "discard" | "editor" | "reload" | "copy";
+export type DraftCommand = "save" | "close" | "discard" | "editor" | "pick" | "reload" | "copy";
 
 /**
  * What leaving a draft by a click (or ^W) did: `closed` (nothing changed), `saved`, `kept` as unsent (with
@@ -162,7 +162,7 @@ export class DraftSession {
   /**
    * A key in the draft. Typing, the cursor, the list keys and the completion popup are the draft's; what ends
    * or hands it off is a command the host runs as its action (`run`): save, close (esc on nothing changed),
-   * discard (the second esc on changed text: put aside), editor, reload, copy. Nothing while a write lands.
+   * discard (the second esc on changed text: put aside), editor, pick (insert from a picker), reload, copy. Nothing while a write lands.
    */
   key(k: Key, host: { run(cmd: DraftCommand): void; completer?: Completer | null }): void {
     if (!this.open || this.draft.busy) return;

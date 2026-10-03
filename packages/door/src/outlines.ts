@@ -12,12 +12,12 @@ import { DOT_EP0CH, formatDotEp0ch, isMachineName, tooBroadToName } from "@ep0ch
 import { homedir } from "node:os";
 import { hostLive, hostSocketOf, outlinesDir, resolveTarget, type Target } from "./discover";
 import { hostRequest, type HostedOutline, OUTLINE_NAME } from "./socket";
-import { forwardTo } from "./machine";
+import { everyOutline, forwardTo } from "./machine";
 import type { HomeArgs, HomeChoice } from "./home";
 
 /** `machine`: `--machine <ssh-name>`, the host that machine's, through its forward (else the one rule: runOutlineCommand). */
 export type OutlineCommand = { machine?: string } & (
-  | { op: "list"; json: boolean }
+  | { op: "list"; json: boolean; all?: boolean; lines?: boolean }
   | { op: "attach"; name: string; json: boolean }
   | { op: "create"; name: string; json: boolean }
   | { op: "import"; path: string; name: string; json: boolean }
@@ -26,7 +26,7 @@ export type OutlineCommand = { machine?: string } & (
   | { op: "init"; name?: string; json: boolean }
   | { op: "status"; json: boolean });
 
-export const OUTLINE_USAGE = "ep0ch outline list | attach <name> | create <name> | import <database.sqlite> <name> | stop <name> | delete <name> [--yes]   (each with --json and --machine <ssh-name>); ep0ch init [<name>]";
+export const OUTLINE_USAGE = "ep0ch outline list [--all] [--lines] | attach <name> | create <name> | import <database.sqlite> <name> | stop <name> | delete <name> [--yes]   (each with --json and --machine <ssh-name>); ep0ch init [<name>]";
 
 /** `args` after `outline` (or `["status", …]`, `["init", …]`): the command, or why it isn't one. */
 export function parseOutlineArgs(argsIn: readonly string[], cwd = process.cwd()): OutlineCommand | { error: string } {
@@ -49,7 +49,11 @@ function parseCommand(args: readonly string[], cwd: string): OutlineCommand | { 
   };
   switch (op) {
     case "status": return rest.length ? { error: "status takes no arguments" } : { op: "status", json };
-    case "list": return rest.length ? { error: "outline list takes no arguments" } : { op: "list", json };
+    case "list": {
+      if (rest.length) return { error: "outline list takes no arguments" };
+      const all = args.includes("--all"), lines = args.includes("--lines");
+      return { op: "list", json, ...(all ? { all } : {}), ...(lines ? { lines } : {}) };
+    }
     case "init": {
       if (rest.length > 1) return { error: "init takes [<name>]" };
       if (rest[0]) { const bad = badName(rest[0]); if (bad) return bad; }
@@ -122,6 +126,16 @@ export async function initHere(name: string | undefined, path: string, cwd = pro
  */
 export async function runOutlineCommand(cmdIn: OutlineCommand, out = console.log, err = console.error,
   ask: (question: string) => Promise<boolean> = confirm): Promise<number> {
+  // Every outline the person can open from here: this machine's host's, then each machine they've opened (as the home
+  // base lists them). A machine whose forward isn't up is listed without outlines: nothing is started.
+  if (cmdIn.op === "list" && cmdIn.all) {
+    if (cmdIn.machine) { err("ep0ch: outline list --all lists every machine already; leave out --machine"); return 2; }
+    const every = await everyOutline(hostSocket());
+    if (cmdIn.json) out(JSON.stringify(every, null, 2));
+    else if (cmdIn.lines) for (const o of every) out([o.name ?? "", o.machine ?? "", o.problem ?? ""].join("\t"));
+    else for (const o of every) out(`${(o.name ?? "·").padEnd(24)}  ${o.machine ?? "this machine"}${o.problem ? `  (${o.problem})` : ""}`);
+    return 0;
+  }
   let cmd = cmdIn;
   // Which host, by the one rule (resolveTarget): --machine, EP0CH_SOCKET, EP0CH_MACHINE, this folder's .ep0ch. `status`
   // is this machine's host unless --machine names another (what another machine asks of it: src/machine.ts there).
@@ -152,6 +166,7 @@ export async function runOutlineCommand(cmdIn: OutlineCommand, out = console.log
       }
       case "list": {
         const list = await hostRequest<{ defaultOutline?: string; outlines: HostedOutline[] }>(path, "outlines.list");
+        if (cmd.lines) { for (const o of list.outlines) out([o.name, cmd.machine ?? "", ""].join("\t")); return 0; }
         print(list, formatOutlines(list.outlines));
         return 0;
       }

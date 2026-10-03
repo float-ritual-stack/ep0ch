@@ -1,0 +1,8 @@
+{
+  "about": "television (tv) channels for the outline: notes (ep0ch), files to reference (ep0ch-files), outlines to open (ep0ch-outlines)",
+  "requires": ["tv"],
+  "links": [
+    { "from": "cable", "into": ["$TELEVISION_CONFIG/cable", "~/.config/television/cable"] },
+    { "from": "bin", "into": ["@bin"] }
+  ]
+}

@@ -33,7 +33,7 @@ export type DraftPatchAnswer = { applied: true } | { applied: false; reason: str
  * What a key in a draft asks its host to do: `close` (esc on nothing changed), `discard` (the second esc on
  * changed text: its session puts it aside as unsent), `copy` (cmd+c: the host runs its draft.copy).
  */
-export type DraftAction = "keep" | "save" | "editor" | "reload" | "close" | "discard" | "copy";
+export type DraftAction = "keep" | "save" | "editor" | "pick" | "reload" | "close" | "discard" | "copy";
 
 export class Draft {
   lines: string[];
@@ -159,6 +159,7 @@ export class Draft {
     if (k.kind === "char" && k.ctrl) {
       if (k.ch === "s") return "save";
       if (k.ch === "e") return "editor";
+      if (k.ch === "t") return "pick";
       if (k.ch === "r") return "reload";
       if (k.ch === "p") { void DRAFT_ACTIONS.run("draft.preview", {}, this, USER); return "keep"; }
       if (k.ch === "z") { void DRAFT_ACTIONS.run("draft.undo", {}, this, USER).catch(e => { this.note = e instanceof Error ? e.message : String(e); }); return "keep"; }
@@ -590,7 +591,7 @@ export class Draft {
   /** Show the Markdown preview under the text (ctrl+p, or the frame's control). The host draws it. */
   preview = false;
   /** Where the edit frame drew the text and its controls, in the host's cells (set by renderEditor). */
-  frame: { row: number; col: number; rows: number; controls: { row: number; from: number; to: number; action: "preview" }[] } | null = null;
+  frame: { row: number; col: number; rows: number; controls: { row: number; from: number; to: number; action: "preview" | "pick" }[] } | null = null;
 
   /** The rows the draft is drawn in at width `w`: each line wrapped at spaces, continuations hung under its text. */
   layout(w: number): VRow[] {

@@ -145,7 +145,7 @@ export type ChangePage =
   | { kind: "reset"; reason: string; oldestSequence: number; sequence: number };
 
 /** The first line of a compact tree preview (it joins a property-less note's lines with ` ↵ `). */
-const previewTitle = (p: string) => p.split(" \u21b5 ")[0]!.trim();
+export const previewTitle = (p: string) => p.split(" \u21b5 ")[0]!.trim();
 
 const toMsg = (b: WireBlock, childIds: string[] = []): Msg => ({
   id: b.id,
@@ -562,14 +562,19 @@ export class SocketBoard implements Board {
     return out.slice(0, limit);
   }
 
+  /** The service's ranked matches for `text` (`tree.search`), best first: each note's id, title and path (its ancestors). */
+  async ranked(text: string): Promise<{ id: string; title: string; path: string }[]> {
+    const r = await this.request<{ matches: { block: { id: string }; title: string; path: string }[] }>("tree.search", { query: text });
+    return r.matches.map(m => ({ id: m.block.id, title: m.title, path: m.path }));
+  }
+
   /**
    * Notes matching `text`, best first, as Tree's goto ranks them (`tree.search`: the service's order, an exact
    * title before a title that starts with the words, before one that holds them, before a mention in a body),
    * read whole for a preview.
    */
   async search(text: string, limit: number): Promise<Msg[]> {
-    const ranked = await this.request<{ matches: { block: { id: string } }[] }>("tree.search", { query: text });
-    const ids = ranked.matches.slice(0, Math.min(1000, limit)).map(m => m.block.id);
+    const ids = (await this.ranked(text)).slice(0, Math.min(1000, limit)).map(m => m.id);
     if (!ids.length) return [];
     const by = new Map((await this.readBlocks(ids)).blocks.map(m => [m.id, m]));
     return ids.flatMap(id => by.get(id) ?? []);

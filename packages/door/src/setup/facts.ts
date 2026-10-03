@@ -7,12 +7,13 @@ import { homedir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
 import { hostLive, hostSocketOf, outlinesDir, resolveTarget } from "../discover";
 import { machineStatus, usedMachines } from "../machine";
+import { binDirOf, extFacts } from "./ext-links";
 import { outlinerPlugin } from "../skills";
 import { outlineOfFile } from "@ep0ch/outline-core/outline-location";
 import { doorAgents } from "../desk/agent-env";
 import { hostRequest, type HostedOutline } from "../socket";
 import { type Checkout, type DatabaseFacts, type Deps, detectPlatform, type Facts, type HereFacts, type HostFacts, type HostUnit, KEYED_ACTIONS, PLUGIN_ID, type PluginFacts, type RepoFacts, type UnitState } from "./model";
-import { linkCandidates } from "./plan";
+import { chooseLinkDir, linkCandidates } from "./plan";
 
 type Env = Record<string, string | undefined>;
 
@@ -406,6 +407,7 @@ export async function gatherFacts(o: GatherOptions = {}): Promise<Facts> {
     machines,
     claude: { settingsPath, settingsDirs, envDirs: splitDirs(env.CLAUDE_CODE_PLUGIN_DIRS), ...(mentions ? { mentions } : {}), ...(env.FORCE_HYPERLINK !== undefined ? { forceHyperlink: env.FORCE_HYPERLINK } : {}), ...(agents ? { agents } : {}) },
     session,
+    ext: extFacts(join(repo.door, "ext"), { env, home, bin: binDirOf(found, target === real(repo.entry)) ?? chooseLinkDir(linkDirs), which: n => which(n, pathDirs), record: join(env.EP0CH_STATE ?? defaultStateDir(env), "ext-links.json") }),
   };
 }
 

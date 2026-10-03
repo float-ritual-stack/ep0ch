@@ -8,6 +8,8 @@
 import type { DoorAgent } from "../desk/agent-env";
 import type { HostedOutline } from "../socket";
 
+import type { ExtFacts, StaleLink } from "./ext-links";
+
 export type Platform = "linux" | "macos" | "other";
 
 /** The platform by Node's name for it. Nothing else here assumes systemd or launchd. */
@@ -164,6 +166,8 @@ export interface Facts {
    * its attached terminals and the programs in its tiles. Undefined when not looked for.
    */
   session?: { pid: number; dir: string; commit: string | null; clients: number; programs: number } | null;
+  /** The door's userland extensions (packages/door/ext/) and the links they ask for; undefined when not looked for. */
+  ext?: { root: string; exts: ExtFacts[]; stale: StaleLink[]; record?: string };
 }
 
 /** The plugin's actions the Outliner installer binds keys to. */

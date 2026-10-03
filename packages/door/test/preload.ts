@@ -11,6 +11,9 @@ for (const k of Object.keys(process.env)) if (k.startsWith("EP0CH_") && k !== "E
 // A door a test starts (`bun src/main.ts …`) runs in its own process, not as a session that would outlive the test
 // (test/session.test.ts starts its sessions itself).
 process.env.EP0CH_DAEMON = "0";
+// ctrl+t in a draft (draft.pick, src/pick.ts) hands the terminal to a picker: one that exits at once having chosen
+// nothing, never the person's tv (test/pick.test.ts sets its own).
+process.env.EP0CH_PICKER = "true";
 
 const dir = mkdtempSync(join(tmpdir(), "ep0ch-test-state-"));
 process.env.XDG_STATE_HOME = dir;
