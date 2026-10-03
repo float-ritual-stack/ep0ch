@@ -67,7 +67,7 @@ class Door {
 const files = (dir: string): string[] => !existsSync(dir) ? [] : readdirSync(dir, { recursive: true }).map(String).sort();
 
 beforeAll(async () => {
-  if (!outliner) throw new Error("set EP0CH_OUTLINER to a pi-herdr-outliner checkout");
+  if (!outliner) throw new Error("no outliner package found (packages/outliner, or EP0CH_OUTLINER)");
   scratch = new Scratch();
   await scratch.start();
   board = new SocketBoard(scratch.sock);

@@ -1165,8 +1165,8 @@ export async function runHerdrScenario(scenarioInput: Scenario): Promise<Scenari
           "--env", `OUTLINER_WORKSPACE_ROOT=${projectRoot}`,
           "--env", `OUTLINER_CAPTURE_FROM_BLOCK_ID=${blockId}`,
           "--env", `OUTLINER_CAPTURE_ORIGIN_PANE=${ownedPanes.tree}`,
-          "--env", "OUTLINER_REMOTE=1",
-          "--env", `OUTLINER_SOCKET_PATH=${socketPath}`]);
+          "--env", `EP0CH_SOCKET=${socketPath}`,
+          "--env", `EP0CH_WS=${OUTLINE_NAME}`]);
       },
       async focus(paneId) {
         requireOwned(paneId);

@@ -56,17 +56,17 @@ export async function attachDoor(args: string[], how: { running: boolean }): Pro
 }
 
 /**
- * The outline the door flags name (`--ws <name>`, EP0CH_WS, a socket path, EP0CH_SOCKET), as resolveTarget names
- * it (its host's socket, and the outline on it): the same resolution the session made when it started, without
- * asking the host (an outline not open yet is opened by the session that starts). Null when they name none (a
- * folder's `.ep0ch` doesn't count): the session in the state dir is attached to, whichever outline it's on.
+ * The outline this terminal names (`--ws <name>`, EP0CH_WS, the folder's `.ep0ch`; a socket path or EP0CH_SOCKET
+ * for the host), as resolveTarget names it: the same rule the session started by, without asking the host. A
+ * session on another outline refuses it, so `ep0ch` in a folder and `ep0ch --ws <its name>` behave alike. Null when
+ * nothing names one (a folder with no `.ep0ch`, no host named): the session in the state dir is attached to,
+ * whichever outline it's on.
  */
-export async function namedTarget(args: readonly string[], env: Record<string, string | undefined> = process.env): Promise<{ socket: string; outline?: string } | { error: string } | null> {
-  const named = args.includes("--ws") || args.some((a, i) => a.includes("/") && !a.startsWith("--") && !["--board", "--ws", "--layout"].includes(args[i - 1] ?? "")) || !!env.EP0CH_SOCKET || !!env.EP0CH_WS;
-  if (!named) return null;
-  const t = resolveTarget(args, env);
+export async function namedTarget(args: readonly string[], env: Record<string, string | undefined> = process.env, cwd = process.cwd()): Promise<{ socket: string; outline?: string } | { error: string } | null> {
+  const t = resolveTarget(args, env, cwd);
   if ("error" in t) return { error: t.error };
-  return { socket: resolve(t.path), ...("outline" in t ? { outline: t.outline } : {}) };
+  if ("outline" in t) return { socket: resolve(t.path), outline: t.outline };
+  return t.remote ? { socket: resolve(t.path) } : null;
 }
 
 /**

@@ -2,6 +2,8 @@ import { createBlockComment } from "./block-comments";
 import { readSavedView } from "./saved-view-read";
 import {inspectWorkspaceConnection} from './workspace-diagnostics';
 import { resolve } from "node:path";
+import { homedir } from "node:os";
+import { tooBroadToName } from "@ep0ch/outline-core/outline-location";
 import { parseArgs, type ParseArgsOptionsConfig } from "node:util";
 import { normalizePropertyQueryScope, parsePropertyFilterClause } from "./block-query";
 import {
@@ -254,6 +256,8 @@ async function runOutlinesCommand(group: "outlines" | "outline" | "init", args: 
       const name = positionals[0] ?? guess?.name;
       if (!name) throw new Error(which.kind === "named" ? `${which.file} already names "${which.name}"` : `${asked} is too broad to name an outline after; name one: init <name>`);
       const folder = values.folder || positionals[0] ? asked : guess!.folder;
+      // $HOME, / or a folder right under / would name every folder below it: only when asked for by --folder.
+      if (!values.folder && tooBroadToName(folder, process.env.HOME || homedir())) throw new Error(`${folder} is too broad to name an outline for every folder below it; run init in a project folder, or pass --folder ${folder} to mean it`);
       const attached = await attachHostedOutline(hostOrThrow(), name, true);
       const file = writeDotEp0ch(folder, name, { replace: true });
       console.log(values.json ? JSON.stringify({ ...attached, file }, null, 2) : `${attached.created ? "created" : "picked"} outline ${name}; ${file} names it`);

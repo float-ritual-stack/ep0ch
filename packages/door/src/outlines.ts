@@ -8,7 +8,8 @@
 import { readFileSync, renameSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline/promises";
 import { join, resolve } from "node:path";
-import { DOT_EP0CH, formatDotEp0ch, isOutlineName, slugifyOutlineName } from "@ep0ch/outline-core/outline-location";
+import { DOT_EP0CH, formatDotEp0ch, freeOutlineName as freeName, isOutlineName, slugifyOutlineName, tooBroadToName } from "@ep0ch/outline-core/outline-location";
+import { homedir } from "node:os";
 import { hostLive, hostSocketOf, outlinesDir, resolveTarget, type Target } from "./discover";
 import { hostRequest, type HostedOutline, OUTLINE_NAME } from "./socket";
 
@@ -96,6 +97,8 @@ export async function initHere(name: string | undefined, path: string, cwd = pro
     throw new Error("outline" in target ? `this folder already names "${target.outline}" (${target.why}); pass a name to change it` : `${cwd} is too broad to name an outline after; name one: ep0ch init <name>`);
   }
   const folder = name ? cwd : guess!.folder;
+  // $HOME, / or a folder right under / would name every folder below it.
+  if (tooBroadToName(resolve(folder), process.env.HOME || homedir())) throw new Error(`${folder} is too broad to name an outline for every folder below it; run ep0ch init in a project folder`);
   const r = await hostRequest<{ created: boolean }>(path, "outlines.attach", { name: chosen, create: true });
   return { name: chosen, created: r.created, file: writeDotEp0ch(folder, chosen, true) };
 }
@@ -204,6 +207,9 @@ export async function chooseOutline(target: Extract<Target, { unnamed: string }>
       if (host.outlines.includes(name)) { say(`there is already an outline named "${name}": pick it by its number`); continue; }
       await hostRequest(target.path, "outlines.create", { name });
       say(`created outline ${name}`);
+    } else if (answer === "i" && target.remote) {
+      say("import reads a file on the host's machine; run ep0ch outline import there");
+      continue;
     } else if (answer === "i") {
       const file = (await ask("Database file: ")).trim().replace(/^~(?=\/)/, process.env.HOME ?? "~");
       if (!file) continue;
@@ -226,14 +232,6 @@ export async function chooseOutline(target: Extract<Target, { unnamed: string }>
   }
 }
 
-/** The first free name from `base`: itself, then `-2`, `-3`… */
-export function freeName(base: string, taken: readonly string[]): string {
-  if (!taken.includes(base)) return base;
-  for (let n = 2; ; n++) {
-    const candidate = `${base.slice(0, 32 - `-${n}`.length).replace(/-+$/, "")}-${n}`;
-    if (!taken.includes(candidate)) return candidate;
-  }
-}
 
 /** A line read from the terminal, asked on stderr (the door's stdout is its screen). */
 export async function askLine(question: string): Promise<string> {

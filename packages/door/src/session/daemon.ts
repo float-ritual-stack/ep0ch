@@ -182,7 +182,7 @@ export async function serve(args: string[]): Promise<never> {
     const adopted = keptPrograms - host.unadopted().length;
     app.flash(restoredSaying(restored ?? { screens: 0, held: [], reopened: 0, errors: [] }, handedOver ? "upgrade" : "crash", adopted), 15_000);
   }, 400);
-  const same = (t: Hello["target"]) => !t || (resolve(t.socket) === resolve(opened.board.path) && (t.outline ?? null) === (opened.board.outline ?? null));
+  const same = (t: Hello["target"]) => !t || (resolve(t.socket) === resolve(opened.board.path) && (t.outline === undefined || t.outline === (opened.board.outline ?? null)));
   const where = opened.service.outline ? `the outline ${opened.service.outline}` : opened.service.workspace;
 
   /** Every terminal starts again on the code in the checkout and attaches again: the session goes on as it is. */

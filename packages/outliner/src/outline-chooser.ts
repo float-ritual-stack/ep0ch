@@ -1,5 +1,6 @@
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { basename } from "node:path";
+import { freeOutlineName } from "@ep0ch/outline-core/outline-location";
 import { isOutlineName, slugifyOutlineName } from "./paths";
 import type { HostedOutlineSummary } from "./types";
 import { sanitizeDynamicText, type TerminalKey } from "./terminal";
@@ -23,6 +24,8 @@ export interface OutlineChooserContext {
   clientId?: string;
   /** The switcher: the folder may already name an outline, and a choice replaces its `.ep0ch`. */
   switch?: boolean;
+  /** The switcher in a folder that names one: the folder whose `.ep0ch` the choice replaces. */
+  dotFolder?: string;
 }
 
 export function parseOutlineChooserContext(value: string | undefined): OutlineChooserContext {
@@ -40,6 +43,7 @@ export function parseOutlineChooserContext(value: string | undefined): OutlineCh
     ...(typeof parsed.paneId === "string" ? { paneId: parsed.paneId } : {}),
     ...(typeof parsed.clientId === "string" ? { clientId: parsed.clientId } : {}),
     ...(parsed.switch === true ? { switch: true } : {}),
+    ...(typeof parsed.dotFolder === "string" ? { dotFolder: parsed.dotFolder } : {}),
   };
 }
 
@@ -136,15 +140,6 @@ export function chooserMouse(chooser: OutlineChooser, sequence: string, width: n
   return "choose";
 }
 
-/** The first free name from `base`: itself, then `-2`, `-3`… */
-export function freeOutlineName(base: string, taken: ReadonlySet<string>): string {
-  if (!taken.has(base)) return base;
-  for (let n = 2; ; n++) {
-    const suffix = `-${n}`;
-    const candidate = `${base.slice(0, 32 - suffix.length).replace(/-+$/, "")}${suffix}`;
-    if (!taken.has(candidate)) return candidate;
-  }
-}
 
 /** The name a new outline is offered: the folder's guess, free on this host. */
 export function newOutlineName(context: OutlineChooserContext, taken: ReadonlySet<string>): string {
@@ -169,7 +164,8 @@ export function renderChooserFrame(chooser: OutlineChooser, width: number, heigh
   };
   const bordered = (line: string) => ` │${fit(line)}│ `;
   const root = sanitizeDynamicText(chooser.context.workspaceRoot);
-  const where = chooser.context.guess ? `writes ${sanitizeDynamicText(chooser.context.guess.folder)}/.ep0ch` : "this time only (the folder is too broad to name)";
+  const dotFolder = chooser.context.dotFolder ?? chooser.context.guess?.folder;
+  const where = dotFolder ? `writes ${sanitizeDynamicText(dotFolder)}/.ep0ch` : "this time only (the folder is too broad to name)";
   const list: string[] = [];
   for (const [offset, row] of chooser.rows.slice(start, start + slots).entries()) {
     const active = start + offset === chooser.index;
@@ -221,7 +217,8 @@ export type ChooserPlan =
   | { kind: "refuse"; message: string };
 
 export function planChoice(chooser: OutlineChooser, row: OutlineChooserRow): ChooserPlan {
-  const dot = chooser.context.guess ? { dotFolder: chooser.context.guess.folder } : {};
+  const folder = chooser.context.dotFolder ?? chooser.context.guess?.folder;
+  const dot = folder ? { dotFolder: folder } : {};
   if (row.kind === "hosted") return { kind: "pick", name: row.outline.name, ...dot };
   const input = chooser.input?.row === row.kind ? chooser.input : undefined;
   if (!input) return { kind: "input", input: { row: row.kind, text: row.kind === "new" ? newOutlineName(chooser.context, chooser.names) : "" } };

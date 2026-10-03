@@ -108,7 +108,8 @@ if (args[0] === "clients") {
 const how = await doorMode(args);
 // A door about to open on an outline of its own (no session to attach to): which outline. A folder that names none
 // asks the person (init, pick or import) and goes on with --ws <their choice> (PIE-530).
-if (!(how.mode === "attach" && how.running)) {
+// Without a terminal, a session isn't started at all (attachDoor says so); nothing to ask.
+if (!(how.mode === "attach" && (how.running || !process.stdin.isTTY))) {
   const named = await nameTheOutline(args);
   if (!named) process.exit(1);
   if ("error" in named) { console.error(`ep0ch: ${named.error}`); process.exit(1); }

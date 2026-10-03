@@ -388,6 +388,7 @@ describe.skipIf(!outliner)("a real session on a scratch service", () => {
     state = join(scratch.root, "door");
     env("EP0CH_STATE", state);
     env("EP0CH_SOCKET", sock);
+    env("EP0CH_WS", scratch.name);
     env("EP0CH_DAILY_AGENT", "sh");
     const started = await startSession(["--desk"]);
     expect(started).toEqual({ ok: true });
@@ -771,6 +772,7 @@ describe.skipIf(!outliner)("handing a real session over, and back after a crash"
     b.close();
     env("EP0CH_STATE", join(scratch.root, "door"));
     env("EP0CH_SOCKET", sock);
+    env("EP0CH_WS", scratch.name);
     env("EP0CH_DAILY_AGENT", "sh");
     expect(await startSession(["--desk"])).toEqual({ ok: true });
   }, 60_000);

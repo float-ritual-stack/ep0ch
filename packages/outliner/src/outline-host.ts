@@ -5,7 +5,7 @@ import { createServer, type Server, type Socket } from "node:net";
 import { dirname, isAbsolute, join } from "node:path";
 import { aiPromptDirectory, initializeAiPrompts } from "./ai-prompts";
 import type { HerdrRuntimeRegistry } from "./herdr-registry";
-import { importOutline, type ImportReport } from "./outline-import";
+import type { ImportReport } from "./outline-import";
 import { isOutlineName, OUTLINE_NAME_PATTERN } from "./paths";
 import { DOT_EP0CH, formatDotEp0ch, outlineLayout } from "@ep0ch/outline-core/outline-location";
 import { OutlinerServer } from "./server";
@@ -65,6 +65,16 @@ export interface OutlineHostOptions {
 const HOST_ACTIONS = new Set(["outlines.list", "outlines.create", "outlines.import", "outlines.attach", "outlines.close", "outlines.delete", "outlines.pane"]);
 /** A first line longer than this is not a request; the connection is dropped. */
 const MAX_FIRST_LINE = 64 * 1024 * 1024;
+
+/** `importOutline` in a child process (the CLI's `import`), so the host's event loop keeps serving meanwhile. */
+async function importInChild(source: string, target: string): Promise<ImportReport> {
+  const child = Bun.spawn([process.execPath, join(import.meta.dir, "cli.ts"), "import", source, target, "--json"], {
+    stdout: "pipe", stderr: "pipe", stdin: "ignore", env: { PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "" },
+  });
+  const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+  if (code !== 0) throw new Error(stderr.trim().replace(/^error: /, "") || `the import exited ${code}`);
+  return JSON.parse(stdout) as ImportReport;
+}
 
 function requireName(name: unknown): string {
   if (!isOutlineName(name)) {
@@ -282,6 +292,7 @@ export class OutlineHost {
     if (!statSync(real).isFile()) throw new Error(`${pathInput} is not a database file`);
     if (dirname(real) === this.outlinesFolder && real.endsWith(".sqlite")) throw new Error(`${real} is already an outline here`);
     if (!hasSqliteHeader(real)) throw new Error(`${real} is not an outliner database (not a SQLite file)`);
+    this.refuseTaken(name);
     // A database another process serves is still changing: refuse rather than copy half of it.
     let release: () => void;
     try { release = acquireWorkspaceOwnership(real); }
@@ -290,14 +301,15 @@ export class OutlineHost {
       throw new Error(`${real} is in use by another outliner process; stop it before importing the database`, { cause: error });
     }
     let imported: ImportReport;
-    this.refuseTaken(name);
     this.busy.add(name);
     try {
       if (!isOutlinerDatabase(real)) throw new Error(`${real} is not an outliner database (no blocks and metadata tables)`);
       const target = this.layout.database(name);
       // The import makes the file itself (and removes it when it fails); nothing may be there.
       if (lstatOrUndefined(target)) throw new Error(`An outline named "${name}" already exists in ${this.outlinesFolder}`);
-      imported = importOutline(real, target);
+      // In a process of its own: a long import never stalls the other outlines this host serves.
+      imported = await importInChild(real, target);
+      chmodSync(target, 0o600);
     } finally {
       this.busy.delete(name);
       release();
@@ -409,7 +421,10 @@ export class OutlineHost {
     mkdirSync(stateDirectory, { recursive: true });
     // The outline's own folder names it, so a program working there (an agent, a publisher) reaches this outline.
     const dotEp0ch = join(stateDirectory, DOT_EP0CH);
-    if (!lstatOrUndefined(dotEp0ch)) writeFileSync(dotEp0ch, formatDotEp0ch(name), { flag: "wx", mode: 0o644 });
+    if (!lstatOrUndefined(dotEp0ch)) {
+      try { writeFileSync(dotEp0ch, formatDotEp0ch(name), { flag: "wx", mode: 0o644 }); }
+      catch (error) { this.log(`Outline "${name}": could not write ${dotEp0ch}: ${error instanceof Error ? error.message : String(error)}`); }
+    }
     let store: OutlinerStore;
     try {
       store = new OutlinerStore(database, { workspaceRoot });

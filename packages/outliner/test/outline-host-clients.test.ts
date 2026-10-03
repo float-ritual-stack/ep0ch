@@ -241,6 +241,10 @@ test("the chooser picks one of the host's outlines, starts one named after the f
   broad.setHostedOutlines([{ name: "bob", database: "/fictional/outlines/bob.sqlite", folder: "/fictional/outlines/bob", open: true }]);
   expect(planChoice(broad, broad.rows[0]!)).toEqual({ kind: "pick", name: "bob" });
   expect(renderChooserFrame(broad, 120, 24).join("\n")).toContain("this time only");
+  // The switcher in a folder that names one: the choice replaces that folder's .ep0ch.
+  const switcher = new OutlineChooser({ mode: "open-here", workspaceRoot: "/fictional/garden/beds", rootSource: "the invoking pane's foreground cwd", switch: true, dotFolder: "/fictional/garden" });
+  switcher.setHostedOutlines([{ name: "bob", database: "/fictional/outlines/bob.sqlite", folder: "/fictional/outlines/bob", open: true }]);
+  expect(planChoice(switcher, switcher.rows[0]!)).toEqual({ kind: "pick", name: "bob", dotFolder: "/fictional/garden" });
 });
 
 /**

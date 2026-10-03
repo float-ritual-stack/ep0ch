@@ -806,6 +806,6 @@ export function openSchema(database: Database, label = "This database"): "create
   }
   const upgrade = UPGRADES[version];
   throw new Error(`${label} is schema version ${version}${version === 0 ? " (made before schema versions)" : ""}; this build opens only schema version ${SCHEMA_VERSION}. ${upgrade
-    ? `Upgrade it with \`${upgrade}\` while no service serves it, or import it into a new outline (\`outliner import <database> <new.sqlite>\`).`
-    : "No script upgrades that version; import it into a new outline instead (`outliner import <database> <new.sqlite>`)."}`);
+    ? `Upgrade it with \`${upgrade}\` while no service serves it, or import it into a new outline (\`ep0ch outline import <database> <name>\`, through the outline host).`
+    : "No script upgrades that version; import it into a new outline instead (`ep0ch outline import <database> <name>`, through the outline host)."}`);
 }

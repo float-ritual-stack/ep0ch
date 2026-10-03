@@ -9,7 +9,6 @@ const inputSchema=Type.Object({attemptId:Type.String({minLength:1,maxLength:200}
 
 /** Read the preserved bytes by receipt and owner, never by matching current text. */
 export function readCaptureBefore(database:Database,attemptId:string,blockId:string):Block|undefined {
-  if(!database.query("SELECT 1 FROM sqlite_master WHERE type='table' AND name='inbox_agent_results'").get())return undefined;
   const row=database.query("SELECT recovery_json FROM inbox_agent_results WHERE id=?").get(attemptId) as {recovery_json:string|null}|null;
   return row?.recovery_json ? (JSON.parse(row.recovery_json) as {before:Block[]}).before.find(block=>block.id===blockId) : undefined;
 }

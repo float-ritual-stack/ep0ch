@@ -29,6 +29,17 @@ export function slugifyOutlineName(text: string): string {
   return slug || "outline";
 }
 
+/** The first free name from `base`: itself, then `-2`, `-3`… (the name offered when `base` is taken). */
+export function freeOutlineName(base: string, taken: Iterable<string>): string {
+  const names = new Set(taken);
+  if (!names.has(base)) return base;
+  for (let n = 2; ; n++) {
+    const suffix = `-${n}`;
+    const candidate = `${base.slice(0, 32 - suffix.length).replace(/-+$/, "")}${suffix}`;
+    if (!names.has(candidate)) return candidate;
+  }
+}
+
 /** The file that names a folder's outline. */
 export const DOT_EP0CH = ".ep0ch";
 

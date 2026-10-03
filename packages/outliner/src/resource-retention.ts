@@ -900,10 +900,6 @@ export class ResourceRetentionRepository {
   }
 
   private evidenceReferencesFromCurrentRead(resourceId: string | null): EvidenceReferenceRow[] {
-    const exists = this.database.query(
-      "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'annotation_resource_evidence_refs'",
-    ).get();
-    if (!exists) return [];
     return this.database.query(`
       SELECT evidence.source_snapshot_id, evidence.representation_id,
              evidence.pdf_source_snapshot_id, evidence.pdf_representation_id

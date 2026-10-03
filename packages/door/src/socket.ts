@@ -5,7 +5,7 @@
 // the note's revision and an exact quote, and carries a requestId, so a retry after a lost answer
 // returns the comment that was already saved instead of adding a second one.
 import { connect, type Socket } from "node:net";
-import { hostname } from "node:os";
+import { homedir, hostname } from "node:os";
 import type { Board, BoardInfo, Caller, Msg } from "./board";
 import { BACKLINK_QUERY_LIMIT, type BacklinkCollection } from "./backlinks";
 import type { ResourceProjectionRead } from "./projection";
@@ -16,7 +16,7 @@ import { outlineLayout, outlinesFolder } from "@ep0ch/outline-core/outline-locat
 import { jsonLine, JsonLines } from "./jsonl";
 
 /** The host a board talks to when none is named: EP0CH_SOCKET (a host elsewhere), else this machine's. */
-export const DEFAULT_SOCKET = process.env.EP0CH_SOCKET || outlineLayout(outlinesFolder({ EP0CH_OUTLINES: process.env.EP0CH_OUTLINES }, process.env.HOME ?? "")).socket;
+export const DEFAULT_SOCKET = process.env.EP0CH_SOCKET || outlineLayout(outlinesFolder({ EP0CH_OUTLINES: process.env.EP0CH_OUTLINES }, process.env.HOME || homedir())).socket;
 /** An outline's name on a host: a short slug (outline-core's OUTLINE_NAME_PATTERN). */
 export const OUTLINE_NAME = OUTLINE_NAME_PATTERN;
 

@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { hostname } from "node:os";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { createOutlinerClient } from "./client";
 import { listLiveClients, sendClientCommand } from "./client-target";
@@ -122,6 +122,8 @@ await reportStartupErrors(async () => {
       rootSource,
       ...(resolved.guess ? { guess: resolved.guess } : {}),
       ...(mode === "choose-outline" ? { switch: true } : {}),
+      // Switching in a folder that names one: the choice replaces that folder's .ep0ch.
+      ...(mode === "choose-outline" && resolved.configPath ? { dotFolder: dirname(resolved.configPath) } : {}),
       ...(currentPaneId ? { paneId: currentPaneId } : {}),
       ...(requestedClientId ? { clientId: requestedClientId } : {}),
     };
