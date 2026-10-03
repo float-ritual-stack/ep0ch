@@ -41,6 +41,16 @@ move into one repository (PIE-530).
 - **Television (optional).** With `tv` on your PATH, `ep0ch install --apply` links the outline's channels into
   television's cable folder.
 
+### A mention opens right in Claude, with no door or Herdr around (PIE-542)
+
+- **In the Claude desktop app (Code tab), VS Code or a terminal outside Herdr**, a press on a mention or a reference
+  now opens the note in the mod's mentions pane, in place of the list, instead of copying a command. The heading
+  says "opens here". The desktop and VS Code draw it as Markdown (a heading, the text, its children as a nested
+  list, references as links); the terminal draws the door's cells, with the references as buttons under them.
+- **Links in it open there too**, with history: `b` back (to the list from the first note), `f` forward, `l` the
+  list. `c` copies `ep0ch show <id> --ws <outline>`, which a press used to copy.
+- `show` lands there as well when neither a door nor Herdr is around.
+
 ### Find by query, export to Markdown or JSON (PIE-534)
 
 - **`ep0ch find --query "<expression>"`** lists the notes a query holds for, as the outline evaluates it: the saved

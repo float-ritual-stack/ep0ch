@@ -80,7 +80,7 @@ export function resetBlockViewProbe(): void {
  * Draws block `id` at `width` columns through the door's CLI. Never throws:
  * any failure is `{ kind: 'text', why }`, and the caller draws the text.
  */
-export async function loadBlockView(run: RunCommand, id: string, width: number, source: BlockViewSource = {}): Promise<BlockViewData> {
+export async function loadBlockView(run: RunCommand, id: string, width: number, source: BlockViewSource = {}, rows = MAX_ROWS): Promise<BlockViewData> {
   try {
     // Once a module load: an ep0ch older than `--cells` never runs `show` with it, nor one older than `show` at all.
     const knows = await (probed ??= run(['ep0ch', 'help', BLOCK_VIEW_PROBE], { timeoutMs: 5000 })
@@ -89,13 +89,13 @@ export async function loadBlockView(run: RunCommand, id: string, width: number, 
       probed = undefined
       return { kind: 'text', why: 'ep0ch is not on PATH, or too old to draw cells (ep0ch install)' }
     }
-    const ran = await run(blockViewArgv(id, width), { ...source, timeoutMs: 15_000 })
+    const ran = await run(blockViewArgv(id, width, rows), { ...source, timeoutMs: 15_000 })
     if (ran.exitCode !== 0) {
       const reason = ran.stderr.trim().split('\n').at(-1)?.replace(/^ep0ch: /, '')
       return { kind: 'text', why: reason || 'ep0ch show failed' }
     }
     const cells = blockCellsOf(ran.stdout)
-    return cells ? { kind: 'cells', ...clipRows(cells, MAX_ROWS) } : { kind: 'text', why: 'ep0ch show --cells printed no cells' }
+    return cells ? { kind: 'cells', ...clipRows(cells, rows) } : { kind: 'text', why: 'ep0ch show --cells printed no cells' }
   } catch (error) {
     probed = undefined
     return { kind: 'text', why: error instanceof Error ? error.message : String(error) }
@@ -120,21 +120,37 @@ export type BlockViewProps = {
   maxRows: number
   /** The block's text, drawn as Markdown when there are no cells. */
   text?: string
+  /**
+   * The links in `text` a press answers (stand-in hrefs, as `linkifyReferences`
+   * makes them) and what a press on one does: the detail pane's navigation.
+   * Absent, the Markdown is a preview: dim, its links the surface's own.
+   */
+  links?: { hrefs: readonly string[]; press: (href: string, surface: RenderSurface) => void }
 }
 
 /** The first `rows` lines of a block's text, for Markdown. */
 const firstLines = (text: string, rows: number) => text.split('\n').slice(0, Math.max(1, rows)).join('\n')
 
 /**
- * One block's drawing: the door's cells as a Raster, else the block's text as
- * Markdown, else a dim line while it loads.
+ * One block's drawing, one renderer per surface: on the terminal the door's
+ * cells as a Raster; elsewhere (desktop, VS Code), or where the door can't
+ * draw, the block's text as Markdown: a dim preview, or with `links` the
+ * detail pane's body, its references pressed to navigate. Else a dim line
+ * while it loads.
  */
-export function BlockView(ui: BlockViewElements, { key, data, surface, maxRows, text }: BlockViewProps): RenderElement {
+export function BlockView(ui: BlockViewElements, { key, data, surface, maxRows, text, links }: BlockViewProps): RenderElement {
   if (data?.kind === 'cells' && surface === 'terminal' && ui.Raster && data.rows > 0) {
     const view = clipRows(data, maxRows)
     return ui.Raster({ key, columns: view.columns, rows: view.rows, cells: view.cells })
   }
   if (data === undefined && surface === 'terminal') return ui.Text({ dimColor: true, children: '  drawing…' })
+  if (text?.trim() && links) {
+    return ui.Markdown({
+      key,
+      text: firstLines(text.trim(), maxRows),
+      ...(links.hrefs.length ? { pressableLinks: links.hrefs.slice(0, 256), onLinkPress: (link, press) => links.press(link.href, press.surface) } : {}),
+    })
+  }
   if (text?.trim()) return ui.Markdown({ key, text: firstLines(text.trim(), maxRows), dimColor: true })
   return ui.Text({ dimColor: true, children: data?.kind === 'text' ? `  (no preview: ${data.why})` : '  (empty)' })
 }
