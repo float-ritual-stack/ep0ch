@@ -128,7 +128,7 @@ export type At<I = number> = Place<I>
 
 /** One layout operation. Each is applied for one actor, as one step: all of it, or none of it with the reason. */
 export type Op<I = number> =
-  | { op: "open"; tile: I; kind: string; name?: string; loose?: boolean; at: At<I>; keys?: false }
+  | { op: "open"; tile: I; kind: string; name?: string; loose?: boolean; at: At<I>; keys?: false; link?: I }
   | { op: "close"; tile: I; gone?: boolean }
   | { op: "move"; tile: I; to: Place<I> }
   | { op: "swap"; tile: I; with: I }
@@ -145,6 +145,7 @@ export type Op<I = number> =
   | { op: "policy"; tile?: I; node?: string; set: Policy; clear: string[] }
   | { op: "link"; tile: I; to?: I }
   | { op: "focus"; tile: I; quiet?: boolean }
+  | { op: "reveal"; tile: I }
   | { op: "tab"; tile: I; by?: number }
   | { op: "zoom"; tile: I; on?: boolean }
   | { op: "load"; name: string }
@@ -552,6 +553,7 @@ class Step<I> {
       case "policy": return this.setPolicy(op);
       case "link": return this.link(op.tile, op.to);
       case "focus": return this.focus(op.tile, !!op.quiet);
+      case "reveal": return this.reveal(op.tile);
       case "tab": return this.tab(op.tile, op.by);
       case "zoom": return this.zoom(op.tile, op.on);
       case "load": return this.load(op.name);
@@ -611,7 +613,9 @@ class Step<I> {
       this.give(op.tile);
       if (from !== undefined) { const f = flowHolding(this.d.tree, op.tile)!; arrive(f.flow, f.ci, columnOf(f.flow, from), coversOf(this.d, f.flow, this.ctx.area, id => !!this.facts(id).holds)); }
     }
-    this.d.answer = { tile: this.d.names.get(op.tile) };
+    // Opened as where another tile's opens land (tile.preview): linked in the same step, by link's rules.
+    if (op.link !== undefined) this.linkTo(op.link, op.tile, this.ctx.kinds ? this.ctx.kinds.notes.includes(op.kind) : true, op.kind);
+    this.d.answer = { tile: this.d.names.get(op.tile), ...(op.link !== undefined ? { link: this.name(op.link) } : {}) };
   }
   /** The person's open found the column already open: back from there returns to where they opened it from. */
   private reach(id: I, from: I) {
@@ -982,14 +986,19 @@ class Step<I> {
 
   private link(id: I, to: I | undefined) {
     this.present(id);
-    this.shape(id, `changing where ${this.name(id)}'s opens land`);
-    if (to === undefined) { this.d.links.delete(id); this.d.answer = { link: null }; return; }
+    if (to === undefined) { this.shape(id, `changing where ${this.name(id)}'s opens land`); this.d.links.delete(id); this.d.answer = { link: null }; return; }
     this.present(to);
-    if (to === id) refuse(`${this.name(id)} can't open into itself · leave to= out to unlink`);
     const f = this.facts(to);
-    if (!f.notes) refuse(`${this.name(to)} is a ${f.kind} tile: opens land in a tile that takes notes${this.ctx.kinds ? ` (${this.ctx.kinds.notes.join(", ")})` : ""}`);
-    this.d.links.set(id, to);
+    this.linkTo(id, to, !!f.notes, f.kind);
     this.d.answer = { link: this.name(to) };
+  }
+  /** Tile `id`'s opens land in `to` (of `kind`, which takes notes or not): the one rule for a link, set by link or an open. */
+  private linkTo(id: I, to: I, notes: boolean, kind: string) {
+    this.present(id);
+    this.shape(id, `changing where ${this.name(id)}'s opens land`);
+    if (to === id) refuse(`${this.name(id)} can't open into itself · leave to= out to unlink`);
+    if (!notes) refuse(`${this.name(to)} is a ${kind} tile: opens land in a tile that takes notes${this.ctx.kinds ? ` (${this.ctx.kinds.notes.join(", ")})` : ""}`);
+    this.d.links.set(id, to);
   }
 
   private focus(id: I, quiet: boolean) {
@@ -999,6 +1008,25 @@ class Step<I> {
     activate(this.d.tree, id);
     this.d.zoom = this.d.zoom !== null ? id : null;
     if (quiet) return;
+    this.bringOut(id);
+  }
+
+  /**
+   * Tile `id` shown where it is, the person's keys left where they are (tile.preview finding the preview it would
+   * make): its tab shown (an agent's never over the tab the person has), its spine opened, then as focus brings a
+   * tile out. Nothing moves and nothing is made.
+   */
+  private reveal(id: I) {
+    this.present(id);
+    const set = tabsOf(this.d.tree, id);
+    if (set && !(this.agent && set.ids.includes(this.d.focus) && this.d.focus !== id)) activate(this.d.tree, id);
+    this.d.collapsed.delete(id);
+    this.bringOut(id);
+    this.d.answer = { tile: this.name(id) };
+  }
+
+  /** What showing tile `id` takes: a float comes to the top, the drawers around it slide open, its flow column comes on the strip. */
+  private bringOut(id: I) {
     // A float given the keys comes to the top.
     const fi = this.d.floats.findIndex(f => f.id === id);
     if (fi >= 0 && fi < this.d.floats.length - 1) this.d.floats.push(...this.d.floats.splice(fi, 1));

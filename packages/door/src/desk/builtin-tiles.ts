@@ -20,8 +20,10 @@ import { words } from "../text";
 import { TREE_ACTIONS } from "./tree";
 
 /** A reader of any sort (reader, detail, preview): notes open into it, and an open edit is work. */
-const reading: Pick<TileKind, "accepts" | "holdsWork" | "shows" | "view" | "take"> = {
+const reading: Pick<TileKind, "accepts" | "holdsWork" | "shows" | "view" | "take" | "press"> = {
   accepts: { notes: true },
+  // O: a reader beside it where its links open (tile.preview), so it never navigates away.
+  press: (_p, k) => (k.kind === "char" && !k.ctrl && k.ch === "O" ? { action: "tile.preview" } : null),
   // A note opened into it is held, and kept in its history (PIE-453): back returns to what it showed.
   take: (p, m, desk) => {
     const r = p as ReaderPane;

@@ -351,6 +351,33 @@ describe("the rest of the layout's operations", () => {
     expect(ok(s, { op: "close", tile: 2 }, PERSON, { focus: 1 }).state.links.size).toBe(0);
   });
 
+  test("an open with link= (tile.preview) is opened and linked in one step, by link's rules; reveal shows a tile without the keys", () => {
+    // A reader opened below the tree, its opens linked to it: one step, the keys left where they were.
+    const r = ok(fresh(), { op: "open", tile: 7, kind: "reader", name: "tree-preview", at: { kind: "split", target: 1, dir: "down" }, keys: false, link: 1 });
+    expect(r.state.links.get(1)).toBe(7);
+    expect(r.answer).toMatchObject({ tile: "tree-preview", link: "tree" });
+    expect(r.focus).toBe(2);
+    expect(landing(r.state, 1, facts(1))).toEqual({ to: 7 });
+    // A kind that takes no notes isn't linked, and isn't opened either; on a locked screen neither happens.
+    no(fresh(), { op: "open", tile: 7, kind: "thread", at: { kind: "split", target: 1, dir: "down" }, link: 1 }, /a thread tile: opens land in a tile that takes notes/);
+    no(ok(fresh(), { op: "lock", on: true }).state, { op: "open", tile: 7, kind: "reader", at: { kind: "split", target: 1, dir: "down" }, link: 1 }, /the screen is locked/);
+    // reveal: a folded tile opens, a tile in a shut drawer slides it open, a hidden tab is shown; the keys stay.
+    let s = ok(fresh(), { op: "collapse", tile: 1, on: true }).state;
+    s = ok(s, { op: "reveal", tile: 1 }).state;
+    expect(s.collapsed.has(1)).toBe(false);
+    const drawer = ok(ok(fresh(), { op: "pin", tile: 1, on: false }).state, { op: "drawer", tile: 1, open: false }, PERSON, { focus: 2 }).state;
+    expect(drawerOf(drawer.tree, 1)!.open).toBe(false);
+    const shown = ok(drawer, { op: "reveal", tile: 1 }, AGENT);
+    expect(drawerOf(shown.state.tree, 1)!.open).toBe(true);
+    expect(shown.focus).toBe(2);
+    const tabs = ok(fresh(), { op: "move", tile: 4, to: { kind: "tabs", target: 3 } }).state;
+    const t = ok(tabs, { op: "reveal", tile: 3 }, PERSON, { focus: 4 });
+    expect(visible(t.state.tree)).toContain(3);
+    // An agent never hides the tab the person has: the tile stays behind it.
+    const a = ok(tabs, { op: "reveal", tile: 3 }, AGENT, { focus: 4 });
+    expect(visible(a.state.tree)).not.toContain(3);
+  });
+
   test("borders: resize names its split, a drawer's border sizes only it, a fixed kid keeps its size", () => {
     no(fresh(), { op: "resize", split: "s999", border: 0, share: 0.5 }, /no split s999/);
     no(fresh(), { op: "resize", path: "", border: 3, share: 0.5 }, /has borders 0-1/);

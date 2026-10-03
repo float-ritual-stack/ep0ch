@@ -131,7 +131,7 @@ export function handlerActions(extension: string, handler: string): ExtensionAct
  * still runs by a click on its control and by `act`). Navigation, `r` (run again), `y` (copy) and the rest of
  * the reader's own (README "Reading a note").
  */
-export const READER_OWN_KEYS = new Set("[]()fFuUryYvViICcmAXezjkhlqgGb/?nN0123456789 ".split(""));
+export const READER_OWN_KEYS = new Set("[]()fFuUryYvViICcmAXezjkhlqgGbO/?nN0123456789 ".split(""));
 
 /**
  * The action a key runs on a handler line: one the line has, bound to a single printable character that

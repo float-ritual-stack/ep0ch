@@ -74,7 +74,7 @@ const PREFIX: Record<string, Prefix> = { o: "add", O: "addtab", m: "move", t: "t
 const WM: Record<string, [string, Record<string, unknown>, ("n" | "-")?]> = {
   "<": ["tile.resize", { by: -1, axis: "row" }, "n"], ">": ["tile.resize", { by: 1, axis: "row" }, "n"],
   "-": ["tile.resize", { by: -1, axis: "col" }, "n"], "+": ["tile.resize", { by: 1, axis: "col" }, "n"],
-  z: ["tile.zoom", {}, "n"], "=": ["layout.even", {}, "-"], x: ["tile.close", {}], v: ["tile.preview", {}], p: ["tile.pin", {}],
+  z: ["tile.zoom", {}, "n"], "=": ["layout.even", {}, "-"], x: ["tile.close", {}], v: ["tile.preview", { where: "right" }], V: ["tile.preview", { where: "down" }], p: ["tile.pin", {}],
   c: ["tile.collapse", {}], f: ["tile.float", {}], W: ["tile.widen", {}], "]": ["tab.select", { by: 1 }], "[": ["tab.select", { by: -1 }],
 };
 
@@ -1920,7 +1920,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     }
     const leaving = this.prefix === "wm" && !!this.personIn()?.editing ? `|14${sessionName(this.personIn()!)}: the next key leaves it (saved, or kept as unsent) · |07esc |08stays · ` : "";
     const s = this.prefix === "wm"
-      ? leaving + "|14^W |07hjkl |08focus · |07m |08move · |07t |08into tabs · |07T |08tab out · |07HJKL |08to an edge · |07[ ] |08tabs · |07< > + - = |08size · |07z |08zoom · |07o O |08open · |07v |08preview · |07p |08drawer in/out · |07d |08slide · |07c |08spine · |07W |08widen · |07f |08float · |07P |08policy · |07r w |08layouts · |07x |08close · |07s |08swap · |07! |08shell"
+      ? leaving + "|14^W |07hjkl |08focus · |07m |08move · |07t |08into tabs · |07T |08tab out · |07HJKL |08to an edge · |07[ ] |08tabs · |07< > + - = |08size · |07z |08zoom · |07o O |08open · |07v |08preview beside · |07V |08preview below · |07p |08drawer in/out · |07d |08slide · |07c |08spine · |07W |08widen · |07f |08float · |07P |08policy · |07r w |08layouts · |07x |08close · |07s |08swap · |07! |08shell"
       : this.prefix === "add" || this.prefix === "addtab"
         ? `|14${this.prefix === "add" ? "open beside" : "open as a tab"}: ${tileKinds().flatMap(k => (k.keys ?? []).map(x => `|07${x.key} |08${x.label}`)).join(" · ")}`
         : this.prefix === "move" || this.prefix === "tab"
@@ -2290,7 +2290,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return { tile: src.name, where, ...(to ? { to } : {}), tree: describeLayout(this.layout, id => this.nameOf(id)) };
   }
 
-  async openTile(t: NewTile, at: string | undefined, where: Where, actor: Actor): Promise<TileDone> {
+  /**
+   * `tile.open`: a new tile beside (or in the tabs of) tile `at`. `link`: the tile whose opens land in it, linked in the
+   * same layout step (tile.preview); `keys: false` leaves the person's keys where they are.
+   */
+  async openTile(t: NewTile, at: string | undefined, where: Where, actor: Actor, also: { link?: number; keys?: false } = {}): Promise<TileDone> {
     const k = kindOf({ kind: t.kind } as Pane);
     if (!k || !isTileKind(t.kind)) throw new ActionRefused(`tile.open: kind is ${tileKindNames().join(", ")}, not ${t.kind}`);
     const bad = t.name !== undefined ? tileNameProblem(t.name) : null;
@@ -2304,13 +2308,13 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     spec = { ...spec, ...(k.defaults?.(spec, { name: base.name, pane: this.panes.get(base.id)! }) ?? {}) };
     // The layout says yes (or why not) before the tile is made: a refused open starts no program.
     const id = this.nextId;
-    const r = this.ask({ op: "open", tile: id, kind: t.kind, ...(spec.name ? { name: spec.name } : {}), at: placeOf(where, base.id) }, actor);
+    const r = this.ask({ op: "open", tile: id, kind: t.kind, ...(spec.name ? { name: spec.name } : {}), at: placeOf(where, base.id), ...also }, actor);
     if (!r.ok) throw new ActionRefused(r.refused);
     this.put(makeTile(spec));
     this.commit(r);
     this.startTile(id);
     this.save(); this.redraw();
-    return { tile: this.nameOf(id), id: this.tileId(id), kind: t.kind, n: this.numberOf(id), beside: base.name, where };
+    return { tile: this.nameOf(id), id: this.tileId(id), kind: t.kind, n: this.numberOf(id), beside: base.name, where, ...(also.link !== undefined ? { from: this.nameOf(also.link) } : {}) };
   }
 
   closeTile(sel: string | undefined, actor: Actor): TileDone {
@@ -2498,18 +2502,35 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return { tile: t.name, layers: policyLayers(this.layout, t.id, this.facts(t.id)).filter(l => l.policy && Object.keys(l.policy).length).map(({ by, policy }) => ({ by, policy })), effective: this.policyAt(t.id), containers: ["screen", ...chainOf(this.root, t.id).map(c => c.id ?? c.t)] };
   }
 
-  async previewTile(sel: string | undefined, where: Where, actor: Actor): Promise<TileDone> {
+  /**
+   * `tile.preview`: a reader beside tile `sel` where its opens land, opened and linked as one layout step, so what it
+   * follows (a link, the tree's ⏎, a list's pick) shows there and the tile itself never navigates away. Which reader
+   * is its kind's to say: what a preview of it follows (`previewSource`: a terminal's file, the board's card); a tile
+   * that reads notes itself gets a detail, which keeps what's opened into it; any other tile a preview following its
+   * selection. Its opens already landing in a tile: that one is shown instead (the person's keys go to it; an
+   * agent's leaves them). `where` left out: beside it if it's wide, else below (`splitAxis`, the layout's one rule).
+   */
+  async previewTile(sel: string | undefined, where: Dir | undefined, actor: Actor): Promise<TileDone> {
     const t = this.tile(sel);
     const p = this.panes.get(t.id)!;
-    // What a preview of it follows is its kind's to say (a terminal's file, the board's card); else the tile itself.
+    const had = this.linkOf(t.id);
+    if (had !== undefined) {
+      this.apply({ op: "reveal", tile: had }, actor);
+      const name = this.nameOf(had);
+      if (actor.kind !== "agent") this.focusTile(name, actor); else { this.save(); this.redraw(); }
+      return { tile: name, from: t.name, existing: true };
+    }
+    const r0 = this.rectsNow().get(t.id);
+    const dir: Dir = where ?? (r0 && splitAxis(r0) === "col" ? "down" : "right");
+    const name = this.autoName(`${t.name}-preview`);
     const k = kindOf(p);
     // Asked of the layout before the kind is: a preview has nowhere to go beside a float or into a locked container.
-    const why = refusal(this.layout, { op: "open", tile: this.nextId, kind: "preview", name: `${t.name}-preview`, loose: true, at: placeOf(where, t.id) }, this.layoutCtx(actor));
+    const why = refusal(this.layout, { op: "open", tile: this.nextId, kind: "preview", name, at: placeOf(dir, t.id), link: t.id }, this.layoutCtx(actor));
     if (why) throw new ActionRefused(why);
-    let source: string;
-    try { source = k?.previewSource ? await k.previewSource(p, t.name, actor) : `tile:${t.name}`; }
+    let spec: NewTile;
+    try { spec = k?.previewSource ? { kind: "preview", source: await k.previewSource(p, t.name, actor) } : k?.accepts?.notes ? { kind: "detail" } : { kind: "preview", source: `tile:${t.name}` }; }
     catch (e) { throw e instanceof ActionRefused ? e : new ActionRefused(e instanceof Error ? e.message : String(e)); }
-    return this.openTile({ kind: "preview", source, name: this.autoName(`${t.name}-preview`) }, t.name, where, actor);
+    return this.openTile({ ...spec, name }, t.name, dir, actor, { link: t.id, keys: false });
   }
 
   // ── terminal tiles: what the terminal kind's actions (PTY_ACTIONS) change on the desk ──

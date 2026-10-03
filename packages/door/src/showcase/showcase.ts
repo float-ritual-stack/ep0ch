@@ -182,9 +182,11 @@ export const SECTIONS: Section[] = [
   },
   {
     key: "preview", need: "follow a tile's selection or a file in a reader", part: "the preview tile: the note surface with a source, tile:<name> or file:<path> (re-read on save)", files: "src/desk/preview.ts",
+    aside: "tile.preview (O in the reader, ^W v beside, ^W V below): a detail opens beside the reader on the right, linked, so a link followed there lands in it and the reader keeps the notebook; again, it shows that one",
     stage(n, show) {
-      const tree = new TreePane(), p = new PreviewPane({ tile: "tree" });
-      return deskOf({ title: "showcase · preview", panes: [tree, p], layout: ([a, b]) => row(0.4, a!, b!) }, show, []);
+      // The reader on the right is held on the notebook (p), so the outline's selection doesn't move it.
+      const tree = new TreePane(), p = new PreviewPane({ tile: "tree" }), r = new ReaderPane(true);
+      return deskOf({ title: "showcase · preview", panes: [tree, p, r], layout: ([a, b, c]) => pair("row", 0.3, leaf(a!), row(0.45, b!, c!)) }, show, [], d => { if (n.notebook) r.hold(n.notebook, d); });
     },
   },
   {

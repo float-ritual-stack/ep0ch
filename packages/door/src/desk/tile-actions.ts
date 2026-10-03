@@ -282,12 +282,13 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     },
   }),
   "tile.preview": def({
-    summary: "open a preview of tile=<tile> beside it: of a terminal tile, the file it edits (re-read on each save); of the board, its card (its own preview strip collapses); of anything else, what it selects",
-    keys: "^W v",
-    touches: "shape", replay: "safe", says: r => `opened ${tileNoun("preview", r.tile)}`,
-    args: { where: { type: "string", optional: true, about: "left, right, up, down or tabs (default right)" } },
+    summary: "a reader beside tile=<tile> where its opens land (opened and linked as one step): a link followed in it, the tree's ⏎, a list's pick show there, and the tile itself never navigates away. A tile that reads notes gets a detail; a terminal tile a preview of the file it edits (re-read on each save); the board one of its card (its own preview strip collapses); anything else a preview following its selection. Its opens already land in a tile: that one is shown instead (the person's keys go to it, an agent's leave them). where=right, down, left or up; default beside it if it's wide, else below. tile.link unlinks",
+    keys: "O in a reader; ^W v beside, ^W V below",
+    touches: "shape", replay: "safe", says: r => (r.existing ? `showed ${r.tile}, where ${r.from}'s opens land` : `opened ${tileNoun(String(r.kind), r.tile)} where ${r.from}'s opens land`),
+    args: { where: { type: "string", optional: true, about: "right, down, left or up; default right if the tile is wide, else down" } },
     async run({ where }, { d, reader }, actor) {
-      return await d.previewTile(reader, whereOf(where, "tile.preview", "right"), actor);
+      if (where !== undefined && !isDir(where)) throw new ActionRefused(`tile.preview: where is right, down, left or up, not ${where}`);
+      return await d.previewTile(reader, where as Dir | undefined, actor);
     },
   }),
   "tile.info": def({
