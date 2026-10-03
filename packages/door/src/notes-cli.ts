@@ -11,7 +11,9 @@
 // `show <id>` draws the note as a reader draws it: the note surface (`NoteSurface.render`), at the width asked for,
 // in the person's theme, never a second renderer. `--ansi` keeps its colours; without it, plain text.
 import { resolveTarget } from "./discover";
+import { redundantLabel } from "./authored";
 import { forwardTo } from "./machine";
+import { summarySegments } from "./props";
 import { previewTitle, SocketBoard, type IndexBlock } from "./socket";
 import { readState } from "./state";
 import { MARKS, TAGS, visible } from "./style";
@@ -62,23 +64,23 @@ export interface TreeFound extends Found { depth: number; glyphs: string; about:
 /** Levels drawn before the indent is elided (`…<depth>` stands for the rest): ten levels is thirty columns. */
 export const TREE_LEVELS = 10;
 
-/** What a note is, dim beside its title: its work id (unless the title says it), stage and type, as its properties say. */
+/** What a note is, beside its title: its work id (unless the title starts with it), stage and type: Detail's summary, its values. */
+const ABOUT_KEYS = ["work-id", "work-stage", "stage", "type"];
 const aboutOf = (props: Record<string, string>, title: string) =>
-  [title.includes(props["work-id"] ?? "\0") ? undefined : props["work-id"], props.stage ?? props["work-stage"], props.type]
-    .filter(v => v && v.trim()).map(v => field(v!)).join(" · ");
+  summarySegments(Object.entries(props).map(([key, value]) => ({ key, value })), ABOUT_KEYS)
+    .filter(s => !(s.key === "work-id" && redundantLabel(s.value, title))).map(s => field(s.value)).join(" · ");
 
 /**
  * The outline as a tree, from the index in the service's order (`SocketBoard.index`: its one walk, depth first): every
  * note, or `root` and the notes under it (the root at depth 0). Each row's glyphs are its ancestors' rails (`│  ` while
  * that ancestor has a later sibling) and its own branch (`├─ `, or `└─ ` for the last child); a top-level note has none.
  * Past `levels` deep, the outer rails go and `…<depth> ` stands for them, so a deep row keeps its title in view.
- * Null when there's no `root` (a full id, or a prefix of one that only one note has).
+ * Null when there's no `root` (its whole id).
  */
 export function treeOf(index: readonly IndexBlock[], root?: string, levels = TREE_LEVELS): TreeFound[] | null {
   let rows = index;
   if (root) {
-    const at = index.findIndex(b => b.id === root);
-    const i = at >= 0 ? at : (() => { const hits = index.flatMap((b, j) => (b.id.startsWith(root) ? [j] : [])); return root.length >= 4 && hits.length === 1 ? hits[0]! : -1; })();
+    const i = index.findIndex(b => b.id === root);
     if (i < 0) return null;
     const d0 = index[i]!.depth;
     let end = i + 1;

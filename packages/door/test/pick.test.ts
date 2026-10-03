@@ -93,10 +93,10 @@ describe("pickInto on a screen with tiles: the picker beside the note", () => {
   /** A screen's `inTile`: the program runs (here as a plain child, its stdout to the file as sh sends it) and `done` hears its code. */
   const tiles = (seen: { name?: string; shows?: string; env?: Record<string, string | null> }[], log: string[] = []) => ({
     ...stepAside(log),
-    inTile(p: { cmd: string[]; name: string; shows?: string; env?: Record<string, string | null> }, done: (code: number | null) => void) {
-      seen.push({ name: p.name, shows: p.shows, env: p.env });
+    inTile(p: { cmd: string[]; name: string; shows?: string; own?: Record<string, string | null> }, done: (code: number | null) => void) {
+      seen.push({ name: p.name, shows: p.shows, env: p.own });
       const env: Record<string, string> = { ...process.env } as Record<string, string>;
-      for (const [k, v] of Object.entries(p.env ?? {})) { if (v === null) delete env[k]; else env[k] = v; }
+      for (const [k, v] of Object.entries(p.own ?? {})) { if (v === null) delete env[k]; else env[k] = v; }
       void runProgram(p.cmd, { env }).then(done);
       return true;
     },
@@ -117,6 +117,13 @@ describe("pickInto on a screen with tiles: the picker beside the note", () => {
     // Done: the next ctrl+t opens a picker again.
     await withEnv({ EP0CH_PICKER: "true" }, () => pickInto(tiles(seen), d, OUTLINE));
     expect(seen.length).toBe(2);
+  });
+
+  test("a tile that fails to open throws, and leaves the draft free for the next ctrl+t", async () => {
+    const d = draft("", 0);
+    const broken = { ...stepAside(), inTile: () => { throw new Error("no room for a tile"); } };
+    await expect(pickInto(broken, d, OUTLINE)).rejects.toThrow("no room for a tile");
+    expect(await withEnv({ EP0CH_PICKER: "echo" }, () => pickInto(stepAside(), d, OUTLINE, { channel: "((a1))" }))).toEqual({ inserted: "((a1))" });
   });
 
   test("a screen that can't open a tile (no tiles, a locked screen): the person's terminal, as before", async () => {

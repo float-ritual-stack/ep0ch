@@ -63,11 +63,16 @@ describe("the outline as a tree, from the index in the service's order", () => {
     expect(treeLine(t[2]!)).toBe("oil\tChain oil\tBike shed › Tools\t2\t│  ├─ \ttodo · chore");
   });
 
-  test("under a root: that note at depth 0 and its own; a unique prefix names it; an unknown root is null", () => {
+  test("under a root: that note at depth 0 and its own; a root named by anything but its whole id is null", () => {
     expect(treeOf(index, "tools")!.map(f => f.glyphs + f.title)).toEqual(["Tools", "├─ Chain oil", "└─ Track pump"]);
-    expect(treeOf(index, "benc")!.map(f => f.id)).toEqual(["bench", "vise"]);
+    expect(treeOf(index, "bench")!.map(f => f.id)).toEqual(["bench", "vise"]);
     expect(treeOf(index, "nowhere")).toBeNull();
-    expect(treeOf(index, "p")).toBeNull();                          // too short to be a prefix, and two notes start so
+    expect(treeOf(index, "benc")).toBeNull();                       // ids are whole, as show, open and the outline take them
+  });
+
+  test("a work id the title starts with isn't said twice; one that only looks like its start is", () => {
+    const t = treeOf([row("a", null, 0, "SHED-18 — Oil the hinge", { "work-id": "SHED-18" }), row("b", null, 0, "SHED-181 — New hinge", { "work-id": "SHED-18" })])!;
+    expect(t.map(f => f.about)).toEqual(["", "SHED-18"]);
   });
 
   test("past the levels drawn, the outer rails give way to …<depth>, so a deep title stays in view", () => {
@@ -118,6 +123,8 @@ describe.skipIf(!outliner)("ep0ch find and show against a scratch host", () => {
     expect(under.out.split("\n").filter(Boolean).map(l => l.split("\t")[0])).toEqual([ids.shed, ids.oil]);
     const drawn = await run(["find", "--tree", ids.shed!], env);
     expect(drawn.out).toBe(`${ids.shed!.slice(0, 8)}  Bike shed\n${ids.oil!.slice(0, 8)}  └─ Chain oil\n`);
+    const json = JSON.parse((await run(["find", "--tree", ids.shed!, "--json"], env)).out);
+    expect(json.map((f: any) => [f.id, f.depth, f.glyphs])).toEqual([[ids.shed, 0, ""], [ids.oil, 1, "└─ "]]);
     expect((await run(["find", "--tree", "00000000"], env)).code).toBe(1);
     expect((await run(["find", "--tree", "oil", "chain"], env)).code).toBe(2);
     expect((await run(["find", "--tree", "--recent"], env)).code).toBe(2);

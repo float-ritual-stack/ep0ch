@@ -94,15 +94,17 @@ export async function pickInto(ctx: Suspender, d: Draft, outline: { socket: stri
   picking.add(d);
   const tidy = () => { picking.delete(d); rmSync(dir, { recursive: true, force: true }); };
   // Beside the note, in a terminal tile with the person's keys: the draft stays in view while they choose.
-  const beside = await new Promise<Picked | null>(resolve => {
-    const run = pickerRun(channel, out, outline);
-    const opened = ctx.inTile?.({ cmd: run.argv, cwd: run.cwd, env: run.own, name: "pick", shows: picker, wide: true }, code => {
-      let r: Picked;
-      try { r = back(code); } catch (e) { r = { nothing: `not inserted: ${(e as Error).message}` }; } finally { tidy(); }
-      resolve(r);
-    });
-    if (opened) d.note = `choosing in ${picker} beside · what you choose goes in at the cursor`;
-    else resolve(null);
+  const beside = await new Promise<Picked | null>((resolve, reject) => {
+    try {
+      const run = pickerRun(channel, out, outline);
+      const opened = ctx.inTile?.({ cmd: run.argv, cwd: run.cwd, own: run.own, name: "pick", shows: picker, wide: true }, code => {
+        let r: Picked;
+        try { r = back(code); } catch (e) { r = { nothing: `not inserted: ${(e as Error).message}` }; } finally { tidy(); }
+        resolve(r);
+      });
+      if (opened) d.note = `choosing in ${picker} beside · what you choose goes in at the cursor`;
+      else resolve(null);
+    } catch (e) { tidy(); reject(e); }
   });
   if (beside) return beside;
   // No tiles here: the person's terminal goes to the picker, the door stepping aside meanwhile.

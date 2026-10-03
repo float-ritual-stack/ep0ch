@@ -363,6 +363,7 @@ describe.skipIf(!outliner)("the desk as tiles, against a scratch outline", () =>
       await until(() => mid.draft.text.includes("((-ep0ch-ok))"), "the choice in the draft", 8000);
       await until(() => !get().tiles.some(t => t.name === "pick"), "the picker's tile closed");
       expect(get().focus).toBe("middle");                             // and the keys back in the edit
+      expect(D().isIn(mid)).toBe(true);
       key({ kind: "esc" }); key({ kind: "esc" });
     } finally { if (was === undefined) delete process.env.EP0CH_PICKER; else process.env.EP0CH_PICKER = was; }
   }, 20_000);

@@ -2609,23 +2609,29 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (!this.panes.has(at) || this.screenLocked()) return false;
     // In a flow (the river's columns) it is the next column, at reading width; elsewhere it splits beside, or below for a
     // program that wants width (a picker's list) when beside would leave it narrower than tall (a cell is about 1:2).
+    // (Where it was last drawn: a tile not drawn yet, or a zoomed screen, splits beside.)
     const r0 = this.hits.find(([x]) => x === at)?.[1];
     const dir = p.wide && r0 && r0.cols < r0.rows * 4 ? "down" : "right";
     const where: At<number> = this.inFlow(at) ? { kind: "next", from: at } : { kind: "split", target: at, dir };
     const r = this.ask({ op: "open", tile: this.nextId, kind: "pty", name: p.name, loose: true, at: where });
     if (!r.ok) return false;
     // Never kept in a layout (its program and files go with the door), so its spec is the door's own, never a saved one.
-    const pane = new PtyPane({ cmd: p.cmd, ...(p.cwd ? { cwd: p.cwd } : {}), ...(p.file ? { file: p.file } : {}), ...(p.env ? { own: p.env } : {}), ...(p.shows ? { shows: p.shows } : {}), label: p.name, temp: true });
+    const pane = new PtyPane({ cmd: p.cmd, ...(p.cwd ? { cwd: p.cwd } : {}), ...(p.file ? { file: p.file } : {}), ...(p.own ? { own: p.own } : {}), ...(p.shows ? { shows: p.shows } : {}), label: p.name, temp: true });
     const id = this.put(pane);
     this.commit(r);
     this.startTile(id);
-    // The person was in the reader's edit: they come back into it, typing where they left off.
-    const from = this.panes.get(at), wasIn = from instanceof ReaderPane && this.entered.in(from);
+    // The person was in the reader's edit: they come back into that edit (that session, never one opened since, an
+    // agent's included), typing where they left off, if the keys were still in this tile when it closed.
+    const from = this.panes.get(at), wasIn = from instanceof ReaderPane && this.entered.in(from) ? from.sessionOf() : null;
     pane.onExit = code => {
       done(code);
       if (this.panes.has(id)) {
+        const had = this.focus === id;
         this.closeId(id);
-        if (this.panes.has(at)) { this.keysTo(at); if (wasIn && this.panes.get(at) === from) this.entered.enter(from as ReaderPane); }
+        if (had && this.panes.has(at)) {
+          this.keysTo(at);
+          if (wasIn && from instanceof ReaderPane && this.panes.get(at) === from && from.sessionOf() === wasIn) this.entered.enter(from);
+        }
       }
       this.save(); this.redraw();
     };
