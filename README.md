@@ -160,9 +160,8 @@ door's own `EP0CH_STATE` and `EP0CH_CONTROL` there too, so nothing reaches a rea
 - **The screen** lists the sections on the left: `↑↓` `j k` `1-9 0` (the first ten) or a click picks one; `⏎`, `→`, `Tab`
   or a click in it hands the part your keys and mouse; `Esc` backs out through the part to the list. Each
   section names the part and its files and is drawn by the part itself, on a desk of its own spec (the layout
-  tree, nothing saved to your `desk.json`) or the real board. A parallel version still in the code
-  (`WhoOnline`, `LastCallers`) is framed beside the shared one and labelled "parallel version, to
-  consolidate"; ones that can't be framed alone are named on the section's third line.
+  tree, nothing saved to your `desk.json`) or the real board. A parallel version still in the code that
+  can't be framed alone is named on the section's third line.
 - **Reaching it:** `X` on the main menu (its key line; the menu art has twelve slots), or `--showcase` on
   the command line, beside `--desk`, `--river` and `--board`. On an outline without the seed it says so and
   writes nothing.
@@ -1011,7 +1010,7 @@ Every reader (board, desk, river, the BBS message reader) shows a note the way t
 the title, a one-line **summary** of chosen properties, then the body. The block's `[key::value]` metadata
 lines aren't printed; they are in the **property panel**, one key away.
 
-The **BBS message reader** (`N`, `R` and `J` on the main menu, `⏎` in a message list or Last callers) is
+The **BBS message reader** (`N`, `R` and `J` on the main menu, `⏎` in a message list) is
 the same note surface under the BBS header (`Date`, `To` from `to::` or `ALL`, `From`, `Reply` its
 replies, `Subj`, `Conf` its crumbs, `Stat` with the property count and open comments). Everything in this
 section and the next ones works there, by keys, mouse and `act`. It keeps its own keys where the surface
@@ -1319,8 +1318,8 @@ Card bodies come from `children`. The layout is saved to `river.json` (the desk'
 | New scan | blocks updated since your last logoff (`~/.local/state/ep0ch-door/lastcall.json`) |
 | Join conference | top-level blocks |
 | Message reader | a block on the note surface (links, properties, folds, comments, edit, selection), under a BBS header: author, date, `to::`, breadcrumb; `T` its children, `U` its parent |
-| Who's online | `clients.list`: every Tree, Detail, agent, and this door |
-| Last callers | `activity.recent` across user, agent and system edits |
+| Who's online | `clients.list`: every Tree, Detail, agent, and this door (the who tile, as a screen) |
+| Last callers | `activity.recent` across user, agent and system edits (the activity tile beside a reader, as a screen) |
 | File areas | the WOE zips, with each pack's `FILE_ID.DIZ` as its description |
 | Stats | 7×24 heatmap of when messages were written, and top posters |
 
@@ -1428,13 +1427,13 @@ agent's edit meets the same revision check, property warning and duplicate-safe 
 |---|---|---|
 | `screen.shell` | none. The person's only: an agent's is refused (it would take their terminal); open a terminal tile instead (`tile.open kind=pty`) | `!` on the menu, a click on `! Shell`, `^W !` on the desk |
 | `screen.open`, `screen.back`, `screen.list` | `name=` the menu key (`S`), its label (`Stats`) or the screen's title (`board stats`, `river`). On every screen. An agent's waits until you've been away from the keys for 2s and aren't in an edit, a comment, the property panel or a terminal tile, and it's said on the status bar; it never logs you off, and `back` never leaves the menu | the menu's letters, `⏎`, a click on an item; `q`, `Esc` (on the menu `Esc` only: its `q` is the Quay) |
-| `list.select`, `list.open`, `list.read` | `n=` the row from 1 (`open`: default the lit one); `from=`, `limit=` for `read`, which moves nothing. On the BBS lists (a message list, Join, Last callers, File areas); `select` and `open` wait as `screen.open` does | `j k ↑↓ PgUp PgDn Home End`, the wheel, a click; `⏎`, a click on the lit row |
+| `list.select`, `list.open`, `list.read` | `n=` the row from 1 (`open`: default the lit one); `from=`, `limit=` for `read`, which moves nothing. On the BBS lists (a message list, Join, File areas); `select` and `open` wait as `screen.open` does | `j k ↑↓ PgUp PgDn Home End`, the wheel, a click; `⏎`, a click on the lit row |
 | `list.thread` | `n=` the row (default the lit one): its replies as a message list over this one. On message lists; waits as `screen.open` does | `t`, `T`, a click on `T thread` |
 | `menu.select` | `name=` an item's key or label, or `by=` steps (1 down, 4 a column right). The main menu's lit item; waits as `screen.open` does | `↑ ↓ ← →`, `Tab`, the wheel, pressing an item |
 | `screen.help` | none: the help screen over this one (any key goes back); waits as `screen.open` does | `?` on the menu |
 | `video.cycle` | none: the next video mode (Kitty+CRT, Kitty, cells); the person's display, said on the status bar | `alt+v` on every screen; `V` on the menu, board, desk, river, showcase and views; `v` in the art viewer; a click on the status bar's video mode |
 | `theme.set`, `theme.cycle` | `name=calm\|night\|classic` for `set`: the door's colours on every screen, kept for next time (see [Themes and accessibility](#themes-and-accessibility)); waits as `screen.open` does | `alt+t` on every screen (cycle); a click on the status bar's theme |
-| `who.refresh` | none: ask again who's attached; answers the callers (Who's online) | `r`, `R`, a click on `R refresh` |
+| `who.refresh` | none: ask again who's attached; answers the callers (Who's online) | `r`, a click on `r refresh` |
 | `art.step`, `art.scroll`, `art.ice`, `art.reveal` | `by=` pieces or rows; `on=true\|false` (default toggles). The art viewer's own view | `, . < > ← →`; `↑↓ j k PgUp PgDn`, the wheel; `i`; `⏎`, `space` |
 | `open` | `id`, `tile=detail\|new-detail\|float` (board: where the screen's opens land), `tile=preview` or any reader, `tile=<tile>` (desk); on the menu or a BBS list, the note opens in a message reader over it | `Enter`, `Alt+Enter`, `o` |
 | `brief.step`, `brief.newest`, `brief.date`, `brief.show` | `by=-1\|1`; `date=YYYY-MM-DD`; `id=<brief>` (the daily brief) | `,` `.`; a link to another day's brief |

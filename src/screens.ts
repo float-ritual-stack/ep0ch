@@ -1,21 +1,19 @@
 // Every screen of the board. Outline data arrives async; screens render "loading" until it lands.
 import { ART_ACTIONS, type ArtOn } from "./art-actions";
-import { WHO_ACTIONS, type WhoHost } from "./who-actions";
 import { registerShellKey } from "./shell-keys";
 import { basename } from "node:path";
 import type { Art, Cell } from "./ansi";
 import { artBlock, cloneGrid, locate, stamp } from "./art-view";
 import type { Ctx, Frame, Screen } from "./app";
-import { subject, type Caller, type Msg } from "./board";
+import { subject, type Msg } from "./board";
 import { artNamed, loadArt, members, packs, type Member } from "./packs";
-import type { Activity } from "./socket";
 import { C, center, chip, fg, pad, paint, RESET, selected, width } from "./style";
 import { nextTheme, theme, THEME_NAMES, themeNamed, THEMES } from "./theme";
 import { ch, isUp, isDown, type Key } from "./term";
 import { heatmap } from "./stats";
 import { Showcase } from "./showcase/showcase";
 import { openScreen } from "./desk/screen-specs";
-import { ago, bbsDate, rule, wrap } from "./text";
+import { bbsDate, rule, wrap } from "./text";
 import { NOTE_ACTIONS, NoteSurface, type HeaderInfo, type SurfaceHost } from "./surface/note";
 import { shellRunner } from "./drop";
 import { ActionRefused, ActionSet } from "./surface/actions";
@@ -224,8 +222,8 @@ const ITEMS: MenuItem[] = [
   { key: "J", label: "Join", open: () => new Conferences() },
   { key: "K", label: "Kanban", open: () => openScreen("board"), one: "board" },
   { key: "R", label: "Read", open: ctx => new MessageList("recent", n => ctx.board.changedSince(0, n), "most recently changed") },
-  { key: "W", label: "Who's on", open: () => new WhoOnline() },
-  { key: "L", label: "Lastcall", open: () => new LastCallers() },
+  { key: "W", label: "Who's on", open: () => openScreen("who") },
+  { key: "L", label: "Lastcall", open: () => openScreen("lastcall") },
   { key: "F", label: "Files", open: () => new FileAreas() },
   { key: "S", label: "Stats", open: () => new Stats() },
   { key: "Q", label: "Quay", open: () => openScreen("river"), one: "river" },
@@ -1088,109 +1086,6 @@ export class Conferences implements BbsList {
     const c = this.confs![i]!;
     ctx.push(new MessageList(subject(c).slice(0, 40), () => ctx.board.children(c.id), c.props.type ?? "", false));
   }
-  describe() { return listDescribe(this); }
-  readonly dispatch: Dispatcher = listDispatch(this);
-}
-
-// ── who's online and last callers ────────────────────────────────────────────
-
-export class WhoOnline implements Screen {
-  title = "who's online";
-  private callers: Caller[] | null = null;
-  private subjects = new Map<string, string>();
-  private asking = new Set<string>();
-  private readonly ptr = new Pointer();
-  enter(ctx: Ctx) { this.ctx = ctx; this.load(ctx); }
-  private load(ctx: Ctx) {
-    ctx.board.callers().then(c => {
-      this.callers = c; ctx.redraw();
-      // Titles only, in one read where the service can (blocks.read).
-      // Only titles that were read are kept; a failed or missing one is asked again on the next load.
-      const ids = [...new Set(c.map(x => x.target).filter((t): t is string => !!t && !this.subjects.has(t) && !this.asking.has(t)))];
-      if (!ids.length) return;
-      for (const id of ids) this.asking.add(id);
-      const done = () => { for (const id of ids) this.asking.delete(id); ctx.redraw(); };
-      ctx.board.readMany(ids, ["title"]).then(ms => { for (const m of ms) this.subjects.set(m.id, subject(m)); done(); }, done);
-    }, e => ctx.flash(String(e.message)));
-  }
-  onEvent(_: unknown, ctx: Ctx) { this.load(ctx); }
-  render(ctx: Ctx): Frame {
-    const w = ctx.t.cols;
-    const lines = [
-      center(paint("|09─=|11[ |15WHO'S ONLINE |11]|09=─"), w), "",
-      paint(`|09 Node  |09Caller      |09Location                  |09Activity`), rule(w),
-    ];
-    (this.callers ?? []).forEach((c, i) => {
-      const you = c.id === ctx.board.clientId;
-      const act = c.target ? `reading "${this.subjects.get(c.target) ?? c.target.slice(0, 8)}"` : c.activity;
-      lines.push(`${fg(C.lcyan)}${String(i + 1).padStart(4)}   ${fg(you ? C.yellow : C.white)}${pad(you ? "you" : c.name, 11)} ${fg(C.brown)}${pad(c.host, 25)} ${fg(C.grey)}${pad(act, w - 46)}${RESET}`);
-    });
-    if (!this.callers) lines.push(paint("|08  polling nodes…"));
-    lines.push("", paint("|08  Every Tree, Detail and agent attached to the outline is a node. The door registers as an observer, so it's listed too."));
-    this.ptr.frame();
-    lines.push("", hotLine(this.ptr, lines.length + 1, w, ["|08  ", ["|15R|08 refresh", char("r")], " · ", ["|15Q|08 back", char("q")]]));
-    return { lines };
-  }
-  private ctx: Ctx | null = null;
-  key(k: Key, ctx: Ctx) {
-    this.ctx = ctx;
-    if (k.kind === "mouse") return this.ptr.mouse(k, { sel: -1, select() {}, send: key => this.key(key, ctx) });
-    if (isBack(k) || k.kind === "enter") back(this, ctx);
-    else if (k.kind === "char" && !k.ctrl && (k.ch === "r" || k.ch === "R")) void this.dispatch.press("who.refresh");
-  }
-  /** Who's online as the who actions' host (src/who-actions.ts): r asks the service again. */
-  private host(ctx: Ctx): WhoHost { return { refresh: () => this.load(ctx), rows: () => this.rows() }; }
-  /** The callers as last read, for `who.refresh` and `peek`. */
-  rows() { return (this.callers ?? []).map((c, i) => ({ n: i + 1, name: c.name, host: c.host, activity: c.activity, target: c.target ?? null, reading: c.target ? this.subjects.get(c.target) ?? null : null })); }
-  describe() { return { kind: "who's online", callers: this.callers ? this.rows() : null }; }
-  readonly dispatch: Dispatcher = new Dispatcher({ title: this.title, ctx: () => this.ctx }, [{
-    set: WHO_ACTIONS, takes: "none",
-    on: () => { if (!this.ctx) throw new ActionRefused("who's online isn't shown yet"); return { pane: this.host(this.ctx) }; },
-  }]);
-}
-
-export class LastCallers implements BbsList {
-  title = "last callers";
-  private rows: Activity[] | null = null;
-  sel = 0;
-  ctx: Ctx | null = null;
-  private readonly ptr = new Pointer();
-  enter(ctx: Ctx) { this.ctx = ctx; ctx.board.activity(80).then(r => { this.rows = r; ctx.redraw(); }, e => ctx.flash(String(e.message))); }
-  render(ctx: Ctx): Frame {
-    const w = ctx.t.cols, h = ctx.t.rows - 1;
-    this.ptr.frame();
-    const rows = this.rows ?? [];
-    const tally = new Map<string, number>();
-    for (const r of rows) tally.set(r.actor, (tally.get(r.actor) ?? 0) + 1);
-    const top = [...tally].sort((a, b) => b[1] - a[1]).slice(0, 4).map(([a, n]) => `|14${a}|08×${n}`).join("  ");
-    const lines = [
-      center(paint("|09─=|11[ |15LAST CALLERS |11]|09=─"), w),
-      center(paint(rows.length ? top : "|08dialing…"), w), "",
-      paint(`|09  When  |09Caller                |09Did    |09Message`), rule(w),
-    ];
-    const page = h - lines.length - 2;
-    const start = Math.max(0, Math.min(this.sel - Math.floor(page / 2), rows.length - page));
-    rows.slice(start, start + page).forEach((r, i) => {
-      this.ptr.row(lines.length, start + i, w);
-      const row = ` ${ago(r.at).padStart(5)}  ${pad(r.actor, 21)} ${pad(r.kind === "properties" ? "props" : "edit", 6)} ${pad(subject(r.block), w - 40)}`;
-      lines.push(start + i === this.sel ? selected() + pad(row, w) + RESET
-        : `${fg(C.dark)}${row.slice(0, 7)}${fg(r.author === "agent" ? C.lmagenta : r.author === "user" ? C.yellow : C.cyan)}${row.slice(7, 30)}${fg(C.dark)}${row.slice(30, 37)}${fg(C.grey)}${row.slice(37)}${RESET}`);
-    });
-    while (lines.length < h - 1) lines.push("");
-    lines.push(hotLine(this.ptr, lines.length, w, ["|08  |13agents|08 · |14you|08 · |03system|08 · ", ["ENTER read", ENTER], " · ", ["Q back", char("q")]]));
-    return { lines };
-  }
-  key(k: Key, ctx: Ctx) {
-    this.ctx = ctx;
-    const rows = this.rows ?? [];
-    if (k.kind === "mouse") return listMouse(this.ptr, k, ctx, this.sel, rows.length, i => listKey(this, "list.select", { n: i + 1 }, ctx), key => this.key(key, ctx));
-    if (listKeys(this, k, ctx, ctx.t.rows - 10)) return;
-    ctx.redraw();
-  }
-  listRows(): ListRow[] | null {
-    return this.rows?.map((r, i) => ({ n: i + 1, title: subject(r.block), id: r.block.id, actor: r.actor, author: r.author, did: r.kind, at: r.at })) ?? null;
-  }
-  openRow(i: number, ctx: Ctx) { ctx.push(new MessageReader(this.rows!.map(r => r.block), i)); }
   describe() { return listDescribe(this); }
   readonly dispatch: Dispatcher = listDispatch(this);
 }

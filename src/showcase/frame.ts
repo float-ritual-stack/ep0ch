@@ -3,10 +3,7 @@
 // screen sees a Ctx whose terminal is the rectangle; its pushes stack inside the rectangle, and popping
 // its first screen hands the keys back to whoever framed it.
 import type { Ctx, Frame, Screen, Video } from "../app";
-import type { Msg } from "../board";
-import type { Placement } from "../kitty";
-import { ch, type Key, type TermInfo } from "../term";
-import type { DeskApi, Pane, PaneView } from "../desk/panes";
+import type { Key, TermInfo } from "../term";
 import { NOBODY, screenKeys, within } from "../whereabouts";
 
 export class FramedScreen {
@@ -96,42 +93,4 @@ function frameCtx(f: FramedScreen): Ctx {
     // Where the person is, as seen from inside the frame: its screen has their focus only while the frame has it.
     person: () => within(o().person?.() ?? NOBODY, f.focused(), screenKeys(f.top)),
   };
-}
-
-/**
- * A screen as a desk pane: the BBS reader, Who's Online and Last Callers beside the shared parts that
- * replace them. `make` builds the screen for the desk's current note (`follows`), or once.
- */
-export class ScreenPane implements Pane {
-  readonly kind = "exhibit";
-  private framed: FramedScreen | null = null;
-  private desk: DeskApi | null = null;
-  constructor(private readonly label: string, private readonly make: (m: Msg | null) => Screen | null, private readonly follows = false) {}
-  title() { return this.label; }
-  hint() { return "this screen's own keys · tab moves on"; }
-  private build(m: Msg | null, desk: DeskApi) {
-    const s = this.make(m);
-    this.desk = desk;
-    this.framed = s ? new FramedScreen(s, () => desk.ctx, undefined, undefined, () => !!desk.hasFocus?.(this)) : null;
-  }
-  init(desk: DeskApi) { if (!this.follows) this.build(null, desk); }
-  select(m: Msg | null, desk: DeskApi) { if (this.follows) this.build(m, desk); }
-  onEvent() { /* the framed screens read the outline when opened; they have no live refresh of their own */ }
-  render(w: number, h: number): PaneView {
-    if (!this.framed) return { lines: [] };
-    const f = this.framed.render(w, h, "screen");
-    return { lines: f.lines, placements: f.placements as Placement[] };
-  }
-  key(k: Key): boolean {
-    if (!this.framed) return false;
-    const c = ch(k);
-    // A screen in an edit, a comment or a property panel takes every key (its q, esc, digits are text or its own).
-    if (this.framed.top.holdsKeys?.()) { this.framed.key(k); this.desk?.redraw(); return true; }
-    // The desk keeps focus keys (1-9), video and search; esc or q on the first screen leaves the desk.
-    if (/^[1-9]$/.test(c) || c === "V" || c === "/") return false;
-    if (this.framed.depth === 1 && (k.kind === "esc" || c === "q" || c === "Q")) return false;
-    this.framed.key(k);
-    this.desk?.redraw();
-    return true;
-  }
 }

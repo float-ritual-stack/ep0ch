@@ -23,6 +23,9 @@ export function registerBuiltinScreens(): void {
   add("pinned", args => pinnedSpec(args));
   add("board", args => boardSpec(args));
   add("river", () => riverSpec());
+  // The BBS menu's W and L: the who and activity tiles as screens (the activity's ⏎ shows its note in the reader).
+  add("who", () => ({ name: "who", title: "who's online", layout: { focus: "who", root: { t: "leaf", kind: "who", name: "who" } } }));
+  add("lastcall", () => ({ name: "lastcall", title: "last callers", layout: { focus: "activity", root: { t: "split", dir: "row", weights: [0.5, 0.5], kids: [{ t: "leaf", kind: "activity", name: "activity" }, { t: "leaf", kind: "reader", name: "reader" }] } } }));
 }
 registerBuiltinScreens();
 
@@ -34,10 +37,9 @@ export function openScreen(name: string, args?: Record<string, unknown>): Screen
   if (name === "desk") return Desk.resume();
   const spec = screenSpec(name, args);
   if (!spec) throw new Error(`no screen ${name}; screens: ${screenNames().join(", ")}`);
-  return new Desk(spec);
+  // `persist: false`: it comes back as its screen was saved, and never saves (a screen in a tile, which the desk saves).
+  return new Desk(spec, { writes: args?.persist !== false });
 }
 
-/** The delivery board (`--board <hub>`, the menu's K): `persist: false` keeps it in memory (the showcase's). */
-export function boardScreen(hub?: string, persist = true): Desk {
-  return new Desk(boardSpec({ ...(hub ? { hub } : {}), persist }));
-}
+/** The delivery board (`--board <hub>`, the menu's K). */
+export const boardScreen = (hub?: string, persist = true) => openScreen("board", { ...(hub ? { hub } : {}), persist }) as Desk;

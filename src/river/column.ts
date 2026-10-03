@@ -8,7 +8,7 @@
 // The layout (widen, dock, close, back and forward) is the engine's tile actions.
 import { bodyLinesOf, subject, type Msg } from "../board";
 import { USER, type Actor, type IndexBlock, type OutlineEvent, type SocketBoard } from "../socket";
-import { ActionRefused, ActionSet } from "../surface/actions";
+import { ActionRefused, ActionSet, keyName } from "../surface/actions";
 import { historyRow, IN_TRASH, type Link } from "../surface/note";
 import { Gesture, isCopyKey, lineAt, modeKey, paintRange, rowsOf, SELECT_BG, Selection, selectionHint, wordAt, type Pos } from "../surface/selection";
 import { presentLinks } from "../refs";
@@ -709,6 +709,17 @@ export const COLUMN_ACTIONS = new ActionSet<{
   },
 });
 
+/**
+ * A column's keys for the flow it's in (the layout's tile actions), the column's own on any screen: h l and ← → the
+ * column beside, w widen, p dock, x close, g search. Back and forward (alt+← backspace alt+→) are its surface's history,
+ * which goes along the flow's trail (`host`).
+ */
+const FLOW_KEYS: Record<string, { action: string; args?: Record<string, unknown> }> = {
+  h: { action: "tile.focus", args: { dir: "left" } }, left: { action: "tile.focus", args: { dir: "left" } },
+  l: { action: "tile.focus", args: { dir: "right" } }, right: { action: "tile.focus", args: { dir: "right" } },
+  w: { action: "tile.widen" }, p: { action: "tile.dock" }, x: { action: "tile.close" }, g: { action: "search" },
+};
+
 /** The river column as a tile kind: a reader of the river's own view, opening a column of its own kind next. */
 export function riverColumnKind(): TileKind {
   return {
@@ -718,6 +729,7 @@ export function riverColumnKind(): TileKind {
     save: p => (p as RiverColumn).spec(),
     start: (p, env) => (p as RiverColumn).load(env.desk),
     actions: COLUMN_ACTIONS,
+    press: (_p, k) => FLOW_KEYS[keyName(k) ?? ""] ?? null,
     accepts: { notes: true },
     take: (p, m, desk) => { const c = p as RiverColumn; if (c.holdsKeys || c.editing) return "holds an edit or a comment"; c.hold(m, desk); return null; },
     holdsWork: p => (p as RiverColumn).unsaved() || (p as RiverColumn).editing,
@@ -737,19 +749,6 @@ export function riverSpec(): ScreenSpec {
     // The Library is what the river is made around: it doesn't close (closable off, held by its tab set of one, as the
     // board's preview's is), so a saved river always comes back with it.
     layout: { focus: "library", root: { t: "flow", key: "river", docked: [0], kids: [{ t: "tabs", tabs: [{ t: "leaf", kind: "river.column", name: "library", source: "roots" } as TileSpec], active: 0, policy: { closable: false } }] } },
-    keys: [
-      { key: "h", action: "tile.focus", args: { dir: "left" } },
-      { key: "l", action: "tile.focus", args: { dir: "right" } },
-      { key: "left", action: "tile.focus", args: { dir: "left" } },
-      { key: "right", action: "tile.focus", args: { dir: "right" } },
-      { key: "w", action: "tile.widen" },
-      { key: "p", action: "tile.dock" },
-      { key: "x", action: "tile.close" },
-      { key: "alt+left", action: "tile.travel", args: { dir: "back" } },
-      { key: "backspace", action: "tile.travel", args: { dir: "back" } },
-      { key: "alt+right", action: "tile.travel", args: { dir: "forward" } },
-      { key: "g", action: "search" },
-    ],
     hint: { "river.column": HINT },
   };
 }

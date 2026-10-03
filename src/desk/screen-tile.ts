@@ -2,7 +2,8 @@
 // any tile. It is the showcase's FramedScreen (src/showcase/frame.ts), the screen drawn inside a
 // rectangle with a Ctx whose terminal is that rectangle, not a copy of the screen. What the screen selects
 // (the board's card) is the tile's selection: a preview tile can follow it, and the board's own preview
-// strip can become one (`tile.preview` on the board).
+// strip can become one (`tile.preview` on the board). A screen made for the current note each time it moves
+// (`Follows`: the showcase's BBS message reader beside a reader) is a screen tile too.
 import type { Screen } from "../app";
 import type { Msg } from "../board";
 import type { Placement } from "../kitty";
@@ -13,12 +14,15 @@ import type { DeskApi, Pane, PaneView } from "./panes";
 
 export type ScreenKind = "board" | "river";
 
-/** The screen for a kind, built when the tile is first shown (every module has loaded by then). */
-function make(kind: ScreenKind): Screen {
-  // Loaded here, not at the top: the brief is built on the desk, which builds these tiles.
-  if (kind === "board") return require("./screen-specs").boardScreen();
-  return require("./screen-specs").openScreen("river");
-}
+/**
+ * The screen for a kind, built when the tile is first shown (every module has loaded by then; loaded here, not at the
+ * top: the brief is built on the desk, which builds these tiles). Kept in memory: the screen itself owns its save
+ * (delivery.json, river.json), and the desk saves the tile.
+ */
+const make = (kind: string): Screen => require("./screen-specs").openScreen(kind, { persist: false });
+
+/** A screen made for the desk's current note, again each time it moves, and the tile's title. */
+export interface Follows { label: string; make(m: Msg | null): Screen | null }
 
 export class ScreenTile implements Pane {
   private framed: FramedScreen | null = null;
@@ -26,7 +30,7 @@ export class ScreenTile implements Pane {
   private selected: string | null = null;
   /** The board's own preview strip: false when a preview tile follows the board instead (it's collapsed). */
   private preview = true;
-  constructor(readonly kind: ScreenKind, spec: { preview?: boolean } = {}) { if (spec.preview === false) this.preview = false; }
+  constructor(readonly kind: string, spec: { preview?: boolean } = {}, private readonly follows?: Follows) { if (spec.preview === false) this.preview = false; }
 
   /** Collapse (false) or open the board's own preview strip; a preview tile then follows the board instead. */
   async ownPreview(on: boolean, actor: Actor = USER) {
@@ -37,14 +41,18 @@ export class ScreenTile implements Pane {
   spec() { return this.preview ? {} : { preview: false }; }
 
   get screen(): Screen | null { return this.framed?.top ?? null; }
-  title() { return this.framed ? `${this.kind} · ${this.framed.top.title}` : this.kind; }
+  title() { return this.follows?.label ?? (this.framed ? `${this.kind} · ${this.framed.top.title}` : this.kind); }
   hint() { return "its own keys · 1-9 and ^W stay the desk's"; }
 
   init(desk: DeskApi) {
-    if (this.framed) return;
+    if (this.framed || this.follows) return;
+    this.frame(make(this.kind), desk);
+    if (!this.preview) { this.framed!.open(); void this.ownPreview(false); }
+  }
+  select(m: Msg | null, desk: DeskApi) { if (this.follows) { this.framed?.dispose(); this.frame(this.follows.make(m), desk); } }
+  private frame(s: Screen | null, desk: DeskApi) {
     this.desk = desk;
-    this.framed = new FramedScreen(make(this.kind), () => desk.ctx, () => desk.ctx.flash(`the ${this.kind} is a tile · ^W x closes it, ^W z zooms it`), undefined, () => !!desk.hasFocus?.(this));
-    if (!this.preview) { this.framed.open(); void this.ownPreview(false); }
+    this.framed = s && new FramedScreen(s, () => desk.ctx, () => desk.ctx.flash(`the ${this.kind} is a tile · ^W x closes it, ^W z zooms it`), undefined, () => !!desk.hasFocus?.(this));
   }
 
   /** What the screen has selected (the board's card): the tile's selection, for a preview following it. */

@@ -12,7 +12,6 @@ import { boardScreen } from "../src/desk/screen-specs";
 import type { Desk } from "../src/desk/desk";
 import { ReaderPane, WhoPane, type DeskApi } from "../src/desk/panes";
 import { answer, setLiveSource } from "../src/live";
-import { WhoOnline } from "../src/screens";
 import { ACTOR_ID, OUTLINE_CAPABILITIES, SocketBoard, type OutlineEvent } from "../src/socket";
 import type { Key } from "../src/term";
 import type { ViewRead } from "../src/views";
@@ -57,20 +56,20 @@ describe("review fixes without a service", () => {
       readMany: async (ids: string[]) => { asked.push(ids); if (mode === "fail") throw new Error("socket closed"); return mode === "ok" ? [row("blk-fern", "Water the ferns")] : []; },
     };
     const desk = { ctx: { board, t: { cols: 100, rows: 30 }, redraw() {}, flash() {} }, redraw() {} } as any;
-    const pane = new WhoPane(), screen = new WhoOnline();
-    pane.init(desk); screen.enter(desk.ctx);
-    const text = () => pane.render(80, 10, false, desk).lines.join("\n") + "\n" + screen.render(desk.ctx).lines.join("\n");
+    const pane = new WhoPane();
+    pane.init(desk);
+    const text = () => pane.render(80, 10, false, desk).lines.join("\n");
     for (const next of ["missing", "ok"] as const) {
       const n = asked.length;
-      await until(() => asked.length === n + 2, "the title reads");
+      await until(() => asked.length === n + 1, "the title reads");
       await Bun.sleep(5);
       expect(text()).not.toContain("…");
       expect(text()).not.toContain("Water the ferns");
       mode = next;
-      pane.onEvent(desk); screen.onEvent(null, desk.ctx);
+      pane.onEvent(desk);
     }
-    await until(() => asked.length === 6, "the reads after the service answers");
-    await until(() => text().split("Water the ferns").length === 3, "both views to show the title");
+    await until(() => asked.length === 3, "the reads after the service answers");
+    await until(() => text().includes("Water the ferns"), "the title shown");
   });
 
   test("a reader whose whole-note read fails says so, and reads it again when the door reconnects", async () => {

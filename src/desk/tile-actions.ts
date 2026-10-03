@@ -281,7 +281,7 @@ export const TILE_ACTIONS = new ActionSet<{
   },
   "tile.travel": {
     summary: "back (dir=back, the default) or forward in tile=<tile>'s flow: the person's keys go to the column it was opened from, or the one back last left; it widens only if it's covered, so the text comes back where it was. The person's keys only: an agent opens beside instead (open, link.follow)",
-    keys: "on the river: alt+← alt+b backspace the mouse's back button, a click on ← back (back); alt+→ alt+f the forward button, a click on forward → (forward)",
+    keys: "river column: alt+← alt+b backspace the mouse's back button, a click on ← back (back); alt+→ alt+f the forward button, a click on forward → (forward)",
     touches: "screen", replay: "safe", person: "back and forward in a flow move the person's keys between columns; an agent opens beside (open, link.follow) instead",
     args: { dir: { type: "string", optional: true, about: "back or forward; default back" } },
     run({ dir }, { d, reader }, actor) {
@@ -291,14 +291,14 @@ export const TILE_ACTIONS = new ActionSet<{
   },
   "tile.dock": {
     summary: "dock tile=<tile>'s column in its flow so it resists compression (on=false lets it go; default toggles), the river's p. Refused outside a flow and where its flow is locked",
-    keys: "on the river: p",
+    keys: "river column: p",
     touches: "shape", replay: "safe", says: r => `${r.docked ? "docked" : "undocked"} ${r.tile}`,
     args: { on: { type: "boolean", optional: true, about: "true docks, false lets it go; default toggles" } },
     run({ on }, { d, reader }, actor) { return d.dockTile(reader, on, actor); },
   },
   "tile.widen": {
     summary: "give tile=<tile>'s column the wide place in its flow (the river's shift, PIE-513): the flow is laid out around it, and the column the person was reading stays full beside it. The person's keys stay where they are; moving them between columns never moves a column. Refused outside a flow and where its flow is locked",
-    keys: "^W W; a click on a flow column's spine or header; on the river: w",
+    keys: "^W W; a click on a flow column's spine or header; river column: w",
     touches: "shape", replay: "safe", says: r => `widened ${r.tile}`,
     args: {},
     run(_, { d, reader }, actor) {
