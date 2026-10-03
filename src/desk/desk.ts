@@ -1769,7 +1769,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     canvas.box(r, fg(C.brown), `${fg(C.yellow)}keys`, this.prefix ? "" : fg(C.dark) + "any key closes");
     lines.slice(0, h - 2).forEach((l, i) => {
       canvas.text(r.col + 2, r.row + 1 + i, l, cols - 4);
-      this.keySpots.push(...hintSpots(l).map(p => ({ y: r.row + 1 + i, from: r.col + 2 + p.from, to: r.col + 2 + p.to, key: p.key })));
+      this.keySpots.push(...hintSpots(l, keyStyles()).map(p => ({ y: r.row + 1 + i, from: r.col + 2 + p.from, to: r.col + 2 + p.to, key: p.key })));
     });
   }
 
@@ -1838,7 +1838,12 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     };
     // A source's model says the screen's hint its way (the board's: a card trashed before it, its status after).
     const decorate = (s: string) => [...this.models.values()].reduce((h, m) => m.decorate?.(h) ?? h, s);
-    const line = (s: string) => { const t = fit(decorate(s)); this.keySpots = hintSpots(t).map(p => ({ ...p, y: this.area.row + this.area.rows })); return pad(t, room) + tail; };
+    const line = (s: string) => {
+      const t = fit(decorate(s));
+      // Its keys, but "? more" (its own chip: ? would be typed into a draft).
+      this.keySpots = hintSpots(t, keyStyles()).filter(p => !this.moreChip || p.from < this.moreChip.from).map(p => ({ ...p, y: this.area.row + this.area.rows }));
+      return pad(t, room) + tail;
+    };
     // A view's own mode (the board's composer, a card being dragged) says its keys first.
     const over = [...this.models.values()].map(m => m.hint?.() ?? null).find(h => h !== null) ?? null;
     if (over !== null) return line(over);
@@ -1896,17 +1901,15 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // The band (the spec's): a press on it is its kind's. Only presses: a release or drag over it is the desk's, so a
     // border or tile drag still ends.
     if (k.kind === "mouse" && k.action === "down" && k.y < this.bandTop) { const b = this.band(); if (b?.kind.press) { b.kind.press(b.pane, k.x, k.y, this); return; } }
+    // A click on a key in the hint row or its keys box: that key, as typed, wherever the keys are (an edit, a chord).
+    const spot = this.spotAt(k);
+    if (spot) { this.hintMoreOpen = false; return asBoundKey("click", () => this.key(spot.key, ctx)); }
     // ? shows the whole hint row when it was cut (never while the person is typing: a draft, a filter, a
     // terminal, a ^W chord); the next key or click puts it away again and does what it does, but Esc only that.
     if (ch(k) === "?" && this.hintFull && !this.holdsKeys()) { this.run("keys.more"); return; }
     if (this.hintMoreOpen) {
       const chip = k.kind === "mouse" && this.moreChip && k.y === this.area.row + this.area.rows && k.x >= this.moreChip.from && k.x < this.moreChip.to;
-      if (k.kind !== "mouse" || (k.action === "down" && !chip)) {
-        const spot = this.spotAt(k);             // a key in the box: pressed once the box is put away
-        this.hintMoreOpen = false; this.redraw();
-        if (k.kind === "esc") return;
-        if (spot) return asBoundKey("click", () => this.key(spot.key, ctx));
-      }
+      if (k.kind !== "mouse" || (k.action === "down" && !chip)) { this.hintMoreOpen = false; this.redraw(); if (k.kind === "esc") return; }
     }
     // A source's model holds the keys while its own overlay is open (the board's composer, pickers), before the screen's.
     const model = !this.overlayOpen() && [...this.models.values()].some(m => m.key?.(k));
@@ -2094,7 +2097,6 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     }
     this.redraw();
   }
-
 
   /** The policy panel's containers over tile `tile`: the screen, then each one down to it. */
   policyNodes(tile: number): { label: string; node: Container | null }[] {
@@ -3038,7 +3040,6 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         if (h) this.run("tile.drawer", { open: true, container: h.drawer.id }, this.nameOf(h.id));
         else if (this.lockChip && k.x >= this.lockChip.from && k.x < this.lockChip.to) this.run("layout.lock");
         else if (this.moreChip && k.x >= this.moreChip.from && k.x < this.moreChip.to) this.run("keys.more");
-        else { const s = this.spotAt(k); if (s) asBoundKey("click", () => this.key(s.key, this.ctx)); }
         return;
       }
       if (this.linking) {
@@ -3165,6 +3166,8 @@ const PEEK_DIM = 0.55;
 let MORE = "";
 themed(() => { MORE = paint("|08 · |15?|08 more") + RESET; });
 const MORE_WIDTH = width(MORE);
+/** How a hint row draws a key (|15; |07 in a ^W chord's row): a click on one presses it (hintSpots). */
+const keyStyles = () => [fg(C.white), fg(C.grey)];
 /**
  * A hint row's parts (split at " · ") put on lines at most `w` wide, a part never split unless it's wider than a
  * line. Each line starts with the colour codes in force where its first part began.

@@ -205,10 +205,10 @@ function kindKey(name: string, kind: string): { key?: string; clash?: string } {
   return holder ? { clash: `^W o ${ch} is ${holder.kind}'s` } : { key: ch };
 }
 
-interface TileHost { pane: unknown; desk: DeskApi }
+interface ExtTileOn { pane: unknown; desk: DeskApi }
 
 /** A tile's action: on the tile (`tile:<kind>`), or on a block (the tile's own `block` arg, or block=). */
-function tileAction(t: ExtensionTileKind, a: ExtensionAction): ActionDef<ExtArgs, TileHost> {
+function tileAction(t: ExtensionTileKind, a: ExtensionAction): ActionDef<ExtArgs, ExtTileOn> {
   const onBlock = (a.on ?? "block") === "block";
   return {
     summary: `${t.name}: ${a.description ?? a.label}${onBlock ? " (on the tile's block, or block=<id>)" : ""}. The service runs it; what it writes is attributed ext:${t.extension}`,
@@ -216,7 +216,7 @@ function tileAction(t: ExtensionTileKind, a: ExtensionAction): ActionDef<ExtArgs
     ...(keyOf(a.key) ? { keys: keyOf(a.key)! } : {}),
     touches: "nothing", replay: a.effects === "write" ? "ask" : "safe",
     // On a block: which one (the tile's own by default). On the tile: nothing to say.
-    args: (onBlock ? { block: { type: "string", optional: true, about: "the block it acts on; default the tile's own (where it was opened)" } } : {}) as ActionDef<ExtArgs, TileHost>["args"],
+    args: (onBlock ? { block: { type: "string", optional: true, about: "the block it acts on; default the tile's own (where it was opened)" } } : {}) as ActionDef<ExtArgs, ExtTileOn>["args"],
     run({ block }, { pane, desk }, actor) {
       const own = pane instanceof ProgramTile ? pane.state.block : undefined;
       const blockId = onBlock ? block ?? (typeof own === "string" ? own : undefined) : undefined;
@@ -235,7 +235,7 @@ function unavailableHere(t: ExtensionTileKind): string | null {
 /** The registry entry for one of the service's tile kinds: a program in a terminal tile (serviceKind). */
 function kindEntry(t: ExtensionTileKind): TileKind {
   const { key } = kindKey(t.name, t.kind);
-  const actions = new ActionSet<Record<string, ExtArgs>, TileHost>(t.kind, Object.fromEntries(t.actions.map(a => [a.name, tileAction(t, a)])));
+  const actions = new ActionSet<Record<string, ExtArgs>, ExtTileOn>(t.kind, Object.fromEntries(t.actions.map(a => [a.name, tileAction(t, a)])));
   return serviceKind({
     kind: t.kind,
     noun: t.name,

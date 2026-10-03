@@ -316,10 +316,10 @@
       "does": "An action: a name, typed arguments, an actor, a refusal with a reason. The same code for the person's key, a click and an agent's act.",
       "built": "ActionDef and ActionSet in surface/actions.ts. ActionDef.keys is a display string: nothing binds a key to an action. Each def declares what it touches of the person's (touches: nothing, tile, shape, draft, screen; person: the person's only) and whether a restarted door may run it again (replay: safe or ask), and what an agent's run says (says) (PIE-514).",
       "refs": [
-        { "r": "door", "p": "src/surface/actions.ts", "l": 43, "m": "export interface ActionDef" },
-        { "r": "door", "p": "src/surface/actions.ts", "l": 28, "m": "export type Touches" },
-        { "r": "door", "p": "src/surface/actions.ts", "l": 47, "m": "keys?: string" },
-        { "r": "door", "p": "src/surface/actions.ts", "l": 97, "m": "export class ActionSet" }
+        { "r": "door", "p": "src/surface/actions.ts", "l": 44, "m": "export interface ActionDef" },
+        { "r": "door", "p": "src/surface/actions.ts", "l": 29, "m": "export type Touches" },
+        { "r": "door", "p": "src/surface/actions.ts", "l": 48, "m": "keys?: string" },
+        { "r": "door", "p": "src/surface/actions.ts", "l": 98, "m": "export class ActionSet" }
       ],
       "questions": [
         { "text": "Keys bind through ActionDefs: a binding table, one keymap, hints and ? generated from it.", "finding": "C-F9", "route": "PIE-492" },
@@ -446,7 +446,7 @@
         { "r": "door", "p": "src/desk/desk.ts", "l": 268, "m": "private layoutCtx" },
         { "r": "door", "p": "src/desk/desk.ts", "l": 1228, "m": "  run(name: string, args" },
         { "r": "door", "p": "src/desk/desk.ts", "l": 505, "m": "async fillColumns" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 2786, "m": "floatTile(sel" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 2788, "m": "floatTile(sel" },
         { "r": "door", "p": "src/desk/tile-actions.ts", "l": 58, "m": "export const TILE_ACTIONS" },
         { "r": "door", "p": "src/desk/tile-actions.ts", "l": 246, "m": "\"tile.widen\": {" }
       ],
@@ -678,7 +678,7 @@
       "does": "Find a note: the desk's / (the river's g), the board's picker. The BBS Search screen, never constructed, is gone (PIE-510).",
       "built": "Separate implementations over different sources; none uses tree.search.",
       "refs": [
-        { "r": "door", "p": "src/desk/desk.ts", "l": 3257, "m": "function searchOverlay(" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 3260, "m": "function searchOverlay(" },
         { "r": "door", "p": "src/river/column.ts", "l": 64, "m": "export function parseFilter" }
       ],
       "questions": [ { "text": "One jump palette as a shell overlay over tree.search.", "finding": "A-F8", "route": "PIE-493" } ]

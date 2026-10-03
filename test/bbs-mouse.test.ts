@@ -14,6 +14,8 @@ import { Desk } from "../src/desk/desk";
 import { openScreen } from "../src/desk/screen-specs";
 import type { Activity } from "../src/socket";
 import type { Key } from "../src/term";
+import { hintSpots, keyName, keyOfName } from "../src/surface/actions";
+import { C, fg, paint, RESET } from "../src/style";
 
 const plain = (s: string) => s.replace(/\x1b\[[\d;]*m/g, "");
 const tick = () => new Promise(r => setTimeout(r, 0));
@@ -345,5 +347,32 @@ describe("the desk's screens are left by mouse too: the hint row's keys are clic
     const y = rows.findLastIndex(l => l.includes("drag a title"));
     s.mouse("down", rows[y]!.indexOf("drag a title") + 1, y);
     expect((s.top() as Desk).spec.name).toBe("who");
+  });
+});
+
+describe("a hint row's clickable keys (hintSpots)", () => {
+  const KEY = [fg(C.white), fg(C.grey)];
+  test("a part that starts with one key drawn as a key is one; several keys, a gesture, a subject or a status isn't", () => {
+    const row = paint("|08 Tab/1-9 focus · |15^W|08 window · |15j k|08 scroll · |15drag|08 a title moves · |15q|08 menu · |03a quick idea · |14zoomed");
+    const spots = hintSpots(row, KEY);
+    expect(spots.map(s => keyName(s.key))).toEqual(["ctrl+w", "q"]);
+    expect(plain(row).slice(spots[1]!.from, spots[1]!.to)).toBe("q menu");
+    // An edit's own hint is grey through: its words are what the keys do there, never a click that types them.
+    expect(hintSpots(fg(C.grey) + "ctrl+s save · esc done · tab indent" + RESET, KEY)).toEqual([]);
+  });
+
+  test("keyOfName is keyName's inverse", () => {
+    for (const n of ["q", "Q", "?", "space", "enter", "esc", "tab", "shift+tab", "backspace", "delete", "pgup", "pgdn", "home", "end", "up", "down", "left", "right", "alt+enter", "shift+enter", "ctrl+enter", "alt+left", "alt+right", "ctrl+w", "alt+k", "super+c"])
+      expect(keyName(keyOfName(n)!)).toBe(n);
+    expect(keyOfName("click")).toBeNull();
+  });
+
+  test("a ^W chord's keys box takes clicks too: m there is ^W m", () => {
+    const s = on(new MainMenu(), door(80, 30));
+    const desk = openScreen("who") as Desk;
+    s.stack.push(desk); desk.enter(s.ctx);
+    s.key({ kind: "char", ch: "w", ctrl: true });
+    s.click("m move");
+    expect(s.lines().some(l => l.includes("move beside"))).toBe(true);
   });
 });
