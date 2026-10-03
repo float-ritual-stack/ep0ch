@@ -38,6 +38,7 @@ import {
   type DetailCalloutRegion,
 } from "./detail-callouts";
 import type { DetailCalloutTheme } from "./detail-callout-theme";
+import type { CalloutRegistry } from "@ep0ch/outline-core/callouts";
 import { detailEmbedIds, relativeAge } from "./detail-embeds";
 import { linkOutlinerDocument, linkOutlinerMarkdown, outlinerLinkUri, resourceOccurrenceLink, resourceOccurrenceLinks } from "./outliner-links";
 import {
@@ -1338,6 +1339,8 @@ class DetailPreviewFooter implements Component {
 
 interface AuthoredCalloutParse {
   readonly source: string;
+  /** The callout types it was parsed with (the theme's, once the service answered). */
+  readonly registry?: CalloutRegistry;
   readonly regions: DetailCalloutRegion[];
 }
 
@@ -1866,10 +1869,12 @@ export class DetailPiPreviewLayout extends VStack {
       embedRanges.map((range) => `${range.startLine}-${range.endLine}:${projectionAge(range, now)}:${range.source?.block.id}:${range.source?.block.revision}:${range.sources?.map(source=>`${source.block.id}:${source.block.revision}:${source.contentStartLine}`).join(';')}`).join(",")
     }`;
     const previousAuthoredCallouts = this.authoredCallouts;
-    const authoredCallouts = previousAuthoredCallouts?.source === authoredCalloutSource
+    // Parsed again when the text changes, or when the outline's callout types arrive or change (PIE-538).
+    const authoredCallouts = previousAuthoredCallouts?.source === authoredCalloutSource && previousAuthoredCallouts.registry === this.options.calloutTheme?.registry
       ? previousAuthoredCallouts
       : {
           source: authoredCalloutSource,
+          registry: this.options.calloutTheme?.registry,
           regions: parseDetailCallouts(
             authoredCalloutSource,
             this.options.calloutTheme,

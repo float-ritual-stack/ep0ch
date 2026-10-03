@@ -187,8 +187,33 @@ title: Who's waiting on the plan
 Use it on a hub or a ticket page instead of pasting a list of related notes that goes stale. `b` in any reader
 shows the same rows in a links tile beside it.
 
-**Callouts and tables.** `> [!note] Title` (also `summary`, `warning`…) draws a box. A Markdown table draws as
-a real table with wrapped cells.
+**Callouts** (Obsidian's syntax, PIE-538; the list and grammar are outline-core's `src/callouts.ts`, so the door and
+Detail agree). `> [!type]± title`, then the body's lines, each quoted. Types: `note`, `abstract` (`summary`, `tldr`),
+`info`, `todo`, `tip` (`hint`, `important`), `success` (`check`, `done`), `question` (`help`, `faq`), `warning`
+(`caution`, `attention`), `failure` (`fail`, `missing`), `danger` (`error`), `bug`, `example`, `quote` (`cite`), and
+any the outline declares. `-` after the type starts it folded, `+` open; no title uses the type's. Nest one by quoting
+deeper, to any depth:
+
+```
+> [!question] Can callouts be nested?
+> > [!todo] Yes, they can.
+> > > [!example] Three deep.
+
+> [!faq]- Folded until someone opens it
+> The body, hidden at first.
+```
+
+- **A type of the outline's own:** write a note declaring it, `Recipe callouts [callout-type::recipe]
+  [callout-icon::♨] [callout-tone::green] [callout-aliases::dish]` (icon one glyph one column wide; tone blue, green,
+  violet, amber, coral or neutral; `callout-title::` too). The door and Detail draw it, and the door offers it after
+  `> [!` and in its type choice. `callout.list` (an `act` on a reader) lists the types and says what's wrong with a
+  declaration.
+- **Folding is the reader's**, never the text's: `fold`/`unfold text=<title>` open one in a door for someone. Change
+  what's written only to change where it starts: `callout.start n= folded=true|false` writes the `-`/`+`, and
+  `callout.type n= to=<type>` rewrites the type. Both are an attributed edit of one line, revision-checked, refused
+  under a draft the person has open; `callout.undo` takes yours back.
+
+**Tables.** A Markdown table draws as a real table with wrapped cells.
 
 **Extension lines** (next section): `moon:: 2026-10-26`, `jira:: PC-1234`, `horoscope:: virgo`,
 `fancy-horror:: virgo`, `@tidy`. `outliner ext ls` lists what this outline has.

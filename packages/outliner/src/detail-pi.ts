@@ -73,7 +73,8 @@ import {
   detailEditorPointAtClick,
   detailMouseRegionAt,
 } from "./detail-mouse";
-import { detailCalloutThemeFromEnvironment } from "./detail-callout-theme";
+import { detailCalloutThemeFromEnvironment, type DetailCalloutTheme } from "./detail-callout-theme";
+import { BUILTIN_CALLOUT_REGISTRY, calloutRegistry, type CalloutType } from "@ep0ch/outline-core/callouts";
 import { projectDetailRead } from "./detail-embeds";
 import { createDetailKeyHandler, detailActionScopes } from "./detail-keymap";
 import {
@@ -211,6 +212,8 @@ if (calloutThemeResolution.errors.length > 0) {
     `Callout theme: ${shown.join("; ")}${omitted > 0 ? `; ${omitted} more` : ""}\n`,
   );
 }
+/** Detail's own copy of the theme: the outline's callout types (`callouts.types`, PIE-538) are set on it once asked. */
+const calloutTheme: DetailCalloutTheme = { ...calloutThemeResolution.theme };
 const detailHeaderPropertyKeys = parsePropertySummaryKeys(
   process.env.OUTLINER_PROPERTY_SUMMARY_KEYS,
 );
@@ -930,6 +933,7 @@ function startWatcher(): void {
     },
     onConnect: async () => {
       void destinationDisplay.refresh();
+      refreshCalloutTypes();
       await runtimeSync?.synchronize();
       firstWatcherConnection.resolve();
       if (runtimeInitialized) {
@@ -949,8 +953,29 @@ function startWatcher(): void {
       if (!runtimeInitialized) firstWatcherConnection.reject(error);
       else serviceEventScheduler.scheduleWork(() => controller.onServiceError(error));
     },
-    onEvent: (event) => { destinationDisplay.onEvent(event); serviceEventScheduler.schedule(event); },
+    onEvent: (event) => { destinationDisplay.onEvent(event); serviceEventScheduler.schedule(event); calloutTypesSoon(); },
   });
+}
+
+/**
+ * Ask the service for the outline's callout types (PIE-538): the one list the door draws, completes and picks from.
+ * One question at a time; a change while it's out asks once more. Until it answers, outline-core's built-ins stand.
+ */
+let calloutAsk: Promise<void> | null = null, calloutAgain = false, calloutTimer: ReturnType<typeof setTimeout> | null = null;
+function refreshCalloutTypes(): void {
+  if (calloutAsk) { calloutAgain = true; return; }
+  calloutAsk = client.request<{ types: CalloutType[] }>({ action: "callouts.types" })
+    .then((r) => {
+      const next = calloutRegistry(r.types);
+      if (JSON.stringify(next.types) !== JSON.stringify(calloutTheme.registry?.types ?? BUILTIN_CALLOUT_REGISTRY.types)) { calloutTheme.registry = next; tui.requestRender(); }
+    }, () => {})
+    .finally(() => { calloutAsk = null; if (calloutAgain) { calloutAgain = false; refreshCalloutTypes(); } });
+}
+/** An outline change may declare a type: asked again once the changes pause. */
+function calloutTypesSoon(): void {
+  if (calloutTimer) clearTimeout(calloutTimer);
+  calloutTimer = setTimeout(() => { calloutTimer = null; refreshCalloutTypes(); }, 500);
+  calloutTimer.unref?.();
 }
 
 async function stop(exitCode = 0): Promise<void> {
@@ -1700,7 +1725,7 @@ const preview = new DetailPiPreviewLayout(
   hyperlinksEnabled,
   () => tui.requestRender(),
   {
-    calloutTheme: calloutThemeResolution.theme,
+    calloutTheme,
     chrome: () => uiConfig.chrome("detail"),
     bar: () => paneBarButtons(uiConfig.bar("detail"), actionKeymap),
     hints: () => ({entries: actionKeymap.hints("detail", activeDetailActionScopes()), menuKey: displayActionChord(actionKeymap.primaryBinding("detail.menu.open")), ...(composed ? {prefix: "F6 Tree"} : {})}),
@@ -1720,7 +1745,7 @@ const preview = new DetailPiPreviewLayout(
 );
 const draftSplit = new DetailPiDraftSplitLayout(customFrame, preview);
 const inspectionLayout = new DetailPiPreviewLayout(inspection.state, getMarkdownTheme(), hyperlinksEnabled, () => tui.requestRender(), {
-  calloutTheme: calloutThemeResolution.theme,
+  calloutTheme,
   chrome: () => uiConfig.chrome("detail"),
   bar: () => paneBarButtons(uiConfig.bar("detail"), actionKeymap),
   hints: () => ({entries: actionKeymap.hints("detail", detailActionScopes(inspection.state)), menuKey: displayActionChord(actionKeymap.primaryBinding("detail.menu.open"))}),

@@ -122,14 +122,16 @@ export function stepStillOn(step: ChecklistStep, text: string, line: number): bo
  */
 export interface UndoEntry { block: string; itemId: string; evidence: string; status: StepStatus; to: StepStatus; title: string; by: string; context: string }
 
-/** A reader's step changes, newest last, 50 at most. Each party undoes only its own. */
-export class StepHistory {
-  private entries: UndoEntry[] = [];
-  push(e: UndoEntry) { this.entries.push(e); if (this.entries.length > 50) this.entries.shift(); }
+/** Every change a reader records for undo, in order, so ctrl+z can tell which kind came last (a step's, a callout's). */
+let undoSeq = 0;
+/** A reader's changes of one kind (steps' statuses, callouts' types), newest last, 50 at most. Each party undoes only its own. */
+export class StepHistory<E extends { by: string; context: string } = UndoEntry> {
+  private entries: (E & { seq?: number })[] = [];
+  push(e: E) { this.entries.push({ ...e, seq: ++undoSeq }); if (this.entries.length > 50) this.entries.shift(); }
   /** The newest change `by` made while reading `context`, or null. */
-  last(by: string, context: string): UndoEntry | null {
+  last(by: string, context: string): (E & { seq?: number }) | null {
     return this.entries.findLast(e => e.by === by && e.context === context) ?? null;
   }
-  drop(e: UndoEntry) { const i = this.entries.lastIndexOf(e); if (i >= 0) this.entries.splice(i, 1); }
+  drop(e: E) { const i = this.entries.lastIndexOf(e as E & { seq?: number }); if (i >= 0) this.entries.splice(i, 1); }
   get size() { return this.entries.length; }
 }

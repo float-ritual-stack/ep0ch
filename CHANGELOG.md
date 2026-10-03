@@ -29,7 +29,7 @@ move into one repository (PIE-530).
 - **A database made before schema versions** is refused at open, with the command that stamps it. Back it up, stop
   the host, then run `bun packages/outliner/scripts/migrations/0001-stamp.ts ~/outlines/<name>.sqlite` once. It
   stamps only a database whose shape matches a fresh one.
-- **Restart the host, then the doors.** The host and every client speak protocol 83; a client refuses a host on any other number,
+- **Restart the host, then the doors.** The host and every client speak protocol 85 (PIE-538 added `callouts.types`); a client refuses a host on any other number,
   saying which side to update. `ep0ch install --apply` restarts the host. Restart doors and Claude sessions that
   should run the new code.
 - **Delete `~/.config/pi-herdr-outliner/document-renderers.json`** if you have one. Nothing reads it now.
@@ -69,6 +69,22 @@ move into one repository (PIE-530).
 - **tv:** `ep0ch-tv query "<expression>"` is a source for the `ep0ch` channel (`tv ep0ch --source-command 'ep0ch-tv
   query "type=chore updated >= -7d"'`).
 - **Protocol 84:** restart the outline host on this code (`ep0ch install --apply`), then the doors.
+
+### Callouts in full (PIE-538)
+
+- **Obsidian's callouts, all of them.** `> [!type]± title` nests to any depth (`> > [!warning]` is a box in the box),
+  with Obsidian's thirteen types and their aliases; a callout's body is drawn like a note (paragraphs, lists).
+  Obsidian's own examples are in the showcase's new `callouts` section.
+- **Folding.** A callout is a fold point like a heading: `[!x]-` starts folded and `[!x]+` open, then `( )` `f`, `⏎` or a
+  click on its title opens or folds it, and `z` opens them all and puts them back. Folding never writes the note.
+- **Change a type while reading.** `⏎` or a click on a callout's icon opens the type choice (the step status choice's
+  picker); `-` and `+` there make it start folded or open. One line rewritten through the note's save, recorded as
+  you; `ctrl+z` puts it back. Agents: `callout.list`, `callout.type`, `callout.start`, `callout.undo`.
+- **Type one.** In an edit, `> [!` offers the types with their icons in the completion popup.
+- **Your own types.** A note with `[callout-type::recipe] [callout-icon::♨] [callout-tone::green]
+  [callout-aliases::dish]` adds a type to the outline: the door's reader, popup and type choice and the outliner's
+  Detail all draw and offer it. The list and the grammar are one module in outline-core; the host answers
+  `callouts.types` (protocol 85). Detail's built-in icons are now the door's (one list).
 
 ### One repository, outlines by name (PIE-530)
 

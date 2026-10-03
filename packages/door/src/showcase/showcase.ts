@@ -278,6 +278,14 @@ export const SECTIONS: Section[] = [
       return deskOf({ title: "showcase · session", panes: [r, list], layout: ([a, b]) => row(0.62, a!, b!) }, show, [[r, n.notebook]]);
     },
   },
+  {
+    key: "callouts", need: "draw, fold, complete or change a callout", part: "one list of callout types (outline-core's built-ins plus the outline's [callout-type::] notes, callouts.types) behind the reader's frames (nested, each a fold point), the completer after > [! and the type choice (the step choice's ListPicker); callout.type and callout.start write through the note's save", files: "outline-core/src/callouts.ts, src/callouts.ts, src/doc.ts, src/surface/note.ts, src/surface/completer.ts",
+    aside: "Obsidian's own examples, nested three deep, folded with - and open with + · ( ) then f, or a click on a title, folds one; z opens them all · ⏎ or a click on an icon opens the type choice (- and + there make it start folded or open) · e, then > [! offers the types with their icons · the right reader declares a type of this outline's own",
+    stage(n, show) {
+      const a = new ReaderPane(), b = new ReaderPane();
+      return deskOf({ title: "showcase · callouts", panes: [a, b], layout: ([x, y]) => row(0.62, x!, y!) }, show, [[a, n.callouts], [b, n.calloutType]]);
+    },
+  },
 ];
 
 /** The index is wide enough for every need on one line when the terminal allows; narrow, it lists the keys only. */
@@ -480,7 +488,7 @@ export class Showcase implements Screen {
 /** The showcase's own actions: which section is shown. Keys and clicks on the index call the same code. */
 export const SHOWCASE_ACTIONS = actionSet<Showcase>()("showcase", {
   "section.try": def({
-    summary: "go into a section's stage (name=<1-20> or its key, else the one shown): the person's keys and mouse go to the part itself until its own esc brings them back to the index. The person's only: an agent acts in the stage with its actions (`act` reaches the shown section's)",
+    summary: "go into a section's stage (name=<1-21> or its key, else the one shown): the person's keys and mouse go to the part itself until its own esc brings them back to the index. The person's only: an agent acts in the stage with its actions (`act` reaches the shown section's)",
     keys: "⏎ → l tab, click in the stage",
     touches: "screen", replay: "safe", person: "going into a section gives it the person's keys; an agent runs the shown section's own actions instead",
     args: { name: { type: "string", optional: true, about: "the section's number or key; the one shown when left out" } },
@@ -491,7 +499,7 @@ export const SHOWCASE_ACTIONS = actionSet<Showcase>()("showcase", {
     },
   }),
   "section": def({
-    summary: "show a section (name=<1-20> or its key: note, actions, edit, search, drafts, panes, screens, kinds, terminal, preview, screen, spine, entity, presence, live, projection, extensions, selection, service, session); refused to an agent while the person is in one", keys: "↑↓ j k, 1-9 0, click, wheel",
+    summary: "show a section (name=<1-21> or its key: note, actions, edit, search, drafts, panes, screens, kinds, terminal, preview, screen, spine, entity, presence, live, projection, extensions, selection, service, session, callouts); refused to an agent while the person is in one", keys: "↑↓ j k, 1-9 0, click, wheel",
     touches: "screen", replay: "safe", says: r => `showed section ${r.section} (${r.key})`,
     args: { name: { type: "string", about: "the section's number or key" } },
     run({ name }, s) {

@@ -33,6 +33,8 @@ export const SEED = {
   omens: "Omens for the allotment week",
   brief: "Daily brief — 2026-03-11",
   briefBefore: "Daily brief — 2026-03-10",
+  callouts: "Callouts, as Obsidian writes them",
+  calloutType: "Recipe callouts",
 } as const;
 export type SeedName = keyof typeof SEED;
 
@@ -129,6 +131,59 @@ const shedText = (whiteboardId: string) => [
   "Tyre pressures are on the maker's page: [web::https://example.org/bike-care/tyres] (a Resource: b lists it with the note's links).",
   "",
   "::links",
+].join("\n");
+
+/**
+ * The callouts section's note (PIE-538): Obsidian's own examples (https://obsidian.md/help/callouts) in every form the
+ * reader draws — nested three deep, folded and open with - and +, title-only, custom titles, several paragraphs — and
+ * a type this outline declares (`recipe`, from the note after it).
+ */
+export const CALLOUTS = [
+  SEED.callouts,
+  "",
+  "Obsidian's examples. ( ) then f, or a click on a title, folds one; ⏎ or a click on its icon or type changes its type; z opens them all; e, then > [! offers the types.",
+  "",
+  "> [!note] note",
+  "> body",
+  "> > [!warning] warning",
+  "> > body body",
+  "",
+  "> [!note]- collapse",
+  "> can you see me",
+  "",
+  "> [!note]+ expando",
+  "> feel the power",
+  "",
+  "> [!question] Can callouts be nested?",
+  "> > [!todo] Yes!, they can.",
+  "> > > [!example]  You can even use multiple layers of nesting.",
+  "",
+  "> [!faq]- Are callouts foldable?",
+  "> Yes! In a foldable callout, the contents are hidden when the callout is collapsed.",
+  "",
+  "> [!tip] Title-only callout",
+  "",
+  "> [!tip] Callouts can have custom titles",
+  "> Like this one.",
+  "",
+  "> [!info]",
+  "> Here's a callout block.",
+  "> It supports **Markdown** and [[Bike shed|links]].",
+  ">",
+  "> - and lists",
+  "> - inside it",
+  ">",
+  "> A second paragraph, after a blank quoted line.",
+  "",
+  "> [!dish] Soup stock",
+  "> Bones, an onion, two bay leaves; `dish` is an alias of this outline's own recipe type.",
+].join("\n");
+
+/** A callout type this outline declares (PIE-538): the reader, the completer and the type choice all offer it. */
+export const CALLOUT_TYPE = [
+  `${SEED.calloutType} [callout-type::recipe] [callout-icon::♨] [callout-tone::green] [callout-aliases::dish]`,
+  "",
+  "Declares a callout type: `> [!recipe]` (or `> [!dish]`) draws with this icon and tone, and offers it wherever types are offered.",
 ].join("\n");
 
 /** The search section's note: what the forgiving search finds, tried on this outline's own titles. */
@@ -384,6 +439,8 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
   notes.finding = await make(notes.root.id, FINDING);
   notes.errand = await make(notes.root.id, ERRAND);
   await make(notes.errand.id, "Ask the neighbour about netting\nShe has a spare roll.");
+  notes.calloutType = await make(notes.root.id, CALLOUT_TYPE);
+  notes.callouts = await make(notes.root.id, CALLOUTS);
   await seedTickets(board, opts.ticketsConfig);
   notes.tickets = await make(notes.root.id, TICKETS);
   await make(notes.tickets.id, TICKET_PAGE);

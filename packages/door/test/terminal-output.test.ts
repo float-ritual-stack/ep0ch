@@ -143,6 +143,8 @@ describe("CP437 on the wire", () => {
     const walk = (d: string) => { for (const f of readdirSync(d)) { const p = join(d, f); if (statSync(p).isDirectory()) { if (f !== "vendor") walk(p); } else if (p.endsWith(".ts")) files.push(p); } };
     const src = join(import.meta.dir, "../src");
     walk(src);
+    // The callout icons the door draws come from outline-core's one list (PIE-538).
+    files.push(join(import.meta.dir, "../../outline-core/src/callouts.ts"));
     const missing: string[] = [];
     for (const file of files) readFileSync(file, "utf8").split("\n").forEach((l, i) => {
       const t = l.trim();

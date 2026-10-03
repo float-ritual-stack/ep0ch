@@ -210,13 +210,13 @@ A journey to try, whichever service it is:
     ep0ch --showcase
     ep0ch --showcase --reset
 
-opens the showcase (PIE-439): the shared door parts, live, in twenty sections, one per row of the reuse map
+opens the showcase (PIE-439): the shared door parts, live, in twenty-one sections, one per row of the reuse map
 ([Before adding a feature](docs/UI-GRAMMAR.md#before-adding-a-feature)) in the map's order. The map's
 scrolling row, its key-names row, its list-picker and line-input rows (in the panes section's ^W P and ^W r,
 the board's g m s), its elements and reading-ruler row (PIE-441) and its terminal-output row (PIE-510: cells, escapes,
 CP437; the key names and the terminal output are under every section) have no section yet. The newest parts are in their rows' sections:
 the service's forgiving search (the `/` overlay, opened on a query with typos) in `search`, the agent drawer in `terminal` (`alt+a` pulls it up over the showcase itself), the terminals attached to the door session in `session`, a row's links in the tree
-(`L`) in `entity`, a drawer and the lock (`alt+k`) in `panes`, the draft session (an edit and a comment open side by side) in `drafts`, a screen spec (the brief, its spec read back by `screen.spec`) in `screens`, the tile-kind registry listed by a service-drawn tile in `kinds`, quiet embeds (a dim `»` source line) in `note`, and the outliner's example extensions (a record, an output, a component with its `[w ward]`, an `@tidy` request) beside what the service's list bound, in `extensions`. It runs on an
+(`L`) in `entity`, a drawer and the lock (`alt+k`) in `panes`, the draft session (an edit and a comment open side by side) in `drafts`, a screen spec (the brief, its spec read back by `screen.spec`) in `screens`, the tile-kind registry listed by a service-drawn tile in `kinds`, quiet embeds (a dim `»` source line) in `note`, the outliner's example extensions (a record, an output, a component with its `[w ward]`, an `@tidy` request) beside what the service's list bound, in `extensions`, and Obsidian's callout examples (nested three deep, folded and open, title-only, a type the outline declares) in `callouts`. It runs on an
 outline of its own: a private service (own state, workspace and config dirs, background agents off, Herdr
 unset) on a persistent workspace under `<the door's state>/showcase/` (`$EP0CH_STATE`, else `${XDG_STATE_HOME:-~/.local/state}/ep0ch-door`), with the
 door's own `EP0CH_STATE` and `EP0CH_CONTROL` there too, so nothing reaches a real outline or your door.
@@ -245,7 +245,7 @@ door's own `EP0CH_STATE` and `EP0CH_CONTROL` there too, so nothing reaches a rea
 - **Reaching it:** `ep0ch --showcase` (or `ep0ch try --showcase`, `scripts/try-it.sh --showcase`) opens it on its
   own seeded outline, whatever this folder names. `X` on the main menu (its key line; the menu art has twelve
   slots) opens the screen on the outline you're on: on one without the seed it says so and writes nothing.
-- **Agents:** `ep0ch act section name=<1-20|key>` shows a section (your keys go back to the list);
+- **Agents:** `ep0ch act section name=<1-21|key>` shows a section (your keys go back to the list);
   every other action is the section's own (a reader's note actions, the desk's, the board's).
   `EP0CH_CONTROL=<showcase>/door/door.sock` reaches this door, and only it.
 
@@ -1196,7 +1196,7 @@ element is current, and `esc` lets go of the element or selection first, then go
 
 Readers fold headings and nested lists the way Detail does (PIE-386). A heading folds everything through
 the next heading of the same or a higher level; a list item folds its nested items and continuation
-lines, keeping its own line. Each one shows its disclosure, `▾` open and `▸` folded
+lines, keeping its own line; a callout folds its body to its title (PIE-538: one written `[!x]-` starts folded). Each one shows its disclosure, `▾` open and `▸` folded
 (`▸ ## Beds · 7 lines folded`), and a click on it folds or unfolds. Folding is this reader's
 reading state: the note's text never changes, another reader can show the same note unfolded, and
 folds stay through live refreshes and edits elsewhere in the note. A fold whose heading or item is
@@ -1208,12 +1208,12 @@ unfolded.
 
 | Keys | Action |
 |---|---|
-| `(` / `)` | select the previous / next heading or list item that folds (`▾`, yellow); the hint names it |
+| `(` / `)` | select the previous / next heading, list item or callout that folds (`▾`, yellow); the hint names it |
 | `f`, `⏎` | fold or unfold the selected one; `f` with none selected folds the section at the top of the view. `⏎` folds only while a selected one is in view |
 | `esc`, scrolling, `u` | let go of the selected one, so `⏎` means what it did before (the preview opens a detail); `[ ]` steps on to the next element |
 | `F` | fold every outermost section and list item; with anything folded, unfold everything |
-| click | a heading (anywhere on its line but a link, which opens), or a list item's `▾`/`▸`, folds or unfolds it; the frame and its scroll thumb don't |
-| `z` | unfold callouts that start folded (`[!x]-`); unchanged |
+| click | a heading (anywhere on its line but a link, which opens), a list item's `▾`/`▸`, or a callout's title, folds or unfolds it; the frame and its scroll thumb don't |
+| `z` | open every callout; again, put them back as written (`[!x]-` folded, the rest open). The text is unchanged |
 
 Agents do the same through `folds`, `fold`, `unfold` and `fold.toggle` (by `text`, `line` or `n`, or
 `all=true`), and leave the person's selection and scroll where they were. A river column is a reader too: its note folds the same way (`▾`/`▸` on its headings, `( )` `f` `F`, a click on a heading).
@@ -1389,8 +1389,30 @@ Bodies render with `src/doc.ts`:
   River columns draw them as readers do (cropped as they scroll). Where an image isn't drawn its line says why: no
   Kitty graphics in this terminal, or `alt+v` set the video mode to cells.
   If macOS blocks the read (Desktop, Documents), the line says so: grant the terminal Files & Folders access.
-- **Callouts.** `> [!note] Title` (tip, warning, danger, summary, example, question, quote, …) render as colored boxes;
-  `[!x]-` starts folded, `z` unfolds. Headings and list items fold too (see Folding).
+- **Callouts** (PIE-538, [Obsidian's syntax](https://obsidian.md/help/callouts)). `> [!type]± title` draws a box in the
+  type's icon and tone, the title on its top edge (the type's own title when there's none; an author's title names
+  the type on the right of the edge). One list of types: Obsidian's thirteen and their aliases (note, abstract
+  (summary, tldr), info, todo, tip (hint, important), success (check, done), question (help, faq), warning (caution,
+  attention), failure (fail, missing), danger (error), bug, example, quote (cite)), plus the types the outline
+  declares (below); a type nobody declared draws in neutral under its own name. Outline-core's `src/callouts.ts`
+  holds the list and the grammar, so the outliner's Detail draws them the same.
+  - **Nesting.** `> > [!warning]` inside a callout is a callout in its frame, to any depth; a callout's body is drawn
+    like a note's (paragraphs, lists, a plain `>` quote).
+  - **Folding.** Every callout with a body is a fold point of the reader (see Folding): `▾` open, `▸` folded. `-` starts
+    it folded the first time the reader meets it, `+` (or nothing) open; after that it's yours: `( )` then `f` or `⏎`,
+    or a click on its title, folds or opens it, and `z` opens them all. Folding never writes the note.
+  - **Changing the type.** `[ ]` stops on a callout's icon (and its type on the edge); `⏎` or a click opens the type
+    choice under its top edge, the same list picker as a step's status choice: the outline's types with their icons,
+    `j k ⏎` or a double click picks one, and `-` or `+` there makes it start folded or open (the only change to the
+    `±`, written). Either is one line of the note rewritten through its save, checked against the revision and the
+    header as drawn, recorded as you; `ctrl+z` puts it back.
+  - **Typing one.** In an edit, `> [!` opens the completion popup with the types and their icons; what you type narrows
+    it (an alias finds its type), `⏎` or `Tab` writes `[!name]`.
+  - **Your own types.** A note in the outline declares one: `[callout-type::recipe] [callout-icon::♨]
+    [callout-tone::green] [callout-title::Recipe] [callout-aliases::dish, meal]` (icon: one glyph one column wide;
+    tone: blue, green, violet, amber, coral or neutral). The host lists them (`callouts.types`); the reader, the popup,
+    the type choice and the outliner's Detail all take them from there. Naming a built-in restyles it. What can't be
+    used (a taken name, a wide icon) is said by `callout.list` and left out.
 - **Tables.** Markdown tables render as real tables: columns sized to fit, long cells wrap onto more lines.
 - **mdxcn figures** ([mdxcn.dev](https://mdxcn.dev)): `::graph-*` Comark blocks with YAML props draw natively in
   a dotted `+ ··· [ TITLE ] ··· +` frame: check, timeline, stat, kpi, rank, funnel, waterfall, spark, plot, meter,
@@ -1408,7 +1430,7 @@ Bodies render with `src/doc.ts`:
     `blocks.query` `expression` (PIE-398). `done:` and `now:` are queries in the
     same grammar: the service says which results they hold for (`query.matches`, PIE-490). They match
     properties only; there is no `author=` pseudo-key.
-- Long callout titles keep a short head on the border and flow the rest into the box.
+- Long callout titles keep a short head on the border and flow the rest into the box (a nested one too).
 - Code fences, headings, lists, blockquotes, `**bold**`, `[[links]]`, `((refs))` and `[key::value]` are styled.
 
 ## The river
@@ -1612,9 +1634,13 @@ agent's edit meets the same revision check, property warning and duplicate-safe 
 | `link.select`, `link.follow`, `up` | `n` (from 1); `fresh=true` (follow) opens it in a new reader. An agent's is refused in the reader that has your keys (and its `link.follow n=` never moves your `[ ]` position); a web link or a figure an agent follows is never opened in your browser or viewer: it gets the address back | `[ ]`, `Enter`, `alt+Enter` or a click, `u` (`U` in the message reader) |
 | `elements`, `element.select`, `element.open` | `n` (from `elements`), or `by=1\|-1` (select: the next or previous), `n=0` lets go; `fresh=true` opens a link, row or embed in a new reader. `element.select` is the person's only | `[ ]`, `esc` lets go, `Enter`, `alt+Enter`, a click |
 | `scroll` | `by=` rows, or `to=top\|end`: the reader's own scroll. An agent's is refused on the reader that has your keys: it uses `view.scrollTo` | `j k ↑↓ PgUp PgDn space Home End`, the wheel |
-| `callouts` | `show=true\|false` (default toggles): the reader's callouts drawn open. The person's only | `z` |
+| `callouts` | `show=true\|false` (default toggles): every callout open, or back as written. The person's only | `z` |
+| `callout.list` | none: the note's callouts (`n`, `line`, type, title, whether it starts folded, whether it's folded here) and the outline's callout types, with any problem in their declarations | |
+| `callout.type`, `callout.start` | `n` (from `callout.list`) or `line` (its header, 1 is the subject); `to=<type>` or `folded=true\|false`. One header line rewritten through the note's save, revision-checked, attributed; an agent never under a draft someone has open on the note | the type choice's `⏎`, `-`, `+` |
+| `callout.undo` | none: the asker's own last callout change in this reader, while reading this note | `ctrl+z` (when it was the last change here) |
+| `callout.menu` | `n` or `line`: opens the type choice. The person's only | `⏎` or a click on a callout's icon or type |
 | `select.mode` | none: keyboard selection starts (`h j k l` extend, `y` copies). The person's only: an agent selects with `select text=` | `v` |
-| `fold.select` | `by=1\|-1`: the next or previous heading or list item to fold. The person's only | `( )` |
+| `fold.select` | `by=1\|-1`: the next or previous heading, list item or callout to fold. The person's only | `( )` |
 | `block.tint`, `block.untint` | one of `block` (this note, or one it embeds or links), `line` and `to` (1 is the subject), `quote` and `near` | `esc` clears it |
 | `tasks` | none: the checklist steps the reader draws, in the note and inside its embeds (`n`, `id`, the note each is in, status) | `[ ]` |
 | `task.status` | `n` (from `tasks`) or `id` (`t-8a6d7f`, `^t-8a6d7f`, `<note>^t-8a6d7f`; `block=` narrows it), `to=done\|todo\|waiting\|problem` | `⏎` or a click on a box, then `x o w !`; `space` |

@@ -23,6 +23,7 @@ import {
   type DetailCalloutStyle,
   type DetailCalloutTheme,
 } from "./detail-callout-theme";
+import { BUILTIN_CALLOUT_REGISTRY, parseCalloutHeader } from "@ep0ch/outline-core/callouts";
 
 export type DetailCalloutFoldMarker = "+" | "-" | null;
 
@@ -61,40 +62,6 @@ interface MutableCallout {
   parent: MutableCallout | null;
   children: MutableCallout[];
   id: string;
-}
-
-const CALLOUT_TYPES: Record<string, { canonical: string; title: string }> = {
-  note: { canonical: "note", title: "Note" },
-  abstract: { canonical: "abstract", title: "Abstract" },
-  summary: { canonical: "abstract", title: "Abstract" },
-  tldr: { canonical: "abstract", title: "Abstract" },
-  info: { canonical: "info", title: "Info" },
-  todo: { canonical: "todo", title: "Todo" },
-  tip: { canonical: "tip", title: "Tip" },
-  hint: { canonical: "tip", title: "Tip" },
-  important: { canonical: "tip", title: "Tip" },
-  success: { canonical: "success", title: "Success" },
-  check: { canonical: "success", title: "Success" },
-  done: { canonical: "success", title: "Success" },
-  question: { canonical: "question", title: "Question" },
-  help: { canonical: "question", title: "Question" },
-  faq: { canonical: "question", title: "Question" },
-  warning: { canonical: "warning", title: "Warning" },
-  caution: { canonical: "warning", title: "Warning" },
-  attention: { canonical: "warning", title: "Warning" },
-  failure: { canonical: "failure", title: "Failure" },
-  fail: { canonical: "failure", title: "Failure" },
-  missing: { canonical: "failure", title: "Failure" },
-  danger: { canonical: "danger", title: "Danger" },
-  error: { canonical: "danger", title: "Danger" },
-  bug: { canonical: "bug", title: "Bug" },
-  example: { canonical: "example", title: "Example" },
-  quote: { canonical: "quote", title: "Quote" },
-  cite: { canonical: "quote", title: "Quote" },
-};
-
-function fallbackTitle(type: string): string {
-  return type.replace(/[-_]+/g, " ").replace(/\b\p{L}/gu, (letter) => letter.toUpperCase());
 }
 
 function quoteContent(text: string): { depth: number; content: string } {
@@ -145,19 +112,20 @@ export function parseDetailCallouts(
 
   for (const line of lines) {
     if (line.quoteDepth === 0) continue;
-    const marker = /^\[!([^\]\r\n]+)\]([+-]?)(?:[ \t]+(.*))?[ \t]*$/.exec(line.content);
-    if (!marker) continue;
-    const calloutType = marker[1]!.trim().toLowerCase();
-    if (!calloutType) continue;
-    const known = CALLOUT_TYPES[calloutType];
-    const foldMarker = marker[2] === "+" || marker[2] === "-" ? marker[2] : null;
+    // The grammar and the type list are outline-core's (PIE-538): the door reads them the same way.
+    const header = parseCalloutHeader(line.content);
+    if (!header) continue;
+    const calloutType = header.type;
+    const known = (theme.registry ?? BUILTIN_CALLOUT_REGISTRY).resolve(calloutType);
+    const style = (theme.registry ?? BUILTIN_CALLOUT_REGISTRY).style(calloutType);
+    const foldMarker = header.fold;
     let endLine = line.index;
     for (let next = line.index + 1; next < lines.length; next += 1) {
       const candidate = lines[next]!;
       if (
         candidate.quoteDepth < line.quoteDepth ||
         (candidate.quoteDepth === line.quoteDepth &&
-          /^\[![^\]\r\n]+\][+-]?(?:[ \t]+.*)?[ \t]*$/.test(candidate.content))
+          parseCalloutHeader(candidate.content))
       ) {
         break;
       }
@@ -171,12 +139,12 @@ export function parseDetailCallouts(
     const path = parent
       ? `${parent.id.split(":", 2)[1]}.${siblings.length}`
       : `${siblings.length}`;
-    const canonicalType = known?.canonical ?? calloutType;
+    const canonicalType = known?.name ?? calloutType;
     const current: MutableCallout = {
       calloutType,
       canonicalType,
-      title: marker[3]?.trim() || known?.title || fallbackTitle(calloutType),
-      icon: detailCalloutStyle(theme, canonicalType).glyph,
+      title: header.title || style.title,
+      icon: detailCalloutStyle(theme, canonicalType, known).glyph,
       foldMarker,
       depth: line.quoteDepth,
       headerLine: line.index,

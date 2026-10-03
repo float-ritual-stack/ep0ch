@@ -2125,6 +2125,8 @@ export type OutlinerRequestAction =
   | { id: string; action: "working-selection.resume"; ownerClientId: string; selectionId: string; expectedRevision: number }
   | { id: string; action: "virtual.occurrences.place"; input: VirtualBranchPlacementInput }
   | { id: string; action: "references.resolve"; text: string }
+  /** The outline's callout types (PIE-538): the built-ins and those its notes declare with [callout-type::name]. */
+  | { id: string; action: "callouts.types" }
   | { id: string; action: "references.backlinks"; query: BacklinkQuery }
   | { id: string; action: "pages.resolve"; address: string }
   | {

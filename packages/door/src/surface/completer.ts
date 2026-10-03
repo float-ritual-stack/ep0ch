@@ -17,6 +17,8 @@ import { bg, C, chip, fg, pad, RESET } from "../style";
 import type { Key } from "../term";
 import { printable } from "../text";
 import { withoutPropertyTokens } from "@ep0ch/outline-core/property-grammar";
+import type { CalloutRegistry } from "@ep0ch/outline-core/callouts";
+import { calloutsOf, TONE } from "../callouts";
 
 /** At most this many candidates per lookup, as in the outliner. */
 export const COMPLETION_LIMIT = 20;
@@ -35,7 +37,9 @@ export interface CompletionItem {
   label: string;
   /** Exactly what choosing it writes in place of the token. */
   insertion: string;
-  kind: "page" | "work-id" | "alias" | "block" | "fragment" | "file" | "folder" | string;
+  kind: "page" | "work-id" | "alias" | "block" | "fragment" | "file" | "folder" | "callout" | string;
+  /** A callout type's icon, drawn in its tone (PIE-538). */
+  icon?: { glyph: string; colour: number };
   blockId?: string;
   address?: string;
   fragmentId?: string;
@@ -85,7 +89,11 @@ export const notConfigured = (semantic: { status: string; message?: string }) =>
 /** The candidates for one token: the same lookups and insertions the outliner's editors use. */
 export async function lookupCompletion(board: CompletionBoard, target: CompletionTarget, prefix: string | null, own?: OwnNote, opts: LookupOptions = {}): Promise<CompletionLookup> {
   let items: CompletionItem[] = [], truncated: number | null = null, empty = "", partial = "", ranked = false, off = false;
-  if (target.kind === "file") {
+  if (target.kind === "callout") {
+    // The outline's callout types (PIE-538): the one list the reader draws and the type choice offers.
+    items = calloutCandidates(calloutsOf({ board, redraw: () => {} }), target.query);
+    empty = `no callout type starts ${JSON.stringify(target.query)}; [!${target.query}] still draws, in neutral (declare it with [callout-type::${target.query || "name"}])`;
+  } else if (target.kind === "file") {
     const files = await board.completeFiles(target.query);
     items = files.slice(0, COMPLETION_LIMIT).map(f => ({ label: f.sourcePath, kind: f.isDirectory ? "folder" : "file", insertion: `[file::${f.sourcePath}${f.isDirectory ? "" : "]"}` }));
     if (files.length > COMPLETION_LIMIT) truncated = COMPLETION_LIMIT;
@@ -129,6 +137,26 @@ export async function lookupCompletion(board: CompletionBoard, target: Completio
   }
   const message = items.length ? partial || (truncated ? `showing the first ${truncated} matches` : "") : [partial && `partial search: ${partial}`, empty].filter(Boolean).join(" · ");
   return { items, truncated, message, ...(ranked ? { jev: "ranked" as const } : {}), ...(off ? { jevOff: true } : {}) };
+}
+
+/**
+ * The callout types for `> [!query`: the names and aliases that start with what's typed first (a name before its
+ * aliases), then those that contain it; each written as `[!name]`, with its icon in its tone.
+ */
+export function calloutCandidates(types: CalloutRegistry, query: string): CompletionItem[] {
+  const q = query.trim().toLowerCase();
+  const score = (t: CalloutRegistry["types"][number]) => {
+    if (!q) return 0;
+    if (t.name.startsWith(q)) return 0;
+    if (t.aliases.some(a => a.startsWith(q))) return 1;
+    if (t.name.includes(q) || t.aliases.some(a => a.includes(q)) || t.title.toLowerCase().includes(q)) return 2;
+    return -1;
+  };
+  return types.types.map(t => ({ t, s: score(t) })).filter(x => x.s >= 0).sort((a, b) => a.s - b.s).map(({ t }) => ({
+    label: `${t.icon} ${t.name}${t.aliases.length ? ` (${t.aliases.join(", ")})` : ""}`,
+    insertion: `[!${t.name}]`, kind: t.block ? "callout · this outline's" : "callout", icon: { glyph: t.icon, colour: TONE[t.tone] },
+    context: `${t.title}${t.aliases.length ? ` · also ${t.aliases.map(a => `[!${a}]`).join(" ")}` : ""}`,
+  }));
 }
 
 /**
@@ -218,7 +246,7 @@ export class Completer {
   private askJev(generation: number, target: CompletionTarget): void {
     this.stopJev();
     const fragment = target.kind === "block" && parseFragmentCompletionQuery(target.query);
-    if (target.kind === "file" || fragment || target.query.trim().length < 3 || jevOff.has(this.board)) return;
+    if (target.kind === "file" || target.kind === "callout" || fragment || target.query.trim().length < 3 || jevOff.has(this.board)) return;
     // Jev re-orders the service's candidates (up to 30 for ((): one beyond the 20 shown can come into view.
     this.jevTimer = setTimeout(async () => {
       this.jevTimer = null;
@@ -365,7 +393,7 @@ export function completionKey(d: Draft, k: Key, c: Completer | null): DraftActio
   }
   if (k.kind === "tab" || isCtrlSpace(k)) {
     if (c.target()) { void c.refresh(); return "keep"; }
-    if (k.kind !== "tab") { d.note = "completion works inside [[, (( or [file::"; return "keep"; }
+    if (k.kind !== "tab") { d.note = "completion works inside [[, ((, [file:: or a callout's > [!"; return "keep"; }
   }
   const before = d.text, open = c.state?.target;
   const a = d.key(k);
@@ -395,11 +423,15 @@ export function renderCompletion(s: CompletionState, w: number, h: number, rows:
   const room = Math.max(1, h - Number(header) - Number(footer) - 1);
   const win = completionWindow(s.items.length, s.index, room);
   const out: string[] = [];
-  if (header) rows.push(null), out.push(line(` references ${s.index + 1}/${s.items.length}${s.truncated ? ` · first ${s.truncated}` : ""}${s.loading ? " · finding..." : ""}`, fg(C.lcyan), bg(C.blue)));
+  if (header) rows.push(null), out.push(line(` ${s.target?.kind === "callout" ? "callout types" : "references"} ${s.index + 1}/${s.items.length}${s.truncated ? ` · first ${s.truncated}` : ""}${s.loading ? " · finding..." : ""}`, fg(C.lcyan), bg(C.blue)));
   for (let i = win.start; i < win.end; i++) {
     const it = s.items[i]!, sel = i === s.index;
     rows.push(i);
-    out.push(sel ? line(`» ${it.label}`, chip(C.cyan)) : line(`  ${it.label}`, fg(C.grey), bg(C.blue)));
+    // A callout type's icon in its tone (on the lit row, the row's own colours).
+    const iconed = it.icon && it.label.startsWith(it.icon.glyph) && w > 4
+      ? (sel ? chip(C.cyan) + "» " + it.icon.glyph : bg(C.blue) + "  " + fg(it.icon.colour) + it.icon.glyph) + (sel ? "" : fg(C.grey)) + pad(printable(it.label.slice(it.icon.glyph.length), " "), w - 3) + RESET
+      : null;
+    out.push(iconed ?? (sel ? line(`» ${it.label}`, chip(C.cyan)) : line(`  ${it.label}`, fg(C.grey), bg(C.blue))));
     if (sel && out.length < h - Number(footer)) rows.push(i), out.push(line(`    ${it.kind} · ${it.context || it.insertion}`, fg(C.lcyan), bg(C.blue)));
   }
   // Whether Jev ordered the list, said quietly first, where a narrow popup doesn't cut it.

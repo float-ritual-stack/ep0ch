@@ -1,4 +1,5 @@
 import { queryRequestProblem } from "./block-query";
+import { calloutTypesFromBlocks } from "@ep0ch/outline-core/callouts";
 import type { RequestInput } from "./client";
 import { PROTOCOL } from "@ep0ch/outline-core/protocol";
 import { DRAFT_HOLDER_TIMEOUT_MS, DraftHolds, type DraftHold, type DraftHolderAnswer } from "./draft-patch";
@@ -2577,6 +2578,13 @@ export class OutlinerServer {
         case "references.resolve":
           result = this.store.resolveBlockReferences(request.text);
           break;
+        case "callouts.types": {
+          // The built-ins are the client's own (outline-core); the outline adds or restyles types with notes.
+          const declared = this.store.queryBlocks({ filters: [{ key: "callout-type" }], limit: 500 });
+          const blocks = [...declared.blocks].sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
+          result = { ...calloutTypesFromBlocks(blocks), complete: declared.completeness.kind === "complete" };
+          break;
+        }
         case "references.backlinks":
           result = this.store.queryBacklinks(request.query);
           break;
