@@ -567,6 +567,14 @@ describe("the terminal host", () => {
     }
   });
 
+  test("its raw frames are its own copies, and one over the limit is refused, as the session's are", () => {
+    const chunk = frame("o", 3, Buffer.from("kale")), [got] = new HostFrames().push(chunk);
+    chunk.fill(0);
+    expect(got!.raw.toString()).toBe("kale");
+    const big = Buffer.alloc(9); big.write("o", 0, "latin1"); big.writeUInt32BE(65 << 20, 5);
+    expect(() => new HostFrames().push(big)).toThrow(/over the limit/);
+  });
+
   test("a daemon that lets go of the host leaves its programs running, and the next one adopts them with their output", async () => {
     const dir = mkdtempSync(join(tmpdir(), "ep0ch-host-")), was = process.env.EP0CH_STATE;
     let hostPid = 0;

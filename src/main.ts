@@ -113,7 +113,7 @@ let door: Door | null = null;
 const SIGNALS: Record<string, number> = { SIGHUP: 1, SIGINT: 2, SIGQUIT: 3, SIGTERM: 15 };
 const guard = guardDoor({
   door: () => door,
-  // SIGTERM and SIGHUP end the door as it always has (exit 0: nothing went wrong); SIGINT and SIGQUIT say which.
+  // SIGTERM and SIGHUP end the door (exit 0: nothing went wrong); SIGINT and SIGQUIT say which.
   // While the drop shell has the terminal, ctrl+c and ctrl+\ are its (a shell without job control shares the
   // door's process group): the door doesn't end under it.
   signal: sig => (sig === "SIGINT" || sig === "SIGQUIT" ? (door?.app.suspended() === "shell" ? null : 128 + SIGNALS[sig]!) : 0),

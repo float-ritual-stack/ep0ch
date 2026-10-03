@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { forScreens } from "../src/app";
 import type { Msg } from "../src/board";
-import { boardScreen } from "../src/desk/screen-specs";
+import { boardScreen } from "./board-view";
 import type { Desk } from "../src/desk/desk";
 import { ReaderPane, WhoPane, type DeskApi } from "../src/desk/panes";
 import { answer, setLiveSource } from "../src/live";

@@ -4,7 +4,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { App } from "../src/app";
 import { Desk } from "../src/desk/desk";
-import { boardScreen } from "../src/desk/screen-specs";
+import { boardScreen } from "./board-view";
 import { MainMenu } from "../src/screens";
 import { SocketBoard } from "../src/socket";
 import { outliner, Scratch, until } from "./scratch";

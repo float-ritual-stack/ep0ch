@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { App } from "../src/app";
 import type { Msg } from "../src/board";
 import { renderDoc } from "../src/doc";
-import { boardScreen } from "../src/desk/screen-specs";
+import { boardScreen } from "./board-view";
 import type { Desk } from "../src/desk/desk";
 import { embedRegion, invalidateEmbeds, MAX_EMBEDS, shade } from "../src/embeds";
 import { answer, invalidateLive, resolveLive, setLiveSource } from "../src/live";

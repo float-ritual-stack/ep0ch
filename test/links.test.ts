@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { App } from "../src/app";
 import { renderDoc, type DocEnv } from "../src/doc";
 import { Desk } from "../src/desk/desk";
-import { boardScreen } from "../src/desk/screen-specs";
+import { boardScreen } from "./board-view";
 import type { ReaderPane } from "../src/desk/panes";
 import { openScreen } from "../src/desk/screen-specs";
 import { view as riverView } from "./river-view";

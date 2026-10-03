@@ -4,7 +4,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { App } from "../src/app";
-import { boardScreen } from "../src/desk/screen-specs";
+import { boardScreen } from "./board-view";
 import type { Desk } from "../src/desk/desk";
 import { MainMenu } from "../src/screens";
 import { SocketBoard } from "../src/socket";

@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { App } from "../src/app";
 import { Canvas } from "../src/canvas";
 import { Desk } from "../src/desk/desk";
-import { boardScreen } from "../src/desk/screen-specs";
+import { boardScreen } from "./board-view";
 import type { ReaderPane } from "../src/desk/panes";
 import { MainMenu } from "../src/screens";
 import { SCROLL_ROWS } from "../src/scroll";

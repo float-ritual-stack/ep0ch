@@ -8,7 +8,7 @@ import { connect } from "node:net";
 import { App } from "../src/app";
 import type { Msg } from "../src/board";
 import { startControl } from "../src/control";
-import { boardScreen } from "../src/desk/screen-specs";
+import { boardScreen } from "./board-view";
 import type { Desk } from "../src/desk/desk";
 import { pickParent } from "../src/desk/writes";
 import { Mirror } from "../src/mirror";

@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { App } from "../src/app";
 import type { Msg } from "../src/board";
 import { Desk } from "../src/desk/desk";
-import { boardScreen } from "../src/desk/screen-specs";
+import { boardScreen } from "./board-view";
 import { openScreen } from "../src/desk/screen-specs";
 import { view as riverView } from "./river-view";
 import { MainMenu } from "../src/screens";

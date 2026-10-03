@@ -15,7 +15,7 @@
 // it, alt+⏎ (`fresh`) reads it in the detail (`welcome.read`), an agent's open in the preview (`lands`).
 //
 // With no welcome note on the outline, the detail shows the "now" page ([[claude-now]] unless EP0CH_NOW_PAGE
-// names another, src/hub/now.ts; the page the menu's C used to pin) and the list says how to tag one.
+// names another, src/hub/now.ts) and the list says how to tag one.
 import { basename } from "node:path";
 import type { Art, Cell } from "../ansi";
 import { artBlock } from "../art-view";

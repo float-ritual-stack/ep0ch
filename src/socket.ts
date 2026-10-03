@@ -350,13 +350,11 @@ export const AGENT_ACTOR_ID = `${ACTOR_ID}:agent`;
 export const actorIdOf = (actor: Actor): string => (actor.kind === "agent" ? actor.id : ACTOR_ID);
 /** The actor id a write records: the saver's, then anyone else who wrote part of it, joined by `+`. */
 export const recordedActorId = (actor: Actor): string => [actorIdOf(actor), ...(actor.with ?? [])].join("+");
-/** Who asks for an extension's action (`extensions.act`'s `mutation`): the person, or an agent by its own id. */
+/** Who asks (an extension's action, a proposal applied or dismissed): the person, or an agent by its own id, which the service checks ownership by. */
 export const requesterOf = (actor: Actor) => (actor.kind === "agent" ? { author: "agent", actorId: actorIdOf(actor) } : { author: "user" });
 /** The `mutation` a write carries for `actor`. */
 export const mutationFor = (actor: Actor = USER) =>
   actor.kind === "agent" || actor.with?.length ? { author: actor.kind, actorId: recordedActorId(actor) } : EDIT_MUTATION;
-/** Who applies or dismisses a proposal: the agent by its own id (the service checks an agent's ownership by it), or the person. */
-const proposalMutation = (actor: Actor) => (actor.kind === "agent" ? { author: "agent", actorId: actorIdOf(actor) } : { author: "user" });
 /**
  * How a comment or reply is authored. A person's alone carries no actor id: the service takes one only on
  * agent comments. So one a person and an agent both wrote is recorded as `author: agent`, with an actor
@@ -1201,7 +1199,7 @@ export class SocketBoard implements Board {
    * edit landed, but something after it didn't (the proposal couldn't be marked applied).
    */
   async applyProposal(proposalId: string, actor: Actor = USER): Promise<{ outcome: "applied"; edits: { blockId: string; route: "draft" | "saved" }[]; warning?: string }> {
-    return this.request("draft.proposal.apply", { proposalId, mutation: proposalMutation(actor) });
+    return this.request("draft.proposal.apply", { proposalId, mutation: requesterOf(actor) });
   }
 
   /**
@@ -1210,7 +1208,7 @@ export class SocketBoard implements Board {
    * all as `actor`, and refuses an agent's dismissal of another's proposal. `embedRemoved`: where the line was.
    */
   async dismissProposal(proposalId: string, actor: Actor = USER): Promise<{ outcome: "dismissed"; proposalId: string; embedRemoved: "saved" | "draft" | null; warning?: string }> {
-    return this.request("draft.proposal.dismiss", { proposalId, mutation: proposalMutation(actor) });
+    return this.request("draft.proposal.dismiss", { proposalId, mutation: requesterOf(actor) });
   }
 
   close(): void {

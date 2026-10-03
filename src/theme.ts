@@ -50,7 +50,7 @@ export interface Theme {
   heatLow: Rgb;
   /**
    * A chip's text (`chip(bg, fg)`): when the asked colour reads under 4.5:1 on the chip, the more legible of the
-   * ground and white is drawn instead. Off for classic, which keeps every chip as it always was.
+   * ground and white is drawn instead. Off for classic, which keeps every chip.
    */
   legibleChips: boolean;
 }

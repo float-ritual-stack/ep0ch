@@ -12,7 +12,6 @@ import { App } from "../src/app";
 import { Logon, MainMenu } from "../src/screens";
 import { Desk } from "../src/desk/desk";
 import { openScreen } from "../src/desk/screen-specs";
-import { boardScreen } from "../src/desk/screen-specs";
 import { SocketBoard, USER } from "../src/socket";
 import * as BV from "../test/board-view";
 import { rowBytes, type Key, type TermInfo } from "../src/term";
@@ -117,7 +116,7 @@ if (scenario === "live") {
   board.close(); process.exit(0);
 }
 if (scenario === "float") {
-  app.push(new MainMenu()); app.push(boardScreen(process.env.HUB));
+  app.push(new MainMenu()); app.push(BV.boardScreen(process.env.HUB));
   await Bun.sleep(5000);
   await app.act({ action: "open", args: { id: process.env.BLOCK! } }); await Bun.sleep(4000);
   await snap("1-detail", 500);
@@ -127,7 +126,7 @@ if (scenario === "float") {
 }
 if (scenario === "board3") {
   const mouse = (action: "down" | "up" | "drag", x: number, y: number) => press({ kind: "mouse", action, button: 0, x, y });
-  app.push(new MainMenu()); app.push(boardScreen());
+  app.push(new MainMenu()); app.push(BV.boardScreen());
   await Bun.sleep(6000);
   press({ kind: "enter" }); await Bun.sleep(1200); press({ kind: "tab" });   // open a detail, back to lanes
   const edgeX = (app as any).stack.at(-1).laneEdges[0].x;
@@ -140,7 +139,7 @@ if (scenario === "board3") {
 }
 if (scenario === "board2") {
   const mouse = (action: "down" | "up" | "drag", x: number, y: number) => press({ kind: "mouse", action, button: 0, x, y });
-  app.push(new MainMenu()); app.push(boardScreen());
+  app.push(new MainMenu()); app.push(BV.boardScreen());
   await Bun.sleep(6000);
   press({ kind: "right" }); press({ kind: "right" }); press({ kind: "right" }); ch("c");   // collapse Review
   press({ kind: "left" }); press({ kind: "left" }); press({ kind: "left" });
@@ -247,7 +246,7 @@ if (scenario === "spines") {
   for (const [lane, q] of [["Queued", "stage=queued"], ["Doing", "stage=doing"], ["Done", "stage=done"]]) await mk(hub.id, `${lane} [type::virtual-branch] [query::${q}]`);
   for (const [t, st] of [["Stake the beans", "queued"], ["Plant the squash", "queued"], ["Fix the gate", "doing"], ["Paint the shed", "done"]])
     await mk(null, `${t} [stage::${st}]\n${t}: the rake leans on the shed, the hose runs along the fence.`);
-  const b = boardScreen(hub.id);
+  const b = BV.boardScreen(hub.id);
   app.push(new MainMenu()); app.push(b);
   await Bun.sleep(2500);
   press({ kind: "down" }); press({ kind: "enter" }); await Bun.sleep(800);             // a detail
@@ -291,7 +290,7 @@ if (scenario === "backlinks") {
   const hub = await mk(null, "Swap board");
   await mk(hub.id, "Queued [type::virtual-branch] [query::stage=queued]");
   board.subscribe(e => app.event(e));
-  const B = boardScreen(hub.id, false), S: any = BV.view(B);
+  const B = BV.boardScreen(hub.id, false), S: any = BV.view(B);
   app.push(new MainMenu()); app.push(B);
   for (let i = 0; i < 100 && S.preview.msg?.id !== swap.id; i++) await Bun.sleep(50);
   ch("b");
@@ -365,7 +364,7 @@ if (scenario === "kanban") {
   await mk(tap.id, "Washer size is 1/2 inch.");
   const club = await mk(null, "Plan the garden club rota [type::roadmap-item] [project::garden-club] [work-stage::queued]");
   board.subscribe(e => app.event(e));
-  const B = boardScreen(hub.id), S: any = BV.view(B);
+  const B = BV.boardScreen(hub.id), S: any = BV.view(B);
   const settle = async () => { for (let i = 0; i < 100 && (S.moving || S.lanes.some((l: any) => !l.items || l.want)); i++) await Bun.sleep(50); await Bun.sleep(400); };
   const ctrl = (c: string) => press({ kind: "char", ch: c, ctrl: true });
   const type = (t: string) => { for (const c of t) ch(c); };
@@ -419,7 +418,7 @@ if (scenario === "scroll") {
   for (const [t, st] of [["Stake the beans", "queued"], ["Plant the squash", "queued"], ["Fix the gate", "doing"]] as const) await mk(null, long(t, st));
   const gate = (await board.query("stage=doing", 5))[0]!;
   board.subscribe(e => app.event(e));
-  const B = boardScreen(hub.id), S: any = BV.view(B);
+  const B = BV.boardScreen(hub.id), S: any = BV.view(B);
   const agent = (action: string, tile: string, args: Record<string, unknown> = {}) => app.act({ action, tile, args, as: "snap-agent" });
   const wheelAt = (region: string, n: number) => { const r = BV.rectOf(B, region); for (let i = 0; i < n; i++) press({ kind: "mouse", action: "wheel-down", button: 0, x: r.col + 5, y: r.row + 5 }); };
   app.push(new MainMenu()); app.push(B);
@@ -464,7 +463,7 @@ if (scenario === "complete") {
   await mk(null, "Plant the squash [stage::queued]\nBy the compost heap.\n## Beds\nfour of them");
   await mk(null, "Turn the compost [stage::doing]\nEvery two weeks, bucket by the shed.");
   board.subscribe(e => app.event(e));
-  const B = boardScreen(hub.id);
+  const B = BV.boardScreen(hub.id);
   const type = (s: string) => { for (const c of s) ch(c); };
   app.push(new MainMenu()); app.push(B);
   await Bun.sleep(2500);
@@ -500,7 +499,7 @@ if (scenario === "select") {
   const beans = await mk(null, "Stake the beans\nCanes along the fence.");
   const plan = await mk(null, `Plan the allotment [stage::queued]\nSow peas early, see ((${beans.id})) for the canes.\n\n## Water\nThe hose runs along the fence past the shed; **water the seedlings** every morning.\n\n- dig the bed\n- buy canes\n\n> [!note] Frost\n> Nothing out before mid May.`);
   board.subscribe(e => app.event(e));
-  const B = boardScreen(hub.id), S: any = BV.view(B);
+  const B = BV.boardScreen(hub.id), S: any = BV.view(B);
   const at = (region: string, words: string) => {
     const r = BV.rectOf(B, region), rows = emu.text();
     const y = rows.findIndex((l, i) => i > r.row && i < r.row + r.rows - 1 && [...l].slice(r.col, r.col + r.cols).join("").includes(words));
@@ -538,7 +537,7 @@ if (scenario === "fold") {
   await mk(hub.id, "Queued [type::virtual-branch] [query::stage=queued]");
   const plan = await mk(null, text);
   board.subscribe(e => app.event(e));
-  const B = boardScreen(hub.id), S: any = BV.view(B);
+  const B = BV.boardScreen(hub.id), S: any = BV.view(B);
   const agent = (action: string, tile: string, args: Record<string, unknown> = {}) => app.act({ action, tile, args, as: "snap-agent" });
   const clickOn = (region: string, words: string, dx = 4) => {
     const r = BV.rectOf(B, region), rows = emu.text();
@@ -624,7 +623,7 @@ if (scenario === "elements") {
   const hub = await mk(null, "Garden board");
   await mk(hub.id, "Queued [type::virtual-branch] [query::stage=queued]");
   board.subscribe(e => app.event(e));
-  const B = boardScreen(hub.id), S: any = BV.view(B);
+  const B = BV.boardScreen(hub.id), S: any = BV.view(B);
   app.push(new MainMenu()); app.push(B);
   await snap("1-preview", 2000);
   BV.at(B, "preview");
@@ -661,7 +660,7 @@ if (scenario === "projection") {
   const hub = await mk(null, "Calls board");
   await mk(hub.id, "Calls [type::virtual-branch] [query::type=call]");
   board.subscribe(e => app.event(e));
-  const B = boardScreen(hub.id), S: any = BV.view(B);
+  const B = BV.boardScreen(hub.id), S: any = BV.view(B);
   app.push(new MainMenu()); app.push(B);
   await snap("1-preview", 4000);
   BV.at(B, "preview");
@@ -685,7 +684,7 @@ if (scenario === "journey") {
   await mk(null, "Sort the seed box [stage::done]\nDone last week.");
   await mk(null, "Mend the hose [stage::blocked]\nWaiting on a new washer.");
   board.subscribe(e => app.event(e));
-  const B = boardScreen(hub.id), S: any = BV.view(B);
+  const B = BV.boardScreen(hub.id), S: any = BV.view(B);
   const settle = async () => { for (let i = 0; i < 100 && (S.moving || S.lanes.some((l: any) => !l.items || l.want)); i++) await Bun.sleep(50); await Bun.sleep(400); };
   const ctrl = (c: string) => press({ kind: "char", ch: c, ctrl: true });
   const other = new SocketBoard(board.path);
@@ -755,7 +754,7 @@ if (scenario === "edit") {
   const card = await mk(null, "EPD-001 scratch card [stage::queued]\nEdit me from any reader.\n\n- [ ] typed in the door\n- [ ] saved with a revision check");
   await mk(null, "Already shipped [stage::done]\nA finished card.");
   board.subscribe(e => app.event(e));   // readers learn about the other writer the way the real door does
-  app.push(new MainMenu()); app.push(boardScreen(hub.id));
+  app.push(new MainMenu()); app.push(BV.boardScreen(hub.id));
   await snap("1-lanes", 2500);
   ch("e"); await Bun.sleep(500);
   for (const c of " (edited in the door)") ch(c);
@@ -809,7 +808,7 @@ if (scenario === "props") {
   ].join("\n"));
   await mk(null, "GDN-13 — Rain barrel [type::roadmap-item] [priority::low] [work-stage::doing] [track::water]\nCatch the shed roof.");
   board.subscribe(e => app.event(e));
-  const B = boardScreen(hub.id), S: any = BV.view(B);
+  const B = BV.boardScreen(hub.id), S: any = BV.view(B);
   app.push(new MainMenu()); app.push(B);
   await Bun.sleep(2000);
   ch("l");                                                            // the Queued lane: the compost card
@@ -851,7 +850,7 @@ if (scenario === "move") {
   const gate = await mk(null, "Oil the gate hinge [stage::doing] [track::door]\nIt squeaks.");
   await mk(null, "Sort the seed box [stage::done]\nDone last week.");
   board.subscribe(e => app.event(e));
-  const B = boardScreen(hub.id);
+  const B = BV.boardScreen(hub.id);
   const S: any = BV.view(B);
   const mouse = (action: "down" | "up" | "drag", x: number, y: number) => press({ kind: "mouse", action, button: 0, x, y });
   const settle = async () => { for (let i = 0; i < 100 && (S.moving || S.lanes.some((l: any) => !l.items || l.want)); i++) await Bun.sleep(50); await Bun.sleep(300); };
@@ -900,7 +899,7 @@ if (scenario === "comment") {
   const card = await mk(null, "EPD-004 scratch card [stage::queued]\nShip the release notes before Friday.\n\nThe release notes need a review before they go out.\n\n- [ ] ask for a second reader\n- [ ] post the notes");
   await mk(null, "Already shipped [stage::done]\nA finished card.");
   board.subscribe(e => app.event(e));
-  const screen = boardScreen(hub.id);
+  const screen = BV.boardScreen(hub.id);
   app.push(new MainMenu()); app.push(screen);
   await snap("1-lanes", 2500);
   for (let i = 0; i < 6 && (screen as any).focus !== "preview"; i++) press({ kind: "tab" });
@@ -950,7 +949,7 @@ if (scenario === "agent") {
   await mk(null, "Plant the squash [stage::queued]\nBy the compost heap.");
   await mk(null, "Fix the gate latch [stage::doing]\nIt swings open.");
   board.subscribe(e => app.event(e));
-  const B = boardScreen(hub.id), S: any = BV.view(B);
+  const B = BV.boardScreen(hub.id), S: any = BV.view(B);
   app.push(new MainMenu()); app.push(B);
   const ctl = await startControl({ app, mirror: emu, info: () => fakeTerm.info }, privateSocket("agent-door"));
   const act = (action: string, args: Record<string, unknown> = {}, reader?: string) => new Promise<any>((res, rej) => {
@@ -979,7 +978,7 @@ if (scenario === "agent") {
   ctl.close(); board.close(); process.exit(0);
 }
 if (scenario === "board") {
-  app.push(new MainMenu()); app.push(boardScreen());
+  app.push(new MainMenu()); app.push(BV.boardScreen());
   await snap("1-lanes", 6000);
   press({ kind: "down" }); press({ kind: "down" });
   await snap("2-preview", 2000);

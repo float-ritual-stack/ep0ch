@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import type { Subprocess } from "bun";
 import type { Msg } from "../src/board";
-import { boardScreen } from "../src/desk/screen-specs";
+import { boardScreen } from "./board-view";
 import type { Desk } from "../src/desk/desk";
 import { ACTOR_ID, EditConflict, SocketBoard } from "../src/socket";
 import type { Key } from "../src/term";

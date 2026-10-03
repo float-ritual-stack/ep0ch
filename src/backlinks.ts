@@ -330,7 +330,7 @@ export function backlinkStatusParts(view: BacklinkView, options: Readonly<Backli
     parts.push({ text: `Kind: ${kind ?? "all"}`, control: "kind" });
     parts.push({ text: `Stage: ${options.stage}`, control: "stage" });
   } else if (view.total > 0) {
-    // The door's own words: Detail's panel shows nothing here, but the drawer used to look the same.
+    // The door's own words: Detail's panel shows nothing here.
     parts.push({ text: "not grouped: this service sends no facets" });
   }
   parts.push({ text: `Sort: ${sort} ${direction}`, control: "sort" });

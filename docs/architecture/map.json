@@ -242,10 +242,10 @@
       "does": "The door's one client of the service: requests with timeouts, capabilities, reconnect with backoff, catch-up from changes.since, and 'offline' when it can't ask.",
       "built": "One class in socket.ts. The door requires protocol 82 with every capability it names (OUTLINE_CAPABILITIES) and refuses an older service at info(), naming what it lacks and the fix, instead of falling back.",
       "refs": [
-        { "r": "door", "p": "src/socket.ts", "l": 370, "m": "export class SocketBoard" },
-        { "r": "door", "p": "src/socket.ts", "l": 500, "m": "const missing = OUTLINE_CAPABILITIES.filter" },
-        { "r": "door", "p": "src/socket.ts", "l": 873, "m": "subscribe(onEvent" },
-        { "r": "door", "p": "src/socket.ts", "l": 942, "m": "private async catchUp" },
+        { "r": "door", "p": "src/socket.ts", "l": 368, "m": "export class SocketBoard" },
+        { "r": "door", "p": "src/socket.ts", "l": 498, "m": "const missing = OUTLINE_CAPABILITIES.filter" },
+        { "r": "door", "p": "src/socket.ts", "l": 871, "m": "subscribe(onEvent" },
+        { "r": "door", "p": "src/socket.ts", "l": 940, "m": "private async catchUp" },
         { "r": "door", "p": "src/socket.ts", "l": 308, "m": "export class Offline" }
       ],
       "questions": [ { "text": "The door re-derives the service's state root and socket hash (discover.ts); the host should say.", "finding": "A-F13", "route": "service track" } ]
@@ -278,13 +278,13 @@
       "does": "The one reader: render, fold, elements and the ruler, links and history, comments, steps, selection, edit. Hosted by the board, the desk, the river, the BBS reader and the hub screens.",
       "built": "NoteSurface behind the SurfaceHost seam; its actions are NOTE_ACTIONS, so a person's key and an agent's act run the same code. staleOn says whether a change makes its note stale (a trash too) and reread reads it again, coalesced: every host asks the surface, none keeps its own rule (#104). What takes its keys besides reading (a status choice, the property panel, the edit, the comment session) is a mode in its ModeStack, precedence stated once (PIE-516).",
       "refs": [
-        { "r": "door", "p": "src/surface/note.ts", "l": 321, "m": "export class NoteSurface" },
+        { "r": "door", "p": "src/surface/note.ts", "l": 323, "m": "export class NoteSurface" },
         { "r": "door", "p": "src/surface/modes.ts", "l": 102, "m": "export class ModeStack" },
         { "r": "door", "p": "src/surface/modes.ts", "l": 20, "m": "export const PRECEDENCE" },
         { "r": "door", "p": "src/surface/note.ts", "l": 62, "m": "export interface SurfaceHost" },
-        { "r": "door", "p": "src/surface/note.ts", "l": 3519, "m": "export const NOTE_ACTIONS" },
-        { "r": "door", "p": "src/surface/note.ts", "l": 535, "m": "staleOn(e: OutlineEvent): boolean" },
-        { "r": "door", "p": "src/surface/note.ts", "l": 552, "m": "reread(host: SurfaceHost)" }
+        { "r": "door", "p": "src/surface/note.ts", "l": 3516, "m": "export const NOTE_ACTIONS" },
+        { "r": "door", "p": "src/surface/note.ts", "l": 537, "m": "staleOn(e: OutlineEvent): boolean" },
+        { "r": "door", "p": "src/surface/note.ts", "l": 554, "m": "reread(host: SurfaceHost)" }
       ]
     },
     {
@@ -347,8 +347,8 @@
       "does": "screen.open, screen.back, screen.list on every screen; list.select, list.open, list.read on the BBS lists; screen.shell drops to the person's login shell (the menu's !, the desk's ^W !) and the door comes back where it was, an agent's refused. Esc never logs off; q is back below the menu. An agent can't move the person's screen while they type.",
       "built": "SHELL_ACTIONS and LIST_ACTIONS in screens.ts; the menu's letters, Enter and clicks run them; the App's dispatcher holds the shell's set (a screen's own action of the same name first); a move of the person's screen declares touches: screen, and the actor rule guards it (PIE-514).",
       "refs": [
-        { "r": "door", "p": "src/screens.ts", "l": 411, "m": "export const SHELL_ACTIONS" },
-        { "r": "door", "p": "src/screens.ts", "l": 643, "m": "export const LIST_ACTIONS" },
+        { "r": "door", "p": "src/screens.ts", "l": 403, "m": "export const SHELL_ACTIONS" },
+        { "r": "door", "p": "src/screens.ts", "l": 623, "m": "export const LIST_ACTIONS" },
         { "r": "door", "p": "src/surface/dispatch.ts", "l": 140, "m": "export function actorRule" },
         { "r": "door", "p": "src/app.ts", "l": 540, "m": "async act(req" },
         { "r": "door", "p": "src/drop.ts", "l": 50, "m": "export async function runLoginShell" }
@@ -573,7 +573,7 @@
         { "r": "door", "p": "src/session/daemon.ts", "l": 81, "m": "export async function serve" },
         { "r": "door", "p": "src/session/session-term.ts", "l": 77, "m": "export class SessionTerm" },
         { "r": "door", "p": "src/session/client.ts", "l": 184, "m": "export async function attach(" },
-        { "r": "door", "p": "src/session/protocol.ts", "l": 107, "m": "export class Frames" },
+        { "r": "door", "p": "src/session/protocol.ts", "l": 127, "m": "export class Frames" },
         { "r": "door", "p": "src/display.ts", "l": 56, "m": "export class Painter" },
         { "r": "door", "p": "src/door.ts", "l": 41, "m": "export async function openDoor" }
       ],
@@ -587,8 +587,8 @@
       "does": "A terminal tile's program outlives the session's daemon: an upgrade (`ep0ch session upgrade`) or a crash leaves it running, and the next daemon adopts it with its output and reopens the screens and the edits.",
       "built": "Bun can't pass a pty between processes, so the ptys live in a host process of their own (pty.sock) behind the PtyBackend seam; PtyPane adopts by its tile (keptAs). The restore is a checkpoint: the screens open as the actions that open them, run again only where the ActionDef declares replay safe, and the edits open on top; each screen's layout is its own saved state.",
       "refs": [
-        { "r": "door", "p": "src/session/pty-host.ts", "l": 72, "m": "export async function servePtyHost" },
-        { "r": "door", "p": "src/session/pty-host.ts", "l": 221, "m": "export class HostPtys" },
+        { "r": "door", "p": "src/session/pty-host.ts", "l": 60, "m": "export async function servePtyHost" },
+        { "r": "door", "p": "src/session/pty-host.ts", "l": 209, "m": "export class HostPtys" },
         { "r": "door", "p": "src/desk/pty-backend.ts", "l": 65, "m": "export const localPtys" },
         { "r": "door", "p": "src/session/restore.ts", "l": 54, "m": "export class Checkpoints" },
         { "r": "door", "p": "src/session/restore.ts", "l": 89, "m": "export async function restore" }
@@ -658,8 +658,8 @@
       "does": "The logon, the main menu, the message lists and reader, Stats, the art viewer, Goodbye: the door as a 1997 BBS. Who's Online and Last Callers are the who and activity tiles as screen specs (the menu's W and L).",
       "built": "Screen classes in screens.ts. The art screens are compositions and stay as they are; the lists now take actions.",
       "refs": [
-        { "r": "door", "p": "src/screens.ts", "l": 250, "m": "export class MainMenu" },
-        { "r": "door", "p": "src/screens.ts", "l": 824, "m": "export class MessageReader" }
+        { "r": "door", "p": "src/screens.ts", "l": 243, "m": "export class MainMenu" },
+        { "r": "door", "p": "src/screens.ts", "l": 815, "m": "export class MessageReader" }
       ],
       "questions": []
     },
@@ -825,7 +825,7 @@
       { "label": "enter", "at": "door.board", "what": "The mover shows each lane's plan; Enter checks the selection hasn't changed and runs the card.move action, which calls moveTo.",
         "ref": { "r": "door", "p": "src/desk/lanes.ts", "l": 686, "m": "if (i !== from) void this.run(\"card.move\", { lane: this.lanes[i]!.name, card: card.id })" } },
       { "label": "properties.patch", "at": "door.socketboard", "what": "moveTo re-plans the target lane, then applyMove sends properties.patch with expectedRevision and the actor's provenance.",
-        "ref": { "r": "door", "p": "src/socket.ts", "l": 847, "m": "\"properties.patch\", { blockId, expectedRevision" } },
+        "ref": { "r": "door", "p": "src/socket.ts", "l": 845, "m": "\"properties.patch\", { blockId, expectedRevision" } },
       { "label": "revision check", "at": "svc.store", "what": "The store refuses if the card changed since it was read; otherwise it patches the tokens and writes the text.",
         "ref": { "r": "outliner", "p": "src/store.ts", "l": 2333, "m": "existing.revision !== expectedRevision" } },
       { "label": "change feed", "at": "svc.feed", "what": "The change is recorded in the feed and broadcast as an event to every subscriber: this door, other doors, Detail, Tree, the publisher.",

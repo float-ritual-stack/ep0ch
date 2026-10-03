@@ -97,13 +97,6 @@ class Pointer {
  * One row of text with clickable parts, `x` cells in (or centred in `w`): each part is text in `paint`'s
  * `|NN` colours, or [text, key] for one a click sends `key` from. The parts are recorded in `p` as row `y`.
  */
-/** The mouse over a BBS list: its rows and hint keys (see Pointer), then a repaint unless a key already made one. */
-function listMouse(p: Pointer, k: Mouse, ctx: Ctx, sel: number, count: number, select: (i: number) => void, send: (k: Key) => void) {
-  let sent = false;
-  p.mouse(k, { sel, count, select, send: key => { sent = true; send(key); } });
-  if (!sent) ctx.redraw();
-}
-
 function hotLine(p: Pointer, y: number, w: number, parts: (string | [string, Key, number?])[], opts: { centre?: boolean; x?: number } = {}): string {
   const text = parts.map(q => (typeof q === "string" ? q : q[0])).join("");
   let x = opts.centre ? Math.max(0, Math.floor((w - width(paint(text))) / 2)) : opts.x ?? 0;
@@ -316,9 +309,8 @@ export class MainMenu implements Screen {
     const by = k.kind === "left" ? -4 : k.kind === "right" ? 4 : k.kind === "up" ? -1 : k.kind === "down" || k.kind === "tab" ? 1 : 0;
     if (by) return this.run("menu.select", { by }, ctx);
     else if (k.kind === "enter") return this.open(ITEMS[this.sel]!, ctx);
-    // Esc is back, as everywhere; the menu is the top, so it stays here and says so (PIE-489). Goodbye is
-    // G (or a click on it). q stays the menu's own letter, the Quay, as it always was: there's nothing to
-    // go back to from here, and q → Quay is in the fingers.
+    // Esc is back, as everywhere; the menu is the top, so it stays here and says so. Goodbye is G (or a click
+    // on it). q stays the menu's own letter, the Quay: there's nothing to go back to from here.
     else if (k.kind === "esc") return shellKey("screen.back", {}, this, ctx);
     else if (k.kind === "char" && !k.ctrl && k.ch.toUpperCase() === "V") return shellKey("video.cycle", {}, this, ctx);
     else if (ch(k) === "?") return shellKey("screen.help", {}, this, ctx);
@@ -609,18 +601,6 @@ export function shellOpenBlock(m: Msg, ctx: Ctx) {
 /** One row of a BBS list, as `list.read` gives it. */
 export interface ListRow { n: number; title: string; id?: string; [k: string]: unknown }
 
-/** A BBS list screen: its rows, the lit one, and what ⏎ on a row opens. */
-interface BbsList extends Screen {
-  sel: number;
-  /** The screen's context, kept from enter, render and key (never an agent's). */
-  ctx: Ctx | null;
-  readonly dispatch: Dispatcher;
-  listRows(): ListRow[] | null;
-  /** ⏎ on row `i`: the screen it opens, pushed; or a refusal. */
-  openRow(i: number, ctx: Ctx): void;
-  /** `t` on row `i`: its replies as a list, pushed; absent on a list whose rows have none. */
-  threadRow?(i: number, ctx: Ctx): void;
-}
 interface ListOn { list: BbsList; ctx: Ctx }
 type ListArgs = ArgsOfSet<typeof LIST_ACTIONS>;
 type ShellArgs = ArgsOfSet<typeof SHELL_ACTIONS>;
@@ -691,36 +671,53 @@ export const LIST_ACTIONS = actionSet<ListOn>()("list", {
   }),
 });
 
-/** A list's keys and clicks: the same actions, as `you`, through the list's dispatcher. */
-function listKey<K extends keyof ListArgs & string>(list: BbsList, name: K, args: ListArgs[K], ctx: Ctx) {
-  list.ctx = ctx;
-  void list.dispatch.press(name, args);
-}
-
-/** A list's keys: q Esc back, ⏎ open, the movement keys select. False when the key isn't one of these. */
-function listKeys(list: BbsList, k: Key, ctx: Ctx, page: number): boolean {
-  if (isBack(k)) { back(list, ctx); return true; }
-  const count = list.listRows()?.length ?? 0;
-  if (!count) return false;
-  if (k.kind === "enter") { listKey(list, "list.open", {}, ctx); return true; }
-  const to = nav(k, count, list.sel, page);
-  if (to !== list.sel) { listKey(list, "list.select", { n: to + 1 }, ctx); return true; }
-  return false;
-}
-
-/** What a list shows, for `peek`: the lit row and the first rows (list.read has them all). */
-function listDescribe(list: BbsList) {
-  const rows = list.listRows();
-  return { kind: "list", title: list.title, selected: rows?.length ? list.sel + 1 : null, of: rows?.length ?? null, rows: rows?.slice(0, 20) ?? null };
-}
-
-/** A list screen's dispatcher: the list's actions (the shell's come from the App's). */
-function listDispatch(list: BbsList): Dispatcher {
-  // `title` read when asked: a list's is set in its constructor, after its fields (this dispatcher among them).
-  return new Dispatcher({ get title() { return list.title; }, ctx: () => list.ctx }, [{
+/**
+ * A BBS list screen: its rows, the lit one, and what ⏎ on a row opens. Its keys (q Esc back, ⏎ open, the movement
+ * keys select), its clicks and `act` are the list actions, as `you`, through its own dispatcher.
+ */
+abstract class BbsList implements Screen {
+  abstract title: string;
+  sel = 0;
+  /** The screen's context, kept from enter, render and key (never an agent's). */
+  ctx: Ctx | null = null;
+  protected readonly ptr = new Pointer();
+  abstract render(ctx: Ctx): Frame;
+  abstract listRows(): ListRow[] | null;
+  /** ⏎ on row `i`: the screen it opens, pushed; or a refusal. */
+  abstract openRow(i: number, ctx: Ctx): void;
+  /** `t` on row `i`: its replies as a list, pushed; absent on a list whose rows have none. */
+  threadRow?(i: number, ctx: Ctx): void;
+  /** How far PgUp PgDn move the light. */
+  protected page(_ctx: Ctx) { return 10; }
+  /** A key of the list's own, after the list keys: true when it took it (no repaint). */
+  protected ownKey(_k: Key, _ctx: Ctx) { return false; }
+  key(k: Key, ctx: Ctx) {
+    this.ctx = ctx;
+    const count = this.listRows()?.length ?? 0;
+    if (k.kind === "mouse") {
+      // Its rows and hint keys (see Pointer), then a repaint unless a key already made one.
+      let sent = false;
+      this.ptr.mouse(k, { sel: this.sel, count, select: i => this.press("list.select", { n: i + 1 }), send: key => { sent = true; this.key(key, ctx); } });
+      if (!sent) ctx.redraw();
+      return;
+    }
+    if (isBack(k)) return back(this, ctx);
+    const to = count ? nav(k, count, this.sel, this.page(ctx)) : this.sel;
+    if (count && k.kind === "enter") this.press("list.open", {});
+    else if (to !== this.sel) this.press("list.select", { n: to + 1 });
+    else if (!this.ownKey(k, ctx)) ctx.redraw();
+  }
+  protected press<K extends keyof ListArgs & string>(name: K, args: ListArgs[K]) { void this.dispatch.press(name, args); }
+  /** What it shows, for `peek`: the lit row and the first rows (list.read has them all). */
+  describe() {
+    const rows = this.listRows();
+    return { kind: "list", title: this.title, selected: rows?.length ? this.sel + 1 : null, of: rows?.length ?? null, rows: rows?.slice(0, 20) ?? null };
+  }
+  // `title` read when asked: a subclass's is set after the base's fields (this dispatcher among them).
+  readonly dispatch: Dispatcher = (list => new Dispatcher({ get title() { return list.title; }, ctx: () => list.ctx }, [{
     set: LIST_ACTIONS, takes: "none",
     on: (_, how) => { if (!list.ctx) throw new ActionRefused(`the ${list.title} isn't shown yet`); return { list, ctx: how.ctx }; },
-  }]);
+  }]))(this);
 }
 
 function mergeOverlays(list: Overlay[]): Overlay[] {
@@ -742,15 +739,12 @@ function mergeOverlays(list: Overlay[]): Overlay[] {
 
 // ── message lists and the reader ─────────────────────────────────────────────
 
-export class MessageList implements BbsList {
+export class MessageList extends BbsList {
   private items: Msg[] | null = null;
   private error = "";
-  sel = 0;
-  ctx: Ctx | null = null;
   private receiving: { started: number; limit: number } | null = null;
-  private readonly ptr = new Pointer();
   /** `paged` loaders take a limit: a quick first page, then the full scan behind it. */
-  constructor(readonly title: string, private readonly load: (limit: number) => Promise<Msg[]>, private readonly caption = "", private readonly paged = true) {}
+  constructor(readonly title: string, private readonly load: (limit: number) => Promise<Msg[]>, private readonly caption = "", private readonly paged = true) { super(); }
   enter(ctx: Ctx) {
     this.ctx = ctx;
     const fail = (e: any) => { this.error = String(e?.message ?? e); this.receiving = null; ctx.redraw(); };
@@ -789,14 +783,13 @@ export class MessageList implements BbsList {
     lines.push(hotLine(this.ptr, lines.length, w, ["|08  ↑↓ select · ", ["|15ENTER|08 read", ENTER], " · ", ["|15T|08 thread", char("t")], " · ", ["|15Q|08 back", char("q")]]));
     return { lines };
   }
-  key(k: Key, ctx: Ctx) {
-    this.ctx = ctx;
-    const list = this.items ?? [];
-    if (k.kind === "mouse") return listMouse(this.ptr, k, ctx, this.sel, list.length, i => listKey(this, "list.select", { n: i + 1 }, ctx), key => this.key(key, ctx));
-    if (listKeys(this, k, ctx, ctx.t.rows - 10)) return;
-    if (!list.length) return;
-    if (k.kind === "char" && !k.ctrl && k.ch.toLowerCase() === "t") return listKey(this, "list.thread", {}, ctx);
-    ctx.redraw();
+  protected override page(ctx: Ctx) { return ctx.t.rows - 10; }
+  /** T: the lit row's replies (list.thread); an empty list takes every other key quietly. */
+  protected override ownKey(k: Key) {
+    if (!this.items?.length) return true;
+    if (k.kind !== "char" || k.ctrl || k.ch.toLowerCase() !== "t") return false;
+    this.press("list.thread", {});
+    return true;
   }
   threadRow(i: number, ctx: Ctx) {
     const m = this.items![i]!;
@@ -806,8 +799,6 @@ export class MessageList implements BbsList {
     return this.items?.map((m, i) => ({ n: i + 1, title: subject(m), id: m.id, author: m.author ?? null, updatedAt: m.updatedAt, ...(m.props["work-id"] ? { workId: m.props["work-id"] } : {}) })) ?? null;
   }
   openRow(i: number, ctx: Ctx) { ctx.push(new MessageReader(this.items!, i)); }
-  describe() { return listDescribe(this); }
-  readonly dispatch: Dispatcher = listDispatch(this);
 }
 
 /** What a message reader's own actions (MESSAGE_ACTIONS) run on. */
@@ -1049,12 +1040,9 @@ export const MESSAGE_ACTIONS = actionSet<MessageOn>()("message", {
   }),
 });
 
-export class Conferences implements BbsList {
+export class Conferences extends BbsList {
   title = "join conference";
   private confs: Msg[] | null = null;
-  sel = 0;
-  ctx: Ctx | null = null;
-  private readonly ptr = new Pointer();
   enter(ctx: Ctx) { this.ctx = ctx; ctx.board.roots().then(r => { this.confs = r; ctx.redraw(); }, e => ctx.flash(String(e.message))); }
   render(ctx: Ctx): Frame {
     const w = ctx.t.cols;
@@ -1069,32 +1057,20 @@ export class Conferences implements BbsList {
     lines.push("", hotLine(this.ptr, lines.length + 1, w, ["|08  ↑↓ select · ", ["|15ENTER|08 join", ENTER], " · ", ["|15Q|08 back", char("q")]]));
     return { lines };
   }
-  key(k: Key, ctx: Ctx) {
-    this.ctx = ctx;
-    const list = this.confs ?? [];
-    if (k.kind === "mouse") return listMouse(this.ptr, k, ctx, this.sel, list.length, i => listKey(this, "list.select", { n: i + 1 }, ctx), key => this.key(key, ctx));
-    if (listKeys(this, k, ctx, 10)) return;
-    ctx.redraw();
-  }
   listRows(): ListRow[] | null { return this.confs?.map((c, i) => ({ n: i + 1, title: subject(c), id: c.id, type: c.props.type ?? null })) ?? null; }
   openRow(i: number, ctx: Ctx) {
     const c = this.confs![i]!;
     ctx.push(new MessageList(subject(c).slice(0, 40), () => ctx.board.children(c.id), c.props.type ?? "", false));
   }
-  describe() { return listDescribe(this); }
-  readonly dispatch: Dispatcher = listDispatch(this);
 }
 
 // ── file areas: the WOE packs, straight out of their zips ────────────────────
 
-export class FileAreas implements BbsList {
+export class FileAreas extends BbsList {
   title = "file areas";
   private list = packs();
-  sel = 0;
-  ctx: Ctx | null = null;
   enter(ctx: Ctx) { this.ctx = ctx; }
   private diz = new Map<string, string[]>();
-  private readonly ptr = new Pointer();
   render(ctx: Ctx): Frame {
     const w = ctx.t.cols, h = ctx.t.rows - 1;
     this.ptr.frame();
@@ -1115,20 +1091,13 @@ export class FileAreas implements BbsList {
     lines.push(hotLine(this.ptr, lines.length, w, ["|08  ↑↓ select · ", ["|15ENTER|08 browse pack", ENTER], " · ", ["Q back", char("q")]]));
     return { lines };
   }
-  key(k: Key, ctx: Ctx) {
-    this.ctx = ctx;
-    if (k.kind === "mouse") return listMouse(this.ptr, k, ctx, this.sel, this.list.length, i => listKey(this, "list.select", { n: i + 1 }, ctx), key => this.key(key, ctx));
-    if (listKeys(this, k, ctx, 5)) return;
-    ctx.redraw();
-  }
+  protected override page() { return 5; }
   listRows(): ListRow[] { return this.list.map((p, i) => ({ n: i + 1, title: basename(p), description: (this.diz.get(p) ?? readDiz(p))[0] ?? "" })); }
   openRow(i: number, ctx: Ctx) {
     const m = members(this.list[i]!).filter(x => /\.(ans|asc)$/i.test(x.path));
     if (!m.length) throw new ActionRefused("no ANSI or ASCII in that pack");
     ctx.push(new ArtViewer(m));
   }
-  describe() { return listDescribe(this); }
-  readonly dispatch: Dispatcher = listDispatch(this);
 }
 
 function readDiz(pack: string): string[] {

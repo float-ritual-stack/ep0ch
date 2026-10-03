@@ -90,35 +90,47 @@ const NAME = Object.fromEntries(Object.entries(TYPE).map(([k, v]) => [v, k])) as
 /** Messages whose payload is raw text, not JSON. */
 const RAW = new Set(["input", "output"]);
 
-/** One message as a frame. */
-export function encode(m: ClientMsg | DaemonMsg): Buffer {
-  const { t, ...rest } = m as { t: string; text?: string };
-  const body = Buffer.from(RAW.has(t) ? (rest.text ?? "") : JSON.stringify(rest), "utf8");
-  const head = Buffer.alloc(5);
-  head.write(TYPE[t as keyof typeof TYPE], 0, "latin1");
-  head.writeUInt32BE(body.length, 1);
+/** A frame: its type letter, an id (the terminal host's frames have one), the body's length, the body. */
+export function frameBytes(t: string, body: Buffer, id?: number): Buffer {
+  const head = Buffer.alloc(id === undefined ? 5 : 9);
+  head.write(t, 0, "latin1");
+  if (id !== undefined) head.writeUInt32BE(id >>> 0, 1);
+  head.writeUInt32BE(body.length, head.length - 4);
   return Buffer.concat([head, body]);
 }
 
-/**
- * Frames from a stream, as they arrive in pieces: `push` each chunk, get the whole messages in it. A frame over
- * FRAME_LIMIT, or of a type nobody knows, is an error: the connection is closed, never guessed at.
- */
-export class Frames<M extends ClientMsg | DaemonMsg> {
+/** One message as a frame. */
+export function encode(m: ClientMsg | DaemonMsg): Buffer {
+  const { t, ...rest } = m as { t: string; text?: string };
+  return frameBytes(TYPE[t as keyof typeof TYPE], Buffer.from(RAW.has(t) ? (rest.text ?? "") : JSON.stringify(rest), "utf8"));
+}
+
+/** Whole frames (frameBytes) from a stream that arrives in pieces (views of it: copy what you keep); one over FRAME_LIMIT closes it. */
+export class FrameSplitter {
   private buf: Buffer = Buffer.alloc(0);
-  push(chunk: Buffer): M[] {
+  constructor(private readonly head: number) {}
+  push(chunk: Buffer): { head: Buffer; body: Buffer }[] {
     this.buf = this.buf.length ? Buffer.concat([this.buf, chunk]) : chunk;
-    const out: M[] = [];
-    while (this.buf.length >= 5) {
-      const len = this.buf.readUInt32BE(1);
+    const out: { head: Buffer; body: Buffer }[] = [];
+    while (this.buf.length >= this.head) {
+      const len = this.buf.readUInt32BE(this.head - 4);
       if (len > FRAME_LIMIT) throw new Error(`a frame of ${len} bytes is over the limit (${FRAME_LIMIT})`);
-      if (this.buf.length < 5 + len) break;
-      const t = NAME[String.fromCharCode(this.buf[0]!)];
-      if (!t) throw new Error(`unknown frame type ${JSON.stringify(String.fromCharCode(this.buf[0]!))}`);
-      const body = this.buf.subarray(5, 5 + len).toString("utf8");
-      this.buf = this.buf.subarray(5 + len);
-      out.push((RAW.has(t) ? { t, text: body } : { t, ...JSON.parse(body || "{}") }) as M);
+      if (this.buf.length < this.head + len) break;
+      out.push({ head: this.buf.subarray(0, this.head), body: this.buf.subarray(this.head, this.head + len) });
+      this.buf = this.buf.subarray(this.head + len);
     }
     return out;
+  }
+}
+
+/** A session's messages from a stream (FrameSplitter); a frame of a type nobody knows is an error too. */
+export class Frames<M extends ClientMsg | DaemonMsg> {
+  private readonly split = new FrameSplitter(5);
+  push(chunk: Buffer): M[] {
+    return this.split.push(chunk).map(({ head, body }) => {
+      const t = NAME[String.fromCharCode(head[0]!)], text = body.toString("utf8");
+      if (!t) throw new Error(`unknown frame type ${JSON.stringify(String.fromCharCode(head[0]!))}`);
+      return (RAW.has(t) ? { t, text } : { t, ...JSON.parse(text || "{}") }) as M;
+    });
   }
 }

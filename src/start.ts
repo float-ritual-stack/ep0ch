@@ -2,7 +2,6 @@
 // it); without one, the logon, then the main menu, the newest daily brief (EP0CH_LANDING=brief) or the
 // welcome notes (EP0CH_LANDING=welcome).
 import type { Screen } from "./app";
-import { boardScreen } from "./desk/screen-specs";
 import { Desk } from "./desk/desk";
 import { openScreen } from "./desk/screen-specs";
 import { MainMenu } from "./screens";
@@ -21,7 +20,7 @@ export function landingOf(env: Record<string, string | undefined>): Landing {
  */
 export function startScreens(args: readonly string[], env: Record<string, string | undefined>, logon: (then?: () => Screen) => Screen): Screen[] {
   const boardAt = args.indexOf("--board");
-  if (boardAt >= 0) return [new MainMenu(), boardScreen(args[boardAt + 1]?.startsWith("--") ? undefined : args[boardAt + 1])];
+  if (boardAt >= 0) return [new MainMenu(), openScreen("board", args[boardAt + 1]?.startsWith("--") ? {} : { hub: args[boardAt + 1] })];
   if (args.includes("--showcase")) return [new MainMenu(), new Showcase()];
   if (args.includes("--river")) return [new MainMenu(), openScreen("river")];
   const layoutAt = args.indexOf("--layout");

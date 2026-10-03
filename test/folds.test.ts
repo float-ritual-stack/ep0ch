@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { App } from "../src/app";
 import type { Msg } from "../src/board";
 import { Desk } from "../src/desk/desk";
-import { boardScreen } from "../src/desk/screen-specs";
+import { boardScreen } from "./board-view";
 import { foldPoints, renderDoc, type DocEnv } from "../src/doc";
 import { MainMenu } from "../src/screens";
 import { SocketBoard, type Actor } from "../src/socket";

@@ -11,7 +11,7 @@ import { Canvas } from "../src/canvas";
 import { Desk } from "../src/desk/desk";
 import { TILE_ACTIONS } from "../src/desk/tile-actions";
 import { BOARD_ACTIONS } from "../src/desk/lanes";
-import { boardScreen } from "../src/desk/screen-specs";
+import { boardScreen } from "./board-view";
 import type { ReaderPane } from "../src/desk/panes";
 import { MainMenu } from "../src/screens";
 import { SocketBoard, USER } from "../src/socket";
