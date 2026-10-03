@@ -1902,8 +1902,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // border or tile drag still ends.
     if (k.kind === "mouse" && k.action === "down" && k.y < this.bandTop) { const b = this.band(); if (b?.kind.press) { b.kind.press(b.pane, k.x, k.y, this); return; } }
     // A click on a key in the hint row or its keys box: that key, as typed, wherever the keys are (an edit, a chord).
-    const spot = this.spotAt(k);
-    if (spot) { this.hintMoreOpen = false; return asBoundKey("click", () => this.key(spot.key, ctx)); }
+    // Not under an overlay of the desk's (the search, a picker): the row's keys aren't its.
+    const spot = this.overlayOpen() ? undefined : this.spotAt(k);
+    if (spot) { this.hintMoreOpen = false; this.redraw(); return asBoundKey("click", () => this.key(spot.key, ctx)); }
     // ? shows the whole hint row when it was cut (never while the person is typing: a draft, a filter, a
     // terminal, a ^W chord); the next key or click puts it away again and does what it does, but Esc only that.
     if (ch(k) === "?" && this.hintFull && !this.holdsKeys()) { this.run("keys.more"); return; }

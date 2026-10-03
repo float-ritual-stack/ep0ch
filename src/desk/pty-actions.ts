@@ -2,12 +2,10 @@
 // kind's. `act` routes them to tile=<tile> when it's a terminal (a program an extension names is one too), else
 // the focused terminal, else the first; the desk's keys (⏎, e, a click, ctrl+]) run the same actions through the
 // kind's `press` hook. What they change on the desk (whose keys go where) the desk does.
-import type { Actor } from "../socket";
 import { ActionRefused, ActionSet } from "../surface/actions";
 import type { Desk } from "./desk";
 import type { DeskApi } from "./panes";
 import type { PtyPane } from "./pty";
-import type { TileDone } from "./tile-actions";
 
 interface On { pane: PtyPane; desk: DeskApi; tile: string }
 

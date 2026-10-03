@@ -446,7 +446,7 @@
         { "r": "door", "p": "src/desk/desk.ts", "l": 268, "m": "private layoutCtx" },
         { "r": "door", "p": "src/desk/desk.ts", "l": 1228, "m": "  run(name: string, args" },
         { "r": "door", "p": "src/desk/desk.ts", "l": 505, "m": "async fillColumns" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 2788, "m": "floatTile(sel" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 2789, "m": "floatTile(sel" },
         { "r": "door", "p": "src/desk/tile-actions.ts", "l": 58, "m": "export const TILE_ACTIONS" },
         { "r": "door", "p": "src/desk/tile-actions.ts", "l": 246, "m": "\"tile.widen\": {" }
       ],
@@ -530,7 +530,7 @@
       "refs": [
         { "r": "door", "p": "src/desk/pty.ts", "l": 127, "m": "export class PtyPane" },
         { "r": "door", "p": "src/desk/pty-backend.ts", "l": 68, "m": "new Bun.Terminal" },
-        { "r": "door", "p": "src/desk/pty-actions.ts", "l": 20, "m": "export const PTY_ACTIONS" },
+        { "r": "door", "p": "src/desk/pty-actions.ts", "l": 18, "m": "export const PTY_ACTIONS" },
         { "r": "door", "p": "src/desk/pty.ts", "l": 108, "m": "export function tileEnv" }
       ],
       "questions": [
@@ -546,7 +546,7 @@
       "refs": [
         { "r": "door", "p": "src/desk/herdr-agent.ts", "l": 329, "m": "export async function main" },
         { "r": "door", "p": "src/desk/herdr-agent.ts", "l": 256, "m": "export function tellDoor" },
-        { "r": "door", "p": "src/desk/pty-actions.ts", "l": 25, "m": "\"tile.herdr\": {" },
+        { "r": "door", "p": "src/desk/pty-actions.ts", "l": 23, "m": "\"tile.herdr\": {" },
         { "r": "door", "p": "src/desk/pty.ts", "l": 145, "m": "get herdr(): { pane: string; name?: string } | null" },
         { "r": "door", "p": "src/dock.ts", "l": 90, "m": "export class AgentDock" },
         { "r": "door", "p": "src/dock.ts", "l": 581, "m": "export const DOCK_ACTIONS" },
@@ -678,7 +678,7 @@
       "does": "Find a note: the desk's / (the river's g), the board's picker. The BBS Search screen, never constructed, is gone (PIE-510).",
       "built": "Separate implementations over different sources; none uses tree.search.",
       "refs": [
-        { "r": "door", "p": "src/desk/desk.ts", "l": 3260, "m": "function searchOverlay(" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 3261, "m": "function searchOverlay(" },
         { "r": "door", "p": "src/river/column.ts", "l": 64, "m": "export function parseFilter" }
       ],
       "questions": [ { "text": "One jump palette as a shell overlay over tree.search.", "finding": "A-F8", "route": "PIE-493" } ]
