@@ -69,7 +69,7 @@ source evidence or distinguish authored glyphs from controls.
 - `src/server.ts` owns protocol dispatch, sequence, and subscriptions.
 - `src/tree-controller.ts` / `src/tree-renderer.ts` own Tree behavior and presentation.
 - `src/ui-config.ts` owns `ui.json` (pinned bar actions and `compact | full`
-  chrome per pane kind, shared in shape with ep0ch-door); `src/reader-chrome.ts`
+  chrome per pane kind, shared in shape with the door); `src/reader-chrome.ts`
   draws every pane's bar and hint row from it and the action registry. A new
   pane kind adds a kind there, not its own header or footer.
 - `src/detail-controller.ts` plus `src/detail-*` own Detail behavior and presentation.
@@ -92,7 +92,7 @@ source evidence or distinguish authored glyphs from controls.
 - `src/fragment-search.ts` owns fragment completion across every note
   (`fragments.candidates`) and `fragments.ensure` writes a heading's anchor.
   Every client's `((note#…` / `((note^…` completion asks it (Detail, Tree,
-  Quick Capture and ep0ch-door).
+  Quick Capture and the door).
 - `property-grammar.ts` in outline-core (`@ep0ch/outline-core/property-grammar`)
   owns the property token's grammar: what a property key is, what a `[key::value]`
   token matches, and the backslash escape. The parser (`properties.ts`), the query
@@ -103,7 +103,7 @@ source evidence or distinguish authored glyphs from controls.
 - `src/view-writes.ts` owns what a write into a saved view must change
   (`views.planWrite`): the property patch that moves a block into a view, or the
   properties, text or roadmap-item input a new block there is born with, and the
-  reason when a patch can't satisfy the query. Clients (ep0ch-door's lanes,
+  reason when a patch can't satisfy the query. Clients (the door's lanes,
   agents) ask it instead of porting the query language; `query.matches` answers
   which of given blocks a query holds for.
 - `src/context-resolution.ts` owns context-scoped resolution ("the nearest key"
@@ -147,7 +147,7 @@ source evidence or distinguish authored glyphs from controls.
   (never its own write path); results show in the same projection slot.
   `src/extension-install.ts` is `outliner ext ls|add|remove|act`. The four kinds
   and their contracts: [docs/extensions/README.md](docs/extensions/README.md).
-- `src/door-control.ts` is a client of ep0ch-door's control socket (the door's
+- `src/door-control.ts` is a client of the door's control socket (the door's
   `docs/AGENT-INTERFACE.md`). The door owns what its actions do; this only asks
   for an agent's `open` (`openInDoor`). The CLI's `door-open` wraps it, and the
   Claude mod's reference clicks, `show` and `door_open` all go through

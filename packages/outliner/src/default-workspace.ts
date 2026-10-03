@@ -1,4 +1,4 @@
-export const DEFAULT_WORKSPACE_SEED_VERSION = 6;
+export const DEFAULT_WORKSPACE_SEED_VERSION = 7;
 export const AGENT_DOCUMENTATION_SYSTEM_DOC = "agent-documentation-guide";
 export const AUTHORED_LINKS_EXAMPLE_SYSTEM_DOC = "authored-links-example";
 export const FEATURE_TOUR_SYSTEM_DOC = "feature-tour";
@@ -66,7 +66,7 @@ const DOCUMENTATION_SECTIONS = [
       "- Register a human-facing symbolic address with `[page::address]` and reference it as `[[address]]`. Rename the page by editing that token: the old address stays an alias, so existing links keep resolving. Deleting the token frees the address.",
       "- Wrap example syntax in `<!-- literal -->` … `<!-- /literal -->` lines so `[key::value]` and `#tags` inside are shown, not indexed.",
       "",
-      "Every embed reports failures or truncation explicitly, and a document projects at most 16. Detail shows one level. The service's `transclusions.read` nests embeds to depth 3 by default (6 at most), stops at cycles and expands at most 64 per read; ep0ch-door and published pages use it.",
+      "Every embed reports failures or truncation explicitly, and a document projects at most 16. Detail shows one level. The service's `transclusions.read` nests embeds to depth 3 by default (6 at most), stops at cycles and expands at most 64 per read; the ep0ch door and published pages use it.",
       "",
       "Complete when changing the source updates every composed reading surface without copied prose.",
     ],
@@ -157,6 +157,7 @@ const FEATURE_TOUR_SECTIONS = [
       "These are default keys. Press `?` for the actions and configured bindings available in the current mode.",
       "",
       "- In Tree, `g` opens searchable Goto with a selected-result preview. Try `outliner-tour` or words from a note; a UUID is not required.",
+      "- Search forgives: punctuation folds (\"tour - links\" is \"tour links\"), words match in any order, a longer word may be off by a typo or two (drop a letter from each word of this tour's title and Goto still finds it first), and a note holding all but one word still shows, below every full match. Goto, Inbox history search, `[[` completion and the Backlinks filter share that one matcher; `[[` and `((` look near the note being edited first.",
       "- Goto: arrows choose a result, Enter reveals it in Tree, Alt+Enter opens Detail, and Esc cancels without changing your place. Jev optionally ranks a bounded set of text candidates; text search still works without it.",
       "- Tree cursor movement updates local Preview while Current keeps your place. `F7` switches Current/Preview, `Shift+F7` closes Preview, and `Alt+Enter` keeps it. Explicit Open uses your saved Detail link; use Alt+L in Tree or Detail (or ? → Link destination) to choose it.",
       "- `.` expands the selected Tree occurrence's inline preview. Other appearances of the same block keep their own expansion state.",
@@ -209,6 +210,8 @@ const FEATURE_TOUR_SECTIONS = [
     lines: [
       "From Tree's ? menu, Show authored links reveals Outlinks and Resources for the selected occurrence. It has no default key; configure one if useful. Enumeration is read-only; Enter on an unresolved authored target follows or registers it.",
       "",
+      "A note's links are one set everywhere: Outlinks (what it references), Resources (`[file::…]`, `[web::…]`, `[jira::…]`) and Backlinks (what references it). In the door, `b` in any reader lists them in a links tile beside the note, and a `::links` line in a note draws the same rows inside it (`::outlinks`, `::resources` and `::backlinks` draw one group; words after the name filter them). Moving onto a Resource shows what the service stores for it; only Enter registers one.",
+      "",
       "Filesystem Resources support preview, edit/save, refresh, external editing and source-backed comments through the service's files. Cached web/PDF text also supports comments. Computed and remote-entity views expose retained representations and revision information, but direct Detail comments on their text or metadata fields are not available yet.",
       "",
       "Opening cached Web content does not fetch the network; refresh is explicit. Provider credentials, Source configuration and capabilities determine available actions. SSH-style file references are application links, not an SSH file provider.",
@@ -243,11 +246,24 @@ const FEATURE_TOUR_SECTIONS = [
   {
     key: "outlines-publishing", title: "Outlines by name, publishing and other clients",
     lines: [
-      "One outline host per machine serves every outline in `~/outlines` by name (`<name>.sqlite`). `ep0ch outline list` lists them. Which one a client opens: `--ws <name>`, else `EP0CH_WS`, else the nearest `.ep0ch` file (`ws = \"<name>\"`) from its folder up. A folder that names none gets init, pick or import (Choose outline in Herdr); nothing is created by a guess.",
+      "One outline host per machine serves every outline in `~/outlines` by name (`<name>.sqlite`, with its own folder `<name>/` beside it). `ep0ch outline list` lists them. Which one a client opens: `--ws <name>`, else `EP0CH_WS`, else the nearest `.ep0ch` file from its folder up. A `.ep0ch` holds names only: `ws = \"<name>\"`, and `machine = \"<ssh-name>\"` for an outline on another machine. A folder that names none gets a choice (Choose outline in Herdr, the home base in the door: open, new or import); nothing is opened or created by a guess.",
       "",
       "Give a block `[publish::true]` or `[publish::<slug>]` and `outliner publish serve` shows it read-only at `/p/<page or slug>`, along with an attached HTML page, claude.ai artifact, SVG, Mermaid or Markdown file. `[publish::false]` opts one block out; `[publish::never]` keeps it and everything under it off every page, embed and link. `[publish::public]` or `[publish::public:<slug>]` also opens a note to anyone with the link, the way a shared doc does: `--public-port` serves only those notes, with no index, and an embed of a note that isn't public shows nothing of it.",
       "",
-      "The Claude Code mod turns Work IDs, `[[pages]]` and `((ids))` in Claude's replies into links that open in the Outliner Detail beside Claude (in Herdr) or in its door, and feeds Recent Mentions. ep0ch-door is a separate terminal client for the same outlines, with boards, readers and an agent drawer.",
+      "The Claude Code mod turns Work IDs, `[[pages]]` and `((ids))` in Claude's replies into links that open in the Outliner Detail beside Claude (in Herdr) or in its door, and feeds Recent Mentions.",
+    ],
+  },
+  {
+    key: "door", title: "The door: the other client",
+    lines: [
+      "Tree, Detail and Preview are the sysop console: find any block and fix it. The ep0ch door is the board people call into: a terminal client for the same outlines, with a desk of tiles, boards whose lanes are saved views, the river, readers, daily briefs and an agent drawer. Both are maintained, and both read and write through the same outline host, so an edit in one shows in the other.",
+      "",
+      "- `ep0ch` opens the outline its folder's `.ep0ch` names; `ep0ch --ws <name>` opens one by name from anywhere, and `ep0ch --machine <ssh-name>` one on another machine. Where nothing names one, the door opens on its home base: this machine's outlines and the machines opened before (open, new, import).",
+      "- `/` on the desk searches with the same forgiving ranker as Goto. `ep0ch find <words>` answers the same from a shell, and `ep0ch show <id>` prints a note as a reader draws it.",
+      "- Notes can hold components the door draws live: `::graph-*` figures (a count, a checklist, a table, a timeline…) answered from a query or a saved view on every render, and `::links`. See [[outliner-tour-figures|the live figures example]] under this tour. Tree and Detail show their source text.",
+      "- With the door's television extension, `tv ep0ch` lists the outline as a Tree, the newest notes or all of them; Enter puts in `((id))`. In any door draft, `ctrl+t` opens it beside the note and puts what you pick at the cursor.",
+      "",
+      "`ep0ch --showcase` opens every shared part of the door, live, on an outline of made-up notes of its own; `ep0ch doctor` says what in the stack is behind and the command that fixes it.",
     ],
   },
 ] as const;
@@ -288,7 +304,7 @@ export function seedDefaultWorkspace(writer: DefaultWorkspaceSeedWriter): void {
     ...sections.flatMap(({ block }) => [`!((${block.id}))`, ""]),
   ].join("\n").trimEnd());
   const authoredLinksGuideUrl =
-    "https://github.com/float-ritual-stack/pi-herdr-outliner/blob/main/README.md";
+    "https://example.com/guides/outliner.md";
   writer.create([
     `Authored links example [type::example] [system-doc::${AUTHORED_LINKS_EXAMPLE_SYSTEM_DOC}] [page::outliner-authored-links-example]`,
     "",
@@ -326,11 +342,39 @@ export function seedDefaultWorkspace(writer: DefaultWorkspaceSeedWriter): void {
     "Ranked example notes [type::virtual-branch] [query::demo-set=feature-tour (demo-kind=source OR demo-kind=reader)] [limit::10]",
     "[summary-properties::demo-kind]",
   ].join("\n"), tour.id);
+  const figures = writer.create([
+    "Live figures and links [type::example] [demo-set::feature-tour] [demo-kind::figure] [page::outliner-tour-figures]",
+    "",
+    "The ep0ch door draws the blocks below; Tree and Detail show their source. Each `query:` is the saved-view syntax, answered by the outline host on every render, so the counts stay true as the outline changes.",
+    "",
+    "::graph-stat",
+    "---",
+    "title: This outline's guides (live)",
+    "items:",
+    '  - { label: guides, query: "type=project-doc" }',
+    '  - { label: guide sections, query: "type=project-doc-section" }',
+    '  - { label: examples, query: "type=example" }',
+    "---",
+    "::",
+    "",
+    "::graph-table",
+    "---",
+    "title: The tour's examples (live)",
+    'query: "demo-set=feature-tour"',
+    "columns: [title, demo-kind]",
+    "headers: [Note, Kind]",
+    "---",
+    "::",
+    "",
+    `This note links to ((${example.id}|the canonical source note)), so the list below has an Outlink; \`b\` in a door reader shows the same rows in a tile.`,
+    "",
+    "::links",
+  ].join("\n"), tour.id);
   writer.update(tour, [
     tourTitle, "",
     "Start here for the current interaction model. Press g in Tree and search outliner-tour to return. Expand this block for individual guides and working examples; ? shows your current actions and bindings.",
     "",
-    `Try ((${example.id}|a source)), ((${reader.id}|its composed reader)), and ((${exampleView.id}|the ranked projection)). Move an unsorted projected root with Option/Alt+Up or Down; the source keeps its physical parent. These example notes are not roadmap tasks or Inbox jobs.`,
+    `Try ((${example.id}|a source)), ((${reader.id}|its composed reader)), and ((${exampleView.id}|the ranked projection)), then ((${figures.id}|live figures and links)) as the door draws them. Move an unsorted projected root with Option/Alt+Up or Down; the source keeps its physical parent. These example notes are not roadmap tasks or Inbox jobs.`,
     "",
     `For agent documentation ownership, read ((${guide.id}|Managing project documentation)).`,
     "", ...tourSections.flatMap(block => [`!((${block.id}))`, ""]),

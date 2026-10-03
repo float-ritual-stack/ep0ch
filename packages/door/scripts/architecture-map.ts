@@ -37,8 +37,9 @@ interface MapData {
   repos: Record<RepoId, { name: string; url: string; dir?: string; branch: string }>;
   ladder: { id: Ladder; about: string }[];
   groups: { id: string; name: string; motto?: string; about: string }[];
-  /** Each review, and the commits it read ("then"). */
-  reviews: Record<string, { name: string; path: string; at: Record<RepoId, string> }>;
+  /** Each review, and the commits it read ("then"). A retired review is gone from the tree: `kept` is a full commit
+   * of this repository that still has it at `packages/door/<path>`, and its findings link there, unchecked. */
+  reviews: Record<string, { name: string; path: string; at: Record<RepoId, string>; kept?: string }>;
   routes: Record<string, string>;
   findings: Finding[];
   chapters: { id: string; title: string; lede: string }[];
@@ -150,7 +151,7 @@ export function citationProblems(d: MapData, checkout = CHECKOUT): string[] {
   for (const st of d.trace.steps) check(`trace "${st.label}"`, st.ref);
   for (const f of d.findings) {
     const review = d.reviews[f.id.split("-")[0]!];
-    if (review) check(f.id, { r: "door", p: review.path, l: f.line, m: `${f.id.split("-")[1]} ` });
+    if (review && !review.kept) check(f.id, { r: "door", p: review.path, l: f.line, m: `${f.id.split("-")[1]} ` });
   }
   for (const r of ["door", "outliner"] as const) if (!existsSync(checkout[r])) out.unshift(`no ${r} checkout at ${checkout[r]}${r === "outliner" ? " (set EP0CH_OUTLINER)" : ""}`);
   return out;
@@ -189,11 +190,11 @@ const refWhere = (ref: Ref) => `${ref.r === "outliner" ? "outliner " : ""}${ref.
 function refLink(d: MapData, pins: Pins, ref: Ref): string {
   return `<a class="ref" href="${esc(refUrl(d, pins, ref))}">${esc(refWhere(ref))}</a>`;
 }
-/** A finding in its review, now: the review document at the commit the map was checked at. */
+/** A finding in its review: the review document at the commit the map was checked at, or, retired, where it was kept. */
 function findingUrl(d: MapData, pins: Pins, id: string): string {
   const f = d.findings.find(x => x.id === id);
   const review = d.reviews[id.split("-")[0]!]!;
-  return `${d.repos.door.url}/blob/${pins.now.door}/${d.repos.door.dir ? `${d.repos.door.dir}/` : ""}${review.path}#L${f?.line ?? 1}`;
+  return `${d.repos.door.url}/blob/${review.kept ?? pins.now.door}/${d.repos.door.dir ? `${d.repos.door.dir}/` : ""}${review.path}#L${f?.line ?? 1}`;
 }
 /** What the review read, then: each repo's tree at the review's commit. */
 function thenUrls(d: MapData, pins: Pins, id: string): { door: string; outliner: string; label: string } {
@@ -577,7 +578,7 @@ ${appCss}
 <header class="mast">
 <pre class="logo" aria-label="ep0ch">${art ?? FALLBACK_LOGO}</pre>
 <h1>architecture map</h1>
-<p class="sub">ep0ch-door ${esc(commits.door)} · pi-herdr-outliner ${esc(commits.outliner)} · checked ${esc(d.verified.on)}</p>
+<p class="sub">ep0ch ${esc(commits.door)}${commits.outliner !== commits.door ? ` · outliner ${esc(commits.outliner)}` : ""} · checked ${esc(d.verified.on)}</p>
 </header>
 <nav class="top" aria-label="summary">
 <span><span class="k">kept</span> <b>${c.kept}</b></span>

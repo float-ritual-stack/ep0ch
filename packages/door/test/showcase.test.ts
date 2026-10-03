@@ -261,6 +261,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     // The list scrolls: the note set's header and the registry are on screen; the desk set is further down.
     actions: ["NOTE_ACTIONS · src/surface/note.ts", "the action registry · src/surface/actions.ts"],
     edit: ["Kitchen whiteboard", "properties · 6"],
+    // The desk's search overlay, opened on a query with two typos: both allotment notes found, in the service's order.
+    search: ["search the board", "alotment notebok", "hit(s)", "Allotment notebook", "Allotment figures"],
     // The draft session: an edit open on the left, a comment being written on the right.
     drafts: ["editing · Kitchen whiteboard", "comment · Allotment notebook"],
     panes: ["outline", "thread", "│ 4 activity", "Kitchen sink"],
@@ -270,7 +272,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     preview: ["preview · tree", "outline"],
     screen: ["board ·", "preview · board"],
     spine: ["Queued", "Doing", "Review", "Done", "HOME-003"],
-    entity: ["Bike shed", "REPLIES 2", "COMMENTS 1 open · 1 resolved", "← backlinks ("],
+    entity: ["Bike shed", "REPLIES 2", "COMMENTS 1 open · 1 resolved", "← backlinks (", "resources (1)"],
     presence: ["who's online", "last callers · live"],
     live: ["GARDEN CHORES (LIVE QUERY)", "live · 3 results", "HOUSE JOBS BY ARC (LIVE)"],
     projection: ["Jira ACME-12 · Rollout checklist for the vendor switch", "Jira ACME-14 · Label printer drops the last line", "Jira · ambiguous: ACME-20, ACME-21", "Jira ACME-30 · not registered", "can't fetch: item was not found"],
@@ -304,8 +306,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
   });
 
   test("the index works by mouse: a click picks a section; a click in the part gives it the keys, esc gives them back", async () => {
-    press({ kind: "mouse", action: "down", button: 0, x: 3, y: 2 + 10 * 2 }); press({ kind: "mouse", action: "up", button: 0, x: 3, y: 2 + 10 * 2 });
-    expect(S().sel).toBe(10);                                      // the spine section
+    press({ kind: "mouse", action: "down", button: 0, x: 3, y: 2 + 11 * 2 }); press({ kind: "mouse", action: "up", button: 0, x: 3, y: 2 + 11 * 2 });
+    expect(S().sel).toBe(11);                                      // the spine section
     const r = S().stageRect;
     press({ kind: "mouse", action: "down", button: 0, x: r.col + 5, y: r.row + 5 }); press({ kind: "mouse", action: "up", button: 0, x: r.col + 5, y: r.row + 5 });
     expect(S().focus).toBe("stage");
@@ -343,9 +345,9 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect(S().focus).toBe("index");
     (app as any).lastInput = 0;
     const r = await app.act({ action: "section", args: { name: "selection" }, as: "test-agent" }) as any;
-    expect(r).toEqual({ section: 17, key: "selection" });
+    expect(r).toEqual({ section: 18, key: "selection" });
     expect(S().focus).toBe("index");
-    expect((app as any).message).toContain("an agent (test-agent) showed section 17");
+    expect((app as any).message).toContain("an agent (test-agent) showed section 18");
     const listed = (app.actions() as any).actions.map((a: any) => a.name);
     expect(listed).toContain("section");
     expect(listed).toContain("select");
@@ -356,6 +358,19 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     await expect(app.act({ action: "section", args: { name: "nope" }, as: "test-agent" })).rejects.toThrow(/no section nope/);
     // The shell's actions stay the App's on the showcase: the stage takes only its own (PIE-514).
     expect(await app.act({ action: "screen.list", as: "test-agent" })).toMatchObject({ stack: expect.any(Array) });
+  }, 20_000);
+
+  test("search, driven by an agent: the section's own desk answers the service's forgiving search, the person's overlay left alone", async () => {
+    (app as any).lastInput = 0;
+    expect(await app.act({ action: "section", args: { name: "search" }, as: "test-agent" })).toEqual({ section: 4, key: "search" });
+    const r = await app.act({ action: "search", args: { query: "alotment notebok" }, as: "test-agent" }) as any;
+    expect(r.query).toBe("alotment notebok");
+    expect(r.hits[0]).toMatchObject({ n: 1, title: "Allotment notebook" });
+    expect(r.hits.map((h: any) => h.title)).toContain("Allotment figures");
+    // Any word order, punctuation folded.
+    const lentil = await app.act({ action: "search", args: { query: "soup, lentil" }, as: "test-agent" }) as any;
+    expect(lentil.hits[0].title).toBe("Lentil soup");
+    expect(S().focus).toBe("index");
   }, 20_000);
 
   test("on an outline without the showcase it says so and writes nothing", async () => {

@@ -25,9 +25,9 @@ use `ep0ch`.
 | touch the agent interface | packages/door `docs/AGENT-INTERFACE.md`; `packages/claude-mod/README.md` |
 | change workboard state | the live **How this workboard works** block (the root `AGENTS.md` names it) and the `outliner-workflow` skill's roadmap reference |
 | build or change an extension | packages/outliner `docs/extensions/README.md` (the contract, the four kinds, `@name` agents, worked examples); the door draws what `extensions.list` gives (`src/extensions.ts`) |
-| change the protocol or the schema | the root `AGENTS.md`, "Schema and protocol: one version", and `CONTRIBUTING.md`, "Protocol and schema": any wire change bumps `PROTOCOL` in outline-core; a schema change bumps `SCHEMA_VERSION` with a one-off script in `packages/outliner/scripts/migrations/` |
+| change the protocol or the schema | the root `AGENTS.md`, "Schema and protocol: one version", and `CONTRIBUTING.md`, "Protocol and schema": one `PROTOCOL` in outline-core, bumped by any wire change, and a mismatch refused; a schema change bumps `SCHEMA_VERSION` with a one-off script in `packages/outliner/scripts/migrations/`, run by hand and deleted. No runtime compat, ever |
 | change which outline a client opens | outline-core `src/outline-location.ts` (PIE-530): one rule for every client |
-| need the whole picture | the architecture map, `docs/architecture/map.json` in the door: every structure in the door and the outliner, its ladder position and its open questions; `bun scripts/architecture-map.ts` checks its citations and draws it |
+| need the whole picture | the architecture map, `packages/door/docs/architecture/map.json`: every structure in the door and the outliner, its ladder position and its open questions; `bun scripts/architecture-map.ts` in packages/door checks its citations and draws it |
 
 Then the root `AGENTS.md` and `CONTRIBUTING.md`. They are short and they are the contract.
 
@@ -37,6 +37,13 @@ Then the root `AGENTS.md` and `CONTRIBUTING.md`. They are short and they are the
   the action registry, the layout tree, entity navigation, the editing component, the service contracts. If
   none fits, extend one, or say in the PR why not. Never a second reader, pane model, search, editor or
   presence view. A new shared part gets its reuse-map row and a showcase section in the same PR.
+- **Packages meet at their public faces.** The door imports all of outline-core (`@ep0ch/outline-core/*`)
+  and only what the outliner's `package.json` `exports` declares (today `machine-forward`);
+  `packages/door/test/package-boundary.test.ts` fails on any other import across packages. Shared pure code moves
+  into outline-core and is imported, never copied.
+- **An error says what to run.** A refusal or failure names why and the command that fixes it, as `doctor`,
+  the schema refusal (the migration script) and the protocol mismatch (which side to update) do; a bare
+  "failed" is a bug.
 - **The service owns meaning.** View membership, property parsing, query evaluation, backlinks, what a
   write into a view must change, what changed: ask the service (`views.read`, `views.planWrite`,
   `query.matches`, `references.*`, `changes.since`); never compute it locally. Client and service speak one
@@ -114,8 +121,8 @@ Then the root `AGENTS.md` and `CONTRIBUTING.md`. They are short and they are the
 Never write to a real outline or touch the person's door. Their door may be on the default control socket.
 
 - **Tests:** `bun run check` and `bun run test` at the root, or `bun test` in a package. The door's tests start
-  their own outline host with `Scratch` or `ScratchHost` (`test/scratch.ts`, which finds `../outliner`;
-  `EP0CH_OUTLINER` overrides it): a scratch outlines folder, one outline `scratch` as the host's default. Fixtures
+  their own outline host with `Scratch` or `ScratchHost` (`test/scratch.ts`, which finds `../outliner`): a
+  scratch outlines folder, one outline `scratch` as the host's default. Fixtures
   are fictional: made-up notes, names and ids.
 - **Snapshots:** `bun scripts/snap.ts <scenario>` writes PNGs to `out/`. Open them; a snapshot nobody looked
   at isn't evidence. Writing scenarios need `EP0CH_SOCKET=<scratch host socket>` and `EP0CH_SNAP_WRITES=1`.
@@ -124,8 +131,8 @@ Never write to a real outline or touch the person's door. Their door may be on t
   writes (layouts, drafts, marks, the media cache). Point it at a scratch host with `EP0CH_OUTLINES=<temp
   outlines folder>` and `--ws <name>`, never at `~/outlines`.
 - **A scratch host by hand:** `EP0CH_OUTLINES=$d/outlines EP0CH_DEFAULT_WS=garden bun packages/outliner/src/host-main.ts`,
-  then `EP0CH_OUTLINES=$d/outlines ep0ch init garden` (or `ep0ch outline create garden`). Its socket is
-  `$d/outlines/.host/host.sock`.
+  then `EP0CH_OUTLINES=$d/outlines ep0ch outline create garden` (`ep0ch init` would write a `.ep0ch` into the
+  folder you run it in). Its socket is `$d/outlines/.host/host.sock`.
 - **Real outline shapes without real writes:** `ep0ch try --ws <name> --copy` serves a private copy of that
   outline's database from a host of its own, deleted on exit. Never copy its content into fixtures, commits or
   PRs; report counts and shapes only.
@@ -143,6 +150,8 @@ mkdir -p -m 700 /tmp/claude-$(id -u); d=$(mktemp -d /tmp/claude-$(id -u)/e5-XXXX
 tmux new-session -d -s try -x 160 -y 48 \
   "scripts/test-door-env.sh EP0CH_STATE=$d/s scripts/try-it.sh --showcase"   # its own host, outline `showcase`
 C=$d/s/showcase/door/door.sock                  # the showcase sets its own EP0CH_CONTROL; it prints it
+# any other outline: a scratch host (above), then
+#   scripts/test-door-env.sh EP0CH_STATE=$d/s EP0CH_CONTROL=$d/c.sock EP0CH_OUTLINES=$d/outlines bun src/main.ts --ws garden
 EP0CH_CONTROL=$C bun src/main.ts peek           # the screen as text, plus state
 EP0CH_CONTROL=$C bun src/main.ts act layout.get --as <your-id>
 tmux send-keys -t try j                                       # a key
@@ -182,6 +191,9 @@ The root `CONTRIBUTING.md` has the checklist, architecture pass first
 - **Did you really?** List each shared part the brief or PR said it would use and check the diff actually
   uses it. Name every place it built its own instead (a second drawer, a screen-only layout, a key with no
   action, a switch on a tile kind's name). Expect at least one; fix it or say why not.
+- **Is it in the kitchen sink?** A user-visible feature gets a showcase section or note in the same PR, live
+  where possible (`ep0ch --showcase`), as each reuse-map row gets its section, and its test drives that section
+  through `act` (`packages/door/test/showcase.test.ts`); if it can't be shown, the PR says why.
 
 After a big push or two, review the system as a whole: one lens per reviewer (architecture and reuse,
 portability and runtime, daily-driver interaction), reporting, not fixing. Then refresh the docs (README and

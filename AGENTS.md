@@ -37,6 +37,11 @@ Both histories are kept: `git log --follow` and `git blame` reach back into ep0c
   whether it really used them.
 - If no shared part fits, extend one or say in the PR why not. Don't add a parallel reader, pane model, search,
   editor or presence view.
+- **Demo it in the kitchen sink.** Each reuse-map row gets a showcase section (the door README names the few still
+  without one), and a user-visible feature gets a showcase section or note in the same PR, live where possible (`ep0ch --showcase`; `packages/door/src/showcase/`).
+  The demo is also its end-to-end test: a new section's test in `packages/door/test/showcase.test.ts` opens it on the seeded outline, drives it
+  through `act` and checks the result, so a feature can't quietly break its own demo. If it can't be shown there,
+  the PR says why.
 - For AI feature design, semantic judgments, or TypeSafe/Jev integration, use the installed `typesafe-ai`
   skill, resolved through the agent's skill catalog. Follow its live-documentation workflow before choosing
   primitives or writing API calls. If the skill is unavailable, start with the
@@ -107,7 +112,7 @@ MacBook). It does not support every version a client ever connected with.
   migrations.
 - **Big changes:** the preferred path can be a fresh database plus an agent importing what matters now, not the
   entire history. The `import` command (`outliner import`, `ep0ch outline import`, and init's import option;
-  `src/outline-import.ts`) reads blocks, properties, page addresses and work ids from an older file.
+  `packages/outliner/src/outline-import.ts`) reads blocks, properties, page addresses and work ids from an older file.
 - **Protocol works the same way.** Client and service must match: one shared constant, `PROTOCOL` in
   outline-core, replaces capability negotiation. A mismatch says which side to update. Bump it with any wire
   change and any change to what outline-core's shared modules match or compute.
@@ -117,7 +122,7 @@ MacBook). It does not support every version a client ever connected with.
 - Tests run only against scratch hosts each test starts itself: the door's `Scratch` and `ScratchHost`
   (`packages/door/test/scratch.ts`, which finds `../outliner` by itself), the outliner's in-process servers and
   `test/scratch-outline.ts`. Never write to a real outline.
-- `bun scripts/snap.ts` scenarios that write need `EP0CH_SOCKET` pointing at a scratch host and
+- `bun scripts/snap.ts` (in packages/door) scenarios that write need `EP0CH_SOCKET` pointing at a scratch host and
   `EP0CH_SNAP_WRITES=1`.
 - A manual check uses a scratch outlines folder passed explicitly (`EP0CH_OUTLINES=<temp dir>`), never
   `~/outlines`.
