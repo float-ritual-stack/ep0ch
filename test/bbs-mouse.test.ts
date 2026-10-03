@@ -11,6 +11,7 @@ import { members, packs } from "../src/packs";
 import { ArtViewer, Conferences, FileAreas, Goodbye, Help, Logon, MainMenu, MessageList, MessageReader, Stats } from "../src/screens";
 import { Showcase } from "../src/showcase/showcase";
 import { Desk } from "../src/desk/desk";
+import { openScreen } from "../src/desk/screen-specs";
 import type { Activity } from "../src/socket";
 import type { Key } from "../src/term";
 
@@ -30,7 +31,7 @@ function door(cols = 120, rows = 40) {
     board: {
       changedSince: async () => MSGS, children: async () => [MSGS[2]!], roots: async () => MSGS.slice(0, 2),
       activity: async (): Promise<Activity[]> => MSGS.map((m, i) => ({ cursor: i, block: m, author: "user", actor: m.author!, kind: "edit", at: m.updatedAt })),
-      callers: async () => [], clientId: "me",
+      callers: async () => [], index: async () => [], ancestors: async () => [], clientId: "me",
     },
     push(s: Screen) { stack.push(s); }, pop() { stack.pop(); }, replace(s: Screen) { stack.pop(); stack.push(s); },
     redraw() {}, flash() {}, quit() {}, cycleVideo() {},
@@ -317,5 +318,32 @@ describe("the BBS screens with keys and no mouse, until now", () => {
     expect(s.top()).toBeInstanceOf(Logon);
     s.mouse("down", 5, 5); s.mouse("up", 5, 5);
     expect(s.top()).toBeInstanceOf(MainMenu);
+  });
+});
+
+describe("the desk's screens are left by mouse too: the hint row's keys are clickable", () => {
+  for (const name of ["who", "lastcall", "waiting", "brief", "welcome", "river"]) test(`${name}: a click on "q menu" goes back, as q does`, async () => {
+    const s = on(new MainMenu());
+    const desk = openScreen(name);
+    s.stack.push(desk); desk.enter?.(s.ctx);
+    await tick();
+    // A row too narrow for every part: "? more" shows them all above it, each as clickable.
+    if (!s.lines().some(l => l.includes("q menu"))) s.click("? more");
+    const rows = s.lines();
+    const y = rows.findLastIndex(l => l.includes("q menu"));
+    expect(y).toBeGreaterThan(0);
+    s.mouse("down", rows[y]!.indexOf("q menu") + 2, y); s.mouse("up", rows[y]!.indexOf("q menu") + 2, y);
+    await tick();
+    expect(s.top()).toBeInstanceOf(MainMenu);
+  });
+
+  test("a click on a part that names no key does nothing", () => {
+    const s = on(new MainMenu());
+    const desk = openScreen("who");
+    s.stack.push(desk); desk.enter?.(s.ctx);
+    const rows = s.lines();
+    const y = rows.findLastIndex(l => l.includes("drag a title"));
+    s.mouse("down", rows[y]!.indexOf("drag a title") + 1, y);
+    expect((s.top() as Desk).spec.name).toBe("who");
   });
 });

@@ -4,18 +4,13 @@
 import type { Actor } from "../socket";
 import { ActionRefused, ActionSet } from "../surface/actions";
 import type { Axis } from "./screen-layout";
+import type { Desk } from "./desk";
 import { tileKinds, tileNoun } from "./tile-kinds";
 
 /** What pane.split did: `tile` the new tile's name, `pane` its number on screen (the older answer, kept). */
 export interface PaneDone { pane: string; [k: string]: unknown }
 
-/** A view on the layout tree that opens a tile beside another. `sel` names a tile as `peek` does. */
-export interface PaneHost {
-  ctx: { flash(msg: string): void };
-  splitPane(sel: string | undefined, kind: string | undefined, dir: Axis | undefined, actor: Actor): PaneDone | Promise<PaneDone>;
-}
-
-interface On { h: PaneHost; reader?: string }
+interface On { h: Desk; reader?: string }
 
 const axisOf = (s: string | undefined, action: string): Axis | undefined => {
   if (s === undefined) return undefined;

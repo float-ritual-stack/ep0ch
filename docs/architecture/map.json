@@ -118,16 +118,16 @@
       "id": "kept.sqlite", "name": "SQLite (bun:sqlite)", "group": "kept", "chapter": "outline", "ladder": "stable", "dependsOn": [],
       "does": "Holds each outline: blocks, properties, the change feed, bookmarks, captures.",
       "built": "One database per outline, opened by the store; the kernel releases its write lock when the process dies.",
-      "refs": [ { "r": "outliner", "p": "src/store.ts", "l": 770, "m": "new Database(path" } ]
+      "refs": [ { "r": "outliner", "p": "src/store.ts", "l": 774, "m": "new Database(path" } ]
     },
     {
       "id": "svc.store", "name": "Outline store", "group": "service", "chapter": "outline", "ladder": "stable", "dependsOn": ["kept.sqlite", "svc.grammar"],
       "does": "Blocks with revisions and provenance (author, actor). Every write names the revision it read; a stale write is refused.",
       "built": "OutlinerStore over SQLite: a blocks table and a block_properties index; update() is the one text write, and properties.patch is an update at an expected revision.",
       "refs": [
-        { "r": "outliner", "p": "src/store.ts", "l": 753, "m": "export class OutlinerStore" },
-        { "r": "outliner", "p": "src/store.ts", "l": 3898, "m": "CREATE TABLE IF NOT EXISTS blocks" },
-        { "r": "outliner", "p": "src/store.ts", "l": 783, "m": "update(" }
+        { "r": "outliner", "p": "src/store.ts", "l": 757, "m": "export class OutlinerStore" },
+        { "r": "outliner", "p": "src/store.ts", "l": 3959, "m": "CREATE TABLE IF NOT EXISTS blocks" },
+        { "r": "outliner", "p": "src/store.ts", "l": 787, "m": "update(" }
       ]
     },
     {
@@ -136,7 +136,7 @@
       "built": "A SQLite write reservation on a lock file beside the database (acquireLockFile). Review B calls it the best runtime code in either repo.",
       "refs": [
         { "r": "outliner", "p": "src/workspace-ownership.ts", "l": 11, "m": "export function acquireLockFile" },
-        { "r": "outliner", "p": "src/store.ts", "l": 767, "m": "acquireWorkspaceOwnership(path)" }
+        { "r": "outliner", "p": "src/store.ts", "l": 771, "m": "acquireWorkspaceOwnership(path)" }
       ],
       "questions": [ { "text": "`:memory:` stores still create a stray `:memory:.owner.sqlite` in the working directory.", "finding": "B-F18" } ]
     },
@@ -166,8 +166,8 @@
       "built": "block-query.ts parses property filters; the server answers views.read and query.matches from the store. The door's port of this language (query.ts) is deleted.",
       "refs": [
         { "r": "outliner", "p": "src/block-query.ts", "l": 225, "m": "export function parsePropertyFilterExpression" },
-        { "r": "outliner", "p": "src/server.ts", "l": 1828, "m": "case \"views.read\"" },
-        { "r": "outliner", "p": "src/server.ts", "l": 1847, "m": "case \"query.matches\"" }
+        { "r": "outliner", "p": "src/server.ts", "l": 1853, "m": "case \"views.read\"" },
+        { "r": "outliner", "p": "src/server.ts", "l": 1872, "m": "case \"query.matches\"" }
       ]
     },
 
@@ -176,10 +176,10 @@
       "does": "Line-delimited JSON over a Unix socket. The protocol stays at 82; new features are additive capabilities that ping lists, and a client names the one it's missing.",
       "built": "OUTLINER_PROTOCOL_VERSION and OUTLINER_CAPABILITIES in types.ts; ping answers them with the grammar version and where the outline lives.",
       "refs": [
-        { "r": "outliner", "p": "src/types.ts", "l": 1661, "m": "OUTLINER_PROTOCOL_VERSION = 82" },
-        { "r": "outliner", "p": "src/types.ts", "l": 1671, "m": "export const OUTLINER_CAPABILITIES" },
-        { "r": "outliner", "p": "src/server.ts", "l": 1809, "m": "case \"ping\"" },
-        { "r": "outliner", "p": "src/server.ts", "l": 413, "m": "server.listen(this.socketPath" }
+        { "r": "outliner", "p": "src/types.ts", "l": 1668, "m": "OUTLINER_PROTOCOL_VERSION = 82" },
+        { "r": "outliner", "p": "src/types.ts", "l": 1678, "m": "export const OUTLINER_CAPABILITIES" },
+        { "r": "outliner", "p": "src/server.ts", "l": 1834, "m": "case \"ping\"" },
+        { "r": "outliner", "p": "src/server.ts", "l": 416, "m": "server.listen(this.socketPath" }
       ]
     },
     {
@@ -190,7 +190,7 @@
         { "r": "outliner", "p": "src/change-feed.ts", "l": 129, "m": "export class ChangeFeed" },
         { "r": "outliner", "p": "src/change-feed.ts", "l": 139, "m": "CREATE TABLE IF NOT EXISTS change_feed" },
         { "r": "outliner", "p": "src/change-feed.ts", "l": 304, "m": "since(sequence" },
-        { "r": "outliner", "p": "src/server.ts", "l": 3010, "m": "private publishChanges" }
+        { "r": "outliner", "p": "src/server.ts", "l": 3037, "m": "private publishChanges" }
       ]
     },
     {
@@ -199,8 +199,8 @@
       "built": "view-writes.ts splits a view's query into clauses a write sets and clauses that must already hold, then evaluates the whole query on the patched block. Ported from the door's move planning, which it replaces.",
       "refs": [
         { "r": "outliner", "p": "src/view-writes.ts", "l": 162, "m": "export function planMoveIntoView" },
-        { "r": "outliner", "p": "src/store.ts", "l": 3191, "m": "planViewWrites(input" },
-        { "r": "outliner", "p": "src/server.ts", "l": 1835, "m": "case \"views.planWrite\"" }
+        { "r": "outliner", "p": "src/store.ts", "l": 3239, "m": "planViewWrites(input" },
+        { "r": "outliner", "p": "src/server.ts", "l": 1860, "m": "case \"views.planWrite\"" }
       ],
       "questions": [ { "text": "One client so far (the door's board). Tree's virtual branches, the CLI's work_stage and agents could plan through it too.", "finding": "A-F12" } ]
     },
@@ -209,7 +209,7 @@
       "does": "Ranked search over the outline, text or semantic. Goto uses it; the door doesn't.",
       "built": "Answered in the server before the request switch; the Goto controller asks it as you type.",
       "refs": [
-        { "r": "outliner", "p": "src/server.ts", "l": 1560, "m": "request.action === \"tree.search\"" },
+        { "r": "outliner", "p": "src/server.ts", "l": 1585, "m": "request.action === \"tree.search\"" },
         { "r": "outliner", "p": "src/goto-controller.ts", "l": 152, "m": "action: \"tree.search\"" }
       ],
       "questions": [ { "text": "The door has four searches of its own. One jump palette over tree.search would replace them.", "finding": "A-F8", "route": "service track" } ]
@@ -334,9 +334,9 @@
         { "r": "door", "p": "src/surface/dispatch.ts", "l": 183, "m": "export class Dispatcher" },
         { "r": "door", "p": "src/surface/dispatch.ts", "l": 140, "m": "export function actorRule" },
         { "r": "door", "p": "src/whereabouts.ts", "l": 46, "m": "export function whereabouts" },
-        { "r": "door", "p": "src/app.ts", "l": 533, "m": "person(): Whereabouts" },
+        { "r": "door", "p": "src/app.ts", "l": 531, "m": "person(): Whereabouts" },
         { "r": "door", "p": "src/draft-session.ts", "l": 544, "m": "export function draftRule" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 1040, "m": "readonly dispatch: Dispatcher = new Dispatcher(this.dispatchHost()" }
+        { "r": "door", "p": "src/desk/desk.ts", "l": 1050, "m": "readonly dispatch: Dispatcher = new Dispatcher(this.dispatchHost()" }
       ],
       "questions": [
         { "text": "A restarted door re-applies the replay-safe actions it logged and asks before the rest.", "route": "PIE-418" }
@@ -350,7 +350,7 @@
         { "r": "door", "p": "src/screens.ts", "l": 419, "m": "export const SHELL_ACTIONS" },
         { "r": "door", "p": "src/screens.ts", "l": 648, "m": "export const LIST_ACTIONS" },
         { "r": "door", "p": "src/surface/dispatch.ts", "l": 140, "m": "export function actorRule" },
-        { "r": "door", "p": "src/app.ts", "l": 542, "m": "async act(req" },
+        { "r": "door", "p": "src/app.ts", "l": 540, "m": "async act(req" },
         { "r": "door", "p": "src/drop.ts", "l": 50, "m": "export async function runLoginShell" }
       ]
     },
@@ -433,7 +433,7 @@
       "refs": [
         { "r": "door", "p": "src/desk/layout.ts", "l": 93, "m": "id?: string" },
         { "r": "door", "p": "src/desk/screen-layout.ts", "l": 240, "m": "export function revisionRefusal" },
-        { "r": "door", "p": "src/desk/tile-actions.ts", "l": 125, "m": "\"layout.resize\"" }
+        { "r": "door", "p": "src/desk/tile-actions.ts", "l": 83, "m": "\"layout.resize\"" }
       ]
     },
     {
@@ -441,14 +441,14 @@
       "does": "The one full host of the layout: tile instances, focus, frames, headers, drag, tabs, drawers, zoom, floats, flows drawn. Every key and drag goes through cmd() to an action, and every action's layout change through the screen-layout module.",
       "built": "Desk in desk.ts with TILE_ACTIONS; what differs by kind it asks the tile-kind registry. It holds a LayoutState and changes it only by apply (PIE-513): it says what each tile is (facts) and where the person types (layoutCtx), commits the module's answer, and keeps the tile instances, gestures and painting. Its refusal functions are gone into the module. tile.* actions are the one name for each operation; pane.* are their older aliases (PIE-510).",
       "refs": [
-        { "r": "door", "p": "src/desk/desk.ts", "l": 77, "m": "export class Desk" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 282, "m": "protected apply(" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 257, "m": "protected layoutCtx" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 1220, "m": "protected cmd(" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 494, "m": "async fillColumns" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 2789, "m": "floatTile(sel" },
-        { "r": "door", "p": "src/desk/tile-actions.ts", "l": 100, "m": "export const TILE_ACTIONS" },
-        { "r": "door", "p": "src/desk/tile-actions.ts", "l": 299, "m": "\"tile.widen\": {" }
+        { "r": "door", "p": "src/desk/desk.ts", "l": 86, "m": "export class Desk" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 293, "m": "private apply(" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 268, "m": "private layoutCtx" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 1228, "m": "  run(name: string, args" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 505, "m": "async fillColumns" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 2786, "m": "floatTile(sel" },
+        { "r": "door", "p": "src/desk/tile-actions.ts", "l": 58, "m": "export const TILE_ACTIONS" },
+        { "r": "door", "p": "src/desk/tile-actions.ts", "l": 246, "m": "\"tile.widen\": {" }
       ],
       "questions": []
     },
@@ -477,8 +477,8 @@
       "refs": [
         { "r": "door", "p": "src/desk/tiles.ts", "l": 69, "m": "export interface LayoutSpec" },
         { "r": "door", "p": "src/desk/tiles.ts", "l": 187, "m": "export function layoutNamed" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 57, "m": "interface SavedDesk" },
-        { "r": "door", "p": "src/river/column.ts", "l": 749, "m": "saves: \"river.json\"" }
+        { "r": "door", "p": "src/desk/desk.ts", "l": 56, "m": "interface SavedDesk" },
+        { "r": "door", "p": "src/river/column.ts", "l": 750, "m": "saves: \"river.json\"" }
       ],
       "questions": [ { "text": "One LayoutSpec shape for river.json too, and presets as screen notes in the outline.", "finding": "A-F19", "route": "PIE-493" } ]
     },
@@ -498,8 +498,8 @@
       "does": "A screen that runs programs stays alive when you leave it; D on the menu brings it back.",
       "built": "Two owners: App.background and a static Desk.kept.",
       "refs": [
-        { "r": "door", "p": "src/app.ts", "l": 278, "m": "background: Screen[]" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 612, "m": "private static kept" }
+        { "r": "door", "p": "src/app.ts", "l": 276, "m": "background: Screen[]" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 622, "m": "private static kept" }
       ],
       "questions": [ { "text": "App.background as the one owner.", "finding": "A-F19", "route": "PIE-493" } ]
     },
@@ -530,7 +530,7 @@
       "refs": [
         { "r": "door", "p": "src/desk/pty.ts", "l": 127, "m": "export class PtyPane" },
         { "r": "door", "p": "src/desk/pty-backend.ts", "l": 68, "m": "new Bun.Terminal" },
-        { "r": "door", "p": "src/desk/pty-actions.ts", "l": 27, "m": "export const PTY_ACTIONS" },
+        { "r": "door", "p": "src/desk/pty-actions.ts", "l": 20, "m": "export const PTY_ACTIONS" },
         { "r": "door", "p": "src/desk/pty.ts", "l": 108, "m": "export function tileEnv" }
       ],
       "questions": [
@@ -546,7 +546,7 @@
       "refs": [
         { "r": "door", "p": "src/desk/herdr-agent.ts", "l": 329, "m": "export async function main" },
         { "r": "door", "p": "src/desk/herdr-agent.ts", "l": 256, "m": "export function tellDoor" },
-        { "r": "door", "p": "src/desk/pty-actions.ts", "l": 67, "m": "\"tile.herdr\": {" },
+        { "r": "door", "p": "src/desk/pty-actions.ts", "l": 25, "m": "\"tile.herdr\": {" },
         { "r": "door", "p": "src/desk/pty.ts", "l": 145, "m": "get herdr(): { pane: string; name?: string } | null" },
         { "r": "door", "p": "src/dock.ts", "l": 90, "m": "export class AgentDock" },
         { "r": "door", "p": "src/dock.ts", "l": 581, "m": "export const DOCK_ACTIONS" },
@@ -561,7 +561,7 @@
       "refs": [
         { "r": "door", "p": "src/door.ts", "l": 106, "m": "export function guardDoor" },
         { "r": "door", "p": "src/door.ts", "l": 121, "m": "process.on(\"uncaughtException\", fault)" },
-        { "r": "door", "p": "src/app.ts", "l": 339, "m": "terminate()" }
+        { "r": "door", "p": "src/app.ts", "l": 337, "m": "terminate()" }
       ],
       "questions": [ { "text": "Six child-process launchers, three with no timeout; unzip blocks the paint.", "finding": "B-F7" } ]
     },
@@ -617,7 +617,7 @@
         { "r": "door", "p": "src/desk/screen-spec.ts", "l": 33, "m": "export interface ScreenSpec" },
         { "r": "door", "p": "src/desk/screen-spec.ts", "l": 82, "m": "export function readSpec" },
         { "r": "door", "p": "src/desk/screen-specs.ts", "l": 36, "m": "export function openScreen" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 59, "m": "export function deskSpec" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 58, "m": "export function deskSpec" },
         { "r": "door", "p": "src/hub/welcome.ts", "l": 549, "m": "export function welcomeSpec" },
         { "r": "door", "p": "src/brief/brief.ts", "l": 266, "m": "export function briefSpec" }
       ],
@@ -645,9 +645,9 @@
       "built": "A screen spec on the desk (PIE-515): its columns are river.column tiles (a reader of the note surface with the river's own view: the Library, a note and its replies, a #value branch) in a flow container, the layout engine's squeeze, focus, widen, dock, travel and close; saved to river.json as the desk's layout. Reply counts from one shared index per service.",
       "refs": [
         { "r": "door", "p": "src/river/column.ts", "l": 120, "m": "export class RiverColumn extends ReaderPane" },
-        { "r": "door", "p": "src/river/column.ts", "l": 747, "m": "export function riverSpec" },
+        { "r": "door", "p": "src/river/column.ts", "l": 748, "m": "export function riverSpec" },
         { "r": "door", "p": "src/river/column.ts", "l": 89, "m": "class OutlineIndex" },
-        { "r": "door", "p": "src/river/column.ts", "l": 635, "m": "export const COLUMN_ACTIONS" }
+        { "r": "door", "p": "src/river/column.ts", "l": 636, "m": "export const COLUMN_ACTIONS" }
       ],
       "questions": [
         { "text": "A river screen as a note in the outline (gap 4): its spec is plain data (riverSpec).", "finding": "A-F5", "route": "PIE-412" }
@@ -678,7 +678,7 @@
       "does": "Find a note: the desk's / (the river's g), the board's picker. The BBS Search screen, never constructed, is gone (PIE-510).",
       "built": "Separate implementations over different sources; none uses tree.search.",
       "refs": [
-        { "r": "door", "p": "src/desk/desk.ts", "l": 3260, "m": "function searchOverlay(" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 3257, "m": "function searchOverlay(" },
         { "r": "door", "p": "src/river/column.ts", "l": 64, "m": "export function parseFilter" }
       ],
       "questions": [ { "text": "One jump palette as a shell overlay over tree.search.", "finding": "A-F8", "route": "PIE-493" } ]
@@ -712,8 +712,8 @@
       "does": "An agent sees what the person sees and does what they do. Its action is named on the status bar, recorded as author agent with its actor id, and never takes the person's focus, selection or keys.",
       "built": "App.act runs the request through the App's dispatcher (the host layer's, the shell's and the extensions' sets, then the screen's own dispatcher); App.subscribe diffs each screen's viewState after a paint.",
       "refs": [
-        { "r": "door", "p": "src/app.ts", "l": 542, "m": "async act(req" },
-        { "r": "door", "p": "src/app.ts", "l": 356, "m": "viewState?.()" }
+        { "r": "door", "p": "src/app.ts", "l": 540, "m": "async act(req" },
+        { "r": "door", "p": "src/app.ts", "l": 354, "m": "viewState?.()" }
       ],
       "questions": [
         { "text": "`open` is three actions with different arguments; `pin` is four things.", "finding": "C-F16" },
@@ -827,9 +827,9 @@
       { "label": "properties.patch", "at": "door.socketboard", "what": "moveTo re-plans the target lane, then applyMove sends properties.patch with expectedRevision and the actor's provenance.",
         "ref": { "r": "door", "p": "src/socket.ts", "l": 847, "m": "\"properties.patch\", { blockId, expectedRevision" } },
       { "label": "revision check", "at": "svc.store", "what": "The store refuses if the card changed since it was read; otherwise it patches the tokens and writes the text.",
-        "ref": { "r": "outliner", "p": "src/store.ts", "l": 2329, "m": "existing.revision !== expectedRevision" } },
+        "ref": { "r": "outliner", "p": "src/store.ts", "l": 2333, "m": "existing.revision !== expectedRevision" } },
       { "label": "change feed", "at": "svc.feed", "what": "The change is recorded in the feed and broadcast as an event to every subscriber: this door, other doors, Detail, Tree, the publisher.",
-        "ref": { "r": "outliner", "p": "src/server.ts", "l": 3010, "m": "private publishChanges" } },
+        "ref": { "r": "outliner", "p": "src/server.ts", "l": 3037, "m": "private publishChanges" } },
       { "label": "event in", "at": "door.socketboard", "what": "Each door's SocketBoard hands the event to App.event, which passes it to the screen on top.",
         "ref": { "r": "door", "p": "src/door.ts", "l": 49, "m": "o.board.subscribe(e => app.event(e))" } },
       { "label": "which lanes", "at": "door.board", "what": "The board works out which lanes the change touches (asking planWrite which lanes the card is 'already' in) and marks them.",

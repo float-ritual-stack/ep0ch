@@ -1,27 +1,20 @@
 // A terminal tile's own actions (PIE-510, A2): the terminal kind's ActionSet, as the tree's tree.* are the tree
 // kind's. `act` routes them to tile=<tile> when it's a terminal (a program an extension names is one too), else
 // the focused terminal, else the first; the desk's keys (⏎, e, a click, ctrl+]) run the same actions through the
-// kind's `press` hook. What they change on the desk (whose keys go where) the desk does, through TerminalHost.
+// kind's `press` hook. What they change on the desk (whose keys go where) the desk does.
 import type { Actor } from "../socket";
 import { ActionRefused, ActionSet } from "../surface/actions";
+import type { Desk } from "./desk";
 import type { DeskApi } from "./panes";
 import type { PtyPane } from "./pty";
 import type { TileDone } from "./tile-actions";
 
-/** What a terminal's actions need from the desk: the person's keys go into a terminal and back out. */
-export interface TerminalHost {
-  typeTerminal(tile: string, p: PtyPane, text: string, actor: Actor): TileDone;
-  restartTerminal(tile: string, p: PtyPane, actor: Actor): TileDone;
-  enterTerminal(tile: string, p: PtyPane, send: string | undefined): TileDone;
-  leaveTerminal(): TileDone;
-  herdrTerminal(tile: string, p: PtyPane, pane: string | undefined, on: boolean | undefined, actor: Actor, name?: string): TileDone;
-}
 interface On { pane: PtyPane; desk: DeskApi; tile: string }
 
-/** The desk a terminal tile is on, as a TerminalHost (every desk is one; a screen without terminals has none to route here). */
-const host = (desk: DeskApi): TerminalHost & DeskApi => {
+/** The desk a terminal tile is on (a screen without terminals has none to route here). */
+const host = (desk: DeskApi): Desk => {
   if (!("typeTerminal" in desk)) throw new ActionRefused("this screen has no terminal tiles");
-  return desk as TerminalHost & DeskApi;
+  return desk as Desk;
 };
 
 export const PTY_ACTIONS = new ActionSet<{
@@ -36,8 +29,7 @@ export const PTY_ACTIONS = new ActionSet<{
     touches: "tile", while: "typing", replay: "ask", way: "an agent doesn't type there (an nvim tile's socket edits other lines without their cursor)", says: r => `typed into ${r.tile}`,
     args: { text: { type: "string", about: "what to type; \\n for enter, \\e for escape" } },
     run({ text }, { pane, desk, tile }, actor) {
-      const r = host(desk).typeTerminal(tile, pane, text, actor);
-      return r;
+      return host(desk).typeTerminal(tile, pane, text, actor);
     },
   },
   "tile.restart": {
@@ -46,8 +38,7 @@ export const PTY_ACTIONS = new ActionSet<{
     touches: "tile", while: "typing", replay: "ask", way: "an agent doesn't restart it under them (block.mark gets their attention)", says: r => `restarted ${r.tile}`,
     args: {},
     run(_, { pane, desk, tile }, actor) {
-      const r = host(desk).restartTerminal(tile, pane, actor);
-      return r;
+      return host(desk).restartTerminal(tile, pane, actor);
     },
   },
   "tile.enter": {
@@ -72,8 +63,7 @@ export const PTY_ACTIONS = new ActionSet<{
     replay: "ask", says: (r, a) => (a.on === false ? `${r.tile} no longer shows an agent in Herdr` : `${r.tile} shows ${a.pane} in Herdr (quitting the door leaves it running)`),
     args: { pane: { type: "string", optional: true, about: "the Herdr pane's label (door-claude)" }, name: { type: "string", optional: true, about: "the agent's name in Herdr (door; a test door's door-<hash>)" }, on: { type: "boolean", optional: true, about: "false: the tile no longer shows a Herdr agent" } },
     run({ pane: label, name, on }, { pane, desk, tile }, actor) {
-      const r = host(desk).herdrTerminal(tile, pane, label, on, actor, name);
-      return r;
+      return host(desk).herdrTerminal(tile, pane, label, on, actor, name);
     },
   },
 });

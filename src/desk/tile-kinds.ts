@@ -248,7 +248,7 @@ export interface ColumnsHost extends DeskApi {
   /** The source a container shows now (`hub:<id>`). */
   sourceOf?(container: string): string | undefined;
   /** Save the screen now (a model's state changed: the hub shown). */
-  saveNow(): void;
+  save(): void;
   /** The tiles following any tile in the container (a preview with `source=tile:<its key>`). */
   followersOf(container: string): Pane[];
   /** Every reader on the screen, by name. */

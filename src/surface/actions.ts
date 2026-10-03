@@ -181,10 +181,13 @@ export interface ActionRun { scope: string; name: string; keys?: string; actor: 
 const tracers = new Set<(r: ActionRun) => void>();
 /** The screen's key map entry running now (a spec's `keys`): the key names the action it runs, as the action's own keys do. */
 let boundKey: string | null = null;
-/** Run `f` as screen key `key` (a spec's key map: the board's `t` runs tile.drawer): what runs, runs as that key. */
+/**
+ * Run `f` as screen key `key` (a spec's key map: the board's `t` runs tile.drawer): what runs, runs as that key. Inside
+ * another (a click on a hint's key), as both.
+ */
 export function asBoundKey<T>(key: string, f: () => T): T {
   const was = boundKey;
-  boundKey = key;
+  boundKey = was ? `${was}; ${key}` : key;
   try { return f(); } finally { boundKey = was; }
 }
 /**
@@ -300,6 +303,36 @@ export function hintKeys(text: string): string[] {
       out.push(...ks);
       if (ks.some(k => MOUSE.has(k))) break;
     }
+  }
+  return out;
+}
+
+const PLAIN = new Set(["enter", "esc", "tab", "backspace", "delete", "pgup", "pgdn", "home", "end", "up", "down", "left", "right"]);
+const NAMED_KEY: Record<string, Key> = {
+  space: { kind: "char", ch: " " }, "shift+tab": { kind: "backtab" }, "alt+enter": { kind: "alt-enter" }, "alt+left": { kind: "alt-left" },
+  "alt+right": { kind: "alt-right" }, "shift+enter": { kind: "enter", shift: true }, "ctrl+enter": { kind: "enter", ctrl: true },
+};
+/** The key a key name stands for (`keyName`'s inverse); null for a mouse gesture. */
+export function keyOfName(n: string): Key | null {
+  if ([...n].length === 1) return { kind: "char", ch: n };
+  const m = /^(ctrl|alt|super)\+(.)$/u.exec(n);
+  if (m) return m[1] === "ctrl" ? { kind: "char", ch: m[2]!, ctrl: true } : { kind: m[1] as "alt" | "super", ch: m[2]! };
+  return NAMED_KEY[n] ?? (PLAIN.has(n) ? { kind: n } as Key : null);
+}
+
+/**
+ * The parts of a drawn hint row that start with one key ("q menu", "^W window", "alt+k lock"), by cell: a click on
+ * one presses that key. A part that names several ("Tab/1-9 focus") or none ("drag a title moves") isn't one.
+ */
+export function hintSpots(drawn: string): { from: number; to: number; key: Key }[] {
+  const out: { from: number; to: number; key: Key }[] = [];
+  let col = 0;
+  for (const part of drawn.replace(/\x1b\[[\d;]*m/g, "").split(" · ")) {
+    const words = part.trim().split(/\s+/), ks = words.length > 1 ? wordKeys(words[0]!.replace(/[,:]$/, "")) : null;
+    const key = ks?.length === 1 ? keyOfName(ks[0]!) : null;
+    const w = Bun.stringWidth(part);
+    if (key) out.push({ from: col + part.length - part.trimStart().length, to: col + w, key });
+    col += w + 3;
   }
   return out;
 }

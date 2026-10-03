@@ -157,7 +157,7 @@ export class Lanes implements SourceModel {
     this.markCurrent();
     // The person starts on the lanes (unless they went elsewhere meanwhile).
     const pv = this.preview();
-    if (!this.started && this.at && pv && this.host.focusedPane() === pv && !this.host.personTyping?.()) this.host.focusPane?.(this.at, USER);
+    if (!this.started && this.at && pv && this.host.focusedPane() === pv && !this.host.holdsKeys?.()) this.host.focusPane?.(this.at, USER);
     if (this.at) this.started = true;
     this.loadLanes();
   }
@@ -303,9 +303,9 @@ export class Lanes implements SourceModel {
     const onLanes = this.onLanes;
     await this.host.showSource(this.container, `hub:${hub.id}`);
     // The person was on the lanes: they're on the new board's (its old lanes were closed under them).
-    if (onLanes && !this.host.personTyping?.()) this.toLanes();
+    if (onLanes && !this.host.holdsKeys?.()) this.toLanes();
     this.status = "";
-    this.host.saveNow();
+    this.host.save();
     this.host.redraw();
   }
 
@@ -446,7 +446,7 @@ export class Lanes implements SourceModel {
       if (at >= 0) {
         const l = lanes[at]!, i = l.items?.findIndex(m => m.id === a.id || (a.id!.length >= 8 && m.id.startsWith(a.id!))) ?? -1;
         if (i < 0) throw new ActionRefused(`${l.name} doesn't list ${a.id}`);
-        this.lane = at; l.sel = i; this.toLanes(); this.follow(); this.host.saveNow(); this.host.redraw();
+        this.lane = at; l.sel = i; this.toLanes(); this.follow(); this.host.save(); this.host.redraw();
         return { selected: l.items![i]!.id, lane: l.name };
       }
       if (!this.selectCard(a.id)) throw new ActionRefused(`no lane on the board lists ${a.id}`);
@@ -475,7 +475,7 @@ export class Lanes implements SourceModel {
     // focus=false (the wheel over a lane): that lane's cursor moves; the current lane and the keys stay.
     if (a.focus !== false) { this.lane = lane; this.toLanes(); }
     if (lane === this.lane) this.follow();
-    this.host.saveNow(); this.host.redraw();
+    this.host.save(); this.host.redraw();
     return { lane: l.name, selected: l.items?.[sel]?.id ?? null };
   }
 
