@@ -1,6 +1,6 @@
 import type { RenderElement, RenderSurface } from 'claude-code'
 
-import type { MentionRow, MentionsList, MentionsPlacement, MentionsPrefs } from '../types'
+import type { DetailBeside, MentionRow, MentionsList, MentionsPlacement, MentionsPrefs } from '../types'
 import type { BlockViewElements } from './block-view'
 import { MENTIONS_AGENT } from './mention-message'
 
@@ -77,12 +77,15 @@ export function mentionRowsOf(stdout: string): MentionRow[] {
 
 /**
  * Where a press opens a block, as the person reads it (openNote's order).
- * `adminDetail`: whether the Outliner's `find-detail` found a Detail beside
- * Claude in its Herdr workspace (the one a press reuses).
+ * `beside`: what the Outliner's `find-detail` found beside Claude in its Herdr
+ * workspace (the Detail a press reuses), unknown until it answers.
  */
-export function opensIn(env: { EP0CH_CONTROL?: string; HERDR_PANE_ID?: string; HERDR_WORKSPACE_ID?: string }, adminDetail = false): string {
+export function opensIn(env: { EP0CH_CONTROL?: string; HERDR_PANE_ID?: string; HERDR_WORKSPACE_ID?: string }, beside?: DetailBeside): string {
   if (env.EP0CH_CONTROL) return 'opens in this door'
-  if (env.HERDR_PANE_ID && env.HERDR_WORKSPACE_ID) return adminDetail ? 'opens in the Outliner Detail beside you' : 'opens in a new Outliner Detail beside you'
+  if (env.HERDR_PANE_ID && env.HERDR_WORKSPACE_ID) {
+    if (beside?.found === 'refused') return `can't open beside you: ${beside.why}`
+    return beside?.found === 'detail' ? 'opens in the Outliner Detail beside you' : 'opens in a new Outliner Detail beside you'
+  }
   return 'not in a door or Herdr: a press says how to open it'
 }
 
@@ -169,9 +172,10 @@ export function mentionsTree(ui: SiteElements, m: MentionsModel): RenderElement 
   const controls = [
     Button({ key: 'mentions-previews', hotkey: 'p', plain: true, label: p.previews ? 'previews off' : 'previews', onPress: () => m.choose(x => ({ ...x, previews: !x.previews })) }),
     Button({ key: 'mentions-scope', hotkey: 's', plain: true, label: p.scope === 'conversation' ? 'all conversations' : 'this conversation', onPress: () => m.choose(x => ({ ...x, scope: x.scope === 'conversation' ? 'workspace' : 'conversation' })) }),
-    // Pressed, register.ts's ui.press hook moves it (the person's open places the pane at any width); this closure is
-    // what a press would do without that hook. In the band standing in for a waiting pane, `m` shows the pane.
-    Button({ key: 'mentions-move', hotkey: 'm', plain: true, label: site === 'pane' ? 'to band' : p.placement === 'pane' ? 'show pane' : 'to pane', onPress: () => m.choose(x => ({ ...x, placement: site === 'band' ? 'pane' : 'band' })) }),
+    // register.ts's ui.press hook takes this press and moves it: an open from the press is the person's, placed at any
+    // width, where one from this closure would be the plugin's own. In the band standing in for a waiting pane, `m`
+    // shows the pane.
+    Button({ key: 'mentions-move', hotkey: 'm', plain: true, label: site === 'pane' ? 'to band' : p.placement === 'pane' ? 'show pane' : 'to pane', onPress: () => {} }),
     Button({ key: 'mentions-hide', hotkey: 'x', plain: true, label: 'hide', onPress: () => m.choose(x => ({ ...x, placement: 'off' })) }),
   ]
   const heading = `Mentioned${p.scope === 'workspace' ? ' (all conversations)' : ''}`

@@ -103,7 +103,9 @@ A click, `show` and `door_open` share one open (`openNote` in
    A click never fails silently.
 
 - Only the invoking Herdr workspace's Trees count: a Detail in another workspace
-  is never "beside you". Two Trees in one tab is the Outliner's refusal, said in a toast.
+  is never "beside you". Two Trees in one tab is the Outliner's refusal, said in a
+  toast (and in the pane's heading, "can't open beside you: …"); the Outliner
+  raises no Herdr notification for the mod's opens, which say it themselves.
 - If you are editing in that Detail, a click or `show` is refused with a toast
   (the Outliner protects active edits) rather than opening a second pane.
 - Clicks reach the mod in the fullscreen terminal (`"tui": "fullscreen"`).

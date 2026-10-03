@@ -495,7 +495,24 @@ test("find-detail reports a selection ensure-detail would refuse as none, with w
   const ensured = await openWithFakeHerdr({ root, host, folder, mode: "ensure-detail", paneId: "workspace:claude", args: ["--no-focus"] });
   expect(ensured.exitCode).not.toBe(0);
   expect(ensured.stderr).toContain("Multiple live Tree clients are registered in tab workspace:tab");
+  // The caller (the Claude mod) says it: no Herdr notification, no open log.
+  expect(ensured.calls.some(call => call[0] === "notification")).toBe(false);
+  expect(existsSync(join(root, "outlines", ".host", "open-startup-error.log"))).toBe(false);
 }, 40_000);
+
+test("find-detail with no host answering fails soon and quietly: no notification, no open log", async () => {
+  const root = scratch();
+  const host = await startHost(root);
+  const folder = join(root, "fred-folder");
+  mkdirSync(folder);
+  writeDotEp0ch(folder, "fred");
+  const started = Date.now();
+  const found = await openWithFakeHerdr({ root, host, folder, mode: "find-detail", env: { EP0CH_OUTLINES: join(root, "nowhere") } });
+  expect(found.exitCode).not.toBe(0);
+  expect(Date.now() - started).toBeLessThan(10_000);
+  expect(found.stderr).toContain("Outliner could not open: No outline host answers");
+  expect(found.calls.some(call => call[0] === "notification")).toBe(false);
+}, 30_000);
 
 test("--no-focus is refused outside ensure-detail", async () => {
   const root = scratch();

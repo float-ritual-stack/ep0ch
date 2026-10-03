@@ -1645,7 +1645,12 @@ for a compatible protocol.
   fails explicitly. With no Tree in the workspace it opens a complete pair.
   `--no-focus` moves no focus; `find-detail` (one finder, `findDetail`) reports
   the Detail it would reuse and opens nothing. The Claude mod's Herdr opens go
-  through these two.
+  through these two: it runs `src/herdr-open.ts` by path (a Herdr action can't
+  take flags or answer), so the flags, `OUTLINER_OPEN_WORKSPACE_ROOT` and the
+  last-line JSON (`detailClientId`, `why`) are a contract with
+  `packages/claude-mod`. With `--no-focus` or `find-detail` a failure is one
+  stderr line (`Outliner could not open: <why>`), never a Herdr notification or
+  the open log: the caller says it.
 - `open-here` always generates a browsing-context UUID, opens a Tree to the right
   of the invoking pane and a Detail below that Tree with the same UUID, and
   focuses the Tree.

@@ -89,7 +89,8 @@ function sessionIn(on: On, env: Record<string, string>, stored: Record<string, u
     if (e.argv.includes('work-id-status')) return ok('{"prefix":"PIE"}')
     if (e.argv.includes('mentions')) return ok(listed)
     if (e.argv.includes('resolve')) return ok(`{"id":"${BLOCK}","title":"Chain oil"}`)
-    if (herdrOpens([e], 'find-detail').length) return ok(JSON.stringify({ detailClientId: beside }))
+    if (herdrOpens([e], 'find-detail').length) return ok(JSON.stringify(beside === 'refused' ? { detailClientId: null, why: 'Multiple live Tree clients are registered in tab w:t1' } : { detailClientId: beside }))
+    if (herdrOpens([e], 'ensure-detail').length && beside === 'refused') return { value: { ...result(1, ''), stderr: 'Outliner could not open: Multiple live Tree clients are registered in tab w:t1\n' } }
     if (herdrOpens([e], 'ensure-detail').length) {
       // ensure-detail opens one when there is none; from then on find-detail finds it.
       const opened = !beside
@@ -303,6 +304,18 @@ describe('Recent mentions in Claude Code', () => {
       expect(session.runs.find(run => run.argv.includes('link'))?.argv.slice(3)).toEqual(['link', `pi-outliner://block/${BLOCK}`, '--detail-client', 'opened-detail', '--no-focus'])
       expect(session.runs.some(run => run.argv.includes('focus'))).toBe(false)
       expect((await shown.find({ type: 'Text', text: /opens in the Outliner Detail beside you/ }))).toBeDefined()
+    })
+
+    test("in Herdr where the Outliner would refuse (two Trees in the tab): the heading says why, and a press toasts it, opening nothing", async ($, on) => {
+      const session = sessionIn(on, IN_HERDR, { 'mentions-view': { placement: 'pane', previews: false, scope: 'conversation' } }, 'cells', true, LISTED, 'refused')
+      await session.begin($)
+      const shown = await pane($)
+      expect(await shown.find({ type: 'Text', text: /can't open beside you: Multiple live Tree clients/ })).toBeDefined()
+      session.runs.length = 0
+      await shown.press({ key: 'mention-1' })
+      await session.clock.settle()
+      expect(session.runs.some(run => run.argv.includes('link'))).toBe(false)
+      expect(session.toasts).toEqual(['Could not open ' + BLOCK + ' in the Outliner: Multiple live Tree clients are registered in tab w:t1'])
     })
 
     test('neither: the command that reads it is copied, the toast leads with it, and the band keeps it', async ($, on) => {

@@ -26,6 +26,9 @@ import {
 
 import { reportStartupErrors } from "./startup-error";
 
+// A program asking (no focus, or only finding): it says any failure itself.
+const callerReports = process.argv.includes("--no-focus") || process.argv.includes("find-detail");
+
 await reportStartupErrors(async () => {
   interface OpenPaneResponse {
     result?: { plugin_pane?: { pane?: { pane_id?: string } } };
@@ -111,7 +114,7 @@ await reportStartupErrors(async () => {
   // The chooser's continuation and the switcher resolve the folder afresh.
   let paneOutline: string | undefined;
   if (currentPaneId && !chosenRoot && mode !== "choose-outline" && mode !== "service-only") {
-    const invoked = await resolveInvocationPaths({ ...process.env, OUTLINER_WORKSPACE_ROOT: workspaceRoot }, currentPaneId);
+    const invoked = await resolveInvocationPaths({ ...process.env, OUTLINER_WORKSPACE_ROOT: workspaceRoot }, currentPaneId, mode === "find-detail" ? 2_000 : undefined);
     if (invoked.outlineSource === "pane") paneOutline = invoked.outline;
   }
   const resolved = resolveClientPaths({ ...process.env, OUTLINER_WORKSPACE_ROOT: workspaceRoot, ...(paneOutline ? { EP0CH_WS: paneOutline } : {}) });
@@ -149,7 +152,8 @@ await reportStartupErrors(async () => {
   // (like `tmux new -A`); the host itself is a service of its own (systemd, launchd).
   const name = paths.outline!;
   // A host that is restarting comes back: wait for it (longer for another machine's), never fall back.
-  const host = await waitForOutlineHost({ ...process.env, OUTLINER_WORKSPACE_ROOT: workspaceRoot }, paths.mode === "remote" ? 60_000 : 15_000);
+  // find-detail asks in the background: a host that isn't there is "none found" soon, not a long wait.
+  const host = await waitForOutlineHost({ ...process.env, OUTLINER_WORKSPACE_ROOT: workspaceRoot }, mode === "find-detail" ? 2_000 : paths.mode === "remote" ? 60_000 : 15_000);
   if (!host) {
     throw new Error(paths.mode === "remote"
       ? `No outline host answers at ${paths.socket}${paths.machine ? ` (on ${paths.machine})` : " (EP0CH_SOCKET)"}. ${remoteHint(paths)}`
@@ -222,7 +226,7 @@ await reportStartupErrors(async () => {
 
   const remote = paths.mode === "remote";
   await waitForCompatibleService(createOutlinerClient(paths), {
-    timeoutMs: 60_000,
+    timeoutMs: mode === "find-detail" ? 3_000 : 60_000,
     pingTimeoutMs: remote ? undefined : 300,
   }).catch((error: unknown) => {
     const lastResponse = (error instanceof Error ? error.message : String(error)).replace(/\.$/, "");
@@ -354,8 +358,9 @@ await reportStartupErrors(async () => {
   }> {
     const clients = localHerdrClients(await listLiveClients(createOutlinerClient(paths)));
     const workspaceId = requestedClientId ? undefined : invocationPane?.workspace_id;
+    // A Tree whose runtime sync hasn't said its workspace yet still counts.
     const trees = clients.filter((candidate) => clientSupportsRole(candidate, "tree") &&
-      (!workspaceId || candidate.runtime?.workspaceId === workspaceId));
+      (!workspaceId || candidate.runtime?.workspaceId === undefined || candidate.runtime.workspaceId === workspaceId));
     if (trees.length === 0 && !requestedClientId) return { clients };
     const tree = selectTreeClientForInvocation(trees, invocationTarget(), requestedClientId);
     const link = await createOutlinerClient(paths).request<NavigationLinkState>({action: "navigation.link.get", source: {clientId: tree.clientId, region: "tree"}});
@@ -463,4 +468,4 @@ await reportStartupErrors(async () => {
       : await focusExisting(trees);
   }
   process.stdout.write(`${JSON.stringify({ ...result, outline: attached.name, outlineCreated: attached.created })}\n`);
-});
+}, { callerReports });

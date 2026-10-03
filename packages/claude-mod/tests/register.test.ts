@@ -39,7 +39,7 @@ function boundToWorkspace(folder: string): string {
 function sessionIn(
   on: On,
   cwd: string,
-  answer: (run: Run) => ProcessRunResult,
+  answer: (run: Run) => ProcessRunResult | Promise<ProcessRunResult>,
   workspaces = '',
   env: Record<string, string> = {},
   binding: (folder: string) => ProcessRunResult = folder => result(0, `${boundToWorkspace(folder)}\n`, ''),
@@ -64,13 +64,13 @@ function sessionIn(
   on('session.id', () => ({ value: 'session-1' }))
   on('session.cwd', () => ({ value: cwd }))
   on('turn.complete', ($, e) => ({ text: e.answer }))
-  on('process.run', ($, e) => {
+  on('process.run', async ($, e) => {
     if (e.argv.includes('bound-folder')) {
       bindings.push(e)
       return { value: binding(e.argv.at(-1)!) }
     }
     runs.push(e)
-    return { value: answer(e) }
+    return { value: await answer(e) }
   })
   on('ui.toast', ($, e) => {
     toasts.push(e.text)
@@ -392,7 +392,7 @@ describe('register', () => {
     const [ensure] = herdrOpens(session.runs, 'ensure-detail')
     expect(ensure?.argv).toEqual(['/bin/sh', '/opt/outliner/scripts/run-bun.sh', '/opt/outliner/src/herdr-open.ts', '--mode', 'ensure-detail', '--no-focus'])
     expect(ensure?.init?.cwd).toBe(WORKSPACE)
-    expect(ensure?.init?.env).toMatchObject({ OUTLINER_WORKSPACE_ROOT: WORKSPACE, HERDR_ENV: '1' })
+    expect(ensure?.init?.env).toMatchObject({ OUTLINER_WORKSPACE_ROOT: WORKSPACE, OUTLINER_OPEN_WORKSPACE_ROOT: WORKSPACE, HERDR_ENV: '1' })
     // The existing admin Detail is navigated, without focus; the mod opens and focuses no pane of its own.
     const link = session.runs.find(run => run.argv.includes('link'))
     expect(link?.argv.slice(3)).toEqual(['link', 'pi-outliner://page/Daily%20notes', '--detail-client', 'admin-detail', '--no-focus'])
@@ -436,7 +436,7 @@ describe('register', () => {
 
   test("ensure-detail's refusal (two Trees in the tab) is the toast", async ($, on) => {
     const session = sessionIn(on, WORKSPACE, run => herdrOpens([run], 'ensure-detail').length
-      ? result(1, '', 'Outliner could not open: Error: Multiple live Tree clients are registered in tab w:t1\nError: Multiple live Tree clients are registered in tab w:t1\n    at selectTreeClientForInvocation (herdr-open-policy.ts:47:13)')
+      ? result(1, '', 'Outliner could not open: Multiple live Tree clients are registered in tab w:t1\n')
       : succeeding(run))
     await session.begin(() => $.session.start(START))
     const drawn = await mountReply($, 'See PIE-7.')
@@ -450,18 +450,16 @@ describe('register', () => {
 
   test('a click and a show call at once run one after the other: the Detail the first opened is the one the second reuses', async ($, on) => {
     let opened = false
-    let running = 0
-    let overlapped = false
-    const session = sessionIn(on, WORKSPACE, run => {
-      if (herdrOpens([run], 'ensure-detail').length) {
-        running++
-        if (running > 1) overlapped = true
-        const answer = JSON.stringify({ detailClientId: 'new-detail', opened: !opened })
-        opened = true
-        running--
-        return result(0, answer, '')
-      }
-      return succeeding(run)
+    const order: string[] = []
+    // ensure-detail takes a while: two at once would interleave their start and end.
+    const session = sessionIn(on, WORKSPACE, async run => {
+      if (!herdrOpens([run], 'ensure-detail').length) return succeeding(run)
+      order.push('start')
+      await new Promise(resolve => setTimeout(resolve, 30))
+      order.push('end')
+      const answer = JSON.stringify({ detailClientId: 'new-detail', opened: !opened })
+      opened = true
+      return result(0, answer, '')
     })
     on('tool.register', ($, e) => ({ value: { tool: `mcp__pi-outliner__${e.name}` } }))
     await session.begin(() => $.session.start(START))
@@ -473,8 +471,7 @@ describe('register', () => {
     ])
     await session.clock.settle()
 
-    expect(overlapped).toBe(false)
-    expect(herdrOpens(session.runs, 'ensure-detail')).toHaveLength(2)
+    expect(order).toEqual(['start', 'end', 'start', 'end'])
     expect(session.runs.filter(run => run.argv.includes('link')).map(run => run.argv.at(-2))).toEqual(['new-detail', 'new-detail'])
   })
 
@@ -579,7 +576,7 @@ describe('register', () => {
       expect(opened.argv[opened.argv.indexOf('--actor') + 1]).toBe('garden-agent')
     })
 
-    test('with no door answering (it quit), show falls back to Claude\'s pane in Herdr', async ($, on) => {
+    test('with no door answering (it quit), show falls back to the Outliner Detail beside Claude in Herdr', async ($, on) => {
       const session = sessionIn(on, WORKSPACE, run =>
         run.argv.includes('door-open') ? result(3, '', 'error: no door at /state/x (ECONNREFUSED)\n') : succeeding(run),
       '', DOOR)

@@ -750,11 +750,15 @@ async function showInHerdrPane(
   uri: string,
 ): Promise<string> {
   const ensured = await runHerdrOpen($, workspace, ['--mode', 'ensure-detail', '--no-focus'])
-  // Its failure is reported as a startup error: the thrown Error's own line.
-  if (ensured.exitCode !== 0) throw Error(failureReasonOf(ensured.stderr).replace(/^Error: /, '') || 'Herdr could not open an Outliner Detail')
+  // With --no-focus the Outliner leaves the saying to its caller: one line on stderr, no Herdr notification.
+  if (ensured.exitCode !== 0) {
+    const why = herdrOpenReasonOf(ensured.stderr) || 'Herdr could not open an Outliner Detail'
+    await $.state.set(DETAIL_BESIDE, { found: 'refused', why })
+    throw Error(why)
+  }
   const detail = lastJsonOf(ensured.stdout)?.detailClientId
   if (typeof detail !== 'string' || !detail) throw Error('the Outliner did not name its Detail')
-  await $.state.set(ADMIN_DETAIL, true)
+  await $.state.set(DETAIL_BESIDE, { found: 'detail' })
   const shown = await outliner(['link', uri, '--detail-client', detail, '--no-focus'])
   if (shown.exitCode === 0) return String(JSON.parse(shown.stdout)?.title ?? '')
   const reason = failureReasonOf(shown.stderr)
@@ -773,8 +777,15 @@ async function runHerdrOpen($: EngineInterface, workspace: Workspace, args: stri
   if (!root) throw Error('the Outliner plugin is disabled')
   return $.process.run(
     ['/bin/sh', `${root}/scripts/run-bun.sh`, `${root}/src/herdr-open.ts`, ...args],
-    { cwd: workspace.root, env: { ...envFor(workspace), HERDR_ENV: '1' }, timeoutMs: 30_000 },
+    // OUTLINER_OPEN_WORKSPACE_ROOT: the session's workspace is the folder, not Claude's pane's directory (a listed
+    // folder may be elsewhere), so ensure-detail and `link` reach the same outline.
+    { cwd: workspace.root, env: { ...envFor(workspace), OUTLINER_OPEN_WORKSPACE_ROOT: workspace.root, HERDR_ENV: '1' }, timeoutMs: 30_000 },
   )
+}
+
+/** Why herdr-open refused, from its one stderr line (`Outliner could not open: <why>`). */
+function herdrOpenReasonOf(stderr: string): string {
+  return failureReasonOf(stderr).replace(/^Outliner could not open: /, '').replace(/^Error: /, '')
 }
 
 /** The last line of a command's output, as JSON; undefined when it isn't. */
@@ -782,15 +793,15 @@ function lastJsonOf(stdout: string): any {
   try { return JSON.parse(stdout.trim().split('\n').at(-1) ?? '') } catch { return undefined }
 }
 
-/** Whether a Detail is beside Claude in Herdr (find-detail, which opens nothing): what the heading's "opens in" says. */
-const ADMIN_DETAIL = { plugin: 'pi-outliner', key: 'adminDetail' } as const
+/** The Detail beside Claude in Herdr, as find-detail (which opens nothing) or the last open found it: what the heading's "opens in" says. */
+const DETAIL_BESIDE = { plugin: 'pi-outliner', key: 'detailBeside' } as const
 
 /**
  * Asks the Outliner's `find-detail` whether a press would reuse a Detail beside
  * Claude, for the heading. Only in Herdr outside a door; a failure leaves the
  * last answer.
  */
-async function refreshAdminDetail($: EngineInterface, workspace: Workspace): Promise<void> {
+async function refreshDetailBeside($: EngineInterface, workspace: Workspace): Promise<void> {
   const [control, paneId, herdrWorkspace] = await Promise.all([
     $.env.get('EP0CH_CONTROL'), $.env.get('HERDR_PANE_ID'), $.env.get('HERDR_WORKSPACE_ID'),
   ])
@@ -798,7 +809,10 @@ async function refreshAdminDetail($: EngineInterface, workspace: Workspace): Pro
   try {
     const found = await runHerdrOpen($, workspace, ['--mode', 'find-detail'])
     if (found.exitCode !== 0) return
-    await $.state.set(ADMIN_DETAIL, typeof lastJsonOf(found.stdout)?.detailClientId === 'string')
+    const answer = lastJsonOf(found.stdout)
+    await $.state.set(DETAIL_BESIDE, typeof answer?.detailClientId === 'string'
+      ? { found: 'detail' }
+      : typeof answer?.why === 'string' ? { found: 'refused', why: answer.why } : { found: 'none' })
   } catch {
     // The heading keeps what it said.
   }
@@ -911,7 +925,7 @@ async function refreshMentions($: EngineInterface, option: PluginOptions): Promi
     if (ran.exitCode !== 0) throw Error(failureReasonOf(ran.stderr) || 'mentions list failed')
     const rows = mentionRowsOf(ran.stdout)
     await $.state.set(MENTIONS_LIST, { rows, loaded: true })
-    void refreshAdminDetail($, workspace)
+    void refreshDetailBeside($, workspace)
   } catch (error) {
     const why = error instanceof Error ? error.message : String(error)
     await $.state.set(MENTIONS_LIST, { rows: (await mentionsListOf($)).rows, loaded: true, why })
@@ -928,13 +942,13 @@ async function drawMentions(
   workspace: Workspace,
   option: PluginOptions,
 ): Promise<RenderElement> {
-  const [prefs, list, control, paneId, herdrWorkspace, adminDetail] = await Promise.all([
+  const [prefs, list, control, paneId, herdrWorkspace, beside] = await Promise.all([
     mentionsPrefsOf($),
     mentionsListOf($),
     $.env.get('EP0CH_CONTROL'),
     $.env.get('HERDR_PANE_ID'),
     $.env.get('HERDR_WORKSPACE_ID'),
-    $.state.get(ADMIN_DETAIL).then(({ value }) => value === true),
+    $.state.get(DETAIL_BESIDE).then(({ value }) => value),
   ])
   const width = previewWidthOf(site, columns)
   const source = { cwd: workspace.root, env: envFor(workspace) }
@@ -945,7 +959,7 @@ async function drawMentions(
   }
   return mentionsTree(ui, {
     site, columns, prefs, list, previews,
-    opens: opensIn({ ...(control ? { EP0CH_CONTROL: control } : {}), ...(paneId ? { HERDR_PANE_ID: paneId } : {}), ...(herdrWorkspace ? { HERDR_WORKSPACE_ID: herdrWorkspace } : {}) }, adminDetail),
+    opens: opensIn({ ...(control ? { EP0CH_CONTROL: control } : {}), ...(paneId ? { HERDR_PANE_ID: paneId } : {}), ...(herdrWorkspace ? { HERDR_WORKSPACE_ID: herdrWorkspace } : {}) }, beside),
     open: (row: MentionRow, surface: RenderSurface) => void openMention($, workspace, row, surface),
     choose: change => void chooseMentions($, change, option),
   })
