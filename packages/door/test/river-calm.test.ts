@@ -114,7 +114,8 @@ describe.skipIf(!outliner)("a calm river, against a scratch outline", () => {
     expect(dim).toBeLessThan(full * 0.7);
   });
 
-  test("the shift is explicit: w, a click on a column's header, or widen; the column read before stays full", () => {
+  test("the shift is explicit: w, a click on a column's header, or widen; the column read before stays full", async () => {
+    await Bun.sleep(450);                                        // the last test's clicks: not double clicks
     const r = rectOf("Harbour log");
     click(r.col + 3, r.row + 10);                                // read the log (focus only)
     const m = rectOf("Mailroom");
@@ -219,5 +220,40 @@ describe.skipIf(!outliner)("a calm river, against a scratch outline", () => {
       await until(() => plain(draw().join("\n")).includes("A line added from"), "the edit in the peek", 5000);
       expect(calls).toBeGreaterThan(0);
     } finally { s.digest = real; }
+  });
+  test("a block column composes the links tile's rows under its replies: j walks on into them, ⏎ opens one beside, b folds them", async () => {
+    await Bun.sleep(450);
+    const log = () => V().byTitle("Harbour log")!;
+    const links = () => (log().describe() as any).noteLinks as { shown: boolean; rows: any[] };
+    await until(() => links().rows.some(r => r.kind === "backlink" && r.text === "Paint the boathouse door"), "the log's backlinks under its replies");
+    expect(plain(draw().join("\n"))).toContain("── ▾ links");
+    // The person's keys in the log: j past its cards (it has none) lands on the links' rows.
+    const r = rectOf("Harbour log");
+    click(r.col + 3, r.row + 1);
+    expect(focusedTitle()).toBe("Harbour log");
+    const at = links().rows.find(x => x.kind === "backlink")!.n;
+    for (let i = 0; i < at; i++) key(char("j"));
+    await until(() => links().rows.find(x => x.selected)?.kind === "backlink", "the backlink row selected");
+    key({ kind: "enter" });
+    await until(() => focusedTitle() === "Paint the boathouse door" || V().tiles.some(c => c.titleOf() === "Paint the boathouse door"), "the backlink opened beside");
+    // b folds the column's links away, and back.
+    const back = rectOf("Harbour log");
+    await Bun.sleep(450);
+    click(back.col + 3, back.row + 1);
+    key(char("b"));
+    expect(links().shown).toBe(false);
+    key(char("b"));
+    expect(links().shown).toBe(true);
+  });
+
+  test("a sideways swipe steps the keys to the column beside, once for a burst of reports", async () => {
+    const before = focusedTitle(), order = V().tiles.map(c => c.titleOf()), r = rectOf(before);
+    const prev = order[order.indexOf(before) - 1]!;
+    for (let i = 0; i < 5; i++) key({ kind: "mouse", action: "wheel-left", button: 0, x: r.col + 3, y: r.row + 5 });
+    expect(focusedTitle()).toBe(prev);                                             // one column, not five
+    await Bun.sleep(200);                                                          // a new swipe
+    const r2 = rectOf(prev);
+    key({ kind: "mouse", action: "wheel-right", button: 0, x: r2.col + 3, y: r2.row + 5 });
+    expect(focusedTitle()).toBe(before);
   });
 });

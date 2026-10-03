@@ -5,8 +5,9 @@ import { media, MEDIA_LINE, type Media } from "./media";
 import { balanceTags, BOLD, C, extractLinks, fg, type LinkRange, pad, RESET, splitVisible, stripTags, STYLE, styleMarks, trimTagged, UNBOLD, width as vwidth } from "./style";
 import { ComponentCatalog, documentComponent } from "./components";
 import { colourBody, wrap } from "./text";
-import { isGraphStart, reframeAscii, renderGraph } from "./graphs";
-import { EMBED, presentLinks, stripMarks } from "./refs";
+import { frame, isGraphStart, reframeAscii, renderGraph } from "./graphs";
+import { linkBlockLines, linkBlockAt, renderLinkBlock } from "./links";
+import { EMBED, presentLinks, stripMarks, type LinkTarget } from "./refs";
 
 export interface DocEnv {
   width: number; cellW: number; cellH: number; graphics: boolean; maxImageRows: number; unfold: boolean;
@@ -31,6 +32,13 @@ export interface DocEnv {
    * can step to it and a click opens it (PIE-441). Without it (an embed, a draft's preview) rows are text.
    */
   link?: (block: string, text: string) => string;
+  /**
+   * Tag `text` as a link to any target (an inline `::links` component's rows: a note, a ticket's block, a
+   * Resource), so the reader steps to it and opens it. Without it the rows are text.
+   */
+  tag?: (to: LinkTarget, text: string) => string;
+  /** The block whose body this is: an inline `::links` component lists its links unless it names another. */
+  note?: string;
   /**
    * The body lines (by index) inside a literal region (PIE-422): `[key::value]` there is text, drawn
    * plain. Links and Markdown still render, as the service and Detail treat them.
@@ -112,8 +120,11 @@ export function foldPoints(body: string, anchors: readonly (string | undefined)[
   // Which fence or figure each line is part of (the line that opened it), or -1 for plain structure.
   const block: number[] = [];
   let open = -1, kind: "fence" | "graph" | null = null;
+  // An inline links component (`::links`, src/links.ts) is a figure too: its lines are its question, not structure.
+  const linkLines = linkBlockLines(src);
   src.forEach((l, i) => {
     if (kind) { block.push(open); if (kind === "fence" ? /^\s*```/.test(l) : /^\s*::\s*$/.test(l)) kind = null; return; }
+    if (linkLines.has(i)) { block.push(i); return; }
     if (/^\s*```/.test(l)) { open = i; kind = "fence"; block.push(i); return; }
     if (isGraphStart(l)) { open = i; kind = "graph"; block.push(i); return; }
     block.push(-1);
@@ -212,6 +223,15 @@ export function renderDoc(body: string, env: DocEnv): Doc {
       heads.push({ key: fp.key, row: out.length, cols: fp.kind === "heading" ? W : fp.level + line.trimStart().search(/\s/) + 2 });
       out.push(...rows);
       if (folded) { mark(); insert(i + 1); inserted = fp.end; i = fp.end - 1; }
+      continue;
+    }
+
+    // The inline links component (src/links.ts): ::links, ::resources, ::backlinks, ::outlinks, one line or a block
+    // to its `::`, drawn with the links tile's rows in a figure's frame, each row a link the reader opens.
+    const lb = linkBlockAt(src, i);
+    if (lb) {
+      out.push(...renderLinkBlock(lb.spec, env.note, W, frame, env.tag));
+      i = lb.end;
       continue;
     }
 

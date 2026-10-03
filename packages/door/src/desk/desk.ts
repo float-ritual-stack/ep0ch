@@ -11,6 +11,7 @@ import { shellKeyOf } from "../shell-keys";
 import type { Ctx, Frame, Screen, ViewState } from "../app";
 import { bodyLinesOf, subject, type Msg } from "../board";
 import { Canvas, DOTTED_BOX, overflows, scrollPct, type BoxGlyphs, type Rect } from "../canvas";
+import { sideways, SidewaysWheel, type RowPress } from "../scroll";
 import type { Placement } from "../kitty";
 import { whoOf, USER, type Actor, type OutlineEvent } from "../socket";
 import { ActionRefused, ActionSet, actionSet, def, asBoundKey, hintSpots, keyName, type ActRequest } from "../surface/actions";
@@ -886,6 +887,42 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     await L.show(note, this);
     L.focused?.(this, USER);
     this.save(); this.redraw();
+  }
+
+  /**
+   * DeskApi.openLinks (`b` in a reader): reader `r`'s note's links in this screen's links tile. The person's aims the
+   * tile (aimBacklinks: its drawer opens, their keys go to it); an agent's aims it without moving their keys. A screen
+   * with none gets one below the reader, with a preview following its selection beside it (tile.open, as ^W o l and
+   * ^W o p do), both by the actor: the layout's rules apply, so a locked screen says so.
+   */
+  async openLinks(r: Pane, actor: Actor): Promise<Record<string, unknown>> {
+    const rid = this.idOf(r);
+    const m = r instanceof ReaderPane ? r.msg : null;
+    if (rid === undefined || !m) throw new ActionRefused("that reader isn't on this screen");
+    const person = actor.kind !== "agent";
+    // The screen's list `b` aims (a kind with `aim`: the links tile), one on screen first.
+    const lists = [...this.panes.values()].flatMap(p => { const a = kindOf(p)?.aim?.(p); return a ? [a] : []; });
+    let L = lists.find(p => this.shownNow(p)) ?? lists[0];
+    let opened = false;
+    if (!L) {
+      const kind = tileKinds().find(k => k.aim);
+      if (!kind) throw new ActionRefused("no kind of tile lists a note's links here");
+      const at = this.nameOf(rid);
+      const list = await this.openTile({ kind: kind.kind, source: `tile:${at}` }, at, "down", actor);
+      if (kind.companion) await this.openTile({ kind: kind.companion, source: `tile:${list.tile}` }, list.tile, "right", actor);
+      const made = this.panes.get(this.idNamed(list.tile)!)!;
+      L = kind.aim!(made);
+      opened = true;
+    }
+    if (person) await this.aimBacklinks(L, m);
+    else {
+      L.source = this.nameOf(rid);
+      const d = drawerOf(this.root, this.idOf(L)!);
+      if (d && !d.open) this.apply({ op: "drawer", tile: this.idOf(L)!, open: true }, actor);
+      await L.show(m, this);
+      this.redraw();
+    }
+    return { tile: this.nameOf(this.idOf(L)!), of: m.id, opened, links: L.describe() };
   }
 
   /** DeskApi.hasFocus: tile `p` has the person's focus (a whole screen in it sees them through it). */
@@ -3007,6 +3044,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     });
   }
 
+  /** Sideways wheel reports as steps: one a swipe. */
+  private readonly swipe = new SidewaysWheel();
   private mouse(k: Extract<Key, { kind: "mouse" }>) {
     const p = this.pressed;
     if (k.action === "up") {
@@ -3052,6 +3091,18 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // A float moved since the last paint is where the layout has it now (paints are coalesced; a press may come first).
     if (k.action === "down") this.hits = this.hits.map(([id, r]) => { const f = this.floats.find(x => x.id === id); return [id, f ? this.floatRect(f) : r]; });
     const hit = this.hits.find(([, r]) => k.x >= r.col && k.x < r.col + r.cols && k.y >= r.row && k.y < r.row + r.rows);
+    // The sideways wheel: a tile that takes the mouse has it (a terminal, the board's lanes); else the tile's kind says
+    // what a step means where its content is horizontal (the river's columns: the one beside), one step a swipe
+    // (SidewaysWheel). Anywhere else it does nothing: it is never read as the vertical wheel.
+    const sw = sideways(k);
+    if (sw) {
+      if (!hit) return;
+      const [id, r] = hit, pane = this.panes.get(id);
+      if (pane?.mouse?.(k, k.x - r.col - 1, k.y - r.row - 1, this)) return;
+      const a = pane ? kindOf(pane)?.sideways?.(pane, sw) : null;
+      if (a && this.swipe.step(sw)) this.run(a.action, a.args ?? {}, this.nameOf(id));
+      return;
+    }
     if (k.action === "down") {
       // A shut drawer's handle, at the end of the hint row; the lock chip after them.
       if (k.y === this.area.row + this.area.rows) {
@@ -3118,18 +3169,21 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         else if (id !== this.focus) this.run("tile.focus", {}, this.nameOf(id));
         return this.redraw();
       }
-      if (id !== this.focus) this.run("tile.focus", {}, this.nameOf(id));
+      // A press that gives a tile the keys: a list's row is only selected by it, never opened (RowView.press).
+      const focusing = id !== this.focus;
+      if (focusing) this.run("tile.focus", {}, this.nameOf(id));
       // Inside the frame only: its border (and the scroll thumb drawn on it) isn't the pane's.
       if (k.x > r.col && k.y > r.row && k.x < r.col + r.cols - 1 && k.y < r.row + r.rows - 1) {
         const pane = this.panes.get(id);
         const x = k.x - r.col - 1, y = k.y - r.row - 1;
+        const how: RowPress = { mods: k.mods ?? 0, button: k.button, focusing };
         const press = pane ? kindOf(pane)?.press : undefined;
         if (pane && press) {
           // A click its kind gives an action (in a terminal: typing in it); the tile gets the click when it asks for the mouse.
           const a = press(pane, k);
           if (a) this.run(a.action, a.args ?? {}, this.nameOf(id));
-          if (pane.mouse?.(k, x, y, this)) this.mouseTile = { id, r };
-        } else if (pane?.mouse) { this.mouseTile = { id, r }; pane.mouse(k, x, y, this); }
+          if (pane.mouse?.(k, x, y, this, how)) this.mouseTile = { id, r };
+        } else if (pane?.mouse) { this.mouseTile = { id, r }; pane.mouse(k, x, y, this, how); }
         // A reader decides on release: a click, or a drag that selected text (PIE-419). A ctrl- or alt-click opens beside (PIE-473).
         else if (pane instanceof ReaderPane) {
           this.pressed = { pane, col: r.col + 1, row: r.row + 1, fresh: !!((k.mods ?? 0) & 24) };

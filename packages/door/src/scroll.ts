@@ -37,18 +37,94 @@ export function follow(sel: number, top: number, room: number): number {
   return top;
 }
 
+// ── the sideways wheel ──────────────────────────────────────────────────────────────────────────────
+
+/** A sideways report this long after the last starts a new swipe. */
+export const SWIPE_GAP_MS = 150;
+/** Within one swipe, every this many reports after the first take another step. */
+export const SWIPE_REPORTS = 8;
+
+/**
+ * Sideways wheel reports (`wheel-left`, `wheel-right`: a trackpad's swipe, a tilting wheel) as steps where the content
+ * is horizontal (the river's columns, the board's lanes). A trackpad sends a burst of reports for one swipe: the first
+ * report steps, then one more step every `SWIPE_REPORTS` reports in the same direction, so one swipe moves one column
+ * or two, never past five. A pause or a turn starts a new swipe.
+ */
+export class SidewaysWheel {
+  private last = -Infinity;
+  private dir: 1 | -1 = 1;
+  private run = 0;
+  step(dir: 1 | -1, now = Date.now()): 1 | -1 | 0 {
+    const fresh = now - this.last > SWIPE_GAP_MS || dir !== this.dir;
+    this.last = now; this.dir = dir;
+    if (fresh) { this.run = 0; return dir; }
+    if (++this.run >= SWIPE_REPORTS) { this.run = 0; return dir; }
+    return 0;
+  }
+}
+/** A sideways wheel report's direction (left -1, right 1), or null for any other mouse event. */
+export const sideways = (k: { kind: string; action?: string }): 1 | -1 | null => (k.kind !== "mouse" ? null : k.action === "wheel-left" ? -1 : k.action === "wheel-right" ? 1 : null);
+
+// ── a press on a list's row: the keyboard's escalation, by mouse ──────────────────────────────────────
+
+/** Two presses on the same row within this long are a double click: ⏎. */
+export const DOUBLE_MS = 400;
+/**
+ * The SGR mouse report's modifier bits (`ESC [ < b ; x ; y M`): shift 4, alt (meta, Option) 8, ctrl 16. Which reach
+ * the door is the terminal's choice, not the door's: the SGR report has no bit for Cmd, so Cmd-click never arrives;
+ * terminals keep shift-click for their own selection while a program has the mouse; Option- and ctrl-click arrive
+ * only where the terminal doesn't use them itself (a rectangle selection, a right click). The middle button is the
+ * one that always arrives, so it opens fresh too, as a middle click opens a link in a new tab.
+ */
+export const MOUSE_SHIFT = 4, MOUSE_ALT = 8, MOUSE_CTRL = 16;
+/** The SGR report's middle button (`button` in a mouse key: 0 left, 1 middle, 2 right). */
+export const MOUSE_MIDDLE = 1;
+
+/**
+ * What a press on a list's row asks for, the mouse's steps matching the keyboard's: `focus` (the press gave the
+ * list the keys: the row is selected, nothing else), `select` (as j k: selected and previewed), `open` (a double
+ * click: ⏎), `fresh` (an alt- or ctrl-click: alt+⏎). Every list's rows answer a press with these.
+ */
+export type RowGesture = "focus" | "select" | "open" | "fresh";
+/** A press as the list is told it: its modifier bits, and whether it gave the list's tile the keys. */
+export interface RowPress { mods?: number; button?: number; focusing?: boolean; now?: number }
+
+/** The presses on a list's rows, so a second one on the same row soon after is a double click. */
+export class RowPresses {
+  private last: { row: number; at: number } | null = null;
+  /**
+   * A press on row `row`: what it asks for. A double click opens even when its first press gave the list the keys;
+   * a single press that did only selects, whatever modifier it carried (a first click never navigates).
+   */
+  press(row: number, p: RowPress = {}): RowGesture {
+    const now = p.now ?? Date.now(), l = this.last;
+    const twice = !!l && l.row === row && now - l.at < DOUBLE_MS;
+    // A third press starts afresh: a triple click is a double click and a single one, never two opens.
+    this.last = twice ? null : { row, at: now };
+    if (twice) return "open";
+    if (p.focusing) return "focus";
+    return (p.mods ?? 0) & (MOUSE_ALT | MOUSE_CTRL) || p.button === MOUSE_MIDDLE ? "fresh" : "select";
+  }
+  /** The list changed under the pointer (another note's rows): the next press starts afresh. */
+  forget() { this.last = null; }
+}
+
 /**
  * A list's cursor and scroll (a thread's replies, the welcome's notes, a lane's cards, a picker's choices): the wheel
  * scrolls it, and the selection is brought into view only when it moved (a key, a click, an agent's pick) or the
  * view's height changed, so a repaint never snaps it back. A selection several rows tall (a card, a thread) names
- * its rows as `[first, last]`: the last comes into view, then the first.
+ * its rows as `[first, last]`: the last comes into view, then the first. `press` is what a press on one of its rows
+ * asks for (`RowPresses`): every list's mouse escalates as its keys do.
  */
 export class RowView {
   top = 0;
   private max = Infinity;
   private shown: number | null = null;
+  private readonly presses = new RowPresses();
   /** The rows it was last placed in. */
   room = -1;
+  /** A press on row `row` (an index into the list, not a screen row): select, open, open fresh, or only focus. */
+  press(row: number, p: RowPress = {}): RowGesture { return this.presses.press(row, p); }
   scroll(by: number) { this.top = scrolled(this.top, by, this.max); }
   /** The selection comes into view at the next `place` even if it didn't move (j at the end of a list). */
   reveal() { this.shown = null; }
@@ -62,7 +138,7 @@ export class RowView {
   }
   /** The furthest it scrolls, as last placed. */
   get maxTop() { return this.max; }
-  reset() { this.top = 0; this.shown = null; this.max = Infinity; this.room = -1; }
+  reset() { this.top = 0; this.shown = null; this.max = Infinity; this.room = -1; this.presses.forget(); }
 }
 
 /**

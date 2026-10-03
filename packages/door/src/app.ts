@@ -12,6 +12,7 @@ import { printable } from "./text";
 import { OPTION_AS_ALT_HINT, OPTION_KEYS, optionKeysOn, pasteKeys, type Handover, type Key, type Term, type TermInfo } from "./term";
 import { paintingScroll } from "./scroll";
 import { invalidateLive, setLiveSource } from "./live";
+import { invalidateLinks, setLinksSource } from "./links";
 import { resourceChanged } from "./projection";
 import { EXT_ACTIONS, loadExtensions } from "./extensions";
 import { invalidatePropertyErrors } from "./props";
@@ -263,6 +264,7 @@ export class App implements Ctx {
     // screen says where it goes (Term keeps mouse and ctrl+]).
     (term as { rawSink?: unknown }).rawSink = () => this.dock.rawInput(this.dockRun) ?? this.stack.at(-1)?.rawInput?.() ?? null;
     setLiveSource(board, () => this.redraw());
+    setLinksSource(board, () => this.redraw());
     board.onConnection = (state, detail) => { this.offline = state === "lost"; this.flash(state === "lost" ? detail : `reconnected · ${detail}`); };
     term.onResize(() => this.redraw());
     this.timer = setInterval(() => this.tick(), 33);
@@ -459,6 +461,7 @@ export class App implements Ctx {
     if (!forScreens(e)) return;
     if (e.change?.kind !== "draft") {
       invalidateLive();
+      invalidateLinks();
       // A change record names its block: only the links, pages and embeds that show it are asked again.
       // A move or trash takes a subtree along, and an event without a record could be anything.
       const c = e.change;

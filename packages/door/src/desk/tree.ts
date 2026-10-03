@@ -8,32 +8,19 @@
 //
 // Disclosure is read-only: listing links registers nothing and writes nothing. The rows are the service's
 // answer laid out; the words are the Tree's (src/authored.ts).
-import {
-  groupHasSomething, groupNote, openResource, outlinkWords, resourceTarget, resourceWords, snapshotProblem,
-  type AuthoredLinksSnapshot, type AuthoredOutlink, type AuthoredResourceLink,
-} from "../authored";
-import {
-  backlinkRows, backlinkRowSuffix, backlinkStageSummary, backlinkView, DEFAULT_BACKLINK_VIEW_OPTIONS, fitBacklinkRow,
-  type BacklinkCollection, type BacklinkSource, type BacklinkViewGroup,
-} from "../backlinks";
 import { subject, type Msg } from "../board";
+import { DEFAULT_BACKLINK_VIEW_OPTIONS, backlinkView, type BacklinkCollection } from "../backlinks";
+import type { AuthoredLinksSnapshot } from "../authored";
+import { linkBlock, linkNote, linkRowLine, linkRows, linkWords, SEP, type LinkGroupName, type LinkRow, type Load } from "../links";
 import { USER, type Actor, type OutlineEvent } from "../socket";
 import { shortId } from "../refs";
 import { ActionRefused, actionSet, def } from "../surface/actions";
-import { C, dim, fg, pad, RESET, selected, width } from "../style";
+import { C, dim, fg, pad, RESET, selected } from "../style";
 import { Fold } from "../fold";
-import { RowView } from "../scroll";
+import { RowView, type RowPress } from "../scroll";
 import { ch, isUp, isDown, type Key } from "../term";
 import { runOwn, type DeskApi, type Pane, type PaneView } from "./panes";
 
-
-export type LinkGroupName = "outlinks" | "resources" | "backlinks";
-/** The Tree's groups in its order, each with the glyph the door draws. */
-export const LINK_GROUPS: readonly { group: LinkGroupName; glyph: string }[] = [
-  { group: "outlinks", glyph: "→" }, { group: "resources", glyph: "♦" }, { group: "backlinks", glyph: "←" },
-];
-
-type Load<T> = { kind: "loading" } | { kind: "ready"; value: T } | { kind: "error"; message: string };
 
 /** The links shown under one row: that occurrence's own (PIE-324), with which groups are folded. */
 interface LinkPanel {
@@ -46,38 +33,18 @@ interface LinkPanel {
   asked: number;
 }
 
-export type TreeRow =
-  | { kind: "block"; key: string; depth: number; m: Msg }
-  | { kind: "group"; key: string; depth: number; owner: string; group: LinkGroupName; open: boolean; count: number | null; note: string }
-  | { kind: "kind"; key: string; depth: number; owner: string; group: BacklinkViewGroup; expanded: boolean }
-  | { kind: "outlink"; key: string; depth: number; owner: string; link: AuthoredOutlink }
-  | { kind: "resource"; key: string; depth: number; owner: string; link: AuthoredResourceLink }
-  | { kind: "backlink"; key: string; depth: number; owner: string; source: BacklinkSource };
+/** A row of the tree: a note, or one of the links shown under a row (the shared links model, src/links.ts), by its owner's key. */
+export type TreeRow = { kind: "block"; key: string; depth: number; m: Msg } | (LinkRow & { owner: string });
 
 /** The block a row stands for: a tree row's note, a resolved outlink's target, a backlink's source. */
 export function rowBlock(r: TreeRow | undefined): string | null {
   if (!r) return null;
-  if (r.kind === "block") return r.m.id;
-  if (r.kind === "outlink") return r.link.resolution.kind === "ready" ? r.link.resolution.target.blockId : null;
-  if (r.kind === "backlink") return r.source.blockId;
-  return null;
+  return r.kind === "block" ? r.m.id : linkBlock(r);
 }
-
-const SEP = " > ";
 
 /** A row as words: its mark, its text and its dim context (`peek`, agents, and the drawing). */
 export function rowWords(r: TreeRow, panelOpen: boolean): { mark: string; text: string; context: string; problem?: boolean } {
-  switch (r.kind) {
-    case "block": return { mark: "", text: subject(r.m), context: "" };
-    case "group": {
-      const g = LINK_GROUPS.find(x => x.group === r.group)!;
-      return { mark: r.open ? "▾" : "▸", text: `${g.glyph} ${r.group}${r.count === null ? "" : ` (${r.count})`}`, context: r.note };
-    }
-    case "kind": return { mark: r.expanded ? "−" : "+", text: `${r.group.label} ${r.group.sources.length}`, context: backlinkStageSummary(r.group).trim() };
-    case "outlink": { const w = outlinkWords(r.link); return { mark: w.problem ? "!" : rowBlock(r) ? (panelOpen ? "▾" : "▸") : "·", ...w }; }
-    case "resource": { const w = resourceWords(r.link); return { mark: w.problem ? "!" : "♦", ...w }; }
-    case "backlink": return { mark: panelOpen ? "▾" : "▸", text: r.source.title, context: backlinkRowSuffix(r.source) };
-  }
+  return r.kind === "block" ? { mark: "", text: subject(r.m), context: "" } : linkWords(r, panelOpen);
 }
 
 export class TreePane implements Pane {
@@ -86,6 +53,8 @@ export class TreePane implements Pane {
   private readonly fold = new Fold();
   /** Authored links shown under a row, by the row's key (an occurrence: the same note twice keeps two). */
   private panels = new Map<string, LinkPanel>();
+  /** The resource row last shown (its stored content as a note), for a preview following the tree. */
+  private shownResource: { key: string; note: Msg } | null = null;
   /** Notes read for link rows, so a preview following the tree can show the selected one. */
   private targets = new Map<string, Msg>();
   private rows: TreeRow[] = [];
@@ -103,6 +72,7 @@ export class TreePane implements Pane {
   selected(): Msg | null {
     const r = this.rows[this.sel];
     if (r?.kind === "block") return r.m;
+    if (r?.kind === "resource") return this.shownResource?.key === r.key ? this.shownResource.note : null;
     const id = rowBlock(r);
     return id ? this.targets.get(id) ?? null : null;
   }
@@ -138,50 +108,13 @@ export class TreePane implements Pane {
     this.sel = i >= 0 ? i : Math.min(this.sel, Math.max(0, out.length - 1));
   }
 
-  /** The groups under `owner` (a row's key) when its links are shown, and theirs beneath rows that show theirs. */
+  /** The groups under `owner` (a row's key) when its links are shown (the shared links model), and theirs beneath rows that show theirs. */
   private panelRows(owner: string, depth: number, out: TreeRow[]) {
     const p = this.panels.get(owner);
     if (!p) return;
-    for (const { group } of LINK_GROUPS) {
-      const key = owner + SEP + group;
-      let count: number | null = null, note = "";
-      const entries: TreeRow[] = [];
-      if (group === "backlinks") {
-        const b = p.backlinks;
-        if (b.kind === "loading") note = "asking the service…";
-        else if (b.kind === "error") note = b.message;
-        else {
-          const view = backlinkView(b.value, DEFAULT_BACKLINK_VIEW_OPTIONS);
-          count = view.matching.length;
-          const c = b.value.completeness;
-          note = [view.hiddenRelated ? `${view.hiddenRelated} this note hidden` : "", view.hiddenResolved ? `${view.hiddenResolved} resolved hidden` : "",
-            c.kind === "truncated" ? `first ${c.limit ?? b.value.sources.length} sources` : ""].filter(Boolean).join(" · ");
-          for (const r of backlinkRows(view, DEFAULT_BACKLINK_VIEW_OPTIONS, p.kinds)) {
-            if (r.kind === "group") entries.push({ kind: "kind", key: `${key}${SEP}kind:${r.group.kind}`, depth: depth + 1, owner, group: r.group, expanded: r.expanded });
-            else entries.push({ kind: "backlink", key: key + SEP + r.source.blockId, depth: depth + (view.faceted ? 2 : 1), owner, source: r.source });
-          }
-        }
-      } else {
-        const l = p.links;
-        if (l.kind === "loading") note = "asking the service…";
-        else if (l.kind === "error") note = l.message;
-        else {
-          const why = snapshotProblem(l.value);
-          if (why) note = why;
-          else if (l.value.kind === "ready") {
-            const g = l.value[group];
-            if (!groupHasSomething(g)) continue;
-            count = g.entries.length; note = groupNote(g);
-            for (const e of g.entries) entries.push(e.kind === "outlink"
-              ? { kind: "outlink", key: key + SEP + e.key, depth: depth + 1, owner, link: e }
-              : { kind: "resource", key: key + SEP + e.key, depth: depth + 1, owner, link: e as AuthoredResourceLink });
-          }
-        }
-      }
-      const open = !p.shut.has(group);
-      out.push({ kind: "group", key, depth, owner, group, open, count, note });
-      if (!open) continue;
-      for (const e of entries) { out.push(e); this.panelRows(e.key, e.depth + 1, out); }
+    for (const r of linkRows(p, { shut: p.shut, kinds: p.kinds, backlinks: DEFAULT_BACKLINK_VIEW_OPTIONS }, owner + SEP, depth)) {
+      out.push({ ...r, owner });
+      if (r.kind !== "group" && r.kind !== "kind") this.panelRows(r.key, r.depth + 1, out);
     }
   }
 
@@ -196,6 +129,18 @@ export class TreePane implements Pane {
     const id = r?.kind === "block" ? null : rowBlock(r);
     if (r?.kind === "block") this.timer = setTimeout(() => desk.setCurrent(r.m, { from: this }), 90);
     else if (id) this.timer = setTimeout(() => void this.target(id, desk).then(m => { if (m && rowBlock(this.rows[this.sel]) === id) desk.setCurrent(m, { from: this }); }, () => {}), 90);
+    // A resource shows what is stored for it (a ticket's block, a file's content), read only: nothing registers.
+    else if (r?.kind === "resource") {
+      const key = r.key;
+      this.timer = setTimeout(() => {
+        // Read while the current note stays: an open meanwhile (another tile's, an agent's) isn't overridden by it.
+        const was = desk.current;
+        void linkNote(r, desk.ctx.board, "show").then(({ note }) => {
+          this.shownResource = { key, note };
+          if (this.rows[this.sel]?.key === key && desk.current === was) desk.setCurrent(note, { from: this });
+        }, () => {});
+      }, 90);
+    }
     desk.redraw();
   }
 
@@ -331,35 +276,15 @@ export class TreePane implements Pane {
       desk.setCurrent(m, { from: this, link: true, by: actor });
       if (!routed && !agent) desk.focusKind("reader");
     };
-    // A ticket the Jira extension keeps as a block (PIE-445): ⏎ opens that block, a note like any other.
-    if (r.kind === "resource" && r.link.recordBlockId) {
-      const m = await desk.ctx.board.get(r.link.recordBlockId);
-      if (!m) throw new ActionRefused(`${r.link.label}'s ticket block isn't there any more`);
-      land(m);
-      return { row: i + 1, id: m.id, ticket: r.link.label };
-    }
-    if (r.kind === "resource") {
-      const to = resourceTarget(r.link);
-      if ("refused" in to) throw new ActionRefused(to.refused);
-      desk.ctx.flash(`reading ${r.link.label}…`);
-      const { note, registered } = await openResource(desk.ctx.board, to, actor).catch((e: Error) => { throw new ActionRefused(`couldn't show ${r.link.label}: ${e.message}`); });
-      land(note);
-      if (registered) { desk.ctx.flash(`${r.link.label} registered and shown`); this.load(r.owner, desk); }
-      return { row: i + 1, resource: note.id.slice("resource:".length), title: subject(note), registered };
-    }
-    if (r.kind === "outlink" && r.link.resolution.kind === "unregistered-page") {
-      const p = await desk.ctx.board.resolvePage(r.link.resolution.address).catch(() => null);
-      if (!p?.block) throw new ActionRefused(`[[${r.link.resolution.address}]] isn't a page yet · the door doesn't create one`);
-      const m = p.block.partial ? await desk.ctx.board.get(p.block.id) ?? p.block : p.block;
-      land(m);
-      return { row: i + 1, id: m.id };
-    }
-    if (r.kind === "outlink" && r.link.resolution.kind !== "ready") throw new ActionRefused(`${r.link.label} · ${outlinkWords(r.link).context}`);
-    const id = r.kind === "block" ? r.m.id : rowBlock(r)!;
-    const m = r.kind === "block" ? r.m : await this.target(id, desk);
-    if (!m) throw new ActionRefused(`nothing answers at ${shortId(id)}`);
-    land(m);
-    return { row: i + 1, id: m.id };
+    if (r.kind === "block") { land(r.m); return { row: i + 1, id: r.m.id }; }
+    // A link: its note, a ticket's block, or a Resource registered if it must be and shown (the shared model's open).
+    if (r.kind === "resource" && !r.link.recordBlockId) desk.ctx.flash(`reading ${r.link.label}…`);
+    const { note, registered, ticket } = await linkNote(r, desk.ctx.board, "open", actor);
+    land(note);
+    if (r.kind !== "resource") return { row: i + 1, id: note.id };
+    if (ticket) return { row: i + 1, id: note.id, ticket };
+    if (registered) { desk.ctx.flash(`${r.link.label} registered and shown`); this.load(r.owner, desk); }
+    return { row: i + 1, resource: note.id.slice("resource:".length), title: subject(note), registered: !!registered };
   }
 
   /** The person moved the selection to row `i` (a key, a click, `tree.pick`); `show`: its note becomes the current one. */
@@ -411,14 +336,7 @@ export class TreePane implements Pane {
         const here = desk.current?.id === r.m.id;
         return pad(`${indent}${fg(C.lcyan)}${mark} ${fg(here ? C.yellow : C.grey)}${subject(r.m)}`, room) + (tag ? " " + fg(C.brown) + tag : "") + RESET;
       }
-      const words = rowWords(r, this.panels.has(r.key));
-      const head = `${indent}${words.mark} `;
-      let text = words.text, context = words.context;
-      if (r.kind === "backlink") { const f = fitBacklinkRow(text, context, Math.max(4, w - width(head))); text = f.title; context = f.suffix; }
-      const tail = context ? (r.kind === "backlink" ? " — " : " · ") + context : "";
-      if (on) return selected(focused) + pad(head + text + tail, w) + RESET;
-      const colour = words.problem ? C.lred : r.kind === "group" ? C.yellow : r.kind === "kind" ? C.brown : r.kind === "resource" ? C.lgreen : C.white;
-      return pad(`${fg(C.lcyan)}${head}${fg(colour)}${text}${fg(C.dark)}${tail}`, w) + RESET;
+      return linkRowLine(r, { cols: w, selected: on, focused, nest: this.panels.has(r.key) });
     });
     return { lines };
   }
@@ -456,21 +374,27 @@ export class TreePane implements Pane {
   }
 
   /**
-   * A click selects the row. On a block's mark it folds or unfolds it; on a group it folds; on a link it opens
-   * as ⏎ does (on a note's mark, its links show or hide instead).
+   * A press on a row escalates as the keys do (RowView.press): a click selects it (its note shows where the tree's
+   * selection goes, as j k), a double click opens it (⏎), an alt-, ctrl- or middle-click opens it too (the tree's
+   * opens have no "fresh"); a press that gave the tree the keys only selects. A click on a row's mark folds or
+   * unfolds it (a note's children, a group, a link's own links) at once, as its disclosure.
    */
-  click(x: number, y: number, desk: DeskApi) {
+  mouse(k: Extract<Key, { kind: "mouse" }>, x: number, y: number, desk: DeskApi, press?: RowPress): boolean {
+    if (k.action === "wheel-up" || k.action === "wheel-down") { this.wheel(k.action === "wheel-up" ? -1 : 1, desk); return true; }
+    if (k.action !== "down") return true;
     const i = this.view.top + y, row = this.rows[i];
-    if (!row) return;
+    if (!row) return true;
+    const gesture = this.view.press(i, press ?? { mods: k.mods ?? 0, button: k.button });
+    if (i !== this.sel) this.run(desk, "tree.pick", { n: i + 1 });
     const onMark = x <= row.depth * 2 + 1;
-    if (row.kind === "block") {
-      if (i !== this.sel) this.run(desk, "tree.pick", { n: i + 1 });
-      if (onMark) this.run(desk, "tree.fold", { n: i + 1 });
-      return;
+    const nests = row.kind === "block" || row.kind === "group" || row.kind === "kind" || !!rowBlock(row);
+    if (onMark && nests && gesture !== "focus") {
+      if (row.kind === "block" || row.kind === "group" || row.kind === "kind") this.run(desk, "tree.fold", { n: i + 1 });
+      else this.run(desk, "tree.links", { n: i + 1 });
+      return true;
     }
-    if (row.kind === "group" || row.kind === "kind") { if (i !== this.sel) this.run(desk, "tree.pick", { n: i + 1 }); this.run(desk, "tree.fold", { n: i + 1 }); return; }
-    if (onMark && rowBlock(row)) return this.run(desk, "tree.links", { n: i + 1 });
-    this.run(desk, "tree.pick", { n: i + 1, open: true });
+    if (gesture === "open" || gesture === "fresh") this.run(desk, "tree.pick", { n: i + 1, open: true });
+    return true;
   }
 
   wheel(dir: 1 | -1, desk: DeskApi) { const to = this.sel + dir; if (to >= 0 && to < this.rows.length) this.run(desk, "tree.pick", { n: to + 1 }); }
@@ -521,7 +445,7 @@ export const TREE_ACTIONS = actionSet<TreeOn>()("tree", {
   }),
   "tree.pick": def({
     summary: "pick a row of the outline tree: n (from 1) or id. As the person: the selection moves there; open=true opens it as ⏎ does (a note where the tree's opens go, a group folds, a resource is registered if it must be and its stored content shown). An agent's never moves the person's selection or keys: its pick shows the row's note where the tree's selection goes, its open opens it there",
-    keys: "j k ↑ ↓ PgUp PgDn Home End h ← (to the row above), click, wheel (pick) · ⏎ (open)",
+    keys: "j k ↑ ↓ PgUp PgDn Home End h ← (to the row above), click, wheel (pick) · ⏎, double click, alt- ctrl- or middle-click (open)",
     // open=true may register a resource and opens a note: a restarted door asks first (replay is per action).
     touches: "nothing", replay: "ask", says: (r, a) => `${a.open ? "opened" : "picked"} row ${r.row} of the outline`,
     args: {

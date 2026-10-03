@@ -1,5 +1,5 @@
 // The panes a desk can hold. Each renders into its own inner rectangle; the desk draws borders.
-import { RowView, wheelRows } from "../scroll";
+import { RowView, wheelRows, type RowPress } from "../scroll";
 import type { Art } from "../ansi";
 import { whole } from "../art-view";
 import type { Ctx } from "../app";
@@ -86,6 +86,12 @@ export interface DeskApi {
    * shows), following the reader that shows it; its drawer slides open and their keys go to it.
    */
   aimBacklinks?(p: Pane & { source: string; show(m: Msg, desk: DeskApi): Promise<void> }, m: Msg | null): Promise<void>;
+  /**
+   * The links of reader `r`'s note (`b`, the note action `links`): the screen's links tile aims at it, or, on a
+   * screen without one, a links tile opens below the reader with a preview following it. The person's keys go to
+   * the list; an agent's leaves them where they are.
+   */
+  openLinks?(r: Pane, actor: Actor): Promise<Record<string, unknown>>;
 }
 
 export interface Pane {
@@ -107,9 +113,10 @@ export interface Pane {
   focused?(desk: DeskApi, actor: Actor): void;
   /**
    * Every mouse event inside the tile, at x, y in it (a terminal tile, a whole screen): true when the tile
-   * took it. Without it the desk sends clicks and the wheel as above.
+   * took it. Without it the desk sends clicks and the wheel as above. `press`, with a press: its modifiers and
+   * button, and whether it gave the tile the keys (a list's `RowView.press` reads it: that press only selects).
    */
-  mouse?(k: Extract<Key, { kind: "mouse" }>, x: number, y: number, desk: DeskApi): boolean;
+  mouse?(k: Extract<Key, { kind: "mouse" }>, x: number, y: number, desk: DeskApi, press?: RowPress): boolean;
   /** The tile it follows selected `m` (a preview): it shows it. */
   follow?(m: Msg | null, desk: DeskApi): void;
   /** The terminal tile it follows is on file `path` now (nvim changed buffer). */
@@ -232,6 +239,8 @@ export class ReaderPane implements Pane {
       startSession: desk.startSession ? kind => desk.startSession!(this, kind) : undefined,
       // Its own keys and clicks run its note actions through the screen's dispatcher, where it's a tile.
       ...(desk.press ? { press: (name: string, args: Record<string, unknown>, quiet?: boolean | ((why: string) => string | null), given?: SurfaceHost) => desk.press!(this, NOTE_ACTIONS, name, args, quiet, given) } : {}),
+      // `b`: this note's links in the screen's links tile (one opened beside it where there's none).
+      ...(desk.openLinks ? { links: (actor: Actor) => desk.openLinks!(this, actor) } : {}),
       // A reader that follows another tile takes `p` (hold) before the surface does.
       ...(this.follows ? { ownKeys: "p" } : {}),
     };

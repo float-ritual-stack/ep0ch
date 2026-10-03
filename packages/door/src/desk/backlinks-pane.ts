@@ -1,12 +1,16 @@
-// Backlinks as a tile (PIE-432, PIE-442): the notes that link to what another tile shows (its `source`, a
-// tile's name), grouped, filtered and sorted as Detail does through src/backlinks.ts. Moving the selection,
-// or giving the tile the keys, shows the selected source where this tile's selection goes (a preview
-// following it, or its link) without moving the current note (so the tile it lists the backlinks of stays
-// put); ⏎ or a click opens it, and alt+⏎ or a ctrl- or alt-click opens it "fresh", as a link's alt+⏎ does.
+// The links tile (kind `backlinks`, PIE-432, PIE-442): the links of what another tile shows (its `source`, a
+// tile's name) in the shared links model (src/links.ts): its Outlinks, its Resources and its Backlinks, the
+// backlinks grouped, filtered and sorted as Detail does through src/backlinks.ts. Moving the selection, or giving
+// the tile the keys, shows the selected row where this tile's selection goes (a preview following it, or its
+// link) without moving the current note (so the tile it lists the links of stays put): a note, a ticket's block,
+// a Resource's stored content (read only: nothing is registered or fetched by showing it). ⏎ opens it, alt+⏎
+// opens it "fresh", as a link's alt+⏎ does; the mouse escalates the same way (RowView.press): a click selects, a
+// double click is ⏎, an alt-, ctrl- or middle-click is alt+⏎, and the click that gives the tile the keys only selects.
 //
-// The rows and the status line are drawn by `backlinkRowLine` and `layoutBacklinkStatus`, which the board's
-// backlinks drawer draws with too: one drawing of Detail's view, not two.
-import { isOutlineNote } from "../authored";
+// The rows are drawn by `linkRowLine`, as the tree's links and the inline `::links` component are; the status
+// line by `layoutBacklinkStatus`. One model and one drawing, not three.
+import { isOutlineNote, type AuthoredLinksSnapshot } from "../authored";
+import { describeLinkRow, isLinkEntry, isLinkGroup, linkBlock, linkNote, linkRowLine, linkRows, type LinkData, type LinkGroupName, type LinkRow, type Load } from "../links";
 import { subject, type Msg } from "../board";
 import {
   backlinkOptionsFrom, backlinkRowSuffix, backlinkRows, backlinkStageSummary, backlinkStatusParts, backlinkView, DEFAULT_BACKLINK_VIEW_OPTIONS,
@@ -18,7 +22,7 @@ import { ActionRefused, actionSet, def, agentLabel } from "../surface/actions";
 import { C, fg, pad, RESET, selected, width } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
 import { runOwn, type DeskApi, type Pane, type PaneView } from "./panes";
-import { RowView } from "../scroll";
+import { RowView, type RowPress } from "../scroll";
 import { LineInput } from "../surface/line";
 
 
@@ -60,16 +64,21 @@ export function backlinkRowLine(row: BacklinkRow, o: { selected: boolean; focuse
   return on + (o.selected ? "" : fg(C.white)) + pad(`${indent}${f.title}${tail}`, o.cols) + RESET;
 }
 
-const rowKey = (r: BacklinkRow | undefined) => (r ? (r.kind === "group" ? `g:${r.group.kind}` : `s:${r.source.blockId}`) : undefined);
+const rowKey = (r: LinkRow | undefined) => r?.key;
+/** The first row that opens something (the selection starts there), else the first. */
+const firstEntry = (rows: readonly LinkRow[]) => Math.max(0, rows.findIndex(r => isLinkEntry(r)));
 
 /** How a picked source opens: shown where the selection goes (moving), opened (⏎, a click), or fresh (alt+⏎). */
 export type PickHow = "show" | "open" | "fresh";
 
 export class BacklinksPane implements Pane {
   readonly kind = "backlinks" as const;
-  /** The note whose backlinks are listed (what the source tile shows), and what the service sent for it. */
+  /** The note whose links are listed (what the source tile shows), and what the service sent for it: its backlinks, its authored links. */
   target: Msg | null = null;
   data: BacklinkCollection | null = null;
+  authored: Load<AuthoredLinksSnapshot> = { kind: "loading" };
+  /** The groups (Outlinks, Resources, Backlinks) folded to their header. */
+  shut = new Set<LinkGroupName>();
   problem = "";
   /** The selected row, and the first row drawn. */
   sel = 0;
@@ -100,11 +109,11 @@ export class BacklinksPane implements Pane {
   constructor(public source: string, readonly openGroups = false) {}
 
   title() {
-    if (!this.target) return `backlinks · of ${this.source}`;
+    if (!this.target) return `links · of ${this.source}`;
     const n = this.data ? ` · ${this.data.sources.length} source${this.data.sources.length === 1 ? "" : "s"}` : " · …";
-    return `backlinks · ${subject(this.target).slice(0, 50)}${n}`;
+    return `links · ${subject(this.target).slice(0, 50)}${n}`;
   }
-  hint() { return this.draft !== null ? "type to filter the backlinks · ⏎ keep · esc undo · backspace ctrl+u erase" : "j k pick · ⏎ open · alt+⏎ fresh · s K w h n . view"; }
+  hint() { return this.draft !== null ? "type to filter the links · ⏎ keep · esc undo · backspace ctrl+u erase" : "j k pick · ⏎ open · alt+⏎ fresh · . fold · s K w h n view"; }
   spec() { return { source: `tile:${this.source}`, ...(this.openGroups ? { groups: "open" as const } : {}) }; }
 
   init(desk: DeskApi) { this.sync(desk); }
@@ -136,19 +145,29 @@ export class BacklinksPane implements Pane {
   /** Ask the service for `m`'s backlinks (the list keeps its view options, as Detail's panel does). */
   load(m: Msg | null, desk: DeskApi, keepSel = false): Promise<void> {
     const was = keepSel ? rowKey(this.rows()[this.sel]) : undefined;
-    if (m?.id !== this.target?.id) { this.options = { ...this.options, filter: "", kind: null }; this.expanded = new Set(); }
+    if (m?.id !== this.target?.id) { this.options = { ...this.options, filter: "", kind: null }; this.expanded = new Set(); this.headerPicked = false; }
     this.target = m;
-    if (!keepSel) { this.data = null; this.sel = 0; this.view.reset(); }
+    if (!keepSel) { this.data = null; this.authored = { kind: "loading" }; this.sel = 0; this.view.reset(); }
     this.problem = "";
     if (!m) return Promise.resolve();
     const n = ++this.asked;
+    // Its authored links (Outlinks, Resources) come beside the backlinks; the list draws each as it lands.
+    void desk.ctx.board.authoredLinks(m.id).then(v => {
+      if (n !== this.asked) return;
+      const before = rowKey(this.rows()[this.sel]);
+      this.keepSel(() => { this.authored = { kind: "ready", value: v }; }, !keepSel && !this.data);
+      // The selection moved onto a link that came with them: shown, as moving to it would, while the list has the keys.
+      if (this.data && rowKey(this.rows()[this.sel]) !== before && desk.hasFocus?.(this)) this.showSelected(desk, USER);
+      desk.redraw();
+    },
+      (e: Error) => { if (n === this.asked) { this.authored = { kind: "error", message: `couldn't ask: ${e.message}` }; desk.redraw(); } });
     return desk.ctx.board.backlinks(m.id).then(data => {
       if (n !== this.asked) return;
       this.data = data;
       // Opened once per note (a later read keeps what the person folded).
       if (this.openGroups && this.openedFor !== m.id) { this.openedFor = m.id; for (const k of backlinkView(data, { ...this.options, kind: null }).kinds) this.expanded.add(k.kind); }
       const rows = this.rows(), kept = was ? rows.findIndex(r => rowKey(r) === was) : -1;
-      this.sel = kept >= 0 ? kept : Math.max(0, rows.findIndex(r => r.kind === "source"));
+      this.sel = kept >= 0 && (isLinkEntry(rows[kept]) || this.headerPicked) ? kept : firstEntry(rows);
       const by = this.showOnLoad;
       this.showOnLoad = null;
       if (by) this.showSelected(desk, by);
@@ -162,9 +181,9 @@ export class BacklinksPane implements Pane {
     else if (this.target) this.showOnLoad = actor;
   }
 
-  /** Show the selected row's source (a group's header shows nothing). */
+  /** Show the selected row's note (a group's header shows nothing). */
   private showSelected(desk: DeskApi, actor: Actor) {
-    if (this.rows()[this.sel]?.kind !== "source") return;
+    if (!isLinkEntry(this.rows()[this.sel])) return;
     void this.pick(this.sel, "show", desk, actor).catch(() => {});
   }
 
@@ -176,12 +195,15 @@ export class BacklinksPane implements Pane {
   }
   dispose() { if (this.reload) clearTimeout(this.reload); }
 
-  /** The selected source's first occurrence, as quoted text on one line ("" for a group or nothing). */
+  /** The selected backlink's first occurrence, as quoted text on one line ("" for anything else). */
   snippet(): string {
     const r = this.rows()[this.sel];
-    return r?.kind === "source" ? String(r.source.occurrences[0]?.snippet ?? "").replace(/\s+/g, " ").trim() : "";
+    return r?.kind === "backlink" ? String(r.source.occurrences[0]?.snippet ?? "").replace(/\s+/g, " ").trim() : "";
   }
-  rows(): BacklinkRow[] { const o = this.opts(); return this.data ? backlinkRows(backlinkView(this.data, o), o, this.expanded) : []; }
+  /** What the service sent, as the shared model reads it. */
+  private linkData(): LinkData { return { links: this.authored, backlinks: this.data ? { kind: "ready", value: this.data } : { kind: "loading" } }; }
+  /** The rows as shown: Outlinks, Resources and Backlinks (the shared links model), each folding, the filter on all three. */
+  rows(): LinkRow[] { return this.target ? linkRows(this.linkData(), { shut: this.shut, kinds: this.expanded, backlinks: this.opts() }) : []; }
 
   render(w: number, h: number, focused: boolean, desk: DeskApi): PaneView {
     this.sync(desk);
@@ -189,7 +211,7 @@ export class BacklinksPane implements Pane {
     if (!this.target) return { lines: [fg(C.dark) + pad(`the backlinks of what ${this.source} shows land here`, w) + RESET] };
     if (this.problem) return { lines: [fg(C.lred) + pad(this.problem, w) + RESET] };
     if (!this.data) return { lines: [fg(C.dark) + pad("asking the service…", w) + RESET] };
-    const o = this.opts(), view = backlinkView(this.data, o), rows = this.rows();
+    const rows = this.rows();
     // The status on the header when it fitted there (headControls), else its own lines at the top.
     // Drawn without its header asking (a host that draws no headers): the status is its own.
     if (!this.headAsked) this.inHead = false;
@@ -203,9 +225,8 @@ export class BacklinksPane implements Pane {
     const fit = Math.max(1, h - this.head);
     this.sel = Math.max(0, Math.min(this.sel, rows.length - 1));
     this.view.place(this.sel, rows.length, fit);
-    rows.slice(this.view.top, this.view.top + fit).forEach((row, j) => lines.push(backlinkRowLine(row, { selected: this.view.top + j === this.sel, focused, faceted: view.faceted, cols: w })));
-    if (!this.data.sources.length) lines.push(fg(C.dark) + " nothing links here yet" + RESET);
-    else if (!rows.length) lines.push(fg(C.dark) + " nothing matches · the status line's controls, / and esc change what shows" + RESET);
+    rows.slice(this.view.top, this.view.top + fit).forEach((row, j) => lines.push(linkRowLine(row, { selected: this.view.top + j === this.sel, focused, cols: w })));
+    if (!rows.some(isLinkEntry) && this.opts().filter) lines.push(fg(C.dark) + " nothing matches · the status line's controls, / and esc change what shows" + RESET);
     return { lines };
   }
 
@@ -234,36 +255,46 @@ export class BacklinksPane implements Pane {
   }
 
   /**
-   * Pick row `i`: a group opens or folds (on open); a source is shown where this tile's selection goes. As
-   * `actor`: an agent's never moves the person's keys (the desk's rule for every open).
+   * Pick row `i`: a group opens or folds (on open); a link is shown where this tile's selection goes (read only),
+   * or opened (a Resource registered if it must be, as the Tree's ⏎). As `actor`: an agent's never moves the
+   * person's keys (the desk's rule for every open).
    */
-  async pick(i: number, how: PickHow, desk: DeskApi, actor: Actor = USER): Promise<{ row: number; id?: string; group?: string }> {
+  async pick(i: number, how: PickHow, desk: DeskApi, actor: Actor = USER): Promise<{ row: number; id?: string; group?: string; resource?: string; registered?: boolean }> {
     const rows = this.rows();
     const r = rows[i];
-    if (!r) throw new ActionRefused(this.data ? `pick a row from 1 to ${rows.length}` : "the backlinks are still being read");
+    if (!r) throw new ActionRefused(this.data ? `pick a row from 1 to ${rows.length}` : "the links are still being read");
     const agent = actor.kind === "agent";
     // An agent's pick is its own: the person's selection stays where it is.
-    if (!agent) this.sel = i;
-    if (r.kind === "group") {
+    if (!agent) { this.sel = i; this.headerPicked = !isLinkEntry(r); }
+    if (r.kind === "group" || r.kind === "kind") {
+      const g = r.kind === "group" ? r.group : r.group.kind;
       if (how !== "show" && agent) throw new ActionRefused("which groups are folded is the person's view; an agent reads every row with backlinks.view or peek");
-      if (how !== "show") this.toggle(r.group.kind, desk);
+      if (how !== "show") { if (r.kind === "group") this.fold(r.group); else this.toggle(r.group.kind, desk); }
       desk.redraw();
-      return { row: i + 1, group: r.group.kind };
+      return { row: i + 1, group: g };
     }
-    const m = await desk.ctx.board.get(r.source.blockId);
-    if (!m) throw new ActionRefused("that source isn't in the outline any more");
-    // The selection may have moved on while the source was read: only the latest pick shows.
+    const { note: m, registered } = await linkNote(r, desk.ctx.board, how === "show" ? "show" : "open", actor);
+    // The selection may have moved on while the note was read: only the latest pick shows.
     if (!agent && rowKey(this.rows()[this.sel]) !== rowKey(r)) return { row: i + 1, id: m.id };
     // Shown: the previews following this tile (and its link) only; the current note stays, or a reader that
-    // follows it, whose backlinks these are, would move to the row and the list with it.
+    // follows it, whose links these are, would move to the row and the list with it.
     if (how === "show" && desk.showFrom) desk.showFrom(this, m);
     else {
       // The person's open moves their selection there too: the preview following this tile shows it as well.
       if (!agent && desk.showFrom) desk.showFrom(this, m);
       desk.setCurrent(m, { from: this, ...(how !== "show" ? { link: true } : {}), ...(how === "fresh" ? { fresh: true } : {}), by: actor });
     }
+    // A Resource just registered: the list asks again, so its row says so.
+    if (registered && this.target) { desk.ctx.flash(`${r.kind === "resource" ? r.link.label : "it"} registered and shown`); void this.load(this.target, desk, true); }
     desk.redraw();
-    return { row: i + 1, id: m.id };
+    const res = m.id.startsWith("resource:") ? { resource: m.id.slice("resource:".length), registered: !!registered } : { id: m.id };
+    return { row: i + 1, ...res };
+  }
+
+  /** Fold or open one of the three groups, keeping the selection on its row (or the group's header). */
+  fold(group: LinkGroupName) {
+    this.keepSel(() => { if (this.shut.has(group)) this.shut.delete(group); else this.shut.add(group); });
+    if (!this.rows()[this.sel] || this.rows()[this.sel]!.key.startsWith(group + " > ")) this.sel = Math.max(0, this.rows().findIndex(r => r.key === group));
   }
 
   /** Open or fold a kind group. A narrowing filter opens every group, as in Detail. */
@@ -273,13 +304,16 @@ export class BacklinksPane implements Pane {
     this.keepSel(() => { if (this.expanded.has(kind)) this.expanded.delete(kind); else this.expanded.add(kind); });
   }
 
-  /** Change the view, keeping the selected row where it still shows (else the first source). */
-  private keepSel(change: () => void) {
+  /** Change the view, keeping the selected row where it still shows (else the first link). `fresh`: a first read, the first link. */
+  private keepSel(change: () => void, fresh = false) {
     const was = rowKey(this.rows()[this.sel]);
     change();
-    const rows = this.rows(), kept = rows.findIndex(r => rowKey(r) === was);
-    this.sel = kept >= 0 ? kept : Math.max(0, rows.findIndex(r => r.kind === "source"));
+    // A selection on a header the person didn't pick (nothing to pick when it last moved) goes to the first link once there is one.
+    const rows = this.rows(), kept = fresh ? -1 : rows.findIndex(r => rowKey(r) === was);
+    this.sel = kept >= 0 && (isLinkEntry(rows[kept]) || this.headerPicked) ? kept : firstEntry(rows);
   }
+  /** The person put the selection on a group's header themselves (a key, a click): it stays there. */
+  private headerPicked = false;
 
   /** One control, as its key, its click in the status line and `backlinks.view` do it; what it did, in words. */
   control(c: BacklinkControl): string {
@@ -304,7 +338,8 @@ export class BacklinksPane implements Pane {
     const brief = this.target ? { id: this.target.id, title: subject(this.target) } : null;
     if (!this.data) return { source: this.source, target: brief, loading: !!this.target && !this.problem, problem: this.problem || undefined };
     const o = this.opts();
-    return { source: this.source, target: brief, ...describeBacklinkView(backlinkView(this.data, o), o, this.expanded, this.sel), typing: this.draft?.text ?? null };
+    // Detail's backlink view (its counts, options, kind groups), and every row as the list numbers them.
+    return { source: this.source, target: brief, ...describeBacklinkView(backlinkView(this.data, o), o, this.expanded), rows: this.rows().map((r, i) => describeLinkRow(r, i + 1, i === this.sel)), folded: [...this.shut], typing: this.draft?.text ?? null };
   }
 
   run(desk: DeskApi, name: "backlinks.pick" | "backlinks.view" | "backlinks.fold", args: Record<string, unknown>) { runOwn(BACKLINKS_ACTIONS, name, args, { pane: this, desk }); }
@@ -339,14 +374,24 @@ export class BacklinksPane implements Pane {
     return false;
   }
 
-  /** A click on a control does what its key does; on a row it opens it (a ctrl- or alt-click: fresh); the wheel moves the selection. */
-  mouse(k: Extract<Key, { kind: "mouse" }>, x: number, y: number, desk: DeskApi): boolean {
+  /**
+   * A click on a control does what its key does. A press on a row escalates as the keys do (RowView.press): a
+   * click selects it and shows it (j k), a double click opens it (⏎), an alt-, ctrl- or middle-click opens it
+   * fresh (alt+⏎); the press that gave the tile the keys only selects. A click on a group's mark (▾ ▸ + −) folds
+   * it at once. The wheel moves the selection.
+   */
+  mouse(k: Extract<Key, { kind: "mouse" }>, x: number, y: number, desk: DeskApi, press?: RowPress): boolean {
     if (k.action === "wheel-up" || k.action === "wheel-down") { this.key({ kind: k.action === "wheel-up" ? "up" : "down" }, desk); return true; }
     if (k.action !== "down") return true;
     const c = this.controls.find(s => s.y === y && x >= s.x && x < s.x + s.cols);
     if (c?.control) { this.run(desk, "backlinks.view", { step: c.control }); return true; }
-    const i = this.view.top + y - this.head;
-    if (y >= this.head && i < this.rows().length) this.run(desk, "backlinks.pick", { n: i + 1, open: true, ...((k.mods ?? 0) & 24 ? { fresh: true } : {}) });
+    const i = this.view.top + y - this.head, row = this.rows()[i];
+    if (y < this.head || !row) return true;
+    const gesture = this.view.press(i, press ?? { mods: k.mods ?? 0, button: k.button });
+    const header = row.kind === "group" || row.kind === "kind";
+    if (header && gesture !== "focus" && x <= row.depth * 2 + 1) { this.run(desk, "backlinks.pick", { n: i + 1, open: true }); return true; }
+    if (gesture === "open" || gesture === "fresh") this.run(desk, "backlinks.pick", { n: i + 1, open: true, ...(gesture === "fresh" && !header ? { fresh: true } : {}) });
+    else if (i !== this.sel) this.run(desk, "backlinks.pick", { n: i + 1 });
     return true;
   }
 }
@@ -401,27 +446,33 @@ export const BACKLINKS_ACTIONS = actionSet<BacklinksOn>()("backlinks", {
     },
   }),
   "backlinks.fold": def({
-    summary: "open or fold a kind's group in a backlinks tile (kind=<its key or label>; default the selected row's), as . or space on it does; every group is open while a filter is set. The person's view: an agent's is refused",
-    keys: ". space",
+    summary: "open or fold a group in a links tile: one of the three (outlinks, resources, backlinks) or a backlink kind (kind=<its key or label>); default the selected row's, as . or space on it does (a link's: its own group). Every backlink kind is open while a filter is set. The person's view: an agent's is refused",
+    keys: ". space, a click on a group's ▾ ▸ + −, a double click on its header",
     touches: "tile", replay: "safe", person: "which groups are folded is the person's view; an agent reads every row with backlinks.view or peek",
-    args: { kind: { type: "string", optional: true, about: "the group's kind (its key, as peek's rows give it, or its label); default the selected row's" } },
+    args: { kind: { type: "string", optional: true, about: "outlinks, resources or backlinks, or a backlink kind (its key, as peek's rows give it, or its label); default the selected row's" } },
     run({ kind }, { pane, desk }) {
       const r = pane.rows()[pane.sel];
+      if (kind !== undefined && isLinkGroup(kind.toLowerCase())) { pane.fold(kind.toLowerCase() as LinkGroupName); desk.redraw(); return { backlinks: pane.describe() }; }
+      if (kind === undefined && r?.kind === "group") { pane.fold(r.group); desk.redraw(); return { backlinks: pane.describe() }; }
+      // A link's own group: an outlink or a resource folds its group; a backlink its kind (or Backlinks, unfaceted).
+      if (kind === undefined && (r?.kind === "outlink" || r?.kind === "resource" || (r?.kind === "backlink" && !r.source.facets?.kind))) {
+        pane.fold(r.kind === "outlink" ? "outlinks" : r.kind === "resource" ? "resources" : "backlinks"); desk.redraw(); return { backlinks: pane.describe() };
+      }
       const kinds = backlinkView(pane.data, { ...pane.options, kind: null }).kinds;
-      const k = kind === undefined ? (r?.kind === "group" ? r.group.kind : r?.source.facets?.kind) : kinds.find(x => x.kind === kind || x.label.toLowerCase() === kind.toLowerCase())?.kind ?? kind;
-      if (!k) throw new ActionRefused(kind === undefined ? "the selected row has no kind group" : `no backlink kind ${kind}`);
+      const k = kind === undefined ? (r?.kind === "kind" ? r.group.kind : r?.kind === "backlink" ? r.source.facets?.kind : undefined) : kinds.find(x => x.kind === kind || x.label.toLowerCase() === kind.toLowerCase())?.kind ?? kind;
+      if (!k) throw new ActionRefused(kind === undefined ? "the selected row has no group" : `no group or backlink kind ${kind}`);
       pane.toggle(k, desk);
       desk.redraw();
       return { backlinks: pane.describe() };
     },
   }),
   "backlinks.pick": def({
-    summary: "pick a row of a backlinks tile (tile=<its name>): n (as peek's rows, from 1) or id; the source shows where the tile's selection goes; open=true as ⏎, fresh=true as alt+⏎. An agent's never moves the person's keys",
-    keys: "j k ↑ ↓ Home End wheel (show) · ⏎ click (open) · alt+⏎ ctrl-click alt-click (fresh)",
-    touches: "nothing", replay: "safe", says: r => `picked a backlink (row ${r.row})`,
+    summary: "pick a row of a links tile (tile=<its name>): n (as peek's rows, from 1) or id (a block's, or a resource's); it shows where the tile's selection goes (a note, a ticket's block, a Resource's stored content: read only); open=true as ⏎ (a Resource is registered if it must be), fresh=true as alt+⏎. An agent's never moves the person's keys",
+    keys: "j k ↑ ↓ Home End wheel click (show) · ⏎ double click (open) · alt+⏎ alt-click ctrl-click middle-click (fresh); the click that gives the tile the keys only selects",
+    touches: "nothing", replay: "safe", says: r => `picked a link (row ${r.row})`,
     args: {
       n: { type: "number", optional: true, about: "the row, from 1, as peek lists them" },
-      id: { type: "string", optional: true, about: "a source's block id (or its start)" },
+      id: { type: "string", optional: true, about: "a linked block's id or a resource's (or its start)" },
       by: { type: "number", optional: true, about: "rows on from the selected one (1 the next, -1 the one before), as j k do" },
       open: { type: "boolean", optional: true, about: "open it, as ⏎ does (a group opens or folds)" },
       fresh: { type: "boolean", optional: true, about: "open it fresh, as alt+⏎ does" },
@@ -429,9 +480,10 @@ export const BACKLINKS_ACTIONS = actionSet<BacklinksOn>()("backlinks", {
     async run({ n, id, by, open, fresh }, { pane, desk }, actor) {
       if ([n, id, by].filter(x => x !== undefined).length !== 1) throw new ActionRefused("backlinks.pick takes one of n, id or by");
       const rows = pane.rows();
-      const i = id !== undefined ? rows.findIndex(r => r.kind === "source" && r.source.blockId.startsWith(id)) : by !== undefined ? pane.sel + Math.trunc(by) : n! - 1;
+      const idOf = (r: LinkRow) => linkBlock(r) ?? (r.kind === "resource" ? r.link.recordBlockId ?? r.link.resourceId ?? (r.link.resolution.kind === "ready" ? r.link.resolution.target.resourceId : null) : null);
+      const i = id !== undefined ? rows.findIndex(r => idOf(r)?.startsWith(id)) : by !== undefined ? pane.sel + Math.trunc(by) : n! - 1;
       if (by !== undefined && (i < 0 || i >= rows.length)) throw new ActionRefused(`no row ${by > 0 ? "after" : "before"} row ${pane.sel + 1}`);
-      if (id !== undefined && i < 0) throw new ActionRefused(`no backlink from ${id} here`);
+      if (id !== undefined && i < 0) throw new ActionRefused(`no link to or from ${id} here`);
       return pane.pick(i, fresh ? "fresh" : open ? "open" : "show", desk, actor);
     },
   }),

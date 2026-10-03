@@ -1,7 +1,7 @@
 // A list to pick from, as a mode (src/surface/modes.ts): the desk's layout picker, policy panel and search, the
 // board's hub picker, mover and steps, a reader's status choice. It holds every key while open: ↑ ↓ (j k when
-// nothing is typed), Tab, Home End, PgUp PgDn and the wheel move the cursor (a RowView); ⏎ or a click on a row
-// chooses, and puts it away unless it `stays`; esc, a closing letter or a click outside puts it away. Put away, it has
+// nothing is typed), Tab, Home End, PgUp PgDn and the wheel move the cursor (a RowView); ⏎ or a double click on a row
+// chooses (a click moves the cursor there, RowView.press), and puts it away unless it `stays`; esc, a closing letter or a click outside puts it away. Put away, it has
 // `ended` (its mode stack lets it go). A line typed above the list is a LineInput.
 import type { Canvas, Rect } from "../canvas";
 import { RowView } from "../scroll";
@@ -71,7 +71,7 @@ export class ListPicker<T, H> implements Mode<H> {
   key(k: Key, host: H): boolean {
     if (k.kind === "mouse") {
       if (k.action === "wheel-up" || k.action === "wheel-down") this.move(k.action === "wheel-down" ? 1 : -1);
-      else if (k.action === "down") this.clickAt(k.x, k.y, host);
+      else if (k.action === "down") this.clickAt(k, host);
       return true;
     }
     const c = ch(k), input = this.spec.input;
@@ -88,11 +88,17 @@ export class ListPicker<T, H> implements Mode<H> {
     return true;
   }
 
-  /** A click on a row chooses it; one in its frame is the frame's; one outside puts it away. */
-  private clickAt(x: number, y: number, host: H) {
+  /**
+   * A press on a row escalates as the keys do (RowView.press): a click moves the cursor there (as ↑ ↓), a double
+   * click chooses it (⏎), as an alt-, ctrl- or middle-click does. A panel that `stays` open has controls for rows:
+   * a click changes one. One in its frame is the frame's; one outside puts it away.
+   */
+  private clickAt(k: Extract<Key, { kind: "mouse" }>, host: H) {
+    const { x, y } = k;
     const r = this.box, hit = r && x > r.col && x < Math.min(r.col + r.cols - 1, r.col + 1 + this.listW) ? this.hits.find(h => h.y === y) : undefined;
     if (!r) return;                                          // never drawn (the reader's status choice): not its click
-    if (hit) this.pick(hit.i, host);
+    // A panel that stays open (the policy rows, the steps) has controls for rows: a click on one is its change.
+    if (hit) { const g = this.spec.stays ? "open" : this.view.press(hit.i, { mods: k.mods ?? 0, button: k.button }); if (g === "open" || g === "fresh") this.pick(hit.i, host); else this.sel = hit.i; }
     else if (!this.spec.clicked?.(x, y, host) && (!r || x < r.col || x >= r.col + r.cols || y < r.row || y >= r.row + r.rows)) this.close(host);
   }
 

@@ -26,7 +26,7 @@ export type Key =
    */
   | { kind: "alt-left" | "alt-right" | "back" | "forward" }
   /** `mods`: the SGR modifier bits held (4 shift, 8 alt/meta, 16 ctrl); a mod-click opens elsewhere (PIE-473). */
-  | { kind: "mouse"; action: "down" | "up" | "drag" | "wheel-up" | "wheel-down"; button: number; x: number; y: number; mods?: number }
+  | { kind: "mouse"; action: "down" | "up" | "drag" | "wheel-up" | "wheel-down" | "wheel-left" | "wheel-right"; button: number; x: number; y: number; mods?: number }
   /** A paste (bracketed paste, mode 2004): the text as one piece. Screens that don't take it whole get it as keys (App). */
   | { kind: "paste"; text: string }
   /** A line break or tab that came inside a paste typed out as keys: a draft takes it as text, not as a list or indent command. */
@@ -213,7 +213,8 @@ export class KeyDecoder {
     const b = Number(m[1]), x = Number(m[2]) - 1, y = Number(m[3]) - 1;
     // The side buttons (8 back, 9 forward) set bit 128; read as a plain button they'd be a left click.
     if (b & 128) { if (m[4] === "M" && !(b & 32)) this.keyHandler({ kind: b & 1 ? "forward" : "back" }); return; }
-    const action = b & 64 ? (b & 1 ? "wheel-down" : "wheel-up") : b & 32 ? "drag" : m[4] === "M" ? "down" : "up";
+    // The wheel's buttons: 64 up, 65 down, 66 left, 67 right (a trackpad's sideways swipe, a tilting wheel).
+    const action = b & 64 ? (["wheel-up", "wheel-down", "wheel-left", "wheel-right"] as const)[b & 3]! : b & 32 ? "drag" : m[4] === "M" ? "down" : "up";
     this.keyHandler({ kind: "mouse", action, button: b & 3, x, y, ...(b & 28 ? { mods: b & 28 } : {}) });
   }
 

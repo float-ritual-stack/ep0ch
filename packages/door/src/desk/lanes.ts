@@ -16,7 +16,7 @@ import { ch, isUp, isDown, type Key } from "../term";
 import { ago } from "../text";
 import { applyMove, describeChanges, NO_PLAN, planMoves, type MovePlan } from "../move";
 import { PROPERTY_KEY_SOURCE } from "@ep0ch/outline-core/property-grammar";
-import { clamp, wheelRows } from "../scroll";
+import { clamp, sideways, SidewaysWheel, wheelRows, type RowPress } from "../scroll";
 import { DRAFT_ACTIONS } from "../edit";
 import { cardTarget, DraftSession, openDraftOf, type DraftCommand, type LeaveResult } from "../draft-session";
 import { editHint, editorClick, openInEditor, renderEditor, writtenBy } from "../surface/editor";
@@ -33,7 +33,7 @@ import type { ColumnsHost, SourceModel, TileSource } from "./tile-kinds";
 /** A lane: a query tile of the board's hub (its view, cards, cursor and read). */
 type Lane = QueryPane;
 /** A card pressed in a lane: dragged onto another lane it moves there; released where it was, a click (a second one opens it). */
-interface CardDrag { from: number; card: Msg; over: number | null; open: boolean }
+interface CardDrag { from: number; card: Msg; over: number | null; open: "open" | "fresh" | null }
 /** What the lanes keep between runs: the hub shown in each workspace, and the lane the cursor was in. */
 export interface LanesSaved { hubs?: Record<string, string>; lane?: string }
 
@@ -95,6 +95,8 @@ export class Lanes implements SourceModel {
   lastWrite: { what: string; id?: string; result: string; by?: string } | null = null;
   /** A card pressed in a lane, being dragged. */
   cardDrag: CardDrag | null = null;
+  /** Sideways wheel reports over the lanes, one step a swipe. */
+  private readonly swipe = new SidewaysWheel();
   /** The lanes were filled once: the person started on them (a later refill never moves their keys). */
   private started = false;
 
@@ -1164,17 +1166,20 @@ export class Lanes implements SourceModel {
    * selected (card.select) and can be dragged onto another lane to move it there (card.move); a click on the selected
    * card opens it on release (open); the wheel over a lane moves its cursor. Its header and frame are the desk's.
    */
-  laneMouse(k: Extract<Key, { kind: "mouse" }>): boolean {
+  laneMouse(k: Extract<Key, { kind: "mouse" }>, press?: RowPress): boolean {
     const d = this.cardDrag;
     if (d && k.action === "drag") { d.over = this.laneAtPoint(k.x, k.y)?.i ?? this.laneOver(k.x, k.y); this.host.redraw(); return true; }
     if (d && k.action === "up") {
       this.cardDrag = null;
-      // Released over another lane: move it there. Released where it started: a click (a second click opens it).
+      // Released over another lane: move it there. Released where it started: a click (a double click opens it).
       if (d.over !== null && d.over !== d.from) { if (this.lane === d.from && this.card()?.id === d.card.id) void this.run("card.move", { lane: this.lanes[d.over]!.name, card: d.card.id }); }
-      else if (d.open) void this.host.perform?.("open", { id: d.card.id, from: this.host.nameOfPane(this.lanes[d.from]!) }, USER);
+      else if (d.open) void this.host.perform?.("open", { id: d.card.id, from: this.host.nameOfPane(this.lanes[d.from]!), ...(d.open === "fresh" ? { fresh: true } : {}) }, USER);
       this.host.redraw();
       return true;
     }
+    // A swipe sideways steps the cursor to the lane beside, as h and l do (one step a swipe).
+    const sw = sideways(k);
+    if (sw) { if (this.swipe.step(sw)) void this.run("card.select", { lanes: sw }); return true; }
     if (k.action === "wheel-up" || k.action === "wheel-down") {
       const at = this.laneAtPoint(k.x, k.y);
       if (!at) return false;
@@ -1187,11 +1192,13 @@ export class Lanes implements SourceModel {
     const r = at.rect;
     if (k.x <= r.col || k.x >= r.col + r.cols - 1 || k.y >= r.row + r.rows - 1) return false;
     const l = at.lane, idx = l.rowAt(at.row);
-    const same = this.lane === at.i && l.sel === idx && this.onLanes;
     if (idx >= 0) {
+      // The mouse escalates as the keys do (RowView.press): a click picks the card, a double click opens it (⏎), an
+      // alt-, ctrl- or middle-click opens it in a new detail (alt+⏎); the click that gives the lanes the keys only picks.
+      const g = l.cursor.press(idx, press ?? { mods: k.mods ?? 0, button: k.button, focusing: !this.onLanes });
       void this.run("card.select", { id: l.items![idx]!.id, lane: l.name });
-      // Drag it onto another lane to move it; a click on the selected card opens it when released.
-      this.cardDrag = { from: at.i, card: l.items![idx]!, over: null, open: same };
+      // Drag it onto another lane to move it; a double click opens it when released.
+      this.cardDrag = { from: at.i, card: l.items![idx]!, over: null, open: g === "open" ? "open" : g === "fresh" ? "fresh" : null };
       if (this.movePlans?.failed) this.movePlans = null;
     } else void this.run("card.select", { lane: l.name, by: 0 });
     this.host.redraw();

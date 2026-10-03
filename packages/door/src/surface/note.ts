@@ -101,6 +101,11 @@ export interface SurfaceHost {
    * reader's `p`): an extension's key on a line never takes one of them (PIE-512).
    */
   ownKeys?: string;
+  /**
+   * This note's links (Outlinks, Resources, Backlinks) in the screen's links tile, as `b` asks: where the host has
+   * one, or can open one beside the reader. Without it `b` says so and points at the inline `::links`.
+   */
+  links?(actor: Actor): Promise<Record<string, unknown>>;
 }
 
 /** Back and forward where a view keeps them (SurfaceHost.history). */
@@ -856,6 +861,7 @@ export class NoteSurface {
       present: x => presentLinks(x, false, src, m.text, drawn, tokens),
       folds: { points, folded: this.folded, selected: this.foldSel },
       link: (block, x) => tagged(drawn, { block, role: "row" }, x),
+      tag: (to, x) => tagged(drawn, to, x), note: m.id,
       ...more?.(text, lines),
     });
     return { doc, points, lines };
@@ -881,6 +887,7 @@ export class NoteSurface {
         ...env, width, graphics: false, noImages: undefined, literal: lit, keepTags: true, folds: undefined, after: undefined,
         present: t => presentLinks(t, false, src, target.text, drawn),
         link: (block, t) => tagged(drawn, { block, role: "row" }, t),
+        tag: (to, t) => tagged(drawn, to, t), note: target.id,
         embed: hooks.embed, task: (i, box) => hooks.task(lines[i] ?? -1, box),
       }).lines;
     };
@@ -1606,6 +1613,8 @@ export class NoteSurface {
     if (c === "f" && this.msg && !this.msg.partial) { void this.runKey("fold.toggle", {}, host); return true; }
     if (c === "F" && this.msg && !this.msg.partial) { void this.runKey(this.folded.size === 0 ? "fold" : "unfold", { all: true }, host); return true; }
     if (c === "u" && this.msg?.parentId) { void this.runKey("up", {}, host, true); return true; }
+    // b: this note's links (Outlinks, Resources, Backlinks) in the screen's links tile.
+    if (c === "b" && this.msg && !this.msg.partial) { void this.runKey("links", {}, host, true); return true; }
     // r: fetch the tickets this note shows now (PIE-445): the one the [ ] position is on, else the note's.
     if (c === "r" && this.msg && isOutlineNote(this.msg)) { void this.runKey("projection.refresh", {}, host, true); return true; }
     return false;
@@ -3808,6 +3817,19 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       const m = await surface.goUp(host);
       if (!m) throw new ActionRefused("the note has no parent");
       return { opened: m.id, title: subject(m) };
+    },
+  }),
+  "links": def({
+    summary: "show this reader's note's links (its Outlinks, Resources and Backlinks, the links model the outliner's Tree shows) in the screen's links tile: it aims at this note, its drawer opens, and the person's keys go to it; on a screen without one a links tile opens below the reader with a preview following its selection. An agent's opens or aims it and leaves the person's keys where they are. A note can list them inline too: ::links, ::resources, ::backlinks",
+    keys: "b",
+    touches: "shape", replay: "safe", says: () => "showed the links",
+    args: {},
+    async run(_, { surface, host }, actor) {
+      const m = surface.msg;
+      if (!m) throw new ActionRefused("no note here to show the links of");
+      if (!isOutlineNote(m)) throw new ActionRefused("a resource or a file isn't a block: it has no links here");
+      if (!host.links) throw new ActionRefused("this screen has no room for a links tile · write ::links in a note to list them inline");
+      return host.links(actor);
     },
   }),
   "back": def({

@@ -38,12 +38,19 @@ describe("a list picker", () => {
     expect(p.key(char("z"), null)).toBe(true);             // it holds every key while it's open
   });
 
-  test("a click on a row chooses it, one outside puts it away; a long list scrolls with its cursor", () => {
+  test("a click on a row moves the cursor there, a double click or an alt-click chooses it, one outside puts it away; a long list scrolls with its cursor", () => {
     const { p, said, draw } = picker(20);
     let lines = draw();
     expect(lines[2]).toContain("fictional item 1");
     p.key(click(5, 4), null);                               // the box's third row
+    expect(said).toEqual([]);
+    expect(p.sel).toBe(2);
+    p.key(click(5, 4), null);                               // again at once: a double click
     expect(said).toEqual(["chose fictional item 3"]);
+    const alt = picker(5);
+    alt.draw();
+    alt.p.key({ ...click(5, 3), mods: 8 } as Key, null);
+    expect(alt.said).toEqual(["chose fictional item 2"]);
     for (let i = 0; i < 15; i++) p.key(char("j"), null);
     lines = draw();
     expect(lines.join("\n")).toContain("fictional item 18");
