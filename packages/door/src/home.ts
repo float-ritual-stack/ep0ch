@@ -3,7 +3,8 @@
 // then the machines the person has opened outlines on (src/machine.ts keeps that list; ssh config names them), each
 // one's outlines once its forward is up, read as `ep0ch doctor` reads them (`machineStatus`). Choosing an outline opens
 // the door on it, and offers to write the folder's `.ep0ch` (its name, and its machine when it is another one) so the
-// next `ep0ch` there opens it directly.
+// next `ep0ch` there opens it directly. An outline whose session runs (one per outline, src/session/place.ts) says so
+// ("● running · 1 attached"), and choosing it attaches to that session.
 //
 // Every choice is an action of the kind (HOME_ACTIONS): its keys, a click on its row and `act` run the same code. What a
 // choice needs typed or picked (a new outline's name, a database to import, a machine from ssh config, whether to write
@@ -36,6 +37,8 @@ import { freeOutlineName, isMachineName, isOutlineName, slugifyOutlineName } fro
 import { hostLive } from "./discover";
 import { forgetMachine, forwardTo, machineStatus, rememberMachine, sshConfigNames, usedMachines } from "./machine";
 import { writeDotEp0ch } from "./outlines";
+import { runningSessions } from "./session/place";
+import type { SessionInfo } from "./session/protocol";
 
 /**
  * What the home base opens on: the folder it was started in, the name and folder `.ep0ch` would get there, a machine
@@ -61,6 +64,7 @@ type Row =
 type Pick = Exclude<Row, { t: "head" } | { t: "note" } | { t: "gap" }>;
 const picks = (r: Row): r is Pick => r.t !== "head" && r.t !== "note" && r.t !== "gap";
 const on = (machine?: string) => (machine ? ` on ${machine}` : "");
+const sessionKey = (outline: string, machine?: string) => `${machine ?? ""}/${outline}`;
 /** A choice's identity: it stays picked while rows come and go around it (a machine connecting, a list read). */
 const idOf = (r: Pick) => `${r.t}:${"name" in r ? r.name : ""}:${"machine" in r ? r.machine ?? "" : ""}`;
 
@@ -70,6 +74,8 @@ export class HomePane implements Pane {
   here: Place = { outlines: null, problem: "", busy: "asking the outline host…" };
   /** The machines, in the order shown: the one named first, then those opened before, the most recent first. */
   machines = new Map<string, Place>();
+  /** The sessions running on this state dir, by outline (`<machine>/<name>`, no machine: this one's): ⏎ attaches to one. */
+  running = new Map<string, SessionInfo>();
   /** The choice picked, by identity. */
   private picked = "";
   private readonly view = new RowView();
@@ -101,6 +107,7 @@ export class HomePane implements Pane {
           : { outlines: null, problem: `no outline host answers at ${socket} · start it: systemctl --user start outliner-host (launchctl on macOS)`, busy: "" };
       }),
       ...[...this.machines.keys()].map(m => this.loadMachine(m)),
+      runningSessions().then(rs => { this.running = new Map(rs.map(r => [sessionKey(r.info.place.outline, r.info.place.machine), r.info])); }, () => {}),
     ]);
     desk.redraw();
   }
@@ -143,7 +150,12 @@ export class HomePane implements Pane {
       case "head": return paint(`|14${r.text}`);
       case "note": return paint(`|08   ${r.text}`);
       case "gap": return "";
-      case "outline": return `   ${r.name}`;
+      case "outline": {
+        const s = this.running.get(sessionKey(r.name, r.machine));
+        if (!s) return `   ${r.name}`;
+        const n = s.clients.filter(c => !c.watch).length;
+        return `   ${r.name}  ${fg(C.lgreen)}● running${fg(C.dark)} · ${n ? `${n} attached` : "none attached"}${RESET}`;
+      }
       case "new": return `   + new outline${on(r.machine)}…`;
       case "import": return "   ↓ import a database…";
       case "add": return " + add a machine…";
@@ -210,7 +222,10 @@ export class HomePane implements Pane {
       folder: this.args.folder, ...(this.args.guess ? { writes: `${this.args.guess.folder}/.ep0ch` } : {}),
       here: { host: hostname(), outlines: this.here.outlines, ...(this.here.problem ? { problem: this.here.problem } : {}) },
       machines: [...this.machines].map(([m, p]) => ({ machine: m, outlines: p.outlines, ...(p.problem ? { state: p.problem } : {}) })),
-      choices: this.choices().map((r, i) => ({ n: i + 1, kind: r.t, ...("name" in r ? { outline: r.name } : {}), ...("machine" in r && r.machine ? { machine: r.machine } : {}) })),
+      choices: this.choices().map((r, i) => {
+        const s = r.t === "outline" ? this.running.get(sessionKey(r.name, r.machine)) : undefined;
+        return { n: i + 1, kind: r.t, ...("name" in r ? { outline: r.name } : {}), ...("machine" in r && r.machine ? { machine: r.machine } : {}), ...(s ? { session: { pid: s.pid, attached: s.clients.filter(c => !c.watch).length } } : {}) };
+      }),
       picked: this.at + 1,
     };
   }
@@ -294,7 +309,7 @@ function offerWrite(pane: HomePane, desk: DeskApi, outline: string, machine?: st
     name: "home-write", items: () => items,
     row: (it, _i, lit, w) => [pickRow(` ${it.label}`, lit, w)],
     choose: it => void desk.press?.(pane, HOME_ACTIONS, "home.open", { outline, ...(machine ? { machine } : {}), write: it.write }),
-    frame: a => ({ rect: centred(a, Math.min(70, a.cols - 4), 7), title: `open ${outline}${on(machine)}`, foot: "⏎ or a click chooses · esc back", head: [paint(`|08 with .ep0ch naming it, the next ep0ch in ${basename(folder)} opens it directly:`), paint(`|08 ${folder}/.ep0ch`), ""] }),
+    frame: a => ({ rect: centred(a, Math.min(70, a.cols - 4), 7), title: `open ${outline}${on(machine)}`, foot: "⏎ or a double click chooses · esc back", head: [paint(`|08 with .ep0ch naming it, the next ep0ch in ${basename(folder)} opens it directly:`), paint(`|08 ${folder}/.ep0ch`), ""] }),
   }));
 }
 
@@ -364,7 +379,7 @@ function addPicker(pane: HomePane, desk: DeskApi) {
     },
     row: (n, _i, lit, w) => [pickRow(` ${n}${names.includes(n) ? "" : "  (not in ~/.ssh/config)"}`, lit, w)],
     choose: n => void desk.press?.(pane, HOME_ACTIONS, "home.add", { machine: n }),
-    frame: (a, n) => { const r = centred(a, Math.min(70, a.cols - 4), Math.min(a.rows - 4, n + 4)); return { rect: r, title: "add a machine", foot: "type to filter · ⏎ or a click adds · esc", head: [" " + input.show(r.cols - 4)] }; },
+    frame: (a, n) => { const r = centred(a, Math.min(70, a.cols - 4), Math.min(a.rows - 4, n + 4)); return { rect: r, title: "add a machine", foot: "type to filter · ⏎ or a double click adds · esc", head: [" " + input.show(r.cols - 4)] }; },
   }));
 }
 

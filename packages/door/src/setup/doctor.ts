@@ -5,7 +5,8 @@ import { lnCommand, sh } from "./links";
 import { PROTOCOL } from "@ep0ch/outline-core/protocol";
 import { DOCK_TILE_ID } from "../desk/agent-env";
 import { KEYED_ACTIONS, MIN_BUN, PLUGIN_ID, type Facts, short, staleness } from "./model";
-import { chooseLinkDir, claudeModState, oldMentionsAllowlist, hostRestartHint, hostUnitCommand, linkStep, pluginStep, repoStep, sessionStep, unitChanges } from "./plan";
+import { ep0ch, sessionFlags } from "../session/place";
+import { chooseLinkDir, claudeModState, oldMentionsAllowlist, hostRestartHint, hostUnitCommand, linkStep, pluginStep, repoStep, sessionName, sessionVerdict, unitChanges } from "./plan";
 
 /** unknown: it couldn't be checked (a fetch failed), so it isn't counted as current. */
 export type CheckStatus = "ok" | "behind" | "missing" | "info" | "unknown";
@@ -42,11 +43,13 @@ export function doctorChecks(f: Facts): Check[] {
   if (f.ep0ch.pointsHere) add("ep0ch", "ep0ch on PATH", "ok", `${f.ep0ch.found} → ${f.repo.entry}`);
   else if (f.ep0ch.found) add("ep0ch", "ep0ch on PATH", "behind", link.why, link.commands[0]);
   else add("ep0ch", "ep0ch on PATH", "missing", `not on PATH${chooseLinkDir(f.linkDirs) ? `; install links it in ${chooseLinkDir(f.linkDirs)}` : ""}`, link.commands[0] ?? link.why);
-  // The door session (PIE-418): the daemon, on the checkout's code or behind it.
-  if (f.session !== undefined) {
-    const sess = sessionStep(f, { status: "skip" }), sx = f.session;
-    if (!sx) add("ep0ch", "session", "info", "none running · `ep0ch` starts one");
-    else add("ep0ch", "session", sess.status === "do" ? "behind" : /another checkout|left for you/.test(sess.why) ? "info" : "ok", `pid ${sx.pid} · ${sx.clients} terminal${sx.clients === 1 ? "" : "s"} attached · ${sx.programs} program${sx.programs === 1 ? "" : "s"} in its tiles; ${sess.why}`, sess.status === "do" ? sess.commands[0] : undefined);
+  // The door sessions (PIE-418), one per outline: each daemon, on the checkout's code or behind it.
+  if (f.sessions !== undefined) {
+    if (!f.sessions.length) add("ep0ch", "sessions", "info", `none running · \`${ep0ch().trim()}\` starts one`);
+    for (const sx of f.sessions) {
+      const v = sessionVerdict(sx, f, { status: "skip" });
+      add("ep0ch", `session ${sessionName(sx)}`, v.status === "do" ? "behind" : /another checkout|left for you/.test(v.why) ? "info" : "ok", `pid ${sx.pid} · ${sx.clients} terminal${sx.clients === 1 ? "" : "s"} attached · ${sx.programs} program${sx.programs === 1 ? "" : "s"} in its tiles; ${v.why}`, v.status === "do" ? (sx.old ? `${ep0ch()}session upgrade` : `${ep0ch(process.env, sx)}session upgrade ${sessionFlags({ place: sx })}`) : undefined);
+    }
   }
 
   // the Outliner plugin: Herdr's link to this checkout's packages/outliner

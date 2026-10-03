@@ -5,9 +5,11 @@
 // a dropped ssh connection) detaches it; the session ends only when asked (`session.end`, E on the main menu,
 // `ep0ch session end`).
 //
-// One per user and state dir (EP0CH_STATE): its socket is `session.sock` there, mode 0600 in the 0700 state dir,
-// beside the control socket agents use (door.sock), which the session serves as the door always has. A test door on
-// its own state dir has its own session and never reaches the person's.
+// One per outline, like `herdr --session <name>`: its files are in the outline's folder of the state dir
+// (src/session/place.ts: sessions/<local or machine>/<name>/), its socket `session.sock` there, mode 0600 in a 0700
+// folder, beside the control socket agents use (door.sock), which the session serves as the door always has. Naming an
+// outline names its session, so a terminal is never attached to another outline's. A test door on its own state dir
+// (EP0CH_STATE) has its own sessions and never reaches the person's.
 import { closeSync, existsSync, openSync, readFileSync, rmSync, writeFileSync, writeSync, chmodSync, unlinkSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
 import { resolve } from "node:path";
@@ -20,11 +22,13 @@ import { ensurePtyHost, type HostPtys } from "./pty-host";
 import { Checkpoints, readCheckpoint, restore, restoredSaying, type Restored } from "./restore";
 import { nestLayers } from "../nest";
 import { Offline, USER } from "../socket";
-import { alive, privateDir, readLastCall, stateDir, unclaimState, writeLastCall } from "../state";
+import { alive, privateDir, readLastCall, stateDir, unclaimState, useOutlineState, writeLastCall } from "../state";
 import { serveAs, SessionTerm, type Link, type SessionClient } from "./session-term";
 import { encode, Frames, PROTOCOL, type ClientMsg, type DaemonMsg, type Hello, type SessionInfo } from "./protocol";
-import { sessionFile, sessionLock, sessionSocket, startSession, waitFor } from "./start";
-export { sessionFile, sessionLog, sessionSocket } from "./start";
+import { startSession, waitFor } from "./start";
+import { ep0ch, placeFor, placeLabel, recordPlace, sessionFile, sessionFlags, sessionLock, sessionSocket, type Place } from "./place";
+import { adoptOnStart } from "./old-session";
+export { sessionFile, sessionLog, sessionSocket } from "./place";
 
 /** The checkout this code runs from, and its commit (an upgrade compares them). */
 export function codeVersion(dir = resolve(import.meta.dir, "../..")): { dir: string; commit: string | null } {
@@ -52,11 +56,11 @@ function commandOf(pid: number): string | null {
 }
 
 /**
- * Hold the state dir's session lock: true when this process now has it. A lock left by a session that died (kill -9),
+ * Hold a session's lock (`session.lock` in its outline's folder): true when this process now has it. A lock left by a session that died (kill -9),
  * or naming a process that isn't a session (its pid reused since), is taken over; one held by a live session is not.
  * Two taking over a stale lock at once: each reads it back after a moment, and only the one it names goes on.
  */
-export async function takeLock(path = sessionLock()): Promise<boolean> {
+export async function takeLock(path: string): Promise<boolean> {
   for (let tries = 0; tries < 3; tries++) {
     try {
       const fd = openSync(path, "wx", 0o600);
@@ -87,20 +91,27 @@ export async function serve(args: string[]): Promise<never> {
     try { writeSync(readyFd, jsonLine(m)); } catch { /* the starter went */ }
     try { closeSync(readyFd); } catch { /* closed */ }
   };
-  const dir = privateDir(stateDir(), true);
-  if (!dir) { ready({ ok: false, error: `${stateDir()} isn't yours alone (it needs mode 700): no session` }); process.exit(1); }
-  if (!(await takeLock())) { ready({ ok: false, error: `${LOCKED} on ${stateDir()}` }); process.exit(1); }
-  const opened = await connectTarget(args);
-  if ("error" in opened) { ready({ ok: false, error: opened.error }); console.error(`ep0ch session: ${opened.error}`); process.exit(1); }
+  // Which outline's session: the one its arguments name (the client pinned --ws and --machine), in its folder.
+  const placed = placeFor(args);
+  if (!placed || "error" in placed) { ready({ ok: false, error: placed ? placed.error : `a session is an outline's: \`${ep0ch()}session serve --ws <name>\` (\`${ep0ch()}outline list\` names them)` }); process.exit(1); }
+  const place: Place = placed, dir = place.dir;
+  if (!privateDir(stateDir(), true) || !privateDir(dir, true)) { ready({ ok: false, error: `${stateDir()} or ${dir} isn't yours alone (each needs mode 700): no session · \`chmod 700 ${stateDir()} ${dir}\` fixes it` }); process.exit(1); }
+  useOutlineState(dir);
+  recordPlace(place);
+  if (!(await takeLock(sessionLock(dir)))) { ready({ ok: false, error: `${LOCKED} for ${placeLabel(place)}` }); process.exit(1); }
   // How this daemon came to be: handed a session by the one before it (an upgrade), or after one that stopped.
   const handedOver = process.env.EP0CH_SESSION_RESTORE === "upgrade";
   delete process.env.EP0CH_SESSION_RESTORE;
+  // Once (a one-off): a session from before sessions were per outline, handed over to this one or died on its outline.
+  const moved = await adoptOnStart(place, handedOver);
+  const opened = await connectTarget(args);
+  if ("error" in opened) { ready({ ok: false, error: opened.error }); console.error(`ep0ch session: ${opened.error}`); process.exit(1); }
   const checkpoint = readCheckpoint();
   // The terminal tiles' programs live in the session's terminal host, which outlives this daemon: the programs a
   // daemon before this one left there are adopted by their tiles as they're drawn.
   let host: HostPtys;
   let endedOld = 0;
-  try { ({ host, ended: endedOld } = await ensurePtyHost()); }
+  try { ({ host, ended: endedOld } = await ensurePtyHost(dir)); }
   catch (e) { ready({ ok: false, error: `no terminal host: ${(e as Error).message}` }); process.exit(1); }
   usePtyBackend(host);
   const keptPrograms = host.unadopted().length;
@@ -115,10 +126,11 @@ export async function serve(args: string[]): Promise<never> {
   let over = false;
   /** When the person last logged on (a terminal attached with nobody else's keys): their last call, written as they leave. */
   let loggedOnAt = Date.now();
-  const path = sessionSocket();
+  const path = sessionSocket(dir);
 
   const info = (): SessionInfo => ({
     pid: process.pid, started, proto: PROTOCOL, code, state: stateDir(), socket: path, control: door?.control?.path ?? null,
+    place: { outline: place.outline, ...(place.machine ? { machine: place.machine } : {}), ...(place.socket ? { socket: place.socket } : {}) }, dir,
     outline: { host: opened.service.host, workspace: opened.service.workspace, ...(opened.service.outline ? { outline: opened.service.outline } : {}), socket: opened.board.path },
     screen: door?.app.screens().at(-1)?.title ?? null,
     clients: term.list(),
@@ -126,10 +138,10 @@ export async function serve(args: string[]): Promise<never> {
     kept: host.unadopted().map(p => ({ key: p.key, cmd: (p.meta.cmd ?? p.argv).join(" "), ...(p.pid ? { pid: p.pid } : {}) })),
     host: host.hostPid,
   });
-  const writeInfo = () => { if (over) return; try { writeFileSync(sessionFile(), JSON.stringify(info(), null, 1), { mode: 0o600 }); } catch { /* not fatal */ } };
+  const writeInfo = () => { if (over) return; try { writeFileSync(sessionFile(dir), JSON.stringify(info(), null, 1), { mode: 0o600 }); } catch { /* not fatal */ } };
   term.onClients = writeInfo;
   // Logging off (Goodbye, ctrl+c) detaches the client it was done from: the session says so and goes on.
-  term.onLogoff = c => { writeLastCall(loggedOnAt); c.link.close({ t: "bye", reason: "detached", message: detachedSaying() }); };
+  term.onLogoff = c => { writeLastCall(loggedOnAt); c.link.close({ t: "bye", reason: "detached", message: detachedSaying(place) }); };
 
   // Nobody's terminal is the daemon's: any signal ends the session (drafts kept), as `session end --yes` does.
   const guard = guardDoor({ door: () => door, signal: () => 0, now: (exit, crash) => { if (crash !== undefined) console.error(crash); process.exit(exit); } });
@@ -151,7 +163,7 @@ export async function serve(args: string[]): Promise<never> {
     opened.board.close();
     server?.close();
     try { unlinkSync(path); } catch { /* gone */ }
-    rmSync(sessionFile(), { force: true });
+    rmSync(sessionFile(dir), { force: true });
     // Connections that aren't terminals (the `session end` that asked) are closed too; the byes go out before the
     // process does (a client that stopped reading isn't waited for long).
     for (const s of sockets) if (![...clients].some(l => (l as { sock?: Socket }).sock === s)) s.end();
@@ -162,7 +174,7 @@ export async function serve(args: string[]): Promise<never> {
   let checkpoints: Checkpoints | null = null;
   let restored: Restored | null = null;
   door = await openDoor({
-    term, mirror: term.mirror, info: () => term.info, board: opened.board, service: opened.service, args, ...(opened.notice ? { notice: opened.notice } : {}), done: finish,
+    term, mirror: term.mirror, info: () => term.info, board: opened.board, service: opened.service, place: opened.place, args, ...(opened.notice ? { notice: opened.notice } : {}), done: finish,
     // A session that ran before on this state dir (handed over, or its daemon stopped): what was open, opened again.
     ...(checkpoint ? { start: async (app: App) => {
       restored = await restore(app, checkpoint);
@@ -176,14 +188,13 @@ export async function serve(args: string[]): Promise<never> {
   // session too: ending it says so.
   app.quitWarning = () => { const n = host.unadopted().length; return n ? `${n} program${n === 1 ? "" : "s"} kept in the terminal host for a screen not opened since the handoff · ending the session ends ${n === 1 ? "it" : "them"} · again within 3s ends it` : null; };
   host.onLost = () => { if (!over) app.flash("the terminal host went away: the programs in the session's tiles ended (⏎ on a tile runs its program again)", 20_000); };
+  if (moved) app.flash(moved, 20_000);
   if (endedOld) app.flash(`the terminal host was older than this door: its ${endedOld} program${endedOld === 1 ? "" : "s"} ended, and the tiles start them again`, 20_000);
   // Said once the screens have been drawn (their tiles adopt their programs as they are).
   if (restored || keptPrograms) setTimeout(() => {
     const adopted = keptPrograms - host.unadopted().length;
     app.flash(restoredSaying(restored ?? { screens: 0, held: [], reopened: 0, errors: [] }, handedOver ? "upgrade" : "crash", adopted), 15_000);
   }, 400);
-  const same = (t: Hello["target"]) => !t || (resolve(t.socket) === resolve(opened.board.path) && (t.outline === undefined || t.outline === (opened.board.outline ?? null)));
-  const where = opened.service.outline ? `the outline ${opened.service.outline}` : opened.service.workspace;
 
   /** Every terminal starts again on the code in the checkout and attaches again: the session goes on as it is. */
   const reload = (): string => {
@@ -212,16 +223,16 @@ export async function serve(args: string[]): Promise<never> {
     door?.control?.close();
     server?.close();
     try { unlinkSync(path); } catch { /* gone */ }
-    rmSync(sessionFile(), { force: true });
-    rmSync(sessionLock(), { force: true });
+    rmSync(sessionFile(dir), { force: true });
+    rmSync(sessionLock(dir), { force: true });
     unclaimState();
     opened.board.close();
-    let next = await startSession(args, { EP0CH_SESSION_RESTORE: "upgrade" });
+    let next = await startSession(dir, args, { EP0CH_SESSION_RESTORE: "upgrade" });
     // A terminal attaching again started one first (it restores the same way): that one is the successor.
     if (!next.ok && next.error.startsWith(LOCKED) && (await waitFor(path, 15_000))) next = { ok: true };
     // Gone once the asker has its answer.
     setTimeout(() => process.exit(next.ok ? 0 : 1), 300);
-    return next.ok ? { ok: true, message: "handed over" } : { ok: false, message: `the new daemon didn't start: ${next.error} · the programs still run in the terminal host; \`ep0ch\` starts a session that adopts them` };
+    return next.ok ? { ok: true, message: "handed over" } : { ok: false, message: `the new daemon didn't start: ${next.error} · the programs still run in the terminal host; \`${ep0ch(process.env, place)}${sessionFlags({ place })}\` starts a session that adopts them` };
   };
   app.session = { upgrade: handOver, reload };
 
@@ -254,7 +265,7 @@ export async function serve(args: string[]): Promise<never> {
           if (client) return;
           const h = m.hello;
           if (h.proto !== PROTOCOL) {
-            link.close({ t: "bye", reason: "refused", code: 2, message: `this session speaks protocol ${PROTOCOL}, the client ${h.proto}: the two checkouts differ; \`ep0ch session list\` says which runs where` });
+            link.close({ t: "bye", reason: "refused", code: 2, message: `this session speaks protocol ${PROTOCOL}, the client ${h.proto}: the two checkouts differ; \`${ep0ch()}session list\` says which runs where` });
             return;
           }
           // A terminal inside this session (one of its tiles, its drop shell) would show the session inside itself,
@@ -263,11 +274,6 @@ export async function serve(args: string[]): Promise<never> {
           // process: a child of the terminal host, or of this daemon.
           if (nestLayers(h.nest).some(l => l.startsWith(`door:${process.pid}/`) || l === `shell:${process.pid}`) || ancestors(h.pid).some(p => p === process.pid || p === host.hostPid)) {
             link.close({ t: "bye", reason: "refused", code: 1, message: "this terminal is inside the session already (one of its tiles, or its drop shell): attaching would show the session inside itself" });
-            return;
-          }
-          // A client that named another outline (--ws, a socket, EP0CH_SOCKET) isn't given this one.
-          if (!same(h.target)) {
-            link.close({ t: "bye", reason: "refused", code: 1, message: `this state dir's session is on ${where}, not the outline you named (${h.target!.outline ?? h.target!.socket}) · \`ep0ch session end\` ends it, or open that outline with --no-daemon or its own EP0CH_STATE` });
             return;
           }
           const others = term.all().filter(c => !c.watch).length;
@@ -284,7 +290,7 @@ export async function serve(args: string[]): Promise<never> {
         case "query": link.send({ t: "info", info: info() }); return;
         case "upgrade": case "reload": {
           // `ep0ch session upgrade` at the person's shell: the same action an attached terminal can't run over the wire.
-          if (client) { link.send({ t: "ask", message: `\`ep0ch session upgrade\` does that, not an attached terminal` }); return; }
+          if (client) { link.send({ t: "ask", message: `\`${ep0ch()}session upgrade\` does that, not an attached terminal` }); return; }
           void app.dispatch.act({ action: "session.upgrade", args: { clients: m.t === "reload" } }, USER).then(
             r => { link.send({ t: "ask", message: (r as { message: string }).message }); link.close(); },
             e => { link.send({ t: "ask", message: e instanceof Error ? e.message : String(e) }); link.close(); });
@@ -305,7 +311,7 @@ export async function serve(args: string[]): Promise<never> {
         case "input": term.input(client, m.text); return;
         case "resize": term.resize(client, m.cols, m.rows); return;
         case "ran": term.ran(client, m.id, m.code); return;
-        case "detach": link.close({ t: "bye", reason: "detached", message: detachedSaying() }); return;
+        case "detach": link.close({ t: "bye", reason: "detached", message: detachedSaying(place) }); return;
       }
     }
   });
@@ -322,11 +328,11 @@ export async function serve(args: string[]): Promise<never> {
   return await new Promise<never>(() => {});
 }
 
-/** What a refused start says when another session holds the state dir: a starter that sees it waits for that one. */
+/** What a refused start says when another daemon holds the outline's session: a starter that sees it waits for that one. */
 export const LOCKED = "a session is already running or starting";
 
 /** What a detached client prints once its terminal is back. */
-export const detachedSaying = () => `detached · the session goes on (pid ${process.pid}) · \`ep0ch\` attaches again, \`ep0ch session end\` ends it`;
+export const detachedSaying = (place: Pick<Place, "outline" | "machine" | "socket">) => `detached · ${placeLabel(place)}'s session goes on (pid ${process.pid}) · \`${ep0ch(process.env, place)}${sessionFlags({ place })}\` attaches again, \`${ep0ch(process.env, place)}session end ${sessionFlags({ place })}\` ends it`;
 
 /** The door flags that open a screen: applied when a session starts, not when one is attached to. */
 export function screenFlags(args: readonly string[]): string[] {

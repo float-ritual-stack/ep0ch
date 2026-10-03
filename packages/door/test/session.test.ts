@@ -20,10 +20,11 @@ import { openInEditor } from "../src/surface/editor";
 import { SocketBoard } from "../src/socket";
 import { encode, Frames, PROTOCOL, type ClientMsg, type DaemonMsg, type Hello } from "../src/session/protocol";
 import { SessionTerm, type Link } from "../src/session/session-term";
-import { doorMode, runEnv, sessionInfo } from "../src/session/client";
+import { doorMode, runEnv } from "../src/session/client";
 import { sessionEnv, startSession } from "../src/session/start";
-import { ancestors, sessionFile, sessionSocket, takeLock } from "../src/session/daemon";
-import { controlSocket } from "../src/control";
+import { ancestors, detachedSaying, takeLock } from "../src/session/daemon";
+import { controlFor, ep0ch, pickSession, placeFor, placeOf, runningSessions, sessionFile, sessionFlags, sessionInfo as infoOn, sessionSocket, type Place } from "../src/session/place";
+import { adoptOldFiles, adoptOnStart, leftoverSaying, oldSessionSaying } from "../src/session/old-session";
 import { ensurePtyHost, frame, HostFrames, HOST_PROTOCOL, ptyHostSocket } from "../src/session/pty-host";
 import { restore, screenSteps, type Checkpoint } from "../src/session/restore";
 import { MainMenu } from "../src/screens";
@@ -31,7 +32,7 @@ import { createServer } from "node:net";
 import { USER } from "../src/socket";
 import { localPtys, usePtyBackend } from "../src/desk/pty-backend";
 import { mouseBytes, PtyPane } from "../src/desk/pty";
-import { outliner, Scratch, until } from "./scratch";
+import { outliner, Scratch, ScratchHost, until } from "./scratch";
 
 const plain = (s: string) => s.replace(/\x1b\[[\d;?]*[A-Za-z]/g, "").replace(/\x1b\][^\x07\x1b]*(\x07|\x1b\\)/g, "").replace(/[\u{100000}-\u{10FFFD}]/gu, "");
 
@@ -59,18 +60,11 @@ describe("the session protocol", () => {
 });
 
 describe("the door is a session by default", () => {
-  test("`ep0ch` attaches (starting one when none runs); --no-daemon and EP0CH_DAEMON=0 open it in this terminal", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "ep0ch-mode-")), was = process.env.EP0CH_STATE;
-    process.env.EP0CH_STATE = dir;
-    try {
-      expect(await doorMode([], {})).toEqual({ mode: "attach", running: false });
-      expect(await doorMode(["--board"], { EP0CH_DAEMON: "1" })).toEqual({ mode: "attach", running: false });
-      expect(await doorMode(["--no-daemon"], {})).toEqual({ mode: "local", running: false });
-      expect(await doorMode([], { EP0CH_DAEMON: "0" })).toEqual({ mode: "local", running: false });
-    } finally {
-      if (was === undefined) delete process.env.EP0CH_STATE; else process.env.EP0CH_STATE = was;
-      rmSync(dir, { recursive: true, force: true });
-    }
+  test("`ep0ch` attaches (starting one when none runs); --no-daemon and EP0CH_DAEMON=0 open it in this terminal", () => {
+    expect(doorMode([], {})).toEqual({ mode: "attach" });
+    expect(doorMode(["--board"], { EP0CH_DAEMON: "1" })).toEqual({ mode: "attach" });
+    expect(doorMode(["--no-daemon"], {})).toEqual({ mode: "local" });
+    expect(doorMode([], { EP0CH_DAEMON: "0" })).toEqual({ mode: "local" });
   });
 });
 
@@ -83,8 +77,7 @@ describe("a session is for a terminal", () => {
       const p = Bun.spawn(["bun", join(import.meta.dir, "../src/main.ts")], { env, stdin: "ignore", stdout: "pipe", stderr: "pipe" });
       expect(await p.exited).toBe(1);
       expect(await new Response(p.stderr).text()).toContain("not a terminal");
-      expect(existsSync(join(dir, "s", "session.sock"))).toBe(false);
-      expect(existsSync(join(dir, "s", "session.lock"))).toBe(false);
+      expect(existsSync(join(dir, "s", "sessions"))).toBe(false);
     } finally { rmSync(dir, { recursive: true, force: true }); }
   });
 
@@ -362,6 +355,9 @@ class RawClient {
   close() { this.sock.destroy(); }
 }
 
+/** The outline folder of the session a describe below starts (src/session/place.ts): its socket, files and control socket. */
+let dir = "";
+
 describe.skipIf(!outliner)("a real session on a scratch service", () => {
   let scratch: Scratch;
   let state = "";
@@ -371,7 +367,7 @@ describe.skipIf(!outliner)("a real session on a scratch service", () => {
   let plot = "";
   /** An agent's request on the session's control socket. */
   const control = (req: Record<string, unknown>) => new Promise<any>((res, rej) => {
-    const s = connect(controlSocket());
+    const s = connect(join(dir, "door.sock"));
     let buf = "";
     s.on("connect", () => s.write(JSON.stringify(req) + "\n"));
     s.on("data", d => { buf += d; if (buf.includes("\n")) { s.end(); const r = JSON.parse(buf); r.ok ? res(r.result) : rej(new Error(r.error)); } });
@@ -389,10 +385,11 @@ describe.skipIf(!outliner)("a real session on a scratch service", () => {
     env("EP0CH_STATE", state);
     env("EP0CH_SOCKET", sock);
     env("EP0CH_WS", scratch.name);
+    dir = (placeFor([]) as Place).dir;
     env("EP0CH_DAILY_AGENT", "sh");
-    const started = await startSession(["--desk"]);
+    const started = await startSession(dir, ["--desk"]);
     expect(started).toEqual({ ok: true });
-    pid = JSON.parse(readFileSync(sessionFile(), "utf8")).pid;
+    pid = JSON.parse(readFileSync(sessionFile(dir), "utf8")).pid;
   }, 60_000);
 
   afterAll(async () => {
@@ -402,15 +399,21 @@ describe.skipIf(!outliner)("a real session on a scratch service", () => {
     await scratch.dispose();
   }, 30_000);
 
-  test("its socket and the control socket are the user's alone, in the state dir", () => {
+  test("its socket and the control socket are the user's alone, in its outline's folder of the state dir", async () => {
     const { statSync } = require("node:fs");
-    expect(statSync(sessionSocket()).mode & 0o777).toBe(0o600);
+    expect(dir.startsWith(join(state, "sessions", "socket-"))).toBe(true);
+    expect(dir.endsWith(`/${scratch.name}`)).toBe(true);
+    expect(statSync(sessionSocket(dir)).mode & 0o777).toBe(0o600);
     expect(statSync(state).mode & 0o777).toBe(0o700);
-    expect(existsSync(controlSocket())).toBe(true);
+    expect(statSync(dir).mode & 0o777).toBe(0o700);
+    expect(existsSync(join(dir, "door.sock"))).toBe(true);
+    const info = (await infoOn(sessionSocket(dir)))!;
+    expect(info.place).toEqual({ outline: scratch.name, socket: process.env.EP0CH_SOCKET });
+    expect(JSON.parse(readFileSync(sessionFile(dir), "utf8")).place.outline).toBe(scratch.name);
   });
 
   test("detach and attach again: the layout, a terminal tile's program and scrollback, and an unsaved draft are all there", async () => {
-    const a = await RawClient.attach(sessionSocket(), 150, 44);
+    const a = await RawClient.attach(sessionSocket(dir), 150, 44);
     await until(() => a.screen().includes("outline"), "the desk on the client", 10_000);
     // An agent opens a terminal tile through the control socket, and a note in the reader (the person's keys stay theirs).
     const opened = await control({ cmd: "act", action: "tile.open", args: { kind: "pty", cmd: "sh" }, as: "test-agent" });
@@ -434,11 +437,11 @@ describe.skipIf(!outliner)("a real session on a scratch service", () => {
     a.send({ t: "detach" });
     await until(() => a.closed, "the detach", 5000);
     expect(a.got.at(-1)).toMatchObject({ t: "bye", reason: "detached" });
-    const info = await sessionInfo();
+    const info = await infoOn(sessionSocket(dir));
     expect(info!.clients).toEqual([]);
     expect(info!.terminals.map(t => t.cmd)).toContain("sh");
     // Attach again, at another size: the same tiles, the program's scrollback, the draft still open and unsaved.
-    const b = await RawClient.attach(sessionSocket(), 120, 40);
+    const b = await RawClient.attach(sessionSocket(dir), 120, 40);
     await until(() => b.screen().includes("leeks-42") && b.screen().includes("and net the brassicas"), "the tile's scrollback and the draft after attaching again", 10_000);
     expect(await shape()).toBe(layout);
     const peek = await control({ cmd: "peek" });
@@ -448,21 +451,21 @@ describe.skipIf(!outliner)("a real session on a scratch service", () => {
   }, 60_000);
 
   test("two clients on one screen stay consistent; the keys follow whoever typed last", async () => {
-    const a = await RawClient.attach(sessionSocket(), 120, 40), b = await RawClient.attach(sessionSocket(), 120, 40);
+    const a = await RawClient.attach(sessionSocket(dir), 120, 40), b = await RawClient.attach(sessionSocket(dir), 120, 40);
     await until(() => a.screen().includes("outline") && b.screen().includes("outline"), "both clients drawn", 10_000);
     b.type("\t");
     await until(() => a.screen() === b.screen() && (a.text()[39] ?? "").length > 0, "the same frame on both", 10_000);
-    const info = await sessionInfo();
+    const info = await infoOn(sessionSocket(dir));
     expect(info!.clients.map(c => c.active)).toEqual([false, true]);
     expect(a.text()).toEqual(b.text());
     a.close(); b.close();
-    for (let i = 0; i < 50 && (await sessionInfo())!.clients.length; i++) await Bun.sleep(100);
-    expect((await sessionInfo())!.clients).toEqual([]);
+    for (let i = 0; i < 50 && (await infoOn(sessionSocket(dir)))!.clients.length; i++) await Bun.sleep(100);
+    expect((await infoOn(sessionSocket(dir)))!.clients).toEqual([]);
   }, 30_000);
 
-  test("a terminal is refused: another protocol, inside the session, before hello, naming another outline", async () => {
+  test("a terminal is refused: another protocol, inside the session, before hello", async () => {
     const said = async (more: Partial<Hello> | null, first?: ClientMsg) => {
-      const sock = await new Promise<Socket>((res, rej) => { const s = connect(sessionSocket(), () => res(s)); s.once("error", rej); });
+      const sock = await new Promise<Socket>((res, rej) => { const s = connect(sessionSocket(dir), () => res(s)); s.once("error", rej); });
       const got: DaemonMsg[] = [], f = new Frames<DaemonMsg>();
       sock.on("data", (d: Buffer) => got.push(...f.push(d)));
       sock.write(encode(first ?? { t: "hello", hello: hello(80, 24, more ?? {}) }));
@@ -474,24 +477,17 @@ describe.skipIf(!outliner)("a real session on a scratch service", () => {
     expect((await said({ nest: `ssh:pts/3 › door:${pid}/desk/t2:pty` })).message).toMatch(/inside the session already/);
     expect((await said({ nest: `shell:${pid}` })).message).toMatch(/inside the session already/);
     expect((await said(null, { t: "input", text: "j" })).message).toBe("say hello first");
-    expect((await said({ target: { socket: "/elsewhere/plot/outliner.sock", outline: "seed-library" } })).message).toMatch(/not the outline you named \(seed-library\)/);
-    // The same outline, named: attached.
-    const named = await RawClient.attach(sessionSocket(), 80, 24, { target: { socket: process.env.EP0CH_SOCKET! } });
-    await until(() => named.got.some(m => m.t === "output"), "the named client drawn", 5000);
-    named.close();
-    for (let i = 0; i < 50 && (await sessionInfo())!.clients.length; i++) await Bun.sleep(100);
-    expect((await sessionInfo())!.clients).toEqual([]);
   }, 30_000);
 
   test("ending asks while programs run in its tiles, then ends: every client told, the files gone", async () => {
-    const a = await RawClient.attach(sessionSocket(), 100, 30);
+    const a = await RawClient.attach(sessionSocket(dir), 100, 30);
     // An attached terminal (a watcher above all) can't end it over the wire: the menu's E is how.
-    const watcher = await RawClient.attach(sessionSocket(), 80, 24, { watch: true });
+    const watcher = await RawClient.attach(sessionSocket(dir), 80, 24, { watch: true });
     watcher.send({ t: "end", force: true });
     await until(() => watcher.got.some(m => m.t === "ask"), "the refusal", 5000);
     expect((watcher.got.find(m => m.t === "ask") as any).message).toMatch(/from the main menu \(E\)/);
     // `ep0ch session end` connects without attaching: asked first, then forced.
-    const asker = await new Promise<Socket>((res, rej) => { const s = connect(sessionSocket(), () => res(s)); s.once("error", rej); });
+    const asker = await new Promise<Socket>((res, rej) => { const s = connect(sessionSocket(dir), () => res(s)); s.once("error", rej); });
     const asked: DaemonMsg[] = [], f = new Frames<DaemonMsg>();
     let closed = false;
     asker.on("data", (d: Buffer) => asked.push(...f.push(d)));
@@ -503,7 +499,7 @@ describe.skipIf(!outliner)("a real session on a scratch service", () => {
     await until(() => closed, "the asker let go", 15_000);
     await until(() => a.closed, "the session to end", 15_000);
     expect(a.got.at(-1)).toMatchObject({ t: "bye", reason: "ended" });
-    await until(() => !existsSync(sessionSocket()) && !existsSync(sessionFile()), "the session's files to go", 5000);
+    await until(() => !existsSync(sessionSocket(dir)) && !existsSync(sessionFile(dir)), "the session's files to go", 5000);
     pid = 0;
   }, 30_000);
 });
@@ -581,7 +577,7 @@ describe("the terminal host", () => {
     let hostPid = 0;
     process.env.EP0CH_STATE = dir;
     try {
-      const { host: first } = await ensurePtyHost();
+      const { host: first } = await ensurePtyHost(dir);
       hostPid = first.hostPid;
       let out = "";
       const proc = first.spawn({ key: "desk.json:t5", argv: ["sh", "-c", "echo sown-$((6*7)); exec sleep 30"], env: { PATH: process.env.PATH ?? "/usr/bin:/bin" }, cols: 40, rows: 10, meta: { cmd: ["sh"] } }, d => { out += Buffer.from(d).toString(); });
@@ -591,7 +587,7 @@ describe("the terminal host", () => {
       first.release();
       await Bun.sleep(100);
       expect(ended).toBeNull();                              // let go of, not ended
-      const { host: next } = await ensurePtyHost();
+      const { host: next } = await ensurePtyHost(dir);
       expect(next.hostPid).toBe(first.hostPid);
       let more = "";
       const kept = next.adopt("desk.json:t5", ["sh"], d => { more += Buffer.from(d).toString(); })!;
@@ -600,7 +596,7 @@ describe("the terminal host", () => {
       expect(next.adopt("desk.json:t5", ["sh"], () => {})).toBeNull();   // adopted once
       kept.proc.write("x");
       next.endAll();
-      await until(() => !existsSync(ptyHostSocket()), "the host to end", 5000);
+      await until(() => !existsSync(ptyHostSocket(dir)), "the host to end", 5000);
       expect(() => process.kill(proc.pid!, 0)).toThrow();
     } finally {
       // Whatever it left: the host, by pid (SIGTERM ends it and its programs).
@@ -615,10 +611,10 @@ describe("the terminal host", () => {
     process.env.EP0CH_STATE = dir;
     let host: Awaited<ReturnType<typeof ensurePtyHost>>["host"] | null = null;
     try {
-      ({ host } = await ensurePtyHost());
+      ({ host } = await ensurePtyHost(dir));
       let lost = false;
       host.onLost = () => { lost = true; };
-      for (let i = 0; i < 3; i++) await new Promise<void>(r => { const c = connect(ptyHostSocket(), () => { c.end(); r(); }); });
+      for (let i = 0; i < 3; i++) await new Promise<void>(r => { const c = connect(ptyHostSocket(dir), () => { c.end(); r(); }); });
       await Bun.sleep(200);
       expect(lost).toBe(false);
     } finally {
@@ -639,18 +635,18 @@ describe("the terminal host", () => {
       sock.on("data", (d: Buffer) => {
         for (const x of f.push(d)) {
           if (x.t === "h") { sock.write(frame("l", 0, { proto: HOST_PROTOCOL + 1, pid: 1, ptys: [] })); sock.write(frame("y", 0)); }
-          if (x.t === "q") { ended = true; old.close(); try { rmSync(ptyHostSocket()); } catch { /* gone */ } }
+          if (x.t === "q") { ended = true; old.close(); try { rmSync(ptyHostSocket(dir)); } catch { /* gone */ } }
         }
       });
     });
-    await new Promise<void>(r => old.listen(ptyHostSocket(), () => r()));
+    await new Promise<void>(r => old.listen(ptyHostSocket(dir), () => r()));
     try {
-      const { host, ended: n } = await ensurePtyHost();
+      const { host, ended: n } = await ensurePtyHost(dir);
       expect(ended).toBe(true);
       expect(n).toBe(0);
       expect(host.hostPid).not.toBe(1);
       host.endAll();
-      await until(() => !existsSync(ptyHostSocket()), "the new host to end", 5000);
+      await until(() => !existsSync(ptyHostSocket(dir)), "the new host to end", 5000);
     } finally {
       if (was === undefined) delete process.env.EP0CH_STATE; else process.env.EP0CH_STATE = was;
       rmSync(dir, { recursive: true, force: true });
@@ -739,7 +735,7 @@ class HandoffClient {
 /** One request on the session socket without attaching (as `ep0ch session restart` and `end` send them): its first answer, or the close. */
 function request(m: ClientMsg, ms = 30_000): Promise<DaemonMsg | "closed"> {
   return new Promise(res => {
-    const sock = connect(sessionSocket()), f = new Frames<DaemonMsg>();
+    const sock = connect(sessionSocket(dir)), f = new Frames<DaemonMsg>();
     const t = setTimeout(() => { sock.destroy(); res("closed"); }, ms);
     sock.on("connect", () => sock.write(encode(m)));
     sock.on("data", (d: Buffer) => { const got = f.push(d)[0]; if (got) { clearTimeout(t); sock.end(); res(got); } });
@@ -754,14 +750,14 @@ describe.skipIf(!outliner)("handing a real session over, and back after a crash"
   const env = (k: string, v: string) => { saved[k] = process.env[k]; process.env[k] = v; };
   let plot = "";
   const control = (req: Record<string, unknown>) => new Promise<any>((res, rej) => {
-    const s = connect(controlSocket());
+    const s = connect(join(dir, "door.sock"));
     let buf = "";
     s.on("connect", () => s.write(JSON.stringify(req) + "\n"));
     s.on("data", d => { buf += d; if (buf.includes("\n")) { s.end(); const r = JSON.parse(buf); r.ok ? res(r.result) : rej(new Error(r.error)); } });
     s.on("error", rej);
   });
-  const daemonPid = () => JSON.parse(readFileSync(sessionFile(), "utf8")).pid as number;
-  const shellPid = async () => (await sessionInfo())!.terminals.find(t => t.cmd === "sh")?.pid;
+  const daemonPid = () => JSON.parse(readFileSync(sessionFile(dir), "utf8")).pid as number;
+  const shellPid = async () => (await infoOn(sessionSocket(dir)))!.terminals.find(t => t.cmd === "sh")?.pid;
 
   beforeAll(async () => {
     scratch = new Scratch();
@@ -773,13 +769,14 @@ describe.skipIf(!outliner)("handing a real session over, and back after a crash"
     env("EP0CH_STATE", join(scratch.root, "door"));
     env("EP0CH_SOCKET", sock);
     env("EP0CH_WS", scratch.name);
+    dir = (placeFor([]) as Place).dir;
     env("EP0CH_DAILY_AGENT", "sh");
-    expect(await startSession(["--desk"])).toEqual({ ok: true });
+    expect(await startSession(dir, ["--desk"])).toEqual({ ok: true });
   }, 60_000);
 
   afterAll(async () => {
     // Whatever is left of it: ended (its terminal host with it), then killed by pid if it didn't go.
-    const info = await sessionInfo().catch(() => null);
+    const info = await infoOn(sessionSocket(dir)).catch(() => null);
     if (info) { await request({ t: "end", force: true }, 10_000); }
     for (const pid of [info?.pid, info?.host]) if (pid) { try { process.kill(pid, 0); process.kill(pid, "SIGKILL"); } catch { /* gone */ } }
     for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
@@ -787,7 +784,7 @@ describe.skipIf(!outliner)("handing a real session over, and back after a crash"
   }, 30_000);
 
   test("`session restart`: a new daemon, the same shell with its output, the screens and the edit open again", async () => {
-    const a = await HandoffClient.attach(sessionSocket(), 140, 40);
+    const a = await HandoffClient.attach(sessionSocket(dir), 140, 40);
     await until(() => a.screen().includes("outline"), "the desk", 10_000);
     const opened = await control({ cmd: "act", action: "tile.open", args: { kind: "pty", cmd: "sh" }, as: "test-agent" });
     for (let i = 0; ; i++) {
@@ -812,7 +809,7 @@ describe.skipIf(!outliner)("handing a real session over, and back after a crash"
     expect(daemonPid()).not.toBe(before.daemon);
     expect(await shellPid()).toBe(before.shell);           // the same process, never restarted
 
-    const b = await HandoffClient.attach(sessionSocket(), 140, 40);
+    const b = await HandoffClient.attach(sessionSocket(dir), 140, 40);
     await until(() => b.screen().includes("chard-42") && b.screen().includes("and kale"), "the shell's output and the edit after the handoff", 10_000).catch(e => { console.log(b.screen()); throw e; });
     await until(() => b.screen().includes("handed over to a new daemon"), "the handoff said", 5000);
     const peek = await control({ cmd: "peek" });
@@ -823,7 +820,7 @@ describe.skipIf(!outliner)("handing a real session over, and back after a crash"
   }, 60_000);
 
   test("a desk kept in the background comes back with its program: D on the menu shows it, the same process", async () => {
-    const a = await HandoffClient.attach(sessionSocket(), 140, 40);
+    const a = await HandoffClient.attach(sessionSocket(dir), 140, 40);
     await until(() => a.screen().includes("chard-42"), "the desk", 10_000);
     a.type("\x1b[23;5u");                                  // ctrl+w (as a Kitty terminal sends it) is ^W on the desk; esc after it stays…
     a.type("q");
@@ -832,7 +829,7 @@ describe.skipIf(!outliner)("handing a real session over, and back after a crash"
     const shell = await shellPid();
     expect(await request({ t: "upgrade" })).toMatchObject({ t: "ask", message: "handed over" });
     await until(() => a.closed, "the old daemon to let go", 5000);
-    const b = await HandoffClient.attach(sessionSocket(), 140, 40);
+    const b = await HandoffClient.attach(sessionSocket(dir), 140, 40);
     await until(() => b.screen().includes("handed over to a new daemon"), "the handoff said", 10_000);
     b.type("d");
     await until(() => b.screen().includes("chard-42"), "the desk's shell after the handoff", 10_000);
@@ -843,15 +840,15 @@ describe.skipIf(!outliner)("handing a real session over, and back after a crash"
   test("a daemon killed with -9: the next start restores the screens and adopts the shell", async () => {
     const before = { daemon: daemonPid(), shell: await shellPid() };
     // The checkpoint is written a moment after the screens change: the desk opened just now is in it before the kill.
-    await until(() => !readFileSync(join(scratch.root, "door", "session-state.json"), "utf8").includes("screen.back"), "the checkpoint with the desk on top", 5000);
+    await until(() => !readFileSync(join(dir, "session-state.json"), "utf8").includes("screen.back"), "the checkpoint with the desk on top", 5000);
     process.kill(before.daemon, "SIGKILL");
     await until(() => { try { process.kill(before.daemon, 0); return false; } catch { return true; } }, "the daemon gone", 5000);
-    expect(await startSession([])).toEqual({ ok: true });
+    expect(await startSession(dir, [])).toEqual({ ok: true });
     expect(daemonPid()).not.toBe(before.daemon);
     // Kept in the terminal host (adopted by its tile as the desk is drawn, maybe already).
-    const after = (await sessionInfo())!;
+    const after = (await infoOn(sessionSocket(dir)))!;
     expect([...after.kept!.map(k => k.pid), ...after.terminals.map(t => t.pid)]).toContain(before.shell!);
-    const c = await HandoffClient.attach(sessionSocket(), 120, 36);
+    const c = await HandoffClient.attach(sessionSocket(dir), 120, 36);
     await until(() => c.screen().includes("chard-42"), "the shell's output after the crash", 10_000);
     expect(await shellPid()).toBe(before.shell);
     await until(() => c.screen().includes("came back after its daemon stopped"), "the restore said", 5000);
@@ -859,11 +856,196 @@ describe.skipIf(!outliner)("handing a real session over, and back after a crash"
   }, 60_000);
 
   test("ending the session ends its terminal host and the programs in it; nothing is left to restore", async () => {
-    const info = (await sessionInfo())!;
+    const info = (await infoOn(sessionSocket(dir)))!;
     const shell = await shellPid();
     expect(await request({ t: "end", force: true }, 15_000)).toBe("closed");
     await until(() => { try { process.kill(info.host!, 0); return false; } catch { return true; } }, "the terminal host to end", 10_000);
     expect(() => process.kill(shell!, 0)).toThrow();
-    for (const f of ["session-state.json", "session-journal.jsonl", "session.json", "pty.sock", "session.sock"]) expect(existsSync(join(scratch.root, "door", f))).toBe(false);
+    for (const f of ["session-state.json", "session.json", "pty.sock", "session.sock"]) expect(existsSync(join(dir, f))).toBe(false);
   }, 30_000);
+});
+
+// ── one session per outline ─────────────────────────────────────────────────────────────────────────────────
+// Like `herdr --session <name>`: an outline's session lives in its own folder of the state dir, so two outlines run
+// side by side, each attached to by naming it; `session list` shows both, and `end --all` ends both.
+describe("where a session lives (src/session/place.ts)", () => {
+  test("its outline's folder: this machine's under local/, a machine's under its ssh name, a socket named outright by its hash", () => {
+    const env = { HOME: "/home/wren", EP0CH_OUTLINES: "/home/wren/outlines" };
+    expect(placeOf({ outline: "garden" }, "/s", env)).toEqual({ outline: "garden", dir: "/s/sessions/local/garden" });
+    expect(placeOf({ outline: "garden", socket: "/home/wren/outlines/.host/host.sock" }, "/s", env)).toEqual({ outline: "garden", dir: "/s/sessions/local/garden" });
+    expect(placeOf({ outline: "garden", machine: "allotment" }, "/s", env)).toEqual({ outline: "garden", machine: "allotment", dir: "/s/sessions/allotment/garden" });
+    const named = placeOf({ outline: "garden", socket: "/tmp/plot/host.sock" }, "/s", env);
+    expect(named.dir).toMatch(/^\/s\/sessions\/socket-[0-9a-f]{10}\/garden$/);
+    expect(named.socket).toBe("/tmp/plot/host.sock");
+    // A machine named "local" is never this machine.
+    expect(placeOf({ outline: "garden", machine: "local" }, "/s", env).dir).toBe("/s/sessions/machine-local/garden");
+  });
+
+  test("a command for a session on a host named outright carries its EP0CH_SOCKET, so it opens that session and no other", () => {
+    const at = { outline: "garden", socket: "/tmp/plot/host.sock" };
+    expect(ep0ch({ EP0CH_STATE: "/s" }, at) + sessionFlags({ place: at })).toBe("EP0CH_STATE=/s EP0CH_SOCKET=/tmp/plot/host.sock ep0ch --ws garden");
+    expect(ep0ch({}, {}) + sessionFlags({ place: { outline: "garden", machine: "allotment" } })).toBe("ep0ch --ws garden --machine allotment");
+    expect(detachedSaying(at)).toContain(`\`${ep0ch(process.env, at)}session end --ws garden\` ends it`);
+    expect(ep0ch({}, at)).toBe("EP0CH_SOCKET=/tmp/plot/host.sock ep0ch ");
+  });
+
+  test("a path too long for a unix socket gets a short hash in sessions/~/, the same every time", () => {
+    const root = `/tmp/${"deep/".repeat(8)}state`;
+    const a = placeOf({ outline: "seed-library-and-tool-shed-notes", machine: "allotment-north" }, root, {});
+    expect(a.dir).toMatch(new RegExp(`^${root}/sessions/~/[0-9a-f]{10}$`));
+    expect(join(a.dir, "door-4194304.sock").length).toBeLessThanOrEqual(103);
+    expect(placeOf({ outline: "seed-library-and-tool-shed-notes", machine: "allotment-north" }, root, {}).dir).toBe(a.dir);
+    expect(placeOf({ outline: "seed-library-and-tool-shed-notex", machine: "allotment-north" }, root, {}).dir).not.toBe(a.dir);
+  });
+
+  test("the session from before sessions were per outline: its files moved into its outline's folder once, what's there kept", async () => {
+    const root = mkdtempSync(join(tmpdir(), "ep0ch-old-"));
+    try {
+      writeFileSync(join(root, "desk.json"), "{\"old\":1}");
+      writeFileSync(join(root, "lastcall.json"), "{\"at\":5}");
+      writeFileSync(join(root, "session.json"), "{}");
+      writeFileSync(join(root, "theme.json"), "{\"name\":\"calm\"}");
+      const place = placeOf({ outline: "garden" }, root, { HOME: root });
+      require("node:fs").mkdirSync(place.dir, { recursive: true });
+      writeFileSync(join(place.dir, "lastcall.json"), "{\"at\":9}");
+      const said = await adoptOldFiles(place, root);
+      expect(said).toContain("desk.json");
+      expect(readFileSync(join(place.dir, "desk.json"), "utf8")).toBe("{\"old\":1}");
+      expect(readFileSync(join(place.dir, "lastcall.json"), "utf8")).toBe("{\"at\":9}");   // the folder's own, kept
+      expect(existsSync(join(root, "desk.json")) || existsSync(join(root, "session.json"))).toBe(false);
+      expect(readFileSync(join(root, "theme.json"), "utf8")).toContain("calm");            // shared: stays
+      expect(await adoptOldFiles(place, root)).toBeNull();                                   // once
+      expect(oldSessionSaying({ pid: 4242, outline: "garden" })).toContain(`  ${ep0ch()}session upgrade `);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
+  test("a starting session takes them over only when the old one handed over or died on its outline; otherwise it says the mv", async () => {
+    const root = mkdtempSync(join(tmpdir(), "ep0ch-old-"));
+    const env = { HOME: root, EP0CH_OUTLINES: join(root, "outlines") };
+    const keep = { EP0CH_OUTLINES: process.env.EP0CH_OUTLINES, EP0CH_STATE: process.env.EP0CH_STATE };
+    process.env.EP0CH_OUTLINES = env.EP0CH_OUTLINES; process.env.EP0CH_STATE = root;
+    try {
+      const garden = placeOf({ outline: "garden" }, root, env), orchard = placeOf({ outline: "orchard" }, root, env);
+      // Left by an old session that ended on the old code: no outline named, so nothing is guessed; the mv is said.
+      writeFileSync(join(root, "desk.json"), "{\"old\":1}");
+      expect(await adoptOnStart(orchard, false, root)).toBeNull();
+      expect(await adoptOnStart(orchard, true, root)).toBeNull();          // a handover, but not from the old session
+      const said = leftoverSaying(orchard, root)!;
+      expect(said).toContain(`ep0ch session end --ws orchard && mkdir -p ${orchard.dir} && mv ${join(root, "desk.json")} ${orchard.dir}/`);
+      // An old daemon that died on garden left its session.json naming it: orchard's start leaves the files, garden's takes them.
+      writeFileSync(join(root, "session.json"), JSON.stringify({ outline: { outline: "garden", socket: join(env.EP0CH_OUTLINES, ".host", "host.sock") } }));
+      expect(leftoverSaying(orchard, root)).toBeNull();
+      expect(await adoptOnStart(orchard, false, root)).toBeNull();
+      expect(await adoptOnStart(garden, false, root)).toContain("desk.json");
+      expect(readFileSync(join(garden.dir, "desk.json"), "utf8")).toBe("{\"old\":1}");
+      expect(existsSync(join(root, "session.json"))).toBe(false);
+      // Handed over by the old daemon: its checkpoint is in the state dir itself.
+      writeFileSync(join(root, "session-state.json"), "{\"v\":2}");
+      writeFileSync(join(root, "marks.json"), "[]");
+      expect(await adoptOnStart(orchard, true, root)).toContain("marks.json");
+      expect(existsSync(join(orchard.dir, "session-state.json"))).toBe(true);
+    } finally {
+      for (const [k, v] of Object.entries(keep)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe.skipIf(!outliner)("one session per outline, two at once", () => {
+  let host: ScratchHost;
+  const saved: Record<string, string | undefined> = {};
+  const env = (k: string, v: string | undefined) => { if (!(k in saved)) saved[k] = process.env[k]; if (v === undefined) delete process.env[k]; else process.env[k] = v; };
+  let garden: Place, orchard: Place, none = "";
+  const cli = async (...args: string[]) => {
+    const p = Bun.spawn(["bun", join(import.meta.dir, "../src/main.ts"), ...args], { cwd: none, env: process.env as Record<string, string>, stdin: "ignore", stdout: "pipe", stderr: "pipe" });
+    const [out, err] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text()]);
+    return { code: await p.exited, out, err };
+  };
+  const control = (dir: string, req: Record<string, unknown>) => new Promise<any>((res, rej) => {
+    const s = connect(join(dir, "door.sock"));
+    let buf = "";
+    s.on("connect", () => s.write(JSON.stringify(req) + "\n"));
+    s.on("data", d => { buf += d; if (buf.includes("\n")) { s.end(); const r = JSON.parse(buf); r.ok ? res(r.result) : rej(new Error(r.error)); } });
+    s.on("error", rej);
+  });
+
+  beforeAll(async () => {
+    host = new ScratchHost();
+    await host.start();
+    await host.create("garden");
+    await host.create("orchard");
+    none = host.folder("none");
+    for (const [k, v] of Object.entries(host.env)) env(k, v);
+    env("EP0CH_STATE", join(host.root, "state"));
+    env("EP0CH_DAILY_AGENT", "sh");
+    env("EP0CH_WS", undefined); env("EP0CH_SOCKET", undefined); env("EP0CH_CONTROL", undefined);
+    garden = placeFor(["--ws", "garden"], process.env, none) as Place;
+    orchard = placeFor(["--ws", "orchard"], process.env, none) as Place;
+    expect(await startSession(garden.dir, ["--ws", "garden", "--desk"])).toEqual({ ok: true });
+    expect(await startSession(orchard.dir, ["--ws", "orchard", "--desk"])).toEqual({ ok: true });
+  }, 60_000);
+
+  afterAll(async () => {
+    for (const p of [garden, orchard]) {
+      const i = p ? await infoOn(sessionSocket(p.dir)).catch(() => null) : null;
+      for (const pid of [i?.pid, i?.host]) if (pid) { try { process.kill(pid, "SIGKILL"); } catch { /* gone */ } }
+    }
+    for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+    await host.stop();
+    rmSync(host.root, { recursive: true, force: true });
+  }, 30_000);
+
+  test("each runs in its own folder, on its own outline, with its own control socket", async () => {
+    expect(garden.dir).toBe(join(host.root, "state", "sessions", "local", "garden"));
+    expect(orchard.dir).toBe(join(host.root, "state", "sessions", "local", "orchard"));
+    const running = await runningSessions();
+    expect(running.map(r => r.info.place.outline).sort()).toEqual(["garden", "orchard"]);
+    expect(new Set(running.map(r => r.info.pid)).size).toBe(2);
+    expect((await control(garden.dir, { cmd: "peek" })).screen.outline ?? (await infoOn(sessionSocket(garden.dir)))!.outline.outline).toBe("garden");
+    expect((await infoOn(sessionSocket(orchard.dir)))!.outline.outline).toBe("orchard");
+  });
+
+  test("attaching names the outline: each terminal gets its own outline's session, and each desk saves in its own folder", async () => {
+    const a = await RawClient.attach(sessionSocket(garden.dir), 120, 36), b = await RawClient.attach(sessionSocket(orchard.dir), 120, 36);
+    await until(() => a.screen().includes("garden") && b.screen().includes("orchard"), "each desk on its outline", 10_000).catch(e => { console.log(a.screen(), b.screen()); throw e; });
+    await control(garden.dir, { cmd: "act", action: "tile.open", args: { kind: "pty", cmd: "sh" }, as: "test-agent" });
+    await until(() => existsSync(join(garden.dir, "desk.json")), "garden's desk saved in its folder", 10_000);
+    const g = readFileSync(join(garden.dir, "desk.json"), "utf8");
+    expect(g).toContain("\"pty\"");
+    expect(existsSync(join(orchard.dir, "desk.json")) ? readFileSync(join(orchard.dir, "desk.json"), "utf8") : "").not.toContain("\"pty\"");
+    expect(existsSync(join(host.root, "state", "desk.json"))).toBe(false);
+    a.send({ t: "detach" }); b.send({ t: "detach" });
+    await until(() => a.closed && b.closed, "both detached", 5000);
+    expect(a.got.at(-1)).toMatchObject({ t: "bye", reason: "detached", message: expect.stringContaining(`\`EP0CH_STATE=${join(host.root, "state")} ep0ch --ws garden\` attaches again`) });
+  }, 30_000);
+
+  test("with nothing named, a command says which to name, as commands; named, it acts on that one", async () => {
+    const env0 = process.env as Record<string, string>;
+    const picked = await pickSession([], "attach", env0, none);
+    // Each pasteable as it is: this state dir's EP0CH_STATE filled in.
+    const st = `EP0CH_STATE=${join(host.root, "state")}`;
+    expect("error" in picked && picked.error).toContain(`  ${st} ep0ch session attach --ws garden\n  ${st} ep0ch session attach --ws orchard`);
+    expect(await pickSession(["--ws", "orchard"], "attach", env0, none)).toEqual(orchard);
+    const ctl = await controlFor(env0, none);
+    expect(typeof ctl === "object" && ctl.error).toContain(`EP0CH_CONTROL=${join(garden.dir, "door.sock")} ep0ch peek   # garden`);
+    expect(await controlFor({ ...env0, EP0CH_WS: "orchard" }, none)).toBe(join(orchard.dir, "door.sock"));
+  });
+
+  test("`session list` shows both; `session end --all --yes` ends both", async () => {
+    const list = await cli("session", "list");
+    expect(list.code).toBe(0);
+    expect(list.out).toMatch(/^garden on .* · session \d+/m);
+    expect(list.out).toMatch(/^orchard on .* · session \d+/m);
+    const json = JSON.parse((await cli("session", "list", "--json")).out) as { place: { outline: string } }[];
+    expect(json.map(i => i.place.outline).sort()).toEqual(["garden", "orchard"]);
+    const ended = await cli("session", "end", "--all", "--yes");
+    expect(ended.code).toBe(0);
+    expect(ended.out).toContain("garden's session ended");
+    expect(ended.out).toContain("orchard's session ended");
+    await until(() => !existsSync(sessionSocket(garden.dir)) && !existsSync(sessionSocket(orchard.dir)), "both sessions gone", 10_000);
+    expect((await cli("session", "list")).out).toContain("no session runs");
+    // Named, with no door on it: said, with the command that starts one.
+    const ctl = await controlFor({ ...(process.env as Record<string, string>), EP0CH_WS: "garden" }, none);
+    expect(typeof ctl === "object" && ctl.error).toContain(`no door runs on garden · \`EP0CH_STATE=${join(host.root, "state")} ep0ch --ws garden\` starts one`);
+  }, 60_000);
 });

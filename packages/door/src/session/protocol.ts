@@ -5,8 +5,8 @@
 // one byte of type, four of length (big-endian), then the payload, UTF-8: raw text for `input` and `output`, JSON
 // for the rest.
 
-/** Bumped when a message changes shape: a client and a daemon of different protocols say so instead of guessing. */
-export const PROTOCOL = 1;
+/** Bumped when a message changes shape: a client and a daemon of different protocols say so instead of guessing. 2: sessions are per outline (SessionInfo.place and .dir; Hello.target gone). */
+export const PROTOCOL = 2;
 
 /** The largest frame either side takes: well above a screen of Kitty uploads, small enough to bound memory. */
 export const FRAME_LIMIT = 64 << 20;
@@ -23,12 +23,6 @@ export interface Hello {
   args?: string[];
   /** Read-only: shown the session, never given the person's keys (an agent watching, a second screen). */
   watch?: boolean;
-  /**
-   * The outline the client named (`--ws`, a socket, EP0CH_SOCKET): its service's socket and the outline on it, as
-   * resolveTarget names them. A session on another one refuses it. Absent: it named none, and attaches to whichever
-   * this state dir's session is on.
-   */
-  target?: { socket: string; outline?: string };
 }
 
 /** What the daemon says about itself: answered to `query`, and in `session list`. */
@@ -37,6 +31,9 @@ export interface SessionInfo {
   /** The checkout the daemon runs from, and its commit: an upgrade compares it. */
   code: { dir: string; commit: string | null };
   state: string; socket: string; control: string | null;
+  /** Which outline's session this is, and where that outline is (src/session/place.ts): its folder is `dir`. */
+  place: { outline: string; machine?: string; socket?: string };
+  dir: string;
   outline: { host: string; workspace: string; outline?: string; socket: string };
   screen: string | null;
   clients: ClientInfo[];

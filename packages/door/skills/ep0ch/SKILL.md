@@ -78,8 +78,10 @@ only when the person asked for it.
   tile. Open notes with `ep0ch open <block> from=$EP0CH_TILE` (the same as `ep0ch act open id=<block>
   from=$EP0CH_TILE`: there is one open), so they land where your tile's opens go, on the desk and the board
   alike; never name a reader you guessed.
-- Otherwise the control commands talk to the door on `EP0CH_CONTROL`, or the default socket
-  `~/.local/state/ep0ch-door/door.sock` — **usually the person's own door.**
+- Otherwise the control commands talk to the door on `EP0CH_CONTROL`, else the one on the outline the folder
+  names (its `door.sock` in `~/.local/state/ep0ch-door/sessions/<local or machine>/<name>/`), else the only door
+  running — **usually the person's own door.** With several running and none named, the command prints the
+  `EP0CH_CONTROL=…` to use for each.
 - Act on the person's door only when they asked you to (show them something, make an edit they
   requested). Otherwise run your own: set `EP0CH_STATE` and `EP0CH_CONTROL` under a temp directory, start
   it with `ep0ch try … --copy` or against a scratch service with `--no-daemon` (else it runs as a session that

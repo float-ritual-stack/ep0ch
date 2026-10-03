@@ -19,9 +19,11 @@ An agent sees what the person sees, live, and can change anything except where t
 
 ## The control socket
 
-`EP0CH_CONTROL` names it (default `door.sock` in the door's state, `$EP0CH_STATE` or
-`~/.local/state/ep0ch-door`; a second door serves on `door-<pid>.sock`, and a starting door sweeps sockets
-no door listens on). **The socket is the door's shell:** a client can do what the person can, including
+`EP0CH_CONTROL` names it (default `door.sock` in the folder of the outline the door is on, in its state dir:
+`$EP0CH_STATE` or `~/.local/state/ep0ch-door`, then `sessions/<local or ssh-name>/<name>/`; a second door on the same
+outline serves on `door-<pid>.sock`, and a starting door sweeps sockets no door listens on). A control command
+without `EP0CH_CONTROL` reaches the door on the outline its folder names (`EP0CH_WS`, the `.ep0ch`), else the only one
+running; with several, it prints the `EP0CH_CONTROL=…` for each. **The socket is the door's shell:** a client can do what the person can, including
 start a program in a terminal tile (`tile.open kind=pty cmd=…`), and `as=` is only a claimed name. So it is
 0600, in a folder that is the user's alone (0700, owner checked, the nvim sockets' check); in a folder anyone
 else can reach, the door serves no socket and says why. A request line longer than 16 Mi characters is refused and cut off (well above any note's whole text for `edit.text`). Every terminal tile gets its door's own socket as `EP0CH_CONTROL`, its tile's name as

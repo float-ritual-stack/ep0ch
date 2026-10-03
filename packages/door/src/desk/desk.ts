@@ -23,7 +23,7 @@ import { keepEditFile } from "../surface/editor";
 import { LineInput } from "../surface/line";
 import { Modes } from "../surface/modes";
 import { centred, linePrompt, ListPicker, pickRow } from "../surface/picker";
-import { readState, writeState } from "../state";
+import { outlineState, readState, writeState } from "../state";
 import { containerKeys, leafNames, savedNodes, specData, type ScreenSpec } from "./screen-spec";
 import { bg, C, chip as chipStyle, fg, fitHint, headOf, pad, paint, RESET, selected, width } from "../style";
 import { themed } from "../theme";
@@ -196,7 +196,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // An extension's kind that comes or goes while the door runs (PIE-512): its tiles are made again.
     watchTileKinds(this);
     const want = opts.layout && spec.layouts ? layoutNamed(opts.layout) : null;
-    const last = spec.saves ? savedScreen(readState<unknown>(spec.saves), spec) : null;
+    const last = spec.saves ? savedScreen(readState<unknown>(spec.saves, outlineState()), spec) : null;
     this.resume(last);
     this.focus = 0;
     if (last?.models && typeof last.models === "object") this.savedModels = { ...last.models };
@@ -481,7 +481,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   save() {
     if (!this.spec.saves || !this.writes) return;
     const models = Object.fromEntries([...this.models].map(([cid, m]) => [this.columnsIn().find(c => c.id === cid)?.key ?? cid, m.save?.()] as const).filter(([, v]) => v !== undefined));
-    writeState(this.spec.saves, { ...this.saved(), focus: this.all().indexOf(this.focus), rule: this.rule, ...(this.layoutName ? { layout: this.layoutName } : {}), rev: this.layout.rev, next: { tile: this.nextId, node: this.layout.nextNode }, ...(Object.keys(models).length ? { models } : {}) } satisfies SavedDesk);
+    writeState(this.spec.saves, { ...this.saved(), focus: this.all().indexOf(this.focus), rule: this.rule, ...(this.layoutName ? { layout: this.layoutName } : {}), rev: this.layout.rev, next: { tile: this.nextId, node: this.layout.nextNode }, ...(Object.keys(models).length ? { models } : {}) } satisfies SavedDesk, outlineState());
   }
 
   // ── DeskApi ────────────────────────────────────────────────────────────────

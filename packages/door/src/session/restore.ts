@@ -18,7 +18,7 @@ import { join } from "node:path";
 import type { App, Screen } from "../app";
 import { MainMenu } from "../screens";
 import { USER } from "../socket";
-import { stateDir } from "../state";
+import { outlineState } from "../state";
 
 /** One step of a restore: an action as the App's dispatcher takes it. */
 export interface Step { action: string; args?: Record<string, unknown>; tile?: string; screen?: string }
@@ -30,14 +30,15 @@ export interface Checkpoint {
   reopen: Step[];
 }
 
-const checkpointPath = () => join(stateDir(), "session-state.json");
+/** The checkpoint of the session in the outline folder `dir` (the daemon's own: outlineState()). */
+const checkpointPath = (dir = outlineState()) => join(dir, "session-state.json");
 
 /** Nothing to restore next time: the session ended for good. */
-export function forgetSession(): void { rmSync(checkpointPath(), { force: true }); }
+export function forgetSession(dir = outlineState()): void { rmSync(checkpointPath(dir), { force: true }); }
 
 /** The checkpoint a session left, if one did (a handoff, or a daemon that died). */
-export function readCheckpoint(): Checkpoint | null {
-  try { const c = JSON.parse(readFileSync(checkpointPath(), "utf8")) as Checkpoint; return c?.v === 2 ? c : null; } catch { return null; }
+export function readCheckpoint(dir = outlineState()): Checkpoint | null {
+  try { const c = JSON.parse(readFileSync(checkpointPath(dir), "utf8")) as Checkpoint; return c?.v === 2 ? c : null; } catch { return null; }
 }
 
 /** The screens open as the steps that open them again: a named screen (a spec's, the showcase), the background's kept so. */

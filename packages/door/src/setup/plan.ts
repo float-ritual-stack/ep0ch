@@ -6,8 +6,9 @@
 // under it changed. Every `<outlines>/*.sqlite` is backed up first. Units and Herdr's config are never edited:
 // what they need is said.
 import { join, resolve } from "node:path";
+import { ep0ch } from "../session/place";
 import { linkCommands, linkCounts, type LinkWork, linkWork, type OwnedLink, type StaleLink } from "./links";
-import { type Checkout, type DatabaseFacts, type Deps, type Facts, type HostUnit, KEYED_ACTIONS, PLUGIN_ID, PLUGIN_SOURCE, short, staleness } from "./model";
+import { type Checkout, type DatabaseFacts, type Deps, type Facts, type HostUnit, KEYED_ACTIONS, PLUGIN_ID, PLUGIN_SOURCE, type SessionFact, short, staleness } from "./model";
 
 /** do: runs with --apply. skip: already current. manual: needs a person (the hint says what). */
 export type StepStatus = "do" | "skip" | "manual";
@@ -305,27 +306,38 @@ export function oldMentionsAllowlist(f: Facts): string | null {
   return `${f.claude.settingsPath} lists PI_OUTLINER_MENTIONS_WORKSPACES with no mode, so the Claude mod feeds nothing anywhere. ${installer} --folder drops it, and then every folder whose .ep0ch names an outline feeds that outline; --allowlist <folder> keeps strict mode; PI_OUTLINER_MENTIONS_MODE=folder opts the listed folders out`;
 }
 
+/** How a session reads in doctor and install: `pie`, `float-hub on float-2`. */
+export const sessionName = (s: SessionFact) => `${s.outline}${s.machine ? ` on ${s.machine}` : ""}`;
+
 /**
- * The door session (PIE-418): a daemon on older code than the checkout (after its update) is handed to a new one
- * on that code (`ep0ch session upgrade`): its programs keep running in the terminal host, its terminals attach again.
+ * One door session (PIE-418) against the checkout: handed to a new daemon on its code (`do`), or why not (`skip`).
+ * The session from before sessions were per outline (`old`) is always moved over: that's how it gets its own folder.
  */
-export function sessionStep(f: Facts, repo: Pick<Step, "status">): Step {
-  const title = "Hand the door session to the new code";
-  const s = f.session;
-  if (!s) return { id: "session", title, status: "skip", why: "no door session runs", commands: [] };
-  const c = f.repo.checkout;
-  if (resolve(s.dir) !== resolve(f.repo.door)) return { id: "session", title, status: "skip", why: `the session (pid ${s.pid}) runs another checkout's door, ${s.dir}; run install from that one`, commands: [] };
+export function sessionVerdict(s: SessionFact, f: Facts, repo: Pick<Step, "status">): { status: "do" | "skip"; why: string } {
+  const c = f.repo.checkout, who = `${sessionName(s)} (pid ${s.pid})`;
+  if (resolve(s.dir) !== resolve(f.repo.door)) return { status: "skip", why: `${who} runs another checkout's door, ${s.dir}; run install from that one` };
   // A checkout left for the person (another branch, a detached HEAD, diverged, local changes in the way) isn't code to
   // hand the session to.
-  if (repo.status === "manual" || c.branch !== "main") return { id: "session", title, status: "skip", why: `the ep0ch checkout is left for you (not main, or not fast-forwardable), so the session (pid ${s.pid}) stays on ${short(s.commit)}`, commands: [] };
+  if (repo.status === "manual" || c.branch !== "main") return { status: "skip", why: `the ep0ch checkout is left for you (not main, or not fast-forwardable), so ${who} stays on ${short(s.commit)}` };
   const updates = repo.status === "do" && c.behind > 0;
   const target = updates ? c.upstream : c.head;
-  if (s.commit && s.commit === target) return { id: "session", title, status: "skip", why: `the session (pid ${s.pid}) runs the current code (${short(s.commit)})`, commands: [] };
-  return {
-    id: "session", title, status: "do",
-    why: `the session (pid ${s.pid}) runs ${short(s.commit)}, the checkout ${updates ? "will be" : "is"} at ${short(target)}: a new daemon on that code takes it over; its ${s.programs} program${s.programs === 1 ? "" : "s"} keep running and its ${s.clients} terminal${s.clients === 1 ? "" : "s"} attach again`,
-    commands: ["ep0ch session upgrade"],
-  };
+  if (s.old) return { status: "do", why: `${who} is from before sessions were per outline: a new daemon on the checkout's code takes it over in ${s.outline}'s own folder; its ${s.programs} program${s.programs === 1 ? "" : "s"} keep running and its ${s.clients} terminal${s.clients === 1 ? "" : "s"} attach again` };
+  if (s.commit && s.commit === target) return { status: "skip", why: `${who} runs the current code (${short(s.commit)})` };
+  return { status: "do", why: `${who} runs ${short(s.commit)}, the checkout ${updates ? "will be" : "is"} at ${short(target)}: a new daemon on that code takes it over; its ${s.programs} program${s.programs === 1 ? "" : "s"} keep running and its ${s.clients} terminal${s.clients === 1 ? "" : "s"} attach again` };
+}
+
+/**
+ * The door sessions (PIE-418), one per outline: every daemon on older code than the checkout (after its update) is
+ * handed to a new one on that code (`ep0ch session upgrade --all`): its programs keep running in the terminal host,
+ * its terminals attach again.
+ */
+export function sessionStep(f: Facts, repo: Pick<Step, "status">): Step {
+  const title = "Hand the door sessions to the new code";
+  const all = f.sessions ?? [];
+  if (!all.length) return { id: "session", title, status: "skip", why: "no door session runs", commands: [] };
+  const verdicts = all.map(s => sessionVerdict(s, f, repo));
+  const doing = verdicts.some(v => v.status === "do");
+  return { id: "session", title, status: doing ? "do" : "skip", why: verdicts.map(v => v.why).join("; "), commands: doing ? [`${ep0ch()}session upgrade --all`] : [] };
 }
 
 /** The whole plan, in order: backup first, whenever anything after it will change something. */

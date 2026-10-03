@@ -4,10 +4,11 @@
 // and `alt+m` (or `marks.next`) steps through them. Marks never move the person's focus, selection or cursor.
 //
 // The store is behind `MarkStore` so PIE-423's service-backed focus marks (shared, so Detail shows them too)
-// can replace this door-local one, kept in the door's state (marks.json).
+// can replace this door-local one, kept in the outline's folder of the door's state (marks.json, `outlineState()`): a
+// mark is on that outline's blocks or its session's tiles.
 import { statSync } from "node:fs";
 import { join } from "node:path";
-import { readState, stateDir, writeState } from "../state";
+import { outlineState, readState, writeState } from "../state";
 
 export interface Mark {
   /** Its number, for dismissing and stepping: stays the same while the mark lives. */
@@ -34,8 +35,8 @@ export interface MarkStore {
 }
 
 /**
- * Door-local marks, kept in marks.json in the door's state. The file is the store: every read and change
- * reads it first (only when it changed on disk), so two doors on one state dir see each other's marks and
+ * Door-local marks, kept in marks.json in the outline's folder. The file is the store: every read and change
+ * reads it first (only when it changed on disk), so two doors on one outline see each other's marks and
  * never number two marks alike; a change is a read, the edit, and an atomic write (writeState).
  */
 export class LocalMarks implements MarkStore {
@@ -49,10 +50,10 @@ export class LocalMarks implements MarkStore {
   private load() {
     if (!this.persist) return;
     let stamp = "";
-    try { const st = statSync(join(stateDir(), "marks.json")); stamp = `${st.mtimeMs}:${st.size}`; } catch { /* none yet */ }
+    try { const st = statSync(join(outlineState(), "marks.json")); stamp = `${st.mtimeMs}:${st.size}`; } catch { /* none yet */ }
     if (stamp === this.seen) return;
     this.seen = stamp;
-    const saved = readState<Mark[]>("marks.json");
+    const saved = readState<Mark[]>("marks.json", outlineState());
     this.marks = Array.isArray(saved) ? saved.filter(m => m && typeof m.n === "number" && typeof m.reason === "string") : [];
   }
   list() { this.load(); return [...this.marks]; }
@@ -74,8 +75,8 @@ export class LocalMarks implements MarkStore {
   onChange(f: () => void) { this.listeners.push(f); }
   private changed() {
     if (this.persist) {
-      writeState("marks.json", this.marks);
-      try { const st = statSync(join(stateDir(), "marks.json")); this.seen = `${st.mtimeMs}:${st.size}`; } catch { /* re-read next time */ }
+      writeState("marks.json", this.marks, outlineState());
+      try { const st = statSync(join(outlineState(), "marks.json")); this.seen = `${st.mtimeMs}:${st.size}`; } catch { /* re-read next time */ }
     }
     for (const f of this.listeners) f();
   }

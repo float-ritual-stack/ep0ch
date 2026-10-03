@@ -126,7 +126,7 @@ MacBook). It does not support every version a client ever connected with.
   - start the door with `EP0CH_STATE` and `EP0CH_CONTROL` set under a temp directory, with `EP0CH_OUTLINES`
     (or `EP0CH_SOCKET`) pointing at a scratch host and `--ws` naming its outline, and `--no-daemon` (or
     `EP0CH_DAEMON=0`) so it doesn't run as a session that outlives your pane; testing a session, end it
-    yourself (`EP0CH_STATE=… ep0ch session end --yes`);
+    yourself (`EP0CH_STATE=… ep0ch session end --all --yes`);
   - pass the same `EP0CH_CONTROL` to every control command;
   - start it through `packages/door/scripts/test-door-env.sh`, which unsets every `EP0CH_*` you inherit and runs
     the agent drawer on `EP0CH_DAILY_AGENT=sh` (the person's shell exports their Herdr daily agent: see the
@@ -137,8 +137,11 @@ MacBook). It does not support every version a client ever connected with.
   "other machine" is a scratch host of its own (`FAKE_SSH_HOME`, `FAKE_SSH_OUTLINES` under the temp dir). Spawned
   processes get the environment passed explicitly: Bun's spawn doesn't see changes made to `process.env`.
 - `EP0CH_CONTROL` moves the control socket; `EP0CH_STATE` moves everything else the door writes (layouts,
-  drafts, marks, `lastcall.json`, snaps, `ctrl+e` files, the media cache, and the default socket). Set both.
-  Two doors on one `EP0CH_STATE` share marks, but the desk layout is whichever saves last; the second is warned.
+  drafts, marks, `lastcall.json`, snaps, `ctrl+e` files, the media cache, the sessions and the default socket). Set
+  both. Sessions are one per outline, each in its own folder of the state dir
+  (`sessions/<local or ssh-name>/<name>/`, `packages/door/src/session/place.ts`): its session files, control socket,
+  saved desk, river and board layouts and last call. Two doors on one outline (and one `EP0CH_STATE`) share marks,
+  but the desk layout is whichever saves last; the second is warned.
 
 ## Fixtures and commits
 

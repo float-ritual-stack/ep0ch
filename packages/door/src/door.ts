@@ -10,7 +10,8 @@ import { Offline, SocketBoard } from "./socket";
 import { resolveTarget } from "./discover";
 import { attachTarget, unnamedHelp } from "./outlines";
 import { forwardSaying, forwardTo, rememberMachine } from "./machine";
-import { alive, claimState, readLastCall, readState, writeLastCall } from "./state";
+import { alive, claimState, homeState, readLastCall, readState, useOutlineState, writeLastCall } from "./state";
+import { placeOf, type Place } from "./session/place";
 import { recoverEdits } from "./surface/editor";
 import { sweepPicks } from "./pick";
 import type { TermInfo } from "./term";
@@ -32,6 +33,8 @@ export interface DoorOpen {
   board: SocketBoard;
   /** The outline the door is on; absent for the home base's door, which is on none yet (it reads no outline's events). */
   service?: BoardInfo;
+  /** That outline's folder in the state dir (src/session/place.ts): what's the outline's is kept there. */
+  place?: Place;
   args: readonly string[];
   /** Said once it's up, when nothing more pressing is (`created outline pie`, the folder's binding). */
   notice?: string;
@@ -47,6 +50,8 @@ export interface DoorOpen {
 export interface Door { app: App; control: { path: string; close(): void } | null }
 
 export async function openDoor(o: DoorOpen): Promise<Door> {
+  // What's this outline's goes in its folder; the home base, on none yet, keeps its own in `home/`.
+  useOutlineState(o.place ? o.place.dir : homeState());
   const lastCall = readLastCall();
   // The theme: EP0CH_THEME, else the one chosen last time (theme.set keeps it in the state dir), else calm.
   setTheme(startTheme(process.env.EP0CH_THEME, readState<{ name?: string }>("theme.json")?.name));
@@ -62,15 +67,15 @@ export async function openDoor(o: DoorOpen): Promise<Door> {
   // Served before any screen starts: terminal tiles are given its path (EP0CH_CONTROL) when they start.
   let refused = "";
   const control = await startControl({ app, mirror: o.mirror, info: o.info }).catch(e => { refused = `no control socket: ${(e as Error).message}`; return null; });
-  // Another door on the same state: marks are shared (marks.json is merged), the desk layout is whoever saves last.
-  const others = claimState();
+  // Another door on the same outline: marks are shared (marks.json is merged), the desk layout is whoever saves last.
+  const others = o.place ? claimState() : [];
   // ctrl+e files a door killed with kill -9 left behind: copied to drafts/ and said.
   const recovered = recoverEdits(alive);
   sweepPicks(alive);
   if (o.start) await o.start(app);
   if (!app.screens().length) for (const s of startScreens(o.args, process.env, then => new Logon(app, then))) app.push(s);
   if (refused) app.flash(refused, 20_000);
-  else if (others.length) app.flash(`another door (pid ${others.join(", ")}) uses this state dir · marks are shared, the desk layout is whichever saves last`, 20_000);
+  else if (others.length) app.flash(`another door (pid ${others.join(", ")}) is on this outline · marks are shared, the desk layout is whichever saves last`, 20_000);
   else if (recovered.length) app.flash(`an editor's text left by a door that ended was kept in ${recovered[0]}${recovered.length > 1 ? ` (+${recovered.length - 1})` : ""}`, 20_000);
   else if (o.notice) app.flash(o.notice, 12_000);
   return { app, control };
@@ -85,7 +90,7 @@ export async function openDoor(o: DoorOpen): Promise<Door> {
  * On a machine, the forward is started when it isn't up, and again whenever the outline connection drops: the status
  * bar says so (SocketBoard.prepare).
  */
-export async function connectTarget(args: readonly string[]): Promise<{ board: SocketBoard; service: BoardInfo; notice?: string } | { error: string }> {
+export async function connectTarget(args: readonly string[]): Promise<{ board: SocketBoard; service: BoardInfo; place: Place; notice?: string } | { error: string }> {
   const target = resolveTarget(args);
   if ("error" in target) return { error: target.error };
   if ("unnamed" in target) return { error: unnamedHelp(target) };
@@ -109,7 +114,8 @@ export async function connectTarget(args: readonly string[]): Promise<{ board: S
   try {
     const service = await board.info();
     const notice = [created ? `created outline ${target.outline}${machine ? ` on ${machine}` : ""}` : "", forwarded ?? ""].filter(Boolean).join(" · ") || undefined;
-    return { board, service, ...(notice ? { notice } : {}) };
+    const place = placeOf({ outline: target.outline, ...(machine ? { machine } : { socket: target.path }) });
+    return { board, service, place, ...(notice ? { notice } : {}) };
   } catch (e) {
     board.close();
     return { error: `no carrier on ${board.path}\n  ${(e as Error).message}` };

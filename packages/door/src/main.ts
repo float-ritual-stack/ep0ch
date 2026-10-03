@@ -44,13 +44,17 @@ const USAGE = `ep0ch: a BBS door into an outline
   ep0ch --remote <ssh-name> [door flags]
                                    this terminal on the door session running on that machine (ssh -t
                                    <ssh-name> ep0ch [door flags]), like herdr --remote
-  ep0ch session list [--json] | attach [--watch] | end [--yes] | upgrade [--clients] | restart
-                                   the door session in this state dir: who's attached and what runs in its
-                                   tiles; attach to it (--watch: read-only); end it (asks while programs run);
-                                   upgrade hands it to a new daemon on this checkout's code (its programs keep
-                                   running; --clients only restarts the terminals); restart does so anyway.
-                                   The door is a session: quitting detaches, ep0ch attaches again; --no-daemon
-                                   (or EP0CH_DAEMON=0) opens the door in this terminal instead
+  ep0ch session list [--json] | attach [--watch] | end [--yes] [--all] | upgrade [--clients] [--all] | restart
+                                   the door sessions, one per outline (like herdr --session <name>): list shows
+                                   every one (outline, machine, pid, code, terminals attached, programs); attach,
+                                   end, upgrade and restart act on this folder's outline's, or --ws <name>
+                                   [--machine <ssh-name>]'s (with none named, the only one running). attach
+                                   --watch is read-only; end asks while programs run (--all ends every one,
+                                   asking first); upgrade hands it to a new daemon on this checkout's code (its
+                                   programs keep running; --clients only restarts the terminals; --all does
+                                   every session); restart does so anyway. The door is a session: quitting
+                                   detaches, ep0ch attaches again; --no-daemon (or EP0CH_DAEMON=0) opens the door
+                                   in this terminal instead
   ep0ch init [<name>] [--json]     name this folder's outline: attach to it (creating it when nobody has),
                                    and write .ep0ch; without a name, the folder's (or its repository's)
   ep0ch outline list | attach <name> | create <name> | import <database.sqlite> <name>
@@ -77,7 +81,8 @@ ${NOTES_USAGE}
   ep0ch clients [--ws <name>] [--machine <ssh-name>]
                                    who is connected to the service, every role (observers too)
   ep0ch peek | actions | snap <png> | open <id> | act <action> [key=value ...]
-                                   drive a running door; EP0CH_CONTROL names which one. open <id> is
+                                   drive a running door; EP0CH_CONTROL names which one, else the one on
+                                   this folder's outline, else the only one running. open <id> is
                                    act open id=<id>; --as <id> (or EP0CH_AGENT) names the agent
   ep0ch where [--json]             where this runs: the stack of layers (EP0CH_NEST: ssh, Herdr, door, tile), each
                                    checked (the door's pid and control socket, the Herdr pane, the tile), and where
@@ -109,7 +114,16 @@ if (args[0] === "find") process.exit(await findCommand(args));
 if (args[0] === "show") process.exit(await showCommand(args));
 if (args[0] === "where") process.exit(await whereCommand(args.slice(1)));
 if (args[0] === "session") process.exit(await sessionCommand(args.slice(1)));
-if (["peek", "snap", "open", "actions", "act", "subscribe"].includes(args[0] ?? "")) process.exit(await controlClient(args));
+if (["peek", "snap", "open", "actions", "act", "subscribe"].includes(args[0] ?? "")) {
+  // Which door, when EP0CH_CONTROL names none: the one on the outline this folder names, else the only one running.
+  if (!process.env.EP0CH_CONTROL) {
+    const { controlFor } = await import("./session/place");
+    const at = await controlFor();
+    if (typeof at === "object") { console.error(`ep0ch: ${at.error}`); process.exit(1); }
+    process.env.EP0CH_CONTROL = at;
+  }
+  process.exit(await controlClient(args));
+}
 if (args[0] === "outline" || args[0] === "status" || args[0] === "init") {
   const cmd = parseOutlineArgs(args[0] === "outline" ? args.slice(1) : args);
   if ("error" in cmd) { console.error(`ep0ch: ${cmd.error}`); process.exit(2); }
@@ -133,27 +147,22 @@ if (args[0] === "clients") {
   board.close();
   process.exit(0);
 }
-// The door: attached to this state dir's session (started when sessions are on and none runs), or in this terminal.
+// The door: attached to its outline's session (started when sessions are on and none runs), or in this terminal.
 /** What the home base chose, said once the door is up (in this terminal; a session started from it shows the screen). */
 let homeNotice: string | undefined;
-const how = await doorMode(args);
-// A door about to open on an outline of its own (no session to attach to): which outline. A folder that names none
-// opens the home base in this terminal (src/home.ts) and goes on with --ws <their choice> (PIE-530).
-// Without a terminal, a session isn't started at all (attachDoor says so); nothing to ask.
-if (!(how.mode === "attach" && (how.running || !process.stdin.isTTY))) {
+const how = doorMode(args);
+// Which outline, first: the session is that outline's (src/session/place.ts). A folder that names none opens the home
+// base in this terminal (src/home.ts: it shows which sessions run) and goes on with --ws <their choice> (PIE-530). A
+// machine's forward is started here too, in the person's terminal, where ssh has their agent; the session's daemon
+// finds it up. Without a terminal, a session isn't started at all (attachDoor says so); nothing to ask.
+if (!(how.mode === "attach" && !process.stdin.isTTY)) {
   const named = await nameTheOutline(args, !!process.stdin.isTTY, homeBase);
   if (!named) process.exit(1);
   if ("error" in named) { console.error(`ep0ch: ${named.error}`); process.exit(1); }
   args = named.args;
   homeNotice = named.notice;
 }
-// Attaching to a session that runs: a machine it names gets its forward started from here, where ssh has the person's
-// agent (the session's daemon has none of its own), so `ep0ch --machine <name>` again brings a dropped forward back.
-if (how.mode === "attach" && how.running) {
-  const t = resolveTarget(args);
-  if (!("error" in t) && t.machine) await forwardTo(t.machine).catch(e => console.error(`ep0ch: can't reach the outline host on ${t.machine}: ${(e as Error).message}`));
-}
-if (how.mode === "attach") process.exit(await attachDoor(args, how));
+if (how.mode === "attach") process.exit(await attachDoor(args));
 // A door in its own terminal: an `ep0ch` in one of its tiles opens a door of its own there too, never a session on
 // this state dir.
 process.env.EP0CH_DAEMON = "0";
@@ -194,7 +203,7 @@ term.write = (s: string) => { rawWrite(s); mirror.write(s); };
 process.stdout.prependListener("resize", () => mirror.resize(process.stdout.columns || term.info.cols, process.stdout.rows || term.info.rows));
 const loggedOnAt = Date.now();
 door = await openDoor({
-  term, mirror, info: () => term.info, board: opened.board, service: opened.service, args,
+  term, mirror, info: () => term.info, board: opened.board, service: opened.service, place: opened.place, args,
   ...(opened.notice || homeNotice ? { notice: [homeNotice, opened.notice].filter(Boolean).join(" · ") } : {}),
   done(app) {
     term.stop();                                          // never throws: a terminal that's gone is skipped

@@ -31,7 +31,7 @@ import { createHash } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
 import { ask, JsonLines } from "../jsonl";
 import { appendNest } from "../nest";
-import { alive, defaultStateDir, stateDir } from "../state";
+import { alive, defaultStateDir, isInside, stateDir } from "../state";
 import { AGENT_VARS, agentVars, DOOR_START_VARS, lineWithContinue } from "./agent-env";
 
 export interface Ran { code: number; out: string; err: string }
@@ -68,14 +68,15 @@ export interface AgentConfig {
  * Whose door this is, from the environment the door gave the tile: null for the person's own door (EP0CH_STATE
  * unset or their default state dir, `defaultStateDir`, and its control socket in that dir), else a short hash of its
  * state (and of its control socket when that lives elsewhere). A scoped door's Herdr names carry the hash, so it never
- * finds the person's agent pane; the door's own process and the tile's agree on it (door.sock, door-<pid>.sock or no
- * EP0CH_CONTROL in the state dir all hash the same).
+ * finds the person's agent pane; the door's own process and the tile's agree on it (door.sock or door-<pid>.sock in
+ * any outline's folder of the state dir, or no EP0CH_CONTROL, all hash the same).
  */
 export function doorScope(env: Record<string, string | undefined>): string | null {
   const own = resolve(defaultStateDir(env));
   const state = env.EP0CH_STATE ? resolve(env.EP0CH_STATE) : own;
   const control = env.EP0CH_CONTROL ? resolve(env.EP0CH_CONTROL) : null;
-  const inState = !control || dirname(control) === state;
+  // Any door on this state dir: each outline's control socket lives in its folder there (src/session/place.ts).
+  const inState = !control || isInside(state, control);
   if (state === own && inState) return null;
   return createHash("sha256").update(inState ? state : `${state}\0${control}`).digest("hex").slice(0, 8);
 }

@@ -4,15 +4,13 @@ import { spawn } from "node:child_process";
 import { closeSync, openSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { JsonLines, listening } from "../jsonl";
+import { sessionLog } from "./place";
 import { connect } from "node:net";
 import { privateDir, stateDir } from "../state";
-import { encode, Frames, type DaemonMsg, type SessionInfo } from "./protocol";
+import { encode, Frames, type DaemonMsg } from "./protocol";
 
-/** The session's socket, file (who it is), lock and log: all in the state dir. */
-export const sessionSocket = () => join(stateDir(), "session.sock");
-export const sessionFile = () => join(stateDir(), "session.json");
-export const sessionLock = () => join(stateDir(), "session.lock");
-export const sessionLog = () => join(stateDir(), "session.log");
+/** The session's socket, file (who it is), lock and log: in its outline's folder (src/session/place.ts). */
+export { sessionFile, sessionLock, sessionLog, sessionSocket } from "./place";
 
 /** Until a session answers on `path`, at most `ms`: whether one does. */
 export async function waitFor(path: string, ms: number): Promise<boolean> {
@@ -38,12 +36,13 @@ export function sessionEnv(env: Record<string, string | undefined> = process.env
 }
 
 /**
- * Start the session for this state dir, detached (its own process group and session, no terminal), and wait until it
- * serves: it says so on fd 3, or why it couldn't. Its output goes to session.log in the state dir.
+ * Start the session in the outline folder `dir` (placeFor(args) names it: the daemon finds the same one from the same
+ * arguments), detached (its own process group and session, no terminal), and wait until it serves: it says so on fd 3,
+ * or why it couldn't. Its output goes to session.log there.
  */
-export async function startSession(args: readonly string[], more: Record<string, string> = {}, timeoutMs = 30_000): Promise<{ ok: true } | { ok: false; error: string }> {
-  if (!privateDir(stateDir(), true)) return { ok: false, error: `${stateDir()} isn't yours alone (it needs mode 700): no session` };
-  return spawnReady(["session", "serve", ...args], { ...sessionEnv(), ...more }, sessionLog(), "the session", timeoutMs);
+export async function startSession(dir: string, args: readonly string[], more: Record<string, string> = {}, timeoutMs = 30_000): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (!privateDir(stateDir(), true) || !privateDir(dir, true)) return { ok: false, error: `${stateDir()} or ${dir} isn't yours alone (each needs mode 700): no session · \`chmod 700 ${stateDir()} ${dir}\` fixes it` };
+  return spawnReady(["session", "serve", ...args], { ...sessionEnv(), ...more }, sessionLog(dir), "the session", timeoutMs);
 }
 
 /**
@@ -84,12 +83,5 @@ export function askSession(path: string, m: Parameters<typeof encode>[0], ms = 5
     sock.on("error", () => { clearTimeout(t); res(null); });
     sock.on("close", () => { clearTimeout(t); res(null); });
   });
-}
-
-/** The session in this state dir, or null. */
-export async function sessionInfo(path = sessionSocket()): Promise<SessionInfo | null> {
-  if (!(await listening(path))) return null;
-  const r = await askSession(path, { t: "query" });
-  return r?.t === "info" ? r.info : null;
 }
 

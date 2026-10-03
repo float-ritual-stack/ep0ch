@@ -352,8 +352,8 @@ exits 1), and · for information:
    the unit doesn't run (another process answers its socket), or a unit that needs changing (another checkout's
    `host-main.ts`, settings from before outlines by name) is left to you, with the change. Only a unit whose
    `EP0CH_OUTLINES` (default `~/outlines`) is this outlines folder counts as its unit.
-6. **Hand the door session to the new code** (see [Sessions](#sessions-quit-is-detach)), when one runs from this
-   checkout on an older commit: `ep0ch session upgrade`. The programs in its tiles keep running, its screens and
+6. **Hand the door sessions to the new code** (see [Sessions](#sessions-quit-is-detach)), each one that runs from
+   this checkout on an older commit: `ep0ch session upgrade --all`. The programs in its tiles keep running, its screens and
    open edits come back, and every attached terminal (a pane, an ssh login) starts again on the new code and
    attaches by itself.
 7. **Link the door's extensions** (`packages/door/ext/<name>/`): an extension's `ext.json` names files to link where
@@ -415,7 +415,7 @@ A checkout from before `install` gets it by hand, once:
 | `ep0ch show <id> [--ansi] [--width <n>]` | the note drawn as a reader draws it (the note surface), at that width; `--ansi` keeps its colours (a picker's preview) |
 | `ep0ch outline list --all [--lines]` | every outline you can open from here: this machine's, then each machine you've opened before (a machine not connected now says so; nothing is started) |
 | `ep0ch clients [--ws <name>] [--machine <ssh-name>]` | who's connected to the outline: every role, observers and roles this door doesn't know yet |
-| `ep0ch session list`, `attach [--watch]`, `end [--yes]`, `upgrade [--clients]`, `restart` | the door session in this state dir (see [Sessions](#sessions-quit-is-detach)): who's attached and what runs, attach to it (`--watch`: read-only), end it, hand it to a new daemon on this checkout's code (its programs keep running) |
+| `ep0ch session list`, `attach [--watch]`, `end [--yes] [--all]`, `upgrade [--clients] [--all]`, `restart` | the door sessions, one per outline (see [Sessions](#sessions-quit-is-detach)): every one listed with who's attached and what runs; attach to this folder's (or `--ws`'s), end it, hand it to a new daemon on this checkout's code (its programs keep running); `--all` for every session |
 | `ep0ch peek`, `actions`, `snap <png>`, `open <id>`, `act <action> key=value …` | drive a running door (see [Letting an agent see what you see](#letting-an-agent-see-what-you-see-and-do-what-you-do)); `EP0CH_CONTROL` names which door |
 
 `bun src/main.ts …` still works the same way, and `ep0ch-door` is the same command.
@@ -428,7 +428,7 @@ A checkout from before `install` gets it by hand, once:
 | `EP0CH_SOCKET` | a host's socket path named outright (the low-level way; no machine is used), asked for the same outline name |
 | `EP0CH_PICKER`, `EP0CH_PICK_CHANNEL` | the picker `Ctrl+T` hands a draft's terminal to (default `tv`), and its argument (default `ep0ch`; empty for none) |
 | `EP0CH_SSH` | the ssh `--machine` and `--remote` run (default `ssh`) |
-| `EP0CH_DAEMON` | `0` (or `--no-daemon`) opens the door in this terminal, as before sessions: quitting it ends it. Otherwise the door is a session (see [Sessions](#sessions-quit-is-detach)): the one in the state dir attached to, started first when none runs. Tests and `scripts/test-door-env.sh` set `0`; pass `EP0CH_DAEMON=1` to try a session there |
+| `EP0CH_DAEMON` | `0` (or `--no-daemon`) opens the door in this terminal, as before sessions: quitting it ends it. Otherwise the door is a session (see [Sessions](#sessions-quit-is-detach)): its outline's, attached to, started first when none runs. Tests and `scripts/test-door-env.sh` set `0`; pass `EP0CH_DAEMON=1` to try a session there |
 | `EP0CH_PACKS` | folder holding the `woe*.zip` packs (default `/opt/float/bbs/inbox/evan`) |
 | `EP0CH_KITTY` | `1` / `0` forces graphics on or off |
 | `EP0CH_THEME` | `calm` (the default), `night` or `classic`: the colours at start, over the one last chosen with `alt+t` (see [Themes and accessibility](#themes-and-accessibility)) |
@@ -445,16 +445,22 @@ A checkout from before `install` gets it by hand, once:
 
 ## Sessions: quit is detach
 
-    ep0ch                      # the session in this state dir: started when none runs, then attached
+    ep0ch                      # this folder's outline's session: started when none runs, then attached
+    ep0ch --ws garden          # garden's session (another outline's runs beside it); --machine for another machine's
     ep0ch --no-daemon          # the door in this terminal only (quitting ends it)
-    ep0ch session list         # who's attached, what runs in its tiles
+    ep0ch session list         # every session: outline, machine, pid, code, who's attached, what runs in its tiles
     ep0ch session attach --watch
     ep0ch session end          # asks while programs run in its tiles or a draft is unsaved; --yes doesn't
+    ep0ch session end --all    # every session, after asking
     ep0ch session upgrade      # hand it to a new daemon on this checkout's code: programs keep running
+    ep0ch session upgrade --all
 
 A **session** (PIE-418) is the door kept running without a terminal, as Herdr and tmux keep theirs; `ep0ch` runs the
-door as one. One runs per user and state dir (`EP0CH_STATE`), started on demand in the background, and holds
-everything the door holds:
+door as one. One runs per outline, like `herdr --session <name>`: naming an outline (`--ws`, `EP0CH_WS`, the folder's
+`.ep0ch`, with its `--machine`) names its session, started on demand in the background. `attach`, `end`, `upgrade` and
+`restart` act on the session of the outline the folder (or `--ws`) names; where none is named, on the only one running
+(with several, they print the `--ws` to add for each). The home base marks an outline whose session runs (`● running ·
+1 attached`), and choosing it attaches. A session holds everything the door holds:
 the screens and their layouts, the dispatcher, drafts, the terminal tiles with their programs and scrollback, the
 agent drawer, the service connection and its change feed. Your terminal is a **client**: it shows what the session
 sends and sends what you type. A terminal inside the session (one of its tiles, its drop shell) can't attach to it.
@@ -462,8 +468,17 @@ sends and sends what you type. A terminal inside the session (one of its tiles, 
 - **Quitting detaches.** `G` (Goodbye), `ctrl+c`, closing the terminal or a dropped ssh connection lets go of that
   terminal; everything goes on running. `ep0ch` attaches again and you're where you were: the layout, nvim with its
   unsaved buffer, a shell's scrollback, a half-written draft. Flags that open a screen (`--board`, `--layout daily`)
-  apply when a session starts; attaching says it didn't apply them. Naming another outline than the session's
-  (`--ws`, a socket, `EP0CH_SOCKET`) is refused, with which one it's on: one session per state dir.
+  apply when a session starts; attaching says it didn't apply them.
+- **Where it lives.** Each outline's session and what's that outline's live in its own folder of the state dir:
+  `sessions/local/<name>/` for this machine's outlines, `sessions/<ssh-name>/<name>/` for a machine's,
+  `sessions/socket-<hash>/<name>/` for a host named by `EP0CH_SOCKET` (and `sessions/~/<hash>/` where that path would be
+  too long for a socket). There: `place.json` (which outline the folder is, kept for good), `session.sock`, `session.json`
+  (the running session), `session.lock`, `session.log`, the
+  terminal host's `pty.sock` and `pty-host.log`, the checkpoint `session-state.json`, the control socket `door.sock`,
+  the saved layouts of the desk, the river and the board (`desk.json`, `river.json`, `delivery.json`), the river's
+  index, the last call, the marks and the drafts put aside (`drafts/unsent/`). Shared by every outline, in the state dir
+  itself: the theme, named layouts (`layouts.json`), `ctrl+e` copies (`drafts/`), the dock, the machines opened, summary
+  keys and the daily scratch. The home base, on no outline yet, keeps its own in `home/`.
 - **Ending is its own act:** `E` on the main menu (End), or `ep0ch session end` at your shell: the same action
   (`session.end`), the person's only. With programs running in its tiles or a draft unsaved it asks first (`E` again
   within 3s; the command asks y/N, or `--yes`). Unsaved drafts are copied to disk and put aside, as when the door quits.
@@ -487,7 +502,7 @@ sends and sends what you type. A terminal inside the session (one of its tiles, 
   the terminal host. Text typed into a draft since it was last put aside was only in the daemon's memory, and is lost
   then; drafts put aside come back. `ep0ch session list` says when a terminal host runs without a daemon.
 - **`ssh` lands in it.** The ForceCommand door (`ssh -p 2323`) runs `ep0ch`, so every ssh login, the laptop's and
-  the phone's, attaches to the one session instead of starting a door of its own; a dropped connection only
+  the phone's, attaches to that outline's session instead of starting a door of its own; a dropped connection only
   detaches. With no terminal (a script, an agent's shell, ssh without `-t`) `ep0ch` starts no session: it says so,
   and `--no-daemon` opens the door there.
 - **The daily agent stays Herdr's.** `▲ claude` in the agent drawer attaches to the `door-claude` pane in Herdr
@@ -508,8 +523,8 @@ already saves its layout as it changes, so what else a new daemon needs is a che
 edits open on the screen on top (their text put aside first). A restore runs those actions through the dispatcher,
 only the ones whose `ActionDef` says `replay: "safe"`; anything else is never run again by itself, and the restore
 says which. The one exception is the person's own edit, opened again on its note with the text the handoff put
-aside: opening an edit writes nothing. The session's files are in the state dir: `session.sock` (mode 0600, the dir
-0700), `session.json` (who it is), `session.lock` (held while it runs), `session.log`, `pty.sock` and `pty-host.log`
+aside: opening an edit writes nothing. The session's files are in its outline's folder of the state dir (above):
+`session.sock` (mode 0600, the folder 0700), `session.json` (who it is), `session.lock` (held while it runs), `session.log`, `pty.sock` and `pty-host.log`
 (the terminal host), `session-state.json` (the checkpoint; gone once the session ends). A test door on its own
 `EP0CH_STATE` has its own session and never reaches yours. See `src/session/`.
 
@@ -695,7 +710,8 @@ pane and the tile shows it. Herdr lists it (`herdr agent list`), other agents me
   says who sent it. An agent that messages `door` should say who it is and why ("from loki, on
   PIE-123: …"). The agent should treat an unsigned message as it would text typed by an unknown person.
 
-The current layout is saved to `~/.local/state/ep0ch-door/desk.json`. Mouse reporting is on, so use your
+The current layout is saved to `desk.json` in the outline's folder of the state dir
+(`~/.local/state/ep0ch-door/sessions/local/<name>/`; see [Sessions](#sessions-quit-is-detach)). Mouse reporting is on, so use your
 terminal's selection modifier (Shift in Ghostty) to select text.
 
 ### The agent drawer (PIE-498)
@@ -1407,7 +1423,7 @@ Card bodies come from `children`. The layout is saved to `river.json` (the desk'
 
 | BBS | Outline |
 |---|---|
-| New scan | blocks updated since your last logoff (`~/.local/state/ep0ch-door/lastcall.json`) |
+| New scan | blocks updated since your last logoff (`lastcall.json` in the outline's folder of the state dir) |
 | Join conference | top-level blocks |
 | Message reader | a block on the note surface (links, properties, folds, comments, edit, selection), under a BBS header: author, date, `to::`, breadcrumb; `T` its children, `U` its parent |
 | Who's online | `clients.list`: every Tree, Detail, agent, and this door (the who tile, as a screen) |
@@ -1492,7 +1508,8 @@ read at 4.5:1 or more on each of them.
 The whole interface (every command, the socket protocol, the live feed, nvim tiles, attention marks) is in
 [docs/AGENT-INTERFACE.md](docs/AGENT-INTERFACE.md).
 
-A running door listens on `door.sock` in its state dir (`EP0CH_CONTROL` moves it; a second door uses
+A running door listens on `door.sock` in its outline's folder of the state dir (`EP0CH_CONTROL` moves it; with it unset,
+`ep0ch act|peek|…` reach the door on this folder's outline, else the only one running; a second door uses
 `door-<pid>.sock`, and sockets left by doors that died are swept when a door starts). **The socket is the
 door's shell:** whoever can connect can do what you can, including start a program in a terminal tile. So it
 is 0600 in a folder that is yours alone (0700, owner checked); a folder anyone else can reach is refused, and
@@ -1763,7 +1780,7 @@ Kitty upload, place, crop and delete) and composites them into a PNG.
 - The forwarded socket moves about 150 KB/s; 400 full blocks take roughly 8 s. Lists show 40 first and stream the rest.
 - The editor wraps a line by cells, but a click and up/down count one cell per character, so on a line with wide (CJK, some emoji) characters they land a little off.
 - The Herdr capability check reads a config file; a lasting version should ask Herdr.
-- Sessions (PIE-418): one per state dir, so a second outline at once needs its own `EP0CH_STATE` (or `--no-daemon`).
+- Sessions (PIE-418): one per outline.
   Two terminals share one size, the latest typer's (as tmux's `window-size latest`); the other sees the frame cut or
   padded. Text typed into a draft since it was last put aside lives only in the daemon's memory: a daemon killed
   with `-9` loses it (a handoff puts it aside first). The terminal host's own code can't be upgraded under its
