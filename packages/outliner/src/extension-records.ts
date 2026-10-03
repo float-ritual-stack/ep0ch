@@ -1,5 +1,5 @@
 import { parsePropertyRecords } from "./properties";
-import { isPropertyKey, propertyTokenPattern } from "./property-grammar";
+import { isPropertyKey, propertyTokenPattern } from "@ep0ch/outline-core/property-grammar";
 import { sanitizedTextParts } from "./terminal";
 
 /**

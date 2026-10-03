@@ -7,7 +7,7 @@ import {
 } from "../src/detail-embeds";
 import { parseProperties } from "../src/properties";
 import { parseVirtualBranchConfig, selectVirtualBranchMembers } from "../src/virtual-branches";
-import { OUTLINER_PROTOCOL_VERSION } from "../src/types";
+import { PROTOCOL } from "@ep0ch/outline-core/protocol";
 import type {
   Block,
   VisibleBlock,
@@ -48,8 +48,8 @@ function snapshot(blocks: readonly Block[]): WorkspaceSnapshot {
 
 class FakeRequester implements DetailEmbedRequester {
   readonly calls: RequestInput[] = [];
-  /** What the stand-in service advertises on ping. */
-  capabilities: string[] = ["views.read"];
+  /** The protocol the stand-in service reports on ping. */
+  protocolVersion = PROTOCOL;
 
   constructor(
     private readonly blocks: Map<string, Block>,
@@ -61,7 +61,7 @@ class FakeRequester implements DetailEmbedRequester {
   async request<T>(input: RequestInput): Promise<T> {
     this.calls.push(input);
     if (input.action === "ping") {
-      return { status: "ready", protocolVersion: OUTLINER_PROTOCOL_VERSION, capabilities: this.capabilities } as T;
+      return { status: "ready", protocolVersion: this.protocolVersion } as T;
     }
     if (input.action === "workspace.snapshot") {
       if (this.snapshotFailure) throw this.snapshotFailure;
@@ -515,7 +515,7 @@ test("renders workspace projection failures instead of hiding the document", asy
   );
 });
 
-test("a service without views.read renders its restart instruction instead of sending the read", async () => {
+test("a service on an older protocol renders its restart instruction instead of sending the read", async () => {
   const first = virtualBranch("view-first");
   const second = virtualBranch("view-second");
   const item = block("item-next", "Next item", [{ key: "status", value: "next" }]);
@@ -524,18 +524,18 @@ test("a service without views.read renders its restart instruction instead of se
     new Map([first, second, item].map(entry => [entry.id, entry])),
     new Map([[first.id, collection], [second.id, collection]]),
   );
-  requester.capabilities = ["blocks.read"];
+  requester.protocolVersion = PROTOCOL - 1;
 
   const old = await projectDetailRead(requester, "!((view-first))\n!((view-second))");
   expect(old.embeds.map(({ status }) => status)).toEqual(["failed", "failed"]);
   expect(old.text).toContain("Embedded view: ((view-first)) · SERVICE NEEDS RESTART");
-  expect(old.text).toContain("does not support views.read. Restart the service");
+  expect(old.text).toContain("restart the outline host on current code");
   expect(old.text).not.toContain("Unknown action");
   expect(requester.calls.some(({ action }) => action === "views.read")).toBe(false);
   expect(requester.calls.filter(({ action }) => action === "ping")).toHaveLength(1);
 
   // A restarted service is picked up on the next read, and one positive answer is kept.
-  requester.capabilities = ["views.read"];
+  requester.protocolVersion = PROTOCOL;
   requester.calls.length = 0;
   const current = await projectDetailRead(requester, "!((view-first))\n!((view-second))");
   expect(current.embeds.map(({ status }) => status)).toEqual(["ready", "ready"]);

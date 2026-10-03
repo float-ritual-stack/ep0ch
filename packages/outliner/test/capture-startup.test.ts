@@ -4,7 +4,7 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { OutlinerClient } from "../src/client";
-import { OUTLINER_PROTOCOL_VERSION } from "../src/types";
+import { PROTOCOL } from "@ep0ch/outline-core/protocol";
 
 test("changed write entrypoints reject an incompatible service before touching drafts or content", async () => {
   const root = mkdtempSync(join(tmpdir(), "capture-old-service-"));
@@ -18,7 +18,7 @@ test("changed write entrypoints reject an incompatible service before touching d
       const request = JSON.parse(text.slice(0, text.indexOf("\n")));
       actions.push(request.action);
       socket.end(`${JSON.stringify({ id: request.id, ok: true, result:
-        request.action === "ping" ? { status: "ready", protocolVersion: OUTLINER_PROTOCOL_VERSION - 1 } : null,
+        request.action === "ping" ? { status: "ready", protocolVersion: PROTOCOL - 1 } : null,
       })}\n`);
     });
   });
@@ -38,7 +38,7 @@ test("changed write entrypoints reject an incompatible service before touching d
       });
       const [exitCode, stderr] = await Promise.all([child.exited, new Response(child.stderr).text()]);
       expect(exitCode).toBe(1);
-      expect(stderr).toContain("this client requires at least");
+      expect(stderr).toContain("restart the outline host on current code");
     }
     expect(actions).toEqual(["ping", "ping", "ping", "ping"]);
   } finally {
@@ -64,7 +64,7 @@ test.each([60, 63])("clients reject published protocol %i before using incompati
   });
   await new Promise<void>(resolve => server.listen(socketPath, resolve));
   try {
-    await expect(new OutlinerClient(socketPath).requireCompatibleService()).rejects.toThrow(`Connected Outliner service uses protocol ${protocolVersion}; this client requires at least`);
+    await expect(new OutlinerClient(socketPath).requireCompatibleService()).rejects.toThrow(`the outline host protocol ${protocolVersion}: restart the outline host on current code`);
     expect(actions).toEqual(["ping"]);
   } finally {
     await new Promise<void>(resolve => server.close(() => resolve()));

@@ -1,11 +1,11 @@
 import type { RequestInput } from "./client";
 import { listLiveClients, requireUniqueClientId, sendClientCommand } from "./client-target";
 import { blockDisplayTitle } from "./references";
-import { prepareSearchQuery, scoreSearchDocument, searchMemo, type SearchMatchKind, type SearchQuery } from "./search-match";
+import { prepareSearchQuery, scoreSearchDocument, searchMemo, type SearchMatchKind, type SearchQuery } from "@ep0ch/outline-core/search-match";
 import type { Block, WorkspaceSnapshot } from "./types";
 
 export type BlockFocusMatchKind = SearchMatchKind;
-export { rankTextSearchMatches, subsequenceScore, type SearchDocument, type TextSearchMatch } from "./search-match";
+export { rankTextSearchMatches, subsequenceScore, type SearchDocument, type TextSearchMatch } from "@ep0ch/outline-core/search-match";
 
 export interface BlockFocusMatch {
   block: Block;

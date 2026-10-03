@@ -8,7 +8,7 @@ import { delimiter, join, resolve } from "node:path";
 import { hostConfigured, hostLive, hostSocketOf } from "../discover";
 import { outlinerPlugin } from "../skills";
 import { doorAgents } from "../desk/agent-env";
-import { hostRequest, type HostedOutline, OUTLINE_CAPABILITIES } from "../socket";
+import { hostRequest, type HostedOutline } from "../socket";
 import { type Checkout, type DatabaseFacts, type Deps, detectPlatform, type Facts, type HostFacts, type HostUnit, KEYED_ACTIONS, PLUGIN_ID, type PluginFacts, type ServiceFacts, type UnitState } from "./model";
 import { linkCandidates } from "./plan";
 
@@ -142,13 +142,13 @@ export function depsState(root: string): Deps {
   return { needed: false, why: `${names.length} packages installed as bun.lock says` };
 }
 
-/** The installed Outliner code's protocol and service capabilities, from its src/types.ts (a fresh process). */
-export async function pluginCode(root: string): Promise<{ protocol: number | null; capabilities: string[] | null }> {
-  const types = join(root, "src/types.ts");
-  if (!existsSync(types)) return { protocol: null, capabilities: null };
-  const r = await run([process.execPath, "-e", `const m = await import(${JSON.stringify(types)}); console.log(JSON.stringify({ protocol: m.OUTLINER_PROTOCOL_VERSION ?? null, capabilities: m.OUTLINER_CAPABILITIES ?? null }))`], { timeoutMs: 15_000 });
-  try { const v = JSON.parse(r.out); return { protocol: typeof v.protocol === "number" ? v.protocol : null, capabilities: Array.isArray(v.capabilities) ? v.capabilities : null }; }
-  catch { return { protocol: null, capabilities: null }; }
+/** The installed Outliner code's protocol: its repo's outline-core protocol.ts, read in a fresh process. */
+export async function pluginCode(root: string): Promise<{ protocol: number | null }> {
+  const file = join(root, "../outline-core/src/protocol.ts");
+  if (!existsSync(file)) return { protocol: null };
+  const r = await run([process.execPath, "-e", `const m = await import(${JSON.stringify(file)}); console.log(JSON.stringify({ protocol: m.PROTOCOL ?? null }))`], { timeoutMs: 15_000 });
+  try { const v = JSON.parse(r.out); return { protocol: typeof v.protocol === "number" ? v.protocol : null }; }
+  catch { return { protocol: null }; }
 }
 
 export async function pluginFacts(env: Env, fetch: boolean, onLine?: OnLine): Promise<PluginFacts | null> {
@@ -251,7 +251,7 @@ export async function unitState(unit: HostUnit, uid = process.getuid?.() ?? 0): 
   return systemdState(r.code === 0 ? r.out : null);
 }
 
-type Ping = { protocolVersion?: number; capabilities?: string[]; location?: { workspaceRoot?: string }; outline?: { name?: string } };
+type Ping = { protocolVersion?: number; location?: { workspaceRoot?: string }; outline?: { name?: string } };
 const ping = (socket: string, params: Record<string, unknown> = {}) => hostRequest<Ping>(socket, "ping", params, 1500).catch(() => null);
 
 /**
@@ -273,7 +273,7 @@ export async function hostFacts(base: string, platform: Facts["platform"], home:
   const target = openOutlineToPing(list.outlines);
   const p = target ? await ping(socket, { outline: target }) : null;
   return { socket, configured: true, running: true, ...(live.defaultOutline ? { defaultOutline: live.defaultOutline } : {}), outlines: list.outlines,
-    ...(p?.protocolVersion !== undefined ? { protocol: p.protocolVersion } : {}), capabilities: p?.capabilities ?? null, unit };
+    ...(p?.protocolVersion !== undefined ? { protocol: p.protocolVersion } : {}), unit };
 }
 
 /** Each `<state>/<hash>/` with a socket or a database: a per-folder outline service. */
@@ -290,7 +290,7 @@ export async function serviceFacts(base: string): Promise<ServiceFacts[]> {
     root = answer?.location?.workspaceRoot ?? root;
     name = answer?.outline?.name ?? name ?? (root ? root.split("/").filter(Boolean).pop() : undefined);
     return { stateDir, socket, database: existsSync(db) ? real(db) : null, running: !!answer, ...(name ? { name } : {}), ...(root ? { root } : {}),
-      ...(answer?.protocolVersion !== undefined ? { protocol: answer.protocolVersion } : {}), ...(answer ? { capabilities: answer.capabilities ?? null } : {}), ...(paneId ? { paneId } : {}) };
+      ...(answer?.protocolVersion !== undefined ? { protocol: answer.protocolVersion } : {}), ...(paneId ? { paneId } : {}) };
   }));
   return found.filter((s): s is ServiceFacts => !!s);
 }
@@ -403,7 +403,6 @@ export async function gatherFacts(o: GatherOptions = {}): Promise<Facts> {
     services,
     databases: databases(base, host, services),
     claude: { settingsPath, settingsDirs, envDirs: splitDirs(env.CLAUDE_CODE_PLUGIN_DIRS), ...(mentions ? { mentions } : {}), ...(env.FORCE_HYPERLINK !== undefined ? { forceHyperlink: env.FORCE_HYPERLINK } : {}), ...(agents ? { agents } : {}) },
-    expected: plugin?.capabilities ?? [...OUTLINE_CAPABILITIES],
     session,
   };
 }

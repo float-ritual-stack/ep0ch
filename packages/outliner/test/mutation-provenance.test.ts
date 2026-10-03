@@ -1,5 +1,5 @@
 // PIE-451: who moved, trashed or restored a block. `move`, `delete` and `trash.restore` accept an
-// optional `mutation` (capability `mutations.provenance`), recorded like an update's in the change
+// optional `mutation`, recorded like an update's in the change
 // feed and in activity. Without it, nothing changes for older clients.
 import { afterEach, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
@@ -10,14 +10,12 @@ import { OutlinerClient } from "../src/client";
 import { detailRestoreRequest } from "../src/detail-controller";
 import { EditRecoveryRepository } from "../src/edit-recovery";
 import { OutlinerServer } from "../src/server";
-import { requireCapabilities } from "../src/service-compatibility";
 import { OutlinerStore } from "../src/store";
 import type {
   Block,
   BlockEditActivityPage,
   ChangeFeedPage,
   OutlinerChange,
-  OutlinerServiceStatus,
 } from "../src/types";
 
 const cleanups: Array<() => Promise<void> | void> = [];
@@ -50,15 +48,6 @@ async function changesSince(client: OutlinerClient, sequence: number): Promise<O
 
 const activity = (client: OutlinerClient, request: Record<string, unknown>) =>
   client.request<BlockEditActivityPage>({ action: "activity.recent", limit: 50, ...request } as never);
-
-test("the service advertises mutations.provenance", async () => {
-  const { client } = await service();
-  const status = await client.request<OutlinerServiceStatus>({ action: "ping" });
-  expect(status.capabilities).toContain("mutations.provenance");
-  expect(() => requireCapabilities(status, ["mutations.provenance"])).not.toThrow();
-  expect(() => requireCapabilities({ ...status, capabilities: ["changes.since"] }, ["mutations.provenance"]))
-    .toThrow("does not support mutations.provenance");
-});
 
 test("an agent's move, trash and restore are attributed to the agent in the change feed and activity", async () => {
   const { store, client } = await service();

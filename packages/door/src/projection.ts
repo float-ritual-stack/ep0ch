@@ -14,7 +14,7 @@ import { shade } from "./embeds";
 import { printable, type Source } from "./props";
 import { anyChangeSince, changeClock, changedSince, type LinkTarget } from "./refs";
 import { LIST_FIELDS } from "./socket";
-import { isPropertyTokenLine, withoutPropertyTokens } from "./vendor/property-grammar";
+import { isPropertyTokenLine, withoutPropertyTokens } from "@ep0ch/outline-core/property-grammar";
 import { handlerActions, handlerKeyAction, mentionsExtension, type ExtensionAction } from "./extensions";
 import { primitiveLines } from "./components";
 import { BOLD, C, fg, RESET, UNBOLD } from "./style";

@@ -1,5 +1,5 @@
 import { protectedCodeRanges } from "./markdown-code-ranges";
-import { isEscapedAt, PROPERTY_KEY_PATTERN, PROPERTY_KEY_SOURCE, propertyTokenPattern } from "./property-grammar";
+import { isEscapedAt, PROPERTY_KEY_PATTERN, PROPERTY_KEY_SOURCE, propertyTokenPattern } from "@ep0ch/outline-core/property-grammar";
 import { blockReferenceEnvelopeRanges } from "./reference-envelopes";
 import type {
   BlockProperty,

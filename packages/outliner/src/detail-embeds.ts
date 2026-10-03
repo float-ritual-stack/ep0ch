@@ -20,7 +20,6 @@ import type { ResourceProjection, ResourceProjectionReadResult } from "./resourc
 import type {
   Block,
   BlockCollectionCompleteness,
-  OutlinerCapability,
   OutlinerServiceStatus,
   SavedViewReadResult,
   WorkspaceSnapshot,
@@ -132,26 +131,24 @@ function explicitFallback(
   };
 }
 
-/** In-flight or positive capability checks per requester; a missing capability is not kept. */
-const capabilityChecks = new WeakMap<DetailEmbedRequester, Map<OutlinerCapability, Promise<string | undefined>>>();
+/** In-flight or passed protocol checks per requester; a mismatch is not kept. */
+const protocolChecks = new WeakMap<DetailEmbedRequester, Promise<string | undefined>>();
 
 /**
  * Every surface that projects embeds (Detail, backlink peek, Goto and the other
  * previews) reaches `views.read` and `resources.projection.read` here, so the
- * capability is checked here before the first read: an older service yields
- * its restart instruction, not an unknown-action error. A missing capability
- * is re-checked on the next projection so a restarted service is picked up.
+ * protocol is checked here before the first read: a service on other code
+ * yields its restart instruction, not an unknown-action error. A mismatch is
+ * re-checked on the next projection so a restarted service is picked up.
  */
-function serviceIncompatibility(requester: DetailEmbedRequester, capability: OutlinerCapability): Promise<string | undefined> {
-  let checks = capabilityChecks.get(requester);
-  if (!checks) capabilityChecks.set(requester, checks = new Map());
-  let pending = checks.get(capability);
+function serviceIncompatibility(requester: DetailEmbedRequester): Promise<string | undefined> {
+  let pending = protocolChecks.get(requester);
   if (!pending) {
     pending = requester.request<OutlinerServiceStatus>({ action: "ping" })
-      .then(service => checkServiceCompatibility(service, [capability])?.message);
-    checks.set(capability, pending);
+      .then(service => checkServiceCompatibility(service)?.message);
+    protocolChecks.set(requester, pending);
     const check = pending;
-    const forget = () => { if (checks.get(capability) === check) checks.delete(capability); };
+    const forget = () => { if (protocolChecks.get(requester) === check) protocolChecks.delete(requester); };
     check.then(message => { if (message) forget(); }, forget);
   }
   return pending;
@@ -172,7 +169,7 @@ async function projectVirtualBranch(
   }
 
   try {
-    const incompatibility = await serviceIncompatibility(requester, "views.read");
+    const incompatibility = await serviceIncompatibility(requester);
     if (incompatibility) {
       return {
         text: `${linkedHeading(definition.id, "SERVICE NEEDS RESTART")}\n  ${boundedError(incompatibility)}`,
@@ -560,7 +557,7 @@ async function readDetailResourceProjections(
 ): Promise<readonly ResourceProjection[] | null> {
   if (!mayHaveResourceProjections(text) && !mayHaveHandlerLines(text)) return null;
   try {
-    if (await serviceIncompatibility(requester, "resources.projection")) return null;
+    if (await serviceIncompatibility(requester)) return null;
     // `materialize`: a stale ticket or extension line is fetched or run in the background on open (an older
     // service ignores the field and answers the same).
     const read = await requester.request<ResourceProjectionReadResult>({ action: "resources.projection.read", blockId, materialize: true });

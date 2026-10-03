@@ -22,7 +22,7 @@ import { extensionActorId, extensionWriteRefusal, type ExtensionRecordOwner } fr
 import { authoredTextDigest } from "./authored-links";
 import { resolveBacklinkRelation } from "./backlinks";
 import { rankBlockFocusMatches } from "./block-focus";
-import { rankTextSearchMatches, searchTextTerms } from "./search-match";
+import { rankTextSearchMatches, searchTextTerms } from "@ep0ch/outline-core/search-match";
 import { normalizeBlockReadFields, normalizeBlockReadIds, projectBlock } from "./block-projection";
 import { gotoCandidates } from "./goto-search";
 import { contextList, searchContext, sortByContext, type SearchContext } from "./search-context";

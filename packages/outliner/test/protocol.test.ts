@@ -15,7 +15,7 @@ import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
 import { orchestrateWorkflowRun } from "../src/workflow-orchestrator";
 import { createPdfFixture } from "./pdf-fixture";
-import { OUTLINER_PROTOCOL_VERSION } from "../src/types";
+import { PROTOCOL } from "@ep0ch/outline-core/protocol";
 import type {
   AnnotationBatchReceipt,
   AnnotationAgentEvidenceSummary,
@@ -1521,7 +1521,7 @@ test("serves mutations and property queries over the local socket", async () => 
 
   const client = new OutlinerClient(socket);
   const service = await client.request<OutlinerServiceStatus>({ action: "ping" });
-  expect(service).toMatchObject({ status: "ready", protocolVersion: OUTLINER_PROTOCOL_VERSION,location:{database:join(directory,"outliner.sqlite"),stateDirectory:directory} });
+  expect(service).toMatchObject({ status: "ready", protocolVersion: PROTOCOL,location:{database:join(directory,"outliner.sqlite"),stateDirectory:directory} });
   const provenance = {
     actorId: "omp",
     sessionId: "session-1",

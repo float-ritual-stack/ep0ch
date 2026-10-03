@@ -492,7 +492,7 @@ switch (command) {
       strict: true,
     });
     if (!values.block || !values["tidy-above"]) throw new Error("patch-demo requires --block <id> and --tidy-above <mark line>");
-    await client.requireCompatibleService(["drafts.read", "draft.patch"]);
+    await client.requireCompatibleService();
     const { tidyAboveMark } = await import("./draft-patch-demo");
     const read = await client.request<{ text: string; revision: number; route: string }>({ action: "drafts.read", blockId: values.block }, 10_000);
     const span = tidyAboveMark(read.text, values["tidy-above"]);
@@ -525,7 +525,7 @@ switch (command) {
     if (offset !== undefined && (!/^\d+$/.test(values.offset!) || !Number.isSafeInteger(offset))) {
       throw new Error("--offset must be a non-negative integer");
     }
-    await client.requireCompatibleService(["views.read"]);
+    await client.requireCompatibleService();
     directResult = await readSavedView(client, positionals[0]!, {
       ...(values.limit === undefined ? {} : { limit: parseLimit(values.limit, 200) }),
       ...(offset === undefined ? {} : { offset }),
@@ -543,7 +543,7 @@ switch (command) {
     if (line !== undefined && (!/^\d+$/.test(values.line!) || !Number.isSafeInteger(line))) {
       throw new Error("--line must be a non-negative integer");
     }
-    await client.requireCompatibleService(["resources.projection"]);
+    await client.requireCompatibleService();
     request = { action: "resources.projection.read", blockId: positionals[0]!, ...(line === undefined ? {} : { line }) };
     break;
   }
@@ -555,7 +555,7 @@ switch (command) {
     if ((values.text !== undefined) === Boolean(values.stdin)) {
       throw new Error("properties-preview requires either --text or --stdin");
     }
-    await client.requireCompatibleService(["properties.preview"]);
+    await client.requireCompatibleService();
     request = { action: "properties.preview", text: values.stdin ? await Bun.stdin.text() : values.text! };
     break;
   }
@@ -586,7 +586,7 @@ switch (command) {
       limit,
     };
     // An older service ignores `expression` and would return unfiltered results.
-    if (query.expression !== undefined) await client.requireCompatibleService(["query.expression"]);
+    if (query.expression !== undefined) await client.requireCompatibleService();
     request = {
       action: "blocks.query",
       query,
@@ -600,7 +600,7 @@ switch (command) {
       options: { fields: { type: "string" } },
     });
     if (positionals.length === 0) throw new Error("read requires one or more block IDs");
-    await client.requireCompatibleService(["blocks.read"]);
+    await client.requireCompatibleService();
     request = {
       action: "blocks.read",
       ids: positionals,
@@ -751,7 +751,7 @@ switch (command) {
       },
       strict: true,
     });
-    if (values.actor !== undefined) await client.requireCompatibleService(["activity.actor"]);
+    if (values.actor !== undefined) await client.requireCompatibleService();
     request = {
       action: "activity.recent",
       ...(values.actor !== undefined ? { actorId: values.actor } : {}),
@@ -951,7 +951,7 @@ switch (command) {
     if (!Number.isSafeInteger(sequence)) {
       throw new Error("changes requires --since <sequence>, a non-negative integer");
     }
-    await client.requireCompatibleService(["changes.since"]);
+    await client.requireCompatibleService();
     request = {
       action: "changes.since",
       sequence,
@@ -988,7 +988,7 @@ switch (command) {
 if (request && "expectedRevision" in request) await client.requireCompatibleService();
 // An older service would move or trash without recording who did it.
 if (request && (["move", "delete", "trash.restore"].includes(request.action) || "kinds" in request)) {
-  await client.requireCompatibleService(["mutations.provenance"]);
+  await client.requireCompatibleService();
 }
 let result: unknown;
 try {

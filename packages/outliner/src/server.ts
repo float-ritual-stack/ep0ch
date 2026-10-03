@@ -1,6 +1,6 @@
 import { queryRequestProblem } from "./block-query";
 import type { RequestInput } from "./client";
-import { DRAFT_PATCH_COMPARE_VERSION } from "./draft-patch-compare";
+import { PROTOCOL } from "@ep0ch/outline-core/protocol";
 import { DRAFT_HOLDER_TIMEOUT_MS, DraftHolds, type DraftHold, type DraftHolderAnswer } from "./draft-patch";
 import { DraftPatchRouter, type DraftHolderAsk } from "./draft-patch-router";
 import type { ChangeAttribution } from "./change-feed";
@@ -11,8 +11,6 @@ import {searchInboxHistory,visibleInboxSearch} from './inbox-search';
 import {rankSearchWithJev} from './search-ranking';
 import { blockDisplayTitle } from "./references";
 import { previewPropertyParse } from "./properties";
-import { PROPERTY_GRAMMAR_VERSION } from "./property-grammar";
-import { SEARCH_MATCH_VERSION } from "./search-match";
 import { rankGotoWithJev, visibleGotoResults } from "./goto-search";
 import { InboxWorker, assistantActivity } from "./inbox-worker";
 import { InboxRepository, summarizeInboxResult } from "./inbox-repository";
@@ -59,10 +57,6 @@ import { probeSocket } from "./socket-probe";
 import { WorkflowManager } from "./workflows";
 import { boundFolderOf } from "./paths";
 import {
-  OUTLINER_CAPABILITIES,
-  OUTLINER_HOST_CAPABILITIES,
-  OUTLINER_MIN_CLIENT_PROTOCOL,
-  OUTLINER_PROTOCOL_VERSION,
   type OutlinerServiceOutline,
   type OutlinerHostStatus,
   type OutlinerViewAddress,
@@ -362,7 +356,7 @@ export class OutlinerServer {
     this.outline = outline;
   }
 
-  /** The host serving this outline; `ping` then reports it and the host's capabilities. */
+  /** The host serving this outline; `ping` then reports it. */
   /** On a host, whether a folder names this outline (its nearest `.ep0ch`). */
   private folderOpensThisOutline(folder: string): boolean {
     const name = this.hosted ? this.outline?.name : undefined;
@@ -1712,7 +1706,7 @@ export class OutlinerServer {
       }
     }
     try {
-      // Reading and refreshing a Resource needs no Detail (capability `resources.observer-reads`):
+      // Reading and refreshing a Resource needs no Detail:
       // without a destination the terminal presentation is used.
       const destination = request.destinationClientId === undefined
         ? undefined
@@ -1830,7 +1824,7 @@ export class OutlinerServer {
           break;
         }
         case "ping":
-          result = { status: "ready", protocolVersion: OUTLINER_PROTOCOL_VERSION, minClientProtocol: OUTLINER_MIN_CLIENT_PROTOCOL, capabilities: [...OUTLINER_CAPABILITIES, ...(this.host ? OUTLINER_HOST_CAPABILITIES : [])], location:{hostname:this.hostname,workspaceRoot:this.store.workspaceRoot,database:this.store.database.filename,stateDirectory:this.host ? this.stateDirectory : dirname(this.store.database.filename)}, propertyGrammar: { version: PROPERTY_GRAMMAR_VERSION }, draftPatchCompare: { version: DRAFT_PATCH_COMPARE_VERSION }, searchMatch: { version: SEARCH_MATCH_VERSION }, ...(this.outline ? { outline: { ...this.outline } } : {}), ...(this.host ? { host: this.host() } : {}) };
+          result = { status: "ready", protocolVersion: PROTOCOL, location:{hostname:this.hostname,workspaceRoot:this.store.workspaceRoot,database:this.store.database.filename,stateDirectory:this.host ? this.stateDirectory : dirname(this.store.database.filename)}, ...(this.outline ? { outline: { ...this.outline } } : {}), ...(this.host ? { host: this.host() } : {}) };
           break;
         case "outlines.list":
         case "outlines.create":

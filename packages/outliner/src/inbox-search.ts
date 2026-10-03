@@ -1,4 +1,4 @@
-import {rankTextSearchMatches,searchTextTerms} from './search-match';
+import {rankTextSearchMatches,searchTextTerms} from '@ep0ch/outline-core/search-match';
 import {summarizeInboxResult} from './inbox-repository';
 import {blockDisplayTitle} from './references';
 import type {SearchCollection,SearchExcerpt} from './search-ranking';

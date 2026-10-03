@@ -8,7 +8,7 @@
  * rules (`tidyLine`), and sends that as one span, as actor `patch-demo`.
  */
 import { tidyLine } from "../extensions/tidy/tidy-line";
-import { spanContext, type DraftPatchSpan } from "./draft-patch-compare";
+import { spanContext, type DraftPatchSpan } from "@ep0ch/outline-core/draft-patch-compare";
 
 export { tidyLine };
 

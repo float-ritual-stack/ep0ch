@@ -10,7 +10,7 @@ import { ReferenceCompletionSession, referenceCompletionProvider } from "../src/
 import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
 import { TextBuffer } from "../src/text-buffer";
-import type { Block, OutlinerServiceStatus } from "../src/types";
+import type { Block } from "../src/types";
 
 const note = (id: string, text: string, updatedAt = "2026-09-01T00:00:00Z"): Block =>
   ({ id, text, revision: 1, parentId: null, position: 0, author: "user", createdAt: updatedAt, updatedAt, properties: [] } as unknown as Block);
@@ -47,8 +47,6 @@ async function service() {
 
 test("fragments.candidates finds a fragment past the first 500 notes; fragments.ensure writes the anchor it offered, revision-checked", async () => {
   const { client } = await service();
-  const ping = await client.request<OutlinerServiceStatus>({ action: "ping" });
-  expect(ping.capabilities).toEqual(expect.arrayContaining(["fragments.candidates", "fragments.ensure"]));
   // 640 notes; the one with the wanted heading is written first, so it's the oldest.
   const target = await client.request<Block>({ action: "create", text: "Seed catalogue\n## Winter squash\nKeep the seed dry." });
   for (let i = 0; i < 640; i++) await client.request<Block>({ action: "create", text: `Filler note ${i}\n## Section ${i}\nSome prose.` });

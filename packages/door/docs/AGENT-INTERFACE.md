@@ -415,8 +415,7 @@ replacement, the agent's `mutation`, and a mark (the `@request` line) the span m
   under a revision check. A door that misses the 2.5 s answer deadline keeps its hold: the patch becomes a
   proposal and nothing is written to the saved note under the draft. When two doors hold drafts of one
   note, a patch goes to neither. `drafts.read` gives the note as the draft has it now.
-- **The door runs the compare** (`Draft.applyPatch`, with the service's own `src/draft-patch-compare.ts`,
-  vendored): the observed text at or near its range, the draft on the revision read, none around the
+- **The door runs the compare** (`Draft.applyPatch`, with the service's own compare, `@ep0ch/outline-core/draft-patch-compare`): the observed text at or near its range, the draft on the revision read, none around the
   cursor, and with a mark every span above it (above the block the cursor is in when the cursor is above
   the mark). Without a mark the only limit is the block being typed in: an agent's ordinary edit lands
   anywhere else, above or below. Then the cursor, the

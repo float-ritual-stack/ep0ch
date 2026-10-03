@@ -126,7 +126,7 @@ export function linkStep(f: Facts): Step {
 
 /** Per-folder services running old code, with what each is missing. */
 export function staleServices(f: Facts): { service: ServiceFacts; missing: string[] }[] {
-  return f.services.filter(s => s.running).map(s => ({ service: s, missing: staleness(s, f.expected, f.plugin?.protocol ?? null) })).filter(x => x.missing.length);
+  return f.services.filter(s => s.running).map(s => ({ service: s, missing: staleness(s, f.plugin?.protocol ?? null) })).filter(x => x.missing.length);
 }
 
 export const serviceLabel = (s: ServiceFacts) => s.name ?? s.root ?? s.stateDir;
@@ -208,7 +208,7 @@ export function unitRunsElsewhere(f: Facts): string | null {
 export function hostStep(f: Facts, pluginUpdates: boolean): Step {
   const title = "Restart the outline host on the new code";
   const h = f.host, u = h.unit;
-  const missing = h.running ? staleness(h, f.expected, f.plugin?.protocol ?? null) : [];
+  const missing = h.running ? staleness(h, f.plugin?.protocol ?? null) : [];
   const after = pluginUpdates ? "the plugin is updated in this run" : missing.length ? `it runs old code (missing ${missing.join(", ")})` : "";
   if (!u) {
     if (!h.running) return { id: "host", title, status: "skip", why: "no outline host here (per-folder services only)", commands: [] };

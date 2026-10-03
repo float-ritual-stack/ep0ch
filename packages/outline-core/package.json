@@ -1,0 +1,17 @@
+{
+  "name": "@ep0ch/outline-core",
+  "private": true,
+  "type": "module",
+  "description": "The code the outline service and its clients share: the wire protocol, the property grammar, the draft.patch compare and the search matcher. Pure: no I/O.",
+  "exports": {
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "check": "tsc --noEmit",
+    "test": "bun test"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.9.3"
+  }
+}

@@ -1,5 +1,5 @@
-// src/property-grammar.ts is the one definition of the property token (PIE-490). The parser uses it, and
-// clients copy the file whole, so it must stay free of imports and agree with the parser.
+// outline-core's property-grammar.ts is the one definition of the property token (PIE-490). The parser uses it and
+// the door imports it, so it must stay free of imports and agree with the parser.
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -9,7 +9,7 @@ import {
   isPropertyTokenLine,
   propertyTokensInLine,
   withoutPropertyTokens,
-} from "../src/property-grammar";
+} from "@ep0ch/outline-core/property-grammar";
 
 test("the key rule: a letter first, then letters, digits, _ . -", () => {
   for (const key of ["plot.row", "bed_2", "work-stage", "A"]) expect(isPropertyKey(key)).toBe(true);
@@ -36,8 +36,8 @@ test("a line's tokens are exactly the ones the parser reads, outside code and li
   expect(isPropertyTokenLine("[2nd-pass::yes]")).toBe(false);
 });
 
-test("the module imports nothing, so a client can copy it whole", () => {
-  const source = readFileSync(join(import.meta.dir, "../src/property-grammar.ts"), "utf8");
+test("the module imports nothing: outline-core stays pure", () => {
+  const source = readFileSync(join(import.meta.dir, "../../outline-core/src/property-grammar.ts"), "utf8");
   expect(source).not.toMatch(/^\s*import\s/m);
   expect(source).not.toMatch(/\brequire\(/);
 });

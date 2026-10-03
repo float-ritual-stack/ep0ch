@@ -7,7 +7,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, sym
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { backupDatabase, confirmServicePane, formatPlan, setupCommand, tilde } from "../src/setup/apply";
-import { OUTLINE_CAPABILITIES } from "../src/socket";
+import { PROTOCOL } from "@ep0ch/outline-core/protocol";
 import { doctorChecks, formatDoctor, versionAtLeast } from "../src/setup/doctor";
 import { databases, depsState, herdrKeys, hostFacts, hostUnit, launchdState, openOutlineToPing, systemdState } from "../src/setup/facts";
 import { type Checkout, detectPlatform, type Facts, type HostFacts, type ServiceFacts, staleness } from "../src/setup/model";
@@ -17,8 +17,6 @@ const scratch = mkdtempSync(join(tmpdir(), "ep0ch-setup-"));
 afterAll(() => rmSync(scratch, { recursive: true, force: true }));
 
 const HOME = "/Users/wren";
-/** What the fictional installed plugin offers: everything the door uses, and one more. */
-const CAPS = [...OUTLINE_CAPABILITIES, "mutations.provenance"];
 const now = new Date("2026-03-14T09:26:53.589Z");
 const opts = (o: Partial<PlanOptions> = {}): PlanOptions => ({ restartServices: false, now, backupDir: `${HOME}/backups/ep0ch`, ...o });
 
@@ -35,17 +33,16 @@ function laptop(o: Partial<Facts> = {}): Facts {
       keys: { "open-here": "prefix+u", "open-tree": "prefix+shift+u", "comment-selection": "prefix+shift+a", capture: "prefix+shift+c" } },
     plugin: { id: "float.pi-outliner", kind: "github", root: pluginRoot, manifestPath: `${pluginRoot}/herdr-plugin.toml`, enabled: true,
       source: { owner: "float-ritual-stack", repo: "pi-herdr-outliner", ref: "main", commit: "239aaaa0000" }, checkout: null,
-      remote: { commit: "246bbbb0000" }, protocol: 82, capabilities: CAPS, deps: { needed: false, why: "ok" }, actions: ["open-here", "open-tree", "comment-selection", "capture", "open"] },
+      remote: { commit: "246bbbb0000" }, protocol: PROTOCOL, deps: { needed: false, why: "ok" }, actions: ["open-here", "open-tree", "comment-selection", "capture", "open"] },
     door: { checkout: checkout(`${HOME}/projects/ep0ch-door`, { head: "40aaaaa", upstream: "49bbbbb", behind: 9 }), deps: { needed: false, why: "ok" }, entry: `${HOME}/projects/ep0ch-door/src/main.ts` },
     ep0ch: { found: null, target: null, pointsHere: false },
     linkDirs: [{ dir: `${HOME}/.local/bin`, onPath: false, writable: false }, { dir: "/opt/homebrew/bin", onPath: true, writable: true }, { dir: "/usr/local/bin", onPath: true, writable: false }],
     host: { socket: `${HOME}/.local/state/pi-herdr-outliner/outliner.sock`, configured: false, running: false, outlines: [], unit: null },
     services: [{ stateDir: `${HOME}/.local/state/pi-herdr-outliner/a1b2c3d4e5f6`, socket: `${HOME}/.local/state/pi-herdr-outliner/a1b2c3d4e5f6/outliner.sock`,
       database: `${HOME}/.local/state/pi-herdr-outliner/a1b2c3d4e5f6/outliner.sqlite`, running: true, name: "seed-library", root: `${HOME}/seed-library`,
-      protocol: 82, capabilities: CAPS.filter(c => c !== "fragments.candidates"), paneId: "w2:p5" }],
+      protocol: PROTOCOL - 1, paneId: "w2:p5" }],
     databases: [{ name: "seed-library", path: `${HOME}/.local/state/pi-herdr-outliner/a1b2c3d4e5f6/outliner.sqlite`, from: "folder" }],
     claude: { settingsPath: `${HOME}/.claude/settings.json`, settingsDirs: [`${pluginRoot}/claude-mod`], envDirs: null },
-    expected: CAPS,
     ...o,
   };
 }
@@ -54,7 +51,7 @@ function laptop(o: Partial<Facts> = {}): Facts {
 function current(): Facts {
   const f = laptop();
   return { ...f, plugin: { ...f.plugin!, remote: { commit: "239aaaa0000" } }, door: { ...f.door, checkout: checkout(f.door.checkout.root) },
-    ep0ch: { found: "/opt/homebrew/bin/ep0ch", target: f.door.entry, pointsHere: true }, services: [{ ...f.services[0]!, capabilities: CAPS }] };
+    ep0ch: { found: "/opt/homebrew/bin/ep0ch", target: f.door.entry, pointsHere: true }, services: [{ ...f.services[0]!, protocol: PROTOCOL }] };
 }
 
 const statuses = (f: Facts, o = opts()) => buildPlan(f, o).steps.map(s => `${s.id}:${s.status}`);
@@ -132,7 +129,7 @@ describe("the plan", () => {
     expect(door!.commands[0]).toBe(`git -C ${HOME}/projects/ep0ch-door pull --ff-only origin main`);
     expect(door!.why).toContain("9 commits behind");
     expect(link!.commands).toEqual([`ln -s ${HOME}/projects/ep0ch-door/src/main.ts /opt/homebrew/bin/ep0ch`]);
-    expect(restart!.why).toContain("seed-library (missing fragments.candidates)");
+    expect(restart!.why).toContain(`seed-library (missing protocol ${PROTOCOL} (runs ${PROTOCOL - 1}))`);
     expect(restart!.why).toContain("--restart-services");
     expect(plan.notes.join("\n")).toContain("launchd");
   });
@@ -238,7 +235,7 @@ describe("the outline host under launchd (the Mac) or systemd", () => {
   const unit = { kind: "launchd" as const, path: `${HOME}/Library/LaunchAgents/io.example.outliner-host.plist`, name: "io.example.outliner-host", program: `${PLUGIN}/src/host-main.ts`,
     state: { active: true, pid: 4242, lastExit: "(never exited)", detail: "launchd: running, pid 4242" } };
   const host = (o: Partial<HostFacts> = {}): HostFacts => ({ socket: `${HOME}/.local/state/pi-herdr-outliner/outliner.sock`, configured: true, running: true,
-    defaultOutline: "orchard", outlines: [{ name: "orchard", open: true, default: true } as any], protocol: 82, capabilities: CAPS, unit, ...o });
+    defaultOutline: "orchard", outlines: [{ name: "orchard", open: true, default: true } as any], protocol: PROTOCOL, unit, ...o });
   const mac = (o: Partial<HostFacts> = {}, f: Partial<Facts> = {}) => ({ ...current(), host: host(o), ...f });
 
   test("launchd's print: running with a pid; stopped with its last exit; not loaded", () => {
@@ -267,8 +264,8 @@ describe("the outline host under launchd (the Mac) or systemd", () => {
     expect(plan.steps.map(s => `${s.id}:${s.status}`)).toEqual(["backup:do", "plugin:do", "door:skip", "link:skip", "restart:offer", "host:do", "session:skip"]);
   });
 
-  test("a host missing what the plugin offers is restarted too, and doctor says install does it", () => {
-    const old = mac({ capabilities: CAPS.filter(c => c !== "fragments.candidates") });
+  test("a host on another protocol than the plugin is restarted too, and doctor says install does it", () => {
+    const old = mac({ protocol: PROTOCOL - 1 });
     expect(hostStep(old, false)).toMatchObject({ status: "do" });
     const c = Object.fromEntries(doctorChecks(old).map(x => [`${x.group}/${x.name}`, x]));
     expect(c["services/outline host"]).toMatchObject({ status: "behind", fix: "ep0ch install --apply restarts it (launchctl kickstart -k gui/$(id -u)/io.example.outliner-host)" });
@@ -326,7 +323,7 @@ describe("the doctor", () => {
     expect(c["door/checkout"]!.status).toBe("behind");
     expect(c["door/ep0ch on PATH"]).toMatchObject({ status: "missing", fix: `ln -s ${HOME}/projects/ep0ch-door/src/main.ts /opt/homebrew/bin/ep0ch` });
     expect(c["services/folder seed-library"]).toMatchObject({ status: "behind", fix: "ep0ch install --apply --restart-services" });
-    expect(c["services/folder seed-library"]!.detail).toContain("missing fragments.candidates: restart to pick up new features");
+    expect(c["services/folder seed-library"]!.detail).toContain(`missing protocol ${PROTOCOL} (runs ${PROTOCOL - 1}): restart to pick up new features`);
     expect(c["services/outline host"]!.status).toBe("info");
     expect(c["claude/claude-mod"]!.status).toBe("ok");
     expect(formatDoctor(laptop())).toMatch(/^ {2}! installed/m);
@@ -343,10 +340,10 @@ describe("the doctor", () => {
     expect(doctorChecks(current()).filter(c => c.status === "behind" || c.status === "missing")).toEqual([]);
   });
 
-  test("a plugin older than the door says which capabilities the door would miss", () => {
+  test("a plugin on another protocol than the door says so", () => {
     const f = current();
-    f.plugin = { ...f.plugin!, capabilities: ["blocks.read"] };
-    expect(byName(f)["plugin/for the door"]!.detail).toContain("fragments.candidates");
+    f.plugin = { ...f.plugin!, protocol: PROTOCOL - 1 };
+    expect(byName(f)["plugin/for the door"]!.detail).toContain(`speaks protocol ${PROTOCOL - 1} and this door ${PROTOCOL}`);
   });
 
   test("a checkout whose fetch failed is never ✓: it couldn't be checked, and the summary says so", () => {
@@ -406,8 +403,10 @@ describe("the doctor", () => {
   test("versions and staleness", () => {
     expect(versionAtLeast("1.4.2", "1.3.0")).toBe(true);
     expect(versionAtLeast("1.2.9", "1.3.0")).toBe(false);
-    expect(staleness({ protocol: 81, capabilities: ["a"] }, ["a", "b"], 82)).toEqual(["protocol 81 < 82", "b"]);
-    expect(staleness({ protocol: 82, capabilities: null }, ["a"], 82)).toEqual([]);
+    expect(staleness({ protocol: 81 }, 82)).toEqual(["protocol 82 (runs 81)"]);
+    expect(staleness({ protocol: 83 }, 82)).toEqual(["protocol 82 (runs 83)"]);
+    expect(staleness({ protocol: 82 }, 82)).toEqual([]);
+    expect(staleness({}, 82)).toEqual([]);
   });
 });
 
@@ -526,7 +525,7 @@ describe("never starting an outline, never closing a pane it can't confirm", () 
         seen.push(req);
         const result = req.action === "outlines.list"
           ? { defaultOutline: "pond", outlines: [{ name: "pond", database: "/x/pond.sqlite", adopted: false, open: false, default: true }] }
-          : { protocolVersion: 82, capabilities: [] };
+          : { protocolVersion: PROTOCOL };
         s.write(JSON.stringify({ id: req.id, ok: true, result, sequence: 0 }) + "\n");
       },
     } });

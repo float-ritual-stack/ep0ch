@@ -3,7 +3,8 @@ import {hostname} from 'node:os';
 import {createOutlinerClient} from './client';
 import {outlinesLayout,resolveClientPaths,resolveOutlinesFolder,invocationFolder} from './paths';
 import {checkServiceCompatibility} from './service-compatibility';
-import {OUTLINER_MIN_SERVICE_PROTOCOL,OUTLINER_PROTOCOL_VERSION,type OutlinerServiceStatus} from './types';
+import {PROTOCOL} from '@ep0ch/outline-core/protocol';
+import type {OutlinerServiceStatus} from './types';
 import {sanitizeDynamicText} from './terminal';
 
 export type WorkspaceReportEntry =
@@ -25,7 +26,7 @@ export async function inspectWorkspaceConnection(env:NodeJS.ProcessEnv=process.e
  const finish=(ok:boolean):WorkspaceReport=>({ok,entries,lines:entries.map(entry=>sanitizeDynamicText(entry.kind==='section'?`\n${entry.title}`:entry.kind==='note'?entry.text:`${entry.label}: ${entry.value}${entry.note?` (${entry.note})`:''}`))});
  section('Client');
  field('Folder',invocationFolder(env));
- field('Client host',hostname());field('Bun',process.execPath);field('Client protocol',String(OUTLINER_PROTOCOL_VERSION),`needs service ≥ ${OUTLINER_MIN_SERVICE_PROTOCOL}`);
+ field('Client host',hostname());field('Bun',process.execPath);field('Client protocol',String(PROTOCOL),'needs a host on the same protocol');
  field('Outlines folder',resolveOutlinesFolder(env),env.EP0CH_OUTLINES?'from EP0CH_OUTLINES':'default');
  let paths;
  try{paths=resolveClientPaths(env);}catch(error){note(`Configuration error: ${error instanceof Error?error.message:String(error)}`);note('Fix the named setting or .ep0ch before launching; nothing was created.');return finish(false);}

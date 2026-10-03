@@ -61,11 +61,7 @@ export async function openDoor(o: DoorOpen): Promise<Door> {
   if (refused) app.flash(refused, 20_000);
   else if (others.length) app.flash(`another door (pid ${others.join(", ")}) uses this state dir · marks are shared, the desk layout is whichever saves last`, 20_000);
   else if (recovered.length) app.flash(`an editor's text left by a door that ended was kept in ${recovered[0]}${recovered.length > 1 ? ` (+${recovered.length - 1})` : ""}`, 20_000);
-  else {
-    // The outliner's grammar differs from the door's (info.warning), said with the outline's own notice.
-    const said = [o.service.warning, o.notice].filter(Boolean);
-    if (said.length) app.flash(said.join(" · "), 12_000);
-  }
+  else if (o.notice) app.flash(o.notice, 12_000);
   return { app, control };
 }
 

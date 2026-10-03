@@ -12,7 +12,7 @@ import { OutlinerStore } from "../src/store";
 import { runExtCommand } from "../src/extension-install";
 import type { ExtensionsListResult } from "../src/extension-registry";
 import type { ResourceProjection, ResourceProjectionReadResult } from "../src/resource-projection";
-import type { Block, OutlinerServiceStatus } from "../src/types";
+import type { Block } from "../src/types";
 
 const REPO_EXTENSIONS = join(import.meta.dir, "..", "extensions");
 const PERSON = { author: "user" as const };
@@ -88,8 +88,6 @@ process.stdout.write(JSON.stringify({ ok: true, value: { markdown: "echo " + (re
 
 test("the service watches its extension folders: a folder added, broken, fixed and deleted applies without a restart", async () => {
   const { extensionsFolder, list, events, create, projection, projections } = await setup();
-  const status = await (new OutlinerClient(join(extensionsFolder, "..", "..", "outliner.sock"))).request<OutlinerServiceStatus>({ action: "ping" });
-  expect(status.capabilities).toEqual(expect.arrayContaining(["extensions.list", "extensions.outputs", "extensions.render", "extensions.act"]));
   expect((await list()).extensions).toEqual([]);
 
   // Added: the handler is there once the folder is quiet, and an extensions event says so.

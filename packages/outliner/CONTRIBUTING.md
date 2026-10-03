@@ -83,15 +83,13 @@ source evidence or distinguish authored glyphs from controls.
   (`fragments.candidates`) and `fragments.ensure` writes a heading's anchor.
   Every client's `((note#…` / `((note^…` completion asks it (Detail, Tree,
   Quick Capture and ep0ch-door).
-- `src/property-grammar.ts` owns the property token's grammar: what a property key
-  is, what a `[key::value]` token matches, and the backslash escape. The parser
-  (`properties.ts`), the query language (`block-query.ts`) and context resolution
-  build on it; no other file restates the key rule. It imports nothing, because
-  clients that find tokens while they paint copy it byte for byte (ep0ch-door's
-  `src/vendor/property-grammar.ts`, checked by its tests). Bump
-  `PROPERTY_GRAMMAR_VERSION` with any change to what it matches; `ping` reports it
-  (`ping.propertyGrammar`). Where a token counts as a property (code, literal
-  regions, scope) stays with `properties.preview`.
+- `property-grammar.ts` in outline-core (`@ep0ch/outline-core/property-grammar`)
+  owns the property token's grammar: what a property key is, what a `[key::value]`
+  token matches, and the backslash escape. The parser (`properties.ts`), the query
+  language (`block-query.ts`) and context resolution build on it, and the door
+  imports it to find tokens while it paints; no other file restates the key rule.
+  Any change to what it matches bumps `PROTOCOL`. Where a token counts as a
+  property (code, literal regions, scope) stays with `properties.preview`.
 - `src/view-writes.ts` owns what a write into a saved view must change
   (`views.planWrite`): the property patch that moves a block into a view, or the
   properties, text or roadmap-item input a new block there is born with, and the
@@ -219,11 +217,10 @@ source evidence or distinguish authored glyphs from controls.
   the request waiting for it; a patch that applies or dismisses a proposal says
   so in `proposal: { id, op }`, so the door words it without reading the
   patch's shape), any other is written under a revision check;
-  several notes apply together or not at all. `src/draft-patch-compare.ts` is
-  the compare itself (where the observed text is, what a position becomes). It
-  imports nothing, because ep0ch-door runs it against its live draft from a
-  byte-for-byte copy: bump `DRAFT_PATCH_COMPARE_VERSION` with any change (`ping`
-  reports it). `outliner patch-demo` (`src/draft-patch-demo.ts`) is a CLI demo
+  several notes apply together or not at all. outline-core's
+  `draft-patch-compare.ts` is the compare itself (where the observed text is, what
+  a position becomes); the door imports it to run the same compare against its
+  live draft. Any change to what it accepts bumps `PROTOCOL`. `outliner patch-demo` (`src/draft-patch-demo.ts`) is a CLI demo
   of the `prose` policy, not the `@tidy` agent (the tidy extension, whose line
   rules, `extensions/tidy/tidy-line.ts`, it imports rather than copies). Every
   agent's patch passes one request-line guard in the router: it never writes or
@@ -264,10 +261,9 @@ approval result. A successful host ping identifies an execution-boundary issue;
 use that approved path for subsequent service requests.
 
 If `OutlinerClient.requireCompatibleService()` reports an incompatible service,
-the service is reachable but cannot serve this client: it is older than the
-client's minimum protocol, it no longer serves the client's protocol, or it lacks
-a capability the client is about to use. The error names which one; restart the
-named side from the current checkout, then retry. This is recovery from a
+the service is reachable but speaks another protocol than this client. The error
+names both numbers and the side to update: restart the outline host on current
+code, or update and restart the client, then retry. This is recovery from a
 confirmed incompatibility, not a connection probe.
 
 Use the running service's CLI/RPC for workboard writes. If access remains
@@ -476,7 +472,7 @@ that the change used the architecture before checking anything else:
 - **Boundary:** the service owns truth and meaning; clients own presentation. A
   client asks the service what a view contains, what a property means or what
   changed; it does not re-derive it.
-- **Protocol:** an additive change is a capability, as in
+- **Protocol:** any wire change bumps `PROTOCOL`, as in
   [Protocol and schema changes](#protocol-and-schema-changes).
 - **Did you really?** List each shared part the brief or PR said it would use,
   and check the diff actually uses it. Name any place where it built its own
@@ -501,41 +497,28 @@ CodeRabbit’s generic docstring warning is advisory in this repository. Add com
 
 ## Protocol and schema changes
 
-Clients and the service negotiate compatibility instead of requiring the same
-number. `ping` returns the service's `protocolVersion`, its `minClientProtocol`,
-and `capabilities`. [src/types.ts](src/types.ts) owns the source of truth:
+Client and service must speak the same protocol. There is one number,
+`PROTOCOL` in outline-core (`packages/outline-core/src/protocol.ts`); `ping`
+reports the service's as `protocolVersion`, and every client refuses a service
+whose number differs from its own, older or newer, with words that name the
+side to update (`protocolMismatch`). The outliner applies it in
+[src/service-compatibility.ts](src/service-compatibility.ts) (the Herdr launcher
+and panes wait through `waitForCompatibleService`); the door in
+`SocketBoard.info()`. There are no capability lists and no minimums: the
+long-running host and a remote door on another checkout are the case the one
+check is for.
 
-- `OUTLINER_PROTOCOL_VERSION`: this checkout's protocol.
-- `OUTLINER_MIN_SERVICE_PROTOCOL`: the oldest service its clients accept.
-- `OUTLINER_MIN_CLIENT_PROTOCOL`: the oldest client its service serves.
-- `OUTLINER_CAPABILITIES`: additive actions and request fields the service
-  supports.
+Bump `PROTOCOL` with:
 
-`checkServiceCompatibility` / `requireCapabilities` in
-[src/service-compatibility.ts](src/service-compatibility.ts) apply the rule; a
-newer service is accepted. The Herdr launcher and panes wait through
-`waitForCompatibleService`.
+- any wire change: a new action, a new or changed request or response field, a
+  changed meaning, a removal;
+- any change to what outline-core's shared modules match or compute (the
+  property grammar, the draft.patch compare, the search matcher), since both
+  sides must agree on them.
 
-For an additive change (a new action, or an optional request/response field):
-
-1. Update types and every client/server caller.
-2. Append a capability name to `OUTLINER_CAPABILITIES`, usually the action name
-   or `action.field`. Do not bump the protocol.
-3. Before a client uses it, call
-   `client.requireCompatibleService(["<capability>"])` (or pass `needed` to
-   `waitForCompatibleService`). Only the clients that use the feature check it.
-4. An old service silently ignores an unknown optional request field. Either
-   echo the field in the response so the client can detect that it was honored
-   (as projected reads echo `fields`) or capability-gate it; never let an
-   ignored field silently change the result's meaning.
-5. Add round-trip coverage for a service with and without the capability.
-
-For an incompatible change (changed meaning or removal), increment
-`OUTLINER_PROTOCOL_VERSION` and raise the minimum that the change breaks:
-`OUTLINER_MIN_SERVICE_PROTOCOL` when new clients cannot use an old service,
-`OUTLINER_MIN_CLIENT_PROTOCOL` when the new service cannot serve old clients.
-Add round-trip coverage, confirm the launcher rejects the old side, and restart
-the complete topology.
+Both sides import outline-core; never copy a shared module into a client. Add
+round-trip coverage for the change, and restart the complete topology (the
+outline host, then its clients) when it ships.
 
 If SQLite schema or property-parser behavior changes:
 

@@ -1,4 +1,5 @@
 import { Database } from "bun:sqlite";
+import { PROTOCOL } from "@ep0ch/outline-core/protocol";
 import { chmodSync, closeSync, existsSync, lstatSync, mkdirSync, openSync, readdirSync, readSync, realpathSync, renameSync, rmSync, statSync, unlinkSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
 import { dirname, isAbsolute, join } from "node:path";
@@ -15,9 +16,6 @@ import {
   type HostedOutlineList,
   type HostedOutlineSummary,
   type HostedPaneOutline,
-  OUTLINER_HOST_CAPABILITIES,
-  OUTLINER_MIN_CLIENT_PROTOCOL,
-  OUTLINER_PROTOCOL_VERSION,
   type OutlinerHostStatus,
   type OutlinerResponse,
   type OutlinerServiceStatus,
@@ -515,13 +513,11 @@ export class OutlineHost {
     socket.resume();
   }
 
-  /** `ping` on a host with no default outline: the host alone, with no outline's capabilities. */
+  /** `ping` on a host with no default outline: the host alone. */
   private hostPing(): OutlinerServiceStatus {
     return {
       status: "ready",
-      protocolVersion: OUTLINER_PROTOCOL_VERSION,
-      minClientProtocol: OUTLINER_MIN_CLIENT_PROTOCOL,
-      capabilities: [...OUTLINER_HOST_CAPABILITIES],
+      protocolVersion: PROTOCOL,
       host: this.status(),
     };
   }

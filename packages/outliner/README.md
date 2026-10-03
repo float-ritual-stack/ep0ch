@@ -103,7 +103,7 @@ No shared user host is used.
 
 - SQLite-backed hierarchical blocks with stable UUIDs, sibling order, authors, timestamps, and one canonical graph per outline.
 - One outline host per user and machine serves any number of named outlines on one socket. Folders bind to an outline through `client.json` or a folder-name guess; opening from Herdr in an unbound folder shows **Choose outline** and never creates one by itself. See [The outline host](#the-outline-host).
-- Versioned JSON-lines RPC over a Unix socket. `ping` reports the service protocol, the oldest client protocol it serves and its capabilities; clients accept any service at or above their minimum that offers the capabilities they use (see [Protocol and schema changes](CONTRIBUTING.md#protocol-and-schema-changes)).
+- Versioned JSON-lines RPC over a Unix socket. `ping` reports the service protocol (`PROTOCOL` in outline-core); a client refuses a service on any other number and names the side to update (see [Protocol and schema changes](CONTRIBUTING.md#protocol-and-schema-changes)).
 - Reactive canonical content/view broadcasts, per-process Tree/Detail/observer registration with operation protection, exact-client UI commands, and source-aware `preview | open | reveal` navigation.
 - Durable resources have UUID identities independent of blocks and mutable locators. Provider-qualified Sources bind filesystem roots or remote namespaces; overlapping Sources remain distinct, relocations preserve Resource IDs, provider revisions remain explicit, and capability resolution reports blockers across provider, credentials, workspace policy, host, and connectivity. Registered Detail hosts declare Surface, Placement, renderer, capability, credential, and connectivity facts; open/describe/refresh deterministically negotiate cached Markdown, embedded-browser, native-document, metadata, or external-link representations without changing Resource identity. PDF is a media type reachable through filesystem and web Sources: one captured binary snapshot can produce both native PDF and page-aware Markdown representations through versioned replaceable extractors.
 - Each Tree owns its cursor, occurrence selection, filter, viewport, collapsed rows, multiline expansion, explicit-navigation history, and browsing context; moving a standalone Tree updates its own local Preview; composed Tree updates its embedded Detail Preview, while Current stays in place.
@@ -1684,10 +1684,10 @@ while `Card [stage::queued] more` has only an inline token: a client can compare
 the preview with the block it read and warn before a save drops a property.
 CLI: `bun run cli properties-preview --text '<draft>'` or `--stdin`.
 
-The property token grammar lives in one place, `src/property-grammar.ts`, which
-the parser, the query language and context resolution share; `ping` reports its
-version as `propertyGrammar`. To place a block into a saved view, ask
-`views.planWrite` (capability `views.planWrite`) for the property patch each view
+The property token grammar lives in one place, outline-core's
+`property-grammar.ts`, which the parser, the query language, context resolution
+and the door share. To place a block into a saved view, ask
+`views.planWrite` for the property patch each view
 needs, or why no patch can satisfy its query; `query.matches` says which of given
 blocks a query holds for. See [ARCHITECTURE](docs/ARCHITECTURE.md#saved-view-write-plans-viewsplanwrite).
 
@@ -2506,8 +2506,8 @@ registry of outlines: every list is a scan of the state root.
 
 While it runs, the service keeps `<state root>/by-name/<name>.sock`, a symlink
 to its real socket, and removes it on a clean stop. `ping` reports
-`outline: { name, descriptorPath, byNameSocket }` (capability `ping.outline`).
-`outline` is absent from older services and from a service running unnamed, and
+`outline: { name, descriptorPath, byNameSocket }`.
+`outline` is absent from a service running unnamed, and
 each path is absent when that part could not be written.
 
 Names never take a service down. If the descriptor or the link cannot be
@@ -2629,8 +2629,7 @@ event queue. Explicit opens, edits, and navigation retain ordered delivery.
 
 The forwarded socket exposes the complete Outliner RPC to the local account.
 Keep it in a user-private directory and use an authenticated SSH connection.
-Client and service protocols must be compatible: `doctor` shows both and the
-service's capabilities.
+Client and service must speak the same protocol: `doctor` shows both.
 
 ## Development
 

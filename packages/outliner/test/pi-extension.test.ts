@@ -25,7 +25,7 @@ import { OutlinerClient, type RequestInput } from "../src/client";
 import {OutlinerStore} from "../src/store";
 import {OutlinerServer} from "../src/server";
 import { parseProperties, parsePropertyRecords, patchPropertyText } from "../src/properties";
-import { OUTLINER_PROTOCOL_VERSION } from "../src/types";
+import { PROTOCOL } from "@ep0ch/outline-core/protocol";
 import type {
   AnnotationAgentPromptPackage,
   BlockEditActivityPage,
@@ -79,7 +79,7 @@ test("saved-view tool reports branch identity and presentation omissions through
     const result = await original.call(fixture, input, timeout) as T;
     if (input.action !== "ping" || !withholdViewsRead) return result;
     const status = result as OutlinerServiceStatus;
-    return {...status, capabilities: status.capabilities?.filter(capability => capability !== "views.read")} as T;
+    return {...status, protocolVersion: PROTOCOL - 1} as T;
   });
   type Tool = {name: string; parameters: TSchema; execute(id: string, params: unknown): Promise<{content: {text?: string}[]; details: any}>};
   const tools = new Map<string, Tool>();
@@ -100,10 +100,10 @@ test("saved-view tool reports branch identity and presentation omissions through
     expect([shown.status, shown.viewId, shown.completeness]).toEqual(["ready", view.id, {kind: "complete"}]);
     expect(shown.presentation).toEqual({returned: 1, presented: 0, omitted: 1});
     expect(bounded.details).toEqual(shown);
-    // A service without views.read is refused before the tool sends the read.
+    // A service on an older protocol is refused before the tool sends the read.
     withholdViewsRead = true;
     requests.length = 0;
-    await expect(tool.execute("old-service-view", {viewId: view.id})).rejects.toThrow("does not support views.read");
+    await expect(tool.execute("old-service-view", {viewId: view.id})).rejects.toThrow("restart the outline host on current code");
     expect(requests).not.toContain("views.read");
   } finally { transport.mockRestore(); await server.close(); store.close(); rmSync(root, {recursive: true, force: true}); }
 });
@@ -122,7 +122,7 @@ test("outliner_move attributes the move to the agent, and an older service is re
     const result = await original.call(fixture, input, timeout) as T;
     if (input.action !== "ping" || !withholdProvenance) return result;
     const status = result as OutlinerServiceStatus;
-    return {...status, capabilities: status.capabilities?.filter(capability => capability !== "mutations.provenance")} as T;
+    return {...status, protocolVersion: PROTOCOL - 1} as T;
   });
   type Tool = {name: string; execute(id: string, params: unknown, signal: undefined, update: undefined,
     context: ExtensionContext): Promise<{details: any}>};
@@ -144,7 +144,7 @@ test("outliner_move attributes the move to the agent, and an older service is re
     withholdProvenance = true;
     requests.length = 0;
     await expect(tool.execute("old-service-move", {blockId: basil.id, parentId: null}, undefined, undefined, context))
-      .rejects.toThrow("does not support mutations.provenance");
+      .rejects.toThrow("restart the outline host on current code");
     expect(requests).not.toContain("move");
     expect(store.get(basil.id)!.parentId).toBe(bed.id);
   } finally { transport.mockRestore(); await server.close(); store.close(); rmSync(root, {recursive: true, force: true}); }
@@ -735,7 +735,7 @@ test("orients Pi and OMP sessions from live Git state without mutating the repos
   };
   OutlinerClient.prototype.request = async function <T>(input: RequestInput): Promise<T> {
     if (input.action === "ping") {
-      return { protocolVersion: OUTLINER_PROTOCOL_VERSION } as T;
+      return { protocolVersion: PROTOCOL } as T;
     }
     if (input.action === "get") return task as T;
     if (input.action === "blocks.context") {
@@ -946,7 +946,7 @@ test("drives an explicit task through context, focus, durable proof, and complet
   OutlinerClient.prototype.request = async function <T>(input: RequestInput): Promise<T> {
     requests.push(input);
     if (input.action === "ping") {
-      return { status: "ready", protocolVersion: OUTLINER_PROTOCOL_VERSION } as T;
+      return { status: "ready", protocolVersion: PROTOCOL } as T;
     }
     if (input.action === "pages.resolve") {
       return (input.address === "PIE-144"
@@ -1467,9 +1467,7 @@ test("requires the current protocol, attributes agent creates and page follows, 
     ],
     completeness: { kind: "truncated", limit: 20 },
   };
-  let protocolVersion: number = OUTLINER_PROTOCOL_VERSION;
-  let minClientProtocol: number | undefined;
-  let capabilities: string[] | undefined;
+  let protocolVersion: number = PROTOCOL;
   let queryCollection = collection;
   let queryError: Error | undefined;
   const requests: RequestInput[] = [];
@@ -1511,7 +1509,7 @@ test("requires the current protocol, attributes agent creates and page follows, 
         : clients) as T;
     }
     if (input.action === "ping") {
-      return { status: "ready", protocolVersion, minClientProtocol, capabilities } as unknown as T;
+      return { status: "ready", protocolVersion } as unknown as T;
     }
     throw new Error(`Unexpected request: ${input.action}`);
   };
@@ -1822,28 +1820,16 @@ test("requires the current protocol, attributes agent creates and page follows, 
     expect(largeEnvelope.presentation.returned).toBe(100);
     expect(largeEnvelope.presentation.presented).toBe(largeEnvelope.blocks.length);
     expect(largeEnvelope.presentation.omitted).toBeGreaterThan(0);
-    // `expression` is sent only to a service that parses it; plain queries need no capability.
-    requests.length = 0;
-    await expect(tools.get("outliner_query")!.execute("old-service-expression", { expression: "a OR b" } as never)).rejects.toThrow(
-      "does not support query.expression",
-    );
-    expect(requests.some(request => request.action === "blocks.query")).toBe(false);
-    await tools.get("outliner_query")!.execute("old-service-plain", { text: "plain" });
-    capabilities = ["query.expression"];
     requests.length = 0;
     await tools.get("outliner_query")!.execute("expression-query", { expression: "a OR b" } as never);
     expect(requests.find(request => request.action === "blocks.query")).toMatchObject({ query: { expression: "a OR b" } });
-    capabilities = undefined;
-    protocolVersion = OUTLINER_PROTOCOL_VERSION + 1;
-    await tools.get("outliner_query")!.execute("newer-service-query", {});
-    minClientProtocol = OUTLINER_PROTOCOL_VERSION + 1;
+    protocolVersion = PROTOCOL + 1;
     await expect(tools.get("outliner_query")!.execute("stale-extension-query", {})).rejects.toThrow(
-      `Outliner protocol ${OUTLINER_PROTOCOL_VERSION + 1} no longer serves this session's extension protocol ${OUTLINER_PROTOCOL_VERSION}. Run /reload, then retry.`,
+      `Outliner protocol ${PROTOCOL + 1} is newer than this session's extension protocol ${PROTOCOL}. Run /reload, then retry.`,
     );
-    minClientProtocol = undefined;
     protocolVersion = 5;
     await expect(tools.get("outliner_query")!.execute("incompatible-query", {})).rejects.toThrow(
-      "Connected Outliner service uses protocol 5; this client requires at least",
+      `speaks protocol ${PROTOCOL} and the outline host protocol 5: restart the outline host on current code`,
     );
   } finally {
     OutlinerClient.prototype.request = originalRequest;
@@ -1948,7 +1934,7 @@ test("captures through command, tool, and exact standalone dispatch without an a
   OutlinerClient.prototype.request = async function <T>(input: RequestInput): Promise<T> {
     requests.push(input);
     if (input.action === "ping") {
-      return { status: "ready", protocolVersion: OUTLINER_PROTOCOL_VERSION } as T;
+      return { status: "ready", protocolVersion: PROTOCOL } as T;
     }
     if (input.action === "selection.get") {
       return {

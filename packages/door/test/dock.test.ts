@@ -59,7 +59,7 @@ function door(rows = 30, cols = 100) {
     write() {}, paint(lines: string[]) { painted = lines; }, paintRow(r: number, l: string) { painted[r] = l; },
     invalidate() {}, onKey(f: any) { key = f; }, onResize() {}, stop() {}, resume() {},
   };
-  const app = new App(term, { capabilities: null } as any, Date.now(), () => {});
+  const app = new App(term, { protocol: null } as any, Date.now(), () => {});
   const renders: { rows: number }[] = [];
   const screen = (title: string, more: Record<string, unknown> = {}) => ({
     title, key() {}, ...more,

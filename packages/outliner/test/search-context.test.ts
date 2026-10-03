@@ -108,7 +108,6 @@ describe("pages.complete", () => {
 test("over the socket: tree.search and pages.complete take the note, ping names the matcher", async () => {
   const { OutlinerServer } = await import("../src/server");
   const { OutlinerClient } = await import("../src/client");
-  const { SEARCH_MATCH_VERSION } = await import("../src/search-match");
   const dir = mkdtempSync(join(tmpdir(), "search-socket-"));
   const key = process.env.TYPESAFE_API_KEY;
   delete process.env.TYPESAFE_API_KEY;
@@ -121,9 +120,6 @@ test("over the socket: tree.search and pages.complete take the note, ping names 
     const edited = store.create("Sowing plan", garden.id);
     store.create("Seed order [page::seed-order-garden]", garden.id);
     store.create("Seed order [page::seed-order-kitchen]");
-    const ping = await client.request<{ capabilities: string[]; searchMatch: { version: number } }>({ action: "ping" });
-    expect(ping.capabilities).toEqual(expect.arrayContaining(["search.forgiving", "search.context", "ping.searchMatch"]));
-    expect(ping.searchMatch).toEqual({ version: SEARCH_MATCH_VERSION });
     const searched = await client.request<{ matches: { title: string }[]; context: { blockId: string } }>({ action: "tree.search", query: "sed ordr", contextBlockId: edited.id });
     expect(searched.context.blockId).toBe(edited.id);
     const pages = await client.request<{ addresses: { address: string }[]; semantic: { status: string } }>({ action: "pages.complete", query: "sed ordr", limit: 5, semantic: true, contextBlockId: edited.id });
@@ -163,7 +159,7 @@ describe("the service's own edges", () => {
   });
 
   test("a 4-letter term is a typo of a whole word only, never of a word's start", async () => {
-    const { typoDistance } = await import("../src/search-match");
+    const { typoDistance } = await import("@ep0ch/outline-core/search-match");
     expect(typoDistance("form", "foreign", 1)).toBe(2);
     expect(typoDistance("from", "form", 1)).toBe(1);
     expect(typoDistance("gardn", "gardening", 1)).toBe(1);

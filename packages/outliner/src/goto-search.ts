@@ -1,7 +1,7 @@
 import { rankBlockFocusMatches } from "./block-focus";
 import type { NormalizedPageAddress } from "./page-addresses";
 import { blockDisplayTitle } from "./references";
-import { searchTextTerms } from "./search-match";
+import { searchTextTerms } from "@ep0ch/outline-core/search-match";
 import { ancestorPath, contextList, searchContext, sortByContext, type ContextReason } from "./search-context";
 import type { Block, GotoSearchCollection } from "./types";
 

@@ -8,7 +8,8 @@ import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { bindingOf, clientConfigOf, hostSocketOf, resolveTarget, slugOutlineName, socketOf } from "../src/discover";
 import { attachTarget, deletionPlan, formatOutlines, parseOutlineArgs } from "../src/outlines";
-import { hostRequest, OUTLINE_CAPABILITIES, SocketBoard, type OutlineEvent } from "../src/socket";
+import { PROTOCOL } from "@ep0ch/outline-core/protocol";
+import { hostRequest, SocketBoard, type OutlineEvent } from "../src/socket";
 import { hostOutliner, ScratchHost, until } from "./scratch";
 
 /** A fake service on a Unix socket: records every line and answers with `answer(request)`. */
@@ -31,8 +32,8 @@ async function fakeService(path: string, answer: (r: any) => unknown) {
   return { lines, close: () => new Promise<void>(res => server.close(() => res())) };
 }
 
-const ping = (extra: Record<string, unknown> = {}) => ({ protocolVersion: 82, minClientProtocol: 82, capabilities: [...OUTLINE_CAPABILITIES], location: { hostname: "shed", workspaceRoot: "/fictional/shed" }, ...extra });
-const hostPing = (outline = "bob") => ping({ capabilities: [...OUTLINE_CAPABILITIES, "request.outline", "ping.host"], outline: { name: outline }, host: { socket: "/fictional/outliner.sock", defaultOutline: "bob", outlines: ["bob", "fred"] } });
+const ping = (extra: Record<string, unknown> = {}) => ({ protocolVersion: PROTOCOL, location: { hostname: "shed", workspaceRoot: "/fictional/shed" }, ...extra });
+const hostPing = (outline = "bob") => ping({ outline: { name: outline }, host: { socket: "/fictional/outliner.sock", defaultOutline: "bob", outlines: ["bob", "fred"] } });
 
 describe("SocketBoard with an outline", () => {
   const dir = mkdtempSync(join(tmpdir(), "ep0ch-outline-"));
@@ -59,14 +60,12 @@ describe("SocketBoard with an outline", () => {
     } finally { board.close(); await svc.close(); }
   });
 
-  test("a single-outline service is refused when an outline is named, and has no outline otherwise", async () => {
-    const svc = await fakeService(join(dir, "single.sock"), () => ping());
-    const named = new SocketBoard(join(dir, "single.sock"), 3000, "fred");
-    const plain = new SocketBoard(join(dir, "single.sock"), 3000);
+  test("a host that answers for another outline than the one named is refused", async () => {
+    const svc = await fakeService(join(dir, "other.sock"), () => hostPing("bob"));
+    const named = new SocketBoard(join(dir, "other.sock"), 3000, "fred");
     try {
-      await expect(named.info()).rejects.toThrow(`serves one outline and can't route by name (no request.outline), so it can't open the outline "fred"`);
-      expect((await plain.info()).outline).toBeUndefined();
-    } finally { named.close(); plain.close(); await svc.close(); }
+      await expect(named.info()).rejects.toThrow(`answered for "bob", not "fred"`);
+    } finally { named.close(); await svc.close(); }
   });
 
   test("hostRequest asks on its own connection and names no outline", async () => {

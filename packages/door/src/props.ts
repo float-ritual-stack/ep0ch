@@ -7,7 +7,7 @@ import type { Msg } from "./board";
 import type { PropertyRecord, SocketBoard } from "./socket";
 import { stateDir } from "./state";
 import { printable } from "./text";
-import { isPropertyTokenLine } from "./vendor/property-grammar";
+import { isPropertyTokenLine } from "@ep0ch/outline-core/property-grammar";
 
 /** Detail's default (`OUTLINER_PROPERTY_SUMMARY_KEYS`). */
 export const DEFAULT_SUMMARY_KEYS = ["status", "work-stage", "priority", "track"] as const;

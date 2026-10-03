@@ -8,7 +8,7 @@ import { OutlinerClient } from "../src/client";
 import { parseProperties } from "../src/properties";
 import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
-import type { Block, OutlinerServiceStatus, ViewWritePlanResult } from "../src/types";
+import type { Block, ViewWritePlanResult } from "../src/types";
 import { planCreateInView, planMoveIntoView, writeView, type WriteSubject } from "../src/view-writes";
 
 const def = (name: string, query: string, extra = "") => {
@@ -133,9 +133,6 @@ describe("the service", () => {
     const client = new OutlinerClient(socket);
     const create = (text: string) => client.request<Block>({ action: "create", text });
     try {
-      const ping = await client.request<OutlinerServiceStatus>({ action: "ping" });
-      expect(ping.capabilities).toEqual(expect.arrayContaining(["views.planWrite", "query.matches", "ping.propertyGrammar"]));
-      expect(ping.propertyGrammar).toEqual({ version: 1 });
       const card = await create("Paint the shed [type::chore] [stage::todo]");
       const doing = await create("Doing [type::virtual-branch] [query::type=chore stage=doing]");
       const odd = await create("Odd [type::virtual-branch] [query::type=chore (area=garden OR area=kitchen)]");

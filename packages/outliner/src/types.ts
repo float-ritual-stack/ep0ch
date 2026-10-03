@@ -1,3 +1,6 @@
+import type { Block, BlockAuthor, BlockProperty } from "@ep0ch/outline-core/protocol";
+// The wire types both sides share live in outline-core (protocol.ts); re-exported for the service's modules.
+export type { Block, BlockAuthor, BlockProperty, OutlinerRequestProblem, OutlinerResponse } from "@ep0ch/outline-core/protocol";
 import type { MentionMessage, MentionScope } from "./mentions-types";
 import type { FragmentCandidateQuery } from "./fragment-search";
 import type { AuthoredResourceReference } from "./resource-references";
@@ -104,8 +107,6 @@ export type {
   WebSourceSnapshotProvenance,
 } from "./resources";
 
-export type BlockAuthor = "user" | "agent" | "system";
-
 export interface BlockProvenance {
   actorId: string;
   sessionId?: string;
@@ -147,11 +148,6 @@ export interface BlockEditActivity {
 export interface BlockEditActivityPage {
   entries: BlockEditActivity[];
   cursor: number;
-}
-
-export interface BlockProperty {
-  key: string;
-  value: string;
 }
 
 export type PropertyPlacement = "inline" | "trailing-metadata" | "metadata-line";
@@ -215,23 +211,6 @@ export interface PropertyInventory {
   /** This response contains every matching value, rather than one page. */
   complete: boolean;
   sequence: number;
-}
-
-export interface Block {
-  id: string;
-  parentId: string | null;
-  position: number;
-  text: string;
-  revision: number;
-  author: BlockAuthor;
-  actorId?: string;
-  sessionId?: string;
-  taskId?: string;
-  createdAt: string;
-  updatedAt: string;
-  deletedAt?: string;
-  effectiveDeletedRootId?: string;
-  properties: BlockProperty[];
 }
 
 export type CaptureSource = "tree" | "pi" | "omp" | "cli" | "external";
@@ -1661,187 +1640,16 @@ export interface ResolvedBlockReferences {
   workIdPrefix?: string;
 }
 
-/**
- * This checkout's wire protocol. Bump it only for incompatible changes, and
- * raise the matching minimum below; additive features declare a capability.
- */
-export const OUTLINER_PROTOCOL_VERSION = 82;
-/** Oldest service protocol this checkout's clients can use. */
-export const OUTLINER_MIN_SERVICE_PROTOCOL = 82;
-/** Oldest client protocol this checkout's service still serves. */
-export const OUTLINER_MIN_CLIENT_PROTOCOL = 82;
+/** `outlines.pane`: the outline and client a live pane is registered on; empty when none is. */
+export interface HostedPaneOutline {
+  outline?: string;
+  clientId?: string;
+  role?: OutlinerClientRole;
+}
 
-/**
- * Additive actions and request fields this service supports. A client that
- * uses one checks for it with `requireCapabilities`; append new names here.
- */
-export const OUTLINER_CAPABILITIES = [
-  "blocks.read",
-  "changes.since",
-  /** `fragments.candidates`: `((note#…` / `((note^…` completion over every active note (PIE-424, PIE-295). */
-  "fragments.candidates",
-  /** `fragments.ensure`: write a heading's anchor, revision-checked, for completion to link to. */
-  "fragments.ensure",
-  /** `fragments.read`: a `((id^fragment))` slice, its kind, label, lines and offsets (PIE-424). */
-  "fragments.read",
-  /**
-   * `move`, `delete` and `trash.restore` accept `mutation`, recorded in the
-   * change feed and activity like an update's; `activity.recent` accepts `kinds`.
-   */
-  "mutations.provenance",
-  /** `ping` reports `outline`: the service's name, descriptor and by-name socket. */
-  "ping.outline",
-  "properties.preview",
-  "query.expression",
-  "references.backlinks.facets",
-  "resources.projection",
-  /** `transclusions.read`: `!((id))` and `!((id^fragment))` projected, nested to a bounded depth, cycle-safe. */
-  "transclusions.read",
-  "views.read",
-  /** `views.planWrite`: the property patch that moves a block into a saved view, or what a new block there is born with (PIE-490). */
-  "views.planWrite",
-  /** `query.matches`: which of the given blocks a query holds for, in the saved-view grammar (PIE-490). */
-  "query.matches",
-  /** `ping` reports `propertyGrammar`: the version of src/property-grammar.ts, which clients may copy (PIE-490). */
-  "ping.propertyGrammar",
-  /** `drafts.hold`, `drafts.heartbeat`, `drafts.release`, `drafts.answer`: a door's lease on the live draft it holds (PIE-501). */
-  "drafts.hold",
-  /** `drafts.read`: a note's text as its live draft has it, or as saved. */
-  "drafts.read",
-  /** `drafts.touch`: the person typed in a held draft; an `@name` request line they wrote there runs once quiet, before any save (PIE-510). */
-  "drafts.touch",
-  /** `draft.patch`: compare-and-swap on spans of text, routed to a live draft or the saved note; a failure lands as an embedded proposal. */
-  "draft.patch",
-  /** `draft.proposal.apply`: apply a proposal's patch anyway, as an ordinary edit. */
-  "draft.proposal.apply",
-  /**
-   * `draft.proposal.dismiss`: dismiss a proposal without applying it (its embed line out of the note or its
-   * live draft, `proposal-status::dismissed`, then the Trash; an agent only its own). With it, apply and
-   * dismiss each settle a proposal once, `proposal-applies::no` marks one whose passage was already gone (or below its mark), and
-   * the forced apply never replaces more than the passage the proposal shows, nor reaches past its mark (PIE-510).
-   */
-  "draft.proposal.dismiss",
-  /** `draft.patch` takes `current`: a saved note's spans and mark are compared as it is now, not by revision. */
-  "draft.patch.current",
-  /** `ping` reports `draftPatchCompare`: the version of src/draft-patch-compare.ts, which the door copies. */
-  "ping.draftPatchCompare",
-  /** `blocks.authored-links`: a block's outlinks and resources with their spans (PIE-324); records name their block. */
-  "blocks.authored-links",
-  /** `resources.describe`, `resources.open` and `resources.refresh` without a Detail destination (any client, or none). */
-  "resources.observer-reads",
-  /** `resources.follow-authored` takes `mutation`; the receipt and the change feed carry who registered it. */
-  "resources.follow-authored.provenance",
-  /** `resources.projection.read` takes `materialize`; projections carry `fetching`, `record` and `fetchedAt`. */
-  "resources.projection.materialize",
-  /** `resources.projection.refresh`: fetch one ticket now, from any client (PIE-445). */
-  "resources.projection.refresh",
-  /**
-   * Extension records: a ticket kept as blocks an extension owns (projections carry `record`, authored links
-   * `recordBlockId`), writes to them refused, `[publish.ext::…]` for the publisher.
-   */
-  "extensions.records",
-  /** `activity.recent` takes `extensions` (`exclude` or `only`); `changes.since` entries keep `actor`. */
-  "activity.extensions",
-  /**
-   * `activity.recent` takes `actorId` (one agent's or extension's entries only) and `beforeCursor` (the next,
-   * older page of a page cut at its limit) (PIE-504).
-   */
-  "activity.actor",
-  /**
-   * Extension folders (PIE-507): `extensions.list` (every folder, its state and error, its handlers, actions
-   * and tile kinds), reloaded by a watcher with `extensions` events.
-   */
-  "extensions.list",
-  /**
-   * Extension handler lines (`horoscope:: virgo`): `resources.projection.read` returns them beside Jira's,
-   * with `kind` (`data`, `output`, `component`), `extension` and `output`; `resources.projection.refresh` runs them.
-   */
-  "extensions.outputs",
-  /** `extensions.render`: a handler line's result in a render target (markdown, blockdown, html, json, csv, terminal). */
-  "extensions.render",
-  /** `extensions.act`: run an extension's action (or the built-in `keep`); its writes are attributed `ext:<id>`. */
-  "extensions.act",
-  /**
-   * `extensions.act` takes `mutation` (who asks), recorded as `requestedBy` beside the extension's writes in
-   * `changes.since`. An action's update applies through `draft.patch` (`edit` policy); its created text is inert.
-   */
-  "extensions.act.requester",
-  /**
-   * `ext:<id>` actor ids are the extensions' own: a client's write (or `extensions.act` requester) that
-   * names one is refused. Only the service's extension runtime writes as an extension.
-   */
-  "mutations.ext-reserved",
-  /**
-   * Agents addressed while you write (PIE-501): a person's `@name …` line runs the agent an extension declares;
-   * its edit applies through `draft.patch` (`edit` policy), or its reply shows under the line. Projections of
-   * kind `agent`; `resources.projection.refresh` on the line asks again.
-   */
-  "extensions.agents",
-  /**
-   * Forgiving search (src/search-match.ts): `tree.search`, `inbox.search`, `pages.complete` and the backlink
-   * filter fold punctuation, forgive typos and rank all-but-one-term matches below full ones; `pages.complete`
-   * takes `semantic` as `tree.search` does and answers with `semantic`; `blocks.query` `text` matches every
-   * word, in any order, instead of one phrase.
-   */
-  "search.forgiving",
-  /**
-   * `tree.search` and `pages.complete` take `contextBlockId`, the note being edited: inside each rung and share
-   * of the query in the title, nearer notes in the physical tree come first, then the more recently edited; an empty `tree.search` lists what
-   * its parent and siblings link to, notes near it, then the person's recent edits (`reason`); Jev's state
-   * carries the note's title and path.
-   */
-  "search.context",
-  /** `ping` reports `searchMatch`: the version of src/search-match.ts, which the door copies. */
-  "ping.searchMatch",
-] as const;
-
-/**
- * What the outline host (`src/outline-host.ts`) adds. Its `ping` reports these
- * beside the outline's own capabilities; a service running one outline has none.
- */
-export const OUTLINER_HOST_CAPABILITIES = [
-  /** `outlines.adopt`: serve an existing database where it lies, under a name. */
-  "outlines.adopt",
-  /** `outlines.attach`: open an outline by name, creating it when asked (like `tmux new -A`). */
-  "outlines.attach",
-  /** `outlines.close`: stop serving an open outline and release its database; live panes reopen it. */
-  "outlines.close",
-  /** `outlines.create`: a new outline is born only here or through `outlines.attach` with `create`. */
-  "outlines.create",
-  /** `outlines.delete`: remove an outline from the host; its files are moved aside, never erased. */
-  "outlines.delete",
-  /** `outlines.list`: the outlines in the host's `outlines/` folder. */
-  "outlines.list",
-  /** `outlines.pane`: the outline a live Herdr pane is registered on. */
-  "outlines.pane",
-  /** `ping` reports `host`: its socket, default outline and outline names. */
-  "ping.host",
-  /** A request may carry `outline: <name>`; the host routes its connection to that outline. */
-  "request.outline",
-] as const;
-export type OutlinerCapability = (typeof OUTLINER_CAPABILITIES)[number] | (typeof OUTLINER_HOST_CAPABILITIES)[number];
-
-export interface OutlinerServiceStatus {
-  status: "ready";
-  protocolVersion: number;
-  /** Absent from services older than protocol 82. */
-  minClientProtocol?: number;
-  /** Absent from services older than protocol 82. */
-  capabilities?: readonly string[];
-  location?: {hostname:string;workspaceRoot:string;database:string;stateDirectory:string};
-  /**
-   * Present when the service runs a named outline (capability `ping.outline`).
-   * Absent from older services and from a service running unnamed.
-   */
-  outline?: OutlinerServiceOutline;
-  /** Present when an outline host answers (capability `ping.host`). */
-  host?: OutlinerHostStatus;
-  /** The property token grammar clients may copy (capability `ping.propertyGrammar`, src/property-grammar.ts). */
-  propertyGrammar?: { version: number };
-  /** The draft.patch compare clients may copy (capability `ping.draftPatchCompare`, src/draft-patch-compare.ts). */
-  draftPatchCompare?: { version: number };
-  /** The search matcher clients may copy (capability `ping.searchMatch`, src/search-match.ts). */
-  searchMatch?: { version: number };
+/** How the service names its outline in `ping`. */
+export interface OutlinerServiceOutline {
+  name: string;
 }
 
 /** The outline host behind a socket: one per user and machine, serving outlines by name. */
@@ -1851,6 +1659,18 @@ export interface OutlinerHostStatus {
   defaultOutline?: string;
   /** Every outline in the outlines folder, open or not. */
   outlines: string[];
+}
+
+/** What `ping` answers. */
+export interface OutlinerServiceStatus {
+  status: "ready";
+  /** The service's PROTOCOL; a client refuses any other number (`protocolMismatch`). */
+  protocolVersion: number;
+  location?: { hostname: string; workspaceRoot: string; database: string; stateDirectory: string };
+  /** The outline answering. */
+  outline?: OutlinerServiceOutline;
+  /** The host that routed the request. */
+  host?: OutlinerHostStatus;
 }
 
 /** One outline a host serves (`outlines.list`, `outlines.create`, `outlines.import`, `outlines.attach`). */
@@ -1866,33 +1686,22 @@ export interface HostedOutlineSummary {
   default?: boolean;
 }
 
-/** `outlines.attach`: the outline, and whether this call created it. */
+/** `outlines.list`. */
+export interface HostedOutlineList {
+  defaultOutline?: string;
+  outlines: HostedOutlineSummary[];
+}
+
+/** `outlines.attach`: the outline, open, and whether this request created it. */
 export interface HostedOutlineAttachment {
   outline: HostedOutlineSummary;
   created: boolean;
-}
-
-/** `outlines.pane`: the outline and client a live pane is registered on; empty when none is. */
-export interface HostedPaneOutline {
-  outline?: string;
-  clientId?: string;
-  role?: OutlinerClientRole;
 }
 
 /** `outlines.delete`: where the outline's files went (nothing is erased). */
 export interface HostedOutlineDeletion {
   name: string;
   movedTo: string;
-}
-
-export interface HostedOutlineList {
-  defaultOutline?: string;
-  outlines: HostedOutlineSummary[];
-}
-
-/** How the service names its outline in `ping`. */
-export interface OutlinerServiceOutline {
-  name: string;
 }
 
 export interface ResourceProviderCommandResult {
@@ -1906,10 +1715,8 @@ export interface ComputedExecutionResult {
 }
 
 /**
- * Any request may name its outline (capability `request.outline`): an outline
- * host routes the connection by its first line's `outline`, and a later line
- * naming another outline is refused. A single-outline service ignores it, so a
- * client that names one first confirms the capability.
+ * Any request may name its outline: the outline host routes the connection by
+ * its first line's `outline`, and a later line naming another outline is refused.
  */
 export type OutlinerRequest = OutlinerRequestAction & { outline?: string };
 
@@ -2445,19 +2252,6 @@ export type OutlinerRequestAction =
   | { id: string; action: "changes.since"; sequence: number; limit?: number };
 
 /** Machine-readable detail for a rejected request, such as a query syntax position. */
-export interface OutlinerRequestProblem {
-  code: "query-syntax" | "query-invalid";
-  message: string;
-  /** Query field that failed, such as expression. */
-  field?: string;
-  /** 0-based character position within that field's text. */
-  position?: number;
-}
-
-export type OutlinerResponse =
-  | { id: string; ok: true; result: unknown; sequence: number }
-  | { id: string; ok: false; error: string; problem?: OutlinerRequestProblem; sequence: number };
-
 export interface SelectionContext {
   selected: Block | null;
   ancestors: Block[];

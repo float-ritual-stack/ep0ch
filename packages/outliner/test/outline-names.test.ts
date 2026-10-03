@@ -395,7 +395,6 @@ test("a real service publishes its name: ping through by-name answers with the o
     const byName = join(root, "state", "by-name", "jam-shelf.sock");
     expect(ready).toMatchObject({ outline: "jam-shelf", byNameSocket: byName });
     const status = await new OutlinerClient(byName).request<OutlinerServiceStatus>({ action: "ping" });
-    expect(status.capabilities).toContain("ping.outline");
     expect(status.outline).toEqual({ name: "jam-shelf", descriptorPath: join(paths.stateDir, "outline.json"), byNameSocket: byName });
     expect(JSON.parse(readFileSync(join(paths.stateDir, "outline.json"), "utf8"))).toMatchObject({ name: "jam-shelf", root: join(root, "jam-shelf") });
 

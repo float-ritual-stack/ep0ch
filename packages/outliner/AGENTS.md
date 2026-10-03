@@ -39,4 +39,4 @@ for someone, and `ep0ch` for driving a door.
 The service has two clients with different jobs, and both are maintained. Tree, Detail and Preview in
 Herdr are the sysop console: find any block and edit it. [ep0ch-door](https://github.com/float-ritual-stack/ep0ch-door)
 is the board people use day to day. Don't treat the Herdr UI as legacy or drop its features because the
-door covers a case; and when a service capability is added for one client, keep it usable by the other.
+door covers a case; and when a service feature is added for one client, keep it usable by the other.

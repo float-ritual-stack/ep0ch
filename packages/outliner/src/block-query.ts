@@ -1,5 +1,5 @@
 import { matchesFilters, normalizePropertyKey } from "./properties";
-import { isPropertyKey, PROPERTY_KEY_SOURCE } from "./property-grammar";
+import { isPropertyKey, PROPERTY_KEY_SOURCE } from "@ep0ch/outline-core/property-grammar";
 import type {
   BlockProperty,
   BlockSearchQuery,

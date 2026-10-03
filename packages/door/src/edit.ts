@@ -11,7 +11,7 @@ import { stateDir } from "./state";
 import { bg, C, chip, fg, RESET } from "./style";
 import { scrolled } from "./scroll";
 import type { Key } from "./term";
-import { applyLocated, blockStartAt, locateSpans, mapOffset, markStart, type DraftPatchSpan, type LocatedSpan } from "./vendor/draft-patch-compare";
+import { applyLocated, blockStartAt, locateSpans, mapOffset, markStart, type DraftPatchSpan, type LocatedSpan } from "@ep0ch/outline-core/draft-patch-compare";
 
 /** How long an agent's patch stays lit in the draft, with who made it (ms). */
 export const PATCH_FLASH_MS = 2500;

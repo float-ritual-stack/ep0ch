@@ -1,5 +1,5 @@
 import { isOpenBacklinkStage } from "./backlink-facets";
-import { matchesSearchText, prepareSearchQuery, type SearchQuery } from "./search-match";
+import { matchesSearchText, prepareSearchQuery, type SearchQuery } from "@ep0ch/outline-core/search-match";
 import {
   BACKLINK_STAGE_BUCKETS,
   type BacklinkCollection,

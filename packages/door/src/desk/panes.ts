@@ -18,7 +18,7 @@ import { artLines, C, dim, fg, pad, RESET, selected } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
 import { ago, wrap } from "../text";
 import type { TileKindName } from "./tile-kinds";
-import { withoutPropertyTokens } from "../vendor/property-grammar";
+import { withoutPropertyTokens } from "@ep0ch/outline-core/property-grammar";
 
 export interface PaneView { lines: string[]; placements?: Placement[]; scroll?: Scroll }
 

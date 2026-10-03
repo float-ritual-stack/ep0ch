@@ -1,6 +1,6 @@
 import { createConnection, type Socket } from "node:net";
-import { requireCapabilities } from "./service-compatibility";
-import type { OutlinerCapability, OutlinerRequestProblem, OutlinerServiceStatus } from "./types";
+import { requireCompatible } from "./service-compatibility";
+import type { OutlinerRequestProblem, OutlinerServiceStatus } from "./types";
 import type {
   OutlinerClientRegistration,
   OutlinerEvent,
@@ -199,10 +199,10 @@ export class OutlinerClient {
     readonly refusal?: string,
   ) {}
 
-  /** Rejects a service that is too old or lacks a capability the caller will use. */
-  async requireCompatibleService(needed: readonly OutlinerCapability[] = []): Promise<OutlinerServiceStatus> {
+  /** Rejects a service that speaks another protocol (outline-core's PROTOCOL). */
+  async requireCompatibleService(): Promise<OutlinerServiceStatus> {
     const service = await this.request<OutlinerServiceStatus>({ action: "ping" });
-    requireCapabilities(service, needed);
+    requireCompatible(service);
     return service;
   }
 

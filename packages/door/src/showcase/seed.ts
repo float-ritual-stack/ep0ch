@@ -9,7 +9,7 @@
 import type { Msg } from "../board";
 import type { Actor, SocketBoard } from "../socket";
 import { installExamples, installTickets, refreshTicket, registerTicket, SHOWCASE_TICKETS, ticketSource } from "./tickets/install";
-import { withoutPropertyTokens } from "../vendor/property-grammar";
+import { withoutPropertyTokens } from "@ep0ch/outline-core/property-grammar";
 
 /** The root's marker: the showcase screen finds its outline by this property, and never seeds itself. */
 export const SHOWCASE_MARK = { key: "type", value: "showcase" } as const;

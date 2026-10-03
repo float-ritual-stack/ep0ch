@@ -16,24 +16,16 @@ import type { OutlinerActionKeymap } from "./outliner-actions";
 import { openCapturePopup, openGotoPopup, openTreePane, openVirtualBranchNavigatorPopup } from "./pane-control";
 import { parsePropertySummaryKeys } from "./property-summary";
 import { truncateToWidth } from "@earendil-works/pi-tui";
-import { createTreeController, TREE_SERVICE_CAPABILITIES } from "./tree-controller";
+import { createTreeController } from "./tree-controller";
 import {
   isTreeMouseSequence, parseTreePrimaryClick, parseTreeSecondaryClick, parseTreeWheel, treeLinkAtPoint,
   treeClickActivates, treeDisclosureAtClick, treeLinkAtClick, treeRowAtClick,
   type TreeMouseTarget,
 } from "./tree-mouse";
 import { renderTreeFrame } from "./tree-renderer";
-import type { BrowsingContextPublication, OutlinerCapability, OutlinerNavigationTarget, OutlinerRegion, OutlinerUiCommand } from "./types";
+import type { BrowsingContextPublication, OutlinerNavigationTarget, OutlinerRegion, OutlinerUiCommand } from "./types";
 
 /** Tree and Detail retain distinct selections even when they share one client. */
-/**
- * What a Detail process requires of the service before its first request: its
- * view embeds read views.read, and a composed surface also hosts a Tree.
- */
-export function detailServiceCapabilities(composed: boolean): readonly OutlinerCapability[] {
-  return composed ? TREE_SERVICE_CAPABILITIES : ["views.read"];
-}
-
 export function composedTreeNavigation(options: {
   client: OutlinerRequester;
   clientId: string;

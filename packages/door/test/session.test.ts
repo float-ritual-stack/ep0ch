@@ -176,7 +176,7 @@ describe("two clients on one session", () => {
   function session() {
     const term = new SessionTerm();
     const keys: unknown[] = [];
-    const app = new App(term, { supports: () => null, capabilities: null } as any, Date.now(), () => {});
+    const app = new App(term, { supports: () => null, protocol: null } as any, Date.now(), () => {});
     // A screen that says how big it was drawn and records its keys.
     app.push({ title: "plot board", noDock: true, key: (k: unknown) => { keys.push(k); }, render: (ctx: any) => ({ lines: Array.from({ length: ctx.t.rows - 1 }, (_, i) => `row ${i} of ${ctx.t.cols}×${ctx.t.rows}`) }) } as any);
     const paint = () => (app as any).paint();
@@ -316,7 +316,7 @@ describe("two clients on one session", () => {
   test("ending: an agent's session.end is refused; in a door with no session, E says there is none", async () => {
     const { app } = session();
     await expect(app.act({ action: "session.end", args: { force: true }, as: "test-agent" })).rejects.toThrow(/an agent doesn't end the person's session/);
-    const own = new App({ info: { cols: 80, rows: 24, cellW: 9, cellH: 16, kitty: false }, write() {}, paint() {}, invalidate() {}, onKey() {}, onResize() {}, stop() {}, resume() {} } as any, { supports: () => null, capabilities: null } as any, Date.now(), () => {});
+    const own = new App({ info: { cols: 80, rows: 24, cellW: 9, cellH: 16, kitty: false }, write() {}, paint() {}, invalidate() {}, onKey() {}, onResize() {}, stop() {}, resume() {} } as any, { supports: () => null, protocol: null } as any, Date.now(), () => {});
     own.push({ title: "plot board", key() {}, render: () => ({ lines: [] }) } as any);
     await own.dispatch.press("session.end");
     expect((own as any).message).toContain("not as a session: G logs off");

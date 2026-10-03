@@ -44,9 +44,8 @@ export interface PluginFacts {
   checkout: Checkout | null;
   /** A managed install: the source ref's commit on GitHub now (`git ls-remote`), or why it's unknown. */
   remote?: { commit: string | null; error?: string };
-  /** From the installed code (src/types.ts): its wire protocol and the capabilities its service offers. */
+  /** From the installed code (outline-core's protocol.ts): the wire protocol its service speaks. */
   protocol: number | null;
-  capabilities: string[] | null;
   deps: Deps | null;
   /** The plugin's action ids Herdr registered. */
   actions: string[];
@@ -61,7 +60,6 @@ export interface ServiceFacts {
   name?: string;
   root?: string;
   protocol?: number;
-  capabilities?: string[] | null;
   /** The Herdr pane running it (`service-pane.json`), when the Outliner started it in one. */
   paneId?: string;
 }
@@ -74,7 +72,6 @@ export interface HostFacts {
   defaultOutline?: string;
   outlines: HostedOutline[];
   protocol?: number;
-  capabilities?: string[] | null;
   /** The service unit that runs it, when there is one. Install restarts the host through it; it never edits it. */
   unit: HostUnit | null;
 }
@@ -140,8 +137,6 @@ export interface Facts {
      */
     agents?: DoorAgent[];
   };
-  /** What a current service offers: the door's capabilities and the installed plugin's. */
-  expected: string[];
   /**
    * The door session in the person's state dir (PIE-418), when one runs: its daemon, the checkout and commit it runs,
    * its attached terminals and the programs in its tiles. Undefined when not looked for.
@@ -155,13 +150,9 @@ export const PLUGIN_ID = "float.pi-outliner";
 export const PLUGIN_SOURCE = "float-ritual-stack/pi-herdr-outliner";
 export const MIN_BUN = "1.3.0";
 
-/** A running service is old when it lacks a capability the current code offers, or speaks an older protocol. */
-export function staleness(s: { protocol?: number; capabilities?: string[] | null }, expected: readonly string[], protocol: number | null): string[] {
-  const why: string[] = [];
-  if (protocol !== null && s.protocol !== undefined && s.protocol < protocol) why.push(`protocol ${s.protocol} < ${protocol}`);
-  const offered = new Set(s.capabilities ?? []);
-  if (s.capabilities) why.push(...expected.filter(c => !offered.has(c)));
-  return why;
+/** A running service is stale when it speaks another protocol than the current code (outline-core's PROTOCOL). */
+export function staleness(s: { protocol?: number }, protocol: number | null): string[] {
+  return protocol !== null && s.protocol !== undefined && s.protocol !== protocol ? [`protocol ${protocol} (runs ${s.protocol})`] : [];
 }
 
 export const short = (sha: string | null | undefined) => (sha ? sha.slice(0, 7) : "?");

@@ -23,7 +23,7 @@ import { fragmentAnchors } from "./fragments";
 import { pageAddressReferences } from "./page-addresses";
 import { parsePropertyRecords } from "./properties";
 import { blockReferenceOccurrences } from "./references";
-import type { DraftPatchSpan } from "./draft-patch-compare";
+import type { DraftPatchSpan } from "@ep0ch/outline-core/draft-patch-compare";
 import type { MutationProvenance } from "./types";
 
 /** A door's lease on the live draft it holds, when it doesn't say (ms). */
@@ -72,7 +72,7 @@ export interface DraftPatchInput {
   /** Under the `edit` policy: dropping a `[page::…]` or a linked `^anchor` is the point. */
   allowStructural?: boolean;
   /**
-   * Capability `draft.patch.current`: on a saved note, compare the spans (and
+   * `current`: on a saved note, compare the spans (and
    * the mark) against the text as it is now instead of requiring `revision`:
    * a person typing elsewhere in the note doesn't turn the patch into a
    * proposal; typing in the passage still does. A live draft compares this way already.

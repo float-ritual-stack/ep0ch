@@ -1,4 +1,4 @@
-// Board over the outliner's JSON-lines socket (protocol 82, with every capability in OUTLINE_CAPABILITIES).
+// Board over the outliner's JSON-lines socket, on outline-core's PROTOCOL: a service on another number is refused.
 // Reads use the service's safe-read actions. Writes are guarded by the service, never by retrying:
 // `update` (a saved edit) and `properties.patch` (a card moved between lanes) name the revision they
 // started from, so a stale one is refused instead of overwriting someone else's change; a comment names
@@ -11,53 +11,12 @@ import { BACKLINK_QUERY_LIMIT, type BacklinkCollection } from "./backlinks";
 import type { ResourceProjectionRead } from "./projection";
 import type { ExtensionActResult, ExtensionList } from "./extensions";
 import { resourceStored, type AuthoredLinksSnapshot, type AuthoredResourceReference, type ResourceDescription } from "./authored";
-import { PROPERTY_GRAMMAR_VERSION } from "./vendor/property-grammar";
+import { OUTLINE_NAME_PATTERN, protocolMismatch } from "@ep0ch/outline-core/protocol";
 import { jsonLine, JsonLines } from "./jsonl";
 
 export const DEFAULT_SOCKET = process.env.EP0CH_SOCKET ?? `${process.env.HOME}/.local/state/pi-herdr-outliner/float-box.sock`;
-/** The protocol the door speaks, and the oldest service it reads. */
-const PROTOCOL = 82;
-
-/**
- * The service features the door needs, named as the service advertises them in `ping.capabilities`
- * (PIE-402). A service that lacks any of them is refused at `info()`: it is older than this door.
- */
-export const OUTLINE_CAPABILITIES = ["blocks.read", "properties.preview", "views.read", "query.expression", "changes.since", "references.backlinks.facets", "resources.projection",
-  /** The service's fragment and transclusion rules (pi-herdr-outliner PIE-424, src/transclusions.ts). */
-  "fragments.read", "transclusions.read", "fragments.candidates",
-  /**
-   * The service plans writes into saved views (pi-herdr-outliner PIE-490): the property patch that moves
-   * a card into a lane, and what a new card there is born with. `query.matches` tests a query against
-   * given blocks; `ping.propertyGrammar` reports the token grammar src/vendor/property-grammar.ts copies.
-   */
-  "views.planWrite", "query.matches", "ping.propertyGrammar",
-  /**
-   * draft.patch (pi-herdr-outliner PIE-501): the door holds each live draft on a lease (`drafts.hold`), so an
-   * agent's compare-and-swap on a span lands in the draft being typed; `draft.proposal.apply` is "apply anyway",
-   * `draft.proposal.dismiss` (PIE-510) dismisses one in the service: its embed line out, marked, to the Trash.
-   */
-  "drafts.hold", "drafts.read", "draft.patch", "draft.proposal.apply", "draft.proposal.dismiss", "ping.draftPatchCompare",
-  /** PIE-510: the person typed in a held draft (`drafts.touch`): an `@name` line written there runs before any save. */
-  "drafts.touch",
-  /**
-   * Wave A of the extension design (pi-herdr-outliner PIE-445): a ticket kept as a block the Jira extension
-   * owns (`extensions.records`), fetched on save and on open (`resources.projection.materialize`), refreshed
-   * from any client (`resources.projection.refresh`); Resources read and refreshed without a Detail
-   * (`resources.observer-reads`); who registered a Resource (`resources.follow-authored.provenance`);
-   * `activity.recent`'s extension filter (`activity.extensions`); `blocks.authored-links` by name.
-   */
-  "extensions.records", "resources.projection.materialize", "resources.projection.refresh", "resources.observer-reads",
-  "resources.follow-authored.provenance", "activity.extensions", "blocks.authored-links",
-  /**
-   * Extensions wave B (pi-herdr-outliner PIE-507): the extension folders (`extensions.list`: handlers, actions,
-   * tile kinds), their handler lines' results in the projection slot (`extensions.outputs`), actions run and
-   * attributed by the service (`extensions.act`), and `@name` agents a person addresses while they write
-   * (`extensions.agents`, PIE-501). PIE-510: `extensions.act` takes who asks (`extensions.act.requester`, the
-   * change feed's `requestedBy`), and only the service writes as an extension (`mutations.ext-reserved`).
-   */
-  "extensions.list", "extensions.outputs", "extensions.act", "extensions.agents", "extensions.act.requester", "mutations.ext-reserved"] as const;
-/** An outline's name on a host: a short slug, as the outliner's OUTLINE_NAME_PATTERN. */
-export const OUTLINE_NAME = /^[a-z0-9][a-z0-9-]{0,31}$/;
+/** An outline's name on a host: a short slug (outline-core's OUTLINE_NAME_PATTERN). */
+export const OUTLINE_NAME = OUTLINE_NAME_PATTERN;
 
 /** What `ping` without an outline says about an outline host (absent from a single-outline service). */
 export interface HostStatus { socket: string; defaultOutline?: string; outlines: string[] }
@@ -132,9 +91,9 @@ export interface Change {
  * `reset` (reload everything: the feed's history doesn't reach back far enough)
  * and `reconnected` (caught up; `caughtUp` changes were replayed as ordinary events first).
  */
-/** The spans of a `draft.patch` as the service passes them on (src/vendor/draft-patch-compare.ts). */
-export type { DraftPatchSpan } from "./vendor/draft-patch-compare";
-import type { DraftPatchSpan } from "./vendor/draft-patch-compare";
+/** The spans of a `draft.patch` as the service passes them on (@ep0ch/outline-core/draft-patch-compare). */
+export type { DraftPatchSpan } from "@ep0ch/outline-core/draft-patch-compare";
+import type { DraftPatchSpan } from "@ep0ch/outline-core/draft-patch-compare";
 
 /**
  * What the service asks the door holding a draft (a `draft` event), and the answer the door sends back. A patch
@@ -371,8 +330,8 @@ export class SocketBoard implements Board {
   private seq = 0;
   private events: Socket | null = null;
   readonly clientId = `ep0ch-door-${crypto.randomUUID().slice(0, 8)}`;
-  /** What `ping.capabilities` advertised (null until `info()`). */
-  capabilities: Set<string> | null = null;
+  /** The protocol the service reported (null until `info()`). */
+  protocol: number | null = null;
   /** Every request's action, newest last: which paths the door actually took (tests read it). */
   readonly sent: string[] = [];
 
@@ -488,28 +447,15 @@ export class SocketBoard implements Board {
   toMsgs(blocks: WireBlock[]): Msg[] { return blocks.map(b => toMsg(b)); }
 
   async info(): Promise<BoardInfo> {
-    const r = await this.request<{ protocolVersion: number; minClientProtocol?: number; capabilities?: string[]; location: { hostname: string; workspaceRoot: string }; outline?: { name: string }; host?: HostStatus; propertyGrammar?: { version: number } }>("ping");
-    // A single-outline service ignores `outline` and would serve its own outline: never read the wrong one.
-    if (this.outline && !r.capabilities?.includes("request.outline"))
-      throw new Error(`${this.path} serves one outline and can't route by name (no request.outline), so it can't open the outline "${this.outline}"; start the outline host, or name a folder root with --ws <root>`);
+    const r = await this.request<{ protocolVersion: number; location: { hostname: string; workspaceRoot: string }; outline?: { name: string }; host?: HostStatus }>("ping");
     if (this.outline && r.outline?.name && r.outline.name !== this.outline)
       throw new Error(`the outline host at ${this.path} answered for "${r.outline.name}", not "${this.outline}"`);
-    // The door needs every capability it names: an older service is refused here, never worked around.
-    const missing = OUTLINE_CAPABILITIES.filter(c => !r.capabilities?.includes(c));
-    if (r.protocolVersion < PROTOCOL || missing.length)
-      throw new Error(`the outline service at ${this.path} is older than this door (${r.protocolVersion < PROTOCOL ? `protocol ${r.protocolVersion}; it needs ${PROTOCOL}` : `without ${missing.join(", ")}`}): run \`ep0ch install --apply\`, or restart the outline host on current code`);
-    if (r.minClientProtocol !== undefined && r.minClientProtocol > PROTOCOL)
-      throw new Error(`outline (protocol ${r.protocolVersion}) no longer serves clients older than protocol ${r.minClientProtocol}; this door speaks ${PROTOCOL}: update the door (\`ep0ch install --apply\`)`);
-    this.capabilities = new Set(r.capabilities);
-    // The door finds [key::value] tokens while it paints with its copy of the outliner's grammar; a
-    // different version on the service means titles may hide or show tokens differently from Detail.
-    const grammar = r.propertyGrammar?.version;
-    const warning = grammar !== undefined && grammar !== PROPERTY_GRAMMAR_VERSION
-      ? `this outline's property grammar is version ${grammar} and this door's copy is ${PROPERTY_GRAMMAR_VERSION}: titles may show or hide [key::value] differently from Detail until the door is updated`
-      : undefined;
+    // One check: the service speaks this checkout's protocol. Older or newer, it is refused, never worked around.
+    const mismatch = protocolMismatch(r.protocolVersion, "this door");
+    if (mismatch) throw new Error(`${mismatch} (${this.path})`);
+    this.protocol = r.protocolVersion;
     return {
-      host: r.location.hostname, workspace: r.location.workspaceRoot, protocol: r.protocolVersion, blocks: null, capabilities: r.capabilities!,
-      ...(warning ? { warning } : {}),
+      host: r.location.hostname, workspace: r.location.workspaceRoot, protocol: r.protocolVersion, blocks: null,
       // On a host, the outline's name is how it's addressed (a board with no outline reads the host's default).
       ...(r.host ? { outline: r.outline?.name ?? this.outline } : {}),
     };

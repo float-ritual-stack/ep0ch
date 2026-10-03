@@ -1,6 +1,6 @@
 // `ep0ch doctor`: every piece of the stack, its state (✓ current, ! behind, ✗ missing, · for information)
 // and the exact command that fixes it. Read-only; built from the facts (model.ts) so tests describe machines.
-import { OUTLINE_CAPABILITIES } from "../socket";
+import { PROTOCOL } from "@ep0ch/outline-core/protocol";
 import { DOCK_TILE_ID } from "../desk/agent-env";
 import { KEYED_ACTIONS, MIN_BUN, PLUGIN_ID, type Facts, short, staleness } from "./model";
 import { chooseLinkDir, claudeModState, oldMentionsAllowlist, hostRestartHint, hostUnitCommand, linkStep, pluginStep, doorStep, sessionStep, serviceLabel, unitRunsElsewhere } from "./plan";
@@ -39,9 +39,8 @@ export function doctorChecks(f: Facts): Check[] {
     const commit = p.kind === "local" ? (p.checkout?.head ? ` at ${short(p.checkout.head)}${p.checkout.branch ? ` on ${p.checkout.branch}` : ""}` : "") : p.source?.commit ? ` at ${short(p.source.commit)}` : "";
     add("plugin", "installed", status, `${how}${commit}${p.enabled ? "" : " (disabled in Herdr)"}; ${plugin.why}`, plugin.status === "skip" || plugin.unchecked ? undefined : plugin.commands.filter(c => !c.includes("# when")).join(" && ") || "ep0ch install --apply");
     add("plugin", "protocol", p.protocol === null ? "missing" : "info",
-      p.protocol === null ? `couldn't read the protocol from ${p.root}/src/types.ts` : `protocol ${p.protocol}, ${p.capabilities?.length ?? 0} service capabilities`);
-    const lacking = p.capabilities ? OUTLINE_CAPABILITIES.filter(c => !p.capabilities!.includes(c)) : [];
-    if (lacking.length) add("plugin", "for the door", "behind", `the door uses ${lacking.join(", ")}, which the installed plugin doesn't offer`, "update the plugin: ep0ch install --apply");
+      p.protocol === null ? `couldn't read the protocol from ${p.root}/../outline-core/src/protocol.ts` : `protocol ${p.protocol}`);
+    if (p.protocol !== null && p.protocol !== PROTOCOL) add("plugin", "for the door", "behind", `the installed plugin speaks protocol ${p.protocol} and this door ${PROTOCOL}`, "ep0ch install --apply");
   }
 
   // the door
@@ -71,7 +70,7 @@ export function doctorChecks(f: Facts): Check[] {
       h.configured || h.unit ? `set up (${unit}) but nothing answers at ${h.socket}` : `none (${h.socket}); per-folder services only`,
       h.unit ? hostUnitCommand(h.unit, "start") : undefined);
   } else {
-    const missing = staleness(h, f.expected, f.plugin?.protocol ?? null);
+    const missing = staleness(h, f.plugin?.protocol ?? null);
     const names = h.outlines.map(o => `${o.name}${o.default ? "*" : ""}${o.open ? "" : " (closed)"}`).join(", ");
     // The socket answers, but the unit says its job isn't running: something else serves it (a host started by hand).
     const stray = h.unit?.state?.active === false ? `; ${h.unit.kind} isn't running it, so another process answers` : "";
@@ -88,7 +87,7 @@ export function doctorChecks(f: Facts): Check[] {
     const label = `folder ${serviceLabel(s)}`;
     const hosted = s.database ? f.databases.find(d => d.from === "host" && d.path === s.database) : undefined;
     if (!s.running) { add("services", label, "info", hosted ? `served by the outline host as ${hosted.name} (${s.stateDir})` : `stopped (${s.stateDir})`); continue; }
-    const missing = staleness(s, f.expected, f.plugin?.protocol ?? null);
+    const missing = staleness(s, f.plugin?.protocol ?? null);
     add("services", label, missing.length ? "behind" : "ok",
       `${s.root ?? s.stateDir}, protocol ${s.protocol ?? "?"}${missing.length ? `; runs old code, missing ${missing.join(", ")}: restart to pick up new features` : ""}${s.paneId ? `; Herdr pane ${s.paneId}` : ""}`,
       missing.length ? (s.paneId ? "ep0ch install --apply --restart-services" : "stop it and reopen the Outliner in that folder") : undefined);
