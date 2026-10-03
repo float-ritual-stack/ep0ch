@@ -13,7 +13,7 @@ import { DRAFT_ACTIONS, pruneOld, sameParty, tidy, whenPut, PATCH_FLASH_MS, Draf
 import { actorIdOf, EditConflict, isExtensionWriter, Refused, USER, type Actor, type Comment, type CommentPassage, type DraftAnswer, type DraftHoldHandle, type DraftRequest, type SocketBoard } from "./socket";
 import { ActionRefused, agentLabel, type DraftUse } from "./surface/actions";
 import { completionKey, type Completer } from "./surface/completer";
-import { stateDir } from "./state";
+import { outlineState } from "./state";
 import type { Key } from "./term";
 import { markStart } from "@ep0ch/outline-core/draft-patch-compare";
 
@@ -784,7 +784,8 @@ export function cardTarget(o:
 /** A draft put aside (esc twice, a screen closed, the door quit): by its place, with a copy on disk. */
 export interface Unsent { key: string; text: string; base: number; at: number; copy: string | null; writers?: Actor[] }
 
-const unsentDir = () => join(stateDir(), "drafts", "unsent");
+/** The outline's own (a draft's key is its blocks', threads' and views'): in its folder of the state dir, `outlineState()`. */
+const unsentDir = () => join(outlineState(), "drafts", "unsent");
 /**
  * A place's file: `<kind>-<id>.json` when the id is plain (letters, digits, . - _). Anything else (an older
  * `card:<lane name>`) is named by its hash too, so two keys never share a file ("To do" and "To-do").

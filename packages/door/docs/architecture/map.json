@@ -482,13 +482,14 @@
     },
     {
       "id": "door.state", "name": "State directory", "group": "door", "chapter": "layout", "ladder": "provisional", "was": "accidental", "dependsOn": [],
-      "does": "Where the door keeps layouts, drafts, marks and its sockets. EP0CH_STATE moves all of it; files are private to the user; two doors on one directory are warned.",
-      "built": "stateDir, privateDir (the nvim sockets' check, extracted), writeState (temp file and rename), claimState.",
+      "does": "Where the door keeps layouts, drafts, marks and its sockets. EP0CH_STATE moves all of it; files are private to the user. What is one outline's (its session, saved screen layouts, last call, marks, drafts put aside, control socket) lives in that outline's folder; the person's (theme, named layouts, machines, dock) stays shared. Two doors on one outline are warned.",
+      "built": "stateDir, privateDir (the nvim sockets' check, extracted), writeState (temp file and rename), outlineState and useOutlineState (the outline's folder, named by src/session/place.ts; the home base's own on none), claimState.",
       "refs": [
-        { "r": "door", "p": "src/state.ts", "l": 7, "m": "export const stateDir" },
-        { "r": "door", "p": "src/state.ts", "l": 22, "m": "export function privateDir" },
-        { "r": "door", "p": "src/state.ts", "l": 43, "m": "export function writeState" },
-        { "r": "door", "p": "src/state.ts", "l": 62, "m": "export function claimState" }
+        { "r": "door", "p": "src/state.ts", "l": 14, "m": "export const stateDir" },
+        { "r": "door", "p": "src/state.ts", "l": 29, "m": "export function privateDir" },
+        { "r": "door", "p": "src/state.ts", "l": 68, "m": "export function writeState" },
+        { "r": "door", "p": "src/state.ts", "l": 60, "m": "export const outlineState" },
+        { "r": "door", "p": "src/state.ts", "l": 87, "m": "export function claimState" }
       ]
     },
     {
@@ -557,8 +558,8 @@
       "does": "SIGINT, SIGQUIT, SIGTERM, SIGHUP, an uncaught exception or rejection: drafts and ctrl+e text are copied to drafts/, the terminal is put back, the socket removed, and the door says where the text went.",
       "built": "guardDoor (door.ts) is the one teardown, for the own terminal and the session alike: every signal and fault calls App.terminate; a small watcher restores the terminal after kill -9. In a door session (door.daemon) a terminal's signals only detach it; the session's own end goes through the same terminate.",
       "refs": [
-        { "r": "door", "p": "src/door.ts", "l": 171, "m": "export function guardDoor" },
-        { "r": "door", "p": "src/door.ts", "l": 186, "m": "process.on(\"uncaughtException\", fault)" },
+        { "r": "door", "p": "src/door.ts", "l": 176, "m": "export function guardDoor" },
+        { "r": "door", "p": "src/door.ts", "l": 191, "m": "process.on(\"uncaughtException\", fault)" },
         { "r": "door", "p": "src/app.ts", "l": 347, "m": "terminate()" }
       ],
       "questions": [ { "text": "Six child-process launchers, three with no timeout; unzip blocks the paint.", "finding": "B-F7" } ]
@@ -566,18 +567,19 @@
     {
       "id": "door.daemon", "name": "The door session", "group": "door", "chapter": "terminal", "ladder": "provisional", "dependsOn": ["door.runtime", "door.control", "door.pty", "kept.terminal"],
       "does": "The door keeps running without a terminal (PIE-418): quitting a terminal detaches it, and the screens, layouts, drafts and terminal tiles (programs and scrollback) are there at the next attach. Several terminals at once, the keys wherever the person last typed; ended only by session.end.",
-      "built": "One daemon per user and state dir runs openDoor on a SessionTerm and serves session.sock beside the control socket; a client probes its terminal, sends input and its size, writes the frames it's sent, runs a program the session hands it. Frames, not state: App renders once and SessionTerm paints each client through its own Painter (size, video mode, Kitty images).",
+      "built": "One daemon per outline, like herdr --session <name>: src/session/place.ts is the one rule for where it lives (placeOf, placeFor: sessions/<local or ssh-name>/<name>/ in the state dir, a short hash where a socket path would be too long, place.json naming it). It runs openDoor on a SessionTerm and serves session.sock beside the control socket; a client probes its terminal, sends input and its size, writes the frames it's sent, runs a program the session hands it. Frames, not state: App renders once and SessionTerm paints each client through its own Painter (size, video mode, Kitty images).",
       "refs": [
-        { "r": "door", "p": "src/session/daemon.ts", "l": 81, "m": "export async function serve" },
+        { "r": "door", "p": "src/session/place.ts", "l": 38, "m": "export function placeOf" },
+        { "r": "door", "p": "src/session/place.ts", "l": 50, "m": "export function placeFor" },
+        { "r": "door", "p": "src/session/daemon.ts", "l": 85, "m": "export async function serve" },
         { "r": "door", "p": "src/session/session-term.ts", "l": 77, "m": "export class SessionTerm" },
-        { "r": "door", "p": "src/session/client.ts", "l": 184, "m": "export async function attach(" },
-        { "r": "door", "p": "src/session/protocol.ts", "l": 127, "m": "export class Frames" },
+        { "r": "door", "p": "src/session/client.ts", "l": 262, "m": "export async function attach(" },
+        { "r": "door", "p": "src/session/protocol.ts", "l": 124, "m": "export class Frames" },
         { "r": "door", "p": "src/display.ts", "l": 56, "m": "export class Painter" },
-        { "r": "door", "p": "src/door.ts", "l": 48, "m": "export async function openDoor" }
+        { "r": "door", "p": "src/door.ts", "l": 51, "m": "export async function openDoor" }
       ],
       "questions": [
-        { "text": "Drafts typed since the last put-aside live only in the daemon's memory: a daemon that dies loses them (a handoff puts them aside first).", "route": "PIE-418" },
-        { "text": "One session per state dir: a second outline is a second EP0CH_STATE, not a second session in the same one.", "route": "PIE-418" }
+        { "text": "Drafts typed since the last put-aside live only in the daemon's memory: a daemon that dies loses them (a handoff puts them aside first).", "route": "PIE-418" }
       ]
     },
     {
@@ -585,11 +587,11 @@
       "does": "A terminal tile's program outlives the session's daemon: an upgrade (`ep0ch session upgrade`) or a crash leaves it running, and the next daemon adopts it with its output and reopens the screens and the edits.",
       "built": "Bun can't pass a pty between processes, so the ptys live in a host process of their own (pty.sock) behind the PtyBackend seam; PtyPane adopts by its tile (keptAs). The restore is a checkpoint: the screens open as the actions that open them, run again only where the ActionDef declares replay safe, and the edits open on top; each screen's layout is its own saved state.",
       "refs": [
-        { "r": "door", "p": "src/session/pty-host.ts", "l": 60, "m": "export async function servePtyHost" },
-        { "r": "door", "p": "src/session/pty-host.ts", "l": 209, "m": "export class HostPtys" },
+        { "r": "door", "p": "src/session/pty-host.ts", "l": 61, "m": "export async function servePtyHost" },
+        { "r": "door", "p": "src/session/pty-host.ts", "l": 210, "m": "export class HostPtys" },
         { "r": "door", "p": "src/desk/pty-backend.ts", "l": 65, "m": "export const localPtys" },
-        { "r": "door", "p": "src/session/restore.ts", "l": 54, "m": "export class Checkpoints" },
-        { "r": "door", "p": "src/session/restore.ts", "l": 89, "m": "export async function restore" }
+        { "r": "door", "p": "src/session/restore.ts", "l": 55, "m": "export class Checkpoints" },
+        { "r": "door", "p": "src/session/restore.ts", "l": 90, "m": "export async function restore" }
       ],
       "questions": [ { "text": "The host's own code can't be upgraded under its programs: a host protocol change ends them, and the tiles start them again.", "route": "PIE-418" } ]
     },
@@ -598,8 +600,8 @@
       "does": "Checks and updates the whole stack: facts detected, a plan, then apply.",
       "built": "setup/: facts, model, plan, apply, doctor.",
       "refs": [
-        { "r": "door", "p": "src/setup/facts.ts", "l": 41, "m": "export async function run" },
-        { "r": "door", "p": "src/setup/model.ts", "l": 174, "m": "MIN_BUN = \"1.3.0\"" }
+        { "r": "door", "p": "src/setup/facts.ts", "l": 42, "m": "export async function run" },
+        { "r": "door", "p": "src/setup/model.ts", "l": 179, "m": "MIN_BUN = \"1.3.0\"" }
       ],
       "questions": [
         { "text": "~/backups/ep0ch isn't configurable.", "finding": "B-F17", "route": "PIE-494" },
@@ -698,10 +700,10 @@
       "does": "The door's own socket: peek, snap, open, actions, act, subscribe. Agents, tile programs and the Herdr wrapper all come through it. It is the door's shell, so it is private.",
       "built": "startControl sweeps dead sockets, listens in a folder that is the user's alone, chmods 0600, caps request lines; snap writes only under the state dir; the feed disconnects a subscriber that stops reading.",
       "refs": [
-        { "r": "door", "p": "src/control.ts", "l": 105, "m": "export async function startControl" },
-        { "r": "door", "p": "src/control.ts", "l": 146, "m": "chmodSync(path, 0o600)" },
-        { "r": "door", "p": "src/control.ts", "l": 61, "m": "req.cmd === \"peek\"" },
-        { "r": "door", "p": "src/control.ts", "l": 51, "m": "export function feedWriter" }
+        { "r": "door", "p": "src/control.ts", "l": 109, "m": "export async function startControl" },
+        { "r": "door", "p": "src/control.ts", "l": 150, "m": "chmodSync(path, 0o600)" },
+        { "r": "door", "p": "src/control.ts", "l": 65, "m": "req.cmd === \"peek\"" },
+        { "r": "door", "p": "src/control.ts", "l": 55, "m": "export function feedWriter" }
       ],
       "questions": [ { "text": "The feed says what changed on screen, never which action ran or who ran it.", "finding": "B-F23", "route": "PIE-492" } ]
     },
@@ -822,7 +824,7 @@
       { "label": "change feed", "at": "svc.feed", "what": "The change is recorded in the feed and broadcast as an event to every subscriber: this door, other doors, Detail, Tree, the publisher.",
         "ref": { "r": "outliner", "p": "src/server.ts", "l": 3029, "m": "private publishChanges" } },
       { "label": "event in", "at": "door.socketboard", "what": "Each door's SocketBoard hands the event to App.event, which passes it to the screen on top.",
-        "ref": { "r": "door", "p": "src/door.ts", "l": 57, "m": "o.board.subscribe(e => app.event(e))" } },
+        "ref": { "r": "door", "p": "src/door.ts", "l": 61, "m": "o.board.subscribe(e => app.event(e))" } },
       { "label": "which lanes", "at": "door.board", "what": "The board works out which lanes the change touches (asking planWrite which lanes the card is 'already' in) and marks them.",
         "ref": { "r": "door", "p": "src/desk/lanes.ts", "l": 346, "m": "private changed(c: Change, e: OutlineEvent)" } },
       { "label": "lanes repaint", "at": "door.board", "what": "Each marked lane, a query tile in the board's columns container, reads its view again with views.read and draws. In the door that moved it, moveTo's finally reloads the source and target lanes.",

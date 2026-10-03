@@ -1,7 +1,14 @@
 // Where the door keeps per-user state: the layouts, drafts, marks, last call, the default control socket,
 // snapshots, ctrl+e edit files and the media cache. One root, `stateDir()`: EP0CH_STATE moves all of it.
+//
+// Two kinds of state live there. What's the person's whatever outline they're on is shared, in the state dir itself:
+// the theme, the machines opened, the named layouts (layouts.json), drafts and ctrl+e files, the dock, the
+// summary keys, the daily scratch and the media cache. What belongs to one outline lives in that outline's own folder,
+// `outlineState()` (sessions/<where>/<name>/, src/session/place.ts): its session's files, the screens' saved layouts
+// (desk.json, river.json, delivery.json), the river's index, the last call, the marks (on its blocks), the doors on it
+// and its control socket.
 import { chmodSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { isAbsolute, join, relative, resolve } from "node:path";
 
 // Read at call time so scripts (the snapshot harness) can point it elsewhere first.
 export const stateDir = () => join(process.env.EP0CH_STATE ?? defaultStateDir());
@@ -30,20 +37,38 @@ export function privateDir(dir: string, own = false): string | null {
   } catch { return null; }
 }
 
+/** `p` is `root` or inside it. */
+export function isInside(root: string, p: string): boolean {
+  const rel = relative(resolve(root), resolve(p));
+  return !rel.startsWith("..") && !isAbsolute(rel);
+}
+
 /** A folder of the state dir, private (0700). The state dir is tightened too: it holds drafts and the socket. */
 export function stateSub(name: string): string | null {
   return privateDir(stateDir(), true) && privateDir(join(stateDir(), name), true);
 }
 
-export function readState<T>(name: string): T | null {
-  try { return JSON.parse(readFileSync(join(stateDir(), name), "utf8")) as T; } catch { return null; }
+/**
+ * The folder of the outline this door is on (src/session/place.ts names it), set once the door knows its outline
+ * (openDoor, the session's daemon). The home base, on no outline yet, has `homeState()`.
+ */
+let outlineHome: string | null = null;
+export function useOutlineState(dir: string | null): void { outlineHome = dir; }
+/** Where the home base (a door on no outline yet, openDoor) keeps what an outline's door would: never the state dir itself. */
+export const homeState = () => join(stateDir(), "home");
+/** The folder set by useOutlineState; unset only in an App a test builds on a scratch board, which keeps it in the state dir. */
+export const outlineState = () => outlineHome ?? stateDir();
+
+/** A shared file of the state dir, or with `dir` (outlineState()) the outline's own. */
+export function readState<T>(name: string, dir = stateDir()): T | null {
+  try { return JSON.parse(readFileSync(join(dir, name), "utf8")) as T; } catch { return null; }
 }
 
 /** Written whole or not at all: a temp file beside it, renamed over it (a crash mid-write never leaves half a layout). */
-export function writeState(name: string, value: unknown): void {
+export function writeState(name: string, value: unknown, dir = stateDir()): void {
   try {
-    mkdirSync(stateDir(), { recursive: true, mode: 0o700 });
-    const path = join(stateDir(), name), tmp = `${path}.${process.pid}.tmp`;
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    const path = join(dir, name), tmp = `${path}.${process.pid}.tmp`;
     writeFileSync(tmp, JSON.stringify(value), { mode: 0o600 });
     renameSync(tmp, path);
   } catch { /* not fatal */ }
@@ -55,12 +80,12 @@ export function alive(pid: number): boolean {
 }
 
 /**
- * Say this door uses the state dir (doors/<pid>, removed when it exits) and return the other doors that
- * do, so the second is warned: the desk layout is last-writer-wins between them (marks merge, LocalMarks).
+ * Say this door is on its outline (doors/<pid> in the outline's folder, removed when it exits) and return the other
+ * doors that are, so the second is warned: the desk layout is last-writer-wins between them (marks merge, LocalMarks).
  * A pid file whose door is gone (kill -9) is swept.
  */
 export function claimState(): number[] {
-  const dir = stateSub("doors");
+  const dir = privateDir(stateDir(), true) && privateDir(outlineState(), true) && privateDir(join(outlineState(), "doors"), true);
   if (!dir) return [];
   // Claimed before looking: two doors starting at once each see the other (look first, and both may see none).
   const mine = join(dir, String(process.pid));
@@ -75,9 +100,9 @@ export function claimState(): number[] {
   return others;
 }
 
-/** When the person last called (logged on): "new since your last call" reads it. */
-export const readLastCall = () => Number(readState<{ at?: number }>("lastcall.json")?.at) || 0;
-export const writeLastCall = (at: number) => writeState("lastcall.json", { at });
+/** When the person last called (logged on) on this outline: "new since your last call" reads it. */
+export const readLastCall = () => Number(readState<{ at?: number }>("lastcall.json", outlineState())?.at) || 0;
+export const writeLastCall = (at: number) => writeState("lastcall.json", { at }, outlineState());
 
-/** This door stops using the state dir (it exits, or a session's daemon hands over to the next): its claim goes. */
-export function unclaimState(): void { rmSync(join(stateDir(), "doors", String(process.pid)), { force: true }); }
+/** This door leaves its outline (it exits, or a session's daemon hands over to the next): its claim goes. */
+export function unclaimState(): void { rmSync(join(outlineState(), "doors", String(process.pid)), { force: true }); }

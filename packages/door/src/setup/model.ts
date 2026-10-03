@@ -164,10 +164,11 @@ export interface Facts {
     agents?: DoorAgent[];
   };
   /**
-   * The door session in the person's state dir (PIE-418), when one runs: its daemon, the checkout and commit it runs,
-   * its attached terminals and the programs in its tiles. Undefined when not looked for.
+   * The door sessions in the person's state dir (PIE-418), one per outline: each one's outline and machine, its daemon,
+   * the checkout and commit it runs, its attached terminals and the programs in its tiles. `old`: the one session from
+   * before sessions were per outline (src/session/old-session.ts, a one-off). Undefined when not looked for.
    */
-  session?: { pid: number; dir: string; commit: string | null; clients: number; programs: number } | null;
+  sessions?: SessionFact[];
   /** The door's userland extensions (packages/door/ext/) and the links they ask for; undefined when not looked for. */
   ext?: { root: string; exts: ExtFacts[]; stale: StaleLink[]; record?: string };
   /** The shipped agent skills' links (Claude Code's skills folder, and ~/.agents/skills); undefined when not looked for. */
@@ -187,3 +188,6 @@ export function staleness(s: { protocol?: number }, protocol: number | null): st
 }
 
 export const short = (sha: string | null | undefined) => (sha ? sha.slice(0, 7) : "?");
+
+/** A door session as doctor and install see it. */
+export interface SessionFact { outline: string; machine?: string; socket?: string; pid: number; dir: string; commit: string | null; clients: number; programs: number; old?: boolean }

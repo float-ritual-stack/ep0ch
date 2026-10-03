@@ -13,7 +13,7 @@ import { outlinerPlugin } from "../skills";
 import { outlineOfFile } from "@ep0ch/outline-core/outline-location";
 import { doorAgents } from "../desk/agent-env";
 import { hostRequest, type HostedOutline } from "../socket";
-import { type Checkout, type DatabaseFacts, type Deps, detectPlatform, type Facts, type HereFacts, type HostFacts, type HostUnit, KEYED_ACTIONS, PLUGIN_ID, type PluginFacts, type RepoFacts, type UnitState } from "./model";
+import { type Checkout, type DatabaseFacts, type Deps, detectPlatform, type Facts, type HereFacts, type HostFacts, type HostUnit, KEYED_ACTIONS, PLUGIN_ID, type PluginFacts, type RepoFacts, type SessionFact, type UnitState } from "./model";
 import { chooseLinkDir, linkCandidates } from "./plan";
 
 type Env = Record<string, string | undefined>;
@@ -358,7 +358,7 @@ export async function gatherFacts(o: GatherOptions = {}): Promise<Facts> {
     return Promise.resolve(p).finally(() => { waiting.splice(waiting.indexOf(name), 1); done++; o.onProgress?.({ done, total: done + waiting.length, waiting: [...waiting] }); });
   };
   const lines = (what: string): OnLine | undefined => (o.onLine ? l => o.onLine!(`${what}: ${l.trim()}`) : undefined);
-  const [bunVersion, herdrVersion, server, plugin, repo, host, agents, session] = await Promise.all([
+  const [bunVersion, herdrVersion, server, plugin, repo, host, agents, sessions] = await Promise.all([
     part("bun", bunPath ? run([bunPath, "--version"], { env, timeoutMs: 5000 }).then(r => r.code === 0 ? r.out : null) : null),
     part("Herdr", herdrPath ? run([herdrPath, "--version"], { env, timeoutMs: 5000 }).then(r => r.code === 0 ? r.out.replace(/^herdr\s+/, "") : null) : null),
     part("Herdr's server", herdrPath ? run([herdrPath, "status", "server", "--json"], { env, timeoutMs: 5000 }).then(r => { try { return JSON.parse(r.out).running === true; } catch { return false; } }) : null),
@@ -366,7 +366,7 @@ export async function gatherFacts(o: GatherOptions = {}): Promise<Facts> {
     part("the ep0ch checkout", repoFacts(repoRoot, fetch, env, lines("ep0ch"))),
     part("the outline host", hostFacts(folder, platform, home)),
     part("door agents", doorAgents(env).catch(() => undefined)),
-    part("the door session", doorSession(env).catch(() => null)),
+    part("the door sessions", doorSessions(env).catch(() => [])),
   ]);
 
   const found = which("ep0ch", pathDirs);
@@ -409,16 +409,21 @@ export async function gatherFacts(o: GatherOptions = {}): Promise<Facts> {
     here,
     machines,
     claude: { settingsPath, settingsDirs, envDirs: splitDirs(env.CLAUDE_CODE_PLUGIN_DIRS), ...(mentions ? { mentions } : {}), ...(env.FORCE_HYPERLINK !== undefined ? { forceHyperlink: env.FORCE_HYPERLINK } : {}), ...(agents ? { agents } : {}) },
-    session,
+    sessions,
     ext: extFacts(join(repo.door, "ext"), { env, home, bin: binDirOf(found, target === real(repo.entry)) ?? chooseLinkDir(linkDirs), which: n => which(n, pathDirs), record }),
     skills: skillLinkFacts({ door: repo.door, outliner: repo.outliner, env, home, record }),
   };
 }
 
-/** The door session in the person's state dir (EP0CH_STATE, else their default), when one answers. */
-async function doorSession(env: Record<string, string | undefined>): Promise<Facts["session"]> {
-  const { sessionInfo } = await import("../session/start");
-  const i = await sessionInfo(join(env.EP0CH_STATE ?? defaultStateDir(env), "session.sock"));
-  return i ? { pid: i.pid, dir: i.code.dir, commit: i.code.commit, clients: i.clients.length, programs: i.terminals.length + (i.kept?.length ?? 0) } : null;
+/** The door sessions in the person's state dir (EP0CH_STATE, else their default), one per outline, that answer. */
+async function doorSessions(env: Record<string, string | undefined>): Promise<SessionFact[]> {
+  const { runningSessions } = await import("../session/place");
+  const { oldSession } = await import("../session/old-session");
+  const root = env.EP0CH_STATE ?? defaultStateDir(env);
+  const old = await oldSession(root);
+  return [
+    ...(old ? [{ outline: old.outline, ...(old.machine ? { machine: old.machine } : {}), pid: old.pid, dir: old.dir, commit: old.commit, clients: old.clients, programs: old.programs, old: true }] : []),
+    ...(await runningSessions(root)).map(({ info: i }) => ({ outline: i.place.outline, ...(i.place.machine ? { machine: i.place.machine } : {}), ...(i.place.socket ? { socket: i.place.socket } : {}), pid: i.pid, dir: i.code.dir, commit: i.code.commit, clients: i.clients.length, programs: i.terminals.length + (i.kept?.length ?? 0) })),
+  ];
 }
 

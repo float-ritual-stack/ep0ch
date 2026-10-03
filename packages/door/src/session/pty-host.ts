@@ -5,7 +5,7 @@
 // next daemon connects to. It adopts each program by its tile (`<home>:<tile id>`), replays what the program wrote
 // into a fresh emulator (the last RING bytes: its screen and scrollback), and the program never notices.
 //
-// One host per session (state dir): `pty.sock`, mode 0600 in the 0700 state dir. One daemon at a time: a new
+// One host per session: `pty.sock` in the session's outline folder (src/session/place.ts), mode 0600 in a 0700 folder. One daemon at a time: a new
 // connection is the daemon that took over, and the old one is let go. Ending the session ends the host and every
 // program in it (`end`). With no daemon and no program left, it goes by itself.
 //
@@ -16,7 +16,7 @@ import { connect, createServer, type Socket } from "node:net";
 import { constants } from "node:os";
 import { join } from "node:path";
 import type { Subprocess } from "bun";
-import { privateDir, stateDir } from "../state";
+import { privateDir } from "../state";
 import type { Adopted, PtyBackend, PtyMeta, PtyProc, PtyStart } from "../desk/pty-backend";
 import { frameBytes, FrameSplitter } from "./protocol";
 import { spawnReady } from "./start";
@@ -25,8 +25,9 @@ import { jsonLine, listening } from "../jsonl";
 export const HOST_PROTOCOL = 1;
 /** What the host keeps of each program's output, to replay into the next daemon's emulator. */
 export const RING = 1 << 20;
-export const ptyHostSocket = () => join(stateDir(), "pty.sock");
-const hostLog = () => join(stateDir(), "pty-host.log");
+/** The terminal host of the session in the outline folder `dir`. */
+export const ptyHostSocket = (dir: string) => join(dir, "pty.sock");
+const hostLog = (dir: string) => join(dir, "pty-host.log");
 
 // ── frames: one byte of type, four of id, four of length, then the payload (raw bytes, or JSON) ──────────────
 
@@ -56,15 +57,15 @@ export interface HostPty { id: number; key: string | null; argv: string[]; cols:
 
 interface Held extends HostPty { pty: InstanceType<typeof Bun.Terminal>; proc: Subprocess | null; ring: Buffer[]; bytes: number; trimmed: boolean }
 
-/** Run the host (`ep0ch session pty-host`): serve pty.sock until the session ends. Never returns. */
-export async function servePtyHost(): Promise<never> {
+/** Run the host (`ep0ch session pty-host <dir>`): serve pty.sock in the session's folder until the session ends. Never returns. */
+export async function servePtyHost(dir: string): Promise<never> {
   const ready = (m: object) => {
     if (process.env.EP0CH_SESSION_READY !== "3") return;
     try { writeSync(3, jsonLine(m)); closeSync(3); } catch { /* the starter went */ }
     delete process.env.EP0CH_SESSION_READY;
   };
-  if (!privateDir(stateDir(), true)) { ready({ ok: false, error: `${stateDir()} isn't yours alone` }); process.exit(1); }
-  const path = ptyHostSocket();
+  if (!dir || !privateDir(dir, true)) { ready({ ok: false, error: `${dir || "no folder named"} isn't yours alone (or wasn't named): \`ep0ch session pty-host <the session's folder>\` is the daemon's to run` }); process.exit(1); }
+  const path = ptyHostSocket(dir);
   if (await listening(path)) { ready({ ok: false, error: `a terminal host already serves ${path}` }); process.exit(1); }
   try { unlinkSync(path); } catch { /* none */ }
   const held = new Map<number, Held>();
@@ -184,8 +185,8 @@ function replayOf(h: Held): Buffer {
   return nl >= 0 ? all.subarray(nl + 1) : all;
 }
 
-/** Start the host for this state dir, detached, and wait until it serves (it says so on fd 3). */
-export const startPtyHost = (timeoutMs = 15_000) => spawnReady(["session", "pty-host"], process.env as Record<string, string>, hostLog(), "the terminal host", timeoutMs);
+/** Start the host of the session in the outline folder `dir`, detached, and wait until it serves (it says so on fd 3). */
+export const startPtyHost = (dir: string, timeoutMs = 15_000) => spawnReady(["session", "pty-host", dir], process.env as Record<string, string>, hostLog(dir), "the terminal host", timeoutMs);
 
 // ── the daemon's side: a PtyBackend over the host ──────────────────────────────────────────────────────────
 
@@ -215,7 +216,7 @@ export class HostPtys implements PtyBackend {
   private constructor(private readonly sock: Socket, readonly hostPid: number) {}
 
   /** Connect to the host on `path` and read what it keeps. Rejects when it doesn't answer, or speaks another protocol. */
-  static connect(path = ptyHostSocket(), ms = 10_000): Promise<HostPtys> {
+  static connect(path: string, ms = 10_000): Promise<HostPtys> {
     return new Promise((resolve, reject) => {
       const sock = connect(path);
       const frames = new HostFrames();
@@ -336,8 +337,8 @@ export class HostPtys implements PtyBackend {
  * The session's terminal host, started when there is none: connected, with what it keeps. A host of another protocol
  * is ended (its programs with it: the tiles start them again) and a new one started; `ended` says how many went.
  */
-export async function ensurePtyHost(): Promise<{ host: HostPtys; ended: number }> {
-  const path = ptyHostSocket();
+export async function ensurePtyHost(dir: string): Promise<{ host: HostPtys; ended: number }> {
+  const path = ptyHostSocket(dir);
   let ended = 0;
   if (await listening(path)) {
     try { return { host: await HostPtys.connect(path), ended }; }
@@ -349,7 +350,7 @@ export async function ensurePtyHost(): Promise<{ host: HostPtys; ended: number }
       for (let i = 0; i < 50 && (await listening(path, 200)); i++) await Bun.sleep(100);
     }
   }
-  const started = await startPtyHost();
+  const started = await startPtyHost(dir);
   if (!started.ok) throw new Error(started.error);
   return { host: await HostPtys.connect(path), ended };
 }

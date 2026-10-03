@@ -17,11 +17,14 @@ import type { App } from "./app";
 import { parseActArgs } from "./surface/actions";
 import type { Mirror } from "./mirror";
 import type { TermInfo } from "./term";
-import { privateDir, stateDir } from "./state";
+import { isInside, outlineState, privateDir, stateDir } from "./state";
 import { ask, jsonLine, JsonLines, listening } from "./jsonl";
 
-/** Where a door serves, and where `ep0ch act|peek|…` looks: EP0CH_CONTROL, else door.sock in the state dir. */
-export const controlSocket = () => process.env.EP0CH_CONTROL ?? join(stateDir(), "door.sock");
+/**
+ * Where a door serves, and where `ep0ch act|peek|…` looks: EP0CH_CONTROL, else door.sock in its outline's folder of the
+ * state dir (`outlineState()`; `ep0ch act` finds which: src/session/place.ts, `controlFor`).
+ */
+export const controlSocket = () => process.env.EP0CH_CONTROL ?? join(outlineState(), "door.sock");
 
 /** How much of the live feed may wait unread for one subscriber before it's disconnected. */
 export const FEED_LIMIT = 1 << 20;
@@ -105,7 +108,7 @@ export async function sweepSockets(dir: string): Promise<string[]> {
  */
 export async function startControl(d: ControlDeps, at = controlSocket()): Promise<{ path: string; close(): void }> {
   const dir = dirname(at);
-  if (!privateDir(dir, resolve(dir) === resolve(stateDir()))) throw new Error(`${dir} isn't yours alone (it needs mode 700): no control socket, so agents can't reach this door`);
+  if (!privateDir(dir, isInside(stateDir(), dir))) throw new Error(`${dir} isn't yours alone (it needs mode 700): no control socket, so agents can't reach this door`);
   await sweepSockets(dir);
   const own = join(dir, `door-${process.pid}.sock`);
   let path = at;

@@ -3,6 +3,7 @@
 // doors on one state dir don't lose each other's marks; an offline service reads "offline". Each door here
 // runs in its own pty against a scratch service, with HOME, XDG_*, TMPDIR, EP0CH_STATE and EP0CH_CONTROL all
 // under a temp dir, so nothing reaches a real outline, a real door or the person's state.
+import { placeOf } from "../src/session/place";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { connect } from "node:net";
@@ -24,6 +25,9 @@ let scratch: Scratch;
 let board: SocketBoard;
 let root: string;
 let n = 0;
+
+/** The scratch outline's folder in a sandbox's state dir (src/session/place.ts). */
+const outlineDir = (env: Record<string, string>) => placeOf({ outline: scratch.name, socket: scratch.sock }, env.EP0CH_STATE!, env).dir;
 
 /** A fresh sandbox for one door: its own home, XDG dirs, temp dir, state and control socket. */
 function sandbox(state?: string) {
@@ -54,7 +58,8 @@ class Door {
   get control() { return this.env.EP0CH_CONTROL!; }
   async up() { await until(() => existsSync(this.control) || this.code !== null, "the door's control socket", 20_000); expect(this.code).toBeNull(); }
   async cli(...args: string[]) {
-    const p = Bun.spawn(["bun", MAIN, ...args], { env: this.env, stdout: "pipe", stderr: "pipe" });
+    // From its own home: no .ep0ch above it names an outline (the checkout's own would).
+    const p = Bun.spawn(["bun", MAIN, ...args], { env: this.env, cwd: this.env.HOME, stdout: "pipe", stderr: "pipe" });
     const [out, err, code] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
     return { out, err, code };
   }
@@ -128,7 +133,7 @@ describe("every exit restores the terminal, copies drafts and removes the socket
     const drafts = files(join(env.EP0CH_STATE!, "drafts"));
     expect(drafts.some(f => readFileSync(join(env.EP0CH_STATE!, "drafts", f), "utf8").includes("low water at seven"))).toBe(true);
     expect(existsSync(door.control)).toBe(false);
-    expect(existsSync(join(env.EP0CH_STATE!, "lastcall.json"))).toBe(true);
+    expect(existsSync(join(outlineDir(env), "lastcall.json"))).toBe(true);
   }, 40_000);
 
   test("the terminal goes without a SIGHUP: the failed write ends the door as a hangup, not a crash", async () => {
@@ -248,10 +253,14 @@ describe("EP0CH_STATE moves everything the door writes (F4)", () => {
     const { dir, env } = sandbox();
     delete env.EP0CH_CONTROL;
     const door = new Door(env);
-    await until(() => existsSync(join(env.EP0CH_STATE!, "door.sock")) || door.code !== null, "the default socket in the state dir", 20_000);
-    expect((await door.cli("snap")).code).toBe(0);
+    // The control socket and the last call are the outline's: in its folder of the state dir.
+    await until(() => existsSync(join(outlineDir(env), "door.sock")) || door.code !== null, "the default socket in the outline's folder of the state dir", 20_000);
+    // No EP0CH_CONTROL and no outline named: `ep0ch snap` finds the only door running.
+    const snapped = await door.cli("snap");
+    expect(snapped.err).toBe("");
+    expect(snapped.code).toBe(0);
     door.kill("SIGTERM"); await door.ended();
-    expect(existsSync(join(env.EP0CH_STATE!, "lastcall.json"))).toBe(true);
+    expect(existsSync(join(outlineDir(env), "lastcall.json"))).toBe(true);
     expect(existsSync(join(env.EP0CH_STATE!, "screen.png"))).toBe(true);
     // (bun keeps its own transpiler cache under XDG_CACHE_HOME/bun: that one is bun's, not the door's.)
     const door_ = (d: string) => files(join(dir, d)).filter(f => f.includes("ep0ch"));
@@ -286,7 +295,7 @@ describe("a ctrl+e edit tile's file (F5)", () => {
   }, 40_000);
 });
 
-describe("two doors on one state dir (F19)", () => {
+describe("two doors on one outline (F19)", () => {
   test("marks from both doors are kept and numbered apart, and the door that started second is warned", async () => {
     const shared = join(root, "shared-state");
     const a = new Door(sandbox(shared).env), b = new Door(sandbox(shared).env);
@@ -308,7 +317,9 @@ describe("two doors on one state dir (F19)", () => {
       expect(marks.map(m => m.reason).sort()).toEqual(["tide-one", "tide-three", "tide-two"]);
       expect(new Set(marks.map(m => m.n)).size).toBe(3);
     }
-    const saved = JSON.parse(readFileSync(join(shared, "marks.json"), "utf8")) as { reason: string }[];
+    // In the outline's folder of the state dir (src/session/place.ts), never the state dir itself.
+    expect(existsSync(join(shared, "marks.json"))).toBe(false);
+    const saved = JSON.parse(readFileSync(new Bun.Glob("sessions/*/*/marks.json").scanSync({ cwd: shared, absolute: true }).next().value as string, "utf8")) as { reason: string }[];
     expect(saved.map(m => m.reason).sort()).toEqual(["tide-one", "tide-three", "tide-two"]);
     for (const d of [a, b]) d.kill("SIGTERM");
     for (const d of [a, b]) await d.ended();

@@ -81,6 +81,8 @@ Every review, by the author before opening the PR and by the reviewer, goes thro
 
 - It does what the PR says on every view it touches.
 - It works by keys, mouse and `act`.
+- An error or refusal that tells the person to do something shows the exact command, with this machine's values
+  filled in.
 - A client and the service it needs are on the same `PROTOCOL`; a mismatch is refused, never worked around.
 
 ### 3. Safety

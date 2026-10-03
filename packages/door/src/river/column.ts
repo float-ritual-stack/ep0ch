@@ -16,7 +16,7 @@ import { presentLinks } from "../refs";
 import { describeLinkRow, linkNote, linkRowLine, linkRows, linksOf, type LinkGroupName, type LinkRow } from "../links";
 import { isOutlineNote } from "../authored";
 import { backlinkView, DEFAULT_BACKLINK_VIEW_OPTIONS } from "../backlinks";
-import { readState, writeState } from "../state";
+import { outlineState, readState, writeState } from "../state";
 import { C, fg, pad, paint, RESET, selected, visible } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
 import { ago, wrap } from "../text";
@@ -105,7 +105,7 @@ class OutlineIndex {
   refresh(board: SocketBoard, redraw: () => void, now = false) {
     if (this.asking || (!now && Date.now() - this.at < 60_000)) return;
     this.asking = true;
-    board.index().then(list => { this.set(list); this.at = Date.now(); this.asking = false; writeState("river-index.json", { blocks: list }); redraw(); }, () => { this.asking = false; });
+    board.index().then(list => { this.set(list); this.at = Date.now(); this.asking = false; writeState("river-index.json", { blocks: list }, outlineState()); redraw(); }, () => { this.asking = false; });
   }
 }
 const indexes = new WeakMap<SocketBoard, OutlineIndex>();
@@ -113,7 +113,7 @@ function indexOf(board: SocketBoard): OutlineIndex {
   let i = indexes.get(board);
   if (!i) {
     indexes.set(board, i = new OutlineIndex());
-    const cached = readState<{ blocks: IndexBlock[] }>("river-index.json");
+    const cached = readState<{ blocks: IndexBlock[] }>("river-index.json", outlineState());
     if (cached?.blocks?.length) i.set(cached.blocks);
   }
   return i;

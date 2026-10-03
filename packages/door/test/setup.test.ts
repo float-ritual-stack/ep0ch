@@ -3,6 +3,7 @@
 // scratch files. Nothing here touches a real outline, Herdr, unit or checkout.
 //
 // The stack is one checkout (the ep0ch repo) and one outline host serving `<outlines>/<name>.sqlite` (PIE-530).
+import { ep0ch } from "../src/session/place";
 import { Database } from "bun:sqlite";
 import { afterAll, describe, expect, test } from "bun:test";
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
@@ -15,7 +16,7 @@ import { extFacts } from "../src/setup/ext-links";
 import { PROTOCOL } from "@ep0ch/outline-core/protocol";
 import { doctorChecks, formatDoctor, MARK, skillChecks, versionAtLeast } from "../src/setup/doctor";
 import { claudeModIn, databases, depsState, herdrKeys, hostFacts, hostUnit, launchdState, openOutlineToPing, systemdState } from "../src/setup/facts";
-import { type Checkout, detectPlatform, type Facts, type HostFacts, type HostUnit, staleness } from "../src/setup/model";
+import { type Checkout, detectPlatform, type Facts, type HostFacts, type HostUnit, type SessionFact, staleness } from "../src/setup/model";
 import { backupName, buildPlan, checkoutStep, chooseLinkDir, extStep, skillsStep, hostStep, hostUnitArgv, linkCandidates, type PlanOptions, stamp, unitChanges } from "../src/setup/plan";
 
 const scratch = mkdtempSync(join(tmpdir(), "ep0ch-setup-"));
@@ -256,25 +257,38 @@ describe("the plan", () => {
   });
 });
 
-describe("the door session (PIE-418)", () => {
-  const session = (o: Partial<NonNullable<Facts["session"]>> = {}) => ({ pid: 4321, dir: `${REPO}/packages/door`, commit: "40aaaaa", clients: 2, programs: 3, ...o });
+describe("the door sessions (PIE-418), one per outline", () => {
+  const session = (o: Partial<SessionFact> = {}): SessionFact => ({ outline: "garden", pid: 4321, dir: `${REPO}/packages/door`, commit: "40aaaaa", clients: 2, programs: 3, ...o });
   test("a session on the code before the checkout's update is handed to a daemon on the new code; its programs keep running", () => {
-    const step = buildPlan(laptop({ session: session() }), opts()).steps.at(-1)!;
-    expect(step).toMatchObject({ id: "session", status: "do", commands: ["ep0ch session upgrade"] });
-    expect(step.why).toBe("the session (pid 4321) runs 40aaaaa, the checkout will be at 49bbbbb: a new daemon on that code takes it over; its 3 programs keep running and its 2 terminals attach again");
+    const step = buildPlan(laptop({ sessions: [session()] }), opts()).steps.at(-1)!;
+    expect(step).toMatchObject({ id: "session", status: "do", commands: [`${ep0ch()}session upgrade --all`] });
+    expect(step.why).toBe("garden (pid 4321) runs 40aaaaa, the checkout will be at 49bbbbb: a new daemon on that code takes it over; its 3 programs keep running and its 2 terminals attach again");
+  });
+  test("every session is said: one behind on a machine, one current", () => {
+    const f = current();
+    const step = buildPlan({ ...f, sessions: [session({ outline: "seed-library", machine: "allotment" }), session({ pid: 99, commit: f.repo.checkout.head })] }, opts()).steps.at(-1)!;
+    expect(step.status).toBe("do");
+    expect(step.why).toContain("seed-library on allotment (pid 4321) runs 40aaaaa");
+    expect(step.why).toContain("garden (pid 99) runs the current code");
+  });
+  test("the session from before sessions were per outline is always moved over", () => {
+    const f = current();
+    const step = buildPlan({ ...f, sessions: [session({ old: true, commit: f.repo.checkout.head })] }, opts()).steps.at(-1)!;
+    expect(step).toMatchObject({ status: "do", commands: [`${ep0ch()}session upgrade --all`] });
+    expect(step.why).toContain("from before sessions were per outline");
   });
   test("a deps-only update keeps HEAD; a checkout left for the person isn't handed to", () => {
     const f = current();
     const ahead = { ...f, repo: { ...f.repo, checkout: checkout(REPO, { head: "50ccccc", upstream: "1111111aaaa", ahead: 2 }), deps: { needed: true, why: "a package is missing" } } };
-    expect(buildPlan({ ...ahead, session: session({ commit: "50ccccc" }) }, opts()).steps.at(-1)!.status).toBe("skip");
+    expect(buildPlan({ ...ahead, sessions: [session({ commit: "50ccccc" })] }, opts()).steps.at(-1)!.status).toBe("skip");
     const branch = { ...f, repo: { ...f.repo, checkout: checkout(REPO, { branch: "pie-418/try", head: "60ddddd" }) } };
-    expect(buildPlan({ ...branch, session: session({ commit: "1111111aaaa" }) }, opts()).steps.at(-1)).toMatchObject({ status: "skip", why: expect.stringContaining("left for you") });
+    expect(buildPlan({ ...branch, sessions: [session({ commit: "1111111aaaa" })] }, opts()).steps.at(-1)).toMatchObject({ status: "skip", why: expect.stringContaining("left for you") });
   });
   test("none running, one on the current code, or one from another checkout: nothing to do", () => {
     expect(buildPlan(laptop(), opts()).steps.at(-1)).toMatchObject({ id: "session", status: "skip", why: "no door session runs" });
     const f = current();
-    expect(buildPlan({ ...f, session: session({ commit: f.repo.checkout.head }) }, opts()).steps.at(-1)!.why).toContain("runs the current code");
-    expect(buildPlan(laptop({ session: session({ dir: "/Users/wren/old/ep0ch-door" }) }), opts()).steps.at(-1)!.why).toContain("runs another checkout's door");
+    expect(buildPlan({ ...f, sessions: [session({ commit: f.repo.checkout.head })] }, opts()).steps.at(-1)!.why).toContain("runs the current code");
+    expect(buildPlan(laptop({ sessions: [session({ dir: "/Users/wren/old/ep0ch-door" })] }), opts()).steps.at(-1)!.why).toContain("runs another checkout's door");
   });
 });
 
