@@ -230,6 +230,12 @@ describe("the explicit shift, docking, closing, back and forward", () => {
     no(locked, { op: "flow.dock", tile: 1, on: true }, /is locked: docking a column is refused/);
     // An agent's widen never squeezes the column the person types in; elsewhere it shifts, the keys staying put.
     no(s, { op: "flow.widen", tile: 1 }, /the person is typing in c3, a column of this flow; an agent's widen would squeeze it/, AGENT, { focus: 3, typingIn: 3, busy: true });
+    // reveal (tile.preview's) brings a column off the strip on; an agent's never shifts the strip the person types in.
+    AREA = wide(60); const long = river(25, 1);
+    expect(place(long, AREA).rects.has(24)).toBe(false);
+    expect(place(ok(long, { op: "reveal", tile: 24 }, AGENT, { focus: 1 }).state, AREA).rects.has(24)).toBe(true);
+    expect(wideTile(ok(long, { op: "reveal", tile: 24 }, AGENT, { focus: 1, typingIn: 1, busy: true }).state)).toBe(1);
+    AREA = wide(220);
     no(init({ tree: splitOf("row", [leaf(1), leaf(2)]), names: new Map([[1, "a"], [2, "b"]]) }), { op: "flow.widen", tile: 1 }, /a isn't in a flow/);
   });
 

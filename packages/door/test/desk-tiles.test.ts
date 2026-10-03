@@ -9,6 +9,7 @@ import { chmodSync, existsSync, readdirSync, readFileSync, writeFileSync } from 
 import { join } from "node:path";
 import { App } from "../src/app";
 import { Desk } from "../src/desk/desk";
+import { splitAxis } from "../src/desk/layout";
 import { keyBytes, mouseBytes } from "../src/desk/pty";
 import { MainMenu } from "../src/screens";
 import { SocketBoard } from "../src/socket";
@@ -222,6 +223,53 @@ describe.skipIf(!outliner)("the desk as tiles, against a scratch outline", () =>
     key(char("e"));
     expect(message()).toContain("a file preview only reads");
     expect(tile("draft-preview").editing).toBeUndefined();
+  }, 20_000);
+
+  test("tile.preview: a detail beside a reader where its opens land, as one step; again it shows that one; ^W v V and O are the same action", async () => {
+    const focus0 = get().focus, before = shape();
+    await act("tile.open", { kind: "detail", note: notes.plan.id, name: "plan", where: "down" }, "middle");
+    await until(() => tile("plan").showing?.id === notes.plan.id, "the plan in its detail");
+    await expect(act("tile.preview", { where: "tabs" }, "plan")).rejects.toThrow(/where is right, down, left or up/);
+    // On a locked screen nothing opens and nothing is linked.
+    await mine("layout.lock", { on: true });
+    await expect(act("tile.preview", {}, "plan")).rejects.toThrow(/the screen is locked/);
+    expect(tile("plan").link).toBeUndefined();
+    await mine("layout.lock", { on: false });
+    const at = rect("plan"), r = await act("tile.preview", {}, "plan") as any;
+    // A reader's preview is a detail (it keeps what's opened into it), beside or below by the layout's one rule.
+    expect(r).toMatchObject({ tile: "plan-preview", kind: "detail", from: "plan", where: splitAxis(at) === "row" ? "right" : "down" });
+    expect(tile("plan").link).toBe("plan-preview");
+    expect(get().focus).toBe(focus0);                               // an agent's never takes the keys
+    expect(message()).toContain("an agent (tile-agent-413) opened a detail tile (plan-preview) where plan's opens land");
+    // A link followed in the source lands in the preview; the source keeps its note.
+    await act("link.follow", { n: 1 }, "plan");
+    await until(() => tile("plan-preview").showing?.id === notes.beans.id, "the link in the preview");
+    expect(tile("plan").showing.id).toBe(notes.plan.id);
+    // Again: the preview it has is shown, never a second one; the person's goes to it, an agent's leaves the keys.
+    const count = get().tiles.length;
+    if (r.where === "down") await mine("layout.move", { to: "plan", where: "right" }, "plan-preview");
+    await mine("tile.collapse", { on: true }, "plan-preview");
+    expect(tile("plan-preview").collapsed).toBe(true);
+    expect(await act("tile.preview", {}, "plan")).toMatchObject({ tile: "plan-preview", existing: true });
+    expect(tile("plan-preview").collapsed).toBeUndefined();
+    expect(get().tiles.length).toBe(count);
+    expect(get().focus).toBe(focus0);
+    expect(await mine("tile.preview", {}, "plan")).toMatchObject({ tile: "plan-preview", existing: true });
+    expect(get().focus).toBe("plan-preview");
+    // By keys: ^W V on the preview opens one below it (a detail's opens land there); O in it shows that one again.
+    key(ctrl("w")); key(char("V"));
+    expect(tile("plan-preview").link).toBe("plan-preview-preview");
+    expect(shape()).toContain("col(plan-preview,plan-preview-preview)");
+    expect(get().focus).toBe("plan-preview");                       // the person's keys stay in the source
+    key(char("O"));
+    expect(get().focus).toBe("plan-preview-preview");
+    // ^W v on that one: a preview beside it.
+    key(ctrl("w")); key(char("v"));
+    expect(tile("plan-preview-preview").link).toBe("plan-preview-preview-preview");
+    expect(shape()).toContain("row(plan-preview-preview,plan-preview-preview-preview)");
+    // Closed, they leave the layout as it was.
+    for (const t of ["plan-preview-preview-preview", "plan-preview-preview", "plan-preview", "plan"]) await mine("tile.close", {}, t);
+    expect(shape()).toBe(before);
   }, 20_000);
 
   test("a terminal tile takes every key the person types, ctrl+c and ^W included, until ctrl+]; an agent can't type into it then", async () => {

@@ -176,6 +176,11 @@ move into one repository (PIE-530).
 
 ### River and tiles
 
+- **A preview split in one key (PIE-536).** `O` in a reader, `^W v` (beside) or `^W V` (below) on any tile opens a
+  reader beside it where its opens land, linked in the same step: links you follow there, the tree's `⏎` or a
+  list's pick show in the split and the tile keeps its note. A reader gets a detail; a terminal a preview of its
+  file; the board one of its card. Again, it shows that split instead of making another. Agents: `act tile.preview
+  tile=<tile> where=…`. `^W v` was a follower preview, not linked; `^W o p` still opens one. On a tile already linked (the daily desk's outline → `middle`) `^W v` now jumps to that tile. A river column refuses it: its opens already open the next column.
 - **River columns draw a note's images** in a terminal with Kitty graphics, scrolling and cropping with the column.
   Where images can't be drawn, the label says why (`no Kitty graphics in this terminal`, or `alt+v draws
   images`).

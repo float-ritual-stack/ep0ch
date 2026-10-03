@@ -193,6 +193,9 @@ yourself (path 1): `/exit`, then `claude --continue`.
   on screen moves. `ep0ch find <words>` is the same without a door.
 - **The desk:** `layout.get` (tiles, splits and tab sets by stable id, and `rev`), `tile.open`, `layout.move`,
   `block.mark reason=…` to ask for the person's attention. Pass `expected=<rev>` when you name by place.
+  `tile.preview tile=<reader>` (`where=right|down|left|up`) opens a reader beside it where its opens land, linked in
+  one step: then `link.follow tile=<reader> n=…` lands there and the reader keeps its note. Called again it answers
+  `existing: true` and shows that one; it never takes the person's keys (the person's `O`, `^W v`, `^W V`).
 - **The board** is a screen spec on the desk: the same `layout.get` and `tile.*` work there. Its lanes are
   query tiles named by their lane, in a `columns` container filled from the hub; its readers are `preview`,
   `detail1`…; the outline drawer is `tree` over `tree-preview`, the backlinks drawer `backlinks` beside

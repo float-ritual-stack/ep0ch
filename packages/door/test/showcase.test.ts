@@ -361,6 +361,26 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect(await app.act({ action: "screen.list", as: "test-agent" })).toMatchObject({ stack: expect.any(Array) });
   }, 20_000);
 
+  test("tile.preview, driven by an agent: the reader's opens land in a detail opened beside it, the reader keeps its note", async () => {
+    (app as any).lastInput = 0;
+    expect(await app.act({ action: "section", args: { name: "preview" }, as: "test-agent" })).toMatchObject({ key: "preview" });
+    const stage = () => { screen(); return S().stage(SECTIONS.findIndex(s => s.key === "preview")).top; };
+    await until(() => stage().layoutGet().tiles.find((t: any) => t.name === "reader")?.showing?.id === seeded.notes.notebook.id, "the notebook in the reader", 5000);
+    const r = await app.act({ action: "tile.preview", tile: "reader", as: "test-agent" }) as any;
+    expect(r).toMatchObject({ tile: "reader-preview", kind: "detail", from: "reader" });
+    const tiles = () => stage().layoutGet().tiles as any[];
+    expect(tiles().find(t => t.name === "reader").link).toBe("reader-preview");
+    // A link followed in the reader lands in the preview; the reader still shows the notebook.
+    const f = await app.act({ action: "link.follow", tile: "reader", args: { n: 1 }, as: "test-agent" }) as any;
+    expect(f.opened).toBeTruthy();
+    await until(() => tiles().find(t => t.name === "reader-preview")?.showing?.id === f.opened, "the link in the preview", 5000);
+    expect(tiles().find(t => t.name === "reader").showing.id).toBe(seeded.notes.notebook.id);
+    // Again: that preview, not a second one.
+    expect(await app.act({ action: "tile.preview", tile: "reader", as: "test-agent" })).toMatchObject({ tile: "reader-preview", existing: true });
+    expect(tiles().filter(t => t.name.startsWith("reader-preview")).length).toBe(1);
+    expect(S().focus).toBe("index");
+  }, 20_000);
+
   test("search, driven by an agent: the section's own desk answers the service's forgiving search, the person's overlay left alone", async () => {
     (app as any).lastInput = 0;
     expect(await app.act({ action: "section", args: { name: "search" }, as: "test-agent" })).toEqual({ section: 4, key: "search" });
