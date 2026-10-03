@@ -1,19 +1,11 @@
 // The property token's grammar: what a `[key::value]` token and a property key are. This file is the
 // one definition. The service's parser (properties.ts), the query language (block-query.ts) and context
-// resolution use it, and clients that must find tokens while they paint import it rather than
-// restating it: ep0ch-door keeps a byte-for-byte copy (its src/vendor/property-grammar.ts), which its
-// tests compare with this file.
-//
-// Keep this file free of imports so a client can copy it whole. Change PROPERTY_GRAMMAR_VERSION with
-// any change to what these patterns match: `ping` reports it (`propertyGrammar`), so a client with an
-// older copy says so instead of quietly disagreeing.
+// resolution use it, and the door imports it to find tokens while it paints. It lives in outline-core so
+// both sides import the same file: any change to what these patterns match bumps PROTOCOL (protocol.ts).
 //
 // This is the token grammar only. Whether a token counts as a property also depends on where it sits
 // (code spans, fences, literal regions, reference labels) and its scope, which `properties.preview`
 // answers for a whole text.
-
-/** Bumped whenever what the patterns below match changes. */
-export const PROPERTY_GRAMMAR_VERSION = 1;
 
 /** A property key: a letter, then letters, digits, `_`, `.` or `-` (`plot.row`, `bed_2`; not `2nd-pass`). */
 export const PROPERTY_KEY_SOURCE = "[A-Za-z][A-Za-z0-9_.-]*";

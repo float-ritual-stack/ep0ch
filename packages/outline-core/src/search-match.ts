@@ -9,11 +9,9 @@
  * missing word. Exact evidence always ranks first: a typo or a missing word
  * never puts a note above one that holds every word as typed.
  *
- * It imports nothing, because the door filters lists it already holds with
- * it on every key: ep0ch-door keeps this file byte for byte in
- * `src/vendor/search-match.ts` (checked by its tests). Bump
- * `SEARCH_MATCH_VERSION` with any change to what matches or how it ranks;
- * `ping` reports it (`ping.searchMatch`).
+ * The door filters lists it already holds with it on every key, importing
+ * this file from outline-core. Any change to what matches or how it ranks
+ * bumps PROTOCOL (protocol.ts).
  *
  * The rungs, best first (a document scores on the first rung it reaches):
  *
@@ -41,8 +39,6 @@
  * more; shorter terms, and terms without a letter (numbers, dates), must
  * match as typed, and a word under 4 characters is never a typo's match.
  */
-
-export const SEARCH_MATCH_VERSION = 1;
 
 /** The rungs, best first. A rung is a tier: no ordering inside one (nearness, recency) lifts a match above it. */
 export const SEARCH_MATCH_KINDS = [

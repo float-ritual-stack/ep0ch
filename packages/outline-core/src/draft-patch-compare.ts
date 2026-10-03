@@ -2,18 +2,13 @@
  * The compare of `draft.patch` (PIE-501): where a patch's observed text is in a
  * note's text now, and what the text and a position become once it is applied.
  *
- * It imports nothing, because the door runs the same compare against its live
- * draft: ep0ch-door keeps this file byte for byte in
- * `src/vendor/draft-patch-compare.ts` (checked by its tests), as it does the
- * property grammar. Bump `DRAFT_PATCH_COMPARE_VERSION` with any change to what
- * it accepts; `ping` reports it (`ping.draftPatchCompare`).
+ * The door runs the same compare against its live draft, importing this file
+ * from outline-core. Any change to what it accepts bumps PROTOCOL (protocol.ts).
  *
  * Offsets are UTF-16 code units unless a span declares `unit: "utf8"`, whose
  * range is then in UTF-8 bytes. The range is a hint: the observed text is what
  * is compared.
  */
-
-export const DRAFT_PATCH_COMPARE_VERSION = 2;
 
 /** How far from its hinted start a span's observed text may have moved (UTF-16 units) and still match. */
 export const DRAFT_PATCH_NEAR = 256;
