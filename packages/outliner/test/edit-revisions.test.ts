@@ -1,5 +1,4 @@
 import { afterEach, expect, setSystemTime, test } from "bun:test";
-import { Database } from "bun:sqlite";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -96,31 +95,3 @@ test("text writes require an active block; moving or restoring unchanged text pr
   expect(store.update(child.id, "Draft", child.revision).text).toBe("Draft");
 });
 
-test("reopening an old database twice preserves identities, timestamps, text, and the migrated revision", () => {
-  const root = mkdtempSync(join(tmpdir(), "outliner-old-revisions-"));
-  const path = join(root, "outliner.sqlite");
-  const old = new Database(path);
-  old.exec(`CREATE TABLE blocks (
-    id TEXT PRIMARY KEY, parent_id TEXT REFERENCES blocks(id), position INTEGER NOT NULL,
-    text TEXT NOT NULL, author TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
-  )`);
-  old.query("INSERT INTO blocks VALUES (?, NULL, 0, ?, 'user', ?, ?)")
-    .run("legacy-block", "Preserve these bytes 🧭", "2020-01-01T00:00:00.000Z", "2020-02-01T00:00:00.000Z");
-  old.close();
-  try {
-    for (let reopen = 0; reopen < 2; reopen += 1) {
-      const store = new OutlinerStore(path);
-      try {
-        expect(store.require("legacy-block")).toMatchObject({
-          id: "legacy-block", parentId: null, position: 0,
-          text: "Preserve these bytes 🧭", revision: 1,
-          createdAt: "2020-01-01T00:00:00.000Z", updatedAt: "2020-02-01T00:00:00.000Z",
-        });
-      } finally {
-        store.close();
-      }
-    }
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});

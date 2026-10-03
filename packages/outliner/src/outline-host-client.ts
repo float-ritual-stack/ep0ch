@@ -3,6 +3,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { OutlinerClient } from "./client";
 import { clientSocket, type OutlinerClientPaths, resolveClientPaths } from "./paths";
 import { socketAbsent } from "./socket-probe";
+import type { ImportReport } from "./outline-import";
 import type { HostedOutlineAttachment, HostedOutlineList, HostedOutlineSummary, HostedPaneOutline } from "./types";
 
 /**
@@ -43,7 +44,7 @@ export function createHostedOutline(host: OutlinerClient, name: string): Promise
 }
 
 /** A new outline named `name` from an older database at `path` (read, never moved or changed). */
-export function importHostedOutline(host: OutlinerClient, path: string, name: string): Promise<HostedOutlineSummary & { imported: Record<string, number> }> {
+export function importHostedOutline(host: OutlinerClient, path: string, name: string): Promise<HostedOutlineSummary & { imported: ImportReport }> {
   return host.request({ action: "outlines.import", path, name }, 600_000);
 }
 

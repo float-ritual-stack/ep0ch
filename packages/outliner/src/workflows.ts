@@ -384,49 +384,7 @@ function promotionToken(input: WorkflowPromotionInput, text: string): string {
 }
 
 export class WorkflowManager {
-  constructor(private readonly store: OutlinerStore) {
-    this.store.database.exec(`
-      CREATE TABLE IF NOT EXISTS workflow_runs (
-        run_id TEXT PRIMARY KEY,
-        request_id TEXT NOT NULL UNIQUE,
-        action_id TEXT NOT NULL,
-        invocation_json TEXT NOT NULL,
-        capabilities_json TEXT NOT NULL,
-        limits_json TEXT NOT NULL,
-        planner TEXT NOT NULL,
-        target_client_id TEXT,
-        provenance_json TEXT,
-        status TEXT NOT NULL,
-        route_json TEXT NOT NULL,
-        current_step_index INTEGER,
-        branch_question_json TEXT,
-        metrics_json TEXT,
-        comparison_json TEXT,
-        result_block_ids_json TEXT NOT NULL,
-        cancellation_requested INTEGER NOT NULL DEFAULT 0,
-        request_hash TEXT NOT NULL,
-        error TEXT,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-      );
-      CREATE INDEX IF NOT EXISTS workflow_runs_updated ON workflow_runs(updated_at DESC);
-      CREATE TABLE IF NOT EXISTS workflow_promotions (
-        request_id TEXT PRIMARY KEY,
-        run_id TEXT NOT NULL REFERENCES workflow_runs(run_id) ON DELETE CASCADE,
-        step_id TEXT NOT NULL,
-        annotation_id TEXT NOT NULL REFERENCES blocks(id),
-        block_id TEXT NOT NULL REFERENCES blocks(id),
-        proposal_hash TEXT NOT NULL,
-        created_at TEXT NOT NULL
-      );
-    `);
-    const workflowColumns = this.store.database
-      .query("PRAGMA table_info(workflow_runs)")
-      .all() as Array<{ name: string }>;
-    if (!workflowColumns.some((column) => column.name === "provenance_json")) {
-      this.store.database.exec("ALTER TABLE workflow_runs ADD COLUMN provenance_json TEXT");
-    }
-  }
+  constructor(private readonly store: OutlinerStore) {}
 
   private row(runId: string): WorkflowRunRow {
     const row = this.store.database.query("SELECT * FROM workflow_runs WHERE run_id = ?").get(runId) as WorkflowRunRow | null;

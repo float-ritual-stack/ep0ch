@@ -36,7 +36,7 @@ import {
 } from "./bookmarks";
 import { isValidGitBranchName, parseDeliveryIdentity } from "./delivery-lifecycle";
 import { seedDefaultWorkspace } from "./default-workspace";
-import { migrateRoadmapText } from "./roadmap-migration";
+import { openSchema } from "./schema";
 import {
   compileQueryExpression,
   normalizeBlockSearchQuery,
@@ -55,7 +55,6 @@ import {
 } from "./properties";
 import {
   normalizePageAddress,
-  PAGE_ADDRESS_REGISTRY_VERSION,
   tryNormalizePageAddress,
   type NormalizedPageAddress,
 } from "./page-addresses";
@@ -347,20 +346,6 @@ function normalizeCreatorProvenance(
   };
 }
 
-/** The activity table, shared by creation and the kind migration so the two cannot drift. */
-function blockActivityTableSql(name: string, options: { ifNotExists?: boolean } = {}): string {
-  return `CREATE TABLE ${options.ifNotExists ? "IF NOT EXISTS " : ""}${name} (
-    activity_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    block_id TEXT NOT NULL REFERENCES blocks(id) ON DELETE CASCADE,
-    author TEXT NOT NULL CHECK (author IN ('user', 'agent', 'system')),
-    actor_id TEXT,
-    session_id TEXT,
-    task_id TEXT,
-    kind TEXT NOT NULL CHECK (kind IN (${BLOCK_ACTIVITY_KINDS.map(kind => `'${kind}'`).join(", ")})),
-    edited_at TEXT NOT NULL
-  )`;
-}
-
 function normalizeMutationProvenance(
   mutation: MutationProvenance,
 ): {
@@ -424,31 +409,8 @@ function extensionRecordRow(row: ExtensionRecordDbRow): ExtensionRecordRow {
   };
 }
 
-/**
- * What an `@name` request came to. `waiting`: written by an agent, so it waits for r. `proposed` becomes
- * `applied` or `dismissed` when the person settles the proposal it left (PIE-510).
- */
-export const AGENT_REQUEST_STATUSES = ["waiting", "running", "applied", "proposed", "dismissed", "replied", "nothing", "failed"] as const;
-export type AgentRequestStatus = typeof AGENT_REQUEST_STATUSES[number];
-
-/** The `agent_requests` table, shared by creation and the status migration so the two cannot drift. */
-function agentRequestsTableSql(name: string): string {
-  return `CREATE TABLE IF NOT EXISTS ${name} (
-        block_id TEXT NOT NULL REFERENCES blocks(id) ON DELETE CASCADE,
-        request_key TEXT NOT NULL,
-        agent TEXT NOT NULL,
-        extension_id TEXT NOT NULL,
-        request TEXT NOT NULL,
-        status TEXT NOT NULL CHECK (status IN (${AGENT_REQUEST_STATUSES.map(status => `'${status}'`).join(", ")})),
-        message TEXT,
-        reply TEXT,
-        proposal_id TEXT,
-        requested_by TEXT NOT NULL,
-        requested_at TEXT NOT NULL,
-        answered_at TEXT,
-        PRIMARY KEY (block_id, request_key)
-      )`;
-}
+export { AGENT_REQUEST_STATUSES, type AgentRequestStatus } from "./schema";
+import type { AgentRequestStatus } from "./schema";
 
 /** One `@name` request line and what its agent did (`agent_requests`). */
 export interface AgentRequestRow {
@@ -772,8 +734,8 @@ export class OutlinerStore {
     let database: Database | undefined;
     try {
       this.database = database = new Database(path, { create: true });
-      this.database.exec("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;");
-      this.migrate();
+      this.database.exec("PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;");
+      this.prepareDatabase(path);
       this.changes = new ChangeFeed(this.database, () => this.sequence);
       this.workingSelections = new WorkingSelectionRepository(this.database);
       this.resources = new ResourceCatalog(this.database, {
@@ -2552,10 +2514,6 @@ export class OutlinerStore {
       this.recomputeEffectiveDeletion();
       for (const blockId of this.subtreeIdsFromCurrentRead(id)) {
         const restored = this.getFromCurrentRead(blockId);
-        if (restored && !restored.effectiveDeletedRootId) {
-          const text = migrateRoadmapText(restored);
-          if (text !== restored.text) this.replaceCanonicalBlockText(blockId, text);
-        }
         if (
           restored &&
           !restored.effectiveDeletedRootId &&
@@ -3954,346 +3912,37 @@ export class OutlinerStore {
 
 
 
-  private migrate(): void {
-    this.database.exec(`
-      CREATE TABLE IF NOT EXISTS blocks (
-        id TEXT PRIMARY KEY,
-        parent_id TEXT REFERENCES blocks(id) ON DELETE CASCADE,
-        position INTEGER NOT NULL,
-        text TEXT NOT NULL,
-        revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
-        author TEXT NOT NULL CHECK (author IN ('user', 'agent', 'system')),
-        actor_id TEXT,
-        session_id TEXT,
-        task_id TEXT,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL,
-        deleted_at TEXT,
-        effective_deleted_root_id TEXT
-      );
-      CREATE INDEX IF NOT EXISTS blocks_parent_position ON blocks(parent_id, position);
-      CREATE TABLE IF NOT EXISTS block_properties (
-        block_id TEXT NOT NULL REFERENCES blocks(id) ON DELETE CASCADE,
-        key TEXT NOT NULL,
-        value TEXT NOT NULL,
-        ordinal INTEGER NOT NULL,
-        raw TEXT NOT NULL,
-        start INTEGER NOT NULL,
-        end INTEGER NOT NULL,
-        line INTEGER NOT NULL,
-        column INTEGER NOT NULL,
-        placement TEXT NOT NULL CHECK (placement IN ('inline', 'trailing-metadata', 'metadata-line')),
-        scope TEXT NOT NULL CHECK (scope IN ('block', 'line', 'inline')),
-        syntax TEXT NOT NULL CHECK (syntax IN ('bracket', 'bare', 'hashtag')),
-        PRIMARY KEY (block_id, ordinal)
-      );
-      CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-      INSERT OR IGNORE INTO metadata (key, value) VALUES ('sequence', '0');
-      CREATE TABLE IF NOT EXISTS selection (
-        singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
-        block_id TEXT REFERENCES blocks(id) ON DELETE SET NULL
-      );
-      INSERT OR IGNORE INTO selection (singleton, block_id) VALUES (1, NULL);
-      CREATE TABLE IF NOT EXISTS navigation_history (
-        entry_id INTEGER PRIMARY KEY AUTOINCREMENT,
-        block_id TEXT REFERENCES blocks(id) ON DELETE SET NULL
-      );
-      CREATE INDEX IF NOT EXISTS navigation_history_block
-        ON navigation_history(block_id, entry_id);
-      INSERT OR IGNORE INTO metadata (key, value) VALUES ('navigation_cursor', '0');
-      CREATE TABLE IF NOT EXISTS virtual_occurrence_ranks (
-        view_id TEXT NOT NULL REFERENCES blocks(id) ON DELETE CASCADE,
-        block_id TEXT NOT NULL REFERENCES blocks(id) ON DELETE CASCADE,
-        rank INTEGER NOT NULL CHECK (rank >= 0),
-        PRIMARY KEY (view_id, block_id),
-        CHECK (view_id <> block_id)
-      );
-      CREATE INDEX IF NOT EXISTS virtual_occurrence_ranks_order
-        ON virtual_occurrence_ranks(view_id, rank, block_id);
-      CREATE TABLE IF NOT EXISTS reserved_work_ids (
-        work_id TEXT PRIMARY KEY,
-        reserved_at TEXT NOT NULL,
-        block_id TEXT
-      );
-      CREATE TABLE IF NOT EXISTS work_id_allocator (
-        singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
-        prefix TEXT NOT NULL UNIQUE,
-        next_number INTEGER NOT NULL CHECK (next_number >= 1)
-      );
-      CREATE TABLE IF NOT EXISTS page_addresses (
-        normalized_address TEXT PRIMARY KEY,
-        display_address TEXT NOT NULL,
-        block_id TEXT NOT NULL REFERENCES blocks(id) ON DELETE CASCADE,
-        kind TEXT NOT NULL CHECK (kind IN ('page', 'alias', 'work-id'))
-      );
-      CREATE UNIQUE INDEX IF NOT EXISTS page_addresses_primary_per_block
-        ON page_addresses(block_id) WHERE kind = 'page';
-      CREATE UNIQUE INDEX IF NOT EXISTS page_addresses_work_id_per_block
-        ON page_addresses(block_id) WHERE kind = 'work-id';
-      CREATE TABLE IF NOT EXISTS capture_requests (
-        request_id TEXT PRIMARY KEY,
-        block_id TEXT NOT NULL,
-        inbox_block_id TEXT NOT NULL,
-        created_at TEXT NOT NULL,
-        payload_hash TEXT
-      );
-      CREATE TABLE IF NOT EXISTS quick_capture_draft (
-        singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
-        request_id TEXT NOT NULL,
-        text TEXT NOT NULL,
-        submitted_text TEXT,
-        cursor_row INTEGER NOT NULL CHECK (cursor_row >= 0),
-        cursor_column INTEGER NOT NULL CHECK (cursor_column >= 0),
-        captured_from_block_id TEXT REFERENCES blocks(id) ON DELETE SET NULL,
-        revision INTEGER NOT NULL CHECK (revision >= 1),
-        updated_at TEXT NOT NULL
-      );
-      CREATE TABLE IF NOT EXISTS extension_records (
-        block_id TEXT PRIMARY KEY REFERENCES blocks(id) ON DELETE CASCADE,
-        extension_id TEXT NOT NULL,
-        label TEXT NOT NULL,
-        role TEXT NOT NULL CHECK (role IN ('record', 'comment')),
-        parent_block_id TEXT NOT NULL,
-        item_key TEXT NOT NULL,
-        resource_id TEXT,
-        synced_at TEXT NOT NULL
-      );
-      CREATE INDEX IF NOT EXISTS extension_records_parent ON extension_records(parent_block_id, extension_id, item_key);
-      CREATE INDEX IF NOT EXISTS extension_records_resource ON extension_records(resource_id);
-      CREATE INDEX IF NOT EXISTS extension_records_key ON extension_records(extension_id, item_key);
-      CREATE TABLE IF NOT EXISTS extension_askers (
-        block_id TEXT NOT NULL REFERENCES blocks(id) ON DELETE CASCADE,
-        extension_id TEXT NOT NULL,
-        item_key TEXT NOT NULL,
-        comments INTEGER NOT NULL DEFAULT 0 CHECK (comments >= 0),
-        PRIMARY KEY (block_id, extension_id, item_key)
-      );
-      CREATE INDEX IF NOT EXISTS extension_askers_key ON extension_askers(extension_id, item_key);
-      ${agentRequestsTableSql("agent_requests")};
-      CREATE TABLE IF NOT EXISTS agent_request_baseline (
-        block_id TEXT PRIMARY KEY REFERENCES blocks(id) ON DELETE CASCADE,
-        request_keys TEXT NOT NULL
-      );
-      CREATE TABLE IF NOT EXISTS extension_outputs (
-        block_id TEXT NOT NULL REFERENCES blocks(id) ON DELETE CASCADE,
-        call_key TEXT NOT NULL,
-        extension_id TEXT NOT NULL,
-        handler_key TEXT NOT NULL,
-        kind TEXT NOT NULL CHECK (kind IN ('output', 'component')),
-        request TEXT NOT NULL,
-        result TEXT,
-        error TEXT,
-        ran_at TEXT,
-        attempted_at TEXT NOT NULL,
-        block_revision INTEGER NOT NULL,
-        extension_version INTEGER NOT NULL,
-        PRIMARY KEY (block_id, call_key)
-      );
-      CREATE TABLE IF NOT EXISTS annotation_requests (
-        request_id TEXT PRIMARY KEY,
-        payload_hash TEXT,
-        annotation_ids TEXT NOT NULL,
-        created_at TEXT NOT NULL
-      );
-    `);
-    this.database.query(blockActivityTableSql("block_edit_activity", { ifNotExists: true })).run();
-    this.migrateActivityKinds();
-    this.migrateAgentRequestStatuses();
-    this.database.exec(`
-      CREATE INDEX IF NOT EXISTS block_edit_activity_author_cursor
-        ON block_edit_activity(author, activity_id DESC);
-      CREATE INDEX IF NOT EXISTS block_edit_activity_block_cursor
-        ON block_edit_activity(block_id, activity_id DESC);
-    `);
-    this.migrateCaptureState();
-    this.migrateBlockStateColumns();
-    this.retireTreePresentationState();
-    this.migratePropertyIndex();
-    this.migrateWorkIdStateColumns();
-    this.migrateWorkIdReservations();
+  /**
+   * The schema (src/schema.ts: a new file gets it, any other version is refused), then what every start
+   * keeps true of the data: the property index and page addresses for this parser version, and work-id
+   * reservations, the allocator and work-id addresses consistent with the declared properties.
+   */
+  private prepareDatabase(path: string): void {
+    openSchema(this.database, `The outline database ${path}`);
+    // After the version check, so a refused file is left exactly as it was.
+    this.database.exec("PRAGMA journal_mode = WAL;");
+    const reparsed = this.rebuildPropertyIndexForParser();
+    this.reserveDeclaredWorkIds();
     this.reconcileWorkIdAllocator();
-    this.migratePageAddressRegistry();
+    if (reparsed) this.database.transaction(() => this.rebuildPageAddresses())();
     this.reconcileWorkIdAddresses();
-    this.migrateNavigationHistory();
   }
+
+
+
+
+
+
+
+
 
   /**
-   * Widens the agent request status check (`dismissed`, PIE-510). SQLite cannot alter a CHECK, so an older
-   * table is rebuilt with its rows.
+   * `block_properties` (and the page addresses declared there) derive from block text by the property
+   * parser. When the parser's version changes (PROPERTY_PARSER_VERSION), every block is parsed again; a
+   * newer stored version is refused.
    */
-  private migrateAgentRequestStatuses(): void {
-    const table = this.database.query(
-      "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'agent_requests'",
-    ).get() as { sql: string } | null;
-    if (!table || AGENT_REQUEST_STATUSES.every(status => table.sql.includes(`'${status}'`))) return;
-    this.database.transaction(() => {
-      const { expected } = this.database.query("SELECT COUNT(*) AS expected FROM agent_requests WHERE block_id IN (SELECT id FROM blocks)").get() as { expected: number };
-      this.database.query("DROP TABLE IF EXISTS agent_requests_next").run();
-      this.database.query(agentRequestsTableSql("agent_requests_next")).run();
-      this.database.query(`
-        INSERT INTO agent_requests_next
-          (block_id, request_key, agent, extension_id, request, status, message, reply, proposal_id, requested_by, requested_at, answered_at)
-        SELECT block_id, request_key, agent, extension_id, request, status, message, reply, proposal_id, requested_by, requested_at, answered_at
-        FROM agent_requests
-        WHERE block_id IN (SELECT id FROM blocks)
-      `).run();
-      const { copied } = this.database.query("SELECT COUNT(*) AS copied FROM agent_requests_next").get() as { copied: number };
-      if (copied !== expected) throw new Error(`Agent request migration copied ${copied} of ${expected} rows; the original table is unchanged`);
-      this.database.query("DROP TABLE agent_requests").run();
-      this.database.query("ALTER TABLE agent_requests_next RENAME TO agent_requests").run();
-    })();
-  }
-
-  private migrateCaptureState(): void {
-    const columns = this.database.query("PRAGMA table_info(capture_requests)").all() as Array<{ name: string }>;
-    if (!columns.some(column => column.name === "payload_hash")) {
-      // Original payloads cannot be reconstructed from captures that may have been edited.
-      this.database.exec("ALTER TABLE capture_requests ADD COLUMN payload_hash TEXT");
-    }
-    const draftColumns = this.database.query("PRAGMA table_info(quick_capture_draft)").all() as Array<{ name: string }>;
-    if (!draftColumns.some(column => column.name === "submitted_text")) {
-      this.database.exec("ALTER TABLE quick_capture_draft ADD COLUMN submitted_text TEXT");
-    }
-    for (const [name, type] of [["block_id","TEXT"],["block_revision","INTEGER"],["selection_anchor","TEXT"]]) {
-      if (!draftColumns.some(column => column.name === name)) this.database.exec(`ALTER TABLE quick_capture_draft ADD COLUMN ${name} ${type}`);
-    }
-  }
-
-  /**
-   * Widens the activity kind check to structural changes (PIE-451). SQLite cannot
-   * alter a CHECK, so an older table is rebuilt with its rows and cursors intact.
-   */
-  private migrateActivityKinds(): void {
-    const table = this.database.query(
-      "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'block_edit_activity'",
-    ).get() as { sql: string } | null;
-    if (!table || BLOCK_ACTIVITY_KINDS.every(kind => table.sql.includes(`'${kind}'`))) return;
-    // One statement per call: a multi-statement exec can skip a failed statement
-    // and carry on to the DROP, which would lose the history.
-    this.database.transaction(() => {
-      // Keep AUTOINCREMENT past ids a client may already hold as a cursor.
-      const issued = this.database.query(
-        "SELECT seq FROM sqlite_sequence WHERE name = 'block_edit_activity'",
-      ).get() as { seq: number } | null;
-      // A row whose block is gone (a raw delete with foreign keys off) cannot be
-      // shown by any reader and would fail the new table's foreign key.
-      const { expected } = this.database.query(
-        "SELECT COUNT(*) AS expected FROM block_edit_activity WHERE block_id IN (SELECT id FROM blocks)",
-      ).get() as { expected: number };
-      this.database.query("DROP TABLE IF EXISTS block_edit_activity_next").run();
-      this.database.query(blockActivityTableSql("block_edit_activity_next")).run();
-      this.database.query(`
-        INSERT INTO block_edit_activity_next
-          (activity_id, block_id, author, actor_id, session_id, task_id, kind, edited_at)
-        SELECT activity_id, block_id, author, actor_id, session_id, task_id, kind, edited_at
-        FROM block_edit_activity
-        WHERE block_id IN (SELECT id FROM blocks)
-      `).run();
-      const { copied } = this.database.query(
-        "SELECT COUNT(*) AS copied FROM block_edit_activity_next",
-      ).get() as { copied: number };
-      if (copied !== expected) {
-        throw new Error(`Activity migration copied ${copied} of ${expected} rows; the original table is unchanged`);
-      }
-      this.database.query("DROP TABLE block_edit_activity").run();
-      this.database.query("ALTER TABLE block_edit_activity_next RENAME TO block_edit_activity").run();
-      if (issued) {
-        const kept = this.database.query(
-          "UPDATE sqlite_sequence SET seq = MAX(seq, ?) WHERE name = 'block_edit_activity'",
-        ).run(issued.seq);
-        if (kept.changes === 0) {
-          this.database.query("INSERT INTO sqlite_sequence (name, seq) VALUES ('block_edit_activity', ?)").run(issued.seq);
-        }
-      }
-    })();
-  }
-
-  private migrateBlockStateColumns(): void {
-    this.database.transaction(() => {
-      const existingColumns = new Set(
-        (
-          this.database.query("PRAGMA table_info(blocks)").all() as Array<{ name: string }>
-        ).map((column) => column.name),
-      );
-      const needsEffectiveDeletionBackfill = !existingColumns.has("effective_deleted_root_id");
-      if (!existingColumns.has("revision")) {
-        this.database.exec("ALTER TABLE blocks ADD COLUMN revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1)");
-      }
-      const textColumns = [
-        "actor_id",
-        "session_id",
-        "task_id",
-        "deleted_at",
-        "effective_deleted_root_id",
-      ] as const;
-      for (const name of textColumns) {
-        if (!existingColumns.has(name)) {
-          this.database.exec(`ALTER TABLE blocks ADD COLUMN ${name} TEXT`);
-        }
-      }
-      this.database.exec(
-        "CREATE INDEX IF NOT EXISTS blocks_effective_deleted ON blocks(effective_deleted_root_id, deleted_at)",
-      );
-      if (needsEffectiveDeletionBackfill) this.recomputeEffectiveDeletion();
-    })();
-  }
-
-  private retireTreePresentationState(): void {
-    this.database.transaction(() => {
-      this.database.exec("DROP TABLE IF EXISTS block_view_state");
-      const columns = new Set(
-        (
-          this.database.query("PRAGMA table_info(blocks)").all() as Array<{ name: string }>
-        ).map((column) => column.name),
-      );
-      if (columns.has("collapsed")) {
-        this.database.exec("ALTER TABLE blocks DROP COLUMN collapsed");
-      }
-    })();
-  }
-
-  private migrateWorkIdStateColumns(): void {
-    this.database.transaction(() => {
-      const columns = new Set(
-        (
-          this.database.query("PRAGMA table_info(reserved_work_ids)").all() as Array<{
-            name: string;
-          }>
-        ).map((column) => column.name),
-      );
-      if (!columns.has("block_id")) {
-        this.database.exec("ALTER TABLE reserved_work_ids ADD COLUMN block_id TEXT");
-      }
-      this.database.query(`
-        UPDATE reserved_work_ids
-        SET block_id = (
-          SELECT property.block_id
-          FROM block_properties property
-          JOIN blocks block ON block.id = property.block_id
-          WHERE property.scope = 'block'
-            AND property.key = 'work-id'
-            AND TRIM(property.value) = reserved_work_ids.work_id
-          ORDER BY (block.effective_deleted_root_id IS NOT NULL), property.block_id
-          LIMIT 1
-        )
-        WHERE block_id IS NULL
-      `).run();
-    })();
-  }
-  private migrateNavigationHistory(): void {
-    const count = this.database.query(
-      "SELECT COUNT(*) AS count FROM navigation_history",
-    ).get() as { count: number };
-    if (count.count > 0) return;
-    const selected = this.database.query(
-      "SELECT block_id FROM selection WHERE singleton = 1",
-    ).get() as { block_id: string | null } | null;
-    if (selected?.block_id) this.recordNavigationFromCurrentRead(selected.block_id);
-  }
-
-
-  private migratePropertyIndex(): void {
-    this.database.transaction(() => {
+  private rebuildPropertyIndexForParser(): boolean {
+    return this.database.transaction(() => {
       const versionRow = this.database
         .query("SELECT value FROM metadata WHERE key = 'property_parser_version'")
         .get() as { value: string } | null;
@@ -4306,62 +3955,12 @@ export class OutlinerStore {
           `Database property parser version ${storedVersion} is newer than supported version ${PROPERTY_PARSER_VERSION}`,
         );
       }
-
-      const columns = new Set(
-        (
-          this.database.query("PRAGMA table_info(block_properties)").all() as Array<{
-            name: string;
-          }>
-        ).map((column) => column.name),
-      );
-      const requiredColumns = [
-        "block_id",
-        "key",
-        "value",
-        "ordinal",
-        "raw",
-        "start",
-        "end",
-        "line",
-        "column",
-        "placement",
-        "scope",
-        "syntax",
-      ];
-      const schemaCurrent = requiredColumns.every((column) => columns.has(column));
-      if (schemaCurrent && storedVersion === PROPERTY_PARSER_VERSION) return;
-
+      if (storedVersion === PROPERTY_PARSER_VERSION) return false;
       const existingBlocks = this.database.query("SELECT id, text FROM blocks ORDER BY id").all() as Array<{
         id: string;
         text: string;
       }>;
-      // Parser v3 adds hashtag to the syntax CHECK constraint, not just rows.
-      if (!schemaCurrent || storedVersion < 3) {
-        this.database.exec(`
-          DROP TABLE block_properties;
-          CREATE TABLE block_properties (
-            block_id TEXT NOT NULL REFERENCES blocks(id) ON DELETE CASCADE,
-            key TEXT NOT NULL,
-            value TEXT NOT NULL,
-            ordinal INTEGER NOT NULL,
-            raw TEXT NOT NULL,
-            start INTEGER NOT NULL,
-            end INTEGER NOT NULL,
-            line INTEGER NOT NULL,
-            column INTEGER NOT NULL,
-            placement TEXT NOT NULL CHECK (placement IN ('inline', 'trailing-metadata', 'metadata-line')),
-            scope TEXT NOT NULL CHECK (scope IN ('block', 'line', 'inline')),
-            syntax TEXT NOT NULL CHECK (syntax IN ('bracket', 'bare', 'hashtag')),
-            PRIMARY KEY (block_id, ordinal)
-          );
-        `);
-      } else {
-        this.database.query("DELETE FROM block_properties").run();
-      }
-      this.database.exec(`
-        CREATE INDEX IF NOT EXISTS properties_scope_key_value
-          ON block_properties(scope, key, value, block_id);
-      `);
+      this.database.query("DELETE FROM block_properties").run();
       for (const block of existingBlocks) {
         this.replacePropertyIndex(block.id, parsePropertyRecords(block.text));
       }
@@ -4371,10 +3970,51 @@ export class OutlinerStore {
         )
         .run(String(PROPERTY_PARSER_VERSION));
       if (existingBlocks.length > 0) this.bumpSequenceWithoutHistory();
+      return true;
     })();
   }
 
-  private migrateWorkIdReservations(): void {
+
+  /**
+   * `page_addresses` follows the declared `[page::…]` and `[work-id::…]` properties, so a parser change
+   * registers them again; aliases and the addresses of blocks in the Trash are kept as they are.
+   */
+  private rebuildPageAddresses(): void {
+    const retainedAddresses = this.database.query(
+      "SELECT address.normalized_address, address.display_address, address.block_id, address.kind FROM page_addresses address JOIN blocks block ON block.id = address.block_id WHERE address.kind = 'alias' OR block.effective_deleted_root_id IS NOT NULL ORDER BY address.normalized_address",
+    ).all() as PageAddressRow[];
+    this.database.query("DELETE FROM page_addresses").run();
+    const rows = this.database.query(
+      "SELECT property.block_id, property.key, property.value FROM block_properties property JOIN blocks block ON block.id = property.block_id WHERE block.effective_deleted_root_id IS NULL AND property.scope = 'block' AND property.key IN ('page', 'work-id') ORDER BY property.block_id, property.ordinal",
+    ).all() as Array<{ block_id: string; key: string; value: string }>;
+    const propertiesByBlock = new Map<string, BlockProperty[]>();
+    for (const row of rows) {
+      const properties = propertiesByBlock.get(row.block_id) ?? [];
+      properties.push({ key: row.key, value: row.value });
+      propertiesByBlock.set(row.block_id, properties);
+    }
+    for (const [blockId, properties] of propertiesByBlock) {
+      this.syncDeclaredPageAddresses(blockId, properties);
+    }
+    for (const retained of retainedAddresses) {
+      const normalized = normalizePageAddress(retained.display_address);
+      const existing = this.pageAddressRowFromCurrentRead(normalized.normalizedAddress);
+      if (existing) {
+        if (existing.block_id === retained.block_id) continue;
+        throw new Error(
+          `A kept page address conflicts with block ${existing.block_id}: ${retained.display_address}`,
+        );
+      }
+      this.insertPageAddressFromCurrentRead(
+        retained.block_id,
+        retained.display_address,
+        retained.kind,
+      );
+    }
+  }
+
+  /** A block-scoped `[work-id::…]` in a valid shape reserves its id for that block. */
+  private reserveDeclaredWorkIds(): void {
     this.database.transaction(() => {
       const rows = this.database.query(
         "SELECT property.block_id, property.value FROM block_properties property JOIN blocks block ON block.id = property.block_id WHERE property.scope = 'block' AND property.key = 'work-id' AND block.effective_deleted_root_id IS NULL ORDER BY property.block_id",
@@ -4391,34 +4031,20 @@ export class OutlinerStore {
     })();
   }
 
+  /** The allocator's next number never falls behind a reservation in its prefix. */
   private reconcileWorkIdAllocator(): void {
     this.database.transaction(() => {
-      const reservations = this.canonicalWorkIdReservationsFromCurrentRead();
-      const prefixes = [...new Set(
-        reservations.map((reservation) => reservation.prefix),
-      )].sort();
       const current = this.workIdAllocatorFromCurrentRead();
-      const migration = this.database.query(
-        "SELECT value FROM metadata WHERE key = 'work_id_allocator_migration_version'",
-      ).get() as { value: string } | null;
-      if (!current && migration === null && prefixes.length === 1) {
-        const prefix = prefixes[0]!;
-        this.database.query(
-          "INSERT INTO work_id_allocator (singleton, prefix, next_number) VALUES (1, ?, ?)",
-        ).run(prefix, this.nextWorkIdNumberForPrefixFromCurrentRead(prefix));
-      } else if (current) {
-        this.database.query(
-          "UPDATE work_id_allocator SET next_number = ? WHERE singleton = 1",
-        ).run(Math.max(
-          current.next_number,
-          this.nextWorkIdNumberForPrefixFromCurrentRead(current.prefix),
-        ));
-      }
+      if (!current) return;
       this.database.query(
-        "INSERT INTO metadata (key, value) VALUES ('work_id_allocator_migration_version', '1') ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-      ).run();
+        "UPDATE work_id_allocator SET next_number = ? WHERE singleton = 1",
+      ).run(Math.max(
+        current.next_number,
+        this.nextWorkIdNumberForPrefixFromCurrentRead(current.prefix),
+      ));
     })();
   }
+
 
   private reconcileWorkIdAddresses(): void {
     this.database.transaction(() => {
@@ -4447,57 +4073,6 @@ export class OutlinerStore {
     })();
   }
 
-  private migratePageAddressRegistry(): void {
-    this.database.transaction(() => {
-      const versionRow = this.database.query(
-        "SELECT value FROM metadata WHERE key = 'page_address_registry_version'",
-      ).get() as { value: string } | null;
-      const version = versionRow ? Number(versionRow.value) : 0;
-      if (
-        !Number.isInteger(version) ||
-        version < 0 ||
-        version > PAGE_ADDRESS_REGISTRY_VERSION
-      ) {
-        throw new Error(`Unsupported page address registry version: ${versionRow?.value}`);
-      }
-      if (version === PAGE_ADDRESS_REGISTRY_VERSION) return;
-
-      const retainedAddresses = this.database.query(
-        "SELECT address.normalized_address, address.display_address, address.block_id, address.kind FROM page_addresses address JOIN blocks block ON block.id = address.block_id WHERE address.kind = 'alias' OR block.effective_deleted_root_id IS NOT NULL ORDER BY address.normalized_address",
-      ).all() as PageAddressRow[];
-      this.database.query("DELETE FROM page_addresses").run();
-      const rows = this.database.query(
-        "SELECT property.block_id, property.key, property.value FROM block_properties property JOIN blocks block ON block.id = property.block_id WHERE block.effective_deleted_root_id IS NULL AND property.scope = 'block' AND property.key IN ('page', 'work-id') ORDER BY property.block_id, property.ordinal",
-      ).all() as Array<{ block_id: string; key: string; value: string }>;
-      const propertiesByBlock = new Map<string, BlockProperty[]>();
-      for (const row of rows) {
-        const properties = propertiesByBlock.get(row.block_id) ?? [];
-        properties.push({ key: row.key, value: row.value });
-        propertiesByBlock.set(row.block_id, properties);
-      }
-      for (const [blockId, properties] of propertiesByBlock) {
-        this.syncDeclaredPageAddresses(blockId, properties);
-      }
-      for (const retained of retainedAddresses) {
-        const normalized = normalizePageAddress(retained.display_address);
-        const existing = this.pageAddressRowFromCurrentRead(normalized.normalizedAddress);
-        if (existing) {
-          if (existing.block_id === retained.block_id) continue;
-          throw new Error(
-            `Retained address migration conflicts with block ${existing.block_id}: ${retained.display_address}`,
-          );
-        }
-        this.insertPageAddressFromCurrentRead(
-          retained.block_id,
-          retained.display_address,
-          retained.kind,
-        );
-      }
-      this.database.query(
-        "INSERT INTO metadata (key, value) VALUES ('page_address_registry_version', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-      ).run(String(PAGE_ADDRESS_REGISTRY_VERSION));
-    })();
-  }
 
   private bookmarksRootsFromCurrentRead(): Block[] {
     const rows = this.database

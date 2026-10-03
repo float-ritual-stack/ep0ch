@@ -90,6 +90,12 @@ source evidence or distinguish authored glyphs from controls.
   imports it to find tokens while it paints; no other file restates the key rule.
   Any change to what it matches bumps `PROTOCOL`. Where a token counts as a
   property (code, literal regions, scope) stays with `properties.preview`.
+- `src/schema.ts` owns the database's schema and its version (`SCHEMA_VERSION`,
+  stamped in `PRAGMA user_version`): every table, index and trigger is created
+  there, including those one subsystem uses alone, and `openSchema` creates a
+  new file or refuses another version. No other file creates or alters a table.
+  `src/outline-import.ts` (`outliner import`) is the one way to carry an outline
+  into a new database, table by table by column name.
 - `src/view-writes.ts` owns what a write into a saved view must change
   (`views.planWrite`): the property patch that moves a block into a view, or the
   properties, text or roadmap-item input a new block there is born with, and the
@@ -344,11 +350,11 @@ Prefer clean cutovers: migrate every caller, test, and import, then remove obsol
 
 ### Work IDs
 
-- Configure one workspace prefix explicitly unless the v9 migration adopts one clean existing prefix.
+- Configure one workspace prefix explicitly (`work-id-configure`); the store never adopts one by itself.
 - Allocate opted-in work through `work-ids.allocate` / `outliner_work_id`; never scan and guess the next number in a client.
 - Keep UUID as canonical identity and Work ID as an immutable human/symbolic address.
 - Preserve reservation owner UUIDs after purge; neither allocator nor manual canonical declarations may reuse them.
-- Treat malformed, unpadded, duplicate-owner, and out-of-prefix legacy properties as inert metadata during migration rather than blocking startup.
+- Treat malformed, unpadded, duplicate-owner, and out-of-prefix `work-id` properties as inert metadata at startup rather than blocking it.
 - Preserve an existing valid legacy Work-ID address from another prefix only when its reservation still names the same canonical owner; do not create new bare links or allocations outside the configured prefix.
 
 ### Terminal safety
@@ -520,13 +526,29 @@ Both sides import outline-core; never copy a shared module into a client. Add
 round-trip coverage for the change, and restart the complete topology (the
 outline host, then its clients) when it ships.
 
-If SQLite schema or property-parser behavior changes:
+`src/schema.ts` owns the database's one schema (PIE-530): the CREATE statements
+of the current version and nothing else, stamped in `PRAGMA user_version`. A new,
+empty file gets them; any other database whose version isn't `SCHEMA_VERSION` is
+refused at open, with its version and the command that upgrades it. The runtime
+never inspects an old shape and never migrates.
 
-1. Make migration idempotent.
-2. Preserve canonical text and timestamps unless the user actually edited the block.
-3. Rebuild only derived indexes when possible.
-4. Exercise existing-workspace startup, not only a fresh database.
-5. Back up the live workspace database before manual migration experiments.
+If the SQLite schema changes:
+
+1. Change the CREATE statements in `src/schema.ts` and bump `SCHEMA_VERSION`.
+2. Write a one-off script, `scripts/migrations/<NNNN>-<what>.ts`, that takes a
+   database from the previous version to the new one (on a file no service is
+   serving) and stamps it. `0001-stamp.ts` is the model: it checks the shape
+   before it stamps.
+3. Back up, then run it by hand on the outlines that matter (on float-2 and the
+   MacBook). Name the script in `openSchema`'s refusal for the old version.
+4. Delete the script once those outlines are upgraded; git keeps it.
+5. For a change too large for a script, make a fresh database and import
+   (`outliner import <old.sqlite> <new.sqlite>`, `src/outline-import.ts`), which
+   reads tables by column name.
+
+If property-parser behavior changes, bump `PROPERTY_PARSER_VERSION`: the store
+parses every block again on its next open (`block_properties` and the page
+addresses declared there are derived), without touching block text or timestamps.
 
 ## Documentation
 

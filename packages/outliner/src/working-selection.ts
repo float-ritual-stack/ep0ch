@@ -41,15 +41,7 @@ function targets(value: WorkingSelectionTarget[]): WorkingSelectionTarget[] {
 
 /** Service-owned temporary state; intentionally independent of canonical focus and content. */
 export class WorkingSelectionRepository {
-  constructor(private readonly database: Database) {
-    database.exec(`CREATE TABLE IF NOT EXISTS working_selections (
-      id TEXT PRIMARY KEY,
-      owner_client_id TEXT NOT NULL UNIQUE,
-      revision INTEGER NOT NULL CHECK (revision > 0),
-      updated_at TEXT NOT NULL,
-      targets TEXT NOT NULL
-    )`);
-  }
+  constructor(private readonly database: Database) {}
 
   get(ownerClientId: string): WorkingSelection | null {
     identifier(ownerClientId);

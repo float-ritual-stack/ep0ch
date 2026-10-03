@@ -45,14 +45,7 @@ function excerpt(text:string,reference:Reference):string{
 
 /** Bounded disposable conversation history. Only explicit save/bookmark writes canonical notes. */
 export class MentionRepository {
- constructor(private store:OutlinerStore,private workspaceRoot:string,private accepts?:(folder:string)=>boolean){
-  store.database.exec(`CREATE TABLE IF NOT EXISTS agent_mention_messages (
-   sequence INTEGER PRIMARY KEY AUTOINCREMENT,
-   message_key TEXT NOT NULL UNIQUE,
-   payload_hash TEXT NOT NULL,
-   message_json TEXT NOT NULL CHECK(json_valid(message_json))
-  )`);
- }
+ constructor(private store:OutlinerStore,private workspaceRoot:string,private accepts?:(folder:string)=>boolean){}
  ingest(input:MentionMessage):MentionReceipt{
   if(!input||typeof input!=='object')throw Error('Mention message is required');
    // A host's outline also takes mentions from folders bound to it (a project folder that opens this outline).

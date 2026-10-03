@@ -25,35 +25,11 @@ import type {
   Block,
   RenderedPassageObservation,
   PdfRegion,
-  RenderedPassageProjection,
 } from "./types";
 
 const DEFAULT_CONTEXT_UNITS = 32;
 export const ANNOTATION_TYPE = "annotation";
 export const ANNOTATION_REPLY_TYPE = "annotation-reply";
-export const OBSOLETE_ANNOTATION_PROPERTY_KEYS: Readonly<Record<string, true>> = {
-  "target-kind": true,
-  "source-block": true,
-  "anchor-state": true,
-  "anchor-start": true,
-  "anchor-end": true,
-  "anchor-excerpt": true,
-  "anchor-before": true,
-  "anchor-after": true,
-  "source-version": true,
-  "source-hash": true,
-  "rendered-quote": true,
-  "observed-at": true,
-  "observed-pane": true,
-  "observed-revision": true,
-  "observed-context": true,
-  "observed-client": true,
-  "observed-validation": true,
-  "observed-projection": true,
-  "target-file": true,
-  "line-start": true,
-  "line-end": true,
-};
 
 function identity(value: unknown, label: string): string {
   if (typeof value !== "string" || !value.trim()) throw new Error(`${label} cannot be empty`);
@@ -794,67 +770,4 @@ export function parseAnnotationBlockContent(block: Block): AnnotationBlockConten
   };
   const parentAnnotationId = getProperty(block.properties, "parent-annotation")?.trim();
   return parentAnnotationId ? { ...content, parentAnnotationId } : content;
-}
-
-function decodeLegacy(value: string | undefined, label: string): string {
-  if (!value?.startsWith("v1-")) throw new Error(`Annotation has invalid ${label}`);
-  return Buffer.from(value.slice(3), "base64url").toString("utf8");
-}
-
-export interface LegacyAnnotationEvidence extends AnnotationBlockContent {
-  readonly kind: "block" | "file" | "passage";
-  readonly sourceBlockId: string;
-  readonly state: "anchored" | "ambiguous" | "orphaned" | "observed";
-  readonly anchor: Extract<AnnotationAnchor, { kind: "text-quote" }>;
-  readonly sourceVersion: string | null;
-  readonly sourceHash: string | null;
-  readonly filePath?: string;
-  readonly observation?: RenderedPassageObservation;
-}
-
-export function parseLegacyAnnotationBlock(block: Block): LegacyAnnotationEvidence {
-  const content = parseAnnotationBlockContent(block);
-  const kind = getProperty(block.properties, "target-kind");
-  if (kind !== "block" && kind !== "file" && kind !== "passage") throw new Error(`Annotation has invalid target kind: ${block.id}`);
-  const sourceBlockId = identity(getProperty(block.properties, "source-block"), "Annotation source block");
-  const rawState = getProperty(block.properties, "anchor-state") ?? (kind === "passage" ? "observed" : "anchored");
-  if (rawState !== "anchored" && rawState !== "ambiguous" && rawState !== "orphaned" && rawState !== "observed") throw new Error(`Annotation has invalid anchor state: ${block.id}`);
-  let observation: RenderedPassageObservation | undefined;
-  const projection = getProperty(block.properties, "observed-projection") as RenderedPassageProjection | undefined;
-  if (projection) {
-    observation = normalizeObservation({
-      quote: decodeLegacy(getProperty(block.properties, "rendered-quote"), "rendered quote"),
-      capturedAt: decodeLegacy(getProperty(block.properties, "observed-at"), "observation time"),
-      hostBlockId: sourceBlockId,
-      paneId: decodeLegacy(getProperty(block.properties, "observed-pane"), "observation pane"),
-      contentRevision: Number(getProperty(block.properties, "observed-revision")),
-      contextId: decodeLegacy(getProperty(block.properties, "observed-context"), "observation context"),
-      detailClientId: decodeLegacy(getProperty(block.properties, "observed-client"), "observation client"),
-      validation: getProperty(block.properties, "observed-validation"),
-      projection,
-    });
-  }
-  const exact = kind === "passage"
-    ? observation?.quote ?? ""
-    : decodeLegacy(getProperty(block.properties, "anchor-excerpt"), "anchor excerpt");
-  const start = kind === "passage" ? null : Number(getProperty(block.properties, "anchor-start"));
-  const end = kind === "passage" ? null : Number(getProperty(block.properties, "anchor-end"));
-  const evidence: LegacyAnnotationEvidence = {
-    ...content,
-    kind,
-    sourceBlockId,
-    state: rawState,
-    anchor: {
-      kind: "text-quote",
-      start,
-      end,
-      exact,
-      prefix: kind === "passage" ? "" : decodeLegacy(getProperty(block.properties, "anchor-before"), "anchor prefix"),
-      suffix: kind === "passage" ? "" : decodeLegacy(getProperty(block.properties, "anchor-after"), "anchor suffix"),
-    },
-    sourceVersion: kind === "passage" ? null : decodeLegacy(getProperty(block.properties, "source-version"), "source version"),
-    sourceHash: kind === "passage" ? null : identity(getProperty(block.properties, "source-hash"), "Annotation source hash"),
-  };
-  if (kind === "file") return { ...evidence, filePath: decodeLegacy(getProperty(block.properties, "target-file"), "target file") };
-  return observation ? { ...evidence, observation } : evidence;
 }

@@ -295,13 +295,9 @@ export class OutlineHost {
     try {
       if (!isOutlinerDatabase(real)) throw new Error(`${real} is not an outliner database (no blocks and metadata tables)`);
       const target = this.layout.database(name);
-      // The import makes the file itself; nothing may be there.
-      try {
-        imported = importOutline(real, target);
-      } catch (error) {
-        this.unclaim(name);
-        throw error;
-      }
+      // The import makes the file itself (and removes it when it fails); nothing may be there.
+      if (lstatOrUndefined(target)) throw new Error(`An outline named "${name}" already exists in ${this.outlinesFolder}`);
+      imported = importOutline(real, target);
     } finally {
       this.busy.delete(name);
       release();

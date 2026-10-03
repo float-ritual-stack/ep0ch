@@ -263,32 +263,6 @@ process.stdout.write(JSON.stringify({ ok: true, value: { patches: [{ observed: "
   expect(store.get(asked.id)!.text).toBe("y\nWORDS\n@tardy two");
 });
 
-test("an older outline's request table takes the dismissed status, its rows kept", () => {
-  const root = mkdtempSync(join(tmpdir(), "outliner-agent-migrate-"));
-  cleanups.push(() => rmSync(root, { recursive: true, force: true }));
-  const path = join(root, "outliner.sqlite");
-  const first = new OutlinerStore(path);
-  const note = first.create("Plan\n@tidy");
-  const row = { blockId: note.id, requestKey: "k1", agent: "tidy", extensionId: "tidy", request: "", status: "proposed" as const, proposalId: "p-1", requestedBy: "user", requestedAt: "2026-01-02T03:04:05.000Z" };
-  // The table as it was before PIE-510: its check doesn't know `dismissed`.
-  first.database.exec(`DROP TABLE agent_requests; CREATE TABLE agent_requests (
-    block_id TEXT NOT NULL REFERENCES blocks(id) ON DELETE CASCADE, request_key TEXT NOT NULL, agent TEXT NOT NULL, extension_id TEXT NOT NULL,
-    request TEXT NOT NULL, status TEXT NOT NULL CHECK (status IN ('waiting', 'running', 'applied', 'proposed', 'replied', 'nothing', 'failed')),
-    message TEXT, reply TEXT, proposal_id TEXT, requested_by TEXT NOT NULL, requested_at TEXT NOT NULL, answered_at TEXT, PRIMARY KEY (block_id, request_key))`);
-  first.putAgentRequest(row);
-  expect(() => first.putAgentRequest({ ...row, status: "dismissed" })).toThrow();
-  first.close();
-  const second = new OutlinerStore(path);
-  expect(second.agentRequestByProposal("p-1")).toMatchObject({ status: "proposed", requestKey: "k1" });
-  second.putAgentRequest({ ...row, status: "dismissed" });
-  expect(second.agentRequests(note.id).map((entry) => entry.status)).toEqual(["dismissed"]);
-  second.close();
-  // Opening it again leaves the migrated table as it is.
-  const third = new OutlinerStore(path);
-  cleanups.push(() => third.close());
-  expect(third.agentRequests(note.id).map((entry) => entry.status)).toEqual(["dismissed"]);
-});
-
 const AGENT = { author: "agent" as const, actorId: "claude-test" };
 
 test("one guard: no agent's draft.patch writes or rewords a request line, in a live draft or a saved note (B4)", async () => {

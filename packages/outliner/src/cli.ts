@@ -41,6 +41,33 @@ while (process.argv[2] === "--ws" || process.argv[2]?.startsWith("--ws=")) {
   process.argv.splice(2, argument === "--ws" ? 2 : 1);
 }
 /**
+ * `import <source.sqlite> <target.sqlite> [--json]`: a new outline database at
+ * `target` with the current schema, filled from `source` (opened read-only):
+ * `importOutline` in src/outline-import.ts says what is carried. Prints counts,
+ * never content. Needs no service; `target` must not exist.
+ */
+if (process.argv[2] === "import") {
+  const { values, positionals } = parseArgs({ args: process.argv.slice(3), allowPositionals: true, strict: true, options: { json: { type: "boolean" } } });
+  if (positionals.length !== 2) {
+    console.error("error: import expects: <source.sqlite> <target.sqlite> [--json]");
+    process.exit(2);
+  }
+  try {
+    const { importOutline } = await import("./outline-import");
+    const report = importOutline(positionals[0]!, positionals[1]!);
+    if (values.json) console.log(JSON.stringify(report, null, 2));
+    else {
+      console.log(`imported ${report.source} into ${report.target}: ${report.blocks} blocks, ${report.properties} properties, ${report.pageAddresses} page addresses, ${report.workIds} work ids`);
+      for (const [table, why] of Object.entries(report.notCarried)) console.log(`  not carried: ${table} (${why})`);
+      for (const column of report.droppedColumns) console.log(`  dropped column: ${column}`);
+    }
+    process.exit(0);
+  } catch (error) {
+    console.error(`error: ${error instanceof Error ? error.message : String(error)}`);
+    process.exit(1);
+  }
+}
+/**
  * `bound-folder [folder]`: the nearest folder, from `folder` (default: this one) up, whose `.ep0ch` names an
  * outline, as one JSON line: `{ bound: true, folder, configPath, outline }`, or `{ bound: false, folder }`. Never a
  * guess. Reads only; needs no service. The Claude mod asks it which outline a session's folder feeds.
@@ -240,7 +267,7 @@ async function runOutlinesCommand(group: "outlines" | "outline" | "init", args: 
       print(created, describeHostedOutline(created));
     } else if (operation === "import" && positionals.length === 2) {
       const imported = await importHostedOutline(hostOrThrow(), resolve(positionals[0]!), positionals[1]!);
-      print(imported, `${describeHostedOutline(imported)}\n  imported ${Object.entries(imported.imported).map(([table, count]) => `${count} ${table}`).join(", ")}`);
+      print(imported, `${describeHostedOutline(imported)}\n  imported ${imported.imported.blocks} blocks, ${imported.imported.properties} properties, ${imported.imported.pageAddresses} page addresses, ${imported.imported.workIds} work ids`);
     } else if (operation === "close" && positionals.length === 1) {
       const closed = await hostOrThrow().request<HostedOutlineSummary>({ action: "outlines.close", name: positionals[0]! });
       print(closed, `closed outline ${closed.name}; its next request opens it again`);

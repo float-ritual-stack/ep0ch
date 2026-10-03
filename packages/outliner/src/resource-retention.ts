@@ -234,7 +234,7 @@ export class ResourceRetentionRepository {
       (options.activeRepresentationAdapters ?? []).map(({ id, version }) => `${id}@${version}`),
     );
     this.markMutation = options.markMutation ?? (() => {});
-    this.migrate();
+    this.ensurePolicy();
   }
 
   policy(): ResourceRetentionPolicy {
@@ -983,109 +983,21 @@ export class ResourceRetentionRepository {
     );
   }
 
-  private migrate(): void {
-    this.database.transaction(() => {
-      const snapshotColumns = new Set(
-        (this.database.query("PRAGMA table_info(web_source_snapshots)").all() as Array<{ name: string }>)
-          .map(({ name }) => name),
-      );
-      const representationColumns = new Set(
-        (this.database.query("PRAGMA table_info(web_representations)").all() as Array<{ name: string }>)
-          .map(({ name }) => name),
-      );
-      if (!snapshotColumns.has("payload_state")) {
-        this.database.exec("ALTER TABLE web_source_snapshots ADD COLUMN payload_state TEXT NOT NULL DEFAULT 'available' CHECK(payload_state IN ('available','evicted'))");
-      }
-      if (!snapshotColumns.has("payload_bytes")) {
-        this.database.exec("ALTER TABLE web_source_snapshots ADD COLUMN payload_bytes INTEGER NOT NULL DEFAULT 0 CHECK(payload_bytes >= 0)");
-      }
-      if (!snapshotColumns.has("evicted_at")) {
-        this.database.exec("ALTER TABLE web_source_snapshots ADD COLUMN evicted_at TEXT");
-      }
-      if (!representationColumns.has("payload_state")) {
-        this.database.exec("ALTER TABLE web_representations ADD COLUMN payload_state TEXT NOT NULL DEFAULT 'available' CHECK(payload_state IN ('available','evicted'))");
-      }
-      if (!representationColumns.has("payload_bytes")) {
-        this.database.exec("ALTER TABLE web_representations ADD COLUMN payload_bytes INTEGER NOT NULL DEFAULT 0 CHECK(payload_bytes >= 0)");
-      }
-      if (!representationColumns.has("evicted_at")) {
-        this.database.exec("ALTER TABLE web_representations ADD COLUMN evicted_at TEXT");
-      }
-      const payloadMigration = this.database.query(
-        "SELECT value FROM metadata WHERE key = 'resource_retention_payload_migration'",
-      ).get();
-      if (!payloadMigration) {
-        this.database.exec(`
-          UPDATE web_source_snapshots
-          SET payload_state = CASE WHEN html IS NULL THEN 'evicted' ELSE 'available' END,
-              payload_bytes = CASE WHEN html IS NULL THEN 0 ELSE length(CAST(html AS BLOB)) END
-          WHERE evicted_at IS NULL;
-          UPDATE web_representations
-          SET payload_state = CASE WHEN markdown IS NULL THEN 'evicted' ELSE 'available' END,
-              payload_bytes = CASE WHEN markdown IS NULL THEN 0 ELSE length(CAST(markdown AS BLOB)) END
-          WHERE evicted_at IS NULL;
-        `);
-        this.database.query(
-          "INSERT INTO metadata (key, value) VALUES ('resource_retention_payload_migration', '1')",
-        ).run();
-      }
-      this.database.exec(`
-        CREATE TABLE IF NOT EXISTS resource_retention_policy (
-          singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
-          retain_newest_source_snapshots INTEGER NOT NULL CHECK(retain_newest_source_snapshots >= 0),
-          retain_newest_representations_per_adapter INTEGER NOT NULL CHECK(retain_newest_representations_per_adapter >= 0),
-          minimum_age_ms INTEGER NOT NULL CHECK(minimum_age_ms >= 0),
-          purge_grace_ms INTEGER NOT NULL CHECK(purge_grace_ms >= 0),
-          updated_at TEXT NOT NULL
-        );
-        CREATE TABLE IF NOT EXISTS resource_retention_pins (
-          id TEXT PRIMARY KEY,
-          resource_id TEXT NOT NULL REFERENCES resources(id) ON DELETE RESTRICT,
-          artifact_kind TEXT NOT NULL CHECK(artifact_kind IN ('source-snapshot','representation')),
-          artifact_id TEXT NOT NULL,
-          label TEXT,
-          created_at TEXT NOT NULL,
-          UNIQUE(artifact_kind, artifact_id)
-        );
-        CREATE INDEX IF NOT EXISTS resource_retention_pins_resource
-          ON resource_retention_pins(resource_id, created_at, id);
-        CREATE TABLE IF NOT EXISTS resource_retention_references (
-          id TEXT PRIMARY KEY,
-          resource_id TEXT NOT NULL REFERENCES resources(id) ON DELETE RESTRICT,
-          artifact_kind TEXT NOT NULL CHECK(artifact_kind IN ('source-snapshot','representation')),
-          artifact_id TEXT NOT NULL,
-          owner_kind TEXT NOT NULL CHECK(owner_kind IN ('review','publication')),
-          owner_id TEXT NOT NULL,
-          created_at TEXT NOT NULL,
-          UNIQUE(artifact_kind, artifact_id, owner_kind, owner_id)
-        );
-        CREATE INDEX IF NOT EXISTS resource_retention_references_resource
-          ON resource_retention_references(resource_id, created_at, id);
-        CREATE TABLE IF NOT EXISTS resource_retention_events (
-          id TEXT PRIMARY KEY,
-          artifact_kind TEXT NOT NULL CHECK(artifact_kind IN ('source-snapshot','representation')),
-          artifact_id TEXT NOT NULL,
-          resource_id TEXT NOT NULL REFERENCES resources(id) ON DELETE RESTRICT,
-          transition TEXT NOT NULL CHECK(transition IN ('evicted','purged')),
-          occurred_at TEXT NOT NULL,
-          metadata_json TEXT NOT NULL CHECK(json_valid(metadata_json))
-        );
-        CREATE INDEX IF NOT EXISTS resource_retention_events_resource
-          ON resource_retention_events(resource_id, occurred_at, id);
-      `);
-      this.database.query(`
-        INSERT OR IGNORE INTO resource_retention_policy (
-          singleton, retain_newest_source_snapshots,
-          retain_newest_representations_per_adapter,
-          minimum_age_ms, purge_grace_ms, updated_at
-        ) VALUES (1, ?, ?, ?, ?, ?)
-      `).run(
-        DEFAULT_RETAINED_SNAPSHOTS,
-        DEFAULT_RETAINED_REPRESENTATIONS,
-        DEFAULT_MINIMUM_AGE_MS,
-        DEFAULT_PURGE_GRACE_MS,
-        this.now(),
-      );
-    })();
+  /** The retention policy's row, with the defaults, until someone sets one. */
+  private ensurePolicy(): void {
+    this.database.query(`
+      INSERT OR IGNORE INTO resource_retention_policy (
+        singleton, retain_newest_source_snapshots,
+        retain_newest_representations_per_adapter,
+        minimum_age_ms, purge_grace_ms, updated_at
+      ) VALUES (1, ?, ?, ?, ?, ?)
+    `).run(
+      DEFAULT_RETAINED_SNAPSHOTS,
+      DEFAULT_RETAINED_REPRESENTATIONS,
+      DEFAULT_MINIMUM_AGE_MS,
+      DEFAULT_PURGE_GRACE_MS,
+      this.now(),
+    );
   }
+
 }

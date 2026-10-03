@@ -720,7 +720,7 @@ labels, and pane titles are not stored in role-keyed files or canonical tables.
 
 ## Canonical data model
 
-The SQLite schema is created in [`OutlinerStore.migrate()`](../src/store.ts):
+The SQLite schema is created in [`src/schema.ts`](../src/schema.ts) (`SCHEMA_SQL`, stamped `PRAGMA user_version = SCHEMA_VERSION`); a database at any other version is refused at open:
 
 ### `blocks`
 
@@ -741,8 +741,7 @@ Normal text writes require `expectedRevision` from the original read. The servic
 checks it and increments `revision` in the same SQL update, within the transaction
 that validates canonical properties and records the edit. CLI `update --expected`
 and every Tree, Detail, property, page, Work-ID, capture-retitle, and agent caller
-use this contract. Old databases gain revision 1 without rewriting IDs, text, or
-timestamps. Deploy the service and clients together; older wire contracts are
+use this contract. Deploy the service and clients together; older wire contracts are
 incompatible, and the changed CLI writes check the service protocol first.
 
 An edit also requires the block to be active at save time, including its ancestors.
@@ -1365,7 +1364,7 @@ projected text stays stable across re-reads. Every surface that projects
 through `projectDetailRead` (Detail, Backlink Peek, Goto previews) shows them;
 any failure leaves the note as authored.
 
-Work-ID allocation is workspace-scoped and transactional. A one-time v9 migration adopts a clean existing reservation prefix; an empty or ambiguous legacy workspace requires explicit `work-ids.configure`, and later manual values never auto-configure on restart. Prefix configuration can be corrected until the chosen prefix owns an immutable reservation. The allocator tracks the next number monotonically and formats a minimum three-digit suffix. Allocation uses optimistic block concurrency, appends canonical text, rebuilds the property/address indexes, and reserves the ID with its owning UUID in one transaction. Canonical manual declarations for the configured prefix pass through the same ownership, sequence, and never-reuse enforcement. Malformed, noncanonical, duplicate legacy, and out-of-prefix values remain indexed inert metadata rather than blocking startup or text saves. Existing valid legacy Work-ID addresses for other prefixes are retained, but bare Work-ID linking and new allocation are scoped to the configured prefix.
+Work-ID allocation is workspace-scoped and transactional. A prefix is configured explicitly with `work-ids.configure`; manual values never auto-configure one. Prefix configuration can be corrected until the chosen prefix owns an immutable reservation. The allocator tracks the next number monotonically and formats a minimum three-digit suffix. Allocation uses optimistic block concurrency, appends canonical text, rebuilds the property/address indexes, and reserves the ID with its owning UUID in one transaction. Canonical manual declarations for the configured prefix pass through the same ownership, sequence, and never-reuse enforcement. Malformed, noncanonical, duplicate legacy, and out-of-prefix values remain indexed inert metadata rather than blocking startup or text saves. Existing valid legacy Work-ID addresses for other prefixes are retained, but bare Work-ID linking and new allocation are scoped to the configured prefix.
 
 The initial registry migration backfills active declarations only. Pre-PIE-132 Trash content can contain indexed property-shaped examples and copied Work IDs that never established symbolic identity; importing those would either create false addresses or block startup. Registry rebuilds retain addresses already owned by deleted blocks. Restoring a legacy Trash subtree registers newly active declarations only when they are unambiguous and unclaimed. Legacy registration is block-atomic: one ambiguous declaration suppresses every address on that block until repair. The block still restores as ordinary editable content and can register through a subsequent valid edit. Reservation migration and allocator reconciliation leave malformed, duplicate-owner, and foreign-prefix legacy Work-ID values as inert indexed metadata instead of failing workspace startup.
 

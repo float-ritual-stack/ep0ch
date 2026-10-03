@@ -3,7 +3,6 @@
 // inert, a disabled extension's late answer is dropped, and what an extension says reaches no terminal raw.
 // Scratch services in temp folders; every note, name and secret is made up.
 import { afterEach, expect, test } from "bun:test";
-import { Database } from "bun:sqlite";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -274,31 +273,6 @@ test("an action whose update becomes a proposal writes none of its creates, and 
   // The only new block under the note is the proposal itself: the action's own child wasn't made.
   const children = store.children(note.id).filter((child) => child.id !== done.proposalId);
   expect(children.map((child) => child.text)).not.toContain("a note on it");
-});
-
-test("an outline from before requestedBy gets the column once, and records who asked", () => {
-  const root = realpathSync(mkdtempSync(join(tmpdir(), "outliner-requested-by-")));
-  cleanups.push(() => rmSync(root, { recursive: true, force: true }));
-  const path = join(root, "outliner.sqlite");
-  new OutlinerStore(path, { workspaceRoot: root }).close();
-  // The feed table as an older build left it.
-  const old = new Database(path);
-  old.exec("ALTER TABLE change_feed DROP COLUMN requested_by");
-  old.close();
-  for (let opening = 0; opening < 2; opening++) {
-    const store = new OutlinerStore(path, { workspaceRoot: root });
-    try {
-      const columns = (store.database.query("PRAGMA table_info(change_feed)").all() as Array<{ name: string }>).map((column) => column.name);
-      expect(columns.filter((name) => name === "requested_by")).toHaveLength(1);
-      const attribution = store.changes.attribution({ action: "ext.scribe.child", actor: { author: "agent", actorId: "ext:scribe" }, requestedBy: LOKI });
-      const made = store.changes.run(attribution, () => store.create(`made ${opening}`, null, "agent", { actorId: "ext:scribe" }));
-      const page = store.changes.since(0, 1000);
-      const change = page.kind === "changes" ? page.changes.find((candidate) => candidate.blockId === made.id) : undefined;
-      expect(change).toMatchObject({ actor: { actorId: "ext:scribe" }, requestedBy: LOKI });
-    } finally {
-      store.close();
-    }
-  }
 });
 
 test("a created block's text is inert BlockDown with no terminal escapes", async () => {
