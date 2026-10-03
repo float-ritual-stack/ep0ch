@@ -14,7 +14,7 @@ const VENDORED = join(import.meta.dir, "../src/vendor/search-match.ts");
  * The copy's checksum. When pi-herdr-outliner changes its matcher: copy its src/search-match.ts over
  * src/vendor/search-match.ts and put the new checksum here, in the same PR.
  */
-const PINNED_SHA256 = "fd6aebd416daf7f0c9bfa1874167f156cbdd7f33ec6991cd925fc42248b0b3ca";
+const PINNED_SHA256 = "fb98efc8f83c41c40d83055f81eef6d814e3842ef8f879256f5afed491c22aff";
 
 describe("the vendored search matcher", () => {
   test("is the file whose checksum is pinned (an edit to the copy is an edit to the outliner's file first)", () => {

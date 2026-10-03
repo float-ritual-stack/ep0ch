@@ -230,7 +230,9 @@ export class Completer {
     const target = this.target();
     if (!target || this.d.busy) { this.dismiss(); return; }
     this.stopJev();
-    const generation = ++this.generation, was = this.state?.items[this.state.index]?.insertion;
+    // A re-ask of the same query keeps the pick; a changed query picks its best match.
+    const same = this.state?.target.kind === target.kind && this.state.target.query === target.query;
+    const generation = ++this.generation, was = same ? this.state?.items[this.state.index]?.insertion : undefined;
     this.state = { target, items: this.state?.items ?? [], index: this.state?.index ?? 0, truncated: null, message: "finding references...", loading: true, at: this.here() };
     this.redraw();
     try {

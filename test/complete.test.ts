@@ -152,6 +152,22 @@ describe("Jev re-orders after a pause, never moving the selection (a fake servic
     expect(renderCompletion(c.state!, 60, 8).map(visible).at(-1)).toContain("jev ranked");
   });
 
+  test("typing more selects the best match again; a re-ask of the same query keeps the pick", async () => {
+    const { board } = fake();
+    const d = new Draft("note-1", 1, "");
+    const c = completerFor(d, board, () => {})!;
+    for (const ch of "((party") completionKey(d, char(ch), c);
+    await until(() => !!c.state && !c.state.loading && c.state.items.length === 3, "the lookup");
+    completionKey(d, K("down"), c); completionKey(d, K("down"), c);      // a pick, then more typing
+    completionKey(d, char(" "), c);
+    await until(() => !!c.state && !c.state.loading, "the lookup after typing");
+    expect(c.state!.index).toBe(0);
+    completionKey(d, K("down"), c);
+    completionKey(d, ctrl(" "), c);                                       // ctrl+space asks the same query again
+    await until(() => !!c.state && !c.state.loading, "the re-ask");
+    expect(c.state!.items[c.state!.index]!.blockId).toBe("b2");
+  });
+
   test("an answer after the selection moved is dropped; typing before the pause never asks Jev", async () => {
     let release = () => {};
     const { board, asked } = fake(semantic => semantic ? new Promise<void>(r => { release = r; }) : Promise.resolve());
