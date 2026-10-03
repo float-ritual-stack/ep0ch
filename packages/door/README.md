@@ -1,8 +1,8 @@
 # ep0ch-door
 
 A BBS door into a pi-herdr-outliner outline: it reads everything, edits notes in place, moves cards between
-board lanes, and comments on them. It talks straight to the outliner service's Unix socket (protocol 80 or
-newer, using newer features when the service advertises them) and is not part of the outliner.
+board lanes, and comments on them. It talks straight to the outliner service's Unix socket, on the one protocol both share
+(`PROTOCOL` in outline-core), and is not part of the outliner.
 
 The screens are ep0ch's own 1997 art by shypht, read in place from the WOE art packs:
 the logon (`SHY-LOGI.ANS`), the main menu (`SHY-EMNU.ANS`, whose twelve "Menu Cmd"
@@ -246,7 +246,7 @@ exits 1), and · for information:
 - **bun**: its path and version.
 - **the plugin**: linked (a checkout: its commit against `origin/main`, after a `git fetch`) or managed
   by Herdr (the commit Herdr installed against the source's branch on GitHub, by `git ls-remote`;
-  "managed, cannot compare" when that can't be reached), and its protocol and service capabilities.
+  "managed, cannot compare" when that can't be reached), and its protocol.
 - **the door**: this checkout against `origin/main`, whether `bun install` is needed (a package missing,
   or installed at a version other than `bun.lock`'s), whether `ep0ch` on PATH runs this checkout, and the door
   session (its daemon, terminals and programs, and whether it runs this checkout's code).
@@ -254,8 +254,7 @@ exits 1), and · for information:
   unit or launchd agent when there is one, with what systemd or launchd says about it: running and its
   pid, or stopped and its last exit; and whether the unit runs the installed plugin's `host-main.ts`) and
   each per-folder service: running or not, and whether it
-  runs old code (a protocol or capability the installed plugin offers that the running service
-  doesn't, such as `fragments.candidates`: "restart to pick up new features").
+  runs old code (another protocol than the installed plugin's: "restart to pick up new features").
 - **Herdr**: the server, and the keys for the plugin's actions in `config.toml`.
 - **Claude**: whether Claude Code's `CLAUDE_CODE_PLUGIN_DIRS` loads the installed plugin's `claude-mod`
   (a managed reinstall can move the plugin's root; the Outliner's `scripts/install-claude-mod.ts` points
@@ -1563,17 +1562,16 @@ The edit frame says which before you save (`an agent (claude-7) typed this · it
 
 The service owns what things mean; the door asks it, and never computes the answer itself.
 
-- **Capabilities.** The door needs protocol 82 and every capability it names (`OUTLINE_CAPABILITIES`,
-  src/socket.ts) in `ping.capabilities` (PIE-402). A service older than that is refused at start, with what
-  it lacks and the fix: `ep0ch install --apply`, or restart the outline host on current code. `ep0ch doctor`
-  flags such a service before that. `peek` shows what the service offers (`service.capabilities`).
+- **One protocol.** The door and the service speak `PROTOCOL` (outline-core's protocol.ts); `ping` reports the
+  service's. A service on another number is refused at start, naming the side to update: an older host, "restart
+  the outline host on current code"; a newer one, "update the door (ep0ch install --apply)". `ep0ch doctor`
+  flags such a service before that. `peek` shows the service's protocol (`service.protocol`).
 - **Saved views** (lanes, and `view:` in live figures) come from `views.read` (PIE-397). Moves and new
   cards are planned by `views.planWrite`, and a live figure's `done:` and `now:` by `query.matches`
   (PIE-490). The door has no evaluator of its own.
 - **Property grammar.** The door finds `[key::value]` tokens while it paints (titles, digests, metadata
-  lines) with `src/vendor/property-grammar.ts`, a byte-for-byte copy of the outliner's
-  `src/property-grammar.ts`; `test/grammar.test.ts` checks the copy's checksum and compares it with the
-  checkout, and `ping.propertyGrammar` reports the service's version (a different one is said at start).
+  lines) with outline-core's `property-grammar.ts`, the file the service parses with; `test/grammar.test.ts`
+  checks that titles hide exactly the tokens the service's parser reads.
 - **Lists without full text.** Lanes, board discovery and Who's Online read titles, properties and revision
   only (`views.read`'s compact rows, `blocks.query` `fields`, `blocks.read`; PIE-400). A reader fetches the
   whole note before showing, editing or commenting on it. The river still reads full notes: its cards show
@@ -1649,8 +1647,8 @@ agents off). `test/platform.test.ts` adapts to what that service advertises: `vi
 change asks again, a dropped connection's catch-up, a service restart
 (graceful, with the door connected) and a feed reset. Run it with `EP0CH_OUTLINER` pointing at an older
 and a newer checkout to cover both the fallbacks and the new paths. `test/move.test.ts` also checks every lane after the
-moves against the outliner's own `saved-view-read.ts`, and `test/grammar.test.ts` the vendored property
-grammar against the checkout's. Point
+moves against the outliner's own `saved-view-read.ts`, and `test/grammar.test.ts` the door's titles
+against the service's property parser. Point
 `EP0CH_OUTLINER` at a pi-herdr-outliner checkout (default `../pi-herdr-outliner`); without one those tests
 skip. The `edit`, `move`, `comment`, `agent` and `props` snapshots write too, so they refuse to run
 unless `EP0CH_SNAP_WRITES=1` and `EP0CH_SOCKET` is set explicitly to a socket under the temp dir whose

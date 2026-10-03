@@ -22,7 +22,7 @@ use `ep0ch`.
 | touch the agent interface | ep0ch-door `docs/AGENT-INTERFACE.md`; the Claude mod's `claude-mod/README.md` |
 | change workboard state | the live **How this workboard works** block (pi-herdr-outliner `AGENTS.md` names it) and the `outliner-workflow` skill's roadmap reference |
 | build or change an extension | pi-herdr-outliner `docs/extensions/README.md` (the contract, the four kinds, `@name` agents, worked examples); the door draws what `extensions.list` gives (`src/extensions.ts`) |
-| change the protocol | pi-herdr-outliner `CONTRIBUTING.md`, "Protocol and schema changes": additive means a capability, not a version bump |
+| change the protocol | pi-herdr-outliner `CONTRIBUTING.md`, "Protocol and schema changes": any wire change bumps `PROTOCOL` in outline-core |
 | need the whole picture | the architecture map, `docs/architecture/map.json` in the door: every structure in both repos, its ladder position and its open questions; `bun scripts/architecture-map.ts` checks its citations and draws it |
 
 Then both repos' `AGENTS.md` and `CONTRIBUTING.md`. They are short and they are the contract.
@@ -35,9 +35,9 @@ Then both repos' `AGENTS.md` and `CONTRIBUTING.md`. They are short and they are 
   presence view. A new shared part gets its reuse-map row and a showcase section in the same PR.
 - **The service owns meaning.** View membership, property parsing, query evaluation, backlinks, what a
   write into a view must change, what changed: ask the service (`views.read`, `views.planWrite`,
-  `query.matches`, `references.*`, `changes.since`); never compute it locally. The door needs protocol 82 with
-  every capability in `OUTLINE_CAPABILITIES` and refuses an older service: a new one it needs goes in that list. Where a call per paint is too slow, use the vendored module
-  (`src/vendor/`), never a local copy of the rule.
+  `query.matches`, `references.*`, `changes.since`); never compute it locally. Client and service speak one
+  protocol (`PROTOCOL` in outline-core) and the door refuses a service on another number: a wire change bumps it. Where a call
+  per paint is too slow, import the rule from outline-core (`@ep0ch/outline-core/*`), never a local copy of it.
 - **Every action is an action.** Define it once as an `ActionDef` in an `ActionSet`
   (`src/surface/actions.ts`); the key, the click or drag and `act` all call it. A UI change that isn't an
   action is a bug, and `test/parity.ts` (run by `test/parity-*.test.ts`) catches it: it presses every key and clicks every row on every
@@ -71,7 +71,7 @@ Then both repos' `AGENTS.md` and `CONTRIBUTING.md`. They are short and they are 
   come back after an upgrade comes back through an action that declares `replay: "safe"` (the session's checkpoint) or a
   screen's saved state, never a restore of its own.
 - **Two clients, one outline.** Tree/Detail in Herdr is the sysop console (find any block, edit it); the door
-  is the everyday board. Both are maintained. A service capability added for one stays usable by the other.
+  is the everyday board. Both are maintained. A service feature added for one stays usable by the other.
   Don't call the Herdr UI legacy.
 - **The layout words** (UI-GRAMMAR, "Layout: block, tile, container, screen"): a *block* is outline content,
   never UI; a *tile* shows one thing (its kind from the tile-kind registry); a *container* arranges tiles

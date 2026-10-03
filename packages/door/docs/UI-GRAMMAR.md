@@ -42,9 +42,9 @@ three layout models and four searches (§4).
 - **Don't copy the parallel versions:** the `colourBody` bodies left in the desk's search preview and
   the river's cards (F1), the river's pane code (F2), the extra searches (F6).
 - **Don't re-derive meaning the service owns** (view membership, property parsing, query evaluation,
-  what a write into a view must change, backlinks, what changed); never compute it here. The door needs every
-  capability it names (`OUTLINE_CAPABILITIES`) and refuses an older service. Where a call per paint is too slow, use one module
-  the outliner owns (`src/vendor/property-grammar.ts`), never a copy of its rule.
+  what a write into a view must change, backlinks, what changed); never compute it here. The door and the
+  service speak one protocol (`PROTOCOL`, outline-core) and the door refuses a service on another. Where a call per paint is too
+  slow, import the rule from outline-core (`@ep0ch/outline-core/property-grammar`), never a copy of it.
 - **If the part doesn't exist yet or doesn't fit:** extend it, or write down why not in the PR.
   A new shared part gets a row here in the same PR.
 - **Every row has a showcase section** (`scripts/try-it.sh --showcase`, PIE-439), in this table's

@@ -493,8 +493,8 @@ warning. Only folders named like a workspace key count as stored outlines.
 `paths.ts` owns a state folder's layout (`stateDirPaths`).
 
 A clean stop removes the by-name link only if it still points at this service.
-`ping` adds `outline: { name, descriptorPath?, byNameSocket? }` under the
-`ping.outline` capability; it is absent from older services and unnamed ones. `listKnownOutlines` derives every list of outlines by
+`ping` adds `outline: { name, descriptorPath?, byNameSocket? }`; it is absent
+from unnamed services. `listKnownOutlines` derives every list of outlines by
 scanning descriptors and client configs; no registry is kept by hand.
 Clients still resolve local outlines by hash in this slice.
 
@@ -550,8 +550,7 @@ claims the file exclusively, never overwrites; `root`, an existing folder, is
 recorded in `<name>.json`) and `outlines.adopt { path, name }`.
 `ping` without `outline` on a host with no default answers for the host alone;
 otherwise the outline answers and adds `host: { socket, defaultOutline?,
-outlines }`. The host's capabilities (`OUTLINER_HOST_CAPABILITIES`) are
-additive; a single-outline service refuses `outlines.*`. Host answers carry
+outlines }`. A single-outline service refuses `outlines.*`. Host answers carry
 `sequence: 0`: they belong to no outline's feed.
 
 **Adopting** serves an existing database where it lies: `outlines/<name>.sqlite`
@@ -841,7 +840,7 @@ bytes and provenance remain unknown rather than being synthesized.
 
 ## Protocol
 
-The current protocol version is `OUTLINER_PROTOCOL_VERSION`, defined in [`src/types.ts`](../src/types.ts). Requests and responses are newline-delimited JSON over the workspace Unix socket. Since protocol 82, `ping` also returns `minClientProtocol` and `capabilities` (`OUTLINER_CAPABILITIES`); clients accept a service at or above `OUTLINER_MIN_SERVICE_PROTOCOL` and check only the capabilities they use ([`src/service-compatibility.ts`](../src/service-compatibility.ts)). Additive features add a capability instead of a protocol bump.
+The protocol is `PROTOCOL`, defined in outline-core (`packages/outline-core/src/protocol.ts`) and imported by the service and every client. Requests and responses are newline-delimited JSON over the Unix socket. `ping` returns `protocolVersion`; a client refuses a service whose number differs from its own, naming the side to update ([`src/service-compatibility.ts`](../src/service-compatibility.ts)). Any wire change, and any change to what outline-core's shared modules match, bumps it. Protocol 83 dropped capability negotiation for this one check.
 
 Protocol 64 includes hashtags in property records and their positional ordinals.
 Protocol 63 clients can address a different property for the same text and revision;
@@ -856,7 +855,7 @@ Do not leave older editors running across this upgrade.
 - bounded search: `blocks.query` (optional `fields` projection), `tree.query`, `tree.focus`
 - saved-view evaluation: `views.read`
 - saved-view writes (capability `views.planWrite`): `views.planWrite { viewIds, blockId | text }` plans, without writing, the property patch that moves a block into each view or what a new block there is born with (see "Saved-view write plans"); `query.matches { expression, blockIds }` (capability `query.matches`) returns which of those active blocks a saved-view query holds for
-- `ping.propertyGrammar`: `ping` reports `propertyGrammar: { version }`, the version of `src/property-grammar.ts`, which clients copy to find tokens while painting
+- the property grammar: outline-core's `property-grammar.ts`, which the service parses with and clients import to find tokens while painting
 - fragments and transclusions (PIE-424; capabilities `fragments.read`, `transclusions.read`): `fragments.read { blockId, fragmentId }` returns a `((id^fragment))` slice (kind, label, note lines, offsets and the text a reader shows) or `missing` / `duplicate`; `transclusions.read { targets, hostBlockId?, maxDepth? }` projects `!((id))` and `!((id^fragment))` as readers show them, nested to a bounded depth (default 3, ceiling 6), cycle-safe by `(block, fragment)` on the path from the host, at most 16 per document and 64 per read, each note sent once (`blocks`) with its steps once (`checklists`, without their text or properties) and each projection naming the lines it shows (`shownLines`), at most 512 KB of notes and steps per read (past it `EMBED TOO LARGE`); every failure carries its reader wording. Notes are parsed once per text and revision (kept across reads), and a document's embeds aren't scanned past the 17th. `fragments.candidates { query: { noteQuery?, fragmentQuery, mode, limit?, draft? } }` searches every active note for `((note#…` / `((note^…` completion (`src/fragment-search.ts`); an unanchored heading comes with the anchor it would get, and `fragments.ensure { blockId, lineIndex, expectedRevision, mutation }` writes it, revision-checked. `src/transclusions.ts` owns these rules; Detail's embed projection takes its limit and wording from it
 - resource identity and documents: `resource-sources.create | list | get` and `resources.intern | intern-filesystem | get | relocate | describe | open | refresh`
 - resource projections (capability `resources.projection`): `resources.projection.read` returns stored details for a block's provider lines and ticket-page property; it never registers, refreshes or contacts a provider
@@ -1064,9 +1063,8 @@ events with action `inbox.changed` or `background`. A content event without a
 `change` reports a request that committed nothing.
 
 `changes.since { sequence, limit? }` returns changes with a greater sequence.
-Services that serve it, and that attach `change` records to content events,
-advertise the `changes.since` capability. The CLI requires it; Tree checks it on
-reconnect and falls back to a full reload when it is absent or the request
+Content events carry `change` records. Tree asks it on reconnect and falls back
+to a full reload when the service speaks another protocol or the request
 fails:
 
 - `{ kind: "changes", changes, nextSequence, completeness, sequence }` ordered by
@@ -1167,9 +1165,8 @@ and the door's `((` popup and search overlay), `tree.focus`, `inbox.search`, `pa
 the fragment search's note order, the Backlinks filter, Tree's branch filter and the virtual-branch
 navigator's filter all rank or filter with it (`matchesSearchText` for a list, with the query prepared
 once). Matching inside one note's text (a fragment's heading, an annotation's quote, a draft patch's
-observed span) and the action menu's command filter are not searches over notes and keep their own rules. It imports nothing; ep0ch-door keeps it byte for byte
-for filtering lists it already holds, and `ping` reports `searchMatch.version`. Capability
-`search.forgiving` names it.
+observed span) and the action menu's command filter are not searches over notes and keep their own rules. It lives in outline-core
+(`@ep0ch/outline-core/search-match`), and the door imports it for filtering lists it already holds.
 
 Both sides are folded first: NFKC, lower case, apostrophes dropped, every other run of punctuation,
 symbols and spaces made one space, so "Claude - now", "Claude—now" and "claude now" are equal. A
@@ -1464,15 +1461,15 @@ request errors. The read has no side effects on selection, disclosure or panes.
 Tree, the virtual-branch navigator, Detail view embeds, CLI `view` and the
 `outliner_view` agent tool all read membership through `views.read`; they keep
 only presentation (descendant context, disclosure, attention) locally. Each
-requires the `views.read` capability before its first read, so a service
-without it produces a restart instruction rather than an unknown-action error.
+checks the service's protocol before its first read, so a service on other
+code produces a restart instruction rather than an unknown-action error.
 Tree, Detail, the navigator, CLI `view` and `outliner_view` check at startup or
 before the request. View embeds are also projected by short-lived previews
 (backlink peek, Goto, the navigation destination menu, document preview, the
 mentions navigator and bookmark/mentions navigators), so the embed projection
 itself pings once per client before its first `views.read` and renders
-`SERVICE NEEDS RESTART` with the restart instruction when the capability is
-missing; a positive answer is kept, a missing one is re-checked on the next
+`SERVICE NEEDS RESTART` with the restart instruction when the protocol
+differs; a matching answer is kept, a mismatch is re-checked on the next
 projection. Older
 clients that evaluate views from `workspace.snapshot` plus `blocks.query` keep
 working because those actions are unchanged. Two client paths still evaluate
@@ -1811,10 +1808,9 @@ After deploying a merged change, restart Detail, Tree, and service in that order
 
 An agent changes a span of a note with `draft.patch` (PIE-501): compare and swap.
 It sends the text it observed, the revision it read and the replacement; the
-range is only a hint. [`src/draft-patch-compare.ts`](../src/draft-patch-compare.ts)
-finds the observed text and maps positions. It imports nothing, because the door
-runs a byte-for-byte copy of it against its live draft; `ping` reports
-`draftPatchCompare.version` (`DRAFT_PATCH_COMPARE_VERSION`).
+range is only a hint. outline-core's `draft-patch-compare.ts`
+finds the observed text and maps positions; the door imports the same module
+to run it against its live draft.
 
 **Policy.** [`src/draft-patch.ts`](../src/draft-patch.ts) owns which rule a
 matching patch is held to. `edit`, the default, is the guard every agent edit
@@ -1983,7 +1979,7 @@ src/herdr-registry.ts         ephemeral live Herdr runtime metadata
 src/workspace-ownership.ts    workspace ownership lock (`.owner.sqlite`)
 src/draft-patch.ts            draft.patch policies, draft holds, proposals
 src/draft-patch-router.ts     where a draft.patch goes (live draft or saved note)
-src/draft-patch-compare.ts    the compare (copied byte for byte by the door)
+outline-core draft-patch-compare.ts  the compare (the door imports it too)
 src/agent-tools.ts            agent outline operations (CLI `agent`, mod `outline_*`)
 src/extension-manifest.ts     the one parser of an extension folder (contract 2)
 src/extension-registry.ts     which extensions an outline has; watched folders

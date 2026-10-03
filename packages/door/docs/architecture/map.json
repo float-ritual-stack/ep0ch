@@ -49,7 +49,7 @@
     { "id": "A-F10", "line": 187, "title": "Hit-testing, frames and hint rows are per screen", "status": "open", "route": "PIE-492" },
     { "id": "A-F11", "line": 197, "title": "The property-token regex copied 9 times, with a different key rule", "status": "resolved", "by": "#62, outliner #250" },
     { "id": "A-F12", "line": 211, "title": "The door ports the query language and plans moves the service couldn't", "status": "resolved", "by": "#62, outliner #250" },
-    { "id": "A-F13", "line": 223, "title": "Grammar mirrors should be one module the outliner exports", "status": "partial", "by": "#62", "note": "the property grammar is one byte-for-byte copy, checksum-tested; literal regions, inline Markdown, components, backlinks and folder-to-outline are still mirrors", "route": "service track" },
+    { "id": "A-F13", "line": 223, "title": "Grammar mirrors should be one module the outliner exports", "status": "partial", "by": "#62", "note": "the property grammar, the draft.patch compare and the search matcher are one module in outline-core both sides import; literal regions, inline Markdown, components, backlinks and folder-to-outline are still mirrors", "route": "service track" },
     { "id": "A-F14", "line": 241, "title": "Attention marks are door-local; nvim marks stored by line number", "status": "open", "route": "PIE-423" },
     { "id": "A-F15", "line": 249, "title": "Tile kinds are a closed union in 5 places; the desk dispatches by class", "status": "partial", "by": "#95, #105", "note": "an open tile-kind registry (src/desk/tile-kinds.ts); extensions register kinds through serviceKind (#97). PIE-510: a terminal's actions are the terminal kind's (PTY_ACTIONS, inherited by an extension's program kinds), and the desk asks the kind for keys and clicks (press), a screen tile's keys, actions and ticks (takesKeys, act, tick) and a gone kind's held work (holdsWork, whenFree); class checks in desk.ts 43 to 30 (PtyPane 19 to 10, ScreenTile 4 to 0). Left: terminal-only data (nvim marks, temp files, its screen text, a running program's close) and ReaderPane checks that mean a note reader, the note surface's host", "route": "PIE-493" },
     { "id": "A-F16", "line": 263, "title": "Import direction: the tile layer and the protocol import features", "status": "open", "route": "PIE-493" },
@@ -103,8 +103,8 @@
   ],
   "chapters": [
     { "id": "outline", "title": "The outline and the service", "lede": "Everything starts as blocks in one SQLite file per outline, owned by one service process. Blocks have revisions and provenance; properties are [key::value] tokens in the text, read by one grammar." },
-    { "id": "feed", "title": "Capabilities and the change feed", "lede": "Clients ask `ping` what the service can do and pick features by capability, not by protocol bumps. Every committed change is a numbered record: live on `events.subscribe`, replayable from `changes.since`." },
-    { "id": "socket", "title": "The socket", "lede": "The door speaks to the service over its Unix socket through one client, SocketBoard. Where a call per paint is too slow, the door holds a copy of the service's grammar, checked byte for byte; the older mirrors are still here." },
+    { "id": "feed", "title": "The protocol and the change feed", "lede": "Client and service speak one protocol, PROTOCOL in outline-core; ping reports the service's and a client refuses any other number. Every committed change is a numbered record: live on `events.subscribe`, replayable from `changes.since`." },
+    { "id": "socket", "title": "The socket", "lede": "The door speaks to the service over its Unix socket through one client, SocketBoard. Where a call per paint is too slow, the door imports the rule from outline-core, the package the service uses; the older mirrors are still here." },
     { "id": "surface", "title": "NoteSurface", "lede": "One reader draws every note in the door: the board's preview and details, the desk's readers, the river's columns, the BBS message reader and the hub screens. Editing is one draft component under all of them." },
     { "id": "actions", "title": "The action registry", "lede": "An action is an ActionDef in an ActionSet: typed arguments, an actor, a refusal with a reason. Every screen runs its keys and clicks through it: a screen spec's key map names actions, and one dispatcher per screen host runs them (PIE-514). ActionDef.keys is the caption." },
     { "id": "layout", "title": "The layout tree and tiles", "lede": "The desk is a tree of splits, tab sets and tiles, each with a stable id, and a revision any agent can check with expected=. The algebra is pure and shared; the host around it is still the desk's own." },
@@ -145,19 +145,19 @@
       "does": "One socket serves several outlines by name (pie, a pilot outline, a sandbox); clients name the outline on each request.",
       "built": "OutlineHost answers outlines.list/create/adopt/attach/close/delete/pane and routes every other request to the named outline's server.",
       "refs": [
-        { "r": "outliner", "p": "src/outline-host.ts", "l": 130, "m": "export class OutlineHost" },
-        { "r": "outliner", "p": "src/outline-host.ts", "l": 67, "m": "const HOST_ACTIONS" }
+        { "r": "outliner", "p": "src/outline-host.ts", "l": 128, "m": "export class OutlineHost" },
+        { "r": "outliner", "p": "src/outline-host.ts", "l": 65, "m": "const HOST_ACTIONS" }
       ],
       "questions": [ { "text": "Folder to outline is still worked out on each client (the door's discover.ts); an `outlines.resolve` on the host would say it once.", "finding": "A-F13", "route": "service track" } ]
     },
     {
       "id": "svc.grammar", "name": "Property grammar", "group": "service", "chapter": "outline", "ladder": "shared", "was": "accidental", "dependsOn": [],
       "does": "The one definition of a property key and a [key::value] token, with its escape. [2nd-pass::yes] is text; [plot.row::3] is a property.",
-      "built": "src/property-grammar.ts imports nothing, so a client can copy it whole; properties.ts and block-query.ts build on it; ping reports its version.",
+      "built": "outline-core's property-grammar.ts is pure (no imports); properties.ts and block-query.ts build on it and the door imports it.",
       "refs": [
-        { "r": "outliner", "p": "src/property-grammar.ts", "l": 16, "m": "PROPERTY_GRAMMAR_VERSION = 1" },
-        { "r": "outliner", "p": "src/properties.ts", "l": 2, "m": "./property-grammar" },
-        { "r": "outliner", "p": "src/block-query.ts", "l": 2, "m": "./property-grammar" }
+        { "r": "outliner", "p": "../outline-core/src/property-grammar.ts", "l": 11, "m": "PROPERTY_KEY_SOURCE = " },
+        { "r": "outliner", "p": "src/properties.ts", "l": 2, "m": "@ep0ch/outline-core/property-grammar" },
+        { "r": "outliner", "p": "src/block-query.ts", "l": 2, "m": "@ep0ch/outline-core/property-grammar" }
       ]
     },
     {
@@ -166,20 +166,20 @@
       "built": "block-query.ts parses property filters; the server answers views.read and query.matches from the store. The door's port of this language (query.ts) is deleted.",
       "refs": [
         { "r": "outliner", "p": "src/block-query.ts", "l": 225, "m": "export function parsePropertyFilterExpression" },
-        { "r": "outliner", "p": "src/server.ts", "l": 1853, "m": "case \"views.read\"" },
-        { "r": "outliner", "p": "src/server.ts", "l": 1872, "m": "case \"query.matches\"" }
+        { "r": "outliner", "p": "src/server.ts", "l": 1847, "m": "case \"views.read\"" },
+        { "r": "outliner", "p": "src/server.ts", "l": 1866, "m": "case \"query.matches\"" }
       ]
     },
 
     {
-      "id": "svc.protocol", "name": "Protocol and capabilities", "group": "service", "chapter": "feed", "ladder": "stable", "dependsOn": ["svc.store"],
-      "does": "Line-delimited JSON over a Unix socket. The protocol stays at 82; new features are additive capabilities that ping lists, and a client names the one it's missing.",
-      "built": "OUTLINER_PROTOCOL_VERSION and OUTLINER_CAPABILITIES in types.ts; ping answers them with the grammar version and where the outline lives.",
+      "id": "svc.protocol", "name": "Protocol", "group": "service", "chapter": "feed", "ladder": "stable", "dependsOn": ["svc.store"],
+      "does": "Line-delimited JSON over a Unix socket. One number, PROTOCOL, bumped with any wire change; a client refuses a service on another number and names the side to update.",
+      "built": "PROTOCOL and protocolMismatch in outline-core's protocol.ts, imported by the service and every client; ping answers the number and where the outline lives.",
       "refs": [
-        { "r": "outliner", "p": "src/types.ts", "l": 1668, "m": "OUTLINER_PROTOCOL_VERSION = 82" },
-        { "r": "outliner", "p": "src/types.ts", "l": 1678, "m": "export const OUTLINER_CAPABILITIES" },
-        { "r": "outliner", "p": "src/server.ts", "l": 1834, "m": "case \"ping\"" },
-        { "r": "outliner", "p": "src/server.ts", "l": 416, "m": "server.listen(this.socketPath" }
+        { "r": "outliner", "p": "../outline-core/src/protocol.ts", "l": 11, "m": "export const PROTOCOL = " },
+        { "r": "outliner", "p": "../outline-core/src/protocol.ts", "l": 17, "m": "export function protocolMismatch" },
+        { "r": "outliner", "p": "src/server.ts", "l": 1828, "m": "case \"ping\"" },
+        { "r": "outliner", "p": "src/server.ts", "l": 410, "m": "server.listen(this.socketPath" }
       ]
     },
     {
@@ -190,7 +190,7 @@
         { "r": "outliner", "p": "src/change-feed.ts", "l": 129, "m": "export class ChangeFeed" },
         { "r": "outliner", "p": "src/change-feed.ts", "l": 139, "m": "CREATE TABLE IF NOT EXISTS change_feed" },
         { "r": "outliner", "p": "src/change-feed.ts", "l": 304, "m": "since(sequence" },
-        { "r": "outliner", "p": "src/server.ts", "l": 3037, "m": "private publishChanges" }
+        { "r": "outliner", "p": "src/server.ts", "l": 3031, "m": "private publishChanges" }
       ]
     },
     {
@@ -200,7 +200,7 @@
       "refs": [
         { "r": "outliner", "p": "src/view-writes.ts", "l": 162, "m": "export function planMoveIntoView" },
         { "r": "outliner", "p": "src/store.ts", "l": 3239, "m": "planViewWrites(input" },
-        { "r": "outliner", "p": "src/server.ts", "l": 1860, "m": "case \"views.planWrite\"" }
+        { "r": "outliner", "p": "src/server.ts", "l": 1854, "m": "case \"views.planWrite\"" }
       ],
       "questions": [ { "text": "One client so far (the door's board). Tree's virtual branches, the CLI's work_stage and agents could plan through it too.", "finding": "A-F12" } ]
     },
@@ -209,7 +209,7 @@
       "does": "Ranked search over the outline, text or semantic. Goto uses it; the door doesn't.",
       "built": "Answered in the server before the request switch; the Goto controller asks it as you type.",
       "refs": [
-        { "r": "outliner", "p": "src/server.ts", "l": 1585, "m": "request.action === \"tree.search\"" },
+        { "r": "outliner", "p": "src/server.ts", "l": 1579, "m": "request.action === \"tree.search\"" },
         { "r": "outliner", "p": "src/goto-controller.ts", "l": 152, "m": "action: \"tree.search\"" }
       ],
       "questions": [ { "text": "The door has four searches of its own. One jump palette over tree.search would replace them.", "finding": "A-F8", "route": "service track" } ]
@@ -218,7 +218,7 @@
       "id": "cli.client", "name": "Outliner client library", "group": "clients", "chapter": "feed", "ladder": "shared", "dependsOn": ["svc.protocol", "svc.feed"],
       "does": "The outliner's own client: requests, the watcher on the event feed. Detail, Tree, the CLI and the publisher use it.",
       "built": "OutlinerClient and OutlinerWatcher in client.ts.",
-      "refs": [ { "r": "outliner", "p": "src/client.ts", "l": 196, "m": "export class OutlinerClient" } ],
+      "refs": [ { "r": "outliner", "p": "src/client.ts", "l": 190, "m": "export class OutlinerClient" } ],
       "questions": [ { "text": "The door has its own client (SocketBoard) beside it: two client libraries for one protocol.", "finding": "A-F13" } ]
     },
     {
@@ -234,29 +234,29 @@
       "id": "cli.tree", "name": "Tree", "group": "clients", "chapter": "feed", "ladder": "shared", "dependsOn": ["cli.client", "svc.query", "svc.keymap"],
       "does": "The outline as a tree with virtual branches (saved views), in a Herdr pane.",
       "built": "createTreeController with injected effects; rows, layout and mouse in their own modules.",
-      "refs": [ { "r": "outliner", "p": "src/tree-controller.ts", "l": 389, "m": "export function createTreeController" } ]
+      "refs": [ { "r": "outliner", "p": "src/tree-controller.ts", "l": 381, "m": "export function createTreeController" } ]
     },
 
     {
       "id": "door.socketboard", "name": "SocketBoard", "group": "door", "chapter": "socket", "ladder": "shared", "dependsOn": ["svc.protocol", "svc.feed", "svc.planwrite"],
-      "does": "The door's one client of the service: requests with timeouts, capabilities, reconnect with backoff, catch-up from changes.since, and 'offline' when it can't ask.",
-      "built": "One class in socket.ts. The door requires protocol 82 with every capability it names (OUTLINE_CAPABILITIES) and refuses an older service at info(), naming what it lacks and the fix, instead of falling back.",
+      "does": "The door's one client of the service: requests with timeouts, the protocol check, reconnect with backoff, catch-up from changes.since, and 'offline' when it can't ask.",
+      "built": "One class in socket.ts. The door refuses a service on another protocol at info(), naming the side to update, instead of falling back.",
       "refs": [
-        { "r": "door", "p": "src/socket.ts", "l": 368, "m": "export class SocketBoard" },
-        { "r": "door", "p": "src/socket.ts", "l": 498, "m": "const missing = OUTLINE_CAPABILITIES.filter" },
-        { "r": "door", "p": "src/socket.ts", "l": 871, "m": "subscribe(onEvent" },
-        { "r": "door", "p": "src/socket.ts", "l": 940, "m": "private async catchUp" },
-        { "r": "door", "p": "src/socket.ts", "l": 308, "m": "export class Offline" }
+        { "r": "door", "p": "src/socket.ts", "l": 327, "m": "export class SocketBoard" },
+        { "r": "door", "p": "src/socket.ts", "l": 454, "m": "const mismatch = protocolMismatch" },
+        { "r": "door", "p": "src/socket.ts", "l": 817, "m": "subscribe(onEvent" },
+        { "r": "door", "p": "src/socket.ts", "l": 886, "m": "private async catchUp" },
+        { "r": "door", "p": "src/socket.ts", "l": 267, "m": "export class Offline" }
       ],
       "questions": [ { "text": "The door re-derives the service's state root and socket hash (discover.ts); the host should say.", "finding": "A-F13", "route": "service track" } ]
     },
     {
-      "id": "door.grammar", "name": "The grammar copy", "group": "door", "chapter": "socket", "ladder": "shared", "was": "accidental", "dependsOn": ["svc.grammar"],
+      "id": "door.grammar", "name": "The shared grammar", "group": "door", "chapter": "socket", "ladder": "shared", "was": "accidental", "dependsOn": ["svc.grammar"],
       "does": "Finds [key::value] tokens at paint time (titles, digests, colour) by the service's own rule, so the door and Detail agree on every note.",
-      "built": "src/vendor/property-grammar.ts is the outliner's file byte for byte; a test pins its checksum and compares it with the checkout; ping's version is checked at start. It replaced nine local regexes.",
+      "built": "The door imports @ep0ch/outline-core/property-grammar, the file the service parses with; test/grammar.test.ts checks titles against the service's parser. It replaced nine local regexes, then a vendored copy.",
       "refs": [
-        { "r": "door", "p": "src/vendor/property-grammar.ts", "l": 16, "m": "PROPERTY_GRAMMAR_VERSION = 1" },
-        { "r": "door", "p": "test/grammar.test.ts", "l": 38, "m": "PINNED_SHA256" }
+        { "r": "door", "p": "src/text.ts", "l": 3, "m": "@ep0ch/outline-core/property-grammar" },
+        { "r": "door", "p": "src/board.ts", "l": 4, "m": "@ep0ch/outline-core/property-grammar" }
       ]
     },
     {
@@ -559,8 +559,8 @@
       "does": "SIGINT, SIGQUIT, SIGTERM, SIGHUP, an uncaught exception or rejection: drafts and ctrl+e text are copied to drafts/, the terminal is put back, the socket removed, and the door says where the text went.",
       "built": "guardDoor (door.ts) is the one teardown, for the own terminal and the session alike: every signal and fault calls App.terminate; a small watcher restores the terminal after kill -9. In a door session (door.daemon) a terminal's signals only detach it; the session's own end goes through the same terminate.",
       "refs": [
-        { "r": "door", "p": "src/door.ts", "l": 106, "m": "export function guardDoor" },
-        { "r": "door", "p": "src/door.ts", "l": 121, "m": "process.on(\"uncaughtException\", fault)" },
+        { "r": "door", "p": "src/door.ts", "l": 102, "m": "export function guardDoor" },
+        { "r": "door", "p": "src/door.ts", "l": 117, "m": "process.on(\"uncaughtException\", fault)" },
         { "r": "door", "p": "src/app.ts", "l": 337, "m": "terminate()" }
       ],
       "questions": [ { "text": "Six child-process launchers, three with no timeout; unzip blocks the paint.", "finding": "B-F7" } ]
@@ -601,7 +601,7 @@
       "built": "setup/: facts, model, plan, apply, doctor.",
       "refs": [
         { "r": "door", "p": "src/setup/facts.ts", "l": 39, "m": "export async function run" },
-        { "r": "door", "p": "src/setup/model.ts", "l": 156, "m": "MIN_BUN = \"1.3.0\"" }
+        { "r": "door", "p": "src/setup/model.ts", "l": 151, "m": "MIN_BUN = \"1.3.0\"" }
       ],
       "questions": [
         { "text": "~/backups/ep0ch isn't configurable.", "finding": "B-F17", "route": "PIE-494" },
@@ -819,17 +819,17 @@
       { "label": "mover asks", "at": "door.board", "what": "openMover asks the service for every lane's plan at once, at the card's revision.",
         "ref": { "r": "door", "p": "src/desk/lanes.ts", "l": 694, "m": "planMoves(this.host.ctx.board, card, ids)" } },
       { "label": "views.planWrite", "at": "door.socketboard", "what": "SocketBoard sends one views.planWrite request over the service socket.",
-        "ref": { "r": "door", "p": "src/socket.ts", "l": 33, "m": "\"views.planWrite\"" } },
+        "ref": { "r": "door", "p": "src/socket.ts", "l": 664, "m": "\"views.planWrite\"" } },
       { "label": "plan", "at": "svc.planwrite", "what": "The service splits each lane's query and plans the property patch, or refuses with the reason.",
         "ref": { "r": "outliner", "p": "src/view-writes.ts", "l": 162, "m": "export function planMoveIntoView" } },
       { "label": "enter", "at": "door.board", "what": "The mover shows each lane's plan; Enter checks the selection hasn't changed and runs the card.move action, which calls moveTo.",
         "ref": { "r": "door", "p": "src/desk/lanes.ts", "l": 686, "m": "if (i !== from) void this.run(\"card.move\", { lane: this.lanes[i]!.name, card: card.id })" } },
       { "label": "properties.patch", "at": "door.socketboard", "what": "moveTo re-plans the target lane, then applyMove sends properties.patch with expectedRevision and the actor's provenance.",
-        "ref": { "r": "door", "p": "src/socket.ts", "l": 845, "m": "\"properties.patch\", { blockId, expectedRevision" } },
+        "ref": { "r": "door", "p": "src/socket.ts", "l": 791, "m": "\"properties.patch\", { blockId, expectedRevision" } },
       { "label": "revision check", "at": "svc.store", "what": "The store refuses if the card changed since it was read; otherwise it patches the tokens and writes the text.",
         "ref": { "r": "outliner", "p": "src/store.ts", "l": 2333, "m": "existing.revision !== expectedRevision" } },
       { "label": "change feed", "at": "svc.feed", "what": "The change is recorded in the feed and broadcast as an event to every subscriber: this door, other doors, Detail, Tree, the publisher.",
-        "ref": { "r": "outliner", "p": "src/server.ts", "l": 3037, "m": "private publishChanges" } },
+        "ref": { "r": "outliner", "p": "src/server.ts", "l": 3031, "m": "private publishChanges" } },
       { "label": "event in", "at": "door.socketboard", "what": "Each door's SocketBoard hands the event to App.event, which passes it to the screen on top.",
         "ref": { "r": "door", "p": "src/door.ts", "l": 49, "m": "o.board.subscribe(e => app.event(e))" } },
       { "label": "which lanes", "at": "door.board", "what": "The board works out which lanes the change touches (asking planWrite which lanes the card is 'already' in) and marks them.",
