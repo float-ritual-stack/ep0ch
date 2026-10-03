@@ -1,0 +1,13 @@
+{
+  "name": "ep0ch",
+  "private": true,
+  "type": "module",
+  "workspaces": ["packages/*"],
+  "scripts": {
+    "check": "bun run --filter '*' check",
+    "test": "bun run --filter '*' test"
+  },
+  "patchedDependencies": {
+    "@earendil-works/pi-tui@0.84.2": "packages/outliner/patches/@earendil-works%2Fpi-tui@0.84.2.patch"
+  }
+}

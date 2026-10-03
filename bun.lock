@@ -3,7 +3,25 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "pi-herdr-outliner",
+      "name": "ep0ch",
+    },
+    "packages/door": {
+      "name": "@ep0ch/door",
+      "bin": {
+        "ep0ch": "src/main.ts",
+        "ep0ch-door": "src/main.ts",
+      },
+      "dependencies": {
+        "@xterm/headless": "6.0.0",
+      },
+      "devDependencies": {
+        "@types/bun": "latest",
+        "typescript": "^5.6.0",
+      },
+    },
+    "packages/outliner": {
+      "name": "@ep0ch/outliner",
+      "version": "0.1.1",
       "dependencies": {
         "@earendil-works/pi-ai": "^0.84.2",
         "@earendil-works/pi-coding-agent": "^0.84.2",
@@ -23,7 +41,7 @@
     },
   },
   "patchedDependencies": {
-    "@earendil-works/pi-tui@0.84.2": "patches/@earendil-works%2Fpi-tui@0.84.2.patch",
+    "@earendil-works/pi-tui@0.84.2": "packages/outliner/patches/@earendil-works%2Fpi-tui@0.84.2.patch",
   },
   "packages": {
     "@anthropic-ai/sdk": ["@anthropic-ai/sdk@0.91.1", "", { "dependencies": { "json-schema-to-ts": "^3.1.1" }, "peerDependencies": { "zod": "^3.25.0 || ^4.0.0" }, "optionalPeers": ["zod"], "bin": { "anthropic-ai-sdk": "bin/cli" } }, "sha512-LAmu761tSN9r66ixvmciswUj/ZC+1Q4iAfpedTfSVLeswRwnY3n2Nb6Tsk+cLPP28aLOPWeMgIuTuCcMC6W/iw=="],

@@ -1,5 +1,5 @@
 {
-  "name": "ep0ch-door",
+  "name": "@ep0ch/door",
   "private": true,
   "type": "module",
   "bin": {

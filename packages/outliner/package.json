@@ -1,5 +1,5 @@
 {
-  "name": "pi-herdr-outliner",
+  "name": "@ep0ch/outliner",
   "version": "0.1.1",
   "description": "Persistent local-first block outliner shared by Herdr users and Pi agents",
   "repository": {
@@ -65,8 +65,5 @@
     "@types/bun": "latest",
     "@xterm/headless": "6.0.0",
     "typescript": "^5.9.3"
-  },
-  "patchedDependencies": {
-    "@earendil-works/pi-tui@0.84.2": "patches/@earendil-works%2Fpi-tui@0.84.2.patch"
   }
 }
