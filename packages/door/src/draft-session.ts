@@ -12,7 +12,7 @@ import { subject, type Msg } from "./board";
 import { DRAFT_ACTIONS, pruneOld, sameParty, tidy, whenPut, PATCH_FLASH_MS, Draft, type DraftAction, type DraftActionArgs } from "./edit";
 import { actorIdOf, EditConflict, isExtensionWriter, Refused, USER, type Actor, type Comment, type CommentPassage, type DraftAnswer, type DraftHoldHandle, type DraftRequest, type SocketBoard } from "./socket";
 import { ActionRefused, agentLabel, type DraftUse } from "./surface/actions";
-import { completionKey, type Completer } from "./surface/completer";
+import { completerOf, completionKey, type Completer } from "./surface/completer";
 import { outlineState } from "./state";
 import type { Key } from "./term";
 import { markStart } from "@ep0ch/outline-core/draft-patch-compare";
@@ -456,6 +456,8 @@ export class DraftSession {
     this.hold?.release();
     this.hold = null;
     registry(this.env.board).delete(this);
+    // Its popup goes with it, and a Jev re-order still waiting for its pause is never asked.
+    completerOf(this.draft)?.dismiss();
     this.env.closed?.(how, this);
   }
 

@@ -31,3 +31,12 @@ test("inline code that wraps onto the next row is code on both rows, with no str
   // A lone backtick, with no closer, is text and stays.
   expect(wrap("a ` alone in a long line of words here", 12).join(" ")).toContain("`");
 });
+
+test("a plain wrap (not a body row) adds nothing: every row fits its width and holds only the text's backticks", () => {
+  const text = "see `aaaa bbbb cccc dddd eeee` ok and more words after it";
+  for (const w of [6, 10, 14, 20]) {
+    const rows = wrap(text, w);
+    for (const r of rows) expect(width(r)).toBeLessThanOrEqual(w);
+    expect(rows.join("").split("`").length - 1).toBe(2);
+  }
+});

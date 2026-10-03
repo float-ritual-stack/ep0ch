@@ -3457,6 +3457,6 @@ function previewLines(m: Msg, w: number): string[] {
   while (body.length && !body[0]!.text.trim()) body.shift();
   while (body.length && !body.at(-1)!.text.trim()) body.pop();
   // Links read as their labels and **bold** as bold, as the reader draws them (no ((uuid|…)) or ** in a preview).
-  return body.flatMap(l => (l.text ? wrap(l.literal ? l.text : emphasis(presentLinks(l.text, false, null, m.text)), w) : [""]).map(x => colourBody(x, l.literal)));
+  return body.flatMap(l => (l.text ? wrap(l.literal ? l.text : emphasis(presentLinks(l.text, false, null, m.text)), w, { code: true }) : [""]).map(x => colourBody(x, l.literal)));
 }
 export { previewLines as searchPreviewLines };

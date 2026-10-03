@@ -70,7 +70,7 @@ const len = (s: string) => Bun.stringWidth(NO_ROOM.test(s) ? stripTags(s).replac
 const NO_ROOM = /[\uE000-\uE008\u{100000}-\u{10FFFD}]/u;
 
 /**
- * One line's rows with each inline code span the wrap cut closed at the row's end and opened again on the next, so
+ * One line's rows (for colourBody: wrap's `code`) with each inline code span the wrap cut closed at the row's end and opened again on the next, so
  * colourBody, which colours a row alone, draws both halves as code and no backtick is left showing. A backtick with
  * no closer later in the line is text, left as it is.
  */
@@ -88,8 +88,10 @@ function balanceCode(rows: string[]): string[] {
   });
 }
 
-/** `text` in rows of at most `w` cells. A width under 1 (a narrow pane, deep indentation) wraps at 1: `cut` must always make progress. */
-export function wrap(text: string, w: number): string[] {
+/**
+ * `text` in rows of at most `w` cells. `code`: a body row colourBody will colour, whose code spans the wrap cut are
+ * closed and reopened (balanceCode); the backticks it adds are taken out by colourBody, so only its callers ask. A width under 1 (a narrow pane, deep indentation) wraps at 1: `cut` must always make progress. */
+export function wrap(text: string, w: number, { code = false }: { code?: boolean } = {}): string[] {
   w = w >= 1 ? Math.floor(w) : 1;
   const out: string[] = [];
   for (const raw of text.split("\n")) {
@@ -105,7 +107,7 @@ export function wrap(text: string, w: number): string[] {
       while (n > w) { const [head, tail] = cut(line, w); rows.push(head); line = tail; n = len(line); }
     }
     rows.push(line);
-    out.push(...balanceCode(rows));
+    out.push(...(code ? balanceCode(rows) : rows));
   }
   // A link cut by the wrap is closed at each line's end and re-opened on the next, and a bold or italic
   // span carries on, so each row stands alone.

@@ -225,8 +225,21 @@ function heading(id: string, fragment: string | undefined, text: string, w: numb
   return shade(fg(colour) + (loud ? BOLD : "") + tagged(sink, to, shown) + (loud ? UNBOLD : "") + (proposal ? proposalControls(proposal, sink) : "") + RESET, w);
 }
 
-/** A virtual branch's results, as Detail lists them: an embedded view's, and `ep0ch show` on a view note. */
-export function viewRegion(target: Msg, v: ViewRead, w: number, sink: LinkTarget[] | undefined): string[] {
+/**
+ * A view note's own results, under its body in a reader (and so in `ep0ch show`), drawn as an embedded view is:
+ * the service's projection of the note (`transclusions.read`, then `views.read`), so the service says whether it is
+ * a view. Only a note typed a virtual branch is asked; null for any other, or one the service says isn't a view.
+ */
+export function viewResults(m: Msg, w: number, src: Source | null | undefined, sink?: LinkTarget[]): string[] | null {
+  if ((m.props.type ?? "").toLowerCase() !== "virtual-branch") return null;
+  const st = embedState(m.id, undefined, src);
+  if (st.kind === "loading") return [shade(fg(C.dark) + "≡ reading the view's results…" + RESET, w)];
+  if (st.kind !== "node" || st.node.kind !== "view") return null;
+  return nodeRegion(st.node, st.views, w, () => [], sink);
+}
+
+/** A virtual branch's results, as Detail lists them. */
+function viewRegion(target: Msg, v: ViewRead, w: number, sink: LinkTarget[] | undefined): string[] {
   const S = (line: string) => shade(line, w), title = printable(subject(target));
   const head = (text: string, colour?: number) => heading(target.id, undefined, text, w, sink, colour);
   if (v.status === "invalid") return [head(`≡ ${title} · CONFIG ERROR`, C.lred), ...v.errors.map(e => S(fg(C.lred) + "  " + printable(e) + RESET))];

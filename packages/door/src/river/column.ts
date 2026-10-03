@@ -28,7 +28,7 @@ import type { KindHost, TileKind, TileKindName } from "../desk/tile-kinds";
 import type { TileSpec } from "../desk/tiles";
 import { LineInput } from "../surface/line";
 import { Fold } from "../fold";
-import { matchesSearchText } from "@ep0ch/outline-core/search-match";
+import { matchesSearchText, prepareSearchQuery, type SearchQuery } from "@ep0ch/outline-core/search-match";
 
 /** A property notice or an agent line in a column the person isn't in clears after this long on screen. */
 export const BANNER_MS = 30_000;
@@ -76,11 +76,14 @@ export function parseFilter(s: string): Clause[] {
 }
 export const filterText = (f: Clause[]) => f.map(c => `${c.exclude ? "-" : ""}${c.key === "text" ? "" : c.key + ":"}${c.value}`).join(" ");
 /** The clauses the service's query has no word for: who wrote the note (`author:`) and its text (a bare word). */
+/** A word clause's query, prepared once for every row it's matched against. */
+const preparedQueries = new WeakMap<Clause, SearchQuery | null>();
+const prepared = (c: Clause) => { if (!preparedQueries.has(c)) preparedQueries.set(c, prepareSearchQuery(c.value)); return preparedQueries.get(c)!; };
 const ownClause = (c: Clause) => c.key === "author" || c.key === "text";
 function passesOwn(m: Msg, f: Clause[]): boolean {
   return f.filter(ownClause).every(c => {
     // A word: outline-core's matcher (punctuation folded, a typo forgiven); `-word` lists exactly what `word` leaves out.
-    const hit = c.key === "text" ? matchesSearchText(c.value, [m.text]) : c.value === "*" || (m.author ?? "").toLowerCase() === c.value.toLowerCase();
+    const hit = c.key === "text" ? matchesSearchText(prepared(c), [m.text]) : c.value === "*" || (m.author ?? "").toLowerCase() === c.value.toLowerCase();
     return c.exclude ? !hit : hit;
   });
 }

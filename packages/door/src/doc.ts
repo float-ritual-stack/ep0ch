@@ -85,6 +85,8 @@ export interface FoldPoint { key: string; kind: "heading" | "list"; level: numbe
 // Inline Markdown (bold, italic, strikethrough) arrives as style marks from presentLinks, placed before the
 // text was wrapped; colourBody turns them into SGR.
 const inlineOf = (s: string, literal = false) => colourBody(s, literal);
+/** Rows colourBody colours: a code span the wrap cuts stays code on both rows. */
+const BODY = { code: true };
 
 const HEADING = /^(#{1,6})\s+(.*)$/;
 const ITEM = /^(\s*)([-*]|\d+[.)])\s+(.*)$/;
@@ -305,7 +307,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
       } else {
         for (const l of spill ? wrap(spill, inner) : []) out.push(fg(colour) + "│ " + BOLD + pad(l, inner) + UNBOLD + " │" + RESET);
         // A title-only callout is just the titled frame; no empty row inside.
-        body.forEach((b, k) => { for (const l of b ? wrap(b, inner) : [""])
+        body.forEach((b, k) => { for (const l of b ? wrap(b, inner, BODY) : [""])
           out.push(fg(colour) + "│ " + RESET + pad(inlineOf(l, bodyLit[k]), inner) + fg(colour) + " │" + RESET); });
       }
       out.push(fg(colour) + "╰" + "─".repeat(bw - 2) + "╯" + RESET);
@@ -367,7 +369,7 @@ const BOX = /^\[[ xX~!]\](?=\s|$)/;
 function prose(line: string, W: number, fold?: Disclosure, literal = false, task?: (box: string) => string | null): string[] {
   const out: string[] = [];
   const inline = (s: string) => inlineOf(s, literal);
-  if (/^\s*>/.test(line)) { for (const l of wrap(line.replace(/^\s*> ?/, ""), W - 2)) out.push(fg(C.green) + "▌ " + RESET + inline(l)); return out; }
+  if (/^\s*>/.test(line)) { for (const l of wrap(line.replace(/^\s*> ?/, ""), W - 2, BODY)) out.push(fg(C.green) + "▌ " + RESET + inline(l)); return out; }
   const glyph = fold ? (fold.folded ? "▸" : "▾") : "";
   const tint = fold?.selected ? fg(C.yellow) : fg(C.lcyan);
   const h = line.match(HEADING);
@@ -382,12 +384,12 @@ function prose(line: string, W: number, fold?: Disclosure, literal = false, task
     const lead = " ".repeat(Math.max(0, Math.min(indent, W - mark.length - 1 - room))) + mark + " ";
     const box = task ? li[3]!.match(BOX)?.[0] : undefined;
     const drawn = box ? task!(box) : null;
-    const rows = wrap(drawn !== null ? drawn + li[3]!.slice(box!.length) : li[3]!, W - lead.length);
+    const rows = wrap(drawn !== null ? drawn + li[3]!.slice(box!.length) : li[3]!, W - lead.length, BODY);
     rows.forEach((l, k) => out.push((k ? " ".repeat(lead.length) : (fold ? tint : fg(C.lcyan)) + lead + RESET) + inline(l) + (fold?.folded && k === rows.length - 1 ? foldedNote(fold) : "")));
     return out;
   }
   if (!line.trim()) return [""];
-  return wrap(line, W).map(inline);
+  return wrap(line, W, BODY).map(inline);
 }
 
 function chunk(s: string, w: number): string[] {
@@ -440,7 +442,7 @@ export function table(rows: string[], W: number, literal = false): string[] {
     return a === "r" ? " ".repeat(gap) + s : a === "c" ? " ".repeat(gap >> 1) + s + " ".repeat(gap - (gap >> 1)) : s + " ".repeat(gap);
   };
   const line = (r: string[], header: boolean) => {
-    const wrapped = r.map((c, k) => (c ? wrap(c, widths[k]!) : [""]));
+    const wrapped = r.map((c, k) => (c ? wrap(c, widths[k]!, BODY) : [""]));
     const h = Math.max(...wrapped.map(w => w.length));
     const out: string[] = [];
     for (let y = 0; y < h; y++)

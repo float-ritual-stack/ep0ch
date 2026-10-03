@@ -10,14 +10,12 @@
 //
 // `show <id>…` draws each note as a reader draws it: the note surface (`NoteSurface.render`), at the width asked for,
 // in the person's theme, its live figures and `::links` answered by the outline (connectFigures, as the door's App
-// connects them), folded callouts unfolded (no key works in what it prints), a view note followed by its results
-// (views.read, drawn as an embedded view is: viewRegion), never a second renderer. `--ansi` keeps its colours;
+// connects them), folded callouts unfolded (no key works in what it prints), a view note followed by its results as
+// the reader draws them (viewResults), never a second renderer. `--ansi` keeps its colours;
 // without it, plain text. `--cells` prints the same drawing as JSON cells (src/cells.ts) for a program that paints a
 // grid: a Claude Code mod's Raster. `--source` prints each note's text as written, for a file to keep.
 import { linesToCells } from "./cells";
 import { connectFigures } from "./graphs";
-import { viewRegion } from "./embeds";
-import { readView } from "./views";
 import { resolveTarget } from "./discover";
 import { redundantLabel } from "./authored";
 import { forwardTo } from "./machine";
@@ -162,7 +160,7 @@ async function boardFor(args: string[]): Promise<SocketBoard | { error: string }
   return board;
 }
 
-export interface Out { out: (s: string) => void; err: (s: string) => void; columns?: number }
+export interface Out { out: (s: string) => void; err: (s: string) => void; columns?: number; tty?: boolean }
 
 /** `ep0ch find …`: its exit code. */
 export async function findCommand(argsIn: string[], io: Out = { out: console.log, err: console.error }): Promise<number> {
@@ -233,15 +231,11 @@ export async function drawNote(board: SocketBoard, id: string, width: number, se
   }
   const lines = surface.render(width, tall, host).lines.map(l => paintable(l).replace(TAGS, "").replace(MARKS, ""));
   while (lines.length && !visible(lines.at(-1)!).trim()) lines.pop();
-  // A view note (a virtual branch) with its results, as the service reads them (views.read) and an embedded view
-  // draws them; the service says which notes are views ("unsupported" for any other).
-  const view = await readView(board, m);
-  if (view.status !== "unsupported" && view.status !== "missing") lines.push("", ...viewRegion(m, view, width, undefined).map(l => paintable(l).replace(TAGS, "").replace(MARKS, "")));
   return lines;
 }
 
 /** `ep0ch show <id>… …`: its exit code. */
-export async function showCommand(argsIn: string[], io: Out = { out: console.log, err: console.error, columns: process.stdout.columns }): Promise<number> {
+export async function showCommand(argsIn: string[], io: Out = { out: console.log, err: console.error, columns: process.stdout.columns, tty: !!process.stdout.isTTY }): Promise<number> {
   const args = argsIn.slice(1);
   for (const f of ["--ws", "--machine", "--width", "--rows"]) { const v = flag(args, f); if (typeof v === "object") { io.err(`ep0ch: ${v.error}`); return 2; } }
   const ansi = args.includes("--ansi"), cells = args.includes("--cells"), source = args.includes("--source");
@@ -270,7 +264,8 @@ export async function showCommand(argsIn: string[], io: Out = { out: console.log
       if (cells) { io.out(JSON.stringify({ id: blockIdOf(id), ...linesToCells(kept, width) })); continue; }
       // Notes apart: a blank line, and a --- line between sources (a Markdown file's rule).
       if (shown++) { io.out(""); if (source) { io.out("---"); io.out(""); } }
-      for (const l of kept) io.out(source ? l : ansi ? l : visible(l).trimEnd());
+      // --source is the text as written; to a terminal, what a terminal would act on (an escape in a note) is taken out.
+      for (const l of kept) io.out(source ? (io.tty ? printable(l, "", { lines: true }) : l) : ansi ? l : visible(l).trimEnd());
     }
     return code;
   } catch (e) {

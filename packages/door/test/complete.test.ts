@@ -231,6 +231,20 @@ describe("Jev re-orders after a pause, never moving the selection (a fake servic
     expect(asked.filter(a => a.semantic).map(a => a.query)).toEqual(["party"]);
   });
 
+  test("a draft session that ends drops its popup, and the Jev ask waiting for its pause is never sent", async () => {
+    const { board, asked } = fake();
+    const { DraftSession, blockTarget } = await import("../src/draft-session");
+    const m = { id: "note-1", text: "", parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "you", revision: 1, props: {} } as any;
+    const s = DraftSession.open(blockTarget(m, { board: board as any } as any), { by: { kind: "agent", id: "t-1" } as any }, { board: board as any });
+    const c = completerFor(s.draft, board, () => {})!;
+    for (const ch of "((party hats") completionKey(s.draft, char(ch), c);
+    await until(() => !!c.state && !c.state.loading, "the lexical lookup");
+    s.dispose();
+    expect(c.state).toBeNull();
+    await new Promise(r => setTimeout(r, 450));
+    expect(asked.filter(a => a.semantic)).toEqual([]);
+  });
+
   test("a service without Jev configured is not asked again", async () => {
     let semanticAsks = 0;
     const board = {
@@ -518,7 +532,9 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     e.press({ kind: "home" }); e.type("@claude-7 the work item"); e.press(K("enter")); e.press(K("end"));
     const inv = e.s.draftSession()!.invite("claude-7")!;
     expect(inv).not.toBeNull();
-    const ins: any = await e.s.act("complete", { insert: 1, invitation: inv.id }, e.h, AGENT);
+    // expect= names what it listed: a list that changed since (Jev's order, more typing) refuses, nothing spent.
+    await expect(e.s.act("complete", { insert: 1, invitation: inv.id, expect: "((not-what-was-listed))" }, e.h, AGENT)).rejects.toThrow("the list changed");
+    const ins: any = await e.s.act("complete", { insert: 1, invitation: inv.id, expect: r.items[0].insertion }, e.h, AGENT);
     expect(ins.inserted).toBe(`[[${workId}|${workId} — Oil the hinges]]`);
     expect(e.d.lines.at(-1)).toBe(`see ${ins.inserted}`);
     expect(e.d.writers.map(w => w.kind)).toEqual(["user", "agent"]);
