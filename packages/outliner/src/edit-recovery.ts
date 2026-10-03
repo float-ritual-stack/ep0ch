@@ -53,13 +53,7 @@ function prepared(input: EditRecoveryStart, latest: Block): Pick<EditRecovery,"m
 
 /** Service-owned recovery evidence; these records never enter note assistance. */
 export class EditRecoveryRepository {
-  constructor(private readonly store: OutlinerStore) {
-    store.database.exec(`CREATE TABLE IF NOT EXISTS edit_recovery (
-      id TEXT PRIMARY KEY, block_id TEXT NOT NULL, revision INTEGER NOT NULL,
-      state TEXT NOT NULL, input_hash TEXT NOT NULL, payload TEXT NOT NULL,
-      updated_at TEXT NOT NULL
-    ); CREATE INDEX IF NOT EXISTS edit_recovery_block ON edit_recovery(block_id,state,updated_at);`);
-  }
+  constructor(private readonly store: OutlinerStore) {}
 
   get(id: string): EditRecovery {
     identifier(id);

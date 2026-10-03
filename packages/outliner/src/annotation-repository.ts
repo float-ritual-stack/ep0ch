@@ -7,7 +7,6 @@ import { blockAnnotationRepresentation } from "./annotation-representations";
 import { checklistItems, updateChecklistText } from "./checklist-items";
 import {readCaptureBefore} from "./capture-history";
 import { Database } from "bun:sqlite";
-import { isAbsolute, resolve } from "node:path";
 import {
   annotationSourceHash,
   createTextQuoteAnchor,
@@ -20,20 +19,15 @@ import {
   normalizeAnnotationTarget,
   normalizeResolutionMethod,
   normalizeResolutionReviewer,
-  OBSOLETE_ANNOTATION_PROPERTY_KEYS,
   parseAnnotationBlockContent,
-  parseLegacyAnnotationBlock,
   parseStoredRepresentation,
   parseStoredTarget,
   type AnnotationBlockContent,
-  type LegacyAnnotationEvidence,
   normalizeResolutionCandidate,
 } from "./annotations";
-import { parsePropertyRecords } from "./properties";
 import { authoredResourceReferenceOccurrences } from "./resource-references";
 import { reanchorAnnotationTarget } from "./annotation-reanchoring";
 import type { ResourceCatalog } from "./resource-catalog";
-import { normalizeRetainedResourceRevisionRef } from "./resources";
 import type {
   AnnotationAgentEvidenceSample,
   AnnotationAgentEvidenceSummary,
@@ -68,14 +62,11 @@ import type {
   BlockProvenance,
   MutationProvenance,
   PdfPageText,
-  Resource,
 } from "./types";
 
 const SYSTEM_ANNOTATIONS_ROOT_ID = "7674db6f-6639-4d49-bb63-9ed50cdbba08";
-const MIGRATION_MARKER = "pie250_annotation_repository";
 const TEXT_CODEC = { kind: "codec", codecId: "text-quote", codecVersion: 1 } as const;
 const REFERENCE_CONTEXT_CODEC = { kind: "codec", codecId: "reference-context", codecVersion: 1 } as const;
-const TARGET_PROPERTY_KEYS = OBSOLETE_ANNOTATION_PROPERTY_KEYS;
 const AGENT_AUTOMATIC_THRESHOLD = 0.95;
 const AGENT_BODY_LIMIT = 4_000;
 const AGENT_PASSAGE_LIMIT = 2_000;
@@ -126,18 +117,6 @@ interface AgentRequestRow {
   event_id: string;
 }
 
-interface WebAnnotationRow {
-  id: string;
-  resource_id: string;
-  source_snapshot_id: string;
-  representation_id: string;
-
-  revision_json: string;
-  representation_json: string;
-  anchor_json: string;
-  body: string;
-  created_at: string;
-}
 interface AgentEvidenceRow extends ResolutionRow {
   accepted_by: "automatic" | "human";
   accepted_target_json: string | null;
@@ -335,9 +314,7 @@ export class AnnotationRepository {
     private readonly database: Database,
     private readonly resources: ResourceCatalog,
     private readonly blocks: RepositoryBlocks,
-  ) {
-    this.migrate();
-  }
+  ) {}
 
   create(
     requestId: string,
@@ -1857,214 +1834,6 @@ export class AnnotationRepository {
     return SYSTEM_ANNOTATIONS_ROOT_ID;
   }
 
-
-  private migrate(): void {
-    this.database.transaction(() => {
-      this.createSchema();
-      const marker = this.database.query("SELECT value FROM metadata WHERE key = ?").get(MIGRATION_MARKER) as { value: string } | null;
-      if (!marker) this.migrateLegacyData();
-      this.backfillResourceEvidenceRefs();
-      this.database.exec("DROP INDEX IF EXISTS web_resource_annotations_resource; DROP INDEX IF EXISTS web_resource_annotations_evidence; DROP TABLE IF EXISTS web_resource_annotations;");
-      this.database.query("INSERT OR REPLACE INTO metadata (key, value) VALUES (?, '1')").run(MIGRATION_MARKER);
-      const foreignKeys = this.database.query("PRAGMA foreign_key_check").all();
-      if (foreignKeys.length > 0) throw new Error("Annotation migration left foreign-key violations");
-    })();
-  }
-
-  private createSchema(): void {
-    const requestColumns = new Set((this.database.query("PRAGMA table_info(annotation_requests)").all() as Array<{ name: string }>).map((column) => column.name));
-    if (!requestColumns.has("payload_hash")) this.database.exec("ALTER TABLE annotation_requests ADD COLUMN payload_hash TEXT");
-    this.database.exec(`
-      CREATE TABLE IF NOT EXISTS annotation_targets (
-        annotation_block_id TEXT PRIMARY KEY REFERENCES blocks(id) ON DELETE CASCADE,
-        block_id TEXT REFERENCES blocks(id) ON DELETE RESTRICT,
-        resource_id TEXT REFERENCES resources(id) ON DELETE RESTRICT,
-        legacy_source_block_id TEXT,
-        legacy_file_path TEXT,
-        original_target_json TEXT NOT NULL CHECK(json_valid(original_target_json)),
-        created_at TEXT NOT NULL,
-        CHECK (
-          (block_id IS NOT NULL AND resource_id IS NULL AND legacy_source_block_id IS NULL AND legacy_file_path IS NULL) OR
-          (block_id IS NULL AND resource_id IS NOT NULL AND legacy_source_block_id IS NULL AND legacy_file_path IS NULL) OR
-          (block_id IS NULL AND resource_id IS NULL AND legacy_source_block_id IS NOT NULL AND legacy_file_path IS NOT NULL)
-        )
-      );
-      CREATE INDEX IF NOT EXISTS annotation_targets_block ON annotation_targets(block_id, created_at, annotation_block_id);
-      CREATE INDEX IF NOT EXISTS annotation_targets_reference_context ON annotation_targets(
-        json_extract(original_target_json, '$.referenceContext.representation.subject.blockId'));
-      CREATE INDEX IF NOT EXISTS annotation_targets_resource ON annotation_targets(resource_id, created_at, annotation_block_id);
-      CREATE INDEX IF NOT EXISTS annotation_targets_legacy_file ON annotation_targets(legacy_source_block_id, legacy_file_path, annotation_block_id);
-      CREATE TRIGGER IF NOT EXISTS annotation_targets_immutable
-      BEFORE UPDATE ON annotation_targets
-      BEGIN SELECT RAISE(ABORT, 'annotation original targets are immutable'); END;
-      CREATE TABLE IF NOT EXISTS annotation_migration_quarantine (
-        annotation_block_id TEXT PRIMARY KEY REFERENCES blocks(id) ON DELETE CASCADE,
-        raw_text TEXT NOT NULL,
-        reason TEXT NOT NULL,
-        created_at TEXT NOT NULL
-      );
-    `);
-    const resolutionSchema = `
-      CREATE TABLE annotation_resolution_events (
-        id TEXT PRIMARY KEY,
-        annotation_block_id TEXT NOT NULL REFERENCES annotation_targets(annotation_block_id) ON DELETE CASCADE,
-        sequence INTEGER NOT NULL CHECK(sequence >= 0),
-        source_representation_json TEXT NOT NULL CHECK(json_valid(source_representation_json)),
-        target_representation_json TEXT NOT NULL CHECK(json_valid(target_representation_json)),
-        resolved_target_json TEXT CHECK(resolved_target_json IS NULL OR json_valid(resolved_target_json)),
-        method_json TEXT NOT NULL CHECK(json_valid(method_json)),
-        reviewer_json TEXT NOT NULL CHECK(json_valid(reviewer_json)),
-        confidence REAL CHECK(confidence IS NULL OR (confidence >= 0 AND confidence <= 1)),
-        candidates_json TEXT NOT NULL CHECK(json_valid(candidates_json) AND json_type(candidates_json) = 'array'),
-        status TEXT NOT NULL CHECK(status IN ('resolved','probable','unresolved','ambiguous','orphaned','unsupported','rejected')),
-        applies_current INTEGER NOT NULL CHECK(applies_current IN (0,1)),
-        created_at TEXT NOT NULL,
-        UNIQUE(annotation_block_id, sequence),
-        CHECK (
-          (status = 'resolved' AND applies_current = 1 AND resolved_target_json IS NOT NULL AND confidence IS NOT NULL) OR
-          (status = 'probable' AND resolved_target_json IS NULL AND confidence IS NOT NULL AND json_array_length(candidates_json) > 0 AND (applies_current = 1 OR (applies_current = 0 AND json_extract(method_json, '$.kind') = 'agent'))) OR
-          (status = 'unresolved' AND applies_current = 1 AND resolved_target_json IS NULL AND ((confidence IS NULL AND json_array_length(candidates_json) = 0) OR (confidence IS NOT NULL AND json_array_length(candidates_json) > 0))) OR
-          (status IN ('ambiguous','orphaned') AND resolved_target_json IS NULL AND ((applies_current = 1 AND confidence IS NULL) OR (applies_current = 0 AND confidence IS NOT NULL AND json_extract(method_json, '$.kind') = 'agent'))) OR
-          (status = 'unsupported' AND applies_current = 1 AND resolved_target_json IS NULL AND confidence IS NULL) OR
-          (status = 'rejected' AND applies_current = 0 AND resolved_target_json IS NULL)
-        )
-      );
-    `;
-    const existingResolution = this.database.query(
-      "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'annotation_resolution_events'",
-    ).get() as { sql: string } | null;
-    const existingResolutionColumns = new Set(
-      (this.database.query("PRAGMA table_info(annotation_resolution_events)").all() as Array<{ name: string }>)
-        .map(({ name }) => name),
-    );
-    if (!existingResolution) {
-      this.database.exec(resolutionSchema);
-    } else if (
-      !existingResolution.sql.includes("candidates_json") ||
-      !existingResolution.sql.includes("'probable'") ||
-      !existingResolution.sql.includes("status = 'unresolved'") ||
-      !existingResolution.sql.includes("json_extract(method_json")
-    ) {
-      this.database.exec(`
-        DROP TRIGGER IF EXISTS annotation_resolution_events_append_only;
-        DROP INDEX IF EXISTS annotation_resolution_history;
-        DROP INDEX IF EXISTS annotation_current_resolution;
-        ALTER TABLE annotation_resolution_events RENAME TO annotation_resolution_events_legacy;
-        ${resolutionSchema}
-        INSERT INTO annotation_resolution_events (
-          id, annotation_block_id, sequence, source_representation_json,
-          target_representation_json, resolved_target_json, method_json,
-          reviewer_json, confidence, candidates_json, status, applies_current, created_at
-        )
-        SELECT id, annotation_block_id, sequence, source_representation_json,
-          target_representation_json, resolved_target_json, method_json,
-          reviewer_json, confidence, ${existingResolutionColumns.has("candidates_json") ? "candidates_json" : "'[]'"}, status, applies_current, created_at
-        FROM annotation_resolution_events_legacy;
-        DROP TABLE annotation_resolution_events_legacy;
-      `);
-    }
-    if (!(this.database.query("PRAGMA table_info(annotation_resolution_events)").all() as Array<{name: string}>)
-      .some(column => column.name === "passage_resolution_json")) {
-      this.database.exec("ALTER TABLE annotation_resolution_events ADD COLUMN passage_resolution_json TEXT CHECK(passage_resolution_json IS NULL OR json_valid(passage_resolution_json))");
-    }
-    this.database.exec(`
-      CREATE INDEX IF NOT EXISTS annotation_resolution_history ON annotation_resolution_events(annotation_block_id, sequence);
-      CREATE INDEX IF NOT EXISTS annotation_current_resolution ON annotation_resolution_events(annotation_block_id, applies_current, sequence DESC);
-      CREATE TRIGGER IF NOT EXISTS annotation_resolution_events_append_only
-      BEFORE UPDATE ON annotation_resolution_events
-      BEGIN SELECT RAISE(ABORT, 'annotation resolution events are append-only'); END;
-    `);
-    this.database.exec(`
-      CREATE TABLE IF NOT EXISTS annotation_agent_requests (
-        request_id TEXT PRIMARY KEY,
-        payload_hash TEXT NOT NULL,
-        event_id TEXT NOT NULL REFERENCES annotation_resolution_events(id) ON DELETE CASCADE,
-        created_at TEXT NOT NULL
-      );
-    `);
-    const evidenceColumns = this.database.query(
-      "PRAGMA table_info(annotation_resource_evidence_refs)",
-    ).all() as Array<{ name: string }>;
-    const migratePdfEvidence = evidenceColumns.length > 0 &&
-      !evidenceColumns.some(({ name }) => name === "pdf_source_snapshot_id");
-    if (migratePdfEvidence) {
-      this.database.exec(`
-        DROP INDEX IF EXISTS annotation_resource_evidence_refs_source_snapshot;
-        DROP INDEX IF EXISTS annotation_resource_evidence_refs_representation;
-        DROP INDEX IF EXISTS annotation_resource_evidence_refs_unique;
-        ALTER TABLE annotation_resource_evidence_refs
-          RENAME TO annotation_resource_evidence_refs_legacy_pie253;
-      `);
-    }
-    this.database.exec(`
-      CREATE TABLE IF NOT EXISTS annotation_resource_evidence_refs (
-        id TEXT PRIMARY KEY,
-        annotation_block_id TEXT NOT NULL
-          REFERENCES annotation_targets(annotation_block_id) ON DELETE CASCADE,
-        resolution_event_id TEXT
-          REFERENCES annotation_resolution_events(id) ON DELETE CASCADE,
-        role TEXT NOT NULL CHECK (
-          role IN (
-            'original-target',
-            'event-source',
-            'event-target',
-            'event-resolved',
-            'event-candidate'
-          )
-        ),
-        source_snapshot_id TEXT
-          REFERENCES web_source_snapshots(id) ON DELETE RESTRICT,
-        representation_id TEXT
-          REFERENCES web_representations(id) ON DELETE RESTRICT,
-        pdf_source_snapshot_id TEXT
-          REFERENCES pdf_source_snapshots(id) ON DELETE RESTRICT,
-        pdf_representation_id TEXT
-          REFERENCES pdf_representations(id) ON DELETE RESTRICT,
-        created_at TEXT NOT NULL,
-        CHECK (
-          source_snapshot_id IS NOT NULL OR representation_id IS NOT NULL OR
-          pdf_source_snapshot_id IS NOT NULL OR pdf_representation_id IS NOT NULL
-        )
-      );
-      CREATE INDEX IF NOT EXISTS annotation_resource_evidence_refs_source_snapshot
-        ON annotation_resource_evidence_refs(source_snapshot_id, annotation_block_id)
-        WHERE source_snapshot_id IS NOT NULL;
-      CREATE INDEX IF NOT EXISTS annotation_resource_evidence_refs_representation
-        ON annotation_resource_evidence_refs(representation_id, annotation_block_id)
-        WHERE representation_id IS NOT NULL;
-      CREATE INDEX IF NOT EXISTS annotation_resource_evidence_refs_pdf_source_snapshot
-        ON annotation_resource_evidence_refs(pdf_source_snapshot_id, annotation_block_id)
-        WHERE pdf_source_snapshot_id IS NOT NULL;
-      CREATE INDEX IF NOT EXISTS annotation_resource_evidence_refs_pdf_representation
-        ON annotation_resource_evidence_refs(pdf_representation_id, annotation_block_id)
-        WHERE pdf_representation_id IS NOT NULL;
-      CREATE UNIQUE INDEX IF NOT EXISTS annotation_resource_evidence_refs_unique
-        ON annotation_resource_evidence_refs(
-          annotation_block_id,
-          ifnull(resolution_event_id, ''),
-          role,
-          ifnull(source_snapshot_id, ''),
-          ifnull(representation_id, ''),
-          ifnull(pdf_source_snapshot_id, ''),
-          ifnull(pdf_representation_id, '')
-        );
-    `);
-    if (migratePdfEvidence) {
-      this.database.exec(`
-        INSERT INTO annotation_resource_evidence_refs (
-          id, annotation_block_id, resolution_event_id, role,
-          source_snapshot_id, representation_id,
-          pdf_source_snapshot_id, pdf_representation_id, created_at
-        )
-        SELECT
-          id, annotation_block_id, resolution_event_id, role,
-          source_snapshot_id, representation_id, NULL, NULL, created_at
-        FROM annotation_resource_evidence_refs_legacy_pie253;
-        DROP TABLE annotation_resource_evidence_refs_legacy_pie253;
-      `);
-    }
-  }
-
   private insertResourceEvidenceRef(input: {
     readonly annotationId: string;
     readonly resolutionEventId: string | null;
@@ -2199,250 +1968,6 @@ export class AnnotationRepository {
         value: candidate.target,
         createdAt: event.createdAt,
       });
-    }
-  }
-
-  private backfillResourceEvidenceRefs(): void {
-    const targets = this.database.query(`
-      SELECT annotation_block_id, original_target_json, created_at
-      FROM annotation_targets
-    `).all() as Array<Pick<
-      AnnotationTargetRow,
-      "annotation_block_id" | "original_target_json" | "created_at"
-    >>;
-    for (const target of targets) {
-      this.insertResourceEvidenceRef({
-        annotationId: target.annotation_block_id,
-        resolutionEventId: null,
-        role: "original-target",
-        value: parseStoredTarget(target.original_target_json),
-        createdAt: target.created_at,
-      });
-    }
-    const events = this.database.query(
-      "SELECT * FROM annotation_resolution_events ORDER BY annotation_block_id, sequence",
-    ).all() as ResolutionRow[];
-    for (const row of events) {
-      const event = eventFromRow(row);
-      this.insertEventResourceEvidenceRefs(event);
-    }
-  }
-
-  private migrateLegacyData(): void {
-    const blocks = this.blocks.listAnnotations();
-    const legacyRoots: LegacyAnnotationEvidence[] = [];
-    const quarantinedRootIds = new Set<string>();
-    for (const block of blocks) {
-      const isReply = block.properties.some((property) => property.key === "parent-annotation");
-      if (isReply) continue;
-      try {
-        const legacy = parseLegacyAnnotationBlock(block);
-        normalizeAnnotationTarget({
-          representation: this.legacyRepresentation(legacy),
-          anchor: legacy.anchor,
-        }, true);
-        legacyRoots.push(legacy);
-      } catch (error) {
-        const reason = error instanceof Error ? error.message : String(error);
-        this.database.query(`
-          INSERT INTO annotation_migration_quarantine
-            (annotation_block_id, raw_text, reason, created_at)
-          VALUES (?, ?, ?, ?)
-        `).run(block.id, block.text, reason, block.createdAt);
-        quarantinedRootIds.add(block.id);
-      }
-    }
-    const webTable = (
-      this.database.query("PRAGMA table_info(web_resource_annotations)").all() as Array<{
-        name: string;
-      }>
-    ).length > 0;
-    const webRows = webTable
-      ? this.database.query(`
-          SELECT id, resource_id, source_snapshot_id, representation_id,
-                 revision_json, representation_json, anchor_json, body, created_at
-          FROM web_resource_annotations
-          ORDER BY created_at, id
-        `).all() as WebAnnotationRow[]
-      : [];
-    for (const legacy of legacyRoots) this.migrateLegacyRoot(legacy);
-    for (const block of blocks) {
-      if (!quarantinedRootIds.has(block.id)) this.stripLegacyProperties(block);
-    }
-    for (const row of webRows) this.migrateWebAnnotation(row);
-    const targetCount = (
-      this.database.query("SELECT COUNT(*) AS count FROM annotation_targets").get() as {
-        count: number;
-      }
-    ).count;
-    if (targetCount !== legacyRoots.length + webRows.length) {
-      throw new Error("Annotation migration target parity check failed");
-    }
-  }
-
-  private migrateLegacyRoot(legacy: LegacyAnnotationEvidence): void {
-    const representation = this.legacyRepresentation(legacy);
-    const target: AnnotationTarget = { representation, anchor: legacy.anchor };
-    this.insertTarget(legacy.block.id, target, legacy.block.createdAt);
-    const legacyFileOrphan = representation.subject.kind === "legacy-file";
-    const resolved = !legacyFileOrphan &&
-      (legacy.state === "anchored" || legacy.state === "observed");
-    const status: AnnotationResolutionStatus = resolved
-      ? "resolved"
-      : legacyFileOrphan
-        ? "orphaned"
-        : legacy.state === "ambiguous"
-          ? "ambiguous"
-          : "orphaned";
-    this.appendEvent({
-      annotationId: legacy.block.id,
-      sourceRepresentation: representation,
-      targetRepresentation: representation,
-      resolvedTarget: resolved ? target : null,
-      method: { ...TEXT_CODEC, method: "legacy-migration" },
-      reviewer: { kind: "system", id: "pie-250-migration" },
-      confidence: resolved ? 1 : null,
-      candidates: [],
-      status,
-      appliesCurrent: true,
-      createdAt: legacy.block.createdAt,
-    });
-  }
-
-  private legacyRepresentation(legacy: LegacyAnnotationEvidence): AnnotationRepresentation {
-    let subject: AnnotationSubject = { kind: "block", blockId: legacy.sourceBlockId };
-    let sourceSnapshot: AnnotationRepresentation["sourceSnapshot"] =
-      legacy.sourceVersion && legacy.sourceHash && this.isIso(legacy.sourceVersion)
-        ? {
-            kind: "block",
-            blockId: legacy.sourceBlockId,
-            updatedAt: legacy.sourceVersion,
-            contentHash: legacy.sourceHash,
-          }
-        : {
-            kind: "unknown",
-            reason: "Legacy annotation did not retain complete block snapshot evidence",
-          };
-    let observation = legacy.observation;
-    if (legacy.kind === "file") {
-      const resource = this.findLegacyFilesystemResource(legacy.filePath!);
-      if (resource) {
-        subject = { kind: "resource", resourceId: resource.id };
-        sourceSnapshot = { kind: "resource", resourceId: resource.id, sourceSnapshotId: null, revision: null };
-      } else {
-        subject = { kind: "legacy-file", sourceBlockId: legacy.sourceBlockId, filePath: legacy.filePath! };
-        sourceSnapshot = { kind: "unknown", reason: "Legacy file annotation had no uniquely matching filesystem Resource" };
-      }
-    } else if (legacy.kind === "passage" && observation) {
-      sourceSnapshot = { kind: "rendered", observation };
-    }
-    return {
-      id: `legacy:${legacy.block.id}`,
-      subject,
-      sourceSnapshot,
-      adapter: legacy.kind === "passage" ? { id: "herdr-rendered-passage", version: 1 } : { id: "floatty-block-text", version: 1 },
-      mediaType: "text/plain",
-      contentHash: legacy.sourceHash,
-      capturedAt: observation?.capturedAt ?? legacy.block.createdAt,
-      ...(observation ? { observation } : {}),
-    };
-  }
-
-  private findLegacyFilesystemResource(filePath: string): Resource | null {
-    const candidates = this.resources.listSources().flatMap((source) => {
-      if (source.provider !== "filesystem") return [];
-      const rows = this.database.query("SELECT id, address_json FROM resources WHERE source_id = ? AND provider = 'filesystem'").all(source.id) as Array<{ id: string; address_json: string }>;
-      return rows.flatMap((row) => {
-        const address = json(row.address_json, "Filesystem resource address");
-        if (!address || typeof address !== "object" || !("path" in address) || typeof address.path !== "string") return [];
-        return [{ resource: this.resources.require(row.id), absolutePath: resolve(source.boundary.root, address.path) }];
-      });
-    });
-    const absoluteLegacy = isAbsolute(filePath) ? resolve(filePath) : null;
-    const matches = candidates.filter((candidate) =>
-      absoluteLegacy ? candidate.absolutePath === absoluteLegacy : candidate.resource.address.kind === "filesystem" && candidate.resource.address.path === filePath.replaceAll("\\", "/")
-    );
-    return matches.length === 1 ? matches[0]!.resource : null;
-  }
-
-  private stripLegacyProperties(block: Block): void {
-    const obsolete = parsePropertyRecords(block.text)
-      .filter((property) =>
-        property.scope === "block" && TARGET_PROPERTY_KEYS[property.key] === true
-      )
-      .sort((left, right) => right.start - left.start);
-    if (obsolete.length === 0) return;
-    let value = block.text;
-    for (const property of obsolete) {
-      value = `${value.slice(0, property.start)}${value.slice(property.end)}`;
-    }
-    this.blocks.replaceCanonicalText(block.id, value);
-  }
-
-  private migrateWebAnnotation(row: WebAnnotationRow): void {
-    const collision = this.blocks.get(row.id);
-    if (collision) throw new Error(`Web annotation ID collides with an existing block: ${row.id}`);
-    const root = this.ensureSystemRoot();
-    const rawProvenance = json(row.representation_json, "Web annotation representation");
-    if (!rawProvenance || typeof rawProvenance !== "object") {
-      throw new Error(`Web annotation representation is invalid: ${row.id}`);
-    }
-    const provenance = rawProvenance as Record<string, unknown>;
-    if (!provenance.adapter || typeof provenance.adapter !== "object") {
-      throw new Error(`Web annotation adapter is invalid: ${row.id}`);
-    }
-    const adapter = provenance.adapter as Record<string, unknown>;
-    const revision = normalizeRetainedResourceRevisionRef(json(row.revision_json, "Web annotation revision"));
-    const rawAnchor = json(row.anchor_json, "Web annotation anchor");
-    if (!rawAnchor || typeof rawAnchor !== "object") throw new Error(`Web annotation anchor is invalid: ${row.id}`);
-    const anchorRecord = rawAnchor as Record<string, unknown>;
-    const target: AnnotationTarget = normalizeAnnotationTarget({
-      representation: {
-        id: row.representation_id,
-        subject: { kind: "resource", resourceId: row.resource_id },
-        sourceSnapshot: { kind: "resource", resourceId: row.resource_id, sourceSnapshotId: row.source_snapshot_id, revision },
-        adapter: { id: adapter.id, version: adapter.version },
-        mediaType: provenance.mediaType,
-        contentHash: provenance.contentHash,
-        capturedAt: provenance.derivedAt ?? row.created_at,
-      },
-      anchor: {
-        kind: "text-quote",
-        start: anchorRecord.start,
-        end: anchorRecord.end,
-        exact: anchorRecord.exact,
-        prefix: anchorRecord.prefix,
-        suffix: anchorRecord.suffix,
-      },
-    });
-    this.blocks.insertCanonical(
-      row.id,
-      formatAnnotationBlock({ target, body: text(row.body, "Web annotation body"), source: "user" }),
-      root,
-      "system",
-      iso(row.created_at, "Web annotation creation time"),
-    );
-    this.insertTarget(row.id, target, row.created_at);
-    this.appendEvent({
-      annotationId: row.id,
-      sourceRepresentation: target.representation,
-      targetRepresentation: target.representation,
-      resolvedTarget: target,
-      method: { ...TEXT_CODEC, method: "legacy-web-migration" },
-      reviewer: { kind: "system", id: "pie-250-migration" },
-      confidence: 1,
-      candidates: [],
-      status: "resolved",
-      appliesCurrent: true,
-      createdAt: row.created_at,
-    });
-  }
-
-  private isIso(value: string): boolean {
-    try {
-      return new Date(value).toISOString() === value;
-    } catch {
-      return false;
     }
   }
 }

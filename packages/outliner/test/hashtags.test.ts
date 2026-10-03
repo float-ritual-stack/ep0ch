@@ -7,7 +7,6 @@ import {
   parseProperties,
   parsePropertyRecords,
   patchPropertyText,
-  PROPERTY_PARSER_VERSION,
   stripProperties,
 } from "../src/properties";
 import { createPropertyInspectorModel, propertyInspectorAuthoredText } from "../src/property-inspector";
@@ -152,39 +151,3 @@ test("an imported quarter tag is queryable independently of storage dates and us
     .toEqual([imported.id]);
 });
 
-test("version-two startup rebuilds the old syntax constraint without rewriting notes and is idempotent", () => {
-  const store = makeStore();
-  const fixture = fixtures.at(-1)!;
-  const path = join(fixture.directory, "outliner.sqlite");
-  const original = store.create("Imported archive [type::note]\n\nRemember #y2020/q1.");
-  store.database.exec(`
-    DROP TABLE block_properties;
-    CREATE TABLE block_properties (
-      block_id TEXT NOT NULL REFERENCES blocks(id) ON DELETE CASCADE,
-      key TEXT NOT NULL, value TEXT NOT NULL, ordinal INTEGER NOT NULL,
-      raw TEXT NOT NULL, start INTEGER NOT NULL, end INTEGER NOT NULL,
-      line INTEGER NOT NULL, column INTEGER NOT NULL,
-      placement TEXT NOT NULL CHECK (placement IN ('inline', 'trailing-metadata', 'metadata-line')),
-      scope TEXT NOT NULL CHECK (scope IN ('block', 'line', 'inline')),
-      syntax TEXT NOT NULL CHECK (syntax IN ('bracket', 'bare')),
-      PRIMARY KEY (block_id, ordinal)
-    );
-    UPDATE metadata SET value = '2' WHERE key = 'property_parser_version';
-  `);
-  const before = store.sequence;
-  store.close();
-
-  fixture.store = new OutlinerStore(path);
-  const reopened = fixture.store;
-  expect(reopened.require(original.id)).toEqual(original);
-  expect(reopened.queryBlocks({ filters: [{ key: "tag", value: "y2020/q1" }], limit: 20 }).blocks.map(block => block.id))
-    .toEqual([original.id]);
-  expect(reopened.database.query("SELECT value FROM metadata WHERE key = 'property_parser_version'").get())
-    .toEqual({ value: String(PROPERTY_PARSER_VERSION) });
-  expect(reopened.sequence).toBe(before + 1);
-  reopened.close();
-
-  fixture.store = new OutlinerStore(path);
-  expect(fixture.store.sequence).toBe(before + 1);
-  expect(fixture.store.require(original.id)).toEqual(original);
-});

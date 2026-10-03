@@ -8,7 +8,6 @@ export const CHANGE_FEED_DEFAULT_RETENTION = 10_000;
 
 const FLOOR_KEY = "change_feed_floor";
 /** Written by the first feed build, which inferred completeness from a clean shutdown. */
-const LEGACY_COMPLETE_KEY = "change_feed_complete_through";
 
 /**
  * Raises the oldest answerable cursor to `sequence`. Used for sequence advances
@@ -135,38 +134,7 @@ export class ChangeFeed {
   private flushScheduled = false;
 
   constructor(private readonly database: Database, private readonly currentSequence: () => number) {
-    database.exec(`
-      CREATE TABLE IF NOT EXISTS change_feed (
-        change_id INTEGER PRIMARY KEY AUTOINCREMENT,
-        sequence INTEGER NOT NULL,
-        action TEXT NOT NULL,
-        kind TEXT NOT NULL,
-        block_id TEXT,
-        parent_id TEXT,
-        has_parent INTEGER NOT NULL DEFAULT 0,
-        previous_parent_id TEXT,
-        has_previous_parent INTEGER NOT NULL DEFAULT 0,
-        revision INTEGER,
-        deleted INTEGER,
-        author TEXT,
-        actor_id TEXT,
-        session_id TEXT,
-        task_id TEXT,
-        recorded_at TEXT NOT NULL,
-        visible INTEGER NOT NULL DEFAULT 1,
-        requested_by TEXT
-      );
-      CREATE INDEX IF NOT EXISTS change_feed_sequence ON change_feed(sequence, change_id);
-    `);
-    const columns = database.query("PRAGMA table_info(change_feed)").all() as Array<{ name: string }>;
-    if (!columns.some(column => column.name === "visible")) {
-      database.exec("ALTER TABLE change_feed ADD COLUMN visible INTEGER NOT NULL DEFAULT 1");
-    }
-    if (!columns.some(column => column.name === "requested_by")) {
-      database.exec("ALTER TABLE change_feed ADD COLUMN requested_by TEXT");
-    }
-    database.query("DELETE FROM metadata WHERE key = ?").run(LEGACY_COMPLETE_KEY);
-    // A workspace created before the feed has no history for earlier sequences.
+    // The feed has no history before the sequence it starts at.
     if (this.metadata(FLOOR_KEY) === null) this.setMetadata(FLOOR_KEY, currentSequence());
   }
 

@@ -5,7 +5,6 @@ import { join } from "node:path";
 import { OutlinerStore } from "../src/store";
 import { parsePropertyRecords } from "../src/properties";
 import { treeSemanticState } from "../src/tree-renderer";
-import { migrateRoadmapText } from "../src/roadmap-migration";
 import { propertySummarySegments } from "../src/property-summary";
 
 const fixtures: Array<{ store: OutlinerStore; directory: string }> = [];
@@ -120,8 +119,6 @@ test("roadmap type and value casing follows the same contract as property querie
   expect(() => store.create("Bad [type::Roadmap-Item] [work-stage::invented]")).toThrow("work-stage");
   const block = store.create("Mixed [type::Roadmap-Item] [work-stage::Review]");
   expect(store.queryBlocks({ filters: [{ key: "type", value: "roadmap-item" }], limit: 10 }).blocks.map(b => b.id)).toContain(block.id);
-  const legacy = "Mixed [type::Roadmap-Item] [status::Planned] [work-stage::Next]";
-  expect(migrateRoadmapText({ id: "mixed", text: legacy })).toBe("Mixed [type::Roadmap-Item]  [work-stage::queued]");
   expect(propertySummarySegments([...block.properties, { key: "status", value: "planned" }]).map(s => s.key)).toEqual(["work-stage"]);
 });
 
@@ -156,31 +153,4 @@ test("delivery and task transitions commit together; retry preserves deliberate 
   expect(sync).toThrow("expected task");
   expect(store.require(other.id).revision).toBe(other.revision);
   expect(store.require(delivery.id).revision).toBe(repeated.delivery.revision);
-});
-
-test("migration preserves supersession, historical prose and idempotence; conflicts stop it", () => {
-  const text = "Old task [type::roadmap-item] [status::superseded] [work-stage::done] [superseded-by::replacement]\n\nHistory: `status=planned` described the old model.";
-  const migrated = migrateRoadmapText({ id: "old", text });
-  expect(migrated).toContain("[work-stage::superseded]");
-  expect(migrated).not.toContain("[status::");
-  expect(migrated).toContain("History: `status=planned` described the old model.");
-  expect(migrateRoadmapText({ id: "old", text: migrated })).toBe(migrated);
-  expect(migrateRoadmapText({ id: "next", text: "Next [type::roadmap-item] [status::planned] [work-stage::next]" })).toContain("[work-stage::queued]");
-  expect(migrateRoadmapText({ id: "historical", text: "Old [type::roadmap-item] [status::completed] [work-stage::done]" })).toBe("Old [type::roadmap-item]  [work-stage::done]");
-  expect(() => migrateRoadmapText({ id: "conflict", text: "Bad [type::roadmap-item] [status::complete] [work-stage::review]" })).toThrow("disagree");
-  expect(() => migrateRoadmapText({ id: "unknown", text: "Bad [type::roadmap-item] [status::planned]" })).toThrow("ambiguous");
-  const capture = "Note [type::capture] [status::unprocessed]";
-  expect(migrateRoadmapText({ id: "capture", text: capture })).toBe(capture);
-});
-
-test("restoring a legacy task does not reintroduce its removed lifecycle property", () => {
-  const store = fixture();
-  const legacy = store.create("Legacy task");
-  store.delete(legacy.id);
-  store.database.query("UPDATE blocks SET text = ? WHERE id = ?").run(
-    "Legacy [type::roadmap-item] [status::planned] [work-stage::next]", legacy.id,
-  );
-  const restored = store.restore(legacy.id);
-  expect(restored.properties).toContainEqual({ key: "work-stage", value: "queued" });
-  expect(restored.properties.some(property => property.key === "status")).toBe(false);
 });

@@ -152,16 +152,10 @@ stage views or a batch-wide view with stage summaries. Stage views and their
 creation defaults must agree; create roadmap work through the allocator tool,
 not by copying a projected item. Do not create records directly in Done or Review.
 
-## Existing workspace cutover
+## Changing the workflow
 
-`bun run scripts/migrate-roadmap.ts --project <project>` reports proposed item
-edits. Add `--apply --backup <new-file>` to retain before-images and apply through
-the service with revision checks. Conflicting legacy values stop planning;
-supersession is preserved, and rerunning makes no changes. Trash is left intact;
-restoring legacy roadmap items applies the same metadata conversion.
-
-Migrate saved-view queries, creation defaults and current hub instructions as
-part of the workspace cutover. Preserve historical notes as history. Verify
+Change saved-view queries, creation defaults and current hub instructions
+together. Preserve historical notes as history. Verify
 Tree/Detail and agent lifecycle operations in a private fixture before applying
 live changes. The application guide and current batch remain the authority for
 task status; repository documents contain no second task queue.

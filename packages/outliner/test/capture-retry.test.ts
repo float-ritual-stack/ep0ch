@@ -1,5 +1,4 @@
 import { expect, test } from "bun:test";
-import { Database } from "bun:sqlite";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -33,33 +32,6 @@ test("a receipt binds the original submission across edits and restart", () => {
         "agent", payload)).toThrow("different submission");
     }
     expect(store.children(original.inboxBlockId)).toHaveLength(1);
-  } finally {
-    store.close();
-    rmSync(directory, { recursive: true, force: true });
-  }
-});
-
-test("legacy receipt migration preserves drafts and never invents an original payload", () => {
-  const directory = mkdtempSync(join(tmpdir(), "outliner-capture-migration-"));
-  const path = join(directory, "outliner.sqlite");
-  let store = new OutlinerStore(path);
-  try {
-    const original = store.capture("legacy-request", "Original", "tree");
-    const draft = store.saveQuickCaptureDraft({ requestId: "legacy-request", text: "New draft",
-      cursorRow: 0, cursorColumn: 9, expectedRevision: null });
-    store.close();
-    const legacy = new Database(path);
-    legacy.exec("ALTER TABLE capture_requests DROP COLUMN payload_hash");
-    legacy.exec("ALTER TABLE quick_capture_draft DROP COLUMN submitted_text");
-    legacy.close();
-
-    for (let migration = 0; migration < 2; migration += 1) {
-      store = new OutlinerStore(path);
-      expect(store.quickCaptureDraft()).toEqual(draft);
-      expect(store.require(original.block.id)).toEqual(original.block);
-      expect(() => store.capture("legacy-request", "New draft", "tree")).toThrow("predates payload validation");
-      store.close();
-    }
   } finally {
     store.close();
     rmSync(directory, { recursive: true, force: true });

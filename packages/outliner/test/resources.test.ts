@@ -1,4 +1,3 @@
-import { Database } from "bun:sqlite";
 import { expect, test } from "bun:test";
 import {
   mkdirSync,
@@ -178,7 +177,6 @@ test("human-authored Resource references intern only when explicitly followed", 
     rmSync(root, { recursive: true, force: true });
   }
 });
-
 
 test("Jira shorthand resolves through its configured Source only on activation", async () => {
   const root = mkdtempSync(join(tmpdir(), "outliner-authored-jira-"));
@@ -666,7 +664,6 @@ test("web refresh owns immutable history, five-state freshness, and local-only o
     expect(sameBody.webHistory?.sourceSnapshots).toHaveLength(2);
     expect(sameBody.webHistory?.representations).toHaveLength(2);
 
-
     etag = '"v2"';
     html = "<html><body><h1>Second</h1><p>Changed page without the old passage.</p></body></html>";
     clock += 1_000;
@@ -788,130 +785,6 @@ test("web relocation preserves history and invalidates an in-flight refresh", as
     expect(after.webHistory?.sourceSnapshots.some(
       (snapshot) => snapshot.id === before.web?.sourceSnapshot.id,
     )).toBe(true);
-  } finally {
-    store.close();
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test("PIE-251 web cache migration preserves current snapshot and representation", async () => {
-  const root = mkdtempSync(join(tmpdir(), "outliner-web-migration-"));
-  const path = join(root, "workspace.sqlite");
-  let store = new OutlinerStore(path, {
-    fetch: (async () =>
-      new Response("<p>Current evidence</p>", {
-        headers: { "content-type": "text/html", etag: '"current"' },
-      })) as unknown as typeof fetch,
-  });
-  const source = store.resources.createSource({
-    name: "Migration",
-    provider: "web",
-    boundary: { baseUrl: "https://example.com/" },
-  });
-  const resource = store.resources.intern({
-    sourceId: source.id,
-    address: { kind: "web", url: "https://example.com/page" },
-  }).resource;
-  const current = await store.resources.refreshWeb(resource.id, true);
-  store.close();
-
-  const database = new Database(path);
-  try {
-    database.exec(`
-      DROP TABLE web_resource_state;
-      DROP TABLE web_representations;
-      DROP TABLE web_source_snapshots;
-      CREATE TABLE web_resource_documents (
-        resource_id TEXT PRIMARY KEY,
-        address_version INTEGER NOT NULL,
-        generation INTEGER NOT NULL,
-        canonical_url TEXT NOT NULL,
-        source_hash TEXT NOT NULL,
-        markdown TEXT NOT NULL,
-        revision_json TEXT NOT NULL,
-        adapter_id TEXT NOT NULL,
-        adapter_version INTEGER NOT NULL,
-        representation_hash TEXT NOT NULL,
-        etag TEXT,
-        last_modified TEXT,
-        freshness TEXT NOT NULL,
-        fetched_at TEXT NOT NULL,
-        checked_at TEXT NOT NULL,
-        last_error TEXT
-      );
-    `);
-    const representationEvidence = {
-      mediaType: "text/markdown",
-      adapter: current.web!.representation.adapter,
-      contentHash: current.web!.representation.contentHash,
-    };
-    database.query(`
-      INSERT INTO web_resource_documents (
-        resource_id, address_version, generation, canonical_url, source_hash,
-        markdown, revision_json, adapter_id, adapter_version,
-        representation_hash, etag, last_modified, freshness, fetched_at,
-        checked_at, last_error
-      ) VALUES (?, 1, 7, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 'fresh', ?, ?, NULL)
-    `).run(
-      resource.id,
-      current.web!.sourceSnapshot.canonicalUrl,
-      current.web!.sourceSnapshot.contentHash,
-      current.web!.markdown,
-      JSON.stringify(current.web!.sourceSnapshot.revision),
-      representationEvidence.adapter.id,
-      representationEvidence.adapter.version,
-      representationEvidence.contentHash,
-      '"current"',
-      current.web!.sourceSnapshot.fetchedAt,
-      current.webStatus!.checkedAt,
-    );
-  } finally {
-    database.close();
-  }
-
-  store = new OutlinerStore(path, {
-    fetch: (() => {
-      throw new Error("migration open must remain local");
-    }) as unknown as typeof fetch,
-  });
-  try {
-    const migrated = await store.resources.open(resource.id, true);
-    expect(migrated.webHistory?.sourceSnapshots).toHaveLength(1);
-    expect(migrated.webHistory?.representations).toHaveLength(1);
-    expect(migrated.web?.sourceSnapshot.bodyAvailable).toBe(false);
-    expect(migrated.web?.representation.contentAvailable).toBe(true);
-    const migratedSnapshotIds = migrated.webHistory!.sourceSnapshots.map(
-      (snapshot) => snapshot.id,
-    );
-    const migratedRepresentationIds = migrated.webHistory!.representations.map(
-      (representation) => representation.id,
-    );
-    expect(store.database.query(
-      "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'web_resource_documents'",
-    ).get()).toBeNull();
-    store.database.query(
-      "UPDATE web_resource_state SET freshness = 'refreshing' WHERE resource_id = ?",
-    ).run(resource.id);
-    store.close();
-    store = new OutlinerStore(path, {
-      fetch: (() => {
-        throw new Error("recovery must remain local");
-      }) as unknown as typeof fetch,
-    });
-    expect(store.resources.describe(resource.id, true)).toMatchObject({
-      web: { markdown: "Current evidence" },
-      webStatus: {
-        freshness: "failed",
-        lastError: "Refresh interrupted before completion",
-      },
-    });
-    const reopenedMigration = store.resources.describe(resource.id, true);
-    expect(reopenedMigration.webHistory?.sourceSnapshots.map(
-      (snapshot) => snapshot.id,
-    )).toEqual(migratedSnapshotIds);
-    expect(reopenedMigration.webHistory?.representations.map(
-      (representation) => representation.id,
-    )).toEqual(migratedRepresentationIds);
   } finally {
     store.close();
     rmSync(root, { recursive: true, force: true });
@@ -1052,7 +925,6 @@ test("web refresh validates redirects before requests and stops oversized stream
       ).toContain(error);
     }
     expect(rejectedCancellations).toBe(3);
-
 
     const large = store.resources.intern({
       sourceId: source.id,

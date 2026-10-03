@@ -175,26 +175,7 @@ export function prepareNoteEdit(candidate: NoteCandidate, plan: NotePlan, draftT
 
 /** Revisions derive the work; checkpoints and receipts commit with the canonical note. */
 export class NoteAssistanceRepository {
-  constructor(private readonly store: OutlinerStore) {
-    store.database.exec(`
-      CREATE TABLE IF NOT EXISTS note_assistance_state (
-        block_id TEXT PRIMARY KEY REFERENCES blocks(id) ON DELETE CASCADE,
-        handled_revision INTEGER NOT NULL,
-        state_json TEXT NOT NULL CHECK (json_valid(state_json))
-      );
-      CREATE TABLE IF NOT EXISTS note_assistance_results (
-        id TEXT PRIMARY KEY,
-        source_id TEXT NOT NULL,
-        source_revision INTEGER NOT NULL CHECK (source_revision >= 1),
-        source_parent_id TEXT,
-        payload_hash TEXT NOT NULL,
-        result_json TEXT NOT NULL CHECK (json_valid(result_json)),
-        recovery_json TEXT CHECK (recovery_json IS NULL OR json_valid(recovery_json)),
-        created_at TEXT NOT NULL
-      );
-      CREATE INDEX IF NOT EXISTS note_assistance_results_source ON note_assistance_results(source_id);
-    `);
-  }
+  constructor(private readonly store: OutlinerStore) {}
 
   /** Run before enabling the worker. Old notes, including Trash, are not a request queue. */
   initialize(): void {

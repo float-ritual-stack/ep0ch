@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, setSystemTime, test } from "bun:test";
-import { Database } from "bun:sqlite";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,7 +7,6 @@ import {
   createTextQuoteAnchor,
 } from "../src/annotations";
 import { PROPERTY_PARSER_VERSION } from "../src/properties";
-import { PAGE_ADDRESS_REGISTRY_VERSION } from "../src/page-addresses";
 import { checklistItems, shortChecklistItemId, updateChecklistText } from "../src/checklist-items";
 import { OutlinerStore } from "../src/store";
 import type {
@@ -288,7 +286,6 @@ function blockAnnotationTarget(
   };
 }
 
-
 afterEach(() => {
   for (const entry of stores.splice(0)) {
     entry.store.close();
@@ -440,7 +437,6 @@ describe("OutlinerStore", () => {
     ]);
     expect(oldestUpdated.visible.completeness).toEqual({ kind: "truncated", limit: 2 });
   });
-
 
   test("captures idempotently into one canonical Inbox without moving selection", () => {
     const store = makeStore();
@@ -794,35 +790,6 @@ Second paragraph`;
     ).toBe(block.id);
   });
 
-  test("retires persisted Tree presentation state when opening an existing database", () => {
-    const store = makeStore();
-    const entry = stores[stores.length - 1]!;
-    const path = join(entry.directory, "outliner.sqlite");
-    store.close();
-
-    const legacy = new Database(path);
-    legacy.exec(`
-      ALTER TABLE blocks ADD COLUMN collapsed INTEGER NOT NULL DEFAULT 0;
-      CREATE TABLE block_view_state (
-        block_id TEXT PRIMARY KEY,
-        multiline_expanded INTEGER NOT NULL DEFAULT 0
-      );
-    `);
-    legacy.close();
-
-    const reopened = new OutlinerStore(path);
-    entry.store = reopened;
-    const blockColumns = reopened.database.query("PRAGMA table_info(blocks)").all() as Array<{
-      name: string;
-    }>;
-    expect(blockColumns.some((column) => column.name === "collapsed")).toBe(false);
-    expect(
-      reopened.database.query(
-        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'block_view_state'",
-      ).get(),
-    ).toBeNull();
-  });
-
   test("soft-deletes subtrees centrally and restores only non-independent descendants", async () => {
     const store = makeStore();
     const categoryView = store.create(
@@ -916,7 +883,6 @@ Second paragraph`;
     expect(store.readWorkspaceSnapshot().physical.blocks.some((block) =>
       block.id === independentlyDeleted.id
     )).toBe(false);
-
 
     expect(() => store.purge(independentlyDeleted.id, "wrong")).toThrow("PIE-999");
     store.purge(independentlyDeleted.id, "PIE-999");
@@ -1102,74 +1068,6 @@ Second paragraph`;
       text: afterWatermark.text,
     });
     expect(incremental.cursor).toBeGreaterThan(page.cursor);
-  });
-
-  test("adds provenance columns to an existing block database", () => {
-    const directory = mkdtempSync(join(tmpdir(), "pi-outliner-legacy-"));
-    const path = join(directory, "outliner.sqlite");
-    const legacy = new Database(path, { create: true });
-    legacy.exec(`
-      CREATE TABLE blocks (
-        id TEXT PRIMARY KEY,
-        parent_id TEXT REFERENCES blocks(id) ON DELETE CASCADE,
-        position INTEGER NOT NULL,
-        text TEXT NOT NULL,
-        author TEXT NOT NULL CHECK (author IN ('user', 'agent', 'system')),
-        collapsed INTEGER NOT NULL DEFAULT 0,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-      );
-    `);
-    legacy.close();
-
-    const store = new OutlinerStore(path);
-    stores.push({ store, directory });
-    const columnNames = (
-      store.database
-        .query("PRAGMA table_info(blocks)")
-        .all() as Array<{ name: string }>
-    ).map((column) => column.name);
-    expect(columnNames).toEqual(expect.arrayContaining([
-      "actor_id",
-      "session_id",
-      "task_id",
-      "deleted_at",
-      "effective_deleted_root_id",
-    ]));
-    expect(
-      store.create("Migrated agent block", null, "agent", { actorId: "pi" }),
-    ).toEqual(expect.objectContaining({ author: "agent", actorId: "pi" }));
-  });
-
-  test("backfills effective deletion when upgrading a database with direct tombstones", () => {
-    const directory = mkdtempSync(join(tmpdir(), "pi-outliner-deletion-migration-"));
-    const path = join(directory, "outliner.sqlite");
-    const legacy = new Database(path, { create: true });
-    legacy.exec(`
-      CREATE TABLE blocks (
-        id TEXT PRIMARY KEY,
-        parent_id TEXT REFERENCES blocks(id) ON DELETE CASCADE,
-        position INTEGER NOT NULL,
-        text TEXT NOT NULL,
-        author TEXT NOT NULL CHECK (author IN ('user', 'agent', 'system')),
-        collapsed INTEGER NOT NULL DEFAULT 0,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL,
-        deleted_at TEXT
-      );
-      INSERT INTO blocks
-        (id, parent_id, position, text, author, collapsed, created_at, updated_at, deleted_at)
-      VALUES
-        ('deleted-root', NULL, 0, 'Deleted root', 'user', 0, 'created', 'updated', 'deleted'),
-        ('deleted-child', 'deleted-root', 0, 'Deleted child', 'user', 0, 'created', 'updated', NULL);
-    `);
-    legacy.close();
-
-    const store = new OutlinerStore(path);
-    stores.push({ store, directory });
-    expect(store.require("deleted-root").effectiveDeletedRootId).toBe("deleted-root");
-    expect(store.require("deleted-child").effectiveDeletedRootId).toBe("deleted-root");
-    expect(store.children(null).some((block) => block.id === "deleted-root")).toBe(false);
   });
 
   test("retains nonmatching branch ranks and cascades ranks with either endpoint", () => {
@@ -1568,19 +1466,11 @@ Second paragraph`;
     ].join("\n"));
     const updatedAt = block.updatedAt;
 
-    originalStore.database.exec(`
-      DROP TABLE block_properties;
-      CREATE TABLE block_properties (
-        block_id TEXT NOT NULL REFERENCES blocks(id) ON DELETE CASCADE,
-        key TEXT NOT NULL,
-        value TEXT NOT NULL,
-        ordinal INTEGER NOT NULL,
-        PRIMARY KEY (block_id, key, ordinal)
-      );
-    `);
+    // An index written by an older parser: a token it took from a code block, and none for the real one.
+    originalStore.database.query("DELETE FROM block_properties WHERE block_id = ?").run(block.id);
     originalStore.database
       .query(
-        "INSERT INTO block_properties (block_id, key, value, ordinal) VALUES (?, 'obsolete', 'literal', 0)",
+        "INSERT INTO block_properties (block_id, key, value, ordinal, raw, start, end, line, column, placement, scope, syntax) VALUES (?, 'obsolete', 'literal', 0, '[obsolete::literal]', 0, 1, 2, 0, 'metadata-line', 'block', 'bracket')",
       )
       .run(block.id);
     originalStore.database
@@ -1659,41 +1549,6 @@ Second paragraph`;
     expect(() => new OutlinerStore(path)).toThrow("newer than supported");
     stores.pop();
     rmSync(directory, { recursive: true, force: true });
-  });
-
-  test("correlates legacy Work-ID reservations with matching block-scoped declarations", () => {
-    const store = makeStore();
-    const directory = stores[stores.length - 1].directory;
-    const path = join(directory, "outliner.sqlite");
-    const first = store.create("First owner [work-id::PIE-701]");
-    const second = store.create("Second owner [work-id::PIE-702]");
-    store.create("Inline claim\nBody text [work-id::PIE-703]");
-    store.database.exec(`
-      DROP TABLE reserved_work_ids;
-      CREATE TABLE reserved_work_ids (
-        work_id TEXT PRIMARY KEY,
-        reserved_at TEXT NOT NULL
-      );
-      INSERT INTO reserved_work_ids (work_id, reserved_at) VALUES
-        ('PIE-701', '2026-01-01T00:00:00.000Z'),
-        ('PIE-702', '2026-01-01T00:00:00.000Z'),
-        ('PIE-703', '2026-01-01T00:00:00.000Z'),
-        ('PIE-799', '2026-01-01T00:00:00.000Z');
-    `);
-    store.close();
-
-    const reopened = new OutlinerStore(path);
-    stores[stores.length - 1].store = reopened;
-    expect(
-      reopened.database.query(
-        "SELECT work_id, block_id FROM reserved_work_ids ORDER BY work_id",
-      ).all(),
-    ).toEqual([
-      { work_id: "PIE-701", block_id: first.id },
-      { work_id: "PIE-702", block_id: second.id },
-      { work_id: "PIE-703", block_id: null },
-      { work_id: "PIE-799", block_id: null },
-    ]);
   });
 
   test("allocates monotonic project Work IDs transactionally", async () => {
@@ -1815,7 +1670,6 @@ Second paragraph`;
     );
     expect(store.resolvePageAddress("ABC-002").status).toBe("missing");
   });
-
 
   test("atomically creates canonical roadmap items with allocator and branch receipts", () => {
     const store = makeStore();
@@ -2034,46 +1888,7 @@ Second paragraph`;
     expect(store.workIdAllocatorStatus().nextWorkId).toBe("PIE-201");
   });
 
-  test("migrates reservation ownership and adopts the existing sequence", () => {
-    const store = makeStore();
-    const directory = stores[stores.length - 1].directory;
-    const path = join(directory, "outliner.sqlite");
-    const existing = store.create("Legacy allocated [work-id::PIE-123]");
-    store.database.query(
-      "DELETE FROM metadata WHERE key = 'work_id_allocator_migration_version'",
-    ).run();
-    store.close();
-
-    const legacy = new Database(path);
-    legacy.exec(`
-      DROP TABLE work_id_allocator;
-      CREATE TABLE reserved_work_ids_legacy (
-        work_id TEXT PRIMARY KEY,
-        reserved_at TEXT NOT NULL
-      );
-      INSERT INTO reserved_work_ids_legacy (work_id, reserved_at)
-        SELECT work_id, reserved_at FROM reserved_work_ids;
-      DROP TABLE reserved_work_ids;
-      ALTER TABLE reserved_work_ids_legacy RENAME TO reserved_work_ids;
-    `);
-    legacy.close();
-
-    const reopened = new OutlinerStore(path);
-    stores[stores.length - 1].store = reopened;
-    expect(reopened.workIdAllocatorStatus()).toMatchObject({
-      prefix: "PIE",
-      nextNumber: 124,
-      nextWorkId: "PIE-124",
-      observedPrefixes: ["PIE"],
-    });
-    expect(
-      reopened.database.query(
-        "SELECT block_id FROM reserved_work_ids WHERE work_id = 'PIE-123'",
-      ).get(),
-    ).toEqual({ block_id: existing.id });
-  });
-
-  test("migrates dirty legacy Work-ID properties without blocking startup", () => {
+  test("dirty Work-ID properties never block startup", () => {
     const store = makeStore();
     const directory = stores[stores.length - 1].directory;
     const path = join(directory, "outliner.sqlite");
@@ -2085,9 +1900,6 @@ Second paragraph`;
     ).run("Copied [work-id::PIE-001] [work-id::todo-later]", duplicate.id);
     insertIndexedProperty(store, duplicate.id, "work-id", "PIE-001", 0);
     insertIndexedProperty(store, duplicate.id, "work-id", "todo-later", 1);
-    store.database.query(
-      "DELETE FROM metadata WHERE key = 'work_id_allocator_migration_version'",
-    ).run();
     store.close();
 
     const reopened = new OutlinerStore(path);
@@ -2247,7 +2059,6 @@ Second paragraph`;
       "Unresolved Work ID cannot create a page stub: PIE-404",
     );
   });
-
 
   test("uses Unicode caseless normalization for symbolic uniqueness", () => {
     const store = makeStore();
@@ -2506,102 +2317,6 @@ Second paragraph`;
     });
   });
 
-  test("backfills existing page and Work-ID declarations on migration", () => {
-    const store = makeStore();
-    const directory = stores[stores.length - 1].directory;
-    const path = join(directory, "outliner.sqlite");
-    store.configureWorkIdPrefix("PIE");
-    const page = store.create("Migrated page [page::Migration Target]");
-    const work = store.create("Migrated work [work-id::PIE-777]");
-    store.addPageAlias(page.id, "Migrated Alias");
-    store.database.query(
-      "UPDATE metadata SET value = '0' WHERE key = 'page_address_registry_version'",
-    ).run();
-    store.close();
-
-    const reopened = new OutlinerStore(path);
-    stores[stores.length - 1].store = reopened;
-    expect(reopened.resolvePageAddress("migration target").block?.id).toBe(page.id);
-    expect(
-      reopened.database.query(
-        "SELECT value FROM metadata WHERE key = 'page_address_registry_version'",
-      ).get(),
-    ).toEqual({ value: String(PAGE_ADDRESS_REGISTRY_VERSION) });
-    expect(reopened.resolvePageAddress("pie-777").block?.id).toBe(work.id);
-    expect(reopened.resolvePageAddress("migrated alias").block?.id).toBe(page.id);
-  });
-
-  test("rebuilds registry-v1 addresses after parser-v2 scope migration exactly once", () => {
-    const store = makeStore();
-    const directory = stores[stores.length - 1].directory;
-    const path = join(directory, "outliner.sqlite");
-    store.configureWorkIdPrefix("PIE");
-    const canonicalPage = store.create("Canonical page [page::Canonical Metadata]");
-    const inlinePage = store.create("Inline page\nBody text [page::Inline Metadata]");
-    const canonicalWork = store.create("Canonical work\n[work-id::PIE-811]");
-    const inlineWork = store.create("Inline work\nBody text [work-id::PIE-812]");
-
-    store.database.query(
-      "UPDATE block_properties SET scope = 'block' WHERE block_id IN (?, ?)",
-    ).run(inlinePage.id, inlineWork.id);
-    store.database.query(
-      "INSERT INTO page_addresses (normalized_address, display_address, block_id, kind) VALUES (?, ?, ?, ?)",
-    ).run("inline metadata", "Inline Metadata", inlinePage.id, "page");
-    store.database.query(
-      "INSERT INTO page_addresses (normalized_address, display_address, block_id, kind) VALUES (?, ?, ?, ?)",
-    ).run("pie-812", "PIE-812", inlineWork.id, "work-id");
-    store.database.query(
-      "UPDATE metadata SET value = '1' WHERE key = 'property_parser_version'",
-    ).run();
-    store.database.query(
-      "UPDATE metadata SET value = '1' WHERE key = 'page_address_registry_version'",
-    ).run();
-    store.close();
-
-    const reopened = new OutlinerStore(path);
-    stores[stores.length - 1].store = reopened;
-    expect(reopened.resolvePageAddress("Canonical Metadata").block?.id).toBe(
-      canonicalPage.id,
-    );
-    expect(reopened.resolvePageAddress("PIE-811").block?.id).toBe(canonicalWork.id);
-    expect(reopened.resolvePageAddress("Inline Metadata").status).toBe("missing");
-    expect(reopened.resolvePageAddress("PIE-812").status).toBe("missing");
-    expect(reopened.require(inlinePage.id).properties).toEqual([]);
-    expect(reopened.require(inlineWork.id).properties).toEqual([]);
-    expect(
-      reopened.database.query(
-        "SELECT key, value FROM metadata WHERE key IN ('property_parser_version', 'page_address_registry_version') ORDER BY key",
-      ).all(),
-    ).toEqual([
-      {
-        key: "page_address_registry_version",
-        value: String(PAGE_ADDRESS_REGISTRY_VERSION),
-      },
-      {
-        key: "property_parser_version",
-        value: String(PROPERTY_PARSER_VERSION),
-      },
-    ]);
-    const migratedSequence = reopened.sequence;
-    const migratedAddresses = reopened.database
-      .query(
-        "SELECT normalized_address, display_address, block_id, kind FROM page_addresses WHERE block_id IN (?, ?, ?, ?) ORDER BY normalized_address",
-      )
-      .all(canonicalPage.id, inlinePage.id, canonicalWork.id, inlineWork.id);
-
-    reopened.close();
-    const reopenedAgain = new OutlinerStore(path);
-    stores[stores.length - 1].store = reopenedAgain;
-    expect(reopenedAgain.sequence).toBe(migratedSequence);
-    expect(
-      reopenedAgain.database.query(
-        "SELECT normalized_address, display_address, block_id, kind FROM page_addresses WHERE block_id IN (?, ?, ?, ?) ORDER BY normalized_address",
-      ).all(canonicalPage.id, inlinePage.id, canonicalWork.id, inlineWork.id),
-    ).toEqual(migratedAddresses);
-    expect(reopenedAgain.resolvePageAddress("Inline Metadata").status).toBe("missing");
-    expect(reopenedAgain.resolvePageAddress("PIE-812").status).toBe("missing");
-  });
-
   test("preserves registered deleted addresses across registry rebuilds", () => {
     const store = makeStore();
     const directory = stores[stores.length - 1].directory;
@@ -2665,240 +2380,6 @@ Second paragraph`;
     reopened.update(legacy.id, "Legacy repaired [page::One]", reopened.require(legacy.id).revision);
     expect(reopened.resolvePageAddress("One").block?.id).toBe(legacy.id);
   });
-
-  test("backfills declarations transactionally and rejects duplicate migration data", () => {
-    const store = makeStore();
-    const directory = stores[stores.length - 1].directory;
-    const path = join(directory, "outliner.sqlite");
-    const first = store.create("First");
-    const second = store.create("Second");
-    insertIndexedProperty(store, first.id, "page", "Same Page", 0);
-    insertIndexedProperty(store, second.id, "page", "same   page", 0);
-    store.database.query("DELETE FROM page_addresses").run();
-    store.database.query("DELETE FROM metadata WHERE key = 'page_address_registry_version'").run();
-    store.close();
-
-    expect(() => new OutlinerStore(path)).toThrow("is already the page of block");
-    stores.pop();
-    rmSync(directory, { recursive: true, force: true });
-  });
-
-  test("migrates legacy annotation evidence without changing thread identity", () => {
-    const store = makeStore();
-    const directory = stores[stores.length - 1].directory;
-    const path = join(directory, "outliner.sqlite");
-    const source = store.create("alpha beta gamma");
-    const promoted = store.create("Promoted decision");
-    const ordinary = store.create("Example\nBody [type::annotation]");
-    const encode = (value: string): string =>
-      `v1-${Buffer.from(value, "utf8").toString("base64url")}`;
-    const root = store.create([
-      "Comment on “ beta”",
-      [
-        "[type::annotation]",
-        "[annotation-source::user]",
-        "[annotation-status::resolved]",
-        `[promoted-block::${promoted.id}]`,
-        "[project::alpha]",
-        "[target-kind::block]",
-        `[source-block::${source.id}]`,
-        "[anchor-state::anchored]",
-        "[anchor-start::5]",
-        "[anchor-end::10]",
-        `[anchor-excerpt::${encode(" beta")}]`,
-        `[anchor-before::${encode("alpha")}]`,
-        `[anchor-after::${encode(" gamma")}]`,
-        `[source-version::${encode(source.updatedAt)}]`,
-        `[source-hash::${annotationSourceHash(source.text)}]`,
-      ].join(" "),
-      "Legacy root body [source-block::body-reference].",
-    ].join("\n"), source.id);
-    const reply = store.create([
-      "Comment on “beta”",
-      `[type::annotation-reply] [annotation-source::agent] [annotation-status::open] [parent-annotation::${root.id}]`,
-      "Legacy reply body.",
-    ].join("\n"), root.id);
-    const legacyFile = store.create([
-      "Comment on “ beta”",
-      [
-        "[type::annotation]",
-        "[annotation-source::user]",
-        "[annotation-status::open]",
-        "[target-kind::file]",
-        `[source-block::${source.id}]`,
-        `[target-file::${encode("missing.txt")}]`,
-        "[anchor-state::anchored]",
-        "[anchor-start::5]",
-        "[anchor-end::10]",
-        `[anchor-excerpt::${encode(" beta")}]`,
-        `[anchor-before::${encode("alpha")}]`,
-        `[anchor-after::${encode(" gamma")}]`,
-        `[source-version::${encode("legacy-version")}]`,
-        `[source-hash::${annotationSourceHash(source.text)}]`,
-      ].join(" "),
-      "Legacy file body.",
-    ].join("\n"), source.id);
-    const quarantinedText = [
-      "Comment on malformed legacy evidence",
-      [
-        "[type::annotation]",
-        "[annotation-source::user]",
-        "[annotation-status::invalid]",
-        "[target-kind::block]",
-        `[source-block::${source.id}]`,
-        "[anchor-state::anchored]",
-        "[anchor-start::not-a-number]",
-        "[anchor-end::10]",
-        `[anchor-excerpt::${encode(" beta")}]`,
-        `[source-version::${encode(source.updatedAt)}]`,
-        `[source-hash::${annotationSourceHash(source.text)}]`,
-      ].join(" "),
-      "Malformed body must survive.",
-    ].join("\n");
-    const quarantined = store.create(quarantinedText, source.id);
-    const invalidAnchorText = [
-      "Comment on invalid legacy offsets",
-      [
-        "[type::annotation]",
-        "[annotation-source::user]",
-        "[annotation-status::open]",
-        "[target-kind::block]",
-        `[source-block::${source.id}]`,
-        "[anchor-state::anchored]",
-        "[anchor-start::not-a-number]",
-        "[anchor-end::10]",
-        `[anchor-excerpt::${encode(" beta")}]`,
-        `[anchor-before::${encode("alpha")}]`,
-        `[anchor-after::${encode(" gamma")}]`,
-        `[source-version::${encode(source.updatedAt)}]`,
-        `[source-hash::${annotationSourceHash(source.text)}]`,
-      ].join(" "),
-      "Invalid offsets must not block startup.",
-    ].join("\n");
-    const invalidAnchor = store.create(invalidAnchorText, source.id);
-    const missingEvidenceText = [
-      "Comment on missing legacy evidence",
-      "[type::annotation] [annotation-source::user] [annotation-status::open] [target-kind::block] [project::retained]",
-      "Body without target evidence.",
-    ].join("\n");
-    const missingEvidence = store.create(missingEvidenceText, source.id);
-    const invalidStateText = root.text.replace(
-      "[anchor-state::anchored]",
-      "[anchor-state::invalid]",
-    );
-    const invalidState = store.create(invalidStateText, source.id);
-    store.database.exec(`
-      DELETE FROM metadata WHERE key = 'pie250_annotation_repository';
-      DROP TABLE annotation_resource_evidence_refs;
-      DROP TABLE annotation_resolution_events;
-      DROP TABLE annotation_targets;
-    `);
-    store.close();
-
-    const reopened = new OutlinerStore(path);
-    stores[stores.length - 1].store = reopened;
-    const migrated = reopened.getAnnotation(root.id);
-    const threads = reopened.listAnnotationThreads({
-      subject: { kind: "block", blockId: source.id },
-      includeResolved: true,
-    });
-
-    expect(migrated.block.id).toBe(root.id);
-    expect(migrated.body).toBe("Legacy root body [source-block::body-reference].");
-    expect(migrated.lifecycle).toBe("resolved");
-    expect(migrated.promotedBlockIds).toEqual([promoted.id]);
-    expect(migrated.originalTarget.representation.subject).toEqual({
-      kind: "block",
-      blockId: source.id,
-    });
-    expect(migrated.originalTarget.anchor).toMatchObject({
-      kind: "text-quote",
-      start: 5,
-      end: 10,
-      exact: " beta",
-    });
-    expect(migrated.currentResolution).toMatchObject({
-      sequence: 0,
-      status: "resolved",
-      appliesCurrent: true,
-    });
-    expect(threads[0]!.replies).toHaveLength(1);
-    expect(threads[0]!.replies[0]).toMatchObject({
-      block: { id: reply.id },
-      body: "Legacy reply body.",
-      source: "agent",
-      parentAnnotationId: root.id,
-    });
-    const migratedBlock = reopened.require(root.id);
-    expect(migratedBlock.updatedAt).toBe(root.updatedAt);
-    expect(migratedBlock.properties).toContainEqual({ key: "project", value: "alpha" });
-    expect(migratedBlock.properties.some((property) =>
-      property.key === "target-kind" ||
-      property.key === "source-block" ||
-      property.key === "anchor-excerpt"
-    )).toBe(false);
-    expect(reopened.require(ordinary.id).text).toBe("Example\nBody [type::annotation]");
-    const migratedFile = reopened.getAnnotation(legacyFile.id);
-    expect(migratedFile.originalTarget.representation.subject).toEqual({
-      kind: "legacy-file",
-      filePath: "missing.txt",
-      sourceBlockId: source.id,
-    });
-    expect(migratedFile.currentResolution.status).toBe("orphaned");
-    const legacyReply = reopened.replyToAnnotation("legacy-file-reply", {
-      annotationId: legacyFile.id,
-      body: "Still actionable.",
-      source: "agent",
-    }, "agent").annotations[0]!;
-    expect(legacyReply.parentAnnotationId).toBe(legacyFile.id);
-    expect(legacyReply.originalTarget).toEqual(migratedFile.originalTarget);
-    const resolvedLegacyFile = reopened.setAnnotationLifecycle({
-      annotationId: legacyFile.id,
-      lifecycle: "resolved",
-    }, { author: "agent", actorId: "omp" });
-    expect(resolvedLegacyFile.lifecycle).toBe("resolved");
-    expect(resolvedLegacyFile.originalTarget).toEqual(migratedFile.originalTarget);
-    const quarantinedBlocks = [
-      { block: quarantined, text: quarantinedText },
-      { block: invalidAnchor, text: invalidAnchorText },
-      { block: missingEvidence, text: missingEvidenceText },
-      { block: invalidState, text: invalidStateText },
-    ];
-    for (const entry of quarantinedBlocks) {
-      expect(reopened.require(entry.block.id).text).toBe(entry.text);
-      const quarantine = reopened.database.query(`
-        SELECT raw_text, reason
-        FROM annotation_migration_quarantine
-        WHERE annotation_block_id = ?
-      `).get(entry.block.id) as { raw_text: string; reason: string } | null;
-      expect(quarantine?.raw_text).toBe(entry.text);
-      expect(quarantine?.reason.length).toBeGreaterThan(0);
-      expect(reopened.database.query(`
-        SELECT annotation_block_id
-        FROM annotation_targets
-        WHERE annotation_block_id = ?
-      `).get(entry.block.id)).toBeNull();
-    }
-    expect(reopened.database.query(
-      "SELECT COUNT(*) AS count FROM annotation_migration_quarantine",
-    ).get()).toEqual({ count: quarantinedBlocks.length });
-    reopened.close();
-
-    const reopenedAgain = new OutlinerStore(path);
-    stores[stores.length - 1].store = reopenedAgain;
-    expect(reopenedAgain.listAnnotationThreads({
-      subject: { kind: "block", blockId: source.id },
-      includeResolved: true,
-    }).map((thread) => thread.block.id)).toEqual([root.id]);
-    expect(reopenedAgain.database.query(
-      "SELECT COUNT(*) AS count FROM annotation_migration_quarantine",
-    ).get()).toEqual({ count: quarantinedBlocks.length });
-    for (const entry of quarantinedBlocks) {
-      expect(reopenedAgain.require(entry.block.id).text).toBe(entry.text);
-    }
-  });
-
-
 
   test("loads only replies belonging to the requested annotation roots", () => {
     const store = makeStore();

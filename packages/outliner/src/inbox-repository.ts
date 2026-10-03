@@ -162,29 +162,7 @@ export function summarizeInboxResult(result: InboxResult): InboxResultSummary {
 
 /** Recovery receipts share the canonical service connection and commit with its normal block mutations. */
 export class InboxRepository {
-  constructor(private readonly store: OutlinerStore) {
-    store.database.exec(`
-      CREATE TABLE IF NOT EXISTS inbox_agent_settings (
-        singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
-        paused INTEGER NOT NULL CHECK (paused IN (0, 1))
-      );
-      INSERT OR IGNORE INTO inbox_agent_settings (singleton, paused) VALUES (1, 0);
-      CREATE TABLE IF NOT EXISTS inbox_agent_results (
-        id TEXT PRIMARY KEY,
-        source_id TEXT NOT NULL,
-        suppressed_revision INTEGER,
-        payload_hash TEXT NOT NULL,
-        result_json TEXT NOT NULL CHECK (json_valid(result_json)),
-        recovery_json TEXT CHECK (recovery_json IS NULL OR json_valid(recovery_json)),
-        created_at TEXT NOT NULL
-      );
-      CREATE INDEX IF NOT EXISTS inbox_agent_results_source ON inbox_agent_results(source_id, suppressed_revision);
-      CREATE TABLE IF NOT EXISTS inbox_agent_instructions (
-        source_id TEXT PRIMARY KEY,
-        instructions TEXT NOT NULL
-      );
-    `);
-  }
+  constructor(private readonly store: OutlinerStore) {}
 
   settings(): { paused: boolean } {
     const row = this.store.database.query("SELECT paused FROM inbox_agent_settings WHERE singleton = 1").get() as { paused: number };

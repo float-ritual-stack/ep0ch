@@ -22,9 +22,7 @@ export function inboxFailureKind(error:unknown,canceled=false):NonNullable<Inbox
 
 /** Retry requests survive restart; result context lives with the existing receipt. */
 export class InboxAttempts {
- constructor(private store:OutlinerStore,private hasNotes:boolean){
-  store.database.exec('CREATE TABLE IF NOT EXISTS inbox_retry_triggers (source_id TEXT PRIMARY KEY, trigger TEXT NOT NULL)');
- }
+ constructor(private store:OutlinerStore,private hasNotes:boolean){}
  request(sourceId:string,trigger:'reconsider'|'resume'):void{
   this.store.database.query('INSERT INTO inbox_retry_triggers(source_id,trigger) VALUES (?,?) ON CONFLICT(source_id) DO UPDATE SET trigger=excluded.trigger').run(sourceId,trigger);
  }

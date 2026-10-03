@@ -333,24 +333,6 @@ test("history survives restarts and crashes; unrecorded writes and rebuilds rese
   expect(await running.client.request<ChangeFeedPage>({ action: "changes.since", sequence: rawSequence }))
     .toMatchObject({ kind: "reset", reason: "history-unavailable", oldestSequence: rebuilt });
   await running.stop();
-
-  // An existing workspace from before the feed has no history to replay.
-  const legacy = new Database(database);
-  legacy.exec("DROP TABLE change_feed; DELETE FROM metadata WHERE key LIKE 'change_feed_%';");
-  const legacySequence = Number((legacy.query("SELECT value FROM metadata WHERE key = 'sequence'").get() as { value: string }).value);
-  const blocksBefore = legacy.query("SELECT id, text, revision, created_at, updated_at FROM blocks ORDER BY id").all();
-  legacy.close();
-  running = await service(directory, database);
-  expect(running.store.sequence).toBe(legacySequence);
-  expect(running.store.changes.floor).toBe(legacySequence);
-  expect(await running.client.request<ChangeFeedPage>({ action: "changes.since", sequence: 0 }))
-    .toMatchObject({ kind: "reset", reason: "history-unavailable", oldestSequence: legacySequence });
-  expect(running.store.database.query("SELECT id, text, revision, created_at, updated_at FROM blocks ORDER BY id").all())
-    .toEqual(blocksBefore);
-  const upgraded = await running.client.request<Block>({ action: "create", text: "First change after upgrade" });
-  await running.stop();
-  running = await service(directory, database);
-  expect(await readAll(running.client, legacySequence, 10)).toMatchObject([{ blockId: upgraded.id }]);
 });
 
 test("branch-local rank changes join the feed without changing their view event", async () => {
