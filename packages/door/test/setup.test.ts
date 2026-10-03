@@ -5,16 +5,18 @@
 // The stack is one checkout (the ep0ch repo) and one outline host serving `<outlines>/<name>.sqlite` (PIE-530).
 import { Database } from "bun:sqlite";
 import { afterAll, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { backupDatabase, formatPlan, linkExtensions, setupCommand, tilde } from "../src/setup/apply";
+import { dirname, join } from "node:path";
+import { backupDatabase, formatPlan, setupCommand, tilde } from "../src/setup/apply";
+import { applyLinks } from "../src/setup/links";
+import { skillLinkFacts } from "../src/setup/skill-links";
 import { extFacts } from "../src/setup/ext-links";
 import { PROTOCOL } from "@ep0ch/outline-core/protocol";
-import { doctorChecks, formatDoctor, versionAtLeast } from "../src/setup/doctor";
+import { doctorChecks, formatDoctor, MARK, skillChecks, versionAtLeast } from "../src/setup/doctor";
 import { claudeModIn, databases, depsState, herdrKeys, hostFacts, hostUnit, launchdState, openOutlineToPing, systemdState } from "../src/setup/facts";
 import { type Checkout, detectPlatform, type Facts, type HostFacts, type HostUnit, staleness } from "../src/setup/model";
-import { backupName, buildPlan, checkoutStep, chooseLinkDir, extStep, hostStep, hostUnitArgv, linkCandidates, type PlanOptions, stamp, unitChanges } from "../src/setup/plan";
+import { backupName, buildPlan, checkoutStep, chooseLinkDir, extStep, skillsStep, hostStep, hostUnitArgv, linkCandidates, type PlanOptions, stamp, unitChanges } from "../src/setup/plan";
 
 const scratch = mkdtempSync(join(tmpdir(), "ep0ch-setup-"));
 afterAll(() => rmSync(scratch, { recursive: true, force: true }));
@@ -555,7 +557,7 @@ describe("the door's extensions (packages/door/ext): their links", () => {
     return { extRoot: join(root, "door", "ext"), ext, home, bin, cable: join(home, ".config/telly/cable") };
   }
   const on = (d: ReturnType<typeof door>, env: Record<string, string> = {}, which = (n: string) => (n === "telly" ? "/usr/bin/telly" : null)) =>
-    extFacts(d.extRoot, { env, home: d.home, bin: d.bin, which, record: join(d.home, "state", "ext-links.json") });
+    extFacts(d.extRoot, { env, home: d.home, bin: d.bin, which, record: join(d.home, "state", "install-links.json") });
   const withExt = (ext: Facts["ext"]): Facts => ({ ...current(), ext });
 
   test("a first install links each file where its program finds it, and says each one", () => {
@@ -568,7 +570,7 @@ describe("the door's extensions (packages/door/ext): their links", () => {
     expect(step.commands).toContain(`ln -s ${join(d.ext, "cable", "notes.toml")} ${join(d.cable, "notes.toml")}`);
     expect(statuses(withExt(facts))).toEqual(["backup:skip", "repo:skip", "plugin:skip", "link:skip", "host:skip", "session:skip", "ext:do"]);
     const said: string[] = [];
-    linkExtensions(step.links!, s => said.push(s));
+    applyLinks(step.links!, s => said.push(s));
     expect(said).toEqual(expect.arrayContaining([`${join(d.cable, "notes.toml")} → ${join(d.ext, "cable", "notes.toml")}`]));
     // A second run has nothing to do.
     expect(extStep(withExt(on(d)))).toMatchObject({ status: "skip", why: "3 linked" });
@@ -582,13 +584,13 @@ describe("the door's extensions (packages/door/ext): their links", () => {
     expect(step.status).toBe("do");
     expect(step.why).toContain(`left as they are (not install's): ${join(d.cable, "notes.toml")}`);
     expect(step.links!.make.map(l => l.dest)).not.toContain(join(d.cable, "notes.toml"));
-    linkExtensions(step.links!, () => {});
+    applyLinks(step.links!, () => {});
     expect(readFileSync(join(d.cable, "notes.toml"), "utf8")).toBe("# the person's own\n");
     // And if one appears between the plan and the apply, the link fails rather than replacing it.
     const late = door(), plan = extStep(withExt(on(late)));
     mkdirSync(late.cable, { recursive: true });
     writeFileSync(join(late.cable, "files.toml"), "# arrived since\n");
-    expect(() => linkExtensions(plan.links!, () => {})).toThrow(/linking .*files\.toml failed/);
+    expect(() => applyLinks(plan.links!, () => {})).toThrow(/linking .*files\.toml failed/);
     expect(readFileSync(join(late.cable, "files.toml"), "utf8")).toBe("# arrived since\n");
   });
 
@@ -602,7 +604,7 @@ describe("the door's extensions (packages/door/ext): their links", () => {
 
   test("deleting the extension, the last one: install's recorded links are taken away next time, and nothing else", () => {
     const d = door();
-    linkExtensions(extStep(withExt(on(d))).links!, () => {});
+    applyLinks(extStep(withExt(on(d))).links!, () => {});
     writeFileSync(join(d.cable, "someone-elses.toml"), "# not ours\n");
     rmSync(d.extRoot, { recursive: true, force: true });
     const facts = on(d);
@@ -610,7 +612,7 @@ describe("the door's extensions (packages/door/ext): their links", () => {
     expect(facts.stale.map(s => s.dest).sort()).toEqual([join(d.bin, "telly-help"), join(d.cable, "files.toml"), join(d.cable, "notes.toml")].sort());
     const step = extStep(withExt(facts));
     expect([step.status, step.why]).toEqual(["do", "3 stale to take away"]);
-    linkExtensions(step.links!, () => {});
+    applyLinks(step.links!, () => {});
     expect(existsSync(join(d.cable, "someone-elses.toml"))).toBe(true);
     expect(existsSync(join(d.cable, "notes.toml"))).toBe(false);
     expect(extStep(withExt(on(d)))).toMatchObject({ status: "skip" });
@@ -618,10 +620,150 @@ describe("the door's extensions (packages/door/ext): their links", () => {
 
   test("a file of the person's own where a link would go: said every run, never a step left for them", () => {
     const d = door();
-    linkExtensions(extStep(withExt(on(d))).links!, () => {});
+    applyLinks(extStep(withExt(on(d))).links!, () => {});
     rmSync(join(d.cable, "notes.toml"));
     writeFileSync(join(d.cable, "notes.toml"), "# mine now\n");
     expect(extStep(withExt(on(d)))).toMatchObject({ status: "skip", why: expect.stringContaining("left as they are (not install's)") });
   });
 
+});
+
+describe("the agent skills: their links where Claude Code (and ~/.agents) finds them", () => {
+  const skill = (dir: string, name: string, frontName = name) => {
+    mkdirSync(join(dir, name), { recursive: true });
+    writeFileSync(join(dir, name, "SKILL.md"), `---\nname: ${frontName}\ndescription: A made-up skill.\n---\n\n# ${name}\n`);
+  };
+  /** A checkout with the door's skills and the outliner's Pi skills, an old checkout's copies, and a scratch home. */
+  function machine(o: { shared?: boolean } = {}) {
+    const root = mkdtempSync(join(scratch, "skills-"));
+    const door = join(root, "ep0ch", "packages", "door"), outliner = join(root, "ep0ch", "packages", "outliner");
+    for (const n of ["ep0ch", "ep0ch-core"]) skill(join(door, "skills"), n);
+    for (const n of ["outliner-documentation", "outliner-workflow"]) skill(join(outliner, "pi-extension", "skills"), n);
+    const old = join(root, "ep0ch-door", "skills");
+    for (const n of ["ep0ch", "ep0ch-core"]) skill(old, n);
+    const home = join(root, "home"), claude = join(home, ".claude", "skills"), shared = join(home, ".agents", "skills");
+    mkdirSync(claude, { recursive: true });
+    if (o.shared) mkdirSync(shared, { recursive: true });
+    return { door, outliner, old, home, claude, shared, record: join(home, "state", "install-links.json") };
+  }
+  const look = (m: ReturnType<typeof machine>, env: Record<string, string> = {}) => skillLinkFacts({ door: m.door, outliner: m.outliner, env, home: m.home, record: m.record });
+  const withSkills = (skills: Facts["skills"]): Facts => ({ ...current(), skills });
+
+  test("a first install links the door's skills and the outliner's Claude Code one, not its Pi-only ones", () => {
+    const m = machine();
+    const facts = look(m);
+    expect(facts.links.map(l => [l.dest, l.state])).toEqual([
+      [join(m.claude, "ep0ch"), "missing"], [join(m.claude, "ep0ch-core"), "missing"], [join(m.claude, "outliner-documentation"), "missing"]]);
+    expect(skillChecks(withSkills(facts)).map(c => `${MARK[c.status]} ${c.name}`)).toEqual(["✗ ep0ch", "✗ ep0ch-core", "✗ outliner-documentation"]);
+    const step = skillsStep(withSkills(facts));
+    expect([step.status, step.why]).toEqual(["do", "3 to link"]);
+    expect(step.commands).toContain(`ln -s ${join(m.door, "skills", "ep0ch-core")} ${join(m.claude, "ep0ch-core")}`);
+    expect(statuses(withSkills(facts))).toEqual(["backup:skip", "repo:skip", "plugin:skip", "link:skip", "host:skip", "session:skip", "skills:do"]);
+    applyLinks(step.links!, () => {});
+    expect(readlinkSync(join(m.claude, "ep0ch-core"))).toBe(join(m.door, "skills", "ep0ch-core"));
+    expect(JSON.parse(readFileSync(m.record, "utf8")).links).toContain(join(m.claude, "ep0ch-core"));
+    const again = look(m);
+    expect(skillsStep(withSkills(again))).toMatchObject({ status: "skip", why: "3 linked" });
+    expect(skillChecks(withSkills(again)).every(c => c.status === "ok")).toBe(true);
+  });
+
+  test("~/.agents/skills gets them too when it's there; CLAUDE_CONFIG_DIR moves Claude Code's", () => {
+    const m = machine({ shared: true });
+    expect(look(m).into).toEqual([m.claude, m.shared]);
+    const elsewhere = join(m.home, "claude-config");
+    expect(look(m, { CLAUDE_CONFIG_DIR: elsewhere }).into).toEqual([join(elsewhere, "skills"), m.shared]);
+  });
+
+  test("an old checkout's copy of the same skill is replaced, and said; doctor shows it with the fix", () => {
+    const m = machine();
+    symlinkSync(join(m.old, "ep0ch-core"), join(m.claude, "ep0ch-core"));
+    const facts = look(m);
+    expect(facts.links.find(l => l.dest === join(m.claude, "ep0ch-core"))).toMatchObject({ state: "replace", was: join(m.old, "ep0ch-core") });
+    const check = skillChecks(withSkills(facts)).find(c => c.name === "ep0ch-core")!;
+    expect(check).toMatchObject({ status: "behind", fix: `ln -sfn ${join(m.door, "skills", "ep0ch-core")} ${join(m.claude, "ep0ch-core")}   (or ep0ch install --apply)` });
+    const step = skillsStep(withSkills(facts));
+    expect(step.why).toBe("2 to link, 1 to replace (another checkout's)");
+    expect(step.commands).toContain(`ln -sfn ${join(m.door, "skills", "ep0ch-core")} ${join(m.claude, "ep0ch-core")}   # was ${join(m.old, "ep0ch-core")}`);
+    const said: string[] = [];
+    applyLinks(step.links!, s => said.push(s));
+    expect(said).toContain(`${join(m.claude, "ep0ch-core")} → ${join(m.door, "skills", "ep0ch-core")} (was ${join(m.old, "ep0ch-core")})`);
+    expect(readlinkSync(join(m.claude, "ep0ch-core"))).toBe(join(m.door, "skills", "ep0ch-core"));
+    expect(existsSync(join(m.old, "ep0ch-core", "SKILL.md"))).toBe(true);
+  });
+
+  test("a real folder, or a link to some other skill under the name, is never install's: said and left", () => {
+    const m = machine();
+    skill(m.claude, "ep0ch");                                    // the person's own folder
+    skill(m.old, "ep0ch-core-fork", "ep0ch-core-fork");
+    mkdirSync(join(m.old, "x"));
+    skill(join(m.old, "x"), "ep0ch-core", "someone-elses");       // same folder name, another skill's SKILL.md
+    symlinkSync(join(m.old, "x", "ep0ch-core"), join(m.claude, "ep0ch-core"));
+    const facts = look(m);
+    const checks = skillChecks(withSkills(facts));
+    expect(checks.find(c => c.name === "ep0ch")).toMatchObject({ status: "info", detail: expect.stringContaining("is yours (not a link)") });
+    expect(checks.find(c => c.name === "ep0ch-core")).toMatchObject({ status: "behind", detail: expect.stringContaining("not this skill's copy; install leaves it") });
+    const step = skillsStep(withSkills(facts));
+    expect(step.why).toContain(`left as they are (not install's): ${join(m.claude, "ep0ch")}, ${join(m.claude, "ep0ch-core")}`);
+    applyLinks(step.links!, () => {});
+    expect(lstatSync(join(m.claude, "ep0ch")).isDirectory()).toBe(true);
+    expect(readlinkSync(join(m.claude, "ep0ch-core"))).toBe(join(m.old, "x", "ep0ch-core"));
+  });
+
+  test("a link left by a worktree or checkout since deleted is broken whatever it was: replaced", () => {
+    const m = machine();
+    const gone = join(m.home, "projects", "ep0ch-wt-gone", "packages", "door", "skills", "ep0ch-core");
+    skill(dirname(gone), "ep0ch-core");
+    symlinkSync(gone, join(m.claude, "ep0ch-core"));
+    rmSync(join(m.home, "projects"), { recursive: true });
+    const facts = look(m);
+    expect(facts.links.find(l => l.dest === join(m.claude, "ep0ch-core"))).toMatchObject({ state: "replace", was: gone });
+    applyLinks(skillsStep(withSkills(facts)).links!, () => {});
+    expect(readlinkSync(join(m.claude, "ep0ch-core"))).toBe(join(m.door, "skills", "ep0ch-core"));
+    // A broken link under another skill's name is still left alone.
+    rmSync(join(m.claude, "ep0ch")); symlinkSync(join(m.home, "nowhere", "other-skill"), join(m.claude, "ep0ch"));
+    expect(look(m).links.find(l => l.dest === join(m.claude, "ep0ch"))).toMatchObject({ state: "taken" });
+  });
+
+  test("a folder install linked into before is still looked in for stale links (CLAUDE_CONFIG_DIR changed since)", () => {
+    const m = machine();
+    const before = join(m.home, "claude-before");
+    applyLinks(skillsStep(withSkills(look(m, { CLAUDE_CONFIG_DIR: before }))).links!, () => {});
+    rmSync(join(m.door, "skills", "ep0ch"), { recursive: true });
+    expect(look(m).stale.map(s => s.dest)).toEqual([join(before, "skills", "ep0ch")]);
+  });
+
+  test("the commands quote a path that needs it", () => {
+    const m = machine();
+    const spaced = join(m.home, "Claude Config");
+    const step = skillsStep(withSkills(look(m, { CLAUDE_CONFIG_DIR: spaced })));
+    expect(step.commands).toContain(`ln -s ${join(m.door, "skills", "ep0ch")} '${join(spaced, "skills", "ep0ch")}'`);
+  });
+
+  test("a link that changed between the plan and the apply isn't replaced", () => {
+    const m = machine();
+    symlinkSync(join(m.old, "ep0ch-core"), join(m.claude, "ep0ch-core"));
+    const plan = skillsStep(withSkills(look(m)));
+    rmSync(join(m.claude, "ep0ch-core"));
+    symlinkSync(join(m.old, "ep0ch"), join(m.claude, "ep0ch-core"));
+    expect(() => applyLinks(plan.links!, () => {})).toThrow(/changed since the plan/);
+    expect(readlinkSync(join(m.claude, "ep0ch-core"))).toBe(join(m.old, "ep0ch"));
+  });
+
+  test("a skill deleted from the repo: install's link to it is taken away next time, and nothing else", () => {
+    const m = machine({ shared: true });
+    applyLinks(skillsStep(withSkills(look(m))).links!, () => {});
+    symlinkSync(join(m.old, "ep0ch"), join(m.claude, "kept-old"));   // someone else's link, its file there
+    rmSync(join(m.door, "skills", "ep0ch-core"), { recursive: true });
+    const facts = look(m);
+    expect(facts.stale.map(s => s.dest)).toEqual([join(m.claude, "ep0ch-core"), join(m.shared, "ep0ch-core")]);
+    expect(skillChecks(withSkills(facts)).filter(c => c.detail.includes("a skill that's gone")).map(c => c.fix)).toEqual([
+      `rm ${join(m.claude, "ep0ch-core")}   (or ep0ch install --apply)`, `rm ${join(m.shared, "ep0ch-core")}   (or ep0ch install --apply)`]);
+    const step = skillsStep(withSkills(facts));
+    expect([step.status, step.why]).toEqual(["do", "2 stale to take away"]);
+    applyLinks(step.links!, () => {});
+    expect(existsSync(join(m.claude, "ep0ch-core"))).toBe(false);
+    expect(readlinkSync(join(m.claude, "kept-old"))).toBe(join(m.old, "ep0ch"));
+    expect(JSON.parse(readFileSync(m.record, "utf8")).links).not.toContain(join(m.claude, "ep0ch-core"));
+    expect(skillsStep(withSkills(look(m)))).toMatchObject({ status: "skip" });
+  });
 });

@@ -6,11 +6,12 @@
 // under it changed. Every `<outlines>/*.sqlite` is backed up first. Units and Herdr's config are never edited:
 // what they need is said.
 import { join, resolve } from "node:path";
+import { linkCommands, linkCounts, type LinkWork, linkWork, type OwnedLink, type StaleLink } from "./links";
 import { type Checkout, type DatabaseFacts, type Deps, type Facts, type HostUnit, KEYED_ACTIONS, PLUGIN_ID, PLUGIN_SOURCE, short, staleness } from "./model";
 
 /** do: runs with --apply. skip: already current. manual: needs a person (the hint says what). */
 export type StepStatus = "do" | "skip" | "manual";
-export type StepId = "backup" | "repo" | "plugin" | "link" | "ext" | "host" | "session";
+export type StepId = "backup" | "repo" | "plugin" | "link" | "ext" | "skills" | "host" | "session";
 
 export interface Step {
   id: StepId;
@@ -23,8 +24,8 @@ export interface Step {
   backups?: (DatabaseFacts & { dest: string })[];
   /** A checkout whose remote couldn't be reached (the fetch failed): whether it's current isn't known. */
   unchecked?: true;
-  /** ext: the links to make (src → dest) and the stale ones to take away (dest), as the commands say. */
-  links?: { make: { src: string; dest: string }[]; remove: string[]; extRoot: string; record?: string };
+  /** ext, skills: the links to make, replace and take away (links.ts), as the commands say. */
+  links?: LinkWork;
 }
 
 export interface Plan { steps: Step[]; notes: string[] }
@@ -138,29 +139,30 @@ export function linkStep(f: Facts): Step {
 }
 
 /**
- * The door's extensions' links (src/setup/ext-links.ts): each one missing is made, each of install's own whose file is
- * gone is taken away, and what's there already and isn't install's is left as it is, said.
+ * A step for links install owns (links.ts): each one missing is made, each of another checkout's replaced, each of
+ * install's own whose file is gone taken away, and what's there already and isn't install's left as it is, said.
  */
-export function extStep(f: Facts): Step {
-  const title = "Link the door's extensions (packages/door/ext)";
-  const exts = f.ext?.exts ?? [];
-  const make = exts.flatMap(e => e.links.filter(l => l.state === "missing").map(l => ({ src: l.src, dest: l.dest })));
-  const remove = (f.ext?.stale ?? []).map(s => s.dest);
-  const taken = exts.flatMap(e => e.links.filter(l => l.state === "taken").map(l => l.dest));
-  const ours = exts.reduce((n, e) => n + e.links.filter(l => l.state === "ours").length, 0);
-  const skipped = exts.filter(e => e.problem).map(e => `${e.name}: ${e.problem}`);
-  const said = [
-    ...(taken.length ? [`left as they are (not install's): ${taken.join(", ")}`] : []),
-    ...(skipped.length ? [`not linked: ${skipped.join("; ")}`] : []),
-  ].join(" · ");
-  const commands = [...remove.map(d => `rm ${d}   # its file is gone`), ...make.map(l => `ln -s ${l.src} ${l.dest}`)];
-  if (make.length || remove.length) {
-    const what = [make.length ? `${make.length} to link` : "", remove.length ? `${remove.length} stale to take away` : ""].filter(Boolean).join(", ");
-    return { id: "ext", title, status: "do", why: `${what}${said ? ` · ${said}` : ""}`, commands,
-      links: { make, remove, extRoot: f.ext!.root, ...(f.ext?.record ? { record: f.ext.record } : {}) } };
-  }
+function linksStep(id: "ext" | "skills", title: string, links: readonly OwnedLink[], stale: readonly StaleLink[], roots: readonly string[], record: string | undefined, notes: string[] = []): Step {
+  const { work, taken, ours } = linkWork(links, stale, roots, record);
+  const said = [...(taken.length ? [`left as they are (not install's): ${taken.map(l => l.dest).join(", ")}`] : []), ...notes].join(" · ");
+  const counts = linkCounts(work);
+  if (counts) return { id, title, status: "do", why: `${counts}${said ? ` · ${said}` : ""}`, commands: linkCommands(work), links: work };
   // A file of the person's own where a link would go is theirs to keep: said each run, never a step left for them.
-  return { id: "ext", title, status: "skip", why: `${ours ? `${ours} linked` : "nothing to link"}${said ? ` · ${said}` : ""}`, commands: [] };
+  return { id, title, status: "skip", why: `${ours ? `${ours} linked` : "nothing to link"}${said ? ` · ${said}` : ""}`, commands: [] };
+}
+
+/** The door's extensions' links (src/setup/ext-links.ts). */
+export function extStep(f: Facts): Step {
+  const exts = f.ext?.exts ?? [];
+  const skipped = exts.filter(e => e.problem).map(e => `${e.name}: ${e.problem}`);
+  return linksStep("ext", "Link the door's extensions (packages/door/ext)", exts.flatMap(e => e.links), f.ext?.stale ?? [], f.ext ? [f.ext.root] : [], f.ext?.record,
+    skipped.length ? [`not linked: ${skipped.join("; ")}`] : []);
+}
+
+/** The shipped agent skills' links where Claude Code (and ~/.agents) finds them (src/setup/skill-links.ts). */
+export function skillsStep(f: Facts): Step {
+  const s = f.skills;
+  return linksStep("skills", `Link the agent skills (${s?.into.join(", ") ?? "~/.claude/skills"})`, s?.links ?? [], s?.stale ?? [], s?.roots ?? [], s?.record);
 }
 
 export function backupStep(f: Facts, o: PlanOptions, anythingElse: boolean): Step {
@@ -332,7 +334,7 @@ export function buildPlan(f: Facts, o: PlanOptions): Plan {
   const plugin = pluginStep(f);
   const link = linkStep(f);
   // Last: an optional link that fails never stops the host's restart or the session's upgrade.
-  const ext = f.ext ? [extStep(f)] : [];
+  const ext = [...(f.ext ? [extStep(f)] : []), ...(f.skills ? [skillsStep(f)] : [])];
   const host = hostStep(f, repo.status === "do" && f.repo.checkout.behind > 0);
   const session = sessionStep(f, repo);
   const backup = backupStep(f, o, [repo, plugin, link, host].some(s => s.status === "do"));
