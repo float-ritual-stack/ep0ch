@@ -337,6 +337,7 @@ describe.skipIf(!outliner)("the tree's links, against a scratch outline", () => 
   }, 60_000);
 
   test("in a reader, a resource token the service names is a link: a click shows the Resource", async () => {
+    await Bun.sleep(300);                                                       // the last test's tree pick shows its row 90 ms on: let it land first
     await app.act({ action: "open", args: { id: n.plan.id }, as: "walker-7" });
     await until(() => reader().msg?.id === n.plan.id && !reader().msg!.partial, "the plan in the reader");
     const rect = () => { desk.render(D().ctx); return D().placed.rects.get([...D().panes.entries()].find(([, p]: any) => p.kind === "reader")![0]); };

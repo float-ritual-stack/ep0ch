@@ -171,9 +171,12 @@ describe.skipIf(!outliner)("a river column places its note's images, cut to what
     const inside = f.lines.slice(r.row, r.row + r.rows).map(l => [...plain(l)].slice(r.col, r.col + r.cols).join(""));
     expect(inside.join("\n")).toContain("Meta work, briefly.");
     // Under its last line, its rows are blank to its own frame: no text and no border of the peek under it.
-    const rule = inside.findIndex(l => l.includes("0 replies"));
-    expect(rule).toBeGreaterThan(0);
-    for (const l of inside.slice(rule + 1, -1)) expect(l).toMatch(/^│ *│$/);
+    // Its last lines are its links, under its replies (the links tile's rows): blank after them.
+    const links = inside.findIndex(l => l.includes("── ▾ links"));
+    expect(links).toBeGreaterThan(inside.findIndex(l => l.includes("0 replies")));
+    const end = inside.findIndex((l, i) => i > links && /^│ *│$/.test(l));
+    expect(end).toBeGreaterThan(links);
+    for (const l of inside.slice(end, -1)) expect(l).toMatch(/^│ *│$/);
     expect(inside.join("\n")).not.toContain("runs on");
     // Nor does any image: the short note has none, and a tile drawn over another takes away the placements under it.
     term.info.cols = 120;

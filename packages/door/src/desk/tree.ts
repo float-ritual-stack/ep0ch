@@ -129,17 +129,14 @@ export class TreePane implements Pane {
     const id = r?.kind === "block" ? null : rowBlock(r);
     if (r?.kind === "block") this.timer = setTimeout(() => desk.setCurrent(r.m, { from: this }), 90);
     else if (id) this.timer = setTimeout(() => void this.target(id, desk).then(m => { if (m && rowBlock(this.rows[this.sel]) === id) desk.setCurrent(m, { from: this }); }, () => {}), 90);
-    // A resource shows what is stored for it (a ticket's block, a file's content), read only: nothing registers.
+    // A resource shows what is stored for it (a ticket's block, a file's content) where the tree's selection goes (a
+    // preview following it), read only: nothing registers, and the current note stays (an open meanwhile isn't undone).
     else if (r?.kind === "resource") {
       const key = r.key;
-      this.timer = setTimeout(() => {
-        // Read while the current note stays: an open meanwhile (another tile's, an agent's) isn't overridden by it.
-        const was = desk.current;
-        void linkNote(r, desk.ctx.board, "show").then(({ note }) => {
-          this.shownResource = { key, note };
-          if (this.rows[this.sel]?.key === key && desk.current === was) desk.setCurrent(note, { from: this });
-        }, () => {});
-      }, 90);
+      this.timer = setTimeout(() => void linkNote(r, desk.ctx.board, "show").then(({ note }) => {
+        this.shownResource = { key, note };
+        if (this.rows[this.sel]?.key === key) desk.showFrom?.(this, note);
+      }, () => {}), 90);
     }
     desk.redraw();
   }
