@@ -2504,7 +2504,7 @@ export class Desk implements Screen, DeskApi, PaneHost, TileHost, TerminalHost, 
       return { overlay: true, query: q };
     }
     if (q.length < 2) throw new ActionRefused("search needs query=<at least 2 characters>");
-    const hits = await this.ctx.board.search(q, Math.max(1, Math.min(100, limit ?? 30)));
+    const hits = await this.ctx.board.search(q, Math.max(1, Math.min(100, limit ?? 30)), { near: this.current?.id });
     return { query: q, hits: hits.map((m, i) => ({ n: i + 1, id: m.id, title: subject(m), ...(m.props["work-id"] ? { workId: m.props["work-id"] } : {}) })) };
   }
 
@@ -3259,18 +3259,37 @@ function policyPanel(d: Desk, tile: number): DeskPicker {
   return p;
 }
 
-/** `/`: the service's search as it's typed, the hits on the left, the one picked read on the right; ⏎ opens it. */
+/**
+ * `/`: the service's search (the one search, `tree.search`) as it's typed, from the desk's current note (nearer
+ * notes first), the hits on the left, the one picked read on the right; ⏎ opens it. A pause asks Jev to re-order
+ * the same hits, used only if the query and the pick haven't moved, and the picked hit stays picked.
+ */
 function searchOverlay(d: Desk, q: string): DeskPicker {
-  let hits: Msg[] = [], busy = false, timer: Timer | null = null, seq = 0;
+  let hits: Msg[] = [], busy = false, timer: Timer | null = null, seq = 0, jev: "asking" | "ranked" | undefined;
   const input = new LineInput(q);
+  const near = () => d.current?.id;
+  const askJev = (n: number, t: string) => {
+    if (t.length < 3 || hits.length < 2) return;
+    timer = setTimeout(() => {
+      if (n !== seq) return;
+      const sel = p.sel, id = hits[sel]?.id;
+      jev = "asking"; d.redraw();
+      d.ctx.board.search(t, 30, { semantic: true, near: near() }).then(h => {
+        if (n !== seq) return;
+        const at = h.findIndex(m => m.id === id);
+        if (p.sel !== sel || hits[sel]?.id !== id || at < 0) { jev = undefined; d.redraw(); return; }
+        hits = h; p.sel = at; jev = h.ranked ? "ranked" : undefined; d.redraw();
+      }, () => { if (n === seq) { jev = undefined; d.redraw(); } });
+    }, SEARCH_JEV_PAUSE_MS);
+  };
   const run = () => {
     if (timer) clearTimeout(timer);
-    const t = input.text.trim();
+    const n = ++seq, t = input.text.trim();
+    jev = undefined;
     if (t.length < 2) { hits = []; return; }
     timer = setTimeout(() => {
-      const n = ++seq;
       busy = true; d.redraw();
-      d.ctx.board.search(t, 30).then(h => { if (n === seq) { hits = h; p.sel = 0; busy = false; d.redraw(); } }, () => { busy = false; });
+      d.ctx.board.search(t, 30, { near: near() }).then(h => { if (n === seq) { hits = h; p.sel = 0; busy = false; d.redraw(); askJev(n, t); } }, () => { busy = false; });
     }, 250);
   };
   const p: ListPicker<Msg, Desk> = new ListPicker<Msg, Desk>({
@@ -3283,7 +3302,7 @@ function searchOverlay(d: Desk, q: string): DeskPicker {
       const w = rect.cols - 2, listW = Math.floor(w * 0.42), m = hits[p.sel];
       return {
         rect, title: "search the board", foot: "↑↓ pick · ⏎ open · esc close",
-        head: [paint("|14/ ") + input.show(w - 20) + paint(` ${busy ? "|08searching…" : `|08${hits.length} hit(s)`}`), fg(C.blue) + "─".repeat(w) + RESET],
+        head: [paint("|14/ ") + input.show(w - 20) + paint(` ${busy ? "|08searching…" : `|08${hits.length} hit(s)${jev === "ranked" ? " · jev ranked" : jev === "asking" ? " · jev…" : ""}`}`), fg(C.blue) + "─".repeat(w) + RESET],
         side: { w: listW, lines: m ? [fg(C.white) + subject(m) + RESET, ...previewLines(m, w - listW - 3)] : [] },
       };
     },
@@ -3291,6 +3310,9 @@ function searchOverlay(d: Desk, q: string): DeskPicker {
   if (q) run();
   return p;
 }
+
+/** How long the search overlay's typing pauses before Jev is asked to re-order the hits. */
+const SEARCH_JEV_PAUSE_MS = 600;
 
 interface DeskOn { d: Desk; reader?: string }
 

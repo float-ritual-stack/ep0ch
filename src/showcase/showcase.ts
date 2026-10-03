@@ -42,6 +42,7 @@ import { ScreenTile } from "../desk/screen-tile";
 import { servingSession } from "../session/session-term";
 import { loadShowcase, SEED, type SeedName } from "./seed";
 import { PROPERTY_GRAMMAR_VERSION } from "../vendor/property-grammar";
+import { SEARCH_MATCH_VERSION } from "../vendor/search-match";
 import { RowView } from "../scroll";
 
 type Notes = Partial<Record<SeedName, Msg>>;
@@ -113,6 +114,15 @@ export const SECTIONS: Section[] = [
     stage(n, show) {
       const a = new ReaderPane(), b = new ReaderPane();
       return deskOf({ title: "showcase · edit", panes: [a, b], layout: ([x, y]) => row(0.5, x!, y!) }, show, [[a, n.whiteboard], [b, n.notebook]], () => b.surface.openPanel(false));
+    },
+  },
+  {
+    key: "search", need: "find a note by text: a search, (( and [[ completion, a list filter", part: "the one search: tree.search (searchBlocks) from the note you're in, Jev after a pause; the vendored matcher for lists the door holds", files: "src/socket.ts, src/surface/completer.ts, src/desk/desk.ts, src/vendor/search-match.ts",
+    aside: "a typo, a dash or the words in another order still find the note (pi-herdr-outliner src/search-match.ts has the rungs) · (( and [[ in any draft ask the same search from the draft's note · the backlinks drawer and a river column's / filter with the vendored copy",
+    stage(n, show) {
+      const r = new ReaderPane();
+      // The desk's / overlay, opened as the person opens it, on a typo, from the shed note.
+      return deskOf({ title: "showcase · search", panes: [r], layout: ([a]) => leaf(a!) }, show, [[r, n.shed]], d => { if (n.shed) d.setCurrent(n.shed); void d.searchNotes("bike shde", undefined, USER); });
     },
   },
   {
@@ -468,7 +478,7 @@ export class Showcase implements Screen {
 /** The showcase's own actions: which section is shown. Keys and clicks on the index call the same code. */
 export const SHOWCASE_ACTIONS = new ActionSet<{ "section": { name: string }; "section.try": { name?: string } }, Showcase>("showcase", {
   "section.try": {
-    summary: "go into a section's stage (name=<1-19> or its key, else the one shown): the person's keys and mouse go to the part itself until its own esc brings them back to the index. The person's only: an agent acts in the stage with its actions (`act` reaches the shown section's)",
+    summary: "go into a section's stage (name=<1-20> or its key, else the one shown): the person's keys and mouse go to the part itself until its own esc brings them back to the index. The person's only: an agent acts in the stage with its actions (`act` reaches the shown section's)",
     keys: "⏎ → l tab, click in the stage",
     touches: "screen", replay: "safe", person: "going into a section gives it the person's keys; an agent runs the shown section's own actions instead",
     args: { name: { type: "string", optional: true, about: "the section's number or key; the one shown when left out" } },
@@ -479,7 +489,7 @@ export const SHOWCASE_ACTIONS = new ActionSet<{ "section": { name: string }; "se
     },
   },
   "section": {
-    summary: "show a section (name=<1-19> or its key: note, actions, edit, drafts, panes, screens, kinds, terminal, preview, screen, spine, entity, presence, live, projection, extensions, selection, service, session); refused to an agent while the person is in one", keys: "↑↓ j k, 1-9 0, click, wheel",
+    summary: "show a section (name=<1-20> or its key: note, actions, edit, search, drafts, panes, screens, kinds, terminal, preview, screen, spine, entity, presence, live, projection, extensions, selection, service, session); refused to an agent while the person is in one", keys: "↑↓ j k, 1-9 0, click, wheel",
     touches: "screen", replay: "safe", says: r => `showed section ${r.section} (${r.key})`,
     args: { name: { type: "string", about: "the section's number or key" } },
     run({ name }, s) {
@@ -596,6 +606,8 @@ export class ServicePane implements Pane {
       return !lane || !p ? "no lanes" : p.kind === "refused" ? `refused: ${p.reason}` : `${subject(lane)}: born with ${p.born.map(x => `${x.key}=${x.value}`).join(" ") || "nothing"}${p.needs.length ? ` · needs ${p.needs.join(" and ")}` : ""}`;
     });
     say("property grammar (vendored)", `version ${PROPERTY_GRAMMAR_VERSION} · src/vendor/property-grammar.ts, the outliner's own file`);
+    if (n.shed) await tryIt(`tree.search ("shde", a typo, from ${SEED.shed})`, async () => { const r = await b.searchBlocks("shde", { near: n.shed!.id }); return `${r.matches.length} hit(s): ${r.matches.slice(0, 3).map(m => m.title).join(", ") || "none"}`; });
+    say("search matcher (vendored)", `version ${SEARCH_MATCH_VERSION} · src/vendor/search-match.ts, the outliner's own file: the backlinks and column filters`);
     if (n.notebook) await tryIt("properties.preview (notebook text)", async () => { const r = await b.previewPropertyList(n.notebook!.text); return r.map(p => `${p.key}::${p.value}`).join(" "); });
     if (n.shed) await tryIt(`references.backlinks (${SEED.shed})`, async () => { const c = await b.backlinks(n.shed!.id); return `${describeBacklinkView(backlinkView(c, DEFAULT_BACKLINK_VIEW_OPTIONS), DEFAULT_BACKLINK_VIEW_OPTIONS, new Set()).status}: ${c.sources.map(x => x.title).join(", ") || "none"}`; });
     await tryIt("changes.since (last 5)", async () => { const r = await b.changesSince(Math.max(0, (b.lastSequence ?? 0) - 5), 5); return r.kind === "reset" ? `reset: ${r.reason}` : `${r.changes.length} change(s), next #${r.nextSequence}`; });

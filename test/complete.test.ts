@@ -17,7 +17,7 @@ import { completionTargetAtCursor, pageAddressCompletion } from "../src/completi
 import { Draft } from "../src/edit";
 import { Refused, SocketBoard, USER, type Actor } from "../src/socket";
 import { visible } from "../src/style";
-import { COMPLETION_HINT, completerFor, completionKey, completionOf } from "../src/surface/completer";
+import { COMPLETION_HINT, completerFor, completionKey, completionOf, renderCompletion } from "../src/surface/completer";
 import { editHint } from "../src/surface/editor";
 import { NoteSurface, type SurfaceHost } from "../src/surface/note";
 import type { Key } from "../src/term";
@@ -54,7 +54,7 @@ describe("the popup opens on typing, never on moving the cursor (a fake service)
     const board = {
       completePages: async () => ({ addresses: [{ address: "gardening", blockId: "b1", kind: "page", title: "Gardening" }], completeness: { kind: "complete" } }),
       completeFiles: async () => [],
-      findBlocks: async () => ({ blocks: [{ id: "b2", text: "Xylophone lessons" }], truncated: null }),
+      searchBlocks: async () => ({ matches: [{ block: { id: "b2", revision: 1 }, title: "Xylophone lessons", path: "", snippet: "Xylophone lessons", exact: false }], completeness: { kind: "complete" }, semantic: { status: "lexical" } }),
       blockContext: async (id: string) => ({ selected: { id, text: "Gardening" }, ancestors: [] }),
       workIdPrefix: () => { calls.prefix++; return prefix(); },
     };
@@ -113,6 +113,61 @@ describe("the popup opens on typing, never on moving the cursor (a fake service)
     completionKey(d, char("a"), c);
     await until(() => !!c.state && !c.state.loading, "the lookup");
     expect(calls.prefix).toBe(2);
+  });
+});
+
+describe("Jev re-orders after a pause, never moving the selection (a fake service)", () => {
+  const hit = (id: string, title: string) => ({ block: { id, revision: 1 }, title, path: "Garden", snippet: title, exact: false });
+  const lexical = [hit("b1", "Party hats"), hit("b2", "Party lights"), hit("b3", "Fat cats in party hats")];
+  function fake(answer: (semantic: boolean) => Promise<void> = async () => {}) {
+    const asked: { query: string; semantic: boolean; near?: string }[] = [];
+    const board = {
+      completePages: async () => ({ addresses: [], completeness: { kind: "complete" } }),
+      completeFiles: async () => [],
+      searchBlocks: async (query: string, opts: { semantic?: boolean; near?: string } = {}) => {
+        asked.push({ query, semantic: !!opts.semantic, near: opts.near });
+        await answer(!!opts.semantic);
+        return opts.semantic
+          ? { matches: [lexical[2], lexical[0], lexical[1]], completeness: { kind: "complete" }, semantic: { status: "ranked" } }
+          : { matches: lexical, completeness: { kind: "complete" }, semantic: { status: "lexical" } };
+      },
+      blockContext: async (id: string) => ({ selected: { id, text: "x" }, ancestors: [] }),
+      workIdPrefix: async () => "HOME",
+    };
+    return { board, asked };
+  }
+
+  test("the selected candidate stays selected as Jev re-orders the list, the draft's note is the context, and the footer says so", async () => {
+    const { board, asked } = fake();
+    const d = new Draft("note-1", 1, "");
+    const c = completerFor(d, board, () => {})!;
+    for (const ch of "((party hats") completionKey(d, char(ch), c);
+    await until(() => !!c.state && !c.state.loading && c.state.items.length === 3, "the lexical lookup");
+    completionKey(d, K("down"), c);                                       // the person picks "Party lights"
+    await until(() => c.state?.jev === "ranked", "Jev's order");
+    expect(c.state!.items.map(i => i.blockId)).toEqual(["b3", "b1", "b2"]);
+    expect(c.state!.items[c.state!.index]!.blockId).toBe("b2");          // still Party lights
+    expect(asked.filter(a => a.semantic)).toEqual([{ query: "party hats", semantic: true, near: "note-1" }]);
+    expect(asked.every(a => a.near === "note-1")).toBe(true);
+    expect(renderCompletion(c.state!, 60, 8).map(visible).at(-1)).toContain("jev ranked");
+  });
+
+  test("an answer after the selection moved is dropped; typing before the pause never asks Jev", async () => {
+    let release = () => {};
+    const { board, asked } = fake(semantic => semantic ? new Promise<void>(r => { release = r; }) : Promise.resolve());
+    const d = new Draft("note-1", 1, "");
+    const c = completerFor(d, board, () => {})!;
+    for (const ch of "((party") completionKey(d, char(ch), c);
+    await until(() => !!c.state && !c.state.loading, "the lexical lookup");
+    completionKey(d, char(" "), c); completionKey(d, char("h"), c);      // typing again within the pause
+    await until(() => c.state?.jev === "asking", "Jev asked");
+    expect(asked.filter(a => a.semantic).map(a => a.query)).toEqual(["party h"]);
+    completionKey(d, K("down"), c);                                       // the person moves while Jev thinks
+    release();
+    await new Promise(r => setTimeout(r, 30));
+    expect(c.state!.items.map(i => i.blockId)).toEqual(["b1", "b2", "b3"]);
+    expect(c.state!.index).toBe(1);
+    expect(c.state!.jev).toBe("asking");
   });
 });
 
@@ -214,6 +269,18 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     e.press(K("tab"));
     await until(() => !e.pop(), "the insertion");
     expect(e.d.lines.at(-1)).toBe("sow from [[seeds]]");
+  });
+
+  test("(( is the one search: punctuation, word order and a typo don't hide a note, and the draft's note is near", async () => {
+    const hats = await create("HOME-333 Fat cats in party hats");
+    const now = await create("Claude - now\nWhat the agent is doing.");
+    const e = await editing(ids.plan!);
+    for (const [typed, want] of [["((HOME-333 hats", hats], ["((fat cat party", hats], ["((party hast", hats], ["((claude now", now], ["((cluade now", now]] as const) {
+      e.press(K("enter")); e.type(typed);
+      const p = await e.settled();
+      expect({ typed, first: p.items[0]?.blockId }).toEqual({ typed, first: want });
+      e.press(K("esc"));
+    }
   });
 
   test("(( searches blocks and inserts ((id)); ((note^ and ((# offer fragments, own headings getting an anchor", async () => {

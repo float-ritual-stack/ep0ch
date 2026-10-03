@@ -23,6 +23,7 @@ import type { ScreenSpec } from "../desk/screen-spec";
 import type { KindHost, TileKind, TileKindName } from "../desk/tile-kinds";
 import type { TileSpec } from "../desk/tiles";
 import { LineInput } from "../surface/line";
+import { matchesSearchText } from "../vendor/search-match";
 
 /** A property notice or an agent line in a column the person isn't in clears after this long on screen. */
 export const BANNER_MS = 30_000;
@@ -72,7 +73,8 @@ export const filterText = (f: Clause[]) => f.map(c => `${c.exclude ? "-" : ""}${
 function passes(m: Msg, f: Clause[]): boolean {
   return f.every(c => {
     const v = c.key === "author" ? m.author ?? "" : c.key === "text" ? m.text : m.props[c.key];
-    const hit = c.key === "text" ? m.text.toLowerCase().includes(c.value.toLowerCase())
+    // A word: the one search's matcher (punctuation folded, a typo forgiven); an excluded word only as typed.
+    const hit = c.key === "text" ? matchesSearchText(c.value, [m.text], { typos: !c.exclude })
       : c.value === "*" ? v !== undefined : (v ?? "").toLowerCase() === c.value.toLowerCase();
     return c.exclude ? !hit : hit;
   });
