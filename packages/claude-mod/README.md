@@ -10,32 +10,22 @@ UUIDs in the answer then show up in Tree/Detail `?` → **Recent mentions**.
 
 ## Which outline: the session's folder
 
-There is nothing to configure. A session uses the outline its folder is bound
-to, found the way every Outliner client finds it: the nearest folder, from the
-session's cwd up, that is **bound**, by a `client.json` (bind a folder with the
-**choose-outline** action) or as the root an outline host records for one of
-its outlines. The installed CLI answers (`outliner bound-folder <cwd>`), so the
-mod never keeps a resolver of its own.
+There is nothing to configure. A session uses the outline its folder names,
+found the way every client finds it (PIE-530): the nearest `.ep0ch`, from the
+session's cwd up (it holds `ws = "<name>"`; `ep0ch init` or Herdr's Choose
+outline popup writes it). The installed CLI answers (`outliner bound-folder
+<cwd>`), so the mod never keeps a resolver of its own.
 
-- A nested binding is nearer than its parent's, so a project bound to its own
+- A nested `.ep0ch` is nearer than its parent's, so a project naming its own
   outline keeps it. Similar path prefixes do not match.
-- An outline root too broad to name an outline after (`$HOME`, `/`, `/tmp`)
-  binds nothing by itself (a `client.json` there still does). A subfolder with
-  its own hash database is not its ancestor's binding, since every client uses
-  that database there; it feeds nothing.
-- Opening an unbound folder's guessed outline from Herdr (Ctrl-b u) records
-  that folder (or its repository) as the outline's root. From then on it is
-  bound, and Claude sessions in it feed that outline.
-- **A folder bound to no outline feeds nothing**: no mentions, no links, and the
-  outline tools refuse. The CLI's folder-name guess and the host's default
-  outline are never used, so an unrelated session never reaches your outline.
+- **A folder that names no outline feeds nothing**: no mentions, no links, and
+  the outline tools refuse. No folder-name guess and no default outline is ever
+  used, so an unrelated session never reaches your outline.
 - Mentions, links, `show`, the workboard and outline tools all use that folder
-  and the outline it was found bound to: the mod passes that outline's name
-  (`OUTLINER_OUTLINE`, or blanks an inherited one for a local or remote
-  choice) and blanks an inherited `OUTLINER_CONFIG_PATH`, so Claude's
-  environment never moves a write elsewhere. With `OUTLINER_REMOTE` or
-  `OUTLINER_SOCKET_PATH` in Claude's environment nothing is fed (one toast);
-  use strict mode for that setup.
+  and the outline its `.ep0ch` names: the mod passes that name as `EP0CH_WS`,
+  over an inherited one, so Claude's environment never moves a write elsewhere.
+  With `EP0CH_SOCKET` (a host on another machine) in Claude's environment
+  nothing is fed (one toast); use strict mode for that setup.
 - The folder is found when the session starts (links and tools) and again after
   each answer (mentions), so binding a folder mid-session starts its mentions.
 - Herdr discovers the Outliner (`herdr plugin list --plugin float.pi-outliner`),

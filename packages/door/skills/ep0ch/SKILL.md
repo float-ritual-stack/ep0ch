@@ -1,6 +1,6 @@
 ---
 name: ep0ch
-description: Use when an agent needs to see or act in an ep0ch door (the BBS-style terminal client for a pi-herdr-outliner outline) — reading what the person sees, opening a note in front of them, editing, commenting, moving cards or pointing at a block — or when running a door of its own. Covers the ep0ch command, the control socket, attribution and the rules that keep the person's door, focus and drafts safe. For writing in the outline itself use ep0ch-outline; for changing the door's or outliner's code, ep0ch-core.
+description: Use when an agent needs to see or act in an ep0ch door (the BBS-style terminal client for an outline) — reading what the person sees, opening a note in front of them, editing, commenting, moving cards or pointing at a block — or when running a door of its own. Covers the ep0ch command, the control socket, attribution and the rules that keep the person's door, focus and drafts safe. For writing in the outline itself use ep0ch-outline; for changing the door's or outliner's code, ep0ch-core.
 ---
 
 # ep0ch: working in a door
@@ -15,20 +15,21 @@ pages, publishing, extensions), and `ep0ch-core` for changing this code (includi
 ## Commands
 
     ep0ch help                       everything below
-    ep0ch --ws <name>                open the door on an outline of the outline host (created if none)
-    ep0ch outline list [--json]      the host's outlines: name, open, default, adopted, root
+    ep0ch --ws <name>                open the door on an outline (created if nobody has it yet)
+    ep0ch init [<name>]              name this folder's outline: write .ep0ch (creating the outline if needed)
+    ep0ch outline list [--json]      the host's outlines: name, open, database
     ep0ch outline attach <name> [--json]   open the door on it (--json: only attach, print the answer)
-    ep0ch outline create <name> | adopt <path> <name> [--root <dir>] | stop <name> | delete <name> --yes
-    ep0ch status [--json]            the host: socket, default outline, open outlines
+    ep0ch outline create <name> | import <database.sqlite> <name> | stop <name> | delete <name> --yes
+    ep0ch status [--json]            the host: socket, outlines folder, open outlines
     ep0ch where [--json]             which door, tile and Herdr pane this process runs in, and where the keys are
-    ep0ch clients [--ws <root>]      who is connected to the service (every role)
+    ep0ch clients [--ws <name>]      who is connected to the outline (every role)
     ep0ch peek                       the screen as text plus structured state
     ep0ch actions                    what the current screen can do, with arguments and keys
     ep0ch act <action> [key=value…] [--as <agent-id>]
     ep0ch open <block-id> [from=<tile>] [--as <agent-id>]
                                      put a block in front of the person: the same as act open id=<block-id>
     ep0ch snap [out.png]             exactly what the terminal shows
-    ep0ch try --ws <root> --copy --outliner <checkout>   your own door on a private copy of a workspace
+    ep0ch try --ws <name> --copy     your own door on a private copy of an outline
     ep0ch --skill [<name>]           the stack's skills, or the path of one
     ep0ch doctor [--json]            the whole stack's state (✓ ! ✗) with a fix command for each; read-only
     ep0ch install [--json]           the update plan (a dry run); --apply runs it, --restart-services too
@@ -55,15 +56,15 @@ Claude's settings; it reports them as notes.
 
 ## Which outline a door opens
 
-With an outline host running (one socket per machine, outlines by name, like Herdr sessions):
-`--ws <name>` opens that outline and creates it if there is none; `--ws <folder>` or no `--ws` opens the
-nearest bound folder's outline (`client.json` `outline`), else the one named after the git repository
-root, else after the folder. `$HOME`, `/` and folders directly under `/` name none: the door opens the
-host's default and says so. `EP0CH_SOCKET` or a socket path overrides
-all of this. Opening the door creates an outline; `outline list`, `status` and `clients` never do. The
-status bar and `peek` show `host · outline`. Without a host, `--ws <root>` and discovery work as before.
-Delete moves a created outline to `deleted/` (an adopted one is only unlinked); pass `--yes` only when the
-person asked for it.
+One outline host per machine serves every outline in `~/outlines` (`EP0CH_OUTLINES`) by name:
+`<name>.sqlite`, with its own folder `<name>/` beside it. Which one a door opens, first match wins: `--ws <name>`
+from anywhere, then `EP0CH_WS`, then the nearest `.ep0ch` from the folder up (it holds `ws = "<name>"`). A name
+nobody has yet is created. A folder that names none asks the person: init (its folder's or repository's name
+offered), pick one of the host's, or import an older database; each writes `.ep0ch`. Without a terminal it says
+what to run instead, and an agent never answers that prompt for the person. `EP0CH_SOCKET` or a socket path is
+a host on another machine (an ssh tunnel), asked for the same name. `outline list`, `status` and `clients` never
+create. The status bar and `peek` show `host · outline`. Delete moves an outline to `.deleted/`; pass `--yes`
+only when the person asked for it.
 
 ## Which door you reach
 

@@ -4,6 +4,35 @@ This file records notable user-facing changes. The project remains active dogfoo
 
 ## [Unreleased]
 
+### One repository, outlines by name, one version (PIE-530)
+
+- ep0ch-door and pi-herdr-outliner are one repository, `ep0ch` (bun workspaces):
+  `packages/outline-core` (pure shared code), `packages/outliner` (this package; the
+  Herdr plugin root), `packages/door` and `packages/claude-mod`. Both histories are
+  kept. Install the plugin from `float-ritual-stack/ep0ch/packages/outliner`, or
+  link `packages/outliner`.
+- Outlines live in `~/outlines` (`EP0CH_OUTLINES`) as `<name>.sqlite` with a folder
+  `<name>/` beside it; the host's socket is `~/outlines/.host/host.sock`. Which
+  outline a client opens: `--ws <name>`, then `EP0CH_WS`, then the nearest `.ep0ch`
+  (`ws = "<name>"`). A folder that names none gets init, pick or import (the Choose
+  outline popup, `ep0ch`'s prompt, `outliner init`), never a guess. `EP0CH_SOCKET`
+  is a host on another machine.
+- Removed: per-folder `client.json`, path-hash state folders, `outline.json`
+  descriptors, `by-name/` links, `outline adopt|rename|set-root`, the single-outline
+  service (`server-main.ts`; the plugin's `service` pane now runs the host), and
+  `OUTLINER_STATE_DIR`, `OUTLINER_OUTLINE`, `OUTLINER_REMOTE`, `OUTLINER_SOCKET_PATH`,
+  `OUTLINER_CONFIG_PATH`, `OUTLINER_DEFAULT_OUTLINE` (`EP0CH_DEFAULT_WS` is the
+  host's default for tests and scripts). New: `outlines.import`, `outliner import`,
+  `outliner init`, `outliner --ws`.
+- Protocol 83: client and service must match; one `PROTOCOL` in outline-core
+  replaces the capability lists and minimums, and a mismatch names the side to
+  update. The door imports outline-core instead of keeping vendored copies.
+- Schema version 1 (`PRAGMA user_version`, `src/schema.ts`): a database on any other
+  version is refused at open with the command that upgrades it. The runtime's
+  detect-old-shape migrations, the roadmap migration and the legacy annotation
+  conversion are gone; `scripts/migrations/0001-stamp.ts` stamps an existing database
+  whose shape matches, once, by hand.
+
 ### Forgiving search, and search from a note
 
 - Goto, Inbox history search, `[[` completion and the Backlinks filter share one

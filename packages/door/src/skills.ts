@@ -1,6 +1,6 @@
 // `ep0ch --skill`: the skills this stack ships, and where each one's SKILL.md is. Sources: the door's own
-// `skills/`, and the installed Outliner plugin's `pi-extension/skills/`, found through Herdr (never a guessed
-// checkout). `--all` adds contributor skills (`.agents/skills/` in both).
+// `skills/`, and the outliner's `pi-extension/skills/`: the installed plugin's, found through Herdr, else the
+// outliner package beside the door in this repository. `--all` adds contributor skills (`.agents/skills/` in both).
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { ellipsize } from "./style";
@@ -49,11 +49,11 @@ export function outlinerPlugin(env: Record<string, string | undefined> = process
 }
 
 /**
- * The Outliner's root: the plugin Herdr runs, else this repo's packages/outliner beside the door (one checkout
- * holds both); null when neither is there.
+ * The outliner's root: the installed plugin's, as Herdr reports it, else the outliner package beside the door in
+ * this repository (packages/outliner); null when neither is there.
  */
-export function outlinerRoot(): string | null {
-  const sibling = resolve(import.meta.dir, "../../outliner");
+export function outlinerRoot(doorRoot = resolve(import.meta.dir, "..")): string | null {
+  const sibling = resolve(doorRoot, "../outliner");
   return outlinerPlugin()?.plugin_root ?? (existsSync(join(sibling, "herdr-plugin.toml")) ? sibling : null);
 }
 

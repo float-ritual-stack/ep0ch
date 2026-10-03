@@ -118,7 +118,7 @@ A live figure, as the door and the prototype draw it (ids are the outline's own)
    `outliner create --parent <parent id> --author agent --actor <id> --text "$(cat brief.md)"`.
    Read it back (`outliner read <id> --fields id,title,properties,revision,text`) and check the three
    properties came through as block properties.
-3. Check it in a door of your own (`ep0ch try --ws <root> --copy --outliner <checkout>`, then `T`): every
+3. Check it in a door of your own (`ep0ch try --ws <name> --copy`, then `T`): every
    figure draws (no "needs a ((block-ref))", no "bad YAML"), links resolve, the date and "n of m briefs"
    are right.
 

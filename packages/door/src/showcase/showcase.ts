@@ -291,7 +291,7 @@ export class Showcase implements Screen {
   enter(ctx: Ctx) {
     this.ctx = ctx;
     loadShowcase(ctx.board).then(s => {
-      if (!s) this.problem = "This outline has no showcase: the showcase runs on its own seeded outline. From a shell: ep0ch try --showcase --outliner <pi-herdr-outliner checkout> (add --reset to start it over).";
+      if (!s) this.problem = "This outline has no showcase: the showcase runs on its own seeded outline. From a shell: ep0ch try --showcase (add --reset to start it over).";
       else this.notes = s.notes;
       ctx.redraw();
     }, e => { this.problem = `couldn't read the outline: ${e instanceof Error ? e.message : String(e)}`; ctx.redraw(); });
