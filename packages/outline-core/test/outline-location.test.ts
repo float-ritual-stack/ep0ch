@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   formatDotEp0ch, guessOutline, isMachineName, outlineOfFile, type LocationReader, nearestDotEp0ch, outlineLayout, outlinesFolder, parseDotEp0ch,
-  slugifyOutlineName, whichOutline,
+  mayCreate, missingOutline, slugifyOutlineName, whichOutline,
 } from "../src/outline-location";
 
 /** A disk made of paths: files with their text, and folders that hold a `.git`. */
@@ -97,6 +97,36 @@ describe("which outline (PIE-530)", () => {
     ]);
     expect(layout.remote("box-a")).toEqual({ socket: "/home/sam/outlines/.remote/box-a.sock", control: "/home/sam/outlines/.remote/box-a.ctl" });
     expect(slugifyOutlineName("Évan's Fictional Garden!")).toBe("evan-s-fictional-garden");
+  });
+});
+
+describe("an outline nobody has yet (PIE-545)", () => {
+  test("--here is this machine, over EP0CH_MACHINE and the .ep0ch's machine; with --machine it is refused", () => {
+    const fs = disk({ "/work/fern/.ep0ch": 'ws = "fern"\nmachine = "box-a"\n' });
+    expect(whichOutline({ flag: "fern", folder: "/work/fern", home: HOME, fs })).toMatchObject({ machine: "box-a", machineSource: "file" });
+    expect(whichOutline({ flag: "fern", here: true, machineEnv: "box-b", folder: "/work/fern", home: HOME, fs })).toEqual({ kind: "named", name: "fern", source: "flag", machineSource: "flag" });
+    expect(whichOutline({ here: true, folder: "/work/fern", home: HOME, fs })).not.toHaveProperty("machine");
+    expect(() => whichOutline({ here: true, machineFlag: "box-a", folder: "/work", home: HOME, fs })).toThrow("--here and --machine box-a");
+  });
+
+  test("made by name on this machine; on another only with create; never with noCreate", () => {
+    expect(mayCreate({})).toBe(true);
+    expect(mayCreate({ machine: "box-a" })).toBe(false);
+    expect(mayCreate({ machine: "box-a", create: true })).toBe(true);
+    expect(mayCreate({ noCreate: true })).toBe(false);
+    expect(mayCreate({ noCreate: true, create: true })).toBe(true);
+  });
+
+  test("the refusal says nothing was made, then the commands as the caller runs them", () => {
+    expect(missingOutline({ outline: "fern", machine: "box-a", host: "tin-shed", localHas: true, openHere: "ep0ch --here --ws fern", create: "ep0ch --machine box-a --ws fern --create" })).toBe([
+      "box-a has no outline fern; this machine has one. Nothing was created.",
+      "  open the one on this machine:  ep0ch --here --ws fern",
+      "  create it on box-a:            ep0ch --machine box-a --ws fern --create",
+      "  or open another:               ep0ch outline list --all",
+    ].join("\n"));
+    expect(missingOutline({ outline: "fern", machine: "box-a", host: "tin-shed", localHas: false, openHere: "x", create: "c" })).toStartWith("box-a has no outline fern, and neither has this machine.");
+    expect(missingOutline({ outline: "fern", machine: "box-a", host: "tin-shed", create: "c" })).toStartWith("box-a has no outline fern. Nothing was created.");
+    expect(missingOutline({ outline: "fern", host: "tin-shed", create: "ep0ch --ws fern --create" })).toStartWith("this machine (tin-shed) has no outline fern. Nothing was created.");
   });
 });
 

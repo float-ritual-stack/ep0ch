@@ -404,6 +404,8 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     ["message reader", () => new MessageReader(notes, 0)],
     // The home base, opened by name on a door that is on an outline: it shows, and its choices are refused (no home).
     ["home base", () => openScreen("home", { folder: scratch.root })],
+    // The same, saying a machine lacks the outline asked for (PIE-545): its offers' rows are pressed and clicked too.
+    ["home base, an outline missing", () => openScreen("home", { folder: scratch.root, missing: { outline: "fern", machine: "box-a" } })],
   ];
 
   // ── the board in its other states (the keys and clicks of each area) ──

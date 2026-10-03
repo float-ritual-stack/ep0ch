@@ -375,7 +375,7 @@ export class OutlineHost {
       const lock = ownerLockOf(database);
       let release: () => void;
       try { release = acquireLockFile(lock.path, `Outline "${name}"`); }
-      catch (error) { throw new Error(`${(error as Error).message}; nothing was moved: stop what holds it, then delete it again`, { cause: error }); }
+      catch (error) { throw new Error(`${(error as Error).message}; nothing was moved: stop what holds it (\`fuser -v ${lock.path}\` says which process), then delete it again`, { cause: error }); }
       try {
         const movedTo = join(this.layout.deleted, `${name}-${new Date().toISOString().replace(/[:.]/g, "-")}`);
         mkdirSync(movedTo, { recursive: true });

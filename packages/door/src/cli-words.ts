@@ -17,7 +17,7 @@ const FREE_TEXT = new Set(["find", "show", "open", "act", "export", "snap", "try
  */
 const DOOR_FLAGS: Record<string, "value" | "optional" | "none" | "rest"> = {
   "--ws": "value", "--machine": "value", "--layout": "value", "--board": "optional",
-  "--create": "none", "--no-create": "none", "--desk": "none", "--river": "none", "--brief": "none", "--welcome": "none",
+  "--create": "none", "--no-create": "none", "--here": "none", "--desk": "none", "--river": "none", "--brief": "none", "--welcome": "none",
   "--showcase": "none", "--reset": "none", "--no-daemon": "none", "--daemon": "none",
   "--remote": "rest", "--skill": "rest",
 };
@@ -68,7 +68,7 @@ export function checkWords(argsIn: readonly string[]): { help: string } | { erro
   }
   if (args.some(a => HELP.has(a))) return { help: "" };
   for (let i = 0; i < args.length; i++) {
-    const a = args[i]!, kind = DOOR_FLAGS[a];
+    const a = args[i]!, kind = DOOR_FLAGS[a.startsWith("--no-create=") ? "--no-create" : a];
     if (kind === "rest") return null;
     if (kind === "none") continue;
     if (kind === "value") {

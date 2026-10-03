@@ -410,4 +410,18 @@ test("a title that begins with -- is the title, from the CLI and from the work_c
   const spaced = await h.run(["work", "create", "--title", title, "--project", "demo", "--arc", "workflow", "--track", "workflow", "--priority", "low"]);
   expect(spaced.exitCode).toBe(1);
   expect(spaced.error).toContain("--title=");
+  // The other tools' operands go after `--`, the caller's flags (who, which session) before it, as the mod adds them.
+  const { withOptions } = await import("../../claude-mod/hooks/work-tools");
+  const run = async (name: string, input: Record<string, unknown>) => {
+    const c = WORK_TOOLS.find(t => t.name === name)!.command(input);
+    if (typeof c === "string") throw new Error(c);
+    const r = await h.run(withOptions(c.args, ["--author", "agent", "--actor", "test-agent"]), c.stdin);
+    expect(r.error).toBe("");
+    return r.json;
+  };
+  const id = created.json.workId as string;
+  expect(await run("work_stage", { item: id, stage: "doing", expectedRevision: 1 })).toMatchObject({ workStage: "doing" });
+  expect(await run("work_set", { item: id, key: "arc", value: "--arc-of-dashes" })).toMatchObject({ value: "--arc-of-dashes" });
+  await run("work_body", { item: id, body: "## --flags heading\n\nFirst." });
+  expect(await run("note_section", { block: id, heading: "## --flags heading", body: "Second." })).toMatchObject({ previous: expect.stringContaining("First.") });
 });

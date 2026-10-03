@@ -159,9 +159,11 @@ export async function homeBase(args: HomeArgs): Promise<HomeChoice | null> {
     door = await openDoor({
       term, mirror: m, info: () => term.info, board, args: [],
       start: async app => {
-        // The door ends just after the action that ended it has answered (an agent's `act` hears what it did).
-        const leave = () => void setTimeout(() => app.quit(), 50);
-        app.home = { choose(c) { choice = c; leave(); }, cancel() { choice = null; leave(); } };
+        // The door ends just after the action that ended it has answered (an agent's `act` hears what it did); the first
+        // choice wins, and a quit in the meantime ends it once.
+        let leaving: ReturnType<typeof setTimeout> | null = null;
+        const leave = (c: HomeChoice | null) => { if (leaving || over) return; choice = c; leaving = setTimeout(() => { if (!over) app.quit(); }, 50); };
+        app.home = { choose(c) { leave(c); }, cancel() { leave(null); } };
         app.push(openScreen("home", { folder: args.folder, ...(args.guess ? { guess: args.guess } : {}), ...(args.machine ? { machine: args.machine } : {}), ...(args.missing ? { missing: args.missing } : {}) }));
       },
       done: () => end(),

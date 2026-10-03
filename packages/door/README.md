@@ -134,7 +134,10 @@ Bare `ep0ch` where nothing names an outline opens the home base: a screen like a
   `.ep0ch` naming box-a) where box-a has no fern makes nothing there. The home base opens saying so ("box-a has no
   outline fern · nothing was created there"), with the ways on first: open the one on this machine (when it has one;
   the cursor starts there, else on cancel), create it on box-a, or cancel. Without a terminal it is an error with
-  the same choices as commands (`ep0ch --ws fern`, `ep0ch --machine box-a --ws fern --create`). On this machine a
+  the same choices as commands (`ep0ch --here --ws fern`, `ep0ch --machine box-a --ws fern --create`). `--here`
+  says this machine outright, over `EP0CH_MACHINE` and a `.ep0ch` that puts fern on box-a; it is how the home
+  base's "open the one on this machine" opens it. The rule and the refusal are outline-core's (`mayCreate`,
+  `missingOutline` in `outline-location.ts`), the same for Tree and Detail and the outliner's `init`. On this machine a
   name nobody has yet is still created, as `herdr --session` does.
 
 | Key | Mouse | `act` |

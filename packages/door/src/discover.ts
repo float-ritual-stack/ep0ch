@@ -87,7 +87,7 @@ export function resolveTarget(args: readonly string[], env: Env = process.env, c
   const explicit = env.EP0CH_SOCKET?.trim();
   if (explicit && machineFlag) return { error: `--machine ${machineFlag} and EP0CH_SOCKET both name a host; leave one out` };
   let which;
-  try { which = whichOutline({ flag: ws, env: env.EP0CH_WS, machineFlag, machineEnv: env.EP0CH_MACHINE, folder: resolve(cwd), home: homeOf(env), fs: disk }); }
+  try { which = whichOutline({ flag: ws, env: env.EP0CH_WS, machineFlag, machineEnv: env.EP0CH_MACHINE, here: args.includes("--here"), folder: resolve(cwd), home: homeOf(env), fs: disk }); }
   catch (e) { return { error: (e as Error).message }; }
   // A socket named outright is the host, whatever machine a file or EP0CH_MACHINE names.
   const machine = explicit ? undefined : which.machine;

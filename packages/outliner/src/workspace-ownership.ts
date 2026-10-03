@@ -5,8 +5,9 @@ import { basename, dirname, join } from "node:path";
 /**
  * Holds `lockPath` (a SQLite writer reservation) until the returned release is
  * called; throws `SQLITE_BUSY` wrapped as "already owned" while another holder
- * has it. The file stores no data. Never unlink it: contenders would then lock
- * different files.
+ * has it. The file stores no data. Never unlink it while the database is in
+ * use: contenders would then lock different files. Only an outline's delete
+ * removes it, holding it, once the database has moved away (outline-host.ts).
  */
 export function acquireLockFile(lockPath: string, what = "Outliner workspace"): () => void {
   const ownership = new Database(lockPath, { create: true });

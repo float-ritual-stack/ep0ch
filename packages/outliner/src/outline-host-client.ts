@@ -6,6 +6,7 @@ import { forwardFor } from "./machine-forward";
 import { socketAbsent } from "./socket-probe";
 import type { ImportReport } from "./outline-import";
 import type { HostedOutlineAttachment, HostedOutlineList, HostedOutlineSummary, HostedPaneOutline } from "./types";
+import { mayCreate, missingOutline } from "@ep0ch/outline-core/outline-location";
 
 /**
  * A client for the outline host's own requests (`outlines.*`): this machine's host, the named machine's through its
@@ -40,6 +41,19 @@ export function listHostedOutlines(host: OutlinerClient): Promise<HostedOutlineL
 /** Opens a session's outline on the host; `create` makes it first when missing (session openers only). */
 export function attachHostedOutline(host: OutlinerClient, name: string, create: boolean): Promise<HostedOutlineAttachment> {
   return host.request<HostedOutlineAttachment>({ action: "outlines.attach", name, create });
+}
+
+/**
+ * Attach to `name` as a client opening it by name does: made when nobody has it only by outline-core's `mayCreate`
+ * (this machine's host; another `machine`'s only with `create`), else refused with outline-core's `missingOutline`,
+ * whose `createCommand` is what makes it there on purpose (PIE-545). Nothing is made by the refusal.
+ */
+export async function attachNamedOutline(host: OutlinerClient, name: string, o: { machine?: string; create?: boolean; createCommand: string }): Promise<HostedOutlineAttachment> {
+  const create = mayCreate(o);
+  if (!create && !(await listHostedOutlines(host)).outlines.some(outline => outline.name === name)) {
+    throw new Error(missingOutline({ outline: name, ...(o.machine ? { machine: o.machine } : {}), host: hostname(), create: o.createCommand }));
+  }
+  return attachHostedOutline(host, name, create);
 }
 
 /** A new outline named `name`; refused when the name is taken. */

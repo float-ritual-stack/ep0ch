@@ -20,7 +20,7 @@ import { checkWords, usageFor } from "./cli-words";
 let args = process.argv.slice(2);
 const USAGE = `ep0ch: a BBS door into an outline
 
-  ep0ch [--ws <name>] [--machine <ssh-name> [--create]] [--board [<hub-id>] | --desk | --layout <name> | --river | --brief | --welcome]
+  ep0ch [--ws <name>] [--machine <ssh-name> [--create] | --here] [--board [<hub-id>] | --desk | --layout <name> | --river | --brief | --welcome]
                                    open the door (the logon, then the main menu, by default);
                                    --layout daily opens the desk laid out as a named layout (daily,
                                    river, board, desk, or one saved with ^W w);
@@ -40,7 +40,8 @@ const USAGE = `ep0ch: a BBS door into an outline
                                    Outlines are <name>.sqlite in EP0CH_OUTLINES (~/outlines).
                                    Which machine: --machine <ssh-name> (a Host in ~/.ssh/config), else
                                    EP0CH_MACHINE, else the machine = "<ssh-name>" of the .ep0ch that named
-                                   the outline; none is this machine. The door keeps an ssh forward to that
+                                   the outline; none is this machine (--here says so outright, over
+                                   EP0CH_MACHINE and the .ep0ch's machine). The door keeps an ssh forward to that
                                    machine's outline host (~/outlines/.remote/<ssh-name>.sock), shared by
                                    every client here and started again when it drops. EP0CH_SOCKET names
                                    a host's socket outright

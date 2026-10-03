@@ -483,7 +483,7 @@ export const HOME_ACTIONS = actionSet<KindHost>()("home", {
     },
   }),
   "home.cancel": def({
-    summary: "leave the home base, opening nothing (as q does): what the missing outline's cancel runs", keys: "click",
+    summary: "leave the home base, opening nothing (as q does): what the missing outline's cancel runs", keys: "⏎ click",
     touches: "screen", replay: "ask",
     args: {},
     run(_, { desk }) {
