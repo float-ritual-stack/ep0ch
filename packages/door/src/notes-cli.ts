@@ -341,6 +341,8 @@ export async function drawNote(board: SocketBoard, id: string, width: number, se
   const surface = new NoteSurface(), tall = 100_000, end = Date.now() + settle.max;
   // Nobody presses a key in what show prints: folded callouts come unfolded, with no "z unfolds".
   surface.unfold = true;
+  // …and a tabs figure prints every group in turn under a heading, with no tab or density control.
+  surface.printed = true;
   surface.show(m, host);
   surface.render(width, tall, host);
   while (Date.now() < end) {

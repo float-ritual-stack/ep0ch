@@ -26,6 +26,7 @@ export const SEED = {
   whiteboard: "Kitchen whiteboard",
   shed: "Bike shed",
   figures: "Allotment figures",
+  plotJobs: "Plot jobs by stage",
   recipe: "Lentil soup",
   finding: "Finding things in the house notes",
   errand: "Seed order for the plot",
@@ -61,8 +62,24 @@ export const CHORES: { title: string; area: string; stage: "todo" | "done"; due:
   { title: "Empty the food caddy", area: "kitchen", stage: "todo", due: "Fri" },
 ];
 
+/**
+ * The plot's jobs, plain blocks under the tabs note, grouped by stage in its `::graph-tabs` figure: two titles long
+ * enough to wrap (a work id, then words), so cozy and comfortable show a hanging indent. No job is in `validate`:
+ * the figure lists it in `order:`, so its tab shows, empty.
+ */
+export const PLOT_JOBS: { title: string; stage: string; priority: string }[] = [
+  { title: "PLOT-1 — Rebuild the leaning raised bed by the water butt before the first frost comes in", stage: "doing", priority: "high" },
+  { title: "PLOT-2 — Sow the broad beans", stage: "doing", priority: "low" },
+  { title: "PLOT-3 — Mend the netting over the brassica cage where the pigeons got in last week and tore a corner loose from the frame", stage: "review", priority: "medium" },
+  { title: "PLOT-4 — Order the seed potatoes", stage: "queued", priority: "medium" },
+  { title: "PLOT-5 — Clear the bindweed from the path", stage: "queued", priority: "low" },
+  { title: "PLOT-6 — Lift and dry the onions", stage: "done", priority: "high" },
+];
+/** The tabs note's figure, as its YAML says it: the order puts validate before the stages it doesn't name. */
+export const PLOT_TABS = ["doing 2", "review 1", "validate 0", "done 1", "queued 2"] as const;
+
 /** Every `::graph-*` kind the door draws (src/graphs.ts); the figures note has one of each. */
-export const FIGURE_KINDS = ["check", "stat", "kpi", "rank", "table", "timeline", "meter", "funnel", "waterfall", "spark", "plot", "gantt", "tree"] as const;
+export const FIGURE_KINDS = ["check", "stat", "kpi", "rank", "table", "tabs", "timeline", "meter", "funnel", "waterfall", "spark", "plot", "gantt", "tree"] as const;
 
 const fig = (kind: string, yaml: string[]) => [`::graph-${kind}`, "---", ...yaml, "---", "::", ""];
 
@@ -230,6 +247,15 @@ const RECIPE = [
   "Drag across these lines, or press v and move, to select; y copies.",
 ].join("\n");
 
+/** A tabs figure over the plot's jobs (PLOT_JOBS, its children): a tab per stage, `=` or its ≡ control for density. */
+const PLOT_JOBS_NOTE = [
+  `${SEED.plotJobs} [page::${SEED.plotJobs}]`,
+  "",
+  "One live figure, a tab per stage. [ ] to a tab, then ← → or tab and shift+tab switch; = changes the density.",
+  "",
+  ...fig("tabs", ["title: Plot jobs", 'query: "type=plot-job"', "group: stage", "order: [doing, review, validate]", "columns: [title, priority]", "sort: created", "direction: asc"]),
+].join("\n").trimEnd();
+
 function figuresText(gardenViewId: string): string {
   return [
     `${SEED.figures} [page::${SEED.figures}]`,
@@ -241,6 +267,7 @@ function figuresText(gardenViewId: string): string {
     ...fig("kpi", ["title: Plot 14b", "items:", "  - { label: beds, value: 3 }", "  - { label: courgettes, value: 11 }", "  - { label: kg of onions, value: 4 }"]),
     ...fig("rank", ["title: House jobs by arc (live)", 'query: "type=roadmap-item project=house"', "group: arc"]),
     ...fig("table", ["title: House jobs (live)", 'query: "type=roadmap-item project=house"', "columns: [title, work-stage, priority]", "headers: [Job, Stage, Priority]"]),
+    ...fig("tabs", ["title: House jobs by stage (live)", 'query: "type=roadmap-item project=house"', "group: work-stage", "order: [doing, review, queued, done]", "columns: [title, priority]"]),
     ...fig("timeline", ["title: Chores (live)", 'query: "type=chore"', "date: due", 'now: "stage=todo"']),
     ...fig("meter", ["title: Chores done (live)", 'query: "type=chore"', 'done: "stage=done"']),
     ...fig("check", ["title: Garden chores (saved view)", `view: ((${gardenViewId}))`, 'done: "stage=done"']),
@@ -435,6 +462,8 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
   const tap = await make(notes.whiteboard.id, "Kitchen tap\n- [~] fix the dripping tap ^t-7a9c11\n  - [ ] buy a washer\n- [ ] tighten the hinge");
   notes.notebook = await make(notes.root.id, notebookText(notes.whiteboard.id, cards[3]!.id, tap.id));
   notes.figures = await make(notes.root.id, figuresText(notes.gardenView.id));
+  notes.plotJobs = await make(notes.root.id, PLOT_JOBS_NOTE);
+  for (const j of PLOT_JOBS) await make(notes.plotJobs.id, `${j.title} [type::plot-job] [stage::${j.stage}] [priority::${j.priority}]`);
   notes.recipe = await make(notes.root.id, RECIPE);
   notes.finding = await make(notes.root.id, FINDING);
   notes.errand = await make(notes.root.id, ERRAND);

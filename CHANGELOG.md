@@ -41,6 +41,21 @@ move into one repository (PIE-530).
 - **Television (optional).** With `tv` on your PATH, `ep0ch install --apply` links the outline's channels into
   television's cable folder.
 
+### Tabs in a live figure, and titles that wrap
+
+- **`::graph-tabs`** groups a query's (or a view's) results by a property, a tab per value, each labelled with its
+  count (`doing 3 · review 4 · validate 1`). The chosen tab's rows are a live table; a row opens its note.
+  `order: [doing, review, validate]` puts those tabs first, shown even when empty; the rest follow alphabetically, so
+  a count changing never moves a tab. `limit:` is rows per tab.
+- **Switch tabs** with `←` `→` or `Tab` `Shift+Tab` while one of its tabs or rows is the `[ ]` position, `⏎` on a
+  tab, a click on one, or `act figure.tab n=<number or value>` (an agent: in a reader you aren't typing in). The
+  tab is the reader's, like a fold: kept across repaints and live answers, never written into the note.
+- **`density: compact | cozy | comfortable`** on a table or tabs figure: a title takes one line (cut with `…`, as
+  before), up to two, or up to three with a blank line between rows. A wrapped title hangs under its own text, past
+  a work id (`PIE-541 — `). `=` or a click on the `≡ compact` footer steps through them (`figure.density`); the YAML
+  is only where it starts. `act figures` lists a reader's figures, tabs and counts.
+- **`ep0ch show`** (and `--cells`) prints every tab in turn under a heading. The showcase has a `tabs` section.
+
 ### Copy from a program in a terminal tile (PIE-537)
 
 - **A program's copy reaches your clipboard.** Its OSC 52 (Claude Code's "sent N chars via OSC 52") goes on to your

@@ -20,8 +20,11 @@ export function connectFigures(board: SocketBoard, redraw: () => void): void {
 
 const ACCENT = C.lcyan, DIM = C.dark, INK = C.grey, HI = C.white;
 
-/** `+ ····· [ TITLE ] ····· +` around body lines, fitted to width. */
-export function frame(title: string, body: string[], W: number, footer = ""): string[] {
+/**
+ * `+ ····· [ TITLE ] ····· +` around body lines, fitted to width. `control`: drawn after the footer when it fits (a
+ * live figure's density, tagged so a click changes it), measured by what it draws.
+ */
+export function frame(title: string, body: string[], W: number, footer = "", control = ""): string[] {
   const w = Math.max(16, W);
   const inner = w - 4;
   // The title shrinks before the frame does: keep at least one dot each side.
@@ -31,10 +34,13 @@ export function frame(title: string, body: string[], W: number, footer = ""): st
   const left = Math.max(1, Math.floor((w - 2 - lw) / 2)), right = Math.max(1, w - 2 - lw - left);
   const top = fg(DIM) + "+" + "·".repeat(left) + fg(ACCENT) + label + fg(DIM) + "·".repeat(right) + "+" + RESET;
   const side = (s: string) => fg(DIM) + "┊ " + RESET + pad(s, inner) + fg(DIM) + " ┊" + RESET;
-  const foot = footer ? ` ${headOf(footer, Math.max(0, w - 8))} ` : "";
+  const shown = footer ? headOf(footer, Math.max(0, w - 8)) : "";
+  const fits = !!control && vwidth(shown) + vwidth(control) + (shown ? 3 : 0) + 8 <= w;
+  const tail = fits ? (shown ? fg(DIM) + " · " : "") + fg(ACCENT) + control : "";
+  const foot = shown || tail ? ` ${shown}${tail} ` : "";
   const fl = vwidth(foot);
   const bottom = fg(DIM) + "+" + "·".repeat(Math.max(0, w - 4 - fl)) + fg(ACCENT) + foot + fg(DIM) + "··+" + RESET;
-  return [top, side(""), ...body.map(side), side(""), footer ? bottom : fg(DIM) + "+" + "·".repeat(w - 2) + "+" + RESET];
+  return [top, side(""), ...body.map(side), side(""), foot ? bottom : fg(DIM) + "+" + "·".repeat(w - 2) + "+" + RESET];
 }
 
 type Props = Record<string, any>;
@@ -46,11 +52,78 @@ function bar(frac: number, n: number, on = ACCENT): string {
   return fg(on) + "█".repeat(k) + fg(DIM) + "-".repeat(n - k) + RESET;
 }
 
-/** Tags a row as a link to its note (PIE-441): the reader's `DocEnv.link`, or nothing (text stays text). */
-type RowLink = (block: string, text: string) => string;
-const rowLink = (link: RowLink | undefined, block: unknown, text: string) => (link && typeof block === "string" ? link(block, text) : text);
+/**
+ * Tags a row as a link to its note (PIE-441): the reader's `DocEnv.link`, or nothing (text stays text). `figure`: the
+ * key of the figure the row is in, so the figure's keys (tabs, density) work while the row is the current element.
+ */
+export type RowLink = (block: string, text: string, figure?: string) => string;
+const rowLink = (link: RowLink | undefined, block: unknown, text: string, figure?: string) => (link && typeof block === "string" ? link(block, text, figure) : text);
+/**
+ * Every line of a row that stands for one note, tagged as that one link: a row a density wraps over two or three
+ * lines is one element, opened from any of them.
+ */
+function rowLinks(link: RowLink | undefined, block: unknown, lines: string[], figure?: string): string[] {
+  if (!link || typeof block !== "string") return lines;
+  const [open, close] = link(block, "\u0000", figure).split("\u0000");
+  return lines.map(l => open + l + close);
+}
 
-const KINDS: Record<string, (p: Props, w: number, link?: RowLink) => string[]> = {
+// ── a figure's reading state (the reader's, never the note's) ─────────────────────────────────────────────
+
+/**
+ * How many lines a table row's title may take: compact one (cut with …, the default, as figures always drew), cozy
+ * two, comfortable three with a blank line between rows. Named for how much room each gives, as mail and list
+ * views name theirs.
+ */
+export const DENSITIES = ["compact", "cozy", "comfortable"] as const;
+export type Density = (typeof DENSITIES)[number];
+export const isDensity = (s: unknown): s is Density => DENSITIES.includes(s as Density);
+const TITLE_LINES: Record<Density, number> = { compact: 1, cozy: 2, comfortable: 3 };
+
+/** A figure's control a reader draws: one of a tabs figure's tabs, or its density (a table's too). */
+export interface FigureControl { figure: string; tab?: string; density?: true }
+/** What a reader learns of each figure it drew: which it is, its tabs and their counts, and what's chosen now. */
+export interface FigureInfo { key: string; n: number; kind: string; title: string; density: Density; tabs?: { value: string; count: number }[]; tab?: string }
+
+/**
+ * A reader's hold on its figures (src/surface/note.ts): what the person (or an agent) chose for each, by the figure's
+ * key; `tag` makes a tab or the density a control; `seen` is told each figure drawn. `all`: nobody can switch here
+ * (`ep0ch show`, `--cells`): a tabs figure draws every group in turn. Without it (an embed, a draft's preview) a
+ * figure draws its first tab at the density its YAML says, as text.
+ */
+export interface FiguresEnv {
+  ui?(key: string): { tab?: string; density?: Density } | undefined;
+  tag?(c: FigureControl, text: string): string;
+  seen?(info: FigureInfo): void;
+  all?: boolean;
+}
+/** One figure's share of that, as the drawing code gets it. */
+interface FigureUI { key: string; density: Density; tab?: string; tag?: (c: FigureControl, text: string) => string; all?: boolean }
+
+const HANG = /^[A-Z][A-Z0-9]*-\d+\s*(?:[—–·:|-]\s*)?/;
+
+/**
+ * A title in at most `lines` lines of `w` cells: wrapped by cells (a wide glyph is two), only the last line cut with
+ * …, and each line after the first indented past a work id or key prefix (`PIE-541 — `) so the text hangs under
+ * itself, not under the id.
+ */
+export function titleLines(text: string, w: number, lines: number): string[] {
+  if (lines <= 1 || vwidth(text) <= w) return [ellipsize(text, w)];
+  const pre = text.match(HANG)?.[0] ?? "";
+  const indent = vwidth(pre) <= w / 2 ? vwidth(pre) : 0;
+  const out: string[] = [];
+  let rest = text;
+  for (let i = 0; i < lines && rest; i++) {
+    const room = i ? Math.max(1, w - indent) : w, lead = i ? " ".repeat(indent) : "";
+    if (i === lines - 1 || vwidth(rest) <= room) { out.push(lead + ellipsize(rest, room)); break; }
+    const row = wrap(rest, room)[0] ?? "";
+    out.push(lead + row);
+    rest = rest.slice(row.length).trimStart();
+  }
+  return out;
+}
+
+const KINDS: Record<string, (p: Props, w: number, link?: RowLink, ui?: FigureUI) => string[]> = {
   check: (p, w, link) => (p.items ?? []).flatMap((it: Props) => {
     const box = it.done ? fg(ACCENT) + "[x]" : fg(DIM) + "[ ]";
     const lines = wrap(String(it.label ?? ""), w - 6);
@@ -144,7 +217,7 @@ const KINDS: Record<string, (p: Props, w: number, link?: RowLink) => string[]> =
     return out;
   },
 
-  table: (p, w, link) => {
+  table: (p, w, link, ui) => {
     const head: string[] = (p.headers ?? []).map(String), rows: string[][] = (p.rows ?? []).map((r: unknown[]) => r.map(String));
     const foot: string[] | undefined = p.footer?.map(String);
     const align: string[] = p.align ?? [];
@@ -156,9 +229,48 @@ const KINDS: Record<string, (p: Props, w: number, link?: RowLink) => string[]> =
     const cell = (s: string, k: number) => { const t = ellipsize(s, cw[k]!), gap = " ".repeat(Math.max(0, cw[k]! - vwidth(t))); return align[k] === "right" ? gap + t : t + gap; };
     const line = (r: string[], style: string) => r.map((c, k) => style + cell(c, k)).join(fg(DIM) + " ┊ ") + RESET;
     const rule = fg(DIM) + "·".repeat(Math.min(w, cw.reduce((a, b) => a + b, 0) + (n - 1) * 3)) + RESET;
-    // A live table's row stands for its note: the whole row is the link (cells are cut by length first).
+    // The density (the reader's choice, else the YAML's): the title column wraps over that many lines, hanging past
+    // a work id; the other columns stay on the row's first line. A row's lines are one link, to its note.
+    const density = ui?.density ?? (isDensity(p.density) ? p.density : "compact"), most = TITLE_LINES[density];
+    const tc = Math.min(n - 1, Math.max(0, Number(p.titleColumn) || 0));
+    const drawRow = (r: string[]) => {
+      const t = titleLines(r[tc] ?? "", cw[tc]!, most);
+      return t.map((tl, i) => line(i ? r.map((_, k) => (k === tc ? tl : "")) : r.map((c, k) => (k === tc ? tl : c)), fg(INK)));
+    };
     const blocks: unknown[] = p.blocks ?? [];
-    return [line(head, fg(HI)), rule, ...rows.map((r, i) => rowLink(link, blocks[i], line(r, fg(INK)))), ...(foot ? [rule, line(foot, fg(HI))] : [])];
+    const body = rows.flatMap((r, i) => [...(density === "comfortable" && i ? [""] : []), ...rowLinks(link, blocks[i], drawRow(r), ui?.key)]);
+    return [line(head, fg(HI)), rule, ...body, ...(foot ? [rule, line(foot, fg(HI))] : [])];
+  },
+
+  // A query's results grouped by a property, one tab per value (src/live.ts), the chosen tab's rows drawn as a table.
+  // Where nobody can switch (`ep0ch show`), every tab's rows in turn under a heading of their own.
+  // PIE-533: hand-authored tabs (`:::tab{label="…"}` slots inside `::graph-tabs`, each a body of its own) would be
+  // parsed beside `tabs:` here and drawn by this same bar; not built yet.
+  tabs: (p, w, link, ui) => {
+    const tabs: { value: string; count: number; more: number }[] = p.tabs ?? [];
+    if (!tabs.length) return [];
+    const sel = tabs.find(t => t.value === ui?.tab) ?? tabs[0]!;
+    const plus = p.truncated ? "+" : "";
+    const table = (t: Props) => (t.rows?.length ? KINDS.table!(t, w, link, ui) : [fg(DIM) + `nothing in ${t.value}` + RESET])
+      .concat(t.more ? [fg(DIM) + `${t.more} more · limit: ${p.limit ?? 50} a tab` + RESET] : []);
+    if (ui?.all) {
+      const bar = tabs.map(t => `${t.value} ${t.count}${plus}`).join(" · ");
+      return [...wrap(bar, w).map(l => fg(INK) + l + RESET), ...tabs.flatMap(t => ["", fg(ACCENT) + BOLD + `▸ ${t.value.toUpperCase()} · ${t.count}${plus}` + UNBOLD + RESET, ...table(t)])];
+    }
+    // The bar: each label its value and count, the chosen one lit and underlined; a bar wider than the figure wraps.
+    const bars: { text: string; under: string }[] = [];
+    let text = "", under = "", at = 0;
+    for (const t of tabs) {
+      const label = `${t.value} ${t.count}${plus}`, lw = vwidth(label), on = t === sel;
+      if (at && at + 3 + lw > w) { bars.push({ text, under }); text = ""; under = ""; at = 0; }
+      if (at) { text += fg(DIM) + " · "; under += "   "; at += 3; }
+      const drawn = (on ? fg(ACCENT) + BOLD : fg(INK)) + label + (on ? UNBOLD : "") + RESET;
+      text += ui?.tag ? ui.tag({ figure: ui.key, tab: t.value }, drawn) : drawn;
+      under += on ? fg(ACCENT) + "▀".repeat(lw) + RESET : " ".repeat(lw);
+      at += lw;
+    }
+    bars.push({ text, under });
+    return [...bars.flatMap(b => [b.text + RESET, b.under]), ...table({ ...sel, limit: p.limit, titleColumn: (sel as Props).titleColumn, density: p.density })];
   },
 };
 
@@ -172,28 +284,43 @@ export function isGraphStart(line: string): string | null {
 
 /**
  * Render a `::graph-kind` block whose YAML (between --- lines) is in `yaml`. `link`: a live figure's rows
- * that stand for a note are tagged with it, so the reader steps to them and opens them (PIE-441).
+ * that stand for a note are tagged with it, so the reader steps to them and opens them (PIE-441). `figures`: the
+ * reader's hold on its figures (its chosen tab and density for this one, `n`th in the note), see FiguresEnv.
  */
-export function renderGraph(kind: string, yaml: string, W: number, link?: RowLink): string[] {
+export function renderGraph(kind: string, yaml: string, W: number, link?: RowLink, figures?: FiguresEnv, n = 1): string[] {
   let props: Props = {};
   try { props = (Bun.YAML.parse(yaml) as Props) ?? {}; }
   catch (e) { return frame(kind, [fg(C.lred) + `bad YAML: ${(e as Error).message}` + RESET], W); }
+  // The figure's name in its reader: where it is in the note, and its title.
+  const title = String(props.title ?? kind), key = `${n}:${title}`;
+  const chosen = figures?.ui?.(key);
+  const ui: FigureUI = { key, density: chosen?.density ?? (isDensity(props.density) ? props.density : "compact"), ...(chosen?.tab !== undefined ? { tab: chosen.tab } : {}), ...(figures?.tag ? { tag: figures.tag } : {}), ...(figures?.all ? { all: true } : {}) };
   // A block with query:/view: is answered from the outline now, not from copied values.
   const live = resolveLive(kind, props);
   if (live) {
-    if (live.error && !live.status) return frame(String(props.title ?? kind), [fg(C.lred) + live.error + RESET], W, "live");
-    if (live.waiting) return frame(String(props.title ?? kind), [fg(DIM) + "asking the outline…" + RESET], W, "live");
+    if (live.error && !live.status) return frame(title, [fg(C.lred) + live.error + RESET], W, "live");
+    if (live.waiting) return frame(title, [fg(DIM) + "asking the outline…" + RESET], W, "live");
     props = live.props;
     const draw = KINDS[kind];
-    const body = draw ? draw(props, Math.max(10, W - 4), link) : [];
+    const tabs: { value: string; count: number }[] | undefined = kind === "tabs" ? (props.tabs ?? []).map((t: Props) => ({ value: t.value, count: t.count })) : undefined;
+    const tab = tabs ? (tabs.find(t => t.value === ui.tab) ?? tabs[0])?.value : undefined;
+    figures?.seen?.({ key, n, kind, title, density: ui.density, ...(tabs ? { tabs } : {}), ...(tab !== undefined ? { tab } : {}) });
+    const body = draw ? draw(props, Math.max(10, W - 4), link, { ...ui, ...(tab !== undefined ? { tab } : {}) }) : [];
     if (live.error) body.push(fg(C.lred) + live.error + RESET);
     if (!body.length) body.push(fg(DIM) + "no results" + RESET);
-    return frame(String(props.title ?? ""), body, W, live.status ?? "live");
+    return frame(String(props.title ?? ""), body, W, live.status ?? "live", densityControl(kind, ui));
   }
   const draw = KINDS[kind];
   if (!draw) return frame(props.title ?? kind, [fg(DIM) + `graph-${kind} isn't drawn in the terminal yet` + RESET], W);
-  try { return frame(String(props.title ?? ""), draw(props, Math.max(10, W - 4)), W); }
+  if (kind === "table") figures?.seen?.({ key, n, kind, title, density: ui.density });
+  try { return frame(String(props.title ?? ""), draw(props, Math.max(10, W - 4), undefined, ui), W, "", kind === "table" ? densityControl(kind, ui) : ""); }
   catch (e) { return frame(kind, [fg(C.lred) + `couldn't draw: ${(e as Error).message}` + RESET], W); }
+}
+
+/** A table's or tabs figure's density as a control on its footer, where a reader can change it (a click, ⏎ on it, =). */
+function densityControl(kind: string, ui: FigureUI): string {
+  if ((kind !== "table" && kind !== "tabs") || !ui.tag || ui.all) return "";
+  return ui.tag({ figure: ui.key, density: true }, `≡ ${ui.density}`);
 }
 
 /** mdxcn's fenced ASCII: `+--- [ TITLE ] ---+`, `| … |` rows, `+----+`. Returns null when it isn't one. */

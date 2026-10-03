@@ -210,7 +210,7 @@ A journey to try, whichever service it is:
     ep0ch --showcase
     ep0ch --showcase --reset
 
-opens the showcase (PIE-439): the shared door parts, live, in twenty-one sections, one per row of the reuse map
+opens the showcase (PIE-439): the shared door parts, live, in twenty-two sections, one per row of the reuse map
 ([Before adding a feature](docs/UI-GRAMMAR.md#before-adding-a-feature)) in the map's order. The map's
 scrolling row, its key-names row, its list-picker and line-input rows (in the panes section's ^W P and ^W r,
 the board's g m s), its elements and reading-ruler row (PIE-441) and its terminal-output row (PIE-510: cells, escapes,
@@ -245,7 +245,7 @@ door's own `EP0CH_STATE` and `EP0CH_CONTROL` there too, so nothing reaches a rea
 - **Reaching it:** `ep0ch --showcase` (or `ep0ch try --showcase`, `scripts/try-it.sh --showcase`) opens it on its
   own seeded outline, whatever this folder names. `X` on the main menu (its key line; the menu art has twelve
   slots) opens the screen on the outline you're on: on one without the seed it says so and writes nothing.
-- **Agents:** `ep0ch act section name=<1-21|key>` shows a section (your keys go back to the list);
+- **Agents:** `ep0ch act section name=<1-22|key>` shows a section (your keys go back to the list);
   every other action is the section's own (a reader's note actions, the desk's, the board's).
   `EP0CH_CONTROL=<showcase>/door/door.sock` reaches this door, and only it.
 
@@ -1212,6 +1212,8 @@ unfolded.
 | `f`, `⏎` | fold or unfold the selected one; `f` with none selected folds the section at the top of the view. `⏎` folds only while a selected one is in view |
 | `esc`, scrolling, `u` | let go of the selected one, so `⏎` means what it did before (the preview opens a detail); `[ ]` steps on to the next element |
 | `F` | fold every outermost section and list item; with anything folded, unfold everything |
+| `←` `→`, `Tab` `Shift+Tab` | while a live tabs figure's tab or row is the `[ ]` position: its previous / next tab (`figure.tab`); otherwise they do what they did (`Tab` focuses the next tile, `←` `→` step a river's columns or a message reader's messages) |
+| `=` | while a live table's or tabs figure's tab or row is the `[ ]` position: its next density, compact → cozy → comfortable (`figure.density`) |
 | click | a heading (anywhere on its line but a link, which opens), a list item's `▾`/`▸`, or a callout's title, folds or unfolds it; the frame and its scroll thumb don't |
 | `z` | open every callout; again, put them back as written (`[!x]-` folded, the rest open). The text is unchanged |
 
@@ -1416,7 +1418,7 @@ Bodies render with `src/doc.ts`:
 - **Tables.** Markdown tables render as real tables: columns sized to fit, long cells wrap onto more lines.
 - **mdxcn figures** ([mdxcn.dev](https://mdxcn.dev)): `::graph-*` Comark blocks with YAML props draw natively in
   a dotted `+ ··· [ TITLE ] ··· +` frame: check, timeline, stat, kpi, rank, funnel, waterfall, spark, plot, meter,
-  gantt, tree, table (`src/graphs.ts`). The official fenced ASCII an agent pastes (`+--- [ TITLE ] ---+`) is re-framed
+  gantt, tree, table, tabs (`src/graphs.ts`). The official fenced ASCII an agent pastes (`+--- [ TITLE ] ---+`) is re-framed
   the same way. Unknown kinds say so inside the frame.
 - **Live figures** (`src/live.ts`): give a figure `query: "type=outbox-item ticket=PC-762"` or `view: ((block-ref))`
   instead of values, and the door answers it from the outline on every render, re-asking when the outline changes.
@@ -1425,6 +1427,18 @@ Bodies render with `src/doc.ts`:
   - `stat`/`kpi`: each item takes its own `query`/`view`; the value is a live count
   - `rank`: `group: ticket` counts per value · `table`: `columns: [ticket, title, waiting-on, updated]`
   - `timeline`: dated by `updated`/`created` or `date: <property>`, `now: "<filter>"` · `meter`: share matching `done`
+  - `tabs`: `group: work-stage` gives a tab per value, labelled with its count (`doing 3 · review 4 · validate 1`),
+    the chosen tab's rows drawn as a `table` (`columns:`, a row opens its note). `order: [doing, review, validate]`
+    puts those first, shown even when empty; the other values follow alphabetically (a count changing never moves
+    a tab), results with no value last. `limit:` is rows per tab (50); the question asks for up to 1000 results.
+    `[ ]` onto a tab or a row, then `←` `→` or `Tab` `Shift+Tab` switch (`figure.tab`), `⏎` or a click on a tab
+    shows it. Which tab is the reader's, like a fold: kept across repaints and live answers, never written into
+    the note. `ep0ch show` prints every tab in turn under a heading.
+  - `density: compact | cozy | comfortable` on a `table` or `tabs`: a row's title takes one line (cut with `…`,
+    the default), up to two, or up to three with a blank line between rows. A wrapped title hangs under its text,
+    past a work id (`PIE-541 — `); the other columns stay on the first line. `=` while a figure's tab or row is
+    the `[ ]` position, or a click on its `≡ cozy` footer control, steps through them (`figure.density`); the
+    YAML value is only where it starts.
   - `view:` reads a saved virtual branch the faithful way (ranks, limit, errors); `query:` is an explicit filter
     in the saved-view grammar (`OR`, `NOT`, parentheses, `created`/`updated` ranges), sent to the service as
     `blocks.query` `expression` (PIE-398). `done:` and `now:` are queries in the

@@ -280,6 +280,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     entity: ["Bike shed", "The pump's spare valves are on the kitchen whiteboard.", "REPLIES 2", "COMMENTS 1 open · 1 resolved", "← backlinks (", "resources (1)"],
     presence: ["who's online", "last callers · live"],
     live: ["GARDEN CHORES (LIVE QUERY)", "live · 3 results", "HOUSE JOBS BY ARC (LIVE)"],
+    tabs: ["PLOT JOBS", "doing 2 · review 1 · validate 0 · done 1 · queued 2", "≡ compact"],
     projection: ["Jira ACME-12 · Rollout checklist for the vendor switch", "Jira ACME-14 · Label printer drops the last line", "Jira · ambiguous: ACME-20, ACME-21", "Jira ACME-30 · not registered", "can't fetch: item was not found"],
     // Without the outliner's examples installed (this scratch seeds with the tickets only), the lines are properties.
     extensions: ["Omens for the allotment week", "extensions"],
@@ -352,9 +353,9 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect(S().focus).toBe("index");
     (app as any).lastInput = 0;
     const r = await app.act({ action: "section", args: { name: "selection" }, as: "test-agent" }) as any;
-    expect(r).toEqual({ section: 18, key: "selection" });
+    expect(r).toEqual({ section: 19, key: "selection" });
     expect(S().focus).toBe("index");
-    expect((app as any).message).toContain("an agent (test-agent) showed section 18");
+    expect((app as any).message).toContain("an agent (test-agent) showed section 19");
     const listed = (app.actions() as any).actions.map((a: any) => a.name);
     expect(listed).toContain("section");
     expect(listed).toContain("select");
@@ -569,6 +570,73 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     press({ kind: "mouse", action: "down", button: 0, x, y }); press({ kind: "mouse", action: "up", button: 0, x, y });
     await until(() => !screen().includes("body body"), "the nested callout folded by a click");
     expect(await text()).toContain("> > [!warning] warning");                // folding never writes
+    for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+  }, 30_000);
+
+  test("tabs: a live figure's tabs and density, switched through act, by keys and by click; the note never written", async () => {
+    const id = seeded.notes.plotJobs.id, before = (await board.get(id))!.text;
+    (app as any).lastInput = 0;
+    expect(await app.act({ action: "section", args: { name: "tabs" }, as: "test-agent" })).toMatchObject({ key: "tabs" });
+    await until(() => screen().includes("doing 2 · review 1 · validate 0 · done 1 · queued 2"), "the tab bar", 8000);
+    const left = (l: string) => l.slice(S().stageRect.col, S().stageRect.col + Math.floor(S().stageRect.cols / 2));
+    const half = () => sc.render(app).lines.map(plain).map(left).join("\n");
+    // The first tab listed in order: doing, its rows; the others' rows aren't drawn.
+    expect(half()).toContain("PLOT-2 — Sow the broad beans");
+    expect(half()).not.toContain("PLOT-4");
+    // An agent reads the figures, then switches the left reader's tab (a reader the person isn't typing in).
+    const figs = await app.act({ action: "figures", tile: "1", as: "test-agent" }) as any;
+    expect(figs.figures).toEqual([expect.objectContaining({ n: 1, kind: "tabs", title: "Plot jobs", density: "compact", tab: "doing" })]);
+    expect(figs.figures[0].tabs.map((t: any) => `${t.value} ${t.count}`)).toEqual(["doing 2", "review 1", "validate 0", "done 1", "queued 2"]);
+    expect(await app.act({ action: "figure.tab", tile: "1", args: { n: "queued" }, as: "test-agent" })).toMatchObject({ tab: "queued", count: 2 });
+    await until(() => half().includes("PLOT-4 — Order the seed potatoes"), "the queued tab");
+    expect(half()).not.toContain("PLOT-2");
+    // Only that reader: the other one on the same note still shows doing.
+    expect(((await app.act({ action: "figures", tile: "2", as: "test-agent" })) as any).figures[0].tab).toBe("doing");
+    expect(await app.act({ action: "figure.tab", tile: "1", args: { n: "2" }, as: "test-agent" })).toMatchObject({ tab: "review" });
+    await expect(app.act({ action: "figure.tab", tile: "1", args: { n: "nope" }, as: "test-agent" })).rejects.toThrow(/no tab nope; its tabs: 1 doing, 2 review/);
+    // Density: compact cuts the long title with …; cozy wraps it to two lines, hanging past "PLOT-3 — "; comfortable three.
+    await until(() => half().includes("PLOT-3 — Mend"), "the review tab");
+    expect(half()).toMatch(/PLOT-3 — Mend the netting[^\n]*…/);
+    expect(await app.act({ action: "figure.density", tile: "1", args: { to: "cozy" }, as: "test-agent" })).toMatchObject({ density: "cozy" });
+    await until(() => half().includes("≡ cozy"), "cozy");
+    const hang = () => { const rows = half().split("\n"), i = rows.findIndex(r => r.includes("PLOT-3 — Mend")); return { first: rows[i]!, next: rows[i + 1]!, third: rows[i + 2]! }; };
+    let h = hang();
+    const textAt = h.first.indexOf("Mend");
+    expect(h.next.slice(0, textAt).replace(/[│┊ ]/g, "")).toBe("");          // the second line starts under "Mend", past the id
+    expect(h.next.slice(textAt, textAt + 1)).toMatch(/\S/);
+    expect(h.next).toContain("…");
+    expect(await app.act({ action: "figure.density", tile: "1", as: "test-agent" })).toMatchObject({ density: "comfortable" });
+    await until(() => half().includes("≡ comfortable"), "comfortable");
+    h = hang();
+    expect(h.third.slice(textAt, textAt + 1)).toMatch(/\S/);
+    await expect(app.act({ action: "figure.density", tile: "1", args: { to: "roomy" }, as: "test-agent" })).rejects.toThrow(/compact, cozy, comfortable/);
+    // The person, by keys: into the stage (the left reader), [ ] onto the first element (a tab), → and tab step on.
+    await app.act({ action: "figure.density", tile: "1", args: { to: "compact" }, as: "test-agent" });
+    press({ kind: "enter" });
+    expect(S().focus).toBe("stage");
+    ch("]");
+    press({ kind: "right" });
+    expect(((await app.act({ action: "figures", tile: "1", as: "test-agent" })) as any).figures[0].tab).toBe("validate");
+    await until(() => half().includes("nothing in validate"), "the empty validate tab, listed in order");
+    press({ kind: "tab" });
+    expect(((await app.act({ action: "figures", tile: "1", as: "test-agent" })) as any).figures[0].tab).toBe("done");
+    press({ kind: "backtab" }); press({ kind: "left" });
+    expect(((await app.act({ action: "figures", tile: "1", as: "test-agent" })) as any).figures[0].tab).toBe("review");
+    ch("=");
+    expect(((await app.act({ action: "figures", tile: "1", as: "test-agent" })) as any).figures[0].density).toBe("cozy");
+    // By mouse: a click on the queued label in the left reader's bar.
+    const rows = sc.render(app).lines.map(plain), y = rows.findIndex(l => left(l).includes("queued 2")), x = left(rows[y]!).indexOf("queued 2") + S().stageRect.col + 2;
+    press({ kind: "mouse", action: "down", button: 0, x, y }); press({ kind: "mouse", action: "up", button: 0, x, y });
+    await until(() => half().includes("PLOT-5 — Clear the bindweed"), "the queued tab, clicked");
+    // The person types in the left reader (an edit): an agent's switch there is refused; the right reader's isn't.
+    ch("e");
+    await until(() => !!S().stages.get(S().sel).top.describe().panes[0].editing, "the edit open", 5000);
+    await expect(app.act({ action: "figure.tab", tile: "1", args: { n: "doing" }, as: "test-agent" })).rejects.toThrow(/isn't typing in/);
+    expect(await app.act({ action: "figure.tab", tile: "2", args: { by: 1 }, as: "test-agent" })).toMatchObject({ tab: "review" });
+    press({ kind: "esc" });
+    await until(() => !S().stages.get(S().sel).top.describe().panes[0].editing, "the edit closed", 5000);
+    // Every switch was reading state: the note's text is as seeded.
+    expect((await board.get(id))!.text).toBe(before);
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
   }, 30_000);
 

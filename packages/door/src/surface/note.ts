@@ -12,6 +12,7 @@ import { subject, titleLine, type Msg } from "../board";
 import { literalLines } from "../literal";
 import { CommentSession, type CommentEnv } from "../comment";
 import { foldPoints, renderDoc, type Doc, type DocEnv, type DocImage, type FoldPoint } from "../doc";
+import { DENSITIES, isDensity, type Density, type FigureControl, type FigureInfo } from "../graphs";
 import { embedRegion, embedsLoading, viewResults, embedStepChanged, isOpenProposal, NOT_APPLICABLE, proposalApplies, proposalControls, SHADE, type EmbedBody } from "../embeds";
 import { extensionRegion, projectionRegion, projectionsOf, resourceChanged, RUN_AGAIN, ticketBlocksOf, ticketRegion, type ResourceProjection, type TicketPart } from "../projection";
 import { EXT_ACTIONS, extensionNamed, handlerKeyAction } from "../extensions";
@@ -124,7 +125,9 @@ export interface ReaderHistory {
  * Where a reader was (PIE-453), so back comes back to it as it was: the note, how far down, the `[ ]`
  * position (the current element and link), and the reading state kept per note (folds, expanded threads).
  */
-interface Place { msg: Msg; scroll: number; cur: string | null; link: number; folded: string[]; expanded: string[]; seen: string[] }
+interface Place { msg: Msg; scroll: number; cur: string | null; link: number; folded: string[]; expanded: string[]; seen: string[]; figures: [string, FigureChoice][] }
+/** What the person (or an agent) chose for one live figure in a reader: its tab, its density. Never the note's text. */
+type FigureChoice = { tab?: string; density?: Density };
 /** How many places back (and forward) a reader keeps. */
 const HISTORY = 50;
 
@@ -186,6 +189,10 @@ interface Laid {
 export interface SurfaceView { lines: string[]; placements?: Placement[]; scroll?: Scroll }
 export type Link = LinkTarget;
 /** Two links name the same target the same way (a click finds the `[ ]` link it is). */
+/** The density after `d`, round again: compact, cozy, comfortable. */
+const nextDensity = (d: Density): Density => DENSITIES[(DENSITIES.indexOf(d) + 1) % DENSITIES.length]!;
+/** A live figure's tab or density control, named across renders (its figure's key, then which). */
+const figureElemBase = (c: FigureControl) => `figure:${c.figure}|${c.tab !== undefined ? `tab:${c.tab}` : "density"}`;
 const sameLink = (a: Link, b: Link) => a.resource?.key === b.resource?.key && a.block === b.block && a.fragment === b.fragment && a.label === b.label && a.page === b.page && a.media === b.media && a.url === b.url;
 /**
  * Where a click lands in the last render, in the surface's own cells: a link (the body's, an embed's
@@ -204,7 +211,7 @@ type Hit = { row: number; from: number; to: number } & ({ link: Link; value?: st
  * figure's row, an embedded view's result), an embed (its title), a resource projection (its region, PIE-445)
  * and a comment mark (in the margin).
  */
-export type ElementKind = "link" | "fold" | "row" | "embed" | "comment" | "control" | "resource" | "task" | "callout";
+export type ElementKind = "link" | "fold" | "row" | "embed" | "comment" | "control" | "resource" | "task" | "callout" | "figure";
 /** The controls of a comment thread expanded inline (PIE-420), as Detail has them: Select, Reply, Resolve or Reopen. */
 export type ThreadControl = "select" | "reply" | "resolve";
 /**
@@ -226,7 +233,7 @@ const verbOf = (e: Element, open: boolean) =>
   : e.kind === "fold" ? (open ? "unfold" : "fold") : e.kind === "comment" ? (open ? "collapse its thread" : "expand its thread")
   : e.kind === "control" && e.link?.proposal?.op ? (e.link.proposal.op === "apply" ? "apply it anyway" : "dismiss it")
   : e.kind === "control" ? (e.control === "select" ? "select its passage" : e.control === "reply" ? "reply" : e.label.startsWith("Reopen") ? "reopen" : "resolve")
-  : e.kind === "row" ? "open its note" : e.kind === "embed" ? "open it" : e.kind === "task" ? "status" : e.kind === "callout" ? "choose its type"
+  : e.kind === "figure" ? (e.link?.figure?.tab !== undefined ? "show this tab" : "change the density") : e.kind === "row" ? "open its note" : e.kind === "embed" ? "open it" : e.kind === "task" ? "status" : e.kind === "callout" ? "choose its type"
   : e.kind === "resource" ? (e.link?.url ? "open the ticket's page" : "say why there's nothing to open") : e.link?.resource ? "show the resource" : e.link?.media || e.link?.url ? "open" : "follow";
 /** What ⏎ does on an extension's line or control (PIE-512): its action's label, or run it again. */
 function extVerb(x: NonNullable<LinkTarget["ext"]>): string {
@@ -347,6 +354,11 @@ export class NoteSurface {
   /** What the last render put where, for clicks (PIE-415). */
   private hits: Hit[] = [];
   unfold = false;
+  /**
+   * Drawn for print (`ep0ch show`, `--cells`): nobody presses a key in what it draws, so a tabs figure draws every
+   * group in turn under a heading, and no figure draws a control.
+   */
+  printed = false;
   /** The link `[ ]` or a click selected, as an index into `links` (the river steps these; it draws its own body). */
   private link = -1;
   /** The elements the last reading render drew, in reading order; empty until one (and in the river). */
@@ -368,6 +380,14 @@ export class NoteSurface {
    * reader's reading state and the person's alone (an agent's action never expands or collapses one).
    */
   expanded = new Set<string>();
+  /**
+   * Each live figure's chosen tab and density (src/graphs.ts), by the figure's key (its place among the note's figures
+   * and its title): like `folded`, this reader's reading state, kept across repaints and live answers, never written
+   * into the note, cleared when the reader shows another note.
+   */
+  figureUI = new Map<string, FigureChoice>();
+  /** The figures the last layout drew (their tabs, counts, what's chosen): what `figure.tab` and `figures` name. */
+  private figuresDrawn: FigureInfo[] = [];
   /** The thread a Reply control asked to answer: the thread list opening next starts the reply there. */
   private replyOn: string | null = null;
   /** The fold point selected (its key), which `f` and ⏎ fold or unfold: the current element, when it's a fold. */
@@ -532,7 +552,7 @@ export class NoteSurface {
     // A proposal's keys go first: in a narrow tile the hint is cut from the end.
     // An extension's line or control: its keys go first, as a proposal's do.
     if (e?.link?.ext) return `[ ] ${i + 1}/${this.elems.length} · ${extKeys(e.link.ext, this.hostKeys)} · ${e.kind === "control" ? "control" : "line"} ${printable(e.label).slice(0, 50)} · ⏎ ${verbOf(e, false)}${e.kind === "resource" ? " · y copy" : ""}`;
-    if (e && e.kind !== "fold") return `[ ] ${i + 1}/${this.elems.length} · ${e.link?.proposal ? this.proposalKeys(e.link.proposal.id) : ""}${e.kind === "task" ? "step" : e.kind} ${e.link?.media ? "▣ " : ""}${printable(e.label).slice(0, 60)} · ⏎ ${verbOf(e, e.kind === "comment" && this.expanded.has(e.thread!))}${opens(e) ? " · alt⏎ new" : ""}${e.kind === "resource" ? " · y copy" : ""}${e.kind === "task" ? " · space done/to do · ctrl+z undo" : ""}`;
+    if (e && e.kind !== "fold") return `[ ] ${i + 1}/${this.elems.length} · ${e.link?.proposal ? this.proposalKeys(e.link.proposal.id) : ""}${e.kind === "task" ? "step" : e.kind} ${e.link?.media ? "▣ " : ""}${printable(e.label).slice(0, 60)} · ⏎ ${verbOf(e, e.kind === "comment" && this.expanded.has(e.thread!))}${opens(e) ? " · alt⏎ new" : ""}${e.kind === "resource" ? " · y copy" : ""}${e.kind === "task" ? " · space done/to do · ctrl+z undo" : ""}${this.figureHint()}`;
     // A link selected without a drawn body (the river's column, or one `link.select` named that isn't drawn).
     const l = !this.cur ? this.links[this.link] : undefined;
     if (l) return `link ${this.link + 1}/${this.links.length} ${l.media ? "▣ " : ""}${printable(linkText(l, this.msg?.text ?? "", this.src)).slice(0, 60)} · ⏎ ${l.media || l.url ? "open" : "follow"}`;
@@ -600,7 +620,7 @@ export class NoteSurface {
     // An edit, a comment or a value being typed holds the reader on its note.
     if (this.modes.editing && m?.id !== this.msg?.id) return false;
     if (m?.id !== this.msg?.id) { this.notice = ""; this.agent = null; this.agentDraft = null; this.focusMark = null; this.picker = null; this.clearSelections(); if (this.panel) { this.panel.sel = 0; this.panel.view.reset(); this.panel.note = ""; } }
-    if ((m?.id ?? null) !== this.foldsOf) { this.folded.clear(); this.foldSeen.clear(); this.expanded.clear(); this.foldsOf = m?.id ?? null; }
+    if ((m?.id ?? null) !== this.foldsOf) { this.folded.clear(); this.foldSeen.clear(); this.expanded.clear(); this.figureUI.clear(); this.figuresDrawn = []; this.foldsOf = m?.id ?? null; }
     this.msg = m; this.scroll = 0; this.maxScroll = Infinity; this.letGo(); this.elems = []; this.crumbs = "…"; this.unread = "";
     this.links = m ? linksOf(m) : [];
     if (m?.id !== this.commentsFor) { this.comments = null; this.commentsFor = ""; }
@@ -878,11 +898,19 @@ export class NoteSurface {
   private body(m: Msg, env: DocEnv, src: Source | null, drawn: Link[], tokens?: ReturnType<typeof resourceTokensOf>, more?: (text: string, lines: readonly number[]) => Partial<DocEnv>) {
     const { text, points, lines, literal } = this.foldsIn(m);
     this.keepFolds(points);
+    // The live figures this layout draws, each told here; a tab or the density drawn as a control.
+    const figures: FigureInfo[] = [];
+    this.figuresDrawn = figures;
     const doc = renderDoc(presentLinks(text, true, src, m.text, drawn, tokens), {
       ...env, literal, ...this.bodyHooks(m, lines, env, src, drawn),
       callout: this.calloutHook(m, lines, points, drawn),
       folds: { points, folded: this.folded, selected: this.foldSel },
-      link: (block, x) => tagged(drawn, { block, role: "row" }, x),
+      link: (block, x, figure) => tagged(drawn, { block, role: "row", ...(figure ? { figure: { figure } } : {}) }, x),
+      figures: this.printed ? { all: true, seen: f => figures.push(f) } : {
+        ui: key => this.figureUI.get(key),
+        tag: (c, x) => tagged(drawn, { role: "figure", figure: c, label: c.tab ?? "density" }, x),
+        seen: f => figures.push(f),
+      },
       tag: (to, x) => tagged(drawn, to, x), note: m.id,
       ...more?.(text, lines),
     });
@@ -1666,6 +1694,9 @@ export class NoteSurface {
       return true;
     }
     if (k.kind === "pgdn" || c === " " || k.kind === "pgup") { void this.runKey("scroll", { by: k.kind === "pgup" ? -15 : 15 }, host); return true; }
+    // A live figure's element is current: its tabs, its density (figureKey).
+    const fk = this.figureKey(k);
+    if (fk) { void this.runKey(fk.name, fk.args as never, host); return true; }
     // [ ] walk every element in reading order (PIE-441); ( ) below stays the folds-only jump.
     if (c === "]" || c === "[") { void this.runKey("element.select", { by: c === "]" ? 1 : -1 }, host); return true; }
     if (c === "z") { void this.runKey("callouts", {}, host); return true; }
@@ -1962,6 +1993,12 @@ export class NoteSurface {
 
   // ── elements: what [ ] walks, ⏎ acts on and the ruler tints (PIE-441) ─────
 
+  /** The current element's figure's keys, for the hint: its tabs and its density. */
+  private figureHint(): string {
+    const f = this.currentFigure();
+    return f ? `${f.tabs ? " · ← → tab · ⇥ ⇤" : ""} · = ${nextDensity(f.density)}` : "";
+  }
+
   /** Nothing is current: the next `[ ]` starts from the view, and ⏎ is the host's again. */
   letGo() { this.cur = null; this.link = -1; }
 
@@ -2019,6 +2056,15 @@ export class NoteSurface {
     // A comment mark expands its thread under the passage, or collapses it (PIE-420): the person's only.
     if (e.kind === "comment") { if (select) this.setExpanded(e.thread!, !this.expanded.has(e.thread!)); host.redraw(); return { thread: e.thread, expanded: this.expanded.has(e.thread!) }; }
     if (e.kind === "control" && e.link?.proposal?.op) return this.proposalControl(e.link.proposal.op, e.link.proposal.id, host);
+    // A live figure's tab shows it; its density control steps to the next density.
+    if (e.kind === "figure" && e.link?.figure) {
+      const c = e.link.figure, f = this.figuresDrawn.find(x => x.key === c.figure);
+      if (!f) return null;
+      if (c.tab !== undefined) this.setFigureTab(f, c.tab, select);
+      else this.setFigureDensity(f, nextDensity(f.density));
+      host.redraw();
+      return { figure: f.n, title: f.title, ...(c.tab !== undefined ? { tab: c.tab } : { density: f.density }) };
+    }
     if (e.kind === "control") return this.useControl(e, host);
     // A step's box opens its status choice under it (the person's; an agent sets a status by task.status).
     if (e.kind === "task") { if (select) this.openPicker(e); host.redraw(); return { step: e.task?.step.itemId ?? null, choice: select }; }
@@ -2145,7 +2191,7 @@ export class NoteSurface {
     const out: Element[] = [];
     const seen = new Map<string, number>();
     const keyOf = (kind: string, l: Link) => {
-      const id = kind === "task" && l.task ? taskBase(l.task) : kind === "callout" && l.callout ? calloutBase(l.callout) : l.proposal?.op ? `control:proposal:${l.proposal.op}:${l.proposal.id}` : `${kind}:${[l.block ?? "", l.fragment ?? "", l.label ?? "", l.page ?? "", l.media ?? "", l.url ?? ""].join("|")}`;
+      const id = kind === "task" && l.task ? taskBase(l.task) : kind === "callout" && l.callout ? calloutBase(l.callout) : kind === "figure" && l.figure ? figureElemBase(l.figure) : l.proposal?.op ? `control:proposal:${l.proposal.op}:${l.proposal.id}` : `${kind}:${[l.block ?? "", l.fragment ?? "", l.label ?? "", l.page ?? "", l.media ?? "", l.url ?? ""].join("|")}`;
       const n = seen.get(id) ?? 0;
       seen.set(id, n + 1);
       return `${id}#${n}`;
@@ -2171,7 +2217,9 @@ export class NoteSurface {
       const kind: ElementKind = l.role ?? "link";
       // An embed's ruler is its shaded region; a row's is itself; a link's is the block it's in.
       let ruler = block(r.line);
-      if (kind === "row") ruler = [top + r.line, top + r.line + 1];
+      // A row a density wraps is its lines; a figure's tab or density control is its own row.
+      if (kind === "row") ruler = [top + r.line, top + rs.at(-1)!.line + 1];
+      else if (kind === "figure") ruler = [top + r.line, top + r.line + 1];
       else if (kind === "embed") { let b = r.line + 1; while (b < doc.lines.length && doc.lines[b]!.startsWith(SHADE)) b++; ruler = [top + r.line, top + b]; }
       // A resource projection's is its shaded region, up to the next projection's head.
       else if (kind === "resource") { let b = r.line + 1; while (b < doc.lines.length && doc.lines[b]!.startsWith(SHADE) && !heads.has(b)) b++; ruler = [top + r.line, top + b]; }
@@ -2249,6 +2297,82 @@ export class NoteSurface {
   }
 
   /** The elements as `peek` and the `elements` action list them. */
+  // ── live figures: a tabs figure's tab, a table's density (src/graphs.ts); this reader's, never the note's ──
+
+  /** The figures the last layout drew: each one's number, kind, title, density, and a tabs figure's tabs and counts. */
+  describeFigures() {
+    return this.figuresDrawn.map(f => ({ n: f.n, kind: f.kind, title: f.title, density: f.density, ...(f.tabs ? { tab: f.tab ?? null, tabs: f.tabs.map((t, i) => ({ n: i + 1, ...t, shown: t.value === f.tab })) } : {}) }));
+  }
+
+  /** The figure the current element is in (one of its tabs, its density, one of its rows), while it's in view. */
+  currentFigure(): FigureInfo | null {
+    const key = this.inView()?.link?.figure?.figure;
+    return key ? this.figuresDrawn.find(f => f.key === key) ?? null : null;
+  }
+
+  /**
+   * Figure `which` of the last layout: its number among the note's figures (from 1) or its title; left out, the one
+   * the current element is in, else the note's only one of the kind asked. Refused, saying what's there, otherwise.
+   */
+  figureNamed(which: string | undefined, want: "tabs" | "rows"): FigureInfo {
+    this.requireDrawn();
+    const fits = (f: FigureInfo) => (want === "tabs" ? f.kind === "tabs" : f.kind === "tabs" || f.kind === "table");
+    const fs = this.figuresDrawn.filter(fits), what = want === "tabs" ? "tabs figure" : "table or tabs figure";
+    if (!fs.length) throw new ActionRefused(`this note draws no ${what} now (figures lists what it draws)`);
+    const s = which?.trim();
+    const f = !s ? (this.currentFigure() && fits(this.currentFigure()!) ? this.currentFigure() : fs.length === 1 ? fs[0] : undefined)
+      : /^\d+$/.test(s) ? this.figuresDrawn.find(x => x.n === Number(s)) : fs.find(x => x.title.toLowerCase() === s.toLowerCase());
+    const listed = fs.map(x => `${x.n} ${x.title}`).join(", ");
+    if (!f) throw new ActionRefused(s ? `no ${what} ${s} in this note; there are: ${listed}` : `this note draws ${fs.length} ${what}s; say which: figure=<n or title> (${listed})`);
+    if (!fits(f)) throw new ActionRefused(`figure ${s} is a ${f.kind}, not a ${what}; there are: ${listed}`);
+    return f;
+  }
+
+  /**
+   * Show tab `value` of figure `f`. `select` (the person's): when their `[ ]` position is in that figure (a tab, a row
+   * of the tab that's going), it moves to the new tab's label, so ← → go on from there.
+   */
+  setFigureTab(f: FigureInfo, value: string, select: boolean) {
+    this.figureUI.set(f.key, { ...this.figureUI.get(f.key), tab: value });
+    f.tab = value;
+    if (select && this.inView()?.link?.figure?.figure === f.key) { this.cur = `${figureElemBase({ figure: f.key, tab: value })}#0`; this.link = -1; this.reveal = true; }
+  }
+
+  /** Draw figure `f` at density `d`. */
+  setFigureDensity(f: FigureInfo, d: Density) {
+    this.figureUI.set(f.key, { ...this.figureUI.get(f.key), density: d });
+    f.density = d;
+  }
+
+  /**
+   * The figure action key `k` runs while the current element is in a live figure: tab shift+tab ← → a tabs figure's
+   * next or previous tab, = the next density, ⏎ on a tab or the density control that one. Null for any other key.
+   */
+  private figureKey(k: Key): { name: "figure.tab" | "figure.density"; args: Record<string, unknown> } | null {
+    if (this.modes.top()) return null;
+    const f = this.currentFigure();
+    if (!f) return null;
+    const figure = String(f.n), e = this.inView();
+    if (f.tabs && (k.kind === "tab" || k.kind === "backtab" || k.kind === "left" || k.kind === "right")) return { name: "figure.tab", args: { figure, by: k.kind === "tab" || k.kind === "right" ? 1 : -1 } };
+    if (ch(k) === "=") return { name: "figure.density", args: { figure } };
+    if (k.kind === "enter" && e?.kind === "figure") return e.link?.figure?.tab !== undefined ? { name: "figure.tab", args: { figure, n: e.link.figure.tab } } : { name: "figure.density", args: { figure } };
+    return null;
+  }
+
+  /**
+   * A key this reader takes ahead of its host's own while a live figure's element is current (tab and shift+tab
+   * cycle a desk's tiles, ← → step a river's columns or a BBS reader's messages otherwise): the host asks first.
+   */
+  claims(k: Key): boolean { return !!this.figureKey(k); }
+
+  /** A click (or ⏎ through `open`) on a figure's control: the action its key runs. */
+  private pressFigure(c: FigureControl, host: SurfaceHost) {
+    const f = this.figuresDrawn.find(x => x.key === c.figure);
+    if (!f) return;
+    if (c.tab !== undefined) void this.runKey("figure.tab", { figure: String(f.n), n: c.tab }, host);
+    else void this.runKey("figure.density", { figure: String(f.n) }, host);
+  }
+
   describeElements() {
     return this.elems.map((e, i) => ({
       n: i + 1, kind: e.kind, label: printable(e.label), current: e.key === this.cur,
@@ -2309,6 +2433,8 @@ export class NoteSurface {
     // A proposal's [apply] or [dismiss] (PIE-501): it becomes the `[ ]` position, and its action runs.
     const pc = h.link.proposal;
     if (pc?.op) { if (e) this.setElem(e); host.redraw(); void this.proposalControl(pc.op, pc.id, host); return true; }
+    // A live figure's tab or density: it becomes the `[ ]` position, and figure.tab or figure.density runs.
+    if (h.link.role === "figure" && h.link.figure) { if (e) this.setElem(e); this.pressFigure(h.link.figure, host); host.redraw(); return true; }
     // A step's box: its status choice opens under it, as ⏎ on it does (PIE-472); a link (or a summary-line
     // value) opens where ⏎ on it would. Both are element.open on that element.
     if (e) { void this.runKey("element.open", { n: this.elems.indexOf(e) + 1 }, host); host.redraw(); return true; }
@@ -2334,6 +2460,13 @@ export class NoteSurface {
       return Promise.resolve(null);
     }
     if (l.proposal?.op) { void this.proposalControl(l.proposal.op, l.proposal.id, host); return Promise.resolve(null); }
+    if (l.role === "figure" && l.figure) {
+      const e = this.elems.find(x => x.link === l) ?? this.elems.find(x => x.link?.figure && figureElemBase(x.link.figure) === figureElemBase(l.figure!));
+      if (e) this.setElem(e);
+      this.pressFigure(l.figure, host);
+      host.redraw();
+      return Promise.resolve(null);
+    }
     if (l.role === "task" && l.task) {
       const e = this.elems.find(x => x.link === l) ?? this.elems.find(x => x.task && taskBase(x.task) === taskBase(l.task!));
       if (e) { this.openPicker(e); host.redraw(); }
@@ -2862,7 +2995,7 @@ export class NoteSurface {
   /** Where the reader is now, as back would come back to it. */
   private place(): Place | null {
     const m = this.msg;
-    return m ? { msg: m, scroll: this.scroll, cur: this.cur, link: this.link, folded: [...this.folded], expanded: [...this.expanded], seen: [...this.foldSeen] } : null;
+    return m ? { msg: m, scroll: this.scroll, cur: this.cur, link: this.link, folded: [...this.folded], expanded: [...this.expanded], seen: [...this.foldSeen], figures: [...this.figureUI] } : null;
   }
 
   /**
@@ -2912,7 +3045,7 @@ export class NoteSurface {
     stack.pop();
     if (here) (dir < 0 ? this.aheads : this.backs).push(here);
     this.scroll = to.scroll; this.cur = to.cur; this.link = to.link;
-    this.folded = new Set(to.folded); this.expanded = new Set(to.expanded); this.foldSeen = new Set(to.seen);
+    this.folded = new Set(to.folded); this.expanded = new Set(to.expanded); this.foldSeen = new Set(to.seen); this.figureUI = new Map(to.figures);
     // The element comes into view if the history row now under the note would hide it (only that far).
     this.reveal = to.cur !== null;
     host.redraw();
@@ -3375,7 +3508,7 @@ export class NoteSurface {
   followLink(i: number, host: SurfaceHost, fresh = false) { return this.follow(i, host, fresh); }
   clearLink() { this.letGo(); }
   /** Where the reader's cursor is (its current element, its selected link) and what it folded: a host that reuses a digest keys on it. */
-  get cursorKey(): string { return `${this.cur ?? ""}|${this.link}|${[...this.folded].join("\u0001")}`; }
+  get cursorKey(): string { return `${this.cur ?? ""}|${this.link}|${[...this.folded].join("\u0001")}|${[...this.figureUI].map(([k, v]) => `${k}=${v.tab ?? ""}/${v.density ?? ""}`).join("\u0001")}`; }
   selectLink(i: number) {
     const l = this.links[i];
     if (!l) throw new ActionRefused(`there is no link ${i + 1}; the note has ${this.links.length}`);
@@ -4477,6 +4610,59 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       surface.noteAgent(actor, `${on ? "folded" : "unfolded"} ${foldLabel(p).slice(0, 40)}`);
       host.redraw();
       return foldResult(surface, p);
+    },
+  }),
+  "figures": def({
+    summary: "list the live figures the reader draws in its note: each one's number, kind, title and density, and a tabs figure's tabs with their counts and which is shown (this reader's choice; the note never changes)",
+    touches: "nothing", replay: "safe",
+    args: {},
+    run(_, { surface }) {
+      surface.requireDrawn();
+      return { figures: surface.describeFigures() };
+    },
+  }),
+  "figure.tab": def({
+    summary: "show another tab of a live tabs figure (::graph-tabs): n= a tab's number (from 1) or its value, or by=1 (next) / by=-1 (previous), round again; figure= which (its number among the note's figures, or its title; left out, the one the [ ] position is in, else the note's only one). Reading state, kept across repaints and live answers; the note's text never changes",
+    keys: "tab shift+tab or ← → while a figure's tab or row is the [ ] position, ⏎ on a tab, click a tab",
+    touches: "tile", while: "typing", replay: "safe", way: "an agent switches tabs in a reader the person isn't typing in",
+    args: {
+      n: { type: "string", optional: true, about: "the tab: its number from 1, or its value (doing, review…)" },
+      by: { type: "number", optional: true, about: "1 the next tab, -1 the previous one" },
+      figure: { type: "string", optional: true, about: "which tabs figure: its number among the note's figures (figures lists them), or its title" },
+    },
+    run({ n, by, figure }, { surface, host }, actor) {
+      surface.requireNote();
+      if ((n === undefined) === (by === undefined)) throw new ActionRefused("say n= (a tab's number or value) or by=1|-1");
+      const f = surface.figureNamed(figure, "tabs"), tabs = f.tabs ?? [];
+      if (!tabs.length) throw new ActionRefused(`${f.title} has no tabs: its question has no results yet`);
+      let i: number;
+      if (by !== undefined) { const at = Math.max(0, tabs.findIndex(t => t.value === f.tab)); i = (at + (by < 0 ? -1 : 1) + tabs.length) % tabs.length; }
+      else { const v = String(n).trim(); i = /^\d+$/.test(v) ? Number(v) - 1 : tabs.findIndex(t => t.value.toLowerCase() === v.toLowerCase()); }
+      const t = tabs[i];
+      if (!t) throw new ActionRefused(`${f.title} has no tab ${n}; its tabs: ${tabs.map((x, j) => `${j + 1} ${x.value}`).join(", ")}`);
+      surface.setFigureTab(f, t.value, actor.kind === "user");
+      surface.noteAgent(actor, `showed the ${t.value} tab of ${f.title}`);
+      host.redraw();
+      return { figure: f.n, title: f.title, tab: t.value, count: t.count, tabs: tabs.map((x, j) => ({ n: j + 1, ...x, shown: x === t })) };
+    },
+  }),
+  "figure.density": def({
+    summary: "draw a live table or tabs figure's rows compact (one line a title, cut with …), cozy (titles up to two lines) or comfortable (three, a blank line between rows): to= sets it, else the next one round; a wrapped title hangs under its text, past a work id. figure= as figure.tab. Reading state: the figure's density: line is only where it starts, and the note never changes",
+    keys: "= while a figure's tab or row is the [ ] position, ⏎ on its ≡ control, click it",
+    touches: "tile", while: "typing", replay: "safe", way: "an agent changes the density in a reader the person isn't typing in",
+    args: {
+      to: { type: "string", optional: true, about: "compact, cozy or comfortable; left out, the next one round" },
+      figure: { type: "string", optional: true, about: "which table or tabs figure: its number among the note's figures (figures lists them), or its title" },
+    },
+    run({ to, figure }, { surface, host }, actor) {
+      surface.requireNote();
+      if (to !== undefined && !isDensity(to)) throw new ActionRefused(`to is ${DENSITIES.join(", ")}, not ${to}`);
+      const f = surface.figureNamed(figure, "rows");
+      const d: Density = (to as Density | undefined) ?? nextDensity(f.density);
+      surface.setFigureDensity(f, d);
+      surface.noteAgent(actor, `drew ${f.title} ${d}`);
+      host.redraw();
+      return { figure: f.n, title: f.title, density: d };
     },
   }),
   "select": def({

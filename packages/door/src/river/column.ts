@@ -478,6 +478,8 @@ export class RiverColumn extends ReaderPane {
     const c = ch(k);
     const held = this.surface.editing;
     const current = !held && this.surface.msg?.id === this.noteOf()?.id ? this.surface.currentKind() : null;
+    // A live figure's element is current: tab, shift+tab, ← → and = are its (its tabs, its density), not the flow's.
+    if (current && this.surface.claims(k)) return super.key(k, desk);
     if (!held) {
       // A link or an element `[ ]` is on: ⏎ (and space on a step) are the surface's, as in any reader.
       if ((this.linked() || current) && (k.kind === "enter" || k.kind === "alt-enter")) return super.key(k, desk);

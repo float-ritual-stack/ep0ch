@@ -7,6 +7,7 @@ import { emphasis } from "./inline";
 import { LINK_END, linkTag, stripMarks } from "./style";
 import type { ReferenceResolution, PageResolution, SocketBoard } from "./socket";
 import type { StepRef } from "./steps";
+import type { FigureControl } from "./graphs";
 import { isOutlineNote, type AuthoredLinksSnapshot, type AuthoredResourceLink } from "./authored";
 import { linkBlockLines } from "./links";
 
@@ -158,7 +159,12 @@ export interface LinkView { text: string; missing: boolean }
 export type LinkTarget = {
   /** A resource token (`[file::…]`, `[jira::KEY]`): its Resource is shown as a note, as the tree's resource rows are. */
   resource?: AuthoredResourceLink;
-  block?: string; fragment?: string; label?: string; page?: string; media?: string; url?: string; role?: "embed" | "row" | "resource" | "task" | "control" | "callout"; reason?: string;
+  block?: string; fragment?: string; label?: string; page?: string; media?: string; url?: string; role?: "embed" | "row" | "resource" | "task" | "control" | "callout" | "figure"; reason?: string;
+  /**
+   * A live figure's control (role "figure"): one of a tabs figure's tabs, or its density; on a row (role "row"), the
+   * figure the row is in (`figure` only), so the figure's keys work while the row is current (src/graphs.ts).
+   */
+  figure?: FigureControl;
   /**
    * An agent's open proposal (PIE-501): on its embed's source line, the proposal it shows; with `op`, one of
    * the controls drawn there (role "control"), which runs `proposal.apply` or `proposal.dismiss` on it.
