@@ -42,7 +42,7 @@ export const BOLD = "\x1b[1m", UNBOLD = "\x1b[22m";
 export const dim = (s: string) => fg(C.dark) + s + RESET;
 /**
  * A sparkline's steps, lowest to highest, in glyphs the kitty+crt font has: it is CP437, which has no ▁▂▃▅▆▇
- * (they drew as ?, as ↳ and ⌕ did before #81). A shade ramp, the BBS way, over an underscore for the lowest.
+ * (they draw as ?). A shade ramp, the BBS way, over an underscore for the lowest.
  */
 export const SPARK_STEPS = "_░▒▓█";
 /** The cursor at the end of a line being typed (a search, a filter, a layout's name): CP437 has no ▁, and _ reads as typed. */

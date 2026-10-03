@@ -40,6 +40,3 @@ export function openScreen(name: string, args?: Record<string, unknown>): Screen
   // `persist: false`: it comes back as its screen was saved, and never saves (a screen in a tile, which the desk saves).
   return new Desk(spec, { writes: args?.persist !== false });
 }
-
-/** The delivery board (`--board <hub>`, the menu's K). */
-export const boardScreen = (hub?: string, persist = true) => openScreen("board", { ...(hub ? { hub } : {}), persist }) as Desk;

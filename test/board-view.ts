@@ -8,10 +8,14 @@ import type { Rect } from "../src/canvas";
 import type { BacklinksPane } from "../src/desk/backlinks-pane";
 import type { Desk } from "../src/desk/desk";
 import { Lanes } from "../src/desk/lanes";
+import { openScreen } from "../src/desk/screen-specs";
 import type { Pane, ReaderPane, TreePane } from "../src/desk/panes";
 import type { PreviewPane } from "../src/desk/preview";
 import type { QueryPane } from "../src/desk/query";
 import { USER } from "../src/socket";
+
+/** The board on hub `hub` (the menu's K; `persist: false` a board in a tile, which never saves). */
+export const boardScreen = (hub?: string, persist = true) => openScreen("board", { ...(hub ? { hub } : {}), persist }) as Desk;
 
 /** A board's parts, read by place (loosely typed, as a test reads them: what's there is the test's to say). */
 export class BoardView {

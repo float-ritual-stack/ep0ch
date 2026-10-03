@@ -10,7 +10,7 @@ import {
   BACKLINK_SORT_ORDER, BACKLINK_STAGE_FILTERS, DEFAULT_BACKLINK_VIEW_OPTIONS, fitBacklinkRow, nextBacklinkKindFilter, nextBacklinkSort,
   nextBacklinkStageFilter, type BacklinkCollection, type BacklinkSource, type BacklinkSourceFacets, type BacklinkView, type BacklinkViewOptions,
 } from "../src/backlinks";
-import { boardScreen } from "../src/desk/screen-specs";
+import { boardScreen } from "./board-view";
 import { Desk } from "../src/desk/desk";
 import { MainMenu } from "../src/screens";
 import { SocketBoard, USER } from "../src/socket";

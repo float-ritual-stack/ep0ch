@@ -1,5 +1,5 @@
 // Where a terminal tile's program runs: its pty and its process. In the door's own terminal that's this process
-// (`localPtys`: Bun.Terminal, Bun.spawn), as it always was. In a door session it's the session's terminal host
+// (`localPtys`: Bun.Terminal, Bun.spawn). In a door session it's the session's terminal host
 // (src/session/pty-host.ts), a small process of its own that outlives the daemon: when the daemon is upgraded or
 // restarted, the new one adopts the programs it left (`adopt`), with what they wrote meanwhile, and nothing a tile
 // runs notices. PtyPane (src/desk/pty.ts) draws the program either way; only this seam knows which.

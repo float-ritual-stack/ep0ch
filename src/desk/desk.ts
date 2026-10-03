@@ -56,7 +56,7 @@ import { allKindActions, kindActions, kindForKey, kindNoun, kindOf, lastKindOf, 
 interface SavedDesk { root: SavedTree; focus: number; rule?: OpenRule; layout?: string; rev?: number; next?: { tile?: number; node?: number }; policy?: Policy; floats?: SavedFloat[]; models?: Record<string, unknown> }
 /** The desk's own spec (PIE-515): the desk as it has always opened, kept in desk.json, and the screen that loads named layouts. */
 export function deskSpec(): ScreenSpec {
-  // A layout saved under the name "desk" is the desk's own, as it always was.
+  // A layout saved under the name "desk" is the desk's own.
   return { name: "desk", title: "desk", layout: layoutNamed("desk")?.spec ?? builtin("desk")!, saves: "desk.json", layouts: true };
 }
 /** Frame glyphs by a spec's `frame`. */
@@ -367,7 +367,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // The open rule is the screen's policy now (PIE-513); a spec's `rule` says it as it did.
     const policy = { ...policyOf(spec.policy), ...(spec.rule === "next" ? { opens: "next" as const } : {}) };
     const next = init({ tree, names, floats, collapsed: folded, links, policy }, this.layout, { freshIds: !restore });
-    // Nothing left to show (a saved layout of empty tab sets): the desk as it always opened.
+    // Nothing left to show (a saved layout of empty tab sets): the layout named desk.
     if (!leaves(next.tree).length) return this.build(layoutNamed("desk")!.spec, reuse);
     this.state = next;
     const ids = this.all();
@@ -652,7 +652,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       const at = this.idOf(opts.from);
       // In a flow (the river's columns): a new column after its own, as its kind opens one.
       if (at !== undefined && this.inFlow(at)) { if (this.openNext(at, m, opts.by ?? USER, true) !== undefined) return this.redraw(); }
-      // A held reader: a detail by another name, as it has been since PIE-441.
+      // A held reader: a detail by another name.
       if (at !== undefined && this.openReader(m, { kind: "split", target: at, dir: "right" }, opts.by ?? USER)) return this.redraw();
     }
     const from = this.idOf(opts.from);
@@ -1666,7 +1666,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         put(` ${this.numLabel(t)}${this.nameOf(t)} `, on ? selected(focused, "idleRow") : fg(C.grey), t);
       });
     } else if (this.plainName(id)) {
-      // A tile named only by its kind reads as it always did: its number, then its title.
+      // A tile named only by its kind reads as its number, then its title.
       if (this.numbered) put(`${this.numberOf(id)}`, fg(focused ? C.white : C.dark), id);
       this.putMarks(id, put, xNow, r.row);
       put(`${this.numbered ? " " : ""}${this.panes.get(id)!.title()}`, fg(focused ? C.lcyan : C.cyan), id);

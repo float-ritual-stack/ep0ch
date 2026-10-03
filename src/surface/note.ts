@@ -297,6 +297,8 @@ export function readableSource(m: Msg, src: Source | null): { text: string; line
 }
 /** Text from elsewhere (an extension's output) without control characters, its lines and tabs kept. */
 const printableBlock = (s: string) => printable(s, "", { lines: true });
+/** A link drawn: its text, tagged with its place in `drawn` (what [ ], ⏎ and a click find it by). */
+const tagged = (drawn: Link[], to: Link, text: string) => linkTag(drawn.push(to) - 1) + text + LINK_END;
 /** ctrl+s on a comment or reply being written (not while its completion popup is open, which takes keys first). */
 const sessionKey = (s: CommentSession, k: Key, c: string) => s.mode === "compose" && !!s.composer && !s.busy && !s.composer.busy && k.kind === "char" && !!k.ctrl && k.ch === c && !completerOf(s.composer)?.shown;
 const sessionSend = (s: CommentSession, k: Key) => sessionKey(s, k, "s");
@@ -782,22 +784,13 @@ export class NoteSurface {
     const top = head.length, t = host?.ctx.t;
     const key = `${w}x${h}|${top}|${summaryRow}|${m.revision ?? ""}|${m.text.length}|${host?.ctx.graphics ? 1 : 0}|${t?.cellW}x${t?.cellH}`;
     if (onlyScrolled() && this.laid?.m === m && this.laid.key === key) return this.laid;
-    // Component renderers are resolved once per note shown, as Detail resolves them once per load.
-    if (this.components.for !== m.id) this.components = { for: m.id, catalog: new ComponentCatalog() };
-    const env: DocEnv = {
-      width: Math.max(1, w - 1), cellW: t?.cellW ?? 9, cellH: t?.cellH ?? 18, graphics: !!host?.ctx.graphics,
-      maxImageRows: Math.max(4, Math.round((h - head.length) * 0.8)), unfold: this.unfold, components: this.components.catalog,
-    };
-    const { text: source, points, lines: noteLines, literal } = this.foldsIn(m);
-    this.keepFolds(points);
+    const env = this.docEnv(m, Math.max(1, w - 1), t, !!host?.ctx.graphics, Math.max(4, Math.round((h - head.length) * 0.8)));
     // Every link drawn (the body's, an embed's title, results, text and step boxes) is tagged with its place in `drawn`.
     const drawn: Link[] = [];
     // Resource projections (PIE-445): each drawn after the last body line at or above its anchor (a ticket
     // page's, on the subject or its preamble, above the first), its age painted now.
     // A Resource or a file shown as a note isn't a block: nothing the outline keeps for blocks is asked for it.
-    const outline = isOutlineNote(m);
-    const regions = this.projectionRegions(outline ? projectionsOf(m, src) : [], noteLines);
-    const now = Date.now(), bodyText = source.split("\n");
+    const outline = isOutlineNote(m), now = Date.now();
     // Resource tokens (`[file::…]`, `[jira::KEY]`) as the service names them: links that show the Resource.
     const tokens = resourceTokensOf(m, src);
     // An extension's output (PIE-512) is drawn as this reader draws a note's body: its Markdown, inert (no
@@ -807,23 +800,17 @@ export class NoteSurface {
       markdown: (text: string, width: number) => renderDoc(presentLinks(printableBlock(text), false, null), {
         ...env, width, graphics: false, folds: undefined, after: undefined, embed: undefined, task: undefined, link: undefined, literal: undefined, present: undefined, keepTags: false,
       }).lines,
-      row: (block: string, text: string) => linkTag(drawn.push({ block, role: "row" }) - 1) + text + LINK_END,
+      row: (block: string, text: string) => tagged(drawn, { block, role: "row" }, text),
       hostKeys: host?.ownKeys ?? "",
     };
-    const rendered = renderDoc(presentLinks(source, true, src, m.text, drawn, tokens), {
-      ...env, ...this.bodyHooks(m, noteLines, env, src, drawn),
-      // A component's labels and values: links in them are links like the body's.
-      present: text => presentLinks(text, false, src, m.text, drawn, tokens),
-      folds: { points, folded: this.folded, selected: this.foldSel },
-      literal,
-      // A live figure's rows that stand for notes are links too (PIE-441).
-      link: (block, text) => linkTag(drawn.push({ block, role: "row" }) - 1) + text + LINK_END,
-      ...(regions.size ? {
+    const { doc: rendered, points, lines: noteLines } = this.body(m, env, src, drawn, tokens, (source, noteLines) => {
+      const regions = this.projectionRegions(outline ? projectionsOf(m, src) : [], noteLines), bodyText = source.split("\n");
+      return regions.size ? {
         after: (line: number, width: number) => {
           const ps = regions.get(line);
           if (!ps) return [];
           const indent = line >= 0 ? /^[ \t]*/.exec(bodyText[line] ?? "")![0].length : 0;
-          const tag = (to: LinkTarget, text: string) => linkTag(drawn.push(to) - 1) + text + LINK_END;
+          const tag = (to: LinkTarget, text: string) => tagged(drawn, to, text);
           // A ticket kept as a block (PIE-445), and an extension's record (PIE-507), is drawn from that block:
           // on a page, all of it under its line; on the ticket block itself, its header on top and its
           // comments after the body. An extension's other lines (an output, a component, an @name request)
@@ -833,7 +820,7 @@ export class NoteSurface {
             : p.kind ? extensionRegion(p, width, indent, now, tag, extDraw)
             : projectionRegion([p], width, indent, now, tag));
         },
-      } : {}),
+      } : {};
     });
     // Expanded comment threads (PIE-420) are drawn under their passage, as rows of the body; an open status
     // choice (PIE-472) under its step.
@@ -857,6 +844,26 @@ export class NoteSurface {
     return (this.laid = { m, key, doc, drawn, picks, controls, body, marks, lines: noteLines, elems });
   }
 
+  /** What the note's body is drawn with, at `width`: component renderers resolved once per note shown, as Detail does. */
+  private docEnv(m: Msg, width: number, t: { cellW?: number; cellH?: number } | undefined, graphics: boolean, maxImageRows: number): DocEnv {
+    if (this.components.for !== m.id) this.components = { for: m.id, catalog: new ComponentCatalog() };
+    return { width, cellW: t?.cellW ?? 9, cellH: t?.cellH ?? 18, graphics, maxImageRows, unfold: this.unfold, components: this.components.catalog };
+  }
+
+  /** The note's body for the reader and a host's digest (folds, links, embeds, steps, tagged into `drawn`); `more`: the reader's own. */
+  private body(m: Msg, env: DocEnv, src: Source | null, drawn: Link[], tokens?: ReturnType<typeof resourceTokensOf>, more?: (text: string, lines: readonly number[]) => Partial<DocEnv>) {
+    const { text, points, lines, literal } = this.foldsIn(m);
+    this.keepFolds(points);
+    const doc = renderDoc(presentLinks(text, true, src, m.text, drawn, tokens), {
+      ...env, literal, ...this.bodyHooks(m, lines, env, src, drawn),
+      present: x => presentLinks(x, false, src, m.text, drawn, tokens),
+      folds: { points, folded: this.folded, selected: this.foldSel },
+      link: (block, x) => tagged(drawn, { block, role: "row" }, x),
+      ...more?.(text, lines),
+    });
+    return { doc, points, lines };
+  }
+
   /**
    * The body's transclusions and steps, the same for the reader's own render and a host's digest: each
    * `!((…))` drawn by src/embeds.ts from the service's projection, its body drawn the way this reader draws
@@ -876,7 +883,7 @@ export class NoteSurface {
       return renderDoc(presentLinks(text, true, src, target.text, drawn), {
         ...env, width, graphics: false, literal: lit, keepTags: true, folds: undefined, after: undefined,
         present: t => presentLinks(t, false, src, target.text, drawn),
-        link: (block, t) => linkTag(drawn.push({ block, role: "row" }) - 1) + t + LINK_END,
+        link: (block, t) => tagged(drawn, { block, role: "row" }, t),
         embed: hooks.embed, task: (i, box) => hooks.task(lines[i] ?? -1, box),
       }).lines;
     };
@@ -890,7 +897,7 @@ export class NoteSurface {
         const line = noteLines[i] ?? -1, st = stepAt.get(line);
         // A read of an earlier revision (the note is being read again) offers a step only where it still stands.
         if (st && steps && steps.revision !== m.revision && !stepStillOn(st, m.text, line)) return null;
-        return st && steps ? LINK_ON + linkTag(drawn.push({ role: "task", block: m.id, task: { block: m.id, revision: steps.revision, step: st } }) - 1) + box + LINK_END + LINK_OFF : null;
+        return st && steps ? LINK_ON + tagged(drawn, { role: "task", block: m.id, task: { block: m.id, revision: steps.revision, step: st } }, box) + LINK_OFF : null;
       },
     };
   }
@@ -909,18 +916,8 @@ export class NoteSurface {
     const src = this.use(host);
     this.drawn = null;
     this.digesting = true;
-    const t = host.ctx.t;
-    if (this.components.for !== m.id) this.components = { for: m.id, catalog: new ComponentCatalog() };
-    const env: DocEnv = { width: Math.max(1, w), cellW: t?.cellW ?? 9, cellH: t?.cellH ?? 18, graphics: false, maxImageRows: 8, unfold: this.unfold, components: this.components.catalog };
-    const { text, lines: noteLines, literal, points } = this.foldsIn(m);
-    this.keepFolds(points);
     const drawn: Link[] = [];
-    const rendered = renderDoc(presentLinks(text, true, src, m.text, drawn), {
-      ...env, literal, ...this.bodyHooks(m, noteLines, env, src, drawn),
-      present: x => presentLinks(x, false, src, m.text, drawn),
-      folds: { points, folded: this.folded, selected: this.foldSel },
-      link: (block, x) => linkTag(drawn.push({ block, role: "row" }) - 1) + x + LINK_END,
-    });
+    const { doc: rendered, points } = this.body(m, this.docEnv(m, Math.max(1, w), host.ctx.t, false, 8), src, drawn);
     const { doc, picks } = this.pickerRows(rendered, drawn, Math.max(1, w));
     this.elems = this.elementsOf(doc, drawn, [], [], [], points, 0, [], 0);
     this.keepCurrent(host);

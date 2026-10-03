@@ -482,7 +482,7 @@ export class AgentDock {
 
   /**
    * The person goes into the drawer (ctrl+], a click in it): their keys are the agent's. One that exited waits
-   * for ⏎ (`restart`), as it always has: going in only says so.
+   * for ⏎ (`restart`): going in only says so.
    */
   enter(send?: string, restart = false): { entered: boolean; restarted?: boolean } {
     if (!this.shown) throw new ActionRefused("the agent drawer is put away · alt+a pulls it up");

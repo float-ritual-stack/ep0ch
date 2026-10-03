@@ -28,7 +28,6 @@ import type { SavedTree, TileSpec } from "../desk/tiles";
 import { TILE_ACTIONS } from "../desk/tile-actions";
 import { PANE_ACTIONS } from "../desk/pane-actions";
 import { BOARD_ACTIONS } from "../desk/lanes";
-import { boardScreen } from "../desk/screen-specs";
 import { COLUMN_ACTIONS } from "../river/column";
 import { ActivityPane, ReaderPane, ThreadPane, TreePane, WhoPane, type DeskApi, type Pane, type PaneView } from "../desk/panes";
 import { MessageReader, SHELL_ACTIONS } from "../screens";
@@ -188,7 +187,7 @@ export const SECTIONS: Section[] = [
   },
   {
     key: "spine", need: "squeeze a tile to a title strip", part: "the spine part: drawSpine, SPINE (c collapses a lane or a reader, alt+c opens all)", files: "src/spine.ts, on the board: src/desk/delivery.ts",
-    stage(n) { return boardScreen(n.hub?.id, false); },
+    stage(n) { return openScreen("board", { hub: n.hub?.id, persist: false }); },
   },
   {
     key: "entity", need: "show children, outlinks, backlinks, resources", part: "entity navigation: u, [ ] and ⏎ on links in the surface; children in the thread tile; a row's links in the tree (L)", files: "src/surface/note.ts, src/desk/tree.ts, src/authored.ts, references.backlinks in src/socket.ts, src/backlinks.ts",

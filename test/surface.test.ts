@@ -9,7 +9,7 @@ import { agentActor, App } from "../src/app";
 import type { Msg } from "../src/board";
 import { CommentSession } from "../src/comment";
 import { Desk } from "../src/desk/desk";
-import { boardScreen } from "../src/desk/screen-specs";
+import { boardScreen } from "./board-view";
 import { ReaderPane } from "../src/desk/panes";
 import { Draft } from "../src/edit";
 import { draftRule, recordAs } from "../src/draft-session";

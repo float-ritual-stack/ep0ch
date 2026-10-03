@@ -6,7 +6,8 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { App } from "../src/app";
-import { boardScreen, openScreen } from "../src/desk/screen-specs";
+import { openScreen } from "../src/desk/screen-specs";
+import { boardScreen } from "./board-view";
 import * as BV from "./board-view";
 import { Conferences, MainMenu, MessageList, MessageReader, Stats } from "../src/screens";
 import { SocketBoard } from "../src/socket";

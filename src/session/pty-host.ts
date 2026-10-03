@@ -18,6 +18,7 @@ import { join } from "node:path";
 import type { Subprocess } from "bun";
 import { privateDir, stateDir } from "../state";
 import type { Adopted, PtyBackend, PtyMeta, PtyProc, PtyStart } from "../desk/pty-backend";
+import { frameBytes, FrameSplitter } from "./protocol";
 import { spawnReady } from "./start";
 import { jsonLine, listening } from "../jsonl";
 
@@ -34,30 +35,17 @@ type T = "h" | "s" | "w" | "z" | "k" | "f" | "m" | "q" | "l" | "r" | "y" | "p" |
 const RAW = new Set<T>(["w", "r", "o"]);
 
 export function frame(t: T, id: number, body: Uint8Array | string | object = ""): Buffer {
-  const payload = body instanceof Uint8Array ? Buffer.from(body) : Buffer.from(typeof body === "string" ? body : JSON.stringify(body), "utf8");
-  const head = Buffer.alloc(9);
-  head.write(t, 0, "latin1");
-  head.writeUInt32BE(id >>> 0, 1);
-  head.writeUInt32BE(payload.length, 5);
-  return Buffer.concat([head, payload]);
+  return frameBytes(t, body instanceof Uint8Array ? Buffer.from(body) : Buffer.from(typeof body === "string" ? body : JSON.stringify(body), "utf8"), id);
 }
 
 export interface HostFrame { t: T; id: number; raw: Buffer; json: any }
 export class HostFrames {
-  private buf: Buffer = Buffer.alloc(0);
+  private readonly split = new FrameSplitter(9);
   push(chunk: Buffer): HostFrame[] {
-    this.buf = this.buf.length ? Buffer.concat([this.buf, chunk]) : chunk;
-    const out: HostFrame[] = [];
-    while (this.buf.length >= 9) {
-      const len = this.buf.readUInt32BE(5);
-      if (len > 64 << 20) throw new Error(`a frame of ${len} bytes is over the limit`);
-      if (this.buf.length < 9 + len) break;
-      const t = String.fromCharCode(this.buf[0]!) as T, id = this.buf.readUInt32BE(1);
-      const raw = Buffer.from(this.buf.subarray(9, 9 + len));
-      this.buf = this.buf.subarray(9 + len);
-      out.push({ t, id, raw, json: RAW.has(t) || !raw.length ? null : JSON.parse(raw.toString("utf8")) });
-    }
-    return out;
+    return this.split.push(chunk).map(({ head, body }) => {
+      const t = String.fromCharCode(head[0]!) as T, raw = Buffer.from(body);
+      return { t, id: head.readUInt32BE(1), raw, json: RAW.has(t) || !raw.length ? null : JSON.parse(raw.toString("utf8")) };
+    });
   }
 }
 

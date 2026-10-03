@@ -12,7 +12,7 @@ import { Logon, MainMenu } from "../src/screens";
 import { skillCommand, skillsIn } from "../src/skills";
 import { SocketBoard } from "../src/socket";
 import { landingOf, startScreens } from "../src/start";
-import { boardScreen } from "../src/desk/screen-specs";
+import { boardScreen } from "./board-view";
 import type { Key } from "../src/term";
 import { outliner, Scratch, until } from "./scratch";
 

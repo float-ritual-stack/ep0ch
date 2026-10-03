@@ -9,7 +9,7 @@ import { CP437_HIGH } from "../src/ansi";
 import { App } from "../src/app";
 import type { Msg } from "../src/board";
 import { primitiveLines } from "../src/components";
-import { boardScreen } from "../src/desk/screen-specs";
+import { boardScreen } from "./board-view";
 import * as BV from "./board-view";
 import { Desk, searchPreviewLines } from "../src/desk/desk";
 import { renderGraph } from "../src/graphs";
