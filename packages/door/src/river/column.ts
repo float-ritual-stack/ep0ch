@@ -279,6 +279,7 @@ export class RiverColumn extends ReaderPane {
     const r = this.linkList()[j];
     if (!r) throw new ActionRefused(`no link row ${j + 1} in ${this.titleOf()}`);
     if (r.kind === "group" || r.kind === "kind") {
+      if (actor.kind === "agent") throw new ActionRefused("which groups are folded is the person's view · peek reads every row (noteLinks)");
       if (r.kind === "group") { if (this.linkShut.has(r.group)) this.linkShut.delete(r.group); else this.linkShut.add(r.group); }
       desk.redraw();
       return { group: r.kind === "group" ? r.group : r.group.kind };
@@ -591,8 +592,7 @@ export class RiverColumn extends ReaderPane {
     // A card escalates as every list's row does (RowPresses): a click selects it, a double click or an alt-, ctrl- or
     // middle-click opens it in the next column (⏎); the click that gave the column the keys only selects.
     const g = row && row.card >= 0 && !link ? this.presses.press(row.card, { mods: k.mods ?? 0, button: k.button, focusing: press?.focusing ?? this.justFocused }) : "select";
-
-    const same = g === "open" || g === "fresh"
+    const same = g === "open" || g === "fresh";
     if (!(row && row.card >= 0 && !link)) this.presses.forget();                 // a press elsewhere: the next on a card starts afresh
     if (row && row.card >= 0 && !link) this.run(desk, "column.select", { n: row.card + 1, scroll: false });
     const fold = !link && row?.fold && x >= 1 && x <= row.fold.to ? row.fold.n : undefined;

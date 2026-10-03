@@ -227,6 +227,8 @@ describe.skipIf(!outliner)("a calm river, against a scratch outline", () => {
     const links = () => (log().describe() as any).noteLinks as { shown: boolean; rows: any[] };
     await until(() => links().rows.some(r => r.kind === "backlink" && r.text === "Paint the boathouse door"), "the log's backlinks under its replies");
     expect(plain(draw().join("\n"))).toContain("── ▾ links");
+    // An agent reads them (peek's noteLinks); folding a group is the person's.
+    await expect(act("column.link", { n: 1 }, V().name(log()))).rejects.toThrow("the person's view");
     // The person's keys in the log: j past its cards (it has none) lands on the links' rows.
     const r = rectOf("Harbour log");
     click(r.col + 3, r.row + 1);

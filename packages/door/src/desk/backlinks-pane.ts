@@ -13,13 +13,13 @@ import { isOutlineNote, type AuthoredLinksSnapshot } from "../authored";
 import { describeLinkRow, isLinkEntry, isLinkGroup, linkBlock, linkNote, linkRowLine, linkRows, type LinkData, type LinkGroupName, type LinkRow, type Load } from "../links";
 import { subject, type Msg } from "../board";
 import {
-  backlinkOptionsFrom, backlinkRowSuffix, backlinkRows, backlinkStageSummary, backlinkStatusParts, backlinkView, DEFAULT_BACKLINK_VIEW_OPTIONS,
-  describeBacklinkView, fitBacklinkRow, nextBacklinkKindFilter, nextBacklinkSort, nextBacklinkStageFilter,
-  type BacklinkCollection, type BacklinkControl, type BacklinkRow, type BacklinkStatusPart, type BacklinkViewOptions,
+  backlinkOptionsFrom, backlinkStatusParts, backlinkView, DEFAULT_BACKLINK_VIEW_OPTIONS,
+  describeBacklinkView, nextBacklinkKindFilter, nextBacklinkSort, nextBacklinkStageFilter,
+  type BacklinkCollection, type BacklinkControl, type BacklinkStatusPart, type BacklinkViewOptions,
 } from "../backlinks";
 import { USER, type Actor, type OutlineEvent } from "../socket";
 import { ActionRefused, actionSet, def, agentLabel } from "../surface/actions";
-import { C, fg, pad, RESET, selected, width } from "../style";
+import { C, fg, pad, RESET, width } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
 import { runOwn, type DeskApi, type Pane, type PaneView } from "./panes";
 import { RowView, type RowPress } from "../scroll";
@@ -48,20 +48,6 @@ export function layoutBacklinkStatus(parts: readonly BacklinkStatusPart[], cols:
     put(p.text, sgrOf(p), p.control);
   });
   return { segs, rows: y + 1 };
-}
-
-/** One row as drawn: a kind group's header (its count and stages), or a source with its dim suffix. */
-export function backlinkRowLine(row: BacklinkRow, o: { selected: boolean; focused: boolean; faceted: boolean; cols: number }): string {
-  const on = o.selected ? selected(o.focused, "idleRow") : "";
-  if (row.kind === "group") {
-    const g = row.group;
-    const head = ` ${row.expanded ? "−" : "+"} ${g.label} ${g.sources.length}`;
-    return on + (o.selected ? "" : fg(C.yellow)) + head + (o.selected ? "" : fg(C.grey)) + pad(backlinkStageSummary(g), Math.max(0, o.cols - width(head))) + RESET;
-  }
-  const indent = o.faceted ? "   " : " ";
-  const f = fitBacklinkRow(row.source.title, backlinkRowSuffix(row.source), o.cols - indent.length);
-  const tail = f.suffix ? `${o.selected ? "" : fg(C.dark)} — ${f.suffix}` : "";
-  return on + (o.selected ? "" : fg(C.white)) + pad(`${indent}${f.title}${tail}`, o.cols) + RESET;
 }
 
 const rowKey = (r: LinkRow | undefined) => r?.key;

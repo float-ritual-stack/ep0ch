@@ -12,6 +12,7 @@ import type { Ctx, Frame, Screen, ViewState } from "../app";
 import { bodyLinesOf, subject, type Msg } from "../board";
 import { Canvas, DOTTED_BOX, overflows, scrollPct, type BoxGlyphs, type Rect } from "../canvas";
 import { sideways, SidewaysWheel, type RowPress } from "../scroll";
+import { readLinks } from "../links";
 import type { Placement } from "../kitty";
 import { whoOf, USER, type Actor, type OutlineEvent } from "../socket";
 import { ActionRefused, ActionSet, actionSet, def, asBoundKey, hintSpots, keyName, type ActRequest } from "../surface/actions";
@@ -868,14 +869,14 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * through (the focused reader, else the one following their columns); it follows the reader that shows it, its
    * drawer slides open, and the keys go to it. Resolves once the service has answered.
    */
-  async aimBacklinks(L: Pane & { source: string; show(m: Msg, desk: DeskApi): Promise<void> }, m: Msg | null): Promise<void> {
+  async aimBacklinks(L: Pane & { source: string; show(m: Msg, desk: DeskApi): Promise<void> }, m: Msg | null, given?: ReaderPane): Promise<void> {
     const lid = this.idOf(L);
     if (lid === undefined) throw new ActionRefused("that backlinks tile isn't on this screen");
     const readers = [...this.panes.values()].filter((p): p is ReaderPane => p instanceof ReaderPane && !this.inShutting(p));
     const f = this.panes.get(this.focus);
     const forKeys = (f instanceof ReaderPane && !this.inShutting(f) ? f : undefined) ?? this.readerOfFocus()
       ?? readers.find(r => { const k = kindOf(r)?.follows?.(r); return !!k && this.columnsIn().some(c => c.key === k); }) ?? readers[0];
-    const reader = (m ? readers.find(r => r.msg?.id === m.id) : undefined) ?? forKeys;
+    const reader = given ?? (m ? readers.find(r => r.msg?.id === m.id) : undefined) ?? forKeys;
     const note = m ?? reader?.msg ?? null;
     if (!note) throw new ActionRefused("nothing in that reader to find backlinks for");
     const rid = this.idOf(reader);
@@ -914,14 +915,13 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       L = kind.aim!(made);
       opened = true;
     }
-    if (person) await this.aimBacklinks(L, m);
+    if (person) await this.aimBacklinks(L, m, r as ReaderPane);
+    else if (opened) await L.show(m, this);                                       // its own new tile: nobody else's list
     else {
-      L.source = this.nameOf(rid);
-      const d = drawerOf(this.root, this.idOf(L)!);
-      if (d && !d.open) this.apply({ op: "drawer", tile: this.idOf(L)!, open: true }, actor);
-      await L.show(m, this);
-      this.redraw();
+      // The person's list stays as it is (its note, its selection): an agent reads the note's links instead.
+      return { tile: this.nameOf(this.idOf(L)!), of: m.id, opened, links: await readLinks(this.ctx.board, m.id) };
     }
+    this.redraw();
     return { tile: this.nameOf(this.idOf(L)!), of: m.id, opened, links: L.describe() };
   }
 

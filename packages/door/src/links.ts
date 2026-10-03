@@ -256,6 +256,14 @@ export function linkTargetOf(r: LinkRow): LinkTarget | null {
   return null;
 }
 
+/** A note's links as an agent reads them: every row as the list numbers them, every group open, nobody's view changed. */
+export async function readLinks(board: Pick<SocketBoard, "authoredLinks" | "backlinks">, id: string) {
+  const ask = <T>(p: Promise<T>): Promise<Load<T>> => p.then(value => ({ kind: "ready" as const, value }), (e: Error) => ({ kind: "error" as const, message: `couldn't ask: ${e.message}` }));
+  const [links, backlinks] = await Promise.all([ask(board.authoredLinks(id)), ask(board.backlinks(id))]);
+  const kinds = backlinks.kind === "ready" ? new Set(backlinkView(backlinks.value, DEFAULT_BACKLINK_VIEW_OPTIONS).kinds.map(k => k.kind)) : new Set<string>();
+  return { rows: linkRows({ links, backlinks }, { shut: new Set(), kinds, backlinks: DEFAULT_BACKLINK_VIEW_OPTIONS }).map((r, i) => describeLinkRow(r, i + 1, false)) };
+}
+
 // ── the inline component: `::links`, `::resources`, `::backlinks` ────────────────────────────────────
 
 /** The inline component's names: every group, or one. */
@@ -331,8 +339,15 @@ const cache = new Map<string, { data: LinkData; at: number }>();
 
 /** The door's outline connection and its repaint, for the inline components. */
 export function setLinksSource(b: LinksBoard, redraw: () => void) { source = b; changed = redraw; cache.clear(); }
-/** The outline changed: every component asks again on its next draw (what it showed stays meanwhile). */
-export function invalidateLinks() { generation++; }
+let settling: Timer | null = null;
+/**
+ * The outline changed: every component asks again on its next draw, once the burst settles (500 ms, as the links
+ * tile waits), so a run of changes asks once; what it showed stays meanwhile.
+ */
+export function invalidateLinks() {
+  if (settling) return;
+  settling = setTimeout(() => { settling = null; generation++; changed(); }, 500);
+}
 
 /** Block `id`'s links as last answered, asked for in the background when there's no answer or it's stale. */
 export function linksOf(id: string): LinkData | null {

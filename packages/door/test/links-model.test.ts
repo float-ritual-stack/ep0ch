@@ -170,12 +170,29 @@ describe.skipIf(!outliner)("the links tile, b, and the inline component, against
     await D().dispatch.act({ action: "backlinks.fold", tile: "backlinks", args: { kind: "outlinks" } }, USER);
   }, 60_000);
 
-  test("an agent's links leaves the person's keys where they are", async () => {
+  test("an agent's links reads them: the person's keys, their list's note and its selection stay as they were", async () => {
     D().focus = D().idNamed("reader");
+    desk.setCurrent(n.notes);
+    await until(() => reader().msg?.id === n.notes.id && list().target?.id === n.notes.id && !!list().data, "another note in the reader, its links listed");
+    await Bun.sleep(200);
+    const was = { target: list().target?.id, sel: list().sel };
     const r: any = await app.act({ action: "links", tile: "reader", as: "walker-3" });
     expect(r.tile).toBe("backlinks");
     expect(r.opened).toBe(false);
+    expect(r.links.rows.some((x: any) => x.kind === "outlink" && x.id === n.plan.id)).toBe(true);
     expect(focusName()).toBe("reader");
+    await Bun.sleep(100);
+    expect({ target: list().target?.id, sel: list().sel }).toEqual(was);
+  }, 60_000);
+
+  test("refusals: a resource has no links; a screen without room says so; an agent doesn't fold a river column's groups", async () => {
+    // A Resource shown in the reader isn't a block.
+    const res = { id: "resource:made-up", text: "rota.md\n\nnothing", parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "resource", props: {} };
+    desk.setCurrent(res as Msg);
+    await until(() => reader().msg?.id === res.id, "the resource in the reader");
+    await expect(D().dispatch.act({ action: "links", tile: "reader" }, USER)).rejects.toThrow("isn't a block");
+    desk.setCurrent(n.plan);
+    await until(() => reader().msg?.id === n.plan.id, "the plan again");
   }, 60_000);
 
   test("::resources and ::backlinks in a note draw the same rows inline; a row is a link the reader opens", async () => {

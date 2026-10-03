@@ -1171,7 +1171,7 @@ export class Lanes implements SourceModel {
     if (d && k.action === "drag") { d.over = this.laneAtPoint(k.x, k.y)?.i ?? this.laneOver(k.x, k.y); this.host.redraw(); return true; }
     if (d && k.action === "up") {
       this.cardDrag = null;
-      // Released over another lane: move it there. Released where it started: a click (a double click opens it).
+      // Released over another lane: move it there. Released where it started: a click, which opens it when it was a double click.
       if (d.over !== null && d.over !== d.from) { if (this.lane === d.from && this.card()?.id === d.card.id) void this.run("card.move", { lane: this.lanes[d.over]!.name, card: d.card.id }); }
       else if (d.open) void this.host.perform?.("open", { id: d.card.id, from: this.host.nameOfPane(this.lanes[d.from]!), ...(d.open === "fresh" ? { fresh: true } : {}) }, USER);
       this.host.redraw();
