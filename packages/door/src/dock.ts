@@ -72,13 +72,14 @@ class DockTile extends PtyPane {
 /** The dock's own kind, registered once: a terminal's actions and keys, closable and draggable off (its policy). */
 function registerDockKind() {
   if (tileKind(DOCK_KIND)) return;
-  const pty = tileKind("pty");
+  // The terminal kind's own hooks (its keys, its views, what it holds), all but how one is made, its ^W o keys and its
+  // start (the dock gives its own tile its id and home), so the two never drift apart.
+  const { kind: _k, keys: _keys, make: _m, start: _s, actions: _a, about: _ab, noun: _n, ...pty } = tileKind("pty")!;
   registerTileKind({
+    ...pty,
     kind: DOCK_KIND, about: "the dock's own program (EP0CH_DAILY_AGENT, else a shell): the dock's first tab, the host layer's", noun: "a terminal tile",
     make: () => new UnavailableTile(DOCK_KIND, "the dock's own tab is the dock's (alt+a pulls it up)"),
-    inherits: [PTY_ACTIONS], policy: { closable: false, draggable: false },
-    ...(pty?.press ? { press: pty.press } : {}), ...(pty?.holdsWork ? { holdsWork: pty.holdsWork } : {}), ...(pty?.whenFree ? { whenFree: pty.whenFree } : {}),
-    ...(pty?.view ? { view: pty.view } : {}), ...(pty?.describe ? { describe: pty.describe } : {}),
+    inherits: [PTY_ACTIONS], policy: { ...(pty.policy ?? {}), closable: false, draggable: false },
   });
 }
 /** The drawer's height, as a share of the rows above the status bar: at least this, at most that. */
@@ -187,7 +188,8 @@ export class AgentDock {
     if (this.d) return this.d;
     const ctx = this.host.ctx?.();
     if (!ctx) return null;
-    const d = new Desk(hostSpec(this.persist), { given: new Map([[DOCK_TILE_ID, this.pane()]]), where: () => this.whereIn() });
+    // Its tiles' ids are `k<n>`: a docked tile's id is never a screen tile's (tile= reaches either by id).
+    const d = new Desk(hostSpec(this.persist), { given: new Map([[DOCK_TILE_ID, this.pane()]]), where: () => this.whereIn(), idPrefix: "k" });
     this.d = d;
     d.enter(ctx);
     d.shownAs(this.shown);
@@ -201,6 +203,10 @@ export class AgentDock {
     const k = this.d.keys();
     return { ...base, focus: k.focus, typingIn: k.typingIn ?? k.focus, busy: true, keys: "host" };
   }
+  /** The dock's desk when it has been made (reading this never makes it). */
+  get made(): Desk | null { return this.d; }
+  /** The tile the person types in, in the dock (its tile name; the dock's own is `dock.agent`), or null. */
+  typingTile(): string | null { if (!this.entered) return null; const k = this.d?.keys(); return k?.typingIn ?? k?.focus ?? DOCK_TILE_ID; }
   /** `d` is the dock's desk. */
   isDock(d: unknown): boolean { return !!d && d === this.d; }
   /** The dock's tiles, as tabs: the dock's own first. */
@@ -327,6 +333,8 @@ export class AgentDock {
 
   /** The chip in two parts: what it's doing, and what it knows (drawn in yellow when it offers ⟳). */
   private chipParts(now: number): { head: string; knows: string } {
+    // A drag that ended by a key (esc, f, p, a) leaves no mouse event here: the light goes out with it.
+    if (this.dropHover) { const sc = this.host.screen?.(); if (!(sc instanceof Desk) || !sc.draggedTile()) this.dropHover = null; }
     const s = this.state(now);
     if (s !== "off" && s !== "exited") this.pollKnows(now);
     const what = this.restarting ? "restarting" : s === "off" ? "" : s === "blocked" ? "needs you" : s === "exited" ? `exited ${this.p?.exited ?? ""}`.trim() : s;
@@ -485,6 +493,7 @@ export class AgentDock {
     const d = this.desk;
     if (!d) throw new ActionRefused("the dock isn't ready (no screen is shown yet)");
     if (from === d) throw new ActionRefused(`${name} is in the dock already`);
+    this.dropHover = null;
     const kind = (from.pane(name) as { kind?: string } | undefined)?.kind ?? "tile";
     const out = from.takeRefusal(name, actor);
     if (out) throw new ActionRefused(out);
@@ -492,7 +501,7 @@ export class AgentDock {
     const into = d.bringRefusal(spec, undefined, "tabs", actor);
     if (into) throw new ActionRefused(`the dock doesn't take ${name}: ${into}`);
     const moved = from.takeOut(name, actor);
-    const done = this.bring(d, moved, undefined, "tabs", actor, () => from.bringIn(moved, undefined, undefined, USER));
+    const done = this.bring(d, moved, undefined, "tabs", actor, a => from.bringIn(moved, undefined, undefined, a));
     if (actor.kind !== "agent") {
       // Shown on its tab, the drawer up; the keys come along only when they were in it.
       d.run("tab.select", {}, done.tile);
@@ -522,17 +531,25 @@ export class AgentDock {
     if (into) throw new ActionRefused(`the ${screen.title} doesn't take ${name} there: ${into}`);
     const wasIn = this.entered;
     const moved = d.takeOut(name, actor);
-    const done = this.bring(screen, moved, to, where, actor, () => d.bringIn(moved, undefined, "tabs", USER));
+    const done = this.bring(screen, moved, to, where, actor, a => d.bringIn(moved, undefined, "tabs", a));
     // The person's keys were in it in the drawer: they go with it, back on the screen.
     if (wasIn && actor.kind !== "agent") { this.do({ op: "focus", tile: HOST_SCREEN }, actor); screen.focusTile(done.tile, actor); }
     this.host.redraw();
     return { ...done, docked: false, into: screen.title };
   }
 
-  /** `bringIn`, and if it's refused after all (a race), the tile goes back where it came from: never lost. */
-  private bring(to: Desk, moved: MovedTile, at: string | undefined, where: Where | undefined, actor: Actor, back: () => unknown): TileDone {
+  /** `bringIn`, and if it's refused after all (a race), the tile goes back where it came from, for the same actor: never lost. */
+  private bring(to: Desk, moved: MovedTile, at: string | undefined, where: Where | undefined, actor: Actor, back: (actor: Actor) => unknown): TileDone {
     try { return to.bringIn(moved, at, where, actor); }
-    catch (e) { try { back(); } catch { /* nowhere: it's ended below */ } throw e; }
+    catch (e) { try { back(actor); } catch { /* nowhere: it's ended below */ } throw e; }
+  }
+
+  /** A tile still running on a screen that goes for good: into the dock, behind the tab shown, nobody's keys moved. */
+  keep(moved: MovedTile): void {
+    const d = this.desk;
+    if (!d) throw new ActionRefused("the dock isn't ready");
+    d.bringIn(moved, undefined, "tabs", { kind: "agent", id: "door" });
+    this.host.flash(`${moved.name} still runs: it's in the dock now (alt+a)`, 8000);
   }
 
   /**
@@ -542,7 +559,7 @@ export class AgentDock {
   routes(req: ActRequest, top: Screen | undefined): boolean {
     if (!req.tile || req.tile === "focused" || req.tile === DOCK_TILE_ID && req.action === "tile.herdr") return false;
     if (top?.dispatch?.tile?.(req.tile)) return false;
-    const d = this.desk;
+    const d = this.d;
     return !!d && !!d.dispatch.tile(req.tile) && d.dispatch.takes(req);
   }
 
@@ -603,8 +620,10 @@ export class AgentDock {
       d.shownAs(true);
       // The desk draws its tiles in the rows between the bar and the drawer's own key row (its hint row isn't drawn:
       // the frame's own hint and the drawer's row say the keys).
-      const info = { cols, rows: r.rows, cellW: 9, cellH: 16, kitty: false };
-      const frame = d.render({ t: info } as unknown as Ctx);
+      // The App's own context, its terminal the drawer's size (cell size and graphics as they are).
+      const ctx = this.host.ctx?.();
+      const sized = ctx ? new Proxy(ctx, { get: (o, k) => (k === "t" ? { ...o.t, cols, rows: r.rows } : typeof (o as any)[k] === "function" ? (o as any)[k].bind(o) : (o as any)[k]) }) : ({ t: { cols, rows: r.rows, cellW: 9, cellH: 16, kitty: false } } as unknown as Ctx);
+      const frame = d.render(sized);
       frame.lines.slice(0, r.rows - 2).forEach((l, i) => canvas.text(0, 1 + i, l, cols));
       // Drawn, a terminal the person went into has started: their keys go into it now.
       if (this.wantIn && this.entered) { const w = this.wantIn; queueMicrotask(() => { if (this.wantIn === w) this.intoShown(w.send); }); }
@@ -649,7 +668,7 @@ export class AgentDock {
       const d = this.desk;
       if (!d) return true;
       // Esc and q step back out of the dock (to the screen) where its tab isn't using them; never the screen's back.
-      if ((k.kind === "esc" || (k.kind === "char" && !k.ctrl && k.ch === "q")) && !d.holdsKeys()) { run("host.leave", { quiet: true }); return true; }
+      if ((k.kind === "esc" || (k.kind === "char" && !k.ctrl && k.ch === "q")) && !d.holdsKeys() && !d.draggedTile()) { run("host.leave", { quiet: true }); return true; }
       const ctx = this.host.ctx?.();
       if (ctx) d.key(k, ctx);
       return true;
@@ -727,6 +746,8 @@ export class AgentDock {
     const inDrawer = !!r && k.y >= r.row && k.y < r.row + r.rows;
     // A screen's tile dragged by its title over the dock (the chip, the drawer): it lights up; released, it docks.
     const dragged = screen instanceof Desk && screen !== this.d ? screen.draggedTile() : null;
+    // No drag any more (let go elsewhere, esc, a key that acted on it): the chip and the drawer stop lighting up.
+    if (!dragged && this.dropHover) { this.dropHover = null; this.host.redraw(); }
     if (dragged) {
       const over = onChip || inDrawer;
       const hover = over ? dragged : null;

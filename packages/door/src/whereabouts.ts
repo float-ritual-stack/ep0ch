@@ -47,6 +47,8 @@ export function whereabouts(o: {
   screen: string | null;
   keys: ScreenKeys | null;
   inHost: boolean;
+  /** In the dock, the tile they type in: its own (HOST_AGENT), else `dock:<name>` (a docked tile). */
+  hostTile?: string | null;
   suspended: string | null;
   loggedOn: boolean;
   idle: number;
@@ -54,7 +56,7 @@ export function whereabouts(o: {
   const k = o.keys ?? { focus: null, typingIn: null, busy: false };
   const away = !o.loggedOn ? `the door is at the ${o.screen ?? "logon"}; the person hasn't logged on`
     : o.suspended ? `the person is in the door's ${o.suspended} (the door waits under it)` : null;
-  if (o.inHost) return { focus: k.focus, typingIn: HOST_AGENT, busy: true, why: "the person is typing in the dock", keys: "host", screen: o.screen, idle: o.idle, away };
+  if (o.inHost) return { focus: k.focus, typingIn: o.hostTile ?? HOST_AGENT, busy: true, why: `the person is typing in the dock${o.hostTile && o.hostTile !== HOST_AGENT ? ` (${o.hostTile.replace(/^dock:/, "")})` : ""}`, keys: "host", screen: o.screen, idle: o.idle, away };
   const why = k.busy ? (k.why ?? `the person is typing on the ${o.screen ?? "screen"}`) : undefined;
   return { focus: k.focus, typingIn: k.typingIn, busy: k.busy || !!o.suspended, ...(why ? { why } : o.suspended ? { why: away! } : {}), keys: "screen", screen: o.screen, idle: o.idle, away };
 }

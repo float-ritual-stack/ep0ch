@@ -671,6 +671,11 @@ class Step<I> {
     const name = this.name(id);
     this.guard(id, "move");
     this.drag(id);
+    // A tile its place keeps (closable off: the river's Library, the board's preview) or its source supplies (a lane)
+    // stays: taken away, the screen's save would come back without it.
+    const e = this.policyAt(id), f = this.facts(id);
+    if (!e.closable) refuse(`${name} stays: ${this.whose(e.by.closable)} keeps it (closable off)`);
+    if (f.keeps) refuse(`${name} stays: ${f.keeps}`);
     if (!this.isFloat(id) && leaves(this.d.tree).length <= 1) refuse(`${name} is the screen's last tile: it stays (the screen is never blank)`);
     if (this.agent && this.ctx.person.here !== false && id === this.d.focus) refuse(`${name} has the person's keys; an agent doesn't take it away`);
     this.lift(id);

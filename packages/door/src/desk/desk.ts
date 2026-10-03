@@ -196,8 +196,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * `opts.given`: tiles the host made (the showcase's), by name, used for the spec's leaves of those names.
    * `opts.writes: false`: it reads its save but never writes it (the board in a tile: the board screen owns delivery.json).
    */
-  constructor(readonly spec: ScreenSpec = deskSpec(), opts: { layout?: string; given?: ReadonlyMap<string, Pane>; writes?: boolean; where?: () => Whereabouts } = {}) {
+  constructor(readonly spec: ScreenSpec = deskSpec(), opts: { layout?: string; given?: ReadonlyMap<string, Pane>; writes?: boolean; where?: () => Whereabouts; idPrefix?: string } = {}) {
     this.title = spec.title;
+    this.idPrefix = opts.idPrefix ?? "t";
     this.whereNow = opts.where ?? null;
     this.writes = opts.writes ?? true;
     this.given = opts.given ?? new Map();
@@ -256,7 +257,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private isFloat(id: number) { return this.floats.some(f => f.id === id); }
   private numberOf(id: number) { return this.all().indexOf(id) + 1; }
   /** A tile's stable id (PIE-491): `t<n>`, kept through moves, tabs and saves; never given to another tile. */
-  private tileId(id: number) { return `t${id}`; }
+  private tileId(id: number) { return `${this.idPrefix}${id}`; }
+  /** Its tiles' id letter: `t` on a screen, `k` in the dock (PIE-498: a docked tile's id is never a screen tile's). */
+  private readonly idPrefix: string;
 
   // ── the layout's one way to change (PIE-513) ──
 
@@ -337,7 +340,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         const pane = ((own || restore) && l.name ? this.given.get(l.name) : undefined) ?? makeTile({ ...l, kind });
         {
           // The tile's saved id, when no tile here has it (a saved layout loaded twice gets new ones the second time).
-          const saved = /^t(\d+)$/.exec(l.id ?? "");
+          const saved = new RegExp(`^${this.idPrefix}(\\d+)$`).exec(l.id ?? "");
           const n = saved ? Number(saved[1]) : 0;
           id = mine(n, this.nextId) && !this.panes.has(n) ? n : this.nextId++;
           this.nextId = Math.max(this.nextId, id + 1);
@@ -630,6 +633,12 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // Gone for good: kinds that come later never make tiles (nor start programs) here.
     this.disposed = true;
     unwatchTileKinds(this);
+    // A tile moved here from the dock that still holds work (a program running) goes back to it, never ended with this screen.
+    for (const id of [...this.movedIn]) {
+      const p = this.panes.get(id);
+      if (!p || !this.holdsWork(p) || !this.ctx?.hostLayer) continue;
+      try { this.ctx.hostLayer.keep({ pane: p, name: this.nameOf(id), spec: this.specOf(id), from: this.title, typing: false }); this.forgetTile(id, p); } catch { /* ends with the screen */ }
+    }
     for (const m of this.models.values()) m.dispose?.();
     for (const p of this.panes.values()) p.dispose?.();
   }
@@ -646,7 +655,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private running() { return [...this.panes.values()].filter((p): p is PtyPane => p instanceof PtyPane && (p.running || (!!p.keptAs && ptyBackend().holds(p.keptAs)))); }
   /** A desk built for another view (the brief) has no way back: leaving it would end its programs, so it says so. */
   leaveRefusal(): string | null {
-    const r = this.spec.layouts ? [] : this.running();
+    // A tile the dock gave this screen goes back to the dock when it's left (dispose): it doesn't hold the screen.
+    const back = (p: PtyPane) => !!this.ctx?.hostLayer && [...this.movedIn].some(id => this.panes.get(id) === p);
+    const r = this.spec.layouts ? [] : this.running().filter(p => !back(p));
     return r.length ? `${r.map(p => p.title()).join(", ")} ${r.length === 1 ? "runs" : "run"} in a tile here · ^W a docks ${r.length === 1 ? "it" : "them"} (it travels with you), ^W x ends ${r.length === 1 ? "it" : "them"}` : null;
   }
 
@@ -1700,7 +1711,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     canvas.box(r, fg(cover === "peek" && !focused ? C.dark : edgeC), title, hint, this.spec.frame ? FRAMES[this.spec.frame] : undefined);
     // The focused tile's ⧉, in its frame's top right corner, floats it by mouse (tile.float, as ^W f); a float's own
     // ⧉, before its title, puts it back.
-    if (focused && !float && !drawer && cover === undefined && r.cols >= 12 && leaves(this.root).length > 1) {
+    if (focused && !float && !drawer && cover === undefined && r.cols >= 12 && leaves(this.root).length > 1 && !this.ctx?.hostLayer?.isDock(this) && !refusal(this.layout, { op: "float", tile: id }, this.layoutCtx(USER))) {
       const x = r.col + r.cols - 3;
       canvas.text(x, r.row, `${fg(C.dark)}⧉${RESET}`, 1);
       this.floatButtons.push({ id, row: r.row, from: x, to: x + 1 });
@@ -2898,9 +2909,26 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private dropTile(id: number) {
     const p = this.panes.get(id);
     p?.dispose?.();
-    if (this.ptyIn === p) this.ptyIn = null;
-    this.panes.delete(id); this.unregistered.delete(id);
+    if (p) this.forgetTile(id, p);
   }
+  /** Everything this desk keeps about tile `id` that leaves it (closed, or moved whole to the dock or another screen). */
+  private forgetTile(id: number, p: Pane) {
+    if (this.ptyIn === p) this.ptyIn = null;
+    if (this.chord?.pane === p) this.chord = null;
+    if (this.pending?.pane === p) this.pending = null;
+    if (p instanceof ReaderPane && this.entered.in(p)) this.entered.clear();
+    if (this.floatDrag?.id === id) this.floatDrag = null;
+    if (this.linking?.from === id) this.linking = null;
+    if (this.mouseTile?.id === id) this.mouseTile = null;
+    if (this.headPress?.id === id) this.headPress = null;
+    if (this.dragging?.src === id) this.dragging = null;
+    for (const [k, v] of [...this.lastIn]) if (v === id) this.lastIn.delete(k);
+    // (openedFrom is the closer's to read: a program's tile closed gives the keys back to its reader; takeOut clears it.)
+    this.panes.delete(id); this.unregistered.delete(id); this.sourced.delete(id); this.movedIn.delete(id);
+    for (const r of this.opened.values()) { r.ids = r.ids.filter(i => i !== id); if (r.active === id) r.active = null; }
+  }
+  /** Tiles moved here whole (from the dock): when this screen goes for good, one still running goes back to the dock. */
+  private readonly movedIn = new Set<number>();
 
   /** `pane.split`: tile.open along the longer side (or `dir`): one code path, one rule. `pane` is the new tile's number. */
   async splitPane(sel: string | undefined, kind: string | undefined, dir: Axis | undefined, actor: Actor): Promise<PaneDone> {
@@ -2934,6 +2962,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    */
   floatTile(sel: string | undefined, actor: Actor): TileDone {
     const t = this.tile(sel), p = this.panes.get(t.id)!;
+    if (this.ctx?.hostLayer?.isDock(this)) throw new ActionRefused(`${t.name} is in the dock: it doesn't float there · ^W a puts it on the screen, where it floats`);
     const key = this.openedInto(t.id), c = key !== undefined ? node(this.root, key) : null;
     // A float opened into a container (the board's readers row) goes back into it, as its last tile there; a full one
     // gives way, never a tile holding an edit or a comment, nor (for an agent) the one the person has.
@@ -3083,6 +3112,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   takeRefusal(sel: string | undefined, actor: Actor): string | null {
     const t = this.tileNamed(sel, false);
     if (!t) return `no tile ${sel} on the ${this.title}`;
+    // A screen of a fixed shape that saves comes back only with every tile its spec names: they stay.
+    if (this.spec.saves && !this.spec.layouts && leafNames(this.spec.layout.root).includes(t.name) && !this.ctx?.hostLayer?.isDock(this)) return `${t.name} stays: the ${this.title} is laid out with it (its spec names it)`;
     const r = this.ask({ op: "take", tile: t.id }, actor);
     return r.ok ? null : r.refused;
   }
@@ -3091,15 +3122,15 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * nothing of it ends (a terminal's program runs on, a reader keeps its note, its history and its draft).
    */
   takeOut(sel: string | undefined, actor: Actor): MovedTile {
+    const why = this.takeRefusal(sel, actor);
+    if (why) throw new ActionRefused(why);
     const t = this.tile(sel);
     const pane = this.panes.get(t.id)!;
     const spec = this.specOf(t.id);
     const typing = pane === this.ptyIn && this.focus === t.id;
     this.commit(this.ask({ op: "take", tile: t.id }, actor));
-    if (this.ptyIn === pane) this.ptyIn = null;
-    if (this.chord?.pane === pane) this.chord = null;
-    this.panes.delete(t.id); this.unregistered.delete(t.id); this.openedFrom.delete(t.id); this.sourced.delete(t.id);
-    for (const r of this.opened.values()) { r.ids = r.ids.filter(i => i !== t.id); if (r.active === t.id) r.active = null; }
+    this.forgetTile(t.id, pane);
+    this.openedFrom.delete(t.id);
     this.save(); this.redraw();
     return { pane, name: t.name, spec, from: this.title, typing };
   }
@@ -3121,6 +3152,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const r = this.ask({ op: "open", tile: id, kind, name: moved.name, loose: true, at: l.at }, actor);
     if (!r.ok) throw new ActionRefused(r.refused);
     this.put(moved.pane);
+    this.movedIn.add(id);
     if (!isTileKind(kind)) this.unregistered.set(id, moved.spec);
     this.commit(r);
     this.startTile(id, true);
@@ -3455,10 +3487,10 @@ const isRect = (r: unknown): r is Rect => !!r && typeof r === "object" && ["col"
 const overlaps = (p: Placement, r: Rect) => p.col < r.col + r.cols && p.col + p.cols > r.col && p.row < r.row + r.rows && p.row + p.rows > r.row;
 /** A drop as `peek` says it: where the dragged tile would go. */
 const dropView = (d: Drop<number>, name: (id: number) => string) => ({ kind: d.kind, ...("target" in d ? { target: name(d.target) } : {}), ...("dir" in d ? { dir: d.dir } : {}), ...(d.kind === "tabs" && d.index !== undefined ? { index: d.index } : {}), label: d.label, ghost: d.ghost, ...(d.refused ? { refused: d.refused } : {}) });
-/** Where `where` (a tile action's place) puts a tile, by tile `at`: beside it, into its tabs, or along an outer edge. */
 /** A tile moving between screens (or into and out of the dock) whole: its instance, its name, its spec, whether the person was typing in it. */
 export interface MovedTile { pane: Pane; name: string; spec: TileSpec; from: string; typing: boolean }
 
+/** Where `where` (a tile action's place) puts a tile, by tile `at`: beside it, into its tabs, or along an outer edge. */
 const placeOf = (where: Where, at: number): At<number> => (where === "next" ? { kind: "next", from: at } : where === "tabs" ? { kind: "tabs", target: at } : where.startsWith("edge-") ? { kind: "edge", dir: where.slice(5) as Dir } : { kind: "split", target: at, dir: where as Dir });
 /** A command line as words, "quoted words" kept together. */
 export function splitWords(s: string): string[] { return [...s.matchAll(/"([^"]*)"|'([^']*)'|(\S+)/g)].map(m => m[1] ?? m[2] ?? m[3]!); }

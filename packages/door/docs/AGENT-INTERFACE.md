@@ -205,8 +205,10 @@ any screen. `ep0ch where` names the dock as the tile (`the dock`), and says when
 terminal docked from a screen keeps the `EP0CH_TILE_ID` it started with, and `where` finds it in the dock by its
 program.
 
-An agent can put its own tile in the dock: `ep0ch act host.dock tile=$EP0CH_TILE_ID --as <you>` (refused, with why,
-while the person is typing in it: they dock it themselves with `ctrl+]` then `^W a`).
+An agent can put its own tile in the dock: `ep0ch where --json` names it (`door.tile.id`, found by its program's pid
+even after it moved, so not the `EP0CH_TILE_ID` it started with), then `ep0ch act host.dock tile=<that id> --as <you>`
+(refused, with why, while the person is typing in it: they dock it themselves with `ctrl+]` then `^W a`). A docked
+tile's id is `k<n>`, never a screen tile's `t<n>`.
 
 ## Naming tiles and splits (PIE-491)
 

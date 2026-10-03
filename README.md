@@ -9,7 +9,7 @@ packages/
   outline-core/   the shared pure code: protocol, property grammar, search matching, which-outline rules (no I/O)
   outliner/       the outline host (one per machine, serves ~/outlines/<name>.sqlite by name), the admin
                   Tree/Detail panes in Herdr, the CLI, the publisher and the extensions
-  door/           ep0ch: the door: screens, a tiling desk, the river (Quay), the board, the agent drawer
+  door/           ep0ch: the door: screens, a tiling desk, the river (Quay), the board, the dock
   claude-mod/     the Claude Code mod: outline tools and recent mentions in every Claude session
 ```
 

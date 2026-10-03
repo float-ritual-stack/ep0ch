@@ -256,7 +256,7 @@ const FEATURE_TOUR_SECTIONS = [
   {
     key: "door", title: "The door: the other client",
     lines: [
-      "Tree, Detail and Preview are the sysop console: find any block and fix it. The ep0ch door is the board people call into: a terminal client for the same outlines, with a desk of tiles, boards whose lanes are saved views, the river, readers, daily briefs and an agent drawer. Both are maintained, and both read and write through the same outline host, so an edit in one shows in the other.",
+      "Tree, Detail and Preview are the sysop console: find any block and fix it. The ep0ch door is the board people call into: a terminal client for the same outlines, with a desk of tiles, boards whose lanes are saved views, the river, readers, daily briefs and a dock that carries tiles (an agent among them) across screens. Both are maintained, and both read and write through the same outline host, so an edit in one shows in the other.",
       "",
       "- `ep0ch` opens the outline its folder's `.ep0ch` names; `ep0ch --ws <name>` opens one by name from anywhere, and `ep0ch --machine <ssh-name>` one on another machine. Where nothing names one, the door opens on its home base: this machine's outlines and the machines opened before (open, new, import).",
       "- `/` on the desk searches with the same forgiving ranker as Goto. `ep0ch find <words>` answers the same from a shell, and `ep0ch show <id>` prints a note as a reader draws it.",

@@ -168,7 +168,7 @@ pane, region or column, the table below says what it is today.
 | focus | Which tile gets the keys | `focus` in each screen | pane focus |
 | entered | You are *inside* a reader's edit, comment or panel | `Entered` `pan:287` | draft focus |
 | zoom | One tile fills the screen | `tile.zoom` (`^W z`): the desk and every screen on it, the board too (#98) | Herdr zoom |
-| float | A tile taken out of the tree to its own rectangle, above everything (`tile.float`, the board's `o`, `^W f`); its title drags it, its ◢ corner sizes it, a click on the `⧉` before its title docks it | `Desk.floats`, `ScreenLayout.floats` `lay`, `float.place` | none |
+| float | A tile taken out of the tree to its own rectangle, above everything (`tile.float`, the board's `o`, `^W f`); its title drags it, its ◢ corner sizes it, a click on the `⧉` before its title puts it back in the layout; a click on the focused tile's top-right `⧉` floats it | `Desk.floats`, `ScreenLayout.floats` `lay`, `float.place` | none |
 | drawer | A container sliding over the others from an edge (PIE-505): on the desk any tile or tab set put in one (`^W p`, `tile.pin`, at an outer edge with `edge=`), holding anything moved into it (a drop on its handle, a move beside a tile in it); shuts when the keys leave (unless `collapsible` or `overlay` is off, or it `stays`); a shut one is a handle at the end of the hint row (`⇤ tree+now`, or a named container's name: the board's `⇤ outline`, `⤓ links`). The board's outline (the tree over its preview, a left drawer) and backlinks (the list beside its preview, a bottom drawer that stays) are desk drawers | `Drawer` `lay` | none |
 | lock | The screen's shape fixed for a task, its contents live: nothing moves, drops, opens as a new tile, closes, resizes, goes in or out of a drawer, relinks or loads; reading, editing, terminals, drawers sliding, tabs and zoom go on. Saved, so it comes back after a restart | `layout.lock` (`alt+k`, the hint row's `▣ locked` chip), `Policy.locked` | none |
 | spine | A tile folded to a title strip (`tile.collapse`; the board's `c` on a lane or a reader) | `drawSpine` (`src/spine.ts`), `Desk.collapsed`; river `Cover` `riv:48` | none |
@@ -455,7 +455,7 @@ BBS = News, Conference and the BBS message reader (`MessageReader`) together.
 | `x` | close detail or float (on the preview: says why it stays) | `^W x` close | close tile | — |
 | `o` | pop out float | `^W o` add a tile | — | — |
 | `t` | outline drawer | `^W o t` add outline | — | thread (`t` `T`) |
-| `p` | — | hold reader | dock column | previous (`p` `P`) |
+| `p` | — | hold reader | hold column (full) | previous (`p` `P`) |
 | `w` | — (the backlinks drawer's `w` is stage) | — (`^W w` saves a layout) | widen: the focused column takes the wide place | — |
 | `f` | fold | fold | filter | fold |
 | `alt+⏎` | second detail | — | duplicate column | the next reader, as ⏎ |
@@ -778,7 +778,7 @@ collapsed to its headings. So the river keeps two things apart:
 - **The wide column** is what the layout is built around (`describe()`'s `wide`). Only an explicit shift
   moves it: `w`, a click on a column's **header** (its top border; anywhere on a spine, which is all title strip, as a click on a board spine opens it), the `widen` action,
   and an open that couldn't otherwise show the new column full. The column the person was reading (the one
-  they were in before) stays full beside it when there's room; a dock (`p`) outranks it.
+  they were in before) stays full beside it when there's room; a hold (`p`) outranks it.
 - **Why these inputs:** the first click must be harmless, so the shift needs a different target, not a second
   click on the same place (a second click on a card already opens it, and a double click selects a word). A
   header is the tile grammar's place for acting on the whole tile (§7's drag). `w` is free on every screen's
@@ -835,15 +835,13 @@ More sections (running agents, switching outlines from a sidebar) are tiles a la
 - **Screen notes in the outline** (PIE-412 slice 3, gap 4): layouts are in the door's `layouts.json`, and screens are
   specs in code (`src/desk/screen-specs.ts`); `specData` and `readSpec` are the form a screen note would hold.
 - **One river:** done (PIE-515). The River is a spec on the desk: a flow of `river.column` tiles (`src/river/column.ts`),
-  the engine's squeeze, calm focus, explicit shift, opens into the next column, back and forward and docked
+  the engine's squeeze, calm focus, explicit shift, opens into the next column, back and forward and held
   columns. The `river` layout is that flow beside a preview following the column with the keys.
 - **The board** is a screen spec on the desk (PIE-515, gap 3): its lanes are query tiles in a `columns` container
   filled from the hub (`hub:<id>`), its drawers and floats the desk's, saved as a layout in `delivery.json`;
   screens as notes in the outline is gap 4. The `board` layout still puts
   the whole board screen in a tile (`ScreenTile`), a preview tile after its card.
-- **The host layer's other tabs.** The drawer is a tab set whose first tab is the agent; the admin outline and
-  detail, terminals and the shelf (the same drawer docked to the status bar, a drop on the chip by `drop.ts`'s
-  handle zone) come next. Today the drawer slides from the bottom edge (beside: the screen drawn shorter).
+- **The host layer's tabs: the dock (PIE-498).** The drawer holds the dock's desk: its own program first, then any tile docked (`host.dock`, `^W a`, a drop on the chip or the drawer), kept across screens and restarts. Still to come: the admin outline and detail as default tabs, and the drawer from another edge.
 - **Where the keys are** (focus) is the person's, an input to the screen-layout module (`ctx.person`), and each operation
   answers where they go after it. The board's own moves between its areas (the lanes, the preview, the details) set
   them directly; PIE-514 makes the keys and "typing in" a shell-owned query.

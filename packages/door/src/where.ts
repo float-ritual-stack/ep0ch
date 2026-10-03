@@ -126,6 +126,9 @@ export async function where(d: WhereDeps): Promise<Where> {
   // In the Herdr agent's pane, "my tile" is whichever tile shows that pane now; elsewhere the tile by id, else name.
   let tile = agentPane ? tilePanes.find(p => p?.herdr?.pane === agentPane) ?? (dockTile?.herdr?.pane === agentPane ? dockTile : undefined) : undefined;
   if (!tile && !agentPane && dockTile && myTileId === dockTile.id) tile = dockTile;
+  // A terminal's program finds its tile by its pid first: a tile moved between screens or out of the dock (PIE-498) has an
+  // id there it wasn't started with, and its old EP0CH_TILE_ID may name another tile now.
+  if (!tile && !agentPane) tile = tilePanes.find(p => typeof p?.terminal?.pid === "number" && (ancestors.includes(p.terminal.pid) || d.pid === p.terminal.pid));
   if (!tile && !agentPane) tile = tilePanes.find(p => myTileId && p?.id === myTileId) ?? (tilePanes.some(p => p?.id) ? undefined : tilePanes.find(p => p?.name === myTileName));
   // A terminal moved into the dock (PIE-498) keeps the EP0CH_TILE_ID of the screen it started on: found by its program.
   if (!tile && !agentPane && Array.isArray(dv?.tiles)) {
@@ -207,8 +210,11 @@ function keysOf(peek: any, desk: any, door: Where["door"], agentPane: string | n
     const screen = peek.screen?.screen ?? "?";
     // The person typing in the dock (PIE-498): over any screen, the desk's focus doesn't matter then.
     if (peek.screen?.dock?.entered) {
-      const mine = !!door.tile?.dock || (!!agentPane && peek.screen.dock.herdr?.pane === agentPane);
-      return { mine, typing: true, tile: peek.screen.dock.tile?.id ?? null, text: mine ? "the person is typing in this tile (the dock)" : `the person is typing in the dock over the ${screen}, not this tile` };
+      // Which of the dock's tabs: its own (the agent), or a docked tile.
+      const dv = peek.screen.dock, typed = Array.isArray(dv.tiles) ? dv.tiles.find((x: any) => x?.focused) : null;
+      const own = !typed || typed.name === "dock.agent";
+      const mine = own ? (!!door.tile?.dock && door.tile.id === dv.tile?.id) || (!!agentPane && dv.herdr?.pane === agentPane) : !!door.tile?.dock && door.tile.id === typed.id;
+      return { mine, typing: true, tile: own ? dv.tile?.id ?? null : typed.id, text: mine ? "the person is typing in this tile (the dock)" : `the person is typing in the dock over the ${screen}, not this tile` };
     }
     if (!desk) return { mine: false, typing: false, tile: null, text: `the person is on the door's ${screen} screen, not the desk` };
     const mine = door.tile?.found ? door.tile.name : null;

@@ -184,7 +184,8 @@ yourself (path 1): `/exit`, then `claude --continue`.
   share=0.2…0.9`, `agent.type text=…` (to its own program), `agent.knows`, `agent.restart`. `host.dock tile=<t>`
   moves a tile into it whole (its program keeps running), `host.dock on=false tile=<t> to=<tile> where=<side>` back
   out into the screen shown; `tile=` naming a docked tile reaches it there (`tile.type tile=kettle`). Put your own
-  tile in: `host.dock tile=$EP0CH_TILE_ID`. It never takes the person's keys; you can't dock the tile they type in,
+  tile in: `host.dock tile=<id>` with the id `ep0ch where` gives (it finds your tile by your program, even after it
+  moved; `$EP0CH_TILE_ID` is only where it started). Docked tiles' ids are `k<n>`. It never takes the person's keys; you can't dock the tile they type in,
   put it away, resize it, type in it or restart its agent while they type in it. `peek` shows it as `dock` (with
   `knows`, `runs` and `tiles`).
 - **Links** (one model on every screen: Outlinks, Resources, Backlinks). `links tile=<reader>` aims the

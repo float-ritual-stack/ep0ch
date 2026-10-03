@@ -83,6 +83,8 @@ export class TreePane implements Pane {
   /** Settles once the top level has been read (a reveal waits for it). */
   private loaded: Promise<void> | null = null;
   init(desk: DeskApi) {
+    // Moved to another screen or into the dock (PIE-498): it keeps its rows; nothing is read again or opened.
+    if (this.loaded) return;
     this.loaded = desk.ctx.board.roots().then(r => {
       this.roots = r; this.rebuild();
       if (!desk.current && r[0]) desk.setCurrent(r[0], { from: this });

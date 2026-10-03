@@ -355,9 +355,9 @@
         { "r": "door", "p": "src/surface/dispatch.ts", "l": 183, "m": "export class Dispatcher" },
         { "r": "door", "p": "src/surface/dispatch.ts", "l": 140, "m": "export function actorRule" },
         { "r": "door", "p": "src/whereabouts.ts", "l": 46, "m": "export function whereabouts" },
-        { "r": "door", "p": "src/app.ts", "l": 563, "m": "person(): Whereabouts" },
+        { "r": "door", "p": "src/app.ts", "l": 567, "m": "person(): Whereabouts" },
         { "r": "door", "p": "src/draft-session.ts", "l": 549, "m": "export function draftRule" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 1103, "m": "readonly dispatch: Dispatcher = new Dispatcher(this.dispatchHost()" }
+        { "r": "door", "p": "src/desk/desk.ts", "l": 1114, "m": "readonly dispatch: Dispatcher = new Dispatcher(this.dispatchHost()" }
       ],
       "questions": [
         { "text": "A restarted door re-applies the replay-safe actions it logged and asks before the rest.", "route": "PIE-418" }
@@ -371,7 +371,7 @@
         { "r": "door", "p": "src/screens.ts", "l": 404, "m": "export const SHELL_ACTIONS" },
         { "r": "door", "p": "src/screens.ts", "l": 624, "m": "export const LIST_ACTIONS" },
         { "r": "door", "p": "src/surface/dispatch.ts", "l": 140, "m": "export function actorRule" },
-        { "r": "door", "p": "src/app.ts", "l": 572, "m": "async act(req" },
+        { "r": "door", "p": "src/app.ts", "l": 576, "m": "async act(req" },
         { "r": "door", "p": "src/drop.ts", "l": 50, "m": "export async function runLoginShell" }
       ]
     },
@@ -431,11 +431,11 @@
       "does": "The reducer of the door's one-way data flow (PIE-513): a screen's layout is one value (tiles in containers: n-ary splits by weight, tab sets, drawers, columns from data, flows; floats above the tree; spines, zoom, links, names, the screen's policy and lock, the revision), and it changes only by apply(state, op, ctx): one layout operation for one actor as one transaction, answering the new state or a refusal with its reason. Every rule is checked inside it: floats have no place in the tree, the nearest policy wins and a lock above locks below, an agent undoes only its own lock and never moves the tile the person types in, the screen is never blank. The flow container is the river's columns: squeezed full, peek, spine around the wide one; opens land in the next column; focus never moves it.",
       "built": "screen-layout.ts is the interface (apply, refusal, init, serialize, describe, place, landing); layout.ts (the tree arithmetic) and flow.ts (the flow's squeeze and memory) are inside it and import only Rect and the spine's width. What it doesn't own is said to it: the actor, the person's keys and the tile they type in (ctx.person, a shell-owned query from PIE-514), each tile's facts. Its state is frozen under test, so a caller that writes to it throws. Tested through its interface with no App (test/screen-layout.test.ts, test/flow.test.ts), the round-2 review's B7-B11, C3 and C4 among them.",
       "refs": [
-        { "r": "door", "p": "src/desk/screen-layout.ts", "l": 256, "m": "export function apply" },
+        { "r": "door", "p": "src/desk/screen-layout.ts", "l": 257, "m": "export function apply" },
         { "r": "door", "p": "src/desk/screen-layout.ts", "l": 49, "m": "export interface LayoutState" },
         { "r": "door", "p": "src/desk/screen-layout.ts", "l": 132, "m": "export type Op<" },
-        { "r": "door", "p": "src/desk/screen-layout.ts", "l": 228, "m": "export function init" },
-        { "r": "door", "p": "src/desk/screen-layout.ts", "l": 325, "m": "export function landing" },
+        { "r": "door", "p": "src/desk/screen-layout.ts", "l": 229, "m": "export function init" },
+        { "r": "door", "p": "src/desk/screen-layout.ts", "l": 326, "m": "export function landing" },
         { "r": "door", "p": "src/desk/layout.ts", "l": 122, "m": "export type LNode" },
         { "r": "door", "p": "src/desk/layout.ts", "l": 108, "m": "export type Drawer" },
         { "r": "door", "p": "src/desk/layout.ts", "l": 100, "m": "export type Columns" },
@@ -453,8 +453,8 @@
       "built": "The ids live on the LNode tree; the screen-layout module gives them and moves the revision on a change of shape, in every operation; layout.resize takes split=<id>.",
       "refs": [
         { "r": "door", "p": "src/desk/layout.ts", "l": 93, "m": "id?: string" },
-        { "r": "door", "p": "src/desk/screen-layout.ts", "l": 244, "m": "export function revisionRefusal" },
-        { "r": "door", "p": "src/desk/tile-actions.ts", "l": 313, "m": "\"layout.resize\"" }
+        { "r": "door", "p": "src/desk/screen-layout.ts", "l": 245, "m": "export function revisionRefusal" },
+        { "r": "door", "p": "src/desk/tile-actions.ts", "l": 314, "m": "\"layout.resize\"" }
       ]
     },
     {
@@ -463,11 +463,11 @@
       "built": "Desk in desk.ts with TILE_ACTIONS; what differs by kind it asks the tile-kind registry. It holds a LayoutState and changes it only by apply (PIE-513): it says what each tile is (facts) and where the person types (layoutCtx), commits the module's answer, and keeps the tile instances, gestures and painting. Its refusal functions are gone into the module. tile.* actions are the one name for each operation; pane.* are their older aliases (PIE-510).",
       "refs": [
         { "r": "door", "p": "src/desk/desk.ts", "l": 93, "m": "export class Desk" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 306, "m": "private apply(" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 281, "m": "private layoutCtx" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 1282, "m": "  run(name: string, args" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 521, "m": "async fillColumns" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 2909, "m": "floatTile(sel" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 309, "m": "private apply(" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 284, "m": "private layoutCtx" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 1293, "m": "  run(name: string, args" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 524, "m": "async fillColumns" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 2962, "m": "floatTile(sel" },
         { "r": "door", "p": "src/desk/tile-actions.ts", "l": 78, "m": "export const TILE_ACTIONS" },
         { "r": "door", "p": "src/desk/tile-actions.ts", "l": 246, "m": "\"tile.widen\": def({" }
       ],
@@ -520,8 +520,8 @@
       "does": "A screen that runs programs stays alive when you leave it; D on the menu brings it back.",
       "built": "Two owners: App.background and a static Desk.kept.",
       "refs": [
-        { "r": "door", "p": "src/app.ts", "l": 305, "m": "background: Screen[]" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 638, "m": "private static kept" }
+        { "r": "door", "p": "src/app.ts", "l": 309, "m": "background: Screen[]" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 647, "m": "private static kept" }
       ],
       "questions": [ { "text": "App.background as the one owner.", "finding": "A-F19", "route": "PIE-493" } ]
     },
@@ -570,9 +570,9 @@
         { "r": "door", "p": "src/desk/herdr-agent.ts", "l": 259, "m": "export function tellDoor" },
         { "r": "door", "p": "src/desk/pty-actions.ts", "l": 50, "m": "\"tile.herdr\": def({" },
         { "r": "door", "p": "src/desk/pty.ts", "l": 152, "m": "get herdr(): { pane: string; name?: string } | null" },
-        { "r": "door", "p": "src/dock.ts", "l": 125, "m": "export class AgentDock" },
-        { "r": "door", "p": "src/dock.ts", "l": 813, "m": "export const DOCK_ACTIONS" },
-        { "r": "door", "p": "src/desk/screen-layout.ts", "l": 1209, "m": "export function hostLayer" }
+        { "r": "door", "p": "src/dock.ts", "l": 126, "m": "export class AgentDock" },
+        { "r": "door", "p": "src/dock.ts", "l": 836, "m": "export const DOCK_ACTIONS" },
+        { "r": "door", "p": "src/desk/screen-layout.ts", "l": 1245, "m": "export function hostLayer" }
       ],
       "questions": [ { "text": "Reattach shows Herdr's current screen only: no scrollback. In a door session the tile outlives a detach, scrollback and all; a new door still attaches without it.", "finding": "B-F21", "route": "PIE-418" } ]
     },
@@ -581,10 +581,10 @@
       "does": "Tiles that travel with the person across screens (PIE-498): the host layer's drawer holds the dock's own desk, its tiles the drawer's tabs. Any tile docks and undocks whole (host.dock, ^W a, a drag onto the chip or out of the drawer): a terminal's program keeps running, a reader keeps its note. Its first tab is the dock's own program (EP0CH_DAILY_AGENT, else a shell, in the person's folder or the outline's).",
       "built": "One layout operation each side: the screen's take, the dock desk's open, both asked first; the instance moves. A moved terminal keeps the key its program started under (PtyPane.keptKey, saved as kept), so a session's terminal host gives it back after an upgrade. Saved in dock-tiles.json.",
       "refs": [
-        { "r": "door", "p": "src/dock.ts", "l": 125, "m": "export class AgentDock" },
+        { "r": "door", "p": "src/dock.ts", "l": 126, "m": "export class AgentDock" },
         { "r": "door", "p": "src/desk/dock-program.ts", "l": 42, "m": "export function dockProgram" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 3062, "m": "takeOut(sel: string | undefined, actor: Actor): MovedTile" },
-        { "r": "door", "p": "src/desk/screen-layout.ts", "l": 665, "m": "private take(id: I)" }
+        { "r": "door", "p": "src/desk/desk.ts", "l": 3123, "m": "takeOut(sel: string | undefined, actor: Actor): MovedTile" },
+        { "r": "door", "p": "src/desk/screen-layout.ts", "l": 669, "m": "private take(id: I)" }
       ],
       "questions": []
     },
@@ -595,7 +595,7 @@
       "refs": [
         { "r": "door", "p": "src/door.ts", "l": 179, "m": "export function guardDoor" },
         { "r": "door", "p": "src/door.ts", "l": 194, "m": "process.on(\"uncaughtException\", fault)" },
-        { "r": "door", "p": "src/app.ts", "l": 366, "m": "terminate()" }
+        { "r": "door", "p": "src/app.ts", "l": 370, "m": "terminate()" }
       ],
       "questions": [ { "text": "Six child-process launchers, three with no timeout; unzip blocks the paint.", "finding": "B-F7" } ]
     },
@@ -715,7 +715,7 @@
       "refs": [
         { "r": "door", "p": "src/socket.ts", "l": 581, "m": "searchBlocks(text: string" },
         { "r": "door", "p": "src/surface/completer.ts", "l": 86, "m": "export async function lookupCompletion" },
-        { "r": "door", "p": "src/desk/desk.ts", "l": 3495, "m": "function searchOverlay(" },
+        { "r": "door", "p": "src/desk/desk.ts", "l": 3556, "m": "function searchOverlay(" },
         { "r": "door", "p": "src/river/column.ts", "l": 69, "m": "export function parseFilter" }
       ],
       "questions": [ { "text": "One jump palette as a shell overlay over tree.search.", "finding": "A-F8", "route": "PIE-493" } ]
@@ -749,8 +749,8 @@
       "does": "An agent sees what the person sees and does what they do. Its action is named on the status bar, recorded as author agent with its actor id, and never takes the person's focus, selection or keys.",
       "built": "App.act runs the request through the App's dispatcher (the host layer's, the shell's and the extensions' sets, then the screen's own dispatcher); App.subscribe diffs each screen's viewState after a paint.",
       "refs": [
-        { "r": "door", "p": "src/app.ts", "l": 572, "m": "async act(req" },
-        { "r": "door", "p": "src/app.ts", "l": 383, "m": "viewState?.()" }
+        { "r": "door", "p": "src/app.ts", "l": 576, "m": "async act(req" },
+        { "r": "door", "p": "src/app.ts", "l": 387, "m": "viewState?.()" }
       ],
       "questions": [
         { "text": "`open` is three actions with different arguments; `pin` is four things.", "finding": "C-F16" },

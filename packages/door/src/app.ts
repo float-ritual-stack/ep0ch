@@ -23,7 +23,7 @@ import { groundSeq, setTheme as useTheme, theme, type ThemeName } from "./theme"
 import { writeState } from "./state";
 import { AgentDock, DOCK_ACTIONS, DOCK_TILE_ID, HOST_AGENT_TILE, HOST_TILE_ACTIONS, overlay, type DockRun } from "./dock";
 import type { HostMode } from "./desk/screen-layout";
-import type { Desk } from "./desk/desk";
+import type { Desk, MovedTile } from "./desk/desk";
 import type { TileDone, Where } from "./desk/tile-actions";
 import type { HomeChoice } from "./home";
 
@@ -56,6 +56,8 @@ export interface HostLayer {
   isDock(d: unknown): boolean;
   /** Tile `name` of screen `from` into the dock, whole. */
   dock(from: Desk, name: string, actor: Actor): TileDone;
+  /** A tile still running on a screen that goes for good, kept in the dock instead of ended (its tab behind the one shown). */
+  keep(moved: MovedTile): void;
   /** The docked tile the dock shows now (not its own tab), or null. */
   shownTab(): string | null;
   /** Docked tile `name` back into the screen shown, beside `to` (where). */
@@ -564,7 +566,7 @@ export class App implements Ctx {
    */
   person(): Whereabouts {
     const s = this.stack.at(-1);
-    return whereabouts({ screen: s?.title ?? null, keys: s ? screenKeys(s) : null, inHost: this.dock.shown && this.dock.entered, suspended: this.away, loggedOn: !!s && !s.noDock, idle: this.idleFor() });
+    return whereabouts({ screen: s?.title ?? null, keys: s ? screenKeys(s) : null, inHost: this.dock.shown && this.dock.entered, hostTile: ((t: string | null) => (!t || t === DOCK_TILE_ID ? null : `dock:${t}`))(this.dock.typingTile()), suspended: this.away, loggedOn: !!s && !s.noDock, idle: this.idleFor() });
   }
 
   /**
@@ -781,7 +783,7 @@ export class App implements Ctx {
       lines = overlay(lines, d);
       // Images under the drawer would show through it; the dock's tiles' own are drawn in it.
       placements = [...placements.filter(p => p.row + p.rows <= d.rect.row), ...(this.graphics ? d.placements : [])];
-    } else { this.dock.rect = null; this.dock.desk?.shownAs(false); }
+    } else { this.dock.rect = null; this.dock.made?.shownAs(false); }
     if (this.toast) lines = withToast(lines, this.toast.text, cols);
     lines.push(this.statusBar(s, cols));
     // The display draws it in its video mode (CP437 and the tube under kitty+crt; a terminal tile's program output too).

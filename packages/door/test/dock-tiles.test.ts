@@ -212,6 +212,28 @@ describe.skipIf(!outliner)("the dock: any tile, moved whole between screens", ()
     } finally { d.app.quit(); }
   });
 
+  test("never lost: a screen that goes for good hands a running tile it was given back to the dock; ids never collide; a kept tile stays", async () => {
+    const d = await door();
+    try {
+      await d.desk.dispatch.act({ action: "tile.focus", tile: "tree" }, USER);
+      const pid = d.kettle()!.pid;
+      await d.app.act({ action: "host.dock", args: {}, tile: "kettle", as: AS });
+      expect(d.app.dock.tabs().find(t => t.name === "kettle")!.id).toMatch(/^k\d+$/);     // a dock id, never a screen's t<n>
+      const other = otherScreen();
+      d.app.push(other); d.paint();
+      await d.app.dock.desk!.dispatch.act({ action: "host.dock", args: { on: false, to: "notes" }, tile: "kettle" }, USER);
+      expect(other.pane("kettle")).toBeDefined();
+      d.app.pop();                                               // last callers is left: gone for good
+      expect(d.docked("kettle")).toBe(true);
+      expect((d.pane("kettle") as PtyPane).pid).toBe(pid);
+      expect((d.pane("kettle") as PtyPane).running).toBe(true);
+      // The river's Library (closable off: its save needs it) stays, said.
+      const river: any = (await import("../src/desk/screen-specs")).openScreen("river");
+      d.app.push(river); d.paint();
+      await expect(d.app.act({ action: "host.dock", args: {}, tile: "library", as: AS })).rejects.toThrow(/library stays/);
+    } finally { d.app.quit(); }
+  });
+
   test("saved: the next door's dock has the tile back (dock-tiles.json), the drawer as it was", async () => {
     const d = await door();
     await d.app.act({ action: "host.dock", args: {}, tile: "thread", as: AS });
