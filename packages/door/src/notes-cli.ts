@@ -9,7 +9,9 @@
 // children by position, as Tree draws it), each row with its depth and the `├─ │ └─` that draw it.
 //
 // `show <id>` draws the note as a reader draws it: the note surface (`NoteSurface.render`), at the width asked for,
-// in the person's theme, never a second renderer. `--ansi` keeps its colours; without it, plain text.
+// in the person's theme, never a second renderer. `--ansi` keeps its colours; without it, plain text. `--cells` prints
+// the same drawing as JSON cells (src/cells.ts) for a program that paints a grid: a Claude Code mod's Raster.
+import { linesToCells } from "./cells";
 import { resolveTarget } from "./discover";
 import { redundantLabel } from "./authored";
 import { forwardTo } from "./machine";
@@ -28,9 +30,12 @@ export const NOTES_USAGE = `  ep0ch find [<words>… | --recent | --tree [<root 
                                    <root id>) depth first, as Tree draws it; without, every note, newest first.
                                    --lines prints one per line, id<TAB>title<TAB>path, for a picker; with --tree,
                                    then <TAB>depth<TAB>glyphs<TAB>about (├─ │ └─; about: work-id · stage · type)
-  ep0ch show <id> [--ansi] [--width <n>] [--ws <name>] [--machine <ssh-name>]
+  ep0ch show <id> [--ansi | --cells] [--width <n>] [--ws <name>] [--machine <ssh-name>]
                                    the note drawn as a reader draws it, at that width (default the terminal's,
-                                   else 80); --ansi keeps its colours`;
+                                   else 80); --ansi keeps its colours; --cells prints it as JSON {id, columns,
+                                   rows, cells, replaced}: cells row-major, base64 of u32 LE [codePoint, fg, bg]
+                                   (0x00RRGGBB, 0x01000000 the terminal's own), one width-1 BMP glyph a cell,
+                                   U+FFFD for a wider one (counted in replaced)`;
 
 /** One note as `find` lists it. */
 export interface Found { id: string; title: string; path: string }
@@ -220,8 +225,9 @@ export async function drawNote(board: SocketBoard, id: string, width: number, se
 export async function showCommand(argsIn: string[], io: Out = { out: console.log, err: console.error, columns: process.stdout.columns }): Promise<number> {
   const args = argsIn.slice(1);
   for (const f of ["--ws", "--machine", "--width"]) { const v = flag(args, f); if (typeof v === "object") { io.err(`ep0ch: ${v.error}`); return 2; } }
-  const ansi = args.includes("--ansi");
-  const rest = without(args, ["--ws", "--machine", "--width"], ["--ansi"]);
+  const ansi = args.includes("--ansi"), cells = args.includes("--cells");
+  if (ansi && cells) { io.err("ep0ch: show prints --ansi or --cells, not both"); return 2; }
+  const rest = without(args, ["--ws", "--machine", "--width"], ["--ansi", "--cells"]);
   const [id, ...more] = rest;
   if (!id || more.length || id.startsWith("--")) { io.err(`ep0ch: show takes one note's id\n${NOTES_USAGE}`); return 2; }
   const wArg = flag(args, "--width") as string | undefined;
@@ -234,7 +240,8 @@ export async function showCommand(argsIn: string[], io: Out = { out: console.log
     setTheme(startTheme(process.env.EP0CH_THEME, readState<{ name?: string }>("theme.json")?.name));
     const lines = await drawNote(board, blockIdOf(id), width);
     if (!lines) { io.err(`ep0ch: no note ${id} in this outline`); return 1; }
-    for (const l of lines) io.out(ansi ? l : visible(l).trimEnd());
+    if (cells) io.out(JSON.stringify({ id: blockIdOf(id), ...linesToCells(lines, width) }));
+    else for (const l of lines) io.out(ansi ? l : visible(l).trimEnd());
     return 0;
   } catch (e) {
     io.err(`ep0ch: ${(e as Error).message}`);

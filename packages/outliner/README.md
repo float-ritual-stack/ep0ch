@@ -2860,6 +2860,9 @@ background retry queue or import of earlier conversations. The adapter also
 accepts Codex Stop hook payloads, but installation uses completion notifications.
 Other hosts can post the same `{workspaceRoot, agent, sessionId, messageId, text}`
 contract using `mentions.ingest`, or JSON stdin to `bun src/cli.ts mentions ingest`.
+`bun src/cli.ts mentions list [--agent <a> --session <id>] [--limit <n>]` reads them back, one
+conversation's or all, each entry with the title Tree and Detail show (the Claude mod's Recent mentions band
+and pane read it).
 Repeated message identity with identical text is idempotent; different text under
 the same identity is rejected. No Pi or Claude adapter is installed automatically;
 for Claude Code, load the mod in [`claude-mod/`](../claude-mod/README.md).

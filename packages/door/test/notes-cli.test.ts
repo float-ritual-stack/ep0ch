@@ -159,6 +159,22 @@ describe.skipIf(!outliner)("ep0ch find and show against a scratch host", () => {
     expect((await run(["show", `((${ids.oil}))`, "--width", "40"], env)).out).toBe(plain.out);
   });
 
+  test("show --cells: the same drawing as cells a Raster paints, row by row, colours kept", async () => {
+    const plain = (await run(["show", ids.oil!, "--width", "40"], env)).out.trimEnd().split("\n");
+    const r = await run(["show", ids.oil!, "--width", "40", "--cells"], env);
+    expect(r.code).toBe(0);
+    const grid = JSON.parse(r.out) as { id: string; columns: number; rows: number; cells: string; replaced: number };
+    expect([grid.id, grid.columns, grid.rows, grid.replaced]).toEqual([ids.oil!, 40, plain.length, 0]);
+    const bytes = Buffer.from(grid.cells, "base64");
+    expect(bytes.length).toBe(40 * plain.length * 12);
+    const cell = (x: number, y: number) => [0, 4, 8].map(o => bytes.readUInt32LE((y * 40 + x) * 12 + o));
+    const row = (y: number) => String.fromCodePoint(...Array.from({ length: 40 }, (_, x) => cell(x, y)[0]!)).trimEnd();
+    expect(Array.from({ length: plain.length }, (_, y) => row(y))).toEqual(plain);
+    // The title is drawn in a colour of the theme's, not the terminal's own (bit 24).
+    expect(cell(0, 0)[1]! & 0x01000000).toBe(0);
+    expect((await run(["show", ids.oil!, "--cells", "--ansi"], env)).code).toBe(2);
+  });
+
   test("refusals: no such note, a bad width, nothing to show, an outline nobody names", async () => {
     const none = await run(["show", "00000000-0000-4000-8000-000000000000"], env);
     expect([none.code, none.err]).toEqual([1, expect.stringContaining("no note")]);
