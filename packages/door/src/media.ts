@@ -46,6 +46,8 @@ interface Entry { media: Media; mtime: number; size: number; checked: number }
 const store = new Map<string, Entry>();
 /** Scaled PNGs in memory, least recently drawn first: `path\0edge\0factor` → PNG. */
 const scaled = new Map<string, PngRef>();
+/** When each scaled PNG was last drawn. */
+const used = new Map<string, number>();
 let scaledBytes = 0;
 const making = new Set<string>();
 let onChange: () => void = () => {};
@@ -171,7 +173,12 @@ function remember(job: string, ref: PngRef) {
   if (was) { scaledBytes -= was.png.length; scaled.delete(job); }
   scaled.set(job, ref);
   scaledBytes += ref.png.length;
-  for (const [k, v] of scaled) { if (scaledBytes <= KEEP_BYTES || k === job) break; scaled.delete(k); scaledBytes -= v.png.length; }
+  // The least recently drawn go first; never one drawn in the last few seconds (it's on screen).
+  const now = Date.now();
+  for (const [k, v] of scaled) {
+    if (scaledBytes <= KEEP_BYTES || k === job || now - (used.get(k) ?? 0) < RECHECK_MS) break;
+    scaled.delete(k); used.delete(k); scaledBytes -= v.png.length;
+  }
 }
 
 /** Forget everything held for `path` (its file changed on disk). */
@@ -203,7 +210,9 @@ export function media(raw: string, kind: Kind): Media {
     const s = await sourceOf(path, kind);
     // The first look, already dimmed as it will be drawn, so the first frame of it is never bright.
     const edge = stepFor(FIRST, Math.max(s.width, s.height)), f = brightness(s);
-    remember(jobOf(path, edge, f), await scale(s, edge, f));
+    const first = await scale(s, edge, f);
+    // A file changed while it was read: this picture is the old one.
+    if (store.get(path) === entry) remember(jobOf(path, edge, f), first);
     return s;
   })().then(s => {
     if (store.get(path) !== entry) return;
@@ -225,13 +234,19 @@ export function media(raw: string, kind: Kind): Media {
  * dark). Never bigger than the image. A failure turns `m` into an error its line says.
  */
 export function sized(m: ReadyMedia, pxW: number, pxH: number, f: number): PngRef | null {
+  // Looked at again for a change on disk (media), so a file edited while it's drawn is read again.
+  if (media(m.path, m.kind) !== m) return null;
   const fit = Math.max(pxW / m.width, pxH / m.height), own = Math.max(m.width, m.height);
   const edge = stepFor(Math.ceil(fit * own), own), job = jobOf(m.path, edge, f);
   const exact = scaled.get(job);
-  if (exact) { scaled.delete(job); scaled.set(job, exact); return exact; }
+  if (exact) { scaled.delete(job); scaled.set(job, exact); used.set(job, Date.now()); return exact; }
   if (!making.has(job)) {
     making.add(job);
-    sourceOf(m.path, m.kind).then(s => scale(s, edge, f)).then(ref => { making.delete(job); remember(job, ref); onChange(); }, e => {
+    sourceOf(m.path, m.kind).then(s => scale(s, edge, f)).then(ref => {
+      making.delete(job);
+      // Only for the file as it is still: one that changed on disk meanwhile was forgotten, and this is its old picture.
+      if (store.get(m.path)?.media === m) { remember(job, ref); onChange(); }
+    }, e => {
       making.delete(job);
       const entry = store.get(m.path);
       if (entry && entry.media.state === "ready") { entry.media = { state: "error", path: m.path, kind: m.kind, reason: String((e as Error).message ?? e) }; onChange(); }

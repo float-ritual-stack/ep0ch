@@ -217,14 +217,15 @@ describe("the reader draws the header image above the title", () => {
     const end = s.render(100, 42, h).lines.map(plain);
     expect(end[0]).toContain("Plot");
     expect(end.join("\n")).toContain("line 59");
-    // A short note scrolls only as far as its last line shows.
-    const short = new NoteSurface();
-    short.show(note(`Plot\n- [img::${file("wide.jpg")}] [layout::hero]\n\n${body(24)}`) as any, h);
-    short.render(100, 42, h);
-    (short as any).scroll = 1e6;
-    const sl = short.render(100, 42, h).lines.map(plain);
-    expect(sl.join("\n")).toContain("line 23");
-    expect(sl.findIndex(l => l.includes("Plot"))).toBeGreaterThan(0);
+    // A short note scrolls only as far as its last line shows, whatever its length.
+    for (let n = 20; n <= 46; n++) {
+      const short = new NoteSurface();
+      short.show(note(`Plot\n- [img::${file("wide.jpg")}] [layout::hero]\n\n${body(n)}`) as any, h);
+      short.render(100, 42, h);
+      (short as any).scroll = 1e6;
+      const sl = short.render(100, 42, h).lines.map(plain);
+      expect(sl.join("\n")).toContain(`line ${n - 1}`);
+    }
   });
 
   test("without a reader (a river column, ep0ch show) the header is drawn where it is written, full width", async () => {

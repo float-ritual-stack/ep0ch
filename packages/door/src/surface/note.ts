@@ -692,7 +692,8 @@ export class NoteSurface {
    * the host draws Kitty graphics, nothing covers the note and the pane is tall enough to give it rows (at most a third
    * of the pane, or `[height::…]`, never more than half). The full width, the whole image when it fits; taller, cropped
    * to fill (`[fit::contain]`: shown whole, centred). Dimmed as every image is (`[dim::…]`). While the file loads its
-   * rows are kept dark, so the note never flashes when it arrives.
+   * rows (the cap's) are kept dark, so nothing flashes when it arrives; an image shorter than the cap then takes
+   * fewer rows, and the note moves up once.
    */
   private heroOf(w: number, h: number, host?: SurfaceHost): { line: number; box: ReturnType<typeof heroBox>; placement: Placement | null; loading: boolean; name: string } | null {
     const m = this.msg;
@@ -794,7 +795,7 @@ export class NoteSurface {
     const full = this.hero?.full ?? 0, roomFull = Math.max(0, h - top);
     const roomAt = (s: number) => Math.max(0, roomFull - Math.max(0, full - s));
     const over = body.length - Math.max(1, roomFull);
-    this.maxScroll = !full || over >= full ? Math.max(0, over) : Math.max(0, Math.floor((over + full) / 2));
+    this.maxScroll = !full || over >= full ? Math.max(0, over) : Math.max(0, Math.ceil((over + full) / 2));
     let room = roomAt(this.scroll);
     // The element just stepped to, or the fold point just folded, comes into view; so does an agent's mark
     // (only as far as needed: one already in view doesn't move the note).
