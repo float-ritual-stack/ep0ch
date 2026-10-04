@@ -648,7 +648,8 @@ export class AgentDock {
     // One name on the screen shown and in the dock: never a guess (typing into the wrong terminal); the ids tell them apart.
     if (here && docked && here.name === req.tile && docked.name === req.tile && d!.dispatch.takes(req)) throw new ActionRefused(`${req.tile} names a tile here${here.id ? ` (${here.id})` : ""} and one in the dock${docked.id ? ` (${docked.id})` : ""} · name it by id: tile=${docked.id ?? docked.name} for the dock's`);
     if (here) return false;
-    return !!d && !!docked && d.dispatch.takes(req);
+    // By its name or id only: a number (`tile=1`) or a block is a place on the screen shown, never a dock tab's.
+    return !!d && !!docked && (docked.name === req.tile || docked.id === req.tile) && d.dispatch.takes(req);
   }
 
   describe() {
