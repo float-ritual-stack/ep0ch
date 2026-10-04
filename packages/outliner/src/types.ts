@@ -2129,7 +2129,8 @@ export type OutlinerRequestAction =
   | { id: string; action: "draft.proposal.dismiss"; proposalId: string; mutation: MutationProvenance }
   /** `mutation` needs capability `mutations.provenance`; without it the change is unattributed. */
   | { id: string; action: "move"; blockId: string; parentId: string | null; position?: number; mutation?: MutationProvenance }
-  | { id: string; action: "delete"; blockId: string; mutation?: MutationProvenance }
+  /** `expectedRevision`: trash only the block as read; a block changed since is refused and stays. */
+  | { id: string; action: "delete"; blockId: string; expectedRevision?: number; mutation?: MutationProvenance }
   | { id: string; action: "trash.restore"; blockId: string; mutation?: MutationProvenance }
   | { id: string; action: "trash.purge"; blockId: string; confirmation: string }
   | {

@@ -2482,11 +2482,21 @@ export class OutlinerStore {
     return this.require(id);
   }
 
-  delete(id: string, mutation?: MutationProvenance): Block {
+  /**
+   * To Trash. With `expectedRevision`, only the block as it was read: one changed since is refused and stays, so a
+   * client that trashes what it read as empty never trashes what another client wrote meanwhile.
+   */
+  delete(id: string, mutation?: MutationProvenance, expectedRevision?: number): Block {
     const provenance = mutation ? normalizeMutationProvenance(mutation) : undefined;
+    if (expectedRevision !== undefined && (!Number.isSafeInteger(expectedRevision) || expectedRevision < 1)) {
+      throw new Error("A conditional trash needs a positive integer revision");
+    }
     this.requireActive(id);
     const deletedAt = new Date().toISOString();
     this.database.transaction(() => {
+      if (expectedRevision !== undefined && this.requireActive(id).revision !== expectedRevision) {
+        throw new Error(`Block changed since it was read: ${id}`);
+      }
       const subtree = new Set(this.subtreeIdsFromCurrentRead(id));
       if (this.roadmapMembersOfBatches([...subtree]).some(member => !subtree.has(member))) {
         throw new Error("Cannot delete a batch with members outside the deleted subtree; reassign members first");

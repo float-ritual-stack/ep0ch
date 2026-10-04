@@ -26,7 +26,7 @@ import { agentRefusal, blockTarget, DraftSession, leaveSaid, propertyChange, uns
 import { inWindow, type Placement } from "../kitty";
 import { ALIGNS, media, parseDim, parseMediaLine, parseSize, rewriteMediaLine, sized, sizeText, type MediaAttr, type MediaSpec } from "../media";
 import type { Scroll } from "../canvas";
-import { whoOf, EditConflict, mutationFor, Offline, recordedActorId, Refused, USER, type Actor, type ChecklistStep, type Comment, type OutlineEvent, type PropertyRecord } from "../socket";
+import { whoOf, changedSinceRead, EditConflict, mutationFor, Offline, recordedActorId, Refused, USER, type Actor, type ChecklistStep, type Comment, type OutlineEvent, type PropertyRecord } from "../socket";
 import { ellipsize, dim, C, extractLinks, fg, LINK_END, linkTag, pad, RESET, width } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
 import { ago, bbsDate, rule, wrap } from "../text";
@@ -1456,9 +1456,14 @@ export class NoteSurface {
   private async dropEmptyNote(id: string, base: number, host: SurfaceHost) {
     try {
       const now = await host.ctx.board.get(id);
-      if (!now || now.text.trim() || (now.revision !== undefined && now.revision !== base)) return;
-      await host.ctx.board.trash(id);
-    } catch (e) { host.ctx.flash(`the empty new note stays: ${e instanceof Error ? e.message : String(e)}`); return; }
+      // A child someone added leaves its revision as it was, and the trash would take the child too.
+      if (!now || now.text.trim() || now.childIds.length || (now.revision !== undefined && now.revision !== base)) return;
+      // At that revision only: a save by another client after this read is refused, and the note stays.
+      await host.ctx.board.trash(id, undefined, { revision: base });
+    } catch (e) {
+      host.ctx.flash(changedSinceRead(e) ? "the new note was written meanwhile, so it stays" : `the empty new note stays: ${e instanceof Error ? e.message : String(e)}`);
+      return;
+    }
     host.ctx.flash("nothing written · the empty new note went to the trash");
     if (this.msg?.id === id) await this.runKey("back", {}, host, true).catch(() => {});
     if (this.msg?.id === id) host.gone?.(id);

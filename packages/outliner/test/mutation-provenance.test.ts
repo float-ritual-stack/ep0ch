@@ -80,6 +80,23 @@ test("an agent's move, trash and restore are attributed to the agent in the chan
   expect((await activity(client, { author: "user", kinds: ["move", "delete", "restore"] })).entries).toEqual([]);
 });
 
+test("a trash that names the revision it read is refused once the block changed, and the block stays", async () => {
+  const { store, client } = await service();
+  const empty = store.create("");
+  const start = store.sequence;
+  // Another client wrote it between this client's read and its trash.
+  const written = store.update(empty.id, "Seed swap on Saturday", empty.revision, { author: "user", actorId: "detail" });
+  await expect(client.request({ action: "delete", blockId: empty.id, expectedRevision: empty.revision, mutation: { author: "user", actorId: "door" } }))
+    .rejects.toThrow(`Block changed since it was read: ${empty.id}`);
+  expect(store.get(empty.id)!.deletedAt).toBeFalsy();
+  expect((await changesSince(client, start)).map(change => change.kind)).toEqual(["edit"]);
+  await expect(client.request({ action: "delete", blockId: empty.id, expectedRevision: 0 } as never))
+    .rejects.toThrow("A conditional trash needs a positive integer revision");
+  // At the revision it has now, the trash goes through.
+  const trashed = await client.request<Block>({ action: "delete", blockId: empty.id, expectedRevision: written.revision, mutation: { author: "user", actorId: "door" } });
+  expect(trashed.deletedAt).toBeTruthy();
+});
+
 test("an agent's move without an actor is refused, and nothing moves or is recorded", async () => {
   const { store, client } = await service();
   const shed = store.create("Shed");

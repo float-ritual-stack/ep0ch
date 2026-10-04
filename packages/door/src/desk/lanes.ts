@@ -24,7 +24,7 @@ import { pickInto, type Picked } from "../pick";
 import { completerFor, completerOf } from "../surface/completer";
 import { Modes } from "../surface/modes";
 import { ListPicker, pickRow } from "../surface/picker";
-import { Refused, type ChecklistRead, type ChecklistStep, type CreatePlan, type StepStatus } from "../socket";
+import { changedSinceRead, Refused, type ChecklistRead, type ChecklistStep, type CreatePlan, type StepStatus } from "../socket";
 import { pickParent, titleOf, type ParentPick } from "./writes";
 import { findBoards, hubViews, laneDefs, laneTileName, QueryPane } from "./query";
 import type { TileSpec } from "./tiles";
@@ -1089,9 +1089,10 @@ export class Lanes implements SourceModel {
       throw new ActionRefused(`the card changed since the board showed it (revision ${card.revision} -> ${fresh.revision}) · look again before trashing`);
     const lane = this.lanes.find(l => l.items?.some(m => m.id === card.id))?.name ?? "";
     let lost = "";
-    try { await this.host.ctx.board.trash(card.id); }
+    try { await this.host.ctx.board.trash(card.id, undefined, { revision: fresh.revision }); }
     catch (e) {
       const why = e instanceof Error ? e.message : String(e);
+      if (changedSinceRead(e)) throw new ActionRefused("the card changed just now (another client saved it) · look again before trashing");
       if (e instanceof Refused) throw new ActionRefused(why);
       // The answer was lost, not refused: the card may be in Trash anyway. Look before saying either.
       const gone = await this.host.ctx.board.isTrashed(card.id);

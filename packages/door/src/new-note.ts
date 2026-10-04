@@ -7,7 +7,7 @@
 import { subject, type Msg } from "./board";
 import type { Ctx, Screen } from "./app";
 import { ActionRefused, actionSet, def } from "./surface/actions";
-import type { NotePlacement } from "./socket";
+import { changedSinceRead, Refused, type NotePlacement } from "./socket";
 import { paint, width } from "./style";
 import type { Key } from "./term";
 
@@ -79,18 +79,32 @@ export const NEW_NOTE_ACTIONS = actionSet<NewNoteOn>()("new", {
 
 /**
  * A new note the person's edit never opened on goes to the trash (as the person: they made it), but only read again
- * and still empty at the revision it was made at: another client or an agent may have written it meanwhile. What
- * happened, said as it is (the id where it stays, to clean up by hand).
+ * and still empty (no text, no children) at the revision it was made at, and the trash names that revision: another
+ * client or an agent may write it meanwhile, even between this read and the trash, and the service then refuses it. What happened, said as
+ * it is known; when it isn't, the id and the command to look.
  */
 export async function putAway(ctx: Pick<Ctx, "board">, note: Msg): Promise<string> {
   const kept = `it was written meanwhile, so it stays (${note.id})`;
+  const check = `check it with ep0ch show ${note.id}`;
+  const why = (e: unknown) => (e instanceof Error ? e.message : String(e));
+  let now: Msg | null;
+  try { now = await ctx.board.get(note.id); }
+  catch (e) { return `it couldn't be read again (${why(e)}), so it was left as it is: ${check}`; }
+  if (!now) return "it's gone already";
+  const at = now.revision ?? note.revision;
+  // A child someone added leaves the note's revision as it was, and the trash would take it too.
+  if (now.text.trim() || now.childIds?.length || (note.revision !== undefined && at !== note.revision)) return kept;
+  if (at === undefined) return `its revision wasn't known, so it was left as it is: ${check}`;
   try {
-    const now = await ctx.board.get(note.id);
-    if (!now) return "it's gone already";
-    if (now.text.trim() || (note.revision !== undefined && now.revision !== undefined && now.revision !== note.revision)) return kept;
-    await ctx.board.trash(note.id);
+    await ctx.board.trash(note.id, undefined, { revision: at });
     return "it went to the trash";
   } catch (e) {
-    return `it couldn't be put in the trash (${e instanceof Error ? e.message : String(e)}): ${note.id} is still there, empty`;
+    if (changedSinceRead(e)) return kept;
+    if (e instanceof Refused) return `the trash was refused (${e.message}), so it stays: ${check}`;
+    // The answer was lost, not refused: look before saying either.
+    const gone = await ctx.board.isTrashed(note.id);
+    if (gone) return "it went to the trash";
+    if (gone === false) return `it couldn't be put in the trash (${why(e)}), so it stays: ${check}`;
+    return `the trash didn't answer (${why(e)}), so it may still be there: ${check}`;
   }
 }

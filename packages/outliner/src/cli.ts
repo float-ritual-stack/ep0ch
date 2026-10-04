@@ -73,7 +73,7 @@ Writing
   new [--text <text>] [--near <id>]    a note where new notes go: under --near, else the top of the Inbox
   update --id <id> --text <text> --expected <revision>
   move --id <id> --parent <id|root> [--position <n>]
-  delete --id <id> | restore --id <id>
+  delete --id <id> [--expected <revision>] | restore --id <id>
   comment --id <id> --expected <revision> --text <text> | --stdin [--quote <text> …]
   agent read|edit …                    an agent's read and edit (JSON), as the Pi extension's tools
   work …, note …                       roadmap items and notes ("outliner work" lists them)
@@ -903,11 +903,15 @@ switch (command) {
         author: { type: "string", default: "user" },
         actor: { type: "string" },
         session: { type: "string" },
+        expected: { type: "string" },
       },
       strict: true,
     });
     if (!values.id) throw new Error(`${command} requires --id`);
-    request = { action: command === "delete" ? "delete" : "trash.restore", blockId: values.id, mutation: writerMutation(values) };
+    if (values.expected !== undefined && command !== "delete") throw new Error("--expected is for delete: trash only the block at that revision");
+    request = command === "delete"
+      ? { action: "delete", blockId: values.id, ...(values.expected !== undefined ? { expectedRevision: parseRevision(values.expected) } : {}), mutation: writerMutation(values) }
+      : { action: "trash.restore", blockId: values.id, mutation: writerMutation(values) };
     break;
   }
   case "select": {
