@@ -42,12 +42,20 @@ async function quitsToAShell(p: PtyPane) {
   expect(line).toContain(work);                                    // the same folder
   await Bun.sleep(300);                                           // nothing starts it again by itself
   expect((text(p).match(/stand-in claude here/g) ?? []).length).toBe(1);
-  // The person starts something again in that shell (a program that titles itself): the tile isn't "exited" any more.
-  p.input("printf '\\033]2;again\\007'\r");
-  await until(() => p.agentExit === null, "a new title clears it", 5000);
+  // A prompt that titles the terminal (many shells' PROMPT_COMMAND) isn't the agent starting again: it stays exited.
+  p.input("printf '\\033]2;evan@allotment: ~\\007'; echo titled\r");
+  await until(() => text(p).includes("\ntitled") || p.text().some(l => l.trim() === "titled"), "the title set", 5000);
+  expect(p.agentExit).toBe(3);
 }
 
 describe("no dead panes", () => {
+  test("an agent's tile reads its exit line whether it spawned the program or adopted it after a handover", () => {
+    // Known from what the tile runs, not from having spawned it here: an adopted program's tile reads it too.
+    expect((new PtyPane({ cmd: ["claude"], label: "claude" }) as any).wrapped).toBe(true);
+    expect((new PtyPane({ cmd: ["nvim", "a.md"], label: "nvim" }) as any).wrapped).toBe(false);
+    expect((new PtyPane({ cmd: ["nvim"], label: "x", inShell: true }) as any).wrapped).toBe(true);
+  });
+
   test("a terminal tile running an agent: quitting it leaves the person's shell, live, in the same folder", async () => {
     const p = new PtyPane({ cmd: ["claude"], cwd: work, label: "claude" });
     p.tileId = "t3"; p.place = "desk";

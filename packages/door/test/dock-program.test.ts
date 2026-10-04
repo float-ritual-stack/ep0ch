@@ -91,6 +91,15 @@ describe("the dock's agent: chosen per session, detected, started inside the per
   });
 });
 
+describe("the Herdr launcher named outright", () => {
+  test("EP0CH_DAILY_AGENT=\"bun …/door-agent-herdr.ts\": the session goes after the script, where the launcher reads it, not to bun", () => {
+    const p = dockProgram({ env: { EP0CH_DAILY_AGENT: "bun /x/scripts/door-agent-herdr.ts --agent codex", EP0CH_OUTLINES: outlines }, outline: "allotment", start: root, home });
+    expect(p.cmd).toEqual(["bun", "/x/scripts/door-agent-herdr.ts", "--session", "allotment", "--agent", "codex"]);
+    const bare = dockProgram({ env: { EP0CH_DAILY_AGENT: "/x/scripts/door-agent-herdr.ts", EP0CH_OUTLINES: outlines }, outline: "allotment", start: root, home });
+    expect(bare.cmd).toEqual(["/x/scripts/door-agent-herdr.ts", "--session", "allotment"]);
+  });
+});
+
 describe("the dock reads the door's own outline and machine", () => {
   test("an outline on another machine never starts the dock in a same-named local outline's folder", async () => {
     const { AgentDock } = await import("../src/dock");

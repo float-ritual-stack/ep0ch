@@ -192,7 +192,8 @@ export async function findOrCreate(herdr: HerdrRun, cfg: AgentConfig): Promise<F
     // The session's pane left the person's shell (its agent exited, or agent.restart ended it): the agent starts there again.
     const info = json((await herdr(["pane", "process-info", "--pane", String(had.pane_id)])).out)?.result?.process_info;
     if (paneIdle(info)) {
-      const ran = await herdr(["pane", "run", String(had.pane_id), runLine(cfg)]);
+      // With this start's variables (its control link, nest): the pane's own are from when it was made.
+      const ran = await herdr(["pane", "run", String(had.pane_id), runLine(cfg, cfg.shell, cfg.env)]);
       if (ran.code !== 0) throw new Error(`herdr couldn't start ${cfg.cmd} in ${cfg.pane}: ${ran.err.trim()}`);
     }
     return { kind: "pane", pane: String(had.pane_id), terminal: had.terminal_id, created: false };
@@ -231,8 +232,10 @@ export function paneAgentPid(info: any): number | null {
  * The pane's command: `exec` the agent (so /exit ends the pane), without what the pane mustn't inherit from the
  * Herdr server (`env -u`, Linux and macOS alike).
  */
-export const runLine = (cfg: Pick<AgentConfig, "agent" | "unset" | "shell">, shell = cfg.shell ?? "sh") =>
-  `exec ${cfg.unset.length ? `env ${cfg.unset.map(k => `-u ${k}`).join(" ")} ` : ""}${inLoginShell(cfg.agent, shell).map(shellQuote).join(" ")}`;
+export const runLine = (cfg: Pick<AgentConfig, "agent" | "unset" | "shell">, shell = cfg.shell ?? "sh", set: Record<string, string> = {}) => {
+  const vars = [...cfg.unset.map(k => `-u ${k}`), ...Object.entries(set).map(([k, v]) => shellQuote(`${k}=${v}`))];
+  return `exec ${vars.length ? `env ${vars.join(" ")} ` : ""}${inLoginShell(cfg.agent, shell).map(shellQuote).join(" ")}`;
+};
 
 /**
  * Names the agent once Herdr has seen it start (a name needs a detected agent): retried every half second.

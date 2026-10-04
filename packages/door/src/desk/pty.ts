@@ -119,6 +119,9 @@ export function tileEnv(env: Record<string, string | undefined>, tile: string, c
 }
 
 /** `temp`: a ctrl+e edit on a temp file, never saved in a layout. */
+/** What inLoginShell's wrapper prints when the agent exits (latin1, as a tile reads its output): the title, then the line. */
+const EXITED = /\x1b\]2;[^\x07]* exited \xc2\xb7 shell\x07\r?\n[^\n]* exited \((\d+)\) \xc2\xb7 this is your shell/;
+
 /** `agent`: the host layer's agent (the dock's one tile, PIE-513), which reads its program from EP0CH_DAILY_AGENT. */
 export interface PtySpec {
   cmd: string[]; cwd?: string; file?: string; label?: string; temp?: boolean; agent?: boolean;
@@ -149,8 +152,11 @@ export class PtyPane implements Pane {
   /** The agent's exit code once it has left the person in their shell (an agent started inside it), else null. */
   agentExit: number | null = null;
   private exitTail = "";
-  /** Its program was started inside the person's login shell (inLoginShell): its exit line is read. */
-  private wrapped = false;
+  /**
+   * Its program starts inside the person's login shell (inLoginShell), so its exit line is read: from what the tile
+   * runs, so a program adopted after a session handover (never spawned here) is read the same.
+   */
+  private get wrapped(): boolean { return this.run.inShell ?? isAgentCmd(this.run.cmd); }
   /** The program's own title (OSC 0/2), if it set one (the Herdr launcher says it's only watching with it). */
   programTitle = "";
   /**
@@ -270,14 +276,13 @@ export class PtyPane implements Pane {
       modes(text, true);
       for (const c of clip.feed(text)) this.copied(c);
       // The agent inside the login shell exited: its wrapper says so (inLoginShell: the title, then the line), and the
-      // tile is that shell now. Only a wrapped tile reads it, and only both together; a title set after it (the agent
-      // started again in that shell) clears it.
+      // tile is that shell now. Only a wrapped tile reads it, and only both together. Only the tile's own start (a restart,
+      // ⏎ on it) clears it: a prompt that titles the terminal is no sign the agent is back.
       if (this.wrapped) {
         const seen = this.exitTail + text;
         this.exitTail = seen.slice(-320);
-        const gone = /\x1b\]2;[^\x07]* exited \xc2\xb7 shell\x07\r?\n[^\n]* exited \((\d+)\) \xc2\xb7 this is your shell/.exec(seen);
+        const gone = EXITED.exec(seen);
         if (gone && this.agentExit === null) { this.agentExit = Number(gone[1]); this.exitTail = ""; }
-        else if (this.agentExit !== null && /\x1b\][02];(?![^\x07]* exited \xc2\xb7 shell\x07)/.test(text)) this.agentExit = null;
       }
       term.write(d, () => this.soon());
     };
@@ -305,7 +310,10 @@ export class PtyPane implements Pane {
       // the size is the same: a full-screen program redraws on SIGWINCH).
       replaying = true;
       term.resize(kept.cols, kept.rows);
-      modes(Buffer.from(kept.replay).toString("latin1"), false);
+      const replayed = Buffer.from(kept.replay).toString("latin1");
+      modes(replayed, false);
+      // The agent had exited before the handover: its exit line is in what the host kept.
+      if (this.wrapped && this.agentExit === null) { const all = [...replayed.matchAll(new RegExp(EXITED.source, "g"))]; if (all.length) this.agentExit = Number(all.at(-1)![1]); }
       const proc = kept.proc;
       term.write(kept.replay, () => {
         replaying = false;
@@ -338,7 +346,6 @@ export class PtyPane implements Pane {
       if (this.isNvim && !cmd.includes("--listen")) { this.socket = nvimSocketPath(this.run.label ?? "nvim"); if (this.socket) cmd.splice(1, 0, "--listen", this.socket); }
       // An agent starts inside the person's login shell: when it exits (or crashes) the tile is that shell, in the same
       // folder with the same environment, and says so. Nothing starts it again by itself (no dead panes).
-      this.wrapped = this.run.inShell ?? isAgentCmd(this.run.cmd);
       const argv = this.wrapped ? inLoginShell(cmd, process.env.SHELL || "sh", programName(this.run.cmd)) : cmd;
       this.proc = backend.spawn({ key, argv: CTTY ? [...CTTY, ...argv] : argv, cwd: this.run.cwd, env, cols, rows, meta: this.meta() }, data);
       if (!CTTY && !saidNoCtty) { saidNoCtty = true; this.desk?.ctx.flash("no setsid or perl here: terminal tiles won't hear resizes, and ctrl+z doesn't stop a job", 8000); }

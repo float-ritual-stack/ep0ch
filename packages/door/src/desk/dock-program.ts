@@ -145,7 +145,8 @@ export function dockProgram(o: { env?: Record<string, string | undefined>; outli
     programWhy = `${saved ? `chosen for ${session ?? "this session"}` : "your default"} (${choice.agent}${choice.herdr ? " in Herdr" : ""})`;
   } else { cmd = [shell]; from = "none"; programWhy = "a shell: no agent chosen yet (the dock's picker, alt+g, chooses one)"; }
   // The launcher named outright (EP0CH_DAILY_AGENT): it's told this session, so its pane is this session's own.
-  if (isLauncher(cmd) && session && !cmd.includes("--session")) cmd = [cmd[0]!, "--session", session, ...cmd.slice(1)];
+  // After the script's path (`bun …/door-agent-herdr.ts`: bun's own arguments come before it).
+  if (isLauncher(cmd) && session && !cmd.includes("--session")) { const at = cmd.findIndex(c => basename(c) === "door-agent-herdr.ts") + 1; cmd = [...cmd.slice(0, at), "--session", session, ...cmd.slice(at)]; }
   const folder = ((): { cwd: string; why: string } => {
     const chosen = env.EP0CH_DAILY_CWD?.trim();
     if (chosen) return { cwd: tilde(chosen, home), why: `EP0CH_DAILY_CWD (${chosen})` };

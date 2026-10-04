@@ -342,6 +342,36 @@ describe.skipIf(!outliner)("the dock: any tile, moved whole between screens", ()
     } finally { d.app.quit(); }
   });
 
+  test("a session handover: the person's edit in a docked reader is checkpointed and comes back in the next daemon's dock", async () => {
+    const { Checkpoints, readCheckpoint, restore } = await import("../src/session/restore");
+    const { MainMenu } = await import("../src/screens");
+    const note = await board.request<any>("create", { parentId: null, text: "Leeks: earth them up", author: "agent" });
+    const term = (): any => ({ info: { cols: 140, rows: 40, cellW: 9, cellH: 16, kitty: false }, write() {}, paint() {}, paintRow() {}, invalidate() {}, onKey() {}, onResize() {}, stop() {}, resume() {} });
+    const one = new App(term(), board, Date.now(), () => {});
+    one.push(new MainMenu());
+    const desk = new Desk(undefined, { layout: "desk" });
+    one.push(desk);
+    await desk.dispatch.act({ action: "tile.open", args: { kind: "detail", note: note.id, name: "leeks" }, tile: "reader" }, USER);
+    await until(() => (desk.pane("leeks") as any)?.msg?.id === note.id, "the detail shows it");
+    await desk.dispatch.act({ action: "host.dock", args: {}, tile: "leeks" }, USER);
+    await one.dock.desk!.dispatch.act({ action: "edit.text", args: { text: "Leeks: earth them up\nhalfway: the second row next" }, tile: "leeks" }, USER);
+    // The handover's order (src/session/daemon.ts): the checkpoint with the edits, then the drafts put aside.
+    new Checkpoints(one, () => ({ cols: 140, rows: 40 })).write(true);
+    for (const x of one.holders()) x.keepDrafts?.();
+    const c = readCheckpoint()!;
+    expect(c.reopen.some(s => s.dock && s.action === "edit" && s.tile === "leeks")).toBe(true);
+    one.quit();
+    const two = new App(term(), board, Date.now(), () => {});
+    try {
+      const r = await restore(two, c);
+      expect(r.errors).toEqual([]);
+      expect(r.reopened).toBe(1);
+      const back = two.dock.desk!.pane("leeks") as any;
+      expect(back?.surface.draft).toBeTruthy();
+      expect(back.unsaved()).toBe(true);
+    } finally { two.quit(); }
+  });
+
   test("saved: the next door's dock has the tile back (dock-tiles.json), the drawer as it was", async () => {
     const d = await door();
     await d.app.act({ action: "host.dock", args: {}, tile: "thread", as: AS });

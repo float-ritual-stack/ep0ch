@@ -63,6 +63,9 @@ describe("the agent's pane", () => {
     answer("info", { result: { process_info: { shell_pid: 40, foreground_processes: [{ pid: 40, name: "-zsh" }] } } });
     await findOrCreate(herdrRunner(fake), cfg());
     expect(calls()[2]).toStartWith("pane run w4:p2 exec ");
+    // Started again in the old pane: with this start's variables (its control link), not what the pane was made with.
+    expect(calls()[2]).toContain(`EP0CH_CONTROL=${join(dir, "agent.sock")}`);
+    expect(calls()[2]).toContain("EP0CH_TILE=claude");
     expect(paneAgentPid({ shell_pid: 40, foreground_processes: [{ pid: 40, name: "sh" }, { pid: 41, name: "claude" }] })).toBe(41);
     expect(paneAgentPid({ shell_pid: 40, foreground_processes: [] })).toBe(40);
     rmSync(join(dir, "calls"), { force: true });
