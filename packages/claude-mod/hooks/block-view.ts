@@ -31,13 +31,6 @@ const B64_PER_CELL = 16
 /** The most rows kept of one drawing: a preview, not the note. */
 export const MAX_ROWS = 24
 
-/**
- * The extra argument `ep0ch help` is asked with: a socket path that never
- * exists, so an ep0ch older than `help` stops at "no carrier" rather than
- * opening a door (where.ts' HELP_PROBE, for the same reason).
- */
-export const BLOCK_VIEW_PROBE = '/nonexistent/ep0ch-cells-probe.sock'
-
 /** `ep0ch help` lists `show … --cells`: this ep0ch draws cells (an older `show` would refuse the flag; one older than `show` would open a door). */
 export const knowsCells = (help: string): boolean => /^\s*ep0ch show\b.*--cells.*--rows/m.test(help)
 
@@ -77,13 +70,12 @@ export function resetBlockViewProbe(): void {
 }
 
 /**
- * `ep0ch help`'s text, asked once a module load (with the probe socket, so an
- * ep0ch older than `help` opens nothing), or null where there is no usable
+ * `ep0ch help`'s text, asked once a module load, or null where there is no usable
  * `ep0ch`: what each of the mod's `ep0ch` commands checks before it runs
  * (`--cells` here, `export` for the detail view).
  */
 export function ep0chHelp(run: RunCommand): Promise<string | null> {
-  return (helped ??= run(['ep0ch', 'help', BLOCK_VIEW_PROBE], { timeoutMs: 5000 })
+  return (helped ??= run(['ep0ch', 'help'], { timeoutMs: 5000 })
     .then(help => (help.exitCode === 0 ? help.stdout : null), () => null))
 }
 

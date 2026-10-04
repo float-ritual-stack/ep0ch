@@ -1,7 +1,7 @@
 import type { ProcessRunResult } from 'claude-code'
 import { describe, expect, test, tier } from 'claude-code/testing'
 
-import { BLOCK_VIEW_PROBE, blockCellsOf, blockViewArgv, blockViewId, BlockView, clipRows, knowsCells, loadBlockView, resetBlockViewProbe } from '../hooks/block-view'
+import { blockCellsOf, blockViewArgv, blockViewId, BlockView, clipRows, knowsCells, loadBlockView, resetBlockViewProbe } from '../hooks/block-view'
 
 tier('user')
 
@@ -41,7 +41,7 @@ describe('BlockView', () => {
       return argv[1] === 'help' ? result(0, HELP) : result(0, SHOWN(['Chain oil', '', 'The wax one.', 'Bike shed']))
     }
     const data = await loadBlockView(run, BLOCK, 12, { cwd: '/work/outliner', env: { EP0CH_WS: 'garden' } })
-    expect(runs).toEqual([['ep0ch', 'help', BLOCK_VIEW_PROBE], blockViewArgv(BLOCK, 12)])
+    expect(runs).toEqual([['ep0ch', 'help'], blockViewArgv(BLOCK, 12)])
     // Its first rows only: a long note is never drawn whole.
     expect(blockViewArgv(BLOCK, 12)).toEqual(['ep0ch', 'show', BLOCK, '--cells', '--width', '12', '--rows', '24'])
     expect(data).toMatchObject({ kind: 'cells', columns: 12, rows: 4 })
@@ -58,12 +58,12 @@ describe('BlockView', () => {
     // An ep0ch older than `help` takes the probe's socket path, never there, and stops at "no carrier".
     const ancient: (readonly string[])[] = []
     const noHelp = await loadBlockView(async argv => { ancient.push(argv); return result(1, '', 'ep0ch: no carrier on /nonexistent/ep0ch-cells-probe.sock') }, BLOCK, 40)
-    expect([noHelp.kind, ancient]).toEqual(['text', [['ep0ch', 'help', BLOCK_VIEW_PROBE]]])
+    expect([noHelp.kind, ancient]).toEqual(['text', [['ep0ch', 'help']]])
     const old: (readonly string[])[] = []
     const tooOld = await loadBlockView(async argv => { old.push(argv); return result(0, '  ep0ch show <id> [--ansi] [--width <n>]\n') }, BLOCK, 40)
     expect(tooOld.kind).toBe('text')
     // Only the help probe ran: `show` was never asked for cells it can't draw.
-    expect(old).toEqual([['ep0ch', 'help', BLOCK_VIEW_PROBE]])
+    expect(old).toEqual([['ep0ch', 'help']])
 
     const drawn = BlockView(UI, { key: 'p1', data: missing, surface: 'terminal', maxRows: 2, text: 'Chain oil\nThe wax one.\nBike shed' }) as any
     expect(drawn).toEqual({ type: 'Markdown', props: { key: 'p1', text: 'Chain oil\nThe wax one.', dimColor: true } })

@@ -65,9 +65,7 @@ import {
   type DoorEnv,
   doorTileOf,
   envSummaryOf,
-  HELP_PROBE,
   inDoorEnv,
-  knowsWhere,
   WHERE_BLOCK,
   WHERE_TIMEOUT_MS,
   WHERE_WAIT_MS,
@@ -236,7 +234,6 @@ export function register(on: On, options: PluginOptions): void {
     })
     bindingLoad = undefined
     bindingGiven = undefined
-    ep0chKnowsWhere = null
     await $.state.set(BINDING_STATE, { shown: true, facts: (await $.state.get(BINDING_STATE)).value?.facts ?? null })
     $.ui.status(statusLine(null))
     $.clock.after(0, () => void readBinding($, option, false).catch(() => {}))
@@ -469,8 +466,6 @@ async function doorEnvOf($: EngineInterface): Promise<DoorEnv> {
 }
 
 /** Whether this session's `ep0ch` knows `where` (its help asked once): null until asked. */
-let ep0chKnowsWhere: boolean | null = null
-
 /**
  * `ep0ch where --json`, in a door or not, run in the session's folder: its
  * one-line summary (null when it didn't answer: not on PATH, too old, an
@@ -478,15 +473,6 @@ let ep0chKnowsWhere: boolean | null = null
  */
 async function runWhere($: EngineInterface): Promise<WhereRun> {
   try {
-    // An ep0ch older than `where` would read `where` as a socket path and open a door on the terminal-less
-    // session (attaching, maybe creating, an outline): its help must list `where` first. An ep0ch older than
-    // `help` (before ep0ch-door #31) reads `help` the same way; the probe socket it then picks instead of
-    // the default one doesn't exist, so it stops at "no carrier" before opening anything.
-    if (ep0chKnowsWhere === null) {
-      const help = await $.process.run(['ep0ch', 'help', HELP_PROBE], { timeoutMs: 5000 })
-      ep0chKnowsWhere = help.exitCode === 0 && knowsWhere(help.stdout)
-    }
-    if (!ep0chKnowsWhere) return { summary: null, facts: null, why: 'this ep0ch is too old for `where`; update it with `ep0ch install --apply`' }
     const ran = await $.process.run(['ep0ch', 'where', '--json'], { cwd: await $.session.cwd(), timeoutMs: WHERE_TIMEOUT_MS })
     if (ran.exitCode !== 0) return { summary: null, facts: null, why: failureReasonOf(ran.stderr) || '`ep0ch where` failed' }
     return { summary: whereSummaryOf(ran.stdout), facts: whereFactsOf(ran.stdout) }
@@ -716,9 +702,6 @@ async function runDoorTool(
   }
   switch (name) {
     case 'door_where': {
-      // An ep0ch older than `where` would open a door on this terminal-less session: its help must list it.
-      const help = await $.process.run(['ep0ch', 'help', HELP_PROBE], { timeoutMs: 5000 })
-      if (help.exitCode !== 0 || !knowsWhere(help.stdout)) throw Error('this ep0ch is too old for where; update it (ep0ch install)')
       return compact(await ep0ch(['ep0ch', 'where', '--json']))
     }
     case 'door_peek':

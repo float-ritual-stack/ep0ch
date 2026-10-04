@@ -23,22 +23,11 @@ export const WHERE_TIMEOUT_MS = 8000
 /** How long the first prompt waits for it before using the variables alone. */
 export const WHERE_WAIT_MS = 1500
 
-/**
- * The extra argument `ep0ch help` is asked with: a socket path that never
- * exists. Every ep0ch with `help` prints its usage and ignores it; one older
- * than `help` takes it for the socket to open and stops at "no carrier",
- * instead of opening a door on the default outline.
- */
-export const HELP_PROBE = '/nonexistent/ep0ch-where-probe.sock'
-
 /** One line: control characters (a newline in an inherited EP0CH_NEST) become spaces. */
 const oneLine = (s: string): string => s.replace(/[\x00-\x1f\x7f]+/g, ' ').trim()
 
 /** Whether to look at all: only a session a door started (or its Herdr agent pane). */
 export const inDoorEnv = (env: DoorEnv): boolean => !!(env.EP0CH_NEST?.trim() || env.EP0CH_CONTROL?.trim())
-
-/** `ep0ch help` lists `where`: this ep0ch has it (an older one would open a door instead). */
-export const knowsWhere = (help: string): boolean => /^\s*ep0ch where\b/m.test(help)
 
 /**
  * The summary `ep0ch where --json` printed, or null when its output isn't

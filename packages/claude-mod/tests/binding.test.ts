@@ -2,7 +2,6 @@ import type { On, ProcessRunResult } from 'claude-code'
 import { describe, expect, mock, test, tier } from 'claude-code/testing'
 
 import { type BindingFacts, cardLines, mismatchOf, statusLine, type WhereFacts, whereFactsOf } from '../hooks/binding'
-import { HELP_PROBE } from '../hooks/where'
 
 tier('user')
 
@@ -222,7 +221,7 @@ describe('where this Claude is bound: the card, the status line, the context', (
     await s.clock.settle()
     expect(s.statuses.at(-1)).toBe('outline: garden @ near-box · folder · ⚠ door is harbor @ far')
     expect(s.runs.filter(r => r[0] === 'ep0ch' && r[1] === 'where').length).toBe(2)
-    expect(s.runs).toContainEqual(['ep0ch', 'help', HELP_PROBE])
+    expect(s.runs.some(r => r[0] === 'ep0ch' && r[1] === 'help')).toBe(false)
   })
 })
 
