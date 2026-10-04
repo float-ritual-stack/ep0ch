@@ -108,7 +108,8 @@ if [ "$showcase" = 1 ]; then
     [ "$stale" = 0 ] || rm -f "$sock"
     serve "$base" showcase "$base/service.log"; mine=1; echo "$pid" >"$pidfile"
   fi
-  stop() { if [ "$mine" = 1 ] && [ -n "$pid" ]; then kill "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true; rm -f "$pidfile"; fi; }
+  # The pidfile is removed only while it still names this run's host: a --reset run since then stopped it and wrote its own.
+  stop() { if [ "$mine" = 1 ] && [ -n "$pid" ]; then kill "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true; if [ "$(cat "$pidfile" 2>/dev/null)" = "$pid" ]; then rm -f "$pidfile"; fi; fi; }
   trap stop EXIT INT TERM
   # Seeded once: the marker is written only when the whole seed landed (a half seed says to --reset).
   if [ ! -f "$base/seeded" ]; then

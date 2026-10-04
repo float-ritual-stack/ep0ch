@@ -849,3 +849,49 @@ describe.skipIf(!outliner)("the showcase screen", () => {
   }, 20_000);
 });
 
+
+// `ep0ch --showcase --reset` while a showcase door stays open: the reset stops the host, deletes the outline and
+// seeds a new one, and the open door reconnects to it. The new seed's notes are new blocks, and the same seed ends
+// on the same sequence, so the catch-up finds nothing missed: the screen has to notice its root is another one and
+// read the notes again, or the notebook it keeps embeds ids the new outline doesn't have (each read `◌`).
+describe.skipIf(!outliner)("the showcase screen across a --reset", () => {
+  const scratch = new Scratch(undefined, "showcase");
+  let board: SocketBoard, app: App, sc: Showcase;
+  const screen = () => sc.render(app).lines.map(plain).join("\n");
+  const S = () => sc as any;
+
+  beforeAll(async () => {
+    process.env.EP0CH_STATE = join(scratch.root, "door");
+    await scratch.start();
+    await scratch.seedShowcase();
+    board = new SocketBoard(scratch.sock);
+    board.reconnectMs = 50;
+    await board.info();
+    // Tall enough that the notebook's embeds, near its end, are on screen.
+    const term = { info: { cols: 200, rows: 130, cellW: 9, cellH: 16, kitty: false }, write() {}, paint() {}, invalidate() {}, onKey() {}, onResize() {}, stop() {}, resume() {} };
+    app = new App(term as any, board, Date.now(), () => {});
+    board.subscribe(e => app.event(e));
+    sc = new Showcase();
+    app.push(new MainMenu()); app.push(sc);
+    await until(() => !!S().notes, "the showcase outline", 8000);
+  }, 30_000);
+  afterAll(async () => { board?.close(); await scratch.dispose(); delete process.env.EP0CH_STATE; });
+
+  const embeds = ["» Kitchen whiteboard", "Shopping: oats, lemons, washing-up liquid.", "» Kitchen tap ^t-7a9c11", "[~] fix the dripping tap"];
+
+  test("the notebook's embeds show their notes after the outline is reset under the open door", async () => {
+    sc.pick(0);
+    await until(() => embeds.every(m => screen().includes(m)), "the notebook's embeds before the reset", 8000);
+    const before = S().notes.root.id;
+    // What try-it.sh --reset does: stop the host, delete the outline, start again and seed it anew.
+    await scratch.stop();
+    rmSync(scratch.outlines, { recursive: true, force: true });
+    mkdirSync(scratch.outlines, { recursive: true });
+    await scratch.start();
+    await scratch.seedShowcase();
+    await until(() => S().notes?.root?.id !== before && !!S().notes?.root, "the showcase read again", 15_000);
+    sc.pick(0);
+    await until(() => embeds.every(m => screen().includes(m)), `the notebook's embeds after the reset: ${embeds.filter(m => !screen().includes(m)).join(" | ")}`, 10_000);
+    expect(screen()).not.toContain("◌");
+  }, 60_000);
+});

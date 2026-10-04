@@ -40,7 +40,7 @@ import { serviceKind, tileKinds } from "../desk/tile-kinds";
 import { extensionList } from "../extensions";
 import { ScreenTile } from "../desk/screen-tile";
 import { servingSession } from "../session/session-term";
-import { loadShowcase, SEED, type SeedName } from "./seed";
+import { findShowcase, loadShowcase, SEED, type SeedName } from "./seed";
 import { RowView } from "../scroll";
 
 type Notes = Partial<Record<SeedName, Msg>>;
@@ -327,6 +327,9 @@ export class Showcase implements Screen {
   ctx!: Ctx;
   private notes: Notes | null = null;
   private problem = "";
+  /** The outline was reset under this door: its notes are read again once the new seed is whole. */
+  private reseeding = false;
+  private rereadTimer: Timer | null = null;
   private sel = 0;
   /** Where the person's keys go: the index of sections, or the section's stage. */
   private focus: "index" | "stage" = "index";
@@ -346,6 +349,41 @@ export class Showcase implements Screen {
       else this.notes = s.notes;
       ctx.redraw();
     }, e => { this.problem = `couldn't read the outline: ${e instanceof Error ? e.message : String(e)}`; ctx.redraw(); });
+  }
+
+  /**
+   * After a reconnect, the host may serve a new showcase under the same name: `--reset` stopped it, deleted the
+   * outline and is seeding it again while this door stays open. The new seed's notes are new blocks (and the same
+   * seed ends on the same sequence, so the catch-up finds nothing missed): when the root is another one or gone, the
+   * stages built on the old notes are dropped, and the notes are read again once the seed is whole.
+   */
+  private async recheck() {
+    const root = await findShowcase(this.ctx.board).catch(() => undefined);
+    if (root === undefined || this.reseeding || !this.notes || root?.id === this.notes.root?.id) return;
+    for (const f of this.stages.values()) f.dispose();
+    this.stages.clear();
+    this.notes = null;
+    this.focus = "index";
+    this.reseeding = true;
+    this.problem = "The showcase outline was reset; its notes are read again once it is seeded.";
+    this.ctx.redraw();
+    this.reread();
+  }
+
+  /** While reseeding: read the notes again once the outline has been quiet a moment, and take them when every one is there. */
+  private reread() {
+    if (this.rereadTimer) clearTimeout(this.rereadTimer);
+    this.rereadTimer = setTimeout(() => {
+      this.rereadTimer = null;
+      loadShowcase(this.ctx.board).then(s => {
+        if (!this.reseeding || !s || Object.keys(SEED).some(k => !s.notes[k as SeedName])) return;
+        this.reseeding = false;
+        this.notes = s.notes;
+        this.problem = "";
+        this.ctx.flash("the showcase was reset · its notes read again");
+        this.ctx.redraw();
+      }, () => {});
+    }, 500);
   }
 
   /** The stage of section `i`, built once and kept, so an edit or a layout survives moving between sections. */
@@ -458,10 +496,14 @@ export class Showcase implements Screen {
   }
 
   tick(): boolean { return [...this.stages.values()].some(f => f.tick()); }
-  onEvent(e: OutlineEvent) { for (const f of this.stages.values()) f.onEvent(e); }
+  onEvent(e: OutlineEvent) {
+    for (const f of this.stages.values()) f.onEvent(e);
+    if (e.action === "reconnected" || e.action === "reset") void this.recheck();
+    else if (this.reseeding) this.reread();
+  }
   unsaved() { return [...this.stages.values()].some(f => f.unsaved()); }
   keepDrafts() { return [...this.stages.values()].flatMap(f => f.keepDrafts()); }
-  dispose() { for (const f of this.stages.values()) f.dispose(); }
+  dispose() { for (const f of this.stages.values()) f.dispose(); if (this.rereadTimer) clearTimeout(this.rereadTimer); }
   /** The note in the reader the person is in on the shown stage (PIE-544): a new note goes under it. */
   noteContext(): string | null { return this.focus === "stage" ? this.stages.get(this.sel)?.top.noteContext?.() ?? null : null; }
   /** A new note opened to be written on the shown stage, as its desk opens one; the person's keys go into the stage. */
