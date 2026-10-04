@@ -122,7 +122,7 @@ how to check it (automated when possible), so it can be retired once a test or t
 - **A contract changed under another package.** Does the change alter output another package reads (the `ep0ch`
   CLI's argv and output, stderr wording, outline-core grammar, socket shapes)? Run the consumer's tests against
   the real producer. *Seen: #174 broke the Claude mod's `help` probe (#179); `FORCE_COLOR` in refusals (#184).
-  Check: `door/test/claude-mod-contract.test.ts`, extend it for new contracts.*
+  Check: `packages/door/test/claude-mod-contract.test.ts`, extend it for new contracts.*
 - **A cached read with no invalidation.** Does the change keep a copy of outline data (rows, a note, an embed)?
   Name what re-reads it: the change feed, and a replaced database (PIE-559). *Seen: #182 (outline tile), #187
   (showcase reset), the river column (open). Check: a real-host test that changes the data from another client.*

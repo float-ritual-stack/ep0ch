@@ -29,9 +29,12 @@ Every reference to a tile, pane, note, outline, view or session is one of three 
 
 Rules:
 
-1. **Store ids or roles, never names.** A follower, a link between tiles, a saved layout's references, a pane
-   that must be closed later: keep the id (or the role, re-resolved each time). A name is for a person typing it
-   and for display.
+1. **Store what the reference means.** When the code means *this exact one* (a follower, a link between tiles, a
+   saved layout's references, a pane that must be closed later), keep the id. When it means *whichever does this
+   job*, keep the role and resolve it each time. Store a name only when *the name itself* is what was meant: a
+   person's `[[page]]` link, an outline named in `.ep0ch` (`ws = "<name>"`), a layout saved as `daily`. Those
+   are chosen by a person, resolved by name on purpose, and renaming is their business (pages keep their old
+   addresses as aliases). The bug is a name stored as a stand-in for an identity.
 2. **Actions accept all three, and keep them apart.** An id is exact. A name is looked up in one scope, and an
    ambiguous name is refused with the candidates and their ids, never guessed. A role is resolved fresh where it's
    used (as `from=$EP0CH_TILE` already is for opens).
