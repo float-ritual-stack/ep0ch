@@ -883,12 +883,17 @@ describe.skipIf(!outliner)("the showcase screen across a --reset", () => {
     sc.pick(0);
     await until(() => embeds.every(m => screen().includes(m)), "the notebook's embeds before the reset", 8000);
     const before = S().notes.root.id;
+    // The person has the help over it meanwhile: the showcase isn't on top, so the outline's events don't reach it.
+    app.push(new Help());
     // What try-it.sh --reset does: stop the host, delete the outline, start again and seed it anew.
     await scratch.stop();
     rmSync(scratch.outlines, { recursive: true, force: true });
     mkdirSync(scratch.outlines, { recursive: true });
     await scratch.start();
     await scratch.seedShowcase();
+    await until(() => (app.reconnects ?? 0) > 0, "the door reconnected", 10_000);
+    app.pop();
+    screen();
     await until(() => S().notes?.root?.id !== before && !!S().notes?.root, "the showcase read again", 15_000);
     sc.pick(0);
     await until(() => embeds.every(m => screen().includes(m)), `the notebook's embeds after the reset: ${embeds.filter(m => !screen().includes(m)).join(" | ")}`, 10_000);

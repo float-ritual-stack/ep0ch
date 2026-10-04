@@ -330,6 +330,9 @@ export class Showcase implements Screen {
   /** The outline was reset under this door: its notes are read again once the new seed is whole. */
   private reseeding = false;
   private rereadTimer: Timer | null = null;
+  /** `ctx.reconnects` when the root was last checked. */
+  private reconnectsSeen = 0;
+  private disposed = false;
   private sel = 0;
   /** Where the person's keys go: the index of sections, or the section's stage. */
   private focus: "index" | "stage" = "index";
@@ -344,6 +347,7 @@ export class Showcase implements Screen {
 
   enter(ctx: Ctx) {
     this.ctx = ctx;
+    this.reconnectsSeen = ctx.reconnects ?? 0;
     loadShowcase(ctx.board).then(s => {
       if (!s) this.problem = "This outline has no showcase: the showcase runs on its own seeded outline. From a shell: ep0ch try --showcase (add --reset to start it over).";
       else this.notes = s.notes;
@@ -355,17 +359,21 @@ export class Showcase implements Screen {
    * After a reconnect, the host may serve a new showcase under the same name: `--reset` stopped it, deleted the
    * outline and is seeding it again while this door stays open. The new seed's notes are new blocks (and the same
    * seed ends on the same sequence, so the catch-up finds nothing missed): when the root is another one or gone, the
-   * stages built on the old notes are dropped, and the notes are read again once the seed is whole.
+   * stages built on the old notes are dropped (an unsaved draft copied to disk first), and the notes are read again
+   * once the seed is whole. Checked on the render after each reconnect, so a showcase under another screen then
+   * checks when it is back on top.
    */
   private async recheck() {
     const root = await findShowcase(this.ctx.board).catch(() => undefined);
-    if (root === undefined || this.reseeding || !this.notes || root?.id === this.notes.root?.id) return;
+    if (this.disposed || root === undefined || this.reseeding || !this.notes || root?.id === this.notes.root?.id) return;
+    const kept = this.keepDrafts();
     for (const f of this.stages.values()) f.dispose();
     this.stages.clear();
     this.notes = null;
     this.focus = "index";
     this.reseeding = true;
     this.problem = "The showcase outline was reset; its notes are read again once it is seeded.";
+    if (kept.length) this.ctx.flash(`the showcase was reset · an unsaved draft is copied to ${kept.join(", ")}`, 6000);
     this.ctx.redraw();
     this.reread();
   }
@@ -376,13 +384,15 @@ export class Showcase implements Screen {
     this.rereadTimer = setTimeout(() => {
       this.rereadTimer = null;
       loadShowcase(this.ctx.board).then(s => {
-        if (!this.reseeding || !s || Object.keys(SEED).some(k => !s.notes[k as SeedName])) return;
+        if (this.disposed || !this.reseeding) return;
+        // Not whole yet: the seed's next write reads again. A read that failed tries again by itself.
+        if (!s || Object.keys(SEED).some(k => !s.notes[k as SeedName])) return;
         this.reseeding = false;
         this.notes = s.notes;
         this.problem = "";
         this.ctx.flash("the showcase was reset · its notes read again");
         this.ctx.redraw();
-      }, () => {});
+      }, () => { if (!this.disposed && this.reseeding) this.reread(); });
     }, 500);
   }
 
@@ -412,6 +422,8 @@ export class Showcase implements Screen {
   }
 
   render(ctx: Ctx): Frame {
+    if ((ctx.reconnects ?? 0) !== this.reconnectsSeen) { this.reconnectsSeen = ctx.reconnects ?? 0; void this.recheck(); }
+    else if (this.reseeding && !this.rereadTimer) this.reread();
     const { cols, rows } = ctx.t;
     const H = rows - 1;
     const canvas = new Canvas(cols, H);
@@ -498,12 +510,11 @@ export class Showcase implements Screen {
   tick(): boolean { return [...this.stages.values()].some(f => f.tick()); }
   onEvent(e: OutlineEvent) {
     for (const f of this.stages.values()) f.onEvent(e);
-    if (e.action === "reconnected" || e.action === "reset") void this.recheck();
-    else if (this.reseeding) this.reread();
+    if (this.reseeding && e.action !== "reconnected" && e.action !== "reset") this.reread();
   }
   unsaved() { return [...this.stages.values()].some(f => f.unsaved()); }
   keepDrafts() { return [...this.stages.values()].flatMap(f => f.keepDrafts()); }
-  dispose() { for (const f of this.stages.values()) f.dispose(); if (this.rereadTimer) clearTimeout(this.rereadTimer); }
+  dispose() { this.disposed = true; for (const f of this.stages.values()) f.dispose(); if (this.rereadTimer) clearTimeout(this.rereadTimer); }
   /** The note in the reader the person is in on the shown stage (PIE-544): a new note goes under it. */
   noteContext(): string | null { return this.focus === "stage" ? this.stages.get(this.sel)?.top.noteContext?.() ?? null : null; }
   /** A new note opened to be written on the shown stage, as its desk opens one; the person's keys go into the stage. */
