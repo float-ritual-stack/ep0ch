@@ -97,6 +97,26 @@ test("a trash that names the revision it read is refused once the block changed,
   expect(trashed.deletedAt).toBeTruthy();
 });
 
+test("a trash only if empty is refused once a child was added (the revision unchanged), and nothing is trashed", async () => {
+  const { store, client } = await service();
+  const empty = store.create("");
+  // Another client adds a child between this client's read and its trash: the parent's revision stays as read.
+  const child = store.create("Water the seedlings", empty.id);
+  expect(store.get(empty.id)!.revision).toBe(empty.revision);
+  const start = store.sequence;
+  await expect(client.request({ action: "delete", blockId: empty.id, expectedRevision: empty.revision, ifEmpty: true, mutation: { author: "user", actorId: "door" } }))
+    .rejects.toThrow(`Block is not empty: it has 1 child now: ${empty.id}`);
+  expect(store.get(empty.id)!.deletedAt).toBeFalsy();
+  expect(store.get(child.id)!.effectiveDeletedRootId).toBeFalsy();
+  expect((await changesSince(client, start))).toEqual([]);
+  // Text counts too; a trashed child doesn't.
+  const written = store.create("Compost day");
+  await expect(client.request({ action: "delete", blockId: written.id, ifEmpty: true })).rejects.toThrow(`Block is not empty: it has text now: ${written.id}`);
+  store.delete(child.id);
+  const trashed = await client.request<Block>({ action: "delete", blockId: empty.id, expectedRevision: empty.revision, ifEmpty: true, mutation: { author: "user", actorId: "door" } });
+  expect(trashed.deletedAt).toBeTruthy();
+});
+
 test("an agent's move without an actor is refused, and nothing moves or is recorded", async () => {
   const { store, client } = await service();
   const shed = store.create("Shed");

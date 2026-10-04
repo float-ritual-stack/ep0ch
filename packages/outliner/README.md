@@ -658,7 +658,7 @@ bun run cli update --id <block-uuid> --text "Revised note" --expected <revision>
 bun run cli update --id <block-uuid> --text "Revised note" --expected <revision> --author agent --actor claude-code
 bun run cli create --text "Agent's note" --author agent --actor claude-code [--session <id>]
 bun run cli move --id <block-uuid> --parent <block-uuid|root> [--position 0] [--author agent --actor claude-code]
-bun run cli delete --id <block-uuid> [--expected <revision>] [--author agent --actor claude-code]
+bun run cli delete --id <block-uuid> [--expected <revision>] [--if-empty] [--author agent --actor claude-code]
 bun run cli restore --id <block-uuid> [--author agent --actor claude-code]
 bun run cli activity --limit 50 [--since 2026-09-27T00:00:00Z] [--after <cursor>] [--author agent] [--actor claude-code] [--kinds text,properties,move,delete,restore]
 bun run cli agent read --json '{"ref":"PIE-123","depth":2}'          # full text, properties, revision, children

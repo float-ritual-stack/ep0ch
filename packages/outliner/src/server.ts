@@ -2562,7 +2562,7 @@ export class OutlinerServer {
           result = this.store.move(request.blockId, request.parentId, request.position, request.mutation);
           break;
         case "delete":
-          result = this.store.delete(request.blockId, request.mutation, request.expectedRevision);
+          result = this.store.delete(request.blockId, request.mutation, { revision: request.expectedRevision, ifEmpty: request.ifEmpty });
           break;
         case "trash.restore":
           result = this.store.restore(request.blockId, request.mutation);

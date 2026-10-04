@@ -29,7 +29,7 @@ move into one repository (PIE-530).
 - **A database made before schema versions** is refused at open, with the command that stamps it. Back it up, stop
   the host, then run `bun packages/outliner/scripts/migrations/0001-stamp.ts ~/outlines/<name>.sqlite` once. It
   stamps only a database whose shape matches a fresh one.
-- **Restart the host, then the doors.** The host and every client speak protocol 87 (PIE-538 added `callouts.types`, PIE-544 `notes.create` and the page-title rule, and `delete` takes `expectedRevision`); a client refuses a host on any other number,
+- **Restart the host, then the doors.** The host and every client speak protocol 88 (PIE-538 added `callouts.types`, PIE-544 `notes.create` and the page-title rule, and `delete` takes `expectedRevision` and `ifEmpty`); a client refuses a host on any other number,
   saying which side to update. `ep0ch install --apply` restarts the host. Restart doors and Claude sessions that
   should run the new code.
 - **Delete `~/.config/pi-herdr-outliner/document-renderers.json`** if you have one. Nothing reads it now.
