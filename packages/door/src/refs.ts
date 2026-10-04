@@ -1,5 +1,5 @@
 // Links in read mode, as Detail shows them: `((id))` and `[[address]]` become the target's title or the
-// authored label, without delimiters; a missing target reads `label · Missing target`. The service
+// authored label, without delimiters; a missing target reads `label ◌` (MISSING_MARK), quiet in running text. The service
 // resolves (`references.resolve`, `pages.resolve`); the door keeps the answers until the outline changes.
 // Edit mode, comments and storage keep the raw text: this is presentation only.
 import type { Source } from "./props";
@@ -206,19 +206,23 @@ export interface ImageRef { block: string; line: number; source: string; path: s
  */
 export interface CalloutRef { block: string; line: number; header: string; type: string; fold: "+" | "-" | null; foldKey: string | null }
 
+/** The mark after a link whose target doesn't exist yet: one quiet glyph, not words, so a note full of
+ * not-yet pages stays readable. Selecting or clicking the link says what it is and offers to make it. */
+export const MISSING_MARK = "◌";
+
 /** How a `((…))` reads: the label or title (with `^fragment`), and what's wrong with it, as Detail says it. */
 export function refView(id: string, fragment: string | undefined, label: string | undefined, r: ReferenceResolution | undefined): LinkView {
   if (!r) return { text: label ?? shortId(id) + (fragment ? `^${fragment}` : ""), missing: false };
-  if (r.status === "missing") return { text: `${label ?? shortId(id)} · Missing target`, missing: true };
+  if (r.status === "missing") return { text: `${label ?? shortId(id)} ${MISSING_MARK}`, missing: true };
   const title = (label ?? r.title ?? shortId(id)) + (label === undefined && fragment ? `^${fragment}` : "");
   const suffix = r.status === "deleted" ? " · Trash" : r.status === "stale" ? " · Missing fragment" : r.status === "duplicate" ? " · Duplicate fragment" : "";
   return { text: title + suffix, missing: false };
 }
 
-/** How a `[[address]]` reads: its label or address, or `address · Missing target`. */
+/** How a `[[address]]` reads: its label or address, followed by MISSING_MARK when no page has it yet. */
 export function pageView(address: string, label: string | undefined, r: PageResolution | null): LinkView {
   const text = (label ?? address).trim();
-  if (r?.status === "missing") return { text: `${text} · Missing target`, missing: true };
+  if (r?.status === "missing") return { text: `${text} ${MISSING_MARK}`, missing: true };
   return { text: text + (r?.status === "deleted" ? " · Trash" : ""), missing: false };
 }
 

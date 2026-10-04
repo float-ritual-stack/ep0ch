@@ -109,7 +109,7 @@ describe("links read as titles", () => {
     presentLinks(text, true, src);
     await Bun.sleep(5);
     const out = stripMarks(presentLinks(text, true, src)).split("\n");
-    expect(out[0]).toBe("See Garden plan, the plan, Garden plan^beds, Garden plan^nope · Missing fragment, Old shed · Trash, old notes · Missing target, cccccccc… · Missing target, garden, the bin · Missing target.");
+    expect(out[0]).toBe("See Garden plan, the plan, Garden plan^beds, Garden plan^nope · Missing fragment, Old shed · Trash, old notes ◌, cccccccc… ◌, garden, the bin ◌.");
     expect(out.slice(1)).toEqual([`\`((${A}))\``, "```", `((${A}))`, "```", `!((${A}))`]);
     // Inside an embed, an embed isn't expanded, and says so.
     presentLinks(`!((${A}))`, false, src); await Bun.sleep(5);
@@ -162,7 +162,7 @@ describe("the surface: summary, panel and embeds at any width", () => {
     expect(lines.join("\n")).not.toContain("[work-stage::");
     expect(lines.join("\n")).toContain("A bin by Garden plan.");
     expect(lines.join("\n")).toContain("» Garden plan");
-    expect(lines.join("\n")).toContain("Missing target");
+    expect(lines.join("\n")).toContain(" ◌");
     s.key(char("i"), h);
     expect(s.holdsKeys && !s.editing).toBe(true);
     const panel = s.render(60, 40, h).lines.map(strip).join("\n");
@@ -288,10 +288,10 @@ describe.skipIf(!outliner)("the property panel and transclusions, against a scra
     expect(lines[0]!.trim()).toBe("GDN-12 Build the compost bin");
     expect(lines[1]!.trim()).toBe("priority high · track soil, tools · i 8 properties");   // the lane's [summary-properties::]
     expect(s).not.toContain("[type::");
-    expect(s).toContain("Beside the beds in Garden plan, sized for garden. See GDN-99 · Missing target.");
+    expect(s).toContain("Beside the beds in Garden plan, sized for garden. See GDN-99 ◌.");
     expect(s).toContain("owner:: the allotment group");                                   // a line-scope property is body text
     for (const want of ["» Garden plan", "» Garden plan ^beds",
-      "MISSING FRAGMENT", "∙ Plant the beans · priority high", "IN TRASH · Old shed notes", "!((0badc0de…)) · MISSING TARGET",
+      "MISSING FRAGMENT", "∙ Plant the beans · priority high", "IN TRASH · Old shed notes", "!((0badc0de…)) ◌",
       `EMBED LIMIT · maximum 16`]) expect(s).toContain(want);
     expect(s.match(/EMBED LIMIT/g)).toHaveLength(1);                                         // 17 embeds: the 17th is refused
     // The fragment is its slice (the section, not the note's first line); the nested note's embed is expanded in it.

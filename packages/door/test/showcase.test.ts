@@ -735,7 +735,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     (app as any).lastInput = 0;
     const n = SECTIONS.findIndex(s => s.key === "newnotes") + 1;
     expect(await app.act({ action: "section", args: { name: "newnotes" }, as: "test-agent" })).toEqual({ section: n, key: "newnotes" });
-    await until(() => screen().includes("Seed swap ledger · Missing target"), "the guide, its link missing", 8000);
+    await until(() => screen().includes("Seed swap ledger ◌"), "the guide, its link missing", 8000);
     const stage = () => S().stages.get(n - 1).top as any;
     const reader = () => [...stage().panes.values()].find((p: any) => p.kind === "reader") as any;
     // The person, by keys: into the stage, ] to the link, ⏎ offers the page (nothing made yet), ⏎ again makes it.
@@ -746,7 +746,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     await until(() => screen().includes("no page [[Seed swap ledger]]"), "the offer under the header");
     expect((await board.resolvePage("Seed swap ledger")).status).toBe("missing");
     // By mouse: a click on the link again makes it.
-    const rows = sc.render(app).lines.map(plain), y = rows.findIndex(l => l.includes("Seed swap ledger · Missing target")), x = rows[y]!.indexOf("Seed swap ledger") + 2;
+    const rows = sc.render(app).lines.map(plain), y = rows.findIndex(l => l.includes("Seed swap ledger ◌")), x = rows[y]!.indexOf("Seed swap ledger") + 2;
     press({ kind: "mouse", action: "down", button: 0, x, y }); press({ kind: "mouse", action: "up", button: 0, x, y });
     await reads(async () => (await board.resolvePage("Seed swap ledger")).status === "resolved", "the page made");
     const page = (await board.resolvePage("Seed swap ledger")).block!;

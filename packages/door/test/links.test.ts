@@ -173,10 +173,10 @@ describe.skipIf(!outliner)("clicking links and backlinks opens them, against a s
 
   test("a missing target says so, and the clicked link is the selected [ ] link (⏎ and link.follow agree)", async () => {
     await fresh();
-    click(where(frame(), "Nowhere yet · Missing target", rect("preview")));
-    await until(() => /Missing target/.test(message() ?? ""), "the flash");
+    click(where(frame(), "Nowhere yet ◌", rect("preview")));
+    await until(() => /doesn't exist yet/.test(message() ?? ""), "the flash");
     // Offered, never made by the click (PIE-544): the next ⏎ or click on it makes the page.
-    expect(message()).toBe("[[Nowhere yet]] · Missing target · ⏎ or click it again to create the page");
+    expect(message()).toBe("[[Nowhere yet]] doesn't exist yet · ⏎ or click it again to create the page");
     expect(B().preview.surface.notice).toContain("no page [[Nowhere yet]]");
     expect(B().preview.msg.id).toBe(n.jobs.id);
     const links = B().preview.surface.describe().links;

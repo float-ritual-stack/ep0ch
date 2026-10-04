@@ -1198,7 +1198,7 @@ element is current, and `esc` lets go of the element or selection first, then go
 - **Links** read as Detail shows them: `((id))` as the target's title, `((id|label))` as its label,
   `[[page]]` as written, without delimiters. Titles, trash state and fragments come from
   `references.resolve`, pages and Work IDs from `pages.resolve` (read-only; nothing is created). A missing
-  target reads `label · Missing target`; a trashed one `title · Trash`; a missing fragment says so.
+  target reads `label ◌` (one quiet mark; selecting or clicking it says it doesn't exist yet and offers to make it); a trashed one `title · Trash`; a missing fragment says so.
   Code keeps its text, and edit mode, comments and storage keep the raw syntax.
 - **Clicking a link opens it**, where `[ ]` then ⏎ on it would (in place in a board detail or float, in a
   detail from the board's preview, the desk's reader, a column beside in the river), and it becomes the
