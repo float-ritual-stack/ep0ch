@@ -1,7 +1,7 @@
 import type { On, ProcessRunInit, ProcessRunResult } from 'claude-code'
 import { describe, expect, mock, test, tier } from 'claude-code/testing'
 
-import { doorTileOf, envSummaryOf, HELP_PROBE, knowsWhere, whereSummaryOf } from '../hooks/where'
+import { doorTileOf, envSummaryOf, whereSummaryOf } from '../hooks/where'
 
 tier('user')
 
@@ -44,7 +44,7 @@ describe('where this session runs', () => {
       () => result(0, JSON.stringify({ inDoor: true, nest: NEST, summary: SUMMARY })))
     await $.session.start(START)
     await s.clock.settle()
-    expect(s.runs.filter(r => r.argv[0] === 'ep0ch').map(r => r.argv)).toEqual([['ep0ch', 'help', HELP_PROBE], ['ep0ch', 'where', '--json']])
+    expect(s.runs.filter(r => r.argv[0] === 'ep0ch').map(r => r.argv)).toEqual([['ep0ch', 'where', '--json']])
     const { blocks } = await $.prompt.context({ blocks: CORE })
     expect(blocks[0]).toEqual(CORE[0]!)
     expect(whereBlock(blocks)?.text).toContain(SUMMARY)
@@ -67,13 +67,6 @@ describe('where this session runs', () => {
     expect(whereBlock((await $.prompt.context({ blocks: CORE })).blocks)?.text).toContain('in an ep0ch-door tile (claude), from a door older than EP0CH_NEST')
   })
 
-  test('an ep0ch older than `where` is never asked for it (it would open a door): the variables alone', async ($, on) => {
-    const s = sessionWith(on, { EP0CH_NEST: NEST }, () => { throw Error('where must not run') }, () => result(0, OLD_HELP))
-    await $.session.start(START)
-    await s.clock.settle()
-    expect(s.runs.filter(r => r.argv[0] === 'ep0ch').map(r => r.argv)).toEqual([['ep0ch', 'help', HELP_PROBE]])
-    expect(whereBlock((await $.prompt.context({ blocks: CORE })).blocks)?.text).toContain('unchecked')
-  })
 
   test('the first prompt asked before the start\'s work ran: `where` runs once, not twice', async ($, on) => {
     const s = sessionWith(on, { EP0CH_NEST: NEST }, () => result(0, JSON.stringify({ summary: SUMMARY })))
@@ -114,8 +107,8 @@ describe('where this session runs', () => {
     expect(blocks[0]).toEqual(CORE[0]!)
     expect(whereBlock(blocks)).toBeUndefined()
     expect(blocks.map(b => b.name)).toEqual(['currentDate', 'outlineBinding'])
-    // `where` only reads, after the help probe, as in a door.
-    expect(s.runs.filter(r => r.argv[0] === 'ep0ch').map(r => r.argv)).toEqual([['ep0ch', 'help', HELP_PROBE], ['ep0ch', 'where', '--json']])
+    // `where` only reads, as in a door.
+    expect(s.runs.filter(r => r.argv[0] === 'ep0ch').map(r => r.argv)).toEqual([['ep0ch', 'where', '--json']])
   })
 })
 
@@ -124,8 +117,6 @@ describe('where helpers', () => {
     expect(whereSummaryOf(JSON.stringify({ summary: SUMMARY }))).toBe(SUMMARY)
     expect(whereSummaryOf('usage: ep0ch …')).toBeNull()
     expect(whereSummaryOf('{"summary":""}')).toBeNull()
-    expect(knowsWhere(HELP)).toBe(true)
-    expect(knowsWhere(OLD_HELP)).toBe(false)
     expect(envSummaryOf({ EP0CH_CONTROL: '/c' })).toContain('from a door older than EP0CH_NEST')
   })
 
