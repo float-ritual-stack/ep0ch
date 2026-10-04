@@ -1,7 +1,7 @@
 // Render a note body into terminal lines: headings, lists, code fences, Obsidian-style
 // callouts as boxes, Markdown tables as real tables with wrapped multi-line cells, and
 // media lines as image slots the caller fills with Kitty placements.
-import { isMediaLine, media, parseMediaLine, sizeText, type Media, type MediaSpec } from "./media";
+import { brightness, media, parseMediaLine, sizeText, type Media, type MediaSpec } from "./media";
 import { balanceTags, BOLD, C, extractLinks, fg, type LinkRange, pad, RESET, splitVisible, stripTags, styleMarks, trimTagged, UNBOLD, width as vwidth } from "./style";
 import { colourBody, wrap } from "./text";
 import { frame, isGraphStart, reframeAscii, renderGraph, type FiguresEnv } from "./graphs";
@@ -91,14 +91,17 @@ export interface DocEnv {
   printed?: boolean;
 }
 /** A control on an image's caption: a size step, an alignment step, or the header on or off. */
-export type ImageControl = { size: 1 | -1 } | { align: 1 | -1 } | { hero: boolean };
+export type ImageControl = { size: 1 | -1 } | { align: 1 | -1 } | { hero: boolean } | { fit: "cover" | "contain" };
 /**
  * An image laid out on the body's rows: `col` cells in, `cols` × `rows` cells; `crop` the part of it shown, as
  * fractions of the image (a header's cover crop).
  */
-export interface DocImage { line: number; col: number; rows: number; cols: number; media: Extract<Media, { state: "ready" }>; crop?: { x: number; y: number; w: number; h: number } }
-/** A media line as drawn: the file, its kind, the row naming it, the body line it's on and what the line says of its layout. */
-export interface DocMedia { path: string; kind: string; row: number; line: number; spec: MediaSpec }
+export interface DocImage { line: number; col: number; rows: number; cols: number; media: Extract<Media, { state: "ready" }>; crop?: { x: number; y: number; w: number; h: number }; brightness: number }
+/**
+ * A media line as drawn: the file, its kind, the row naming it (its caption), the body line it's on, what the line says
+ * of its layout, and `image`, its index in `Doc.images` when it's laid out there.
+ */
+export interface DocMedia { path: string; kind: string; row: number; line: number; spec: MediaSpec; image?: number }
 /**
  * `links`: where the body's tagged links (src/style.ts linkTag) landed, by row of `lines`. `media[i].row`:
  * the row that names the image or video (its caption, or the line in its place). `source[r]`: the
@@ -141,18 +144,12 @@ const MIN_ITEM_TEXT = 8;
 const TASK_ID = /(^|[ \t])\^[A-Za-z0-9][A-Za-z0-9_-]{0,63}[ \t]*$/gm;
 const indentOf = (l: string) => l.length - l.trimStart().length;
 
-/**
- * The fold points of a body, computed from its source text (before links are presented, so a link's
- * title arriving later never renames a fold). Headings and list markers inside a fence or a figure are
- * text; a media line or a transclusion isn't a fold point. `anchors[i]` is line i's stable anchor, if any.
- */
-export function foldPoints(body: string, anchors: readonly (string | undefined)[] = []): FoldPoint[] {
-  const src = body.split("\n");
-  // Which fence or figure each line is part of (the line that opened it), or -1 for plain structure.
+/** Which fence or figure each line of a body is part of (the line that opened it), or -1 for plain structure. */
+export function structureOf(src: readonly string[]): number[] {
   const block: number[] = [];
   let open = -1, kind: "fence" | "graph" | null = null;
   // An inline links component (`::links`, src/links.ts) is a figure too: its lines are its question, not structure.
-  const linkLines = linkBlockLines(src);
+  const linkLines = linkBlockLines(src as string[]);
   src.forEach((l, i) => {
     if (kind) { block.push(open); if (kind === "fence" ? /^\s*```/.test(l) : /^\s*::\s*$/.test(l)) kind = null; return; }
     if (linkLines.has(i)) { block.push(i); return; }
@@ -160,7 +157,34 @@ export function foldPoints(body: string, anchors: readonly (string | undefined)[
     if (isGraphStart(l)) { open = i; kind = "graph"; block.push(i); return; }
     block.push(-1);
   });
-  const foldable = (i: number) => block[i] === -1 && !isMediaLine(src[i]!) && !new RegExp(EMBED.source).test(src[i]!);
+  return block;
+}
+
+/**
+ * The media lines of a body (PIE-532), by line: the one scan the reader draws from and the image actions read (not
+ * inside a fence or a figure). The first `[layout::hero]` is the header; a later one says it isn't.
+ */
+export function mediaLines(src: readonly string[]): Map<number, MediaSpec> {
+  const block = structureOf(src), out = new Map<number, MediaSpec>();
+  let hero = false;
+  src.forEach((l, i) => {
+    const spec = block[i] === -1 ? parseMediaLine(l) : null;
+    if (!spec) return;
+    if (spec.layout === "hero") { if (hero) { spec.problems.push("another image is the header already"); delete spec.layout; } hero = true; }
+    out.set(i, spec);
+  });
+  return out;
+}
+
+/**
+ * The fold points of a body, computed from its source text (before links are presented, so a link's
+ * title arriving later never renames a fold). Headings and list markers inside a fence or a figure are
+ * text; a media line or a transclusion isn't a fold point. `anchors[i]` is line i's stable anchor, if any.
+ */
+export function foldPoints(body: string, anchors: readonly (string | undefined)[] = []): FoldPoint[] {
+  const src = body.split("\n");
+  const block = structureOf(src), images = mediaLines(src);
+  const foldable = (i: number) => block[i] === -1 && !images.has(i) && !new RegExp(EMBED.source).test(src[i]!);
   const trim = (from: number, to: number) => { while (to > from && !src[to - 1]!.trim()) to--; return to; };
   const out: FoldPoint[] = [];
   const seen = new Map<string, number>();
@@ -226,6 +250,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
   // A checklist step's stable id (` ^task-<uuid>`, added by the service, e.g. when a step gets a comment)
   // is bookkeeping, not prose.
   const src = body.split("\n").map(l => l.replace(TASK_ID, ""));
+  const mediaAt = mediaLines(src);
   const source: number[] = [], heads: Doc["heads"] = [];
   const at = new Map((env.folds?.points ?? []).map(p => [p.line, p]));
   const callouts = new Map(calloutBlocks(src).map(c => [c.line, c]));
@@ -293,21 +318,20 @@ export function renderDoc(body: string, env: DocEnv): Doc {
 
     // Media line (PIE-532): the image laid out as its properties say, its caption under it with the controls that
     // change them; the header image is only its caption here when the reader draws it above the title.
-    const spec = parseMediaLine(line);
+    const spec = mediaAt.get(i);
     if (spec) {
       const entry = media(spec.path, spec.kind);
       const ref: DocMedia = { path: entry.path, kind: spec.kind, row: out.length, line: i, spec };
       mediaRefs.push(ref);
-      const isHero = spec.layout === "hero" && !hero;
-      if (spec.layout === "hero" && !isHero) spec.problems.push("another image is the header already");
+      const isHero = spec.layout === "hero";
       if (isHero && env.hero) {
         hero = { ...ref, media: entry };
         out.push(caption(entry, spec, W, env, i, true));
         continue;
       }
       if (entry.state === "ready" && env.graphics) {
-        const box = isHero ? heroBox(entry, spec, W, env) : imageBox(entry, spec, W, env);
-        images.push({ line: out.length, media: entry, ...box });
+        const box = isHero ? heroBox(entry, spec, W, Math.min(spec.height ?? Infinity, env.maxImageRows), env.cellW, env.cellH) : imageBox(entry, spec, W, env);
+        ref.image = images.push({ line: out.length, media: entry, brightness: brightness(entry, spec.dim), ...box }) - 1;
         for (let r = 0; r < box.rows; r++) out.push("");
         ref.row = out.length;
       }
@@ -452,12 +476,19 @@ export function imageBox(m: Ready, spec: MediaSpec, W: number, env: DocEnv): { c
 }
 
 /**
- * A header image drawn where it is written (no reader to draw it above the title): the full width, at most
- * `[height::…]` or `maxImageRows` tall, cropped to fill that (cover), around its middle.
+ * Where a header image goes in a width of `W` cells, at most `cap` rows tall: the full width, the whole image, when it
+ * fits under the cap; taller, cropped to fill the cap around its middle (`[fit::cover]`, the default), or shown whole
+ * in the middle of the cap's rows (`[fit::contain]`).
  */
-function heroBox(m: Ready, spec: MediaSpec, W: number, env: DocEnv): Omit<DocImage, "line" | "media"> {
-  const rows = Math.max(1, Math.min(rowsFor(m, W, env), spec.height ?? Infinity, env.maxImageRows));
-  return { col: 0, cols: W, rows, crop: coverCrop(m, W * env.cellW, rows * env.cellH) };
+export function heroBox(m: { width: number; height: number }, spec: MediaSpec, W: number, cap: number, cellW: number, cellH: number): { col: number; cols: number; rows: number; crop?: { x: number; y: number; w: number; h: number } } {
+  const own = Math.max(1, Math.round((W * cellW * m.height) / m.width / cellH)), most = Math.max(1, cap);
+  if (own <= most) return { col: 0, cols: W, rows: own };
+  if (spec.fit === "contain") {
+    const cols = Math.max(1, Math.min(W, Math.round((most * cellH * m.width) / m.height / cellW)));
+    return { col: Math.floor((W - cols) / 2), cols, rows: most };
+  }
+  const crop = coverCrop(m, W * cellW, most * cellH);
+  return { col: 0, cols: W, rows: most, ...(crop ? { crop } : {}) };
 }
 
 /** The part of `m` (as fractions of it) that fills a box `pxW` × `pxH` pixels with its aspect kept, around its middle. */
@@ -479,15 +510,16 @@ function caption(entry: Media, spec: MediaSpec, W: number, env: DocEnv, line: nu
   const label = hero ? "▀ header" : spec.kind === "video" ? "▶" : "▣";
   const facts = [
     entry.state === "ready" ? `${entry.width}×${entry.height}${spec.kind === "video" ? " poster frame" : ""}` : "",
-    hero ? (spec.height ? `${spec.height} rows` : "") : sizeText(spec.size),
+    hero ? [spec.height ? `${spec.height} rows` : "", spec.fit ?? ""].filter(Boolean).join(" ") : sizeText(spec.size),
     hero ? "" : spec.align && spec.align !== "left" ? spec.align : "",
+    spec.dim !== undefined ? `dim ${spec.dim}` : entry.state === "ready" && brightness(entry) < 1 ? "dimmed" : "",
     spec.alt ? `“${spec.alt}”` : "",
   ].filter(Boolean);
   // Its controls, at the right end, kept whole: the text before them is cut first.
   const tag = env.image;
   const ctl = (c: ImageControl, text: string) => fg(C.cyan) + tag!(line, c, text) + fg(C.dark);
   const controls = !tag || entry.state === "error" ? ""
-    : hero ? ` ${ctl({ size: -1 }, "[−]")}${ctl({ size: 1 }, "[+]")} rows ${ctl({ hero: false }, "[▀ ✓]")}`
+    : hero ? ` ${ctl({ size: -1 }, "[−]")}${ctl({ size: 1 }, "[+]")} rows ${spec.fit === "contain" ? ctl({ fit: "cover" }, "[fill]") : ctl({ fit: "contain" }, "[whole]")} ${ctl({ hero: false }, "[▀ ✓]")}`
     : ` ${ctl({ size: -1 }, "[−]")}${ctl({ size: 1 }, "[+]")} ${ctl({ align: -1 }, "[◂]")}${ctl({ align: 1 }, "[▸]")} ${ctl({ hero: true }, "[▀]")}`;
   const room = Math.max(4, W - vwidth(controls));
   const fit = (x: string) => (vwidth(x) > room ? splitVisible(x, room - 1)[0] + "…" : x);
@@ -495,7 +527,8 @@ function caption(entry: Media, spec: MediaSpec, W: number, env: DocEnv, line: nu
   if (entry.state === "error") return fg(C.lred) + pad(`✗ ${label} ${name} · ${entry.reason}`, W) + RESET;
   const off = !env.graphics && env.noImages && !env.printed ? ` · ${env.noImages}` : "";
   const problems = spec.problems.length ? ` · ⚠ ${spec.problems.join(" · ")}` : "";
-  const head = fit([`${label} ${name}`, ...facts].join(" · ") + off + problems);
+  // Why it isn't drawn comes before what it is: cut short, the facts go first.
+  const head = fit([`${label} ${name}${off}`, ...facts].join(" · ") + problems);
   // What's wrong is said in yellow, after what it is.
   const at = problems ? head.lastIndexOf(" · ⚠") : -1;
   const text = at >= 0 ? head.slice(0, at) + fg(C.yellow) + head.slice(at) + fg(C.dark) : head;

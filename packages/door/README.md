@@ -1410,10 +1410,15 @@ Bodies render with `src/doc.ts`:
   `[size::…]` is its width: cells (`40`), a share of the reader (`40%`) or `full`; `[height::N]` is rows; the aspect is
   kept (inside both when both are written), at most about four fifths of the reader. `[align::left|center|right]`
   places it. `[layout::hero]` makes it the note's **header**: the reader draws it above the title, the full width, a
-  third of the pane tall (or `[height::N]`, at most half), cropped to fill, and scrolls away with the note's top; the note's first such image is its header
+  whole when it fits in a third of the pane (or `[height::N]`, at most half); taller, cropped to fill that
+  (`[fit::contain]` shows it whole, centred, instead); it scrolls away with the note's top. The note's first such image is its header
   (an image right under the title needs its list mark, `- [img::…]`: a line of only properties there is the note's
   own). A river column draws the header where it's written. `[alt::…]` is said on its caption. A value that isn't one
   of these is said on the line in yellow.
+
+  **Dark first.** A bright image is dimmed as it's scaled, so it's cached dimmed and never shown bright, not even for
+  a frame: its brightness is scaled so its mean luminance is at most 0.3 (dark art is untouched; the caption says
+  `dimmed`). `[dim::N]` on its line sets how much instead: `0` as it is, `0.6` at 40%, `1` black.
 
   Decoding and scaling need no system tool: PNG, JPEG, WebP and GIF (its first frame) go through sharp's prebuilt
   libvips (Linux and macOS), turned upright and scaled down to about the box they're drawn in, never up (Kitty scales
@@ -1425,7 +1430,7 @@ Bodies render with `src/doc.ts`:
   the image makes it the `[ ]` position, and then `+` `-` step its width (a quarter, a third, a half, two thirds,
   three quarters, full; a header's height by two rows), `←` `→` move it, `H` makes it the header (or not). The
   caption's `[−][+] [◂][▸] [▀]` do the same by mouse. Each change rewrites its line through the note's save, checked
-  and recorded as you; `ctrl+z` puts it back. Agents use `images`, `image.size`, `image.align`, `image.hero`.
+  and recorded as you; `ctrl+z` puts it back. Agents use `images`, `image.size`, `image.align`, `image.hero`, `image.fit`, `image.dim`. On the header, `=` (or its caption's `[whole]` `[fill]`) shows it whole or cropped.
   Images a drawer or float covers are hidden. River columns draw them as readers do (cropped as they scroll). Where
   an image isn't drawn its line says why: no Kitty graphics in this terminal, or `alt+v` set the video mode to cells.
   If macOS blocks the read (Desktop, Documents), the line says so: grant the terminal Files & Folders access.
@@ -1695,6 +1700,8 @@ agent's edit meets the same revision check, property warning and duplicate-safe 
 | `image.size` | `n` (from `images`) or `line`; `to=40\|40%\|full\|none` (its width), `height=N\|none`, or `by=1\|-1` (a step; a header's height by two rows). Its line rewritten through the note's save, revision-checked, attributed | `+` `-` with an image the `[ ]` position, the caption's `[−][+]` |
 | `image.align` | `n` or `line`; `to=left\|center\|right` or `by=1\|-1` | `←` `→` with an image the `[ ]` position, the caption's `[◂][▸]` |
 | `image.hero` | `n` or `line`; `on=true\|false` (default toggles): `[layout::hero]` on its line, and off any other image's, in one save | `H` with an image the `[ ]` position, the caption's `[▀]` |
+| `image.fit` | `n` or `line`; `to=cover\|contain` (default: the other one): a header too tall for its rows cropped to fill, or shown whole | `=` with the header image the `[ ]` position, its caption's `[whole]` / `[fill]` |
+| `image.dim` | `n` or `line`; `to=0..1\|auto`: how much it's dimmed (`[dim::…]`). No key brightens an image | |
 | `image.undo` | none: the asker's own last image change in this reader, while reading this note | `ctrl+z` (when it was the last change here) |
 | `select.mode` | none: keyboard selection starts (`h j k l` extend, `y` copies). The person's only: an agent selects with `select text=` | `v` |
 | `fold.select` | `by=1\|-1`: the next or previous heading, list item or callout to fold. The person's only | `( )` |

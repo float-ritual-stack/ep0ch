@@ -198,7 +198,7 @@ export const CALLOUTS = [
   "> Bones, an onion, two bay leaves; `dish` is an alias of this outline's own recipe type.",
 ].join("\n");
 
-/** The showcase's own pictures (fictional, drawn for it): a JPEG and a WebP, so decoding is shown on every platform. */
+/** The showcase's own pictures (fictional, drawn for it): a JPEG, a WebP and a bright PNG, so decoding and dimming are shown on every platform. */
 export const SHOWCASE_ASSETS = join(import.meta.dir, "assets");
 
 /**
@@ -219,6 +219,10 @@ export const imagesText = (dir = SHOWCASE_ASSETS) => [
   "",
   `- [img::${dir}/seed-packet.webp] [height::6]`,
   "  - six rows tall, its width from its shape",
+  "",
+  "The notice board is paper white: it's dimmed as it's drawn, as every bright image is, so no image is brighter than the door. [dim::0.5] on its line would set how much.",
+  "",
+  `[img::${dir}/allotment-notice.png] [size::50%] [alt::the notice board, dimmed]`,
 ].join("\n");
 
 /** A callout type this outline declares (PIE-538): the reader, the completer and the type choice all offer it. */

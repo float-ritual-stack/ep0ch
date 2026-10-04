@@ -236,7 +236,9 @@ deeper, to any depth:
 optional list mark, with its layout as properties beside it: `[img::path]` (or `[video::path]`), then any of
 `[size::40%]` (its width: cells, a share of the reader, or `full`), `[height::12]` (rows; the aspect is kept),
 `[align::left|center|right]`, `[alt::what it shows]` and `[layout::hero]`, the note's **header**: drawn above the
-title, the full width, a third of the pane tall (or its `height`), cropped to fill, scrolling away with the note's top. Only the first hero counts.
+title, the full width, whole when it fits in a third of the pane (or its `height`), else cropped to fill
+(`[fit::contain]`: whole, centred), scrolling away with the note's top. Only the first hero counts. A bright image is
+dimmed: the door is dark-first, so write `[dim::0]` only when the person asks for it; `[dim::0.6]` dims it more.
 
 ```
 - [img::~/shots/plot-at-dusk.png] [layout::hero] [height::14] [alt::the plot at dusk]

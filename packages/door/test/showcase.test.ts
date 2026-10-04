@@ -291,7 +291,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     // Obsidian's examples, nested three deep; the right reader declares a type of the outline's own.
     callouts: ["Callouts, as Obsidian writes them", "Can callouts be nested?", "Yes!, they can.", "Recipe callouts"],
     // This test's terminal has no Kitty graphics: each image's line says what it is, with its controls.
-    images: ["Pictures of the plot", "▀ header allotment-dusk.jpg · 960×540", "▣ seed-packet.webp · 300×420 · 25% · center", "[−][+] [◂][▸] [▀]"],
+    images: ["Pictures of the plot", "▀ header allotment-dusk.jpg", "▣ seed-packet.webp · no Kitty graphics in this terminal", "[−][+] [◂][▸] [▀]", "▣ allotment-notice.png"],
   };
 
   test("one section per reuse-map row, in the map's order, each labelled with its part and file, drawn by the part", async () => {
@@ -653,11 +653,12 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     const line = async (n: number) => (await text()).split("\n")[n - 1]!;
     (app as any).lastInput = 0;
     expect(await app.act({ action: "section", args: { name: "images" }, as: "test-agent" })).toMatchObject({ key: "images" });
-    await until(() => screen().includes("seed-packet.webp · 300×420"), "the images, read (a JPEG and a WebP)", 8000);
+    await until(() => screen().includes("▣ seed-packet.webp") && !screen().includes("loading…"), "the images, read (a JPEG, a WebP and a PNG)", 8000);
     // An agent lists them, with the layout each line writes and what's wrong with none.
     const list = (await app.act({ action: "images", as: "test-agent" }) as any).images;
     expect(list.map((x: any) => [x.n, x.line, x.path.split("/").pop(), x.size ?? null, x.align ?? null, x.layout ?? null])).toEqual([
       [1, 2, "allotment-dusk.jpg", null, null, "hero"], [2, 6, "seed-packet.webp", "25%", "center", null], [3, 10, "allotment-dusk.jpg", "50%", "right", null], [4, 12, "seed-packet.webp", null, null, null],
+      [5, 17, "allotment-notice.png", "50%", null, null],
     ]);
     expect(list[0].alt).toBe("the plot at dusk");
     // Sized, placed and made the header through the note's save, attributed; the header moves (one save, two lines).
@@ -671,6 +672,16 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     await expect(app.act({ action: "image.align", args: { n: 4, to: "right" }, as: "test-agent" })).rejects.toThrow(/full width/);
     await expect(app.act({ action: "image.size", args: { n: 2, to: "huge" }, as: "test-agent" })).rejects.toThrow(/cells \(40\), a share \(50%\) or full/);
     await expect(app.act({ action: "image.size", args: { to: "50%" }, as: "test-agent" })).rejects.toThrow(/say which image/);
+    await expect(app.act({ action: "image.size", args: { n: 2, by: 5 }, as: "test-agent" })).rejects.toThrow(/by is 1 or -1/);
+    // How the header shows when it's too tall (whole, or cropped to fill), and how much an image is dimmed.
+    await app.act({ action: "image.fit", args: { n: 1, to: "contain" }, as: "test-agent" });
+    expect(await line(2)).toContain("[fit::contain]");
+    await app.act({ action: "image.dim", args: { n: 5, to: "0.5" }, as: "test-agent" });
+    expect(await line(17)).toContain("[dim::0.5]");
+    await expect(app.act({ action: "image.dim", args: { n: 5, to: "bright" }, as: "test-agent" })).rejects.toThrow(/0 \(as it is\) to 1/);
+    for (let i = 0; i < 2; i++) await app.act({ action: "image.undo", as: "test-agent" });
+    expect(await line(2)).not.toContain("[fit::");
+    expect(await line(17)).not.toContain("[dim::");
     // Its own undo puts each change back, newest first.
     for (let i = 0; i < 2; i++) await app.act({ action: "image.undo", as: "test-agent" });
     expect(await line(2)).toContain("[layout::hero]");
@@ -691,7 +702,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     await reads(t => t.split("\n")[1]!.includes("[layout::hero]"), "ctrl+z: the header back");
     // By mouse: a click on the right-hand image's [−] (on its caption).
     const rows = sc.render(app).lines.map(plain);
-    const y = rows.findIndex(l => l.includes("allotment-dusk.jpg · 960×540 · 50% · right")), x = rows[y]!.indexOf("[−]") + 1;
+    const y = rows.findIndex(l => l.includes("allotment-dusk.jpg") && l.includes("[◂]")), x = rows[y]!.indexOf("[−]") + 1;
     expect(y).toBeGreaterThan(0);
     press({ kind: "mouse", action: "down", button: 0, x, y }); press({ kind: "mouse", action: "up", button: 0, x, y });
     await reads(t => t.split("\n")[9]!.includes("[size::33%]"), "a click on [−]: a step smaller");
