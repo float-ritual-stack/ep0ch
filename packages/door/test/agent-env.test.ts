@@ -151,7 +151,7 @@ describe("one set of agent variables, whichever way the agent is started", () =>
     // The pane mustn't inherit how a door was started from the Herdr server's own environment.
     const run = calls.find(c => c.startsWith("pane run"))!;
     for (const k of DOOR_START_VARS) expect(run).toContain(`-u ${k}`);
-    expect(run).toMatch(/exec env (-u \w+ )+\S+ -l -c 'claude; c=\$\?; /);
+    expect(run).toMatch(/exec env (-u \w+ )+\S+ -l -c 'exec \/bin\/sh -c '\\''claude; c=\$\?; /);
   });
 
   test("a terminal tile opened without a name (^W o s) tells its program the name the desk gave it", async () => {
@@ -169,8 +169,8 @@ describe("one set of agent variables, whichever way the agent is started", () =>
   test("a launcher run by hand (no tile id) unsets any EP0CH_TILE_ID the Herdr server has", () => {
     const cfg = agentConfig({ HOME: "/h", PWD: "/w", EP0CH_TILE: "claude" }, () => null);
     expect(cfg.unset).toContain("EP0CH_TILE_ID");
-    expect(runLine(cfg, "sh")).toMatch(new RegExp(`^exec env ${cfg.unset.map(k => `-u ${k}`).join(" ")} sh -l -c 'claude; `));
-    expect(runLine({ agent: ["pi"], unset: [] }, "zsh")).toMatch(/^exec zsh -l -c 'pi; c=\$\?; .*exec zsh -l'$/);
+    expect(runLine(cfg, "sh")).toMatch(new RegExp(`^exec env ${cfg.unset.map(k => `-u ${k}`).join(" ")} sh -l -c 'exec /bin/sh -c '\\\\''claude; `));
+    expect(runLine({ agent: ["pi"], unset: [] }, "zsh")).toMatch(/^exec zsh -l -c 'exec \/bin\/sh -c '\\''pi; c=\$\?; .*exec zsh -l'\\'''$/);
   });
 
   test("a restart keeps the conversation: a bare claude gets --continue, door-claude and a claude told what to resume are left as they are", () => {

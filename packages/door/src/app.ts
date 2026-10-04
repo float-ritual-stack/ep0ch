@@ -309,7 +309,8 @@ export class App implements Ctx {
     term.onBatch?.(run => this.batched(run));
     // Raw input while the person types in the dock or a terminal tile: the drawer first, then the
     // screen says where it goes (Term keeps mouse and ctrl+]).
-    (term as { rawSink?: unknown }).rawSink = () => this.dock.rawInput(this.dockRun) ?? this.stack.at(-1)?.rawInput?.() ?? null;
+    // In the dock, the person's bytes are the dock's alone (a picker, a reader tab): never the screen's terminal under it.
+    (term as { rawSink?: unknown }).rawSink = () => (this.dock.shown && this.dock.entered ? this.dock.rawInput(this.dockRun) : this.stack.at(-1)?.rawInput?.() ?? null);
     connectFigures(board, () => this.redraw());
     // An image scaled (or dimmed, or read again after a change on disk) is drawn in the next frame.
     onMediaChange(() => this.redraw());

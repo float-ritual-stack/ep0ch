@@ -2,7 +2,7 @@
 // Herdr pane, so Herdr lists it, other agents message it (`herdr agent prompt door …`) and it outlives the
 // door; the tile is a client attached to that pane (`herdr terminal attach`), not the agent's owner.
 //
-// - The pane is the outline session's own (`sessionSlug`: `door-<outline>[-<machine>]`, from `--session`), found by its
+// - The pane is the outline session's own (`sessionSlug`: `door-<outline>[--<machine>]`, from `--session`), found by its
 //   label on the default Herdr server (HERDR_SOCKET_PATH, else Herdr's own default). Missing, it is made: a tab so
 //   labelled in a workspace labelled `door`
 //   (made too if missing), in EP0CH_DAILY_CWD or the tile's folder (the dock's rule), without taking Herdr's focus. The agent
@@ -34,7 +34,7 @@ import { ask, JsonLines } from "../jsonl";
 import { appendNest } from "../nest";
 import { alive, defaultStateDir, isInside, stateDir } from "../state";
 import { AGENT_VARS, agentVars, DOOR_START_VARS, withContinue } from "./agent-env";
-import { inLoginShell, shellQuote } from "./dock-program";
+import { inLoginShell, isShellName, shellQuote } from "./dock-program";
 
 export interface Ran { code: number; out: string; err: string }
 /** Runs one `herdr` command to completion (a fake one in tests). */
@@ -87,12 +87,14 @@ export function doorScope(env: Record<string, string | undefined>): string | nul
 }
 
 /**
- * A session's own names in Herdr (one session per outline, PIE-418): `door-<outline>[-<machine>]`, lower case, letters,
- * digits and dashes; a long one cut, with a short hash so two never meet. None named (the launcher run by hand): `door`.
+ * A session's own names in Herdr (one session per outline, PIE-418): `door-<outline>[--<machine>]`, lower case, letters,
+ * digits and dashes (`--` before the machine); a long one cut, with a short hash so two never meet. None named (the launcher run by hand): `door`.
  */
 export function sessionSlug(session: string | null | undefined): string {
   if (!session) return "door";
-  const s = session.toLowerCase().replace(/@/g, "-").replace(/[^a-z0-9-]+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
+  // The outline and its machine apart, joined by `--`, which neither part can hold: `pie@float-2` is never `pie-float-2`.
+  const part = (x: string) => x.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
+  const s = session.split("@").map(part).join("--");
   const full = `door-${s}`;
   return full.length <= 40 ? full : `${full.slice(0, 31).replace(/-$/, "")}-${createHash("sha256").update(session).digest("hex").slice(0, 8)}`;
 }
@@ -186,7 +188,15 @@ export async function findOrCreate(herdr: HerdrRun, cfg: AgentConfig): Promise<F
   const panes = json(listed.out)?.result?.panes;
   if (listed.code !== 0 || !Array.isArray(panes)) return { kind: "unreachable", why: listed.err.trim() || String(json(listed.out)?.error?.message ?? "") || "herdr pane list failed" };
   const had = panes.find((p: any) => p?.label === cfg.pane && typeof p.terminal_id === "string");
-  if (had) return { kind: "pane", pane: String(had.pane_id), terminal: had.terminal_id, created: false };
+  if (had) {
+    // The session's pane left the person's shell (its agent exited, or agent.restart ended it): the agent starts there again.
+    const info = json((await herdr(["pane", "process-info", "--pane", String(had.pane_id)])).out)?.result?.process_info;
+    if (paneIdle(info)) {
+      const ran = await herdr(["pane", "run", String(had.pane_id), runLine(cfg)]);
+      if (ran.code !== 0) throw new Error(`herdr couldn't start ${cfg.cmd} in ${cfg.pane}: ${ran.err.trim()}`);
+    }
+    return { kind: "pane", pane: String(had.pane_id), terminal: had.terminal_id, created: false };
+  }
 
   // A tab in the `door` workspace if there is one, else the workspace itself (its first tab and pane).
   const spaces = json((await herdr(["workspace", "list"])).out)?.result?.workspaces;
@@ -202,6 +212,19 @@ export async function findOrCreate(herdr: HerdrRun, cfg: AgentConfig): Promise<F
   const ran = await herdr(["pane", "run", pane, runLine(cfg)]);
   if (ran.code !== 0) throw new Error(`herdr couldn't start ${cfg.cmd}: ${ran.err.trim()}`);
   return { kind: "pane", pane, terminal: String(root.terminal_id), created: true };
+}
+
+/** Herdr's `process-info` of a pane: only a shell in its foreground (the agent exited, or none started), nothing else running. */
+export function paneIdle(info: any): boolean {
+  const fg = info?.foreground_processes;
+  return Array.isArray(fg) && fg.length > 0 && fg.every((p: any) => isShellName(String(p?.name ?? "")));
+}
+/** The agent's pid in a pane: its foreground process that isn't a shell (the login-shell wrapper), else the pane's shell. */
+export function paneAgentPid(info: any): number | null {
+  const fg: any[] = Array.isArray(info?.foreground_processes) ? info.foreground_processes : [];
+  const agent = fg.find(p => Number(p?.pid) > 0 && !isShellName(String(p?.name ?? "")));
+  const pid = Number(agent?.pid ?? info?.shell_pid);
+  return pid > 0 ? pid : null;
 }
 
 /**

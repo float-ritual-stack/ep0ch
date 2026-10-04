@@ -35,12 +35,16 @@ async function quitsToAShell(p: PtyPane) {
   expect(p.running).toBe(true);                                    // not a dead tile
   expect(p.pid).toBe(pid);                                         // the same process: the shell the agent ran in
   expect(p.title()).toContain("claude exited · shell");
+  await until(() => p.agentExit === 3, "the door read how it ended (the title and the line together)", 3000);
   p.input("echo alive:$$:$PWD:in-door=$EP0CH_IN_DOOR\r");
   await until(() => text(p).includes(`alive:`) && text(p).includes(`in-door=1`), "the shell answers", 8000);
   const line = p.text().find(l => l.includes("alive:") && l.includes("in-door=1") && !l.includes("echo"))!;
   expect(line).toContain(work);                                    // the same folder
   await Bun.sleep(300);                                           // nothing starts it again by itself
   expect((text(p).match(/stand-in claude here/g) ?? []).length).toBe(1);
+  // The person starts something again in that shell (a program that titles itself): the tile isn't "exited" any more.
+  p.input("printf '\\033]2;again\\007'\r");
+  await until(() => p.agentExit === null, "a new title clears it", 5000);
 }
 
 describe("no dead panes", () => {

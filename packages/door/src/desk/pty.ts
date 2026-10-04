@@ -149,6 +149,8 @@ export class PtyPane implements Pane {
   /** The agent's exit code once it has left the person in their shell (an agent started inside it), else null. */
   agentExit: number | null = null;
   private exitTail = "";
+  /** Its program was started inside the person's login shell (inLoginShell): its exit line is read. */
+  private wrapped = false;
   /** The program's own title (OSC 0/2), if it set one (the Herdr launcher says it's only watching with it). */
   programTitle = "";
   /**
@@ -267,11 +269,16 @@ export class PtyPane implements Pane {
       const text = Buffer.from(d).toString("latin1");
       modes(text, true);
       for (const c of clip.feed(text)) this.copied(c);
-      // The agent inside the login shell exited: its shell says so (inLoginShell), and the tile is that shell now.
-      const seen = this.exitTail + text;
-      this.exitTail = seen.slice(-160);
-      const gone = /exited \((\d+)\) \xc2\xb7 this is your shell/.exec(seen);
-      if (gone && this.agentExit === null) this.agentExit = Number(gone[1]);
+      // The agent inside the login shell exited: its wrapper says so (inLoginShell: the title, then the line), and the
+      // tile is that shell now. Only a wrapped tile reads it, and only both together; a title set after it (the agent
+      // started again in that shell) clears it.
+      if (this.wrapped) {
+        const seen = this.exitTail + text;
+        this.exitTail = seen.slice(-320);
+        const gone = /\x1b\]2;[^\x07]* exited \xc2\xb7 shell\x07\r?\n[^\n]* exited \((\d+)\) \xc2\xb7 this is your shell/.exec(seen);
+        if (gone && this.agentExit === null) { this.agentExit = Number(gone[1]); this.exitTail = ""; }
+        else if (this.agentExit !== null && /\x1b\][02];(?![^\x07]* exited \xc2\xb7 shell\x07)/.test(text)) this.agentExit = null;
+      }
       term.write(d, () => this.soon());
     };
     // The host had to drop some of its output (this daemon fell behind): the emulator starts over from all it kept.
@@ -331,7 +338,8 @@ export class PtyPane implements Pane {
       if (this.isNvim && !cmd.includes("--listen")) { this.socket = nvimSocketPath(this.run.label ?? "nvim"); if (this.socket) cmd.splice(1, 0, "--listen", this.socket); }
       // An agent starts inside the person's login shell: when it exits (or crashes) the tile is that shell, in the same
       // folder with the same environment, and says so. Nothing starts it again by itself (no dead panes).
-      const argv = (this.run.inShell ?? isAgentCmd(this.run.cmd)) ? inLoginShell(cmd, process.env.SHELL || "sh", programName(this.run.cmd)) : cmd;
+      this.wrapped = this.run.inShell ?? isAgentCmd(this.run.cmd);
+      const argv = this.wrapped ? inLoginShell(cmd, process.env.SHELL || "sh", programName(this.run.cmd)) : cmd;
       this.proc = backend.spawn({ key, argv: CTTY ? [...CTTY, ...argv] : argv, cwd: this.run.cwd, env, cols, rows, meta: this.meta() }, data);
       if (!CTTY && !saidNoCtty) { saidNoCtty = true; this.desk?.ctx.flash("no setsid or perl here: terminal tiles won't hear resizes, and ctrl+z doesn't stop a job", 8000); }
       if (this.socket) this.attach(this.socket);

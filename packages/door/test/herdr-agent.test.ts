@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdtempSync, readFileSync, readlinkSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { agentConfig, launchArgs, sessionSlug, closeSessionPane, attachOutcome, doorScope, SCOPED_REFUSAL, attachTitle, findOrCreate, herdrRunner, nameWhenReady, pointLink, releaseLink, tellDoor, withLock, type AgentConfig } from "../src/desk/herdr-agent";
+import { agentConfig, launchArgs, sessionSlug, closeSessionPane, attachOutcome, doorScope, SCOPED_REFUSAL, attachTitle, findOrCreate, herdrRunner, nameWhenReady, paneAgentPid, pointLink, releaseLink, tellDoor, withLock, type AgentConfig } from "../src/desk/herdr-agent";
 import { PtyPane } from "../src/desk/pty";
 
 const SCRIPT = resolve(import.meta.dir, "../scripts/door-agent-herdr.ts");
@@ -29,6 +29,7 @@ case "$1 $2" in
   "workspace create"|"tab create") [ -f "$d/nocreate" ] && { echo "herdr: no room" >&2; exit 1; }; [ -f "$d/slow" ] && sleep 0.3; echo '{"result":{"root_pane":{"pane_id":"w9:p1","terminal_id":"term_new"}}}' ;;
   "pane rename") [ -f "$d/sticky" ] && echo '{"result":{"panes":[{"pane_id":"w9:p1","label":"door-claude","terminal_id":"term_new"}]}}' > "$d/panes"; echo '{"result":{}}' ;;
   "pane run"|"pane close") echo '{"result":{}}' ;;
+  "pane process-info") [ -f "$d/info" ] && cat "$d/info" || exit 2 ;;
   "hang now") sleep 30 ;;
   "agent get") [ -f "$d/named" ] && echo '{"result":{"agent":{"name":"door","pane_id":"w9:p1"}}}' || exit 1 ;;
   "agent rename") [ -f "$d/detected" ] || exit 1; touch "$d/named"; echo '{"result":{}}' ;;
@@ -54,7 +55,20 @@ describe("the agent's pane", () => {
   test("an existing pane labelled door-claude is attached to, nothing made", async () => {
     answer("panes", { result: { panes: [{ pane_id: "w1:p1", terminal_id: "term_other" }, { pane_id: "w4:p2", label: "door-claude", terminal_id: "term_agent" }] } });
     expect(await findOrCreate(herdrRunner(fake), cfg())).toEqual({ kind: "pane", pane: "w4:p2", terminal: "term_agent", created: false });
-    expect(calls()).toEqual(["pane list"]);
+    expect(calls()).toEqual(["pane list", "pane process-info --pane w4:p2"]);
+  });
+
+  test("the session's pane left a shell (its agent exited, or a restart ended it): the agent starts in it again; one running is only attached", async () => {
+    answer("panes", { result: { panes: [{ pane_id: "w4:p2", label: "door-claude", terminal_id: "term_agent" }] } });
+    answer("info", { result: { process_info: { shell_pid: 40, foreground_processes: [{ pid: 40, name: "-zsh" }] } } });
+    await findOrCreate(herdrRunner(fake), cfg());
+    expect(calls()[2]).toStartWith("pane run w4:p2 exec ");
+    expect(paneAgentPid({ shell_pid: 40, foreground_processes: [{ pid: 40, name: "sh" }, { pid: 41, name: "claude" }] })).toBe(41);
+    expect(paneAgentPid({ shell_pid: 40, foreground_processes: [] })).toBe(40);
+    rmSync(join(dir, "calls"), { force: true });
+    answer("info", { result: { process_info: { shell_pid: 40, foreground_processes: [{ pid: 40, name: "sh" }, { pid: 41, name: "claude" }] } } });
+    await findOrCreate(herdrRunner(fake), cfg());
+    expect(calls()).toEqual(["pane list", "pane process-info --pane w4:p2"]);
   });
 
   test("missing, it's made in a new `door` workspace without focus, renamed, and the agent started inside a login shell there (no dead pane)", async () => {
@@ -66,7 +80,7 @@ describe("the agent's pane", () => {
       "pane rename w9:p1 door-claude",
     ]);
     // (The fake's sh echo reads the printf's escapes: the line is checked whole.)
-    expect(calls().slice(4).join("\n")).toMatch(/^pane run w9:p1 exec sh -l -c 'claude; c=\$\?; [\s\S]*claude exited \(\$c\) · this is your shell, in \$PWD"; exec sh -l'$/);
+    expect(calls().slice(4).join("\n")).toMatch(/^pane run w9:p1 exec sh -l -c 'exec \/bin\/sh -c [\s\S]*claude; c=\$\?; [\s\S]*claude exited \(\$c\) · this is your shell, in \$PWD"; exec sh -l[\s\S]*$/);
   });
 
   test("with a `door` workspace already there, it's a tab in it", async () => {
@@ -338,7 +352,8 @@ describe("one agent pane per outline session (sessions are per outline since PIE
     const tile = (outline: string) => ({ HOME: dir, EP0CH_STATE: state, EP0CH_HERDR_SCOPED: "1", EP0CH_TILE: "claude", EP0CH_TILE_ID: "dock.agent", EP0CH_CONTROL: join(state, "sessions", "local", outline, "door.sock") });
     const a = agentConfig(tile("pie-hole"), () => null, launchArgs(["--session", "pie-hole@float-2", "--agent", "claude"]));
     const b = agentConfig(tile("float-bbs-test"), () => null, launchArgs(["--session", "float-bbs-test", "--agent", "codex"]));
-    expect(a.pane).toMatch(/^door-pie-hole-float-2-[0-9a-f]{8}$/);
+    expect(a.pane).toMatch(/^door-pie-hole--float-2-[0-9a-f]{8}$/);
+    expect(sessionSlug("pie@float-2")).not.toBe(sessionSlug("pie-float-2"));     // a machine's outline never shares a local one's pane
     expect(b.pane).toMatch(/^door-float-bbs-test-[0-9a-f]{8}$/);
     expect(a.name).not.toBe(b.name);
     expect(a.env.EP0CH_CONTROL).not.toBe(b.env.EP0CH_CONTROL);        // each pane's own link, pointed at its session's door

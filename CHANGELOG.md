@@ -443,7 +443,7 @@ The river's replies under a note are read again the same way. Restart the door (
   lists each session's dock agent, where the choice came from, and the command to change it.
   Both work while you type in a dock terminal too (as `alt+a` does), and the picker has your keys over it. Pulling
   the dock up the first time with no agent chosen (`alt+a`, a click on the chip) offers the picker once a door.
-- **One Herdr agent per outline session.** The Herdr pane is the session's own (`door-<outline>[-<machine>]`),
+- **One Herdr agent per outline session.** The Herdr pane is the session's own (`door-<outline>[--<machine>]`),
   started with that session's `EP0CH_CONTROL`; a door on another outline never attaches it. Ending a session closes
   its pane.
 - **Plain `claude`.** The dock no longer starts `door-claude` or adds `--continue` by itself (only `agent.restart`

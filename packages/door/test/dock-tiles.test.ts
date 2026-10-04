@@ -298,6 +298,27 @@ describe.skipIf(!outliner)("the dock: any tile, moved whole between screens", ()
     } finally { d.app.quit(); }
   });
 
+  test("typing in the dock's terminal: alt+g's picker takes the keys from it (no byte goes past), alt+s opens a shell tab", async () => {
+    const d = await door();
+    try {
+      d.A.lastInput = 0;
+      d.key({ kind: "alt", ch: "a" }); d.paint();
+      await until(() => !!d.app.dock.tile?.running, "the dock's own cat runs");
+      d.paint();
+      await until(() => !!d.app.dock.made?.rawKeys(), "the person types in it");
+      const raw = () => d.app.dock.rawInput(d.A.dockRun);
+      raw()!("\x1bg");
+      await until(() => d.paint().some(l => l.includes("the dock's agent")), "the picker");
+      expect(d.app.dock.made!.rawInput()).toBeNull();            // the picker has the keys, not cat
+      expect(d.paint().some(l => l.includes("the picker has the keys"))).toBe(true);
+      d.key({ kind: "esc" });
+      expect(d.app.dock.made!.rawInput()).not.toBeNull();        // back to cat
+      const tabs = d.app.dock.tabs().length;
+      raw()!("\x1bs");
+      await until(() => d.app.dock.tabs().length === tabs + 1, "a new shell tab");
+    } finally { d.app.quit(); }
+  });
+
   test("saved: the next door's dock has the tile back (dock-tiles.json), the drawer as it was", async () => {
     const d = await door();
     await d.app.act({ action: "host.dock", args: {}, tile: "thread", as: AS });

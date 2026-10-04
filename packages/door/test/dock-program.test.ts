@@ -78,8 +78,16 @@ describe("the dock's agent: chosen per session, detected, started inside the per
     expect(isAgentCmd(["claude", "--model", "x"])).toBe(true);
     expect(isAgentCmd(["/opt/bin/codex"])).toBe(true);
     expect(isAgentCmd(["nvim", "a.md"])).toBe(false);
-    expect(inLoginShell(["claude", "--model", "it's"], "/bin/zsh")).toEqual(["/bin/zsh", "-l", "-c",
-      `claude --model 'it'\\''s'; c=$?; printf '\\033]2;%s\\007\\n%s\\n' 'claude exited · shell' "claude exited ($c) · this is your shell, in $PWD"; exec /bin/zsh -l`]);
+    // The Herdr launcher only attaches; its pane wraps the agent: never a shell around it here.
+    expect(isAgentCmd(["bun", "/x/scripts/door-agent-herdr.ts", "--agent", "claude"])).toBe(false);
+    const argv = inLoginShell(["claude", "--model", "it's"], "/bin/zsh");
+    expect(argv.slice(0, 3)).toEqual(["/bin/zsh", "-l", "-c"]);
+    expect(argv[3]).toStartWith("exec /bin/sh -c ");          // any login shell (fish too) only runs the exec; sh runs the rest
+    // Run for real: the program's own output, then the line the door reads, then the person's shell (stdin closed: it ends).
+    const ran = Bun.spawnSync(inLoginShell(["sh", "-c", "echo 'quote '\\''d'; exit 3"], "/bin/sh", "kettle"), { stdin: "ignore", env: { PATH: process.env.PATH ?? "", HOME: root } });
+    const out = ran.stdout.toString();
+    expect(out).toContain("quote 'd");
+    expect(out).toContain("\x1b]2;kettle exited · shell\x07\nkettle exited (3) · this is your shell, in ");
   });
 });
 

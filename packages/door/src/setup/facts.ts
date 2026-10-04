@@ -430,7 +430,14 @@ export async function gatherFacts(o: GatherOptions = {}): Promise<Facts> {
     host,
     databases: databases(folder),
     here,
-    dock: (({ cmd, cwd, programWhy, folderWhy }) => ({ cmd, cwd, programWhy, folderWhy }))(dockProgram({ env, outline: here?.outline ?? null, machine: here?.machine ?? null, start: here?.folder ?? process.cwd(), home })),
+    // What this folder's outline's dock runs: its session's saved choice, else the person's default, as the dock reads them.
+    dock: await (async () => {
+      const root = env.EP0CH_STATE ?? defaultStateDir(env);
+      const { placeOf } = await import("../session/place");
+      const dir = here?.outline ? placeOf({ outline: here.outline, ...(here.machine ? { machine: here.machine } : {}) }, root, env).dir : null;
+      const { cmd, cwd, programWhy, folderWhy } = dockProgram({ env, outline: here?.outline ?? null, machine: here?.machine ?? null, start: here?.folder ?? process.cwd(), home, dir, state: root });
+      return { cmd, cwd, programWhy, folderWhy };
+    })(),
     machines,
     docks: await (async () => {
       const { placeDirs, readPlace } = await import("../session/place");

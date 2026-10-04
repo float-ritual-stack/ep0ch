@@ -55,6 +55,8 @@ export const KNOWN_AGENTS: readonly [name: string, cmd: string][] = [
   ["kimi", "kimi"], ["grok", "grok"], ["hermes", "hermes"], ["cline", "cline"], ["kilo", "kilo"], ["letta", "letta"],
 ];
 const SHELLS = new Set(["sh", "bash", "zsh", "fish", "dash", "ksh", "nu", "elvish"]);
+/** A shell's program name (`bash`, `-zsh` as a login shell names itself, `/bin/sh`). */
+export const isShellName = (name: string) => SHELLS.has(basename(name).replace(/^-/, ""));
 const tilde = (s: string, home: string) => s.trim().replace(/^~(?=$|\/)/, home);
 const isLauncher = (cmd: readonly string[]) => cmd.some(c => basename(c) === "door-agent-herdr.ts");
 
@@ -69,10 +71,14 @@ export function programName(cmd: readonly string[]): string {
   return first.replace(/\.[jt]s$/, "") || "shell";
 }
 
-/** A command that starts an agent (one of KNOWN_AGENTS, or the Herdr launcher): it runs inside the person's shell. */
+/**
+ * A command that starts an agent (one of KNOWN_AGENTS): it runs inside the person's shell. Never the Herdr launcher:
+ * it only attaches, and its pane wraps the agent itself (runLine); a tile left a shell when the attach ends would say
+ * "exited" while the agent runs on in Herdr.
+ */
 export function isAgentCmd(cmd: readonly string[]): boolean {
   const first = basename(cmd[0] ?? "");
-  return isLauncher(cmd) || KNOWN_AGENTS.some(([, c]) => c === first) || /claude/.test(first);
+  return !isLauncher(cmd) && (KNOWN_AGENTS.some(([, c]) => c === first) || /claude/.test(first));
 }
 
 /** A word as the shell reads it back. */
@@ -86,7 +92,9 @@ export const shellQuote = (s: string) => (/^[\w@%+=:,./-]+$/.test(s) ? s : `'${s
 export function inLoginShell(cmd: readonly string[], shell: string, name = programName(cmd)): string[] {
   const line = cmd.map(shellQuote).join(" ");
   const say = `printf '\\033]2;%s\\007\\n%s\\n' ${shellQuote(`${name} exited · shell`)} "${name} exited ($c) · this is your shell, in $PWD"`;
-  return [shell, "-l", "-c", `${line}; c=$?; ${say}; exec ${shellQuote(shell)} -l`];
+  // The login shell reads the person's profile, then a POSIX sh runs the agent and says how it ended: fish, nu and
+  // elvish take `exec /bin/sh -c '…'` as their own line, never the sh syntax after it.
+  return [shell, "-l", "-c", `exec /bin/sh -c ${shellQuote(`${line}; c=$?; ${say}; exec ${shellQuote(shell)} -l`)}`];
 }
 
 /** The agents installed here, a shell first; each also in Herdr when Herdr is installed (and the launcher is here). */
@@ -144,7 +152,8 @@ export function dockProgram(o: { env?: Record<string, string | undefined>; outli
     if (o.outline) {
       try {
         const dot = nearestDotEp0ch(start, { readFile: p => { try { return readFileSync(p, "utf8"); } catch { return undefined; } }, exists: existsSync });
-        if (dot && dot.name === o.outline) return { cwd: dot.folder, why: `the folder whose .ep0ch names ${o.outline}` };
+        // The project of this outline on this machine (a .ep0ch naming it on another machine is another outline's).
+        if (dot && dot.name === o.outline && (dot.machine ?? null) === (o.machine ?? null)) return { cwd: dot.folder, why: `the folder whose .ep0ch names ${o.outline}` };
       } catch { /* a malformed .ep0ch: the next rule */ }
       if (!o.machine) {
         const f = outlineLayout(outlinesFolder(env, home)).folder(o.outline);
