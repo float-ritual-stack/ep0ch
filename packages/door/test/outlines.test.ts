@@ -175,7 +175,7 @@ describe("which outline the door opens (PIE-530)", () => {
       delete process.env.EP0CH_SOCKET;
       // A machine named with no outline opens the home base on it; a choice on this machine drops EP0CH_MACHINE.
       process.env.EP0CH_MACHINE = "box-a";
-      expect(await nameTheOutline([], true, chose({ outline: "bob" }))).toEqual({ args: ["--ws", "bob"], notice: "opened bob from the home base" });
+      expect(await nameTheOutline([], true, chose({ outline: "bob" }))).toEqual({ args: ["--ws", "bob", "--here"], notice: "opened bob from the home base" });
       expect(asked.at(-1)).toMatchObject({ folder: attic, machine: "box-a" });
       expect(process.env.EP0CH_MACHINE).toBeUndefined();
       expect(await nameTheOutline([], true, chose(null))).toBeNull();

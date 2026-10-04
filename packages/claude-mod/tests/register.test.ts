@@ -860,33 +860,37 @@ describe('register', () => {
     const run = session.runs.find(candidate => candidate.argv.includes('work'))!
     expect(run.argv).toEqual([
       '/bin/sh', '/opt/outliner/scripts/run-bun.sh', '/opt/outliner/src/cli.ts',
-      'work', 'stage', 'PIE-8', 'review', '--expected', '3',
-      '--author', 'agent', '--actor', 'claude-code', '--session', 'session-1',
+      'work', 'stage', '--expected', '3',
+      '--author', 'agent', '--actor', 'claude-code', '--session', 'session-1', '--', 'PIE-8', 'review',
     ])
     expect(run.init?.cwd).toBe(WORKSPACE)
     expect(run.init?.env).toEqual({ OUTLINER_WORKSPACE_ROOT: WORKSPACE, EP0CH_WS: 'garden', EP0CH_MACHINE: '' })
 
     await $.tool.call({ tool: 'mcp__pi-outliner__work_complete', item: 'PIE-8', deliveries: ['d-1', 'PIE-8/door'], proof: 'Proof\n\nChecked.' })
     const completed = session.runs.findLast(candidate => candidate.argv.includes('complete'))!
-    expect(completed.argv.slice(3, 11)).toEqual(['work', 'complete', 'PIE-8', '--delivery', 'd-1', '--delivery', 'PIE-8/door', '--stdin'])
+    expect(completed.argv.slice(3, 8)).toEqual(['work', 'complete', '--delivery=d-1', '--delivery=PIE-8/door', '--stdin'])
+    expect(completed.argv.slice(-2)).toEqual(['--', 'PIE-8'])
     expect(completed.init?.stdin).toBe('Proof\n\nChecked.')
 
     await $.tool.call({ tool: 'mcp__pi-outliner__work_complete', item: 'PIE-8', allMerged: true, proofBlock: 'p-1' })
     const allMerged = session.runs.findLast(candidate => candidate.argv.includes('complete'))!
-    expect(allMerged.argv.slice(3, 9)).toEqual(['work', 'complete', 'PIE-8', '--all-merged', '--proof-block', 'p-1'])
+    expect(allMerged.argv.slice(3, 7)).toEqual(['work', 'complete', '--all-merged', '--proof-block=p-1'])
+    expect(allMerged.argv.slice(-2)).toEqual(['--', 'PIE-8'])
 
     await $.tool.call({ tool: 'mcp__pi-outliner__work_deliver', item: 'PIE-8', repo: 'example-org/example-door', pr: 16, key: 'door' })
     const delivered = session.runs.findLast(candidate => candidate.argv.includes('deliver'))!
-    expect(delivered.argv.slice(3, 11)).toEqual(['work', 'deliver', 'PIE-8', '--repo', 'example-org/example-door', '--pr', '16', '--key'])
-    expect(delivered.argv[11]).toBe('door')
+    expect(delivered.argv.slice(3, 8)).toEqual(['work', 'deliver', '--repo=example-org/example-door', '--pr=16', '--key=door'])
+    expect(delivered.argv.slice(-2)).toEqual(['--', 'PIE-8'])
 
     await $.tool.call({ tool: 'mcp__pi-outliner__work_set', item: 'PIE-8/door', key: 'delivery-stage', value: 'complete', expectedRevision: 2 })
     const set = session.runs.findLast(candidate => candidate.argv.includes('set'))!
-    expect(set.argv.slice(3, 10)).toEqual(['work', 'set', 'PIE-8/door', 'delivery-stage', 'complete', '--expected', '2'])
+    expect(set.argv.slice(3, 7)).toEqual(['work', 'set', '--expected', '2'])
+    expect(set.argv.slice(-4)).toEqual(['--', 'PIE-8/door', 'delivery-stage', 'complete'])
 
     await $.tool.call({ tool: 'mcp__pi-outliner__note_section', block: 'PIE-8', heading: '## Now', body: 'Updated.' })
     const section = session.runs.findLast(candidate => candidate.argv.includes('section'))!
-    expect(section.argv.slice(3, 8)).toEqual(['note', 'section', 'PIE-8', '## Now', '--stdin'])
+    expect(section.argv.slice(3, 6)).toEqual(['note', 'section', '--stdin'])
+    expect(section.argv.slice(-3)).toEqual(['--', 'PIE-8', '## Now'])
     expect(section.init?.stdin).toBe('Updated.')
   })
 

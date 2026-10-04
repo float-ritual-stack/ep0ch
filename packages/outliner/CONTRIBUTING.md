@@ -44,7 +44,8 @@ that names none (no `EP0CH_WS`, no `.ep0ch` here or above) gets the **Choose
 outline** popup (`src/choose-outline-main.ts`), which picks one of the host's
 outlines, starts a new one (the folder's or repository's name offered) or imports
 an older database, and writes the folder's `.ep0ch`. A name a `.ep0ch` or
-`EP0CH_WS` gives that nobody has yet is created on open (like `tmux new -A`).
+`EP0CH_WS` gives that nobody has yet is created on open (like `tmux new -A`), on
+this machine only: on another machine it is refused with the command that makes it.
 The host itself runs as a service (systemd, launchd); the plugin's `service`
 pane runs it in a Herdr tab, opened only by hand. Tree and Detail
 `Option+Shift+Right` / `Option+Shift+Down` create ordinary independent right/down Details.

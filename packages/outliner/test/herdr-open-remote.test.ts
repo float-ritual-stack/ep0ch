@@ -187,4 +187,72 @@ if (args[0] === "pane" && args[1] === "get") {
     await foreignWatcher.stop();
     await host.close();
   }
-}, 10_000);
+}, 60_000);
+
+test("an outline the .ep0ch's machine doesn't have is never made there: refused with the commands, no pane opened (PIE-545)", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "pi-outliner-remote-missing-"));
+  temporaryDirectories.push(directory);
+  const workspaceRoot = join(directory, "workspace");
+  mkdirSync(workspaceRoot);
+  const host = new OutlineHost({ outlinesFolder: join(directory, "remote-outlines"), log: () => {} });
+  await host.start();
+  await host.create("garden");
+  writeFileSync(join(workspaceRoot, ".ep0ch"), 'ws = "fern"\nmachine = "box-a"\n');
+  const bin = join(directory, "bin");
+  mkdirSync(bin);
+  writeFileSync(join(bin, "ssh"), `#!/bin/sh\nexec ${process.execPath} ${join(import.meta.dir, "fake-ssh.ts")} "$@"\n`);
+  writeFileSync(join(bin, "ep0ch"), `#!/bin/sh\necho '${JSON.stringify({ socket: host.socketPath })}'\n`);
+  for (const f of ["ssh", "ep0ch"]) chmodSync(join(bin, f), 0o755);
+  mkdirSync(join(directory, "far-home"));
+  const herdr = join(directory, "fake-herdr");
+  const logPath = join(directory, "herdr-calls.jsonl");
+  writeFileSync(herdr, `#!/usr/bin/env bun
+import { appendFileSync } from "node:fs";
+const args = process.argv.slice(2);
+appendFileSync(${JSON.stringify(logPath)}, JSON.stringify(args) + "\\n");
+if (args[0] === "pane" && args[1] === "get") console.log(JSON.stringify({ result: { pane: { pane_id: "workspace:pane", foreground_cwd: ${JSON.stringify(workspaceRoot)}, cwd: ${JSON.stringify(workspaceRoot)}, workspace_id: "workspace", tab_id: "workspace:tab" } } }));
+else console.log(JSON.stringify({ result: { type: "ok" } }));
+`);
+  chmodSync(herdr, 0o755);
+  try {
+    const child = Bun.spawn(["bun", "run", "src/herdr-open.ts", "--mode", "focus-or-open"], {
+      cwd: process.cwd(),
+      env: {
+        ...process.env, HERDR_ENV: "1", HERDR_BIN_PATH: herdr, HERDR_PANE_ID: "workspace:pane", OUTLINER_WORKSPACE_ROOT: workspaceRoot,
+        EP0CH_OUTLINES: join(directory, "local-outlines"), EP0CH_SOCKET: undefined, EP0CH_WS: undefined, EP0CH_MACHINE: undefined,
+        EP0CH_SSH: join(bin, "ssh"), FAKE_SSH_HOME: join(directory, "far-home"), FAKE_SSH_OUTLINES: join(directory, "remote-outlines"), FAKE_SSH_BIN: bin,
+      },
+      stdout: "pipe", stderr: "pipe", timeout: 30_000, killSignal: "SIGKILL",
+    });
+    const [exitCode, stderr] = await Promise.all([child.exited, new Response(child.stderr).text()]);
+    expect(exitCode).not.toBe(0);
+    expect(stderr).toContain("box-a has no outline fern. Nothing was created.");
+    expect(stderr).toContain("ep0ch outline create fern --machine box-a");
+    expect(host.list().outlines.map(o => o.name)).toEqual(["garden"]);
+    const calls = (() => { try { return readFileSync(logPath, "utf8"); } catch { return ""; } })();
+    expect(calls).not.toContain("--entrypoint");
+    // The CLI's init on that machine (EP0CH_MACHINE): the same refusal, and --create makes it there on purpose.
+    const plain = join(directory, "plain");
+    mkdirSync(plain);
+    const initEnv = {
+      ...process.env, EP0CH_OUTLINES: join(directory, "local-outlines"), EP0CH_SOCKET: undefined, EP0CH_WS: undefined, EP0CH_MACHINE: "box-a",
+      OUTLINER_WORKSPACE_ROOT: undefined, EP0CH_SSH: join(bin, "ssh"), FAKE_SSH_HOME: join(directory, "far-home"), FAKE_SSH_OUTLINES: join(directory, "remote-outlines"), FAKE_SSH_BIN: bin,
+    };
+    // Not spawnSync: the host answers from this process.
+    const init = async (...extra: string[]) => {
+      const p = Bun.spawn(["bun", join(process.cwd(), "src/cli.ts"), "init", "nettle", ...extra], { cwd: plain, env: initEnv, stdout: "pipe", stderr: "pipe", timeout: 30_000 });
+      const [exitCode, stderr] = await Promise.all([p.exited, new Response(p.stderr).text()]);
+      return { exitCode, stderr };
+    };
+    const refused = await init();
+    expect(refused.exitCode).not.toBe(0);
+    expect(refused.stderr).toContain("box-a has no outline nettle. Nothing was created.");
+    expect(refused.stderr).toContain("outliner init nettle --create");
+    expect(host.list().outlines.map(o => o.name)).toEqual(["garden"]);
+    expect((await init("--create")).exitCode).toBe(0);
+    expect(host.list().outlines.map(o => o.name)).toEqual(["garden", "nettle"]);
+  } finally {
+    try { process.kill(Number(readFileSync(join(directory, "local-outlines", ".remote", "box-a.ctl"), "utf8"))); } catch { /* none started */ }
+    await host.close();
+  }
+}, 60_000);

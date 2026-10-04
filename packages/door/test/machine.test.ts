@@ -123,7 +123,13 @@ describe("--machine: an outline on another machine, through the forward", () => 
     writeFileSync(join(far, ".ep0ch"), 'ws = "garden"\nmachine = "box-a"\n');
     const there = Bun.spawnSync([process.execPath, join(DOOR, "src/main.ts"), "outline", "list", "--json"], { cwd: far, env });
     expect(JSON.parse(there.stdout.toString()).outlines.map((o: { name: string }) => o.name)).toContain("garden");
-    const init = Bun.spawnSync([process.execPath, join(DOOR, "src/main.ts"), "init", "fern", "--json"], { cwd: far, env });
+    // An outline the machine doesn't have is made there only with --create (PIE-545).
+    const refused = Bun.spawnSync([process.execPath, join(DOOR, "src/main.ts"), "init", "fern", "--json"], { cwd: far, env });
+    expect(refused.exitCode).toBe(1);
+    expect(refused.stderr.toString()).toContain("box-a has no outline fern, and neither has this machine. Nothing was created.");
+    expect(refused.stderr.toString()).toContain("ep0ch init fern --machine box-a --create");
+    expect(readFileSync(join(far, ".ep0ch"), "utf8")).toBe('ws = "garden"\nmachine = "box-a"\n');
+    const init = Bun.spawnSync([process.execPath, join(DOOR, "src/main.ts"), "init", "fern", "--create", "--json"], { cwd: far, env });
     expect(JSON.parse(init.stdout.toString())).toMatchObject({ name: "fern", created: true });
     expect(readFileSync(join(far, ".ep0ch"), "utf8")).toBe('ws = "fern"\nmachine = "box-a"\n');
     const { hostRequest } = await import("../src/socket");
@@ -140,6 +146,97 @@ describe("--machine: an outline on another machine, through the forward", () => 
   }, 60_000);
 });
 
+describe("an outline the machine doesn't have is never made there (PIE-545)", () => {
+  const names = async () => (await (await import("../src/socket")).hostRequest<{ outlines: { name: string }[] }>(host.sock, "outlines.list")).outlines.map(o => o.name);
+
+  test("--machine: the door, the session's naming and `outline attach` refuse with the commands; nothing is made", async () => {
+    const { connectTarget } = await import("../src/door");
+    const opened = await connectTarget(["--machine", "box-a", "--ws", "nettle"]);
+    expect("error" in opened && opened.error).toContain("box-a has no outline nettle, and neither has this machine. Nothing was created.");
+    expect("error" in opened && opened.error).toContain("create it on box-a:");
+    expect("error" in opened && opened.error).toContain("ep0ch --machine box-a --ws nettle --create");
+    // Before a session starts, in the person's terminal: without one to ask, the same commands; with one, the home base.
+    const { nameTheOutline } = await import("../src/outlines");
+    const named = await nameTheOutline(["--machine", "box-a", "--ws", "nettle"], false, async () => { throw new Error("no home base without a terminal"); });
+    expect(named).toEqual({ error: expect.stringContaining("ep0ch --machine box-a --ws nettle --create") });
+    let offered: unknown = null;
+    expect(await nameTheOutline(["--machine", "box-a", "--ws", "nettle", "--desk"], true, async a => { offered = a; return null; })).toBeNull();
+    expect(offered).toMatchObject({ machine: "box-a", missing: { outline: "nettle", machine: "box-a" } });
+    // The home base's choice opens: its outline and machine replace what was named.
+    expect(await nameTheOutline(["--machine", "box-a", "--ws", "nettle", "--desk"], true, async () => ({ outline: "garden", machine: "box-a" })))
+      .toEqual({ args: ["--desk", "--ws", "garden", "--machine", "box-a"], notice: "opened garden on box-a from the home base" });
+    const cli = Bun.spawnSync([process.execPath, "src/main.ts", "--no-daemon", "--machine", "box-a", "--ws", "nettle"], { cwd: DOOR, env: process.env as Record<string, string> });
+    expect(cli.exitCode).toBe(1);
+    expect(cli.stderr.toString()).toContain("ep0ch --machine box-a --ws nettle --create");
+    const attach = Bun.spawnSync([process.execPath, "src/main.ts", "outline", "attach", "nettle", "--machine", "box-a", "--json"], { cwd: DOOR, env: process.env as Record<string, string> });
+    expect(attach.exitCode).toBe(1);
+    expect(attach.stderr.toString()).toContain("ep0ch outline attach nettle --machine box-a --create");
+    expect(await names()).not.toContain("nettle");
+  }, 60_000);
+
+  test("the one on this machine is opened as --here: a .ep0ch or EP0CH_MACHINE putting the name on the machine doesn't take it back", async () => {
+    const folder = join(here, "far-fern");
+    mkdirSync(folder, { recursive: true });
+    writeFileSync(join(folder, ".ep0ch"), 'ws = "nettle"\nmachine = "box-a"\n');
+    const { resolveTarget } = await import("../src/discover");
+    expect(resolveTarget(["--ws", "nettle"], process.env, folder)).toMatchObject({ machine: "box-a" });
+    const local = resolveTarget(["--ws", "nettle", "--here"], { ...process.env, EP0CH_MACHINE: "box-b" }, folder);
+    expect(local).toMatchObject({ outline: "nettle", remote: false });
+    expect("machine" in local).toBe(false);
+    const { nameTheOutline } = await import("../src/outlines");
+    const cwd = process.cwd();
+    process.chdir(folder);
+    try {
+      const chosen = await nameTheOutline([], true, async a => { expect(a.missing).toEqual({ outline: "nettle", machine: "box-a" }); return { outline: "nettle" }; });
+      expect(chosen).toEqual({ args: ["--ws", "nettle", "--here"], notice: "opened nettle from the home base" });
+      expect(resolveTarget((chosen as { args: string[] }).args, process.env, folder)).not.toHaveProperty("machine");
+    } finally { process.chdir(cwd); }
+  }, 60_000);
+
+  test("--create makes it there, on purpose, before the door, and the door's arguments go on without it", async () => {
+    const { nameTheOutline } = await import("../src/outlines");
+    const made = await nameTheOutline(["--machine", "box-a", "--ws", "sorrel", "--create"], false, async () => null);
+    expect(made).toEqual({ args: ["--machine", "box-a", "--ws", "sorrel"], notice: "created outline sorrel on box-a (--create)" });
+    expect(await names()).toContain("sorrel");
+    const attach = Bun.spawnSync([process.execPath, "src/main.ts", "outline", "attach", "tansy", "--machine", "box-a", "--create", "--json"], { cwd: DOOR, env: process.env as Record<string, string> });
+    expect(JSON.parse(attach.stdout.toString())).toMatchObject({ created: true });
+    expect(await names()).toContain("tansy");
+  }, 60_000);
+
+  test("--remote: asked through the forward first; the door there is given --no-create, and refuses one it lacks", async () => {
+    const { nameRemoteOutline } = await import("../src/outlines");
+    const none = async () => { throw new Error("no home base without a terminal"); };
+    expect(await nameRemoteOutline("box-a", ["--ws", "garden", "--board"], false, none)).toEqual({ remote: ["--ws", "garden", "--board", "--no-create=box-a"] });
+    expect(await nameRemoteOutline("box-a", ["status", "--json"], false, none)).toEqual({ remote: ["status", "--json"] });
+    expect(await nameRemoteOutline("box-a", ["--ws", "yarrow", "--create"], false, none)).toEqual({ remote: ["--ws", "yarrow", "--create"] });
+    const missing = await nameRemoteOutline("box-a", ["--ws", "yarrow"], false, none);
+    expect(missing).toEqual({ error: expect.stringContaining("ep0ch --remote box-a --ws yarrow --create") });
+    // The home base: a choice there goes on there (--ws replaced); the one on this machine is a door here.
+    expect(await nameRemoteOutline("box-a", ["--ws", "yarrow", "--board"], true, async () => ({ outline: "garden", machine: "box-a" }))).toEqual({ remote: ["--ws", "garden", "--board", "--no-create=box-a"] });
+    expect(await nameRemoteOutline("box-a", ["--ws", "yarrow", "--board"], true, async () => ({ outline: "yarrow" }))).toEqual({ args: ["--board", "--ws", "yarrow", "--here"], notice: "opened yarrow from the home base" });
+    // The commands that could make one there are given --no-create too, and refuse there, saying the --remote command.
+    expect(await nameRemoteOutline("box-a", ["outline", "attach", "yarrow"], false, none)).toEqual({ remote: ["outline", "attach", "yarrow", "--no-create=box-a"] });
+    expect(await nameRemoteOutline("box-a", ["init", "yarrow"], false, none)).toEqual({ remote: ["init", "yarrow", "--no-create=box-a"] });
+    const attachThere = Bun.spawnSync([process.execPath, join(DOOR, "src/main.ts"), "outline", "attach", "yarrow", "--no-create=box-a", "--json"], { cwd: DOOR, env: { ...process.env, EP0CH_OUTLINES: host.outlines } as Record<string, string> });
+    expect(attachThere.exitCode).toBe(1);
+    expect(attachThere.stderr.toString()).toContain("ep0ch --remote box-a outline attach yarrow --create");
+    // End to end through the fake ssh, with no terminal: refused here, nothing run there.
+    const before = log().length;
+    const r = Bun.spawnSync([process.execPath, "src/main.ts", "--remote", "box-a", "--ws", "yarrow"], { cwd: DOOR, env: process.env as Record<string, string> });
+    expect(r.exitCode).toBe(1);
+    expect(r.stderr.toString()).toContain("box-a has no outline yarrow");
+    expect(log().slice(before).some(a => a.includes("-t"))).toBe(false);
+    // The door there, given --no-create (as when the forward couldn't be asked): its own refusal, before any session.
+    const there = Bun.spawnSync([process.execPath, join(DOOR, "src/main.ts"), "--ws", "yarrow", "--no-create"], { cwd: DOOR, env: { ...process.env, EP0CH_OUTLINES: host.outlines } as Record<string, string> });
+    expect(there.exitCode).toBe(1);
+    expect(there.stderr.toString()).toContain("has no outline yarrow. Nothing was created.");
+    expect(there.stderr.toString()).toContain("ep0ch --ws yarrow --create");
+    const via = Bun.spawnSync([process.execPath, join(DOOR, "src/main.ts"), "--ws", "yarrow", "--no-create=box-a"], { cwd: DOOR, env: { ...process.env, EP0CH_OUTLINES: host.outlines } as Record<string, string> });
+    expect(via.stderr.toString()).toContain("ep0ch --remote box-a --ws yarrow --create");
+    expect(await names()).not.toContain("yarrow");
+  }, 60_000);
+});
+
 describe("--remote: this terminal on the door session running on another machine", () => {
   test("ssh -t to the machine, ep0ch there in a login shell with this terminal's variables", async () => {
     const { remoteDoorArgv } = await import("../src/machine");
@@ -152,6 +249,9 @@ describe("--remote: this terminal on the door session running on another machine
     expect(remoteArgs("box-a", ["--machine", "box-a", "--desk"], named)).toEqual(["--ws", "garden", "--desk"]);
     expect(remoteArgs("box-b", ["--board"], named)).toEqual(["--board"]);
     expect(remoteArgs("box-a", ["--ws", "fern"], named)).toEqual(["--ws", "fern"]);
+    // A command goes as it is, never behind the folder's --ws (that would run the door, not the command).
+    expect(remoteArgs("box-a", ["init"], named)).toEqual(["init"]);
+    expect(remoteArgs("box-a", ["--machine", "box-a", "session", "list"], named)).toEqual(["session", "list"]);
     // Words survive the remote shell as they were (the door's own arguments, quotes and spaces kept).
     const { shellWord } = await import("../src/machine");
     const words = ["--layout", "it's mine", "a b", "$HOME", "plain"];

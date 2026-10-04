@@ -422,7 +422,8 @@ The manifest exposes three workspace/tab/pane actions:
 
 Opening never guesses an outline. The folder's outline is `EP0CH_WS`, else the
 nearest `.ep0ch` from the folder up (see [Which outline a client opens](#which-outline-a-client-opens));
-a name nobody has yet is created on open. A folder that names none gets a
+a name nobody has yet is created on open (on this machine; on another one it is
+refused with the command that makes it). A folder that names none gets a
 **Choose outline** popup instead, from every action above (and `prefix+u`). It
 says which folder was resolved and from where (the invoking pane's directory or
 the Herdr workspace root), lists the host's outlines, and offers **New outline**
@@ -2488,7 +2489,7 @@ function), first match wins:
    and folders right under `/` are never offered as a name.
 
 A name a `.ep0ch` or `EP0CH_WS` gives that nobody has yet is created when a session opens it (Ctrl-b u, the
-door: like `tmux new -A`, "Created outline jam-shelf"); reads never create one. **Outliner: choose this folder's
+door: like `tmux new -A`, "Created outline jam-shelf"), on this machine only; reads never create one. **Outliner: choose this folder's
 outline** switches a folder's `.ep0ch`. Herdr actions invoked from an outliner pane stay on that pane's outline.
 The Claude mod follows a session's folder by its `.ep0ch` only (`outliner bound-folder` says which), so a
 folder that names none feeds no outline.

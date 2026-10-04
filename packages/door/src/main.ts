@@ -15,11 +15,12 @@ import { forwardTo, remoteDoor, remoteOf } from "./machine";
 import { findCommand, NOTES_USAGE, showCommand } from "./notes-cli";
 import { EXPORT_USAGE } from "./export";
 import { showcaseTry } from "./showcase/route";
+import { checkWords, usageFor } from "./cli-words";
 
 let args = process.argv.slice(2);
 const USAGE = `ep0ch: a BBS door into an outline
 
-  ep0ch [--ws <name>] [--machine <ssh-name>] [--board [<hub-id>] | --desk | --layout <name> | --river | --brief | --welcome]
+  ep0ch [--ws <name>] [--machine <ssh-name> [--create] | --here] [--board [<hub-id>] | --desk | --layout <name> | --river | --brief | --welcome]
                                    open the door (the logon, then the main menu, by default);
                                    --layout daily opens the desk laid out as a named layout (daily,
                                    river, board, desk, or one saved with ^W w);
@@ -29,14 +30,18 @@ const USAGE = `ep0ch: a BBS door into an outline
                                    EP0CH_LANDING=welcome lands there after the logon.
                                    Which outline: --ws <name> from anywhere, else EP0CH_WS, else the
                                    nearest .ep0ch from this folder up (it holds ws = "<name>"). A name
-                                   nobody has yet is created (like herdr --session <name>). Where none is
+                                   nobody has yet is created on this machine (like herdr --session <name>);
+                                   on another machine never: the home base says so and offers the one here,
+                                   creating it there, or cancel (without a terminal, the commands), and
+                                   --create makes it there on purpose. Where none is
                                    named, the home base: this machine's outlines (open, new, import) and the
                                    machines opened from here (add one from ~/.ssh/config); choosing one opens
                                    it and offers to write the folder's .ep0ch.
                                    Outlines are <name>.sqlite in EP0CH_OUTLINES (~/outlines).
                                    Which machine: --machine <ssh-name> (a Host in ~/.ssh/config), else
                                    EP0CH_MACHINE, else the machine = "<ssh-name>" of the .ep0ch that named
-                                   the outline; none is this machine. The door keeps an ssh forward to that
+                                   the outline; none is this machine (--here says so outright, over
+                                   EP0CH_MACHINE and the .ep0ch's machine). The door keeps an ssh forward to that
                                    machine's outline host (~/outlines/.remote/<ssh-name>.sock), shared by
                                    every client here and started again when it drops. EP0CH_SOCKET names
                                    a host's socket outright
@@ -44,7 +49,9 @@ const USAGE = `ep0ch: a BBS door into an outline
                                    (the same as ep0ch try --showcase); --reset reseeds it
   ep0ch --remote <ssh-name> [door flags]
                                    this terminal on the door session running on that machine (ssh -t
-                                   <ssh-name> ep0ch [door flags]), like herdr --remote
+                                   <ssh-name> ep0ch [door flags]), like herdr --remote; an outline that
+                                   machine doesn't have is asked about first, as for --machine (--create
+                                   makes it there)
   ep0ch session list [--json] | attach [--watch] | end [--yes] [--all] | upgrade [--clients] [--all] | restart
                                    the door sessions, one per outline (like herdr --session <name>): list shows
                                    every one (outline, machine, pid, code, terminals attached, programs); attach,
@@ -56,14 +63,16 @@ const USAGE = `ep0ch: a BBS door into an outline
                                    every session); restart does so anyway. The door is a session: quitting
                                    detaches, ep0ch attaches again; --no-daemon (or EP0CH_DAEMON=0) opens the door
                                    in this terminal instead
-  ep0ch init [<name>] [--json]     name this folder's outline: attach to it (creating it when nobody has),
-                                   and write .ep0ch; without a name, the folder's (or its repository's)
-  ep0ch outline list [--all] [--lines] | attach <name> | create <name> | import <database.sqlite> <name>
+  ep0ch init [<name>] [--create] [--json]
+                                   name this folder's outline: attach to it (creating it when nobody has; on
+                                   another machine only with --create), and write .ep0ch; without a name, the
+                                   folder's (or its repository's)
+  ep0ch outline list [--all] [--lines] | attach <name> [--create] | create <name> | import <database.sqlite> <name>
                 | stop <name> | delete <name> [--yes]      [--json]
                                    the host's outlines: --all lists every machine's (this one's, then each
                                    machine opened before, one not connected said, nothing started), --lines
                                    as name<TAB>machine<TAB>problem; attach opens the door on one (the same as
-                                   --ws <name>); import makes a new outline from an older database (its
+                                   --ws <name>; on another machine --create makes one it lacks); import makes a new outline from an older database (its
                                    notes, properties, pages and work ids; the file is only read); stop
                                    releases its database; delete moves it to .deleted/, after asking
   ep0ch status [--json]            the outline host: its socket, its outlines folder, open outlines
@@ -96,12 +105,30 @@ ${EXPORT_USAGE}
   ep0ch --skill [--all] [<name>]
                                    the stack's skills (this door's and the installed Outliner's), or the
                                    path of one skill's SKILL.md; --all adds contributor skills
-  ep0ch help`;
-if (["help", "--help", "-h"].includes(args[0] ?? "")) { console.log(USAGE); process.exit(0); }
+  ep0ch help [<command>]           this, or one command's part of it; --help and -h do the same anywhere
+                                   (ep0ch session --help). A word ep0ch doesn't know, command or door flag,
+                                   is said with the closest one it does (exit 2), and opens no door`;
+// A word ep0ch doesn't know is said, with the closest it does, and opens no door; --help, -h and help print usage (the
+// command's own when one is named) from anywhere (PIE-547, src/cli-words.ts).
+const words = checkWords(args);
+if (words && "help" in words) { console.log(usageFor(USAGE, words.help)); process.exit(0); }
+if (words) { console.error(`ep0ch: ${words.error}`); process.exit(2); }
 // --remote <machine>: the door runs there; this terminal only carries it (src/machine.ts).
+// An outline the machine doesn't have is never made there without --create (PIE-545): nameRemoteOutline asks it first,
+// and the home base here offers the choices; the one on this machine opens a door here instead.
 const remote = remoteOf(args);
 if (remote && "error" in remote) { console.error(`ep0ch: ${remote.error}`); process.exit(2); }
-if (remote) process.exit(await remoteDoor(remote.machine, remote.rest));
+/** What the home base chose, said once the door is up (in this terminal; a session started from it shows the screen). */
+let homeNotice: string | undefined;
+if (remote) {
+  const { nameRemoteOutline } = await import("./outlines");
+  const r = await nameRemoteOutline(remote.machine, remote.rest, !!process.stdin.isTTY, homeBase);
+  if (!r) process.exit(1);
+  if ("error" in r) { console.error(`ep0ch: ${r.error}`); process.exit(1); }
+  if ("remote" in r) process.exit(await remoteDoor(remote.machine, r.remote));
+  args = r.args;
+  homeNotice = r.notice;
+}
 if (args[0] === "doctor" || args[0] === "install") {
   const { setupCommand } = await import("./setup/apply");
   process.exit(await setupCommand(args, { out: console.log, err: console.error, terminal: process.stdout }));
@@ -153,8 +180,6 @@ if (args[0] === "clients") {
   process.exit(0);
 }
 // The door: attached to its outline's session (started when sessions are on and none runs), or in this terminal.
-/** What the home base chose, said once the door is up (in this terminal; a session started from it shows the screen). */
-let homeNotice: string | undefined;
 const how = doorMode(args);
 // Which outline, first: the session is that outline's (src/session/place.ts). A folder that names none opens the home
 // base in this terminal (src/home.ts: it shows which sessions run) and goes on with --ws <their choice> (PIE-530). A
@@ -165,7 +190,7 @@ if (!(how.mode === "attach" && !process.stdin.isTTY)) {
   if (!named) process.exit(1);
   if ("error" in named) { console.error(`ep0ch: ${named.error}`); process.exit(1); }
   args = named.args;
-  homeNotice = named.notice;
+  homeNotice = [homeNotice, named.notice].filter(Boolean).join(" · ") || undefined;
 }
 if (how.mode === "attach") process.exit(await attachDoor(args));
 // A door in its own terminal: an `ep0ch` in one of its tiles opens a door of its own there too, never a session on

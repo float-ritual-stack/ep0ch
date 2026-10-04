@@ -187,7 +187,7 @@ describe('outline tools', () => {
     expect(session.agentRuns().at(-1)!.argv).toContain('cowboy')
     await $.tool.call({ tool: 'mcp__pi-outliner__work_stage', item: 'PIE-8', stage: 'doing' })
     const work = session.runs.find(run => run.argv.includes('work'))!
-    expect(work.argv.slice(-6)).toEqual(['--author', 'agent', '--actor', 'cowboy', '--session', 'session-1'])
+    expect(work.argv.slice(-9)).toEqual(['--author', 'agent', '--actor', 'cowboy', '--session', 'session-1', '--', 'PIE-8', 'doing'])
   })
 
   test('in a folder bound to no outline, outline tools change nothing', async ($, on) => {

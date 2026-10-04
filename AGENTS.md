@@ -98,6 +98,12 @@ reaches it through one shared ssh forward, `<outlines>/.remote/<ssh-name>.sock`,
 needs it (outline-core's `src/machine.ts`, `ensureForward`). `EP0CH_SOCKET` names any host's socket outright, the
 low-level escape hatch.
 
+A name nobody has yet is created when a client opens it on this machine (like `herdr --session`), never on another
+machine (PIE-545): there (`--machine`, `--remote`, a `.ep0ch`'s `machine`) it is refused with the exact commands, or
+the door's home base offers the choices (the one here, create it there, cancel). Only `--create`, `outline create`
+or the home base's "new outline on <machine>" makes one there. The rule is outline-core's `mayCreate`; `--here`
+names this machine over `EP0CH_MACHINE` and a `.ep0ch`'s machine.
+
 ## Schema and protocol: one version
 
 This is a weeks-old project with one user and two databases that matter (pie on float-2, float-hub on the

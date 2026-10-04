@@ -15,7 +15,7 @@ import {
   type PaneEntrypoint,
 } from "./pane-control";
 import { OUTLINE_ENV, remoteHint, resolveClientPaths } from "./paths";
-import { attachHostedOutline, resolveInvocationPaths, waitForOutlineHost } from "./outline-host-client";
+import { attachHostedOutline, attachNamedOutline, resolveInvocationPaths, waitForOutlineHost } from "./outline-host-client";
 import type { OutlineChooserContext } from "./outline-chooser";
 import { waitForCompatibleService } from "./service-compatibility";
 import {
@@ -160,9 +160,13 @@ await reportStartupErrors(async () => {
       : `No outline host answers at ${paths.socket} (outline "${name}" for ${workspaceRoot}). The host runs as a service: systemctl --user start outliner-host (Linux), launchctl kickstart gui/$(id -u)/io.ep0ch.outliner-host (macOS), or bun packages/outliner/src/host-main.ts.`);
   }
   // Only the modes that open panes create a missing outline: Pi's `service-only` check, `focus-existing` and
-  // `find-detail` open nothing, so they only attach.
-  const create = mode !== "service-only" && mode !== "focus-existing" && mode !== "find-detail";
-  const attachment = await attachHostedOutline(host, name, create);
+  // `find-detail` open nothing, so they only attach. And only on this machine (PIE-545): on another machine a name
+  // nobody has there is refused with what to run, never made (a typo, or a name meant for this machine, would make an
+  // empty outline there). Making one there is said on purpose: `ep0ch outline create <name> --machine <m>`.
+  const opensPanes = mode !== "service-only" && mode !== "focus-existing" && mode !== "find-detail";
+  const attachment = opensPanes
+    ? await attachNamedOutline(host, name, { ...(paths.machine ? { machine: paths.machine } : {}), createCommand: `ep0ch outline create ${name}${paths.machine ? ` --machine ${paths.machine}` : ""}` })
+    : await attachHostedOutline(host, name, false);
   const attached = { name, created: attachment.created, source: {
     env: "EP0CH_WS", file: paths.configPath ?? ".ep0ch", pane: "the invoking pane's outline",
   }[paths.outlineSource ?? "env"] };

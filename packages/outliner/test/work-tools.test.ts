@@ -144,7 +144,8 @@ test("a pull request is recorded as the delivery: open reaches review, merge rea
   });
 
   h.pull(8, "MERGED", "feature/pie-001", "abc1234");
-  const merged = await h.run(["work", "deliver", "PIE-001", "--repo", REPO, "--pr", "8", "--base", "main"]);
+  // As the mod sends it: options, then the item after `--`.
+  const merged = await h.run(["work", "deliver", `--repo=${REPO}`, "--pr=8", "--base=main", "--", "PIE-001"]);
   expect(merged.json).toMatchObject({
     workStage: "validate",
     delivery: { blockId: opened.json.delivery.blockId, stage: "validate", created: false },
@@ -388,4 +389,40 @@ test("a service older than this client is refused with a restart instruction", a
   expect(result.exitCode).toBe(1);
   expect(result.stderr).toContain("the outline host protocol 1: restart the outline host");
   expect(result.stderr).toContain("restart the outline host on current code");
+});
+
+test("a title that begins with -- is the title, from the CLI and from the work_create tool's argv", async () => {
+  const h = await setup();
+  const title = "--machine and --remote never make an outline there";
+  // The tool's own argv (the Claude mod's work_create), run against this service: `--title <value>` would be refused
+  // as ambiguous; the tool passes `--title=<value>`.
+  const { WORK_TOOLS } = await import("../../claude-mod/hooks/work-tools");
+  const tool = WORK_TOOLS.find(t => t.name === "work_create")!;
+  const command = tool.command({ title, project: "demo", arc: "--arc-ish", tracks: ["--track-ish"], priority: "low", body: "Body text." });
+  if (typeof command === "string") throw new Error(command);
+  const created = await h.run(command.args, command.stdin);
+  expect(created.error).toBe("");
+  const block = h.store.require(created.json.blockId);
+  expect(block.text.split("\n")[0]).toContain(title);
+  expect(block.properties).toContainEqual({ key: "arc", value: "--arc-ish" });
+  // From the CLI: --title=<value> keeps the dashes; the spaced form is refused, saying what to write instead.
+  const typed = await h.run(["work", "create", `--title=${title}`, "--project", "demo", "--arc", "workflow", "--track", "workflow", "--priority", "low"]);
+  expect(h.store.require(typed.json.blockId).text.split("\n")[0]).toContain(title);
+  const spaced = await h.run(["work", "create", "--title", title, "--project", "demo", "--arc", "workflow", "--track", "workflow", "--priority", "low"]);
+  expect(spaced.exitCode).toBe(1);
+  expect(spaced.error).toContain("--title=");
+  // The other tools' operands go after `--`, the caller's flags (who, which session) before it, as the mod adds them.
+  const { withOptions } = await import("../../claude-mod/hooks/work-tools");
+  const run = async (name: string, input: Record<string, unknown>) => {
+    const c = WORK_TOOLS.find(t => t.name === name)!.command(input);
+    if (typeof c === "string") throw new Error(c);
+    const r = await h.run(withOptions(c.args, ["--author", "agent", "--actor", "test-agent"]), c.stdin);
+    expect(r.error).toBe("");
+    return r.json;
+  };
+  const id = created.json.workId as string;
+  expect(await run("work_stage", { item: id, stage: "doing", expectedRevision: 1 })).toMatchObject({ workStage: "doing" });
+  expect(await run("work_set", { item: id, key: "arc", value: "--arc-of-dashes" })).toMatchObject({ value: "--arc-of-dashes" });
+  await run("work_body", { item: id, body: "## --flags heading\n\nFirst." });
+  expect(await run("note_section", { block: id, heading: "## --flags heading", body: "Second." })).toMatchObject({ previous: expect.stringContaining("First.") });
 });

@@ -23,7 +23,7 @@ import {
   outlinerUriOf,
 } from './references'
 import { actorOf, DOOR_TOOLS, doorActArgv, OUTLINE_TOOLS, peekOf } from './outline-tools'
-import { WORK_TOOLS } from './work-tools'
+import { WORK_TOOLS, withOptions } from './work-tools'
 import {
   bandHasContent,
   choicesText,
@@ -649,7 +649,7 @@ async function runWorkCommand(
   command: { args: string[]; stdin?: string },
   actor: string,
 ): Promise<string> {
-  return runOutlinerCli($, workspace, [...command.args, '--author', 'agent', '--actor', actor], command.stdin)
+  return runOutlinerCli($, workspace, withOptions(command.args, ['--author', 'agent', '--actor', actor]), command.stdin)
 }
 
 /**
@@ -682,7 +682,7 @@ async function runOutlinerCli($: EngineInterface, workspace: Workspace, args: st
   if (!root) throw Error('the Outliner plugin is disabled')
   const sessionId = await $.session.id()
   const ran = await $.process.run(
-    ['/bin/sh', `${root}/scripts/run-bun.sh`, `${root}/src/cli.ts`, ...args, '--session', sessionId],
+    ['/bin/sh', `${root}/scripts/run-bun.sh`, `${root}/src/cli.ts`, ...withOptions(args, ['--session', sessionId])],
     {
       cwd: workspace.root,
       env: envFor(workspace),

@@ -31,6 +31,23 @@ function expected(input: Record<string, unknown>): string[] {
   return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? ['--expected', String(value)] : []
 }
 
+/**
+ * `--name=value`, one word: a value that begins with `--` (a title about `--machine`) is the option's value, never
+ * read as an option of its own ("argument is ambiguous").
+ */
+function opt(name: string, value: string): string {
+  return `--${name}=${value}`
+}
+
+/**
+ * `args` with `options` added before its operands: before a `--` that ends the options (an item, a heading or a value
+ * that begins with `--` is an operand after it), else at the end. How the caller's own flags (who, which session) join.
+ */
+export function withOptions(args: readonly string[], options: readonly string[]): string[] {
+  const at = args.indexOf('--')
+  return at < 0 ? [...args, ...options] : [...args.slice(0, at), ...options, ...args.slice(at)]
+}
+
 function schema(properties: Json, required: string[]): Json {
   return { type: 'object', properties, required, additionalProperties: false }
 }
@@ -55,12 +72,12 @@ export const WORK_TOOLS: readonly WorkToolDefinition[] = [
       const tracks = Array.isArray(input.tracks) ? input.tracks.filter((track): track is string => typeof track === 'string') : []
       const [title, project, arc, priority] = ['title', 'project', 'arc', 'priority'].map(key => text(input, key))
       if (!title || !project || !arc || !priority || tracks.length === 0) return 'Give a title, project, arc, priority and at least one track.'
-      const args = ['work', 'create', '--title', title, '--project', project, '--arc', arc, '--priority', priority,
-        ...tracks.flatMap(track => ['--track', track])]
+      const args = ['work', 'create', opt('title', title), opt('project', project), opt('arc', arc), opt('priority', priority),
+        ...tracks.map(track => opt('track', track))]
       const stage = text(input, 'stage')
       const batch = text(input, 'batch')
-      if (stage) args.push('--stage', stage)
-      if (batch) args.push('--batch', batch)
+      if (stage) args.push(opt('stage', stage))
+      if (batch) args.push(opt('batch', batch))
       const body = text(input, 'body')
       return body ? { args: [...args, '--stdin'], stdin: body } : { args }
     },
@@ -74,7 +91,7 @@ export const WORK_TOOLS: readonly WorkToolDefinition[] = [
     command(input) {
       const [item, stage] = [text(input, 'item'), text(input, 'stage')]
       if (!item || !stage) return 'Give the item and the stage.'
-      return { args: ['work', 'stage', item, stage, ...expected(input)] }
+      return { args: ['work', 'stage', ...expected(input), '--', item, stage] }
     },
   },
   {
@@ -95,7 +112,7 @@ export const WORK_TOOLS: readonly WorkToolDefinition[] = [
     command(input) {
       const [item, key, value] = [text(input, 'item'), text(input, 'key'), text(input, 'value')]
       if (!item || !key || !value) return 'Give the item, the property key and its value.'
-      return { args: ['work', 'set', item, key, value, ...expected(input)] }
+      return { args: ['work', 'set', ...expected(input), '--', item, key, value] }
     },
   },
   {
@@ -121,12 +138,12 @@ export const WORK_TOOLS: readonly WorkToolDefinition[] = [
       const [item, repo] = [text(input, 'item'), text(input, 'repo')]
       const pr = input.pr
       if (!item || !repo || typeof pr !== 'number' || !Number.isSafeInteger(pr) || pr < 1) return 'Give the item, repo and PR number.'
-      const args = ['work', 'deliver', item, '--repo', repo, '--pr', String(pr)]
+      const args = ['work', 'deliver', opt('repo', repo), opt('pr', String(pr))]
       const [key, base, branch] = [text(input, 'key'), text(input, 'base'), text(input, 'branch')]
-      if (key) args.push('--key', key)
-      if (base) args.push('--base', base)
-      if (branch) args.push('--branch', branch)
-      return { args }
+      if (key) args.push(opt('key', key))
+      if (base) args.push(opt('base', base))
+      if (branch) args.push(opt('branch', branch))
+      return { args: [...args, '--', item] }
     },
   },
   {
@@ -157,9 +174,9 @@ export const WORK_TOOLS: readonly WorkToolDefinition[] = [
       if (!item) return 'Give the item.'
       if (!proof === !proofBlock) return 'Give either proof text or an existing proofBlock.'
       if (input.allMerged === true && deliveries.length) return 'Name deliveries or set allMerged, not both.'
-      const args = ['work', 'complete', item, ...deliveries.flatMap(delivery => ['--delivery', delivery]),
+      const args = ['work', 'complete', ...deliveries.map(delivery => opt('delivery', delivery)),
         ...(input.allMerged === true ? ['--all-merged'] : [])]
-      return proof ? { args: [...args, '--stdin'], stdin: proof } : { args: [...args, '--proof-block', proofBlock!] }
+      return proof ? { args: [...args, '--stdin', '--', item], stdin: proof } : { args: [...args, opt('proof-block', proofBlock!), '--', item] }
     },
   },
   {
@@ -170,7 +187,7 @@ export const WORK_TOOLS: readonly WorkToolDefinition[] = [
     command(input) {
       const item = text(input, 'item')
       if (!item || typeof input.body !== 'string') return 'Give the item and its new body.'
-      return { args: ['work', 'body', item, '--stdin', ...expected(input)], stdin: input.body }
+      return { args: ['work', 'body', '--stdin', ...expected(input), '--', item], stdin: input.body }
     },
   },
   {
@@ -187,7 +204,7 @@ export const WORK_TOOLS: readonly WorkToolDefinition[] = [
     command(input) {
       const [block, heading] = [text(input, 'block'), text(input, 'heading')]
       if (!block || !heading || typeof input.body !== 'string') return 'Give the note, the heading and the new section text.'
-      return { args: ['note', 'section', block, heading, '--stdin', ...expected(input)], stdin: input.body }
+      return { args: ['note', 'section', '--stdin', ...expected(input), '--', block, heading], stdin: input.body }
     },
   },
 ]

@@ -15,7 +15,8 @@ pages, publishing, extensions), and `ep0ch-core` for changing this code (includi
 ## Commands
 
     ep0ch help                       every command, with its flags: the truth when this list and it differ
-    ep0ch --ws <name>                open the door on an outline (created if nobody has it yet)
+    ep0ch --ws <name>                open the door on an outline (created if nobody has it yet, on this machine only;
+                                     on another machine only with --create)
     ep0ch --machine <ssh-name>       the door here, the outline on that machine; --remote <ssh-name>: the door session there
     ep0ch --showcase [--reset]       every shared door part on its own seeded outline of made-up notes
     ep0ch init [<name>]              name this folder's outline: write .ep0ch (creating the outline if needed)
@@ -69,7 +70,8 @@ it. Install never writes a unit, Herdr's config or Claude's settings; it reports
 One outline host per machine serves every outline in `~/outlines` (`EP0CH_OUTLINES`) by name:
 `<name>.sqlite`, with its own folder `<name>/` beside it. Which one a door opens, first match wins: `--ws <name>`
 from anywhere, then `EP0CH_WS`, then the nearest `.ep0ch` from the folder up (it holds `ws = "<name>"`). A name
-nobody has yet is created. A folder that names none opens the home base, a door screen (`home`): this machine's
+nobody has yet is created on this machine; on another machine never without `--create` (the home base offers
+`home.open` the one here, `home.new name= machine=`, `home.cancel`). A folder that names none opens the home base, a door screen (`home`): this machine's
 outlines (open, new, import), the machines opened from here (add one from ssh config), each choice an action
 (`home.open outline= [machine=] [write=true]`, `home.new`, `home.import`, `home.add`, `home.connect`); an agent's
 open writes the folder's `.ep0ch` only with `write=true`. Without a terminal it says what to run instead

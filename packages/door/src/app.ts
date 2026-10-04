@@ -125,7 +125,7 @@ export interface Ctx {
    * The home base's door (src/home.ts): before a door is on an outline, `choose` ends it with the outline the person or
    * an agent chose, and the door opens on that. Absent on a door that is on an outline.
    */
-  home?: { choose(c: HomeChoice): void };
+  home?: { choose(c: HomeChoice): void; cancel?(): void };
   /**
    * Where the person is (PIE-514): their keys and focus, the tile they type in, whether they're busy, how long idle.
    * The shell's one answer (src/whereabouts.ts); a frame around a screen answers it as seen from inside.
@@ -252,7 +252,7 @@ export class App implements Ctx {
   /** The event connection to the service is down; the door is reconnecting. */
   offline = false;
   /** The home base's door: what ends it with the outline chosen (Ctx.home); absent on a door that is on an outline. */
-  home?: { choose(c: HomeChoice): void };
+  home?: { choose(c: HomeChoice): void; cancel?(): void };
   /** The agent that stays with the person on every screen, pulled up from the status bar (PIE-498). */
   readonly dock: AgentDock;
   private dockRun: DockRun;

@@ -533,7 +533,8 @@ folder afresh.
 **Opening creates, reading never does.** `outlines.attach { name, create }` opens an outline and, with `create`,
 makes it first when nobody has the name (`tmux new -A`). Only session openers pass `create`, and only for a name
 someone wrote down (`--ws`, `EP0CH_WS`, a `.ep0ch`): `herdr-open` in the modes that open panes (`focus-existing`
-and Pi's `service-only` check only attach) and the door. Plain CLI commands, `doctor` and panes never create.
+and Pi's `service-only` check only attach) and the door. Never for another machine's host (PIE-545): there a name
+nobody has is refused with what to run, and only an explicit `--create` (or `outlines.create`) makes one. Plain CLI commands, `doctor` and panes never create.
 When `herdr-open` creates an outline it says so in a Herdr notification ("Created outline jam-shelf"). It opens
 no service pane (the host is systemd's or launchd's job) and passes `EP0CH_WS` (with `EP0CH_OUTLINES` and
 `EP0CH_SOCKET` as it has them, `OUTLINE_ENV`) to every pane it opens; every other pane opener forwards them too,

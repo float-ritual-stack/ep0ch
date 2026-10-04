@@ -151,17 +151,19 @@ export function remoteOf(args: readonly string[]): { machine: string; rest: stri
 
 /**
  * The door's flags as they go to the machine: the outline this folder names there (its `.ep0ch` says that machine) as
- * `--ws`, when none is given; never `--machine` naming the machine itself (it is the door's own host there).
+ * `--ws`, when none is given; never `--machine` naming the machine itself (it is the door's own host there). A
+ * command (`init`, `session list`, …) goes as it is: a `--ws` in front would make it the door's.
  */
 export function remoteArgs(machine: string, rest: readonly string[], target: ReturnType<typeof resolveTarget>): string[] {
   const own = rest.filter((a, i) => !((a === "--machine" && rest[i + 1] === machine) || (rest[i - 1] === "--machine" && a === machine)));
+  if (own[0] !== undefined && !own[0].startsWith("-")) return own;
   if (own.includes("--ws") || "error" in target || !("outline" in target) || target.machine !== machine) return own;
   return ["--ws", target.outline, ...own];
 }
 
-/** Run the door there, in this terminal, until it ends: ssh's exit code. */
-export async function remoteDoor(machine: string, rest: readonly string[]): Promise<number> {
+/** Run the door there with flags `there` (remoteArgs, as nameRemoteOutline checked them), in this terminal, until it ends: ssh's exit code. */
+export async function remoteDoor(machine: string, there: readonly string[]): Promise<number> {
   rememberMachine(machine);
-  const p = Bun.spawn(remoteDoorArgv(machine, remoteArgs(machine, rest, resolveTarget(rest))), { stdio: ["inherit", "inherit", "inherit"], env: { ...process.env } });
+  const p = Bun.spawn(remoteDoorArgv(machine, there), { stdio: ["inherit", "inherit", "inherit"], env: { ...process.env } });
   return await p.exited;
 }

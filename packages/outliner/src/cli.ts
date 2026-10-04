@@ -13,7 +13,7 @@ import {
 import { createOutlinerClient, OutlinerRequestError, type RequestInput } from "./client";
 import { requireClientIdForRole } from "./client-target";
 import { boundFolderOf, clientSocket, machineFor, outlinesLayout, resolveClientPaths, resolveOutlinesFolder, whichOutlineFor, writeDotEp0ch } from "./paths";
-import { attachHostedOutline, importHostedOutline, listHostedOutlines, outlineHostClient } from "./outline-host-client";
+import { attachNamedOutline, importHostedOutline, listHostedOutlines, outlineHostClient } from "./outline-host-client";
 import { navigateOutlinerLink, parseOutlinerLinkUri, resolveOutlinerLinkTarget } from "./outliner-links";
 import { blockDisplayTitle } from "./references";
 import type { MentionCollection } from "./mentions-types";
@@ -43,7 +43,7 @@ while (process.argv[2] === "--ws" || process.argv[2]?.startsWith("--ws=")) {
   process.env.EP0CH_WS = value;
   process.argv.splice(2, argument === "--ws" ? 2 : 1);
 }
-const OUTLINE_USAGE = "outline create <name> | import <database.sqlite> <name> | close <name> | delete <name>   (each with --json); init [<name>] [--folder <dir>]";
+const OUTLINE_USAGE = "outline create <name> | import <database.sqlite> <name> | close <name> | delete <name>   (each with --json); init [<name>] [--folder <dir>] [--create]";
 
 /** `outliner --help`, `-h`, `help` and a bare `outliner`: what it does, never a command run on the folder's outline. */
 const USAGE = `usage: outliner [--ws <name>] <command> [options]
@@ -302,8 +302,8 @@ async function runOutlinesCommand(group: "outlines" | "outline" | "init", args: 
       return 0;
     }
     if (group === "init") {
-      const { values, positionals } = parseArgs({ args, allowPositionals: true, strict: true, options: { json: { type: "boolean" }, folder: { type: "string" } } });
-      if (positionals.length > 1) throw new Error(`init expects: [<name>] [--folder <dir>]`);
+      const { values, positionals } = parseArgs({ args, allowPositionals: true, strict: true, options: { json: { type: "boolean" }, folder: { type: "string" }, create: { type: "boolean" } } });
+      if (positionals.length > 1) throw new Error(`init expects: [<name>] [--folder <dir>] [--create]`);
       const asked = resolve(values.folder ?? process.cwd());
       const which = whichOutlineFor(asked, { ...process.env, EP0CH_WS: "" });
       const guess = which.kind === "unnamed" ? which.guess : undefined;
@@ -315,7 +315,10 @@ async function runOutlinesCommand(group: "outlines" | "outline" | "init", args: 
       // On another machine's host (EP0CH_MACHINE, the folder's .ep0ch), the machine is written beside the name.
       const at = { ...process.env, OUTLINER_WORKSPACE_ROOT: folder };
       const machine = clientSocket(at, machineFor(at)).machine;
-      const attached = await attachHostedOutline(values.folder ? (await outlineHostClient(at)) ?? hostOrThrow() : hostOrThrow(), name, true);
+      // A name nobody has is made on this machine; on another only with --create (PIE-545).
+      const attached = await attachNamedOutline(values.folder ? (await outlineHostClient(at)) ?? hostOrThrow() : hostOrThrow(), name, {
+        ...(machine ? { machine } : {}), create: values.create === true, createCommand: `outliner init ${name}${values.folder ? ` --folder ${folder}` : ""} --create`,
+      });
       const file = writeDotEp0ch(folder, name, { replace: true, ...(machine ? { machine } : {}) });
       console.log(values.json ? JSON.stringify({ ...attached, file }, null, 2) : `${attached.created ? "created" : "picked"} outline ${name}; ${file} names it`);
       return 0;

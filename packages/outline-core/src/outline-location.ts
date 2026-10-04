@@ -140,7 +140,7 @@ export function guessOutline(folderInput: string, home: string, fs: LocationRead
   return { name: slugifyOutlineName(basename(candidate)), folder: candidate };
 }
 
-/** The machine an outline is on, and what named it; absent in a result means this machine. */
+/** The machine an outline is on, and what named it; absent in a result means this machine (`machineSource: "flag"`: `--here` said so). */
 export interface OnMachine { machine?: string; machineSource?: "flag" | "env" | "file" }
 
 export type WhichOutline =
@@ -150,14 +150,17 @@ export type WhichOutline =
 /**
  * The rule, first match wins: `flag` (`--ws`), then `env` (EP0CH_WS), then the nearest `.ep0ch`; else unnamed. The
  * machine: `machineFlag` (`--machine`), then `machineEnv` (EP0CH_MACHINE), then the nearest `.ep0ch` when it names
- * the same outline (an opener that passes the outline on as EP0CH_WS keeps its machine).
+ * the same outline (an opener that passes the outline on as EP0CH_WS keeps its machine). `here` (`--here`) says this
+ * machine outright, over EP0CH_MACHINE and a `.ep0ch`'s machine: how "the one on this machine" is opened from a folder
+ * whose `.ep0ch` puts that name on another (PIE-545).
  */
-export function whichOutline(o: { flag?: string; env?: string; machineFlag?: string; machineEnv?: string; folder: string; home: string; fs: LocationReader }): WhichOutline {
+export function whichOutline(o: { flag?: string; env?: string; machineFlag?: string; machineEnv?: string; here?: boolean; folder: string; home: string; fs: LocationReader }): WhichOutline {
   const flag = o.flag?.trim(), env = o.env?.trim(), mflag = o.machineFlag?.trim(), menv = o.machineEnv?.trim();
+  if (o.here && mflag) throw new Error(`--here and --machine ${mflag} both name the machine; leave one out`);
   if (mflag && !isMachineName(mflag)) throw new Error(`--machine ${JSON.stringify(mflag)} isn't an ssh config name (${MACHINE_NAME_PATTERN.source})`);
   if (menv && !isMachineName(menv)) throw new Error(`EP0CH_MACHINE=${JSON.stringify(menv)} isn't an ssh config name (${MACHINE_NAME_PATTERN.source})`);
   const on = (fromFile?: string): OnMachine =>
-    mflag ? { machine: mflag, machineSource: "flag" } : menv ? { machine: menv, machineSource: "env" } : fromFile ? { machine: fromFile, machineSource: "file" } : {};
+    o.here ? { machineSource: "flag" } : mflag ? { machine: mflag, machineSource: "flag" } : menv ? { machine: menv, machineSource: "env" } : fromFile ? { machine: fromFile, machineSource: "file" } : {};
   // Named by --ws or EP0CH_WS: the folder's .ep0ch gives its machine only when it names the same outline (one that
   // can't be read gives none here; it is said when it's what names the outline).
   const sameAs = (name: string) => { try { const d = nearestDotEp0ch(o.folder, o.fs); return d?.name === name ? d.machine : undefined; } catch { return undefined; } };
@@ -177,6 +180,35 @@ export function whichOutline(o: { flag?: string; env?: string; machineFlag?: str
     kind: "unnamed", folder, ...(guess ? { guess } : {}), ...on(),
     reason: `no outline is named for ${folder}: no --ws, no EP0CH_WS and no ${DOT_EP0CH} here or above`,
   };
+}
+
+/**
+ * Whether opening an outline may make it when nobody has it yet (PIE-545), for every client that opens one by name. On
+ * this machine a name someone wrote down (`--ws`, EP0CH_WS, a `.ep0ch`) is made, like `herdr --session <name>`; on
+ * another `machine` never, unless `create` (`--create`) says so: a typo, or a name meant for this machine, would make
+ * an empty outline there. `noCreate` (`--no-create`, what `ep0ch --remote` gives the door on that machine, where the
+ * outline is local) applies the same rule from there. A host named outright (EP0CH_SOCKET, no machine) is this rule's
+ * "this machine": the escape hatch is the caller's to aim.
+ */
+export function mayCreate(o: { machine?: string; create?: boolean; noCreate?: boolean }): boolean {
+  return !!o.create || (!o.machine && !o.noCreate);
+}
+
+/**
+ * What a client says when `machine` (none: this one, `host` by name) has no outline `outline` and it may not make it:
+ * that nothing was made, then the exact commands, as the caller runs them: `openHere` (the one on this machine, when
+ * `localHas`), `create` (making it there on purpose), and how to pick another. `localHas` unknown leaves that out.
+ */
+export function missingOutline(o: { outline: string; machine?: string; host: string; localHas?: boolean; openHere?: string; create: string }): string {
+  const there = o.machine ?? `this machine (${o.host})`;
+  const local = !o.machine || o.localHas === undefined ? "" : o.localHas ? "; this machine has one" : ", and neither has this machine";
+  const rows: [string, string][] = [
+    ...(o.machine && o.localHas && o.openHere ? [["open the one on this machine:", o.openHere] as [string, string]] : []),
+    [`create it on ${there}:`, o.create],
+    ["or open another:", "ep0ch outline list --all"],
+  ];
+  const w = Math.max(...rows.map(r => r[0].length)) + 2;
+  return [`${there} has no outline ${o.outline}${local}. Nothing was created.`, ...rows.map(([k, v]) => `  ${k.padEnd(w)}${v}`)].join("\n");
 }
 
 /** Where outlines live: EP0CH_OUTLINES, else `~/outlines`. */
