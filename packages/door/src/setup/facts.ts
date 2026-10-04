@@ -130,25 +130,42 @@ export async function inspectCheckout(root: string, fetch = true, env: Env = pro
 
 /**
  * Whether `bun install` is needed: node_modules missing, a declared package missing, or one installed at a
- * version other than bun.lock's. (Lockfile mtimes aren't enough: an install that changes nothing leaves them.)
+ * version other than bun.lock's. The root's dependencies and every workspace package's (`workspaces: ["dir/*"]`)
+ * count; a workspace package's own are found in its node_modules or the root's, as bun's isolated or hoisted
+ * installs put them. (Lockfile mtimes aren't enough: an install that changes nothing leaves them.)
  */
 export function depsState(root: string): Deps {
-  let pkg: any;
-  try { pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8")); } catch { return { needed: false, why: "no package.json" }; }
-  const names = Object.keys({ ...pkg.dependencies, ...pkg.devDependencies });
-  if (!names.length) return { needed: false, why: "no dependencies" };
+  const read = (dir: string): any => { try { return JSON.parse(readFileSync(join(dir, "package.json"), "utf8")); } catch { return null; } };
+  const pkg = read(root);
+  if (!pkg) return { needed: false, why: "no package.json" };
+  const members = (Array.isArray(pkg.workspaces) ? pkg.workspaces : pkg.workspaces?.packages ?? []).flatMap((glob: string) => {
+    if (!glob.endsWith("/*")) return [glob];
+    const dir = glob.slice(0, -2);
+    try { return readdirSync(join(root, dir)).map(name => `${dir}/${name}`); } catch { return []; }
+  }).filter((m: string) => read(join(root, m)));
+  const wants: { name: string; where: string }[] = [];
+  for (const where of ["", ...members]) {
+    const p = where ? read(join(root, where)) : pkg;
+    for (const [name, range] of Object.entries({ ...p.dependencies, ...p.devDependencies })) {
+      if (!String(range).startsWith("workspace:")) wants.push({ name, where });
+    }
+  }
+  if (!wants.length) return { needed: false, why: "no dependencies" };
   if (!existsSync(join(root, "node_modules"))) return { needed: true, why: "node_modules is missing" };
   let lock = "";
   try { lock = readFileSync(join(root, "bun.lock"), "utf8"); } catch { /* no lockfile: presence only */ }
-  for (const name of names) {
+  for (const { name, where } of wants) {
+    const at = where ? ` (${where})` : "";
     let installed: string | undefined;
-    try { installed = JSON.parse(readFileSync(join(root, "node_modules", name, "package.json"), "utf8")).version; }
-    catch { return { needed: true, why: `${name} isn't installed` }; }
+    for (const dir of where ? [join(root, where), root] : [root]) {
+      try { installed = JSON.parse(readFileSync(join(dir, "node_modules", name, "package.json"), "utf8")).version; break; } catch { /* next */ }
+    }
+    if (installed === undefined) return { needed: true, why: `${name} isn't installed${at}` };
     const esc = name.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
     const locked = new RegExp(`"${esc}": \\["${esc}@([^"]+)"`).exec(lock)?.[1];
-    if (locked && /^\d/.test(locked) && installed !== locked) return { needed: true, why: `${name} is ${installed}, bun.lock has ${locked}` };
+    if (locked && /^\d/.test(locked) && installed !== locked) return { needed: true, why: `${name} is ${installed}, bun.lock has ${locked}${at}` };
   }
-  return { needed: false, why: `${names.length} packages installed as bun.lock says` };
+  return { needed: false, why: `${wants.length} packages installed as bun.lock says` };
 }
 
 /**

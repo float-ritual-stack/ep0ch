@@ -194,7 +194,10 @@ async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[
       for (const r of rs) if (r.ok) { record(r.message); if (!r.handover) show(`    ✓ ${r.message}`); }
       if (handed.length) handoverLines(handed.map(r => r.handover!)).forEach(show);
       const failed = rs.filter(r => !r.ok);
-      if (failed.length) throw new StepFailed(`handing ${failed.length === 1 ? "a door session" : `${failed.length} door sessions`} over failed: ${failed.map(r => r.message).join("; ")}`, `the sessions run on as they were; \`${ep0ch()}session upgrade --all\` tries again, and \`${ep0ch()}session list\` says what runs`);
+      for (const r of failed) show(`    ✗ ${r.message}`);
+      // One cause shared by every failure (a missing package after a pull, say) is said once, in the step's line.
+      const causes = new Set(failed.map(r => / · ((?:error\b|.*Error\b|Cannot\b).*?)(?: · |$)/.exec(r.message)?.[1] ?? r.message));
+      if (failed.length) throw new StepFailed(`handing ${failed.length === 1 ? "a door session" : `${failed.length} door sessions`} over failed${causes.size === 1 ? `: ${[...causes][0]}` : " (each above)"}`, `the sessions run on as they were; \`${ep0ch()}session upgrade --all\` tries again, and \`${ep0ch()}session list\` says what runs`);
       return;
     }
     case "link": {

@@ -506,6 +506,22 @@ describe("read-only probes on scratch files", () => {
     expect(depsState(root).needed).toBe(false);
   });
 
+  test("a workspace package's own dependencies count: a package only packages/door declares, missing, needs bun install", () => {
+    const root = join(scratch, "repo-workspace-deps");
+    mkdirSync(join(root, "packages/door/node_modules/image-size"), { recursive: true });
+    mkdirSync(join(root, "packages/outline-core"), { recursive: true });
+    mkdirSync(join(root, "node_modules"), { recursive: true });
+    writeFileSync(join(root, "package.json"), JSON.stringify({ workspaces: ["packages/*"], devDependencies: {} }));
+    writeFileSync(join(root, "packages/outline-core/package.json"), JSON.stringify({ name: "@ep0ch/outline-core" }));
+    writeFileSync(join(root, "packages/door/package.json"), JSON.stringify({ dependencies: { "@ep0ch/outline-core": "workspace:*", "image-size": "2.0.4", sharp: "0.35.5" } }));
+    writeFileSync(join(root, "bun.lock"), `{\n  "packages": {\n    "image-size": ["image-size@2.0.4", "", {}, "sha512-x"],\n    "sharp": ["sharp@0.35.5", "", {}, "sha512-y"],\n  }\n}\n`);
+    writeFileSync(join(root, "packages/door/node_modules/image-size/package.json"), JSON.stringify({ version: "2.0.4" }));
+    expect(depsState(root)).toEqual({ needed: true, why: "sharp isn't installed (packages/door)" });
+    mkdirSync(join(root, "packages/door/node_modules/sharp"));
+    writeFileSync(join(root, "packages/door/node_modules/sharp/package.json"), JSON.stringify({ version: "0.35.5" }));
+    expect(depsState(root).needed).toBe(false);
+  });
+
   test("Herdr keys are read from [[keys.command]] blocks naming the plugin's actions", () => {
     const path = join(scratch, "config.toml");
     writeFileSync(path, `onboarding = false\n\n[[keys.command]]\nkey = "prefix+u"\ntype = "plugin_action"\ncommand = "float.pi-outliner.open-here"\n\n[[keys.command]]\nkey = "prefix+g"\ntype = "plugin_action"\ncommand = "other.plugin.open-here"\n\n[theme]\nname = "x"\n`);
