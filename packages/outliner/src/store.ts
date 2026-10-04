@@ -1,4 +1,4 @@
-import {isVirtualBranchDefinition, parseVirtualBranchConfig, selectVirtualBranchMembers, virtualBranchMembershipQuery, type VirtualBranchMembers} from "./virtual-branches";
+import {handOrderRefusal, isVirtualBranchDefinition, parseVirtualBranchConfig, selectVirtualBranchMembers, virtualBranchMembershipQuery, type VirtualBranchMembers} from "./virtual-branches";
 import {placeOrderedItems} from "./virtual-placement";
 import {WorkingSelectionRepository} from "./working-selection";
 import { ChangeFeed, raiseChangeFeedFloor, type SequenceChange } from "./change-feed";
@@ -2638,11 +2638,8 @@ export class OutlinerStore {
       const view=this.requireActive(viewId);
       const parsed=parseVirtualBranchConfig(view, []);
       if (!parsed.config) throw Error(parsed.configurationErrors.join("; "));
-      if (parsed.config.sort) {
-        const {field, direction} = parsed.config.sort;
-        throw Error(`This view sorts by ${field} ${direction}, so it has no hand-set order: remove [sort::${field}]` +
-          `${view.properties.some(p => p.key === "direction") ? ` and [direction::${direction}]` : ""} from ((${viewId})) to order it by hand`);
-      }
+      const sorted = handOrderRefusal(parsed.config);
+      if (sorted) throw Error(sorted);
       // The authored limit bounds display, not rank operations over hidden members.
       const result=this.queryBlocks(virtualBranchMembershipQuery(viewId,parsed.config,1000));
       return {viewId,viewRevision:view.revision,blockIds:result.blocks.filter(b=>b.id!==viewId).map(b=>b.id),completeness:result.completeness};
@@ -2681,8 +2678,9 @@ export class OutlinerStore {
   resolveBlockRef(ref: string): Block {
     const text = typeof ref === "string" ? ref.trim().replace(/^\(\((.+)\)\)$/, "$1").replace(/^\[\[(.+)\]\]$/, "$1").trim() : "";
     if (!text) throw new Error("Give a block: an id, ((id)), a Work ID or a [[page]]");
-    const exact = this.getFromCurrentRead(text.toLowerCase());
-    if (exact) return exact;
+    const exact = this.database.query("SELECT id, effective_deleted_root_id AS trashed FROM blocks WHERE id = ?").get(text.toLowerCase()) as { id: string; trashed: string | null } | null;
+    if (exact?.trashed) throw new Error(`${ref} is in Trash`);
+    if (exact) return this.getFromCurrentRead(exact.id)!;
     if (/^[0-9a-f-]{8,}$/i.test(text)) {
       const low = text.toLowerCase();
       const rows = this.database.query("SELECT id FROM blocks WHERE id >= ? AND id < ? AND effective_deleted_root_id IS NULL LIMIT 2")
@@ -2707,7 +2705,13 @@ export class OutlinerStore {
       if (current.completeness.kind !== "complete") throw Error(`${view.id} has more than 1000 members; narrow its [query::] to order it by hand`);
       if (!Array.isArray(input.blocks) || !input.blocks.length) throw Error("Give the blocks to move");
       const ids = input.blocks.map(ref => this.resolveBlockRef(ref).id);
-      const outside = input.blocks.filter((_, i) => !current.blockIds.includes(ids[i]!));
+      const firstAt = new Map<string, number>();
+      ids.forEach((id, i) => {
+        if (firstAt.has(id)) throw Error(`${input.blocks[firstAt.get(id)!]} and ${input.blocks[i]} are the same block; give each once`);
+        firstAt.set(id, i);
+      });
+      const members = new Set(current.blockIds);
+      const outside = input.blocks.filter((_, i) => !members.has(ids[i]!));
       if (outside.length) throw Error(`Not in the view ${view.id}: ${outside.join(", ")}; only its members can be ordered`);
       const asked = [input.by, input.to, input.before, input.after].filter(x => x !== undefined).length;
       if (asked > 1) throw Error("Give one of by, to, before or after");
@@ -2718,7 +2722,7 @@ export class OutlinerStore {
         if (input.before !== undefined || input.after !== undefined) {
           const anchor = this.resolveBlockRef((input.before ?? input.after)!).id;
           if (anchor === ids[0]) throw Error("A block can't go before or after itself");
-          if (!order.includes(anchor)) throw Error(`Not in the view ${view.id}: ${input.before ?? input.after}`);
+          if (!members.has(anchor)) throw Error(`Not in the view ${view.id}: ${input.before ?? input.after}`);
           placement = { kind: input.before !== undefined ? "before" : "after", anchorId: anchor };
         } else {
           const step = input.by !== undefined ? input.by : input.to! - at;

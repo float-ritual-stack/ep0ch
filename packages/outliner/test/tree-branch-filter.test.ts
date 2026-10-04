@@ -103,15 +103,15 @@ test('filtered date-sorted branches explain unavailable placement before opening
  await c.handleKeypress('/',{},'pass');await c.handlePaste('DEM-37');await c.handleKeypress('',{name:'return'},'pass');
  await c.handleKeypress('x',{name:'x'},'pass');
  await c.handleAction('tree.selection.move-before');
- expect(c.mode).toBe('browse');expect(c.view().status).toContain('manual reorder is disabled');
+ expect(c.mode).toBe('browse');expect(c.view().status).toContain('so it has no hand-set order: remove [sort::updated] from');
  await c.handleAction('tree.selection.place:after:'+f.items[71]!.id);
- expect(c.view().status).toContain('manual reorder is disabled');
- await c.handleAction('tree.reorder.up');expect(c.view().status).toContain('manual reorder is disabled');
+ expect(c.view().status).toContain('so it has no hand-set order: remove [sort::updated] from');
+ await c.handleAction('tree.reorder.up');expect(c.view().status).toContain('so it has no hand-set order: remove [sort::updated] from');
  await f.notify(c,()=>f.client.request({action:'update',mutation:{author:'user'},blockId:f.branch.id,expectedRevision:f.store.get(f.branch.id)!.revision,text:f.branch.text}));
  await c.handleAction('tree.selection.inspect');expect(c.mode).toBe('action-menu');
  await f.notify(c,()=>f.client.request({action:'update',mutation:{author:'user'},blockId:f.branch.id,expectedRevision:f.store.get(f.branch.id)!.revision,text:f.branch.text+' [sort::updated]'}));
  await c.handleAction('tree.selection.move-after');
- expect(c.mode).toBe('browse');expect(c.view().status).toContain('manual reorder is disabled');
+ expect(c.mode).toBe('browse');expect(c.view().status).toContain('so it has no hand-set order: remove [sort::updated] from');
 });
 
 test('branch search is independent of a prior property query and restores that query on Clear',async()=>{

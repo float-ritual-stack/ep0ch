@@ -139,6 +139,8 @@ The river's replies under a note are read again the same way. Restart the door (
   order. The query's property scope counts (`propertyScope: "all"` reads a property mid-sentence too).
   `property:created` names a property called created or updated; plain `created` and `updated` are the timestamps.
   A direction may be written in any case.
+- **`ep0ch find --sort <key> [--direction asc|desc]`** orders `--query`, `--under` or words the same way
+  (`ep0ch find --query type=chore --sort due`); with `--view` it refuses, since a view has its own order.
 - **A bad sort says so.** A sort that isn't `created`, `updated` or a key is refused with the key it seems to mean
   ("Sort by rank, not [rank::]"); a live figure says which of its lines it was. Figures used to fall back to
   `updated` without a word.
@@ -159,7 +161,10 @@ The river's replies under a note are read again the same way. Restart the door (
 - **Who reordered is recorded:** `virtual.occurrences.move`, `.place` and `.reorder` take `mutation`, written on the
   change and as a `move` on each block whose place changed (Tree's are recorded as `tree`).
 - **A sorted view says how to order it by hand:** "This view sorts by updated desc, so it has no hand-set order:
-  remove [sort::updated] from ((id)) to order it by hand".
+  remove [sort::updated] from ((id)) to order it by hand" (and its `[direction::]`, as the view writes them). Tree
+  says the same, where it said "manual reorder is disabled".
+- **Refs as people write them:** a view and its members can be an id, `((id))`, an id's first 8+ characters, a Work
+  ID or a `[[page]]`; a trashed block is refused as in Trash, and the same block named twice is refused.
 
 ### A figure no longer cuts a section short
 
@@ -168,6 +173,11 @@ The river's replies under a note are read again the same way. Restart the door (
   became a level-2 heading that ended the section: the edit reported `previous: ""` and left the old figure under
   the new body. A component block is now one token wherever the outliner finds headings, sections and folds
   (outline-core `component-block.ts`), so Detail's folds agree, with or without a blank line above the figure.
+  A section runs to the next heading of its level or higher, sub-sections and figures included.
+- **A figure never swallows Markdown around it.** A heading, fence, list or table between a paragraph and a figure
+  keeps its meaning (a table's rows stop before the figure); a `::name` with no closing `::` before the next heading
+  is plain text, so it can't eat the sections after it; a `#` comment in its YAML or code fence isn't a heading. The
+  reading stays linear in the note's length.
 
 ### Tabs in a live figure, and titles that wrap
 

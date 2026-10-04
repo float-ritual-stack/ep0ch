@@ -105,6 +105,40 @@ describe.skipIf(!outliner)("a lane's hand-set order", () => {
       .rejects.toThrow(`This view sorts by updated desc, so it has no hand-set order: remove [sort::updated] from ((${recent.id})) to order it by hand`);
   });
 
+  test("the person's alt+↓ on a sorted lane says how to order it by hand, and nothing moves", async () => {
+    await settled();
+    const flashes: string[] = [], ctx = B().ctx, flash = ctx.flash;
+    ctx.flash = (m: string, ...rest: unknown[]) => { flashes.push(m); return flash.call(ctx, m, ...rest); };
+    try {
+      select("Recent", titles("Recent")[0]);
+      const before = titles("Recent");
+      key({ kind: "alt-down" });
+      await until(() => flashes.some(f => f.includes("so it has no hand-set order")), "the refusal");
+      expect(flashes.find(f => f.includes("hand-set"))).toBe(`not reordered: This view sorts by updated desc, so it has no hand-set order: remove [sort::updated] from ((${recent.id})) to order it by hand`);
+      expect(titles("Recent")).toEqual(before);
+    } finally { ctx.flash = flash; }
+  });
+
+  test("a lane read again mid-drag: the drop goes by the cards' ids, not the rows they were on", async () => {
+    await settled();
+    b.render(B().ctx);
+    const l = lane("Queue"), r = BV.rectOf(b, "Queue");
+    const yOf = (title: string) => { for (let y = r.row + 1; y < r.row + r.rows; y++) if (l.items[l.rowAt(y - r.row - 1)]?.text.startsWith(title)) return y; throw new Error(`no row for ${title}`); };
+    const start = titles("Queue"), dragged = start[3], onto = start[1], x = r.col + 4, over = yOf(onto);
+    key({ kind: "mouse", action: "down", button: 0, x, y: yOf(dragged) });
+    key({ kind: "mouse", action: "drag", button: 32, x, y: over });
+    expect(B().cardDrag?.onto).toBe(cards[onto].id);
+    // An agent puts the hovered card first while the person drags: the lane is read again, its rows shift.
+    await other.moveInView({ view: queue.id, blocks: [cards[onto].id], to: 0 }, { kind: "agent", id: "shed-agent" });
+    await until(() => titles("Queue")[0] === onto, "the lane read again mid-drag");
+    // Released on the same row, which now holds another card: the drop is onto the card it was over, by id (now
+    // first), above it.
+    expect(yOf(onto)).not.toBe(over);
+    key({ kind: "mouse", action: "up", button: 0, x, y: over });
+    await until(() => titles("Queue")[0] === dragged, "dropped above the card it was over");
+    expect(titles("Queue")[1]).toBe(onto);
+  });
+
   test("ep0ch view order: lists the order, puts ids or Work IDs first, --json, --as", async () => {
     const out: string[] = [], err: string[] = [];
     const io = { out: (s: string) => out.push(s), err: (s: string) => err.push(s) };
@@ -114,7 +148,8 @@ describe.skipIf(!outliner)("a lane's hand-set order", () => {
       const workId = window.block.properties.find((p: any) => p.key === "work-id").value;
       expect(await viewCommand(["view", "order", queue.id, cards["Oil the hinges"].id, workId.toLowerCase(), "--as", "shell-agent", "--json", "--ws", "scratch"], io)).toBe(0);
       const json = JSON.parse(out.at(-1)!);
-      expect(json.order.map((o: any) => o.title)).toEqual(["Oil the hinges", "Fix the window", "Sweep the floor", "Sort the screws"]);
+      const rest = titles("Queue").filter((t: string) => t !== "Oil the hinges" && t !== "Fix the window");
+      expect(json.order.map((o: any) => o.title)).toEqual(["Oil the hinges", "Fix the window", ...rest]);
       expect(json.order[1]).toMatchObject({ workId });
       expect((await moves("agent")).find((e: any) => e.block.id === cards["Fix the window"].id)).toMatchObject({ actorId: "shell-agent" });
       expect(await viewCommand(["view", "order", `((${queue.id}))`, "--ws", "scratch"], io)).toBe(0);

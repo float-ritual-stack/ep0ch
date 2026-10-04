@@ -1,4 +1,4 @@
-import {Marked, type Token} from 'marked';
+import {Marked, Tokenizer, type Token, type Tokens} from 'marked';
 import {COMPONENT_OPEN, componentBlockAt} from '@ep0ch/outline-core/component-block';
 import type {PreviewSourceSpan} from './detail-preview-regions';
 
@@ -8,10 +8,22 @@ import type {PreviewSourceSpan} from './detail-preview-regions';
 const SETEXT_UNDERLINE = /^ {0,3}(=+|-+) *$/;
 /** A line that starts a block of its own (heading, fence, quote, list item, rule, HTML): the paragraph ends before it. */
 const BLOCK_START = /^ {0,3}(?:#{1,6}(?:[ \t]|$)|```|~~~|>|[-*+](?:[ \t]|$)|\d{1,9}[.)](?:[ \t]|$)|(?:[-*_][ \t]*){3,}$|<[A-Za-z!/?])/;
+/** A GFM table's delimiter row: the line above it, with a `|`, starts a table, which ends a paragraph too. */
+const TABLE_DELIMITER = /^ {0,3}\|?[ \t]*:?-+:?[ \t]*(?:\|[ \t]*:?-+:?[ \t]*)*\|?[ \t]*$/;
+/** The first line of `src` that opens a component block, as an offset, or -1: where a table must stop. */
+function componentLineIn(src: string): number {
+  for (let at = 0; at < src.length;) {
+    const next = src.indexOf('\n', at), end = next < 0 ? src.length : next;
+    if (at > 0 && COMPONENT_OPEN.test(src.slice(at, end)) && componentBlockAt(src.slice(at))) return at;
+    if (at > 0 && !src.slice(at, end).trim()) return -1;
+    at = end + 1;
+  }
+  return -1;
+}
 const parser = new Marked({
   extensions: [{
     name: 'component', level: 'block',
-    start: (src: string) => { const m = /\n {0,3}::[a-z]/.exec(src); return m ? m.index + 1 : undefined; },
+    start: (src: string) => { const m = /\n[ \t]*::[a-z]/.exec(src); return m ? m.index + 1 : undefined; },
     tokenizer: (src: string) => {
       const block = componentBlockAt(src);
       return block ? {type: 'component', raw: block.raw, name: block.name} : undefined;
@@ -20,16 +32,26 @@ const parser = new Marked({
   }],
   tokenizer: {
     lheading(src: string) {
-      // Only the paragraph's own lines, up to its first blank line: a component's first line there ends it.
-      const end = src.search(/\n[ \t]*(?:\n|$)/);
-      const lines = (end < 0 ? src : src.slice(0, end)).split('\n');
-      for (let k = 1; k < lines.length; k++) {
-        if (SETEXT_UNDERLINE.test(lines[k]!) || BLOCK_START.test(lines[k]!)) return false;
-        if (!COMPONENT_OPEN.test(lines[k]!) || !componentBlockAt(src.slice(lines.slice(0, k).join('\n').length + 1))) continue;
-        const raw = lines.slice(0, k).join('\n') + '\n', text = raw.trimEnd();
-        return {type: 'paragraph', raw, text, tokens: this.lexer.inline(text)} as unknown as false;
+      // The paragraph's own lines, read one at a time up to its first blank line: a heading, fence, list, table or
+      // rule there is its own block (marked's rules decide); a component's first line ends the paragraph before it.
+      // Only a line matching COMPONENT_OPEN is tried as a component, so this stays linear.
+      let at = src.indexOf('\n') + 1;
+      while (at > 0 && at < src.length) {
+        const next = src.indexOf('\n', at), end = next < 0 ? src.length : next, line = src.slice(at, end);
+        if (!line.trim() || SETEXT_UNDERLINE.test(line) || BLOCK_START.test(line)) return false;
+        if (line.includes('|') && next >= 0 && TABLE_DELIMITER.test(src.slice(next + 1, (src.indexOf('\n', next + 1) + 1 || src.length + 1) - 1))) return false;
+        if (COMPONENT_OPEN.test(line) && componentBlockAt(src.slice(at))) {
+          const raw = src.slice(0, at), text = raw.trimEnd();
+          return {type: 'paragraph', raw, text, tokens: this.lexer.inline(text)} as unknown as false;
+        }
+        at = end + 1;
       }
       return false;
+    },
+    table(src: string) {
+      // A table's rows end before a component's first line (marked would read `::graph-stat` as a row).
+      const cut = componentLineIn(src);
+      return (Tokenizer.prototype.table as (s: string) => Tokens.Table | undefined).call(this, cut < 0 ? src : src.slice(0, cut)) as unknown as false;
     },
   },
 });

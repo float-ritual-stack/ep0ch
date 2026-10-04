@@ -219,3 +219,29 @@ test('a block-starting line between a paragraph and a figure keeps its own meani
   const section = replaceSectionText('## A\nintro line\n## Stats\n::graph-stat\n---\n::\n', '## Stats', 'new', 'note');
   expect(section.previous).toBe('::graph-stat\n---\n::');
 });
+
+test('a table between a paragraph and a figure stays a table, and the figure stays whole', () => {
+  const text = 'intro line\n| a | b |\n| - | - |\n| 1 | 2 |\n\n::graph-stat\n---\ntitle: x\n---\n::\n';
+  expect(markdownSourceTokens(text).map(node => node.token.type)).toEqual(['paragraph', 'table', 'space', 'component']);
+  const tight = 'intro line\n| a | b |\n| - | - |\n::graph-stat\n---\ntitle: x\n---\n::\n';
+  expect(markdownSourceTokens(tight).map(node => node.token.type)).toEqual(['paragraph', 'table', 'component']);
+});
+
+test('an unclosed figure line never swallows the headings after it', () => {
+  const text = '## A\n::graph-stat\n## B\nb\n\n## C\n::\n';
+  expect(documentFolds(text).filter(fold => fold.structure === 'heading').map(fold => fold.sourceSpan!.startLine)).toEqual([0, 2, 5]);
+});
+
+test('a section runs to the next heading of its level or higher, sub-sections and figures included', () => {
+  const text = '## A\n\n### Sub\n\n::graph-stat\n---\ntitle: x\n---\n::\n\n### Sub two\n\n## B\nb';
+  const replaced = replaceSectionText(text, '## A', 'new', 'note');
+  expect(replaced.previous).toBe('### Sub\n\n::graph-stat\n---\ntitle: x\n---\n::\n\n### Sub two');
+  expect(replaced.text).toBe('## A\n\nnew\n\n## B\nb');
+});
+
+test('a long paragraph of figure-like lines is read in linear time', () => {
+  const lines = Array.from({length: 8000}, (_, i) => i % 2 ? '::graph-stat' : `line ${i}`).join('\n');
+  const started = performance.now();
+  markdownSourceTokens(`${lines}\n---\n`);
+  expect(performance.now() - started).toBeLessThan(1500);
+});

@@ -720,9 +720,9 @@ export class SocketBoard implements Board {
    * and `text` (every word, any order) as the service evaluates them, under `subtreeRootId` (itself included). At most
    * 1000; `truncated` when there were more.
    */
-  async queryIds(q: { expression?: string; text?: string; subtreeRootId?: string }, limit = 1000): Promise<{ ids: string[]; truncated: boolean }> {
+  async queryIds(q: { expression?: string; text?: string; subtreeRootId?: string; sort?: { field: string; direction: string } }, limit = 1000): Promise<{ ids: string[]; truncated: boolean }> {
     const r = await this.request<{ blocks: { id: string }[]; completeness: { kind: string } }>("blocks.query", {
-      query: { limit: Math.min(1000, limit), ...(q.expression ? { expression: q.expression } : {}), ...(q.text ? { text: q.text } : {}), ...(q.subtreeRootId ? { subtreeRootId: q.subtreeRootId } : {}) },
+      query: { limit: Math.min(1000, limit), ...(q.expression ? { expression: q.expression } : {}), ...(q.text ? { text: q.text } : {}), ...(q.subtreeRootId ? { subtreeRootId: q.subtreeRootId } : {}), ...(q.sort ? { sort: q.sort } : {}) },
       fields: ["id"],
     });
     return { ids: r.blocks.map(b => b.id), truncated: r.completeness.kind !== "complete" };

@@ -105,7 +105,7 @@ describe.skipIf(!outliner)("ep0ch find and export against a scratch host", () =>
     await make("plot", "Allotment plot [type::place]\nThe plot by the railway.");
     await make("order", "Seed order for the plot [type::errand] - [ctx::2026-03-09 @ 09:27:29 AM] [tag::seeds] [tag::spring]\nBroad beans.\nwhen:: before Friday\n- [ ] order the beans", ids.plot);
     await make("ask", "Ask the neighbour about netting\nShe has a spare roll.", ids.order);
-    await make("compost", "Compost rota [type::errand]\nTurn it on Sundays.");
+    await make("compost", "Compost rota [type::errand] [rank::2]\nTurn it on Sundays.");
     await make("view", "Errands [type::virtual-branch] [query::type=errand]");
     // A figure block (its rows its child bullets) and a live figure, for export's ASCII twin.
     await make("beans", "Bean rows [type::figures]\n::graph-timeline\n---\ntitle: Bean rows\n---\n::\n\n::graph-check\n---\ntitle: errands (live)\nquery: \"type=errand\"\n---\n::");
@@ -126,6 +126,18 @@ describe.skipIf(!outliner)("ep0ch find and export against a scratch host", () =>
     expect(shown.code).toBe(0);
     expect(shown.out.split("\n")[0]).toBe("Seed order for the plot");
     expect(shown.out).toContain("Compost rota");
+  }, 30_000);
+
+  test("find --sort: a property's order, numbers as numbers, notes without it last; a bad sort says so", async () => {
+    expect((await run(["find", "--query", "type=errand", "--sort", "rank", "--ids"], env)).out.trim().split("\n")).toEqual([`((${ids.compost}))`, `((${ids.order}))`]);
+    expect((await run(["find", "--query", "type=errand", "--sort", "Rank", "--direction", "DESC", "--ids"], env)).out.trim().split("\n")).toEqual([`((${ids.compost}))`, `((${ids.order}))`]);
+    expect((await run(["find", "--query", "type=errand", "--sort", "created", "--direction", "desc", "--ids"], env)).out.trim().split("\n")).toEqual([`((${ids.compost}))`, `((${ids.order}))`]);
+    const bad = await run(["find", "--query", "type=errand", "--sort", "[rank::]"], env);
+    expect([bad.code, plain(bad.err)]).toEqual([1, expect.stringContaining("--sort [rank::]: Sort by rank, not [rank::]")]);
+    const sideways = await run(["find", "--query", "type=errand", "--sort", "rank", "--direction", "sideways"], env);
+    expect([sideways.code, plain(sideways.err)]).toEqual([1, expect.stringContaining("Sort direction is asc or desc, not sideways")]);
+    expect(plain((await run(["find", "--direction", "asc"], env)).err)).toContain("--direction orders a --sort");
+    expect(plain((await run(["find", "--view", ids.view!, "--sort", "rank"], env)).err)).toContain(`ep0ch view order ${ids.view}`);
   }, 30_000);
 
   test("find --view: the view's members, in its order; with --under, only those under it", async () => {

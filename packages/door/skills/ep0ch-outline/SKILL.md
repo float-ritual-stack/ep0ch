@@ -182,7 +182,8 @@ items:
 
 Live blocks also take `limit:`, `sort:` and `direction: desc|asc` (default `updated`, `desc`). `sort:` is
 `updated`, `created` or any property key (`sort: due`; `property:created` for a property so named): numbers compare
-as numbers, blocks without it come last; a saved view sorts the same way with `[sort::due]`. A bad sort shows its
+as numbers, blocks without it come last; a saved view sorts the same way with `[sort::due]`, and so does
+`ep0ch find --query … --sort due --direction asc`. A bad sort shows its
 refusal in the figure. For a ranking someone sets by hand, use a view's hand-set order instead (below). A `table` or `tabs` takes
 `density: compact | cozy | comfortable` (titles on one line, up to two, up to three with a blank line between rows;
 a wrapped title hangs past its work id); it is only the default: the person switches tabs and density in their
