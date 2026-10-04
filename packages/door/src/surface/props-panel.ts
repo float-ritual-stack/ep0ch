@@ -5,7 +5,7 @@
 // The surface owns the panel and runs its actions; this file draws it and turns keys into intents.
 import { titleLine, type Msg } from "../board";
 import { printable, type Source } from "../props";
-import { pageOf, refView, referencesIn, shortId } from "../refs";
+import { MISSING_MARK, pageOf, refView, referencesIn, shortId } from "../refs";
 import type { PropertyRecord } from "../socket";
 import { ellipsize, bg, C, fg, pad, RESET, width } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
@@ -65,7 +65,7 @@ export function valueView(r: PropRow, src: Source | null, noteText?: string): st
   }
   if (r.target && "page" in r.target) {
     const p = pageOf(r.target.page, src);
-    return p?.status === "missing" ? `${v} · Missing target` : p?.block ? `${v}  ${printable(titleLine(p.block.text).text).slice(0, 60)}` : v;
+    return p?.status === "missing" ? `${v} ${MISSING_MARK}` : p?.block ? `${v}  ${printable(titleLine(p.block.text).text).slice(0, 60)}` : v;
   }
   return v;
 }

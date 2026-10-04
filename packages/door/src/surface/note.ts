@@ -1207,7 +1207,7 @@ export class NoteSurface {
     else {
       const p = await host.ctx.board.resolvePage(t.page).catch((e: Error) => ({ status: "failed", error: e.message } as const));
       if ("block" in p && p.block) target = p.block.partial ? await host.ctx.board.get(p.block.id) ?? p.block : p.block;
-      else why = "error" in p ? `couldn't resolve ${t.page}: ${p.error}` : `${t.page} · Missing target`;
+      else why = "error" in p ? `couldn't resolve ${t.page}: ${p.error}` : `no page is named ${t.page} yet`;
     }
     if (!target) { if (this.panel) this.panel.note = why; host.ctx.flash(why); host.redraw(); return null; }
     // The panel has done its job; the target opens to be read (in place or in another reader).
@@ -2858,7 +2858,7 @@ export class NoteSurface {
    */
   private async offerPage(page: string, host: SurfaceHost): Promise<null> {
     const by = host.actor ?? USER;
-    if (by.kind === "agent") throw new ActionRefused(`[[${page}]] · Missing target: no page has that name; page.create address=${JSON.stringify(page)} makes it`);
+    if (by.kind === "agent") throw new ActionRefused(`[[${page}]] doesn't exist yet: no page has that name; page.create address=${JSON.stringify(page)} makes it`);
     // The offer stands while it's still said under the header, for a minute: never a create long after, unannounced.
     const o = this.pageOffer;
     if (o && o.page === page && this.notice === o.notice && Date.now() - o.at < PAGE_OFFER_MS) {
@@ -2869,7 +2869,7 @@ export class NoteSurface {
     }
     this.notice = `no page [[${page}]] · ⏎ or click it again: create it`;
     this.pageOffer = { page, notice: this.notice, at: Date.now() };
-    host.ctx.flash(`[[${page}]] · Missing target · ⏎ or click it again to create the page`, 8000);
+    host.ctx.flash(`[[${page}]] doesn't exist yet · ⏎ or click it again to create the page`, 8000);
     host.redraw();
     return null;
   }
