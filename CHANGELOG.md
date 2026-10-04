@@ -441,6 +441,8 @@ The river's replies under a note are read again the same way. Restart the door (
   your PATH, each also "in Herdr" when Herdr is installed) and a shell; the choice is saved per outline session
   (`host.agent name=<agent> [herdr=true] [default=true]`). `alt+s` opens a new shell in the dock. `ep0ch doctor`
   lists each session's dock agent, where the choice came from, and the command to change it.
+  Both work while you type in a dock terminal too (as `alt+a` does), and the picker has your keys over it. Pulling
+  the dock up the first time with no agent chosen (`alt+a`, a click on the chip) offers the picker once a door.
 - **One Herdr agent per outline session.** The Herdr pane is the session's own (`door-<outline>[-<machine>]`),
   started with that session's `EP0CH_CONTROL`; a door on another outline never attaches it. Ending a session closes
   its pane.
@@ -463,7 +465,11 @@ The river's replies under a note are read again the same way. Restart the door (
   and why. The Herdr launcher makes a new `door-claude` pane in that folder, not the door's.
 - **Agents:** `host.dock tile=<t>` (and `on=false to=<tile> where=<side>`), attributed, never with your keys; an
   agent can dock its own tile (`tile=$EP0CH_TILE_ID`) unless you're typing in it. `tile=` naming a docked tile
-  reaches it in the dock. `peek`'s `dock` lists `tiles` and what it `runs`.
+  reaches it in the dock; a name both the screen shown and the dock have is refused, naming each tile's id.
+  `peek`'s `dock` lists `tiles` and what it `runs`.
+- **Nothing in the dock is out of reach.** A docked reader re-reads a note changed elsewhere, as a shown one does; its
+  unsaved edit asks before a quit and is copied out on a forced end or a session handover; `ep0ch where` from a
+  docked terminal names its dock tile, never a screen tile its old `EP0CH_TILE_ID` happens to match.
 - **Floats and drawers, one step each way.** `^W p` (or `tile.pin`) on a float puts it straight into a drawer, and
   `^W f` on a tile in a drawer floats it. A click on the `⧉` in the focused tile's top right corner floats it; the
   `⧉` before a float's title puts it back, the cell either side of it counting too. A float's other header controls

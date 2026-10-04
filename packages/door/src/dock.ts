@@ -314,7 +314,7 @@ export class AgentDock {
     const i = t.kids.findIndex(k => k.t === "drawer"), sum = t.weights.reduce((a, w) => a + w, 0) || 1;
     return Math.round(((t.weights[i] ?? 0.5) / sum) * 1000) / 1000;
   }
-  /** The person is in the drawer: every key but ctrl+], alt+a and alt+A is the dock's tab's. Never set by an agent. */
+  /** The person is in the drawer: every key but ctrl+], alt+a, alt+A, alt+s and alt+g is the dock's tab's. Never set by an agent. */
   get entered(): boolean { return this.keys !== HOST_SCREEN && this.open && this.mode !== "none"; }
   /** Where the screen shown lets the host layer appear: its policy's `host` (a screen without a dock: none). */
   get mode(): HostMode { const s = this.host.screen?.(); return s?.noDock ? "none" : s?.hostMode?.() ?? "over"; }
@@ -719,8 +719,10 @@ export class AgentDock {
     const name = this.shownTabOf()?.name ?? this.name;
     const hint = watching
       ? `${fg(C.lcyan)}${this.entered ? "⏎ takes it over from the other door · q stops watching" : "click in it, then ⏎ takes it over from the other door"} · ${this.entered ? ESCAPE_CHORD : "alt+a"} ${this.entered ? `back to the ${screen}` : "puts it away"}`
+      : this.entered && d?.overlaid()
+      ? `${fg(C.yellow)}the picker has the keys · ↑↓ ⏎ chooses · esc leaves it as it is`
       : this.entered && d?.rawKeys()
-      ? `${fg(C.yellow)}every key goes to ${name === DOCK_TILE_ID ? this.name : name} · ${ESCAPE_CHORD} back to the ${screen} · alt+a puts it away`
+      ? `${fg(C.yellow)}every key goes to ${name === DOCK_TILE_ID ? this.name : name} · ${ESCAPE_CHORD} back to the ${screen} · alt+s new shell · alt+g agent · alt+a puts it away`
       : this.entered
       ? `${fg(C.yellow)}in the dock, on ${name === DOCK_TILE_ID ? this.name : name}${d?.pane(name) instanceof PtyPane ? " · ⏎ types in it" : ""} · ^W a undocks it · ^W ] [ other tabs · Esc or ${ESCAPE_CHORD} back to the ${screen} · alt+a puts it away`
       : `${fg(C.dark)}click in it or ${ESCAPE_CHORD} to type · alt+s new shell · alt+g agent · alt+a or Esc puts it away · alt+A height · ^W a docks a tile, ^W A brings a tab here`;
@@ -730,7 +732,7 @@ export class AgentDock {
 
   // ── keys and the mouse (App.key gives them here first) ──
 
-  /** Raw input while the person is in the drawer and a terminal there runs: every byte is its, but alt+a and alt+A. */
+  /** Raw input while the person is in the drawer and a terminal there runs: every byte is its, but alt+a, alt+A, alt+s and alt+g. */
   rawInput(run: DockRun): ((bytes: string) => void) | null {
     if (!this.shown || !this.entered) return null;
     const raw = this.d?.rawInput();
@@ -740,6 +742,9 @@ export class AgentDock {
       const k = rawKey(s);
       if (k?.kind === "alt" && k.ch === "a") return run("host.toggle", { open: false });
       if (k?.kind === "alt" && k.ch === "A") return run("host.size", { share: nextStep(this.share) });
+      // The dock's own keys, as everywhere in it: a new shell, its agent's picker.
+      if (k?.kind === "alt" && k.ch === "s") return run("host.shell", {});
+      if (k?.kind === "alt" && k.ch === "g") return run("host.agent", {});
       raw(s);
     };
   }

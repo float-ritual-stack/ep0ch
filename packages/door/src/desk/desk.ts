@@ -1322,6 +1322,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   focusPane(p: Pane, actor: Actor) { const id = this.idOf(p); if (id !== undefined) this.focusTile(this.nameOf(id), actor); }
   /** A tile's list picker over the screen (the home base's choices): on the desk's own overlay stack, first to take keys and clicks. */
   overlay(p: ListPicker<any, any>) { this.overlays.push(p); this.redraw(); }
+  /** A picker is up over this screen (it has the keys). */
+  overlaid(): boolean { return !!this.overlays.top(); }
 
   /** A tile's own key or click (its kind's set, a reader's note actions), as the person, in that tile. */
   press(p: Pane, set: ActionSet<any, any>, name: string, args: Record<string, unknown> = {}, quiet: boolean | ((why: string) => string | null) = false, given?: unknown): Promise<unknown> {
@@ -1363,7 +1365,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /** The person is in a terminal tile (its program running, or exited and waiting for ⏎ or ctrl+]): every key is the tile's, ctrl+c included. */
   rawKeys(): boolean { return !!this.ptyIn && this.panes.get(this.focus) === this.ptyIn; }
   /** Raw input goes straight to the program while it runs (F-keys, shift-arrows, a bracketed paste): Term keeps the mouse and ctrl+]. */
-  rawInput(): ((bytes: string) => void) | null { const p = this.ptyIn; return p && this.rawKeys() && p.running ? (s: string) => p.inputRaw(s) : null; }
+  // A picker over it (the dock's agent picker) has the keys first, as keyIn gives them: no bytes go past it.
+  rawInput(): ((bytes: string) => void) | null { const p = this.ptyIn; return p && this.rawKeys() && p.running && !this.overlays.top() ? (s: string) => p.inputRaw(s) : null; }
   /** The last ctrl+] out of a terminal: a second one soon after sends ctrl+] to the program instead. */
   private chord: { pane: PtyPane; at: number } | null = null;
 

@@ -26,9 +26,12 @@ describe.skipIf(!outliner)("the dock: any tile, moved whole between screens", ()
   let board: SocketBoard;
   let state = "";
   const saved: Record<string, string | undefined> = {};
+  /** Who hears the outline's events (the board takes one subscriber): the door a test points it at. */
+  let listen: ((e: any) => void) | null = null;
   beforeAll(async () => {
     board = new SocketBoard(await scratch.start());
     await board.info();
+    board.subscribe(e => listen?.(e));
     await board.request<any>("create", { parentId: null, text: "Seed potatoes: chit them by the window", author: "agent" });
   }, 30_000);
   afterAll(async () => { board?.close(); await scratch.dispose(); });
@@ -237,7 +240,7 @@ describe.skipIf(!outliner)("the dock: any tile, moved whole between screens", ()
 
   test("the dock is the door's too: a docked reader hears outline changes, its unsaved edit holds a quit, one name in both is refused", async () => {
     const d = await door();
-    const off = board.subscribe(e => d.app.event(e));
+    listen = e => d.app.event(e);
     try {
       const note = await board.request<any>("create", { parentId: null, text: "Rhubarb: force it under a bucket", author: "agent" });
       await d.desk.dispatch.act({ action: "tile.open", args: { kind: "detail", note: note.id, name: "rhubarb" }, tile: "reader" }, USER);
@@ -258,7 +261,7 @@ describe.skipIf(!outliner)("the dock: any tile, moved whole between screens", ()
       expect(kept).toBe(1);
       d.app.terminate();
       expect(kept).toBe(2);
-    } finally { off?.(); d.app.quit(); }
+    } finally { listen = null; d.app.quit(); }
   });
 
   test("one name on the screen and in the dock: refused by name, reached by id", async () => {
