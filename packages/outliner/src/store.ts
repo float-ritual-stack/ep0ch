@@ -2637,7 +2637,7 @@ export class OutlinerStore {
     return this.database.transaction(() => {
       const view=this.requireActive(viewId);
       const parsed=parseVirtualBranchConfig(view, []);
-      if (!parsed.config) throw Error(parsed.configurationErrors.join("; "));
+      if (!parsed.config) throw Error(`${viewId} is not a view (no [type::virtual-branch] and [query::]): ${parsed.configurationErrors.join("; ")}`);
       const sorted = handOrderRefusal(parsed.config);
       if (sorted) throw Error(sorted);
       // The authored limit bounds display, not rank operations over hidden members.
@@ -2676,17 +2676,20 @@ export class OutlinerStore {
    * Work ID or a [[page]] address. The one resolver behind `virtual.occurrences.move`; refuses with what it tried.
    */
   resolveBlockRef(ref: string): Block {
-    const text = typeof ref === "string" ? ref.trim().replace(/^\(\((.+)\)\)$/, "$1").replace(/^\[\[(.+)\]\]$/, "$1").trim() : "";
+    // ((id)) and ((id|label)) name the id; [[page]] the page.
+    const text = typeof ref === "string" ? ref.trim().replace(/^\(\(([^|)]+)(?:\|[^)]*)?\)\)$/, "$1").replace(/^\[\[(.+)\]\]$/, "$1").trim() : "";
     if (!text) throw new Error("Give a block: an id, ((id)), a Work ID or a [[page]]");
     const exact = this.database.query("SELECT id, effective_deleted_root_id AS trashed FROM blocks WHERE id = ?").get(text.toLowerCase()) as { id: string; trashed: string | null } | null;
     if (exact?.trashed) throw new Error(`${ref} is in Trash`);
     if (exact) return this.getFromCurrentRead(exact.id)!;
     if (/^[0-9a-f-]{8,}$/i.test(text)) {
       const low = text.toLowerCase();
-      const rows = this.database.query("SELECT id FROM blocks WHERE id >= ? AND id < ? AND effective_deleted_root_id IS NULL LIMIT 2")
-        .all(low, `${low}\uffff`) as { id: string }[];
-      if (rows.length === 1) return this.getFromCurrentRead(rows[0]!.id)!;
-      if (rows.length > 1) throw new Error(`${text} starts more than one block's id; give more of it`);
+      const rows = this.database.query("SELECT id, effective_deleted_root_id AS trashed FROM blocks WHERE id >= ? AND id < ? ORDER BY trashed IS NOT NULL LIMIT 3")
+        .all(low, `${low}\uffff`) as { id: string; trashed: string | null }[];
+      const active = rows.filter(row => !row.trashed);
+      if (active.length === 1) return this.getFromCurrentRead(active[0]!.id)!;
+      if (active.length > 1) throw new Error(`${text} starts more than one block's id; give more of it`);
+      if (rows.length) throw new Error(`${ref} is in Trash`);
     }
     let page: PageAddressResolution | null = null;
     try { page = this.resolveAuthoredPageAddressFromCurrentRead(normalizePageAddress(text)); } catch { /* not an address: said below */ }

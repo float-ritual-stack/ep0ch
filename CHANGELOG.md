@@ -134,8 +134,8 @@ The river's replies under a note are read again the same way. Restart the door (
 
 - **A saved view, a live figure or a `blocks.query` sorts by any property**, not only `created` and `updated`:
   `[sort::due]` with `[direction::asc]` in a view, `sort: due` and `direction: asc` in a `::graph-*` figure,
-  `sort: { field: "due", direction: "asc" }` on the wire. Numbers compare as numbers (`2` before `10`) and before
-  any text; text compares without case; blocks without the property come last in either direction, in outline
+  `sort: { field: "due", direction: "asc" }` on the wire. Numbers compare as numbers (`2` before `10`; decimal
+  only, so `0x10` is text) and before any text in either direction; text compares without case; blocks without the property come last in either direction, in outline
   order. The query's property scope counts (`propertyScope: "all"` reads a property mid-sentence too).
   `property:created` names a property called created or updated; plain `created` and `updated` are the timestamps.
   A direction may be written in any case.

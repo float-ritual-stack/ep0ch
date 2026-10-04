@@ -787,9 +787,13 @@ export function normalizeSortField(field: unknown): string | null {
 
 /** Why `field` can't be a sort, with the fix: the key it seems to mean, when there is one. */
 export function sortFieldProblem(field: unknown): string {
-  const meant = typeof field === "string" ? /([A-Za-z][A-Za-z0-9_.-]*)/.exec(field)?.[1] : undefined;
+  // The key it seems to mean: the one key-like word in it (`[rank::]` means rank), kept under `property:`.
+  const text = typeof field === "string" ? field.trim() : "";
+  const prefixed = text.toLowerCase().startsWith(SORT_PROPERTY), rest = prefixed ? text.slice(SORT_PROPERTY.length) : text;
+  const words = [...rest.matchAll(/[A-Za-z][A-Za-z0-9_.-]*/g)].map(m => m[0]);
+  const meant = words.length === 1 && !/\s/.test(rest.trim()) ? `${prefixed ? SORT_PROPERTY : ""}${words[0]!.toLowerCase()}` : undefined;
   return meant
-    ? `Sort by ${meant.toLowerCase()}, not ${String(field)}: a sort is created, updated or a property key`
+    ? `Sort by ${meant}, not ${String(field)}: a sort is created, updated or a property key`
     : `Sort is created, updated or a property key (a letter, then letters, digits, _ . or -), not ${String(field)}`;
 }
 
@@ -801,8 +805,9 @@ export function sortPropertyKey(field: string): string | null {
 
 /**
  * Orders matched blocks by a normalized sort. Timestamps break ties by creation, then id. A property sort compares
- * `valueOf(block, key)` (by default its block-scoped value): numbers as numbers, before any text value; text without
- * case; blocks without the property last in either direction; ties keep the order they came in (outline order).
+ * `valueOf(block, key)` (by default its block-scoped value): decimal numbers as numbers, before any text value in
+ * either direction; text without case; blocks without the property last in either direction; ties keep the order
+ * they came in (outline order).
  */
 export function sortQueriedBlocks<T extends Pick<Block, "id" | "createdAt" | "updatedAt" | "properties">>(
   blocks: T[],
@@ -824,16 +829,18 @@ export function sortQueriedBlocks<T extends Pick<Block, "id" | "createdAt" | "up
   blocks.sort((left, right) => {
     const a = values.get(left.id)!, b = values.get(right.id)!;
     if (a === null || b === null) return a === b ? 0 : a === null ? 1 : -1;
-    if (typeof a !== typeof b) return direction * (typeof a === "number" ? -1 : 1);
+    if (typeof a !== typeof b) return typeof a === "number" ? -1 : 1;
     return direction * (typeof a === "number" ? a - (b as number) : (a as string).localeCompare(b as string));
   });
 }
 
+const DECIMAL = /^[+-]?(?:\d+\.?\d*|\.\d+)$/;
+
 function sortValue(value: string | undefined): number | string | null {
   const trimmed = value?.trim();
   if (!trimmed) return null;
-  const number = Number(trimmed);
-  return Number.isFinite(number) ? number : trimmed.toLowerCase();
+  // Only a decimal number is a number (0x10 and 1e3 are text).
+  return DECIMAL.test(trimmed) ? Number(trimmed) : trimmed.toLowerCase();
 }
 
 function clauseRangeAtCursor(

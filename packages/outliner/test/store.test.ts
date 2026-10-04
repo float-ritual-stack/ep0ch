@@ -409,8 +409,12 @@ describe("OutlinerStore", () => {
       text: "Ranked", subtreeRootId: root.id, sort: { field: "rank", direction }, limit,
     }).blocks.map((block) => block.id);
     expect(ids("asc")).toEqual([two.id, half.id, ten.id, word.id, none.id]);
-    expect(ids("desc")).toEqual([word.id, ten.id, half.id, two.id, none.id]);
+    // Numbers before text in either direction, as blocks without it are last in either.
+    expect(ids("desc")).toEqual([ten.id, half.id, two.id, word.id, none.id]);
     expect(ids("asc", 2)).toEqual([two.id, half.id]);
+    // Only decimal numbers are numbers: 0x10 and 1e3 are text.
+    const hex = store.create("Ranked hex [rank::0x10]", root.id);
+    expect(ids("asc")).toEqual([two.id, half.id, ten.id, hex.id, word.id, none.id]);
   });
 
   test("a property sort reads the query's property scope, and property:created a property so named", () => {
@@ -2959,7 +2963,8 @@ Second paragraph`;
     const gone = store.create("Old tyre [lane::shed]");
     store.delete(gone.id);
     expect(() => store.moveVirtualOccurrences({ view: view.id, blocks: [gone.id] })).toThrow(`${gone.id} is in Trash`);
-    expect(() => store.moveVirtualOccurrences({ view: view.id, blocks: [gone.id.slice(0, 12)] })).toThrow(`No block ${gone.id.slice(0, 12)}`);
+    expect(() => store.moveVirtualOccurrences({ view: view.id, blocks: [gone.id.slice(0, 12)] })).toThrow(`${gone.id.slice(0, 12)} is in Trash`);
+    expect(store.moveVirtualOccurrences({ view: view.id, blocks: [`((${oil!.id}|the oil job))`], to: 0 }).blockIds[0]).toBe(oil!.id);
     expect(() => store.moveVirtualOccurrences({ view: view.id, blocks: [kit!.id, `((${kit!.id}))`] })).toThrow("are the same block; give each once");
     expect(() => store.moveVirtualOccurrences({ view: view.id, blocks: ["[[no such: page]]"] })).toThrow("No block [[no such: page]]");
     expect(store.moveVirtualOccurrences({ view: `((${view.id}))`, blocks: [kit!.id.slice(0, 10)], to: 0 }).blockIds).toEqual([kit!.id, oil!.id]);

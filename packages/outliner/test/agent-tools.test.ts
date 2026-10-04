@@ -371,6 +371,9 @@ test("view-order reads a view's hand-set order and puts members first, by id or 
   const refused = await agent("view-order", { view: view.id, ids: [stranger.id] });
   expect(refused.exitCode).not.toBe(0);
   expect(refused.stderr).toContain(`Not in the view ${view.id}: ${stranger.id}`);
+  const notView = await agent("view-order", { view: stranger.id });
+  expect(notView.exitCode).not.toBe(0);
+  expect(notView.stderr).toContain(`${stranger.id} is not a view`);
 });
 
 test("edit replaces a section that holds a live figure, figure included", async () => {

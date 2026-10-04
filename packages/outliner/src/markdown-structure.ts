@@ -23,7 +23,17 @@ function componentLineIn(src: string): number {
 const parser = new Marked({
   extensions: [{
     name: 'component', level: 'block',
-    start: (src: string) => { const m = /\n[ \t]*::[a-z]/.exec(src); return m ? m.index + 1 : undefined; },
+    // Where a paragraph must be cut: the first line, before its blank line, that opens a component block. It reads
+    // only the paragraph (marked asks before each one) and never cuts at an opener that opens nothing (plain text).
+    start: (src: string) => {
+      for (let at = src.indexOf('\n'); at >= 0;) {
+        const from = at + 1, next = src.indexOf('\n', from), line = src.slice(from, next < 0 ? src.length : next);
+        if (!line.trim()) return undefined;
+        if (/^[ \t]*::[a-z]/.test(line) && COMPONENT_OPEN.test(line) && componentBlockAt(src.slice(from))) return from;
+        at = next;
+      }
+      return undefined;
+    },
     tokenizer: (src: string) => {
       const block = componentBlockAt(src);
       return block ? {type: 'component', raw: block.raw, name: block.name} : undefined;

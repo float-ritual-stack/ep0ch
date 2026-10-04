@@ -475,28 +475,27 @@ export async function viewOrder(
   input: { view: string; ids?: unknown },
   actor: AgentActor | undefined,
 ): Promise<ViewOrderResult> {
-  const view = (await resolveReference(client, input.view)).block;
-  if (!view.properties.some(p => p.key === "type" && p.value.toLowerCase() === "virtual-branch")) {
-    throw new WorkToolRefusal(`${view.id} is not a view (no [type::virtual-branch]); give the view's id`);
-  }
+  if (typeof input.view !== "string" || !input.view.trim()) throw new WorkToolRefusal("view is the view's id, ((id)) or [[page]]");
   if (input.ids !== undefined && (!Array.isArray(input.ids) || input.ids.some(id => typeof id !== "string"))) {
     throw new WorkToolRefusal("ids is a list of block ids, ((id))s or Work IDs");
   }
   const refs = (input.ids ?? []) as string[];
-  let order = await client.request<VirtualBranchOrder>({ action: "virtual.occurrences.order", viewId: view.id });
+  // The service resolves the view and each ref, and refuses what isn't a view, isn't in it or is sorted.
+  let order: VirtualBranchOrder;
   if (refs.length) {
     if (!actor?.actorId.trim()) throw new WorkToolRefusal("view order writes: pass --actor <agent id>");
     await client.requireCompatibleService();
-    // The service resolves each ref and refuses one the view doesn't hold.
-    order = await client.request<VirtualBranchOrder>({ action: "virtual.occurrences.move", input: { view: view.id, blocks: refs }, mutation: mutationOf(actor) });
+    order = await client.request<VirtualBranchOrder>({ action: "virtual.occurrences.move", input: { view: input.view, blocks: refs }, mutation: mutationOf(actor) });
+  } else {
+    order = await client.request<VirtualBranchOrder>({ action: "virtual.occurrences.order", viewId: input.view });
   }
   const read = order.blockIds.length
     ? await client.request<{ blocks: ProjectedBlock[] }>({ action: "blocks.read", ids: order.blockIds, fields: ["title", "properties"] })
     : { blocks: [] };
   const byId = new Map(read.blocks.map(b => [b.id, b]));
   return {
-    view: view.id,
-    ref: `((${view.id}))`,
+    view: order.viewId,
+    ref: `((${order.viewId}))`,
     order: order.blockIds.map(id => {
       const b = byId.get(id), workId = b?.properties?.find(p => p.key === "work-id")?.value;
       return { id, title: b?.title ?? "", ...(workId ? { workId } : {}) };

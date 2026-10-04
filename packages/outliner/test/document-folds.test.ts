@@ -245,3 +245,16 @@ test('a long paragraph of figure-like lines is read in linear time', () => {
   markdownSourceTokens(`${lines}\n---\n`);
   expect(performance.now() - started).toBeLessThan(1500);
 });
+
+test('ordinary prose and unclosed openers read in linear time, as plain marked does', () => {
+  const time = (text: string) => { const t = performance.now(); markdownSourceTokens(text); return performance.now() - t; };
+  // Paragraphs without a figure: a component's start hook must not search the rest of the note for each one.
+  expect(time('A line of prose\nand its second line\n\n'.repeat(20_000))).toBeLessThan(2500);
+  // Openers that open nothing are plain text: no cut at each, no re-read of the paragraph.
+  expect(time('::a\n'.repeat(8000))).toBeLessThan(2500);
+  expect(time('word\n::a\n'.repeat(4000))).toBeLessThan(2500);
+});
+
+test('an opener that opens nothing stays in its paragraph, and a figure after it still ends the paragraph', () => {
+  expect(markdownSourceTokens('a\n::x\nb\n::graph-stat\n---\ntitle: t\n---\n::\n').map(node => node.token.type)).toEqual(['paragraph', 'component']);
+});

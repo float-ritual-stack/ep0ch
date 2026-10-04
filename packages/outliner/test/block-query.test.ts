@@ -163,6 +163,12 @@ describe("block query normalization", () => {
       sort: { field: "[rank::]", direction: "desc" },
       limit: 20,
     })).toThrow("Sort by rank, not [rank::]: a sort is created, updated or a property key");
+    expect(() => normalizeBlockSearchQuery({ sort: { field: "property:", direction: "desc" }, limit: 20 }))
+      .toThrow("Sort is created, updated or a property key (a letter, then letters, digits, _ . or -), not property:");
+    expect(() => normalizeBlockSearchQuery({ sort: { field: "due date", direction: "desc" }, limit: 20 }))
+      .toThrow("Sort is created, updated or a property key (a letter, then letters, digits, _ . or -), not due date");
+    expect(() => normalizeBlockSearchQuery({ sort: { field: "property:[due::]", direction: "desc" }, limit: 20 }))
+      .toThrow("Sort by property:due, not property:[due::]");
     expect(() => normalizeBlockSearchQuery({
       sort: { field: 3, direction: "desc" } as never,
       limit: 20,
