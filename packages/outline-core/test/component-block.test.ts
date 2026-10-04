@@ -26,3 +26,13 @@ test("an unclosed component never swallows a heading; a # inside its YAML or a c
   const code = "::graph-annotate\n```sh\n# (1) close the tap\n```\n1. the tap\n::\n";
   expect(componentBlockAt(code)).toEqual({ name: "graph-annotate", raw: code });
 });
+
+test("a code fence closes only on its own character, at least as long, so a ~~~ inside ``` keeps the figure whole", () => {
+  const mixed = "::graph-annotate\n```sh\n~~~\n# (1) close the tap\n```\n1. the tap\n::\n";
+  expect(componentBlockAt(`${mixed}## After`)).toEqual({ name: "graph-annotate", raw: mixed });
+  const tilde = "::graph-annotate\n~~~~\n```\n~~~\n# still code\n~~~~\n::\n";
+  expect(componentBlockAt(tilde)).toEqual({ name: "graph-annotate", raw: tilde });
+  // A closing fence takes no info string.
+  const info = "::graph-annotate\n```\n```sh\n# still code\n```\n::\n";
+  expect(componentBlockAt(info)).toEqual({ name: "graph-annotate", raw: info });
+});
