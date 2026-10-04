@@ -739,7 +739,7 @@ agents message it (`herdr agent prompt door-<outline> "…"`), and it keeps runn
   - The wrapper tells the door it attached (`tile.herdr`, as its tile), so quitting the door says it ends only
     the attach. The door no longer reads this from the tile's title, which any program can set.
   - The agent's pane gets the same variables as an agent in a tile (one function, `agentVars` in
-    `src/desk/agent-env.ts`): `EP0CH_NEST` (the tile's, then `herdr:door-<outline>`), `EP0CH_TILE`,
+    `src/desk/agent-env.ts`): `EP0CH_NEST` (the tile's, then `herdr:door-<outline>-<hash>`), `EP0CH_TILE`,
     `EP0CH_TILE_ID`, `EP0CH_IN_DOOR`, the door's `EP0CH_STATE` and `EP0CH_SOCKET` when it has them, and an
     `EP0CH_CONTROL` that is a link in the door's state
     (`agent-door-<outline>.sock`). The launcher points the link at its door's socket each time it attaches.

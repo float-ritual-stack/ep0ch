@@ -1,6 +1,6 @@
 // Where am I: EP0CH_NEST, the stack of layers a program runs in, outermost first, one line.
 //
-//   ssh:pts/5 › herdr:w1:p1 › door:1388380/dock/dock.agent:claude › herdr:door-pie
+//   ssh:pts/5 › herdr:w1:p1 › door:1388380/dock/dock.agent:claude › herdr:door-pie-1a2b3c4d
 //
 // Each layer appends itself as it starts the next, since each one only knows its own variables:
 // - a door, in each terminal tile's environment (`tileEnv`): `door:<pid>/<layout or screen>/<tile id>:<tile name>`;
@@ -83,7 +83,7 @@ export function herdrPaneOf(env: Record<string, string | undefined>): string | n
 /**
  * The layers outside this process that its environment shows and `nest` doesn't record yet, outermost first:
  * the ssh session (unless the nest has one: ssh doesn't pass EP0CH_NEST on, so a recorded one is this one),
- * then the Herdr pane (unless the nest ends in a Herdr layer, such as the launcher's `herdr:door-pie`,
+ * then the Herdr pane (unless the nest ends in a Herdr layer, such as the launcher's `herdr:door-pie-1a2b3c4d`,
  * which is that same pane under its label).
  */
 export function outerLayers(env: Record<string, string | undefined>, nest: string | undefined | null): string[] {

@@ -24,16 +24,19 @@ describe("the scaled-image cache", () => {
     }
   });
 
-  test("what's on screen is skipped, not a stop: older ones behind it still go", () => {
+  test("a scale that just landed isn't pushed out by the next one before it's drawn; older ones go first", () => {
     const c = new ScaledCache(1000);
     c.put("old\x00a", png(400, "a"), 0);
-    c.use("old\x00a", 5);
-    c.put("old\x00b", png(400, "b"), 5);
-    // a is first in line but on screen: it's passed over and b, behind it, goes.
+    // Two scales land in the same frame, before a redraw: a goes, and both new ones stay though that's over budget.
+    c.put("new\x00b", png(400, "b"), 5);
     c.put("new\x00c", png(400, "c"), 5);
+    c.put("new\x00d", png(400, "d"), 5);
+    expect(c.get("old\x00a")).toBeUndefined();
+    expect(["b", "c", "d"].map(k => !!c.get(`new\x00${k}`))).toEqual([true, true, true]);
+    // Two frames on, undrawn, they go oldest first.
+    c.put("new\x00e", png(100, "e"), 8);
     expect(c.bytes).toBeLessThanOrEqual(1000);
-    expect(c.get("old\x00a")).toBeDefined();
-    expect(c.get("old\x00b")).toBeUndefined();
+    expect(c.get("new\x00b")).toBeUndefined();
   });
 
   test("nothing but what's on screen: kept over budget, never evicted mid-frame", () => {

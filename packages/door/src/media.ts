@@ -77,6 +77,8 @@ export class ScaledCache {
   put(job: string, ref: PngRef, frame: number) {
     this.drop(job);
     this.refs.set(job, ref);
+    // Made to be drawn next (a redraw follows): on screen until two frames pass without it.
+    this.drawn.set(job, frame);
     this.bytes += ref.png.length;
     for (const k of this.refs.keys()) {
       if (this.bytes <= this.budget) break;

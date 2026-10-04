@@ -66,7 +66,7 @@ characters (past that, the oldest layers after the first become one `…`). `src
 | a Herdr pane | the door, from `HERDR_PANE_ID` before it drops it, unless the nest already ends in a Herdr layer | `herdr:w1:p1` |
 | a door tile | the door, for each terminal tile (`tileEnv`) | `door:<pid>/<layout or view>/<tile id>:<tile name>` |
 | the dock | the door, for its own tab (PIE-498); a terminal docked from a screen keeps the layer it started with | `door:<pid>/dock/dock.agent:claude` |
-| the daily agent's Herdr pane | the Herdr launcher (`scripts/door-agent-herdr.ts`), for the pane it makes | `herdr:door-<outline>` (the pane's label) |
+| the daily agent's Herdr pane | the Herdr launcher (`scripts/door-agent-herdr.ts`), for the pane it makes | `herdr:door-<outline>-<hash>` (the pane's label) |
 
 The three routes:
 

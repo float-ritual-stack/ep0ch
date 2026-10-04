@@ -422,10 +422,10 @@ describe("one agent pane per outline session (sessions are per outline since PIE
     expect(await closeSessionPane(herdrRunner(fake), a.pane, a.record!)).toBe(true);
     expect(calls().filter(c => c.startsWith("pane close"))).toEqual(["pane close w9:p1"]);
     expect(existsSync(a.record!)).toBe(false);
-    // The recorded pane gone (closed by hand): nothing else is closed in its place.
+    // Herdr gave new ids since (a restart): b's pane is still the one with its label, and a's labelled panes are left.
     writeFileSync(b.record!, "w5:p9");
     writeFileSync(join(dir, "calls"), "");
-    expect(await closeSessionPane(herdrRunner(fake), b.pane, b.record!)).toBe(false);
-    expect(calls().filter(c => c.startsWith("pane close"))).toEqual([]);
+    expect(await closeSessionPane(herdrRunner(fake), b.pane, b.record!)).toBe(true);
+    expect(calls().filter(c => c.startsWith("pane close"))).toEqual(["pane close w5:p1"]);
   });
 });

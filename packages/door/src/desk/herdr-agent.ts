@@ -477,15 +477,16 @@ export async function cli(script: string, argv: string[]): Promise<number> {
 }
 
 /**
- * Close the pane labelled `label` (a session's own, `sessionSlug`): true when it was there and closed. With its id
- * written down (`record`), only that pane, and only while it still has the label; none written down (a pane made
- * before ids were), the one with the label.
+ * Close the pane labelled `label` (a session's own, `sessionSlug`): true when it was there and closed. Of the panes with
+ * that label, the one whose id is written down (`record`); none of them (no record, or Herdr gave new ids since), the
+ * first. Never one with another label.
  */
 export async function closeSessionPane(herdr: HerdrRun, label: string, record?: string): Promise<boolean> {
   if (!/^door-[a-z0-9-]+$/.test(label) || label === "door-claude") return false;
   const panes = json((await herdr(["pane", "list"])).out)?.result?.panes;
   const known = readRecord(record);
-  const hit = Array.isArray(panes) ? panes.find((p: any) => p?.label === label && (known === null || String(p.pane_id) === known)) : null;
+  const labelled = Array.isArray(panes) ? panes.filter((p: any) => p?.label === label) : [];
+  const hit = labelled.find((p: any) => known !== null && String(p.pane_id) === known) ?? labelled[0];
   if (!hit?.pane_id || (await herdr(["pane", "close", String(hit.pane_id)])).code !== 0) return false;
   if (record) rmSync(record, { force: true });
   return true;
