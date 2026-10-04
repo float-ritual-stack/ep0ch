@@ -446,7 +446,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private followers(id: number): Pane[] {
     // A source may name a container (`tile:lanes`, the board's columns): any tile in it is followed.
     const names = new Set([this.nameOf(id), ...chainOf(this.root, id).flatMap(c => (isLine(c) && c.key ? [c.key] : []))]);
-    return [...this.panes].filter(([pid, q]) => { const f = kindOf(q)?.follows?.(q); return pid !== id && f !== null && f !== undefined && names.has(f); }).map(([, q]) => q);
+    // A follower moved here from another screen follows the very tile it followed there, never one here of that name.
+    const src = this.panes.get(id);
+    return [...this.panes].filter(([pid, q]) => { const f = kindOf(q)?.follows?.(q); const b = boundSource.get(q); return pid !== id && f !== null && f !== undefined && names.has(f) && (b === undefined || b === src); }).map(([, q]) => q);
   }
 
   /** A tile joins a live desk: it reads what it needs (its kind's `start`: a detail its note, a preview its source). */
@@ -3197,6 +3199,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const pane = this.panes.get(t.id)!;
     const spec = this.specOf(t.id);
     const typing = pane === this.ptyIn && this.focus === t.id;
+    // A follower (a preview of a tile) leaving: bound to the tile it follows by identity (none here: to nothing).
+    const f = kindOf(pane)?.follows?.(pane);
+    if (f && !boundSource.has(pane)) { const sid = this.idNamed(f); boundSource.set(pane, sid !== undefined ? this.panes.get(sid) ?? NO_SOURCE : NO_SOURCE); }
     this.commit(this.ask({ op: "take", tile: t.id }, actor));
     this.forgetTile(t.id, pane);
     this.openedFrom.delete(t.id);
@@ -3556,6 +3561,9 @@ const isRect = (r: unknown): r is Rect => !!r && typeof r === "object" && ["col"
 const overlaps = (p: Pick<Placement, "col" | "row" | "cols" | "rows">, r: Rect) => p.col < r.col + r.cols && p.col + p.cols > r.col && p.row < r.row + r.rows && p.row + p.rows > r.row;
 /** A drop as `peek` says it: where the dragged tile would go. */
 const dropView = (d: Drop<number>, name: (id: number) => string) => ({ kind: d.kind, ...("target" in d ? { target: name(d.target) } : {}), ...("dir" in d ? { dir: d.dir } : {}), ...(d.kind === "tabs" && d.index !== undefined ? { index: d.index } : {}), label: d.label, ghost: d.ghost, ...(d.refused ? { refused: d.refused } : {}) });
+/** A follower that moved between screens, and the tile instance it follows (NO_SOURCE: it follows nothing now). */
+const boundSource = new WeakMap<Pane, Pane | typeof NO_SOURCE>();
+const NO_SOURCE = Symbol("no source");
 /** A tile moving between screens (or into and out of the dock) whole: its instance, its name, its spec, whether the person was typing in it. */
 export interface MovedTile { pane: Pane; name: string; spec: TileSpec; from: string; typing: boolean }
 

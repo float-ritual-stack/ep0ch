@@ -251,17 +251,40 @@ describe.skipIf(!outliner)("the dock: any tile, moved whole between screens", ()
       const b = await board.request<any>("get", { blockId: note.id });
       await board.request("update", { blockId: note.id, text: "Rhubarb: forced, pick in March", expectedRevision: b.revision, mutation: { author: "agent", actorId: "test-other-writer" } });
       await until(() => /pick in March/.test((d.pane("rhubarb") as any)?.msg?.text ?? ""), "the docked reader re-read");
-      // An unsaved edit in the dock's desk: quitting asks first, and the draft is copied out when it goes ahead.
-      const dock = d.app.dock.desk as any;
-      let kept = 0;
-      dock.unsaved = () => true; dock.keepDrafts = () => { kept++; return []; };
+      // The person's unsaved edit in it, docked: quitting asks first, and a forced end copies the text to disk.
+      const dock = d.app.dock.desk!;
+      await dock.dispatch.act({ action: "edit.text", args: { text: "Rhubarb: forced, pick in March\nunsaved: lift the bucket in April" }, tile: "rhubarb" }, USER);
+      expect(dock.unsaved?.()).toBe(true);
       expect(d.app.confirmQuit()).toBe(false);
       expect(d.A.message).toContain("an edit isn't saved");
-      expect(d.app.confirmQuit()).toBe(true);
-      expect(kept).toBe(1);
-      d.app.terminate();
-      expect(kept).toBe(2);
+      const kept = d.app.terminate();
+      expect(kept.length).toBeGreaterThan(0);
+      expect(kept.map(p => readFileSync(p, "utf8")).join("\n")).toContain("lift the bucket in April");
     } finally { listen = null; d.app.quit(); }
+  });
+
+  test("a moved preview follows the tile it followed, by identity: never another screen's tile of the same name", async () => {
+    const d = await door();
+    try {
+      await d.desk.dispatch.act({ action: "tile.open", args: { kind: "preview", source: "tile:tree", name: "peek" }, tile: "reader" }, USER);
+      await d.desk.dispatch.act({ action: "tile.focus", tile: "tree" }, USER);
+      const pv = d.desk.pane("peek")!, follows = (desk: any) => desk.followers(desk.idNamed("tree")) as unknown[];
+      expect(follows(d.desk)).toContain(pv);
+      await d.app.act({ action: "host.dock", args: {}, tile: "peek", as: AS });
+      // Another desk with a tree of its own: the preview lands there, and that tree never drives it.
+      const other = new Desk(undefined, { layout: "desk" });
+      d.app.push(other); d.paint();
+      expect((other as any).idNamed("tree")).toBeDefined();
+      await d.app.dock.desk!.dispatch.act({ action: "host.dock", args: { on: false }, tile: "peek" }, USER);
+      expect(other.pane("peek")).toBe(pv);
+      expect(follows(other)).not.toContain(pv);
+      // Back on the desk it came from, beside the tree it followed: it follows that one again.
+      await other.dispatch.act({ action: "host.dock", args: {}, tile: "peek" }, USER);
+      d.app.pop(); d.paint();
+      await d.app.dock.desk!.dispatch.act({ action: "host.dock", args: { on: false }, tile: "peek" }, USER);
+      expect(d.desk.pane("peek")).toBe(pv);
+      expect(follows(d.desk)).toContain(pv);
+    } finally { d.app.quit(); }
   });
 
   test("one name on the screen and in the dock: refused by name, reached by id", async () => {
