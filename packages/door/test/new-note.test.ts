@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { App } from "../src/app";
 import { Desk } from "../src/desk/desk";
 import { MainMenu, MessageReader } from "../src/screens";
-import { SocketBoard } from "../src/socket";
+import { Refused, SocketBoard } from "../src/socket";
 import type { Key } from "../src/term";
 import { Draft } from "../src/edit";
 import { putAway } from "../src/new-note";
@@ -35,11 +35,12 @@ describe("⏎ on a lone [page::x] (PIE-544): titled only at the line's end", () 
 
 describe("a new note the edit never opened on (putAway)", () => {
   const note = { id: "n1", text: "", revision: 1 } as any;
-  const ctxWith = (now: any, trash: (id: string) => Promise<void>) => ({ board: { get: async () => now, trash } }) as any;
-  test("still empty at the revision it was made: trashed, and said so", async () => {
-    const trashed: string[] = [];
-    expect(await putAway(ctxWith({ ...note }, async id => { trashed.push(id); }), note)).toBe("it went to the trash");
-    expect(trashed).toEqual(["n1"]);
+  const ctxWith = (now: any, trash: (id: string, actor?: unknown, at?: { revision?: number }) => Promise<void>) =>
+    ({ board: { get: async () => { if (now instanceof Error) throw now; return now; }, trash, isTrashed: async () => null } }) as any;
+  test("still empty at the revision it was made: trashed only at that revision, and said so", async () => {
+    const trashed: unknown[] = [];
+    expect(await putAway(ctxWith({ ...note }, async (id, _actor, at) => { trashed.push([id, at?.revision]); }), note)).toBe("it went to the trash");
+    expect(trashed).toEqual([["n1", 1]]);
   });
   test("written meanwhile (another client, an agent): kept, never trashed, named by its id", async () => {
     let trashed = false;
@@ -49,9 +50,24 @@ describe("a new note the edit never opened on (putAway)", () => {
     expect(await putAway(ctxWith({ ...note, revision: 2 }, async () => { trashed = true; }), note)).toBe("it was written meanwhile, so it stays (n1)");
     expect(trashed).toBe(false);
   });
-  test("the trash refused: said, with the id to clean up by hand, never \"it went to the trash\"", async () => {
+  test("a child added under it (its revision unchanged): kept, never trashed with the child", async () => {
+    let trashed = false;
+    expect(await putAway(ctxWith({ ...note, childIds: ["c1"] }, async () => { trashed = true; }), note)).toBe("it was written meanwhile, so it stays (n1)");
+    expect(trashed).toBe(false);
+  });
+  test("written between the read and the trash: the service refuses the trash, and it's said as kept", async () => {
+    const said = await putAway(ctxWith({ ...note }, async () => { throw new Refused("Block changed since it was read: n1"); }), note);
+    expect(said).toBe("it was written meanwhile, so it stays (n1)");
+  });
+  test("the trash failed: what's known, the id and the command to check it, never \"still there, empty\"", async () => {
     const said = await putAway(ctxWith({ ...note }, async () => { throw new Error("no carrier"); }), note);
-    expect(said).toBe("it couldn't be put in the trash (no carrier): n1 is still there, empty");
+    expect(said).toBe("the trash didn't answer (no carrier), so it may still be there: check it with ep0ch show n1");
+  });
+  test("the read again failed: nothing trashed, and said as unknown", async () => {
+    let trashed = false;
+    const said = await putAway(ctxWith(new Error("the outline isn't answering"), async () => { trashed = true; }), note);
+    expect(trashed).toBe(false);
+    expect(said).toBe("it couldn't be read again (the outline isn't answering), so it was left as it is: check it with ep0ch show n1");
   });
 });
 
@@ -171,18 +187,36 @@ describe.skipIf(!outliner)("new notes from anywhere (PIE-544)", () => {
     const before = (await childrenOf(notes.plot.id)).length;
     // The edit reads the note before it opens: slow that read, so the person's esc comes first.
     const get = board.get.bind(board);
-    board.get = (async (...a: Parameters<typeof get>) => { await Bun.sleep(500); return get(...a); }) as typeof board.get;
+    let started = 0, settled = 0;
+    board.get = (async (...a: Parameters<typeof get>) => { started++; try { await Bun.sleep(500); return await get(...a); } finally { settled++; } }) as typeof board.get;
     try {
       key(ctrl("n"));
       await until(() => app.screens().at(-1) !== reader, "a reader over the plot notes", 5000);
       const over = app.screens().at(-1) as any;
       key({ kind: "esc" });
       await until(() => app.screens().at(-1) === reader, "back on the plot notes", 5000);
-      await Bun.sleep(900);
+      // The edit's read resolves after the esc; only once it has (and the empty note it then gave up on is trashed)
+      // does "nothing opened" mean anything.
+      await until(() => started > 0 && settled === started, "the edit's read of the note answered", 5000);
+      await reads(async () => (await childrenOf(notes.plot.id)).length === before, "the empty note trashed", 5000);
       expect(over.surface.draft).toBeFalsy();
       expect(app.screens().at(-1)).toBe(reader);
     } finally { board.get = get; }
-    await reads(async () => (await childrenOf(notes.plot.id)).length === before, "the empty note trashed", 5000);
+  }, 30_000);
+
+  test("written by another client between the put-away's read and its trash: the service refuses the trash, and the note stays", async () => {
+    const { note } = await board.newNote("", notes.plot.id);
+    const get = board.get.bind(board);
+    // Another client saves the note just after this read answers: the trash that follows names the stale revision.
+    board.get = (async (...a: Parameters<typeof get>) => {
+      const now = await get(...a);
+      await board.update(note.id, "Beans up on the north bed", note.revision!, { kind: "agent", id: "gardener" });
+      return now;
+    }) as typeof board.get;
+    let said: string;
+    try { said = await putAway({ board } as any, note); } finally { board.get = get; }
+    expect(said).toBe(`it was written meanwhile, so it stays (${note.id})`);
+    expect(await board.get(note.id)).toMatchObject({ text: "Beans up on the north bed" });
   }, 30_000);
 
   test("an agent's note.new: made where it says (the Inbox by default), attributed, said; the person's screen and keys stay", async () => {

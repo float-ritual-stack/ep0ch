@@ -282,6 +282,9 @@ export class Refused extends Error {
   constructor(message: string) { super(message); this.name = "Refused"; }
 }
 
+/** A trash that named a revision (`trash(id, actor, { revision })`) refused because the block changed since. */
+export const changedSinceRead = (e: unknown): e is Refused => e instanceof Refused && /^Block changed since it was read/.test(e.message);
+
 /**
  * The door's actor id, per machine (`ep0ch-door:float-box`), so `activity.recent` tells a laptop edit
  * from a float-box one.
@@ -1040,10 +1043,13 @@ export class SocketBoard implements Board {
   }
 
   /**
-   * Move a block and its subtree to Trash. The service's `delete` takes no revision, so the caller checks
-   * the revision it showed just before, and says who did it on screen. With `actor`, the service records it.
+   * Move a block and its subtree to Trash. With `at.revision`, only the block at that revision: one changed since
+   * (another client's save between the caller's read and this) is refused (`Refused`, "Block changed since it was
+   * read") and stays. With `actor`, the service records who did it; the caller says it on screen.
    */
-  async trash(blockId: string, actor?: Actor): Promise<Msg> { return toMsg(await this.request<WireBlock>("delete", { blockId, ...(actor ? { mutation: mutationFor(actor) } : {}) })); }
+  async trash(blockId: string, actor?: Actor, at?: { revision?: number }): Promise<Msg> {
+    return toMsg(await this.request<WireBlock>("delete", { blockId, ...(at?.revision !== undefined ? { expectedRevision: at.revision } : {}), ...(actor ? { mutation: mutationFor(actor) } : {}) }));
+  }
 
   /**
    * Whether `blockId` is in Trash now (its own delete or an ancestor's): true, false, or null when the

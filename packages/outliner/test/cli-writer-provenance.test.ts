@@ -134,3 +134,16 @@ test("--author agent without --actor is refused for every write, before anything
   expect([after.text, after.parentId, Boolean(after.deletedAt)]).toEqual(["Gloves", null, false]);
   expect(store.recentEditActivity({ author: "agent", kinds: ["text", "properties", "move", "delete", "restore"] }).entries).toEqual([]);
 });
+
+test("delete --expected trashes only the block at that revision: a changed one is refused and stays", async () => {
+  const { env, store } = await setup();
+  const tag = store.create("Plant tag");
+  const written = store.update(tag.id, "Plant tag: sweet peas", tag.revision, { author: "user", actorId: "detail" });
+  const stale = await runCli(["delete", "--id", tag.id, "--expected", String(tag.revision)], env);
+  expect(stale.exitCode).not.toBe(0);
+  expect(stale.stderr).toContain(`Block changed since it was read: ${tag.id}`);
+  expect(store.get(tag.id)!.deletedAt).toBeFalsy();
+  expect((await runCli(["restore", "--id", tag.id, "--expected", "1"], env)).stderr).toContain("--expected is for delete");
+  expect((await runCli(["delete", "--id", tag.id, "--expected", String(written.revision)], env)).exitCode).toBe(0);
+  expect(store.get(tag.id)!.deletedAt).toBeTruthy();
+});
