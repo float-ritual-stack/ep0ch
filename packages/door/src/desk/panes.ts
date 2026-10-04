@@ -19,9 +19,11 @@ import { ch, isUp, isDown, type Key } from "../term";
 import { ago, wrap } from "../text";
 import type { TileKindName } from "./tile-kinds";
 import type { ListPicker } from "../surface/picker";
+import type { KeySpot } from "../new-note";
 import { withoutPropertyTokens } from "@ep0ch/outline-core/property-grammar";
 
-export interface PaneView { lines: string[]; placements?: Placement[]; scroll?: Scroll }
+/** `spots`: parts of its rows a click presses a key on (an empty place's `+ New note`: ctrl+n, newNoteOffer). */
+export interface PaneView { lines: string[]; placements?: Placement[]; scroll?: Scroll; spots?: KeySpot[] }
 
 export interface DeskApi {
   ctx: Ctx;

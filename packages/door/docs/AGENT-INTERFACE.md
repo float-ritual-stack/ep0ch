@@ -177,6 +177,31 @@ These change what the person looks at, so an agent's is a visible, attributed mo
     ep0ch act list.read --as claude-7
     ep0ch act list.open n=3 --as claude-7
 
+### New notes and pages (PIE-544)
+
+Also on every screen: `note.new` (the person's `ctrl+n`, the menu's `+`). The service makes the note where its
+placement rule puts it (`notes.create`): an agent's goes under `near=<id>` when it names one, else to the top of
+the Inbox (`inbox=true` says so outright); it is never placed by the person's reader. A `near=` that doesn't
+resolve (gone, in the trash, a system note) is refused, nothing made, the refusal naming the `inbox=true` command;
+only the person's own reader note falls back to the Inbox. It is written as the agent
+(`author: agent` and its id), opens nothing, and is said on the status bar ("an agent (<id>) · made a new note
+“…” in the Inbox"). The answer has the note's `id`, `parentId`, `rule` (`near` or `inbox`) and `said`.
+
+`page.create address=<name>` (a note action, in any reader) makes the page a `[[name]]` points at when nothing
+does yet: `name [page::name]`, where new notes go, through the service's `pages.follow`; a page already there is
+answered, not made again. An agent's opens nothing. Following a missing `[[page]]` (`link.follow`) never makes it,
+for anyone: an agent's is refused, the refusal naming `page.create`, the person is offered it and makes it with a second ⏎ or click.
+
+A first line of only `[page::x]` is titled `x` on the writes the service is given (`create`, `update`,
+`notes.create`, `capture.create`, an `edit.text` save), so an agent's text gets the same title as the person's.
+
+    ep0ch act note.new text="Ask about the seed swap" --as claude-7
+    ep0ch act note.new near=<block id> text="[page::2026-09-30]" --as claude-7
+    ep0ch act page.create address="Seed swap ledger" --as claude-7
+
+With no door open, `ep0ch new "<text>" --as <id> [--near <id>] [--ws <name>] [--json]` makes the same call
+(`notes.create`) from a shell.
+
 ### The agent drawer: the host layer (PIE-498, PIE-513)
 
 Also on every screen but the logon: the host layer's drawer, whose first tab is the App's one agent tile, pulled
@@ -377,6 +402,7 @@ at, and what it does while they're typing:
 | `host.toggle open=true` | no: the drawer comes up over (or beside) the screen, refused on a screen whose `host` is `none`; the keys stay where they were | refused, and within 2s of their last key |
 | `host.toggle open=false`, `host.size` | no | refused while they're typing in the drawer |
 | `agent.restart` | no: the agent comes back where it was | refused while they're typing in the drawer, and within 10s of their last key in the agent |
+| `note.new`, `page.create` | no: an agent's makes the note or page and opens nothing; its placement never reads the person's reader | allowed |
 | `open`, the control socket's `open <id>` | no: shown in a tile (the focused tile's link, a following reader, a free detail) | allowed |
 | `open tile=<reader>`, `link.follow`, `element.open`, `props.follow`, `up`, `threads`, `resolve` in the reader that has the person's keys (on the board, the preview they read the lanes through too) | it would move what they're reading | refused, the way named: another reader (`tile=`), or `open id=` naming none (an open naming no tile lands where opens land (the tile's link, the readers row, a reader that follows), which can be the note the person is reading: said on screen, never their keys, never a reader they're typing in). Elsewhere allowed; an agent's `link.follow n=` never moves the person's `[ ]` position |
 | `link.follow`, `element.open` on a web link or a figure | no: an agent never opens the person's browser or system viewer | allowed: the answer gives the address (`outside: browser\|viewer`, `url`, `launched: false`) and the reader says the agent was given it |

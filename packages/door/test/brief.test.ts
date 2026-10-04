@@ -98,6 +98,7 @@ describe.skipIf(!outliner)("the brief screen", () => {
     expect(top().name).toBe("brief");
     await until(() => brief().briefs !== null, "the briefs asked for");
     expect(screen()).toContain("No daily brief yet.");
+    expect(screen()).toContain("+ New note · ctrl+n");
     expect(screen()).toContain("ep0ch --skill daily-brief");
     expect(screen()).toContain("daily brief · none yet");
     (app as any).lastInput = 0;                                                     // the person is idle

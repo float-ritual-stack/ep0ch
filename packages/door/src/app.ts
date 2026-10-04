@@ -7,6 +7,7 @@ import { ActionRefused, agentLabel, traceActions, type ActRequest } from "./surf
 import { Dispatcher } from "./surface/dispatch";
 import { screenKeys, whereabouts, type ScreenKeys, type Whereabouts } from "./whereabouts";
 import { SHELL_ACTIONS } from "./screens";
+import { NEW_NOTE_ACTIONS } from "./new-note";
 import { COPY_MAX, isCopyKey, osc52, uncopied, type Uncopied } from "./surface/selection";
 import { bg, C, chip, fg, headOf, pad, RESET, tailFrom, width } from "./style";
 import { printable } from "./text";
@@ -132,6 +133,8 @@ export interface Ctx {
    * The shell's one answer (src/whereabouts.ts); a frame around a screen answers it as seen from inside.
    */
   person?(): Whereabouts;
+  /** Run an action as the person through the door's own dispatcher (its every screen's: `note.new`, `open`, `edit`); a refusal is said. */
+  press?(name: string, args?: Record<string, unknown>): Promise<unknown>;
 }
 
 export interface Screen {
@@ -165,6 +168,13 @@ export interface Screen {
   describe?(): unknown;
   /** Put a block in front of the user (`ep0ch-door open <id>`). */
   openBlock?(m: import("./board").Msg): void;
+  /** The note in the reader the person is in here, where a new note goes under (PIE-544, `note.new`); none: the Inbox. */
+  noteContext?(): string | null;
+  /**
+   * A new note for the person to write (PIE-544): opened where this screen's opens land, given their keys, its edit
+   * open (the reader's `edit`, the one editor and draft session). The reader's name, or null when none took it.
+   */
+  editNew?(m: import("./board").Msg): Promise<string | null>;
   /**
    * The screen's dispatcher (PIE-514): the action sets it registered, run by its keys and clicks and by `act`
    * (`ep0ch-door actions` lists them). A screen without one has only the shell's.
@@ -290,6 +300,8 @@ export class App implements Ctx {
   }
   screens(): readonly Screen[] { return this.stack; }
   idleFor(): number { return Date.now() - this.lastInput; }
+  /** An action as the person, through the door's dispatcher (Ctx.press): `note.new`'s open and edit on a screen without readers. */
+  press(name: string, args: Record<string, unknown> = {}): Promise<unknown> { return this.dispatch.press(name, args); }
   get graphics() { return this.video !== "cells"; }
 
   /** Screens left with programs still running in them (the desk's terminals): alive until reopened or the door quits. */
@@ -550,6 +562,7 @@ export class App implements Ctx {
   readonly dispatch: Dispatcher = new Dispatcher({ title: "door", ctx: () => this }, [
     { set: HOST_TILE_ACTIONS, takes: "screen", claims: req => req.action === "tile.herdr" && req.tile === DOCK_TILE_ID, on: () => ({ dock: this.dock }) },
     { set: DOCK_ACTIONS, takes: "none", fixed: () => HOST_AGENT_TILE, on: (_, how) => ({ dock: this.dock, ctx: how.ctx, here: this.stack.at(-1) }) },
+    { set: NEW_NOTE_ACTIONS, takes: "none", on: (_, how) => ({ ctx: how.ctx, here: this.stack.at(-1) }) },
     { set: SHELL_ACTIONS, takes: "none", claims: req => SHELL_ACTIONS.has(req.action) && !this.stack.at(-1)?.dispatch?.has(req.action), on: (_, how) => ({ ctx: how.ctx, here: this.stack.at(-1), again: (name: string, args: Record<string, unknown>) => this.dispatch.act({ action: name, args }, how.actor) }) },
     { set: EXT_ACTIONS, takes: "none", claims: req => EXT_ACTIONS.has(req.action) && !(!!this.stack.at(-1)?.dispatch?.has(req.action) && (req.tile !== undefined || req.args?.block === undefined)), on: (_, how) => ({ ctx: how.ctx }) },
     { delegate: () => this.stack.at(-1)?.dispatch },
@@ -643,6 +656,8 @@ export class App implements Ctx {
     if (this.dock.key(k, this.stack.at(-1), this.term.info.rows, this.dockRun)) return;
     // alt+v and alt+t turn the video mode and the theme on every screen (but in a terminal tile, whose keys are its program's).
     if (k.kind === "alt" && (k.ch === "v" || k.ch === "t") && !this.stack.at(-1)?.rawKeys?.()) { void this.dispatch.press(k.ch === "v" ? "video.cycle" : "theme.cycle"); return; }
+    // ctrl+n: a new note (PIE-544), on every screen, but never while the person types (an edit, a filter, a terminal tile).
+    if (k.kind === "char" && k.ctrl && k.ch === "n" && !this.stack.at(-1)?.rawKeys?.() && !this.stack.at(-1)?.holdsKeys?.() && !this.stack.at(-1)?.noDock) { void this.dispatch.press("note.new"); return; }
     // A paste goes whole to a screen that takes it (a terminal tile); anywhere else it's typed, key by key.
     if (k.kind === "paste" && !this.stack.at(-1)?.rawKeys?.()) {
       for (const key of pasteKeys(k.text)) this.key(key);

@@ -298,14 +298,22 @@ export const SECTIONS: Section[] = [
     stage(n, show) {
       const r = new ReaderPane();
       return deskOf({ title: "showcase · images", panes: [r], layout: ([a]) => leaf(a!) }, show, [[r, n.images]]);
+      },
     },
-  },
   {
     key: "figures", need: "draw a decision, a chat, a keymap, days (uptime, activity, a month) or annotated code in a note; write a figure's rows in Markdown", part: "the figure kinds (src/graphs.ts KINDS, the newer ones in src/figures/), their rows from Markdown or a figure block's child bullets read by outline-core's figure grammar (figure-markdown.ts), drawn by the reader's NoteSurface; a quote callout's byline (quoteByline); ep0ch export writes each figure as its ASCII twin (figureAscii)", files: "outline-core/src/figure-markdown.ts, src/figures/, src/graphs.ts, src/live.ts, src/export.ts, outline-core/src/callouts.ts",
     aside: "every figure in the left reader is written as Markdown rows; the live ones read the plot's decision notes and the backup runs scripts/backup-runs.ts writes · the figure block at the bottom is a note whose rows are its child bullets: [ ] steps to them, ⏎ or a click opens one · the right reader's first sheet is read from the action registry, so it says what the reader's keys do now · ep0ch export writes each figure as plain ASCII in a fence",
     stage(n, show) {
       const a = new ReaderPane(), b = new ReaderPane();
       return deskOf({ title: "showcase · figures", panes: [a, b], layout: ([x, y]) => row(0.6, x!, y!) }, show, [[a, n.markdownFigures], [b, n.keys]]);
+    },
+  },
+  {
+    key: "newnotes", need: "make a new note or page from anywhere", part: "note.new (ctrl+n on every screen, + on the menu, act) asks the service's notes.create, whose placement rule puts it (under the note in the reader you're in, else the top of the Inbox), then opens it where opens land through the reader's own edit; a missing [[page]] is offered, then made by page.create (pages.follow, the same rule); a lone [page::x] titles itself (outline-core's page-title rule, on ⏎ and on every save)", files: "src/new-note.ts, outline-core/src/page-title.ts, outliner src/note-placement.ts, src/surface/note.ts",
+    aside: "go in (⏎), then ctrl+n: a note under this one opens to be written · ] to [[Seed swap ledger]], ⏎ offers it, ⏎ again makes it in the Inbox · type [page::2026-03-12] and ⏎ on the first line of a new note",
+    stage(n, show) {
+      const a = new ReaderPane();
+      return deskOf({ title: "showcase · new notes", panes: [a] }, show, [[a, n.newNotes]]);
     },
   },
 ];
@@ -454,6 +462,18 @@ export class Showcase implements Screen {
   unsaved() { return [...this.stages.values()].some(f => f.unsaved()); }
   keepDrafts() { return [...this.stages.values()].flatMap(f => f.keepDrafts()); }
   dispose() { for (const f of this.stages.values()) f.dispose(); }
+  /** The note in the reader the person is in on the shown stage (PIE-544): a new note goes under it. */
+  noteContext(): string | null { return this.focus === "stage" ? this.stages.get(this.sel)?.top.noteContext?.() ?? null : null; }
+  /** A new note opened to be written on the shown stage, as its desk opens one; the person's keys go into the stage. */
+  async editNew(m: Msg): Promise<string | null> {
+    const f = this.stage(this.sel);
+    if (!f?.top.editNew) throw new ActionRefused(`the ${SECTIONS[this.sel]!.key} section has no reader to write a new note in`);
+    const was = this.focus;
+    this.focus = "stage";
+    const at = await f.top.editNew(m).catch(e => { this.focus = was; throw e; });
+    if (!at) this.focus = was;
+    return at;
+  }
   openBlock(m: Msg) { const f = this.stage(this.sel); if (!f?.top.openBlock) throw new ActionRefused(`the ${SECTIONS[this.sel]!.key} section can't open blocks`); f.top.openBlock(m); }
 
   describe() {

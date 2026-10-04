@@ -455,6 +455,8 @@ export class InboxRepository {
 
   private eligible(block: Block): boolean {
     if (this.store.isCaptureDraft(block.id)) return false;
+    // A note opened to be written (notes.create, PIE-544) is empty until its first save: nothing to file yet.
+    if (!block.text.trim()) return false;
     if (block.author === "system" || block.actorId === "inbox-agent" || has(block, "system-view") || has(block, "system-doc") ||
       has(block, "work-id") || has(block, "work-stage")) return false;
     const types = block.properties.filter(property => property.key === "type").map(property => property.value.toLowerCase());

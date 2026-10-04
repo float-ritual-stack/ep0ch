@@ -109,6 +109,26 @@ describe.skipIf(!outliner)("the welcome screen", () => {
     expect((app.describe() as any).state).toMatchObject({ kind: "welcome", welcome: [], fallback: { page: "claude-now", id: page.id } });
   });
 
+  test("an outline with no notes of its own offers + New note (PIE-544): a click makes one in the Inbox and opens it to write; esc on it empty trashes it", async () => {
+    expect(screen()).toContain("+ New note · ctrl+n");
+    expect(screen()).toContain("^N new");
+    const inbox = (await board.roots()).find(r => r.props["system-view"] === "inbox")!.id;
+    const before = (await board.children(inbox)).length;
+    const drafting = () => [...(top() as any).panes.values()].find((p: any) => p.surface?.draft) as any;
+    const { x, y } = at("+ New note");
+    mouse(x + 1, y);
+    await until(() => !!drafting(), "the new note's edit", 8000);
+    const id = drafting().surface.draft.blockId;
+    expect((await board.get(id))!.parentId).toBe(inbox);
+    press({ kind: "esc" });
+    await until(() => !drafting(), "the edit closed", 5000);
+    const end = Date.now() + 5000;
+    while ((await board.children(inbox)).length !== before && Date.now() < end) await Bun.sleep(30);
+    expect((await board.children(inbox)).length).toBe(before);
+    // The keys back where the screen opened them, for what follows.
+    top().focusTile("detail", { kind: "user" });
+  }, 30_000);
+
   test("tagged notes replace the fallback, in order; the first is the detail and has the keys", async () => {
     n.kettle = await board.createBlock(null, "The kettle\nIt whistles now.");
     n.shelf = await board.createBlock(null, `Tea shelf\nNext to ((${n.kettle.id}|the kettle)).`);

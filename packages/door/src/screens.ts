@@ -209,7 +209,7 @@ export class Logon implements Screen {
  * already there is refused (an agent's, on top of the person's desk, would start its programs twice).
  */
 /** `action`: the item runs a shell action instead of opening a screen (`!`, `screen.shell`). */
-interface MenuItem { key: string; label: string; open: (ctx: Ctx) => Screen | null; one?: string; action?: "screen.shell" | "session.end" }
+interface MenuItem { key: string; label: string; open: (ctx: Ctx) => Screen | null; one?: string; action?: "screen.shell" | "session.end" | "note.new" }
 
 const ITEMS: MenuItem[] = [
   { key: "N", label: "Newscan", open: ctx => new MessageList("new scan", n => ctx.board.changedSince(ctx.lastCall, n, !!ctx.extensionChanges), "since your last call") },
@@ -236,6 +236,8 @@ const ITEMS: MenuItem[] = [
   { key: "!", label: "Shell", open: () => null, action: "screen.shell" },
   // End the session (PIE-418): logging off (G) only detaches this terminal; this stops the door and its programs.
   { key: "E", label: "End", open: () => null, action: "session.end" },
+  // A new note (PIE-544), as ctrl+n on every screen: at the top of the Inbox, opened to be written.
+  { key: "+", label: "New note", open: () => null, action: "note.new" },
 ];
 
 /** Every screen the menu opens, by its key: what the parity test (PIE-506) presses every key on. */
@@ -398,6 +400,7 @@ const SCREEN_NAMES: Record<string, string[]> = {
   N: ["new scan", "newscan"], J: ["join conference", "conferences"], K: ["kanban", "board"], R: ["recent"], W: ["who's online", "who"],
   L: ["last callers"], F: ["file areas"], S: ["board stats"], Q: ["quay", "river"], B: ["art"], D: ["desk"], G: ["goodbye", "logoff", "log off"],
   X: ["showcase"], T: ["today", "brief"], O: ["waiting"], C: ["welcome", "claude-now"], "!": ["drop to shell", "dos"], E: ["end session", "end"],
+  "+": ["new note", "new", "note.new"],
 };
 
 /** The shell's actions: the menu's letters, ⏎ and clicks, and q/Esc on every BBS screen, run these, as `act` does. */
@@ -418,7 +421,7 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
     },
   }),
   "screen.open": def({
-    summary: "open a screen from the main menu over the current one (q comes back); an agent's waits until the person is idle and is said on the status bar", keys: "the menu's letters N J K R W L F S Q B D G X T O C E, or n j k r w l f s q b d g x t o c e, ⏎, click on a menu item or its letter on the key line",
+    summary: "open a screen from the main menu over the current one (q comes back); an agent's waits until the person is idle and is said on the status bar", keys: "the menu's letters N J K R W L F S Q B D G X T O C E +, or n j k r w l f s q b d g x t o c e, ⏎, click on a menu item or its letter on the key line",
     touches: "screen", replay: "safe", says: out => (out?.key ? { text: `· opened ${out.opened ?? out.key} · q goes back`, ms: 6000 } : null),
     args: { name: { type: "string", about: "the menu key (S), its label (Stats) or the screen's title (board stats)" } },
     run({ name }, { ctx, here, again }, actor): unknown {
@@ -574,7 +577,7 @@ export function shellKey<K extends keyof ShellArgs & string>(name: K, args: Shel
   let s = shells.get(here);
   if (!s) {
     const e: { ctx: Ctx; d: Dispatcher } = { ctx, d: null as unknown as Dispatcher };
-    e.d = new Dispatcher({ get title() { return here.title; }, ctx: () => e.ctx }, [{ set: SHELL_ACTIONS, takes: "none", on: (_, how) => ({ ctx: how.ctx, here, again: (n: string, a: Record<string, unknown>) => e.d.press(n, a) }) }]);
+    e.d = new Dispatcher({ get title() { return here.title; }, ctx: () => e.ctx }, [{ set: SHELL_ACTIONS, takes: "none", on: (_, how) => ({ ctx: how.ctx, here, again: (n: string, a: Record<string, unknown>) => (SHELL_ACTIONS.has(n) || !e.ctx.press ? e.d.press(n, a) : e.ctx.press(n, a)) }) }]);
     shells.set(here, s = e);
   }
   s.ctx = ctx;
@@ -822,6 +825,21 @@ export class MessageReader implements Screen {
   constructor(private readonly list: Msg[], private index: number) {}
 
   private get msg() { return this.list[this.index]!; }
+  /** The note read here: a new note made from this reader goes under it (PIE-544). */
+  noteContext(): string | null { return this.surface.msg?.id ?? null; }
+  /**
+   * A new note to write (PIE-544): its edit opened where this reader's opens land, as a followed link's: a reader
+   * over this one (this one, when it already shows it). Esc on it still empty puts it in the trash and that reader goes.
+   */
+  async editNew(m: Msg): Promise<string | null> {
+    if (!this.ctx) return null;
+    if (this.surface.msg?.id !== m.id) {
+      const over = new MessageReader([m], 0);
+      this.ctx.push(over);
+      return over.editNew(m);
+    }
+    return (await this.surface.editNew(m, this.host(this.ctx))) ? READER : null;
+  }
   /** What the person is in here, for a refusal: "an edit", "a comment", "the property panel". */
   personIn(): string { const w = this.surface.sessionWord() ?? "property panel"; return w === "property panel" ? "the property panel" : `${w === "edit" ? "an" : "a"} ${w}`; }
 
@@ -837,6 +855,8 @@ export class MessageReader implements Screen {
         ctx.push(new MessageReader([m], 0));
       },
       header: (m, w, info) => this.header(m, w, info),
+      // A new note opened over a reader, trashed still empty: this reader was for it alone.
+      gone: id => { if (this.list.length === 1 && this.msg.id === id && ctx.screens?.().at(-1) === this) ctx.pop(); },
       // What the surface doesn't take is the BBS reader's: next, previous, the thread, back.
       ownKeys: "nNpPtTqQU",
       // Its own keys and clicks run its note actions through the reader's dispatcher.
@@ -1271,6 +1291,7 @@ const HELP: Record<string, string> = {
   D: "the desk: outline, reader, thread and live tiles you lay out yourself", X: "the showcase: every shared part, live (on a showcase outline)", T: "today's brief: the newest type::daily-brief note, live; , . step days", O: "waiting on others: outbox items still waiting, by who they wait on, longest first", C: "Claude · now: the [[claude-now]] page, pinned and live", V: "cycle video mode (alt+v on every screen; alt+t the theme)", "?": "this screen", G: "log off (and remember this call); in a session only this terminal detaches, and everything keeps running for the next attach",
   "!": "drop to shell: your login shell in this terminal; exit comes back here, tiles still running",
   E: "end the session: the door stops with its terminal tiles' programs (G only detaches this terminal); asks first when programs run",
+  "+": "a new note at the top of the Inbox, opened to be written (ctrl+n on every screen; from a reader, under the note it shows)",
 };
 
 export class Goodbye implements Screen {

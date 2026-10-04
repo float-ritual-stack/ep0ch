@@ -2,6 +2,8 @@ import { queryRequestProblem } from "./block-query";
 import { calloutTypesFromBlocks } from "@ep0ch/outline-core/callouts";
 import type { RequestInput } from "./client";
 import { PROTOCOL } from "@ep0ch/outline-core/protocol";
+import { withPageTitle } from "@ep0ch/outline-core/page-title";
+import { readNewNoteIntent } from "./note-placement";
 import { DRAFT_HOLDER_TIMEOUT_MS, DraftHolds, type DraftHold, type DraftHolderAnswer } from "./draft-patch";
 import { DraftPatchRouter, type DraftHolderAsk } from "./draft-patch-router";
 import type { ChangeAttribution } from "./change-feed";
@@ -99,6 +101,7 @@ import {
   type OutlinerNavigationTarget,
   type OutlinerUiCommand,
   type PageAddressFollowResult,
+  type NewNoteReceipt,
   type OutlinerRequest,
   type RoadmapItemCreateReceipt,
   type OutlinerResponse,
@@ -117,6 +120,8 @@ import {
   type GotoSearchCollection,
   type PageAddressCollection,
 } from "./types";
+/** A client's text with a page's title filled in (PIE-544, outline-core's page-title rule); anything not text as it came. */
+const titled = <T,>(text: T): T => (typeof text === "string" ? withPageTitle(text) as T : text);
 
 function eventResultId(value: unknown, label: string): string {
   if (
@@ -2285,11 +2290,14 @@ export class OutlinerServer {
           break;
         case "create":
           result = this.store.create(
-            request.text,
+            titled(request.text),
             request.parentId,
             request.author,
             request.provenance,
           );
+          break;
+        case "notes.create":
+          result = this.store.createNote(titled(request.text ?? ""), readNewNoteIntent(request.intent), request.author, request.provenance);
           break;
         case "mentions.ingest": result=this.mentions.ingest(request.message); break;
         case "mentions.list": result=this.mentions.list(request.scope,request.limit); break;
@@ -2397,7 +2405,7 @@ export class OutlinerServer {
           }
           result = this.store.capture(
             request.requestId,
-            request.text,
+            titled(request.text),
             request.source,
             request.capturedFromBlockId,
             request.author,
@@ -2464,7 +2472,7 @@ export class OutlinerServer {
           result = {retained:true};
           break;
         case "edit-recovery.commit":
-          result = this.editRecovery.commit(request.recoveryId,request.expectedRevision,request.text,request.basedOnRevision,request.mutation,request.identityChanges);
+          result = this.editRecovery.commit(request.recoveryId,request.expectedRevision,titled(request.text),request.basedOnRevision,request.mutation,request.identityChanges);
           break;
         case "edit-recovery.discard":
           result = this.editRecovery.discard(request.recoveryId,request.expectedRevision);
@@ -2543,7 +2551,7 @@ export class OutlinerServer {
         case "update":
           result = this.store.update(
             request.blockId,
-            request.text,
+            titled(request.text),
             request.expectedRevision,
             request.mutation,
             "text",
@@ -2820,6 +2828,10 @@ export class OutlinerServer {
       case "edit-recovery.separate":
         domain = "content";
         blockId = (response.result as Block).id;
+        break;
+      case "notes.create":
+        domain = "content";
+        blockId = (response.result as NewNoteReceipt).block.id;
         break;
       case "edit-recovery.commit":
         domain = "content";
