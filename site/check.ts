@@ -52,11 +52,13 @@ async function checkPages() {
   }
   // Serve the site; /bare/… is a page with every stylesheet and script taken out: what paints before they arrive.
   const server = Bun.serve({
-    port: 0,
+    port: 0, hostname: "127.0.0.1",
     async fetch(req) {
       const path = new URL(req.url).pathname;
       const bare = path.startsWith("/bare/");
-      const file = Bun.file(join(SITE, decodeURIComponent(bare ? path.slice(5) : path)));
+      const target = resolve(SITE, "." + decodeURIComponent(bare ? path.slice(5) : path));
+      if (relative(SITE, target).startsWith("..")) return new Response("not found", { status: 404 });
+      const file = Bun.file(target);
       if (!(await file.exists())) return new Response("not found", { status: 404 });
       if (!bare) return new Response(file);
       const text = (await file.text()).replace(/<link[^>]*>/g, "").replace(/<script src[^>]*><\/script>/g, "");
@@ -69,7 +71,7 @@ async function checkPages() {
     for (const [label, url, w, h] of [["bare", `/bare/${name}`, 1280, 900], ["desktop", `/${name}`, 1280, 900], ["phone", `/${name}`, 400, 860]] as const) {
       const png = join(out, `${name.replace(/\W+/g, "-")}-${label}.png`);
       const p = Bun.spawn([chrome, ...(chrome.includes("headless-shell") ? [] : ["--headless=new"]), "--no-sandbox", "--disable-gpu", "--hide-scrollbars", `--window-size=${w},${h}`,
-        "--virtual-time-budget=4000", `--screenshot=${png}`, `http://localhost:${server.port}${url}`], { stdout: "ignore", stderr: "ignore" });
+        "--virtual-time-budget=4000", `--screenshot=${png}`, `http://127.0.0.1:${server.port}${url}`], { stdout: "ignore", stderr: "ignore" });
       await p.exited;
       if (!existsSync(png)) { fail(`${name} (${label}): no screenshot`); continue; }
       const { w: pw, h: ph, data } = decodePng(Buffer.from(await Bun.file(png).arrayBuffer()));
@@ -105,7 +107,7 @@ async function checkSamples() {
   const host = Bun.spawn([process.execPath, "src/host-main.ts"], { cwd: join(REPO, "packages/outliner"), env, stdout: Bun.file(log), stderr: Bun.file(log) });
   const sh = async (script: string) => {
     const p = Bun.spawn(["bash", "-c", script], { cwd: dir, env, stdout: "pipe", stderr: "pipe" });
-    const [o, e] = [await new Response(p.stdout).text(), await new Response(p.stderr).text()];
+    const [o, e] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text()]);
     return { code: await p.exited, out: o + e };
   };
   let board: SocketBoard | null = null;

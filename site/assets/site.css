@@ -149,6 +149,8 @@ section > * + * { margin-top: var(--s4); }
   --term-color-12: var(--term-9); --term-color-13: var(--term-13); --term-color-14: var(--term-11); --term-color-15: var(--term-15);
 }
 .cast .ap-wrapper { background: var(--surface-ground); }
+/* The player clears its own outlines, but its keyboard shortcuts need focus: show where focus is. */
+.cast .ap-wrapper:focus-visible, .cast pre.ap-terminal:focus-visible { outline: 2px solid var(--ink-link); outline-offset: -2px; }
 .cast .ap-player { --ap-font-family: var(--font-mono); border-radius: 0; }
 .cast .ap-control-bar { background: var(--surface-bar) !important; color: var(--ink-strong) !important; }
 .cast .ap-marker-container .ap-marker { background-color: var(--ink-heading) !important; }
@@ -169,6 +171,8 @@ section > * + * { margin-top: var(--s4); }
 .diff .add { background: color-mix(in srgb, var(--ink-add) 10%, transparent); }
 .diff .add::before { content: "+ "; color: var(--ink-add); }
 .diff .del { background: color-mix(in srgb, var(--ink-remove) 10%, transparent); color: var(--ink-dim); }
+/* A removed line is never part of a selection, so selecting the diff (by hand, or copy's fallback) takes its result. */
+.diff .del { user-select: none; -webkit-user-select: none; }
 .diff .del::before { content: "- "; color: var(--ink-remove); }
 .diff .ctx::before { content: "  "; }
 /* syntax: four roles only; colour is a hint, never the meaning */
