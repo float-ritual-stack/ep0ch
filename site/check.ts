@@ -130,6 +130,9 @@ async function checkSamples() {
       const html = await Bun.file(page).text(), name = relative(SITE, page);
       const blocks = [...html.matchAll(/<(div|pre) class="(?:code|diff)"([^>]*data-run="(\w+)"[^>]*)>([\s\S]*?)<\/pre>/g)];
       if (!blocks.length) continue;
+      // A sample the pattern above can't read would go unchecked: every data-run must be one it read.
+      const marked = [...html.matchAll(/data-run="/g)].length;
+      if (marked !== blocks.length) fail(`${name}: ${marked} data-run samples, ${blocks.length} read (each is <div|pre class="code|diff" … data-run="…">…</pre>)`);
       console.log(` ${name}`);
       for (const [, , attrs, kind, inner] of blocks) {
         const expect = /data-expect="([^"]*)"/.exec(attrs!)?.[1], query = /data-query="([^"]*)"/.exec(attrs!)?.[1];

@@ -5,8 +5,8 @@
 // reading of its palette (theme.ts's comments; the callout tones are src/callouts.ts's TONE itself).
 import { THEMES, type Rgb, type Theme } from "../packages/door/src/theme";
 import { TONE } from "../packages/door/src/callouts";
+import { C as P } from "../packages/door/src/style";
 
-const P = { black: 0, blue: 1, green: 2, cyan: 3, red: 4, magenta: 5, brown: 6, grey: 7, dark: 8, lblue: 9, lgreen: 10, lcyan: 11, lred: 12, lmagenta: 13, yellow: 14, white: 15 } as const;
 const hex = ([r, g, b]: Rgb) => `#${[r, g, b].map(v => v.toString(16).padStart(2, "0")).join("")}`;
 const mix = (a: Rgb, b: Rgb, t: number): Rgb => [0, 1, 2].map(i => Math.round(a[i]! + (b[i]! - a[i]!) * t)) as unknown as Rgb;
 
