@@ -89,9 +89,10 @@ export const FIGURE_WIDTH = 60;
 /**
  * `text` with each `::graph-*` figure (outside code fences) written as its ASCII twin in a fence. `drawn`: the text the
  * figures are read from, when `text` had its links rewritten (resolveLinks): the same figures in the same order. `note`:
- * the note it is, for a figure block's child bullets. `whole`: `text` starts with the note's title (else it is its body).
+ * the note it is, for a figure block's child bullets. Its first line is the note's title (a body's is the prose line 1
+ * held), as the reader's is.
  */
-export function figuresAsAscii(text: string, note: string, drawn = text, whole = true): string {
+export function figuresAsAscii(text: string, note: string, drawn = text): string {
   const blocks = (t: string) => {
     const lines = t.split("\n"), out: { kind: string; from: number; to: number }[] = [];
     let fence = false;
@@ -112,7 +113,7 @@ export function figuresAsAscii(text: string, note: string, drawn = text, whole =
   const lines = target.lines.slice();
   // The note's figure block, as the reader finds it (surface/note.ts readableSource): the first line with text below
   // the title and its property lines.
-  const start = whole ? Math.max(0, titleLine(drawn).line) + 1 : 0, meta = whole ? metadataLines(drawn, null) : new Set<number>();
+  const start = Math.max(0, titleLine(drawn).line) + 1, meta = metadataLines(drawn, null);
   const blockLine = source.lines.findIndex((l, i) => i >= start && !meta.has(i) && l.trim());
   for (let k = target.out.length - 1; k >= 0; k--) {
     const t = target.out[k]!, s = source.out[k]!;
@@ -151,7 +152,7 @@ export function exportFiles(roots: readonly BlockRecord[], byId: ReadonlyMap<str
   }
   const linked = (r: BlockRecord, whole: boolean) => {
     const raw = whole ? r.text : r.body, text = o.resolveLinks ? resolveLinks(r, files, whole) : raw;
-    return o.source ? text : figuresAsAscii(text, r.id, raw, whole);
+    return o.source ? text : figuresAsAscii(text, r.id, raw);
   };
   return own.map(r => {
     const lines: string[] = [];

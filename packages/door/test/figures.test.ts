@@ -211,8 +211,6 @@ describe("a figure block's child bullets", () => {
     const text = "Beans\n[type::figures]\n\n::graph-timeline\n---\ntitle: rows\n---\n::";
     figuresAsAscii(text, "note"); await liveSettled();
     expect(figuresAsAscii(text, "note")).toContain("Apr  sow");
-    // A body (no title line): its first line with text is the figure block.
-    expect(figuresAsAscii("::graph-timeline\n---\ntitle: rows\n---\n::", "note", undefined, false)).toContain("Apr  sow");
   });
   test("a ::links answer arriving tells listenLinks (drawNote's loop draws again), and an answer for an outline swapped out is dropped", async () => {
     let told = 0;
