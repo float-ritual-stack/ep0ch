@@ -20,6 +20,8 @@
   "dependencies": {
     "@ep0ch/outline-core": "workspace:*",
     "@ep0ch/outliner": "workspace:*",
-    "@xterm/headless": "6.0.0"
+    "@xterm/headless": "6.0.0",
+    "image-size": "2.0.4",
+    "sharp": "0.35.5"
   }
 }

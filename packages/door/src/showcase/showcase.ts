@@ -292,6 +292,14 @@ export const SECTIONS: Section[] = [
       return deskOf({ title: "showcase · callouts", panes: [a, b], layout: ([x, y]) => row(0.62, x!, y!) }, show, [[a, n.callouts], [b, n.calloutType]]);
     },
   },
+  {
+    key: "images", need: "draw an image or video in a note; size it, place it, make it the note's header", part: "the media line (PIE-532): [img::path] and the layout properties beside it ([size::] [height::] [align::] [layout::hero] [alt::]), parsed once (parseMediaLine), laid out by renderDoc into Kitty placements (scaled by sharp to the box, never up), the header drawn by NoteSurface above the title; image.size, image.align and image.hero write the line through the note's save", files: "src/media.ts, src/doc.ts, src/surface/note.ts, src/kitty.ts",
+    aside: "[ ] to an image, then + - size it, ← → move it, H makes it the header (or click its caption's [−][+] [◂][▸] [▀]) · ctrl+z undoes · an agent: images, then image.size n=2 to=50%, image.align, image.hero · images draw under Kitty graphics; elsewhere each line says what it is",
+    stage(n, show) {
+      const r = new ReaderPane();
+      return deskOf({ title: "showcase · images", panes: [r], layout: ([a]) => leaf(a!) }, show, [[r, n.images]]);
+    },
+  },
 ];
 
 /** The index is wide enough for every need on one line when the terminal allows; narrow, it lists the keys only. */
@@ -494,7 +502,7 @@ export class Showcase implements Screen {
 /** The showcase's own actions: which section is shown. Keys and clicks on the index call the same code. */
 export const SHOWCASE_ACTIONS = actionSet<Showcase>()("showcase", {
   "section.try": def({
-    summary: "go into a section's stage (name=<1-22> or its key, else the one shown): the person's keys and mouse go to the part itself until its own esc brings them back to the index. The person's only: an agent acts in the stage with its actions (`act` reaches the shown section's)",
+    summary: "go into a section's stage (name=<1-23> or its key, else the one shown): the person's keys and mouse go to the part itself until its own esc brings them back to the index. The person's only: an agent acts in the stage with its actions (`act` reaches the shown section's)",
     keys: "⏎ → l tab, click in the stage",
     touches: "screen", replay: "safe", person: "going into a section gives it the person's keys; an agent runs the shown section's own actions instead",
     args: { name: { type: "string", optional: true, about: "the section's number or key; the one shown when left out" } },
@@ -505,7 +513,7 @@ export const SHOWCASE_ACTIONS = actionSet<Showcase>()("showcase", {
     },
   }),
   "section": def({
-    summary: "show a section (name=<1-22> or its key: note, actions, edit, search, drafts, panes, screens, kinds, terminal, preview, screen, spine, entity, presence, live, tabs, projection, extensions, selection, service, session, callouts); refused to an agent while the person is in one", keys: "↑↓ j k, 1-9 0, click, wheel",
+    summary: "show a section (name=<1-23> or its key: note, actions, edit, search, drafts, panes, screens, kinds, terminal, preview, screen, spine, entity, presence, live, tabs, projection, extensions, selection, service, session, callouts, images); refused to an agent while the person is in one", keys: "↑↓ j k, 1-9 0, click, wheel",
     touches: "screen", replay: "safe", says: r => `showed section ${r.section} (${r.key})`,
     args: { name: { type: "string", about: "the section's number or key" } },
     run({ name }, s) {

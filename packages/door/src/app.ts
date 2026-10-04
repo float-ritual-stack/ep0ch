@@ -1,4 +1,5 @@
 // The door: a stack of screens, one status bar, one paint per change.
+import { nextFrame, onMediaChange } from "./media";
 import type { Placement } from "./kitty";
 import { isDisplay, Painter, type Display, type RawTerm, type Video } from "./display";
 import { AGENT_ACTOR_ID, type Actor, type SocketBoard, type OutlineEvent } from "./socket";
@@ -272,6 +273,8 @@ export class App implements Ctx {
     // screen says where it goes (Term keeps mouse and ctrl+]).
     (term as { rawSink?: unknown }).rawSink = () => this.dock.rawInput(this.dockRun) ?? this.stack.at(-1)?.rawInput?.() ?? null;
     connectFigures(board, () => this.redraw());
+    // An image scaled (or dimmed, or read again after a change on disk) is drawn in the next frame.
+    onMediaChange(() => this.redraw());
     board.onConnection = (state, detail) => { this.offline = state === "lost"; this.flash(state === "lost" ? detail : `reconnected · ${detail}`); };
     term.onResize(() => this.redraw());
     this.timer = setInterval(() => this.tick(), 33);
@@ -766,6 +769,8 @@ export class App implements Ctx {
     // The agent drawer (the host layer's, PIE-513) is laid over the screen's bottom rows: over one, the screen drew at
     // its full size under it; beside one, the screen drew in the rows above it (App.t).
     this.dock.active = !s.noDock;
+    // What this frame draws stays in the media module's memory while it's on screen (nextFrame).
+    nextFrame();
     const frame = s.render(this);
     let lines = frame.lines.slice(0, rows - 1);
     while (lines.length < rows - 1) lines.push("");

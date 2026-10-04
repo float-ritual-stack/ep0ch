@@ -225,7 +225,7 @@ A journey to try, whichever service it is:
     ep0ch --showcase
     ep0ch --showcase --reset
 
-opens the showcase (PIE-439): the shared door parts, live, in twenty-two sections, one per row of the reuse map
+opens the showcase (PIE-439): the shared door parts, live, in twenty-three sections, one per row of the reuse map
 ([Before adding a feature](docs/UI-GRAMMAR.md#before-adding-a-feature)) in the map's order. The map's
 scrolling row, its key-names row, its list-picker and line-input rows (in the panes section's ^W P and ^W r,
 the board's g m s), its elements and reading-ruler row (PIE-441) and its terminal-output row (PIE-510: cells, escapes,
@@ -260,7 +260,7 @@ door's own `EP0CH_STATE` and `EP0CH_CONTROL` there too, so nothing reaches a rea
 - **Reaching it:** `ep0ch --showcase` (or `ep0ch try --showcase`, `scripts/try-it.sh --showcase`) opens it on its
   own seeded outline, whatever this folder names. `X` on the main menu (its key line; the menu art has twelve
   slots) opens the screen on the outline you're on: on one without the seed it says so and writes nothing.
-- **Agents:** `ep0ch act section name=<1-22|key>` shows a section (your keys go back to the list);
+- **Agents:** `ep0ch act section name=<1-23|key>` shows a section (your keys go back to the list);
   every other action is the section's own (a reader's note actions, the desk's, the board's).
   `EP0CH_CONTROL=<showcase>/door/door.sock` reaches this door, and only it.
 
@@ -1320,7 +1320,7 @@ change (yours or an agent's).
 | `y`, `a` in the choice | Copy step link (`((note^t-…))` to your clipboard), Make addressable; either gives the step a stable id |
 | `j k` `↑↓` `⏎`, a click on a row; `esc` | move, choose; cancel. The choice holds your keys until then |
 | `space` on the current step | done, or back to to do (as Detail's space) |
-| `ctrl+z` | undo the last step change you made while reading this note |
+| `ctrl+z` | undo the last step change you made while reading this note (or callout or image change, whichever was last) |
 
 The keys were picked after checking every screen's: `space` pages a reader everywhere else and keeps doing
 so unless a step is the current element in view; `ctrl+z` is undo wherever it's bound (here, and in a draft
@@ -1399,12 +1399,42 @@ come back in the reply and the reader stays as the person left it.
 
 Bodies render with `src/doc.ts`:
 
-- **Images and video.** A line that is only `img:: path`, `[img::path]` or `[video::path]` becomes an inline image
-  through Kitty. Big images are shrunk with `sips`, video gets a poster frame from `ffmpeg` (or Quick Look), cached in
-  `~/.cache/ep0ch-door/media` (under `$EP0CH_STATE/cache/` when that is set). `\ ` escapes and macOS screenshot names (narrow no-break space before AM/PM) resolve.
-  `[ ]` selects an image like a link and ⏎ opens it in the system viewer. Images a drawer or float covers are hidden.
-  River columns draw them as readers do (cropped as they scroll). Where an image isn't drawn its line says why: no
-  Kitty graphics in this terminal, or `alt+v` set the video mode to cells.
+- **Images and video** (PIE-532). A line that is only `img:: path`, `[img::path]` or `[video::path]` (after an optional
+  list mark) becomes an image through Kitty. Its layout is written as properties beside it on the same line:
+
+  ```
+  - [img::~/Pictures/plot.jpg] [layout::hero] [height::14]
+  [img::~/Pictures/packet.webp] [size::40%] [align::center] [alt::a seed packet]
+  ```
+
+  `[size::…]` is its width: cells (`40`), a share of the reader (`40%`) or `full`; `[height::N]` is rows; the aspect is
+  kept (inside both when both are written), at most about four fifths of the reader. `[align::left|center|right]`
+  places it. `[layout::hero]` makes it the note's **header**: the reader draws it above the title, the full width, a
+  whole when it fits in a third of the pane (or `[height::N]`, at most half); taller, cropped to fill that
+  (`[fit::contain]` shows it whole, centred, instead); it scrolls away with the note's top. The note's first such image is its header
+  (an image right under the title needs its list mark, `- [img::…]`: a line of only properties there is the note's
+  own). A river column draws the header where it's written. `[alt::…]` is said on its caption. A value that isn't one
+  of these is said on the line in yellow.
+
+  **Dark first.** A bright image is dimmed as it's scaled, so it's cached dimmed and never shown bright, not even for
+  a frame: its brightness is scaled so the mean luminance of the part drawn (a header's crop), as it shows on the
+  door's dark ground (a transparent pixel is the ground), is at most 0.3. Dark art is untouched; the caption says
+  `dimmed`. An image's rows are kept, dark, while it loads (its size is read from its header first), so the note
+  doesn't move when it arrives. `[dim::N]` on its line sets how much instead: `0` as it is, `0.6` at 40%, `1` black.
+
+  Decoding and scaling need no system tool: PNG, JPEG, WebP and GIF (its first frame) go through sharp's prebuilt
+  libvips (Linux and macOS), turned upright and scaled down to about the box they're drawn in, never up (Kitty scales
+  the rest), in a few steps cached in `~/.cache/ep0ch-door/media` (under `$EP0CH_STATE/cache/` when that is set) by
+  file and step. Video gets a poster frame from `ffmpeg` (or Quick Look on a Mac); without one the line says what to
+  install. `\ ` escapes and macOS screenshot names (narrow no-break space before AM/PM) resolve.
+
+  Each image's caption is its `[ ]` element: `⏎` (or a click on its name) opens it in the system viewer, a click on
+  the image makes it the `[ ]` position, and then `+` `-` step its width (a quarter, a third, a half, two thirds,
+  three quarters, full; a header's height by two rows), `←` `→` move it, `H` makes it the header (or not). The
+  caption's `[−][+] [◂][▸] [▀]` do the same by mouse. Each change rewrites its line through the note's save, checked
+  and recorded as you; `ctrl+z` puts it back. Agents use `images`, `image.size`, `image.align`, `image.hero`, `image.fit`, `image.dim`. On the header, `=` (or its caption's `[whole]` `[fill]`) shows it whole or cropped.
+  Images a drawer or float covers are hidden. River columns draw them as readers do (cropped as they scroll). Where
+  an image isn't drawn its line says why: no Kitty graphics in this terminal, or `alt+v` set the video mode to cells.
   If macOS blocks the read (Desktop, Documents), the line says so: grant the terminal Files & Folders access.
 - **Callouts** (PIE-538, [Obsidian's syntax](https://obsidian.md/help/callouts)). `> [!type]± title` draws a box in the
   type's icon and tone, the title on its top edge (the type's own title when there's none; an author's title names
@@ -1668,6 +1698,13 @@ agent's edit meets the same revision check, property warning and duplicate-safe 
 | `callout.type`, `callout.start` | `n` (from `callout.list`) or `line` (its header, 1 is the subject); `to=<type>` or `folded=true\|false`. One header line rewritten through the note's save, revision-checked, attributed; an agent never under a draft someone has open on the note | the type choice's `⏎`, `-`, `+` |
 | `callout.undo` | none: the asker's own last callout change in this reader, while reading this note | `ctrl+z` (when it was the last change here) |
 | `callout.menu` | `n` or `line`: opens the type choice. The person's only | `⏎` or a click on a callout's icon or type |
+| `images` | none: the note's images and videos (`n`, `line`, path, the layout its line writes, what's wrong with it, how it's drawn here) | |
+| `image.size` | `n` (from `images`) or `line`; `to=40\|40%\|full\|none` (its width), `height=N\|none`, or `by=1\|-1` (a step; a header's height by two rows). Its line rewritten through the note's save, revision-checked, attributed | `+` `-` with an image the `[ ]` position, the caption's `[−][+]` |
+| `image.align` | `n` or `line`; `to=left\|center\|right` or `by=1\|-1` | `←` `→` with an image the `[ ]` position, the caption's `[◂][▸]` |
+| `image.hero` | `n` or `line`; `on=true\|false` (default toggles): `[layout::hero]` on its line, and off any other image's, in one save | `H` with an image the `[ ]` position, the caption's `[▀]` |
+| `image.fit` | `n` or `line`; `to=cover\|contain` (default: the other one): a header too tall for its rows cropped to fill, or shown whole | `=` with the header image the `[ ]` position, its caption's `[whole]` / `[fill]` |
+| `image.dim` | `n` or `line`; `to=0..1\|auto`: how much it's dimmed (`[dim::…]`). No key brightens an image | |
+| `image.undo` | none: the asker's own last image change in this reader, while reading this note | `ctrl+z` (when it was the last change here) |
 | `select.mode` | none: keyboard selection starts (`h j k l` extend, `y` copies). The person's only: an agent selects with `select text=` | `v` |
 | `fold.select` | `by=1\|-1`: the next or previous heading, list item or callout to fold. The person's only | `( )` |
 | `block.tint`, `block.untint` | one of `block` (this note, or one it embeds or links), `line` and `to` (1 is the subject), `quote` and `near` | `esc` clears it |
