@@ -41,6 +41,16 @@ move into one repository (PIE-530).
 - **Television (optional).** With `tv` on your PATH, `ep0ch install --apply` links the outline's channels into
   television's cable folder.
 
+### Fixed: refusals arrived in escape codes when another program read them
+
+Claude Code's shells set `FORCE_COLOR`, and Bun then paints every `console.error` red, even into a pipe. So
+the Claude mod's cards and tools, and `door-open`, got `ep0ch` and `outliner` refusals (and crashes) wrapped in
+colour codes, and their `ep0ch: ` or `error: ` went unrecognised. `ep0ch`, `outliner` and the Herdr opener now
+write plain text to a stderr that isn't a terminal, a long refusal arrives whole, and a terminal keeps its colour. The root `bun run test` also runs the Claude mod's
+own tests (`claude plugin test`, so `claude` must be on PATH), and a door test runs the real `ep0ch help`,
+`where --json`, `show --cells`, `export`, `peek` and `act` through the mod's readers, so a CLI change that breaks
+the mod fails at the root.
+
 ### Figures written in Markdown, and seven new kinds (ideas from mdxcn.dev)
 
 - **A figure's rows can be Markdown.** After a `::graph-*` block's `---` YAML (or instead of it), write rows:

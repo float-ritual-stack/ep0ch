@@ -15,6 +15,10 @@ import { appendFileSync, existsSync, readFileSync, rmSync, writeFileSync } from 
 import { connect, createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
+import { colourOnlyToATerminal } from "../src/plain-stderr";
+
+// ssh writes plain text into a pipe; so does this, whatever FORCE_COLOR says.
+colourOnlyToATerminal();
 
 const argv = process.argv.slice(2);
 // Never the person's machine: "the other machine" is a scratch HOME and outlines folder under the temp dir, or nothing.

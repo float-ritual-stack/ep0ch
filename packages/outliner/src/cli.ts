@@ -29,6 +29,9 @@ import {
   setWorkStage,
   type WorkActor,
 } from "./work-tools";
+import { colourOnlyToATerminal } from "./plain-stderr";
+// Piped stderr stays plain: the Claude mod, door-open and tests parse these refusals.
+colourOnlyToATerminal();
 
 /**
  * `outliner --ws <name> <command> …` (or `--ws=<name>`) is `EP0CH_WS=<name>`: the command talks to that outline.

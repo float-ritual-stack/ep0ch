@@ -27,13 +27,18 @@ Before a PR claims a change works:
    Focused tests are fine while developing. The door's tests start their own scratch outline host from
    `../outliner` (`test/scratch.ts`; `EP0CH_OUTLINER` overrides it); `bun run test:parallel` in the door runs
    the same suite in under half the time, and the parity test is three files (`test/parity-*.test.ts`) so it
-   spreads too. outline-core's tests are pure.
-3. Tests defend observable contracts: canonical graph and cycle invariants, optimistic conflicts, query
+   spreads too. outline-core's tests are pure. The Claude mod's run under `claude plugin test` (`claude` on PATH).
+3. A change to what one package prints or answers that another reads is tested against the real other side,
+   not a fake: the mod's readers over the real `ep0ch` (`packages/door/test/claude-mod-contract.test.ts`), the
+   outliner's CLI under the mod's work tools (`packages/outliner/test/work-tools.test.ts`). Stderr another program
+   reads is plain unless it is a terminal: `ep0ch`, `outliner` and the Herdr opener call `colourOnlyToATerminal`
+   first (packages/outliner `src/plain-stderr.ts`, a declared export), and a new such entry does too.
+4. Tests defend observable contracts: canonical graph and cycle invariants, optimistic conflicts, query
    completeness, virtual occurrence behavior, terminal width and security, cursor and selection transitions,
    restart reconstruction. Avoid tests that merely inspect source text or implementation plumbing.
-4. Snapshots are regenerated and looked at. `bun scripts/snap.ts <scenario>` (in the door) writes PNGs to
+5. Snapshots are regenerated and looked at. `bun scripts/snap.ts <scenario>` (in the door) writes PNGs to
    `out/`; open them. A snapshot nobody looked at is not evidence.
-5. When interaction changes, do a real-pane pass. Run the door in a terminal pane against a scratch host, with
+6. When interaction changes, do a real-pane pass. Run the door in a terminal pane against a scratch host, with
    your own `EP0CH_STATE`, `EP0CH_CONTROL` and `EP0CH_OUTLINES` and `--no-daemon` (see [AGENTS.md](AGENTS.md);
    `packages/door/scripts/test-door-env.sh` sets `EP0CH_DAEMON=0`).
    - Drive it with keys, and with injected SGR mouse sequences (`ESC [ < b ; x ; y M` press, `… m` release) for

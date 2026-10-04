@@ -9,7 +9,8 @@
   "private": true,
   "type": "module",
   "exports": {
-    "./machine-forward": "./src/machine-forward.ts"
+    "./machine-forward": "./src/machine-forward.ts",
+    "./plain-stderr": "./src/plain-stderr.ts"
   },
   "scripts": {
     "outliner": "bun run src/outliner.ts",
