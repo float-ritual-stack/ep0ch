@@ -2,6 +2,7 @@
 // change to this CLI could break the mod and pass both suites (#174 did). Here the mod's own readers read the real
 // CLI, on a scratch host, the way the mod runs it: one argv per command it runs, with Claude Code's FORCE_COLOR.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { rmSync } from "node:fs";
 import { join } from "node:path";
 import { SocketBoard } from "../src/socket";
 import { Scratch, scratchDir } from "./scratch";
@@ -54,7 +55,8 @@ describe("the CLI the Claude mod runs, read by the mod's own readers", () => {
 
   test("where --json: the binding card's facts, outside a door", async () => {
     const { whereFactsOf } = await mod("binding.ts");
-    const where = await run(["ep0ch", "where", "--json"], { cwd: scratchDir("ep0ch-where-"), env });
+    const cwd = scratchDir("ep0ch-where-");
+    const where = await run(["ep0ch", "where", "--json"], { cwd, env }).finally(() => rmSync(cwd, { recursive: true, force: true }));
     expect(where.exitCode).toBe(0);
     expect(whereFactsOf(where.stdout)).toMatchObject({ inDoor: false, here: { machine: expect.any(String), folder: expect.any(String) }, door: null });
   });
