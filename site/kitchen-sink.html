@@ -1,0 +1,404 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0d1016">
+<style>html{background:#0d1016;color:#c8cace;color-scheme:dark}</style>
+<script>try{if(localStorage.getItem("ep0ch-docs-tone")==="night")document.documentElement.dataset.tone="night"}catch(e){}</script>
+<title>ep0ch Docs Kitchen Sink</title>
+<meta name="description" content="Every component of the ep0ch docs site, with its purpose, anatomy and do/don't, in the door's own palette.">
+<link rel="stylesheet" href="assets/tokens.css">
+<link rel="stylesheet" href="vendor/asciinema-player.css">
+<link rel="stylesheet" href="assets/site.css">
+</head>
+<body data-page="reference">
+<header class="masthead">
+  <a class="mark" href="kitchen-sink.html"><span>─=[</span> <b>ep0ch</b> docs <span>]=─</span></a>
+  <nav aria-label="Sections">
+    <a href="showcase/callouts.html">Showcase</a>
+    <a href="build/callout-type.html">Build</a>
+    <a href="build/callout-type.html#reference">Reference</a>
+    <a href="#ia">Concepts</a>
+    <a href="kitchen-sink.html" aria-current="true">Kitchen sink</a>
+  </nav>
+</header>
+
+<div class="shell">
+  <aside class="index" aria-label="On this page">
+    <details open>
+      <summary>kitchen sink</summary>
+      <ol>
+        <li class="group">System</li>
+        <li><a href="#ia">Information architecture</a></li>
+        <li><a href="#colour">Colour roles</a></li>
+        <li><a href="#type">Type and spacing</a></li>
+        <li><a href="#surfaces">Code and terminal surfaces</a></li>
+        <li class="group">Components</li>
+        <li><a href="#cast">Cast player</a></li>
+        <li><a href="#code">Code example</a></li>
+        <li><a href="#keys">Keybinding chip</a></li>
+        <li><a href="#callouts">Callout set</a></li>
+        <li><a href="#signature">API signature</a></li>
+        <li><a href="#try">Try it steps</a></li>
+        <li><a href="#nav">Breadcrumb, prev/next</a></li>
+        <li class="group">Writing</li>
+        <li><a href="#rules">Content rules</a></li>
+      </ol>
+    </details>
+  </aside>
+
+  <main id="main">
+    <article class="page">
+      <ol class="crumbs"><li><a href="kitchen-sink.html">Docs</a></li><li aria-current="page">Kitchen sink</li></ol>
+      <header class="page-head">
+        <span class="kind">Reference</span>
+        <h1>Kitchen sink</h1>
+        <p class="lede">Every part the docs site is built from, drawn here with the door's own colours. Use this page when you write or change a page. The door's kitchen sink, <code>ep0ch --showcase</code>, is where each feature's recording comes from.</p>
+        <p class="meta"><span>tokens from <b>packages/door/src/theme.ts</b></span><span>spec <b>site/DESIGN.md</b></span><span><b>dark only</b> · calm and night</span></p>
+      </header>
+
+      <!-- ── IA ─────────────────────────────────────────────────────── -->
+      <section aria-labelledby="ia">
+        <h2 id="ia">Information architecture</h2>
+        <div class="prose"><p>One shell, two jobs. <b>Showcase</b> shows what the door does, one page per showcase section. <b>Build</b> teaches how to add to it. Since the app is moving to a small kernel with features as configuration and extensions, Build is half the site. Reference and Concepts serve both.</p></div>
+        <div class="table-wrap"><table class="plain">
+          <thead><tr><th>Section</th><th>Holds</th><th>Its pages come from</th></tr></thead>
+          <tbody>
+            <tr><td><b>Showcase</b></td><td>Feature pages, grouped as the showcase groups its needs: reading, writing, tiles and screens, agents, outlines and machines</td><td>One page per showcase section; its cast is that section driven by a tour</td></tr>
+            <tr><td><b>Build</b></td><td>Guides, in two halves: <i>configure</i> (a note: callout types, screens, keys) and <i>extend</i> (a folder: data, inline output, rich component, tile, @agent, a door)</td><td>The extension contract and the built-in examples (moon, horoscope, fancy-horror, tarot, tidy)</td></tr>
+            <tr><td><b>Reference</b></td><td>Actions, properties, <code>extension.json</code>, the wire methods, the CLI</td><td>Generated: <code>ep0ch actions</code>, outline-core's types, <code>--help</code></td></tr>
+            <tr><td><b>Concepts</b></td><td>Block, tile, container, screen; actors and attribution; two clients, one outline; outlines by name</td><td>The glossary in docs/UI-GRAMMAR.md</td></tr>
+          </tbody>
+        </table></div>
+        <h3>Page types, and what the first screen must answer</h3>
+        <div class="table-wrap"><table class="plain">
+          <thead><tr><th>Type</th><th>Without scrolling, the reader knows</th><th>Order after that</th></tr></thead>
+          <tbody>
+            <tr><td><span class="kind">Feature</span></td><td>What it is and why they'd use it (two sentences), and the start of its cast, chapters visible</td><td>Try it · write or use it · every action three ways · reference</td></tr>
+            <tr><td><span class="kind">Guide</span></td><td>What they'll make (the finished result, drawn), why they'd want it, its kind and size</td><td>Concept · example in steps · change it · reference</td></tr>
+            <tr><td><span class="kind">Reference</span></td><td>The signature or grammar, what it touches, where it's defined</td><td>Arguments · errors · related actions</td></tr>
+            <tr><td><span class="kind">Concept</span></td><td>The one-sentence definition, and when they'll need it</td><td>A drawing · how the parts fit · guides that use it</td></tr>
+          </tbody>
+        </table></div>
+      </section>
+
+      <!-- ── Colour ─────────────────────────────────────────────────── -->
+      <section aria-labelledby="colour">
+        <h2 id="colour">Colour roles</h2>
+        <div class="prose"><p>Pages ask for a role, never a colour. <code>bun site/tokens.ts</code> writes every role from the door's calm theme, and again from night. Try the switch in the status bar: everything here changes with it. There is no light theme, and nothing is ever pure white.</p></div>
+        <h3>Surfaces and lines</h3>
+        <div class="swatches">
+          <div class="swatch"><i style="background:var(--surface-ground)"></i><div><b>surface-ground</b><span>the page; the door's ground</span></div></div>
+          <div class="swatch"><i style="background:var(--surface-sunk)"></i><div><b>surface-sunk</b><span>a code or cast well</span></div></div>
+          <div class="swatch"><i style="background:var(--surface-raised)"></i><div><b>surface-raised</b><span>callout, signature, chip</span></div></div>
+          <div class="swatch"><i style="background:var(--surface-bar)"></i><div><b>surface-bar</b><span>status bar, player controls</span></div></div>
+          <div class="swatch"><i style="background:var(--surface-select)"></i><div><b>surface-select</b><span>current chapter, current page</span></div></div>
+          <div class="swatch"><i style="background:var(--surface-ruler)"></i><div><b>surface-ruler</b><span>the line in focus</span></div></div>
+          <div class="swatch"><i style="background:var(--surface-agent)"></i><div><b>surface-agent</b><span>an agent's selection</span></div></div>
+          <div class="swatch"><i style="background:var(--line-frame)"></i><div><b>line-frame</b><span>tile and callout frames</span></div></div>
+          <div class="swatch"><i style="background:var(--line-quiet)"></i><div><b>line-quiet</b><span>rules inside a frame</span></div></div>
+        </div>
+        <h3>Ink</h3>
+        <div class="swatches">
+          <div class="swatch"><i style="background:var(--ink-body)"></i><div><b>ink-body</b><span>running text</span></div></div>
+          <div class="swatch"><i style="background:var(--ink-strong)"></i><div><b>ink-strong</b><span>titles, code</span></div></div>
+          <div class="swatch"><i style="background:var(--ink-dim)"></i><div><b>ink-dim</b><span>metadata and hints</span></div></div>
+          <div class="swatch"><i style="background:var(--ink-heading)"></i><div><b>ink-heading</b><span>section headings</span></div></div>
+          <div class="swatch"><i style="background:var(--ink-link)"></i><div><b>ink-link</b><span>links and focus</span></div></div>
+          <div class="swatch"><i style="background:var(--ink-agent)"></i><div><b>ink-agent</b><span>act, and what agents did</span></div></div>
+          <div class="swatch"><i style="background:var(--ink-key)"></i><div><b>ink-key</b><span>a key's glyph</span></div></div>
+          <div class="swatch"><i style="background:var(--ink-add)"></i><div><b>ink-add</b><span>added line, done step</span></div></div>
+          <div class="swatch"><i style="background:var(--ink-remove)"></i><div><b>ink-remove</b><span>removed line, error</span></div></div>
+        </div>
+        <h3>Callout tones</h3>
+        <div class="swatches">
+          <div class="swatch"><i style="background:var(--tone-blue)"></i><div><b>tone-blue</b><span>note, info, todo</span></div></div>
+          <div class="swatch"><i style="background:var(--tone-green)"></i><div><b>tone-green</b><span>tip, success</span></div></div>
+          <div class="swatch"><i style="background:var(--tone-violet)"></i><div><b>tone-violet</b><span>question, example</span></div></div>
+          <div class="swatch"><i style="background:var(--tone-amber)"></i><div><b>tone-amber</b><span>warning</span></div></div>
+          <div class="swatch"><i style="background:var(--tone-coral)"></i><div><b>tone-coral</b><span>failure, danger, bug</span></div></div>
+          <div class="swatch"><i style="background:var(--tone-neutral)"></i><div><b>tone-neutral</b><span>quote, undeclared</span></div></div>
+        </div>
+      </section>
+
+      <!-- ── Type ───────────────────────────────────────────────────── -->
+      <section aria-labelledby="type">
+        <h2 id="type">Type and spacing</h2>
+        <div class="prose"><p>The door is set in cells, so the site is too wherever it speaks for the door: headings, chrome, code, keys and stills use one monospace. Prose uses a face built for legibility, at a 68-character measure. The scale is a minor third from a 17px body.</p></div>
+        <div class="scale">
+          <p><small>h1 · 33</small><span style="font:700 var(--t-h1)/1.15 var(--font-mono);color:var(--ink-strong)">Callouts</span></p>
+          <p><small>h2 · 23</small><span style="font:700 var(--t-h2)/1.25 var(--font-mono);color:var(--ink-heading)">Every action, three ways</span></p>
+          <p><small>h3 · 19</small><span style="font:600 var(--t-h3)/1.3 var(--font-mono);color:var(--ink-strong)">What the host answers</span></p>
+          <p><small>lede · 19</small><span style="font-size:1.1875rem">A boxed aside in a note.</span></p>
+          <p><small>body · 17</small><span>The keys, the mouse and an agent call the same action.</span></p>
+          <p><small>small · 15</small><code style="font-size:var(--t-small);background:none;padding:0">callout.type n=2 to=danger</code></p>
+          <p><small>caption · 13</small><span style="font:var(--t-caption)/1.5 var(--font-mono);color:var(--ink-dim)">recorded from ep0ch --showcase › callouts · 110×40 · calm</span></p>
+        </div>
+        <div class="table-wrap"><table class="plain">
+          <thead><tr><th>Space</th><th>px</th><th>Used for</th></tr></thead>
+          <tbody>
+            <tr><td><code>--s1</code> <code>--s2</code></td><td>4 · 8</td><td>inside a chip, a row's padding, between a title and its icon</td></tr>
+            <tr><td><code>--s3</code> <code>--s4</code></td><td>12 · 16</td><td>inside a frame; between paragraphs; the side gutter's minimum</td></tr>
+            <tr><td><code>--s5</code> <code>--s6</code></td><td>24 · 32</td><td>between the blocks of a section; the index and the page</td></tr>
+            <tr><td><code>--s7</code> <code>--s8</code></td><td>48 · 64</td><td>before prev/next; the end of a page</td></tr>
+          </tbody>
+        </table></div>
+      </section>
+
+      <!-- ── Surfaces ───────────────────────────────────────────────── -->
+      <section aria-labelledby="surfaces">
+        <h2 id="surfaces">Code and terminal surfaces</h2>
+        <div class="prose"><p>Two wells, told apart by what's in them. A <b>code well</b> (sunk, with a file label) holds text you copy. A <b>terminal well</b> (the ground, framed) holds what the door drew, cell for cell, from <code>ep0ch show --ansi</code> or a cast frame. Never put a screenshot where a still can go: a still is text, it follows the theme, and it can be searched.</p></div>
+        <div class="code"><div class="code-head"><span class="file">note · Allotment gate</span><span class="lang">markdown</span><button class="copy" type="button">copy</button></div><pre><code>&gt; [!warning] The gate sticks
+&gt; Lift it as you pull.</code></pre></div>
+        <pre class="term" aria-label="The door's drawing of that note"><span style="color:var(--term-15)">Allotment gate                                              </span>
+<span style="color:var(--term-6)">user · 10-03-26 (12:49)</span><span style="color:var(--term-8)"> · i 1 property                      </span>
+<span style="color:var(--term-3)">top level                                                   </span>
+<span style="color:var(--term-1)">────────────────────────────────────────────────────────────</span>
+ <span style="color:var(--term-14)">╭─</span><span style="color:var(--term-14);font-weight:700"> <span class="g">▾</span></span><span style="color:var(--term-14);font-weight:700"> <span class="g">⚠</span> The gate sticks</span><span style="color:var(--term-14);font-weight:700"> </span><span style="color:var(--term-14)">─────────────────────────</span><span style="color:var(--term-8)"> warning </span><span style="color:var(--term-14)">─╮</span>
+ <span style="color:var(--term-14)">│ </span><span style="color:var(--term-7)">Lift it as you pull.</span>                                   <span style="color:var(--term-14)"> │</span>
+ <span style="color:var(--term-14)">│ </span><span style="color:var(--term-10)">╭─</span><span style="color:var(--term-10);font-weight:700"> <span class="g">▾</span></span><span style="color:var(--term-10);font-weight:700"> <span class="g">✦</span> Why</span><span style="color:var(--term-10);font-weight:700"> </span><span style="color:var(--term-10)">─────────────────────────────────────</span><span style="color:var(--term-8)"> tip </span><span style="color:var(--term-10)">─╮</span><span style="color:var(--term-14)"> │</span>
+ <span style="color:var(--term-14)">│ </span><span style="color:var(--term-10)">│ </span><span style="color:var(--term-7)">The hinge post leans. It is on the jobs list.</span>      <span style="color:var(--term-10)"> │</span><span style="color:var(--term-14)"> │</span>
+ <span style="color:var(--term-14)">│ </span><span style="color:var(--term-10)">╰─────────────────────────────────────────────────────╯</span><span style="color:var(--term-14)"> │</span>
+ <span style="color:var(--term-14)">╰─────────────────────────────────────────────────────────╯</span></pre>
+        <p class="term-cap">Terminal well: <code>ep0ch show --ansi</code>, through <code>bun site/still.ts</code>.</p>
+      </section>
+
+      <!-- ── Cast player ────────────────────────────────────────────── -->
+      <section aria-labelledby="cast">
+        <h2 id="cast">Cast player with chapters</h2>
+        <div class="prose"><p><b>Purpose:</b> show a feature working, in the door, as a recording the reader can pause, scrub and jump through by chapter. It leads every feature page.</p></div>
+        <figure class="cast" data-cast="casts/callouts.cast">
+          <figcaption class="cast-head"><b>cast · callouts</b><span>an agent drives the showcase section</span><span class="push" data-cast-length>0:15 · 6 chapters</span></figcaption>
+          <div class="cast-body">
+            <div class="cast-screen"><pre class="poster" aria-label="The first frame of the recording"><span style="color:var(--term-9)">─=</span><span style="color:var(--term-11)">[ </span><span style="color:var(--term-15)">KITCHEN SINK </span><span style="color:var(--term-11)">]</span><span style="color:var(--term-9)">=─ </span><span style="color:var(--term-8)">every shared door part, live, on a seeded outline · </span><span style="color:var(--term-7)">made-up notes; </span><span style="color:var(--term-15)">--reset</span><span style="color:var(--term-7)"> puts them back
+</span><span style="color:var(--term-11)">┌─</span> <span style="color:var(--term-15)">before adding a feature </span><span style="color:var(--term-11)">──────┐</span> <span style="color:var(--term-14)">21 · draw, fold, complete or change a callout </span><span style="color:var(--term-8)">· </span><span style="color:var(--term-15)">one list of callout types (
+</span><span style="color:var(--term-11)">│</span><span style="color:var(--term-7)">  5 write a draft somewhere: a …</span><span style="color:var(--term-11)">│</span> <span style="color:var(--term-8)">outline-core/src/callouts.ts, src/callouts.ts, src/doc.ts, src/surface/note
+</span><span style="color:var(--term-11)">│</span><span style="color:var(--term-8)">    drafts                      </span><span style="color:var(--term-11)">│</span> <span style="color:var(--term-13)">Obsidian's own examples, nested three deep, folded with - and open with + ·
+</span><span style="color:var(--term-11)">│</span><span style="color:var(--term-7)">  6 open, split, zoom, close ti…</span><span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">┌─</span> <span style="color:var(--term-15)">1</span><span style="color:var(--term-11)"> reader</span><span style="color:var(--term-8)"> · 47% </span><span style="color:var(--term-11)">────────────────────────────┐</span><span style="color:var(--term-1)">┌─</span> <span style="color:var(--term-8)">2</span><span style="color:var(--term-3)"> reader</span> <span style="color:var(--term-1)">───────────────┐
+</span><span style="color:var(--term-11)">│</span><span style="color:var(--term-8)">    panes                       </span><span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">│</span><span style="color:var(--term-15)">Callouts, as Obsidian writes them            </span><span style="color:var(--term-11)">█</span><span style="color:var(--term-1)">│</span><span style="color:var(--term-15)">Recipe callouts           </span><span style="color:var(--term-1)">│
+</span><span style="color:var(--term-11)">│</span><span style="color:var(--term-7)">  7 make a screen (the welcome,…</span><span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">│</span><span style="color:var(--term-6)">user · 10-03-26 (12:32)                      </span><span style="color:var(--term-11)">█</span><span style="color:var(--term-1)">│</span><span style="color:var(--term-6)">user · 10-03-26 (12:31)</span><span style="color:var(--term-8)"> ·…</span><span style="color:var(--term-1)">│
+</span><span style="color:var(--term-11)">│</span><span style="color:var(--term-8)">    screens                     </span><span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">│</span><span style="color:var(--term-3)">Kitchen sink                                 </span><span style="color:var(--term-11)">█</span><span style="color:var(--term-1)">│</span><span style="color:var(--term-3)">Kitchen sink              </span><span style="color:var(--term-1)">│
+</span><span style="color:var(--term-11)">│</span><span style="color:var(--term-7)">  8 add a kind of tile (a built…</span><span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">│</span><span style="color:var(--term-13)">an agent (docs-tour) scrolled this reader    </span><span style="color:var(--term-11)">█</span><span style="color:var(--term-1)">│──────────────────────────│
+</span><span style="color:var(--term-11)">│</span><span style="color:var(--term-8)">    kinds                       </span><span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">│</span><span style="color:var(--term-1)">─────────────────────────────────────────────</span><span style="color:var(--term-11)">█</span><span style="color:var(--term-1)">│</span> <span style="color:var(--term-7)">Declares a callout type:</span> <span style="color:var(--term-1)">│
+</span><span style="color:var(--term-11)">│</span><span style="color:var(--term-7)">  9 run a program beside the no…</span><span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">│</span> <span style="color:var(--term-7)">Obsidian's examples. ( ) then f, or a click</span> <span style="color:var(--term-11)">█</span><span style="color:var(--term-1)">│</span> <span style="color:var(--term-13)">&gt; [!recipe]</span><span style="color:var(--term-7)"> (or </span><span style="color:var(--term-13)">&gt;</span>        <span style="color:var(--term-1)">│
+</span><span style="color:var(--term-11)">│</span><span style="color:var(--term-8)">    terminal                    </span><span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">│</span> <span style="color:var(--term-7)">on a title, folds one; <span class="g">⏎</span> or a click on its</span>  <span style="color:var(--term-11)">█</span><span style="color:var(--term-1)">│</span> <span style="color:var(--term-13)">[!dish]</span><span style="color:var(--term-7)">) draws with this</span> <span style="color:var(--term-1)">│
+</span><span style="color:var(--term-11)">│</span><span style="color:var(--term-7)"> 10 follow a tile's selection o…</span><span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">│</span> <span style="color:var(--term-7)">icon or type changes its type; z opens them</span> <span style="color:var(--term-11)">█</span><span style="color:var(--term-1)">│</span> <span style="color:var(--term-7)">icon and tone, and offers</span><span style="color:var(--term-1)">│
+</span><span style="color:var(--term-11)">│</span><span style="color:var(--term-8)">    preview                     </span><span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">│</span> <span style="color:var(--term-7)">all; e, then &gt; [! offers the types.</span>         <span style="color:var(--term-11)">█</span><span style="color:var(--term-1)">│</span> <span style="color:var(--term-7)">it wherever types are</span>    <span style="color:var(--term-1)">│
+</span><span style="color:var(--term-11)">│</span><span style="color:var(--term-7)"> 11 put a whole screen in a til…</span><span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">│</span>                                             <span style="color:var(--term-11)">█</span><span style="color:var(--term-1)">│</span> <span style="color:var(--term-7)">offered.</span>                 <span style="color:var(--term-1)">│
+</span><span style="color:var(--term-11)">│</span><span style="color:var(--term-8)">    screen                      </span><span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">╭─</span><span style="color:var(--term-11);font-weight:700"> <span class="g">▾</span> <span class="g">✎</span> note </span><span style="color:var(--term-11)">───────────────────────────────╮█</span><span style="color:var(--term-1)">│</span>                          <span style="color:var(--term-1)">│
+</span><span style="color:var(--term-11)">│</span><span style="color:var(--term-7)"> 12 squeeze a tile to a title s…</span><span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">│ </span><span style="color:var(--term-7)">body</span>                                    <span style="color:var(--term-11)"> │█</span><span style="color:var(--term-1)">│</span>                          <span style="color:var(--term-1)">│
+</span><span style="color:var(--term-11)">│</span><span style="color:var(--term-8)">    spine                       </span><span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">│ </span><span style="color:var(--term-14)">╭─</span><span style="color:var(--term-14);font-weight:700"> <span class="g">▾</span> <span class="g">⚠</span> warning </span><span style="color:var(--term-14)">────────────────────────╮</span><span style="color:var(--term-11)"> │█</span><span style="color:var(--term-1)">│</span>                          <span style="color:var(--term-1)">│
+</span><span style="color:var(--term-11)">│</span><span style="color:var(--term-7)"> 13 show children, outlinks, ba…</span><span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">│ </span><span style="color:var(--term-14)">│ </span><span style="color:var(--term-7)">body body</span>                           <span style="color:var(--term-14)"> │</span><span style="color:var(--term-11)"> │█</span><span style="color:var(--term-1)">│</span>                          <span style="color:var(--term-1)">│
+</span><span style="color:var(--term-11)">│</span><span style="color:var(--term-8)">    entity                      </span><span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">│ </span><span style="color:var(--term-14)">╰──────────────────────────────────────╯</span><span style="color:var(--term-11)"> │█</span><span style="color:var(--term-1)">│</span>                          <span style="color:var(--term-1)">│
+</span><span style="color:var(--term-11)">│</span><span style="color:var(--term-7)"> 14 show who's here or recent a…</span><span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">╰──────────────────────────────────────────╯│</span><span style="color:var(--term-1)">│</span>                          <span style="color:var(--term-1)">│
+</span><span style="color:var(--term-11)">│</span><span style="color:var(--term-8)">    presence                    </span><span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">│</span>                                             <span style="color:var(--term-11)">│</span><span style="color:var(--term-1)">│</span>                          <span style="color:var(--term-1)">│
+</span><span style="color:var(--term-11)">│</span><span style="color:var(--term-7)"> 15 put live data in a note     </span><span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">╭─</span><span style="color:var(--term-11);font-weight:700"> <span class="g">▸</span> <span class="g">✎</span> collapse </span><span style="color:var(--term-11)">────────────────────</span><span style="color:var(--term-8)"> note </span><span style="color:var(--term-11)">─╮│</span><span style="color:var(--term-1)">│</span>                          <span style="color:var(--term-1)">│
+</span><span style="color:var(--term-11)">│</span><span style="color:var(--term-8)">    live                        </span><span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">│ </span><span style="color:var(--term-8)"><span class="g">▸</span> 1 line folded · f or a click on the t…</span><span style="color:var(--term-11)"> ││</span><span style="color:var(--term-1)">│</span>                          <span style="color:var(--term-1)">│
+</span><span style="color:var(--term-11)">│</span><span style="color:var(--term-7)"> 16 show a Resource's stored de…</span><span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">╰──────────────────────────────────────────╯│</span><span style="color:var(--term-1)">│</span>                          <span style="color:var(--term-1)">│
+</span><span style="color:var(--term-11)">│</span><span style="color:var(--term-8)">    projection                  </span><span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">│</span>                                             <span style="color:var(--term-11)">│</span><span style="color:var(--term-1)">│</span>                          <span style="color:var(--term-1)">│
+</span><span style="color:var(--term-11)">│</span><span style="color:var(--term-7)"> 17 bind an extension the servi…</span><span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">╭─</span><span style="color:var(--term-11);font-weight:700"> <span class="g">▾</span> <span class="g">✎</span> expando </span><span style="color:var(--term-11)">─────────────────────</span><span style="color:var(--term-8)"> note </span><span style="color:var(--term-11)">─╮│</span><span style="color:var(--term-1)">│</span>                          <span style="color:var(--term-1)">│
+</span><span style="color:var(--term-11)">│</span><span style="color:var(--term-8)">    extensions                  </span><span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">│ </span><span style="color:var(--term-7)">feel the power</span>                          <span style="color:var(--term-11)"> ││</span><span style="color:var(--term-1)">│</span>                          <span style="color:var(--term-1)">│
+</span><span style="color:var(--term-11)">│</span><span style="color:var(--term-7)"> 18 select or copy text a reade…</span><span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">╰──────────────────────────────────────────╯│</span><span style="color:var(--term-1)">│</span>                          <span style="color:var(--term-1)">│
+</span><span style="color:var(--term-11)">│</span><span style="color:var(--term-8)">    selection                   </span><span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">│</span>                                             <span style="color:var(--term-11)">│</span><span style="color:var(--term-1)">│</span>                          <span style="color:var(--term-1)">│
+</span><span style="color:var(--term-11)">│</span><span style="color:var(--term-7)"> 19 know anything the service c…</span><span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">│</span> <span style="color:var(--term-13)">╭─</span><span style="color:var(--term-13);font-weight:700"> <span class="g">▾</span> ? Can callouts be nested? </span><span style="color:var(--term-13)">─</span><span style="color:var(--term-8)"> question </span><span style="color:var(--term-13)">─╮</span><span style="color:var(--term-11)">│</span><span style="color:var(--term-1)">│</span>                          <span style="color:var(--term-1)">│
+</span><span style="color:var(--term-11)">│</span><span style="color:var(--term-8)">    service                     </span><span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">│</span> <span style="color:var(--term-13)">│ </span><span style="color:var(--term-11)">╭─</span><span style="color:var(--term-11);font-weight:700"> <span class="g">▾</span> <span class="g">☐</span> Yes!, they can. </span><span style="color:var(--term-11)">─────────</span><span style="color:var(--term-8)"> todo </span><span style="color:var(--term-11)">─╮</span><span style="color:var(--term-13)"> │</span><span style="color:var(--term-11)">│</span><span style="color:var(--term-1)">│</span>                          <span style="color:var(--term-1)">│
+</span><span style="color:var(--term-11)">│</span><span style="color:var(--term-7)"> 20 keep the door running witho…</span><span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">│</span> <span style="color:var(--term-13)">│ </span><span style="color:var(--term-11)">│ </span><span style="color:var(--term-13)">╭─</span><span style="color:var(--term-13);font-weight:700"> <span class="g">◆</span> You can even use multiple … </span><span style="color:var(--term-13)">──╮</span><span style="color:var(--term-11)"> │</span><span style="color:var(--term-13)"> │</span><span style="color:var(--term-11)">│</span><span style="color:var(--term-1)">│</span>                          <span style="color:var(--term-1)">│
+</span><span style="color:var(--term-11)">│</span><span style="color:var(--term-8)">    session                     </span><span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">│</span> <span style="color:var(--term-13)">│ </span><span style="color:var(--term-11)">│ </span><span style="color:var(--term-13)">│ </span><span style="color:var(--term-13);font-weight:700">layers of nesting.              </span><span style="color:var(--term-13)"> │</span><span style="color:var(--term-11)"> │</span><span style="color:var(--term-13)"> │</span><span style="color:var(--term-11)">│</span><span style="color:var(--term-1)">│</span>                          <span style="color:var(--term-1)">│
+</span><span style="color:var(--term-11)">│</span><span style="color:var(--term-15)"></span><span style="color:var(--term-15);background:var(--term-1)"> 21 draw, fold, complete or cha…</span><span style="color:var(--term-11);background:var(--term-1)"></span><span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">│</span> <span style="color:var(--term-13)">│ </span><span style="color:var(--term-11)">│ </span><span style="color:var(--term-13)">╰──────────────────────────────────╯</span><span style="color:var(--term-11)"> │</span><span style="color:var(--term-13)"> │</span><span style="color:var(--term-11)">│</span><span style="color:var(--term-1)">│</span>                          <span style="color:var(--term-1)">│
+</span><span style="color:var(--term-11)">│</span><span style="color:var(--term-8)">    callouts                    </span><span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">│</span> <span style="color:var(--term-13)">│ </span><span style="color:var(--term-11)">╰──────────────────────────────────────╯</span><span style="color:var(--term-13)"> │</span><span style="color:var(--term-11)">│</span><span style="color:var(--term-1)">│</span>                          <span style="color:var(--term-1)">│
+</span><span style="color:var(--term-11)">│</span>                                <span style="color:var(--term-11)">│</span> <span style="color:var(--term-11)">└─</span> <span style="color:var(--term-8)">[ ] elements · ( ) f folds</span> <span style="color:var(--term-8)">…</span> <span style="color:var(--term-11)">──────────────┘</span><span style="color:var(--term-1)">└──────────────────────────┘
+</span><span style="color:var(--term-11)">└────────────────────────────────┘</span> <span style="color:var(--term-8)"> Tab/1-9 focus · </span><span style="color:var(--term-15)">^W</span><span style="color:var(--term-8)"> window · </span><span style="color:var(--term-15)">drag</span><span style="color:var(--term-8)"> a title moves, a border resizes · </span><span style="color:var(--term-15)">?</span><span style="color:var(--term-8)"> more</span>
+<span style="color:var(--term-8)"> <span class="g">↑</span><span class="g">↓</span> j k 1-9 0 section · </span><span style="color:var(--term-15)"><span class="g">⏎</span> <span class="g">→</span> l tab</span><span style="color:var(--term-8)"> try it · click a section or the part · </span><span style="color:var(--term-15)">V</span><span style="color:var(--term-8)"> video · </span><span style="color:var(--term-15)">q</span><span style="color:var(--term-8)"> back</span>
+<span style="color:var(--term-11)"></span><span style="color:var(--term-11);background:var(--term-1)"> </span><span style="color:var(--term-14);background:var(--term-1)">an agent (docs-tour) unzoomed reader</span><span style="color:var(--term-11);background:var(--term-1)">                      │ </span><span style="color:var(--term-15);background:var(--term-1)"><span class="g">▲</span> claude</span><span style="color:var(--term-11);background:var(--term-1)"> │ </span><span style="color:var(--term-14);background:var(--term-1)">+4 new </span><span style="color:var(--term-11);background:var(--term-1)">│ cells │ calm │ on 1m │ 12:32</span></pre></div>
+            <ol class="chapters" aria-label="Chapters">
+              <li aria-current="step"><button type="button">Callouts in a note <span class="t">0:00</span></button></li>
+              <li><button type="button">Fold one: f, or a click on its title <span class="t">0:03</span></button></li>
+              <li><button type="button">A folded callout opens; the text isn't touched <span class="t">0:07</span></button></li>
+              <li><button type="button">Change a type: callout.type <span class="t">0:10</span></button></li>
+              <li><button type="button">Undo puts the line back <span class="t">0:13</span></button></li>
+              <li><button type="button">The outline's own type: recipe, alias dish <span class="t">0:15</span></button></li>
+            </ol>
+          </div>
+          <div class="cast-foot"><span><kbd>space</kbd> play · <kbd>[</kbd> <kbd>]</kbd> chapter · <kbd>←</kbd> <kbd>→</kbd> 5 s</span><span class="push">recorded from <code>ep0ch --showcase</code> › callouts · 110×40 · calm</span></div>
+        </figure>
+        <dl class="anatomy">
+          <dt>head</dt><dd>what it shows, who drives it, its length and chapter count</dd>
+          <dt>screen</dt><dd>asciinema-player (self-hosted) on a <code>.cast</code>; before it loads, the first frame as text, so the page is complete at rest</dd>
+          <dt>chapters</dt><dd>the cast's own <code>m</code> markers, one per tour step; a click seeks and plays; the current one is selected as the door selects</dd>
+          <dt>foot</dt><dd>its keys, and where it was recorded: section, size, theme</dd>
+        </dl>
+        <div class="spec">
+          <div class="do"><h4>Do</h4><ul><li>Record a showcase section through a tour, in cells mode.</li><li>Name chapters by what happens: "Change a type: callout.type".</li><li>Keep it under a minute and eight chapters.</li><li>Say on screen when an agent acts, as the door does.</li></ul></div>
+          <div class="dont"><h4>Don't</h4><ul><li>Use a GIF or a video: it can't be paused, scrubbed or searched.</li><li>Record a real outline, or stage a demo outside the showcase.</li><li>Autoplay, or loop.</li><li>Name chapters "Step 3".</li></ul></div>
+        </div>
+      </section>
+
+      <!-- ── Code example ───────────────────────────────────────────── -->
+      <section aria-labelledby="code">
+        <h2 id="code">Code example</h2>
+        <div class="prose"><p><b>Purpose:</b> the smallest complete thing that runs, ready to copy. A page's check runs every example marked <code>data-run</code> on a scratch outline.</p></div>
+        <div class="code"><div class="code-head"><span class="file">shell</span><span class="lang">bash</span><button class="copy" type="button">copy</button></div><pre><code><span class="tk-k">ep0ch</span> new <span class="tk-s">'Recipe callouts [callout-type::recipe] [callout-icon::♨] [callout-tone::green] [callout-aliases::dish]'</span></code></pre></div>
+        <div class="code"><div class="code-head"><span class="file">note · Recipe callouts</span><span class="lang">diff</span><button class="copy" type="button">copy</button></div><pre class="diff"><code><span class="del">Recipe callouts [callout-type::recipe] [callout-icon::♨] [callout-tone::green] [callout-aliases::dish]</span><span class="add">Recipe callouts [callout-type::recipe] [callout-icon::♨] [callout-tone::amber] [callout-title::Recipe] [callout-aliases::dish, meal]</span></code></pre><div class="says">copy gives the <b>+</b> line: the note's new first line</div></div>
+        <dl class="anatomy">
+          <dt>file label</dt><dd>where it goes: <code>shell</code>, a file path, or <code>note · its title</code></dd>
+          <dt>language</dt><dd>for the reader, not the highlighter</dd>
+          <dt>copy</dt><dd>copies exactly what's shown; a diff copies its result; if the clipboard refuses, it selects the text</dd>
+          <dt>says</dt><dd>optional: what copying gives, or what the command prints</dd>
+        </dl>
+        <div class="spec">
+          <div class="do"><h4>Do</h4><ul><li>One command a block, so each can be run on its own.</li><li>Use made-up notes: an allotment, a kitchen, a bike shed.</li><li>Find notes by an exact property (<code>--query "menu=sunday"</code>), never by words that might match others.</li></ul></div>
+          <div class="dont"><h4>Don't</h4><ul><li>Elide with <code>...</code> anything a reader would copy.</li><li>Put a <code>$</code> prompt or output in the copied text.</li><li>Leave a placeholder like <code>&lt;id&gt;</code> where a command can find it.</li></ul></div>
+        </div>
+      </section>
+
+      <!-- ── Keys ───────────────────────────────────────────────────── -->
+      <section aria-labelledby="keys">
+        <h2 id="keys">Keybinding chip, and the three ways</h2>
+        <div class="prose"><p><b>Purpose:</b> name how to do something, in all three ways the door takes it. Mouse and agents are first-class, so an action documented by key alone is half-documented.</p>
+          <p>Keys: <kbd>⏎</kbd> <kbd>f</kbd> <kbd>ctrl</kbd><kbd>z</kbd> <kbd>^W</kbd> <kbd>v</kbd>. Mouse: <span class="chip mouse">a callout's title</span>. Agent: <span class="chip act">callout.type n=2 to=danger</span>.</p></div>
+        <div class="ways-wrap"><table class="ways">
+          <thead><tr><th>To</th><th>Keys</th><th>Mouse</th><th>Agent</th></tr></thead>
+          <tbody><tr><td>Fold or open one</td><td><kbd>(</kbd> <kbd>)</kbd> then <kbd>f</kbd></td><td><span class="chip mouse">its title</span></td><td><span class="chip act">fold.toggle text=collapse</span></td></tr></tbody>
+        </table></div>
+        <dl class="anatomy">
+          <dt>key chip</dt><dd>one key a chip; a chord is chips side by side; the door's own names (<code>⏎</code>, <code>^W</code>, <code>ctrl</code>)</dd>
+          <dt>mouse chip</dt><dd>dashed: the thing you click, not "click here"</dd>
+          <dt>act chip</dt><dd>the action and its arguments exactly as <code>ep0ch act</code> takes them</dd>
+        </dl>
+        <div class="spec">
+          <div class="do"><h4>Do</h4><ul><li>Give every action a row with keys, mouse and act; write "none" where a way doesn't exist.</li><li>Copy keys from <code>ep0ch actions</code>, so they match the door.</li></ul></div>
+          <div class="dont"><h4>Don't</h4><ul><li>Write "Cmd" or "Ctrl" in prose; use the chip.</li><li>Document a key the door doesn't bind on that screen.</li></ul></div>
+        </div>
+      </section>
+
+      <!-- ── Callouts ───────────────────────────────────────────────── -->
+      <section aria-labelledby="callouts">
+        <h2 id="callouts">Callout set</h2>
+        <div class="prose"><p><b>Purpose:</b> set apart the few lines a reader mustn't miss. The site uses the door's own callouts: the same types, icons and tones, framed the same way.</p></div>
+        <div class="callout" data-tone="blue"><div class="c-title"><span aria-hidden="true">✎</span> Folding never writes<span class="type">note</span></div><div class="c-body"><p>A fold lives in the reader. The note's text changes only when you choose "start folded".</p></div></div>
+        <div class="callout" data-tone="green"><div class="c-title"><span aria-hidden="true">✦</span> Keep the showcase open beside this page<span class="type">tip</span></div><div class="c-body"><p>Every feature page names its section; <code>ep0ch --showcase</code> opens it live.</p></div></div>
+        <div class="callout" data-tone="amber"><div class="c-title"><span aria-hidden="true">⚠</span> Icons are one column<span class="type">warning</span></div><div class="c-body"><p>An emoji draws two columns wide and breaks the frame, so it's refused.</p></div></div>
+        <div class="callout" data-tone="coral"><div class="c-title"><span aria-hidden="true">△</span> This writes to the outline your folder names<span class="type">danger</span></div><div class="c-body"><p>Run it in a folder whose <code>.ep0ch</code> names a scratch outline.</p></div></div>
+        <details class="callout" data-tone="violet"><summary class="c-title"><span aria-hidden="true">?</span> Why not a light theme?<span class="type">faq</span></summary><div class="c-body"><p>The door is dark, and so are its readers' eyes at 2am. The site is the door's, so it's dark too, with a dimmer night theme.</p></div></details>
+        <div class="callout" data-tone="neutral"><div class="c-title"><span aria-hidden="true">❝</span> From the ticket<span class="type">quote</span></div><div class="c-body"><p>Animated GIFs are out: they can't be scrubbed or paused, and the useful part comes late in the loop.</p></div></div>
+        <dl class="anatomy">
+          <dt>title row</dt><dd>icon, title, and the type's name at the end, as the door draws it</dd>
+          <dt>body</dt><dd>one to three sentences; a foldable one is a <code>&lt;details&gt;</code></dd>
+          <dt>tone</dt><dd>from the type, never chosen per page</dd>
+        </dl>
+        <div class="spec">
+          <div class="do"><h4>Do</h4><ul><li>Use warning and danger only for real risk.</li><li>Keep it short; put background in the prose.</li><li>Fold technical evidence (<code>[!note]-</code>).</li></ul></div>
+          <div class="dont"><h4>Don't</h4><ul><li>Stack two callouts with nothing between them.</li><li>Use a callout as a heading, or for the lede.</li><li>Invent a tone; there are six.</li></ul></div>
+        </div>
+      </section>
+
+      <!-- ── Signature ──────────────────────────────────────────────── -->
+      <section aria-labelledby="signature">
+        <h2 id="signature">API signature block</h2>
+        <div class="prose"><p><b>Purpose:</b> one action, method or type at a glance: how to call it, what it touches, what each argument means, where it lives. It's generated from <code>ep0ch actions</code> and outline-core's types, so it can't drift.</p></div>
+        <div class="sig">
+          <pre class="sig-line"><span class="name">callout.start</span> <span class="arg">n</span>=<span class="ty">&lt;number&gt;?</span> <span class="arg">line</span>=<span class="ty">&lt;number&gt;?</span> <span class="arg">folded</span>=<span class="ty">&lt;boolean&gt;</span></pre>
+          <p class="sig-about">Makes a callout start folded (<code>folded=true</code> writes <code>[!type]-</code>) or open (<code>folded=false</code> writes <code>[!type]+</code>): the one change to the text that folding ever makes.</p>
+          <p class="sig-facts"><span class="chip"><b>touches</b> draft</span><span class="chip"><b>draft</b> write</span><span class="chip"><b>replay</b> ask</span><span class="chip"><b>keys</b> the type choice's - and +</span></p>
+          <div class="sig-args"><table>
+            <thead><tr><th>Arg</th><th>Type</th><th>Means</th></tr></thead>
+            <tbody>
+              <tr><td>n</td><td>number?</td><td>which callout, from 1, outermost first</td></tr>
+              <tr><td>line</td><td>number?</td><td>its header's line (1 is the subject)</td></tr>
+              <tr><td>folded</td><td>boolean</td><td>true: starts folded; false: starts open</td></tr>
+            </tbody>
+          </table></div>
+          <div class="sig-src">packages/door/src/surface/note.ts</div>
+        </div>
+        <dl class="anatomy">
+          <dt>signature</dt><dd>the call exactly as <code>act</code> or the wire takes it; <code>?</code> marks optional</dd>
+          <dt>about</dt><dd>the action's own summary, one or two sentences</dd>
+          <dt>facts</dt><dd>touches, draft, replay, keys: what the door's actor rule reads</dd>
+          <dt>arguments</dt><dd>name, type, meaning; then the source file</dd>
+        </dl>
+        <div class="spec">
+          <div class="do"><h4>Do</h4><ul><li>Show what it touches; agents and readers both need it.</li><li>Link the source file.</li></ul></div>
+          <div class="dont"><h4>Don't</h4><ul><li>Hand-write a signature the registry can print.</li><li>Document an internal helper as API.</li></ul></div>
+        </div>
+      </section>
+
+      <!-- ── Try it ─────────────────────────────────────────────────── -->
+      <section aria-labelledby="try">
+        <h2 id="try">"Try it" step list</h2>
+        <div class="prose"><p><b>Purpose:</b> walk the reader through doing it themselves, each step with what they should see, so they know it worked before going on.</p></div>
+        <ol class="try" id="try-sink">
+          <li>
+            <button class="box" type="button" aria-label="Mark step 1 done"></button>
+            <p class="do">Open the kitchen sink.</p>
+            <div class="code"><div class="code-head"><span class="file">shell</span><span class="lang">bash</span><button class="copy" type="button">copy</button></div><pre><code><span class="tk-k">ep0ch</span> --showcase</code></pre></div>
+            <p class="see">the index of door parts, and section 1 beside it.</p>
+          </li>
+          <li>
+            <button class="box" type="button" aria-label="Mark step 2 done"></button>
+            <p class="do">Click <b>callouts</b> in the index, then press <kbd>⏎</kbd>.</p>
+            <p class="see">two readers, Obsidian's examples on the left.</p>
+          </li>
+        </ol>
+        <dl class="anatomy">
+          <dt>box</dt><dd><code>[ ]</code> and the step's number, as the door draws a step; a click ticks it (remembered in this browser)</dd>
+          <dt>do</dt><dd>one action, in the imperative</dd>
+          <dt>code</dt><dd>optional, one command</dd>
+          <dt>you see</dt><dd>what's on screen when it worked</dd>
+        </dl>
+        <div class="spec">
+          <div class="do"><h4>Do</h4><ul><li>Three to six steps.</li><li>Say what they see after every step.</li></ul></div>
+          <div class="dont"><h4>Don't</h4><ul><li>Hide a decision inside a step.</li><li>Use steps for reference material.</li></ul></div>
+        </div>
+      </section>
+
+      <!-- ── Nav ────────────────────────────────────────────────────── -->
+      <section aria-labelledby="nav">
+        <h2 id="nav">Breadcrumb, prev/next</h2>
+        <div class="prose"><p><b>Purpose:</b> where this page sits, and where to go next. The breadcrumb is the door's crumb line; prev/next follow the section's reading order.</p></div>
+        <ol class="crumbs"><li><a href="build/callout-type.html">Build</a></li><li><a href="build/callout-type.html">Configure</a></li><li aria-current="page">Add a callout type</li></ol>
+        <nav class="pager" aria-label="Example prev and next">
+          <a href="showcase/callouts.html"><span class="dir">← showcase</span>Callouts</a>
+          <a class="next" href="build/callout-type.html"><span class="dir">build →</span>Add a callout type</a>
+        </nav>
+        <div class="spec">
+          <div class="do"><h4>Do</h4><ul><li>Pair a feature with the guide that extends it.</li><li>Keep the breadcrumb to section › group › page.</li></ul></div>
+          <div class="dont"><h4>Don't</h4><ul><li>Make the last crumb a link.</li><li>Point next at an unwritten page.</li></ul></div>
+        </div>
+      </section>
+
+      <!-- ── Rules ──────────────────────────────────────────────────── -->
+      <section aria-labelledby="rules">
+        <h2 id="rules">Content rules</h2>
+        <div class="prose">
+          <ul>
+            <li><b>Headings go two deep.</b> The page's title, its sections (h2), and at most one level inside (h3). Something that wants an h4 is a second page.</li>
+            <li><b>One idea a section.</b> If its heading needs "and", split it.</li>
+            <li><b>A guide goes concept, example, reference.</b> One short concept section that names the parts. Then the example as steps that run. Then what changes it. Then the full reference.</li>
+            <li><b>Show, then tell.</b> A feature page leads with its cast. Prose explains only what the cast can't: why, the grammar, the edge cases.</li>
+            <li><b>Every action, three ways:</b> keys, mouse, act.</li>
+            <li><b>The glossary's words:</b> block, tile, container, screen. "Pane" is Herdr's or tmux's box.</li>
+            <li><b>Made-up notes</b> in every example, cast and still. Never a real outline.</li>
+            <li><b>Link, don't direct.</b> Not "see below", but a link to the section.</li>
+            <li><b>Plain sentences,</b> from the reader's side: "the type choice opens", not "the ListPicker is instantiated".</li>
+          </ul>
+        </div>
+      </section>
+
+      <nav class="pager" aria-label="Next and previous">
+        <a href="build/callout-type.html"><span class="dir">← build</span>Add a callout type</a>
+        <a class="next" href="showcase/callouts.html"><span class="dir">showcase →</span>Callouts</a>
+      </nav>
+    </article>
+  </main>
+</div>
+
+<footer class="statusbar">
+  <span>ep0ch</span><span>docs</span><span>kitchen sink</span><span class="push wide">dark only</span><button class="push-alt" type="button" data-tone-toggle>calm</button>
+</footer>
+<script src="vendor/asciinema-player.min.js"></script>
+<script src="assets/site.js"></script>
+</body>
+</html>

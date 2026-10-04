@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0d1016">
+<style>html{background:#0d1016;color:#c8cace;color-scheme:dark}</style>
+<script>try{if(localStorage.getItem("ep0ch-docs-tone")==="night")document.documentElement.dataset.tone="night"}catch(e){}</script>
+<title>Add a callout type · ep0ch</title>
+<meta name="description" content="Give an outline its own callout, with its own icon and tone, by writing one note.">
+<link rel="stylesheet" href="../assets/tokens.css">
+<link rel="stylesheet" href="../assets/site.css">
+</head>
+<body data-page="guide">
+<header class="masthead">
+  <a class="mark" href="../kitchen-sink.html"><span>─=[</span> <b>ep0ch</b> docs <span>]=─</span></a>
+  <nav aria-label="Sections">
+    <a href="../showcase/callouts.html">Showcase</a>
+    <a href="callout-type.html" aria-current="true">Build</a>
+    <a href="callout-type.html#reference">Reference</a>
+    <a href="../kitchen-sink.html#ia">Concepts</a>
+    <a href="../kitchen-sink.html">Kitchen sink</a>
+  </nav>
+</header>
+
+<div class="shell">
+  <aside class="index" aria-label="Build pages">
+    <details open>
+      <summary>build</summary>
+      <ol>
+        <li class="group">Start here</li>
+        <li><a aria-disabled="true">A small kernel, and what you add</a></li>
+        <li class="group">Configure: a note</li>
+        <li><a href="callout-type.html" aria-current="page">Add a callout type</a></li>
+        <li><a aria-disabled="true">Make a screen</a></li>
+        <li><a aria-disabled="true">Bind a key to an action</a></li>
+        <li class="group">Extend: a folder</li>
+        <li><a aria-disabled="true">A data line: moon::</a></li>
+        <li><a aria-disabled="true">Inline output: horoscope::</a></li>
+        <li><a aria-disabled="true">A rich component</a></li>
+        <li><a aria-disabled="true">A tile of your own</a></li>
+        <li><a aria-disabled="true">An @agent</a></li>
+        <li><a aria-disabled="true">A door of your own</a></li>
+      </ol>
+    </details>
+  </aside>
+
+  <main id="main">
+    <article class="page">
+      <ol class="crumbs"><li><a href="callout-type.html">Build</a></li><li><a href="callout-type.html">Configure</a></li><li aria-current="page">Add a callout type</li></ol>
+
+      <header class="page-head">
+        <span class="kind">Guide</span>
+        <h1>Add a callout type</h1>
+        <p class="lede">Give your outline its own callout, <code>&gt; [!recipe]</code> with its own icon and tone, by writing one note. Use it when the same kind of aside keeps turning up in your notes: recipes, decisions, incidents. Every client draws it, the editor offers it while you type, and the type choice lists it.</p>
+        <p class="meta"><span>kind <b>configuration · a note</b></span><span><b>3 steps</b>, no code, no restart</span><span>needs <b>PIE-538</b></span></p>
+      </header>
+
+      <figure>
+        <pre class="term" aria-label="The finished result, as the door draws it"><span style="color:var(--term-15)">Sunday soup                                                 </span>
+<span style="color:var(--term-6)">user · 10-03-26 (12:49)</span><span style="color:var(--term-8)"> · i 1 property                      </span>
+<span style="color:var(--term-3)">top level                                                   </span>
+<span style="color:var(--term-1)">────────────────────────────────────────────────────────────</span>
+ <span style="color:var(--term-10)">╭─</span><span style="color:var(--term-10);font-weight:700"> <span class="g">▾</span></span><span style="color:var(--term-10);font-weight:700"> <span class="g">♨</span> Soup stock</span><span style="color:var(--term-10);font-weight:700"> </span><span style="color:var(--term-10)">───────────────────────────────</span><span style="color:var(--term-8)"> recipe </span><span style="color:var(--term-10)">─╮</span>
+ <span style="color:var(--term-10)">│ </span><span style="color:var(--term-7)">Bones, an onion, two bay leaves.</span>                       <span style="color:var(--term-10)"> │</span>
+ <span style="color:var(--term-10)">│ </span><span style="color:var(--term-10)">╭─</span><span style="color:var(--term-10);font-weight:700"> <span class="g">▾</span></span><span style="color:var(--term-10);font-weight:700"> <span class="g">♨</span> Leftovers</span><span style="color:var(--term-10);font-weight:700"> </span><span style="color:var(--term-10)">──────────────────────────────</span><span style="color:var(--term-8)"> dish </span><span style="color:var(--term-10)">─╮</span><span style="color:var(--term-10)"> │</span>
+ <span style="color:var(--term-10)">│ </span><span style="color:var(--term-10)">│ </span><span style="color:var(--term-7)">Freeze in jars, two fingers from the top.</span>          <span style="color:var(--term-10)"> │</span><span style="color:var(--term-10)"> │</span>
+ <span style="color:var(--term-10)">│ </span><span style="color:var(--term-10)">╰─────────────────────────────────────────────────────╯</span><span style="color:var(--term-10)"> │</span>
+ <span style="color:var(--term-10)">╰─────────────────────────────────────────────────────────╯</span></pre>
+        <figcaption class="term-cap">What you'll have: a <b>♨ recipe</b> callout, with a <b>dish</b> (its alias) nested inside it.</figcaption>
+      </figure>
+
+      <section aria-labelledby="concept">
+        <h2 id="concept"><span class="n">1</span>A type is a note</h2>
+        <div class="prose">
+          <p>An outline's callout types are the thirteen built-ins plus every note that has a <code>[callout-type::name]</code> property. Properties on the same note set the type's icon, tone, title and other names.</p>
+          <p>The outline host answers the list. The door's reader, its completer and its type choice read it, and so does the outliner's Detail, all through one registry in outline-core. Edit the note and every client draws the new type within a second.</p>
+        </div>
+      </section>
+
+      <section aria-labelledby="example">
+        <h2 id="example"><span class="n">2</span>Make one</h2>
+        <div class="prose"><p>Try it on an outline of its own first. Make one, and name it in a folder's <code>.ep0ch</code>, so <code>ep0ch</code> run there opens it:</p></div>
+        <div class="code"><div class="code-head"><span class="file">shell</span><span class="lang">bash</span><button class="copy" type="button">copy</button></div><pre><code><span class="tk-k">ep0ch</span> outline create kitchen-test
+mkdir -p ~/kitchen-test &amp;&amp; cd ~/kitchen-test
+echo <span class="tk-s">'ws = "kitchen-test"'</span> &gt; .ep0ch</code></pre></div>
+        <div class="prose"><p>Then <code>ep0ch</code> in that folder opens the door on it. Write each note below as a new note: press <kbd>ctrl</kbd><kbd>n</kbd> on any screen (or click <span class="chip mouse">+ New note · ctrl+n</span> on an empty board), paste the text, and press <kbd>ctrl</kbd><kbd>s</kbd>. From a shell, <code>ep0ch new "&lt;text&gt;" --ws kitchen-test</code> makes the same note.</p></div>
+        <ol class="try" id="try-recipe">
+          <li>
+            <button class="box" type="button" aria-label="Mark step 1 done"></button>
+            <p class="do">Declare the type: a note named for what it is, with the type's properties.</p>
+            <div class="code" data-run="note" data-query="callout-type=recipe" data-expect="Recipe callouts"><div class="code-head"><span class="file">note · Recipe callouts</span><span class="lang">markdown</span><button class="copy" type="button">copy</button></div><pre><code>Recipe callouts [callout-type::recipe] [callout-icon::♨] [callout-tone::green] [callout-aliases::dish]</code></pre></div>
+            <p class="see">the note, with four properties under its title.</p>
+          </li>
+          <li>
+            <button class="box" type="button" aria-label="Mark step 2 done"></button>
+            <p class="do">Use it in a note, by its name and by its alias.</p>
+            <div class="code" data-run="note" data-query="menu=sunday" data-expect="♨ Soup stock"><div class="code-head"><span class="file">note · Sunday soup</span><span class="lang">markdown</span><button class="copy" type="button">copy</button></div><pre><code>Sunday soup [menu::sunday]
+
+&gt; [!recipe] Soup stock
+&gt; Bones, an onion, two bay leaves.
+&gt; &gt; [!dish]- Leftovers
+&gt; &gt; Freeze in jars, two fingers from the top.</code></pre></div>
+            <p class="see">the reader draws <b>♨ Soup stock</b> straight away.</p>
+          </li>
+          <li>
+            <button class="box" type="button" aria-label="Mark step 3 done"></button>
+            <p class="do">Draw it the way a reader does.</p>
+            <div class="code" data-run="sh" data-expect="♨ Soup stock"><div class="code-head"><span class="file">shell</span><span class="lang">bash</span><button class="copy" type="button">copy</button></div><pre><code><span class="tk-k">ep0ch</span> show $(<span class="tk-k">ep0ch</span> find --ids --query <span class="tk-s">"menu=sunday"</span>)</code></pre></div>
+            <p class="see">the drawing at the top of this page: <b>♨ Soup stock</b> framed in green, <b>♨ Leftovers</b> inside it.</p>
+          </li>
+        </ol>
+      </section>
+
+      <section aria-labelledby="restyle">
+        <h2 id="restyle"><span class="n">3</span>Change it</h2>
+        <div class="prose"><p>The note is the type, so change the note. Open it in the door (<kbd>e</kbd> to edit, <kbd>ctrl</kbd><kbd>s</kbd> to save) or in Detail, and change its first line. Here the tone moves to amber, the type gets a title for callouts written without one, and a second alias.</p></div>
+        <div class="code"><div class="code-head"><span class="file">note · Recipe callouts</span><span class="lang">diff</span><button class="copy" type="button">copy</button></div><pre class="diff" data-run="edit" data-query="callout-type=recipe"><code><span class="del">Recipe callouts [callout-type::recipe] [callout-icon::♨] [callout-tone::green] [callout-aliases::dish]</span><span class="add">Recipe callouts [callout-type::recipe] [callout-icon::♨] [callout-tone::amber] [callout-title::Recipe] [callout-aliases::dish, meal]</span></code></pre><div class="says">copy gives the <b>+</b> line: the note's new first line</div></div>
+        <div class="prose"><p>Then a new note that uses the alias <code>meal</code> and no title:</p></div>
+        <div class="code" data-run="note" data-query="menu=tuesday" data-expect="♨ Recipe"><div class="code-head"><span class="file">note · Tuesday</span><span class="lang">markdown</span><button class="copy" type="button">copy</button></div><pre><code>Tuesday [menu::tuesday]
+
+&gt; [!meal]
+&gt; Soup again.</code></pre></div>
+        <div class="code" data-run="sh" data-expect="♨ Recipe"><div class="code-head"><span class="file">shell</span><span class="lang">bash</span><button class="copy" type="button">copy</button></div><pre><code><span class="tk-k">ep0ch</span> show $(<span class="tk-k">ep0ch</span> find --ids --query <span class="tk-s">"menu=tuesday"</span>)</code></pre></div>
+        <pre class="term" aria-label="The restyled type, as the door draws it"><span style="color:var(--term-15)">Tuesday                                                     </span>
+<span style="color:var(--term-6)">user · 10-03-26 (12:49)</span><span style="color:var(--term-8)"> · i 1 property                      </span>
+<span style="color:var(--term-3)">top level                                                   </span>
+<span style="color:var(--term-1)">────────────────────────────────────────────────────────────</span>
+ <span style="color:var(--term-14)">╭─</span><span style="color:var(--term-14);font-weight:700"> <span class="g">▾</span></span><span style="color:var(--term-14);font-weight:700"> <span class="g">♨</span> Recipe</span><span style="color:var(--term-14);font-weight:700"> </span><span style="color:var(--term-14)">────────────────────────────────────────────╮</span>
+ <span style="color:var(--term-14)">│ </span><span style="color:var(--term-7)">Soup again.</span>                                            <span style="color:var(--term-14)"> │</span>
+ <span style="color:var(--term-14)">╰─────────────────────────────────────────────────────────╯</span></pre>
+        <p class="term-cap"><code>[!meal]</code> with no title: drawn as <b>Recipe</b>, in amber.</p>
+      </section>
+
+      <section aria-labelledby="reference">
+        <h2 id="reference"><span class="n">4</span>Reference</h2>
+        <div class="table-wrap"><table class="plain">
+          <thead><tr><th>Property</th><th>Takes</th><th>If it's missing or wrong</th></tr></thead>
+          <tbody>
+            <tr><td><code>callout-type</code></td><td>a name: letters, digits, <code>-</code> and <code>_</code>, up to 32</td><td>The note declares nothing. A name already declared or taken as an alias is refused.</td></tr>
+            <tr><td><code>callout-icon</code></td><td>one glyph, one terminal column wide</td><td>The built-in's icon, or <b>●</b>. Emoji and wide characters are refused.</td></tr>
+            <tr><td><code>callout-tone</code></td><td><code>blue</code> <code>green</code> <code>violet</code> <code>amber</code> <code>coral</code> <code>neutral</code></td><td>The built-in's tone, or neutral.</td></tr>
+            <tr><td><code>callout-title</code></td><td>any words</td><td>The name in words: <code>my-type</code> is "My Type".</td></tr>
+            <tr><td><code>callout-aliases</code></td><td>names, separated by commas</td><td>An alias another type already has is refused; the rest stand.</td></tr>
+          </tbody>
+        </table></div>
+        <div class="callout" data-tone="amber">
+          <div class="c-title"><span aria-hidden="true">⚠</span> One mistake never hides the rest<span class="type">warning</span></div>
+          <div class="c-body"><p>A bad icon or tone falls back, and the type still works. The first note to claim a name or an alias keeps it. <code>callout.list</code>, from an agent or the door's control socket, returns each problem with the note it's in.</p></div>
+        </div>
+        <div class="prose"><p>Declaring a built-in's name (<code>[callout-type::warning]</code>) restyles that built-in: its title, icon and tone change, and its aliases are added to the built-in's.</p></div>
+
+        <h3>Tones</h3>
+        <div class="prose"><p>A tone is a colour family, not a colour. Each client maps it to its own palette, so a type looks right in the door's calm and night themes and in Detail.</p></div>
+        <div class="swatches">
+          <div class="swatch"><i style="background:var(--tone-blue)"></i><div><b>blue</b><span>note, info, todo</span></div></div>
+          <div class="swatch"><i style="background:var(--tone-green)"></i><div><b>green</b><span>tip, success</span></div></div>
+          <div class="swatch"><i style="background:var(--tone-violet)"></i><div><b>violet</b><span>question, example</span></div></div>
+          <div class="swatch"><i style="background:var(--tone-amber)"></i><div><b>amber</b><span>warning</span></div></div>
+          <div class="swatch"><i style="background:var(--tone-coral)"></i><div><b>coral</b><span>failure, danger, bug</span></div></div>
+          <div class="swatch"><i style="background:var(--tone-neutral)"></i><div><b>neutral</b><span>quote, and any undeclared type</span></div></div>
+        </div>
+
+        <h3>What the host answers</h3>
+        <div class="sig">
+          <pre class="sig-line"><span class="name">callouts.types</span>() → { <span class="arg">types</span>: <span class="ty">CalloutType[]</span>, <span class="arg">problems</span>: <span class="ty">string[]</span>, <span class="arg">complete</span>: <span class="ty">boolean</span> }</pre>
+          <p class="sig-about">The outline's declared types, and what's wrong with any declaration. Clients add these to the built-ins with <code>calloutRegistry()</code> and resolve every <code>[!name]</code> through it.</p>
+          <p class="sig-facts"><span class="chip"><b>wire</b> outline host RPC</span><span class="chip"><b>pure</b> outline-core</span></p>
+          <div class="sig-args"><table>
+            <thead><tr><th>CalloutType</th><th>Type</th><th>Means</th></tr></thead>
+            <tbody>
+              <tr><td>name</td><td>string</td><td>what <code>[!name]</code> writes</td></tr>
+              <tr><td>title</td><td>string</td><td>the title a callout without one shows</td></tr>
+              <tr><td>icon</td><td>string</td><td>one terminal column</td></tr>
+              <tr><td>tone</td><td>CalloutTone</td><td>one of the six</td></tr>
+              <tr><td>aliases</td><td>string[]</td><td>other names that mean it</td></tr>
+              <tr><td>block</td><td>string?</td><td>the note that declares it</td></tr>
+            </tbody>
+          </table></div>
+          <div class="sig-src">packages/outline-core/src/callouts.ts · <code>calloutTypesFromBlocks</code>, <code>calloutRegistry</code></div>
+        </div>
+      </section>
+
+      <nav class="pager" aria-label="Next and previous">
+        <a href="../showcase/callouts.html"><span class="dir">← showcase</span>Callouts</a>
+        <a class="next" href="../kitchen-sink.html"><span class="dir">kitchen sink →</span>Every component</a>
+      </nav>
+    </article>
+  </main>
+</div>
+
+<footer class="statusbar">
+  <span>ep0ch</span><span>docs</span><span>build › add a callout type</span><span class="push wide">dark only</span><button class="push-alt" type="button" data-tone-toggle>calm</button>
+</footer>
+<script src="../assets/site.js"></script>
+</body>
+</html>

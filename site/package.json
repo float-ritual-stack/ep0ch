@@ -1,0 +1,19 @@
+{
+  "name": "@ep0ch/site",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "tsc --noEmit && bun check.ts --samples",
+    "check:pages": "bun check.ts --pages",
+    "tokens": "bun tokens.ts",
+    "test": "bun test"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.6.0"
+  },
+  "dependencies": {
+    "@ep0ch/door": "workspace:*",
+    "@ep0ch/outline-core": "workspace:*"
+  }
+}

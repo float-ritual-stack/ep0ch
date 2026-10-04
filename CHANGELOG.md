@@ -162,6 +162,23 @@ The river's replies under a note are read again the same way. Restart the door (
   list. `c` copies `ep0ch show <id> --ws <outline>`, which a press used to copy.
 - `show` lands there as well when neither a door nor Herdr is around.
 
+### The docs site's design system (PIE-523)
+
+- **`site/`**: the system for the docs site, with Showcase (what the door does, in casts) and Build (guides for
+  adding to it) under one shell. `site/DESIGN.md` is the spec: the sections and page types, the colour roles, the
+  type and the components, and the content rules. `site/kitchen-sink.html` draws every component. Two sample pages
+  show the system in use: the callouts feature page, with a cast you can scrub by chapter, and a guide to adding
+  a callout type.
+- **The door's own colours:** `bun site/tokens.ts` writes the site's colours from the door's calm and night
+  themes. Dark only, with no light flash.
+- **`bun site/check.ts`:** each page is screenshotted before and after its stylesheets load, at desktop and phone
+  widths, and every example marked to run is run on a scratch outline, as a reader would (`ep0ch new`, `ep0ch
+  show`). Its callouts are checked against the door's own types, and a page that loads anything from another host
+  fails. `site/` is a workspace package, so `bun run check` typechecks it and runs its examples.
+- **Fonts served by the site:** JetBrains Mono and Atkinson Hyperlegible Next are in `site/assets/fonts`; a page
+  asks no other host.
+- The callouts cast is a stand-in, recorded by a one-off script; the showcase tours (PIE-523) re-record it.
+
 ### Find by query, export to Markdown or JSON (PIE-534)
 
 - **`ep0ch find --query "<expression>"`** lists the notes a query holds for, as the outline evaluates it: the saved
