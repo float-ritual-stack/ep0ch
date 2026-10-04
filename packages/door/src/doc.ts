@@ -96,7 +96,7 @@ export type ImageControl = { size: 1 | -1 } | { align: 1 | -1 } | { hero: boolea
  * An image laid out on the body's rows: `col` cells in, `cols` × `rows` cells; `crop` the part of it shown, as
  * fractions of the image (a header's cover crop).
  */
-export interface DocImage { line: number; col: number; rows: number; cols: number; media: Extract<Media, { state: "ready" }>; crop?: { x: number; y: number; w: number; h: number }; brightness: number }
+export interface DocImage { line: number; col: number; rows: number; cols: number; media: Extract<Media, { state: "ready" }>; crop?: { x: number; y: number; w: number; h: number }; dim?: number }
 /**
  * A media line as drawn: the file, its kind, the row naming it (its caption), the body line it's on, what the line says
  * of its layout, and `image`, its index in `Doc.images` when it's laid out there.
@@ -329,9 +329,12 @@ export function renderDoc(body: string, env: DocEnv): Doc {
         out.push(caption(entry, spec, W, env, i, true));
         continue;
       }
-      if (entry.state === "ready" && env.graphics) {
-        const box = isHero ? heroBox(entry, spec, W, Math.min(spec.height ?? Infinity, env.maxImageRows), env.cellW, env.cellH) : imageBox(entry, spec, W, env);
-        ref.image = images.push({ line: out.length, media: entry, brightness: brightness(entry, spec.dim), ...box }) - 1;
+      // Its rows from its size, which its header gives before it's decoded: kept dark while it loads, so the note
+      // doesn't move when it arrives.
+      const size = entry.state === "ready" ? entry : entry.state === "loading" && entry.width && entry.height ? { width: entry.width, height: entry.height } : null;
+      if (size && env.graphics) {
+        const box = isHero ? heroBox(size, spec, W, Math.min(spec.height ?? Infinity, env.maxImageRows), env.cellW, env.cellH) : imageBox(size, spec, W, env);
+        if (entry.state === "ready") ref.image = images.push({ line: out.length, media: entry, ...(spec.dim !== undefined ? { dim: spec.dim } : {}), ...box }) - 1;
         for (let r = 0; r < box.rows; r++) out.push("");
         ref.row = out.length;
       }
@@ -453,17 +456,16 @@ export function renderDoc(body: string, env: DocEnv): Doc {
   return { lines, images, media: mediaRefs, links: ranges, source, heads, ...(hero ? { hero } : {}) };
 }
 
-type Ready = Extract<Media, { state: "ready" }>;
 /** Rows `cols` cells of `m` take, its aspect kept. */
-const rowsFor = (m: Ready, cols: number, env: DocEnv) => Math.max(1, Math.round((cols * env.cellW * m.height) / m.width / env.cellH));
-const colsFor = (m: Ready, rows: number, env: DocEnv) => Math.max(1, Math.round((rows * env.cellH * m.width) / m.height / env.cellW));
+const rowsFor = (m: { width: number; height: number }, cols: number, env: DocEnv) => Math.max(1, Math.round((cols * env.cellW * m.height) / m.width / env.cellH));
+const colsFor = (m: { width: number; height: number }, rows: number, env: DocEnv) => Math.max(1, Math.round((rows * env.cellH * m.width) / m.height / env.cellW));
 
 /**
  * Where an image goes in a body `W` wide: its width from `[size::…]` (cells, a share of the body, or all of it) or
  * from `[height::…]`, else about half its own pixels (a small image isn't blown up to the full width); its aspect
  * kept, inside both when both are written, at most `maxImageRows` tall; then placed by `[align::…]`.
  */
-export function imageBox(m: Ready, spec: MediaSpec, W: number, env: DocEnv): { col: number; cols: number; rows: number } {
+export function imageBox(m: { width: number; height: number }, spec: MediaSpec, W: number, env: DocEnv): { col: number; cols: number; rows: number } {
   const s = spec.size;
   let cols = s === "full" ? W : s && "percent" in s ? Math.round((W * s.percent) / 100) : s ? s.cells
     : spec.height ? colsFor(m, spec.height, env) : Math.max(Math.min(W, 24), Math.round((m.width / env.cellW) * 0.5));
@@ -512,7 +514,7 @@ function caption(entry: Media, spec: MediaSpec, W: number, env: DocEnv, line: nu
     entry.state === "ready" ? `${entry.width}×${entry.height}${spec.kind === "video" ? " poster frame" : ""}` : "",
     hero ? [spec.height ? `${spec.height} rows` : "", spec.fit ?? ""].filter(Boolean).join(" ") : sizeText(spec.size),
     hero ? "" : spec.align && spec.align !== "left" ? spec.align : "",
-    spec.dim !== undefined ? `dim ${spec.dim}` : entry.state === "ready" && brightness(entry) < 1 ? "dimmed" : "",
+    spec.dim !== undefined ? `dim ${spec.dim}` : entry.state === "ready" && brightness(entry.mean) < 1 ? "dimmed" : "",
     spec.alt ? `“${spec.alt}”` : "",
   ].filter(Boolean);
   // Its controls, at the right end, kept whole: the text before them is cut first.

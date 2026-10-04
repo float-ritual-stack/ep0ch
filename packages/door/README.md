@@ -1417,8 +1417,10 @@ Bodies render with `src/doc.ts`:
   of these is said on the line in yellow.
 
   **Dark first.** A bright image is dimmed as it's scaled, so it's cached dimmed and never shown bright, not even for
-  a frame: its brightness is scaled so its mean luminance is at most 0.3 (dark art is untouched; the caption says
-  `dimmed`). `[dim::N]` on its line sets how much instead: `0` as it is, `0.6` at 40%, `1` black.
+  a frame: its brightness is scaled so the mean luminance of the part drawn (a header's crop), as it shows on the
+  door's dark ground (a transparent pixel is the ground), is at most 0.3. Dark art is untouched; the caption says
+  `dimmed`. An image's rows are kept, dark, while it loads (its size is read from its header first), so the note
+  doesn't move when it arrives. `[dim::N]` on its line sets how much instead: `0` as it is, `0.6` at 40%, `1` black.
 
   Decoding and scaling need no system tool: PNG, JPEG, WebP and GIF (its first frame) go through sharp's prebuilt
   libvips (Linux and macOS), turned upright and scaled down to about the box they're drawn in, never up (Kitty scales

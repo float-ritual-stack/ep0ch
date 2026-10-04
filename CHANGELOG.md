@@ -53,7 +53,7 @@ move into one repository (PIE-530).
   whole when it fits in a third of the pane (or its `height`), else cropped to fill (`[fit::contain]` shows it whole);
   it scrolls away with the top of the note.
 - **Dark first:** a bright image (a page, a slide, a screenshot) is dimmed as it's scaled, never shown bright first,
-  so its mean luminance is at most 0.3. `[dim::0]` shows it as it is, `[dim::0.6]` at 40%. For example `- [img::~/shots/plot.png] [layout::hero]`.
+  so the part drawn has a mean luminance of at most 0.3. Its rows are kept while it loads: the note doesn't move. `[dim::0]` shows it as it is, `[dim::0.6]` at 40%. For example `- [img::~/shots/plot.png] [layout::hero]`.
 - **Change it from the reader:** `[ ]` to an image (or click it), then `+` `-` size it, `←` `→` move it, `H` makes it the
   header; or click its caption's `[−][+] [◂][▸] [▀]`. Each is one save of that line, recorded as you; `ctrl+z` undoes
   it. Agents: `act images`, `image.size n=1 to=50%`, `image.align`, `image.hero`, `image.undo`.

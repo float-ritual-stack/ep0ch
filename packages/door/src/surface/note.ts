@@ -24,7 +24,7 @@ import { destinationOf, external, externalOpenCommand, fileOpenCommand } from ".
 import { Draft, DRAFT_ACTIONS, sameParty, type DraftActionArgs } from "../edit";
 import { agentRefusal, blockTarget, DraftSession, leaveSaid, propertyChange, unsentOn, type Ended, type LeaveResult } from "../draft-session";
 import { inWindow, type Placement } from "../kitty";
-import { ALIGNS, brightness, media, parseDim, parseMediaLine, parseSize, rewriteMediaLine, sized, sizeText, type MediaAttr, type MediaSpec } from "../media";
+import { ALIGNS, media, parseDim, parseMediaLine, parseSize, rewriteMediaLine, sized, sizeText, type MediaAttr, type MediaSpec } from "../media";
 import type { Scroll } from "../canvas";
 import { whoOf, EditConflict, mutationFor, Offline, recordedActorId, Refused, USER, type Actor, type ChecklistStep, type Comment, type OutlineEvent, type PropertyRecord } from "../socket";
 import { ellipsize, dim, C, extractLinks, fg, LINK_END, linkTag, pad, RESET, width } from "../style";
@@ -704,10 +704,14 @@ export class NoteSurface {
     if (entry.state === "error") return null;
     const cap = Math.max(3, Math.min(ref.spec.height ?? Math.floor(h / 3), Math.floor(h / 2)));
     const name = ref.path.split("/").pop() ?? ref.path;
-    if (entry.state === "loading") return { line: ref.line, box: { col: 0, cols: w, rows: cap }, placement: null, loading: true, name };
     const [cw, chh] = cellOf(host);
+    // Its rows come from its size, read from its header before it's decoded: the note never moves when it arrives.
+    if (entry.state === "loading") {
+      const box = entry.width && entry.height ? heroBox({ width: entry.width, height: entry.height }, ref.spec, w, cap, cw, chh) : { col: 0, cols: w, rows: cap };
+      return { line: ref.line, box, placement: null, loading: true, name };
+    }
     const box = heroBox(entry, ref.spec, w, cap, cw, chh);
-    const [placement] = imagePlacements([{ line: 0, media: entry, brightness: brightness(entry, ref.spec.dim), ...box }], 0, cw, chh);
+    const [placement] = imagePlacements([{ line: 0, media: entry, ...(ref.spec.dim !== undefined ? { dim: ref.spec.dim } : {}), ...box }], 0, cw, chh);
     return { line: ref.line, box, placement: placement ? { ...placement, key: `hero:${placement.key}` } : null, loading: false, name };
   }
 
@@ -4019,8 +4023,8 @@ const cellOf = (host?: SurfaceHost): [number, number] => [host?.ctx.t?.cellW ?? 
  */
 export const imagePlacements = (images: readonly DocImage[], col: number, cellW: number, cellH: number): Placement[] =>
   images.flatMap(im => {
-    // Not drawn until a PNG at its brightness is ready: its rows stay dark, never a bright first frame.
-    const png = sized(im.media, im.cols * cellW, im.rows * cellH, im.brightness), c = im.crop;
+    // Not drawn until a PNG dimmed for the part it shows is ready: its rows stay dark, never a bright first frame.
+    const c = im.crop, png = sized(im.media, im.cols * cellW, im.rows * cellH, { ...(im.dim !== undefined ? { dim: im.dim } : {}), ...(c ? { crop: c } : {}) });
     if (!png) return [];
     const crop = c ? { x: Math.round(c.x * png.width), y: Math.round(c.y * png.height), w: Math.max(1, Math.round(c.w * png.width)), h: Math.max(1, Math.round(c.h * png.height)) } : undefined;
     return [{ key: `img:${png.key}:${im.line}`, image: png, col: col + im.col, row: im.line, cols: im.cols, rows: im.rows, z: -1, ...(crop ? { crop } : {}) }];

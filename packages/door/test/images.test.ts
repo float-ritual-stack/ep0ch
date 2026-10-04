@@ -81,7 +81,7 @@ describe("the media line", () => {
 
 describe("layout", () => {
   const env: DocEnv = { width: 100, cellW: 10, cellH: 20, graphics: true, maxImageRows: 30, unfold: true };
-  const m: ReadyMedia = { state: "ready", path: "/x", kind: "img", width: 1000, height: 500, mean: 0.1 };
+  const m: ReadyMedia = { state: "ready", path: "/x", kind: "img", key: "k", width: 1000, height: 500, mean: 0.1 };
   const spec = (s: string) => parseMediaLine(`[img::/x] ${s}`)!;
 
   test("width as cells, a share or full; height in rows; aspect kept; capped; aligned", () => {
@@ -116,25 +116,39 @@ describe("layout", () => {
 describe("scaling, with no system tool (PIE-494)", () => {
   for (const f of ["wide.png", "wide.jpg", "wide.webp", "wide.gif"]) {
     test(`${f}: read, its size known, drawn from a PNG scaled down for the box (never up)`, async () => {
-      const m = await ready(f), b = brightness(m);
+      const m = await ready(f);
       expect([m.width, m.height]).toEqual([1200, 600]);
-      expect(b).toBe(1);                                   // dark already: as it is
+      expect(brightness(m.mean)).toBe(1);                  // dark already: as it is
       // Ready with its first look made: a box 600 px wide is drawn from the 640 step at once.
-      expect(sized(m, 600, 300, b)!.width).toBe(640);
+      expect(sized(m, 600, 300)!.width).toBe(640);
       // A box 300 px wide is drawn from the 320 step; one 2000 px wide from the image's own 1200 (the 1280 step's).
-      await until(() => sized(m, 300, 150, b)?.width === 320, "the 320 step", 10_000);
-      await until(() => sized(m, 2000, 1000, b)?.width === 1200, "its own size, not bigger", 10_000);
-      expect(sized(m, 300, 150, b)!.png.readUInt32BE(0)).toBe(0x89504e47);
-      // The cache names each scaled PNG by the file, its step and its brightness, and leaves no part-written file.
+      await until(() => sized(m, 300, 150)?.width === 320, "the 320 step", 10_000);
+      await until(() => sized(m, 2000, 1000)?.width === 1200, "its own size, not bigger", 10_000);
+      expect(sized(m, 300, 150)!.png.readUInt32BE(0)).toBe(0x89504e47);
+      // The cache names each scaled PNG by the file's content, its step and its look, and leaves no part-written file.
       const names = readdirSync(mediaCache());
-      expect(names.filter(n => /-(320|640)-100\.png$/.test(n)).length).toBeGreaterThan(0);
+      expect(names.some(n => n.startsWith(`${m.key}-320-a`))).toBe(true);
       expect(names.some(n => n.endsWith(".tmp.png"))).toBe(false);
     });
   }
 
+  test("its size is known from its header before it's decoded: its rows are kept while it loads, so nothing moves", async () => {
+    await sharp({ create: { width: 640, height: 480, channels: 3, background: { r: 5, g: 5, b: 5 } } }).jpeg().toFile(file("fresh.jpg"));
+    const env: DocEnv = { width: 80, cellW: 10, cellH: 20, graphics: true, maxImageRows: 40, unfold: true };
+    const text = `Before\n[img::${file("fresh.jpg")}] [size::40]\nAfter`;
+    const loading = renderDoc(text, env);
+    expect(media(file("fresh.jpg"), "img")).toMatchObject({ state: "loading", width: 640, height: 480 });
+    await ready("fresh.jpg");
+    const loaded = renderDoc(text, env);
+    expect(loaded.lines.length).toBe(loading.lines.length);
+    expect(loaded.lines.findIndex(l => plain(l).includes("After"))).toBe(loading.lines.findIndex(l => plain(l).includes("After")));
+    expect(loading.images).toHaveLength(0);
+    expect(loaded.images).toHaveLength(1);
+  });
+
   test("a PNG already small enough, and dark, is drawn as it is", async () => {
     const m = await ready("small.png");
-    const png = sized(m, 400, 200, brightness(m))!;
+    const png = sized(m, 400, 200)!;
     expect([png.width, png.height]).toEqual([200, 100]);
     expect(existsSync(join(mediaCache(), `${png.key}.png`))).toBe(false);
   });
@@ -142,17 +156,32 @@ describe("scaling, with no system tool (PIE-494)", () => {
   test("a bright image is dimmed in the same step, never drawn bright first; dim:: says how much instead", async () => {
     const m = await ready("paper.png");
     expect(m.mean).toBeGreaterThan(0.85);
-    const auto = brightness(m);
-    expect(auto).toBeCloseTo(MAX_MEAN / m.mean, 1);
+    expect(brightness(m.mean)).toBeCloseTo(MAX_MEAN / m.mean, 1);
     // The first look is already dimmed: no PNG of it at full brightness was ever made.
-    const first = sized(m, 600, 340, auto)!;
-    expect(await meanOf(first.png)).toBeLessThanOrEqual(MAX_MEAN + 0.03);
-    expect(sized(m, 600, 340, 1)).toBeNull();
+    expect(await meanOf(sized(m, 600, 340)!.png)).toBeLessThanOrEqual(MAX_MEAN + 0.03);
+    expect(sized(m, 600, 340, { dim: 0 })).toBeNull();
     // [dim::0] keeps it as it is; [dim::0.6] draws it at 40%.
-    expect(brightness(m, 0)).toBe(1);
-    expect(brightness(m, 0.6)).toBe(0.4);
-    await until(() => !!sized(m, 600, 340, 0.4), "dim 0.6", 10_000);
-    expect(await meanOf(sized(m, 600, 340, 0.4)!.png)).toBeCloseTo(m.mean * 0.4, 1);
+    expect(brightness(m.mean, 0)).toBe(1);
+    expect(brightness(m.mean, 0.6)).toBe(0.4);
+    await until(() => !!sized(m, 600, 340, { dim: 0.6 }), "dim 0.6", 10_000);
+    expect(await meanOf(sized(m, 600, 340, { dim: 0.6 })!.png)).toBeCloseTo(m.mean * 0.4, 1);
+  });
+
+  test("the cap is measured over the part drawn (a header's crop), a transparent pixel counting as the dark ground", async () => {
+    // A white sky over a black field: dark on the whole, bright where a header crops it.
+    const sky = Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400"><rect width="400" height="400" fill="#000"/><rect width="400" height="100" fill="#fff"/></svg>`);
+    await sharp(sky).png().toFile(file("sky.png"));
+    const m = await ready("sky.png");
+    expect(brightness(m.mean)).toBe(1);
+    const crop = { x: 0, y: 0, w: 1, h: 0.25 };
+    await until(() => !!sized(m, 400, 100, { crop }), "the sky, cropped", 10_000);
+    const top = await sharp(sized(m, 400, 100, { crop })!.png).extract({ left: 0, top: 0, width: 400, height: 100 }).png().toBuffer();
+    expect(await meanOf(top)).toBeLessThanOrEqual(MAX_MEAN + 0.03);
+    // White at 30% opacity shows as a dim grey on the door's ground: not dimmed further.
+    await sharp({ create: { width: 200, height: 200, channels: 4, background: { r: 255, g: 255, b: 255, alpha: 0.3 } } }).png().toFile(file("veil.png"));
+    const veil = await ready("veil.png");
+    expect(veil.mean).toBeCloseTo(0.3, 1);
+    expect(brightness(veil.mean)).toBeGreaterThan(0.95);
   });
 
   test("a file changed on disk is read again", async () => {
@@ -161,6 +190,8 @@ describe("scaling, with no system tool (PIE-494)", () => {
     utimesSync(file("small.png"), new Date(), new Date(Date.now() + 5000));
     await until(() => { const x = media(file("small.png"), "img"); return x.state === "ready" && x.width === 300; }, "the new size", 10_000);
     expect(m.width).toBe(200);
+    // The old reading draws nothing any more: never the old picture for the new file.
+    expect(sized(m, 400, 200)).toBeNull();
   });
 
   test("a missing file says so", () => {
@@ -180,6 +211,8 @@ describe("the reader draws the header image above the title", () => {
     await ready("wide.jpg");
     const s = new NoteSurface(), h = host(true), m = note(`Plot\n- [img::${file("wide.jpg")}] [layout::hero]\n\nBeans.`);
     s.show(m as any, h);
+    // Its rows are kept dark until the PNG dimmed for the part it shows is ready.
+    await until(() => !!s.render(100, 42, h).placements?.length, "the header, scaled", 10_000);
     const v = s.render(100, 42, h);
     const hero = v.placements![0]!;
     // 25 rows tall at the full width, the cap 14: cropped to fill, around its middle.
@@ -205,8 +238,10 @@ describe("the reader draws the header image above the title", () => {
     await ready("wide.jpg");
     const s = new NoteSurface(), h = host(true);
     s.show(note(`Plot\n- [img::${file("wide.jpg")}] [layout::hero]\n\n${body(60)}`) as any, h);
+    await until(() => !!s.render(100, 42, h).placements?.length, "the header, scaled", 10_000);
     const first = s.render(100, 42, h).placements![0]!;
     (s as any).scroll = 4;
+    s.render(100, 42, h);
     const sv = s.render(100, 42, h), top = sv.placements![0]!;
     expect(top).toMatchObject({ row: 0, rows: 10 });
     expect(top.crop!.y).toBeGreaterThan(first.crop!.y);

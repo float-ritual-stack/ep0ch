@@ -6,23 +6,33 @@
 // scaled down, to about the box it's drawn in (for bandwidth and memory), never up.
 //
 // Dark first: a bright image is dimmed in the same step, so it's cached dimmed and no frame ever shows it bright. By
-// default its brightness is scaled so its mean luminance is at most MAX_MEAN (art that's dark already is untouched);
-// `[dim::N]` on its line says how much instead (0 none, 0.6 to 40%). Work happens off the render path; an entry
-// starts "loading" and a redraw follows when it settles.
+// default its brightness is scaled so the mean luminance of the part drawn (a header's crop), as it shows on the
+// door's dark ground (a transparent pixel is the ground), is at most MAX_MEAN; art that's dark already is untouched.
+// `[dim::N]` on its line says how much instead (0 none, 0.6 to 40%). An image's size is read from its header at once
+// (image-size), so its rows are known before it's decoded and the note never moves when it arrives. Work happens off
+// the render path; a redraw follows when it settles.
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
+import { imageSize } from "image-size";
 import { cacheDir } from "./state";
 
 export interface PngRef { png: Buffer; width: number; height: number; key: string }
 type Kind = "img" | "video";
-/** A media file as the door holds it. Ready: its size (`width`, `height`, upright) and its mean luminance (0–1). */
+/**
+ * A media file as the door holds it, `key` naming its content (path, mtime, size). Loading: its size when its header
+ * says it. Ready: its size (upright) and the mean luminance of all of it as drawn (0–1, the caption's "dimmed").
+ */
 export type Media =
-  | { state: "loading"; path: string; kind: Kind }
-  | { state: "ready"; path: string; kind: Kind; width: number; height: number; mean: number }
+  | { state: "loading"; path: string; kind: Kind; width?: number; height?: number }
+  | { state: "ready"; path: string; kind: Kind; key: string; width: number; height: number; mean: number }
   | { state: "error"; path: string; kind: Kind; reason: string };
 export type ReadyMedia = Extract<Media, { state: "ready" }>;
+/** The part of an image drawn, as fractions of it (a header's cover crop). */
+export type Crop = { x: number; y: number; w: number; h: number };
+/** How an image is drawn: dimmed by `[dim::…]` (else held to MAX_MEAN), over the part `crop` shows. */
+export interface Look { dim?: number; crop?: Crop }
 
 /** The longest edge, in pixels, an image is kept at. */
 const MAX_PX = 1600;
@@ -42,16 +52,19 @@ export const mediaCache = () => join(cacheDir(), "media");
 const CHECKOUT = resolve(import.meta.dir, "../../..");
 const installAll = () => existsSync(join(CHECKOUT, "package.json")) ? `(cd ${CHECKOUT} && bun install --frozen-lockfile)` : "bun install --frozen-lockfile, in the ep0ch checkout (ep0ch doctor names it)";
 
-interface Entry { media: Media; mtime: number; size: number; checked: number }
+interface Entry { media: Media; key: string; checked: number }
 const store = new Map<string, Entry>();
-/** Scaled PNGs in memory, least recently drawn first: `path\0edge\0factor` → PNG. */
+/** Scaled PNGs in memory, least recently drawn first, by job (`content key\0edge\0look`). */
 const scaled = new Map<string, PngRef>();
-/** When each scaled PNG was last drawn. */
-const used = new Map<string, number>();
 let scaledBytes = 0;
+/** The last frame each job was drawn in (`frame`, counted by `sized` callers through `nextFrame`). */
+const drawnIn = new Map<string, number>();
+let frame = 0;
 const making = new Set<string>();
 let onChange: () => void = () => {};
 export function onMediaChange(fn: () => void) { onChange = fn; }
+/** A new frame is being drawn: what the last one drew stays in memory (never evicted while it's on screen). */
+export function nextFrame() { frame++; }
 
 /** `~`, backslash-escaped spaces, and macOS screenshot names (a narrow no-break space before AM/PM). */
 export function resolveMediaPath(raw: string): { path: string; exists: boolean } {
@@ -59,11 +72,6 @@ export function resolveMediaPath(raw: string): { path: string; exists: boolean }
   const candidates = [p, p.replace(/ (AM|PM)(?=\.\w+$)/, " $1")];
   for (const c of candidates) { try { statSync(c); return { path: c, exists: true }; } catch { /* next */ } }
   return { path: p, exists: false };
-}
-
-function pngSize(b: Buffer): { width: number; height: number } | null {
-  if (b.length < 24 || b.readUInt32BE(0) !== 0x89504e47) return null;
-  return { width: b.readUInt32BE(16), height: b.readUInt32BE(20) };
 }
 
 type Sharp = typeof import("sharp").default;
@@ -90,6 +98,7 @@ async function run(cmd: string[]): Promise<void> {
 /** A file in the cache, written whole or not at all: made at a name of this process's own, then renamed into place. */
 async function cached(out: string, make: (tmp: string) => Promise<void>): Promise<string> {
   if (existsSync(out)) return out;
+  mkdirSync(dirname(out), { recursive: true });
   const tmp = `${out}.${process.pid}.${Math.random().toString(36).slice(2, 8)}.tmp.png`;
   try { await make(tmp); renameSync(tmp, out); }
   finally { rmSync(tmp, { force: true }); }
@@ -110,113 +119,147 @@ function posterFrame(path: string, key: string): Promise<string> {
   });
 }
 
-interface Source { src: string; key: string; width: number; height: number; png: boolean; mean: number }
+/** The content key of the file at `path` as it is now: its path, when it changed and its size. */
+function contentKey(path: string): string | null {
+  try { const st = statSync(path); return createHash("sha1").update(`${path}\0${st.mtimeMs}\0${st.size}`).digest("hex").slice(0, 16); }
+  catch { return null; }
+}
 
-/** What to scale from: the file (or a video's frame), its upright size and mean luminance, and whether it's a PNG. */
+/** The upright size an image's header says, read at once (no decoding); null when it can't be read that way. */
+function headerSize(path: string): { width: number; height: number } | null {
+  try {
+    const d = imageSize(readFileSync(path));
+    if (!d.width || !d.height) return null;
+    return (d.orientation ?? 1) >= 5 ? { width: d.height, height: d.width } : { width: d.width, height: d.height };
+  } catch { return null; }
+}
+
+interface Source { src: string; key: string; width: number; height: number; png: boolean }
+
+/** What to scale from, by content key: the file (or a video's frame), its upright size, and whether it's a PNG. */
 const sources = new Map<string, Promise<Source>>();
-function sourceOf(path: string, kind: Kind): Promise<Source> {
-  let s = sources.get(path);
+function sourceOf(path: string, key: string, kind: Kind): Promise<Source> {
+  let s = sources.get(key);
   if (!s) {
     s = (async () => {
-      const st = statSync(path);
-      const key = createHash("sha1").update(`${path}\0${st.mtimeMs}\0${st.size}`).digest("hex").slice(0, 16);
-      mkdirSync(mediaCache(), { recursive: true });
       const src = kind === "video" ? await posterFrame(path, key) : path;
-      const sharp = await lib();
-      const [meta, stats] = await Promise.all([sharp(src, { pages: 1 }).metadata(), sharp(src, { pages: 1 }).stats()]);
+      const meta = await (await lib())(src, { pages: 1 }).metadata();
       if (!meta.width || !meta.height) throw new Error(`not an image the door can read (${meta.format ?? "unknown format"})`);
-      const c = stats.channels, mean = c.length >= 3 ? (0.2126 * c[0]!.mean + 0.7152 * c[1]!.mean + 0.0722 * c[2]!.mean) / 255 : c[0]!.mean / 255;
       // An EXIF quarter turn swaps its sides (rotate() turns it upright when it's scaled).
       const turned = (meta.orientation ?? 1) >= 5;
-      return { src, key, width: turned ? meta.height : meta.width, height: turned ? meta.width : meta.height, png: meta.format === "png" && !turned, mean };
+      return { src, key, width: turned ? meta.height : meta.width, height: turned ? meta.width : meta.height, png: meta.format === "png" && !turned };
     })();
-    sources.set(path, s);
-    s.catch(() => sources.delete(path));
+    sources.set(key, s);
+    s.catch(() => sources.delete(key));
   }
   return s;
 }
 
 /**
- * How bright `m` is drawn, as a multiplier (1 as it is): `dim` from its line (0 none … 1 black), else enough to bring
- * its mean luminance down to MAX_MEAN. Rounded, so it names a cache file.
+ * The mean luminance (0–1) of the part `crop` of `s` shows (all of it without one), as it shows on the door's dark
+ * ground: a pixel counts as much as it's opaque, a transparent one as the ground.
  */
-export function brightness(m: { mean: number }, dim?: number): number {
-  const f = dim !== undefined ? 1 - Math.max(0, Math.min(1, dim)) : Math.min(1, MAX_MEAN / Math.max(1e-3, m.mean));
-  return Math.round(f * 100) / 100;
+async function meanOf(s: Source, crop?: Crop): Promise<number> {
+  const sharp = await lib();
+  let p = sharp(s.src, { pages: 1 }).rotate();
+  if (crop) {
+    const left = Math.max(0, Math.floor(crop.x * s.width)), top = Math.max(0, Math.floor(crop.y * s.height));
+    p = sharp(await p.toBuffer()).extract({ left, top, width: Math.max(1, Math.min(s.width - left, Math.round(crop.w * s.width))), height: Math.max(1, Math.min(s.height - top, Math.round(crop.h * s.height))) });
+  }
+  const { data, info } = await p.resize({ width: 96, height: 96, fit: "inside" }).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  let sum = 0;
+  for (let i = 0; i < data.length; i += info.channels) sum += ((0.2126 * data[i]! + 0.7152 * data[i + 1]! + 0.0722 * data[i + 2]!) / 255) * (data[i + 3]! / 255);
+  return sum / Math.max(1, data.length / info.channels);
 }
 
 /**
- * The PNG of `s` with its longest edge at most `edge`, at brightness `f`: from the cache (its name has both in it),
- * or the file itself when it's a PNG that small already and isn't dimmed, or made now (the first frame of an
- * animation, turned upright, dimmed in the same step).
+ * How bright an image is drawn, as a multiplier (1 as it is): `dim` from its line (0 none … 1 black), else enough to
+ * bring `mean` (of the part drawn) down to MAX_MEAN. Rounded, so it names a cache file.
  */
-async function scale(s: Source, edge: number, f: number): Promise<PngRef> {
-  const ref = `${s.key}-${edge}-${Math.round(f * 100)}`;
-  if (s.png && f === 1 && Math.max(s.width, s.height) <= edge) return { png: readFileSync(s.src), width: s.width, height: s.height, key: ref };
+export function brightness(mean: number, dim?: number): number {
+  const f = dim !== undefined ? 1 - Math.max(0, Math.min(1, dim)) : Math.min(1, MAX_MEAN / Math.max(1e-3, mean));
+  return Math.round(f * 100) / 100;
+}
+
+/** What a look names in a cache file: its dim (or auto) and its crop, rounded. */
+const lookKey = (look: Look) => `${look.dim === undefined ? "a" : Math.round(look.dim * 100)}${look.crop ? `c${[look.crop.x, look.crop.y, look.crop.w, look.crop.h].map(v => Math.round(v * 1000)).join("_")}` : ""}`;
+
+/**
+ * The PNG of `s` with its longest edge at most `edge`, drawn as `look` says: its brightness worked out from the part
+ * drawn, dimmed in the same step as it's scaled (the first frame of an animation, turned upright). From the cache
+ * (its name has the content, the step and the look in it), or the file itself when it's a PNG that small already and
+ * isn't dimmed.
+ */
+async function scale(s: Source, edge: number, look: Look): Promise<PngRef> {
+  const f = look.dim !== undefined ? brightness(0, look.dim) : brightness(await meanOf(s, look.crop));
+  const ref = `${s.key}-${edge}-${lookKey(look)}`;
+  if (s.png && f === 1 && Math.max(s.width, s.height) <= edge) return { png: readFileSync(s.src), width: s.width, height: s.height, key: `${ref}-${Math.round(f * 100)}` };
   const out = await cached(join(mediaCache(), `${ref}.png`), async tmp => {
     const sharp = await lib();
     let p = sharp(s.src, { pages: 1 }).rotate().resize({ width: edge, height: edge, fit: "inside", withoutEnlargement: true });
     if (f < 1) p = p.modulate({ brightness: f });
     await p.png().toFile(tmp);
   });
-  const b = readFileSync(out), size = pngSize(b);
-  if (!size) throw new Error("not a PNG after conversion");
-  return { png: b, ...size, key: ref };
+  const b = readFileSync(out);
+  if (b.length < 24 || b.readUInt32BE(0) !== 0x89504e47) throw new Error("not a PNG after conversion");
+  return { png: b, width: b.readUInt32BE(16), height: b.readUInt32BE(20), key: ref };
 }
 
 /** The step that covers `edge` pixels on the longest side, never past the image's own. */
 const stepFor = (edge: number, own: number) => Math.min(STEPS.find(s => s >= edge) ?? MAX_PX, STEPS.find(s => s >= own) ?? MAX_PX);
-const jobOf = (path: string, edge: number, f: number) => `${path}\0${edge}\0${f}`;
+const jobOf = (key: string, edge: number, look: Look) => `${key}\0${edge}\0${lookKey(look)}`;
 
 function remember(job: string, ref: PngRef) {
   const was = scaled.get(job);
   if (was) { scaledBytes -= was.png.length; scaled.delete(job); }
   scaled.set(job, ref);
   scaledBytes += ref.png.length;
-  // The least recently drawn go first; never one drawn in the last few seconds (it's on screen).
-  const now = Date.now();
+  // The least recently drawn go first; never one drawn in this frame or the last (it's on screen).
   for (const [k, v] of scaled) {
-    if (scaledBytes <= KEEP_BYTES || k === job || now - (used.get(k) ?? 0) < RECHECK_MS) break;
-    scaled.delete(k); used.delete(k); scaledBytes -= v.png.length;
+    if (scaledBytes <= KEEP_BYTES || k === job || (drawnIn.get(k) ?? -9) >= frame - 1) break;
+    scaled.delete(k); drawnIn.delete(k); scaledBytes -= v.png.length;
   }
 }
 
-/** Forget everything held for `path` (its file changed on disk). */
-function forget(path: string) {
-  store.delete(path); sources.delete(path);
-  for (const [k, v] of scaled) if (k.startsWith(`${path}\0`)) { scaled.delete(k); scaledBytes -= v.png.length; }
+/** Forget what's held for content `key` (its file changed on disk). */
+function forget(path: string, key: string) {
+  store.delete(path); sources.delete(key);
+  for (const [k, v] of scaled) if (k.startsWith(`${key}\0`)) { scaled.delete(k); drawnIn.delete(k); scaledBytes -= v.png.length; }
+}
+
+/** The entry for `path`, read again when its file changed on disk (looked at every RECHECK_MS at most). */
+function current(path: string): Entry | undefined {
+  const hit = store.get(path), now = Date.now();
+  if (hit && now - hit.checked >= RECHECK_MS) {
+    hit.checked = now;
+    const key = contentKey(path);
+    if (key !== hit.key) { forget(path, hit.key); return undefined; }
+  }
+  return store.get(path);
 }
 
 export function media(raw: string, kind: Kind): Media {
   const { path, exists } = resolveMediaPath(raw);
-  const hit = store.get(path), now = Date.now();
-  // A file changed on disk (or gone, or back) is read again; looked at every RECHECK_MS at most.
-  if (hit && now - hit.checked >= RECHECK_MS) {
-    hit.checked = now;
-    let st: { mtimeMs: number; size: number } | null = null;
-    try { st = statSync(path); } catch { /* gone */ }
-    if (st ? st.mtimeMs !== hit.mtime || st.size !== hit.size : hit.media.state !== "error") forget(path);
-  }
-  const kept = store.get(path);
+  const kept = current(path);
   if (kept) return kept.media;
-  if (!exists) {
+  const now = Date.now(), key = exists ? contentKey(path) : null;
+  if (!key) {
     const m: Media = { state: "error", path, kind, reason: "file not found" };
-    store.set(path, { media: m, mtime: -1, size: -1, checked: now }); return m;
+    store.set(path, { media: m, key: "", checked: now }); return m;
   }
-  const st = statSync(path);
-  const entry: Entry = { media: { state: "loading", path, kind }, mtime: st.mtimeMs, size: st.size, checked: now };
+  const size = kind === "img" ? headerSize(path) : null;
+  const entry: Entry = { media: { state: "loading", path, kind, ...(size ?? {}) }, key, checked: now };
   store.set(path, entry);
   (async () => {
-    const s = await sourceOf(path, kind);
-    // The first look, already dimmed as it will be drawn, so the first frame of it is never bright.
-    const edge = stepFor(FIRST, Math.max(s.width, s.height)), f = brightness(s);
-    const first = await scale(s, edge, f);
-    // A file changed while it was read: this picture is the old one.
-    if (store.get(path) === entry) remember(jobOf(path, edge, f), first);
-    return s;
-  })().then(s => {
+    const s = await sourceOf(path, key, kind);
+    // The first look (all of it), already dimmed as it will be drawn, so the first frame of it is never bright.
+    const edge = stepFor(FIRST, Math.max(s.width, s.height));
+    const [first, mean] = await Promise.all([scale(s, edge, {}), meanOf(s)]);
+    if (store.get(path) === entry) remember(jobOf(key, edge, {}), first);
+    return { s, mean };
+  })().then(({ s, mean }) => {
     if (store.get(path) !== entry) return;
-    entry.media = { state: "ready", path, kind, width: s.width, height: s.height, mean: s.mean };
+    entry.media = { state: "ready", path, kind, key, width: s.width, height: s.height, mean };
     onChange();
   }, e => {
     if (store.get(path) !== entry) return;
@@ -228,33 +271,35 @@ export function media(raw: string, kind: Kind): Media {
 }
 
 /**
- * The PNG to draw `m` with in a box of `pxW` × `pxH` pixels (covered, as a cropped header is) at brightness `f`
- * (`brightness`): the scaled one for that box when it's ready; else it's made now (a redraw follows) and the closest
- * one ready at that brightness is drawn meanwhile, the terminal scaling it; null when none is ready yet (its rows stay
- * dark). Never bigger than the image. A failure turns `m` into an error its line says.
+ * The PNG to draw `m` with in a box of `pxW` × `pxH` pixels (covered, as a cropped header is), as `look` says: the
+ * scaled one for that box when it's ready; else it's made now (a redraw follows) and the closest one ready with that
+ * look is drawn meanwhile, the terminal scaling it; null when none is ready yet (its rows stay dark) or the file has
+ * changed since `m` was read. Never bigger than the image. A failure turns `m` into an error its line says.
  */
-export function sized(m: ReadyMedia, pxW: number, pxH: number, f: number): PngRef | null {
-  // Looked at again for a change on disk (media), so a file edited while it's drawn is read again.
-  if (media(m.path, m.kind) !== m) return null;
+export function sized(m: ReadyMedia, pxW: number, pxH: number, look: Look = {}): PngRef | null {
+  // The file as it is now: one changed on disk is read again (media), and nothing old is drawn meanwhile.
+  if (current(m.path)?.media !== m) { media(m.path, m.kind); return null; }
   const fit = Math.max(pxW / m.width, pxH / m.height), own = Math.max(m.width, m.height);
-  const edge = stepFor(Math.ceil(fit * own), own), job = jobOf(m.path, edge, f);
+  const edge = stepFor(Math.ceil(fit * own), own), job = jobOf(m.key, edge, look);
   const exact = scaled.get(job);
-  if (exact) { scaled.delete(job); scaled.set(job, exact); used.set(job, Date.now()); return exact; }
+  if (exact) { scaled.delete(job); scaled.set(job, exact); drawnIn.set(job, frame); return exact; }
   if (!making.has(job)) {
     making.add(job);
-    sourceOf(m.path, m.kind).then(s => scale(s, edge, f)).then(ref => {
+    sourceOf(m.path, m.key, m.kind).then(s => scale(s, edge, look)).then(ref => {
       making.delete(job);
-      // Only for the file as it is still: one that changed on disk meanwhile was forgotten, and this is its old picture.
-      if (store.get(m.path)?.media === m) { remember(job, ref); onChange(); }
+      if (current(m.path)?.media === m) { remember(job, ref); onChange(); }
     }, e => {
       making.delete(job);
       const entry = store.get(m.path);
-      if (entry && entry.media.state === "ready") { entry.media = { state: "error", path: m.path, kind: m.kind, reason: String((e as Error).message ?? e) }; onChange(); }
+      if (entry && entry.media === m) { entry.media = { state: "error", path: m.path, kind: m.kind, reason: String((e as Error).message ?? e) }; onChange(); }
     });
   }
-  // The smallest one ready that covers the box, else the biggest one ready, at this brightness.
-  const ready = [...scaled].filter(([k]) => k.startsWith(`${m.path}\0`) && k.endsWith(`\0${f}`)).map(([k, v]) => [Number(k.split("\0")[1]), v] as const).sort((a, b) => a[0] - b[0]);
-  return (ready.find(([e]) => e >= edge) ?? ready.at(-1))?.[1] ?? null;
+  // The smallest one ready that covers the box, else the biggest one ready, with this look.
+  const tail = `\0${lookKey(look)}`;
+  const ready = [...scaled].filter(([k]) => k.startsWith(`${m.key}\0`) && k.endsWith(tail)).map(([k, v]) => [Number(k.split("\0")[1]), k, v] as const).sort((a, b) => a[0] - b[0]);
+  const pick = ready.find(([e]) => e >= edge) ?? ready.at(-1);
+  if (pick) drawnIn.set(pick[1], frame);
+  return pick?.[2] ?? null;
 }
 
 // ── the media line ────────────────────────────────────────────────────────────
