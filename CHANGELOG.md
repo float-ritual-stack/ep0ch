@@ -53,6 +53,21 @@ move into one repository (PIE-530).
 - **Television (optional).** With `tv` on your PATH, `ep0ch install --apply` links the outline's channels into
   television's cable folder.
 
+### Fixed: two outlines whose names read alike shared one Herdr agent pane
+
+A session's Herdr pane label was its outline's name lowered and dashed, so `Kitchen Remodel` and `kitchen-remodel`
+(or `Front_End` and `Front.End`) got the same pane: one session could attach to, type into or close the other's
+agent. The label now ends in a short hash of the exact `outline@machine` (`door-kitchen-remodel-1a2b3c4d`), and
+the launcher writes down the pane's Herdr id when it finds or makes it, then attaches, types and closes by that id.
+An agent pane from before keeps its old label: the next start makes a new one, and the old pane can be closed in
+Herdr by hand.
+
+### Fixed: images held more memory than their budget after a resize
+
+While a resized image's new scale was being made, the one drawn meanwhile wasn't counted as just drawn, and the
+in-memory image cache stopped evicting at it: it could stay over its 96 MB. Every draw now counts, and an image on
+screen is passed over rather than ending the eviction.
+
 ### Fixed: refusals arrived in escape codes when another program read them
 
 Claude Code's shells set `FORCE_COLOR`, and Bun then paints every `console.error` red, even into a pipe. So

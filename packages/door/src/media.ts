@@ -54,11 +54,47 @@ const installAll = () => existsSync(join(CHECKOUT, "package.json")) ? `(cd ${CHE
 
 interface Entry { media: Media; key: string; checked: number }
 const store = new Map<string, Entry>();
-/** Scaled PNGs in memory, least recently drawn first, by job (`content key\0edge\0look`). */
-const scaled = new Map<string, PngRef>();
-let scaledBytes = 0;
-/** The last frame each job was drawn in (`frame`, counted by `sized` callers through `nextFrame`). */
-const drawnIn = new Map<string, number>();
+/**
+ * Scaled PNGs in memory by job (`content key\0edge\0look`), least recently drawn first, held to `budget` bytes. Every
+ * draw (`use`) moves a job to the end; what was drawn in this frame or the last is on screen and never evicted, so it
+ * is passed over and the ones behind it go instead.
+ */
+export class ScaledCache {
+  private refs = new Map<string, PngRef>();
+  /** The last frame each job was drawn in. */
+  private drawn = new Map<string, number>();
+  bytes = 0;
+  constructor(private budget: number) {}
+  get(job: string): PngRef | undefined { return this.refs.get(job); }
+  entries() { return this.refs.entries(); }
+  /** `job` drawn in `frame`: the most recently drawn now. */
+  use(job: string, frame: number) {
+    const ref = this.refs.get(job);
+    if (!ref) return;
+    this.refs.delete(job); this.refs.set(job, ref); this.drawn.set(job, frame);
+  }
+  /** Keeps `ref` as `job`, then evicts the least recently drawn (never one on screen in `frame`) down to the budget. */
+  put(job: string, ref: PngRef, frame: number) {
+    this.drop(job);
+    this.refs.set(job, ref);
+    // Made to be drawn next (a redraw follows): on screen until two frames pass without it.
+    this.drawn.set(job, frame);
+    this.bytes += ref.png.length;
+    for (const k of this.refs.keys()) {
+      if (this.bytes <= this.budget) break;
+      if (k !== job && (this.drawn.get(k) ?? -9) < frame - 1) this.drop(k);
+    }
+  }
+  /** Drops every step held for content `key`. */
+  forget(key: string) { for (const k of this.refs.keys()) if (k.startsWith(`${key}\0`)) this.drop(k); }
+  private drop(job: string) {
+    const was = this.refs.get(job);
+    if (!was) return;
+    this.refs.delete(job); this.drawn.delete(job); this.bytes -= was.png.length;
+  }
+}
+const scaled = new ScaledCache(KEEP_BYTES);
+/** The frame being drawn (counted by `sized` callers through `nextFrame`). */
 let frame = 0;
 const making = new Set<string>();
 let onChange: () => void = () => {};
@@ -209,22 +245,10 @@ async function scale(s: Source, edge: number, look: Look): Promise<PngRef> {
 const stepFor = (edge: number, own: number) => Math.min(STEPS.find(s => s >= edge) ?? MAX_PX, STEPS.find(s => s >= own) ?? MAX_PX);
 const jobOf = (key: string, edge: number, look: Look) => `${key}\0${edge}\0${lookKey(look)}`;
 
-function remember(job: string, ref: PngRef) {
-  const was = scaled.get(job);
-  if (was) { scaledBytes -= was.png.length; scaled.delete(job); }
-  scaled.set(job, ref);
-  scaledBytes += ref.png.length;
-  // The least recently drawn go first; never one drawn in this frame or the last (it's on screen).
-  for (const [k, v] of scaled) {
-    if (scaledBytes <= KEEP_BYTES || k === job || (drawnIn.get(k) ?? -9) >= frame - 1) break;
-    scaled.delete(k); drawnIn.delete(k); scaledBytes -= v.png.length;
-  }
-}
-
 /** Forget what's held for content `key` (its file changed on disk). */
 function forget(path: string, key: string) {
   store.delete(path); sources.delete(key);
-  for (const [k, v] of scaled) if (k.startsWith(`${key}\0`)) { scaled.delete(k); drawnIn.delete(k); scaledBytes -= v.png.length; }
+  scaled.forget(key);
 }
 
 /** The entry for `path`, read again when its file changed on disk (looked at every RECHECK_MS at most). */
@@ -255,7 +279,7 @@ export function media(raw: string, kind: Kind): Media {
     // The first look (all of it), already dimmed as it will be drawn, so the first frame of it is never bright.
     const edge = stepFor(FIRST, Math.max(s.width, s.height));
     const [first, mean] = await Promise.all([scale(s, edge, {}), meanOf(s)]);
-    if (store.get(path) === entry) remember(jobOf(key, edge, {}), first);
+    if (store.get(path) === entry) scaled.put(jobOf(key, edge, {}), first, frame);
     return { s, mean };
   })().then(({ s, mean }) => {
     if (store.get(path) !== entry) return;
@@ -282,12 +306,12 @@ export function sized(m: ReadyMedia, pxW: number, pxH: number, look: Look = {}):
   const fit = Math.max(pxW / m.width, pxH / m.height), own = Math.max(m.width, m.height);
   const edge = stepFor(Math.ceil(fit * own), own), job = jobOf(m.key, edge, look);
   const exact = scaled.get(job);
-  if (exact) { scaled.delete(job); scaled.set(job, exact); drawnIn.set(job, frame); return exact; }
+  if (exact) { scaled.use(job, frame); return exact; }
   if (!making.has(job)) {
     making.add(job);
     sourceOf(m.path, m.key, m.kind).then(s => scale(s, edge, look)).then(ref => {
       making.delete(job);
-      if (current(m.path)?.media === m) { remember(job, ref); onChange(); }
+      if (current(m.path)?.media === m) { scaled.put(job, ref, frame); onChange(); }
     }, e => {
       making.delete(job);
       const entry = store.get(m.path);
@@ -296,9 +320,9 @@ export function sized(m: ReadyMedia, pxW: number, pxH: number, look: Look = {}):
   }
   // The smallest one ready that covers the box, else the biggest one ready, with this look.
   const tail = `\0${lookKey(look)}`;
-  const ready = [...scaled].filter(([k]) => k.startsWith(`${m.key}\0`) && k.endsWith(tail)).map(([k, v]) => [Number(k.split("\0")[1]), k, v] as const).sort((a, b) => a[0] - b[0]);
+  const ready = [...scaled.entries()].filter(([k]) => k.startsWith(`${m.key}\0`) && k.endsWith(tail)).map(([k, v]) => [Number(k.split("\0")[1]), k, v] as const).sort((a, b) => a[0] - b[0]);
   const pick = ready.find(([e]) => e >= edge) ?? ready.at(-1);
-  if (pick) drawnIn.set(pick[1], frame);
+  if (pick) scaled.use(pick[1], frame);
   return pick?.[2] ?? null;
 }
 

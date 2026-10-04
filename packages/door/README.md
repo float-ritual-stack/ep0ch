@@ -693,7 +693,10 @@ agents message it (`herdr agent prompt door-<outline> "…"`), and it keeps runn
 
 - **Where it runs.** The launcher (`scripts/door-agent-herdr.ts --session <outline>[@machine] --agent <agent>`)
   looks on the default Herdr server (`HERDR_SOCKET_PATH`, else Herdr's own default) for this session's own pane,
-  labelled `door-<outline>` (`door-pie-hole--float-2` for one on a machine; a long name is cut, with a short hash).
+  labelled `door-<outline>-<hash>` (`door-pie-hole--float-2-<hash>` for one on a machine; a long name is cut). The
+  hash is of the exact `outline@machine`, so two outlines that read alike never share a pane; the pane's Herdr id is
+  written down beside its link (`agent-door-<outline>-<hash>.sock.pane`) and attach, typing and a session's end go to
+  that pane.
   Sessions are one per outline, so each has its own agent, started with that session's `EP0CH_CONTROL`: a door on
   another outline never attaches it.
   - If the pane isn't there, the launcher makes it: a tab in the workspace labelled `door` (made too if
@@ -736,7 +739,7 @@ agents message it (`herdr agent prompt door-<outline> "…"`), and it keeps runn
   - The wrapper tells the door it attached (`tile.herdr`, as its tile), so quitting the door says it ends only
     the attach. The door no longer reads this from the tile's title, which any program can set.
   - The agent's pane gets the same variables as an agent in a tile (one function, `agentVars` in
-    `src/desk/agent-env.ts`): `EP0CH_NEST` (the tile's, then `herdr:door-<outline>`), `EP0CH_TILE`,
+    `src/desk/agent-env.ts`): `EP0CH_NEST` (the tile's, then `herdr:door-<outline>-<hash>`), `EP0CH_TILE`,
     `EP0CH_TILE_ID`, `EP0CH_IN_DOOR`, the door's `EP0CH_STATE` and `EP0CH_SOCKET` when it has them, and an
     `EP0CH_CONTROL` that is a link in the door's state
     (`agent-door-<outline>.sock`). The launcher points the link at its door's socket each time it attaches.
