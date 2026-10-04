@@ -536,7 +536,7 @@ export class AgentDock {
     this.d?.shownAs(this.shown);
     this.save();
     // Pulled up by the person with no agent chosen for this session yet: the picker is offered (once a door).
-    if (open && actor.kind !== "agent" && this.prog.from === "none" && !this.offered && this.persist && this.host.ctx?.()) { this.offered = true; this.pick(); }
+    if (open && actor.kind !== "agent" && this.prog.from === "none" && !this.offered && this.persist && this.host.ctx?.()) { this.offered = true; void this.run?.("host.agent", {}); }
     this.host.redraw();
   }
   private offered = false;
@@ -961,7 +961,7 @@ export const DOCK_ACTIONS = actionSet<DockOn>()("dock", {
   }),
   "host.agent": def({
     summary: "the dock's own agent (its first tab): name=<agent> chooses one installed here (claude, codex, pi, … or shell; herdr=true runs it in Herdr, where it outlives the door), saved for this outline's session (default=true: for every outline). It starts inside the person's login shell, from the dock's own tab's next start: one running keeps running (agent.restart starts the new one in its place). No name: the person's picker of the agents installed here. EP0CH_DAILY_AGENT, when set, still overrides it",
-    keys: "alt+g (the picker; on every screen, and in the dock), ⏎ in it",
+    keys: "alt+g (the picker; on every screen, and in the dock), ⏎ in it; alt+a or a click on the chip offers it once a door, when no agent is chosen yet",
     touches: "screen", replay: "ask",
     says: (out: { agent?: string }) => (out.agent ? `· chose ${out.agent} for the dock` : null),
     args: { name: { type: "string", optional: true, about: "the agent: claude, codex, pi, … or shell (host.agent with no name lists them on screen)" }, herdr: { type: "boolean", optional: true, about: "run it in this session's own Herdr pane (it outlives the door)" }, default: { type: "boolean", optional: true, about: "the default for every outline's session, not only this one" } },
