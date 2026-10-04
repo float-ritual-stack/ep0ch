@@ -81,6 +81,8 @@ Every review, by the author before opening the PR and by the reviewer, goes thro
 - **The map and the docs:** does a new or changed shared part need a row in the door's reuse map, with a
   showcase section and seed content (`packages/door/src/showcase/`)? Is a new outliner shared part named in its
   Source boundaries or `docs/ARCHITECTURE.md` so the next change finds it?
+- **Ids, names, roles:** for each reference the change keeps (a tile, pane, note, outline, session), is it an id,
+  a name or a role, and does it store only ids or roles ([ADR 0001](docs/adr/0001-ids-names-roles.md))?
 - **Demo it in the kitchen sink:** a user-visible feature gets a showcase section or note in the same PR, live
   where possible (`ep0ch --showcase`), as each reuse-map row gets its section, and its test drives that section
   through `act` and checks the result (`packages/door/test/showcase.test.ts`). If it can't be shown there, the PR
@@ -107,6 +109,37 @@ Every review, by the author before opening the PR and by the reviewer, goes thro
 - Tests run against scratch hosts only, with fictional fixtures.
 - The refusal paths are covered, not just the happy path.
 - Snapshots that changed were looked at.
+
+### 5. Recurring gotchas
+
+Mistakes that came back more than once. Check the change against each. Every entry says where it was seen and
+how to check it (automated when possible), so it can be retired once a test or the code makes it impossible.
+
+- **Names used as identity** ([ADR 0001](docs/adr/0001-ids-names-roles.md)). Does the change store a name (a tile
+  name, a pane label, a title) where it means one exact thing or a role? Store ids or roles; refuse an ambiguous
+  name with the candidates. *Seen: #172 (moved previews, dock/screen name shadowing, `where` after a move, the
+  `door-claude` pane label). Check: by hand.*
+- **A contract changed under another package.** Does the change alter output another package reads (the `ep0ch`
+  CLI's argv and output, stderr wording, outline-core grammar, socket shapes)? Run the consumer's tests against
+  the real producer. *Seen: #174 broke the Claude mod's `help` probe (#179); `FORCE_COLOR` in refusals (#184).
+  Check: `packages/door/test/claude-mod-contract.test.ts`, extend it for new contracts.*
+- **A cached read with no invalidation.** Does the change keep a copy of outline data (rows, a note, an embed)?
+  Name what re-reads it: the change feed, and a replaced database (PIE-559). *Seen: #182 (outline tile), #187
+  (showcase reset), the river column (open). Check: a real-host test that changes the data from another client.*
+- **Silent success.** Can a step that didn't happen still report success? A skipped or blocked step says ✗ with
+  the reason and the command. *Seen: `ep0ch install` reporting success with the checkout's fast-forward blocked;
+  litestream's folder mode failing quietly for an hour. Check: a test for the failure path's output.*
+- **Real config or real outlines reached from a test.** Does a test or scratch host read `~/.config`, `~/outlines`
+  or the person's door? *Seen: a scratch host ran the real Inbox agent. Check: `test-door-env.sh`, scratch
+  `XDG_CONFIG_HOME`, `OUTLINER_INBOX_AGENT=0`.*
+
+Keeping this list honest, at each push-review round:
+
+- **Add** a mistake the second time it appears, with where it was seen and a check.
+- **Retire** an entry once a test or the code makes it impossible (say which), or when it hasn't been seen in
+  three rounds; delete it (git keeps the history).
+- **Merge or reword** entries that overlap. The list stays short enough to read in one review; past about ten, the
+  oldest unseen ones go.
 
 After a big push or two, review the system as a whole: one lens per reviewer (architecture and reuse,
 portability and runtime, daily-driver interaction), reporting, not fixing.
