@@ -143,6 +143,7 @@ export class DraftSession {
     if (target.blockId) { const why = agentRefusal(by, { board: env.board, blockId: target.blockId }); if (why) throw new ActionRefused(why); }
     const s = new DraftSession(target, new Draft(target.blockId ?? target.place, init.base ?? 0, init.text ?? "", init.props ?? {}), by, env);
     s.draft.near = target.near;
+    s.draft.titlesPages = target.verb !== "send";
     if (by.kind !== "agent") s.restore();
     if (target.blockId) {
       registry(env.board).add(s);
@@ -586,6 +587,8 @@ export function propertyChange(before: Record<string, string>, after: Record<str
  */
 export function blockTarget(m: Msg, o: {
   board: Pick<SocketBoard, "update" | "previewProperties" | "get">;
+  /** A note `note.new` just made for this edit (PIE-544): it has no properties to lose, so it saves on the first ctrl+s. */
+  isNew?: boolean;
   /** Saved as `by` (who `asked`), changing the properties by `change`: the host shows it. */
   saved?(m: Msg, by: Actor, asked: Actor, change: string): void;
   /** ctrl+r read the block again: the host shows it. */
@@ -602,7 +605,8 @@ export function blockTarget(m: Msg, o: {
       const text = d.text;
       // Ask the service how it will read the draft's [key::value] tokens before writing, when it can say.
       // Meanwhile the draft holds still: keys wait, and edit.text / edit.close / edit.reload are refused.
-      if (d.propertyWarned !== text) {
+      // A new note being written (PIE-544) has no properties to lose: it's written at once.
+      if (d.propertyWarned !== text && !o.isNew) {
         d.previewing = true; redraw();
         let next: Record<string, string> | null = null;
         try { next = await o.board.previewProperties(text).catch(() => null); } finally { d.previewing = false; }

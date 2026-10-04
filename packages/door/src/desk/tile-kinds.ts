@@ -33,6 +33,8 @@ export interface TileEnv {
   tile(name: string): Pane | undefined;
   /** The tiles that follow this one (a preview with `source=tile:<this>`). */
   followers(): Pane[];
+  /** It was moved here whole (from another screen, or the dock): it keeps what it shows, whatever is here. */
+  moved?: boolean;
 }
 
 /** A key under `^W o` (`^W O` as a tab) that opens a tile of the kind, with what it starts with. */

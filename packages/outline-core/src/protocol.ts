@@ -8,7 +8,7 @@
 // checkouts.
 
 /** The wire protocol both sides of this checkout speak. */
-export const PROTOCOL = 85;
+export const PROTOCOL = 89;
 
 /**
  * Why a service speaking `serviceProtocol` can't serve this client, in words that name both numbers and the side
@@ -124,3 +124,9 @@ export interface HostedOutlineDeletion {
   name: string;
   movedTo: string;
 }
+
+/**
+ * Where the service's placement rule put a new note or page (PIE-544, `notes.create`, `pages.follow`): its parent, the
+ * first child (`top`) or the last (`end`), which rule placed it, and the words a client says it with.
+ */
+export interface NotePlacement { parentId: string; at: "top" | "end"; rule: "near" | "inbox"; said: string }

@@ -190,6 +190,8 @@ export function keyBytes(k: Key, appCursor = false, flags = 0): string | null {
     case "delete": return "\x1b[3~";
     case "alt-left": return "\x1b[1;3D";
     case "alt-right": return "\x1b[1;3C";
+    case "alt-up": return "\x1b[1;3A";
+    case "alt-down": return "\x1b[1;3B";
     default: return null;
   }
 }

@@ -6,6 +6,7 @@
 //
 // Deterministic: the same blocks, text and order every run. Ids and timestamps are the service's, so
 // everything that reads the seed finds it by title under the root, never by id.
+import { join } from "node:path";
 import { titleLine, type Msg } from "../board";
 import type { Actor, SocketBoard } from "../socket";
 import { installExamples, installTickets, refreshTicket, registerTicket, SHOWCASE_TICKETS, ticketSource } from "./tickets/install";
@@ -26,6 +27,7 @@ export const SEED = {
   whiteboard: "Kitchen whiteboard",
   shed: "Bike shed",
   figures: "Allotment figures",
+  plotJobs: "Plot jobs by stage",
   recipe: "Lentil soup",
   finding: "Finding things in the house notes",
   errand: "Seed order for the plot",
@@ -35,6 +37,10 @@ export const SEED = {
   briefBefore: "Daily brief — 2026-03-10",
   callouts: "Callouts, as Obsidian writes them",
   calloutType: "Recipe callouts",
+  images: "Pictures of the plot",
+  markdownFigures: "Figures, written in Markdown",
+  keys: "The reader's keys",
+  newNotes: "New notes from anywhere",
 } as const;
 export type SeedName = keyof typeof SEED;
 
@@ -52,19 +58,44 @@ export const CARDS: { title: string; body: string; stage: "queued" | "doing" | "
   { title: "Patch the bike shed roof", body: "Felt and tacks from the hardware shop.", stage: "done", priority: "high", arc: "bikes", tracks: ["bikes", "allotment"] },
 ];
 
-/** Plain blocks with properties, for the live figures and the saved view. */
-export const CHORES: { title: string; area: string; stage: "todo" | "done"; due: string }[] = [
-  { title: "Water the beans", area: "garden", stage: "done", due: "Mon" },
-  { title: "Turn the compost", area: "garden", stage: "todo", due: "Wed" },
+/**
+ * Plain blocks with properties, for the live figures and the saved view. `rank` orders the chore queue figure
+ * (`sort: rank`): 2 before 10 because ranks compare as numbers; the chore without one comes last.
+ */
+export const CHORES: { title: string; area: string; stage: "todo" | "done"; due: string; rank?: number }[] = [
+  { title: "Water the beans", area: "garden", stage: "done", due: "Mon", rank: 10 },
+  { title: "Turn the compost", area: "garden", stage: "todo", due: "Wed", rank: 2 },
   { title: "Net the brassicas", area: "garden", stage: "todo", due: "Thu" },
-  { title: "Wipe the hob", area: "kitchen", stage: "done", due: "Tue" },
-  { title: "Empty the food caddy", area: "kitchen", stage: "todo", due: "Fri" },
+  { title: "Wipe the hob", area: "kitchen", stage: "done", due: "Tue", rank: 3 },
+  { title: "Empty the food caddy", area: "kitchen", stage: "todo", due: "Fri", rank: 1 },
 ];
+/** The chore queue figure's rows, in the order `sort: rank` `direction: asc` gives them. */
+export const CHORE_QUEUE = ["Empty the food caddy", "Turn the compost", "Wipe the hob", "Water the beans", "Net the brassicas"] as const;
+
+/**
+ * The plot's jobs, plain blocks under the tabs note, grouped by stage in its `::graph-tabs` figure: two titles long
+ * enough to wrap (a work id, then words), so cozy and comfortable show a hanging indent. No job is in `validate`:
+ * the figure lists it in `order:`, so its tab shows, empty.
+ */
+export const PLOT_JOBS: { title: string; stage: string; priority: string }[] = [
+  { title: "PLOT-1 — Rebuild the leaning raised bed by the water butt before the first frost comes in", stage: "doing", priority: "high" },
+  { title: "PLOT-2 — Sow the broad beans", stage: "doing", priority: "low" },
+  { title: "PLOT-3 — Mend the netting over the brassica cage where the pigeons got in last week and tore a corner loose from the frame", stage: "review", priority: "medium" },
+  { title: "PLOT-4 — Order the seed potatoes", stage: "queued", priority: "medium" },
+  { title: "PLOT-5 — Clear the bindweed from the path", stage: "queued", priority: "low" },
+  { title: "PLOT-6 — Lift and dry the onions", stage: "done", priority: "high" },
+];
+/** The tabs note's figure, as its YAML says it: the order puts validate before the stages it doesn't name. */
+export const PLOT_TABS = ["doing 2", "review 1", "validate 0", "done 1", "queued 2"] as const;
 
 /** Every `::graph-*` kind the door draws (src/graphs.ts); the figures note has one of each. */
-export const FIGURE_KINDS = ["check", "stat", "kpi", "rank", "table", "timeline", "meter", "funnel", "waterfall", "spark", "plot", "gantt", "tree"] as const;
+export const FIGURE_KINDS = ["check", "stat", "kpi", "rank", "table", "tabs", "timeline", "meter", "funnel", "waterfall", "spark", "plot", "gantt", "tree"] as const;
+/** The kinds the Markdown figures note shows (src/figures/), each in its Markdown form; the keys note has `keys`. */
+export const MARKDOWN_KINDS = ["decision", "chat", "uptime", "activity", "calendar", "annotate"] as const;
 
 const fig = (kind: string, yaml: string[]) => [`::graph-${kind}`, "---", ...yaml, "---", "::", ""];
+/** A figure with YAML props and Markdown rows after them. */
+const mdFig = (kind: string, yaml: string[], md: string[]) => [`::graph-${kind}`, "---", ...yaml, "---", ...md, "::", ""];
 
 function notebookText(whiteboardId: string, kettleId: string, tapId: string): string {
   return [
@@ -179,11 +210,52 @@ export const CALLOUTS = [
   "> Bones, an onion, two bay leaves; `dish` is an alias of this outline's own recipe type.",
 ].join("\n");
 
+/** The showcase's own pictures (fictional, drawn for it): a JPEG, a WebP and a bright PNG, so decoding and dimming are shown on every platform. */
+export const SHOWCASE_ASSETS = join(import.meta.dir, "assets");
+
+/**
+ * The images section's note (PIE-532): a header image, and images sized, placed and given alt text by the properties
+ * on their lines; the reader's keys, its caption controls and image.* change them.
+ */
+export const imagesText = (dir = SHOWCASE_ASSETS) => [
+  SEED.images,
+  `- [img::${dir}/allotment-dusk.jpg] [layout::hero] [alt::the plot at dusk]`,
+  "",
+  "The picture above the title is this note's header, the hero layout on its line: the reader draws it the full width, at most a third of its height, cropped to fill. [ ] to an image, then + and - size it, ← → move it, H makes it the header, or click the controls at the end of its caption. ctrl+z puts a change back.",
+  "",
+  `[img::${dir}/seed-packet.webp] [size::25%] [align::center] [alt::a packet of beetroot seed]`,
+  "",
+  "A quarter of the reader's width, centred. The one below is half, on the right:",
+  "",
+  `[img::${dir}/allotment-dusk.jpg] [size::50%] [align::right]`,
+  "",
+  `- [img::${dir}/seed-packet.webp] [height::6]`,
+  "  - six rows tall, its width from its shape",
+  "",
+  "The notice board is paper white: it's dimmed as it's drawn, as every bright image is, so no image is brighter than the door. [dim::0.5] on its line would set how much.",
+  "",
+  `[img::${dir}/allotment-notice.png] [size::50%] [alt::the notice board, dimmed]`,
+].join("\n");
+
 /** A callout type this outline declares (PIE-538): the reader, the completer and the type choice all offer it. */
 export const CALLOUT_TYPE = [
   `${SEED.calloutType} [callout-type::recipe] [callout-icon::♨] [callout-tone::green] [callout-aliases::dish]`,
   "",
   "Declares a callout type: `> [!recipe]` (or `> [!dish]`) draws with this icon and tone, and offers it wherever types are offered.",
+].join("\n");
+
+/**
+ * The new-notes section's note (PIE-544): ctrl+n and + make a note where the placement rule puts it; a page nobody
+ * wrote yet is offered, then made; a lone `[page::x]` titles itself. The link is left missing on purpose.
+ */
+export const NEW_NOTES = [
+  SEED.newNotes,
+  "",
+  "**ctrl+n** on any screen makes a new note and opens it to be written. From a reader, it goes under the note the reader shows (here: under this one, last); anywhere else, and from **+** on the main menu, at the top of the Inbox. Where it goes is the outline's placement rule, which the service keeps: the door only says which note you were in. Esc on it still empty puts it in the trash.",
+  "",
+  "A page nobody has written yet: [[Seed swap ledger]]. The first ⏎ or click on it offers it; the next makes `Seed swap ledger [page::Seed swap ledger]` in the Inbox and opens it. From then on the link finds it.",
+  "",
+  "A note whose first line is only `[page::2026-03-12]` names itself: ⏎ on that line in the editor, or the save, makes it `2026-03-12 [page::2026-03-12]`. A title already there is kept.",
 ].join("\n");
 
 /** The search section's note: what the forgiving search finds, tried on this outline's own titles. */
@@ -230,6 +302,15 @@ const RECIPE = [
   "Drag across these lines, or press v and move, to select; y copies.",
 ].join("\n");
 
+/** A tabs figure over the plot's jobs (PLOT_JOBS, its children): a tab per stage, `=` or its ≡ control for density. */
+const PLOT_JOBS_NOTE = [
+  `${SEED.plotJobs} [page::${SEED.plotJobs}]`,
+  "",
+  "One live figure, a tab per stage. [ ] to a tab, then ← → or tab and shift+tab switch; = changes the density.",
+  "",
+  ...fig("tabs", ["title: Plot jobs", 'query: "type=plot-job"', "group: stage", "order: [doing, review, validate]", "columns: [title, priority]", "sort: created", "direction: asc"]),
+].join("\n").trimEnd();
+
 function figuresText(gardenViewId: string): string {
   return [
     `${SEED.figures} [page::${SEED.figures}]`,
@@ -241,8 +322,10 @@ function figuresText(gardenViewId: string): string {
     ...fig("kpi", ["title: Plot 14b", "items:", "  - { label: beds, value: 3 }", "  - { label: courgettes, value: 11 }", "  - { label: kg of onions, value: 4 }"]),
     ...fig("rank", ["title: House jobs by arc (live)", 'query: "type=roadmap-item project=house"', "group: arc"]),
     ...fig("table", ["title: House jobs (live)", 'query: "type=roadmap-item project=house"', "columns: [title, work-stage, priority]", "headers: [Job, Stage, Priority]"]),
+    ...fig("tabs", ["title: House jobs by stage (live)", 'query: "type=roadmap-item project=house"', "group: work-stage", "order: [doing, review, queued, done]", "columns: [title, priority]"]),
     ...fig("timeline", ["title: Chores (live)", 'query: "type=chore"', "date: due", 'now: "stage=todo"']),
     ...fig("meter", ["title: Chores done (live)", 'query: "type=chore"', 'done: "stage=done"']),
+    ...fig("table", ["title: Chore queue by rank (live)", 'query: "type=chore"', "sort: rank", "direction: asc", "columns: [title, rank, area]", "headers: [Chore, Rank, Area]"]),
     ...fig("check", ["title: Garden chores (saved view)", `view: ((${gardenViewId}))`, 'done: "stage=done"']),
     ...fig("funnel", ["title: Seed to plate", "steps:", "  - { label: sown, value: 40 }", "  - { label: sprouted, value: 31 }", "  - { label: planted out, value: 24 }", "  - { label: harvested, value: 18 }"]),
     ...fig("waterfall", ["title: The food budget", "items:", "  - { label: start, value: 120 }", "  - { label: market, value: -45 }", "  - { label: plot saved, value: 20 }", "  - { label: end, value: 95 }"]),
@@ -252,6 +335,86 @@ function figuresText(gardenViewId: string): string {
     ...fig("tree", ["title: The shed", "nodes:", "  - label: shelves", "    children:", "      - { label: pots }", "      - { label: seed tins, accent: true }", "  - label: hooks", "    children:", "      - { label: inner tubes, meta: left }", "      - { label: pump }"]),
   ].join("\n").trimEnd();
 }
+
+/** The plot's decisions: notes the live decision figure and the live calendar read (`decision-state`, `date`). */
+export const DECISIONS: { title: string; state: string; reason: string; date: string }[] = [
+  { title: "Raised beds for the squash", state: "chosen", reason: "the clay stays wet", date: "2026-03-04" },
+  { title: "A second water butt", state: "open", reason: "if the shed gutter holds", date: "2026-03-18" },
+  { title: "Netting the whole plot", state: "rejected", reason: "the birds get in anyway", date: "2026-03-09" },
+];
+
+/**
+ * Backup runs of the household's photo drive, as scripts/backup-runs.ts writes them: what `::graph-uptime` with
+ * `source: backups` draws. Twenty-four days, one bad and one shaky.
+ */
+export const BACKUP_RUNS: { date: string; status: string }[] = Array.from({ length: 24 }, (_, i) => ({
+  date: new Date(Date.UTC(2026, 1, 16 + i)).toISOString().slice(0, 10),
+  status: i === 9 ? "down" : i === 15 ? "degraded" : "ok",
+}));
+
+/**
+ * The Markdown figures (ideas from mdxcn.dev): every kind in src/figures/ written as Markdown rows, the first kinds'
+ * Markdown (timeline, rank, stat, spark), live ones over the plot's decisions and the backup runs, a quote's byline,
+ * and a figure block whose rows are its child bullets, transcluded.
+ */
+function markdownFiguresText(figureBlockId: string): string {
+  return [
+    `${SEED.markdownFigures} [page::${SEED.markdownFigures}]`,
+    "",
+    "A figure's rows can be Markdown after its YAML: **bold** is now or chosen, *italic* next or rejected, `- label: value` a row, `x — note` a side note, `a → b` a path, `ok*40` a run of forty. Where the YAML says the same thing, the YAML wins.",
+    "",
+    ...mdFig("decision", ["title: Squash beds", "status: decided", "date: 2026-03-04"], [
+      "- **Raised beds** — the clay stays wet", "- *Straight into the clay* — they rotted last year", "- Grow bags — if the beds run late", "",
+      "Two beds of scaffold boards, filled from the compost bays.",
+    ]),
+    ...fig("decision", ["title: The plot's decisions (live)", 'query: "type=decision"']),
+    ...mdFig("chat", ["title: At the allotment gate"], [
+      "- Ada: is the gate code still 1066?", "- Bo: changed on Saturday", "- Bo: it's on the shed door", "- Cy: *goes to look*", "- Ada: found it, thanks",
+    ]),
+    ...mdFig("uptime", ["title: Photo drive backups"], ["- 2026-02-01: ok*12 degraded ok*8 down ok*6"]),
+    ...fig("uptime", ["title: Photo drive backups (live)", "source: backups"]),
+    ...mdFig("activity", ["title: Seeds sown", "weekStartsOn: mon"], [
+      "- 2026-01-05: 0 1 0 2 0*3", "- 2026-01-19: 3 0 1 4 2 0 6", "- 2026-02-02: 1*5 0 0", "- 2026-02-16: 0 5 8 2 0 3 9",
+    ]),
+    ...fig("activity", ["title: Chores written (live)", 'query: "type=chore"', "count: created", "weeks: 8"]),
+    ...mdFig("calendar", ["title: March on the plot", "today: 2026-03-11", "weekStartsOn: mon"], [
+      "- 2026-03-12: **seed potatoes in**", "- 2026-03-20: the plot committee", "- 2026-03-28: *the spring fair, maybe*",
+    ]),
+    ...fig("calendar", ["title: Decisions this month (live)", 'query: "type=decision"', "year: 2026", "month: 3", "today: 2026-03-11"]),
+    ...mdFig("annotate", ["title: The water butt's tap"], [
+      "```sh", "close the tap        # (1)", "unscrew the fitting", "wrap the thread      # (2)", "screw it back", "```",
+      "1. a quarter turn past snug", "2. three turns of PTFE tape, clockwise",
+    ]),
+    ...mdFig("timeline", ["title: The plot's year"], ["- Feb: dig over", "- **Mar: seed potatoes** — after the frost", "- *Apr: beans*"]),
+    ...mdFig("rank", ["title: Weeds pulled"], ["- bindweed: 40", "- **couch grass: 25**", "- *nettles: 6*"]),
+    ...mdFig("stat", ["title: The shed"], ["- forks: 2", "- **trowels: 5**", "- seed tins: 9"]),
+    ...mdFig("spark", ["title: Courgettes a day", "caption: two weeks of July"], ["1 0 2 3 3*2 5 4 6 2 0 1*3"]),
+    "> [!quote] On sheds",
+    "> A shed is a room that admits it is temporary.",
+    ">",
+    "> — Ada, the allotment newsletter",
+    "",
+    "A figure block: its own note, its rows its child bullets (each opens its note):",
+    `!((${figureBlockId}))`,
+  ].join("\n");
+}
+
+/**
+ * The figure block the Markdown figures note transcludes: a note whose body is a figure (nothing above it but its
+ * title), its child bullets its rows.
+ */
+const FIGURE_BLOCK = ["Bean rows", "::graph-timeline", "---", "title: Bean rows (child bullets)", "---", "::"].join("\n");
+const FIGURE_BLOCK_ROWS = ["Apr: sow under glass", "**May: plant out** — when the nights are warm", "*Jun: first picking*"];
+
+/** The keys note: the reader's keys from the action registry, and a sheet written by hand. */
+const KEYS_TEXT = [
+  `${SEED.keys} [page::${SEED.keys}]`,
+  "",
+  "Read from the door's own action registry, so it says what the keys do now:",
+  "",
+  ...fig("keys", ["title: The reader (from the registry)", "actions: note", "learn: [edit, comment, element.open]", "limit: 14"]),
+  ...mdFig("keys", ["title: Getting about"], ["- **g then d: the desk**", "- ctrl+k: the command palette", "- ( ) then f: fold a heading", "- esc: back out"]),
+].join("\n");
 
 /**
  * The daily brief (PIE-435): two mornings of a made-up household, as an agent drafts them
@@ -424,7 +587,7 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
 
   notes.chores = await make(notes.root.id, `${SEED.chores}\nPlain blocks with properties, for the live figures and the saved view.`);
   const chores: Msg[] = [];
-  for (const c of CHORES) chores.push(await make(notes.chores.id, `${c.title} [type::chore] [area::${c.area}] [stage::${c.stage}] [due::${c.due}]`, c.area === "garden" ? SEED_AGENT : { kind: "user" }));
+  for (const c of CHORES) chores.push(await make(notes.chores.id, `${c.title} [type::chore] [area::${c.area}] [stage::${c.stage}] [due::${c.due}]${c.rank === undefined ? "" : ` [rank::${c.rank}]`}`, c.area === "garden" ? SEED_AGENT : { kind: "user" }));
   notes.gardenView = await make(notes.root.id, `${SEED.gardenView} [type::virtual-branch] [query::type=chore area=garden]`);
 
   notes.whiteboard = await make(notes.root.id, WHITEBOARD);
@@ -435,12 +598,25 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
   const tap = await make(notes.whiteboard.id, "Kitchen tap\n- [~] fix the dripping tap ^t-7a9c11\n  - [ ] buy a washer\n- [ ] tighten the hinge");
   notes.notebook = await make(notes.root.id, notebookText(notes.whiteboard.id, cards[3]!.id, tap.id));
   notes.figures = await make(notes.root.id, figuresText(notes.gardenView.id));
+  notes.plotJobs = await make(notes.root.id, PLOT_JOBS_NOTE);
+  for (const j of PLOT_JOBS) await make(notes.plotJobs.id, `${j.title} [type::plot-job] [stage::${j.stage}] [priority::${j.priority}]`);
   notes.recipe = await make(notes.root.id, RECIPE);
   notes.finding = await make(notes.root.id, FINDING);
   notes.errand = await make(notes.root.id, ERRAND);
   await make(notes.errand.id, "Ask the neighbour about netting\nShe has a spare roll.");
   notes.calloutType = await make(notes.root.id, CALLOUT_TYPE);
   notes.callouts = await make(notes.root.id, CALLOUTS);
+  notes.images = await make(notes.root.id, imagesText());
+  // The Markdown figures: the note first (its children need it), then its text once the figure block it transcludes is there.
+  notes.markdownFigures = await make(notes.root.id, SEED.markdownFigures);
+  for (const d of DECISIONS) await make(notes.markdownFigures.id, `${d.title} [type::decision] [decision-state::${d.state}] [reason::${d.reason}] [date::${d.date}]`);
+  const runs = await make(notes.markdownFigures.id, "Backup runs [type::backup-log]", SEED_AGENT);
+  for (const r of BACKUP_RUNS) await make(runs.id, `photos backup ${r.date} [type::backup-run] - [status::${r.status}] - [date::${r.date}] - [source::photos]`, SEED_AGENT);
+  const block = await make(notes.markdownFigures.id, FIGURE_BLOCK);
+  for (const row of FIGURE_BLOCK_ROWS) await make(block.id, row);
+  notes.markdownFigures = await board.update(notes.markdownFigures.id, markdownFiguresText(block.id), notes.markdownFigures.revision!);
+  notes.keys = await make(notes.root.id, KEYS_TEXT);
+  notes.newNotes = await make(notes.root.id, NEW_NOTES);
   await seedTickets(board, opts.ticketsConfig);
   notes.tickets = await make(notes.root.id, TICKETS);
   await make(notes.tickets.id, TICKET_PAGE);

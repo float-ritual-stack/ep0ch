@@ -14,7 +14,7 @@ import type { Msg } from "./board";
 import { subject } from "./board";
 import type { DocEnv } from "./doc";
 import { printable, summarySegments, viewSummaryKeys, type Source } from "./props";
-import { anyChangeSince, changeClock, changedSince, LINK_OFF, LINK_ON, outlineChanged, shortId, type LinkTarget } from "./refs";
+import { anyChangeSince, changeClock, changedSince, LINK_OFF, LINK_ON, MISSING_MARK, outlineChanged, shortId, type LinkTarget } from "./refs";
 import type { ChecklistStep, SocketBoard, TransclusionNode } from "./socket";
 import { BOLD, C, ellipsize, fg, LINK_END, linkTag, pad, RESET, tint, UNBOLD } from "./style";
 import { themed } from "./theme";
@@ -264,6 +264,8 @@ function nodeRegion(node: TransclusionNode, views: Map<TransclusionNode, ViewRea
   if (node.status !== "ready" || !node.block) {
     // Nesting limits are the note working as meant; failures are red.
     const calm = node.status === "cycle" || node.status === "depth-limit" || node.status === "limit" || node.status === "budget" || node.status === "too-large";
+    // A target that doesn't exist yet gets the links' one quiet mark, not words (refs.ts MISSING_MARK).
+    if (node.status === "missing") return [S(fg(C.dark) + `${ref} ${MISSING_MARK}` + RESET)];
     return [S(fg(calm ? C.yellow : C.lred) + `${ref} · ${printable(node.message ?? node.status).slice(0, 240)}` + RESET)];
   }
   const target = node.block;

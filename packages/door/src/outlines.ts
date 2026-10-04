@@ -8,25 +8,25 @@
 import { readFileSync, renameSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline/promises";
 import { dirname, join, resolve } from "node:path";
-import { DOT_EP0CH, formatDotEp0ch, isMachineName, tooBroadToName } from "@ep0ch/outline-core/outline-location";
-import { homedir } from "node:os";
+import { DOT_EP0CH, formatDotEp0ch, isMachineName, mayCreate, missingOutline, tooBroadToName } from "@ep0ch/outline-core/outline-location";
+import { homedir, hostname } from "node:os";
 import { hostLive, hostSocketOf, outlinesDir, resolveTarget, type Target } from "./discover";
 import { hostRequest, type HostedOutline, OUTLINE_NAME } from "./socket";
-import { everyOutline, forwardTo } from "./machine";
+import { everyOutline, forwardTo, remoteArgs } from "./machine";
 import type { HomeArgs, HomeChoice } from "./home";
 
 /** `machine`: `--machine <ssh-name>`, the host that machine's, through its forward (else the one rule: runOutlineCommand). */
 export type OutlineCommand = { machine?: string } & (
   | { op: "list"; json: boolean; all?: boolean; lines?: boolean }
-  | { op: "attach"; name: string; json: boolean }
+  | { op: "attach"; name: string; json: boolean; create?: boolean; noCreate?: string | true }
   | { op: "create"; name: string; json: boolean }
   | { op: "import"; path: string; name: string; json: boolean }
   | { op: "stop"; name: string; json: boolean }
   | { op: "delete"; name: string; yes: boolean; json: boolean }
-  | { op: "init"; name?: string; json: boolean }
+  | { op: "init"; name?: string; json: boolean; create?: boolean; noCreate?: string | true }
   | { op: "status"; json: boolean });
 
-export const OUTLINE_USAGE = "ep0ch outline list [--all] [--lines] | attach <name> | create <name> | import <database.sqlite> <name> | stop <name> | delete <name> [--yes]   (each with --json and --machine <ssh-name>); ep0ch init [<name>]";
+export const OUTLINE_USAGE = "ep0ch outline list [--all] [--lines] | attach <name> [--create] | create <name> | import <database.sqlite> <name> | stop <name> | delete <name> [--yes]   (each with --json and --machine <ssh-name>); ep0ch init [<name>] [--create]";
 
 /** `args` after `outline` (or `["status", …]`, `["init", …]`): the command, or why it isn't one. */
 export function parseOutlineArgs(argsIn: readonly string[], cwd = process.cwd()): OutlineCommand | { error: string } {
@@ -39,7 +39,8 @@ export function parseOutlineArgs(argsIn: readonly string[], cwd = process.cwd())
 }
 
 function parseCommand(args: readonly string[], cwd: string): OutlineCommand | { error: string } {
-  const json = args.includes("--json"), yes = args.includes("--yes");
+  const json = args.includes("--json"), yes = args.includes("--yes"), create = args.includes("--create") ? { create: true } : {};
+  const no = noCreateOf(args), noCreate = no === undefined ? {} : { noCreate: no };
   const words = args.filter(a => !a.startsWith("--"));
   const [op, ...rest] = words;
   const badName = (name: string) => OUTLINE_NAME.test(name) ? null : { error: `"${name}" isn't an outline name: lowercase letters, digits and hyphens, up to 32 (${OUTLINE_NAME.source})` };
@@ -57,9 +58,10 @@ function parseCommand(args: readonly string[], cwd: string): OutlineCommand | { 
     case "init": {
       if (rest.length > 1) return { error: "init takes [<name>]" };
       if (rest[0]) { const bad = badName(rest[0]); if (bad) return bad; }
-      return { op: "init", ...(rest[0] ? { name: rest[0] } : {}), json };
+      return { op: "init", ...(rest[0] ? { name: rest[0] } : {}), json, ...create, ...noCreate };
     }
-    case "attach": case "create": case "stop": { const bad = named(1); return bad ?? { op, name: rest[0]!, json }; }
+    case "attach": { const bad = named(1); return bad ?? { op, name: rest[0]!, json, ...create, ...noCreate }; }
+    case "create": case "stop": { const bad = named(1); return bad ?? { op, name: rest[0]!, json }; }
     case "delete": { const bad = named(1); return bad ?? { op, name: rest[0]!, yes, json }; }
     case "import": { const bad = named(2); return bad ?? { op, path: resolve(cwd, rest[0]!), name: rest[1]!, json }; }
     default: return { error: op ? `unknown outline command ${op}; ${OUTLINE_USAGE}` : OUTLINE_USAGE };
@@ -102,10 +104,10 @@ export function writeDotEp0ch(folder: string, name: string, replace = false, mac
 
 /**
  * `ep0ch init [<name>]`: names this folder's outline. The name defaults to the folder's guess (its repository's
- * name, else its own); the outline is attached, created when nobody has it yet, and `.ep0ch` written in the
- * guessed folder (or here, with a name given).
+ * name, else its own); the outline is attached, created when nobody has it yet (on another machine only with
+ * `create`: `--create`), and `.ep0ch` written in the guessed folder (or here, with a name given).
  */
-export async function initHere(name: string | undefined, path: string, cwd = process.cwd(), machine?: string): Promise<{ name: string; created: boolean; file: string }> {
+export async function initHere(name: string | undefined, path: string, cwd = process.cwd(), machine?: string, create = false, noCreate?: string | true): Promise<{ name: string; created: boolean; file: string }> {
   const target = resolveTarget([], { ...process.env, EP0CH_WS: "" }, cwd);
   if ("error" in target) throw new Error(target.error);
   const guess = "unnamed" in target ? target.guess : undefined;
@@ -116,7 +118,7 @@ export async function initHere(name: string | undefined, path: string, cwd = pro
   const folder = name ? cwd : guess!.folder;
   // $HOME, / or a folder right under / would name every folder below it.
   if (tooBroadToName(resolve(folder), process.env.HOME || homedir())) throw new Error(`${folder} is too broad to name an outline for every folder below it; run ep0ch init in a project folder`);
-  const r = await hostRequest<{ created: boolean }>(path, "outlines.attach", { name: chosen, create: true });
+  const r = await attachOutline(path, chosen, { ...(machine ? { machine } : {}), create: mayCreate({ ...(machine ? { machine } : {}), create, noCreate: !!noCreate }), how: "init", ...(typeof noCreate === "string" ? { via: noCreate } : {}) });
   return { name: chosen, created: r.created, file: writeDotEp0ch(folder, chosen, true, machine) };
 }
 
@@ -171,12 +173,12 @@ export async function runOutlineCommand(cmdIn: OutlineCommand, out = console.log
         return 0;
       }
       case "init": {
-        const r = await initHere(cmd.name, path, process.cwd(), cmd.machine);
+        const r = await initHere(cmd.name, path, process.cwd(), cmd.machine, !!cmd.create, cmd.noCreate);
         print(r, `${r.created ? "created" : "picked"} outline ${r.name}${on}; ${r.file} names it`);
         return 0;
       }
       case "attach": {
-        const r = await hostRequest<{ outline: HostedOutline; created: boolean }>(path, "outlines.attach", { name: cmd.name, create: true });
+        const r = await attachOutline(path, cmd.name, { ...(cmd.machine ? { machine: cmd.machine } : {}), create: mayCreate({ ...(cmd.machine ? { machine: cmd.machine } : {}), create: !!cmd.create, noCreate: !!cmd.noCreate }), how: "attach", ...(typeof cmd.noCreate === "string" ? { via: cmd.noCreate } : {}) });
         print(r, `${r.created ? "created" : "attached"} outline ${cmd.name}${on}`);
         return 0;
       }
@@ -213,12 +215,72 @@ export async function runOutlineCommand(cmdIn: OutlineCommand, out = console.log
 }
 
 /**
- * Before the door opens a session on an outline: attach to it, creating it when nobody has yet (like
- * `herdr --session <name>`). Resolves to whether it was created, so the door can say so.
+ * Whether a door (or `outline attach`, `init`) may make the outline it names when nobody has it yet: outline-core's
+ * `mayCreate` (PIE-545), from its flags: `--create`, and `--no-create[=<ssh-name>]`, which `ep0ch --remote <ssh-name>`
+ * gives the door on that machine (where the outline is local), naming how it was reached so its refusal says the
+ * command to run from there.
  */
-export async function attachTarget(target: { path: string; outline?: string; attach?: boolean }): Promise<{ created: boolean }> {
+export function mayCreateFrom(args: readonly string[], machine?: string): boolean {
+  return mayCreate({ ...(machine ? { machine } : {}), create: args.includes("--create"), noCreate: !!noCreateOf(args) });
+}
+
+/** `--no-create` (true) or `--no-create=<ssh-name>` (that name) in `args`, else undefined. */
+export function noCreateOf(args: readonly string[]): string | true | undefined {
+  const a = args.find(x => x === "--no-create" || x.startsWith("--no-create="));
+  if (a === undefined) return undefined;
+  const via = a.slice("--no-create=".length);
+  return a.includes("=") && isMachineName(via) ? via : true;
+}
+
+/** How a refused command is run again, as the person ran it: a door, `--remote`, `outline attach` or `init`. */
+type How = "door" | "remote" | "attach" | "init";
+
+/**
+ * What the door says when `machine` (none: this one) has no outline `outline` and nothing may make it: outline-core's
+ * `missingOutline`, with the commands as this person runs them. `via`: this machine was reached as `ep0ch --remote
+ * <via>`, so that's the command to say.
+ */
+export function doorMissing(o: { outline: string; machine?: string; localHas?: boolean; how?: How; via?: string }): string {
+  const { outline, machine } = o, how = o.how ?? "door", m = machine ? ` --machine ${machine}` : "";
+  const ep0ch = o.via ? `ep0ch --remote ${o.via}` : "ep0ch";
+  const create = how === "attach" ? `${ep0ch} outline attach ${outline}${m} --create`
+    : how === "init" ? `${ep0ch} init ${outline}${m} --create`
+    : how === "remote" ? `ep0ch --remote ${machine} --ws ${outline} --create`
+    : `${ep0ch}${m} --ws ${outline} --create`;
+  return missingOutline({ outline, ...(machine ? { machine } : {}), host: hostname(), ...(o.localHas !== undefined ? { localHas: o.localHas } : {}),
+    openHere: `ep0ch --here --ws ${outline}`, create });
+}
+
+const viaOf = (args: readonly string[]) => { const v = noCreateOf(args); return typeof v === "string" ? { via: v } : {}; };
+
+/** The outlines the host at `path` has, or null when it doesn't answer. */
+export async function outlinesAt(path: string): Promise<string[] | null> {
+  return (await hostLive(path, 5000))?.outlines ?? null;
+}
+
+/**
+ * Attach to `name` on the host at `path`: made when nobody has it only when `create` (mayCreate); otherwise one nobody
+ * has is refused with what to run (missingOutline), and nothing is made.
+ */
+export async function attachOutline(path: string, name: string, o: { machine?: string; create: boolean; how?: How; via?: string }): Promise<{ outline: HostedOutline; created: boolean }> {
+  if (!o.create) {
+    const has = await outlinesAt(path);
+    if (has && !has.includes(name)) {
+      const local = o.machine ? await outlinesAt(hostSocketOf()) : null;
+      throw new Error(doorMissing({ outline: name, ...(o.machine ? { machine: o.machine, localHas: !!local?.includes(name) } : {}), ...(o.how ? { how: o.how } : {}), ...(o.via ? { via: o.via } : {}) }));
+    }
+  }
+  return hostRequest<{ outline: HostedOutline; created: boolean }>(path, "outlines.attach", { name, create: o.create });
+}
+
+/**
+ * Before the door opens a session on an outline: attach to it, creating it when nobody has yet and it may (mayCreate:
+ * on this machine, like `herdr --session <name>`; on another only with `--create`). Resolves to whether it was created,
+ * so the door can say so; one it may not make is refused with what to run.
+ */
+export async function attachTarget(target: { path: string; outline?: string; attach?: boolean; machine?: string }, args: readonly string[] = []): Promise<{ created: boolean }> {
   if (!target.attach || !target.outline) return { created: false };
-  const r = await hostRequest<{ created: boolean }>(target.path, "outlines.attach", { name: target.outline, create: true });
+  const r = await attachOutline(target.path, target.outline, { ...(target.machine ? { machine: target.machine } : {}), create: mayCreateFrom(args, target.machine), ...viaOf(args) });
   return { created: r.created };
 }
 
@@ -246,6 +308,11 @@ export function unnamedHelp(target: Extract<Target, { unnamed: string }>): strin
  * `--machine` for one on another machine; a choice on this machine drops an EP0CH_MACHINE the shell had, so the door
  * that follows is this machine's). Resolves to the arguments to open with and what to say once the door is up, or what
  * to print (an error, or null when they quit).
+ *
+ * An outline named on another machine that the machine doesn't have is never made there (PIE-545): the home base opens
+ * saying so, with the choices (the one on this machine, making it there, cancel); without a terminal it is an error
+ * with the commands. `--create` makes it there, on purpose, here in the person's terminal, and goes no further (a
+ * session started now never makes it again).
  */
 export async function nameTheOutline(args: string[], interactive: boolean,
   home: (a: HomeArgs) => Promise<HomeChoice | null>): Promise<{ args: string[]; notice?: string } | { error: string } | null> {
@@ -258,19 +325,85 @@ export async function nameTheOutline(args: string[], interactive: boolean,
   // daemon (which outlives the terminal, and its agent) then finds it up. (The home base connects a machine it's
   // given itself, in this same terminal.)
   if (target.machine && !("unnamed" in target)) {
-    try { await forwardTo(target.machine); } catch (e) { return { error: `can't reach the outline host on ${target.machine}: ${(e as Error).message}` }; }
+    let socket: string;
+    try { socket = (await forwardTo(target.machine)).socket; } catch (e) { return { error: `can't reach the outline host on ${target.machine}: ${(e as Error).message}` }; }
+    const named = [...(args.includes("--ws") ? args : [...args, "--ws", target.outline]), ...on].filter(a => a !== "--create");
+    if (args.includes("--create")) {
+      try {
+        const r = await attachOutline(socket, target.outline, { machine: target.machine, create: true });
+        return { args: named, ...(r.created ? { notice: `created outline ${target.outline} on ${target.machine} (--create)` } : {}) };
+      } catch (e) { return { error: `can't create the outline ${target.outline} on ${target.machine}: ${(e as Error).message}` }; }
+    }
+    const missing = await missingOn(socket, target.outline, target.machine, "door");
+    if (!missing) return { args: named };
+    if (!interactive) return { error: missing.text };
+    const chosen = await home({ folder: process.cwd(), machine: target.machine, missing: { outline: target.outline, machine: target.machine } });
+    return chosen ? fromHome(args, chosen) : null;
   }
-  if (!("unnamed" in target)) return { args: [...(args.includes("--ws") ? args : [...args, "--ws", target.outline]), ...on] };
+  if (!("unnamed" in target)) {
+    // `--no-create` (a door `--remote` started here): one this machine doesn't have is said before a session starts.
+    const has = mayCreateFrom(args) ? null : await outlinesAt(target.path);
+    if (has && !has.includes(target.outline)) return { error: doorMissing({ outline: target.outline, ...viaOf(args) }) };
+    return { args: [...(args.includes("--ws") ? args : [...args, "--ws", target.outline]), ...on] };
+  }
   if (!interactive) return { error: unnamedHelp(target) };
   const chosen = await home({
     folder: target.folder, ...(target.guess ? { guess: target.guess } : {}),
     ...(target.machine ? { machine: target.machine } : { socket: target.path }),
   });
-  if (!chosen) return null;
+  return chosen ? fromHome(args, chosen) : null;
+}
+
+/** `machine` has no `outline` (its host at `socket` answered without it): what to say. Null when it has it, or can't say. */
+async function missingOn(socket: string, outline: string, machine: string, how: How): Promise<{ text: string } | null> {
+  const has = await outlinesAt(socket);
+  if (!has || has.includes(outline)) return null;
+  const local = await outlinesAt(hostSocketOf());
+  return { text: doorMissing({ outline, machine, localHas: !!local?.includes(outline), how }) };
+}
+
+/** The door's arguments for what the home base chose, and what to say once it's up. */
+function fromHome(args: readonly string[], chosen: HomeChoice): { args: string[]; notice: string } {
   if (!chosen.machine) delete process.env.EP0CH_MACHINE;
   const who = chosen.by ? `an agent (${chosen.by}) opened` : "opened";
+  const drop = new Set(["--machine", "--ws"]);
+  // One on this machine is said as --here: a folder's .ep0ch (or EP0CH_MACHINE) putting that name on a machine doesn't
+  // take it back there.
   return {
-    args: [...args.filter((a, i) => a !== "--machine" && args[i - 1] !== "--machine"), "--ws", chosen.outline, ...(chosen.machine ? ["--machine", chosen.machine] : [])],
+    args: [...args.filter((a, i) => a !== "--create" && a !== "--here" && !drop.has(a) && !drop.has(args[i - 1] ?? "")), "--ws", chosen.outline, ...(chosen.machine ? ["--machine", chosen.machine] : ["--here"])],
     notice: `${who} ${chosen.outline}${chosen.machine ? ` on ${chosen.machine}` : ""} from the home base${chosen.wrote ? ` · ${chosen.wrote} names it now` : ""}`,
   };
+}
+
+/**
+ * Before `ep0ch --remote <machine> [door flags]` hands this terminal to the door there: the door flags it runs with
+ * (remoteArgs). A door named an outline that machine doesn't have would make it there (it is local to that door), so,
+ * as for `--machine` (PIE-545), it is asked first, through the machine's forward: missing, the home base opens here
+ * with the choices (the one on this machine opens here, a door of this machine's; one made or chosen there goes on
+ * there), or, without a terminal, the commands. The door there is passed `--no-create` all the same (it never makes
+ * one unless `--create` was given), for when the forward can't be asked. Resolves to the flags for the door there,
+ * a door to open here instead, or what to print (an error, or null when they quit).
+ */
+export async function nameRemoteOutline(machine: string, rest: readonly string[], interactive: boolean,
+  home: (a: HomeArgs) => Promise<HomeChoice | null>): Promise<{ remote: string[] } | { args: string[]; notice?: string } | { error: string } | null> {
+  const there = remoteArgs(machine, rest, resolveTarget(rest));
+  if (there.includes("--create")) return { remote: there };
+  const guarded = [...there, `--no-create=${machine}`];
+  // A command, not a door: `ep0ch --remote <m> status` (session …, find …) is that command, run there. The ones that
+  // could make an outline there (`outline attach`, `init`) are given --no-create too, and refuse there with what to run.
+  if (there.length && !there[0]!.startsWith("-")) {
+    const makes = there[0] === "init" || (there[0] === "outline" && there[1] === "attach");
+    return { remote: makes ? guarded : there };
+  }
+  const at = there.indexOf("--ws"), outline = at >= 0 ? there[at + 1] : undefined;
+  if (!outline) return { remote: guarded };
+  let socket: string;
+  try { socket = (await forwardTo(machine)).socket; } catch { return { remote: guarded }; }
+  const missing = await missingOn(socket, outline, machine, "remote");
+  if (!missing) return { remote: guarded };
+  if (!interactive) return { error: missing.text };
+  const chosen = await home({ folder: process.cwd(), machine, missing: { outline, machine } });
+  if (!chosen) return null;
+  if (chosen.machine === machine) return { remote: ["--ws", chosen.outline, ...guarded.filter((a, i) => a !== "--ws" && guarded[i - 1] !== "--ws")] };
+  return fromHome(rest, chosen);
 }

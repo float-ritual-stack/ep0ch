@@ -16,6 +16,8 @@
 // grid: a Claude Code mod's Raster. `--source` prints each note's text as written, for a file to keep.
 import { linesToCells } from "./cells";
 import { connectFigures } from "./graphs";
+import { listenLive, liveBoard, liveSettled, liveSource, setLiveSource } from "./live";
+import { linksSource, listenLinks, setLinksSource } from "./links";
 import { resolveTarget } from "./discover";
 import { redundantLabel } from "./authored";
 import { forwardTo } from "./machine";
@@ -30,7 +32,7 @@ import type { Ctx } from "./app";
 import { recordJson } from "@ep0ch/outline-core/block-record";
 
 export const NOTES_USAGE = `  ep0ch find [<words>… | --recent | --tree [<root id>]] [--ids | --lines | --json] [--ws <name>] [--machine <ssh-name>]
-  ep0ch find [<words>…] [--query "<expression>"] [--view <id>] [--under <id>]
+  ep0ch find [<words>…] [--query "<expression>"] [--view <id>] [--under <id>] [--sort <key> [--direction asc|desc]]
              [--updated-after|--updated-before|--created-after|--created-before <date>] [--ids | --lines | --json]
                                    notes: with words, the service's ranked search, tree.search (the ranker
                                    Goto, the door's / and (( use, asked from no note and without Jev; at
@@ -44,6 +46,9 @@ export const NOTES_USAGE = `  ep0ch find [<words>… | --recent | --tree [<root 
                                    service's text filter), in outline order, at most 1000. The date flags only
                                    write the query (--updated-after 2026-03-01 is "updated > 2026-03-01": a
                                    date is a whole UTC day; -7d, today, an ISO time also do).
+                                   --sort orders them as a view's [sort::] does: created, updated or any
+                                   property key (--sort due), numbers as numbers, notes without it last;
+                                   --direction asc (the default) or desc. Not with --view (its own order).
                                    --ids prints ((id)) a line, for $(…) (ep0ch show $(ep0ch find --ids …));
                                    --lines one per line, id<TAB>title<TAB>path, for a picker; with --tree,
                                    then <TAB>depth<TAB>glyphs<TAB>about (├─ │ └─; about: work-id · stage · type);
@@ -178,10 +183,11 @@ export async function boardFor(args: string[]): Promise<SocketBoard | { error: s
 export interface Out { out: (s: string) => void; err: (s: string) => void; columns?: number; tty?: boolean }
 
 /** Which notes, by the outline's own reading: a query, a saved view, a subtree, words, or ids given. */
-export interface Selection { ids: string[]; query?: string; view?: string; under?: string; words: string[]; dates: string[] }
+/** `sort`/`direction`: the order the outline gives a query's notes (created, updated or a property key), as views sort. */
+export interface Selection { ids: string[]; query?: string; view?: string; under?: string; sort?: string; direction?: string; words: string[]; dates: string[] }
 
 /** The flags that select notes and take a value, and the query clause each date flag writes. */
-export const SELECT_FLAGS = ["--query", "--view", "--under", "--updated-after", "--updated-before", "--created-after", "--created-before"];
+export const SELECT_FLAGS = ["--query", "--view", "--under", "--sort", "--direction", "--updated-after", "--updated-before", "--created-after", "--created-before"];
 const DATE_CLAUSES: Record<string, string> = {
   "--updated-after": "updated >", "--updated-before": "updated <", "--created-after": "created >", "--created-before": "created <",
 };
@@ -197,9 +203,12 @@ export function selectionOf(args: string[]): { selection: Omit<Selection, "ids" 
     if (f === "--query") sel.query = v;
     else if (f === "--view") sel.view = blockIdOf(v);
     else if (f === "--under") sel.under = blockIdOf(v);
+    else if (f === "--sort") sel.sort = v;
+    else if (f === "--direction") sel.direction = v;
     else if (/\s/.test(v.trim())) return { error: `${f} takes one date or time (2026-03-01, -7d, today, 2026-03-01T09:00Z), not ${v}` };
     else sel.dates.push(`${DATE_CLAUSES[f]} ${v.trim()}`);
   }
+  if (sel.direction && !sel.sort) return { error: `--direction orders a --sort: --sort due --direction ${sel.direction}` };
   return { selection: sel, rest: without(args, SELECT_FLAGS, []) };
 }
 
@@ -218,14 +227,16 @@ export const selects = (s: Selection) => !!(s.query || s.view || s.under || s.da
 export async function selectNotes(board: SocketBoard, s: Selection): Promise<{ ids: string[]; truncated?: string } | { error: string }> {
   const ids = s.ids.map(blockIdOf);
   const expression = selectionQuery(s), text = s.words.join(" ").trim() || undefined;
-  const filtered = !!(expression || text || s.under);
+  const filtered = !!(expression || text || s.under || s.sort);
   let truncated: string | undefined;
   let found: string[] = [];
   const refused = (e: unknown) => {
     const why = (e as Error).message;
+    if (/^Sort /.test(why)) return { error: `--sort ${s.sort}${s.direction ? ` --direction ${s.direction}` : ""}: ${why}` };
     if (s.under && why.includes(`Block not found: ${s.under}`)) return { error: `no note ${s.under} in this outline (--under takes a note's id: ep0ch find --tree --lines lists them)` };
     return { error: `the outline can't read that query: ${why}\n  the grammar is the saved views': ep0ch find --query "type=chore (area=garden OR area=kitchen) updated >= -7d"` };
   };
+  if (s.view && s.sort) return { error: `--sort orders --query, --under or words; a view has its own order (its [sort::], or its hand-set one: ep0ch view order ${s.view})` };
   if (s.view) {
     const members: string[] = [];
     for (let offset = 0; ;) {
@@ -245,7 +256,7 @@ export async function selectNotes(board: SocketBoard, s: Selection): Promise<{ i
     } catch (e) { return refused(e); }
   } else if (filtered) {
     try {
-      const q = await board.queryIds({ expression, text, subtreeRootId: s.under });
+      const q = await board.queryIds({ expression, text, subtreeRootId: s.under, ...(s.sort ? { sort: { field: s.sort, direction: s.direction ?? "asc" } } : {}) });
       if (q.truncated) truncated = "the outline's first 1000 matches";
       found = q.ids;
     } catch (e) { return refused(e); }
@@ -266,7 +277,7 @@ export async function findCommand(argsIn: string[], io: Out = { out: console.log
   const picked = selectionOf(args);
   if ("error" in picked) { io.err(`ep0ch: ${picked.error}`); return 2; }
   const sel = picked.selection;
-  const asked = !!(sel.query || sel.view || sel.under || sel.dates.length);
+  const asked = !!(sel.query || sel.view || sel.under || sel.sort || sel.dates.length);
   // --tree takes the root's id as its value when one follows.
   const treeAt = args.indexOf("--tree"), tree = treeAt >= 0;
   const root = tree && args[treeAt + 1] !== undefined && !args[treeAt + 1]!.startsWith("--") ? blockIdOf(args[treeAt + 1]!) : undefined;
@@ -336,20 +347,37 @@ export async function drawNote(board: SocketBoard, id: string, width: number, se
   // A reader's host with nothing else to host: no graphics (an image is named on its line), no history, no keys.
   const ctx = { board, t: { cols: width, rows: 1000, cellW: 9, cellH: 18, kitty: false }, graphics: false, flash() {}, redraw() {} } as unknown as Ctx;
   const host: SurfaceHost = { ctx, redraw() { arrived = true; }, navigate() {} };
-  // Live figures and ::links ask this outline, as in the door; an answer arriving draws the note again.
-  connectFigures(board, () => { arrived = true; });
+  // Live figures and ::links ask this outline, as in the door; an answer arriving draws the note again. A process that
+  // already has a connection to it (a door) keeps it and this only listens; one connected elsewhere lends it for the
+  // draw and gets it back after.
+  const lent = liveBoard() === board ? null : { live: liveSource(), links: linksSource() };
+  if (lent) connectFigures(board, () => {});
+  // Either kind of answer arriving (a live figure's, a link title's or ::links') draws it again.
+  const unlistenLive = listenLive(() => { arrived = true; }), unlistenLinks = listenLinks(() => { arrived = true; });
   const surface = new NoteSurface(), tall = 100_000, end = Date.now() + settle.max;
   // Nobody presses a key in what show prints: folded callouts come unfolded, with no "z unfolds".
   surface.unfold = true;
+  // …and a tabs figure prints every group in turn under a heading, with no tab or density control.
+  surface.printed = true;
   surface.show(m, host);
   surface.render(width, tall, host);
-  while (Date.now() < end) {
-    arrived = false;
-    await Bun.sleep(settle.quiet);
-    if (!arrived) break;
-    surface.render(width, tall, host);
+  let drawn: string[] = [];
+  try {
+    while (Date.now() < end) {
+      arrived = false;
+      // The figures' answers, then a quiet spell for what else the reader reads (link titles, embeds, steps).
+      await liveSettled(Math.max(0, end - Date.now()));
+      await Bun.sleep(settle.quiet);
+      if (!arrived) break;
+      surface.render(width, tall, host);
+    }
+    // The last draw while the connection is still this outline's.
+    drawn = surface.render(width, tall, host).lines;
+  } finally {
+    unlistenLive(); unlistenLinks();
+    if (lent) { setLiveSource(lent.live.board, lent.live.redraw); setLinksSource(lent.links.board, lent.links.redraw); }
   }
-  const lines = surface.render(width, tall, host).lines.map(l => paintable(l).replace(TAGS, "").replace(MARKS, ""));
+  const lines = drawn.map(l => paintable(l).replace(TAGS, "").replace(MARKS, ""));
   while (lines.length && !visible(lines.at(-1)!).trim()) lines.pop();
   return lines;
 }

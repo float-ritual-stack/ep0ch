@@ -63,7 +63,9 @@ export class PreviewPane extends ReaderPane {
   }
   private fileNow(): string | null { return "file" in this.source ? this.source.file : this.tileFile; }
 
-  init(desk: DeskApi) { this.watch(desk); }
+  /** The desk it's on now: a tile moved to another screen or the dock (PIE-498) repaints that one. */
+  private on: DeskApi | null = null;
+  init(desk: DeskApi) { this.on = desk; this.watch(desk); }
   /** A file source (or a terminal tile's file): e, C, m, i, I and ctrl+e are refused here, not started as sessions. */
   override get readOnly() { return !!this.fileNow() || super.readOnly; }
 
@@ -81,7 +83,7 @@ export class PreviewPane extends ReaderPane {
       if (this.watching !== path || (cur.mtimeMs === prev.mtimeMs && cur.size === prev.size)) return;
       this.reads++;
       this.refresh(fileNote(path));
-      desk.redraw();
+      (this.on ?? desk).redraw();
     });
   }
   private unwatch() { if (this.watching) unwatchFile(this.watching); this.watching = null; }

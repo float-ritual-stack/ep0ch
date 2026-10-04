@@ -13,6 +13,7 @@ import { C, fg, pad, RESET } from "../style";
 import { ActionRefused, actionSet, def } from "../surface/actions";
 import type { HeaderInfo, OpenHow, SurfaceHost } from "../surface/note";
 import { bbsDate } from "../text";
+import { newNoteOffer } from "../new-note";
 import { ch, type Key } from "../term";
 import { ReaderPane, type DeskApi, type PaneView } from "../desk/panes";
 import type { ScreenSpec } from "../desk/screen-spec";
@@ -101,7 +102,10 @@ export class BriefReader extends ReaderPane {
   }
   override render(w: number, h: number, focused = false, desk?: DeskApi): PaneView {
     const empty = this.emptyLines();
-    return empty ? { lines: empty.map(l => pad(l, w)) } : super.render(w, h, focused, desk);
+    if (!empty) return super.render(w, h, focused, desk);
+    // No brief yet: a note to write meanwhile, offered.
+    if (!this.briefs?.length && this.briefs && !this.problem) { const { line, spot } = newNoteOffer(empty.length + 1); return { lines: [...empty, "", line].map(l => pad(l, w)), spots: [spot] }; }
+    return { lines: empty.map(l => pad(l, w)) };
   }
 
   /** Read the list again; the shown brief stays shown (a new one only changes the count), or the newest when first read. */

@@ -227,6 +227,7 @@ const NAMED: Record<string, string> = {
   up: "up", down: "down", left: "left", right: "right", "↑": "up", "↓": "down", "←": "left", "→": "right",
   "alt+⏎": "alt+enter", "alt⏎": "alt+enter", "alt+enter": "alt+enter", "shift+enter": "shift+enter", "shift+⏎": "shift+enter", "ctrl+enter": "ctrl+enter",
   "alt+←": "alt+left", "alt+→": "alt+right", "alt+left": "alt+left", "alt+right": "alt+right",
+  "alt+↑": "alt+up", "alt+↓": "alt+down", "alt+up": "alt+up", "alt+down": "alt+down",
   click: "click", "right-click": "click", "ctrl-click": "click", "alt-click": "click", drag: "drag", wheel: "wheel",
 };
 /** Whether `s` is a key's one name (what `keyName` gives): a screen's key map names its keys so. */
@@ -247,6 +248,8 @@ export function keyName(k: Key): string | null {
     case "backtab": return "shift+tab";
     case "alt-left": return "alt+left";
     case "alt-right": return "alt+right";
+    case "alt-up": return "alt+up";
+    case "alt-down": return "alt+down";
     case "back": return "alt+left";
     case "forward": return "alt+right";
     case "mouse": return k.action === "wheel-up" || k.action === "wheel-down" ? "wheel" : k.action === "wheel-left" || k.action === "wheel-right" ? "sideways" : k.action === "drag" ? "drag" : "click";
@@ -327,7 +330,7 @@ function leadingKeys(part: string): string[] {
 const PLAIN = new Set(["enter", "esc", "tab", "backspace", "delete", "pgup", "pgdn", "home", "end", "up", "down", "left", "right"]);
 const NAMED_KEY: Record<string, Key> = {
   space: { kind: "char", ch: " " }, "shift+tab": { kind: "backtab" }, "alt+enter": { kind: "alt-enter" }, "alt+left": { kind: "alt-left" },
-  "alt+right": { kind: "alt-right" }, "shift+enter": { kind: "enter", shift: true }, "ctrl+enter": { kind: "enter", ctrl: true },
+  "alt+right": { kind: "alt-right" }, "alt+up": { kind: "alt-up" }, "alt+down": { kind: "alt-down" }, "shift+enter": { kind: "enter", shift: true }, "ctrl+enter": { kind: "enter", ctrl: true },
 };
 /** The key a key name stands for (`keyName`'s inverse); null for a mouse gesture. */
 export function keyOfName(n: string): Key | null {

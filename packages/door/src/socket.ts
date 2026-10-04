@@ -132,6 +132,9 @@ export interface OutlineEvent {
   /** On a `draft` event: what the service asks the door holding that draft (PIE-501). */
   draft?: DraftRequest;
 }
+/** A view's hand-set order (the outliner's `VirtualBranchOrder`): what a placement is checked against. */
+export interface ViewOrder { viewId: string; viewRevision: number; blockIds: string[]; completeness: { kind: string; limit?: number } }
+
 /** views.read's answer (PIE-397), blocks as list rows. */
 export interface SavedViewRead {
   status: "ready" | "invalid" | "unsupported" | "missing" | "changed" | "failed";
@@ -185,6 +188,8 @@ export interface ReferenceResolution {
 }
 /** How the service reads one `[[address]]` or Work ID (`pages.resolve`). Read-only: nothing is created. */
 export interface PageResolution { address: string; status: "resolved" | "deleted" | "missing"; block?: Msg }
+export type { NotePlacement } from "@ep0ch/outline-core/protocol";
+import type { NotePlacement } from "@ep0ch/outline-core/protocol";
 
 /** One property token in a block's text, numbered the way `properties.patch` addresses it. */
 export interface PropertyToken { key: string; value: string; ordinal: number; scope: "block" | "line" | "inline" }
@@ -279,6 +284,12 @@ export class Offline extends Error {
 export class Refused extends Error {
   constructor(message: string) { super(message); this.name = "Refused"; }
 }
+
+/**
+ * A conditional trash (`trash(id, actor, { revision, ifEmpty })`) refused because the block was written since it was
+ * read: changed since that revision, or (`ifEmpty`) given text or a child.
+ */
+export const changedSinceRead = (e: unknown): e is Refused => e instanceof Refused && /^Block (changed since it was read|is not empty)/.test(e.message);
 
 /**
  * The door's actor id, per machine (`ep0ch-door:float-box`), so `activity.recent` tells a laptop edit
@@ -648,7 +659,8 @@ export class SocketBoard implements Board {
    * Blocks matching property clauses (`type=roadmap-item work-stage=doing`). `list` asks for rows
    * without full text (PIE-400 `fields`).
    */
-  async query(q: string, limit = 50, sort: "created" | "updated" = "updated", direction: "asc" | "desc" = "desc", list = false): Promise<Msg[]> {
+  /** `sort`: created, updated or a property key (the service orders by it, and refuses one that isn't). */
+  async query(q: string, limit = 50, sort = "updated", direction: "asc" | "desc" = "desc", list = false): Promise<Msg[]> {
     const filters = q.split(/\s+/).filter(Boolean).map(t => { const i = t.indexOf("="); return i > 0 ? { key: t.slice(0, i), value: t.slice(i + 1) } : { key: t }; });
     const r = await this.request<{ blocks: WireBlock[] }>("blocks.query", { query: { limit: Math.min(1000, limit), filters, sort: { field: sort, direction } }, ...this.listFields(list) });
     return r.blocks.map(b => toMsg(b));
@@ -686,13 +698,31 @@ export class SocketBoard implements Board {
   }
 
   /**
+   * A view's hand-set order (`virtual.occurrences.order`): every member, in the order its lanes, figures and Tree show.
+   * `view` is a ref the service resolves (an id, ((id)), a prefix, a Work ID, a [[page]]). A sorted view has none: the
+   * service refuses, naming the [sort::] to remove.
+   */
+  async viewOrder(view: string): Promise<ViewOrder> {
+    return this.request<ViewOrder>("virtual.occurrences.order", { viewId: view });
+  }
+
+  /**
+   * Moves blocks in a view's hand-set order in one step (`virtual.occurrences.move`), recorded as `actor`'s: one block
+   * `by` places (kept within what the view shows), `to` a position, `before`/`after` a member; or, with none, the
+   * blocks first in the order given. Refs are resolved by the service. The order after it, and what moved.
+   */
+  async moveInView(move: { view: string; blocks: string[]; by?: number; to?: number; before?: string; after?: string }, actor: Actor = USER): Promise<ViewOrder & { moved: string[] }> {
+    return this.request<ViewOrder & { moved: string[] }>("virtual.occurrences.move", { input: move, mutation: mutationFor(actor) });
+  }
+
+  /**
    * The ids of the blocks a query holds for, in outline order (`blocks.query`): `expression` in the saved-view grammar
    * and `text` (every word, any order) as the service evaluates them, under `subtreeRootId` (itself included). At most
    * 1000; `truncated` when there were more.
    */
-  async queryIds(q: { expression?: string; text?: string; subtreeRootId?: string }, limit = 1000): Promise<{ ids: string[]; truncated: boolean }> {
+  async queryIds(q: { expression?: string; text?: string; subtreeRootId?: string; sort?: { field: string; direction: string } }, limit = 1000): Promise<{ ids: string[]; truncated: boolean }> {
     const r = await this.request<{ blocks: { id: string }[]; completeness: { kind: string } }>("blocks.query", {
-      query: { limit: Math.min(1000, limit), ...(q.expression ? { expression: q.expression } : {}), ...(q.text ? { text: q.text } : {}), ...(q.subtreeRootId ? { subtreeRootId: q.subtreeRootId } : {}) },
+      query: { limit: Math.min(1000, limit), ...(q.expression ? { expression: q.expression } : {}), ...(q.text ? { text: q.text } : {}), ...(q.subtreeRootId ? { subtreeRootId: q.subtreeRootId } : {}), ...(q.sort ? { sort: q.sort } : {}) },
       fields: ["id"],
     });
     return { ids: r.blocks.map(b => b.id), truncated: r.completeness.kind !== "complete" };
@@ -1003,6 +1033,29 @@ export class SocketBoard implements Board {
     return toMsg(await this.request<WireBlock>("create", { parentId, text, ...who }));
   }
 
+  /**
+   * A new note where the service's placement rule puts it (PIE-544, `notes.create`): under `near` (the note the person
+   * was in), else the top of the Inbox. The door never says where the Inbox is; the answer says where it went. Empty
+   * `text` is a note opened to be written; `nearOnly`: a `near` the caller named, refused when it doesn't resolve
+   * (the reader's own note falls back to the Inbox). Like `create`, never retried blindly.
+   */
+  async newNote(text: string, near: string | undefined, actor: Actor = USER, nearOnly = false): Promise<{ note: Msg; placement: NotePlacement }> {
+    const who = actor.kind === "agent" || actor.with?.length ? { author: "agent", provenance: { actorId: recordedActorId(actor) } } : { author: "user" };
+    const r = await this.request<{ block: WireBlock; placement: NotePlacement }>("notes.create", { text, intent: { kind: "note", ...(near ? { near, ...(nearOnly ? { nearOnly } : {}) } : {}) }, ...who });
+    return { note: toMsg(r.block), placement: r.placement };
+  }
+
+  /**
+   * What a `[[page]]` address points at, made when nothing does (`pages.follow`): a page stub `X [page::X]` where new
+   * notes go (the service's placement rule, today the top of the Inbox). Only on the person's explicit ask
+   * (`page.create`); a follow never calls it.
+   */
+  async followPage(address: string, actor: Actor = USER): Promise<{ note: Msg | null; created: boolean; status: PageResolution["status"]; placement?: NotePlacement }> {
+    const who = actor.kind === "agent" || actor.with?.length ? { author: "agent", provenance: { actorId: recordedActorId(actor) } } : { author: "user" };
+    const r = await this.request<{ status: PageResolution["status"]; created: boolean; block?: WireBlock; placement?: NotePlacement }>("pages.follow", { address, ...who });
+    return { note: r.block ? toMsg(r.block) : null, created: r.created, status: r.status, ...(r.placement ? { placement: r.placement } : {}) };
+  }
+
   /** `properties.preview` with repeats kept, in order. */
   async previewPropertyList(text: string): Promise<{ key: string; value: string }[]> {
     return (await this.request<{ properties: { key: string; value: string }[] }>("properties.preview", { text })).properties.map(p => ({ key: p.key, value: p.value }));
@@ -1015,10 +1068,19 @@ export class SocketBoard implements Board {
   }
 
   /**
-   * Move a block and its subtree to Trash. The service's `delete` takes no revision, so the caller checks
-   * the revision it showed just before, and says who did it on screen. With `actor`, the service records it.
+   * Move a block and its subtree to Trash. With `at.revision`, only the block at that revision: one changed since
+   * (another client's save between the caller's read and this) is refused (`Refused`, "Block changed since it was
+   * read") and stays. With `at.ifEmpty`, only a block with no text and no children ("Block is not empty"): a child
+   * added doesn't change the revision. With `actor`, the service records who did it; the caller says it on screen.
    */
-  async trash(blockId: string, actor?: Actor): Promise<Msg> { return toMsg(await this.request<WireBlock>("delete", { blockId, ...(actor ? { mutation: mutationFor(actor) } : {}) })); }
+  async trash(blockId: string, actor?: Actor, at?: { revision?: number; ifEmpty?: boolean }): Promise<Msg> {
+    return toMsg(await this.request<WireBlock>("delete", {
+      blockId,
+      ...(at?.revision !== undefined ? { expectedRevision: at.revision } : {}),
+      ...(at?.ifEmpty ? { ifEmpty: true } : {}),
+      ...(actor ? { mutation: mutationFor(actor) } : {}),
+    }));
+  }
 
   /**
    * Whether `blockId` is in Trash now (its own delete or an ancestor's): true, false, or null when the

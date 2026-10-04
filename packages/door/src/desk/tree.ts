@@ -83,6 +83,8 @@ export class TreePane implements Pane {
   /** Settles once the top level has been read (a reveal waits for it). */
   private loaded: Promise<void> | null = null;
   init(desk: DeskApi) {
+    // Moved to another screen or into the dock (PIE-498): it keeps its rows; nothing is read again or opened.
+    if (this.loaded) return;
     this.loaded = desk.ctx.board.roots().then(r => {
       this.roots = r; this.rebuild();
       if (!desk.current && r[0]) desk.setCurrent(r[0], { from: this });
@@ -127,7 +129,12 @@ export class TreePane implements Pane {
     if (this.timer) clearTimeout(this.timer);
     const r = this.rows[this.sel];
     const id = r?.kind === "block" ? null : rowBlock(r);
-    if (r?.kind === "block") this.timer = setTimeout(() => desk.setCurrent(r.m, { from: this }), 90);
+    // While the rows are due to be read again (a change just came), the row's copy may be older than the outline: the
+    // note is read itself, so the reader never shows what was there before a save.
+    if (r?.kind === "block") this.timer = setTimeout(() => {
+      if (!this.reload && !this.due && !this.rereading) return desk.setCurrent(r.m, { from: this });
+      void desk.ctx.board.get(r.m.id).catch(() => null).then(m => { if (this.rows[this.sel]?.key === r.key) desk.setCurrent(m ?? r.m, { from: this }); });
+    }, 90);
     else if (id) this.timer = setTimeout(() => void this.target(id, desk).then(m => { if (m && rowBlock(this.rows[this.sel]) === id) desk.setCurrent(m, { from: this }); }, () => {}), 90);
     // A resource shows what is stored for it (a ticket's block, a file's content) where the tree's selection goes (a
     // preview following it), read only: nothing registers, and the current note stays (an open meanwhile isn't undone).
@@ -246,11 +253,58 @@ export class TreePane implements Pane {
     this.rebuild();
   }
 
-  /** Something changed in the outline: the links shown are asked again (once per burst). A draft changes none. */
+  /**
+   * Something changed in the outline: the lists it may touch are read again (the top level, or the open note it's under),
+   * and the links shown are asked again, once per burst. A row's note is what a pick shows in the reader, so a row never
+   * keeps the copy read when the tree opened (a note saved here, in Detail or by an agent read as it was). A draft changes none.
+   */
   onEvent(desk: DeskApi, e?: OutlineEvent) {
-    if (!this.panels.size || e?.change?.kind === "draft") return;
+    if (e?.change?.kind === "draft") return;
+    const lists = this.touches(e);
+    if (!lists && !this.panels.size) return;
+    if (lists) this.due = lists === "all" || this.due === "all" ? "all" : new Set([...(this.due ?? []), ...lists]);
     if (this.reload) clearTimeout(this.reload);
-    this.reload = setTimeout(() => { this.reload = null; this.targets.clear(); for (const k of this.panels.keys()) this.load(k, desk); }, 500);
+    this.reload = setTimeout(() => {
+      this.reload = null;
+      this.targets.clear();
+      for (const k of this.panels.keys()) this.load(k, desk);
+      void this.reread(desk);
+    }, 300);
+  }
+  /** The lists to read again (a note's id, null for the top level), or all of them; null: none. */
+  private due: Set<string | null> | "all" | null = null;
+  private rereading = false;
+  /**
+   * The lists a change can alter: the one its note is in (or was in, before a move), when that list is shown. A change
+   * naming no list (a reset, a reconnect, a record without its parent) can alter any.
+   */
+  private touches(e?: OutlineEvent): Set<string | null> | "all" | null {
+    const c = e?.change;
+    if (!c) return "all";
+    const roots = this.roots ?? [];
+    const lists = new Set<string | null>();
+    for (const p of [c.parentId, c.previousParentId]) if (p === null || (p !== undefined && this.fold.kids.has(p))) lists.add(p);
+    if (c.parentId === undefined && c.blockId && this.fold.shows(roots, c.blockId)) return "all";
+    return lists.size ? lists : null;
+  }
+  /** Read the lists due again, one round at a time (changes meanwhile make one more); the selection stays on its row. */
+  private async reread(desk: DeskApi) {
+    if (this.rereading) return;
+    this.rereading = true;
+    try {
+      while (this.due) {
+        const due = this.due;
+        this.due = null;
+        const b = desk.ctx.board;
+        const [roots] = await Promise.all([
+          due === "all" || due.has(null) ? b.roots().catch(() => null) : null,
+          this.fold.reread(id => b.children(id), due === "all" ? undefined : new Set([...due].filter((x): x is string => x !== null))),
+        ]);
+        if (roots) this.roots = roots;
+        this.rebuild();
+        desk.redraw();
+      }
+    } finally { this.rereading = false; }
   }
   dispose() { if (this.reload) clearTimeout(this.reload); if (this.timer) clearTimeout(this.timer); }
 

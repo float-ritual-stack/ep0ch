@@ -11,20 +11,22 @@ import type { Ctx } from "../app";
 import { subject, titleLine, type Msg } from "../board";
 import { literalLines } from "../literal";
 import { CommentSession, type CommentEnv } from "../comment";
-import { foldPoints, renderDoc, type Doc, type DocEnv, type DocImage, type FoldPoint } from "../doc";
+import { foldPoints, heroBox, mediaLines, renderDoc, type Doc, type DocEnv, type DocImage, type FoldPoint, type ImageControl } from "../doc";
+import { DENSITIES, isDensity, type Density, type FigureControl, type FigureInfo } from "../graphs";
 import { embedRegion, embedsLoading, viewResults, embedStepChanged, isOpenProposal, NOT_APPLICABLE, proposalApplies, proposalControls, SHADE, type EmbedBody } from "../embeds";
 import { extensionRegion, projectionRegion, projectionsOf, resourceChanged, RUN_AGAIN, ticketBlocksOf, ticketRegion, type ResourceProjection, type TicketPart } from "../projection";
 import { EXT_ACTIONS, extensionNamed, handlerKeyAction } from "../extensions";
 import { metadataLines, printable, setUserSummaryKeys, summaryKeys, summarySegments, tokensFor, tokensOf, type Source } from "../props";
-import { type CalloutRef, LINK_OFF, LINK_ON, MD_LINK, outlineChanged, PAGE, pageView, pageOf, presentLinks, REF, resourceTokensOf, refKey, referencesIn, refView, workIdPrefix, shortId, type LinkTarget } from "../refs";
+import { type CalloutRef, type ImageRef, LINK_OFF, LINK_ON, MD_LINK, outlineChanged, PAGE, pageView, pageOf, presentLinks, REF, resourceTokensOf, refKey, referencesIn, refView, workIdPrefix, shortId, type LinkTarget } from "../refs";
 import { isOutlineNote, openResource, RESOURCE_NOTE, resourceTarget } from "../authored";
 import { changeOf, parseStatus, STEP_CHOICES, STEP_MARKS, stepChanged, UndoHistory, stepLink, stepsLoading, stepsOf, stepStillOn, stepTitle, statusWord, type StepChoice, type StepRef } from "../steps";
 import { destinationOf, external, externalOpenCommand, fileOpenCommand } from "../open";
 import { Draft, DRAFT_ACTIONS, sameParty, type DraftActionArgs } from "../edit";
 import { agentRefusal, blockTarget, DraftSession, leaveSaid, propertyChange, unsentOn, type Ended, type LeaveResult } from "../draft-session";
 import { inWindow, type Placement } from "../kitty";
+import { ALIGNS, media, parseDim, parseMediaLine, parseSize, rewriteMediaLine, sized, sizeText, type MediaAttr, type MediaSpec } from "../media";
 import type { Scroll } from "../canvas";
-import { whoOf, EditConflict, mutationFor, Offline, recordedActorId, Refused, USER, type Actor, type ChecklistStep, type Comment, type OutlineEvent, type PropertyRecord } from "../socket";
+import { whoOf, changedSinceRead, EditConflict, mutationFor, Offline, recordedActorId, Refused, USER, type Actor, type ChecklistStep, type Comment, type OutlineEvent, type PropertyRecord } from "../socket";
 import { ellipsize, dim, C, extractLinks, fg, LINK_END, linkTag, pad, RESET, width } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
 import { ago, bbsDate, rule, wrap } from "../text";
@@ -84,6 +86,11 @@ export interface SurfaceHost {
    * this reader: the BBS reader's screen stack, the river's columns. Without it the surface keeps its own.
    */
   history?: ReaderHistory;
+  /**
+   * The note shown went to the trash (an empty new note, PIE-544) and this reader had nowhere back to go: a screen
+   * that was opened for it alone closes. Without it the reader stays on it.
+   */
+  gone?(id: string): void;
   /** This is the reader the person has focused (for the reader on its own, `NoteSurface.alone`); false: it isn't. */
   focused?: boolean;
   /** Whose action runs through this host: an agent's (NoteSurface.run sets it), else the person's. */
@@ -124,7 +131,9 @@ export interface ReaderHistory {
  * Where a reader was (PIE-453), so back comes back to it as it was: the note, how far down, the `[ ]`
  * position (the current element and link), and the reading state kept per note (folds, expanded threads).
  */
-interface Place { msg: Msg; scroll: number; cur: string | null; link: number; folded: string[]; expanded: string[]; seen: string[] }
+interface Place { msg: Msg; scroll: number; cur: string | null; link: number; folded: string[]; expanded: string[]; seen: string[]; figures: [string, FigureChoice][] }
+/** What the person (or an agent) chose for one live figure in a reader: its tab, its density. Never the note's text. */
+type FigureChoice = { tab?: string; density?: Density };
 /** How many places back (and forward) a reader keeps. */
 const HISTORY = 50;
 
@@ -186,6 +195,10 @@ interface Laid {
 export interface SurfaceView { lines: string[]; placements?: Placement[]; scroll?: Scroll }
 export type Link = LinkTarget;
 /** Two links name the same target the same way (a click finds the `[ ]` link it is). */
+/** The density after `d`, round again: compact, cozy, comfortable. */
+const nextDensity = (d: Density): Density => DENSITIES[(DENSITIES.indexOf(d) + 1) % DENSITIES.length]!;
+/** A live figure's tab or density control, named across renders (its figure's key, then which). */
+const figureElemBase = (c: FigureControl) => `figure:${c.figure}|${c.tab !== undefined ? `tab:${c.tab}` : "density"}`;
 const sameLink = (a: Link, b: Link) => a.resource?.key === b.resource?.key && a.block === b.block && a.fragment === b.fragment && a.label === b.label && a.page === b.page && a.media === b.media && a.url === b.url;
 /**
  * Where a click lands in the last render, in the surface's own cells: a link (the body's, an embed's
@@ -196,7 +209,7 @@ const sameLink = (a: Link, b: Link) => a.resource?.key === b.resource?.key && a.
 /** `elem`: the `[ ]` element the link is (PIE-441); `thread`: a comment mark in the margin, or a control of a thread expanded under its passage (PIE-420). */
 /** `history`: the history row's `← back` (-1) or `forward →` (1), PIE-453. */
 /** `pick`: a row of the open choice (a step's status, PIE-472; a callout's type, PIE-538), by its index. */
-type Hit = { row: number; from: number; to: number } & ({ link: Link; value?: string; elem?: string } | { prop: number; follow: boolean } | { copy: "visible" | "source" } | { thread: string; elem: string } | { history: -1 | 1 } | { pick: number });
+type Hit = { row: number; from: number; to: number } & ({ link: Link; value?: string; elem?: string } | { prop: number; follow: boolean } | { copy: "visible" | "source" } | { thread: string; elem: string } | { history: -1 | 1 } | { pick: number } | { image: string });
 
 /**
  * What `[ ]` stops on (PIE-441), in reading order: a link (in the text, the summary line, or an image or
@@ -204,7 +217,7 @@ type Hit = { row: number; from: number; to: number } & ({ link: Link; value?: st
  * figure's row, an embedded view's result), an embed (its title), a resource projection (its region, PIE-445)
  * and a comment mark (in the margin).
  */
-export type ElementKind = "link" | "fold" | "row" | "embed" | "comment" | "control" | "resource" | "task" | "callout";
+export type ElementKind = "link" | "fold" | "row" | "embed" | "comment" | "control" | "resource" | "task" | "callout" | "figure";
 /** The controls of a comment thread expanded inline (PIE-420), as Detail has them: Select, Reply, Resolve or Reopen. */
 export type ThreadControl = "select" | "reply" | "resolve";
 /**
@@ -226,7 +239,7 @@ const verbOf = (e: Element, open: boolean) =>
   : e.kind === "fold" ? (open ? "unfold" : "fold") : e.kind === "comment" ? (open ? "collapse its thread" : "expand its thread")
   : e.kind === "control" && e.link?.proposal?.op ? (e.link.proposal.op === "apply" ? "apply it anyway" : "dismiss it")
   : e.kind === "control" ? (e.control === "select" ? "select its passage" : e.control === "reply" ? "reply" : e.label.startsWith("Reopen") ? "reopen" : "resolve")
-  : e.kind === "row" ? "open its note" : e.kind === "embed" ? "open it" : e.kind === "task" ? "status" : e.kind === "callout" ? "choose its type"
+  : e.kind === "figure" ? (e.link?.figure?.tab !== undefined ? "show this tab" : "change the density") : e.kind === "row" ? "open its note" : e.kind === "embed" ? "open it" : e.kind === "task" ? "status" : e.kind === "callout" ? "choose its type"
   : e.kind === "resource" ? (e.link?.url ? "open the ticket's page" : "say why there's nothing to open") : e.link?.resource ? "show the resource" : e.link?.media || e.link?.url ? "open" : "follow";
 /** What ⏎ does on an extension's line or control (PIE-512): its action's label, or run it again. */
 function extVerb(x: NonNullable<LinkTarget["ext"]>): string {
@@ -330,6 +343,9 @@ type CommentMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { session: Commen
 type PanelMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { panel: PropertyPanel; describe(): { open: string; selected: number; note: string | null; editing: { n: number; key: string; text: string; revision: number; changedElsewhere: boolean; note: string | null } | null; rows: ReturnType<typeof describeRow>[] } | null };
 type PickerMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { picker: Picker; describe(): { step?: string | null; callout?: string | null; choices?: string[]; selected: string | undefined; note: string | null } };
 
+/** How long a missing page's offer stands (PIE-544): the next ⏎ or click on its link within it makes the page. */
+const PAGE_OFFER_MS = 60_000;
+
 /** Agent actions that open an edit or a comment session on the note. */
 const STARTS_SESSION = new Set(["edit", "edit.text", "passage.select", "comment.write", "comment", "threads", "reply", "resolve"]);
 
@@ -347,6 +363,11 @@ export class NoteSurface {
   /** What the last render put where, for clicks (PIE-415). */
   private hits: Hit[] = [];
   unfold = false;
+  /**
+   * Drawn for print (`ep0ch show`, `--cells`): nobody presses a key in what it draws, so a tabs figure draws every
+   * group in turn under a heading, and no figure draws a control.
+   */
+  printed = false;
   /** The link `[ ]` or a click selected, as an index into `links` (the river steps these; it draws its own body). */
   private link = -1;
   /** The elements the last reading render drew, in reading order; empty until one (and in the river). */
@@ -368,6 +389,14 @@ export class NoteSurface {
    * reader's reading state and the person's alone (an agent's action never expands or collapses one).
    */
   expanded = new Set<string>();
+  /**
+   * Each live figure's chosen tab and density (src/graphs.ts), by the figure's key (its place among the note's figures
+   * and its title): like `folded`, this reader's reading state, kept across repaints and live answers, never written
+   * into the note, cleared when the reader shows another note.
+   */
+  figureUI = new Map<string, FigureChoice>();
+  /** The figures the last layout drew (their tabs, counts, what's chosen): what `figure.tab` and `figures` name. */
+  figuresDrawn: FigureInfo[] = [];
   /** The thread a Reply control asked to answer: the thread list opening next starts the reply there. */
   private replyOn: string | null = null;
   /** The fold point selected (its key), which `f` and ⏎ fold or unfold: the current element, when it's a fold. */
@@ -384,7 +413,10 @@ export class NoteSurface {
   private foldSeen = new Set<string>();
   private foldCache: { text: string; points: FoldPoint[]; lines: number[] } | null = null;
   /** The last reading render: where the body starts, how far it's scrolled, and its rows' sources and fold heads. */
-  private drawn: { w: number; top: number; scroll: number; room: number; doc: Doc; lines: number[]; head: string[]; body: string[] } | null = null;
+  /** What the last render drew: `heroRows`, the rows of the header image above it (PIE-532), which every row here is under. */
+  private drawn: { w: number; top: number; scroll: number; room: number; doc: Doc; lines: number[]; head: string[]; body: string[]; heroRows: number } | null = null;
+  /** The last render brought the current element in (reveal), so it's brought in again once the header's rows are known. */
+  private lastReveal = false;
   /** The last draw was a host's digest (`digest`): its elements are current, whole, with no scroll of the surface's own. */
   private digesting = false;
   /**
@@ -463,10 +495,14 @@ export class NoteSurface {
    */
   get picker(): Picker | null { return (this.modes.get("picker") as PickerMode | null)?.picker ?? null; }
   set picker(p: Picker | null) { if (p) this.modes.push(this.pickerMode(p)); else this.modes.drop("picker"); }
+  /** The header image the last render drew above the note (PIE-532): its rows, and its image's element. */
+  private hero: { line: number; full: number } | null = null;
   /** The step changes made in this reader, for Undo (ctrl+z, `task.undo`): each party undoes its own. */
   readonly stepHistory = new UndoHistory();
   /** The callout changes made in this reader (PIE-538), for Undo: each party undoes its own. */
-  readonly calloutHistory = new UndoHistory<CalloutUndo>();
+  readonly calloutHistory = new UndoHistory<LineUndo>();
+  /** Image layout changes (PIE-532) made here, for image.undo. */
+  readonly imageHistory = new UndoHistory<LineUndo>();
   /** The step that last got its id here: its element key before and after (see keepCurrent). */
   private stepRenamed: { was: string; now: string } | null = null;
   /** The keys the last host keeps for itself (SurfaceHost.ownKeys), for the hint. */
@@ -532,7 +568,7 @@ export class NoteSurface {
     // A proposal's keys go first: in a narrow tile the hint is cut from the end.
     // An extension's line or control: its keys go first, as a proposal's do.
     if (e?.link?.ext) return `[ ] ${i + 1}/${this.elems.length} · ${extKeys(e.link.ext, this.hostKeys)} · ${e.kind === "control" ? "control" : "line"} ${printable(e.label).slice(0, 50)} · ⏎ ${verbOf(e, false)}${e.kind === "resource" ? " · y copy" : ""}`;
-    if (e && e.kind !== "fold") return `[ ] ${i + 1}/${this.elems.length} · ${e.link?.proposal ? this.proposalKeys(e.link.proposal.id) : ""}${e.kind === "task" ? "step" : e.kind} ${e.link?.media ? "▣ " : ""}${printable(e.label).slice(0, 60)} · ⏎ ${verbOf(e, e.kind === "comment" && this.expanded.has(e.thread!))}${opens(e) ? " · alt⏎ new" : ""}${e.kind === "resource" ? " · y copy" : ""}${e.kind === "task" ? " · space done/to do · ctrl+z undo" : ""}`;
+    if (e && e.kind !== "fold") return `[ ] ${i + 1}/${this.elems.length} · ${e.link?.proposal ? this.proposalKeys(e.link.proposal.id) : ""}${e.kind === "task" ? "step" : e.kind} ${e.link?.media ? "▣ " : ""}${printable(e.label).slice(0, 60)} · ⏎ ${verbOf(e, e.kind === "comment" && this.expanded.has(e.thread!))}${opens(e) ? " · alt⏎ new" : ""}${e.kind === "resource" ? " · y copy" : ""}${e.kind === "task" ? " · space done/to do · ctrl+z undo" : ""}${this.figureHint()}`;
     // A link selected without a drawn body (the river's column, or one `link.select` named that isn't drawn).
     const l = !this.cur ? this.links[this.link] : undefined;
     if (l) return `link ${this.link + 1}/${this.links.length} ${l.media ? "▣ " : ""}${printable(linkText(l, this.msg?.text ?? "", this.src)).slice(0, 60)} · ⏎ ${l.media || l.url ? "open" : "follow"}`;
@@ -599,8 +635,8 @@ export class NoteSurface {
     this.use(host);
     // An edit, a comment or a value being typed holds the reader on its note.
     if (this.modes.editing && m?.id !== this.msg?.id) return false;
-    if (m?.id !== this.msg?.id) { this.notice = ""; this.agent = null; this.agentDraft = null; this.focusMark = null; this.picker = null; this.clearSelections(); if (this.panel) { this.panel.sel = 0; this.panel.view.reset(); this.panel.note = ""; } }
-    if ((m?.id ?? null) !== this.foldsOf) { this.folded.clear(); this.foldSeen.clear(); this.expanded.clear(); this.foldsOf = m?.id ?? null; }
+    if (m?.id !== this.msg?.id) { this.notice = ""; this.pageOffer = null; this.agent = null; this.agentDraft = null; this.focusMark = null; this.picker = null; this.clearSelections(); if (this.panel) { this.panel.sel = 0; this.panel.view.reset(); this.panel.note = ""; } }
+    if ((m?.id ?? null) !== this.foldsOf) { this.folded.clear(); this.foldSeen.clear(); this.expanded.clear(); this.figureUI.clear(); this.figuresDrawn = []; this.foldsOf = m?.id ?? null; }
     this.msg = m; this.scroll = 0; this.maxScroll = Infinity; this.letGo(); this.elems = []; this.crumbs = "…"; this.unread = "";
     this.links = m ? linksOf(m) : [];
     if (m?.id !== this.commentsFor) { this.comments = null; this.commentsFor = ""; }
@@ -641,8 +677,54 @@ export class NoteSurface {
 
   // ── drawing ────────────────────────────────────────────────────────────────
 
-  /** The surface at any width: a board reader, a desk pane, or a narrow river column. */
+  /**
+   * The surface at any width: a board reader, a desk pane, or a narrow river column. A note with a header image
+   * (PIE-532) has it drawn above everything else, the full width (heroOf), and the note under it (`renderNote`), which
+   * decides how many of its rows show (`drawn.heroRows`, after the scroll is clamped): every row the note drew, and
+   * every click on it, is that many rows down.
+   */
   render(w: number, h: number, host?: SurfaceHost): SurfaceView {
+    const hero = this.heroOf(w, h, host);
+    this.hero = hero && { line: hero.line, full: hero.box.rows };
+    const v = this.renderNote(w, h, host);
+    const shown = this.drawn?.heroRows ?? 0;
+    if (!hero || !shown) return v;
+    const cut = hero.box.rows - shown, lines = Array.from({ length: shown }, () => "");
+    if (!hero.placement && hero.loading) lines[shown >> 1] = dim(pad(`  ◌ header · ${hero.name} · loading…`, w));
+    const p = hero.placement && inWindow(hero.placement, cut, shown);
+    return { ...v, lines: [...lines, ...v.lines], placements: [...(p ? [p] : []), ...(v.placements ?? []).map(x => ({ ...x, row: x.row + shown }))] };
+  }
+
+  /**
+   * The header image this render draws above the note (PIE-532), or null: the note's first `[layout::hero]` image, when
+   * the host draws Kitty graphics, nothing covers the note and the pane is tall enough to give it rows (at most a third
+   * of the pane, or `[height::…]`, never more than half). The full width, the whole image when it fits; taller, cropped
+   * to fill (`[fit::contain]`: shown whole, centred). Dimmed as every image is (`[dim::…]`). While the file loads its
+   * rows (the cap's) are kept dark, so nothing flashes when it arrives; an image shorter than the cap then takes
+   * fewer rows, and the note moves up once.
+   */
+  private heroOf(w: number, h: number, host?: SurfaceHost): { line: number; box: ReturnType<typeof heroBox>; placement: Placement | null; loading: boolean; name: string } | null {
+    const m = this.msg;
+    if (!m || m.partial || !host?.ctx.graphics || this.modes.covers || this.panel?.full || h < HERO_MIN_PANE) return null;
+    const ref = this.imagesIn(m).find(x => x.spec.layout === "hero");
+    if (!ref) return null;
+    const entry = media(ref.path, ref.spec.kind);
+    if (entry.state === "error") return null;
+    const cap = Math.max(3, Math.min(ref.spec.height ?? Math.floor(h / 3), Math.floor(h / 2)));
+    const name = ref.path.split("/").pop() ?? ref.path;
+    const [cw, chh] = cellOf(host);
+    // Its rows come from its size, read from its header before it's decoded: the note never moves when it arrives.
+    if (entry.state === "loading") {
+      const box = entry.width && entry.height ? heroBox({ width: entry.width, height: entry.height }, ref.spec, w, cap, cw, chh) : { col: 0, cols: w, rows: cap };
+      return { line: ref.line, box, placement: null, loading: true, name };
+    }
+    const box = heroBox(entry, ref.spec, w, cap, cw, chh);
+    const [placement] = imagePlacements([{ line: 0, media: entry, ...(ref.spec.dim !== undefined ? { dim: ref.spec.dim } : {}), ...box }], 0, cw, chh);
+    return { line: ref.line, box, placement: placement ? { ...placement, key: `hero:${placement.key}` } : null, loading: false, name };
+  }
+
+  /** The note itself, under its header image if it has one (render). */
+  private renderNote(w: number, h: number, host?: SurfaceHost): SurfaceView {
     this.hits = [];
     const m = this.msg;
     this.drawn = null;
@@ -719,9 +801,14 @@ export class NoteSurface {
       this.elems = [...laid.elems, ...own].sort((a, b) => a.row - b.row || a.from - b.from);
     }
     this.keepCurrent(host);
-    // The body rows actually shown: none when the header fills the pane (then there's no scroll to show).
-    const room = Math.max(0, h - top);
-    this.maxScroll = Math.max(0, body.length - Math.max(1, room));
+    // The body rows actually shown: none when the header fills the pane (then there's no scroll to show). A header
+    // image above it (PIE-532) gives a row back for each row scrolled, so the furthest scroll is where the last body
+    // row shows: S ≤ body − (roomFull − (full − S)) while the image shows, S ≤ body − roomFull once it's gone.
+    const full = this.hero?.full ?? 0, roomFull = Math.max(0, h - top);
+    const roomAt = (s: number) => Math.max(0, roomFull - Math.max(0, full - s));
+    const over = body.length - Math.max(1, roomFull);
+    this.maxScroll = !full || over >= full ? Math.max(0, over) : Math.max(0, Math.ceil((over + full) / 2));
+    let room = roomAt(this.scroll);
     // The element just stepped to, or the fold point just folded, comes into view; so does an agent's mark
     // (only as far as needed: one already in view doesn't move the note).
     const bringIn = (rows: [number, number]) => {
@@ -732,6 +819,7 @@ export class NoteSurface {
     };
     const current = this.elems.find(e => e.key === this.cur);
     // An open choice under it (a step's status, a callout's type) comes in with it, as far as the element allows.
+    this.lastReveal = this.reveal && !!current;
     if (this.reveal && current) bringIn([current.row, picks && this.picker?.key === current.key ? Math.max(current.row + 1, top + picks.at + picks.lines) : current.row + 1]);
     this.reveal = false;
     const markRows = this.focusMark ? this.focusRows(this.focusMark.spec, m, doc, noteLines, top) : null;
@@ -739,10 +827,17 @@ export class NoteSurface {
     if (this.revealMark && markRows) { if (this.focusMark?.fragment) this.scroll = Math.max(0, markRows[0] - top - 1); else bringIn(markRows); }
     this.revealMark = false;
     this.scroll = Math.max(0, Math.min(this.scroll, this.maxScroll));
-    this.drawn = { w, top: head.length, scroll: this.scroll, room, doc, lines: noteLines, head, body };
+    room = roomAt(this.scroll);
+    // What scrolling into the header image moved in is brought in once more, at the room it has now.
+    if (full && current && this.lastReveal) bringIn([current.row, current.row + 1]);
+    this.scroll = Math.max(0, Math.min(this.scroll, this.maxScroll));
+    room = roomAt(this.scroll);
+    const heroRows = full ? Math.max(0, full - this.scroll) : 0;
+    h -= heroRows;
+    this.drawn = { w, top: head.length, scroll: this.scroll, room, doc, lines: noteLines, head, body, heroRows };
     this.selectionControl(w);
     // The body's images, one column in (its margin), cut to the rows shown.
-    const placements = imagePlacements(doc.images, 1).flatMap(p => inWindow(p, this.scroll, room, head.length) ?? []);
+    const placements = imagePlacements(doc.images, 1, ...cellOf(host)).flatMap(p => inWindow(p, this.scroll, room, head.length) ?? []);
     // Where the links landed on screen: below the header, one column in (the body's margin), scrolled.
     // Each is the element it is, so a click also puts `[ ]` there.
     const keyOf = new Map(this.elems.filter(e => e.link).map(e => [`${e.row}:${e.from}`, e.key]));
@@ -753,6 +848,17 @@ export class NoteSurface {
       const row = r.line - this.scroll;
       const link = drawn[r.n];
       if (link && row >= 0 && row < room && r.from + 1 < w) this.hits.push({ row: top + row, from: r.from + 1, to: Math.min(w, r.to + 1), link, elem: firstOf.get(r.n) || undefined });
+    }
+    // An image's caption opens it (its controls, tagged above, come first); a click on the image makes it the `[ ]` position.
+    for (const e of this.elems) {
+      if (!e.link?.media) continue;
+      const row = e.row - top - this.scroll;
+      if (row >= 0 && row < room) this.hits.push({ row: e.row - this.scroll, from: e.from, to: Math.min(w, e.to), link: e.link, elem: e.key });
+      const x = doc.media.find(x => top + x.row === e.row), im = x?.image !== undefined ? doc.images[x.image] : undefined;
+      if (im) for (let r = im.line; r < im.line + im.rows; r++) {
+        const at = r - this.scroll;
+        if (at >= 0 && at < room) this.hits.push({ row: top + at, from: 1 + im.col, to: Math.min(w, 1 + im.col + im.cols), image: e.key });
+      }
     }
     for (const k of marks) {
       const row = k.row - this.scroll;
@@ -794,9 +900,10 @@ export class NoteSurface {
   private layOut(m: Msg, w: number, h: number, head: string[], summaryRow: number, summaryLinks: { from: number; to: number; link: Link; key: string }[], host: SurfaceHost | undefined, src: Source | null): Laid {
     const top = head.length, t = host?.ctx.t;
     // The outline's callout types too: a type declared (or its answer arriving) draws the note again.
-    const key = `${w}x${h}|${top}|${summaryRow}|${m.revision ?? ""}|${m.text.length}|${host?.ctx.graphics ? 1 : 0}|${t?.cellW}x${t?.cellH}|${calloutsStamp(calloutsOf(src))}`;
+    const key = `${w}x${h}|${top}|${summaryRow}|${m.revision ?? ""}|${m.text.length}|${host?.ctx.graphics ? 1 : 0}|${t?.cellW}x${t?.cellH}|${calloutsStamp(calloutsOf(src))}|${this.hero?.line ?? ""}`;
     if (onlyScrolled() && this.laid?.m === m && this.laid.key === key) return this.laid;
-    const env = this.docEnv(Math.max(1, w - 1), host, Math.max(4, Math.round((h - head.length) * 0.8)));
+    // The header image is drawn above the title (render), so its line here is only its caption.
+    const env = { ...this.docEnv(Math.max(1, w - 1), host, Math.max(4, Math.round((h - head.length) * 0.8))), hero: !!this.hero };
     // Every link drawn (the body's, an embed's title, results, text and step boxes) is tagged with its place in `drawn`.
     const drawn: Link[] = [];
     // Resource projections (PIE-445): each drawn after the last body line at or above its anchor (a ticket
@@ -860,7 +967,7 @@ export class NoteSurface {
     const margin = new Map<number, boolean>();
     for (const k of marks) margin.set(k.row, (margin.get(k.row) ?? false) || k.open);
     for (const [row, open] of margin) body[row] = fg(open ? C.yellow : C.dark) + "▐" + RESET + body[row]!.slice(1);
-    const elems = this.elementsOf(doc, drawn, marks, controls, summaryLinks, points, top, head, summaryRow);
+    const elems = this.elementsOf(doc, drawn, marks, controls, summaryLinks, points, top, head, summaryRow, this.imageRefOf(m, noteLines));
     return (this.laid = { m, key, doc, drawn, picks, controls, body, marks, lines: noteLines, elems });
   }
 
@@ -871,22 +978,56 @@ export class NoteSurface {
   private docEnv(width: number, host: SurfaceHost | undefined, maxImageRows: number): DocEnv {
     const t = host?.ctx.t, graphics = !!host?.ctx.graphics;
     const noImages = graphics ? undefined : t?.kitty ? "video: cells · alt+v draws images" : "no Kitty graphics in this terminal";
-    return { width, cellW: t?.cellW ?? 9, cellH: t?.cellH ?? 18, graphics, noImages, maxImageRows, unfold: this.unfold, callouts: calloutsOf(this.src) };
+    return { width, cellW: t?.cellW ?? 9, cellH: t?.cellH ?? 18, graphics, noImages, maxImageRows, unfold: this.unfold, callouts: calloutsOf(this.src), printed: this.printed };
   }
 
   /** The note's body for the reader and a host's digest (folds, links, embeds, steps, tagged into `drawn`); `more`: the reader's own. */
   private body(m: Msg, env: DocEnv, src: Source | null, drawn: Link[], tokens?: ReturnType<typeof resourceTokensOf>, more?: (text: string, lines: readonly number[]) => Partial<DocEnv>) {
     const { text, points, lines, literal } = this.foldsIn(m);
     this.keepFolds(points);
+    // The live figures this layout draws, each told here; a tab or the density drawn as a control.
+    const figures: FigureInfo[] = [];
+    this.figuresDrawn = figures;
     const doc = renderDoc(presentLinks(text, true, src, m.text, drawn, tokens), {
       ...env, literal, ...this.bodyHooks(m, lines, env, src, drawn),
       callout: this.calloutHook(m, lines, points, drawn),
+      image: this.imageHook(m, lines, drawn),
       folds: { points, folded: this.folded, selected: this.foldSel },
-      link: (block, x) => tagged(drawn, { block, role: "row" }, x),
+      link: (block, x, figure) => tagged(drawn, { block, role: "row", ...(figure ? { figure: { figure } } : {}) }, x),
+      figures: this.printed ? { all: true, seen: f => figures.push(f) } : {
+        ui: key => this.figureUI.get(key),
+        tag: (c, x) => tagged(drawn, { role: "figure", figure: c, label: c.tab ?? `≡ density ${this.figureUI.get(c.figure)?.density ?? ""}`.trim() }, x),
+        seen: f => figures.push(f),
+      },
       tag: (to, x) => tagged(drawn, to, x), note: m.id,
       ...more?.(text, lines),
     });
     return { doc, points, lines };
+  }
+
+  /**
+   * The controls on each image's caption (PIE-532): − + its size, ◂ ▸ where it sits, ▀ the header. Each names the
+   * image by its note line and how that line reads now, so a change is checked against what was drawn.
+   */
+  private imageHook(m: Msg, noteLines: readonly number[], drawn: Link[]): DocEnv["image"] {
+    // Printed (`ep0ch show`), nothing can be clicked: the caption says what the image is, without controls.
+    const ref = this.printed ? null : this.imageRefOf(m, noteLines);
+    if (!ref) return undefined;
+    return (i, control, x) => {
+      const r = ref(i);
+      return r ? tagged(drawn, { role: "image", label: imageControlLabel(control), image: { ...r, control } }, x) : x;
+    };
+  }
+
+  /** The image on body line `i` (of the text drawn, whose note lines are `noteLines`) as an ImageRef, or null; null for a note that isn't the outline's. */
+  private imageRefOf(m: Msg, noteLines: readonly number[]): ((i: number) => ImageRef | null) | null {
+    if (!isOutlineNote(m) || m.partial) return null;
+    const text = m.text.split("\n");
+    return i => {
+      const line = noteLines[i], source = line === undefined ? undefined : text[line];
+      const spec = source === undefined ? null : parseMediaLine(source);
+      return spec ? { block: m.id, line: line!, source: source!, path: spec.path } : null;
+    };
   }
 
   /**
@@ -924,6 +1065,8 @@ export class NoteSurface {
       } else ({ text, lines, literal: lit } = readableSource(target, src));
       return renderDoc(presentLinks(text, true, src, target.text, drawn), {
         ...env, width, graphics: false, noImages: undefined, literal: lit, keepTags: true, folds: undefined, after: undefined,
+        // A fragment's figure isn't its note's figure block: the note's child bullets are the whole note's rows.
+        nested: !!part,
         link: (block, t) => tagged(drawn, { block, role: "row" }, t),
         tag: (to, t) => tagged(drawn, to, t), note: target.id,
         embed: hooks.embed, task: (i, box) => hooks.task(lines[i] ?? -1, box),
@@ -961,16 +1104,18 @@ export class NoteSurface {
     this.drawn = null;
     this.digesting = true;
     const drawn: Link[] = [];
-    const { doc: rendered, points } = this.body(m, this.docEnv(Math.max(1, w), host, maxImageRows), src, drawn);
+    // A digest draws no header image above the note: it's drawn where it's written.
+    this.hero = null;
+    const { doc: rendered, points, lines: noteLines } = this.body(m, this.docEnv(Math.max(1, w), host, maxImageRows), src, drawn);
     const { doc, picks } = this.pickerRows(rendered, drawn, Math.max(1, w));
-    this.elems = this.elementsOf(doc, drawn, [], [], [], points, 0, [], 0);
+    this.elems = this.elementsOf(doc, drawn, [], [], [], points, 0, [], 0, this.imageRefOf(m, noteLines));
     this.keepCurrent(host);
     const current = this.elems.find(e => e.key === this.cur);
     const lines = doc.lines.map((l, r) => (current && r >= current.ruler[0] && r < current.ruler[1] ? paintRange(pad(l, w), 0, w, RULER_BG) : l));
     const links = doc.links.flatMap(r => (drawn[r.n] ? [{ row: r.line, from: r.from, to: r.to, link: drawn[r.n]! }] : []));
     for (const [i, row] of (picks?.rows ?? []).entries()) links.push({ row, from: 0, to: w, link: { role: this.picker?.kind === "callout" ? "callout" : "task", choice: i } });
     const folds = doc.heads.flatMap(h => { const n = points.findIndex(p => p.key === h.key); return n < 0 ? [] : [{ row: h.row, cols: h.cols, n: n + 1 }]; });
-    return { lines, links, folds, placements: imagePlacements(doc.images, 0), current: current ? current.row : null, key: current?.key ?? null };
+    return { lines, links, folds, placements: imagePlacements(doc.images, 0, ...cellOf(host)), current: current ? current.row : null, key: current?.key ?? null };
   }
 
   /** A fold whose heading or item is gone (or reworded) is dropped, so it never hides a different section. */
@@ -1049,7 +1194,7 @@ export class NoteSurface {
    * the clipboard is theirs, so an agent gets the value in its reply instead.
    */
   copyValue(r: PropRow, host: SurfaceHost) {
-    host.ctx.copy?.(r.value);
+    if (host.ctx.copy?.(r.value) === false) return;
     if (this.panel) this.panel.note = `copied ${r.key}: ${printable(r.value).slice(0, 60)}`;
   }
 
@@ -1062,7 +1207,7 @@ export class NoteSurface {
     else {
       const p = await host.ctx.board.resolvePage(t.page).catch((e: Error) => ({ status: "failed", error: e.message } as const));
       if ("block" in p && p.block) target = p.block.partial ? await host.ctx.board.get(p.block.id) ?? p.block : p.block;
-      else why = "error" in p ? `couldn't resolve ${t.page}: ${p.error}` : `${t.page} · Missing target`;
+      else why = "error" in p ? `couldn't resolve ${t.page}: ${p.error}` : `no page is named ${t.page} yet`;
     }
     if (!target) { if (this.panel) this.panel.note = why; host.ctx.flash(why); host.redraw(); return null; }
     // The panel has done its job; the target opens to be read (in place or in another reader).
@@ -1219,7 +1364,7 @@ export class NoteSurface {
   startDraft(fresh: Msg, host: SurfaceHost) {
     const redraw = () => host.redraw();
     const target = blockTarget(fresh, {
-      board: host.ctx.board,
+      board: host.ctx.board, isNew: this.newNotes.has(fresh.id),
       saved: (m, by, asked, change) => this.saved(m, by, asked, change, host),
       reread: m => { if (this.msg?.id === m.id) this.msg = m; },
       redraw,
@@ -1227,7 +1372,7 @@ export class NoteSurface {
     const s: DraftSession = DraftSession.open(target, { text: fresh.text, base: fresh.revision ?? 0, props: fresh.props, by: host.actor ?? USER }, {
       board: host.ctx.board, redraw,
       agentDid: (by, did) => this.noteAgent(by, did, s.draft),
-      closed: how => this.draftClosed(s, how),
+      closed: how => this.draftClosed(s, how, host),
     });
     this.msg = fresh;
     this.modes.push(this.draftMode(s));
@@ -1274,7 +1419,7 @@ export class NoteSurface {
    * The edit's session ended: written, closed with nothing changed, or put aside as unsent. What an agent did
    * to it is said no longer as if it were still open: gone once saved or closed, in the past tense once put aside.
    */
-  private draftClosed(s: DraftSession, how: Ended) {
+  private draftClosed(s: DraftSession, how: Ended, host?: SurfaceHost) {
     if (this.drafting !== s) return;
     this.modes.drop("draft");
     if (this.msg) this.links = linksOf(this.msg);
@@ -1282,6 +1427,47 @@ export class NoteSurface {
       this.agent = this.agent && how === "aside" ? { ...this.agent, did: "edited the draft you put aside" } : null;
       this.agentDraft = null;
     }
+    // A new note (note.new, PIE-544) closed still empty was never written: it goes to the trash, and the reader back.
+    const id = s.target.blockId;
+    if (id && this.newNotes.delete(id) && how === "closed" && !s.draft.text.trim() && host) void this.dropEmptyNote(id, s.draft.base, host);
+  }
+
+  /**
+   * A new note the person is about to write (`note.new`, PIE-544): its edit saves at once (it has no properties to
+   * lose), and closing it still empty puts it in the trash. Kept until its edit ends.
+   */
+  private readonly newNotes = new Set<string>();
+  /** Open the edit on `m`, a note `note.new` just made, as the person's e does; true when the edit is open on it. */
+  async editNew(m: Msg, host: SurfaceHost, still?: () => boolean): Promise<boolean> {
+    if (this.msg?.id !== m.id) return false;
+    this.newNotes.add(m.id);
+    await this.startAsPerson("edit", host, still).catch(() => {});
+    if (this.draft?.blockId === m.id) return true;
+    this.newNotes.delete(m.id);
+    return false;
+  }
+  /** `editNew` by a host that starts the edit its own way (the desk's session start): mark it first, or unmark it. */
+  markNew(id: string, on = true) { if (on) this.newNotes.add(id); else this.newNotes.delete(id); }
+
+  /**
+   * The empty new note an edit closed on goes to the trash (as the person: they made it), and the reader goes back.
+   * Read again first: only a note still empty at the revision the edit began from (nobody wrote it meanwhile).
+   */
+  private async dropEmptyNote(id: string, base: number, host: SurfaceHost) {
+    try {
+      const now = await host.ctx.board.get(id);
+      // A child someone added leaves its revision as it was, and the trash would take the child too.
+      if (!now || now.text.trim() || now.childIds.length || (now.revision !== undefined && now.revision !== base)) return;
+      // At that revision and still empty only: a save or a child by another client after this read is refused, and the note stays.
+      await host.ctx.board.trash(id, undefined, { revision: base, ifEmpty: true });
+    } catch (e) {
+      host.ctx.flash(changedSinceRead(e) ? "the new note was written meanwhile, so it stays" : `the empty new note stays: ${e instanceof Error ? e.message : String(e)}`);
+      return;
+    }
+    host.ctx.flash("nothing written · the empty new note went to the trash");
+    if (this.msg?.id === id) await this.runKey("back", {}, host, true).catch(() => {});
+    if (this.msg?.id === id) host.gone?.(id);
+    host.redraw();
   }
 
   /** The block adapter saved the edit: show the saved note, and say so (and how it was recorded). */
@@ -1616,7 +1802,7 @@ export class NoteSurface {
   /** What the last render put at the surface's cell `x`, `y` (a link, a copy control, a panel row, a choice…). */
   private hitAt(x: number, y: number): Hit | undefined {
     const at = this.hits.filter(h => h.row === y && x >= h.from && x < h.to);
-    return at.find(h => "copy" in h || "link" in h || "thread" in h || "history" in h || "pick" in h || ("follow" in h && h.follow)) ?? at[0];
+    return at.find(h => "copy" in h || "link" in h || "thread" in h || "history" in h || "pick" in h || "image" in h || ("follow" in h && h.follow)) ?? at[0];
   }
 
   // ── keys: each one is an action, the same ones an agent calls ─────────────
@@ -1659,13 +1845,21 @@ export class NoteSurface {
     // A step that's the current element in view (PIE-472): space toggles it done or to do, as Detail's does;
     // ctrl+z undoes the last step change made here.
     if (c === " ") { const e = this.inView(); if (e?.kind === "task" && e.task) { void this.runKey("task.status", { to: e.task.step.status === "done" ? "todo" : "done" }, host, true); return true; } }
-    // ctrl+z undoes the last change made here, a step's status or a callout's header, whichever came last.
+    // ctrl+z undoes the last change made here, a step's status, a callout's header or an image's layout, whichever came last.
     if (k.kind === "char" && k.ctrl && k.ch === "z") {
-      const at = this.msg?.id ?? "", c = this.calloutHistory.last("you", at), st = this.stepHistory.last("you", at);
-      void this.runKey(c && (!st || (c.seq ?? 0) > (st.seq ?? 0)) ? "callout.undo" : "task.undo", {}, host, true);
+      const at = this.msg?.id ?? "";
+      const last = ([["callout.undo", this.calloutHistory.last("you", at)], ["image.undo", this.imageHistory.last("you", at)], ["task.undo", this.stepHistory.last("you", at)]] as const)
+        .reduce<{ name: "callout.undo" | "image.undo" | "task.undo"; seq: number }>((a, [name, e]) => e && (e.seq ?? 0) > a.seq ? { name, seq: e.seq ?? 0 } : a, { name: "task.undo", seq: -1 });
+      void this.runKey(last.name, {}, host, true);
       return true;
     }
     if (k.kind === "pgdn" || c === " " || k.kind === "pgup") { void this.runKey("scroll", { by: k.kind === "pgup" ? -15 : 15 }, host); return true; }
+    // A live figure's element is current: its tabs, its density (figureKey).
+    const fk = this.figureKey(k);
+    if (fk) { void this.runKey(fk.name, fk.args as never, host); return true; }
+    // An image is current (PIE-532): its size, where it sits, the header (imageKey).
+    const ik = this.imageKey(k);
+    if (ik) { void this.runKey(ik.name, ik.args as never, host); return true; }
     // [ ] walk every element in reading order (PIE-441); ( ) below stays the folds-only jump.
     if (c === "]" || c === "[") { void this.runKey("element.select", { by: c === "]" ? 1 : -1 }, host); return true; }
     if (c === "z") { void this.runKey("callouts", {}, host); return true; }
@@ -1943,7 +2137,7 @@ export class NoteSurface {
   sourceLineAt(y: number): number | null {
     const d = this.drawn;
     if (!d) return null;
-    const row = y - d.top;
+    const row = y - d.heroRows - d.top;
     if (row < 0 || row >= d.room) return null;
     const body = d.doc.source[d.scroll + row];
     return body === undefined ? null : d.lines[body] ?? null;
@@ -1961,6 +2155,12 @@ export class NoteSurface {
   }
 
   // ── elements: what [ ] walks, ⏎ acts on and the ruler tints (PIE-441) ─────
+
+  /** The current element's figure's keys, for the hint: its tabs and its density. */
+  private figureHint(): string {
+    const f = this.currentFigure();
+    return f ? `${f.tabs ? " · ← → tab · ⇥ ⇤" : ""} · = ${nextDensity(f.density)}` : "";
+  }
 
   /** Nothing is current: the next `[ ]` starts from the view, and ⏎ is the host's again. */
   letGo() { this.cur = null; this.link = -1; }
@@ -2019,6 +2219,9 @@ export class NoteSurface {
     // A comment mark expands its thread under the passage, or collapses it (PIE-420): the person's only.
     if (e.kind === "comment") { if (select) this.setExpanded(e.thread!, !this.expanded.has(e.thread!)); host.redraw(); return { thread: e.thread, expanded: this.expanded.has(e.thread!) }; }
     if (e.kind === "control" && e.link?.proposal?.op) return this.proposalControl(e.link.proposal.op, e.link.proposal.id, host);
+    // A live figure's tab shows it; its density control steps to the next density.
+    // (element.open sends an agent's through figure.tab and figure.density itself, with their rules.)
+    if (e.kind === "figure" && e.link?.figure) { this.pressFigure(e.link.figure, host); return null; }
     if (e.kind === "control") return this.useControl(e, host);
     // A step's box opens its status choice under it (the person's; an agent sets a status by task.status).
     if (e.kind === "task") { if (select) this.openPicker(e); host.redraw(); return { step: e.task?.step.itemId ?? null, choice: select }; }
@@ -2141,11 +2344,11 @@ export class NoteSurface {
   }
 
   /** Everything `[ ]` can stop on in this render, in reading order (content rows, then columns). */
-  private elementsOf(doc: Doc, drawn: Link[], marks: Mark[], controls: Control[], summary: { from: number; to: number; link: Link; key: string }[], points: readonly FoldPoint[], top: number, head: string[], summaryRow = 1): Element[] {
+  private elementsOf(doc: Doc, drawn: Link[], marks: Mark[], controls: Control[], summary: { from: number; to: number; link: Link; key: string }[], points: readonly FoldPoint[], top: number, head: string[], summaryRow = 1, imageRef: ((i: number) => ImageRef | null) | null = null): Element[] {
     const out: Element[] = [];
     const seen = new Map<string, number>();
     const keyOf = (kind: string, l: Link) => {
-      const id = kind === "task" && l.task ? taskBase(l.task) : kind === "callout" && l.callout ? calloutBase(l.callout) : l.proposal?.op ? `control:proposal:${l.proposal.op}:${l.proposal.id}` : `${kind}:${[l.block ?? "", l.fragment ?? "", l.label ?? "", l.page ?? "", l.media ?? "", l.url ?? ""].join("|")}`;
+      const id = kind === "task" && l.task ? taskBase(l.task) : kind === "callout" && l.callout ? calloutBase(l.callout) : kind === "figure" && l.figure ? figureElemBase(l.figure) : l.proposal?.op ? `control:proposal:${l.proposal.op}:${l.proposal.id}` : `${kind}:${[l.block ?? "", l.fragment ?? "", l.label ?? "", l.page ?? "", l.media ?? "", l.url ?? ""].join("|")}`;
       const n = seen.get(id) ?? 0;
       seen.set(id, n + 1);
       return `${id}#${n}`;
@@ -2167,11 +2370,14 @@ export class NoteSurface {
     for (const r of doc.links) { const g = byN.get(r.n); if (g) g.push(r); else byN.set(r.n, [r]); }
     for (const [n, rs] of byN) {
       const l = drawn[n], r = rs[0]!;
-      if (!l) continue;
+      // An image's caption controls are click targets only: [ ] stops on the image, and its keys change it.
+      if (!l || l.role === "image") continue;
       const kind: ElementKind = l.role ?? "link";
       // An embed's ruler is its shaded region; a row's is itself; a link's is the block it's in.
       let ruler = block(r.line);
-      if (kind === "row") ruler = [top + r.line, top + r.line + 1];
+      // A row a density wraps is its lines; a figure's tab or density control is its own row.
+      if (kind === "row") ruler = [top + r.line, top + rs.at(-1)!.line + 1];
+      else if (kind === "figure") ruler = [top + r.line, top + r.line + 1];
       else if (kind === "embed") { let b = r.line + 1; while (b < doc.lines.length && doc.lines[b]!.startsWith(SHADE)) b++; ruler = [top + r.line, top + b]; }
       // A resource projection's is its shaded region, up to the next projection's head.
       else if (kind === "resource") { let b = r.line + 1; while (b < doc.lines.length && doc.lines[b]!.startsWith(SHADE) && !heads.has(b)) b++; ruler = [top + r.line, top + b]; }
@@ -2183,7 +2389,10 @@ export class NoteSurface {
         : kind === "callout" && l.callout ? `[!${l.callout.type}] ${calloutTitle(l.callout)}` : rs.map(x => text(doc.lines[x.line]!, x.from, x.to)).join(" ");
       out.push({ key: keyOf(kind, l), kind, row: top + r.line, from: r.from + 1, to: r.to + 1, ruler, label, link: l, ...(l.task ? { task: l.task } : {}), ...(l.callout ? { callout: l.callout } : {}) });
     }
-    for (const x of doc.media) out.push({ key: keyOf("link", { media: x.path }), kind: "link", row: top + x.row, from: 1, to: 1 + width(doc.lines[x.row] ?? ""), ruler: block(x.row), label: x.path.split("/").pop() ?? x.path, link: { media: x.path } });
+    for (const x of doc.media) {
+      const image = imageRef?.(x.line) ?? undefined;
+      out.push({ key: keyOf("link", { media: x.path }), kind: "link", row: top + x.row, from: 1, to: 1 + width(doc.lines[x.row] ?? ""), ruler: block(x.row), label: x.path.split("/").pop() ?? x.path, link: { media: x.path, ...(image ? { image } : {}) } });
+    }
     for (const hd of doc.heads) {
       const p = points.find(p => p.key === hd.key);
       if (p) out.push({ key: `fold:${p.key}`, kind: "fold", row: top + hd.row, from: 1, to: hd.cols + 1, ruler: block(hd.row), label: foldLabel(p), fold: p.key });
@@ -2249,6 +2458,225 @@ export class NoteSurface {
   }
 
   /** The elements as `peek` and the `elements` action list them. */
+  // ── live figures: a tabs figure's tab, a table's density (src/graphs.ts); this reader's, never the note's ──
+
+  /** The figures the last layout drew: each one's number, kind, title, density, and a tabs figure's tabs and counts. */
+  describeFigures() {
+    return this.figuresDrawn.map(f => ({ n: f.n, kind: f.kind, title: f.title, density: f.density, ...(f.tabs ? { tab: f.tab ?? null, tabs: f.tabs.map((t, i) => ({ n: i + 1, ...t, shown: t.value === f.tab })) } : {}) }));
+  }
+
+  /** The figure the current element is in (one of its tabs, its density, one of its rows), while it's in view. */
+  currentFigure(): FigureInfo | null {
+    const key = this.inView()?.link?.figure?.figure;
+    return key ? this.figuresDrawn.find(f => f.key === key) ?? null : null;
+  }
+
+  /**
+   * Figure `which` of the last layout: its number among the note's figures (from 1) or its title; left out, the one
+   * the current element is in, else the note's only one of the kind asked. Refused, saying what's there, otherwise.
+   */
+  figureNamed(which: string | undefined, want: "tabs" | "rows"): FigureInfo {
+    this.requireDrawn();
+    const fits = (f: FigureInfo) => (want === "tabs" ? f.kind === "tabs" : f.kind === "tabs" || f.kind === "table");
+    const fs = this.figuresDrawn.filter(fits), what = want === "tabs" ? "tabs figure" : "table or tabs figure";
+    if (!fs.length) throw new ActionRefused(`this note draws no ${what} now (figures lists what it draws)`);
+    const s = which?.trim();
+    const f = !s ? (this.currentFigure() && fits(this.currentFigure()!) ? this.currentFigure() : fs.length === 1 ? fs[0] : undefined)
+      : /^\d+$/.test(s) ? this.figuresDrawn.find(x => x.n === Number(s)) : fs.find(x => x.title.toLowerCase() === s.toLowerCase());
+    const listed = fs.map(x => `${x.n} ${x.title}`).join(", ");
+    if (!f) throw new ActionRefused(s ? `no ${what} ${s} in this note; there are: ${listed}` : `this note draws ${fs.length} ${what}s; say which: figure=<n or title> (${listed})`);
+    if (!fits(f)) throw new ActionRefused(`figure ${s} is a ${f.kind}, not a ${what}; there are: ${listed}`);
+    return f;
+  }
+
+  /**
+   * Show tab `value` of figure `f`. `select` (the person's): when their `[ ]` position is in that figure (a tab, a row
+   * of the tab that's going), it moves to the new tab's label, so ← → go on from there.
+   */
+  setFigureTab(f: FigureInfo, value: string, select: boolean) {
+    this.figureUI.set(f.key, { ...this.figureUI.get(f.key), tab: value });
+    f.tab = value;
+    if (select && this.inView()?.link?.figure?.figure === f.key) { this.cur = `${figureElemBase({ figure: f.key, tab: value })}#0`; this.link = -1; this.reveal = true; }
+  }
+
+  /** Draw figure `f` at density `d`. */
+  setFigureDensity(f: FigureInfo, d: Density) {
+    this.figureUI.set(f.key, { ...this.figureUI.get(f.key), density: d });
+    f.density = d;
+  }
+
+  /**
+   * The figure action key `k` runs while the current element is in a live figure: tab shift+tab ← → a tabs figure's
+   * next or previous tab, = the next density, ⏎ on a tab or the density control that one. Null for any other key.
+   */
+  private figureKey(k: Key): { name: "figure.tab" | "figure.density"; args: Record<string, unknown> } | null {
+    if (this.modes.top()) return null;
+    const f = this.currentFigure();
+    if (!f) return null;
+    const figure = String(f.n), e = this.inView();
+    if (f.tabs && (k.kind === "tab" || k.kind === "backtab" || k.kind === "left" || k.kind === "right")) return { name: "figure.tab", args: { figure, by: k.kind === "tab" || k.kind === "right" ? 1 : -1 } };
+    if (ch(k) === "=") return { name: "figure.density", args: { figure } };
+    if (k.kind === "enter" && e?.kind === "figure") return e.link?.figure?.tab !== undefined ? { name: "figure.tab", args: { figure, tab: e.link.figure.tab } } : { name: "figure.density", args: { figure } };
+    return null;
+  }
+
+  /**
+   * A key this reader takes ahead of its host's own while a live figure's element is current (tab and shift+tab
+   * cycle a desk's tiles, ← → step a river's columns or a BBS reader's messages otherwise): the host asks first.
+   */
+  claims(k: Key): boolean { return !!this.figureKey(k) || (!!this.imageKey(k) && ch(k) !== "H"); }
+
+  /**
+   * The image action key `k` runs while an image is the current element (PIE-532): + - its size (a header's height),
+   * ← → where it sits, H the note's header on or off. Null for any other key. The host asks first for all but H
+   * (claims): in a float, H stays the float's (float.place), and the caption's [▀] makes it the header.
+   */
+  /** Whether `k` is an image's key here now (imageKey): a host that owns H too (the river) asks this. */
+  imageKeyOf(k: Key): boolean { return !!this.imageKey(k); }
+
+  private imageKey(k: Key): { name: "image.size" | "image.align" | "image.hero" | "image.fit"; args: Record<string, unknown> } | null {
+    if (this.modes.top()) return null;
+    const e = this.inView();
+    if (!e?.link?.image || !e.link.media) return null;
+    const c = ch(k);
+    if (c === "+" || c === "-") return { name: "image.size", args: { by: c === "+" ? 1 : -1 } };
+    if (c === "H") return { name: "image.hero", args: {} };
+    const hero = parseMediaLine(e.link.image.source)?.layout === "hero";
+    if (!hero && (k.kind === "left" || k.kind === "right")) return { name: "image.align", args: { by: k.kind === "right" ? 1 : -1 } };
+    if (hero && c === "=") return { name: "image.fit", args: {} };
+    return null;
+  }
+
+  /** A click on an image's caption control: the image becomes the `[ ]` position, and the control's action runs as the person's. */
+  private pressImage(ref: ImageRef, host: SurfaceHost) {
+    const e = this.elems.find(x => x.link?.image && !x.link.image.control && x.link.image.block === ref.block && x.link.image.line === ref.line);
+    if (e) this.setElem(e);
+    const c = ref.control, line = ref.line + 1;
+    if (!c) return;
+    if ("size" in c) void this.runKey("image.size", { by: c.size, line }, host);
+    else if ("align" in c) void this.runKey("image.align", { by: c.align, line }, host);
+    else if ("fit" in c) void this.runKey("image.fit", { to: c.fit, line }, host);
+    else void this.runKey("image.hero", { on: c.hero, line }, host);
+    host.redraw();
+  }
+
+  /** The images in note `m` as written (outside code fences), in reading order. */
+  imagesIn(m: Msg): (ImageRef & { spec: MediaSpec })[] {
+    // The reader's own scan of the body it draws (mediaLines), each line mapped back to the note's.
+    const { text, lines } = this.foldsIn(m), all = m.text.split("\n");
+    return [...mediaLines(text.split("\n"))].flatMap(([i, spec]) => {
+      const line = lines[i], source = line === undefined ? undefined : all[line];
+      return line === undefined || source === undefined ? [] : [{ block: m.id, line, source, path: spec.path, spec }];
+    });
+  }
+
+
+  /**
+   * The image a person's key means when it names none (the current element in view), or the one `n` (from images) or
+   * `line` (its note line, 1 the subject) names.
+   */
+  async imageNamed({ n, line }: { n?: number; line?: number }, actor: Actor): Promise<ImageRef & { spec: MediaSpec }> {
+    if (n === undefined && line === undefined) {
+      if (actor.kind === "agent") throw new ActionRefused("say which image: n= (images lists them) or line=");
+      // Its line as the note reads now (a change just saved, + pressed twice, has moved on from the last render).
+      const r = this.inView()?.link?.image;
+      const source = r && this.msg?.id === r.block ? this.msg.text.split("\n")[r.line] ?? r.source : r?.source;
+      const spec = source !== undefined ? parseMediaLine(source) : null;
+      if (r && spec) return { block: r.block, line: r.line, source: source!, path: spec.path, spec };
+      throw new ActionRefused("say which image: n= or line= (images lists them), or put [ ] on an image");
+    }
+    const all = this.imagesIn(await this.whole());
+    const listed = () => all.slice(0, 12).map((x, i) => `${i + 1} line ${x.line + 1} ${x.path.split("/").pop()}`).join("; ") || "none";
+    const hit = n !== undefined ? all[n - 1] : all.find(x => x.line + 1 === line);
+    if (!hit) throw new ActionRefused(`no such image in this note (${listed()})`);
+    return hit;
+  }
+
+  /** How wide image `ref` is drawn now, as a share of the body (0–100), or null when it isn't drawn. */
+  private drawnShare(ref: ImageRef): number | null {
+    const d = this.drawn;
+    const x = d?.doc.media.find(x => d.lines[x.line] === ref.line);
+    const im = x?.image !== undefined ? d!.doc.images[x.image] : undefined;
+    return im && d ? (im.cols / Math.max(1, d.w - 1)) * 100 : null;
+  }
+  /** How each image is drawn now, by its note line: its cells and where it sits, or the header's rows. */
+  drawnImages(): Map<number, { cols: number; rows: number; col: number } | { header: number }> {
+    const out = new Map<number, { cols: number; rows: number; col: number } | { header: number }>(), d = this.drawn;
+    if (this.hero) out.set(this.hero.line, { header: this.hero.full });
+    if (!d) return out;
+    for (const x of d.doc.media) {
+      const im = x.image !== undefined ? d.doc.images[x.image] : undefined, line = d.lines[x.line];
+      if (im && line !== undefined) out.set(line, { cols: im.cols, rows: im.rows, col: im.col });
+    }
+    return out;
+  }
+  /** How many rows the header image takes now, or null when the reader doesn't draw one. */
+  heroRowsDrawn(): number | null { return this.hero?.full ?? null; }
+
+  /**
+   * Change an image's line (PIE-532): its layout properties (`set`), and with `others`, other image lines of the
+   * note too (the header moving from one image to another), as one save through rewriteLines, recorded as `actor`'s;
+   * image.undo (ctrl+z) puts the lines back.
+   */
+  async changeImage(ref: ImageRef & { spec: MediaSpec }, set: Partial<Record<MediaAttr, string | null>>, what: string, host: SurfaceHost, actor: Actor, others: { line: number; source: string; set: Partial<Record<MediaAttr, string | null>> }[] = []) {
+    const edits: LineEdit[] = [];
+    for (const x of [{ line: ref.line, source: ref.source, set }, ...others]) {
+      const after = rewriteMediaLine(x.source, x.set);
+      if (after === null) throw new ActionRefused("that line isn't an image any more");
+      if (after !== x.source) edits.push({ line: x.line, before: x.source, after });
+    }
+    const name = ref.path.split("/").pop() ?? ref.path;
+    const r = await this.rewriteLines(ref.block, edits, this.imageHistory, host, actor, IMAGE_STALE);
+    if (!edits.length) return { block: ref.block, line: ref.line + 1, changed: false, image: ref.source, revision: r.revision ?? null };
+    // The person's image stays in view as it grows or moves, so its keys keep working on it.
+    if (actor.kind === "user") this.reveal = true;
+    const said = `image ${printable(name).slice(0, 30)}: ${what}`;
+    host.ctx.flash(said);
+    this.noteAgent(actor, said);
+    host.redraw();
+    return { block: ref.block, line: ref.line + 1, changed: true, image: edits.find(e => e.line === ref.line)?.after ?? ref.source, revision: r.revision ?? null, recordedAs: mutationFor(actor) };
+  }
+
+  /**
+   * Line changes (an image's, a callout's, their undo) run one after another, so a key pressed again before the last
+   * save landed builds on it, and an undo finds the change before it.
+   */
+  private lineTurn: Promise<unknown> = Promise.resolve();
+  inTurn<T>(fn: () => Promise<T>): Promise<T> {
+    const next = this.lineTurn.catch(() => {}).then(fn);
+    this.lineTurn = next;
+    return next;
+  }
+
+  /** Undo the last image change `actor` made while reading this note. */
+  async undoImage(host: SurfaceHost, actor: Actor) {
+    const r = await this.inTurn(() => this.undoLines(this.imageHistory, "image", host, actor));
+    return { block: r.block, lines: r.edits.map(e => ({ line: e.line + 1, image: e.before })), revision: r.revision, recordedAs: mutationFor(actor) };
+  }
+
+  /** The width `ref` steps to by `by` (one of the reader's steps: a quarter, a third, a half, two thirds, three quarters, all). */
+  sizeStep(ref: ImageRef & { spec: MediaSpec }, by: number): string | null {
+    const s = ref.spec.size, W = Math.max(1, (this.drawn?.w ?? 81) - 1);
+    const now = s === "full" ? 100 : s && "percent" in s ? s.percent : s ? (s.cells / W) * 100 : this.drawnShare(ref) ?? 50;
+    const next = by > 0 ? SIZE_STEPS.find(p => p > now + 1) : SIZE_STEPS.findLast(p => p < now - 1);
+    return next === undefined ? null : next === 100 ? "full" : `${next}%`;
+  }
+
+  /** A click (or ⏎ through `open`) on a figure's control: the action its key runs. */
+  /** An agent's (or anyone's) `element.open` on a figure's control: figure.tab or figure.density as `actor`. */
+  runFigureControl(c: FigureControl, host: SurfaceHost, actor: Actor): Promise<unknown> {
+    const f = this.figuresDrawn.find(x => x.key === c.figure);
+    if (!f) throw new ActionRefused("that figure isn't drawn now (figures lists what is)");
+    return NOTE_ACTIONS.run(c.tab !== undefined ? "figure.tab" : "figure.density", c.tab !== undefined ? { figure: String(f.n), tab: c.tab } : { figure: String(f.n) }, { surface: this, host }, actor);
+  }
+
+  pressFigure(c: FigureControl, host: SurfaceHost) {
+    const f = this.figuresDrawn.find(x => x.key === c.figure);
+    if (!f) return;
+    if (c.tab !== undefined) void this.runKey("figure.tab", { figure: String(f.n), tab: c.tab }, host);
+    else void this.runKey("figure.density", { figure: String(f.n) }, host);
+  }
+
   describeElements() {
     return this.elems.map((e, i) => ({
       n: i + 1, kind: e.kind, label: printable(e.label), current: e.key === this.cur,
@@ -2284,9 +2712,13 @@ export class NoteSurface {
    */
   click(x: number, y: number, host: SurfaceHost): boolean {
     this.use(host);
+    // The note's rows are under its header image (PIE-532).
+    y -= this.drawn?.heroRows ?? 0;
     // An open mode first (in its precedence): the edit's or comment's own click, a status choice's row, a panel row.
     const taken = this.modes.click(x, y, host);
     if (taken !== undefined) return taken;
+    // The header image: a click on it makes it the `[ ]` position, as a click on any image does.
+    if (y < 0) { const i = this.elems.findIndex(e => !!e.link?.media && e.link.image?.line === this.hero?.line); if (i >= 0) void this.runKey("element.select", { n: i + 1 }, host); return i >= 0; }
     const h = this.hitAt(x, y);
     // Each click is the action its key is (PIE-506): copy, back and forward, select.clear, element.open, …
     if (h && "copy" in h) { void this.runKey("select.copy", h.copy === "source" ? { source: true } : {}, host); return true; }
@@ -2303,12 +2735,18 @@ export class NoteSurface {
     }
     // A panel row or a status choice is its mode's (above); with that mode gone, nothing.
     if ("prop" in h || "pick" in h) return false;
+    // An image itself: it becomes the `[ ]` position, so its keys (+ - ← → H) change it; ⏎ or a click on its caption opens it.
+    if ("image" in h) { void this.runKey("element.select", { n: this.elems.findIndex(x => x.key === h.image) + 1 }, host); return true; }
     // A link (in the text, the summary line, an embed's title, a figure's row): the `[ ]` position, then
     // it opens where ⏎ on it would.
     const e = h.elem ? this.elems.find(e => e.key === h.elem) : undefined;
     // A proposal's [apply] or [dismiss] (PIE-501): it becomes the `[ ]` position, and its action runs.
     const pc = h.link.proposal;
     if (pc?.op) { if (e) this.setElem(e); host.redraw(); void this.proposalControl(pc.op, pc.id, host); return true; }
+    // A live figure's tab or density: it becomes the `[ ]` position, and figure.tab or figure.density runs.
+    if (h.link.role === "figure" && h.link.figure) { if (e) this.setElem(e); this.pressFigure(h.link.figure, host); host.redraw(); return true; }
+    // An image's caption control (PIE-532): the image becomes the `[ ]` position, and the control's action runs.
+    if (h.link.role === "image" && h.link.image) { this.pressImage(h.link.image, host); return true; }
     // A step's box: its status choice opens under it, as ⏎ on it does (PIE-472); a link (or a summary-line
     // value) opens where ⏎ on it would. Both are element.open on that element.
     if (e) { void this.runKey("element.open", { n: this.elems.indexOf(e) + 1 }, host); host.redraw(); return true; }
@@ -2334,6 +2772,14 @@ export class NoteSurface {
       return Promise.resolve(null);
     }
     if (l.proposal?.op) { void this.proposalControl(l.proposal.op, l.proposal.id, host); return Promise.resolve(null); }
+    if (l.role === "image" && l.image) { this.pressImage(l.image, host); return Promise.resolve(null); }
+    if (l.role === "figure" && l.figure) {
+      const e = this.elems.find(x => x.link === l) ?? this.elems.find(x => x.link?.figure && figureElemBase(x.link.figure) === figureElemBase(l.figure!));
+      if (e) this.setElem(e);
+      this.pressFigure(l.figure, host);
+      host.redraw();
+      return Promise.resolve(null);
+    }
     if (l.role === "task" && l.task) {
       const e = this.elems.find(x => x.link === l) ?? this.elems.find(x => x.task && taskBase(x.task) === taskBase(l.task!));
       if (e) { this.openPicker(e); host.redraw(); }
@@ -2394,7 +2840,7 @@ export class NoteSurface {
       // The service's page and Work-ID registry first (read-only: a dangling address isn't created).
       const p = await host.ctx.board.resolvePage(l.page).catch(() => null);
       if (p?.block) target = p.block.partial ? await host.ctx.board.get(p.block.id) ?? p.block : p.block;
-      else if (p?.status === "missing") { host.ctx.flash(`[[${l.page}]] · Missing target`); return null; }
+      else if (p?.status === "missing") return this.offerPage(l.page, host);
     }
     if (!target && l.page) {
       // Not a registered address: the one search's answer, when it is exactly that (an id, or the title as folded).
@@ -2408,6 +2854,49 @@ export class NoteSurface {
     // A host that kept the note in this reader without showing it again (it already showed it).
     if (this.msg?.id === target.id) this.takeReveal(target, host);
     return target;
+  }
+
+  /**
+   * A followed `[[address]]` nothing answers (PIE-544): never made silently. The first ⏎ or click offers it (said, and
+   * kept under the header while this note is shown); the person's next ⏎ or click on that link makes it (`page.create`)
+   * and opens it here. An agent following one is told, and makes it with page.create.
+   */
+  private async offerPage(page: string, host: SurfaceHost): Promise<null> {
+    const by = host.actor ?? USER;
+    if (by.kind === "agent") throw new ActionRefused(`[[${page}]] doesn't exist yet: no page has that name; page.create address=${JSON.stringify(page)} makes it`);
+    // The offer stands while it's still said under the header, for a minute: never a create long after, unannounced.
+    const o = this.pageOffer;
+    if (o && o.page === page && this.notice === o.notice && Date.now() - o.at < PAGE_OFFER_MS) {
+      this.pageOffer = null;
+      this.notice = "";
+      await this.runKey("page.create", { address: page }, host);
+      return null;
+    }
+    this.notice = `no page [[${page}]] · ⏎ or click it again: create it`;
+    this.pageOffer = { page, notice: this.notice, at: Date.now() };
+    host.ctx.flash(`[[${page}]] doesn't exist yet · ⏎ or click it again to create the page`, 8000);
+    host.redraw();
+    return null;
+  }
+  /** The `[[address]]` whose page the next ⏎ or click on its link makes (offerPage), as said; gone with the note. */
+  private pageOffer: { page: string; notice: string; at: number } | null = null;
+
+  /**
+   * `page.create`: the page an `[[address]]` names, made where new notes go (the service's placement rule, today the
+   * top of the Inbox) as `X [page::X]`, then opened as a followed link opens; one that exists already is opened. An
+   * agent's is made and said, opening nothing.
+   */
+  async createPage(address: string, host: SurfaceHost, actor: Actor): Promise<{ id: string; created: boolean; said?: string }> {
+    const r = await host.ctx.board.followPage(address, actor).catch((e: Error) => { throw new ActionRefused(`no page ${address}: ${e.message}`); });
+    if (!r.note) throw new ActionRefused(r.status === "deleted" ? `[[${address}]] is a page in the trash: restore it there` : `no page ${address}`);
+    const said = r.created ? `created page ${subject(r.note)} ${r.placement?.said ?? ""}`.trim() : `${subject(r.note)} was there already`;
+    if (actor.kind !== "agent") {
+      const target = r.note;
+      this.track(() => host.navigate(target, { link: true }));
+      host.ctx.flash(said);
+    }
+    host.redraw();
+    return { id: r.note.id, created: r.created, said };
   }
 
   /** Reveal the fragment a follow left on `m`, unless it's an agent's and this is the person's focused reader. */
@@ -2589,67 +3078,87 @@ export class NoteSurface {
 
   /**
    * Change a callout's header (PIE-538): its type, or whether it starts folded (its `+`/`-`), one line rewritten
-   * through the note's ordinary save (`update`), recorded as `actor`'s, checked against the revision read now and
-   * the header as it was drawn; an agent never underneath a draft someone has open on the note. Undo (ctrl+z,
-   * callout.undo) puts the line back.
+   * through the note's ordinary save (rewriteLines). Undo (ctrl+z, callout.undo) puts the line back.
    */
-  async changeCallout(ref: CalloutRef, change: { type?: string; fold?: "+" | "-" | null }, host: SurfaceHost, actor: Actor) {
-    const board = host.ctx.board;
-    const no = agentRefusal(actor, { board, blockId: ref.block });
-    if (no) throw new ActionRefused(no);
-    // The note as the service has it now: the header must still read as drawn, and the save names this revision.
-    const m = await board.get(ref.block);
-    if (!m) throw new ActionRefused("that note isn't there any more");
-    if (m.revision === undefined) throw new ActionRefused("this note has no revision to check a change against; nothing was changed");
-    const lines = m.text.split("\n"), was = lines[ref.line];
-    if (was !== ref.header) { host.ctx.flash("that callout changed since it was drawn · nothing was changed · choose again"); throw new ActionRefused("that callout changed since it was drawn; nothing was changed (callout.list reads it again)"); }
-    const next = rewriteCalloutHeader(was, change);
+  changeCallout(ref: CalloutRef, change: { type?: string; fold?: "+" | "-" | null }, host: SurfaceHost, actor: Actor) {
+    return this.inTurn(() => this.writeCallout(ref, change, host, actor));
+  }
+  private async writeCallout(ref: CalloutRef, change: { type?: string; fold?: "+" | "-" | null }, host: SurfaceHost, actor: Actor) {
+    const next = rewriteCalloutHeader(ref.header, change);
     if (next === null) throw new ActionRefused("that line isn't a callout's header any more");
     const what = change.type !== undefined ? `[!${ref.type}] → [!${change.type}]` : `starts ${change.fold === "-" ? "folded" : "open"}`;
-    if (next === was) return { block: m.id, line: ref.line + 1, changed: false, header: was, revision: m.revision ?? null };
-    lines[ref.line] = next;
+    const r = await this.rewriteLines(ref.block, next === ref.header ? [] : [{ line: ref.line, before: ref.header, after: next }], this.calloutHistory, host, actor, CALLOUT_STALE);
+    if (next === ref.header) return { block: ref.block, line: ref.line + 1, changed: false, header: ref.header, revision: r.revision ?? null };
+    // "Make it start folded" folds it here too; "start open" opens it.
+    if (change.fold !== undefined && ref.foldKey && actor.kind === "user") { if (change.fold === "-") this.folded.add(ref.foldKey); else this.folded.delete(ref.foldKey); }
+    const said = `callout ${printable(calloutTitle(ref)).slice(0, 30)}: ${what}`;
+    host.ctx.flash(said);
+    this.noteAgent(actor, said);
+    host.redraw();
+    return { block: ref.block, line: ref.line + 1, changed: true, header: next, revision: r.revision ?? null, recordedAs: mutationFor(actor) };
+  }
+
+  /** Undo the last callout change `actor` made while reading this note: its header line back, if it still reads as left. */
+  async undoCallout(host: SurfaceHost, actor: Actor) {
+    const r = await this.inTurn(() => this.undoLines(this.calloutHistory, "callout", host, actor));
+    return { block: r.block, line: r.edits[0]!.line + 1, header: r.edits[0]!.before, revision: r.revision, recordedAs: mutationFor(actor) };
+  }
+
+  /**
+   * Lines of note `blockId` rewritten (`edits`: each line's text as it was read and what it becomes) through the
+   * note's ordinary save (`update`): one change, recorded as `actor`'s, checked against the revision the service has
+   * now and against each line as it was read (`stale` is said when one isn't); an agent never underneath a draft
+   * someone has open on the note. Kept in `history` for undo. The callout header and the image line changes.
+   */
+  private async rewriteLines(blockId: string, edits: LineEdit[], history: UndoHistory<LineUndo>, host: SurfaceHost, actor: Actor, stale: Stale): Promise<Msg> {
+    const board = host.ctx.board;
+    const no = agentRefusal(actor, { board, blockId });
+    if (no) throw new ActionRefused(no);
+    // The note as the service has it now: each line must still read as drawn, and the save names this revision.
+    const m = await board.get(blockId);
+    if (!m) throw new ActionRefused("that note isn't there any more");
+    if (m.revision === undefined) throw new ActionRefused("this note has no revision to check a change against; nothing was changed");
+    const lines = m.text.split("\n");
+    if (edits.some(e => lines[e.line] !== e.before)) { host.ctx.flash(stale.flash); throw new ActionRefused(stale.refused); }
+    // Nothing to change (it reads that way already): checked and refused as a change would be, nothing written.
+    if (!edits.length) return m;
+    for (const e of edits) lines[e.line] = e.after;
     let saved: Msg;
     try { saved = await board.update(m.id, lines.join("\n"), m.revision, actor); } catch (e) {
       outlineChanged([m.id]);
-      const why = `not changed: ${e instanceof EditConflict ? "the note changed elsewhere since it was read; choose again" : e instanceof Error ? e.message : String(e)}`;
+      const why = `not changed: ${e instanceof EditConflict ? `the note changed elsewhere since it was read; ${stale.again}` : e instanceof Error ? e.message : String(e)}`;
       host.ctx.flash(why); host.redraw();
       throw new ActionRefused(why);
     }
     outlineChanged([m.id]);
     if (this.msg?.id === m.id) this.refresh({ ...saved, childIds: this.msg.childIds });
-    // "Make it start folded" folds it here too; "start open" opens it.
-    if (change.fold !== undefined && ref.foldKey && actor.kind === "user") { if (change.fold === "-") this.folded.add(ref.foldKey); else this.folded.delete(ref.foldKey); }
-    this.calloutHistory.push({ block: m.id, line: ref.line, before: was, after: next, by: partyOf(actor), context: this.msg?.id ?? m.id });
-    const said = `callout ${printable(calloutTitle(ref)).slice(0, 30)}: ${what}`;
-    host.ctx.flash(said);
-    this.noteAgent(actor, said);
-    host.redraw();
-    return { block: m.id, line: ref.line + 1, changed: true, header: next, revision: saved.revision ?? null, recordedAs: mutationFor(actor) };
+    history.push({ block: m.id, edits, by: partyOf(actor), context: this.msg?.id ?? m.id });
+    return saved;
   }
 
-  /** Undo the last callout change `actor` made while reading this note: its header line back, if it still reads as left. */
-  async undoCallout(host: SurfaceHost, actor: Actor) {
-    const e = this.msg ? this.calloutHistory.last(partyOf(actor), this.msg.id) : null;
-    if (!e) { const why = "no callout change to undo in this note"; host.ctx.flash(why); throw new ActionRefused(why); }
+  /** Undo the last change in `history` that `actor` made while reading this note: its lines back, if they still read as left. */
+  private async undoLines(history: UndoHistory<LineUndo>, what: string, host: SurfaceHost, actor: Actor) {
+    const e = this.msg ? history.last(partyOf(actor), this.msg.id) : null;
+    if (!e) { const why = `no ${what} change to undo in this note`; host.ctx.flash(why); throw new ActionRefused(why); }
     const no = agentRefusal(actor, { board: host.ctx.board, blockId: e.block });
     if (no) { host.ctx.flash(no); throw new ActionRefused(no); }
     const m = (await host.ctx.board.get(e.block)) ?? { id: "", text: "", revision: undefined } as unknown as Msg, lines = m.text.split("\n");
-    if (m.id !== e.block || lines[e.line] !== e.after || m.revision === undefined) {
-      this.calloutHistory.drop(e);
-      const why = "couldn't undo: that callout changed again since"; host.ctx.flash(why); throw new ActionRefused(why);
+    if (m.id !== e.block || e.edits.some(x => lines[x.line] !== x.after) || m.revision === undefined) {
+      history.drop(e);
+      const why = `couldn't undo: that ${what} changed again since`; host.ctx.flash(why); throw new ActionRefused(why);
     }
-    lines[e.line] = e.before;
+    for (const x of e.edits) lines[x.line] = x.before;
     let saved: Msg;
     try { saved = await host.ctx.board.update(m.id, lines.join("\n"), m.revision, actor); } catch (err) {
       outlineChanged([m.id]);
       const why = `couldn't undo: ${err instanceof Error ? err.message : String(err)}`; host.ctx.flash(why); host.redraw(); throw new ActionRefused(why);
     }
-    this.calloutHistory.drop(e);
+    history.drop(e);
     outlineChanged([m.id]);
     if (this.msg?.id === m.id) this.refresh({ ...saved, childIds: this.msg.childIds });
-    const said = `undid the callout change: ${printable(e.before.trim()).slice(0, 40)}`;
+    const said = `undid the ${what} change: ${printable(e.edits[0]!.before.trim()).slice(0, 40)}`;
     host.ctx.flash(said); this.noteAgent(actor, said); host.redraw();
-    return { block: m.id, line: e.line + 1, header: e.before, revision: saved.revision ?? null, recordedAs: mutationFor(actor) };
+    return { block: m.id, edits: e.edits, revision: saved.revision ?? null };
   }
 
   /**
@@ -2862,7 +3371,7 @@ export class NoteSurface {
   /** Where the reader is now, as back would come back to it. */
   private place(): Place | null {
     const m = this.msg;
-    return m ? { msg: m, scroll: this.scroll, cur: this.cur, link: this.link, folded: [...this.folded], expanded: [...this.expanded], seen: [...this.foldSeen] } : null;
+    return m ? { msg: m, scroll: this.scroll, cur: this.cur, link: this.link, folded: [...this.folded], expanded: [...this.expanded], seen: [...this.foldSeen], figures: [...this.figureUI] } : null;
   }
 
   /**
@@ -2912,7 +3421,7 @@ export class NoteSurface {
     stack.pop();
     if (here) (dir < 0 ? this.aheads : this.backs).push(here);
     this.scroll = to.scroll; this.cur = to.cur; this.link = to.link;
-    this.folded = new Set(to.folded); this.expanded = new Set(to.expanded); this.foldSeen = new Set(to.seen);
+    this.folded = new Set(to.folded); this.expanded = new Set(to.expanded); this.foldSeen = new Set(to.seen); this.figureUI = new Map(to.figures);
     // The element comes into view if the history row now under the note would hide it (only that far).
     this.reveal = to.cur !== null;
     host.redraw();
@@ -2952,6 +3461,8 @@ export class NoteSurface {
   private posAt(x: number, y: number, edge = false): Pos | null {
     const d = this.drawn;
     if (!d) return null;
+    // The note's rows start under its header image.
+    y -= d.heroRows;
     const col = Math.max(0, Math.min(d.w - 1, x));
     if (!edge && (x < 0 || x >= d.w || y < 0 || y >= d.top + d.room)) return null;
     const body = (row: number) => ({ row: d.top + this.scroll + row, col });
@@ -3172,7 +3683,8 @@ export class NoteSurface {
     }
     if (!text.trim()) { host.ctx.flash("nothing to copy: only blanks are selected"); return null; }
     const chars = [...text].length;
-    host.ctx.copy?.(text);
+    // Over COPY_MAX nothing is copied: App.copy's toast says why, and the action is refused.
+    if (host.ctx.copy?.(text) === false) throw new ActionRefused(`not copied: ${chars} chars is more than the clipboard takes`);
     host.ctx.flash(`copied ${chars} chars${said}`);
     return { text, chars, ...(src ? { exact: src.exact, lines: [src.lines[0] + 1, src.lines[1] + 1] as [number, number] } : {}) };
   }
@@ -3374,7 +3886,7 @@ export class NoteSurface {
   followLink(i: number, host: SurfaceHost, fresh = false) { return this.follow(i, host, fresh); }
   clearLink() { this.letGo(); }
   /** Where the reader's cursor is (its current element, its selected link) and what it folded: a host that reuses a digest keys on it. */
-  get cursorKey(): string { return `${this.cur ?? ""}|${this.link}|${[...this.folded].join("\u0001")}`; }
+  get cursorKey(): string { return `${this.cur ?? ""}|${this.link}|${[...this.folded].join("\u0001")}|${[...this.figureUI].map(([k, v]) => `${k}=${v.tab ?? ""}/${v.density ?? ""}`).join("\u0001")}`; }
   selectLink(i: number) {
     const l = this.links[i];
     if (!l) throw new ActionRefused(`there is no link ${i + 1}; the note has ${this.links.length}`);
@@ -3383,6 +3895,11 @@ export class NoteSurface {
     this.link = i;
   }
   goUp(host: SurfaceHost) { return this.up(host); }
+  /** The `[[address]]` the selected link names (the current element's, else `[ ]`'s), for `page.create`. */
+  selectedPage(): string | null {
+    const e = this.cur ? this.elems.find(x => x.key === this.cur) : undefined;
+    return e?.link?.page ?? this.links[this.link]?.page ?? null;
+  }
 }
 
 /**
@@ -3399,7 +3916,22 @@ const calloutBase = (c: CalloutRef) => { const b = calloutBlocks([c.header])[0];
 /** A callout's title as written, else its type's. */
 const calloutTitle = (c: CalloutRef) => calloutBlocks([c.header])[0]?.title || c.type;
 /** A callout type change, for undo: the header line before and after, and who made it while reading which note. */
-interface CalloutUndo { block: string; line: number; before: string; after: string; by: string; context: string }
+/** The fewest rows a pane has for the reader to draw a header image above its note. */
+const HERO_MIN_PANE = 16;
+/** A header image's rows when the pane's height isn't known. */
+const HERO_ROWS = 10;
+/** The widths + and - step an image through, as shares of the reader (100 is `full`). */
+const SIZE_STEPS = [25, 33, 50, 66, 75, 100];
+/** What a caption control of an image does, said as its element's label. */
+const imageControlLabel = (c: ImageControl) => "size" in c ? `size ${c.size > 0 ? "+" : "−"}` : "align" in c ? `align ${c.align > 0 ? "▸" : "◂"}` : "fit" in c ? (c.fit === "contain" ? "show it whole" : "crop it to fill") : c.hero ? "make it the header" : "not the header";
+/** What a line change says when its line no longer reads as drawn (`flash`, `refused`), and after a conflict (`again`). */
+interface Stale { flash: string; refused: string; again: string }
+const CALLOUT_STALE: Stale = { flash: "that callout changed since it was drawn · nothing was changed · choose again", refused: "that callout changed since it was drawn; nothing was changed (callout.list reads it again)", again: "choose again" };
+const IMAGE_STALE: Stale = { flash: "that image's line changed since it was drawn · nothing was changed · try again", refused: "that image's line changed since it was drawn; nothing was changed (images reads it again)", again: "try again" };
+/** One line of a note rewritten: its index, its text as it was read, and what it became. */
+interface LineEdit { line: number; before: string; after: string }
+/** A change of whole lines (a callout's header, an image's layout) for undo. */
+interface LineUndo { block: string; edits: LineEdit[]; by: string; context: string }
 /** Who a step change is for Undo: the person, or the agent by its id. */
 const partyOf = (a: Actor) => (a.kind === "agent" ? `agent:${a.id}` : "you");
 
@@ -3572,8 +4104,7 @@ function forwardDraft<K extends keyof DraftActionArgs>(name: K): ActionDef<Draft
       // The person's copy reaches their clipboard, as the reader's select.copy does; an agent's is only returned.
       if (name === "draft.copy" && actor.kind === "user") {
         const c = r as { text: string; chars: number };
-        host.ctx.copy?.(c.text);
-        host.ctx.flash(`copied ${c.chars} chars`);
+        if (host.ctx.copy?.(c.text) !== false) host.ctx.flash(`copied ${c.chars} chars`);
       }
       surface.noteAgent(actor, `used ${name} in the draft`);
       host.redraw();
@@ -3582,9 +4113,22 @@ function forwardDraft<K extends keyof DraftActionArgs>(name: K): ActionDef<Draft
   };
 }
 
-/** A body's images as placements on its own rows, `col` cells in, under the text (cut to a window with `inWindow`). */
-const imagePlacements = (images: readonly DocImage[], col: number): Placement[] =>
-  images.map(im => ({ key: `img:${im.media.image.key}:${im.line}`, image: im.media.image, col, row: im.line, cols: im.cols, rows: im.rows, z: -1 }));
+/** The cell size, in pixels, of the terminal the host draws in. */
+const cellOf = (host?: SurfaceHost): [number, number] => [host?.ctx.t?.cellW ?? 9, host?.ctx.t?.cellH ?? 18];
+
+/**
+ * A body's images as placements on its own rows, `col` cells in (plus each one's own), under the text (cut to a window
+ * with `inWindow`): each drawn from the PNG scaled for its box at cells `cellW` × `cellH` pixels, cropped as laid out.
+ */
+export const imagePlacements = (images: readonly DocImage[], col: number, cellW: number, cellH: number): Placement[] =>
+  images.flatMap(im => {
+    // Not drawn until a PNG dimmed for the part it shows is ready: its rows stay dark, never a bright first frame.
+    const c = im.crop, png = sized(im.media, im.cols * cellW, im.rows * cellH, { ...(im.dim !== undefined ? { dim: im.dim } : {}), ...(c ? { crop: c } : {}) });
+    if (!png) return [];
+    const crop = c ? { x: Math.round(c.x * png.width), y: Math.round(c.y * png.height), w: Math.max(1, Math.round(c.w * png.width)), h: Math.max(1, Math.round(c.h * png.height)) } : undefined;
+    return [{ key: `img:${png.key}:${im.line}`, image: png, col: col + im.col, row: im.line, cols: im.cols, rows: im.rows, z: -1, ...(crop ? { crop } : {}) }];
+  });
+
 
 /** A draft's live preview (PIE-496): the readers' own body renderer, without folds, embeds or link tags. */
 export function draftPreview(text: string, w: number, src: Source | null = null): string[] {
@@ -3657,6 +4201,11 @@ const STEP_ARGS = {
 const CALLOUT_ARGS = {
   n: { type: "number", optional: true, about: "which callout, from 1, as callout.list lists them (outermost first, in reading order)" },
   line: { type: "number", optional: true, about: "its header's line in the note (1 is the subject)" },
+} as const;
+
+const IMAGE_ARGS = {
+  n: { type: "number", optional: true, about: "which image, from 1, as images lists them (in reading order)" },
+  line: { type: "number", optional: true, about: "its line in the note (1 is the subject)" },
 } as const;
 
 const FOLD_ARGS = {
@@ -3945,6 +4494,18 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     args: {},
     run: (_, { surface, host }, actor) => surface.leave(host, actor),
   }),
+  "page.create": def({
+    summary: "make the page a [[address]] names when nothing answers it yet (address=, or the selected link's): `X [page::X]` where new notes go (the outline's placement rule: today the top of the Inbox), then open it as the link would; a page there already is opened. Following a missing [[page]] offers this first (⏎ or a click on it again). An agent's makes it, attributed and said, and opens nothing",
+    keys: "⏎ or a click on a [[missing page]] link, twice (the first offers it)",
+    touches: "nothing", replay: "ask",
+    says: out => (out?.said ? `· ${out.said}` : null),
+    args: { address: { type: "string", optional: true, about: "the page's address (its name); default: the selected link's" } },
+    async run({ address }, { surface, host }, actor) {
+      const page = address ?? surface.selectedPage();
+      if (!page) throw new ActionRefused("name the page: address=<its name>, or select a [[page]] link first");
+      return surface.createPage(page, host, actor);
+    },
+  }),
   "link.select": def({
     summary: "select the note's nth link (1 is the first); element.select picks any element a reader draws", keys: "[ ] (on a link)",
     touches: "tile", replay: "safe", way: "an agent selects a link in a reader the person isn't in, or follows one by number (link.follow n=)",
@@ -4022,6 +4583,10 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       const e = surface.element(i);
       if (fresh && e.kind !== "link" && e.kind !== "row" && e.kind !== "embed") throw new ActionRefused(`fresh opens a link, a row or an embed; element ${i} is a ${e.kind}`);
       // A step's box opens the person's status choice; an agent sets the status itself.
+      // A live figure's tab or density control: the figure's own action, with its rules and its provenance.
+      if (e.kind === "figure" && e.link?.figure) {
+        return surface.runFigureControl(e.link.figure, host, actor);
+      }
       if (e.kind === "task" && actor.kind === "agent") throw new ActionRefused(`element ${i} is a step's status control; an agent sets it with task.status n=… to=done|todo|waiting|problem (tasks lists the steps)`);
       // An extension's line (PIE-512): its head runs the line's primary action, a control its own; an agent's
       // run is the agent's (said on the status bar), and what it writes is the extension's (ext:<id>).
@@ -4479,6 +5044,61 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       return foldResult(surface, p);
     },
   }),
+  "figures": def({
+    summary: "list the live figures the reader draws in its note: each one's number, kind, title and density, and a tabs figure's tabs with their counts and which is shown (this reader's choice; the note never changes)",
+    touches: "nothing", replay: "safe",
+    args: {},
+    run(_, { surface }) {
+      surface.requireDrawn();
+      return { figures: surface.describeFigures() };
+    },
+  }),
+  "figure.tab": def({
+    summary: "show another tab of a live tabs figure (::graph-tabs): n= a tab's number (from 1) or its value, or by=1 (next) / by=-1 (previous), round again; figure= which (its number among the note's figures, or its title; left out, the one the [ ] position is in, else the note's only one). Reading state, kept across repaints and live answers; the note's text never changes",
+    keys: "tab shift+tab or ← → while a figure's tab or row is the [ ] position, ⏎ on a tab, click a tab",
+    touches: "tile", while: "typing", replay: "safe", way: "an agent switches tabs in a reader the person isn't typing in",
+    args: {
+      n: { type: "string", optional: true, about: "the tab: its number from 1, or its value (doing, review…) when that isn't a number" },
+      tab: { type: "string", optional: true, about: "the tab by its value exactly, a number too (a click and enter on a tab pass this)" },
+      by: { type: "number", optional: true, about: "1 the next tab, -1 the previous one" },
+      figure: { type: "string", optional: true, about: "which tabs figure: its number among the note's figures (figures lists them), or its title" },
+    },
+    run({ n, by, tab, figure }, { surface, host }, actor) {
+      surface.requireNote();
+      if ([n, by, tab].filter(x => x !== undefined).length !== 1) throw new ActionRefused("say one of n= (a tab's number or value), tab= (its value) or by=1|-1");
+      const f = surface.figureNamed(figure, "tabs"), tabs = f.tabs ?? [];
+      if (!tabs.length) throw new ActionRefused(`${f.title} has no tabs: its question has no results yet`);
+      let i: number;
+      if (by !== undefined) { const at = Math.max(0, tabs.findIndex(t => t.value === f.tab)); i = (at + (by < 0 ? -1 : 1) + tabs.length) % tabs.length; }
+      else if (tab !== undefined) i = tabs.findIndex(t => t.value === tab);
+      else { const v = String(n).trim(); i = /^\d+$/.test(v) ? Number(v) - 1 : tabs.findIndex(t => t.value.toLowerCase() === v.toLowerCase()); }
+      const t = tabs[i];
+      if (!t) throw new ActionRefused(`${f.title} has no tab ${n ?? tab}; its tabs: ${tabs.map((x, j) => `${j + 1} ${x.value}`).join(", ")}`);
+      surface.setFigureTab(f, t.value, actor.kind === "user");
+      surface.noteAgent(actor, `showed the ${t.value} tab of ${f.title}`);
+      host.redraw();
+      return { figure: f.n, title: f.title, tab: t.value, count: t.count, tabs: tabs.map((x, j) => ({ n: j + 1, ...x, shown: x === t })) };
+    },
+  }),
+  "figure.density": def({
+    summary: "draw a live table or tabs figure's rows compact (one line a title, cut with …), cozy (titles up to two lines) or comfortable (three, a blank line between rows): to= sets it, else the next one round; a wrapped title hangs under its text, past a work id. figure= as figure.tab. Reading state: the figure's density: line is only where it starts, and the note never changes",
+    keys: "= while a figure's tab or row is the [ ] position, ⏎ on its ≡ control, click it",
+    touches: "tile", while: "typing", replay: "safe", way: "an agent changes the density in a reader the person isn't typing in",
+    args: {
+      to: { type: "string", optional: true, about: "compact, cozy or comfortable; left out, the next one round" },
+      figure: { type: "string", optional: true, about: "which table or tabs figure: its number among the note's figures (figures lists them), or its title" },
+    },
+    run({ to, figure }, { surface, host }, actor) {
+      surface.requireNote();
+      if (to !== undefined && !isDensity(to)) throw new ActionRefused(`to is ${DENSITIES.join(", ")}, not ${to}`);
+      const f = surface.figureNamed(figure, "rows");
+      const d: Density = (to as Density | undefined) ?? nextDensity(f.density);
+      surface.setFigureDensity(f, d);
+      surface.noteAgent(actor, `drew ${f.title} ${d}`);
+      host.redraw();
+      return { figure: f.n, title: f.title, density: d };
+    },
+  }),
   "select": def({
     summary: "select text in the note as the reader draws it: text= (links read as their titles) or line= to= (1 is the subject). An agent's selection is its own, drawn in its own tint; the person's is never touched", keys: "drag, double/triple click, v then h j k l",
     touches: "nothing", replay: "safe",
@@ -4601,6 +5221,132 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     touches: "draft", draft: "write", replay: "ask",
     args: {},
     run: (_, { surface, host }, actor) => surface.undoCallout(host, actor),
+  }),
+  "images": def({
+    summary: "list the note's images and videos (PIE-532) in reading order: n, line, path, the layout written on the line (size, height, align, layout, fit, dim, alt) and what's wrong with it, and how it's drawn here (cells, or the header's rows)",
+    touches: "nothing", replay: "safe",
+    args: {},
+    async run(_, { surface }) {
+      const m = await surface.whole(), d = surface.drawnImages();
+      return {
+        images: surface.imagesIn(m).map((x, i) => ({
+          n: i + 1, line: x.line + 1, path: x.path, kind: x.spec.kind,
+          ...(x.spec.size ? { size: sizeText(x.spec.size) } : {}), ...(x.spec.height ? { height: x.spec.height } : {}),
+          ...(x.spec.align ? { align: x.spec.align } : {}), ...(x.spec.layout ? { layout: x.spec.layout } : {}), ...(x.spec.fit ? { fit: x.spec.fit } : {}), ...(x.spec.dim !== undefined ? { dim: x.spec.dim } : {}), ...(x.spec.alt ? { alt: x.spec.alt } : {}),
+          ...(x.spec.problems.length ? { problems: x.spec.problems } : {}),
+          drawn: d.get(x.line) ?? null,
+        })),
+      };
+    },
+  }),
+  "image.size": def({
+    summary: "size an image (PIE-532): to= its width (cells, N% of the reader, full, or none for its own), height= its rows (a number, or none), or by=1|-1 one step (a quarter, a third, a half, two thirds, three quarters, full; on the header, its height by 2 rows). Its aspect is kept. Written as [size::…] [height::…] on its line through the note's save, checked against the line as drawn and the revision read now, recorded as whoever asks; ctrl+z (image.undo) puts it back",
+    keys: "+ - while an image is the [ ] position, a click on its caption's − or +",
+    touches: "draft", draft: "write", replay: "ask",
+    args: {
+      ...IMAGE_ARGS,
+      to: { type: "string", optional: true, about: "its width: cells (40), a share of the reader (50%), full, or none" },
+      height: { type: "string", optional: true, about: "its height in rows (12), or none" },
+      by: { type: "number", optional: true, about: "1 a step bigger, -1 a step smaller" },
+    },
+    async run({ to, height, by, ...which }, { surface, host }, actor) {
+      return surface.inTurn(async () => {
+        if (to === undefined && height === undefined && by === undefined) throw new ActionRefused("say to= (a width: 40, 50% or full), height= (rows) or by=1|-1");
+        if (by !== undefined && by !== 1 && by !== -1) throw new ActionRefused(`by is 1 or -1 (a step), not ${by}`);
+        if (by !== undefined && (to !== undefined || height !== undefined)) throw new ActionRefused("say by= alone, or to= and height=");
+        const ref = await surface.imageNamed(which, actor), hero = ref.spec.layout === "hero";
+        const set: Partial<Record<MediaAttr, string | null>> = {};
+        if (by !== undefined && hero) {
+          const now = ref.spec.height ?? surface.heroRowsDrawn() ?? HERO_ROWS;
+          set.height = String(Math.max(3, Math.min(60, now + (by > 0 ? 2 : -2))));
+        } else if (by !== undefined) {
+          const next = surface.sizeStep(ref, by);
+          if (next === null) { const why = by > 0 ? "it's the full width already" : "it's at the smallest step (25%) already: image.size to= any width"; host.ctx.flash(why); throw new ActionRefused(why); }
+          set.size = next;
+        }
+        if (to !== undefined) {
+          if (hero) throw new ActionRefused("a header image is the reader's full width; its height is image.size height=");
+          if (to.trim().toLowerCase() === "none") set.size = null;
+          else { const sz = parseSize(to); if (!sz) throw new ActionRefused(`to is a width: cells (40), a share (50%) or full; not ${JSON.stringify(to)}`); set.size = sizeText(sz); }
+        }
+        if (height !== undefined) {
+          const v = height.trim().toLowerCase();
+          if (v === "none") set.height = null;
+          else if (/^\d{1,3}$/.test(v) && +v > 0) set.height = v;
+          else throw new ActionRefused(`height is a number of rows or none; not ${JSON.stringify(height)}`);
+        }
+        const what = [set.size !== undefined ? `width ${set.size ?? "its own"}` : "", set.height !== undefined ? `height ${set.height === null ? "its own" : `${set.height} rows`}` : ""].filter(Boolean).join(", ");
+        return surface.changeImage(ref, set, what, host, actor);
+      });
+    },
+  }),
+  "image.align": def({
+    summary: "place an image left, center or right in the reader (PIE-532): to=, or by=1|-1 one place right or left. Written as [align::…] on its line (left takes it out: it's where an image is) through the note's save like image.size",
+    keys: "← → while an image is the [ ] position, a click on its caption's ◂ or ▸",
+    touches: "draft", draft: "write", replay: "ask",
+    args: { ...IMAGE_ARGS, to: { type: "string", optional: true, about: "left, center or right" }, by: { type: "number", optional: true, about: "1 one place right, -1 one place left" } },
+    async run({ to, by, ...which }, { surface, host }, actor) {
+      return surface.inTurn(async () => {
+        if ((to === undefined) === (by === undefined)) throw new ActionRefused("say to=left|center|right or by=1|-1");
+        if (by !== undefined && by !== 1 && by !== -1) throw new ActionRefused(`by is 1 or -1 (one place), not ${by}`);
+        const ref = await surface.imageNamed(which, actor);
+        if (ref.spec.layout === "hero") throw new ActionRefused("a header image is the reader's full width: it has no place to move to (image.hero on=false makes it an image in the text)");
+        const now = ALIGNS.indexOf(ref.spec.align ?? "left");
+        const want = to !== undefined ? to.trim().toLowerCase() : ALIGNS[Math.max(0, Math.min(2, now + (by! > 0 ? 1 : -1)))]!;
+        if (!(ALIGNS as readonly string[]).includes(want)) throw new ActionRefused(`to is left, center or right; not ${JSON.stringify(to)}`);
+        return surface.changeImage(ref, { align: want === "left" ? null : want }, want, host, actor);
+      });
+    },
+  }),
+  "image.hero": def({
+    summary: "make an image the note's header (PIE-532): drawn above the title, the reader's full width, at most a third of its height (height= on image.size sets its rows), cropped to fill. on=true writes [layout::hero] on its line and takes it off any other image's (one save); on=false takes it off; left out, it toggles. Through the note's save like image.size",
+    keys: "H while an image is the [ ] position, a click on its caption's ▀ header",
+    touches: "draft", draft: "write", replay: "ask",
+    args: { ...IMAGE_ARGS, on: { type: "boolean", optional: true, about: "true: it's the header; false: it isn't; left out, it toggles" } },
+    async run({ on, ...which }, { surface, host }, actor) {
+      return surface.inTurn(async () => {
+        const ref = await surface.imageNamed(which, actor);
+        const want = on ?? ref.spec.layout !== "hero";
+        const m = await surface.whole();
+        const others = want ? surface.imagesIn(m).filter(x => x.line !== ref.line && x.spec.layout === "hero").map(x => ({ line: x.line, source: x.source, set: { layout: null } })) : [];
+        return surface.changeImage(ref, { layout: want ? "hero" : null }, want ? "the note's header" : "not the header", host, actor, others);
+      });
+    },
+  }),
+  "image.fit": def({
+    summary: "how a header image too tall for its rows is drawn (PIE-532): to=cover crops it to fill the width, to=contain shows it whole, centred; left out, the other one. Written as [fit::…] on its line (cover takes it out: it's the default) through the note's save like image.size",
+    keys: "= while the header image is the [ ] position, a click on its caption's [whole] or [fill]",
+    touches: "draft", draft: "write", replay: "ask",
+    args: { ...IMAGE_ARGS, to: { type: "string", optional: true, about: "cover or contain; left out, the other one" } },
+    async run({ to, ...which }, { surface, host }, actor) {
+      return surface.inTurn(async () => {
+        const ref = await surface.imageNamed(which, actor);
+        const want = to === undefined ? (ref.spec.fit === "contain" ? "cover" : "contain") : to.trim().toLowerCase();
+        if (want !== "cover" && want !== "contain") throw new ActionRefused(`to is cover or contain, not ${JSON.stringify(to)}`);
+        return surface.changeImage(ref, { fit: want === "cover" ? null : want }, want === "contain" ? "shown whole" : "cropped to fill", host, actor);
+      });
+    },
+  }),
+  "image.dim": def({
+    summary: "how much an image is dimmed (PIE-532): to= a number from 0 (as it is) to 1 (black), or auto (the default: a bright image's mean luminance held at 0.3). Written as [dim::…] on its line through the note's save like image.size. No key brightens an image: the door is dark-first",
+    touches: "draft", draft: "write", replay: "ask",
+    args: { ...IMAGE_ARGS, to: { type: "string", about: "0 to 1, or auto" } },
+    async run({ to, ...which }, { surface, host }, actor) {
+      return surface.inTurn(async () => {
+        const v = to.trim().toLowerCase();
+        const d = v === "auto" ? null : parseDim(v);
+        if (v !== "auto" && d === null) throw new ActionRefused(`to is a number from 0 (as it is) to 1 (black), or auto; not ${JSON.stringify(to)}`);
+        const ref = await surface.imageNamed(which, actor);
+        return surface.changeImage(ref, { dim: d === null ? null : String(d) }, d === null ? "dimmed as bright images are" : `dim ${d}`, host, actor);
+      });
+    },
+  }),
+  "image.undo": def({
+    summary: "undo the last image change (size, place, header) made in this reader while reading this note (an agent undoes its own, the person theirs); refused if the line changed again since",
+    keys: "ctrl+z (when an image change was the last change made here)",
+    touches: "draft", draft: "write", replay: "ask",
+    args: {},
+    run: (_, { surface, host }, actor) => surface.undoImage(host, actor),
   }),
   "task.undo": def({
     summary: "undo the last step status change made in this reader while reading this note (an agent undoes its own, the person theirs); refused if the step changed again since",

@@ -5,6 +5,7 @@ import { byFolder, lnCommand, sh } from "./links";
 import { clauses } from "./progress";
 import { PROTOCOL } from "@ep0ch/outline-core/protocol";
 import { DOCK_TILE_ID } from "../desk/agent-env";
+import { CHANGE_AGENT } from "../desk/dock-program";
 import { KEYED_ACTIONS, MIN_BUN, PLUGIN_ID, type Facts, short, staleness } from "./model";
 import { ep0ch, sessionFlags } from "../session/place";
 import { chooseLinkDir, claudeModState, oldMentionsAllowlist, hostRestartHint, hostUnitCommand, linkStep, pluginStep, repoStep, sessionName, sessionVerdict, unitChanges } from "./plan";
@@ -86,6 +87,10 @@ export function doctorChecks(f: Facts): Check[] {
   }
   const change = unitChanges(f);
   if (h.unit && change) add("outlines", "host unit", "behind", `${h.unit.path} is from before outlines by name (PIE-530) or another checkout`, change);
+  // What the dock's own tab runs in a door opened here (PIE-498), and why: the person's program and folder, or the rule's.
+  if (f.dock) add("ep0ch", "dock", "info", `runs ${f.dock.cmd.join(" ")} (${f.dock.programWhy}) in ${f.dock.cwd} (${f.dock.folderWhy})`);
+  // Each outline session's dock agent, where the choice came from, its Herdr pane, and how to change it.
+  for (const d of f.docks ?? []) add("ep0ch", `dock ${d.session}`, "info", `runs ${d.cmd.map(c => c.split("/").pop()).join(" ")} (${d.programWhy})${d.pane ? ` · Herdr pane ${d.pane}` : ""}`, `change it: ${CHANGE_AGENT}${d.from === "env" ? " (and unset EP0CH_DAILY_AGENT, which overrides it)" : ""}`);
   if (f.here) {
     if (f.here.outline) add("outlines", "this folder", "info", `${f.here.folder} opens ${f.here.why}`);
     else add("outlines", "this folder", "info", `${f.here.folder}: ${f.here.unnamed}${f.here.guess ? `; ep0ch init would start "${f.here.guess}"` : ""}`);
@@ -147,7 +152,7 @@ export function skillChecks(f: Facts): Check[] {
 
 /** The fix for a door agent that doesn't know what it should: a restart, which keeps the conversation. */
 export const AGENT_RESTART_FIX = {
-  dock: "restart it: the ⟳ on its door's ▲ claude chip, alt+R, or `ep0ch act agent.restart` (it keeps the conversation)",
+  dock: "restart it: the ⟳ on its door's dock chip (▲ claude), alt+R, or `ep0ch act agent.restart` (it keeps the conversation)",
   tile: "restart it: /exit in its tile, then claude --continue",
 };
 /** The door's own agent (the ▲ claude chip, D's daily tile, its Herdr pane): `agent.restart` restarts it. */

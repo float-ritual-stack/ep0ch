@@ -136,8 +136,9 @@ export function extractLinks(lines: readonly string[]): { lines: string[]; range
     const end = () => { if (open >= 0 && col > from) ranges.push({ line, from, to: col, n: open }); };
     for (const part of l.split(/(\x1b\[[\d;]*m)/)) {
       if (part.startsWith("\x1b[")) { text += part; continue; }
-      for (const ch of part) {
-        if (!isTag(ch)) { text += ch; col++; continue; }
+      // Columns are cells: a wide glyph (漢, an emoji) takes two, so a link after one lands where it's drawn.
+      for (const ch of graphemes(part)) {
+        if (!isTag(ch)) { text += ch; col += glyphWidth(ch); continue; }
         end();
         open = ch.codePointAt(0) === TAG_END ? -1 : ch.codePointAt(0)! - TAG0;
         from = col;

@@ -1,11 +1,11 @@
 // The River (Quay) as a screen spec on the desk (PIE-515): its columns are tiles of one kind, `river.column`, in a
 // flow container, the layout engine's (PIE-513: full → peek → spine around the wide column, opens into the next
-// column, back and forward by the trail, docked columns). A column is a reader of the shared note surface whose view
+// column, back and forward by the trail, held columns). A column is a reader of the shared note surface whose view
 // is the river's own: the Library (every top-level note), a note with its replies, or a #value virtual branch (every
 // note with key::value). Reading keeps the river's cards; editing, quoting and comment threads draw the surface in the
 // column, with the same keys and the same actions as every reader. What the column adds is its own: picking a card,
 // replies in place, a filter, a column of the same property, a column stacked under it, its text selected and copied.
-// The layout (widen, dock, close, back and forward) is the engine's tile actions.
+// The layout (widen, hold, close, back and forward) is the engine's tile actions.
 import { bodyLinesOf, subject, type Msg } from "../board";
 import { USER, type Actor, type IndexBlock, type OutlineEvent, type SocketBoard } from "../socket";
 import { ActionRefused, actionSet, def, keyName } from "../surface/actions";
@@ -174,6 +174,8 @@ export class RiverColumn extends ReaderPane {
   /** The listed notes the filter's property clauses hold for (`query.matches`), and which ask it is. */
   private matched: Set<string> | null = null;
   private asked = 0;
+  /** Which load is the latest: an older one's answer, back after it, is dropped. */
+  private loads = 0;
   private desk: DeskApi | null = null;
 
   constructor(public source: Source, public filter: Clause[] = []) { super(false); }
@@ -227,7 +229,7 @@ export class RiverColumn extends ReaderPane {
   override hold(m: Msg, desk: DeskApi) {
     this.desk = desk;
     this.source = { kind: "block", id: m.id };
-    this.root = m; this.items = null; this.sel = 0; this.top = 0; this.matched = null; this.asked++;
+    this.root = m; this.items = null; this.sel = 0; this.top = 0; this.matched = null; this.asked++; this.fold.clear();
     this.surface.show(m, this.host(desk));
     this.load(desk);
   }
@@ -237,7 +239,10 @@ export class RiverColumn extends ReaderPane {
     this.desk = desk;
     const b = desk.ctx.board;
     indexOf(b).refresh(b, () => desk.redraw());
-    const done = (items: Msg[]) => { this.items = items; this.error = undefined; this.sel = Math.min(this.sel, Math.max(0, items.length - 1)); this.showSelected(desk); void this.match(desk); desk.redraw(); };
+    // The replies shown under a note are read again with it, so a reply edited elsewhere never reads as it was.
+    const ask = ++this.loads;
+    const done = (items: Msg[]) => void this.fold.reread(id => b.children(id)).then(() => took(items));
+    const took = (items: Msg[]) => { if (this.loads !== ask) return; this.items = items; this.error = undefined; this.sel = Math.min(this.sel, Math.max(0, items.length - 1)); this.showSelected(desk); void this.match(desk); desk.redraw(); };
     const fail = (e: Error) => { this.error = e.message; desk.redraw(); };
     if (this.source.kind === "roots") b.roots().then(done, fail);
     else if (this.source.kind === "tag") b.byProp(this.source.key, this.source.value).then(done, fail);
@@ -478,6 +483,9 @@ export class RiverColumn extends ReaderPane {
     const c = ch(k);
     const held = this.surface.editing;
     const current = !held && this.surface.msg?.id === this.noteOf()?.id ? this.surface.currentKind() : null;
+    // A live figure's element is current: tab, shift+tab, ← → and = are its (its tabs, its density), not the flow's.
+    // So is an image's + - ← → H (its size, place and the header).
+    if (current && (this.surface.claims(k) || this.surface.imageKeyOf(k))) return super.key(k, desk);
     if (!held) {
       // A link or an element `[ ]` is on: ⏎ (and space on a step) are the surface's, as in any reader.
       if ((this.linked() || current) && (k.kind === "enter" || k.kind === "alt-enter")) return super.key(k, desk);
@@ -639,7 +647,7 @@ export class RiverColumn extends ReaderPane {
     if (e.action === "reconnected") this.surface.retry(this.host(desk));
     if (e.action === "reset") { this.load(desk); indexOf(desk.ctx.board).refresh(desk.ctx.board, () => desk.redraw(), true); return; }
     const id = e.blockId;
-    const shows = !!id && ((this.source.kind === "block" && this.source.id === id) || !!this.items?.some(m => m.id === id || m.parentId === id));
+    const shows = !!id && ((this.source.kind === "block" && this.source.id === id) || !!this.items?.some(m => m.id === id || m.parentId === id) || this.fold.shows(this.items ?? [], id));
     if (shows) { if (this.reload) clearTimeout(this.reload); this.reload = setTimeout(() => { this.reload = null; this.load(desk); }, 800); }
     indexOf(desk.ctx.board).refresh(desk.ctx.board, () => desk.redraw());
   }
@@ -711,7 +719,10 @@ export class RiverColumn extends ReaderPane {
     if (!sel) throw new ActionRefused("nothing is selected · drag across the text, or v and move");
     const text = sel.text(rowsOf(this.drawn?.lines ?? []));
     if (!text.trim()) throw new ActionRefused("nothing to copy: only blanks are selected");
-    if (actor.kind !== "agent") { desk.ctx.copy?.(text); desk.ctx.flash(`copied ${[...text].length} chars`); }
+    if (actor.kind !== "agent") {
+      if (desk.ctx.copy?.(text) === false) throw new ActionRefused(`not copied: ${[...text].length} chars is more than the clipboard takes`);
+      desk.ctx.flash(`copied ${[...text].length} chars`);
+    }
     return { chars: [...text].length, text };
   }
 
@@ -730,7 +741,7 @@ export class RiverColumn extends ReaderPane {
 
 const columnOf = (pane: unknown): RiverColumn => { if (!(pane instanceof RiverColumn)) throw new ActionRefused("that tile isn't a river column"); return pane; };
 
-/** A column's own actions (the layout's, widen, dock, close, back and forward, are the desk's tile actions). */
+/** A column's own actions (the layout's, widen, hold, close, back and forward, are the desk's tile actions). */
 export const COLUMN_ACTIONS = actionSet<KindHost>()("river", {
   "column.select": def({
     summary: "select a note a river column lists (in the Library and a #tag column, that's the note e and C act on): id=, the nth row (n=, from 1), or by= rows from the selected one (j k: 1 -1). An agent's is refused on the column the person has the keys in (its selection is their cursor, id= too); elsewhere it picks a note for its own note actions",
@@ -817,13 +828,13 @@ export const COLUMN_ACTIONS = actionSet<KindHost>()("river", {
 
 /**
  * A column's keys for the flow it's in (the layout's tile actions), the column's own on any screen: h l and ← → the
- * column beside, w widen, p dock, x close, g search. Back and forward (alt+← backspace alt+→) are its surface's history,
+ * column beside, w widen, p hold (keep full), x close, g search. Back and forward (alt+← backspace alt+→) are its surface's history,
  * which goes along the flow's trail (`host`).
  */
 const FLOW_KEYS: Record<string, { action: string; args?: Record<string, unknown> }> = {
   h: { action: "tile.focus", args: { dir: "left" } }, left: { action: "tile.focus", args: { dir: "left" } },
   l: { action: "tile.focus", args: { dir: "right" } }, right: { action: "tile.focus", args: { dir: "right" } },
-  w: { action: "tile.widen" }, p: { action: "tile.dock" }, x: { action: "tile.close" }, g: { action: "search" },
+  w: { action: "tile.widen" }, p: { action: "tile.hold" }, x: { action: "tile.close" }, g: { action: "search" },
 };
 
 /** The river column as a tile kind: a reader of the river's own view, opening a column of its own kind next. */
@@ -848,7 +859,7 @@ export function riverColumnKind(): TileKind {
   };
 }
 
-const HINT = "|08 |15h l|08 columns · |15w|08 widen · |15j k|08 notes · |15⏎|08 open beside · |15alt⏎|08 duplicate · |15space|08 replies · |15/|08 filter this column · |15#|08 same property · |15s|08 split · |15p|08 dock · |15x|08 close · |15alt+←|08 back · |15g|08 go to · |15q|08 menu";
+const HINT = "|08 |15h l|08 columns · |15w|08 widen · |15j k|08 notes · |15⏎|08 open beside · |15alt⏎|08 duplicate · |15space|08 replies · |15/|08 filter this column · |15#|08 same property · |15s|08 split · |15p|08 hold full · |15x|08 close · |15alt+←|08 back · |15g|08 go to · |15q|08 menu";
 
 /** The river as a screen spec: a flow of columns, the Library first; opens go into the next column. */
 export function riverSpec(): ScreenSpec {
@@ -856,7 +867,7 @@ export function riverSpec(): ScreenSpec {
     name: "river", title: "river", digits: false, saves: "river.json", lands: "river",
     // The Library is what the river is made around: it doesn't close (closable off, held by its tab set of one, as the
     // board's preview's is), so a saved river always comes back with it.
-    layout: { focus: "library", root: { t: "flow", key: "river", docked: [0], kids: [{ t: "tabs", tabs: [{ t: "leaf", kind: "river.column", name: "library", source: "roots" } as TileSpec], active: 0, policy: { closable: false } }] } },
+    layout: { focus: "library", root: { t: "flow", key: "river", held: [0], kids: [{ t: "tabs", tabs: [{ t: "leaf", kind: "river.column", name: "library", source: "roots" } as TileSpec], active: 0, policy: { closable: false } }] } },
     hint: { "river.column": HINT },
   };
 }

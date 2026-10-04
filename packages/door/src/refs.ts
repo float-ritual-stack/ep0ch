@@ -1,5 +1,5 @@
 // Links in read mode, as Detail shows them: `((id))` and `[[address]]` become the target's title or the
-// authored label, without delimiters; a missing target reads `label · Missing target`. The service
+// authored label, without delimiters; a missing target reads `label ◌` (MISSING_MARK), quiet in running text. The service
 // resolves (`references.resolve`, `pages.resolve`); the door keeps the answers until the outline changes.
 // Edit mode, comments and storage keep the raw text: this is presentation only.
 import type { Source } from "./props";
@@ -7,6 +7,8 @@ import { emphasis } from "./inline";
 import { LINK_END, linkTag, stripMarks } from "./style";
 import type { ReferenceResolution, PageResolution, SocketBoard } from "./socket";
 import type { StepRef } from "./steps";
+import type { FigureControl } from "./graphs";
+import type { ImageControl } from "./doc";
 import { isOutlineNote, type AuthoredLinksSnapshot, type AuthoredResourceLink } from "./authored";
 import { linkBlockLines } from "./links";
 
@@ -158,7 +160,12 @@ export interface LinkView { text: string; missing: boolean }
 export type LinkTarget = {
   /** A resource token (`[file::…]`, `[jira::KEY]`): its Resource is shown as a note, as the tree's resource rows are. */
   resource?: AuthoredResourceLink;
-  block?: string; fragment?: string; label?: string; page?: string; media?: string; url?: string; role?: "embed" | "row" | "resource" | "task" | "control" | "callout"; reason?: string;
+  block?: string; fragment?: string; label?: string; page?: string; media?: string; url?: string; role?: "embed" | "row" | "resource" | "task" | "control" | "callout" | "figure" | "image"; reason?: string;
+  /**
+   * A live figure's control (role "figure"): one of a tabs figure's tabs, or its density; on a row (role "row"), the
+   * figure the row is in (`figure` only), so the figure's keys work while the row is current (src/graphs.ts).
+   */
+  figure?: FigureControl;
   /**
    * An agent's open proposal (PIE-501): on its embed's source line, the proposal it shows; with `op`, one of
    * the controls drawn there (role "control"), which runs `proposal.apply` or `proposal.dismiss` on it.
@@ -180,7 +187,18 @@ export type LinkTarget = {
   choice?: number;
   /** A callout's icon or type (role "callout", PIE-538): ⏎ or a click opens its type choice. */
   callout?: CalloutRef;
+  /**
+   * An image (PIE-532): on its `[ ]` element (with `media`), the image the keys change; on a control of its caption
+   * (role "image", with `control`), what a click on it changes.
+   */
+  image?: ImageRef;
 };
+
+/**
+ * An image line as the reader drew it: the note, the line's index in the note and how it read (a change is checked
+ * against that line), the file it names, and on a caption's control, which change it makes.
+ */
+export interface ImageRef { block: string; line: number; source: string; path: string; control?: ImageControl }
 
 /**
  * A callout as the reader drew it: the note, its header's note line and how that line read (a change is checked
@@ -188,19 +206,23 @@ export type LinkTarget = {
  */
 export interface CalloutRef { block: string; line: number; header: string; type: string; fold: "+" | "-" | null; foldKey: string | null }
 
+/** The mark after a link whose target doesn't exist yet: one quiet glyph, not words, so a note full of
+ * not-yet pages stays readable. Selecting or clicking the link says what it is and offers to make it. */
+export const MISSING_MARK = "◌";
+
 /** How a `((…))` reads: the label or title (with `^fragment`), and what's wrong with it, as Detail says it. */
 export function refView(id: string, fragment: string | undefined, label: string | undefined, r: ReferenceResolution | undefined): LinkView {
   if (!r) return { text: label ?? shortId(id) + (fragment ? `^${fragment}` : ""), missing: false };
-  if (r.status === "missing") return { text: `${label ?? shortId(id)} · Missing target`, missing: true };
+  if (r.status === "missing") return { text: `${label ?? shortId(id)} ${MISSING_MARK}`, missing: true };
   const title = (label ?? r.title ?? shortId(id)) + (label === undefined && fragment ? `^${fragment}` : "");
   const suffix = r.status === "deleted" ? " · Trash" : r.status === "stale" ? " · Missing fragment" : r.status === "duplicate" ? " · Duplicate fragment" : "";
   return { text: title + suffix, missing: false };
 }
 
-/** How a `[[address]]` reads: its label or address, or `address · Missing target`. */
+/** How a `[[address]]` reads: its label or address, followed by MISSING_MARK when no page has it yet. */
 export function pageView(address: string, label: string | undefined, r: PageResolution | null): LinkView {
   const text = (label ?? address).trim();
-  if (r?.status === "missing") return { text: `${text} · Missing target`, missing: true };
+  if (r?.status === "missing") return { text: `${text} ${MISSING_MARK}`, missing: true };
   return { text: text + (r?.status === "deleted" ? " · Trash" : ""), missing: false };
 }
 

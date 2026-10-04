@@ -40,7 +40,7 @@ import { serviceKind, tileKinds } from "../desk/tile-kinds";
 import { extensionList } from "../extensions";
 import { ScreenTile } from "../desk/screen-tile";
 import { servingSession } from "../session/session-term";
-import { loadShowcase, SEED, type SeedName } from "./seed";
+import { findShowcase, loadShowcase, SEED, type SeedName } from "./seed";
 import { RowView } from "../scroll";
 
 type Notes = Partial<Record<SeedName, Msg>>;
@@ -63,14 +63,14 @@ type Shower = (after: (ctx: Ctx) => void) => void;
 const row = (ratio: number, a: number, b: number): LNode => pair("row", ratio, leaf(a), leaf(b));
 
 /** A stage: its tiles (made here, the exhibits), how they're laid out by their place (default side by side), its title. */
-interface Stage { title: string; panes: Pane[]; layout?: (ids: number[]) => LNode }
+interface Stage { title: string; panes: Pane[]; layout?: (ids: number[]) => LNode; names?: string[] }
 /**
  * A stage as a screen spec (PIE-515) on the desk, its tiles given (the showcase makes its own exhibits): each named by
  * its kind (reader, reader2), laid out as the stage says.
  */
 function stageDesk(st: Stage): Desk {
   const names = new Map<number, string>();
-  st.panes.forEach((p, i) => names.set(i, autoName({ names }, p.kind)));
+  st.panes.forEach((p, i) => names.set(i, st.names?.[i] ?? autoName({ names }, p.kind)));
   const ids = st.panes.map((_, i) => i);
   const tree = st.layout ? st.layout(ids) : ids.slice(1).reduce<LNode>((a, id) => pair("row", 0.5, a, leaf(id)), leaf(0));
   const root = serializeTree(tree, (i: number): TileSpec => ({ t: "leaf", kind: st.panes[i]!.kind, name: names.get(i)! })) as SavedTree;
@@ -151,7 +151,7 @@ export const SECTIONS: Section[] = [
   },
   {
     key: "screens", need: "make a screen (the welcome, the brief, Waiting, a pinned page, the desk itself)", part: "a screen spec on the desk, the only screen host: containers and tiles by kind, a key map naming actions, a hint, a band, where opens land (ScreenSpec; specData and readSpec, screen.spec); what it does beyond layout is its tiles' kinds'", files: "src/desk/screen-spec.ts, src/desk/screen-specs.ts, src/brief/brief.ts",
-    aside: "the brief here is its spec: one tile of the brief kind, which knows the briefs and steps them (, .); `act screen.spec` reads it as the data a note would hold · the home base is a spec the same way (`home`): bare `ep0ch` in a folder that names no outline (no --ws, EP0CH_WS or .ep0ch) opens it, to open, make or import one here or on a machine",
+    aside: "the brief here is its spec: one tile of the brief kind, which knows the briefs and steps them (, .); `act screen.spec` reads it as the data a note would hold · the home base is a spec the same way (`home`): bare `ep0ch` in a folder that names no outline (no --ws, EP0CH_WS or .ep0ch) opens it, to open, make or import one here or on a machine; `--machine box-a --ws fern` where box-a has no fern makes nothing there: the home base says so and offers the one here, creating it there (`home.new name=fern machine=box-a`, or `--create`), or `home.cancel`",
     stage: () => openScreen("brief"),
   },
   {
@@ -173,11 +173,19 @@ export const SECTIONS: Section[] = [
     },
   },
   {
-    key: "terminal", need: "run a program beside the notes (nvim, claude, a shell)", part: "the terminal tile: a pty (Bun.Terminal) drawn through @xterm/headless; click or ⏎ types in it, ctrl+] leaves; ctrl+e edits a draft in one", files: "src/desk/pty.ts, src/surface/editor.ts",
-    aside: "the agent drawer (src/dock.ts, PIE-498): the App's one agent tile, the host layer's first tab, pulled up over (or beside) any screen, this one too, by alt+a or a click on the status bar's ▲ chip; ctrl+] gives the keys back, alt+A or its top edge sizes it (host.toggle, host.size) · where a program runs: EP0CH_NEST, ep0ch where",
+    key: "terminal", need: "run a program beside the notes (nvim, claude, a shell)", part: "the terminal tile: a pty (Bun.Terminal) drawn through @xterm/headless; click or ⏎ types in it, ctrl+] leaves; ctrl+e edits a draft in one; its program's copy (OSC 52, Claude Code's) goes on to your clipboard through App.copy if you typed or clicked in the tile within 2 min, said \"copied from <tile>\" (or why not)", files: "src/desk/pty.ts, src/surface/editor.ts, src/surface/selection.ts",
+    aside: "the dock (next section; src/dock.ts, PIE-498) runs a program of its own too, its first tab, pulled up over (or beside) any screen, this one too, by alt+a or a click on the status bar's ▲ chip; ctrl+] gives the keys back, alt+A or its top edge sizes it (host.toggle, host.size) · where a program runs: EP0CH_NEST, ep0ch where",
     stage(n, show) {
-      const term = new PtyPane({ cmd: ["sh", "-c", "echo 'a terminal tile: sh in a pty the door owns'; exec sh"], label: "shell" }), r = new ReaderPane(true);
+      const term = new PtyPane({ cmd: ["sh", "-c", "echo 'a terminal tile: sh in a pty the door owns'; echo 'copy from it as Claude Code does:'; printf '%s\\n' \"  printf '\\\\033]52;c;%s\\\\007' \\\"\\$(printf hello | base64)\\\"\"; exec sh"], label: "shell" }), r = new ReaderPane(true);
       return deskOf({ title: "showcase · terminal", panes: [r, term], layout: ([a, b]) => row(0.5, a!, b!) }, show, [], d => { if (n.notebook) d.setCurrent(n.notebook); });
+    },
+  },
+  {
+    key: "dock", need: "carry a tile across screens (a terminal, a reader, the tree)", part: "the dock: the host layer's drawer of tabs on its own desk; host.dock moves a tile in or out whole", files: "src/dock.ts, src/desk/dock-program.ts",
+    aside: "^W a on the kettle docks it (or drag its title onto the status bar's dock chip, or press a while dragging it): it leaves this section and joins the dock, the same program running · pick another section (a screen switch), alt+a pulls the dock up there and it's still in it · ^W a in the dock, or its tab dragged out onto the screen, puts it back · `act host.dock tile=kettle` does it for an agent, attributed, never with the person's keys",
+    stage(n, show) {
+      const kettle = new PtyPane({ cmd: ["sh", "-c", "echo 'the kettle: a terminal tile to dock (^W a). Its pid:' $$; exec sh"], label: "kettle" }), r = new ReaderPane(true);
+      return deskOf({ title: "showcase · dock", panes: [kettle, r], names: ["kettle", "reader"], layout: ([a, b]) => row(0.5, a!, b!) }, show, [], d => { if (n.notebook) d.setCurrent(n.notebook); });
     },
   },
   {
@@ -198,7 +206,7 @@ export const SECTIONS: Section[] = [
   },
   {
     key: "spine", need: "squeeze a tile to a title strip", part: "the spine part: drawSpine, SPINE (c collapses a lane or a reader, alt+c opens all)", files: "src/spine.ts, on the board: src/desk/delivery.ts",
-    aside: "the board's lanes take a sideways wheel or a trackpad swipe as h and l, one lane a swipe (SidewaysWheel); a click selects a card, a double click opens it, an alt-, ctrl- or middle-click opens it in a new detail",
+    aside: "the board's lanes take a sideways wheel or a trackpad swipe as h and l, one lane a swipe (SidewaysWheel); a click selects a card, a double click opens it, an alt-, ctrl- or middle-click opens it in a new detail; alt+↑ alt+↓, or a card dragged up or down its lane, puts it in the lane's hand-set order (card.reorder, as `act` does)",
     stage(n) { return openScreen("board", { hub: n.hub?.id, persist: false }); },
   },
   {
@@ -219,6 +227,12 @@ export const SECTIONS: Section[] = [
   {
     key: "live", need: "put live data in a note", part: "live figures: ::graph-* blocks that read views with views.read and blocks.query", files: "src/live.ts, src/graphs.ts, src/views.ts",
     stage(n, show) { const r = new ReaderPane(); return deskOf({ title: "showcase · live", panes: [r] }, show, [[r, n.figures]]); },
+  },
+  {
+    key: "tabs", need: "switch a live figure's tabs, or how many lines its rows take", part: "a figure's reading state: ::graph-tabs (a query's results grouped by a property, a tab each) and a table's density, kept by the reader, switched by figure.tab and figure.density (tab shift+tab ← →, =, a click, act)", files: "src/graphs.ts, src/live.ts, src/surface/note.ts",
+    aside: "[ ] onto a tab, then ← → or tab shift+tab switch; = steps compact, cozy, comfortable (titles wrap past PLOT-1 — ); a click on a tab or ≡ does the same; the note is never written; two readers of one note, each with its own tab and density",
+    // Two readers on one note: each keeps its own tab and density.
+    stage(n, show) { const a = new ReaderPane(), b = new ReaderPane(); return deskOf({ title: "showcase · tabs", panes: [a, b], layout: ([x, y]) => row(0.5, x!, y!) }, show, [[a, n.plotJobs], [b, n.plotJobs]]); },
   },
   {
     key: "projection", need: "show a Resource's stored details in a note", part: "resource projections: resources.projection.read (the open is the one step); a ticket the extension keeps as a block drawn by ticketRegion under its jira:: line or after a ticket page's notes ([ ] ⏎ opens the ticket block, r or a click on its age refreshes, y copies)", files: "src/projection.ts, src/surface/note.ts, src/doc.ts",
@@ -286,6 +300,30 @@ export const SECTIONS: Section[] = [
       return deskOf({ title: "showcase · callouts", panes: [a, b], layout: ([x, y]) => row(0.62, x!, y!) }, show, [[a, n.callouts], [b, n.calloutType]]);
     },
   },
+  {
+    key: "images", need: "draw an image or video in a note; size it, place it, make it the note's header", part: "the media line (PIE-532): [img::path] and the layout properties beside it ([size::] [height::] [align::] [layout::hero] [alt::]), parsed once (parseMediaLine), laid out by renderDoc into Kitty placements (scaled by sharp to the box, never up), the header drawn by NoteSurface above the title; image.size, image.align and image.hero write the line through the note's save", files: "src/media.ts, src/doc.ts, src/surface/note.ts, src/kitty.ts",
+    aside: "[ ] to an image, then + - size it, ← → move it, H makes it the header (or click its caption's [−][+] [◂][▸] [▀]) · ctrl+z undoes · an agent: images, then image.size n=2 to=50%, image.align, image.hero · images draw under Kitty graphics; elsewhere each line says what it is",
+    stage(n, show) {
+      const r = new ReaderPane();
+      return deskOf({ title: "showcase · images", panes: [r], layout: ([a]) => leaf(a!) }, show, [[r, n.images]]);
+      },
+    },
+  {
+    key: "figures", need: "draw a decision, a chat, a keymap, days (uptime, activity, a month) or annotated code in a note; write a figure's rows in Markdown", part: "the figure kinds (src/graphs.ts KINDS, the newer ones in src/figures/), their rows from Markdown or a figure block's child bullets read by outline-core's figure grammar (figure-markdown.ts), drawn by the reader's NoteSurface; a quote callout's byline (quoteByline); ep0ch export writes each figure as its ASCII twin (figureAscii)", files: "outline-core/src/figure-markdown.ts, src/figures/, src/graphs.ts, src/live.ts, src/export.ts, outline-core/src/callouts.ts",
+    aside: "every figure in the left reader is written as Markdown rows; the live ones read the plot's decision notes and the backup runs scripts/backup-runs.ts writes · the figure block at the bottom is a note whose rows are its child bullets: [ ] steps to them, ⏎ or a click opens one · the right reader's first sheet is read from the action registry, so it says what the reader's keys do now · ep0ch export writes each figure as plain ASCII in a fence",
+    stage(n, show) {
+      const a = new ReaderPane(), b = new ReaderPane();
+      return deskOf({ title: "showcase · figures", panes: [a, b], layout: ([x, y]) => row(0.6, x!, y!) }, show, [[a, n.markdownFigures], [b, n.keys]]);
+    },
+  },
+  {
+    key: "newnotes", need: "make a new note or page from anywhere", part: "note.new (ctrl+n on every screen, + on the menu, act) asks the service's notes.create, whose placement rule puts it (under the note in the reader you're in, else the top of the Inbox), then opens it where opens land through the reader's own edit; a missing [[page]] is offered, then made by page.create (pages.follow, the same rule); a lone [page::x] titles itself (outline-core's page-title rule, on ⏎ and on every save)", files: "src/new-note.ts, outline-core/src/page-title.ts, outliner src/note-placement.ts, src/surface/note.ts",
+    aside: "go in (⏎), then ctrl+n: a note under this one opens to be written · ] to [[Seed swap ledger]], ⏎ offers it, ⏎ again makes it in the Inbox · type [page::2026-03-12] and ⏎ on the first line of a new note",
+    stage(n, show) {
+      const a = new ReaderPane();
+      return deskOf({ title: "showcase · new notes", panes: [a] }, show, [[a, n.newNotes]]);
+    },
+  },
 ];
 
 /** The index is wide enough for every need on one line when the terminal allows; narrow, it lists the keys only. */
@@ -297,6 +335,12 @@ export class Showcase implements Screen {
   ctx!: Ctx;
   private notes: Notes | null = null;
   private problem = "";
+  /** The outline was reset under this door: its notes are read again once the new seed is whole. */
+  private reseeding = false;
+  private rereadTimer: Timer | null = null;
+  /** `ctx.reconnects` when the root was last checked. */
+  private reconnectsSeen = 0;
+  private disposed = false;
   private sel = 0;
   /** Where the person's keys go: the index of sections, or the section's stage. */
   private focus: "index" | "stage" = "index";
@@ -311,11 +355,53 @@ export class Showcase implements Screen {
 
   enter(ctx: Ctx) {
     this.ctx = ctx;
+    this.reconnectsSeen = ctx.reconnects ?? 0;
     loadShowcase(ctx.board).then(s => {
       if (!s) this.problem = "This outline has no showcase: the showcase runs on its own seeded outline. From a shell: ep0ch try --showcase (add --reset to start it over).";
       else this.notes = s.notes;
       ctx.redraw();
     }, e => { this.problem = `couldn't read the outline: ${e instanceof Error ? e.message : String(e)}`; ctx.redraw(); });
+  }
+
+  /**
+   * After a reconnect, the host may serve a new showcase under the same name: `--reset` stopped it, deleted the
+   * outline and is seeding it again while this door stays open. The new seed's notes are new blocks (and the same
+   * seed ends on the same sequence, so the catch-up finds nothing missed): when the root is another one or gone, the
+   * stages built on the old notes are dropped (an unsaved draft copied to disk first), and the notes are read again
+   * once the seed is whole. Checked on the render after each reconnect, so a showcase under another screen then
+   * checks when it is back on top.
+   */
+  private async recheck() {
+    const root = await findShowcase(this.ctx.board).catch(() => undefined);
+    if (this.disposed || root === undefined || this.reseeding || !this.notes || root?.id === this.notes.root?.id) return;
+    const kept = this.keepDrafts();
+    for (const f of this.stages.values()) f.dispose();
+    this.stages.clear();
+    this.notes = null;
+    this.focus = "index";
+    this.reseeding = true;
+    this.problem = "The showcase outline was reset; its notes are read again once it is seeded.";
+    if (kept.length) this.ctx.flash(`the showcase was reset · an unsaved draft is copied to ${kept.join(", ")}`, 6000);
+    this.ctx.redraw();
+    this.reread();
+  }
+
+  /** While reseeding: read the notes again once the outline has been quiet a moment, and take them when every one is there. */
+  private reread() {
+    if (this.rereadTimer) clearTimeout(this.rereadTimer);
+    this.rereadTimer = setTimeout(() => {
+      this.rereadTimer = null;
+      loadShowcase(this.ctx.board).then(s => {
+        if (this.disposed || !this.reseeding) return;
+        // Not whole yet: the seed's next write reads again. A read that failed tries again by itself.
+        if (!s || Object.keys(SEED).some(k => !s.notes[k as SeedName])) return;
+        this.reseeding = false;
+        this.notes = s.notes;
+        this.problem = "";
+        this.ctx.flash("the showcase was reset · its notes read again");
+        this.ctx.redraw();
+      }, () => { if (!this.disposed && this.reseeding) this.reread(); });
+    }, 500);
   }
 
   /** The stage of section `i`, built once and kept, so an edit or a layout survives moving between sections. */
@@ -331,6 +417,8 @@ export class Showcase implements Screen {
     return f;
   }
 
+  /** Screen.tilesHere: the section shown is a desk: a tile undocked here (host.dock on=false) lands in it. */
+  tilesHere(): Desk | undefined { const t = this.stage(this.sel)?.top; return t instanceof Desk ? t : undefined; }
   /** Screen.holdsKeys: the person is in the stage and its screen holds their keys (an edit, a comment, a panel). */
   holdsKeys(): boolean { return this.focus === "stage" && !!this.stages.get(this.sel)?.top.holdsKeys?.(); }
   /** Screen.rawKeys: the person is typing in the stage's terminal tile: ctrl+c and cmd+c are its program's, as on the desk. */
@@ -344,6 +432,8 @@ export class Showcase implements Screen {
   }
 
   render(ctx: Ctx): Frame {
+    if ((ctx.reconnects ?? 0) !== this.reconnectsSeen) { this.reconnectsSeen = ctx.reconnects ?? 0; void this.recheck(); }
+    else if (this.reseeding && !this.rereadTimer) this.reread();
     const { cols, rows } = ctx.t;
     const H = rows - 1;
     const canvas = new Canvas(cols, H);
@@ -428,10 +518,25 @@ export class Showcase implements Screen {
   }
 
   tick(): boolean { return [...this.stages.values()].some(f => f.tick()); }
-  onEvent(e: OutlineEvent) { for (const f of this.stages.values()) f.onEvent(e); }
+  onEvent(e: OutlineEvent) {
+    for (const f of this.stages.values()) f.onEvent(e);
+    if (this.reseeding && e.action !== "reconnected" && e.action !== "reset") this.reread();
+  }
   unsaved() { return [...this.stages.values()].some(f => f.unsaved()); }
   keepDrafts() { return [...this.stages.values()].flatMap(f => f.keepDrafts()); }
-  dispose() { for (const f of this.stages.values()) f.dispose(); }
+  dispose() { this.disposed = true; for (const f of this.stages.values()) f.dispose(); if (this.rereadTimer) clearTimeout(this.rereadTimer); }
+  /** The note in the reader the person is in on the shown stage (PIE-544): a new note goes under it. */
+  noteContext(): string | null { return this.focus === "stage" ? this.stages.get(this.sel)?.top.noteContext?.() ?? null : null; }
+  /** A new note opened to be written on the shown stage, as its desk opens one; the person's keys go into the stage. */
+  async editNew(m: Msg): Promise<string | null> {
+    const f = this.stage(this.sel);
+    if (!f?.top.editNew) throw new ActionRefused(`the ${SECTIONS[this.sel]!.key} section has no reader to write a new note in`);
+    const was = this.focus;
+    this.focus = "stage";
+    const at = await f.top.editNew(m).catch(e => { this.focus = was; throw e; });
+    if (!at) this.focus = was;
+    return at;
+  }
   openBlock(m: Msg) { const f = this.stage(this.sel); if (!f?.top.openBlock) throw new ActionRefused(`the ${SECTIONS[this.sel]!.key} section can't open blocks`); f.top.openBlock(m); }
 
   describe() {
@@ -488,7 +593,7 @@ export class Showcase implements Screen {
 /** The showcase's own actions: which section is shown. Keys and clicks on the index call the same code. */
 export const SHOWCASE_ACTIONS = actionSet<Showcase>()("showcase", {
   "section.try": def({
-    summary: "go into a section's stage (name=<1-21> or its key, else the one shown): the person's keys and mouse go to the part itself until its own esc brings them back to the index. The person's only: an agent acts in the stage with its actions (`act` reaches the shown section's)",
+    summary: "go into a section's stage (name=<1-" + SECTIONS.length + "> or its key, else the one shown): the person's keys and mouse go to the part itself until its own esc brings them back to the index. The person's only: an agent acts in the stage with its actions (`act` reaches the shown section's)",
     keys: "⏎ → l tab, click in the stage",
     touches: "screen", replay: "safe", person: "going into a section gives it the person's keys; an agent runs the shown section's own actions instead",
     args: { name: { type: "string", optional: true, about: "the section's number or key; the one shown when left out" } },
@@ -499,7 +604,7 @@ export const SHOWCASE_ACTIONS = actionSet<Showcase>()("showcase", {
     },
   }),
   "section": def({
-    summary: "show a section (name=<1-21> or its key: note, actions, edit, search, drafts, panes, screens, kinds, terminal, preview, screen, spine, entity, presence, live, projection, extensions, selection, service, session, callouts); refused to an agent while the person is in one", keys: "↑↓ j k, 1-9 0, click, wheel",
+    summary: `show a section (name=<1-${SECTIONS.length}> or its key: ${SECTIONS.map(x => x.key).join(", ")}); refused to an agent while the person is in one`, keys: "↑↓ j k, 1-9 0, click, wheel",
     touches: "screen", replay: "safe", says: r => `showed section ${r.section} (${r.key})`,
     args: { name: { type: "string", about: "the section's number or key" } },
     run({ name }, s) {

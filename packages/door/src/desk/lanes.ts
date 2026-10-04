@@ -24,7 +24,7 @@ import { pickInto, type Picked } from "../pick";
 import { completerFor, completerOf } from "../surface/completer";
 import { Modes } from "../surface/modes";
 import { ListPicker, pickRow } from "../surface/picker";
-import { Refused, type ChecklistRead, type ChecklistStep, type CreatePlan, type StepStatus } from "../socket";
+import { changedSinceRead, Refused, type ChecklistRead, type ChecklistStep, type CreatePlan, type StepStatus } from "../socket";
 import { pickParent, titleOf, type ParentPick } from "./writes";
 import { findBoards, hubViews, laneDefs, laneTileName, QueryPane } from "./query";
 import type { TileSpec } from "./tiles";
@@ -34,7 +34,8 @@ import type { ColumnsHost, SourceModel, TileSource } from "./tile-kinds";
 /** A lane: a query tile of the board's hub (its view, cards, cursor and read). */
 type Lane = QueryPane;
 /** A card pressed in a lane: dragged onto another lane it moves there; released where it was, a click (a second one opens it). */
-interface CardDrag { from: number; card: Msg; over: number | null; open: "open" | "fresh" | null }
+/** `onto`: the card of its own lane it's over now, by id (a lane read again mid-drag can shift rows): dropped there, it goes above or below it (card.reorder). */
+interface CardDrag { from: number; card: Msg; over: number | null; open: "open" | "fresh" | null; onto: string | null }
 /** What the lanes keep between runs: the hub shown in each workspace, and the lane the cursor was in. */
 export interface LanesSaved { hubs?: Record<string, string>; lane?: string }
 
@@ -208,6 +209,8 @@ export class Lanes implements SourceModel {
     if (d) {
       const over = d.over === null ? null : this.lanes[d.over];
       const p = over && d.over !== d.from ? this.cachedPlan(d.card, over) : null;
+      const onto = d.onto ? this.lanes[d.from]?.items?.find(m => m.id === d.onto) : undefined, above = onto ? this.dropsAbove(d) : null;
+      if (onto && above !== null) return paint(`|08 release to put |15${subject(d.card).slice(0, 40)}|08 ${above ? "above" : "below"} |15${subject(onto).slice(0, 40)}|08 (its lane's hand-set order)`);
       const say = over && d.over !== d.from && !p ? `|08 asking the outline what a move into |15${over.name}|08 would patch…`
         : !over || !p ? `|08 dragging |15${subject(d.card).slice(0, 60)}|08 · release over another lane to move it there`
         : p.kind === "patch" ? `|08 release to move into |15${over.name}|08 · |14${describeChanges(p.changes)}`
@@ -593,6 +596,33 @@ export class Lanes implements SourceModel {
     return { card: c.id, lane: lanes[to]!.name, result: r.result };
   }
 
+  /**
+   * `card.reorder`: put a card elsewhere in its lane's hand-set order (the view's own, which its figures and Tree show
+   * too): by=<±steps>, to=<position from 0>, or before=/after=<another card in it>. Checked against the order just
+   * read and recorded as `actor`'s. A sorted view has no hand-set order: the service's refusal names the [sort::] to
+   * remove. The person's cursor stays on the card they had; their reorder keeps it on the card moved.
+   */
+  async reorderCard(a: { card?: string; lane?: string; by?: number; to?: number; before?: string; after?: string }, actor: Actor) {
+    const refuse = (m: string) => { if (actor.kind !== "agent") this.host.ctx.flash(`not reordered: ${m}`); return new ActionRefused(m); };
+    if ([a.by, a.to, a.before, a.after].filter(x => x !== undefined).length !== 1) throw refuse("card.reorder takes one of by=<±places>, to=<position from 0>, before=<card> or after=<card>");
+    const card = this.cardFor(a.card, actor);
+    const holds = (l: Lane | undefined) => !!l?.items?.some(m => m.id === card.id);
+    const lane = a.lane !== undefined ? this.laneFor(a.lane) : holds(this.laneTile()) ? this.laneTile()! : this.lanes.find(holds);
+    if (!lane || !holds(lane)) throw refuse(`${lane ? lane.name : "no lane"} doesn't list ${card.id.slice(0, 8)}`);
+    // The service reads, plans and writes the order in one step (and keeps a step within what the lane shows).
+    const { by, to, before, after } = a;
+    const r = await this.host.ctx.board.moveInView({ view: lane.view, blocks: [card.id], ...(by !== undefined ? { by } : {}), ...(to !== undefined ? { to } : {}), ...(before !== undefined ? { before } : {}), ...(after !== undefined ? { after } : {}) }, actor)
+      .catch((e: Error) => { throw refuse(e.message); });
+    const position = r.blockIds.indexOf(card.id);
+    if (!r.moved.length) return { card: card.id, lane: lane.name, position, of: r.blockIds.length, unchanged: true };
+    if (actor.kind !== "agent") lane.want = card.id;
+    this.loadLanes([lane]);
+    const place = `#${position + 1} of ${r.blockIds.length} in ${lane.name}`;
+    asActor(this.host.ctx, actor).flash(`"${ellipsize(subject(card), 40)}" is ${place}`);
+    for (const x of this.readers()) if (x.msg?.id === card.id) x.surface.noteAgent(actor, `put this card ${place}`);
+    return { card: card.id, lane: lane.name, position, of: r.blockIds.length };
+  }
+
   card(): Msg | undefined { return this.laneTile()?.card(); }
 
   /** The preview shows the card the lanes' cursor is on. */
@@ -829,7 +859,7 @@ export class Lanes implements SourceModel {
     else if (cmd === "editor") void openInEditor(this.host.ctx, d, () => this.composer?.session.draft === d).then(() => this.host.redraw());
     else if (cmd === "pick") void this.host.pressAction(BOARD_ACTIONS, "composer.pick", {});
     // cmd+c: the draft's selection to the person's clipboard, through the draft's copy action.
-    else if (cmd === "copy") void Dispatcher.of(DRAFT_ACTIONS, d, () => this.host.ctx).press("draft.copy").then(r => { const c = r as { text: string; chars: number } | undefined; if (c) { this.host.ctx.copy?.(c.text); this.host.ctx.flash(`copied ${c.chars} chars`); } this.host.redraw(); });
+    else if (cmd === "copy") void Dispatcher.of(DRAFT_ACTIONS, d, () => this.host.ctx).press("draft.copy").then(r => { const c = r as { text: string; chars: number } | undefined; if (c && this.host.ctx.copy?.(c.text) !== false) this.host.ctx.flash(`copied ${c.chars} chars`); this.host.redraw(); });
     // Esc on nothing typed closes it; esc, esc on typed text puts it aside as unsent (never created), and says where.
     else if (cmd === "close" || cmd === "discard") void this.host.pressAction(BOARD_ACTIONS, "composer.close", cmd === "discard" ? { discard: true } : {});
   }
@@ -1089,9 +1119,10 @@ export class Lanes implements SourceModel {
       throw new ActionRefused(`the card changed since the board showed it (revision ${card.revision} -> ${fresh.revision}) · look again before trashing`);
     const lane = this.lanes.find(l => l.items?.some(m => m.id === card.id))?.name ?? "";
     let lost = "";
-    try { await this.host.ctx.board.trash(card.id); }
+    try { await this.host.ctx.board.trash(card.id, undefined, { revision: fresh.revision }); }
     catch (e) {
       const why = e instanceof Error ? e.message : String(e);
+      if (changedSinceRead(e)) throw new ActionRefused("the card changed just now (another client saved it) · look again before trashing");
       if (e instanceof Refused) throw new ActionRefused(why);
       // The answer was lost, not refused: the card may be in Trash anyway. Look before saying either.
       const gone = await this.host.ctx.board.isTrashed(card.id);
@@ -1145,6 +1176,7 @@ export class Lanes implements SourceModel {
       return true;
     }
     if (c === "H" || c === "L") { const to = this.lanes[this.lane + (c === "H" ? -1 : 1)]; if (to) void this.run("card.move", { lane: to.name }); return true; }
+    if (k.kind === "alt-up" || k.kind === "alt-down") { if (this.card()) void this.run("card.reorder", { by: k.kind === "alt-up" ? -1 : 1 }); return true; }
     if (c === "m") { this.openMover(); return true; }
     if (c === "n") { this.openCardComposer(); return true; }
     if (c === "N") { this.openChildComposer(); return true; }
@@ -1183,11 +1215,23 @@ export class Lanes implements SourceModel {
    */
   laneMouse(k: Extract<Key, { kind: "mouse" }>, press?: RowPress): boolean {
     const d = this.cardDrag;
-    if (d && k.action === "drag") { d.over = this.laneAtPoint(k.x, k.y)?.i ?? this.laneOver(k.x, k.y); this.host.redraw(); return true; }
+    if (d && k.action === "drag") {
+      const hit = this.laneAtPoint(k.x, k.y);
+      d.over = hit?.i ?? this.laneOver(k.x, k.y);
+      // Over its own lane, the card it's over: dropped on another card's row, it goes there (above it or below).
+      const row = hit && hit.i === d.from && hit.row >= 0 ? hit.lane.rowAt(hit.row) : -1;
+      const under = row >= 0 ? hit!.lane.items?.[row]?.id : undefined;
+      d.onto = under && under !== d.card.id ? under : null;
+      this.host.redraw();
+      return true;
+    }
     if (d && k.action === "up") {
       this.cardDrag = null;
-      // Released over another lane: move it there. Released where it started: a click, which opens it when it was a double click.
+      // Released over another lane: move it there. Over another card in its own lane: put it there (card.reorder).
+      // Released where it started: a click, which opens it when it was a double click.
+      const lane = this.lanes[d.from], above = d.onto ? this.dropsAbove(d) : null;
       if (d.over !== null && d.over !== d.from) { if (this.lane === d.from && this.card()?.id === d.card.id) void this.run("card.move", { lane: this.lanes[d.over]!.name, card: d.card.id }); }
+      else if (lane && d.onto && above !== null) void this.run("card.reorder", { card: d.card.id, lane: lane.name, [above ? "before" : "after"]: d.onto });
       else if (d.open) void this.host.perform?.("open", { id: d.card.id, from: this.host.nameOfPane(this.lanes[d.from]!), ...(d.open === "fresh" ? { fresh: true } : {}) }, USER);
       this.host.redraw();
       return true;
@@ -1213,11 +1257,17 @@ export class Lanes implements SourceModel {
       const g = l.cursor.press(idx, press ?? { mods: k.mods ?? 0, button: k.button, focusing: !this.onLanes });
       void this.run("card.select", { id: l.items![idx]!.id, lane: l.name });
       // Drag it onto another lane to move it; a double click opens it when released.
-      this.cardDrag = { from: at.i, card: l.items![idx]!, over: null, open: g === "open" ? "open" : g === "fresh" ? "fresh" : null };
+      this.cardDrag = { from: at.i, card: l.items![idx]!, over: null, open: g === "open" ? "open" : g === "fresh" ? "fresh" : null, onto: null };
       if (this.movePlans?.failed) this.movePlans = null;
     } else void this.run("card.select", { lane: l.name, by: 0 });
     this.host.redraw();
     return true;
+  }
+
+  /** A card dragged onto another in its lane goes above it when it came from below, by where both are now; null when either is gone. */
+  private dropsAbove(d: CardDrag): boolean | null {
+    const items = this.lanes[d.from]?.items ?? [], from = items.findIndex(m => m.id === d.card.id), to = items.findIndex(m => m.id === d.onto);
+    return from < 0 || to < 0 ? null : to < from;
   }
 
   /** The lane under the pointer by its whole rectangle (its header too), while a card is dragged. */
@@ -1333,6 +1383,20 @@ export const BOARD_ACTIONS = actionSet<BoardOn>()("board", {
     touches: "draft", draft: "write", replay: "ask",
     args: { lane: { type: "string", about: "the lane's name" }, card: { type: "string", optional: true, about: "the card's block id; default the selected card" } },
     run: ({ lane, card }, { model }, actor) => lanesOf({ model }).moveCard(lane, card, actor),
+  }),
+  "card.reorder": def({
+    summary: "put the selected card (or card=<id>) elsewhere in its lane's hand-set order, the view's own (its figures and Tree show it too): by=<±places> (negative: up), to=<position from 0>, or before=/after=<another card in the lane>. Recorded as who asked. A view with [sort::] has no hand-set order: refused, naming the [sort::] to remove",
+    keys: "alt+↑ alt+↓, drag a card up or down its lane",
+    touches: "tile", while: "typing", replay: "ask",
+    args: {
+      card: { type: "string", optional: true, about: "the card's block id; default the selected card" },
+      lane: { type: "string", optional: true, about: "the lane, by name; default the one listing the card" },
+      by: { type: "number", optional: true, about: "places to move down (negative: up)" },
+      to: { type: "number", optional: true, about: "its position in the view's order, from 0" },
+      before: { type: "string", optional: true, about: "the card to put it just above" },
+      after: { type: "string", optional: true, about: "the card to put it just below" },
+    },
+    run: (args, { model }, actor) => lanesOf({ model }).reorderCard(args, actor),
   }),
   "composer.leave": def({
     summary: "leave the new card or note the person is writing, as a click outside it does: never created (ctrl+s creates); typed text is kept as unsent, and n or N brings it back. The person's own: an agent creates with card.create or note.create",
