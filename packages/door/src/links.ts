@@ -333,7 +333,9 @@ let generation = 0;
 const cache = new Map<string, { data: LinkData; at: number }>();
 
 /** The door's outline connection and its repaint, for the inline components. */
-export function setLinksSource(b: LinksBoard, redraw: () => void) { source = b; changed = redraw; cache.clear(); }
+export function setLinksSource(b: LinksBoard | null, redraw: () => void) { source = b; changed = redraw; cache.clear(); }
+/** The connection and its repaint now, to put back after borrowing it (drawNote). */
+export const linksSource = (): { board: LinksBoard | null; redraw: () => void } => ({ board: source, redraw: changed });
 let settling: Timer | null = null;
 /**
  * The outline changed: every component asks again on its next draw, once the burst settles (500 ms, as the links

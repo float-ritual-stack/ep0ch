@@ -44,7 +44,13 @@ let onChange: () => void = () => {};
 const cache = new Map<string, Entry>();
 let generation = 0;
 
-export function setLiveSource(b: SocketBoard, redraw: () => void) { board = b; onChange = redraw; }
+export function setLiveSource(b: SocketBoard | null, redraw: () => void) {
+  // Answers are kept by question, not by outline: another outline asks them all again.
+  if (b !== board) generation++;
+  board = b; onChange = redraw;
+}
+/** The connection and its repaint now, to put back after borrowing it (drawNote). */
+export const liveSource = (): { board: SocketBoard | null; redraw: () => void } => ({ board, redraw: onChange });
 /** The outline live figures ask now, if one is connected. */
 export const liveBoard = (): SocketBoard | null => board;
 /** Also told when an answer arrives (besides the connection's own redraw), until the returned function is called. */
