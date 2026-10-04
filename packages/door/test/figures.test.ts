@@ -6,9 +6,12 @@ import { figureAscii, figureSource, reframeAscii, renderGraph } from "../src/gra
 import { figuresAsAscii } from "../src/export";
 import { registryKeys } from "../src/figures/keys";
 import { uptimeDays } from "../src/figures/days";
+import { annotateMarkdown } from "../src/figures/annotate";
+import { parseFigureMarkdown } from "@ep0ch/outline-core/figure-markdown";
 import { NOTE_ACTIONS } from "../src/surface/note";
 import { runNote, took } from "../scripts/backup-runs";
 import { invalidateLive, liveSettled, setLiveSource } from "../src/live";
+import { linksOf, listenLinks, setLinksSource } from "../src/links";
 
 const plain = (s: string) => s.replace(/\x1b\[[\d;]*m/g, "").replace(/[\u{100000}-\u{10FFFD}]/gu, "");
 const draw = (kind: string, lines: string[], w = 60) => renderGraph(kind, figureSource(lines), w).map(plain);
@@ -139,6 +142,11 @@ describe("ep0ch export's ASCII twin", () => {
     const out = figuresAsAscii(["T", "::graph-rank", "- a: 1", "- b: 2"].join("\n"), "n");
     expect(out).toMatch(/b\s+\[=+/);
   });
+  test("annotate: a note numbered 0 or far past the rows is placed among them, never a hole of a million", () => {
+    const md = (rows: string[]) => annotateMarkdown(parseFigureMarkdown(rows) as any).notes;
+    expect(md(["0. zero", "1000000. far"])).toEqual(["zero", "far"]);
+    expect(md(["2. two", "1. one"])).toEqual(["one", "two"]);
+  });
   test("a note's figures become fences; code fences and the rest stay as written", () => {
     const text = ["Title", "before", "::graph-rank", "---", "title: r", "---", "- a: 1", "::", "```", "::graph-rank", "::", "```", "after"].join("\n");
     const out = figuresAsAscii(text, "n").split("\n");
@@ -182,6 +190,13 @@ describe("a figure block's child bullets", () => {
     await liveSettled();
     expect(renderGraph("calendar", src, 60).map(plain).at(-1)).not.toContain("child notes");
   });
+  test("a figure block whose YAML gives its rows, never takes child bullets (nor asks for them)", () => {
+    setLiveSource(fake, () => {}); invalidateLive();
+    const before = asked;
+    renderGraph("calendar", figureSource(["---", "marks: [{ day: 3, label: x }]", "---"], "note", true), 60);
+    renderGraph("uptime", figureSource(["---", "days: [ok, down]", "---"], "note", true), 60);
+    expect(asked).toBe(before);
+  });
   test("only the note's figure block takes them: not one in a part drawn on its own (a callout, a fragment)", async () => {
     setLiveSource(fake, () => {}); invalidateLive();
     const env = { width: 60, cellW: 9, cellH: 18, graphics: false, maxImageRows: 4, unfold: true, note: "note" };
@@ -190,6 +205,30 @@ describe("a figure block's child bullets", () => {
     expect(renderDoc(fig, env).lines.map(plain).join("\n")).toContain("Apr  sow");
     expect(renderDoc(fig, { ...env, nested: true }).lines.map(plain).join("\n")).not.toContain("Apr  sow");
     expect(renderDoc(`intro\n${fig}`, env).lines.map(plain).join("\n")).not.toContain("Apr  sow");
+  });
+  test("export finds the figure block as the reader does: under the title and its property lines", async () => {
+    setLiveSource(fake, () => {}); invalidateLive();
+    const text = "Beans\n[type::figures]\n\n::graph-timeline\n---\ntitle: rows\n---\n::";
+    figuresAsAscii(text, "note"); await liveSettled();
+    expect(figuresAsAscii(text, "note")).toContain("Apr  sow");
+    // A body (no title line): its first line with text is the figure block.
+    expect(figuresAsAscii("::graph-timeline\n---\ntitle: rows\n---\n::", "note", undefined, false)).toContain("Apr  sow");
+  });
+  test("a ::links answer arriving tells listenLinks (drawNote's loop draws again), and an answer for an outline swapped out is dropped", async () => {
+    let told = 0;
+    const off = listenLinks(() => told++);
+    const links = { authoredLinks: async () => [], backlinks: async () => [] } as any;
+    setLinksSource(links, () => {});
+    linksOf("x"); await Bun.sleep(5);
+    expect(told).toBeGreaterThan(0);
+    // Asked of one outline, answered after another took its place: not this outline's answer.
+    let answer!: (v: unknown) => void;
+    setLinksSource({ authoredLinks: () => new Promise(r => { answer = r; }), backlinks: () => new Promise(() => {}) } as any, () => {});
+    linksOf("y");
+    setLinksSource(links, () => {});
+    answer([{ stale: true }]); await Bun.sleep(5);
+    expect(JSON.stringify(linksOf("y"))).not.toContain("stale");
+    off(); setLinksSource(null, () => {});
   });
   test("liveSettled gives up after its deadline when the outline never answers", async () => {
     setLiveSource(fake, () => {}); invalidateLive();
@@ -205,10 +244,11 @@ describe("backup runs", () => {
   test("a refusal says the command that works, with the values given", () => {
     const date = script("--ws", "pie", "--status", "ok", "--date", "3 Oct");
     expect(date.exitCode).toBe(2);
-    expect(date.stderr.toString()).toContain(`bun scripts/backup-runs.ts --ws pie --status ok --date ${new Date().getFullYear()}-`);
+    // The script by its whole path: a timer runs it from anywhere.
+    const self = `bun ${import.meta.dir.replace(/test$/, "scripts")}/backup-runs.ts`;
+    expect(date.stderr.toString()).toContain(`${self} --ws pie --status ok --date ${new Date().getFullYear()}-`);
     const none = script("--ws", "pie");
-    expect(none.stderr.toString()).toContain("bun scripts/backup-runs.ts --ws pie --status ok");
-    expect(none.stderr.toString()).toContain("bun scripts/backup-runs.ts --ws pie -- ~/.local/bin/ep0ch-snapshot");
+    expect(none.stderr.toString()).toContain(`${self} --ws pie --status ok`);
   });
   test("one note a run: its properties between ` - `, as a header line writes them", () => {
     expect(runNote({ source: "restic", status: "ok", date: "2026-10-03", took: took(252_000) })).toBe(

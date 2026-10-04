@@ -40,6 +40,13 @@ export function annotateMarkdown(md: Markdown): Props {
   const fence = md.fences[0];
   const listed = md.rows.filter(r => r.depth === 0);
   const notes: string[] = [];
-  listed.forEach((r, i) => { notes[(r.ordinal ?? i + 1) - 1] = r.text + (r.note ? ` — ${r.note}` : ""); });
+  // Numbered as written while the number is near the list (a gap is a marker with no note); `0.` or a number far
+  // past it follows the others instead of opening a hole.
+  const spill: string[] = [];
+  listed.forEach((r, i) => {
+    const n = r.ordinal ?? i + 1, text = r.text + (r.note ? ` — ${r.note}` : "");
+    if (n >= 1 && n <= listed.length + 10) notes[n - 1] = text; else spill.push(text);
+  });
+  notes.push(...spill);
   return { ...(fence ? { code: fence.lines.join("\n"), lang: fence.lang } : {}), ...(notes.length ? { notes: Array.from(notes, n => n ?? "") } : {}) };
 }

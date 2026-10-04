@@ -73,4 +73,8 @@ describe("a figure's Markdown", () => {
     const [label] = parseFigureMarkdown(["- **Mar**: seed", "  potatoes — after the frost"]).rows;
     expect(label).toMatchObject({ label: "Mar", value: "seed potatoes", emphasis: "strong", note: "after the frost" });
   });
+  test("a side note inside a row's emphasis is still its note, and the row keeps the emphasis", () => {
+    expect(figureRow("**a — b**")).toMatchObject({ text: "a", note: "b", emphasis: "strong" });
+    expect(figureRow("*Jun: first picking — maybe*")).toMatchObject({ label: "Jun", value: "first picking", note: "maybe", emphasis: "em" });
+  });
 });

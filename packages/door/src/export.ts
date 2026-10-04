@@ -20,6 +20,8 @@ import { noteFile, type NoteIdentity } from "@ep0ch/outline-core/header-line";
 import { boardFor, selectionOf, selectNotes, selects, type Out } from "./notes-cli";
 import { connectFigures, figureAscii, figureSource, isGraphStart } from "./graphs";
 import { liveSettled } from "./live";
+import { titleLine } from "./board";
+import { metadataLines } from "./props";
 import type { SocketBoard } from "./socket";
 import { blockIdOf, printable } from "./text";
 
@@ -87,9 +89,9 @@ export const FIGURE_WIDTH = 60;
 /**
  * `text` with each `::graph-*` figure (outside code fences) written as its ASCII twin in a fence. `drawn`: the text the
  * figures are read from, when `text` had its links rewritten (resolveLinks): the same figures in the same order. `note`:
- * the note it is, for a figure block's child bullets.
+ * the note it is, for a figure block's child bullets. `whole`: `text` starts with the note's title (else it is its body).
  */
-export function figuresAsAscii(text: string, note: string, drawn = text): string {
+export function figuresAsAscii(text: string, note: string, drawn = text, whole = true): string {
   const blocks = (t: string) => {
     const lines = t.split("\n"), out: { kind: string; from: number; to: number }[] = [];
     let fence = false;
@@ -108,10 +110,13 @@ export function figuresAsAscii(text: string, note: string, drawn = text): string
   const target = blocks(text), source = blocks(drawn);
   if (!target.out.length || target.out.length !== source.out.length) return text;
   const lines = target.lines.slice();
+  // The note's figure block, as the reader finds it (surface/note.ts readableSource): the first line with text below
+  // the title and its property lines.
+  const start = whole ? Math.max(0, titleLine(drawn).line) + 1 : 0, meta = whole ? metadataLines(drawn, null) : new Set<number>();
+  const blockLine = source.lines.findIndex((l, i) => i >= start && !meta.has(i) && l.trim());
   for (let k = target.out.length - 1; k >= 0; k--) {
     const t = target.out[k]!, s = source.out[k]!;
-    // The note's figure block: nothing above it but its title (line 1).
-    const first = source.lines.slice(1, s.from).every(l => !l.trim());
+    const first = s.from === blockLine;
     const ascii = figureAscii(s.kind, figureSource(source.lines.slice(s.from + 1, s.to), note, first), FIGURE_WIDTH);
     lines.splice(t.from, Math.min(t.to, lines.length - 1) - t.from + 1, "```", ...ascii, "```");
   }
@@ -146,7 +151,7 @@ export function exportFiles(roots: readonly BlockRecord[], byId: ReadonlyMap<str
   }
   const linked = (r: BlockRecord, whole: boolean) => {
     const raw = whole ? r.text : r.body, text = o.resolveLinks ? resolveLinks(r, files, whole) : raw;
-    return o.source ? text : figuresAsAscii(text, r.id, raw);
+    return o.source ? text : figuresAsAscii(text, r.id, raw, whole);
   };
   return own.map(r => {
     const lines: string[] = [];

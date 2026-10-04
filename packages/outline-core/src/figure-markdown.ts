@@ -87,10 +87,15 @@ export function figureRow(source: string, line = 0, depth = 0, ordinal: number |
   let rest = source.trim(), done: boolean | null = null;
   const box = BOX.exec(rest);
   if (box) { done = box[1] !== " "; rest = rest.slice(box[0].length); }
+  // Emphasis around the whole row, its side note inside (`**a — b**`): the row is marked, the note still its own.
+  const outer = unwrapEmphasis(rest);
+  const wrapped = outer.emphasis && NOTE.test(outer.text) ? outer.emphasis : null;
+  if (wrapped) rest = outer.text;
   let note: string | null = null;
   const dash = NOTE.exec(rest);
   if (dash) { note = rest.slice(dash.index + dash[0].length).trim() || null; rest = rest.slice(0, dash.index).trim(); }
   let { text, emphasis } = unwrapEmphasis(rest);
+  emphasis ??= wrapped;
   // A row that starts with a bold or italic span (`**Raised beds** for the squash`) is marked as that span is.
   if (!emphasis) {
     const lead = /^(\*\*|__|\*|_)(?![*_\s])(.+?)(?<![\s*_])\1(?=[\s:])(.*)$/.exec(text);

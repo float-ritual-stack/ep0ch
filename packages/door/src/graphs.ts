@@ -329,8 +329,12 @@ function propsOf(kind: string, src: FigureSource): { props: Props; children: boo
   if (typeof yaml !== "object" || Array.isArray(yaml)) return { error: "the YAML between --- lines is a map of props (title: …)" };
   const md: Markdown = parseFigureMarkdown(src.markdown ?? []);
   // The fields this kind's rows give that the YAML leaves open: only those can come from child bullets.
-  const rowFields = Object.keys(MARKDOWN[kind]?.({ rows: [figureRow("2026-03-02: 1")], paragraphs: [], fences: [] }, {}) ?? {}).filter(k => !(k in yaml));
-  const wantsChildren = !!src.note && rowFields.length > 0 && (yaml.rows === "children" || (src.block === true && yaml.rows !== "body"));
+  // The first field a kind's rows give is its rows (events, items, marks, days…); the rest go with them (a calendar's
+  // month, an uptime's dates). A YAML that gives the rows, or asks the outline for them, takes none from children.
+  const probe = Object.keys(MARKDOWN[kind]?.({ rows: [figureRow("2026-03-02: 1")], paragraphs: [], fences: [] }, {}) ?? {});
+  const rowFields = probe.filter(k => !(k in yaml));
+  const own = (probe[0] !== undefined && probe[0] in yaml) || !!(yaml.query || yaml.view || yaml.source);
+  const wantsChildren = !!src.note && !own && rowFields.length > 0 && (yaml.rows === "children" || (src.block === true && yaml.rows !== "body"));
   const kids = wantsChildren ? childRows(src.note!) : null;
   if (kids) md.rows.push(...kids.rows);
   const from = MARKDOWN[kind]?.(md, yaml) ?? {};

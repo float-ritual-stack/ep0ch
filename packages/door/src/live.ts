@@ -116,8 +116,13 @@ function cached(key: string, fetch: () => Promise<Omit<Entry, "state" | "at">>):
   if (!hit || hit.at < generation) {
     const entry: Entry = hit ? { ...hit, at: generation } : { state: "loading", items: [], truncated: false, at: generation };
     cache.set(key, entry);
-    const q = fetch().then(r => { cache.set(key, { state: "ready", ...r, at: generation }); changed(); },
-      e => { cache.set(key, { state: "error", items: [], truncated: false, error: String(e.message ?? e), at: generation }); changed(); });
+    // Kept as of when it was asked, and only while the same outline is connected: an answer from the outline before
+    // a swap (drawNote lending the connection) is never this one's.
+    const asked = generation, from = board;
+    // …nor kept over a newer answer.
+    const keep = () => board === from && (cache.get(key)?.at ?? -1) <= asked;
+    const q = fetch().then(r => { if (keep()) { cache.set(key, { state: "ready", ...r, at: asked }); changed(); } },
+      e => { if (keep()) { cache.set(key, { state: "error", items: [], truncated: false, error: String(e.message ?? e), at: asked }); changed(); } });
     asking.add(q);
     void q.finally(() => asking.delete(q));
     return entry;

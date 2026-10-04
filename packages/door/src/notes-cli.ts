@@ -17,7 +17,7 @@
 import { linesToCells } from "./cells";
 import { connectFigures } from "./graphs";
 import { listenLive, liveBoard, liveSettled, liveSource, setLiveSource } from "./live";
-import { linksSource, setLinksSource } from "./links";
+import { linksSource, listenLinks, setLinksSource } from "./links";
 import { resolveTarget } from "./discover";
 import { redundantLabel } from "./authored";
 import { forwardTo } from "./machine";
@@ -343,7 +343,8 @@ export async function drawNote(board: SocketBoard, id: string, width: number, se
   // draw and gets it back after.
   const lent = liveBoard() === board ? null : { live: liveSource(), links: linksSource() };
   if (lent) connectFigures(board, () => {});
-  const unlisten = listenLive(() => { arrived = true; });
+  // Either kind of answer arriving (a live figure's, a link title's or ::links') draws it again.
+  const unlistenLive = listenLive(() => { arrived = true; }), unlistenLinks = listenLinks(() => { arrived = true; });
   const surface = new NoteSurface(), tall = 100_000, end = Date.now() + settle.max;
   // Nobody presses a key in what show prints: folded callouts come unfolded, with no "z unfolds".
   surface.unfold = true;
@@ -364,7 +365,7 @@ export async function drawNote(board: SocketBoard, id: string, width: number, se
     // The last draw while the connection is still this outline's.
     drawn = surface.render(width, tall, host).lines;
   } finally {
-    unlisten();
+    unlistenLive(); unlistenLinks();
     if (lent) { setLiveSource(lent.live.board, lent.live.redraw); setLinksSource(lent.links.board, lent.links.redraw); }
   }
   const lines = drawn.map(l => paintable(l).replace(TAGS, "").replace(MARKS, ""));

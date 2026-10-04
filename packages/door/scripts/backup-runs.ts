@@ -8,7 +8,10 @@
 //
 //   bun scripts/backup-runs.ts --ws pie --source restic -- ~/.local/bin/ep0ch-snapshot   (runs it; exits as it did)
 //   bun scripts/backup-runs.ts --ws pie --source litestream --status degraded            (records a run told about)
+import { existsSync } from "node:fs";
+import { homedir } from "node:os";
 import { boardFor } from "../src/notes-cli";
+import { isoOf, today } from "../src/figures/days";
 import type { Actor } from "../src/socket";
 
 const USAGE = `bun scripts/backup-runs.ts [--ws <outline>] [--machine <host>] [--source <name>] [--under <id>]
@@ -26,7 +29,9 @@ export function runNote(run: { source: string; status: string; date: string; too
 export const took = (ms: number) => { const s = Math.round(ms / 1000); return s >= 60 ? `${Math.floor(s / 60)}m ${s % 60}s` : `${s}s`; };
 
 /** Today on this machine's clock, `YYYY-MM-DD`. */
-const localDate = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
+const localDate = () => isoOf(today());
+/** This script as a command that runs from anywhere (a timer's working directory isn't this repository). */
+const SELF = `bun ${import.meta.path}`;
 
 if (import.meta.main) {
   const argv = process.argv.slice(2);
@@ -39,10 +44,13 @@ if (import.meta.main) {
   const again = (flag: string, to: string) => {
     const at = flags.indexOf(flag);
     const next = at >= 0 ? flags.map((f, i) => (i === at + 1 ? to : f)) : [...flags, flag, to];
-    return `bun scripts/backup-runs.ts ${next.join(" ")}`;
+    return `${SELF} ${next.join(" ")}`;
   };
   if (!command.length && !status) {
-    console.error(`backup-runs: run the backup after -- (${`bun scripts/backup-runs.ts ${flags.join(" ")} -- ~/.local/bin/ep0ch-snapshot`.replace(/  +/g, " ")}), or say how a run went: ${again("--status", "ok")}\n  ${USAGE}`);
+    // The snapshot command this machine has, when it has one; else the run is said with --status.
+    const snapshot = `${homedir()}/.local/bin/ep0ch-snapshot`;
+    const run = existsSync(snapshot) ? `run the backup after -- (${`${SELF} ${flags.join(" ")} -- ${snapshot}`.replace(/  +/g, " ")}), or ` : "";
+    console.error(`backup-runs: ${run}say how a run went: ${again("--status", "ok")}\n  ${USAGE}`);
     process.exit(2);
   }
   if (status && !(STATUSES as readonly string[]).includes(status)) { console.error(`backup-runs: --status is ${STATUSES.join(", ")}, not ${status}: ${again("--status", "ok")}`); process.exit(2); }
@@ -59,7 +67,7 @@ if (import.meta.main) {
   // The run is recorded after it ran: a backup never waits on the outline, and an outline that is down loses one note.
   const board = await boardFor(flags);
   if ("error" in board) {
-    console.error(`backup-runs: ${board.error}; the run (${status}) wasn't recorded. Record it by hand: bun scripts/backup-runs.ts ${[...flags.filter((f, i) => f !== "--status" && flags[i - 1] !== "--status" && f !== "--date" && flags[i - 1] !== "--date"), "--status", status!, "--date", date].join(" ")}`);
+    console.error(`backup-runs: ${board.error}; the run (${status}) wasn't recorded. Record it by hand: ${SELF} ${[...flags.filter((f, i) => f !== "--status" && flags[i - 1] !== "--status" && f !== "--date" && flags[i - 1] !== "--date"), "--status", status!, "--date", date].join(" ")}`);
     process.exit(code || 1);
   }
   try {
