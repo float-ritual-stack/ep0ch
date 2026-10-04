@@ -30,7 +30,7 @@ export interface Where {
     pid: number | null; control: string | null; answers: boolean; screen: string | null; outline: string | null; workspace: string | null;
     /** The machine the door's outline host runs on (its hostname), and the ssh name the door reached it by (null: this machine's host). */
     host: string | null; machine: string | null;
-    /** `dock`: the tile is the door's agent drawer (PIE-498), not a desk tile. */
+    /** `dock`: the tile is the door's dock (PIE-498), not a desk tile. */
     tile: { id: string | null; name: string | null; found: boolean; shown: boolean | null; focused: boolean | null; descends: boolean | null; dock?: boolean } | null;
     /** The door that answers isn't the one in the nest: the Herdr agent's pane, now shown by another door. */
     moved: boolean;
@@ -131,12 +131,21 @@ export async function where(d: WhereDeps): Promise<Where> {
   const myTileId = inner?.tileId ?? env.EP0CH_TILE_ID ?? null;
   const myTileName = inner?.tile ?? env.EP0CH_TILE ?? null;
   const ancestors = d.ancestors(d.pid);
-  // The door's agent drawer (PIE-498): a tile the App owns, on every screen, up (`shown`) or put away.
+  // The door's dock (PIE-498): a tile the App owns, on every screen, up (`shown`) or put away.
   const dv = peek?.screen?.dock;
   const dockTile = dv?.tile?.id ? { id: dv.tile.id, name: dv.tile.name, shown: !!dv.shown, focused: !!dv.entered, herdr: dv.herdr, terminal: dv.terminal, dock: true } : null;
   // In the Herdr agent's pane, "my tile" is whichever tile shows that pane now; elsewhere the tile by id, else name.
   let tile = agentPane ? tilePanes.find(p => p?.herdr?.pane === agentPane) ?? (dockTile?.herdr?.pane === agentPane ? dockTile : undefined) : undefined;
   if (!tile && !agentPane && dockTile && myTileId === dockTile.id) tile = dockTile;
+  // A terminal's program finds its tile by its pid first: a tile moved between screens or out of the dock (PIE-498) has an
+  // id there it wasn't started with, and its old EP0CH_TILE_ID may name another tile now.
+  if (!tile && !agentPane) tile = tilePanes.find(p => typeof p?.terminal?.pid === "number" && (ancestors.includes(p.terminal.pid) || d.pid === p.terminal.pid));
+  // A terminal moved into the dock (PIE-498) keeps the EP0CH_TILE_ID of the screen it started on: found by its program.
+  if (!tile && !agentPane && Array.isArray(dv?.tiles)) {
+    const t = dv.tiles.find((x: any) => typeof x?.pid === "number" && (ancestors.includes(x.pid) || d.pid === x.pid));
+    if (t) tile = { id: t.id, name: t.name, shown: !!dv.shown && !!t.shown, focused: !!t.focused, terminal: { pid: t.pid }, dock: true };
+  }
+  // Only then by its id (else its name): a moved terminal's stale EP0CH_TILE_ID never wins over its pid.
   if (!tile && !agentPane) tile = tilePanes.find(p => myTileId && p?.id === myTileId) ?? (tilePanes.some(p => p?.id) ? undefined : tilePanes.find(p => p?.name === myTileName));
   const answeringPid = typeof peek?.screen?.pid === "number" ? peek.screen.pid : null;
   const inDoor = !!(inner || control);
@@ -190,7 +199,7 @@ export async function where(d: WhereDeps): Promise<Where> {
   // In the Herdr agent's pane: the tile showing it now, whichever door that is.
   if (agentPane && door) {
     const t = door.tile;
-    layers.push({ kind: "tile", raw: "", label: t?.found ? `shown in ${t.dock ? "the agent drawer" : "tile"} ${t.id ?? "?"} ${t.name}${moved ? ` of door ${answeringPid}` : ""}` : "shown in no tile",
+    layers.push({ kind: "tile", raw: "", label: t?.found ? `shown in ${t.dock ? "the dock" : "tile"} ${t.id ?? "?"} ${t.name}${moved ? ` of door ${answeringPid}` : ""}` : "shown in no tile",
       live: peek ? !!t?.found : null, why: !peek ? "no door answers on EP0CH_CONTROL (the agent runs on in Herdr)" : t?.found ? "the tile attached to this pane" : "no tile of the door shows this pane" });
   }
 
@@ -208,7 +217,7 @@ export async function where(d: WhereDeps): Promise<Where> {
 function tileLayer(id: string | null, name: string, t: NonNullable<Where["door"]>["tile"], peek: any, desk: any, moved: boolean): WhereLayer {
   const label = `tile ${id ?? "?"} ${name}`;
   if (!peek || moved) return { kind: "tile", raw: "", label, live: null, why: peek ? "another door answers" : "no door to ask" };
-  if (t?.dock) return { kind: "tile", raw: "", label, live: true, why: `the agent drawer, on every screen · ${t.shown ? "pulled up" : "put away"}${t.descends === true ? " · this process runs in it" : ""}` };
+  if (t?.dock) return { kind: "tile", raw: "", label, live: true, why: `the dock, on every screen · ${t.shown ? "pulled up" : "put away"}${t.descends === true ? " · this process runs in it" : ""}` };
   if (!desk) return { kind: "tile", raw: "", label, live: null, why: `the door is on ${peek.screen?.screen ?? "another screen"}, not the desk: the tile runs in the background` };
   if (!t?.found) return { kind: "tile", raw: "", label, live: false, why: "the desk has no such tile now" };
   return { kind: "tile", raw: "", label, live: true, why: `on the desk${t.shown ? "" : " (hidden: a drawer or another tab)"}${t.descends === true ? " · this process runs in it" : t.descends === false ? " · but this process isn't its program's" : ""}` };
@@ -217,10 +226,13 @@ function tileLayer(id: string | null, name: string, t: NonNullable<Where["door"]
 function keysOf(peek: any, desk: any, door: Where["door"], agentPane: string | null, panes: any[] | null, env: Record<string, string | undefined>): WhereKeys {
   if (door && peek) {
     const screen = peek.screen?.screen ?? "?";
-    // The person typing in the agent drawer (PIE-498): over any screen, the desk's focus doesn't matter then.
+    // The person typing in the dock (PIE-498): over any screen, the desk's focus doesn't matter then.
     if (peek.screen?.dock?.entered) {
-      const mine = !!door.tile?.dock || (!!agentPane && peek.screen.dock.herdr?.pane === agentPane);
-      return { mine, typing: true, tile: peek.screen.dock.tile?.id ?? null, text: mine ? "the person is typing in this tile (the agent drawer)" : `the person is typing in the agent drawer over the ${screen}, not this tile` };
+      // Which of the dock's tabs: its own (the agent), or a docked tile.
+      const dv = peek.screen.dock, typed = Array.isArray(dv.tiles) ? dv.tiles.find((x: any) => x?.focused) : null;
+      const own = !typed || typed.name === "dock.agent";
+      const mine = own ? (!!door.tile?.dock && door.tile.id === dv.tile?.id) || (!!agentPane && dv.herdr?.pane === agentPane) : !!door.tile?.dock && door.tile.id === typed.id;
+      return { mine, typing: true, tile: own ? dv.tile?.id ?? null : typed.id, text: mine ? "the person is typing in this tile (the dock)" : `the person is typing in the dock over the ${screen}, not this tile` };
     }
     if (!desk) return { mine: false, typing: false, tile: null, text: `the person is on the door's ${screen} screen, not the desk` };
     const mine = door.tile?.found ? door.tile.name : null;

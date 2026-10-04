@@ -164,9 +164,9 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     },
   }),
   "tile.float": def({
-    summary: "pop tile=<tile> out of the layout as a float over everything (its own rectangle; the board floats a copy of its preview), or dock a float back (on the board, as a detail). Refused where policy keeps the tile in place, and to an agent for the tile that has the person's keys",
-    keys: "^W f; board o; a click on a float's ⧉ docks it",
-    touches: "shape", replay: "safe", says: r => `${r.floated ? "popped out" : "docked"} ${r.tile}`,
+    summary: "pop tile=<tile> out of the layout as a float over everything (its own rectangle; the board floats a copy of its preview), or put a float back in the layout (on the board, as a detail). Refused where policy keeps the tile in place, and to an agent for the tile that has the person's keys",
+    keys: "^W f; board o; a click on the focused tile's ⧉ floats it, on a float's ⧉ puts it back; while dragging a tile, f",
+    touches: "shape", replay: "safe", says: r => `${r.floated ? "popped out" : "put back"} ${r.tile}`,
     args: {},
     run(_, { d, reader }, actor) {
       return d.floatTile(reader, actor);
@@ -192,10 +192,10 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     },
   }),
   "tile.pin": def({
-    summary: "put tile=<tile> in a drawer, a container that slides over the others without moving them (on=false), or take its drawer away so what it holds is docked where it was (on=true); default toggles. On the board tile=tree and tile=backlinks are its outline and backlinks drawers, each a whole container (the list and its preview). A tab set goes in as one; container=<id> (a split of tiles, from layout.get) goes in whole. edge=left, right, up or down: the drawer slides from that outer edge of the whole layout (a tile not in one is put in one there; a drawer moves there). Anything moved or opened into a drawer lives in it. Refused on a locked screen",
-    keys: "^W p; ^W P then edge (⏎ or a click cycles it); board T, B; a click on a header's ⇤ drawer docks it",
-    touches: "shape", replay: "safe", confirms: true, says: r => (r.changed === false ? null : r.pinned ? `docked ${r.tile}` : `put ${r.tile} in a drawer on the ${EDGE_WORD[r.edge as Dir] ?? r.edge}`),
-    args: { on: { type: "boolean", optional: true, about: "false puts it in a drawer, true docks it again" }, edge: { type: "string", optional: true, about: "left, right, up or down: the outer edge the drawer slides from; other: the opposite side to where it is (docked, it stays docked there)" }, container: { type: "string", optional: true, about: "a split (s<n>) to put in the drawer whole, instead of the tile's own slot" } },
+    summary: "put tile=<tile> in a drawer, a container that slides over the others without moving them (on=false), or take its drawer away so what it holds is pinned where it was (on=true); default toggles. On the board tile=tree and tile=backlinks are its outline and backlinks drawers, each a whole container (the list and its preview). A tab set goes in as one; container=<id> (a split of tiles, from layout.get) goes in whole. edge=left, right, up or down: the drawer slides from that outer edge of the whole layout (a tile not in one is put in one there; a drawer moves there). Anything moved or opened into a drawer lives in it. Refused on a locked screen",
+    keys: "^W p; ^W P then edge (⏎ or a click cycles it); board T, B; a click on a header's ⇤ drawer pins it; while dragging a tile, p",
+    touches: "shape", replay: "safe", confirms: true, says: r => (r.changed === false ? null : r.pinned ? `pinned ${r.tile}` : `put ${r.tile} in a drawer on the ${EDGE_WORD[r.edge as Dir] ?? r.edge}`),
+    args: { on: { type: "boolean", optional: true, about: "false puts it in a drawer, true pins it in the layout again" }, edge: { type: "string", optional: true, about: "left, right, up or down: the outer edge the drawer slides from; other: the opposite side to where it is (pinned, it stays pinned there)" }, container: { type: "string", optional: true, about: "a split (s<n>) to put in the drawer whole, instead of the tile's own slot" } },
     run({ on, edge, container }, { d, reader }, actor) {
       if (edge !== undefined && !isDir(edge) && edge !== "other") throw new ActionRefused(`tile.pin: edge is left, right, up, down or other, not ${edge}`);
       return d.pinTile(reader, on, edge as Dir | "other" | undefined, actor, container);
@@ -222,12 +222,26 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
       return d.travelTile(reader, dir === "forward" ? 1 : -1, actor);
     },
   }),
-  "tile.dock": def({
-    summary: "dock tile=<tile>'s column in its flow so it resists compression (on=false lets it go; default toggles), the river's p. Refused outside a flow and where its flow is locked",
+  "tile.hold": def({
+    summary: "hold tile=<tile>'s column full in its flow so it resists compression (on=false lets it go; default toggles), the river's p. Refused outside a flow and where its flow is locked",
     keys: "river column: p",
-    touches: "shape", replay: "safe", says: r => `${r.docked ? "docked" : "undocked"} ${r.tile}`,
-    args: { on: { type: "boolean", optional: true, about: "true docks, false lets it go; default toggles" } },
-    run({ on }, { d, reader }, actor) { return d.dockTile(reader, on, actor); },
+    touches: "shape", replay: "safe", says: r => `${r.held ? "held" : "let go of"} ${r.tile}`,
+    args: { on: { type: "boolean", optional: true, about: "true holds it, false lets it go; default toggles" } },
+    run({ on }, { d, reader }, actor) { return d.holdTile(reader, on, actor); },
+  }),
+  "host.dock": def({
+    summary: "the dock (PIE-498): tile=<tile> goes into the dock, the host layer's drawer that travels with the person across screens (on=true, the default for a tile on a screen), keeping its program, note and history: the same tile, moved, never started again; or a tile in the dock comes back into the screen shown (on=false, the default for a docked tile; on=false named from a screen brings the dock's tab shown), beside to=<tile> (where=left, right, up, down, tabs, edge-<side>; left out, beside the tile the person has). An agent's leaves the person's keys where they are and never moves the tile they type in or have; refused where the layout keeps the tile (locked, draggable off, a lane), and for the dock's own first tab",
+    keys: "^W a (on a screen: into the dock; in the dock: back out); ^W A on a screen: the dock's tab shown comes beside your tile; drag a tile's title onto the status bar's dock chip or the open drawer; a while dragging; drag a dock tab's title out onto the screen",
+    touches: "shape", replay: "safe", confirms: true,
+    says: r => (r.changed === false ? null : r.docked ? `docked ${r.tile}${r.from ? ` from the ${r.from}` : ""}` : `undocked ${r.tile} into the ${r.into ?? "screen"}`),
+    args: {
+      on: { type: "boolean", optional: true, about: "true: into the dock; false: out of it into the screen shown; left out, whichever it isn't" },
+      to: { type: "string", optional: true, about: "on=false: the screen's tile it goes beside (its name); left out, the tile the person has" },
+      where: { type: "string", optional: true, about: "on=false: left, right, up, down, tabs, edge-left, edge-right, edge-up, edge-down" },
+    },
+    run({ on, to, where }, { d, reader }, actor) {
+      return d.dockTile(reader, on, to, where !== undefined ? whereOf(where, "host.dock", "right") : undefined, actor);
+    },
   }),
   "tile.widen": def({
     summary: "give tile=<tile>'s column the wide place in its flow (the river's shift, PIE-513): the flow is laid out around it, and the column the person was reading stays full beside it. The person's keys stay where they are; moving them between columns never moves a column. Refused outside a flow and where its flow is locked",

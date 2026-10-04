@@ -7,7 +7,6 @@
 //
 // Screen notes in the outline (PIE-412's slice 3) aren't built yet, so layouts live in the door's state
 // only; the saved form is the same one desk.json uses, ready to be written into a note when they are.
-import { homedir } from "node:os";
 import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { readState, stateDir, writeState } from "../state";
@@ -35,6 +34,11 @@ export interface TileSpec {
   cmd?: string[];
   cwd?: string;
   file?: string;
+  /**
+   * The key its program runs under in a session's terminal host, when that isn't `<home>:<its id>`: a terminal tile moved
+   * between screens or into the dock (PIE-498) adopts its own program after a restart by it.
+   */
+  kept?: string;
   /** A preview's source: `tile:<name>` or `file:<path>`; a backlinks tile's: `tile:<name>`. */
   source?: string;
   /** A board tile: false when its own preview strip is collapsed and a preview tile follows it instead. */
@@ -77,10 +81,10 @@ export interface SavedFloat { tile: TileSpec; rect: { col: number; row: number; 
  * never a number (`3` and `#3` are the tile numbered 3 on screen), never an id, and never holds the `:` of a
  * `tile:<name>` source. Null when it's a good name, else what's wrong, in words.
  */
-export const ID_SHAPE = /^[tsg]\d+$/;
+export const ID_SHAPE = /^[tsgk]\d+$/;
 export function tileNameProblem(name: string): string | null {
   if (/^#?\d+$/.test(name)) return `a tile's name isn't a number (${name} would be read as the tile numbered ${name.replace("#", "")} on screen); start it with a letter`;
-  if (ID_SHAPE.test(name)) return `a tile's name isn't shaped like an id (${name}: t, s or g and digits are tile, split and tab set ids)`;
+  if (ID_SHAPE.test(name)) return `a tile's name isn't shaped like an id (${name}: t, s, g or k and digits are tile, split, tab set and dock tile ids)`;
   if (/^[A-Za-z][\w.-]{0,39}$/.test(name)) return null;
   return `a tile's name starts with a letter, then letters, digits, . - or _, at most 40 (not ${JSON.stringify(name)}; # is for numbers on screen)`;
 }
@@ -126,13 +130,6 @@ export class DetailPane extends ReaderPane {
 export const shell = () => process.env.SHELL || "sh";
 /** The editor the daily layout starts: $VISUAL, $EDITOR, nvim where it's installed, else vi. */
 export const editor = () => process.env.VISUAL || process.env.EDITOR || (Bun.which("nvim") ? "nvim" : "vi");
-
-/** The daily agent's program and folder, read now: EP0CH_DAILY_AGENT ("claude" unset) and EP0CH_DAILY_CWD (~ allowed; unset, the door's own folder). */
-export function dailyAgent(): { cmd: string[]; cwd?: string } {
-  const cmd = words(process.env.EP0CH_DAILY_AGENT || "claude");
-  const cwd = process.env.EP0CH_DAILY_CWD?.trim().replace(/^~(?=$|\/)/, homedir());
-  return { cmd: cmd.length ? cmd : ["claude"], ...(cwd ? { cwd } : {}) };
-}
 
 /** The daily scratch file the editor tile opens: EP0CH_DAILY_DRAFT, or scratch.md in the door's state. */
 export function dailyDraft(): string {

@@ -1,11 +1,11 @@
 // The River (Quay) as a screen spec on the desk (PIE-515): its columns are tiles of one kind, `river.column`, in a
 // flow container, the layout engine's (PIE-513: full → peek → spine around the wide column, opens into the next
-// column, back and forward by the trail, docked columns). A column is a reader of the shared note surface whose view
+// column, back and forward by the trail, held columns). A column is a reader of the shared note surface whose view
 // is the river's own: the Library (every top-level note), a note with its replies, or a #value virtual branch (every
 // note with key::value). Reading keeps the river's cards; editing, quoting and comment threads draw the surface in the
 // column, with the same keys and the same actions as every reader. What the column adds is its own: picking a card,
 // replies in place, a filter, a column of the same property, a column stacked under it, its text selected and copied.
-// The layout (widen, dock, close, back and forward) is the engine's tile actions.
+// The layout (widen, hold, close, back and forward) is the engine's tile actions.
 import { bodyLinesOf, subject, type Msg } from "../board";
 import { USER, type Actor, type IndexBlock, type OutlineEvent, type SocketBoard } from "../socket";
 import { ActionRefused, actionSet, def, keyName } from "../surface/actions";
@@ -741,7 +741,7 @@ export class RiverColumn extends ReaderPane {
 
 const columnOf = (pane: unknown): RiverColumn => { if (!(pane instanceof RiverColumn)) throw new ActionRefused("that tile isn't a river column"); return pane; };
 
-/** A column's own actions (the layout's, widen, dock, close, back and forward, are the desk's tile actions). */
+/** A column's own actions (the layout's, widen, hold, close, back and forward, are the desk's tile actions). */
 export const COLUMN_ACTIONS = actionSet<KindHost>()("river", {
   "column.select": def({
     summary: "select a note a river column lists (in the Library and a #tag column, that's the note e and C act on): id=, the nth row (n=, from 1), or by= rows from the selected one (j k: 1 -1). An agent's is refused on the column the person has the keys in (its selection is their cursor, id= too); elsewhere it picks a note for its own note actions",
@@ -828,13 +828,13 @@ export const COLUMN_ACTIONS = actionSet<KindHost>()("river", {
 
 /**
  * A column's keys for the flow it's in (the layout's tile actions), the column's own on any screen: h l and ← → the
- * column beside, w widen, p dock, x close, g search. Back and forward (alt+← backspace alt+→) are its surface's history,
+ * column beside, w widen, p hold (keep full), x close, g search. Back and forward (alt+← backspace alt+→) are its surface's history,
  * which goes along the flow's trail (`host`).
  */
 const FLOW_KEYS: Record<string, { action: string; args?: Record<string, unknown> }> = {
   h: { action: "tile.focus", args: { dir: "left" } }, left: { action: "tile.focus", args: { dir: "left" } },
   l: { action: "tile.focus", args: { dir: "right" } }, right: { action: "tile.focus", args: { dir: "right" } },
-  w: { action: "tile.widen" }, p: { action: "tile.dock" }, x: { action: "tile.close" }, g: { action: "search" },
+  w: { action: "tile.widen" }, p: { action: "tile.hold" }, x: { action: "tile.close" }, g: { action: "search" },
 };
 
 /** The river column as a tile kind: a reader of the river's own view, opening a column of its own kind next. */
@@ -859,7 +859,7 @@ export function riverColumnKind(): TileKind {
   };
 }
 
-const HINT = "|08 |15h l|08 columns · |15w|08 widen · |15j k|08 notes · |15⏎|08 open beside · |15alt⏎|08 duplicate · |15space|08 replies · |15/|08 filter this column · |15#|08 same property · |15s|08 split · |15p|08 dock · |15x|08 close · |15alt+←|08 back · |15g|08 go to · |15q|08 menu";
+const HINT = "|08 |15h l|08 columns · |15w|08 widen · |15j k|08 notes · |15⏎|08 open beside · |15alt⏎|08 duplicate · |15space|08 replies · |15/|08 filter this column · |15#|08 same property · |15s|08 split · |15p|08 hold full · |15x|08 close · |15alt+←|08 back · |15g|08 go to · |15q|08 menu";
 
 /** The river as a screen spec: a flow of columns, the Library first; opens go into the next column. */
 export function riverSpec(): ScreenSpec {
@@ -867,7 +867,7 @@ export function riverSpec(): ScreenSpec {
     name: "river", title: "river", digits: false, saves: "river.json", lands: "river",
     // The Library is what the river is made around: it doesn't close (closable off, held by its tab set of one, as the
     // board's preview's is), so a saved river always comes back with it.
-    layout: { focus: "library", root: { t: "flow", key: "river", docked: [0], kids: [{ t: "tabs", tabs: [{ t: "leaf", kind: "river.column", name: "library", source: "roots" } as TileSpec], active: 0, policy: { closable: false } }] } },
+    layout: { focus: "library", root: { t: "flow", key: "river", held: [0], kids: [{ t: "tabs", tabs: [{ t: "leaf", kind: "river.column", name: "library", source: "roots" } as TileSpec], active: 0, policy: { closable: false } }] } },
     hint: { "river.column": HINT },
   };
 }

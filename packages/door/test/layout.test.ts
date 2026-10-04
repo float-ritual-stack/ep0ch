@@ -227,7 +227,7 @@ describe("saved forms", () => {
     const t = revive({ t: "split", dir: "row", kids: [{ t: "leaf" }, null, 7, { t: "leaf" }], weights: [1, 1, 1, 1] } as any, () => ++n);
     expect(normalise(t)).toMatchObject({ t: "split", kids: [leaf(1), leaf(2)] });
     expect(normalise(revive({ t: "split", dir: "col", ratio: 0.5, a: null, b: { t: "leaf" } } as any, () => 9))).toEqual(leaf(9));
-    expect(normalise(revive({ t: "flow", kids: [null, { t: "leaf" }], docked: [0] } as any, () => 4))).toMatchObject({ t: "flow", kids: [leaf(4)] });
+    expect(normalise(revive({ t: "flow", kids: [null, { t: "leaf" }], held: [0] } as any, () => 4))).toMatchObject({ t: "flow", kids: [leaf(4)] });
   });
 
   test("round 3 (B-L1): a desk.json with a null kid starts the desk with the tiles it has", async () => {

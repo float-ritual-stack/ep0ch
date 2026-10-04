@@ -132,7 +132,7 @@ So nobody has to ask which outline Claude's tools reach (PIE-546), the mod says 
   - **careful** (yellow): the folder names one outline and the door Claude sits in is on another. The outline
     tools write to the folder's; the door tools act in the door's;
   - **Claude:** the machine and folder Claude runs in;
-  - **door:** the agent drawer or a tile of which door, or not in a door, and the Herdr pane;
+  - **door:** the dock or a tile of which door, or not in a door, and the Herdr pane;
   - **tools:** one set, from this mod.
 
   Beside Recent mentions the card keeps to the binding (outline, why, the yellow line), so the mentions'

@@ -38,6 +38,14 @@ move into one repository (PIE-530).
   saying which side to update. `ep0ch install --apply` restarts the host. Restart doors and Claude sessions that
   should run the new code.
 - **Delete `~/.config/pi-herdr-outliner/document-renderers.json`** if you have one. Nothing reads it now.
+- **Your shell's dock settings (float-2's `~/.bashrc`).** Delete `EP0CH_HERDR_AGENT_CMD` (nothing reads it) and
+  `EP0CH_DAILY_AGENT` (it overrides the dock's choice in every door), and choose in the dock instead (`alt+g`, "claude
+  · in Herdr"). Drop `EP0CH_DAILY_CWD` to let each outline's dock start in its project or outline folder.
+  `~/.local/bin/door-claude` isn't used any more. An old `door-claude` Herdr pane stays until you close it.
+- **The dock's program and folder.** With `EP0CH_DAILY_AGENT` unset the dock now runs a shell. If you set
+  `EP0CH_DAILY_CWD` to pin its Claude to a folder, drop it to let the dock follow the outline (the project's `.ep0ch`
+  folder, else the outline's own); `ep0ch doctor` shows the result. An existing Herdr `door-claude` pane keeps the
+  folder it was made in until it's made again (`/exit` in it, then `alt+a`).
 - **Agent skills.** `ep0ch doctor` checks the links in `~/.claude/skills/` (and `~/.agents/skills/` when it exists)
   for the stack's skills, and `ep0ch install --apply` makes them, or replaces a link into an old `ep0ch-door`
   checkout or a deleted worktree. It never touches a real folder or another skill's link. If you ran an earlier
@@ -423,6 +431,54 @@ The river's replies under a note are read again the same way. Restart the door (
   - `ep0ch outline list --all`: every outline, here and on the machines you opened;
   - `ep0ch open ((id))` takes the bracketed form.
 
+### No dead panes; choose the dock's agent; one agent per outline session (PIE-498)
+
+- **Quitting an agent leaves you a shell.** Every agent, in the dock or a terminal tile (`claude`, `codex`, `pi`, the
+  Herdr pane's too), starts inside your login shell. When it exits or crashes, the tile says `claude exited · shell`
+  and is your shell, in the same folder with the same environment: `claude --resume`, another agent, anything.
+  Nothing restarts it behind your back.
+- **Choose the dock's agent.** `alt+g` opens a picker of the agents installed here (Herdr's agent kinds found on
+  your PATH, each also "in Herdr" when Herdr is installed) and a shell; the choice is saved per outline session
+  (`host.agent name=<agent> [herdr=true] [default=true]`). `alt+s` opens a new shell in the dock. `ep0ch doctor`
+  lists each session's dock agent, where the choice came from, and the command to change it.
+  Both work while you type in a dock terminal too (as `alt+a` does), and the picker has your keys over it. Pulling
+  the dock up the first time with no agent chosen (`alt+a`, a click on the chip) offers the picker once a door.
+- **One Herdr agent per outline session.** The Herdr pane is the session's own (`door-<outline>[--<machine>]`),
+  started with that session's `EP0CH_CONTROL`; a door on another outline never attaches it. Ending a session closes
+  its pane.
+- **Plain `claude`.** The dock no longer starts `door-claude` or adds `--continue` by itself (only `agent.restart`
+  does, when you ask). `EP0CH_HERDR_AGENT_CMD` is gone: the agent is the dock's choice.
+
+### The dock: any tile travels with you (PIE-498)
+
+- **Dock any tile.** `^W a` on a tile (a terminal with a Claude in it, a reader, the tree, a query tile) moves it into
+  the dock, the drawer the status bar's chip pulls up over every screen. So does dragging its title onto the chip or
+  the open dock, or pressing `a` while you drag it. It's the same tile, moved: a terminal's program keeps running
+  (the same pid), a reader keeps its note, history and draft. Switch to the desk, the board or the river and it's
+  still in the dock. `^W a` in the dock, or dragging its tab out over a screen, puts it back by the usual drop
+  zones. The dock shows tabs when it holds more than one; the chip says how many (`▲ claude +2`).
+- **It's kept.** What's docked is saved (`dock-tiles.json` in the outline's folder of the state dir) and comes back
+  in the next door. In a session, a docked terminal's program survives `ep0ch session upgrade` and is adopted again.
+- **The dock's own program is yours.** Its first tab runs `EP0CH_DAILY_AGENT` when you set one, else a shell (it was
+  `claude`). It starts in `EP0CH_DAILY_CWD` when you set it, else the folder of the `.ep0ch` naming the outline above
+  where the door started, else the outline's own folder, else where the door started. `ep0ch doctor` says which,
+  and why. The Herdr launcher makes a new `door-claude` pane in that folder, not the door's.
+- **Agents:** `host.dock tile=<t>` (and `on=false to=<tile> where=<side>`), attributed, never with your keys; an
+  agent can dock its own tile (`tile=$EP0CH_TILE_ID`) unless you're typing in it. `tile=` naming a docked tile
+  reaches it in the dock; a name both the screen shown and the dock have is refused, naming each tile's id.
+  `peek`'s `dock` lists `tiles` and what it `runs`.
+- **Nothing in the dock is out of reach.** A docked reader re-reads a note changed elsewhere, as a shown one does; its
+  unsaved edit asks before a quit and is copied out on a forced end or a session handover; `ep0ch where` from a
+  docked terminal names its dock tile, never a screen tile its old `EP0CH_TILE_ID` happens to match.
+- **Floats and drawers, one step each way.** `^W p` (or `tile.pin`) on a float puts it straight into a drawer, and
+  `^W f` on a tile in a drawer floats it. A click on the `⧉` in the focused tile's top right corner floats it; the
+  `⧉` before a float's title puts it back, the cell either side of it counting too. A float's other header controls
+  (a mark's label, a tile's own controls) work again: a press on its header no longer always started a drag.
+- **While dragging a tile,** `f` floats it, `p` puts it in a drawer and `a` docks it: what `^W f`, `^W p`, `^W a` run.
+- **One word, one meaning.** "Dock" is the dock above. The river's `p` (a column that keeps its full width) is
+  `tile.hold` now, "held" on its header (`⊙`); a tile in the layout rather than a drawer is "pinned" (`tile.pin`); a
+  float goes "back" into the layout. The status bar and the drawer say "the dock" for what was the agent drawer.
+
 ### Smaller changes you may notice
 
 - Who's Online (`W`) and Last Callers (`L`) are desk screens: tiles with the desk's keys, mouse and `act`. In Last
@@ -472,6 +528,9 @@ The river's replies under a note are read again the same way. Restart the door (
 - Action argument types come from each action's schema, so a wrong argument is caught when the door is built.
 
 ### Removed
+
+- **`tile.dock` and `flow.dock`** are `tile.hold` and `flow.hold` (PIE-498: "dock" is the dock). A river layout saved
+  with a held column (`docked` in its flow) comes back without the hold: press `p` on the column again.
 
 - **Component fences.** A ` ```component:<name> ` fence is an ordinary code block now. The document-renderer
   registry (`document-renderers.json`, `OUTLINER_DOCUMENT_RENDERERS`) and its one example (`status-summary`) are

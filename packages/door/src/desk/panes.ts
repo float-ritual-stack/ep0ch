@@ -81,7 +81,7 @@ export interface DeskApi {
   pane?(name: string): Pane | undefined;
   /** Tile `p`'s name (what `tile=` and `open from=` take). */
   nameOfPane?(p: Pane): string;
-  /** Tile `p` is in a drawer (not docked in the layout). */
+  /** Tile `p` is in a drawer (not pinned in the layout). */
   inDrawer?(p: Pane): boolean;
   /** The side of the screen tile `p` is on (its drawer's edge, else where it's placed). */
   sideOf?(p: Pane): "left" | "right";

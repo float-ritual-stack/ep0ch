@@ -57,7 +57,7 @@ export function agentVars(env: Record<string, string | undefined>, at: AgentAt):
 const CONTINUES = new Set(["-c", "--continue", "-r", "--resume"]);
 /**
  * A command run again by a restart: a bare `claude` gets `--continue`, so the conversation comes back (as
- * `door-claude` does by itself). Anything else, and a `claude` already told what to resume, runs as it was.
+ * a restart's own continuing). Anything else, and a `claude` already told what to resume, runs as it was.
  */
 export function withContinue(cmd: string[]): string[] {
   if (basename(cmd[0] ?? "") !== "claude" || cmd.slice(1).some(a => CONTINUES.has(a) || a.startsWith("--resume="))) return cmd;

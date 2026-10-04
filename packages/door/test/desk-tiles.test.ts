@@ -108,12 +108,6 @@ describe.skipIf(!outliner)("the desk as tiles, against a scratch outline", () =>
     expect(get().focus).toBe("tree");
   });
 
-  test("daily: EP0CH_DAILY_CWD sets the folder the agent (the host layer's) starts in, ~ meaning home", () => {
-    const { dailyAgent } = require("../src/desk/tiles");
-    process.env.EP0CH_DAILY_CWD = "~/garden";
-    try { expect(dailyAgent().cwd).toBe(`${require("node:os").homedir()}/garden`); } finally { delete process.env.EP0CH_DAILY_CWD; }
-    expect(dailyAgent().cwd).toBeUndefined();
-  });
 
   test("daily: the now tile is pinned to the now page (EP0CH_NOW_PAGE), and saves as that page, not its note", async () => {
     const now = () => [...D().panes.values()].find((p: any) => p.kind === "detail" && p.page);

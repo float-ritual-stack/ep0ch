@@ -63,14 +63,14 @@ type Shower = (after: (ctx: Ctx) => void) => void;
 const row = (ratio: number, a: number, b: number): LNode => pair("row", ratio, leaf(a), leaf(b));
 
 /** A stage: its tiles (made here, the exhibits), how they're laid out by their place (default side by side), its title. */
-interface Stage { title: string; panes: Pane[]; layout?: (ids: number[]) => LNode }
+interface Stage { title: string; panes: Pane[]; layout?: (ids: number[]) => LNode; names?: string[] }
 /**
  * A stage as a screen spec (PIE-515) on the desk, its tiles given (the showcase makes its own exhibits): each named by
  * its kind (reader, reader2), laid out as the stage says.
  */
 function stageDesk(st: Stage): Desk {
   const names = new Map<number, string>();
-  st.panes.forEach((p, i) => names.set(i, autoName({ names }, p.kind)));
+  st.panes.forEach((p, i) => names.set(i, st.names?.[i] ?? autoName({ names }, p.kind)));
   const ids = st.panes.map((_, i) => i);
   const tree = st.layout ? st.layout(ids) : ids.slice(1).reduce<LNode>((a, id) => pair("row", 0.5, a, leaf(id)), leaf(0));
   const root = serializeTree(tree, (i: number): TileSpec => ({ t: "leaf", kind: st.panes[i]!.kind, name: names.get(i)! })) as SavedTree;
@@ -174,10 +174,18 @@ export const SECTIONS: Section[] = [
   },
   {
     key: "terminal", need: "run a program beside the notes (nvim, claude, a shell)", part: "the terminal tile: a pty (Bun.Terminal) drawn through @xterm/headless; click or ⏎ types in it, ctrl+] leaves; ctrl+e edits a draft in one; its program's copy (OSC 52, Claude Code's) goes on to your clipboard through App.copy if you typed or clicked in the tile within 2 min, said \"copied from <tile>\" (or why not)", files: "src/desk/pty.ts, src/surface/editor.ts, src/surface/selection.ts",
-    aside: "the agent drawer (src/dock.ts, PIE-498): the App's one agent tile, the host layer's first tab, pulled up over (or beside) any screen, this one too, by alt+a or a click on the status bar's ▲ chip; ctrl+] gives the keys back, alt+A or its top edge sizes it (host.toggle, host.size) · where a program runs: EP0CH_NEST, ep0ch where",
+    aside: "the dock (next section; src/dock.ts, PIE-498) runs a program of its own too, its first tab, pulled up over (or beside) any screen, this one too, by alt+a or a click on the status bar's ▲ chip; ctrl+] gives the keys back, alt+A or its top edge sizes it (host.toggle, host.size) · where a program runs: EP0CH_NEST, ep0ch where",
     stage(n, show) {
       const term = new PtyPane({ cmd: ["sh", "-c", "echo 'a terminal tile: sh in a pty the door owns'; echo 'copy from it as Claude Code does:'; printf '%s\\n' \"  printf '\\\\033]52;c;%s\\\\007' \\\"\\$(printf hello | base64)\\\"\"; exec sh"], label: "shell" }), r = new ReaderPane(true);
       return deskOf({ title: "showcase · terminal", panes: [r, term], layout: ([a, b]) => row(0.5, a!, b!) }, show, [], d => { if (n.notebook) d.setCurrent(n.notebook); });
+    },
+  },
+  {
+    key: "dock", need: "carry a tile across screens (a terminal, a reader, the tree)", part: "the dock: the host layer's drawer of tabs on its own desk; host.dock moves a tile in or out whole", files: "src/dock.ts, src/desk/dock-program.ts",
+    aside: "^W a on the kettle docks it (or drag its title onto the status bar's dock chip, or press a while dragging it): it leaves this section and joins the dock, the same program running · pick another section (a screen switch), alt+a pulls the dock up there and it's still in it · ^W a in the dock, or its tab dragged out onto the screen, puts it back · `act host.dock tile=kettle` does it for an agent, attributed, never with the person's keys",
+    stage(n, show) {
+      const kettle = new PtyPane({ cmd: ["sh", "-c", "echo 'the kettle: a terminal tile to dock (^W a). Its pid:' $$; exec sh"], label: "kettle" }), r = new ReaderPane(true);
+      return deskOf({ title: "showcase · dock", panes: [kettle, r], names: ["kettle", "reader"], layout: ([a, b]) => row(0.5, a!, b!) }, show, [], d => { if (n.notebook) d.setCurrent(n.notebook); });
     },
   },
   {
@@ -409,6 +417,8 @@ export class Showcase implements Screen {
     return f;
   }
 
+  /** Screen.tilesHere: the section shown is a desk: a tile undocked here (host.dock on=false) lands in it. */
+  tilesHere(): Desk | undefined { const t = this.stage(this.sel)?.top; return t instanceof Desk ? t : undefined; }
   /** Screen.holdsKeys: the person is in the stage and its screen holds their keys (an edit, a comment, a panel). */
   holdsKeys(): boolean { return this.focus === "stage" && !!this.stages.get(this.sel)?.top.holdsKeys?.(); }
   /** Screen.rawKeys: the person is typing in the stage's terminal tile: ctrl+c and cmd+c are its program's, as on the desk. */
@@ -583,7 +593,7 @@ export class Showcase implements Screen {
 /** The showcase's own actions: which section is shown. Keys and clicks on the index call the same code. */
 export const SHOWCASE_ACTIONS = actionSet<Showcase>()("showcase", {
   "section.try": def({
-    summary: "go into a section's stage (name=<1-23> or its key, else the one shown): the person's keys and mouse go to the part itself until its own esc brings them back to the index. The person's only: an agent acts in the stage with its actions (`act` reaches the shown section's)",
+    summary: "go into a section's stage (name=<1-" + SECTIONS.length + "> or its key, else the one shown): the person's keys and mouse go to the part itself until its own esc brings them back to the index. The person's only: an agent acts in the stage with its actions (`act` reaches the shown section's)",
     keys: "⏎ → l tab, click in the stage",
     touches: "screen", replay: "safe", person: "going into a section gives it the person's keys; an agent runs the shown section's own actions instead",
     args: { name: { type: "string", optional: true, about: "the section's number or key; the one shown when left out" } },

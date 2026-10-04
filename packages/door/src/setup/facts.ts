@@ -1,6 +1,7 @@
 // What this machine's stack looks like (model.ts's Facts), gathered read-only: git (fetch and ls-remote
 // only), Herdr's own answers, the outline host's socket (`ping`, `outlines.list`), the file system. Nothing
 // here writes a database, starts a host or changes a config.
+import { dockProgram } from "../desk/dock-program";
 import { defaultStateDir } from "../state";
 import { accessSync, constants, existsSync, lstatSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
@@ -429,7 +430,27 @@ export async function gatherFacts(o: GatherOptions = {}): Promise<Facts> {
     host,
     databases: databases(folder),
     here,
+    // What this folder's outline's dock runs: its session's saved choice, else the person's default, as the dock reads them.
+    dock: await (async () => {
+      const root = env.EP0CH_STATE ?? defaultStateDir(env);
+      const { placeOf } = await import("../session/place");
+      const dir = here?.outline ? placeOf({ outline: here.outline, ...(here.machine ? { machine: here.machine } : {}) }, root, env).dir : null;
+      const { cmd, cwd, programWhy, folderWhy } = dockProgram({ env, outline: here?.outline ?? null, machine: here?.machine ?? null, start: here?.folder ?? process.cwd(), home, dir, state: root });
+      return { cmd, cwd, programWhy, folderWhy };
+    })(),
     machines,
+    docks: await (async () => {
+      const { placeDirs, readPlace } = await import("../session/place");
+      const { sessionSlug } = await import("../desk/herdr-agent");
+      const root = env.EP0CH_STATE ?? defaultStateDir(env);
+      return placeDirs(root).flatMap(dir => {
+        const pl = readPlace(dir);
+        if (!pl) return [];
+        const p = dockProgram({ env, outline: pl.outline, machine: pl.machine ?? null, dir, state: root, home });
+        const session = `${pl.outline}${pl.machine ? `@${pl.machine}` : ""}`;
+        return [{ session, cmd: p.cmd, programWhy: p.programWhy, from: p.from, ...(p.herdr ? { pane: sessionSlug(session) } : {}) }];
+      });
+    })(),
     claude: { settingsPath, settingsDirs, envDirs: splitDirs(env.CLAUDE_CODE_PLUGIN_DIRS), ...(mentions ? { mentions } : {}), ...(env.FORCE_HYPERLINK !== undefined ? { forceHyperlink: env.FORCE_HYPERLINK } : {}), ...(agents ? { agents } : {}) },
     sessions,
     ext: extFacts(join(repo.door, "ext"), { env, home, bin: binDirOf(found, target === real(repo.entry)) ?? chooseLinkDir(linkDirs), which: n => which(n, pathDirs), record }),

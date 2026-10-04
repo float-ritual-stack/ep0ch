@@ -71,6 +71,8 @@ function frameCtx(f: FramedScreen): Ctx {
     get host() { return o().host; },
     get workspace() { return o().workspace; },
     get outline() { return o().outline; },
+    // The dock is the door's, above every screen: a tile docked from a stage travels like any other (PIE-498).
+    get hostLayer() { return o().hostLayer; },
     get video(): Video { return o().video; },
     get graphics() { return o().graphics; },
     get lastCall() { return o().lastCall; },

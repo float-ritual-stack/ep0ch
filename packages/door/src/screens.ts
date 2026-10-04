@@ -474,7 +474,7 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
     },
   }),
   "session.end": def({
-    summary: "end the session: the door stops, with every program in its terminal tiles and the agent drawer, and every attached terminal is let go (unsaved drafts are copied to disk and put aside, as when the door quits). Logging off (G, ctrl+c) only detaches the terminal you're on; this is how the session ends. With programs running or a draft unsaved it asks first: again within 3s ends it. The person's only",
+    summary: "end the session: the door stops, with every program in its terminal tiles and the dock, and every attached terminal is let go (unsaved drafts are copied to disk and put aside, as when the door quits). Logging off (G, ctrl+c) only detaches the terminal you're on; this is how the session ends. With programs running or a draft unsaved it asks first: again within 3s ends it. The person's only",
     keys: "E on the main menu (or a click on End on its key line); `ep0ch session end [--ws <name>] [--yes]` from a shell (this folder's outline's session, or --ws's; --yes is force=true)",
     touches: "screen", replay: "ask",
     person: "an agent doesn't end the person's session: it would stop the programs in their terminal tiles and let go of their terminals. A session an agent started on its own state dir it ends with `ep0ch session end` there",

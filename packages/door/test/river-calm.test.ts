@@ -145,12 +145,12 @@ describe.skipIf(!outliner)("a calm river, against a scratch outline", () => {
     expect(focus()).toBe(was);
     expect(wideTitle()).toBe("Ask about the ferry");
     expect((app as any).message as string).toContain(`an agent (${AS}) widened`);
-    await act("tile.dock", { on: true }, V().name(V().column(2)));
+    await act("tile.hold", { on: true }, V().name(V().column(2)));
     await act("column.select", { id: notes.door.id }, V().name(V().byTitle("Mailroom")!));
     await act("column.replies", { open: true }, V().name(V().column(1)));
     await act("tile.close", {}, opened.reader);
     expect(focus()).toBe(was);
-    await act("tile.dock", { on: false }, V().name(V().column(2)));
+    await act("tile.hold", { on: false }, V().name(V().column(2)));
   });
 
   test("back and forward go between the columns a follow opened; back to a full column moves only the keys", async () => {

@@ -189,6 +189,13 @@ describe("ep0ch where", () => {
     expect(w.layers.at(-1)).toMatchObject({ kind: "tile", live: false, why: "the desk has no such tile now" });
   });
 
+  test("a terminal moved into the dock: found by its pid there, though its old EP0CH_TILE_ID names a screen tile now", async () => {
+    const peek = deskPeek({ pid: 10, focus: "middle", tiles: [{ id: "t1", name: "middle", pid: 5100 }] });
+    (peek.screen as any).dock = { tile: { id: "dock.agent", name: "shell" }, shown: true, entered: true, tiles: [{ name: "dock.agent", id: "dock.agent", shown: false }, { name: "kettle", id: "k2", shown: true, focused: true, pid: 6200 }] };
+    const w = await where(deps({ EP0CH_NEST: "door:10/desk/t1:kettle", EP0CH_CONTROL: "/c/door.sock", EP0CH_TILE_ID: "t1", EP0CH_TILE: "kettle" }, { alive: [10], ancestors: [6200, 10], peek }));
+    expect(w.door?.tile).toMatchObject({ id: "k2", name: "kettle", dock: true });
+  });
+
   test("door in Herdr: the Herdr pane is checked read-only", async () => {
     const env = { EP0CH_NEST: "ssh:pts/5 › herdr:w1:p1 › door:20/desk/t1:claude", EP0CH_CONTROL: "/c/door.sock" };
     const d = deps(env, { alive: [20], ttys: ["pts/5"], panes: [{ pane_id: "w1:p1", focused: true }, { pane_id: "w1:p2" }], peek: deskPeek({ pid: 20, focus: "claude", typing: "claude", tiles: [{ id: "t1", name: "claude" }] }) });
