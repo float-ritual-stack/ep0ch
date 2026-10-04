@@ -96,7 +96,8 @@ async function completeTurnIn(cwdOf,optionsOf=()=>({}),sessionEnvOf=()=>({}),cla
  const engine={
   env:{get:async name=>sessionEnv[name]},
   session:{id:async()=>'session-1',cwd:async()=>cwdOf(root,temp)},
-  clock:{after:(_delay,callback)=>background.push(callback)},
+  // The mod's $.clock, as claude-code types it: now, sleep and after.
+  clock:{now:async()=>Date.now(),sleep:ms=>Bun.sleep(ms),after:(_delay,callback)=>background.push(callback)},
   ui:{toast:text=>toasts.push(text)},
   process:{run:async(argv,init)=>{
    runs.push({argv,init});

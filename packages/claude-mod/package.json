@@ -2,5 +2,8 @@
   "name": "@ep0ch/claude-mod",
   "private": true,
   "type": "module",
-  "description": "The Claude Code mod (a plugin of function hooks): outline and workboard tools, reference links and Recent Mentions. Its tests run under `claude plugin test`, which provides claude-code/testing."
+  "description": "The Claude Code mod (a plugin of function hooks): outline and workboard tools, reference links and Recent Mentions. Its tests run under `claude plugin test`, which provides claude-code/testing; the root `bun run test` runs them. Its type check needs the running build's types (/plugin-types), so it isn't in the root `check`.",
+  "scripts": {
+    "test": "claude plugin test ."
+  }
 }

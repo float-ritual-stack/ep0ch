@@ -22,7 +22,9 @@ package's own.
 - **packages/door**: ep0ch, the terminal door people call into: screens built from tiles over one note
   surface. Its `docs/UI-GRAMMAR.md` is the glossary and the reuse map.
 - **packages/claude-mod**: the Claude Code mod (outline and workboard tools, reference links, Recent
-  Mentions). Its tests run under `claude plugin test`.
+  Mentions). Its tests run under `claude plugin test` (the root `bun run test` runs them, so `claude` must be on
+  PATH). It reads `ep0ch`'s output, so the door's `test/claude-mod-contract.test.ts` runs the real CLI through the
+  mod's own readers: a CLI change that breaks the mod fails there.
 
 Both histories are kept: `git log --follow` and `git blame` reach back into ep0ch-door and pi-herdr-outliner.
 

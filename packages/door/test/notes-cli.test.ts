@@ -311,7 +311,8 @@ describe("the ep0ch channel's lines (ext/television's ep0ch-tv)", () => {
 
   test("query: the notes a query holds for (find --query --lines), shown the same way; none named is refused", async () => {
     const main = join(dir, "args.ts");
-    await Bun.write(main, "console.error(JSON.stringify(process.argv.slice(2))); process.stdout.write('ab12cd34-eeee\\tSeed order\\tAllotment plot\\n');\n");
+    // stderr.write, not console.error: Bun colours that under FORCE_COLOR, even into this pipe.
+    await Bun.write(main, "process.stderr.write(JSON.stringify(process.argv.slice(2))); process.stdout.write('ab12cd34-eeee\\tSeed order\\tAllotment plot\\n');\n");
     const p = Bun.spawn([TV, "query", "type=errand tag=spring"], { stdout: "pipe", stderr: "pipe", env: { ...process.env, EP0CH_DOOR_MAIN: main } });
     const [out, err] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
     expect(JSON.parse(err)).toEqual(["find", "--query", "type=errand tag=spring", "--lines"]);
