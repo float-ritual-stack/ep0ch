@@ -1,17 +1,26 @@
 // What site/check.ts reads pages with and serves them from, apart from the run, so site/site.test.ts can hold it.
+import { realpathSync } from "node:fs";
 import { isAbsolute, relative, resolve } from "node:path";
 import { BUILTIN_CALLOUT_REGISTRY } from "../packages/outline-core/src/callouts";
 
 export const unescapeHtml = (s: string) => s.replace(/<[^>]+>/g, "").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, "&");
 
-/** The file under `root` a request path names, or null when it names anything outside it (`..`, encoded or not). */
+const inside = (root: string, target: string) => {
+  const rel = relative(root, target);
+  return rel !== "" && !rel.startsWith(`..`) && !isAbsolute(rel);
+};
+
+/**
+ * The file under `root` a request path names, or null when it names anything outside it: `..`, encoded or not, or
+ * a symlink out (site/node_modules links the workspace's packages).
+ */
 export function siteFile(root: string, pathname: string): string | null {
   let path: string;
   try { path = decodeURIComponent(pathname); } catch { return null; }
   if (path.includes("\0")) return null;
   const target = resolve(root, "." + (path.startsWith("/") ? path : `/${path}`));
-  const rel = relative(root, target);
-  return rel === "" || rel.startsWith("..") || isAbsolute(rel) ? null : target;
+  if (!inside(root, target)) return null;
+  try { return inside(realpathSync(root), realpathSync(target)) ? target : null; } catch { return null; }
 }
 
 /**
@@ -57,8 +66,9 @@ export const sampleText = (s: Sample) => unescapeHtml(s.inner.replace(/^[\s\S]*?
 
 /** The text of each `<span class="cls">…</span>`, spans inside it (a highlight) and all. */
 export function spanTexts(html: string, cls: string): string[] {
-  const out: string[] = [], open = `<span class="${cls}">`;
-  for (let at = html.indexOf(open); at >= 0; at = html.indexOf(open, at + 1)) {
+  const out: string[] = [], open = new RegExp(`<span class="(?:[^"]*\\s)?${cls}(?:\\s[^"]*)?">`, "g");
+  for (const m of html.matchAll(open)) {
+    const at = m.index!;
     let depth = 0, i = at;
     const tags = /<span\b[^>]*>|<\/span>/g;
     tags.lastIndex = at;
@@ -67,7 +77,7 @@ export function spanTexts(html: string, cls: string): string[] {
       if (depth === 0) { i = t.index; break; }
     }
     if (depth !== 0) throw new Error(`an unclosed <span class="${cls}">`);
-    out.push(unescapeHtml(html.slice(at + open.length, i)));
+    out.push(unescapeHtml(html.slice(at + m[0].length, i)));
   }
   return out;
 }

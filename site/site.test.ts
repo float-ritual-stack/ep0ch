@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { calloutMismatches, editedText, samples, sampleText, serveSite, siteFile, spanTexts } from "./lib";
 import { ansiToHtml } from "./still";
@@ -18,13 +20,30 @@ describe("the check's server", () => {
     } finally { server.stop(true); }
   });
 
+  test("never follows a symlink out of site/", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "ep0ch-site-"));
+    try {
+      mkdirSync(join(dir, "site")); writeFileSync(join(dir, "secret.txt"), "no"); writeFileSync(join(dir, "site/page.html"), "yes");
+      symlinkSync(join(dir, "secret.txt"), join(dir, "site/link.txt"));
+      symlinkSync(dir, join(dir, "site/up"));
+      const server = serveSite(join(dir, "site"));
+      try {
+        const get = (path: string) => fetch(`http://127.0.0.1:${server.port}${path}`).then(r => r.status);
+        expect(await get("/page.html")).toBe(200);
+        expect(await get("/link.txt")).toBe(404);
+        expect(await get("/up/secret.txt")).toBe(404);
+      } finally { server.stop(true); }
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+
   test("listens on loopback only", () => {
     const server = serveSite(SITE);
     try { expect(server.hostname).toBe("127.0.0.1"); } finally { server.stop(true); }
   });
 
   test("a path resolves inside the root or not at all", () => {
-    expect(siteFile("/r/site", "/a/b.html")).toBe("/r/site/a/b.html");
+    expect(siteFile(SITE, "/kitchen-sink.html")).toBe(join(SITE, "kitchen-sink.html"));
+    expect(siteFile(SITE, "/node_modules/@ep0ch/door/src/main.ts")).toBeNull();
     expect(siteFile("/r/site", "/../bun.lock")).toBeNull();
     expect(siteFile("/r/site", "/..%2f..%2fetc/passwd")).toBeNull();
     expect(siteFile("/r/site", "/%2e%2e/site-other/x")).toBeNull();
@@ -49,6 +68,8 @@ describe("samples", () => {
     const inner = `<span class="del">old <span class="hl">one</span></span><span class="add">new <span class="hl">two</span> &amp; more</span><span class="add">second</span>`;
     expect(spanTexts(inner, "add")).toEqual(["new two & more", "second"]);
     expect(spanTexts(inner, "del")).toEqual(["old one"]);
+    expect(spanTexts(`<span class="del wide">x</span><span class="added">no</span><span class="add hl">y</span>`, "add")).toEqual(["y"]);
+    expect(spanTexts(`<span class="del wide">x</span>`, "del")).toEqual(["x"]);
   });
 
   test("a diff with no removed line keeps the note's first line", () => {
@@ -75,9 +96,16 @@ describe("callouts", () => {
 
 describe("stills", () => {
   test("38;5;n and 48;5;n are one colour each, not three codes", () => {
-    expect(ansiToHtml("\x1b[38;5;3mA\x1b[0m")).toBe(`<span style="color:var(--term-3)">A</span>`);
+    // ANSI 3 (yellow/brown) is the palette's 6: the palette is in VGA order.
+    expect(ansiToHtml("\x1b[38;5;3mA\x1b[0m")).toBe(`<span style="color:var(--term-6)">A</span>`);
+    expect(ansiToHtml("\x1b[91mR")).toBe(`<span style="color:var(--term-12)">R</span>`);
     expect(ansiToHtml("\x1b[48;5;196mB\x1b[0m")).toBe(`<span style="background:rgb(255 0 0)">B</span>`);
     expect(ansiToHtml("\x1b[38;5;240;1mC")).toBe(`<span style="color:rgb(88 88 88);font-weight:700">C</span>`);
+  });
+
+  test("a painted line keeps its trailing spaces; a plain one loses them", () => {
+    expect(ansiToHtml("\x1b[44mbar   \n\x1b[0mtext   \nmore")).toBe(`<span style="background:var(--term-1)">bar   \n</span>text\nmore`);
+    expect(ansiToHtml("\x1b[7msel  \n")).toBe(`<span style="color:var(--surface-ground);background:var(--ink-body)">sel  \n</span>`);
   });
 
   test("an OSC 8 link keeps its text", () => {

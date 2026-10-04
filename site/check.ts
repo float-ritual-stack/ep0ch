@@ -12,7 +12,7 @@
 import { mkdtempSync, mkdirSync, readdirSync, rmSync, existsSync, writeFileSync } from "node:fs";
 import { SocketBoard } from "../packages/door/src/socket";
 import { join, resolve, relative } from "node:path";
-import { calloutMismatches, editedText, samples, sampleText, serveSite, spanTexts } from "./lib";
+import { calloutMismatches, editedText, samples, sampleText, serveSite, spanTexts, unescapeHtml } from "./lib";
 import { tmpdir } from "node:os";
 import { decodePng } from "../packages/door/src/png-decode";
 import { THEMES } from "../packages/door/src/theme";
@@ -131,7 +131,8 @@ async function checkSamples() {
       console.log(` ${name}`);
       for (const sample of found.samples) {
         const { kind, attrs, inner } = sample;
-        const expect = /data-expect="([^"]*)"/.exec(attrs)?.[1], query = /data-query="([^"]*)"/.exec(attrs)?.[1];
+        const attr = (k: string) => { const v = new RegExp(`data-${k}="([^"]*)"`).exec(attrs)?.[1]; return v === undefined ? undefined : unescapeHtml(v); };
+        const expect = attr("expect"), query = attr("query");
         const code = sampleText(sample);
         const short = code.split("\n")[0]!.slice(0, 80);
         let r: { code: number; out: string };
@@ -149,7 +150,10 @@ async function checkSamples() {
             const id = /\(\(([^)]+)\)\)/.exec(found.out)?.[1];
             const note = id ? await board!.read(id) : null;
             if (!note) { fail(`${name}: no note for ${query} (ep0ch find --ids --query ${JSON.stringify(query)}):\n${found.out}`); continue; }
-            const text = editedText(add, spanTexts(inner, "del").length, note.text);
+            // The diff's - lines are the note's first lines as the page's earlier steps made it, or the diff is stale.
+            const del = spanTexts(inner, "del"), first = note.text.split("\n").slice(0, del.length);
+            if (del.join("\n") !== first.join("\n")) { fail(`${name}: the diff's - lines aren't the first lines of the note ${query} finds:\n${first.join("\n")}`); continue; }
+            const text = editedText(add, del.length, note.text);
             await board!.update(note.id, text, note.revision!);
             const back = await board!.read(note.id);
             r = back?.text === text ? { code: 0, out: back.text } : { code: 1, out: `the host read back:\n${back?.text}` };
