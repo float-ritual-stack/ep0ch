@@ -693,7 +693,10 @@ agents message it (`herdr agent prompt door-<outline> "…"`), and it keeps runn
 
 - **Where it runs.** The launcher (`scripts/door-agent-herdr.ts --session <outline>[@machine] --agent <agent>`)
   looks on the default Herdr server (`HERDR_SOCKET_PATH`, else Herdr's own default) for this session's own pane,
-  labelled `door-<outline>` (`door-pie-hole--float-2` for one on a machine; a long name is cut, with a short hash).
+  labelled `door-<outline>-<hash>` (`door-pie-hole--float-2-<hash>` for one on a machine; a long name is cut). The
+  hash is of the exact `outline@machine`, so two outlines that read alike never share a pane; the pane's Herdr id is
+  written down beside its link (`agent-door-<outline>-<hash>.sock.pane`) and attach, typing and a session's end go to
+  that pane.
   Sessions are one per outline, so each has its own agent, started with that session's `EP0CH_CONTROL`: a door on
   another outline never attaches it.
   - If the pane isn't there, the launcher makes it: a tab in the workspace labelled `door` (made too if

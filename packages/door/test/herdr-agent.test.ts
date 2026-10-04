@@ -355,12 +355,12 @@ describe("one agent pane per outline session (sessions are per outline since PIE
     const tile = (outline: string) => ({ HOME: dir, EP0CH_STATE: state, EP0CH_HERDR_SCOPED: "1", EP0CH_TILE: "claude", EP0CH_TILE_ID: "dock.agent", EP0CH_CONTROL: join(state, "sessions", "local", outline, "door.sock") });
     const a = agentConfig(tile("pie-hole"), () => null, launchArgs(["--session", "pie-hole@float-2", "--agent", "claude"]));
     const b = agentConfig(tile("float-bbs-test"), () => null, launchArgs(["--session", "float-bbs-test", "--agent", "codex"]));
-    expect(a.pane).toMatch(/^door-pie-hole--float-2-[0-9a-f]{8}$/);
+    expect(a.pane).toMatch(/^door-pie-hole--float-2-[0-9a-f]{8}-[0-9a-f]{8}$/);
     expect(sessionSlug("pie@float-2")).not.toBe(sessionSlug("pie-float-2"));
     // An outline named claude: never the old door-claude label, which a session's end never closes.
     expect(sessionSlug("claude")).not.toBe("door-claude");
     expect(sessionSlug("claude")).toMatch(/^door-claude-[0-9a-f]{8}$/);     // a machine's outline never shares a local one's pane
-    expect(b.pane).toMatch(/^door-float-bbs-test-[0-9a-f]{8}$/);
+    expect(b.pane).toMatch(/^door-float-bbs-test-[0-9a-f]{8}-[0-9a-f]{8}$/);
     expect(a.name).not.toBe(b.name);
     expect(a.env.EP0CH_CONTROL).not.toBe(b.env.EP0CH_CONTROL);        // each pane's own link, pointed at its session's door
     expect(a.link).not.toBe(b.link);
@@ -383,5 +383,49 @@ describe("one agent pane per outline session (sessions are per outline since PIE
     answer("panes", { result: { panes: [{ pane_id: "w9:p3", label: sessionSlug("claude") }] } });
     expect(await closeSessionPane(herdrRunner(fake), sessionSlug("claude"))).toBe(true);
     expect(calls().filter(c => c.startsWith("pane close"))).toEqual(["pane close w9:p2", "pane close w9:p3"]);
+  });
+
+  test("outline names that read the same once lowered and dashed get their own labels: ADR 0001, a name is never the identity", () => {
+    const pairs: [string, string][] = [["Kitchen Remodel", "kitchen-remodel"], ["Front_End", "Front.End"], ["pie@Float-2", "pie@float-2"], ["garden@shed", "Garden@shed"]];
+    for (const [x, y] of pairs) {
+      expect(sessionSlug(x)).not.toBe(sessionSlug(y));
+      // Still readable, and still a label a session's end may close.
+      expect(sessionSlug(x)).toMatch(/^door-[a-z0-9-]+-[0-9a-f]{8}$/);
+    }
+    expect(sessionSlug("Kitchen Remodel")).toStartWith("door-kitchen-remodel-");
+    expect(sessionSlug("pie@float-2")).toStartWith("door-pie--float-2-");
+  });
+
+  test("the pane is known by the id Herdr gave it: attach and type go to that pane, and a session's end closes it and only it", async () => {
+    const env = { HOME: dir, EP0CH_STATE: join(dir, "state"), EP0CH_HERDR_SCOPED: "1" };
+    const a = agentConfig(env, () => null, launchArgs(["--session", "Kitchen Remodel"]));
+    const b = agentConfig(env, () => null, launchArgs(["--session", "kitchen-remodel"]));
+    expect(a.pane).not.toBe(b.pane);
+    expect(a.record!).not.toBe(b.record!);
+    // a's pane is made: its id is written down.
+    answer("spaces", { result: { workspaces: [{ workspace_id: "w3", label: a.workspace }] } });
+    answer("panes", { result: { panes: [] } });
+    expect(await findOrCreate(herdrRunner(fake), a)).toMatchObject({ pane: "w9:p1", created: true });
+    expect(readFileSync(a.record!, "utf8").trim()).toBe("w9:p1");
+    // Later a stray pane carries a's label too (renamed by hand, or left by an old door): a's tile still attaches
+    // to and types into the pane it made.
+    answer("panes", { result: { panes: [{ pane_id: "w2:p7", label: a.pane, terminal_id: "term_stray" }, { pane_id: "w9:p1", label: a.pane, terminal_id: "term_new" }, { pane_id: "w5:p1", label: b.pane, terminal_id: "term_b" }] } });
+    answer("info", { result: { process_info: { shell_pid: 40, foreground_processes: [{ pid: 40, name: "sh" }] } } });
+    writeFileSync(join(dir, "calls"), "");
+    expect(await findOrCreate(herdrRunner(fake), a)).toEqual({ kind: "pane", pane: "w9:p1", terminal: "term_new", created: false });
+    expect(calls().filter(c => c.startsWith("pane run")).map(c => c.split(" ").slice(0, 3).join(" "))).toEqual(["pane run w9:p1"]);
+    // b found by its own label, its id written down in its own record.
+    expect(await findOrCreate(herdrRunner(fake), b)).toMatchObject({ pane: "w5:p1" });
+    expect(readFileSync(b.record!, "utf8").trim()).toBe("w5:p1");
+    // a's session ends: its pane closes, never b's and never the stray.
+    writeFileSync(join(dir, "calls"), "");
+    expect(await closeSessionPane(herdrRunner(fake), a.pane, a.record!)).toBe(true);
+    expect(calls().filter(c => c.startsWith("pane close"))).toEqual(["pane close w9:p1"]);
+    expect(existsSync(a.record!)).toBe(false);
+    // The recorded pane gone (closed by hand): nothing else is closed in its place.
+    writeFileSync(b.record!, "w5:p9");
+    writeFileSync(join(dir, "calls"), "");
+    expect(await closeSessionPane(herdrRunner(fake), b.pane, b.record!)).toBe(false);
+    expect(calls().filter(c => c.startsWith("pane close"))).toEqual([]);
   });
 });

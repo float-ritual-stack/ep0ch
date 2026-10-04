@@ -2,8 +2,8 @@
 // Herdr pane, so Herdr lists it, other agents message it (`herdr agent prompt door …`) and it outlives the
 // door; the tile is a client attached to that pane (`herdr terminal attach`), not the agent's owner.
 //
-// - The pane is the outline session's own (`sessionSlug`: `door-<outline>[--<machine>]`, from `--session`), found by its
-//   label on the default Herdr server (HERDR_SOCKET_PATH, else Herdr's own default). Missing, it is made: a tab so
+// - The pane is the outline session's own (`sessionSlug`: `door-<outline>[--<machine>]-<hash>`, from `--session`), found by
+//   the pane id written down when it was made (`record`), else by its label, on the default Herdr server (HERDR_SOCKET_PATH, else Herdr's own default). Missing, it is made: a tab so
 //   labelled in a workspace labelled `door`
 //   (made too if missing), in EP0CH_DAILY_CWD or the tile's folder (the dock's rule), without taking Herdr's focus. The agent
 //   is started there with `exec`, so /exit ends the pane, and named `door` once Herdr sees it.
@@ -27,7 +27,7 @@
 // When the attach ends (detached, or the door quit or crashed) the link is dropped if it's still this door's,
 // so the agent's `show` falls back to Herdr instead of reaching a door that doesn't show it.
 import { spawn as spawnDetached } from "node:child_process";
-import { closeSync, mkdirSync, openSync, readFileSync, readlinkSync, renameSync, rmSync, statSync, symlinkSync, writeSync } from "node:fs";
+import { closeSync, mkdirSync, openSync, readFileSync, readlinkSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync, writeSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
 import { ask, JsonLines } from "../jsonl";
@@ -67,6 +67,11 @@ export interface AgentConfig {
   link: string;
   /** Held while the pane is looked for and made, so two doors starting at once make one pane. */
   lock: string;
+  /**
+   * Where the pane's Herdr id is written down once it's found or made (ADR 0001: the label is for show, the id is
+   * which pane it is): attach, type and a session's end go to that pane even when another carries the same label.
+   */
+  record?: string;
 }
 
 /**
@@ -87,19 +92,23 @@ export function doorScope(env: Record<string, string | undefined>): string | nul
 }
 
 /**
- * A session's own names in Herdr (one session per outline, PIE-418): `door-<outline>[--<machine>]`, lower case, letters,
- * digits and dashes (`--` before the machine); a long one cut, with a short hash so two never meet. None named (the launcher run by hand): `door`.
+ * A session's own names in Herdr (one session per outline, PIE-418): `door-<outline>[--<machine>]-<hash>`, lower case,
+ * letters, digits and dashes (`--` before the machine), a long one cut. The readable part is for people; the hash, of
+ * the exact `outline@machine`, keeps two apart that read the same (`Kitchen Remodel`, `kitchen-remodel`: ADR 0001), and
+ * keeps an outline named claude off the old `door-claude` label. None named (the launcher run by hand): `door`.
  */
 export function sessionSlug(session: string | null | undefined): string {
   if (!session) return "door";
   // The outline and its machine apart, joined by `--`, which neither part can hold: `pie@float-2` is never `pie-float-2`.
   const part = (x: string) => x.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
-  const s = session.split("@").map(part).join("--");
-  const full = `door-${s}`;
-  // An outline named claude: never the old `door-claude` label, which no session's end may close (closeSessionPane).
-  if (full === "door-claude") return `${full}-${createHash("sha256").update(session).digest("hex").slice(0, 8)}`;
-  return full.length <= 40 ? full : `${full.slice(0, 31).replace(/-$/, "")}-${createHash("sha256").update(session).digest("hex").slice(0, 8)}`;
+  const readable = `door-${session.split("@").map(part).join("--")}`.slice(0, 31).replace(/-+$/, "");
+  return `${readable}-${createHash("sha256").update(session).digest("hex").slice(0, 8)}`;
 }
+
+/** The link EP0CH_CONTROL names in the pane labelled `pane`, in the door's state. */
+const linkFor = (pane: string) => join(stateDir(), `agent-${pane.replace(/[^\w.-]/g, "_")}.sock`);
+/** Where the Herdr id of the pane labelled `pane` is written down (`AgentConfig.record`). */
+const recordFor = (pane: string) => `${linkFor(pane)}.pane`;
 
 /** What the launcher is told on its command line: whose session it is, and the agent to start (`--agent <agent…>`). */
 export interface LaunchArgs { session?: string | null; agent?: string[] }
@@ -124,7 +133,7 @@ export function agentConfig(env: Record<string, string | undefined> = process.en
   const scoped = (s: string) => (scope ? `${s}-${scope}` : s);
   const slug = sessionSlug(args.session);
   const pane = scoped(env.EP0CH_HERDR_PANE || (args.session ? slug : "door-claude"));
-  const link = join(stateDir(), `agent-${pane.replace(/[^\w.-]/g, "_")}.sock`);
+  const link = linkFor(pane);
   const vars = agentVars(env, { tile: env.EP0CH_TILE || "claude", control: link, tileId: env.EP0CH_TILE_ID, nest: appendNest(env.EP0CH_NEST, `herdr:${pane}`) });
   return {
     pane,
@@ -144,11 +153,17 @@ export function agentConfig(env: Record<string, string | undefined> = process.en
     unset: [...DOOR_START_VARS, ...AGENT_VARS.filter(k => !vars[k])],
     link,
     lock: `${link}.lock`,
+    record: recordFor(pane),
   };
 }
 
 const json = (s: string): any => { try { return JSON.parse(s); } catch { return null; } };
 const envArgs = (env: Record<string, string>) => Object.entries(env).flatMap(([k, v]) => ["--env", `${k}=${v}`]);
+const readRecord = (path: string | undefined) => { try { return path ? readFileSync(path, "utf8").trim() || null : null; } catch { return null; } };
+function writeRecord(path: string | undefined, pane: string) {
+  if (!path) return;
+  try { mkdirSync(dirname(path), { recursive: true }); writeFileSync(path, `${pane}\n`); } catch { /* found by its label next time */ }
+}
 
 export type Found = { kind: "unreachable"; why: string } | { kind: "pane"; pane: string; terminal: string; created: boolean };
 
@@ -182,15 +197,19 @@ export async function withLock<T>(path: string, f: () => Promise<T>, wait = 20_0
 }
 
 /**
- * The agent's pane on the server: the one labelled `cfg.pane`, else a new one with the agent started in it.
+ * The agent's pane on the server: the one whose id `cfg.record` holds, while it still carries `cfg.pane`'s label;
+ * else the one labelled `cfg.pane`; else a new one with the agent started in it. Its id is written down either way.
  * `unreachable` when Herdr can't list panes (no server): the caller runs the agent directly.
  */
 export async function findOrCreate(herdr: HerdrRun, cfg: AgentConfig): Promise<Found> {
   const listed = await herdr(["pane", "list"]);
   const panes = json(listed.out)?.result?.panes;
   if (listed.code !== 0 || !Array.isArray(panes)) return { kind: "unreachable", why: listed.err.trim() || String(json(listed.out)?.error?.message ?? "") || "herdr pane list failed" };
-  const had = panes.find((p: any) => p?.label === cfg.pane && typeof p.terminal_id === "string");
+  const ours = (p: any) => p?.label === cfg.pane && typeof p.terminal_id === "string";
+  const known = readRecord(cfg.record);
+  const had = panes.find((p: any) => ours(p) && known !== null && String(p.pane_id) === known) ?? panes.find(ours);
   if (had) {
+    writeRecord(cfg.record, String(had.pane_id));
     // The session's pane left the person's shell (its agent exited, or agent.restart ended it): the agent starts there again.
     const info = json((await herdr(["pane", "process-info", "--pane", String(had.pane_id)])).out)?.result?.process_info;
     if (paneIdle(info)) {
@@ -210,6 +229,7 @@ export async function findOrCreate(herdr: HerdrRun, cfg: AgentConfig): Promise<F
   const root = json(made.out)?.result?.root_pane;
   if (made.code !== 0 || !root?.pane_id || !root?.terminal_id) throw new Error(`herdr couldn't make the agent's pane: ${made.err.trim() || made.out.trim()}`);
   const pane = String(root.pane_id);
+  writeRecord(cfg.record, pane);
   await herdr(["pane", "rename", pane, cfg.pane]);
   // The agent inside the person's login shell: /exit (or a crash) leaves a working shell in the pane, never a dead one.
   const ran = await herdr(["pane", "run", pane, runLine(cfg)]);
@@ -451,15 +471,22 @@ export async function cli(script: string, argv: string[]): Promise<number> {
   // A session ended (src/session/daemon.ts): its own agent pane closes, never another session's.
   if (flag === "--close" && pane) {
     const bin = herdrBin();
-    return bin && (await closeSessionPane(herdrRunner(bin), pane)) ? 0 : 1;
+    return bin && (await closeSessionPane(herdrRunner(bin), pane, recordFor(pane))) ? 0 : 1;
   }
   return main(script, process.env, launchArgs(argv));
 }
 
-/** Close the pane labelled `label` (a session's own, `sessionSlug`): true when it was there and closed. */
-export async function closeSessionPane(herdr: HerdrRun, label: string): Promise<boolean> {
+/**
+ * Close the pane labelled `label` (a session's own, `sessionSlug`): true when it was there and closed. With its id
+ * written down (`record`), only that pane, and only while it still has the label; none written down (a pane made
+ * before ids were), the one with the label.
+ */
+export async function closeSessionPane(herdr: HerdrRun, label: string, record?: string): Promise<boolean> {
   if (!/^door-[a-z0-9-]+$/.test(label) || label === "door-claude") return false;
   const panes = json((await herdr(["pane", "list"])).out)?.result?.panes;
-  const hit = Array.isArray(panes) ? panes.find((p: any) => p?.label === label) : null;
-  return !!hit?.pane_id && (await herdr(["pane", "close", String(hit.pane_id)])).code === 0;
+  const known = readRecord(record);
+  const hit = Array.isArray(panes) ? panes.find((p: any) => p?.label === label && (known === null || String(p.pane_id) === known)) : null;
+  if (!hit?.pane_id || (await herdr(["pane", "close", String(hit.pane_id)])).code !== 0) return false;
+  if (record) rmSync(record, { force: true });
+  return true;
 }

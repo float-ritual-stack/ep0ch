@@ -143,10 +143,9 @@ export function depsState(root: string): Deps {
     if (!glob.endsWith("/*")) return [glob];
     const dir = glob.slice(0, -2);
     try { return readdirSync(join(root, dir)).map(name => `${dir}/${name}`); } catch { return []; }
-  }).filter((m: string) => read(join(root, m)));
+  }).flatMap((m: string) => { const p = read(join(root, m)); return p ? [{ where: m, p }] : []; });
   const wants: { name: string; where: string }[] = [];
-  for (const where of ["", ...members]) {
-    const p = where ? read(join(root, where)) : pkg;
+  for (const { where, p } of [{ where: "", p: pkg }, ...members]) {
     for (const [name, range] of Object.entries({ ...p.dependencies, ...p.devDependencies })) {
       if (!String(range).startsWith("workspace:")) wants.push({ name, where });
     }
