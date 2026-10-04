@@ -285,9 +285,9 @@ export async function findCommand(argsIn: string[], io: Out = { out: console.log
   const words = without(picked.rest, ["--ws", "--machine", ...(root !== undefined ? ["--tree"] : [])], ["--lines", "--json", "--recent", "--tree", "--ids"]);
   // --recent and --tree keep their own order: a refusal names what it was given and the same find without them (a
   // --tree root becomes --under, which lists a subtree in outline order).
-  const given = [...(recent && tree ? ["--recent"] : []), ...(words.length ? ["words"] : []), ...SELECT_FLAGS.filter(f => f !== "--direction" && args.includes(f))];
+  const given = [...(recent && tree ? ["--recent"] : []), ...(words.length ? ["words"] : []), ...SELECT_FLAGS.filter(f => args.includes(f))];
   const instead = () => ["ep0ch", "find", ...(root !== undefined && !sel.under ? ["--under", root] : []),
-    ...args.filter((a, i) => a !== "--recent" && a !== "--tree" && !(root !== undefined && i === treeAt + 1))].map(sh).join(" ");
+    ...args.filter((a, i) => a !== "--recent" && a !== "--tree" && !(args[i - 1] === "--tree" && !a.startsWith("--")))].map(sh).join(" ");
   if (recent && !tree && (words.length || asked)) { io.err(`ep0ch: find --recent takes no ${given.join(", ")}; without it: ${instead()}`); return 2; }
   if (tree && (recent || words.length || asked)) { io.err(`ep0ch: find --tree takes no ${given.join(", ")} (a root id at most); without it: ${instead()}`); return 2; }
   const unknown = words.find(w => w.startsWith("--"));

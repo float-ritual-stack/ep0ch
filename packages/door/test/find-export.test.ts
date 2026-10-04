@@ -144,7 +144,11 @@ describe.skipIf(!outliner)("ep0ch find and export against a scratch host", () =>
     expect(plain(recent.err)).toContain("ep0ch find --sort due");
     const tree = await run(["find", "--tree", ids.plot!, "--sort", "rank", "--direction", "desc"], env);
     expect([tree.code, plain(tree.err)]).toEqual([2, expect.stringContaining("find --tree takes no --sort")]);
+    expect(plain(tree.err)).toContain("find --tree takes no --sort, --direction");
     expect(plain(tree.err)).toContain(`ep0ch find --under ${ids.plot} --sort rank --direction desc`);
+    // A second --tree root is dropped with its flag, never left as a search word; a ~ is quoted, never expanded.
+    const twice = await run(["find", "--tree", ids.plot!, "--tree", ids.order!, "--sort", "~rank"], env);
+    expect(plain(twice.err)).toContain(`without it: ep0ch find --under ${ids.plot} --sort '~rank'\n`);
   }, 30_000);
 
   test("find --view: the view's members, in its order; with --under, only those under it", async () => {
