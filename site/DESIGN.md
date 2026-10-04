@@ -16,11 +16,13 @@ site/
   assets/tokens.css    written by tokens.ts from packages/door/src/theme.ts; don't edit
   assets/site.css      the shell and the components, from tokens only
   assets/site.js       cast players, copy, try-it ticks, the calm/night switch
+  assets/fonts/        JetBrains Mono and Atkinson Hyperlegible Next (OFL 1.1), self-hosted
   casts/*.cast         asciicast v2, one per showcase section, chapters as `m` markers
   vendor/              asciinema-player 3.10.0 (Apache-2.0), self-hosted
   tokens.ts            bun site/tokens.ts
   still.ts             bun site/still.ts <file.ansi | file.cast> [frame]
-  check.ts             bun site/check.ts: the done-check
+  check.ts             bun site/check.ts: the done-check (bun run check runs its samples)
+  lib.ts               what check.ts reads pages with and serves them from; site.test.ts tests it
 ```
 
 ## Decisions this inherits
@@ -106,7 +108,7 @@ door's, which `test/theme-contrast.test.ts` checks against WCAG 2.
 
 The door is set in cells, so the site is too wherever it speaks for the door: headings, chrome, code, keys and
 stills use **JetBrains Mono**. Prose uses **Atkinson Hyperlegible Next**, built for legibility, at a 68-character
-measure. Both come from Google Fonts, with system fallbacks.
+measure. Both are served from `assets/fonts` (OFL 1.1, latin subsets from Fontsource), with system fallbacks: a page asks no other host.
 
 | Step | Size | Face | Used for |
 |---|---|---|---|
@@ -201,20 +203,25 @@ calm/night switch).
 
 ## 6. Checks
 
-`bun site/check.ts` is the done-check.
+`bun site/check.ts` is the done-check. `site/` is a workspace package: the root `bun run check` typechecks it and
+runs the samples, `bun test` in `site/` runs its unit tests. The pages are served on 127.0.0.1 only, and nothing
+outside `site/` is served, however the path is encoded.
 
 - **Pages:** every page paints its ground before its first link or script, in the calm theme's own ground and
   text colours, and declares `color-scheme: dark`.
   Each page is screenshotted in headless Chromium three ways: with every stylesheet and script stripped (what
   paints before they arrive), at 1280×900 and at 400×860. Each must have a dark ground and under 3% light
-  pixels.
+  pixels. A page loads nothing from another host, and each of its callouts has the icon and tone the door's
+  built-in type has (`BUILTIN_CALLOUT_REGISTRY`).
 - **Samples:** on a scratch outline host it starts under a temp dir (ready when it answers
-  `ep0ch outline create`, not when its socket appears), it runs every example marked to run, in page order, with
+  `ep0ch outline create`, not when its socket appears), it runs every example marked to run (the `<div>` or `<pre>` with `data-run`, whatever its classes; a mark it
+can't read fails), in page order, with
   only what a reader has: `ep0ch` on PATH, and no `outliner`:
   - `data-run="sh"`: the block's text in bash;
-  - `data-run="note"` with `data-query`: the block's text made a note (what a reader writes in the door), then
-    drawn with `ep0ch show`;
-  - `data-run="edit"` with `data-query`: a diff's `+` lines become the first lines of the note the query finds,
+  - `data-run="note"` with `data-query`: the block's text made a note with `ep0ch new` (the door's
+    ctrl+n), then drawn with `ep0ch show`;
+  - `data-run="edit"` with `data-query`: a diff's `+` lines replace the note's first lines, one per `-` line
+    (none: they go before its first line), in the note the query finds,
     done when the host reads the note back changed.
 
   `data-expect` is text the output must contain. Examples that need a running door (`act` lines) are the actions

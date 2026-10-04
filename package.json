@@ -2,7 +2,7 @@
   "name": "ep0ch",
   "private": true,
   "type": "module",
-  "workspaces": ["packages/*"],
+  "workspaces": ["packages/*", "site"],
   "scripts": {
     "check": "bun run --filter '*' check",
     "test": "bun run --filter '*' test"

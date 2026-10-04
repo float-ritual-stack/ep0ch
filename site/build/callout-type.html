@@ -9,9 +9,6 @@
 <script>try{if(localStorage.getItem("ep0ch-docs-tone")==="night")document.documentElement.dataset.tone="night"}catch(e){}</script>
 <title>Add a callout type · ep0ch</title>
 <meta name="description" content="Give an outline its own callout, with its own icon and tone, by writing one note.">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:ital,wght@0,400;0,600;0,700;1,400&amp;family=JetBrains+Mono:wght@400;500;600;700&amp;display=swap">
 <link rel="stylesheet" href="../assets/tokens.css">
 <link rel="stylesheet" href="../assets/site.css">
 </head>
@@ -88,7 +85,7 @@
         <div class="code"><div class="code-head"><span class="file">shell</span><span class="lang">bash</span><button class="copy" type="button">copy</button></div><pre><code><span class="tk-k">ep0ch</span> outline create kitchen-test
 mkdir -p ~/kitchen-test &amp;&amp; cd ~/kitchen-test
 echo <span class="tk-s">'ws = "kitchen-test"'</span> &gt; .ep0ch</code></pre></div>
-        <div class="prose"><p>Then <code>ep0ch</code> in that folder opens the door on it. Write each note below as a new note: on the board, press <kbd>N</kbd>, paste the text, and press <kbd>ctrl</kbd><kbd>s</kbd>.</p></div>
+        <div class="prose"><p>Then <code>ep0ch</code> in that folder opens the door on it. Write each note below as a new note: press <kbd>ctrl</kbd><kbd>n</kbd> on any screen (or click <span class="chip mouse">+ New note · ctrl+n</span> on an empty board), paste the text, and press <kbd>ctrl</kbd><kbd>s</kbd>. From a shell, <code>ep0ch new "&lt;text&gt;" --ws kitchen-test</code> makes the same note.</p></div>
         <ol class="try" id="try-recipe">
           <li>
             <button class="box" type="button" aria-label="Mark step 1 done"></button>

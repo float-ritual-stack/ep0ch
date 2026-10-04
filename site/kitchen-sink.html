@@ -9,9 +9,6 @@
 <script>try{if(localStorage.getItem("ep0ch-docs-tone")==="night")document.documentElement.dataset.tone="night"}catch(e){}</script>
 <title>ep0ch Docs Kitchen Sink</title>
 <meta name="description" content="Every component of the ep0ch docs site, with its purpose, anatomy and do/don't, in the door's own palette.">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:ital,wght@0,400;0,600;0,700;1,400&amp;family=JetBrains+Mono:wght@400;500;600;700&amp;display=swap">
 <link rel="stylesheet" href="assets/tokens.css">
 <link rel="stylesheet" href="vendor/asciinema-player.css">
 <link rel="stylesheet" href="assets/site.css">
@@ -243,7 +240,7 @@
       <section aria-labelledby="code">
         <h2 id="code">Code example</h2>
         <div class="prose"><p><b>Purpose:</b> the smallest complete thing that runs, ready to copy. A page's check runs every example marked <code>data-run</code> on a scratch outline.</p></div>
-        <div class="code"><div class="code-head"><span class="file">shell</span><span class="lang">bash</span><button class="copy" type="button">copy</button></div><pre><code><span class="tk-k">outliner</span> create --text <span class="tk-s">'Recipe callouts [callout-type::recipe] [callout-icon::♨] [callout-tone::green] [callout-aliases::dish]'</span></code></pre></div>
+        <div class="code"><div class="code-head"><span class="file">shell</span><span class="lang">bash</span><button class="copy" type="button">copy</button></div><pre><code><span class="tk-k">ep0ch</span> new <span class="tk-s">'Recipe callouts [callout-type::recipe] [callout-icon::♨] [callout-tone::green] [callout-aliases::dish]'</span></code></pre></div>
         <div class="code"><div class="code-head"><span class="file">note · Recipe callouts</span><span class="lang">diff</span><button class="copy" type="button">copy</button></div><pre class="diff"><code><span class="del">Recipe callouts [callout-type::recipe] [callout-icon::♨] [callout-tone::green] [callout-aliases::dish]</span><span class="add">Recipe callouts [callout-type::recipe] [callout-icon::♨] [callout-tone::amber] [callout-title::Recipe] [callout-aliases::dish, meal]</span></code></pre><div class="says">copy gives the <b>+</b> line: the note's new first line</div></div>
         <dl class="anatomy">
           <dt>file label</dt><dd>where it goes: <code>shell</code>, a file path, or <code>note · its title</code></dd>

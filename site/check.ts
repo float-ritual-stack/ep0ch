@@ -5,12 +5,14 @@
 //
 // Samples run on a scratch outline host this script starts under a temp dir (never a real outline), with the
 // repository's outliner and door, and with only what a reader has on PATH (`ep0ch`; never `outliner`). EP0CH_DOCS_REPO points at another checkout (a worktree with an unmerged feature).
+// A sample is the <div> or <pre> that carries data-run (any classes), up to its </pre>:
 //   <div class="code" data-run="sh" data-expect="…">     the block's text, run in bash; output must contain expect
-//   <div class="code" data-run="note" data-query="k=v">  the block's text made a note, drawn with ep0ch show
-//   <pre class="diff" data-run="edit" data-query="k=v">  the note the query finds gets the diff's + lines as its first lines
+//   <div class="code" data-run="note" data-query="k=v">  the block's text made a note with `ep0ch new`, drawn with ep0ch show
+//   <pre class="diff" data-run="edit" data-query="k=v">  the note the query finds: its first lines (one per - line) become the + lines
 import { mkdtempSync, mkdirSync, readdirSync, rmSync, existsSync, writeFileSync } from "node:fs";
 import { SocketBoard } from "../packages/door/src/socket";
 import { join, resolve, relative } from "node:path";
+import { calloutMismatches, editedText, samples, sampleText, serveSite, spanTexts } from "./lib";
 import { tmpdir } from "node:os";
 import { decodePng } from "../packages/door/src/png-decode";
 import { THEMES } from "../packages/door/src/theme";
@@ -20,12 +22,11 @@ const REPO = resolve(process.env.EP0CH_DOCS_REPO ?? join(SITE, ".."));
 const only = Bun.argv[2];
 const pages = (function walk(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap(e =>
-    e.isDirectory() ? (e.name === "vendor" ? [] : walk(join(dir, e.name))) : e.name.endsWith(".html") ? [join(dir, e.name)] : []);
+    e.isDirectory() ? (e.name === "vendor" || e.name === "node_modules" ? [] : walk(join(dir, e.name))) : e.name.endsWith(".html") ? [join(dir, e.name)] : []);
 })(SITE);
 let failed = 0;
 const fail = (what: string) => { failed++; console.log(`  ✗ ${what}`); };
 const ok = (what: string) => console.log(`  ✓ ${what}`);
-const unescape = (s: string) => s.replace(/<[^>]+>/g, "").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, "&");
 
 // ── Pages: dark before any stylesheet or script arrives, and dark when they have ──
 // The no-flash head (DESIGN.md "No light flash") must paint the door's calm ground and running text.
@@ -49,22 +50,16 @@ async function checkPages() {
     else if (!head.includes(firstPaint)) fail(`${name}: the head's first paint isn't the calm theme's ground and text: ${firstPaint}`);
     else if (firstStyle < 0 || (firstLink >= 0 && firstLink < firstStyle) || (firstScript >= 0 && firstScript < firstStyle)) fail(`${name}: the ground isn't painted before the first link or script`);
     else ok(`${name}: ground painted first, color-scheme dark`);
+    // Everything a page loads is the site's own: no font, stylesheet or script from another host.
+    const away = [...html.matchAll(/<(?:link|script)\b[^>]*\b(?:href|src)="((?:https?:)?\/\/[^"]+)"/g)].map(m => m[1]);
+    if (away.length) fail(`${name}: loads from another host: ${away.join(", ")}`);
+    // Its callouts are the door's: each type's icon and tone as BUILTIN_CALLOUT_REGISTRY has them.
+    const callouts = calloutMismatches(html);
+    for (const c of callouts) fail(`${name}: ${c}`);
+    if (!callouts.length && html.includes('class="callout"')) ok(`${name}: callouts drawn as the door's types`);
   }
-  // Serve the site; /bare/… is a page with every stylesheet and script taken out: what paints before they arrive.
-  const server = Bun.serve({
-    port: 0, hostname: "127.0.0.1",
-    async fetch(req) {
-      const path = new URL(req.url).pathname;
-      const bare = path.startsWith("/bare/");
-      const target = resolve(SITE, "." + decodeURIComponent(bare ? path.slice(5) : path));
-      if (relative(SITE, target).startsWith("..")) return new Response("not found", { status: 404 });
-      const file = Bun.file(target);
-      if (!(await file.exists())) return new Response("not found", { status: 404 });
-      if (!bare) return new Response(file);
-      const text = (await file.text()).replace(/<link[^>]*>/g, "").replace(/<script src[^>]*><\/script>/g, "");
-      return new Response(text, { headers: { "content-type": "text/html" } });
-    },
-  });
+  // Serve the site, on loopback, nothing outside site/; /bare/… is a page with every stylesheet and script taken out.
+  const server = serveSite(SITE);
   const out = mkdtempSync(join(tmpdir(), "ep0ch-docs-shots-"));
   for (const page of pages) {
     const name = relative(SITE, page);
@@ -105,6 +100,7 @@ async function checkSamples() {
   mkdirSync(join(dir, "o"), { recursive: true }); mkdirSync(join(dir, "cfg"), { recursive: true });
   const log = join(dir, "host.log");
   const host = Bun.spawn([process.execPath, "src/host-main.ts"], { cwd: join(REPO, "packages/outliner"), env, stdout: Bun.file(log), stderr: Bun.file(log) });
+  const shq = (s: string) => `'${s.replaceAll("'", "'\\''")}'`;
   const sh = async (script: string) => {
     const p = Bun.spawn(["bash", "-c", script], { cwd: dir, env, stdout: "pipe", stderr: "pipe" });
     const [o, e] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text()]);
@@ -128,33 +124,32 @@ async function checkSamples() {
     await board.info();
     for (const page of pages) {
       const html = await Bun.file(page).text(), name = relative(SITE, page);
-      const blocks = [...html.matchAll(/<(div|pre) class="(?:code|diff)"([^>]*data-run="(\w+)"[^>]*)>([\s\S]*?)<\/pre>/g)];
-      if (!blocks.length) continue;
-      // A sample the pattern above can't read would go unchecked: every data-run must be one it read.
-      const marked = [...html.matchAll(/data-run="/g)].length;
-      if (marked !== blocks.length) fail(`${name}: ${marked} data-run samples, ${blocks.length} read (each is <div|pre class="code|diff" … data-run="…">…</pre>)`);
+      // Every data-run is a sample, whatever its classes; one the check can't read fails, never goes unchecked.
+      const found = samples(html);
+      for (const p of found.problems) fail(`${name}: ${p}`);
+      if (!found.samples.length) continue;
       console.log(` ${name}`);
-      for (const [, , attrs, kind, inner] of blocks) {
-        const expect = /data-expect="([^"]*)"/.exec(attrs!)?.[1], query = /data-query="([^"]*)"/.exec(attrs!)?.[1];
-        const code = unescape(inner!.replace(/^[\s\S]*?<pre[^>]*>/, ""));
+      for (const sample of found.samples) {
+        const { kind, attrs, inner } = sample;
+        const expect = /data-expect="([^"]*)"/.exec(attrs)?.[1], query = /data-query="([^"]*)"/.exec(attrs)?.[1];
+        const code = sampleText(sample);
         const short = code.split("\n")[0]!.slice(0, 80);
         let r: { code: number; out: string };
         try {
           if (kind === "sh") r = await sh(code);
           else if (kind === "note") {
-            // The note a reader writes in the door, made here through the host; then drawn with the reader's own command.
-            await board!.createBlock(null, code);
-            r = await sh(`ep0ch show $(ep0ch find --ids --query ${JSON.stringify(query)}) --width 72`);
+            // The note a reader writes, made with the reader's own `ep0ch new` (the door's ctrl+n), then drawn with `ep0ch show`.
+            const made = await sh(`ep0ch new ${shq(code)}`);
+            r = made.code ? made : await sh(`ep0ch show $(ep0ch find --ids --query ${JSON.stringify(query)}) --width 72`);
           } else if (kind === "edit") {
             // The note's first lines replaced by the diff's + lines, as a reader saves it in the door; done when the
             // host reads it back changed.
-            const add = [...inner!.matchAll(/<span class="add">([\s\S]*?)<\/span>/g)].map(m => unescape(m[1]!));
+            const add = spanTexts(inner, "add");
             const found = await sh(`ep0ch find --ids --query ${JSON.stringify(query)}`);
             const id = /\(\(([^)]+)\)\)/.exec(found.out)?.[1];
             const note = id ? await board!.read(id) : null;
             if (!note) { fail(`${name}: no note for ${query} (ep0ch find --ids --query ${JSON.stringify(query)}):\n${found.out}`); continue; }
-            const dels = [...inner!.matchAll(/<span class="del">/g)].length;
-            const text = [...add, ...note.text.split("\n").slice(Math.max(dels, 1))].join("\n");
+            const text = editedText(add, spanTexts(inner, "del").length, note.text);
             await board!.update(note.id, text, note.revision!);
             const back = await board!.read(note.id);
             r = back?.text === text ? { code: 0, out: back.text } : { code: 1, out: `the host read back:\n${back?.text}` };

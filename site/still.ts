@@ -10,6 +10,15 @@ const byRgb = new Map(THEMES.calm.palette.map((rgb, i) => [rgb.join(","), `var(-
 const cell = (ch: string) => { const c = ch.codePointAt(0)!; return c >= 0x2100 && !(c >= 0x2500 && c <= 0x259f) ? `<span class="g">${ch}</span>` : ch; };
 const esc = (s: string) => [...s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")].map(cell).join("");
 const colour = (r: string, g: string, b: string) => byRgb.get(`${r},${g},${b}`) ?? `rgb(${r} ${g} ${b})`;
+// xterm's 256 colours: the 16 are the theme's; then a 6×6×6 cube and a grey ramp, as RGB.
+const LEVEL = [0, 95, 135, 175, 215, 255];
+function colour256(n: number): string | null {
+  if (!(n >= 0 && n <= 255)) return null;
+  if (n < 16) return `var(--term-${n})`;
+  if (n >= 232) { const v = String(8 + (n - 232) * 10); return colour(v, v, v); }
+  const i = n - 16;
+  return colour(String(LEVEL[Math.floor(i / 36)]), String(LEVEL[Math.floor(i / 6) % 6]), String(LEVEL[i % 6]));
+}
 
 export function ansiToHtml(ansi: string): string {
   let fg: string | null = null, bg: string | null = null, bold = false, out = "", open = false;
@@ -18,7 +27,8 @@ export function ansiToHtml(ansi: string): string {
     const style = [fg && `color:${fg}`, bg && `background:${bg}`, bold && "font-weight:700"].filter(Boolean).join(";");
     if (style) { out += `<span style="${style}">`; open = true; }
   };
-  for (const part of ansi.replace(/\r/g, "").split(/(\x1b\[[0-9;?]*[A-Za-z])/)) {
+  // CSI sequences are read; OSC ones (an OSC 8 link's ends) are dropped, the text between them kept.
+  for (const part of ansi.replace(/\r/g, "").replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, "").split(/(\x1b\[[0-9;?]*[A-Za-z])/)) {
     const m = /^\x1b\[([0-9;]*)m$/.exec(part);
     if (m) {
       const n = (m[1] || "0").split(";");
@@ -30,6 +40,9 @@ export function ansiToHtml(ansi: string): string {
         else if (c === "39") fg = null;
         else if (c === "49") bg = null;
         else if ((c === "38" || c === "48") && n[i + 1] === "2") { const v = colour(n[i + 2]!, n[i + 3]!, n[i + 4]!); c === "38" ? (fg = v) : (bg = v); i += 4; }
+        else if ((c === "38" || c === "48") && n[i + 1] === "5") { const v = colour256(Number(n[i + 2])); c === "38" ? (fg = v) : (bg = v); i += 2; }
+        else if (/^(3[0-7]|9[0-7])$/.test(c!)) fg = `var(--term-${Number(c) % 10 + (c!.startsWith("9") ? 8 : 0)})`;
+        else if (/^(4[0-7]|10[0-7])$/.test(c!)) bg = `var(--term-${Number(c) % 10 + (c!.startsWith("10") ? 8 : 0)})`;
       }
       flush(); start();
     } else if (!part.startsWith("\x1b")) out += esc(part);

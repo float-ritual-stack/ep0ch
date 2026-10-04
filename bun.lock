@@ -54,6 +54,17 @@
         "typescript": "^5.9.3",
       },
     },
+    "site": {
+      "name": "@ep0ch/site",
+      "dependencies": {
+        "@ep0ch/door": "workspace:*",
+        "@ep0ch/outline-core": "workspace:*",
+      },
+      "devDependencies": {
+        "@types/bun": "latest",
+        "typescript": "^5.6.0",
+      },
+    },
   },
   "patchedDependencies": {
     "@earendil-works/pi-tui@0.84.2": "packages/outliner/patches/@earendil-works%2Fpi-tui@0.84.2.patch",
@@ -134,6 +145,8 @@
     "@ep0ch/outline-core": ["@ep0ch/outline-core@workspace:packages/outline-core"],
 
     "@ep0ch/outliner": ["@ep0ch/outliner@workspace:packages/outliner"],
+
+    "@ep0ch/site": ["@ep0ch/site@workspace:site"],
 
     "@google/genai": ["@google/genai@1.52.0", "", { "dependencies": { "google-auth-library": "^10.3.0", "p-retry": "^4.6.2", "protobufjs": "^7.5.4", "ws": "^8.18.0" }, "peerDependencies": { "@modelcontextprotocol/sdk": "^1.25.2" }, "optionalPeers": ["@modelcontextprotocol/sdk"] }, "sha512-gwSvbpiN/17O9TbsqSsE/OzZcpv5Fo4RQjdngGgogtuB9RsyJ8ZHhX5KjHj1bp5N9snN2eK8LDGXSaWW2hof8Q=="],
 
