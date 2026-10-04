@@ -108,8 +108,11 @@ Then the root `AGENTS.md` and `CONTRIBUTING.md`. They are short and they are the
 - **Two layers:** the *screen layer* is swapped per screen and stays as small as it was designed; the *host
   layer* (the agent, admin outline and detail, terminals) is above every screen and kept across switches. It is a
   layout on the same module (`hostLayer`, `placeHost`): a slot for the screen beside a drawer of tabs; a screen's
-  policy `host` (`beside`, `over`, `none`) says where it may appear. Put what the person carries between screens
-  there, never as a tile duplicated on each screen.
+  policy `host` (`beside`, `over`, `none`) says where it may appear. Its drawer is the **dock** (PIE-498): the dock's
+  own desk (`hostSpec`), its tiles the drawer's tabs, and `host.dock` moves any tile in or out whole (the screen's
+  `take`, the other's `open`; a terminal keeps the key its program runs under, `PtyPane.keptKey`). Put what the
+  person carries between screens there, never as a tile duplicated on each screen. "Dock" means only this: a river
+  column is held (`tile.hold`), a drawer pinned (`tile.pin`), a float put back.
 - **Build the real shape.** Prefer the design that makes the end state true (the open registry over a
   closed list with one escape hatch) and ship it in coherent slices of that architecture. Don't pick the
   minimal option "until we outgrow it".
@@ -144,7 +147,7 @@ When interaction changes, drive the real door in a terminal pane, by keys and by
 ```sh
 # in packages/door (of the live checkout, or your worktree of it)
 mkdir -p -m 700 /tmp/claude-$(id -u); d=$(mktemp -d /tmp/claude-$(id -u)/e5-XXXX); chmod 700 "$d"  # short: a socket path over ~104 bytes fails
-# scripts/test-door-env.sh unsets every inherited EP0CH_* (EP0CH_DAILY_AGENT, EP0CH_HERDR_AGENT_CMD, EP0CH_DAILY_CWD,
+# scripts/test-door-env.sh unsets every inherited EP0CH_* (EP0CH_DAILY_AGENT, EP0CH_DAILY_CWD,
 # EP0CH_LANDING, EP0CH_NOW_PAGE by name too) inside the session, sets EP0CH_DAILY_AGENT=sh and EP0CH_DAEMON=0 (the door
 # in the pane, not a session that outlives it), then what you pass (EP0CH_DAEMON=1 to test a session).
 tmux new-session -d -s try -x 160 -y 48 \
@@ -163,10 +166,10 @@ tmux kill-session -t try; rm -rf "$d"           # then check no host-main.ts (or
 ```
 
 - **Never the person's agent.** Start every test door through `scripts/test-door-env.sh` (or
-  `env -u EP0CH_DAILY_AGENT -u EP0CH_HERDR_AGENT_CMD -u EP0CH_DAILY_CWD -u EP0CH_LANDING -u EP0CH_NOW_PAGE
+  `env -u EP0CH_DAILY_AGENT -u EP0CH_DAILY_CWD -u EP0CH_LANDING -u EP0CH_NOW_PAGE
   EP0CH_DAILY_AGENT=sh …`, with any other inherited `EP0CH_*` unset too). As a backstop, a door on its own
   `EP0CH_STATE` or `EP0CH_CONTROL` refuses to start the Herdr daily agent (`doorScope`, src/desk/herdr-agent.ts);
-  `EP0CH_HERDR_SCOPED=1` gives it one of its own (`door-claude-<hash>`), never the person's. Never attach to or type
+  `EP0CH_HERDR_SCOPED=1` gives it one of its own (`door-<outline>-<hash>`), never the person's. Never attach to or type
   into a Herdr pane you didn't make; kill only your own pids.
 - **Short paths.** Unix sockets fail past about 104 bytes. The scratchpad folders agents get are too long:
   use `mktemp -d /tmp/…`.

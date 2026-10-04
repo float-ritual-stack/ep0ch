@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdtempSync, readFileSync, readlinkSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { agentConfig, attachOutcome, doorScope, SCOPED_REFUSAL, attachTitle, findOrCreate, herdrRunner, nameWhenReady, pointLink, releaseLink, tellDoor, withLock, type AgentConfig } from "../src/desk/herdr-agent";
+import { agentConfig, launchArgs, sessionSlug, closeSessionPane, attachOutcome, doorScope, SCOPED_REFUSAL, attachTitle, findOrCreate, herdrRunner, nameWhenReady, pointLink, releaseLink, tellDoor, withLock, type AgentConfig } from "../src/desk/herdr-agent";
 import { PtyPane } from "../src/desk/pty";
 
 const SCRIPT = resolve(import.meta.dir, "../scripts/door-agent-herdr.ts");
@@ -28,7 +28,7 @@ case "$1 $2" in
   "workspace list") cat "$d/spaces" ;;
   "workspace create"|"tab create") [ -f "$d/nocreate" ] && { echo "herdr: no room" >&2; exit 1; }; [ -f "$d/slow" ] && sleep 0.3; echo '{"result":{"root_pane":{"pane_id":"w9:p1","terminal_id":"term_new"}}}' ;;
   "pane rename") [ -f "$d/sticky" ] && echo '{"result":{"panes":[{"pane_id":"w9:p1","label":"door-claude","terminal_id":"term_new"}]}}' > "$d/panes"; echo '{"result":{}}' ;;
-  "pane run") echo '{"result":{}}' ;;
+  "pane run"|"pane close") echo '{"result":{}}' ;;
   "hang now") sleep 30 ;;
   "agent get") [ -f "$d/named" ] && echo '{"result":{"agent":{"name":"door","pane_id":"w9:p1"}}}' || exit 1 ;;
   "agent rename") [ -f "$d/detected" ] || exit 1; touch "$d/named"; echo '{"result":{}}' ;;
@@ -46,7 +46,7 @@ afterEach(() => rmSync(dir, { recursive: true, force: true }));
 const ownSock = () => join(dir, "ep0ch-door", "door.sock");
 
 const cfg = (more: Partial<AgentConfig> = {}): AgentConfig => ({
-  pane: "door-claude", name: "door", workspace: "door", cwd: "/tmp/garden", cmd: "door-claude",
+  pane: "door-claude", name: "door", workspace: "door", cwd: "/tmp/garden", agent: ["claude"], cmd: "claude",
   env: { EP0CH_TILE: "claude", EP0CH_CONTROL: join(dir, "agent.sock") }, unset: [], link: join(dir, "agent.sock"), lock: join(dir, "agent.sock.lock"), ...more,
 });
 
@@ -57,15 +57,16 @@ describe("the agent's pane", () => {
     expect(calls()).toEqual(["pane list"]);
   });
 
-  test("missing, it's made in a new `door` workspace without focus, renamed, and the agent exec'd in it", async () => {
+  test("missing, it's made in a new `door` workspace without focus, renamed, and the agent started inside a login shell there (no dead pane)", async () => {
     expect(await findOrCreate(herdrRunner(fake), cfg())).toEqual({ kind: "pane", pane: "w9:p1", terminal: "term_new", created: true });
-    expect(calls()).toEqual([
+    expect(calls().slice(0, 4)).toEqual([
       "pane list",
       "workspace list",
       `workspace create --cwd /tmp/garden --label door --env EP0CH_TILE=claude --env EP0CH_CONTROL=${join(dir, "agent.sock")} --no-focus`,
       "pane rename w9:p1 door-claude",
-      "pane run w9:p1 exec door-claude",
     ]);
+    // (The fake's sh echo reads the printf's escapes: the line is checked whole.)
+    expect(calls().slice(4).join("\n")).toMatch(/^pane run w9:p1 exec sh -l -c 'claude; c=\$\?; [\s\S]*claude exited \(\$c\) · this is your shell, in \$PWD"; exec sh -l'$/);
   });
 
   test("with a `door` workspace already there, it's a tab in it", async () => {
@@ -159,17 +160,17 @@ describe("attaching", () => {
 });
 
 describe("the defaults", () => {
-  test("door-claude when it's on PATH, else claude; EP0CH_HERDR_AGENT_CMD wins; the folder is EP0CH_DAILY_CWD", () => {
+  test("plain claude unless the dock names the agent (no door-claude, no hidden --continue); the folder is EP0CH_DAILY_CWD", () => {
     const base = { HOME: "/home/someone", PWD: "/somewhere" };
-    expect(agentConfig(base, c => (c === "door-claude" ? "/bin/door-claude" : null)).cmd).toBe("door-claude");
-    expect(agentConfig(base, () => null).cmd).toBe("claude");
-    expect(agentConfig({ ...base, EP0CH_HERDR_AGENT_CMD: "claude --model x" }, () => "/x").cmd).toBe("claude --model x");
+    expect(agentConfig(base, c => (c === "door-claude" ? "/bin/door-claude" : null)).cmd).toBe("claude");
+    expect(agentConfig(base, () => "/x", { agent: ["codex", "--model", "x"] }).agent).toEqual(["codex", "--model", "x"]);
+    expect(launchArgs(["--session", "pie-hole@float-2", "--agent", "pi"])).toEqual({ session: "pie-hole@float-2", agent: ["pi"] });
     const c = agentConfig({ ...base, EP0CH_DAILY_CWD: "~/garden", EP0CH_TILE: "claude" }, () => null);
     expect(c.cwd).toBe("/home/someone/garden");
     expect(c).toMatchObject({ pane: "door-claude", name: "door", workspace: "door" });
     expect(c.env.EP0CH_TILE).toBe("claude");
     expect(c.env.EP0CH_CONTROL).toBe(c.link);
-    expect(agentConfig(base, () => null).cwd).toBe("/somewhere");
+    expect(agentConfig(base, () => null).cwd).toBe(process.cwd());   // the folder the dock started it in, never the door's PWD
   });
 });
 
@@ -204,7 +205,7 @@ describe("a test door never reaches the person's agent pane", () => {
   test("end to end, by default: a test door starts no Herdr agent at all, and says why", async () => {
     answer("panes", { result: { panes: [{ pane_id: "w4:p2", label: "door-claude", terminal_id: "term_person" }] } });
     const p = Bun.spawn([process.execPath, SCRIPT], {
-      env: { PATH: process.env.PATH!, HOME: dir, EP0CH_STATE: join(dir, "test-door"), EP0CH_HERDR_AGENT_CMD: "echo the person's agent ran", EP0CH_HERDR_BIN: fake },
+      env: { PATH: process.env.PATH!, HOME: dir, EP0CH_STATE: join(dir, "test-door"), EP0CH_HERDR_BIN: fake },
       stdin: "ignore", stdout: "pipe", stderr: "pipe",
     });
     const [out, err, code] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
@@ -218,7 +219,7 @@ describe("a test door never reaches the person's agent pane", () => {
     answer("panes", { result: { panes: [{ pane_id: "w4:p2", label: "door-claude", terminal_id: "term_person" }] } });
     answer("spaces", { result: { workspaces: [{ workspace_id: "w4", label: "door" }] } });
     const p = Bun.spawn([process.execPath, SCRIPT], {
-      env: { PATH: process.env.PATH!, HOME: dir, EP0CH_STATE: join(dir, "test-door"), EP0CH_CONTROL: join(dir, "test-door", "door.sock"), EP0CH_HERDR_AGENT_CMD: "door-claude", EP0CH_HERDR_BIN: fake, EP0CH_HERDR_SCOPED: "1" },
+      env: { PATH: process.env.PATH!, HOME: dir, EP0CH_STATE: join(dir, "test-door"), EP0CH_CONTROL: join(dir, "test-door", "door.sock"), EP0CH_HERDR_BIN: fake, EP0CH_HERDR_SCOPED: "1" },
       stdin: "ignore", stdout: "pipe", stderr: "pipe",
     });
     const [out, err] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
@@ -233,8 +234,8 @@ describe("a test door never reaches the person's agent pane", () => {
 
 describe("the wrapper, end to end", () => {
   const run = async (env: Record<string, string>) => {
-    const p = Bun.spawn([process.execPath, SCRIPT], {
-      env: { PATH: process.env.PATH!, HOME: dir, XDG_STATE_HOME: dir, EP0CH_STATE: join(dir, "ep0ch-door"), EP0CH_HERDR_AGENT_CMD: "echo agent ran directly", ...env },
+    const p = Bun.spawn([process.execPath, SCRIPT, "--agent", "echo", "agent ran directly"], {
+      env: { PATH: process.env.PATH!, HOME: dir, XDG_STATE_HOME: dir, EP0CH_STATE: join(dir, "ep0ch-door"), SHELL: "sh", ...env },
       stdin: "ignore", stdout: "pipe", stderr: "pipe",
     });
     const [out, code] = await Promise.all([new Response(p.stdout).text(), p.exited]);
@@ -281,23 +282,24 @@ describe("the wrapper, end to end", () => {
   test("no server answering: the agent runs in the tile directly", async () => {
     writeFileSync(join(dir, "down"), "");
     const r = await run({ EP0CH_HERDR_BIN: fake });
-    expect(r).toEqual({ out: "agent ran directly\n", code: 0 });
+    expect(r.out).toContain("agent ran directly\n");
+    expect(r.out).toContain("echo exited (0) · this is your shell");     // then the person's shell, not a dead tile
   });
 
   test("Herdr can't make the pane: the agent runs in the tile directly, and the tile says why", async () => {
     writeFileSync(join(dir, "nocreate"), "");
-    const p = Bun.spawn([process.execPath, SCRIPT], {
-      env: { PATH: process.env.PATH!, HOME: dir, XDG_STATE_HOME: dir, EP0CH_STATE: join(dir, "ep0ch-door"), EP0CH_HERDR_AGENT_CMD: "echo agent ran directly", EP0CH_HERDR_BIN: fake },
+    const p = Bun.spawn([process.execPath, SCRIPT, "--agent", "echo", "agent ran directly"], {
+      env: { PATH: process.env.PATH!, HOME: dir, XDG_STATE_HOME: dir, EP0CH_STATE: join(dir, "ep0ch-door"), SHELL: "sh", EP0CH_HERDR_BIN: fake },
       stdin: "ignore", stdout: "pipe", stderr: "pipe",
     });
     const [out, err] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
-    expect(out).toBe("agent ran directly\n");
+    expect(out).toContain("agent ran directly\n");
     expect(err).toContain("running the agent here");
   });
 
   test("no Herdr installed: the agent runs in the tile directly", async () => {
     const r = await run({ PATH: "/usr/bin:/bin", EP0CH_HERDR_BIN: "" });
-    expect(r.out).toBe("agent ran directly\n");
+    expect(r.out).toContain("agent ran directly\n");
   });
 });
 
@@ -326,5 +328,37 @@ describe("quitting the door", () => {
     } finally { server.close(); }
     expect(await tellDoor({ EP0CH_CONTROL: join(dir, "none.sock"), EP0CH_TILE: "claude" }, "door-claude", "door")).toBe(false);
     expect(await tellDoor({}, "door-claude", "door")).toBe(false);
+  });
+});
+
+describe("one agent pane per outline session (sessions are per outline since PIE-418)", () => {
+  test("two sessions on two outlines each get their own pane, name and EP0CH_CONTROL, scoped for a test door; a session's end closes only its own", async () => {
+    // Two test doors' sessions (their own state: the scoped path, EP0CH_HERDR_SCOPED), as the dock's tile env gives them.
+    const state = join(dir, "state");
+    const tile = (outline: string) => ({ HOME: dir, EP0CH_STATE: state, EP0CH_HERDR_SCOPED: "1", EP0CH_TILE: "claude", EP0CH_TILE_ID: "dock.agent", EP0CH_CONTROL: join(state, "sessions", "local", outline, "door.sock") });
+    const a = agentConfig(tile("pie-hole"), () => null, launchArgs(["--session", "pie-hole@float-2", "--agent", "claude"]));
+    const b = agentConfig(tile("float-bbs-test"), () => null, launchArgs(["--session", "float-bbs-test", "--agent", "codex"]));
+    expect(a.pane).toMatch(/^door-pie-hole-float-2-[0-9a-f]{8}$/);
+    expect(b.pane).toMatch(/^door-float-bbs-test-[0-9a-f]{8}$/);
+    expect(a.name).not.toBe(b.name);
+    expect(a.env.EP0CH_CONTROL).not.toBe(b.env.EP0CH_CONTROL);        // each pane's own link, pointed at its session's door
+    expect(a.link).not.toBe(b.link);
+    expect(b.agent).toEqual(["codex"]);
+    // Herdr makes each its own pane, labelled for its session, with its own EP0CH_CONTROL: neither finds the other's.
+    answer("spaces", { result: { workspaces: [{ workspace_id: "w3", label: a.workspace }] } });
+    await findOrCreate(herdrRunner(fake), a);
+    answer("panes", { result: { panes: [{ pane_id: "w9:p1", label: a.pane, terminal_id: "term_new" }] } });
+    expect(await findOrCreate(herdrRunner(fake), b)).toMatchObject({ created: true });
+    const made = calls().filter(c => c.startsWith("tab create"));
+    expect(made[0]).toContain(`--label ${a.pane} `); expect(made[0]).toContain(`EP0CH_CONTROL=${a.link}`);
+    expect(made[1]).toContain(`--label ${b.pane} `); expect(made[1]).toContain(`EP0CH_CONTROL=${b.link}`);
+    // The labels stay valid Herdr names however long the outline's: short, letters, digits, dashes.
+    expect(sessionSlug("a-very-long-outline-name-for-the-allotment-committee@the-far-machine")).toMatch(/^door-[a-z0-9-]{1,31}-[0-9a-f]{8}$/);
+    // A session's end closes its own pane only (never the person's old door-claude, never another session's).
+    answer("panes", { result: { panes: [{ pane_id: "w9:p1", label: a.pane }, { pane_id: "w9:p2", label: b.pane }, { pane_id: "w4:p2", label: "door-claude" }] } });
+    writeFileSync(join(dir, "calls"), "");
+    expect(await closeSessionPane(herdrRunner(fake), b.pane)).toBe(true);
+    expect(await closeSessionPane(herdrRunner(fake), "door-claude")).toBe(false);
+    expect(calls().filter(c => c.startsWith("pane close"))).toEqual(["pane close w9:p2"]);
   });
 });

@@ -75,6 +75,45 @@ describe.skipIf(!outliner)("the desk's keys, clicks and typing reach the layout'
     expect(treeNames()).toContain("thread");
   });
 
+  test("float → drawer → float by keys: ^W f, ^W p on the float (one step into a drawer), ^W f again", async () => {
+    fresh();
+    await mine("tile.focus", {}, "thread");
+    key(ctrl("w")); key(char("f"));
+    await until(() => floats().includes("thread"), "^W f floats it");
+    key(ctrl("w")); key(char("p"));
+    await until(() => !floats().includes("thread") && !!get().tiles.find(t => t.name === "thread")?.drawer, "^W p puts the float in a drawer");
+    expect(treeNames()).toContain("thread");
+    key(ctrl("w")); key(char("f"));
+    await until(() => floats().includes("thread"), "^W f floats it out of its drawer");
+    expect(get().tiles.find(t => t.name === "thread")?.drawer ?? null).toBeFalsy();
+  });
+
+  test("float ⇄ layout by mouse: the focused tile's ⧉ floats it; the float's ⧉ (or the cell beside it) puts it back; its other header controls fire, not a drag", async () => {
+    fresh();
+    await mine("tile.focus", {}, "activity");
+    render();
+    const r = get().tiles.find(t => t.name === "activity")!.rect;
+    const click = (x: number, y: number) => { key({ kind: "mouse", action: "down", button: 0, x, y }); key({ kind: "mouse", action: "up", button: 0, x, y }); };
+    click(r.col + r.cols - 3, r.row);                                       // the ⧉ in its top right corner
+    await until(() => floats().includes("activity"), "the corner ⧉ floats it");
+    render();
+    const f = get().floats[0].rect;
+    click(f.col + 4, f.row);                                                // beside the ⧉: a font may draw it wide
+    await until(() => !floats().includes("activity"), "the float's ⧉ puts it back");
+    // A mark on a float: a click on its label dismisses it (it used to start a drag of the float).
+    await until(() => !!D().pane("reader")?.msg, "the reader shows a note");
+    await mine("tile.float", {}, "reader");
+    await act("block.mark", { reason: "look here", id: D().pane("reader").msg.id }, "reader");
+    render();
+    const marked = () => D().markHits.find((h: any) => D().nameOf(h.id) === "reader");
+    await until(() => { render(); return !!marked(); }, "the mark's label on the float's header");
+    const m = marked();
+    click(m.from + 1, m.row);
+    await until(() => { render(); return !marked(); }, "a click on the label dismisses the mark");
+    expect(D().floatDrag).toBeNull();
+    await mine("tile.float", {}, "reader");
+  });
+
   test("a tiny terminal: the keys leave a tile with no room, and a float is drawn on the screen", async () => {
     fresh();
     await mine("tile.float", {}, "activity");

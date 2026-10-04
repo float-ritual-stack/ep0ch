@@ -104,13 +104,12 @@ describe("floats have no place in the tree (B7, B8, B9)", () => {
     expect(treeNames(swapped)).toEqual(["thread", "tree", "activity"]);
   });
 
-  test("B8: nothing opens beside a float or into its tabs, nor folds or goes in a drawer; along an outer edge is fine", () => {
+  test("B8: nothing opens beside a float or into its tabs, nor folds; along an outer edge is fine", () => {
     const s = withFloat(fresh(), 2);
     no(s, { op: "open", tile: 9, kind: "pty", name: "ghost", at: { kind: "split", target: 2, dir: "right" } }, /reader is a float: putting ghost beside it needs a tile in the layout/);
     no(s, { op: "open", tile: 9, kind: "pty", name: "ghost", at: { kind: "tabs", target: 2 } }, /into its tabs/);
     no(s, { op: "move", tile: 3, to: { kind: "split", target: 2, dir: "left" } }, /reader is a float/);
     no(s, { op: "collapse", tile: 2, on: true }, /reader is a float: a spine/);
-    no(s, { op: "pin", tile: 2, on: false }, /reader is a float: a drawer/);
     const r = ok(s, { op: "open", tile: 9, kind: "reader", name: "edgy", at: { kind: "edge", dir: "right" } }).state;
     expect(treeNames(r)).toContain("edgy");
     expect(r.names.get(9)).toBe("edgy");
@@ -153,8 +152,8 @@ describe("containers keep their tiles and their rules (B10, B11)", () => {
   test("B11: the last docked tile isn't put in a drawer; the last drawer showing anything doesn't shut", () => {
     let s = fresh();
     for (const id of [1, 2, 3]) s = ok(s, { op: "pin", tile: id, on: false }, PERSON, { focus: id }).state;
-    no(s, { op: "pin", tile: 4, on: false }, /activity is the last tile docked/, PERSON, { focus: 4 });
-    no(s, { op: "pin", tile: 4, on: false, edge: "right" }, /last tile docked/, PERSON, { focus: 4 });
+    no(s, { op: "pin", tile: 4, on: false }, /activity is the last tile pinned/, PERSON, { focus: 4 });
+    no(s, { op: "pin", tile: 4, on: false, edge: "right" }, /last tile pinned/, PERSON, { focus: 4 });
     for (const id of [1, 2, 3]) s = ok(s, { op: "drawer", tile: id, open: false }, PERSON, { focus: 4 }).state;
     expect(names(s, visible(s.tree))).toEqual(["activity"]);
     // The one docked tile closes: the screen opens a drawer, and the keys go to what it shows.
@@ -324,7 +323,7 @@ describe("the rest of the layout's operations", () => {
     expect(far.row + far.rows).toBe(AREA.rows);
     const locked = ok(f, { op: "lock", on: true }).state;
     no(locked, { op: "place", tile: 4, dx: 4 }, /the screen is locked: moving activity is refused/);
-    no(locked, { op: "float", tile: 4 }, /the screen is locked: docking activity is refused/);
+    no(locked, { op: "float", tile: 4 }, /the screen is locked: putting activity back is refused/);
     const back = ok(f, { op: "float", tile: 4 }, PERSON, { focus: 2 }).state;
     expect(floated(back)).toEqual([]);
     expect(leaves(back.tree)).toContain(4);
@@ -524,5 +523,45 @@ describe("two layers: the host layer above every screen (Evan, Oct 1)", () => {
     const no2 = apply(s, { op: "close", tile: HOST_SCREEN }, hctx(PERSON));
     expect(no2.ok).toBe(false);
     if (!no2.ok) expect(no2.refused).toMatch(/screen stays: .* keeps its tiles|closable off/);
+  });
+});
+
+describe("a float and a drawer, one step each way (Evan, Oct 3)", () => {
+  test("a float goes straight into a drawer (tile.pin), and floats out of it again: float → drawer → float", () => {
+    extra = {};
+    // The person's float, then ^W p on it: into a drawer of its own, in one step, back in the tree.
+    const f = withFloat(fresh(), 2);
+    expect(floated(f)).toEqual(["reader"]);
+    const inDrawer = ok(f, { op: "pin", tile: 2, on: false }, PERSON, { focus: 2 }).state;
+    expect(floated(inDrawer)).toEqual([]);
+    expect(drawerOf(inDrawer.tree, 2)).not.toBeNull();
+    // And ^W f on it in its drawer: a float again, the drawer gone with it.
+    const again = ok(inDrawer, { op: "float", tile: 2 }, PERSON, { focus: 2 }).state;
+    expect(floated(again)).toEqual(["reader"]);
+    expect(drawerOf(again.tree, 2)).toBeNull();
+    // pin on=true on a float puts it back pinned in the layout; an agent never moves the float the person has.
+    expect(floated(ok(f, { op: "pin", tile: 2, on: true }).state)).toEqual([]);
+    no(f, { op: "pin", tile: 2, on: false }, /has the person's keys; an agent doesn't move it/, AGENT, { focus: 2 });
+    // A locked screen keeps it a float, and says why (nothing done).
+    const locked = ok(f, { op: "lock", on: true }).state;
+    no(locked, { op: "pin", tile: 2, on: false }, /locked/, PERSON, { focus: 2 });
+  });
+
+  test("take: a tile leaves the layout whole (to the dock), by the move rules, never the last one", () => {
+    extra = {};
+    const s = fresh();
+    const r = ok(s, { op: "take", tile: 3 }, PERSON, { focus: 3 });
+    expect(treeNames(r.state)).not.toContain("thread");
+    expect(r.state.names.has(3)).toBe(false);
+    expect(r.answer).toMatchObject({ tile: "thread", taken: true });
+    // The keys go to a tile still there.
+    expect(leaves(r.state.tree)).toContain(r.focus);
+    // A float leaves too.
+    expect(floated(ok(withFloat(s, 2), { op: "take", tile: 2 }).state)).toEqual([]);
+    // Never the tile the person types in (an agent), the one with their keys (an agent), the last, or a locked shape.
+    no(s, { op: "take", tile: 3 }, /where the person is typing/, AGENT, { focus: 2, typingIn: 3 });
+    no(s, { op: "take", tile: 2 }, /has the person's keys/, AGENT, { focus: 2 });
+    no(init({ tree: leaf(2), names: NAMES }), { op: "take", tile: 2 }, /last tile/);
+    no(ok(s, { op: "lock", on: true }).state, { op: "take", tile: 3 }, /locked/);
   });
 });

@@ -9,6 +9,7 @@
 // Keys go to the program while the person is in the tile (clicking in it, or e / ⏎ on it); ctrl+] hands
 // them back to the door, as telnet's escape does. The mouse goes to the program when it asked for it
 // (vim's `mouse=a`, claude's), in the encoding it asked for; otherwise the wheel scrolls what went by.
+import { inLoginShell, isAgentCmd, programName } from "./dock-program";
 import { scrolled, wheelRows } from "../scroll";
 import xterm from "@xterm/headless";
 import { unlink } from "node:fs/promises";
@@ -76,7 +77,7 @@ process.on("exit", () => { for (const p of LIVE) if (p.ownProcess) p.kill(); });
  * temp file, whose text was copied out) ends, rather than run on in the terminal host with no tile to adopt it.
  */
 export function endUnkept(): void { for (const p of [...LIVE]) if (!p.keptAs) p.kill(); }
-/** Every program running in a terminal tile (and the agent drawer) right now: what ending a session would stop. */
+/** Every program running in a terminal tile (and the dock) right now: what ending a session would stop. */
 export const livePrograms = (): readonly PtyPane[] => [...LIVE].filter(p => p.running);
 
 /** The escape chord: ctrl+] leaves the terminal, the keys go back to the door. */
@@ -128,6 +129,8 @@ export interface PtySpec {
    * and EP0CH_* included, unlike `env`'s; null unsets one. Never from a service or a saved layout.
    */
   own?: Record<string, string | null>;
+  /** It starts inside the person's login shell, which it leaves them in when it exits (left out: when `cmd` is an agent's). */
+  inShell?: boolean;
   /** What its title calls the program, when the first word of `cmd` isn't it (a picker sh runs: `tv ep0ch`). */
   shows?: string;
 }
@@ -143,6 +146,9 @@ export class PtyPane implements Pane {
   private rows = 0;
   /** The program's exit code once it's gone (null while it runs, or before it starts). */
   exited: number | null = null;
+  /** The agent's exit code once it has left the person in their shell (an agent started inside it), else null. */
+  agentExit: number | null = null;
+  private exitTail = "";
   /** The program's own title (OSC 0/2), if it set one (the Herdr launcher says it's only watching with it). */
   programTitle = "";
   /**
@@ -165,7 +171,16 @@ export class PtyPane implements Pane {
    * Which tile it is across session daemons (`<home>:<tile id>`): a new daemon adopts the program kept under it. Null
    * for a tile no layout restores (a ctrl+e editor on a temp file, a showcase's exhibit).
    */
-  get keptAs(): string | null { return this.run.temp || !this.home || !this.tileId ? null : `${this.home}:${this.tileId}`; }
+  get keptAs(): string | null { return this.run.temp ? null : this.keptKey ?? this.ownKey; }
+  /** `<home>:<tile id>` as the tile's place says it now. */
+  private get ownKey(): string | null { return !this.home || !this.tileId ? null : `${this.home}:${this.tileId}`; }
+  /**
+   * The key its program was started (or adopted) under, kept for the program's life: a tile moved to another screen or
+   * into the dock (PIE-498) gets a new id there, but its program is still the one the terminal host keeps under this.
+   */
+  keptKey: string | null = null;
+  /** What a save adds so a moved tile adopts its program after a restart: the key it runs under, when not its own. */
+  get movedKey(): string | null { return this.keptKey && this.keptKey !== this.ownKey ? this.keptKey : null; }
   /** When the program last wrote anything (Date.now()): the dock's chip calls an agent working while it does (PIE-498). */
   lastOutput = 0;
   /** When the person last typed or pasted into it (an agent's `tile.type` doesn't count): `agent.restart` waits for them. */
@@ -192,7 +207,7 @@ export class PtyPane implements Pane {
   onView: ((v: NvimView) => void) | null = null;
 
   constructor(readonly run: PtySpec) {}
-  spec(): Record<string, unknown> { return { cmd: this.run.cmd, ...(this.run.cwd ? { cwd: this.run.cwd } : {}), ...(this.run.file ? { file: this.run.file } : {}), ...(this.run.agent ? { agent: true as const } : {}) }; }
+  spec(): Record<string, unknown> { return { cmd: this.run.cmd, ...(this.run.cwd ? { cwd: this.run.cwd } : {}), ...(this.run.file ? { file: this.run.file } : {}), ...(this.run.agent ? { agent: true as const } : {}), ...(this.movedKey ? { kept: this.movedKey } : {}) }; }
   dispose() { this.kill(); this.term?.dispose(); this.term = null; }
 
   get running() { return !!this.proc && this.exited === null; }
@@ -217,7 +232,7 @@ export class PtyPane implements Pane {
    * wrote meanwhile is replayed into a fresh emulator, and it's asked to draw itself again at the tile's size.
    */
   private start(cols: number, rows: number) {
-    this.cols = cols; this.rows = rows; this.exited = null; this.back = 0; this.herdrPane = null;
+    this.cols = cols; this.rows = rows; this.exited = null; this.back = 0; this.herdrPane = null; this.agentExit = null; this.exitTail = "";
     this.term?.dispose();
     this.kbd.reset();
     const term = new XTerm({ cols, rows, scrollback: 1000, allowProposedApi: true });
@@ -249,9 +264,14 @@ export class PtyPane implements Pane {
     const clip = new Osc52Reader();
     const data = (d: Uint8Array) => {
       this.lastOutput = Date.now();
-      const s = Buffer.from(d).toString("latin1");
-      modes(s, true);
-      for (const c of clip.feed(s)) this.copied(c);
+      const text = Buffer.from(d).toString("latin1");
+      modes(text, true);
+      for (const c of clip.feed(text)) this.copied(c);
+      // The agent inside the login shell exited: its shell says so (inLoginShell), and the tile is that shell now.
+      const seen = this.exitTail + text;
+      this.exitTail = seen.slice(-160);
+      const gone = /exited \((\d+)\) \xc2\xb7 this is your shell/.exec(seen);
+      if (gone && this.agentExit === null) this.agentExit = Number(gone[1]);
       term.write(d, () => this.soon());
     };
     // The host had to drop some of its output (this daemon fell behind): the emulator starts over from all it kept.
@@ -269,6 +289,8 @@ export class PtyPane implements Pane {
     this.continueNext = false;
     // The program a session kept for this tile, when there is one (a run again, `keep`, starts a new one).
     const key = this.keptAs, kept = key && !keep ? backend.adopt(key, this.run.cmd, data) : null;
+    // Its program is known by this key from now on, wherever the tile goes.
+    if (key) this.keptKey = key;
     if (kept) {
       this.proc = kept.proc;
       // What it wrote, at the size it wrote it, its modes followed (its mouse encoding, its keyboard protocol) and its
@@ -307,7 +329,10 @@ export class PtyPane implements Pane {
       // buffer, and an agent edits other lines through it without moving the person's cursor.
       const cmd = keep ? withContinue(this.run.cmd) : [...this.run.cmd];
       if (this.isNvim && !cmd.includes("--listen")) { this.socket = nvimSocketPath(this.run.label ?? "nvim"); if (this.socket) cmd.splice(1, 0, "--listen", this.socket); }
-      this.proc = backend.spawn({ key, argv: CTTY ? [...CTTY, ...cmd] : cmd, cwd: this.run.cwd, env, cols, rows, meta: this.meta() }, data);
+      // An agent starts inside the person's login shell: when it exits (or crashes) the tile is that shell, in the same
+      // folder with the same environment, and says so. Nothing starts it again by itself (no dead panes).
+      const argv = (this.run.inShell ?? isAgentCmd(this.run.cmd)) ? inLoginShell(cmd, process.env.SHELL || "sh", programName(this.run.cmd)) : cmd;
+      this.proc = backend.spawn({ key, argv: CTTY ? [...CTTY, ...argv] : argv, cwd: this.run.cwd, env, cols, rows, meta: this.meta() }, data);
       if (!CTTY && !saidNoCtty) { saidNoCtty = true; this.desk?.ctx.flash("no setsid or perl here: terminal tiles won't hear resizes, and ctrl+z doesn't stop a job", 8000); }
       if (this.socket) this.attach(this.socket);
     } catch (e) {

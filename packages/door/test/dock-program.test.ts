@@ -1,0 +1,84 @@
+// PIE-498: what the dock's own tab runs, and where (src/desk/dock-program.ts). One rule, read by the dock and by
+// `ep0ch doctor`: the person's program or a shell, in the person's folder, the project's, the outline's or the door's
+// start, and the why said in words. Pure: a scratch folder, fictional outlines.
+import { afterAll, describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { detectAgents, dockProgram, inLoginShell, isAgentCmd, programName } from "../src/desk/dock-program";
+
+const root = mkdtempSync(join(tmpdir(), "ep0ch-dockprog-"));
+afterAll(() => rmSync(root, { recursive: true, force: true }));
+const home = join(root, "home"), outlines = join(root, "outlines"), project = join(root, "code", "allotment");
+mkdirSync(join(outlines, "allotment"), { recursive: true });
+mkdirSync(join(project, "src"), { recursive: true });
+writeFileSync(join(project, ".ep0ch"), 'ws = "allotment"\n');
+
+describe("the dock's own program", () => {
+  test("no agent configured: a shell, said so; one configured runs as set", () => {
+    const none = dockProgram({ env: { SHELL: "/bin/zsh", EP0CH_OUTLINES: outlines }, outline: "allotment", start: root, home });
+    expect(none.cmd).toEqual(["/bin/zsh"]);
+    expect(none.name).toBe("shell");
+    expect(none.programWhy).toMatch(/a shell: no agent chosen yet \(the dock.s picker, alt\+g/);
+    const set = dockProgram({ env: { EP0CH_DAILY_AGENT: "claude --model x", EP0CH_OUTLINES: outlines }, outline: "allotment", start: root, home });
+    expect(set.cmd).toEqual(["claude", "--model", "x"]);
+    expect(set.name).toBe("claude");
+    expect(set.programWhy).toBe("EP0CH_DAILY_AGENT (claude --model x), which overrides the dock's choice");
+    // The Herdr launcher is a Claude too; another program is its own name.
+    expect(programName(["/x/scripts/door-agent-herdr.ts", "--agent", "codex"])).toBe("codex");
+    expect(programName(["/x/scripts/door-agent-herdr.ts"])).toBe("claude");
+    expect(programName(["bun", "/x/scripts/door-agent-herdr.ts"])).toBe("claude");
+    expect(programName(["htop"])).toBe("htop");
+  });
+
+  test("the folder: the person's EP0CH_DAILY_CWD, else the project's .ep0ch folder, else the outline's, else where the door started", () => {
+    const env = { EP0CH_OUTLINES: outlines };
+    // Chosen by the person (~ is home).
+    expect(dockProgram({ env: { ...env, EP0CH_DAILY_CWD: "~/patch" }, outline: "allotment", start: project, home })).toMatchObject({ cwd: join(home, "patch"), folderWhy: "EP0CH_DAILY_CWD (~/patch)" });
+    // Started inside the project whose .ep0ch names this outline: the project.
+    expect(dockProgram({ env, outline: "allotment", start: join(project, "src"), home })).toMatchObject({ cwd: project, folderWhy: "the folder whose .ep0ch names allotment" });
+    // A .ep0ch that names another outline isn't this one's project (orchard has no folder here either): where it started.
+    expect(dockProgram({ env, outline: "orchard", start: project, home })).toMatchObject({ cwd: project, folderWhy: "the folder the door was started from" });
+    expect(dockProgram({ env, outline: "allotment", start: root, home })).toMatchObject({ cwd: join(outlines, "allotment"), folderWhy: "the outline's own folder (allotment)" });
+    // An outline on another machine has no folder here; no outline at all (the home base): where the door started.
+    expect(dockProgram({ env, outline: "allotment", machine: "far", start: root, home })).toMatchObject({ cwd: root, folderWhy: "the folder the door was started from" });
+    expect(dockProgram({ env, outline: null, start: root, home })).toMatchObject({ cwd: root, folderWhy: "the folder the door was started from" });
+  });
+});
+
+describe("the dock's agent: chosen per session, detected, started inside the person's shell", () => {
+  const state = join(root, "state"), session = join(state, "sessions", "local", "allotment");
+  mkdirSync(session, { recursive: true });
+  const env = { SHELL: "/bin/zsh", EP0CH_OUTLINES: outlines };
+  const program = (more: Record<string, string> = {}) => dockProgram({ env: { ...env, ...more }, outline: "allotment", start: root, home, dir: session, state });
+
+  test("where the choice comes from: EP0CH_DAILY_AGENT overrides; else this session's; else the default; else a shell, none chosen", () => {
+    expect(program()).toMatchObject({ cmd: ["/bin/zsh"], name: "shell", from: "none" });
+    writeFileSync(join(state, "dock-agent.json"), JSON.stringify({ agent: "pi" }));
+    expect(program()).toMatchObject({ cmd: ["pi"], name: "pi", from: "default", programWhy: "your default (pi)" });
+    writeFileSync(join(session, "dock-agent.json"), JSON.stringify({ agent: "codex", herdr: true }));
+    const p = program();
+    expect(p).toMatchObject({ name: "codex", herdr: true, from: "session", programWhy: "chosen for allotment (codex in Herdr)" });
+    // In Herdr: the launcher, told this session (its own pane) and the agent, plain.
+    expect(p.cmd.slice(1)).toEqual(["--session", "allotment", "--agent", "codex"]);
+    expect(program({ EP0CH_DAILY_AGENT: "claude" })).toMatchObject({ cmd: ["claude"], from: "env" });
+    // The launcher named outright is still told this session.
+    expect(program({ EP0CH_DAILY_AGENT: "/x/scripts/door-agent-herdr.ts" }).cmd).toEqual(["/x/scripts/door-agent-herdr.ts", "--session", "allotment"]);
+  });
+
+  test("the agents offered: a shell first, then those on PATH, each in Herdr too when Herdr is installed", () => {
+    const on = new Set(["claude", "pi", "herdr"]);
+    const a = detectAgents({ env, which: c => (on.has(c) ? `/usr/bin/${c}` : null), session: "allotment@far" });
+    expect(a.map(x => `${x.name}${x.herdr ? "/herdr" : ""}`)).toEqual(["shell", "claude", "pi", "claude/herdr", "pi/herdr"]);
+    expect(a.find(x => x.name === "pi" && x.herdr)!.cmd.slice(1)).toEqual(["--session", "allotment@far", "--agent", "pi"]);
+    expect(detectAgents({ env, which: () => null }).map(x => x.name)).toEqual(["shell"]);
+  });
+
+  test("no dead panes: an agent starts inside the login shell, which says it exited and stays the person's shell", () => {
+    expect(isAgentCmd(["claude", "--model", "x"])).toBe(true);
+    expect(isAgentCmd(["/opt/bin/codex"])).toBe(true);
+    expect(isAgentCmd(["nvim", "a.md"])).toBe(false);
+    expect(inLoginShell(["claude", "--model", "it's"], "/bin/zsh")).toEqual(["/bin/zsh", "-l", "-c",
+      `claude --model 'it'\\''s'; c=$?; printf '\\033]2;%s\\007\\n%s\\n' 'claude exited · shell' "claude exited ($c) · this is your shell, in $PWD"; exec /bin/zsh -l`]);
+  });
+});

@@ -46,7 +46,7 @@ export function whereFactsOf(stdout: string): WhereFacts | null {
       outline: str(door.outline),
       machine: str(door.machine),
       host: str(door.host),
-      drawer: door.tile?.dock === true,
+      dock: door.tile?.dock === true,
       tile: str(door.tile?.name),
     } : null,
   }
@@ -111,7 +111,7 @@ export function mismatchOf(f: BindingFacts): string | null {
   return `this folder names ${folderAt}; the door you're in shows ${doorAt}. The outline tools write to ${folderAt}; the door tools act in that door.`
 }
 
-/** Where Claude sits in the door: the drawer, a tile, or not in one; and its Herdr pane. */
+/** Where Claude sits in the door: the dock, a tile, or not in one; and its Herdr pane. */
 function doorWords(f: BindingFacts): string {
   const w = f.where
   const door = w?.door
@@ -120,7 +120,7 @@ function doorWords(f: BindingFacts): string {
   if (!w) return `not checked: ${f.whereWhy ?? '`ep0ch where` did not answer'}`
   if (!w.inDoor || !door) return ['not in a door', pane && `in ${pane}`].filter(Boolean).join(' · ')
   const which = door.outline ? `the ${door.outline} door` : 'a door'
-  const seat = door.drawer ? `the agent drawer of ${which}` : door.tile ? `the "${door.tile}" tile of ${which}` : `a tile of ${which}`
+  const seat = door.dock ? `the dock of ${which}` : door.tile ? `the "${door.tile}" tile of ${which}` : `a tile of ${which}`
   const parts = [door.answers ? `in ${seat}` : `in ${seat}, but no door answers now`]
   if (pane) parts.push(herdr!.agent ? `its own ${pane}` : pane)
   return parts.join(' · ')
