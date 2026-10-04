@@ -147,6 +147,11 @@ describe("ep0ch export's ASCII twin", () => {
     expect(out.slice(-6)).toEqual(["```", "```", "::graph-rank", "::", "```", "after"]);
     expect(out.filter(l => l === "::graph-rank").length).toBe(1);
   });
+  test("an unclosed figure runs to the note's end: its last line is drawn, not dropped", () => {
+    const out = figuresAsAscii(["Title", "::graph-rank", "- a: 1", "- b: 2"].join("\n"), "n").split("\n");
+    expect(out.join("\n")).toMatch(/\|\s*b\s+\[/);
+    expect(out.at(-1)).toBe("```");
+  });
 });
 
 describe("a figure block's child bullets", () => {
@@ -169,6 +174,13 @@ describe("a figure block's child bullets", () => {
     const yaml = renderGraph("timeline", figureSource(["---", "title: rows", "events: [{ date: x, label: y }]", "---"], "note", true), 60).map(plain);
     expect(yaml.at(-1)).not.toContain("child notes");
     expect(asked).toBe(before);
+  });
+  test("child bullets this kind makes nothing of (a calendar's need a day) draw no footer", async () => {
+    setLiveSource(fake, () => {}); invalidateLive();
+    const src = figureSource(["---", "title: month", "year: 2026", "month: 3", "---"], "note", true);
+    renderGraph("calendar", src, 60);
+    await liveSettled();
+    expect(renderGraph("calendar", src, 60).map(plain).at(-1)).not.toContain("child notes");
   });
   test("only the note's figure block takes them: not one in a part drawn on its own (a callout, a fragment)", async () => {
     setLiveSource(fake, () => {}); invalidateLive();

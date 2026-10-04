@@ -334,7 +334,9 @@ function propsOf(kind: string, src: FigureSource): { props: Props; children: boo
   const kids = wantsChildren ? childRows(src.note!) : null;
   if (kids) md.rows.push(...kids.rows);
   const from = MARKDOWN[kind]?.(md, yaml) ?? {};
-  return { props: { ...from, ...yaml }, children: !!kids?.rows.length, waiting: !!kids?.waiting };
+  // The footer says "child notes" only when a field drawn came from them: rows this kind makes nothing of don't count.
+  const children = !!kids?.rows.length && rowFields.some(k => k in (MARKDOWN[kind]!({ rows: kids.rows, paragraphs: [], fences: [] }, yaml)));
+  return { props: { ...from, ...yaml }, children, waiting: !!kids?.waiting };
 }
 
 /**
