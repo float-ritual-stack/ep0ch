@@ -239,7 +239,7 @@ export class PtyPane implements Pane {
    * daemon was handed over (or restarted), the program its terminal host kept for this tile is adopted instead: what it
    * wrote meanwhile is replayed into a fresh emulator, and it's asked to draw itself again at the tile's size.
    */
-  private start(cols: number, rows: number) {
+  protected start(cols: number, rows: number) {
     this.cols = cols; this.rows = rows; this.exited = null; this.back = 0; this.herdrPane = null; this.agentExit = null; this.exitTail = "";
     this.term?.dispose();
     this.kbd.reset();

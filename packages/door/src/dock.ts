@@ -75,8 +75,17 @@ class DockTile extends PtyPane {
   override readonly kind = DOCK_KIND;
   constructor(spec: PtySpec, public shows: string) { super(spec); }
   headName() { return this.shows; }
-  /** The agent chosen now runs at its next start (agent.restart, or the next door): never in place of one running. */
-  retarget(p: DockProgram) { Object.assign(this.run, { cmd: p.cmd, cwd: p.cwd, label: p.name, inShell: p.name !== "shell" && !p.herdr }); this.shows = p.name; }
+  /**
+   * The agent chosen now runs at its next start (agent.restart, or the next door): never in place of one running. Kept
+   * aside until then: what runs now is still read as what it was started as (its exit line, its header).
+   */
+  retarget(p: DockProgram) {
+    this.next = { cmd: p.cmd, cwd: p.cwd, label: p.name, inShell: p.name !== "shell" && !p.herdr, shows: p.name };
+    if (!this.running) this.takeNext();
+  }
+  private next: { cmd: string[]; cwd: string; label: string; inShell: boolean; shows: string } | null = null;
+  private takeNext() { if (!this.next) return; const { shows, ...run } = this.next; Object.assign(this.run, run); this.shows = shows; this.next = null; }
+  protected override start(cols: number, rows: number) { this.takeNext(); super.start(cols, rows); }
 }
 /** The dock's own kind, registered once: a terminal's actions and keys, closable and draggable off (its policy). */
 function registerDockKind() {

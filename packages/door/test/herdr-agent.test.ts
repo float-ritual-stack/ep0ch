@@ -356,7 +356,10 @@ describe("one agent pane per outline session (sessions are per outline since PIE
     const a = agentConfig(tile("pie-hole"), () => null, launchArgs(["--session", "pie-hole@float-2", "--agent", "claude"]));
     const b = agentConfig(tile("float-bbs-test"), () => null, launchArgs(["--session", "float-bbs-test", "--agent", "codex"]));
     expect(a.pane).toMatch(/^door-pie-hole--float-2-[0-9a-f]{8}$/);
-    expect(sessionSlug("pie@float-2")).not.toBe(sessionSlug("pie-float-2"));     // a machine's outline never shares a local one's pane
+    expect(sessionSlug("pie@float-2")).not.toBe(sessionSlug("pie-float-2"));
+    // An outline named claude: never the old door-claude label, which a session's end never closes.
+    expect(sessionSlug("claude")).not.toBe("door-claude");
+    expect(sessionSlug("claude")).toMatch(/^door-claude-[0-9a-f]{8}$/);     // a machine's outline never shares a local one's pane
     expect(b.pane).toMatch(/^door-float-bbs-test-[0-9a-f]{8}$/);
     expect(a.name).not.toBe(b.name);
     expect(a.env.EP0CH_CONTROL).not.toBe(b.env.EP0CH_CONTROL);        // each pane's own link, pointed at its session's door
@@ -377,6 +380,8 @@ describe("one agent pane per outline session (sessions are per outline since PIE
     writeFileSync(join(dir, "calls"), "");
     expect(await closeSessionPane(herdrRunner(fake), b.pane)).toBe(true);
     expect(await closeSessionPane(herdrRunner(fake), "door-claude")).toBe(false);
-    expect(calls().filter(c => c.startsWith("pane close"))).toEqual(["pane close w9:p2"]);
+    answer("panes", { result: { panes: [{ pane_id: "w9:p3", label: sessionSlug("claude") }] } });
+    expect(await closeSessionPane(herdrRunner(fake), sessionSlug("claude"))).toBe(true);
+    expect(calls().filter(c => c.startsWith("pane close"))).toEqual(["pane close w9:p2", "pane close w9:p3"]);
   });
 });

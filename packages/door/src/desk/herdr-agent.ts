@@ -96,6 +96,8 @@ export function sessionSlug(session: string | null | undefined): string {
   const part = (x: string) => x.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
   const s = session.split("@").map(part).join("--");
   const full = `door-${s}`;
+  // An outline named claude: never the old `door-claude` label, which no session's end may close (closeSessionPane).
+  if (full === "door-claude") return `${full}-${createHash("sha256").update(session).digest("hex").slice(0, 8)}`;
   return full.length <= 40 ? full : `${full.slice(0, 31).replace(/-$/, "")}-${createHash("sha256").update(session).digest("hex").slice(0, 8)}`;
 }
 

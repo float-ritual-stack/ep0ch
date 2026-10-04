@@ -295,6 +295,7 @@ describe.skipIf(!outliner)("the dock: any tile, moved whole between screens", ()
       const kid = d.app.dock.tabs().find(t => t.name === "kettle")!.id;
       await d.desk.dispatch.act({ action: "tile.open", args: { kind: "pty", cmd: "cat", name: "kettle" }, tile: "reader" }, USER);
       await expect(d.app.act({ action: "tile.type", args: { text: "hello" }, tile: "kettle", as: AS })).rejects.toThrow(new RegExp(`names a tile here .* and one in the dock \\(${kid}\\)`));
+      expect(d.A.message).toContain(`an agent (${AS}) · tile.type refused: kettle names a tile here`);   // said on the status bar, as every refusal
       await until(() => (d.pane("kettle") as PtyPane).running, "the docked kettle runs");
       await d.app.act({ action: "tile.type", args: { text: "by id\r" }, tile: kid, as: AS });
       await until(() => (d.pane("kettle") as PtyPane).text().some(l => l.includes("by id")), "typed into the docked one");

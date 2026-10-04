@@ -623,8 +623,11 @@ export class App implements Ctx {
   async act(req: ActRequest): Promise<unknown> {
     const actor = agentActor(req.as);
     const s = this.stack.at(-1);
-    if (!this.dispatch.takes(req)) throw new ActionRefused(`no action ${req.action} on the ${s?.title ?? "current"} screen; here: ${this.dispatch.list().actions.map(a => a.name).join(", ")}`);
     const who = agentLabel(actor);
+    // Finding the owner can refuse too (a name both the screen and the dock have): said like every refusal.
+    let takes: boolean;
+    try { takes = this.dispatch.takes(req); } catch (e) { this.flash(`${who} · ${req.action} refused: ${e instanceof Error ? e.message : String(e)}`); throw e; }
+    if (!takes) throw new ActionRefused(`no action ${req.action} on the ${s?.title ?? "current"} screen; here: ${this.dispatch.list().actions.map(a => a.name).join(", ")}`);
     this.flash(`${who} · ${req.action}${req.tile ? ` in ${req.tile}` : ""}`);
     try {
       const r = await this.dispatch.act(req, actor);
