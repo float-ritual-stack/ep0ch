@@ -41,6 +41,21 @@ move into one repository (PIE-530).
 - **Television (optional).** With `tv` on your PATH, `ep0ch install --apply` links the outline's channels into
   television's cable folder.
 
+### Images: sized, placed, and a note's header (PIE-532, PIE-494)
+
+- **Images render on Linux too.** JPEG, WebP and GIF (its first frame) used to need macOS's `sips`; now decoding and
+  scaling are sharp's prebuilt libvips, on Linux and macOS, with no system tool. `bun install` (or `ep0ch install
+  --apply`) brings it. An image is scaled down to about the box it's drawn in, never up, so a big screenshot no longer
+  crosses ssh at full size. A video's poster frame still needs `ffmpeg` (or Quick Look on a Mac); without one the line
+  says what to install.
+- **Layout as properties on the image's line:** `[size::40%]` (or cells, or `full`), `[height::12]` (rows),
+  `[align::center]`, `[alt::…]`, and `[layout::hero]`: the note's **header**, drawn above the title, the full width,
+  a third of the pane tall (or its `height`), cropped to fill; it scrolls away with the top of the note. For example `- [img::~/shots/plot.png] [layout::hero]`.
+- **Change it from the reader:** `[ ]` to an image (or click it), then `+` `-` size it, `←` `→` move it, `H` makes it the
+  header; or click its caption's `[−][+] [◂][▸] [▀]`. Each is one save of that line, recorded as you; `ctrl+z` undoes
+  it. Agents: `act images`, `image.size n=1 to=50%`, `image.align`, `image.hero`, `image.undo`.
+- The showcase has an `images` section.
+
 ### Tabs in a live figure, and titles that wrap
 
 - **`::graph-tabs`** groups a query's (or a view's) results by a property, a tab per value, each labelled with its

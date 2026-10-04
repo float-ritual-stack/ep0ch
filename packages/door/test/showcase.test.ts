@@ -33,7 +33,7 @@ const plain = (s: string) => s.replace(/\x1b\[[\d;]*[A-Za-z]/g, "").replace(/[\u
 
 test("the README's showcase says what SECTIONS registers: how many, the act range, and every key in the action's summary", () => {
   const readme = readFileSync(join(import.meta.dir, "../README.md"), "utf8");
-  const words = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen", "twenty", "twenty-one", "twenty-two"];
+  const words = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen", "twenty", "twenty-one", "twenty-two", "twenty-three"];
   expect(readme).toContain(`live, in ${words[SECTIONS.length]} sections`);
   expect(readme).toContain(`act section name=<1-${SECTIONS.length}|key>`);
   const summary = SHOWCASE_ACTIONS.list().find((a: any) => a.name === "section")!.summary;
@@ -290,6 +290,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     session: ["this door runs in its own terminal (--no-daemon)", "session"],
     // Obsidian's examples, nested three deep; the right reader declares a type of the outline's own.
     callouts: ["Callouts, as Obsidian writes them", "Can callouts be nested?", "Yes!, they can.", "Recipe callouts"],
+    // This test's terminal has no Kitty graphics: each image's line says what it is, with its controls.
+    images: ["Pictures of the plot", "▀ header allotment-dusk.jpg · 960×540", "▣ seed-packet.webp · 300×420 · 25% · center", "[−][+] [◂][▸] [▀]"],
   };
 
   test("one section per reuse-map row, in the map's order, each labelled with its part and file, drawn by the part", async () => {
@@ -524,7 +526,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     const id = seeded.notes.callouts.id, text = async () => (await board.get(id))!.text;
     const reads = async (has: (t: string) => boolean, what: string) => { const end = Date.now() + 5000; while (!has(await text())) { if (Date.now() > end) throw new Error(`timed out waiting for ${what}`); await Bun.sleep(30); } };
     (app as any).lastInput = 0;
-    expect(await app.act({ action: "section", args: { name: "callouts" }, as: "test-agent" })).toEqual({ section: SECTIONS.length, key: "callouts" });
+    expect(await app.act({ action: "section", args: { name: "callouts" }, as: "test-agent" })).toEqual({ section: SECTIONS.findIndex(s => s.key === "callouts") + 1, key: "callouts" });
     await until(() => screen().includes("You can even use multiple") && screen().includes("♨ Soup stock"), "the nested example drawn, with the outline's own type", 8000);
     let shown = screen();
     expect(shown).toContain("feel the power");                             // [!note]+ starts open
@@ -642,6 +644,64 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     await until(() => !S().stages.get(S().sel).top.describe().panes[0].editing, "the edit closed", 5000);
     // Every switch was reading state: the note's text is as seeded.
     expect((await board.get(id))!.text).toBe(before);
+    for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+  }, 30_000);
+
+  test("images (PIE-532): sized, placed and the header, by act, by keys and by a click on a caption control; ctrl+z undoes", async () => {
+    const id = seeded.notes.images.id, text = async () => (await board.get(id))!.text;
+    const reads = async (has: (t: string) => boolean, what: string) => { const end = Date.now() + 5000; while (!has(await text())) { if (Date.now() > end) throw new Error(`timed out waiting for ${what}: ${await text()}`); await Bun.sleep(30); } };
+    const line = async (n: number) => (await text()).split("\n")[n - 1]!;
+    (app as any).lastInput = 0;
+    expect(await app.act({ action: "section", args: { name: "images" }, as: "test-agent" })).toMatchObject({ key: "images" });
+    await until(() => screen().includes("seed-packet.webp · 300×420"), "the images, read (a JPEG and a WebP)", 8000);
+    // An agent lists them, with the layout each line writes and what's wrong with none.
+    const list = (await app.act({ action: "images", as: "test-agent" }) as any).images;
+    expect(list.map((x: any) => [x.n, x.line, x.path.split("/").pop(), x.size ?? null, x.align ?? null, x.layout ?? null])).toEqual([
+      [1, 2, "allotment-dusk.jpg", null, null, "hero"], [2, 6, "seed-packet.webp", "25%", "center", null], [3, 10, "allotment-dusk.jpg", "50%", "right", null], [4, 12, "seed-packet.webp", null, null, null],
+    ]);
+    expect(list[0].alt).toBe("the plot at dusk");
+    // Sized, placed and made the header through the note's save, attributed; the header moves (one save, two lines).
+    expect(await app.act({ action: "image.size", args: { n: 2, to: "40" }, as: "test-agent" })).toMatchObject({ changed: true, recordedAs: { author: "agent", actorId: "test-agent" } });
+    expect(await line(6)).toContain("[size::40] [align::center]");
+    await app.act({ action: "image.align", args: { line: 6, to: "left" }, as: "test-agent" });
+    expect(await line(6)).not.toContain("[align::");
+    await app.act({ action: "image.hero", args: { n: 4 }, as: "test-agent" });
+    expect(await line(12)).toBe(`- [img::${list[3].path}] [height::6] [layout::hero]`);
+    expect(await line(2)).not.toContain("[layout::hero]");
+    await expect(app.act({ action: "image.align", args: { n: 4, to: "right" }, as: "test-agent" })).rejects.toThrow(/full width/);
+    await expect(app.act({ action: "image.size", args: { n: 2, to: "huge" }, as: "test-agent" })).rejects.toThrow(/cells \(40\), a share \(50%\) or full/);
+    await expect(app.act({ action: "image.size", args: { to: "50%" }, as: "test-agent" })).rejects.toThrow(/say which image/);
+    // Its own undo puts each change back, newest first.
+    for (let i = 0; i < 2; i++) await app.act({ action: "image.undo", as: "test-agent" });
+    expect(await line(2)).toContain("[layout::hero]");
+    expect(await line(6)).toContain("[size::40] [align::center]");
+    await app.act({ action: "image.undo", as: "test-agent" });
+    expect(await line(6)).toContain("[size::25%] [align::center]");
+    // The person, by keys: into the stage, [ ] to the seed packet (the header's caption is the first element), + a step bigger.
+    press({ kind: "enter" });
+    expect(S().focus).toBe("stage");
+    ch("]"); ch("]");
+    ch("+");
+    await reads(t => t.split("\n")[5]!.includes("[size::33%]"), "a step bigger: a third");
+    press({ kind: "right" });
+    await reads(t => t.split("\n")[5]!.includes("[align::right]"), "→ moved it right");
+    ch("H");
+    await reads(t => t.split("\n")[5]!.includes("[layout::hero]") && !t.split("\n")[1]!.includes("[layout::hero]"), "H made it the header");
+    press({ kind: "char", ch: "z", ctrl: true });
+    await reads(t => t.split("\n")[1]!.includes("[layout::hero]"), "ctrl+z: the header back");
+    // By mouse: a click on the right-hand image's [−] (on its caption).
+    const rows = sc.render(app).lines.map(plain);
+    const y = rows.findIndex(l => l.includes("allotment-dusk.jpg · 960×540 · 50% · right")), x = rows[y]!.indexOf("[−]") + 1;
+    expect(y).toBeGreaterThan(0);
+    press({ kind: "mouse", action: "down", button: 0, x, y }); press({ kind: "mouse", action: "up", button: 0, x, y });
+    await reads(t => t.split("\n")[9]!.includes("[size::33%]"), "a click on [−]: a step smaller");
+    // The person writes in the note (an edit open): an agent's change is refused, the line untouched.
+    ch("e");
+    await until(() => !!S().stages.get(S().sel).top.describe().panes[0].editing, "the edit open", 5000);
+    await expect(app.act({ action: "image.align", args: { n: 3, to: "left" }, as: "test-agent" })).rejects.toThrow(/open in a draft|typing in/);
+    expect(await line(10)).toContain("[align::right]");
+    press({ kind: "esc" });
+    await until(() => !S().stages.get(S().sel).top.describe().panes[0].editing, "the edit closed", 5000);
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
   }, 30_000);
 

@@ -29,8 +29,9 @@ export function inWindow(p: Placement, top: number, room: number, at = 0): Place
   const start = p.row - top, end = start + p.rows;
   if (end <= 0 || start >= room) return null;
   const cutTop = Math.max(0, -start), cutBottom = Math.max(0, end - room), rows = p.rows - cutTop - cutBottom;
-  const { width: w, height: h } = p.image;
-  const crop = cutTop || cutBottom ? { x: 0, y: Math.round((cutTop / p.rows) * h), w, h: Math.max(1, Math.round((rows / p.rows) * h)) } : undefined;
+  // Cut from the part already shown (a header's cover crop), else from the whole image.
+  const base = p.crop ?? { x: 0, y: 0, w: p.image.width, h: p.image.height };
+  const crop = cutTop || cutBottom ? { x: base.x, y: base.y + Math.round((cutTop / p.rows) * base.h), w: base.w, h: Math.max(1, Math.round((rows / p.rows) * base.h)) } : p.crop;
   return { ...p, row: at + Math.max(0, start), rows, crop };
 }
 

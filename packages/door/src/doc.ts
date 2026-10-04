@@ -1,7 +1,7 @@
 // Render a note body into terminal lines: headings, lists, code fences, Obsidian-style
 // callouts as boxes, Markdown tables as real tables with wrapped multi-line cells, and
 // media lines as image slots the caller fills with Kitty placements.
-import { media, MEDIA_LINE, type Media } from "./media";
+import { isMediaLine, media, parseMediaLine, sizeText, type Media, type MediaSpec } from "./media";
 import { balanceTags, BOLD, C, extractLinks, fg, type LinkRange, pad, RESET, splitVisible, stripTags, styleMarks, trimTagged, UNBOLD, width as vwidth } from "./style";
 import { colourBody, wrap } from "./text";
 import { frame, isGraphStart, reframeAscii, renderGraph, type FiguresEnv } from "./graphs";
@@ -76,8 +76,29 @@ export interface DocEnv {
    * type choice, PIE-538), or null to leave them text. Without it (a draft's preview, an embed) they're text.
    */
   callout?: (line: number, block: CalloutBlock) => ((text: string) => string) | null;
+  /**
+   * The reader draws the note's header image itself (PIE-532), above the title: the first `[layout::hero]` image's
+   * line is then only its caption, and `Doc.hero` names it. Without it (a river column, an embed, `ep0ch show`) the
+   * header image is drawn where it is written, the full width, cropped to at most `maxImageRows`.
+   */
+  hero?: boolean;
+  /**
+   * Tag `text` as a control of the image on body line `line` (its caption's − + ◂ ▸ ▀), so a click runs that
+   * change. Without it (an embed, a draft's preview, `ep0ch show`) the caption has no controls.
+   */
+  image?: (line: number, control: ImageControl, text: string) => string;
+  /** Drawn for print (`ep0ch show`): an image's caption names its whole path, and says nothing about graphics. */
+  printed?: boolean;
 }
-export interface DocImage { line: number; rows: number; cols: number; media: Extract<Media, { state: "ready" }> }
+/** A control on an image's caption: a size step, an alignment step, or the header on or off. */
+export type ImageControl = { size: 1 | -1 } | { align: 1 | -1 } | { hero: boolean };
+/**
+ * An image laid out on the body's rows: `col` cells in, `cols` × `rows` cells; `crop` the part of it shown, as
+ * fractions of the image (a header's cover crop).
+ */
+export interface DocImage { line: number; col: number; rows: number; cols: number; media: Extract<Media, { state: "ready" }>; crop?: { x: number; y: number; w: number; h: number } }
+/** A media line as drawn: the file, its kind, the row naming it, the body line it's on and what the line says of its layout. */
+export interface DocMedia { path: string; kind: string; row: number; line: number; spec: MediaSpec }
 /**
  * `links`: where the body's tagged links (src/style.ts linkTag) landed, by row of `lines`. `media[i].row`:
  * the row that names the image or video (its caption, or the line in its place). `source[r]`: the
@@ -85,7 +106,11 @@ export interface DocImage { line: number; rows: number; cols: number; media: Ext
  * rows). `heads`: each fold point drawn, at its row, with the columns of its disclosure (a heading's whole
  * row, a list item's indent and mark).
  */
-export interface Doc { lines: string[]; images: DocImage[]; media: { path: string; kind: string; row: number }[]; links: LinkRange[]; source: number[]; heads: { key: string; row: number; cols: number }[] }
+export interface Doc {
+  lines: string[]; images: DocImage[]; media: DocMedia[]; links: LinkRange[]; source: number[]; heads: { key: string; row: number; cols: number }[];
+  /** The header image (`env.hero`): the first `[layout::hero]` image, drawn by the reader above the title. */
+  hero?: DocMedia & { media: Media };
+}
 
 /**
  * A place the reader can fold: a heading (hiding everything through the next heading of the same or a
@@ -135,7 +160,7 @@ export function foldPoints(body: string, anchors: readonly (string | undefined)[
     if (isGraphStart(l)) { open = i; kind = "graph"; block.push(i); return; }
     block.push(-1);
   });
-  const foldable = (i: number) => block[i] === -1 && !MEDIA_LINE.test(src[i]!) && !new RegExp(EMBED.source).test(src[i]!);
+  const foldable = (i: number) => block[i] === -1 && !isMediaLine(src[i]!) && !new RegExp(EMBED.source).test(src[i]!);
   const trim = (from: number, to: number) => { while (to > from && !src[to - 1]!.trim()) to--; return to; };
   const out: FoldPoint[] = [];
   const seen = new Map<string, number>();
@@ -195,6 +220,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
   const out: string[] = [];
   const images: DocImage[] = [];
   const mediaRefs: Doc["media"] = [];
+  let hero: Doc["hero"];
   let embeds = 0;
   const W = Math.max(10, env.width);
   // A checklist step's stable id (` ^task-<uuid>`, added by the service, e.g. when a step gets a comment)
@@ -265,32 +291,27 @@ export function renderDoc(body: string, env: DocEnv): Doc {
       continue;
     }
 
-    // Media line.
-    const m = line.match(MEDIA_LINE);
-    if (m) {
-      const kind = m[1]!.toLowerCase() === "video" ? "video" : "img";
-      const entry = media(m[2]!, kind);
-      const ref = { path: entry.path, kind, row: out.length };
+    // Media line (PIE-532): the image laid out as its properties say, its caption under it with the controls that
+    // change them; the header image is only its caption here when the reader draws it above the title.
+    const spec = parseMediaLine(line);
+    if (spec) {
+      const entry = media(spec.path, spec.kind);
+      const ref: DocMedia = { path: entry.path, kind: spec.kind, row: out.length, line: i, spec };
       mediaRefs.push(ref);
-      const name = entry.path.split("/").pop()!;
-      const label = kind === "video" ? "▶ video" : "▣ image";
-      if (entry.state === "ready" && env.graphics) {
-        const img = entry.image;
-        let cols = Math.min(W, Math.round((img.width / env.cellW) * 0.5));   // don't blow small images up to full width
-        cols = Math.max(Math.min(W, 24), cols);
-        let rows = Math.max(1, Math.round((cols * env.cellW * img.height) / img.width / env.cellH));
-        if (rows > env.maxImageRows) { rows = env.maxImageRows; cols = Math.max(4, Math.min(W, Math.round((rows * env.cellH * img.width) / img.height / env.cellW))); }
-        images.push({ line: out.length, rows, cols, media: entry });
-        for (let r = 0; r < rows; r++) out.push("");
-        ref.row = out.length;
-        out.push(fg(C.dark) + pad(`${label} · ${name} · ${img.width}×${img.height}${kind === "video" ? " · poster frame" : ""} · [ ] then ⏎ opens it`, W) + RESET);
-      } else if (entry.state === "ready") {
-        out.push(fg(C.cyan) + pad(`${label} · ${name}${env.noImages ? ` · ${env.noImages}` : ""} · ${entry.image.width}×${entry.image.height}`, W) + RESET);
-      } else if (entry.state === "loading") {
-        out.push(fg(C.dark) + pad(`◌ ${label} · ${name} · loading…`, W) + RESET);
-      } else {
-        out.push(fg(C.lred) + pad(`✗ ${label} · ${name} · ${entry.reason}`, W) + RESET);
+      const isHero = spec.layout === "hero" && !hero;
+      if (spec.layout === "hero" && !isHero) spec.problems.push("another image is the header already");
+      if (isHero && env.hero) {
+        hero = { ...ref, media: entry };
+        out.push(caption(entry, spec, W, env, i, true));
+        continue;
       }
+      if (entry.state === "ready" && env.graphics) {
+        const box = isHero ? heroBox(entry, spec, W, env) : imageBox(entry, spec, W, env);
+        images.push({ line: out.length, media: entry, ...box });
+        for (let r = 0; r < box.rows; r++) out.push("");
+        ref.row = out.length;
+      }
+      out.push(caption(entry, spec, W, env, i, isHero));
       continue;
     }
 
@@ -403,9 +424,82 @@ export function renderDoc(body: string, env: DocEnv): Doc {
   }
   mark();
   insert(src.length);
-  if (env.keepTags) return { lines: out.map(stripMarks), images, media: mediaRefs, links: [], source, heads };
+  if (env.keepTags) return { lines: out.map(stripMarks), images, media: mediaRefs, links: [], source, heads, ...(hero ? { hero } : {}) };
   const { lines, ranges } = extractLinks(out.map(stripMarks));
-  return { lines, images, media: mediaRefs, links: ranges, source, heads };
+  return { lines, images, media: mediaRefs, links: ranges, source, heads, ...(hero ? { hero } : {}) };
+}
+
+type Ready = Extract<Media, { state: "ready" }>;
+/** Rows `cols` cells of `m` take, its aspect kept. */
+const rowsFor = (m: Ready, cols: number, env: DocEnv) => Math.max(1, Math.round((cols * env.cellW * m.height) / m.width / env.cellH));
+const colsFor = (m: Ready, rows: number, env: DocEnv) => Math.max(1, Math.round((rows * env.cellH * m.width) / m.height / env.cellW));
+
+/**
+ * Where an image goes in a body `W` wide: its width from `[size::…]` (cells, a share of the body, or all of it) or
+ * from `[height::…]`, else about half its own pixels (a small image isn't blown up to the full width); its aspect
+ * kept, inside both when both are written, at most `maxImageRows` tall; then placed by `[align::…]`.
+ */
+export function imageBox(m: Ready, spec: MediaSpec, W: number, env: DocEnv): { col: number; cols: number; rows: number } {
+  const s = spec.size;
+  let cols = s === "full" ? W : s && "percent" in s ? Math.round((W * s.percent) / 100) : s ? s.cells
+    : spec.height ? colsFor(m, spec.height, env) : Math.max(Math.min(W, 24), Math.round((m.width / env.cellW) * 0.5));
+  cols = Math.max(1, Math.min(W, cols));
+  let rows = rowsFor(m, cols, env);
+  const most = Math.min(env.maxImageRows, spec.height ?? Infinity);
+  if (rows > most) { rows = Math.max(1, most); cols = Math.max(1, Math.min(W, colsFor(m, rows, env))); }
+  const col = spec.align === "center" ? Math.floor((W - cols) / 2) : spec.align === "right" ? W - cols : 0;
+  return { col, cols, rows };
+}
+
+/**
+ * A header image drawn where it is written (no reader to draw it above the title): the full width, at most
+ * `[height::…]` or `maxImageRows` tall, cropped to fill that (cover), around its middle.
+ */
+function heroBox(m: Ready, spec: MediaSpec, W: number, env: DocEnv): Omit<DocImage, "line" | "media"> {
+  const rows = Math.max(1, Math.min(rowsFor(m, W, env), spec.height ?? Infinity, env.maxImageRows));
+  return { col: 0, cols: W, rows, crop: coverCrop(m, W * env.cellW, rows * env.cellH) };
+}
+
+/** The part of `m` (as fractions of it) that fills a box `pxW` × `pxH` pixels with its aspect kept, around its middle. */
+export function coverCrop(m: { width: number; height: number }, pxW: number, pxH: number): { x: number; y: number; w: number; h: number } | undefined {
+  const box = pxW / pxH, own = m.width / m.height;
+  if (Math.abs(box - own) / own < 0.01) return undefined;
+  if (own > box) { const w = box / own; return { x: (1 - w) / 2, y: 0, w, h: 1 }; }
+  const h = own / box;
+  return { x: 0, y: (1 - h) / 2, w: 1, h };
+}
+
+/**
+ * An image's caption: what it is (its name, size in pixels, alt text, the layout written), what's wrong with what's
+ * written, and its controls when the reader tags them (− + its size, ◂ ▸ where it sits, ▀ the header). It is also
+ * the row the image's `[ ]` element is on.
+ */
+function caption(entry: Media, spec: MediaSpec, W: number, env: DocEnv, line: number, hero: boolean): string {
+  const name = env.printed ? entry.path : entry.path.split("/").pop()!;
+  const label = hero ? "▀ header" : spec.kind === "video" ? "▶" : "▣";
+  const facts = [
+    entry.state === "ready" ? `${entry.width}×${entry.height}${spec.kind === "video" ? " poster frame" : ""}` : "",
+    hero ? (spec.height ? `${spec.height} rows` : "") : sizeText(spec.size),
+    hero ? "" : spec.align && spec.align !== "left" ? spec.align : "",
+    spec.alt ? `“${spec.alt}”` : "",
+  ].filter(Boolean);
+  // Its controls, at the right end, kept whole: the text before them is cut first.
+  const tag = env.image;
+  const ctl = (c: ImageControl, text: string) => fg(C.cyan) + tag!(line, c, text) + fg(C.dark);
+  const controls = !tag || entry.state === "error" ? ""
+    : hero ? ` ${ctl({ size: -1 }, "[−]")}${ctl({ size: 1 }, "[+]")} rows ${ctl({ hero: false }, "[▀ ✓]")}`
+    : ` ${ctl({ size: -1 }, "[−]")}${ctl({ size: 1 }, "[+]")} ${ctl({ align: -1 }, "[◂]")}${ctl({ align: 1 }, "[▸]")} ${ctl({ hero: true }, "[▀]")}`;
+  const room = Math.max(4, W - vwidth(controls));
+  const fit = (x: string) => (vwidth(x) > room ? splitVisible(x, room - 1)[0] + "…" : x);
+  if (entry.state === "loading") return fg(C.dark) + pad(fit(`◌ ${label} ${name} · loading…`), room) + controls + RESET;
+  if (entry.state === "error") return fg(C.lred) + pad(`✗ ${label} ${name} · ${entry.reason}`, W) + RESET;
+  const off = !env.graphics && env.noImages && !env.printed ? ` · ${env.noImages}` : "";
+  const problems = spec.problems.length ? ` · ⚠ ${spec.problems.join(" · ")}` : "";
+  const head = fit([`${label} ${name}`, ...facts].join(" · ") + off + problems);
+  // What's wrong is said in yellow, after what it is.
+  const at = problems ? head.lastIndexOf(" · ⚠") : -1;
+  const text = at >= 0 ? head.slice(0, at) + fg(C.yellow) + head.slice(at) + fg(C.dark) : head;
+  return (env.graphics ? fg(C.dark) : fg(C.cyan)) + pad(text, room) + controls + RESET;
 }
 
 /**

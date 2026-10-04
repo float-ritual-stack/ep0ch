@@ -130,7 +130,9 @@ describe.skipIf(!outliner)("a river column places its note's images, cut to what
     expect(ps).toHaveLength(1);
     expect(ps[0]!.row).toBe(firstRow);
     expect(ps[0]!.rows).toBe(p.rows - 1);
-    expect(ps[0]!.crop).toMatchObject({ x: 0, w: 400 });
+    // Its whole width, of the PNG scaled for the column (400 px wide, drawn from the 320 step).
+    expect(ps[0]!.crop).toMatchObject({ x: 0, w: ps[0]!.image.width });
+    expect(ps[0]!.image.width).toBeLessThan(400);
     expect(ps[0]!.crop!.y).toBeGreaterThan(0);
 
     // Scrolled past it: gone.

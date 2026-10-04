@@ -1,6 +1,6 @@
 ---
 name: ep0ch-outline
-description: Use when an agent works inside a person's outline on their behalf, shaping it to their needs while they work - writing or tidying notes, adding properties, making views, boards and pages, welcome notes and briefings, publishing a page, writing live figures and components into a note (::graph-* with query or view, callouts), adding an extension for a need, or showing them something in their ep0ch door. Covers how they write (properties by placement, soft links, links not directions), outline_edit vs outline_patch, views and hubs, pages and [welcome::n], publishing and [publish::never], the components a note can hold, the four extension kinds, and where the live guides are.
+description: Use when an agent works inside a person's outline on their behalf, shaping it to their needs while they work - writing or tidying notes, adding properties, making views, boards and pages, welcome notes and briefings, publishing a page, writing live figures and components into a note (::graph-* with query or view, callouts, images and a header image), adding an extension for a need, or showing them something in their ep0ch door. Covers how they write (properties by placement, soft links, links not directions), outline_edit vs outline_patch, views and hubs, pages and [welcome::n], publishing and [publish::never], the components a note can hold, the four extension kinds, and where the live guides are.
 ---
 
 # ep0ch-outline: working in someone's outline
@@ -231,6 +231,27 @@ deeper, to any depth:
   what's written only to change where it starts: `callout.start n= folded=true|false` writes the `-`/`+`, and
   `callout.type n= to=<type>` rewrites the type. Both are an attributed edit of one line, revision-checked, refused
   under a draft the person has open; `callout.undo` takes yours back.
+
+**Images and video** (PIE-532; the grammar is the door's `src/media.ts`). A line that is only the image, after an
+optional list mark, with its layout as properties beside it: `[img::path]` (or `[video::path]`), then any of
+`[size::40%]` (its width: cells, a share of the reader, or `full`), `[height::12]` (rows; the aspect is kept),
+`[align::left|center|right]`, `[alt::what it shows]` and `[layout::hero]`, the note's **header**: drawn above the
+title, the full width, a third of the pane tall (or its `height`), cropped to fill, scrolling away with the note's top. Only the first hero counts.
+
+```
+- [img::~/shots/plot-at-dusk.png] [layout::hero] [height::14] [alt::the plot at dusk]
+
+[img::~/shots/packet.webp] [size::33%] [align::center]
+```
+
+- Put an image that comes right under the title in a list item (`- [img::…]`): a line of only properties there is
+  the note's own metadata, not body.
+- PNG, JPEG, WebP and GIF draw on Linux and macOS; video needs ffmpeg (Quick Look on a Mac). The path is on the
+  machine the door runs on (`~` works). Under no Kitty graphics, the line says what it is.
+- To change one in a person's door: `images` lists them (`n`, line, layout, problems), then `image.size n= to=50%`
+  (or `height=`, or `by=1|-1`), `image.align n= to=center`, `image.hero n= on=true` (moves the header off any other
+  image). Each is an attributed edit of that line, revision-checked, refused under a draft the person has open;
+  `image.undo` takes yours back. Writing the line with `outline_patch` works too.
 
 **Tables.** A Markdown table draws as a real table with wrapped cells.
 

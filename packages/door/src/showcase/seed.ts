@@ -6,6 +6,7 @@
 //
 // Deterministic: the same blocks, text and order every run. Ids and timestamps are the service's, so
 // everything that reads the seed finds it by title under the root, never by id.
+import { join } from "node:path";
 import { titleLine, type Msg } from "../board";
 import type { Actor, SocketBoard } from "../socket";
 import { installExamples, installTickets, refreshTicket, registerTicket, SHOWCASE_TICKETS, ticketSource } from "./tickets/install";
@@ -36,6 +37,7 @@ export const SEED = {
   briefBefore: "Daily brief — 2026-03-10",
   callouts: "Callouts, as Obsidian writes them",
   calloutType: "Recipe callouts",
+  images: "Pictures of the plot",
 } as const;
 export type SeedName = keyof typeof SEED;
 
@@ -194,6 +196,29 @@ export const CALLOUTS = [
   "",
   "> [!dish] Soup stock",
   "> Bones, an onion, two bay leaves; `dish` is an alias of this outline's own recipe type.",
+].join("\n");
+
+/** The showcase's own pictures (fictional, drawn for it): a JPEG and a WebP, so decoding is shown on every platform. */
+export const SHOWCASE_ASSETS = join(import.meta.dir, "assets");
+
+/**
+ * The images section's note (PIE-532): a header image, and images sized, placed and given alt text by the properties
+ * on their lines; the reader's keys, its caption controls and image.* change them.
+ */
+export const imagesText = (dir = SHOWCASE_ASSETS) => [
+  SEED.images,
+  `- [img::${dir}/allotment-dusk.jpg] [layout::hero] [alt::the plot at dusk]`,
+  "",
+  "The picture above the title is this note's header, the hero layout on its line: the reader draws it the full width, at most a third of its height, cropped to fill. [ ] to an image, then + and - size it, ← → move it, H makes it the header, or click the controls at the end of its caption. ctrl+z puts a change back.",
+  "",
+  `[img::${dir}/seed-packet.webp] [size::25%] [align::center] [alt::a packet of beetroot seed]`,
+  "",
+  "A quarter of the reader's width, centred. The one below is half, on the right:",
+  "",
+  `[img::${dir}/allotment-dusk.jpg] [size::50%] [align::right]`,
+  "",
+  `- [img::${dir}/seed-packet.webp] [height::6]`,
+  "  - six rows tall, its width from its shape",
 ].join("\n");
 
 /** A callout type this outline declares (PIE-538): the reader, the completer and the type choice all offer it. */
@@ -470,6 +495,7 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
   await make(notes.errand.id, "Ask the neighbour about netting\nShe has a spare roll.");
   notes.calloutType = await make(notes.root.id, CALLOUT_TYPE);
   notes.callouts = await make(notes.root.id, CALLOUTS);
+  notes.images = await make(notes.root.id, imagesText());
   await seedTickets(board, opts.ticketsConfig);
   notes.tickets = await make(notes.root.id, TICKETS);
   await make(notes.tickets.id, TICKET_PAGE);
