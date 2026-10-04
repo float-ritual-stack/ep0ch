@@ -41,6 +41,14 @@ move into one repository (PIE-530).
 - **Television (optional).** With `tv` on your PATH, `ep0ch install --apply` links the outline's channels into
   television's cable folder.
 
+### Fixed: the outline tile showed a note as it was when the desk opened
+
+The desk's outline tile (and the board's outline drawer) read its rows once. A note saved in the reader, in Detail or by
+an agent kept its old text in the tree, and picking its row showed that old copy in the reader: a body just written read
+as blank until `e` (which reads the note) or a restart. A note made elsewhere didn't appear. The tree now reads its top
+level and its open notes again when the outline changes them, and a row picked while that read is due is read itself.
+The river's replies under a note are read again the same way. Restart the door (`ep0ch session upgrade --all`) to get it.
+
 ### Images: sized, placed, and a note's header (PIE-532, PIE-494)
 
 - **Images render on Linux too.** JPEG, WebP and GIF (its first frame) used to need macOS's `sips`; now decoding and

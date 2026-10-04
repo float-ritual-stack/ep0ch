@@ -174,6 +174,8 @@ export class RiverColumn extends ReaderPane {
   /** The listed notes the filter's property clauses hold for (`query.matches`), and which ask it is. */
   private matched: Set<string> | null = null;
   private asked = 0;
+  /** Which load is the latest: an older one's answer, back after it, is dropped. */
+  private loads = 0;
   private desk: DeskApi | null = null;
 
   constructor(public source: Source, public filter: Clause[] = []) { super(false); }
@@ -227,7 +229,7 @@ export class RiverColumn extends ReaderPane {
   override hold(m: Msg, desk: DeskApi) {
     this.desk = desk;
     this.source = { kind: "block", id: m.id };
-    this.root = m; this.items = null; this.sel = 0; this.top = 0; this.matched = null; this.asked++;
+    this.root = m; this.items = null; this.sel = 0; this.top = 0; this.matched = null; this.asked++; this.fold.clear();
     this.surface.show(m, this.host(desk));
     this.load(desk);
   }
@@ -237,7 +239,10 @@ export class RiverColumn extends ReaderPane {
     this.desk = desk;
     const b = desk.ctx.board;
     indexOf(b).refresh(b, () => desk.redraw());
-    const done = (items: Msg[]) => { this.items = items; this.error = undefined; this.sel = Math.min(this.sel, Math.max(0, items.length - 1)); this.showSelected(desk); void this.match(desk); desk.redraw(); };
+    // The replies shown under a note are read again with it, so a reply edited elsewhere never reads as it was.
+    const ask = ++this.loads;
+    const done = (items: Msg[]) => void this.fold.reread(id => b.children(id)).then(() => took(items));
+    const took = (items: Msg[]) => { if (this.loads !== ask) return; this.items = items; this.error = undefined; this.sel = Math.min(this.sel, Math.max(0, items.length - 1)); this.showSelected(desk); void this.match(desk); desk.redraw(); };
     const fail = (e: Error) => { this.error = e.message; desk.redraw(); };
     if (this.source.kind === "roots") b.roots().then(done, fail);
     else if (this.source.kind === "tag") b.byProp(this.source.key, this.source.value).then(done, fail);
@@ -642,7 +647,7 @@ export class RiverColumn extends ReaderPane {
     if (e.action === "reconnected") this.surface.retry(this.host(desk));
     if (e.action === "reset") { this.load(desk); indexOf(desk.ctx.board).refresh(desk.ctx.board, () => desk.redraw(), true); return; }
     const id = e.blockId;
-    const shows = !!id && ((this.source.kind === "block" && this.source.id === id) || !!this.items?.some(m => m.id === id || m.parentId === id));
+    const shows = !!id && ((this.source.kind === "block" && this.source.id === id) || !!this.items?.some(m => m.id === id || m.parentId === id) || this.fold.shows(this.items ?? [], id));
     if (shows) { if (this.reload) clearTimeout(this.reload); this.reload = setTimeout(() => { this.reload = null; this.load(desk); }, 800); }
     indexOf(desk.ctx.board).refresh(desk.ctx.board, () => desk.redraw());
   }
