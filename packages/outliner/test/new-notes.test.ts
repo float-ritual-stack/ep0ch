@@ -96,3 +96,11 @@ test("an empty note opened to be written isn't the Inbox agent's to file until i
   expect(sources.has(empty.block.id)).toBe(false);
   expect(sources.has(written.block.id)).toBe(true);
 });
+
+test("a recovered edit's text is titled too: edit-recovery.commit applies the page-title rule", async () => {
+  const { client } = await startService();
+  const base = await client.request<Block>({ action: "create", text: "Draft" });
+  const record = await client.request<{ id: string; revision: number }>({ action: "edit-recovery.start", input: { id: crypto.randomUUID(), blockId: base.id, baseText: base.text, baseRevision: base.revision, prelaunchText: base.text, draftText: "[page::2026-10-04]", source: "external-editor" } });
+  const saved = await client.request<Block>({ action: "edit-recovery.commit", recoveryId: record.id, expectedRevision: record.revision, text: "[page::2026-10-04]", basedOnRevision: base.revision, mutation: { author: "user" } });
+  expect(saved.text).toBe("2026-10-04 [page::2026-10-04]");
+});

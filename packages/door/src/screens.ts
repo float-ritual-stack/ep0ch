@@ -838,7 +838,9 @@ export class MessageReader implements Screen {
       this.ctx.push(over);
       return over.editNew(m);
     }
-    return (await this.surface.editNew(m, this.host(this.ctx))) ? READER : null;
+    // Only while this reader is still open: esc while the note is read closes it, and nothing opens later.
+    const ctx = this.ctx;
+    return (await this.surface.editNew(m, this.host(ctx), () => !ctx.screens || ctx.screens().includes(this))) ? READER : null;
   }
   /** What the person is in here, for a refusal: "an edit", "a comment", "the property panel". */
   personIn(): string { const w = this.surface.sessionWord() ?? "property panel"; return w === "property panel" ? "the property panel" : `${w === "edit" ? "an" : "a"} ${w}`; }
