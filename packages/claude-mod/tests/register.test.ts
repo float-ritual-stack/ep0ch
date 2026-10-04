@@ -879,7 +879,8 @@ describe('register', () => {
 
     await $.tool.call({ tool: 'mcp__pi-outliner__work_deliver', item: 'PIE-8', repo: 'example-org/example-door', pr: 16, key: 'door' })
     const delivered = session.runs.findLast(candidate => candidate.argv.includes('deliver'))!
-    expect(delivered.argv.slice(3, 9)).toEqual(['work', 'deliver', 'PIE-8', '--repo=example-org/example-door', '--pr=16', '--key=door'])
+    expect(delivered.argv.slice(3, 8)).toEqual(['work', 'deliver', '--repo=example-org/example-door', '--pr=16', '--key=door'])
+    expect(delivered.argv.slice(-2)).toEqual(['--', 'PIE-8'])
 
     await $.tool.call({ tool: 'mcp__pi-outliner__work_set', item: 'PIE-8/door', key: 'delivery-stage', value: 'complete', expectedRevision: 2 })
     const set = session.runs.findLast(candidate => candidate.argv.includes('set'))!

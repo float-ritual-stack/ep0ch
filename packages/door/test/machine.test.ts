@@ -249,6 +249,9 @@ describe("--remote: this terminal on the door session running on another machine
     expect(remoteArgs("box-a", ["--machine", "box-a", "--desk"], named)).toEqual(["--ws", "garden", "--desk"]);
     expect(remoteArgs("box-b", ["--board"], named)).toEqual(["--board"]);
     expect(remoteArgs("box-a", ["--ws", "fern"], named)).toEqual(["--ws", "fern"]);
+    // A command goes as it is, never behind the folder's --ws (that would run the door, not the command).
+    expect(remoteArgs("box-a", ["init"], named)).toEqual(["init"]);
+    expect(remoteArgs("box-a", ["--machine", "box-a", "session", "list"], named)).toEqual(["session", "list"]);
     // Words survive the remote shell as they were (the door's own arguments, quotes and spaces kept).
     const { shellWord } = await import("../src/machine");
     const words = ["--layout", "it's mine", "a b", "$HOME", "plain"];

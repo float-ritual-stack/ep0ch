@@ -1,5 +1,5 @@
 import { Database } from "bun:sqlite";
-import { existsSync, realpathSync } from "node:fs";
+import { existsSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 
 /**
@@ -10,9 +10,16 @@ import { basename, dirname, join } from "node:path";
  * removes it, holding it, once the database has moved away (outline-host.ts).
  */
 export function acquireLockFile(lockPath: string, what = "Outliner workspace"): () => void {
+  const before = statSync(lockPath, { throwIfNoEntry: false })?.ino;
   const ownership = new Database(lockPath, { create: true });
   try {
     ownership.exec("PRAGMA busy_timeout = 0; BEGIN IMMEDIATE;");
+    // A delete unlinks the lock it holds: one opened just before that is no longer the file at lockPath, and holding
+    // it would own nothing. Held only when the file locked is still the one there.
+    const after = statSync(lockPath, { throwIfNoEntry: false })?.ino;
+    if (after === undefined || (before !== undefined && before !== after)) {
+      throw new Error(`${what} is already owned: ${lockPath.replace(/\.owner\.sqlite$/, "")} (its lock was replaced while opening it)`);
+    }
     return () => ownership.close();
   } catch (error) {
     ownership.close();

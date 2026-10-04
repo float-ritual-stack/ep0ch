@@ -144,7 +144,8 @@ test("a pull request is recorded as the delivery: open reaches review, merge rea
   });
 
   h.pull(8, "MERGED", "feature/pie-001", "abc1234");
-  const merged = await h.run(["work", "deliver", "PIE-001", "--repo", REPO, "--pr", "8", "--base", "main"]);
+  // As the mod sends it: options, then the item after `--`.
+  const merged = await h.run(["work", "deliver", `--repo=${REPO}`, "--pr=8", "--base=main", "--", "PIE-001"]);
   expect(merged.json).toMatchObject({
     workStage: "validate",
     delivery: { blockId: opened.json.delivery.blockId, stage: "validate", created: false },

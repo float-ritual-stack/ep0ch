@@ -6,7 +6,8 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { checkWords, closest } from "../src/cli-words";
+import { readFileSync } from "node:fs";
+import { checkWords, closest, COMMANDS } from "../src/cli-words";
 
 const MAIN = join(resolve(import.meta.dir, ".."), "src/main.ts");
 const dir = mkdtempSync(join(tmpdir(), "ep0ch-words-"));
@@ -82,5 +83,23 @@ describe("the rule, without a process", () => {
     expect(closest("sessionss", ["session", "show", "status"])).toBe("session");
     expect(closest("outlin", ["outline", "open"])).toBe("outline");
     expect(closest("whackadooodle-do", ["session", "show"])).toBeNull();
+  });
+});
+
+describe("the word lists say what the code reads", () => {
+  const src = (f: string) => readFileSync(join(import.meta.dir, "../src", f), "utf8");
+  test("every first word main.ts runs is a command, and every command is one main.ts runs", () => {
+    const main = src("main.ts");
+    const run = new Set([...main.matchAll(/args\[0\] === "([a-z]+)"/g)].map(m => m[1]!));
+    for (const m of main.matchAll(/\[((?:"[a-z]+", )*"[a-z]+")\]\.includes\(args\[0\]/g)) for (const w of m[1]!.matchAll(/"([a-z]+)"/g)) run.add(w[1]!);
+    run.add("help");   // checkWords answers it itself
+    expect([...run].sort()).toEqual([...COMMANDS].sort());
+  });
+  test("every door flag the door reads is one checkWords knows", () => {
+    // The door's own readers: main.ts, discover.ts (which outline), daemon.ts's screenFlags (which screen), the showcase route.
+    const flags = new Set([src("main.ts"), src("discover.ts"), src("session/daemon.ts").slice(src("session/daemon.ts").indexOf("export function screenFlags")), src("showcase/route.ts")]
+      .flatMap(t => [...t.matchAll(/"(--[a-z-]+)"/g)].map(m => m[1]!)));
+    expect(flags.size).toBeGreaterThan(8);
+    for (const f of flags) expect(checkWords([f, "x"]) ?? { ok: f }).not.toMatchObject({ error: expect.stringContaining("no flag") });
   });
 });

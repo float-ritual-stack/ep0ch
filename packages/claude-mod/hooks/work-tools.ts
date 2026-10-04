@@ -138,12 +138,12 @@ export const WORK_TOOLS: readonly WorkToolDefinition[] = [
       const [item, repo] = [text(input, 'item'), text(input, 'repo')]
       const pr = input.pr
       if (!item || !repo || typeof pr !== 'number' || !Number.isSafeInteger(pr) || pr < 1) return 'Give the item, repo and PR number.'
-      const args = ['work', 'deliver', item, opt('repo', repo), opt('pr', String(pr))]
+      const args = ['work', 'deliver', opt('repo', repo), opt('pr', String(pr))]
       const [key, base, branch] = [text(input, 'key'), text(input, 'base'), text(input, 'branch')]
       if (key) args.push(opt('key', key))
       if (base) args.push(opt('base', base))
       if (branch) args.push(opt('branch', branch))
-      return { args }
+      return { args: [...args, '--', item] }
     },
   },
   {
