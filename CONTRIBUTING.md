@@ -30,8 +30,9 @@ Before a PR claims a change works:
    spreads too. outline-core's tests are pure. The Claude mod's run under `claude plugin test` (`claude` on PATH).
 3. A change to what one package prints or answers that another reads is tested against the real other side,
    not a fake: the mod's readers over the real `ep0ch` (`packages/door/test/claude-mod-contract.test.ts`), the
-   outliner's CLI under the mod's work tools (`packages/outliner/test/work-tools.test.ts`). A CLI's stderr is
-   plain unless it is a terminal: every entry calls `colourOnlyToATerminal` (outline-core `plain-stderr.ts`).
+   outliner's CLI under the mod's work tools (`packages/outliner/test/work-tools.test.ts`). Stderr another program
+   reads is plain unless it is a terminal: `ep0ch`, `outliner` and the Herdr opener call `colourOnlyToATerminal`
+   first (packages/outliner `src/plain-stderr.ts`, a declared export), and a new such entry does too.
 4. Tests defend observable contracts: canonical graph and cycle invariants, optimistic conflicts, query
    completeness, virtual occurrence behavior, terminal width and security, cursor and selection transitions,
    restart reconstruction. Avoid tests that merely inspect source text or implementation plumbing.

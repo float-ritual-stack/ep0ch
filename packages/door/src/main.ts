@@ -16,9 +16,9 @@ import { findCommand, NOTES_USAGE, showCommand } from "./notes-cli";
 import { EXPORT_USAGE } from "./export";
 import { showcaseTry } from "./showcase/route";
 import { checkWords, usageFor } from "./cli-words";
-import { colourOnlyToATerminal } from "@ep0ch/outline-core/plain-stderr";
+import { colourOnlyToATerminal } from "@ep0ch/outliner/plain-stderr";
 // Piped stderr stays plain: the Claude mod, door-open and tests parse these refusals.
-colourOnlyToATerminal(process.stderr, console);
+colourOnlyToATerminal();
 
 let args = process.argv.slice(2);
 const USAGE = `ep0ch: a BBS door into an outline

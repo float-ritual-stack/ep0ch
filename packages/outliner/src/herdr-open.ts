@@ -25,9 +25,9 @@ import {
 } from "./types";
 
 import { reportStartupErrors } from "./startup-error";
-import { colourOnlyToATerminal } from "@ep0ch/outline-core/plain-stderr";
+import { colourOnlyToATerminal } from "./plain-stderr";
 // Piped stderr stays plain: the Claude mod, door-open and tests parse these refusals.
-colourOnlyToATerminal(process.stderr, console);
+colourOnlyToATerminal();
 
 // A program asking (no focus, or only finding): it says any failure itself.
 const callerReports = process.argv.includes("--no-focus") || process.argv.includes("find-detail");

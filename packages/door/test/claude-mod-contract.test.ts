@@ -32,7 +32,8 @@ describe("the CLI the Claude mod runs, read by the mod's own readers", () => {
 
   beforeAll(async () => {
     const sock = await scratch.start();
-    env = { ...scratch.env, EP0CH_SOCKET: sock };
+    // Its own door state: `peek` and `act` must never find the person's door.
+    env = { ...scratch.env, EP0CH_SOCKET: sock, EP0CH_STATE: join(scratch.root, "door") };
     const board = new SocketBoard(sock, undefined, scratch.name);
     try {
       const make = async (text: string, parentId: string | null = null) => (await board.request<{ id: string }>("create", { parentId, text, author: "agent" })).id;
@@ -101,7 +102,7 @@ describe("the CLI the Claude mod runs, read by the mod's own readers", () => {
       const ran = await run(argv, { env });
       expect(ran.exitCode).not.toBe(0);
       expect(ran.stderr).not.toContain("\x1b[");
-      expect(failureReasonOf(ran.stderr).length).toBeGreaterThan(0);
+      expect(failureReasonOf(ran.stderr)).toStartWith(`ep0ch: no door runs on ${scratch.name}`);
     }
   });
 });
