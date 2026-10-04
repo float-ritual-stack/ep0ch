@@ -10,6 +10,7 @@ import { MainMenu, MessageReader } from "../src/screens";
 import { SocketBoard } from "../src/socket";
 import type { Key } from "../src/term";
 import { Draft } from "../src/edit";
+import { putAway } from "../src/new-note";
 import { outliner, Scratch, until } from "./scratch";
 
 const char = (ch: string): Key => ({ kind: "char", ch });
@@ -29,6 +30,28 @@ describe("⏎ on a lone [page::x] (PIE-544): titled only at the line's end", () 
   test("a comment's draft never titles", () => {
     const d = new Draft("c", 0, "[page::garden]"); d.col = 14; d.newline();
     expect(d.text).toBe("[page::garden]\n");
+  });
+});
+
+describe("a new note the edit never opened on (putAway)", () => {
+  const note = { id: "n1", text: "", revision: 1 } as any;
+  const ctxWith = (now: any, trash: (id: string) => Promise<void>) => ({ board: { get: async () => now, trash } }) as any;
+  test("still empty at the revision it was made: trashed, and said so", async () => {
+    const trashed: string[] = [];
+    expect(await putAway(ctxWith({ ...note }, async id => { trashed.push(id); }), note)).toBe("it went to the trash");
+    expect(trashed).toEqual(["n1"]);
+  });
+  test("written meanwhile (another client, an agent): kept, never trashed, named by its id", async () => {
+    let trashed = false;
+    const said = await putAway(ctxWith({ ...note, text: "Beans up", revision: 2 }, async () => { trashed = true; }), note);
+    expect(trashed).toBe(false);
+    expect(said).toBe("it was written meanwhile, so it stays (n1)");
+    expect(await putAway(ctxWith({ ...note, revision: 2 }, async () => { trashed = true; }), note)).toBe("it was written meanwhile, so it stays (n1)");
+    expect(trashed).toBe(false);
+  });
+  test("the trash refused: said, with the id to clean up by hand, never \"it went to the trash\"", async () => {
+    const said = await putAway(ctxWith({ ...note }, async () => { throw new Error("no carrier"); }), note);
+    expect(said).toBe("it couldn't be put in the trash (no carrier): n1 is still there, empty");
   });
 });
 
@@ -136,6 +159,29 @@ describe.skipIf(!outliner)("new notes from anywhere (PIE-544)", () => {
     expect((await board.get(id))!.parentId).toBe(notes.plot.id);
     key({ kind: "esc" });
     await until(() => app.screens().at(-1) === reader, "back on the plot notes' reader", 5000);
+    await reads(async () => (await childrenOf(notes.plot.id)).length === before, "the empty note trashed", 5000);
+  }, 30_000);
+
+  test("esc while the new note's edit is still being read in a reader over the one read: nothing opens later, and the empty note goes", async () => {
+    let key: (k: Key) => void = () => {};
+    const app = new App(term(f => { key = f; }) as any, board, Date.now(), () => {});
+    app.push(new MainMenu());
+    const reader = new MessageReader([(await board.get(notes.plot.id))!], 0);
+    app.push(reader);
+    const before = (await childrenOf(notes.plot.id)).length;
+    // The edit reads the note before it opens: slow that read, so the person's esc comes first.
+    const get = board.get.bind(board);
+    board.get = (async (...a: Parameters<typeof get>) => { await Bun.sleep(500); return get(...a); }) as typeof board.get;
+    try {
+      key(ctrl("n"));
+      await until(() => app.screens().at(-1) !== reader, "a reader over the plot notes", 5000);
+      const over = app.screens().at(-1) as any;
+      key({ kind: "esc" });
+      await until(() => app.screens().at(-1) === reader, "back on the plot notes", 5000);
+      await Bun.sleep(900);
+      expect(over.surface.draft).toBeFalsy();
+      expect(app.screens().at(-1)).toBe(reader);
+    } finally { board.get = get; }
     await reads(async () => (await childrenOf(notes.plot.id)).length === before, "the empty note trashed", 5000);
   }, 30_000);
 

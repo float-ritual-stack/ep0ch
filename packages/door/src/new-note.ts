@@ -67,8 +67,8 @@ export const NEW_NOTE_ACTIONS = actionSet<NewNoteOn>()("new", {
           const top = ctx.screens?.().at(-1);
           if (top && top !== here && top.noteContext?.() === note.id && top.editNew) reader = await top.editNew(note);
         }
-      } catch (e) { await putAway(ctx, note); throw new ActionRefused(`the new note couldn't be opened to write (${e instanceof Error ? e.message : String(e)}); it went to the trash`); }
-      if (reader === null) { await putAway(ctx, note); throw new ActionRefused("the new note couldn't be opened to write here (cancelled, or no reader took it); it went to the trash"); }
+      } catch (e) { throw new ActionRefused(`the new note couldn't be opened to write (${e instanceof Error ? e.message : String(e)}); ${await putAway(ctx, note)}`); }
+      if (reader === null) throw new ActionRefused(`the new note couldn't be opened to write here (cancelled, or no reader took it); ${await putAway(ctx, note)}`);
       // Said last, over what the open said: where it went, and how to leave it.
       ctx.flash(`new note ${placement.said} · ctrl+s saves · esc on it still empty puts it in the trash`, 8000);
       ctx.redraw();
@@ -77,8 +77,20 @@ export const NEW_NOTE_ACTIONS = actionSet<NewNoteOn>()("new", {
   }),
 });
 
-/** A new note the person's edit never opened on: still empty, it goes to the trash (as the person: they made it). */
-async function putAway(ctx: Ctx, note: Msg) {
-  if (note.text.trim()) return;
-  await ctx.board.trash(note.id).catch(() => {});
+/**
+ * A new note the person's edit never opened on goes to the trash (as the person: they made it), but only read again
+ * and still empty at the revision it was made at: another client or an agent may have written it meanwhile. What
+ * happened, said as it is (the id where it stays, to clean up by hand).
+ */
+export async function putAway(ctx: Pick<Ctx, "board">, note: Msg): Promise<string> {
+  const kept = `it was written meanwhile, so it stays (${note.id})`;
+  try {
+    const now = await ctx.board.get(note.id);
+    if (!now) return "it's gone already";
+    if (now.text.trim() || (note.revision !== undefined && now.revision !== undefined && now.revision !== note.revision)) return kept;
+    await ctx.board.trash(note.id);
+    return "it went to the trash";
+  } catch (e) {
+    return `it couldn't be put in the trash (${e instanceof Error ? e.message : String(e)}): ${note.id} is still there, empty`;
+  }
 }
