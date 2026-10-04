@@ -140,12 +140,13 @@ export async function where(d: WhereDeps): Promise<Where> {
   // A terminal's program finds its tile by its pid first: a tile moved between screens or out of the dock (PIE-498) has an
   // id there it wasn't started with, and its old EP0CH_TILE_ID may name another tile now.
   if (!tile && !agentPane) tile = tilePanes.find(p => typeof p?.terminal?.pid === "number" && (ancestors.includes(p.terminal.pid) || d.pid === p.terminal.pid));
-  if (!tile && !agentPane) tile = tilePanes.find(p => myTileId && p?.id === myTileId) ?? (tilePanes.some(p => p?.id) ? undefined : tilePanes.find(p => p?.name === myTileName));
   // A terminal moved into the dock (PIE-498) keeps the EP0CH_TILE_ID of the screen it started on: found by its program.
   if (!tile && !agentPane && Array.isArray(dv?.tiles)) {
     const t = dv.tiles.find((x: any) => typeof x?.pid === "number" && (ancestors.includes(x.pid) || d.pid === x.pid));
     if (t) tile = { id: t.id, name: t.name, shown: !!dv.shown && !!t.shown, focused: !!t.focused, terminal: { pid: t.pid }, dock: true };
   }
+  // Only then by its id (else its name): a moved terminal's stale EP0CH_TILE_ID never wins over its pid.
+  if (!tile && !agentPane) tile = tilePanes.find(p => myTileId && p?.id === myTileId) ?? (tilePanes.some(p => p?.id) ? undefined : tilePanes.find(p => p?.name === myTileName));
   const answeringPid = typeof peek?.screen?.pid === "number" ? peek.screen.pid : null;
   const inDoor = !!(inner || control);
   const moved = !!(inner && answeringPid !== null && answeringPid !== inner.pid);

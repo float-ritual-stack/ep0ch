@@ -184,11 +184,12 @@ export class AgentDock {
 
   /** The dock's own program and folder, for the outline the door is on. */
   private program(): DockProgram {
+    // The door's own machine first: an outline on another machine never starts in a same-named local outline's folder.
     const c = this.host.ctx?.(), pl = this.persist ? readPlace(outlineState()) : null;
-    return dockProgram({ outline: c?.outline ?? pl?.outline ?? null, machine: pl?.machine ?? null, dir: this.persist ? outlineState() : null, state: this.persist ? stateDir() : null });
+    return dockProgram({ outline: c?.outline ?? pl?.outline ?? null, machine: c?.machine ?? pl?.machine ?? null, dir: this.persist ? outlineState() : null, state: this.persist ? stateDir() : null });
   }
   /** This outline's session, as its Herdr pane and doctor name it (`pie-hole@float-2`). */
-  private session(): string | null { const c = this.host.ctx?.(), pl = this.persist ? readPlace(outlineState()) : null; return sessionLabel({ outline: c?.outline ?? pl?.outline ?? null, machine: pl?.machine ?? null }); }
+  private session(): string | null { const c = this.host.ctx?.(), pl = this.persist ? readPlace(outlineState()) : null; return sessionLabel({ outline: c?.outline ?? pl?.outline ?? null, machine: c?.machine ?? pl?.machine ?? null }); }
 
   /** The agents to choose from here (installed, a shell first; each in Herdr too when Herdr is). */
   agents(): DockAgent[] { return detectAgents({ session: this.session() }); }
@@ -642,9 +643,11 @@ export class AgentDock {
    */
   routes(req: ActRequest, top: Screen | undefined): boolean {
     if (!req.tile || req.tile === "focused" || req.tile === DOCK_TILE_ID && req.action === "tile.herdr") return false;
-    if (top?.dispatch?.tile?.(req.tile)) return false;
-    const d = this.d;
-    return !!d && !!d.dispatch.tile(req.tile) && d.dispatch.takes(req);
+    const d = this.d, here = top?.dispatch?.tile?.(req.tile) ?? null, docked = d?.dispatch.tile(req.tile) ?? null;
+    // One name on the screen shown and in the dock: never a guess (typing into the wrong terminal); the ids tell them apart.
+    if (here && docked && here.name === req.tile && docked.name === req.tile) throw new ActionRefused(`${req.tile} names a tile here${here.id ? ` (${here.id})` : ""} and one in the dock${docked.id ? ` (${docked.id})` : ""} · name it by id: tile=${docked.id ?? docked.name} for the dock's`);
+    if (here) return false;
+    return !!d && !!docked && d.dispatch.takes(req);
   }
 
   describe() {

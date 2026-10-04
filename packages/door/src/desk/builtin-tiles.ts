@@ -93,7 +93,8 @@ const builtins = (): TileKind[] => [
     follows: p => { const s = (p as PreviewPane).source; return "tile" in s ? s.tile : null; },
     start: (p, env) => {
       const pv = p as PreviewPane;
-      if (!("tile" in pv.source)) return;
+      // Moved here whole, it keeps its note: a tile here that shares its source's name is another tile.
+      if (!("tile" in pv.source) || env.moved) return;
       const src = env.tile(pv.source.tile);
       if (src instanceof PtyPane) pv.followFile(src.file, env.desk);
       const m = showing(src);

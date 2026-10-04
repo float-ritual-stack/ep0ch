@@ -456,6 +456,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       desk: this, id: this.tileId(id), name: this.nameOf(id), place: this.layoutName ?? "desk", home: this.spec.saves ?? null,
       tile: name => { const t = this.idNamed(name); return t !== undefined ? this.panes.get(t) : undefined; },
       followers: () => (this.panes.has(id) ? this.followers(id) : []),
+      ...(moved ? { moved } : {}),
     };
     p.init?.(this);
     // A tile moved here (from another screen, or the dock) keeps the note it shows: it isn't handed this one's.

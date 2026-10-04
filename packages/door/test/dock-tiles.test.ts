@@ -2,7 +2,7 @@
 // whole: a terminal's program keeps running (the same pid), a reader keeps its note. By `act` (host.dock, attributed,
 // never the person's keys), by ^W a, by a drag onto the dock's chip or out of the drawer, and by a key while dragging.
 // It's saved (dock-tiles.json) and comes back in the next door. Scratch outline host, fictional notes, `cat` programs.
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -38,8 +38,9 @@ describe.skipIf(!outliner)("the dock: any tile, moved whole between screens", ()
     process.env.EP0CH_STATE = state;
     process.env.EP0CH_DAILY_AGENT = "cat";
     delete process.env.EP0CH_DAILY_CWD;
-    return () => { for (const [k, v] of Object.entries(saved)) if (v === undefined) delete process.env[k]; else process.env[k] = v; rmSync(state, { recursive: true, force: true }); };
   });
+  // bun:test doesn't run a function beforeEach returns: the environment and the state folder go back here.
+  afterEach(() => { for (const [k, v] of Object.entries(saved)) if (v === undefined) delete process.env[k]; else process.env[k] = v; rmSync(state, { recursive: true, force: true }); });
 
   /** A door on the desk with a terminal tile running `cat` (named `kettle`), on a fake 140x40 terminal. */
   async function door() {
@@ -231,6 +232,46 @@ describe.skipIf(!outliner)("the dock: any tile, moved whole between screens", ()
       const river: any = (await import("../src/desk/screen-specs")).openScreen("river");
       d.app.push(river); d.paint();
       await expect(d.app.act({ action: "host.dock", args: {}, tile: "library", as: AS })).rejects.toThrow(/library stays/);
+    } finally { d.app.quit(); }
+  });
+
+  test("the dock is the door's too: a docked reader hears outline changes, its unsaved edit holds a quit, one name in both is refused", async () => {
+    const d = await door();
+    const off = board.subscribe(e => d.app.event(e));
+    try {
+      const note = await board.request<any>("create", { parentId: null, text: "Rhubarb: force it under a bucket", author: "agent" });
+      await d.desk.dispatch.act({ action: "tile.open", args: { kind: "detail", note: note.id, name: "rhubarb" }, tile: "reader" }, USER);
+      await until(() => (d.desk.pane("rhubarb") as any)?.msg?.id === note.id, "the detail shows it");
+      await d.desk.dispatch.act({ action: "tile.focus", tile: "tree" }, USER);
+      await d.app.act({ action: "host.dock", args: {}, tile: "rhubarb", as: AS });
+      // Changed by someone else while docked: the docked reader reads it again, as a shown one does.
+      const b = await board.request<any>("get", { blockId: note.id });
+      await board.request("update", { blockId: note.id, text: "Rhubarb: forced, pick in March", expectedRevision: b.revision, mutation: { author: "agent", actorId: "test-other-writer" } });
+      await until(() => /pick in March/.test((d.pane("rhubarb") as any)?.msg?.text ?? ""), "the docked reader re-read");
+      // An unsaved edit in the dock's desk: quitting asks first, and the draft is copied out when it goes ahead.
+      const dock = d.app.dock.desk as any;
+      let kept = 0;
+      dock.unsaved = () => true; dock.keepDrafts = () => { kept++; return []; };
+      expect(d.app.confirmQuit()).toBe(false);
+      expect(d.A.message).toContain("an edit isn't saved");
+      expect(d.app.confirmQuit()).toBe(true);
+      expect(kept).toBe(1);
+      d.app.terminate();
+      expect(kept).toBe(2);
+    } finally { off?.(); d.app.quit(); }
+  });
+
+  test("one name on the screen and in the dock: refused by name, reached by id", async () => {
+    const d = await door();
+    try {
+      await d.desk.dispatch.act({ action: "tile.focus", tile: "tree" }, USER);
+      await d.app.act({ action: "host.dock", args: {}, tile: "kettle", as: AS });
+      const kid = d.app.dock.tabs().find(t => t.name === "kettle")!.id;
+      await d.desk.dispatch.act({ action: "tile.open", args: { kind: "pty", cmd: "cat", name: "kettle" }, tile: "reader" }, USER);
+      await expect(d.app.act({ action: "tile.type", args: { text: "hello" }, tile: "kettle", as: AS })).rejects.toThrow(new RegExp(`names a tile here .* and one in the dock \\(${kid}\\)`));
+      await until(() => (d.pane("kettle") as PtyPane).running, "the docked kettle runs");
+      await d.app.act({ action: "tile.type", args: { text: "by id\r" }, tile: kid, as: AS });
+      await until(() => (d.pane("kettle") as PtyPane).text().some(l => l.includes("by id")), "typed into the docked one");
     } finally { d.app.quit(); }
   });
 

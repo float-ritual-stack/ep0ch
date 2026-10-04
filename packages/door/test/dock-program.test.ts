@@ -82,3 +82,18 @@ describe("the dock's agent: chosen per session, detected, started inside the per
       `claude --model 'it'\\''s'; c=$?; printf '\\033]2;%s\\007\\n%s\\n' 'claude exited · shell' "claude exited ($c) · this is your shell, in $PWD"; exec /bin/zsh -l`]);
   });
 });
+
+describe("the dock reads the door's own outline and machine", () => {
+  test("an outline on another machine never starts the dock in a same-named local outline's folder", async () => {
+    const { AgentDock } = await import("../src/dock");
+    const saved = process.env.EP0CH_OUTLINES;
+    process.env.EP0CH_OUTLINES = outlines;
+    try {
+      const host = (machine?: string) => ({ redraw() {}, statusChanged() {}, flash() {}, ctx: () => ({ outline: "allotment", ...(machine ? { machine } : {}) }) as any });
+      expect(new AgentDock(host(), false, null).runs.cwd).toBe(join(outlines, "allotment"));
+      const far = new AgentDock(host("far"), false, null).runs;
+      expect(far.cwd).not.toBe(join(outlines, "allotment"));
+      expect(far.folderWhy).not.toMatch(/the outline's own folder/);
+    } finally { if (saved === undefined) delete process.env.EP0CH_OUTLINES; else process.env.EP0CH_OUTLINES = saved; }
+  });
+});

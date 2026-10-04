@@ -212,9 +212,9 @@ export async function serve(args: string[]): Promise<never> {
     over = true;
     checkpoints?.write(true);
     checkpoints?.stop();
-    for (const s of [...app.screens(), ...app.background]) { try { s.keepDrafts?.(); } catch { /* the rest still go */ } }
+    for (const s of app.holders()) { try { s.keepDrafts?.(); } catch { /* the rest still go */ } }
     // A ctrl+e editor on a temp file has no tile to come back to: its text is copied out, and it ends.
-    for (const s of [...app.screens(), ...app.background]) { try { s.keepEdits?.(); } catch { /* the rest still go */ } }
+    for (const s of app.holders()) { try { s.keepEdits?.(); } catch { /* the rest still go */ } }
     endUnkept();
     for (const c of term.all()) c.link.close({ t: "bye", reason: "upgrade", message: "the session is being handed over to new code · this terminal attaches again" });
     host.release();

@@ -79,6 +79,8 @@ export interface Ctx {
   workspace: string;
   /** The outline's name on an outline host (PIE-466); absent on a single-outline service. */
   outline?: string;
+  /** The ssh name of the machine the outline is on, when the door reached it there; absent: this machine. */
+  readonly machine?: string | undefined;
   video: Video;
   get graphics(): boolean;
   push(s: Screen): void;
@@ -332,6 +334,11 @@ export class App implements Ctx {
 
   /** Screens left with programs still running in them (the desk's terminals): alive until reopened or the door quits. */
   background: Screen[] = [];
+  /**
+   * Every screen holding the person's text when the door ends or is handed over: the stack, the background, and the
+   * dock's desk (a docked reader's edit or comment is theirs as much as a shown one's).
+   */
+  holders(): Screen[] { return [...this.stack, ...this.background, ...(this.dock.made ? [this.dock.made] : [])]; }
   push(s: Screen) { this.background = this.background.filter(x => x !== s); this.stack.push(s); s.enter?.(this); this.redraw(); this.onStack?.(); }
   /** The screens changed (one opened, left or kept in the background): a session checkpoints them (src/session/restore.ts). */
   onStack: (() => void) | null = null;
@@ -362,7 +369,8 @@ export class App implements Ctx {
   private leaving(screens: (Screen | undefined)[], quitting = false): boolean {
     const refusal = quitting ? null : screens.map(s => s?.leaveRefusal?.()).find(Boolean);
     if (refusal) { this.flash(refusal); return false; }
-    const dirty = screens.filter((s): s is Screen => !!s?.unsaved?.());
+    // Quitting, a docked reader's unsaved edit asks too (its programs are the dock's own warning).
+    const dirty = [...screens, ...(quitting && this.dock.made ? [this.dock.made] : [])].filter((s): s is Screen => !!s?.unsaved?.());
     const warn = quitting ? screens.map(s => s?.leaveWarning?.()).find(Boolean) ?? this.dock.leaveWarning() ?? this.quitWarning?.() ?? null : null;
     if (!dirty.length && !warn) return true;
     if (Date.now() - this.quitArmed < 3000) { this.quitArmed = 0; dirty.forEach(s => s.keepDrafts?.()); return true; }
@@ -535,6 +543,8 @@ export class App implements Ctx {
     if (isExtensionChange(e)) { this.extEvents++; if (this.extensionChanges) this.events++; }
     else if (e.change || e.action !== "reconnected") this.events++;
     this.stack.at(-1)?.onEvent?.(e, this);
+    // The dock's desk is on every screen: its readers hear the outline change as the screen shown does.
+    this.dock.made?.onEvent(e);
     this.redraw();
   }
 
@@ -631,7 +641,7 @@ export class App implements Ctx {
    */
   terminate(): string[] {
     const kept: string[] = [];
-    for (const s of [...this.stack, ...this.background]) { try { kept.push(...(s.keepDrafts?.() ?? [])); } catch { /* keep going: the rest still get copied */ } }
+    for (const s of this.holders()) { try { kept.push(...(s.keepDrafts?.() ?? [])); } catch { /* keep going: the rest still get copied */ } }
     this.keptOnExit = kept;
     this.quit();
     return this.keptOnExit;
@@ -641,7 +651,7 @@ export class App implements Ctx {
 
   quit() {
     // Whatever way the door ends, a ctrl+e editor's text is copied out and said (its tile ends with the door).
-    for (const s of [...this.stack, ...this.background]) { try { this.keptOnExit.push(...(s.keepEdits?.() ?? [])); } catch { /* the rest still get copied */ } }
+    for (const s of this.holders()) { try { this.keptOnExit.push(...(s.keepEdits?.() ?? [])); } catch { /* the rest still get copied */ } }
     this.closed = true;
     if (this.timer) clearInterval(this.timer);
     if (this.paintTimer) clearTimeout(this.paintTimer);
