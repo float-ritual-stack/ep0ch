@@ -10,7 +10,6 @@ const NEST = 'ssh:pts/5 › door:4242/desk/t1:claude'
 const SUMMARY = `stack: ${NEST} · keys: the person is typing in this tile (t1 claude)`
 
 const HELP = 'ep0ch: a BBS door\n\n  ep0ch status [--json]\n  ep0ch where [--json]             where this runs\n  ep0ch help'
-const OLD_HELP = 'ep0ch: a BBS door\n\n  ep0ch status [--json]\n  ep0ch help'
 
 type Run = { argv: readonly string[]; init?: ProcessRunInit }
 const result = (exitCode: number, stdout = '', stderr = ''): ProcessRunResult =>
