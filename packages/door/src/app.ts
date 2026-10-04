@@ -119,6 +119,8 @@ export interface Ctx {
   inTile?(p: TileProgram, done: (code: number | null) => void): boolean;
   lastCall: number;
   events: number;          // outline changes seen since the menu last looked
+  /** Times the outline connection came back (a `reconnected` or `reset`): a screen that wasn't on top then checks on its next render. */
+  reconnects?: number;
   /** The screen stack, bottom first (the shell's actions read it: `screen.list`, what `screen.back` leaves). */
   screens?(): readonly Screen[];
   /** Milliseconds since the person last pressed a key or used the mouse: an agent moves their screen only when they're idle. */
@@ -254,6 +256,7 @@ export class App implements Ctx {
   get video(): Video { return this.display.video; }
   set video(v: Video) { this.display.video = v; }
   events = 0;
+  reconnects = 0;
   /** Changes extensions wrote since logon (a refreshed ticket): counted apart, shown when asked for. */
   extEvents = 0;
   /** Whether "what changed" (the +N count, newscan) includes what extensions wrote: `changes.extensions`. */
@@ -502,7 +505,7 @@ export class App implements Ctx {
       else outlineChanged(null, e.action === "reset");
       // Resource events aren't in the change feed, so none were replayed: projections are read again, and the
       // extensions (a restarted service may serve others) are listed again.
-      if (!c && (e.action === "reconnected" || e.action === "reset")) { resourceChanged(null); void this.loadExtensions(); }
+      if (!c && (e.action === "reconnected" || e.action === "reset")) { this.reconnects++; resourceChanged(null); void this.loadExtensions(); }
       invalidatePropertyErrors();
     }
     // What an extension wrote (a Jira ticket refreshed, PIE-445) isn't news unless the person asks for it.
