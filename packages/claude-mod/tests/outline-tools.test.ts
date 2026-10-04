@@ -30,6 +30,7 @@ const ANSWERS: Record<string, string> = {
   reply: JSON.stringify({ thread: THREAD, reply: NOTE, author: 'agent', actorId: 'claude-code', lifecycle: 'open' }),
   'resolve-thread': JSON.stringify({ thread: THREAD, author: 'agent', actorId: 'claude-code', lifecycle: 'resolved' }),
   changes: JSON.stringify({ entries: [{ cursor: 9, id: NOTE, title: 'Seed swap plan', kind: 'text', author: 'agent', actorId: 'claude-code', at: '2026-03-01T09:00:00.000Z', revision: 4 }], cursor: 9 }),
+  'view-order': JSON.stringify({ view: NOTE, ref: `((${NOTE}))`, order: [{ id: THREAD, title: 'Bring labels', workId: 'PIE-12' }, { id: NOTE, title: 'Seed swap plan' }] }),
   patch: JSON.stringify({ outcome: 'applied', edits: [{ blockId: NOTE, route: 'saved', revision: 5 }] }),
 }
 
@@ -99,6 +100,7 @@ const CALLS: Array<{ tool: string; input: Record<string, unknown>; operation: st
     json: { ref: NOTE, quote: 'runner', body: 'Which variety?' } },
   { tool: 'outline_reply', input: { thread: THREAD, body: 'Scarlet emperor.' }, operation: 'reply', json: { thread: THREAD, body: 'Scarlet emperor.' } },
   { tool: 'outline_resolve_thread', input: { thread: THREAD, resolved: true }, operation: 'resolve-thread', json: { thread: THREAD, resolved: true } },
+  { tool: 'view_order', input: { view: NOTE, ids: ['PIE-12', NOTE] }, operation: 'view-order', json: { view: NOTE, ids: ['PIE-12', NOTE] } },
   { tool: 'outline_changes', input: { since: '2026-03-01T00:00:00Z', actor: 'garden-agent' }, operation: 'changes',
     json: { since: '2026-03-01T00:00:00Z', actor: 'garden-agent' } },
   { tool: 'outline_patch', input: { ref: NOTE, revision: 3, patches: [{ observed: 'runner  beans', replacement: 'runner beans' }] }, operation: 'patch',

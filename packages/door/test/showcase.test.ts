@@ -10,7 +10,7 @@ import { App } from "../src/app";
 import { GRAPH_KINDS } from "../src/graphs";
 import { liveBoard } from "../src/live";
 import { Help, MainMenu } from "../src/screens";
-import { FIGURE_KINDS, LANES, MARKDOWN_KINDS, loadShowcase, SEED, seedShowcase, type Seeded } from "../src/showcase/seed";
+import { CHORE_QUEUE, FIGURE_KINDS, LANES, MARKDOWN_KINDS, loadShowcase, SEED, seedShowcase, type Seeded } from "../src/showcase/seed";
 import { SECTIONS, Showcase, SHOWCASE_ACTIONS } from "../src/showcase/showcase";
 import { SocketBoard } from "../src/socket";
 import { drawNote } from "../src/notes-cli";
@@ -117,6 +117,12 @@ describe.skipIf(!outliner)("the showcase seed", () => {
     const block = (await board.children(seeded.notes.markdownFigures.id)).find(k => k.text.startsWith("Bean rows\n::graph-timeline"))!;
     expect(seeded.notes.markdownFigures.text).toContain(`!((${block.id}))`);
     expect((await board.children(block.id)).map(k => k.text)).toEqual(["Apr: sow under glass", "**May: plant out** — when the nights are warm", "*Jun: first picking*"]);
+    // The chore queue figure sorts by a property: ranks as numbers, the chore without one last.
+    const drawn = (await drawNote(board, seeded.notes.figures.id, 120))!.join("\n");
+    const queue = drawn.slice(drawn.indexOf("CHORE QUEUE"));
+    const at = CHORE_QUEUE.map(t => queue.indexOf(t));
+    expect(at.every(i => i >= 0)).toBe(true);
+    expect([...at].sort((a, b) => a - b)).toEqual(at);
   });
 
   test("seeding twice is refused", async () => {
@@ -832,6 +838,36 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     await until(() => !screen().includes("BEAN ROWS (CHILD BULLETS)"), "the child bullet's note opened by a click", 5000);
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
   }, 40_000);
+
+  test("spine: the board's lanes are ordered by hand: card.reorder through act, alt+↓ and a drag", async () => {
+    (app as any).lastInput = 0;
+    expect(await app.act({ action: "section", args: { name: "spine" }, as: "test-agent" })).toMatchObject({ key: "spine" });
+    const desk = () => { screen(); return S().stage(SECTIONS.findIndex(s => s.key === "spine")).top as any; };
+    const model = () => desk().modelFor("lanes") as any;
+    await until(() => !!model()?.lanes?.length && model().lanes.every((l: any) => l.items), "the board's lanes", 8000);
+    const queued = () => model().lanes.find((l: any) => l.name === "Queued");
+    const ids = () => queued().items.map((m: any) => m.id);
+    const first = ids();
+    expect(first.length).toBeGreaterThan(1);
+    // An agent puts the last card first.
+    expect(await app.act({ action: "card.reorder", args: { card: first.at(-1), to: 0 }, as: "test-agent" })).toMatchObject({ lane: "Queued", position: 0 });
+    await until(() => ids()[0] === first.at(-1), "the agent's reorder");
+    // The person's alt+↓ on the first card.
+    press({ kind: "enter" });
+    model().lane = model().lanes.indexOf(queued()); queued().sel = 0;
+    press({ kind: "alt-down" });
+    await until(() => ids()[1] === first.at(-1), "alt+↓");
+    // A drag of the second card onto the first's row.
+    // The stage's tiles are placed inside the showcase's stage: a click is offset by where the stage is.
+    const r = desk().rectOf(queued()), l = queued(), at = S().stageRect;
+    const yOf = (i: number) => { for (let y = r.row + 1; y < r.row + r.rows; y++) if (l.rowAt(y - r.row - 1) === i) return y + at.row; throw new Error(`no row ${i}`); };
+    const x = r.col + 4 + at.col, from = yOf(1), to = yOf(0), moving = ids()[1];
+    press({ kind: "mouse", action: "down", button: 0, x, y: from });
+    press({ kind: "mouse", action: "drag", button: 32, x, y: to });
+    press({ kind: "mouse", action: "up", button: 0, x, y: to });
+    await until(() => ids()[0] === moving, "the drag");
+    press({ kind: "esc" });
+  }, 30_000);
 
   test("on an outline without the showcase it says so and writes nothing", async () => {
     const other = new Scratch();

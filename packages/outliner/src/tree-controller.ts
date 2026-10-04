@@ -1905,7 +1905,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     }
     if (branchFilter) {
       const expected = await effects.request<import("./types").VirtualBranchOrder>({action:"virtual.occurrences.order",viewId:selected.viewId});
-      await effects.request({action:"virtual.occurrences.place",input:{expected,selectedBlockIds:[selected.canonicalId],placement:{kind:offset<0?"up":"down"}}});
+      await effects.request({action:"virtual.occurrences.place",mutation:TREE_MUTATION,input:{expected,selectedBlockIds:[selected.canonicalId],placement:{kind:offset<0?"up":"down"}}});
       status = "Moved one position in full branch order (including hidden items)"; return selected.rowId;
     }
     const branchRows = rows.filter(
@@ -1933,6 +1933,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     ];
     await effects.request({
       action: "virtual.occurrences.reorder",
+      mutation: TREE_MUTATION,
       viewId: selected.viewId,
       orderedBlockIds,
     });

@@ -13,6 +13,7 @@ export function placeOrderedItems(order: readonly string[], selectedIds: readonl
   const remaining=order.filter(id=>!selected.has(id));
   switch(placement.kind) {
     case "top": return [...moving,...remaining];
+    case "first": return [...selectedIds,...remaining];
     case "bottom": return [...remaining,...moving];
     case "before":
     case "after": {

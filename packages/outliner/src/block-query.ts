@@ -1,7 +1,9 @@
 import { matchesFilters, normalizePropertyKey } from "./properties";
 import { isPropertyKey, PROPERTY_KEY_SOURCE } from "@ep0ch/outline-core/property-grammar";
 import type {
+  Block,
   BlockProperty,
+  BlockQuerySort,
   BlockSearchQuery,
   PropertyFilter,
   PropertyQueryScope,
@@ -715,15 +717,13 @@ export function normalizeBlockSearchQuery(
     if (!query.sort || typeof query.sort !== "object" || Array.isArray(query.sort)) {
       throw new Error("Block search sort must be an object");
     }
-    if (query.sort.field !== "created" && query.sort.field !== "updated") {
-      throw new Error(`Block search sort field must be created or updated: ${String(query.sort.field)}`);
+    const field = normalizeSortField(query.sort.field);
+    if (field === null) throw new Error(sortFieldProblem(query.sort.field));
+    const direction = typeof query.sort.direction === "string" ? query.sort.direction.trim().toLowerCase() : query.sort.direction;
+    if (direction !== "asc" && direction !== "desc") {
+      throw new Error(`Sort direction is asc or desc, not ${String(query.sort.direction)}: asc puts the smallest first`);
     }
-    if (query.sort.direction !== "asc" && query.sort.direction !== "desc") {
-      throw new Error(
-        `Block search sort direction must be asc or desc: ${String(query.sort.direction)}`,
-      );
-    }
-    sort = { field: query.sort.field, direction: query.sort.direction };
+    sort = { field, direction };
   }
 
   const filters: PropertyFilter[] = [];
@@ -755,7 +755,7 @@ export function normalizeBlockSearchQuery(
     ? undefined
     : normalizePropertyQueryScope(query.propertyScope);
   if (rankViewId && sort) {
-    throw new Error("Block search cannot combine rankViewId with timestamp sorting");
+    throw new Error("Block search cannot combine rankViewId with sorting");
   }
 
   return {
@@ -769,6 +769,71 @@ export function normalizeBlockSearchQuery(
     ...(sort ? { sort } : {}),
     limit: query.limit,
   };
+}
+
+const SORT_PROPERTY = "property:";
+
+/**
+ * A sort field as the service keeps it: `created`, `updated`, a property key lowercased, or `property:<key>` for a
+ * property called created or updated (any other `property:<key>` is just the key). Null when it is none of them.
+ */
+export function normalizeSortField(field: unknown): string | null {
+  if (typeof field !== "string") return null;
+  const trimmed = field.trim().toLowerCase();
+  const key = trimmed.startsWith(SORT_PROPERTY) ? trimmed.slice(SORT_PROPERTY.length).trim() : null;
+  if (key !== null) return isPropertyKey(key) ? (key === "created" || key === "updated" ? `${SORT_PROPERTY}${key}` : key) : null;
+  return isPropertyKey(trimmed) ? trimmed : null;
+}
+
+/** Why `field` can't be a sort, with the fix: the key it seems to mean, when there is one. */
+export function sortFieldProblem(field: unknown): string {
+  const meant = typeof field === "string" ? /([A-Za-z][A-Za-z0-9_.-]*)/.exec(field)?.[1] : undefined;
+  return meant
+    ? `Sort by ${meant.toLowerCase()}, not ${String(field)}: a sort is created, updated or a property key`
+    : `Sort is created, updated or a property key (a letter, then letters, digits, _ . or -), not ${String(field)}`;
+}
+
+/** The property key a sort field names, or null for a timestamp sort. */
+export function sortPropertyKey(field: string): string | null {
+  if (field === "created" || field === "updated") return null;
+  return field.startsWith(SORT_PROPERTY) ? field.slice(SORT_PROPERTY.length) : field;
+}
+
+/**
+ * Orders matched blocks by a normalized sort. Timestamps break ties by creation, then id. A property sort compares
+ * `valueOf(block, key)` (by default its block-scoped value): numbers as numbers, before any text value; text without
+ * case; blocks without the property last in either direction; ties keep the order they came in (outline order).
+ */
+export function sortQueriedBlocks<T extends Pick<Block, "id" | "createdAt" | "updatedAt" | "properties">>(
+  blocks: T[],
+  sort: BlockQuerySort,
+  valueOf: (block: T, key: string) => string | undefined = (block, key) => block.properties.find(p => p.key === key)?.value,
+): void {
+  const direction = sort.direction === "asc" ? 1 : -1;
+  const key = sortPropertyKey(sort.field);
+  if (key === null) {
+    const field = sort.field === "created" ? "createdAt" : "updatedAt";
+    blocks.sort((left, right) =>
+      direction * left[field].localeCompare(right[field]) ||
+      direction * left.createdAt.localeCompare(right.createdAt) ||
+      left.id.localeCompare(right.id)
+    );
+    return;
+  }
+  const values = new Map(blocks.map(block => [block.id, sortValue(valueOf(block, key))]));
+  blocks.sort((left, right) => {
+    const a = values.get(left.id)!, b = values.get(right.id)!;
+    if (a === null || b === null) return a === b ? 0 : a === null ? 1 : -1;
+    if (typeof a !== typeof b) return direction * (typeof a === "number" ? -1 : 1);
+    return direction * (typeof a === "number" ? a - (b as number) : (a as string).localeCompare(b as string));
+  });
+}
+
+function sortValue(value: string | undefined): number | string | null {
+  const trimmed = value?.trim();
+  if (!trimmed) return null;
+  const number = Number(trimmed);
+  return Number.isFinite(number) ? number : trimmed.toLowerCase();
 }
 
 function clauseRangeAtCursor(

@@ -1255,7 +1255,12 @@ export type ChecklistIdentityChange =
   | { kind: "remove"; itemId: string }
   | { kind: "rename"; itemId: string; to: string };
 
-export type BlockQuerySortField = "created" | "updated";
+/**
+ * `created` and `updated` sort by timestamp; any other value is a property key (lowercase), sorted by the block's
+ * value for it within the query's propertyScope: numbers as numbers and before text, text without case, blocks
+ * without it last in either direction. `property:<key>` names a property even when it is called created or updated.
+ */
+export type BlockQuerySortField = string;
 export type BlockQuerySortDirection = "asc" | "desc";
 
 export interface BlockQuerySort {
@@ -1617,8 +1622,9 @@ export interface VirtualBranchOrder {
   completeness: BlockCollectionCompleteness;
 }
 
+/** `first`: the selected blocks first, in the order given (not the view's), then the rest as they were. */
 export type VirtualBranchPlacement =
-  | {kind: "up" | "down" | "top" | "bottom"}
+  | {kind: "up" | "down" | "top" | "bottom" | "first"}
   | {kind: "before" | "after"; anchorId: string};
 
 export interface VirtualBranchPlacementInput {
@@ -1626,6 +1632,27 @@ export interface VirtualBranchPlacementInput {
   expected: VirtualBranchOrder;
   selectedBlockIds: string[];
   placement: VirtualBranchPlacement;
+}
+
+/**
+ * `virtual.occurrences.move`: change a view's hand-set order in one step, read and written in one transaction.
+ * `view` and `blocks` are refs: an id, ((id)), an id's first 8+ characters, a Work ID or a [[page]] address.
+ * One block with `by` (places; negative up, and within what the view shows when the block is shown: its
+ * `[limit::]`), `to` (position from 0), `before` or `after` (another member); or, with none of them, the blocks
+ * first in the order given and the rest after them as they were.
+ */
+export interface VirtualOccurrenceMoveInput {
+  view: string;
+  blocks: string[];
+  by?: number;
+  to?: number;
+  before?: string;
+  after?: string;
+}
+
+/** The order after a move, and the members whose place changed. */
+export interface VirtualOccurrenceMoveResult extends VirtualBranchOrder {
+  moved: string[];
 }
 
 export interface VirtualOccurrenceRank {
@@ -2141,13 +2168,18 @@ export type OutlinerRequestAction =
       action: "virtual.occurrences.reorder";
       viewId: string;
       orderedBlockIds: string[];
+      /** Who reordered: recorded as a `move` on each block placed, and on the change. */
+      mutation?: MutationProvenance;
     }
   | { id: string; action: "virtual.occurrences.order"; viewId: string }
   | { id: string; action: "working-selection.get"; ownerClientId: string }
   | { id: string; action: "working-selection.save"; input: WorkingSelectionSaveInput }
   | { id: string; action: "working-selection.recoverable"; ownerClientId: string }
   | { id: string; action: "working-selection.resume"; ownerClientId: string; selectionId: string; expectedRevision: number }
-  | { id: string; action: "virtual.occurrences.place"; input: VirtualBranchPlacementInput }
+  /** `mutation`: who moved it, recorded as a `move` on each block whose place changed, and on the change. */
+  | { id: string; action: "virtual.occurrences.move"; input: VirtualOccurrenceMoveInput; mutation?: MutationProvenance }
+  /** `mutation`: who placed them, recorded as a `move` on each block whose place changed, and on the change. */
+  | { id: string; action: "virtual.occurrences.place"; input: VirtualBranchPlacementInput; mutation?: MutationProvenance }
   | { id: string; action: "references.resolve"; text: string }
   /** The outline's callout types (PIE-538): the built-ins and those its notes declare with [callout-type::name]. */
   | { id: string; action: "callouts.types" }

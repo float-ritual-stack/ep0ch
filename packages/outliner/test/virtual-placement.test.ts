@@ -87,7 +87,7 @@ test("placement rejects stale order, changed membership and ambiguous selections
   await rejects(expected,[f.ids[0]!],{kind:"top"},/changed/i);
   const current=f.store.get(f.view.id)!;
   f.store.update(current.id,current.text.replace("[limit::3]","[limit::3] [sort::updated]"),current.revision,{author:"user"});
-  await expect(f.order()).rejects.toThrow(/sorted/i);
+  await expect(f.order()).rejects.toThrow(/sorts by updated desc, so it has no hand-set order: remove \[sort::updated\]/);
 });
 
 test("truncated membership cannot authorize a bulk placement",async()=>{

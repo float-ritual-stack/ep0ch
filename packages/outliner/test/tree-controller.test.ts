@@ -3345,6 +3345,7 @@ describe("createTreeController", () => {
 
     expect(lastCall(fake.calls, "virtual.occurrences.reorder")).toEqual({
       action: "virtual.occurrences.reorder",
+      mutation: { author: "user", actorId: "tree" },
       viewId: definition.id,
       orderedBlockIds: [second.id, first.id],
     });

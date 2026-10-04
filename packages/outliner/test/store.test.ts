@@ -397,6 +397,36 @@ describe("OutlinerStore", () => {
     })).toThrow("Block not found: missing-query-root");
   });
 
+  test("sorts by a property: numbers as numbers, then text, blocks without it last", () => {
+    const store = makeStore();
+    const root = store.create("Rank root");
+    const ten = store.create("Ranked ten [rank::10]", root.id);
+    const two = store.create("Ranked two [rank::2]", root.id);
+    const none = store.create("Ranked none", root.id);
+    const word = store.create("Ranked word [rank::Soon]", root.id);
+    const half = store.create("Ranked half [rank::2.5]", root.id);
+    const ids = (direction: "asc" | "desc", limit = 20) => store.queryBlocks({
+      text: "Ranked", subtreeRootId: root.id, sort: { field: "rank", direction }, limit,
+    }).blocks.map((block) => block.id);
+    expect(ids("asc")).toEqual([two.id, half.id, ten.id, word.id, none.id]);
+    expect(ids("desc")).toEqual([word.id, ten.id, half.id, two.id, none.id]);
+    expect(ids("asc", 2)).toEqual([two.id, half.id]);
+  });
+
+  test("a property sort reads the query's property scope, and property:created a property so named", () => {
+    const store = makeStore();
+    const root = store.create("Scope root");
+    const late = store.create("Scoped late [created::1]\n\nThe job is ranked [rank::9] mid-sentence.", root.id);
+    const early = store.create("Scoped early [created::5]\n\nThe job is ranked [rank::1] mid-sentence.", root.id);
+    const ids = (field: string, propertyScope?: "all") => store.queryBlocks({
+      text: "Scoped", subtreeRootId: root.id, sort: { field, direction: "asc" }, ...(propertyScope ? { propertyScope } : {}), limit: 20,
+    }).blocks.map((block) => block.id);
+    // A property mid-sentence is not the block's: under the block scope neither has a rank, so outline order stays.
+    expect(ids("rank")).toEqual([late.id, early.id]);
+    expect(ids("rank", "all")).toEqual([early.id, late.id]);
+    expect(ids("property:created")).toEqual([late.id, early.id]);
+  });
+
   test("sorts by created or updated time before applying the query limit", () => {
     const store = makeStore();
     const root = store.create("Timestamp query root");

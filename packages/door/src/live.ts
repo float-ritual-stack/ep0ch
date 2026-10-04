@@ -6,7 +6,10 @@
 //                                              parentheses, created/updated ranges), parsed by the service
 //                                              (`query.expression`); the door never parses it
 //   view: ((5c6cda4c-…))                        read an existing saved virtual branch faithfully
-//   limit: 20   sort: updated|created   direction: desc|asc
+//   limit: 20   sort: updated|created|<property>   direction: desc|asc
+//                                              a property sorts numbers as numbers, then text, blocks without it
+//                                              last (property:created for one so named); the service refuses a bad
+//                                              sort or direction, and the figure says which of its lines it was
 //
 // Per kind, what the results become:
 //   check     one row per block; done: "<filter>" marks which are ticked; note: <property>
@@ -95,9 +98,11 @@ async function fetchItems(p: Props): Promise<{ items: Msg[]; truncated: boolean 
   }
   const limit = Math.min(1000, Number(p.limit) || 200);
   const q = String(p.query);
-  const sort = { field: p.sort === "created" ? "created" : "updated", direction: p.direction === "asc" ? "asc" : "desc" };
+  // The service checks the sort (unset: updated, newest first) and says what's wrong; the figure names its own lines.
+  const sort = { field: String(p.sort ?? "updated"), direction: String(p.direction ?? "desc") };
   // The service parses the query (PIE-398).
-  const r = await board.request<{ blocks: any[]; completeness: { kind: string } }>("blocks.query", { query: { expression: q, limit, sort } });
+  const r = await board.request<{ blocks: any[]; completeness: { kind: string } }>("blocks.query", { query: { expression: q, limit, sort } })
+    .catch((e: Error) => { throw /^Sort direction /.test(e.message) ? new Error(`direction: ${sort.direction} · ${e.message}`) : /^Sort /.test(e.message) ? new Error(`sort: ${sort.field} · ${e.message}`) : e; });
   return { items: board.toMsgs(r.blocks), truncated: r.completeness?.kind === "truncated" };
 }
 

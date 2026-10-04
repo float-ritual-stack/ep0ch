@@ -132,6 +132,9 @@ export interface OutlineEvent {
   /** On a `draft` event: what the service asks the door holding that draft (PIE-501). */
   draft?: DraftRequest;
 }
+/** A view's hand-set order (the outliner's `VirtualBranchOrder`): what a placement is checked against. */
+export interface ViewOrder { viewId: string; viewRevision: number; blockIds: string[]; completeness: { kind: string; limit?: number } }
+
 /** views.read's answer (PIE-397), blocks as list rows. */
 export interface SavedViewRead {
   status: "ready" | "invalid" | "unsupported" | "missing" | "changed" | "failed";
@@ -656,7 +659,8 @@ export class SocketBoard implements Board {
    * Blocks matching property clauses (`type=roadmap-item work-stage=doing`). `list` asks for rows
    * without full text (PIE-400 `fields`).
    */
-  async query(q: string, limit = 50, sort: "created" | "updated" = "updated", direction: "asc" | "desc" = "desc", list = false): Promise<Msg[]> {
+  /** `sort`: created, updated or a property key (the service orders by it, and refuses one that isn't). */
+  async query(q: string, limit = 50, sort = "updated", direction: "asc" | "desc" = "desc", list = false): Promise<Msg[]> {
     const filters = q.split(/\s+/).filter(Boolean).map(t => { const i = t.indexOf("="); return i > 0 ? { key: t.slice(0, i), value: t.slice(i + 1) } : { key: t }; });
     const r = await this.request<{ blocks: WireBlock[] }>("blocks.query", { query: { limit: Math.min(1000, limit), filters, sort: { field: sort, direction } }, ...this.listFields(list) });
     return r.blocks.map(b => toMsg(b));
@@ -691,6 +695,24 @@ export class SocketBoard implements Board {
   async readSavedView(viewId: string, page: { limit?: number; offset?: number } = {}): Promise<SavedViewRead> {
     const r = await this.request<Omit<SavedViewRead, "blocks"> & { blocks: WireBlock[] }>("views.read", { viewId, format: "tree", ...page });
     return { ...r, blocks: r.blocks.map(b => toMsg(b)) };
+  }
+
+  /**
+   * A view's hand-set order (`virtual.occurrences.order`): every member, in the order its lanes, figures and Tree show.
+   * `view` is a ref the service resolves (an id, ((id)), a prefix, a Work ID, a [[page]]). A sorted view has none: the
+   * service refuses, naming the [sort::] to remove.
+   */
+  async viewOrder(view: string): Promise<ViewOrder> {
+    return this.request<ViewOrder>("virtual.occurrences.order", { viewId: view });
+  }
+
+  /**
+   * Moves blocks in a view's hand-set order in one step (`virtual.occurrences.move`), recorded as `actor`'s: one block
+   * `by` places (kept within what the view shows), `to` a position, `before`/`after` a member; or, with none, the
+   * blocks first in the order given. Refs are resolved by the service. The order after it, and what moved.
+   */
+  async moveInView(move: { view: string; blocks: string[]; by?: number; to?: number; before?: string; after?: string }, actor: Actor = USER): Promise<ViewOrder & { moved: string[] }> {
+    return this.request<ViewOrder & { moved: string[] }>("virtual.occurrences.move", { input: move, mutation: mutationFor(actor) });
   }
 
   /**

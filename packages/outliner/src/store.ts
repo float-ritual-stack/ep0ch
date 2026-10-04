@@ -43,6 +43,7 @@ import {
   normalizeBlockSearchQuery,
   parseSearchExpression,
   positivePropertyFilters,
+  sortQueriedBlocks,
 } from "./block-query";
 import {
   firstLineWithoutPropertyTokens,
@@ -154,6 +155,9 @@ import type {
   TreeFocusCollection,
   TreeIndexSnapshot,
   VirtualOccurrenceRank,
+  VirtualBranchPlacement,
+  VirtualOccurrenceMoveInput,
+  VirtualOccurrenceMoveResult,
   VisibleBlock,
   VisibleBlockCollection,
   WorkIdAllocation,
@@ -300,17 +304,17 @@ function sortByOccurrenceRank(blocks: VisibleBlock[], ranks: readonly VirtualOcc
   });
 }
 
-function sortQueriedBlocks(
-  blocks: VisibleBlock[],
-  sort: NonNullable<BlockSearchQuery["sort"]>,
-): void {
-  const field = sort.field === "created" ? "createdAt" : "updatedAt";
-  const direction = sort.direction === "asc" ? 1 : -1;
-  blocks.sort((left, right) =>
-    direction * left[field].localeCompare(right[field]) ||
-    direction * left.createdAt.localeCompare(right.createdAt) ||
-    left.id.localeCompare(right.id)
-  );
+/** Of `among`, the blocks whose index differs between two orders (one pass each). */
+function movedBetween(before: readonly string[], after: readonly string[], among: readonly string[]): string[] {
+  const was = new Map(before.map((id, i) => [id, i])), now = new Map(after.map((id, i) => [id, i]));
+  return among.filter(id => was.get(id) !== now.get(id));
+}
+
+/** A block's value for `key` within a query's property scope, from the loaded graph: what a property sort compares. */
+function scopedValue(graph: LoadedGraph, scope: PropertyQueryScope | undefined) {
+  const wanted = scope ?? "block";
+  return (block: Block, key: string) => graph.propertyRecordsByBlock.get(block.id)
+    ?.find(record => record.key === key && (wanted === "all" || record.scope === wanted))?.value;
 }
 
 interface LoadedGraphTraversalOptions extends BlockTraversalOptions {
@@ -1620,7 +1624,7 @@ export class OutlinerStore {
       const plans=this.traverseLoadedGraph(graph,{
         filters:scope.filters,text:scope.text,subtreeRootId:scope.subtreeRootId,propertyScope:scope.propertyScope,
       });
-      if(scope.sort)sortQueriedBlocks(plans,scope.sort);
+      if(scope.sort)sortQueriedBlocks(plans,scope.sort,scopedValue(graph,scope.propertyScope));
       const matches:ChecklistSearchCollection['matches']=[];
       for(const block of plans){
         const result=queryChecklistItems(block.text,query.items,graph.propertyRecordsByBlock.get(block.id)??[]);
@@ -2634,14 +2638,18 @@ export class OutlinerStore {
       const view=this.requireActive(viewId);
       const parsed=parseVirtualBranchConfig(view, []);
       if (!parsed.config) throw Error(parsed.configurationErrors.join("; "));
-      if (parsed.config.sort) throw Error("This branch is sorted; manual ranking is disabled");
+      if (parsed.config.sort) {
+        const {field, direction} = parsed.config.sort;
+        throw Error(`This view sorts by ${field} ${direction}, so it has no hand-set order: remove [sort::${field}]` +
+          `${view.properties.some(p => p.key === "direction") ? ` and [direction::${direction}]` : ""} from ((${viewId})) to order it by hand`);
+      }
       // The authored limit bounds display, not rank operations over hidden members.
       const result=this.queryBlocks(virtualBranchMembershipQuery(viewId,parsed.config,1000));
       return {viewId,viewRevision:view.revision,blockIds:result.blocks.filter(b=>b.id!==viewId).map(b=>b.id),completeness:result.completeness};
     })();
   }
 
-  placeVirtualOccurrences(input: VirtualBranchPlacementInput): VirtualBranchOrder {
+  placeVirtualOccurrences(input: VirtualBranchPlacementInput, mutation?: MutationProvenance): VirtualBranchOrder {
     return this.database.transaction(() => {
       if (input.selection) {
         const saved = this.workingSelections.get(input.selection.ownerClientId);
@@ -2659,15 +2667,86 @@ export class OutlinerStore {
         throw Error("Branch membership or order changed; refresh the selection before moving");
       }
       const ordered=placeOrderedItems(current.blockIds,input.selectedBlockIds,input.placement);
-      if (ordered.some((id,index)=>id!==current.blockIds[index])) this.reorderVirtualOccurrences(current.viewId,ordered);
+      if (ordered.some((id,index)=>id!==current.blockIds[index])) {
+        this.reorderVirtualOccurrences(current.viewId,ordered,mutation,movedBetween(current.blockIds,ordered,input.selectedBlockIds));
+      }
       return {...current,blockIds:ordered};
     })();
   }
 
+  /**
+   * A block named the way a person or agent types it: an id, ((id)), an id's first 8+ characters (one block), a
+   * Work ID or a [[page]] address. The one resolver behind `virtual.occurrences.move`; refuses with what it tried.
+   */
+  resolveBlockRef(ref: string): Block {
+    const text = typeof ref === "string" ? ref.trim().replace(/^\(\((.+)\)\)$/, "$1").replace(/^\[\[(.+)\]\]$/, "$1").trim() : "";
+    if (!text) throw new Error("Give a block: an id, ((id)), a Work ID or a [[page]]");
+    const exact = this.getFromCurrentRead(text.toLowerCase());
+    if (exact) return exact;
+    if (/^[0-9a-f-]{8,}$/i.test(text)) {
+      const low = text.toLowerCase();
+      const rows = this.database.query("SELECT id FROM blocks WHERE id >= ? AND id < ? AND effective_deleted_root_id IS NULL LIMIT 2")
+        .all(low, `${low}\uffff`) as { id: string }[];
+      if (rows.length === 1) return this.getFromCurrentRead(rows[0]!.id)!;
+      if (rows.length > 1) throw new Error(`${text} starts more than one block's id; give more of it`);
+    }
+    let page: PageAddressResolution | null = null;
+    try { page = this.resolveAuthoredPageAddressFromCurrentRead(normalizePageAddress(text)); } catch { /* not an address: said below */ }
+    if (page?.status === "resolved" && page.block) return page.block;
+    if (page?.status === "deleted") throw new Error(`${ref} is in Trash`);
+    throw new Error(`No block ${ref}: give an id, ((id)), an id's first 8+ characters, a Work ID or a [[page]]`);
+  }
+
+  /** `virtual.occurrences.move` (VirtualOccurrenceMoveInput): read, plan and write a hand-set order in one step. */
+  moveVirtualOccurrences(input: VirtualOccurrenceMoveInput, mutation?: MutationProvenance): VirtualOccurrenceMoveResult {
+    return this.database.transaction((): VirtualOccurrenceMoveResult => {
+      const view = this.resolveBlockRef(input.view);
+      const parsed = parseVirtualBranchConfig(view, []);
+      if (!parsed.config) throw Error(`${view.id} is not a view (no [type::virtual-branch] and [query::]): ${parsed.configurationErrors.join("; ")}`);
+      const current = this.virtualBranchOrder(view.id);
+      if (current.completeness.kind !== "complete") throw Error(`${view.id} has more than 1000 members; narrow its [query::] to order it by hand`);
+      if (!Array.isArray(input.blocks) || !input.blocks.length) throw Error("Give the blocks to move");
+      const ids = input.blocks.map(ref => this.resolveBlockRef(ref).id);
+      const outside = input.blocks.filter((_, i) => !current.blockIds.includes(ids[i]!));
+      if (outside.length) throw Error(`Not in the view ${view.id}: ${outside.join(", ")}; only its members can be ordered`);
+      const asked = [input.by, input.to, input.before, input.after].filter(x => x !== undefined).length;
+      if (asked > 1) throw Error("Give one of by, to, before or after");
+      let placement: VirtualBranchPlacement = { kind: "first" };
+      if (asked) {
+        if (ids.length !== 1) throw Error("by, to, before and after move one block");
+        const order = current.blockIds, at = order.indexOf(ids[0]!);
+        if (input.before !== undefined || input.after !== undefined) {
+          const anchor = this.resolveBlockRef((input.before ?? input.after)!).id;
+          if (anchor === ids[0]) throw Error("A block can't go before or after itself");
+          if (!order.includes(anchor)) throw Error(`Not in the view ${view.id}: ${input.before ?? input.after}`);
+          placement = { kind: input.before !== undefined ? "before" : "after", anchorId: anchor };
+        } else {
+          const step = input.by !== undefined ? input.by : input.to! - at;
+          if (!Number.isInteger(step) || (input.to !== undefined && input.to < 0)) {
+            throw Error(input.by !== undefined ? "by is a whole number of places (negative: up)" : "to is a position from 0");
+          }
+          // A step stays within what the view shows (its [limit::]) when the block is shown: it never slips out of sight.
+          const last = (input.by !== undefined && at < parsed.config.limit ? Math.min(order.length, parsed.config.limit) : order.length) - 1;
+          const to = Math.max(0, Math.min(last, at + step));
+          if (to === at) return { ...current, moved: [] };
+          placement = { kind: to < at ? "before" : "after", anchorId: order[to]! };
+        }
+      }
+      const ordered = placeOrderedItems(current.blockIds, ids, placement);
+      const moved = movedBetween(current.blockIds, ordered, ids);
+      if (moved.length) this.reorderVirtualOccurrences(view.id, ordered, mutation, moved);
+      return { ...current, blockIds: ordered, moved };
+    })();
+  }
+
+  /** `moved`: the blocks whose `move` activity `mutation` records (default those whose rank changed). */
   reorderVirtualOccurrences(
     viewId: string,
     orderedBlockIds: readonly string[],
+    mutation?: MutationProvenance,
+    moved?: readonly string[],
   ): VirtualOccurrenceRank[] {
+    const provenance = mutation ? normalizeMutationProvenance(mutation) : undefined;
     if (orderedBlockIds.length === 0) {
       throw new Error("Virtual occurrence reorder requires at least one block");
     }
@@ -2693,6 +2772,9 @@ export class OutlinerStore {
         }
       }
 
+      // Who moved: what the caller says, else each block whose place in the order changed (asked before and after).
+      const orderNow = () => { try { return this.virtualBranchOrder(viewId).blockIds; } catch { return null; } };
+      const previous = provenance && !moved ? orderNow() : null;
       const retainedRanks = new Set(
         this.virtualOccurrenceRanksFromCurrentRead()
           .filter((entry) =>
@@ -2708,6 +2790,12 @@ export class OutlinerStore {
         while (retainedRanks.has(nextRank)) nextRank += 1;
         upsert.run(viewId, blockId, nextRank);
         nextRank += 1;
+      }
+      if (provenance) {
+        const now = new Date().toISOString();
+        const next = moved ? null : orderNow();
+        const changed = moved ?? (previous && next ? movedBetween(previous, next, orderedBlockIds) : orderedBlockIds);
+        for (const blockId of changed) this.recordActivity(blockId, provenance, "move", now);
       }
       this.bumpSequence({ kind: "reorder", blockId: viewId });
       return this.virtualOccurrenceRanksFromCurrentRead().filter((entry) => entry.viewId === viewId);
@@ -3155,7 +3243,8 @@ export class OutlinerStore {
       return this.queryRankedBlocksFromCurrentRead(query, query.rankViewId);
     }
     const ranked = query.rankViewId && deletedMode === "active" ? query.rankViewId : null;
-    const blocks = this.traverseLoadedGraph(this.loadGraph(), {
+    const graph = this.loadGraph();
+    const blocks = this.traverseLoadedGraph(graph, {
       filters: query.filters,
       where: query.where,
       propertyScope: query.propertyScope,
@@ -3164,7 +3253,7 @@ export class OutlinerStore {
       stopAfterMatches: query.sort || ranked ? undefined : query.limit + 1,
       deletedMode,
     });
-    if (query.sort) sortQueriedBlocks(blocks, query.sort);
+    if (query.sort) sortQueriedBlocks(blocks, query.sort, scopedValue(graph, query.propertyScope));
     // Same order as ranked SQL: manual ranks first, then canonical preorder.
     if (ranked) sortByOccurrenceRank(blocks, this.virtualOccurrenceRanksFromCurrentRead().filter(entry => entry.viewId === ranked));
     if (blocks.length <= query.limit) {
@@ -3399,7 +3488,7 @@ export class OutlinerStore {
         stopAfterMatches: query?.sort ? undefined : query ? query.limit + 1 : undefined,
         deletedMode: query?.includeDeleted ?? "active",
       });
-      if (query?.sort) sortQueriedBlocks(matched, query.sort);
+      if (query?.sort) sortQueriedBlocks(matched, query.sort, scopedValue(graph, query.propertyScope));
       const visible: VisibleBlockCollection = query && matched.length > query.limit
         ? {
             blocks: matched.slice(0, query.limit),

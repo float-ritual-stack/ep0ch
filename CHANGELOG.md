@@ -30,6 +30,11 @@ move into one repository (PIE-530).
   the host, then run `bun packages/outliner/scripts/migrations/0001-stamp.ts ~/outlines/<name>.sqlite` once. It
   stamps only a database whose shape matches a fresh one.
 - **Restart the host, then the doors.** The host and every client speak protocol 88 (PIE-538 added `callouts.types`, PIE-544 `notes.create` and the page-title rule, and `delete` takes `expectedRevision` and `ifEmpty`); a client refuses a host on any other number,
+- **Restart the host, then the doors.** The host and every client speak protocol 87 (PIE-538 added `callouts.types`, PIE-544 `notes.create` and the page-title rule, and `delete` takes `expectedRevision`); a client refuses a host on any other number,
+- **Restart the host, then the doors.** The host and every client speak protocol 86 (PIE-538 added `callouts.types`, PIE-544 `notes.create` and the page-title rule); a client refuses a host on any other number,
+- **Restart the host, then the doors.** The host and every client speak protocol 86 (a sort may name a property; a
+  view's hand-set order takes `first` and records who placed it; a component block is one token in a note's
+  sections); a client refuses a host on any other number,
   saying which side to update. `ep0ch install --apply` restarts the host. Restart doors and Claude sessions that
   should run the new code.
 - **Delete `~/.config/pi-herdr-outliner/document-renderers.json`** if you have one. Nothing reads it now.
@@ -125,6 +130,44 @@ The river's replies under a note are read again the same way. Restart the door (
 - **An empty outline offers a note:** the welcome's list, an empty board, the brief and waiting screens show
   `+ New note · ctrl+n` (a click is `ctrl+n`); `ctrl+n` in a BBS message reader opens the note in a reader over it. A note still empty isn't the Inbox agent's to file.
 - **Protocol 86:** restart the outline host on this code (`ep0ch install --apply`), then the doors.
+### Sort by a property
+
+- **A saved view, a live figure or a `blocks.query` sorts by any property**, not only `created` and `updated`:
+  `[sort::due]` with `[direction::asc]` in a view, `sort: due` and `direction: asc` in a `::graph-*` figure,
+  `sort: { field: "due", direction: "asc" }` on the wire. Numbers compare as numbers (`2` before `10`) and before
+  any text; text compares without case; blocks without the property come last in either direction, in outline
+  order. The query's property scope counts (`propertyScope: "all"` reads a property mid-sentence too).
+  `property:created` names a property called created or updated; plain `created` and `updated` are the timestamps.
+  A direction may be written in any case.
+- **A bad sort says so.** A sort that isn't `created`, `updated` or a key is refused with the key it seems to mean
+  ("Sort by rank, not [rank::]"); a live figure says which of its lines it was. Figures used to fall back to
+  `updated` without a word.
+
+### Order a view by hand, from the door and from agents
+
+- **A view with no `[sort::]` is ordered by hand**, and its lane, its `view:` figures and Tree all show that order.
+  Tree could always change it (alt+↑ alt+↓); now the door, the shell and agents can too.
+- **On the board:** `alt+↑` `alt+↓` move the selected card up or down its lane, and a card dragged up or down its
+  own lane goes where it's dropped (the hint says above or below which card). Both run `card.reorder` (`by=`,
+  `to=`, `before=`, `after=`), which agents call through `act`; theirs never moves your cursor.
+- **From a shell:** `ep0ch view order <view> [<id>…]` prints the order, or puts those members first in the order
+  given (block ids, `((id))` or Work IDs such as PIE-552), the rest after them as they were. `--json`, `--as <agent>`,
+  `--ws`. **Claude:** the `view_order` tool does the same.
+- **One service step:** `virtual.occurrences.move` resolves the refs, reads, plans and writes the order in one
+  transaction; the door, the shell and the tool call it, so two quick alt+↓ never race. A step (`by`) stays within
+  what a `[limit::]` view shows, so a card never slips out of sight.
+- **Who reordered is recorded:** `virtual.occurrences.move`, `.place` and `.reorder` take `mutation`, written on the
+  change and as a `move` on each block whose place changed (Tree's are recorded as `tree`).
+- **A sorted view says how to order it by hand:** "This view sorts by updated desc, so it has no hand-set order:
+  remove [sort::updated] from ((id)) to order it by hand".
+
+### A figure no longer cuts a section short
+
+- **`outline_edit` `replaceSection` and `note_section` replace the whole section** when it holds a component
+  block (`::graph-stat`, `---` YAML `---`, `::`). Its first `---` was read as a setext underline, so `::graph-stat`
+  became a level-2 heading that ended the section: the edit reported `previous: ""` and left the old figure under
+  the new body. A component block is now one token wherever the outliner finds headings, sections and folds
+  (outline-core `component-block.ts`), so Detail's folds agree, with or without a blank line above the figure.
 
 ### Tabs in a live figure, and titles that wrap
 

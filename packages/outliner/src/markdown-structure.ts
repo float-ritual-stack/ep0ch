@@ -1,7 +1,38 @@
 import {Marked, type Token} from 'marked';
+import {COMPONENT_OPEN, componentBlockAt} from '@ep0ch/outline-core/component-block';
 import type {PreviewSourceSpan} from './detail-preview-regions';
 
-const parser = new Marked();
+// A component block (`::graph-stat` … `::`) is one opaque token: its `---` lines are YAML fences, not setext
+// headings, so sections and folds run through it (outline-core's component-block rule). `start` lets one cut a
+// paragraph short; the setext tokenizer runs before that cut, so it stops at a component's first line too.
+const SETEXT_UNDERLINE = /^ {0,3}(=+|-+) *$/;
+/** A line that starts a block of its own (heading, fence, quote, list item, rule, HTML): the paragraph ends before it. */
+const BLOCK_START = /^ {0,3}(?:#{1,6}(?:[ \t]|$)|```|~~~|>|[-*+](?:[ \t]|$)|\d{1,9}[.)](?:[ \t]|$)|(?:[-*_][ \t]*){3,}$|<[A-Za-z!/?])/;
+const parser = new Marked({
+  extensions: [{
+    name: 'component', level: 'block',
+    start: (src: string) => { const m = /\n {0,3}::[a-z]/.exec(src); return m ? m.index + 1 : undefined; },
+    tokenizer: (src: string) => {
+      const block = componentBlockAt(src);
+      return block ? {type: 'component', raw: block.raw, name: block.name} : undefined;
+    },
+    renderer: () => '',
+  }],
+  tokenizer: {
+    lheading(src: string) {
+      // Only the paragraph's own lines, up to its first blank line: a component's first line there ends it.
+      const end = src.search(/\n[ \t]*(?:\n|$)/);
+      const lines = (end < 0 ? src : src.slice(0, end)).split('\n');
+      for (let k = 1; k < lines.length; k++) {
+        if (SETEXT_UNDERLINE.test(lines[k]!) || BLOCK_START.test(lines[k]!)) return false;
+        if (!COMPONENT_OPEN.test(lines[k]!) || !componentBlockAt(src.slice(lines.slice(0, k).join('\n').length + 1))) continue;
+        const raw = lines.slice(0, k).join('\n') + '\n', text = raw.trimEnd();
+        return {type: 'paragraph', raw, text, tokens: this.lexer.inline(text)} as unknown as false;
+      }
+      return false;
+    },
+  },
+});
 
 export interface MarkdownSourceToken {
   token: Token;

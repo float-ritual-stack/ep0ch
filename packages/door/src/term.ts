@@ -23,8 +23,9 @@ export type Key =
   /**
    * alt+← and alt+→ (CSI 1;3 D/C, CSI 1;9 D/C, or ESC before the arrow); `back` and `forward` are the mouse's
    * side buttons (8 and 9). Readers go back and forward on them (PIE-453); they're keys, acting where the keys go.
+   * alt+↑ and alt+↓ (CSI 1;3 A/B …) move a card up or down its lane's hand-set order (card.reorder).
    */
-  | { kind: "alt-left" | "alt-right" | "back" | "forward" }
+  | { kind: "alt-left" | "alt-right" | "alt-up" | "alt-down" | "back" | "forward" }
   /** `mods`: the SGR modifier bits held (4 shift, 8 alt/meta, 16 ctrl); a mod-click opens elsewhere (PIE-473). */
   | { kind: "mouse"; action: "down" | "up" | "drag" | "wheel-up" | "wheel-down" | "wheel-left" | "wheel-right"; button: number; x: number; y: number; mods?: number }
   /** A paste (bracketed paste, mode 2004): the text as one piece. Screens that don't take it whole get it as keys (App). */
@@ -306,6 +307,7 @@ export class KeyDecoder {
         [/^\x1b\[Z/, { kind: "backtab" }], [/^\x1b\[5~/, { kind: "pgup" }], [/^\x1b\[6~/, { kind: "pgdn" }],
         [/^\x1b\[3~/, { kind: "delete" }], [/^\x1b\[H|^\x1b\[1~|^\x1bOH/, { kind: "home" }], [/^\x1b\[F|^\x1b\[4~|^\x1bOF/, { kind: "end" }],
         [/^\x1b\[1;[39]D|^\x1b\x1b\[D/, { kind: "alt-left" }], [/^\x1b\[1;[39]C|^\x1b\x1b\[C/, { kind: "alt-right" }],
+        [/^\x1b\[1;[39]A|^\x1b\x1b\[A/, { kind: "alt-up" }], [/^\x1b\[1;[39]B|^\x1b\x1b\[B/, { kind: "alt-down" }],
       ];
       let hit = false;
       for (const [re, key] of keys) {

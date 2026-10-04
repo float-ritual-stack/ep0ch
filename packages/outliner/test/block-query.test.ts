@@ -98,7 +98,16 @@ describe("block query normalization", () => {
       rankViewId: "view",
       sort: { field: "created", direction: "asc" },
       limit: 20,
-    })).toThrow("Block search cannot combine rankViewId with timestamp sorting");
+    })).toThrow("Block search cannot combine rankViewId with sorting");
+  });
+
+  test("a property sort: its key lowercased, the direction in any case, property:created for a property so named", () => {
+    expect(normalizeBlockSearchQuery({ sort: { field: " Backlog-Rank ", direction: "ASC" as never }, limit: 20 }).sort)
+      .toEqual({ field: "backlog-rank", direction: "asc" });
+    expect(normalizeBlockSearchQuery({ sort: { field: "property:Created", direction: "desc" }, limit: 20 }).sort)
+      .toEqual({ field: "property:created", direction: "desc" });
+    expect(normalizeBlockSearchQuery({ sort: { field: "property:rank", direction: "desc" }, limit: 20 }).sort)
+      .toEqual({ field: "rank", direction: "desc" });
   });
 
   test("rejects invalid limits rather than clamping", () => {
@@ -151,13 +160,17 @@ describe("block query normalization", () => {
       limit: 20,
     })).toThrow("Block search sort must be an object");
     expect(() => normalizeBlockSearchQuery({
-      sort: { field: "title", direction: "desc" } as never,
+      sort: { field: "[rank::]", direction: "desc" },
       limit: 20,
-    })).toThrow("Block search sort field must be created or updated");
+    })).toThrow("Sort by rank, not [rank::]: a sort is created, updated or a property key");
+    expect(() => normalizeBlockSearchQuery({
+      sort: { field: 3, direction: "desc" } as never,
+      limit: 20,
+    })).toThrow("Sort is created, updated or a property key");
     expect(() => normalizeBlockSearchQuery({
       sort: { field: "updated", direction: "newest" } as never,
       limit: 20,
-    })).toThrow("Block search sort direction must be asc or desc");
+    })).toThrow("Sort direction is asc or desc, not newest: asc puts the smallest first");
   });
 });
 

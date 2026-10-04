@@ -4,7 +4,9 @@ import {
   MAX_BLOCK_QUERY_LIMIT,
   parsePropertyFilterClause,
   parsePropertyFilterExpression,
+  normalizeSortField,
   parseSearchExpression,
+  sortFieldProblem,
 } from "./block-query";
 import { matchesFilters, parsePropertyRecords, patchPropertyText } from "./properties";
 import { parsePropertySummaryKeys } from "./property-summary";
@@ -266,22 +268,13 @@ export function parseVirtualBranchConfig(
     configurationErrors.push("Virtual branch direction requires a sort property");
   }
   if (sortProperty) {
-    const field = sortProperty.value.toLowerCase();
-    const direction = directionProperty?.value.toLowerCase() ?? "desc";
-    if (field !== "created" && field !== "updated") {
-      configurationErrors.push(`Virtual branch sort must be created or updated: ${sortProperty.value}`);
-    }
+    const field = normalizeSortField(sortProperty.value);
+    const direction = directionProperty?.value.trim().toLowerCase() ?? "desc";
+    if (field === null) configurationErrors.push(`Virtual branch: ${sortFieldProblem(sortProperty.value)}`);
     if (direction !== "asc" && direction !== "desc") {
-      configurationErrors.push(
-        `Virtual branch direction must be asc or desc: ${directionProperty?.value}`,
-      );
+      configurationErrors.push(`Virtual branch direction must be asc or desc, not ${directionProperty?.value}: write [direction::asc] or [direction::desc]`);
     }
-    if (
-      (field === "created" || field === "updated") &&
-      (direction === "asc" || direction === "desc")
-    ) {
-      sort = { field, direction };
-    }
+    if (field !== null && (direction === "asc" || direction === "desc")) sort = { field, direction };
   }
 
   const limitProperty = singleProperty(definition, "limit", false, configurationErrors);

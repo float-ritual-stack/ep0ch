@@ -34,7 +34,9 @@ import type {
   BlockProperty,
   BlockSearchQuery,
   MutationProvenance,
+  ProjectedBlock,
   PropertyFilter,
+  VirtualBranchOrder,
   VisibleBlockCollection,
 } from "./types";
 
@@ -452,6 +454,57 @@ export async function createBlock(
   return { id: block.id, ref: `((${block.id}))`, revision: block.revision, parentId: block.parentId };
 }
 
+// ─── A view's hand-set order ────────────────────────────────────────────────
+
+export interface ViewOrderResult {
+  view: string;
+  ref: string;
+  /** The view's members in its hand-set order, after the write when `ids` were given. */
+  order: { id: string; title: string; workId?: string }[];
+  /** True when the order is cut short (more than 1000 members): a write is then refused. */
+  truncated?: true;
+}
+
+/**
+ * A view's hand-set order (a view with no `[sort::]`), or, with `ids`, those members put first in the order given
+ * and the rest after them as they were. Ids are what the service's resolver takes (ids, ((id)), prefixes, Work IDs,
+ * [[page]]s). One service call, `virtual.occurrences.move`, attributed to `actor`.
+ */
+export async function viewOrder(
+  client: AgentToolsClient,
+  input: { view: string; ids?: unknown },
+  actor: AgentActor | undefined,
+): Promise<ViewOrderResult> {
+  const view = (await resolveReference(client, input.view)).block;
+  if (!view.properties.some(p => p.key === "type" && p.value.toLowerCase() === "virtual-branch")) {
+    throw new WorkToolRefusal(`${view.id} is not a view (no [type::virtual-branch]); give the view's id`);
+  }
+  if (input.ids !== undefined && (!Array.isArray(input.ids) || input.ids.some(id => typeof id !== "string"))) {
+    throw new WorkToolRefusal("ids is a list of block ids, ((id))s or Work IDs");
+  }
+  const refs = (input.ids ?? []) as string[];
+  let order = await client.request<VirtualBranchOrder>({ action: "virtual.occurrences.order", viewId: view.id });
+  if (refs.length) {
+    if (!actor?.actorId.trim()) throw new WorkToolRefusal("view order writes: pass --actor <agent id>");
+    await client.requireCompatibleService();
+    // The service resolves each ref and refuses one the view doesn't hold.
+    order = await client.request<VirtualBranchOrder>({ action: "virtual.occurrences.move", input: { view: view.id, blocks: refs }, mutation: mutationOf(actor) });
+  }
+  const read = order.blockIds.length
+    ? await client.request<{ blocks: ProjectedBlock[] }>({ action: "blocks.read", ids: order.blockIds, fields: ["title", "properties"] })
+    : { blocks: [] };
+  const byId = new Map(read.blocks.map(b => [b.id, b]));
+  return {
+    view: view.id,
+    ref: `((${view.id}))`,
+    order: order.blockIds.map(id => {
+      const b = byId.get(id), workId = b?.properties?.find(p => p.key === "work-id")?.value;
+      return { id, title: b?.title ?? "", ...(workId ? { workId } : {}) };
+    }),
+    ...(order.completeness.kind === "truncated" ? { truncated: true as const } : {}),
+  };
+}
+
 // ─── Comments ──────────────────────────────────────────────────────────────
 
 export interface CommentResult {
@@ -691,7 +744,7 @@ export async function patchDraft(
 
 // ─── The CLI's `agent` command ──────────────────────────────────────────────
 
-export const AGENT_OPERATIONS = ["read", "find", "resolve", "edit", "create", "comment", "reply", "resolve-thread", "changes", "patch"] as const;
+export const AGENT_OPERATIONS = ["read", "find", "resolve", "edit", "create", "comment", "reply", "resolve-thread", "changes", "patch", "view-order"] as const;
 export type AgentOperation = (typeof AGENT_OPERATIONS)[number];
 
 /** Runs one operation on its JSON input. Writes need an actor; reads ignore it. */
@@ -717,5 +770,6 @@ export function runAgentOperation(
     case "resolve-thread": return resolveThread(client, any, writer());
     case "changes": return changesSince(client, any);
     case "patch": return patchDraft(client, any, writer());
+    case "view-order": return viewOrder(client, any, Array.isArray(any.ids) && any.ids.length ? writer() : actor);
   }
 }

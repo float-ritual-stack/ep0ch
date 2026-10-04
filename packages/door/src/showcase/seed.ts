@@ -58,14 +58,19 @@ export const CARDS: { title: string; body: string; stage: "queued" | "doing" | "
   { title: "Patch the bike shed roof", body: "Felt and tacks from the hardware shop.", stage: "done", priority: "high", arc: "bikes", tracks: ["bikes", "allotment"] },
 ];
 
-/** Plain blocks with properties, for the live figures and the saved view. */
-export const CHORES: { title: string; area: string; stage: "todo" | "done"; due: string }[] = [
-  { title: "Water the beans", area: "garden", stage: "done", due: "Mon" },
-  { title: "Turn the compost", area: "garden", stage: "todo", due: "Wed" },
+/**
+ * Plain blocks with properties, for the live figures and the saved view. `rank` orders the chore queue figure
+ * (`sort: rank`): 2 before 10 because ranks compare as numbers; the chore without one comes last.
+ */
+export const CHORES: { title: string; area: string; stage: "todo" | "done"; due: string; rank?: number }[] = [
+  { title: "Water the beans", area: "garden", stage: "done", due: "Mon", rank: 10 },
+  { title: "Turn the compost", area: "garden", stage: "todo", due: "Wed", rank: 2 },
   { title: "Net the brassicas", area: "garden", stage: "todo", due: "Thu" },
-  { title: "Wipe the hob", area: "kitchen", stage: "done", due: "Tue" },
-  { title: "Empty the food caddy", area: "kitchen", stage: "todo", due: "Fri" },
+  { title: "Wipe the hob", area: "kitchen", stage: "done", due: "Tue", rank: 3 },
+  { title: "Empty the food caddy", area: "kitchen", stage: "todo", due: "Fri", rank: 1 },
 ];
+/** The chore queue figure's rows, in the order `sort: rank` `direction: asc` gives them. */
+export const CHORE_QUEUE = ["Empty the food caddy", "Turn the compost", "Wipe the hob", "Water the beans", "Net the brassicas"] as const;
 
 /**
  * The plot's jobs, plain blocks under the tabs note, grouped by stage in its `::graph-tabs` figure: two titles long
@@ -320,6 +325,7 @@ function figuresText(gardenViewId: string): string {
     ...fig("tabs", ["title: House jobs by stage (live)", 'query: "type=roadmap-item project=house"', "group: work-stage", "order: [doing, review, queued, done]", "columns: [title, priority]"]),
     ...fig("timeline", ["title: Chores (live)", 'query: "type=chore"', "date: due", 'now: "stage=todo"']),
     ...fig("meter", ["title: Chores done (live)", 'query: "type=chore"', 'done: "stage=done"']),
+    ...fig("table", ["title: Chore queue by rank (live)", 'query: "type=chore"', "sort: rank", "direction: asc", "columns: [title, rank, area]", "headers: [Chore, Rank, Area]"]),
     ...fig("check", ["title: Garden chores (saved view)", `view: ((${gardenViewId}))`, 'done: "stage=done"']),
     ...fig("funnel", ["title: Seed to plate", "steps:", "  - { label: sown, value: 40 }", "  - { label: sprouted, value: 31 }", "  - { label: planted out, value: 24 }", "  - { label: harvested, value: 18 }"]),
     ...fig("waterfall", ["title: The food budget", "items:", "  - { label: start, value: 120 }", "  - { label: market, value: -45 }", "  - { label: plot saved, value: 20 }", "  - { label: end, value: 95 }"]),
@@ -581,7 +587,7 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
 
   notes.chores = await make(notes.root.id, `${SEED.chores}\nPlain blocks with properties, for the live figures and the saved view.`);
   const chores: Msg[] = [];
-  for (const c of CHORES) chores.push(await make(notes.chores.id, `${c.title} [type::chore] [area::${c.area}] [stage::${c.stage}] [due::${c.due}]`, c.area === "garden" ? SEED_AGENT : { kind: "user" }));
+  for (const c of CHORES) chores.push(await make(notes.chores.id, `${c.title} [type::chore] [area::${c.area}] [stage::${c.stage}] [due::${c.due}]${c.rank === undefined ? "" : ` [rank::${c.rank}]`}`, c.area === "garden" ? SEED_AGENT : { kind: "user" }));
   notes.gardenView = await make(notes.root.id, `${SEED.gardenView} [type::virtual-branch] [query::type=chore area=garden]`);
 
   notes.whiteboard = await make(notes.root.id, WHITEBOARD);

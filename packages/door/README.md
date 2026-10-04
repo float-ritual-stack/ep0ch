@@ -813,6 +813,11 @@ children is a board; `g` picks one. The last board per outline is remembered.
   says `of N+` when truncated or `invalid` / `failed` with the reason instead of looking empty. The door
   doesn't evaluate views itself.
 - **One preview** follows the selected card. **⏎** opens into the detail; **alt+⏎** opens a second detail.
+- **Order a lane by hand.** A view with no `[sort::]` keeps a hand-set order (the order its lane, its figures
+  and Tree show). **`alt+↑` `alt+↓`** move the selected card up or down it, and a card dragged up or down its
+  own lane goes where it's dropped (the hint says above or below which card). Both are `card.reorder`, recorded
+  as yours; an agent's never moves your cursor. A sorted lane refuses and says which `[sort::]` to remove.
+  From a shell: `ep0ch view order <view> [<id or Work ID>…]`.
 - **`c`** collapses what has focus to a spine: a lane, or the preview or a detail. A reader's spine shows its
   note's title (rotated under Kitty graphics, stacked letters in cells) and marks what it holds: `✎` an
   edit, `¶` a comment, `≡` the property panel, `■` comments that arrived while it was collapsed. The freed
@@ -1723,6 +1728,7 @@ agent's edit meets the same revision check, property warning and duplicate-safe 
 | `backlinks.pick`, `backlinks.view` | `tile=<backlinks tile>`; `n=` (as peek's rows) or `id=`, `open=true`, `fresh=true`; `kind stage resolved related sort` as `backlinks` takes them (a backlinks tile: the welcome's, or `^W o l`) | `j k`, `⏎`, `alt+⏎`, clicks; `s K w h n` |
 | `focus` | `tile=<tile>` or `tile=lanes`. An agent's is refused while you're typing, and within 2s of your last key. On the desk it is `tile.focus` | `Tab`, `Shift+Tab`, a click, `esc`/`q` back to the lanes |
 | `card.select`, `card.move` | `id`, or `lane` and `by` (steps; `lanes=` steps lanes; `focus=false` leaves the current lane, as the wheel over another lane does); `lane`, `card` (default the selected card; an agent's own `card.select` first, which never moves your cursor) | `h l j k ↑↓ ← → PgUp PgDn`, a click, the wheel; `H L`, `m` then `⏎`, drag |
+| `card.reorder` | one of `by` (places; negative up), `to` (position from 0), `before`/`after` (another card in the lane); `card`, `lane` (default the selected card and the lane listing it). The lane's hand-set order, moved by the service in one step (`virtual.occurrences.move`; `by` stays within what the lane shows), recorded as who asked; a sorted lane refuses, naming the `[sort::]` to remove. An agent's is refused only while you're typing in the lanes, and never moves your cursor | `alt+↑ alt+↓`, drag a card up or down its lane |
 | `board.hub` | `id` (a board's block id): show that board; none: the boards there are (yours opens the picker, an agent's only lists them); `close=true` puts the picker away (yours) | `g`, then `j k ⏎` or a click; `esc` `q` |
 | `lane.collapse` | `lane` (default the lit one), `on=true\|false` (default toggles) | `c` on the lanes, `⏎`/`space` on a collapsed lane, a click on its spine |
 | `tile.drawer`, `tile.pin` on `tile=tree` | the board's outline drawer: `tile.drawer` opens or shuts it (`open=true\|false`, default toggles), `tile.pin` docks it or slides it again, `edge=other` moves it to the other side. An agent's open leaves your keys where they are, and it can't shut the drawer you're in. An open drawer's `[×]` shuts it as `esc` does | `t`, `T`, `S`, `esc` `q` in it, a click on `[×]` |

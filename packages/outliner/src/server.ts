@@ -102,6 +102,7 @@ import {
   type OutlinerUiCommand,
   type PageAddressFollowResult,
   type NewNoteReceipt,
+  type VirtualOccurrenceMoveResult,
   type OutlinerRequest,
   type RoadmapItemCreateReceipt,
   type OutlinerResponse,
@@ -2572,15 +2573,20 @@ export class OutlinerServer {
           result = { purged: request.blockId };
           break;
         case "virtual.occurrences.order":
-          result = this.store.virtualBranchOrder(request.viewId);
+          // The view as a person or agent names it (an id, ((id)), a prefix, a Work ID or a [[page]]).
+          result = this.store.virtualBranchOrder(this.store.resolveBlockRef(request.viewId).id);
           break;
         case "virtual.occurrences.place":
-          result = this.store.placeVirtualOccurrences(request.input);
+          result = this.store.placeVirtualOccurrences(request.input, request.mutation);
+          break;
+        case "virtual.occurrences.move":
+          result = this.store.moveVirtualOccurrences(request.input, request.mutation);
           break;
         case "virtual.occurrences.reorder":
           result = this.store.reorderVirtualOccurrences(
             request.viewId,
             request.orderedBlockIds,
+            request.mutation,
           );
           break;
         case "references.resolve":
@@ -2982,6 +2988,13 @@ export class OutlinerServer {
         domain = "view";
         blockId = request.input.expected.viewId;
         break;
+      case "virtual.occurrences.move": {
+        const moved = response.result as VirtualOccurrenceMoveResult;
+        if (!moved.moved.length) return null;
+        domain = "view";
+        blockId = moved.viewId;
+        break;
+      }
       case "virtual.occurrences.reorder":
         domain = "view";
         blockId = request.viewId;
