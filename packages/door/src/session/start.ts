@@ -69,7 +69,14 @@ export async function spawnReady(args: string[], env: Record<string, string>, lo
   return said.ok ? { ok: true } : { ok: false, error: said.error ?? `${what} didn't start` };
 }
 
-const tail = (path: string) => { try { const l = readFileSync(path, "utf8").trim().split("\n").slice(-6); return l.length ? `\n  ${l.join("\n  ")}` : ""; } catch { return ""; } };
+/** The log's last error line (else its last line), as ` · <line>`: the cause, not a dump of the log. */
+const tail = (path: string) => {
+  try {
+    const lines = readFileSync(path, "utf8").split("\n").map(l => l.trim()).filter(Boolean);
+    const line = lines.findLast(l => /^error\b|Error\b|Cannot\b/.test(l)) ?? lines.at(-1);
+    return line ? ` · ${line}` : "";
+  } catch { return ""; }
+};
 
 
 /** One request to the session, its first answer, in the session's frames (not attached: `session list`, `session end`). */
