@@ -328,12 +328,21 @@ export function linkBlockLines(lines: readonly string[]): Set<number> {
 // redraw never asks. One per door: the inline components of every reader share it.
 type LinksBoard = Pick<SocketBoard, "authoredLinks" | "backlinks">;
 let source: LinksBoard | null = null;
-let changed: () => void = () => {};
+let redraw: () => void = () => {};
+/** Also told when an answer arrives (besides the connection's own redraw), until the returned function is called. */
+const listeners = new Set<() => void>();
+export function listenLinks(fn: () => void): () => void { listeners.add(fn); return () => listeners.delete(fn); }
+const changed = () => { redraw(); for (const fn of listeners) fn(); };
 let generation = 0;
 const cache = new Map<string, { data: LinkData; at: number }>();
 
 /** The door's outline connection and its repaint, for the inline components. */
-export function setLinksSource(b: LinksBoard, redraw: () => void) { source = b; changed = redraw; cache.clear(); }
+export function setLinksSource(b: LinksBoard | null, repaint: () => void) {
+  // A new generation: an answer still on its way from the outline before is never kept as this one's.
+  source = b; redraw = repaint; cache.clear(); generation++;
+}
+/** The connection and its repaint now, to put back after borrowing it (drawNote). */
+export const linksSource = (): { board: LinksBoard | null; redraw: () => void } => ({ board: source, redraw });
 let settling: Timer | null = null;
 /**
  * The outline changed: every component asks again on its next draw, once the burst settles (500 ms, as the links

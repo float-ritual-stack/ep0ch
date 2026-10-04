@@ -1,6 +1,6 @@
 import {createHash} from 'node:crypto';
 import {AttributedMarkdown} from './attributed-markdown';
-import {DocumentFrame,generatedGlyphs,paintDocumentRows,type DocumentGlyph} from './document-frame';
+import {DocumentFrame,documentGlyphs,generatedGlyphs,paintDocumentRows,type DocumentGlyph} from './document-frame';
 import {concatDocuments,documentProvenanceKey,generatedDocument,sliceDocument,type MappedDocument} from './document-provenance';
 import {LinkAwareMarkdown} from './link-aware-markdown';
 import {
@@ -23,7 +23,7 @@ import {
   type DetailCalloutStyle,
   type DetailCalloutTheme,
 } from "./detail-callout-theme";
-import { BUILTIN_CALLOUT_REGISTRY, calloutBlocks, quoteDepth, stripQuotes } from "@ep0ch/outline-core/callouts";
+import { BUILTIN_CALLOUT_REGISTRY, calloutBlocks, quoteByline, quoteDepth, stripQuotes, type QuoteByline } from "@ep0ch/outline-core/callouts";
 
 export type DetailCalloutFoldMarker = "+" | "-" | null;
 
@@ -258,6 +258,41 @@ function renderCalloutLine(
   return `${rail}${base} ${styled}${padding}${RESET_STYLE}`;
 }
 
+/**
+ * A `[!quote]`'s byline, drawn as its attribution as the door draws it: to the right, the name bold, the source after its
+ * comma in the quote style. Its glyphs are the source line's own (copying it copies what was written).
+ */
+class QuoteBylineRow implements MappedComponent {
+  constructor(
+    private readonly source: MappedDocument,
+    private readonly line: SourceLine,
+    private readonly depth: number,
+    private readonly byline: QuoteByline,
+    private readonly theme: MarkdownTheme,
+  ) {}
+  private glyphs(): DocumentGlyph[] {
+    const stripped = stripQuoteDepth(this.line.text, this.depth);
+    const at = this.line.start + this.line.text.length - stripped.length;
+    const lead = stripped.length - stripped.trimStart().length;
+    const document = sliceDocument(this.source, at + lead, at + stripped.trimEnd().length);
+    const comma = this.byline.source ? document.text.indexOf(", ") : -1;
+    const cut = comma < 0 ? document.text.length : comma;
+    return [...documentGlyphs(sliceDocument(document, 0, cut), ["bold"]), ...documentGlyphs(sliceDocument(document, cut, document.text.length), ["quote"])];
+  }
+  glyphRows(width: number): DocumentGlyph[][] {
+    const fitted: DocumentGlyph[] = [];
+    let size = 0;
+    for (const glyph of this.glyphs()) { const w = visibleWidth(glyph.text); if (size + w > width) break; fitted.push(glyph); size += w; }
+    return [[...generatedGlyphs(" ".repeat(Math.max(0, width - size)), "quote byline alignment"), ...fitted]];
+  }
+  render(width: number): string[] {
+    const name = this.theme.bold(`— ${this.byline.name}`), source = this.byline.source ? this.theme.quote(`, ${this.byline.source}`) : "";
+    const text = truncateToWidth(name + source, width, "…");
+    return [" ".repeat(Math.max(0, width - visibleWidth(text))) + text];
+  }
+  invalidate(): void {}
+}
+
 class CalloutNode {
   private readonly pieces: RenderPiece[];
 
@@ -295,7 +330,20 @@ class CalloutNode {
       });
       cursor = child.sourceSpan!.endLine + 1;
     }
-    this.appendMarkdown(lines, cursor, region.sourceSpan!.endLine + 1);
+    const end = region.sourceSpan!.endLine + 1;
+    // A quote's last `— name, source` line is its byline (outline-core's quoteByline, as the door reads it).
+    // Read over the whole body (a nested callout's lines are text at this depth), as the door reads it; drawn as the
+    // byline when it comes after the last nested callout.
+    const body = region.headerLine + 1;
+    const found = region.canonicalType === "quote"
+      ? quoteByline(lines.slice(body, end).map((line) => stripQuoteDepth(line.text, region.depth)))
+      : null;
+    const byline = found && body + found.line >= cursor ? found : null;
+    if (!byline) { this.appendMarkdown(lines, cursor, end); return; }
+    let stop = body + byline.line;
+    while (stop > cursor && !stripQuoteDepth(lines[stop - 1]!.text, region.depth).trim()) stop--;
+    this.appendMarkdown(lines, cursor, stop);
+    this.pieces.push({ component: new QuoteBylineRow(source, lines[body + byline.line]!, region.depth, byline, theme) });
   }
 
   private appendMarkdown(lines: readonly SourceLine[], start: number, end: number): void {

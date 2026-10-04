@@ -97,3 +97,20 @@ describe("callout grammar", () => {
     expect(calloutTypeAtCursor("> [!warning] Slugs", 18)).toBeNull();
   });
 });
+
+describe("a quote's byline", () => {
+  const { quoteByline } = require("../src/callouts") as typeof import("../src/callouts");
+  test("the last line, after an em dash: the name, then the source after a comma", () => {
+    expect(quoteByline(["Names have power.", "— shypht, the ep0ch BBS"])).toEqual({ line: 1, name: "shypht", source: "the ep0ch BBS" });
+    expect(quoteByline(["Shacks, not cathedrals.", "", "— loki", ""])).toEqual({ line: 2, name: "loki", source: "" });
+  });
+  test("none without the dash, on a line alone, or not last", () => {
+    expect(quoteByline(["— only a byline"])).toBeNull();
+    expect(quoteByline(["a quote", "- a hyphen, not a dash"])).toBeNull();
+    expect(quoteByline(["— early", "then more"])).toBeNull();
+    expect(quoteByline(["a quote", "—no space"])).toBeNull();
+    // Something is quoted before it: blank lines aren't a quote.
+    expect(quoteByline(["", "— x"])).toBeNull();
+    expect(quoteByline(["  ", "", "— x"])).toBeNull();
+  });
+});

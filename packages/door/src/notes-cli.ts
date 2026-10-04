@@ -16,6 +16,8 @@
 // grid: a Claude Code mod's Raster. `--source` prints each note's text as written, for a file to keep.
 import { linesToCells } from "./cells";
 import { connectFigures } from "./graphs";
+import { listenLive, liveBoard, liveSettled, liveSource, setLiveSource } from "./live";
+import { linksSource, listenLinks, setLinksSource } from "./links";
 import { resolveTarget } from "./discover";
 import { redundantLabel } from "./authored";
 import { forwardTo } from "./machine";
@@ -336,8 +338,13 @@ export async function drawNote(board: SocketBoard, id: string, width: number, se
   // A reader's host with nothing else to host: no graphics (an image is named on its line), no history, no keys.
   const ctx = { board, t: { cols: width, rows: 1000, cellW: 9, cellH: 18, kitty: false }, graphics: false, flash() {}, redraw() {} } as unknown as Ctx;
   const host: SurfaceHost = { ctx, redraw() { arrived = true; }, navigate() {} };
-  // Live figures and ::links ask this outline, as in the door; an answer arriving draws the note again.
-  connectFigures(board, () => { arrived = true; });
+  // Live figures and ::links ask this outline, as in the door; an answer arriving draws the note again. A process that
+  // already has a connection to it (a door) keeps it and this only listens; one connected elsewhere lends it for the
+  // draw and gets it back after.
+  const lent = liveBoard() === board ? null : { live: liveSource(), links: linksSource() };
+  if (lent) connectFigures(board, () => {});
+  // Either kind of answer arriving (a live figure's, a link title's or ::links') draws it again.
+  const unlistenLive = listenLive(() => { arrived = true; }), unlistenLinks = listenLinks(() => { arrived = true; });
   const surface = new NoteSurface(), tall = 100_000, end = Date.now() + settle.max;
   // Nobody presses a key in what show prints: folded callouts come unfolded, with no "z unfolds".
   surface.unfold = true;
@@ -345,13 +352,23 @@ export async function drawNote(board: SocketBoard, id: string, width: number, se
   surface.printed = true;
   surface.show(m, host);
   surface.render(width, tall, host);
-  while (Date.now() < end) {
-    arrived = false;
-    await Bun.sleep(settle.quiet);
-    if (!arrived) break;
-    surface.render(width, tall, host);
+  let drawn: string[] = [];
+  try {
+    while (Date.now() < end) {
+      arrived = false;
+      // The figures' answers, then a quiet spell for what else the reader reads (link titles, embeds, steps).
+      await liveSettled(Math.max(0, end - Date.now()));
+      await Bun.sleep(settle.quiet);
+      if (!arrived) break;
+      surface.render(width, tall, host);
+    }
+    // The last draw while the connection is still this outline's.
+    drawn = surface.render(width, tall, host).lines;
+  } finally {
+    unlistenLive(); unlistenLinks();
+    if (lent) { setLiveSource(lent.live.board, lent.live.redraw); setLinksSource(lent.links.board, lent.links.redraw); }
   }
-  const lines = surface.render(width, tall, host).lines.map(l => paintable(l).replace(TAGS, "").replace(MARKS, ""));
+  const lines = drawn.map(l => paintable(l).replace(TAGS, "").replace(MARKS, ""));
   while (lines.length && !visible(lines.at(-1)!).trim()) lines.pop();
   return lines;
 }

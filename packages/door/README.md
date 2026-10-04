@@ -225,13 +225,13 @@ A journey to try, whichever service it is:
     ep0ch --showcase
     ep0ch --showcase --reset
 
-opens the showcase (PIE-439): the shared door parts, live, in twenty-three sections, one per row of the reuse map
+opens the showcase (PIE-439): the shared door parts, live, in twenty-four sections, one per row of the reuse map
 ([Before adding a feature](docs/UI-GRAMMAR.md#before-adding-a-feature)) in the map's order. The map's
 scrolling row, its key-names row, its list-picker and line-input rows (in the panes section's ^W P and ^W r,
 the board's g m s), its elements and reading-ruler row (PIE-441) and its terminal-output row (PIE-510: cells, escapes,
 CP437; the key names and the terminal output are under every section) have no section yet. The newest parts are in their rows' sections:
 the service's forgiving search (the `/` overlay, opened on a query with typos) in `search`, the agent drawer in `terminal` (`alt+a` pulls it up over the showcase itself), the terminals attached to the door session in `session`, a row's links in the tree
-(`L`) in `entity`, a drawer and the lock (`alt+k`) in `panes`, the draft session (an edit and a comment open side by side) in `drafts`, a screen spec (the brief, its spec read back by `screen.spec`) in `screens`, the tile-kind registry listed by a service-drawn tile in `kinds`, quiet embeds (a dim `»` source line) in `note`, the outliner's example extensions (a record, an output, a component with its `[w ward]`, an `@tidy` request) beside what the service's list bound, in `extensions`, and Obsidian's callout examples (nested three deep, folded and open, title-only, a type the outline declares) in `callouts`. It runs on an
+(`L`) in `entity`, a drawer and the lock (`alt+k`) in `panes`, the draft session (an edit and a comment open side by side) in `drafts`, a screen spec (the brief, its spec read back by `screen.spec`) in `screens`, the tile-kind registry listed by a service-drawn tile in `kinds`, quiet embeds (a dim `»` source line) in `note`, the outliner's example extensions (a record, an output, a component with its `[w ward]`, an `@tidy` request) beside what the service's list bound, in `extensions`, Obsidian's callout examples (nested three deep, folded and open, title-only, a type the outline declares) in `callouts`, and the Markdown figures (a decision, a chat, a keymap read from the action registry, uptime, activity, a month, annotated code, a figure block whose rows are its child bullets, a quote's byline) in `figures`. It runs on an
 outline of its own: a private service (own state, workspace and config dirs, background agents off, Herdr
 unset) on a persistent workspace under `<the door's state>/showcase/` (`$EP0CH_STATE`, else `${XDG_STATE_HOME:-~/.local/state}/ep0ch-door`), with the
 door's own `EP0CH_STATE` and `EP0CH_CONTROL` there too, so nothing reaches a real outline or your door.
@@ -260,7 +260,7 @@ door's own `EP0CH_STATE` and `EP0CH_CONTROL` there too, so nothing reaches a rea
 - **Reaching it:** `ep0ch --showcase` (or `ep0ch try --showcase`, `scripts/try-it.sh --showcase`) opens it on its
   own seeded outline, whatever this folder names. `X` on the main menu (its key line; the menu art has twelve
   slots) opens the screen on the outline you're on: on one without the seed it says so and writes nothing.
-- **Agents:** `ep0ch act section name=<1-23|key>` shows a section (your keys go back to the list);
+- **Agents:** `ep0ch act section name=<1-24|key>` shows a section (your keys go back to the list);
   every other action is the section's own (a reader's note actions, the desk's, the board's).
   `EP0CH_CONTROL=<showcase>/door/door.sock` reaches this door, and only it.
 
@@ -1463,8 +1463,36 @@ Bodies render with `src/doc.ts`:
 - **Tables.** Markdown tables render as real tables: columns sized to fit, long cells wrap onto more lines.
 - **mdxcn figures** ([mdxcn.dev](https://mdxcn.dev)): `::graph-*` Comark blocks with YAML props draw natively in
   a dotted `+ ··· [ TITLE ] ··· +` frame: check, timeline, stat, kpi, rank, funnel, waterfall, spark, plot, meter,
-  gantt, tree, table, tabs (`src/graphs.ts`). The official fenced ASCII an agent pastes (`+--- [ TITLE ] ---+`) is re-framed
-  the same way. Unknown kinds say so inside the frame.
+  gantt, tree, table, tabs (`src/graphs.ts`), and decision, chat, keys, uptime, activity, calendar, annotate (`src/figures/`).
+  The official fenced ASCII an agent pastes (`+--- [ TITLE ] ---+`) is re-framed the same way, and `ep0ch export`
+  writes each figure as that ASCII (60 wide, live ones answered first; `--source` keeps the block). Unknown kinds say
+  so inside the frame.
+  - **Rows in Markdown** (outline-core's `figure-markdown.ts`, one reading for every client): after the `---` YAML, or
+    as the child bullets of a figure block (a note whose body is the figure, nothing above it but its title; `rows: children` asks anywhere),
+    each a row that opens its note. `**bold**` is now, chosen, the accent; `*italic*` next, rejected, receding;
+    `- label: value` a row (the label is up to the first `: `); `x — note` a muted side note; `a → b → c` (or `->`) a
+    path; `ok*40` a run of forty in any list of values; `- [x]` done. timeline, check, rank, funnel, stat/kpi and
+    spark/plot read them too. Where the YAML gives the same field, the YAML wins.
+  - `decision`: `- **chosen** — why`, `- *rejected* — why`, `- open`; paragraphs after; `status:`, `date:`. Live,
+    `query: "type=decision"`: each note a row, its `decision-state` (chosen, rejected, open) its glyph, `reason: <property>`.
+  - `chat`: `- speaker: message`; the first speaker (or `you:`) gets the `>` prompt, a speaker isn't named twice in a
+    row, an italic turn is an aside.
+  - `keys`: `- ctrl+k: what it does`, `g then d`, drawn as keycaps `[ctrl][k]`; bold learns first. `actions: note`
+    (a scope, or a list) reads the door's own keys from the action registry; `learn: [edit]`, `limit:`.
+  - `uptime`: a glyph a day (ok █, degraded ▒, down ·, none -), wrapped every 30 (`wrap:`), with the % ok and
+    `from`/`to`. Rows: `- 2026-09-01: ok*20 degraded down`. Live: `query:` with `date: <property>` and
+    `state: <property>` (date, status), the worst run of a day counting; `last: 30` is the thirty days to today; `source: backups` is
+    `query: "type=backup-run"`, the notes `scripts/backup-runs.ts` writes (below).
+  - `activity`: a contribution grid, weeks as columns, ·░▒▓█. Rows: `- 2026-03-02: 0 1 4 2 0*3` (that day and the
+    days after). Live: `query:` with `count: created|updated` (or a date property), `weeks: 26`.
+  - `calendar`: one month, marked days in the accent, today in `[brackets]`, `- 12: launch` listed under it;
+    `year`, `month`, `weekStartsOn` (mon), `today`. Live: `query:` with `date: <property>` marks the month's notes.
+  - `annotate`: a fence whose lines end in `// (1)` or `# (1)`, then `1. what it is`: marked lines bright with `[1]`
+    in the gutter, the rest dim.
+  - **Backup runs:** `bun scripts/backup-runs.ts --ws pie --source restic -- ~/.local/bin/ep0ch-snapshot` runs the
+    backup and adds one note under `Backup runs [type::backup-log]` (`[type::backup-run] - [status::ok] -
+    [date::…] - [source::restic] - [took::…]`), exiting as the backup did; `--status degraded` records a run it was
+    told about. It never reads the backup's secrets, only its exit code.
 - **Live figures** (`src/live.ts`): give a figure `query: "type=outbox-item ticket=PC-762"` or `view: ((block-ref))`
   instead of values, and the door answers it from the outline on every render, re-asking when the outline changes.
   The note stores the question, so status lives in one place. Footer reads `live · N results`.
@@ -1489,7 +1517,9 @@ Bodies render with `src/doc.ts`:
     `blocks.query` `expression` (PIE-398). `done:` and `now:` are queries in the
     same grammar: the service says which results they hold for (`query.matches`, PIE-490). They match
     properties only; there is no `author=` pseudo-key.
-- Long callout titles keep a short head on the border and flow the rest into the box (a nested one too).
+- Long callout titles keep a short head on the border and flow the rest into the box (a nested one too). A
+  `> [!quote]` whose last line starts with `— ` draws it as the byline, to the right, the source after a comma
+  muted (outline-core's `quoteByline`; Detail draws it the same).
 - Code fences, headings, lists, blockquotes, `**bold**`, `[[links]]`, `((refs))` and `[key::value]` are styled.
 
 ## The river

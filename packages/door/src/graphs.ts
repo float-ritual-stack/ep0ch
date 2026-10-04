@@ -2,9 +2,14 @@
 // charts made of characters, one accent. Two inputs render the same way:
 //   ::graph-<kind>          Comark block with YAML props between --- lines, drawn here natively
 //   ```+--- [ TITLE ] ---+  the official fenced ASCII an agent pastes, re-framed to fit the pane
-import { BOLD, C, ellipsize, fg, headOf, pad, RESET, SPARK_STEPS, UNBOLD, width as vwidth } from "./style";
+import { BOLD, C, ellipsize, fg, headOf, pad, RESET, SPARK_STEPS, UNBOLD, visible, width as vwidth } from "./style";
 import { wrap } from "./text";
-import { resolveLive, setLiveSource } from "./live";
+import { childRows, resolveLive, setLiveSource } from "./live";
+import { figureRow, parseFigureMarkdown } from "@ep0ch/outline-core/figure-markdown";
+import { FIGURES, MARKDOWN } from "./figures/index";
+import type { Markdown } from "./figures/markdown";
+import { ACCENT, DIM, HI, INK, rowLink, type Props, type RowLink } from "./figures/palette";
+export type { RowLink } from "./figures/palette";
 import { setLinksSource } from "./links";
 import type { SocketBoard } from "./socket";
 
@@ -17,8 +22,6 @@ export function connectFigures(board: SocketBoard, redraw: () => void): void {
   setLiveSource(board, redraw);
   setLinksSource(board, redraw);
 }
-
-const ACCENT = C.lcyan, DIM = C.dark, INK = C.grey, HI = C.white;
 
 /**
  * `+ ····· [ TITLE ] ····· +` around body lines, fitted to width. `control`: drawn after the footer when it fits (a
@@ -43,22 +46,15 @@ export function frame(title: string, body: string[], W: number, footer = "", con
   return [top, side(""), ...body.map(side), side(""), foot ? bottom : fg(DIM) + "+" + "·".repeat(w - 2) + "+" + RESET];
 }
 
-type Props = Record<string, any>;
 const num = (v: unknown) => (typeof v === "number" ? v : Number(String(v).replace(/[^\d.-]/g, "")) || 0);
 const fmt = (v: unknown) => (typeof v === "number" ? v.toLocaleString("en-US") : String(v ?? ""));
 
-function bar(frac: number, n: number, on = ACCENT): string {
+function bar(frac: number, n: number, on: number = ACCENT): string {
   const k = Math.max(0, Math.min(n, Math.round(frac * n)));
   return fg(on) + "█".repeat(k) + fg(DIM) + "-".repeat(n - k) + RESET;
 }
 
-/**
- * Tags a row as a link to its note (PIE-441): the reader's `DocEnv.link`, or nothing (text stays text). `figure`: the
- * key of the figure the row is in, so the figure's keys (tabs, density) work while the row is the current element.
- */
-export type RowLink = (block: string, text: string, figure?: string) => string;
 // rowLinks splits what `link` returns around a placeholder: a RowLink only wraps its text in tags, never records it.
-const rowLink = (link: RowLink | undefined, block: unknown, text: string, figure?: string) => (link && typeof block === "string" ? link(block, text, figure) : text);
 /**
  * Every line of a row that stands for one note, tagged as that one link: a row a density wraps over two or three
  * lines is one element, opened from any of them.
@@ -131,6 +127,9 @@ export function titleLines(text: string, w: number, lines: number): string[] {
 }
 
 const KINDS: Record<string, (p: Props, w: number, link?: RowLink, ui?: FigureUI) => string[]> = {
+  // The kinds in src/figures/ (decision, chat, keys, uptime, activity, calendar, annotate).
+  ...FIGURES,
+
   check: (p, w, link) => (p.items ?? []).flatMap((it: Props) => {
     const box = it.done ? fg(ACCENT) + "[x]" : fg(DIM) + "[ ]";
     const lines = wrap(String(it.label ?? ""), w - 6);
@@ -144,14 +143,17 @@ const KINDS: Record<string, (p: Props, w: number, link?: RowLink, ui?: FigureUI)
     return ev.flatMap((e, i) => {
       const now = e.state === "now", next = e.state === "next";
       const dot = next ? fg(DIM) + "○" : fg(now ? ACCENT : HI) + "●";
-      const line = `${dot}  ${fg(next ? DIM : INK)}${String(e.date ?? "").padEnd(dw)}  ${fg(now ? ACCENT : next ? DIM : HI)}${rowLink(link, e.block, String(e.label ?? ""))}${RESET}`;
+      const note = e.note ? `${fg(DIM)}  — ${e.note}` : "";
+      const line = `${dot}  ${fg(next ? DIM : INK)}${String(e.date ?? "").padEnd(dw)}  ${fg(now ? ACCENT : next ? DIM : HI)}${rowLink(link, e.block, String(e.label ?? ""))}${note}${RESET}`;
       return i < ev.length - 1 ? [pad(line, w), fg(DIM) + "│" + RESET] : [pad(line, w)];
     });
   },
 
   stat: (p) => {
     const items: Props[] = p.items ?? [];
-    const cells = items.map((it, i) => ({ v: String(it.value ?? ""), l: String(it.label ?? ""), accent: i === items.length - 1 }));
+    // The accent: the bold item (Markdown) or `accent: true`, else the last.
+    const marked = items.some(it => it.accent);
+    const cells = items.map((it, i) => ({ v: String(it.value ?? ""), l: String(it.label ?? ""), accent: marked ? !!it.accent : i === items.length - 1 }));
     const cw = Math.max(...cells.map(c => Math.max(c.v.length, c.l.length))) + 4;
     return [
       cells.map(c => fg(c.accent ? ACCENT : HI) + BOLD + c.v.padEnd(cw) + UNBOLD).join("") + RESET,
@@ -165,7 +167,8 @@ const KINDS: Record<string, (p: Props, w: number, link?: RowLink, ui?: FigureUI)
     const items: Props[] = p.items ?? [];
     const lw = Math.max(...items.map(i => String(i.label).length)), vw = Math.max(...items.map(i => fmt(i.value).length));
     const max = Math.max(...items.map(i => num(i.value)), 1), bw = Math.max(6, Math.min(40, w - lw - vw - 6));
-    return items.map(i => `${fg(HI)}${String(i.label).padEnd(lw)}  ${fg(DIM)}[${bar(num(i.value) / max, bw - 2).replace(/█/g, "=")}${fg(DIM)}]  ${fg(INK)}${fmt(i.value).padStart(vw)}${RESET}`);
+    // A bold row (Markdown) or `accent: true` is the accent; an italic one (`muted: true`) recedes.
+    return items.map(i => `${fg(i.accent ? ACCENT : i.muted ? DIM : HI)}${String(i.label).padEnd(lw)}  ${fg(DIM)}[${bar(num(i.value) / max, bw - 2, i.muted ? INK : ACCENT).replace(/█/g, "=")}${fg(DIM)}]  ${fg(i.accent ? ACCENT : INK)}${fmt(i.value).padStart(vw)}${RESET}`);
   },
 
   funnel: (p, w) => KINDS.rank!({ items: (p.steps ?? []).map((s: Props) => ({ label: s.label, value: s.display ?? s.value, raw: s.value })) }, w),
@@ -292,14 +295,65 @@ export function isGraphStart(line: string): string | null {
 }
 
 /**
- * Render a `::graph-kind` block whose YAML (between --- lines) is in `yaml`. `link`: a live figure's rows
- * that stand for a note are tagged with it, so the reader steps to them and opens them (PIE-441). `figures`: the
- * reader's hold on its figures (its chosen tab and density for this one, `n`th in the note), see FiguresEnv.
+ * A figure as written: the YAML between its `---` lines, the Markdown after them (or its whole body when it has no
+ * `---`), and the note it is in. `block`: it is that note's figure block (the note's text starts with it), so its child
+ * bullets are rows too, as `rows: children` asks anywhere.
  */
-export function renderGraph(kind: string, yaml: string, W: number, link?: RowLink, figures?: FiguresEnv): string[] {
-  let props: Props = {};
-  try { props = (Bun.YAML.parse(yaml) as Props) ?? {}; }
-  catch (e) { return frame(kind, [fg(C.lred) + `bad YAML: ${(e as Error).message}` + RESET], W); }
+export interface FigureSource { yaml: string; markdown?: readonly string[]; note?: string; block?: boolean }
+
+/** A `::graph-*` block's lines (after its first line, to its `::`) as its YAML and its Markdown. */
+export function figureSource(lines: readonly string[], note?: string, block?: boolean): FigureSource {
+  const yaml: string[] = [], markdown: string[] = [];
+  const rule = (l: string) => /^\s*---\s*$/.test(l);
+  // The YAML is between a first `---` (nothing above it but blank lines) and the next; any other `---` is
+  // Markdown's (a rule).
+  const open = lines.findIndex(l => l.trim());
+  let dashes = open >= 0 && rule(lines[open]!) ? 0 : 2;
+  for (const [i, l] of lines.entries()) {
+    if (dashes < 2 && i < open) continue;
+    if (dashes < 2 && rule(l)) { dashes++; continue; }
+    (dashes === 1 ? yaml : markdown).push(l);
+  }
+  return { yaml: yaml.join("\n"), markdown, ...(note ? { note } : {}), ...(block ? { block } : {}) };
+}
+
+/**
+ * A figure's props: its YAML over what its Markdown rows and (for a figure block, or `rows: children`) its note's child
+ * bullets give. The YAML wins: a field it sets is never taken from the Markdown. `waiting`: the child bullets are still
+ * being asked for.
+ */
+function propsOf(kind: string, src: FigureSource): { props: Props; children: boolean; waiting: boolean } | { error: string } {
+  let yaml: Props = {};
+  try { yaml = (Bun.YAML.parse(src.yaml) as Props) ?? {}; }
+  catch (e) { return { error: `bad YAML: ${(e as Error).message}` }; }
+  if (typeof yaml !== "object" || Array.isArray(yaml)) return { error: "the YAML between --- lines is a map of props (title: …)" };
+  const md: Markdown = parseFigureMarkdown(src.markdown ?? []);
+  // The fields this kind's rows give that the YAML leaves open: only those can come from child bullets.
+  // The first field a kind's rows give is its rows (events, items, marks, days…); the rest go with them (a calendar's
+  // month, an uptime's dates). A YAML that gives the rows, or asks the outline for them, takes none from children.
+  const probe = Object.keys(MARKDOWN[kind]?.({ rows: [figureRow("2026-03-02: 1")], paragraphs: [], fences: [] }, {}) ?? {});
+  const rowFields = probe.filter(k => !(k in yaml));
+  const own = (probe[0] !== undefined && probe[0] in yaml) || !!(yaml.query || yaml.view || yaml.source);
+  const wantsChildren = !!src.note && !own && rowFields.length > 0 && (yaml.rows === "children" || (src.block === true && yaml.rows !== "body"));
+  const kids = wantsChildren ? childRows(src.note!) : null;
+  if (kids) md.rows.push(...kids.rows);
+  const from = MARKDOWN[kind]?.(md, yaml) ?? {};
+  // The footer says "child notes" only when a field drawn came from them: rows this kind makes nothing of don't count.
+  const children = !!kids?.rows.length && rowFields.some(k => k in (MARKDOWN[kind]!({ rows: kids.rows, paragraphs: [], fences: [] }, yaml)));
+  return { props: { ...from, ...yaml }, children, waiting: !!kids?.waiting };
+}
+
+/**
+ * Render a `::graph-kind` block: `source` is its YAML (between --- lines), or the whole FigureSource (its Markdown and
+ * its note too). `link`: rows that stand for a note (a live figure's, a child bullet's) are tagged with it, so the
+ * reader steps to them and opens them (PIE-441). `figures`: the reader's hold on its figures (its chosen tab and density
+ * for this one, `n`th in the note), see FiguresEnv.
+ */
+export function renderGraph(kind: string, source: string | FigureSource, W: number, link?: RowLink, figures?: FiguresEnv): string[] {
+  const src = typeof source === "string" ? { yaml: source } : source;
+  const read = propsOf(kind, src);
+  if ("error" in read) return frame(kind, [fg(C.lred) + read.error + RESET], W);
+  let props = read.props;
   // The figure's name in its reader: where it is in the note, and its title.
   const title = String(props.title ?? kind), count = figures ? (figures.drawn ??= { n: 0, titles: new Map() }) : { n: 0, titles: new Map<string, number>() };
   const n = ++count.n, same = count.titles.get(title) ?? 0;
@@ -325,8 +379,30 @@ export function renderGraph(kind: string, yaml: string, W: number, link?: RowLin
   const draw = KINDS[kind];
   if (!draw) return frame(props.title ?? kind, [fg(DIM) + `graph-${kind} isn't drawn in the terminal yet` + RESET], W);
   if (kind === "table") figures?.seen?.({ key, n, kind, title, density: ui.density });
-  try { return frame(String(props.title ?? ""), draw(props, Math.max(10, W - 4), undefined, ui), W, "", kind === "table" ? densityControl(kind, ui) : ""); }
+  const footer = read.waiting ? "asking for its child notes…" : read.children ? "live · child notes" : "";
+  try { return frame(String(props.title ?? ""), draw(props, Math.max(10, W - 4), link, ui), W, footer, kind === "table" ? densityControl(kind, ui) : ""); }
   catch (e) { return frame(kind, [fg(C.lred) + `couldn't draw: ${(e as Error).message}` + RESET], W); }
+}
+
+/**
+ * A figure as mdxcn's fenced ASCII (what `ep0ch export` writes in its place): the same drawing at `W` columns with
+ * every colour and link taken off, framed `+---- [ TITLE ] ----+`, `| … |`, `+----+`, so `reframeAscii` (and any
+ * Markdown reader) reads it back. A live figure's status line becomes its last row.
+ */
+export function figureAscii(kind: string, source: string | FigureSource, W = 60): string[] {
+  const drawn = renderGraph(kind, source, W).map(l => visible(l).trimEnd());
+  if (drawn.length < 2) return drawn;
+  // The dots at each end become dashes (a · in the title stays); an untitled figure is titled by its kind, so
+  // reframeAscii reads it back.
+  const w = vwidth(drawn[0]!), bottom = drawn.at(-1)!;
+  const label = drawn[0]!.includes(" [ ") ? null : ` [ ${kind.toUpperCase()} ] `;
+  const left = label ? Math.max(1, Math.floor((w - 2 - label.length) / 2)) : 0;
+  const top = label ? "+" + "-".repeat(left) + label + "-".repeat(Math.max(1, w - 2 - left - label.length)) + "+"
+    : drawn[0]!.replace(/^\+·+/, m => "+" + "-".repeat(m.length - 1)).replace(/·+\+$/, m => "-".repeat(m.length - 1) + "+");
+  const body = drawn.slice(1, -1).map(l => "|" + l.slice(1, -1) + "|");
+  const status = bottom.replace(/^\+[·]*|[·]*\+$/g, "").trim();
+  if (status) body.splice(body.length - 1, 0, "| " + " ".repeat(Math.max(0, w - 4 - vwidth(status))) + status + " |");
+  return [top, ...body, "+" + "-".repeat(Math.max(0, w - 2)) + "+"];
 }
 
 /** A table's or tabs figure's density as a control on its footer, where a reader can change it (a click, ⏎ on it, =). */

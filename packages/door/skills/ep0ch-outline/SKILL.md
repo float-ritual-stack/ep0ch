@@ -164,6 +164,13 @@ items:
 | `timeline` | one event per block, dated by `date: <property>` or updated; `now: "<filter>"` | `items` |
 | `meter` | the share of results matching `done: "<filter>"` | `value` |
 | `funnel`, `waterfall`, `spark`, `plot`, `gantt`, `tree` | static only | `steps`, `data`, `labels`, `nodes` … |
+| `decision` | one option per note; its `decision-state` (chosen, rejected, open) picks ● × ○; `reason: <property>` | `options`, `text`, `status`, `date` |
+| `chat` | static only | `messages: [{ from, text, aside }]`, `you` |
+| `keys` | `actions: note` (a scope): the door's own keys, from the action registry; `learn: [edit]` | `keys: [{ keys, action, learn }]` |
+| `uptime` | a glyph a day from `date:` and `state:` properties (date, status); `last: 30`; `source: backups` | `days`, `from`, `to`, `wrap` |
+| `activity` | blocks per day, `count: created\|updated` (or a date property); `weeks: 26` | `counts: { 2026-03-02: 4 }` |
+| `calendar` | `date: <property>` marks the month's notes | `year`, `month`, `today`, `weekStartsOn`, `marks` |
+| `annotate` | static only | `code`, `notes` (or a fence with `# (1)` markers and a `1.` list) |
 
 Live blocks also take `limit:`, `sort: updated|created` and `direction:`. A `table` or `tabs` takes
 `density: compact | cozy | comfortable` (titles on one line, up to two, up to three with a blank line between rows;
@@ -184,7 +191,29 @@ density: cozy
 ::
 ```
 
-An agent can paste the fenced ASCII figure form (` ```+--- [ TITLE ] ---+ `) and it is re-framed to fit the pane.
+An agent can paste the fenced ASCII figure form (` ```+--- [ TITLE ] ---+ `) and it is re-framed to fit the pane;
+`ep0ch export` writes figures that way.
+
+**Rows in Markdown.** Write a figure's rows after its `---` YAML (or with no YAML at all) instead of YAML lists:
+`**bold**` is now, chosen or the accent; `*italic*` next, rejected or receding; `- label: value` a row; `x — note` a
+muted side note; `a → b` a path; `ok*40` a run in any list of values; `- [x]` done. Where both give a field, the
+YAML wins. A note whose body is a figure (nothing above it but its title) takes its **child bullets** as rows, each
+opening its note: write the figure once and add rows as children (`rows: children` asks for them anywhere).
+
+```
+::graph-decision
+---
+title: Squash beds
+status: decided
+---
+- **Raised beds** — the clay stays wet
+- *Straight into the clay* — they rotted last year
+
+Two beds of scaffold boards.
+::
+```
+
+A `> [!quote]` callout's last line `— name, source` is drawn as its byline.
 
 **Links** (`packages/door/src/links.ts`). `::links` lists a note's Outlinks, Resources (`[file::…]`, `jira::`
 tickets; `!` marks one that's unavailable) and Backlinks, answered by the service on every render, the same

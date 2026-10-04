@@ -223,3 +223,24 @@ export function calloutTypeAtCursor(line: string, col: number): { start: number;
   const after = /^[^\]\s[]*\]/.exec(line.slice(before.length));
   return { start, end: before.length + (after ? after[0].length : 0), query: m[1]! };
 }
+
+// ── a quote's byline ──────────────────────────────────────────────────────────
+
+/** Who a quote is by: its last line, `— name, source` (the source, after the first comma, is drawn muted). */
+export interface QuoteByline { line: number; name: string; source: string }
+
+/**
+ * The byline of a `[!quote]` (or `[!cite]`) callout's body (`lines`, without their quote markers): its last line with
+ * text, when it starts with `— ` (an em dash and a space). Null when it has none, or nothing before it is quoted.
+ * Every client draws it as the attribution (the door's reader, Detail), from this one reading.
+ */
+export function quoteByline(lines: readonly string[]): QuoteByline | null {
+  let at = lines.length - 1;
+  while (at >= 0 && !lines[at]!.trim()) at--;
+  // Something is quoted before it: a byline alone is a line of the quote.
+  if (at <= 0 || !lines.slice(0, at).some(l => l.trim())) return null;
+  const m = /^\s*— (.+?)\s*$/.exec(lines[at]!);
+  if (!m) return null;
+  const comma = m[1]!.indexOf(", ");
+  return comma < 0 ? { line: at, name: m[1]!, source: "" } : { line: at, name: m[1]!.slice(0, comma).trim(), source: m[1]!.slice(comma + 2).trim() };
+}

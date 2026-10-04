@@ -60,6 +60,21 @@ function render(source: string): string {
 }
 
 describe("Detail Obsidian callouts", () => {
+  test("a quote's last `— name, source` line is its byline, drawn to the right after the quote", () => {
+    const out = render(["> [!quote] On sheds", "> Shacks, not cathedrals.", ">", "> — shypht, the ep0ch BBS"].join("\n")).split("\n");
+    expect(out.some((line) => line.includes("Shacks, not cathedrals."))).toBe(true);
+    const byline = out.find((line) => line.includes("— shypht"))!;
+    expect(byline.trimEnd().endsWith("— shypht, the ep0ch BBS")).toBe(true);
+    // Right-aligned: spaces before it, not after the rail.
+    expect(byline.indexOf("—")).toBeGreaterThan(40);
+    // Right after a nested callout, as the door reads it.
+    const nested = render(["> [!quote] Q", "> > [!note] inner", "> > body", "> — Bo, a zine"].join("\n")).split("\n");
+    expect(nested.find((line) => line.includes("— Bo"))!.indexOf("—")).toBeGreaterThan(40);
+    // Not a quote: the dash line stays prose.
+    expect(render("> [!note] N\n> body\n> — not a byline").split("\n").find((line) => line.includes("— not"))!.indexOf("—")).toBeLessThan(10);
+  });
+
+
   test("retains exact spans and parent-child identity through three nesting levels", () => {
     const source = [
       "> [!note]+ Outer",

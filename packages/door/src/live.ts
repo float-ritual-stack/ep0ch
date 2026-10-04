@@ -18,10 +18,22 @@
 //             limit: rows per tab (50); the question itself asks for up to 1000 results
 //   timeline  one event per block, dated by updated/created or date: <property>; now: "<filter>"
 //   meter     value = share of results matching done: "<filter>"
+//   decision  one option per block, its glyph from decision-state (chosen, rejected, open); reason: <property>
+//   uptime    a day per date: date: <property> (date), state: <property> (status), the worst that day;
+//             last: N (the last N days to today); source: backups is query "type=backup-run"
+//   activity  blocks per day: count: created|updated (or a date property); weeks: N
+//   calendar  date: <property> (date) marks its day in the month shown (year:, month:, else today's)
+//
+// A figure block's child bullets (src/graphs.ts FigureSource) are asked for here too (childRows), the same way.
 import type { Msg } from "./board";
 import type { SocketBoard } from "./socket";
 import { subject } from "./board";
 import { readView } from "./views";
+import { figureRow } from "@ep0ch/outline-core/figure-markdown";
+import { headerLine } from "@ep0ch/outline-core/header-line";
+import type { Row } from "./figures/markdown";
+import { decisionState } from "./figures/decision";
+import { dayOf, dayState, isoOf, localDay, monthOf, today, uptimeDays } from "./figures/days";
 
 type Props = Record<string, any>;
 /** `done` / `now`: the results the figure's `done:` and `now:` queries hold for, as the service says. */
@@ -32,7 +44,19 @@ let onChange: () => void = () => {};
 const cache = new Map<string, Entry>();
 let generation = 0;
 
-export function setLiveSource(b: SocketBoard, redraw: () => void) { board = b; onChange = redraw; }
+export function setLiveSource(b: SocketBoard | null, redraw: () => void) {
+  // Answers are kept by question, not by outline: another outline asks them all again.
+  if (b !== board) generation++;
+  board = b; onChange = redraw;
+}
+/** The connection and its repaint now, to put back after borrowing it (drawNote). */
+export const liveSource = (): { board: SocketBoard | null; redraw: () => void } => ({ board, redraw: onChange });
+/** The outline live figures ask now, if one is connected. */
+export const liveBoard = (): SocketBoard | null => board;
+/** Also told when an answer arrives (besides the connection's own redraw), until the returned function is called. */
+const listeners = new Set<() => void>();
+export function listenLive(fn: () => void): () => void { listeners.add(fn); return () => listeners.delete(fn); }
+const changed = () => { onChange(); for (const fn of listeners) fn(); };
 
 /** The outline changed somewhere: re-ask every question on the next render (answers stay visible meanwhile). */
 export function invalidateLive() { generation++; }
@@ -80,16 +104,57 @@ async function fetchItems(p: Props): Promise<{ items: Msg[]; truncated: boolean 
 /** Synchronous for the renderer: the last answer, refreshed in the background when stale. */
 export function answer(p: Props): Entry | null {
   const key = sourceKey(p);
-  if (!key) return null;
+  return key ? cached(key, () => fetchSource(p)) : null;
+}
+
+/** The answers being asked for now: `ep0ch export` waits for them before it draws (liveSettled). */
+const asking = new Set<Promise<unknown>>();
+
+/** The entry under `key`, asked again (by `fetch`) when the outline changed since. */
+function cached(key: string, fetch: () => Promise<Omit<Entry, "state" | "at">>): Entry {
   const hit = cache.get(key);
   if (!hit || hit.at < generation) {
     const entry: Entry = hit ? { ...hit, at: generation } : { state: "loading", items: [], truncated: false, at: generation };
     cache.set(key, entry);
-    fetchSource(p).then(r => { cache.set(key, { state: "ready", ...r, at: generation }); onChange(); },
-      e => { cache.set(key, { state: "error", items: [], truncated: false, error: String(e.message ?? e), at: generation }); onChange(); });
+    // Kept as of when it was asked, and only while the same outline is connected: an answer from the outline before
+    // a swap (drawNote lending the connection) is never this one's.
+    const asked = generation, from = board;
+    // …nor kept over a newer answer.
+    const keep = () => board === from && (cache.get(key)?.at ?? -1) <= asked;
+    const q = fetch().then(r => { if (keep()) { cache.set(key, { state: "ready", ...r, at: asked }); changed(); } },
+      e => { if (keep()) { cache.set(key, { state: "error", items: [], truncated: false, error: String(e.message ?? e), at: asked }); changed(); } });
+    asking.add(q);
+    void q.finally(() => asking.delete(q));
     return entry;
   }
   return hit;
+}
+
+/**
+ * Once every answer asked for so far has come (and any those answers asked for in turn), or `ms` has passed: an
+ * outline that never answers leaves those figures asking, it never hangs the caller.
+ */
+export async function liveSettled(ms = 10_000): Promise<void> {
+  const end = Date.now() + ms;
+  while (asking.size && Date.now() < end) {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    await Promise.race([Promise.all([...asking]), new Promise(r => { timer = setTimeout(r, Math.max(0, end - Date.now())); })]);
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * A note's child bullets as figure rows (a figure block's, or a figure's with `rows: children`): each child's first
+ * line without its property tokens, read by outline-core's figure grammar, standing for its note. Comment threads
+ * (annotation blocks) aren't rows. `waiting` until the first answer.
+ */
+export function childRows(note: string): { rows: Row[]; waiting: boolean } | null {
+  if (!board) return null;
+  const e = cached(`children:${note}`, async () => ({ items: (await board!.children(note)).filter(m => !m.props.type?.startsWith("annotation")), truncated: false }));
+  // Each child's header line without its chips and their ` - ` (outline-core's reading, as its title is made); a
+  // child with no text isn't a row.
+  const rows = e.items.flatMap(m => { const prose = headerLine(m.text).prose.trim(); return prose ? [{ ...figureRow(prose), block: m.id }] : []; });
+  return { rows, waiting: e.state === "loading" && !e.items.length };
 }
 
 const date = (ms: number) => new Date(ms).toLocaleDateString("en-US", { month: "short", day: "numeric" });
@@ -139,6 +204,10 @@ export function resolveLive(kind: string, p: Props): Resolved | null {
     });
     return { props: { ...p, items }, status: "live", waiting, error };
   }
+  // `source: backups`: the backup-run notes a timer writes (scripts/backup-runs.ts), dated and with a status.
+  if (kind === "uptime" && p.source === "backups") p = { query: "type=backup-run", ...p };
+  // Figures of days count every result, not the first 200.
+  if ((kind === "uptime" || kind === "activity" || kind === "calendar") && (p.query || p.view)) p = { limit: 1000, ...p };
   // A tabs figure groups every result, so it asks for all of them; its `limit:` is per tab.
   const a = answer(kind === "tabs" ? { ...p, limit: TABS_FETCH } : p);
   if (!a) return null;
@@ -175,6 +244,28 @@ export function resolveLive(kind: string, p: Props): Resolved | null {
       return { status, waiting: false, props: { ...p, events: items.map(m => ({ date: p.date ? field(m, p.date) : date(p.sort === "created" ? m.createdAt : m.updatedAt), label: subject(m), state: now?.has(m.id) ? "now" : undefined, block: m.id })) } };
     case "meter":
       return { status, waiting: false, props: { ...p, value: items.length ? items.filter(m => (done ? isDone(m) : true)).length / items.length : 0, caption: p.caption ?? `${items.filter(m => (done ? isDone(m) : true)).length} of ${items.length}` } };
+    case "decision":
+      return { status, waiting: false, props: { ...p, options: items.map(m => ({ label: subject(m), state: decisionState(m.props["decision-state"]), reason: m.props[String(p.reason ?? "reason")] || undefined, block: m.id })) } };
+    case "uptime": {
+      const dateKey = String(p.date ?? "date"), stateKey = String(p.state ?? "status");
+      const results = items.flatMap(m => { const day = dayOf(m.props[dateKey]); return day === null ? [] : [{ day, state: dayState(m.props[stateKey]), block: m.id }]; });
+      // `last: 30`: the thirty days to today (or to `to:`).
+      const last = Number(p.last) || 0, to = dayOf(p.to) ?? (last ? today() : null), from = dayOf(p.from) ?? (last && to !== null ? to - last + 1 : null);
+      return { status, waiting: false, props: { ...p, ...uptimeDays(results, from, to) } };
+    }
+    case "activity": {
+      const how = String(p.count ?? "created"), counts: Record<string, number> = {};
+      for (const m of items) {
+        const day = how === "created" ? localDay(m.createdAt) : how === "updated" ? localDay(m.updatedAt) : dayOf(m.props[how]);
+        if (day !== null) counts[isoOf(day)] = (counts[isoOf(day)] ?? 0) + 1;
+      }
+      return { status, waiting: false, props: { ...p, counts, to: p.to ?? isoOf(today()), weeks: p.weeks ?? 26 } };
+    }
+    case "calendar": {
+      const { first, last, year, month } = monthOf(p), dateKey = String(p.date ?? "date");
+      const marks = items.flatMap(m => { const d = dayOf(m.props[dateKey]); return d !== null && d >= first && d <= last ? [{ day: d - first + 1, date: isoOf(d), label: subject(m), block: m.id }] : []; });
+      return { status, waiting: false, props: { ...p, year, month, marks } };
+    }
     default:
       return { status, waiting: false, props: { ...p }, error: `live data isn't wired for graph-${kind} yet` };
   }

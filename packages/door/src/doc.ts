@@ -4,10 +4,10 @@
 import { brightness, media, parseMediaLine, sizeText, type Media, type MediaSpec } from "./media";
 import { balanceTags, BOLD, C, extractLinks, fg, type LinkRange, pad, RESET, splitVisible, stripTags, styleMarks, trimTagged, UNBOLD, width as vwidth } from "./style";
 import { colourBody, wrap } from "./text";
-import { frame, isGraphStart, reframeAscii, renderGraph, type FiguresEnv } from "./graphs";
+import { figureSource, frame, isGraphStart, reframeAscii, renderGraph, type FiguresEnv } from "./graphs";
 import { linkBlockLines, linkBlockAt, renderLinkBlock } from "./links";
 import { EMBED, stripMarks, type LinkTarget } from "./refs";
-import { BUILTIN_CALLOUT_REGISTRY, calloutBlocks, stripQuotes, type CalloutBlock, type CalloutRegistry } from "@ep0ch/outline-core/callouts";
+import { BUILTIN_CALLOUT_REGISTRY, calloutBlocks, quoteByline, stripQuotes, type CalloutBlock, type CalloutRegistry } from "@ep0ch/outline-core/callouts";
 import { TONE } from "./callouts";
 
 export interface DocEnv {
@@ -44,8 +44,13 @@ export interface DocEnv {
    * Resource), so the reader steps to it and opens it. Without it the rows are text.
    */
   tag?: (to: LinkTarget, text: string) => string;
-  /** The block whose body this is: an inline `::links` component lists its links unless it names another. */
+  /**
+   * The block whose body this is: an inline `::links` component lists its links unless it names another, and a figure
+   * that is the note's figure block (its first line) takes the note's child bullets as rows.
+   */
   note?: string;
+  /** A part of the body drawn on its own (a callout's): a figure in it isn't the note's figure block. */
+  nested?: boolean;
   /**
    * The body lines (by index) inside a literal region (PIE-422): `[key::value]` there is text, drawn
    * plain. Links and Markdown still render, as the service and Detail treat them.
@@ -297,10 +302,12 @@ export function renderDoc(body: string, env: DocEnv): Doc {
     // mdxcn Comark figure: ::graph-kind, --- yaml ---, ::
     const gk = isGraphStart(line);
     if (gk) {
-      const yaml: string[] = [];
-      let dashes = 0;
-      for (i++; i < src.length && !/^\s*::\s*$/.test(src[i]!); i++) { if (/^\s*---\s*$/.test(src[i]!)) { dashes++; continue; } if (dashes === 1) yaml.push(src[i]!); }
-      out.push(...renderGraph(gk, yaml.join("\n"), W, env.link, env.figures));
+      // Its YAML and its Markdown rows; the note's figure block (the first line of a note's own body) takes its child
+      // bullets as rows too.
+      const block = !env.nested && src.slice(0, i).every(l => !l.trim());
+      const lines: string[] = [];
+      for (i++; i < src.length && !/^\s*::\s*$/.test(src[i]!); i++) lines.push(src[i]!);
+      out.push(...renderGraph(gk, figureSource(lines, env.note, block), W, env.link, env.figures));
       continue;
     }
 
@@ -347,7 +354,17 @@ export function renderDoc(body: string, env: DocEnv): Doc {
     const cb = callouts.get(i);
     if (cb) {
       const t = (env.callouts ?? BUILTIN_CALLOUT_REGISTRY).style(cb.type), colour = TONE[t.tone];
-      const body = src.slice(i + 1, cb.end).map(l => stripQuotes(l, cb.depth));
+      let body = src.slice(i + 1, cb.end).map(l => stripQuotes(l, cb.depth));
+      // A quote's last `— name, source` line is its byline (outline-core's quoteByline, as Detail reads it): drawn
+      // after the body, to the right, the source muted.
+      const byline = t.name === "quote" ? quoteByline(body) : null;
+      if (byline) { body = body.slice(0, byline.line); while (body.length && !body.at(-1)!.trim()) body.pop(); }
+      const bylineRow = (room: number) => {
+        if (!byline) return "";
+        const text = fg(C.white) + BOLD + "— " + byline.name + UNBOLD + (byline.source ? fg(C.dark) + ", " + byline.source : "") + RESET;
+        const shown = vwidth(text) > room ? pad(text, room) : text;
+        return " ".repeat(Math.max(0, room - vwidth(shown))) + shown;
+      };
       // The reader's fold point folds it; without one (an embed, `ep0ch show`), `-` starts it folded unless unfolded.
       const fp2 = env.folds ? at.get(i) : undefined;
       // A title-only callout has nothing to fold, whatever its `-` says.
@@ -358,9 +375,10 @@ export function renderDoc(body: string, env: DocEnv): Doc {
         const tag = env.callout?.(i, cb) ?? ((x: string) => x);
         out.push(fg(colour) + pad(`${tag(t.icon)} ${BOLD}${cb.title || t.title}${UNBOLD}`, W) + RESET);
         if (body.length && !folded) {
-          const sub = renderDoc(body.join("\n"), { ...env, keepTags: true, embed: undefined, after: undefined, task: undefined, folds: undefined, callout: undefined, literal: undefined });
+          const sub = renderDoc(body.join("\n"), { ...env, nested: true, keepTags: true, embed: undefined, after: undefined, task: undefined, folds: undefined, callout: undefined, literal: undefined });
           mark();
           sub.lines.forEach((l, r) => { out.push(l); source.push(i + 1 + (sub.source[r] ?? 0)); });
+          if (byline) { out.push(bylineRow(W)); source.push(i + 1 + byline.line); }
         }
         i = cb.end - 1;
         continue;
@@ -399,7 +417,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
         if (body.length) {
           const off = i + 1, inside = (n: number) => n > i && n < cb.end;
           const sub = renderDoc(body.join("\n"), {
-            ...env, width: inner, graphics: false, keepTags: true, embed: undefined, after: undefined, task: undefined,
+            ...env, nested: true, width: inner, graphics: false, keepTags: true, embed: undefined, after: undefined, task: undefined,
             literal: new Set([...(env.literal ?? [])].filter(inside).map(n => n - off)),
             folds: env.folds && { ...env.folds, points: env.folds.points.filter(p => inside(p.line)).map(p => ({ ...p, line: p.line - off, end: p.end - off })) },
             callout: env.callout && ((n, b) => env.callout!(n + off, { ...b, line: b.line + off, end: b.end + off, depth: b.depth + cb.depth })),
@@ -408,6 +426,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
           const base = out.length;
           sub.lines.forEach((l, r) => { out.push(framed(l)); source.push(off + (sub.source[r] ?? 0)); });
           for (const h of sub.heads) heads.push({ ...h, row: base + h.row, cols: W });
+          if (byline) { out.push(framed(bylineRow(inner))); source.push(off + byline.line); }
         }
       }
       out.push(fg(colour) + "╰" + "─".repeat(bw - 2) + "╯" + RESET);

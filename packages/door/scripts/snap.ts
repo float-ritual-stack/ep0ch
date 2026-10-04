@@ -34,7 +34,7 @@ if (WRITES.includes(scenario)) {
   else if (process.env.EP0CH_SNAP_WRITES !== "1") refuse("point EP0CH_SOCKET at a scratch service and set EP0CH_SNAP_WRITES=1");
 }
 process.env.EP0CH_STATE = "out/state";   // never touch the real desk / river layout
-const wide = ["themes", "brief", "projection", "backlinks", "tree-links", "showcase", "rendering", "select", "spines", "complete", "desk", "river", "river-write", "board", "board2", "board3", "doc", "float", "live", "edit", "move", "comment", "journey", "agent", "kanban", "props", "scroll", "fold", "elements", "steps"].includes(scenario);
+const wide = ["figures", "themes", "brief", "projection", "backlinks", "tree-links", "showcase", "rendering", "select", "spines", "complete", "desk", "river", "river-write", "board", "board2", "board3", "doc", "float", "live", "edit", "move", "comment", "journey", "agent", "kanban", "props", "scroll", "fold", "elements", "steps"].includes(scenario);
 const COLS = wide ? 200 : 120, ROWS = wide ? 60 : 40;
 const kitty = scenario !== "cells";
 
@@ -51,7 +51,7 @@ const fakeTerm = {
 };
 let bytes = 0;
 // `bbs`, `brief`, `backlinks`, `tree-links`, `showcase`, `select`, `spines`, `journey`, `kanban`, `river-write`, `scroll`, `complete`, `fold`, `elements` and `steps` run their own scratch outline host (this repository's packages/outliner, or EP0CH_OUTLINER).
-const scratch = scenario === "themes" || scenario === "bbs" || scenario === "brief" || scenario === "projection" || scenario === "backlinks" || scenario === "tree-links" || scenario === "showcase" || scenario === "rendering" || scenario === "select" || scenario === "spines" || scenario === "journey" || scenario === "kanban" || scenario === "river-write" || scenario === "scroll" || scenario === "complete" || scenario === "fold" || scenario === "elements" || scenario === "steps" ? await (async () => {
+const scratch = scenario === "figures" || scenario === "themes" || scenario === "bbs" || scenario === "brief" || scenario === "projection" || scenario === "backlinks" || scenario === "tree-links" || scenario === "showcase" || scenario === "rendering" || scenario === "select" || scenario === "spines" || scenario === "journey" || scenario === "kanban" || scenario === "river-write" || scenario === "scroll" || scenario === "complete" || scenario === "fold" || scenario === "elements" || scenario === "steps" ? await (async () => {
   const { outliner, Scratch } = await import("../test/scratch");
   if (!outliner) { console.error(`${scenario} starts its own scratch outline host: set EP0CH_OUTLINER to the outliner package`); process.exit(2); }
   return new Scratch();
@@ -98,6 +98,35 @@ if (scenario === "doc") {
     return { lines: Array.from({ length: ctx.t.rows - 1 }, (_, i) => " " + (n[i] ?? "") + "\x1b[0m" + " ".repeat(Math.max(0, 48 - [...(n[i] ?? "").replace(/\x1b\[[\d;]*m/g, "")].length)) + "  " + (v[i] ?? "")) };
   }, key() {} } as any);
   await snap("1-doc", 4000);
+  board.close(); process.exit(0);
+}
+if (scenario === "figures") {
+  // The figure kinds from mdxcn's ideas (src/figures/), each written as Markdown rows, through the real reader,
+  // narrow beside wide. Static: nothing here asks the outline.
+  const { ReaderPane } = await import("../src/desk/panes");
+  const f = (kind: string, yaml: string[], md: string[]) => [`::graph-${kind}`, "---", ...yaml, "---", ...md, "::", ""];
+  const text = ["Figures in Markdown", "",
+    ...f("decision", ["title: one repo", "status: decided", "date: 2026-10-03"], ["- **Bun workspaces** — one lockfile, one test runner", "- *pnpm + turbo* — two tools for one job", "- nx — not tried", "", "We chose what we already run."]),
+    ...f("chat", ["title: at the board"], ["- shypht: did the backups run?", "- loki: yes, at 03:00", "- loki: fourteen snapshots", "- daddy: *goes to make tea*", "- cowboy: the laptop's are pending"]),
+    ...f("keys", ["title: the reader"], ["- **e: edit the note**", "- g then d: the desk", "- ctrl+k: the command palette", "- ( ) then f: fold a heading"]),
+    ...f("uptime", ["title: backups"], ["- 2026-09-01: ok*20 degraded ok*9 down ok*3"]),
+    ...f("activity", ["title: notes written", "weekStartsOn: mon"], ["- 2026-08-03: 0 1 4 2 0*3", "- 2026-08-10: 5 3 0 0 1 2 8", "- 2026-09-01: 3*5 0 0 9 12 1"]),
+    ...f("calendar", ["title: october", "today: 2026-10-03"], ["- 2026-10-03: **mdxcn figures**", "- 2026-10-14: the plot committee", "- 2026-10-28: *the fair, maybe*"]),
+    ...f("annotate", ["title: the snapshot"], ["```sh", "sqlite3 \"$db\" \".backup '$stage'\"  # (1)", "cp -a \"$HOME/outlines\"/*/ \"$stage/\"", "restic backup \"$stage\"            # (2)", "```", "1. a consistent copy, never the live file", "2. encrypted, to the storage box"]),
+    ...f("timeline", ["title: the plot"], ["- Feb: dig over", "- **Mar: seed potatoes** — after the frost", "- *Apr: beans*"]),
+    "> [!quote] On sheds", "> Shacks, not cathedrals.", ">", "> — shypht, the ep0ch BBS"].join("\n");
+  const pane = new ReaderPane();
+  const api: any = { ctx: app, current: null, setCurrent() {}, focusKind() {}, redraw: () => app.redraw() };
+  pane.show({ id: "figures", text, parentId: null, childIds: [], createdAt: Date.now(), updatedAt: Date.now(), author: "you", props: {} }, api);
+  const narrow = new ReaderPane(); narrow.show((pane as any).msg, api);
+  for (const [i, top] of [0, 70].entries()) {
+    (pane as any).surface.scroll = top; (narrow as any).surface.scroll = top;
+    app.push({ title: "figures", render: (ctx: any) => {
+      const n = narrow.render(56, ctx.t.rows - 3, true, api).lines, v = pane.render(ctx.t.cols - 64, ctx.t.rows - 3, true, api).lines;
+      return { lines: Array.from({ length: ctx.t.rows - 1 }, (_, r) => " " + (n[r] ?? "") + "\x1b[0m" + " ".repeat(Math.max(0, 58 - [...(n[r] ?? "").replace(/\x1b\[[\d;]*m/g, "")].length)) + "  " + (v[r] ?? "")) };
+    }, key() {} } as any);
+    await snap(`${i + 1}-figures`, 1500);
+  }
   board.close(); process.exit(0);
 }
 if (scenario === "live") {
