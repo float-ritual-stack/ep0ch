@@ -225,13 +225,13 @@ A journey to try, whichever service it is:
     ep0ch --showcase
     ep0ch --showcase --reset
 
-opens the showcase (PIE-439): the shared door parts, live, in twenty-four sections, one per row of the reuse map
+opens the showcase (PIE-439): the shared door parts, live, one section per row of the reuse map
 ([Before adding a feature](docs/UI-GRAMMAR.md#before-adding-a-feature)) in the map's order. The map's
 scrolling row, its key-names row, its list-picker and line-input rows (in the panes section's ^W P and ^W r,
 the board's g m s), its elements and reading-ruler row (PIE-441) and its terminal-output row (PIE-510: cells, escapes,
 CP437; the key names and the terminal output are under every section) have no section yet. The newest parts are in their rows' sections:
 the service's forgiving search (the `/` overlay, opened on a query with typos) in `search`, the agent drawer in `terminal` (`alt+a` pulls it up over the showcase itself), the terminals attached to the door session in `session`, a row's links in the tree
-(`L`) in `entity`, a drawer and the lock (`alt+k`) in `panes`, the draft session (an edit and a comment open side by side) in `drafts`, a screen spec (the brief, its spec read back by `screen.spec`) in `screens`, the tile-kind registry listed by a service-drawn tile in `kinds`, quiet embeds (a dim `»` source line) in `note`, the outliner's example extensions (a record, an output, a component with its `[w ward]`, an `@tidy` request) beside what the service's list bound, in `extensions`, Obsidian's callout examples (nested three deep, folded and open, title-only, a type the outline declares) in `callouts`, and the Markdown figures (a decision, a chat, a keymap read from the action registry, uptime, activity, a month, annotated code, a figure block whose rows are its child bullets, a quote's byline) in `figures`. It runs on an
+(`L`) in `entity`, a drawer and the lock (`alt+k`) in `panes`, the draft session (an edit and a comment open side by side) in `drafts`, a screen spec (the brief, its spec read back by `screen.spec`) in `screens`, the tile-kind registry listed by a service-drawn tile in `kinds`, quiet embeds (a dim `»` source line) in `note`, the outliner's example extensions (a record, an output, a component with its `[w ward]`, an `@tidy` request) beside what the service's list bound, in `extensions`, Obsidian's callout examples (nested three deep, folded and open, title-only, a type the outline declares) in `callouts`, the Markdown figures (a decision, a chat, a keymap read from the action registry, uptime, activity, a month, annotated code, a figure block whose rows are its child bullets, a quote's byline) in `figures`, and new notes from anywhere (`ctrl+n`, a missing `[[page]]` offered then made, a lone `[page::x]` titling itself) in `newnotes`. It runs on an
 outline of its own: a private service (own state, workspace and config dirs, background agents off, Herdr
 unset) on a persistent workspace under `<the door's state>/showcase/` (`$EP0CH_STATE`, else `${XDG_STATE_HOME:-~/.local/state}/ep0ch-door`), with the
 door's own `EP0CH_STATE` and `EP0CH_CONTROL` there too, so nothing reaches a real outline or your door.
@@ -260,7 +260,7 @@ door's own `EP0CH_STATE` and `EP0CH_CONTROL` there too, so nothing reaches a rea
 - **Reaching it:** `ep0ch --showcase` (or `ep0ch try --showcase`, `scripts/try-it.sh --showcase`) opens it on its
   own seeded outline, whatever this folder names. `X` on the main menu (its key line; the menu art has twelve
   slots) opens the screen on the outline you're on: on one without the seed it says so and writes nothing.
-- **Agents:** `ep0ch act section name=<1-24|key>` shows a section (your keys go back to the list);
+- **Agents:** `ep0ch act section name=<n|key>` shows a section (by its key, or its number in the list) (your keys go back to the list);
   every other action is the section's own (a reader's note actions, the desk's, the board's).
   `EP0CH_CONTROL=<showcase>/door/door.sock` reaches this door, and only it.
 
@@ -594,6 +594,7 @@ split, tab, drag, link and save, drawn by the door itself, so no multiplexer is 
 | `Tab` / `Shift+Tab`, `1`–`9`, click | focus |
 | `alt+n` / `alt+p` | next / previous tab |
 | `alt+d` | load the `daily` layout |
+| `ctrl+n` | a new note, opened to be written where this tile's opens land: under the note in the reader you're in, else at the top of the Inbox ([New notes and pages](#new-notes-and-pages-pie-544)); on every screen, never while you type |
 | `alt+l` | link this tile's opens (then a click, `h j k l` or a number) |
 | `?`, a click on `? more` | when the hint row is too long for the screen (it ends `? more`), show all of it in a box above it (`keys.more`, the person's); a `^W` chord's row shows it at once |
 | `alt+k` | lock or unlock the screen: its shape is fixed (no moves, drops, new tiles, closes, resizes, drawers in or out, links, layout loads), its contents stay live (reading, editing, terminals, drawers sliding, tabs, zoom) |
@@ -989,7 +990,7 @@ The board's new-card composer is the same control too.
 | `Ctrl+S` | save |
 | `Ctrl+R` | after the note changed elsewhere: load the current text (your draft is copied to disk first) |
 | `Esc` | close; with unsaved changes it asks for a second `Esc`, which **puts the draft aside** (below); with a selection, the first `Esc` only lets go of it |
-| `Enter` | a new line; on a list item (`-`, `*`, `+`, `1.`, `1)`, `- [ ]`, at any indent) the next item at the same level: numbers count up, a checklist step starts unchecked. On an empty item it goes up to its parent's level (continuing the parent's numbers), and at the top level the list ends. An indented line keeps its indent. A marker you type yourself on the new item replaces it (`- ` then `- ` is one bullet) |
+| `Enter` | on a first line of only `[page::x]` (and other properties), the title `x` goes in front first (PIE-544; the save does the same, below). Then a new line; on a list item (`-`, `*`, `+`, `1.`, `1)`, `- [ ]`, at any indent) the next item at the same level: numbers count up, a checklist step starts unchecked. On an empty item it goes up to its parent's level (continuing the parent's numbers), and at the top level the list ends. An indented line keeps its indent. A marker you type yourself on the new item replaces it (`- ` then `- ` is one bullet) |
 | `Alt+Enter` | a plain new line, no list continuation |
 | `Tab`, `Shift+Tab` | indent or outdent the line (or every line a selection touches, nesting kept): an item goes under the item above it, lined up with its text, and back out to its parent's level. Inside a draft `Tab` never moves focus; `Esc` (or `Ctrl+S`) is how you leave |
 | `↑ ↓`, `PgUp PgDn` | move by the rows drawn: a wrapped line is several rows, the column kept |
@@ -1082,6 +1083,36 @@ The board's new-card composer is the same control too.
 - **Attribution:** door edits are recorded as `author: user`, `actorId: ep0ch-door:<hostname>`, like the
   outliner's own Detail.
 - `peek` reports open drafts under `editing` (dirty, changed elsewhere, refused, where the copy went).
+
+### New notes and pages (PIE-544)
+
+`ctrl+n` makes a new note from any screen and opens it to be written, where the screen's opens land (the
+reader beside, the board's details row, the next river column), in the same editor as `e`. Where it goes is
+the outline's **placement rule**, kept by the service (`notes.create`, the outliner's `src/note-placement.ts`):
+from a reader, under the note it shows, as its last child; from anywhere else (a list, a lane, a terminal, the
+main menu's `+`), at the top of the Inbox, where quick capture puts its notes. The door only says which note
+you were in; it never works out where the Inbox is. `Esc` on it with nothing typed puts it in the trash and the
+reader goes back. `ctrl+n` is never taken while you type (an edit, a filter, a terminal tile: there it's the
+program's), and the outliner's Tree and Detail bind nothing on it.
+
+- **A missing `[[page]]`** isn't made silently: the first `⏎` or click on `[[Evans Thotts]]` says it has no page
+  yet and offers it (under the note's header); the next `⏎` or click on that link, while the offer is still shown
+  (a minute at most), makes
+  `Evans Thotts [page::Evans Thotts]` where new notes go (the top of the Inbox) and opens it (`page.create`). The
+  link resolves from then on, however it's cased. The outliner's Tree, which makes a stub when it follows one,
+  puts it there too: one rule.
+- **A page names its own title.** A note whose first line is only `[page::2026-09-30]` (other properties may sit
+  beside it) becomes `2026-09-30 [page::2026-09-30]`: on `⏎` at the end of that line in the editor, and on every save
+  from any client (the door, Detail, the CLI, an agent, a quick capture), since the service applies outline-core's
+  `page-title.ts` to the texts it's given. A title already there is never touched. A new note saves at once: it had no properties to lose,
+  so there's no second `Ctrl+S`.
+- **Agents:** `ep0ch act note.new text=… [near=<id>|inbox=true] --as <id>` makes one, attributed, and says it
+  on your status bar; it opens nothing and never takes your focus. `ep0ch act page.create address=… --as <id>`
+  makes a page. Outside the door: `ep0ch new "<text>" [--near <id>] [--as <id>] [--ws <name>]` (the same service
+  call; `--json` for a script), or the outliner's `outliner new --text …`.
+- **An empty outline offers it.** Where a fresh outline has nothing to show (the welcome's list, an empty board,
+  the brief and waiting screens), a `+ New note · ctrl+n` line says so; a click on it is `ctrl+n`. The welcome's
+  and the desk's hint rows name `^N new` too.
 
 ## Commenting
 
@@ -1672,6 +1703,8 @@ agent's edit meets the same revision check, property warning and duplicate-safe 
 | `theme.set`, `theme.cycle` | `name=calm\|night\|classic` for `set`: the door's colours on every screen, kept for next time (see [Themes and accessibility](#themes-and-accessibility)); waits as `screen.open` does | `alt+t` on every screen (cycle); a click on the status bar's theme |
 | `who.refresh` | none: ask again who's attached; answers the callers (Who's online) | `r`, a click on `r refresh` |
 | `art.step`, `art.scroll`, `art.ice`, `art.reveal` | `by=` pieces or rows; `on=true\|false` (default toggles). The art viewer's own view | `, . < > ← →`; `↑↓ j k PgUp PgDn`, the wheel; `i`; `⏎`, `space` |
+| `note.new` | `text=` (the person's starts empty), `near=<id>` (under that note) or `inbox=true`. On every screen. The service's placement rule puts it: under the note in the reader you're in (an agent's: only `near=`), else the top of the Inbox. Yours opens where opens land, in its edit; an agent's opens nothing and is said on the status bar (PIE-544) | `ctrl+n` on every screen, `+` on the menu |
+| `page.create` | `address=` (default the selected `[[link]]`'s): the page a missing `[[address]]` names, `X [page::X]` where new notes go, then opened as the link would (yours); a page already there is opened. In any reader | `⏎` or a click on a missing `[[page]]`, twice (the first offers it) |
 | `open` | `id`, `tile=detail\|new-detail\|float` (board: where the screen's opens land), `tile=preview` or any reader, `tile=<tile>` (desk); on the menu or a BBS list, the note opens in a message reader over it | `Enter`, `Alt+Enter`, `o` |
 | `brief.step`, `brief.newest`, `brief.date`, `brief.show` | `by=-1\|1`; `date=YYYY-MM-DD`; `id=<brief>` (the daily brief) | `,` `.`; a link to another day's brief |
 | `screen.spec` | none: the screen shown as its spec, the data a screen note holds (PIE-515) | |

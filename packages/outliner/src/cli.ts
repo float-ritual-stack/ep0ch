@@ -70,6 +70,7 @@ Reading
 
 Writing
   create --text <text> [--parent <id>]   capture --text <text> | --stdin
+  new [--text <text>] [--near <id>]    a note where new notes go: under --near, else the top of the Inbox
   update --id <id> --text <text> --expected <revision>
   move --id <id> --parent <id|root> [--position <n>]
   delete --id <id> | restore --id <id>
@@ -576,6 +577,8 @@ const [command = "", ...rest] = process.argv.slice(2);
 const client = createOutlinerClient(paths);
 let request: RequestInput | null = null;
 let directResult: unknown;
+/** A refusal's runnable fix, said under the service's reason (`new --near` on a note that's gone). */
+let refusalFix: { when: RegExp; command: string } | null = null;
 
 switch (command) {
   case "patch-demo": {
@@ -790,6 +793,34 @@ switch (command) {
       author,
       ...(values.actor ? { provenance: { actorId: values.actor, ...(values.session ? { sessionId: values.session } : {}) } } : {}),
     };
+    break;
+  }
+  case "new": {
+    const { values } = parseArgs({
+      args: rest,
+      options: {
+        text: { type: "string" },
+        near: { type: "string" },
+        author: { type: "string", default: "user" },
+        actor: { type: "string" },
+        session: { type: "string" },
+      },
+      strict: true,
+    });
+    const author = writerAuthor(values.author, values.actor);
+    await client.requireCompatibleService();
+    request = {
+      action: "notes.create",
+      text: values.text ?? "",
+      intent: { kind: "note", ...(values.near ? { near: values.near, nearOnly: true } : {}) },
+      author,
+      ...(values.actor ? { provenance: { actorId: values.actor, ...(values.session ? { sessionId: values.session } : {}) } } : {}),
+    };
+    if (values.near) {
+      const quote = (text: string) => `'${text.replaceAll("'", "'\\''")}'`;
+      const ws = process.env.EP0CH_WS ? `--ws ${quote(process.env.EP0CH_WS)} ` : "";
+      refusalFix = { when: /^No live note /, command: `outliner ${ws}new${values.text ? ` --text ${quote(values.text)}` : ""}` };
+    }
     break;
   }
   case "update": {
@@ -1095,6 +1126,10 @@ let result: unknown;
 try {
   result = request ? await client.request(request) : directResult;
 } catch (error) {
+  if (refusalFix && error instanceof Error && refusalFix.when.test(error.message)) {
+    console.error(`error: ${error.message}\n  to make it in the Inbox instead: ${refusalFix.command}`);
+    process.exit(1);
+  }
   // Query syntax errors carry a position; print it as data instead of a stack trace.
   if (error instanceof OutlinerRequestError && error.problem) {
     console.error(JSON.stringify({ error: error.message, problem: error.problem }, null, 2));

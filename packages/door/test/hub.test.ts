@@ -73,6 +73,7 @@ describe.skipIf(!outliner)("the float-hub views", () => {
     expect(top().name).toBe("waiting");
     await until(() => (top().pane("waiting") as WaitingPane).items !== null, "the waiting items asked for");
     expect(screen()).toContain("Nobody owes you an answer.");
+    expect(screen()).toContain("+ New note · ctrl+n");
     (app as any).lastInput = 0;                                                     // the person is idle
     await expect(app.act({ action: "waiting.pick", args: { n: 1 }, as: "test-agent" })).rejects.toThrow(/nothing is waiting/);
   });

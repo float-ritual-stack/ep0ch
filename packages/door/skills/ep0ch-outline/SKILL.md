@@ -109,7 +109,11 @@ directions ("the draft is in the outbox below"). Look the id up and link it. `[[
 ## Pages, welcome and the briefing
 
 - `[page::address]` names a block so `[[address]]` reaches it. Rename by editing the token; the old address
-  stays an alias. An address another note owns is refused.
+  stays an alias. An address another note owns is refused. A first line of only `[page::x]` gets `x` as its title
+  on save (`2026-09-30 [page::2026-09-30]`); a title already there is kept.
+- **A new note where it belongs:** `outliner new --text … [--near <id>] --author agent --actor <id>` (or the door's
+  `note.new`) asks the service's placement rule: under `--near`, else the top of the Inbox. Use it instead of
+  working out where the Inbox is. A missing `[[page]]` is made by the door's `page.create` (the Inbox too).
 - `[welcome::n]` puts a note on the door's Welcome screen (`C`, or the landing after logon with
   `EP0CH_LANDING=welcome`), in place `n`; unnumbered ones come after, by title. The first is read on
   arrival. Tag, untag or reorder by editing the property; the screen updates live.

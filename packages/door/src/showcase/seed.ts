@@ -40,6 +40,7 @@ export const SEED = {
   images: "Pictures of the plot",
   markdownFigures: "Figures, written in Markdown",
   keys: "The reader's keys",
+  newNotes: "New notes from anywhere",
 } as const;
 export type SeedName = keyof typeof SEED;
 
@@ -236,6 +237,20 @@ export const CALLOUT_TYPE = [
   `${SEED.calloutType} [callout-type::recipe] [callout-icon::♨] [callout-tone::green] [callout-aliases::dish]`,
   "",
   "Declares a callout type: `> [!recipe]` (or `> [!dish]`) draws with this icon and tone, and offers it wherever types are offered.",
+].join("\n");
+
+/**
+ * The new-notes section's note (PIE-544): ctrl+n and + make a note where the placement rule puts it; a page nobody
+ * wrote yet is offered, then made; a lone `[page::x]` titles itself. The link is left missing on purpose.
+ */
+export const NEW_NOTES = [
+  SEED.newNotes,
+  "",
+  "**ctrl+n** on any screen makes a new note and opens it to be written. From a reader, it goes under the note the reader shows (here: under this one, last); anywhere else, and from **+** on the main menu, at the top of the Inbox. Where it goes is the outline's placement rule, which the service keeps: the door only says which note you were in. Esc on it still empty puts it in the trash.",
+  "",
+  "A page nobody has written yet: [[Seed swap ledger]]. The first ⏎ or click on it offers it; the next makes `Seed swap ledger [page::Seed swap ledger]` in the Inbox and opens it. From then on the link finds it.",
+  "",
+  "A note whose first line is only `[page::2026-03-12]` names itself: ⏎ on that line in the editor, or the save, makes it `2026-03-12 [page::2026-03-12]`. A title already there is kept.",
 ].join("\n");
 
 /** The search section's note: what the forgiving search finds, tried on this outline's own titles. */
@@ -595,6 +610,7 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
   for (const row of FIGURE_BLOCK_ROWS) await make(block.id, row);
   notes.markdownFigures = await board.update(notes.markdownFigures.id, markdownFiguresText(block.id), notes.markdownFigures.revision!);
   notes.keys = await make(notes.root.id, KEYS_TEXT);
+  notes.newNotes = await make(notes.root.id, NEW_NOTES);
   await seedTickets(board, opts.ticketsConfig);
   notes.tickets = await make(notes.root.id, TICKETS);
   await make(notes.tickets.id, TICKET_PAGE);

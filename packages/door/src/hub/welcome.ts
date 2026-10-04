@@ -36,6 +36,7 @@ import { tileKind, type KindHost, type TileKind, type TileKindName } from "../de
 import { DetailPane } from "../desk/tiles";
 import { nowPage } from "./now";
 import { RowView } from "../scroll";
+import { newNoteOffer } from "../new-note";
 
 export const WELCOME_KEY = "welcome";
 const WELCOME_LIMIT = 200;
@@ -165,14 +166,16 @@ export class WelcomeList implements Pane {
   render(w: number, h: number, focused: boolean): PaneView {
     if (this.problem) return { lines: [fg(C.lred) + pad(this.problem, w) + RESET] };
     if (!this.items) return { lines: [fg(C.dark) + "asking the outline…" + RESET] };
-    if (!this.items.length) return {
-      lines: [
+    if (!this.items.length) {
+      const lines = [
         ...wrap("No note is a welcome note yet.", w).map(l => fg(C.white) + pad(l, w) + RESET), "",
         ...[`Tag one [${WELCOME_KEY}::1] (then 2, 3…; any value counts) and it opens here, first.`, "",
           this.fallback ? `Meanwhile the detail shows [[${welcomeFallback()}]].` : `No [[${welcomeFallback()}]] page either.`]
-          .flatMap(t => (t ? wrap(t, w) : [""])).map(l => fg(C.grey) + pad(l, w) + RESET),
-      ],
-    };
+          .flatMap(t => (t ? wrap(t, w) : [""])).map(l => fg(C.grey) + pad(l, w) + RESET), "",
+      ];
+      const { line, spot } = newNoteOffer(lines.length);
+      return { lines: [...lines, pad(line, w)], spots: [spot] };
+    }
     this.rows = this.items.flatMap((_, i): ListRow[] => (i === 10 ? [{ more: this.items!.length - 10 }, { i }] : [{ i }]));
     const at = this.at;
     const sel = this.rows.findIndex(r => "i" in r && r.i === at);
@@ -553,7 +556,7 @@ export function welcomeSpec(): ScreenSpec {
   return {
     name: "welcome", title: "welcome", frame: "dotted", digits: false, band: "welcome", lands: "preview", fresh: "welcome.read",
     keys: [...digits, { key: "L", action: "welcome.logo", unless: ["tree"] }],
-    hint: "|15 1-9 0|08 notes · |15⏎|08 → preview · |15alt+⏎|08 read here · |15alt+←|08 back · |15Tab|08 tiles · |15L|08 logo · |15q|08 menu",
+    hint: "|15 1-9 0|08 notes · |15⏎|08 → preview · |15alt+⏎|08 read here · |15alt+←|08 back · |15Tab|08 tiles · |15^N|08 new · |15L|08 logo · |15q|08 menu",
     layout: {
       focus: "detail",
       root: {

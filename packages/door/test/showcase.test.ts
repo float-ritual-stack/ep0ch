@@ -33,11 +33,10 @@ const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catc
 
 const plain = (s: string) => s.replace(/\x1b\[[\d;]*[A-Za-z]/g, "").replace(/[\u{100000}-\u{10FFFD}]/gu, "");
 
-test("the README's showcase says what SECTIONS registers: how many, the act range, and every key in the action's summary", () => {
+test("the README's showcase says what SECTIONS registers by key, never a count; the action's summary names every key", () => {
   const readme = readFileSync(join(import.meta.dir, "../README.md"), "utf8");
-  const words = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen", "twenty", "twenty-one", "twenty-two", "twenty-three", "twenty-four", "twenty-five", "twenty-six"];
-  expect(readme).toContain(`live, in ${words[SECTIONS.length]} sections`);
-  expect(readme).toContain(`act section name=<1-${SECTIONS.length}|key>`);
+  expect(readme).toContain("act section name=<n|key>");
+  expect(readme).not.toMatch(/live, in [a-z-]+ sections|name=<1-\d+\|key>/);
   const summary = SHOWCASE_ACTIONS.list().find((a: any) => a.name === "section")!.summary;
   expect(summary).toContain(`name=<1-${SECTIONS.length}>`);
   for (const s of SECTIONS) expect(summary).toContain(s.key);
@@ -302,6 +301,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     images: ["Pictures of the plot", "▀ header allotment-dusk.jpg", "▣ seed-packet.webp · no Kitty graphics in this terminal", "[−][+] [◂][▸] [▀]", "▣ allotment-notice.png"],
     // The Markdown figures on the left (a decision first), the keys read from the registry on the right.
     figures: ["Figures, written in Markdown", "SQUASH BEDS", "Raised beds", "The reader's keys", "[e]"],
+    // A guide note with a [[page]] nobody wrote yet, for ctrl+n, the offer and the page title fill.
+    newnotes: ["New notes from anywhere", "Seed swap ledger", "ctrl+n"],
   };
 
   test("one section per reuse-map row, in the map's order, each labelled with its part and file, drawn by the part", async () => {
@@ -723,6 +724,57 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect(await line(10)).toContain("[align::right]");
     press({ kind: "esc" });
     await until(() => !S().stages.get(S().sel).top.describe().panes[0].editing, "the edit closed", 5000);
+  }, 30_000);
+
+  test("new notes (PIE-544): ctrl+n under the note read, a missing [[page]] offered then made, [page::x] titled; by keys, mouse and act", async () => {
+    const guide = seeded.notes.newNotes.id;
+    // Out of the stage the test before left the keys in: an agent changes sections only from the index.
+    for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+    const inbox = (await board.roots()).find(r => r.props["system-view"] === "inbox")!.id;
+    const reads = async (ok: () => Promise<boolean>, what: string) => { const end = Date.now() + 5000; while (!await ok()) { if (Date.now() > end) throw new Error(`timed out waiting for ${what}`); await Bun.sleep(30); } };
+    (app as any).lastInput = 0;
+    const n = SECTIONS.findIndex(s => s.key === "newnotes") + 1;
+    expect(await app.act({ action: "section", args: { name: "newnotes" }, as: "test-agent" })).toEqual({ section: n, key: "newnotes" });
+    await until(() => screen().includes("Seed swap ledger · Missing target"), "the guide, its link missing", 8000);
+    const stage = () => S().stages.get(n - 1).top as any;
+    const reader = () => [...stage().panes.values()].find((p: any) => p.kind === "reader") as any;
+    // The person, by keys: into the stage, ] to the link, ⏎ offers the page (nothing made yet), ⏎ again makes it.
+    press({ kind: "enter" });
+    expect(S().focus).toBe("stage");
+    reader().surface.selectLink(0);
+    press({ kind: "enter" });
+    await until(() => screen().includes("no page [[Seed swap ledger]]"), "the offer under the header");
+    expect((await board.resolvePage("Seed swap ledger")).status).toBe("missing");
+    // By mouse: a click on the link again makes it.
+    const rows = sc.render(app).lines.map(plain), y = rows.findIndex(l => l.includes("Seed swap ledger · Missing target")), x = rows[y]!.indexOf("Seed swap ledger") + 2;
+    press({ kind: "mouse", action: "down", button: 0, x, y }); press({ kind: "mouse", action: "up", button: 0, x, y });
+    await reads(async () => (await board.resolvePage("Seed swap ledger")).status === "resolved", "the page made");
+    const page = (await board.resolvePage("Seed swap ledger")).block!;
+    expect(await board.get(page.id)).toMatchObject({ text: "Seed swap ledger [page::Seed swap ledger]", parentId: inbox });
+    await until(() => reader().msg?.id === page.id, "the page opened in the reader");
+    // Back (alt+←), as the reader's history goes.
+    press({ kind: "alt-left" });
+    await until(() => reader().msg?.id === guide, "back on the guide");
+    // ctrl+n in the reader: a note under the guide, its edit open with the keys; ⏎ on [page::x] titles it, ctrl+s saves.
+    press({ kind: "char", ch: "n", ctrl: true });
+    await until(() => !!reader().surface.draft, "the new note's edit", 8000);
+    const id = reader().surface.draft.blockId;
+    expect((await board.get(id))!.parentId).toBe(guide);
+    for (const c of "[page::2026-03-12]") press({ kind: "char", ch: c });
+    press({ kind: "enter" });
+    expect(reader().surface.draft.text).toBe("2026-03-12 [page::2026-03-12]\n");
+    for (const c of "Swapped borlotti for chard.") press({ kind: "char", ch: c });
+    press({ kind: "char", ch: "s", ctrl: true });
+    await reads(async () => (await board.get(id))!.text === "2026-03-12 [page::2026-03-12]\nSwapped borlotti for chard.", "the new note saved");
+    // An agent: note.new and page.create through act, attributed, the person's keys and reader untouched.
+    const before = reader().msg?.id;
+    const made = await app.act({ action: "note.new", args: { text: "[page::2026-03-13]" }, as: "test-agent" }) as any;
+    expect(made).toMatchObject({ rule: "inbox", parentId: inbox, title: "2026-03-13" });
+    expect(await board.get(made.id)).toMatchObject({ text: "2026-03-13 [page::2026-03-13]", author: "test-agent" });
+    const pg = await app.act({ action: "page.create", args: { address: "Pea trellis" }, as: "test-agent" }) as any;
+    expect(pg).toMatchObject({ created: true });
+    expect(await board.get(pg.id)).toMatchObject({ text: "Pea trellis [page::Pea trellis]", parentId: inbox, author: "test-agent" });
+    expect(reader().msg?.id).toBe(before);
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
   }, 30_000);
 

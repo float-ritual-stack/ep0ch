@@ -13,6 +13,7 @@ import { type Actor, type SocketBoard } from "../socket";
 import { C, fg, pad, RESET, selected } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
 import { ago } from "../text";
+import { newNoteOffer } from "../new-note";
 import { ActionRefused, actionSet, def, type ActRequest } from "../surface/actions";
 import type { DeskApi, Pane, PaneView } from "../desk/panes";
 import type { ScreenSpec } from "../desk/screen-spec";
@@ -115,9 +116,10 @@ export class WaitingPane implements Pane {
   render(w: number, h: number, focused: boolean): PaneView {
     if (this.problem) return { lines: [fg(C.lred) + pad(this.problem, w) + RESET] };
     if (!this.items) return { lines: [fg(C.dark) + "asking the outline…" + RESET] };
-    if (!this.items.length) return {
-      lines: [fg(C.white) + "Nobody owes you an answer." + RESET, "", fg(C.grey) + pad("An outbox item waits while it has [type::outbox-item] [outbox::waiting].", w) + RESET],
-    };
+    if (!this.items.length) {
+      const { line, spot } = newNoteOffer(4);
+      return { lines: [fg(C.white) + "Nobody owes you an answer." + RESET, "", fg(C.grey) + pad("An outbox item waits while it has [type::outbox-item] [outbox::waiting].", w) + RESET, "", line], spots: [spot] };
+    }
     const sel = this.rows.findIndex(r => "item" in r && r.n === this.at);
     // The group header above the picked item comes into view with it.
     this.view.place(sel >= 0 ? sel : null, this.rows.length, h, [sel - ("head" in (this.rows[sel - 1] ?? {}) ? 1 : 0), sel]);

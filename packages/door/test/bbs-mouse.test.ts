@@ -124,7 +124,7 @@ describe.skipIf(!art)("the main menu by mouse", () => {
     expect(s.stack.length).toBe(1);
     s.mouse("drag", b.x + 2, b.y);
     expect(selected(m)).toBe("S");
-    expect(s.lines().at(-2)).toContain(": Stats");
+    expect(s.lines().some(l => l.includes(": Stats"))).toBe(true);
     s.mouse("drag", c.x, c.y);
     expect(selected(m)).toBe("F");
     s.mouse("up", c.x, c.y);
@@ -146,8 +146,9 @@ describe.skipIf(!art)("the main menu by mouse", () => {
     s.mouse("wheel-down", 0, 0);
     expect(selected(m)).toBe("J");
     s.mouse("wheel-up", 0, 0); s.mouse("wheel-up", 0, 0);
-    expect(selected(m)).toBe("E");
-    expect(s.lines().some(l => l.includes(": End"))).toBe(true);
+    // The last item is the key line's + New note (PIE-544).
+    expect(selected(m)).toBe("+");
+    expect(s.lines().some(l => l.includes(": New note"))).toBe(true);
     expect(s.stack.length).toBe(1);
   });
 

@@ -1,6 +1,7 @@
 // An in-place draft of one block's whole text: subject line, body and [key::value] properties together,
 // so a save never drops anything the reader didn't show. The service decides conflicts: a save carries
 // the revision the draft started from, and a stale one is refused, never overwritten.
+import { pageTitleLine } from "@ep0ch/outline-core/page-title";
 import { mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Msg } from "./board";
@@ -70,6 +71,8 @@ export class Draft {
 
   /** The note this draft is about (its target's `near`): reference completion searches from there. */
   near?: string;
+  /** A note's text (an edit, a new card or note; not a comment): ⏎ on a first line of only `[page::x]` titles it (PIE-544). */
+  titlesPages = false;
   /** Agents' patches applied to this draft, newest last: ctrl+z (`draft.undo`) takes back the last one. */
   patches: PatchUnit[] = [];
   /** Where agents' patches just landed, lit until `until`. */
@@ -281,6 +284,12 @@ export class Draft {
   newline(plain = false) {
     if (this.anchor) this.deleteSelection();
     this.anchor = null;
+    // ⏎ at the end of a first line of only `[page::x]` titles it `x` (PIE-544), outline-core's rule, the one the service
+    // saves by. Anywhere else on the line (before it, inside the token) it's a plain break: the save titles it later.
+    if (this.titlesPages && this.row === 0 && this.col >= this.lines[0]!.trimEnd().length) {
+      const titled = pageTitleLine(this.lines[0]!);
+      if (titled !== null) { this.lines[0] = titled; this.col = titled.length; }
+    }
     const line = this.line, L = this.lines;
     const lead = plain ? null : listLead(line);
     // The cursor on the item's marker (a click lands there): the break goes before the item, which stays whole.

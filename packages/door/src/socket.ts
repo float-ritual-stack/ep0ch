@@ -185,6 +185,8 @@ export interface ReferenceResolution {
 }
 /** How the service reads one `[[address]]` or Work ID (`pages.resolve`). Read-only: nothing is created. */
 export interface PageResolution { address: string; status: "resolved" | "deleted" | "missing"; block?: Msg }
+export type { NotePlacement } from "@ep0ch/outline-core/protocol";
+import type { NotePlacement } from "@ep0ch/outline-core/protocol";
 
 /** One property token in a block's text, numbered the way `properties.patch` addresses it. */
 export interface PropertyToken { key: string; value: string; ordinal: number; scope: "block" | "line" | "inline" }
@@ -1001,6 +1003,29 @@ export class SocketBoard implements Board {
   async createBlock(parentId: string | null, text: string, actor: Actor = USER): Promise<Msg> {
     const who = actor.kind === "agent" || actor.with?.length ? { author: "agent", provenance: { actorId: recordedActorId(actor) } } : { author: "user" };
     return toMsg(await this.request<WireBlock>("create", { parentId, text, ...who }));
+  }
+
+  /**
+   * A new note where the service's placement rule puts it (PIE-544, `notes.create`): under `near` (the note the person
+   * was in), else the top of the Inbox. The door never says where the Inbox is; the answer says where it went. Empty
+   * `text` is a note opened to be written; `nearOnly`: a `near` the caller named, refused when it doesn't resolve
+   * (the reader's own note falls back to the Inbox). Like `create`, never retried blindly.
+   */
+  async newNote(text: string, near: string | undefined, actor: Actor = USER, nearOnly = false): Promise<{ note: Msg; placement: NotePlacement }> {
+    const who = actor.kind === "agent" || actor.with?.length ? { author: "agent", provenance: { actorId: recordedActorId(actor) } } : { author: "user" };
+    const r = await this.request<{ block: WireBlock; placement: NotePlacement }>("notes.create", { text, intent: { kind: "note", ...(near ? { near, ...(nearOnly ? { nearOnly } : {}) } : {}) }, ...who });
+    return { note: toMsg(r.block), placement: r.placement };
+  }
+
+  /**
+   * What a `[[page]]` address points at, made when nothing does (`pages.follow`): a page stub `X [page::X]` where new
+   * notes go (the service's placement rule, today the top of the Inbox). Only on the person's explicit ask
+   * (`page.create`); a follow never calls it.
+   */
+  async followPage(address: string, actor: Actor = USER): Promise<{ note: Msg | null; created: boolean; status: PageResolution["status"]; placement?: NotePlacement }> {
+    const who = actor.kind === "agent" || actor.with?.length ? { author: "agent", provenance: { actorId: recordedActorId(actor) } } : { author: "user" };
+    const r = await this.request<{ status: PageResolution["status"]; created: boolean; block?: WireBlock; placement?: NotePlacement }>("pages.follow", { address, ...who });
+    return { note: r.block ? toMsg(r.block) : null, created: r.created, status: r.status, ...(r.placement ? { placement: r.placement } : {}) };
   }
 
   /** `properties.preview` with repeats kept, in order. */

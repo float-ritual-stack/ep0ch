@@ -191,6 +191,12 @@ yourself (path 1): `/exit`, then `claude --continue`.
   content; `open` registers a Resource first if it must), `backlinks.view filter=…` filters. In the outline tree,
   `tree.links n=<row>` shows a row's links under it and `tree.pick n=<row> [open=true]` picks one (`peek`'s
   `tree.rows` numbers them). Folding a group (`backlinks.fold`) is the person's view.
+- **New notes and pages** (every screen, PIE-544): `note.new text=… [near=<id>|inbox=true]` makes a note where the
+  outline's placement rule puts it (under `near`, else the top of the Inbox; a `near` that's gone is refused, with
+  the `inbox=true` command to run instead), as you, said on the status bar (with no door open: `ep0ch new "<text>"
+  --as <you> [--near <id>] [--ws <name>] [--json]`, the same call); it opens nothing and never takes the person's focus. `page.create address=<name>` makes the page a missing
+  `[[name]]` points at (`name [page::name]`, in the Inbox); `link.follow` on a missing page never makes one. A first
+  line of only `[page::x]` is titled `x` on save, so `text="[page::2026-09-30]"` gives `2026-09-30 [page::2026-09-30]`.
 - **Search:** `search query=<words>` answers the service's ranked hits (as Goto, `/` and `((` rank them, from the desk's current note); nothing
   on screen moves. `ep0ch find <words>` is the same without a door.
 - **The desk:** `layout.get` (tiles, splits and tab sets by stable id, and `rev`), `tile.open`, `layout.move`,

@@ -75,6 +75,16 @@ source evidence or distinguish authored glyphs from controls.
   pane kind adds a kind there, not its own header or footer.
 - `src/detail-controller.ts` plus `src/detail-*` own Detail behavior and presentation.
 - `src/virtual-branches.ts` owns projection semantics.
+- `src/note-placement.ts` owns where a new note or page goes (PIE-544): one list of
+  placement rules, the first that answers wins (today: under the note the client
+  says the person was in, else the top of the Inbox). `notes.create`, the page
+  stub `pages.follow` makes and quick capture (`capture.create`, always the Inbox)
+  all ask it; a client never computes where the Inbox is. A `near` the caller
+  named itself (`nearOnly`: agents, `outliner new --near`) that doesn't resolve is
+  refused, never quietly the Inbox. Rules an outline defines later slot in before these. A first line of only
+  `[page::x]` is titled by outline-core's `page-title.ts`, applied by the server to
+  the texts clients write (`create`, `update`, `notes.create`, `capture.create`,
+  `edit-recovery.commit`).
 - `src/backlink-facets.ts` owns what a backlink source is (kind, stage, placement,
   comment resolution) as a data table; `src/backlink-view.ts` owns how clients
   hide, filter, group and order those sources.

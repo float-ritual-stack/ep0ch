@@ -16,6 +16,7 @@ import { readLinks } from "../links";
 import type { Placement } from "../kitty";
 import { whoOf, USER, type Actor, type OutlineEvent } from "../socket";
 import { ActionRefused, ActionSet, actionSet, def, asBoundKey, hintSpots, keyName, type ActRequest } from "../surface/actions";
+import { newNoteOffer } from "../new-note";
 import { actorRule, Dispatcher, type Delegation, type Registration, type RunHow, type TileRef } from "../surface/dispatch";
 import type { ScreenKeys } from "../whereabouts";
 import { leaveSaid, NOTE_ACTIONS, type OpenHow, type SurfaceHost } from "../surface/note";
@@ -144,6 +145,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private moreChip: { from: number; to: number } | null = null;
   /** The hint row's parts that start with a key, and the open keys box's: a click on one presses it (`hintSpots`). */
   private keySpots: { y: number; from: number; to: number; key: Key }[] = [];
+  /** The tiles' own (PaneView.spots, an empty place's `+ New note`), on the screen; a tile laid over one takes it away. */
+  private tileSpots: { y: number; from: number; to: number; key: Key; tile?: number }[] = [];
   /** The whole hint row shown above it (keys.more: ?, or a click on "? more"), until the next key or click elsewhere. */
   private hintMoreOpen = false;
   /** ^W P: the policy panel over the focused tile's containers. */
@@ -1432,6 +1435,40 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return { reader: r.name, id: m.id };
   }
 
+  /** `current` as a reader shows it now: a save since it opened (a new note's first) changes its title. */
+  private currentNow(): Msg | null {
+    const c = this.current;
+    if (!c) return null;
+    for (const p of this.panes.values()) if (p instanceof ReaderPane && p.msg?.id === c.id) return p.msg;
+    return c;
+  }
+
+  /** The note in the reader the person is in (PIE-544): a new note goes under it. A list, a lane or a terminal: none (the Inbox). */
+  noteContext(): string | null {
+    const p = this.panes.get(this.focus);
+    return p instanceof ReaderPane && p.msg ? p.msg.id : null;
+  }
+
+  /**
+   * A new note for the person to write (PIE-544, `note.new`): where the focused tile's opens land (its link, the
+   * screen's readers row, the next river column, else a free reader), given their keys, its edit open through the
+   * reader's own `edit` (the one editor and draft session). The reader's name, or null when no reader took it.
+   */
+  async editNew(m: Msg): Promise<string | null> {
+    // A refusal of the open is said as it is (thrown): note.new puts the empty note away.
+    const at = await this.openFrom(m.id, this.focusedName(), USER);
+    const rd = at.reader ? this.pane(at.reader) : undefined;
+    if (!(rd instanceof ReaderPane) || rd.msg?.id !== m.id) return null;
+    this.focusOn(at.reader!);
+    // The keys left a drawer (the board's outline): it shuts now, as after any key that moves them.
+    this.shutLeftDrawers();
+    // As the person's e does: the reader's `edit` action, and the person in it once it's open (esc meanwhile cancels).
+    rd.surface.markNew(m.id);
+    const open = await this.startSession(rd, "edit") && rd.surface.draft?.blockId === m.id;
+    if (!open) rd.surface.markNew(m.id, false);
+    return open ? at.reader! : null;
+  }
+
   focusOn(sel: string): { focus: string } {
     const r = this.pickReader(sel);
     // Coming back to a session by moving to it: e or ⏎ enters it again. Focusing the reader the person
@@ -1467,7 +1504,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return {
       // Before the desk's own fields, so a kind never overwrites them.
       ...peeks,
-      kind: this.spec.name, current: this.current ? { id: this.current.id, title: subject(this.current) } : null, zoom: this.zoom,
+      kind: this.spec.name, current: this.current ? { id: this.current.id, title: subject(this.currentNow()!) } : null, zoom: this.zoom,
       // Where the keys are, as a place: a columns container by its key (the board's lanes), else the tile.
       focus: this.focusPlace(),
       // The tiles opened into the container the screen's opens land in (the board's details), and the one they land in now.
@@ -1557,6 +1594,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const floats = zoomed ? [] : this.floats.map(f => [f.id, keepOnScreen(f.rect, area)] as [number, Rect]);
     // For the mouse: the top float first, then the top drawer's tiles, then the layout's.
     this.hits = [...[...floats].reverse(), ...[...this.slid].reverse().flatMap(d => [...d.placed.rects]), ...docked];
+    this.tileSpots = [];
     this.heads = []; this.markHits = []; this.spines = []; this.drawerLabels = []; this.drawerCloses = []; this.headPresses = []; this.headCtl.clear();
     let placements: Placement[] = top && band ? band.kind.draw(band.pane, canvas, { col: 0, row: 0, cols, rows: top }, this) : [];
     // A tile drawn over another (a flow's column over a peek's box, a drawer, a float) takes away the images under it;
@@ -1564,12 +1602,14 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const lay = (id: number, r: Rect, drawer = false, float = false) => {
       const box = this.boxOf(id, r);
       placements = placements.filter(p => !overlaps(p, box));
+      this.tileSpots = this.tileSpots.filter(s => !overlaps({ col: s.from, row: s.y, cols: s.to - s.from, rows: 1 }, box));
       placements.push(...this.drawTile(canvas, id, r, drawer, float));
     };
     for (const [id, r] of docked) lay(id, r);
     for (const d of this.slid) {
       canvas.clear(d.rect, bg(C.black));
       placements = placements.filter(p => !overlaps(p, d.rect));
+      this.tileSpots = this.tileSpots.filter(s => !overlaps({ col: s.from, row: s.y, cols: s.to - s.from, rows: 1 }, d.rect));
       for (const [id, r] of d.placed.rects) lay(id, r, true);
     }
     for (const [id, r] of floats) {
@@ -1613,6 +1653,12 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       if (!at || !say || leaves(c).length || at.cols <= 4 || at.rows <= 2) continue;
       canvas.box(at, fg(C.blue), fg(C.grey) + (this.title.split(" · ")[1] ?? this.title));
       canvas.text(at.col + 2, at.row + 1, fg(C.dark) + say + RESET, at.cols - 4);
+      // Nothing to show: a note to write, offered (an empty outline has no board yet).
+      if (at.rows > 4) {
+        const { line, spot } = newNoteOffer(at.row + 3);
+        canvas.text(at.col + 2, spot.row, line, at.cols - 4);
+        this.tileSpots.push({ y: spot.row, from: at.col + 2, to: at.col + 2 + Math.min(spot.to, at.cols - 4), key: spot.key });
+      }
     }
     for (const [key, at] of this.placed.nodes) {
       const n = node(this.root, key);
@@ -1693,6 +1739,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       return out;
     }
     view.lines.slice(0, inner.rows).forEach((l, i) => canvas.text(inner.col, inner.row + i, l, inner.cols));
+    for (const s of view.spots ?? []) if (s.row < inner.rows && s.from < inner.cols) this.tileSpots.push({ y: inner.row + s.row, from: inner.col + s.from, to: inner.col + Math.min(s.to, inner.cols), key: s.key, tile: id });
     if (overflows(view.scroll)) canvas.thumb(r, view.scroll, fg(focused ? C.lcyan : C.cyan));
     for (const p of view.placements ?? []) out.push({ ...p, key: `p${id}:${p.key}`, col: p.col + inner.col, row: p.row + inner.row, cols: Math.min(p.cols, inner.cols), rows: Math.min(p.rows, inner.rows) });
     return out;
@@ -1832,7 +1879,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
 
   /** The hint part pressed, if `k` is a press on one: its key is pressed as typed. */
-  private spotAt(k: Key) { return k.kind === "mouse" && k.action === "down" ? this.keySpots.find(s => s.y === k.y && k.x >= s.from && k.x < s.to) : undefined; }
+  private spotAt(k: Key): { key: Key; tile?: number } | undefined { return k.kind === "mouse" && k.action === "down" ? [...this.keySpots, ...this.tileSpots].find(s => s.y === k.y && k.x >= s.from && k.x < s.to) : undefined; }
 
   /** `keys.more`: show the whole hint row above it (or put it away); refused when the row isn't cut. */
   keysMore(): { shown: boolean } {
@@ -1925,7 +1972,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         ? `|14${this.prefix === "add" ? "open beside" : "open as a tab"}: ${tileKinds().flatMap(k => (k.keys ?? []).map(x => `|07${x.key} |08${x.label}`)).join(" · ")}`
         : this.prefix === "move" || this.prefix === "tab"
           ? `|14${this.prefix === "move" ? "move beside" : "into the tabs of"}: |07h j k l |08the tile that way${this.prefix === "move" ? " (none that way: to the edge)" : ""}`
-          : this.specHint() ?? `|08 Tab/1-9 focus · |15^W|08 window · |15drag|08 a title moves, a border resizes · |15alt+l|08 link · ${this.spec.layouts ? "|15alt+d|08 daily · " : ""}|15alt+k|08 ${this.screenLocked() ? "unlock" : "lock"} · |15/|08 search · |15q|08 menu${this.layoutName ? ` · |03${this.layoutName}` : ""}${this.zoom !== null ? " · |14zoomed" : ""}${this.current ? ` · |03${headOf(subject(this.current), 40)}` : ""}`;
+          : this.specHint() ?? `|08 Tab/1-9 focus · |15^W|08 window · |15drag|08 a title moves, a border resizes · |15alt+l|08 link · ${this.spec.layouts ? "|15alt+d|08 daily · " : ""}|15alt+k|08 ${this.screenLocked() ? "unlock" : "lock"} · |15^N|08 new · |15/|08 search · |15q|08 menu${this.layoutName ? ` · |03${this.layoutName}` : ""}${this.zoom !== null ? " · |14zoomed" : ""}${this.current ? ` · |03${headOf(subject(this.currentNow()!), 40)}` : ""}`;
     return line(paint(s));
   }
 
@@ -1937,7 +1984,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private personIn(): ReaderPane | null { const p = this.focusedReader(); return p?.holdsKeys && this.entered.in(p) ? p : null; }
 
   /** Start a session in a reader as the person's key does (⏎ or a click on a comment mark). */
-  startSession(rd: ReaderPane, kind: SessionKind) {
+  /** …; resolves true when the person is in it (opened, and still wanted), false when it didn't open or was cancelled. */
+  startSession(rd: ReaderPane, kind: SessionKind): Promise<boolean> {
     // Esc, or leaving the desk, while the note is read cancels it: the token is cleared and nothing opens.
     const token = { pane: rd };
     this.pending = token;
@@ -1947,12 +1995,13 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       if (this.pending === token) this.pending = null;
       if (open && want) { this.entered.enter(rd); this.ctx.flash(`${this.readerLabel(this.focus)} · ${rd.surface.state()} · ${rd.hint()}`); }
       this.redraw();
+      return open && want;
     };
     const r = startSession(rd, kind, this, still);
-    const said = (e: unknown) => this.ctx.flash(e instanceof Error ? e.message : String(e));
+    const said = (e: unknown) => { this.ctx.flash(e instanceof Error ? e.message : String(e)); return false; };
     // The property panel, or a thread list whose comments are already read, opens at once: the next key is already its.
-    if (rd.sessionOf()) { opened(true); r.catch(said); }
-    else r.then(opened, said);
+    if (rd.sessionOf()) { const now = opened(true); return r.then(() => now, said); }
+    return r.then(opened, said);
   }
 
   key(k: Key, ctx: Ctx): void {
@@ -1962,7 +2011,15 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // A click on a key in the hint row or its keys box: that key, as typed, wherever the keys are (an edit, a chord).
     // Not under an overlay of the desk's (the search, a picker): the row's keys aren't its.
     const spot = this.overlayOpen() ? undefined : this.spotAt(k);
-    if (spot) { this.hintMoreOpen = false; this.redraw(); return asBoundKey("click", () => this.key(spot.key, ctx)); }
+    if (spot) {
+      this.hintMoreOpen = false;
+      // A tile's own (its empty state's + New note): pressed in that tile, as a click there focuses it first.
+      if (spot.tile !== undefined && spot.tile !== this.focus && !this.holdsKeys()) this.focusTile(this.nameOf(spot.tile), USER);
+      this.redraw();
+      return asBoundKey("click", () => this.key(spot.key, ctx));
+    }
+    // ctrl+n reaching the desk (a click on the hint row's ^N; a typed one the App takes first): a new note, the App's `note.new`.
+    if (k.kind === "char" && k.ctrl && k.ch === "n" && !this.holdsKeys() && this.ctx.press) { void this.ctx.press("note.new"); return; }
     // ? shows the whole hint row when it was cut (never while the person is typing: a draft, a filter, a
     // terminal, a ^W chord); the next key or click puts it away again and does what it does, but Esc only that.
     if (ch(k) === "?" && this.hintFull && !this.holdsKeys()) { this.run("keys.more"); return; }
@@ -1976,8 +2033,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     this.entered.follow(this.focusedReader());          // moving away leaves a session; e or ⏎ enters it again
     for (const [id, p] of this.panes) if (id !== this.focus && p.typing?.()) p.blur?.();
     if (this.ptyIn && this.panes.get(this.focus) !== this.ptyIn) this.ptyIn = null;
-    // A drawer sliding over shuts when the keys go elsewhere (tile.drawer, as its key and an agent do it); one
-    // that takes its room, or can't collapse, stays.
+    this.shutLeftDrawers();
+  }
+
+  /** A drawer sliding over shuts when the keys go elsewhere (tile.drawer, as its key and an agent do it); one that takes its room, or can't collapse, stays. */
+  private shutLeftDrawers() {
     if (!this.dragging && !this.headPress) for (const d of drawers(this.root)) {
       if (!d.open || d.policy?.overlay === false || d.policy?.stays || !leaves(d.kid).length || leaves(d.kid).includes(this.focus)) continue;
       if (!policyOfNode(this.layout, d).collapsible) continue;
@@ -3318,7 +3378,7 @@ export function wrapHint(s: string, w: number): string[] {
   return out;
 }
 const isRect = (r: unknown): r is Rect => !!r && typeof r === "object" && ["col", "row", "cols", "rows"].every(k => typeof (r as Record<string, unknown>)[k] === "number" && Number.isFinite((r as Record<string, number>)[k]));
-const overlaps = (p: Placement, r: Rect) => p.col < r.col + r.cols && p.col + p.cols > r.col && p.row < r.row + r.rows && p.row + p.rows > r.row;
+const overlaps = (p: Pick<Placement, "col" | "row" | "cols" | "rows">, r: Rect) => p.col < r.col + r.cols && p.col + p.cols > r.col && p.row < r.row + r.rows && p.row + p.rows > r.row;
 /** A drop as `peek` says it: where the dragged tile would go. */
 const dropView = (d: Drop<number>, name: (id: number) => string) => ({ kind: d.kind, ...("target" in d ? { target: name(d.target) } : {}), ...("dir" in d ? { dir: d.dir } : {}), ...(d.kind === "tabs" && d.index !== undefined ? { index: d.index } : {}), label: d.label, ghost: d.ghost, ...(d.refused ? { refused: d.refused } : {}) });
 /** Where `where` (a tile action's place) puts a tile, by tile `at`: beside it, into its tabs, or along an outer edge. */

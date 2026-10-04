@@ -1,4 +1,4 @@
-import type { Block, BlockAuthor, BlockProperty } from "@ep0ch/outline-core/protocol";
+import type { Block, BlockAuthor, BlockProperty, NotePlacement } from "@ep0ch/outline-core/protocol";
 // The wire types both sides share live in outline-core (protocol.ts); re-exported for the service's modules.
 export type { Block, BlockAuthor, BlockProperty, OutlinerRequestProblem, OutlinerResponse } from "@ep0ch/outline-core/protocol";
 export type { HostedOutlineAttachment, HostedOutlineDeletion, HostedOutlineList, HostedOutlineSummary, OutlinerHostStatus, OutlinerServiceOutline, OutlinerServiceStatus } from "@ep0ch/outline-core/protocol";
@@ -215,6 +215,12 @@ export interface PropertyInventory {
 }
 
 export type CaptureSource = "tree" | "pi" | "omp" | "cli" | "external";
+
+/** What `notes.create` made (PIE-544): the note, and where the placement rule put it (src/note-placement.ts). */
+export interface NewNoteReceipt {
+  block: Block;
+  placement: NotePlacement;
+}
 
 export interface CaptureReceipt {
   block: Block;
@@ -1122,6 +1128,8 @@ export interface PageAddressResolution {
 
 export interface PageAddressFollowResult extends PageAddressResolution {
   created: boolean;
+  /** Where the placement rule put a page it created (PIE-544). */
+  placement?: NewNoteReceipt["placement"];
 }
 
 export interface PageAddressMatch extends PageAddressRecord {
@@ -1884,6 +1892,18 @@ export type OutlinerRequestAction =
       action: "create";
       parentId?: string | null;
       text: string;
+      author?: BlockAuthor;
+      provenance?: BlockProvenance;
+    }
+  /**
+   * A new note where the placement rule puts it (PIE-544): under `intent.near` (the note the person was in), else the
+   * top of the Inbox. The client never says where the Inbox is. Empty text is a note opened to be written.
+   */
+  | {
+      id: string;
+      action: "notes.create";
+      text?: string;
+      intent?: { kind: "note"; near?: string; nearOnly?: boolean };
       author?: BlockAuthor;
       provenance?: BlockProvenance;
     }

@@ -37,6 +37,7 @@ import {
 import { isValidGitBranchName, parseDeliveryIdentity } from "./delivery-lifecycle";
 import { seedDefaultWorkspace } from "./default-workspace";
 import { openSchema } from "./schema";
+import { placeNewNote, type NewNoteIntent, type Placement } from "./note-placement";
 import {
   compileQueryExpression,
   normalizeBlockSearchQuery,
@@ -113,6 +114,7 @@ import type {
   BookmarkResolution,
   BookmarkStatus,
   BookmarkToggleReceipt,
+  NewNoteReceipt,
   CaptureReceipt,
   CaptureSource,
   QuickCaptureDraft,
@@ -1359,7 +1361,8 @@ export class OutlinerStore {
         };
       }
 
-      const inbox = this.requireCaptureInboxFromCurrentRead();
+      const placement = this.placementFromCurrentRead({ kind: "capture" });
+      const inbox = { id: placement.parentId };
       const draft = this.quickCaptureDraftFromCurrentRead();
       const prepared = draft?.requestId === normalizedRequestId && draft.blockId ? draft : undefined;
       if (expectedDraftRevision !== undefined && (!prepared || prepared.revision !== expectedDraftRevision)) {
@@ -1396,7 +1399,7 @@ export class OutlinerStore {
         author,
         provenance,
         capturedAt,
-        0,
+        placement.at === "top" ? 0 : undefined,
       );
       this.database
         .query(
@@ -1509,7 +1512,8 @@ export class OutlinerStore {
       if (block && !captured && block.revision !== (reviewedBlockRevision ?? current!.blockRevision)) throw new Error("Capture note changed outside this draft; use Writing history to review it");
       if (input.prepareBlock && this.database.query("SELECT 1 FROM capture_requests WHERE request_id = ?").get(requestId)) throw new Error("This capture was already submitted");
       if (input.prepareBlock && !block) {
-        block = this.createAt(input.text, this.requireCaptureInboxFromCurrentRead().id, "user", undefined, new Date().toISOString(), 0);
+        const placement = this.placementFromCurrentRead({ kind: "capture" });
+        block = this.createAt(input.text, placement.parentId, "user", undefined, new Date().toISOString(), placement.at === "top" ? 0 : undefined);
       } else if (block && !captured && block.text !== input.text) {
         // Draft saves are provisional writing: a page named in one idle save and
         // corrected in the next must not stay behind as an alias of the capture.
@@ -2776,18 +2780,44 @@ export class OutlinerStore {
         throw new Error(`Unresolved Work ID cannot create a page stub: ${normalized.displayAddress}`);
       }
 
-      this.create(
+      // A stub goes where new notes and pages go (PIE-544: the placement rule, today the top of the Inbox).
+      const placement = this.placementFromCurrentRead({ kind: "page", address: normalized.displayAddress });
+      this.createAt(
         `${normalized.displayAddress} [page::${normalized.displayAddress}]`,
-        null,
+        placement.parentId,
         author,
         provenance,
+        new Date().toISOString(),
+        placement.at === "top" ? 0 : undefined,
       );
       const created = this.resolvePageAddressFromCurrentRead(normalized);
       if (!created.block) {
         throw new Error(`Created page address did not resolve: ${normalized.displayAddress}`);
       }
-      return { ...created, created: true };
+      return { ...created, created: true, placement };
     })();
+  }
+
+  /**
+   * A new note where the placement rule puts it (PIE-544, `notes.create`): under the note the person was in
+   * (`intent.near`), else the top of the Inbox. The text may be empty (a note opened to be written); a first line of
+   * only `[page::x]` is titled `x` (outline-core's page-title rule, applied by the server to every client write).
+   */
+  createNote(text: string, intent: NewNoteIntent, author: BlockAuthor = "user", provenance?: BlockProvenance): NewNoteReceipt {
+    if (typeof text !== "string") throw new Error("Note text must be a string");
+    return this.database.transaction((): NewNoteReceipt => {
+      const placement = this.placementFromCurrentRead(intent);
+      const block = this.createAt(text, placement.parentId, author, provenance, new Date().toISOString(), placement.at === "top" ? 0 : undefined);
+      return { block, placement };
+    })();
+  }
+
+  /** Where a new note or page goes now (src/note-placement.ts). */
+  private placementFromCurrentRead(intent: NewNoteIntent): Placement {
+    return placeNewNote(intent, {
+      inbox: () => this.requireCaptureInboxFromCurrentRead(),
+      active: id => { const block = this.getFromCurrentRead(id); return block && !block.effectiveDeletedRootId ? block : null; },
+    });
   }
 
   /**

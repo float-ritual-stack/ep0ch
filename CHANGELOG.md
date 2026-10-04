@@ -29,7 +29,7 @@ move into one repository (PIE-530).
 - **A database made before schema versions** is refused at open, with the command that stamps it. Back it up, stop
   the host, then run `bun packages/outliner/scripts/migrations/0001-stamp.ts ~/outlines/<name>.sqlite` once. It
   stamps only a database whose shape matches a fresh one.
-- **Restart the host, then the doors.** The host and every client speak protocol 85 (PIE-538 added `callouts.types`); a client refuses a host on any other number,
+- **Restart the host, then the doors.** The host and every client speak protocol 86 (PIE-538 added `callouts.types`, PIE-544 `notes.create` and the page-title rule); a client refuses a host on any other number,
   saying which side to update. `ep0ch install --apply` restarts the host. Restart doors and Claude sessions that
   should run the new code.
 - **Delete `~/.config/pi-herdr-outliner/document-renderers.json`** if you have one. Nothing reads it now.
@@ -102,6 +102,29 @@ The river's replies under a note are read again the same way. Restart the door (
   header; or click its caption's `[−][+] [◂][▸] [▀]`. Each is one save of that line, recorded as you; `ctrl+z` undoes
   it. Agents: `act images`, `image.size n=1 to=50%`, `image.align`, `image.hero`, `image.undo`.
 - The showcase has an `images` section.
+### New notes from anywhere (PIE-544)
+
+- **`ctrl+n` on every screen** makes a new note and opens it to be written where the screen's opens land, in the
+  same editor as `e` (`+` on the main menu does it too). From a reader it goes under the note the reader shows, as
+  its last child; from anywhere else, at the top of the Inbox. `Esc` on it with nothing typed puts it in the trash.
+  Never taken while you type, and the outliner binds nothing on it.
+- **One placement rule, kept by the service:** `notes.create` (and `outliner new`) asks it; the client only says
+  which note you were in. Today: under that note, else the top of the Inbox, where quick capture puts its notes.
+  It's the seam for rules your outline will define later ("pages go under Pages").
+- **A missing `[[page]]` is offered, never made silently:** the first `⏎` or click on `[[Evans Thotts]]` says it has
+  no page yet; the next makes `Evans Thotts [page::Evans Thotts]` in the Inbox and opens it (`page.create`). The
+  outliner's Tree, which makes a stub when it follows one, now puts it in the Inbox too instead of at the top level.
+- **`[page::x]` names itself:** a note whose first line is only `[page::2026-09-30]` becomes
+  `2026-09-30 [page::2026-09-30]` on save from any client (the door, Detail, the CLI, agents) and on `⏎` in the
+  door's editor. A title already there is never touched. A new note saves on the first `Ctrl+S`.
+- **Agents:** `act note.new text=… [near=<id>]`, `act page.create address=…`: attributed, said on the status bar,
+  opening nothing. A `near` that's gone is refused, nothing made, with the command to run instead (so is
+  `outliner new --near`); only the person's own reader falls back to the Inbox.
+- **`ep0ch new "<text>"`** makes a note from a shell or an agent with no door open (`--near`, `--as`, `--json`,
+  `--ws`), through the same service call as `ctrl+n`.
+- **An empty outline offers a note:** the welcome's list, an empty board, the brief and waiting screens show
+  `+ New note · ctrl+n` (a click is `ctrl+n`); `ctrl+n` in a BBS message reader opens the note in a reader over it. A note still empty isn't the Inbox agent's to file.
+- **Protocol 86:** restart the outline host on this code (`ep0ch install --apply`), then the doors.
 
 ### Tabs in a live figure, and titles that wrap
 

@@ -86,6 +86,11 @@ export interface SurfaceHost {
    * this reader: the BBS reader's screen stack, the river's columns. Without it the surface keeps its own.
    */
   history?: ReaderHistory;
+  /**
+   * The note shown went to the trash (an empty new note, PIE-544) and this reader had nowhere back to go: a screen
+   * that was opened for it alone closes. Without it the reader stays on it.
+   */
+  gone?(id: string): void;
   /** This is the reader the person has focused (for the reader on its own, `NoteSurface.alone`); false: it isn't. */
   focused?: boolean;
   /** Whose action runs through this host: an agent's (NoteSurface.run sets it), else the person's. */
@@ -337,6 +342,9 @@ type DraftMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { session: DraftSes
 type CommentMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { session: CommentSession; describe(): ReturnType<CommentSession["describe"]> };
 type PanelMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { panel: PropertyPanel; describe(): { open: string; selected: number; note: string | null; editing: { n: number; key: string; text: string; revision: number; changedElsewhere: boolean; note: string | null } | null; rows: ReturnType<typeof describeRow>[] } | null };
 type PickerMode = Omit<ReaderMode<SurfaceHost>, "describe"> & { picker: Picker; describe(): { step?: string | null; callout?: string | null; choices?: string[]; selected: string | undefined; note: string | null } };
+
+/** How long a missing page's offer stands (PIE-544): the next ⏎ or click on its link within it makes the page. */
+const PAGE_OFFER_MS = 60_000;
 
 /** Agent actions that open an edit or a comment session on the note. */
 const STARTS_SESSION = new Set(["edit", "edit.text", "passage.select", "comment.write", "comment", "threads", "reply", "resolve"]);
@@ -627,7 +635,7 @@ export class NoteSurface {
     this.use(host);
     // An edit, a comment or a value being typed holds the reader on its note.
     if (this.modes.editing && m?.id !== this.msg?.id) return false;
-    if (m?.id !== this.msg?.id) { this.notice = ""; this.agent = null; this.agentDraft = null; this.focusMark = null; this.picker = null; this.clearSelections(); if (this.panel) { this.panel.sel = 0; this.panel.view.reset(); this.panel.note = ""; } }
+    if (m?.id !== this.msg?.id) { this.notice = ""; this.pageOffer = null; this.agent = null; this.agentDraft = null; this.focusMark = null; this.picker = null; this.clearSelections(); if (this.panel) { this.panel.sel = 0; this.panel.view.reset(); this.panel.note = ""; } }
     if ((m?.id ?? null) !== this.foldsOf) { this.folded.clear(); this.foldSeen.clear(); this.expanded.clear(); this.figureUI.clear(); this.figuresDrawn = []; this.foldsOf = m?.id ?? null; }
     this.msg = m; this.scroll = 0; this.maxScroll = Infinity; this.letGo(); this.elems = []; this.crumbs = "…"; this.unread = "";
     this.links = m ? linksOf(m) : [];
@@ -1356,7 +1364,7 @@ export class NoteSurface {
   startDraft(fresh: Msg, host: SurfaceHost) {
     const redraw = () => host.redraw();
     const target = blockTarget(fresh, {
-      board: host.ctx.board,
+      board: host.ctx.board, isNew: this.newNotes.has(fresh.id),
       saved: (m, by, asked, change) => this.saved(m, by, asked, change, host),
       reread: m => { if (this.msg?.id === m.id) this.msg = m; },
       redraw,
@@ -1364,7 +1372,7 @@ export class NoteSurface {
     const s: DraftSession = DraftSession.open(target, { text: fresh.text, base: fresh.revision ?? 0, props: fresh.props, by: host.actor ?? USER }, {
       board: host.ctx.board, redraw,
       agentDid: (by, did) => this.noteAgent(by, did, s.draft),
-      closed: how => this.draftClosed(s, how),
+      closed: how => this.draftClosed(s, how, host),
     });
     this.msg = fresh;
     this.modes.push(this.draftMode(s));
@@ -1411,7 +1419,7 @@ export class NoteSurface {
    * The edit's session ended: written, closed with nothing changed, or put aside as unsent. What an agent did
    * to it is said no longer as if it were still open: gone once saved or closed, in the past tense once put aside.
    */
-  private draftClosed(s: DraftSession, how: Ended) {
+  private draftClosed(s: DraftSession, how: Ended, host?: SurfaceHost) {
     if (this.drafting !== s) return;
     this.modes.drop("draft");
     if (this.msg) this.links = linksOf(this.msg);
@@ -1419,6 +1427,42 @@ export class NoteSurface {
       this.agent = this.agent && how === "aside" ? { ...this.agent, did: "edited the draft you put aside" } : null;
       this.agentDraft = null;
     }
+    // A new note (note.new, PIE-544) closed still empty was never written: it goes to the trash, and the reader back.
+    const id = s.target.blockId;
+    if (id && this.newNotes.delete(id) && how === "closed" && !s.draft.text.trim() && host) void this.dropEmptyNote(id, s.draft.base, host);
+  }
+
+  /**
+   * A new note the person is about to write (`note.new`, PIE-544): its edit saves at once (it has no properties to
+   * lose), and closing it still empty puts it in the trash. Kept until its edit ends.
+   */
+  private readonly newNotes = new Set<string>();
+  /** Open the edit on `m`, a note `note.new` just made, as the person's e does; true when the edit is open on it. */
+  async editNew(m: Msg, host: SurfaceHost, still?: () => boolean): Promise<boolean> {
+    if (this.msg?.id !== m.id) return false;
+    this.newNotes.add(m.id);
+    await this.startAsPerson("edit", host, still).catch(() => {});
+    if (this.draft?.blockId === m.id) return true;
+    this.newNotes.delete(m.id);
+    return false;
+  }
+  /** `editNew` by a host that starts the edit its own way (the desk's session start): mark it first, or unmark it. */
+  markNew(id: string, on = true) { if (on) this.newNotes.add(id); else this.newNotes.delete(id); }
+
+  /**
+   * The empty new note an edit closed on goes to the trash (as the person: they made it), and the reader goes back.
+   * Read again first: only a note still empty at the revision the edit began from (nobody wrote it meanwhile).
+   */
+  private async dropEmptyNote(id: string, base: number, host: SurfaceHost) {
+    try {
+      const now = await host.ctx.board.get(id);
+      if (!now || now.text.trim() || (now.revision !== undefined && now.revision !== base)) return;
+      await host.ctx.board.trash(id);
+    } catch (e) { host.ctx.flash(`the empty new note stays: ${e instanceof Error ? e.message : String(e)}`); return; }
+    host.ctx.flash("nothing written · the empty new note went to the trash");
+    if (this.msg?.id === id) await this.runKey("back", {}, host, true).catch(() => {});
+    if (this.msg?.id === id) host.gone?.(id);
+    host.redraw();
   }
 
   /** The block adapter saved the edit: show the saved note, and say so (and how it was recorded). */
@@ -2791,7 +2835,7 @@ export class NoteSurface {
       // The service's page and Work-ID registry first (read-only: a dangling address isn't created).
       const p = await host.ctx.board.resolvePage(l.page).catch(() => null);
       if (p?.block) target = p.block.partial ? await host.ctx.board.get(p.block.id) ?? p.block : p.block;
-      else if (p?.status === "missing") { host.ctx.flash(`[[${l.page}]] · Missing target`); return null; }
+      else if (p?.status === "missing") return this.offerPage(l.page, host);
     }
     if (!target && l.page) {
       // Not a registered address: the one search's answer, when it is exactly that (an id, or the title as folded).
@@ -2805,6 +2849,49 @@ export class NoteSurface {
     // A host that kept the note in this reader without showing it again (it already showed it).
     if (this.msg?.id === target.id) this.takeReveal(target, host);
     return target;
+  }
+
+  /**
+   * A followed `[[address]]` nothing answers (PIE-544): never made silently. The first ⏎ or click offers it (said, and
+   * kept under the header while this note is shown); the person's next ⏎ or click on that link makes it (`page.create`)
+   * and opens it here. An agent following one is told, and makes it with page.create.
+   */
+  private async offerPage(page: string, host: SurfaceHost): Promise<null> {
+    const by = host.actor ?? USER;
+    if (by.kind === "agent") throw new ActionRefused(`[[${page}]] · Missing target: no page has that name; page.create address=${JSON.stringify(page)} makes it`);
+    // The offer stands while it's still said under the header, for a minute: never a create long after, unannounced.
+    const o = this.pageOffer;
+    if (o && o.page === page && this.notice === o.notice && Date.now() - o.at < PAGE_OFFER_MS) {
+      this.pageOffer = null;
+      this.notice = "";
+      await this.runKey("page.create", { address: page }, host);
+      return null;
+    }
+    this.notice = `no page [[${page}]] · ⏎ or click it again: create it`;
+    this.pageOffer = { page, notice: this.notice, at: Date.now() };
+    host.ctx.flash(`[[${page}]] · Missing target · ⏎ or click it again to create the page`, 8000);
+    host.redraw();
+    return null;
+  }
+  /** The `[[address]]` whose page the next ⏎ or click on its link makes (offerPage), as said; gone with the note. */
+  private pageOffer: { page: string; notice: string; at: number } | null = null;
+
+  /**
+   * `page.create`: the page an `[[address]]` names, made where new notes go (the service's placement rule, today the
+   * top of the Inbox) as `X [page::X]`, then opened as a followed link opens; one that exists already is opened. An
+   * agent's is made and said, opening nothing.
+   */
+  async createPage(address: string, host: SurfaceHost, actor: Actor): Promise<{ id: string; created: boolean; said?: string }> {
+    const r = await host.ctx.board.followPage(address, actor).catch((e: Error) => { throw new ActionRefused(`no page ${address}: ${e.message}`); });
+    if (!r.note) throw new ActionRefused(r.status === "deleted" ? `[[${address}]] is a page in the trash: restore it there` : `no page ${address}`);
+    const said = r.created ? `created page ${subject(r.note)} ${r.placement?.said ?? ""}`.trim() : `${subject(r.note)} was there already`;
+    if (actor.kind !== "agent") {
+      const target = r.note;
+      this.track(() => host.navigate(target, { link: true }));
+      host.ctx.flash(said);
+    }
+    host.redraw();
+    return { id: r.note.id, created: r.created, said };
   }
 
   /** Reveal the fragment a follow left on `m`, unless it's an agent's and this is the person's focused reader. */
@@ -3803,6 +3890,11 @@ export class NoteSurface {
     this.link = i;
   }
   goUp(host: SurfaceHost) { return this.up(host); }
+  /** The `[[address]]` the selected link names (the current element's, else `[ ]`'s), for `page.create`. */
+  selectedPage(): string | null {
+    const e = this.cur ? this.elems.find(x => x.key === this.cur) : undefined;
+    return e?.link?.page ?? this.links[this.link]?.page ?? null;
+  }
 }
 
 /**
@@ -4396,6 +4488,18 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     touches: "draft", draft: "leave", replay: "ask",
     args: {},
     run: (_, { surface, host }, actor) => surface.leave(host, actor),
+  }),
+  "page.create": def({
+    summary: "make the page a [[address]] names when nothing answers it yet (address=, or the selected link's): `X [page::X]` where new notes go (the outline's placement rule: today the top of the Inbox), then open it as the link would; a page there already is opened. Following a missing [[page]] offers this first (⏎ or a click on it again). An agent's makes it, attributed and said, and opens nothing",
+    keys: "⏎ or a click on a [[missing page]] link, twice (the first offers it)",
+    touches: "nothing", replay: "ask",
+    says: out => (out?.said ? `· ${out.said}` : null),
+    args: { address: { type: "string", optional: true, about: "the page's address (its name); default: the selected link's" } },
+    async run({ address }, { surface, host }, actor) {
+      const page = address ?? surface.selectedPage();
+      if (!page) throw new ActionRefused("name the page: address=<its name>, or select a [[page]] link first");
+      return surface.createPage(page, host, actor);
+    },
   }),
   "link.select": def({
     summary: "select the note's nth link (1 is the first); element.select picks any element a reader draws", keys: "[ ] (on a link)",
