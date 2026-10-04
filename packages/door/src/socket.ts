@@ -282,8 +282,11 @@ export class Refused extends Error {
   constructor(message: string) { super(message); this.name = "Refused"; }
 }
 
-/** A trash that named a revision (`trash(id, actor, { revision })`) refused because the block changed since. */
-export const changedSinceRead = (e: unknown): e is Refused => e instanceof Refused && /^Block changed since it was read/.test(e.message);
+/**
+ * A conditional trash (`trash(id, actor, { revision, ifEmpty })`) refused because the block was written since it was
+ * read: changed since that revision, or (`ifEmpty`) given text or a child.
+ */
+export const changedSinceRead = (e: unknown): e is Refused => e instanceof Refused && /^Block (changed since it was read|is not empty)/.test(e.message);
 
 /**
  * The door's actor id, per machine (`ep0ch-door:float-box`), so `activity.recent` tells a laptop edit
@@ -1045,10 +1048,16 @@ export class SocketBoard implements Board {
   /**
    * Move a block and its subtree to Trash. With `at.revision`, only the block at that revision: one changed since
    * (another client's save between the caller's read and this) is refused (`Refused`, "Block changed since it was
-   * read") and stays. With `actor`, the service records who did it; the caller says it on screen.
+   * read") and stays. With `at.ifEmpty`, only a block with no text and no children ("Block is not empty"): a child
+   * added doesn't change the revision. With `actor`, the service records who did it; the caller says it on screen.
    */
-  async trash(blockId: string, actor?: Actor, at?: { revision?: number }): Promise<Msg> {
-    return toMsg(await this.request<WireBlock>("delete", { blockId, ...(at?.revision !== undefined ? { expectedRevision: at.revision } : {}), ...(actor ? { mutation: mutationFor(actor) } : {}) }));
+  async trash(blockId: string, actor?: Actor, at?: { revision?: number; ifEmpty?: boolean }): Promise<Msg> {
+    return toMsg(await this.request<WireBlock>("delete", {
+      blockId,
+      ...(at?.revision !== undefined ? { expectedRevision: at.revision } : {}),
+      ...(at?.ifEmpty ? { ifEmpty: true } : {}),
+      ...(actor ? { mutation: mutationFor(actor) } : {}),
+    }));
   }
 
   /**

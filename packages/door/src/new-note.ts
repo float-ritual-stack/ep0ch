@@ -79,9 +79,10 @@ export const NEW_NOTE_ACTIONS = actionSet<NewNoteOn>()("new", {
 
 /**
  * A new note the person's edit never opened on goes to the trash (as the person: they made it), but only read again
- * and still empty (no text, no children) at the revision it was made at, and the trash names that revision: another
- * client or an agent may write it meanwhile, even between this read and the trash, and the service then refuses it. What happened, said as
- * it is known; when it isn't, the id and the command to look.
+ * and still empty (no text, no children) at the revision it was made at, and the trash names that revision and asks
+ * for it empty: another client or an agent may write it or add a child meanwhile, even between this read and the trash
+ * (a child leaves the revision as it was), and the service then refuses it. What happened, said as it is known; when
+ * it isn't, the id and the command to look.
  */
 export async function putAway(ctx: Pick<Ctx, "board">, note: Msg): Promise<string> {
   const kept = `it was written meanwhile, so it stays (${note.id})`;
@@ -96,7 +97,7 @@ export async function putAway(ctx: Pick<Ctx, "board">, note: Msg): Promise<strin
   if (now.text.trim() || now.childIds?.length || (note.revision !== undefined && at !== note.revision)) return kept;
   if (at === undefined) return `its revision wasn't known, so it was left as it is: ${check}`;
   try {
-    await ctx.board.trash(note.id, undefined, { revision: at });
+    await ctx.board.trash(note.id, undefined, { revision: at, ifEmpty: true });
     return "it went to the trash";
   } catch (e) {
     if (changedSinceRead(e)) return kept;

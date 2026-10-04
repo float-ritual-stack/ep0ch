@@ -2483,19 +2483,31 @@ export class OutlinerStore {
   }
 
   /**
-   * To Trash. With `expectedRevision`, only the block as it was read: one changed since is refused and stays, so a
-   * client that trashes what it read as empty never trashes what another client wrote meanwhile.
+   * To Trash. With `when.revision`, only the block as it was read: one changed since is refused and stays, so a
+   * client that trashes what it read as empty never trashes what another client wrote meanwhile. With `when.ifEmpty`,
+   * only a block with no text and no children: a child added under it doesn't change its revision, so a cleanup that
+   * read it as empty passes both, and the child is never trashed with it. Both are checked in the trash's transaction.
    */
-  delete(id: string, mutation?: MutationProvenance, expectedRevision?: number): Block {
+  delete(id: string, mutation?: MutationProvenance, when: { revision?: number; ifEmpty?: boolean } = {}): Block {
     const provenance = mutation ? normalizeMutationProvenance(mutation) : undefined;
+    const { revision: expectedRevision, ifEmpty } = when;
     if (expectedRevision !== undefined && (!Number.isSafeInteger(expectedRevision) || expectedRevision < 1)) {
       throw new Error("A conditional trash needs a positive integer revision");
     }
+    if (ifEmpty !== undefined && typeof ifEmpty !== "boolean") throw new Error("ifEmpty is true or false");
     this.requireActive(id);
     const deletedAt = new Date().toISOString();
     this.database.transaction(() => {
-      if (expectedRevision !== undefined && this.requireActive(id).revision !== expectedRevision) {
+      const current = this.requireActive(id);
+      if (expectedRevision !== undefined && current.revision !== expectedRevision) {
         throw new Error(`Block changed since it was read: ${id}`);
+      }
+      if (ifEmpty) {
+        const { children } = this.database.query(
+          "SELECT COUNT(*) AS children FROM blocks WHERE parent_id = ? AND effective_deleted_root_id IS NULL",
+        ).get(id) as { children: number };
+        if (children > 0) throw new Error(`Block is not empty: it has ${children} ${children === 1 ? "child" : "children"} now: ${id}`);
+        if (current.text.trim()) throw new Error(`Block is not empty: it has text now: ${id}`);
       }
       const subtree = new Set(this.subtreeIdsFromCurrentRead(id));
       if (this.roadmapMembersOfBatches([...subtree]).some(member => !subtree.has(member))) {

@@ -147,3 +147,18 @@ test("delete --expected trashes only the block at that revision: a changed one i
   expect((await runCli(["delete", "--id", tag.id, "--expected", String(written.revision)], env)).exitCode).toBe(0);
   expect(store.get(tag.id)!.deletedAt).toBeTruthy();
 });
+
+test("delete --if-empty trashes only a block with no text and no children: one with a child is refused, and both stay", async () => {
+  const { env, store } = await setup();
+  const tray = store.create("");
+  const seedling = store.create("Tomato seedling", tray.id);
+  const refused = await runCli(["delete", "--id", tray.id, "--if-empty", "--expected", String(tray.revision)], env);
+  expect(refused.exitCode).not.toBe(0);
+  expect(refused.stderr).toContain(`Block is not empty: it has 1 child now: ${tray.id}`);
+  expect(store.get(tray.id)!.deletedAt).toBeFalsy();
+  expect(store.get(seedling.id)!.effectiveDeletedRootId).toBeFalsy();
+  expect((await runCli(["restore", "--id", tray.id, "--if-empty"], env)).stderr).toContain("--if-empty is for delete");
+  store.delete(seedling.id);
+  expect((await runCli(["delete", "--id", tray.id, "--if-empty"], env)).exitCode).toBe(0);
+  expect(store.get(tray.id)!.deletedAt).toBeTruthy();
+});

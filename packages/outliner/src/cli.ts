@@ -73,7 +73,7 @@ Writing
   new [--text <text>] [--near <id>]    a note where new notes go: under --near, else the top of the Inbox
   update --id <id> --text <text> --expected <revision>
   move --id <id> --parent <id|root> [--position <n>]
-  delete --id <id> [--expected <revision>] | restore --id <id>
+  delete --id <id> [--expected <revision>] [--if-empty] | restore --id <id>
   comment --id <id> --expected <revision> --text <text> | --stdin [--quote <text> …]
   agent read|edit …                    an agent's read and edit (JSON), as the Pi extension's tools
   work …, note …                       roadmap items and notes ("outliner work" lists them)
@@ -904,13 +904,15 @@ switch (command) {
         actor: { type: "string" },
         session: { type: "string" },
         expected: { type: "string" },
+        "if-empty": { type: "boolean" },
       },
       strict: true,
     });
     if (!values.id) throw new Error(`${command} requires --id`);
     if (values.expected !== undefined && command !== "delete") throw new Error("--expected is for delete: trash only the block at that revision");
+    if (values["if-empty"] && command !== "delete") throw new Error("--if-empty is for delete: trash only a block with no text and no children");
     request = command === "delete"
-      ? { action: "delete", blockId: values.id, ...(values.expected !== undefined ? { expectedRevision: parseRevision(values.expected) } : {}), mutation: writerMutation(values) }
+      ? { action: "delete", blockId: values.id, ...(values.expected !== undefined ? { expectedRevision: parseRevision(values.expected) } : {}), ...(values["if-empty"] ? { ifEmpty: true } : {}), mutation: writerMutation(values) }
       : { action: "trash.restore", blockId: values.id, mutation: writerMutation(values) };
     break;
   }

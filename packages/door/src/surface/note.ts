@@ -1458,8 +1458,8 @@ export class NoteSurface {
       const now = await host.ctx.board.get(id);
       // A child someone added leaves its revision as it was, and the trash would take the child too.
       if (!now || now.text.trim() || now.childIds.length || (now.revision !== undefined && now.revision !== base)) return;
-      // At that revision only: a save by another client after this read is refused, and the note stays.
-      await host.ctx.board.trash(id, undefined, { revision: base });
+      // At that revision and still empty only: a save or a child by another client after this read is refused, and the note stays.
+      await host.ctx.board.trash(id, undefined, { revision: base, ifEmpty: true });
     } catch (e) {
       host.ctx.flash(changedSinceRead(e) ? "the new note was written meanwhile, so it stays" : `the empty new note stays: ${e instanceof Error ? e.message : String(e)}`);
       return;

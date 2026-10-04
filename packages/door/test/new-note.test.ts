@@ -35,12 +35,12 @@ describe("⏎ on a lone [page::x] (PIE-544): titled only at the line's end", () 
 
 describe("a new note the edit never opened on (putAway)", () => {
   const note = { id: "n1", text: "", revision: 1 } as any;
-  const ctxWith = (now: any, trash: (id: string, actor?: unknown, at?: { revision?: number }) => Promise<void>) =>
+  const ctxWith = (now: any, trash: (id: string, actor?: unknown, at?: { revision?: number; ifEmpty?: boolean }) => Promise<void>) =>
     ({ board: { get: async () => { if (now instanceof Error) throw now; return now; }, trash, isTrashed: async () => null } }) as any;
-  test("still empty at the revision it was made: trashed only at that revision, and said so", async () => {
+  test("still empty at the revision it was made: trashed only at that revision and only if still empty, and said so", async () => {
     const trashed: unknown[] = [];
-    expect(await putAway(ctxWith({ ...note }, async (id, _actor, at) => { trashed.push([id, at?.revision]); }), note)).toBe("it went to the trash");
-    expect(trashed).toEqual([["n1", 1]]);
+    expect(await putAway(ctxWith({ ...note }, async (id, _actor, at) => { trashed.push([id, at]); }), note)).toBe("it went to the trash");
+    expect(trashed).toEqual([["n1", { revision: 1, ifEmpty: true }]]);
   });
   test("written meanwhile (another client, an agent): kept, never trashed, named by its id", async () => {
     let trashed = false;
@@ -57,6 +57,10 @@ describe("a new note the edit never opened on (putAway)", () => {
   });
   test("written between the read and the trash: the service refuses the trash, and it's said as kept", async () => {
     const said = await putAway(ctxWith({ ...note }, async () => { throw new Refused("Block changed since it was read: n1"); }), note);
+    expect(said).toBe("it was written meanwhile, so it stays (n1)");
+  });
+  test("a child added between the read and the trash: the service refuses it as not empty, and it's said as kept", async () => {
+    const said = await putAway(ctxWith({ ...note }, async () => { throw new Refused("Block is not empty: it has 1 child now: n1"); }), note);
     expect(said).toBe("it was written meanwhile, so it stays (n1)");
   });
   test("the trash failed: what's known, the id and the command to check it, never \"still there, empty\"", async () => {
@@ -217,6 +221,24 @@ describe.skipIf(!outliner)("new notes from anywhere (PIE-544)", () => {
     try { said = await putAway({ board } as any, note); } finally { board.get = get; }
     expect(said).toBe(`it was written meanwhile, so it stays (${note.id})`);
     expect(await board.get(note.id)).toMatchObject({ text: "Beans up on the north bed" });
+  }, 30_000);
+
+  test("a child added by another client between the put-away's read and its trash: the trash is refused, and the note and the child stay", async () => {
+    const { note } = await board.newNote("", notes.plot.id);
+    const get = board.get.bind(board);
+    let child = "";
+    // Another client adds a child just after this read answers: the note's revision stays as it was read.
+    board.get = (async (...a: Parameters<typeof get>) => {
+      const now = await get(...a);
+      if (!child) child = (await board.createBlock(note.id, "Thin the carrots", { kind: "agent", id: "gardener" })).id;
+      return now;
+    }) as typeof board.get;
+    let said: string;
+    try { said = await putAway({ board } as any, note); } finally { board.get = get; }
+    expect(said).toBe(`it was written meanwhile, so it stays (${note.id})`);
+    expect(await board.get(note.id)).toMatchObject({ revision: note.revision, childIds: [child] });
+    expect(await board.get(child)).toMatchObject({ text: "Thin the carrots" });
+    expect(await board.isTrashed(note.id)).toBe(false);
   }, 30_000);
 
   test("an agent's note.new: made where it says (the Inbox by default), attributed, said; the person's screen and keys stay", async () => {
