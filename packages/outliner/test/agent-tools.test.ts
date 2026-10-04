@@ -346,3 +346,41 @@ test("an actor filter reaches the service, and a service on another protocol is 
   await expect(changesSince(older, { since: "2026-03-01T00:00:00Z", actor: "garden-agent" })).rejects.toThrow("the outline host protocol 82");
   expect(sent).toEqual([]);
 });
+
+test("view-order reads a view's hand-set order and puts members first, by id or Work ID, as the agent", async () => {
+  const { store, agent } = await setup();
+  store.configureWorkIdPrefix("PLOT");
+  const view = store.create("Plot queue [type::virtual-branch] [query::queue=plot]");
+  const jobs = ["Dig the bed", "Sow the leeks", "Mend the net"].map(t => store.create(`${t} [queue::plot]`));
+  const leeks = store.allocateWorkId(jobs[1]!.id, jobs[1]!.revision).block;
+  const workId = leeks.properties.find(p => p.key === "work-id")!.value;
+
+  const read = await agent("view-order", { view: `((${view.id}))` });
+  expect(read.exitCode).toBe(0);
+  expect(read.json.order.map((o: any) => o.title)).toEqual(["Dig the bed", "Sow the leeks", "Mend the net"]);
+
+  const placed = await agent("view-order", { view: view.id, ids: [jobs[2]!.id, workId] });
+  expect(placed.exitCode).toBe(0);
+  expect(placed.json.order.map((o: any) => o.title)).toEqual(["Mend the net", "Sow the leeks", "Dig the bed"]);
+  expect(placed.json.order[1]).toMatchObject({ id: leeks.id, workId });
+  const moves = store.recentEditActivity({ author: "agent", kinds: ["move"], actorId: "garden-agent" });
+  // Only what changed place is recorded: the leeks were second before and after.
+  expect(moves.entries.map(e => e.block.id)).toEqual([jobs[2]!.id]);
+
+  const stranger = store.create("Not queued");
+  const refused = await agent("view-order", { view: view.id, ids: [stranger.id] });
+  expect(refused.exitCode).not.toBe(0);
+  expect(refused.stderr).toContain(`Not in the view ${view.id}: ${stranger.id}`);
+  const notView = await agent("view-order", { view: stranger.id });
+  expect(notView.exitCode).not.toBe(0);
+  expect(notView.stderr).toContain(`${stranger.id} is not a view`);
+});
+
+test("edit replaces a section that holds a live figure, figure included", async () => {
+  const { store, agent } = await setup();
+  const note = store.create("Review\n\n## Since last review\n\n::graph-stat\n---\ntitle: Open\n---\n::\n\n## Rounds\n\nround one");
+  const edited = await agent("edit", { ref: note.id, expectedRevision: note.revision, replaceSection: { heading: "## Since last review", body: "Nothing new." } });
+  expect(edited.exitCode).toBe(0);
+  expect(edited.json.section.previous).toBe("::graph-stat\n---\ntitle: Open\n---\n::");
+  expect(store.get(note.id)!.text).toBe("Review\n\n## Since last review\n\nNothing new.\n\n## Rounds\n\nround one");
+});

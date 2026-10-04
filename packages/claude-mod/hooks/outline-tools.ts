@@ -194,6 +194,23 @@ export const OUTLINE_TOOLS: readonly OutlineToolDefinition[] = [
     },
   },
   {
+    name: 'view_order',
+    description:
+      'A view\'s hand-set order (a view with no [sort::] is ordered by hand: the order its board lanes, ' +
+      'figures and Tree show). With `ids`, put those members first, in the order given; the rest keep their order ' +
+      'after them. Ids are block ids, ((id)) or Work IDs. Refused for a sorted view (the refusal names the fix) and ' +
+      'for an id the view doesn\'t hold. Returns the order after the write.',
+    inputSchema: schema({
+      view: { type: 'string', description: 'The view (a virtual-branch block): id, ((id)) or [[page]]' },
+      ids: { type: 'array', items: { type: 'string' }, description: 'Members to put first, in this order; omit to read the order' },
+    }, ['view']),
+    command(input) {
+      if (!nonEmpty(input.view)) return 'Give the view: its id or ((id)).'
+      if (input.ids !== undefined && (!Array.isArray(input.ids) || input.ids.some(id => !nonEmpty(id)))) return 'ids is a list of block ids, ((id))s or Work IDs.'
+      return { operation: 'view-order', input: inputOf(input, ['view', 'ids']) }
+    },
+  },
+  {
     name: 'outline_changes',
     description:
       'What changed since a point: an ISO time, or the `cursor` an earlier call returned. Each block once, at its ' +

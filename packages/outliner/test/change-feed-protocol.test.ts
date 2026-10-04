@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { OutlinerClient } from "../src/client";
 import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
-import type { Block, ChangeFeedPage, OutlinerChange, OutlinerEvent } from "../src/types";
+import type { Block, ChangeFeedPage, OutlinerChange, OutlinerEvent, VirtualBranchOrder, VirtualOccurrenceMoveInput } from "../src/types";
 
 const cleanups: Array<() => Promise<void> | void> = [];
 afterEach(async () => {
@@ -591,4 +591,52 @@ test("writes outside a request are recorded and published as background changes"
   expect(uncoveredSequences(store, before)).toEqual([]);
   const page = await client.request<ChangeFeedPage>({ action: "changes.since", sequence: resourceStart });
   expect(page).toMatchObject({ kind: "changes", changes: [], completeness: { kind: "complete" } });
+});
+
+test("a hand-set order records who placed it: on the change and as a move on the blocks placed", async () => {
+  const { client } = await service(workspace("pi-outliner-change-place-"));
+  const view = await client.request<Block>({ action: "create", text: "Fictional queue [type::virtual-branch] [query::lane=queue]" });
+  const blocks = [] as Block[];
+  for (const t of ["Alpha", "Beta", "Gamma"]) blocks.push(await client.request<Block>({ action: "create", text: `${t} [lane::queue]` }));
+  const order = await client.request<VirtualBranchOrder>({ action: "virtual.occurrences.order", viewId: view.id });
+  const mutation = { author: "agent" as const, actorId: "fictional-agent" };
+  // `first`: these first, in the order given, then the rest as they were.
+  const placed = await client.request<{ blockIds: string[] }>({
+    action: "virtual.occurrences.place", mutation,
+    input: { expected: order, selectedBlockIds: [blocks[2]!.id, blocks[0]!.id], placement: { kind: "first" } },
+  });
+  expect(placed.blockIds).toEqual([blocks[2]!.id, blocks[0]!.id, blocks[1]!.id]);
+  const page = await client.request<ChangeFeedPage>({ action: "changes.since", sequence: 0 });
+  expect(page.kind === "changes" && page.changes.at(-1)).toMatchObject({ kind: "reorder", blockId: view.id, actor: mutation });
+  const moves = await client.request<{ entries: { block: Block; actorId?: string; kind: string }[] }>({ action: "activity.recent", author: "agent", kinds: ["move"], actorId: "fictional-agent" });
+  expect(moves.entries.map(e => e.block.id).sort()).toEqual([blocks[0]!.id, blocks[2]!.id].sort());
+});
+
+test("a sorted view has no hand-set order, and says how to give it one", async () => {
+  const { client } = await service(workspace("pi-outliner-change-sorted-"));
+  const view = await client.request<Block>({ action: "create", text: "Fictional recent [type::virtual-branch] [query::lane=recent] [sort::updated]" });
+  await expect(client.request({ action: "virtual.occurrences.order", viewId: view.id }))
+    .rejects.toThrow(`This view sorts by updated desc, so it has no hand-set order: remove [sort::updated] from ((${view.id})) to order it by hand`);
+});
+
+test("virtual.occurrences.move: one step, by refs, a step kept within what the view shows", async () => {
+  const { client } = await service(workspace("pi-outliner-change-move-"));
+  await client.request({ action: "work-ids.configure", prefix: "YARD" });
+  const view = await client.request<Block>({ action: "create", text: "Fictional yard [type::virtual-branch] [query::lane=yard] [limit::2]" });
+  const jobs = [] as Block[];
+  for (const t of ["Rake", "Mow", "Edge"]) jobs.push(await client.request<Block>({ action: "create", text: `${t} [lane::yard]` }));
+  const edge = (await client.request<{ block: Block }>({ action: "work-ids.allocate", blockId: jobs[2]!.id, expectedRevision: jobs[2]!.revision })).block;
+  const workId = edge.properties.find(p => p.key === "work-id")!.value;
+  const mutation = { author: "agent" as const, actorId: "yard-agent" };
+  const move = (input: Omit<VirtualOccurrenceMoveInput, "view">) => client.request<{ blockIds: string[]; moved: string[] }>({ action: "virtual.occurrences.move", input: { view: `((${view.id}))`, ...input }, mutation });
+  // The second shown job steps down: [limit::2] keeps it in sight, so nothing moves.
+  expect(await move({ blocks: [jobs[1]!.id.slice(0, 10)], by: 1 })).toMatchObject({ moved: [] });
+  // Up by a Work ID: the order changes, the moved block is said.
+  expect(await move({ blocks: [workId], by: -1 })).toMatchObject({ blockIds: [jobs[0]!.id, jobs[2]!.id, jobs[1]!.id], moved: [jobs[2]!.id] });
+  expect(await move({ blocks: [jobs[1]!.id], to: 0 })).toMatchObject({ blockIds: [jobs[1]!.id, jobs[0]!.id, jobs[2]!.id] });
+  expect(await move({ blocks: [jobs[2]!.id, jobs[1]!.id] })).toMatchObject({ blockIds: [jobs[2]!.id, jobs[1]!.id, jobs[0]!.id] });
+  await expect(move({ blocks: [jobs[0]!.id], by: 1, to: 0 })).rejects.toThrow("Give one of by, to, before or after");
+  const stray = await client.request<Block>({ action: "create", text: "Stray" });
+  await expect(move({ blocks: [stray.id], to: 0 })).rejects.toThrow(`Not in the view ${view.id}: ${stray.id}`);
+  await expect(move({ blocks: ["nothing-here"] })).rejects.toThrow("No block nothing-here");
 });

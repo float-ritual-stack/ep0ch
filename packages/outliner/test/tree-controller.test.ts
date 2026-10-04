@@ -3345,6 +3345,7 @@ describe("createTreeController", () => {
 
     expect(lastCall(fake.calls, "virtual.occurrences.reorder")).toEqual({
       action: "virtual.occurrences.reorder",
+      mutation: { author: "user", actorId: "tree" },
       viewId: definition.id,
       orderedBlockIds: [second.id, first.id],
     });
@@ -3404,7 +3405,7 @@ describe("createTreeController", () => {
     await controller.handleKeypress("", { name: "down", meta: true }, "pass");
 
     expect(controller.view().status).toBe(
-      "Virtual branch is sorted by updated desc; manual reorder is disabled",
+      "This view sorts by updated desc, so it has no hand-set order: remove [sort::updated] and [direction::desc] from ((sorted-view)) to order it by hand",
     );
     expect(fake.calls.some((call) => call.action === "virtual.occurrences.reorder")).toBe(false);
     await controller.handleAction("tree.menu.open");

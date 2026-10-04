@@ -66,7 +66,7 @@ import {
   type AuthoredLinkHeaderRow,
   type TreeDisplayRow as ProjectedDisplayRow,
 } from "./tree-rows";
-import { isVirtualBranchDefinition } from "./virtual-branches";
+import { handOrderRefusal, isVirtualBranchDefinition } from "./virtual-branches";
 import { TextBuffer } from "./text-buffer";
 import type {
   AttentionClientState,
@@ -670,8 +670,8 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     const reason = collected.rankReason();
     if (reason) return reason;
     const viewId = collected.current?.targets[0]?.viewId;
-    const sort = viewId ? branchStates.get(viewId)?.config?.sort : undefined;
-    return sort ? `Virtual branch is sorted by ${sort.field} ${sort.direction}; manual reorder is disabled` : null;
+    const config = viewId ? branchStates.get(viewId)?.config : undefined;
+    return config ? handOrderRefusal(config) : null;
   }
 
   function selectionMenuItems(): OutlinerActionMenuItem[] {
@@ -1898,14 +1898,15 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     selected: VirtualBranchOccurrenceRow,
     offset: -1 | 1,
   ): Promise<string | null> {
-    const sort = branchStates.get(selected.viewId)?.config?.sort;
-    if (sort) {
-      status = `Virtual branch is sorted by ${sort.field} ${sort.direction}; manual reorder is disabled`;
+    const config = branchStates.get(selected.viewId)?.config;
+    const sorted = config ? handOrderRefusal(config) : null;
+    if (sorted) {
+      status = sorted;
       return null;
     }
     if (branchFilter) {
       const expected = await effects.request<import("./types").VirtualBranchOrder>({action:"virtual.occurrences.order",viewId:selected.viewId});
-      await effects.request({action:"virtual.occurrences.place",input:{expected,selectedBlockIds:[selected.canonicalId],placement:{kind:offset<0?"up":"down"}}});
+      await effects.request({action:"virtual.occurrences.place",mutation:TREE_MUTATION,input:{expected,selectedBlockIds:[selected.canonicalId],placement:{kind:offset<0?"up":"down"}}});
       status = "Moved one position in full branch order (including hidden items)"; return selected.rowId;
     }
     const branchRows = rows.filter(
@@ -1933,6 +1934,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     ];
     await effects.request({
       action: "virtual.occurrences.reorder",
+      mutation: TREE_MUTATION,
       viewId: selected.viewId,
       orderedBlockIds,
     });

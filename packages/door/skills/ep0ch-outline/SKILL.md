@@ -104,6 +104,10 @@ directions ("the draft is in the outbox below"). Look the id up and link it. `[[
   cards can also sit in a tile of their own on the desk (`^W o q` on the view's row, `tile.open kind=query`).
 - Moving a card patches the properties the target lane's plain clauses name (the service plans it,
   `views.planWrite`); a new card in a lane is born with them and `create`'s defaults.
+- A view with no sort is ordered by hand: its lane, its `view:` figures and Tree all follow that order. Reorder
+  with alt+↑/↓ or a drag in the door, `card.reorder` (`by=`, `to=`, `before=`, `after=`), `ep0ch view order
+  <view> <id or Work ID>…` (those first, in that order) or the `view_order` tool. That is where a ranking such as a
+  backlog belongs, not a numeric property. A view with `[sort::]` has no hand-set order: remove the sort first.
 - Before placing a block into a view, ask the service what patch would make it match; don't guess the query.
 
 ## Pages, welcome and the briefing
@@ -176,7 +180,11 @@ items:
 | `calendar` | `date: <property>` marks the month's notes | `year`, `month`, `today`, `weekStartsOn`, `marks` |
 | `annotate` | static only | `code`, `notes` (or a fence with `# (1)` markers and a `1.` list) |
 
-Live blocks also take `limit:`, `sort: updated|created` and `direction:`. A `table` or `tabs` takes
+Live blocks also take `limit:`, `sort:` and `direction: desc|asc` (default `updated`, `desc`). `sort:` is
+`updated`, `created` or any property key (`sort: due`; `property:created` for a property so named): numbers compare
+as numbers, blocks without it come last; a saved view sorts the same way with `[sort::due]`, and so does
+`ep0ch find --query … --sort due --direction asc`. A bad sort shows its
+refusal in the figure. For a ranking someone sets by hand, use a view's hand-set order instead (below). A `table` or `tabs` takes
 `density: compact | cozy | comfortable` (titles on one line, up to two, up to three with a blank line between rows;
 a wrapped title hangs past its work id); it is only the default: the person switches tabs and density in their
 reader (`figure.tab`, `figure.density`), which never writes the note. Group a long status list into one `tabs`

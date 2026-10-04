@@ -4,7 +4,9 @@ import {
   MAX_BLOCK_QUERY_LIMIT,
   parsePropertyFilterClause,
   parsePropertyFilterExpression,
+  normalizeSortField,
   parseSearchExpression,
+  sortFieldProblem,
 } from "./block-query";
 import { matchesFilters, parsePropertyRecords, patchPropertyText } from "./properties";
 import { parsePropertySummaryKeys } from "./property-summary";
@@ -78,6 +80,8 @@ export interface VirtualBranchConfig {
   /** Present when the query uses OR, NOT, groups or created/updated ranges. */
   where?: QueryExpression;
   sort: BlockQuerySort | null;
+  /** The view's `[sort::]` and `[direction::]` as written, for the refusal that names them (handOrderRefusal). */
+  sortWritten?: string[];
   limit: number;
   create: BlockProperty | null;
   createParentId: string | null;
@@ -266,23 +270,15 @@ export function parseVirtualBranchConfig(
     configurationErrors.push("Virtual branch direction requires a sort property");
   }
   if (sortProperty) {
-    const field = sortProperty.value.toLowerCase();
-    const direction = directionProperty?.value.toLowerCase() ?? "desc";
-    if (field !== "created" && field !== "updated") {
-      configurationErrors.push(`Virtual branch sort must be created or updated: ${sortProperty.value}`);
-    }
+    const field = normalizeSortField(sortProperty.value);
+    const direction = directionProperty?.value.trim().toLowerCase() ?? "desc";
+    if (field === null) configurationErrors.push(`Virtual branch: ${sortFieldProblem(sortProperty.value)}`);
     if (direction !== "asc" && direction !== "desc") {
-      configurationErrors.push(
-        `Virtual branch direction must be asc or desc: ${directionProperty?.value}`,
-      );
+      configurationErrors.push(`Virtual branch direction must be asc or desc, not ${directionProperty?.value}: write [direction::asc] or [direction::desc]`);
     }
-    if (
-      (field === "created" || field === "updated") &&
-      (direction === "asc" || direction === "desc")
-    ) {
-      sort = { field, direction };
-    }
+    if (field !== null && (direction === "asc" || direction === "desc")) sort = { field, direction };
   }
+  const sortWritten = sort ? [sortProperty!, ...(directionProperty ? [directionProperty] : [])].map(p => `[${p.key}::${p.value}]`) : undefined;
 
   const limitProperty = singleProperty(definition, "limit", false, configurationErrors);
   let limit = DEFAULT_VIRTUAL_BRANCH_LIMIT;
@@ -371,6 +367,7 @@ export function parseVirtualBranchConfig(
       filters,
       ...(where ? { where } : {}),
       sort,
+      ...(sortWritten ? { sortWritten } : {}),
       limit,
       ...(expandWhen ? {expandWhen} : {}),
       ...(childDepth === undefined ? {} : {childDepth}),
@@ -1062,4 +1059,15 @@ export async function planVirtualChild<T extends ProjectionBlock>(
   const state = projected.branchStates.get(parent.viewId);
   const depth = state?.config?.childDepth ?? VIRTUAL_BRANCH_MAX_RELATIVE_DEPTH;
   return { problem: `Cannot display a new child here: child-depth ${depth}, result limit ${state?.config?.limit ?? DEFAULT_VIRTUAL_BRANCH_LIMIT}, row budget ${VIRTUAL_BRANCH_MAX_ROWS}, or nested definition boundary. Use Reveal source (Shift+R) to add there, or adjust this view.` };
+}
+
+/**
+ * Why a sorted view has no hand-set order, and the fix: the one refusal the service, Tree, the door and agents show.
+ * Names the `[sort::]` (and `[direction::]`) as the view writes them.
+ */
+export function handOrderRefusal(config: Pick<VirtualBranchConfig, "viewId" | "sort" | "sortWritten">): string | null {
+  if (!config.sort) return null;
+  const written = config.sortWritten ?? [`[sort::${config.sort.field}]`];
+  return `This view sorts by ${config.sort.field} ${config.sort.direction}, so it has no hand-set order: remove ` +
+    `${written.join(" and ")} from ((${config.viewId})) to order it by hand`;
 }

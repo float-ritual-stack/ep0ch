@@ -1,7 +1,70 @@
-import {Marked, type Token} from 'marked';
+import {Marked, Tokenizer, type Token, type Tokens} from 'marked';
+import {COMPONENT_OPEN, componentBlockAt} from '@ep0ch/outline-core/component-block';
 import type {PreviewSourceSpan} from './detail-preview-regions';
 
-const parser = new Marked();
+// A component block (`::graph-stat` … `::`) is one opaque token: its `---` lines are YAML fences, not setext
+// headings, so sections and folds run through it (outline-core's component-block rule). `start` lets one cut a
+// paragraph short; the setext tokenizer runs before that cut, so it stops at a component's first line too.
+const SETEXT_UNDERLINE = /^ {0,3}(=+|-+) *$/;
+/** A line that starts a block of its own (heading, fence, quote, list item, rule, HTML): the paragraph ends before it. */
+const BLOCK_START = /^ {0,3}(?:#{1,6}(?:[ \t]|$)|```|~~~|>|[-*+](?:[ \t]|$)|\d{1,9}[.)](?:[ \t]|$)|(?:[-*_][ \t]*){3,}$|<[A-Za-z!/?])/;
+/** A GFM table's delimiter row: the line above it, with a `|`, starts a table, which ends a paragraph too. */
+const TABLE_DELIMITER = /^ {0,3}\|?[ \t]*:?-+:?[ \t]*(?:\|[ \t]*:?-+:?[ \t]*)*\|?[ \t]*$/;
+/** The first line of `src` that opens a component block, as an offset, or -1: where a table must stop. */
+function componentLineIn(src: string): number {
+  for (let at = 0; at < src.length;) {
+    const next = src.indexOf('\n', at), end = next < 0 ? src.length : next;
+    if (at > 0 && COMPONENT_OPEN.test(src.slice(at, end)) && componentBlockAt(src.slice(at))) return at;
+    if (at > 0 && !src.slice(at, end).trim()) return -1;
+    at = end + 1;
+  }
+  return -1;
+}
+const parser = new Marked({
+  extensions: [{
+    name: 'component', level: 'block',
+    // Where a paragraph must be cut: the first line, before its blank line, that opens a component block. It reads
+    // only the paragraph (marked asks before each one) and never cuts at an opener that opens nothing (plain text).
+    start: (src: string) => {
+      for (let at = src.indexOf('\n'); at >= 0;) {
+        const from = at + 1, next = src.indexOf('\n', from), line = src.slice(from, next < 0 ? src.length : next);
+        if (!line.trim()) return undefined;
+        if (/^[ \t]*::[a-z]/.test(line) && COMPONENT_OPEN.test(line) && componentBlockAt(src.slice(from))) return from;
+        at = next;
+      }
+      return undefined;
+    },
+    tokenizer: (src: string) => {
+      const block = componentBlockAt(src);
+      return block ? {type: 'component', raw: block.raw, name: block.name} : undefined;
+    },
+    renderer: () => '',
+  }],
+  tokenizer: {
+    lheading(src: string) {
+      // The paragraph's own lines, read one at a time up to its first blank line: a heading, fence, list, table or
+      // rule there is its own block (marked's rules decide); a component's first line ends the paragraph before it.
+      // Only a line matching COMPONENT_OPEN is tried as a component, so this stays linear.
+      let at = src.indexOf('\n') + 1;
+      while (at > 0 && at < src.length) {
+        const next = src.indexOf('\n', at), end = next < 0 ? src.length : next, line = src.slice(at, end);
+        if (!line.trim() || SETEXT_UNDERLINE.test(line) || BLOCK_START.test(line)) return false;
+        if (line.includes('|') && next >= 0 && TABLE_DELIMITER.test(src.slice(next + 1, (src.indexOf('\n', next + 1) + 1 || src.length + 1) - 1))) return false;
+        if (COMPONENT_OPEN.test(line) && componentBlockAt(src.slice(at))) {
+          const raw = src.slice(0, at), text = raw.trimEnd();
+          return {type: 'paragraph', raw, text, tokens: this.lexer.inline(text)} as unknown as false;
+        }
+        at = end + 1;
+      }
+      return false;
+    },
+    table(src: string) {
+      // A table's rows end before a component's first line (marked would read `::graph-stat` as a row).
+      const cut = componentLineIn(src);
+      return (Tokenizer.prototype.table as (s: string) => Tokens.Table | undefined).call(this, cut < 0 ? src : src.slice(0, cut)) as unknown as false;
+    },
+  },
+});
 
 export interface MarkdownSourceToken {
   token: Token;

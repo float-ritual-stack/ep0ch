@@ -735,7 +735,7 @@ Do not leave older editors running across this upgrade.
 - mutations: `create`, `update`, `move`, `delete` (move to Trash), `trash.restore`, `trash.purge`; `update`, `move`, `delete` and `trash.restore` take an optional `mutation`
 - activity: `activity.recent` returns each block's latest recorded change by one author. Edits (`text`, `properties`) by default; `kinds` adds `move`, `delete` and `restore`, which are recorded only when the request declared a `mutation` (Tree and Detail declare the person, the Inbox worker `inbox-agent`). A trashed block is listed only for the entry that trashed it, and only while it is still a Trash root
 - properties: `properties.patch`, `properties.catalog`, `properties.inventory`, read-only draft parsing `properties.preview`
-- virtual ordering: `virtual.occurrences.reorder`
+- virtual ordering (a view with no `[sort::]`): `virtual.occurrences.order` reads it (the view as a ref); `virtual.occurrences.move` changes it in one step, read, planned and written in one transaction (`VirtualOccurrenceMoveInput`: refs resolved by `resolveBlockRef` (an id, ((id)), an 8+ character prefix, a Work ID, a [[page]]); one block `by`, kept within the view's `[limit::]` while it is shown, `to`, `before`, `after`, or several put first in the order given); `virtual.occurrences.place` (Tree's selections, checked against the order read: `up`, `down`, `top`, `bottom`, `before`/`after`, `first`) and `virtual.occurrences.reorder` write it too. Each takes an optional `mutation`, recorded on the change and as a `move` on each block whose place changed. A sorted view refuses, naming the `[sort::]` to remove. The door's `card.reorder`, `ep0ch view order` and the `view-order` agent operation (`view_order`) are thin clients of `move`
 - references: `references.resolve`, `references.backlinks`
 - symbolic addresses: `pages.resolve`, `pages.follow`, `pages.complete`, `pages.rename`, `pages.alias`, `pages.remove`
 - Work IDs: `work-ids.status`, `work-ids.configure`, `work-ids.allocate`
@@ -1266,8 +1266,8 @@ A virtual branch is an ordinary canonical block with exactly one `[type::virtual
 Optional properties:
 
 - `[limit::N]` — bounded query size, from 1 through 1000.
-- `[sort::created]` or `[sort::updated]` — order the complete matched set by timestamp before applying the limit.
-- `[direction::asc]` or `[direction::desc]` — timestamp direction; requires `sort` and defaults to `desc`.
+- `[sort::created]` or `[sort::updated]` — order the complete matched set by timestamp before applying the limit. `[sort::<key>]` (any other property key) orders it by that property within the query's property scope: numbers as numbers and before text, text without case, blocks without it last in either direction, ties in outline order. `[sort::property:created]` (or `property:updated`) names a property with a timestamp's name. Without `sort` the view keeps its hand-set order.
+- `[direction::asc]` or `[direction::desc]` — sort direction, any case; requires `sort` and defaults to `desc`.
 - `[create::key=value]` — one property applied to new canonical children.
 - `[create-parent::<block-id>]` — physical parent for branch-created blocks.
 - `[summary-properties::key,key,…]` — ordered Tree summary allowlist for projected occurrences in this view.

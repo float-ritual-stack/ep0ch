@@ -1,6 +1,8 @@
 import {expect, test} from 'bun:test';
 import {stripTerminalSequences, type MarkdownTheme} from '@earendil-works/pi-tui';
 import {documentFolds, revealFoldedLine} from '../src/document-folds';
+import {replaceSectionText} from '../src/work-tools';
+import {markdownSourceTokens} from '../src/markdown-structure';
 import {SourceSpannedMarkdown} from '../src/source-spanned-markdown';
 import {parseDetailCallouts} from '../src/detail-callouts';
 import {reconcilePreviewRegions, togglePreviewRegionDisclosure, movePreviewRegionFocus, type PreviewRegionState} from '../src/detail-preview-regions';
@@ -150,4 +152,109 @@ test('theme invalidation reaches the visible folded document',()=>{
  expect(renderer.render(50).join('\n')).toContain('FIRST:');
  accent='SECOND';renderer.invalidate();
  expect(renderer.render(50).join('\n')).toContain('SECOND:');
+});
+
+// A component block's `---` lines are its YAML fence, not setext underlines: `::graph-stat` then `---` once
+// lexed as a level-2 heading, which ended the section above it (and replaceSection kept the old figure).
+const figureNote = `Review note
+
+## Since last review
+
+::graph-stat
+---
+title: Open
+items:
+  - { label: open, query: "status=open" }
+---
+::
+
+## Rounds
+
+round one`;
+
+test('a component block is part of the section it sits in, never a heading', () => {
+  const folds = documentFolds(figureNote).filter(fold => fold.structure === 'heading');
+  expect(folds.map(fold => [fold.sourceSpan!.startLine, fold.sourceSpan!.endLine])).toEqual([[2, 11], [12, 14]]);
+});
+
+test('replaceSection replaces a section that holds a component block, figure included', () => {
+  const replaced = replaceSectionText(figureNote, '## Since last review', 'new body', 'note');
+  expect(replaced.previous).toBe(figureNote.split('\n').slice(4, 11).join('\n'));
+  expect(replaced.text).toBe('Review note\n\n## Since last review\n\nnew body\n\n## Rounds\n\nround one');
+});
+
+test('an unclosed component line stays plain markdown', () => {
+  expect(documentFolds('# Top\n\n::graph-stat\n---\n\ntext').filter(fold => fold.structure === 'heading').length).toBe(2);
+});
+
+test('a component block ends a paragraph or list item it follows without a blank line', () => {
+  const tight = '## A\nintro line\n::graph-stat\n---\ntitle: Open\n---\n::\n\n## B\nb';
+  const replaced = replaceSectionText(tight, '## A', 'new', 'note');
+  expect(replaced.previous).toBe('intro line\n::graph-stat\n---\ntitle: Open\n---\n::');
+  expect(replaced.text).toBe('## A\n\nnew\n\n## B\nb');
+  const listed = '## A\n- item\n  ::graph-stat\n  ---\n  title: Open\n  ---\n  ::\n\n## B\nb';
+  expect(documentFolds(listed).filter(fold => fold.structure === 'heading').map(fold => fold.sourceSpan!.startLine)).toEqual([0, 8]);
+  // A setext heading above a figure is still a heading.
+  expect(documentFolds('Title\n---\n::graph-stat\n---\n::\n\nend').filter(fold => fold.structure === 'heading').length).toBe(1);
+});
+
+test('a "::" mid-line keeps every source span', () => {
+  for (const text of ['a::b c\nmore', ' ::foo bar\ntext', 'x\n::graph-stat\n::']) {
+    expect(markdownSourceTokens(text).length).toBeGreaterThan(0);
+  }
+  // Four spaces is code, not a component.
+  expect(markdownSourceTokens('    ::graph-stat\n    ---\n    ::').map(node => node.token.type)).toEqual(['code']);
+});
+
+test('a block-starting line between a paragraph and a figure keeps its own meaning', () => {
+  const heading = 'intro line\n## Stats\n::graph-stat\n---\nquery: x\n---\n::\n';
+  expect(markdownSourceTokens(heading).map(node => node.token.type)).toEqual(['paragraph', 'heading', 'component']);
+  const fence = 'intro line\n```\ncode\n```\n::graph-stat\n---\n::\n\nafter';
+  expect(markdownSourceTokens(fence).map(node => node.token.type)).toEqual(['paragraph', 'code', 'component', 'paragraph']);
+  // An unindented figure line right under a list item is that item's lazy continuation (marked's list rule); the
+  // list and the paragraph stay, and nothing there becomes a heading.
+  const listed = 'intro line\n- item\n::graph-stat\n---\n::\n';
+  expect(markdownSourceTokens(listed).map(node => node.token.type).slice(0, 2)).toEqual(['paragraph', 'list']);
+  expect(markdownSourceTokens(listed).map(node => node.token.type)).not.toContain('heading');
+  const section = replaceSectionText('## A\nintro line\n## Stats\n::graph-stat\n---\n::\n', '## Stats', 'new', 'note');
+  expect(section.previous).toBe('::graph-stat\n---\n::');
+});
+
+test('a table between a paragraph and a figure stays a table, and the figure stays whole', () => {
+  const text = 'intro line\n| a | b |\n| - | - |\n| 1 | 2 |\n\n::graph-stat\n---\ntitle: x\n---\n::\n';
+  expect(markdownSourceTokens(text).map(node => node.token.type)).toEqual(['paragraph', 'table', 'space', 'component']);
+  const tight = 'intro line\n| a | b |\n| - | - |\n::graph-stat\n---\ntitle: x\n---\n::\n';
+  expect(markdownSourceTokens(tight).map(node => node.token.type)).toEqual(['paragraph', 'table', 'component']);
+});
+
+test('an unclosed figure line never swallows the headings after it', () => {
+  const text = '## A\n::graph-stat\n## B\nb\n\n## C\n::\n';
+  expect(documentFolds(text).filter(fold => fold.structure === 'heading').map(fold => fold.sourceSpan!.startLine)).toEqual([0, 2, 5]);
+});
+
+test('a section runs to the next heading of its level or higher, sub-sections and figures included', () => {
+  const text = '## A\n\n### Sub\n\n::graph-stat\n---\ntitle: x\n---\n::\n\n### Sub two\n\n## B\nb';
+  const replaced = replaceSectionText(text, '## A', 'new', 'note');
+  expect(replaced.previous).toBe('### Sub\n\n::graph-stat\n---\ntitle: x\n---\n::\n\n### Sub two');
+  expect(replaced.text).toBe('## A\n\nnew\n\n## B\nb');
+});
+
+test('a long paragraph of figure-like lines is read in linear time', () => {
+  const lines = Array.from({length: 8000}, (_, i) => i % 2 ? '::graph-stat' : `line ${i}`).join('\n');
+  const started = performance.now();
+  markdownSourceTokens(`${lines}\n---\n`);
+  expect(performance.now() - started).toBeLessThan(1500);
+});
+
+test('ordinary prose and unclosed openers read in linear time, as plain marked does', () => {
+  const time = (text: string) => { const t = performance.now(); markdownSourceTokens(text); return performance.now() - t; };
+  // Paragraphs without a figure: a component's start hook must not search the rest of the note for each one.
+  expect(time('A line of prose\nand its second line\n\n'.repeat(20_000))).toBeLessThan(2500);
+  // Openers that open nothing are plain text: no cut at each, no re-read of the paragraph.
+  expect(time('::a\n'.repeat(8000))).toBeLessThan(2500);
+  expect(time('word\n::a\n'.repeat(4000))).toBeLessThan(2500);
+});
+
+test('an opener that opens nothing stays in its paragraph, and a figure after it still ends the paragraph', () => {
+  expect(markdownSourceTokens('a\n::x\nb\n::graph-stat\n---\ntitle: t\n---\n::\n').map(node => node.token.type)).toEqual(['paragraph', 'component']);
 });

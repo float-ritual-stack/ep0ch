@@ -5,11 +5,11 @@
 
 /** Every first word main.ts runs as a command. */
 export const COMMANDS = ["help", "doctor", "install", "try", "find", "show", "new", "export", "where", "session", "peek", "snap", "open",
-  "actions", "act", "subscribe", "outline", "status", "init", "clients"] as const;
+  "actions", "act", "subscribe", "outline", "status", "init", "clients", "view"] as const;
 const KNOWN = new Set<string>(COMMANDS);
 
 /** Commands whose words are data (a search, an id, an action's arguments): `help` there is a word, not a request. */
-const FREE_TEXT = new Set(["find", "show", "new", "open", "act", "export", "snap", "try"]);
+const FREE_TEXT = new Set(["find", "show", "new", "open", "act", "export", "snap", "try", "view"]);
 
 /**
  * The door's flags (main.ts's USAGE): `value` takes one, `optional` may (`--board [<hub-id>]`), `none` takes none;

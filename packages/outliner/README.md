@@ -1952,9 +1952,14 @@ Adding siblings and indenting/outdenting projected rows remain disabled.
 
 Each branch reserves its bounded, deduplicated roots before allocating contextual
 descendants in root/canonical-preorder order. Unsorted branches apply persisted
-manual ranks before the limit. `[sort::created]` and `[sort::updated]` instead
-order the complete match set by timestamp before limiting; `[direction::asc]` or
-`[direction::desc]` chooses the direction and defaults to `desc`. Roots and
+manual ranks before the limit (the hand-set order: Tree's alt+↑/↓, the door's
+`card.reorder`, `ep0ch view order`). `[sort::created]` and `[sort::updated]`
+instead order the complete match set by timestamp before limiting, and
+`[sort::<key>]` (`[sort::due]`) by that property: numbers as numbers and before
+text, text without case, blocks without it last in either direction;
+`[sort::property:created]` names a property called created or updated.
+`[direction::asc]` or `[direction::desc]` (any case) chooses the direction and
+defaults to `desc`; a bad sort or direction is a configuration error naming the fix. Roots and
 context share a 1,000-row budget. Nested virtual branches compose through at
 most four branch boundaries, with cycle detection. Root-query, depth, and
 row-budget truncation are reported separately, and allocation does not depend

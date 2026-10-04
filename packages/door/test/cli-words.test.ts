@@ -103,3 +103,8 @@ describe("the word lists say what the code reads", () => {
     for (const f of flags) expect(checkWords([f, "x"]) ?? { ok: f }).not.toMatchObject({ error: expect.stringContaining("no flag") });
   });
 });
+
+test("ep0ch view order is a command, its ids data; help names its usage", () => {
+  expect(checkWords(["view", "order", "PIE-12", "help"])).toBeNull();
+  expect(checkWords(["viw", "order"])).toEqual({ error: expect.stringContaining("did you mean: ep0ch view") });
+});

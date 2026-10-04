@@ -137,13 +137,21 @@ describe("virtual branch definitions", () => {
     const invalid = visibleBlock("invalid-sort", [
       { key: "type", value: "virtual-branch" },
       { key: "query", value: "status=Done" },
-      { key: "sort", value: "title" },
+      { key: "sort", value: "rank::" },
       { key: "direction", value: "newest" },
     ]);
     expect(parseVirtualBranchConfig(invalid, [invalid]).configurationErrors).toEqual([
-      "Virtual branch sort must be created or updated: title",
-      "Virtual branch direction must be asc or desc: newest",
+      "Virtual branch: Sort by rank, not rank::: a sort is created, updated or a property key",
+      "Virtual branch direction must be asc or desc, not newest: write [direction::asc] or [direction::desc]",
     ]);
+
+    const byRank = visibleBlock("rank-sort", [
+      { key: "type", value: "virtual-branch" },
+      { key: "query", value: "status=Done" },
+      { key: "sort", value: "Backlog-Rank" },
+      { key: "direction", value: "ASC" },
+    ]);
+    expect(parseVirtualBranchConfig(byRank, [byRank]).config?.sort).toEqual({ field: "backlog-rank", direction: "asc" });
 
     const orphanDirection = visibleBlock("orphan-direction", [
       { key: "type", value: "virtual-branch" },

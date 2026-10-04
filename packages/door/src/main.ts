@@ -15,6 +15,7 @@ import { forwardTo, remoteDoor, remoteOf } from "./machine";
 import { findCommand, NOTES_USAGE, showCommand } from "./notes-cli";
 import { EXPORT_USAGE } from "./export";
 import { NEW_USAGE, newCommand } from "./new-cli";
+import { VIEW_USAGE, viewCommand } from "./view-cli";
 import { showcaseTry } from "./showcase/route";
 import { checkWords, usageFor } from "./cli-words";
 import { colourOnlyToATerminal } from "@ep0ch/outliner/plain-stderr";
@@ -95,6 +96,7 @@ const USAGE = `ep0ch: a BBS door into an outline
                                    the door on a private copy, or on the showcase outline (scripts/try-it.sh)
 ${NOTES_USAGE}
 ${NEW_USAGE}
+${VIEW_USAGE}
 ${EXPORT_USAGE}
   ep0ch clients [--ws <name>] [--machine <ssh-name>]
                                    who is connected to the service, every role (observers too)
@@ -149,6 +151,7 @@ if (tryArgs) {
 if (args[0] === "find") process.exit(await findCommand(args));
 if (args[0] === "show") process.exit(await showCommand(args));
 if (args[0] === "new") process.exit(await newCommand(args));
+if (args[0] === "view") process.exit(await viewCommand(args));
 if (args[0] === "export") { const { exportCommand } = await import("./export"); process.exit(await exportCommand(args)); }
 if (args[0] === "where") process.exit(await whereCommand(args.slice(1)));
 if (args[0] === "session") process.exit(await sessionCommand(args.slice(1)));

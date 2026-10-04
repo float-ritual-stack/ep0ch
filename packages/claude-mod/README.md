@@ -313,6 +313,7 @@ comes back as the tool's error with the reason.
 | `outline_reply` | `thread`, `body` | the `reply` id |
 | `outline_resolve_thread` | `thread`, `resolved` | the thread's `lifecycle` |
 | `outline_changes` | `since` (an ISO time or a returned `cursor`), `author?`, `actor?`, `limit?`, `before?` | each changed block once, newest first, with who changed it; `complete`, with `before` for the older page when it is false; the next `cursor` |
+| `view_order` | `view` (id, `((id))` or `[[page]]`), `ids?` (block ids, `((id))`s or Work IDs) | the view's hand-set order (`{view, ref, order: [{id, title, workId?}]}`); with `ids`, those members first in that order, the rest after them as they were, recorded as the agent. A sorted view refuses, naming the `[sort::]` to remove |
 | `outline_patch` | `ref`, `revision`, `patches: [{observed, replacement}]`, `mark?`, `policy?` (`edit`, the default, or `prose`), `allowStructural?` | `draft.patch`'s outcome: `applied`, or `proposed` with the reason |
 
 A `ref` is a block id, `((id))`, `[[page]]` or a Work ID. A title is refused:
