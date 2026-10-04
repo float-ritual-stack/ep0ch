@@ -183,6 +183,16 @@ test('replaceSection replaces a section that holds a component block, figure inc
   expect(replaced.text).toBe('Review note\n\n## Since last review\n\nnew body\n\n## Rounds\n\nround one');
 });
 
+test('replaceSection keeps one figure when a ~~~ line sits inside its ``` fence', () => {
+  for (const figure of [
+    '::graph-annotate\n---\ntitle: x\n---\n```sh\n~~~\n# (1) close the tap\n```\n1. the tap\n::',
+    '::graph-stat\n---\ntitle: x\n---\n```\n~~~\n## Not a heading\n```\n::',
+  ]) {
+    const replaced = replaceSectionText(`## A\n\n${figure}\n\n## B\nb`, '## A', 'new', 'note');
+    expect(replaced.text).toBe('## A\n\nnew\n\n## B\nb');
+  }
+});
+
 test('an unclosed component line stays plain markdown', () => {
   expect(documentFolds('# Top\n\n::graph-stat\n---\n\ntext').filter(fold => fold.structure === 'heading').length).toBe(2);
 });

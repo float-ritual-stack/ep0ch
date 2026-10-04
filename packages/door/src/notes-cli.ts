@@ -21,6 +21,7 @@ import { linksSource, listenLinks, setLinksSource } from "./links";
 import { resolveTarget } from "./discover";
 import { redundantLabel } from "./authored";
 import { forwardTo } from "./machine";
+import { sh } from "./setup/links";
 import { summarySegments } from "./props";
 import { previewTitle, SocketBoard, type IndexBlock } from "./socket";
 import { readState } from "./state";
@@ -282,8 +283,13 @@ export async function findCommand(argsIn: string[], io: Out = { out: console.log
   const treeAt = args.indexOf("--tree"), tree = treeAt >= 0;
   const root = tree && args[treeAt + 1] !== undefined && !args[treeAt + 1]!.startsWith("--") ? blockIdOf(args[treeAt + 1]!) : undefined;
   const words = without(picked.rest, ["--ws", "--machine", ...(root !== undefined ? ["--tree"] : [])], ["--lines", "--json", "--recent", "--tree", "--ids"]);
-  if (recent && (words.length || asked)) { io.err("ep0ch: find --recent takes no words, --query, --view or --under"); return 2; }
-  if (tree && (recent || words.length || asked)) { io.err("ep0ch: find --tree takes a root id at most, and no words, --recent, --query, --view or --under (find --under <id> lists a subtree in outline order)"); return 2; }
+  // --recent and --tree keep their own order: a refusal names what it was given and the same find without them (a
+  // --tree root becomes --under, which lists a subtree in outline order).
+  const given = [...(recent && tree ? ["--recent"] : []), ...(words.length ? ["words"] : []), ...SELECT_FLAGS.filter(f => args.includes(f))];
+  const instead = () => ["ep0ch", "find", ...(root !== undefined && !sel.under ? ["--under", root] : []),
+    ...args.filter((a, i) => a !== "--recent" && a !== "--tree" && !(args[i - 1] === "--tree" && !a.startsWith("--")))].map(sh).join(" ");
+  if (recent && !tree && (words.length || asked)) { io.err(`ep0ch: find --recent takes no ${given.join(", ")}; without it: ${instead()}`); return 2; }
+  if (tree && (recent || words.length || asked)) { io.err(`ep0ch: find --tree takes no ${given.join(", ")} (a root id at most); without it: ${instead()}`); return 2; }
   const unknown = words.find(w => w.startsWith("--"));
   if (unknown) { io.err(`ep0ch: find doesn't take ${unknown}\n${NOTES_USAGE}`); return 2; }
   const board = await boardFor(args);

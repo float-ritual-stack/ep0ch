@@ -15,7 +15,8 @@ export const COMPONENT_CLOSE = /^[ \t]*::[ \t]*$/;
 /** A Markdown heading (`## Rounds`): outside a component's YAML or code fence it ends the component unclosed. */
 const HEADING = /^ {0,3}#{1,6}(?:[ \t]|$)/;
 const YAML_FENCE = /^ {0,3}---[ \t]*$/;
-const CODE_FENCE = /^ {0,3}(?:```|~~~)/;
+/** A code fence's opening line: its run of backticks or tildes (an info string after backticks has none). */
+const CODE_FENCE = /^ {0,3}(`{3,}(?!.*`)|~{3,})/;
 
 /**
  * The component block that starts at the beginning of `source`: its name and its raw text through the closing
@@ -30,24 +31,31 @@ export function componentBlockAt(source: string): { name: string; raw: string } 
   if (!open) return null;
   const oneLine = { name: open[1]!, raw: source.slice(0, firstEnd < 0 ? source.length : firstEnd + 1) };
   if (firstEnd < 0) return open[2] ? oneLine : null;
-  let at = firstEnd + 1, fence: "yaml" | "code" | null = null, yamlSeen = false;
+  // `fence` is "yaml" in the YAML, or a code fence's opening run (```, ~~~~): only that character, as many or more, closes it.
+  let at = firstEnd + 1, fence: string | null = null, yamlSeen = false;
   while (at < source.length) {
     const next = source.indexOf("\n", at);
     const end = next < 0 ? source.length : next;
     const line = source.slice(at, end).replace(/\r$/, "");
     // `::` alone closes it anywhere but in a code fence (it isn't YAML); a heading only outside both fences.
-    if (fence !== "code" && COMPONENT_CLOSE.test(line)) return { name: open[1]!, raw: source.slice(0, next < 0 ? end : end + 1) };
+    if ((fence === null || fence === "yaml") && COMPONENT_CLOSE.test(line)) return { name: open[1]!, raw: source.slice(0, next < 0 ? end : end + 1) };
     if (fence === "yaml") { if (YAML_FENCE.test(line)) fence = null; }
-    else if (fence === "code") { if (CODE_FENCE.test(line)) fence = null; }
+    else if (fence !== null) { if (closesFence(line, fence)) fence = null; }
     else {
       if (open[2] && !line.trim()) break;
       // A heading, or another component's first line, before a closing `::`: this one is unclosed (and the scan
       // stays linear: each opener reads at most to the next one).
       if (HEADING.test(line) || COMPONENT_OPEN.test(line)) break;
       if (YAML_FENCE.test(line) && !yamlSeen) { fence = "yaml"; yamlSeen = true; }
-      else if (CODE_FENCE.test(line)) fence = "code";
+      else { const code = CODE_FENCE.exec(line); if (code) fence = code[1]!; }
     }
     at = end + 1;
   }
   return open[2] ? oneLine : null;
+}
+
+/** A line that closes the code fence `opened` (CommonMark): the same character, at least as many, then only spaces. */
+function closesFence(line: string, opened: string): boolean {
+  const run = /^ {0,3}(`+|~+)[ \t]*$/.exec(line)?.[1];
+  return !!run && run[0] === opened[0] && run.length >= opened.length;
 }

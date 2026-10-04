@@ -138,6 +138,17 @@ describe.skipIf(!outliner)("ep0ch find and export against a scratch host", () =>
     expect([sideways.code, plain(sideways.err)]).toEqual([1, expect.stringContaining("Sort direction is asc or desc, not sideways")]);
     expect(plain((await run(["find", "--direction", "asc"], env)).err)).toContain("--direction orders a --sort");
     expect(plain((await run(["find", "--view", ids.view!, "--sort", "rank"], env)).err)).toContain(`ep0ch view order ${ids.view}`);
+    // --recent and --tree have their own order: the refusal names --sort and gives the command that sorts.
+    const recent = await run(["find", "--recent", "--sort", "due"], env);
+    expect([recent.code, plain(recent.err)]).toEqual([2, expect.stringContaining("find --recent takes no --sort")]);
+    expect(plain(recent.err)).toContain("ep0ch find --sort due");
+    const tree = await run(["find", "--tree", ids.plot!, "--sort", "rank", "--direction", "desc"], env);
+    expect([tree.code, plain(tree.err)]).toEqual([2, expect.stringContaining("find --tree takes no --sort")]);
+    expect(plain(tree.err)).toContain("find --tree takes no --sort, --direction");
+    expect(plain(tree.err)).toContain(`ep0ch find --under ${ids.plot} --sort rank --direction desc`);
+    // A second --tree root is dropped with its flag, never left as a search word; a ~ is quoted, never expanded.
+    const twice = await run(["find", "--tree", ids.plot!, "--tree", ids.order!, "--sort", "~rank"], env);
+    expect(plain(twice.err)).toContain(`without it: ep0ch find --under ${ids.plot} --sort '~rank'\n`);
   }, 30_000);
 
   test("find --view: the view's members, in its order; with --under, only those under it", async () => {

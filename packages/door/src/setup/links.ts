@@ -93,8 +93,8 @@ export function linkWork(links: readonly OwnedLink[], stale: readonly StaleLink[
   };
 }
 
-/** A path as a shell word: quoted only when it needs it. */
-export const sh = (p: string) => (/^[\w@%+=:,./~-]+$/.test(p) ? p : `'${p.replace(/'/g, `'\\''`)}'`);
+/** A path as a shell word: quoted only when it needs it (a `~` anywhere is quoted, so the shell never expands it). */
+export const sh = (p: string) => (/^[\w@%+=:,./-]+$/.test(p) ? p : `'${p.replace(/'/g, `'\\''`)}'`);
 
 /** The commands for one link, as a person would type them. */
 export const lnCommand = (src: string, dest: string, replace = false) => `ln -s${replace ? "fn" : ""} ${sh(src)} ${sh(dest)}`;
