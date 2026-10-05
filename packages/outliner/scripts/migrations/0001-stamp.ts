@@ -103,8 +103,11 @@ export function stamp(path: string): { stamped: boolean; outlineInstanceId: stri
     if (differences.length > 0) {
       throw new Error(`${path} does not match schema version ${SCHEMA_VERSION}, so it was not stamped:\n- ${differences.join("\n- ")}`);
     }
-    const outlineInstanceId = insertOutlineInstanceId(database);
-    database.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
+    let outlineInstanceId = "";
+    database.transaction(() => {
+      outlineInstanceId = insertOutlineInstanceId(database);
+      database.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
+    })();
     return { stamped: true, outlineInstanceId };
   } finally {
     database.close();

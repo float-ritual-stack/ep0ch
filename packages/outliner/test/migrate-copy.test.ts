@@ -4,7 +4,7 @@ import { copyFileSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { importOutline } from "../src/outline-import";
-import { SCHEMA_VERSION } from "../src/schema";
+import { OUTLINE_INSTANCE_ID_KEY, SCHEMA_VERSION } from "../src/schema";
 import { OutlinerStore } from "../src/store";
 import { stamp } from "../scripts/migrations/0001-stamp";
 
@@ -43,9 +43,10 @@ test.skipIf(!SOURCE)("the stamp script, then the store, keep every row of a real
   const after = counts(copy);
   const changed = Object.keys({ ...before, ...after }).filter(table => before[table] !== after[table]);
   console.log(`stamp: ${KEY_TABLES.map(table => `${table} ${before[table]} -> ${after[table]}`).join(", ")}; ${Object.keys(before).length} tables, changed: ${changed.join(", ") || "none"}`);
-  expect(changed).toEqual([]);
+  expect(changed).toEqual(["metadata"]);
   const database = new Database(copy, { readonly: true });
   expect((database.query("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(SCHEMA_VERSION);
+  expect((database.query("SELECT value FROM metadata WHERE key = ?").get(OUTLINE_INSTANCE_ID_KEY) as { value: string } | null)?.value).toMatch(/^[0-9a-f-]{36}$/);
   database.close();
 });
 

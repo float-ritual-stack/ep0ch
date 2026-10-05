@@ -10,7 +10,7 @@
 import { Database } from "bun:sqlite";
 import { existsSync } from "node:fs";
 import { insertOutlineInstanceId, readOutlineInstanceId, SCHEMA_VERSION } from "../../src/schema";
-
+import { freshSchemaShape, schemaDifferences, schemaShape } from "./0001-stamp";
 export function migrate(path: string): { migrated: boolean; outlineInstanceId: string } {
   if (SCHEMA_VERSION !== 2) throw new Error(`This script upgrades to version 2; the schema is now version ${SCHEMA_VERSION}`);
   if (!existsSync(path)) throw new Error(`${path} does not exist`);
@@ -20,6 +20,10 @@ export function migrate(path: string): { migrated: boolean; outlineInstanceId: s
     const { user_version: version } = database.query("PRAGMA user_version").get() as { user_version: number };
     if (version === 2) return { migrated: false, outlineInstanceId: readOutlineInstanceId(database, path) };
     if (version !== 1) throw new Error(`${path} is schema version ${version}, not 1`);
+    const differences = schemaDifferences(schemaShape(database), freshSchemaShape());
+    if (differences.length > 0) {
+      throw new Error(`${path} does not match schema version 1, so it was not migrated:\n- ${differences.join("\n- ")}`);
+    }
     let outlineInstanceId = "";
     database.transaction(() => {
       outlineInstanceId = insertOutlineInstanceId(database);

@@ -1922,7 +1922,7 @@ export class OutlinerServer {
           result = visibleGotoResults(this.store.searchTree(request.query, request.contextBlockId));
           break;
         case "events.subscribe":
-          result = { subscribed: true, outlineInstanceId: this.store.outlineInstanceId, client: subscribedClient ?? request.client };
+          result = { subscribed: true, client: subscribedClient ?? request.client };
           break;
         case "changes.since":
           result = this.store.changes.since(request.sequence, request.limit);

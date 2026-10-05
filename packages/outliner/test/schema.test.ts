@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
 import { afterEach, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { importOutline } from "../src/outline-import";
@@ -41,10 +41,10 @@ test("a new file gets the schema, stamp and outline instance id", () => {
   const path = join(directory(), "outliner.sqlite");
   const store = new OutlinerStore(path);
   const id = store.outlineInstanceId;
-  expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+  expect(id).toMatch(/^[0-9a-f]{64}$/);
   store.close();
   expect(userVersion(path)).toBe(SCHEMA_VERSION);
-  expect(outlineInstanceId(path)).toBe(id);
+  expect(outlineInstanceId(path)).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
   const reopened = new OutlinerStore(path);
   expect(reopened.outlineInstanceId).toBe(id);
   expect(reopened.queryBlocks({ filters: [{ key: "system-view", value: "inbox" }], limit: 2 }).blocks).toHaveLength(1);
@@ -88,7 +88,7 @@ test("the stamp script stamps a database whose shape matches, column order and f
   expect(userVersion(path)).toBe(SCHEMA_VERSION);
   expect(stamp(path)).toEqual({ stamped: false, outlineInstanceId: stamped.outlineInstanceId });
   const store = new OutlinerStore(path);
-  expect(store.outlineInstanceId).toBe(stamped.outlineInstanceId);
+  expect(store.outlineInstanceId).toMatch(/^[0-9a-f]{64}$/);
   expect(store.create("Opens after the stamp").text).toBe("Opens after the stamp");
   store.close();
 });
@@ -105,8 +105,33 @@ test("the version 2 migration adds an outline instance id without touching block
   const after = readFileSync(path);
   expect(after.equals(before)).toBe(false);
   const store = new OutlinerStore(path);
-  expect(store.outlineInstanceId).toBe(migrated.outlineInstanceId);
+  expect(store.outlineInstanceId).toMatch(/^[0-9a-f]{64}$/);
   store.close();
+});
+test("the version 2 migration refuses a version 1 database whose shape differs", () => {
+  const path = join(directory(), "outliner.sqlite");
+  unstamped(path, database => database.exec(`
+    PRAGMA user_version = 1;
+    CREATE TABLE leftover_cache (id TEXT PRIMARY KEY);
+  `));
+  const before = readFileSync(path);
+  expect(() => migrate(path)).toThrow("does not match schema version 1");
+  expect(readFileSync(path).equals(before)).toBe(true);
+  expect(userVersion(path)).toBe(1);
+});
+
+
+test("a copied database file has a different outline file instance identity", () => {
+  const root = directory();
+  const source = join(root, "source.sqlite");
+  const target = join(root, "restored-copy.sqlite");
+  const first = new OutlinerStore(source);
+  const originalId = first.outlineInstanceId;
+  first.close();
+  copyFileSync(source, target);
+  const restored = new OutlinerStore(target);
+  expect(restored.outlineInstanceId).not.toBe(originalId);
+  restored.close();
 });
 
 test("the stamp script refuses a database whose shape differs, naming each difference", () => {
@@ -150,6 +175,7 @@ test("import makes a new outline with the blocks, properties, page addresses and
   const counts = (database: Database) => Object.fromEntries(["blocks", "block_properties", "page_addresses", "reserved_work_ids"].map(table =>
     [table, (database.query(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n]));
   const before = counts(store.database);
+  const sourceDatabaseId = outlineInstanceId(source);
   store.close();
   const sourceBytes = readFileSync(source);
 
@@ -158,6 +184,7 @@ test("import makes a new outline with the blocks, properties, page addresses and
   expect(report.notCarried).toHaveProperty("selection");
   expect(readFileSync(source).equals(sourceBytes)).toBe(true);
   expect(userVersion(target)).toBe(SCHEMA_VERSION);
+  expect(outlineInstanceId(target)).not.toBe(sourceDatabaseId);
 
   const imported = new OutlinerStore(target);
   const kinds = Object.fromEntries((imported.database.query("SELECT display_address, kind FROM page_addresses WHERE block_id = ?").all(page.id) as Array<{ display_address: string; kind: string }>)

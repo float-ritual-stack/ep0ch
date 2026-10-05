@@ -114,7 +114,7 @@ test("one socket serves two outlines, routed by the request's outline", async ()
   const fredPing = await ok<OutlinerServiceStatus>(host.socketPath, { action: "ping", outline: "fred" });
   expect(fredPing.outline?.name).toBe("fred");
   const bobPing = await ok<OutlinerServiceStatus>(host.socketPath, { action: "ping", outline: "bob" });
-  expect(fredPing.outlineInstanceId).toMatch(/^[0-9a-f-]{36}$/);
+  expect(fredPing.outlineInstanceId).toMatch(/^[0-9a-f]{64}$/);
   expect(bobPing.outlineInstanceId).not.toBe(fredPing.outlineInstanceId);
   expect(fredPing.host).toEqual({ socket: host.socketPath, defaultOutline: "bob", outlines: ["bob", "fred"] });
   // The outline is `<outlines>/fred.sqlite`, its own folder `<outlines>/fred/` beside it; the host's socket is private.

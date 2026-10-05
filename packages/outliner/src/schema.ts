@@ -785,7 +785,7 @@ export const SCHEMA_SQL = `
 
 const userVersion = (database: Database) => (database.query("PRAGMA user_version").get() as { user_version: number }).user_version;
 
-const OUTLINE_INSTANCE_ID_KEY = "outline_instance_id";
+export const OUTLINE_INSTANCE_ID_KEY = "outline_instance_id";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export function readOutlineInstanceId(database: Database, label = "This database"): string {

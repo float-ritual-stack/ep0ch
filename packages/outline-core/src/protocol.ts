@@ -87,7 +87,7 @@ export interface OutlinerServiceStatus {
   status: "ready";
   /** The service's PROTOCOL; a client refuses any other number (`protocolMismatch`). */
   protocolVersion: number;
-  /** Stable identity of this database instance; changes when an outline is restored, reset, imported or recreated. */
+  /** Opaque identity of this outline file instance; changes when an outline is restored, reset, imported or recreated. */
   outlineInstanceId?: string;
   location?: { hostname: string; workspaceRoot: string; database: string; stateDirectory: string };
   /** The outline answering. */
