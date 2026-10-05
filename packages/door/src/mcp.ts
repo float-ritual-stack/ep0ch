@@ -2,13 +2,13 @@
 // canonical ep0ch:// block resources and read/search/link tools; it never writes and never serves another outline's URI.
 import { createInterface } from "node:readline";
 import { boardFor, everyNote, type Found, type NotesBoard } from "./notes-cli";
-import { previewTitle } from "./socket";
-import { recordJson } from "@ep0ch/outline-core/block-record";
+import { previewTitle, type PublishReachability } from "./socket";
+import type { BlockRecord } from "@ep0ch/outline-core/block-record";
 import { formatEp0chBlockUri, parseAddressedBlock, parseEp0chBlockUri, type Ep0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
 
 export const MCP_USAGE = `  ep0ch mcp [--ws <name>] [--machine <ssh-name>]
-                                   read-only local MCP server on stdio for ep0ch:// block resources:
-                                   tools outline_read, outline_find, outline_links; resources/read for ep0ch://...`;
+                                   read-only local MCP server for published ep0ch:// block resources:
+                                   tools outline_read, outline_find, outline_links; resources/read with envelope`;
 
 type RpcId = string | number | null;
 interface RpcRequest { jsonrpc?: string; id?: RpcId; method?: string; params?: unknown }
@@ -60,13 +60,89 @@ function addressedBlock(board: Board, input: unknown): { id: string; uri: string
   } catch (e) { return { error: (e as Error).message }; }
 }
 
+const accessDenied = (access: PublishReachability) =>
+  `${access.id} is not reachable through the outline's publish access setting (${access.reason}). Add [publish::true] or [publish::public] to this block or an ancestor, unless [publish::never] locks it.`;
+
+
+async function publishedRecord(board: Board, id: string): Promise<{ access: PublishReachability; record: BlockRecord } | { error: string }> {
+  const r = await board.publishedRecords([id]);
+  const access = r.reachability[0];
+  if (!access) return { error: `${id} is not reachable through the outline's publish access setting (access status unavailable).` };
+  if (access.status !== "reachable") return { error: accessDenied(access) };
+  const record = r.records.find(row => row.id === id);
+  if (!record) return { error: `No block ${id} in ${board.address.outline}; ${r.unavailable[0]?.status ?? "missing"}.` };
+  return { access, record };
+}
+async function publishedRecordMap(board: Board, ids: readonly string[]): Promise<Map<string, BlockRecord>> {
+  const out = new Map<string, BlockRecord>();
+  const unique = [...new Set(ids)];
+  for (let i = 0; i < unique.length; i += 200) {
+    const read = await board.publishedRecords(unique.slice(i, i + 200));
+    for (const record of read.records) out.set(record.id, record);
+  }
+  return out;
+}
+
+
+
+async function reachableIds(board: Board, ids: readonly string[]): Promise<Map<string, PublishReachability>> {
+  const out = new Map<string, PublishReachability>();
+  const unique = [...new Set(ids)];
+  for (let i = 0; i < unique.length; i += 200) {
+    for (const access of await board.publishAccess(unique.slice(i, i + 200))) if (access.status === "reachable") out.set(access.id, access);
+  }
+  return out;
+}
+
+async function exposedRecord(board: Board, record: BlockRecord): Promise<BlockRecord> {
+  const linkTargets = record.links.flatMap(link => link.target ? [link.target] : []);
+  const ids = [...(record.parent ? [record.parent] : []), ...record.children, ...record.backlinks, ...linkTargets];
+  if (!ids.length) return record;
+  const reachable = await reachableIds(board, ids);
+  const parent = record.parent && reachable.has(record.parent) ? record.parent : null;
+  const children = record.children.filter(id => reachable.has(id));
+  const backlinks = record.backlinks.filter(id => reachable.has(id));
+  const links = record.links.filter(link => link.target ? reachable.has(link.target) : link.status === "unregistered-page");
+  return parent === record.parent && children.length === record.children.length && backlinks.length === record.backlinks.length && links.length === record.links.length
+    ? record
+    : { ...record, parent, children, backlinks, links };
+}
+
+
+const envelope = (board: Board, uri: string, reachability: PublishReachability, record: unknown, revision: number | undefined) => ({
+  uri,
+  outlineInstanceId: board.outlineInstanceId,
+  revision: revision ?? reachability.revision,
+  reachability,
+  record,
+});
+
+async function publishedRows(board: Board, candidates: Found[], limit: number, sourceIncomplete: boolean): Promise<{ rows: Found[]; completeness: { kind: string; limit?: number } }> {
+  const reachable: Found[] = [];
+  let exhausted = true;
+  for (let i = 0; i < candidates.length; i += 200) {
+    const chunk = candidates.slice(i, i + 200);
+    const read = await board.publishedRecords(chunk.map(row => row.id));
+    const access = new Set(read.reachability.filter(row => row.status === "reachable").map(row => row.id));
+    const records = new Map(read.records.map(record => [record.id, record]));
+    for (const row of chunk) {
+      const record = records.get(row.id);
+      if (access.has(row.id) && record) reachable.push({ id: row.id, title: previewTitle(record.title), path: previewTitle(record.title), uri: row.uri });
+    }
+    if (reachable.length > limit) { exhausted = false; break; }
+  }
+  return {
+    rows: reachable.slice(0, limit),
+    completeness: reachable.length > limit || sourceIncomplete || !exhausted ? { kind: "limited", limit } : { kind: "complete" },
+  };
+}
+
 async function readRecord(board: Board, input: unknown): Promise<ToolResult> {
   const target = addressedBlock(board, input);
   if ("error" in target) return toolError(target.error);
-  const { records, unavailable } = await board.records([target.id]);
-  const record = records[0];
-  if (!record) return toolError(`No block ${target.id} in ${board.address.outline}; ${unavailable[0]?.status ?? "missing"}.`);
-  return toolText(recordJson([{ uri: target.uri, ...record }]).trimEnd());
+  const read = await publishedRecord(board, target.id);
+  if ("error" in read) return toolError(read.error);
+  return toolText(envelope(board, target.uri, read.access, await exposedRecord(board, read.record), read.record.revision));
 }
 
 async function findBlocks(board: Board, args: Record<string, unknown>): Promise<ToolResult> {
@@ -75,12 +151,16 @@ async function findBlocks(board: Board, args: Record<string, unknown>): Promise<
   let rows: Found[], completeness: { kind: string; limit?: number }, semantic: unknown;
   if (query) {
     const found = await board.searchBlocks(query);
-    rows = found.matches.slice(0, limit).map(m => ({ id: m.block.id, title: m.title, path: m.path, uri: blockUri(board, m.block.id) }));
-    completeness = found.completeness;
+    const candidates = found.matches.map(m => ({ id: m.block.id, title: m.title, path: m.path, uri: blockUri(board, m.block.id) }));
+    const published = await publishedRows(board, candidates, limit, found.completeness.kind !== "complete");
+    rows = published.rows;
+    completeness = published.completeness;
     semantic = found.semantic;
   } else {
-    rows = everyNote(await board.index()).slice(0, limit).map(f => ({ ...f, uri: blockUri(board, f.id) }));
-    completeness = { kind: rows.length < limit ? "complete" : "limited", limit };
+    const candidates = everyNote(await board.index()).map(f => ({ ...f, uri: blockUri(board, f.id) }));
+    const published = await publishedRows(board, candidates, limit, false);
+    rows = published.rows;
+    completeness = published.completeness;
   }
   return toolText({ outline: board.address.outline, machine: board.address.machine, query, limit, completeness, ...(semantic ? { semantic } : {}), matches: rows });
 }
@@ -88,19 +168,36 @@ async function findBlocks(board: Board, args: Record<string, unknown>): Promise<
 async function linkData(board: Board, input: unknown, limitInput: unknown): Promise<ToolResult> {
   const target = addressedBlock(board, input);
   if ("error" in target) return toolError(target.error);
+  const read = await publishedRecord(board, target.id);
+  if ("error" in read) return toolError(read.error);
   const limit = clampLimit(limitInput, 50, 200);
-  const [{ records, unavailable }, backlinks] = await Promise.all([board.records([target.id]), board.backlinks(target.id, limit)]);
-  const record = records[0];
-  if (!record) return toolError(`No block ${target.id} in ${board.address.outline}; ${unavailable[0]?.status ?? "missing"}.`);
-  return toolText({ uri: target.uri, id: target.id, title: previewTitle(record.title), links: record.links, resources: record.resources, backlinks: backlinks.sources, completeness: backlinks.completeness });
+  const backlinks = await board.backlinks(target.id, 1000);
+  const record = read.record;
+  const linkTargets = record.links.flatMap(link => link.target ? [link.target] : []);
+  const backlinkIds = backlinks.sources.map(source => source.blockId).filter((id): id is string => typeof id === "string");
+  const [reachable, currentBacklinks] = await Promise.all([reachableIds(board, linkTargets), publishedRecordMap(board, backlinkIds)]);
+  const reachableBacklinks = backlinkIds.flatMap(id => {
+    const backlink = currentBacklinks.get(id);
+    return backlink ? [{ blockId: id, title: previewTitle(backlink.title), parentContext: "", createdAt: backlink.created, updatedAt: backlink.updated, occurrenceCount: 1, referenceGroups: [], occurrences: [], occurrencesTruncated: true }] : [];
+  });
+  return toolText({
+    uri: target.uri,
+    id: target.id,
+    title: previewTitle(record.title),
+    reachability: read.access,
+    links: record.links.filter(link => link.target ? reachable.has(link.target) : link.status === "unregistered-page"),
+    resources: record.resources,
+    backlinks: reachableBacklinks.slice(0, limit),
+    completeness: reachableBacklinks.length > limit || backlinks.completeness.kind !== "complete" ? { kind: "truncated", limit } : { kind: "complete" },
+  });
 }
 
 async function resourceRead(board: Board, uriValue: unknown): Promise<unknown> {
   const target = addressedBlock(board, uriValue);
   if ("error" in target) throw invalidParams(target.error);
-  const msg = await board.get(target.id);
-  if (!msg) throw new RpcError(-32002, `No block ${target.id} in ${board.address.outline}.`);
-  return { contents: [{ uri: target.uri, mimeType: "text/markdown", text: msg.text }] };
+  const read = await publishedRecord(board, target.id);
+  if ("error" in read) throw new RpcError(-32002, read.error);
+  return { ...envelope(board, target.uri, read.access, await exposedRecord(board, read.record), read.record.revision), contents: [{ uri: target.uri, mimeType: "text/markdown", text: read.record.text }] };
 }
 
 
@@ -113,17 +210,17 @@ const oneAddressSchema = {
 const tools = [
   {
     name: "outline_read",
-    description: "Read one block in the bound outline as a block record JSON document. Input: exactly one of uri or ref.",
+    description: "Read one published block in the bound outline as an enveloped block record JSON document. Input: exactly one of uri or ref.",
     inputSchema: oneAddressSchema,
   },
   {
     name: "outline_find",
-    description: "Search the bound outline with the same ranker as ep0ch find. Empty query lists recent/index rows.",
+    description: "Search the bound outline with the same ranker as ep0ch find, returning only blocks reachable through the publish access rule. Empty query lists recent/index rows.",
     inputSchema: { type: "object", properties: { query: { type: "string" }, limit: { type: "number" } }, additionalProperties: false },
   },
   {
     name: "outline_links",
-    description: "Read a block's authored outlinks, resources and backlinks. Input: exactly one of uri or ref.",
+    description: "Read a published block's authored outlinks, resources and backlinks. Input: exactly one of uri or ref.",
     inputSchema: { ...oneAddressSchema, properties: { ...oneAddressSchema.properties, limit: { type: "number" } } },
   },
 ];

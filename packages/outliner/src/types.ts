@@ -1721,6 +1721,9 @@ export type OutlinerRequestAction =
   | { id: string; action: "blocks.read"; ids: string[]; fields?: BlockReadField[] }
   /** Blocks as records (outline-core's block-record.ts: properties, header, children, tasks, links, backlinks, resources). Reads only. */
   | { id: string; action: "blocks.records"; ids: string[] }
+  /** Service-owned publication reachability for external read surfaces. Uses `[publish::…]` and `[publish::never]`. */
+  | { id: string; action: "publish.access"; ids: string[] }
+  | { id: string; action: "publish.records"; ids: string[] }
   | ({ id: string; action: "views.read"; viewId: string; format?: "full" | "tree" } & SavedViewReadOptions)
   /** Capability `views.planWrite`: what a move of `blockId` into each view, or a new block with `text`, must change. Reads only. */
   | ({ id: string; action: "views.planWrite" } & ViewWritePlanRequest)

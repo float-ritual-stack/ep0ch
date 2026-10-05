@@ -3,11 +3,11 @@
 //
 // PROTOCOL is the one compatibility check: `ping` reports the service's number and a client refuses a service
 // whose number differs from its own. Bump it with any change to the wire (an action, a field, a meaning) and
-// with any change to what outline-core's shared modules match or compute (the property grammar, the
+// with any change to what outline-core's shared modules match or compute (the property grammar,
 // draft.patch compare, the search matcher), since a long-running service and a remote door can run different
 // checkouts.
 /** The wire protocol both sides of this checkout speak. */
-export const PROTOCOL = 92;
+export const PROTOCOL = 94;
 
 /**
  * Why a service speaking `serviceProtocol` can't serve this client, in words that name both numbers and the side
