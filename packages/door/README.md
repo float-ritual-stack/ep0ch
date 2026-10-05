@@ -593,6 +593,7 @@ split, tab, drag, link and save, drawn by the door itself, so no multiplexer is 
 | click a drawer's handle (`⇤ tree`, hint row) | slide it open |
 | click the `⧉` before a float's title | put it back in the layout (`tile.float`, as `^W f` and the board's `o`); the cell either side of it counts |
 | click the `⧉` in the focused tile's top right corner | float it (`tile.float`, as `^W f`) |
+| click the `×` in a tile's top right corner | close it (`tile.close`, as `^W x`), your keys staying where they are; a tile with a running program asks twice. A tile its container keeps (the board's lanes, the river's library) has none, and a drawer's tile closes by the drawer's `[×]` |
 | drag a tile's header onto the status bar's dock chip (`▲ claude`) or the open dock | dock it: it joins the dock as a tab and travels with you across screens (`host.dock`); the chip lights up `⤓ dock <tile>` while you're over it |
 | drag a dock tab's title out over the screen | undock it there, by the same drop zones as any tile (`host.dock on=false to= where=`) |
 | while dragging a tile: `a`, `f`, `p` | dock it, float it, put it in a drawer (`host.dock`, `tile.float`, `tile.pin`: what `^W a`, `^W f`, `^W p` run) |

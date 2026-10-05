@@ -94,7 +94,7 @@ describe.skipIf(!outliner)("the desk's keys, clicks and typing reach the layout'
     render();
     const r = get().tiles.find(t => t.name === "activity")!.rect;
     const click = (x: number, y: number) => { key({ kind: "mouse", action: "down", button: 0, x, y }); key({ kind: "mouse", action: "up", button: 0, x, y }); };
-    click(r.col + r.cols - 3, r.row);                                       // the ⧉ in its top right corner
+    click(r.col + r.cols - 4, r.row);                                       // the ⧉ in its top right corner, before its ×
     await until(() => floats().includes("activity"), "the corner ⧉ floats it");
     render();
     const f = get().floats[0].rect;
@@ -112,6 +112,19 @@ describe.skipIf(!outliner)("the desk's keys, clicks and typing reach the layout'
     await until(() => { render(); return !marked(); }, "a click on the label dismisses the mark");
     expect(D().floatDrag).toBeNull();
     await mine("tile.float", {}, "reader");
+  });
+
+  test("a tile's × closes it by mouse (tile.close, as ^W x), the keys staying where they were", async () => {
+    fresh();
+    await mine("tile.focus", {}, "reader");
+    render();
+    const r = get().tiles.find(t => t.name === "activity")!.rect;
+    const corner = (D().closeButtons as any[]).find(b => D().nameOf(b.id) === "activity");
+    expect(corner).toMatchObject({ row: r.row, from: r.col + r.cols - 2 });
+    const click = (x: number, y: number) => { key({ kind: "mouse", action: "down", button: 0, x, y }); key({ kind: "mouse", action: "up", button: 0, x, y }); };
+    click(r.col + r.cols - 2, r.row);
+    await until(() => !treeNames().includes("activity"), "the × closes the activity tile");
+    expect(get().focus).toBe("reader");
   });
 
   test("a tiny terminal: the keys leave a tile with no room, and a float is drawn on the screen", async () => {

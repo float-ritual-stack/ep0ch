@@ -136,7 +136,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
   }),
   "tile.close": def({
     summary: "close tile=<tile>: a program in it is ended. On the board a detail or a float closes, a drawer's tile shuts its drawer, and the lanes and the preview stay (closable off); the river's library stays (closable off). Refused while it holds an edit or a comment, and to an agent for the tile that has the person's keys",
-    keys: "^W x; board x, esc q on a drawer",
+    keys: "^W x, or a click on the × in its top right corner; board x, esc q on a drawer",
     touches: "shape", replay: "ask", says: r => `closed ${r.tile}`,
     args: {},
     run(_, { d, reader }, actor) {

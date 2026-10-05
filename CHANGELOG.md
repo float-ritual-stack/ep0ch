@@ -53,6 +53,11 @@ move into one repository (PIE-530).
 - **Television (optional).** With `tv` on your PATH, `ep0ch install --apply` links the outline's channels into
   television's cable folder.
 
+### Close a tile with a click
+
+Every tile that can close has a `×` in its top right corner: a click closes it (`tile.close`, as `^W x`) without
+moving your keys there first. A tile with a running program asks twice, as `^W x` does.
+
 ### Fixed: ctrl+n replaced the note you were reading
 
 A new note made with `ctrl+n` in a detail opens in a detail beside it (as `O` opens one), on the board in a new
