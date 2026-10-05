@@ -30,6 +30,20 @@ function makeStore(): OutlinerStore {
   return store;
 }
 
+test("local MCP access defaults to none and persists explicit outline grants", () => {
+  let store = makeStore();
+  const directory = stores.at(-1)!.directory;
+  const path = join(directory, "outliner.sqlite");
+  expect(store.mcpAccessStatus()).toMatchObject({ level: "none", canRead: false });
+  const configured = store.configureMcpAccess("read");
+  expect(configured).toMatchObject({ level: "read", canRead: true, sequence: expect.any(Number) });
+  expect(() => store.configureMcpAccess("publish")).toThrow("MCP access level");
+  store.close();
+  store = new OutlinerStore(path);
+  stores.at(-1)!.store = store;
+  expect(store.mcpAccessStatus()).toMatchObject({ level: "read", canRead: true });
+});
+
 test("checklist queries correlate each mark and its own indexed properties without creating IDs", () => {
   const store = makeStore();
   const source = [

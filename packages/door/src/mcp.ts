@@ -1,14 +1,16 @@
 // A read-only local MCP server over stdio for the outline this process can already open. It exposes only
 // canonical ep0ch:// block resources and read/search/link tools; it never writes and never serves another outline's URI.
 import { createInterface } from "node:readline";
-import { boardFor, everyNote, type Found, type NotesBoard } from "./notes-cli";
-import { previewTitle, type PublishReachability } from "./socket";
+import { boardFor, canonicalLocalMachineName, everyNote, type Found, type NotesBoard } from "./notes-cli";
+import { previewTitle, type McpAccessStatus, type McpReachability, type McpAccessLevel } from "./socket";
 import type { BlockRecord } from "@ep0ch/outline-core/block-record";
 import { formatEp0chBlockUri, parseAddressedBlock, parseEp0chBlockUri, type Ep0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
 
 export const MCP_USAGE = `  ep0ch mcp [--ws <name>] [--machine <ssh-name>]
-                                   read-only local MCP server for published ep0ch:// block resources:
-                                   tools outline_read, outline_find, outline_links; resources/read with envelope`;
+                                   read-only local MCP server for ep0ch:// block resources after \`ep0ch mcp access read\`:
+                                   tools outline_read, outline_find, outline_links; resources/read with envelope
+  ep0ch mcp access [none|read|propose|full] [--json] [--ws <name>] [--machine <ssh-name>]
+                                   show or set this outline's persisted local MCP access grant`;
 
 type RpcId = string | number | null;
 interface RpcRequest { jsonrpc?: string; id?: RpcId; method?: string; params?: unknown }
@@ -60,144 +62,97 @@ function addressedBlock(board: Board, input: unknown): { id: string; uri: string
   } catch (e) { return { error: (e as Error).message }; }
 }
 
-const accessDenied = (access: PublishReachability) =>
-  `${access.id} is not reachable through the outline's publish access setting (${access.reason}). Add [publish::true] or [publish::public] to this block or an ancestor, unless [publish::never] locks it.`;
+const ACCESS_LEVELS = ["none", "read", "propose", "full"] as const satisfies readonly McpAccessLevel[];
 
+const accessRefusal = (board: Board, level: McpAccessLevel) => {
+  const machine = board.address.machine === canonicalLocalMachineName() ? "" : ` --machine ${board.address.machine}`;
+  return `local MCP access is ${level} for ${board.address.outline}; run \`ep0ch mcp access read --ws ${board.address.outline}${machine}\` to grant read-only local MCP access for this outline.`;
+};
 
-async function publishedRecord(board: Board, id: string): Promise<{ access: PublishReachability; record: BlockRecord } | { error: string }> {
-  const r = await board.publishedRecords([id]);
-  const access = r.reachability[0];
-  if (!access) return { error: `${id} is not reachable through the outline's publish access setting (access status unavailable).` };
-  if (access.status !== "reachable") return { error: accessDenied(access) };
-  const record = r.records.find(row => row.id === id);
-  if (!record) return { error: `No block ${id} in ${board.address.outline}; ${r.unavailable[0]?.status ?? "missing"}.` };
-  return { access, record };
-}
-async function publishedRecordMap(board: Board, ids: readonly string[]): Promise<Map<string, BlockRecord>> {
-  const out = new Map<string, BlockRecord>();
-  const unique = [...new Set(ids)];
-  for (let i = 0; i < unique.length; i += 200) {
-    const read = await board.publishedRecords(unique.slice(i, i + 200));
-    for (const record of read.records) out.set(record.id, record);
-  }
-  return out;
+async function requireReadAccess(board: Board): Promise<McpAccessStatus | { error: string }> {
+  const status = await board.mcpAccessStatus();
+  if (!status.canRead) return { error: accessRefusal(board, status.level) };
+  return status;
 }
 
+const reachability = (status: McpAccessStatus, id: string, revision: number | undefined): McpReachability => ({
+  id,
+  status: "reachable",
+  level: status.level,
+  ...(revision !== undefined ? { revision } : {}),
+  reason: `local MCP access is ${status.level}`,
+});
 
-
-async function reachableIds(board: Board, ids: readonly string[]): Promise<Map<string, PublishReachability>> {
-  const out = new Map<string, PublishReachability>();
-  const unique = [...new Set(ids)];
-  for (let i = 0; i < unique.length; i += 200) {
-    for (const access of await board.publishAccess(unique.slice(i, i + 200))) if (access.status === "reachable") out.set(access.id, access);
-  }
-  return out;
-}
-
-async function exposedRecord(board: Board, record: BlockRecord): Promise<BlockRecord> {
-  const linkTargets = record.links.flatMap(link => link.target ? [link.target] : []);
-  const ids = [...(record.parent ? [record.parent] : []), ...record.children, ...record.backlinks, ...linkTargets];
-  if (!ids.length) return record;
-  const reachable = await reachableIds(board, ids);
-  const parent = record.parent && reachable.has(record.parent) ? record.parent : null;
-  const children = record.children.filter(id => reachable.has(id));
-  const backlinks = record.backlinks.filter(id => reachable.has(id));
-  const links = record.links.filter(link => link.target ? reachable.has(link.target) : link.status === "unregistered-page");
-  return parent === record.parent && children.length === record.children.length && backlinks.length === record.backlinks.length && links.length === record.links.length
-    ? record
-    : { ...record, parent, children, backlinks, links };
-}
-
-
-const envelope = (board: Board, uri: string, reachability: PublishReachability, record: unknown, revision: number | undefined) => ({
+const envelope = (board: Board, uri: string, access: McpReachability, record: unknown, revision: number | undefined) => ({
   uri,
   outlineInstanceId: board.outlineInstanceId,
-  revision: revision ?? reachability.revision,
-  reachability,
+  revision: revision ?? access.revision,
+  reachability: access,
   record,
 });
 
-async function publishedRows(board: Board, candidates: Found[], limit: number, sourceIncomplete: boolean): Promise<{ rows: Found[]; completeness: { kind: string; limit?: number } }> {
-  const reachable: Found[] = [];
-  let exhausted = true;
-  for (let i = 0; i < candidates.length; i += 200) {
-    const chunk = candidates.slice(i, i + 200);
-    const read = await board.publishedRecords(chunk.map(row => row.id));
-    const access = new Set(read.reachability.filter(row => row.status === "reachable").map(row => row.id));
-    const records = new Map(read.records.map(record => [record.id, record]));
-    for (const row of chunk) {
-      const record = records.get(row.id);
-      if (access.has(row.id) && record) reachable.push({ id: row.id, title: previewTitle(record.title), path: previewTitle(record.title), uri: row.uri });
-    }
-    if (reachable.length > limit) { exhausted = false; break; }
-  }
-  return {
-    rows: reachable.slice(0, limit),
-    completeness: reachable.length > limit || sourceIncomplete || !exhausted ? { kind: "limited", limit } : { kind: "complete" },
-  };
+async function recordForMcp(board: Board, id: string): Promise<{ access: McpReachability; record: BlockRecord } | { error: string }> {
+  const status = await requireReadAccess(board);
+  if ("error" in status) return status;
+  const r = await board.records([id]);
+  const record = r.records.find(row => row.id === id);
+  if (!record) return { error: `No block ${id} in ${board.address.outline}; ${r.unavailable[0]?.status ?? "missing"}.` };
+  return { access: reachability(status, id, record.revision), record };
 }
+
 
 async function readRecord(board: Board, input: unknown): Promise<ToolResult> {
   const target = addressedBlock(board, input);
   if ("error" in target) return toolError(target.error);
-  const read = await publishedRecord(board, target.id);
+  const read = await recordForMcp(board, target.id);
   if ("error" in read) return toolError(read.error);
-  return toolText(envelope(board, target.uri, read.access, await exposedRecord(board, read.record), read.record.revision));
+  return toolText(envelope(board, target.uri, read.access, read.record, read.record.revision));
 }
 
 async function findBlocks(board: Board, args: Record<string, unknown>): Promise<ToolResult> {
+  const status = await requireReadAccess(board);
+  if ("error" in status) return toolError(status.error);
   const query = stringField(args, "query")?.trim() ?? "";
   const limit = clampLimit(args.limit, 30, query ? 30 : 100);
   let rows: Found[], completeness: { kind: string; limit?: number }, semantic: unknown;
   if (query) {
     const found = await board.searchBlocks(query);
-    const candidates = found.matches.map(m => ({ id: m.block.id, title: m.title, path: m.path, uri: blockUri(board, m.block.id) }));
-    const published = await publishedRows(board, candidates, limit, found.completeness.kind !== "complete");
-    rows = published.rows;
-    completeness = published.completeness;
+    rows = found.matches.slice(0, limit).map(m => ({ id: m.block.id, title: m.title, path: m.path, uri: blockUri(board, m.block.id) }));
+    completeness = found.completeness;
     semantic = found.semantic;
   } else {
-    const candidates = everyNote(await board.index()).map(f => ({ ...f, uri: blockUri(board, f.id) }));
-    const published = await publishedRows(board, candidates, limit, false);
-    rows = published.rows;
-    completeness = published.completeness;
+    rows = everyNote(await board.index()).slice(0, limit).map(f => ({ ...f, uri: blockUri(board, f.id) }));
+    completeness = { kind: rows.length < limit ? "complete" : "limited", limit };
   }
-  return toolText({ outline: board.address.outline, machine: board.address.machine, query, limit, completeness, ...(semantic ? { semantic } : {}), matches: rows });
+  return toolText({ outline: board.address.outline, machine: board.address.machine, query, limit, access: { level: status.level }, completeness, ...(semantic ? { semantic } : {}), matches: rows });
 }
 
 async function linkData(board: Board, input: unknown, limitInput: unknown): Promise<ToolResult> {
   const target = addressedBlock(board, input);
   if ("error" in target) return toolError(target.error);
-  const read = await publishedRecord(board, target.id);
+  const read = await recordForMcp(board, target.id);
   if ("error" in read) return toolError(read.error);
   const limit = clampLimit(limitInput, 50, 200);
-  const backlinks = await board.backlinks(target.id, 1000);
+  const backlinks = await board.backlinks(target.id, limit);
   const record = read.record;
-  const linkTargets = record.links.flatMap(link => link.target ? [link.target] : []);
-  const backlinkIds = backlinks.sources.map(source => source.blockId).filter((id): id is string => typeof id === "string");
-  const [reachable, currentBacklinks] = await Promise.all([reachableIds(board, linkTargets), publishedRecordMap(board, backlinkIds)]);
-  const reachableBacklinks = backlinkIds.flatMap(id => {
-    const backlink = currentBacklinks.get(id);
-    return backlink ? [{ blockId: id, title: previewTitle(backlink.title), parentContext: "", createdAt: backlink.created, updatedAt: backlink.updated, occurrenceCount: 1, referenceGroups: [], occurrences: [], occurrencesTruncated: true }] : [];
-  });
   return toolText({
     uri: target.uri,
     id: target.id,
     title: previewTitle(record.title),
     reachability: read.access,
-    links: record.links.filter(link => link.target ? reachable.has(link.target) : link.status === "unregistered-page"),
+    links: record.links,
     resources: record.resources,
-    backlinks: reachableBacklinks.slice(0, limit),
-    completeness: reachableBacklinks.length > limit || backlinks.completeness.kind !== "complete" ? { kind: "truncated", limit } : { kind: "complete" },
+    backlinks: backlinks.sources,
+    completeness: backlinks.completeness,
   });
 }
 
 async function resourceRead(board: Board, uriValue: unknown): Promise<unknown> {
   const target = addressedBlock(board, uriValue);
   if ("error" in target) throw invalidParams(target.error);
-  const read = await publishedRecord(board, target.id);
+  const read = await recordForMcp(board, target.id);
   if ("error" in read) throw new RpcError(-32002, read.error);
-  return { ...envelope(board, target.uri, read.access, await exposedRecord(board, read.record), read.record.revision), contents: [{ uri: target.uri, mimeType: "text/markdown", text: read.record.text }] };
+  return { ...envelope(board, target.uri, read.access, read.record, read.record.revision), contents: [{ uri: target.uri, mimeType: "text/markdown", text: read.record.text }] };
 }
 
 
@@ -210,17 +165,17 @@ const oneAddressSchema = {
 const tools = [
   {
     name: "outline_read",
-    description: "Read one published block in the bound outline as an enveloped block record JSON document. Input: exactly one of uri or ref.",
+    description: "Read one block in the bound outline as an enveloped block record JSON document. Requires this outline's local MCP access grant. Input: exactly one of uri or ref.",
     inputSchema: oneAddressSchema,
   },
   {
     name: "outline_find",
-    description: "Search the bound outline with the same ranker as ep0ch find, returning only blocks reachable through the publish access rule. Empty query lists recent/index rows.",
+    description: "Search the bound outline with the same ranker as ep0ch find. Requires this outline's local MCP access grant. Empty query lists recent/index rows.",
     inputSchema: { type: "object", properties: { query: { type: "string" }, limit: { type: "number" } }, additionalProperties: false },
   },
   {
     name: "outline_links",
-    description: "Read a published block's authored outlinks, resources and backlinks. Input: exactly one of uri or ref.",
+    description: "Read a block's authored outlinks, resources and backlinks. Requires this outline's local MCP access grant. Input: exactly one of uri or ref.",
     inputSchema: { ...oneAddressSchema, properties: { ...oneAddressSchema.properties, limit: { type: "number" } } },
   },
 ];
@@ -313,7 +268,44 @@ function mcpArgs(argsIn: string[]): string[] | { error: string } {
   return out;
 }
 
+function mcpAccessArgs(argsIn: string[]): { boardArgs: string[]; level?: McpAccessLevel; json: boolean } | { error: string } {
+  const args = argsIn.slice(2), boardArgs: string[] = [];
+  let level: McpAccessLevel | undefined, json = false;
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i]!;
+    if (a === "--json") { json = true; continue; }
+    if (a === "--ws" || a === "--machine") {
+      const v = args[i + 1];
+      if (!v || v.startsWith("--")) return { error: `${a} needs a value` };
+      boardArgs.push(a, v); i++; continue;
+    }
+    if ((ACCESS_LEVELS as readonly string[]).includes(a)) {
+      if (level) return { error: `mcp access takes one level, got ${level} and ${a}` };
+      level = a as McpAccessLevel; continue;
+    }
+    return { error: `mcp access doesn't take ${JSON.stringify(a)}; use none, read, propose or full` };
+  }
+  return { boardArgs, level, json };
+}
+
+async function mcpAccessCommand(argsIn: string[], io: McpIo): Promise<number> {
+  const parsed = mcpAccessArgs(argsIn);
+  const err = io.err ?? console.error;
+  const write = io.write ?? (line => process.stdout.write(`${line}\n`));
+  if ("error" in parsed) { err(`ep0ch: ${parsed.error}`); return 2; }
+  const board = await boardFor(parsed.boardArgs);
+  if ("error" in board) { err(`ep0ch: ${board.error}`); return 1; }
+  try {
+    const status = parsed.level ? await board.configureMcpAccess(parsed.level) : await board.mcpAccessStatus();
+    if (parsed.json) write(JSON.stringify({ outline: board.address.outline, machine: board.address.machine, ...status }, null, 2));
+    else write(`local MCP access for ${board.address.outline}@${board.address.machine}: ${status.level}${status.canRead ? " (read-only MCP allowed)" : " (denied)"}`);
+    return 0;
+  } finally { board.close(); }
+}
+
+
 export async function mcpCommand(argsIn: string[], io: McpIo = {}): Promise<number> {
+  if (argsIn[1] === "access") return mcpAccessCommand(argsIn, io);
   const parsedArgs = mcpArgs(argsIn);
   const err = io.err ?? console.error;
   if ("error" in parsedArgs) { err(`ep0ch: ${parsedArgs.error}`); return 2; }

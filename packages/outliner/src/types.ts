@@ -1149,6 +1149,14 @@ export interface WorkIdAllocatorStatus {
   observedPrefixes: string[];
 }
 
+export const MCP_ACCESS_LEVELS = ["none", "read", "propose", "full"] as const;
+export type McpAccessLevel = typeof MCP_ACCESS_LEVELS[number];
+export interface McpAccessStatus {
+  level: McpAccessLevel;
+  canRead: boolean;
+  sequence: number;
+}
+
 export interface WorkIdAllocation {
   workId: string;
   block: Block;
@@ -1724,6 +1732,9 @@ export type OutlinerRequestAction =
   /** Service-owned publication reachability for external read surfaces. Uses `[publish::…]` and `[publish::never]`. */
   | { id: string; action: "publish.access"; ids: string[] }
   | { id: string; action: "publish.records"; ids: string[] }
+  /** Per-outline local MCP access. Default is none; read/propose/full allow read-only local MCP reads. */
+  | { id: string; action: "mcp.access.status" }
+  | { id: string; action: "mcp.access.configure"; level: McpAccessLevel }
   | ({ id: string; action: "views.read"; viewId: string; format?: "full" | "tree" } & SavedViewReadOptions)
   /** Capability `views.planWrite`: what a move of `blockId` into each view, or a new block with `text`, must change. Reads only. */
   | ({ id: string; action: "views.planWrite" } & ViewWritePlanRequest)

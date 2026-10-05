@@ -9,7 +9,7 @@ import { readFragment, readTransclusions, type FragmentRead, type TransclusionOp
 import type { ChecklistCollection, ChecklistIdentityChange, ChecklistQuery, ChecklistSearchQuery, ChecklistSearchCollection, ChecklistUpdateInput, ChecklistUpdateReceipt } from "./types";
 import { planCreateInView, planMoveIntoView, writeView } from "./view-writes";
 import type {QueryExpression, SavedViewReadOptions, ViewWritePlanRequest, ViewWritePlanResult, SavedViewReadProblem, SavedViewReadResult, VirtualBranchOrder, VirtualBranchPlacementInput} from "./types";
-import { BLOCK_ACTIVITY_KINDS, BLOCK_EDIT_ACTIVITY_KINDS } from "./types";
+import { BLOCK_ACTIVITY_KINDS, BLOCK_EDIT_ACTIVITY_KINDS, MCP_ACCESS_LEVELS } from "./types";
 import { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
 import { mkdirSync, statSync } from "node:fs";
@@ -162,6 +162,8 @@ import type {
   VisibleBlockCollection,
   WorkIdAllocation,
   WorkIdAllocatorStatus,
+  McpAccessLevel,
+  McpAccessStatus,
   WorkspaceSnapshot,
   WorkspaceSnapshotView,
 } from "./types";
@@ -232,6 +234,16 @@ interface PageAddressMatchRow extends PageAddressRow {
 interface WorkIdAllocatorRow {
   prefix: string;
   next_number: number;
+}
+
+// Singleton outline configuration uses the existing metadata table when it is not canonical user content
+// and needs no revisioned note body (same table as sequence/outline_instance_id/change-feed floor).
+const MCP_ACCESS_METADATA_KEY = "mcp.local_access";
+
+function normalizeMcpAccessLevel(value: string): McpAccessLevel {
+  const normalized = value.trim().toLowerCase();
+  if ((MCP_ACCESS_LEVELS as readonly string[]).includes(normalized)) return normalized as McpAccessLevel;
+  throw new Error(`MCP access level must be one of ${MCP_ACCESS_LEVELS.join(", ")}`);
 }
 
 interface VirtualOccurrenceRankRow {
@@ -810,6 +822,29 @@ export class OutlinerStore {
       | { value: string }
       | null;
     return Number(row?.value ?? 0);
+  }
+
+  mcpAccessStatus(): McpAccessStatus {
+    return this.database.transaction(() => this.mcpAccessStatusFromCurrentRead())();
+  }
+
+  configureMcpAccess(level: string): McpAccessStatus {
+    const normalized = normalizeMcpAccessLevel(level);
+    return this.database.transaction(() => {
+      const current = this.mcpAccessStatusFromCurrentRead();
+      if (current.level === normalized) return current;
+      this.database.query(
+        "INSERT INTO metadata (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+      ).run(MCP_ACCESS_METADATA_KEY, normalized);
+      this.bumpSequence({ kind: "other" });
+      return this.mcpAccessStatusFromCurrentRead();
+    })();
+  }
+
+  private mcpAccessStatusFromCurrentRead(): McpAccessStatus {
+    const row = this.database.query("SELECT value FROM metadata WHERE key = ?").get(MCP_ACCESS_METADATA_KEY) as { value: string } | null;
+    const level = normalizeMcpAccessLevel(row?.value ?? "none");
+    return { level, canRead: level !== "none", sequence: this.sequence };
   }
 
 

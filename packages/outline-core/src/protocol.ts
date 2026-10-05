@@ -7,7 +7,7 @@
 // draft.patch compare, the search matcher), since a long-running service and a remote door can run different
 // checkouts.
 /** The wire protocol both sides of this checkout speak. */
-export const PROTOCOL = 94;
+export const PROTOCOL = 95;
 
 /**
  * Why a service speaking `serviceProtocol` can't serve this client, in words that name both numbers and the side
