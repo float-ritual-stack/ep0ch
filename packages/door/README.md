@@ -545,12 +545,28 @@ mcp.ep0ch.sh {
 }
 ```
 
-Clerk (the `ep0ch-mcp` application) needs, under OAuth applications → Settings: Dynamic client registration on
-(claude.ai registers itself), PKCE required, JWT access tokens, and the `aud` claim from the resource parameter
-(`aud_claim_enabled`); and GitHub as a social connection. With the CLI: `clerk api /instance/oauth_application_settings
--X PATCH -d '{"dynamic_oauth_client_registration": true, "pkce_required": true, "oauth_jwt_access_tokens": true,
-"aud_claim_enabled": true}'`. Then in claude.ai: Settings → Connectors → Add custom connector, URL
-`https://mcp.ep0ch.sh/mcp`, and sign in with GitHub on Clerk's page.
+Clerk (the `ep0ch-mcp` application), in the dashboard under **OAuth applications**:
+
+- **Settings** tab, **Client onboarding**: **Publish CIMD support** on (claude.ai identifies itself by a Client ID
+  Metadata Document, `https://claude.ai/oauth/mcp-oauth-client-metadata`). **Publish DCR support** too, for a client
+  that only registers dynamically. Under **Authorization security**: **Require PKCE**. **Access token format**: **JWT
+  access tokens** (the gateway verifies JWTs itself; an opaque token is refused).
+- **Applications** tab: **Add application** → **Pre-register CIMD client**, Client ID URL
+  `https://claude.ai/oauth/mcp-oauth-client-metadata`, then **Allow client**.
+- The `aud` claim from the RFC 8707 resource parameter (`aud_claim_enabled`) must be on, or every token is refused
+  (the journal says so). The CLI sets it, with the rest: `clerk api /instance/oauth_application_settings -X PATCH -d
+  '{"aud_claim_enabled": true, "oauth_jwt_access_tokens": true, "pkce_required": true,
+  "client_id_metadata_documents_advertised": true, "dynamic_oauth_client_registration": true}'`.
+- **User & authentication** → **SSO connections**: GitHub.
+- Once a sign-in from claude.ai has worked, set **Client admission** to **Pre-registered and previously connected
+  clients** (or `"client_id_metadata_documents_only_allow_pre_registered_clients": true`), and DCR off if nothing
+  needs it.
+
+Either way a client registers, its token carries its `client_id` (a CIMD client's is its metadata URL), and
+`EP0CH_MCP_ALLOWED_CLIENTS=https://claude.ai/oauth/mcp-oauth-client-metadata` pins the gateway to claude.ai.
+Then in claude.ai: Settings → Connectors → Add custom connector, URL `https://mcp.ep0ch.sh/mcp`, and sign in with
+GitHub on Clerk's page. The first try is refused while `EP0CH_MCP_ALLOWED_SUBJECTS` is empty: the journal
+(`journalctl --user -u ep0ch-mcp -n 20`) names the `sub` to put there.
 
 ## Sessions: quit is detach
 

@@ -38,8 +38,8 @@ local part). Its ids follow [ADR 0001](0001-ids-names-roles.md).
 4. **Access is the outline's own setting.** `none | read | propose | full` (PIE-562), kept by the service in the
    outline's metadata, `none` by default, set with `ep0ch mcp access`. One rule covers MCP, shares and
    subscriptions. A local stdio MCP server runs as the person and is gated by it. A remote gateway (claude.ai, a
-   phone) also needs OAuth, a client allowlist and revocation. `[publish::]` is a different thing: a published block
-   doesn't bypass `none`, and `ep0ch://` is never a public HTTP route. A remote read sends the note to the caller's
+   phone) also needs OAuth, an allowlist of who may use it (and optionally of which clients), and revocation.
+   `[publish::]` is a different thing: a published block doesn't bypass `none`, and `ep0ch://` is never a public HTTP route. A remote read sends the note to the caller's
    model provider, so granting `read` is a disclosure decision.
 
    *Implemented (remote gateway):* `ep0ch mcp serve --http` (`packages/door/src/mcp-gateway.ts`) serves the stdio

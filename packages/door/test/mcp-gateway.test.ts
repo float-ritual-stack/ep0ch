@@ -4,7 +4,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT, type JWTPayload } from "jose";
 import { formatEp0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
-import { gatewayConfig, issuerFromPublishableKey, machineOutlines, mcpServeCommand, startGateway, type Gateway } from "../src/mcp-gateway";
+import { gatewayConfig, issuerFromPublishableKey, machineOutlines, mcpServeCommand, startGateway, verifyBearer, type Gateway } from "../src/mcp-gateway";
 import { canonicalLocalMachineName } from "../src/notes-cli";
 import { hostRequest, SocketBoard } from "../src/socket";
 import { outliner, Scratch } from "./scratch";
@@ -137,6 +137,20 @@ describe.skipIf(!outliner)("ep0ch mcp serve --http", () => {
     const res = await call({ jsonrpc: "2.0", id: 1, method: "tools/list" }, { auth: `Bearer ${await token({ sub: STRANGER })}` });
     expect(res.status).toBe(403);
     expect(logs.join("\n")).toContain(`sub=${STRANGER}`);
+  });
+
+  test("a client registered either way passes: a CIMD URL client_id or a DCR id, and the client list pins either", async () => {
+    // A CIMD client's id is its metadata document's URL (a made-up one here); a DCR client's is Clerk's own id.
+    const cimd = "https://client.example.test/oauth/client-metadata.json";
+    const policy = { issuer: ISSUER, resource: RESOURCE, allowedSubjects: [PERSON], keys };
+    const quiet = () => {};
+    for (const client_id of [cimd, "client_fictional_dcr"]) {
+      expect(await verifyBearer(`Bearer ${await token({ claims: { client_id } })}`, policy, quiet)).toMatchObject({ ok: true, sub: PERSON, clientId: client_id });
+    }
+    const pinned = { ...policy, allowedClients: [cimd] };
+    expect(await verifyBearer(`Bearer ${await token({ claims: { client_id: cimd } })}`, pinned, quiet)).toMatchObject({ ok: true });
+    expect(await verifyBearer(`Bearer ${await token({ claims: { client_id: "client_fictional_dcr" } })}`, pinned, quiet)).toMatchObject({ ok: false, status: 403 });
+    expect(await verifyBearer(`Bearer ${await token({ claims: { client_id: undefined } })}`, pinned, quiet)).toMatchObject({ ok: false, status: 403 });
   });
 
   test("capture mode (no subjects listed) refuses even the owner's valid token, logging the subject to pin", async () => {

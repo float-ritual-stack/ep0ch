@@ -14,8 +14,9 @@ import { OUTLINE_NAME } from "./socket";
 
 export const DEFAULT_GATEWAY_PORT = 8792;
 const MAX_BODY = 1024 * 1024;
-/** Requests answered at once; the rest wait their turn. */
+/** Requests answered at once; up to MAX_WAITING more wait their turn, and past that a request is turned away (503). */
 const MAX_INFLIGHT = 4;
+const MAX_WAITING = 32;
 
 /** What the gateway checks a token against. `keys`: the issuer's JWKS (a local set under test). */
 export interface BearerPolicy {
@@ -189,11 +190,14 @@ export function startGateway(opts: {
 
   let inflight = 0;
   const waiting: (() => void)[] = [];
-  const turn = async <T>(work: () => Promise<T>): Promise<T> => {
-    if (inflight >= MAX_INFLIGHT) await new Promise<void>(resolve => waiting.push(resolve));
-    else inflight++;
-    try { return await work(); }
-    finally { const next = waiting.shift(); if (next) next(); else inflight--; }
+  /** A slot before the body is read, or null when the queue is full; `release` hands it to the next in line. */
+  const admit = async (): Promise<{ release(): void } | null> => {
+    if (inflight >= MAX_INFLIGHT) {
+      if (waiting.length >= MAX_WAITING) return null;
+      await new Promise<void>(resolve => waiting.push(resolve));
+    } else inflight++;
+    let released = false;
+    return { release() { if (released) return; released = true; const next = waiting.shift(); if (next) next(); else inflight--; } };
   };
 
   const server = Bun.serve({
@@ -220,9 +224,11 @@ export function startGateway(opts: {
       }
       // Stateless streamable HTTP: no server-sent stream and no session to end, so only POST carries messages.
       if (req.method !== "POST") return json(405, { error: "method not allowed" }, { Allow: "POST" });
-      const body = await req.text();
-      if (body.length > MAX_BODY) return json(413, { error: "request too large" });
-      const answer = await turn(() => answerMcp(outlines, body));
+      const slot = await admit();
+      if (!slot) return json(503, { error: "busy", error_description: "too many requests at once; try again" }, { "Retry-After": "1" });
+      let answer;
+      try { answer = await answerMcp(outlines, await req.text()); }
+      finally { slot.release(); }
       if (answer?.methods.length) log(`mcp gateway: ${verdict.sub} ${answer.methods.join(", ")}`);
       if (!answer) return json(400, { jsonrpc: "2.0", id: null, error: { code: -32600, message: "empty request" } });
       if (answer.malformed) return json(400, answer.reply);
