@@ -540,6 +540,9 @@ export class Lanes implements SourceModel {
   }
 
   /** `lane.collapse`: a lane to a spine, or open again: the desk's tile.collapse on the lane's tile (its policy, its agent rule). */
+  /** The lane drawn in tile `tile` (by the tile's name, which can differ from the lane's own: an auto-named one). */
+  laneInTile(tile: string): Lane | undefined { return this.lanes.find(l => this.host.nameOfPane(l) === tile); }
+
   async collapseLane(name: string | undefined, on: boolean | undefined, actor: Actor) {
     const lanes = this.lanes;
     const l = name === undefined ? lanes[this.lane] : lanes.find(x => x.name.toLowerCase() === name.toLowerCase());
@@ -1381,8 +1384,8 @@ export const BOARD_ACTIONS = actionSet<BoardOn>()("board", {
     summary: "collapse a lane to a spine showing its name, or open it again (on=true/false; default toggles): lane=<name>, default the person's lane. Its cards stay where they are",
     keys: "c on the lanes, ⏎ or space on a collapsed lane, click on a lane's spine (the desk's tile.collapse on its tile)",
     touches: "shape", replay: "safe", says: r => (r.changed === false ? null : `${r.collapsed ? "collapsed" : "opened"} the lane ${r.lane}`),
-    // The lane the menu is for, by its tile's name (a lane's tile is named as the lane).
-    menu: { label: "collapse this lane", group: BOARD, key: "c", now: (_on, t) => ({ args: { lane: t.name } }) },
+    // The lane the menu is for: the one in its tile, by the lane's own name.
+    menu: { label: "collapse this lane", group: BOARD, key: "c", now: (on, t) => { const l = on.model instanceof Lanes ? on.model.laneInTile(t.name) : undefined; return l ? { args: { lane: l.name } } : { hide: true }; } },
     args: { lane: { type: "string", optional: true, about: "the lane's name; default the lane the cursor is in" }, on: { type: "boolean", optional: true, about: "true collapses, false opens; default toggles" } },
     run: ({ lane, on }, { model }, actor) => lanesOf({ model }).collapseLane(lane, on, actor),
   }),

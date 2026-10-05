@@ -664,7 +664,7 @@ export const READER_ACTIONS = actionSet<{ pane: ReaderPane; desk: DeskApi }>()("
     summary: "hold a desk reader (tile=<its name>) on the note it shows, so the current note doesn't move it (on=true), or let it follow the current note again (on=false); left out, the other way. Said on screen when an agent does it",
     keys: "p",
     touches: "tile", replay: "safe", way: "an agent holds a reader the person isn't in", says: r => (r.held ? "held the reader on its note" : "let the reader follow the current note"),
-    menu: { label: "hold on this note", group: "Reader", key: "p", now: ({ pane }) => (!pane.follows ? { hide: true } : pane.holding ? { label: "follow the current note" } : pane.editing ? { refused: "the reader holds an edit; it stays on its note until that closes" } : null) },
+    menu: { label: "hold on this note", group: "Reader", key: "p", now: ({ pane }) => (!pane.follows ? { hide: true } : pane.editing ? { refused: "the reader holds an edit; it stays on its note until that closes" } : pane.holding ? { label: "follow the current note" } : null) },
     args: { on: { type: "boolean", optional: true, about: "true holds, false follows; left out, the other way" } },
     run({ on }, { pane, desk }) { return pane.setHold(on, desk); },
   }),
