@@ -74,6 +74,8 @@ export function hostSpec(persist = true): ScreenSpec {
 class DockTile extends PtyPane {
   override readonly kind = DOCK_KIND;
   constructor(spec: PtySpec, public shows: string) { super(spec); }
+  /** It never closes: its exit line doesn't offer ^W x. */
+  protected override closesBy = "";
   headName() { return this.shows; }
   /**
    * The agent chosen now runs at its next start (agent.restart, or the next door): never in place of one running. Kept
@@ -730,6 +732,8 @@ export class AgentDock {
       ? `${fg(C.lcyan)}${this.entered ? "⏎ takes it over from the other door · q stops watching" : "click in it, then ⏎ takes it over from the other door"} · ${this.entered ? ESCAPE_CHORD : "alt+a"} ${this.entered ? `back to the ${screen}` : "puts it away"}`
       : this.entered && d?.overlaid()
       ? `${fg(C.yellow)}the picker has the keys · ↑↓ ⏎ chooses · esc leaves it as it is`
+      : this.entered && d?.waitsOnExit()
+      ? `${fg(C.yellow)}${d.exitedSay(name, name === DOCK_TILE_ID ? this.name : name, `the ${screen}`)} · alt+a puts it away`
       : this.entered && d?.rawKeys()
       ? `${fg(C.yellow)}every key goes to ${name === DOCK_TILE_ID ? this.name : name} · ${ESCAPE_CHORD} back to the ${screen} · alt+s new shell · alt+g agent · alt+a puts it away`
       : this.entered
@@ -771,7 +775,8 @@ export class AgentDock {
       const d = this.desk;
       if (!d) return true;
       // Esc and q step back out of the dock (to the screen) where its tab isn't using them; never the screen's back.
-      if ((k.kind === "esc" || (k.kind === "char" && !k.ctrl && k.ch === "q")) && !d.holdsKeys() && !d.draggedTile()) { run("host.leave", { quiet: true }); return true; }
+      // A terminal there that exited isn't using them either.
+      if ((k.kind === "esc" || (k.kind === "char" && !k.ctrl && k.ch === "q")) && (!d.holdsKeys() || d.waitsOnExit()) && !d.draggedTile()) { run("host.leave", { quiet: true }); return true; }
       const ctx = this.host.ctx?.();
       if (ctx) d.key(k, ctx);
       return true;
@@ -812,7 +817,7 @@ export class AgentDock {
     const d = this.desk, t = this.shownTabOf(), q = t && d ? d.pane(t.name) : undefined;
     if (q instanceof PtyPane && !q.running && q.exited !== null) {
       if (restart) { d!.run("tile.restart", {}, t!.name); this.host.redraw(); return { entered: true, restarted: true }; }
-      this.host.flash(`${t!.name === DOCK_TILE_ID ? this.name : t!.name} exited · ⏎ runs it again · ${ESCAPE_CHORD} back to the screen`);
+      this.host.flash(d!.exitedSay(t!.name, t!.name === DOCK_TILE_ID ? this.name : t!.name));
       d!.run("tile.focus", {}, t!.name);
       this.host.redraw();
       return { entered: true };

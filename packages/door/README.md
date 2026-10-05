@@ -685,7 +685,7 @@ the drawer; a terminal you made yourself stays yours.
 | `q`, `Esc`, going to the menu | keep running: the desk stays alive in the background, and `D` on the menu brings it back as it was |
 | `!` / `^W !`, drop to shell | keep running while your shell has the terminal (the door keeps reading them and answering its control socket; it paints nothing) |
 | `^W x` on a running program's tile | asks first; again within 3s closes the tile and ends the program |
-| the program exits while you're in its tile | the tile keeps your keys: `⏎` runs it again, `ctrl+]` goes back to the door, other keys wait |
+| the program exits while you're in its tile | the tile keeps your keys: `⏎` runs it again, `^W x` closes it (at once: nothing runs), `ctrl+]` goes back to the door (in the dock, `Esc` too), other keys wait. A docked tab closes by its `×` too |
 | loading a layout | a tile with the same name keeps its program; ones the layout has no place for go in a shut drawer on the right |
 | detaching from a session (`ctrl+c`, logging off with `G`, closing the terminal, a dropped ssh; see [Sessions](#sessions-quit-is-detach)) | keep running, scrollback and all: the next `ep0ch` attaches to them. `E` on the main menu or `ep0ch session end` ends them with the session (asking first) |
 | quitting a door in its own terminal (`--no-daemon`: `ctrl+c`, logging off from the menu) | asks twice (it names what's running), then ends them. nvim with unsaved changes keeps them in its swap file and offers to recover them next time; without, it leaves nothing behind |

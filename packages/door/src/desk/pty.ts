@@ -141,6 +141,8 @@ export interface PtySpec {
 export class PtyPane implements Pane {
   /** `pty`, or a kind of its own for a program the service names (an extension's tile, ProgramTile). */
   readonly kind: string = "pty";
+  /** What its exit line offers besides ⏎: ^W x closes it (the dock's own tile, which never closes, offers nothing). */
+  protected closesBy = " · ^W x closes";
   private term: XTermLike | null = null;
   private proc: PtyProc | null = null;
   /** Its program runs in this process (it ends with the door); false under a session's terminal host. */
@@ -467,7 +469,7 @@ export class PtyPane implements Pane {
       const cy = !this.back && cursor && !hidden && this.exited === null && y === b.cursorY ? b.cursorX : -1;
       lines.push(line ? rowOf(line, cell, w, cy) : "");
     }
-    if (this.exited !== null) lines[h - 1] = `${fg(C.yellow)}[${basename(this.run.cmd[0] ?? "")} exited ${this.exited}] ⏎ runs it again · ctrl+] back to the door · ^W x closes the tile\x1b[0m`;
+    if (this.exited !== null) lines[h - 1] = `${fg(C.yellow)}[${basename(this.run.cmd[0] ?? "")} exited ${this.exited}] ⏎ runs it again${this.closesBy} · ctrl+] back to the door\x1b[0m`;
     return { lines, scroll: b.baseY > 0 ? { top, room: h, total: b.baseY + h } : undefined };
   }
 

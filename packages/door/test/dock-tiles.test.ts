@@ -151,6 +151,56 @@ describe.skipIf(!outliner)("the dock: any tile, moved whole between screens", ()
     } finally { d.app.quit(); }
   });
 
+  test("a docked terminal that exited closes by ^W x in the dock (its keys wait, but ^W is the window's again); said on screen", async () => {
+    const d = await door();
+    try {
+      await d.desk.dispatch.act({ action: "tile.focus", tile: "kettle" }, USER);
+      d.key(ctrl("w")); d.key(char("a"));
+      await until(() => d.docked("kettle"), "kettle docked");
+      d.key({ kind: "alt", ch: "a" }); d.key({ kind: "alt", ch: "a" }); d.paint();
+      await until(() => !!d.app.dock.made?.rawKeys(), "the person types in the kettle");
+      // An agent never closes the tab the person types in.
+      await expect(d.app.act({ action: "tile.close", args: {}, tile: "kettle", as: AS })).rejects.toThrow(/keys|typing/);
+      d.app.dock.rawInput(d.A.dockRun)!("\x04");
+      await until(() => (d.pane("kettle") as PtyPane).exited !== null, "cat ended");
+      expect(d.paint().some(l => l.includes("kettle exited · ⏎ runs it again · ^W x closes · Esc or ctrl+] back to the desk"))).toBe(true);
+      // Any other key waits; ^W x closes it at once (nothing runs to ask about), the person still in the dock.
+      d.key(char("x"));
+      expect(d.docked("kettle")).toBe(true);
+      d.key(ctrl("w")); d.key(char("x"));
+      await until(() => !d.docked("kettle"), "^W x closed it");
+      expect(d.app.dock.entered).toBe(true);
+      // The dock's own tab, exited too, doesn't offer ^W x: it never closes.
+      expect(d.app.dock.made!.exitedSay("dock.agent")).not.toContain("^W x");
+    } finally { d.app.quit(); }
+  });
+
+  test("the mouse: a docked tab has the ×; a running program asks twice, one that exited closes at once; the dock's own tab has none", async () => {
+    const d = await door();
+    try {
+      await d.desk.dispatch.act({ action: "tile.focus", tile: "kettle" }, USER);
+      d.key(ctrl("w")); d.key(char("a"));
+      await until(() => d.docked("kettle"), "kettle docked");
+      const x = () => { const lines = d.paint(), row = d.app.dock.rect!.row + 1; return { row, col: lines[row]!.lastIndexOf("×") }; };
+      const click = () => { const at = x(); expect(at.col).toBeGreaterThan(0); d.key(mouse("down", at.col, at.row)); d.key(mouse("up", at.col, at.row)); };
+      click();
+      expect(d.docked("kettle")).toBe(true);                   // running: asked first
+      click();
+      await until(() => !d.docked("kettle"), "the second click closed it");
+      expect(x().col).toBe(-1);                                 // the dock's own tab: no ×
+      // A terminal opened in the dock (alt+s) that exited: one click.
+      d.key({ kind: "alt", ch: "s" });
+      await until(() => d.app.dock.tabs().length === 2, "a shell tab");
+      const shell = d.app.dock.tabs().find(t => t.name !== "dock.agent")!.name;
+      await until(() => (d.pane(shell) as PtyPane).running, "the shell runs");
+      await until(() => !!d.app.dock.made?.rawInput(), "the person types in it");
+      d.app.dock.rawInput(d.A.dockRun)!("exit\r");
+      await until(() => (d.pane(shell) as PtyPane).exited !== null, "the shell exited");
+      click();
+      await until(() => d.app.dock.tabs().length === 1, "closed at once");
+    } finally { d.app.quit(); }
+  });
+
   test("the mouse: a tile's title dragged onto the dock's chip docks it (the chip lights up); a tab dragged out lands by the screen's drop zones", async () => {
     const d = await door();
     try {
