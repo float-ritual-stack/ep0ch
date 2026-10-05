@@ -48,4 +48,9 @@ describe("a figure whose code example holds a bare ::, then a heading and a seco
     expect(out).toContain("## Second");
     expect(out.at(-1)).toBe("after");
   });
+
+  test("a ::graph-* opener with arguments isn't a figure: export leaves it as written", () => {
+    const text = ["T", "::graph-stat open", "", "after"].join("\n");
+    expect(figuresAsAscii(text, "n")).toBe(text);
+  });
 });

@@ -261,7 +261,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
   const source: number[] = [], heads: Doc["heads"] = [];
   const at = new Map((env.folds?.points ?? []).map(p => [p.line, p]));
   const callouts = new Map(calloutBlocks(src).map(c => [c.line, c]));
-  const components = componentBlocks(src), componentAt = new Map(components.map(c => [c.start, c]));
+  const componentAt = new Map(componentBlocks(src).map(c => [c.start, c]));
   const lit = (i: number) => !!env.literal?.has(i);
   // Each row comes from the line its construct started on: rows pushed since then are filled in here.
   let from = 0;
@@ -295,7 +295,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
 
     // The inline links component (src/links.ts): ::links, ::resources, ::backlinks, ::outlinks, one line or a block
     // to its `::`, drawn with the links tile's rows in a figure's frame, each row a link the reader opens.
-    const lb = linkBlockAt(src, i, components);
+    const lb = linkBlockAt(src, i, componentAt);
     if (lb) {
       out.push(...renderLinkBlock(lb.spec, env.note, W, frame, env.tag));
       i = lb.end;
@@ -303,7 +303,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
     }
 
     // mdxcn Comark figure: ::graph-kind, --- yaml ---, ::
-    const figure = componentAt.get(i), gk = figure && graphKind(figure.name);
+    const figure = componentAt.get(i), gk = figure && graphKind(figure);
     if (figure && gk) {
       // Its YAML and its Markdown rows; the note's figure block (the first line of a note's own body) takes its child
       // bullets as rows too.

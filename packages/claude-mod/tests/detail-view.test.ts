@@ -42,6 +42,7 @@ describe('the detail pane, pure', () => {
       '# Comark notes', '````graph-annotate', ...COMARK_NOTE.slice(2, 10), '````', '', '## Second', '',
       '```graph-stat', ...COMARK_NOTE.slice(15, 18), '```', '', 'after',
     ])
+    expect(displayMarkdown('T\n::resources jira\ntitle: Around\n::')).toBe('# T\n```resources jira\ntitle: Around\n```')
     // ::links has no closing line: what follows stays Markdown, its references still links.
     const source = detailSourceOf('Hub\n::links\nSee [[Bike shed]].', [], 'ep0ch')
     expect(source.kind === 'source' && source.markdown).toBe('# Hub\n`::links`\nSee [Bike shed](https://pi-outliner.invalid/page/Bike%20shed).')

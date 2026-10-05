@@ -96,7 +96,7 @@ export const FIGURE_WIDTH = 60;
 export function figuresAsAscii(text: string, note: string, drawn = text): string {
   const blocks = (t: string) => {
     const lines = t.split("\n");
-    const out = componentBlocks(lines).flatMap(c => { const kind = graphKind(c.name); return kind ? [{ kind, from: c.start, to: c.end }] : []; });
+    const out = componentBlocks(lines).flatMap(c => { const kind = graphKind(c); return kind ? [{ kind, from: c.start, to: c.end }] : []; });
     return { lines, out };
   };
   const target = blocks(text), source = blocks(drawn);

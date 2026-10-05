@@ -273,7 +273,7 @@ const ID = /\(\(([0-9a-f]{8}-[0-9a-f-]{27})[^)]*\)\)|^([0-9a-f]{8}-[0-9a-f-]{27}
 
 /**
  * The inline component starting at line `i`, or null. Where it ends (`end`, inclusive) is outline-core's
- * component-block rule (`blocks`: the lines' componentBlocks, when the caller has them). Two forms:
+ * component-block rule (`blocks`: the lines' componentBlocks by first line, when the caller has them). Two forms:
  *
  *     ::resources jira                 one line: the words after the name filter the rows; `::links` alone,
  *                                        unclosed, is every link
@@ -283,9 +283,9 @@ const ID = /\(\(([0-9a-f]{8}-[0-9a-f-]{27})[^)]*\)\)|^([0-9a-f]{8}-[0-9a-f-]{27}
  *     filter: offer                      lines (Comark's YAML fence) are skipped
  *     ::
  */
-export function linkBlockAt(lines: readonly string[], i: number, blocks: readonly ComponentBlock[] = componentBlocks(lines)): { spec: LinkBlockSpec; end: number } | null {
-  const open = COMPONENT_OPEN.exec(lines[i] ?? "");
-  const block = blocks.find(b => b.start === i) ?? (open && !open[2] ? { name: open[1]!, args: null, start: i, end: i } : null);
+export function linkBlockAt(lines: readonly string[], i: number, blocks: ReadonlyMap<number, ComponentBlock> = new Map(componentBlocks(lines).map(c => [c.start, c]))): { spec: LinkBlockSpec; end: number } | null {
+  const open = COMPONENT_OPEN.exec((lines[i] ?? "").replace(/\r$/, ""));
+  const block = blocks.get(i) ?? (open && !open[2] ? { name: open[1]!, args: null, start: i, end: i } : null);
   if (!block || !(LINK_BLOCK_KINDS as readonly string[]).includes(block.name)) return null;
   const rest = (block.args ?? "").trim(), end = block.end;
   const spec: LinkBlockSpec = { kind: block.name as LinkBlockKind, of: null, filter: "", title: null };

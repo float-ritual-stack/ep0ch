@@ -105,11 +105,11 @@ export function displayMarkdown(text: string): string {
       const body = lines.slice(i + 1, block.end)
       const longest = Math.max(2, ...body.map(l => /^\s*(`+)/.exec(l)?.[1]!.length ?? 0))
       const fence = '`'.repeat(longest + 1)
-      out.push(fence + block.name, ...body, fence)
+      out.push(fence + block.name + (block.args ? ` ${block.args}` : ''), ...body, fence)
       i = block.end
       continue
     }
-    const open = !block && COMPONENT_OPEN.exec(line)
+    const open = !block && COMPONENT_OPEN.exec(line.replace(/\r$/, ''))
     out.push(open && !open[2] ? `\`::${open[1]}\`` : line)
   }
   return out.join('\n')

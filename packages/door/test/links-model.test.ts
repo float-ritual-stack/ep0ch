@@ -74,6 +74,7 @@ describe("the inline component's forms", () => {
     expect(linkBlockAt(["::links"], 0)).toEqual({ spec: { kind: "links", of: null, filter: "", title: null }, end: 0 });
     expect(linkBlockAt(["::graph-check"], 0)).toBeNull();
     expect(linkBlockAt(["see ::links here"], 0)).toBeNull();
+    expect(linkBlockAt(["::backlinks\r", "more"], 0)!.spec.kind).toBe("backlinks");
   });
 
   test("a block to its `::`: of, filter, title, groups, or bare words as the filter; Comark's --- lines are skipped", () => {
