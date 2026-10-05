@@ -10,7 +10,7 @@
 // a terminal tile. So it is 0600, in a folder that is the user's alone (0700, owner checked, the same check as
 // the nvim tiles' sockets); a folder anyone else can reach is refused and the door runs without it.
 import { blockIdOf } from "./text";
-import { canonicalLocalMachineName } from "./notes-cli";
+import { canonicalLocalMachineName } from "./machine-name";
 import { chmodSync, existsSync, lstatSync, mkdirSync, readlinkSync, readdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { connect, createServer, type Server } from "node:net";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
