@@ -139,7 +139,7 @@ Never write to a real outline or touch the person's door. Their door may be on t
   `EP0CH_CONTROL` to every `peek`, `act`, `snap` or `open`. `EP0CH_STATE` moves everything else the door
   writes (layouts, drafts, marks, the media cache). Point it at a scratch host with `EP0CH_OUTLINES=<temp
   outlines folder>` and `--ws <name>`, never at `~/outlines`.
-- **A scratch host by hand:** `EP0CH_OUTLINES=$d/outlines EP0CH_DEFAULT_WS=garden XDG_CONFIG_HOME=$d/config
+- **A scratch host by hand:** with `d=$(mktemp -d)`, `EP0CH_OUTLINES=$d/outlines EP0CH_DEFAULT_WS=garden XDG_CONFIG_HOME=$d/config
   OUTLINER_INBOX_AGENT=0 OUTLINER_NOTE_ASSISTANCE=0 bun packages/outliner/src/host-main.ts` (as `scripts/try-it.sh`
   starts one: without the last three it reads the person's `~/.config` and its Inbox agent rewrites your notes),
   then `EP0CH_OUTLINES=$d/outlines ep0ch outline create garden` (`ep0ch init` would write a `.ep0ch` into the
@@ -214,7 +214,8 @@ CHANGELOG, the demo hubs, the fresh-outline seed, the showcase and skills, the r
 
 - Work in a worktree (`git worktree add -b <branch> ../ep0ch-<slug> origin/main`). Never switch branches, pull or
   commit in the live checkout: it is what runs, and it may hold the person's uncommitted files. It moves only on
-  `ep0ch install --apply`, which fast-forwards it and restarts everything together.
+  `ep0ch install --apply`, which fast-forwards it, restarts the outline host when it needs to and hands this
+  machine's door sessions to the new code (a door on another machine is restarted there).
 - One coherent PR per change. A feature split across agents uses a feature branch: slices branch from it
   (`<feature>/<slice>`) and open PRs into it; one PR goes from the feature branch to main.
 - Paid review runs on PRs into main. Put `[skip review]` in the title of docs-only, mechanical or small PRs
