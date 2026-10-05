@@ -44,7 +44,7 @@ test("the README's showcase says what SECTIONS registers by key, never a count; 
   const grammar = readFileSync(join(import.meta.dir, "../docs/UI-GRAMMAR.md"), "utf8");
   const map = grammar.slice(grammar.indexOf("## Before adding a feature"), grammar.indexOf("## TL;DR"));
   const rows = map.split("\n").filter(l => /^\| [a-z]/.test(l) && !l.startsWith("| The feature"));
-  expect(rows.length - SECTIONS.length).toBe(6);
+  expect(rows.length - SECTIONS.length).toBe(7);
   expect(readme).toContain("its list-picker and line-input rows (in the panes section's ^W P and ^W r,\nthe board's g m s), its elements and reading-ruler row (PIE-441) and its terminal-output row (PIE-510");
 });
 
@@ -276,6 +276,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
   // What each section's own part draws, once it has read the outline.
   const marks: Record<string, string[]> = {
     note: ["Allotment notebook", "the same NoteSurface in the BBS message reader · src/screens.ts", "Subj: Allotment notebook"],
+    // The detail screen spec on the notebook: the detail tile's own frame and keys around the same surface.
+    detail: ["─ detail ─", "Allotment notebook", "Our plot at the Elm Row allotments.", "p follow · [ ] elements"],
     // The list scrolls: the note set's header and the registry are on screen; the desk set is further down.
     actions: ["NOTE_ACTIONS · src/surface/note.ts", "the action registry · src/surface/actions.ts"],
     edit: ["Kitchen whiteboard", "properties · 6"],
@@ -334,8 +336,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
   });
 
   test("the index works by mouse: a click picks a section; a click in the part gives it the keys, esc gives them back", async () => {
-    press({ kind: "mouse", action: "down", button: 0, x: 3, y: 2 + 12 * 2 }); press({ kind: "mouse", action: "up", button: 0, x: 3, y: 2 + 12 * 2 });
-    expect(S().sel).toBe(12);                                      // the spine section
+    press({ kind: "mouse", action: "down", button: 0, x: 3, y: 2 + 13 * 2 }); press({ kind: "mouse", action: "up", button: 0, x: 3, y: 2 + 13 * 2 });
+    expect(S().sel).toBe(13);                                      // the spine section
     const r = S().stageRect;
     press({ kind: "mouse", action: "down", button: 0, x: r.col + 5, y: r.row + 5 }); press({ kind: "mouse", action: "up", button: 0, x: r.col + 5, y: r.row + 5 });
     expect(S().focus).toBe("stage");
@@ -344,10 +346,10 @@ describe.skipIf(!outliner)("the showcase screen", () => {
   });
 
   test("editing works in a section, by keys: e, type, ctrl+s writes to the showcase outline", async () => {
-    ch("3"); press({ kind: "enter" });
+    ch("4"); press({ kind: "enter" });
     expect(S().focus).toBe("stage");
     ch("e");
-    const desk = () => S().stages.get(2).top;
+    const desk = () => S().stages.get(3).top;
     await until(() => !!desk().describe().panes[0].editing, "the whiteboard in an edit", 5000);
     for (let i = 0; i < 5; i++) press({ kind: "pgdn" });            // to the last line, however it wraps
     press({ kind: "end" });
@@ -373,9 +375,9 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect(S().focus).toBe("index");
     (app as any).lastInput = 0;
     const r = await app.act({ action: "section", args: { name: "selection" }, as: "test-agent" }) as any;
-    expect(r).toEqual({ section: 20, key: "selection" });
+    expect(r).toEqual({ section: 21, key: "selection" });
     expect(S().focus).toBe("index");
-    expect((app as any).message).toContain("an agent (test-agent) showed section 20");
+    expect((app as any).message).toContain("an agent (test-agent) showed section 21");
     const listed = (app.actions() as any).actions.map((a: any) => a.name);
     expect(listed).toContain("section");
     expect(listed).toContain("select");
@@ -495,7 +497,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
 
   test("search, driven by an agent: the section's own desk answers the service's forgiving search, the person's overlay left alone", async () => {
     (app as any).lastInput = 0;
-    expect(await app.act({ action: "section", args: { name: "search" }, as: "test-agent" })).toEqual({ section: 4, key: "search" });
+    expect(await app.act({ action: "section", args: { name: "search" }, as: "test-agent" })).toEqual({ section: 5, key: "search" });
     const r = await app.act({ action: "search", args: { query: "alotment notebok" }, as: "test-agent" }) as any;
     expect(r.query).toBe("alotment notebok");
     expect(r.hits[0]).toMatchObject({ n: 1, title: "Allotment notebook" });
@@ -508,7 +510,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
 
   test("search, from a shell (PIE-534): the section opened through act; find --query, show $(find --ids) and export answer from the same outline", async () => {
     (app as any).lastInput = 0;
-    expect(await app.act({ action: "section", args: { name: "search" }, as: "test-agent" })).toEqual({ section: 4, key: "search" });
+    expect(await app.act({ action: "section", args: { name: "search" }, as: "test-agent" })).toEqual({ section: 5, key: "search" });
     // The section's note says what to try from a shell, under the search overlay the section opens with.
     await until(() => screen().includes("From a shell"), "the finding note's shell section");
     expect(SECTIONS.find(x => x.key === "search")!.aside).toContain("ep0ch export");
@@ -546,8 +548,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     // A scratch host has no Jev key (test/scratch.ts): the overlay that said so is asked again, of the stand-in.
     jevOff.delete(board);
     try {
-      S().stages.delete(3);                                       // the search stage built again, its overlay asking the stand-in
-      expect(await app.act({ action: "section", args: { name: "search" }, as: "test-agent" })).toEqual({ section: 4, key: "search" });
+      S().stages.delete(4);                                       // the search stage built again, its overlay asking the stand-in
+      expect(await app.act({ action: "section", args: { name: "search" }, as: "test-agent" })).toEqual({ section: 5, key: "search" });
       await until(() => screen().includes("hit(s)"), "the stage's overlay", 5000);
       // (( in the reader's note: the same search a draft's popup asks, with a typo in each word, then another order.
       const typo = await app.act({ action: "complete", args: { text: "((alotment notebok" }, as: "test-agent" }) as any;
