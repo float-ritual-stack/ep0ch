@@ -54,6 +54,17 @@ move into one repository (PIE-530).
 - **Television (optional).** With `tv` on your PATH, `ep0ch install --apply` links the outline's channels into
   television's cable folder.
 
+### Read an outline from claude.ai: the remote MCP gateway
+
+`ep0ch mcp serve --http` serves `ep0ch mcp`'s read-only tools (`outline_read`, `outline_find`, `outline_links`) and
+`ep0ch://` resources over streamable HTTP, for claude.ai and other remote MCP clients. Clerk signs you in (GitHub);
+the gateway accepts only a Clerk JWT access token for its own URL whose subject you've listed in
+`EP0CH_MCP_ALLOWED_SUBJECTS` (unset, it refuses everyone and logs who asked). It reads the outlines on its own
+machine, each only when `ep0ch mcp access read --ws <name>` has granted it, and refuses another machine's. The tools
+take an `outline` name now, for a ref or a search; a URI names its own. The door README's "Remote MCP gateway" has
+the unit, the Caddy block and the Clerk settings. `ep0ch mcp access` now says the grant covers both servers, and
+`initialize` answers a client's own MCP protocol version when it is one the server speaks (else the newest).
+
 ### A menu on every tile (PIE-492)
 
 Every tile has a `⋯` in its top right corner, left of its `×`: a click opens the tile's menu, and so does a

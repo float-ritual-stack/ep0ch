@@ -175,7 +175,8 @@ const without = (args: string[], valued: string[], bare: string[]) =>
 /** The board of the outline the rule names, its protocol checked; or why not. */
 export async function boardFor(args: string[]): Promise<NotesBoard | { error: string }> {
   // Only the flags that name an outline: a search word with a `/` isn't a socket path.
-  const named = ["--ws", "--machine"].flatMap(f => { const at = args.indexOf(f); return at >= 0 ? [f, args[at + 1]!] : []; });
+  // `--here`: this machine's host, over EP0CH_MACHINE and a .ep0ch's machine (the remote MCP gateway's only outlines).
+  const named = [...["--ws", "--machine"].flatMap(f => { const at = args.indexOf(f); return at >= 0 ? [f, args[at + 1]!] : []; }), ...(args.includes("--here") ? ["--here"] : [])];
   const target = resolveTarget(named);
   if ("error" in target) return target;
   if ("unnamed" in target) return { error: `no outline is named here (${target.unnamed}); pass --ws <name>` };

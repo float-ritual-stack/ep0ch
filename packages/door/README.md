@@ -446,8 +446,9 @@ A checkout from before `install` gets it by hand, once:
 | `ep0ch find [<words>…] [--query "<expression>"] [--view <id>] [--under <id>] [--sort <key> [--direction asc\|desc]] [--updated-after\|--updated-before\|--created-after\|--created-before <date>] [--ids \| --lines \| --json]` | the notes the outline says a query holds for (PIE-534): `--query` in the saved views' grammar (`"type=chore (area=garden OR area=kitchen) updated >= -7d"`), `--view` a saved view's members in its order, `--under` a subtree (the note included); they combine with each other and with words (every word, any order), in outline order (or `--sort`'s: `created`, `updated` or any property key, numbers as numbers, notes without it last; not with `--view`, which has its own order), at most 1000. The date flags only write the query (`--updated-after 2026-03-01` is `updated > 2026-03-01`). `--ids` prints `((id))` a line (`ep0ch show $(ep0ch find --ids --query type=errand)`); `--json` prints block records (outline-core's `block-record.ts`, built by the host's `blocks.records`), keys sorted, for any find but `--tree` |
 | `ep0ch export [<id>…] [find's flags] [--children] [--format md\|json] [--out <dir>\|-] [--split] [--resolve-links] [--manifest]` | notes out as files (PIE-534). Markdown: a file a note, `<title>-<id8>.md`; the header line's `[k::v]` chips (outline-core's `header-line.ts`) move into YAML front matter, values verbatim strings (a repeated key a list), after the note's id, parent, created, updated and author; the body is the rest verbatim, its first line the prose line 1 held; `--children` adds what's under it as nested lists, or files of their own with `--split`; `--resolve-links` makes `((id))` and `[[page]]` links to exported notes relative file links. JSON: block records, keys sorted. Deterministic, so a folder of them can live in git; `--manifest` writes `manifest.json` (the export time, the outline, the selection). Without `--out`, stdout |
 | `ep0ch show <id>… [--source \| --ansi \| --cells] [--width <n>] [--rows <n>]` | each note drawn as a reader draws it (the note surface), at that width, its live figures and `::links` answered by the outline and a view note's results under it (`views.read`, drawn as an embedded view), folded callouts open (no key hints), a blank line between notes; `--source` prints each note's text exactly as written (properties, links, `::` blocks; no header, no wrapping), `---` between notes, for a Markdown file (`ep0ch show --source $(tv ep0ch) >> notes.md`); `--ansi` keeps the colours (a picker's preview); `--cells` prints each as a line of JSON cells for a program that paints a grid (the Claude mod's BlockView draws them as a `Raster`; `src/cells.ts` has the format); `--rows` keeps the first rows, for a preview |
-| `ep0ch mcp access [none\|read\|propose\|full] [--json] [--ws <name>] [--machine <ssh-name>]` | show or set the outline's persisted local MCP grant. The default is `none`. `read`, `propose` and `full` all allow this local stdio MCP server to read the outline, but the MCP tools remain read-only; `propose`/`full` are reserved for later gateway/write slices. This setting is per outline and independent of web publishing. |
+| `ep0ch mcp access [none\|read\|propose\|full] [--json] [--ws <name>] [--machine <ssh-name>]` | show or set the outline's persisted MCP grant. The default is `none`. `read`, `propose` and `full` all let MCP clients read the outline, through the local stdio server and the [remote gateway](#remote-mcp-gateway-claudeai) alike, but the MCP tools remain read-only; `propose`/`full` are reserved for later write slices. This setting is per outline and independent of web publishing; `none` revokes at once, for both. |
 | `ep0ch mcp [--ws <name>] [--machine <ssh-name>]` | a local read-only stdio MCP server for canonical `ep0ch://<outline>@<machine>/b/<uuid>` block URIs. It refuses every outline read unless `ep0ch mcp access read` (or `propose`/`full`) has explicitly granted this outline. A granted local reader can read private outline content; `[publish::…]` is not required and published blocks do not bypass `none`. `outline_read`, `outline_find`, `outline_links` and `resources/read` keep the same envelope: canonical URI, outline instance id, revision, reachability and block record; `resources/read` also includes Markdown content. |
+| `ep0ch mcp serve --http [--port <n>] [--bind <address>] [--ws <default>]` | the same read-only MCP server over streamable HTTP, for remote clients such as claude.ai: an OAuth resource server (Clerk issues the tokens) for the outlines on this machine's host, each still gated by `ep0ch mcp access`. Port 8792 on 127.0.0.1 by default. See [Remote MCP gateway](#remote-mcp-gateway-claudeai) |
 | `ep0ch new "<text>" [--near <id>] [--as <id>] [--json]` | a new note from a shell or an agent with no door open, placed by the service as `ctrl+n` places one (see [New notes and pages](#new-notes-and-pages-pie-544)) |
 | `ep0ch view order <view> [<id>…] [--json] [--as <id>]` | a view's hand-set order: printed, or those members put first in the order given (ids, `((id))` or Work IDs), the same service step as the board's `alt+↑` `alt+↓` |
 | `ep0ch outline list --all [--lines]` | every outline you can open from here: this machine's, then each machine you've opened before (a machine not connected now says so; nothing is started) |
@@ -478,6 +479,94 @@ A checkout from before `install` gets it by hand, once:
 | `EP0CH_NOW_PAGE` | the page the welcome screen (C) shows while no note is tagged `welcome`, and the `daily` layout's "now" tile shows (default `claude-now`); `EP0CH_NOW_LABEL` names it |
 | `EP0CH_DAILY_AGENT` | overrides the dock's own agent for this door (a test door's `sh`, a one-off): unset, the dock runs the agent chosen for the outline's session (`alt+g`, `host.agent`), else a shell. The dock's choice is the way to set it; see [The dock](#the-dock-pie-498) |
 | `EP0CH_DAILY_DRAFT` | the file the `daily` layout's editor tile opens (default `scratch.md` in the door's state) |
+
+## Remote MCP gateway (claude.ai)
+
+`ep0ch mcp serve --http` serves `ep0ch mcp`'s tools and `ep0ch://` resources over streamable HTTP, so claude.ai (or
+a phone) can read an outline (ADR 0002, decision 4). It is one implementation with the stdio server (`answerMcp` in
+`src/mcp.ts`); the gateway adds the transport and the token check (`src/mcp-gateway.ts`). It never writes.
+
+- **Who.** The gateway is an OAuth resource server; Clerk is the authorization server (client registration, the
+  GitHub sign-in, tokens). Each request's Bearer token must be a Clerk JWT access token (`typ: at+jwt`, RS256) signed
+  by a key in the issuer's JWKS, from that issuer, with `aud` naming this endpoint (`EP0CH_MCP_RESOURCE`), unexpired,
+  and with a subject on `EP0CH_MCP_ALLOWED_SUBJECTS`. No token, or a bad one, is 401 with `WWW-Authenticate` naming
+  `/.well-known/oauth-protected-resource/mcp`, which names Clerk. A valid token for anyone else is 403, and its
+  subject is logged. With no subjects listed the gateway is in capture mode: it refuses everyone and logs the
+  subject to pin. There is no anonymous access and no setting that turns the check off.
+- **Which outlines.** The outlines on this machine's host, by name, each still gated by its own `ep0ch mcp access`:
+  `none` (the default) refuses, `read` reads. A URI for another machine is refused, and a name that doesn't exist is
+  never made. A tool's `outline` names the outline a ref or a search reads (`--ws` gives a default); a URI names
+  its own. Granting `read` sends that outline's notes to the client's model provider: it is a disclosure decision.
+- **Revoking.** `ep0ch mcp access none --ws <name>` stops reads at once. Removing a subject from
+  `EP0CH_MCP_ALLOWED_SUBJECTS` (or a client from `EP0CH_MCP_ALLOWED_CLIENTS`) and restarting stops that person (or
+  client). Clerk's JWT access tokens live a day and can't be recalled early; revoke the client's grant in Clerk to
+  stop its refresh.
+
+| Env | Meaning |
+|---|---|
+| `EP0CH_MCP_RESOURCE` | this endpoint's public URL, as clients name it and tokens carry it in `aud` (`https://mcp.ep0ch.sh/mcp`); required, https |
+| `CLERK_PUBLISHABLE_KEY` | names the issuer (Clerk's Frontend API); from `~/.config/secrets/clerk.env` through `with-secrets clerk -- …`. `EP0CH_MCP_ISSUER` names it outright instead |
+| `EP0CH_MCP_ALLOWED_SUBJECTS` | comma-separated Clerk user ids (`user_…`) allowed in. Unset: capture mode |
+| `EP0CH_MCP_ALLOWED_CLIENTS` | optional comma-separated OAuth `client_id`s; when set, only these clients |
+
+The unit, `~/.config/systemd/user/ep0ch-mcp.service` (the gateway needs only the publishable key; the secret key
+in `clerk.env` is never read):
+
+```ini
+[Unit]
+Description=ep0ch remote MCP gateway: read-only MCP over HTTP on 127.0.0.1:8792 (https://mcp.ep0ch.sh/mcp via Caddy)
+After=outliner-host.service
+Wants=outliner-host.service
+
+[Service]
+Type=simple
+WorkingDirectory=%h/projects/ep0ch/packages/door
+Environment=EP0CH_OUTLINES=%h/outlines
+Environment=PATH=%h/.bun/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment=EP0CH_MCP_RESOURCE=https://mcp.ep0ch.sh/mcp
+# Empty: capture mode. Connect once from claude.ai, read the subject from the journal, put it here, restart.
+Environment=EP0CH_MCP_ALLOWED_SUBJECTS=
+UnsetEnvironment=EP0CH_SOCKET EP0CH_WS EP0CH_MACHINE
+ExecStart=%h/.local/bin/with-secrets clerk -- %h/.bun/bin/bun src/main.ts mcp serve --http --port 8792
+Restart=always
+RestartSec=3
+NoNewPrivileges=yes
+UMask=0077
+
+[Install]
+WantedBy=default.target
+```
+
+Caddy, beside `pie.ep0ch.sh` (the `*.ep0ch.sh` record already points at the machine):
+
+```caddyfile
+mcp.ep0ch.sh {
+	reverse_proxy 127.0.0.1:8792
+}
+```
+
+Clerk (the `ep0ch-mcp` application), in the dashboard under **OAuth applications**:
+
+- **Settings** tab, **Client onboarding**: **Publish CIMD support** on (claude.ai identifies itself by a Client ID
+  Metadata Document, `https://claude.ai/oauth/mcp-oauth-client-metadata`). **Publish DCR support** too, for a client
+  that only registers dynamically. Under **Authorization security**: **Require PKCE**. **Access token format**: **JWT
+  access tokens** (the gateway verifies JWTs itself; an opaque token is refused).
+- **Applications** tab: **Add application** → **Pre-register CIMD client**, Client ID URL
+  `https://claude.ai/oauth/mcp-oauth-client-metadata`, then **Allow client**.
+- The `aud` claim from the RFC 8707 resource parameter (`aud_claim_enabled`) must be on, or every token is refused
+  (the journal says so). The CLI sets it, with the rest: `clerk api /instance/oauth_application_settings -X PATCH -d
+  '{"aud_claim_enabled": true, "oauth_jwt_access_tokens": true, "pkce_required": true,
+  "client_id_metadata_documents_advertised": true, "dynamic_oauth_client_registration": true}'`.
+- **User & authentication** → **SSO connections**: GitHub.
+- Once a sign-in from claude.ai has worked, set **Client admission** to **Pre-registered and previously connected
+  clients** (or `"client_id_metadata_documents_only_allow_pre_registered_clients": true`), and DCR off if nothing
+  needs it.
+
+Either way a client registers, its token carries its `client_id` (a CIMD client's is its metadata URL), and
+`EP0CH_MCP_ALLOWED_CLIENTS=https://claude.ai/oauth/mcp-oauth-client-metadata` pins the gateway to claude.ai.
+Then in claude.ai: Settings → Connectors → Add custom connector, URL `https://mcp.ep0ch.sh/mcp`, and sign in with
+GitHub on Clerk's page. The first try is refused while `EP0CH_MCP_ALLOWED_SUBJECTS` is empty: the journal
+(`journalctl --user -u ep0ch-mcp -n 20`) names the `sub` to put there.
 
 ## Sessions: quit is detach
 
