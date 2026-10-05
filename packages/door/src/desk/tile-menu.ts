@@ -70,7 +70,8 @@ export function tileMenu<H extends MenuHost>(o: { title: string; rows: MenuRow[]
       const lit = rows[p.sel], why = lit?.refused ? wrap(`✕ ${lit.refused}`, w - 3).slice(0, 4).map(l => fg(C.dark) + " " + l + RESET) : [];
       const h = Math.min(a.rows, rows.length + groups + 2 + why.length);
       const col = Math.max(0, Math.min(o.at.right ? o.at.col - w + 1 : o.at.col, a.cols - w));
-      const row = o.at.row + h <= a.rows ? o.at.row : Math.max(0, o.at.row - h + 1);
+      // Below the anchor, else above it; on the screen either way (a terminal made smaller since).
+      const row = Math.max(0, Math.min(o.at.row + h <= a.rows ? o.at.row : o.at.row - h + 1, a.rows - h));
       const rect: Rect = { col, row, cols: w, rows: h };
       return { rect, title: o.title, foot: rows.length ? "⏎ or a click runs · esc" : "nothing to do here · esc", tail: why };
     },

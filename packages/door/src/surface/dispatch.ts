@@ -382,23 +382,19 @@ export class Dispatcher {
   menu(sel: string, actor: Actor): MenuRow[] {
     const tiles = this.tilesNow(), tile = this.tile(sel);
     if (!tile) throw new ActionRefused(`no tile ${sel} on the ${this.host.title}; ${this.which(tiles)}`);
-    const out: MenuRow[] = [], seen = new Set<string>(), where = this.where(), ctx = this.host.ctx();
+    const out: MenuRow[] = [], where = this.where(), ctx = this.host.ctx();
+    // A row is listed by the registration that would run it: the owner a press of it finds (claims included).
+    const owns = (r: Registration | Delegation, action: string) => this.owner({ action, tile: tile.name }) === r;
     for (const r of this.regs) {
       if (!("set" in r)) {
         if (r.listed === false) continue;
-        let rows: MenuRow[] = [];
-        try { rows = (r.delegate()?.menu(tile.name, actor) ?? []).filter(row => !seen.has(row.action)); } catch { /* the tile isn't one it reaches */ }
-        out.push(...rows);
-        for (const row of rows) seen.add(row.action);
+        try { out.push(...(r.delegate()?.menu(tile.name, actor) ?? []).filter(row => owns(r, row.action))); } catch { /* the tile isn't one it reaches */ }
         continue;
       }
       if (r.takes === "none" || (r.menuIn && !r.menuIn(tile))) continue;
       for (const name of r.set.names()) {
         const def = r.set.def(name)!, entries = def.menu === undefined ? [] : Array.isArray(def.menu) ? def.menu : [def.menu as MenuEntry<unknown, unknown>];
-        // A name is the first set's that has it, as running it is.
-        if (seen.has(name)) continue;
-        seen.add(name);
-        if (!entries.length) continue;
+        if (!entries.length || !owns(r, name)) continue;
         let at: Target;
         try { at = this.target(r, def, { action: name, tile: tile.name }, actor, tiles); } catch { continue; }      // not this tile's kind
         if (!at.tile) continue;

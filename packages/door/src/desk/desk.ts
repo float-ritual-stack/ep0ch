@@ -1803,7 +1803,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const bare = head.replace(/ +((?:\x1b\[[\d;]*m)*)$/, "$1");
     // An attention mark's label (who set it, why) outranks the ⋯ where both don't fit: a right-click or ^W . still opens
     // the menu, and the title runs up to the ⧉ or × as it always did.
-    const menus = cover === undefined && r.cols >= 14 && !(marked.length && width(bare) > menuX - r.col - 4);
+    const menus = cover === undefined && r.cols >= 14 && !(marked.length && width(bare) + (float ? width(tail) : 0) > menuX - r.col - 4);
     // With the ⋯, the title ends a cell before it; what follows the title (how far down, "e enters") gives way first.
     const fits = Math.max(1, menuX - r.col - 4);
     // Without it, as before: a float's long subject is cut so how far down it is still shows.
