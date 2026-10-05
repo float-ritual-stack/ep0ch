@@ -5,9 +5,10 @@
 // every read.
 import { createInterface } from "node:readline";
 import { boardFor, canonicalLocalMachineName, everyNote, type Found, type NotesBoard } from "./notes-cli";
-import { OUTLINE_NAME, previewTitle, type McpAccessStatus, type McpReachability, type McpAccessLevel } from "./socket";
+import { OUTLINE_NAME, previewTitle, type McpReachability } from "./socket";
+import { MCP_ACCESS_LEVELS, type McpAccessLevel, type McpAccessStatus } from "@ep0ch/outline-core/protocol";
 import type { BlockRecord } from "@ep0ch/outline-core/block-record";
-import { formatEp0chBlockUri, parseAddressedBlock } from "@ep0ch/outline-core/addressable-resource";
+import { formatEp0chBlockUri, namesOutline, parseAddressedBlock, sameMachine } from "@ep0ch/outline-core/addressable-resource";
 
 export const MCP_USAGE = `  ep0ch mcp [--ws <name>] [--machine <ssh-name>]
                                    read-only local MCP server for ep0ch:// block resources after \`ep0ch mcp access read\`:
@@ -56,7 +57,7 @@ export function boundOutlines(board: Board): McpOutlines {
     defaultOutline: bound.outline,
     async board(named) {
       if (!named) return board;
-      if (named.outline === bound.outline && (named.machine ?? bound.machine) === bound.machine) return board;
+      if (namesOutline({ outline: named.outline, machine: named.machine ?? bound.machine }, bound)) return board;
       return { error: `${uriOrName(named, bound.machine)} names ${named.outline}@${named.machine ?? bound.machine}; this MCP server is bound to ${bound.outline}@${bound.machine}` };
     },
   };
@@ -118,10 +119,9 @@ async function addressedBlock(outlines: McpOutlines, input: unknown, outlineInpu
   return { board, id, uri: blockUri(board, id) };
 }
 
-const ACCESS_LEVELS = ["none", "read", "propose", "full"] as const satisfies readonly McpAccessLevel[];
 
 const grantCommand = (board: Board) => {
-  const machine = board.address.machine === canonicalLocalMachineName() ? "" : ` --machine ${board.address.machine}`;
+  const machine = sameMachine(board.address.machine, canonicalLocalMachineName()) ? "" : ` --machine ${board.address.machine}`;
   return `ep0ch mcp access read --ws ${board.address.outline}${machine}`;
 };
 const accessRefusal = (outlines: McpOutlines, board: Board, level: McpAccessLevel) => outlines.kind === "local"
@@ -379,7 +379,7 @@ function mcpAccessArgs(argsIn: string[]): { boardArgs: string[]; level?: McpAcce
       if (!v || v.startsWith("--")) return { error: `${a} needs a value` };
       boardArgs.push(a, v); i++; continue;
     }
-    if ((ACCESS_LEVELS as readonly string[]).includes(a)) {
+    if ((MCP_ACCESS_LEVELS as readonly string[]).includes(a)) {
       if (level) return { error: `mcp access takes one level, got ${level} and ${a}` };
       level = a as McpAccessLevel; continue;
     }

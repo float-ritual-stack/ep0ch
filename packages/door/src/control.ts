@@ -19,7 +19,7 @@ import type { Mirror } from "./mirror";
 import type { TermInfo } from "./term";
 import { isInside, outlineState, privateDir, stateDir } from "./state";
 import { ask, jsonLine, JsonLines, listening } from "./jsonl";
-import { parseAddressedBlock } from "@ep0ch/outline-core/addressable-resource";
+import { namesOutline, parseAddressedBlock } from "@ep0ch/outline-core/addressable-resource";
 import { runningSessions, sessionInfo, sessionSocket } from "./session/place";
 
 /**
@@ -70,7 +70,7 @@ function requireAddress(expected: unknown, d: ControlDeps): void {
   const e = expected as Partial<ExpectedAddress>;
   if (typeof e.outline !== "string" || typeof e.machine !== "string") throw new Error("open URI address is malformed");
   const actual = { outline: d.app.outline, machine: d.app.machine ?? canonicalLocalMachineName() };
-  if (actual.outline !== e.outline || actual.machine !== e.machine) {
+  if (!namesOutline({ outline: e.outline, machine: e.machine }, actual)) {
     throw new Error(`that URI names ${e.outline} on ${e.machine}, but this door is ${actual.outline ?? "not on an outline"} on ${actual.machine}`);
   }
 }

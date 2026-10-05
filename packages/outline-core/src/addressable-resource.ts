@@ -92,6 +92,23 @@ export function parseEp0chBlockUri(input: string): Ep0chBlockUri {
   return { outline, machine, blockId: normalizedBlockId, ...(fragment ? { fragment } : {}) };
 }
 
+/** An outline as a URI names it: `name@machine`. */
+export interface OutlineAddress { outline: string; machine: string }
+
+/**
+ * Whether a URI's machine is `machine`: the one comparison every client makes before it routes or refuses a URI (the
+ * door's open and `--screen`, its control socket, the MCP server). Exact today; a machine's aliases (PIE-520's
+ * canonical machine name) are accepted here when the service names one.
+ */
+export function sameMachine(uriMachine: string, machine: string): boolean {
+  return uriMachine === machine;
+}
+
+/** Whether `uri` names the outline at `at` (`outline@machine`); an `at` with no outline names none. */
+export function namesOutline(uri: OutlineAddress, at: { outline?: string | null; machine: string }): boolean {
+  return !!at.outline && uri.outline === at.outline && sameMachine(uri.machine, at.machine);
+}
+
 export function parseAddressedBlock(input: string): Ep0chBlockUri | { blockId: string; fragment?: string } {
   if (input.trimStart().startsWith("ep0ch://")) return parseEp0chBlockUri(input);
   return parseBlockRef(input);

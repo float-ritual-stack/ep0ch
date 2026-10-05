@@ -1,4 +1,4 @@
-import type { Block, BlockAuthor, BlockProperty, NotePlacement } from "@ep0ch/outline-core/protocol";
+import type { Block, BlockAuthor, BlockProperty, McpAccessLevel, NotePlacement } from "@ep0ch/outline-core/protocol";
 // The wire types both sides share live in outline-core (protocol.ts); re-exported for the service's modules.
 export type { Block, BlockAuthor, BlockProperty, OutlinerRequestProblem, OutlinerResponse } from "@ep0ch/outline-core/protocol";
 export type { HostedOutlineAttachment, HostedOutlineDeletion, HostedOutlineList, HostedOutlineSummary, OutlinerHostStatus, OutlinerServiceOutline, OutlinerServiceStatus } from "@ep0ch/outline-core/protocol";
@@ -1149,13 +1149,6 @@ export interface WorkIdAllocatorStatus {
   observedPrefixes: string[];
 }
 
-export const MCP_ACCESS_LEVELS = ["none", "read", "propose", "full"] as const;
-export type McpAccessLevel = typeof MCP_ACCESS_LEVELS[number];
-export interface McpAccessStatus {
-  level: McpAccessLevel;
-  canRead: boolean;
-  sequence: number;
-}
 
 export interface WorkIdAllocation {
   workId: string;

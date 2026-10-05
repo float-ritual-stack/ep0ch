@@ -131,3 +131,16 @@ export interface HostedOutlineDeletion {
  * first child (`top`) or the last (`end`), which rule placed it, and the words a client says it with.
  */
 export interface NotePlacement { parentId: string; at: "top" | "end"; rule: "near" | "inbox"; said: string }
+
+/**
+ * An outline's own MCP access setting (ADR 0002 §4, PIE-562): kept by the service in the outline's metadata, `none` by
+ * default, set with `ep0ch mcp access`. One list for the service's check, the door's flags and the wire.
+ */
+export const MCP_ACCESS_LEVELS = ["none", "read", "propose", "full"] as const;
+export type McpAccessLevel = typeof MCP_ACCESS_LEVELS[number];
+/** `mcp.access.status` and `mcp.access.configure`'s answer. */
+export interface McpAccessStatus {
+  level: McpAccessLevel;
+  canRead: boolean;
+  sequence: number;
+}

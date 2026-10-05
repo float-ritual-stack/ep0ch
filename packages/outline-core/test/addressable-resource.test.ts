@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   formatEp0chBlockUri,
+  namesOutline,
   parseAddressedBlock,
   parseBlockRef,
   parseEp0chBlockUri,
@@ -45,5 +46,15 @@ describe("shared block reference parser", () => {
     expect(parseAddressedBlock(`ep0ch://pie@float-2/b/${id}`)).toEqual({ outline: "pie", machine: "float-2", blockId: id });
     expect(parseAddressedBlock(`((${ID}))`)).toEqual({ blockId: id });
     expect(() => parseAddressedBlock(` ep0ch://pie@float-2/b/${id}`)).toThrow("expected exact");
+  });
+});
+
+describe("does a URI name this outline", () => {
+  test("outline and machine both match; a place with no outline names none", () => {
+    const uri = parseEp0chBlockUri(`ep0ch://garden@box-a/b/${id}`);
+    expect(namesOutline(uri, { outline: "garden", machine: "box-a" })).toBe(true);
+    expect(namesOutline(uri, { outline: "orchard", machine: "box-a" })).toBe(false);
+    expect(namesOutline(uri, { outline: "garden", machine: "box-b" })).toBe(false);
+    expect(namesOutline(uri, { outline: null, machine: "box-a" })).toBe(false);
   });
 });

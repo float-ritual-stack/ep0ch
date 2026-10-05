@@ -20,7 +20,7 @@ import { VIEW_USAGE, viewCommand } from "./view-cli";
 import { MCP_USAGE, mcpCommand } from "./mcp";
 import { showcaseTry } from "./showcase/route";
 import { checkWords, screenDetailArgs, usageFor } from "./cli-words";
-import { parseEp0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
+import { parseEp0chBlockUri, sameMachine } from "@ep0ch/outline-core/addressable-resource";
 import { colourOnlyToATerminal } from "@ep0ch/outliner/plain-stderr";
 // Piped stderr stays plain: the Claude mod, door-open and tests parse these refusals.
 colourOnlyToATerminal();
@@ -165,7 +165,7 @@ if (args[0] === "session") process.exit(await sessionCommand(args.slice(1)));
 if (args[0] === "open" && args[1]?.startsWith("ep0ch://")) {
   try {
     const uri = parseEp0chBlockUri(args[1]);
-    const local = uri.machine === canonicalLocalMachineName();
+    const local = sameMachine(uri.machine, canonicalLocalMachineName());
     if (!process.env.EP0CH_CONTROL) process.env.EP0CH_CONTROL = join(placeOf({ outline: uri.outline, ...(local ? {} : { machine: uri.machine }) }).dir, "door.sock");
   } catch (e) {
     console.error(`ep0ch: ${(e as Error).message}`);
@@ -176,7 +176,7 @@ const screenAt = args.indexOf("--screen");
 if (screenAt >= 0 && args[screenAt + 1] === "detail" && args[screenAt + 2]?.startsWith("ep0ch://")) {
   try {
     const uri = parseEp0chBlockUri(args[screenAt + 2]!);
-    const local = uri.machine === canonicalLocalMachineName();
+    const local = sameMachine(uri.machine, canonicalLocalMachineName());
     args = screenDetailArgs(args, uri, { local, socket: !!process.env.EP0CH_SOCKET?.trim() });
   } catch (e) {
     console.error(`ep0ch: ${(e as Error).message}`);

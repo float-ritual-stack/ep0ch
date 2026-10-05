@@ -76,3 +76,26 @@ local part). Its ids follow [ADR 0001](0001-ids-names-roles.md).
   lease and the Tern plugin are separate tickets on top of this; none needs another identity or permission model.
 - A review asks of each new reference: is it a URI or an id (ADR 0001), and does its surface respect the outline's
   access setting.
+
+## Open: the machine in a URI (proposal)
+
+Today each client writes the machine part of a URI itself: the local hostname (`canonicalLocalMachineName`) on the
+machine that has the outline, the ssh alias it used (`--machine float-2`) from anywhere else. One block therefore gets
+different URIs depending on who printed it, and a URI printed on one side is refused on the other (the door's
+`open`, its control socket and the MCP server all compare `outline@machine` exactly, through outline-core's
+`namesOutline`/`sameMachine`).
+
+Proposal: **the service owns the canonical machine name; aliases are accepted on input.**
+
+- The host reports `location.machine` in `ping`: `canonicalLocalMachineName` of its hostname, or a name set in its
+  config (`EP0CH_MACHINE_NAME`) for a machine whose hostname isn't the name people use. That name is what every
+  client writes in a URI, whichever way it reached the host.
+- A client keeps the names it reached that host by (the ssh alias of its forward, `.remote/<alias>.sock`, and the
+  local hostname for this machine) as aliases of the canonical name it learned from `ping`. `sameMachine` takes that
+  alias table, so a URI naming any alias resolves to the same outline; output always carries the canonical name.
+- A URI whose machine is unknown (no forward and no alias) is refused with the commands, as now.
+
+It changes the URIs clients print for a remote outline (the alias becomes the host's name). Stored references keep
+working only if every reader accepts aliases first, so the reader side ships before the writer side. Tracked as a
+ticket (PIE-564); not part of the review fixes.
+

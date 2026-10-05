@@ -9,7 +9,8 @@ import { readFragment, readTransclusions, type FragmentRead, type TransclusionOp
 import type { ChecklistCollection, ChecklistIdentityChange, ChecklistQuery, ChecklistSearchQuery, ChecklistSearchCollection, ChecklistUpdateInput, ChecklistUpdateReceipt } from "./types";
 import { planCreateInView, planMoveIntoView, writeView } from "./view-writes";
 import type {QueryExpression, SavedViewReadOptions, ViewWritePlanRequest, ViewWritePlanResult, SavedViewReadProblem, SavedViewReadResult, VirtualBranchOrder, VirtualBranchPlacementInput} from "./types";
-import { BLOCK_ACTIVITY_KINDS, BLOCK_EDIT_ACTIVITY_KINDS, MCP_ACCESS_LEVELS } from "./types";
+import { BLOCK_ACTIVITY_KINDS, BLOCK_EDIT_ACTIVITY_KINDS } from "./types";
+import { MCP_ACCESS_LEVELS, type McpAccessLevel, type McpAccessStatus } from "@ep0ch/outline-core/protocol";
 import { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
 import { mkdirSync } from "node:fs";
@@ -163,8 +164,6 @@ import type {
   VisibleBlockCollection,
   WorkIdAllocation,
   WorkIdAllocatorStatus,
-  McpAccessLevel,
-  McpAccessStatus,
   WorkspaceSnapshot,
   WorkspaceSnapshotView,
 } from "./types";
