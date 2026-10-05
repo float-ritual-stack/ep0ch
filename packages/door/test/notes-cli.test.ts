@@ -139,8 +139,11 @@ describe.skipIf(!outliner)("ep0ch find and show against a scratch host", () => {
     const rows = all.out.split("\n").filter(Boolean).map(l => l.split("\t"));
     expect(rows.every(r => r.length === 7)).toBe(true);
     const shed = rows.findIndex(r => r[0] === ids.shed);
-    expect(rows[shed]!.slice(1, 6)).toEqual(["Bike shed", "", expect.stringContaining(`ep0ch://${scratch.name}@`), "0", ""]);
-    expect(rows[shed + 1]!.slice(0, 6)).toEqual([ids.oil!, "Chain oil", "Bike shed", expect.stringContaining(`ep0ch://${scratch.name}@`), "1", "└─ "]);
+    // id, title, path, depth, glyphs, about, then the URI last: a column added never shifts the ones before it.
+    expect(rows[shed]!).toEqual([ids.shed!, "Bike shed", "", "0", "", expect.any(String), expect.stringContaining(`ep0ch://${scratch.name}@`)]);
+    expect(rows[shed + 1]!.slice(0, 5)).toEqual([ids.oil!, "Chain oil", "Bike shed", "1", "└─ "]);
+    expect(rows[shed + 1]![6]).toBe(rows.find(r => r[0] === ids.oil)![6]);
+    expect(rows[shed + 1]![6]).toEndWith(`/b/${ids.oil}`);
     expect(rows.some(r => r[0] === ids.gone)).toBe(false);
     const under = await run(["find", "--tree", `((${ids.shed}))`, "--lines"], env);
     expect(under.out.split("\n").filter(Boolean).map(l => l.split("\t")[0])).toEqual([ids.shed, ids.oil]);

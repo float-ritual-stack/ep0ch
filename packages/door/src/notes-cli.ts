@@ -157,8 +157,8 @@ export function treeOf(index: readonly IndexBlock[], root?: string, levels = TRE
   });
 }
 
-/** The `--tree --lines` form: id, title, path, depth, glyphs, about, tab-separated. */
-export const treeLine = (f: TreeFound) => [foundLine(f), String(f.depth), f.glyphs, field(f.about)].join("\t");
+/** The `--tree --lines` form: id, title, path, depth, glyphs, about, then the URI last, tab-separated. */
+export const treeLine = (f: TreeFound) => [f.id, field(f.title), field(f.path), String(f.depth), f.glyphs, field(f.about), ...(f.uri ? [f.uri] : [])].join("\t");
 
 /** A flag's value, or why it's missing. */
 function flag(args: string[], name: string): string | undefined | { error: string } {

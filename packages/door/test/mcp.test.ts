@@ -70,6 +70,9 @@ describe.skipIf(!outliner)("ep0ch mcp", () => {
       { jsonrpc: "1.0", id: 12, method: "tools/list" },
       [{ jsonrpc: "2.0", id: 13, method: "resources/list" }, { jsonrpc: "2.0", method: "tools/list" }, { jsonrpc: "2.0", id: 14, method: "nope" }],
       { jsonrpc: "2.0", id: 15, method: "tools/call", params: { name: "outline_read", arguments: { uri: publishedShell.uri } } },
+      // Another outline's URI in a ref (spaces around it too) is refused, never read by its id here.
+      { jsonrpc: "2.0", id: 18, method: "tools/call", params: { name: "outline_links", arguments: { ref: `  ${target.uri.replace(`${scratch.name}@`, "other-garden@")}` } } },
+      { jsonrpc: "2.0", id: 19, method: "tools/call", params: { name: "outline_read", arguments: { ref: target.uri.replace(`${scratch.name}@`, "other-garden@") } } },
     ].map(r => JSON.stringify(r));
     const code = await mcpCommand(["mcp"], { input: linesOf(requests), write: line => out.push(line), err: line => out.push(`ERR ${line}`) });
     expect(code).toBe(0);
@@ -106,6 +109,10 @@ describe.skipIf(!outliner)("ep0ch mcp", () => {
     expect(batch.map(r => r.id)).toEqual([13, 14]);
     expect(fields(batch[0]!.result).resources).toEqual([]);
     expect(batch[1]!.error?.message).toContain("Method not found");
+    for (const id of [18, 19]) {
+      expect(tool(response(id)?.result).isError).toBe(true);
+      expect(tool(response(id)?.result).content[0]!.text).toContain(`names other-garden@${machine}; this MCP server is bound to ${scratch.name}@${machine}`);
+    }
     const publishedRead = JSON.parse(tool(response(15)?.result).content[0]!.text) as { record: { links: { target: string | null; label: string }[] } };
     expect(publishedRead.record.links.map(link => link.target)).toContain(privateNote.id);
 

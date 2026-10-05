@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
+import { BLOCK_ID_PATTERN } from "@ep0ch/outline-core/addressable-resource";
 import { BLOCK_ACTIVITY_KINDS } from "./types";
 
 /*
@@ -786,27 +787,29 @@ export const SCHEMA_SQL = `
 const userVersion = (database: Database) => (database.query("PRAGMA user_version").get() as { user_version: number }).user_version;
 
 export const OUTLINE_INSTANCE_ID_KEY = "outline_instance_id";
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-export function readOutlineInstanceId(database: Database, label = "This database"): string {
+/** The one-off script that gives a database its outline instance id (schema 1 → 2, and repairs a 2 without one). */
+const INSTANCE_ID_SCRIPT = join(import.meta.dir, "../scripts/migrations/0002-outline-instance-id.ts");
+
+export function readOutlineInstanceId(database: Database, path: string): string {
   const row = database.query("SELECT value FROM metadata WHERE key = ?").get(OUTLINE_INSTANCE_ID_KEY) as { value: string } | null;
   const value = row?.value;
-  if (!value || !UUID.test(value)) {
-    throw new Error(`${label} is missing a valid outline instance id; run the schema upgrade while no service serves it`);
+  if (!value || !BLOCK_ID_PATTERN.test(value)) {
+    throw new Error(`The outline database ${path} has no valid outline instance id; repair it with \`bun ${INSTANCE_ID_SCRIPT} ${path}\` while no service serves it`);
   }
   return value.toLowerCase();
 }
 
 export function insertOutlineInstanceId(database: Database, value = randomUUID()): string {
-  if (!UUID.test(value)) throw new Error(`outline instance id must be a UUID, got ${JSON.stringify(value)}`);
-  database.query("INSERT INTO metadata (key, value) VALUES (?, ?)").run(OUTLINE_INSTANCE_ID_KEY, value.toLowerCase());
+  if (!BLOCK_ID_PATTERN.test(value)) throw new Error(`outline instance id must be a UUID, got ${JSON.stringify(value)}`);
+  database.query("INSERT OR REPLACE INTO metadata (key, value) VALUES (?, ?)").run(OUTLINE_INSTANCE_ID_KEY, value.toLowerCase());
   return value.toLowerCase();
 }
 
 /** The one-off script that upgrades a database at `version`, when there is one. */
 const UPGRADES: Readonly<Record<number, string>> = {
   0: `bun ${join(import.meta.dir, "../scripts/migrations/0001-stamp.ts")} <database>`,
-  1: `bun ${join(import.meta.dir, "../scripts/migrations/0002-outline-instance-id.ts")} <database>`,
+  1: `bun ${INSTANCE_ID_SCRIPT} <database>`,
 };
 
 /**

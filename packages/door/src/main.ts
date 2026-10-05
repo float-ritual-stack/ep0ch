@@ -19,7 +19,7 @@ import { NEW_USAGE, newCommand } from "./new-cli";
 import { VIEW_USAGE, viewCommand } from "./view-cli";
 import { MCP_USAGE, mcpCommand } from "./mcp";
 import { showcaseTry } from "./showcase/route";
-import { checkWords, usageFor } from "./cli-words";
+import { checkWords, screenDetailArgs, usageFor } from "./cli-words";
 import { parseEp0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
 import { colourOnlyToATerminal } from "@ep0ch/outliner/plain-stderr";
 // Piped stderr stays plain: the Claude mod, door-open and tests parse these refusals.
@@ -177,11 +177,7 @@ if (screenAt >= 0 && args[screenAt + 1] === "detail" && args[screenAt + 2]?.star
   try {
     const uri = parseEp0chBlockUri(args[screenAt + 2]!);
     const local = uri.machine === canonicalLocalMachineName();
-    const drop = new Set(["--ws", "--machine"]);
-    const rest = args.filter((a, i) => a !== "--here" && !drop.has(a) && !drop.has(args[i - 1] ?? ""));
-    const at = rest.indexOf("--screen");
-    delete process.env.EP0CH_SOCKET;
-    args = [...rest.slice(0, at), "--ws", uri.outline, ...(local ? ["--here"] : ["--machine", uri.machine]), "--screen", "detail", uri.blockId, ...rest.slice(at + 3)];
+    args = screenDetailArgs(args, uri, { local, socket: !!process.env.EP0CH_SOCKET?.trim() });
   } catch (e) {
     console.error(`ep0ch: ${(e as Error).message}`);
     process.exit(2);

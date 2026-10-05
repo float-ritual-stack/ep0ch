@@ -2152,7 +2152,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       serviceDatabase = null;
       return null;
     }
-    const identity = status.outlineInstanceId ?? null;
+    const identity = status?.outlineInstanceId ?? null;
     const sameDatabase = identity !== null && identity === serviceDatabase;
     serviceDatabase = identity;
     return { status, sameDatabase };

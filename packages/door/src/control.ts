@@ -9,7 +9,6 @@
 // The socket is the door's shell: whoever can connect can do what the person can, including start a program in
 // a terminal tile. So it is 0600, in a folder that is the user's alone (0700, owner checked, the same check as
 // the nvim tiles' sockets); a folder anyone else can reach is refused and the door runs without it.
-import { blockIdOf } from "./text";
 import { canonicalLocalMachineName } from "./machine-name";
 import { chmodSync, existsSync, lstatSync, mkdirSync, readlinkSync, readdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { connect, createServer, type Server } from "node:net";
@@ -20,7 +19,7 @@ import type { Mirror } from "./mirror";
 import type { TermInfo } from "./term";
 import { isInside, outlineState, privateDir, stateDir } from "./state";
 import { ask, jsonLine, JsonLines, listening } from "./jsonl";
-import { parseEp0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
+import { parseAddressedBlock } from "@ep0ch/outline-core/addressable-resource";
 import { runningSessions, sessionInfo, sessionSocket } from "./session/place";
 
 /**
@@ -190,6 +189,14 @@ async function receiverForControl(path: string): Promise<unknown | null> {
   };
 }
 
+/** `open`'s argument: a URI or `((…))` reference through the shared parser, else the id as given. */
+function openRef(arg: string): { blockId: string; fragment?: string; address?: { outline: string; machine: string } } {
+  const a = arg.trim();
+  if (!a.startsWith("ep0ch://") && !a.startsWith("((")) return { blockId: a };
+  const parsed = parseAddressedBlock(a);
+  return "outline" in parsed ? { ...parsed, address: { outline: parsed.outline, machine: parsed.machine } } : parsed;
+}
+
 /** Client side: send one command to a running door and print the reply. */
 export async function controlClient(args: string[]): Promise<number> {
   const commandArgs = args.filter(a => a !== "--json");
@@ -211,10 +218,12 @@ export async function controlClient(args: string[]): Promise<number> {
     // `snap <file>`: the door sends the PNG and this command writes it, where the person said; the door
     // itself writes only under its state (snapPath).
     if (cmd === "open" && (!arg || arg.includes("="))) throw new Error("open needs a block id: open <id> [from=<tile>] [--as <your id>] [--json]");
-    const openTarget = cmd === "open" && arg?.startsWith("ep0ch://") ? parseEp0chBlockUri(arg) : null;
+    // A block reference as written (`((id))`, `((id|label))`, `((id^fragment))`, what a picker prints) names the same
+    // note, through outline-core's one parser; a canonical URI carries its outline address too. A fragment (`^anchor`,
+    // `#anchor`) goes on to the open, whose reader scrolls to it. Anything else is passed as the door's own id.
+    const openTarget = cmd === "open" ? openRef(arg!) : null;
     req = cmd === "snap" ? (arg ? { cmd, data: true } : { cmd })
-      // A block reference as written (`((id))`, what a picker prints) names the same note. A canonical URI carries its outline address too.
-      : cmd === "open" ? { cmd: "act", ...(openTarget ? { address: { outline: openTarget.outline, machine: openTarget.machine } } : {}), ...(await parseActArgs(["open", `id=${openTarget?.blockId ?? blockIdOf(arg!)}`, ...commandArgs.slice(2)])) }
+      : cmd === "open" ? { cmd: "act", ...(openTarget!.address ? { address: openTarget!.address } : {}), ...(await parseActArgs(["open", `id=${openTarget!.blockId}`, ...(openTarget!.fragment ? [`fragment=${openTarget!.fragment}`] : []), ...commandArgs.slice(2)])) }
       : cmd === "act" ? { cmd, ...(await parseActArgs(commandArgs.slice(1))) } : { cmd };
   } catch (e) { console.error((e as Error).message); return 1; }
   // An agent names itself once per shell: EP0CH_AGENT=claude-7 (or --as on each act and open).

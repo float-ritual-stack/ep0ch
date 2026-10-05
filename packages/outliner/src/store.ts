@@ -12,7 +12,7 @@ import type {QueryExpression, SavedViewReadOptions, ViewWritePlanRequest, ViewWr
 import { BLOCK_ACTIVITY_KINDS, BLOCK_EDIT_ACTIVITY_KINDS, MCP_ACCESS_LEVELS } from "./types";
 import { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
-import { mkdirSync, statSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { acquireWorkspaceOwnership } from "./workspace-ownership";
 import { AnnotationRepository } from "./annotation-repository";
@@ -36,7 +36,8 @@ import {
 } from "./bookmarks";
 import { isValidGitBranchName, parseDeliveryIdentity } from "./delivery-lifecycle";
 import { seedDefaultWorkspace } from "./default-workspace";
-import { openSchema, readOutlineInstanceId } from "./schema";
+import { openSchema } from "./schema";
+import { openOutlineInstance, type OutlineInstance } from "./outline-instance";
 import { placeNewNote, type NewNoteIntent, type Placement } from "./note-placement";
 import {
   compileQueryExpression,
@@ -238,7 +239,7 @@ interface WorkIdAllocatorRow {
 
 // Singleton outline configuration uses the existing metadata table when it is not canonical user content
 // and needs no revisioned note body (same table as sequence/outline_instance_id/change-feed floor).
-const MCP_ACCESS_METADATA_KEY = "mcp.local_access";
+export const MCP_ACCESS_METADATA_KEY = "mcp.local_access";
 
 function normalizeMcpAccessLevel(value: string): McpAccessLevel {
   const normalized = value.trim().toLowerCase();
@@ -735,13 +736,6 @@ function compactTreeBlock(
   };
 }
 
-  /** Stable identity of this database file instance; changes when an outline is restored, reset, imported or recreated. */
-function outlineFileInstanceId(path: string, database: Database, label: string): string {
-  const databaseId = readOutlineInstanceId(database, label);
-  const stat = statSync(path, { bigint: true });
-  return createHash("sha256").update(`${databaseId}:${stat.dev}:${stat.ino}`).digest("hex");
-}
-
 export class OutlinerStore {
   private readonly releaseOwnership: () => void;
   readonly database: Database;
@@ -752,7 +746,10 @@ export class OutlinerStore {
   readonly changes: ChangeFeed;
   /** The extension writing now (`writeExtensionRecord`); owned blocks refuse every other writer. */
   private extensionWriter: string | null = null;
+  /** Which database instance this file holds (outline-instance.ts); changes when the database is replaced. */
   readonly outlineInstanceId: string;
+  private readonly instance: OutlineInstance;
+  private closed = false;
 
   constructor(path: string, resourceOptions: ResourceCatalogOptions = {}) {
     this.workspaceRoot = resolve(resourceOptions.workspaceRoot ?? dirname(path));
@@ -762,8 +759,9 @@ export class OutlinerStore {
     try {
       this.database = database = new Database(path, { create: true });
       this.database.exec("PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;");
-      this.prepareDatabase(path);
-      this.outlineInstanceId = outlineFileInstanceId(path, this.database, `The outline database ${path}`);
+      const created = this.prepareDatabase(path) === "created";
+      this.instance = openOutlineInstance(path, this.database, () => this.sequence, created);
+      this.outlineInstanceId = this.instance.id;
       this.changes = new ChangeFeed(this.database, () => this.sequence);
       this.workingSelections = new WorkingSelectionRepository(this.database);
       this.resources = new ResourceCatalog(this.database, {
@@ -810,8 +808,12 @@ export class OutlinerStore {
 
 
   close(): void {
+    // A second close is a no-op: its record would describe an open that has ended (another may own the file now).
+    if (this.closed) return;
+    this.closed = true;
     try {
-      this.database.close();
+      try { this.instance.close(this.sequence); }
+      finally { this.database.close(); }
     } finally {
       this.releaseOwnership();
     }
@@ -4141,8 +4143,8 @@ export class OutlinerStore {
    * keeps true of the data: the property index and page addresses for this parser version, and work-id
    * reservations, the allocator and work-id addresses consistent with the declared properties.
    */
-  private prepareDatabase(path: string): void {
-    openSchema(this.database, `The outline database ${path}`);
+  private prepareDatabase(path: string): "created" | "current" {
+    const opened = openSchema(this.database, `The outline database ${path}`);
     // After the version check, so a refused file is left exactly as it was.
     this.database.exec("PRAGMA journal_mode = WAL;");
     const reparsed = this.rebuildPropertyIndexForParser();
@@ -4150,6 +4152,7 @@ export class OutlinerStore {
     this.reconcileWorkIdAllocator();
     if (reparsed) this.database.transaction(() => this.rebuildPageAddresses())();
     this.reconcileWorkIdAddresses();
+    return opened;
   }
 
 

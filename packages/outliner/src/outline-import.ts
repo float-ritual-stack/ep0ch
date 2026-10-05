@@ -2,7 +2,8 @@ import { Database } from "bun:sqlite";
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { openSchema, OUTLINE_INSTANCE_ID_KEY } from "./schema";
-import { OutlinerStore } from "./store";
+import { MCP_ACCESS_METADATA_KEY, OutlinerStore } from "./store";
+import { OUTLINE_OPEN_TOKEN_KEY } from "./outline-instance";
 
 /*
  * Import (PIE-530): a new outline at `target`, with the current schema, filled
@@ -62,7 +63,10 @@ const SKIPPED_METADATA = new Set([
   "work_id_allocator_migration_version",
   "pie250_annotation_repository",
   OUTLINE_INSTANCE_ID_KEY,
+  OUTLINE_OPEN_TOKEN_KEY,
   "resource_retention_payload_migration",
+  // An MCP grant is a disclosure decision about that outline (ADR 0002 §4); a new one starts at none.
+  MCP_ACCESS_METADATA_KEY,
 ]);
 
 const quote = (name: string) => `"${name.replaceAll('"', '""')}"`;
@@ -152,7 +156,7 @@ export function importOutline(sourceInput: string, targetInput: string): ImportR
       result.close();
     }
   } catch (error) {
-    if (created) for (const suffix of ["", "-wal", "-shm", ".owner.sqlite"]) rmSync(`${target}${suffix}`, { force: true });
+    if (created) for (const suffix of ["", "-wal", "-shm", ".owner.sqlite", ".instance.json"]) rmSync(`${target}${suffix}`, { force: true });
     throw error;
   } finally {
     reader.close();
