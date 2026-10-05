@@ -53,6 +53,12 @@ move into one repository (PIE-530).
 - **Television (optional).** With `tv` on your PATH, `ep0ch install --apply` links the outline's channels into
   television's cable folder.
 
+### Fixed: published pages read as HTML linked to raw Markdown
+
+On a page read as HTML (`?view=html`), a link to another published note now opens that note's HTML too, as the
+index does. Published text leaves out line anchors (`^see`) outside code. The pages are dark only, and a ticked
+step shows ticked on a phone (a disabled checkbox in iOS's dark mode hid its tick).
+
 ### Fixed: a door session with no terminal attached used CPU drawing frames nobody saw
 
 A terminal tile whose program keeps writing (a Claude session, a log tail) made the session draw a whole frame for each
