@@ -39,7 +39,8 @@ Both histories are kept: `git log --follow` and `git blame` reach back into ep0c
   A brief handed to another agent carries this vocabulary and the shared parts it must use, and its review asks
   whether it really used them.
 - If no shared part fits, extend one or say in the PR why not. Don't add a parallel reader, pane model, search,
-  editor or presence view.
+  editor or presence view: that means a second *implementation* of one, not a second place to read notes (see
+  [Many clients, one set of parts](#many-clients-one-set-of-parts)).
 - **Demo it in the kitchen sink.** Each reuse-map row gets a showcase section (the door README names the few still
   without one), and a user-visible feature gets a showcase section or note in the same PR, live where possible (`ep0ch --showcase`; `packages/door/src/showcase/`).
   The demo is also its end-to-end test: a new section's test in `packages/door/test/showcase.test.ts` opens it on the seeded outline, drives it
@@ -76,6 +77,25 @@ Both histories are kept: `git log --follow` and `git blame` reach back into ep0c
 - Before adding a feature to a door screen, ask which client it belongs in. Finding and editing any block is
   the outliner's job, opened beside the door in Herdr (split, then zoom the door back). A screen doesn't need
   its own copy of that.
+
+## Many clients, one set of parts
+
+Small purpose-built clients are welcome: a reader for the phone, a sidebar, a pane in another terminal, a detail
+screen, an MCP client (ADR 0002). Each is a thin host. It reads and writes through the service (or MCP), parses
+with outline-core, and draws with a renderer that exists: the door's NoteSurface in a terminal, PIE-520's
+ViewSpec elsewhere (HTML, Markdown). What no client does is implement the parts again:
+
+- reference, page, embed and anchor scanning; property tokens and scope; code fences and literal regions; note
+  titles;
+- resolution, search and ranking, backlinks and views (the service answers them);
+- drafts, revisions, proposals and attribution;
+- the wire types (outline-core `protocol.ts`).
+
+Where one of those isn't shared yet, extend the shared part instead of copying it. The door still mirrors several
+from the outliner; the map of what's shared, server-side and duplicated, with the copies that already disagree,
+is the note "Note logic: shared, server-side and duplicated" under the latest push-review round, and converging
+them is ongoing work. Drawing is each client's own: the door, Detail and the publisher draw differently, and they
+share the structure (blocks, links, figures, fences), not the drawing.
 
 ## Mouse and agents are first-class
 
