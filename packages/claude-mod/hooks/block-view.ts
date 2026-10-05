@@ -28,6 +28,7 @@ export type { BlockCells, BlockViewData }
 /** Base64 characters per cell: 12 bytes (three u32s), a multiple of 3, so a row never splits a base64 quantum. */
 const B64_PER_CELL = 16
 
+
 /** The most rows kept of one drawing: a preview, not the note. */
 export const MAX_ROWS = 24
 

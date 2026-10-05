@@ -5,7 +5,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { everyNote, foundLine, treeLine, treeOf } from "../src/notes-cli";
+import { canonicalLocalMachineName, everyNote, foundLine, treeLine, treeOf } from "../src/notes-cli";
 import { SocketBoard } from "../src/socket";
 import { visible, width } from "../src/style";
 import { outliner, Scratch } from "./scratch";
@@ -28,6 +28,14 @@ describe("every note, for a picker that filters as it's typed", () => {
 
   test("a --lines row is one line of three tab-separated fields, whatever the title holds", () => {
     expect(foundLine({ id: "x1", title: "Two\tlines\nof title", path: "Shed › Tools" })).toBe("x1\tTwo lines of title\tShed › Tools");
+  });
+
+  test("local URI machine names are stable and valid when the host name is not an ssh-name shape", () => {
+    expect(canonicalLocalMachineName("garden-box")).toBe("garden-box");
+    expect(canonicalLocalMachineName("___")).toBe("local");
+    const long = canonicalLocalMachineName("this-host-name-is-longer-than-the-uri-machine-limit.example");
+    expect(long).toMatch(/^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$/);
+    expect(long).toHaveLength(32);
   });
 });
 
@@ -119,8 +127,9 @@ describe.skipIf(!outliner)("ep0ch find and show against a scratch host", () => {
     const r = await run(["find", "--lines"], env);
     expect(r.code).toBe(0);
     const rows = r.out.trim().split("\n").map(l => l.split("\t"));
-    expect(rows.find(f => f[0] === ids.oil)).toEqual([ids.oil!, "Chain oil", "Bike shed"]);
-    expect(rows.find(f => f[0] === ids.shed)?.slice(1)).toEqual(["Bike shed", ""]);
+    expect(rows.find(f => f[0] === ids.oil)?.slice(0, 3)).toEqual([ids.oil!, "Chain oil", "Bike shed"]);
+    expect(rows.find(f => f[0] === ids.oil)?.[3]).toContain(`ep0ch://${scratch.name}@`);
+    expect(rows.find(f => f[0] === ids.shed)?.slice(1, 3)).toEqual(["Bike shed", ""]);
     expect(rows.some(f => f[0] === ids.gone)).toBe(false);
   });
 
@@ -128,10 +137,10 @@ describe.skipIf(!outliner)("ep0ch find and show against a scratch host", () => {
     const all = await run(["find", "--tree", "--lines"], env);
     expect(all.code).toBe(0);
     const rows = all.out.split("\n").filter(Boolean).map(l => l.split("\t"));
-    expect(rows.every(r => r.length === 6)).toBe(true);
+    expect(rows.every(r => r.length === 7)).toBe(true);
     const shed = rows.findIndex(r => r[0] === ids.shed);
-    expect(rows[shed]!.slice(1, 5)).toEqual(["Bike shed", "", "0", ""]);
-    expect(rows[shed + 1]!.slice(0, 5)).toEqual([ids.oil!, "Chain oil", "Bike shed", "1", "└─ "]);
+    expect(rows[shed]!.slice(1, 6)).toEqual(["Bike shed", "", expect.stringContaining(`ep0ch://${scratch.name}@`), "0", ""]);
+    expect(rows[shed + 1]!.slice(0, 6)).toEqual([ids.oil!, "Chain oil", "Bike shed", expect.stringContaining(`ep0ch://${scratch.name}@`), "1", "└─ "]);
     expect(rows.some(r => r[0] === ids.gone)).toBe(false);
     const under = await run(["find", "--tree", `((${ids.shed}))`, "--lines"], env);
     expect(under.out.split("\n").filter(Boolean).map(l => l.split("\t")[0])).toEqual([ids.shed, ids.oil]);
@@ -147,15 +156,16 @@ describe.skipIf(!outliner)("ep0ch find and show against a scratch host", () => {
   test("find <words>: the service's forgiving ranker (typos, any order), best first", async () => {
     const r = await run(["find", "oil", "chian", "--lines"], env);
     expect(r.code).toBe(0);
-    expect(r.out.split("\n")[0]).toBe(`${ids.oil}\tChain oil\tBike shed`);
+    expect(r.out.split("\n")[0]).toContain(`${ids.oil}\tChain oil\tBike shed\tep0ch://${scratch.name}@`);
     // A word with a slash is a word, never read as a socket path.
     expect((await run(["find", "oil/chain", "--lines"], env)).code).toBe(0);
     const recent = (await run(["find", "--recent", "--lines"], env)).out.split("\n").filter(Boolean);
     expect(recent.length).toBeGreaterThan(0);
-    expect(recent.every(l => l.split("\t").length === 3)).toBe(true);
+    expect(recent.every(l => l.split("\t").length === 4)).toBe(true);
     // --json: each note as a block record (outline-core's block-record.ts), keys sorted.
     const json = JSON.parse((await run(["find", "bike", "--json"], env)).out);
     expect(json[0]).toMatchObject({ id: ids.shed, title: "Bike shed", parent: null, children: [ids.oil] });
+    expect(json[0].uri).toContain(`ep0ch://${scratch.name}@`);
   });
 
   test("show: the note as a reader draws it, at the width asked for; --ansi keeps the colours", async () => {
@@ -194,8 +204,9 @@ describe.skipIf(!outliner)("ep0ch find and show against a scratch host", () => {
     const plain = (await run(["show", ids.oil!, "--width", "40"], env)).out.trimEnd().split("\n");
     const r = await run(["show", ids.oil!, "--width", "40", "--cells"], env);
     expect(r.code).toBe(0);
-    const grid = JSON.parse(r.out) as { id: string; columns: number; rows: number; cells: string; replaced: number };
+    const grid = JSON.parse(r.out) as { id: string; uri: string; columns: number; rows: number; cells: string; replaced: number };
     expect([grid.id, grid.columns, grid.rows, grid.replaced]).toEqual([ids.oil!, 40, plain.length, 0]);
+    expect(grid.uri).toContain(`ep0ch://${scratch.name}@`);
     const bytes = Buffer.from(grid.cells, "base64");
     expect(bytes.length).toBe(40 * plain.length * 12);
     const cell = (x: number, y: number) => [0, 4, 8].map(o => bytes.readUInt32LE((y * 40 + x) * 12 + o));
@@ -301,7 +312,7 @@ describe("the ep0ch channel's lines (ext/television's ep0ch-tv)", () => {
       row("ae755888-bbbb", "4f6648f1-aaaa", 1, "Tools 'n' \"spares\" ]8;;ep0ch:fake\tlist", { type: "place" }),
       row("cf2e02f5-cccc", "ae755888-bbbb", 2, "Chain oil"),
     ])!;
-    const { out, code } = await tv(["tree"], rows.map(treeLine).join("\n") + "\n");
+    const { out, code } = await tv(["tree"], rows.map(r => treeLine({ ...r, uri: `ep0ch://pie@box-a/b/${r.id}` })).join("\n") + "\n");
     expect(code).toBe(0);
     const lines = out.split("\n").filter(Boolean);
     expect(lines.map(l => l.replace(ID, "$1"))).toEqual(["4f6648f1-aaaa", "ae755888-bbbb", "cf2e02f5-cccc"]);

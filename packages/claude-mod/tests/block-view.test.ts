@@ -10,6 +10,8 @@ const result = (exitCode: number, stdout: string, stderr = ''): ProcessRunResult
 
 const BLOCK = '11111111-2222-4333-8444-555555555555'
 
+const URI = `ep0ch://garden@box-a/b/${BLOCK}`
+
 /** Cells as `ep0ch show --cells` packs them: each row's text, one colour for all. */
 function cellsOf(rows: string[], columns: number, fg = 0xff8800): string {
   const words = new Uint32Array(columns * rows.length * 3)
@@ -21,7 +23,7 @@ function cellsOf(rows: string[], columns: number, fg = 0xff8800): string {
   return btoa(binary)
 }
 
-const SHOWN = (rows: string[], columns = 12) => JSON.stringify({ id: BLOCK, columns, rows: rows.length, cells: cellsOf(rows, columns), replaced: 0 })
+const SHOWN = (rows: string[], columns = 12, uri = URI) => JSON.stringify({ id: BLOCK, uri, columns, rows: rows.length, cells: cellsOf(rows, columns), replaced: 0 })
 
 const HELP = `ep0ch: a BBS door\n  ep0ch show <id> [--ansi | --cells] [--width <n>] [--rows <n>] [--ws <name>]\n`
 
@@ -85,6 +87,7 @@ describe('BlockView', () => {
     expect(blockCellsOf('not json')).toBeNull()
     expect(blockCellsOf(JSON.stringify({ id: BLOCK, columns: 12, rows: 2, cells: cellsOf(['a'], 12) }))).toBeNull()
     const two = blockCellsOf(SHOWN(['a', 'b']))!
+    expect('uri' in two).toBe(false)
     expect(clipRows(two, 1)).toEqual({ ...two, rows: 1, cells: cellsOf(['a'], 12) })
     expect(clipRows(two, 9)).toBe(two)
     expect(knowsCells(HELP)).toBe(true)

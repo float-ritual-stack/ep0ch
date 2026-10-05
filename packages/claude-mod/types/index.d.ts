@@ -5,7 +5,7 @@
  */
 
 /** What `ep0ch show <id> --cells` prints (packages/door, src/cells.ts). */
-export type BlockCells = { id: string; columns: number; rows: number; cells: string; replaced: number }
+export type BlockCells = { id: string; uri?: string; columns: number; rows: number; cells: string; replaced: number }
 
 /** A block ready to draw: the door's cells, or why there are none (its text is drawn instead). */
 export type BlockViewData = ({ kind: 'cells' } & BlockCells) | { kind: 'text'; why: string }

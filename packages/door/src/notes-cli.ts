@@ -14,6 +14,8 @@
 // the reader draws them (viewResults), never a second renderer. `--ansi` keeps its colours;
 // without it, plain text. `--cells` prints the same drawing as JSON cells (src/cells.ts) for a program that paints a
 // grid: a Claude Code mod's Raster. `--source` prints each note's text as written, for a file to keep.
+import { createHash } from "node:crypto";
+import { hostname } from "node:os";
 import { linesToCells } from "./cells";
 import { connectFigures } from "./graphs";
 import { listenLive, liveBoard, liveSettled, liveSource, setLiveSource } from "./live";
@@ -31,6 +33,8 @@ import { blockIdOf, paintable, printable } from "./text";
 import { setTheme, startTheme } from "./theme";
 import type { Ctx } from "./app";
 import { recordJson } from "@ep0ch/outline-core/block-record";
+import { formatEp0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
+import { MACHINE_NAME_PATTERN } from "@ep0ch/outline-core/outline-location";
 
 export const NOTES_USAGE = `  ep0ch find [<words>… | --recent | --tree [<root id>]] [--ids | --lines | --json] [--ws <name>] [--machine <ssh-name>]
   ep0ch find [<words>…] [--query "<expression>"] [--view <id>] [--under <id>] [--sort <key> [--direction asc|desc]]
@@ -51,11 +55,11 @@ export const NOTES_USAGE = `  ep0ch find [<words>… | --recent | --tree [<root 
                                    property key (--sort due), numbers as numbers, notes without it last;
                                    --direction asc (the default) or desc. Not with --view (its own order).
                                    --ids prints ((id)) a line, for $(…) (ep0ch show $(ep0ch find --ids …));
-                                   --lines one per line, id<TAB>title<TAB>path, for a picker; with --tree,
+                                   --lines one per line, id<TAB>title<TAB>path<TAB>uri, for a picker; with --tree,
                                    then <TAB>depth<TAB>glyphs<TAB>about (├─ │ └─; about: work-id · stage · type);
                                    --json each note as a block record (outline-core's block-record.ts: title,
                                    header, properties as lists, children, tasks, links, backlinks, resources,
-                                   created, updated, author), keys sorted; with --tree, the rows
+                                   created, updated, author) plus its canonical ep0ch:// URI, keys sorted; with --tree, the rows
   ep0ch show <id>… [--source | --ansi | --cells] [--width <n>] [--rows <n>] [--ws <name>] [--machine <ssh-name>]
                                    each note drawn as a reader draws it, at that width (default the terminal's,
                                    else 80), live figures, ::links and a view's results answered by the
@@ -67,14 +71,25 @@ export const NOTES_USAGE = `  ep0ch find [<words>… | --recent | --tree [<root 
                                    terminal's own), one width-1 BMP glyph a cell, U+FFFD for a wider one
                                    (counted in replaced); --rows keeps the first n rows`;
 
+/** The canonical outline address used for ep0ch:// block URIs. */
+interface BoardAddress { outline: string; machine: string }
+
 /** One note as `find` lists it. */
-export interface Found { id: string; title: string; path: string }
+export interface Found { id: string; title: string; path: string; uri?: string }
 
 /** A field of a `--lines` row: one line, no tabs. */
 const field = (s: string) => printable(s.replace(/[\t\r\n]+/g, " ")).trim();
 
-/** The `--lines` form: id, title, path, tab-separated. */
-export const foundLine = (f: Found) => [f.id, field(f.title), field(f.path)].join("\t");
+/** A stable URI machine name for this host when the outline is local, shaped like the remote ssh names URI grammar allows. */
+export function canonicalLocalMachineName(raw = hostname()): string {
+  const cleaned = raw.normalize("NFKD").replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^[^A-Za-z0-9]+/, "") || "local";
+  if (MACHINE_NAME_PATTERN.test(cleaned)) return cleaned;
+  const hash = createHash("sha256").update(raw).digest("hex").slice(0, 8);
+  const prefix = cleaned.slice(0, 23).replace(/[^A-Za-z0-9]+$/g, "") || "local";
+  return `${prefix}-${hash}`;
+}
+/** The `--lines` form: id, title, path and, when known, uri, tab-separated. */
+export const foundLine = (f: Found) => [f.id, field(f.title), field(f.path), ...(f.uri ? [f.uri] : [])].join("\t");
 
 /** Every note in the tree index, newest first: its title (the preview's first line) and its ancestors' titles as its path (` › `, as the service's). */
 /** A note's ancestors' titles as its path (` › `, as the service's), from the tree index by id. */
@@ -166,7 +181,7 @@ const without = (args: string[], valued: string[], bare: string[]) =>
   args.filter((a, i) => !valued.includes(a) && !valued.includes(args[i - 1] ?? "") && !bare.includes(a));
 
 /** The board of the outline the rule names, its protocol checked; or why not. */
-export async function boardFor(args: string[]): Promise<SocketBoard | { error: string }> {
+export async function boardFor(args: string[]): Promise<(SocketBoard & { address: BoardAddress }) | { error: string }> {
   // Only the flags that name an outline: a search word with a `/` isn't a socket path.
   const named = ["--ws", "--machine"].flatMap(f => { const at = args.indexOf(f); return at >= 0 ? [f, args[at + 1]!] : []; });
   const target = resolveTarget(named);
@@ -175,11 +190,17 @@ export async function boardFor(args: string[]): Promise<SocketBoard | { error: s
   if (target.machine) {
     try { await forwardTo(target.machine); } catch (e) { return { error: `can't reach the outline host on ${target.machine}: ${(e as Error).message}` }; }
   }
-  const board = new SocketBoard(target.path, undefined, target.outline);
+  const board = new SocketBoard(target.path, undefined, target.outline) as SocketBoard & { address: BoardAddress };
+  board.address = { outline: target.outline, machine: target.machine ?? canonicalLocalMachineName() };
   try { await board.info(); }
   catch (e) { board.close(); return { error: `no carrier on ${target.path}: ${(e as Error).message}` }; }
   return board;
 }
+
+const blockUri = (board: { address: BoardAddress }, blockId: string) => formatEp0chBlockUri({ ...board.address, blockId });
+
+const withUris = <T extends Found>(board: { address: BoardAddress }, found: readonly T[]): T[] =>
+  found.map(f => ({ ...f, uri: blockUri(board, f.id) }));
 
 export interface Out { out: (s: string) => void; err: (s: string) => void; columns?: number; tty?: boolean }
 
@@ -296,10 +317,10 @@ export async function findCommand(argsIn: string[], io: Out = { out: console.log
   if ("error" in board) { io.err(`ep0ch: ${board.error}`); return 1; }
   try {
     if (tree) {
-      const rows = treeOf(await board.index(), root);
-      if (!rows) { io.err(`ep0ch: no note ${root} in this outline`); return 1; }
+      const rows = withUris(board, treeOf(await board.index(), root) ?? []);
+      if (root && !rows.length) { io.err(`ep0ch: no note ${root} in this outline`); return 1; }
       if (idsOut) { for (const f of rows) io.out(`((${f.id}))`); }
-      else if (json) io.out(JSON.stringify(rows, null, 2));
+      else if (json) io.out(recordJson(rows).trimEnd());
       else if (lines) { for (const f of rows) io.out(treeLine(f)); }
       else if (!rows.length) io.out("the outline has no notes");
       else for (const f of rows) io.out(`${f.id.slice(0, 8)}  ${f.glyphs}${field(f.title)}${f.about ? `  · ${f.about}` : ""}`);
@@ -315,10 +336,10 @@ export async function findCommand(argsIn: string[], io: Out = { out: console.log
       if (idsOut) { for (const id of picked.ids) io.out(`((${id}))`); return 0; }
       if (json) return await printRecords(board, picked.ids, io);
       const index = await board.index(), by = new Map(index.map(b => [b.id, b])), pathOf = pathsOf(index);
-      found = picked.ids.flatMap(id => { const b = by.get(id); return b ? [{ id, title: previewTitle(b.title), path: pathOf(b) }] : []; });
+      found = withUris(board, picked.ids.flatMap(id => { const b = by.get(id); return b ? [{ id, title: previewTitle(b.title), path: pathOf(b) }] : []; }));
     } else {
       // --recent: the service's own answer to an empty search (the newest notes), without reading the whole index.
-      found = query || recent ? (await board.searchBlocks(query)).matches.map(m => ({ id: m.block.id, title: m.title, path: m.path })) : everyNote(await board.index());
+      found = withUris(board, query || recent ? (await board.searchBlocks(query)).matches.map(m => ({ id: m.block.id, title: m.title, path: m.path })) : everyNote(await board.index()));
     }
     if (idsOut) { for (const f of found) io.out(`((${f.id}))`); }
     else if (json) return await printRecords(board, found.map(f => f.id), io);
@@ -333,9 +354,9 @@ export async function findCommand(argsIn: string[], io: Out = { out: console.log
 }
 
 /** Notes as block records, a JSON array with its keys sorted (outline-core's recordJson). */
-async function printRecords(board: SocketBoard, ids: string[], io: Out): Promise<number> {
+async function printRecords(board: SocketBoard & { address: BoardAddress }, ids: string[], io: Out): Promise<number> {
   const { records } = await board.records(ids);
-  io.out(recordJson(records).trimEnd());
+  io.out(recordJson(records.map(record => ({ uri: blockUri(board, record.id), ...record }))).trimEnd());
   return 0;
 }
 
@@ -415,7 +436,7 @@ export async function showCommand(argsIn: string[], io: Out = { out: console.log
       if (!lines) { io.err(`ep0ch: no note ${id} in this outline`); code = 1; continue; }
       // A preview asks for its first rows: a long note's whole drawing is never encoded or sent.
       const kept = lines.slice(0, rows);
-      if (cells) { io.out(JSON.stringify({ id: blockIdOf(id), ...linesToCells(kept, width) })); continue; }
+      if (cells) { const noteId = blockIdOf(id); io.out(JSON.stringify({ id: noteId, uri: blockUri(board, noteId), ...linesToCells(kept, width) })); continue; }
       // Notes apart: a blank line, and a --- line between sources (a Markdown file's rule).
       if (shown++) { io.out(""); if (source) { io.out("---"); io.out(""); } }
       // --source is the text as written; to a terminal, what a terminal would act on (an escape in a note) is taken out.
