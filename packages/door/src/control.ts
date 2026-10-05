@@ -10,6 +10,7 @@
 // a terminal tile. So it is 0600, in a folder that is the user's alone (0700, owner checked, the same check as
 // the nvim tiles' sockets); a folder anyone else can reach is refused and the door runs without it.
 import { blockIdOf } from "./text";
+import { canonicalLocalMachineName } from "./notes-cli";
 import { chmodSync, existsSync, lstatSync, mkdirSync, readdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { connect, createServer, type Server } from "node:net";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
@@ -19,6 +20,7 @@ import type { Mirror } from "./mirror";
 import type { TermInfo } from "./term";
 import { isInside, outlineState, privateDir, stateDir } from "./state";
 import { ask, jsonLine, JsonLines, listening } from "./jsonl";
+import { parseEp0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
 
 /**
  * Where a door serves, and where `ep0ch act|peek|…` looks: EP0CH_CONTROL, else door.sock in its outline's folder of the
@@ -61,6 +63,18 @@ export function feedWriter(sock: { writableLength: number; write(s: string): unk
 
 export interface ControlDeps { app: App; mirror: Mirror; info: () => TermInfo }
 
+interface ExpectedAddress { outline: string; machine: string }
+
+function requireAddress(expected: unknown, d: ControlDeps): void {
+  if (!expected || typeof expected !== "object") return;
+  const e = expected as Partial<ExpectedAddress>;
+  if (typeof e.outline !== "string" || typeof e.machine !== "string") throw new Error("open URI address is malformed");
+  const actual = { outline: d.app.outline, machine: d.app.machine ?? canonicalLocalMachineName() };
+  if (actual.outline !== e.outline || actual.machine !== e.machine) {
+    throw new Error(`that URI names ${e.outline} on ${e.machine}, but this door is ${actual.outline ?? "not on an outline"} on ${actual.machine}`);
+  }
+}
+
 async function handle(req: any, d: ControlDeps): Promise<unknown> {
   // A session nobody watches renders no frames: the one skipped is drawn before anything reads the screen.
   d.app.catchUp();
@@ -77,6 +91,7 @@ async function handle(req: any, d: ControlDeps): Promise<unknown> {
   if (req.cmd === "actions") return d.app.actions();
   if (req.cmd === "act") {
     if (typeof req.action !== "string") throw new Error("act needs an action name; `actions` lists them");
+    requireAddress(req.address, d);
     const args = req.args && typeof req.args === "object" && !Array.isArray(req.args) ? req.args : {};
     return d.app.act({ action: req.action, tile: typeof req.tile === "string" ? req.tile : undefined, args, as: typeof req.as === "string" ? req.as : undefined });
   }
@@ -156,7 +171,9 @@ export async function startControl(d: ControlDeps, at = controlSocket()): Promis
 
 /** Client side: send one command to a running door and print the reply. */
 export async function controlClient(args: string[]): Promise<number> {
-  const [cmd, arg] = args;
+  const commandArgs = args.filter(a => a !== "--json");
+  const wantsJson = args.includes("--json");
+  const [cmd, arg] = commandArgs;
   let req: Record<string, unknown>;
   // `subscribe [type,…]`: print the live feed, one JSON event per line, until interrupted.
   if (cmd === "subscribe") {
@@ -172,19 +189,27 @@ export async function controlClient(args: string[]): Promise<number> {
   try {
     // `snap <file>`: the door sends the PNG and this command writes it, where the person said; the door
     // itself writes only under its state (snapPath).
-    // `open <id> [from=<tile>] [tile=<tile>] [--as <id>]` is `act open id=<id> …`: one way to open a note.
-    if (cmd === "open" && (!arg || arg.includes("="))) throw new Error("open needs a block id: open <id> [from=<tile>] [--as <your id>]");
+    if (cmd === "open" && (!arg || arg.includes("="))) throw new Error("open needs a block id: open <id> [from=<tile>] [--as <your id>] [--json]");
+    const openTarget = cmd === "open" && arg?.startsWith("ep0ch://") ? parseEp0chBlockUri(arg) : null;
     req = cmd === "snap" ? (arg ? { cmd, data: true } : { cmd })
-      // A block reference as written (`((id))`, what a picker prints) names the same note.
-      : cmd === "open" ? { cmd: "act", ...(await parseActArgs(["open", `id=${blockIdOf(arg!)}`, ...args.slice(2)])) }
-      : cmd === "act" ? { cmd, ...(await parseActArgs(args.slice(1))) } : { cmd };
+      // A block reference as written (`((id))`, what a picker prints) names the same note. A canonical URI carries its outline address too.
+      : cmd === "open" ? { cmd: "act", ...(openTarget ? { address: { outline: openTarget.outline, machine: openTarget.machine } } : {}), ...(await parseActArgs(["open", `id=${openTarget?.blockId ?? blockIdOf(arg!)}`, ...commandArgs.slice(2)])) }
+      : cmd === "act" ? { cmd, ...(await parseActArgs(commandArgs.slice(1))) } : { cmd };
   } catch (e) { console.error((e as Error).message); return 1; }
   // An agent names itself once per shell: EP0CH_AGENT=claude-7 (or --as on each act and open).
   if (req.cmd === "act" && !req.as && process.env.EP0CH_AGENT) req.as = process.env.EP0CH_AGENT;
   const path = controlSocket();
   const r = await ask(path, req);
-  if (!r) { console.error(`no door answered at ${path}`); return 1; }
-  if (!r.ok) { console.error(r.error); return 1; }
+  if (!r) {
+    if (cmd === "open" && wantsJson) console.log(JSON.stringify({ opened: false, reason: `no door answered at ${path}` }));
+    else console.error(`no door answered at ${path}`);
+    return cmd === "open" && wantsJson ? 0 : 1;
+  }
+  if (!r.ok) {
+    if (cmd === "open" && wantsJson) console.log(JSON.stringify({ opened: false, reason: r.error }));
+    else console.error(r.error);
+    return cmd === "open" && wantsJson ? 0 : 1;
+  }
   if (cmd === "peek") { console.log(JSON.stringify(r.result.screen, null, 2)); console.log(r.result.text.join("\n")); }
   else if (cmd === "actions") {
     const a = r.result;
@@ -200,6 +225,7 @@ export async function controlClient(args: string[]): Promise<number> {
     catch (e) { console.error(`can't write ${out}: ${(e as Error).message}`); return 1; }
     console.log(JSON.stringify({ path: out, cols: r.result.cols, rows: r.result.rows }));
   }
+  else if (cmd === "open" && wantsJson) console.log(JSON.stringify({ ...(typeof r.result === "object" && r.result !== null ? r.result : { result: r.result }), opened: true }));
   else console.log(JSON.stringify(r.result));
   return 0;
 }
