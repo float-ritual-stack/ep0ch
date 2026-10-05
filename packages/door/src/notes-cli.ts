@@ -72,7 +72,8 @@ export const NOTES_USAGE = `  ep0ch find [<words>… | --recent | --tree [<root 
                                    (counted in replaced); --rows keeps the first n rows`;
 
 /** The canonical outline address used for ep0ch:// block URIs. */
-interface BoardAddress { outline: string; machine: string }
+export interface BoardAddress { outline: string; machine: string }
+export type NotesBoard = SocketBoard & { address: BoardAddress };
 
 /** One note as `find` lists it. */
 export interface Found { id: string; title: string; path: string; uri?: string }
@@ -181,7 +182,7 @@ const without = (args: string[], valued: string[], bare: string[]) =>
   args.filter((a, i) => !valued.includes(a) && !valued.includes(args[i - 1] ?? "") && !bare.includes(a));
 
 /** The board of the outline the rule names, its protocol checked; or why not. */
-export async function boardFor(args: string[]): Promise<(SocketBoard & { address: BoardAddress }) | { error: string }> {
+export async function boardFor(args: string[]): Promise<NotesBoard | { error: string }> {
   // Only the flags that name an outline: a search word with a `/` isn't a socket path.
   const named = ["--ws", "--machine"].flatMap(f => { const at = args.indexOf(f); return at >= 0 ? [f, args[at + 1]!] : []; });
   const target = resolveTarget(named);
@@ -190,7 +191,7 @@ export async function boardFor(args: string[]): Promise<(SocketBoard & { address
   if (target.machine) {
     try { await forwardTo(target.machine); } catch (e) { return { error: `can't reach the outline host on ${target.machine}: ${(e as Error).message}` }; }
   }
-  const board = new SocketBoard(target.path, undefined, target.outline) as SocketBoard & { address: BoardAddress };
+  const board = new SocketBoard(target.path, undefined, target.outline) as NotesBoard;
   board.address = { outline: target.outline, machine: target.machine ?? canonicalLocalMachineName() };
   try { await board.info(); }
   catch (e) { board.close(); return { error: `no carrier on ${target.path}: ${(e as Error).message}` }; }
