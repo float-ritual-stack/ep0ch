@@ -25,8 +25,8 @@ describe.skipIf(!outliner)("ep0ch mcp", () => {
     board = new SocketBoard(await scratch.start());
     await board.info();
     machine = canonicalLocalMachineName();
-    target = await board.request<{ id: string; text: string }>("create", { parentId: null, text: "Addressable seed\nReady for local tools.", author: "agent" }).then(b => ({ id: b.id, uri: formatEp0chBlockUri({ outline: scratch.name, machine, blockId: b.id }) }));
-    source = await board.request<{ id: string; text: string }>("create", { parentId: null, text: `Link source\nSee ((${target.id}|the target)).`, author: "agent" }).then(b => ({ id: b.id, uri: formatEp0chBlockUri({ outline: scratch.name, machine, blockId: b.id }) }));
+    target = await board.request<{ id: string; text: string }>("create", { parentId: null, text: "Addressable seed [publish::seed]\nReady for local tools.", author: "agent" }).then(b => ({ id: b.id, uri: formatEp0chBlockUri({ outline: scratch.name, machine, blockId: b.id }) }));
+    source = await board.request<{ id: string; text: string }>("create", { parentId: null, text: `Link source [publish::source]\nSee ((${target.id}|the target)).`, author: "agent" }).then(b => ({ id: b.id, uri: formatEp0chBlockUri({ outline: scratch.name, machine, blockId: b.id }) }));
     for (const [k, v] of Object.entries(scratch.env)) { oldEnv[k] = process.env[k]; process.env[k] = v; }
   }, 30_000);
 
@@ -36,8 +36,14 @@ describe.skipIf(!outliner)("ep0ch mcp", () => {
     for (const [k, v] of Object.entries(oldEnv)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
   }, 20_000);
 
-  test("serves read, find, links and resources/read only for the bound outline", async () => {
+  test("serves gated read, find, links and resources/read envelopes only for reachable blocks in the bound outline", async () => {
+    const privateNote = await board.request<{ id: string }>("create", { parentId: null, text: "Private seed\nNot shared with MCP.", author: "agent" });
+    const privateSource = await board.request<{ id: string }>("create", { parentId: null, text: `Private backlink source\nSee ((${target.id}|the target)).`, author: "agent" });
+    const hiddenChild = await board.request<{ id: string }>("create", { parentId: target.id, text: "Hidden child [publish::false]\nNot shared with MCP.", author: "agent" });
+    const publishedWithPrivateLink = await board.request<{ id: string }>("create", { parentId: null, text: `Published link shell [publish::link-shell]\nSee ((${privateNote.id}|private seed)) and ((${privateNote.id}^absent)).`, author: "agent" });
     const out: string[] = [];
+    const privateUri = formatEp0chBlockUri({ outline: scratch.name, machine, blockId: privateNote.id });
+    const linkedPrivateUri = formatEp0chBlockUri({ outline: scratch.name, machine, blockId: publishedWithPrivateLink.id });
     const requests = [
       { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2099-01-01" } },
       { jsonrpc: "2.0", id: 2, method: "tools/list" },
@@ -49,6 +55,11 @@ describe.skipIf(!outliner)("ep0ch mcp", () => {
       { jsonrpc: "2.0", id: 8, method: "ping" },
       { jsonrpc: "1.0", id: 9, method: "tools/list" },
       [{ jsonrpc: "2.0", id: 10, method: "resources/list" }, { jsonrpc: "2.0", method: "tools/list" }, { jsonrpc: "2.0", id: 11, method: "nope" }],
+      { jsonrpc: "2.0", id: 12, method: "tools/call", params: { name: "outline_read", arguments: { uri: privateUri } } },
+      { jsonrpc: "2.0", id: 13, method: "resources/read", params: { uri: privateUri } },
+      { jsonrpc: "2.0", id: 14, method: "tools/call", params: { name: "outline_find", arguments: { query: "Private seed", limit: 5 } } },
+      { jsonrpc: "2.0", id: 15, method: "tools/call", params: { name: "outline_links", arguments: { uri: privateUri } } },
+      { jsonrpc: "2.0", id: 16, method: "tools/call", params: { name: "outline_read", arguments: { uri: linkedPrivateUri } } },
     ].map(r => JSON.stringify(r));
     const code = await mcpCommand(["mcp"], { input: linesOf(requests), write: line => out.push(line), err: line => out.push(`ERR ${line}`) });
     expect(code).toBe(0);
@@ -64,14 +75,20 @@ describe.skipIf(!outliner)("ep0ch mcp", () => {
     const find = JSON.parse(tool(response(3)?.result).content[0]!.text) as { matches: { id: string; uri: string }[] };
     expect(find.matches).toContainEqual(expect.objectContaining({ id: target.id, uri: target.uri }));
 
-    const read = JSON.parse(tool(response(4)?.result).content[0]!.text) as { id: string; uri: string; text: string }[];
-    expect(read[0]).toMatchObject({ id: target.id, uri: target.uri, text: expect.stringContaining("Ready for local tools") });
+    const read = JSON.parse(tool(response(4)?.result).content[0]!.text) as { uri: string; outlineInstanceId: string; revision: number; reachability: { status: string }; record: { id: string; text: string; backlinks: string[]; children: string[] } };
+    expect(read).toMatchObject({ uri: target.uri, outlineInstanceId: expect.any(String), revision: expect.any(Number), reachability: { status: "reachable" }, record: { id: target.id, text: expect.stringContaining("Ready for local tools") } });
+    expect(read.record.backlinks).not.toContain(privateSource.id);
+    expect(read.record.children).not.toContain(hiddenChild.id);
 
-    const links = JSON.parse(tool(response(5)?.result).content[0]!.text) as { backlinks: { blockId: string }[] };
+    const links = JSON.parse(tool(response(5)?.result).content[0]!.text) as { backlinks: { blockId: string }[]; reachability: { status: string } };
+    expect(links.reachability.status).toBe("reachable");
+    expect(links.backlinks.map(b => b.blockId)).not.toContain(privateSource.id);
     expect(links.backlinks.map(b => b.blockId)).toContain(source.id);
 
-    const resource = fields(response(6)?.result).contents as { uri: string; text: string }[];
-    expect(resource[0]).toMatchObject({ uri: target.uri, text: expect.stringContaining("Addressable seed") });
+    const resource = fields(response(6)?.result) as { uri: string; outlineInstanceId: string; revision: number; reachability: { status: string }; record: { id: string; backlinks: string[]; children: string[] }; contents: { uri: string; text: string }[] };
+    expect(resource).toMatchObject({ uri: target.uri, outlineInstanceId: expect.any(String), revision: expect.any(Number), reachability: { status: "reachable" }, record: { id: target.id }, contents: [{ uri: target.uri, text: expect.stringContaining("Addressable seed") }] });
+    expect(resource.record.backlinks).not.toContain(privateSource.id);
+    expect(resource.record.children).not.toContain(hiddenChild.id);
 
     const denied = tool(response(7)?.result);
     expect(denied.isError).toBe(true);
@@ -82,6 +99,17 @@ describe.skipIf(!outliner)("ep0ch mcp", () => {
     expect(batch.map(r => r.id)).toEqual([10, 11]);
     expect(fields(batch[0]!.result).resources).toEqual([]);
     expect(batch[1]!.error?.message).toContain("Method not found");
+
+    expect(tool(response(12)?.result).isError).toBe(true);
+    expect(tool(response(12)?.result).content[0]!.text).toContain("not reachable through the outline's publish access setting");
+    expect(response(13)?.error?.message).toContain("not reachable through the outline's publish access setting");
+    const privateFind = JSON.parse(tool(response(14)?.result).content[0]!.text) as { matches: { id: string }[]; completeness: { kind: string } };
+    expect(privateFind.matches.map(match => match.id)).not.toContain(privateNote.id);
+    expect(privateFind.completeness.kind).toBe("complete");
+    expect(tool(response(15)?.result).isError).toBe(true);
+    const linkedPrivate = JSON.parse(tool(response(16)?.result).content[0]!.text) as { record: { links: { target: string | null; label: string }[] } };
+    expect(linkedPrivate.record.links.map(link => link.target)).not.toContain(privateNote.id);
+    expect(linkedPrivate.record.links.map(link => link.label)).not.toContain("Private seed");
   }, 30_000);
 
   test("rejects unsupported mcp command arguments before opening a board", async () => {

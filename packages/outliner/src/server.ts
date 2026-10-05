@@ -33,6 +33,7 @@ import {
 } from "./attention";
 import { readAuthoredLinks } from "./authored-links";
 import { readBlockRecords } from "./block-records";
+import { readPublishReachability } from "./publish-access";
 import { normalizeResourceProjectionRequest, readResourceProjections, type ResourceProjectionReadResult } from "./resource-projection";
 import { ExtensionSync } from "./extension-sync";
 import { ExtensionCalls } from "./extension-calls";
@@ -1860,6 +1861,15 @@ export class OutlinerServer {
         case "blocks.records":
           result = readBlockRecords(this.store, request.ids);
           break;
+        case "publish.access":
+          result = readPublishReachability(this.store, request.ids);
+          break;
+        case "publish.records": {
+          const reachability = readPublishReachability(this.store, request.ids).reachability;
+          const readable = reachability.filter(access => access.status === "reachable").map(access => access.id);
+          result = { reachability, ...(readable.length ? readBlockRecords(this.store, readable) : { records: [], unavailable: [] }) };
+          break;
+        }
         case "views.read": {
           const options = { limit: request.limit, offset: request.offset, expectedRevision: request.expectedRevision };
           result = request.format === "tree"

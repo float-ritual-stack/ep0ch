@@ -33,9 +33,9 @@ move into one repository (PIE-530).
   (PIE-538 added `callouts.types`, PIE-544 `notes.create` and the page-title rule; `delete` takes
   `expectedRevision` and `ifEmpty`; a sort may name a property; a view's hand-set order takes `first` and records
   who placed it; a component block is one token in a note's sections, and its code fence closes only on its own
-  fence). `ep0ch doctor` prints that protocol and the one the running host speaks. A client refuses a host on any
-  other number, saying which side to update. `ep0ch install --apply` restarts the host. Restart doors and Claude sessions that
-  should run the new code.
+  fence; addressable-resource MCP reads use `publish.access` and `publish.records`). `ep0ch doctor` prints that
+  protocol and the one the running host speaks. A client refuses a host on any other number, saying which side to
+  update. `ep0ch install --apply` restarts the host. Restart doors and Claude sessions that should run the new code.
 - **Delete `~/.config/pi-herdr-outliner/document-renderers.json`** if you have one. Nothing reads it now.
 - **Your shell's dock settings (float-2's `~/.bashrc`).** Delete `EP0CH_HERDR_AGENT_CMD` (nothing reads it) and
   `EP0CH_DAILY_AGENT` (it overrides the dock's choice in every door), and choose in the dock instead (`alt+g`, "claude
@@ -58,6 +58,15 @@ move into one repository (PIE-530).
 A new note made with `ctrl+n` in a detail opens in a detail beside it (as `O` opens one), on the board in a new
 detail in its reading row, and in a river in a new column: the note you were reading stays. An empty detail
 (`^W o d`) offers `+ New note · ctrl+n`, and a new note made there is written in it.
+
+### Fixed: addressable-resource MCP reads now use the publication gate
+
+`ep0ch mcp` now refuses `outline_read`, `outline_find`, `outline_links` and
+`resources/read` for blocks that are not reachable through the service's
+`[publish::…]` rules. `resources/read` also returns the required envelope:
+canonical URI, outline instance id, revision, reachability and block record,
+beside the Markdown content. `ep0ch open <ep0ch://…> --json` reports the
+receiving door session and any attached generic client host pane.
 
 ### Fixed: published pages read as HTML linked to raw Markdown
 

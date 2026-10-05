@@ -9,7 +9,7 @@
 //   program still running with its scrollback, an unsaved draft and the layout; two clients consistent; an agent
 //   acting through the control socket; `end` asking while programs run, then ending.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { connect, type Socket } from "node:net";
 import { join } from "node:path";
@@ -1009,13 +1009,32 @@ describe.skipIf(!outliner)("one session per outline, two at once", () => {
     expect((await infoOn(sessionSocket(orchard.dir)))!.outline.outline).toBe("orchard");
   });
 
-  test("open accepts a canonical URI and routes it to the matching outline's door", async () => {
+  test("open accepts a canonical URI and reports the receiving session and host pane", async () => {
+    const attached = await RawClient.attach(sessionSocket(garden.dir), 120, 36, { clientHost: { kind: "tern", pane: "pane-7" } });
+    await until(() => attached.screen().includes("garden"), "garden session attached", 10_000);
     const uri = formatEp0chBlockUri({ outline: "garden", machine: canonicalLocalMachineName(), blockId: gardenNote });
-    const r = await cli("open", uri, "--json");
-    expect([r.code, JSON.parse(r.out).opened]).toEqual([0, true]);
+    const agentControl = join(host.root, "state", "agent-pane-7.sock");
+    rmSync(agentControl, { force: true });
+    symlinkSync(join(garden.dir, "door.sock"), agentControl);
+    const oldControl = process.env.EP0CH_CONTROL;
+    process.env.EP0CH_CONTROL = agentControl;
+    let r: Awaited<ReturnType<typeof cli>> | null = null;
+    try { r = await cli("open", uri, "--json"); }
+    finally { if (oldControl === undefined) delete process.env.EP0CH_CONTROL; else process.env.EP0CH_CONTROL = oldControl; }
+    if (!r) throw new Error("open did not run");
+    const opened = JSON.parse(r.out);
+    expect([r.code, opened.opened]).toEqual([0, true]);
+    expect(opened).toMatchObject({
+      id: gardenNote,
+      receiver: {
+        session: { outline: "garden", machine: null },
+        clientHost: { kind: "tern", pane: "pane-7" },
+      },
+    });
     const gardenText = (await control(garden.dir, { cmd: "peek" })).text.join("\n");
     expect(gardenText).toContain("Mint bed");
     expect((await control(orchard.dir, { cmd: "peek" })).text.join("\n")).not.toContain("Mint bed");
+    attached.send({ t: "detach" });
   });
 
   test("an explicit control socket refuses a URI for another outline", async () => {

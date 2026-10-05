@@ -11,7 +11,7 @@
 // the nvim tiles' sockets); a folder anyone else can reach is refused and the door runs without it.
 import { blockIdOf } from "./text";
 import { canonicalLocalMachineName } from "./notes-cli";
-import { chmodSync, existsSync, lstatSync, mkdirSync, readdirSync, unlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, lstatSync, mkdirSync, readlinkSync, readdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { connect, createServer, type Server } from "node:net";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import type { App } from "./app";
@@ -21,6 +21,7 @@ import type { TermInfo } from "./term";
 import { isInside, outlineState, privateDir, stateDir } from "./state";
 import { ask, jsonLine, JsonLines, listening } from "./jsonl";
 import { parseEp0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
+import { runningSessions, sessionInfo, sessionSocket } from "./session/place";
 
 /**
  * Where a door serves, and where `ep0ch act|peek|…` looks: EP0CH_CONTROL, else door.sock in its outline's folder of the
@@ -168,6 +169,26 @@ export async function startControl(d: ControlDeps, at = controlSocket()): Promis
   controlPath = path;
   return { path, close: () => { server.close(); try { unlinkSync(path); } catch { /* gone */ } } };
 }
+function controlTarget(path: string): string {
+  try { return lstatSync(path).isSymbolicLink() ? resolve(dirname(path), readlinkSync(path)) : path; }
+  catch { return path; }
+}
+
+
+
+async function receiverForControl(path: string): Promise<unknown | null> {
+  const target = controlTarget(path);
+  const owns = (info: Awaited<ReturnType<typeof sessionInfo>>) => !!info?.control && resolve(info.control) === resolve(target);
+  let info = await sessionInfo(sessionSocket(dirname(target))).catch(() => null);
+  if (!owns(info)) info = (await runningSessions().catch(() => [])).map(row => row.info).find(owns) ?? null;
+  if (!info) return null;
+  const hosted = info.clients.find(client => client.active && client.clientHost) ?? info.clients.find(client => client.clientHost) ?? null;
+  return {
+    session: { outline: info.place.outline, machine: info.place.machine ?? null, pid: info.pid, dir: info.dir },
+    ...(hosted?.clientHost ? { clientHost: hosted.clientHost } : {}),
+    ...(hosted ? { client: { id: hosted.id, pid: hosted.pid, active: hosted.active } } : {}),
+  };
+}
 
 /** Client side: send one command to a running door and print the reply. */
 export async function controlClient(args: string[]): Promise<number> {
@@ -199,7 +220,8 @@ export async function controlClient(args: string[]): Promise<number> {
   // An agent names itself once per shell: EP0CH_AGENT=claude-7 (or --as on each act and open).
   if (req.cmd === "act" && !req.as && process.env.EP0CH_AGENT) req.as = process.env.EP0CH_AGENT;
   const path = controlSocket();
-  const r = await ask(path, req);
+  const target = controlTarget(path);
+  const r = await ask(target, req);
   if (!r) {
     if (cmd === "open" && wantsJson) console.log(JSON.stringify({ opened: false, reason: `no door answered at ${path}` }));
     else console.error(`no door answered at ${path}`);
@@ -225,7 +247,11 @@ export async function controlClient(args: string[]): Promise<number> {
     catch (e) { console.error(`can't write ${out}: ${(e as Error).message}`); return 1; }
     console.log(JSON.stringify({ path: out, cols: r.result.cols, rows: r.result.rows }));
   }
-  else if (cmd === "open" && wantsJson) console.log(JSON.stringify({ ...(typeof r.result === "object" && r.result !== null ? r.result : { result: r.result }), opened: true }));
+  else if (cmd === "open" && wantsJson) {
+    const base = typeof r.result === "object" && r.result !== null ? (r.result as Record<string, unknown>) : { result: r.result };
+    const receiver = await receiverForControl(target);
+    console.log(JSON.stringify({ ...base, ...(receiver ? { receiver } : {}), opened: true }));
+  }
   else console.log(JSON.stringify(r.result));
   return 0;
 }

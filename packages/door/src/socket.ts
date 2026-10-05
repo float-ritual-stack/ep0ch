@@ -191,6 +191,14 @@ export interface PageResolution { address: string; status: "resolved" | "deleted
 export type { NotePlacement } from "@ep0ch/outline-core/protocol";
 import type { NotePlacement } from "@ep0ch/outline-core/protocol";
 
+export interface PublishReachability {
+  id: string;
+  status: "reachable" | "unpublished" | "locked" | "missing" | "trashed";
+  via?: string;
+  public?: boolean;
+  revision?: number;
+  reason: string;
+}
 /** One property token in a block's text, numbered the way `properties.patch` addresses it. */
 export interface PropertyToken { key: string; value: string; ordinal: number; scope: "block" | "line" | "inline" }
 /** The outliner's PropertyPatchOperation. */
@@ -743,6 +751,19 @@ export class SocketBoard implements Board {
       out.unavailable.push(...r.unavailable);
     }
     return out;
+  }
+
+  /** Service-owned publication access for external read surfaces (`publish.access`): reads `[publish::…]`, `[publish::never]` and ancestors. */
+  async publishAccess(ids: string[]): Promise<PublishReachability[]> {
+    if (!ids.length) return [];
+    const r = await this.request<{ reachability: PublishReachability[] }>("publish.access", { ids });
+    return r.reachability;
+  }
+
+  /** Reachability and block records in one service request, so a publish change cannot race between authorizing and reading. */
+  async publishedRecords(ids: string[]): Promise<{ reachability: PublishReachability[]; records: BlockRecord[]; unavailable: { id: string; status: "missing" | "trashed" }[] }> {
+    if (!ids.length) return { reachability: [], records: [], unavailable: [] };
+    return this.request<{ reachability: PublishReachability[]; records: BlockRecord[]; unavailable: { id: string; status: "missing" | "trashed" }[] }>("publish.records", { ids });
   }
 
   /**
