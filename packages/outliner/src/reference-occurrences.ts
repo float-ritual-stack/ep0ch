@@ -1,5 +1,5 @@
 import {Lexer, type Token} from "marked";
-import { protectedCodeRanges } from "./markdown-code-ranges";
+import { protectedCodeRanges } from "@ep0ch/outline-core/code-ranges";
 import { pageAddressReferences } from "./page-addresses";
 import { parsePropertyRecords } from "./properties";
 import type { PropertyRecord } from "./types";

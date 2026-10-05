@@ -5,7 +5,8 @@ import { blockRecord, type BlockRecord, type BlockRecordInput } from "@ep0ch/out
 import { readAuthoredLinks, type AuthoredLinksDataSource } from "./authored-links";
 import { checklistItems } from "./checklist-items";
 import { outlinerReferenceOccurrences, type OutlinerReferenceOccurrence } from "./reference-occurrences";
-import { parsePropertyRecords, scanPropertyLiteralRanges } from "./properties";
+import { parsePropertyRecords } from "./properties";
+import { scanPropertyLiteralRanges } from "@ep0ch/outline-core/code-ranges";
 import { blockDisplayTitle } from "./references";
 import type { Block } from "./types";
 

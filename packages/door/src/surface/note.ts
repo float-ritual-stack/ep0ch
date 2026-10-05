@@ -9,7 +9,8 @@
 import { onlyScrolled, scrolled, wheelRows } from "../scroll";
 import type { Ctx } from "../app";
 import { subject, titleLine, type Msg } from "../board";
-import { literalLines } from "../literal";
+import { codeFenceLines } from "@ep0ch/outline-core/code-fence";
+import { literalLines } from "@ep0ch/outline-core/code-ranges";
 import { CommentSession, type CommentEnv } from "../comment";
 import { foldPoints, heroBox, mediaLines, renderDoc, type Doc, type DocEnv, type DocImage, type FoldPoint, type ImageControl } from "../doc";
 import { DENSITIES, isDensity, type Density, type FigureControl, type FigureInfo } from "../graphs";
@@ -301,12 +302,11 @@ export function readableSource(m: Msg, src: Source | null): { text: string; line
   const lit = literalLines(m.text);
   // The title may come from a later line (a marker or a props-only line first): what's above it isn't body.
   const title = Math.max(0, titleLine(m.text).line);
-  let fenced = false;
-  const rows = m.text.split("\n").map((l, i) => ({ l, i })).filter(({ i }) => i > title && !hidden.has(i) && !lit.markers.has(i))
+  const all = m.text.split("\n"), code = codeFenceLines(all);
+  const rows = all.map((l, i) => ({ l, i })).filter(({ i }) => i > title && !hidden.has(i) && !lit.markers.has(i))
     // A stable fragment anchor (`## Beds ^beds`) is an address, not prose: read mode hides it, as Detail does.
     .map(({ l, i }) => {
-      if (/^\s*```/.test(l)) { fenced = !fenced; return { l, i }; }
-      const a = fenced ? null : l.match(/ \^([A-Za-z0-9][A-Za-z0-9_-]{0,63})$/);
+      const a = code[i]! >= 0 ? null : l.match(/ \^([A-Za-z0-9][A-Za-z0-9_-]{0,63})$/);
       return a ? { l: l.slice(0, a.index), i, anchor: a[1] } : { l, i };
     });
   // Blank lines before the first line with text aren't drawn.

@@ -50,7 +50,6 @@ import {
 import {
   firstLineWithoutPropertyTokens,
   withHeaderDashes,
-  literalMarkerLineRanges,
   formatProperty,
   matchingPropertyRecords,
   matchesFilters,
@@ -58,6 +57,7 @@ import {
   patchPropertyText,
   PROPERTY_PARSER_VERSION,
 } from "./properties";
+import { literalMarkerLineRanges } from "@ep0ch/outline-core/code-ranges";
 import {
   normalizePageAddress,
   tryNormalizePageAddress,

@@ -13,9 +13,10 @@ import {
   parsePropertyRecords,
   patchPropertyText,
   PROPERTY_PARSER_VERSION,
-  scanLiteralRegions,
   stripPropertyTokens,
 } from "../src/properties";
+import { scanLiteralRegions } from "@ep0ch/outline-core/code-ranges";
+import { LONG_FENCE_NOTE, LONG_FENCE_PROPERTIES, TILDE_FENCE_NOTE, TILDE_FENCE_PROPERTIES } from "../../outline-core/test/fixtures/code-notes";
 import { blockDisplayTitle } from "../src/references";
 import { readSavedView } from "../src/saved-view-read";
 import { OutlinerServer } from "../src/server";
@@ -339,4 +340,10 @@ test("plain reader Markdown blanks matched markers and keeps unterminated ones",
     .toBe("Context\n\n[a::1]\n\nend");
   expect(hideLiteralMarkers("A\r\n<!-- literal -->\r\nb\r\n<!-- /literal -->")).toBe("A\r\n\r\nb\r\n");
   expect(hideLiteralMarkers("A\n<!-- literal -->\nb")).toBe("A\n<!-- literal -->\nb");
+});
+
+test("a tilde fence and a long backtick fence are code: no property is read inside, as the door draws them (shared fixture)", () => {
+  const read = (text: string) => parsePropertyRecords(text).map(property => [property.key, property.value]);
+  expect(read(TILDE_FENCE_NOTE)).toEqual(TILDE_FENCE_PROPERTIES);
+  expect(read(LONG_FENCE_NOTE)).toEqual(LONG_FENCE_PROPERTIES);
 });

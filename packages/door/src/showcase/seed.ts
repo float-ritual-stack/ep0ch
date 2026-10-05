@@ -129,6 +129,11 @@ function notebookText(whiteboardId: string, kettleId: string, tapId: string): st
     `Typed as is: [mode::loud] and #loud stay text here; links still work: [[${SEED.shed}]].`,
     "<!-- /literal -->",
     "",
+    "## A tilde fence",
+    "~~~text",
+    "**Not bold**, [mode::quiet] and #quiet are code here: a ~~~ fence is code, as the service reads it.",
+    "~~~",
+    "",
     "## From the whiteboard",
     `!((${whiteboardId}))`,
     // An anchored embed: just the step (PIE-424), a control like the note's own steps (PIE-472).

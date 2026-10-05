@@ -1,5 +1,6 @@
 import {atomicDocument, concatDocuments, generatedDocument, sliceDocument, type MappedDocument, type ObservedDocument} from './document-provenance';
-import {isLiteralMarkerLine, literalMarkerLineStarts, scanLiteralRegions, type SourceRange} from './properties';
+import {closesCodeFence, codeFenceOpen, type CodeFence} from '@ep0ch/outline-core/code-fence';
+import {isLiteralMarkerLine, literalMarkerLineStarts, scanLiteralRegions, type SourceRange} from '@ep0ch/outline-core/code-ranges';
 import {sanitizedTextParts} from './terminal';
 
 /** Sanitizing and mapping consume the same scanner, including OSC/CSI controls. */
@@ -93,7 +94,7 @@ export function hideLiteralMarkers(text: string): string {
 
 /** Preserve authored titles while emitting reader-only heading syntax separately. */
 export function presentReaderHeadings(document: MappedDocument): MappedDocument {
-  let fence: {marker: string; length: number} | null = null;
+  let fence: CodeFence | null = null;
   let offset = 0;
   const parts: MappedDocument[] = [];
   // Literal-region markers read as a paragraph break, like an HTML comment
@@ -105,17 +106,17 @@ export function presentReaderHeadings(document: MappedDocument): MappedDocument 
     const newlineLength = sourceLine.endsWith('\r\n') ? 2 : sourceLine.endsWith('\n') ? 1 : 0;
     const line = sourceLine.slice(0, sourceLine.length - newlineLength);
     const end = offset + sourceLine.length;
-    const fenceMatch = /^((?: {0,3}>[ \t]?)* {0,3})(`{3,}|~{3,})/.exec(line);
+    // A fence inside quotes counts from after its quote markers.
+    const unquoted = line.replace(/^(?: {0,3}>[ \t]?)*/, '');
     const appendLine = () => parts.push(sliceDocument(document, offset, end));
     const isTitleLine = titlePending && !markerStarts.has(offset);
     if (isTitleLine) titlePending = false;
     if (markerStarts.has(offset)) {
       parts.push(sliceDocument(document, end - newlineLength, end));
     } else if (fence) {
-      if (fenceMatch && fenceMatch[2]![0] === fence.marker && fenceMatch[2]!.length >= fence.length) fence = null;
+      if (closesCodeFence(unquoted, fence)) fence = null;
       appendLine();
-    } else if (fenceMatch) {
-      fence = {marker:fenceMatch[2]![0]!,length:fenceMatch[2]!.length};
+    } else if ((fence = codeFenceOpen(unquoted))) {
       appendLine();
     } else {
       const heading = /^((?: {0,3}>[ \t]?)* {0,3})(#{1,6})[ \t]+(.*)$/.exec(line);

@@ -1,7 +1,8 @@
 // One note through every door reader of component blocks: where a figure starts and ends is outline-core's
 // componentBlocks, so a bare `::` in a figure's code example cuts nothing, and render, folds, links and export agree.
 import { describe, expect, test } from "bun:test";
-import { foldPoints, renderDoc, structureOf } from "../src/doc";
+import { foldPoints, renderDoc } from "../src/doc";
+import { noteStructure } from "@ep0ch/outline-core/component-block";
 import { figuresAsAscii } from "../src/export";
 import { linkBlockAt } from "../src/links";
 import { presentLinks } from "../src/refs";
@@ -13,7 +14,7 @@ const body = COMARK_NOTE.slice(1).join("\n");
 
 describe("a figure whose code example holds a bare ::, then a heading and a second figure", () => {
   test("structure: each figure's lines are its own, the heading between them is structure", () => {
-    const block = structureOf(COMARK_NOTE);
+    const block = noteStructure(COMARK_NOTE);
     for (const b of COMARK_NOTE_BLOCKS) for (let i = b.start; i <= b.end; i++) expect(block[i]).toBe(b.start);
     expect(block[12]).toBe(-1);
     expect(block[COMARK_NOTE.length - 1]).toBe(-1);

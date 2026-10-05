@@ -1,11 +1,11 @@
 // Literal regions (PIE-422's door side): between `<!-- literal -->` and `<!-- /literal -->` lines the
 // service doesn't parse properties, so the door draws `[key::value]` there as text, hides the matched
-// marker lines while reading (not while editing), and finds regions exactly where the service does.
+// marker lines while reading (not while editing). Both find the regions with outline-core's scan (code-ranges.ts).
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { bodyLinesOf, subject, type Msg } from "../src/board";
 import { renderDoc } from "../src/doc";
-import { isLiteralMarkerLine, literalLines, literalMarkerLineStarts, scanLiteralRegions } from "../src/literal";
+import { literalLines } from "@ep0ch/outline-core/code-ranges";
 import { NoteSurface, type SurfaceHost } from "../src/surface/note";
 import { outliner } from "./scratch";
 
@@ -17,7 +17,7 @@ const host = (): SurfaceHost => ({
 });
 const read = (text: string, w = 90) => { const s = new NoteSurface(), h = host(); s.show(note(text), h); return s.render(w, 40, h).lines; };
 
-// Fictional notes covering every rule the service pins (pi-herdr-outliner src/properties.ts).
+// Fictional notes covering every rule the scan pins.
 const CORPUS = [
   "Seed swap [type::note]\n<!-- literal -->\nBring [crop::beans] and #seeds.\n<!-- /literal -->\nAfter [crop::squash].",
   "<!-- literal -->\nFirst line in a region [x::y]\n<!-- /literal -->",
@@ -38,16 +38,7 @@ const CORPUS = [
   "Region at the end\n<!-- literal -->\n<!-- /literal -->",
 ];
 
-describe.skipIf(!outliner)("parity with the service's literal regions", () => {
-  test("the door finds every region, marker and unterminated opener where properties.ts does", async () => {
-    const theirs = await import(join(outliner!, "src/properties.ts"));
-    for (const text of CORPUS) {
-      expect({ text, scan: scanLiteralRegions(text) }).toEqual({ text, scan: theirs.scanLiteralRegions(text) });
-      expect({ text, starts: [...literalMarkerLineStarts(text)] }).toEqual({ text, starts: [...theirs.literalMarkerLineStarts(text)] });
-      for (const line of text.split(/\r?\n/)) expect({ line, marker: isLiteralMarkerLine(line) }).toEqual({ line, marker: theirs.isLiteralMarkerLine(line) });
-    }
-  });
-
+describe.skipIf(!outliner)("the service's literal regions in a title", () => {
   test("a note's title skips marker lines and keeps a region's tokens, as the service's title does", async () => {
     const theirs = await import(join(outliner!, "src/properties.ts"));
     for (const text of CORPUS) {
