@@ -63,7 +63,7 @@ describe("the session protocol", () => {
 describe("the door is a session by default", () => {
   test("`ep0ch` attaches (starting one when none runs); --no-daemon and EP0CH_DAEMON=0 open it in this terminal", () => {
     expect(doorMode([], {})).toEqual({ mode: "attach" });
-    expect(doorMode(["--board"], { EP0CH_DAEMON: "1" })).toEqual({ mode: "attach" });
+    expect(doorMode(["--screen", "board"], { EP0CH_DAEMON: "1" })).toEqual({ mode: "attach" });
     expect(doorMode(["--no-daemon"], {})).toEqual({ mode: "local" });
     expect(doorMode([], { EP0CH_DAEMON: "0" })).toEqual({ mode: "local" });
   });
@@ -410,7 +410,7 @@ describe.skipIf(!outliner)("a real session on a scratch service", () => {
     env("EP0CH_WS", scratch.name);
     dir = (placeFor([]) as Place).dir;
     env("EP0CH_DAILY_AGENT", "sh");
-    const started = await startSession(dir, ["--desk"]);
+    const started = await startSession(dir, ["--screen", "desk"]);
     expect(started).toEqual({ ok: true });
     pid = JSON.parse(readFileSync(sessionFile(dir), "utf8")).pid;
   }, 60_000);
@@ -824,7 +824,7 @@ describe.skipIf(!outliner)("handing a real session over, and back after a crash"
     env("EP0CH_WS", scratch.name);
     dir = (placeFor([]) as Place).dir;
     env("EP0CH_DAILY_AGENT", "sh");
-    expect(await startSession(dir, ["--desk"])).toEqual({ ok: true });
+    expect(await startSession(dir, ["--screen", "desk"])).toEqual({ ok: true });
   }, 60_000);
 
   afterAll(async () => {
@@ -985,8 +985,8 @@ describe.skipIf(!outliner)("one session per outline, two at once", () => {
     const board = new SocketBoard(host.sock, undefined, "garden");
     gardenNote = (await board.request<{ id: string }>("create", { text: "Mint bed\nWater every morning.", author: "agent" })).id;
     board.close();
-    expect(await startSession(garden.dir, ["--ws", "garden", "--desk"])).toEqual({ ok: true });
-    expect(await startSession(orchard.dir, ["--ws", "orchard", "--desk"])).toEqual({ ok: true });
+    expect(await startSession(garden.dir, ["--ws", "garden", "--screen", "desk"])).toEqual({ ok: true });
+    expect(await startSession(orchard.dir, ["--ws", "orchard", "--screen", "desk"])).toEqual({ ok: true });
   }, 60_000);
 
   afterAll(async () => {

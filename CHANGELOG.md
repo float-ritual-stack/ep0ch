@@ -86,6 +86,19 @@ A new note made with `ctrl+n` in a detail opens in a detail beside it (as `O` op
 detail in its reading row, and in a river in a new column: the note you were reading stays. An empty detail
 (`^W o d`) offers `+ New note · ctrl+n`, and a new note made there is written in it.
 
+### `--screen <name> [<target>]` opens any screen; the old landing flags are gone
+
+- **One landing flag.** `ep0ch --screen <name> [<target>]` opens the door on any screen by name: a menu item (board,
+  desk, river, brief, welcome, waiting, who…), or any registered screen (`ep0ch act screen.list` names them), on its
+  target where it takes one: `--screen board <hub-id>`, `--screen detail <id | ((ref)) | ep0ch://…>`. It goes through
+  `screen.open`, the action a menu letter and an agent's `act` run, and a session you attach to with it opens it too.
+  A screen registered later is a valid name with no code change.
+- **Removed:** `--board [<hub>]`, `--desk`, `--river`, `--brief` and `--welcome`. Each is refused with its
+  replacement (`ep0ch --board hub-1` says `ep0ch --screen board hub-1`). Update any alias or script that used them.
+- **`EP0CH_LANDING`** takes any screen name now (`brief` and `welcome` as before), opened after the logon through
+  the same action.
+- An unknown name is refused before the door starts, with the names there are.
+
 ### Fixed: addressable resources, after review (#201–#206, #211, #212)
 
 - **An outline's instance id changes exactly when its database is replaced.** It is the `outline_instance_id` in

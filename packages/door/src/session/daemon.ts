@@ -283,8 +283,9 @@ export async function serve(args: string[]): Promise<never> {
           try {
             const asked = screenRequest(h.args ?? []);
             const top = app.screens().at(-1);
-            const current = top && asked && top.name === asked.name ? top.openArgs?.() ?? null : null;
-            if (asked && !h.watch && current?.note !== asked.note) {
+            // Already on that screen with that target: nothing to open.
+            const same = !!top && !!asked && top.name === asked.name && (top.openArgs?.()?.target ?? undefined) === asked.target;
+            if (asked && !h.watch && !same) {
               appliedScreen = true;
               void app.dispatch.act({ action: "screen.open", args: { ...asked } }, USER).then(
                 () => app.redraw(),
@@ -352,9 +353,9 @@ export function screenFlags(args: readonly string[]): string[] {
   const out: string[] = [];
   for (let i = 0; i < args.length; i++) {
     const a = args[i]!;
-    if (["--board", "--layout"].includes(a)) { const v = args[i + 1]; out.push(v && !v.startsWith("--") ? `${a} ${v}` : a); }
-    else if (a === "--screen") { const n = args[i + 1], v = args[i + 2]; out.push(n && v && !v.startsWith("--") ? `${a} ${n} ${v}` : a); }
-    else if (["--desk", "--river", "--brief", "--welcome", "--showcase"].includes(a)) out.push(a);
+    if (a === "--layout") { const v = args[i + 1]; out.push(v && !v.startsWith("--") ? `${a} ${v}` : a); }
+    else if (a === "--screen") { const n = args[i + 1], v = args[i + 2]; out.push(n && v && !v.startsWith("--") ? `${a} ${n} ${v}` : n && !n.startsWith("--") ? `${a} ${n}` : a); }
+    else if (a === "--showcase") out.push(a);
   }
   return out;
 }

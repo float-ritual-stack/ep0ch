@@ -138,6 +138,14 @@ The feed is the desk's, and every view built on it (the brief, the pinned pages,
 | `layout.list` | the layouts that can be loaded, saved or built in |
 | `screen.spec` | the screen shown as its spec (PIE-515): its name, title, layout as it opens (containers with policy, tiles by kind with their names and args), key map, hint, band and where opens land; the data a screen note holds |
 | `actions` | everything the screen can do |
+| `screen.list` | the menu's screens, every registered screen by name (`named`, with the argument its target fills) and the stack the person is on |
+
+**Opening a screen.** `screen.open name=<name> [target=<target>]` opens any screen by name: a menu item (its key, label or
+title) or a registered screen (`screen.list`'s `named`), on its target where it takes one (detail: a block id,
+`((ref))` or `ep0ch://` URI; the board: a hub id). `ep0ch --screen <name> [<target>]` starts the door on it through the
+same action (it is the one landing flag; `--board`, `--desk`, `--river`, `--brief` and `--welcome` are gone), and a
+session attached with it opens it there. A screen someone registers is a valid name with no code change. An unknown
+name is refused with the names there are.
 
 Two reads need no door at all, only the outline: `ep0ch find <words>… [--lines|--json]` (the service's forgiving
 ranker, as Goto, `/` and `((` rank; `--recent`, `--tree [<root id>]`) and `ep0ch show <id>… [--width <n>] [--ansi |

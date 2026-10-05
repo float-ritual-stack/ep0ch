@@ -7,7 +7,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { readFileSync } from "node:fs";
-import { checkWords, closest, COMMANDS, screenDetailArgs } from "../src/cli-words";
+import { checkWords, closest, COMMANDS, screenUriArgs } from "../src/cli-words";
 import { canonicalLocalMachineName } from "../src/notes-cli";
 import { hostRequest } from "../src/socket";
 import { ScratchHost } from "./scratch";
@@ -44,10 +44,10 @@ describe("a word ep0ch doesn't know", () => {
   });
 
   test("an unknown flag is an error with a suggestion; a door flag missing its value says so", () => {
-    const r = ep0ch("--dsk");
+    const r = ep0ch("--scren", "desk");
     expect(r.code).toBe(2);
-    expect(r.err).toContain('ep0ch: no flag "--dsk" · did you mean: --desk');
-    const stray = ep0ch("--desk", "garden");
+    expect(r.err).toContain('ep0ch: no flag "--scren" · did you mean: --screen');
+    const stray = ep0ch("--here", "garden");
     expect(stray.code).toBe(2);
     expect(stray.err).toContain('"garden"');
     const bare = ep0ch("--ws");
@@ -58,7 +58,7 @@ describe("a word ep0ch doesn't know", () => {
 
 describe("--help, -h and help, anywhere", () => {
   test("print usage and open no door: the whole of it, or the subcommand's", () => {
-    for (const args of [["--help"], ["-h"], ["help"], ["--desk", "--help"], ["--ws", "garden", "-h"]]) {
+    for (const args of [["--help"], ["-h"], ["help"], ["--screen", "desk", "--help"], ["--ws", "garden", "-h"]]) {
       const r = ep0ch(...args);
       expect(r.code).toBe(0);
       expect(r.out).toContain("ep0ch: a BBS door into an outline");
@@ -76,30 +76,33 @@ describe("--help, -h and help, anywhere", () => {
 
 describe("the rule, without a process", () => {
   test("bare ep0ch and the door's flags go on to the door; subcommands go on to theirs", () => {
-    for (const args of [[], ["--ws", "garden"], ["--desk"], ["--board"], ["--board", "hub-1", "--no-daemon"], ["--layout", "daily"],
-      ["--screen", "detail", "ep0ch://garden@box-a/b/a1111111-1111-4111-8111-111111111111"],
+    for (const args of [[], ["--ws", "garden"], ["--screen", "desk"], ["--screen", "board"], ["--screen", "board", "hub-1", "--no-daemon"], ["--layout", "daily"],
+      ["--screen", "detail", "ep0ch://garden@box-a/b/a1111111-1111-4111-8111-111111111111"], ["--screen", "detail", "((a1111111-1111-4111-8111-111111111111))"],
+      ["--screen", "someone-registered"],
       ["--machine", "box-a", "--ws", "garden", "--create"], ["--remote", "box-a", "status", "--json"], ["--showcase", "--reset"],
       ["--no-daemon", "--ws", "showcase", "--showcase"], ["--skill", "--all", "ep0ch-core"], ["find", "help"], ["session", "list", "--json"]]) {
       expect(checkWords(args)).toBeNull();
     }
   });
-  test("--screen validates the detail URI tuple before a door starts", () => {
+  test("--screen needs a name; the landing flags it replaced are refused with the exact command", () => {
     const error = (args: string[]) => {
       const r = checkWords(args);
       return r && "error" in r ? r.error : "";
     };
-    expect(error(["--screen", "detail"])).toContain("needs a canonical URI");
-    expect(error(["--screen", "board", "ep0ch://garden@box-a/b/a1111111-1111-4111-8111-111111111111"])).toContain("supports detail");
-    expect(error(["--screen", "detail", "a1111111-1111-4111-8111-111111111111"])).toContain("canonical ep0ch:// URI");
+    expect(error(["--screen"])).toContain("--screen needs a screen's name");
+    expect(error(["--screen", "--no-daemon"])).toContain("--screen needs a screen's name");
+    expect(error(["--board", "hub-1"])).toBe("--board is gone: ep0ch --screen board hub-1 · --screen <name> [<target>] opens any screen by name");
+    expect(error(["--board"])).toStartWith("--board is gone: ep0ch --screen board ·");
+    for (const name of ["desk", "river", "brief", "welcome"]) expect(error([`--${name}`])).toStartWith(`--${name} is gone: ep0ch --screen ${name} ·`);
   });
-  test("--screen detail <uri> names the URI's outline, never makes it, and keeps a host named outright", () => {
+  test("--screen <name> <uri> names the URI's outline, never makes it, and keeps a host named outright", () => {
     const uri = { outline: "garden", machine: "box-a", blockId: "a1111111-1111-4111-8111-111111111111" };
     const args = ["--ws", "fern", "--here", "--create", "--screen", "detail", "ep0ch://garden@box-a/b/a1111111-1111-4111-8111-111111111111", "--no-daemon"];
-    expect(screenDetailArgs(args, uri, { local: false, socket: false }))
+    expect(screenUriArgs(args, uri, { local: false, socket: false }))
       .toEqual(["--ws", "garden", "--machine", "box-a", "--no-create", "--screen", "detail", uri.blockId, "--no-daemon"]);
-    expect(screenDetailArgs(args, uri, { local: true, socket: false }))
+    expect(screenUriArgs(args, uri, { local: true, socket: false }))
       .toEqual(["--ws", "garden", "--here", "--no-create", "--screen", "detail", uri.blockId, "--no-daemon"]);
-    expect(screenDetailArgs(args, uri, { local: false, socket: true }))
+    expect(screenUriArgs(args, uri, { local: false, socket: true }))
       .toEqual(["--ws", "garden", "--no-create", "--screen", "detail", uri.blockId, "--no-daemon"]);
   });
   test("closest: by edit distance, and only when it is close", () => {
@@ -130,6 +133,22 @@ describe("the word lists say what the code reads", () => {
 test("ep0ch view order is a command, its ids data; help names its usage", () => {
   expect(checkWords(["view", "order", "PIE-12", "help"])).toBeNull();
   expect(checkWords(["viw", "order"])).toEqual({ error: expect.stringContaining("did you mean: ep0ch view") });
+});
+
+describe("--screen with a name nobody knows", () => {
+  test("is refused before the door starts, with the names there are and the command to try", () => {
+    const r = ep0ch("--screen", "nonesuch");
+    expect(r.code).toBe(2);
+    expect(r.err).toContain('ep0ch: no screen "nonesuch" · screens: ');
+    for (const name of ["board", "desk", "detail", "brief", "welcome", "river"]) expect(r.err).toContain(name);
+    expect(r.err).toContain("try ep0ch --screen ");
+    expect(r.out).toBe("");
+  });
+  test("the old landing flags are refused with the exact replacement", () => {
+    const r = ep0ch("--board", "hub-1");
+    expect(r.code).toBe(2);
+    expect(r.err).toContain("ep0ch: --board is gone: ep0ch --screen board hub-1");
+  });
 });
 
 describe("--screen detail <uri> on a host named by EP0CH_SOCKET", () => {

@@ -80,7 +80,7 @@ export function resolveTarget(args: readonly string[], env: Env = process.env, c
   if (typeof ws === "object") return ws;
   if (ws?.includes("/")) return { error: `--ws takes an outline's name, not a folder (${ws}); a folder names its outline in its .ep0ch (ep0ch init there)` };
   // A socket path as an argument named a host once; EP0CH_SOCKET does now. Refused, never read as "this machine's".
-  const path0 = args.find((a, i) => a.includes("/") && !a.startsWith("--") && !["--board", "--ws", "--layout", "--machine"].includes(args[i - 1] ?? ""));
+  const path0 = args.find((a, i) => a.includes("/") && !a.startsWith("--") && !["--ws", "--layout", "--machine"].includes(args[i - 1] ?? "") && args[i - 2] !== "--screen" && args[i - 1] !== "--screen");
   if (path0) return { error: `${path0}: a host's socket is named by EP0CH_SOCKET=${path0} (or the machine it is on by --machine <ssh-name>), not as an argument` };
   const machineFlag = flagValue(args, "--machine", "a machine: an ssh config name (a Host in ~/.ssh/config)");
   if (typeof machineFlag === "object") return machineFlag;

@@ -127,7 +127,7 @@ fi
 outlines="${EP0CH_OUTLINES:-$HOME/outlines}"
 if [ "$copy" = 0 ]; then
   echo "door → the outline $ws on this machine's host (edits, moves and comments are real)"
-  cd "$here" && exec bun src/main.ts --no-daemon --ws "$ws" --board $hub
+  cd "$here" && exec bun src/main.ts --no-daemon --ws "$ws" --screen board $hub
 fi
 
 # --copy: a private host on a copy of the database, never the live one.
@@ -143,4 +143,4 @@ mkdir -p "$tmp/outlines"
 sqlite3 -readonly "$live" ".backup '$tmp/outlines/$ws.sqlite'"
 serve "$tmp" "$ws" "$tmp/host.log"
 echo "door → a private copy of $ws, served from $outliner (writes stay in the copy, deleted on exit)"
-cd "$here" && EP0CH_OUTLINES="$tmp/outlines" EP0CH_SOCKET= bun src/main.ts --no-daemon --ws "$ws" --board $hub
+cd "$here" && EP0CH_OUTLINES="$tmp/outlines" EP0CH_SOCKET= bun src/main.ts --no-daemon --ws "$ws" --screen board $hub

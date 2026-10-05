@@ -157,14 +157,14 @@ describe.skipIf(!outliner)("elements in readers, against a scratch outline", () 
       frame();
       await whole(d, n.jobs.id);
       await until(() => plain(frame().join("\n")).includes("Beds"), "Beds drawn in the detail screen");
-      expect(b.openArgs()).toEqual({ note: n.jobs.id });
+      expect(b.openArgs()).toEqual({ target: n.jobs.id });
       stepTo(d, "## Beds");
       key({ kind: "enter" }); frame();
       expect(d.surface.describe().folds!.folded).toEqual(["## Beds"]);
       click(where(frame(), "Beds", { col: 0, row: 0, cols: 200, rows: 60 }));
       expect(d.surface.describe().folds!.folded).toEqual([]);
       d.show(n.beans, b);
-      expect(b.openArgs()).toEqual({ note: n.beans.id });
+      expect(b.openArgs()).toEqual({ target: n.beans.id });
       expect(b.focusedName()).toBe("detail");
     } finally { app.pop(); }
   }, 30_000);
@@ -176,7 +176,7 @@ describe.skipIf(!outliner)("elements in readers, against a scratch outline", () 
     expect(r).toMatchObject({ opened: "detail", screen: "detail" });
     try {
       b = (app as any).stack.at(-1) as Desk;
-      expect(b.openArgs()).toEqual({ note: n.jobs.id });
+      expect(b.openArgs()).toEqual({ target: n.jobs.id });
     } finally { app.pop(); }
   }, 30_000);
 

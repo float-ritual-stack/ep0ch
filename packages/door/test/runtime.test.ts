@@ -50,7 +50,7 @@ class Door {
   readonly pty: InstanceType<typeof Bun.Terminal>;
   code: number | null = null;
   /** `ctty`: the pty is the door's controlling terminal (as under sshd), so closing it sends the door SIGHUP. */
-  constructor(readonly env: Record<string, string>, args: string[] = ["--desk"], preload?: string, ctty = false) {
+  constructor(readonly env: Record<string, string>, args: string[] = ["--screen", "desk"], preload?: string, ctty = false) {
     this.pty = new Bun.Terminal({ cols: 140, rows: 40, data: (_t, d) => { this.out += Buffer.from(d).toString("latin1"); } });
     this.proc = Bun.spawn([...(ctty ? CTTY : []), "bun", ...(preload ? ["--preload", preload] : []), MAIN, ...args, "--ws", scratch.name], { terminal: this.pty, env: { ...env, EP0CH_SOCKET: scratch.sock } });
     void this.proc.exited.then(c => { this.code = c; });
@@ -108,7 +108,7 @@ describe("every exit restores the terminal, copies drafts and removes the socket
     const { dir, env } = sandbox();
     const boom = join(dir, "boom.ts");
     writeFileSync(boom, `setTimeout(() => { throw new Error("a fictional fault in a timer"); }, 2500);\n`);
-    const door = new Door(env, ["--desk"], boom);
+    const door = new Door(env, ["--screen", "desk"], boom);
     await door.up();
     const code = await door.ended();
     expect(code).toBe(1);
@@ -122,7 +122,7 @@ describe("every exit restores the terminal, copies drafts and removes the socket
   test.skipIf(!CTTY.length)("the terminal hangs up (an ssh connection drops): drafts copied, socket removed, last call written", async () => {
     const { env } = sandbox();
     const id = await note("Tide table hangup\nlow water at six");
-    const door = new Door(env, ["--desk"], undefined, true);
+    const door = new Door(env, ["--screen", "desk"], undefined, true);
     await door.up();
     expect((await door.cli("open", id)).code).toBe(0);
     expect((await door.cli("act", "edit", "--as", "cartographer-4")).code).toBe(0);
@@ -336,7 +336,7 @@ describe("offline says offline (F24, C F17)", () => {
     b2.close();
     const { env } = sandbox();
     const pty = new Bun.Terminal({ cols: 140, rows: 40, data: () => {} });
-    const proc = Bun.spawn(["bun", MAIN, "--desk", "--ws", own.name], { terminal: pty, env: { ...env, EP0CH_SOCKET: own.sock } });
+    const proc = Bun.spawn(["bun", MAIN, "--screen", "desk", "--ws", own.name], { terminal: pty, env: { ...env, EP0CH_SOCKET: own.sock } });
     try {
       await until(() => existsSync(env.EP0CH_CONTROL!), "the door", 20_000);
       const cli = async (...args: string[]) => {

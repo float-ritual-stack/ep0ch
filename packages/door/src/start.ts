@@ -1,47 +1,37 @@
-// Where the door opens: a start flag goes straight to its screen (over the main menu, so q comes back to
-// it); without one, the logon, then the main menu, the newest daily brief (EP0CH_LANDING=brief) or the
-// welcome notes (EP0CH_LANDING=welcome).
+// Where the door opens. `--screen <name> [<target>]` is the one landing flag: the screen by name (a menu item or any
+// registered screen, `screen.open`'s lookup), over the main menu so q comes back to it. Without it, the logon, then
+// the main menu, or the screen EP0CH_LANDING names (brief, welcome, any `--screen` name) over it, through the same
+// action. `--layout <name>` opens the desk laid out by name; `--showcase` the showcase.
 import type { Screen } from "./app";
+import { screenArg } from "./cli-words";
 import { Desk } from "./desk/desk";
-import { openScreen } from "./desk/screen-specs";
 import { MainMenu } from "./screens";
 import { Showcase } from "./showcase/showcase";
 
-/** Where the door lands after the logon: the main menu (the default), the newest daily brief, or the welcome notes. */
-export type Landing = "menu" | "brief" | "welcome";
-export function landingOf(env: Record<string, string | undefined>): Landing {
-  const l = env.EP0CH_LANDING?.trim().toLowerCase();
-  return l === "brief" || l === "welcome" ? l : "menu";
+/** A screen to open by name, with its target: `screen.open`'s arguments. */
+export interface ScreenRequest { name: string; target?: string }
+
+/** The screen `--screen <name> [<target>]` asks for, or null. */
+export function screenRequest(args: readonly string[]): ScreenRequest | null {
+  return screenArg(args);
 }
 
-export interface ScreenRequest { name: string; note?: string }
-
-export function screenRequest(args: readonly string[]): ScreenRequest | null {
-  const screenAt = args.indexOf("--screen");
-  if (screenAt < 0) return null;
-  const name = args[screenAt + 1];
-  const target = args[screenAt + 2];
-  if (name !== "detail") throw new Error(`--screen supports detail; got ${name ?? "nothing"}`);
-  if (!target || target.startsWith("--")) throw new Error("--screen detail needs a block id");
-  return { name, note: target };
+/** The screen the door lands on after the logon: EP0CH_LANDING's name (none: the main menu). */
+export function landingOf(env: Record<string, string | undefined>): ScreenRequest | null {
+  const name = env.EP0CH_LANDING?.trim();
+  return name && name.toLowerCase() !== "menu" ? { name } : null;
 }
 
 /**
- * The screens to push, bottom first. `logon` builds the logon screen with what it opens after the main
- * menu (nothing, or the brief).
+ * The screens to push, bottom first, and the screen to open over them through `screen.open` (one path for the flag,
+ * a session's attach and the landing). `logon` builds the logon screen with what it opens after the main menu.
  */
-export function startScreens(args: readonly string[], env: Record<string, string | undefined>, logon: (then?: () => Screen) => Screen): Screen[] {
+export function startScreens(args: readonly string[], env: Record<string, string | undefined>, logon: (then?: ScreenRequest) => Screen): { screens: Screen[]; open?: ScreenRequest } {
   const req = screenRequest(args);
-  if (req) return [new MainMenu(), openScreen(req.name, req.note ? { note: req.note } : {})];
-  const boardAt = args.indexOf("--board");
-  if (boardAt >= 0) return [new MainMenu(), openScreen("board", args[boardAt + 1]?.startsWith("--") ? {} : { hub: args[boardAt + 1] })];
-  if (args.includes("--showcase")) return [new MainMenu(), new Showcase()];
-  if (args.includes("--river")) return [new MainMenu(), openScreen("river")];
+  if (req) return { screens: [new MainMenu()], open: req };
+  if (args.includes("--showcase")) return { screens: [new MainMenu(), new Showcase()] };
   const layoutAt = args.indexOf("--layout");
-  if (layoutAt >= 0 && args[layoutAt + 1]) return [new MainMenu(), new Desk(undefined, { layout: args[layoutAt + 1] })];
-  if (args.includes("--desk")) return [new MainMenu(), new Desk()];
-  if (args.includes("--brief")) return [new MainMenu(), openScreen("brief")];
-  if (args.includes("--welcome")) return [new MainMenu(), openScreen("welcome")];
+  if (layoutAt >= 0 && args[layoutAt + 1]) return { screens: [new MainMenu(), new Desk(undefined, { layout: args[layoutAt + 1] })] };
   const landing = landingOf(env);
-  return [landing === "brief" ? logon(() => openScreen("brief")) : landing === "welcome" ? logon(() => openScreen("welcome")) : logon()];
+  return { screens: [landing ? logon(landing) : logon()] };
 }

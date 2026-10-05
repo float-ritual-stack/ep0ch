@@ -19,7 +19,7 @@ import { NEW_USAGE, newCommand } from "./new-cli";
 import { VIEW_USAGE, viewCommand } from "./view-cli";
 import { MCP_USAGE, mcpCommand } from "./mcp";
 import { showcaseTry } from "./showcase/route";
-import { checkWords, screenDetailArgs, usageFor } from "./cli-words";
+import { checkWords, screenArg, screenUriArgs, usageFor } from "./cli-words";
 import { parseEp0chBlockUri, sameMachine } from "@ep0ch/outline-core/addressable-resource";
 import { colourOnlyToATerminal } from "@ep0ch/outliner/plain-stderr";
 // Piped stderr stays plain: the Claude mod, door-open and tests parse these refusals.
@@ -29,15 +29,17 @@ let args = process.argv.slice(2);
 const USAGE = `ep0ch: a BBS door into an outline
 
   ep0ch [--ws <name>] [--machine <ssh-name> [--create] | --here]
-        [--board [<hub-id>] | --desk | --layout <name> | --river | --brief | --welcome | --screen detail <uri>]
+        [--screen <name> [<target>] | --layout <name>]
                                    open the door (the logon, then the main menu, by default);
+                                   --screen <name> opens that screen instead: a menu item (board,
+                                   desk, river, brief, welcome, waiting, who…) or any registered screen
+                                   (ep0ch act screen.list names them), with its target where it takes
+                                   one: --screen board <hub-id>, --screen detail <id | ((ref)) | ep0ch://…>
+                                   (a URI also names the outline and machine; it never creates one).
+                                   EP0CH_LANDING=<name> opens that screen after the logon instead
+                                   (EP0CH_LANDING=brief, =welcome).
                                    --layout daily opens the desk laid out as a named layout (daily,
-                                   river, board, desk, or one saved with ^W w);
-                                   --screen detail <ep0ch://...> opens one Detail reader on that note;
-                                   --brief opens the newest daily brief (type::daily-brief), and
-                                   EP0CH_LANDING=brief lands on it after the logon;
-                                   --welcome opens the welcome notes ([welcome::1] first), and
-                                   EP0CH_LANDING=welcome lands there after the logon.
+                                   river, board, desk, or one saved with ^W w).
                                    Which outline: --ws <name> from anywhere, else EP0CH_WS, else the
                                    nearest .ep0ch from this folder up (it holds ws = "<name>"). A name
                                    nobody has yet is created on this machine (like herdr --session <name>);
@@ -172,16 +174,23 @@ if (args[0] === "open" && args[1]?.startsWith("ep0ch://")) {
     process.exit(2);
   }
 }
+// `--screen <name> <ep0ch://…>`: the URI names the outline (and machine) the door opens on, and its block the target.
 const screenAt = args.indexOf("--screen");
-if (screenAt >= 0 && args[screenAt + 1] === "detail" && args[screenAt + 2]?.startsWith("ep0ch://")) {
+if (screenAt >= 0 && args[screenAt + 2]?.startsWith("ep0ch://")) {
   try {
     const uri = parseEp0chBlockUri(args[screenAt + 2]!);
     const local = sameMachine(uri.machine, canonicalLocalMachineName());
-    args = screenDetailArgs(args, uri, { local, socket: !!process.env.EP0CH_SOCKET?.trim() });
+    args = screenUriArgs(args, uri, { local, socket: !!process.env.EP0CH_SOCKET?.trim() });
   } catch (e) {
     console.error(`ep0ch: ${(e as Error).message}`);
     process.exit(2);
   }
+}
+// A screen nobody knows is refused before the door takes the terminal, with the names there are.
+const asked = screenArg(args);
+if (asked && !args.includes("--remote")) {
+  const { knownScreen, unknownScreen } = await import("./screens");
+  if (!knownScreen(asked.name)) { console.error(`ep0ch: ${unknownScreen(asked.name)}`); process.exit(2); }
 }
 if (["peek", "snap", "open", "actions", "act", "subscribe"].includes(args[0] ?? "")) {
   // Which door, when EP0CH_CONTROL names none: the one on the outline this folder names, else the only one running.
