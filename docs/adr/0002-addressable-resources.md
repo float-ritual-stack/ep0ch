@@ -41,6 +41,15 @@ local part). Its ids follow [ADR 0001](0001-ids-names-roles.md).
    phone) also needs OAuth, a client allowlist and revocation. `[publish::]` is a different thing: a published block
    doesn't bypass `none`, and `ep0ch://` is never a public HTTP route. A remote read sends the note to the caller's
    model provider, so granting `read` is a disclosure decision.
+
+   *Implemented (remote gateway):* `ep0ch mcp serve --http` (`packages/door/src/mcp-gateway.ts`) serves the stdio
+   server's tools and resources from the same handlers (`answerMcp`) over streamable HTTP. It is an OAuth resource
+   server with Clerk as the authorization server: a Clerk JWT access token (`at+jwt`), signed by the issuer's JWKS,
+   with `aud` this endpoint, and a subject on `EP0CH_MCP_ALLOWED_SUBJECTS` (unset: refuse all and log the subject);
+   `EP0CH_MCP_ALLOWED_CLIENTS` is the optional client allowlist. It reads only the outlines on its own machine's
+   host, each still gated by its access setting, and never writes. Revocation is the access setting (at once), the
+   allowlists (on restart), and Clerk's own grant (refresh). Clerk's JWT access tokens can't be recalled before
+   they expire (a day).
 5. **The door decides where an open lands; a host only routes and focuses.** `ep0ch open <uri> --json` resolves the
    outline and machine, finds the session, runs the door's own `open` action, and answers which session, reader and
    host pane received it (or `{opened: false, reason}`). A terminal host (Tern, Herdr, tmux) knows no socket, reader

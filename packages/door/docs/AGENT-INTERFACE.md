@@ -146,6 +146,11 @@ ranker, as Goto, `/` and `((` rank; `--recent`, `--tree [<root id>]`) and `ep0ch
 <id>`, `--under <id>`, `--ids`, `--json` for block records) lists what the outline says a query holds for, and `ep0ch
 export` writes notes out as Markdown or JSON (PIE-534; the door README has the flags).
 
+An MCP client reads the same outline with no door either: `ep0ch mcp` (stdio, for a local harness) and `ep0ch mcp
+serve --http` (the remote gateway, for claude.ai, behind Clerk OAuth) answer `outline_read`, `outline_find`,
+`outline_links` and `resources/read` of `ep0ch://` URIs from one implementation, read-only, each outline gated by
+`ep0ch mcp access` (`none` by default). The door README's "Remote MCP gateway" has the setup.
+
 ## The shell: screens and lists
 
 On every screen, before the screen's own actions: `screen.open name=<menu key, label or title>`,

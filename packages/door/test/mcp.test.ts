@@ -80,7 +80,7 @@ describe.skipIf(!outliner)("ep0ch mcp", () => {
     const flat = responses.flatMap(r => Array.isArray(r) ? r : [r]);
     const response = (id: number) => flat.find(r => r.id === id);
     expect(fields(response(4)?.result).serverInfo).toMatchObject({ name: "ep0ch" });
-    expect(fields(response(4)?.result).protocolVersion).toBe("2024-11-05");
+    expect(fields(response(4)?.result).protocolVersion).toBe("2025-11-25");
     const listed = fields(response(5)?.result).tools as { name: string; inputSchema?: any }[];
     expect(listed.map(t => t.name)).toEqual(["outline_read", "outline_find", "outline_links"]);
     expect(listed[0]!.inputSchema.oneOf).toEqual([{ required: ["uri"] }, { required: ["ref"] }]);
