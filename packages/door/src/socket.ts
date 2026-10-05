@@ -191,12 +191,7 @@ export interface PageResolution { address: string; status: "resolved" | "deleted
 export type { NotePlacement } from "@ep0ch/outline-core/protocol";
 import type { NotePlacement } from "@ep0ch/outline-core/protocol";
 
-export type McpAccessLevel = "none" | "read" | "propose" | "full";
-export interface McpAccessStatus {
-  level: McpAccessLevel;
-  canRead: boolean;
-  sequence: number;
-}
+import type { McpAccessLevel, McpAccessStatus } from "@ep0ch/outline-core/protocol";
 export interface McpReachability {
   id: string;
   status: "reachable";
