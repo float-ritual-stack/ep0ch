@@ -5,7 +5,7 @@ export const BLOCK_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab
 export const FRAGMENT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
 
 const EP0CH_BLOCK_URI = /^ep0ch:\/\/([^@/?#]+)@([^/?#]+)\/b\/([^/?#]+)(?:#([^?#]*))?$/;
-const BLOCK_REFERENCE = /^\(\(([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})(?:\^([A-Za-z0-9][A-Za-z0-9_-]{0,63}))?(?:\|[^\r\n]+?)?\)\)$/i;
+const BLOCK_REFERENCE_HEAD_PATTERN = /^\(\(([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})(?:\^([A-Za-z0-9][A-Za-z0-9_-]{0,63}))?(?=\)\)|\|)/i;
 
 export interface Ep0chBlockUri {
   outline: string;
@@ -26,16 +26,47 @@ function encodeField(value: string): string {
   return encodeURIComponent(value).replace(/[!'()*]/g, (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`);
 }
 
+/**
+ * The `))` that closes a `((` opened just before `from`. Parentheses inside
+ * are balanced, so `((Rough edges (x)))` closes after `(x)`; when they cannot
+ * balance (`((Smile :)))`), the first `))` at or after `minimum` closes it.
+ * Returns the offset after the closing `))`, or -1.
+ */
+export function referenceEnvelopeEnd(text: string, from: number, singleLine = false, minimum = from): number {
+  let depth = 0;
+  let first = -1;
+  for (let cursor = from; cursor < text.length - 1; cursor += 1) {
+    const character = text[cursor]!;
+    // Titles and labels are one line: once a close is known, balance only within it.
+    if ((singleLine || first >= 0) && (character === "\n" || character === "\r")) break;
+    if (character === ")" && text[cursor + 1] === ")" && cursor >= minimum) {
+      if (first < 0) first = cursor + 2;
+      if (depth <= 0) return depth === 0 ? cursor + 2 : first;
+    }
+    if (character === "(") depth += 1;
+    else if (character === ")") depth -= 1;
+    if (depth < 0 && first >= 0) return first;
+  }
+  return first;
+}
+
 export function normalizeBlockId(value: string): string {
   if (!BLOCK_ID_PATTERN.test(value)) throw new Error(`Invalid block id: ${value}`);
   return value.toLowerCase();
 }
 
 export function parseBlockRef(input: string): { blockId: string; fragment?: string } {
-  const text = input.trim();
-  if (BLOCK_ID_PATTERN.test(text)) return { blockId: text.toLowerCase() };
-  const match = BLOCK_REFERENCE.exec(text);
+  if (BLOCK_ID_PATTERN.test(input)) return { blockId: input.toLowerCase() };
+  const match = BLOCK_REFERENCE_HEAD_PATTERN.exec(input);
   if (!match) throw new Error(`Invalid block reference: ${input}`);
+  let end = match[0].length + 2;
+  if (input[match[0].length] === "|") {
+    end = referenceEnvelopeEnd(input, match[0].length + 1, true, match[0].length + 2);
+    if (end < 0 || !input.slice(match[0].length + 1, end - 2).trim()) {
+      throw new Error(`Invalid block reference: ${input}`);
+    }
+  }
+  if (end !== input.length) throw new Error(`Invalid block reference: ${input}`);
   return { blockId: match[1]!.toLowerCase(), ...(match[2] ? { fragment: match[2] } : {}) };
 }
 
@@ -48,8 +79,8 @@ export function formatEp0chBlockUri(target: Ep0chBlockUri): string {
 }
 
 export function parseEp0chBlockUri(input: string): Ep0chBlockUri {
-  const match = EP0CH_BLOCK_URI.exec(input.trim());
-  if (!match) throw new Error("Invalid ep0ch block URI; expected ep0ch://<outline>@<machine>/b/<uuid>[#fragment]");
+  const match = EP0CH_BLOCK_URI.exec(input);
+  if (!match) throw new Error("Invalid ep0ch block URI; expected exact ep0ch://<outline>@<machine>/b/<uuid>[#fragment]");
   const outline = decodeField(match[1]!, "outline");
   const machine = decodeField(match[2]!, "machine");
   const blockId = decodeField(match[3]!, "block id");
@@ -62,7 +93,6 @@ export function parseEp0chBlockUri(input: string): Ep0chBlockUri {
 }
 
 export function parseAddressedBlock(input: string): Ep0chBlockUri | { blockId: string; fragment?: string } {
-  const text = input.trim();
-  if (text.startsWith("ep0ch://")) return parseEp0chBlockUri(text);
-  return parseBlockRef(text);
+  if (input.trimStart().startsWith("ep0ch://")) return parseEp0chBlockUri(input);
+  return parseBlockRef(input);
 }
