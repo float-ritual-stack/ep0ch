@@ -19,7 +19,7 @@ import { ch, isUp, isDown, type Key } from "../term";
 import { ago, wrap } from "../text";
 import type { TileKindName } from "./tile-kinds";
 import type { ListPicker } from "../surface/picker";
-import type { KeySpot } from "../new-note";
+import { newNoteOffer, type KeySpot } from "../new-note";
 import { withoutPropertyTokens } from "@ep0ch/outline-core/property-grammar";
 
 /** `spots`: parts of its rows a click presses a key on (an empty place's `+ New note`: ctrl+n, newNoteOffer). */
@@ -263,7 +263,13 @@ export class ReaderPane implements Pane {
   reread(desk: DeskApi) { this.surface.reread(this.host(desk)); }
   show(m: Msg | null, desk: DeskApi) { return this.surface.show(m, this.host(desk)); }
   retry(desk: DeskApi) { this.surface.retry(this.host(desk)); }
-  render(w: number, h: number, _focused = false, desk?: DeskApi): PaneView { return this.surface.render(w, h, desk && this.host(desk)); }
+  render(w: number, h: number, _focused = false, desk?: DeskApi): PaneView {
+    const v = this.surface.render(w, h, desk && this.host(desk));
+    if (this.msg || this.surface.draft || h < 3) return v;
+    // An empty reader (^W o d) offers a note to write in it: ctrl+n here makes one and opens it in this tile.
+    const { line, spot } = newNoteOffer(v.lines.length + 1);
+    return { ...v, lines: [...v.lines, "", line], spots: [spot] };
+  }
   save(desk: DeskApi) { return this.surface.save(this.host(desk)); }
   loadComments(desk: DeskApi) { return this.surface.loadComments(this.host(desk)); }
   onEvent(desk: DeskApi) { this.surface.onEvent(this.host(desk)); }

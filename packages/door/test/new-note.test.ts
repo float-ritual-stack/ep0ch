@@ -135,34 +135,53 @@ describe.skipIf(!outliner)("new notes from anywhere (PIE-544)", () => {
       const rname = desk.describe().tiles?.find?.((t: any) => t.kind === "reader")?.name ?? "reader";
       await expect(app.act({ action: "link.follow", args: { n: 1 }, tile: rname, as: "new-note-test" })).rejects.toThrow("page.create");
       expect((await board.resolvePage("Bean diary")).status).toBe("missing");
-      desk.focus = [...desk.panes].find(([, p]: any) => p === reader())![0];
+      // A detail keeps the note it was given (a following reader shows whatever is current): the person's reading place.
+      await app.act({ action: "tile.open", args: { kind: "detail", note: notes.plot.id, name: "plotd" } });
+      const plot = desk.panes.get(desk.idNamed("plotd")) as any;
+      await until(() => plot?.msg?.id === notes.plot.id, "the detail on the plot notes");
+      desk.focusOn("plotd");
       expect(desk.noteContext()).toBe(notes.plot.id);
       key(ctrl("n"));
-      const editing = () => [...desk.panes.values()].find((p: any) => p.kind === "reader" && p.surface.draft) as any;
+      const editing = () => [...desk.panes.values()].find((p: any) => p.surface?.draft) as any;
       await until(() => !!editing(), "the new note's edit open", 8000);
       const r = editing(), id = r.surface.draft.blockId;
       expect((await board.get(id))!.parentId).toBe(notes.plot.id);
+      // The note being read stays read: the new one opens in a reader beside it (as O gives), never over it.
+      expect(r).not.toBe(plot);
+      expect(plot.msg?.id).toBe(notes.plot.id);
       expect(desk.panes.get(desk.focus)).toBe(r);
       await until(() => desk.entered.in(r), "the person is in the new note's edit", 5000);
-      // Nothing typed: esc closes it, and the empty note goes to the trash, the reader back where it was.
+      // Nothing typed: esc closes it, and the empty note goes to the trash; the plot notes are where they were.
       key({ kind: "esc" });
       await reads(async () => !(await childrenOf(notes.plot.id)).includes(""), "the empty note trashed", 5000);
-      await until(() => r.msg?.id === notes.plot.id, "the reader back on the plot notes", 5000);
+      expect(plot.msg?.id).toBe(notes.plot.id);
       // ctrl+n while the person types in an edit is typed there, never a note.
+      desk.focusOn(desk.nameOf([...desk.panes].find(([, p]: any) => p === plot)![0]));
       const before = (await childrenOf(notes.plot.id)).length;
       key(char("e"));
-      await until(() => !!r.surface.draft, "the plot notes' edit", 5000);
+      await until(() => !!plot.surface.draft, "the plot notes' edit", 5000);
       key(ctrl("n"));
       await Bun.sleep(300);
-      expect(r.surface.draft.blockId).toBe(notes.plot.id);
+      expect(plot.surface.draft.blockId).toBe(notes.plot.id);
       expect((await childrenOf(notes.plot.id)).length).toBe(before);
-      r.surface.closeDraftAction(true);
-      // A new note written and saved: the desk names it by what was written, never the "(empty)" it opened as.
+      plot.surface.closeDraftAction(true);
+      // Again from the plot notes: it lands in the reader beside them (their link now), and once written and saved
+      // the desk names it by what was written, never the "(empty)" it opened as.
       key(ctrl("n"));
-      await until(() => !!r.surface.draft && r.surface.draft.blockId !== notes.plot.id, "a second new note's edit", 8000);
+      await until(() => !!editing() && editing().surface.draft.blockId !== notes.plot.id, "a second new note's edit", 8000);
+      expect(plot.msg?.id).toBe(notes.plot.id);
       for (const c of "Beans up") key(char(c));
       key(ctrl("s"));
       await until(() => (desk.describe().current as any)?.title === "Beans up", "the desk naming the saved note", 5000);
+      // An empty reader (^W o d) offers a new note, and ctrl+n there writes it in that reader.
+      const opened = await app.act({ action: "tile.open", args: { kind: "detail", name: "blank" } }) as any;
+      const blank = desk.panes.get(desk.idNamed("blank")) as any;
+      expect(blank?.msg).toBeFalsy();
+      expect(blank.render(60, 10, true, desk.api ?? desk).lines.join("\n")).toContain("New note");
+      desk.focusOn("blank");
+      key(ctrl("n"));
+      await until(() => !!blank.surface.draft, "the new note's edit in the empty reader", 8000);
+      expect(opened).toBeTruthy();
     } finally { desk.dispose?.(); }
   }, 30_000);
 
