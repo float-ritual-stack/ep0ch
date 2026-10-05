@@ -178,6 +178,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private drawerLabels: { id: number; from: number; to: number; row: number }[] = [];
   /** Each ⧉ as drawn (a float's, and the focused pinned tile's): a click runs tile.float, putting back or floating it. */
   private floatButtons: { id: number; from: number; to: number; row: number }[] = [];
+  /** Each closable tile's × (tile.close by mouse). */
+  private closeButtons: { id: number; from: number; to: number; row: number }[] = [];
   /** Each open drawer's `[×]` as drawn: a click closes it, as Esc in it does. */
   private drawerCloses: { id: number; from: number; to: number; row: number }[] = [];
   /** Controls a tile put on its header (the backlinks' status) as drawn: a click presses one. */
@@ -1647,7 +1649,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // For the mouse: the top float first, then the top drawer's tiles, then the layout's.
     this.hits = [...[...floats].reverse(), ...[...this.slid].reverse().flatMap(d => [...d.placed.rects]), ...pinned];
     this.tileSpots = [];
-    this.heads = []; this.markHits = []; this.spines = []; this.drawerLabels = []; this.drawerCloses = []; this.floatButtons = []; this.headPresses = []; this.headCtl.clear();
+    this.heads = []; this.markHits = []; this.spines = []; this.drawerLabels = []; this.drawerCloses = []; this.floatButtons = []; this.closeButtons = []; this.headPresses = []; this.headCtl.clear();
     let placements: Placement[] = top && band ? band.kind.draw(band.pane, canvas, { col: 0, row: 0, cols, rows: top }, this) : [];
     // A tile drawn over another (a flow's column over a peek's box, a drawer, a float) takes away the images under it;
     // drawTile paints every cell of its box.
@@ -1784,8 +1786,17 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     canvas.box(r, fg(cover === "peek" && !focused ? C.dark : edgeC), title, hint, this.spec.frame ? FRAMES[this.spec.frame] : undefined);
     // The focused tile's ⧉, in its frame's top right corner, floats it by mouse (tile.float, as ^W f); a float's own
     // ⧉, before its title, puts it back.
+    // Every tile that can close has a × in its top right corner: a click closes it (tile.close, as ^W x; a running
+    // program asks twice). A drawer's tile closes by its drawer's [×]; one the layout keeps (the board's lanes) has none.
+    const closes = !drawer && cover === undefined && r.cols >= 10 && !this.ctx?.hostLayer?.isDock(this) &&
+      !chainOf(this.root, id).some(c => c.policy?.shuts) && !refusal(this.layout, { op: "close", tile: id }, this.layoutCtx(USER));
+    if (closes) {
+      const x = r.col + r.cols - 2;
+      canvas.text(x, r.row, `${fg(focused ? C.grey : C.dark)}×${RESET}`, 1);
+      this.closeButtons.push({ id, row: r.row, from: x, to: x + 1 });
+    }
     if (focused && !float && !drawer && cover === undefined && r.cols >= 12 && leaves(this.root).length > 1 && !this.ctx?.hostLayer?.isDock(this) && !refusal(this.layout, { op: "float", tile: id }, this.layoutCtx(USER))) {
-      const x = r.col + r.cols - 3;
+      const x = r.col + r.cols - (closes ? 4 : 3);
       canvas.text(x, r.row, `${fg(C.dark)}⧉${RESET}`, 1);
       this.floatButtons.push({ id, row: r.row, from: x, to: x + 1 });
     }
@@ -3408,6 +3419,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       this.hits = this.hits.map(([id, r]) => { const f = this.floats.find(x => x.id === id); return [id, f ? this.floatRect(f) : r]; });
       // Its ⧉ too: where the float is now, not where it was last drawn.
       this.floatButtons = this.floatButtons.map(b => { const f = this.floats.find(x => x.id === b.id); if (!f) return b; const r = this.floatRect(f); return { ...b, row: r.row, from: r.col + 2, to: r.col + 5 }; });
+      this.closeButtons = this.closeButtons.map(b => { const f = this.floats.find(x => x.id === b.id); if (!f) return b; const r = this.floatRect(f); return { ...b, row: r.row, from: r.col + r.cols - 2, to: r.col + r.cols - 1 }; });
     }
     const hit = this.hits.find(([, r]) => k.x >= r.col && k.x < r.col + r.cols && k.y >= r.row && k.y < r.row + r.rows);
     // The sideways wheel: a tile that takes the mouse has it (a terminal, the board's lanes); else the tile's kind says
@@ -3453,6 +3465,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       // ⧉ on a tile's header: on a float it puts it back, on a pinned tile it floats it (tile.float either way, as ^W f).
       const fb = this.floatButtons.find(at);
       if (fb) return this.run("tile.float", {}, this.nameOf(fb.id));
+      // × on a tile's frame: it closes (tile.close, as ^W x), without taking the keys there first.
+      const xb = this.closeButtons.find(at);
+      if (xb) return this.run("tile.close", {}, this.nameOf(xb.id));
       // A float: a press gives it the keys and brings it to the top; its title moves it, its ◢ corner sizes it.
       if (hit && this.isFloat(hit[0])) {
         const [id, r] = hit;

@@ -813,12 +813,15 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     await until(() => reader().msg?.id === guide, "back on the guide");
     // ctrl+n in the reader: a note under the guide, its edit open with the keys; ⏎ on [page::x] titles it, ctrl+s saves.
     press({ kind: "char", ch: "n", ctrl: true });
-    await until(() => !!reader().surface.draft, "the new note's edit", 8000);
-    const id = reader().surface.draft.blockId;
+    // It opens in a detail beside the reader (as O opens one); this stage's reader follows what's current, so it shows it too.
+    const writing = () => [...stage().panes.values()].find((p: any) => p.surface?.draft) as any;
+    await until(() => !!writing(), "the new note's edit", 8000);
+    const id = writing().surface.draft.blockId;
     expect((await board.get(id))!.parentId).toBe(guide);
+    expect(writing()).not.toBe(reader());
     for (const c of "[page::2026-03-12]") press({ kind: "char", ch: c });
     press({ kind: "enter" });
-    expect(reader().surface.draft.text).toBe("2026-03-12 [page::2026-03-12]\n");
+    expect(writing().surface.draft.text).toBe("2026-03-12 [page::2026-03-12]\n");
     for (const c of "Swapped borlotti for chard.") press({ kind: "char", ch: c });
     press({ kind: "char", ch: "s", ctrl: true });
     await reads(async () => (await board.get(id))!.text === "2026-03-12 [page::2026-03-12]\nSwapped borlotti for chard.", "the new note saved");
