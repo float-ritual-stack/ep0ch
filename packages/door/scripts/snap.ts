@@ -77,10 +77,9 @@ if (scenario === "doc") {
   // A fake note through the real reader: callouts, a wrapped table, code, and a screenshot.
   const { ReaderPane } = await import("../src/desk/panes");
   const { onMediaChange } = await import("../src/media");
-  const shot = "/opt/float/bbs/inbox/screenshots/Screenshot\\ 2026-09-27\\ at\\ 8.05.26 PM.png";
   const text = ["Doc rendering demo", "[type::demo]", "",
-    "> [!note] Notes (not part of the message): follows the 2:34 PM ask, no reply yet.", "> New reason since then: Milind holds Rexall's production eFax deploy until our dev end-to-end test.", "",
-    "::graph-check", "---", "title: PC-762 path to prod", "items:", "  - { label: \"PR 1 and PR 2 merged\", done: true }", "  - { label: \"eFax values in dev Key Vault\", note: \"waiting on Sumit\" }", "  - { label: \"dev end-to-end test\" }", "---", "::", "",
+    "> [!note] Notes (not part of the message): follows the 2:34 PM ask, no reply yet.", "> New reason since then: Wren holds the lantern shop's production deploy until our dev end-to-end test.", "",
+    "::graph-check", "---", "title: LAN-12 path to prod", "items:", "  - { label: \"PR 1 and PR 2 merged\", done: true }", "  - { label: \"shop keys in the dev vault\", note: \"waiting on Odile\" }", "  - { label: \"dev end-to-end test\" }", "---", "::", "",
     "::graph-timeline", "---", "title: shipped", "events:", "  - { date: \"Sep 24\", label: \"real registrar on dev\" }", "  - { date: \"Sep 25\", label: \"staging open for QA\", state: now }", "  - { date: \"Sep 29\", label: \"sprint ends\", state: next }", "---", "::", "",
     "::graph-stat", "---", "title: this week", "items:", "  - { value: \"18\", label: outbox }", "  - { value: \"8\", label: waiting }", "  - { value: \"2\", label: drafts }", "---", "::", "",
     "::graph-waterfall", "---", "title: margin", "items:", "  - { label: Revenue, value: 48 }", "  - { label: Refunds, value: -6 }", "  - { label: Hosting, value: -4 }", "  - { label: Profit, value: 38 }", "---", "::", "",
@@ -444,7 +443,7 @@ if (scenario === "scroll") {
   for (const [t, st] of [["Stake the beans", "queued"], ["Plant the squash", "queued"], ["Fix the gate", "doing"]] as const) await mk(null, long(t, st));
   const gate = (await board.query("stage=doing", 5))[0]!;
   board.subscribe(e => app.event(e));
-  const B = BV.boardScreen(hub.id), S: any = BV.view(B);
+  const B = BV.boardScreen(hub.id);
   const agent = (action: string, tile: string, args: Record<string, unknown> = {}) => app.act({ action, tile, args, as: "snap-agent" });
   const wheelAt = (region: string, n: number) => { const r = BV.rectOf(B, region); for (let i = 0; i < n; i++) press({ kind: "mouse", action: "wheel-down", button: 0, x: r.col + 5, y: r.row + 5 }); };
   app.push(new MainMenu()); app.push(B);
@@ -525,7 +524,7 @@ if (scenario === "select") {
   const beans = await mk(null, "Stake the beans\nCanes along the fence.");
   const plan = await mk(null, `Plan the allotment [stage::queued]\nSow peas early, see ((${beans.id})) for the canes.\n\n## Water\nThe hose runs along the fence past the shed; **water the seedlings** every morning.\n\n- dig the bed\n- buy canes\n\n> [!note] Frost\n> Nothing out before mid May.`);
   board.subscribe(e => app.event(e));
-  const B = BV.boardScreen(hub.id), S: any = BV.view(B);
+  const B = BV.boardScreen(hub.id);
   const at = (region: string, words: string) => {
     const r = BV.rectOf(B, region), rows = emu.text();
     const y = rows.findIndex((l, i) => i > r.row && i < r.row + r.rows - 1 && [...l].slice(r.col, r.col + r.cols).join("").includes(words));
@@ -563,7 +562,7 @@ if (scenario === "fold") {
   await mk(hub.id, "Queued [type::virtual-branch] [query::stage=queued]");
   const plan = await mk(null, text);
   board.subscribe(e => app.event(e));
-  const B = BV.boardScreen(hub.id), S: any = BV.view(B);
+  const B = BV.boardScreen(hub.id);
   const agent = (action: string, tile: string, args: Record<string, unknown> = {}) => app.act({ action, tile, args, as: "snap-agent" });
   const clickOn = (region: string, words: string, dx = 4) => {
     const r = BV.rectOf(B, region), rows = emu.text();
@@ -649,7 +648,7 @@ if (scenario === "elements") {
   const hub = await mk(null, "Garden board");
   await mk(hub.id, "Queued [type::virtual-branch] [query::stage=queued]");
   board.subscribe(e => app.event(e));
-  const B = BV.boardScreen(hub.id), S: any = BV.view(B);
+  const B = BV.boardScreen(hub.id);
   app.push(new MainMenu()); app.push(B);
   await snap("1-preview", 2000);
   BV.at(B, "preview");
@@ -686,7 +685,7 @@ if (scenario === "projection") {
   const hub = await mk(null, "Calls board");
   await mk(hub.id, "Calls [type::virtual-branch] [query::type=call]");
   board.subscribe(e => app.event(e));
-  const B = BV.boardScreen(hub.id), S: any = BV.view(B);
+  const B = BV.boardScreen(hub.id);
   app.push(new MainMenu()); app.push(B);
   await snap("1-preview", 4000);
   BV.at(B, "preview");
@@ -834,7 +833,7 @@ if (scenario === "props") {
   ].join("\n"));
   await mk(null, "GDN-13 — Rain barrel [type::roadmap-item] [priority::low] [work-stage::doing] [track::water]\nCatch the shed roof.");
   board.subscribe(e => app.event(e));
-  const B = BV.boardScreen(hub.id), S: any = BV.view(B);
+  const B = BV.boardScreen(hub.id);
   app.push(new MainMenu()); app.push(B);
   await Bun.sleep(2000);
   ch("l");                                                            // the Queued lane: the compost card
@@ -975,7 +974,7 @@ if (scenario === "agent") {
   await mk(null, "Plant the squash [stage::queued]\nBy the compost heap.");
   await mk(null, "Fix the gate latch [stage::doing]\nIt swings open.");
   board.subscribe(e => app.event(e));
-  const B = BV.boardScreen(hub.id), S: any = BV.view(B);
+  const B = BV.boardScreen(hub.id);
   app.push(new MainMenu()); app.push(B);
   const ctl = await startControl({ app, mirror: emu, info: () => fakeTerm.info }, privateSocket("agent-door"));
   const act = (action: string, args: Record<string, unknown> = {}, reader?: string) => new Promise<any>((res, rej) => {

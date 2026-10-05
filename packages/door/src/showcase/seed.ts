@@ -85,8 +85,6 @@ export const PLOT_JOBS: { title: string; stage: string; priority: string }[] = [
   { title: "PLOT-5 — Clear the bindweed from the path", stage: "queued", priority: "low" },
   { title: "PLOT-6 — Lift and dry the onions", stage: "done", priority: "high" },
 ];
-/** The tabs note's figure, as its YAML says it: the order puts validate before the stages it doesn't name. */
-export const PLOT_TABS = ["doing 2", "review 1", "validate 0", "done 1", "queued 2"] as const;
 
 /** Every `::graph-*` kind the door draws (src/graphs.ts); the figures note has one of each. */
 export const FIGURE_KINDS = ["check", "stat", "kpi", "rank", "table", "tabs", "timeline", "meter", "funnel", "waterfall", "spark", "plot", "gantt", "tree"] as const;
@@ -277,7 +275,7 @@ const FINDING = [
   "",
   "## From a shell: queries and files",
   "",
-  "- **A query:** `ep0ch find --query \"type=errand tag=spring\" --ids` prints `((id))` a line, as the outline evaluates it (the saved views' grammar, with `updated >= -7d` and the like); `--view <id>` reads a view, `--under <id>` a subtree, and `--updated-after 2026-03-01` only writes the query.",
+  "- **A query:** `ep0ch find --query \"type=errand tag=spring\" --ids` prints `((id))` a line, as the outline evaluates it (the saved views' grammar, with `updated >= -7d` and the like); `--view <id>` reads a view, `--under <id>` a subtree, `--sort <key>` orders by any property (numbers as numbers, notes without it last), and `--updated-after 2026-03-01` only writes the query.",
   "- **Into show:** `ep0ch show $(ep0ch find --ids --query type=errand)` draws each one.",
   `- **As files:** \`ep0ch export --query type=errand --children --out ./notes\` writes Markdown: the Seed order note's header line becomes front matter (\`ctx\` stays a string, the two \`tag\`s a list), its children nested lists. \`--format json\` writes block records.`,
 ].join("\n");

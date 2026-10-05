@@ -25,9 +25,11 @@ Before a PR claims a change works:
 1. `bun run check` passes at the root (each package's `tsc --noEmit`).
 2. The full suites pass once the change is stable: `bun run test` at the root, or `bun test` in each package.
    Focused tests are fine while developing. The door's tests start their own scratch outline host from
-   `../outliner` (`test/scratch.ts`; `EP0CH_OUTLINER` overrides it); `bun run test:parallel` in the door runs
-   the same suite in under half the time, and the parity test is three files (`test/parity-*.test.ts`) so it
-   spreads too. outline-core's tests are pure. The Claude mod's run under `claude plugin test` (`claude` on PATH).
+   `../outliner` (`test/scratch.ts`; `EP0CH_OUTLINER` overrides it). outline-core's tests are pure. The Claude
+   mod's run under `claude plugin test` (`claude` on PATH). Agents run one suite at a time, in the foreground,
+   under `timeout 900`, after checking `uptime` (wait while the load is over 4), and never `--parallel`: five
+   agents' parallel runs once froze float-2. The door's `parity-screens` takes more than ten minutes whole; run
+   it in parts with `PARITY_ONLY` (see the ep0ch-core skill).
 3. A change to what one package prints or answers that another reads is tested against the real other side,
    not a fake: the mod's readers over the real `ep0ch` (`packages/door/test/claude-mod-contract.test.ts`), the
    outliner's CLI under the mod's work tools (`packages/outliner/test/work-tools.test.ts`). Stderr another program
@@ -132,6 +134,10 @@ how to check it (automated when possible), so it can be retired once a test or t
 - **Real config or real outlines reached from a test.** Does a test or scratch host read `~/.config`, `~/outlines`
   or the person's door? *Seen: a scratch host ran the real Inbox agent. Check: `test-door-env.sh`, scratch
   `XDG_CONFIG_HOME`, `OUTLINER_INBOX_AGENT=0`.*
+- **Work for nobody.** Does a session, screen or tile keep doing per-frame or per-event work (drawing, publishing a
+  view, scaling images) while nobody is attached or looking? Gate it on someone watching. *Seen: #196 (a detached
+  session drew every frame of a busy terminal tile, about 30% of a core). Still to check: the media cache's
+  `nextFrame`, the live view's publish. Check: a test that a detached session draws nothing.*
 
 Keeping this list honest, at each push-review round:
 

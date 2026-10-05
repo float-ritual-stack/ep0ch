@@ -20,7 +20,6 @@ import { cleanExtensionText, inertBlockdown } from "./extension-records";
  */
 
 export const PRIMITIVE_TYPES = ["text", "badge", "stat", "bar", "table", "checklist", "sparkline", "card", "box", "stack", "row"] as const;
-export type PrimitiveType = typeof PRIMITIVE_TYPES[number];
 export const RENDER_TARGETS = ["terminal", "markdown", "blockdown", "html", "json", "csv"] as const;
 export type RenderTarget = typeof RENDER_TARGETS[number];
 export const TONES = ["default", "good", "warn", "bad", "dim", "accent"] as const;

@@ -8,7 +8,7 @@
 // start of a chord: what the state ends in is checked the same way. Scratch services, fictional notes.
 //
 // The screens are probed in three parts, a test file each (test/parity-*.test.ts), each with its own door and
-// scratch service: `bun test --parallel` runs them side by side. PARITY_ONLY=<label,…> narrows any of them.
+// scratch service. PARITY_ONLY=<label,…> narrows any of them (it splits on commas; `-t` picks a label holding one).
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdirSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";

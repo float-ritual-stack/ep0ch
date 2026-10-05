@@ -206,7 +206,7 @@ export const SECTIONS: Section[] = [
   },
   {
     key: "spine", need: "squeeze a tile to a title strip", part: "the spine part: drawSpine, SPINE (c collapses a lane or a reader, alt+c opens all)", files: "src/spine.ts, on the board: src/desk/delivery.ts",
-    aside: "the board's lanes take a sideways wheel or a trackpad swipe as h and l, one lane a swipe (SidewaysWheel); a click selects a card, a double click opens it, an alt-, ctrl- or middle-click opens it in a new detail; alt+↑ alt+↓, or a card dragged up or down its lane, puts it in the lane's hand-set order (card.reorder, as `act` does)",
+    aside: "the board's lanes take a sideways wheel or a trackpad swipe as h and l, one lane a swipe (SidewaysWheel); a click selects a card, a double click opens it, an alt-, ctrl- or middle-click opens it in a new detail; alt+↑ alt+↓, or a card dragged up or down its lane, puts it in the lane's hand-set order (card.reorder, as `act` does; `ep0ch view order <view> <id>…` from a shell)",
     stage(n) { return openScreen("board", { hub: n.hub?.id, persist: false }); },
   },
   {

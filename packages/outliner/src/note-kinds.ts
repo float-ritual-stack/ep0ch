@@ -6,7 +6,6 @@ export const NOTE_TYPES = [
   "implementation-proof", "progress", "reference", "synthesis", "hub",
 ] as const;
 
-export type NoteType = typeof NOTE_TYPES[number];
 
 const managedTypes = new Set([
   "roadmap-item", "work-batch", "delivery", "work-queue", "workboard", "work-item",

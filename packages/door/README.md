@@ -443,9 +443,11 @@ A checkout from before `install` gets it by hand, once:
 | `ep0ch init [<name>]`, `ep0ch outline …`, `ep0ch status` | name this folder's outline, and the host's outlines (see [Outlines on the outline host](#outlines-on-the-outline-host)) |
 | `ep0ch --skill [--all] [<name>]` | the stack's skills (this door's `skills/` and the outliner's `pi-extension/skills/`: the installed plugin's, found through Herdr, else packages/outliner beside the door), or the path of one skill's `SKILL.md`; `--all` adds contributor skills |
 | `ep0ch find [<words>… \| --recent \| --tree [<root id>]] [--lines \| --json]` | the outline's notes for a picker or a script: with words, the service's ranked search (`tree.search`, the ranker Goto, `/` and `((` use, asked from no note and without Jev; at most 30); `--recent`, its newest 30; `--tree`, the outline (or the notes under the root) depth first in the service's order, drawn with `├─ │ └─` (past ten levels the outer rails become `…<depth>`); without, every note, newest first. `--lines` prints `id<TAB>title<TAB>path`, and with `--tree` then `<TAB>depth<TAB>glyphs<TAB>about` (work id, stage, type); television's `ep0ch` channel reads them |
-| `ep0ch find [<words>…] [--query "<expression>"] [--view <id>] [--under <id>] [--updated-after\|--updated-before\|--created-after\|--created-before <date>] [--ids \| --lines \| --json]` | the notes the outline says a query holds for (PIE-534): `--query` in the saved views' grammar (`"type=chore (area=garden OR area=kitchen) updated >= -7d"`), `--view` a saved view's members in its order, `--under` a subtree (the note included); they combine with each other and with words (every word, any order), in outline order, at most 1000. The date flags only write the query (`--updated-after 2026-03-01` is `updated > 2026-03-01`). `--ids` prints `((id))` a line (`ep0ch show $(ep0ch find --ids --query type=errand)`); `--json` prints block records (outline-core's `block-record.ts`, built by the host's `blocks.records`), keys sorted, for any find but `--tree` |
+| `ep0ch find [<words>…] [--query "<expression>"] [--view <id>] [--under <id>] [--sort <key> [--direction asc\|desc]] [--updated-after\|--updated-before\|--created-after\|--created-before <date>] [--ids \| --lines \| --json]` | the notes the outline says a query holds for (PIE-534): `--query` in the saved views' grammar (`"type=chore (area=garden OR area=kitchen) updated >= -7d"`), `--view` a saved view's members in its order, `--under` a subtree (the note included); they combine with each other and with words (every word, any order), in outline order (or `--sort`'s: `created`, `updated` or any property key, numbers as numbers, notes without it last; not with `--view`, which has its own order), at most 1000. The date flags only write the query (`--updated-after 2026-03-01` is `updated > 2026-03-01`). `--ids` prints `((id))` a line (`ep0ch show $(ep0ch find --ids --query type=errand)`); `--json` prints block records (outline-core's `block-record.ts`, built by the host's `blocks.records`), keys sorted, for any find but `--tree` |
 | `ep0ch export [<id>…] [find's flags] [--children] [--format md\|json] [--out <dir>\|-] [--split] [--resolve-links] [--manifest]` | notes out as files (PIE-534). Markdown: a file a note, `<title>-<id8>.md`; the header line's `[k::v]` chips (outline-core's `header-line.ts`) move into YAML front matter, values verbatim strings (a repeated key a list), after the note's id, parent, created, updated and author; the body is the rest verbatim, its first line the prose line 1 held; `--children` adds what's under it as nested lists, or files of their own with `--split`; `--resolve-links` makes `((id))` and `[[page]]` links to exported notes relative file links. JSON: block records, keys sorted. Deterministic, so a folder of them can live in git; `--manifest` writes `manifest.json` (the export time, the outline, the selection). Without `--out`, stdout |
 | `ep0ch show <id>… [--source \| --ansi \| --cells] [--width <n>] [--rows <n>]` | each note drawn as a reader draws it (the note surface), at that width, its live figures and `::links` answered by the outline and a view note's results under it (`views.read`, drawn as an embedded view), folded callouts open (no key hints), a blank line between notes; `--source` prints each note's text exactly as written (properties, links, `::` blocks; no header, no wrapping), `---` between notes, for a Markdown file (`ep0ch show --source $(tv ep0ch) >> notes.md`); `--ansi` keeps the colours (a picker's preview); `--cells` prints each as a line of JSON cells for a program that paints a grid (the Claude mod's BlockView draws them as a `Raster`; `src/cells.ts` has the format); `--rows` keeps the first rows, for a preview |
+| `ep0ch new "<text>" [--near <id>] [--as <id>] [--json]` | a new note from a shell or an agent with no door open, placed by the service as `ctrl+n` places one (see [New notes and pages](#new-notes-and-pages-pie-544)) |
+| `ep0ch view order <view> [<id>…] [--json] [--as <id>]` | a view's hand-set order: printed, or those members put first in the order given (ids, `((id))` or Work IDs), the same service step as the board's `alt+↑` `alt+↓` |
 | `ep0ch outline list --all [--lines]` | every outline you can open from here: this machine's, then each machine you've opened before (a machine not connected now says so; nothing is started) |
 | `ep0ch clients [--ws <name>] [--machine <ssh-name>]` | who's connected to the outline: every role, observers and roles this door doesn't know yet |
 | `ep0ch session list`, `attach [--watch]`, `end [--yes] [--all]`, `upgrade [--clients] [--all]`, `restart` | the door sessions, one per outline (see [Sessions](#sessions-quit-is-detach)): every one listed with who's attached and what runs; attach to this folder's (or `--ws`'s), end it, hand it to a new daemon on this checkout's code (its programs keep running); `--all` for every session |
@@ -692,7 +694,7 @@ the drawer; a terminal you made yourself stays yours.
 
 Choose an agent "in Herdr" in the dock's picker (`alt+g`; `host.agent name=claude herdr=true`) and the dock's
 own tab runs it in a Herdr pane of this outline's session and shows it. Herdr lists it (`herdr agent list`), other
-agents message it (`herdr agent prompt door-<outline> "…"`), and it keeps running when the door quits.
+agents message it (`herdr agent prompt door-<outline>-<hash> "…"`), and it keeps running when the door quits.
 
 - **Where it runs.** The launcher (`scripts/door-agent-herdr.ts --session <outline>[@machine] --agent <agent>`)
   looks on the default Herdr server (`HERDR_SOCKET_PATH`, else Herdr's own default) for this session's own pane,
@@ -714,7 +716,7 @@ agents message it (`herdr agent prompt door-<outline> "…"`), and it keeps runn
     `EP0CH_HERDR_SCOPED=1` it adds a hash of that state to all three (`door-garden-1a2b3c4d`). Either way it
     never attaches to, or types into, your own panes.
   - Two doors starting at once make one pane: the wrapper looks for it and makes it holding a lock beside the
-    link below (`agent-door-<outline>.sock.lock`).
+    link below (`agent-door-<outline>-<hash>.sock.lock`).
 - **The tile is attached, not the owner.** The tile runs `herdr terminal attach` on the pane.
   - `ctrl+b q` detaches: the tile says the program exited, and `⏎` attaches again. `ctrl+b ctrl+b` sends a
     `ctrl+b` to the agent (Herdr's attach keeps `ctrl+b` for itself).
@@ -725,7 +727,7 @@ agents message it (`herdr agent prompt door-<outline> "…"`), and it keeps runn
   twice for it (it still does for other programs running in tiles).
   - The next door's daily tile attaches to it again.
   - In Herdr (on float-2, or from the laptop, where float-2's panes show under the `ep0ch` machine) it is
-    the session's `door-<outline>` pane in the `door` workspace, named the same in the agent list. Open it there to carry on.
+    the session's `door-<outline>-<hash>` pane in the `door` workspace, named the same in the agent list. Open it there to carry on.
 - **A second door** attaches without `--takeover`, so it doesn't take the agent from the door showing it.
   If another door has the agent, the tile watches it read-only instead: Herdr's observer stream, drawn at
   the tile's size.
@@ -745,7 +747,7 @@ agents message it (`herdr agent prompt door-<outline> "…"`), and it keeps runn
     `src/desk/agent-env.ts`): `EP0CH_NEST` (the tile's, then `herdr:door-<outline>-<hash>`), `EP0CH_TILE`,
     `EP0CH_TILE_ID`, `EP0CH_IN_DOOR`, the door's `EP0CH_STATE` and `EP0CH_SOCKET` when it has them, and an
     `EP0CH_CONTROL` that is a link in the door's state
-    (`agent-door-<outline>.sock`). The launcher points the link at its door's socket each time it attaches.
+    (`agent-door-<outline>-<hash>.sock`). The launcher points the link at its door's socket each time it attaches.
     The agent is started with `env -u` for what the pane mustn't inherit from the Herdr server's own
     environment (how a door was started, an agent variable this door doesn't set).
   - So `ep0ch act …` and the Outliner's `show` from the agent reach the door that shows it now.

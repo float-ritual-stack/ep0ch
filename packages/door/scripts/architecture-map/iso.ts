@@ -115,18 +115,3 @@ export function isoLayout(d: IsoInput): IsoLayout {
   placed.sort((a, b) => order.get(a.id)! - order.get(b.id)!);
   return { placed, lanes, cols: Math.max(1, ...placed.map(p => p.col + 1)), rows: Math.max(1, top - gap) };
 }
-
-/** The layout as text, one column per cell, lane by lane: for tuning `iso.place` by eye. */
-export function isoGrid(l: IsoLayout): string {
-  const lines: string[] = [];
-  for (const lane of l.lanes) {
-    for (let k = 0; k < lane.rows; k++) {
-      const r = lane.row + k;
-      let line = "";
-      for (let c = 0; c < l.cols; c++) line += (l.placed.find(x => x.col === c && x.row === r)?.tag ?? ".").padEnd(5);
-      lines.push(`${String(k).padStart(2)} ${line}${k === 0 ? ` ← ${lane.group}` : ""}`);
-    }
-    lines.push("");
-  }
-  return lines.join("\n").trimEnd();
-}

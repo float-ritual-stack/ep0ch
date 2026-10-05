@@ -2,7 +2,7 @@
 // its steps in order, each saying what it did, and stops at the first failure with the recovery. Outlines are only
 // ever copied; no outline is created; no unit, Herdr config or plugin link is changed.
 import { Database } from "bun:sqlite";
-import { chmodSync, existsSync, lstatSync, mkdirSync, rmSync, statSync, symlinkSync, unlinkSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, rmSync, statSync, symlinkSync, unlinkSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { formatDoctor, doctorReport } from "./doctor";
