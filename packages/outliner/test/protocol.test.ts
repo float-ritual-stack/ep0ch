@@ -1521,7 +1521,7 @@ test("serves mutations and property queries over the local socket", async () => 
 
   const client = new OutlinerClient(socket);
   const service = await client.request<OutlinerServiceStatus>({ action: "ping" });
-  expect(service).toMatchObject({ status: "ready", protocolVersion: PROTOCOL,location:{database:join(directory,"outliner.sqlite"),stateDirectory:directory} });
+  expect(service).toMatchObject({ status: "ready", protocolVersion: PROTOCOL, outlineInstanceId: store.outlineInstanceId, location: { database: join(directory, "outliner.sqlite"), stateDirectory: directory } });
   const provenance = {
     actorId: "omp",
     sessionId: "session-1",

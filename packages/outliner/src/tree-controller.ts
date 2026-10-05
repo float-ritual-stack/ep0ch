@@ -395,7 +395,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
   // (e.g. a view-state change while the service is down) leaves the rows stale
   // even when the change feed later reports no writes.
   let rowsNeedFetch = false;
-  // The database `ping` reported for the service the loaded rows and
+  // The database instance id `ping` reported for the service the loaded rows and
   // `indexSequence` came from; null when unknown.
   let serviceDatabase: string | null = null;
   let quickEditSource: Pick<Block, "id" | "revision"> | null = null;
@@ -2138,10 +2138,6 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     effects.invalidate();
   }
 
-  function databaseIdentity(service: OutlinerServiceStatus | undefined): string | null {
-    const location = service?.location;
-    return location ? JSON.stringify([location.hostname, location.workspaceRoot, location.database]) : null;
-  }
 
   /**
    * Pings the service and records which database it uses. Returns the status
@@ -2156,7 +2152,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       serviceDatabase = null;
       return null;
     }
-    const identity = databaseIdentity(status);
+    const identity = status.outlineInstanceId ?? null;
     const sameDatabase = identity !== null && identity === serviceDatabase;
     serviceDatabase = identity;
     return { status, sameDatabase };

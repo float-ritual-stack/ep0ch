@@ -707,7 +707,7 @@ bytes and provenance remain unknown rather than being synthesized.
 
 ## Protocol
 
-The protocol is `PROTOCOL`, defined in outline-core (`packages/outline-core/src/protocol.ts`) and imported by the service and every client. Requests and responses are newline-delimited JSON over the Unix socket. `ping` returns `protocolVersion`; a client refuses a service whose number differs from its own, naming the side to update ([`src/service-compatibility.ts`](../src/service-compatibility.ts)). Any wire change, and any change to what outline-core's shared modules match, bumps it. Protocol 83 dropped capability negotiation for this one check.
+The protocol is `PROTOCOL`, defined in outline-core (`packages/outline-core/src/protocol.ts`) and imported by the service and every client. Requests and responses are newline-delimited JSON over the Unix socket. `ping` returns `protocolVersion` and, for an opened outline, `outlineInstanceId`; a client refuses a service whose protocol number differs from its own, naming the side to update ([`src/service-compatibility.ts`](../src/service-compatibility.ts)). Any wire change, and any change to what outline-core's shared modules match, bumps it. Protocol 91 added the outline instance id so reconnecting clients can throw away cached reads after restore/reset/import/recreate even when sequence numbers look familiar. Protocol 83 dropped capability negotiation for this one check.
 
 Protocol 64 includes hashtags in property records and their positional ordinals.
 Protocol 63 clients can address a different property for the same text and revision;

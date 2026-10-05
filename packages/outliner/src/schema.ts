@@ -1,4 +1,5 @@
 import type { Database } from "bun:sqlite";
+import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { BLOCK_ACTIVITY_KINDS } from "./types";
 
@@ -20,7 +21,7 @@ import { BLOCK_ACTIVITY_KINDS } from "./types";
  * including those one subsystem uses alone (the Inbox agent, workflows), so a
  * database's shape never depends on which subsystems ran.
  */
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 /**
  * What an `@name` request came to. `waiting`: written by an agent, so it waits for r. `proposed` becomes
@@ -98,6 +99,7 @@ export const SCHEMA_SQL = `
   );
   CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
   INSERT OR IGNORE INTO metadata (key, value) VALUES ('sequence', '0');
+  -- outline_instance_id is inserted by openSchema with a fresh UUID for each new database.
   CREATE TABLE IF NOT EXISTS selection (
     singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
     block_id TEXT REFERENCES blocks(id) ON DELETE SET NULL
@@ -783,9 +785,28 @@ export const SCHEMA_SQL = `
 
 const userVersion = (database: Database) => (database.query("PRAGMA user_version").get() as { user_version: number }).user_version;
 
+const OUTLINE_INSTANCE_ID_KEY = "outline_instance_id";
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+export function readOutlineInstanceId(database: Database, label = "This database"): string {
+  const row = database.query("SELECT value FROM metadata WHERE key = ?").get(OUTLINE_INSTANCE_ID_KEY) as { value: string } | null;
+  const value = row?.value;
+  if (!value || !UUID.test(value)) {
+    throw new Error(`${label} is missing a valid outline instance id; run the schema upgrade while no service serves it`);
+  }
+  return value.toLowerCase();
+}
+
+export function insertOutlineInstanceId(database: Database, value = randomUUID()): string {
+  if (!UUID.test(value)) throw new Error(`outline instance id must be a UUID, got ${JSON.stringify(value)}`);
+  database.query("INSERT INTO metadata (key, value) VALUES (?, ?)").run(OUTLINE_INSTANCE_ID_KEY, value.toLowerCase());
+  return value.toLowerCase();
+}
+
 /** The one-off script that upgrades a database at `version`, when there is one. */
 const UPGRADES: Readonly<Record<number, string>> = {
   0: `bun ${join(import.meta.dir, "../scripts/migrations/0001-stamp.ts")} <database>`,
+  1: `bun ${join(import.meta.dir, "../scripts/migrations/0002-outline-instance-id.ts")} <database>`,
 };
 
 /**
@@ -800,6 +821,7 @@ export function openSchema(database: Database, label = "This database"): "create
   if (version === 0 && objects === 0) {
     database.transaction(() => {
       database.exec(SCHEMA_SQL);
+      insertOutlineInstanceId(database);
       database.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
     })();
     return "created";

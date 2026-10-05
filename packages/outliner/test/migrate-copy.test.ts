@@ -38,7 +38,7 @@ test.skipIf(!SOURCE)("the stamp script, then the store, keep every row of a real
   const copy = join(work, "stamped.sqlite");
   copyFileSync(SOURCE!, copy);
   const before = counts(copy);
-  expect(stamp(copy)).toEqual({ stamped: true });
+  expect(stamp(copy)).toMatchObject({ stamped: true });
   new OutlinerStore(copy).close();
   const after = counts(copy);
   const changed = Object.keys({ ...before, ...after }).filter(table => before[table] !== after[table]);

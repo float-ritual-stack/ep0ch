@@ -8,7 +8,7 @@
 // checkouts.
 
 /** The wire protocol both sides of this checkout speak. */
-export const PROTOCOL = 90;
+export const PROTOCOL = 91;
 
 /**
  * Why a service speaking `serviceProtocol` can't serve this client, in words that name both numbers and the side
@@ -87,6 +87,8 @@ export interface OutlinerServiceStatus {
   status: "ready";
   /** The service's PROTOCOL; a client refuses any other number (`protocolMismatch`). */
   protocolVersion: number;
+  /** Stable identity of this database instance; changes when an outline is restored, reset, imported or recreated. */
+  outlineInstanceId?: string;
   location?: { hostname: string; workspaceRoot: string; database: string; stateDirectory: string };
   /** The outline answering. */
   outline?: OutlinerServiceOutline;

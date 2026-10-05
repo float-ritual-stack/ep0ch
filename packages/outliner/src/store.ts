@@ -36,7 +36,7 @@ import {
 } from "./bookmarks";
 import { isValidGitBranchName, parseDeliveryIdentity } from "./delivery-lifecycle";
 import { seedDefaultWorkspace } from "./default-workspace";
-import { openSchema } from "./schema";
+import { openSchema, readOutlineInstanceId } from "./schema";
 import { placeNewNote, type NewNoteIntent, type Placement } from "./note-placement";
 import {
   compileQueryExpression,
@@ -733,6 +733,8 @@ export class OutlinerStore {
   readonly changes: ChangeFeed;
   /** The extension writing now (`writeExtensionRecord`); owned blocks refuse every other writer. */
   private extensionWriter: string | null = null;
+  /** Stable identity of this database file instance; changes when an outline is restored, reset, imported or recreated. */
+  readonly outlineInstanceId: string;
 
   constructor(path: string, resourceOptions: ResourceCatalogOptions = {}) {
     this.workspaceRoot = resolve(resourceOptions.workspaceRoot ?? dirname(path));
@@ -743,6 +745,7 @@ export class OutlinerStore {
       this.database = database = new Database(path, { create: true });
       this.database.exec("PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;");
       this.prepareDatabase(path);
+      this.outlineInstanceId = readOutlineInstanceId(this.database, `The outline database ${path}`);
       this.changes = new ChangeFeed(this.database, () => this.sequence);
       this.workingSelections = new WorkingSelectionRepository(this.database);
       this.resources = new ResourceCatalog(this.database, {
