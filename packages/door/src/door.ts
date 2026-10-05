@@ -64,6 +64,8 @@ export async function openDoor(o: DoorOpen): Promise<Door> {
     o.board.subscribe(e => app.event(e));
     // The service's extensions (PIE-512): their lines, actions and tile kinds, bound as soon as the list is read.
     void app.loadExtensions();
+    // The screens people made (screen notes), read before a screen opens: `--screen <name>` may name one.
+    await app.loadScreens();
   } else { app.host = hostname(); app.workspace = "home base"; }
   // Served before any screen starts: terminal tiles are given its path (EP0CH_CONTROL) when they start.
   let refused = "";

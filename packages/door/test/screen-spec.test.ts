@@ -126,7 +126,7 @@ describe("what a spec says, the desk does", () => {
     const w = openScreen("welcome") as Desk;
     expect(w.title).toBe("welcome");
     expect(w.spec.frame).toBe("dotted");
-    await expect(w.dispatch.act({ action: "layout.save", args: { name: "mine" } }, { kind: "user" })).rejects.toThrow(/keeps its own layout/);
+    await expect(w.dispatch.act({ action: "layout.load", args: { name: "daily" } }, { kind: "user" })).rejects.toThrow(/keeps its own layout/);
   });
 });
 

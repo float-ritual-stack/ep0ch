@@ -75,7 +75,8 @@ const builtins = (): TileKind[] => [
       }
       if (d.want && !d.msg) {
         const want = d.want;
-        env.desk.ctx.board.get(want).then(m => { if (m && !d.msg) { d.hold(m, env.desk); env.desk.redraw(); } }, () => {});
+        // A note the outline hasn't (purged, or the screen saved on another outline): the empty tile says so.
+        env.desk.ctx.board.get(want).then(m => { if (m && !d.msg) d.hold(m, env.desk); else if (!m && !d.msg) d.missing = want; env.desk.redraw(); }, () => {});
       }
     },
   },
@@ -159,7 +160,12 @@ const builtins = (): TileKind[] => [
     keys: [{ key: "q", label: "query", spec: at => { const m = showing(at.pane); return m && (m.props.type ?? "").toLowerCase() === "virtual-branch" ? { view: m.id, name: laneTileName(subject(m)) } : {}; } }],
     make: s => new QueryPane(s.view ?? ""), actions: QUERY_ACTIONS,
     save: p => (p as QueryPane).spec(),
-    check: s => (s.view ? null : "a query tile needs view=<a saved view's block id> (^W o q on a tile showing a view, say the outline's row on it)"),
+    check: s => (s.view ? null : "a query tile needs view=<a saved view's block id> (^W o q picks one)"),
+    // The outline's saved views (virtual branches), newest first: ^W o q and the blank tile's Q pick one.
+    choices: async desk => {
+      const views = await desk.ctx.board.query("type=virtual-branch", 200);
+      return { title: "a query lane: which saved view's cards", items: views.map(v => ({ label: subject(v), spec: { view: v.id, name: laneTileName(subject(v)) } })) };
+    },
     shows: p => (p as QueryPane).card() ?? null,
     view: p => { const q = p as QueryPane, m = q.card(); return { viewport: { view: q.view, lane: q.name, selected: m?.id ?? null, title: m ? subject(m) : null } }; },
     describe: p => (p as QueryPane).describe(),

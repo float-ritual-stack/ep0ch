@@ -4,6 +4,7 @@
 // (accepts, draggable, opens-into) is set by act and by the ^W P panel; the drawer and the lock come back after a
 // restart; and a tile kind registered from outside
 // (one the service draws) opens, saves and comes back like a built-in. Scratch services, fictional notes, `sh` only.
+import { screenNote } from "../src/desk/screen-notes";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -224,8 +225,8 @@ describe.skipIf(!outliner)("containers with policy on the desk", () => {
       expect(D().render(D().ctx).lines.join("\n")).toContain("beds: all");
       // Its kind's default policy applies under its containers': it stays where it is.
       await expect(mine("layout.move", { where: "edge-left" }, "plot.beds")).rejects.toThrow(/plot.beds stays where it is: plot.beds tiles keep/);
-      await mine("layout.save", { name: "plot" });
-      const saved = JSON.stringify(JSON.parse(readFileSync(join(state(), "layouts.json"), "utf8")).plot);
+      await mine("screen.save", { name: "plot" });
+      const saved = JSON.stringify(screenNote("plot")!.spec.layout);
       expect(saved).toContain(`"kind":"plot.beds"`);
       // tile.open by an agent, with state the service gets back.
       await act("tile.open", { kind: "reader", name: "spare" }, "middle");
@@ -236,15 +237,13 @@ describe.skipIf(!outliner)("containers with policy on the desk", () => {
       unregisterTileKind("plot.beds");
     }
     // Unregistered, a saved tile of that kind comes back saying its kind isn't here (PIE-512), not as something else.
-    const spec = JSON.parse(readFileSync(join(state(), "layouts.json"), "utf8")).plot;
-    writeFileSync(join(state(), "layouts.json"), JSON.stringify({ plot: spec }));
     await mine("layout.load", { name: "plot" });
     expect(tile("plot.beds")).toMatchObject({ kind: "plot.beds", unregistered: "plot.beds", title: "plot.beds · unavailable" });
     const says = () => (D() as any).panes.get(idOf("plot.beds")).render(200, 10, false, D()).lines.join("\n");
     expect(says()).toContain("plot.beds isn't available here: it was taken out");
     // Saved again, its spec is as it was: it comes back as itself once its kind registers.
-    await mine("layout.save", { name: "plot" });
-    expect(JSON.stringify(JSON.parse(readFileSync(join(state(), "layouts.json"), "utf8")).plot)).toContain(`"kind":"plot.beds"`);
+    await mine("screen.save", { name: "plot" });
+    expect(JSON.stringify(screenNote("plot")!.spec.layout)).toContain(`"kind":"plot.beds"`);
     registerTileKind(serviceKind({ kind: "plot.beds", about: "the beds again", render: async () => ({ lines: ["beds are back"], title: "beds" }) }));
     try {
       kindsChanged();

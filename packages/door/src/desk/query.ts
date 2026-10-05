@@ -187,7 +187,7 @@ export class QueryPane implements Pane {
     });
     if (!this.items) lines.push(fg(C.dark) + " loading…" + RESET);
     else if (this.read && this.read.status !== "ready") for (const e of this.read.errors) lines.push(fg(C.lred) + " " + e + RESET);
-    else if (!items.length) lines.push(fg(C.dark) + " empty" + RESET);
+    else if (!items.length) lines.push(fg(C.dark) + ` nothing in ${this.name || "this view"} yet: no note matches what it asks for` + RESET);
     return { lines };
   }
 

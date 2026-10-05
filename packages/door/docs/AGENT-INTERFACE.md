@@ -258,8 +258,8 @@ thing after someone else's change.
 
 - **Ids.** Every split (`s4`), tab set (`g2`) and tile (`t7`) has an id, in `layout.get` and the feed. It
   stays with its split, tab set or tile through moves, tabs, resizes and saves (`desk.json` and
-  `layouts.json` keep them, so a restarted door gives the same ones), and is never given to another:
-  `desk.json` keeps the next ids too, and a tile made by loading a layout from `layouts.json` gets its saved
+  screen notes keep them, so a restarted door gives the same ones), and is never given to another:
+  `desk.json` keeps the next ids too, and a tile made by loading a screen note's layout gets its saved
   id only if no tile had it before in this door. A split
   that's gone (its tiles moved or closed) is refused by id, never swapped for another.
 - **Names.** A tile's name starts with a letter, then letters, digits, `.`, `-` or `_`, at most 40 (`middle`,
@@ -268,7 +268,7 @@ thing after someone else's change.
   (Ids have no sigil because the CLI reads a value starting with `@` from a file.) A layout saved before this
   rule with a tile named `2` (or `t2`, or any name the rule refuses, such as one with a space) loads with that
   tile renamed to its kind (`detail`, or `detail2` when taken), and its links, sources and focus follow. A
-  `desk.json` saved from the `daily` layout before ids, or a `daily` saved in `layouts.json` then, gets the
+  `desk.json` saved from the `daily` layout before ids gets the
   links that layout has gained since (the now tile's, to `middle`), on tiles that have none. The old daily agent
   tile is left out: the agent is the host layer's.
 - **Numbers.** `#3` (or `3`) is the tile numbered 3 on screen, where it is now.
@@ -354,7 +354,9 @@ gesture; see the README's desk section and `docs/UI-GRAMMAR.md` §7.
 
 | Command | Args | Agent rules |
 |---|---|---|
-| `layout.load`, `layout.save` | `name` | load is refused while the person is typing; running programs are never ended |
+| `layout.load`, `screen.save` | `name` | load is refused while the person is typing; running programs are never ended. `screen.save` writes a screen note (PIE-565), as the agent |
+| `screen.delete` | `name` | a screen a person made: its note to the Trash; a built-in is refused |
+| `blank.fill`, `blank.screens` | `kind` (tree, reader, detail, pty, query), `view`, `cmd` | the blank tile's rows; an agent may fill it under the person's keys (it only holds a place), never where they're typing |
 | `layout.move` | `tile`, `to`, `where` (left, right, up, down, tabs, edge-*), `index` | never the tile the person is typing in; their tab stays shown |
 | `layout.resize` | `split` (its id from `layout.get`) or `path` (with `expected`), `border`, `share`; answers the split's `id`, `path` and `tiles` | a dragged border runs this, by the split's id. An agent's never resizes the tile the person is typing in |
 | `layout.even`, `layout.swap` | `to` | an agent's even-out is refused when it would resize the tile the person is typing in; a swap never moves it |

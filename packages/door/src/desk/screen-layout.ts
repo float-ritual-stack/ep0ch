@@ -24,7 +24,7 @@ import { byOf, type Actor } from "../socket";
 import { arrive, columnOf, leaving, setAhead, setHeld, setFrom, squeeze, tileOfColumn, travelTarget, widen as widenFlow, type Cover } from "./flow";
 import {
   activate, besideSlot, chainOf, clone, cycle, describeTree, pinnedTiles, drawerOf, drawers, drawerToEdge, edge, effective, even, forgetIds, has, insert, isLine, kidsOf, leaf, leaves, move,
-  node, nodeById, normalise, parentOf, placeScreen, policyOf, remove, resize, serialize as serializeTree, shown, tabInto, tabsOf, unwrapDrawer, visible, wrapDrawer, wrapNodeDrawer,
+  node, nodeById, normalise, parentOf, placeScreen, policyOf, remove, resize, serialize as serializeTree, shown, swapLeaf, tabInto, tabsOf, unwrapDrawer, visible, wrapDrawer, wrapNodeDrawer,
   POLICY_KEYS, type Axis, type Container, type Dir, type Drawer, type Effective, type Flow, type Float, type HostMode, type Line, type LNode, type Place, type PlacedScreen, type PlaceOpts, type Policy,
 } from "./layout";
 import { SPINE } from "../spine";
@@ -87,6 +87,8 @@ export interface TileFacts {
   editing?: string;
   /** The program running in it: an agent doesn't end it. */
   running?: string;
+  /** It only holds a place (the blank tile): an agent may replace it under the person's keys. */
+  placeholder?: boolean;
   /** It holds work (a draft): in a flow, its column resists compression. */
   holds?: boolean;
 }
@@ -132,6 +134,8 @@ export type At<I = number> = Place<I>
 export type Op<I = number> =
   | { op: "open"; tile: I; kind: string; name?: string; loose?: boolean; at: At<I>; keys?: false; link?: I }
   | { op: "close"; tile: I; gone?: boolean }
+  /** A new tile `with` of `kind` takes tile `tile`'s place whole (its weight, its tab, its drawer), and `tile` goes: a blank tile's first step. */
+  | { op: "replace"; tile: I; with: I; kind: string; name?: string }
   /** A tile leaves this layout whole, to go on elsewhere (the host layer's drawer, PIE-498): moved, not closed. */
   | { op: "take"; tile: I }
   | { op: "move"; tile: I; to: Place<I> }
@@ -538,6 +542,7 @@ class Step<I> {
     switch (op.op) {
       case "open": return this.open(op);
       case "close": return this.close(op.tile, !!op.gone);
+      case "replace": return this.replace(op);
       case "take": return this.take(op.tile);
       case "move": return this.move(op.tile, op.to);
       case "swap": return this.swap(op.tile, op.with);
@@ -660,6 +665,38 @@ class Step<I> {
     }
     this.lift(id);
     this.d.answer = { tile: name };
+  }
+  /**
+   * A new tile takes tile `id`'s place, and `id` goes (the blank tile's rows: an outline, a reader, a terminal where it
+   * was). It's a close of `id` and an open where it was in one step, so both sets of rules ask: never a tile that holds
+   * work or that its place keeps, never into a locked shape or a container that doesn't take the new kind; an agent's
+   * never the tile with the person's keys. The person's keys go to the new tile when they were on the old one.
+   */
+  private replace(op: Extract<Op<I>, { op: "replace" }>) {
+    const id = op.tile;
+    this.present(id);
+    if (this.all().includes(op.with)) refuse(`${this.name(op.with)} is in the layout already`);
+    const name = this.name(id), f = this.facts(id);
+    this.shape(id, `replacing ${name}`);
+    if (f.editing) refuse(`${name} holds ${f.editing} · e or ⏎ enters it`);
+    if (f.running) refuse(`${name} is running ${f.running}: ^W x ends it first`);
+    if (f.holds) refuse(`${name} holds work: ^W x closes it first`);
+    if (f.keeps) refuse(`${name} stays: ${f.keeps}`);
+    const e = this.policyAt(id);
+    if (!e.closable) refuse(`${name} stays: ${this.whose(e.by.closable)} keeps its tiles (closable off)`);
+    if (e.accepts && !e.accepts.includes(op.kind)) refuse(`${this.whose(e.by.accepts)} takes only ${e.accepts.join(", ") || "nothing"}: not a ${op.kind} tile`);
+    // The person's keys on it: an agent replaces only a place holder (the blank tile), and never where they're typing.
+    if (this.agent && id === this.d.focus && !f.placeholder) refuse(`${name} has the person's keys; an agent doesn't replace it`);
+    this.guard(id, "replace");
+    let newName = op.name;
+    if (newName !== undefined && named(this.d, newName) !== undefined && named(this.d, newName) !== id) refuse(`there's already a tile named ${newName}`);
+    const float = this.d.floats.find(x => x.id === id);
+    if (float) float.id = op.with; else swapLeaf(this.d.tree, id, op.with);
+    const had = this.d.focus === id;
+    this.forget(id);
+    this.d.names.set(op.with, newName ?? autoName(this.d, op.kind));
+    if (had) this.d.focus = op.with;
+    this.d.answer = { tile: this.d.names.get(op.with), replaced: name };
   }
   /**
    * A tile leaves this layout whole (to the host layer's drawer, or from it to a screen): its program, note and history

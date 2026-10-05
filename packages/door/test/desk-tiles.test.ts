@@ -4,6 +4,7 @@
 // every key but ctrl+]; a tile slides over as a drawer and pins back; layouts save, load and keep running
 // programs; the river's open rule adds columns. Every one of them is an action an agent can call, and an
 // agent's never takes the person's focus or keys. Scratch services, fictional notes, `sh` and `tail` only.
+import { screenNote } from "../src/desk/screen-notes";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { chmodSync, existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -312,8 +313,8 @@ describe.skipIf(!outliner)("the desk as tiles, against a scratch outline", () =>
   test("layouts: saved by name with names, links, sources and drawers; loaded back, running programs kept, not ended", async () => {
     await act("tile.pin", { on: false }, "now");
     await act("tile.drawer", { open: false }, "now");
-    await mine("layout.save", { name: "garden" });
-    const saved = JSON.parse(readFileSync(join(scratch.root, "door", "layouts.json"), "utf8")).garden;
+    await mine("screen.save", { name: "garden" });
+    const saved = screenNote("garden")!.spec.layout;
     expect(JSON.stringify(saved)).toContain(`"t":"drawer","edge":"down","open":false`);   // a drawer container, shut
     expect(JSON.stringify(saved)).toContain(`"link":"middle"`);
     expect(JSON.stringify(saved)).toContain(`"source":"tile:tree"`);

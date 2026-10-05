@@ -314,6 +314,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     newnotes: ["New notes from anywhere", "Seed swap ledger", "ctrl+n"],
     // A reader and a terminal whose program asked for the mouse, each with its ⋯.
     menu: ["Allotment notebook", "this program asked for the mouse", "⋯"],
+    // A blank screen: its rows, each a first step.
+    made: ["A blank screen. Start it with a tile here:", "t  the outline", "o  open a screen…"],
   };
 
   test("one section per reuse-map row, in the map's order, each labelled with its part and file, drawn by the part", async () => {
@@ -532,6 +534,32 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     press({ kind: "char", ch: "]", ctrl: true });
     for (let i = 0; i < 4 && S().focus !== "index"; i++) press({ kind: "esc" });
     expect(S().focus).toBe("index");
+  }, 20_000);
+
+  test("made (PIE-565): a blank screen built through act, saved as a screen note, opened again by name, then deleted", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "made" }, as: "test-agent" });
+    await until(() => marks.made!.every(m => screen().includes(m)), "the blank screen");
+    const stage = () => S().stages.get(S().sel).top;
+    const tiles = () => stage().layoutGet().tiles as any[];
+    await app.act({ action: "blank.fill", tile: "blank", args: { kind: "tree" }, as: "test-agent" });
+    await app.act({ action: "tile.open", tile: "tree", args: { kind: "detail", where: "right" }, as: "test-agent" });
+    await app.act({ action: "tile.link", tile: "tree", args: { to: "detail" }, as: "test-agent" });
+    expect(tiles().map(t => t.kind)).toEqual(["tree", "detail"]);
+    const saved = await app.act({ action: "screen.save", args: { name: "allotment-work" }, as: "test-agent" }) as any;
+    expect(saved).toMatchObject({ screen: "allotment-work", created: true, tiles: ["tree", "detail"] });
+    const note = await board.get(saved.note);
+    expect(note!.props).toMatchObject({ type: "screen", screen: "allotment-work" });
+    expect(note!.author).toBe("test-agent");               // attributed to the agent that saved it
+    // Opened again by name, as `ep0ch --screen allotment-work` does: the same tiles, the outline's opens landing in the detail.
+    await app.act({ action: "screen.open", args: { name: "allotment-work" }, as: "test-agent" });
+    const top = () => app.screens().at(-1) as any;
+    await until(() => top().name === "allotment-work", "the saved screen opened");
+    expect((top().layoutGet().tiles as any[]).map(t => [t.name, t.link ?? null])).toEqual([["tree", "detail"], ["detail", null]]);
+    await app.act({ action: "screen.back", args: {}, as: "test-agent" });
+    await until(() => top() === sc, "back on the showcase");
+    expect(await app.act({ action: "screen.delete", args: { name: "allotment-work" }, as: "test-agent" })).toMatchObject({ trashed: true });
+    expect(await board.isTrashed(saved.note)).toBe(true);
   }, 20_000);
 
   test("the dock section, driven through act: the kettle docks, a section switch keeps it (the same pid), and it undocks into another section", async () => {

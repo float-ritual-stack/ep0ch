@@ -6,7 +6,8 @@
 import { statSync, unwatchFile, watchFile, readFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
 import type { Msg } from "../board";
-import { C, fg } from "../style";
+import { C, fg, RESET } from "../style";
+import { wrap } from "../text";
 import type { Key } from "../term";
 import { ReaderPane, type DeskApi, type PaneView } from "./panes";
 import type { TileKindName } from "./tile-kinds";
@@ -90,7 +91,13 @@ export class PreviewPane extends ReaderPane {
   override dispose() { this.unwatch(); super.dispose(); }
 
   override render(w: number, h: number, focused = false, desk?: DeskApi): PaneView {
-    if (!this.msg) return { lines: [fg(C.dark) + ("tile" in this.source ? `follows tile ${this.source.tile}: pick something there` : "reading…") + "\x1b[0m"] };
+    if (!this.msg) {
+      if (!("tile" in this.source)) return { lines: [fg(C.dark) + "reading…" + RESET] };
+      // Where its notes come from: the tile it follows (gone from this screen: it says so) and any whose opens land here.
+      const src = this.source.tile, there = !desk?.pane || !!desk.pane(src);
+      const say = there ? `follows ${src}: what's picked there shows here${this.landsFrom.length ? `, and links you follow in ${this.landsFrom.join(" or ")} land here` : ""}` : `follows tile ${src}, which isn't on this screen any more · ^W x closes it, or ^W v on another tile opens a preview of that one`;
+      return { lines: wrap(say, Math.max(10, w - 1)).map(l => fg(C.dark) + l + RESET) };
+    }
     return super.render(w, h, focused, desk);
   }
 

@@ -381,6 +381,19 @@ export function remove<I>(n: LNode<I>, id: I): LNode<I> | null {
   return { ...n, kids, weights };
 }
 
+/** Leaf `from` becomes leaf `to` where it is (its place, its weight, its tab), and a flow's memory of it too. Changes the tree in place. */
+export function swapLeaf<I>(n: LNode<I>, from: I, to: I): boolean {
+  if (n.t === "leaf") { if (n.id !== from) return false; (n as { id: I }).id = to; return true; }
+  if (n.t === "tabs") { const i = n.ids.indexOf(from); if (i < 0) return false; n.ids[i] = to; return true; }
+  if (n.t === "flow") {
+    const was = (x: I | undefined) => (x === from ? to : x);
+    n.anchor = was(n.anchor); n.keep = was(n.keep); n.read = was(n.read);
+    if (n.held) n.held = n.held.map(x => was(x)!);
+    if (n.trail) n.trail = n.trail.map(t => ({ tile: was(t.tile)!, ...(t.from !== undefined ? { from: was(t.from) } : {}), ...(t.ahead !== undefined ? { ahead: was(t.ahead) } : {}) }));
+  }
+  return kidsOf(n).some(k => swapLeaf(k, from, to));
+}
+
 /**
  * Move the border of the pane along an axis: the nearest split along `dir` that holds it gives its kid
  * `delta` more of the room, taken from the kid after it (before it, for the last). The kid's share stays

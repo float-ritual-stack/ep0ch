@@ -186,11 +186,13 @@ if (screenAt >= 0 && args[screenAt + 2]?.startsWith("ep0ch://")) {
     process.exit(2);
   }
 }
-// A screen nobody knows is refused before the door takes the terminal, with the names there are.
+// A screen nobody knows is refused before the door takes the terminal, with the names there are. A name that may be a
+// screen a person made (a screen note, PIE-565) is the door's to find once it has read the outline's screen notes.
 const asked = screenArg(args);
 if (asked && !args.includes("--remote")) {
   const { knownScreen, unknownScreen } = await import("./screens");
-  if (!knownScreen(asked.name)) { console.error(`ep0ch: ${unknownScreen(asked.name)}`); process.exit(2); }
+  const { screenNameProblem } = await import("./desk/screen-spec");
+  if (!knownScreen(asked.name) && screenNameProblem(asked.name)) { console.error(`ep0ch: ${unknownScreen(asked.name)}`); process.exit(2); }
 }
 if (["peek", "snap", "open", "actions", "act", "subscribe"].includes(args[0] ?? "")) {
   // Which door, when EP0CH_CONTROL names none: the one on the outline this folder names, else the only one running.
