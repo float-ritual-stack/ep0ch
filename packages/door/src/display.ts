@@ -41,6 +41,10 @@ export interface Display {
    * terminal meanwhile; it's painted whole after. A session's is the terminal of the client with the person's keys.
    */
   handOver(argv: string[], o: HandoverOpts): Promise<number | null>;
+  /** Nobody sees the frames (a session with no terminal attached): App renders none until someone does. */
+  unseen?(): boolean;
+  /** Said when the frames are seen again (a terminal attached to a session nobody saw): App draws the frame it skipped. */
+  onSeen?(f: () => void): void;
 }
 
 export const isDisplay = (t: unknown): t is Display => typeof (t as Display | null)?.show === "function";
