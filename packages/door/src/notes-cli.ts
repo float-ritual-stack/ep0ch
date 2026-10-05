@@ -14,6 +14,7 @@
 // the reader draws them (viewResults), never a second renderer. `--ansi` keeps its colours;
 // without it, plain text. `--cells` prints the same drawing as JSON cells (src/cells.ts) for a program that paints a
 // grid: a Claude Code mod's Raster. `--source` prints each note's text as written, for a file to keep.
+import { createHash } from "node:crypto";
 import { hostname } from "node:os";
 import { linesToCells } from "./cells";
 import { connectFigures } from "./graphs";
@@ -33,6 +34,7 @@ import { setTheme, startTheme } from "./theme";
 import type { Ctx } from "./app";
 import { recordJson } from "@ep0ch/outline-core/block-record";
 import { formatEp0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
+import { MACHINE_NAME_PATTERN } from "@ep0ch/outline-core/outline-location";
 
 export const NOTES_USAGE = `  ep0ch find [<words>… | --recent | --tree [<root id>]] [--ids | --lines | --json] [--ws <name>] [--machine <ssh-name>]
   ep0ch find [<words>…] [--query "<expression>"] [--view <id>] [--under <id>] [--sort <key> [--direction asc|desc]]
@@ -78,6 +80,14 @@ export interface Found { id: string; title: string; path: string; uri?: string }
 /** A field of a `--lines` row: one line, no tabs. */
 const field = (s: string) => printable(s.replace(/[\t\r\n]+/g, " ")).trim();
 
+/** A stable URI machine name for this host when the outline is local, shaped like the remote ssh names URI grammar allows. */
+export function canonicalLocalMachineName(raw = hostname()): string {
+  const cleaned = raw.normalize("NFKD").replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^[^A-Za-z0-9]+/, "") || "local";
+  if (MACHINE_NAME_PATTERN.test(cleaned)) return cleaned;
+  const hash = createHash("sha256").update(raw).digest("hex").slice(0, 8);
+  const prefix = cleaned.slice(0, 23).replace(/[^A-Za-z0-9]+$/g, "") || "local";
+  return `${prefix}-${hash}`;
+}
 /** The `--lines` form: id, title, path and, when known, uri, tab-separated. */
 export const foundLine = (f: Found) => [f.id, field(f.title), field(f.path), ...(f.uri ? [f.uri] : [])].join("\t");
 
@@ -181,7 +191,7 @@ export async function boardFor(args: string[]): Promise<(SocketBoard & { address
     try { await forwardTo(target.machine); } catch (e) { return { error: `can't reach the outline host on ${target.machine}: ${(e as Error).message}` }; }
   }
   const board = new SocketBoard(target.path, undefined, target.outline) as SocketBoard & { address: BoardAddress };
-  board.address = { outline: target.outline, machine: target.machine ?? hostname() };
+  board.address = { outline: target.outline, machine: target.machine ?? canonicalLocalMachineName() };
   try { await board.info(); }
   catch (e) { board.close(); return { error: `no carrier on ${target.path}: ${(e as Error).message}` }; }
   return board;

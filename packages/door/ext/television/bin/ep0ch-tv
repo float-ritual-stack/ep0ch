@@ -54,7 +54,7 @@ esac
 case "$cmd" in
   tree)
     root=${1:-${EP0CH_TV_ROOT:-}}
-    ep0ch find --tree ${root:+"$root"} --lines | awk -F'\t' -v OFS='\t' '{ print $1, $2, $6, $4, $5 }' | shown ;;
+    ep0ch find --tree ${root:+"$root"} --lines | awk -F'\t' -v OFS='\t' '{ if (NF >= 7) print $1, $2, $7, $5, $6; else print $1, $2, $6, $4, $5 }' | shown ;;
   recent)
     ep0ch find --recent --lines | awk -F'\t' -v OFS='\t' '{ print $1, $2, $3, "", "" }' | shown ;;
   all)

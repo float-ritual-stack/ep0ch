@@ -5,7 +5,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { everyNote, foundLine, treeLine, treeOf } from "../src/notes-cli";
+import { canonicalLocalMachineName, everyNote, foundLine, treeLine, treeOf } from "../src/notes-cli";
 import { SocketBoard } from "../src/socket";
 import { visible, width } from "../src/style";
 import { outliner, Scratch } from "./scratch";
@@ -28,6 +28,14 @@ describe("every note, for a picker that filters as it's typed", () => {
 
   test("a --lines row is one line of three tab-separated fields, whatever the title holds", () => {
     expect(foundLine({ id: "x1", title: "Two\tlines\nof title", path: "Shed › Tools" })).toBe("x1\tTwo lines of title\tShed › Tools");
+  });
+
+  test("local URI machine names are stable and valid when the host name is not an ssh-name shape", () => {
+    expect(canonicalLocalMachineName("garden-box")).toBe("garden-box");
+    expect(canonicalLocalMachineName("___")).toBe("local");
+    const long = canonicalLocalMachineName("this-host-name-is-longer-than-the-uri-machine-limit.example");
+    expect(long).toMatch(/^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$/);
+    expect(long).toHaveLength(32);
   });
 });
 
@@ -304,7 +312,7 @@ describe("the ep0ch channel's lines (ext/television's ep0ch-tv)", () => {
       row("ae755888-bbbb", "4f6648f1-aaaa", 1, "Tools 'n' \"spares\" ]8;;ep0ch:fake\tlist", { type: "place" }),
       row("cf2e02f5-cccc", "ae755888-bbbb", 2, "Chain oil"),
     ])!;
-    const { out, code } = await tv(["tree"], rows.map(treeLine).join("\n") + "\n");
+    const { out, code } = await tv(["tree"], rows.map(r => treeLine({ ...r, uri: `ep0ch://pie@box-a/b/${r.id}` })).join("\n") + "\n");
     expect(code).toBe(0);
     const lines = out.split("\n").filter(Boolean);
     expect(lines.map(l => l.replace(ID, "$1"))).toEqual(["4f6648f1-aaaa", "ae755888-bbbb", "cf2e02f5-cccc"]);
