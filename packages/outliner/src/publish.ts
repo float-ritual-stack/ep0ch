@@ -272,8 +272,7 @@ export function renderMarkdownHtml(markdown: string): string {
 }
 
 const PAGE_STYLE = `
-:root{color-scheme:light dark;--bg:#fbfaf7;--fg:#1d1d1b;--dim:#6b6a64;--rule:#dcd9cf;--link:#1a55a8}
-@media (prefers-color-scheme:dark){:root{--bg:#111110;--fg:#e8e6df;--dim:#9a988f;--rule:#34332f;--link:#8fb8ff}}
+:root{color-scheme:dark;--bg:#111110;--fg:#e8e6df;--dim:#9a988f;--rule:#34332f;--link:#8fb8ff}
 body{margin:0;background:var(--bg);color:var(--fg);font:17px/1.6 ui-serif,Georgia,serif}
 main{max-width:46rem;margin:0 auto;padding:2rem 1rem 4rem}
 a{color:var(--link)}
@@ -287,6 +286,8 @@ th,td{text-align:left;padding:.25rem .75rem .25rem 0;border-bottom:1px solid var
 th{color:var(--dim);font-weight:normal}
 .dim{color:var(--dim)}
 img{max-width:100%}
+input[type=checkbox]{appearance:none;-webkit-appearance:none;width:.85em;height:.85em;margin:0 .45em 0 0;vertical-align:-.05em;border:1px solid var(--dim);border-radius:.15em}
+input[type=checkbox]:checked{background:var(--link);border-color:var(--link);box-shadow:inset 0 0 0 2px var(--bg)}
 `;
 
 function htmlPage(title: string, body: string, nav: string): string {
@@ -633,7 +634,7 @@ export class Publisher {
       }
       if (check.type === "react") return this.serveReact(entry, contents.text, extname(check.path).toLowerCase() === ".tsx" ? ".tsx" : ".jsx", audience);
       if (check.type === "markdown") {
-        if (asHtml) return renderedHtml(this.page(entry, renderMarkdownHtml(await this.attachedMarkdown(entry, index, contents.text, audience)), audience));
+        if (asHtml) return renderedHtml(this.page(entry, htmlViewLinks(renderMarkdownHtml(await this.attachedMarkdown(entry, index, contents.text, audience)), index, this.basePathFor(audience)), audience));
         // Raw, the public audience gets the file with its links and embeds resolved, so the ids
         // of notes that aren't public never leave in `((…))` as written.
         if (audience === "public") {
@@ -644,7 +645,7 @@ export class Publisher {
       return respond(contents.text, "text/plain; charset=utf-8");
     }
     const markdown = await this.blockMarkdown(entry, index, audience);
-    if (asHtml) return renderedHtml(this.page(entry, renderMarkdownHtml(markdown), audience));
+    if (asHtml) return renderedHtml(this.page(entry, htmlViewLinks(renderMarkdownHtml(markdown), index, this.basePathFor(audience)), audience));
     return respond(markdown, "text/markdown; charset=utf-8", 200, { "content-disposition": "inline" });
   }
 
@@ -978,6 +979,10 @@ function publishedText(text: string, context: TextContext, options: { keepProper
   }
   if (!options.keepProperties) {
     body = stripPropertyTokens(body).split("\n").map((line) => line.replace(/[ \t]+$/, "")).join("\n");
+    // A line's `^anchor` is the outline's address for it, not something a reader reads.
+    const anchored = codeLineSet(body);
+    const plain = stripFragmentAnchors(body).split("\n");
+    body = body.split("\n").map((line, at) => (anchored.has(at) ? line : plain[at]!.replace(/[ \t]+$/, ""))).join("\n");
   }
   // Replacing links never adds or removes a line, so the code lines stay where they are.
   const code = codeLineSet(body);
@@ -1103,6 +1108,18 @@ export function renderSubtreeMarkdown(
   if (listed.length) parts.push(listed.join("\n"));
   if (subtree.completeness.kind === "truncated") parts.push(`*(Only the first ${PUBLISH_QUERY_LIMIT} blocks are published.)*`);
   return `${parts.join("\n\n")}\n`;
+}
+
+/**
+ * Links between published notes, in a page read as HTML: to the other note's HTML too (`?view=html`, as the
+ * index links), not its raw Markdown. Only a link to exactly a published note's path changes.
+ */
+export function htmlViewLinks(html: string, index: PublishedIndex, basePath: string): string {
+  const to = new Map(index.entries.map((entry) => [escapeHtml(`${basePath}${entry.path}`), escapeHtml(entryHref(entry, basePath))]));
+  return html.replace(/<a href="([^"]*)"/g, (whole, href: string) => {
+    const html = to.get(href);
+    return html ? `<a href="${html}"` : whole;
+  });
 }
 
 function entryHref(entry: PublishedEntry, basePath: string): string {

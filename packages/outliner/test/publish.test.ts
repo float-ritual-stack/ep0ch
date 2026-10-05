@@ -146,7 +146,7 @@ test("a block without an attachment renders its subtree as markdown, leaving out
 
   const html = await (await get("/p/moth-garden?view=html")).text();
   expect(html).toContain("<li>Evening primrose</li>");
-  expect(html).toContain('href="/p/census"');
+  expect(html).toContain('href="/p/census?view=html"');
 });
 
 test("the index lists published things in html, text and json", async () => {
@@ -384,6 +384,22 @@ test("titles and links never show an unpublished block's id or text; embeds show
     expect(body).not.toContain("gate code");
     expect(body).not.toContain("flowerpot");
   }
+});
+
+test("read as HTML, links to published notes open their HTML; anchors are left out; ticked steps show ticked", async () => {
+  const { store, get } = await setup();
+  const census = store.create("Pollinator census [publish::census]");
+  store.create(`Moth walk [publish::walk]\nSee ((${census.id}|the census)). ^see\n- [x] Count the hawk-moths ^count\n- [ ] Check the lilac\n\n\`\`\`\nkeep ^this-in-code\n\`\`\``);
+  const markdown = await (await get("/p/walk")).text();
+  expect(markdown).toContain("[the census](/p/census)");      // the raw Markdown links the raw Markdown
+  expect(markdown).not.toContain("^see");
+  expect(markdown).not.toContain("^count");
+  expect(markdown).toContain("keep ^this-in-code");
+  const html = await (await get("/p/walk?view=html")).text();
+  expect(html).toContain('<a href="/p/census?view=html">the census</a>');
+  expect(html).toContain("<input checked");
+  expect(html).toContain("input[type=checkbox]:checked{");
+  expect(html).not.toContain("prefers-color-scheme");
 });
 
 test("a [publish::false] branch is left out whatever order the service lists blocks in", () => {
@@ -675,7 +691,7 @@ test("a rendered markdown attachment links published [[page]] and ((block)) targ
   // Raw, the file is served as written.
   expect(await (await get("/p/dusk")).text()).toContain("See [[Pollinator census]]");
   const html = await (await get("/p/dusk?view=html")).text();
-  expect(html).toContain('See <a href="/p/census">Pollinator census</a>, <a href="/p/census">Pollinator census</a> and Nowhere.');
+  expect(html).toContain('See <a href="/p/census?view=html">Pollinator census</a>, <a href="/p/census?view=html">Pollinator census</a> and Nowhere.');
   expect(html).toContain("<blockquote>\n<p>Bat tally: 14 pipistrelles</p>\n</blockquote>");
   expect(html).toContain("[[Pollinator census]] stays as written in code");
 });
