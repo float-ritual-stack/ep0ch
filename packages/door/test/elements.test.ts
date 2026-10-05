@@ -149,6 +149,37 @@ describe.skipIf(!outliner)("elements in readers, against a scratch outline", () 
     delete process.env.OUTLINER_PROPERTY_SUMMARY_KEYS;
   }, 20_000);
 
+  test("the detail screen opens an addressed note and keeps NoteSurface key and mouse controls", async () => {
+    b = openScreen("detail", { note: n.jobs.id, persist: false }) as Desk;
+    app.push(b);
+    try {
+      const d = b.pane("detail") as ReaderPane;
+      frame();
+      await whole(d, n.jobs.id);
+      await until(() => plain(frame().join("\n")).includes("Beds"), "Beds drawn in the detail screen");
+      expect(b.openArgs()).toEqual({ note: n.jobs.id });
+      stepTo(d, "## Beds");
+      key({ kind: "enter" }); frame();
+      expect(d.surface.describe().folds!.folded).toEqual(["## Beds"]);
+      click(where(frame(), "Beds", { col: 0, row: 0, cols: 200, rows: 60 }));
+      expect(d.surface.describe().folds!.folded).toEqual([]);
+      d.show(n.beans, b);
+      expect(b.openArgs()).toEqual({ note: n.beans.id });
+      expect(b.focusedName()).toBe("detail");
+    } finally { app.pop(); }
+  }, 30_000);
+
+  test("screen.open validates an addressed detail before reporting success", async () => {
+    (app as any).lastInput = 0;
+    await expect(app.act({ action: "screen.open", args: { name: "detail", note: "11111111-1111-4111-8111-000000000000" }, as: AS })).rejects.toThrow(/no block/);
+    const r = await app.act({ action: "screen.open", args: { name: "detail", note: n.jobs.id }, as: AS }) as any;
+    expect(r).toMatchObject({ opened: "detail", screen: "detail" });
+    try {
+      b = (app as any).stack.at(-1) as Desk;
+      expect(b.openArgs()).toEqual({ note: n.jobs.id });
+    } finally { app.pop(); }
+  }, 30_000);
+
   test("[ ] walk every element kind in reading order, and elements lists the same order", async () => {
     await fresh();
     const p = B().preview as ReaderPane;

@@ -18,7 +18,7 @@ const FREE_TEXT = new Set(["find", "show", "new", "open", "act", "export", "snap
 const DOOR_FLAGS: Record<string, "value" | "optional" | "none" | "rest"> = {
   "--ws": "value", "--machine": "value", "--layout": "value", "--board": "optional",
   "--create": "none", "--no-create": "none", "--here": "none", "--desk": "none", "--river": "none", "--brief": "none", "--welcome": "none",
-  "--showcase": "none", "--reset": "none", "--no-daemon": "none", "--daemon": "none",
+  "--screen": "value", "--json": "none", "--showcase": "none", "--reset": "none", "--no-daemon": "none", "--daemon": "none",
   "--remote": "rest", "--skill": "rest",
 };
 const HELP = new Set(["--help", "-h"]);
@@ -70,6 +70,15 @@ export function checkWords(argsIn: readonly string[]): { help: string } | { erro
   for (let i = 0; i < args.length; i++) {
     const a = args[i]!, kind = DOOR_FLAGS[a.startsWith("--no-create=") ? "--no-create" : a];
     if (kind === "rest") return null;
+    if (a === "--screen") {
+      const name = args[i + 1], target = args[i + 2];
+      if (name === undefined || name.startsWith("-")) return { error: "--screen needs a screen name (detail) · ep0ch --screen detail <ep0ch://...> · " + LISTS };
+      if (name !== "detail") return { error: `--screen supports detail, not ${JSON.stringify(name)} · ${LISTS}` };
+      if (target === undefined || target.startsWith("-")) return { error: "--screen detail needs a canonical URI · ep0ch --screen detail <ep0ch://...> · " + LISTS };
+      if (!target.startsWith("ep0ch://")) return { error: "--screen detail takes a canonical ep0ch:// URI · " + LISTS };
+      i += 2;
+      continue;
+    }
     if (kind === "none") continue;
     if (kind === "value") {
       const v = args[i + 1];

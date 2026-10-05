@@ -26,6 +26,7 @@ import { alive, privateDir, readLastCall, stateDir, unclaimState, useOutlineStat
 import { serveAs, SessionTerm, type Link, type SessionClient } from "./session-term";
 import { encode, Frames, PROTOCOL, type ClientMsg, type DaemonMsg, type SessionInfo } from "./protocol";
 import { startSession, waitFor } from "./start";
+import { screenRequest } from "../start";
 import { ep0ch, placeFor, placeLabel, recordPlace, sessionFile, sessionFlags, sessionLock, sessionSocket, type Place } from "./place";
 export { sessionFile, sessionLog, sessionSocket } from "./place";
 
@@ -278,10 +279,24 @@ export async function serve(args: string[]): Promise<never> {
           client = term.attach(link, h);
           // The person logs on again: their last call is when they last left, and "new since" counts from it.
           if (!others && !h.watch) { app.lastCall = readLastCall() || app.lastCall; loggedOnAt = Date.now(); }
+          let appliedScreen = false;
+          try {
+            const asked = screenRequest(h.args ?? []);
+            const top = app.screens().at(-1);
+            const current = top && asked && top.name === asked.name ? top.openArgs?.() ?? null : null;
+            if (asked && !h.watch && current?.note !== asked.note) {
+              appliedScreen = true;
+              void app.dispatch.act({ action: "screen.open", args: { ...asked } }, USER).then(
+                () => app.redraw(),
+                e => { app.flash((e as Error).message, 8000); app.redraw(); });
+            }
+          } catch (e) {
+            app.flash((e as Error).message, 8000);
+          }
           // What it asked for and the session didn't do (the one that started it asked for what it did).
-          const ignored = screenFlags(h.args ?? []).filter(f => !screenFlags(args).includes(f));
+          const ignored = screenFlags(h.args ?? []).filter(f => !screenFlags(args).includes(f) && !(appliedScreen && f.startsWith("--screen ")));
           if (ignored.length) app.flash(`attached to the running session · ${ignored.join(" ")} not applied (the session keeps its screens)`, 8000);
-          else if (others && !h.watch) app.flash(`another terminal attached (${h.tty ?? `pid ${h.pid}`}) · the keys are wherever you last typed`, 6000);
+          else if (others && !h.watch && !appliedScreen) app.flash(`another terminal attached (${h.tty ?? `pid ${h.pid}`}) · the keys are wherever you last typed`, 6000);
           app.redraw();
           return;
         }
@@ -338,6 +353,7 @@ export function screenFlags(args: readonly string[]): string[] {
   for (let i = 0; i < args.length; i++) {
     const a = args[i]!;
     if (["--board", "--layout"].includes(a)) { const v = args[i + 1]; out.push(v && !v.startsWith("--") ? `${a} ${v}` : a); }
+    else if (a === "--screen") { const n = args[i + 1], v = args[i + 2]; out.push(n && v && !v.startsWith("--") ? `${a} ${n} ${v}` : a); }
     else if (["--desk", "--river", "--brief", "--welcome", "--showcase"].includes(a)) out.push(a);
   }
   return out;

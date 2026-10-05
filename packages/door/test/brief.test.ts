@@ -49,6 +49,8 @@ describe("where the door opens", () => {
     const s = startScreens(["--brief"], {}, logon);
     expect(s.map(x => x.name ?? x.constructor)).toEqual([MainMenu, "brief"]);
     expect(startScreens(["--board", "--brief"], {}, logon)[1]).toBeInstanceOf(Desk);
+    const detail = startScreens(["--screen", "detail", "a1111111-1111-4111-8111-111111111111"], {}, logon);
+    expect(detail.map(x => x.name ?? x.constructor)).toEqual([MainMenu, "detail"]);
   });
   test("EP0CH_LANDING=brief lands on the brief after the logon; unset or anything else, the logon then the menu", () => {
     expect(startScreens([], { EP0CH_LANDING: "brief" }, logon).map(x => x.title)).toEqual(["logon, then daily brief"]);

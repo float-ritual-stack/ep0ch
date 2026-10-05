@@ -166,6 +166,8 @@ export interface Screen {
    * a menu item that keeps state opens only one screen of its name at a time.
    */
   readonly name?: string;
+  /** Arguments that reopen this named screen through `screen.open` after a session handoff. */
+  openArgs?(): Record<string, unknown> | null;
   /** Rows available = t.rows - 1 (the last row is the status bar). */
   render(ctx: Ctx): Frame;
   key(k: Key, ctx: Ctx): void;

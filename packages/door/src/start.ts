@@ -14,11 +14,25 @@ export function landingOf(env: Record<string, string | undefined>): Landing {
   return l === "brief" || l === "welcome" ? l : "menu";
 }
 
+export interface ScreenRequest { name: string; note?: string }
+
+export function screenRequest(args: readonly string[]): ScreenRequest | null {
+  const screenAt = args.indexOf("--screen");
+  if (screenAt < 0) return null;
+  const name = args[screenAt + 1];
+  const target = args[screenAt + 2];
+  if (name !== "detail") throw new Error(`--screen supports detail; got ${name ?? "nothing"}`);
+  if (!target || target.startsWith("--")) throw new Error("--screen detail needs a block id");
+  return { name, note: target };
+}
+
 /**
  * The screens to push, bottom first. `logon` builds the logon screen with what it opens after the main
  * menu (nothing, or the brief).
  */
 export function startScreens(args: readonly string[], env: Record<string, string | undefined>, logon: (then?: () => Screen) => Screen): Screen[] {
+  const req = screenRequest(args);
+  if (req) return [new MainMenu(), openScreen(req.name, req.note ? { note: req.note } : {})];
   const boardAt = args.indexOf("--board");
   if (boardAt >= 0) return [new MainMenu(), openScreen("board", args[boardAt + 1]?.startsWith("--") ? {} : { hub: args[boardAt + 1] })];
   if (args.includes("--showcase")) return [new MainMenu(), new Showcase()];

@@ -199,12 +199,13 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * `opts.given`: tiles the host made (the showcase's), by name, used for the spec's leaves of those names.
    * `opts.writes: false`: it reads its save but never writes it (the board in a tile: the board screen owns delivery.json).
    */
-  constructor(readonly spec: ScreenSpec = deskSpec(), opts: { layout?: string; given?: ReadonlyMap<string, Pane>; writes?: boolean; where?: () => Whereabouts; idPrefix?: string } = {}) {
+  constructor(readonly spec: ScreenSpec = deskSpec(), opts: { layout?: string; given?: ReadonlyMap<string, Pane>; writes?: boolean; where?: () => Whereabouts; idPrefix?: string; openArgs?: Record<string, unknown> } = {}) {
     this.title = spec.title;
     this.idPrefix = opts.idPrefix ?? "t";
     this.whereNow = opts.where ?? null;
     this.writes = opts.writes ?? true;
     this.given = opts.given ?? new Map();
+    this.screenOpenArgs = opts.openArgs ?? null;
     this.marksStore = new LocalMarks(!!spec.layouts);
     // An extension's kind that comes or goes while the door runs (PIE-512): its tiles are made again.
     watchTileKinds(this);
@@ -218,6 +219,15 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     else if (saved?.root) { this.build({ root: saved.root, focus: spec.home !== undefined ? spec.layout.focus : saved.focus, rule: saved.rule, ...(saved.policy ? { policy: saved.policy } : {}), ...(saved.floats ? { floats: saved.floats } : {}) }, false, true); this.layoutName = saved.layout ?? null; }
     else this.build(spec.layout, false, false, true);
     this.fromSpec(spec);
+  }
+
+  private readonly screenOpenArgs: Record<string, unknown> | null;
+  openArgs(): Record<string, unknown> | null {
+    if (this.spec.name === "detail") {
+      const p = this.pane("detail");
+      if (p instanceof DetailPane) return p.spec();
+    }
+    return this.screenOpenArgs;
   }
 
   /**

@@ -98,6 +98,12 @@ export const SECTIONS: Section[] = [
     },
   },
   {
+    key: "detail", need: "open one addressed block as the whole screen", part: "the detail screen: a ScreenSpec hosting the detail tile's NoteSurface", files: "src/desk/screen-specs.ts, src/desk/builtin-tiles.ts, src/desk/tiles.ts, src/surface/note.ts",
+    stage(n) {
+      return openScreen("detail", { note: n.notebook?.id, persist: false });
+    },
+  },
+  {
     key: "actions", need: "let a person or agent do anything", part: "the action registry: ActionDef in an ActionSet; keys and `act` call it", files: "src/surface/actions.ts, src/control.ts",
     stage(n, show) {
       const r = new ReaderPane();
