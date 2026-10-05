@@ -4,8 +4,9 @@
 import { brightness, media, parseMediaLine, sizeText, type Media, type MediaSpec } from "./media";
 import { balanceTags, BOLD, C, extractLinks, fg, type LinkRange, pad, RESET, splitVisible, stripTags, styleMarks, trimTagged, UNBOLD, width as vwidth } from "./style";
 import { colourBody, wrap } from "./text";
-import { figureSource, frame, isGraphStart, reframeAscii, renderGraph, type FiguresEnv } from "./graphs";
-import { linkBlockLines, linkBlockAt, renderLinkBlock } from "./links";
+import { componentBlocks } from "@ep0ch/outline-core/component-block";
+import { figureSource, frame, graphKind, reframeAscii, renderGraph, type FiguresEnv } from "./graphs";
+import { linkBlockAt, renderLinkBlock } from "./links";
 import { EMBED, stripMarks, type LinkTarget } from "./refs";
 import { BUILTIN_CALLOUT_REGISTRY, calloutBlocks, quoteByline, stripQuotes, type CalloutBlock, type CalloutRegistry } from "@ep0ch/outline-core/callouts";
 import { TONE } from "./callouts";
@@ -152,16 +153,17 @@ const indentOf = (l: string) => l.length - l.trimStart().length;
 /** Which fence or figure each line of a body is part of (the line that opened it), or -1 for plain structure. */
 export function structureOf(src: readonly string[]): number[] {
   const block: number[] = [];
-  let open = -1, kind: "fence" | "graph" | null = null;
-  // An inline links component (`::links`, src/links.ts) is a figure too: its lines are its question, not structure.
-  const linkLines = linkBlockLines(src as string[]);
-  src.forEach((l, i) => {
-    if (kind) { block.push(open); if (kind === "fence" ? /^\s*```/.test(l) : /^\s*::\s*$/.test(l)) kind = null; return; }
-    if (linkLines.has(i)) { block.push(i); return; }
-    if (/^\s*```/.test(l)) { open = i; kind = "fence"; block.push(i); return; }
-    if (isGraphStart(l)) { open = i; kind = "graph"; block.push(i); return; }
-    block.push(-1);
-  });
+  // A component block (a figure, an inline `::links`) is its question, not structure: outline-core decides where it
+  // ends, as Detail and the service's sections do, so a `::` in a code example inside it doesn't end it.
+  const components = new Map(componentBlocks(src).map(c => [c.start, c.end]));
+  let fence = -1;
+  for (let i = 0; i < src.length; i++) {
+    if (fence >= 0) { block.push(fence); if (/^\s*```/.test(src[i]!)) fence = -1; continue; }
+    const end = components.get(i);
+    if (end !== undefined) { for (let j = i; j <= end; j++) block.push(i); i = end; continue; }
+    if (/^\s*```/.test(src[i]!)) fence = i;
+    block.push(fence);
+  }
   return block;
 }
 
@@ -259,6 +261,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
   const source: number[] = [], heads: Doc["heads"] = [];
   const at = new Map((env.folds?.points ?? []).map(p => [p.line, p]));
   const callouts = new Map(calloutBlocks(src).map(c => [c.line, c]));
+  const components = componentBlocks(src), componentAt = new Map(components.map(c => [c.start, c]));
   const lit = (i: number) => !!env.literal?.has(i);
   // Each row comes from the line its construct started on: rows pushed since then are filled in here.
   let from = 0;
@@ -292,7 +295,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
 
     // The inline links component (src/links.ts): ::links, ::resources, ::backlinks, ::outlinks, one line or a block
     // to its `::`, drawn with the links tile's rows in a figure's frame, each row a link the reader opens.
-    const lb = linkBlockAt(src, i);
+    const lb = linkBlockAt(src, i, components);
     if (lb) {
       out.push(...renderLinkBlock(lb.spec, env.note, W, frame, env.tag));
       i = lb.end;
@@ -300,14 +303,13 @@ export function renderDoc(body: string, env: DocEnv): Doc {
     }
 
     // mdxcn Comark figure: ::graph-kind, --- yaml ---, ::
-    const gk = isGraphStart(line);
-    if (gk) {
+    const figure = componentAt.get(i), gk = figure && graphKind(figure.name);
+    if (figure && gk) {
       // Its YAML and its Markdown rows; the note's figure block (the first line of a note's own body) takes its child
       // bullets as rows too.
       const block = !env.nested && src.slice(0, i).every(l => !l.trim());
-      const lines: string[] = [];
-      for (i++; i < src.length && !/^\s*::\s*$/.test(src[i]!); i++) lines.push(src[i]!);
-      out.push(...renderGraph(gk, figureSource(lines, env.note, block), W, env.link, env.figures));
+      out.push(...renderGraph(gk, figureSource(src.slice(i + 1, figure.end), env.note, block), W, env.link, env.figures));
+      i = figure.end;
       continue;
     }
 

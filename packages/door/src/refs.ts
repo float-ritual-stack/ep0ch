@@ -10,7 +10,7 @@ import type { StepRef } from "./steps";
 import type { FigureControl } from "./graphs";
 import type { ImageControl } from "./doc";
 import { isOutlineNote, type AuthoredLinksSnapshot, type AuthoredResourceLink } from "./authored";
-import { linkBlockLines } from "./links";
+import { componentBlocks } from "@ep0ch/outline-core/component-block";
 
 /** The service's exact reference: `((id))`, `((id^fragment))`, `((id|label))`, `((id^fragment|label))`. */
 export const REF = /\(\(([A-Za-z0-9_-]{8,})(?:\^([A-Za-z0-9][A-Za-z0-9_-]{0,63}))?(?:\|((?:(?!\)\))[^\r\n])+))?\)\)/g;
@@ -232,25 +232,22 @@ export function pageView(address: string, label: string | undefined, r: PageReso
  * (it nests them as the service projects them); off (a component's labels, a list's digest) they read as
  * a link that says it isn't expanded there.
  */
-/** A live figure's first line (src/graphs.ts `isGraphStart`). */
-const GRAPH_START = /^\s*::graph-[a-z-]+\s*$/;
-
 export function presentLinks(text: string, embeds: boolean, src: Source | null | undefined, noteText = text, sink?: LinkTarget[], resources: readonly ResourceToken[] = []): string {
   // `noteText`: the whole note `text` was cut from, so it shares that note's one references answer.
   const resolved = referencesIn(noteText, src) ?? new Map<string, ReferenceResolution>();
-  let fenced = false, figure = false;
-  // Fence lines and the code between them are left as typed, links and Markdown alike. So is a live
-  // figure (`::graph-*` to `::`): its YAML is the figure's question, and a `view: ((id))` in it must still
-  // name the id when the figure reads it (src/live.ts); drawn as a link, the id would be gone.
+  let fenced = false;
+  // Fence lines and the code between them are left as typed, links and Markdown alike. So is a component block
+  // (a live figure, an inline `::links`, from its first line to its `::` as outline-core finds it): its YAML is its
+  // question, and a `view: ((id))` or `of: ((id))` in it must still name the id when it's read (src/live.ts,
+  // src/links.ts); drawn as a link, the id would be gone.
   const fencedAt: boolean[] = [];
-  // An inline links component (`::links` to its `::`, src/links.ts) is left as typed too: an `of: ((id))` in it names whose.
-  const lines = text.split("\n"), linkLines = linkBlockLines(lines);
+  const lines = text.split("\n"), typed = new Set<number>();
+  for (const c of componentBlocks(lines)) for (let j = c.start; j <= c.end; j++) typed.add(j);
   return lines.map((line, i) => {
-    if (!fenced && !figure && linkLines.has(i)) { fencedAt.push(true); return line; }
-    if (!fenced && (figure ? /^\s*::\s*$/.test(line) : GRAPH_START.test(line))) { figure = !figure; fencedAt.push(true); return line; }
-    if (!figure && /^\s*```/.test(line)) { fenced = !fenced; fencedAt.push(true); return line; }
-    fencedAt.push(fenced || figure);
-    if (fenced || figure) return line;
+    if (!fenced && typed.has(i)) { fencedAt.push(true); return line; }
+    if (/^\s*```/.test(line)) { fenced = !fenced; fencedAt.push(true); return line; }
+    fencedAt.push(fenced);
+    if (fenced) return line;
     return line.split(/(`[^`]*`)/).map((part, i) => {
       if (i % 2) return part;
       // With a sink, each link is also tagged with its place in it, so a click can find it (PIE-415).

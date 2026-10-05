@@ -22,6 +22,7 @@ import {
   type BacklinkCollection, type BacklinkSource, type BacklinkViewGroup, type BacklinkViewOptions,
 } from "./backlinks";
 import type { Msg } from "./board";
+import { COMPONENT_OPEN, componentBlocks, type ComponentBlock } from "@ep0ch/outline-core/component-block";
 import { matchesSearchText, prepareSearchQuery } from "@ep0ch/outline-core/search-match";
 import { USER, type Actor, type SocketBoard } from "./socket";
 import type { LinkTarget } from "./refs";
@@ -264,8 +265,6 @@ export async function readLinks(board: Pick<SocketBoard, "authoredLinks" | "back
 /** The inline component's names: every group, or one. */
 export const LINK_BLOCK_KINDS = ["links", "outlinks", "resources", "backlinks"] as const;
 export type LinkBlockKind = (typeof LINK_BLOCK_KINDS)[number];
-const START = /^\s*::(links|outlinks|resources|backlinks)(?:\s+(.*?))?\s*$/;
-const CLOSE = /^\s*::\s*$/;
 
 /** What an inline component asks: whose links (default the note it's in), which groups, a filter, a title. */
 export interface LinkBlockSpec { kind: LinkBlockKind; of: string | null; filter: string; title: string | null; problem?: string }
@@ -273,31 +272,27 @@ export interface LinkBlockSpec { kind: LinkBlockKind; of: string | null; filter:
 const ID = /\(\(([0-9a-f]{8}-[0-9a-f-]{27})[^)]*\)\)|^([0-9a-f]{8}-[0-9a-f-]{27})$/;
 
 /**
- * The inline component starting at line `i`, or null. Two forms, both ending where `end` says (inclusive):
+ * The inline component starting at line `i`, or null. Where it ends (`end`, inclusive) is outline-core's
+ * component-block rule (`blocks`: the lines' componentBlocks, when the caller has them). Two forms:
  *
- *     ::resources jira                 one line: the words after the name filter the rows
+ *     ::resources jira                 one line: the words after the name filter the rows; `::links` alone,
+ *                                        unclosed, is every link
  *
- *     ::links                          a block, closed by `::` before a blank line: each line inside is
- *     of: ((id))                         `of:` (whose links), `filter:`, `title:` or `groups:`, or else
- *     filter: offer                      the filter's words; `---` lines (Comark's YAML fence) are skipped
+ *     ::links                          a block to its `::`: each line inside is `of:` (whose links),
+ *     of: ((id))                         `filter:`, `title:` or `groups:`, or else the filter's words; `---`
+ *     filter: offer                      lines (Comark's YAML fence) are skipped
  *     ::
  */
-export function linkBlockAt(lines: readonly string[], i: number): { spec: LinkBlockSpec; end: number } | null {
-  const m = START.exec(lines[i] ?? "");
-  if (!m) return null;
-  const kind = m[1] as LinkBlockKind, rest = (m[2] ?? "").trim();
-  const spec: LinkBlockSpec = { kind, of: null, filter: "", title: null };
+export function linkBlockAt(lines: readonly string[], i: number, blocks: readonly ComponentBlock[] = componentBlocks(lines)): { spec: LinkBlockSpec; end: number } | null {
+  const open = COMPONENT_OPEN.exec(lines[i] ?? "");
+  const block = blocks.find(b => b.start === i) ?? (open && !open[2] ? { name: open[1]!, args: null, start: i, end: i } : null);
+  if (!block || !(LINK_BLOCK_KINDS as readonly string[]).includes(block.name)) return null;
+  const rest = (block.args ?? "").trim(), end = block.end;
+  const spec: LinkBlockSpec = { kind: block.name as LinkBlockKind, of: null, filter: "", title: null };
   const idOf = (s: string) => { const r = ID.exec(s.trim()); return r ? r[1] ?? r[2]! : null; };
-  if (rest) {
-    // One line: `::links ((id))` names whose; anything else is the filter.
-    const id = idOf(rest);
-    if (id) spec.of = id; else spec.filter = rest;
-    return { spec, end: i };
-  }
-  let end = -1;
-  for (let j = i + 1; j < lines.length && lines[j]!.trim(); j++) if (CLOSE.test(lines[j]!)) { end = j; break; }
-  if (end < 0) return { spec, end: i };
   const words: string[] = [];
+  // Its arguments: `::links ((id))` names whose; anything else is the filter.
+  if (rest) { const id = idOf(rest); if (id) spec.of = id; else words.push(rest); }
   for (const line of lines.slice(i + 1, end)) {
     if (/^\s*---\s*$/.test(line)) continue;
     const kv = /^\s*(of|filter|title|groups)\s*:\s*(.*?)\s*$/.exec(line);
@@ -310,18 +305,6 @@ export function linkBlockAt(lines: readonly string[], i: number): { spec: LinkBl
   }
   spec.filter = words.filter(Boolean).join(" ");
   return { spec, end };
-}
-
-/** Every line inside an inline component (its first line to its closing `::`), so link presentation leaves them as typed. */
-export function linkBlockLines(lines: readonly string[]): Set<number> {
-  const out = new Set<number>();
-  for (let i = 0; i < lines.length; i++) {
-    const b = linkBlockAt(lines, i);
-    if (!b) continue;
-    for (let j = i; j <= b.end; j++) out.add(j);
-    i = b.end;
-  }
-  return out;
 }
 
 // What the service answered for a block, kept while the outline doesn't change (asked again after it does), so a

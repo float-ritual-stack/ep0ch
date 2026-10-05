@@ -5,6 +5,7 @@ import {replaceSectionText} from '../src/work-tools';
 import {markdownSourceTokens} from '../src/markdown-structure';
 import {SourceSpannedMarkdown} from '../src/source-spanned-markdown';
 import {parseDetailCallouts} from '../src/detail-callouts';
+import {COMARK_NOTE, FENCED_FIGURE, SECOND_FIGURE} from '../../outline-core/test/fixtures/component-notes';
 import {reconcilePreviewRegions, togglePreviewRegionDisclosure, movePreviewRegionFocus, type PreviewRegionState} from '../src/detail-preview-regions';
 
 const theme = Object.fromEntries(['heading','link','linkUrl','code','codeBlock','codeBlockBorder','quote','quoteBorder','hr','listBullet','bold','italic','strikethrough','underline'].map(key => [key, (text: string) => key === 'linkUrl' ? '' : text])) as unknown as MarkdownTheme;
@@ -267,4 +268,12 @@ test('ordinary prose and unclosed openers read in linear time, as plain marked d
 
 test('an opener that opens nothing stays in its paragraph, and a figure after it still ends the paragraph', () => {
   expect(markdownSourceTokens('a\n::x\nb\n::graph-stat\n---\ntitle: t\n---\n::\n').map(node => node.token.type)).toEqual(['paragraph', 'component']);
+});
+
+test('a section replace keeps a figure whose code example holds a bare ::, once, and replaces the one after the heading', () => {
+  const text = COMARK_NOTE.join('\n');
+  const replaced = replaceSectionText(text, '## Second', 'new', 'note');
+  expect(replaced.previous).toBe([...SECOND_FIGURE, '', 'after'].join('\n'));
+  expect(replaced.text).toBe([...COMARK_NOTE.slice(0, 13), '', 'new'].join('\n'));
+  expect(replaced.text.split(FENCED_FIGURE.join('\n')).length).toBe(2);
 });
