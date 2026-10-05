@@ -277,7 +277,7 @@ The morning note (PIE-435): what happened yesterday, what today needs. It is one
 ([skills/daily-brief/SKILL.md](skills/daily-brief/SKILL.md), or `ep0ch --skill daily-brief`); its figures and
 embeds are live.
 
-- **Reaching it:** `T` (today) on the main menu, on its key line like the showcase, or `ep0ch --brief`.
+- **Reaching it:** `T` (today) on the main menu, on its key line like the showcase, or `ep0ch --screen brief`.
   `EP0CH_LANDING=brief` opens it over the main menu right after the logon; the default is still the menu.
 - **The screen** is a desk with one reader at full width (a screen spec, PIE-515: one tile of the brief kind,
   which knows the briefs; `^W o f` puts a brief tile on the desk too): the shared note surface, so links, live figures,
@@ -297,7 +297,7 @@ The notes you want to land on, one at a time: every note with a block-scoped `we
 counts; a number is its place (`[welcome::1]` first, then `[welcome::2]`…), and the rest come after the numbered
 ones, by title. The service finds them (`blocks.query`, filter `welcome`, block scope); the door only orders them.
 
-- **Reaching it:** `C` on the main menu, `ep0ch --welcome`, or `EP0CH_LANDING=welcome` to land there right
+- **Reaching it:** `C` on the main menu, `ep0ch --screen welcome`, or `EP0CH_LANDING=welcome` to land there right
   after the logon (one ⏎ at the logon, and you're reading the first welcome note). `q` goes back to the menu.
 - **The screen** is one composition: an ep0ch logo from the WoE packs across the top (Shypht's own, drawn from
   the `.ANS` files in place; `L` or a click on it shows the next; a signature line with a phone number is never
@@ -431,7 +431,9 @@ A checkout from before `install` gets it by hand, once:
     ep0ch --ws pie                  # an outline by name, from anywhere
     ep0ch --machine float-2         # this folder's outline on another machine (an ssh config name)
     ep0ch --remote float-2          # the door session running on another machine, in this terminal
-    ep0ch --desk | --layout <name> | --river | --brief | --welcome | --board [<hub-id>]
+    ep0ch --screen <name> [<target>] # any screen by name: board [<hub-id>], desk, river, brief, welcome,
+                                    # detail <id|((ref))|ep0ch://…>, or one someone registered
+    ep0ch --layout <name>           # the desk laid out by name
     ep0ch --showcase [--reset]      # the showcase on its own seeded outline (as ep0ch try --showcase)
 
 `ep0ch help` lists everything. Besides opening the door:
@@ -470,7 +472,7 @@ A checkout from before `install` gets it by hand, once:
 | `EP0CH_PACKS` | folder holding the `woe*.zip` packs (default `/opt/float/bbs/inbox/evan`) |
 | `EP0CH_KITTY` | `1` / `0` forces graphics on or off |
 | `EP0CH_THEME` | `calm` (the default), `night` or `classic`: the colours at start, over the one last chosen with `alt+t` (see [Themes and accessibility](#themes-and-accessibility)) |
-| `EP0CH_LANDING` | `brief` opens the newest daily brief after the logon, `welcome` the welcome notes (default: the main menu) |
+| `EP0CH_LANDING` | the screen opened after the logon, by any `--screen` name: `brief` (the newest daily brief), `welcome` (the welcome notes), or any registered screen (default: the main menu) |
 | `EP0CH_KEYBOARD` | `legacy` doesn't ask the terminal for the Kitty keyboard protocol (then Shift+Enter reads as Enter); unset, the door asks when the terminal answers its query |
 | `EP0CH_COPY_ON_SELECT` | `0` (or `off`) doesn't copy a mouse selection when the button comes up; `y`, `cmd+c` or the copy control copies it then (Herdr's `ui.copy_on_select`). Unset, a drag copies |
 | `EP0CH_OPTION_KEYS` | `us` reads macOS Option characters (`å`, `¬`) as alt keys outside text, `off` never; unset, by the locale |
@@ -598,8 +600,8 @@ drawn when a terminal attaches or `peek`, `snap` or an `act` reads it.
 
 - **Quitting detaches.** `G` (Goodbye), `ctrl+c`, closing the terminal or a dropped ssh connection lets go of that
   terminal; everything goes on running. `ep0ch` attaches again and you're where you were: the layout, nvim with its
-  unsaved buffer, a shell's scrollback, a half-written draft. Flags that open a screen (`--board`, `--layout daily`)
-  apply when a session starts; attaching says it didn't apply them.
+  unsaved buffer, a shell's scrollback, a half-written draft. `--layout daily` applies when a session starts; attaching says it didn't apply it.
+  `--screen <name> [<target>]` opens that screen in the session you attach to as well.
 - **Where it lives.** Each outline's session and what's that outline's live in its own folder of the state dir:
   `sessions/local/<name>/` for this machine's outlines, `sessions/<ssh-name>/<name>/` for a machine's,
   `sessions/socket-<hash>/<name>/` for a host named by `EP0CH_SOCKET` (and `sessions/~/<hash>/` where that path would be
@@ -661,7 +663,7 @@ aside: opening an edit writes nothing. The session's files are in its outline's 
 
 ## The desk
 
-`D` on the menu, `bun src/main.ts --desk` to skip the logon, or `--layout daily` to open it laid out by name.
+`D` on the menu, `ep0ch --screen desk` to skip the logon, or `--layout daily` to open it laid out by name.
 The door owns the whole canvas, and the canvas is **tiles** (PIE-413): views in one layout tree that you
 split, tab, drag, link and save, drawn by the door itself, so no multiplexer is needed for layout.
 
@@ -958,7 +960,7 @@ the start of the status bar's right part, `▲ claude` (`▲ shell +2` with two 
 
 ## The board
 
-`K` on the menu, or `ep0ch [--ws <name>] --board [<hub-block-id>]`. Any block with two or more virtual-branch
+`K` on the menu, or `ep0ch [--ws <name>] --screen board [<hub-block-id>]`. Any block with two or more virtual-branch
 children is a board; `g` picks one. The last board per outline is remembered.
 
 - **Lanes** are saved views, read by the service with `views.read` (see "On the service platform"). A lane
@@ -1712,7 +1714,7 @@ Bodies render with `src/doc.ts`:
 
 ## The river
 
-`Q` on the menu, or `bun src/main.ts --river`. Quay's model (built with Grok from an outline export, in
+`Q` on the menu, or `ep0ch --screen river`. Quay's model (built with Grok from an outline export, in
 `~/projects/tundra-heart-crane-lotus`) on the live outline instead of a seed file. Since PIE-515 the River is a
 screen spec on the desk: its columns are tiles of one kind (`river.column`) in a **flow** container, so the layout
 is the engine's (`src/desk/screen-layout.ts`) and every column is a reader of the shared note surface.

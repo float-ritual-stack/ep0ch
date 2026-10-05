@@ -231,15 +231,16 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private readonly screenOpenArgs: Record<string, unknown> | null;
   openArgs(): Record<string, unknown> | null {
     if (this.spec.name === "detail") {
+      // Its target is the note it holds now (`--screen detail <id>`, screen.open target=).
       const p = this.pane("detail");
-      if (p instanceof DetailPane) return p.spec();
+      if (p instanceof DetailPane) { const a = p.spec(); return typeof a.note === "string" ? { target: a.note } : a; }
     }
     return this.screenOpenArgs;
   }
 
   /**
    * What the spec says that a saved layout doesn't override: a columns container's source the spec names outright
-   * (`--board <hub>`: `hub:<id>`, not `hub:`), and each drawer's own policy, kept for when what it holds goes back
+   * (`--screen board <hub>`: `hub:<id>`, not `hub:`), and each drawer's own policy, kept for when what it holds goes back
    * into it after being pinned (the board's outline: its width; its backlinks: they stay).
    */
   private fromSpec(spec: ScreenSpec) {

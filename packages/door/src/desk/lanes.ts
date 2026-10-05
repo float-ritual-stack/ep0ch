@@ -294,7 +294,7 @@ export class Lanes implements SourceModel {
       const found = await findBoards(ctx.board);
       const df = found.find(f => subject(f.hub) === "Delivery Flow");
       if (df || found.length === 1) return this.useHub((df ?? found[0]!).hub);
-      if (!found.length) { this.status = "no hub with virtual-branch children here; pass --board <block-id>"; return this.host.redraw(); }
+      if (!found.length) { this.status = "no hub with virtual-branch children here; open one with ep0ch --screen board <block-id>"; return this.host.redraw(); }
       this.hubPicker = this.hubList(found);
       this.status = "";
     } catch (e) { this.status = String((e as Error).message); }

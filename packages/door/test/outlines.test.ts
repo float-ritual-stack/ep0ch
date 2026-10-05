@@ -158,15 +158,15 @@ describe("which outline the door opens (PIE-530)", () => {
       expect(r.error).toContain("ep0ch outline import <database.sqlite> <name>");
       expect(await nameTheOutline(["--ws", "pie"], false, async () => null)).toEqual({ args: ["--ws", "pie"] });
       writeDotEp0ch(plain, "jam-shelf");
-      expect(await nameTheOutline(["--desk"], false, async () => null)).toEqual({ args: ["--desk", "--ws", "jam-shelf"] });
+      expect(await nameTheOutline(["--screen", "desk"], false, async () => null)).toEqual({ args: ["--screen", "desk", "--ws", "jam-shelf"] });
       // A folder that names none, in a terminal: the home base's choice becomes the door's arguments, and its notice.
       const attic = join(base, "attic");
       mkdirSync(attic, { recursive: true });
       process.chdir(attic);
       const asked: unknown[] = [];
       const chose = (c: Awaited<ReturnType<Parameters<typeof nameTheOutline>[2]>>) => async (a: unknown) => { asked.push(a); return c; };
-      expect(await nameTheOutline(["--desk"], true, chose({ outline: "fern", machine: "box-a", wrote: `${attic}/.ep0ch`, by: "helper" }))).toEqual({
-        args: ["--desk", "--ws", "fern", "--machine", "box-a"], notice: `an agent (helper) opened fern on box-a from the home base · ${attic}/.ep0ch names it now`,
+      expect(await nameTheOutline(["--screen", "desk"], true, chose({ outline: "fern", machine: "box-a", wrote: `${attic}/.ep0ch`, by: "helper" }))).toEqual({
+        args: ["--screen", "desk", "--ws", "fern", "--machine", "box-a"], notice: `an agent (helper) opened fern on box-a from the home base · ${attic}/.ep0ch names it now`,
       });
       // It's opened over the host the rule names (EP0CH_SOCKET's here), with the folder and its guess.
       process.env.EP0CH_SOCKET = "/fictional/elsewhere.sock";

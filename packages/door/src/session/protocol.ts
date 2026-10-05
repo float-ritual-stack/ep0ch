@@ -21,7 +21,7 @@ export interface Hello {
   pid: number; tty?: string; nest?: string;
   /** The client application's own host pane, when there is one (for example Tern), independent of the terminal/daemon. */
   clientHost?: { kind: string; pane: string };
-  /** The door's arguments as typed (`--board`, `--ws pie`): the session says what it didn't apply. */
+  /** The door's arguments as typed (`--screen board`, `--ws pie`): the session says what it didn't apply. */
   args?: string[];
   /** Read-only: shown the session, never given the person's keys (an agent watching, a second screen). */
   watch?: boolean;

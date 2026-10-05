@@ -9,20 +9,20 @@ import { HOME_KIND, homeSpec } from "../home";
 import { boardSpec } from "./delivery";
 import { riverSpec } from "../river/column";
 import { Desk, deskSpec } from "./desk";
-import { registerScreen, screenNames, screenSpec } from "./screen-spec";
+import { registerScreen, screenNames, screenSpec, screenTargetArg } from "./screen-spec";
 import { registerTileKind, tileKind } from "./tile-kinds";
 
 /** The built-in screens' kinds and specs (once: every module that opens a screen asks). */
 export function registerBuiltinScreens(): void {
   for (const k of [WAITING_KIND, ...welcomeKinds(), briefKind(), pinnedKind(), HOME_KIND]) if (!tileKind(k.kind)) registerTileKind(k);
   const have = new Set(screenNames());
-  const add = (name: string, of: Parameters<typeof registerScreen>[1]) => { if (!have.has(name)) registerScreen(name, of); };
+  const add = (name: string, of: Parameters<typeof registerScreen>[1], target?: string) => { if (!have.has(name)) registerScreen(name, of, target ? { target } : {}); };
   add("desk", () => deskSpec());
   add("waiting", () => waitingSpec());
   add("welcome", () => welcomeSpec());
   add("brief", () => briefSpec());
-  add("pinned", args => pinnedSpec(args));
-  add("board", args => boardSpec(args));
+  add("pinned", args => pinnedSpec(args), "address");
+  add("board", args => boardSpec(args), "hub");
   add("river", () => riverSpec());
   add("detail", args => {
     const note = typeof args?.note === "string" ? args.note : "";
@@ -30,7 +30,7 @@ export function registerBuiltinScreens(): void {
       name: "detail", title: "detail", lands: "detail", digits: false,
       layout: { focus: "detail", root: { t: "leaf", kind: "detail", name: "detail", ...(note ? { note } : {}) } },
     };
-  });
+  }, "note");
   // The home base (src/home.ts): what bare `ep0ch` opens where no outline is named; its args are where it was opened.
   add("home", args => homeSpec(args ?? {}));
   // The BBS menu's W and L: the who and activity tiles as screens (the activity's ⏎ shows its note in the reader).
@@ -48,5 +48,7 @@ export function openScreen(name: string, args?: Record<string, unknown>): Screen
   const spec = screenSpec(name, args);
   if (!spec) throw new Error(`no screen ${name}; screens: ${screenNames().join(", ")}`);
   // `persist: false`: it comes back as its screen was saved, and never saves (a screen in a tile, which the desk saves).
-  return new Desk(spec, { writes: args?.persist !== false, ...(typeof args?.note === "string" ? { openArgs: { note: args.note } } : {}) });
+  // What it was opened on (its target: detail's note, the board's hub), so a session brings it back on the same.
+  const arg = screenTargetArg(name), target = arg ? args?.[arg] : undefined;
+  return new Desk(spec, { writes: args?.persist !== false, ...(typeof target === "string" && target ? { openArgs: { target } } : {}) });
 }

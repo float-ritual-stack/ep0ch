@@ -141,17 +141,26 @@ const hintMap = (x: unknown): { hint?: Record<string, string> } => {
 
 /** A screen's spec, made when it's asked for (a pinned page's names its page). */
 export type SpecOf = (args?: Record<string, unknown>) => ScreenSpec;
+/**
+ * How a screen is registered: `target` names the argument a target fills (`ep0ch --screen <name> <target>`,
+ * `screen.open name= target=`): detail's `note` (a block), the board's `hub`, a pinned page's `address`.
+ */
+export interface ScreenRegistration { target?: string }
 const specs = new Map<string, SpecOf>();
+const registrations = new Map<string, ScreenRegistration>();
 /** Register a screen by name (refused under a name taken already). */
-export function registerScreen(name: string, of: SpecOf): void {
+export function registerScreen(name: string, of: SpecOf, how: ScreenRegistration = {}): void {
   if (!NAME.test(name)) throw new Error(`a screen's name is a letter, then letters, digits, . - _ (not ${JSON.stringify(name)})`);
   if (specs.has(name)) throw new Error(`screen ${name} is registered already`);
   specs.set(name, of);
+  registrations.set(name, how);
 }
 /** The spec of the screen named `name`, or null. */
 export function screenSpec(name: string, args?: Record<string, unknown>): ScreenSpec | null {
   const of = specs.get(name);
   return of ? of(args) : null;
 }
+/** The argument a target fills on the screen named `name` (none: it takes no target). */
+export const screenTargetArg = (name: string): string | undefined => registrations.get(name)?.target;
 /** Every screen registered, by name. */
 export const screenNames = (): string[] => [...specs.keys()];

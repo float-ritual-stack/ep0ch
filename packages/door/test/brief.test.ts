@@ -1,5 +1,5 @@
 // PIE-435: the daily brief. Which note is the brief (newest by brief-date), `,` / `.` and act stepping days,
-// the empty state, `--brief` and EP0CH_LANDING=brief, links opening beside the brief, the menu key, live
+// the empty state, `--screen brief` and EP0CH_LANDING=brief, links opening beside the brief, the menu key, live
 // figures whose `view: ((…))` sits in the YAML, and the daily-brief skill. Scratch services only; fictional notes.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
@@ -11,7 +11,7 @@ import { presentLinks } from "../src/refs";
 import { Logon, MainMenu } from "../src/screens";
 import { skillCommand, skillsIn } from "../src/skills";
 import { SocketBoard } from "../src/socket";
-import { landingOf, startScreens } from "../src/start";
+import { landingOf, startScreens, type ScreenRequest } from "../src/start";
 import { boardScreen } from "./board-view";
 import type { Key } from "../src/term";
 import { outliner, Scratch, until } from "./scratch";
@@ -44,19 +44,20 @@ describe("a live figure's YAML is left as typed", () => {
 });
 
 describe("where the door opens", () => {
-  const logon = (then?: () => Screen) => ({ title: then ? `logon, then ${then().title}` : "logon" }) as Screen;
-  test("--brief opens the newest brief over the main menu; the other flags as before", () => {
-    const s = startScreens(["--brief"], {}, logon);
-    expect(s.map(x => x.name ?? x.constructor)).toEqual([MainMenu, "brief"]);
-    expect(startScreens(["--board", "--brief"], {}, logon)[1]).toBeInstanceOf(Desk);
-    const detail = startScreens(["--screen", "detail", "a1111111-1111-4111-8111-111111111111"], {}, logon);
-    expect(detail.map(x => x.name ?? x.constructor)).toEqual([MainMenu, "detail"]);
+  const logon = (then?: ScreenRequest) => ({ title: then ? `logon, then ${then.name}` : "logon" }) as Screen;
+  test("--screen <name> [<target>] is screen.open's request over the main menu", () => {
+    const s = startScreens(["--screen", "brief"], {}, logon);
+    expect(s.screens.map(x => x.constructor)).toEqual([MainMenu]);
+    expect(s.open).toEqual({ name: "brief" });
+    expect(startScreens(["--screen", "board", "hub-1", "--no-daemon"], {}, logon).open).toEqual({ name: "board", target: "hub-1" });
+    expect(startScreens(["--screen", "detail", "a1111111-1111-4111-8111-111111111111"], {}, logon).open).toEqual({ name: "detail", target: "a1111111-1111-4111-8111-111111111111" });
+    expect(startScreens(["--layout", "daily"], {}, logon).screens[1]).toBeInstanceOf(Desk);
   });
-  test("EP0CH_LANDING=brief lands on the brief after the logon; unset or anything else, the logon then the menu", () => {
-    expect(startScreens([], { EP0CH_LANDING: "brief" }, logon).map(x => x.title)).toEqual(["logon, then daily brief"]);
-    expect(startScreens([], {}, logon).map(x => x.title)).toEqual(["logon"]);
-    expect(landingOf({ EP0CH_LANDING: " Brief " })).toBe("brief");
-    expect(landingOf({ EP0CH_LANDING: "board" })).toBe("menu");
+  test("EP0CH_LANDING=<name> lands on that screen after the logon; unset (or menu), the logon then the menu", () => {
+    expect(startScreens([], { EP0CH_LANDING: "brief" }, logon).screens.map(x => x.title)).toEqual(["logon, then brief"]);
+    expect(startScreens([], {}, logon).screens.map(x => x.title)).toEqual(["logon"]);
+    expect(landingOf({ EP0CH_LANDING: " brief " })).toEqual({ name: "brief" });
+    expect(landingOf({ EP0CH_LANDING: "menu" })).toBeNull();
   });
 });
 
@@ -245,7 +246,7 @@ describe.skipIf(!outliner)("the brief screen", () => {
 
   test("EP0CH_LANDING=brief: the logon opens the main menu, then the brief over it", async () => {
     while ((app as any).stack.length) (app as any).stack.pop();
-    const [first] = startScreens([], { EP0CH_LANDING: "brief" }, then => new Logon(app, then));
+    const [first] = startScreens([], { EP0CH_LANDING: "brief" }, then => new Logon(app, then)).screens;
     app.push(first!);
     press({ kind: "enter" }); press({ kind: "enter" });                            // skip the dialling, then log on
     expect((app.describe() as any).stack).toEqual(["main menu", "daily brief"]);

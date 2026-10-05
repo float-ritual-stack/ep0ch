@@ -14,7 +14,9 @@ import { ch, isUp, isDown, type Key } from "./term";
 import { heatmap } from "./stats";
 import { Showcase } from "./showcase/showcase";
 import { openScreen } from "./desk/screen-specs";
-import { screenNames } from "./desk/screen-spec";
+import { screenNames, screenTargetArg } from "./desk/screen-spec";
+import { namesOutline, parseAddressedBlock } from "@ep0ch/outline-core/addressable-resource";
+import { canonicalLocalMachineName } from "./machine-name";
 import { bbsDate, rule, wrap } from "./text";
 import { NOTE_ACTIONS, NoteSurface, type HeaderInfo, type SurfaceHost } from "./surface/note";
 import { shellRunner } from "./drop";
@@ -154,8 +156,8 @@ export class Logon implements Screen {
   readonly noDock = true;
   private shown = 0;
   private readonly script: string[];
-  /** `then`: a screen opened over the main menu after the logon (EP0CH_LANDING=brief: the daily brief; welcome: the welcome notes). */
-  constructor(ctx: Ctx, private readonly then?: () => Screen) {
+  /** `then`: the screen opened over the main menu after the logon (EP0CH_LANDING's name), through `screen.open`. */
+  constructor(ctx: Ctx, private readonly then?: { name: string; target?: string }) {
     this.script = [
       `ATDT ${ctx.host}`,
       "",
@@ -196,8 +198,9 @@ export class Logon implements Screen {
     if (k.kind === "enter" || k.kind === "char") {
       const total = this.script.join("\n").length + 40;
       if (this.shown < total) { this.shown = total; ctx.redraw(); return; }
-      ctx.replace(new MainMenu());
-      if (this.then) ctx.push(this.then());
+      const menu = new MainMenu();
+      ctx.replace(menu);
+      if (this.then) shellKey("screen.open", { name: this.then.name, ...(this.then.target ? { target: this.then.target } : {}) }, menu, ctx);
     }
   }
 }
@@ -396,6 +399,29 @@ function itemNamed(name: string): MenuItem | undefined {
   const n = name.trim().toLowerCase();
   return ITEMS.find(i => i.key.toLowerCase() === n) ?? ITEMS.find(i => i.label.toLowerCase() === n || SCREEN_NAMES[i.key]?.includes(n));
 }
+/** Whether `screen.open` (and `ep0ch --screen`) knows `name`: a menu item by any of its names, or a registered screen. */
+export const knownScreen = (name: string): boolean => !!itemNamed(name) || screenNames().includes(name);
+
+/** The refusal for a screen nobody knows: the names there are, and the command to try. */
+export function unknownScreen(name: string): string {
+  const names = [...new Set([...screenNames(), ...ITEMS.filter(i => !i.action).map(i => i.label.toLowerCase())])];
+  return `no screen ${JSON.stringify(name)} · screens: ${names.join(", ")} · try ep0ch --screen ${screenNames()[0] ?? "desk"} (screen.list says what each takes)`;
+}
+
+/**
+ * A block target (detail's): an id, `((ref))` or an ep0ch:// URI, through outline-core's one parser; a URI must name
+ * this door's outline. Refused when the outline has no such block.
+ */
+async function blockTarget(given: string, ctx: Ctx): Promise<string> {
+  let parsed;
+  try { parsed = parseAddressedBlock(given.trim()); } catch (e) { throw new ActionRefused((e as Error).message); }
+  if ("outline" in parsed && ctx.outline && !namesOutline(parsed, { outline: ctx.outline, machine: ctx.machine ?? canonicalLocalMachineName() })) {
+    throw new ActionRefused(`that URI names ${parsed.outline} on ${parsed.machine}, but this door is ${ctx.outline} on ${ctx.machine ?? canonicalLocalMachineName()} · ep0ch --screen detail ${given.trim()} opens a door there`);
+  }
+  if (!(await ctx.board.get(parsed.blockId))) throw new ActionRefused(`no block ${parsed.blockId}`);
+  return parsed.blockId;
+}
+
 /** Other names for what a menu item opens: its screen's title and the words the README uses. */
 const SCREEN_NAMES: Record<string, string[]> = {
   N: ["new scan", "newscan"], J: ["join conference", "conferences"], K: ["kanban", "board"], R: ["recent"], W: ["who's online", "who"],
@@ -422,18 +448,29 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
     },
   }),
   "screen.open": def({
-    summary: "open a screen from the main menu or a named screen spec over the current one (q comes back); an agent's waits until the person is idle and is said on the status bar", keys: "the menu's letters N J K R W L F S Q B D G X T O C E +, or n j k r w l f s q b d g x t o c e, ⏎, click on a menu item or its letter on the key line",
+    summary: "open a screen by name over the current one (q comes back): a menu item, or any registered screen (screen.list names them), with its target where it takes one (detail: a block id, ((ref)) or ep0ch:// URI; board: a hub id). `ep0ch --screen <name> [<target>]` opens the door on it through this action. An agent's waits until the person is idle and is said on the status bar", keys: "the menu's letters N J K R W L F S Q B D G X T O C E +, or n j k r w l f s q b d g x t o c e, ⏎, click on a menu item or its letter on the key line",
     touches: "screen", replay: "safe", says: out => (out?.opened ? { text: `· opened ${out.opened} · q goes back`, ms: 6000 } : null),
-    args: { name: { type: "string", about: "the menu key (S), its label (Stats), the screen's title, or a registered screen name" }, note: { type: "string", optional: true, about: "block id to show when opening the detail screen" } },
-    async run({ name, note }, { ctx, here, again }, actor): Promise<unknown> {
-      const item = itemNamed(name);
+    args: {
+      name: { type: "string", about: "the menu key (S), its label (Stats), the screen's title, or a registered screen name (screen.list)" },
+      target: { type: "string", optional: true, about: "what the screen opens on, where it takes one: detail's block (an id, ((ref)) or ep0ch:// URI), the board's hub" },
+      note: { type: "string", optional: true, about: "detail's block: target= by its old name" },
+    },
+    async run({ name, note, target }, { ctx, here, again }, actor): Promise<unknown> {
+      const given = target ?? note;
+      // A registered screen with a target opens on it; else the menu's item by that name comes first (its lit item,
+      // its "already open"), then a registered screen.
+      const registered = screenNames().includes(name);
+      const item = given !== undefined && registered ? undefined : itemNamed(name);
       if (!item) {
-        if (!screenNames().includes(name)) throw new ActionRefused(`no screen ${JSON.stringify(name)}; screens: ${screenNames().join(", ")}`);
-        if (name === "detail" && typeof note === "string" && !(await ctx.board.get(note))) throw new ActionRefused(`no block ${note}`);
-        const s = openScreen(name, typeof note === "string" ? { note } : {});
+        if (!registered) throw new ActionRefused(unknownScreen(name));
+        const arg = screenTargetArg(name);
+        if (given !== undefined && !arg) throw new ActionRefused(`the ${name} screen takes no target · ep0ch --screen ${name}`);
+        const value = arg === "note" && given ? await blockTarget(given, ctx) : given;
+        const s = openScreen(name, arg && value ? { [arg]: value } : {});
         ctx.push(s);
-        return { opened: s.title, screen: name };
+        return { opened: s.title, screen: name, ...(value ? { target: value } : {}) };
       }
+      if (given !== undefined) throw new ActionRefused(`${item.label} takes no target · ep0ch --screen ${name}`);
       // Logging off is the person's G alone (an agent's never ends their session).
       if (item.key === "G" && actor.kind === "agent") throw new ActionRefused("an agent doesn't log the person off; only G, pressed or clicked by them, does");
       // An item that is another action's key (the Shell's !) runs that action, through the dispatcher, as the same actor.
@@ -566,11 +603,15 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
     },
   }),
   "screen.list": def({
-    summary: "the screens the menu opens (key, label, what it is) and the stack the person is on, bottom first",
+    summary: "the screens the menu opens (key, label, what it is), every registered screen by name (what `ep0ch --screen <name>` and screen.open take, and what a target fills), and the stack the person is on, bottom first",
     touches: "nothing", replay: "safe",
     args: {},
     run(_, { ctx }) {
-      return { stack: (ctx.screens?.() ?? []).map(s => s.title), screens: ITEMS.map(i => ({ key: i.key, label: i.label, about: HELP[i.key] ?? "" })) };
+      return {
+        stack: (ctx.screens?.() ?? []).map(s => s.title), screens: ITEMS.map(i => ({ key: i.key, label: i.label, about: HELP[i.key] ?? "" })),
+        // Every registered screen (`ep0ch --screen <name>`), with the argument its target fills.
+        named: screenNames().map(name => ({ name, ...(screenTargetArg(name) ? { target: screenTargetArg(name) } : {}) })),
+      };
     },
   }),
 });

@@ -10,7 +10,7 @@ import { Desk } from "../src/desk/desk";
 import { ReaderPane } from "../src/desk/panes";
 import { MainMenu } from "../src/screens";
 import { SocketBoard } from "../src/socket";
-import { landingOf, startScreens } from "../src/start";
+import { landingOf, startScreens, type ScreenRequest } from "../src/start";
 import type { Key } from "../src/term";
 import { outliner, Scratch, until } from "./scratch";
 
@@ -54,11 +54,11 @@ describe("the logo band", () => {
 });
 
 describe("where the door opens", () => {
-  const logon = (then?: () => Screen) => ({ title: then ? `logon, then ${then().title}` : "logon" }) as Screen;
-  test("--welcome opens it over the main menu; EP0CH_LANDING=welcome lands there after the logon", () => {
-    expect(startScreens(["--welcome"], {}, logon).map(x => x.name ?? x.constructor)).toEqual([MainMenu, "welcome"]);
-    expect(startScreens([], { EP0CH_LANDING: "welcome" }, logon).map(x => x.title)).toEqual(["logon, then welcome"]);
-    expect(landingOf({ EP0CH_LANDING: " Welcome " })).toBe("welcome");
+  const logon = (then?: ScreenRequest) => ({ title: then ? `logon, then ${then.name}` : "logon" }) as Screen;
+  test("--screen welcome opens it over the main menu; EP0CH_LANDING=welcome lands there after the logon", () => {
+    expect(startScreens(["--screen", "welcome"], {}, logon)).toEqual({ screens: [expect.any(MainMenu)], open: { name: "welcome" } });
+    expect(startScreens([], { EP0CH_LANDING: "welcome" }, logon).screens.map(x => x.title)).toEqual(["logon, then welcome"]);
+    expect(landingOf({ EP0CH_LANDING: " welcome " })).toEqual({ name: "welcome" });
   });
 });
 

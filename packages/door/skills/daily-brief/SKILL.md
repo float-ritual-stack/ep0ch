@@ -1,6 +1,6 @@
 ---
 name: daily-brief
-description: Use when an agent drafts or updates the morning daily brief — the one outline note per day (type::daily-brief) that answers "what did I do yesterday, what do I need to do today" and that the ep0ch door opens on (T, --brief, , and . for other days). Covers the sources to read and in what order, the note's sections and live figures, provenance and dates, the word budget, and writing it through the Outliner CLI with revision checks.
+description: Use when an agent drafts or updates the morning daily brief — the one outline note per day (type::daily-brief) that answers "what did I do yesterday, what do I need to do today" and that the ep0ch door opens on (T, --screen brief, , and . for other days). Covers the sources to read and in what order, the note's sections and live figures, provenance and dates, the word budget, and writing it through the Outliner CLI with revision checks.
 ---
 
 # daily-brief: the morning brief
@@ -8,7 +8,7 @@ description: Use when an agent drafts or updates the morning daily brief — the
 The brief is the welcoming coffee shop before heads-down work: one short note per day that says what
 happened yesterday and what today needs. An agent drafts its prose once in the morning. Everything that
 counts or lists work is a **live figure** that asks the outline on every render, so the brief never
-goes stale where it matters. The door shows the newest brief (`ep0ch --brief`, or `T` on the main
+goes stale where it matters. The door shows the newest brief (`ep0ch --screen brief`, or `T` on the main
 menu), and `,` / `.` step to the previous and next day.
 
 The design and a worked prototype hang under PIE-435 in the roadmap. Read them once.

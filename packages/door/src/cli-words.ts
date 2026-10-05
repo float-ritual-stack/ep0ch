@@ -12,15 +12,31 @@ const KNOWN = new Set<string>(COMMANDS);
 const FREE_TEXT = new Set(["find", "show", "new", "open", "act", "export", "snap", "try", "view"]);
 
 /**
- * The door's flags (main.ts's USAGE): `value` takes one, `optional` may (`--board [<hub-id>]`), `none` takes none;
- * `rest`: what follows is another's to read (`--remote`'s door flags go to that machine, `--skill`'s to skillCommand).
+ * The door's flags (main.ts's USAGE): `value` takes one, `none` takes none; `--screen` takes a name and maybe a
+ * target; `rest`: what follows is another's to read (`--remote`'s door flags go to that machine, `--skill`'s to
+ * skillCommand).
  */
-const DOOR_FLAGS: Record<string, "value" | "optional" | "none" | "rest"> = {
-  "--ws": "value", "--machine": "value", "--layout": "value", "--board": "optional",
-  "--create": "none", "--no-create": "none", "--here": "none", "--desk": "none", "--river": "none", "--brief": "none", "--welcome": "none",
-  "--screen": "value", "--json": "none", "--showcase": "none", "--reset": "none", "--no-daemon": "none", "--daemon": "none",
+const DOOR_FLAGS: Record<string, "value" | "none" | "rest" | "screen"> = {
+  "--ws": "value", "--machine": "value", "--layout": "value",
+  "--create": "none", "--no-create": "none", "--here": "none",
+  "--screen": "screen", "--json": "none", "--showcase": "none", "--reset": "none", "--no-daemon": "none", "--daemon": "none",
   "--remote": "rest", "--skill": "rest",
 };
+
+/**
+ * The landing flags `--screen <name> [<target>]` replaced (one version: no aliases). Each is refused with the exact
+ * command; `--board`'s hub is its target.
+ */
+const RETIRED: Record<string, string> = { "--board": "board", "--desk": "desk", "--river": "river", "--brief": "brief", "--welcome": "welcome" };
+
+/** `--screen <name> [<target>]` in `args`: the name, and the target when one follows (not another flag). */
+export function screenArg(args: readonly string[]): { name: string; target?: string } | null {
+  const at = args.indexOf("--screen");
+  if (at < 0) return null;
+  const name = args[at + 1], target = args[at + 2];
+  if (name === undefined || name.startsWith("-")) return null;
+  return { name, ...(target !== undefined && !target.startsWith("-") ? { target } : {}) };
+}
 const HELP = new Set(["--help", "-h"]);
 const LISTS = "ep0ch --help lists them all";
 
@@ -70,13 +86,14 @@ export function checkWords(argsIn: readonly string[]): { help: string } | { erro
   for (let i = 0; i < args.length; i++) {
     const a = args[i]!, kind = DOOR_FLAGS[a.startsWith("--no-create=") ? "--no-create" : a];
     if (kind === "rest") return null;
-    if (a === "--screen") {
-      const name = args[i + 1], target = args[i + 2];
-      if (name === undefined || name.startsWith("-")) return { error: "--screen needs a screen name (detail) · ep0ch --screen detail <ep0ch://...> · " + LISTS };
-      if (name !== "detail") return { error: `--screen supports detail, not ${JSON.stringify(name)} · ${LISTS}` };
-      if (target === undefined || target.startsWith("-")) return { error: "--screen detail needs a canonical URI · ep0ch --screen detail <ep0ch://...> · " + LISTS };
-      if (!target.startsWith("ep0ch://")) return { error: "--screen detail takes a canonical ep0ch:// URI · " + LISTS };
-      i += 2;
+    if (RETIRED[a]) {
+      const v = args[i + 1], hub = a === "--board" && v !== undefined && !v.startsWith("-") ? ` ${v}` : "";
+      return { error: `${a} is gone: ep0ch --screen ${RETIRED[a]}${hub} · --screen <name> [<target>] opens any screen by name` };
+    }
+    if (kind === "screen") {
+      const name = args[i + 1];
+      if (name === undefined || name.startsWith("-")) return { error: "--screen needs a screen's name · ep0ch --screen board, ep0ch --screen detail <ep0ch://...> · ep0ch act screen.list names them" };
+      i += args[i + 2] !== undefined && !args[i + 2]!.startsWith("-") ? 2 : 1;
       continue;
     }
     if (kind === "none") continue;
@@ -86,7 +103,6 @@ export function checkWords(argsIn: readonly string[]): { help: string } | { erro
       i++;
       continue;
     }
-    if (kind === "optional") { if (args[i + 1] !== undefined && !args[i + 1]!.startsWith("-")) i++; continue; }
     if (a.startsWith("-")) {
       const near = closest(a, Object.keys(DOOR_FLAGS));
       return { error: `no flag "${a}"${near ? ` · did you mean: ${near}` : ""} · ${LISTS}` };
@@ -115,15 +131,15 @@ export function usageFor(usage: string, command: string): string {
 }
 
 /**
- * The door's arguments for `--screen detail <uri>`: the URI's outline as `--ws`, its machine as `--here` or
+ * The door's arguments for `--screen <name> <uri>`: the URI's outline as `--ws`, its machine as `--here` or
  * `--machine` (none when EP0CH_SOCKET names the host outright: a test door's scratch host stays its host), and the
  * block id in place of the URI. A URI never makes an outline (PIE-545's mayCreate): `--no-create`, so one nobody has
  * is refused with the commands, and a `--create` beside it is dropped.
  */
-export function screenDetailArgs(args: readonly string[], uri: { outline: string; machine: string; blockId: string }, o: { local: boolean; socket: boolean }): string[] {
+export function screenUriArgs(args: readonly string[], uri: { outline: string; machine: string; blockId: string }, o: { local: boolean; socket: boolean }): string[] {
   const drop = new Set(["--ws", "--machine"]);
   const rest = args.filter((a, i) => a !== "--here" && a !== "--create" && !a.startsWith("--no-create") && !drop.has(a) && !drop.has(args[i - 1] ?? ""));
   const at = rest.indexOf("--screen");
   const where = o.socket ? [] : o.local ? ["--here"] : ["--machine", uri.machine];
-  return [...rest.slice(0, at), "--ws", uri.outline, ...where, "--no-create", "--screen", "detail", uri.blockId, ...rest.slice(at + 3)];
+  return [...rest.slice(0, at), "--ws", uri.outline, ...where, "--no-create", "--screen", rest[at + 1]!, uri.blockId, ...rest.slice(at + 3)];
 }

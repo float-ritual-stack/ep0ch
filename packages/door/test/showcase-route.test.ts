@@ -10,6 +10,6 @@ describe("ep0ch --showcase", () => {
     expect(showcaseTry(["--no-daemon", "--ws", "showcase", "--showcase"])).toBeNull();
   });
   test("anything else is not the showcase", () => {
-    expect(showcaseTry(["--desk"])).toBeNull();
+    expect(showcaseTry(["--screen", "desk"])).toBeNull();
   });
 });
