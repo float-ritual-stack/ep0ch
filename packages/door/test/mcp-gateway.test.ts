@@ -116,6 +116,7 @@ describe.skipIf(!outliner)("ep0ch mcp serve --http", () => {
       await token({ key: other }),
       await token({ aud: "https://elsewhere.example.test/mcp" }),
       await token({ aud: null }),
+      await token({ aud: `${RESOURCE}/` }),
       await token({ iss: "https://another-clerk.example.test" }),
       await token({ typ: "JWT" }),
       await token({ exp: "-5m" }),
@@ -156,6 +157,9 @@ describe.skipIf(!outliner)("ep0ch mcp serve --http", () => {
     expect((await call(null, { method: "GET" })).status).toBe(405);
     const malformed = await fetch(gateway.url, { method: "POST", headers: { Authorization: `Bearer ${await token()}`, "Content-Type": "application/json" }, body: "{not json" });
     expect(malformed.status).toBe(400);
+    const batch = Array.from({ length: 17 }, (_, i) => ({ jsonrpc: "2.0", id: i, method: "ping" }));
+    expect((await call(batch)).status).toBe(400);
+    expect((await call(batch.slice(0, 2))).status).toBe(200);
   });
 
   test("an allowed token on an outline granted read reads it, by URI and by outline name", async () => {

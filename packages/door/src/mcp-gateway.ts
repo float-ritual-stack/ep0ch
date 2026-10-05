@@ -14,6 +14,8 @@ import { OUTLINE_NAME } from "./socket";
 
 export const DEFAULT_GATEWAY_PORT = 8792;
 const MAX_BODY = 1024 * 1024;
+/** Requests answered at once; the rest wait their turn. */
+const MAX_INFLIGHT = 4;
 
 /** What the gateway checks a token against. `keys`: the issuer's JWKS (a local set under test). */
 export interface BearerPolicy {
@@ -61,7 +63,8 @@ export async function verifyBearer(authorization: string | null, policy: BearerP
     return { ok: false, status: 401, error: "invalid_token", description: "the access token is invalid or expired" };
   }
   const audiences = payload.aud === undefined ? [] : [payload.aud].flat();
-  if (!audiences.some(a => typeof a === "string" && trimSlash(a) === trimSlash(policy.resource))) {
+  // Exactly this resource: `/mcp` and `/mcp/` are different resources.
+  if (!audiences.includes(policy.resource)) {
     log(`mcp gateway: token refused: aud ${JSON.stringify(payload.aud ?? null)} isn't ${policy.resource} (Clerk: aud_claim_enabled must be on)`);
     return { ok: false, status: 401, error: "invalid_token", description: "the access token is for another resource" };
   }
@@ -122,6 +125,7 @@ export function machineOutlines(defaultOutline?: string, log: (line: string) => 
     kind: "remote",
     machine,
     ...(defaultOutline ? { defaultOutline } : {}),
+    internalError(e: Error) { log(`mcp gateway: internal error: ${e.message}`); return "internal error (the gateway's log has it)"; },
     async board(named?: NamedOutline) {
       const name = named?.outline ?? defaultOutline;
       if (!name) return { error: `Name the outline: an outline on ${machine}.` };
@@ -154,8 +158,8 @@ export function startGateway(opts: {
 }): Gateway {
   const { config, outlines } = opts;
   const log = opts.log ?? console.error;
-  const resource = trimSlash(config.resource.href);
-  const mcpPath = trimSlash(config.resource.pathname) || "/";
+  const resource = config.resource.href;
+  const mcpPath = config.resource.pathname;
   const metadataPath = `/.well-known/oauth-protected-resource${mcpPath === "/" ? "" : mcpPath}`;
   const metadataUrl = `${config.resource.origin}${metadataPath}`;
   const policy: BearerPolicy = {
@@ -181,6 +185,15 @@ export function startGateway(opts: {
     bearer_methods_supported: ["header"],
     scopes_supported: ["profile", "offline_access"],
     resource_name: "ep0ch",
+  };
+
+  let inflight = 0;
+  const waiting: (() => void)[] = [];
+  const turn = async <T>(work: () => Promise<T>): Promise<T> => {
+    if (inflight >= MAX_INFLIGHT) await new Promise<void>(resolve => waiting.push(resolve));
+    else inflight++;
+    try { return await work(); }
+    finally { const next = waiting.shift(); if (next) next(); else inflight--; }
   };
 
   const server = Bun.serve({
@@ -209,7 +222,7 @@ export function startGateway(opts: {
       if (req.method !== "POST") return json(405, { error: "method not allowed" }, { Allow: "POST" });
       const body = await req.text();
       if (body.length > MAX_BODY) return json(413, { error: "request too large" });
-      const answer = await answerMcp(outlines, body);
+      const answer = await turn(() => answerMcp(outlines, body));
       if (answer?.methods.length) log(`mcp gateway: ${verdict.sub} ${answer.methods.join(", ")}`);
       if (!answer) return json(400, { jsonrpc: "2.0", id: null, error: { code: -32600, message: "empty request" } });
       if (answer.malformed) return json(400, answer.reply);

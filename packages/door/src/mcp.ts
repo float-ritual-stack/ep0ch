@@ -41,6 +41,8 @@ export interface McpOutlines {
   board(named?: NamedOutline): Promise<Board | { error: string }>;
   /** The outline a find or bare ref reads when none is named, if this server has one. */
   defaultOutline?: string;
+  /** What a caller is told of an unexpected failure (the gateway logs it and says less); else its message. */
+  internalError?: (e: Error) => string;
 }
 
 /** The stdio server's outlines: the one board it was started on. */
@@ -324,10 +326,13 @@ async function responseFor(outlines: McpOutlines, req: ParsedMessage): Promise<u
   if (req.id === undefined) return null;
   try { return { jsonrpc: "2.0", id: req.id, result: await resultFor(outlines, req) }; }
   catch (e) {
-    const code = e instanceof RpcError ? e.code : -32603;
-    return responseError(req.id, code, (e as Error).message);
+    if (e instanceof RpcError) return responseError(req.id, e.code, e.message);
+    return responseError(req.id, -32603, outlines.internalError?.(e as Error) ?? (e as Error).message);
   }
 }
+
+/** The most messages one batch may carry. */
+export const MAX_BATCH = 16;
 
 /** What answering one JSON-RPC message (or batch) asked for: `methods` for a log line, `malformed` for a bad body. */
 export interface McpAnswer { reply: unknown | null; methods: string[]; malformed?: boolean }
@@ -340,8 +345,10 @@ export async function answerMcp(outlines: McpOutlines, text: string): Promise<Mc
   const parsed = parseRequest(text);
   if (!parsed) return null;
   if ("parseError" in parsed) return { reply: responseError(null, -32700, parsed.parseError), methods: [], malformed: true };
+  if (parsed.length > MAX_BATCH) return { reply: responseError(null, -32600, `A batch carries at most ${MAX_BATCH} messages.`), methods: [], malformed: true };
   const methods = parsed.flatMap(req => "method" in req && req.method ? [req.method === "tools/call" ? `tools/call ${String(objectFields(req.params)?.name ?? "")}` : req.method] : []);
-  const responses = (await Promise.all(parsed.map(req => responseFor(outlines, req)))).filter((r): r is unknown => r !== null);
+  const responses: unknown[] = [];
+  for (const req of parsed) { const r = await responseFor(outlines, req); if (r !== null) responses.push(r); }
   return { reply: responses.length ? (parsed.length === 1 ? responses[0] : responses) : null, methods };
 }
 
