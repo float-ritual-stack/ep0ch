@@ -255,6 +255,7 @@ export class SessionTerm implements Display {
     const now = Date.now();
     return this.clients.map(c => ({
       id: c.id, pid: c.hello.pid, ...(c.hello.tty ? { tty: c.hello.tty } : {}), ...(c.hello.nest ? { nest: c.hello.nest } : {}),
+      ...(c.hello.clientHost ? { clientHost: c.hello.clientHost } : {}),
       cols: c.info.cols, rows: c.info.rows, video: c.painter.video, active: c === this.active, watch: c.watch,
       since: c.since, idle: c.lastInput ? now - c.lastInput : now - c.since, away: c.away,
     }));

@@ -5,8 +5,8 @@
 // one byte of type, four of length (big-endian), then the payload, UTF-8: raw text for `input` and `output`, JSON
 // for the rest.
 
-/** Bumped when a message changes shape: a client and a daemon of different protocols say so instead of guessing. 2: sessions are per outline (SessionInfo.place and .dir; Hello.target gone). */
-export const PROTOCOL = 2;
+/** Bumped when a message changes shape: a client and a daemon of different protocols say so instead of guessing. 3: clients can name their host pane (`clientHost`). 2: sessions are per outline (SessionInfo.place and .dir; Hello.target gone). */
+export const PROTOCOL = 3;
 
 /** The largest frame either side takes: well above a screen of Kitty uploads, small enough to bound memory. */
 export const FRAME_LIMIT = 64 << 20;
@@ -19,6 +19,8 @@ export interface Hello {
   kitty: boolean;
   /** The client's process, and where it runs (its tty, `EP0CH_NEST`): `session list` and `peek` say which is which. */
   pid: number; tty?: string; nest?: string;
+  /** The client application's own host pane, when there is one (for example Tern), independent of the terminal/daemon. */
+  clientHost?: { kind: string; pane: string };
   /** The door's arguments as typed (`--board`, `--ws pie`): the session says what it didn't apply. */
   args?: string[];
   /** Read-only: shown the session, never given the person's keys (an agent watching, a second screen). */
@@ -45,7 +47,7 @@ export interface SessionInfo {
   host?: number;
 }
 
-export interface ClientInfo { id: number; pid: number; tty?: string; nest?: string; cols: number; rows: number; video: string; active: boolean; watch: boolean; since: number; idle: number; away: string | null }
+export interface ClientInfo { id: number; pid: number; tty?: string; nest?: string; clientHost?: { kind: string; pane: string }; cols: number; rows: number; video: string; active: boolean; watch: boolean; since: number; idle: number; away: string | null }
 
 /** Client → daemon. */
 export type ClientMsg =

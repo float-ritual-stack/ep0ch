@@ -18,6 +18,7 @@ import { Mirror } from "../src/mirror";
 import { Draft } from "../src/edit";
 import { openInEditor } from "../src/surface/editor";
 import { SocketBoard } from "../src/socket";
+import { canonicalLocalMachineName } from "../src/notes-cli";
 import { encode, Frames, PROTOCOL, type ClientMsg, type DaemonMsg, type Hello } from "../src/session/protocol";
 import { SessionTerm, type Link } from "../src/session/session-term";
 import { doorMode, runEnv } from "../src/session/client";
@@ -32,6 +33,7 @@ import { USER } from "../src/socket";
 import { localPtys, usePtyBackend } from "../src/desk/pty-backend";
 import { mouseBytes, PtyPane } from "../src/desk/pty";
 import { outliner, Scratch, ScratchHost, until } from "./scratch";
+import { formatEp0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
 
 const plain = (s: string) => s.replace(/\x1b\[[\d;?]*[A-Za-z]/g, "").replace(/\x1b\][^\x07\x1b]*(\x07|\x1b\\)/g, "").replace(/[\u{100000}-\u{10FFFD}]/gu, "");
 
@@ -178,12 +180,12 @@ describe("two clients on one session", () => {
   test("the first client to attach has the keys; the session is drawn at its size", () => {
     const { term, paint } = session();
     const a = fakeLink(100, 30);
-    term.attach(a.link, hello(100, 30));
+    term.attach(a.link, hello(100, 30, { clientHost: { kind: "tern", pane: "pane-7" } }));
     paint();
     expect(term.info.cols).toBe(100);
     expect(a.text()[0]).toBe("row 0 of 100×30");
     expect(a.text()[29]).toContain("plot board");          // the status bar
-    expect(term.list()).toMatchObject([{ cols: 100, rows: 30, active: true }]);
+    expect(term.list()).toMatchObject([{ cols: 100, rows: 30, active: true, clientHost: { kind: "tern", pane: "pane-7" } }]);
   });
 
   test("with no terminal attached nothing is rendered; peek, an act and the next terminal to attach get the frame drawn now", () => {
@@ -954,7 +956,7 @@ describe.skipIf(!outliner)("one session per outline, two at once", () => {
   let host: ScratchHost;
   const saved: Record<string, string | undefined> = {};
   const env = (k: string, v: string | undefined) => { if (!(k in saved)) saved[k] = process.env[k]; if (v === undefined) delete process.env[k]; else process.env[k] = v; };
-  let garden: Place, orchard: Place, none = "";
+  let garden: Place, orchard: Place, none = "", gardenNote = "";
   const cli = async (...args: string[]) => {
     const p = Bun.spawn(["bun", join(import.meta.dir, "../src/main.ts"), ...args], { cwd: none, env: process.env as Record<string, string>, stdin: "ignore", stdout: "pipe", stderr: "pipe" });
     const [out, err] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text()]);
@@ -980,6 +982,9 @@ describe.skipIf(!outliner)("one session per outline, two at once", () => {
     env("EP0CH_WS", undefined); env("EP0CH_SOCKET", undefined); env("EP0CH_CONTROL", undefined);
     garden = placeFor(["--ws", "garden"], process.env, none) as Place;
     orchard = placeFor(["--ws", "orchard"], process.env, none) as Place;
+    const board = new SocketBoard(host.sock, undefined, "garden");
+    gardenNote = (await board.request<{ id: string }>("create", { text: "Mint bed\nWater every morning.", author: "agent" })).id;
+    board.close();
     expect(await startSession(garden.dir, ["--ws", "garden", "--desk"])).toEqual({ ok: true });
     expect(await startSession(orchard.dir, ["--ws", "orchard", "--desk"])).toEqual({ ok: true });
   }, 60_000);
@@ -1002,6 +1007,32 @@ describe.skipIf(!outliner)("one session per outline, two at once", () => {
     expect(new Set(running.map(r => r.info.pid)).size).toBe(2);
     expect((await control(garden.dir, { cmd: "peek" })).screen.outline ?? (await infoOn(sessionSocket(garden.dir)))!.outline.outline).toBe("garden");
     expect((await infoOn(sessionSocket(orchard.dir)))!.outline.outline).toBe("orchard");
+  });
+
+  test("open accepts a canonical URI and routes it to the matching outline's door", async () => {
+    const uri = formatEp0chBlockUri({ outline: "garden", machine: canonicalLocalMachineName(), blockId: gardenNote });
+    const r = await cli("open", uri, "--json");
+    expect([r.code, JSON.parse(r.out).opened]).toEqual([0, true]);
+    const gardenText = (await control(garden.dir, { cmd: "peek" })).text.join("\n");
+    expect(gardenText).toContain("Mint bed");
+    expect((await control(orchard.dir, { cmd: "peek" })).text.join("\n")).not.toContain("Mint bed");
+  });
+
+  test("an explicit control socket refuses a URI for another outline", async () => {
+    const uri = formatEp0chBlockUri({ outline: "garden", machine: canonicalLocalMachineName(), blockId: gardenNote });
+    const p = Bun.spawn(["bun", join(import.meta.dir, "../src/main.ts"), "open", uri, "--json"], {
+      cwd: none,
+      env: { ...(process.env as Record<string, string>), EP0CH_CONTROL: join(orchard.dir, "door.sock") },
+      stdin: "ignore",
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const out = await new Response(p.stdout).text();
+    expect(await p.exited).toBe(0);
+    const result = JSON.parse(out);
+    expect(result.opened).toBe(false);
+    expect(result.reason).toContain("that URI names garden");
+    expect(result.reason).toContain("but this door is orchard");
   });
 
   test("attaching names the outline: each terminal gets its own outline's session, and each desk saves in its own folder", async () => {

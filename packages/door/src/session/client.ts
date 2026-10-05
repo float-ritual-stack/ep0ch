@@ -307,6 +307,7 @@ export async function attach(path: string, o: { args?: string[]; watch?: boolean
   const hello: Hello = {
     proto: PROTOCOL, ...term.info, pid: process.pid,
     ...(ttyName() ? { tty: ttyName()! } : {}), ...(process.env.EP0CH_NEST ? { nest: process.env.EP0CH_NEST } : {}),
+    ...(process.env.TERN_PANE ? { clientHost: { kind: "tern", pane: process.env.TERN_PANE } } : {}),
     args: o.args ?? [], ...(o.watch ? { watch: true } : {}),
   };
   send({ t: "hello", hello });

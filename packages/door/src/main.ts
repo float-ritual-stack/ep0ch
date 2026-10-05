@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 // ep0ch-door: a BBS door into a pi-herdr-outliner outline, over its socket.
+import { hostname } from "node:os";
 import { join } from "node:path";
 import { SocketBoard } from "./socket";
 import { Term } from "./term";
@@ -11,13 +12,15 @@ import { Mirror } from "./mirror";
 import { whereCommand } from "./where";
 import { connectTarget, guardDoor, homeBase, openDoor, writeLastCall, type Door } from "./door";
 import { attachDoor, doorMode, sessionCommand } from "./session/client";
+import { placeOf } from "./session/place";
 import { forwardTo, remoteDoor, remoteOf } from "./machine";
-import { findCommand, NOTES_USAGE, showCommand } from "./notes-cli";
+import { canonicalLocalMachineName, findCommand, NOTES_USAGE, showCommand } from "./notes-cli";
 import { EXPORT_USAGE } from "./export";
 import { NEW_USAGE, newCommand } from "./new-cli";
 import { VIEW_USAGE, viewCommand } from "./view-cli";
 import { showcaseTry } from "./showcase/route";
 import { checkWords, usageFor } from "./cli-words";
+import { parseEp0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
 import { colourOnlyToATerminal } from "@ep0ch/outliner/plain-stderr";
 // Piped stderr stays plain: the Claude mod, door-open and tests parse these refusals.
 colourOnlyToATerminal();
@@ -100,10 +103,10 @@ ${VIEW_USAGE}
 ${EXPORT_USAGE}
   ep0ch clients [--ws <name>] [--machine <ssh-name>]
                                    who is connected to the service, every role (observers too)
-  ep0ch peek | actions | snap <png> | open <id> | act <action> [key=value ...]
+  ep0ch peek | actions | snap <png> | open <id|ep0ch://outline@machine/b/id> [--json] | act <action> [key=value ...]
                                    drive a running door; EP0CH_CONTROL names which one, else the one on
                                    this folder's outline, else the only one running. open <id> is
-                                   act open id=<id>; --as <id> (or EP0CH_AGENT) names the agent
+                                   act open id=<id>; a URI names its outline and machine first; --as <id> (or EP0CH_AGENT) names the agent
   ep0ch where [--json]             where this runs: the stack of layers (EP0CH_NEST: ssh, Herdr, door, tile), each
                                    checked (the door's pid and control socket, the Herdr pane, the tile), and where
                                    the person's keys are. Read-only; "not in a door" outside one
@@ -155,12 +158,26 @@ if (args[0] === "view") process.exit(await viewCommand(args));
 if (args[0] === "export") { const { exportCommand } = await import("./export"); process.exit(await exportCommand(args)); }
 if (args[0] === "where") process.exit(await whereCommand(args.slice(1)));
 if (args[0] === "session") process.exit(await sessionCommand(args.slice(1)));
+if (args[0] === "open" && args[1]?.startsWith("ep0ch://")) {
+  try {
+    const uri = parseEp0chBlockUri(args[1]);
+    const local = uri.machine === canonicalLocalMachineName();
+    if (!process.env.EP0CH_CONTROL) process.env.EP0CH_CONTROL = join(placeOf({ outline: uri.outline, ...(local ? {} : { machine: uri.machine }) }).dir, "door.sock");
+  } catch (e) {
+    console.error(`ep0ch: ${(e as Error).message}`);
+    process.exit(2);
+  }
+}
 if (["peek", "snap", "open", "actions", "act", "subscribe"].includes(args[0] ?? "")) {
   // Which door, when EP0CH_CONTROL names none: the one on the outline this folder names, else the only one running.
   if (!process.env.EP0CH_CONTROL) {
     const { controlFor } = await import("./session/place");
     const at = await controlFor();
-    if (typeof at === "object") { console.error(`ep0ch: ${at.error}`); process.exit(1); }
+    if (typeof at === "object") {
+      if (args[0] === "open" && args.includes("--json")) console.log(JSON.stringify({ opened: false, reason: at.error }));
+      else console.error(`ep0ch: ${at.error}`);
+      process.exit(args[0] === "open" && args.includes("--json") ? 0 : 1);
+    }
     process.env.EP0CH_CONTROL = at;
   }
   process.exit(await controlClient(args));
