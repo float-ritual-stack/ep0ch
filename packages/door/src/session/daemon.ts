@@ -27,6 +27,7 @@ import { serveAs, SessionTerm, type Link, type SessionClient } from "./session-t
 import { encode, Frames, PROTOCOL, type ClientMsg, type DaemonMsg, type SessionInfo } from "./protocol";
 import { startSession, waitFor } from "./start";
 import { screenRequest } from "../start";
+import { parseAddressedBlock } from "@ep0ch/outline-core/addressable-resource";
 import { ep0ch, placeFor, placeLabel, recordPlace, sessionFile, sessionFlags, sessionLock, sessionSocket, type Place } from "./place";
 export { sessionFile, sessionLog, sessionSocket } from "./place";
 
@@ -284,7 +285,7 @@ export async function serve(args: string[]): Promise<never> {
             const asked = screenRequest(h.args ?? []);
             const top = app.screens().at(-1);
             // Already on that screen with that target: nothing to open.
-            const same = !!top && !!asked && top.name === asked.name && (top.openArgs?.()?.target ?? undefined) === asked.target;
+            const same = !!top && !!asked && top.name === asked.name && (top.openArgs?.()?.target ?? undefined) === blockIdOr(asked.target);
             if (asked && !h.watch && !same) {
               appliedScreen = true;
               void app.dispatch.act({ action: "screen.open", args: { ...asked } }, USER).then(
@@ -347,6 +348,12 @@ export const LOCKED = "a session is already running or starting";
 
 /** What a detached client prints once its terminal is back. */
 export const detachedSaying = (place: Pick<Place, "outline" | "machine" | "socket">) => `detached · ${placeLabel(place)}'s session goes on (pid ${process.pid}) · \`${ep0ch(process.env, place)}${sessionFlags({ place })}\` attaches again, \`${ep0ch(process.env, place)}session end ${sessionFlags({ place })}\` ends it`;
+
+/** A target as a screen holds it: a block reference (`((id|label))`, a URI) as its id, anything else as given. */
+function blockIdOr(target: string | undefined): string | undefined {
+  if (!target) return target;
+  try { return parseAddressedBlock(target).blockId; } catch { return target; }
+}
 
 /** The door flags that open a screen: applied when a session starts, not when one is attached to. */
 export function screenFlags(args: readonly string[]): string[] {
