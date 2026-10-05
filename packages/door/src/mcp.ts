@@ -45,6 +45,8 @@ export interface McpOutlines {
   internalError?: (e: Error) => string;
 }
 
+const uriOrName = (named: NamedOutline, machine: string) => named.machine ? `ep0ch://${named.outline}@${named.machine}` : `outline ${named.outline}@${machine}`;
+
 /** The stdio server's outlines: the one board it was started on. */
 export function boundOutlines(board: Board): McpOutlines {
   const bound = board.address;
@@ -55,7 +57,7 @@ export function boundOutlines(board: Board): McpOutlines {
     async board(named) {
       if (!named) return board;
       if (named.outline === bound.outline && (named.machine ?? bound.machine) === bound.machine) return board;
-      return { error: `${named.outline}@${named.machine ?? bound.machine} isn't the outline this MCP server is bound to; it is bound to ${bound.outline}@${bound.machine}` };
+      return { error: `${uriOrName(named, bound.machine)} names ${named.outline}@${named.machine ?? bound.machine}; this MCP server is bound to ${bound.outline}@${bound.machine}` };
     },
   };
 }
