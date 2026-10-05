@@ -138,10 +138,6 @@ describe("ep0ch export's ASCII twin", () => {
     expect(reframeAscii(untitled, 80)).not.toBeNull();
     expect(figureAscii("rank", figureSource(["---", "title: a · b", "---", "- a: 1"]))[0]).toMatch(/^\+-+ \[ A · B \] -+\+$/);
   });
-  test("an unclosed figure keeps its last line", () => {
-    const out = figuresAsAscii(["T", "::graph-rank", "- a: 1", "- b: 2"].join("\n"), "n");
-    expect(out).toMatch(/b\s+\[=+/);
-  });
   test("annotate: a note numbered 0 or far past the rows is placed among them, never a hole of a million", () => {
     const md = (rows: string[]) => annotateMarkdown(parseFigureMarkdown(rows) as any).notes;
     expect(md(["0. zero", "1000000. far"])).toEqual(["zero", "far"]);
@@ -155,10 +151,9 @@ describe("ep0ch export's ASCII twin", () => {
     expect(out.slice(-6)).toEqual(["```", "```", "::graph-rank", "::", "```", "after"]);
     expect(out.filter(l => l === "::graph-rank").length).toBe(1);
   });
-  test("an unclosed figure runs to the note's end: its last line is drawn, not dropped", () => {
-    const out = figuresAsAscii(["Title", "::graph-rank", "- a: 1", "- b: 2"].join("\n"), "n").split("\n");
-    expect(out.join("\n")).toMatch(/\|\s*b\s+\[/);
-    expect(out.at(-1)).toBe("```");
+  test("an unclosed figure is plain text, as Detail and the service's sections read it: exported as written", () => {
+    const text = ["Title", "::graph-rank", "- a: 1", "- b: 2"].join("\n");
+    expect(figuresAsAscii(text, "n")).toBe(text);
   });
 });
 

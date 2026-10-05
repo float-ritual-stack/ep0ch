@@ -1,3 +1,4 @@
+// A copy of outline-core's src/component-block.ts: a hooks module can't import outside the plugin. outline-core's test/component-block.test.ts keeps it identical.
 // Component blocks (Comark's `::name`, `--- yaml ---`, `::`): a figure such as `::graph-stat` or `::links` written
 // into a note. Its lines are the component's question, never Markdown structure: the `---` around its YAML is not
 // a setext underline and a `#` inside is not a heading. Every client that finds a note's headings, sections or

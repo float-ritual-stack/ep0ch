@@ -2,6 +2,9 @@ import { describe, expect, test, tier } from 'claude-code/testing'
 
 import { detailSourceOf, displayMarkdown, EMPTY_HISTORY, exportBodyOf, knowsExport, listed, moved, pushed, routeOf, subtreeMarkdownOf } from '../hooks/detail-view'
 
+// outline-core's test/fixtures/component-notes.ts COMARK_NOTE (a plugin test can't import outside its folder).
+const COMARK_NOTE = ['Comark notes', '::graph-annotate', '```md', '::graph-stat', '---', 'title: Example', '---', '::', '```', '1. the example figure', '::', '', '## Second', '', '::graph-stat', '---', 'title: Open', '---', '::', '', 'after']
+
 tier('user')
 
 const A = { uri: 'pi-outliner://page/a', id: 'a', title: 'A' }
@@ -33,6 +36,13 @@ describe('the detail pane, pure', () => {
     expect(displayMarkdown('Bike shed\nWhere the bikes live.')).toBe('# Bike shed\nWhere the bikes live.')
     expect(displayMarkdown('## Already one')).toBe('## Already one')
     expect(displayMarkdown('Plan\n::graph-table\n---\nquery: "type=x"\n---\n::\nafter')).toBe('# Plan\n```graph-table\n---\nquery: "type=x"\n---\n```\nafter')
+    // Where a figure ends is outline-core's rule (hooks/component-block.ts, a checked copy): a bare `::` in its code
+    // example stays inside a fence longer than the example's.
+    expect(displayMarkdown(COMARK_NOTE.join('\n')).split('\n')).toEqual([
+      '# Comark notes', '````graph-annotate', ...COMARK_NOTE.slice(2, 10), '````', '', '## Second', '',
+      '```graph-stat', ...COMARK_NOTE.slice(15, 18), '```', '', 'after',
+    ])
+    expect(displayMarkdown('T\n::resources jira\ntitle: Around\n::')).toBe('# T\n```resources jira\ntitle: Around\n```')
     // ::links has no closing line: what follows stays Markdown, its references still links.
     const source = detailSourceOf('Hub\n::links\nSee [[Bike shed]].', [], 'ep0ch')
     expect(source.kind === 'source' && source.markdown).toBe('# Hub\n`::links`\nSee [Bike shed](https://pi-outliner.invalid/page/Bike%20shed).')

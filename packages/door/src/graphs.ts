@@ -12,6 +12,7 @@ import { ACCENT, DIM, HI, INK, rowLink, type Props, type RowLink } from "./figur
 export type { RowLink } from "./figures/palette";
 import { setLinksSource } from "./links";
 import type { SocketBoard } from "./socket";
+import type { ComponentBlock } from "@ep0ch/outline-core/component-block";
 
 /**
  * The outline a note's live parts ask (a figure's `query:` or `view:`, the `::links` components) and what repaints
@@ -289,9 +290,9 @@ const KINDS: Record<string, (p: Props, w: number, link?: RowLink, ui?: FigureUI)
 /** Every `::graph-*` kind drawn here (the showcase seed has one of each). */
 export const GRAPH_KINDS: readonly string[] = Object.keys(KINDS);
 
-export function isGraphStart(line: string): string | null {
-  const m = line.match(/^\s*::graph-([a-z-]+)\s*$/);
-  return m ? m[1]! : null;
+/** A component block's figure kind (`::graph-rank` is `rank`), or null when it isn't a live figure (one takes no arguments). */
+export function graphKind(block: ComponentBlock): string | null {
+  return block.args === null && /^graph-./.test(block.name) ? block.name.slice("graph-".length) : null;
 }
 
 /**

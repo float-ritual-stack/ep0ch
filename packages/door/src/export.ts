@@ -18,7 +18,8 @@ import { join } from "node:path";
 import { recordJson, type BlockRecord } from "@ep0ch/outline-core/block-record";
 import { noteFile, type NoteIdentity } from "@ep0ch/outline-core/header-line";
 import { boardFor, selectionOf, selectNotes, selects, type Out } from "./notes-cli";
-import { connectFigures, figureAscii, figureSource, isGraphStart } from "./graphs";
+import { componentBlocks } from "@ep0ch/outline-core/component-block";
+import { connectFigures, figureAscii, figureSource, graphKind } from "./graphs";
 import { liveSettled } from "./live";
 import { titleLine } from "./board";
 import { metadataLines } from "./props";
@@ -94,18 +95,8 @@ export const FIGURE_WIDTH = 60;
  */
 export function figuresAsAscii(text: string, note: string, drawn = text): string {
   const blocks = (t: string) => {
-    const lines = t.split("\n"), out: { kind: string; from: number; to: number }[] = [];
-    let fence = false;
-    for (let i = 0; i < lines.length; i++) {
-      if (/^\s*(```|~~~)/.test(lines[i]!)) { fence = !fence; continue; }
-      const kind = fence ? null : isGraphStart(lines[i]!);
-      if (!kind) continue;
-      let j = i + 1;
-      while (j < lines.length && !/^\s*::\s*$/.test(lines[j]!)) j++;
-      // `to`: its closing `::`, or (unclosed) the line after its last.
-      out.push({ kind, from: i, to: j });
-      i = j;
-    }
+    const lines = t.split("\n");
+    const out = componentBlocks(lines).flatMap(c => { const kind = graphKind(c); return kind ? [{ kind, from: c.start, to: c.end }] : []; });
     return { lines, out };
   };
   const target = blocks(text), source = blocks(drawn);
@@ -119,7 +110,7 @@ export function figuresAsAscii(text: string, note: string, drawn = text): string
     const t = target.out[k]!, s = source.out[k]!;
     const first = s.from === blockLine;
     const ascii = figureAscii(s.kind, figureSource(source.lines.slice(s.from + 1, s.to), note, first), FIGURE_WIDTH);
-    lines.splice(t.from, Math.min(t.to, lines.length - 1) - t.from + 1, "```", ...ascii, "```");
+    lines.splice(t.from, t.to - t.from + 1, "```", ...ascii, "```");
   }
   return lines.join("\n");
 }

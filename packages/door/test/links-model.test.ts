@@ -12,7 +12,7 @@ import { Desk } from "../src/desk/desk";
 import type { BacklinksPane } from "../src/desk/backlinks-pane";
 import type { PreviewPane } from "../src/desk/preview";
 import type { ReaderPane } from "../src/desk/panes";
-import { linkBlockAt, linkBlockLines } from "../src/links";
+import { linkBlockAt } from "../src/links";
 import { presentLinks } from "../src/refs";
 import { DOUBLE_MS, RowPresses, SidewaysWheel, SWIPE_GAP_MS, SWIPE_REPORTS } from "../src/scroll";
 import { KeyDecoder } from "../src/term";
@@ -74,6 +74,7 @@ describe("the inline component's forms", () => {
     expect(linkBlockAt(["::links"], 0)).toEqual({ spec: { kind: "links", of: null, filter: "", title: null }, end: 0 });
     expect(linkBlockAt(["::graph-check"], 0)).toBeNull();
     expect(linkBlockAt(["see ::links here"], 0)).toBeNull();
+    expect(linkBlockAt(["::backlinks\r", "more"], 0)!.spec.kind).toBe("backlinks");
   });
 
   test("a block to its `::`: of, filter, title, groups, or bare words as the filter; Comark's --- lines are skipped", () => {
@@ -82,9 +83,12 @@ describe("the inline component's forms", () => {
     expect(linkBlockAt(lines, 1)).toEqual({ spec: { kind: "resources", of: id, filter: "", title: "Around the plan" }, end: 7 });
     expect(linkBlockAt(["::backlinks", "onion sets", "::"], 0)).toEqual({ spec: { kind: "backlinks", of: null, filter: "onion sets", title: null }, end: 2 });
     expect(linkBlockAt(["::links", "of: nowhere", "::"], 0)!.spec.problem).toContain("of: needs a ((block))");
-    // No `::` before a blank line: the first line alone, and what follows is the note's.
-    expect(linkBlockAt(["::links", "a paragraph", "", "::"], 0)!.end).toBe(0);
-    expect([...linkBlockLines(lines)]).toEqual([1, 2, 3, 4, 5, 6, 7]);
+    // Where it ends is outline-core's component-block rule: a blank line doesn't end it, a heading does (unclosed: the
+    // first line alone, and what follows is the note's); with arguments, a blank line ends it.
+    expect(linkBlockAt(["::links", "a paragraph", "", "::"], 0)!.end).toBe(3);
+    expect(linkBlockAt(["::links", "a paragraph", "## Next", "::"], 0)!.end).toBe(0);
+    expect(linkBlockAt(["::resources jira", "", "::"], 0)!.end).toBe(0);
+    expect(linkBlockAt(["::resources jira", "title: Around", "::"], 0)).toEqual({ spec: { kind: "resources", of: null, filter: "jira", title: "Around" }, end: 2 });
   });
 
   test("its lines are left as typed when links are presented: an of: ((id)) still names the id", () => {

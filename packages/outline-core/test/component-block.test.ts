@@ -1,5 +1,7 @@
 import { expect, test } from "bun:test";
-import { componentBlockAt } from "../src/component-block";
+import { componentBlockAt, componentBlocks } from "../src/component-block";
+import { COMARK_NOTE, COMARK_NOTE_BLOCKS } from "./fixtures/component-notes";
+import * as modCopy from "../../claude-mod/hooks/component-block";
 
 test("a component block runs from its ::name line through its closing ::", () => {
   const figure = "::graph-stat\n---\ntitle: Open\n---\n::\n";
@@ -35,4 +37,24 @@ test("a code fence closes only on its own character, at least as long, so a ~~~ 
   // A closing fence takes no info string.
   const info = "::graph-annotate\n```\n```sh\n# still code\n```\n::\n";
   expect(componentBlockAt(info)).toEqual({ name: "graph-annotate", raw: info });
+});
+
+test("componentBlocks: a bare :: inside a figure's code fence doesn't close it; a heading then a second figure", () => {
+  expect(componentBlocks(COMARK_NOTE)).toEqual(COMARK_NOTE_BLOCKS);
+});
+
+test("componentBlocks: a figure inside a code fence is the code's text; an unclosed opener is plain; one-line args", () => {
+  expect(componentBlocks(["```", "::graph-stat", "::", "```", "::links", "::"])).toEqual([{ name: "links", args: null, start: 4, end: 5 }]);
+  expect(componentBlocks(["::graph-stat", "## Heading", "::graph-rank", "- a: 1", "::"])).toEqual([{ name: "graph-rank", args: null, start: 2, end: 4 }]);
+  expect(componentBlocks(["::resources jira", "", "::links ((abc))"])).toEqual([
+    { name: "resources", args: "jira", start: 0, end: 0 },
+    { name: "links", args: "((abc))", start: 2, end: 2 },
+  ]);
+});
+
+test("the Claude mod's copy (a hooks module can't import outside its plugin) stays this file, and answers the same", async () => {
+  const read = (path: string) => Bun.file(new URL(path, import.meta.url)).text();
+  const [own, copy] = await Promise.all([read("../src/component-block.ts"), read("../../claude-mod/hooks/component-block.ts")]);
+  expect(copy.slice(copy.indexOf("\n") + 1)).toBe(own);
+  expect(modCopy.componentBlocks(COMARK_NOTE)).toEqual(componentBlocks(COMARK_NOTE));
 });

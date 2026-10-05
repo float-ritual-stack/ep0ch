@@ -2,6 +2,7 @@ import type { RenderElement, RenderSurface } from 'claude-code'
 
 import type { DetailEntry, DetailHistory, DetailLink, DetailSource } from '../types'
 import { linkifyReferences } from './references'
+import { COMPONENT_OPEN, componentBlocks } from './component-block'
 
 /**
  * The detail view: where a note opens when neither a door nor Herdr is around
@@ -87,29 +88,30 @@ export function historyOf(value: unknown): DetailHistory {
 /**
  * Markdown as the pane shows it: the note's first line a heading (unless it is
  * one), and each `::component` (a live figure, which only the door draws live)
- * as code: one with a body (`::graph-table` … `::`) fenced under its name, a
- * one-line kind (`::links`, `::backlinks`) as an inline code line.
+ * as code: one with a body (`::graph-table` … `::`, where outline-core's rule
+ * says it ends) fenced under its name, a one-line kind (`::links`,
+ * `::backlinks`) as an inline code line.
  */
 export function displayMarkdown(text: string): string {
   const lines = text.split('\n')
+  const blocks = new Map(componentBlocks(lines).map(c => [c.start, c]))
   const out: string[] = []
-  let inComponent = false
-  lines.forEach((line, i) => {
-    if (i === 0 && line.trim() && !/^#{1,6}\s/.test(line)) return void out.push(`# ${line.trim()}`)
-    const name = !inComponent && /^\s*::([\w-]+)\s*$/.exec(line)?.[1]
-    if (name) {
-      // Fenced only when its closing `::` follows; else it is one line.
-      const closes = lines.slice(i + 1).some(rest => rest.trim() === '::')
-      if (!closes) return void out.push(`\`::${name}\``)
-      inComponent = true
-      return void out.push(`\`\`\`${name}`)
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!
+    if (i === 0 && line.trim() && !/^#{1,6}\s/.test(line)) { out.push(`# ${line.trim()}`); continue }
+    const block = blocks.get(i)
+    if (block && block.end > i) {
+      // Its fence is longer than any inside it, so a code example in the figure stays inside.
+      const body = lines.slice(i + 1, block.end)
+      const longest = Math.max(2, ...body.map(l => /^\s*(`+)/.exec(l)?.[1]!.length ?? 0))
+      const fence = '`'.repeat(longest + 1)
+      out.push(fence + block.name + (block.args ? ` ${block.args}` : ''), ...body, fence)
+      i = block.end
+      continue
     }
-    if (inComponent && line.trim() === '::') {
-      inComponent = false
-      return void out.push('```')
-    }
-    out.push(line)
-  })
+    const open = !block && COMPONENT_OPEN.exec(line.replace(/\r$/, ''))
+    out.push(open && !open[2] ? `\`::${open[1]}\`` : line)
+  }
   return out.join('\n')
 }
 
