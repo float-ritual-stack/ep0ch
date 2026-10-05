@@ -42,7 +42,7 @@ function checkExpressions(sql: string): string[] {
 export function schemaShape(database: Database): SchemaShape {
   const shape: SchemaShape = {};
   const objects = database.query(
-    "SELECT type, name, tbl_name, sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' ORDER BY type, name",
+    "SELECT type, name, tbl_name, sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' AND substr(tbl_name, 1, 12) != '_litestream_' ORDER BY type, name",
   ).all() as Array<{ type: string; name: string; tbl_name: string; sql: string | null }>;
   for (const object of objects) {
     const name = object.name.replaceAll('"', '""');
