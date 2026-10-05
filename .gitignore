@@ -1,2 +1,6 @@
 node_modules
 out
+# The folder's outline (ws = "<name>") is per machine: each clone names its own.
+/.ep0ch
+# Claude Code's worktrees for agents.
+.claude/worktrees/
