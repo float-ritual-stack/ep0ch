@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
 import { afterEach, expect, test } from "bun:test";
-import { copyFileSync, existsSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { importOutline } from "../src/outline-import";
@@ -148,6 +148,19 @@ test("a copied database file has a different outline instance id", () => {
   restored.close();
 });
 
+test("an open that never closed (a crash) gives the next open a new instance id", () => {
+  const path = join(directory(), "outliner.sqlite");
+  const first = new OutlinerStore(path);
+  const id = first.outlineInstanceId;
+  first.close();
+  // What a crash leaves: the record of an open that never said it ended.
+  const record = `${realpathSync(path)}.instance.json`;
+  writeFileSync(record, JSON.stringify({ ...JSON.parse(readFileSync(record, "utf8")), open: true }));
+  const after = new OutlinerStore(path);
+  expect(after.outlineInstanceId).not.toBe(id);
+  after.close();
+});
+
 test("the instance id stays put across reopens, whatever the file's inode or device", () => {
   const root = directory();
   const path = join(root, "outliner.sqlite");
@@ -155,7 +168,7 @@ test("the instance id stays put across reopens, whatever the file's inode or dev
   const id = first.outlineInstanceId;
   first.create("Fictional note before the restart");
   first.close();
-  // A reboot can renumber the device and a move gives a new inode: neither replaces the database.
+  // A reboot can renumber the device, and a file moved away and back has a new inode: neither replaces the database.
   renameSync(path, join(root, "moved.sqlite"));
   copyFileSync(join(root, "moved.sqlite"), path);
   rmSync(join(root, "moved.sqlite"));

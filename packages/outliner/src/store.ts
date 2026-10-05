@@ -812,8 +812,8 @@ export class OutlinerStore {
     if (this.closed) return;
     this.closed = true;
     try {
-      this.instance.close(this.sequence);
-      this.database.close();
+      try { this.instance.close(this.sequence); }
+      finally { this.database.close(); }
     } finally {
       this.releaseOwnership();
     }
@@ -4985,6 +4985,5 @@ export class OutlinerStore {
 
   private advanceSequence(): void {
     this.database.query("UPDATE metadata SET value = CAST(value AS INTEGER) + 1 WHERE key = 'sequence'").run();
-    this.instance?.advanced(this.sequence);
   }
 }

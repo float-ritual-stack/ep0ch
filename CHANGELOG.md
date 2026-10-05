@@ -78,10 +78,11 @@ detail in its reading row, and in a river in a new column: the note you were rea
 ### Fixed: addressable resources, after review (#201–#206, #211, #212)
 
 - **An outline's instance id changes exactly when its database is replaced.** It is the `outline_instance_id` in
-  the database, so a reboot, a move or a new inode no longer change it. A backup restored over the file (a `cp`,
-  sqlite's `.restore`, a Litestream restore) or a copy opened at another path now gets a new one: each open leaves
-  `<name>.sqlite.instance.json` beside the outline, and a database it doesn't describe gets a fresh id. Each outline
-  gets a new id once, at its first open on this version; caches keyed on the old one are dropped.
+  the database, so a reboot or a new inode no longer change it. A backup restored over the file (a `cp`, sqlite's
+  `.restore`, a Litestream restore), a copy opened at another path, or an open after a crash gets a new one: each
+  open leaves `<name>.sqlite.instance.json` beside the outline, and a database the last clean close didn't describe
+  gets a fresh id. Each outline gets a new id once, at its first open on this version; caches keyed on the old one
+  are dropped.
 - **`ep0ch --screen detail <uri>`** keeps a host named by `EP0CH_SOCKET` and never makes an outline: one nobody has
   is refused with the commands.
 - **`ep0ch mcp`** refuses another outline's URI given as `ref` (it read the block of the same id in its own outline).
