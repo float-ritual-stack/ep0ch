@@ -1870,6 +1870,12 @@ export class OutlinerServer {
           result = { reachability, ...(readable.length ? readBlockRecords(this.store, readable) : { records: [], unavailable: [] }) };
           break;
         }
+        case "mcp.access.status":
+          result = this.store.mcpAccessStatus();
+          break;
+        case "mcp.access.configure":
+          result = this.store.configureMcpAccess(request.level);
+          break;
         case "views.read": {
           const options = { limit: request.limit, offset: request.offset, expectedRevision: request.expectedRevision };
           result = request.format === "tree"
@@ -2992,6 +2998,7 @@ export class OutlinerServer {
         blockId = request.blockId;
         break;
       case "work-ids.configure":
+      case "mcp.access.configure":
         domain = "content";
         break;
       case "pages.follow": {

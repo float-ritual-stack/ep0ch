@@ -199,6 +199,19 @@ export interface PublishReachability {
   revision?: number;
   reason: string;
 }
+export type McpAccessLevel = "none" | "read" | "propose" | "full";
+export interface McpAccessStatus {
+  level: McpAccessLevel;
+  canRead: boolean;
+  sequence: number;
+}
+export interface McpReachability {
+  id: string;
+  status: "reachable";
+  level: McpAccessLevel;
+  revision?: number;
+  reason: string;
+}
 /** One property token in a block's text, numbered the way `properties.patch` addresses it. */
 export interface PropertyToken { key: string; value: string; ordinal: number; scope: "block" | "line" | "inline" }
 /** The outliner's PropertyPatchOperation. */
@@ -764,6 +777,14 @@ export class SocketBoard implements Board {
   async publishedRecords(ids: string[]): Promise<{ reachability: PublishReachability[]; records: BlockRecord[]; unavailable: { id: string; status: "missing" | "trashed" }[] }> {
     if (!ids.length) return { reachability: [], records: [], unavailable: [] };
     return this.request<{ reachability: PublishReachability[]; records: BlockRecord[]; unavailable: { id: string; status: "missing" | "trashed" }[] }>("publish.records", { ids });
+  }
+
+  async mcpAccessStatus(): Promise<McpAccessStatus> {
+    return this.request<McpAccessStatus>("mcp.access.status", {});
+  }
+
+  async configureMcpAccess(level: McpAccessLevel): Promise<McpAccessStatus> {
+    return this.request<McpAccessStatus>("mcp.access.configure", { level });
   }
 
   /**
