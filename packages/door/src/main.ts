@@ -17,6 +17,7 @@ import { canonicalLocalMachineName, findCommand, NOTES_USAGE, showCommand } from
 import { EXPORT_USAGE } from "./export";
 import { NEW_USAGE, newCommand } from "./new-cli";
 import { VIEW_USAGE, viewCommand } from "./view-cli";
+import { MCP_USAGE, mcpCommand } from "./mcp";
 import { showcaseTry } from "./showcase/route";
 import { checkWords, usageFor } from "./cli-words";
 import { parseEp0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
@@ -72,6 +73,7 @@ const USAGE = `ep0ch: a BBS door into an outline
                                    every session); restart does so anyway. The door is a session: quitting
                                    detaches, ep0ch attaches again; --no-daemon (or EP0CH_DAEMON=0) opens the door
                                    in this terminal instead
+${MCP_USAGE}
   ep0ch init [<name>] [--create] [--json]
                                    name this folder's outline: attach to it (creating it when nobody has; on
                                    another machine only with --create), and write .ep0ch; without a name, the
@@ -154,6 +156,7 @@ if (tryArgs) {
 }
 if (args[0] === "find") process.exit(await findCommand(args));
 if (args[0] === "show") process.exit(await showCommand(args));
+if (args[0] === "mcp") process.exit(await mcpCommand(args));
 if (args[0] === "new") process.exit(await newCommand(args));
 if (args[0] === "view") process.exit(await viewCommand(args));
 if (args[0] === "export") { const { exportCommand } = await import("./export"); process.exit(await exportCommand(args)); }
