@@ -79,6 +79,8 @@ export const DOUBLE_MS = 400;
 export const MOUSE_SHIFT = 4, MOUSE_ALT = 8, MOUSE_CTRL = 16;
 /** The SGR report's middle button (`button` in a mouse key: 0 left, 1 middle, 2 right). */
 export const MOUSE_MIDDLE = 1;
+/** The right button: a tile's menu (tile.menu), where the tile doesn't take it itself. */
+export const MOUSE_RIGHT = 2;
 
 /**
  * What a press on a list's row asks for, the mouse's steps matching the keyboard's: `focus` (the press gave the

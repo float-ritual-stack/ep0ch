@@ -14,7 +14,7 @@
 import { USER, type Actor } from "../socket";
 import { draftRule, type DraftSession } from "../draft-session";
 import { NOBODY, SHELL_IDLE_MS, type ScreenKeys, type Whereabouts } from "../whereabouts";
-import { ActionRefused, agentLabel, asActor, type ActionDef, type ActionInfo, type ActionSet, type ActRequest, type ArgSpec } from "./actions";
+import { ActionRefused, agentLabel, asActor, declaredKeys, type ActionDef, type ActionInfo, type ActionSet, type ActRequest, type ArgSpec, type MenuEntry } from "./actions";
 
 /** A tile as `tile=` reads it: the names it answers to, and what it shows (for a block id). */
 export interface TileRef {
@@ -43,6 +43,14 @@ export interface TileRef {
   /** Why a note action can't run in it now (folded to a spine, a peek, off screen), when one can't. */
   readOnly?: string | null;
 }
+
+/**
+ * One row of a tile's menu, as the dispatcher would run it: the action, its arguments and the tile (its stable id), the
+ * row's words and group, the key its keycap shows, and why it would be refused now (the row is dimmed with it).
+ */
+export interface MenuRow { action: string; args: Record<string, unknown>; tile: string; label: string; group: string; key?: string; refused?: string }
+/** Keys a menu row's keycap doesn't take from a def's `keys` (mouse gestures, the ^W prefix alone). */
+const MENU_NOT_KEYS = new Set(["click", "drag", "wheel", "ctrl+w"]);
 
 /** How a dispatcher's actions reach where they run: what `tile=` resolved to. */
 export interface Target {
@@ -79,6 +87,8 @@ export interface Registration<On = any> {
   pick?: "first" | "only";
   /** `takes: "tile"`: a note action is refused in a tile that can't be read now (TileRef.readOnly), unless it holds a draft. */
   seen?: boolean;
+  /** The tiles its actions' menu rows belong in (a columns source's: its lanes), when `takes` alone doesn't say. */
+  menuIn?(t: TileRef): boolean;
   /** Whether it takes this request; default: its set has the action. */
   claims?(req: ActRequest): boolean;
   /** What the set's actions run on, for a request. */
@@ -335,13 +345,9 @@ export class Dispatcher {
     const tiles = this.tilesNow();
     const at = this.target(reg, def, req, actor, tiles);
     const args = this.tileArgs(reg.set.argsOf(req.action) ?? {}, req.args ?? {}, tiles);
-    const where = this.where();
     // What the def sees: coerced from the wire (`locked=true` is true, not "true").
     const seen = reg.set.defArgs(req.action, args, typed);
-    const touches = def.touchesWith?.(seen as never, at.name) ?? def.touches;
-    // An invitation is read only for an action that takes one (and spends it): elsewhere it opens nothing.
-    const invitation = reg.set.argsOf(req.action)?.invitation && typeof args.invitation === "string" ? args.invitation : undefined;
-    const no = actorRule({ ...def, touches }, actor, where, { tile: at.tile ?? null, invited: invitation !== undefined, draft: () => this.draftAnswer(def, actor, reg.draftOf ? reg.draftOf(at, args, actor) : reg.takes === "tile" && at.tile ? this.host.draftOf?.(at.tile) ?? null : null, invitation) });
+    const no = this.refusal(reg, def, req.action, at, args, seen, actor);
     if (no) throw new ActionRefused(no);
     const ctx = this.host.ctx();
     const on = reg.on(at, { actor, ctx: ctx ? asActor(ctx as DispatchCtx & { flash(msg: string): void }, actor) : ctx, ...(given !== undefined ? { given } : {}) });
@@ -357,6 +363,57 @@ export class Dispatcher {
       return reg.answer ? reg.answer(out, at) : out;
     };
     return ran instanceof Promise ? ran.then(done) : done(ran);
+  }
+
+  /** The actor rule for one request, with what its arguments make it touch: null, or why not. */
+  private refusal(reg: Registration, def: ActionDef<unknown, unknown>, name: string, at: Target, args: Record<string, unknown>, seen: Record<string, unknown>, actor: Actor, where = this.where()): string | null {
+    const touches = def.touchesWith?.(seen as never, at.name) ?? def.touches;
+    // An invitation is read only for an action that takes one (and spends it): elsewhere it opens nothing.
+    const invitation = reg.set.argsOf(name)?.invitation && typeof args.invitation === "string" ? args.invitation : undefined;
+    return actorRule({ ...def, touches }, actor, where, { tile: at.tile ?? null, invited: invitation !== undefined, draft: () => this.draftAnswer(def, actor, reg.draftOf ? reg.draftOf(at, args, actor) : reg.takes === "tile" && at.tile ? this.host.draftOf?.(at.tile) ?? null : null, invitation) });
+  }
+
+  /**
+   * Tile `sel`'s menu (PIE-492, `tile.menu`): every row its actions declare (ActionDef.menu) in the sets that would run
+   * them there, in the order a name is looked up (the screen's own sets, the tile actions, its kind's, a reader's note
+   * actions), each as it would run for `actor` now: hidden where it isn't this tile's now, and with the reason where it
+   * would be refused. Nothing runs; nothing is drawn.
+   */
+  menu(sel: string, actor: Actor): MenuRow[] {
+    const tiles = this.tilesNow(), tile = this.tile(sel);
+    if (!tile) throw new ActionRefused(`no tile ${sel} on the ${this.host.title}; ${this.which(tiles)}`);
+    const out: MenuRow[] = [], seen = new Set<string>(), where = this.where(), ctx = this.host.ctx();
+    for (const r of this.regs) {
+      if (!("set" in r)) {
+        if (r.listed === false) continue;
+        let rows: MenuRow[] = [];
+        try { rows = (r.delegate()?.menu(tile.name, actor) ?? []).filter(row => !seen.has(row.action)); } catch { /* the tile isn't one it reaches */ }
+        out.push(...rows);
+        for (const row of rows) seen.add(row.action);
+        continue;
+      }
+      if (r.takes === "none" || (r.menuIn && !r.menuIn(tile))) continue;
+      for (const name of r.set.names()) {
+        const def = r.set.def(name)!, entries = def.menu === undefined ? [] : Array.isArray(def.menu) ? def.menu : [def.menu as MenuEntry<unknown, unknown>];
+        // A name is the first set's that has it, as running it is.
+        if (seen.has(name)) continue;
+        seen.add(name);
+        if (!entries.length) continue;
+        let at: Target;
+        try { at = this.target(r, def, { action: name, tile: tile.name }, actor, tiles); } catch { continue; }      // not this tile's kind
+        if (!at.tile) continue;
+        let on: unknown;
+        for (const e of entries) {
+          const now = e.now ? e.now((on ??= r.on(at, { actor, ctx: ctx ? asActor(ctx as DispatchCtx & { flash(msg: string): void }, actor) : ctx })), { name: at.tile.name, kind: at.tile.kind }, actor) : null;
+          if (now?.hide) continue;
+          const args = { ...(e.args ?? {}), ...(now?.args ?? {}) } as Record<string, unknown>;
+          const why = this.refusal(r, def, name, at, args, args, actor, where) ?? now?.refused ?? null;
+          const key = e.key ?? [...declaredKeys(def.keys)].find(k => !MENU_NOT_KEYS.has(k) && !k.includes(" "));
+          out.push({ action: name, args, tile: at.tile.id ?? at.tile.name, label: now?.label ?? e.label, group: e.group, ...(key ? { key } : {}), ...(why ? { refused: why } : {}) });
+        }
+      }
+    }
+    return out;
   }
 
   private tilesNow(): TileRef[] { return this.host.tiles?.() ?? []; }

@@ -1333,6 +1333,10 @@ interface BoardOn {
 }
 /** The lanes an action runs on: the model the hub source keeps for the board's columns. */
 const lanesOf = (o: BoardOn): Lanes => { if (!(o.model instanceof Lanes)) throw new ActionRefused("there are no board lanes here"); return o.model; };
+/** The tile menu's group for the lanes' actions (a lane's menu: the desk asks only in its lanes). */
+const BOARD = "Board";
+/** A card action's row: dimmed while no card is selected. */
+const cardRow = (on: BoardOn) => (on.model instanceof Lanes && on.model.card() ? null : { refused: "no card is selected · click one, or j k" });
 
 /**
  * The board's lanes' actions (the hub source's: they run on its model, PIE-515): which card is selected, moving it,
@@ -1358,6 +1362,7 @@ export const BOARD_ACTIONS = actionSet<BoardOn>()("board", {
     summary: "which board this is: with no id, the hubs it can show (every block with two or more virtual-branch lanes), and for the person the picker to choose one; with id=<hub block id>, show that board. An agent's switch is refused while the person is typing, and is said on the status bar",
     keys: "g, then j k ↑↓ and ⏎ or click on a board; esc q puts the picker away",
     touches: "screen", touchesWith: a => (a.id !== undefined ? "screen" : "nothing"), replay: "safe", says: r => (r.hub ? `showed the board ${r.title}` : null),
+    menu: { label: "another board", group: BOARD, key: "g" },
     args: { id: { type: "string", optional: true, about: "the hub's block id (or its first 8+ characters)" }, close: { type: "boolean", optional: true, about: "put the picker away (the person's own)" } },
     run({ id, close }, { model }, actor) {
       // Putting the picker away is the person's own (only their g opens it).
@@ -1368,6 +1373,7 @@ export const BOARD_ACTIONS = actionSet<BoardOn>()("board", {
   "board.reload": def({
     summary: "read every lane again from the service", keys: "r on the lanes",
     touches: "nothing", replay: "safe", says: () => "reloaded the lanes",
+    menu: { label: "reload the lanes", group: BOARD, key: "r" },
     args: {},
     run(_, { model }) { return lanesOf({ model }).reloadLanes(); },
   }),
@@ -1375,6 +1381,8 @@ export const BOARD_ACTIONS = actionSet<BoardOn>()("board", {
     summary: "collapse a lane to a spine showing its name, or open it again (on=true/false; default toggles): lane=<name>, default the person's lane. Its cards stay where they are",
     keys: "c on the lanes, ⏎ or space on a collapsed lane, click on a lane's spine (the desk's tile.collapse on its tile)",
     touches: "shape", replay: "safe", says: r => (r.changed === false ? null : `${r.collapsed ? "collapsed" : "opened"} the lane ${r.lane}`),
+    // The lane the menu is for, by its tile's name (a lane's tile is named as the lane).
+    menu: { label: "collapse this lane", group: BOARD, key: "c", now: (_on, t) => ({ args: { lane: t.name } }) },
     args: { lane: { type: "string", optional: true, about: "the lane's name; default the lane the cursor is in" }, on: { type: "boolean", optional: true, about: "true collapses, false opens; default toggles" } },
     run: ({ lane, on }, { model }, actor) => lanesOf({ model }).collapseLane(lane, on, actor),
   }),
@@ -1440,6 +1448,7 @@ export const BOARD_ACTIONS = actionSet<BoardOn>()("board", {
   "steps": def({
     summary: "list a card's checklist steps (the selected card, or card=<id>)", keys: "s",
     touches: "nothing", replay: "safe",
+    menu: { label: "the selected card's steps", group: BOARD, key: "s", now: cardRow },
     args: { card: { type: "string", optional: true, about: "the card's block id; default the selected card" } },
     run: ({ card }, { model }, actor) => lanesOf({ model }).listSteps(card, actor),
   }),
@@ -1476,6 +1485,7 @@ export const BOARD_ACTIONS = actionSet<BoardOn>()("board", {
   "card.restore": def({
     summary: "bring back the card trashed last from this board (or id=<block id>), where it was", keys: "u",
     touches: "nothing", replay: "ask",
+    menu: { label: "restore the card trashed last", group: BOARD, key: "u", now: on => (on.model instanceof Lanes && on.model.trashed ? null : { hide: true }) },
     args: { id: { type: "string", optional: true, about: "a Trash root's block id; default the card trashed last here" } },
     run: ({ id }, { model }, actor) => lanesOf({ model }).restoreCard(id, actor),
   }),

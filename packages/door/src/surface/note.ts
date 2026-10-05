@@ -30,7 +30,7 @@ import { whoOf, changedSinceRead, EditConflict, mutationFor, Offline, recordedAc
 import { ellipsize, dim, C, extractLinks, fg, LINK_END, linkTag, pad, RESET, width } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
 import { ago, bbsDate, rule, wrap } from "../text";
-import { ActionRefused, actionSet, def, agentLabel, asActor, type ActionDef, type ArgsOf, type ArgsOfSet } from "./actions";
+import { ActionRefused, actionSet, def, agentLabel, asActor, type ActionDef, type ArgsOf, type ArgsOfSet, type MenuEntry, type MenuNow } from "./actions";
 import { Dispatcher } from "./dispatch";
 import { NOBODY } from "../whereabouts";
 import { draftState, editHint, editorClick, openInEditor, renderEditor, writtenBy } from "./editor";
@@ -1797,6 +1797,12 @@ export class NoteSurface {
     if (c?.shown) { c.move(dir); return true; }
     if (!d.busy) void DRAFT_ACTIONS.run("draft.scroll", { by: wheelRows(dir) }, d, USER);
     return true;
+  }
+
+  /** A right-click at the surface's cell `x`, `y` is an element's own (a step's box, a callout's type: its choice opens there). */
+  ownsRightClick(x: number, y: number): boolean {
+    const h = this.hitAt(x, y);
+    return !!h && "link" in h && (h.link.role === "task" || h.link.role === "callout");
   }
 
   /** What the last render put at the surface's cell `x`, `y` (a link, a copy control, a panel row, a choice…). */
@@ -4152,6 +4158,15 @@ export const IN_TRASH = "■ in the Trash · still readable here";
 interface On { surface: NoteSurface; host: SurfaceHost }
 
 /**
+ * A note action's row in its reader's menu (tile.menu, PIE-492): under "Note", hidden while the reader shows no note,
+ * and dimmed (`busy`) while an edit or a comment holds it.
+ */
+const noteRow = (label: string, key: string, o: { busy?: true; now?: (on: On) => MenuNow<any> | null } = {}): MenuEntry<any, On> => ({
+  label, group: "Note", key,
+  now: on => (!on.surface.msg ? { hide: true } : o.busy && (on.surface.draft || on.surface.session) ? { refused: "this reader is editing or commenting; close that first" } : o.now?.(on) ?? null),
+});
+
+/**
  * The person moved on (esc, another tile) while the note was read for their edit or comment, or the reader went
  * to another note meanwhile: nothing opened, and that's the reason (not an unknown revision).
  */
@@ -4420,6 +4435,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   "edit": def({
     summary: "open the note for editing (its whole text, at the revision the service has now); external=true hands it to $EDITOR (ctrl+e, also from an open edit or a comment or reply being written)", keys: "e, ctrl+e",
     touches: "draft", draft: "write", replay: "ask",
+    menu: noteRow("edit", "e", { now: ({ surface }) => (surface.draft ? { hide: true } : null) }),
     args: { external: { type: "boolean", optional: true, about: "hand the draft to $EDITOR (the person's keys only)" } },
     async run({ external }, { surface, host }, actor) {
       if (external && actor.kind === "agent") throw new ActionRefused("the $EDITOR handoff takes over the person's terminal; send the text with edit.text");
@@ -4664,6 +4680,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   "up": def({
     summary: "go to the note's parent. An agent's is refused on the reader the person has", keys: "u (U too in the message reader)",
     touches: "tile", replay: "safe", way: "up would move what they're reading · an agent goes up in another reader (tile=), or opens the parent with open id=",
+    menu: noteRow("up to the parent", "u", { busy: true }),
     args: {},
     async run(_, { surface, host }, actor) {
       if (actor.kind === "user") surface.letGo();
@@ -4676,6 +4693,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     summary: "show this reader's note's links (its Outlinks, Resources and Backlinks, the links model the outliner's Tree shows) in the screen's links tile: it aims at this note, its drawer opens, and the person's keys go to it; on a screen without one a links tile opens below the reader with a preview following its selection. An agent's never aims the person's links tile: where the screen has one, it answers this note's links (the tile keeps its note and selection); where there's none, it opens one of its own below the reader, on this note. Either way the person's keys stay where they are. A note can list them inline too: ::links, ::resources, ::backlinks",
     keys: "b",
     touches: "shape", replay: "safe", says: () => "showed the links",
+    menu: noteRow("links", "b", { now: ({ surface, host }) => (!host.links || !surface.msg || !isOutlineNote(surface.msg) ? { hide: true } : null) }),
     args: {},
     async run(_, { surface, host }, actor) {
       const m = surface.msg;
@@ -4689,6 +4707,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     summary: "go back to the note this reader showed before it followed a link, went up, or had a note opened into it (an agent's open too), scrolled and with its [ ] position as it was. An agent's is refused on the reader the person has focused",
     keys: "alt+←, backspace, the mouse's back button, a click on ← back",
     touches: "tile", replay: "safe", way: "back would move what they're reading · an agent goes back only in another reader (name it with tile=)",
+    menu: noteRow("back", "alt+left", { busy: true, now: ({ surface }) => (surface.describeHistory().back.length ? null : { hide: true }) }),
     args: {},
     run: (_, on, actor) => travelAction(-1, on, actor),
   }),
@@ -4696,12 +4715,14 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     summary: "go forward again to where back came from, scrolled and with its [ ] position as it was. An agent's is refused on the reader the person has focused",
     keys: "alt+→, the mouse's forward button, a click on forward →",
     touches: "tile", replay: "safe", way: "forward would move what they're reading · an agent goes forward only in another reader (name it with tile=)",
+    menu: noteRow("forward", "alt+right", { busy: true, now: ({ surface }) => (surface.describeHistory().forward.length ? null : { hide: true }) }),
     args: {},
     run: (_, on, actor) => travelAction(1, on, actor),
   }),
   "passage.select": def({
     summary: "start a comment: pick a passage of the note's source text by its exact words (default: the first line with text)", keys: "C, then j k J K h l H L",
     touches: "draft", draft: "type", replay: "ask",
+    menu: noteRow("comment on a passage", "C", { busy: true }),
     args: {
       quote: { type: "string", optional: true, about: "the exact words to quote, as stored" },
       near: { type: "number", optional: true, about: "when the words occur more than once: the offset to be nearest" },
@@ -4795,6 +4816,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   "threads": def({
     summary: "show the note's comment threads (the person's opens on the comment mark the [ ] position is on); in the list, j k move and PgUp PgDn and the wheel scroll it", keys: "m; j k PgUp PgDn wheel in the list",
     touches: "tile", replay: "safe", way: "the thread list would cover what they're reading · an agent lists threads in another reader (tile=)",
+    menu: noteRow("comments", "m", { busy: true }),
     args: {},
     async run(_, { surface, host }, actor) {
       // The person's opens as it was asked for: on a comment mark's thread, or with a Reply control's reply started.
@@ -4849,6 +4871,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   "props": def({
     summary: "open the property panel: every property token (repeats and block/line/inline scope kept), with the summary line's keys", keys: "i, I (full)",
     touches: "nothing", replay: "safe",
+    menu: noteRow("properties", "i", { busy: true }),
     args: { full: { type: "boolean", optional: true, about: "fill the reader instead of sitting above the note" } },
     async run({ full }, { surface, host }, actor) {
       if (surface.draft || surface.session) throw new ActionRefused("this reader is editing or commenting; close that first");
@@ -4984,6 +5007,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   "callouts": def({
     summary: "open every callout, or put them back as written (those with [!type]- folded); show= sets it, else it toggles. The person's reading state: an agent's is refused (fold and unfold name one callout)", keys: "z",
     touches: "tile", replay: "safe", person: "whether callouts are open is the person's reading state; an agent reads the note's text (peek, elements)",
+    menu: noteRow("open or fold callouts", "z", { now: ({ surface }) => (surface.msg && surface.calloutsIn(surface.msg).length ? null : { hide: true }) }),
     args: { show: { type: "boolean", optional: true, about: "true shows the bodies, false folds them; left out, it toggles" } },
     run({ show }, { surface, host }) {
       surface.unfold = show ?? !surface.unfold;
@@ -4995,6 +5019,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   "select.mode": def({
     summary: "select by keys: v starts where the reading is (h j k l, PgUp PgDn, Home End move the end; y copies, esc or v leaves), or takes over a selection made with the mouse. The person's only: an agent selects with select text= or line=", keys: "v",
     touches: "tile", replay: "safe", person: "the keyboard selection is the person's; an agent selects with select text=… or line=…, drawn as its own",
+    menu: noteRow("select text by keys", "v", { busy: true }),
     args: {},
     run(_, { surface, host }, actor) {
       surface.requireNote();

@@ -275,7 +275,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
 
   // What each section's own part draws, once it has read the outline.
   const marks: Record<string, string[]> = {
-    note: ["Allotment notebook", "the same NoteSurface in the BBS message reader · src/screens.ts", "Subj: Allotment notebook"],
+    note: ["Allotment notebook", "the same NoteSurface, as the BBS reader · src/screens.ts", "Subj: Allotment notebook"],
     // The detail screen spec on the notebook: the detail tile's own frame and keys around the same surface.
     detail: ["─ detail ─", "Allotment notebook", "Our plot at the Elm Row allotments.", "p follow · [ ] elements"],
     // The list scrolls: the note set's header and the registry are on screen; the desk set is further down.
@@ -312,6 +312,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     figures: ["Figures, written in Markdown", "SQUASH BEDS", "Raised beds", "The reader's keys", "[e]"],
     // A guide note with a [[page]] nobody wrote yet, for ctrl+n, the offer and the page title fill.
     newnotes: ["New notes from anywhere", "Seed swap ledger", "ctrl+n"],
+    // A reader and a terminal whose program asked for the mouse, each with its ⋯.
+    menu: ["Allotment notebook", "this program asked for the mouse", "⋯"],
   };
 
   test("one section per reuse-map row, in the map's order, each labelled with its part and file, drawn by the part", async () => {
@@ -480,6 +482,56 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     await until(() => copies().length > 1, "the second copy written to the terminal", 8000);
     expect(copies().at(-1)).toBe(osc52("Mulch the roses"));
     press({ kind: "esc" });
+  }, 20_000);
+
+  test("the menu section (PIE-492): an agent's tile.menu answers rows; the ⋯ and a right-click open it; a row runs as the person; the terminal keeps its right-click", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "menu" }, as: "test-agent" });
+    await until(() => marks.menu!.every(m => screen().includes(m)), "the menu section");
+    const stage = () => S().stages.get(S().sel).top;
+    const overlay = () => stage().overlays.top() as { name: string; items: any[] } | null;
+    // An agent: the rows as data, nothing drawn.
+    const out = await app.act({ action: "tile.menu", tile: "reader", args: {}, as: "test-agent" }) as any;
+    expect(out.rows.map((r: any) => r.group)).toEqual(expect.arrayContaining(["Tile", "Note"]));
+    expect(out.rows.find((r: any) => r.action === "tile.zoom")).toMatchObject({ label: "zoom", key: "ctrl+w z" });
+    expect(overlay()).toBeNull();
+    const at = S().stageRect, tiles = () => stage().describe().panes as any[];
+    const click = (x: number, y: number, button = 0) => { press({ kind: "mouse", action: "down", button, x, y }); press({ kind: "mouse", action: "up", button, x, y }); };
+    // The person: a click on the reader's ⋯ opens it; one click on zoom runs it.
+    sc.render(app);
+    const b = (stage().menuButtons as any[]).find(x => stage().nameOf(x.id) === "reader");
+    click(at.col + b.from, at.row + b.row);
+    await until(() => overlay()?.name === "tile menu", "the ⋯ opens the reader's menu");
+    const rows = sc.render(app).lines.map(plain), y = rows.findIndex(l => /\bzoom\s+\^W z/.test(l));
+    expect(y).toBeGreaterThan(0);
+    click(rows[y]!.indexOf("zoom"), y);
+    await until(() => stage().zoom !== null, "zoom ran from the menu");
+    expect(overlay()).toBeNull();
+    await app.act({ action: "tile.zoom", tile: "reader", args: { on: false }, as: "test-agent" }).catch(() => stage().dispatch.press("tile.zoom", { on: false }, "reader"));
+    // A right-click in the reader opens it at the pointer; esc puts it away.
+    sc.render(app);
+    const r = tiles().find(x => x.name === "reader").rect;
+    click(at.col + r.col + 4, at.row + r.row + 4, 2);
+    await until(() => overlay()?.name === "tile menu", "a right-click opens the reader's menu");
+    press({ kind: "esc" });
+    expect(overlay()).toBeNull();
+    // The terminal's program asked for the mouse: its right-click is the program's, and its ⋯ still opens the menu.
+    await until(() => stage().pane("clicks")?.wantsMouse?.() === true, "the program asked for the mouse");
+    sc.render(app);
+    const t = tiles().find(x => x.name === "clicks").rect;
+    click(at.col + t.col + 4, at.row + t.row + 4, 2);
+    expect(overlay()).toBeNull();
+    sc.render(app);
+    const tb = (stage().menuButtons as any[]).find(x => stage().nameOf(x.id) === "clicks");
+    click(at.col + tb.from, at.row + tb.row);
+    await until(() => overlay()?.name === "tile menu", "the terminal's ⋯ opens its menu");
+    expect(overlay()!.items.map(x => x.group)).toContain("Terminal");
+    press({ kind: "esc" });
+    expect(overlay()).toBeNull();
+    // The right-click went into the terminal (a click there types in it): ctrl+] leaves it, then esc to the index.
+    press({ kind: "char", ch: "]", ctrl: true });
+    for (let i = 0; i < 4 && S().focus !== "index"; i++) press({ kind: "esc" });
+    expect(S().focus).toBe("index");
   }, 20_000);
 
   test("the dock section, driven through act: the kettle docks, a section switch keeps it (the same pid), and it undocks into another section", async () => {

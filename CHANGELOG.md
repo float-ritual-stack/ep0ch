@@ -54,6 +54,16 @@ move into one repository (PIE-530).
 - **Television (optional).** With `tv` on your PATH, `ep0ch install --apply` links the outline's channels into
   television's cable folder.
 
+### A menu on every tile (PIE-492)
+
+Every tile has a `⋯` in its top right corner, left of its `×`: a click opens the tile's menu, and so does a
+right-click anywhere in the tile, or `^W .`. It lists what you can do there, grouped: the tile itself (close, zoom,
+float, put in a drawer, fold to a spine, dock, preview beside or below), then what its kind adds (a note's edit,
+comment, links, properties, back and forward; a terminal's type in it or run it again; a board lane's steps,
+collapse, reload). Each row shows its key as a keycap; one click, `⏎` or that key runs it. A row that can't run
+now is dimmed and says why. A terminal whose program asked for the mouse keeps its right-clicks: use its `⋯`.
+Agents get the same rows from `act tile.menu tile=<tile>`, without anything drawn on your screen.
+
 ### Close a tile with a click
 
 Every tile that can close has a `×` in its top right corner: a click closes it (`tile.close`, as `^W x`) without

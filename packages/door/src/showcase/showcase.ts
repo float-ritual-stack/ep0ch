@@ -93,7 +93,7 @@ export const SECTIONS: Section[] = [
     stage(n, show) {
       const r = new ReaderPane();
       // The BBS message reader hosts the same surface (PIE-426): its header, the surface's body and keys.
-      const bbs = new ScreenTile("exhibit", {}, { label: "the same NoteSurface in the BBS message reader · src/screens.ts", make: m => (m ? new MessageReader([m], 0) : null) });
+      const bbs = new ScreenTile("exhibit", {}, { label: "the same NoteSurface, as the BBS reader · src/screens.ts", make: m => (m ? new MessageReader([m], 0) : null) });
       return deskOf({ title: "showcase · note", panes: [r, bbs], layout: ([a, b]) => row(0.5, a!, b!) }, show, [], d => { if (n.notebook) d.setCurrent(n.notebook); });
     },
   },
@@ -328,6 +328,15 @@ export const SECTIONS: Section[] = [
     stage(n, show) {
       const a = new ReaderPane();
       return deskOf({ title: "showcase · new notes", panes: [a] }, show, [[a, n.newNotes]]);
+    },
+  },
+  {
+    key: "menu", need: "show a tile's actions as a menu (its ⋯, a right-click in it)", part: "the tile menu: tile.menu lists the rows each action declares (ActionDef.menu) in the sets the dispatcher would run there (Dispatcher.menu): the tile operations, its kind's, a reader's note actions, a board lane's; a ListPicker on the desk's overlays, each row its label and its key as a keycap, one click, ⏎ or that key runs it as you", files: "src/desk/tile-menu.ts, src/surface/dispatch.ts, src/surface/actions.ts, src/desk/tile-actions.ts",
+    aside: "click a tile's ⋯ (top right, beside the ×), or right-click anywhere in it, or ^W . in it: its menu, grouped Tile, then its kind's (Note, Reader, Terminal), each row with its key · a dimmed row says why it can't run now (its foot) · the terminal's program asked for the mouse, so a right-click there is its own: its ⋯ still opens the menu · `act tile.menu tile=reader` answers the same rows to an agent and draws nothing",
+    stage(n, show) {
+      // A program that asks for the mouse (as vim's mouse=a and claude do), so its right-clicks stay its own.
+      const term = new PtyPane({ cmd: ["sh", "-c", "printf '\\033[?1000h\\033[?1006h'; echo 'this program asked for the mouse: a right-click here is its own; the ⋯ above opens the tile menu'; exec cat >/dev/null"], label: "clicks" }), r = new ReaderPane(true);
+      return deskOf({ title: "showcase · menu", panes: [r, term], names: ["reader", "clicks"], layout: ([a, b]) => row(0.6, a!, b!) }, show, [], d => { if (n.notebook) d.setCurrent(n.notebook); });
     },
   },
 ];

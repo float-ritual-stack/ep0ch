@@ -73,8 +73,29 @@ export interface ActionDef<A, H> {
   /** Words `tile=` may give instead of a tile: where something new goes (the board's open: new-detail, float). */
   places?: readonly string[];
   args: { [K in keyof A]-?: ArgSpec };
+  /** Its rows in a tile's menu (`tile.menu`, PIE-492): absent, it isn't in one. */
+  menu?: MenuEntry<A, H> | readonly MenuEntry<A, H>[];
   run(args: A, host: H, actor: Actor): Promise<unknown> | unknown;
 }
+
+/**
+ * One row of a tile's menu (PIE-492): a few words under a group, the key its keycap shows (a name `declaredKeys` finds in
+ * the def's `keys`: the menu's accelerator too), and the arguments the row runs it with. The menu is generated from these:
+ * the dispatcher lists each one the tile's sets have, as it would run it there.
+ */
+export interface MenuEntry<A, H> {
+  label: string;
+  /** "Tile", "Note", "Terminal", "Board": rows are grouped by it, in the order the dispatcher finds their sets. */
+  group: string;
+  key?: string;
+  args?: Partial<A>;
+  /**
+   * The row as the tile is now: `hide` (it isn't this tile's now: back with nothing to go back to), `refused` (dimmed,
+   * with why), another `label` (unzoom), or `args` for this tile (its lane's name). Asked without running anything.
+   */
+  now?(host: H, tile: { name: string; kind: string }, actor: Actor): MenuNow<A> | null | undefined;
+}
+export interface MenuNow<A> { hide?: boolean; refused?: string | null; label?: string; args?: Partial<A> }
 
 /** The type an argument's schema says it is. */
 type ArgOf<S> = S extends { type: "number" } ? number : S extends { type: "boolean" } ? boolean : string;
@@ -256,6 +277,20 @@ export function keyName(k: Key): string | null {
     case "paste": return null;
     default: return k.kind;
   }
+}
+
+const SHOWN: Record<string, string> = { enter: "⏎", backspace: "⌫", left: "←", right: "→", up: "↑", down: "↓", "shift+tab": "shift+tab" };
+/**
+ * A key's name as a keycap shows it (a tile menu's row): `ctrl+w x` is `^W x`, `enter` is `⏎`, `alt+left` is `alt+←`.
+ * `declaredKeys` reads each of these back as the name it came from.
+ */
+export function keyCaption(name: string): string {
+  return name.split(" ").map(k => {
+    const ctrl = /^ctrl\+(.)$/u.exec(k);
+    if (ctrl) return `^${ctrl[1]!.toUpperCase()}`;
+    const mod = /^(alt|shift|ctrl)\+(.+)$/.exec(k);
+    return mod && SHOWN[mod[2]!] ? `${mod[1]}+${SHOWN[mod[2]!]}` : SHOWN[k] ?? k;
+  }).join(" ");
 }
 
 /** One word as key names (`1-9` is nine, `Tab/1-9` ten, `↑↓` two), or null when the word isn't a key. */

@@ -214,6 +214,8 @@ function tileAction(t: ExtensionTileKind, a: ExtensionAction): ActionDef<ExtArgs
     summary: `${t.name}: ${a.description ?? a.label}${onBlock ? " (on the tile's block, or block=<id>)" : ""}. The service runs it; what it writes is attributed ext:${t.extension}`,
     // In the tile its program has the keys: the key is the program's own, which runs this same action.
     ...(keyOf(a.key) ? { keys: keyOf(a.key)! } : {}),
+    // Its row in the tile's menu (tile.menu), under the kind's name.
+    menu: { label: a.label, group: t.name, ...(keyOf(a.key) ? { key: keyOf(a.key)! } : {}) },
     touches: "nothing", replay: a.effects === "write" ? "ask" : "safe",
     // On a block: which one (the tile's own by default). On the tile: nothing to say.
     args: (onBlock ? { block: { type: "string", optional: true, about: "the block it acts on; default the tile's own (where it was opened)" } } : {}) as ActionDef<ExtArgs, ExtTileOn>["args"],

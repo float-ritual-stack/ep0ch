@@ -20,6 +20,18 @@ export const whereOf = (s: string | undefined, action: string, dflt: Where): Whe
 
 const PLACE: Record<string, string> = { left: "left of", right: "right of", up: "above", down: "below", tabs: "into the tabs of" };
 
+/** A tile as its menu reads it (`Desk.tileNow`): where it is now, and why a tile operation would be refused there. */
+export interface TileNow {
+  float: boolean; zoomed: boolean; collapsed: boolean; drawer: boolean; docked: boolean; flow: boolean; held: boolean;
+  /** A close in its container shuts its drawer instead (the board's outline). */
+  shuts: boolean;
+  /** The program running in it (a terminal tile), whose close ends it. */
+  running: string | null;
+  refused(op: "close" | "float" | "zoom" | "collapse" | "pin" | "dock" | "widen" | "hold"): string | null;
+}
+/** The tile menu's group for the tile operations. */
+const TILE = "Tile";
+
 /** What a tile operation did, as the socket answers it. */
 export interface TileDone { tile: string; [k: string]: unknown }
 
@@ -138,6 +150,13 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     summary: "close tile=<tile>: a program in it is ended. On the board a detail or a float closes, a drawer's tile shuts its drawer, and the lanes and the preview stay (closable off); the river's library stays (closable off). Refused while it holds an edit or a comment, and to an agent for the tile that has the person's keys",
     keys: "^W x, or a click on the × in its top right corner; board x, esc q on a drawer",
     touches: "shape", replay: "ask", says: r => `closed ${r.tile}`,
+    menu: {
+      label: "close", group: TILE, key: "ctrl+w x",
+      now: ({ d, reader }, _t, actor) => {
+        const n = d.tileNow(reader, actor);
+        return n.shuts ? { label: "shut its drawer" } : { refused: n.refused("close"), ...(n.running ? { label: `close (ends ${n.running})` } : {}) };
+      },
+    },
     args: {},
     run(_, { d, reader }, actor) {
       return d.closeTile(reader, actor);
@@ -158,6 +177,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     summary: "zoom tile=<tile> to fill the screen (on=false, or again, unzooms). An agent zooms only the tile that has the person's keys, never one that would hide it",
     keys: "^W z",
     touches: "shape", replay: "safe", says: r => `${r.zoomed ? "zoomed" : "unzoomed"} ${r.tile}`,
+    menu: { label: "zoom", group: TILE, key: "ctrl+w z", now: ({ d, reader }, _t, actor) => { const n = d.tileNow(reader, actor); return n.zoomed ? { label: "unzoom" } : { refused: n.refused("zoom") }; } },
     args: { on: { type: "boolean", optional: true, about: "true zooms, false unzooms; default toggles" } },
     run({ on }, { d, reader }, actor) {
       return d.zoomTile(reader, on, actor);
@@ -167,6 +187,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     summary: "pop tile=<tile> out of the layout as a float over everything (its own rectangle; the board floats a copy of its preview), or put a float back in the layout (on the board, as a detail). Refused where policy keeps the tile in place, and to an agent for the tile that has the person's keys",
     keys: "^W f; board o; a click on the focused tile's ⧉ floats it, on a float's ⧉ puts it back; while dragging a tile, f",
     touches: "shape", replay: "safe", says: r => `${r.floated ? "popped out" : "put back"} ${r.tile}`,
+    menu: { label: "float", group: TILE, key: "ctrl+w f", now: ({ d, reader }, _t, actor) => { const n = d.tileNow(reader, actor); return n.float ? { label: "put back in the layout" } : { refused: n.refused("float") }; } },
     args: {},
     run(_, { d, reader }, actor) {
       return d.floatTile(reader, actor);
@@ -195,6 +216,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     summary: "put tile=<tile> in a drawer, a container that slides over the others without moving them (on=false), or take its drawer away so what it holds is pinned where it was (on=true); default toggles. On the board tile=tree and tile=backlinks are its outline and backlinks drawers, each a whole container (the list and its preview). A tab set goes in as one; container=<id> (a split of tiles, from layout.get) goes in whole. edge=left, right, up or down: the drawer slides from that outer edge of the whole layout (a tile not in one is put in one there; a drawer moves there). Anything moved or opened into a drawer lives in it. Refused on a locked screen",
     keys: "^W p; ^W P then edge (⏎ or a click cycles it); board T, B; a click on a header's ⇤ drawer pins it; while dragging a tile, p",
     touches: "shape", replay: "safe", confirms: true, says: r => (r.changed === false ? null : r.pinned ? `pinned ${r.tile}` : `put ${r.tile} in a drawer on the ${EDGE_WORD[r.edge as Dir] ?? r.edge}`),
+    menu: { label: "put in a drawer", group: TILE, key: "ctrl+w p", now: ({ d, reader }, _t, actor) => { const n = d.tileNow(reader, actor); return n.docked ? { hide: true } : { refused: n.refused("pin"), ...(n.drawer ? { label: "pin it in the layout" } : {}) }; } },
     args: { on: { type: "boolean", optional: true, about: "false puts it in a drawer, true pins it in the layout again" }, edge: { type: "string", optional: true, about: "left, right, up or down: the outer edge the drawer slides from; other: the opposite side to where it is (pinned, it stays pinned there)" }, container: { type: "string", optional: true, about: "a split (s<n>) to put in the drawer whole, instead of the tile's own slot" } },
     run({ on, edge, container }, { d, reader }, actor) {
       if (edge !== undefined && !isDir(edge) && edge !== "other") throw new ActionRefused(`tile.pin: edge is left, right, up, down or other, not ${edge}`);
@@ -207,6 +229,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     // On the board, tile=all opens every spine (its own word for every one of them).
     places: ["all"],
     touches: "shape", replay: "safe", says: r => (r.changed === false ? null : `${r.collapsed ? "folded" : "opened"} ${r.tile}`),
+    menu: { label: "fold to a spine", group: TILE, key: "ctrl+w c", now: ({ d, reader }, _t, actor) => { const n = d.tileNow(reader, actor); return n.float || n.docked ? { hide: true } : { refused: n.refused("collapse") }; } },
     args: { on: { type: "boolean", optional: true, about: "true folds it, false opens it; default toggles" } },
     run({ on }, { d, reader }, actor) {
       return d.collapseTile(reader, on, actor);
@@ -226,6 +249,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     summary: "hold tile=<tile>'s column full in its flow so it resists compression (on=false lets it go; default toggles), the river's p. Refused outside a flow and where its flow is locked",
     keys: "river column: p",
     touches: "shape", replay: "safe", says: r => `${r.held ? "held" : "let go of"} ${r.tile}`,
+    menu: { label: "hold it full", group: TILE, key: "p", now: ({ d, reader }, _t, actor) => { const n = d.tileNow(reader, actor); return !n.flow ? { hide: true } : n.held ? { label: "let it go" } : { refused: n.refused("hold") }; } },
     args: { on: { type: "boolean", optional: true, about: "true holds it, false lets it go; default toggles" } },
     run({ on }, { d, reader }, actor) { return d.holdTile(reader, on, actor); },
   }),
@@ -234,6 +258,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     keys: "^W a (on a screen: into the dock; in the dock: back out); ^W A on a screen: the dock's tab shown comes beside your tile; drag a tile's title onto the status bar's dock chip or the open drawer; a while dragging; drag a dock tab's title out onto the screen",
     touches: "shape", replay: "safe", confirms: true,
     says: r => (r.changed === false ? null : r.docked ? `docked ${r.tile}${r.from ? ` from the ${r.from}` : ""}` : `undocked ${r.tile} into the ${r.into ?? "screen"}`),
+    menu: { label: "put in the dock", group: TILE, key: "ctrl+w a", now: ({ d, reader }, _t, actor) => { const n = d.tileNow(reader, actor); return n.docked ? { label: "take out of the dock" } : { refused: n.refused("dock") }; } },
     args: {
       on: { type: "boolean", optional: true, about: "true: into the dock; false: out of it into the screen shown; left out, whichever it isn't" },
       to: { type: "string", optional: true, about: "on=false: the screen's tile it goes beside (its name); left out, the tile the person has" },
@@ -247,6 +272,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     summary: "give tile=<tile>'s column the wide place in its flow (the river's shift, PIE-513): the flow is laid out around it, and the column the person was reading stays full beside it. The person's keys stay where they are; moving them between columns never moves a column. Refused outside a flow and where its flow is locked",
     keys: "^W W; a click on a flow column's spine or header; river column: w",
     touches: "shape", replay: "safe", says: r => `widened ${r.tile}`,
+    menu: { label: "widen", group: TILE, key: "ctrl+w W", now: ({ d, reader }, _t, actor) => { const n = d.tileNow(reader, actor); return n.flow ? { refused: n.refused("widen") } : { hide: true }; } },
     args: {},
     run(_, { d, reader }, actor) {
       return d.widenTile(reader, actor);
@@ -299,11 +325,23 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     summary: "a reader beside tile=<tile> where its opens land (opened and linked as one step): a link followed in it, the tree's ⏎, a list's pick show there, and the tile itself never navigates away. A tile that reads notes gets a detail; a terminal tile a preview of the file it edits (re-read on each save); the board one of its card (its own preview strip collapses); anything else a preview following its selection. Its opens already land in a tile (a link, or its container's opensInto naming one): that one is shown instead, where= aside (the person's keys go to it, an agent's leave them). Refused on a flow's column, whose opens already open the next column. where=right, down, left or up; default beside it if it's wide, else below. tile.link unlinks",
     keys: "O in a reader; ^W v beside, ^W V below",
     touches: "shape", replay: "safe", says: r => (r.existing ? `showed ${r.tile}, where ${r.from}'s opens land` : `opened ${tileNoun(String(r.kind), r.tile)} where ${r.from}'s opens land`),
+    // Beside it and below it: where its opens land (a flow's column opens the next column instead).
+    menu: [
+      { label: "preview beside", group: TILE, key: "ctrl+w v", args: { where: "right" }, now: ({ d, reader }, _t, actor) => (d.tileNow(reader, actor).flow || d.tileNow(reader, actor).docked ? { hide: true } : null) },
+      { label: "preview below", group: TILE, key: "ctrl+w V", args: { where: "down" }, now: ({ d, reader }, _t, actor) => (d.tileNow(reader, actor).flow || d.tileNow(reader, actor).docked ? { hide: true } : null) },
+    ],
     args: { where: { type: "string", optional: true, about: "right, down, left or up; default right if the tile is wide, else down" } },
     async run({ where }, { d, reader }, actor) {
       if (where !== undefined && !isDir(where)) throw new ActionRefused(`tile.preview: where is right, down, left or up, not ${where}`);
       return await d.previewTile(reader, where as Dir | undefined, actor);
     },
+  }),
+  "tile.menu": def({
+    summary: "tile=<tile>'s menu (PIE-492): every action its sets offer there (the tile operations, its kind's, a reader's note actions, a board's lane actions), each with its arguments, label, group, key and, when it would be refused now, why. An agent's answers the rows (rows=) and draws nothing; the person's opens the menu over the screen, under the tile's ⋯ or at at=<col,row>, where one click, ⏎ or a row's own key runs it as theirs",
+    keys: "^W .; a click on a tile's ⋯; a right-click in a tile (not where its program asked for the mouse, or on a step's box)",
+    touches: "nothing", replay: "safe",
+    args: { at: { type: "string", optional: true, about: "col,row: the screen cell (from 0) the person's menu opens at; default under the tile's ⋯" } },
+    run({ at }, { d, reader }, actor) { return d.tileMenu(reader, at, actor); },
   }),
   "tile.info": def({
     summary: "one tile as data: its kind, name, rect, link, drawer state; a terminal's command, file, process and screen text; a reader's note",

@@ -126,6 +126,8 @@ export interface Pane {
    * button, and whether it gave the tile the keys (a list's `RowView.press` reads it: that press only selects).
    */
   mouse?(k: Extract<Key, { kind: "mouse" }>, x: number, y: number, desk: DeskApi, press?: RowPress): boolean;
+  /** A right-click at x, y is its own (a program that asked for the mouse, a reader's step box): the tile's menu doesn't open there. */
+  ownsRightClick?(x: number, y: number): boolean;
   /** The tile it follows selected `m` (a preview): it shows it. */
   follow?(m: Msg | null, desk: DeskApi): void;
   /** The terminal tile it follows is on file `path` now (nvim changed buffer). */
@@ -327,6 +329,7 @@ export class ReaderPane implements Pane {
    * The mouse in the pane (PIE-419): press, drag, release. A release on the pressed cell is the click
    * above (with `open` as there); a drag selects text instead, and never copies it.
    */
+  ownsRightClick(x: number, y: number): boolean { return this.surface.ownsRightClick(x, y); }
   press(x: number, y: number, desk: DeskApi) { this.surface.press(x, y, this.host(desk)); }
   drag(x: number, y: number, desk: DeskApi) { this.surface.drag(x, y, this.host(desk)); }
   release(x: number, y: number, desk: DeskApi, open?: (m: Msg, how?: OpenHow) => void): boolean {
@@ -661,6 +664,7 @@ export const READER_ACTIONS = actionSet<{ pane: ReaderPane; desk: DeskApi }>()("
     summary: "hold a desk reader (tile=<its name>) on the note it shows, so the current note doesn't move it (on=true), or let it follow the current note again (on=false); left out, the other way. Said on screen when an agent does it",
     keys: "p",
     touches: "tile", replay: "safe", way: "an agent holds a reader the person isn't in", says: r => (r.held ? "held the reader on its note" : "let the reader follow the current note"),
+    menu: { label: "hold on this note", group: "Reader", key: "p", now: ({ pane }) => (!pane.follows ? { hide: true } : pane.holding ? { label: "follow the current note" } : pane.editing ? { refused: "the reader holds an edit; it stays on its note until that closes" } : null) },
     args: { on: { type: "boolean", optional: true, about: "true holds, false follows; left out, the other way" } },
     run({ on }, { pane, desk }) { return pane.setHold(on, desk); },
   }),

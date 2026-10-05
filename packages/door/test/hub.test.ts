@@ -84,7 +84,9 @@ describe.skipIf(!outliner)("the float-hub views", () => {
     brook = await board.createBlock(outbox.id, "Ask Brook about the tins [type::outbox-item] [outbox::waiting] [ticket::TIN-2] [sent::2026-01-08 6:35 PM] [waiting-on::Brook: how many bread tins]\nThe body of the ask.");
     await until(() => (top().pane("waiting") as WaitingPane).items?.length === 2, "two waiting items, read again after the change");
     const s = screen();
-    expect(s).toContain("outbox · 2 waiting on 2 people");
+    // Its title says it; the header draws as much as fits before the tile's ⋯ ⧉ ×.
+    expect((top().pane("waiting") as WaitingPane).title()).toContain("outbox · 2 waiting on 2 people");
+    expect(s).toContain("outbox · 2 waiting on 2");
     expect(s).not.toContain("Done already");
     expect(s.indexOf("Ada · 1 waiting")).toBeLessThan(s.indexOf("Brook · 1 waiting"));
     expect(s).toMatch(/JAM-1 +which shelf/);
