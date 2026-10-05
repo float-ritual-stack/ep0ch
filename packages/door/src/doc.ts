@@ -4,8 +4,7 @@
 import { brightness, media, parseMediaLine, sizeText, type Media, type MediaSpec } from "./media";
 import { balanceTags, BOLD, C, extractLinks, fg, type LinkRange, pad, RESET, splitVisible, stripTags, styleMarks, trimTagged, UNBOLD, width as vwidth } from "./style";
 import { colourBody, wrap } from "./text";
-import { componentBlocks, noteStructure } from "@ep0ch/outline-core/component-block";
-import { closesCodeFence, codeFenceOpen } from "@ep0ch/outline-core/code-fence";
+import { componentBlocks, noteCodeFences, noteStructure } from "@ep0ch/outline-core/component-block";
 import { figureSource, frame, graphKind, reframeAscii, renderGraph, type FiguresEnv } from "./graphs";
 import { linkBlockAt, renderLinkBlock } from "./links";
 import { EMBED, stripMarks, type LinkTarget } from "./refs";
@@ -247,6 +246,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
   const at = new Map((env.folds?.points ?? []).map(p => [p.line, p]));
   const callouts = new Map(calloutBlocks(src).map(c => [c.line, c]));
   const componentAt = new Map(componentBlocks(src).map(c => [c.start, c]));
+  const fenceAt = new Map(noteCodeFences(src).map(f => [f.start, f]));
   const lit = (i: number) => !!env.literal?.has(i);
   // Each row comes from the line its construct started on: rows pushed since then are filled in here.
   let from = 0;
@@ -299,13 +299,13 @@ export function renderDoc(body: string, env: DocEnv): Doc {
     }
 
     // Code fence.
-    const fence = codeFenceOpen(line);
+    const fence = fenceAt.get(i);
     if (fence) {
-      const code: string[] = [];
-      for (i++; i < src.length && !closesCodeFence(src[i]!, fence); i++) code.push(src[i]!);
+      const code = src.slice(i + 1, fence.closed ? fence.end : fence.end + 1);
+      i = fence.end;
       const figure = reframeAscii(code, W);
       if (figure) { out.push(...figure); continue; }
-      if (fence.info) out.push(fg(C.dark) + `╭ ${fence.info}` + RESET);
+      if (fence.fence.info) out.push(fg(C.dark) + `╭ ${fence.fence.info}` + RESET);
       for (const c of code) for (const piece of chunk(c, W - 2)) out.push(fg(C.blue) + "│ " + fg(C.lcyan) + piece + RESET);
       continue;
     }

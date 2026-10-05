@@ -2,7 +2,7 @@
 // regions. The service's property parser, reference scanner and section readers and every client's renderer ask
 // these, so a fence the service treats as code is drawn as code everywhere. Pure: no I/O.
 
-import { closesCodeFence, codeFenceOpen, leadingColumns, type CodeFence } from "./code-fence";
+import { codeBlocks } from "./code-fence";
 
 /** An offset range of the text: `start` inclusive, `end` exclusive. */
 export interface SourceRange { start: number; end: number }
@@ -26,17 +26,8 @@ export function sourceLines(text: string): SourceLine[] {
 }
 
 function fencedRangesOf(text: string, lines: SourceLine[]): SourceRange[] {
-  const ranges: SourceRange[] = [];
-  const lineText = (line: SourceLine) => text.slice(line.start, line.contentEnd);
-  for (let index = 0; index < lines.length; index += 1) {
-    const opening = codeFenceOpen(lineText(lines[index]!));
-    if (!opening) continue;
-    let closing = index + 1;
-    while (closing < lines.length && !closesCodeFence(lineText(lines[closing]!), opening)) closing += 1;
-    ranges.push({ start: lines[index]!.start, end: closing < lines.length ? lines[closing]!.end : text.length });
-    index = closing;
-  }
-  return ranges;
+  return codeBlocks(lines.map(line => text.slice(line.start, line.contentEnd))).fences
+    .map(block => ({ start: lines[block.start]!.start, end: block.closed ? lines[block.end]!.end : text.length }));
 }
 
 /** The fenced code blocks of `text`, opening and closing lines (with their line breaks) included. */
@@ -230,81 +221,19 @@ export function scanPropertyLiteralRanges(text: string): SourceRange[] {
 
 // ── code a link can't be in: fences (in list items too), indented code and code spans ─────────────────────────
 
-interface ListContainer { indent: number; contentIndent: number; contentOffset: number }
-
-function listMarker(line: string): ListContainer | null {
-  const match = /^([ \t]*)(?:[-+*]|\d{1,9}[.)])([ \t]+)/.exec(line);
-  if (!match) return null;
-  const indent = leadingColumns(match[1]!).columns;
-  // The marker and the blanks after it, counted from column zero as the service always has.
-  const marker = match[0].slice(match[1]!.length).replace(/[^ \t]/g, " ");
-  return {
-    indent,
-    contentIndent: indent + leadingColumns(marker).columns,
-    contentOffset: match[0].length,
-  };
-}
-
 /**
- * The code a reference or an authored link can't be in: fenced code (a fence in a list item counts from the item's
- * content column), indented code after a blank line outside a list, and code spans (a run of backticks to the next
- * run of the same length on its line). Ranges are by line, without line breaks, and may overlap.
+ * The code a reference or an authored link can't be in: fenced code and indented code (`codeBlocks`), and code
+ * spans (a run of backticks to the next run of the same length on its line). Ranges are by line, without line
+ * breaks, and may overlap.
  */
 export function protectedCodeRanges(text: string): SourceRange[] {
+  const lines = text.split("\n"), starts: number[] = [];
+  for (let i = 0, at = 0; i < lines.length; at += lines[i]!.length + 1, i++) starts.push(at);
+  const lineRange = (i: number) => ({ start: starts[i]!, end: starts[i]! + lines[i]!.length });
+  const { fences, indented } = codeBlocks(lines);
   const ranges: SourceRange[] = [];
-  const listContainers: ListContainer[] = [];
-  let activeFence: { fence: CodeFence; contentIndent: number } | null = null;
-  let activeIndentedCode = false;
-  let canStartIndentedCode = true;
-  let lineStart = 0;
-  for (const line of text.split("\n")) {
-    const lineEnd = lineStart + line.length;
-    if (activeFence) {
-      ranges.push({ start: lineStart, end: lineEnd });
-      if (closesCodeFence(line, activeFence.fence, activeFence.contentIndent)) {
-        activeFence = null;
-        canStartIndentedCode = true;
-      }
-    } else if (/^[ \t]*\r?$/.test(line)) {
-      canStartIndentedCode = true;
-    } else {
-      const indent = leadingColumns(line).columns;
-      while (listContainers.length > 0 && indent < listContainers[listContainers.length - 1]!.contentIndent) {
-        listContainers.pop();
-      }
-
-      const marker = listMarker(line);
-      const parent = listContainers[listContainers.length - 1];
-      const startsListItem = marker !== null &&
-        (parent ? marker.indent - parent.contentIndent <= 3 : marker.indent <= 3);
-      let fenceContentIndent = parent?.contentIndent ?? 0;
-      let openingLine = line;
-      if (startsListItem) {
-        listContainers.push(marker);
-        activeIndentedCode = false;
-        fenceContentIndent = marker.contentIndent;
-        openingLine = line.slice(marker.contentOffset);
-      }
-
-      const opening = codeFenceOpen(openingLine, startsListItem ? 0 : fenceContentIndent);
-      if (opening) {
-        ranges.push({ start: lineStart, end: lineEnd });
-        activeFence = { fence: opening, contentIndent: fenceContentIndent };
-        activeIndentedCode = false;
-      } else if (!startsListItem) {
-        const relativeIndent = indent - fenceContentIndent;
-        const indented = relativeIndent >= 4;
-        if (indented && (activeIndentedCode || canStartIndentedCode)) {
-          ranges.push({ start: lineStart, end: lineEnd });
-          activeIndentedCode = true;
-        } else if (!indented) {
-          activeIndentedCode = false;
-        }
-      }
-      canStartIndentedCode = false;
-    }
-    lineStart = lineEnd + 1;
-  }
+  for (const block of fences) for (let i = block.start; i <= block.end; i++) ranges.push(lineRange(i));
+  for (const i of indented) ranges.push(lineRange(i));
   for (const match of text.matchAll(/(`+)[^\n]*?\1/g)) {
     ranges.push({ start: match.index, end: match.index + match[0].length });
   }

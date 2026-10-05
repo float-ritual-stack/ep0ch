@@ -5,7 +5,7 @@ import { describe, expect, test } from "bun:test";
 import { type Msg } from "../src/board";
 import { foldPoints } from "../src/doc";
 import { NoteSurface, type SurfaceHost } from "../src/surface/note";
-import { LONG_FENCE_NOTE, TILDE_FENCE_NOTE } from "../../outline-core/test/fixtures/code-notes";
+import { LIST_FENCE_NOTE, LONG_FENCE_NOTE, TILDE_FENCE_NOTE } from "../../outline-core/test/fixtures/code-notes";
 
 const plain = (s: string) => s.replace(/\x1b\[[\d;]*m/g, "").replace(/[\u{100000}-\u{10FFFD}]/gu, "");
 const note = (text: string): Msg => ({ id: "bbbbbbbb-1111-4222-8333-444444444444", text, parentId: null, childIds: [], createdAt: 0, updatedAt: 0, author: "you", revision: 2, props: {} });
@@ -35,6 +35,12 @@ describe("a fence the service treats as code is drawn as code (shared fixture)",
     expect(text.some(l => l.includes("│ [tray::3] stays text"))).toBe(true);
     expect(text.filter(l => l.trim() === "│ ```")).toHaveLength(2);
     expect(text.some(l => l.includes("Then [tray::4] is read."))).toBe(true);
+  });
+
+  test("a fence under a bullet, four columns in, is code in the list item", () => {
+    const text = read(LIST_FENCE_NOTE).map(plain);
+    expect(text.some(l => l.includes("│     [can::2] stays text"))).toBe(true);
+    expect(text.some(l => l.includes("Then fill [can::3] cans"))).toBe(true);
   });
 
   test("a heading inside a ~~~ fence is not a fold point", () => {

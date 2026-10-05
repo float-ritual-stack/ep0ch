@@ -36,3 +36,19 @@ export const LONG_FENCE_LINES = [1, 2, 3, 4, 5];
 
 /** The properties the service reads in it. */
 export const LONG_FENCE_PROPERTIES = [["tray", "4"]];
+
+/** A fence nested under a bullet, four columns in: code in the list item, as CommonMark (and Detail) read it. */
+export const LIST_FENCE_NOTE = [
+  "Watering rota",
+  "- Water the beans",
+  "    ```sh",
+  "    [can::2] stays text",
+  "    ```",
+  "- Then fill [can::3] cans",
+].join("\n");
+
+/** Its lines inside the fence. */
+export const LIST_FENCE_LINES = [2, 3, 4];
+
+/** The properties the service reads in it. */
+export const LIST_FENCE_PROPERTIES = [["can", "3"]];

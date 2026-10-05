@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { closesCodeFence, codeFenceLines, codeFenceOpen } from "../src/code-fence";
 import { fencedRanges, protectedCodeRanges, scanPropertyLiteralRanges } from "../src/code-ranges";
-import { LONG_FENCE_LINES, LONG_FENCE_NOTE, TILDE_FENCE_LINES, TILDE_FENCE_NOTE } from "./fixtures/code-notes";
+import { LIST_FENCE_LINES, LIST_FENCE_NOTE, LONG_FENCE_LINES, LONG_FENCE_NOTE, TILDE_FENCE_LINES, TILDE_FENCE_NOTE } from "./fixtures/code-notes";
 
 test("a fence opens on three or more backticks or tildes, indented at most three columns", () => {
   expect(codeFenceOpen("```")).toEqual({ char: "`", length: 3, indent: 0, info: "" });
@@ -30,12 +30,15 @@ test("only the same character, at least as many, then only blanks, closes a fenc
   expect(closesCodeFence("~~~", fence)).toBe(false);
   expect(closesCodeFence("````", fence)).toBe(false);
   expect(closesCodeFence("~~~~ more", fence)).toBe(false);
+  // Only spaces and tabs are blanks: a no-break space after the run is text, so it doesn't close.
+  expect(closesCodeFence("~~~~\u00a0", fence)).toBe(false);
 });
 
 test("the shared notes' fences are where the service and the door look for them", () => {
   const lines = (text: string) => codeFenceLines(text.split("\n")).flatMap((at, i) => (at >= 0 ? [i] : []));
   expect(lines(TILDE_FENCE_NOTE)).toEqual(TILDE_FENCE_LINES);
   expect(lines(LONG_FENCE_NOTE)).toEqual(LONG_FENCE_LINES);
+  expect(lines(LIST_FENCE_NOTE)).toEqual(LIST_FENCE_LINES);
   expect(codeFenceLines(["```", "never closed", "**x**"])).toEqual([0, 0, 0]);
 });
 
@@ -45,6 +48,12 @@ test("the literal and protected ranges cover a tilde fence as code", () => {
   expect(scanPropertyLiteralRanges(TILDE_FENCE_NOTE)).toEqual([{ start: fenceStart, end: fenceEnd }]);
   const inside = TILDE_FENCE_NOTE.indexOf("[crate::7]");
   expect(protectedCodeRanges(TILDE_FENCE_NOTE).some(r => r.start <= inside && inside < r.end)).toBe(true);
+});
+
+test("a fence under a bullet counts from the item's content column; outside a list, four columns is not a fence", () => {
+  expect(codeFenceLines(["- a", "     ```", "x", "     ```", "after"])).toEqual([-1, 1, 1, 1, -1]);
+  expect(codeFenceLines(["- ```", "  x", "  ```"])).toEqual([0, 0, 0]);
+  expect(codeFenceLines(["text", "    ```", "x"])).toEqual([-1, -1, -1]);
 });
 
 test("the Claude mod's copy is outline-core's code-fence.ts, word for word", async () => {

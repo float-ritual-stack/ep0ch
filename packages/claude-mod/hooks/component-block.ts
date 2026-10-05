@@ -5,7 +5,7 @@
 // folds asks this rule, so a section that holds a figure ends where Detail, the door and replaceSection all
 // agree. Pure: no I/O.
 
-import { closesCodeFence, codeFenceOpen, type CodeFence } from "./code-fence";
+import { closesCodeFence, codeBlocks, codeFenceOpen, type CodeFence, type CodeFenceBlock } from "./code-fence";
 
 /**
  * The opening line: `::` and a component name, indented at most three spaces (four is code), with or without
@@ -89,16 +89,15 @@ export function componentBlocks(lines: readonly string[]): ComponentBlock[] {
  * structure. A fence inside a component is the component's question, and a component opener inside a fence is code.
  */
 export function noteStructure(lines: readonly string[]): number[] {
-  const block: number[] = [];
-  const components = new Map(componentBlocks(lines).map(c => [c.start, c.end]));
-  let fence: CodeFence | null = null, at = -1;
-  for (let i = 0; i < lines.length; i++) {
-    if (fence) { block.push(at); if (closesCodeFence(lines[i]!, fence)) fence = null; continue; }
-    const end = components.get(i);
-    if (end !== undefined) { for (let j = i; j <= end; j++) block.push(i); i = end; continue; }
-    fence = codeFenceOpen(lines[i]!);
-    at = fence ? i : -1;
-    block.push(at);
-  }
+  const block = new Array<number>(lines.length).fill(-1);
+  for (const c of componentBlocks(lines)) for (let j = c.start; j <= c.end; j++) block[j] = c.start;
+  for (const f of noteCodeFences(lines)) for (let j = f.start; j <= f.end; j++) block[j] = f.start;
   return block;
+}
+
+/** The fenced code blocks of a note's lines outside its component blocks (a fence in a component is its question). */
+export function noteCodeFences(lines: readonly string[]): CodeFenceBlock[] {
+  const masked = [...lines];
+  for (const c of componentBlocks(lines)) for (let j = c.start; j <= c.end; j++) masked[j] = "";
+  return codeBlocks(masked).fences;
 }
