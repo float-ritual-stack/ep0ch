@@ -44,7 +44,7 @@ export function readCheckpoint(dir = outlineState()): Checkpoint | null {
 /** The screens open as the steps that open them again: a named screen (a spec's, the showcase), the background's kept so. */
 export function screenSteps(stack: readonly Screen[], background: readonly Screen[]): Step[] {
   if (!(stack[0] instanceof MainMenu)) return [];
-  const open = (s: Screen): Step | null => (s.name ? { action: "screen.open", args: { name: s.name } } : null);
+  const open = (s: Screen): Step | null => (s.name ? { action: "screen.open", args: { name: s.name, ...(s.openArgs?.() ?? {}) } } : null);
   return [
     ...background.flatMap(s => { const o = open(s); return o ? [o, { action: "screen.back" }] : []; }),
     ...stack.slice(1).flatMap(s => { const o = open(s); return o ? [o] : []; }),

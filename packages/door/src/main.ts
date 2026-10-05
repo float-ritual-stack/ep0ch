@@ -1,6 +1,5 @@
 #!/usr/bin/env bun
 // ep0ch-door: a BBS door into a pi-herdr-outliner outline, over its socket.
-import { hostname } from "node:os";
 import { join } from "node:path";
 import { SocketBoard } from "./socket";
 import { Term } from "./term";
@@ -28,10 +27,12 @@ colourOnlyToATerminal();
 let args = process.argv.slice(2);
 const USAGE = `ep0ch: a BBS door into an outline
 
-  ep0ch [--ws <name>] [--machine <ssh-name> [--create] | --here] [--board [<hub-id>] | --desk | --layout <name> | --river | --brief | --welcome]
+  ep0ch [--ws <name>] [--machine <ssh-name> [--create] | --here]
+        [--board [<hub-id>] | --desk | --layout <name> | --river | --brief | --welcome | --screen detail <uri>]
                                    open the door (the logon, then the main menu, by default);
                                    --layout daily opens the desk laid out as a named layout (daily,
                                    river, board, desk, or one saved with ^W w);
+                                   --screen detail <ep0ch://...> opens one Detail reader on that note;
                                    --brief opens the newest daily brief (type::daily-brief), and
                                    EP0CH_LANDING=brief lands on it after the logon;
                                    --welcome opens the welcome notes ([welcome::1] first), and
@@ -163,6 +164,21 @@ if (args[0] === "open" && args[1]?.startsWith("ep0ch://")) {
     const uri = parseEp0chBlockUri(args[1]);
     const local = uri.machine === canonicalLocalMachineName();
     if (!process.env.EP0CH_CONTROL) process.env.EP0CH_CONTROL = join(placeOf({ outline: uri.outline, ...(local ? {} : { machine: uri.machine }) }).dir, "door.sock");
+  } catch (e) {
+    console.error(`ep0ch: ${(e as Error).message}`);
+    process.exit(2);
+  }
+}
+const screenAt = args.indexOf("--screen");
+if (screenAt >= 0 && args[screenAt + 1] === "detail" && args[screenAt + 2]?.startsWith("ep0ch://")) {
+  try {
+    const uri = parseEp0chBlockUri(args[screenAt + 2]!);
+    const local = uri.machine === canonicalLocalMachineName();
+    const drop = new Set(["--ws", "--machine"]);
+    const rest = args.filter((a, i) => a !== "--here" && !drop.has(a) && !drop.has(args[i - 1] ?? ""));
+    const at = rest.indexOf("--screen");
+    delete process.env.EP0CH_SOCKET;
+    args = [...rest.slice(0, at), "--ws", uri.outline, ...(local ? ["--here"] : ["--machine", uri.machine]), "--screen", "detail", uri.blockId, ...rest.slice(at + 3)];
   } catch (e) {
     console.error(`ep0ch: ${(e as Error).message}`);
     process.exit(2);

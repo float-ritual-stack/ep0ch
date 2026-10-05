@@ -24,6 +24,13 @@ export function registerBuiltinScreens(): void {
   add("pinned", args => pinnedSpec(args));
   add("board", args => boardSpec(args));
   add("river", () => riverSpec());
+  add("detail", args => {
+    const note = typeof args?.note === "string" ? args.note : "";
+    return {
+      name: "detail", title: "detail", lands: "detail", digits: false,
+      layout: { focus: "detail", root: { t: "leaf", kind: "detail", name: "detail", ...(note ? { note } : {}) } },
+    };
+  });
   // The home base (src/home.ts): what bare `ep0ch` opens where no outline is named; its args are where it was opened.
   add("home", args => homeSpec(args ?? {}));
   // The BBS menu's W and L: the who and activity tiles as screens (the activity's ⏎ shows its note in the reader).
@@ -41,5 +48,5 @@ export function openScreen(name: string, args?: Record<string, unknown>): Screen
   const spec = screenSpec(name, args);
   if (!spec) throw new Error(`no screen ${name}; screens: ${screenNames().join(", ")}`);
   // `persist: false`: it comes back as its screen was saved, and never saves (a screen in a tile, which the desk saves).
-  return new Desk(spec, { writes: args?.persist !== false });
+  return new Desk(spec, { writes: args?.persist !== false, ...(typeof args?.note === "string" ? { openArgs: { note: args.note } } : {}) });
 }

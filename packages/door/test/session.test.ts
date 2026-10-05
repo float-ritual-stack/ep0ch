@@ -730,9 +730,9 @@ describe("the checkpoint and the restore", () => {
   }
 
   test("the screens open are the steps that open them: the background's kept so, nothing before the logon", () => {
-    const menu = new MainMenu(), desk = { title: "desk", name: "desk" }, board = { title: "board", name: "board" }, list = { title: "new scan" };
-    expect(screenSteps([menu, board, list] as any, [desk] as any)).toEqual([
-      { action: "screen.open", args: { name: "desk" } }, { action: "screen.back" }, { action: "screen.open", args: { name: "board" } },
+    const menu = new MainMenu(), desk = { title: "desk", name: "desk" }, detail = { title: "detail", name: "detail", openArgs: () => ({ note: "a1111111-1111-4111-8111-111111111111" }) }, list = { title: "new scan" };
+    expect(screenSteps([menu, detail, list] as any, [desk] as any)).toEqual([
+      { action: "screen.open", args: { name: "desk" } }, { action: "screen.back" }, { action: "screen.open", args: { name: "detail", note: "a1111111-1111-4111-8111-111111111111" } },
     ]);
     expect(screenSteps([{ title: "logon" }] as any, [])).toEqual([]);
   });

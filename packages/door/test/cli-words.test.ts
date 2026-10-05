@@ -74,10 +74,20 @@ describe("--help, -h and help, anywhere", () => {
 describe("the rule, without a process", () => {
   test("bare ep0ch and the door's flags go on to the door; subcommands go on to theirs", () => {
     for (const args of [[], ["--ws", "garden"], ["--desk"], ["--board"], ["--board", "hub-1", "--no-daemon"], ["--layout", "daily"],
+      ["--screen", "detail", "ep0ch://garden@box-a/b/a1111111-1111-4111-8111-111111111111"],
       ["--machine", "box-a", "--ws", "garden", "--create"], ["--remote", "box-a", "status", "--json"], ["--showcase", "--reset"],
       ["--no-daemon", "--ws", "showcase", "--showcase"], ["--skill", "--all", "ep0ch-core"], ["find", "help"], ["session", "list", "--json"]]) {
       expect(checkWords(args)).toBeNull();
     }
+  });
+  test("--screen validates the detail URI tuple before a door starts", () => {
+    const error = (args: string[]) => {
+      const r = checkWords(args);
+      return r && "error" in r ? r.error : "";
+    };
+    expect(error(["--screen", "detail"])).toContain("needs a canonical URI");
+    expect(error(["--screen", "board", "ep0ch://garden@box-a/b/a1111111-1111-4111-8111-111111111111"])).toContain("supports detail");
+    expect(error(["--screen", "detail", "a1111111-1111-4111-8111-111111111111"])).toContain("canonical ep0ch:// URI");
   });
   test("closest: by edit distance, and only when it is close", () => {
     expect(closest("sessionss", ["session", "show", "status"])).toBe("session");

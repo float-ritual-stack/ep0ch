@@ -14,6 +14,7 @@ import { ch, isUp, isDown, type Key } from "./term";
 import { heatmap } from "./stats";
 import { Showcase } from "./showcase/showcase";
 import { openScreen } from "./desk/screen-specs";
+import { screenNames } from "./desk/screen-spec";
 import { bbsDate, rule, wrap } from "./text";
 import { NOTE_ACTIONS, NoteSurface, type HeaderInfo, type SurfaceHost } from "./surface/note";
 import { shellRunner } from "./drop";
@@ -421,12 +422,18 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
     },
   }),
   "screen.open": def({
-    summary: "open a screen from the main menu over the current one (q comes back); an agent's waits until the person is idle and is said on the status bar", keys: "the menu's letters N J K R W L F S Q B D G X T O C E +, or n j k r w l f s q b d g x t o c e, ⏎, click on a menu item or its letter on the key line",
-    touches: "screen", replay: "safe", says: out => (out?.key ? { text: `· opened ${out.opened ?? out.key} · q goes back`, ms: 6000 } : null),
-    args: { name: { type: "string", about: "the menu key (S), its label (Stats) or the screen's title (board stats)" } },
-    run({ name }, { ctx, here, again }, actor): unknown {
+    summary: "open a screen from the main menu or a named screen spec over the current one (q comes back); an agent's waits until the person is idle and is said on the status bar", keys: "the menu's letters N J K R W L F S Q B D G X T O C E +, or n j k r w l f s q b d g x t o c e, ⏎, click on a menu item or its letter on the key line",
+    touches: "screen", replay: "safe", says: out => (out?.opened ? { text: `· opened ${out.opened} · q goes back`, ms: 6000 } : null),
+    args: { name: { type: "string", about: "the menu key (S), its label (Stats), the screen's title, or a registered screen name" }, note: { type: "string", optional: true, about: "block id to show when opening the detail screen" } },
+    async run({ name, note }, { ctx, here, again }, actor): Promise<unknown> {
       const item = itemNamed(name);
-      if (!item) throw new ActionRefused(`no screen ${JSON.stringify(name)} on the menu; screen.list lists them`);
+      if (!item) {
+        if (!screenNames().includes(name)) throw new ActionRefused(`no screen ${JSON.stringify(name)}; screens: ${screenNames().join(", ")}`);
+        if (name === "detail" && typeof note === "string" && !(await ctx.board.get(note))) throw new ActionRefused(`no block ${note}`);
+        const s = openScreen(name, typeof note === "string" ? { note } : {});
+        ctx.push(s);
+        return { opened: s.title, screen: name };
+      }
       // Logging off is the person's G alone (an agent's never ends their session).
       if (item.key === "G" && actor.kind === "agent") throw new ActionRefused("an agent doesn't log the person off; only G, pressed or clicked by them, does");
       // An item that is another action's key (the Shell's !) runs that action, through the dispatcher, as the same actor.
