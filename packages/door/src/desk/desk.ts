@@ -1482,7 +1482,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (!c) return null;
     // The newest any reader holds: the one that saved it has it first, before the change reaches the others.
     let best: Msg = c;
-    for (const p of this.panes.values()) if (p instanceof ReaderPane && p.msg?.id === c.id && (p.msg.revision ?? 0) >= (best === c ? 0 : best.revision ?? 0)) best = p.msg;
+    for (const p of this.panes.values()) if (p instanceof ReaderPane && p.msg?.id === c.id && (p.msg.revision ?? -1) >= (best.revision ?? -1)) best = p.msg;
     return best;
   }
 
