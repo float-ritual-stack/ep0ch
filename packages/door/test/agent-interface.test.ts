@@ -191,6 +191,16 @@ describe.skipIf(!outliner)("the agent interface, against a scratch outline", () 
       expect(said.some(m => m.includes("an agent (env-opener-510)"))).toBe(true);
       // from= works the same way it does on act: where that tile's opens land.
       expect(await controlClient(["open", notes.shed.id, "from=claude", "--as", "opener-510"])).toBe(0);
+      // A reference as written, through outline-core's one parser: `((id|label))`, and `((id^fragment))` or a URI's
+      // `#fragment`, whose reader scrolls to the fragment and marks it.
+      const anchored = await board.request<{ id: string }>("create", { parentId: null, text: "Bean rows\nFirst row.\n\n## Late sowing ^late\nRunners after the frost.", author: "agent" });
+      const reader = () => desk.layoutGet().tiles.find(t => t.showing?.id === anchored.id && t.name !== "tree")?.name;
+      expect(await controlClient(["open", `((${anchored.id}|the bean rows))`, "--as", "opener-510"])).toBe(0);
+      await until(() => !!reader(), "the labelled reference opened");
+      expect(await controlClient(["open", notes.shed.id, "--as", "opener-510"])).toBe(0);
+      expect(await controlClient(["open", `((${anchored.id}^late|late sowing))`, "--as", "opener-510"])).toBe(0);
+      await until(() => !!reader() && (desk.pane(reader()!) as ReaderPane).surface.describe().focus?.marked === "^late", "the fragment marked");
+      expect(await controlClient(["open", "((not-a-block))"])).toBe(1);
       // Only the service writes as an extension.
       expect(await controlClient(["open", notes.shed.id, "--as", "ext:tidy"])).toBe(1);
       expect(await controlClient(["open"])).toBe(1);

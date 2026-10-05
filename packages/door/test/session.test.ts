@@ -1033,6 +1033,11 @@ describe.skipIf(!outliner)("one session per outline, two at once", () => {
     });
     const gardenText = (await control(garden.dir, { cmd: "peek" })).text.join("\n");
     expect(gardenText).toContain("Mint bed");
+    // The URI's #fragment goes on to the open (the reader scrolls to it, or says it's missing).
+    process.env.EP0CH_CONTROL = agentControl;
+    try { r = await cli("open", `${uri}#late-sowing`, "--json"); }
+    finally { if (oldControl === undefined) delete process.env.EP0CH_CONTROL; else process.env.EP0CH_CONTROL = oldControl; }
+    expect(JSON.parse(r.out)).toMatchObject({ opened: true, id: gardenNote, fragment: "late-sowing" });
     expect((await control(orchard.dir, { cmd: "peek" })).text.join("\n")).not.toContain("Mint bed");
     attached.send({ t: "detach" });
   });

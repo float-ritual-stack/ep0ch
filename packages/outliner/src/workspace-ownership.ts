@@ -31,7 +31,7 @@ export function acquireLockFile(lockPath: string, what = "Outliner workspace"): 
 }
 
 /** SQLite's in-memory and private temporary databases: each open is its own, so there is nothing to own. */
-function isPrivateDatabase(databasePath: string): boolean {
+export function isPrivateDatabase(databasePath: string): boolean {
   return databasePath === "" || databasePath === ":memory:" ||
     (databasePath.startsWith("file:") && /(^file::memory:)|[?&]mode=memory(&|$)/.test(databasePath));
 }
@@ -39,13 +39,16 @@ function isPrivateDatabase(databasePath: string): boolean {
 /**
  * The owner lock of the database at `databasePath`: the path every opener locks (`<canonical path>.owner.sqlite`), and
  * the files SQLite keeps for it, for an outline's delete to remove once it holds the lock itself (outline-host.ts).
+ * `instance` is the file beside it that records which database instance was last open there (outline-instance.ts);
+ * the delete removes it too.
  */
-export function ownerLockOf(databasePath: string): { path: string; files: string[] } {
+export function ownerLockOf(databasePath: string): { path: string; files: string[]; instance: string } {
   const canonicalPath = existsSync(databasePath)
     ? realpathSync(databasePath)
     : join(realpathSync(dirname(databasePath)), basename(databasePath));
   const path = `${canonicalPath}.owner.sqlite`;
-  return { path, files: [path, `${path}-journal`, `${path}-wal`, `${path}-shm`] };
+  const instance = `${canonicalPath}.instance.json`;
+  return { path, files: [path, `${path}-journal`, `${path}-wal`, `${path}-shm`, instance], instance };
 }
 
 export function acquireWorkspaceOwnership(databasePath: string): () => void {

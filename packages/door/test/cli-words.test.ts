@@ -7,7 +7,10 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { readFileSync } from "node:fs";
-import { checkWords, closest, COMMANDS } from "../src/cli-words";
+import { checkWords, closest, COMMANDS, screenDetailArgs } from "../src/cli-words";
+import { canonicalLocalMachineName } from "../src/notes-cli";
+import { hostRequest } from "../src/socket";
+import { ScratchHost } from "./scratch";
 
 const MAIN = join(resolve(import.meta.dir, ".."), "src/main.ts");
 const dir = mkdtempSync(join(tmpdir(), "ep0ch-words-"));
@@ -89,6 +92,16 @@ describe("the rule, without a process", () => {
     expect(error(["--screen", "board", "ep0ch://garden@box-a/b/a1111111-1111-4111-8111-111111111111"])).toContain("supports detail");
     expect(error(["--screen", "detail", "a1111111-1111-4111-8111-111111111111"])).toContain("canonical ep0ch:// URI");
   });
+  test("--screen detail <uri> names the URI's outline, never makes it, and keeps a host named outright", () => {
+    const uri = { outline: "garden", machine: "box-a", blockId: "a1111111-1111-4111-8111-111111111111" };
+    const args = ["--ws", "fern", "--here", "--create", "--screen", "detail", "ep0ch://garden@box-a/b/a1111111-1111-4111-8111-111111111111", "--no-daemon"];
+    expect(screenDetailArgs(args, uri, { local: false, socket: false }))
+      .toEqual(["--ws", "garden", "--machine", "box-a", "--no-create", "--screen", "detail", uri.blockId, "--no-daemon"]);
+    expect(screenDetailArgs(args, uri, { local: true, socket: false }))
+      .toEqual(["--ws", "garden", "--here", "--no-create", "--screen", "detail", uri.blockId, "--no-daemon"]);
+    expect(screenDetailArgs(args, uri, { local: false, socket: true }))
+      .toEqual(["--ws", "garden", "--no-create", "--screen", "detail", uri.blockId, "--no-daemon"]);
+  });
   test("closest: by edit distance, and only when it is close", () => {
     expect(closest("sessionss", ["session", "show", "status"])).toBe("session");
     expect(closest("outlin", ["outline", "open"])).toBe("outline");
@@ -117,4 +130,27 @@ describe("the word lists say what the code reads", () => {
 test("ep0ch view order is a command, its ids data; help names its usage", () => {
   expect(checkWords(["view", "order", "PIE-12", "help"])).toBeNull();
   expect(checkWords(["viw", "order"])).toEqual({ error: expect.stringContaining("did you mean: ep0ch view") });
+});
+
+describe("--screen detail <uri> on a host named by EP0CH_SOCKET", () => {
+  test("an outline that host doesn't have is refused with the commands, and nothing is created", async () => {
+    const host = new ScratchHost();
+    try {
+      const sock = await host.start();
+      const env: Record<string, string> = {};
+      for (const [k, v] of Object.entries(process.env)) if (v !== undefined && !k.startsWith("EP0CH_")) env[k] = v;
+      Object.assign(env, host.env, { EP0CH_SOCKET: sock, EP0CH_STATE: join(host.root, "door"), EP0CH_CONTROL: join(host.root, "door", "c.sock"), EP0CH_DAEMON: "0" });
+      const uri = `ep0ch://mistyped@${canonicalLocalMachineName()}/b/a1111111-1111-4111-8111-111111111111`;
+      const r = Bun.spawnSync([process.execPath, MAIN, "--screen", "detail", uri], { cwd: host.folder("plain"), env, stdin: "ignore" });
+      const err = r.stderr.toString();
+      expect(r.exitCode).toBe(1);
+      expect(err).toContain("has no outline mistyped");
+      expect(err).toContain("Nothing was created");
+      expect(err).toContain("ep0ch --ws mistyped --create");
+      const { outlines } = await hostRequest<{ outlines: Array<{ name: string }> }>(sock, "outlines.list");
+      expect(outlines.map(o => o.name)).not.toContain("mistyped");
+    } finally {
+      await host.dispose();
+    }
+  }, 30_000);
 });

@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
 import { afterEach, expect, test } from "bun:test";
-import { copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { copyFileSync, existsSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { importOutline } from "../src/outline-import";
@@ -41,10 +41,10 @@ test("a new file gets the schema, stamp and outline instance id", () => {
   const path = join(directory(), "outliner.sqlite");
   const store = new OutlinerStore(path);
   const id = store.outlineInstanceId;
-  expect(id).toMatch(/^[0-9a-f]{64}$/);
+  expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
   store.close();
   expect(userVersion(path)).toBe(SCHEMA_VERSION);
-  expect(outlineInstanceId(path)).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+  expect(outlineInstanceId(path)).toBe(id);
   const reopened = new OutlinerStore(path);
   expect(reopened.outlineInstanceId).toBe(id);
   expect(reopened.queryBlocks({ filters: [{ key: "system-view", value: "inbox" }], limit: 2 }).blocks).toHaveLength(1);
@@ -88,7 +88,7 @@ test("the stamp script stamps a database whose shape matches, column order and f
   expect(userVersion(path)).toBe(SCHEMA_VERSION);
   expect(stamp(path)).toEqual({ stamped: false, outlineInstanceId: stamped.outlineInstanceId });
   const store = new OutlinerStore(path);
-  expect(store.outlineInstanceId).toMatch(/^[0-9a-f]{64}$/);
+  expect(store.outlineInstanceId).toBe(outlineInstanceId(path));
   expect(store.create("Opens after the stamp").text).toBe("Opens after the stamp");
   store.close();
 });
@@ -105,8 +105,22 @@ test("the version 2 migration adds an outline instance id without touching block
   const after = readFileSync(path);
   expect(after.equals(before)).toBe(false);
   const store = new OutlinerStore(path);
-  expect(store.outlineInstanceId).toMatch(/^[0-9a-f]{64}$/);
+  expect(store.outlineInstanceId).toBe(outlineInstanceId(path));
   store.close();
+});
+
+test("a version 2 database missing its instance id is refused with the exact repair command, and 0002 repairs it", () => {
+  const path = join(directory(), "outliner.sqlite");
+  new OutlinerStore(path).close();
+  const database = new Database(path);
+  database.query("DELETE FROM metadata WHERE key = 'outline_instance_id'").run();
+  database.close();
+  expect(() => new OutlinerStore(path)).toThrow(new RegExp(`has no valid outline instance id; repair it with \`bun \\S+/scripts/migrations/0002-outline-instance-id\\.ts ${path}\``));
+  const repaired = migrate(path);
+  expect(repaired).toMatchObject({ migrated: false, repaired: true });
+  expect(outlineInstanceId(path)).toBe(repaired.outlineInstanceId);
+  expect(migrate(path)).toEqual({ migrated: false, outlineInstanceId: repaired.outlineInstanceId });
+  new OutlinerStore(path).close();
 });
 test("the version 2 migration refuses a version 1 database whose shape differs", () => {
   const path = join(directory(), "outliner.sqlite");
@@ -121,7 +135,7 @@ test("the version 2 migration refuses a version 1 database whose shape differs",
 });
 
 
-test("a copied database file has a different outline file instance identity", () => {
+test("a copied database file has a different outline instance id", () => {
   const root = directory();
   const source = join(root, "source.sqlite");
   const target = join(root, "restored-copy.sqlite");
@@ -132,6 +146,77 @@ test("a copied database file has a different outline file instance identity", ()
   const restored = new OutlinerStore(target);
   expect(restored.outlineInstanceId).not.toBe(originalId);
   restored.close();
+});
+
+test("the instance id stays put across reopens, whatever the file's inode or device", () => {
+  const root = directory();
+  const path = join(root, "outliner.sqlite");
+  const first = new OutlinerStore(path);
+  const id = first.outlineInstanceId;
+  first.create("Fictional note before the restart");
+  first.close();
+  // A reboot can renumber the device and a move gives a new inode: neither replaces the database.
+  renameSync(path, join(root, "moved.sqlite"));
+  copyFileSync(join(root, "moved.sqlite"), path);
+  rmSync(join(root, "moved.sqlite"));
+  for (let open = 0; open < 3; open += 1) {
+    const reopened = new OutlinerStore(path);
+    expect(reopened.outlineInstanceId).toBe(id);
+    reopened.create(`Fictional note ${open}`);
+    reopened.close();
+  }
+});
+
+test("a backup restored in place over the same file gets a new instance id", () => {
+  const root = directory();
+  const path = join(root, "outliner.sqlite");
+  const backup = join(root, "backup.sqlite");
+  const store = new OutlinerStore(path);
+  const id = store.outlineInstanceId;
+  store.create("Fictional note in the backup");
+  store.database.exec(`VACUUM INTO '${backup}'`);
+  store.create("Fictional note after the backup");
+  store.close();
+  const inode = statSync(path).ino;
+  // `cp backup over the file`: same inode, the backup's own (identical) metadata id.
+  writeFileSync(path, readFileSync(backup));
+  for (const suffix of ["-wal", "-shm"]) rmSync(`${path}${suffix}`, { force: true });
+  expect(statSync(path).ino).toBe(inode);
+  expect(outlineInstanceId(path)).toBe(id);
+  const restored = new OutlinerStore(path);
+  expect(restored.outlineInstanceId).not.toBe(id);
+  const restoredId = restored.outlineInstanceId;
+  restored.close();
+  const reopened = new OutlinerStore(path);
+  expect(reopened.outlineInstanceId).toBe(restoredId);
+  reopened.close();
+});
+
+test("a restore to an earlier point of the same open (a continuous backup) gets a new instance id", () => {
+  const root = directory();
+  const path = join(root, "outliner.sqlite");
+  const backup = join(root, "backup.sqlite");
+  new OutlinerStore(path).close();
+  const store = new OutlinerStore(path);
+  const id = store.outlineInstanceId;
+  // Taken during this open, so it carries this open's token; only its sequence is behind.
+  store.database.exec(`VACUUM INTO '${backup}'`);
+  store.create("Fictional note after the backup");
+  store.close();
+  writeFileSync(path, readFileSync(backup));
+  for (const suffix of ["-wal", "-shm"]) rmSync(`${path}${suffix}`, { force: true });
+  const restored = new OutlinerStore(path);
+  expect(restored.outlineInstanceId).not.toBe(id);
+  restored.close();
+});
+
+test("an in-memory store has an instance id without a file", () => {
+  const first = new OutlinerStore(":memory:");
+  const second = new OutlinerStore(":memory:");
+  expect(first.outlineInstanceId).toMatch(/^[0-9a-f]{8}-/);
+  expect(second.outlineInstanceId).not.toBe(first.outlineInstanceId);
+  first.close();
+  second.close();
 });
 
 test("the stamp script refuses a database whose shape differs, naming each difference", () => {
@@ -172,6 +257,7 @@ test("import makes a new outline with the blocks, properties, page addresses and
   store.delete(trashed.id);
   store.create("Fictional work [type::work-queue] [project::garden]");
   store.createRoadmapItem({ title: "A fictional outcome", project: "garden", arc: "growth", tracks: ["growth"], priority: "low" });
+  store.configureMcpAccess("read");
   const counts = (database: Database) => Object.fromEntries(["blocks", "block_properties", "page_addresses", "reserved_work_ids"].map(table =>
     [table, (database.query(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n]));
   const before = counts(store.database);
@@ -187,6 +273,8 @@ test("import makes a new outline with the blocks, properties, page addresses and
   expect(outlineInstanceId(target)).not.toBe(sourceDatabaseId);
 
   const imported = new OutlinerStore(target);
+  // An MCP grant is the old outline's disclosure decision; the new one starts at none.
+  expect(imported.mcpAccessStatus()).toMatchObject({ level: "none", canRead: false });
   const kinds = Object.fromEntries((imported.database.query("SELECT display_address, kind FROM page_addresses WHERE block_id = ?").all(page.id) as Array<{ display_address: string; kind: string }>)
     .map(row => [row.display_address, row.kind]));
   // The renamed page keeps its old address as an alias.

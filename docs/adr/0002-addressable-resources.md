@@ -23,7 +23,11 @@ local part). Its ids follow [ADR 0001](0001-ids-names-roles.md).
    URI. A change to it bumps `PROTOCOL`. An outline is always `name@machine` in a stored reference or a remote call,
    never a bare name.
 2. **A cache key is URI + `outlineInstanceId` + revision.** A database replaced by a restore, reset or import can
-   land on the same revision (PIE-559). Its instance id changes, and every cache keyed on it is dropped.
+   land on the same revision (PIE-559). Its instance id changes, and every cache keyed on it is dropped. The id is
+   the UUID in the database's metadata (it survives a reboot, a move, a new inode). A restored backup carries the
+   live UUID, so each open leaves a record beside the file (`<database>.instance.json`: the id, a token written into
+   the database at that open, the highest sequence seen), and a database the record doesn't describe (another
+   token, a sequence behind it, no record) gets a fresh id before anything reads it (`outline-instance.ts`).
 3. **Retrieval and presentation are separate.** MCP `resources/read` of a URI returns Markdown (every client can show
    it) plus an envelope: `uri`, `outlineInstanceId`, `revision`, `reachability`, `record`. Discovery and operations
    are tools with claude-mod's names (`outline_read`, `outline_find`, `outline_links`, …): one vocabulary. Rich views

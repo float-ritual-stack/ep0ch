@@ -113,7 +113,8 @@ code.
 - **Sources:** `ep0ch find --tree [<root>] --lines` prints the outline depth first, in the service's own order (its
   tree index, the walk Tree draws), each note with its depth and the `├─ │ └─` that draw its place (past ten levels the
   outer rails become `…<depth>`, so a deep title stays in view); `ep0ch find --recent --lines` and `ep0ch find --lines`
-  print the newest and every note as `id<TAB>title<TAB>path`, and `ep0ch find --query "<expression>" --lines` the notes a
+  print the newest and every note as `id<TAB>title<TAB>path<TAB>uri` (the tree adds depth, glyphs and about before
+  the URI, which is always last), and `ep0ch find --query "<expression>" --lines` the notes a
   query holds for (`ep0ch-tv query`). `ep0ch-tv` colours them as git's `--color` colours a log
   (`ansi = true`, `no_sort`, no frecency, as the `git-log` channel) and puts the note's id after the line in an empty
   OSC 8 link (`ESC ]8;;ep0ch:<id> ESC \`). tv drops escapes from what it shows and from what it matches, so the id is

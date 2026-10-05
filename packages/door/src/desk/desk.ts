@@ -1116,6 +1116,18 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (!m) throw new ActionRefused(`no block ${id}`);
     return this.land(m, by);
   }
+  /**
+   * `open fragment=` (`ep0ch open <uri>#<fragment>`, `((id^fragment))`): the reader that shows the note scrolls to the
+   * fragment and marks it, as a followed link does (PIE-425); an agent's never scrolls the reader the person is in.
+   */
+  revealIn(reader: string | null, fragment: string, actor: Actor): void {
+    const r = this.namedReaders().find(x => x.name === reader);
+    if (!r) return;
+    const host = r.pane.host(this);
+    if (actor.kind === "agent" && host.focused !== false) return;
+    void r.pane.surface.revealFragment(fragment, host, actor);
+  }
+
   /** `openBlock(m)`, saying which reader shows it now. */
   private land(m: Msg, by: Actor): { reader: string | null; id: string } {
     // A spec's landing refuses with its reason (thrown to the agent); otherwise the screen's own open.
@@ -3859,20 +3871,27 @@ export const DESK_ACTIONS = actionSet<DeskOn>()("desk", {
     // it lands where opens land: maybe the note they're reading, said on screen, never their keys or a reader they type in.
     touches: "tile", touchesWith: (_, tile) => (tile !== undefined ? "tile" : "nothing"), way: "opening a note there would move what they're reading · name another reader with tile=, or name none (ep0ch open <id>): it lands where opens land, never their keys or a reader they type in",
     replay: "safe", confirms: true, places: ["detail", "new-detail", "float"], says: r => `opened a note${r.reader ? ` in ${r.reader}` : ""}`,
-    args: { id: { type: "string", about: "the block id" }, from: { type: "string", optional: true, about: "open it as this tile's opens go (its link): the tile a program runs in" }, fresh: { type: "boolean", optional: true, about: "with from=: a new tile where its opens land (alt+⏎)" } },
-    async run({ id, from, fresh }, { d, reader }, actor) {
-      // An agent naming neither (`ep0ch open <id>`): where the focused tile's opens land, never the reader the
-      // person types in (openShown). The person's own goes to the focused reader and gives it the keys.
-      // The screen's places (its opens land in a container: the board's readers row); elsewhere a tile by that name.
-      if ((reader === "detail" || reader === "new-detail" || reader === "float") && d.hasPlaces()) return d.openPlace(id, reader, actor);
-      // The person's open naming no tile, with their keys in a flow (the river's search): the next column, as ⏎ there does.
-      if (from === undefined && reader === undefined && actor.kind !== "agent" && d.focusInFlow()) return d.openFrom(id, d.focusedName(), actor, !!fresh);
-      return from !== undefined ? d.openFrom(id, from, actor, !!fresh)
-        : reader === undefined && actor.kind === "agent" ? d.openLanding(id, actor)
-        : d.openIn(id, reader, actor);
+    args: { id: { type: "string", about: "the block id" }, from: { type: "string", optional: true, about: "open it as this tile's opens go (its link): the tile a program runs in" }, fresh: { type: "boolean", optional: true, about: "with from=: a new tile where its opens land (alt+⏎)" }, fragment: { type: "string", optional: true, about: "a fragment of the note (^anchor or heading id): the reader scrolls to it and marks it" } },
+    async run({ id, from, fresh, fragment }, ctx, actor) {
+      const r = await openNote({ id, from, fresh }, ctx, actor);
+      if (fragment) ctx.d.revealIn(r.reader, fragment, actor);
+      return fragment ? { ...r, fragment } : r;
     },
   }),
 });
+
+/** Where `open` puts a note: the screen's places, a flow's next column, a tile's link, an agent's landing, a reader. */
+function openNote({ id, from, fresh }: { id: string; from?: string; fresh?: boolean }, { d, reader }: DeskOn, actor: Actor): Promise<{ reader: string | null; id: string }> {
+  // An agent naming neither (`ep0ch open <id>`): where the focused tile's opens land, never the reader the
+  // person types in (openShown). The person's own goes to the focused reader and gives it the keys.
+  // The screen's places (its opens land in a container: the board's readers row); elsewhere a tile by that name.
+  if ((reader === "detail" || reader === "new-detail" || reader === "float") && d.hasPlaces()) return d.openPlace(id, reader, actor);
+  // The person's open naming no tile, with their keys in a flow (the river's search): the next column, as ⏎ there does.
+  if (from === undefined && reader === undefined && actor.kind !== "agent" && d.focusInFlow()) return d.openFrom(id, d.focusedName(), actor, !!fresh);
+  return from !== undefined ? d.openFrom(id, from, actor, !!fresh)
+    : reader === undefined && actor.kind === "agent" ? d.openLanding(id, actor)
+    : d.openIn(id, reader, actor);
+}
 
 /** A search hit's body under its title, wrapped: literal-region markers hidden, properties in a region plain (PIE-422). */
 function previewLines(m: Msg, w: number): string[] {

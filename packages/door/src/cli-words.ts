@@ -113,3 +113,17 @@ export function usageFor(usage: string, command: string): string {
   const mine = entries.filter(e => e.length && head.test(e[0]!));
   return mine.length ? mine.map(e => e.join("\n")).join("\n") : usage;
 }
+
+/**
+ * The door's arguments for `--screen detail <uri>`: the URI's outline as `--ws`, its machine as `--here` or
+ * `--machine` (none when EP0CH_SOCKET names the host outright: a test door's scratch host stays its host), and the
+ * block id in place of the URI. A URI never makes an outline (PIE-545's mayCreate): `--no-create`, so one nobody has
+ * is refused with the commands, and a `--create` beside it is dropped.
+ */
+export function screenDetailArgs(args: readonly string[], uri: { outline: string; machine: string; blockId: string }, o: { local: boolean; socket: boolean }): string[] {
+  const drop = new Set(["--ws", "--machine"]);
+  const rest = args.filter((a, i) => a !== "--here" && a !== "--create" && !a.startsWith("--no-create") && !drop.has(a) && !drop.has(args[i - 1] ?? ""));
+  const at = rest.indexOf("--screen");
+  const where = o.socket ? [] : o.local ? ["--here"] : ["--machine", uri.machine];
+  return [...rest.slice(0, at), "--ws", uri.outline, ...where, "--no-create", "--screen", "detail", uri.blockId, ...rest.slice(at + 3)];
+}

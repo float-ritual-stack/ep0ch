@@ -1730,8 +1730,6 @@ export type OutlinerRequestAction =
   /** Blocks as records (outline-core's block-record.ts: properties, header, children, tasks, links, backlinks, resources). Reads only. */
   | { id: string; action: "blocks.records"; ids: string[] }
   /** Service-owned publication reachability for external read surfaces. Uses `[publish::…]` and `[publish::never]`. */
-  | { id: string; action: "publish.access"; ids: string[] }
-  | { id: string; action: "publish.records"; ids: string[] }
   /** Per-outline local MCP access. Default is none; read/propose/full allow read-only local MCP reads. */
   | { id: string; action: "mcp.access.status" }
   | { id: string; action: "mcp.access.configure"; level: McpAccessLevel }

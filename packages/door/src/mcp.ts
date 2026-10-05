@@ -4,7 +4,7 @@ import { createInterface } from "node:readline";
 import { boardFor, canonicalLocalMachineName, everyNote, type Found, type NotesBoard } from "./notes-cli";
 import { previewTitle, type McpAccessStatus, type McpReachability, type McpAccessLevel } from "./socket";
 import type { BlockRecord } from "@ep0ch/outline-core/block-record";
-import { formatEp0chBlockUri, parseAddressedBlock, parseEp0chBlockUri, type Ep0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
+import { formatEp0chBlockUri, parseAddressedBlock, type Ep0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
 
 export const MCP_USAGE = `  ep0ch mcp [--ws <name>] [--machine <ssh-name>]
                                    read-only local MCP server for ep0ch:// block resources after \`ep0ch mcp access read\`:
@@ -51,13 +51,13 @@ function sameOutline(board: Board, uri: Ep0chBlockUri): boolean {
 function addressedBlock(board: Board, input: unknown): { id: string; uri: string } | { error: string } {
   if (typeof input !== "string" || !input.trim()) return { error: "Give ref or uri as a block id, ((id)) or ep0ch:// outline URI." };
   try {
-    if (input.startsWith("ep0ch://")) {
-      const uri = parseEp0chBlockUri(input);
-      if (!sameOutline(board, uri)) return { error: `${input} names ${uri.outline}@${uri.machine}; this MCP server is bound to ${board.address.outline}@${board.address.machine}` };
-      return { id: uri.blockId, uri: formatEp0chBlockUri(uri) };
+    // One parser for a uuid, ((uuid)) and the URI; a URI (with or without spaces around it) is checked against the
+    // outline this server is bound to before its id is read anywhere.
+    const parsed = parseAddressedBlock(input.trim());
+    if ("outline" in parsed) {
+      if (!sameOutline(board, parsed)) return { error: `${input.trim()} names ${parsed.outline}@${parsed.machine}; this MCP server is bound to ${board.address.outline}@${board.address.machine}` };
+      return { id: parsed.blockId, uri: formatEp0chBlockUri(parsed) };
     }
-    const parsed = parseAddressedBlock(input);
-    if ("target" in parsed) return { error: "Local refs cannot name another outline; use an ep0ch:// URI for canonical addresses." };
     return { id: parsed.blockId, uri: blockUri(board, parsed.blockId) };
   } catch (e) { return { error: (e as Error).message }; }
 }
