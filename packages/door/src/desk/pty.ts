@@ -496,6 +496,8 @@ export class PtyPane implements Pane {
     return true;
   }
 
+  /** Its program asked for the mouse: a right-click is the program's, and the header's ⋯ opens the tile's menu. */
+  ownsRightClick() { return this.wantsMouse(); }
   /** The program asked for the mouse. */
   wantsMouse() { return this.running && !this.back && (this.term?.modes.mouseTrackingMode ?? "none") !== "none"; }
 

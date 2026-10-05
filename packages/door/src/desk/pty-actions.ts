@@ -15,6 +15,9 @@ const host = (desk: DeskApi): Desk => {
   return desk as Desk;
 };
 
+/** The tile menu's group for a terminal's own actions. */
+const TERMINAL = "Terminal";
+
 export const PTY_ACTIONS = actionSet<On>()("terminal", {
   "tile.type": def({
     summary: "send text=<text> to the program in terminal tile=<tile>, as typed keys (\\n is ⏎). Refused to an agent for the terminal the person is in",
@@ -28,6 +31,7 @@ export const PTY_ACTIONS = actionSet<On>()("terminal", {
     summary: "run the program in terminal tile=<tile> again (after it exited). Refused to an agent for the terminal the person is in",
     keys: "⏎ on an exited terminal",
     touches: "tile", while: "typing", replay: "ask", way: "an agent doesn't restart it under them (block.mark gets their attention)", says: r => `restarted ${r.tile}`,
+    menu: { label: "run it again", group: TERMINAL, key: "enter", now: ({ pane }) => (pane.exited === null ? { hide: true } : null) },
     args: {},
     run(_, { pane, desk, tile }, actor) {
       return host(desk).restartTerminal(tile, pane, actor);
@@ -37,6 +41,7 @@ export const PTY_ACTIONS = actionSet<On>()("terminal", {
     summary: "type in terminal tile=<tile> (the focused one): every key but ctrl+] goes to its program; one that exited runs again. The person's only: an agent's would take their keys (tile.type sends a program text)",
     keys: "e, ⏎, click in a terminal tile; ctrl+] then ctrl+] sends ctrl+] to it",
     touches: "screen", replay: "safe", person: "typing in a terminal tile takes the person's keys; an agent sends it text with tile.type",
+    menu: { label: "type in it", group: TERMINAL, key: "e", now: ({ pane }) => (pane.running ? null : { hide: true }) },
     args: { send: { type: "string", optional: true, about: "bytes to give the program first (a literal ctrl+])" } },
     run({ send }, { pane, desk, tile }) { return host(desk).enterTerminal(tile, pane, send); },
   }),

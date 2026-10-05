@@ -235,8 +235,14 @@ if (scenario === "showcase") {
   press({ kind: "esc" }); press({ kind: "esc" }); await Bun.sleep(200); press({ kind: "esc" }); ch("q");
   press({ kind: "mouse", action: "down", button: 0, x: 3, y: 2 + 9 * 2 }); press({ kind: "mouse", action: "up", button: 0, x: 3, y: 2 + 9 * 2 });   // click section 10
   await snap("14-clicked-selection", 800);
+  (app as any).lastInput = 0;                                                         // an agent's move waits for the person to be idle
   await app.act({ action: "section", args: { name: "service" }, as: "snap-agent" });
   await snap("15-agent-section", 1500);
+  (app as any).lastInput = 0;
+  await app.act({ action: "section", args: { name: "menu" }, as: "snap-agent" });
+  await Bun.sleep(800);
+  press({ kind: "enter" }); press({ kind: "char", ch: "w", ctrl: true }); ch(".");      // into the part, then ^W .: the reader's menu
+  await snap("16-tile-menu", 1000);
   board.close(); await scratch!.dispose(); process.exit(0);
 }
 if (scenario === "brief") {

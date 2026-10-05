@@ -1,7 +1,8 @@
 // A list to pick from, as a mode (src/surface/modes.ts): the desk's layout picker, policy panel and search, the
 // board's hub picker, mover and steps, a reader's status choice. It holds every key while open: ↑ ↓ (j k when
 // nothing is typed), Tab, Home End, PgUp PgDn and the wheel move the cursor (a RowView); ⏎ or a double click on a row
-// chooses (a click moves the cursor there, RowView.press), and puts it away unless it `stays`; esc, a closing letter or a click outside puts it away. Put away, it has
+// chooses (a click moves the cursor there, RowView.press; in a menu, `clickChooses`, it chooses), and puts it away unless it
+// `stays`; esc, a closing letter or a click outside puts it away. A heading row (a menu's group) chooses nothing. Put away, it has
 // `ended` (its mode stack lets it go). A line typed above the list is a LineInput.
 import type { Canvas, Rect } from "../canvas";
 import { RowView } from "../scroll";
@@ -21,6 +22,10 @@ export interface PickerSpec<T, H> {
   choose(it: T, i: number, host: H): void;
   /** It stays open after a choice (the policy panel, the steps). */
   stays?: boolean;
+  /** A row drawn above an item (a menu's group): never lit, and a click on it chooses nothing. */
+  heading?(it: T, i: number, w: number): string | null;
+  /** A click chooses the row it's on, at once (a menu), instead of moving the cursor there first. */
+  clickChooses?: boolean;
   /** Put away by esc, a closing letter or a click outside: what else that does. */
   closed?(host: H): void;
   /** Keys and clicks of its own before the list's (the steps' x w !, the policy's h l + - and containers). */
@@ -98,7 +103,7 @@ export class ListPicker<T, H> implements Mode<H> {
     const r = this.box, hit = r && x > r.col && x < Math.min(r.col + r.cols - 1, r.col + 1 + this.listW) ? this.hits.find(h => h.y === y) : undefined;
     if (!r) return;                                          // never drawn (the reader's status choice): not its click
     // A panel that stays open (the policy rows, the steps) has controls for rows: a click on one is its change.
-    if (hit) { const g = this.spec.stays ? "open" : this.view.press(hit.i, { mods: k.mods ?? 0, button: k.button }); if (g === "open" || g === "fresh") this.pick(hit.i, host); else this.sel = hit.i; }
+    if (hit) { const g = this.spec.stays || this.spec.clickChooses ? "open" : this.view.press(hit.i, { mods: k.mods ?? 0, button: k.button }); if (g === "open" || g === "fresh") this.pick(hit.i, host); else this.sel = hit.i; }
     else if (!this.spec.clicked?.(x, y, host) && (!r || x < r.col || x >= r.col + r.cols || y < r.row || y >= r.row + r.rows)) this.close(host);
   }
 
@@ -106,10 +111,12 @@ export class ListPicker<T, H> implements Mode<H> {
   lines(w: number, h: number, at = 0): string[] {
     const items = this.items;
     this.sel = Math.max(0, Math.min(this.sel, items.length - 1));
-    const rows: { text: string; i: number }[] = [];
+    const rows: { text: string; i: number; inert?: true }[] = [];
     let first = 0, last = 0;
     items.forEach((it, i) => {
+      const head = this.spec.heading?.(it, i, w);
       if (i === this.sel) first = rows.length;
+      if (head != null) rows.push({ text: head, i, inert: true });
       for (const text of this.spec.row(it, i, i === this.sel, w)) rows.push({ text, i });
       if (i === this.sel) last = rows.length - 1;
     });
@@ -119,7 +126,7 @@ export class ListPicker<T, H> implements Mode<H> {
     const cut = shown.at(-1)?.i;
     if (cut !== undefined && rows[top + h]?.i === cut && shown[0]!.i !== cut) while (shown.at(-1)?.i === cut) shown.pop();
     this.per = Math.max(1, rows.length / Math.max(1, items.length));
-    this.hits = shown.map((r, j) => ({ y: at + j, i: r.i }));
+    this.hits = shown.flatMap((r, j) => (r.inert ? [] : [{ y: at + j, i: r.i }]));
     return shown.map(r => r.text);
   }
 
