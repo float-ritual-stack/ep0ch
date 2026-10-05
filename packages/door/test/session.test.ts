@@ -186,6 +186,28 @@ describe("two clients on one session", () => {
     expect(term.list()).toMatchObject([{ cols: 100, rows: 30, active: true }]);
   });
 
+  test("with no terminal attached nothing is rendered; peek, an act and the next terminal to attach get the frame drawn now", () => {
+    const term = new SessionTerm();
+    const app = new App(term, { supports: () => null, protocol: null } as any, Date.now(), () => {});
+    let renders = 0, n = 0;
+    app.push({ title: "plot board", noDock: true, render: () => { renders++; return { lines: [`tick ${n}`] }; } } as any);
+    const paint = () => (app as any).paint();
+    const before = renders;
+    n = 1; paint(); paint(); paint();                       // a busy terminal tile, seen by nobody
+    expect(renders).toBe(before);
+    app.catchUp();                                         // the control socket, before peek or an act
+    expect(renders).toBe(before + 1);
+    expect(term.mirror.text()).toContain("tick 1");
+    app.catchUp();                                         // nothing was skipped since: nothing more
+    expect(renders).toBe(before + 1);
+    n = 2; paint();
+    const a = fakeLink(100, 30);
+    term.attach(a.link, hello(100, 30));                   // the first to attach sees what's there now
+    expect(a.text()[0]).toBe("tick 2");
+    n = 3; paint();                                        // attached: every frame is drawn again
+    expect(a.text()[0]).toBe("tick 3");
+  });
+
   test("another size sees the same frame cut to its size, and its bottom row says whose size it is", () => {
     const { term, paint } = session();
     const a = fakeLink(100, 30), b = fakeLink(60, 20);

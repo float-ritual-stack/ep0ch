@@ -62,6 +62,8 @@ export function feedWriter(sock: { writableLength: number; write(s: string): unk
 export interface ControlDeps { app: App; mirror: Mirror; info: () => TermInfo }
 
 async function handle(req: any, d: ControlDeps): Promise<unknown> {
+  // A session nobody watches renders no frames: the one skipped is drawn before anything reads the screen.
+  d.app.catchUp();
   if (req.cmd === "peek") return { screen: d.app.describe(), text: d.mirror.text() };
   if (req.cmd === "snap") {
     // Render at the VGA font's own 9×16 cell, whatever the real terminal's cell size is.

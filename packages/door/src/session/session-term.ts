@@ -109,6 +109,10 @@ export class SessionTerm implements Display {
   onKey(f: (k: Key) => void) { this.keyHandler = f; }
   onBatch(f: (run: () => void) => void) { this.batch = f; }
   onResize(f: () => void) { this.resizeHandler = f; }
+  /** No terminal is attached: the session renders nothing (a busy terminal tile cost a frame per write, seen by nobody). */
+  unseen(): boolean { return !this.clients.length; }
+  onSeen(f: () => void) { this.seenHandler = f; }
+  private seenHandler: () => void = () => {};
   stop() { /* no terminal of its own: a client's goes back when it detaches */ }
   resume() { /* the same */ }
 
@@ -191,10 +195,13 @@ export class SessionTerm implements Display {
     c.decoder.keyHandler = c.watch ? k => this.watcherKey(c, k) : k => this.key(c, k);
     if (!c.watch) c.decoder.rawSink = () => this.rawSink?.() ?? null;
     link.onDrain(() => { if (!c.behind) return; c.behind = false; c.painter.dispose(); c.rows.invalidate(); this.paintClient(c); });
+    const first = !this.clients.length;
     this.clients.push(c);
     this.sendGround(c);
     if (!c.watch && !this.active) this.activate(c);
     else this.paintClient(c);
+    // Nobody saw the frames before this one attached: the one App skipped is drawn now, for every client.
+    if (first) this.seenHandler();
     this.onClients();
     return c;
   }

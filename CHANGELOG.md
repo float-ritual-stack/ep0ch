@@ -53,6 +53,13 @@ move into one repository (PIE-530).
 - **Television (optional).** With `tv` on your PATH, `ep0ch install --apply` links the outline's channels into
   television's cable folder.
 
+### Fixed: a door session with no terminal attached used CPU drawing frames nobody saw
+
+A terminal tile whose program keeps writing (a Claude session, a log tail) made the session draw a whole frame for each
+write, up to 60 a second, with nobody attached: about 30% of a core on float-2. A session nobody watches now draws
+nothing until a terminal attaches or `peek`, `snap` or an `act` reads the screen. Run `ep0ch session upgrade` to hand
+a running session to the new code.
+
 ### Fixed: two outlines whose names read alike shared one Herdr agent pane
 
 A session's Herdr pane label was its outline's name lowered and dashed, so `Kitchen Remodel` and `kitchen-remodel`

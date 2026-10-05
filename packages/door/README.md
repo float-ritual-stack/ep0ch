@@ -494,7 +494,9 @@ door as one. One runs per outline, like `herdr --session <name>`: naming an outl
 1 attached`), and choosing it attaches. A session holds everything the door holds:
 the screens and their layouts, the dispatcher, drafts, the terminal tiles with their programs and scrollback, the
 dock, the service connection and its change feed. Your terminal is a **client**: it shows what the session
-sends and sends what you type. A terminal inside the session (one of its tiles, its drop shell) can't attach to it.
+sends and sends what you type. A terminal inside the session (one of its tiles, its drop shell) can't attach to it. With no
+terminal attached, the session draws no frames: its programs keep running and its state keeps up, and the screen is
+drawn when a terminal attaches or `peek`, `snap` or an `act` reads it.
 
 - **Quitting detaches.** `G` (Goodbye), `ctrl+c`, closing the terminal or a dropped ssh connection lets go of that
   terminal; everything goes on running. `ep0ch` attaches again and you're where you were: the layout, nvim with its

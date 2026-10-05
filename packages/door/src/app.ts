@@ -317,6 +317,7 @@ export class App implements Ctx {
     board.onConnection = (state, detail) => { this.offline = state === "lost"; this.flash(state === "lost" ? detail : `reconnected · ${detail}`); };
     term.onResize(() => this.redraw());
     this.timer = setInterval(() => this.tick(), 33);
+    this.display.onSeen?.(() => this.catchUp());
   }
 
   /**
@@ -399,7 +400,14 @@ export class App implements Ctx {
     return clients ? { ok: true, message: this.session.reload() } : this.session.upgrade();
   }
   /** Paint now (a restore: the screen it opened is drawn at once, so its tiles adopt their programs). */
-  flush(): void { if (this.paintTimer) { clearTimeout(this.paintTimer); this.paintTimer = null; } if (!this.closed) this.paint(); }
+  flush(): void { if (this.paintTimer) { clearTimeout(this.paintTimer); this.paintTimer = null; } if (!this.closed) this.paint(true); }
+  /**
+   * The frame skipped while nobody saw the screen (a session with no terminal attached), drawn now: before a control
+   * command reads it (peek, snap, an act whose rows come from the last frame) and when a terminal attaches.
+   */
+  catchUp(): void { if (this.skipped) this.flush(); }
+  /** A frame was due while nobody saw the screen, and wasn't rendered. */
+  private skipped = false;
   end(force: boolean): string | null {
     if (force) { this.terminate(); return null; }
     if (!this.leaving([...this.stack, ...this.background], true)) return this.message;
@@ -417,6 +425,7 @@ export class App implements Ctx {
 
   /** Hear every change to what the person sees. The first event is the whole state (`hello`). */
   subscribe(f: (e: ViewEvent) => void): () => void {
+    this.catchUp();
     const s = this.stack.at(-1);
     const state = s?.viewState?.() ?? null;
     f({ type: "hello", at: Date.now(), screen: s?.title ?? null, state });
@@ -812,7 +821,10 @@ export class App implements Ctx {
     }
   }
 
-  private paint() {
+  private paint(force = false) {
+    // Nobody sees it (a session with no terminal attached and no live feed): rendered when someone looks (catchUp).
+    if (!force && !this.viewers.size && this.display.unseen?.()) { this.skipped = true; this.lastPaint = Date.now(); return; }
+    this.skipped = false;
     // A frame after nothing but wheel reports: views may move what they laid out last time (onlyScrolled).
     paintingScroll(!this.changed);
     this.changed = false;
