@@ -390,6 +390,23 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect(await app.act({ action: "screen.list", as: "test-agent" })).toMatchObject({ stack: expect.any(Array) });
   }, 20_000);
 
+  test("the actions section's registry list: the wheel and keys pick through registry.pick; an agent's pick leaves the person's selection", async () => {
+    (app as any).lastInput = 0;
+    expect(await app.act({ action: "section", args: { name: "actions" }, as: "test-agent" })).toMatchObject({ key: "actions" });
+    const list = () => { screen(); return S().stage(SECTIONS.findIndex(s => s.key === "actions")).top.pane("registry"); };
+    await until(() => !!list(), "the registry list", 5000);
+    const before = list().picked;
+    const r = await app.act({ action: "registry.pick", args: { n: 3 }, as: "test-agent" }) as any;
+    expect(r).toMatchObject({ tile: "registry", n: 3, ran: false });
+    expect(typeof r.action).toBe("string");
+    expect(list().picked).toBe(before);
+    // The person's wheel over the list moves their selection, through the same action.
+    const at = S().stageRect, t = (S().stage(SECTIONS.findIndex(s => s.key === "actions")).top.describe().panes as any[]).find(x => x.name === "registry");
+    press({ kind: "mouse", action: "wheel-down", button: 0, x: at.col + t.rect.col + 3, y: at.row + t.rect.row + 3 });
+    await until(() => list().picked === before + 1, "the wheel's pick", 3000);
+    expect(S().focus).toBe("index");
+  }, 20_000);
+
   test("tile.preview, driven by an agent: the reader's opens land in a detail opened beside it, the reader keeps its note", async () => {
     (app as any).lastInput = 0;
     expect(await app.act({ action: "section", args: { name: "preview" }, as: "test-agent" })).toMatchObject({ key: "preview" });

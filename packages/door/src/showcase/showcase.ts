@@ -36,7 +36,7 @@ import { columnsOf, leaf, pair, splitOf, type LNode } from "../desk/screen-layou
 import { FramedScreen } from "./frame";
 import { PreviewPane } from "../desk/preview";
 import { PtyPane } from "../desk/pty";
-import { serviceKind, tileKinds } from "../desk/tile-kinds";
+import { registerTileKind, serviceKind, tileKind, tileKinds, type KindHost, type TileKind } from "../desk/tile-kinds";
 import { extensionList } from "../extensions";
 import { ScreenTile } from "../desk/screen-tile";
 import { servingSession } from "../session/session-term";
@@ -642,18 +642,30 @@ const SETS: { name: string; file: string; list: () => ActionInfo[] }[] = [
  * action that needs no arguments in the reader beside, as you: the same code its key runs.
  */
 export class ActionsPane implements Pane {
-  readonly kind = "exhibit";
+  readonly kind = "registry";
   run: ((name: string, actor: Actor) => Promise<unknown>) | null = null;
   private rows: ({ head: string } | { a: ActionInfo })[] = SETS.flatMap(s => [{ head: `${s.name} · ${s.file}` }, ...s.list().map(a => ({ a }))]);
   private sel = 1;
   private view = new RowView();
   private lastClick = { at: 0, i: -1 };
   title() { return "the action registry · src/surface/actions.ts"; }
-  hint() { return "↑↓ pick · ⏎ run it in the reader beside (no-argument note and desk actions)"; }
-  private step(d: number) {
-    let i = this.sel;
-    do { i += d; } while (i > 0 && i < this.rows.length && "head" in this.rows[i]!);
-    if (i > 0 && i < this.rows.length) this.sel = i;
+  hint() { return "j k ↑↓ pick · ⏎ run it in the reader beside (no-argument note and desk actions)"; }
+  /** The actions listed, in order (the set headers left out): what registry.pick's n counts. */
+  private actionRows(): number[] { return this.rows.flatMap((r, i) => ("a" in r ? [i] : [])); }
+  /** The selected action's place among them, from 1. */
+  get picked(): number { return this.actionRows().indexOf(this.sel) + 1; }
+  /** Action `n` (from 1), selected when `select` (the person's pick; an agent's leaves their selection be). */
+  pick(n: number, select: boolean): ActionInfo {
+    const at = this.actionRows();
+    if (!Number.isInteger(n) || n < 1 || n > at.length) throw new ActionRefused(`the registry lists ${at.length} actions; n is 1-${at.length}`);
+    if (select) this.sel = at[n - 1]!;
+    return (this.rows[at[n - 1]!] as { a: ActionInfo }).a;
+  }
+  get count(): number { return this.actionRows().length; }
+  private press(desk: DeskApi, args: Record<string, unknown>) { void desk.press?.(this, REGISTRY_ACTIONS, "registry.pick", args); }
+  private step(by: number, desk: DeskApi) {
+    const to = Math.max(1, Math.min(this.actionRows().length, this.picked + by));
+    if (to !== this.picked) this.press(desk, { n: to });
   }
   render(w: number, h: number, focused: boolean): PaneView {
     const detail = 3;
@@ -675,33 +687,50 @@ export class ActionsPane implements Pane {
     }
     return { lines, scroll: { top: this.view.top, room, total: this.rows.length } };
   }
-  private runSelected(desk: DeskApi) {
-    const cur = this.rows[this.sel];
-    if (!cur || !("a" in cur)) return;
-    const a = cur.a;
+  runAction(a: ActionInfo, desk: DeskApi, actor: Actor) {
     const needs = Object.entries(a.args).filter(([, s]) => !s.optional).map(([k]) => k);
     if (!["note", "desk"].includes(a.scope)) return desk.ctx.flash(`${a.name} belongs to the ${a.scope}; try it there${a.keys ? ` (${a.keys})` : ""}`);
     if (needs.length) return desk.ctx.flash(`${a.name} needs ${needs.join(", ")}: use its key${a.keys ? ` (${a.keys})` : ""} in the reader, or ep0ch-door act ${a.name} ${needs.map(n => `${n}=…`).join(" ")}`);
-    this.run?.(a.name, { kind: "user" }).then(() => desk.redraw(), e => desk.ctx.flash(`${a.name}: ${e instanceof Error ? e.message : String(e)}`));
+    this.run?.(a.name, actor).then(() => desk.redraw(), e => desk.ctx.flash(`${a.name}: ${e instanceof Error ? e.message : String(e)}`));
   }
   key(k: Key, desk: DeskApi): boolean {
-    if (isUp(k)) { this.step(-1); desk.redraw(); return true; }
-    if (isDown(k)) { this.step(1); desk.redraw(); return true; }
-    if (k.kind === "pgdn") { for (let i = 0; i < 10; i++) this.step(1); desk.redraw(); return true; }
-    if (k.kind === "pgup") { for (let i = 0; i < 10; i++) this.step(-1); desk.redraw(); return true; }
-    if (k.kind === "enter") { this.runSelected(desk); return true; }
+    if (isUp(k)) { this.step(-1, desk); return true; }
+    if (isDown(k)) { this.step(1, desk); return true; }
+    if (k.kind === "pgdn") { this.step(10, desk); return true; }
+    if (k.kind === "pgup") { this.step(-10, desk); return true; }
+    if (k.kind === "enter") { this.press(desk, { run: true }); return true; }
     return false;
   }
   click(_x: number, y: number, desk: DeskApi) {
     const i = this.view.top + y;
     if (!this.rows[i] || "head" in this.rows[i]!) return;
     const again = this.lastClick.i === i && Date.now() - this.lastClick.at < 400;
-    this.sel = i; this.lastClick = { at: Date.now(), i };
-    if (again) this.runSelected(desk);
-    desk.redraw();
+    this.lastClick = { at: Date.now(), i };
+    this.press(desk, { n: this.actionRows().indexOf(i) + 1, ...(again ? { run: true } : {}) });
   }
-  wheel(dir: 1 | -1, desk: DeskApi) { this.step(dir); desk.redraw(); }
+  wheel(dir: 1 | -1, desk: DeskApi) { this.step(dir, desk); }
 }
+
+/** The registry list's one action: the keys, a click, the wheel and `act` pick (and run) through it. */
+export const REGISTRY_ACTIONS = actionSet<KindHost>()("registry", {
+  "registry.pick": def({
+    summary: "select action n (from 1, as the action registry tile lists them; the selected one when left out) in the showcase's registry list; run=true runs it in the reader beside, as ⏎ does (no-argument note and desk actions)",
+    keys: "j k ↑ ↓ PgUp PgDn, click, wheel · ⏎, double click (run)",
+    touches: "tile", replay: "safe", says: r => `picked ${r.action}`,
+    args: { n: { type: "number", optional: true, about: "the action's place in the list, from 1" }, run: { type: "boolean", optional: true, about: "run it in the reader beside, as ⏎ does" } },
+    run({ n, run }, { pane, desk }, actor) {
+      const list = pane as ActionsPane, at = n ?? list.picked;
+      const a = list.pick(at, actor.kind !== "agent");
+      if (run) list.runAction(a, desk, actor);
+      desk.redraw();
+      return { n: at, of: list.count, action: a.name, keys: a.keys ?? null, ran: !!run };
+    },
+  }),
+});
+
+/** The registry list as a tile kind, so its keys and the wheel are its action's (no ^W o key: the showcase makes it). */
+export const REGISTRY_KIND: TileKind = { kind: "registry", about: "the action registry, every set listed (the showcase's)", noun: "the registry list", make: () => new ActionsPane(), actions: REGISTRY_ACTIONS };
+if (!tileKind(REGISTRY_KIND.kind)) registerTileKind(REGISTRY_KIND);
 
 /** What the service says about the seed, asked the way the door asks it. `r` asks again. */
 export class ServicePane implements Pane {
