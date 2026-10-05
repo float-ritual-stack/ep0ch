@@ -44,7 +44,7 @@ test("the README's showcase says what SECTIONS registers by key, never a count; 
   const grammar = readFileSync(join(import.meta.dir, "../docs/UI-GRAMMAR.md"), "utf8");
   const map = grammar.slice(grammar.indexOf("## Before adding a feature"), grammar.indexOf("## TL;DR"));
   const rows = map.split("\n").filter(l => /^\| [a-z]/.test(l) && !l.startsWith("| The feature"));
-  expect(rows.length - SECTIONS.length).toBe(6);
+  expect(rows.length - SECTIONS.length).toBe(7);
   expect(readme).toContain("its list-picker and line-input rows (in the panes section's ^W P and ^W r,\nthe board's g m s), its elements and reading-ruler row (PIE-441) and its terminal-output row (PIE-510");
 });
 
