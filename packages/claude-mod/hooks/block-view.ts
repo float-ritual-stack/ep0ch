@@ -43,11 +43,12 @@ export function blockViewArgv(id: string, width: number, rows = MAX_ROWS): strin
 export function blockCellsOf(stdout: string): BlockCells | null {
   let parsed: unknown
   try { parsed = JSON.parse(stdout) } catch { return null }
-  const { id, columns, rows, cells, replaced } = (parsed ?? {}) as Record<string, unknown>
+  const { id, uri, columns, rows, cells, replaced } = (parsed ?? {}) as Record<string, unknown>
   if (typeof id !== 'string' || typeof cells !== 'string') return null
+  if (uri !== undefined && (typeof uri !== 'string' || !uri.startsWith('ep0ch://'))) return null
   if (!Number.isInteger(columns) || !Number.isInteger(rows) || (columns as number) < 1 || (rows as number) < 0) return null
   if (cells.length !== (columns as number) * (rows as number) * B64_PER_CELL) return null
-  return { id, columns: columns as number, rows: rows as number, cells, replaced: Number.isInteger(replaced) ? (replaced as number) : 0 }
+  return { id, ...(uri ? { uri } : {}), columns: columns as number, rows: rows as number, cells, replaced: Number.isInteger(replaced) ? (replaced as number) : 0 }
 }
 
 /** The first `rows` rows of a drawing, cut on whole rows of the base64 itself. */
