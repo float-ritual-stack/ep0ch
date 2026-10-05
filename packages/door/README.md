@@ -713,7 +713,8 @@ agents message it (`herdr agent prompt door-<outline>-<hash> "…"`), and it kee
   - `EP0CH_HERDR_PANE`, `EP0CH_HERDR_NAME` and `EP0CH_HERDR_WORKSPACE` change those three names.
   - Only your own door uses them: the default state dir with its control socket in it. A door on its own
     `EP0CH_STATE` or `EP0CH_CONTROL` (a test door, the showcase) starts no Herdr agent and says why; with
-    `EP0CH_HERDR_SCOPED=1` it adds a hash of that state to all three (`door-garden-1a2b3c4d`). Either way it
+    `EP0CH_HERDR_SCOPED=1` it adds a second hash, of that state, to all three
+    (`door-garden-1a2b3c4d-5e6f7a8b`, workspace `door-5e6f7a8b`). Either way it
     never attaches to, or types into, your own panes.
   - Two doors starting at once make one pane: the wrapper looks for it and makes it holding a lock beside the
     link below (`agent-door-<outline>-<hash>.sock.lock`).
