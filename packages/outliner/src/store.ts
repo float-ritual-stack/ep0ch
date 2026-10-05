@@ -12,7 +12,7 @@ import type {QueryExpression, SavedViewReadOptions, ViewWritePlanRequest, ViewWr
 import { BLOCK_ACTIVITY_KINDS, BLOCK_EDIT_ACTIVITY_KINDS } from "./types";
 import { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, statSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { acquireWorkspaceOwnership } from "./workspace-ownership";
 import { AnnotationRepository } from "./annotation-repository";
@@ -36,7 +36,7 @@ import {
 } from "./bookmarks";
 import { isValidGitBranchName, parseDeliveryIdentity } from "./delivery-lifecycle";
 import { seedDefaultWorkspace } from "./default-workspace";
-import { openSchema } from "./schema";
+import { openSchema, readOutlineInstanceId } from "./schema";
 import { placeNewNote, type NewNoteIntent, type Placement } from "./note-placement";
 import {
   compileQueryExpression,
@@ -723,6 +723,13 @@ function compactTreeBlock(
   };
 }
 
+  /** Stable identity of this database file instance; changes when an outline is restored, reset, imported or recreated. */
+function outlineFileInstanceId(path: string, database: Database, label: string): string {
+  const databaseId = readOutlineInstanceId(database, label);
+  const stat = statSync(path, { bigint: true });
+  return createHash("sha256").update(`${databaseId}:${stat.dev}:${stat.ino}`).digest("hex");
+}
+
 export class OutlinerStore {
   private readonly releaseOwnership: () => void;
   readonly database: Database;
@@ -733,6 +740,7 @@ export class OutlinerStore {
   readonly changes: ChangeFeed;
   /** The extension writing now (`writeExtensionRecord`); owned blocks refuse every other writer. */
   private extensionWriter: string | null = null;
+  readonly outlineInstanceId: string;
 
   constructor(path: string, resourceOptions: ResourceCatalogOptions = {}) {
     this.workspaceRoot = resolve(resourceOptions.workspaceRoot ?? dirname(path));
@@ -743,6 +751,7 @@ export class OutlinerStore {
       this.database = database = new Database(path, { create: true });
       this.database.exec("PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;");
       this.prepareDatabase(path);
+      this.outlineInstanceId = outlineFileInstanceId(path, this.database, `The outline database ${path}`);
       this.changes = new ChangeFeed(this.database, () => this.sequence);
       this.workingSelections = new WorkingSelectionRepository(this.database);
       this.resources = new ResourceCatalog(this.database, {

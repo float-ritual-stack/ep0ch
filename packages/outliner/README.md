@@ -706,7 +706,9 @@ exceed the tool budget.
 
 Clients that need to follow the outline subscribe with `events.subscribe`;
 content events carry the changed block's parent, revision, change kind and
-declared actor. After a disconnect, `changes.since` returns what was missed, in
+declared actor. `ping` reports the outline file instance id: an opaque value made
+from the database UUID and this file's identity. After a disconnect, a changed id means restore/reset/import/recreate,
+so clients drop cached reads before asking `changes.since` for what was missed. `changes.since` returns changes in
 order, or an explicit reset when history is no longer retained. See
 [Change feed](docs/ARCHITECTURE.md#change-feed).
 

@@ -100,6 +100,7 @@ describe("reconnecting to a fake service", () => {
   let feed: (sequence: number) => unknown = () => ({ kind: "changes", changes: [], nextSequence: 0, completeness: { kind: "complete" }, sequence: 0 });
   let protocol = PROTOCOL;
   let subscribeSequence = 10;
+  let instance = "11111111-1111-4111-8111-111111111111";
   const onSubscribe: ((s: Socket) => void)[] = [];
   const change = (seq: number, id: number, blockId: string) => ({ sequence: seq, changeId: id, action: "update", kind: "edit", blockId, parentId: null, revision: 2, recordedAt: "" });
   beforeAll(async () => {
@@ -112,7 +113,7 @@ describe("reconnecting to a fake service", () => {
         for (let i = buf.indexOf("\n"); i >= 0; i = buf.indexOf("\n")) {
           const r = JSON.parse(buf.slice(0, i)); buf = buf.slice(i + 1);
           const reply = (result: unknown) => s.write(JSON.stringify({ id: r.id, ok: true, result, sequence: subscribeSequence }) + "\n");
-          if (r.action === "ping") reply({ status: "ready", protocolVersion: protocol, location: { hostname: "fake", workspaceRoot: "/fake" } });
+          if (r.action === "ping") reply({ status: "ready", protocolVersion: protocol, outlineInstanceId: instance, location: { hostname: "fake", workspaceRoot: "/fake" } });
           else if (r.action === "events.subscribe") { reply({ subscribed: true }); onSubscribe.shift()?.(s); }
           else if (r.action === "changes.since") {
             const page = feed(r.sequence);
@@ -184,6 +185,21 @@ describe("reconnecting to a fake service", () => {
     await until(() => c.states.length === 2, "the reconnect", 3000);
     expect(c.events.map(e => [e.action, e.reason])).toEqual([["reset", "the feed's history is behind the door"]]);
     expect(c.b.lastSequence).toBe(4);
+    c.b.close();
+  });
+
+  test("a changed outline instance id resets caches before replay", async () => {
+    instance = "11111111-1111-4111-8111-111111111111";
+    subscribeSequence = 10;
+    const c = await connect();
+    subscribeSequence = 23;
+    feed = () => ({ kind: "changes", changes: [], nextSequence: 0, completeness: { kind: "complete" }, sequence: 23 });
+    instance = "22222222-2222-4222-8222-222222222222";
+    c.drop();
+    await until(() => c.states.length === 2, "the reconnect", 3000);
+    expect(c.events.map(e => [e.action, e.reason])).toEqual([["reset", "the outline was replaced (restore or reset); everything was re-read"]]);
+    expect(c.b.lastSequence).toBe(23);
+    expect(c.states).toEqual(["lost: outline connection lost · reconnecting", "restored: reloaded everything (the outline was replaced (restore or reset); everything was re-read)"]);
     c.b.close();
   });
 });

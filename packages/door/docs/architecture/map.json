@@ -114,7 +114,7 @@
   ],
   "chapters": [
     { "id": "outline", "title": "The outline and the service", "lede": "Everything starts as blocks in one SQLite file per outline, owned by one service process. Blocks have revisions and provenance; properties are [key::value] tokens in the text, read by one grammar." },
-    { "id": "feed", "title": "The protocol and the change feed", "lede": "Client and service speak one protocol, PROTOCOL in outline-core; ping reports the service's and a client refuses any other number. Every committed change is a numbered record: live on `events.subscribe`, replayable from `changes.since`." },
+    { "id": "feed", "title": "The protocol and the change feed", "lede": "Client and service speak one protocol, PROTOCOL in outline-core; ping reports the service's protocol and outline instance id, and a client refuses any other number. Every committed change is a numbered record: live on `events.subscribe`, replayable from `changes.since`." },
     { "id": "socket", "title": "The socket", "lede": "The door speaks to the service over its Unix socket through one client, SocketBoard. Where a call per paint is too slow, the door imports the rule from outline-core, the package the service uses; the older mirrors are still here." },
     { "id": "surface", "title": "NoteSurface", "lede": "One reader draws every note in the door: the board's preview and details, the desk's readers, the river's columns, the BBS message reader and the hub screens. Editing is one draft component under all of them." },
     { "id": "actions", "title": "The action registry", "lede": "An action is an ActionDef in an ActionSet: typed arguments, an actor, a refusal with a reason. Every screen runs its keys and clicks through it: a screen spec's key map names actions, and one dispatcher per screen host runs them (PIE-514). ActionDef.keys is the caption." },
@@ -197,7 +197,7 @@
     {
       "id": "svc.protocol", "name": "Protocol", "group": "service", "chapter": "feed", "ladder": "stable", "dependsOn": ["svc.store"],
       "does": "Line-delimited JSON over a Unix socket. One number, PROTOCOL, bumped with any wire change; a client refuses a service on another number and names the side to update.",
-      "built": "PROTOCOL and protocolMismatch in outline-core's protocol.ts, imported by the service and every client; ping answers the number and where the outline lives.",
+      "built": "PROTOCOL and protocolMismatch in outline-core's protocol.ts, imported by the service and every client; ping answers the number, the outline instance id when one is open, and where the outline lives.",
       "refs": [
         { "r": "outliner", "p": "../outline-core/src/protocol.ts", "l": 11, "m": "export const PROTOCOL = " },
         { "r": "outliner", "p": "../outline-core/src/protocol.ts", "l": 17, "m": "export function protocolMismatch" },

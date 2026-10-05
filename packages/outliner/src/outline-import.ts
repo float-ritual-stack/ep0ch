@@ -1,7 +1,7 @@
 import { Database } from "bun:sqlite";
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { openSchema } from "./schema";
+import { openSchema, OUTLINE_INSTANCE_ID_KEY } from "./schema";
 import { OutlinerStore } from "./store";
 
 /*
@@ -61,6 +61,7 @@ const SKIPPED_METADATA = new Set([
   "page_address_registry_version",
   "work_id_allocator_migration_version",
   "pie250_annotation_repository",
+  OUTLINE_INSTANCE_ID_KEY,
   "resource_retention_payload_migration",
 ]);
 

@@ -1832,7 +1832,14 @@ export class OutlinerServer {
           break;
         }
         case "ping":
-          result = { status: "ready", protocolVersion: PROTOCOL, location:{hostname:this.hostname,workspaceRoot:this.store.workspaceRoot,database:this.store.database.filename,stateDirectory:this.host ? this.stateDirectory : dirname(this.store.database.filename)}, ...(this.outline ? { outline: { ...this.outline } } : {}), ...(this.host ? { host: this.host() } : {}) };
+          result = {
+            status: "ready",
+            protocolVersion: PROTOCOL,
+            outlineInstanceId: this.store.outlineInstanceId,
+            location: { hostname: this.hostname, workspaceRoot: this.store.workspaceRoot, database: this.store.database.filename, stateDirectory: this.host ? this.stateDirectory : dirname(this.store.database.filename) },
+            ...(this.outline ? { outline: { ...this.outline } } : {}),
+            ...(this.host ? { host: this.host() } : {}),
+          };
           break;
         case "outlines.list":
         case "outlines.create":

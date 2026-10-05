@@ -356,6 +356,8 @@ export class SocketBoard implements Board {
   readonly clientId = `ep0ch-door-${crypto.randomUUID().slice(0, 8)}`;
   /** The protocol the service reported (null until `info()`). */
   protocol: number | null = null;
+  /** The outline database instance reported by the service; a change means every cached read belongs to another database. */
+  outlineInstanceId: string | null = null;
   /** Every request's action, newest last: which paths the door actually took (tests read it). */
   readonly sent: string[] = [];
 
@@ -470,16 +472,20 @@ export class SocketBoard implements Board {
 
   toMsgs(blocks: WireBlock[]): Msg[] { return blocks.map(b => toMsg(b)); }
 
-  async info(): Promise<BoardInfo> {
-    const r = await this.request<{ protocolVersion: number; location: { hostname: string; workspaceRoot: string }; outline?: { name: string }; host?: HostStatus }>("ping");
+  async info(): Promise<BoardInfo & { replaced?: boolean }> {
+    const r = await this.request<{ protocolVersion: number; outlineInstanceId?: string; location: { hostname: string; workspaceRoot: string }; outline?: { name: string }; host?: HostStatus }>("ping");
     if (this.outline && r.outline?.name && r.outline.name !== this.outline)
       throw new Error(`the outline host at ${this.path} answered for "${r.outline.name}", not "${this.outline}"`);
     // One check: the service speaks this checkout's protocol. Older or newer, it is refused, never worked around.
     const mismatch = protocolMismatch(r.protocolVersion, "this door");
     if (mismatch) throw new Error(`${mismatch} (${this.path})`);
     this.protocol = r.protocolVersion;
+    const previous = this.outlineInstanceId;
+    this.outlineInstanceId = r.outlineInstanceId ?? null;
     return {
       host: r.location.hostname, workspace: r.location.workspaceRoot, protocol: r.protocolVersion, blocks: null,
+      ...(this.outlineInstanceId ? { outlineInstanceId: this.outlineInstanceId } : {}),
+      ...(previous && this.outlineInstanceId && previous !== this.outlineInstanceId ? { replaced: true } : {}),
       // On a host, the outline's name is how it's addressed (a board with no outline reads the host's default).
       ...(r.host ? { outline: r.outline?.name ?? this.outline } : {}),
     };
@@ -1006,7 +1012,8 @@ export class SocketBoard implements Board {
       return { replayed: 0, reset: reason };
     };
     try {
-      await this.info();
+      const info = await this.info();
+      if (info.replaced) return reset("the outline was replaced (restore or reset); everything was re-read");
       const page = await this.changesSince(this.lastSequence);
       if (page.kind === "reset") return reset(`the feed's history ${page.reason === "sequence-ahead" ? "is behind the door" : "doesn't reach back"}`, page.sequence);
       if (page.completeness.kind !== "complete") return reset("too much changed while away", page.sequence);
