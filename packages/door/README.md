@@ -472,7 +472,7 @@ A checkout from before `install` gets it by hand, once:
 | `EP0CH_PACKS` | folder holding the `woe*.zip` packs (default `/opt/float/bbs/inbox/evan`) |
 | `EP0CH_KITTY` | `1` / `0` forces graphics on or off |
 | `EP0CH_THEME` | `calm` (the default), `night` or `classic`: the colours at start, over the one last chosen with `alt+t` (see [Themes and accessibility](#themes-and-accessibility)) |
-| `EP0CH_LANDING` | `brief` opens the newest daily brief after the logon, `welcome` the welcome notes (default: the main menu) |
+| `EP0CH_LANDING` | the screen opened after the logon, by any `--screen` name: `brief` (the newest daily brief), `welcome` (the welcome notes), or any registered screen (default: the main menu) |
 | `EP0CH_KEYBOARD` | `legacy` doesn't ask the terminal for the Kitty keyboard protocol (then Shift+Enter reads as Enter); unset, the door asks when the terminal answers its query |
 | `EP0CH_COPY_ON_SELECT` | `0` (or `off`) doesn't copy a mouse selection when the button comes up; `y`, `cmd+c` or the copy control copies it then (Herdr's `ui.copy_on_select`). Unset, a drag copies |
 | `EP0CH_OPTION_KEYS` | `us` reads macOS Option characters (`å`, `¬`) as alt keys outside text, `off` never; unset, by the locale |
