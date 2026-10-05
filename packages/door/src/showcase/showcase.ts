@@ -188,7 +188,7 @@ export const SECTIONS: Section[] = [
   },
   {
     key: "dock", need: "carry a tile across screens (a terminal, a reader, the tree)", part: "the dock: the host layer's drawer of tabs on its own desk; host.dock moves a tile in or out whole", files: "src/dock.ts, src/desk/dock-program.ts",
-    aside: "^W a on the kettle docks it (or drag its title onto the status bar's dock chip, or press a while dragging it): it leaves this section and joins the dock, the same program running · pick another section (a screen switch), alt+a pulls the dock up there and it's still in it · ^W a in the dock, or its tab dragged out onto the screen, puts it back · `act host.dock tile=kettle` does it for an agent, attributed, never with the person's keys",
+    aside: "^W a on the kettle docks it (or drag its title onto the status bar's dock chip, or press a while dragging it): it leaves this section and joins the dock, the same program running · pick another section (a screen switch), alt+a pulls the dock up there and it's still in it · ^W a in the dock, or its tab dragged out onto the screen, puts it back · a docked tab's × (or ^W x in the dock) closes it, at once once its program has exited (exit in it, then ^W x) · `act host.dock tile=kettle` does it for an agent, attributed, never with the person's keys",
     stage(n, show) {
       const kettle = new PtyPane({ cmd: ["sh", "-c", "echo 'the kettle: a terminal tile to dock (^W a). Its pid:' $$; exec sh"], label: "kettle" }), r = new ReaderPane(true);
       return deskOf({ title: "showcase · dock", panes: [kettle, r], names: ["kettle", "reader"], layout: ([a, b]) => row(0.5, a!, b!) }, show, [], d => { if (n.notebook) d.setCurrent(n.notebook); });

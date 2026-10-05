@@ -1378,6 +1378,17 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
 
   /** The person is in a terminal tile (its program running, or exited and waiting for ⏎ or ctrl+]): every key is the tile's, ctrl+c included. */
   rawKeys(): boolean { return !!this.ptyIn && this.panes.get(this.focus) === this.ptyIn; }
+  /** The person is in a terminal tile whose program exited: its keys wait for ⏎ (again), ^W x (closed), Esc or ctrl+]. */
+  waitsOnExit(): boolean { return this.rawKeys() && !this.ptyIn!.running; }
+  /** What an exited terminal tile `sel` offers: ⏎ runs it again, ^W x closes it (where it may close), ctrl+] leaves (in the dock, Esc too). */
+  exitedSay(sel: string, label = sel, back?: string): string {
+    const id = this.idNamed(sel), dock = !!this.ctx?.hostLayer?.isDock(this);
+    return `${label} exited · ⏎ runs it again${id !== undefined && this.closesByMouse(id) ? " · ^W x closes" : ""} · ${dock ? "Esc or " : ""}${ESCAPE_CHORD} back to ${back ?? (dock ? "the screen" : "the door")}`;
+  }
+  /** Tile `id` may close by its × (and ^W x): the layout lets it, and no container keeps it or shuts a drawer instead. */
+  private closesByMouse(id: number): boolean {
+    return !chainOf(this.root, id).some(c => c.policy?.shuts) && !refusal(this.layout, { op: "close", tile: id }, this.layoutCtx(USER));
+  }
   /** Raw input goes straight to the program while it runs (F-keys, shift-arrows, a bracketed paste): Term keeps the mouse and ctrl+]. */
   // A picker over it (the dock's agent picker) has the keys first, as keyIn gives them: no bytes go past it.
   rawInput(): ((bytes: string) => void) | null { const p = this.ptyIn; return p && this.rawKeys() && p.running && !this.overlays.top() ? (s: string) => p.inputRaw(s) : null; }
@@ -1788,8 +1799,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // ⧉, before its title, puts it back.
     // Every tile that can close has a × in its top right corner: a click closes it (tile.close, as ^W x; a running
     // program asks twice). A drawer's tile closes by its drawer's [×]; one the layout keeps (the board's lanes) has none.
-    const closes = !drawer && cover === undefined && r.cols >= 10 && !this.ctx?.hostLayer?.isDock(this) &&
-      !chainOf(this.root, id).some(c => c.policy?.shuts) && !refusal(this.layout, { op: "close", tile: id }, this.layoutCtx(USER));
+    // A docked tab has one too (the dock's own tab never closes: its policy).
+    const closes = !drawer && cover === undefined && r.cols >= 10 && this.closesByMouse(id);
     if (closes) {
       const x = r.col + r.cols - 2;
       canvas.text(x, r.row, `${fg(focused ? C.grey : C.dark)}×${RESET}`, 1);
@@ -2031,7 +2042,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       return line(paint(`|14dragging ${this.nameOf(this.dragging.src)}|08 · ${this.dragging.dock ? `|15${this.dragging.dock}` : why ? `|12✕ ${why}` : this.dragging.drop ? `|15${this.dragging.drop.label}` : "|08nowhere here"}|08 · a header or the centre makes tabs, a side splits, the outer edge makes a column, a drawer's handle puts it in the drawer, the dock's chip docks it · |15f|08 float · |15p|08 drawer · |15a|08 dock · release drops · esc cancels`));
     }
     if (this.linking) return line(paint(`|13alt+l|08 · click the tile where |15${this.nameOf(this.linking.from)}|08's opens land (or h j k l, or its number) · click it again to unlink · esc cancels`));
-    if (this.rawKeys() && !this.ptyIn!.running) return line(paint(`|12${this.nameOf(this.focus)} exited|08 · |15⏎|08 runs it again · |15${ESCAPE_CHORD}|08 back to the door · other keys wait`));
+    if (this.waitsOnExit()) return line(paint(`|12${this.exitedSay(this.nameOf(this.focus)).replace(" exited · ", " exited|08 · ")}`));
     if (this.rawKeys()) return line(paint(`|14in ${this.nameOf(this.focus)}|08 · every key goes to ${this.ptyIn!.title()} · |15${ESCAPE_CHORD}|08 back to the door (twice: send it)`));
     if (!this.prefix && rd instanceof ReaderPane && rd.holdsKeys && !this.collapsed.has(this.focus)) {
       const where = `${this.readerLabel(this.focus)} · ${rd.surface.state()}`;
@@ -2126,7 +2137,14 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (this.rawKeys() && k.kind !== "mouse") {
       const p = this.ptyIn!;
       if (isEscapeChord(k)) return this.run("tile.leave", {}, this.nameOf(this.focus));
-      if (!p.running) { if (k.kind === "enter") this.run("tile.restart", {}, this.nameOf(this.focus)); else ctx.flash(`${this.nameOf(this.focus)} exited · ⏎ runs it again · ctrl+] back to the door`); return this.redraw(); }
+      if (!p.running) {
+        const name = this.nameOf(this.focus);
+        if (k.kind === "enter") this.run("tile.restart", {}, name);
+        // Nothing runs to take ^W: it's the window chord again (^W x closes the tile at once).
+        else if (k.kind === "char" && k.ctrl && k.ch === "w") { this.ptyIn = null; this.prefix = "wm"; }
+        else ctx.flash(this.exitedSay(name));
+        return this.redraw();
+      }
       if (k.kind === "paste") p.paste(k.text); else p.typed(k);
       return;
     }

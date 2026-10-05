@@ -205,7 +205,7 @@ describe.skipIf(!outliner)("the review's findings, against a scratch outline", (
     expect(D().overlays.get("search")).toBeNull();
     expect(top()).toBe(desk);
     expect(D().focus).toBe(idOf("short"));
-    expect(message()).toContain("exited · ⏎ runs it again · ctrl+] back to the door");
+    expect(message()).toContain("exited · ⏎ runs it again · ^W x closes · ctrl+] back to the door");
     key({ kind: "enter" });
     await until(() => tile("short").terminal.running || tile("short").terminal.exited !== null, "restarted");
     key(ctrl("]"));

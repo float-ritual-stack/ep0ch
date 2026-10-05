@@ -505,6 +505,16 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     await app.act({ action: "host.toggle", args: { open: true }, as: "test-agent" });
     expect(app.dock.open).toBe(true);
     expect(app.dock.entered).toBe(false);
+    // A docked tab has its × (tile.close): the kettle's program runs, so a click asks first and closes nothing yet.
+    await app.dock.desk!.dispatch.act({ action: "tab.select", tile: "kettle" }, { kind: "user" });
+    (app as any).paint();
+    const row = app.dock.rect!.row + 1, col = plain(painted[row] ?? "").lastIndexOf("×");
+    expect(col).toBeGreaterThan(0);
+    for (const action of ["down", "up"] as const) press({ kind: "mouse", action, button: 0, x: col, y: row });
+    expect((app as any).message).toContain("closing ends it");
+    expect(app.dock.tabs().map(t => t.name)).toContain("kettle");
+    press({ kind: "char", ch: "]", ctrl: true });
+    (app as any).lastInput = 0;
     const back = await app.act({ action: "host.dock", args: { on: false, to: "tree", where: "right" }, tile: "kettle", as: "test-agent" }) as any;
     expect(back).toMatchObject({ tile: "kettle", docked: false });
     expect(stage().pane("kettle").pid).toBe(pid);
