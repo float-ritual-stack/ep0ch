@@ -164,6 +164,20 @@ MacBook). It does not support every version a client ever connected with.
 - One coherent PR per change. For a feature split across agents, branch each slice from the feature branch
   (`<feature>/<slice>`, for example `door-writes/reuse-map`) and open the PR into it.
 - A local bun may rewrite `bun.lock`. Don't commit lockfile churn; commit it only when dependencies change.
+- **The live checkout is what runs.** `~/projects/ep0ch` on float-2 (and the laptop's checkout) is what `ep0ch`,
+  the Herdr plugin and the outline host run from, and it may hold the owner's uncommitted files. Work, pull and
+  commit in a worktree of your own (`git worktree add ~/projects/ep0ch-wt-<topic> -b <branch> origin/main`),
+  never there. It moves only through `ep0ch install --apply`, which backs up the outlines, fast-forwards it and
+  hands everything to the new code together. Run that only when the person (or the agent they made the deployer)
+  asks: a merged protocol bump with the host not yet restarted makes every client refuse it.
+- **Tests on a shared machine:** check `uptime`, then one suite at a time, in the foreground, under `timeout 900`,
+  never `--parallel` ([CONTRIBUTING](CONTRIBUTING.md)). Several agents testing at once froze float-2 (4 cores);
+  a background run's notification may never reach you, so don't end a turn waiting on one.
+- **A second opinion before merging** catches what one reviewer misses: pipe the diff to Codex
+  (`{ echo "<what to look for>"; git diff origin/main...HEAD; } | codex exec -c model='"gpt-6-astra"' --skip-git-repo-check -`;
+  its sandbox can't read the repo on float-2, so the diff is all it sees). CodeRabbit and Greptile review PRs on
+  their own. Never tag them or ask for a re-review (paid bots were turned off for PR volume). After a merge,
+  check for a bot review that landed late, and follow up in a new PR.
 - Before calling it done, run [Verification](CONTRIBUTING.md#verification) and go through the
   [review checklist](CONTRIBUTING.md#review-checklist), architecture pass first.
 
@@ -180,3 +194,17 @@ MacBook). It does not support every version a client ever connected with.
   plugin root, and draws a block through the door's (`ep0ch show --cells`, BlockView). A session's folder feeds
   the outline its nearest `.ep0ch` names, or nothing. Only `hooks/register.ts` is handed `$` (the engine
   refuses `$` passed across an import), so the other files are pure: parsing, argv and trees.
+
+## Agent skills
+
+### Issue tracker
+
+Issues are roadmap items (PIE-n) on the outline's workboard, written through the mod's `work_*` and `outline_*` tools or the outliner CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The five default roles, each a `[triage::<role>]` property on the item. A role never sets `work-stage`. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: the glossary is UI-GRAMMAR.md §1 and ADRs go in the root `docs/adr/`. See `docs/agents/domain.md`.
