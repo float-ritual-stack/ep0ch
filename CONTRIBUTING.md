@@ -30,6 +30,10 @@ Before a PR claims a change works:
    under `timeout 900`, after checking `uptime` (wait while the load is over 4), and never `--parallel`: five
    agents' parallel runs once froze float-2. The door's `parity-screens` takes more than ten minutes whole; run
    it in parts with `PARITY_ONLY` (see the ep0ch-core skill).
+   Before merging a series, and in every review round, run the door's files each alone too
+   (`bun run test:each` in packages/door; pass file names to run a few): `bun test` loads every file into one
+   process, so a file that only loads because another loaded a module first passes there and fails alone. #204's
+   import cycle left 13 files unable to load alone for a day, and nobody saw.
 3. A change to what one package prints or answers that another reads is tested against the real other side,
    not a fake: the mod's readers over the real `ep0ch` (`packages/door/test/claude-mod-contract.test.ts`), the
    outliner's CLI under the mod's work tools (`packages/outliner/test/work-tools.test.ts`). Stderr another program

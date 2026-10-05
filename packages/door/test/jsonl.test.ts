@@ -68,7 +68,7 @@ describe("the control socket's refusals", () => {
   });
 
   test("a line that isn't JSON is answered so and the connection goes on; one past the limit is refused and cut off", async () => {
-    const ctl = await startControl({ app: { act: async () => "acted" } as any, mirror: {} as any, info: () => ({}) as any }, join(dir, "door.sock"));
+    const ctl = await startControl({ app: { act: async () => "acted", catchUp() {} } as any, mirror: {} as any, info: () => ({}) as any }, join(dir, "door.sock"));
     try {
       expect(await said(ctl.path, "not json\n" + jsonLine({ cmd: "nope" }), 2)).toEqual(["bad json", "unknown command nope; try peek, snap, actions or act"]);
       expect(await said(ctl.path, "x".repeat(LINE_LIMIT + 10))).toEqual([`request line too long (over ${LINE_LIMIT} characters)`]);

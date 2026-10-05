@@ -2120,7 +2120,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (k.kind === "mouse" && k.action === "down" && k.y < this.bandTop) { const b = this.band(); if (b?.kind.press) { b.kind.press(b.pane, k.x, k.y, this); return; } }
     // A click on a key in the hint row or its keys box: that key, as typed, wherever the keys are (an edit, a chord).
     // Not under an overlay of the desk's (the search, a picker): the row's keys aren't its.
-    const spot = this.overlayOpen() ? undefined : this.spotAt(k);
+    // While linking (alt+l), a click picks the tile, wherever in it: a tile's own spot (+ New note) doesn't take it.
+    const spot = this.overlayOpen() || this.linking ? undefined : this.spotAt(k);
     if (spot) {
       this.hintMoreOpen = false;
       // A tile's own (its empty state's + New note): pressed in that tile, as a click there focuses it first.
