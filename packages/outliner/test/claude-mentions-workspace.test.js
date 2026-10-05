@@ -1,5 +1,5 @@
 import {expect,test} from 'bun:test';
-import {boundWorkspaceOf,mentionMessageOf,mentionsModeOf,sessionWorkspaceOf,workspaceEnvOf,workspaceForCwd} from '../../claude-mod/hooks/mention-message';
+import {mentionMessageOf,workspaceForCwd} from '../../claude-mod/hooks/mention-message';
 import {register} from '../../claude-mod/hooks/register';
 import {mkdtempSync,mkdirSync,rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
@@ -35,33 +35,6 @@ test('a message carries the workspace folder; subagents, aborted and empty respo
  expect(mentionMessageOf(answer,{id:'session-1'},null)).toBeNull();
  for(const change of [{agentId:'child'},{reason:'aborted',isAborted:true},{answer:' '}])
   expect(mentionMessageOf({...answer,...change},{id:'session-1'},{root:'/work/hub'})).toBeNull();
-});
-
-// The mod's pure folder rules, also under `claude plugin test`; here so they run wherever Bun does.
-test('the mode is folder unless allowlist is asked for; a list with no mode is a legacy allowlist',()=>{
- expect(mentionsModeOf('',undefined)).toBe('folder');
- expect(mentionsModeOf('', 'allowlist')).toBe('allowlist');
- expect(mentionsModeOf('folder','allowlist')).toBe('folder');
- expect(()=>mentionsModeOf('','everywhere')).toThrow('neither folder nor allowlist');
- expect(mentionsModeOf('',undefined,['/work/old'])).toBe('allowlist');
-});
-
-test("bound-folder's answer binds only a folder holding the cwd, pinned to the outline its .ep0ch names",()=>{
- expect(boundWorkspaceOf('{"bound":true,"folder":"/work/garden","configPath":"/work/garden/.ep0ch","outline":"garden"}','/work/garden/src')).toEqual({root:'/work/garden',outline:'garden',pinned:true});
- expect(boundWorkspaceOf('{"bound":true,"folder":"/work/jam","outline":"jam-shelf"}','/work/jam/x')).toEqual({root:'/work/jam',outline:'jam-shelf',pinned:true});
- for(const [stdout,cwd] of [['{"bound":false,"folder":"/tmp/x"}','/tmp/x'],['{"bound":true,"folder":"/work/garden","outline":"garden"}','/home/sam'],['{"bound":true,"folder":"/work/garden"}','/work/garden'],['nope','/work']])
-  expect(boundWorkspaceOf(stdout,cwd)).toBeNull();
-});
-
-test("the session's workspace: opt-outs first, then the binding; strict mode lists only",()=>{
- const bound={root:'/work/garden',pinned:true};
- expect(sessionWorkspaceOf('/work/garden/src','folder',[],bound)).toEqual(bound);
- expect(sessionWorkspaceOf('/tmp/x','folder',[],null)).toBeNull();
- expect(sessionWorkspaceOf('/work/garden/src','folder',['/work'],bound)).toBeNull();
- expect(sessionWorkspaceOf('/work/garden/src','allowlist',['/work/garden'],null)).toEqual({root:'/work/garden'});
- expect(sessionWorkspaceOf('/work/garden/src','allowlist',[],bound)).toBeNull();
- expect(workspaceEnvOf({root:'/w',outline:'o',pinned:true})).toEqual({OUTLINER_WORKSPACE_ROOT:'/w',EP0CH_WS:'o',EP0CH_MACHINE:''});
- expect(workspaceEnvOf({root:'/w'})).toEqual({OUTLINER_WORKSPACE_ROOT:'/w'});
 });
 
 /**

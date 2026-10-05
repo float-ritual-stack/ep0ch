@@ -37,8 +37,6 @@ export const AUTHORED_LINKS_MAX_DIAGNOSTICS_PER_GROUP = 3;
 export const AUTHORED_LINKS_MAX_DIAGNOSTIC_UNITS = 160;
 export const AUTHORED_LINKS_MAX_PRESENTATION_UNITS = 240;
 
-export type AuthoredLinkGroupName = "outlinks" | "resources";
-
 export interface AuthoredLinkSpan {
   readonly start: number;
   readonly end: number;

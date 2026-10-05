@@ -24,7 +24,7 @@ import { nestLayers } from "../nest";
 import { Offline, USER } from "../socket";
 import { alive, privateDir, readLastCall, stateDir, unclaimState, useOutlineState, writeLastCall } from "../state";
 import { serveAs, SessionTerm, type Link, type SessionClient } from "./session-term";
-import { encode, Frames, PROTOCOL, type ClientMsg, type DaemonMsg, type Hello, type SessionInfo } from "./protocol";
+import { encode, Frames, PROTOCOL, type ClientMsg, type DaemonMsg, type SessionInfo } from "./protocol";
 import { startSession, waitFor } from "./start";
 import { ep0ch, placeFor, placeLabel, recordPlace, sessionFile, sessionFlags, sessionLock, sessionSocket, type Place } from "./place";
 export { sessionFile, sessionLog, sessionSocket } from "./place";

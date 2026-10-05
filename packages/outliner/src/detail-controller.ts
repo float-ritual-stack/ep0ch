@@ -9,7 +9,7 @@ import {ChecklistSession, type ChecklistChoice, type ChecklistResult} from "./ch
 import type {ChecklistUpdateInput, ChecklistUpdateReceipt} from "./types";
 import type {ChecklistIdentityChange, MutationProvenance} from "./types";
 import { COMPLETION_ROWS } from "./reference-completion-renderer";
-import { ReferenceCompletionSession, type ReferenceCompletionItem, type ReferenceCompletionState } from "./reference-completion";
+import { ReferenceCompletionSession, type ReferenceCompletionState } from "./reference-completion";
 import { buildDetailAnnotationView, displayedResourceText, detailAnnotationGroups, annotationReferenceTokens, resolveAnnotationReferences, sameAnnotationReferences, selectedAnnotationThread } from "./detail-annotations";
 import type { BacklinkPeekLaunch } from "./backlink-peek";
 import type { EditRecovery, EditRecoveryStart } from "./edit-recovery";
@@ -179,7 +179,6 @@ export interface DetailViewport {
   }>;
 }
 
-export type DetailCompletionItem = ReferenceCompletionItem;
 export type DetailCompletionState = ReferenceCompletionState;
 
 export interface DetailLineRange {

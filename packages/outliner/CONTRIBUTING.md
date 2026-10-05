@@ -388,6 +388,13 @@ The checks and the full suites are in the repository's
 (`test/e2e/herdr-runner.ts`): its own outlines folder, the host in a tab of a
 private workspace, the project's outline named by its `.ep0ch`.
 
+Agents run suites one at a time, in the foreground and under a timeout
+(`timeout 900 bun test test/<file>.test.ts`), after checking `uptime` (wait while
+the load is over 4). Never `--parallel`, and never wait on a background run's
+notification. A test host started by hand gets a scratch `EP0CH_OUTLINES` and
+`XDG_CONFIG_HOME`, plus `OUTLINER_INBOX_AGENT=0 OUTLINER_NOTE_ASSISTANCE=0`, or it
+reads the person's config and runs their Inbox agent on your notes.
+
 ### Live smoke test
 
 Changes to Tree, Detail, pane orchestration, or the host require a live Herdr smoke test.

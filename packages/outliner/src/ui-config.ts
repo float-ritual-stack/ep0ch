@@ -24,10 +24,6 @@ export const DEFAULT_PANE_BARS: Readonly<Record<PaneKind, readonly string[]>> = 
   detail: ["detail.menu.note", "detail.menu.view", "detail.menu.links", "detail.menu.props"],
 };
 
-export function paneKindName(kind: PaneKind): string {
-  return PANE_NAMES[kind];
-}
-
 /** One wording for every host's chrome toggle and pin results. */
 export function chromeToggleLabel(kind: PaneKind, current: ChromeLevel): string {
   return `${PANE_NAMES[kind]} chrome: ${current} → ${current === "compact" ? "full" : "compact"}`;

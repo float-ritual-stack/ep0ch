@@ -45,7 +45,7 @@ import { dirname } from "node:path";
 import { Desk, type MovedTile } from "./desk/desk";
 import type { ScreenSpec } from "./desk/screen-spec";
 import type { TileDone, Where } from "./desk/tile-actions";
-import { kindOf, registerTileKind, tileKind, UnavailableTile } from "./desk/tile-kinds";
+import { registerTileKind, tileKind, UnavailableTile } from "./desk/tile-kinds";
 import { PTY_ACTIONS } from "./desk/pty-actions";
 import { apply as applyLayout, hostDrawer, hostLayer, HOST_SCREEN, placeHost, type Ctx as LayoutCtx, type HostMode, type LayoutState, type Op, type TileFacts } from "./desk/screen-layout";
 import { readState, writeState } from "./state";
@@ -54,7 +54,7 @@ import { ActionRefused, actionSet, def, agentLabel, type ActRequest } from "./su
 import { actorRule, type TileRef } from "./surface/dispatch";
 import { HOST_AGENT, type Whereabouts } from "./whereabouts";
 import { bg, C, chip as chipStyle, fg, pad, RESET, width } from "./style";
-import { ch, type Key } from "./term";
+import type { Key } from "./term";
 import type { Placement } from "./kitty";
 
 /** The dock's own tile's id and name (`dock.agent`): what `EP0CH_TILE_ID` tells its program (never a desk id, `t<n>`). */
@@ -373,8 +373,6 @@ export class AgentDock {
   }
   /** The dock's own tile when it has been made (nothing is started by asking). */
   get tile(): PtyPane | null { return this.p; }
-  /** Its program has been started (it runs, or it ran and exited). */
-  private get started(): boolean { return !!this.p && (this.p.running || this.p.exited !== null); }
   /** The drawer is drawn now: pulled up, on a screen that lets the host layer appear. */
   get shown(): boolean { return this.open && this.active && this.mode !== "none"; }
   /** Drawn beside the screen (the screen shorter), not over it: the rows it takes from the screen, else 0. */

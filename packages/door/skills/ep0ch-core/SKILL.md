@@ -38,7 +38,7 @@ Then the root `AGENTS.md` and `CONTRIBUTING.md`. They are short and they are the
   none fits, extend one, or say in the PR why not. Never a second reader, pane model, search, editor or
   presence view. A new shared part gets its reuse-map row and a showcase section in the same PR.
 - **Packages meet at their public faces.** The door imports all of outline-core (`@ep0ch/outline-core/*`)
-  and only what the outliner's `package.json` `exports` declares (today `machine-forward`);
+  and only what the outliner's `package.json` `exports` declares (today `machine-forward` and `plain-stderr`);
   `packages/door/test/package-boundary.test.ts` fails on any other import across packages. Shared pure code moves
   into outline-core and is imported, never copied.
 - **An error says what to run.** A refusal or failure names why and the command that fixes it, as `doctor`,
@@ -123,6 +123,12 @@ Then the root `AGENTS.md` and `CONTRIBUTING.md`. They are short and they are the
 
 Never write to a real outline or touch the person's door. Their door may be on the default control socket.
 
+- **Running them:** check `uptime` first and wait while the load is over 4. One suite at a time, in the
+  foreground, under a timeout: `timeout 900 bun test test/<file>.test.ts`. Never `--parallel`, never in the
+  background waiting for a notification: report the result you saw. The door's `parity-screens` takes more than
+  ten minutes whole, so run it in parts: `PARITY_ONLY="main menu,message reader"` names scenarios by their labels
+  (`test/parity.ts`), split on commas, so a label with a comma in it ("home base, an outline missing") is picked
+  with `-t "home base, an outline missing"` instead.
 - **Tests:** `bun run check` and `bun run test` at the root, or `bun test` in a package. The door's tests start
   their own outline host with `Scratch` or `ScratchHost` (`test/scratch.ts`, which finds `../outliner`): a
   scratch outlines folder, one outline `scratch` as the host's default. Fixtures
@@ -133,7 +139,9 @@ Never write to a real outline or touch the person's door. Their door may be on t
   `EP0CH_CONTROL` to every `peek`, `act`, `snap` or `open`. `EP0CH_STATE` moves everything else the door
   writes (layouts, drafts, marks, the media cache). Point it at a scratch host with `EP0CH_OUTLINES=<temp
   outlines folder>` and `--ws <name>`, never at `~/outlines`.
-- **A scratch host by hand:** `EP0CH_OUTLINES=$d/outlines EP0CH_DEFAULT_WS=garden bun packages/outliner/src/host-main.ts`,
+- **A scratch host by hand:** with `d=$(mktemp -d)`, `EP0CH_OUTLINES=$d/outlines EP0CH_DEFAULT_WS=garden XDG_CONFIG_HOME=$d/config
+  OUTLINER_INBOX_AGENT=0 OUTLINER_NOTE_ASSISTANCE=0 bun packages/outliner/src/host-main.ts` (as `scripts/try-it.sh`
+  starts one: without the last three it reads the person's `~/.config` and its Inbox agent rewrites your notes),
   then `EP0CH_OUTLINES=$d/outlines ep0ch outline create garden` (`ep0ch init` would write a `.ep0ch` into the
   folder you run it in). Its socket is `$d/outlines/.host/host.sock`.
 - **Real outline shapes without real writes:** `ep0ch try --ws <name> --copy` serves a private copy of that
@@ -204,15 +212,17 @@ CHANGELOG, the demo hubs, the fresh-outline seed, the showcase and skills, the r
 
 ## Branches, PRs, merging
 
-- Work in a worktree (`git worktree add -b <branch> ../ep0ch-<slug> origin/main`). Never switch branches in
-  the live checkout: it is what runs.
+- Work in a worktree (`git worktree add -b <branch> ../ep0ch-<slug> origin/main`). Never switch branches, pull or
+  commit in the live checkout: it is what runs, and it may hold the person's uncommitted files. It moves only on
+  `ep0ch install --apply`, which fast-forwards it, restarts the outline host when it needs to and hands this
+  machine's door sessions to the new code (a door on another machine is restarted there).
 - One coherent PR per change. A feature split across agents uses a feature branch: slices branch from it
   (`<feature>/<slice>`) and open PRs into it; one PR goes from the feature branch to main.
 - Paid review runs on PRs into main. Put `[skip review]` in the title of docs-only, mechanical or small PRs
   and review them yourself (`/code-review` for code). Push fixes in one go; don't re-trigger reviews.
 - Don't commit lockfile churn from a local bun; commit `bun.lock` only when dependencies change.
-- Merge yourself once review is resolved: `gh pr merge --squash --delete-branch`, then
-  `git pull --ff-only` in the live checkout.
+- Merge yourself once review is resolved: `gh pr merge --squash --delete-branch`. Check for bot reviews posted
+  after the merge, and answer them in a follow-up PR.
 
 ## Deploy and back up
 
@@ -229,7 +239,9 @@ CHANGELOG, the demo hubs, the fresh-outline seed, the showcase and skills, the r
   outliner-host.service` on Linux, `launchctl kickstart -k gui/$(id -u)/io.ep0ch.outliner-host` on macOS).
   Doors and panes reconnect by themselves. A Claude started before the mod changed has old tools until it
   restarts (`ep0ch act agent.restart` for the door's agent).
-- **After a door merge,** pull the live checkout; `ep0ch` links to its packages/door. A `PROTOCOL` bump needs
+- **Deploy only when asked.** A protocol mismatch in your tools is not a reason to run `ep0ch install --apply`:
+  ask the person.
+- **After a door merge,** `ep0ch install --apply` moves the live checkout; `ep0ch` links to its packages/door. A `PROTOCOL` bump needs
   the host and the doors (and a remote door on another machine) on the same code. Restart doors that should run the
   new code; say what you restarted and how to reopen it.
 - Report implemented, exercised, merged, deployed and accepted separately.

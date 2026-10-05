@@ -1509,8 +1509,6 @@ export interface GotoSearchCollection {
   };
 }
 
-export type BacklinkReferenceKind = "block" | "page" | "work-id" | "property";
-
 interface BacklinkOccurrenceBase {
   label: string;
   snippet: string;

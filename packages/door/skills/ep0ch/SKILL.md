@@ -128,7 +128,7 @@ the door's `EP0CH_STATE` and `EP0CH_SOCKET` when it has them.
 1. `^W o s` on the desk, then `claude` in that shell: a terminal tile's program.
 2. The `▲ claude` chip on the status bar, or `alt+a`: the dock, a drawer over any screen. Its own tab runs the
    agent chosen for the outline's session (`alt+g`, `host.agent name=<agent> [herdr=true]`; `EP0CH_DAILY_AGENT`
-   overrides it; none chosen: a shell). Chosen "in Herdr", it runs in the session's own pane (`door-<outline>`,
+   overrides it; none chosen: a shell). Chosen "in Herdr", it runs in the session's own pane (`door-<outline>[--<machine>]-<hash>`,
    `EP0CH_CONTROL` a link the launcher points at the attached door). Any tile docked there travels with the person.
    Every agent starts inside the person's login shell: when it exits, the tile is their shell, nothing restarted.
 

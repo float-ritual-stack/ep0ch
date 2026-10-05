@@ -10,7 +10,7 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
-Since October 2, 2026: pull requests #136 to #162, the outliner's #280 to #282 (in pi-herdr-outliner), and the
+Since October 2, 2026: pull requests #136 to #197, the outliner's #280 to #282 (in pi-herdr-outliner), and the
 move into one repository (PIE-530).
 
 ### Update: what to run
@@ -84,6 +84,54 @@ write plain text to a stderr that isn't a terminal, a long refusal arrives whole
 own tests (`claude plugin test`, so `claude` must be on PATH), and a door test runs the real `ep0ch help`,
 `where --json`, `show --cells`, `export`, `peek` and `act` through the mod's readers, so a CLI change that breaks
 the mod fails at the root.
+
+### No outline made silently on another machine; a typo'd command says so (PIE-545, PIE-547)
+
+- **A name nobody has yet is made only on this machine.** `ep0ch --machine float-2 --ws fern` used to make an empty
+  `fern` there. Now, on another machine (`--machine`, `EP0CH_MACHINE`, a `.ep0ch`'s `machine`, `--remote`), the home
+  base offers the choices: open the one on this machine (when there is one), `+ create fern on float-2`, or cancel.
+  The cursor starts on cancel or the local one, so ⏎ alone never makes anything. Without a terminal it's a refusal
+  with the commands: `ep0ch --here --ws fern`, `ep0ch --machine float-2 --ws fern --create`,
+  `ep0ch outline list --all`. Tree and Detail's opener and `outliner init` follow the same rule.
+- **`--create`** (on the door, `outline attach` and `init`) makes it there on purpose, as do `ep0ch outline create`
+  and the home base's "new outline on <machine>". **`--here`** means this machine over `EP0CH_MACHINE` and a
+  `.ep0ch`'s machine. A local `--ws <new name>` still makes the outline, as before.
+- **A typo'd command says so**, and no longer opens the door: `ep0ch sessionss` exits 2 with
+  `ep0ch: no command "sessionss" · did you mean: ep0ch session`. An unknown door flag suggests the closest one.
+  `--help`, `-h` and `help` work in any position and show that command's usage.
+- **`ep0ch outline delete`** also removes the outline's owner lock file, and refuses while another process holds
+  it.
+- A `work_create` title that starts with `--` is no longer refused as an ambiguous option.
+
+### The Claude mod says which outline it's bound to (PIE-546)
+
+- **A card** above the prompt, at the start and after `/clear`: the outline and its machine, why (the `.ep0ch` that
+  names it, or "nothing names one" with the `ep0ch init …` to run), where Claude runs, and the door and Herdr pane it
+  sits in. It says **careful** in yellow when the folder names one outline and the door is on another. `h` hides it;
+  `/outline` shows it again.
+- **A status line** that stays: `outline: garden @ float-2 · folder`, with `⚠ door is harbor @ far` on a mismatch,
+  or `none (tools off)` and the command. It reads the binding again at most every 30 seconds.
+- **The first prompt's context** carries the same lines, so the model knows too.
+- `ep0ch where --json` gains `here` (machine and folder) and `herdr` (the pane, its label, whether it's an agent
+  pane), and `door.machine`.
+
+### Fixed: a new note's cleanup could trash a note someone had written meanwhile
+
+`Esc` on a new note with nothing typed puts it in the trash. If another client, an agent or the person in Detail
+wrote to it, or added a child under it, between the door's read and its trash, that work went to the trash with it.
+The trash is now conditional in the service: `delete` takes `expectedRevision` and `ifEmpty`, checked in the trash's
+own transaction, and the door's cleanup passes both, so a note written or given a child meanwhile stays, and the
+door says so with its id and `ep0ch show <id>`. A cleanup that fails says it failed, never "it went to the trash".
+`Esc` while a new note's edit is still opening cancels it. From a shell: `outliner delete --id <id> [--expected
+<revision>] [--if-empty]`. Protocol bump: restart the host and the doors (see "Update: what to run").
+
+### Fixed: a fenced example inside a figure cut it short in the door
+
+A `::graph-*` figure whose Markdown body held a fenced code example with a bare `::` line ended at that line in the
+door's reader, its export and its links, and the rest of the figure read as text. The Claude mod's preview did the
+same. They all ask outline-core now (`componentBlocks`), the rule Detail and `replaceSection` use: a code fence closes
+only on its own fence (a `~~~` inside a ``` fence no longer ends it), an unclosed figure is plain text (it used to
+run to the end of the note in the door), and an opener indented four spaces or more is code.
 
 ### Figures written in Markdown, and seven new kinds (ideas from mdxcn.dev)
 
@@ -519,6 +567,17 @@ The river's replies under a note are read again the same way. Restart the door (
 - `outliner --help` (and `-h`, `help`, or no command) prints the CLI's usage; it used to throw, or list the folder's
   outline. An unknown command says so and exits 2.
 - `ep0ch --help` lists `ep0ch outline list --all` and `--lines`.
+- A link, property value or embed whose target doesn't exist yet ends in a quiet `◌` (embeds drawn dim), not
+  "· Missing target". Selecting or clicking it still says in words what's missing and how to make it.
+- `ep0ch install` and `ep0ch doctor` read at a glance: a step says what it did once, each backed-up outline is one
+  line (`✓ pie  2.1 MB  integrity ok`), sessions are a table, and skill links are one line per folder. A fetch that
+  raced another git process is no longer reported as an error. `--json` keeps its shape.
+- `ep0ch install` checks each workspace package's dependencies, not only the root's, so a new door dependency
+  (sharp, image-size) is installed before the sessions are handed over. A failed handover says its cause once.
+- `ep0ch find --recent` and `find --tree` refuse an option they don't take (`--sort` included) by naming it, and
+  print the same find without it.
+- A showcase door left open across `ep0ch --showcase --reset` reads the new seed; its notebook's embeds no longer
+  read missing.
 
 ### Recent mentions in Claude Code, and BlockView
 
