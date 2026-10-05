@@ -13,10 +13,13 @@ import { Database } from "bun:sqlite";
 import { existsSync } from "node:fs";
 import { BLOCK_ID_PATTERN } from "@ep0ch/outline-core/addressable-resource";
 import { insertOutlineInstanceId, OUTLINE_INSTANCE_ID_KEY, readOutlineInstanceId, SCHEMA_VERSION } from "../../src/schema";
+import { acquireWorkspaceOwnership } from "../../src/workspace-ownership";
 import { freshSchemaShape, schemaDifferences, schemaShape } from "./0001-stamp";
 export function migrate(path: string): { migrated: boolean; repaired?: boolean; outlineInstanceId: string } {
   if (SCHEMA_VERSION !== 2) throw new Error(`This script upgrades to version 2; the schema is now version ${SCHEMA_VERSION}`);
   if (!existsSync(path)) throw new Error(`${path} does not exist`);
+  // The owner lock every store takes: refused (already owned) while a service serves the file.
+  const release = acquireWorkspaceOwnership(path);
   const database = new Database(path, { create: false, readwrite: true });
   try {
     database.exec("PRAGMA busy_timeout = 5000;");
@@ -39,6 +42,7 @@ export function migrate(path: string): { migrated: boolean; repaired?: boolean; 
     return { migrated: true, outlineInstanceId };
   } finally {
     database.close();
+    release();
   }
 }
 

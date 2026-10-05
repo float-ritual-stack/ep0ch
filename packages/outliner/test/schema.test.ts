@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { importOutline } from "../src/outline-import";
 import { readOutlineInstanceId, SCHEMA_SQL, SCHEMA_VERSION } from "../src/schema";
 import { OutlinerStore } from "../src/store";
+import { ownerLockOf } from "../src/workspace-ownership";
 import { freshSchemaShape, schemaDifferences, schemaShape, stamp } from "../scripts/migrations/0001-stamp";
 import { migrate } from "../scripts/migrations/0002-outline-instance-id";
 
@@ -116,6 +117,11 @@ test("a version 2 database missing its instance id is refused with the exact rep
   database.query("DELETE FROM metadata WHERE key = 'outline_instance_id'").run();
   database.close();
   expect(() => new OutlinerStore(path)).toThrow(new RegExp(`has no valid outline instance id; repair it with \`bun \\S+/scripts/migrations/0002-outline-instance-id\\.ts ${path}\``));
+  // Not while a store (a service) has it open.
+  const held = new Database(ownerLockOf(path).path);
+  held.exec("BEGIN IMMEDIATE");
+  expect(() => migrate(path)).toThrow("already owned");
+  held.close();
   const repaired = migrate(path);
   expect(repaired).toMatchObject({ migrated: false, repaired: true });
   expect(outlineInstanceId(path)).toBe(repaired.outlineInstanceId);
