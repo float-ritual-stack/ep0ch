@@ -53,6 +53,12 @@ move into one repository (PIE-530).
 - **Television (optional).** With `tv` on your PATH, `ep0ch install --apply` links the outline's channels into
   television's cable folder.
 
+### Fixed: ctrl+n replaced the note you were reading
+
+A new note made with `ctrl+n` in a detail opens in a detail beside it (as `O` opens one), on the board in a new
+detail in its reading row, and in a river in a new column: the note you were reading stays. An empty detail
+(`^W o d`) offers `+ New note · ctrl+n`, and a new note made there is written in it.
+
 ### Fixed: published pages read as HTML linked to raw Markdown
 
 On a page read as HTML (`?view=html`), a link to another published note now opens that note's HTML too, as the

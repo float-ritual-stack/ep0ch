@@ -1480,8 +1480,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private currentNow(): Msg | null {
     const c = this.current;
     if (!c) return null;
-    for (const p of this.panes.values()) if (p instanceof ReaderPane && p.msg?.id === c.id) return p.msg;
-    return c;
+    // The newest any reader holds: the one that saved it has it first, before the change reaches the others.
+    let best: Msg = c;
+    for (const p of this.panes.values()) if (p instanceof ReaderPane && p.msg?.id === c.id && (p.msg.revision ?? 0) >= (best === c ? 0 : best.revision ?? 0)) best = p.msg;
+    return best;
   }
 
   /** The note in the reader the person is in (PIE-544): a new note goes under it. A list, a lane or a terminal: none (the Inbox). */
@@ -1496,8 +1498,17 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * reader's own `edit` (the one editor and draft session). The reader's name, or null when no reader took it.
    */
   async editNew(m: Msg): Promise<string | null> {
+    // The note being read stays read: the new one never lands over it. A reader whose opens land nowhere else (no
+    // link, no container, no flow) first gets one beside it, as O gives; a container opens a new tile (fresh).
+    const from = this.focusedName(), f = this.panes.get(this.focus);
+    // An empty reader (^W o d) is where the person asked to write: the note opens in it.
+    const empty = f instanceof ReaderPane && !f.msg && !f.surface.draft;
+    const into = landing(this.layout, this.focus, this.facts(this.focus));
+    if (f instanceof ReaderPane && f.msg && this.linkOf(this.focus) === undefined && !(into && "into" in into) && !this.inFlow(this.focus)) {
+      await this.previewTile(from, undefined, USER);
+    }
     // A refusal of the open is said as it is (thrown): note.new puts the empty note away.
-    const at = await this.openFrom(m.id, this.focusedName(), USER);
+    const at = empty ? await this.openIn(m.id, from, USER) : await this.openFrom(m.id, from, USER, true);
     const rd = at.reader ? this.pane(at.reader) : undefined;
     if (!(rd instanceof ReaderPane) || rd.msg?.id !== m.id) return null;
     this.focusOn(at.reader!);
