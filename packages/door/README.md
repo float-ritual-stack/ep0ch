@@ -545,22 +545,26 @@ mcp.ep0ch.sh {
 }
 ```
 
-Clerk (the `ep0ch-mcp` application), in the dashboard under **OAuth applications**:
+Clerk (the `ep0ch-mcp` application) admits claude.ai as a pre-registered CIMD client only: claude.ai identifies
+itself by a Client ID Metadata Document, `https://claude.ai/oauth/mcp-oauth-client-metadata`. In the dashboard under
+**OAuth applications**:
 
-- **Settings** tab, **Client onboarding**: **Publish CIMD support** on (claude.ai identifies itself by a Client ID
-  Metadata Document, `https://claude.ai/oauth/mcp-oauth-client-metadata`). **Publish DCR support** too, for a client
-  that only registers dynamically. Under **Authorization security**: **Require PKCE**. **Access token format**: **JWT
-  access tokens** (the gateway verifies JWTs itself; an opaque token is refused).
+- **Settings** tab, **Client onboarding**: **Publish CIMD support** on, **Client admission** **Pre-registered clients**
+  (only pre-registered and previously connected clients), **Publish DCR support** off. Under **Authorization
+  security**: **Require PKCE**. **Access token format**: **JWT access tokens** (the gateway verifies JWTs itself; an
+  opaque token is refused).
 - **Applications** tab: **Add application** → **Pre-register CIMD client**, Client ID URL
   `https://claude.ai/oauth/mcp-oauth-client-metadata`, then **Allow client**.
 - The `aud` claim from the RFC 8707 resource parameter (`aud_claim_enabled`) must be on, or every token is refused
-  (the journal says so). The CLI sets it, with the rest: `clerk api /instance/oauth_application_settings -X PATCH -d
-  '{"aud_claim_enabled": true, "oauth_jwt_access_tokens": true, "pkce_required": true,
-  "client_id_metadata_documents_advertised": true, "dynamic_oauth_client_registration": true}'`.
+  (the journal says so). It has no dashboard switch; the CLI sets it with the rest (`/instance` calls need `--app`):
+  `clerk api /instance/oauth_application_settings --app <app_id> -X PATCH -d '{"aud_claim_enabled": true,
+  "oauth_jwt_access_tokens": true, "pkce_required": true, "client_id_metadata_documents_advertised": true,
+  "client_id_metadata_documents_only_allow_pre_registered_clients": true, "dynamic_oauth_client_registration":
+  false}'`, and `clerk api /instance/oauth_application_settings --app <app_id>` reads them back.
 - **User & authentication** → **SSO connections**: GitHub.
-- Once a sign-in from claude.ai has worked, set **Client admission** to **Pre-registered and previously connected
-  clients** (or `"client_id_metadata_documents_only_allow_pre_registered_clients": true`), and DCR off if nothing
-  needs it.
+
+A client that can only register dynamically needs **Publish DCR support** on (`"dynamic_oauth_client_registration":
+true`); the gateway takes its tokens the same way.
 
 Either way a client registers, its token carries its `client_id` (a CIMD client's is its metadata URL), and
 `EP0CH_MCP_ALLOWED_CLIENTS=https://claude.ai/oauth/mcp-oauth-client-metadata` pins the gateway to claude.ai.
