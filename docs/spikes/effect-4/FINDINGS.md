@@ -273,7 +273,7 @@ read cross-checked against upstream v4 source. Full text: the session scratchpad
 
 | origin | count | which |
 |---|---|---|
-| copied from main unchanged (pre-existing in ep0ch) | 6 | lock takeover TOCTOU (#1), `upTo` bounds polling not the probe (#6), socket path in chars not bytes (#7), `lastIndexOf("}")` framing (#8), params spread over the envelope (#11), a post-send disconnect read as "no host" (#14) |
+| copied from main unchanged (pre-existing in ep0ch) | 7 | lock takeover TOCTOU (#1), `upTo` bounds polling not the probe (#6), socket path in chars not bytes (#7), `lastIndexOf("}")` framing (#8), params spread over the envelope (#11), unguarded `JSON.stringify` of params (#12), a post-send disconnect read as "no host" (#14) |
 | Effect used wrongly or half-understood | 4 | uninterruptible acquire (#3), `Effect.promise` discards cancellation (#2), `Effect.promise`/`sync` turn rejections into defects so the adapter lies about infallibility (#4), the result-Schema cast hole (#13) |
 | new plain bugs in the rewrite | 4 | shared streaming `TextDecoder` (#9), blank line then pull (#10), no line limit where the original had one (#15), `privateDir` mapping every error to the mode refusal (#5) |
 | test weaknesses | 3 | sequential callers only (#16), fake host assumes one request per chunk (#17), cleanup not asserted on every path (#18) |
@@ -282,12 +282,12 @@ read cross-checked against upstream v4 source. Full text: the session scratchpad
 
 Fixed on the branch after the review, each with a test: #3 (`interruptible: true`), #9, #10, #11 (envelope after
 the spread), #15 (line limit), and the two document corrections. Left as recorded: #1, #2, #4, #5, #6, #7, #8, #13,
-#14, the test weaknesses. #1, #7, #8 and #11 are bugs in main today (`outline-core/src/machine.ts`,
+#12, #14, the test weaknesses. #1, #7, #8 and #11 are bugs in main today (`outline-core/src/machine.ts`,
 `door/src/socket.ts`); they go to the workboard as a follow-up, not to this branch.
 
 **What the count says**
 
-- Six of twenty are the original code's, carried over line for line. A rewrite on Effect doesn't fix what it copies;
+- Seven of twenty are the original code's, carried over line for line. A rewrite on Effect doesn't fix what it copies;
   the archaeology's parallel-parser and one-path-invariant classes are untouched by the library.
 - Four of twenty exist only because of Effect: two of those (#2, #4) are the "two error worlds" cost of wrapping
   Promise code with `Effect.promise` at an edge (defects instead of failures, no cancellation), which is exactly the
