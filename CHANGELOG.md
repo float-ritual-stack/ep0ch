@@ -83,6 +83,16 @@ take an `outline` name now, for a ref or a search; a URI names its own. The door
 the unit, the Caddy block and the Clerk settings. `ep0ch mcp access` now says the grant covers both servers, and
 `initialize` answers a client's own MCP protocol version when it is one the server speaks (else the newest).
 
+### Esc closes what popped up, and never leaves the screen
+
+`Esc` closes the innermost temporary thing, one per press: a picker or the tile menu, the keys box
+(`? more`), a `^W` chord, link mode (`alt+l`), a filter, a drawer or the dock, a zoom, a float's keys (back to the tile
+under it), an edit with nothing typed (unsaved text still asks for a second `Esc`), a selection. With nothing left it
+does nothing and says `nothing to close · q leaves`. It never goes back to the menu, and never quits a door whose only
+screen it was (the home base, `--screen`). Leaving a screen is `q` on every one; quitting is `G` or `ctrl+c`, as
+before. The board's picker put away with no board shown leaves an empty board (`g` picks one, `q` leaves). The
+showcase's `esc` section opens three nested things to close.
+
 ### A menu on every tile (PIE-492)
 
 Every tile has a `⋯` in its top right corner, left of its `×`: a click opens the tile's menu, and so does a

@@ -159,7 +159,7 @@ export function linePrompt<H>(o: { name: string; title: string; text: string; pr
     name: o.name, input, items: () => (input.text.trim() ? [o.doing(input.text.trim())] : []),
     row: (it, _i, on, w) => [pickRow(` ${it}`, on, w)],
     choose: (_it, _i, host) => o.done(input.text.trim(), host),
-    frame: a => { const w = Math.min(o.w ?? 70, a.cols - 4), head = o.head ?? []; return { rect: centred(a, w, 4 + head.length), title: o.title, foot: "⏎ or a click · esc back", head: [" " + input.show(w - 4), ...head] }; },
+    frame: a => { const w = Math.min(o.w ?? 70, a.cols - 4), head = o.head ?? []; return { rect: centred(a, w, 4 + head.length), title: o.title, foot: "⏎ or a click · esc closes", head: [" " + input.show(w - 4), ...head] }; },
   });
 }
 

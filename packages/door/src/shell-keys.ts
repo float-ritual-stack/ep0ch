@@ -15,3 +15,13 @@ export function shellKeyOf(name: "screen.back" | "video.cycle", here: Screen, ct
   if (run) return run(name, {}, here, ctx);
   void import("./screens").then(m => m.shellKey(name, {}, here, ctx));
 }
+
+/**
+ * Esc with nothing left to close (UI-GRAMMAR, "Esc"): it closes the innermost temporary thing, and never leaves a screen
+ * or logs off, so here it does nothing and says what leaves (or a frame around the screen takes it: `Ctx.nothingToClose`).
+ * `leave`: the screen's own way out (the menu's is G).
+ */
+export function nothingToClose(ctx: Pick<Ctx, "flash" | "nothingToClose">, leave = "q leaves") {
+  if (ctx.nothingToClose) return ctx.nothingToClose(leave);
+  ctx.flash(`nothing to close · ${leave}`);
+}

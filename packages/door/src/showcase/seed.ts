@@ -416,7 +416,7 @@ const KEYS_TEXT = [
   "Read from the door's own action registry, so it says what the keys do now:",
   "",
   ...fig("keys", ["title: The reader (from the registry)", "actions: note", "learn: [edit, comment, element.open]", "limit: 14"]),
-  ...mdFig("keys", ["title: Getting about"], ["- **g then d: the desk**", "- ctrl+k: the command palette", "- ( ) then f: fold a heading", "- esc: back out"]),
+  ...mdFig("keys", ["title: Getting about"], ["- **g then d: the desk**", "- ctrl+k: the command palette", "- ( ) then f: fold a heading", "- esc: close what popped up · q: back"]),
 ].join("\n");
 
 /**

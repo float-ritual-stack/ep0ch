@@ -188,8 +188,10 @@ describe.skipIf(!outliner)("the BBS message reader on the note surface, against 
     expect(count()).toBe(2);
     key({ kind: "super", ch: "c" });
     expect(count()).toBe(3);
+    // Esc closes the innermost thing: the selection, then nothing (it stays: never back to the menu).
     key({ kind: "esc" });
     expect(r.surface.selection).toBeNull();
+    key({ kind: "esc" });
     expect(top()).toBe(r);
   }, 20_000);
 
@@ -206,7 +208,7 @@ describe.skipIf(!outliner)("the BBS message reader on the note surface, against 
     n.second = await board.get(n.second.id);
   }, 20_000);
 
-  test("the BBS keys: n and ⏎ next, p previous, t the thread, U up, esc back", async () => {
+  test("the BBS keys: n and ⏎ next, p previous, t the thread, U up, q back (esc never leaves)", async () => {
     const r = await open();
     key(char("n"));
     await until(() => r.surface.msg?.id === n.second.id, "the next message");
@@ -227,9 +229,12 @@ describe.skipIf(!outliner)("the BBS message reader on the note surface, against 
     key(char("U"));
     await until(() => top() !== r, "the conference above");
     expect(top().surface.msg?.id).toBe(n.conf.id);
+    const up = top();
     key({ kind: "esc" });
+    expect(top()).toBe(up);
+    key(char("q"));
     expect(top()).toBe(r);
-    key({ kind: "esc" });
+    key(char("q"));
     expect(top()).toBeInstanceOf(MainMenu);
   }, 20_000);
 

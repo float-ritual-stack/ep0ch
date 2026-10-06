@@ -319,6 +319,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     menu: ["Allotment notebook", "this program asked for the mouse", "⋯"],
     // A blank screen: its rows, each a first step.
     made: ["A blank screen. Start it with a tile here:", "t  the outline", "o  open a screen…"],
+    // Two readers to zoom one of, a link to light and a menu to open: the Esc rule's three nested things.
+    esc: ["Allotment notebook", "Bike shed"],
   };
 
   test("one section per reuse-map row, in the map's order, each labelled with its part and file, drawn by the part", async () => {
@@ -563,6 +565,42 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     await until(() => top() === sc, "back on the showcase");
     expect(await app.act({ action: "screen.delete", args: { name: "allotment-work" }, as: "test-agent" })).toMatchObject({ trashed: true });
     expect(await board.isTrashed(saved.note)).toBe(true);
+  }, 20_000);
+
+  test("the esc section: three nested things open (a zoom, a lit link, the tile menu); each Esc closes one, innermost first, then the keys come back to the index, then nothing to close, and the screen stays", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "esc" }, as: "test-agent" });
+    await until(() => marks.esc!.every(m => screen().includes(m)), "the esc section");
+    const stage = () => S().stages.get(S().sel).top;
+    const overlay = () => stage().overlays.top() as { name: string } | null;
+    const lit = () => (stage().pane("reader").describe().elements?.current ?? null) as unknown;
+    const message = () => (app as any).message as string;
+    press({ kind: "enter" });
+    expect(S().focus).toBe("stage");
+    // The person's keys: zoom the reader, light a link in it, open its menu.
+    press({ kind: "char", ch: "w", ctrl: true }); press({ kind: "char", ch: "z" });
+    expect(stage().zoom).not.toBeNull();
+    press({ kind: "char", ch: "]" });
+    await until(() => lit() !== null, "a link lit in the reader");
+    press({ kind: "char", ch: "w", ctrl: true }); press({ kind: "char", ch: "." });
+    await until(() => overlay()?.name === "tile menu", "the reader's menu");
+    // Esc: the menu, then the link, then the zoom, one each.
+    press({ kind: "esc" });
+    expect(overlay()).toBeNull();
+    expect(lit()).not.toBeNull();
+    expect(stage().zoom).not.toBeNull();
+    press({ kind: "esc" });
+    expect(lit()).toBeNull();
+    expect(stage().zoom).not.toBeNull();
+    press({ kind: "esc" });
+    expect(stage().zoom).toBeNull();
+    // Nothing left in the stage: the keys come back to the index (section.leave); then nothing to close, and it stays.
+    press({ kind: "esc" });
+    expect(S().focus).toBe("index");
+    (app as any).message = "";
+    press({ kind: "esc" });
+    expect(message()).toBe("nothing to close · q leaves");
+    expect(app.describe()).toMatchObject({ screen: "showcase" });
   }, 20_000);
 
   test("the dock section, driven through act: the kettle docks, a section switch keeps it (the same pid), and it undocks into another section", async () => {

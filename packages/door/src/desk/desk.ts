@@ -7,7 +7,7 @@
 //
 // Every change goes through a named action (TILE_ACTIONS, PANE_ACTIONS, DESK_ACTIONS): the keys, the mouse
 // and the control socket are callers. The desk draws the borders, headers, tabs and the drag's ghost.
-import { shellKeyOf } from "../shell-keys";
+import { nothingToClose, shellKeyOf } from "../shell-keys";
 import type { Ctx, Frame, Screen, ViewState } from "../app";
 import { bodyLinesOf, subject, type Msg } from "../board";
 import { Canvas, DOTTED_BOX, overflows, scrollPct, type BoxGlyphs, type Rect } from "../canvas";
@@ -651,7 +651,6 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
   nameOfPane(p: Pane): string { const id = this.idOf(p); return id === undefined ? "" : this.nameOf(id); }
   enterSession(p: ReaderPane) { this.entered.enter(p); this.ctx.flash(`in ${sessionName(p)} · ${p.hint()}`); this.redraw(); }
-  leave() { this.shell("screen.back"); }
   /** The tiles a columns container's source supplied, in its order (wherever they are now). */
   private sourcedIn(c: Columns<number>): number[] {
     const inside = leaves(c);
@@ -2309,8 +2308,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       if (/^[1-9]$/.test(k.ch) && this.numbered) { const id = this.all()[Number(k.ch) - 1]; if (id !== undefined) return this.run("tile.focus", {}, this.nameOf(id)); return; }
       if (k.ch === "q" && this.spec.home === undefined) { this.pending = null; return this.shell("screen.back"); }
     }
-    // Esc steps back: out of a zoom, a drawer the keys are in shuts, the keys go home (the spec's), a drawer sliding over
-    // shuts, then the screen is left. On a screen with a home, q takes the same steps (PIE-489: q is back everywhere).
+    // Esc closes the innermost temporary thing (UI-GRAMMAR, "Esc"): out of a zoom, a drawer the keys are in shuts, the keys
+    // go home (the spec's), a drawer sliding over shuts, a float gives the keys back to the tile under it; with nothing
+    // left it says so and stays: it never leaves the screen. On a screen with a home, q takes the same steps and then
+    // leaves (PIE-489: q is back everywhere).
     if (k.kind === "esc" || (c0 === "q" && this.spec.home !== undefined)) {
       if (this.zoom !== null) return this.run("tile.zoom", { on: false }, String(this.numberOf(this.zoom)));
       const shuts = (d: Drawer<number> | null) => !!d?.open && d.policy?.overlay !== false && policyOfNode(this.layout, d).collapsible;
@@ -2320,6 +2321,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       if (home !== undefined && !this.atHome()) return this.run("tile.focus", {}, this.nameOf(home));
       const open = this.spec.home !== undefined ? drawers(this.root).find(x => shuts(x) && leaves(x.kid).length) : undefined;
       if (open) return this.run("tile.drawer", { open: false, container: open.id }, this.nameOf(leaves(open.kid)[0]!));
+      if (k.kind === "esc") {
+        const ground = this.isFloat(this.focus) ? this.grounded() : undefined;
+        if (ground !== undefined) return this.run("tile.focus", {}, this.nameOf(ground));
+        return nothingToClose(this.ctx);
+      }
       this.pending = null; return this.shell("screen.back");
     }
   }
@@ -2637,8 +2643,15 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
   /** The tile last given the keys in each columns container (by its id): its place for Tab and home. */
   private lastIn = new Map<string, number>();
+  /** The last tile the keys were in that isn't a float: where esc in a float gives them back. */
+  private lastGrounded: number | undefined;
+  private grounded(): number | undefined {
+    const g = this.lastGrounded;
+    return g !== undefined && this.panes.has(g) && !this.isFloat(g) && visible(this.root).includes(g) ? g : this.tabStops().find(id => !this.isFloat(id));
+  }
   /** Where the keys are now is the place of each columns container they're in. */
   private noteFocus() {
+    if (!this.isFloat(this.focus)) this.lastGrounded = this.focus;
     for (const c of chainOf(this.root, this.focus)) if (c.t === "columns" && c.id) this.lastIn.set(c.id, this.focus);
     // A tile opened into a container that's given the keys is where the next open there lands.
     const k = this.openedInto(this.focus);

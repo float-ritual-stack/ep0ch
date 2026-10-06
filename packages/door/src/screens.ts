@@ -1,6 +1,6 @@
 // Every screen of the board. Outline data arrives async; screens render "loading" until it lands.
 import { ART_ACTIONS, type ArtOn } from "./art-actions";
-import { registerShellKey } from "./shell-keys";
+import { nothingToClose, registerShellKey } from "./shell-keys";
 import { basename } from "node:path";
 import type { Art, Cell } from "./ansi";
 import { artBlock, cloneGrid, locate, stamp } from "./art-view";
@@ -37,7 +37,8 @@ const nav = (k: Key, len: number, i: number, page: number) => {
   if (k.kind === "end") return Math.max(0, len - 1);
   return i;
 };
-const isBack = (k: Key) => k.kind === "esc" || (k.kind === "char" && !k.ctrl && (k.ch === "q" || k.ch === "Q"));
+/** q leaves a BBS screen. Esc never does (UI-GRAMMAR, "Esc"): it closes the innermost temporary thing, and with none says so. */
+const isBack = (k: Key) => k.kind === "char" && !k.ctrl && (k.ch === "q" || k.ch === "Q");
 
 type Mouse = Extract<Key, { kind: "mouse" }>;
 const char = (ch: string): Key => ({ kind: "char", ch });
@@ -194,7 +195,7 @@ export class Logon implements Screen {
       return;
     }
     // Esc never logs off (PIE-489): here it only says how. Q is the hang-up the screen offers.
-    if (k.kind === "esc") { ctx.flash("ENTER logs on · Q hangs up"); return; }
+    if (k.kind === "esc") return nothingToClose(ctx, "ENTER logs on · Q hangs up");
     if (isBack(k)) return ctx.push(new Goodbye());
     if (k.kind === "enter" || k.kind === "char") {
       const total = this.script.join("\n").length + 40;
@@ -327,9 +328,9 @@ export class MainMenu implements Screen {
     const by = k.kind === "left" ? -4 : k.kind === "right" ? 4 : k.kind === "up" ? -1 : k.kind === "down" || k.kind === "tab" ? 1 : 0;
     if (by) return this.run("menu.select", { by }, ctx);
     else if (k.kind === "enter") return this.open(ITEMS[this.sel]!, ctx);
-    // Esc is back, as everywhere; the menu is the top, so it stays here and says so. Goodbye is G (or a click
-    // on it). q stays the menu's own letter, the Quay: there's nothing to go back to from here.
-    else if (k.kind === "esc") return shellKey("screen.back", {}, this, ctx);
+    // Esc closes things and never leaves (UI-GRAMMAR, "Esc"); the menu has nothing to close, so it says so. Goodbye is G
+    // (or a click on it). q stays the menu's own letter, the Quay.
+    else if (k.kind === "esc") return nothingToClose(ctx, "G logs off");
     else if (k.kind === "char" && !k.ctrl && k.ch.toUpperCase() === "V") return shellKey("video.cycle", {}, this, ctx);
     else if (ch(k) === "?") return shellKey("screen.help", {}, this, ctx);
     else if (k.kind === "char" && !k.ctrl) {
@@ -441,7 +442,7 @@ const SCREEN_NAMES: Record<string, string[]> = {
   "+": ["new note", "new", "note.new"], M: ["blank", "blank screen", "make a screen"],
 };
 
-/** The shell's actions: the menu's letters, ⏎ and clicks, and q/Esc on every BBS screen, run these, as `act` does. */
+/** The shell's actions: the menu's letters, ⏎ and clicks, and q on every BBS screen, run these, as `act` does. */
 export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
   "changes.extensions": def({
     summary: "whether \"what changed\" (the status bar's +N new, the new scan) includes what extensions wrote (a refreshed Jira ticket, `ext:…`); include=true or false sets it, else it toggles. Off by default. The person's view: an agent's is refused",
@@ -496,7 +497,7 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
     },
   }),
   "screen.back": def({
-    summary: "leave this screen for the one under it (the main menu is the top: there it stays; G logs off)", keys: "q Q, Esc, click on Q back; ⏎ on Who's online and Stats; any key on the help screen (on the main menu, Esc only: q there is the Quay)",
+    summary: "leave this screen for the one under it (the main menu is the top: there it stays; G logs off)", keys: "q Q, click on Q back; ⏎ on Who's online and Stats; any key (Esc too) on the help screen. Never Esc elsewhere: Esc closes the innermost temporary thing and never leaves a screen",
     touches: "screen", replay: "safe", says: out => (out?.from ? { text: `· went back from the ${out.from} to the ${out.to}`, ms: 6000 } : null),
     args: {},
     run(_, { ctx, here }, actor) {
@@ -653,7 +654,7 @@ registerShellKey(shellKey);
 /** Drop to shell by the person's key or click (the menu's `!`, the desk's `^W !`): `screen.shell`. */
 export const dropToShell = (here: Screen, ctx: Ctx) => shellKey("screen.shell", {}, here, ctx);
 
-/** q and Esc on a BBS screen: `screen.back`. */
+/** q on a BBS screen: `screen.back` (Esc never leaves one). */
 const back = (here: Screen, ctx: Ctx) => shellKey("screen.back", {}, here, ctx);
 
 /** `open <id>` on a screen with no readers of its own (the menu, a list): a message reader over it. */
@@ -737,7 +738,7 @@ export const LIST_ACTIONS = actionSet<ListOn>()("list", {
 });
 
 /**
- * A BBS list screen: its rows, the lit one, and what ⏎ on a row opens. Its keys (q Esc back, ⏎ open, the movement
+ * A BBS list screen: its rows, the lit one, and what ⏎ on a row opens. Its keys (q back, ⏎ open, the movement
  * keys select), its clicks and `act` are the list actions, as `you`, through its own dispatcher.
  */
 abstract class BbsList implements Screen {
@@ -766,6 +767,7 @@ abstract class BbsList implements Screen {
       if (!sent) ctx.redraw();
       return;
     }
+    if (k.kind === "esc") return nothingToClose(ctx);
     if (isBack(k)) return back(this, ctx);
     const to = count ? nav(k, count, this.sel, this.page(ctx)) : this.sel;
     if (count && k.kind === "enter") this.press("list.open", {});
@@ -899,10 +901,18 @@ export class MessageReader implements Screen {
       this.ctx.push(over);
       return over.editNew(m);
     }
-    // Only while this reader is still open: esc while the note is read closes it, and nothing opens later.
-    const ctx = this.ctx;
-    return (await this.surface.editNew(m, this.host(ctx), () => !ctx.screens || ctx.screens().includes(this))) ? READER : null;
+    // Only while this reader is still open and the person hasn't cancelled: esc while the note is read cancels the edit
+    // (an edit with nothing typed, as on the desk), nothing opens later, and this reader, there for the new note alone,
+    // goes with it (as `gone` does once the empty note is trashed).
+    const ctx = this.ctx, opening = this.opening = { cancelled: false };
+    try {
+      const ok = await this.surface.editNew(m, this.host(ctx), () => !opening.cancelled && (!ctx.screens || ctx.screens().includes(this)));
+      if (!ok && opening.cancelled && this.list.length === 1 && this.msg.id === m.id && ctx.screens?.().at(-1) === this) ctx.pop();
+      return ok ? READER : null;
+    } finally { if (this.opening === opening) this.opening = null; }
   }
+  /** The new note's edit being opened (editNew), until it opens or esc cancels it. */
+  private opening: { cancelled: boolean } | null = null;
   /** What the person is in here, for a refusal: "an edit", "a comment", "the property panel". */
   personIn(): string { const w = this.surface.sessionWord() ?? "property panel"; return w === "property panel" ? "the property panel" : `${w === "edit" ? "an" : "a"} ${w}`; }
 
@@ -1016,13 +1026,14 @@ export class MessageReader implements Screen {
     if (k.kind === "mouse") return this.mouse(k, ctx, host);
     // An edit, a comment or the property panel takes every key, q and esc included, until it closes.
     if (this.surface.holdsKeys || this.surface.choosing) { this.surface.key(k, host); return; }
+    if (k.kind === "esc" && this.opening && !this.opening.cancelled) { this.opening.cancelled = true; ctx.flash("not opened"); return; }
     const c = ch(k);
     // q is always back; the surface has no q. U is the surface's u (up), as the BBS had it.
     if (c === "q" || c === "Q") return back(this, ctx);
     if (this.surface.key(c === "U" ? { kind: "char", ch: "u" } : k, host)) return;
     // What the surface doesn't take: the BBS keys. ⏎ is "next" unless an element is current (the surface's).
     const run = (name: "message.next" | "message.previous" | "message.thread") => { void this.dispatch.press(name); };
-    if (k.kind === "esc") return back(this, ctx);
+    if (k.kind === "esc") return nothingToClose(ctx);
     if (c === "n" || c === "N" || k.kind === "enter" || k.kind === "right") return run("message.next");
     if (c === "p" || c === "P" || k.kind === "left") return run("message.previous");
     if (c === "t" || c === "T") return run("message.thread");
@@ -1248,6 +1259,7 @@ export class ArtViewer implements Screen {
       return this.ptr.mouse(k, { sel: -1, select() {}, send: key => this.key(key, ctx) });
     }
     this.ctx = ctx;
+    if (k.kind === "esc") return nothingToClose(ctx);
     if (isBack(k)) return back(this, ctx);
     const c = ch(k);
     const run = <K extends keyof ArtArgs & string>(name: K, args: ArtArgs[K]) => void this.dispatch.press(name, args);
@@ -1310,7 +1322,8 @@ export class Stats implements Screen {
   }
   key(k: Key, ctx: Ctx) {
     if (k.kind === "mouse") return this.ptr.mouse(k, { sel: -1, select() {}, send: key => this.key(key, ctx) });
-    if (isBack(k) || k.kind === "enter") back(this, ctx);
+    if (k.kind === "esc") nothingToClose(ctx);
+    else if (isBack(k) || k.kind === "enter") back(this, ctx);
   }
 }
 
@@ -1329,7 +1342,7 @@ export class Help implements Screen {
         paint("|08   go to the outline, recorded as you, or as the agent that did them. The other screens only read."),
         paint("|08   Video cycles Kitty+CRT → Kitty → plain cells (|15alt+v|08 anywhere). Art and stats are pixels; every word is real terminal text."),
         paint("|08   |15alt+t|08 steps the theme: calm → night → classic (also a click on its name on the status bar). Art stays VGA."),
-        paint("|08   |15q|08 or |15Esc|08 goes back on every screen. The menu is the top: there |15q|08 is the Quay, |15Esc|08 stays, and only |15G|08 logs off."),
+        paint("|08   |15q|08 goes back on every screen; |15Esc|08 only closes what popped up (a menu, a picker, a box, a drawer) and never leaves. The menu is the top: there |15q|08 is the Quay and only |15G|08 logs off."),
       ],
     };
   }

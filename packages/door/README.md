@@ -10,8 +10,10 @@ the logon (`SHY-LOGI.ANS`), the main menu (`SHY-EMNU.ANS`, whose twelve "Menu Cm
 slots now hold live commands), and the bulletin (`SHY-EPO!.ANS`).
 
 **Getting around.** The menu's letters (or a click on an item) open its screens over it. `q` is back on every
-screen, and so is `Esc` once nothing on the screen is selected or open (a drawer, a link, a detail). The menu
-is the top, with nothing under it: there `q` is the Quay, as it always was, and `Esc` stays put and says so.
+screen. `Esc` closes what popped up, the innermost first (a picker or the tile menu, the keys box, a `^W` chord, link
+mode, a filter, a drawer or the dock, a zoom, a float's keys, an empty edit, a selection), and never leaves a
+screen: with nothing left it stays and says `nothing to close · q leaves`. The menu is the top, with nothing under
+it: there `q` is the Quay, as it always was, and `Esc` says `G` logs off.
 Only `G` (or a click on Goodbye) logs off, and at the logon `Q` hangs up. An agent gets around the same way, with
 `screen.open`, `screen.back` and, on a list, `list.select`, `list.open`, `list.read` (see
 [Letting an agent see what you see](#letting-an-agent-see-what-you-see-and-do-what-you-do)).
@@ -154,10 +156,11 @@ Bare `ep0ch` where nothing names an outline opens the home base: a screen like a
 | `x` on a machine | | `home.forget machine=` |
 | `r` | | `home.reload` |
 | `⏎` on an offer (an outline the machine lacks) | a click on it | `home.open outline=` (the one here), `home.new name= machine=` (create it there), `home.cancel` |
-| `q`, `esc` | the hint row's `q` | quits: nothing is opened |
+| `q` | the hint row's `q` | quits: nothing is opened |
+| `esc` | | closes a picker over it; with none, stays (`nothing to close · q leaves`) |
 
 What a choice needs typed or picked (a name, a file, a machine, whether to write `.ep0ch`) is a list picker over
-the screen; ⏎ or a click on its row does it, `esc` goes back. The home base runs before any door session, and
+the screen; ⏎ or a click on its row does it, `esc` closes it. The home base runs before any door session, and
 bare `ep0ch` in a folder that names no outline opens it even when exactly one session runs: which outline is never a
 silent guess (the root `AGENTS.md`, "Outlines by name"). The outlines with a running session are marked there, and
 choosing one attaches to it; `ep0ch session attach` names the only running session outright. Opened by name on a door that is on an outline, it shows what it
@@ -257,7 +260,8 @@ door's own `EP0CH_STATE` and `EP0CH_CONTROL` there too, so nothing reaches a rea
   is the outliner's server on the showcase's state; a pidfile left by a crash or a reboot is dropped, and
   whatever process has that pid now is left alone. `--prepare` sets it up (or resets it) and exits without opening the door.
 - **The screen** lists the sections on the left: `↑↓` `j k` `1-9 0` (the first ten) or a click picks one; `⏎`, `→`, `Tab`
-  or a click in it hands the part your keys and mouse; `Esc` backs out through the part to the list. Each
+  or a click in it hands the part your keys and mouse; `Esc` closes what's open in the part, one thing at a time, and
+  with nothing left there hands your keys back to the list (`section.leave`; the `esc` section shows the rule). Each
   section names the part and its files and is drawn by the part itself, on a desk of its own spec (the layout
   tree, nothing saved to your `desk.json`) or the real board. A parallel version still in the code that
   can't be framed alone is named on the section's third line.
@@ -733,7 +737,8 @@ split, tab, drag, link and save, drawn by the door itself, so no multiplexer is 
 | in a terminal tile: `shift+⏎` | a newline in Claude Code and most line editors: `CSI 13;2u` to a program that asked for the Kitty keyboard protocol (Claude Code does), `ESC CR` (as `alt+⏎`) to one that didn't; plain `⏎` is always `CR`. The door reads Shift only from a terminal with that protocol: it asks for it at start (Ghostty, kitty, WezTerm, foot have it; so does Herdr 0.9 for its panes, over ssh too) and gives it back on exit, `$EDITOR` and drop to shell. `EP0CH_KEYBOARD=legacy` doesn't ask. Elsewhere `shift+⏎` is `⏎`; in a draft it's a plain line break, as `alt+⏎` |
 | `ctrl+e` in a reader | edit the note in `$EDITOR` in a terminal tile beside it; the draft comes back when it exits |
 | `/` | floating search with preview |
-| `q` / `Esc` | back to the menu; programs running in tiles keep running, and `D` brings the same desk back |
+| `q` | back to the menu; programs running in tiles keep running, and `D` brings the same desk back |
+| `Esc` | closes the innermost thing (a picker, the tile menu, a chord, link mode, a drawer, a zoom, a float's keys); never leaves the desk: with nothing left it says `nothing to close · q leaves` |
 
 **Layouts** are screens saved by name: `^W w` (`act screen.save name=…`) writes the screen as a screen note in the
 outline ([Screens you make](#screens-you-make)), and `^W r`, `alt+d` for `daily`, or `act layout.load name=…` lays the
@@ -795,7 +800,7 @@ the drawer; a terminal you made yourself stays yours.
 
 | When | Programs in terminal tiles |
 |---|---|
-| `q`, `Esc`, going to the menu | keep running: the desk stays alive in the background, and `D` on the menu brings it back as it was |
+| `q`, going to the menu | keep running: the desk stays alive in the background, and `D` on the menu brings it back as it was |
 | `!` / `^W !`, drop to shell | keep running while your shell has the terminal (the door keeps reading them and answering its control socket; it paints nothing) |
 | `^W x` on a running program's tile | asks first; again within 3s closes the tile and ends the program |
 | the program exits while you're in its tile | the tile keeps your keys: `⏎` runs it again, `^W x` closes it (at once: nothing runs), `ctrl+]` goes back to the door (in the dock, `Esc` too), other keys wait. A docked tab closes by its `×` too |
@@ -1357,7 +1362,7 @@ the same note surface under the BBS header (`Date`, `To` from `to::` or `ALL`, `
 replies, `Subj`, `Conf` its crumbs, `Stat` with the property count and open comments). Everything in this
 section and the next ones works there, by keys, mouse and `act`. It keeps its own keys where the surface
 has none: `n` `→` next, `p` `←` previous, `t` the replies as a list, `q` back; `⏎` is next unless an
-element is current, and `esc` lets go of the element or selection first, then goes back. A followed link
+element is current, and `esc` lets go of the element or selection; it never leaves the reader (`q` does). A followed link
 (or `u`/`U` up) opens as the next message reader on the screen stack, so `q` comes back.
 
 - **Summary line.** Keys come from, in order: the saved view the note is shown from (a board lane's

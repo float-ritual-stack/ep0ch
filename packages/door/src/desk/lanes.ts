@@ -218,9 +218,9 @@ export class Lanes implements SourceModel {
         : `|12 can't drop into ${over.name}: ${p.reason}`;
       return paint(say);
     }
-    if (this.mover) return paint("|08 |15j k|08 pick a lane · |15enter|08 move the card there · |15esc|08 back · the second line says what would be patched");
+    if (this.mover) return paint("|08 |15j k|08 pick a lane · |15enter|08 move the card there · |15esc|08 closes · the second line says what would be patched");
     if (this.composer) return fg(C.dark) + " " + editHint(this.composer.session.draft, { save: "save", close: "back" }).replace("ctrl+s save", "ctrl+s create") + RESET;
-    if (this.steps) return paint("|08 |15j k|08 step · |15space|08 done/to do · |15x|08 done · |15w|08 waiting · |15!|08 problem · |15esc|08 back · each change is checked against the step as it was read");
+    if (this.steps) return paint("|08 |15j k|08 step · |15space|08 done/to do · |15x|08 done · |15w|08 waiting · |15!|08 problem · |15esc|08 closes · each change is checked against the step as it was read");
     return null;
   }
 
@@ -500,11 +500,15 @@ export class Lanes implements SourceModel {
     return { hub: hub.id, title: subject(hub), lanes: this.lanes.map(l => l.name) };
   }
 
-  /** The picker put away (esc, q): the board as it was, or with no board yet, back to the menu. */
+  /**
+   * The picker put away (esc, q, a click outside): the board as it was. With no board yet the screen stays, empty, and
+   * says how to go on: Esc closes and never leaves a screen (UI-GRAMMAR, "Esc"); q then leaves it.
+   */
   closePicker() {
     if (!this.hubPicker) return { picker: false };
-    if (!this.hub) { this.host.leave(); return { left: true }; }
-    this.hubPicker = null; this.host.redraw();
+    this.hubPicker = null;
+    if (!this.hub) this.status = "no board shown · g picks one · q leaves";
+    this.host.redraw();
     return { picker: false };
   }
 
@@ -527,7 +531,7 @@ export class Lanes implements SourceModel {
       choose: it => void this.run("board.hub", { id: it.hub.id }),
       closed: () => void this.run("board.hub", { close: true }),
       clicked: () => true,                                     // a click beside it isn't a choice, nor a way out
-      frame: (a, n) => ({ rect: { col: Math.round(a.cols * 0.2), row: Math.round(a.rows * 0.15), cols: Math.round(a.cols * 0.6), rows: Math.min(a.rows - 4, n + 4) }, title: `pick a board · ${this.host.ctx.workspace}`, foot: "⏎ open · esc back" }),
+      frame: (a, n) => ({ rect: { col: Math.round(a.cols * 0.2), row: Math.round(a.rows * 0.15), cols: Math.round(a.cols * 0.6), rows: Math.min(a.rows - 4, n + 4) }, title: `pick a board · ${this.host.ctx.workspace}`, foot: "⏎ open · esc closes" }),
     });
   }
 
@@ -721,7 +725,7 @@ export class Lanes implements SourceModel {
         if (this.card()?.id !== card.id || this.lane !== from) return this.host.ctx.flash("the selection changed · not moved");
         if (i !== from) void this.run("card.move", { lane: this.lanes[i]!.name, card: card.id });
       },
-      frame: a => ({ rect: { col: Math.round(a.cols * 0.15), row: Math.round(a.rows * 0.12), cols: Math.round(a.cols * 0.7), rows: Math.min(a.rows - 4, this.lanes.length * 2 + 3) }, title: `move · ${ellipsize(subject(card), Math.round(a.cols * 0.7) - 20)}`, foot: "enter move · esc back" }),
+      frame: a => ({ rect: { col: Math.round(a.cols * 0.15), row: Math.round(a.rows * 0.12), cols: Math.round(a.cols * 0.7), rows: Math.min(a.rows - 4, this.lanes.length * 2 + 3) }, title: `move · ${ellipsize(subject(card), Math.round(a.cols * 0.7) - 20)}`, foot: "enter move · esc closes" }),
     }), { card, from, plans: null as MovePlan[] | null });
     M.sel = from;
     this.mover = M;
@@ -1034,7 +1038,7 @@ export class Lanes implements SourceModel {
         const done = S.read?.items.filter(i => i.status === "done").length ?? 0;
         return {
           rect: { col: Math.round(a.cols * 0.2), row: Math.round(a.rows * 0.12), cols: Math.round(a.cols * 0.6), rows: Math.min(a.rows - 4, Math.max(6, n + 4)) },
-          title: `steps · ${titleOf(S.card, 50)}${S.read ? ` · ${done}/${n} done · rev ${S.read.revision}` : ""}`, foot: "space done · esc back",
+          title: `steps · ${titleOf(S.card, 50)}${S.read ? ` · ${done}/${n} done · rev ${S.read.revision}` : ""}`, foot: "space done · esc closes",
           head: S.read ? [] : [fg(C.dark) + " reading the steps…" + RESET],
           tail: S.read ? [fg(S.busy ? C.grey : C.dark) + ` ${S.busy ? "saving…" : S.note || "each step is changed by the service, checked against how it was read"}` + RESET] : [],
         };
@@ -1284,7 +1288,7 @@ export class Lanes implements SourceModel {
     const r: Rect = { col: Math.round(W * 0.18), row: Math.round(H * 0.1), cols: Math.round(W * 0.64), rows: Math.max(10, Math.round(H * 0.6)) };
     canvas.clear(r, bg(C.black));
     const title = C0.kind === "card" ? `new card · ${C0.lane.name}` : `new note under · ${titleOf(C0.parent, 40)}`;
-    canvas.box(r, fg(C.yellow), fg(C.yellow) + title, fg(C.dark) + "ctrl+s create · esc back");
+    canvas.box(r, fg(C.yellow), fg(C.yellow) + title, fg(C.dark) + "ctrl+s create · esc closes");
     const w = r.cols - 2;
     const line = (s: string, color: number) => fg(color) + pad(s, w) + RESET;
     const status = C0.kind === "card" && C0.planning ? [
