@@ -76,8 +76,8 @@ describe("the surface without a service", () => {
     const s = new NoteSurface();
     s.show(note("A\nb"), host());
     const d = s.startDraft({ ...s.msg!, revision: 1, text: "hello" }, host()).draft, c = new Draft("comment", 0, "");
-    expect(editHint(d, { save: "save" })).toBe("ctrl+s save · esc done · ctrl+e $EDITOR · ctrl+t insert · tab indent · shift+tab out · ctrl+p preview");
-    expect(editHint(c, { save: "send", close: "back" })).toBe("ctrl+s send · esc back · ctrl+e $EDITOR · ctrl+t insert · tab indent · shift+tab out · ctrl+p preview");
+    expect(editHint(d, { save: "save" })).toBe("ctrl+s save · esc done · ctrl+x ctrl+e $EDITOR · ctrl+t insert · tab indent · shift+tab out · ctrl+p preview");
+    expect(editHint(c, { save: "send", close: "back" })).toBe("ctrl+s send · esc back · ctrl+x ctrl+e $EDITOR · ctrl+t insert · tab indent · shift+tab out · ctrl+p preview");
     d.key(char("!")); c.key(char("?"));
     for (const h of [editHint(d, { save: "save" }), editHint(c, { save: "send", reload: "find quote", close: "back" })]) expect(h).toContain(" · esc twice puts it aside · ");
     // The reader shows the same hint the edit control makes.

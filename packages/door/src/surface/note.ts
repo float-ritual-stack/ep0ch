@@ -1395,7 +1395,7 @@ export class NoteSurface {
       completer: this.completer(s.draft, host),
       run: cmd => {
         if (cmd === "save") void this.runKey("edit.save", {}, host, true);
-        else if (cmd === "editor") void this.runKey("edit", { external: true }, host);
+        else if (cmd === "editor") void this.runKey("edit.external", {}, host);
         else if (cmd === "pick") void this.runKey("draft.pick", {}, host);
         else if (cmd === "reload") void this.runKey("edit.reload", {}, host);
         else if (cmd === "copy") void this.runKey("draft.copy", {}, host);
@@ -1533,7 +1533,7 @@ export class NoteSurface {
     host.redraw();
   }
 
-  /** Ctrl+E: the draft (or a comment being written) goes to $EDITOR and comes back. */
+  /** $EDITOR (ctrl+x ctrl+e in a draft, ctrl+e from a reader): the draft (or a comment being written) goes there and comes back. */
   external(host: SurfaceHost, d: Draft | null = this.draft) {
     if (!d) return;
     void openInEditor(host.ctx, d, () => this.draft === d || this.session?.composer === d).then(() => host.redraw());
@@ -1588,7 +1588,7 @@ export class NoteSurface {
       fetch: id => host.ctx.board.get(id),
       setMsg: m => { if (this.msg?.id === m.id) { this.msg = { ...m, childIds: m.childIds.length ? m.childIds : this.msg.childIds }; this.links = linksOf(this.msg); } },
       reloadComments: async () => { await this.loadComments(host); return this.comments ?? []; },
-      external: d => this.external(host, d),
+      external: () => void this.runKey("edit.external", {}, host),
       pick: () => void this.runKey("draft.pick", {}, host),
       complete: d => this.completer(d, host),
       flash: m => host.ctx.flash(m),
@@ -1777,8 +1777,7 @@ export class NoteSurface {
     if (sessionSend(s, k)) { void this.runKey("comment.send", {}, host, true); return true; }
     // cmd+c in the comment being written copies its selection (the draft's copy, as in an edit).
     if (s.mode === "compose" && s.composer && isCopyKey(k)) { void this.runKey("draft.copy", {}, host); return true; }
-    // The comment's ctrl+e and ctrl+r are the edit's: $EDITOR (edit external=true), find the quote again.
-    if (sessionKey(s, k, "e")) { void this.runKey("edit", { external: true }, host); return true; }
+    // The comment's ctrl+r is the edit's: find the quote again. Its ctrl+x ctrl+e ($EDITOR) is the draft's chord (edit.external).
     if (sessionKey(s, k, "r")) { void this.runKey("comment.reload", {}, host, true); return true; }
     const t = s.mode === "threads" && !s.busy && ch(k) === "x" ? s.threads[s.sel] : undefined;
     if (t) { void this.runKey("resolve", { thread: t.id, ...(t.open ? {} : { open: true }) }, host, true); return true; }
@@ -4246,6 +4245,15 @@ const unsentRow = (label: string, only?: "edit"): MenuEntry<any, On> => ({
   now: on => { const m = on.surface.msg; if (!m) return { hide: true }; const of = unsentView(m.id)?.of ?? m.id; return (only ? unsent(`edit:${of}`) : firstUnsent(on.surface)) ? null : { hide: true }; },
 });
 
+/** The comment or reply being written in this reader, if one is. */
+const writingIn = (surface: NoteSurface): Draft | null => (surface.session?.mode === "compose" ? surface.session.composer : null);
+/** The reader's open edit, or else the comment or reply being written, handed to $EDITOR (it comes back when the editor exits). */
+function handToEditor(surface: NoteSurface, host: SurfaceHost) {
+  if (surface.draft) { surface.external(host); return { id: surface.draft.blockId, baseRevision: surface.draft.base, external: true }; }
+  surface.external(host, writingIn(surface));
+  return { comment: surface.session!.blockId, external: true };
+}
+
 const noteRow = (label: string, key: string, o: { busy?: true; now?: (on: On) => MenuNow<any> | null } = {}): MenuEntry<any, On> => ({
   label, group: "Note", key,
   now: on => (!on.surface.msg ? { hide: true } : o.busy && (on.surface.draft || on.surface.session) ? { refused: "this reader is editing or commenting; close that first" } : o.now?.(on) ?? null),
@@ -4522,17 +4530,14 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "edit": def({
-    summary: "open the note for editing (its whole text, at the revision the service has now); external=true hands it to $EDITOR (ctrl+e, also from an open edit or a comment or reply being written). The person's e arms it first (edit.arm) and ⏎ or e again opens it; a click on an edit control opens it at once", keys: "e then ⏎/e, ctrl+e then ⏎/ctrl+e (e or ctrl+e alone with edit.arm.set on=false)",
+    summary: "open the note for editing (its whole text, at the revision the service has now); external=true opens it in $EDITOR (a reader's ctrl+e; in an open edit, or a comment or reply being written, edit.external, ctrl+x ctrl+e, hands that over). The person's e arms it first (edit.arm) and ⏎ or e again opens it; a click on an edit control opens it at once", keys: "e then ⏎/e, ctrl+e then ⏎/ctrl+e (e or ctrl+e alone with edit.arm.set on=false)",
     touches: "draft", draft: "write", replay: "ask",
     menu: noteRow("edit", "e", { now: ({ surface }) => (surface.draft ? { hide: true } : null) }),
     args: { external: { type: "boolean", optional: true, about: "hand the draft to $EDITOR (the person's keys only)" } },
     async run({ external }, { surface, host }, actor) {
       if (external && actor.kind === "agent") throw new ActionRefused("the $EDITOR handoff takes over the person's terminal; send the text with edit.text");
-      // ctrl+e in an open edit hands that draft to $EDITOR (it comes back when the editor exits).
-      if (surface.draft && external) { surface.external(host); return { id: surface.draft.blockId, baseRevision: surface.draft.base, external: true }; }
-      // ctrl+e while writing a comment or reply hands that text to $EDITOR the same way.
-      const writing = surface.session?.mode === "compose" ? surface.session.composer : null;
-      if (writing && external) { surface.external(host, writing); return { comment: surface.session!.blockId, external: true }; }
+      // Already writing here: that draft, or the comment or reply, goes to $EDITOR (edit.external's).
+      if (external && (surface.draft || writingIn(surface))) return handToEditor(surface, host);
       if (surface.draft) return { already: true, id: surface.draft.blockId, baseRevision: surface.draft.base };
       const { draft: d } = await surface.ensureDraft(host);
       if (external) void openInEditor(host.ctx, d, () => surface.draft === d).then(() => host.redraw());
@@ -4563,6 +4568,18 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       host.ctx.arm({ of: surface, what: title, say: `edit ${short}${external ? " in $EDITOR" : ""}? ⏎ · any other key cancels`, key: external ? { kind: "char", ch: "e", ctrl: true } : { kind: "char", ch: "e" }, ms, run: open });
       host.redraw();
       return { armed: m.id, ms };
+    },
+  }),
+  "edit.external": def({
+    summary: "hand this reader's open edit, or the comment or reply being written, to $EDITOR (VISUAL, else EDITOR): it runs in a terminal tile beside the reader (the person's whole terminal on a screen without tiles), and its text comes back into the draft when it exits. In a draft ctrl+e alone is the line's end, as ctrl+a is its start. The person's only: it takes their terminal",
+    keys: "ctrl+x then ctrl+e",
+    touches: "draft", draft: "type", replay: "ask",
+    person: "the $EDITOR handoff takes over the person's terminal; send the text with edit.text, or draft.patch into theirs",
+    menu: noteRow("edit in $EDITOR", "ctrl+x ctrl+e", { now: ({ surface }) => (surface.draft || writingIn(surface) ? null : { hide: true }) }),
+    args: {},
+    run(_, { surface, host }) {
+      if (!surface.draft && !writingIn(surface)) throw new ActionRefused("nothing is being written in this reader; ctrl+e (edit external=true) opens the note in $EDITOR");
+      return handToEditor(surface, host);
     },
   }),
   "draft.pick": def({

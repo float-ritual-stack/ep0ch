@@ -135,7 +135,7 @@ export interface Ctx {
   /** Which terminal the person is typing on now (a session's client), for a logoff begun there: `logoff(from)` lets go of that one. */
   typingOn?(): unknown;
   /**
-   * Hand the person's terminal to another program for the duration of `run`, then repaint: $EDITOR (ctrl+e), the drop
+   * Hand the person's terminal to another program for the duration of `run`, then repaint: $EDITOR (ctrl+e, ctrl+x ctrl+e), the drop
    * shell (`screen.shell`). `run` starts its program through the Handover it is given (src/drop.ts): in the door's own
    * terminal, or, in a session, the terminal of the client with the person's keys. The door waits with its event loop
    * running (tiles read, the control socket answering); nothing is painted to that terminal meanwhile. `what` is said by `peek`.
@@ -144,7 +144,7 @@ export interface Ctx {
   /** What has the terminal while the door is suspended ("shell", "editor"), or null. */
   suspended?(): string | null;
   /**
-   * Run a program for a moment in a terminal tile beside the note instead of suspending the door (PIE-417): ctrl+e's
+   * Run a program for a moment in a terminal tile beside the note instead of suspending the door (PIE-417): $EDITOR's
    * editor, ctrl+t's picker. True when the screen has tiles and opened one; `done` is called with its exit code when it
    * ends, and the tile closes.
    */

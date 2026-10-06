@@ -56,7 +56,7 @@ outline the draft is in: the door passes `EP0CH_SOCKET` and `EP0CH_WS`.
 ## In the door: ctrl+t
 
 In any draft (an edit, a comment or reply, the board's new card) `ctrl+t`, or a click on `[insert]` in its title
-row, opens `tv ep0ch` where `ctrl+e` opens `$EDITOR`: on the desk and the river, in a terminal tile beside (or below) the
+row, opens `tv ep0ch` where `ctrl+x ctrl+e` opens `$EDITOR`: on the desk and the river, in a terminal tile beside (or below) the
 note, with your keys (the draft stays in view); on a screen without tiles or with a locked shape (the board), over the
 whole terminal. What you choose
 goes in at the cursor, space-separated, and the tile closes. Switch to `ep0ch-files` with tv's `ctrl-t` to put in

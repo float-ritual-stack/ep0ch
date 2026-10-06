@@ -876,7 +876,7 @@ export class Lanes implements SourceModel {
   private composerCommand(cmd: DraftCommand) {
     const C0 = this.composer!, d = C0.session.draft;
     if (cmd === "save") void this.submitComposer();
-    else if (cmd === "editor") void openInEditor(this.host.ctx, d, () => this.composer?.session.draft === d).then(() => this.host.redraw());
+    else if (cmd === "editor") void this.host.pressAction(BOARD_ACTIONS, "composer.external", {});
     else if (cmd === "pick") void this.host.pressAction(BOARD_ACTIONS, "composer.pick", {});
     // cmd+c: the draft's selection to the person's clipboard, through the draft's copy action.
     else if (cmd === "copy") void Dispatcher.of(DRAFT_ACTIONS, d, () => this.host.ctx).press("draft.copy").then(r => { const c = r as { text: string; chars: number } | undefined; if (c && this.host.ctx.copy?.(c.text) !== false) this.host.ctx.flash(`copied ${c.chars} chars`); this.host.redraw(); });
@@ -908,6 +908,16 @@ export class Lanes implements SourceModel {
   }
 
   /** Ctrl+T in the composer: insert from a picker at its cursor (src/pick.ts), as in every draft. */
+  /** ctrl+x ctrl+e in the composer: its text to $EDITOR (the person's terminal: the board's shape is locked), back when it exits. */
+  externalComposer() {
+    const C0 = this.composer;
+    if (!C0) throw new ActionRefused("no new card or note is being written");
+    const d = C0.session.draft;
+    if (d.busy) throw new ActionRefused("the new card is being created");
+    void openInEditor(this.host.ctx, d, () => this.composer?.session.draft === d).then(() => this.host.redraw());
+    return { external: true };
+  }
+
   async pickComposer(channel?: string): Promise<Picked> {
     const C0 = this.composer;
     if (!C0) throw new ActionRefused("no new card or note is being written");
@@ -1445,6 +1455,13 @@ export const BOARD_ACTIONS = actionSet<BoardOn>()("board", {
     run({ channel }, { model }) {
       return lanesOf({ model }).pickComposer(channel);
     },
+  }),
+  "composer.external": def({
+    summary: "hand the new card or note being written to $EDITOR (VISUAL, else EDITOR) in the person's terminal; its text comes back into the composer when it exits. In the composer ctrl+e alone is the line's end. The person's own: it takes their terminal",
+    keys: "ctrl+x then ctrl+e",
+    touches: "draft", draft: "type", replay: "ask", person: "an agent doesn't hand the person's terminal to $EDITOR; card.create and note.create write their own text",
+    args: {},
+    run: (_, { model }) => lanesOf({ model }).externalComposer(),
   }),
   "composer.close": def({
     summary: "close the new card or note being written: unchanged, it goes; typed text needs discard=true, and is put aside as unsent (n or N brings it back). The person's own",
