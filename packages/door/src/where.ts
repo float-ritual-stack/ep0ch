@@ -11,6 +11,7 @@ import { ask } from "./jsonl";
 import { alive } from "./state";
 import { herdrBin, herdrRunner, type HerdrRun } from "./desk/herdr-agent";
 import { appendNest, ELIDED, nestLayers, outerLayers, parseLayer, type Layer } from "./nest";
+import { HOST_AGENT } from "./whereabouts";
 
 /** One layer, checked: `live` true, false (gone), or null (couldn't tell); `why` says what was looked at. */
 export interface WhereLayer { kind: Layer["kind"] | "tile"; label: string; raw: string; live: boolean | null; why: string }
@@ -142,7 +143,8 @@ export async function where(d: WhereDeps): Promise<Where> {
   // A terminal moved into the drawer (PIE-498) keeps the EP0CH_TILE_ID of the screen it started on: found by its program.
   if (!tile && !agentPane && Array.isArray(dv?.tiles)) {
     const t = dv.tiles.find((x: any) => typeof x?.pid === "number" && (ancestors.includes(x.pid) || d.pid === x.pid));
-    if (t) tile = { id: t.id, name: t.name, shown: !!dv.shown && !!t.shown, focused: !!t.focused, terminal: { pid: t.pid }, drawer: true };
+    // The drawer's own tab is the drawer's tile as peek names it (drawer.agent), whatever its desk id.
+    if (t) tile = t.name === HOST_AGENT && drawerTile ? drawerTile : { id: t.id, name: t.name, shown: !!dv.shown && !!t.shown, focused: !!t.focused, terminal: { pid: t.pid }, drawer: true };
   }
   // Only then by its id (else its name): a moved terminal's stale EP0CH_TILE_ID never wins over its pid (the drawer's
   // own program, taken out onto a screen, still says drawer.agent).

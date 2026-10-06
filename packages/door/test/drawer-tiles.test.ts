@@ -295,6 +295,12 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
       d.paint();
       await until(() => shell()?.running === true, "shell runs");
       const pid = shell()!.pid;
+      // A drawer that can't take it (its layout locked): leaving would end it, so it's refused, said.
+      await d.app.drawer.desk!.dispatch.act({ action: "layout.lock", args: { on: true } }, USER);
+      d.app.pop();
+      expect(d.app.screens().at(-1)).toBe(other);
+      expect(d.A.message).toContain("shell couldn't go into your drawer");
+      await d.app.drawer.desk!.dispatch.act({ action: "layout.lock", args: { on: false } }, USER);
       d.app.pop();                                               // no refusal: last callers goes, its shell comes along
       expect(d.app.screens().at(-1)).toBe(d.desk);
       expect(d.inDrawer("shell")).toBe(true);

@@ -682,7 +682,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // that still holds work, go into your drawer (said once, for all of them). A tile its host made (the showcase's
     // exhibits) is the host's, and ends with it.
     const host = this.ctx?.hostLayer, given = new Set(this.given.values());
-    const keep = host ? [...this.panes].filter(([id, p]) => this.holdsWork(p) && (this.movedIn.has(id) || (p instanceof PtyPane && p.running && !given.has(p)))) : [];
+    const keep = host ? this.carried(given) : [];
     if (keep.length) {
       const kept = host!.keep(keep.map(([id, p]) => ({ pane: p, name: this.nameOf(id), spec: this.specOf(id), from: this.title, typing: false })));
       for (const [id, p] of keep) if (kept.includes(p)) this.forgetTile(id, p);
@@ -702,12 +702,22 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /** Its terminal tiles with a program running, or kept for them in a session's terminal host (not drawn since a handoff). */
   private running() { return [...this.panes.values()].filter((p): p is PtyPane => p instanceof PtyPane && (p.running || (!!p.keptAs && ptyBackend().holds(p.keptAs)))); }
   /**
-   * Leaving ends nothing: a screen's running programs go into your drawer as it goes (dispose). Only a door with no
-   * drawer (a test's bare desk) would end them, so there it says so.
+   * What goes into your drawer as this screen goes for good: a program still running in a tile here (or kept for it by
+   * a session's terminal host, not drawn since a handoff), and anything the drawer gave it that still holds work.
+   */
+  private carried(given = new Set(this.given.values())): [number, Pane][] {
+    const running = new Set<Pane>(this.running());
+    return [...this.panes].filter(([id, p]) => (this.movedIn.has(id) && this.holdsWork(p)) || (running.has(p) && !given.has(p)));
+  }
+  /**
+   * Leaving ends nothing: a screen's running programs go into your drawer as it goes (dispose). Where the drawer
+   * can't take them (its layout locked), or there's no drawer (a test's bare desk), leaving would end them: it says so.
    */
   leaveRefusal(): string | null {
-    if (this.ctx?.hostLayer) return null;
-    const r = this.spec.stays ? [] : this.running();
+    const host = this.ctx?.hostLayer;
+    if (this.spec.stays) return null;
+    if (host) return host.keepRefusal(this.carried().map(([id]) => ({ name: this.nameOf(id), spec: this.specOf(id) })));
+    const r = this.running();
     return r.length ? `${r.map(p => p.title()).join(", ")} ${r.length === 1 ? "runs" : "run"} in a tile here, and leaving would end ${r.length === 1 ? "it" : "them"} · ^W x ends ${r.length === 1 ? "it" : "them"} first` : null;
   }
 

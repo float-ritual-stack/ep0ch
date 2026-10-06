@@ -327,8 +327,8 @@ export class AgentDrawer {
   }
   /** The tab the drawer shows now. */
   private shownTabOf(): { name: string; kind: string } | null { const t = this.tabs().find(x => x.shown); return t ? { name: t.name, kind: t.kind } : null; }
-  /** The tile the drawer shows now (^W A brings it to the screen), never the drawer's own tab: else the last put in. */
-  shownTab(): string | null { const t = this.tabs().filter(x => x.name !== DRAWER_TILE_ID); return (t.find(x => x.shown) ?? t.at(-1))?.name ?? null; }
+  /** The tile the drawer shows now (^W A brings it to the screen, its own tab too), else the last put in. */
+  shownTab(): string | null { const t = this.tabs(); return (t.find(x => x.shown) ?? t.at(-1))?.name ?? null; }
 
   // ── the host layer, on the layout engine ──
 
@@ -674,6 +674,13 @@ export class AgentDrawer {
    * Tiles still running on a screen that goes for good: into the drawer, behind the tab shown, nobody's keys moved,
    * each under a name free there; said once. The panes it took (one it couldn't ends with the screen).
    */
+  /** Why tiles like these couldn't go into the drawer now (its layout locked, say), or null: leaving a screen asks first. */
+  keepRefusal(moved: Pick<MovedTile, "name" | "spec">[]): string | null {
+    const d = this.desk;
+    if (!d) return null;
+    for (const m of moved) { const why = d.bringRefusal({ ...m, name: freeName(d, m.name) }, undefined, "tabs", { kind: "agent", id: "door" }); if (why) return `${m.name} couldn't go into your drawer: ${why}`; }
+    return null;
+  }
   keep(moved: MovedTile[]): Pane[] {
     const d = this.desk;
     if (!d) return [];
