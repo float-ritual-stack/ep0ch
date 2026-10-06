@@ -109,7 +109,7 @@ describe.skipIf(!outliner)("the float-hub views", () => {
     await expect(app.act({ action: "waiting.pick", args: {}, as: "test-agent" })).rejects.toThrow(/n or id/);
     // The person edits the note in the reader: an agent's pick would move it out from under them.
     ch("2");
-    ch("e");
+    ch("e"); press({ kind: "enter" });   // e arms the edit, ⏎ opens it (edit.arm)
     await until(() => !!top().readerPanes()[0]?.pane.draft, "the person's edit");
     await expect(app.act({ action: "waiting.pick", args: { n: 2 }, as: "test-agent" })).rejects.toThrow(/the person is typing/);
     press({ kind: "esc" });

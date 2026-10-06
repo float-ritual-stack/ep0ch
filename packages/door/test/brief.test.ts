@@ -130,8 +130,9 @@ describe.skipIf(!outliner)("the brief screen", () => {
     await until(() => brief().msg?.id === notes.b.id && !brief().msg?.partial, "brief B, read");
     await until(() => screen().includes("Jam jars") && screen().includes("Bread tins"), "the checklist over the saved view", 8000);
     const s = screen();
-    expect(s).toContain("─ 1 daily brief · 2026-01-07 ─");
-    expect(s).toMatch(/│Wed 2026-01-07 · 3 of 3 briefs · , earlier · \. later +│\n│Brief B +│/);
+    // The brief has the keys: its frame is the focused tile's, double-lined.
+    expect(s).toContain("═ 1 daily brief · 2026-01-07 ═");
+    expect(s).toMatch(/║Wed 2026-01-07 · 3 of 3 briefs · , earlier · \. later +║\n║Brief B +║/);
     expect(s).not.toContain("needs a ((block-ref))");
     expect(s).toMatch(/PANTRY NOW[^\n]*\n[^\n]*\n[^\n]*┊ 2 [^\n]*\n[^\n]*┊ pantry jobs/);
     expect(app.describe()).toMatchObject({ screen: "daily brief", state: { kind: "brief", brief: { date: "2026-01-07", n: 3, of: 3, id: notes.b.id }, briefs: 3 } });
@@ -157,7 +158,7 @@ describe.skipIf(!outliner)("the brief screen", () => {
     expect(await app.act({ action: "brief.date", args: { date: "2026-01-05" }, as: "test-agent" })).toMatchObject({ id: notes.a.id, n: 1 });
     expect((app as any).message).toContain("an agent (test-agent) showed the brief for 2026-01-05");
     expect(await app.act({ action: "brief.step", args: { by: 1 }, as: "test-agent" })).toMatchObject({ id: notes.c.id });
-    ch("e");
+    ch("e"); press({ kind: "enter" });   // e arms the edit, ⏎ opens it (edit.arm)
     await until(() => !!brief().draft, "the person's edit");
     await expect(app.act({ action: "brief.newest", as: "test-agent" })).rejects.toThrow(/the person is typing/);
     ch(".");                                                                        // typed into the edit, not a step
@@ -198,7 +199,7 @@ describe.skipIf(!outliner)("the brief screen", () => {
     expect(await app.act({ action: "open", args: { id: notes.a.id }, as: "test-agent" })).toMatchObject({ id: notes.a.id, reader: "brief" });
     expect(brief().shown?.id).toBe(notes.a.id);
     expect(await app.act({ action: "brief.show", args: { id: notes.b.id }, as: "test-agent" })).toMatchObject({ id: notes.b.id, tile: "brief" });
-    ch("e");
+    ch("e"); press({ kind: "enter" });   // e arms the edit, ⏎ opens it (edit.arm)
     await until(() => !!brief().draft, "the person's edit");
     await expect(app.act({ action: "open", args: { id: notes.a.id }, as: "test-agent" })).rejects.toThrow(/the person is typing/);
     expect(brief().shown?.id).toBe(notes.b.id);

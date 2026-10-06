@@ -949,7 +949,10 @@ export class MessageReader implements Screen {
       // Addressed with a `to::` property, else to everyone, as a BBS message is.
       paint(`|09  To: |07${pad(m.props.to?.trim() || "ALL", 24)}|09Refer#: |07${m.parentId?.slice(0, 8) ?? "none"}`),
       paint(`|09From: |14${pad(m.author ?? "?", 23)} |09Reply: |07${replies === null ? "…" : replies}`),
-      paint(`|09Subj: |15${subject(m).slice(0, Math.max(1, w - 6))}`),
+      // An edit armed here (e, src/arm.ts): the subject asks in the edit's colour until ⏎ opens it or a key lets it go.
+      this.ctx?.armed?.()?.of === this.surface
+        ? paint(`|09Subj: |14✎ edit? ${subject(m).slice(0, Math.max(1, w - 14))} |06⏎ opens it`)
+        : paint(`|09Subj: |15${subject(m).slice(0, Math.max(1, w - 6))}`),
       paint(`|09Conf: |11${pad(info.crumbs, Math.max(1, w - 6))}`),
       paint(`|09Stat: |13${status.toUpperCase()}${props}${comments}`),
     ].map(l => pad(l, w));

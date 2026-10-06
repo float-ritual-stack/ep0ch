@@ -82,11 +82,13 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
 
   beforeAll(async () => {
     const env = { ...process.env };
-    restore.push(() => { for (const k of ["EP0CH_STATE", "EP0CH_DAILY_AGENT", "VISUAL", "EDITOR"]) { if (env[k] === undefined) delete process.env[k]; else process.env[k] = env[k]; } });
+    restore.push(() => { for (const k of ["EP0CH_STATE", "EP0CH_DAILY_AGENT", "VISUAL", "EDITOR", "EP0CH_EDIT_ARM"]) { if (env[k] === undefined) delete process.env[k]; else process.env[k] = env[k]; } });
     process.env.EP0CH_STATE = join(scratch.root, "door");
     mkdirSync(process.env.EP0CH_STATE, { recursive: true, mode: 0o700 });
     // The daily layout's agent: a program that prints nothing, so no prompt arrives between two looks.
     process.env.EP0CH_DAILY_AGENT = "sleep 3600";
+    // e arms the edit (edit.arm): a window longer than any probe, so an arm never runs out between a key and the next.
+    process.env.EP0CH_EDIT_ARM = "600000";
     // ctrl+e hands the note to $EDITOR: one that exits at once, so the probe goes on.
     process.env.VISUAL = process.env.EDITOR = "true";
     // Over the whole door, as on a screen without tiles, not in a tile beside the note (PIE-417): whether that

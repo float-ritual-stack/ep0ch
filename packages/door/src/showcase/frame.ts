@@ -6,6 +6,7 @@ import type { Ctx, Frame, Screen, Video } from "../app";
 import type { Key, TermInfo } from "../term";
 import { nothingLeft } from "../shell-keys";
 import { NOBODY, screenKeys, within } from "../whereabouts";
+import type { Arm } from "../arm";
 
 export class FramedScreen {
   private stack: Screen[] = [];
@@ -103,6 +104,9 @@ function frameCtx(f: FramedScreen): Ctx {
     suspended: () => o().suspended?.() ?? null,
     inTile: (p, done) => o().inTile?.(p, done) ?? false,
     idleFor: () => o().idleFor?.() ?? Infinity,
+    // An edit armed in the frame is the door's (the shell takes the next key); a door without arming opens at once.
+    get arm() { const c = o(); return c.arm ? (a: Arm) => c.arm!(a) : undefined; },
+    armed: () => o().armed?.() ?? null,
     // Where the person is, as seen from inside the frame: its screen has their focus only while the frame has it.
     person: () => within(o().person?.() ?? NOBODY, f.focused(), screenKeys(f.top)),
   };

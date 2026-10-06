@@ -9,7 +9,7 @@ import type { Canvas, Rect } from "../canvas";
 import { byOf, USER, type Actor, type Change, type OutlineEvent } from "../socket";
 import { ActionRefused, actionSet, def, agentLabel, asActor } from "../surface/actions";
 import { Dispatcher } from "../surface/dispatch";
-import { draftPreview, leaveSaid, sessionStart } from "../surface/note";
+import { armsEdit, draftPreview, leaveSaid, sessionStart } from "../surface/note";
 import { viewSummaryKeys } from "../props";
 import { bg, C, chip, ellipsize, fg, pad, paint, RESET } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
@@ -1179,10 +1179,14 @@ export class Lanes implements SourceModel {
     const pv = this.preview();
     if ((c === "e" || c === "C" || c === "i" || c === "I" || (k.kind === "char" && k.ctrl && k.ch === "e")) && pv?.msg) {
       if (this.host.folded(pv)) { this.host.ctx.flash("the preview is collapsed · tab to its spine and c, or click it, to open it"); return true; }
+      const kind = sessionStart(k)!;
+      // e and ctrl+e arm the edit there (edit.arm): the preview's frame asks, and ⏎ or the key again moves the keys
+      // there and opens it (the desk's startSession focuses it), so a stray e on a lane never opens one.
+      if (armsEdit(kind) && !pv.holdsKeys) { void pv.surface.runKey("edit.arm", kind === "external" ? { external: true } : {}, pv.host(this.host)); return true; }
       // The preview takes the keys, then the session starts there as the person's key would.
       this.host.focusPane?.(pv, USER);
       if (pv.holdsKeys) { this.host.enterSession?.(pv); return true; }
-      this.host.startSession?.(pv, sessionStart(k)!);
+      this.host.startSession?.(pv, kind);
       return true;
     }
     if (c === "H" || c === "L") { const to = this.lanes[this.lane + (c === "H" ? -1 : 1)]; if (to) void this.run("card.move", { lane: to.name }); return true; }

@@ -229,6 +229,8 @@ export function asBoundKey<T>(key: string, f: () => T): T {
   boundKey = was ? `${was}; ${key}` : key;
   try { return f(); } finally { boundKey = was; }
 }
+/** The screen key or click running now (asBoundKey: `click` for a click on a hint's key), or null for a key typed. */
+export const boundNow = (): string | null => boundKey;
 /**
  * Watch every action run, from any set, until the returned function is called. The parity test (PIE-506) uses
  * it to tell a key that ran an action from one that changed the screen by itself.

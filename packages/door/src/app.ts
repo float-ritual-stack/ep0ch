@@ -30,6 +30,7 @@ import type { Desk, MovedTile } from "./desk/desk";
 import type { Pane } from "./desk/panes";
 import type { TileDone, Where } from "./desk/tile-actions";
 import type { HomeChoice } from "./home";
+import { confirms, disarms, type Arm } from "./arm";
 
 /** Changes whose record names the one block they touched (a move or trash carries a subtree). */
 const SCOPED = new Set(["edit", "create", "annotate", "reorder"]);
@@ -168,6 +169,13 @@ export interface Ctx {
   person?(): Whereabouts;
   /** Run an action as the person through the door's own dispatcher (its every screen's: `note.new`, `open`, `edit`); a refusal is said. */
   press?(name: string, args?: Record<string, unknown>): Promise<unknown>;
+  /**
+   * Arm an edit (src/arm.ts, `edit.arm`): the status bar asks, the next key opens it (⏎, or the arming key again) or
+   * lets it go and does what it does; the window running out lets it go. Absent: the edit opens at once.
+   */
+  arm?(a: Arm): void;
+  /** The edit armed now, or null: the screen draws its tile in the edit's colour. */
+  armed?(): Arm | null;
 }
 
 export interface Screen {
@@ -356,7 +364,7 @@ export class App implements Ctx {
    * drawer's desk (a reader in the drawer's edit or comment is theirs as much as a shown one's).
    */
   holders(): Screen[] { return [...this.stack, ...this.background, ...(this.drawer.made ? [this.drawer.made] : [])]; }
-  push(s: Screen) { this.background = this.background.filter(x => x !== s); this.stack.push(s); s.enter?.(this); this.redraw(); this.onStack?.(); }
+  push(s: Screen) { this.disarm(); this.background = this.background.filter(x => x !== s); this.stack.push(s); s.enter?.(this); this.redraw(); this.onStack?.(); }
   /** The screens changed (one opened, left or kept in the background): a session checkpoints them (src/session/restore.ts). */
   onStack: (() => void) | null = null;
   pop() {
@@ -370,6 +378,8 @@ export class App implements Ctx {
   replace(s: Screen) { if (!this.leaving([this.stack.at(-1)])) return; this.leave(); this.push(s); }
   /** The top screen goes: it ends what it started, or keeps running in the background (its programs). */
   private leave() {
+    // An armed edit is the screen's that goes: it goes with it.
+    this.disarm();
     const top = this.stack.pop();
     if (top?.dispose?.() === "keep") { this.background.push(top); this.flash(`${top.leaveWarning?.() ?? top.title} · still running · D on the menu comes back`, 6000); }
   }
@@ -431,6 +441,24 @@ export class App implements Ctx {
   }
   /** A message in the status bar: one line, nothing a terminal acts on (an error can quote a title or an extension's words). */
   flash(msg: string, ms = 4000) { this.message = printable(msg, " "); this.messageUntil = Date.now() + ms; this.flashes++; this.redraw(); }
+
+  // ── an armed edit (src/arm.ts): the next key opens it or lets it go ──
+  private armedNow: { a: Arm; timer: ReturnType<typeof setTimeout> } | null = null;
+  arm(a: Arm) {
+    this.disarm();
+    // The window running out lets it go quietly: its question and its tile's colour go.
+    const timer = setTimeout(() => { if (this.armedNow?.a === a) { this.disarm(); this.redraw(); } }, a.ms);
+    this.armedNow = { a, timer };
+    this.flash(a.say, a.ms);
+  }
+  armed(): Arm | null { return this.armedNow?.a ?? null; }
+  private disarm() {
+    const s = this.armedNow;
+    if (!s) return;
+    clearTimeout(s.timer);
+    this.armedNow = null;
+    if (this.message === printable(s.a.say, " ")) this.message = "";
+  }
   /** Flashes said so far: a key that said nothing and ran nothing is found by it (cmd+c with nothing to copy). */
   private flashes = 0;
 
@@ -583,7 +611,8 @@ export class App implements Ctx {
     return { screen: s?.title, stack: this.stack.map(x => x.title), pid: process.pid, ...(this.term.session ? { session: this.term.session() } : {}), nest: doorNest(process.env) || null, suspended: this.away, video: this.video, host: this.host, workspace: this.workspace,
       ...(this.outline ? { outline: this.outline } : {}), ...(this.machine ? { machine: this.machine } : {}), service, drawer: this.drawer.describe(),
       // Where the person is (PIE-514): the same answer every agent rule reads, so an agent can see why it was refused.
-      person: (({ idle, ...w }) => ({ ...w, idle: Number.isFinite(idle) ? Math.round(idle) : null }))(this.person()), state: s?.describe?.() ?? null };
+      person: (({ idle, ...w }) => ({ ...w, idle: Number.isFinite(idle) ? Math.round(idle) : null }))(this.person()),
+      ...(this.armedNow ? { armed: { edit: this.armedNow.a.what, ms: this.armedNow.a.ms } } : {}), state: s?.describe?.() ?? null };
   }
 
   /**
@@ -676,7 +705,10 @@ export class App implements Ctx {
    */
   person(): Whereabouts {
     const s = this.stack.at(-1);
-    return whereabouts({ screen: s?.title ?? null, keys: s ? screenKeys(s) : null, inHost: this.drawer.shown && this.drawer.entered, hostTile: ((t: string | null) => (!t || t === DRAWER_TILE_ID ? null : `drawer:${t}`))(this.drawer.typingTile()), suspended: this.away, loggedOn: !!s && !s.noDrawer, idle: this.idleFor() });
+    const w = whereabouts({ screen: s?.title ?? null, keys: s ? screenKeys(s) : null, inHost: this.drawer.shown && this.drawer.entered, hostTile: ((t: string | null) => (!t || t === DRAWER_TILE_ID ? null : `drawer:${t}`))(this.drawer.typingTile()), suspended: this.away, loggedOn: !!s && !s.noDrawer, idle: this.idleFor() });
+    // An armed edit holds the next key: the person is mid-gesture.
+    const a = this.armedNow?.a;
+    return a && !w.busy ? { ...w, busy: true, why: `the person is about to edit ${a.what} (e pressed; ⏎ opens it)` } : w;
   }
 
   /**
@@ -723,6 +755,7 @@ export class App implements Ctx {
     if (this.timer) clearInterval(this.timer);
     if (this.paintTimer) clearTimeout(this.paintTimer);
     if (this.publishTimer) clearTimeout(this.publishTimer);
+    this.disarm();
     this.display.dispose();
     this.done();
   }
@@ -744,6 +777,14 @@ export class App implements Ctx {
 
   /** Where a key goes: the status bar's chips, the host layer's drawer, then the top screen. */
   private route(k: Key) {
+    // An armed edit (e in a reader, src/arm.ts) takes the next key first: ⏎ or the arming key again opens it; any
+    // other key (a click too) lets it go, then does what it does, wherever it goes.
+    const armed = this.armedNow?.a;
+    if (armed && disarms(k)) {
+      this.disarm();
+      this.redraw();
+      if (confirms(armed, k)) { armed.run(); return; }
+    }
     // A click on the status bar's `+N ext` shows (or hides) what extensions wrote, as `changes.extensions` does.
     const ext = this.extAt;
     if (ext && k.kind === "mouse" && k.y === ext.row && k.x >= ext.from && k.x < ext.to) {
