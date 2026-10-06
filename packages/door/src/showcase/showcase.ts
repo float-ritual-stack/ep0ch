@@ -88,7 +88,7 @@ function deskOf(st: Stage, show: Shower, readers: [ReaderPane, Msg | undefined][
 
 export const SECTIONS: Section[] = [
   {
-    key: "note", need: "render or read a note", part: "NoteSurface, hosted through SurfaceHost (a ReaderPane; the BBS message reader)", files: "src/surface/note.ts, src/doc.ts, src/literal.ts, src/inline.ts",
+    key: "note", need: "render or read a note", part: "NoteSurface, hosted through SurfaceHost (a ReaderPane; the BBS message reader)", files: "src/surface/note.ts, src/doc.ts, outline-core src/code-ranges.ts, src/inline.ts",
     aside: "the notebook's embeds read quietly: a dim, clickable » source line and a dim bar (src/embeds.ts); only a problem heading stays loud",
     stage(n, show) {
       const r = new ReaderPane();

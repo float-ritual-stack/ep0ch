@@ -3,6 +3,8 @@
 // built-ins plus the types the outline declares with `[callout-type::name]`); the door's reader, completer and
 // type picker, and the outliner's Detail, all resolve a written type through it. Pure: no I/O.
 
+import { closesCodeFence, codeFenceOpen, type CodeFence } from "./code-fence";
+
 /** A callout's colour family. Each client maps it to its own palette (the door's 16 colours, Detail's theme). */
 export type CalloutTone = "blue" | "green" | "violet" | "amber" | "coral" | "neutral";
 export const CALLOUT_TONES: readonly CalloutTone[] = ["blue", "green", "violet", "amber", "coral", "neutral"];
@@ -179,13 +181,13 @@ export function calloutBlocks(lines: readonly string[]): CalloutBlock[] {
   // Which lines are code: a fence opens at the depth its line is quoted to and closes there (or when the quote it's
   // in ends).
   const fenced: boolean[] = [];
-  let fence: { depth: number; mark: string } | null = null;
+  let fence: { depth: number; code: CodeFence } | null = null;
   q.forEach(({ depth, content }, i) => {
     if (fence && depth < fence.depth) fence = null;
-    const m = /^\s{0,3}(`{3,}|~{3,})/.exec(fence ? stripQuotes(lines[i]!, fence.depth) : content);
-    if (fence) { fenced.push(true); if (m && m[1]![0] === fence.mark[0] && m[1]!.length >= fence.mark.length) fence = null; return; }
+    if (fence) { fenced.push(true); if (closesCodeFence(stripQuotes(lines[i]!, fence.depth), fence.code)) fence = null; return; }
     fenced.push(false);
-    if (m) fence = { depth, mark: m[1]! };
+    const code = codeFenceOpen(content);
+    if (code) fence = { depth, code };
   });
   q.forEach(({ depth }, i) => {
     const h = header(i);

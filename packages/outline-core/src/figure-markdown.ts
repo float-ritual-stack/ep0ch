@@ -12,6 +12,8 @@
 // A figure's YAML stays its data form: when both give the same field, the YAML's wins (each kind says which fields
 // its Markdown gives).
 
+import { closesCodeFence, codeFenceOpen } from "./code-fence";
+
 /** How a row is marked: bold (now, chosen, the accent) or italic (next, rejected, receding). */
 export type FigureEmphasis = "strong" | "em" | null;
 
@@ -126,12 +128,13 @@ export function parseFigureMarkdown(lines: readonly string[]): FigureMarkdown {
   const endPara = () => { if (para.length) paragraphs.push(para.join(" ")); para = []; };
   for (let i = 0; i < lines.length; i++) {
     const l = lines[i]!;
-    const fence = /^\s*(`{3,}|~{3,})\s*([\w+-]*)/.exec(l);
+    // A fence may sit under a row at any depth: its lines are read from their first non-blank.
+    const fence = codeFenceOpen(l.trimStart());
     if (fence) {
       endPara();
       const body: string[] = [], open = i;
-      for (i++; i < lines.length && !new RegExp(`^\\s*${fence[1]![0] === "`" ? "`" : "~"}{${fence[1]!.length},}\\s*$`).test(lines[i]!); i++) body.push(lines[i]!);
-      fences.push({ lang: fence[2] ?? "", lines: body, line: open });
+      for (i++; i < lines.length && !closesCodeFence(lines[i]!.trimStart(), fence); i++) body.push(lines[i]!);
+      fences.push({ lang: fence.info.split(/\s+/)[0] ?? "", lines: body, line: open });
       continue;
     }
     const item = ITEM.exec(l);

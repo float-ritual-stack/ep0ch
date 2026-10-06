@@ -4,6 +4,8 @@
 // folds asks this rule, so a section that holds a figure ends where Detail, the door and replaceSection all
 // agree. Pure: no I/O.
 
+import { closesCodeFence, codeBlocks, codeFenceOpen, type CodeFence, type CodeFenceBlock } from "./code-fence";
+
 /**
  * The opening line: `::` and a component name, indented at most three spaces (four is code), with or without
  * arguments (`::links ((id))`).
@@ -15,8 +17,6 @@ export const COMPONENT_CLOSE = /^[ \t]*::[ \t]*$/;
 /** A Markdown heading (`## Rounds`): outside a component's YAML or code fence it ends the component unclosed. */
 const HEADING = /^ {0,3}#{1,6}(?:[ \t]|$)/;
 const YAML_FENCE = /^ {0,3}---[ \t]*$/;
-/** A code fence's opening line: its run of backticks or tildes (an info string after backticks has none). */
-const CODE_FENCE = /^ {0,3}(`{3,}(?!.*`)|~{3,})/;
 
 /**
  * The component block that starts at the beginning of `source`: its name and its raw text through the closing
@@ -31,8 +31,8 @@ export function componentBlockAt(source: string): { name: string; raw: string } 
   if (!open) return null;
   const oneLine = { name: open[1]!, raw: source.slice(0, firstEnd < 0 ? source.length : firstEnd + 1) };
   if (firstEnd < 0) return open[2] ? oneLine : null;
-  // `fence` is "yaml" in the YAML, or a code fence's opening run (```, ~~~~): only that character, as many or more, closes it.
-  let at = firstEnd + 1, fence: string | null = null, yamlSeen = false;
+  // `fence` is "yaml" in the YAML, or the code fence it is in.
+  let at = firstEnd + 1, fence: CodeFence | "yaml" | null = null, yamlSeen = false;
   while (at < source.length) {
     const next = source.indexOf("\n", at);
     const end = next < 0 ? source.length : next;
@@ -40,14 +40,14 @@ export function componentBlockAt(source: string): { name: string; raw: string } 
     // `::` alone closes it anywhere but in a code fence (it isn't YAML); a heading only outside both fences.
     if ((fence === null || fence === "yaml") && COMPONENT_CLOSE.test(line)) return { name: open[1]!, raw: source.slice(0, next < 0 ? end : end + 1) };
     if (fence === "yaml") { if (YAML_FENCE.test(line)) fence = null; }
-    else if (fence !== null) { if (closesFence(line, fence)) fence = null; }
+    else if (fence !== null) { if (closesCodeFence(line, fence)) fence = null; }
     else {
       if (open[2] && !line.trim()) break;
       // A heading, or another component's first line, before a closing `::`: this one is unclosed (and the scan
       // stays linear: each opener reads at most to the next one).
       if (HEADING.test(line) || COMPONENT_OPEN.test(line)) break;
       if (YAML_FENCE.test(line) && !yamlSeen) { fence = "yaml"; yamlSeen = true; }
-      else { const code = CODE_FENCE.exec(line); if (code) fence = code[1]!; }
+      else fence = codeFenceOpen(line);
     }
     at = end + 1;
   }
@@ -66,10 +66,10 @@ export function componentBlocks(lines: readonly string[]): ComponentBlock[] {
   const out: ComponentBlock[] = [];
   const text = lines.join("\n"), offsets: number[] = [];
   for (let i = 0, at = 0; i < lines.length; at += lines[i]!.length + 1, i++) offsets.push(at);
-  let fence: string | null = null;
+  let fence: CodeFence | null = null;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]!.replace(/\r$/, "");
-    if (fence !== null) { if (closesFence(line, fence)) fence = null; continue; }
+    if (fence !== null) { if (closesCodeFence(line, fence)) fence = null; continue; }
     const open = COMPONENT_OPEN.exec(line);
     const block = open && componentBlockAt(text.slice(offsets[i]));
     if (open && block) {
@@ -78,14 +78,25 @@ export function componentBlocks(lines: readonly string[]): ComponentBlock[] {
       i = end;
       continue;
     }
-    const code = CODE_FENCE.exec(line);
-    if (code) fence = code[1]!;
+    fence = codeFenceOpen(line);
   }
   return out;
 }
 
-/** A line that closes the code fence `opened` (CommonMark): the same character, at least as many, then only spaces. */
-function closesFence(line: string, opened: string): boolean {
-  const run = /^ {0,3}(`+|~+)[ \t]*$/.exec(line)?.[1];
-  return !!run && run[0] === opened[0] && run.length >= opened.length;
+/**
+ * Which component block or code fence each line of a note is part of (the line that opened it), or -1 for Markdown
+ * structure. A fence inside a component is the component's question, and a component opener inside a fence is code.
+ */
+export function noteStructure(lines: readonly string[]): number[] {
+  const block = new Array<number>(lines.length).fill(-1);
+  for (const c of componentBlocks(lines)) for (let j = c.start; j <= c.end; j++) block[j] = c.start;
+  for (const f of noteCodeFences(lines)) for (let j = f.start; j <= f.end; j++) block[j] = f.start;
+  return block;
+}
+
+/** The fenced code blocks of a note's lines outside its component blocks (a fence in a component is its question). */
+export function noteCodeFences(lines: readonly string[]): CodeFenceBlock[] {
+  const masked = [...lines];
+  for (const c of componentBlocks(lines)) for (let j = c.start; j <= c.end; j++) masked[j] = "";
+  return codeBlocks(masked).fences;
 }

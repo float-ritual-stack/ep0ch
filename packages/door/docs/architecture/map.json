@@ -51,7 +51,7 @@
     { "id": "A-F10", "line": 187, "title": "Hit-testing, frames and hint rows are per screen", "status": "resolved", "note": "the board and the river are on the one desk host (#125, #126); the art screens keep Pointer (C-F8)", "route": "PIE-492" },
     { "id": "A-F11", "line": 197, "title": "The property-token regex copied 9 times, with a different key rule", "status": "resolved", "by": "#62, outliner #250" },
     { "id": "A-F12", "line": 211, "title": "The door ports the query language and plans moves the service couldn't", "status": "resolved", "by": "#62, outliner #250" },
-    { "id": "A-F13", "line": 223, "title": "Grammar mirrors should be one module the outliner exports", "status": "partial", "by": "#62", "note": "the property grammar, the draft.patch compare and the search matcher are one module in outline-core both sides import; literal regions, inline Markdown, backlinks and folder-to-outline are still mirrors", "route": "service track" },
+    { "id": "A-F13", "line": 223, "title": "Grammar mirrors should be one module the outliner exports", "status": "partial", "by": "#62", "note": "the property grammar, the draft.patch compare and the search matcher are one module in outline-core both sides import; literal regions and code fences moved there too (code-ranges.ts, code-fence.ts); inline Markdown and backlinks are still mirrors", "route": "service track" },
     { "id": "A-F14", "line": 241, "title": "Attention marks are door-local; nvim marks stored by line number", "status": "open", "route": "PIE-423" },
     { "id": "A-F15", "line": 249, "title": "Tile kinds are a closed union in 5 places; the desk dispatches by class", "status": "resolved", "by": "#95, #105", "note": "registerTileKind with actions and press; the desk's leftover instanceof checks are R3-A9", "route": "PIE-493" },
     { "id": "A-F16", "line": 263, "title": "Import direction: the tile layer and the protocol import features", "status": "open", "route": "PIE-493" },
@@ -168,8 +168,8 @@
       "refs": [
         { "r": "outliner", "p": "../outline-core/src/property-grammar.ts", "l": 11, "m": "PROPERTY_KEY_SOURCE = " },
         { "r": "outliner", "p": "../outline-core/src/header-line.ts", "l": 65, "m": "export function headerLine" },
-        { "r": "outliner", "p": "src/properties.ts", "l": 472, "m": "headerLine(text, literalRanges)" },
-        { "r": "outliner", "p": "src/properties.ts", "l": 2, "m": "@ep0ch/outline-core/property-grammar" },
+        { "r": "outliner", "p": "src/properties.ts", "l": 258, "m": "headerLine(text, literalRanges)" },
+        { "r": "outliner", "p": "src/properties.ts", "l": 3, "m": "@ep0ch/outline-core/property-grammar" },
         { "r": "outliner", "p": "src/block-query.ts", "l": 2, "m": "@ep0ch/outline-core/property-grammar" }
       ]
     },
@@ -189,7 +189,7 @@
       "built": "outline-core's block-record.ts is the shape and its one builder; the service builds records from its own reads (blocks.records), backlinks in one pass for the whole request.",
       "refs": [
         { "r": "outliner", "p": "../outline-core/src/block-record.ts", "l": 79, "m": "export function blockRecord" },
-        { "r": "outliner", "p": "src/block-records.ts", "l": 29, "m": "export function readBlockRecords" },
+        { "r": "outliner", "p": "src/block-records.ts", "l": 30, "m": "export function readBlockRecords" },
         { "r": "outliner", "p": "src/server.ts", "l": 1846, "m": "case \"blocks.records\"" }
       ]
     },
@@ -284,10 +284,10 @@
     },
     {
       "id": "door.mirrors", "name": "Grammar mirrors", "group": "door", "chapter": "socket", "ladder": "accidental", "dependsOn": ["door.socketboard"],
-      "does": "Literal regions, inline Markdown and the backlink view, drawn the way the outliner draws them.",
+      "does": "Inline Markdown and the backlink view, drawn the way the outliner draws them. (Literal regions and code fences moved to outline-core's code-ranges.ts and code-fence.ts.)",
       "built": "Ports of the outliner's rules, parity-tested against the checkout.",
       "refs": [
-        { "r": "door", "p": "src/literal.ts", "l": 1, "m": "Literal regions (PIE-422)" },
+        { "r": "door", "p": "../outline-core/src/code-ranges.ts", "l": 1, "m": "Where a note's text is code or literal" },
         { "r": "door", "p": "src/inline.ts", "l": 1, "m": "Inline Markdown in read mode" },
         { "r": "door", "p": "src/backlinks.ts", "l": 166, "m": "export function backlinkView" }
       ],

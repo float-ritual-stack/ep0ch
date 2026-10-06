@@ -4,7 +4,7 @@ import type { DraftPatchSpan } from "@ep0ch/outline-core/draft-patch-compare";
 import { durationMs, DEFAULT_DEADLINE_MS } from "./extension-manifest";
 import { cleanExtensionText, extensionActorId, inertBlockdown } from "./extension-records";
 import type { ExtensionRegistry } from "./extension-registry";
-import { scanPropertyLiteralRanges } from "./properties";
+import { scanPropertyLiteralRanges } from "@ep0ch/outline-core/code-ranges";
 import type { ResourceProjection } from "./resource-projection";
 import type { ResourceExtensionRuntime } from "./resource-extensions";
 import type { AgentRequestRow, OutlinerStore } from "./store";

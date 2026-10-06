@@ -90,17 +90,20 @@ describe.skipIf(!outliner)("the showcase seed", () => {
     expect(garden?.blocks.map(b => b.text.split(" [")[0])).toEqual(expect.arrayContaining(["Water the beans", "Turn the compost", "Net the brassicas"]));
   });
 
-  test("the notebook: callouts, links and soft links, folds, a literal region, a transclusion, properties in every scope", async () => {
+  test("the notebook: callouts, links and soft links, folds, a literal region, a tilde fence, a transclusion, properties in every scope", async () => {
     const t = seeded.notes.notebook.text;
     for (const piece of ["> [!note] Gate code", "> [!warning]- Slugs", `[[${SEED.shed}]]`, `((${seeded.cards[3]!.id}|the kettle job))`, "HOME-001 is the gate latch",
-      "## Beds", "  - runner beans", "<!-- literal -->", "<!-- /literal -->", `!((${seeded.notes.whiteboard.id}))`])
+      "## Beds", "  - runner beans", "<!-- literal -->", "<!-- /literal -->", "~~~text", `!((${seeded.notes.whiteboard.id}))`])
       expect(t).toContain(piece);
     const scope = async (key: string) => (await board.propertyTokens(seeded.notes.notebook.id, key)).tokens.map(x => x.scope);
     expect(await scope("season")).toEqual(["block"]);
     expect(await scope("harvest")).toEqual(["line"]);
     expect(await scope("level")).toEqual(["inline"]);
-    // The literal region's property is text, not a property.
+    // The literal region's and the ~~~ fence's properties are text, not properties.
     expect(await scope("mode")).toEqual([]);
+    // The reader draws the ~~~ fence as code, as the service reads it: its **bold** as typed, in the code box.
+    const drawn = (await drawNote(board, seeded.notes.notebook.id, 120))!.map(plain);
+    expect(drawn.some(l => l.includes("│ **Not bold**, [mode::quiet] and #quiet are code here"))).toBe(true);
     expect((await board.backlinks(seeded.notes.shed.id)).sources.map(b => b.blockId)).toContain(seeded.notes.notebook.id);
     expect((await board.resolvePage(SEED.shed)).status).toBe("resolved");
   });

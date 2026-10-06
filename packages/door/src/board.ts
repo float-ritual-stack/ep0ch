@@ -1,5 +1,5 @@
 // What the door needs from the outline, independent of the wire protocol.
-import { literalLines } from "./literal";
+import { literalLines } from "@ep0ch/outline-core/code-ranges";
 import { printable } from "./text";
 import { withoutPropertyTokens } from "@ep0ch/outline-core/property-grammar";
 import { withoutHeaderDashes } from "@ep0ch/outline-core/header-line";

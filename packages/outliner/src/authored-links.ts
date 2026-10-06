@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { isFragmentId, resolveFragment } from "./fragments";
-import { protectedCodeRanges } from "./markdown-code-ranges";
+import { protectedCodeRanges } from "@ep0ch/outline-core/code-ranges";
 import {
   outlinerReferenceOccurrences,
   rangesOverlap,

@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { requestLines } from "./agent-requests";
-import { protectedCodeRanges } from "./markdown-code-ranges";
+import { protectedCodeRanges } from "@ep0ch/outline-core/code-ranges";
 import { parsePropertyRecords } from "./properties";
 
 /** Metadata changes do not create new prose; authored hashtags still carry meaning. */

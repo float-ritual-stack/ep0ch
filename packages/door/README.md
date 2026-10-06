@@ -1394,8 +1394,9 @@ element is current, and `esc` lets go of the element or selection first, then go
   work as anywhere else. The marker lines aren't drawn (edit mode shows them), and a title skips them, as
   in Detail. An opener without a closer protects nothing, and the reader says so under its header. Where
   a region is follows the service's rules exactly (markers only outside code fences, no nesting, up to
-  three leading spaces): `src/literal.ts` mirrors them, and `test/literal.test.ts` checks it against the
-  service's own parser. The river's cards and the desk's search preview draw regions the same way.
+  three leading spaces): both find regions with outline-core's `code-ranges.ts`, and code fences (``` and
+  ~~~, closed by the same character, at least as many) with its `code-fence.ts`. The river's cards and the
+  desk's search preview draw regions the same way.
 
 ### Folding
 

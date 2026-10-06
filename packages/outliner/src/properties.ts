@@ -1,4 +1,5 @@
-import { protectedCodeRanges } from "./markdown-code-ranges";
+import { codeFenceOpen } from "@ep0ch/outline-core/code-fence";
+import { literalMarkerLineStarts, offsetInRanges, protectedCodeRanges, scanLiteralRegions, scanPropertyLiteralRanges, sourceLines, type SourceLine, type SourceRange } from "@ep0ch/outline-core/code-ranges";
 import { HASHTAG_VALUE_PATTERN, isEscapedAt, PROPERTY_KEY_PATTERN, PROPERTY_KEY_SOURCE, propertyTokenPattern } from "@ep0ch/outline-core/property-grammar";
 import { headerLine } from "@ep0ch/outline-core/header-line";
 import { blockReferenceEnvelopeRanges } from "./reference-envelopes";
@@ -14,22 +15,7 @@ import type {
 const BARE_PROPERTY_PATTERN = new RegExp(String.raw`^([ \t]*)(${PROPERTY_KEY_SOURCE})::[ \t]*`);
 const DIRECTIVE_LINE_PATTERN = new RegExp(String.raw`^([ \t]*)(?:([-*+])[ \t]+)?(${PROPERTY_KEY_SOURCE})::`);
 
-export const PROPERTY_PARSER_VERSION = 5;
-
-export interface SourceRange {
-  start: number;
-  end: number;
-}
-
-interface SourceLine extends SourceRange {
-  contentEnd: number;
-}
-
-interface FenceMarker {
-  delimiter: "`" | "~";
-  length: number;
-  end: number;
-}
+export const PROPERTY_PARSER_VERSION = 6;
 
 interface PropertyMatch {
   match: RegExpExecArray;
@@ -37,202 +23,6 @@ interface PropertyMatch {
 }
 
 type PropertyCandidate = Omit<PropertyRecord, "ordinal" | "scope">;
-
-
-function sourceLines(text: string): SourceLine[] {
-  const lines: SourceLine[] = [];
-  let start = 0;
-  while (start < text.length) {
-    const newline = text.indexOf("\n", start);
-    const end = newline < 0 ? text.length : newline + 1;
-    const contentEnd = newline < 0 ? text.length : newline > start && text[newline - 1] === "\r" ? newline - 1 : newline;
-    lines.push({ start, end, contentEnd });
-    start = end;
-  }
-  if (text.length === 0) lines.push({ start: 0, end: 0, contentEnd: 0 });
-  return lines;
-}
-
-function fenceMarker(text: string, line: SourceLine): FenceMarker | null {
-  let cursor = line.start;
-  while (cursor < line.contentEnd && cursor - line.start < 4 && text[cursor] === " ") cursor += 1;
-  if (cursor - line.start > 3) return null;
-  const delimiter = text[cursor];
-  if (delimiter !== "`" && delimiter !== "~") return null;
-  let end = cursor;
-  while (end < line.contentEnd && text[end] === delimiter) end += 1;
-  const length = end - cursor;
-  return length >= 3 ? { delimiter, length, end } : null;
-}
-
-function isClosingFence(text: string, line: SourceLine, opening: FenceMarker): boolean {
-  const marker = fenceMarker(text, line);
-  if (!marker || marker.delimiter !== opening.delimiter || marker.length < opening.length) return false;
-  let cursor = marker.end;
-  while (cursor < line.contentEnd && (text[cursor] === " " || text[cursor] === "\t")) cursor += 1;
-  return cursor === line.contentEnd;
-}
-
-function fencedRanges(text: string, lines: SourceLine[]): SourceRange[] {
-  const ranges: SourceRange[] = [];
-  for (let index = 0; index < lines.length; index += 1) {
-    const opening = fenceMarker(text, lines[index]);
-    if (!opening) continue;
-    let closingIndex = index + 1;
-    while (closingIndex < lines.length && !isClosingFence(text, lines[closingIndex], opening)) {
-      closingIndex += 1;
-    }
-    const end = closingIndex < lines.length ? lines[closingIndex].end : text.length;
-    ranges.push({ start: lines[index].start, end });
-    index = closingIndex;
-  }
-  return ranges;
-}
-
-function findEqualBacktickRun(text: string, start: number, end: number, length: number): number {
-  let cursor = start;
-  while (cursor < end) {
-    const opener = text.indexOf("`", cursor);
-    if (opener < 0 || opener >= end) return -1;
-    let runEnd = opener + 1;
-    while (runEnd < end && text[runEnd] === "`") runEnd += 1;
-    if (runEnd - opener === length) return opener;
-    cursor = runEnd;
-  }
-  return -1;
-}
-
-function inlineLiteralRanges(text: string, lines: SourceLine[], blockRanges: SourceRange[]): SourceRange[] {
-  const ranges: SourceRange[] = [];
-  let lineIndex = 0;
-
-  function scanRegion(start: number, end: number): void {
-    let cursor = start;
-    while (cursor < end) {
-      const opener = text.indexOf("`", cursor);
-      if (opener < 0 || opener >= end) return;
-      while (lineIndex + 1 < lines.length && lines[lineIndex].end <= opener) lineIndex += 1;
-
-      let openerEnd = opener + 1;
-      while (openerEnd < end && text[openerEnd] === "`") openerEnd += 1;
-      const length = openerEnd - opener;
-      const closing = findEqualBacktickRun(text, openerEnd, end, length);
-      if (closing >= 0) {
-        const rangeEnd = closing + length;
-        ranges.push({ start: opener, end: rangeEnd });
-        cursor = rangeEnd;
-      } else {
-        ranges.push({ start: opener, end: lines[lineIndex].contentEnd });
-        cursor = lines[lineIndex].end;
-      }
-    }
-  }
-
-  let regionStart = 0;
-  for (const range of blockRanges) {
-    scanRegion(regionStart, range.start);
-    regionStart = range.end;
-  }
-  scanRegion(regionStart, text.length);
-  return ranges;
-}
-
-const LITERAL_REGION_OPEN = /^ {0,3}<!--[ \t]*literal[ \t]*-->[ \t]*$/i;
-const LITERAL_REGION_CLOSE = /^ {0,3}<!--[ \t]*\/literal[ \t]*-->[ \t]*$/i;
-
-/** Whether a line, without its line break, has the form of an opening or closing marker. */
-export function isLiteralMarkerLine(line: string): boolean {
-  return LITERAL_REGION_OPEN.test(line) || LITERAL_REGION_CLOSE.test(line);
-}
-
-/** A closed `<!-- literal -->` ... `<!-- /literal -->` region, marker lines included. */
-export interface LiteralRegion {
-  start: number;
-  end: number;
-  /** The opening marker line, excluding its line break. */
-  opener: SourceRange;
-  /** The closing marker line, excluding its line break. */
-  closer: SourceRange;
-}
-
-export interface LiteralRegionScan {
-  regions: LiteralRegion[];
-  /** An opening marker without a closer. It protects nothing; clients warn. */
-  unterminated: SourceRange | null;
-}
-
-function literalRegionsFromLines(text: string, lines: SourceLine[], fences: SourceRange[]): LiteralRegionScan {
-  // Markers are recognised only outside fenced code, so a fence can show the
-  // marker syntax and a fence inside a region hides a closer it contains.
-  const outsideFence = (line: SourceLine) => !offsetInRanges(line.start, fences);
-  const matches = (line: SourceLine, pattern: RegExp) =>
-    outsideFence(line) && pattern.test(text.slice(line.start, line.contentEnd));
-  const regions: LiteralRegion[] = [];
-  for (let index = 0; index < lines.length; index += 1) {
-    const opening = lines[index]!;
-    if (!matches(opening, LITERAL_REGION_OPEN)) continue;
-    let closing = index + 1;
-    while (closing < lines.length && !matches(lines[closing]!, LITERAL_REGION_CLOSE)) closing += 1;
-    if (closing >= lines.length) {
-      return { regions, unterminated: { start: opening.start, end: opening.contentEnd } };
-    }
-    const closer = lines[closing]!;
-    regions.push({
-      start: opening.start,
-      end: closer.end,
-      opener: { start: opening.start, end: opening.contentEnd },
-      closer: { start: closer.start, end: closer.contentEnd },
-    });
-    index = closing;
-  }
-  return { regions, unterminated: null };
-}
-
-/** Literal regions as the save-time parser sees them, for renderers that hide markers. */
-export function scanLiteralRegions(text: string): LiteralRegionScan {
-  const lines = sourceLines(text);
-  return literalRegionsFromLines(text, lines, fencedRanges(text, lines));
-}
-
-/** Start offsets of matched marker lines. An unterminated opener is text, so it is not included. */
-export function literalMarkerLineStarts(text: string): Set<number> {
-  return new Set(scanLiteralRegions(text).regions.flatMap(region => [region.opener.start, region.closer.start]));
-}
-
-/**
- * Matched marker lines with one adjoining line break each, for callers that
- * drop them from single-line summaries. The last line takes its preceding break.
- */
-export function literalMarkerLineRanges(text: string): SourceRange[] {
-  const lines = sourceLines(text);
-  const starts = new Set(literalRegionsFromLines(text, lines, fencedRanges(text, lines)).regions
-    .flatMap(region => [region.opener.start, region.closer.start]));
-  return lines.flatMap((line, index) => {
-    if (!starts.has(line.start)) return [];
-    if (line.end > line.contentEnd || index === 0) return [{ start: line.start, end: line.end }];
-    return [{ start: lines[index - 1]!.contentEnd, end: line.end }];
-  });
-}
-
-function mergeRanges(ranges: SourceRange[]): SourceRange[] {
-  const merged: SourceRange[] = [];
-  for (const range of [...ranges].sort((left, right) => left.start - right.start)) {
-    const last = merged.at(-1);
-    if (last && range.start <= last.end) last.end = Math.max(last.end, range.end);
-    else merged.push({ ...range });
-  }
-  return merged;
-}
-
-export function scanPropertyLiteralRanges(text: string): SourceRange[] {
-  const lines = sourceLines(text);
-  const fences = fencedRanges(text, lines);
-  const { regions } = literalRegionsFromLines(text, lines, fences);
-  // Fences and regions are block-level; inline code never pairs across them.
-  const blockRanges = mergeRanges([...fences, ...regions]);
-  const inlineLiterals = inlineLiteralRanges(text, lines, blockRanges);
-  return mergeRanges([...blockRanges, ...inlineLiterals]);
-}
 
 function containsNonWhitespace(text: string, start: number, end: number): boolean {
   for (let cursor = start; cursor < end; cursor += 1) {
@@ -281,10 +71,6 @@ function lineContainsOnlyProperties(
     cursor = candidate.end;
   }
   return !containsNonWhitespace(text, cursor, line.contentEnd);
-}
-
-function offsetInRanges(offset: number, ranges: readonly SourceRange[]): boolean {
-  return ranges.some((range) => range.start <= offset && offset < range.end);
 }
 
 function parseBarePropertyCandidate(
@@ -716,7 +502,7 @@ export function patchPropertyText(text: string, operations: PropertyPatchOperati
   };
   // A fence or a literal region on the first line would swallow a property
   // appended after it, so the property goes on its own line before it instead.
-  if (fenceMarker(patched, firstLine) || scanLiteralRegions(patched).regions[0]?.start === 0) {
+  if (codeFenceOpen(patched.slice(0, firstLine.contentEnd)) || scanLiteralRegions(patched).regions[0]?.start === 0) {
     return `${appendedText}${lineBreak}${patched}`;
   }
   if (firstNewline < 0) return `${patched}\n${appendedText}`;

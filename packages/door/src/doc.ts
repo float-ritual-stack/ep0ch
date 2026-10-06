@@ -4,7 +4,7 @@
 import { brightness, media, parseMediaLine, sizeText, type Media, type MediaSpec } from "./media";
 import { balanceTags, BOLD, C, extractLinks, fg, type LinkRange, pad, RESET, splitVisible, stripTags, styleMarks, trimTagged, UNBOLD, width as vwidth } from "./style";
 import { colourBody, wrap } from "./text";
-import { componentBlocks } from "@ep0ch/outline-core/component-block";
+import { componentBlocks, noteCodeFences, noteStructure } from "@ep0ch/outline-core/component-block";
 import { figureSource, frame, graphKind, reframeAscii, renderGraph, type FiguresEnv } from "./graphs";
 import { linkBlockAt, renderLinkBlock } from "./links";
 import { EMBED, stripMarks, type LinkTarget } from "./refs";
@@ -150,29 +150,13 @@ const MIN_ITEM_TEXT = 8;
 const TASK_ID = /(^|[ \t])\^[A-Za-z0-9][A-Za-z0-9_-]{0,63}[ \t]*$/gm;
 const indentOf = (l: string) => l.length - l.trimStart().length;
 
-/** Which fence or figure each line of a body is part of (the line that opened it), or -1 for plain structure. */
-export function structureOf(src: readonly string[]): number[] {
-  const block: number[] = [];
-  // A component block (a figure, an inline `::links`) is its question, not structure: outline-core decides where it
-  // ends, as Detail and the service's sections do, so a `::` in a code example inside it doesn't end it.
-  const components = new Map(componentBlocks(src).map(c => [c.start, c.end]));
-  let fence = -1;
-  for (let i = 0; i < src.length; i++) {
-    if (fence >= 0) { block.push(fence); if (/^\s*```/.test(src[i]!)) fence = -1; continue; }
-    const end = components.get(i);
-    if (end !== undefined) { for (let j = i; j <= end; j++) block.push(i); i = end; continue; }
-    if (/^\s*```/.test(src[i]!)) fence = i;
-    block.push(fence);
-  }
-  return block;
-}
 
 /**
  * The media lines of a body (PIE-532), by line: the one scan the reader draws from and the image actions read (not
  * inside a fence or a figure). The first `[layout::hero]` is the header; a later one says it isn't.
  */
 export function mediaLines(src: readonly string[]): Map<number, MediaSpec> {
-  const block = structureOf(src), out = new Map<number, MediaSpec>();
+  const block = noteStructure(src), out = new Map<number, MediaSpec>();
   let hero = false;
   src.forEach((l, i) => {
     const spec = block[i] === -1 ? parseMediaLine(l) : null;
@@ -190,7 +174,7 @@ export function mediaLines(src: readonly string[]): Map<number, MediaSpec> {
  */
 export function foldPoints(body: string, anchors: readonly (string | undefined)[] = []): FoldPoint[] {
   const src = body.split("\n");
-  const block = structureOf(src), images = mediaLines(src);
+  const block = noteStructure(src), images = mediaLines(src);
   const foldable = (i: number) => block[i] === -1 && !images.has(i) && !new RegExp(EMBED.source).test(src[i]!);
   const trim = (from: number, to: number) => { while (to > from && !src[to - 1]!.trim()) to--; return to; };
   const out: FoldPoint[] = [];
@@ -262,6 +246,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
   const at = new Map((env.folds?.points ?? []).map(p => [p.line, p]));
   const callouts = new Map(calloutBlocks(src).map(c => [c.line, c]));
   const componentAt = new Map(componentBlocks(src).map(c => [c.start, c]));
+  const fenceAt = new Map(noteCodeFences(src).map(f => [f.start, f]));
   const lit = (i: number) => !!env.literal?.has(i);
   // Each row comes from the line its construct started on: rows pushed since then are filled in here.
   let from = 0;
@@ -314,13 +299,13 @@ export function renderDoc(body: string, env: DocEnv): Doc {
     }
 
     // Code fence.
-    const fence = line.match(/^\s*```(.*)$/);
+    const fence = fenceAt.get(i);
     if (fence) {
-      const code: string[] = [];
-      for (i++; i < src.length && !/^\s*```/.test(src[i]!); i++) code.push(src[i]!);
+      const code = src.slice(i + 1, fence.closed ? fence.end : fence.end + 1);
+      i = fence.end;
       const figure = reframeAscii(code, W);
       if (figure) { out.push(...figure); continue; }
-      if (fence[1]) out.push(fg(C.dark) + `╭ ${fence[1].trim()}` + RESET);
+      if (fence.fence.info) out.push(fg(C.dark) + `╭ ${fence.fence.info}` + RESET);
       for (const c of code) for (const piece of chunk(c, W - 2)) out.push(fg(C.blue) + "│ " + fg(C.lcyan) + piece + RESET);
       continue;
     }

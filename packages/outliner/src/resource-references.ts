@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
-import { parsePropertyDirectiveLines, parsePropertyRecords, scanPropertyLiteralRanges } from "./properties";
+import { parsePropertyDirectiveLines, parsePropertyRecords } from "./properties";
+import { scanPropertyLiteralRanges } from "@ep0ch/outline-core/code-ranges";
 import type { ResourceSource } from "./resources";
 
 export type AuthoredResourceReference =

@@ -10,7 +10,7 @@ import type { StepRef } from "./steps";
 import type { FigureControl } from "./graphs";
 import type { ImageControl } from "./doc";
 import { isOutlineNote, type AuthoredLinksSnapshot, type AuthoredResourceLink } from "./authored";
-import { componentBlocks } from "@ep0ch/outline-core/component-block";
+import { noteStructure } from "@ep0ch/outline-core/component-block";
 
 /** The service's exact reference: `((id))`, `((id^fragment))`, `((id|label))`, `((id^fragment|label))`. */
 export const REF = /\(\(([A-Za-z0-9_-]{8,})(?:\^([A-Za-z0-9][A-Za-z0-9_-]{0,63}))?(?:\|((?:(?!\)\))[^\r\n])+))?\)\)/g;
@@ -235,17 +235,14 @@ export function pageView(address: string, label: string | undefined, r: PageReso
 export function presentLinks(text: string, embeds: boolean, src: Source | null | undefined, noteText = text, sink?: LinkTarget[], resources: readonly ResourceToken[] = []): string {
   // `noteText`: the whole note `text` was cut from, so it shares that note's one references answer.
   const resolved = referencesIn(noteText, src) ?? new Map<string, ReferenceResolution>();
-  let fenced = false;
   // Fence lines and the code between them are left as typed, links and Markdown alike. So is a component block
   // (a live figure, an inline `::links`, from its first line to its `::` as outline-core finds it): its YAML is its
   // question, and a `view: ((id))` or `of: ((id))` in it must still name the id when it's read (src/live.ts,
   // src/links.ts); drawn as a link, the id would be gone.
   const fencedAt: boolean[] = [];
-  const lines = text.split("\n"), typed = new Set<number>();
-  for (const c of componentBlocks(lines)) for (let j = c.start; j <= c.end; j++) typed.add(j);
+  const lines = text.split("\n"), typed = noteStructure(lines);
   return lines.map((line, i) => {
-    if (!fenced && typed.has(i)) { fencedAt.push(true); return line; }
-    if (/^\s*```/.test(line)) { fenced = !fenced; fencedAt.push(true); return line; }
+    const fenced = typed[i]! >= 0;
     fencedAt.push(fenced);
     if (fenced) return line;
     return line.split(/(`[^`]*`)/).map((part, i) => {
