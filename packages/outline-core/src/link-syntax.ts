@@ -60,7 +60,9 @@ export function blockReferenceOccurrences(text: string): BlockReferenceOccurrenc
 /**
  * The block `input` names, when it is a block id or one block reference written whole (`((id))`, `((id^fragment))`,
  * `((id|label))`, blanks around it ignored), or null: what a value, a field or an argument naming a block unwraps
- * with, by the same scan that finds references in a note.
+ * with, by the same scan that finds references in a note, so an id's first 8+ characters work as they do there.
+ * An exact address (a URI, an MCP argument, a stored reference) that must be a full UUID is addressable-resource.ts's
+ * `parseBlockRef`, which refuses anything else.
  */
 export function referencedBlock(input: string): { blockId: string; fragment?: string } | null {
   const text = input.trim();
