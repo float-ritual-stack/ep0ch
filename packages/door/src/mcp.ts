@@ -1,22 +1,24 @@
 // A read-only MCP server for ep0ch:// block resources: one implementation, two transports. `ep0ch mcp` serves it
 // over stdio, bound to the outline this process can already open; `ep0ch mcp serve --http` (src/mcp-gateway.ts)
-// serves it over streamable HTTP behind OAuth, for this machine's outlines. Both answer through `responseFor` with
-// an `McpOutlines` saying which outlines they read; neither ever writes, and each outline's own access setting gates
-// every read.
+// serves it over streamable HTTP behind OAuth, for this machine's outlines and read-only mirrors of other machines'
+// (src/mcp-mirror.ts). Both answer through `responseFor`
+// with an `McpOutlines` saying which outlines they read; neither ever writes, each outline's own access setting gates
+// every read, and every answer says where it came from (`source`: live or mirror, and `asOf`).
 import { createInterface } from "node:readline";
 import { boardFor, canonicalLocalMachineName, everyNote, type Found, type NotesBoard } from "./notes-cli";
-import { OUTLINE_NAME, previewTitle, type McpReachability } from "./socket";
+import { OUTLINE_NAME, previewTitle, type McpReachability, type McpSource } from "./socket";
 import { MCP_ACCESS_LEVELS, type McpAccessLevel, type McpAccessStatus } from "@ep0ch/outline-core/protocol";
 import type { BlockRecord } from "@ep0ch/outline-core/block-record";
 import { formatEp0chBlockUri, namesOutline, parseAddressedBlock, sameMachine } from "@ep0ch/outline-core/addressable-resource";
 
 export const MCP_USAGE = `  ep0ch mcp [--ws <name>] [--machine <ssh-name>]
                                    read-only local MCP server for ep0ch:// block resources after \`ep0ch mcp access read\`:
-                                   tools outline_read, outline_find, outline_links; resources/read with envelope
+                                   tools list_outlines, outline_read, outline_find, outline_links; resources/read with envelope
   ep0ch mcp serve --http [--port <n>] [--bind <address>] [--ws <default outline>]
                                    the same server over streamable HTTP for remote clients (claude.ai), an OAuth resource
-                                   server for this machine's outlines; needs EP0CH_MCP_RESOURCE, CLERK_PUBLISHABLE_KEY
-                                   (or EP0CH_MCP_ISSUER) and EP0CH_MCP_ALLOWED_SUBJECTS (unset: refuse and log who asked)
+                                   server for this machine's outlines (and EP0CH_MCP_REMOTE's, live or from a mirror);
+                                   needs EP0CH_MCP_RESOURCE, CLERK_PUBLISHABLE_KEY (or EP0CH_MCP_ISSUER) and
+                                   EP0CH_MCP_ALLOWED_SUBJECTS (unset: refuse and log who asked)
   ep0ch mcp access [none|read|propose|full] [--json] [--ws <name>] [--machine <ssh-name>]
                                    show or set this outline's persisted MCP access grant (stdio and the gateway alike)`;
 
@@ -32,14 +34,40 @@ type Board = NotesBoard;
 export interface NamedOutline { outline: string; machine?: string }
 
 /**
+ * Where an answer came from (socket.ts's McpSource). `live`: the outline's own host, read now. `mirror`: a read-only
+ * copy on the gateway's machine of an outline whose home is another machine; `asOf` is the newest change it holds.
+ */
+export type McpServed = McpSource;
+
+/** A board to read, and where it is served from. */
+export interface McpBoard { board: Board; served: McpServed }
+
+/** Served live, read now. */
+export const servedLive = (now = Date.now()): McpServed => ({ source: "live", asOf: new Date(now).toISOString() });
+
+/** One outline as `list_outlines` shows it: where it lives, how it is served now, and its access setting. */
+export interface McpOutlineListing {
+  outline: string;
+  machine: string;
+  uri: string;
+  /** `unreachable`: a mirror this server was told of that has no copy here yet. */
+  source: McpServed["source"] | "unreachable";
+  asOf?: string;
+  access?: McpAccessLevel;
+  note?: string;
+}
+
+/**
  * Which outlines an MCP server reads. `local`: the stdio server, bound to one board. `remote`: the HTTP gateway, any
- * outline on this machine's host by name. `board` answers the board a URI or a tool's `outline` names (or the
- * default when none is named), or why not, in words the caller can act on.
+ * outline on this machine's host by name, and the mirrors of other machines' outlines it was told of. `board` answers the board
+ * a URI or a tool's `outline` names (or the default when none is named), with where it is served from, or why not, in
+ * words the caller can act on. `list` is every outline it reads, for `list_outlines`.
  */
 export interface McpOutlines {
   kind: "local" | "remote";
   machine: string;
-  board(named?: NamedOutline): Promise<Board | { error: string }>;
+  board(named?: NamedOutline): Promise<McpBoard | { error: string }>;
+  list(): Promise<McpOutlineListing[]>;
   /** The outline a find or bare ref reads when none is named, if this server has one. */
   defaultOutline?: string;
   /** What a caller is told of an unexpected failure (the gateway logs it and says less); else its message. */
@@ -56,9 +84,11 @@ export function boundOutlines(board: Board): McpOutlines {
     machine: bound.machine,
     defaultOutline: bound.outline,
     async board(named) {
-      if (!named) return board;
-      if (namesOutline({ outline: named.outline, machine: named.machine ?? bound.machine }, bound)) return board;
+      if (!named || namesOutline({ outline: named.outline, machine: named.machine ?? bound.machine }, bound)) return { board, served: servedLive() };
       return { error: `${uriOrName(named, bound.machine)} names ${named.outline}@${named.machine ?? bound.machine}; this MCP server is bound to ${bound.outline}@${bound.machine}` };
+    },
+    async list() {
+      return [{ ...bound, uri: `ep0ch://${bound.outline}@${bound.machine}`, ...servedLive(), access: (await board.mcpAccessStatus()).level }];
     },
   };
 }
@@ -99,7 +129,7 @@ function namedOutline(input: unknown): NamedOutline | { error: string } | undefi
 }
 
 /** The board a tool or resource read addresses, and the block in it: a URI names its own outline; a ref, `outline`'s. */
-async function addressedBlock(outlines: McpOutlines, input: unknown, outlineInput?: unknown): Promise<{ board: Board; id: string; uri: string } | { error: string }> {
+async function addressedBlock(outlines: McpOutlines, input: unknown, outlineInput?: unknown): Promise<McpBoard & { id: string; uri: string } | { error: string }> {
   if (typeof input !== "string" || !input.trim()) return { error: "Give ref or uri as a block id, ((id)) or ep0ch:// outline URI." };
   let named: NamedOutline | undefined, id: string;
   try {
@@ -114,9 +144,9 @@ async function addressedBlock(outlines: McpOutlines, input: unknown, outlineInpu
     id = parsed.blockId;
   } catch (e) { return { error: (e as Error).message }; }
   if (!named && !outlines.defaultOutline) return { error: `Name the outline: pass outline (an outline on ${outlines.machine}), or give an ep0ch:// URI.` };
-  const board = await outlines.board(named);
-  if ("error" in board) return board;
-  return { board, id, uri: blockUri(board, id) };
+  const served = await outlines.board(named);
+  if ("error" in served) return served;
+  return { ...served, id, uri: blockUri(served.board, id) };
 }
 
 
@@ -124,22 +154,28 @@ const grantCommand = (board: Board) => {
   const machine = sameMachine(board.address.machine, canonicalLocalMachineName()) ? "" : ` --machine ${board.address.machine}`;
   return `ep0ch mcp access read --ws ${board.address.outline}${machine}`;
 };
-const accessRefusal = (outlines: McpOutlines, board: Board, level: McpAccessLevel) => outlines.kind === "local"
+const accessRefusal = (outlines: McpOutlines, { board, served }: McpBoard, level: McpAccessLevel) => outlines.kind === "local"
   ? `local MCP access is ${level} for ${board.address.outline}; run \`${grantCommand(board)}\` to grant read-only local MCP access for this outline.`
-  : `MCP access is ${level} for ${board.address.outline}@${board.address.machine}; its owner runs \`${grantCommand(board)}\` on ${board.address.machine} to let MCP clients read it.`;
+  // Run on the outline's own machine, so the command names no machine; a mirror carries the setting with its next change.
+  : `MCP access is ${level} for ${board.address.outline}@${board.address.machine}${served.source === "mirror" ? ` (as its mirror on ${outlines.machine} carries it, as of ${served.asOf})` : ""}; its owner runs \`ep0ch mcp access read --ws ${board.address.outline}\` on ${board.address.machine} to let MCP clients read it${served.source === "mirror" ? ", and the mirror follows with that change" : ""}.`;
 
-async function requireReadAccess(outlines: McpOutlines, board: Board): Promise<McpAccessStatus | { error: string }> {
-  const status = await board.mcpAccessStatus();
-  if (!status.canRead) return { error: accessRefusal(outlines, board, status.level) };
+async function requireReadAccess(outlines: McpOutlines, target: McpBoard): Promise<McpAccessStatus | { error: string }> {
+  const status = await target.board.mcpAccessStatus();
+  if (!status.canRead) return { error: accessRefusal(outlines, target, status.level) };
   return status;
 }
 
-const reachability = (outlines: McpOutlines, status: McpAccessStatus, id: string, revision: number | undefined): McpReachability => ({
+/** Where an answer came from, in words: nothing for a live outline, as before. */
+const servedWords = (outlines: McpOutlines, { served }: McpBoard) =>
+  served.source === "mirror" ? `, read-only mirror on ${outlines.machine} as of ${served.asOf}${served.note ? `: ${served.note}` : ""}` : "";
+
+const reachability = (outlines: McpOutlines, target: McpBoard, status: McpAccessStatus, id: string, revision: number | undefined): McpReachability => ({
   id,
   status: "reachable",
   level: status.level,
   ...(revision !== undefined ? { revision } : {}),
-  reason: outlines.kind === "local" ? `local MCP access is ${status.level}` : `MCP access is ${status.level} (remote gateway)`,
+  ...target.served,
+  reason: outlines.kind === "local" ? `local MCP access is ${status.level}` : `MCP access is ${status.level} (remote gateway${servedWords(outlines, target)})`,
 });
 
 const envelope = (board: Board, uri: string, access: McpReachability, record: unknown, revision: number | undefined) => ({
@@ -150,20 +186,20 @@ const envelope = (board: Board, uri: string, access: McpReachability, record: un
   record,
 });
 
-async function recordForMcp(outlines: McpOutlines, board: Board, id: string): Promise<{ access: McpReachability; record: BlockRecord } | { error: string }> {
-  const status = await requireReadAccess(outlines, board);
+async function recordForMcp(outlines: McpOutlines, target: McpBoard, id: string): Promise<{ access: McpReachability; record: BlockRecord } | { error: string }> {
+  const status = await requireReadAccess(outlines, target);
   if ("error" in status) return status;
-  const r = await board.records([id]);
+  const r = await target.board.records([id]);
   const record = r.records.find(row => row.id === id);
-  if (!record) return { error: `No block ${id} in ${board.address.outline}; ${r.unavailable[0]?.status ?? "missing"}.` };
-  return { access: reachability(outlines, status, id, record.revision), record };
+  if (!record) return { error: `No block ${id} in ${target.board.address.outline}${target.served.source === "mirror" ? `'s mirror (as of ${target.served.asOf})` : ""}; ${r.unavailable[0]?.status ?? "missing"}.` };
+  return { access: reachability(outlines, target, status, id, record.revision), record };
 }
 
 
 async function readRecord(outlines: McpOutlines, args: Record<string, unknown>): Promise<ToolResult> {
   const target = await addressedBlock(outlines, stringField(args, "uri") ?? stringField(args, "ref"), args.outline);
   if ("error" in target) return toolError(target.error);
-  const read = await recordForMcp(outlines, target.board, target.id);
+  const read = await recordForMcp(outlines, target, target.id);
   if ("error" in read) return toolError(read.error);
   return toolText(envelope(target.board, target.uri, read.access, read.record, read.record.revision));
 }
@@ -172,9 +208,10 @@ async function findBlocks(outlines: McpOutlines, args: Record<string, unknown>):
   const named = namedOutline(args.outline);
   if (named && "error" in named) return toolError(named.error);
   if (!named && !outlines.defaultOutline) return toolError(`Name the outline: pass outline (an outline on ${outlines.machine}).`);
-  const board = await outlines.board(named);
-  if ("error" in board) return toolError(board.error);
-  const status = await requireReadAccess(outlines, board);
+  const target = await outlines.board(named);
+  if ("error" in target) return toolError(target.error);
+  const { board, served } = target;
+  const status = await requireReadAccess(outlines, target);
   if ("error" in status) return toolError(status.error);
   const query = stringField(args, "query")?.trim() ?? "";
   const limit = clampLimit(args.limit, 30, query ? 30 : 100);
@@ -188,14 +225,14 @@ async function findBlocks(outlines: McpOutlines, args: Record<string, unknown>):
     rows = everyNote(await board.index()).slice(0, limit).map(f => ({ ...f, uri: blockUri(board, f.id) }));
     completeness = { kind: rows.length < limit ? "complete" : "limited", limit };
   }
-  return toolText({ outline: board.address.outline, machine: board.address.machine, query, limit, access: { level: status.level }, completeness, ...(semantic ? { semantic } : {}), matches: rows });
+  return toolText({ outline: board.address.outline, machine: board.address.machine, ...served, query, limit, access: { level: status.level }, completeness, ...(semantic ? { semantic } : {}), matches: rows });
 }
 
 async function linkData(outlines: McpOutlines, args: Record<string, unknown>): Promise<ToolResult> {
   const target = await addressedBlock(outlines, stringField(args, "uri") ?? stringField(args, "ref"), args.outline);
   if ("error" in target) return toolError(target.error);
   const board = target.board;
-  const read = await recordForMcp(outlines, board, target.id);
+  const read = await recordForMcp(outlines, target, target.id);
   if ("error" in read) return toolError(read.error);
   const limit = clampLimit(numberField(args, "limit"), 50, 200);
   const backlinks = await board.backlinks(target.id, limit);
@@ -215,7 +252,7 @@ async function linkData(outlines: McpOutlines, args: Record<string, unknown>): P
 async function resourceRead(outlines: McpOutlines, uriValue: unknown): Promise<unknown> {
   const target = await addressedBlock(outlines, uriValue);
   if ("error" in target) throw invalidParams(target.error);
-  const read = await recordForMcp(outlines, target.board, target.id);
+  const read = await recordForMcp(outlines, target, target.id);
   if ("error" in read) throw new RpcError(-32002, read.error);
   return { ...envelope(target.board, target.uri, read.access, read.record, read.record.revision), contents: [{ uri: target.uri, mimeType: "text/markdown", text: read.record.text }] };
 }
@@ -225,12 +262,12 @@ const outlineProperty = (outlines: McpOutlines) => ({
   type: "string",
   description: outlines.defaultOutline
     ? `The outline a ref or search reads: <name> or <name>@${outlines.machine}. Default ${outlines.defaultOutline}. A uri names its own.`
-    : `The outline a ref or search reads: <name> or <name>@${outlines.machine} (this server reads only outlines on ${outlines.machine}). A uri names its own.`,
+    : `The outline a ref or search reads: <name> or <name>@<machine> (list_outlines lists them). A uri names its own.`,
 });
 
 /** The tools, described for the outlines this server reads. */
 function toolsFor(outlines: McpOutlines) {
-  const which = outlines.kind === "local" ? `the bound outline (${outlines.defaultOutline}@${outlines.machine})` : `an outline on ${outlines.machine}`;
+  const which = outlines.kind === "local" ? `the bound outline (${outlines.defaultOutline}@${outlines.machine})` : "an outline this server reads (list_outlines)";
   const grant = outlines.kind === "local" ? "this outline's local MCP access grant" : "the outline's MCP access grant (`ep0ch mcp access read`)";
   const addressSchema = {
     type: "object",
@@ -240,13 +277,18 @@ function toolsFor(outlines: McpOutlines) {
   };
   return [
     {
+      name: "list_outlines",
+      description: "List the outlines this server reads: each one's machine, whether it is served live or from a read-only mirror (and as of when) or unreachable, and its MCP access setting.",
+      inputSchema: { type: "object", properties: {}, additionalProperties: false },
+    },
+    {
       name: "outline_read",
-      description: `Read one block in ${which} as an enveloped block record JSON document. Requires ${grant}. Input: exactly one of uri or ref.`,
+      description: `Read one block in ${which} as an enveloped block record JSON document; its reachability says whether it was read live or from a read-only mirror, and as of when. Requires ${grant}. Input: exactly one of uri or ref.`,
       inputSchema: addressSchema,
     },
     {
       name: "outline_find",
-      description: `Search ${which} with the same ranker as ep0ch find. Requires ${grant}. Empty query lists recent/index rows.`,
+      description: `Search ${which} with the same ranker as ep0ch find; source and asOf say whether it searched the live outline or a read-only mirror. Requires ${grant}. Empty query lists recent/index rows.`,
       inputSchema: { type: "object", properties: { query: { type: "string" }, limit: { type: "number" }, outline: outlineProperty(outlines) }, additionalProperties: false },
     },
     {
@@ -261,6 +303,7 @@ async function callTool(outlines: McpOutlines, paramsValue: unknown): Promise<To
   const params = objectFields(paramsValue);
   if (!params || typeof params.name !== "string") throw invalidParams("tools/call needs a tool name.");
   const args = objectFields(params.arguments) ?? {};
+  if (params.name === "list_outlines") return toolText({ outlines: await outlines.list() });
   if (params.name === "outline_read") return readRecord(outlines, args);
   if (params.name === "outline_find") return findBlocks(outlines, args);
   if (params.name === "outline_links") return linkData(outlines, args);
@@ -281,7 +324,8 @@ function resultFor(outlines: McpOutlines, req: RpcRequest): Promise<unknown> | u
       return { resources: [] };
     case "resources/templates/list": {
       const outline = outlines.kind === "local" ? outlines.defaultOutline! : "{outline}";
-      return { resourceTemplates: [{ uriTemplate: `ep0ch://${outline}@${outlines.machine}/b/{blockId}`, name: "ep0ch block", description: outlines.kind === "local" ? "A block in the bound outline" : `A block in an outline on ${outlines.machine}`, mimeType: "text/markdown" }] };
+      const machine = outlines.kind === "local" ? outlines.machine : "{machine}";
+      return { resourceTemplates: [{ uriTemplate: `ep0ch://${outline}@${machine}/b/{blockId}`, name: "ep0ch block", description: outlines.kind === "local" ? "A block in the bound outline" : "A block in an outline this server reads (list_outlines)", mimeType: "text/markdown" }] };
     }
     case "resources/read": {
       const params = objectFields(req.params);

@@ -243,6 +243,13 @@ function declaredActor(request: OutlinerRequest): MutationProvenance | undefined
   };
 }
 
+/**
+ * What a read-only copy of an outline answers (a mirror of an outline whose home is another machine, served by an
+ * `OutlineHost` with `readOnly`): the reads the MCP server makes. Every other action is refused, so nothing a client
+ * sends can change the copy or start work from it.
+ */
+export const READ_ONLY_ACTIONS: ReadonlySet<string> = new Set(["ping", "blocks.records", "tree.search", "tree.index", "references.backlinks", "mcp.access.status"]);
+
 export class OutlinerServer {
   private inbox: InboxWorker | undefined;
   private readonly inboxRepository: InboxRepository;
@@ -274,6 +281,8 @@ export class OutlinerServer {
   private host: (() => OutlinerHostStatus) | undefined;
   /** This outline's side files (assistant sessions); by default the socket's folder. */
   readonly stateDirectory: string;
+  /** A read-only copy (an `OutlineHost` with `readOnly`): only READ_ONLY_ACTIONS are answered. */
+  readonly readOnly: boolean;
   /** Extension records: one-step fetch on save and open, refresh, poll (src/extension-sync.ts). */
   readonly extensionSync: ExtensionSync;
   /** The extension folders this outline reads, watched (src/extension-registry.ts). */
@@ -290,9 +299,10 @@ export class OutlinerServer {
     readonly socketPath: string,
     readonly herdrRegistry?: HerdrRuntimeRegistry,
     private readonly promptDirectory?: string,
-    options: { stateDirectory?: string; extensionPollMs?: number; agentRequestQuietMs?: number } = {},
+    options: { stateDirectory?: string; extensionPollMs?: number; agentRequestQuietMs?: number; readOnly?: boolean } = {},
   ) {
     this.stateDirectory = options.stateDirectory ?? dirname(socketPath);
+    this.readOnly = options.readOnly === true;
     this.workflows = new WorkflowManager(store);
     this.mentions = new MentionRepository(store,store.workspaceRoot,folder => this.folderOpensThisOutline(folder));
     this.editRecovery = new EditRecoveryRepository(store);
@@ -388,6 +398,8 @@ export class OutlinerServer {
     if (this.running) throw new Error("Outliner service is already started");
     this.store.changes.onBackgroundChanges = changes => this.publishChanges(undefined, changes);
     this.hosted = true;
+    // A read-only copy runs nothing of its own: no agents answer its `@name` lines, and no extension fetches.
+    if (this.readOnly) return;
     // The host opens each outline here, not through start(): requests a restart cut off, and `@name` lines
     // from before agent requests, are seen to the same way, once per outline.
     this.agentRequests.start();
@@ -3187,6 +3199,9 @@ export class OutlinerServer {
       // The host routed this connection by its first line; it stays with that outline.
       if (this.hosted && request.outline !== undefined && request.outline !== this.outline?.name) {
         throw new Error(`This connection serves the outline "${this.outline?.name}"; open a new connection for "${String(request.outline)}"`);
+      }
+      if (this.readOnly && !READ_ONLY_ACTIONS.has(String(request.action))) {
+        throw new Error(`"${this.outline?.name}" here is a read-only copy: ${String(request.action)} isn't served; write to the outline on its own machine`);
       }
       const claimed = claimedExtensionActor(request);
       if (claimed) {
