@@ -80,15 +80,18 @@ export class OutlineMirror {
   /** Whether a copy has arrived (Litestream's follow made the file). */
   exists(): boolean { return existsSync(this.follow); }
 
-  /** The newest copy's board, checked for a newer one at most every CHECK_EVERY_MS; or why there's none. */
+  /**
+   * The newest copy's board, checked for a newer one at most every CHECK_EVERY_MS; or why there's none, worded to
+   * follow "<machine>'s copy" ("hasn't arrived yet", "can't be read: …").
+   */
   async read(): Promise<MirrorRead | { error: string }> {
-    if (this.closed) return { error: "the gateway is stopping" };
-    if (!this.exists()) return { error: `no copy of ${this.outline}@${this.machine} has reached this machine yet (${this.follow} doesn't exist)` };
+    if (this.closed) return { error: "isn't served: the gateway is stopping" };
+    if (!this.exists()) return { error: "hasn't arrived yet (its backup hasn't been followed here)" };
     if (!this.current || this.now() - this.checkedAt >= CHECK_EVERY_MS) {
       this.refreshing ??= this.refresh().finally(() => { this.refreshing = null; });
       await this.refreshing;
     }
-    if (!this.current) return { error: `the copy of ${this.outline}@${this.machine} can't be read: ${this.problem ?? "unknown"}` };
+    if (!this.current) return { error: `can't be read: ${this.problem ?? "unknown"}` };
     return { board: this.current.board, asOf: this.current.asOf };
   }
 

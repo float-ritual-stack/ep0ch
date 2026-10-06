@@ -82,7 +82,8 @@ export function readBlockRecords(source: BlockRecordSource, ids: unknown): Block
         text: (text.slice(item.markerStart + 3).split("\n")[0] ?? "").replace(/[ \t]+\^[0-9A-Za-z_-]+[ \t]*$/, "").trim(),
       })),
       links,
-      backlinks: linking.get(id) ?? [],
+      // A note's own Work ID in its title isn't a link to it.
+      backlinks: (linking.get(id) ?? []).filter(from => from !== id),
       resources,
       truncated,
     }));

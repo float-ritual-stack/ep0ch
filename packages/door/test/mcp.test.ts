@@ -89,8 +89,8 @@ describe.skipIf(!outliner)("ep0ch mcp", () => {
     const find = JSON.parse(tool(response(6)?.result).content[0]!.text) as { matches: { id: string; uri: string }[] };
     expect(find.matches).toContainEqual(expect.objectContaining({ id: privateNote.id, uri: privateNote.uri }));
 
-    const read = JSON.parse(tool(response(7)?.result).content[0]!.text) as { uri: string; outlineInstanceId: string; revision: number; reachability: { status: string; level: string }; record: { id: string; text: string; backlinks: string[]; children: string[] } };
-    expect(read).toMatchObject({ uri: target.uri, outlineInstanceId: expect.any(String), revision: expect.any(Number), reachability: { status: "reachable", level: "read" }, record: { id: target.id, text: expect.stringContaining("Ready for local tools") } });
+    const read = JSON.parse(tool(response(7)?.result).content[0]!.text) as { uri: string; outlineInstanceId: string; revision: number; reachability: { status: string; level: string }; record: { id: string; body: string; backlinks: string[]; children: string[] } };
+    expect(read).toMatchObject({ uri: target.uri, outlineInstanceId: expect.any(String), revision: expect.any(Number), reachability: { status: "reachable", level: "read" }, record: { id: target.id, body: expect.stringContaining("Ready for local tools") } });
     expect(read.record.backlinks).toContain(source.id);
     expect(read.record.children).toContain(hiddenChild.id);
 
@@ -98,8 +98,8 @@ describe.skipIf(!outliner)("ep0ch mcp", () => {
     expect(links.reachability).toMatchObject({ status: "reachable", level: "read" });
     expect(links.backlinks.map(b => b.blockId)).toContain(source.id);
 
-    const resource = fields(response(9)?.result) as { uri: string; outlineInstanceId: string; revision: number; reachability: { status: string; level: string }; record: { id: string; text: string }; contents: { uri: string; text: string }[] };
-    expect(resource).toMatchObject({ uri: privateNote.uri, outlineInstanceId: expect.any(String), revision: expect.any(Number), reachability: { status: "reachable", level: "read" }, record: { id: privateNote.id, text: expect.stringContaining("Private seed") }, contents: [{ uri: privateNote.uri, text: expect.stringContaining("Private seed") }] });
+    const resource = fields(response(9)?.result) as { uri: string; outlineInstanceId: string; revision: number; reachability: { status: string; level: string }; record: { id: string; body: string }; contents: { uri: string; text: string }[] };
+    expect(resource).toMatchObject({ uri: privateNote.uri, outlineInstanceId: expect.any(String), revision: expect.any(Number), reachability: { status: "reachable", level: "read" }, record: { id: privateNote.id, body: expect.stringContaining("Private seed") }, contents: [{ uri: privateNote.uri, text: expect.stringContaining("Private seed") }] });
 
     const wrongOutline = tool(response(10)?.result);
     expect(wrongOutline.isError).toBe(true);

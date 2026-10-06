@@ -179,13 +179,43 @@ describe.skipIf(!outliner)("ep0ch mcp serve --http", () => {
   test("an allowed token on an outline granted read reads it, by URI and by outline name", async () => {
     const read = await tool("outline_read", { uri: note.uri });
     expect(read.isError).toBe(false);
-    expect(JSON.parse(read.text)).toMatchObject({ uri: note.uri, reachability: { status: "reachable", level: "read", reason: "MCP access is read (remote gateway)" }, record: { id: note.id, text: expect.stringContaining("brass lanterns") } });
+    expect(JSON.parse(read.text)).toMatchObject({ uri: note.uri, reachability: { status: "reachable", level: "read", reason: "MCP access is read (remote gateway)" }, record: { id: note.id, body: expect.stringContaining("brass lanterns") } });
     const found = JSON.parse((await tool("outline_find", { query: "Lantern inventory", outline: scratch.name })).text) as { matches: { id: string; uri: string }[] };
     expect(found.matches).toContainEqual(expect.objectContaining({ id: note.id, uri: note.uri }));
     const byRef = await tool("outline_links", { ref: `((${note.id}))`, outline: scratch.name });
     expect(JSON.parse(byRef.text)).toMatchObject({ uri: note.uri });
     const resource = await rpc("resources/read", { uri: note.uri });
     expect(resource.body.result.contents[0]).toMatchObject({ uri: note.uri, mimeType: "text/markdown", text: expect.stringContaining("brass lanterns") });
+  });
+
+  test("a record is sent once: body and properties, no text or header; a note naming itself isn't its own link or backlink", async () => {
+    const made = await board.request<{ id: string; revision: number }>("create", { parentId: null, text: "Kettle log", author: "agent" });
+    const self = await board.request<{ revision: number }>("update", { blockId: made.id, text: `Kettle log [shelf::top]\nDescaled again, see ((${made.id})) and ((${note.id})).`, expectedRevision: made.revision, mutation: { author: "agent", actorId: "test-agent" } });
+    expect(self.revision).toBeGreaterThan(made.revision);
+    const uri = formatEp0chBlockUri({ outline: scratch.name, machine, blockId: made.id });
+    const read = JSON.parse((await tool("outline_read", { uri })).text);
+    expect(read.record).toMatchObject({ id: made.id, title: "Kettle log", body: expect.stringContaining("Descaled again"), properties: [{ key: "shelf", values: ["top"] }] });
+    expect(read.record).not.toHaveProperty("text");
+    expect(read.record).not.toHaveProperty("header");
+    expect(read.record.links.map((l: { target: string }) => l.target)).toEqual([note.id]);
+    expect(read.record.links[0]).not.toHaveProperty("spans");
+    expect(read.record.backlinks).toEqual([]);
+    const links = JSON.parse((await tool("outline_links", { uri })).text);
+    expect(links.links.map((l: { target: string }) => l.target)).toEqual([note.id]);
+    expect(links.backlinks.map((b: { blockId: string }) => b.blockId)).not.toContain(made.id);
+    // The note it names has it as a backlink, as before.
+    const named = JSON.parse((await tool("outline_links", { uri: note.uri })).text);
+    expect(named.backlinks.map((b: { blockId: string }) => b.blockId)).toContain(made.id);
+  });
+
+  test("outline_find's completeness is about the answer: the limit asked for, and whether there are more", async () => {
+    const one = JSON.parse((await tool("outline_find", { query: "", limit: 1, outline: scratch.name })).text);
+    expect(one.completeness).toEqual({ kind: "truncated", limit: 1, more: true });
+    expect(one.matches).toHaveLength(1);
+    const all = JSON.parse((await tool("outline_find", { query: "", limit: 100, outline: scratch.name })).text);
+    expect(all.completeness).toEqual({ kind: "complete", limit: 100, more: false });
+    const searched = JSON.parse((await tool("outline_find", { query: "Lantern inventory", limit: 5, outline: scratch.name })).text);
+    expect(searched.completeness).toMatchObject({ limit: 5 });
   });
 
   test("an allowed token on an outline set to none is refused, and so is every outline it can't name", async () => {
