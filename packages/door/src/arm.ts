@@ -25,13 +25,18 @@ export interface Arm {
 /** The window when nothing sets one. */
 export const ARM_MS = 2000;
 
+/** The person's setting (edit.arm.set, kept in the state dir as `edit-arm.json`): the window, 0 for off; null for none. */
+let saved: number | null = null;
+/** Use the setting kept from last time (the door's start) or just chosen (edit.arm.set). */
+export function useEditArm(ms: unknown) { saved = typeof ms === "number" && Number.isFinite(ms) && ms >= 0 ? Math.round(ms) : null; }
+
 /**
- * How long an armed edit waits (EP0CH_EDIT_ARM): `off`, `no` or `0` turn arming off (e opens the edit at once), a
- * number is the window in milliseconds, anything else (or unset) the default 2 s.
+ * How long an armed edit waits: EP0CH_EDIT_ARM when set (`off`, `no` or `0` turn arming off, e opens the edit at
+ * once; a number is the window in milliseconds), else the person's setting (edit.arm.set), else the default 2 s.
  */
 export function editArmMs(v = process.env.EP0CH_EDIT_ARM): number {
   const s = v?.trim().toLowerCase();
-  if (!s) return ARM_MS;
+  if (!s) return saved ?? ARM_MS;
   if (s === "off" || s === "no" || s === "false") return 0;
   const n = Number(s);
   return Number.isFinite(n) && n >= 0 ? Math.round(n) : ARM_MS;

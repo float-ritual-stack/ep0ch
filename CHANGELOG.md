@@ -84,6 +84,18 @@ move into one repository (PIE-530).
   `drawer.agent`. The door keeps no reader for the old words; the
   script is deleted once it has run on the machines that matter (pie on float-2, float-hub on the MacBook).
 
+### `e` asks before it edits; the tile with your keys stands out
+
+- **`e` arms an edit instead of opening it.** In a reader (the desk's, the board's preview, a river column, the BBS
+  reader) the status bar asks `edit <title>? ⏎ · any other key cancels` and the tile turns yellow (`✎ edit?`) for
+  2 seconds. `⏎` or `e` again opens it; any other key lets it go and does what it does. `Ctrl+E` arms the same way.
+  The tile menu's edit row, a click on the hint's `e` and an agent's `edit` open at once.
+- **Turn it off:** `ep0ch act edit.arm.set on=false` (kept for the next start; `on=true ms=<n>` sets the wait).
+  `EP0CH_EDIT_ARM` (`off`, or milliseconds) overrides it.
+- **Focus and edges.** The tile with your keys has a double frame (`╔═╗`) and title in a warm amber. Every other
+  frame is a mid-tone that shows where one tile ends and the next begins in calm, classic and night, never dimmed
+  toward black. A terminal tile you're typing in stays yellow.
+
 ### Your drawer, and docks: the words swapped
 
 What travels with you across screens (the status bar's `▲ claude` chip, `alt+a`, the agent in its first tab) is

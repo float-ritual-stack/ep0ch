@@ -4520,7 +4520,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "edit": def({
-    summary: "open the note for editing (its whole text, at the revision the service has now); external=true hands it to $EDITOR (ctrl+e, also from an open edit or a comment or reply being written). The person's e arms it first (edit.arm) and ⏎ or e again opens it; a click on an edit control opens it at once", keys: "e then ⏎/e, ctrl+e then ⏎/ctrl+e (e or ctrl+e alone with EP0CH_EDIT_ARM=off)",
+    summary: "open the note for editing (its whole text, at the revision the service has now); external=true hands it to $EDITOR (ctrl+e, also from an open edit or a comment or reply being written). The person's e arms it first (edit.arm) and ⏎ or e again opens it; a click on an edit control opens it at once", keys: "e then ⏎/e, ctrl+e then ⏎/ctrl+e (e or ctrl+e alone with edit.arm.set on=false)",
     touches: "draft", draft: "write", replay: "ask",
     menu: noteRow("edit", "e", { now: ({ surface }) => (surface.draft ? { hide: true } : null) }),
     args: { external: { type: "boolean", optional: true, about: "hand the draft to $EDITOR (the person's keys only)" } },
@@ -4539,7 +4539,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "edit.arm": def({
-    summary: "the person's e (ctrl+e: for $EDITOR) in a reader: arm the edit instead of opening it. The status bar asks `edit <title>? ⏎ · any other key cancels` and the reader's frame turns the edit's colour; ⏎ or the same key again within the window (EP0CH_EDIT_ARM, default 2000 ms) opens it (edit), any other key lets it go and does what it does, and the window running out lets it go. EP0CH_EDIT_ARM=off opens it at once. A click on an edit control, and an agent's edit, open at once",
+    summary: "the person's e (ctrl+e: for $EDITOR) in a reader: arm the edit instead of opening it. The status bar asks `edit <title>? ⏎ · any other key cancels` and the reader's frame turns the edit's colour; ⏎ or the same key again within the window (edit.arm.set, or EP0CH_EDIT_ARM over it; default 2000 ms) opens it (edit), any other key lets it go and does what it does, and the window running out lets it go. edit.arm.set on=false (or EP0CH_EDIT_ARM=off) opens it at once. A click on an edit control, and an agent's edit, open at once",
     keys: "e, ctrl+e", touches: "nothing", replay: "ask",
     person: "arming is the person's e key, so a stray key never opens an edit; an agent opens one with edit (edit.text puts text in it)",
     args: { external: { type: "boolean", optional: true, about: "arm ctrl+e's $EDITOR handoff instead" } },

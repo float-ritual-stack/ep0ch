@@ -14,6 +14,8 @@ import type { Key } from "../src/term";
 import { boardScreen } from "./board-view";
 import * as BV from "./board-view";
 import { outliner, Scratch, until } from "./scratch";
+import { editArmMs, useEditArm } from "../src/arm";
+import { readState } from "../src/state";
 
 const char = (ch: string): Key => ({ kind: "char", ch });
 const ENTER: Key = { kind: "enter" };
@@ -151,6 +153,29 @@ describe.skipIf(!outliner)("e arms the edit; ⏎ or e again opens it (edit.arm)"
     rd.surface.closeDraftAction(true);
     desk.entered.clear();
     window("60000");
+  }, 30_000);
+
+  test("the person's setting (edit.arm.set): off opens on the first e, kept for the next start; EP0CH_EDIT_ARM wins over it", async () => {
+    delete process.env.EP0CH_EDIT_ARM;
+    try {
+      const out = await app.press("edit.arm.set", { on: false }) as any;
+      expect(out).toMatchObject({ armed: false, ms: 0, saved: 0 });
+      expect(readState<{ ms: number }>("edit-arm.json")).toEqual({ ms: 0 });
+      const { desk, rd } = await deskOnHedge();
+      key(char("e"));
+      expect(app.armed()).toBeNull();
+      await until(() => !!rd.surface.draft, "e opened the edit at once");
+      rd.surface.closeDraftAction(true);
+      desk.entered.clear();
+      expect(await app.press("edit.arm.set", { on: true, ms: 45_000 })).toMatchObject({ armed: true, ms: 45_000 });
+      key(char("e"));
+      expect(app.armed()?.ms).toBe(45_000);
+      key({ kind: "esc" });
+      expect(app.armed()).toBeNull();
+      // The environment wins: set, it overrides what was kept.
+      window("off");
+      expect(editArmMs()).toBe(0);
+    } finally { useEditArm(null); window("60000"); }
   }, 30_000);
 
   test("on the board: e on a lane arms the preview (the keys stay on the lane); ⏎ moves them there and opens the edit", async () => {

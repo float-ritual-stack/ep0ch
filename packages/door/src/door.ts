@@ -16,6 +16,7 @@ import { recoverEdits } from "./surface/editor";
 import { sweepPicks } from "./pick";
 import type { TermInfo } from "./term";
 import { setTheme, startTheme } from "./theme";
+import { useEditArm } from "./arm";
 import { hostname } from "node:os";
 import { Term } from "./term";
 import { Mirror } from "./mirror";
@@ -55,6 +56,8 @@ export async function openDoor(o: DoorOpen): Promise<Door> {
   const lastCall = readLastCall();
   // The theme: EP0CH_THEME, else the one chosen last time (theme.set keeps it in the state dir), else calm.
   setTheme(startTheme(process.env.EP0CH_THEME, readState<{ name?: string }>("theme.json")?.name));
+  // Whether e arms an edit first, and for how long (edit.arm.set keeps it; EP0CH_EDIT_ARM overrides it).
+  useEditArm(readState<{ ms?: number }>("edit-arm.json")?.ms);
   const app: App = new App(o.term, o.board, lastCall, () => o.done(app));
   if (o.service) {
     app.host = o.service.host;
