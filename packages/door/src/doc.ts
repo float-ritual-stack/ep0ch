@@ -238,8 +238,9 @@ export function renderDoc(body: string, env: DocEnv): Doc {
   // is bookkeeping, not prose.
   // A block anchor at the end of a line (`^books`, `^t-8a6d7f`, the older `^task-<uuid>`) is hidden when a note is
   // drawn, as Detail hides it (outline-core's anchor rule, the service's); it stays in the source, so folds and links
-  // still find it.
-  const src = body.split("\n").map(withoutFragmentAnchor);
+  // still find it. A line of code or of a figure keeps its text (`mask = flags ^bit`).
+  const raw = body.split("\n"), rawStructure = noteStructure(raw);
+  const src = raw.map((l, i) => (rawStructure[i] === -1 ? withoutFragmentAnchor(l) : l));
   const mediaAt = mediaLines(src);
   const source: number[] = [], heads: Doc["heads"] = [];
   const at = new Map((env.folds?.points ?? []).map(p => [p.line, p]));
