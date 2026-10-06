@@ -1,4 +1,4 @@
-// No dead panes (Evan, Oct 3): an agent in a terminal tile, or the dock's own tab, starts inside the person's login
+// No dead panes (Evan, Oct 3): an agent in a terminal tile, or the drawer's own tab, starts inside the person's login
 // shell. When it exits (or crashes) the tile is that shell, in the same folder with the same environment: the same
 // process, a prompt that answers, the door's nesting guard (EP0CH_IN_DOOR) still set. It says the agent exited and
 // nothing starts it again. A stand-in `claude` (a script that prints and exits 3); no real agent.
@@ -17,7 +17,7 @@ beforeAll(() => {
   mkdirSync(bin, { recursive: true }); mkdirSync(work, { recursive: true });
   writeFileSync(join(bin, "claude"), "#!/bin/sh\necho 'stand-in claude here'\nexit 3\n");
   chmodSync(join(bin, "claude"), 0o755);
-  // One that waits for a line, then exits 3: the dock's agent still running while another is chosen.
+  // One that waits for a line, then exits 3: the drawer's agent still running while another is chosen.
   writeFileSync(join(bin, "slowclaude"), "#!/bin/sh\necho 'slow stand-in here'\nread line\nexit 3\n");
   chmodSync(join(bin, "slowclaude"), 0o755);
   for (const k of ["SHELL", "PATH", "HOME", "EP0CH_STATE", "EP0CH_DAILY_AGENT"]) saved[k] = process.env[k];
@@ -67,7 +67,7 @@ describe("no dead panes", () => {
     try { await quitsToAShell(p); } finally { p.kill(); }
   }, 20_000);
 
-  test("the dock's own tab: its agent exits into the person's shell too", async () => {
+  test("the drawer's own tab: its agent exits into the person's shell too", async () => {
     process.env.EP0CH_DAILY_AGENT = "claude";
     process.env.EP0CH_DAILY_CWD = work;
     let painted: string[] = [];
@@ -75,25 +75,25 @@ describe("no dead panes", () => {
     const app = new App(term, { protocol: null } as any, Date.now(), () => {});
     app.push({ title: "main menu", key() {}, render: (c: any) => ({ lines: Array.from({ length: c.t.rows - 1 }, () => "") }) } as any);
     try {
-      app.dock.set(true, { kind: "user" });
+      app.drawer.set(true, { kind: "user" });
       (app as any).paint();
-      await until(() => !!app.dock.tile, "the dock's own tile");
-      await quitsToAShell(app.dock.tile!);
+      await until(() => !!app.drawer.tile, "the drawer's own tile");
+      await quitsToAShell(app.drawer.tile!);
       expect(painted.length).toBeGreaterThan(0);
-    } finally { app.quit(); app.dock.tile?.kill(); delete process.env.EP0CH_DAILY_AGENT; delete process.env.EP0CH_DAILY_CWD; }
+    } finally { app.quit(); app.drawer.tile?.kill(); delete process.env.EP0CH_DAILY_AGENT; delete process.env.EP0CH_DAILY_CWD; }
   }, 20_000);
 
-  test("another agent chosen while the dock's runs: the running one's exit is still read; the choice runs from the next start", async () => {
+  test("another agent chosen while the drawer's runs: the running one's exit is still read; the choice runs from the next start", async () => {
     process.env.EP0CH_DAILY_AGENT = "slowclaude";
     process.env.EP0CH_DAILY_CWD = work;
     const term: any = { info: { cols: 100, rows: 30, cellW: 9, cellH: 16, kitty: false }, write() {}, paint() {}, paintRow() {}, invalidate() {}, onKey() {}, onResize() {}, stop() {}, resume() {} };
     const app = new App(term, { protocol: null } as any, Date.now(), () => {});
     app.push({ title: "main menu", key() {}, render: (c: any) => ({ lines: Array.from({ length: c.t.rows - 1 }, () => "") }) } as any);
     try {
-      app.dock.set(true, { kind: "user" });
+      app.drawer.set(true, { kind: "user" });
       (app as any).paint();
-      await until(() => !!app.dock.tile?.running && text(app.dock.tile!).includes("slow stand-in here"), "the dock's agent runs", 8000);
-      const p = app.dock.tile! as any;
+      await until(() => !!app.drawer.tile?.running && text(app.drawer.tile!).includes("slow stand-in here"), "the drawer's agent runs", 8000);
+      const p = app.drawer.tile! as any;
       p.retarget({ cmd: ["/bin/sh"], cwd: work, name: "shell", herdr: false });
       expect(p.run.cmd).toEqual(["slowclaude"]);                      // what runs now is what it was started as
       p.input("\r");
@@ -101,6 +101,6 @@ describe("no dead panes", () => {
       p.restart();
       expect(p.run.cmd).toEqual(["/bin/sh"]);                          // the choice from its next start
       expect(p.agentExit).toBeNull();
-    } finally { app.quit(); app.dock.tile?.kill(); delete process.env.EP0CH_DAILY_AGENT; delete process.env.EP0CH_DAILY_CWD; }
+    } finally { app.quit(); app.drawer.tile?.kill(); delete process.env.EP0CH_DAILY_AGENT; delete process.env.EP0CH_DAILY_CWD; }
   }, 20_000);
 });

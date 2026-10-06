@@ -294,7 +294,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     screens: ["daily brief · 2026-03-11", "2 of 2 briefs"],
     kinds: ["tile kinds", "tree ^W o t", "backlinks ^W o l"],
     terminal: ["a terminal tile: sh in a pty the door owns", "shell"],
-    dock: ["the kettle: a terminal tile to dock", "kettle"],
+    drawer: ["the kettle: a terminal tile to drawer", "kettle"],
     preview: ["preview · tree", "outline"],
     screen: ["board ·", "preview · board"],
     spine: ["Queued", "Doing", "Review", "Done", "HOME-003"],
@@ -661,41 +661,41 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     await until(() => top() === sc, "back on the showcase");
   }, 20_000);
 
-  test("the dock section, driven through act: the kettle docks, a section switch keeps it (the same pid), and it undocks into another section", async () => {
+  test("the drawer section, driven through act: the kettle goes in, a section switch keeps it (the same pid), and it comes out into another section", async () => {
     (app as any).lastInput = 0;
-    await app.act({ action: "section", args: { name: "dock" }, as: "test-agent" });
-    await until(() => marks.dock!.every(m => screen().includes(m)), "the dock section");
+    await app.act({ action: "section", args: { name: "drawer" }, as: "test-agent" });
+    await until(() => marks.drawer!.every(m => screen().includes(m)), "the drawer section");
     const stage = () => S().stages.get(S().sel).top;
     const kettle = () => stage().pane("kettle");
     await until(() => kettle()?.running === true, "the kettle runs");
     const pid = kettle().pid;
-    const out = await app.act({ action: "host.dock", args: {}, tile: "kettle", as: "test-agent" }) as any;
-    expect(out).toMatchObject({ tile: "kettle", docked: true });
+    const out = await app.act({ action: "tile.drawer", args: {}, tile: "kettle", as: "test-agent" }) as any;
+    expect(out).toMatchObject({ tile: "kettle", inDrawer: true });
     expect(stage().pane("kettle")).toBeUndefined();
-    expect((app as any).message).toContain("an agent (test-agent) docked kettle");
-    // Another section: a screen switch. The dock still has it, the same program.
+    expect((app as any).message).toContain("an agent (test-agent) put kettle in your drawer");
+    // Another section: a screen switch. The drawer still has it, the same program.
     (app as any).lastInput = 0;
     await app.act({ action: "section", args: { name: "preview" }, as: "test-agent" });
-    expect(app.dock.tabs().map(t => t.name)).toContain("kettle");
-    expect((app.dock.desk!.pane("kettle") as any).pid).toBe(pid);
-    expect((app.describe() as any).dock.tiles.map((t: any) => t.name)).toContain("kettle");
-    // Pulled up by the agent (the person's keys stay put), then undocked into this section beside its tree.
+    expect(app.drawer.tabs().map(t => t.name)).toContain("kettle");
+    expect((app.drawer.desk!.pane("kettle") as any).pid).toBe(pid);
+    expect((app.describe() as any).drawer.tiles.map((t: any) => t.name)).toContain("kettle");
+    // Pulled up by the agent (the person's keys stay put), then taken out into this section beside its tree.
     (app as any).lastInput = 0;
     await app.act({ action: "host.toggle", args: { open: true }, as: "test-agent" });
-    expect(app.dock.open).toBe(true);
-    expect(app.dock.entered).toBe(false);
-    // A docked tab has its × (tile.close): the kettle's program runs, so a click asks first and closes nothing yet.
-    await app.dock.desk!.dispatch.act({ action: "tab.select", tile: "kettle" }, { kind: "user" });
+    expect(app.drawer.open).toBe(true);
+    expect(app.drawer.entered).toBe(false);
+    // A tab in the drawer has its × (tile.close): the kettle's program runs, so a click asks first and closes nothing yet.
+    await app.drawer.desk!.dispatch.act({ action: "tab.select", tile: "kettle" }, { kind: "user" });
     (app as any).paint();
-    const row = app.dock.rect!.row + 1, col = plain(painted[row] ?? "").lastIndexOf("×");
+    const row = app.drawer.rect!.row + 1, col = plain(painted[row] ?? "").lastIndexOf("×");
     expect(col).toBeGreaterThan(0);
     for (const action of ["down", "up"] as const) press({ kind: "mouse", action, button: 0, x: col, y: row });
     expect((app as any).message).toContain("closing ends it");
-    expect(app.dock.tabs().map(t => t.name)).toContain("kettle");
+    expect(app.drawer.tabs().map(t => t.name)).toContain("kettle");
     press({ kind: "char", ch: "]", ctrl: true });
     (app as any).lastInput = 0;
-    const back = await app.act({ action: "host.dock", args: { on: false, to: "tree", where: "right" }, tile: "kettle", as: "test-agent" }) as any;
-    expect(back).toMatchObject({ tile: "kettle", docked: false });
+    const back = await app.act({ action: "tile.drawer", args: { on: false, to: "tree", where: "right" }, tile: "kettle", as: "test-agent" }) as any;
+    expect(back).toMatchObject({ tile: "kettle", inDrawer: false });
     expect(stage().pane("kettle").pid).toBe(pid);
     expect(stage().pane("kettle").running).toBe(true);
     await app.act({ action: "host.toggle", args: { open: false }, as: "test-agent" });

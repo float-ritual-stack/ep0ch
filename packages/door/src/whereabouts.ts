@@ -2,7 +2,7 @@
 // they typing in, are they busy". Every rule about an agent and the person's keys reads it: the dispatcher's actor
 // rule (src/surface/dispatch.ts), the layout engine's `ctx.person` (src/desk/screen-layout.ts, the desk's and the
 // host layer's), and through them the draft session's rule. Before, each screen asked its own questions
-// (holdsKeys, personIn, isEntered, dockHoldsKeys, holdsFocus, `=== this.focus`) and each rule picked
+// (holdsKeys, personIn, isEntered, drawerHoldsKeys, holdsFocus, `=== this.focus`) and each rule picked
 // some of them; now a screen says once where the person's keys are on it (`Screen.keys`), the App adds the host
 // layer, the shell and the clock, and every rule asks the same thing.
 
@@ -31,7 +31,7 @@ export interface Whereabouts extends ScreenKeys {
 }
 
 /** The host layer's agent tile, as `typingIn` names it while the person types in the drawer. */
-export const HOST_AGENT = "dock.agent";
+export const HOST_AGENT = "drawer.agent";
 
 /** How long the person has to have been away from the keys and the mouse before an agent moves what they see. */
 export const SHELL_IDLE_MS = 2000;
@@ -47,7 +47,7 @@ export function whereabouts(o: {
   screen: string | null;
   keys: ScreenKeys | null;
   inHost: boolean;
-  /** In the dock, the tile they type in: its own (HOST_AGENT), else `dock:<name>` (a docked tile). */
+  /** In the drawer, the tile they type in: its own (HOST_AGENT), else `drawer:<name>` (a tile in the drawer). */
   hostTile?: string | null;
   suspended: string | null;
   loggedOn: boolean;
@@ -56,7 +56,7 @@ export function whereabouts(o: {
   const k = o.keys ?? { focus: null, typingIn: null, busy: false };
   const away = !o.loggedOn ? `the door is at the ${o.screen ?? "logon"}; the person hasn't logged on`
     : o.suspended ? `the person is in the door's ${o.suspended} (the door waits under it)` : null;
-  if (o.inHost) return { focus: k.focus, typingIn: o.hostTile ?? HOST_AGENT, busy: true, why: `the person is typing in the dock${o.hostTile && o.hostTile !== HOST_AGENT ? ` (${o.hostTile.replace(/^dock:/, "")})` : ""}`, keys: "host", screen: o.screen, idle: o.idle, away };
+  if (o.inHost) return { focus: k.focus, typingIn: o.hostTile ?? HOST_AGENT, busy: true, why: `the person is typing in the drawer${o.hostTile && o.hostTile !== HOST_AGENT ? ` (${o.hostTile.replace(/^drawer:/, "")})` : ""}`, keys: "host", screen: o.screen, idle: o.idle, away };
   const why = k.busy ? (k.why ?? `the person is typing on the ${o.screen ?? "screen"}`) : undefined;
   return { focus: k.focus, typingIn: k.typingIn, busy: k.busy || !!o.suspended, ...(why ? { why } : o.suspended ? { why: away! } : {}), keys: "screen", screen: o.screen, idle: o.idle, away };
 }

@@ -97,7 +97,7 @@ export function reportKey(r: KeyReport): Key | null {
 
 /**
  * A raw piece the door holds back in a terminal tile (`Term.feedRaw` sends each key report alone): the key it is,
- * as a report or as legacy ESC-and-a-letter (alt+a), so the drawer's alt+a and ctrl+] are seen either way.
+ * as a report or as legacy ESC-and-a-letter (alt+a), so the dock's alt+a and ctrl+] are seen either way.
  */
 export function rawKey(s: string): Key | null {
   const r = parseReport(s);

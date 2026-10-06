@@ -33,7 +33,7 @@ function no(s: LayoutState, op: Op, re: RegExp, actor: Actor = PERSON, person: P
   expect(r.ok).toBe(false);
   if (!r.ok) expect(r.refused).toMatch(re);
 }
-const flowIn = (s: LayoutState): Flow<number> => { const f = (function find(n: LNode): Flow<number> | null { return n.t === "flow" ? n : n.t === "leaf" || n.t === "tabs" ? null : n.t === "drawer" ? find(n.kid) : n.kids.map(find).find(Boolean) ?? null; })(s.tree); return f!; };
+const flowIn = (s: LayoutState): Flow<number> => { const f = (function find(n: LNode): Flow<number> | null { return n.t === "flow" ? n : n.t === "leaf" || n.t === "tabs" ? null : n.t === "dock" ? find(n.kid) : n.kids.map(find).find(Boolean) ?? null; })(s.tree); return f!; };
 /** Each column's cover, by its first tile: what the strip shows now. */
 function covers(s: LayoutState): Record<number, string> {
   const p = place(s, AREA, id => holding.has(id));
@@ -54,7 +54,7 @@ describe("the squeeze: full → peek → spine around the wide column", () => {
     expect(widths).toEqual([3, 32, 33, 76, 76]);
   });
 
-  test("a peek is drawn whole at reading width, its right side under its neighbour like a drawer", () => {
+  test("a peek is drawn whole at reading width, its right side under its neighbour like a dock", () => {
     AREA = wide(220);
     const p = place(river(5), AREA);
     expect(p.boxes!.get(2)!.cols).toBe(76);
@@ -164,7 +164,7 @@ describe("opens into the next column (the flow's open rule)", () => {
   });
 });
 
-describe("the explicit shift, docking, closing, back and forward", () => {
+describe("the explicit shift, holding, closing, back and forward", () => {
   test("widen: the column takes the wide place, the one the person was reading stays full; widening the wide one moves nothing", () => {
     AREA = wide(220);
     let s = river(5), focus = 5;
@@ -239,7 +239,7 @@ describe("the explicit shift, docking, closing, back and forward", () => {
     no(init({ tree: splitOf("row", [leaf(1), leaf(2)]), names: new Map([[1, "a"], [2, "b"]]) }), { op: "flow.widen", tile: 1 }, /a isn't in a flow/);
   });
 
-  test("a column taken out whole (a stack put in a drawer at an edge) leaves the flow a flow, its memory tidied", () => {
+  test("a column taken out whole (a stack put in a dock at an edge) leaves the flow a flow, its memory tidied", () => {
     AREA = wide(220);
     const tree: LNode = splitOf("row", [leaf(10), flowOf([leaf(1), splitOf("col", [leaf(2), leaf(3)])], { anchor: 2 })]);
     const s = init({ tree, names: new Map([[10, "tree"], [1, "c1"], [2, "c2"], [3, "c3"]]) });
@@ -251,7 +251,7 @@ describe("the explicit shift, docking, closing, back and forward", () => {
     expect(landing(r, 1, facts(1))).toEqual({ next: true });
   });
 
-  test("a flow inside a screen: beside other tiles, in a drawer; its memory saved and put back by column", () => {
+  test("a flow inside a screen: beside other tiles, in a dock; its memory saved and put back by column", () => {
     AREA = wide(220);
     const tree: LNode = splitOf("row", [leaf(10), flowOf([leaf(1), leaf(2), leaf(3)], { anchor: 2 })], [0.2, 0.8]);
     let s = init({ tree, names: new Map([[10, "tree"], [1, "c1"], [2, "c2"], [3, "c3"]]) });

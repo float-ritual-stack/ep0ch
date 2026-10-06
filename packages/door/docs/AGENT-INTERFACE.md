@@ -12,7 +12,7 @@ An agent sees what the person sees, live, and can change anything except where t
   and each screen host's dispatcher (`src/surface/dispatch.ts`) checks that against where the person is (the
   shell's one query, `src/whereabouts.ts`) before it runs, for every action, however it was called. Typing
   means in an edit, a comment or the property panel, in a terminal tile, in a board, river or brief tile's own
-  edit, in the dock, or with a picker open. The paths it guards are listed below. An agent never moves the outline's cursor or the person's selection at all. To get the
+  edit, in the drawer, or with a picker open. The paths it guards are listed below. An agent never moves the outline's cursor or the person's selection at all. To get the
   person's attention, an agent sets a mark (`block.mark`).
 - **Edits go through the owner.** Notes are written through the outline service, with revision checks and
   `author: agent`. An nvim tile's buffer is written through nvim's own socket, which moves no one's cursor.
@@ -65,14 +65,14 @@ characters (past that, the oldest layers after the first become one `…`). `src
 | an ssh session | the door, from `SSH_TTY` (else `SSH_CONNECTION`), when the nest has no ssh layer | `ssh:pts/5`, or `ssh:-` without a tty (the client address is never recorded) |
 | a Herdr pane | the door, from `HERDR_PANE_ID` before it drops it, unless the nest already ends in a Herdr layer | `herdr:w1:p1` |
 | a door tile | the door, for each terminal tile (`tileEnv`) | `door:<pid>/<layout or view>/<tile id>:<tile name>` |
-| the dock | the door, for its own tab (PIE-498); a terminal docked from a screen keeps the layer it started with | `door:<pid>/dock/dock.agent:claude` |
+| the drawer | the door, for its own tab (PIE-498); a terminal ⟦docked⟧ from a screen keeps the layer it started with | `door:<pid>/drawer/drawer.agent:claude` |
 | the daily agent's Herdr pane | the Herdr launcher (`scripts/door-agent-herdr.ts`), for the pane it makes | `herdr:door-<outline>-<hash>` (the pane's label) |
 
 The three routes:
 
     ssh:pts/5 › door:1388380/desk/t1:claude                               # plain ssh: a door, a tile
     ssh:pts/5 › herdr:w1:p1 › door:1388380/desk/t1:claude                 # the door in a Herdr pane
-    ssh:pts/5 › herdr:w1:p1 › door:1388380/dock/dock.agent:claude › herdr:door-pie   # the dock's agent in Herdr, the pie session's own pane
+    ssh:pts/5 › herdr:w1:p1 › door:1388380/drawer/drawer.agent:claude › herdr:door-pie   # the drawer's agent in Herdr, the pie session's own pane
 
 The nest says how the program was started, not what is true now: a tile moved to another layout keeps its
 launch place, and the agent's Herdr pane keeps the door that made it while another door shows it.
@@ -118,7 +118,7 @@ The door paints at most once a frame (16ms), however busy its terminal tiles are
 | `focus.changed` | `tile`, `block` (the note it shows, the outline's row, the board's card), and for a terminal tile `file` and `typing` | the person's keys move, or what the focused tile shows changes |
 | `viewport` | `tile`, `viewport` | what a tile has in view changes. A reader gives `block`, `title`, `first` and `last` (1-based note lines in view) and `top`, `room` and `total` (the body's scroll). The outline gives `selected`. A terminal gives `file`, `running`, and for nvim `first` and `last` (lines in its window). A screen tile gives `selected` |
 | `cursor` | `tile`, `cursor` | a reader's text selection (`selection`), nvim's cursor (`file`, `line`, `col`, `mode`), or a terminal's screen cursor (`screen: {x, y}`). A terminal's cursor is sent only for the focused tile |
-| `layout.changed` | `layout`: `name`, `rev`, `rule`, `zoom`, `locked`, `tree` (splits with their `id`, `path` and `shares`, tab sets with their `id` and the tab `shown`, drawers with their `id`, edge, `open` and `kid`, each container's `policy`, tiles with their `id`), `tiles` (each `tile`, `id`, `kind`, `rect`, `link`, `tabs`, `pinned` or `drawer` with its `edge` and `container`, `source`, and for a terminal `cmd`, its nvim `socket` and `herdr`) | a split, move, tab, drawer in or out, open or shut, resize, policy, lock, load |
+| `layout.changed` | `layout`: `name`, `rev`, `rule`, `zoom`, `locked`, `tree` (splits with their `id`, `path` and `shares`, tab sets with their `id` and the tab `shown`, docks with their `id`, edge, `open` and `kid`, each container's `policy`, tiles with their `id`), `tiles` (each `tile`, `id`, `kind`, `rect`, `link`, `tabs`, `pinned` or `dock` with its `edge` and `container`, `source`, and for a terminal `cmd`, its nvim `socket` and `herdr`) | a split, move, tab, dock in or out, open or shut, resize, policy, lock, load |
 | `marks.changed` | `marks`: each mark's `n`, `block` or `tile`+`line`, `reason`, `by`, `at`, `showing` | a mark set or dismissed |
 | `screen` | `screen` | the door moved to another screen (the feed is the desk's) |
 
@@ -129,7 +129,7 @@ The feed is the desk's, and every view built on it (the brief, the pinned pages,
 
 | Action | Gives |
 |---|---|
-| `layout.get` | `rev` (below), `locked` and the screen's `policy`; the tile tree (`describeTree` by name): each split with its `id` (`s<n>`), `path` and each kid's `share`, each tab set with its `id` (`g<n>`), each drawer with its `id` (`d<n>`), edge, `open` and its `kid` (at path `<drawer's>.0`), each flow with its `id` (`f<n>`), `wide` (its wide column) and `docked` (the columns docked), each container's `policy`, each tile with its `id` (`t<n>`); and each tile's `id`, `n` (its number on screen), `name`, `kind`, `rect`, `tabs`, `link` (`linkFrom: opensInto` when a container's policy gives it), `drawer` (`open`, `shut`) with its `edge` and `container`, `cover` in a flow (`full`, `peek`, `spine`), the `policy` over it when it says anything (`locked` by whom, `draggable`, `droppable`, `resizable`, `accepts`), `source`, `showing`, and for a terminal its `cmd`, `file`, `pid`, screen `text`, `nvim.socket`, and `herdr` |
+| `layout.get` | `rev` (below), `locked` and the screen's `policy`; the tile tree (`describeTree` by name): each split with its `id` (`s<n>`), `path` and each kid's `share`, each tab set with its `id` (`g<n>`), each dock with its `id` (`d<n>`), edge, `open` and its `kid` (at path `<dock's>.0`), each flow with its `id` (`f<n>`), `wide` (its wide column) and `⟦docked⟧` (the columns ⟦docked⟧), each container's `policy`, each tile with its `id` (`t<n>`); and each tile's `id`, `n` (its number on screen), `name`, `kind`, `rect`, `tabs`, `link` (`linkFrom: opensInto` when a container's policy gives it), `dock` (`open`, `shut`) with its `edge` and `container`, `cover` in a flow (`full`, `peek`, `spine`), the `policy` over it when it says anything (`locked` by whom, `draggable`, `droppable`, `resizable`, `accepts`), `source`, `showing`, and for a terminal its `cmd`, `file`, `pid`, screen `text`, `nvim.socket`, and `herdr` |
 | `layout.policy tile=<tile>` (nothing to set) | each policy layer over the tile (the screen's, each container's, its kind's default), what applies (`effective`, with `by` naming the layer that said each field), and the containers' ids |
 | `view.get` (`tile=<tile>` for one) | `focus`, and each tile's `viewport` and `cursor` as the feed gives them. For one terminal tile, also its `screen` text |
 | `tile.info tile=<tile>` | one tile as `layout.get` gives it |
@@ -190,12 +190,12 @@ These change what the person looks at, so an agent's is a visible, attributed mo
 **Esc closes; it never leaves.** The person's `Esc` closes the innermost temporary thing, one per press: first what
 holds their keys (a picker or menu: the tile menu `⋯`, a search, a layout or board picker; the keys box, `? more`; a
 pending chord, `^W`; link mode, `alt+l`; a filter being typed; an edit, at once with nothing typed, with a second `Esc`
-when unsaved, PIE-475), then the dock when it's up and they're out of it (`host.toggle`), then what's lit in their tile
-(a link, a selection), then the screen's own (a zoom, a drawer, the keys back home, a float's keys back to the tile
+when unsaved, PIE-475), then the drawer when it's up and they're out of it (`host.toggle`), then what's lit in their tile
+(a link, a selection), then the screen's own (a zoom, a dock, the keys back home, a float's keys back to the tile
 under it).
 With nothing left it does nothing and says so on the status bar: `nothing to close · q leaves` (the menu's says `G
 logs off`). It never pops a screen and never logs off: leaving is `q` (`screen.back`), quitting `G` or `ctrl+c`. Each
-step is an action an agent runs by name (`host.toggle open=false`, `tile.drawer open=false`, `tile.zoom on=false`,
+step is an action an agent runs by name (`host.toggle open=false`, `tile.slide open=false`, `tile.zoom on=false`,
 `tile.focus`, `element.select n=0`, `select.clear`, `edit.close`), so nothing here needs `Esc` sent as a key. In the
 showcase, `Esc` in a section's stage with nothing left hands the keys back to the index (`section.leave`); in a screen
 shown in a tile (the board on the desk), it goes on to the desk's own steps.
@@ -229,39 +229,39 @@ A first line of only `[page::x]` is titled `x` on the writes the service is give
 With no door open, `ep0ch new "<text>" --as <id> [--near <id>] [--ws <name>] [--json]` makes the same call
 (`notes.create`) from a shell.
 
-### The dock: the host layer (PIE-498, PIE-513)
+### The drawer: the host layer (PIE-498, PIE-513)
 
-Also on every screen but the logon: the host layer's drawer, the dock. Its tabs are tiles that belong to the App,
-not to a screen, on a desk of their own: its first tab is its own program (`dock.agent`: `EP0CH_DAILY_AGENT`, else a
+Also on every screen but the logon: the host layer's dock, the drawer. Its tabs are tiles that belong to the App,
+not to a screen, on a desk of their own: its first tab is its own program (`drawer.agent`: `EP0CH_DAILY_AGENT`, else a
 shell), and any tile can join it and leave it whole. It's pulled up from the status bar's chip (`▲ claude`,
 `▲ shell +2`) over (or beside) whatever screen is shown, as that screen's policy says (`host`: `over`, `beside`,
-`none`). `peek` gives its state as `dock` (`open`, `entered`, `share`, `host`, `rect`, `state`, `openedBy`,
+`none`). `peek` gives its state as `drawer` (`open`, `entered`, `share`, `host`, `rect`, `state`, `openedBy`,
 `herdr`, its own `terminal`, `runs` (its program, its folder and why), and `tiles`: each tab's `name`, `id`,
 `kind`, `title`, `shown`, and a terminal's `pid`).
 
 | Action | Args | Keys, mouse | Agent rules |
 |---|---|---|---|
-| `host.dock` | `tile`; `on` (true: into the dock; false: out of it; left out, whichever it isn't); `to`, `where` (on=false: beside which tile of the screen shown, and where: left, right, up, down, tabs, edge-*) | `^W a` (on a screen: in; in the dock: out); `^W A` on a screen (the dock's tab shown comes here); drag a title onto the chip or the open dock; `a` while dragging a tile; drag a dock tab's title out onto the screen | the tile moves whole: a terminal's program keeps running (the same pid), a reader keeps its note, history and draft. An agent's tab goes in behind the one shown, the dock and the person's keys stay as they were; never the tile the person types in or has; refused where the layout keeps the tile (locked, draggable off, a lane) and for the dock's own tab. `tile=` names a tile of the screen shown; a request naming a tile only the dock has goes to the dock (`host.dock on=false tile=kettle`, `tile.type tile=kettle`, a note action in a docked reader) |
+| `tile.drawer` | `tile`; `on` (true: into the drawer; false: out of it; left out, whichever it isn't); `to`, `where` (on=false: beside which tile of the screen shown, and where: left, right, up, down, tabs, edge-*) | `^W a` (on a screen: in; in the drawer: out); `^W A` on a screen (the drawer's tab shown comes here); drag a title onto the chip or the open drawer; `a` while dragging a tile; drag a drawer tab's title out onto the screen | the tile moves whole: a terminal's program keeps running (the same pid), a reader keeps its note, history and draft. An agent's tab goes in behind the one shown, the drawer and the person's keys stay as they were; never the tile the person types in or has; refused where the layout keeps the tile (locked, draggable off, a lane) and for the drawer's own tab. `tile=` names a tile of the screen shown; a request naming a tile only the drawer has goes to the drawer (`tile.drawer on=false tile=kettle`, `tile.type tile=kettle`, a note action in a reader in the drawer) |
 
 | Action | Args | Keys, mouse | Agent rules |
 |---|---|---|---|
-| `host.agent` | `name` (an agent installed here, or `shell`), `herdr` (run it in the session's own Herdr pane), `default` (for every outline, not only this session) | `alt+g` (the person's picker), ⏎ in it | no name: an agent gets the list (`agents`, `now`, `from`), the person the picker. Saved for the outline's session; it starts inside the person's login shell from the dock's own tab's next start, never in place of one running (`agent.restart` does that); `EP0CH_DAILY_AGENT` still overrides it. Said on screen |
-| `host.shell` | | `alt+s` | a new shell (`$SHELL`, the dock's folder) as a dock tab: the person's is shown and takes their keys; an agent's opens behind the tab shown |
-| `host.toggle` | `open` (true, false; left out, it toggles) | `alt+a`, a click on the chip; `Esc` (after `ctrl+]`) puts it away | pulling it up is a move of the person's screen: refused while they're typing (in the drawer too) and within 2s of their last key, as `screen.open` is; said on the status bar and in the drawer's title. Never enters it: their keys stay where they were. Refused to put it away while they're in it |
+| `host.agent` | `name` (an agent installed here, or `shell`), `herdr` (run it in the session's own Herdr pane), `default` (for every outline, not only this session) | `alt+g` (the person's picker), ⏎ in it | no name: an agent gets the list (`agents`, `now`, `from`), the person the picker. Saved for the outline's session; it starts inside the person's login shell from the drawer's own tab's next start, never in place of one running (`agent.restart` does that); `EP0CH_DAILY_AGENT` still overrides it. Said on screen |
+| `host.shell` | | `alt+s` | a new shell (`$SHELL`, the drawer's folder) as a drawer tab: the person's is shown and takes their keys; an agent's opens behind the tab shown |
+| `host.toggle` | `open` (true, false; left out, it toggles) | `alt+a`, a click on the chip; `Esc` (after `ctrl+]`) puts it away | pulling it up is a move of the person's screen: refused while they're typing (in the dock too) and within 2s of their last key, as `screen.open` is; said on the status bar and in the dock's title. Never enters it: their keys stay where they were. Refused to put it away while they're in it |
 | `host.size` | `share` (0.2 to 0.9 of the rows above the status bar) | drag its top edge; `alt+A` steps 40, 50, 60, 75% | refused while they're in it |
-| `agent.type` | `text` (`\n` ⏎, `\e` Esc) | the person types in the drawer | refused while the person types in it, and while it isn't running; said on the status bar. The agent is no screen's tile, so `tile.type` doesn't reach it |
+| `agent.type` | `text` (`\n` ⏎, `\e` Esc) | the person types in the dock | refused while the person types in it, and while it isn't running; said on the status bar. The agent is no screen's tile, so `tile.type` doesn't reach it |
 | `agent.knows` | | the chip says it: `· door tools`, `· started before update ⟳`, `· no door tools ⟳` | read-only: the agent process's own environment and start time against the installed Claude mod (`current`, `stale`, `no-door`, `unknown`, with why) |
-| `agent.restart` | | a click on the chip's `⟳`; `alt+R` | that agent's process alone is asked to exit (SIGTERM, SIGKILL after 8s) and the same command runs again, keeping the conversation (in Herdr: the session's own pane again). Refused while the person types in the drawer, or within 10s of their last key in the agent; said on the status bar |
+| `agent.restart` | | a click on the chip's `⟳`; `alt+R` | that agent's process alone is asked to exit (SIGTERM, SIGKILL after 8s) and the same command runs again, keeping the conversation (in Herdr: the session's own pane again). Refused while the person types in the dock, or within 10s of their last key in the agent; said on the status bar |
 
-Its own program is told `EP0CH_TILE_ID=dock.agent` and `EP0CH_TILE=claude` (`shell` for a shell), and its nest
-layer is `door:<pid>/dock/dock.agent:claude`. The Herdr launcher's `tile.herdr tile=dock.agent` reaches the App on
-any screen. `ep0ch where` names the dock as the tile (`the dock`), and says when the person is typing in it; a
-terminal docked from a screen keeps the `EP0CH_TILE_ID` it started with, and `where` finds it in the dock by its
+Its own program is told `EP0CH_TILE_ID=drawer.agent` and `EP0CH_TILE=claude` (`shell` for a shell), and its nest
+layer is `door:<pid>/drawer/drawer.agent:claude`. The Herdr launcher's `tile.herdr tile=drawer.agent` reaches the App on
+any screen. `ep0ch where` names the drawer as the tile (`the drawer`), and says when the person is typing in it; a
+terminal ⟦docked⟧ from a screen keeps the `EP0CH_TILE_ID` it started with, and `where` finds it in the drawer by its
 program.
 
-An agent can put its own tile in the dock: `ep0ch where --json` names it (`door.tile.id`, found by its program's pid
-even after it moved, so not the `EP0CH_TILE_ID` it started with), then `ep0ch act host.dock tile=<that id> --as <you>`
-(refused, with why, while the person is typing in it: they dock it themselves with `ctrl+]` then `^W a`). A docked
+An agent can put its own tile in the drawer: `ep0ch where --json` names it (`door.tile.id`, found by its program's pid
+even after it moved, so not the `EP0CH_TILE_ID` it started with), then `ep0ch act tile.drawer tile=<that id> --as <you>`
+(refused, with why, while the person is typing in it: they drawer it themselves with `ctrl+]` then `^W a`). A ⟦docked⟧
 tile's id is `k<n>`, never a screen tile's `t<n>`.
 
 ## Naming tiles and splits (PIE-491)
@@ -308,21 +308,21 @@ thing after someone else's change.
   Its readers are `preview`, `detail1`, `detail2`…: a detail keeps its name while it lives, whatever closes
   around it, so after `detail1` closes the other is still `detail2`, and floated (`tile.float`, `o`) it keeps it
   too. Its lanes are query tiles named by their lane (`Queued`, `Waiting-on`), in a columns container
-  (`layout.get` says `columns: hub:<id>`) filled from the hub's views. The outline drawer holds `tree` over
-  `tree-preview`, the backlinks drawer `backlinks` beside `backlinks-preview`. Places work too:
+  (`layout.get` says `columns: hub:<id>`) filled from the hub's views. The outline dock holds `tree` over
+  `tree-preview`, the backlinks dock `backlinks` beside `backlinks-preview`. Places work too:
   `tile=detail` (the one ⏎ opens into), `tile=float` (the top float), `tile=lanes` (the lane the cursor
-  is in), and for a note action `tile=tree` and `tile=backlinks` are the drawers' previews. The outline drawer is
-  `tile.drawer` and `tile.pin` on `tile=tree` (the older `outline` action is gone); `backlinks` is the backlinks
+  is in), and for a note action `tile=tree` and `tile=backlinks` are the docks' previews. The outline dock is
+  `tile.slide` and `tile.dock` on `tile=tree` (the older `outline` action is gone); `backlinks` is the backlinks
   tile's own action. `peek` on the board is the desk's peek: `focus` (`lanes`, or the tile), `details`, `floats`,
   `readers`, `collapsedReaders`, the lanes' model (`hub`, `lanes`, `composer`, `steps`, `mover`, …), `outline` (the
-  outline drawer: `open`, `pinned`, `side`, `rows`) and `backlinks`; `tree` is the layout, by tile name.
+  outline dock: `open`, `pinned`, `side`, `rows`) and `backlinks`; `tree` is the layout, by tile name.
 - **The river is a screen spec on the desk** (PIE-515): its columns are `river.column` tiles in a flow, named as
   any tile (`library`, then `column`, `column2`…; the older `r7`, `3` and `3.2` are gone). `open id= from=<column>`
   opens a note in the column after it (`fresh=true`: a new one even when a column has the note); an `open` naming
   no tile lands after the column with the person's keys. Its own actions are the column kind's (`column.select`,
   `column.replies`, `column.scroll`, `column.filter`, `column.tag`, `column.split`, `column.copy`; `replies`,
   `filter`, `tag`, `split`, `copy` still answer); the layout's are the desk's (`tile.widen`, alias `widen`;
-  `tile.hold` (`p`: held full; the word was `tile.dock` before PIE-498, and nothing answers to it now); `tile.close`; `tile.travel dir=back|forward`, the person's). The old `jump` is `search`
+  `tile.hold` (`p`: held full; the word was `tile.drawer` before PIE-498, and nothing answers to it now); `tile.close`; `tile.travel dir=back|forward`, the person's). The old `jump` is `search`
   then `open`.
 
     ep0ch act layout.get                                  # rev 12; the right column is split s5
@@ -338,7 +338,7 @@ Every action says what it touches, and the dispatcher checks it once, the same w
 |---|---|---|
 | `nothing` | never (it reads, or answers, or acts out of the person's sight) | `layout.get`, `view.get`, `open` naming no tile, `block.mark`, `search` |
 | `tile` | the tile it runs in has the person's keys; or, for an action that says `while: typing`, only while they type in it | `view.scrollTo` (typing), `link.select`, `link.follow`, `element.open`, `up`, `back`, `props.follow`, `threads`, `resolve`, `open tile=<reader>`, a river column's `column.select` and `column.scroll`, `tile.restart` (typing) |
-| `shape` | the layout engine says so (`ctx.person` from the same query): never the tile they type in (moved, floated, pinned, or resized: a border, a split's shares, a grow or `layout.even` that would change its size), never their tab hidden, never their focus floated or closed; a change that would move their keys (shutting the drawer they're in, loading a layout) waits as a `screen` touch does. The river's columns are a flow on it (PIE-515): `tile.widen`, `tile.hold` and `column.split` never move their keys | `layout.move`, `tile.open`, `tile.close`, `tile.pin`, `tile.float`, `tile.drawer` |
+| `shape` | the layout engine says so (`ctx.person` from the same query): never the tile they type in (moved, floated, pinned, or resized: a border, a split's shares, a grow or `layout.even` that would change its size), never their tab hidden, never their focus floated or closed; a change that would move their keys (shutting the dock they're in, loading a layout) waits as a `screen` touch does. The river's columns are a flow on it (PIE-515): `tile.widen`, `tile.hold` and `column.split` never move their keys | `layout.move`, `tile.open`, `tile.close`, `tile.dock`, `tile.float`, `tile.slide` |
 | `draft` | the draft session's rule (`draftRule` in `src/draft-session.ts`): not a draft the person opened or typed in, not a note they have open in a draft. `edit.text` (`draft: replace`) and `comment.write` (`draft: text`) replace only an edit or comment the agent opened, and never while the person types in that tile; `complete insert=` (`draft: type`) puts a candidate in only at the cursor of a draft the agent opened and alone typed in. An invitation (the person's `@name` line) is the one way into theirs | `edit.text`, `comment.write`, `complete insert=`, `edit.save`, `comment.send`, `task.status` |
 | `screen` | the person is away (not logged on, or in the door's shell or editor), busy (typing anywhere), or touched a key or the mouse within the last 2s (`SHELL_IDLE_MS`) | `screen.open`, `tile.focus`, `marks.next`, `brief.step`, `board.hub id=`, `host.toggle open=true` |
 
@@ -352,7 +352,7 @@ answer again, nothing written twice) or `ask` (it writes, starts something, open
 is kept for the next start: `link.follow`, `props.follow`, `tree.pick`, `theme.set`, `theme.cycle`): for PIE-418's replay.
 
 Where the person is comes from one query, `App.person()`: the screen shown, which tile has their focus, which
-tile they're typing in (a desk tile, a board's composer, a river column, or `dock.agent` for the dock),
+tile they're typing in (a desk tile, a board's composer, a river column, or `drawer.agent` for the drawer),
 whether they're busy, how long since their last key, and whether they're away. A screen inside a tile (a board
 on a desk) is asked the same thing as seen from inside it.
 
@@ -377,18 +377,18 @@ gesture; see the README's desk section and `docs/UI-GRAMMAR.md` §7.
 | `tile.close` | `tile` | never the person's tile, never a running program |
 | `tile.focus` | `tile`, `dir` (left, right, up, down: the tile that way; in a flow, the column before or after) | refused while the person is typing, and within 2s of their last key |
 | `tile.link` | `tile`, `to` | |
-| `tile.pin` | `tile`, `on` (false: in a drawer; true: pinned in the layout; a float goes straight into a drawer, one step), `edge` (left, right, up, down: the drawer slides from that outer edge), `container` (a split's id: it goes in whole) | an agent's new drawer starts shut, unless it holds the person's keys (their tile, or the tab set it's in) |
+| `tile.dock` | `tile`, `on` (false: in a dock; true: pinned in the layout; a float goes straight into a dock, one step), `edge` (left, right, up, down: the dock slides from that outer edge), `container` (a split's id: it goes in whole) | an agent's new dock starts shut, unless it holds the person's keys (their tile, or the tab set it's in) |
 | `tile.collapse` | `tile`, `on` (default toggles) | folds a tile side by side with others (a lane, a reader in a row) to a spine, keeping what it holds; never the tile that has the person's keys |
 | `tile.widen` | `tile` | gives the tile's flow column the wide place (a flow is the river's columns as a container); the person's keys stay where they are; said on screen. Refused outside a flow and where the flow is locked |
 | `tile.hold` | `tile`, `on` (default toggles) | holds the tile's flow column full so it resists compression (the river's `p`), or lets it go; said on screen. Refused outside a flow and where the flow is locked |
 | `tile.travel` | `tile`, `dir` (back, the default, or forward) | the person's keys go back to the column this one was opened from, or forward again (the river's alt+← backspace alt+b, alt+→ alt+f). The person's: an agent's is refused, its way named (open beside) |
 | `tile.float`, `float.place` | `tile`; `dx` `dy` `col` `row` `cols` `rows` | a tile out of the tree as a float over everything, its own rectangle (kept on screen), or put back in the layout; never the person's tile |
 | `query.pick`, `query.reload` | `tile` (a query tile), `n`, `id` or `by`, `open` | on the desk: an agent's pick is its own (the person's cursor stays); `open=true` opens the card where the tile's opens go. On the board the lanes' own `card.select` moves cursors |
-| `tile.drawer` | `tile`, `open`, `container` (a drawer's id: an outer one holding another) | see below |
+| `tile.slide` | `tile`, `open`, `container` (a dock's id: an outer one holding another) | see below |
 | `layout.lock` | `on` (default toggles) | said on screen; locking never moves the person's focus. While locked, every action that changes the shape is refused with the reason, for agents and the person alike. Three opens fall back instead and say so: `alt+⏎` (a reader beside) opens in place, `ctrl+e` runs the editor over the whole door, and a screen's reader beside (the brief's) isn't added |
-| `layout.policy` | `node` (`s<n>`, `g<n>`, `d<n>`, `c<n>` columns, `screen`; default the innermost container over `tile`), `draggable`, `droppable`, `closable` (off: its tiles stay; `tile.close` is refused with the reason), `accepts` (kinds, comma-separated; `any` clears), `resizable`, `min`, `max`, `fixed` (cells; -1 clears), `collapsible`, `overlay`, `stays` (an open drawer stays open when the keys leave it), `locked`, `opensInto` (a tile that takes notes; empty clears), `clear` (fields, comma-separated) | said on screen; on a locked container only `locked` changes. An agent's `opensInto` changes where the person's opens land: it is attributed like any other change, and the tile's `link` in `layout.get` says `linkFrom: opensInto`. Refusals name the container and the field: `d4 takes only tree, pty: not side (detail)`, `now stays where it is: d4 keeps its tiles (draggable off)` |
-| `tile.preview` | `tile`, `where` (right, down, left, up; default beside a wide tile, else below) | a reader beside the tile where its opens land, opened and linked as one layout step (a reader's is a detail; a terminal's follows its file; anything else's follows its selection), so `link.follow` there lands in it and the tile keeps its note. Its opens already landing in a tile: that one is shown (a fold opened, its drawer slid open, its tab shown unless that hides the person's), `existing: true`; an agent's never takes the person's keys, the person's goes to it. Said on screen |
-| `tile.type`, `tile.restart` (both `touches: tile`, `while: typing`) | `tile` (default: the focused terminal, or the only one; with several and none focused, refused until one is named), `text` | never into the terminal the person is in (the desk's `claude` tile included while they type in it in the dock) |
+| `layout.policy` | `node` (`s<n>`, `g<n>`, `d<n>`, `c<n>` columns, `screen`; default the innermost container over `tile`), `draggable`, `droppable`, `closable` (off: its tiles stay; `tile.close` is refused with the reason), `accepts` (kinds, comma-separated; `any` clears), `resizable`, `min`, `max`, `fixed` (cells; -1 clears), `collapsible`, `overlay`, `stays` (an open dock stays open when the keys leave it), `locked`, `opensInto` (a tile that takes notes; empty clears), `clear` (fields, comma-separated) | said on screen; on a locked container only `locked` changes. An agent's `opensInto` changes where the person's opens land: it is attributed like any other change, and the tile's `link` in `layout.get` says `linkFrom: opensInto`. Refusals name the container and the field: `d4 takes only tree, pty: not side (detail)`, `now stays where it is: d4 keeps its tiles (draggable off)` |
+| `tile.preview` | `tile`, `where` (right, down, left, up; default beside a wide tile, else below) | a reader beside the tile where its opens land, opened and linked as one layout step (a reader's is a detail; a terminal's follows its file; anything else's follows its selection), so `link.follow` there lands in it and the tile keeps its note. Its opens already landing in a tile: that one is shown (a fold opened, its dock slid open, its tab shown unless that hides the person's), `existing: true`; an agent's never takes the person's keys, the person's goes to it. Said on screen |
+| `tile.type`, `tile.restart` (both `touches: tile`, `while: typing`) | `tile` (default: the focused terminal, or the only one; with several and none focused, refused until one is named), `text` | never into the terminal the person is in (the desk's `claude` tile included while they type in it in the drawer) |
 | `tab.select` | `tile`, `by` | never hides the person's tab |
 | `open` | `id`, `reader`, or `from=<tile>` | shows the note in that tile, or with `from`, where that tile's opens land (its link; unlinked, where an agent's open naming neither puts it: where the focused tile's opens land, never a reader the person types in). The board takes `from` too (unlinked, its detail). A program in a tile passes `from=$EP0CH_TILE` and never names a reader. `ep0ch open <id>` is this action. The person's own open gives the tile the keys, an agent's never does. On the welcome and the brief (desks) an agent's lands their own way (the welcome's preview, the brief's step). A screen with no `open` of its own (the menu, a list, a message reader) has the shell's: a message reader opens over it once the person is idle, as for any screen change |
 | `tile.herdr` | `tile`, `pane` (the Herdr pane's label), `on=false` | the terminal tile shows an agent that lives in Herdr: quitting the door ends only the attach. `scripts/door-agent-herdr.ts` calls it as it attaches; cleared when the program exits. Setting it is refused on the terminal the person is typing in (quitting would no longer warn that it ends its program); `on=false` is anyone's |
@@ -398,7 +398,7 @@ gesture; see the README's desk section and `docs/UI-GRAMMAR.md` §7.
 | `marks.next` | | refused while the person is typing, and within 2s of their last key |
 | `tile.resize`, `tile.zoom` | `tile`; `by`, `axis`; `on` | resize by steps; an agent zooms only the person's tile, never one that hides it |
 | `pane.split` | `tile`, `kind`, `dir` (row, col) | `tile.open` along the longer side, with its own arguments; focus stays |
-| `tree.links` | `tile` (an outline tree; on the board, its outline drawer, refused while shut), `n` (a row as `peek`'s `tree.rows` numbers it) or `id`, `show` | shows or hides a row's outlinks, resources and backlinks under it, as the outliner's Tree does (`blocks.authored-links`, `references.backlinks`); registers nothing; the person's selection stays on its row, and hiding the rows it is in is refused |
+| `tree.links` | `tile` (an outline tree; on the board, its outline dock, refused while shut), `n` (a row as `peek`'s `tree.rows` numbers it) or `id`, `show` | shows or hides a row's outlinks, resources and backlinks under it, as the outliner's Tree does (`blocks.authored-links`, `references.backlinks`); registers nothing; the person's selection stays on its row, and hiding the rows it is in is refused |
 | `tree.pick` | `tile`, `n` or `id`, `open` | an agent's pick shows the row's note where the tree's selection goes; `open=true` opens it where the tree's opens go (a group folds; a ticket the Jira extension keeps as a block opens that block; another resource is registered if it must be, fetched once if nothing is stored, and shown, attributed to the agent). Never the person's selection or keys |
 | `projection.refresh` | `tile`, `block` (a page or a ticket block; default the reader's), `line` | fetches the tickets it shows now and runs its extensions' lines (`resources.projection.refresh`): with `line`, only that line (an output or component runs again, an `@name` request is asked again); without it, every line and every `@name` request not answered yet. The service writes as the extension (`ext:jira`, `ext:moon`), never as the agent or the person, and records who ran it as who asked (`asked by an agent (<id>)` on the line); said on the status bar |
 | `ext.<extension>.<action>` | `block` (the note with the handler line, or the block it acts on), `line` (when the note has several of that handler's lines) | an extension's action, named as `extensions.list` names it (`ext.fancy-horror.ward`, `ext.<id>.keep`): the service runs it (`extensions.act`) and what it writes is attributed `ext:<id>`; the status bar says `an agent (<id>) · Fancy Horror: …`. On every screen. A tile kind's actions (`ext.tarot.draw`, `ext.tarot.keep`) take `tile=<the tile>`; `block` defaults to the tile's own; a block action a tile lists (`ext.tarot.keep`) runs on any screen with `block=` too. Who asked goes with it, recorded as the change feed's `requestedBy`. Bound and unbound as the service's extensions change |
@@ -443,19 +443,19 @@ at, and what it does while they're typing:
 | `brief.step`, `tile.focus` on the river | yes: another step, another column | refused, and within 2s of their last key |
 | `link.select` in the reader that has the person's keys | it would move their selection | refused: `link.follow n=` or `tile=` another reader |
 | `layout.load` | rebuilds the desk | refused, and within 2s of their last key |
-| `tile.drawer open=false` on the drawer that has the keys | the keys go to another tile | refused, and within 2s of their last key |
-| `tile.drawer open=true` | no (the person's own opens it and gives it the keys) | allowed |
+| `tile.slide open=false` on the dock that has the keys | the keys go to another tile | refused, and within 2s of their last key |
+| `tile.slide open=true` | no (the person's own opens it and gives it the keys) | allowed |
 | `screen.open`, `screen.back`, `list.select`, `list.open`, `open <id>` on the menu or a list | yes: another screen, or a list's lit row; said on the status bar, and `q` comes back | refused, and within 2s of their last key |
-| `host.toggle open=true` | no: the drawer comes up over (or beside) the screen, refused on a screen whose `host` is `none`; the keys stay where they were | refused, and within 2s of their last key |
-| `host.toggle open=false`, `host.size` | no | refused while they're typing in the drawer |
-| `agent.restart` | no: the agent comes back where it was | refused while they're typing in the drawer, and within 10s of their last key in the agent |
+| `host.toggle open=true` | no: the dock comes up over (or beside) the screen, refused on a screen whose `host` is `none`; the keys stay where they were | refused, and within 2s of their last key |
+| `host.toggle open=false`, `host.size` | no | refused while they're typing in the dock |
+| `agent.restart` | no: the agent comes back where it was | refused while they're typing in the dock, and within 10s of their last key in the agent |
 | `note.new`, `page.create` | no: an agent's makes the note or page and opens nothing; its placement never reads the person's reader | allowed |
 | `open`, the control socket's `open <id>` | no: shown in a tile (the focused tile's link, a following reader, a free detail) | allowed |
 | `open tile=<reader>`, `link.follow`, `element.open`, `props.follow`, `up`, `threads`, `resolve` in the reader that has the person's keys (on the board, the preview they read the lanes through too) | it would move what they're reading | refused, the way named: another reader (`tile=`), or `open id=` naming none (an open naming no tile lands where opens land (the tile's link, the readers row, a reader that follows), which can be the note the person is reading: said on screen, never their keys, never a reader they're typing in). Elsewhere allowed; an agent's `link.follow n=` never moves the person's `[ ]` position |
 | `link.follow`, `element.open` on a web link or a figure | no: an agent never opens the person's browser or system viewer | allowed: the answer gives the address (`outside: browser\|viewer`, `url`, `launched: false`) and the reader says the agent was given it |
 | `tile.open`, `pane.split` (the same code), `tile.preview` | no; a new tab isn't shown over the person's; `tile.preview` finding its preview shows it without the keys | allowed |
-| `layout.move`, `layout.swap` | no; never the tile they're typing in; their tile moved into a shut drawer opens it | the typing tile refused |
-| `tile.pin` | no; a drawer around their tile (or its tab set) starts open | allowed |
+| `layout.move`, `layout.swap` | no; never the tile they're typing in; their tile moved into a shut dock opens it | the typing tile refused |
+| `tile.dock` | no; a dock around their tile (or its tab set) starts open | allowed |
 | `tile.close` | never the focused tile, never a running program | refused for those |
 | `tab.select` | never hides the person's tab | refused for that |
 | `tile.zoom` | only the focused tile, never one that hides it | refused otherwise |
@@ -482,7 +482,7 @@ at, and what it does while they're typing:
 | an agent's `complete insert=` in the person's edit or comment | no | refused (round 3): it would type at their cursor. Looking candidates up (`complete`, `complete text=`) only reads and stays allowed |
 | an agent's reply to an invitation (the person's `@name` line in their own draft) | no: the cursor and view shift with it | `DraftSession.invite` grants one reply for the text above the line, checked by hash; `reply` swaps it in as one undo step, or keeps it as a suggestion when the person changed that text. Two actions take one (`invitation=`, checked by the draft rule, then used up): `comment.write invitation=<id> base=<hash>` rewrites the text above the line through `reply`, and `complete insert=n invitation=<id>` puts one candidate in at their cursor. No key or rendering makes an invitation yet |
 | an agent's `draft.pick`, `composer.pick` (`ctrl+t`, `[insert]`) | it would hand the person's terminal to a picker | refused (`person:`): an agent puts text in their draft with `draft.patch`, or in an edit it opened with `edit.text` |
-| `links` | no: the links tile aims at the note and its drawer opens; the person's keys stay where they are | allowed |
+| `links` | no: the links tile aims at the note and its dock opens; the person's keys stay where they are | allowed |
 | an agent's `draft.patch` on the service (below) | no: it lands in the draft above the mark when it names one, and never in the block being typed in; the cursor, selection and view shift with it | allowed, compared against the text as typed |
 | `proposal.apply` | no | allowed, recorded as whoever runs it; an agent's isn't forced (the same compare as a patch) |
 | `proposal.dismiss` | no | its own proposals only (the actor its patch names, checked by the service), recorded as it; the person dismisses any |
@@ -595,7 +595,7 @@ the person does:
 | `^W x` on a running program | asks; again within 3s ends it | the tile goes |
 | an agent's `tile.close` on a running program | refused | — |
 | the program exits | the tile keeps the person's keys until `⏎` (run again) or `ctrl+]` | — |
-| `layout.load` | same-named tiles keep their programs; others running go in one shut drawer on the right | replaced (refused on a locked screen) |
+| `layout.load` | same-named tiles keep their programs; others running go in one shut dock on the right | replaced (refused on a locked screen) |
 | detaching from a session (ctrl+c, the menu's logoff `G`, closing the terminal, a dropped ssh) | keep running in the session, scrollback and all; the next attach shows them | kept, live |
 | a session handed over (`ep0ch session upgrade`, `restart`) or its daemon dying (`kill -9`, a crash) | keep running in the session's terminal host; the next daemon adopts them, their output replayed, nvim's socket and a Herdr attach remembered | kept; the screens open come back, and at a handoff the edits open |
 | ending a session (`E` on the main menu, `ep0ch session end`; an agent's `session.end` is refused) | asked (programs running), then ended with the session and its terminal host | kept |
@@ -627,7 +627,7 @@ rule now holds by test, not by review:
   (`declaredKeys` in `src/surface/actions.ts`: `q Q`, `⏎`, `esc`, `shift+tab`, `alt+l`, `ctrl+e` or `^E`, `^W x`
   for the desk's window chords, `X then Y` for other chords, `click`, `drag`, `wheel`).
 - **Every key a hint names is declared** by an action the screen lists (`actions`), the shell's or the
-  dock's. A hint is `keys words · keys words` (`hintKeys`); a part that starts with a word names none.
+  drawer's. A hint is `keys words · keys words` (`hintKeys`); a part that starts with a word names none.
 - **Input states** (a prefix such as `^W`, `alt+l` link mode, a palette or filter being typed, a picker, an
   edit, a comment, the property panel, the board's mover and steps overlay, the hub picker) hold the keys
   (`holdsKeys`), so an agent doesn't move the person's screen while they're in one. Typing in them isn't a
@@ -641,12 +641,12 @@ rule now holds by test, not by review:
 more states of the board, the river, the desk and the reader, then presses every key a person can press and
 clicks across the screen, one at a time from where it opens, and from each input state a second key. Every
 action run is traced (`traceActions`). A key or click that changed the screen (its rows and the status bar
-under them, `describe()`, the screen stack, the dock being up, entered or resized, or the video mode)
+under them, `describe()`, the screen stack, the drawer being up, entered or resized, or the video mode)
 without running an action whose `keys` names it fails, as does a hint that
 names an undeclared key. Rows that change by themselves (a clock, a terminal's prompt) are masked, and a change
 with no action is checked once more on a fresh screen before it fails. `PARITY_ONLY=<screen,…>`,
 `PARITY_DEPTH=1` and `PARITY_LOG=<file>` narrow it while working on one screen.
 
 What the probe doesn't reach: a terminal tile's own keys (they're its program's), the logon and logoff, the
-message a key flashes on the status bar (it runs out on a timer), the drawer's own rows (its terminal's), and
+message a key flashes on the status bar (it runs out on a timer), the dock's own rows (its terminal's), and
 ctrl+e in a tile beside the note (the probe edits over the whole door; `desk-tiles.test.ts` covers the tile).

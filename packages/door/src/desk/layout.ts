@@ -1,6 +1,6 @@
 // The layout tree (PIE-412): tiles in containers, one engine for the desk and every screen built on it (the
 // board is one, PIE-511). A split lays its kids side by side (row) or one over another (col), each by its
-// weight. A tab set (PIE-413) stacks tiles in one place, one of them shown. A drawer (PIE-505) holds any tiles
+// weight. A tab set (PIE-413) stacks tiles in one place, one of them shown. A dock (PIE-505) holds any tiles
 // and slides out over the others from an edge: it's placed as if it were pinned, and nothing else moves for
 // it; shut, it takes no room. Columns (PIE-511) are tiles side by side in an order that comes from data (its
 // `source`: the board's lanes are a hub's views), each resizable. A flow (PIE-513) is the river's columns: each
@@ -38,11 +38,11 @@ export interface Policy {
   resizable?: boolean;
   /** Its size along its parent's axis, in cells: at least `min`, at most `max`, or exactly `fixed`. */
   min?: number; max?: number; fixed?: number;
-  /** A drawer can slide shut (to its handle on the hint row). */
+  /** A dock can slide shut (to its handle on the hint row). */
   collapsible?: boolean;
-  /** A drawer slides over the others (true, the default) or takes its room while open (false). */
+  /** A dock slides over the others (true, the default) or takes its room while open (false). */
   overlay?: boolean;
-  /** An open drawer stays open when the keys leave it (the board's backlinks: read a source, the list stays); it shuts by its key. */
+  /** An open dock stays open when the keys leave it (the board's backlinks: read a source, the list stays); it shuts by its key. */
   stays?: boolean;
   /** Task mode: the shape is fixed, the contents stay live. Unlocking is one key (alt+k), a click or `layout.lock`. */
   locked?: boolean;
@@ -58,7 +58,7 @@ export interface Policy {
    */
   keep?: number;
   /**
-   * Closing a tile in it shuts the drawer it's in instead (pinned, it goes back into a drawer first): the board's
+   * Closing a tile in it shuts the dock it's in instead (pinned, it goes back into a dock first): the board's
    * outline and backlinks, whose lists stay theirs.
    */
   shuts?: boolean;
@@ -71,7 +71,7 @@ export interface Policy {
   opens?: OpenRule;
   /**
    * A screen's own (its outermost policy, PIE-513): where the host layer (the agent, the admin outline, terminals,
-   * above every screen) may appear over it: `beside` it (the screen narrower), `over` it (a drawer, the default),
+   * above every screen) may appear over it: `beside` it (the screen narrower), `over` it (a dock, the default),
    * or `none` (a full-screen screen: the host layer stays put away while it's shown).
    */
   host?: HostMode;
@@ -101,11 +101,11 @@ export type Columns<I = number> = { t: "columns"; dir: "row"; kids: LNode<I>[]; 
 /** Tiles stacked in one place (PIE-413): `active` is the one shown; the others keep their state. `id` as a split's. */
 export type Tabs<I = number> = { t: "tabs"; ids: I[]; active: number; id?: string; policy?: Policy };
 /**
- * A drawer (PIE-505): a container holding any tiles (a tile, a tab set, a split of them) that slides out from
+ * A dock (PIE-505): a container holding any tiles (a tile, a tab set, a split of them) that slides out from
  * its `edge` over the others, or shuts to a handle. It sits in its parent split where it is pinned (its weight is
  * its size when open); `overlay: false` in its policy makes it take that room while open instead.
  */
-export type Drawer<I = number> = { t: "drawer"; kid: LNode<I>; edge: Dir; open: boolean; id?: string; policy?: Policy };
+export type Dock<I = number> = { t: "dock"; kid: LNode<I>; edge: Dir; open: boolean; id?: string; policy?: Policy };
 /**
  * A flow (PIE-513): the river's columns as a container. Its kids are columns side by side (a tile, or tiles
  * stacked in a col split), squeezed full, peek or spine around the `anchor` by `flow.ts`, never by weight. It stays
@@ -119,9 +119,9 @@ export type Flow<I = number> = {
 };
 const hasPolicy = (n: { policy?: Policy }) => !!n.policy && Object.keys(n.policy).length > 0;
 const idOf = (n: { id?: string; policy?: Policy }) => ({ ...(n.id ? { id: n.id } : {}), ...(n.policy && Object.keys(n.policy).length ? { policy: { ...n.policy } } : {}) });
-export type LNode<I = number> = { t: "leaf"; id: I } | Split<I> | Tabs<I> | Drawer<I> | Columns<I> | Flow<I>;
-/** What holds tiles: a split, a tab set, a drawer, columns, a flow. */
-export type Container<I = number> = Split<I> | Tabs<I> | Drawer<I> | Columns<I> | Flow<I>;
+export type LNode<I = number> = { t: "leaf"; id: I } | Split<I> | Tabs<I> | Dock<I> | Columns<I> | Flow<I>;
+/** What holds tiles: a split, a tab set, a dock, columns, a flow. */
+export type Container<I = number> = Split<I> | Tabs<I> | Dock<I> | Columns<I> | Flow<I>;
 /** What lays its kids out along an axis: a split or columns (a row) by weight; a flow (a row) by its squeeze. */
 export type Line<I = number> = Split<I> | Columns<I> | Flow<I>;
 export const isLine = <I>(n: LNode<I> | null | undefined): n is Line<I> => !!n && (n.t === "split" || n.t === "columns" || n.t === "flow");
@@ -138,10 +138,10 @@ export interface PlaceOpts<I> {
   fixed?(id: I, dir: Axis): number | undefined;
   /** The fewest cells a kid may have along its parent's axis (default 6 across a row, 3 down a col). */
   min?(n: LNode<I>, dir: Axis, parent: Line<I>): number | undefined;
-  /** A pane that keeps the size its weight gives it (a drawer): a neighbour takes what rounding leaves. */
+  /** A pane that keeps the size its weight gives it (a dock): a neighbour takes what rounding leaves. */
   sized?(id: I): boolean;
-  /** The drawers placed as if pinned, open or shut (where an open one slides out to): every one, or those it names. */
-  asPinned?: boolean | ((d: Drawer<I>) => boolean);
+  /** The docks placed as if pinned, open or shut (where an open one slides out to): every one, or those it names. */
+  asPinned?: boolean | ((d: Dock<I>) => boolean);
   /** A tile holding work (a draft): its flow column resists compression. */
   holds?(id: I): boolean;
 }
@@ -153,8 +153,8 @@ export interface Placed<I = number> {
   /** Where each named split landed. */
   nodes: Map<string, Rect>;
   dividers: Divider<I>[];
-  /** Each drawer met, and the room it had (none when it slides over, or is shut). */
-  drawers?: { node: Drawer<I>; rect: Rect }[];
+  /** Each dock met, and the room it had (none when it slides over, or is shut). */
+  docks?: { node: Dock<I>; rect: Rect }[];
   /** Each tile in a flow: full, peek or spine (PIE-513). */
   covers?: Map<I, Cover>;
   /** A peek's whole box, its right side under its neighbour (its rect is what shows). */
@@ -177,24 +177,24 @@ export const pair = <I>(dir: Axis, ratio: number, a: LNode<I>, b: LNode<I>): Spl
 
 /** Every tile in the tree, a tab set's hidden ones included, in order. */
 export function leaves<I>(n: LNode<I>): I[] {
-  return n.t === "leaf" ? [n.id] : n.t === "tabs" ? [...n.ids] : n.t === "drawer" ? leaves(n.kid) : n.kids.flatMap(k => leaves(k));
+  return n.t === "leaf" ? [n.id] : n.t === "tabs" ? [...n.ids] : n.t === "dock" ? leaves(n.kid) : n.kids.flatMap(k => leaves(k));
 }
-/** A container's kids: a split's or columns', a drawer's one; a tab set's tiles aren't nodes. */
-export const kidsOf = <I>(n: LNode<I>): LNode<I>[] => (isLine(n) ? n.kids : n.t === "drawer" ? [n.kid] : []);
+/** A container's kids: a split's or columns', a dock's one; a tab set's tiles aren't nodes. */
+export const kidsOf = <I>(n: LNode<I>): LNode<I>[] => (isLine(n) ? n.kids : n.t === "dock" ? [n.kid] : []);
 /** The tiles on screen: a tab set shows its active one. */
 export function shown<I>(n: LNode<I>): I[] {
   return n.t === "leaf" ? [n.id] : n.t === "tabs" ? (n.ids[n.active] === undefined ? [] : [n.ids[n.active]!]) : kidsOf(n).flatMap(k => shown(k));
 }
-/** The tiles on screen with the shut drawers' left out: what has a rectangle now. */
+/** The tiles on screen with the shut docks' left out: what has a rectangle now. */
 export function visible<I>(n: LNode<I>): I[] {
-  return n.t === "drawer" && !n.open ? [] : n.t === "leaf" || n.t === "tabs" ? shown(n) : kidsOf(n).flatMap(k => visible(k));
+  return n.t === "dock" && !n.open ? [] : n.t === "leaf" || n.t === "tabs" ? shown(n) : kidsOf(n).flatMap(k => visible(k));
 }
 export const has = <I>(n: LNode<I> | null, id: I): boolean => !!n && leaves(n).includes(id);
 const holds = <I>(n: LNode<I>, id: I): boolean => (n.t === "leaf" ? n.id === id : n.t === "tabs" ? n.ids.includes(id) : kidsOf(n).some(k => holds(k, id)));
 
 /** The named split (or columns), if it's in the tree. */
 export function node<I>(n: LNode<I>, key: string): Line<I> | null {
-  if (n.t === "drawer") return node(n.kid, key);
+  if (n.t === "dock") return node(n.kid, key);
   if (!isLine(n)) return null;
   if (n.key === key) return n;
   for (const k of n.kids) { const f = node(k, key); if (f) return f; }
@@ -203,7 +203,7 @@ export function node<I>(n: LNode<I>, key: string): Line<I> | null {
 
 /** The split (or columns) holding the leaf `id` (or the named split `key`) directly, and where. A tile in a tab set is where its tab set is. */
 export function parentOf<I>(n: LNode<I>, target: I | { key: string }): { parent: Line<I>; i: number } | null {
-  if (n.t === "drawer") return parentOf(n.kid, target);
+  if (n.t === "dock") return parentOf(n.kid, target);
   if (!isLine(n)) return null;
   const i = n.kids.findIndex(k => (typeof target === "object" && target !== null && "key" in target ? isLine(k) && k.key === target.key : (k.t === "leaf" && k.id === target) || (k.t === "tabs" && k.ids.includes(target as I))));
   if (i >= 0) return { parent: n, i };
@@ -231,9 +231,9 @@ const cells = (x: unknown): number | undefined => (typeof x === "number" && Numb
  */
 export function place<I>(n: LNode<I>, r: Rect, opts: PlaceOpts<I> = {}, out: Placed<I> = { rects: new Map(), nodes: new Map(), dividers: [] }): Placed<I> {
   if (n.t === "leaf") { out.rects.set(n.id, r); return out; }
-  if (n.t === "drawer") {
-    (out.drawers ??= []).push({ node: n, rect: r });
-    // A drawer given no room (sliding over, or shut) places nothing here: its tiles are placed where it slides out.
+  if (n.t === "dock") {
+    (out.docks ??= []).push({ node: n, rect: r });
+    // A dock given no room (sliding over, or shut) places nothing here: its tiles are placed where it slides out.
     if (r.cols > 0 && r.rows > 0) place(n.kid, r, opts, out);
     return out;
   }
@@ -247,10 +247,10 @@ export function place<I>(n: LNode<I>, r: Rect, opts: PlaceOpts<I> = {}, out: Pla
   if (n.key) out.nodes.set(n.key, r);
   // Columns are placed as a row split is.
   const row = n.dir === "row", S = row ? r.cols : r.rows;
-  // A tab set is sized as the tab it shows (a drawer's tab set slides over like a drawer). A drawer sliding
+  // A tab set is sized as the tab it shows (a dock's tab set slides over like a dock). A dock sliding
   // over, or shut, takes no room (unless placed as pinned); a container's policy can fix its size.
   const fixed = n.kids.map(k => (k.t === "leaf" ? opts.fixed?.(k.id, n.dir) : k.t === "tabs" && k.ids[k.active] !== undefined ? opts.fixed?.(k.ids[k.active]!, n.dir) ?? cells(k.policy?.fixed)
-    : k.t === "drawer" && !(opts.asPinned === true || (typeof opts.asPinned === "function" && opts.asPinned(k))) && (!k.open || k.policy?.overlay !== false) ? 0 : cells(k.policy?.fixed)));
+    : k.t === "dock" && !(opts.asPinned === true || (typeof opts.asPinned === "function" && opts.asPinned(k))) && (!k.open || k.policy?.overlay !== false) ? 0 : cells(k.policy?.fixed)));
   const mins = n.kids.map(k => cells(k.t !== "leaf" ? k.policy?.min : undefined) ?? opts.min?.(k, n.dir, n) ?? (row ? MIN_COLS : MIN_ROWS));
   const maxs = n.kids.map(k => cells(k.t !== "leaf" ? k.policy?.max : undefined));
   const open = n.kids.map((_, i) => i).filter(i => fixed[i] === undefined);
@@ -322,7 +322,7 @@ export function beside<I>(root: LNode<I>, target: I | { key: string }, add: LNod
   const isTarget = (n: LNode<I>) => (typeof target === "object" && target !== null && "key" in target ? isLine(n) && n.key === target.key : (n.t === "leaf" && n.id === target) || (n.t === "tabs" && n.ids.includes(target as I)));
   const go = (n: LNode<I>): LNode<I> => {
     if (isTarget(n)) return wrap(n);
-    if (n.t === "drawer") return { ...n, kid: go(n.kid) };
+    if (n.t === "dock") return { ...n, kid: go(n.kid) };
     if (!isLine(n)) return n;
     return { ...n, kids: n.kids.map(go) };
   };
@@ -343,7 +343,7 @@ export function split<I>(n: LNode<I>, id: I, add: I, r: Rect, dir?: Axis): LNode
 /** Add a leaf to the named split (or columns) at `index` (default the end) with `weight`. */
 export function insert<I>(root: LNode<I>, key: string, add: LNode<I>, weight: number, index?: number): LNode<I> {
   const go = (n: LNode<I>): LNode<I> => {
-    if (n.t === "drawer") return { ...n, kid: go(n.kid) };
+    if (n.t === "dock") return { ...n, kid: go(n.kid) };
     if (!isLine(n)) return n;
     if (n.key === key) {
       const at = index ?? n.kids.length;
@@ -357,8 +357,8 @@ export function insert<I>(root: LNode<I>, key: string, add: LNode<I>, weight: nu
 /** Take leaf `id` out. A split left with one kid gives way to it, unless it's named. Null when nothing's left. */
 export function remove<I>(n: LNode<I>, id: I): LNode<I> | null {
   if (n.t === "leaf") return n.id === id ? null : n;
-  // A drawer left with nothing in it is gone too.
-  if (n.t === "drawer") { const k = remove(n.kid, id); return k ? { ...n, kid: k } : null; }
+  // A dock left with nothing in it is gone too.
+  if (n.t === "dock") { const k = remove(n.kid, id); return k ? { ...n, kid: k } : null; }
   if (n.t === "tabs") {
     const at = n.ids.indexOf(id);
     if (at < 0) return n;
@@ -400,8 +400,8 @@ export function swapLeaf<I>(n: LNode<I>, from: I, to: I): boolean {
  * within `bounds`. False when no split along that axis holds it. Changes the tree in place.
  */
 export function resize<I>(n: LNode<I>, id: I, dir: Axis, delta: number, bounds: [number, number] = [0.1, 0.9]): boolean {
-  // Inside a drawer first; with no border there, the drawer's own (in its parent) moves.
-  if (n.t === "drawer") return resize(n.kid, id, dir, delta, bounds);
+  // Inside a dock first; with no border there, the dock's own (in its parent) moves.
+  if (n.t === "dock") return resize(n.kid, id, dir, delta, bounds);
   if (!isLine(n)) return false;
   const i = n.kids.findIndex(k => holds(k, id));
   if (i < 0) return false;
@@ -425,16 +425,16 @@ export function grow<I>(root: LNode<I>, id: I, delta: number, lo: number, hi: nu
 
 /** Every split shares its room equally (the desk's `^W =`). */
 export function even<I>(n: LNode<I>, skip?: (n: Line<I>) => boolean): void {
-  if (n.t === "drawer") return even(n.kid, skip);
+  if (n.t === "dock") return even(n.kid, skip);
   if (!isLine(n)) return;
   n.kids.forEach(k => even(k, skip));
   // A flow's columns aren't sized by weight: its squeeze sizes them.
   if (skip?.(n) || n.t === "flow") return;
-  // A drawer's weight is its size when it slides out: it keeps its share, and the pinned kids share the rest.
+  // A dock's weight is its size when it slides out: it keeps its share, and the pinned kids share the rest.
   const total = n.weights.reduce((a, w) => a + w, 0) || 1;
-  const kept = n.kids.reduce((a, k, i) => a + (k.t === "drawer" ? n.weights[i]! / total : 0), 0);
-  const pinned = n.kids.filter(k => k.t !== "drawer").length;
-  n.weights = n.kids.map((k, i) => (k.t === "drawer" ? n.weights[i]! / total : (1 - kept) / pinned));
+  const kept = n.kids.reduce((a, k, i) => a + (k.t === "dock" ? n.weights[i]! / total : 0), 0);
+  const pinned = n.kids.filter(k => k.t !== "dock").length;
+  n.weights = n.kids.map((k, i) => (k.t === "dock" ? n.weights[i]! / total : (1 - kept) / pinned));
 }
 
 /** The pane whose rect lies in `dir` from `from`, nearest by edge gap then by centre offset. */
@@ -484,7 +484,7 @@ export function dividerAt<I>(dividers: Divider<I>[], x: number, y: number): Grab
   return null;
 }
 
-// ── a screen: the tree, the drawers sliding over it, the floats ─────────────
+// ── a screen: the tree, the docks sliding over it, the floats ─────────────
 
 /** A tile with its own rectangle, above everything (`tile.float`): which tile, and where. */
 export interface Float<I = number> { id: I; rect: Rect }
@@ -496,32 +496,32 @@ export interface ScreenLayout<I = number> {
 
 export interface PlacedScreen<I = number> extends Placed<I> {
   /**
-   * Each open drawer container sliding over (PIE-505), bottom first: where it slid out to, the border it
+   * Each open dock container sliding over (PIE-505), bottom first: where it slid out to, the border it
    * shares with its neighbour there (a drag sizes it), and its tiles placed inside it.
    */
-  slid: PlacedDrawer<I>[];
+  slid: PlacedDock<I>[];
 }
-export interface PlacedDrawer<I = number> { node: Drawer<I>; rect: Rect; divider: Divider<I> | null; placed: Placed<I> }
+export interface PlacedDock<I = number> { node: Dock<I>; rect: Rect; divider: Divider<I> | null; placed: Placed<I> }
 
-/** The drawers in a layer of the tree: those in it, not inside another drawer. */
-function drawersIn<I>(n: LNode<I>): Drawer<I>[] { return n.t === "drawer" ? [n] : isLine(n) ? n.kids.flatMap(drawersIn) : []; }
+/** The docks in a layer of the tree: those in it, not inside another dock. */
+function docksIn<I>(n: LNode<I>): Dock<I>[] { return n.t === "dock" ? [n] : isLine(n) ? n.kids.flatMap(docksIn) : []; }
 
 /**
- * Place a screen: the pinned tiles as if the sliding drawers took no room (the tree itself is placed and its
- * borders are the real splits a drag changes), then each open drawer container (PIE-505) where pinning would
- * put it, its own tiles (and any drawer inside it) placed in the room it slid out to. Floats keep their own
+ * Place a screen: the pinned tiles as if the sliding docks took no room (the tree itself is placed and its
+ * borders are the real splits a drag changes), then each open dock container (PIE-505) where pinning would
+ * put it, its own tiles (and any dock inside it) placed in the room it slid out to. Floats keep their own
  * rectangles; the view draws them last.
  */
 export function placeScreen<I>(s: ScreenLayout<I>, r: Rect, opts: PlaceOpts<I> = {}): PlacedScreen<I> {
   const base = place(s.root, r, opts);
   const out: PlacedScreen<I> = { ...base, slid: [] };
   const slide = (layer: LNode<I>, area: Rect) => {
-    const open = drawersIn(layer).filter(d => d.open && d.policy?.overlay !== false);
+    const open = docksIn(layer).filter(d => d.open && d.policy?.overlay !== false);
     if (!open.length) return;
     for (const d of open) {
-      // Where it lands pinned, the others in this layer as they are (another drawer here takes no room).
+      // Where it lands pinned, the others in this layer as they are (another dock here takes no room).
       const full = place(layer, area, { ...opts, asPinned: x => x === d });
-      const rect = full.drawers?.find(x => x.node === d)?.rect ?? area;
+      const rect = full.docks?.find(x => x.node === d)?.rect ?? area;
       const divider = full.dividers.find(x => x.node.kids[x.i] === d || x.node.kids[x.i + 1] === d) ?? null;
       const placed = place(d.kid, rect, opts);
       out.slid.push({ node: d, rect, divider, placed });
@@ -529,8 +529,8 @@ export function placeScreen<I>(s: ScreenLayout<I>, r: Rect, opts: PlaceOpts<I> =
     }
   };
   slide(s.root, r);
-  // An open drawer that takes its room (overlay: false) is placed where it is; one inside it slides over that.
-  for (const d of base.drawers ?? []) if (d.rect.cols > 0 && d.rect.rows > 0) slide(d.node.kid, d.rect);
+  // An open dock that takes its room (overlay: false) is placed where it is; one inside it slides over that.
+  for (const d of base.docks ?? []) if (d.rect.cols > 0 && d.rect.rows > 0) slide(d.node.kid, d.rect);
   return out;
 }
 
@@ -554,7 +554,7 @@ export function tabsOf<I>(n: LNode<I>, id: I): Tabs<I> | null {
 function mapSlot<I>(n: LNode<I>, id: I, f: (slot: LNode<I>) => LNode<I>): LNode<I> {
   if (n.t === "leaf") return n.id === id ? f(n) : n;
   if (n.t === "tabs") return n.ids.includes(id) ? f(n) : n;
-  if (n.t === "drawer") return { ...n, kid: mapSlot(n.kid, id, f) };
+  if (n.t === "dock") return { ...n, kid: mapSlot(n.kid, id, f) };
   return { ...n, kids: n.kids.map(k => mapSlot(k, id, f)) } as LNode<I>;
 }
 
@@ -648,7 +648,7 @@ export function reorder<I>(root: LNode<I>, id: I, index: number): LNode<I> | nul
   return out;
 }
 
-// ── containers: drawers and policy (PIE-505) ────────────────────────────────
+// ── containers: docks and policy (PIE-505) ────────────────────────────────
 
 /** The containers from the root down to tile `id`, outermost first (its tab set last, when it's in one). Empty when absent. */
 export function chainOf<I>(n: LNode<I>, id: I): Container<I>[] {
@@ -657,12 +657,12 @@ export function chainOf<I>(n: LNode<I>, id: I): Container<I>[] {
   for (const k of kidsOf(n)) { if (!holds(k, id)) continue; return [n, ...chainOf(k, id)]; }
   return [];
 }
-/** The innermost drawer holding tile `id`, if any. */
-export function drawerOf<I>(root: LNode<I>, id: I): Drawer<I> | null {
-  return (chainOf(root, id).filter(n => n.t === "drawer") as Drawer<I>[]).at(-1) ?? null;
+/** The innermost dock holding tile `id`, if any. */
+export function dockOf<I>(root: LNode<I>, id: I): Dock<I> | null {
+  return (chainOf(root, id).filter(n => n.t === "dock") as Dock<I>[]).at(-1) ?? null;
 }
-/** Every drawer in the tree, outermost first. */
-export function drawers<I>(n: LNode<I>): Drawer<I>[] { return [...(n.t === "drawer" ? [n] : []), ...kidsOf(n).flatMap(k => drawers(k))]; }
+/** Every dock in the tree, outermost first. */
+export function docks<I>(n: LNode<I>): Dock<I>[] { return [...(n.t === "dock" ? [n] : []), ...kidsOf(n).flatMap(k => docks(k))]; }
 /** The container with this id (`s3`, `g2`, `d1`). */
 export function nodeById<I>(n: LNode<I>, id: string): Container<I> | null {
   if (n.t === "leaf") return null;
@@ -672,7 +672,7 @@ export function nodeById<I>(n: LNode<I>, id: string): Container<I> | null {
 }
 /** The split (or columns) holding container `c` as a kid, and where. */
 export function parentNode<I>(root: LNode<I>, c: LNode<I>): { parent: Line<I>; i: number } | null {
-  if (root.t === "drawer") return parentNode(root.kid, c);
+  if (root.t === "dock") return parentNode(root.kid, c);
   if (!isLine(root)) return null;
   const i = root.kids.indexOf(c);
   if (i >= 0) return { parent: root, i };
@@ -684,12 +684,12 @@ export function parentNode<I>(root: LNode<I>, c: LNode<I>): { parent: Line<I>; i
 const edgeAt = (dir: Axis, i: number, n: number): Dir => (dir === "row" ? (i === 0 || i < n - 1 ? "left" : "right") : (i === 0 || i < n - 1 ? "up" : "down"));
 
 /**
- * Put the slot holding tile `id` (its tab set, or the tile) in a drawer, where it is, sliding from the edge it
- * sits at; with `to`, the drawer goes along that outer edge of the whole layout instead (a full-height drawer on
- * the left). Null when there's nothing for it to slide over, or it's in a drawer already.
+ * Put the slot holding tile `id` (its tab set, or the tile) in a dock, where it is, sliding from the edge it
+ * sits at; with `to`, the dock goes along that outer edge of the whole layout instead (a full-height dock on
+ * the left). Null when there's nothing for it to slide over, or it's in a dock already.
  */
-export function wrapDrawer<I>(root: LNode<I>, id: I, to?: Dir, open = true, weight = 0.26): LNode<I> | null {
-  if (!has(root, id) || drawerOf(root, id) || leaves(root).length < 2) return null;
+export function wrapDock<I>(root: LNode<I>, id: I, to?: Dir, open = true, weight = 0.26): LNode<I> | null {
+  if (!has(root, id) || dockOf(root, id) || leaves(root).length < 2) return null;
   const set = tabsOf(root, id);
   if (set && leaves(root).every(x => set.ids.includes(x))) return null;
   if (to) {
@@ -700,19 +700,19 @@ export function wrapDrawer<I>(root: LNode<I>, id: I, to?: Dir, open = true, weig
     const kid: LNode<I> = set ? { t: "tabs", ids: [...set.ids], active: set.active, ...idOf(set) } : leaf(id);
     if (set) for (const x of set.ids) if (x !== id) r = r && remove(r, x);
     if (!r) return null;
-    return keepsPinned(toEdge(r, { t: "drawer", kid, edge: to, open }, weight));
+    return keepsPinned(toEdge(r, { t: "dock", kid, edge: to, open }, weight));
   }
   const p = parentOf(root, id);
   const edge = p ? edgeAt(p.parent.dir, p.i, p.parent.kids.length) : "left";
-  return keepsPinned(mapSlot(root, id, slot => ({ t: "drawer", kid: slot, edge, open })));
+  return keepsPinned(mapSlot(root, id, slot => ({ t: "dock", kid: slot, edge, open })));
 }
-/** The tiles pinned: in no drawer. A screen keeps at least one, or a drawer has nothing to slide over. */
-export function pinnedTiles<I>(n: LNode<I>): I[] { return n.t === "drawer" ? [] : n.t === "leaf" || n.t === "tabs" ? leaves(n) : kidsOf(n).flatMap(k => pinnedTiles(k)); }
-/** The tree, when a tile is still pinned in it; else null (every tile would be in a drawer: a blank screen). */
+/** The tiles pinned: in no dock. A screen keeps at least one, or a dock has nothing to slide over. */
+export function pinnedTiles<I>(n: LNode<I>): I[] { return n.t === "dock" ? [] : n.t === "leaf" || n.t === "tabs" ? leaves(n) : kidsOf(n).flatMap(k => pinnedTiles(k)); }
+/** The tree, when a tile is still pinned in it; else null (every tile would be in a dock: a blank screen). */
 const keepsPinned = <I>(n: LNode<I> | null): LNode<I> | null => (n && pinnedTiles(n).length ? n : null);
-/** The drawer goes along outer edge `to` of `rest` (the whole layout), taking `weight` of it when it slides out. */
-function toEdge<I>(rest: LNode<I>, d: Drawer<I>, weight: number): LNode<I> {
-  const dr = { ...d, edge: d.edge } as Drawer<I>;
+/** The dock goes along outer edge `to` of `rest` (the whole layout), taking `weight` of it when it slides out. */
+function toEdge<I>(rest: LNode<I>, d: Dock<I>, weight: number): LNode<I> {
+  const dr = { ...d, edge: d.edge } as Dock<I>;
   const ax = axisOf(dr.edge);
   // Inside a split along the same axis, it joins it at that end.
   if (rest.t === "split" && rest.dir === ax && !rest.key) {
@@ -723,12 +723,12 @@ function toEdge<I>(rest: LNode<I>, d: Drawer<I>, weight: number): LNode<I> {
   return before(dr.edge) ? splitOf(ax, [dr, rest], [weight, 1 - weight]) : splitOf(ax, [rest, dr], [1 - weight, weight]);
 }
 /**
- * Move drawer `d` to outer edge `to` of the whole layout, keeping what it holds, its id and policy. A drawer that is
+ * Move dock `d` to outer edge `to` of the whole layout, keeping what it holds, its id and policy. A dock that is
  * the first or last of the whole layout along its own axis keeps the share of the screen it slides out to (the
  * board's outline is 0.3 of it, and `S` moving it across keeps that; moved to a top or bottom edge, 0.3 of the
- * height). Any other drawer takes `weight`, else 0.26.
+ * height). Any other dock takes `weight`, else 0.26.
  */
-export function drawerToEdge<I>(root: LNode<I>, d: Drawer<I>, to: Dir, weight?: number): LNode<I> | null {
+export function dockToEdge<I>(root: LNode<I>, d: Dock<I>, to: Dir, weight?: number): LNode<I> | null {
   const rest = without(root, d);
   if (!rest) return null;
   const p = parentNode(root, d);
@@ -737,22 +737,22 @@ export function drawerToEdge<I>(root: LNode<I>, d: Drawer<I>, to: Dir, weight?: 
   return toEdge(rest, { ...d, edge: to }, weight ?? (outer !== null && outer > 0 && outer < 1 ? outer : 0.26));
 }
 /**
- * Put container `c` (a split of tiles, say) in a drawer where it is, sliding from the edge it sits at; with `to`,
- * along that outer edge of the whole layout. Null when it's the whole layout, or in a drawer already.
+ * Put container `c` (a split of tiles, say) in a dock where it is, sliding from the edge it sits at; with `to`,
+ * along that outer edge of the whole layout. Null when it's the whole layout, or in a dock already.
  */
-export function wrapNodeDrawer<I>(root: LNode<I>, c: Container<I>, to?: Dir, open = true, weight = 0.26): LNode<I> | null {
-  if (root === c || chainOfNode(root, c).some(n => n.t === "drawer")) return null;
+export function wrapNodeDock<I>(root: LNode<I>, c: Container<I>, to?: Dir, open = true, weight = 0.26): LNode<I> | null {
+  if (root === c || chainOfNode(root, c).some(n => n.t === "dock")) return null;
   if (to) {
     const rest = without(root, c);
     if (!rest) return null;
-    return keepsPinned(toEdge(rest, { t: "drawer", kid: c, edge: to, open }, weight));
+    return keepsPinned(toEdge(rest, { t: "dock", kid: c, edge: to, open }, weight));
   }
   const p = parentNode(root, c);
   if (!p) return null;
-  // Every other tile in a drawer already: this one is what's left pinned.
+  // Every other tile in a dock already: this one is what's left pinned.
   if (!pinnedTiles(root).some(id => !leaves(c).includes(id))) return null;
   const edge = edgeAt(p.parent.dir, p.i, p.parent.kids.length);
-  p.parent.kids[p.i] = { t: "drawer", kid: c, edge, open };
+  p.parent.kids[p.i] = { t: "dock", kid: c, edge, open };
   return root;
 }
 /** The containers from the root down to container `c` (not `c` itself), outermost first. */
@@ -766,7 +766,7 @@ const containsNode = <I>(n: LNode<I>, c: LNode<I>): boolean => n === c || kidsOf
 /** The tree with node `c` taken out (its split gives way as a tile's does). */
 function without<I>(n: LNode<I>, c: LNode<I>): LNode<I> | null {
   if (n === c) return null;
-  if (n.t === "drawer") { const k = without(n.kid, c); return k ? { ...n, kid: k } : null; }
+  if (n.t === "dock") { const k = without(n.kid, c); return k ? { ...n, kid: k } : null; }
   if (!isLine(n)) return n;
   const kids: LNode<I>[] = [], weights: number[] = [];
   n.kids.forEach((k, i) => { const r = without(k, c); if (r) { kids.push(r); weights.push(n.weights[i]!); } });
@@ -777,9 +777,9 @@ function without<I>(n: LNode<I>, c: LNode<I>): LNode<I> | null {
   if (kids.length === 1 && !n.key && !hasPolicy(n)) return kids[0]!;
   return { ...n, kids, weights };
 }
-/** Drawer `d` gives way to what it holds, pinned where it was. */
-export function unwrapDrawer<I>(root: LNode<I>, d: Drawer<I>): LNode<I> {
-  const go = (n: LNode<I>): LNode<I> => (n === d ? d.kid : n.t === "drawer" ? { ...n, kid: go(n.kid) } : isLine(n) ? { ...n, kids: n.kids.map(go) } : n);
+/** Dock `d` gives way to what it holds, pinned where it was. */
+export function unwrapDock<I>(root: LNode<I>, d: Dock<I>): LNode<I> {
+  const go = (n: LNode<I>): LNode<I> => (n === d ? d.kid : n.t === "dock" ? { ...n, kid: go(n.kid) } : isLine(n) ? { ...n, kids: n.kids.map(go) } : n);
   return go(root);
 }
 
@@ -811,7 +811,7 @@ export function effective(layers: { by: string; policy?: Policy; flow?: boolean 
   return out;
 }
 
-/** Drop the ids (`s<n>`, `g<n>`, `d<n>`, `c<n>`, `f<n>`) of the splits, tab sets, drawers, columns and flows whose number `gone` says was given out already. */
+/** Drop the ids (`s<n>`, `g<n>`, `d<n>`, `c<n>`, `f<n>`) of the splits, tab sets, docks, columns and flows whose number `gone` says was given out already. */
 export function forgetIds<I>(n: LNode<I>, gone: (num: number) => boolean): void {
   if (n.t === "leaf") return;
   const m = n.id ? /^[sgdcf](\d+)$/.exec(n.id) : null;
@@ -823,7 +823,7 @@ export function forgetIds<I>(n: LNode<I>, gone: (num: number) => boolean): void 
 export function clone<I>(n: LNode<I>): LNode<I> {
   if (n.t === "leaf") return { t: "leaf", id: n.id };
   if (n.t === "tabs") return { t: "tabs", ids: [...n.ids], active: n.active, ...idOf(n) };
-  if (n.t === "drawer") return { ...n, kid: clone(n.kid), ...idOf(n) };
+  if (n.t === "dock") return { ...n, kid: clone(n.kid), ...idOf(n) };
   if (n.t === "flow") return { ...n, kids: n.kids.map(clone), weights: [...n.weights], ...(n.held ? { held: [...n.held] } : {}), ...(n.trail ? { trail: n.trail.map(t => ({ ...t })) } : {}), ...idOf(n) };
   return { ...n, kids: n.kids.map(clone), weights: [...n.weights], ...idOf(n) } as LNode<I>;
 }
@@ -836,12 +836,12 @@ export function clone<I>(n: LNode<I>): LNode<I> {
  */
 export function normalise<I>(n: LNode<I>, min = 0.05, top = true): LNode<I> {
   if (n.t === "leaf") return n;
-  if (n.t === "drawer") {
+  if (n.t === "dock") {
     const k = normalise(n.kid, min, false);
-    // A drawer with nothing over which to slide (the whole layout) is just what it holds.
+    // A dock with nothing over which to slide (the whole layout) is just what it holds.
     if (top) return k;
-    // A drawer straight inside a drawer is one drawer (the outer's edge and state; a policy from either).
-    return k.t === "drawer" ? { ...n, kid: k.kid, ...(n.policy || k.policy ? { policy: n.policy ?? k.policy } : {}) } : { ...n, kid: k };
+    // A dock straight inside a dock is one dock (the outer's edge and state; a policy from either).
+    return k.t === "dock" ? { ...n, kid: k.kid, ...(n.policy || k.policy ? { policy: n.policy ?? k.policy } : {}) } : { ...n, kid: k };
   }
   if (n.t === "tabs") {
     const ids = [...new Set(n.ids)];
@@ -864,7 +864,7 @@ export function normalise<I>(n: LNode<I>, min = 0.05, top = true): LNode<I> {
   let kids: LNode<I>[] = [], weights: number[] = [];
   n.kids.forEach((k0, i) => {
     const k = normalise(k0, min, false);
-    // A tab set with no tabs left, a split with no kids, or a drawer holding neither takes no room: it's gone.
+    // A tab set with no tabs left, a split with no kids, or a dock holding neither takes no room: it's gone.
     if (empty(k)) return;
     const w = good(n.weights[i]) ? n.weights[i]! : 1;
     if (k.t === "split" && k.dir === n.dir && !k.key && !n.key && !k.policy) {
@@ -876,8 +876,8 @@ export function normalise<I>(n: LNode<I>, min = 0.05, top = true): LNode<I> {
   // place: a tile moved back in is under it again).
   if (kids.length === 1 && !n.key && !hasPolicy(n)) {
     let only = kids[0]!;
-    // At the top a lone drawer has nothing to slide over: it's what it holds.
-    if (top && only.t === "drawer") only = only.kid;
+    // At the top a lone dock has nothing to slide over: it's what it holds.
+    if (top && only.t === "dock") only = only.kid;
     return only;
   }
   if (!kids.length) return { ...n, kids, weights };
@@ -891,8 +891,8 @@ export function normalise<I>(n: LNode<I>, min = 0.05, top = true): LNode<I> {
 // ── saved forms ──────────────────────────────────────────────────────────────
 
 /** The desk.json form before PIE-412: binary splits by ratio. The desk still writes it (it only makes pairs). */
-export type BinaryForm<L> = L | { t: "split"; dir: Axis; ratio: number; a: BinaryForm<L>; b: BinaryForm<L>; id?: string; policy?: Policy } | DrawerForm<L> | ColumnsForm<L> | FlowForm<L>;
-export type NaryForm<L> = L | { t: "split"; dir: Axis; kids: NaryForm<L>[]; weights: number[]; key?: string; id?: string; policy?: Policy } | TabsForm<L> | DrawerForm<L> | ColumnsForm<L> | FlowForm<L>;
+export type BinaryForm<L> = L | { t: "split"; dir: Axis; ratio: number; a: BinaryForm<L>; b: BinaryForm<L>; id?: string; policy?: Policy } | DockForm<L> | ColumnsForm<L> | FlowForm<L>;
+export type NaryForm<L> = L | { t: "split"; dir: Axis; kids: NaryForm<L>[]; weights: number[]; key?: string; id?: string; policy?: Policy } | TabsForm<L> | DockForm<L> | ColumnsForm<L> | FlowForm<L>;
 /**
  * A flow as saved (PIE-513): its columns, and its memory by column number (0 the first): the wide one, the one kept
  * full, the one read before, the held ones, and each column's way back (`from`) and forward (`ahead`).
@@ -902,13 +902,13 @@ export type FlowForm<L> = { t: "flow"; kids: NaryForm<L>[]; anchor?: number; kee
 export type ColumnsForm<L> = { t: "columns"; kids: NaryForm<L>[]; weights: number[]; source?: string; key?: string; id?: string; policy?: Policy };
 /** A tab set as saved: its tiles and which one is shown. `id` (a split's too): absent in a form saved before PIE-491. */
 export type TabsForm<L> = { t: "tabs"; tabs: L[]; active: number; id?: string; policy?: Policy };
-/** A drawer as saved (PIE-505): what it holds, its edge, open or shut. */
-export type DrawerForm<L> = { t: "drawer"; kid: NaryForm<L>; edge: Dir; open: boolean; id?: string; policy?: Policy };
+/** A dock as saved (PIE-505): what it holds, its edge, open or shut. */
+export type DockForm<L> = { t: "dock"; kid: NaryForm<L>; edge: Dir; open: boolean; id?: string; policy?: Policy };
 const savedId = (x: any) => ({ ...(typeof x?.id === "string" && x.id ? { id: x.id as string } : {}), ...savedPolicy(x?.policy) });
 const DIRS: readonly Dir[] = ["left", "right", "up", "down"];
-/** The glyph a drawer's header, its handle and a drop into it show for the edge it slides from. */
+/** The glyph a dock's header, its handle and a drop into it show for the edge it slides from. */
 export const EDGE_GLYPH: Record<Dir, string> = { left: "⇤", right: "⇥", up: "⤒", down: "⤓" };
-/** An edge in words, as the status bar says it: "a drawer on the top". */
+/** An edge in words, as the status bar says it: "a dock on the top". */
 export const EDGE_WORD: Record<Dir, string> = { left: "left", right: "right", up: "top", down: "bottom" };
 export const isDir = (x: unknown): x is Dir => typeof x === "string" && (DIRS as readonly string[]).includes(x);
 
@@ -937,7 +937,7 @@ export function revive<L extends { t: "leaf" }, I>(s: BinaryForm<L> | NaryForm<L
   if (!s || typeof s !== "object") return { t: "tabs", ids: [], active: 0 };
   if (s.t === "leaf") return leaf(leafOf(s as L));
   const x = s as any;
-  if (x.t === "drawer") return { t: "drawer", kid: x.kid ? revive(x.kid, leafOf) : { t: "tabs", ids: [], active: 0 }, edge: isDir(x.edge) ? x.edge : "left", open: x.open === true, ...savedId(x) };
+  if (x.t === "dock") return { t: "dock", kid: x.kid ? revive(x.kid, leafOf) : { t: "tabs", ids: [], active: 0 }, edge: isDir(x.edge) ? x.edge : "left", open: x.open === true, ...savedId(x) };
   if (x.t === "flow") {
     const kids: LNode<I>[] = (Array.isArray(x.kids) ? x.kids : []).map((k: any) => revive(k, leafOf));
     const col = (i: unknown): I | undefined => (Number.isInteger(i) && (i as number) >= 0 && kids[i as number] ? leaves(kids[i as number]!)[0] : undefined);
@@ -974,13 +974,13 @@ export function revive<L extends { t: "leaf" }, I>(s: BinaryForm<L> | NaryForm<L
 
 const good = (w: unknown): w is number => typeof w === "number" && Number.isFinite(w) && w > 0;
 // An unnamed flow with no columns is gone too, as `remove` leaves it (a named one stays: its screen opens into it).
-const empty = <I>(k: LNode<I>): boolean => (k.t === "tabs" && !k.ids.length) || (k.t === "split" && !k.kids.length && !k.key) || (k.t === "flow" && !k.kids.length && !k.key) || (k.t === "drawer" && empty(k.kid));
+const empty = <I>(k: LNode<I>): boolean => (k.t === "tabs" && !k.ids.length) || (k.t === "split" && !k.kids.length && !k.key) || (k.t === "flow" && !k.kids.length && !k.key) || (k.t === "dock" && empty(k.kid));
 
 /** Write a tree: each split as kids and weights. */
 export function serialize<I, L>(n: LNode<I>, leafOf: (id: I) => L): NaryForm<L> {
   if (n.t === "leaf") return leafOf(n.id);
   if (n.t === "tabs") return { t: "tabs", tabs: n.ids.map(leafOf), active: n.active, ...idOf(n) };
-  if (n.t === "drawer") return { t: "drawer", edge: n.edge, open: n.open, kid: serialize(n.kid, leafOf) as NaryForm<L>, ...idOf(n) };
+  if (n.t === "dock") return { t: "dock", edge: n.edge, open: n.open, kid: serialize(n.kid, leafOf) as NaryForm<L>, ...idOf(n) };
   if (n.t === "columns") return { t: "columns", kids: n.kids.map(k => serialize(k, leafOf) as NaryForm<L>), weights: [...n.weights], ...(n.source ? { source: n.source } : {}), ...(n.key ? { key: n.key } : {}), ...idOf(n) };
   if (n.t === "flow") {
     const col = (id: I | undefined) => columnOf(n, id);
@@ -1000,15 +1000,15 @@ export function serialize<I, L>(n: LNode<I>, leafOf: (id: I) => L): NaryForm<L> 
  * each pane when `leafId` is given.
  */
 export type LayoutView = { pane: string; id?: string; share: number; fixed?: number } | { split: Axis; key?: string; id?: string; policy?: Policy; path: string; share: number; kids: LayoutView[] }
-  | { tabs: string[]; id?: string; policy?: Policy; active: string; share: number } | { drawer: Dir; open: boolean; id?: string; policy?: Policy; path: string; share: number; kid: LayoutView }
+  | { tabs: string[]; id?: string; policy?: Policy; active: string; share: number } | { dock: Dir; open: boolean; id?: string; policy?: Policy; path: string; share: number; kid: LayoutView }
   | { columns: string | null; key?: string; id?: string; policy?: Policy; path: string; share: number; kids: LayoutView[] }
   | { flow: true; key?: string; id?: string; policy?: Policy; path: string; share: number; wide?: string; held?: string[]; kids: LayoutView[] };
 export function describeTree<I>(n: LNode<I>, name: (id: I) => string, opts: PlaceOpts<I> = {}, leafId?: (id: I) => string, sh = 1, parent: Axis = "row", path = ""): LayoutView {
   const round = (x: number) => Math.round(x * 1000) / 1000;
   if (n.t === "leaf") { const f = opts.fixed?.(n.id, parent); return { pane: name(n.id), ...(leafId ? { id: leafId(n.id) } : {}), share: round(sh), ...(f !== undefined ? { fixed: f } : {}) }; }
   if (n.t === "tabs") return { tabs: n.ids.map(name), ...idOf(n), active: name(n.ids[n.active]!), share: round(sh) };
-  // A drawer's kid is at path `<drawer's>.0`, as a split's first kid would be.
-  if (n.t === "drawer") return { drawer: n.edge, open: n.open, ...idOf(n), path, share: round(sh), kid: describeTree(n.kid, name, opts, leafId, 1, parent, path ? `${path}.0` : "0") };
+  // A dock's kid is at path `<dock's>.0`, as a split's first kid would be.
+  if (n.t === "dock") return { dock: n.edge, open: n.open, ...idOf(n), path, share: round(sh), kid: describeTree(n.kid, name, opts, leafId, 1, parent, path ? `${path}.0` : "0") };
   const sum = n.weights.reduce((a, w) => a + w, 0) || 1;
   const kids = n.kids.map((k, i) => describeTree(k, name, opts, leafId, n.weights[i]! / sum, n.dir, path ? `${path}.${i}` : String(i)));
   if (n.t === "flow") return { flow: true, ...(n.key ? { key: n.key } : {}), ...idOf(n), path, share: round(sh), ...(n.anchor !== undefined ? { wide: name(n.anchor) } : {}), ...(n.held?.length ? { held: n.held.map(name) } : {}), kids };

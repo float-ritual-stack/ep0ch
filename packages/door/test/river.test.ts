@@ -1,7 +1,7 @@
 // The river's columns host the shared note surface: edit, quote a passage, comment, reply and resolve
 // from a column by keys and by agent, with the same code as the board's readers. Scratch services only.
 // PIE-515: the River is a screen spec on the desk; its columns are `river.column` tiles in a flow, named as any tile
-// (`library`, `column2`…), and widen, dock, close, back and forward are the engine's tile actions.
+// (`library`, `column2`…), and widen, drawer, close, back and forward are the engine's tile actions.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -280,7 +280,7 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
     const peasR = readerOf(notes.peas.id)!;
     expect(peasR).toBeTruthy();
     await until(() => !!paneOf(peasR).root, "the parent's column");
-    // The peas column may be squeezed now; docking widens it without moving the person.
+    // The peas column may be squeezed now; holding widens it without moving the person.
     await act("tile.hold", { on: false }, shoot.reader);
     if (coverOf(peasR) !== "full") await act("tile.hold", { on: true }, peasR);
     expect(await act("link.follow", { n: 1 }, peasR)).toMatchObject({ opened: notes.beans.id });

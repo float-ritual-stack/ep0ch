@@ -1,7 +1,7 @@
 // PIE-510 (A1): the board's fixed shape is policy, not code kept by tile name. The preview and the lanes stay
 // (draggable off, the preview closable off, read back by layout.policy and enforced by the desk's one close and
 // move path; a lane closes only when its view goes, the desk's rule for a tile a source supplies);
-// the drawers' lists stay in their drawers; a board saved before the shape was policy gets it when it loads;
+// the docks' lists stay in their docks; a board saved before the shape was policy gets it when it loads;
 // and a readers row taken apart (its policy changed so the preview could move) refuses a detail with the
 // reason instead of throwing. Scratch services, fictional notes.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
@@ -68,7 +68,7 @@ describe.skipIf(!outliner)("the board's fixed shape is policy", () => {
     expect(BV.view(b).details).toHaveLength(0);
   });
 
-  test("a tree tile of the person's own beside the preview closes; the drawer's tree shuts its drawer (by place, not by name)", async () => {
+  test("a tree tile of the person's own beside the preview closes; the dock's tree shuts its dock (by place, not by name)", async () => {
     await act("tile.open", { kind: "tree", name: "tree-mine", where: "right" }, "preview", null);
     expect(b.pane("tree-mine")).toBeDefined();
     await act("tile.close", {}, "tree-mine", null);

@@ -38,7 +38,7 @@ export const NEW_NOTE_ACTIONS = actionSet<NewNoteOn>()("new", {
       inbox: { type: "boolean", optional: true, about: "make it at the top of the Inbox, whatever note the person is in" },
     },
     async run({ text, near, inbox }, { ctx, here }, actor) {
-      if (here?.noDock) throw new ActionRefused("not here: log on first (the logon and the logoff make no notes)");
+      if (here?.noDrawer) throw new ActionRefused("not here: log on first (the logon and the logoff make no notes)");
       if (ctx.home) throw new ActionRefused("there's no outline open yet: open or make one here first (the home base), then ctrl+n makes a note in it");
       if (near !== undefined && inbox) throw new ActionRefused("near= and inbox=true say two places; give one");
       // The person's context is the reader they're in; an agent's is only what it names (never the person's reader).

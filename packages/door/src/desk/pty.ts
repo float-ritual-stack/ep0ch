@@ -9,7 +9,7 @@
 // Keys go to the program while the person is in the tile (clicking in it, or e / ⏎ on it); ctrl+] hands
 // them back to the door, as telnet's escape does. The mouse goes to the program when it asked for it
 // (vim's `mouse=a`, claude's), in the encoding it asked for; otherwise the wheel scrolls what went by.
-import { inLoginShell, isAgentCmd, programName } from "./dock-program";
+import { inLoginShell, isAgentCmd, programName } from "./drawer-program";
 import { scrolled, wheelRows } from "../scroll";
 import xterm from "@xterm/headless";
 import { unlink } from "node:fs/promises";
@@ -77,7 +77,7 @@ process.on("exit", () => { for (const p of LIVE) if (p.ownProcess) p.kill(); });
  * temp file, whose text was copied out) ends, rather than run on in the terminal host with no tile to adopt it.
  */
 export function endUnkept(): void { for (const p of [...LIVE]) if (!p.keptAs) p.kill(); }
-/** Every program running in a terminal tile (and the dock) right now: what ending a session would stop. */
+/** Every program running in a terminal tile (and the drawer) right now: what ending a session would stop. */
 export const livePrograms = (): readonly PtyPane[] => [...LIVE].filter(p => p.running);
 
 /** The escape chord: ctrl+] leaves the terminal, the keys go back to the door. */
@@ -122,7 +122,7 @@ export function tileEnv(env: Record<string, string | undefined>, tile: string, c
 /** What inLoginShell's wrapper prints when the agent exits (latin1, as a tile reads its output): the title, then the line. */
 const EXITED = /\x1b\]2;[^\x07]* exited \xc2\xb7 shell\x07\r?\n[^\n]* exited \((\d+)\) \xc2\xb7 this is your shell/;
 
-/** `agent`: the host layer's agent (the dock's one tile, PIE-513), which reads its program from EP0CH_DAILY_AGENT. */
+/** `agent`: the host layer's agent (the drawer's one tile, PIE-513), which reads its program from EP0CH_DAILY_AGENT. */
 export interface PtySpec {
   cmd: string[]; cwd?: string; file?: string; label?: string; temp?: boolean; agent?: boolean;
   /** Variables the program gets on top of a terminal tile's own (an extension's tile: its outline and socket, PIE-512). */
@@ -141,7 +141,7 @@ export interface PtySpec {
 export class PtyPane implements Pane {
   /** `pty`, or a kind of its own for a program the service names (an extension's tile, ProgramTile). */
   readonly kind: string = "pty";
-  /** What its exit line offers besides ⏎: ^W x closes it (the dock's own tile, which never closes, offers nothing). */
+  /** What its exit line offers besides ⏎: ^W x closes it (the drawer's own tile, which never closes, offers nothing). */
   protected closesBy = " · ^W x closes";
   private term: XTermLike | null = null;
   private proc: PtyProc | null = null;
@@ -175,7 +175,7 @@ export class PtyPane implements Pane {
   tileName: string | null = null;
   /** The layout (or view) the tile was started in, for its EP0CH_NEST layer. */
   place: string | null = null;
-  /** The state file its screen's layout is saved in (desk.json, the dock's): with its id, what it's known by across daemons. */
+  /** The state file its screen's layout is saved in (desk.json, the drawer's): with its id, what it's known by across daemons. */
   home: string | null = null;
   /**
    * Which tile it is across session daemons (`<home>:<tile id>`): a new daemon adopts the program kept under it. Null
@@ -186,12 +186,12 @@ export class PtyPane implements Pane {
   private get ownKey(): string | null { return !this.home || !this.tileId ? null : `${this.home}:${this.tileId}`; }
   /**
    * The key its program was started (or adopted) under, kept for the program's life: a tile moved to another screen or
-   * into the dock (PIE-498) gets a new id there, but its program is still the one the terminal host keeps under this.
+   * into the drawer (PIE-498) gets a new id there, but its program is still the one the terminal host keeps under this.
    */
   keptKey: string | null = null;
   /** What a save adds so a moved tile adopts its program after a restart: the key it runs under, when not its own. */
   get movedKey(): string | null { return this.keptKey && this.keptKey !== this.ownKey ? this.keptKey : null; }
-  /** When the program last wrote anything (Date.now()): the dock's chip calls an agent working while it does (PIE-498). */
+  /** When the program last wrote anything (Date.now()): the drawer's chip calls an agent working while it does (PIE-498). */
   lastOutput = 0;
   /** When the person last typed or pasted into it (an agent's `tile.type` doesn't count): `agent.restart` waits for them. */
   personKeyAt = 0;
@@ -486,7 +486,7 @@ export class PtyPane implements Pane {
    */
   key(_k: Key, _desk: DeskApi): boolean { return false; }
 
-  /** A key the person typed in it (the desk's or the dock's typing mode): to the program, or ⏎ runs one that exited again. */
+  /** A key the person typed in it (the desk's or the drawer's typing mode): to the program, or ⏎ runs one that exited again. */
   typed(k: Key): boolean {
     if (this.exited !== null && k.kind === "enter") { this.restart(); return true; }
     const s = this.running ? keyBytes(k, this.term?.modes.applicationCursorKeysMode ?? false, this.kbd.flags) : null;

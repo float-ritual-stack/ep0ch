@@ -112,7 +112,7 @@ describe("the actor rule, for every action (PIE-514)", () => {
     // Moving the person's keys or screen: never while they type, never within the idle window.
     touches(["tile.focus", "marks.next", "layout.load", "screen.open", "screen.back", "screen.help", "menu.select", "list.select", "list.open", "host.toggle", "brief.step", "welcome.select", "waiting.pick", "message.next"], "screen");
     // The layout's shape: the layout engine decides each operation.
-    touches(["layout.move", "tile.open", "tile.close", "tile.float", "tile.pin", "tile.collapse", "tab.select", "tile.zoom", "layout.lock", "layout.policy", "pane.split"], "shape");
+    touches(["layout.move", "tile.open", "tile.close", "tile.float", "tile.dock", "tile.collapse", "tab.select", "tile.zoom", "layout.lock", "layout.policy", "pane.split"], "shape");
     // In a tile: refused in the person's (typing in it, for these).
     for (const n of ["tile.type", "view.scrollTo", "agent.type", "host.size", "agent.restart"]) expect({ n, t: of(n).touches, w: of(n).while }).toEqual({ n, t: "tile", w: "typing" });
     for (const n of ["tile.restart", "tile.herdr"]) expect({ n, t: of(n).touches, w: of(n).while }).toEqual({ n, t: "tile", w: "typing" });
@@ -434,7 +434,7 @@ describe.skipIf(!outliner)("routing on the desk, the board and the river: tile.t
     expect(V().columns.map(c => V().name(c))).toEqual([lib, a.reader]);
     const b = await act("open", { id: notes.peas.id, from: a.reader });
     expect(V().columns.map(c => V().name(c))).toEqual([lib, a.reader, b.reader]);
-    await act("tile.hold", { on: true }, b.reader);                                    // docked: full width, its note actions run
+    await act("tile.hold", { on: true }, b.reader);                                    // inDrawer: full width, its note actions run
     expect(await act("open", { id: notes.beans.id, from: lib })).toMatchObject({ reader: a.reader });   // its own column, found
     // A note action by the block a column shows, by its name and by its stable id.
     expect(await act("folds", {}, notes.peas.id)).toMatchObject({ reader: b.reader });

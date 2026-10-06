@@ -89,7 +89,7 @@ describe("Option characters on other keyboards", () => {
     expect(optionKeysOn({ LANG: "en_US.UTF-8", EP0CH_OPTION_KEYS: "off" })).toBe(false);
   });
 
-  test("off, å is the letter typed: it doesn't pull up the drawer, and nothing is said", () => {
+  test("off, å is the letter typed: it doesn't pull up the dock, and nothing is said", () => {
     const d = door(false, false);
     try {
       d.press({ kind: "char", ch: "å" });

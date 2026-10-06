@@ -39,7 +39,7 @@ export interface SessionInfo {
   outline: { host: string; workspace: string; outline?: string; socket: string };
   screen: string | null;
   clients: ClientInfo[];
-  /** Programs running in terminal tiles (and the dock), by tile. */
+  /** Programs running in terminal tiles (and the drawer), by tile. */
   terminals: { tile: string; cmd: string; pid?: number }[];
   /** Programs the terminal host keeps that no tile has adopted (yet): a tile not drawn since a handoff, or one gone. */
   kept?: { key: string | null; cmd: string; pid?: number }[];

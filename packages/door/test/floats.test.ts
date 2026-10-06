@@ -1,5 +1,5 @@
 // PIE-510, PIE-513: the desk's paths into the screen-layout module's rules. The rules themselves (a float has no
-// place in the tree, it docks only where the containers take it, the last docked tile stays, the person's lock is
+// place in the tree, it goes back only where the containers take it, the last laid-out tile stays, the person's lock is
 // theirs, an agent never moves the tile the person types in: B7–B11, C3, C4) are tested through the module's
 // interface in screen-layout.test.ts, with no App. Here, what only the desk can show: the person's keys and clicks
 // reach the same operations and say the refusal, a tiny terminal keeps the keys and the floats on the screen, and
@@ -63,7 +63,7 @@ describe.skipIf(!outliner)("the desk's keys, clicks and typing reach the layout'
     await refused(act("tile.preview", {}, "reader"), /reader is a float/);
   });
 
-  test("a click on a float's ⧉ docks it where the containers take it", async () => {
+  test("a click on a float's ⧉ puts it back it where the containers take it", async () => {
     fresh();
     await mine("tile.float", {}, "thread");
     await mine("layout.policy", { accepts: "query" }, "activity");
@@ -75,17 +75,17 @@ describe.skipIf(!outliner)("the desk's keys, clicks and typing reach the layout'
     expect(treeNames()).toContain("thread");
   });
 
-  test("float → drawer → float by keys: ^W f, ^W p on the float (one step into a drawer), ^W f again", async () => {
+  test("float → dock → float by keys: ^W f, ^W p on the float (one step into a dock), ^W f again", async () => {
     fresh();
     await mine("tile.focus", {}, "thread");
     key(ctrl("w")); key(char("f"));
     await until(() => floats().includes("thread"), "^W f floats it");
     key(ctrl("w")); key(char("p"));
-    await until(() => !floats().includes("thread") && !!get().tiles.find(t => t.name === "thread")?.drawer, "^W p puts the float in a drawer");
+    await until(() => !floats().includes("thread") && !!get().tiles.find(t => t.name === "thread")?.dock, "^W p puts the float in a dock");
     expect(treeNames()).toContain("thread");
     key(ctrl("w")); key(char("f"));
-    await until(() => floats().includes("thread"), "^W f floats it out of its drawer");
-    expect(get().tiles.find(t => t.name === "thread")?.drawer ?? null).toBeFalsy();
+    await until(() => floats().includes("thread"), "^W f floats it out of its dock");
+    expect(get().tiles.find(t => t.name === "thread")?.dock ?? null).toBeFalsy();
   });
 
   test("float ⇄ layout by mouse: the focused tile's ⧉ floats it; the float's ⧉ (or the cell beside it) puts it back; its other header controls fire, not a drag", async () => {
@@ -169,9 +169,9 @@ describe.skipIf(!outliner)("the desk's keys, clicks and typing reach the layout'
     await mine("tile.focus", {}, "reader");
     key(char("e"));
     await until(() => !!D().personIn()?.editing, "the person editing");
-    await refused(act("tile.pin", { on: false }, "reader"), /where the person is typing; an agent doesn't move it/);
+    await refused(act("tile.dock", { on: true }, "reader"), /where the person is typing; an agent doesn't move it/);
     await refused(act("layout.move", { where: "edge-left" }, "reader"), /where the person is typing/);
-    expect(D().layoutGet().tiles.find((t: any) => t.name === "reader").drawer).toBeUndefined();
+    expect(D().layoutGet().tiles.find((t: any) => t.name === "reader").dock).toBeUndefined();
     await act("layout.move", { where: "edge-left" }, "activity");
     expect(treeNames()[0]).toBe("activity");
     expect(get().focus).toBe("reader");

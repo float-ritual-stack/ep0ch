@@ -8,7 +8,7 @@ import { activate, clone, cycle, leaf, leaves, move, normalise, pair, place, rem
 type N = LNode<string>;
 const L = (id: string): N => leaf(id);
 /** The tree as a short string: row(a,b) col(a,b) tabs(a,*b) — the shown tab starred. */
-const s = (n: N | null): string => !n ? "∅" : n.t === "leaf" ? n.id : n.t === "tabs" ? `tabs(${n.ids.map((x, i) => (i === n.active ? "*" + x : x)).join(",")})` : n.t === "drawer" ? `drawer<${n.edge}${n.open ? "" : ",shut"}>(${s(n.kid)})` : `${n.dir}(${n.kids.map(s).join(",")})`;
+const s = (n: N | null): string => !n ? "∅" : n.t === "leaf" ? n.id : n.t === "tabs" ? `tabs(${n.ids.map((x, i) => (i === n.active ? "*" + x : x)).join(",")})` : n.t === "dock" ? `dock<${n.edge}${n.open ? "" : ",shut"}>(${s(n.kid)})` : `${n.dir}(${n.kids.map(s).join(",")})`;
 const weights = (n: N) => (n.t === "split" ? n.weights.map(w => Math.round(w * 1000) / 1000) : []);
 
 describe("moving a tile beside another (floatty's moveLeafToTarget)", () => {
@@ -227,9 +227,9 @@ describe("drops and policy (PIE-505)", () => {
     expect(dropAt(tiles, area, 75, 15, "a", true, refuse)).toMatchObject({ kind: "tabs", target: "b", refused: "b takes no drops (droppable off)" });
     expect(dropAt(tiles, area, 60, 15, "a", true, refuse)!.refused).toBeUndefined();
   });
-  test("a shut drawer's handle on the hint row takes a tile into the tabs of what it shows", () => {
+  test("a shut dock's handle on the hint row takes a tile into the tabs of what it shows", () => {
     const handles = [{ from: 80, to: 88, row: 30, shows: "t", edge: "left" as const }];
-    expect(handleDrop(handles, area, 82, 30, "a")).toMatchObject({ kind: "tabs", target: "t", label: "⇤ into the drawer" });
+    expect(handleDrop(handles, area, 82, 30, "a")).toMatchObject({ kind: "tabs", target: "t", label: "⇤ into the dock" });
     expect(handleDrop(handles, area, 82, 29, "a")).toBeNull();
     expect(handleDrop(handles, area, 82, 30, "t")).toBeNull();     // onto itself means nothing
   });

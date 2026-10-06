@@ -258,18 +258,18 @@ describe.skipIf(!outliner)("writing from the board, against a scratch outline", 
     expect(B().card()?.id).toBe(cards.kettle.id);
   });
 
-  test("a drawer docks into the layout by T or by a click on its header's ⇤ drawer; T puts it back in its drawer", async () => {
+  test("a dock undocks into the layout by T or by a click on its header's ⇤ docked; T puts it back in its dock", async () => {
     await settled();
     BV.at(b, "lanes");
     const drawn = () => b.render(B().ctx).lines.join("\n").replace(/\x1b\[[\d;]*m/g, "");
     press({ kind: "char", ch: "t" });
-    expect(drawn()).toContain("outline ⇤ drawer");             // a drawer: slides over, not docked
+    expect(drawn()).toContain("outline ⇤ docked");             // a dock: slides over, not laid out
     expect(B().treePinned).toBe(false);
-    const r = BV.rectOf(b, "tree"), at = drawn().split("\n")[r.row]!.indexOf("⇤ drawer");
+    const r = BV.rectOf(b, "tree"), at = drawn().split("\n")[r.row]!.indexOf("⇤ docked");
     press({ kind: "mouse", action: "down", button: 0, x: at + 1, y: r.row });
     press({ kind: "mouse", action: "up", button: 0, x: at + 1, y: r.row });
     expect(B().treePinned).toBe(true);
-    expect(drawn()).not.toContain("outline ⇤ drawer");
+    expect(drawn()).not.toContain("outline ⇤ docked");
     press({ kind: "char", ch: "T" });                         // the key toggles it back
     expect(B().treePinned).toBe(false);
     press({ kind: "char", ch: "T" });
@@ -292,7 +292,7 @@ describe.skipIf(!outliner)("writing from the board, against a scratch outline", 
     // A click outside it leaves it as unsent (never created: creating is ctrl+s), and n brings it back.
     const before = (await board.children(queue.id)).length;
     // A cell of another lane, outside the composer, as drawn now. A click finds what the last paint placed, and
-    // the outline drawer the last test shut by key stays there until a paint (16 ms away, later on a loaded
+    // the outline dock the last test shut by key stays there until a paint (16 ms away, later on a loaded
     // machine): a fixed (5,5) sometimes landed on it.
     b.render(B().ctx);
     const away = BV.rectOf(b, "Queued"), box = B().composerAt;

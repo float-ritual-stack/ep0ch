@@ -79,7 +79,7 @@ describe("review fixes without a service", () => {
     const board = {
       get: async () => { if (fail) throw new Error("socket closed"); return full; },
       comments: async () => [], ancestors: async () => [],
-      // The board's outline drawer reads its lists again on the reconnect (#182).
+      // The board's outline dock reads its lists again on the reconnect (#182).
       roots: async () => [], children: async () => [],
     };
     const b = boardScreen("hub");

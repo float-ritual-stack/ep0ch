@@ -120,7 +120,7 @@ describe("terminal cells, not code points", () => {
   });
 
   test("a hint is cut between its parts, else at a space, never mid-word; a frame's bottom edge too", () => {
-    const hint = "drag title · drag ◢ · H J K L move · ^W f dock · ^W x close";
+    const hint = "drag title · drag ◢ · H J K L move · ^W f drawer · ^W x close";
     const f = fitHint(hint, 28);
     expect(visible(f.text)).toBe("drag title · drag ◢ …");
     expect(f.at).toBe(19);

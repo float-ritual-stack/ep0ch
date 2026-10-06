@@ -52,7 +52,7 @@ export interface ScreenSpec {
   digits?: false;
   /**
    * Where the keys go back to (a tile's name or a container's key: the board's lanes): `Esc` and `q` step back there
-   * before they leave the screen, and the keys land there when the drawer they were in shuts.
+   * before they leave the screen, and the keys land there when the dock they were in shuts.
    */
   home?: string;
   /** Where an agent's open naming no tile lands (`ep0ch open <id>`): a tile, by name, that takes the note its way. */

@@ -84,7 +84,7 @@ only when the person asked for it.
 
 ## Which door you reach
 
-- **Inside a door** (a terminal tile, the dock, the daily agent's Herdr pane, the door's drop shell),
+- **Inside a door** (a terminal tile, the drawer, the daily agent's Herdr pane, the door's drop shell),
   `EP0CH_CONTROL` is already that door's socket, `EP0CH_TILE` your tile's name and `EP0CH_NEST` the layers
   you run in. Run `ep0ch where` first: it checks each layer and says whether the person is typing in your
   tile. Open notes with `ep0ch open <block> from=$EP0CH_TILE` (the same as `ep0ch act open id=<block>
@@ -126,10 +126,10 @@ It never moves the person's focus, and a door's refusal is the answer, never a r
 `src/desk/agent-env.ts`): `EP0CH_CONTROL`, `EP0CH_TILE`, `EP0CH_TILE_ID`, `EP0CH_NEST`, `EP0CH_IN_DOOR`, and
 the door's `EP0CH_STATE` and `EP0CH_SOCKET` when it has them.
 1. `^W o s` on the desk, then `claude` in that shell: a terminal tile's program.
-2. The `▲ claude` chip on the status bar, or `alt+a`: the dock, a drawer over any screen. Its own tab runs the
+2. The `▲ claude` chip on the status bar, or `alt+a`: the drawer, a dock over any screen. Its own tab runs the
    agent chosen for the outline's session (`alt+g`, `host.agent name=<agent> [herdr=true]`; `EP0CH_DAILY_AGENT`
    overrides it; none chosen: a shell). Chosen "in Herdr", it runs in the session's own pane (`door-<outline>[--<machine>]-<hash>`,
-   `EP0CH_CONTROL` a link the launcher points at the attached door). Any tile docked there travels with the person.
+   `EP0CH_CONTROL` a link the launcher points at the attached door). Any tile ⟦docked⟧ there travels with the person.
    Every agent starts inside the person's login shell: when it exits, the tile is their shell, nothing restarted.
 
 **A Claude reads these, and the mod, only as it starts.** If the mod changed after it started (a `git pull` of
@@ -181,13 +181,13 @@ yourself (path 1): `/exit`, then `claude --continue`.
 
 ## Useful actions beyond notes
 
-- **The dock** (every screen; the host layer's, PIE-498, PIE-513): `host.toggle [open=true|false]`, `host.size
-  share=0.2…0.9`, `agent.type text=…` (to its own program), `agent.knows`, `agent.restart`. `host.dock tile=<t>`
-  moves a tile into it whole (its program keeps running), `host.dock on=false tile=<t> to=<tile> where=<side>` back
-  out into the screen shown; `tile=` naming a docked tile reaches it there (`tile.type tile=kettle`). Put your own
-  tile in: `host.dock tile=<id>` with the id `ep0ch where` gives (it finds your tile by your program, even after it
-  moved; `$EP0CH_TILE_ID` is only where it started). Docked tiles' ids are `k<n>`. It never takes the person's keys; you can't dock the tile they type in,
-  put it away, resize it, type in it or restart its agent while they type in it. `peek` shows it as `dock` (with
+- **The drawer** (every screen; the host layer's, PIE-498, PIE-513): `host.toggle [open=true|false]`, `host.size
+  share=0.2…0.9`, `agent.type text=…` (to its own program), `agent.knows`, `agent.restart`. `tile.drawer tile=<t>`
+  moves a tile into it whole (its program keeps running), `tile.drawer on=false tile=<t> to=<tile> where=<side>` back
+  out into the screen shown; `tile=` naming a tile in the drawer reaches it there (`tile.type tile=kettle`). Put your own
+  tile in: `tile.drawer tile=<id>` with the id `ep0ch where` gives (it finds your tile by your program, even after it
+  moved; `$EP0CH_TILE_ID` is only where it started). ⟦Docked⟧ tiles' ids are `k<n>`. It never takes the person's keys; you can't drawer the tile they type in,
+  put it away, resize it, type in it or restart its agent while they type in it. `peek` shows it as `drawer` (with
   `knows`, `runs` and `tiles`).
 - **Links** (one model on every screen: Outlinks, Resources, Backlinks). `links tile=<reader>` aims the
   screen's links tile at that reader's note (or opens one below it), leaving the person's keys where they are;
@@ -216,8 +216,8 @@ yourself (path 1): `/exit`, then `claude --continue`.
   its note. Read one with the outline tools like any note.
 - **The board** is a screen spec on the desk: the same `layout.get` and `tile.*` work there. Its lanes are
   query tiles named by their lane, in a `columns` container filled from the hub; its readers are `preview`,
-  `detail1`…; the outline drawer is `tree` over `tree-preview`, the backlinks drawer `backlinks` beside
-  `backlinks-preview` (`tile.drawer tile=tree` opens the outline, `backlinks id=<id>` reads a note's backlinks).
+  `detail1`…; the outline dock is `tree` over `tree-preview`, the backlinks dock `backlinks` beside
+  `backlinks-preview` (`tile.slide tile=tree` opens the outline, `backlinks id=<id>` reads a note's backlinks).
   Cards: `card.select` (yours is your own), `card.move lane=…`, `card.create`, `steps`,
   `step.set`; `board.hub` lists or shows a board. On the desk, `tile.open kind=query view=<view id>` puts a
   saved view's cards in a tile.

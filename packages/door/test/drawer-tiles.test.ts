@@ -1,7 +1,7 @@
-// PIE-498: the general dock. Any tile joins the host layer's drawer as a tab and leaves it again into the screen shown,
-// whole: a terminal's program keeps running (the same pid), a reader keeps its note. By `act` (host.dock, attributed,
-// never the person's keys), by ^W a, by a drag onto the dock's chip or out of the drawer, and by a key while dragging.
-// It's saved (dock-tiles.json) and comes back in the next door. Scratch outline host, fictional notes, `cat` programs.
+// PIE-498: the general drawer. Any tile joins the host layer's dock as a tab and leaves it again into the screen shown,
+// whole: a terminal's program keeps running (the same pid), a reader keeps its note. By `act` (tile.drawer, attributed,
+// never the person's keys), by ^W a, by a drag onto the drawer's chip or out of the dock, and by a key while dragging.
+// It's saved (drawer-tiles.json) and comes back in the next door. Scratch outline host, fictional notes, `cat` programs.
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -19,9 +19,9 @@ const ctrl = (ch: string): Key => ({ kind: "char", ch, ctrl: true });
 const char = (ch: string): Key => ({ kind: "char", ch });
 const mouse = (action: "down" | "up" | "drag", x: number, y: number): Key => ({ kind: "mouse", action, button: 0, x, y });
 const USER = { kind: "user" } as const;
-const AS = "dock-agent-498";
+const AS = "drawer-agent-498";
 
-describe.skipIf(!outliner)("the dock: any tile, moved whole between screens", () => {
+describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", () => {
   const scratch = new Scratch();
   let board: SocketBoard;
   let state = "";
@@ -37,7 +37,7 @@ describe.skipIf(!outliner)("the dock: any tile, moved whole between screens", ()
   afterAll(async () => { board?.close(); await scratch.dispose(); });
   beforeEach(() => {
     for (const k of ["EP0CH_STATE", "EP0CH_DAILY_AGENT", "EP0CH_DAILY_CWD"]) saved[k] = process.env[k];
-    state = mkdtempSync(join(tmpdir(), "ep0ch-docktiles-"));
+    state = mkdtempSync(join(tmpdir(), "ep0ch-drawertiles-"));
     process.env.EP0CH_STATE = state;
     process.env.EP0CH_DAILY_AGENT = "cat";
     delete process.env.EP0CH_DAILY_CWD;
@@ -58,52 +58,52 @@ describe.skipIf(!outliner)("the dock: any tile, moved whole between screens", ()
     paint();
     const kettle = () => desk.pane("kettle") as PtyPane | undefined;
     await until(() => kettle()?.running === true, "kettle runs");
-    const docked = (name: string) => app.dock.tabs().some(t => t.name === name);
-    const pane = (name: string) => app.dock.desk!.pane(name);
-    return { app, desk, key: (k: Key) => key(k), paint, kettle, docked, pane, A: app as any };
+    const inDrawer = (name: string) => app.drawer.tabs().some(t => t.name === name);
+    const pane = (name: string) => app.drawer.desk!.pane(name);
+    return { app, desk, key: (k: Key) => key(k), paint, kettle, inDrawer, pane, A: app as any };
   }
   /** Another screen (last callers), on top: the screen switch. */
   const otherScreen = () => new Desk({ name: "lastcall", title: "last callers", layout: { focus: "activity", root: { t: "split", dir: "row", weights: [0.5, 0.5], kids: [{ t: "leaf", kind: "activity", name: "activity" }, { t: "leaf", kind: "reader", name: "notes" }] } as any } });
 
-  test("an agent docks a terminal tile by act: moved, not started again; said; the drawer and the person's keys stay put", async () => {
+  test("an agent puts a terminal tile by act: moved, not started again; said; the dock and the person's keys stay put", async () => {
     const d = await door();
     try {
       await d.desk.dispatch.act({ action: "tile.focus", tile: "tree" }, USER);
       const pid = d.kettle()!.pid;
-      const out = await d.app.act({ action: "host.dock", args: {}, tile: "kettle", as: AS }) as any;
-      expect(out).toMatchObject({ tile: "kettle", docked: true, from: "desk" });
+      const out = await d.app.act({ action: "tile.drawer", args: {}, tile: "kettle", as: AS }) as any;
+      expect(out).toMatchObject({ tile: "kettle", inDrawer: true, from: "desk" });
       expect(d.desk.pane("kettle")).toBeUndefined();
-      expect(d.docked("kettle")).toBe(true);
+      expect(d.inDrawer("kettle")).toBe(true);
       const p = d.pane("kettle") as PtyPane;
       expect(p.pid).toBe(pid);                                   // the same program: moved, not respawned
       expect(p.running).toBe(true);
-      expect(d.app.dock.open).toBe(false);                       // an agent's dock doesn't pull it up
+      expect(d.app.drawer.open).toBe(false);                       // an agent's drawer doesn't pull it up
       expect(d.desk.focusedName()).toBe("tree");                 // nor move the person's keys
       expect(d.A.message).toContain(`an agent (${AS})`);
       expect(d.paint().at(-1)).toContain("▲ cat +1");          // the chip: its own program, and one more tile
     } finally { d.app.quit(); }
   });
 
-  test("it travels: switch screens, pull the dock up, it's the same tile; undock it into the other screen beside a tile", async () => {
+  test("it travels: switch screens, pull the drawer up, it's the same tile; take it into the other screen beside a tile", async () => {
     const d = await door();
     try {
       await d.desk.dispatch.act({ action: "tile.focus", tile: "tree" }, USER);
       const pid = d.kettle()!.pid;
-      await d.app.act({ action: "host.dock", args: {}, tile: "kettle", as: AS });
+      await d.app.act({ action: "tile.drawer", args: {}, tile: "kettle", as: AS });
       const other = otherScreen();
       d.app.push(other);
       d.paint();
-      // Shown on its tab in the dock, on the other screen.
+      // Shown on its tab in the drawer, on the other screen.
       d.key({ kind: "alt", ch: "a" });
-      expect(d.app.dock.open).toBe(true);
-      await d.app.dock.desk!.dispatch.act({ action: "tab.select", tile: "kettle" }, USER);
+      expect(d.app.drawer.open).toBe(true);
+      await d.app.drawer.desk!.dispatch.act({ action: "tab.select", tile: "kettle" }, USER);
       const shown = d.paint();
       expect(shown.some(l => l.includes("kettle"))).toBe(true);
       expect((d.pane("kettle") as PtyPane).pid).toBe(pid);
-      // Out of the dock, into the other screen, right of its notes reader: the person's.
-      const out = await d.app.dock.desk!.dispatch.act({ action: "host.dock", args: { on: false, to: "notes", where: "right" }, tile: "kettle" }, USER) as any;
-      expect(out).toMatchObject({ tile: "kettle", docked: false, into: "last callers" });
-      expect(d.docked("kettle")).toBe(false);
+      // Out of the drawer, into the other screen, right of its notes reader: the person's.
+      const out = await d.app.drawer.desk!.dispatch.act({ action: "tile.drawer", args: { on: false, to: "notes", where: "right" }, tile: "kettle" }, USER) as any;
+      expect(out).toMatchObject({ tile: "kettle", inDrawer: false, into: "last callers" });
+      expect(d.inDrawer("kettle")).toBe(false);
       const back = other.pane("kettle") as PtyPane;
       expect(back.pid).toBe(pid);
       expect(back.running).toBe(true);
@@ -113,111 +113,111 @@ describe.skipIf(!outliner)("the dock: any tile, moved whole between screens", ()
     } finally { d.app.quit(); }
   });
 
-  test("keys: ^W a docks the focused tile (the drawer comes up on it); ^W a in the dock puts it back into the screen", async () => {
+  test("keys: ^W a puts the focused tile (the drawer comes up on it); ^W a in the drawer puts it back into the screen", async () => {
     const d = await door();
     try {
       await d.desk.dispatch.act({ action: "tile.focus", tile: "thread" }, USER);
       d.key(ctrl("w")); d.key(char("a"));
-      await until(() => d.docked("thread"), "thread docked");
-      expect(d.app.dock.open).toBe(true);
-      expect(d.app.dock.tabs().find(t => t.name === "thread")?.shown).toBe(true);
+      await until(() => d.inDrawer("thread"), "thread in");
+      expect(d.app.drawer.open).toBe(true);
+      expect(d.app.drawer.tabs().find(t => t.name === "thread")?.shown).toBe(true);
       d.paint();
-      // Into the dock (a click in it), then ^W a there: back beside the tile the person had.
-      const r = d.app.dock.rect!;
+      // Into the drawer (a click in it), then ^W a there: back beside the tile the person had.
+      const r = d.app.drawer.rect!;
       d.key(mouse("down", 20, r.row + 3)); d.key(mouse("up", 20, r.row + 3));
-      expect(d.app.dock.entered).toBe(true);
+      expect(d.app.drawer.entered).toBe(true);
       d.key(ctrl("w")); d.key(char("a"));
-      await until(() => !d.docked("thread"), "thread undocked");
+      await until(() => !d.inDrawer("thread"), "thread out");
       expect(d.desk.pane("thread")).toBeDefined();
     } finally { d.app.quit(); }
   });
 
-  test("keys for a docked terminal: in the dock its keys are its program's, so ^W A on the screen brings it back", async () => {
+  test("keys for a terminal in the drawer: in the drawer its keys are its program's, so ^W A on the screen brings it back", async () => {
     const d = await door();
     try {
       const pid = d.kettle()!.pid;
       await d.desk.dispatch.act({ action: "tile.focus", tile: "kettle" }, USER);
       d.key(ctrl("w")); d.key(char("a"));
-      await until(() => d.docked("kettle"), "kettle docked");
+      await until(() => d.inDrawer("kettle"), "kettle in");
       d.paint();
-      // Into the dock: typing in the kettle (^W is the program's there); ctrl+] back to the desk.
+      // Into the drawer: typing in the kettle (^W is the program's there); ctrl+] back to the desk.
       d.key({ kind: "alt", ch: "a" }); d.key({ kind: "alt", ch: "a" }); d.paint();
-      expect(d.app.dock.entered).toBe(true);
+      expect(d.app.drawer.entered).toBe(true);
       d.key({ kind: "char", ch: "]", ctrl: true });
-      expect(d.app.dock.entered).toBe(false);
+      expect(d.app.drawer.entered).toBe(false);
       d.key(ctrl("w")); d.key({ kind: "char", ch: "A" });
-      await until(() => !d.docked("kettle") && !!d.desk.pane("kettle"), "^W A brings it back");
+      await until(() => !d.inDrawer("kettle") && !!d.desk.pane("kettle"), "^W A brings it back");
       expect((d.desk.pane("kettle") as PtyPane).pid).toBe(pid);
     } finally { d.app.quit(); }
   });
 
-  test("a docked terminal that exited closes by ^W x in the dock (its keys wait, but ^W is the window's again); said on screen", async () => {
+  test("a terminal in the drawer that exited closes by ^W x in the drawer (its keys wait, but ^W is the window's again); said on screen", async () => {
     const d = await door();
     try {
       await d.desk.dispatch.act({ action: "tile.focus", tile: "kettle" }, USER);
       d.key(ctrl("w")); d.key(char("a"));
-      await until(() => d.docked("kettle"), "kettle docked");
+      await until(() => d.inDrawer("kettle"), "kettle in");
       d.key({ kind: "alt", ch: "a" }); d.key({ kind: "alt", ch: "a" }); d.paint();
-      await until(() => !!d.app.dock.made?.rawKeys(), "the person types in the kettle");
+      await until(() => !!d.app.drawer.made?.rawKeys(), "the person types in the kettle");
       // An agent never closes the tab the person types in.
       await expect(d.app.act({ action: "tile.close", args: {}, tile: "kettle", as: AS })).rejects.toThrow(/keys|typing/);
-      d.app.dock.rawInput(d.A.dockRun)!("\x04");
+      d.app.drawer.rawInput(d.A.drawerRun)!("\x04");
       await until(() => (d.pane("kettle") as PtyPane).exited !== null, "cat ended");
       expect(d.paint().some(l => l.includes("kettle exited · ⏎ runs it again · ^W x closes · Esc or ctrl+] back to the desk"))).toBe(true);
-      // Any other key waits; ^W x closes it at once (nothing runs to ask about), the person still in the dock.
+      // Any other key waits; ^W x closes it at once (nothing runs to ask about), the person still in the drawer.
       d.key(char("x"));
-      expect(d.docked("kettle")).toBe(true);
+      expect(d.inDrawer("kettle")).toBe(true);
       d.key(ctrl("w")); d.key(char("x"));
-      await until(() => !d.docked("kettle"), "^W x closed it");
-      expect(d.app.dock.entered).toBe(true);
-      // The dock's own tab, exited too, doesn't offer ^W x: it never closes.
-      expect(d.app.dock.made!.exitedSay("dock.agent")).not.toContain("^W x");
+      await until(() => !d.inDrawer("kettle"), "^W x closed it");
+      expect(d.app.drawer.entered).toBe(true);
+      // The drawer's own tab, exited too, doesn't offer ^W x: it never closes.
+      expect(d.app.drawer.made!.exitedSay("drawer.agent")).not.toContain("^W x");
     } finally { d.app.quit(); }
   });
 
-  test("the mouse: a docked tab has the ×; a running program asks twice, one that exited closes at once; the dock's own tab has none", async () => {
+  test("the mouse: a tab in the drawer has the ×; a running program asks twice, one that exited closes at once; the drawer's own tab has none", async () => {
     const d = await door();
     try {
       await d.desk.dispatch.act({ action: "tile.focus", tile: "kettle" }, USER);
       d.key(ctrl("w")); d.key(char("a"));
-      await until(() => d.docked("kettle"), "kettle docked");
-      const x = () => { const lines = d.paint(), row = d.app.dock.rect!.row + 1; return { row, col: lines[row]!.lastIndexOf("×") }; };
+      await until(() => d.inDrawer("kettle"), "kettle in");
+      const x = () => { const lines = d.paint(), row = d.app.drawer.rect!.row + 1; return { row, col: lines[row]!.lastIndexOf("×") }; };
       const click = () => { const at = x(); expect(at.col).toBeGreaterThan(0); d.key(mouse("down", at.col, at.row)); d.key(mouse("up", at.col, at.row)); };
       click();
-      expect(d.docked("kettle")).toBe(true);                   // running: asked first
+      expect(d.inDrawer("kettle")).toBe(true);                   // running: asked first
       click();
-      await until(() => !d.docked("kettle"), "the second click closed it");
-      expect(x().col).toBe(-1);                                 // the dock's own tab: no ×
-      // A terminal opened in the dock (alt+s) that exited: one click.
+      await until(() => !d.inDrawer("kettle"), "the second click closed it");
+      expect(x().col).toBe(-1);                                 // the drawer's own tab: no ×
+      // A terminal opened in the drawer (alt+s) that exited: one click.
       d.key({ kind: "alt", ch: "s" });
-      await until(() => d.app.dock.tabs().length === 2, "a shell tab");
-      const shell = d.app.dock.tabs().find(t => t.name !== "dock.agent")!.name;
+      await until(() => d.app.drawer.tabs().length === 2, "a shell tab");
+      const shell = d.app.drawer.tabs().find(t => t.name !== "drawer.agent")!.name;
       await until(() => (d.pane(shell) as PtyPane).running, "the shell runs");
-      await until(() => !!d.app.dock.made?.rawInput(), "the person types in it");
-      d.app.dock.rawInput(d.A.dockRun)!("exit\r");
+      await until(() => !!d.app.drawer.made?.rawInput(), "the person types in it");
+      d.app.drawer.rawInput(d.A.drawerRun)!("exit\r");
       await until(() => (d.pane(shell) as PtyPane).exited !== null, "the shell exited");
       click();
-      await until(() => d.app.dock.tabs().length === 1, "closed at once");
+      await until(() => d.app.drawer.tabs().length === 1, "closed at once");
     } finally { d.app.quit(); }
   });
 
-  test("the mouse: a tile's title dragged onto the dock's chip docks it (the chip lights up); a tab dragged out lands by the screen's drop zones", async () => {
+  test("the mouse: a tile's title dragged onto the drawer's chip puts it (the chip lights up); a tab dragged out lands by the screen's drop zones", async () => {
     const d = await door();
     try {
       const lines = d.paint();
       const head = (d.desk.describe().panes as any[]).find(p => p.name === "activity").rect;
-      const chip = d.app.dock.chipAt!;
+      const chip = d.app.drawer.chipAt!;
       d.key(mouse("down", head.col + 4, head.row));
       d.key(mouse("drag", head.col + 8, head.row + 2));
       d.key(mouse("drag", chip.from + 1, chip.row));
-      expect(d.paint().at(-1)).toContain("⤓ dock activity");     // the drop zone lights up
+      expect(d.paint().at(-1)).toContain("⤓ drawer activity");     // the drop zone lights up
       d.key(mouse("up", chip.from + 1, chip.row));
-      await until(() => d.docked("activity"), "activity docked");
+      await until(() => d.inDrawer("activity"), "activity in");
       expect(lines.length).toBeGreaterThan(0);
-      // Pulled up (the person's dock shows it); its tab's title dragged out over the screen's tree: lands there.
-      expect(d.app.dock.open).toBe(true);
+      // Pulled up (the person's drawer shows it); its tab's title dragged out over the screen's tree: lands there.
+      expect(d.app.drawer.open).toBe(true);
       d.paint();
-      const r = d.app.dock.rect!;
+      const r = d.app.drawer.rect!;
       const tabRow = r.row + 1;
       const row = d.paint()[tabRow]!;
       const at = row.indexOf("activity");
@@ -227,68 +227,68 @@ describe.skipIf(!outliner)("the dock: any tile, moved whole between screens", ()
       const tree = (d.desk.describe().panes as any[]).find(p => p.name === "tree").rect;
       d.key(mouse("drag", tree.col + tree.cols - 3, tree.row + Math.floor(tree.rows / 2)));
       d.key(mouse("up", tree.col + tree.cols - 3, tree.row + Math.floor(tree.rows / 2)));
-      await until(() => !d.docked("activity") && !!d.desk.pane("activity"), "activity back on the desk");
+      await until(() => !d.inDrawer("activity") && !!d.desk.pane("activity"), "activity back on the desk");
     } finally { d.app.quit(); }
   });
 
-  test("a key while dragging acts on the dragged tile: a docks it, f floats it, p puts it in a drawer", async () => {
+  test("a key while dragging acts on the dragged tile: a puts it in the drawer, f floats it, p puts it in a dock", async () => {
     const d = await door();
     try {
       d.paint();
       const head = (n: string) => (d.desk.describe().panes as any[]).find(p => p.name === n).rect;
       const grab = (n: string) => { const h = head(n); d.key(mouse("down", h.col + 4, h.row)); d.key(mouse("drag", h.col + 9, h.row + 3)); };
       grab("activity"); d.key(char("a"));
-      await until(() => d.docked("activity"), "a docks");
+      await until(() => d.inDrawer("activity"), "a puts it in");
       d.paint();
       grab("thread"); d.key(char("f"));
       await until(() => (d.desk.layoutGet() as any).floats.some((f: any) => f.tile === "thread"), "f floats");
       d.paint();
-      // p on the float: straight into a drawer (one step), and ^W f floats it again: float → drawer → float.
-      await d.desk.dispatch.act({ action: "tile.pin", args: { on: false }, tile: "thread" }, USER);
+      // p on the float: straight into a dock (one step), and ^W f floats it again: float → dock → float.
+      await d.desk.dispatch.act({ action: "tile.dock", args: { on: true }, tile: "thread" }, USER);
       expect((d.desk.layoutGet() as any).floats).toEqual([]);
-      expect((d.desk.layoutGet() as any).tiles.find((t: any) => t.name === "thread").drawer).toBeTruthy();
+      expect((d.desk.layoutGet() as any).tiles.find((t: any) => t.name === "thread").dock).toBeTruthy();
       await d.desk.dispatch.act({ action: "tile.float", args: {}, tile: "thread" }, USER);
       expect((d.desk.layoutGet() as any).floats.map((f: any) => f.tile)).toEqual(["thread"]);
     } finally { d.app.quit(); }
   });
 
-  test("refused, with why: the dock's own tab stays; the screen's last tile stays; an agent never docks the tile the person types in", async () => {
+  test("refused, with why: the drawer's own tab stays; the screen's last tile stays; an agent never moves the tile the person types in", async () => {
     const d = await door();
     try {
       d.key({ kind: "alt", ch: "a" }); d.paint();
-      await expect(d.app.dock.desk!.dispatch.act({ action: "host.dock", args: { on: false }, tile: "dock.agent" }, USER)).rejects.toThrow(/stays where it is/);
-      // The person in kettle: an agent's dock of it is refused.
+      await expect(d.app.drawer.desk!.dispatch.act({ action: "tile.drawer", args: { on: false }, tile: "drawer.agent" }, USER)).rejects.toThrow(/stays where it is/);
+      // The person in kettle: an agent's drawer of it is refused.
       d.key({ kind: "char", ch: "]", ctrl: true });
       await d.desk.dispatch.act({ action: "tile.focus", tile: "kettle" }, USER);
       await d.desk.dispatch.act({ action: "tile.enter", tile: "kettle" }, USER);
-      await expect(d.app.act({ action: "host.dock", args: {}, tile: "kettle", as: AS })).rejects.toThrow(/typing|has the person's keys/);
-      expect(d.docked("kettle")).toBe(false);
+      await expect(d.app.act({ action: "tile.drawer", args: {}, tile: "kettle", as: AS })).rejects.toThrow(/typing|has the person's keys/);
+      expect(d.inDrawer("kettle")).toBe(false);
     } finally { d.app.quit(); }
   });
 
-  test("never lost: a screen that goes for good hands a running tile it was given back to the dock; ids never collide; a kept tile stays", async () => {
+  test("never lost: a screen that goes for good hands a running tile it was given back to the drawer; ids never collide; a kept tile stays", async () => {
     const d = await door();
     try {
       await d.desk.dispatch.act({ action: "tile.focus", tile: "tree" }, USER);
       const pid = d.kettle()!.pid;
-      await d.app.act({ action: "host.dock", args: {}, tile: "kettle", as: AS });
-      expect(d.app.dock.tabs().find(t => t.name === "kettle")!.id).toMatch(/^k\d+$/);     // a dock id, never a screen's t<n>
+      await d.app.act({ action: "tile.drawer", args: {}, tile: "kettle", as: AS });
+      expect(d.app.drawer.tabs().find(t => t.name === "kettle")!.id).toMatch(/^k\d+$/);     // a drawer id, never a screen's t<n>
       const other = otherScreen();
       d.app.push(other); d.paint();
-      await d.app.dock.desk!.dispatch.act({ action: "host.dock", args: { on: false, to: "notes" }, tile: "kettle" }, USER);
+      await d.app.drawer.desk!.dispatch.act({ action: "tile.drawer", args: { on: false, to: "notes" }, tile: "kettle" }, USER);
       expect(other.pane("kettle")).toBeDefined();
       d.app.pop();                                               // last callers is left: gone for good
-      expect(d.docked("kettle")).toBe(true);
+      expect(d.inDrawer("kettle")).toBe(true);
       expect((d.pane("kettle") as PtyPane).pid).toBe(pid);
       expect((d.pane("kettle") as PtyPane).running).toBe(true);
       // The river's Library (closable off: its save needs it) stays, said.
       const river: any = (await import("../src/desk/screen-specs")).openScreen("river");
       d.app.push(river); d.paint();
-      await expect(d.app.act({ action: "host.dock", args: {}, tile: "library", as: AS })).rejects.toThrow(/library stays/);
+      await expect(d.app.act({ action: "tile.drawer", args: {}, tile: "library", as: AS })).rejects.toThrow(/library stays/);
     } finally { d.app.quit(); }
   });
 
-  test("the dock is the door's too: a docked reader hears outline changes, its unsaved edit holds a quit, one name in both is refused", async () => {
+  test("the drawer is the door's too: a reader in the drawer hears outline changes, its unsaved edit holds a quit, one name in both is refused", async () => {
     const d = await door();
     listen = e => d.app.event(e);
     try {
@@ -296,15 +296,15 @@ describe.skipIf(!outliner)("the dock: any tile, moved whole between screens", ()
       await d.desk.dispatch.act({ action: "tile.open", args: { kind: "detail", note: note.id, name: "rhubarb" }, tile: "reader" }, USER);
       await until(() => (d.desk.pane("rhubarb") as any)?.msg?.id === note.id, "the detail shows it");
       await d.desk.dispatch.act({ action: "tile.focus", tile: "tree" }, USER);
-      await d.app.act({ action: "host.dock", args: {}, tile: "rhubarb", as: AS });
-      // Changed by someone else while docked: the docked reader reads it again, as a shown one does.
+      await d.app.act({ action: "tile.drawer", args: {}, tile: "rhubarb", as: AS });
+      // Changed by someone else while inDrawer: the reader in the drawer reads it again, as a shown one does.
       const b = await board.request<any>("get", { blockId: note.id });
       await board.request("update", { blockId: note.id, text: "Rhubarb: forced, pick in March", expectedRevision: b.revision, mutation: { author: "agent", actorId: "test-other-writer" } });
-      await until(() => /pick in March/.test((d.pane("rhubarb") as any)?.msg?.text ?? ""), "the docked reader re-read");
-      // The person's unsaved edit in it, docked: quitting asks first, and a forced end copies the text to disk.
-      const dock = d.app.dock.desk!;
-      await dock.dispatch.act({ action: "edit.text", args: { text: "Rhubarb: forced, pick in March\nunsaved: lift the bucket in April" }, tile: "rhubarb" }, USER);
-      expect(dock.unsaved?.()).toBe(true);
+      await until(() => /pick in March/.test((d.pane("rhubarb") as any)?.msg?.text ?? ""), "the reader in the drawer re-read");
+      // The person's unsaved edit in it, inDrawer: quitting asks first, and a forced end copies the text to disk.
+      const drawer = d.app.drawer.desk!;
+      await drawer.dispatch.act({ action: "edit.text", args: { text: "Rhubarb: forced, pick in March\nunsaved: lift the bucket in April" }, tile: "rhubarb" }, USER);
+      expect(drawer.unsaved?.()).toBe(true);
       expect(d.app.confirmQuit()).toBe(false);
       expect(d.A.message).toContain("an edit isn't saved");
       const kept = d.app.terminate();
@@ -320,39 +320,39 @@ describe.skipIf(!outliner)("the dock: any tile, moved whole between screens", ()
       await d.desk.dispatch.act({ action: "tile.focus", tile: "tree" }, USER);
       const pv = d.desk.pane("peek")!, follows = (desk: any) => desk.followers(desk.idNamed("tree")) as unknown[];
       expect(follows(d.desk)).toContain(pv);
-      await d.app.act({ action: "host.dock", args: {}, tile: "peek", as: AS });
+      await d.app.act({ action: "tile.drawer", args: {}, tile: "peek", as: AS });
       // Another desk with a tree of its own: the preview lands there, and that tree never drives it.
       const other = new Desk(undefined, { layout: "desk" });
       d.app.push(other); d.paint();
       expect((other as any).idNamed("tree")).toBeDefined();
-      await d.app.dock.desk!.dispatch.act({ action: "host.dock", args: { on: false }, tile: "peek" }, USER);
+      await d.app.drawer.desk!.dispatch.act({ action: "tile.drawer", args: { on: false }, tile: "peek" }, USER);
       expect(other.pane("peek")).toBe(pv);
       expect(follows(other)).not.toContain(pv);
       // Back on the desk it came from, beside the tree it followed: it follows that one again.
-      await other.dispatch.act({ action: "host.dock", args: {}, tile: "peek" }, USER);
+      await other.dispatch.act({ action: "tile.drawer", args: {}, tile: "peek" }, USER);
       d.app.pop(); d.paint();
-      await d.app.dock.desk!.dispatch.act({ action: "host.dock", args: { on: false }, tile: "peek" }, USER);
+      await d.app.drawer.desk!.dispatch.act({ action: "tile.drawer", args: { on: false }, tile: "peek" }, USER);
       expect(d.desk.pane("peek")).toBe(pv);
       expect(follows(d.desk)).toContain(pv);
     } finally { d.app.quit(); }
   });
 
-  test("one name on the screen and in the dock: refused by name, reached by id", async () => {
+  test("one name on the screen and in the drawer: refused by name, reached by id", async () => {
     const d = await door();
     try {
       await d.desk.dispatch.act({ action: "tile.focus", tile: "tree" }, USER);
-      await d.app.act({ action: "host.dock", args: {}, tile: "kettle", as: AS });
-      const kid = d.app.dock.tabs().find(t => t.name === "kettle")!.id;
+      await d.app.act({ action: "tile.drawer", args: {}, tile: "kettle", as: AS });
+      const kid = d.app.drawer.tabs().find(t => t.name === "kettle")!.id;
       await d.desk.dispatch.act({ action: "tile.open", args: { kind: "pty", cmd: "cat", name: "kettle" }, tile: "reader" }, USER);
-      await expect(d.app.act({ action: "tile.type", args: { text: "hello" }, tile: "kettle", as: AS })).rejects.toThrow(new RegExp(`names a tile here .* and one in the dock \\(${kid}\\)`));
+      await expect(d.app.act({ action: "tile.type", args: { text: "hello" }, tile: "kettle", as: AS })).rejects.toThrow(new RegExp(`names a tile here .* and one in the drawer \\(${kid}\\)`));
       expect(d.A.message).toContain(`an agent (${AS}) · tile.type refused: kettle names a tile here`);   // said on the status bar, as every refusal
-      await until(() => (d.pane("kettle") as PtyPane).running, "the docked kettle runs");
+      await until(() => (d.pane("kettle") as PtyPane).running, "the kettle in the drawer runs");
       await d.app.act({ action: "tile.type", args: { text: "by id\r" }, tile: kid, as: AS });
-      await until(() => (d.pane("kettle") as PtyPane).text().some(l => l.includes("by id")), "typed into the docked one");
+      await until(() => (d.pane("kettle") as PtyPane).text().some(l => l.includes("by id")), "typed into the one in the drawer");
     } finally { d.app.quit(); }
   });
 
-  test("the dock's agent: listed for an agent, chosen by act (saved for this session), the picker by alt+g", async () => {
+  test("the drawer's agent: listed for an agent, chosen by act (saved for this session), the picker by alt+g", async () => {
     const d = await door();
     try {
       const listed = await d.app.act({ action: "host.agent", args: {}, as: AS }) as any;
@@ -360,40 +360,40 @@ describe.skipIf(!outliner)("the dock: any tile, moved whole between screens", ()
       await expect(d.app.act({ action: "host.agent", args: { name: "no-such-agent" }, as: AS })).rejects.toThrow(/no agent no-such-agent here; installed: shell/);
       const r = await d.app.act({ action: "host.agent", args: { name: "shell" }, as: AS }) as any;
       expect(r).toMatchObject({ agent: "shell", herdr: false });
-      expect(JSON.parse(readFileSync(join(outlineState(), "dock-agent.json"), "utf8"))).toEqual({ agent: "shell" });
+      expect(JSON.parse(readFileSync(join(outlineState(), "drawer-agent.json"), "utf8"))).toEqual({ agent: "shell" });
       // EP0CH_DAILY_AGENT (cat, here) still overrides it, and the door says so.
-      expect((d.app.describe() as any).dock.runs.why.program).toContain("EP0CH_DAILY_AGENT");
-      // The person's alt+g: the picker, over the dock.
+      expect((d.app.describe() as any).drawer.runs.why.program).toContain("EP0CH_DAILY_AGENT");
+      // The person's alt+g: the picker, over the drawer.
       d.A.lastInput = 0;
       d.key({ kind: "alt", ch: "g" });
-      expect(d.app.dock.open).toBe(true);
-      expect(d.paint().some(l => l.includes("the dock's agent"))).toBe(true);
+      expect(d.app.drawer.open).toBe(true);
+      expect(d.paint().some(l => l.includes("the drawer's agent"))).toBe(true);
       d.key({ kind: "esc" });
     } finally { d.app.quit(); }
   });
 
-  test("typing in the dock's terminal: alt+g's picker takes the keys from it (no byte goes past), alt+s opens a shell tab", async () => {
+  test("typing in the drawer's terminal: alt+g's picker takes the keys from it (no byte goes past), alt+s opens a shell tab", async () => {
     const d = await door();
     try {
       d.A.lastInput = 0;
       d.key({ kind: "alt", ch: "a" }); d.paint();
-      await until(() => !!d.app.dock.tile?.running, "the dock's own cat runs");
+      await until(() => !!d.app.drawer.tile?.running, "the drawer's own cat runs");
       d.paint();
-      await until(() => !!d.app.dock.made?.rawKeys(), "the person types in it");
-      const raw = () => d.app.dock.rawInput(d.A.dockRun);
+      await until(() => !!d.app.drawer.made?.rawKeys(), "the person types in it");
+      const raw = () => d.app.drawer.rawInput(d.A.drawerRun);
       raw()!("\x1bg");
-      await until(() => d.paint().some(l => l.includes("the dock's agent")), "the picker");
-      expect(d.app.dock.made!.rawInput()).toBeNull();            // the picker has the keys, not cat
+      await until(() => d.paint().some(l => l.includes("the drawer's agent")), "the picker");
+      expect(d.app.drawer.made!.rawInput()).toBeNull();            // the picker has the keys, not cat
       expect(d.paint().some(l => l.includes("the picker has the keys"))).toBe(true);
       d.key({ kind: "esc" });
-      expect(d.app.dock.made!.rawInput()).not.toBeNull();        // back to cat
-      const tabs = d.app.dock.tabs().length;
+      expect(d.app.drawer.made!.rawInput()).not.toBeNull();        // back to cat
+      const tabs = d.app.drawer.tabs().length;
       raw()!("\x1bs");
-      await until(() => d.app.dock.tabs().length === tabs + 1, "a new shell tab");
+      await until(() => d.app.drawer.tabs().length === tabs + 1, "a new shell tab");
     } finally { d.app.quit(); }
   });
 
-  test("a session handover: the person's edit in a docked reader is checkpointed and comes back in the next daemon's dock", async () => {
+  test("a session handover: the person's edit in a reader in the drawer is checkpointed and comes back in the next daemon's drawer", async () => {
     const { Checkpoints, readCheckpoint, restore } = await import("../src/session/restore");
     const { MainMenu } = await import("../src/screens");
     const note = await board.request<any>("create", { parentId: null, text: "Leeks: earth them up", author: "agent" });
@@ -404,37 +404,37 @@ describe.skipIf(!outliner)("the dock: any tile, moved whole between screens", ()
     one.push(desk);
     await desk.dispatch.act({ action: "tile.open", args: { kind: "detail", note: note.id, name: "leeks" }, tile: "reader" }, USER);
     await until(() => (desk.pane("leeks") as any)?.msg?.id === note.id, "the detail shows it");
-    await desk.dispatch.act({ action: "host.dock", args: {}, tile: "leeks" }, USER);
-    await one.dock.desk!.dispatch.act({ action: "edit.text", args: { text: "Leeks: earth them up\nhalfway: the second row next" }, tile: "leeks" }, USER);
+    await desk.dispatch.act({ action: "tile.drawer", args: {}, tile: "leeks" }, USER);
+    await one.drawer.desk!.dispatch.act({ action: "edit.text", args: { text: "Leeks: earth them up\nhalfway: the second row next" }, tile: "leeks" }, USER);
     // The handover's order (src/session/daemon.ts): the checkpoint with the edits, then the drafts put aside.
     new Checkpoints(one, () => ({ cols: 140, rows: 40 })).write(true);
     for (const x of one.holders()) x.keepDrafts?.();
     const c = readCheckpoint()!;
-    expect(c.reopen.some(s => s.dock && s.action === "edit" && s.tile === "leeks")).toBe(true);
+    expect(c.reopen.some(s => s.drawer && s.action === "edit" && s.tile === "leeks")).toBe(true);
     one.quit();
     const two = new App(term(), board, Date.now(), () => {});
     try {
       const r = await restore(two, c);
       expect(r.errors).toEqual([]);
       expect(r.reopened).toBe(1);
-      const back = two.dock.desk!.pane("leeks") as any;
+      const back = two.drawer.desk!.pane("leeks") as any;
       expect(back?.surface.draft).toBeTruthy();
       expect(back.unsaved()).toBe(true);
     } finally { two.quit(); }
   });
 
-  test("saved: the next door's dock has the tile back (dock-tiles.json), the drawer as it was", async () => {
+  test("saved: the next door's drawer has the tile back (drawer-tiles.json), the dock as it was", async () => {
     const d = await door();
-    await d.app.act({ action: "host.dock", args: {}, tile: "thread", as: AS });
+    await d.app.act({ action: "tile.drawer", args: {}, tile: "thread", as: AS });
     d.app.quit();
-    const file = join(outlineState(), "dock-tiles.json");
+    const file = join(outlineState(), "drawer-tiles.json");
     expect(existsSync(file)).toBe(true);
     expect(readFileSync(file, "utf8")).toContain("thread");
     const e = await door();
     try {
       e.paint();
-      expect(e.docked("thread")).toBe(true);
-      expect(e.desk.pane("thread")).toBeDefined();               // the desk's own layout has a thread again (its spec): two tiles, one docked
+      expect(e.inDrawer("thread")).toBe(true);
+      expect(e.desk.pane("thread")).toBeDefined();               // the desk's own layout has a thread again (its spec): two tiles, one in the drawer
     } finally { e.app.quit(); }
   });
 });

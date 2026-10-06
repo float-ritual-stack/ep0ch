@@ -172,7 +172,7 @@ describe("the copy in a session", () => {
   const session = () => {
     const term = new SessionTerm();
     const app = new App(term, { supports: () => null, protocol: null } as any, Date.now(), () => {});
-    app.push({ title: "plot board", noDock: true, key: () => {}, render: (ctx: any) => ({ lines: Array.from({ length: ctx.t.rows - 1 }, () => "") }) } as any);
+    app.push({ title: "plot board", noDrawer: true, key: () => {}, render: (ctx: any) => ({ lines: Array.from({ length: ctx.t.rows - 1 }, () => "") }) } as any);
     return { term, app };
   };
 

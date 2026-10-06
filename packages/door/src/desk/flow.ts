@@ -1,7 +1,7 @@
 // The flow container (PIE-513): the river's columns as a container type of the screen-layout module. Columns sit
 // side by side and compress full → peek → spine as they recede from the wide column (the anchor). Opening from a
 // column puts the new one right after it ("opens into the next column", the flow's open rule). A peek is drawn at
-// reading width and covered by its right-hand neighbour like a drawer; only the far ones become spines.
+// reading width and covered by its right-hand neighbour like a dock; only the far ones become spines.
 //
 // Focus and the layout are two things: moving the person's keys between columns never moves a column. The anchor
 // moves only on an explicit shift (widen), an open that would not otherwise show the new column full, or a key move
@@ -69,7 +69,7 @@ export function squeeze<I>(f: Flow<I>, width: number, holds?: (id: I) => boolean
 /**
  * Place a flow in `r`: each column shown gets its rect (what shows) and its box (where it's drawn). A full column's
  * tiles are placed in it; a peek's in its box, each rect cut to what shows; a spine's in its strip. A column off
- * the strip places nothing (like a shut drawer). `place` is the tree's own placer, for what a column holds.
+ * the strip places nothing (like a shut dock). `place` is the tree's own placer, for what a column holds.
  */
 export function placeFlow<I>(f: Flow<I>, r: Rect, opts: PlaceOpts<I>, out: Placed<I>, place: (n: LNode<I>, r: Rect, o: PlaceOpts<I>, out: Placed<I>) => Placed<I>): Placed<I> {
   if (f.key) out.nodes.set(f.key, r);
@@ -86,7 +86,7 @@ export function placeFlow<I>(f: Flow<I>, r: Rect, opts: PlaceOpts<I>, out: Place
     }
     for (const [k, v] of inner.nodes) out.nodes.set(k, v);
     if (inner.tabsets) (out.tabsets ??= []).push(...inner.tabsets);
-    if (inner.drawers) (out.drawers ??= []).push(...inner.drawers);
+    if (inner.docks) (out.docks ??= []).push(...inner.docks);
     // A full column's own borders (tiles stacked in it) drag; a covered one's are under its neighbour.
     if (c.cover === "full") out.dividers.push(...inner.dividers);
     cols.push({ i: c.i, cover: c.cover, rect, box });

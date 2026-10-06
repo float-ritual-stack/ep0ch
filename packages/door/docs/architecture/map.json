@@ -428,7 +428,7 @@
 
     {
       "id": "door.layout", "name": "The screen-layout module", "group": "door", "chapter": "layout", "ladder": "shared", "dependsOn": [],
-      "does": "The reducer of the door's one-way data flow (PIE-513): a screen's layout is one value (tiles in containers: n-ary splits by weight, tab sets, drawers, columns from data, flows; floats above the tree; spines, zoom, links, names, the screen's policy and lock, the revision), and it changes only by apply(state, op, ctx): one layout operation for one actor as one transaction, answering the new state or a refusal with its reason. Every rule is checked inside it: floats have no place in the tree, the nearest policy wins and a lock above locks below, an agent undoes only its own lock and never moves the tile the person types in, the screen is never blank. The flow container is the river's columns: squeezed full, peek, spine around the wide one; opens land in the next column; focus never moves it.",
+      "does": "The reducer of the door's one-way data flow (PIE-513): a screen's layout is one value (tiles in containers: n-ary splits by weight, tab sets, docks, columns from data, flows; floats above the tree; spines, zoom, links, names, the screen's policy and lock, the revision), and it changes only by apply(state, op, ctx): one layout operation for one actor as one transaction, answering the new state or a refusal with its reason. Every rule is checked inside it: floats have no place in the tree, the nearest policy wins and a lock above locks below, an agent undoes only its own lock and never moves the tile the person types in, the screen is never blank. The flow container is the river's columns: squeezed full, peek, spine around the wide one; opens land in the next column; focus never moves it.",
       "built": "screen-layout.ts is the interface (apply, refusal, init, serialize, describe, place, landing); layout.ts (the tree arithmetic) and flow.ts (the flow's squeeze and memory) are inside it and import only Rect and the spine's width. What it doesn't own is said to it: the actor, the person's keys and the tile they type in (ctx.person, a shell-owned query from PIE-514), each tile's facts. Its state is frozen under test, so a caller that writes to it throws. Tested through its interface with no App (test/screen-layout.test.ts, test/flow.test.ts), the round-2 review's B7-B11, C3 and C4 among them.",
       "refs": [
         { "r": "door", "p": "src/desk/screen-layout.ts", "l": 257, "m": "export function apply" },
@@ -437,7 +437,7 @@
         { "r": "door", "p": "src/desk/screen-layout.ts", "l": 229, "m": "export function init" },
         { "r": "door", "p": "src/desk/screen-layout.ts", "l": 326, "m": "export function landing" },
         { "r": "door", "p": "src/desk/layout.ts", "l": 122, "m": "export type LNode" },
-        { "r": "door", "p": "src/desk/layout.ts", "l": 108, "m": "export type Drawer" },
+        { "r": "door", "p": "src/desk/layout.ts", "l": 108, "m": "export type Dock" },
         { "r": "door", "p": "src/desk/layout.ts", "l": 100, "m": "export type Columns" },
         { "r": "door", "p": "src/desk/layout.ts", "l": 115, "m": "export type Flow" },
         { "r": "door", "p": "src/desk/layout.ts", "l": 28, "m": "export interface Policy" },
@@ -449,7 +449,7 @@
     },
     {
       "id": "door.identity", "name": "Layout identity", "group": "door", "chapter": "layout", "ladder": "provisional", "was": "accidental", "dependsOn": ["door.layout"],
-      "does": "Every split (s<n>), tab set (g<n>), drawer (d<n>), columns (c<n>), flow (f<n>) and tile (t<n>) keeps an id through moves and saves; the layout has a revision. An agent's expected=<rev> is refused, with nothing done, when the person changed the layout meanwhile.",
+      "does": "Every split (s<n>), tab set (g<n>), dock (d<n>), columns (c<n>), flow (f<n>) and tile (t<n>) keeps an id through moves and saves; the layout has a revision. An agent's expected=<rev> is refused, with nothing done, when the person changed the layout meanwhile.",
       "built": "The ids live on the LNode tree; the screen-layout module gives them and moves the revision on a change of shape, in every operation; layout.resize takes split=<id>.",
       "refs": [
         { "r": "door", "p": "src/desk/layout.ts", "l": 93, "m": "id?: string" },
@@ -459,7 +459,7 @@
     },
     {
       "id": "door.desk", "name": "The desk (tree host)", "group": "door", "chapter": "layout", "ladder": "recognised", "dependsOn": ["door.layout", "door.identity", "door.actions", "door.tilekinds"],
-      "does": "The one full host of the layout: tile instances, focus, frames, headers, drag, tabs, drawers, zoom, floats, flows drawn. Every key and drag goes through cmd() to an action, and every action's layout change through the screen-layout module.",
+      "does": "The one full host of the layout: tile instances, focus, frames, headers, drag, tabs, docks, zoom, floats, flows drawn. Every key and drag goes through cmd() to an action, and every action's layout change through the screen-layout module.",
       "built": "Desk in desk.ts with TILE_ACTIONS; what differs by kind it asks the tile-kind registry. It holds a LayoutState and changes it only by apply (PIE-513): it says what each tile is (facts) and where the person types (layoutCtx), commits the module's answer, and keeps the tile instances, gestures and painting. Its refusal functions are gone into the module. tile.* actions are the one name for each operation; pane.* are their older aliases (PIE-510).",
       "refs": [
         { "r": "door", "p": "src/desk/desk.ts", "l": 93, "m": "export class Desk" },
@@ -505,7 +505,7 @@
     },
     {
       "id": "door.state", "name": "State directory", "group": "door", "chapter": "layout", "ladder": "provisional", "was": "accidental", "dependsOn": [],
-      "does": "Where the door keeps layouts, drafts, marks and its sockets. EP0CH_STATE moves all of it; files are private to the user. What is one outline's (its session, saved screen layouts, last call, marks, drafts put aside, control socket) lives in that outline's folder; the person's (theme, named layouts, machines, dock) stays shared. Two doors on one outline are warned.",
+      "does": "Where the door keeps layouts, drafts, marks and its sockets. EP0CH_STATE moves all of it; files are private to the user. What is one outline's (its session, saved screen layouts, last call, marks, drafts put aside, control socket) lives in that outline's folder; the person's (theme, named layouts, machines, drawer) stays shared. Two doors on one outline are warned.",
       "built": "stateDir, privateDir (the nvim sockets' check, extracted), writeState (temp file and rename), outlineState and useOutlineState (the outline's folder, named by src/session/place.ts; the home base's own on none), claimState.",
       "refs": [
         { "r": "door", "p": "src/state.ts", "l": 14, "m": "export const stateDir" },
@@ -563,26 +563,26 @@
     },
     {
       "id": "door.herdragent", "name": "Herdr agent tile", "group": "door", "chapter": "terminal", "ladder": "provisional", "dependsOn": ["door.pty", "kept.herdr", "door.control"],
-      "does": "The daily agent runs in a Herdr pane the tile attaches to, so quitting the door leaves it running; the next door reattaches. The App owns that one tile (PIE-498), the first tab of the host layer's drawer (PIE-513): a layout on the one layout engine above every screen, pulled up from the status bar's chip over or beside a screen, as the screen's policy says. No screen has a copy of it.",
+      "does": "The daily agent runs in a Herdr pane the tile attaches to, so quitting the door leaves it running; the next door reattaches. The App owns that one tile (PIE-498), the first tab of the host layer's dock (PIE-513): a layout on the one layout engine above every screen, pulled up from the status bar's chip over or beside a screen, as the screen's policy says. No screen has a copy of it.",
       "built": "scripts/door-agent-herdr.ts finds or creates the pane under a lock, attaches, and tells the door with tile.herdr over the control socket, as its tile. No title matching.",
       "refs": [
         { "r": "door", "p": "src/desk/herdr-agent.ts", "l": 332, "m": "export async function main" },
         { "r": "door", "p": "src/desk/herdr-agent.ts", "l": 259, "m": "export function tellDoor" },
         { "r": "door", "p": "src/desk/pty-actions.ts", "l": 50, "m": "\"tile.herdr\": def({" },
         { "r": "door", "p": "src/desk/pty.ts", "l": 152, "m": "get herdr(): { pane: string; name?: string } | null" },
-        { "r": "door", "p": "src/dock.ts", "l": 126, "m": "export class AgentDock" },
-        { "r": "door", "p": "src/dock.ts", "l": 836, "m": "export const DOCK_ACTIONS" },
+        { "r": "door", "p": "src/drawer.ts", "l": 126, "m": "export class AgentDrawer" },
+        { "r": "door", "p": "src/drawer.ts", "l": 836, "m": "export const DRAWER_ACTIONS" },
         { "r": "door", "p": "src/desk/screen-layout.ts", "l": 1245, "m": "export function hostLayer" }
       ],
       "questions": [ { "text": "Reattach shows Herdr's current screen only: no scrollback. In a door session the tile outlives a detach, scrollback and all; a new door still attaches without it.", "finding": "B-F21", "route": "PIE-418" } ]
     },
     {
-      "id": "door.dock", "name": "The dock", "group": "door", "chapter": "terminal", "ladder": "provisional", "dependsOn": ["door.pty", "door.herdragent"],
-      "does": "Tiles that travel with the person across screens (PIE-498): the host layer's drawer holds the dock's own desk, its tiles the drawer's tabs. Any tile docks and undocks whole (host.dock, ^W a, a drag onto the chip or out of the drawer): a terminal's program keeps running, a reader keeps its note. Its first tab is the dock's own program (EP0CH_DAILY_AGENT, else a shell, in the person's folder or the outline's).",
-      "built": "One layout operation each side: the screen's take, the dock desk's open, both asked first; the instance moves. A moved terminal keeps the key its program started under (PtyPane.keptKey, saved as kept), so a session's terminal host gives it back after an upgrade. Saved in dock-tiles.json.",
+      "id": "door.drawer", "name": "The drawer", "group": "door", "chapter": "terminal", "ladder": "provisional", "dependsOn": ["door.pty", "door.herdragent"],
+      "does": "Tiles that travel with the person across screens (PIE-498): the host layer's dock holds the drawer's own desk, its tiles the dock's tabs. Any tile ⟦docks⟧ and ⟦undocks⟧ whole (tile.drawer, ^W a, a drag onto the chip or out of the dock): a terminal's program keeps running, a reader keeps its note. Its first tab is the drawer's own program (EP0CH_DAILY_AGENT, else a shell, in the person's folder or the outline's).",
+      "built": "One layout operation each side: the screen's take, the drawer desk's open, both asked first; the instance moves. A moved terminal keeps the key its program started under (PtyPane.keptKey, saved as kept), so a session's terminal host gives it back after an upgrade. Saved in drawer-tiles.json.",
       "refs": [
-        { "r": "door", "p": "src/dock.ts", "l": 126, "m": "export class AgentDock" },
-        { "r": "door", "p": "src/desk/dock-program.ts", "l": 42, "m": "export function dockProgram" },
+        { "r": "door", "p": "src/drawer.ts", "l": 126, "m": "export class AgentDrawer" },
+        { "r": "door", "p": "src/desk/drawer-program.ts", "l": 42, "m": "export function drawerProgram" },
         { "r": "door", "p": "src/desk/desk.ts", "l": 3123, "m": "takeOut(sel: string | undefined, actor: Actor): MovedTile" },
         { "r": "door", "p": "src/desk/screen-layout.ts", "l": 669, "m": "private take(id: I)" }
       ],
@@ -662,8 +662,8 @@
     },
     {
       "id": "door.board", "name": "The board", "group": "door", "chapter": "screens", "ladder": "recognised", "tree": "on", "dependsOn": ["door.desk", "door.layout", "door.tilekinds", "door.surface", "door.draftsession", "door.socketboard", "svc.planwrite", "svc.feed"],
-      "does": "Kanban lanes from saved views, a preview and details beside them, the outline and backlinks drawers, floats. Moves and new cards are the service's plans.",
-      "built": "A screen spec on the desk (PIE-511, PIE-515: boardSpec, plain data): its lanes are query tiles in a columns container filled by the hub source; its drawers, floats, spines, borders, focus and frames are the desk's; its opens land in the readers row (opensInto, keep), a drawer's list closes by shutting its drawer (shuts). What the lanes share is the hub source's model (Lanes): card moves, writes, steps, trash, the hub picker, and lane refresh from the change feed.",
+      "does": "Kanban lanes from saved views, a preview and details beside them, the outline and backlinks docks, floats. Moves and new cards are the service's plans.",
+      "built": "A screen spec on the desk (PIE-511, PIE-515: boardSpec, plain data): its lanes are query tiles in a columns container filled by the hub source; its docks, floats, spines, borders, focus and frames are the desk's; its opens land in the readers row (opensInto, keep), a dock's list closes by shutting its dock (shuts). What the lanes share is the hub source's model (Lanes): card moves, writes, steps, trash, the hub picker, and lane refresh from the change feed.",
       "refs": [
         { "r": "door", "p": "src/desk/delivery.ts", "l": 44, "m": "export function boardSpec" },
         { "r": "door", "p": "src/desk/lanes.ts", "l": 47, "m": "export class Lanes implements SourceModel" },
@@ -677,7 +677,7 @@
     {
       "id": "door.river", "name": "The river", "group": "door", "chapter": "screens", "ladder": "recognised", "tree": "on", "dependsOn": ["door.surface", "door.socketboard"],
       "does": "Columns of notes that open to the right; focus moves the keys, not the layout; far columns shrink to peeks and spines.",
-      "built": "A screen spec on the desk (PIE-515): its columns are river.column tiles (a reader of the note surface with the river's own view: the Library, a note and its replies, a #value branch) in a flow container, the layout engine's squeeze, focus, widen, dock, travel and close; saved to river.json as the desk's layout. Reply counts from one shared index per service.",
+      "built": "A screen spec on the desk (PIE-515): its columns are river.column tiles (a reader of the note surface with the river's own view: the Library, a note and its replies, a #value branch) in a flow container, the layout engine's squeeze, focus, widen, drawer, travel and close; saved to river.json as the desk's layout. Reply counts from one shared index per service.",
       "refs": [
         { "r": "door", "p": "src/river/column.ts", "l": 129, "m": "export class RiverColumn extends ReaderPane" },
         { "r": "door", "p": "src/river/column.ts", "l": 854, "m": "export function riverSpec" },

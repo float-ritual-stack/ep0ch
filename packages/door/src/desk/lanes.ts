@@ -3,7 +3,7 @@
 // the hub picker), the lane the cursor is in, moving cards between lanes (H L, m, a drag, `card.move`), writing new
 // cards and notes (the composer), a card's steps, trash and restore, each agent's own selected card, and the lanes'
 // refresh from the change feed. The board is a screen spec on the desk (src/desk/screen-specs.ts); its readers row,
-// drawers, floats and spines are the desk's. Every key and click runs an action (BOARD_ACTIONS, the source's).
+// docks, floats and spines are the desk's. Every key and click runs an action (BOARD_ACTIONS, the source's).
 import { subject, type Msg } from "../board";
 import type { Canvas, Rect } from "../canvas";
 import { byOf, USER, type Actor, type Change, type OutlineEvent } from "../socket";

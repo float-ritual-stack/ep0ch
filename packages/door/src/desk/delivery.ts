@@ -3,26 +3,26 @@
 // share (the hub shown, the cursor, cards moved and written, steps, trash, the picker) is that source's model
 // (src/desk/lanes.ts) and its actions (BOARD_ACTIONS). The readers row is where the lanes' opens land (the screen's
 // `opensInto`): the preview following the lanes, and the details opened into it (`keep`: two). The outline (the tree
-// over its preview) is a drawer on the left, the backlinks (the list beside its preview) a drawer at the bottom; a
-// close in either shuts its drawer (`shuts`). Every key here names an action: the desk's, the backlinks kind's, the
+// over its preview) is a dock on the left, the backlinks (the list beside its preview) a dock at the bottom; a
+// close in either shuts its dock (`shuts`). Every key here names an action: the desk's, the backlinks kind's, the
 // board's.
 import type { ScreenSpec } from "./screen-spec";
 import type { SavedTree, TileSpec } from "./tiles";
 
 const T = (kind: string, name: string, more: Partial<TileSpec> = {}): TileSpec => ({ t: "leaf", kind, name, ...more });
 
-/** A drawer's list with its preview: they stay in their drawer, a close shuts it, and neither folds to a spine. */
-const DRAWER = { draggable: false, shuts: true, collapsible: false } as const;
+/** A dock's list with its preview: they stay in their dock, a close shuts it, and neither folds to a spine. */
+const DOCK = { draggable: false, shuts: true, collapsible: false } as const;
 
 /**
- * The board's layout: the outline drawer on the left, then the lanes over the readers row, the backlinks drawer at
+ * The board's layout: the outline dock on the left, then the lanes over the readers row, the backlinks dock at
  * the bottom. `hub`: the hub its lanes show (empty: the one remembered for the workspace, else the picker's).
  */
 function boardTree(hub: string): SavedTree {
   return {
     t: "split", dir: "row", weights: [0.3, 0.7], kids: [
       // The outline slides shut as the keys leave it, and is never narrower than 28.
-      { t: "drawer", edge: "left", open: false, policy: { min: 28 }, kid: { t: "split", dir: "col", key: "outline", weights: [0.6, 0.4], policy: { ...DRAWER }, kids: [T("tree", "tree"), T("preview", "tree-preview", { source: "tile:tree", label: "follows the outline" })] } },
+      { t: "dock", edge: "left", open: false, policy: { min: 28 }, kid: { t: "split", dir: "col", key: "outline", weights: [0.6, 0.4], policy: { ...DOCK }, kids: [T("tree", "tree"), T("preview", "tree-preview", { source: "tile:tree", label: "follows the outline" })] } },
       {
         t: "split", dir: "col", key: "board", weights: [0.42, 0.58, 0.36], kids: [
           // The lanes stay where they are and take only query tiles; a lane closes when its view goes.
@@ -30,7 +30,7 @@ function boardTree(hub: string): SavedTree {
           // Where the lanes' opens land: the preview (its own place: it stays, takes no tabs, folds) and two details.
           { t: "split", dir: "row", key: "readers", weights: [4], policy: { keep: 2 }, kids: [{ t: "tabs", tabs: [T("preview", "preview", { source: "tile:lanes", label: "preview · follows the board" })], active: 0, policy: { draggable: false, droppable: false, closable: false } }] },
           // The backlinks stay open while a source is read in a detail.
-          { t: "drawer", edge: "down", open: false, policy: { stays: true }, kid: { t: "split", dir: "row", key: "links", weights: [0.5, 0.5], policy: { ...DRAWER }, kids: [T("backlinks", "backlinks", { source: "tile:preview" }), T("preview", "backlinks-preview", { source: "tile:backlinks", label: "follows the backlinks" })] } },
+          { t: "dock", edge: "down", open: false, policy: { stays: true }, kid: { t: "split", dir: "row", key: "links", weights: [0.5, 0.5], policy: { ...DOCK }, kids: [T("backlinks", "backlinks", { source: "tile:preview" }), T("preview", "backlinks-preview", { source: "tile:backlinks", label: "follows the backlinks" })] } },
         ],
       },
     ],
@@ -48,11 +48,11 @@ export function boardSpec(args: { hub?: unknown } = {}): ScreenSpec {
     layout: { focus: "preview", policy: { opensInto: "readers" }, root: boardTree(hub) },
     keys: [
       { key: "g", action: "board.hub" },
-      { key: "t", action: "tile.drawer", tile: "tree" },
-      { key: "T", action: "tile.pin", tile: "tree" },
-      { key: "S", action: "tile.pin", tile: "tree", args: { edge: "other" } },
+      { key: "t", action: "tile.slide", tile: "tree" },
+      { key: "T", action: "tile.dock", tile: "tree" },
+      { key: "S", action: "tile.dock", tile: "tree", args: { edge: "other" } },
       { key: "b", action: "backlinks", tile: "backlinks", unless: ["backlinks"] },
-      { key: "B", action: "tile.pin", tile: "backlinks" },
+      { key: "B", action: "tile.dock", tile: "backlinks" },
       { key: "o", action: "tile.float" },
       { key: "alt+c", action: "tile.collapse", tile: "all", args: { on: false } },
       { key: "c", action: "tile.collapse", only: ["preview", "detail"] },
@@ -65,7 +65,7 @@ export function boardSpec(args: { hub?: unknown } = {}): ScreenSpec {
     hint: {
       query: LANES_HINT,
       backlinks: "|08 |15j k|08 row · |15⏎|08 open · |15alt+⏎|08 new detail · |15. space|08 group · |15/|08 filter · |15s|08 sort · |15K|08 kind · |15w|08 stage · |15h|08 resolved · |15n|08 this note · |15B|08 pin · |15tab|08 area · |15esc|08 close",
-      tree: "|08 |15j k|08 row · |15⏎|08 open · |15L|08 links · |15T|08 pin · |15S|08 side · |15tab|08 area · |15esc|08 close",
+      tree: "|08 |15j k|08 row · |15⏎|08 open · |15L|08 links · |15T|08 dock · |15S|08 side · |15tab|08 area · |15esc|08 close",
       float: "|08 drag the title to move · drag |15◢|08 to resize · |15H J K L|08 move · |15o|08 back in · |15x|08 close · |15tab|08 area",
       spine: "|15c ⏎|08 open · |15alt+c|08 open all · |15tab|08 area · |15esc|08 lanes",
       "*": READER_HINT,

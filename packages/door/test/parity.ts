@@ -15,7 +15,7 @@ import { join } from "node:path";
 import { App } from "../src/app";
 import { declaredKeys, hintKeys, keyName, traceActions, type ActionRun } from "../src/surface/actions";
 import { SHELL_ACTIONS, MENU_SCREENS, MainMenu, MessageReader } from "../src/screens";
-import { DOCK_ACTIONS } from "../src/dock";
+import { DRAWER_ACTIONS } from "../src/drawer";
 import { EXT_ACTIONS } from "../src/extensions";
 import { NEW_NOTE_ACTIONS } from "../src/new-note";
 import { SocketBoard } from "../src/socket";
@@ -52,7 +52,7 @@ export const PROBE_KEYS: Key[] = [
  */
 const ageless = (l: string) => l.replace(/(\x1b\[[\d;?]*[A-Za-z])|(?<![\d.:])\d+[smhd](?![A-Za-z0-9])/g, (m, esc) => esc ?? "#age");
 
-interface Snap { top: Screen | undefined; depth: number; lines: string[]; about: string; holds: boolean; video: string; dock: string }
+interface Snap { top: Screen | undefined; depth: number; lines: string[]; about: string; holds: boolean; video: string; drawer: string }
 interface Finding { screen: string; keys: string; problem: string }
 
 /** The screens each part probes: the menu's screens and the readers; the board and the river; the desk and its views. */
@@ -118,7 +118,7 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     board.subscribe(e => app.event(e));
   }, 60_000);
 
-  /** A door of its own for each screen: nothing one screen's probes left (a drawer, a timer) reaches the next. */
+  /** A door of its own for each screen: nothing one screen's probes left (a dock, a timer) reaches the next. */
   function newApp() {
     if (app) { for (const s of [...A().stack.splice(0), ...A().background.splice(0)]) end(s); try { app.quit(); } catch { /* gone */ } }
     const term = { info: { cols: 160, rows: 48, cellW: 9, cellH: 16, kitty: false }, write() {}, paint() {}, invalidate() {}, onKey(f: any) { press = f; }, onResize() {}, stop() {}, resume() {} };
@@ -157,28 +157,28 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
         const { cols, rows } = A().term.info;
         lines = top.render(app).lines.slice(0, rows - 1).map(ageless);
         while (lines.length < rows - 1) lines.push("");
-        const dock = A().dock;
-        dock.active = !top.noDock;
+        const drawer = A().drawer;
+        drawer.active = !top.noDrawer;
         const message = A().message;
-        A().message = ""; dock.chip = dock.chipText = () => "agent";
+        A().message = ""; drawer.chip = drawer.chipText = () => "agent";
         try { lines.push((A().statusBar(top, cols) as string).replace(/on \d+m │ \d\d:\d\d/, "on Nm │ hh:mm").replace(/\+\d+ (new|ext)\b/g, "+N $1")); }
-        finally { A().message = message; delete dock.chip; delete dock.chipText; }
+        finally { A().message = message; delete drawer.chip; delete drawer.chipText; }
         A().statusBar(top, cols);   // where its `+N ext` and chip are as drawn, for the clicks
         lines = lines.map((l, i) => (mask.has(i) ? "" : l));
       }
     } catch (e) { lines = [`render threw ${e}`]; }
     let about = "";
     try { about = JSON.stringify(top?.describe?.() ?? null); } catch { about = "?"; }
-    return { top, depth: A().stack.length, lines, about: mask.has(-1) ? "" : about, holds: app.person().busy, video: app.video, dock: drawer() };
+    return { top, depth: A().stack.length, lines, about: mask.has(-1) ? "" : about, holds: app.person().busy, video: app.video, drawer: dock() };
   };
   /**
-   * The dock over the screen: up or put away, the person in it or not, its height. Its rows are the
-   * agent's terminal (they change by themselves), so the drawer is compared by these, not by what it draws.
+   * The drawer over the screen: up or put away, the person in it or not, its height. Its rows are the
+   * agent's terminal (they change by themselves), so the dock is compared by these, not by what it draws.
    */
-  const drawer = () => { const d = A().dock; return `${d.shown}|${d.entered}|${d.share}`; };
+  const dock = () => { const d = A().drawer; return `${d.shown}|${d.entered}|${d.share}`; };
   /** The same screen shown the same way (`about`: and described the same; two builds differ in ids and revisions). */
-  const alike = (a: Snap, b: Snap, about = true) => a.top?.constructor === b.top?.constructor && a.depth === b.depth && a.video === b.video && a.dock === b.dock && (!about || a.about === b.about) && a.lines.length === b.lines.length && a.lines.every((l, i) => l === b.lines[i]);
-  const same = (a: Snap, b: Snap) => a.top === b.top && a.depth === b.depth && a.video === b.video && a.dock === b.dock && a.about === b.about && a.lines.length === b.lines.length && a.lines.every((l, i) => l === b.lines[i]);
+  const alike = (a: Snap, b: Snap, about = true) => a.top?.constructor === b.top?.constructor && a.depth === b.depth && a.video === b.video && a.drawer === b.drawer && (!about || a.about === b.about) && a.lines.length === b.lines.length && a.lines.every((l, i) => l === b.lines[i]);
+  const same = (a: Snap, b: Snap) => a.top === b.top && a.depth === b.depth && a.video === b.video && a.drawer === b.drawer && a.about === b.about && a.lines.length === b.lines.length && a.lines.every((l, i) => l === b.lines[i]);
 
   /** A fresh screen on the stack (over the menu), settled; and the rows that change by themselves (a clock, a meter). */
   /** A screen gone for good: what it started ends too (a desk keeps its programs running otherwise). */
@@ -195,13 +195,13 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
   const freshIn = async (label: string, make: () => Screen | Promise<Screen>, setup: Key[] = []): Promise<Set<number>> => {
     for (const s of [...A().stack.splice(0), ...A().background.splice(0)]) end(s);
     (Desk as any).kept = null;
-    // The dock is the App's, over every screen: put away, its program ended.
-    const dock = A().dock;
+    // The drawer is the App's, over every screen: put away, its program ended.
+    const drawer = A().drawer;
     // Put away by its own operation (the host layer changes only through the layout engine).
-    if (dock.open) dock.set(false, { kind: "user" });
-    dock.openedBy = null;
-    try { dock.p?.dispose?.(); } catch { /* gone */ }
-    dock.p = null;
+    if (drawer.open) drawer.set(false, { kind: "user" });
+    drawer.openedBy = null;
+    try { drawer.p?.dispose?.(); } catch { /* gone */ }
+    drawer.p = null;
     // What a screen saved (the board's lanes, the desk's layout) would carry one probe's change into the next.
     const dir = process.env.EP0CH_STATE!;
     for (const f of readdirSync(dir)) if (f.endsWith(".json")) rmSync(join(dir, f), { force: true });
@@ -218,9 +218,9 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     // A second look only when the first asked the service for something (what it draws once that comes).
     for (let i = 0; i < 2; i++) { const n = asked; snap(new Set()); await settle(); if (asked === n) break; }
     // Until it holds still (a terminal's prompt arriving), at most a second. Only a terminal draws by itself
-    // (in a tile, or the dock's): without one, a settle and one more look is enough.
+    // (in a tile, or the drawer's): without one, a settle and one more look is enough.
     ptyDrew = false;
-    for (let i = 0, was = snap(new Set()); i < 50; i++) { if (ptyDrew || dock.p || i > 0) await Bun.sleep(5); await settle(); const now = snap(new Set()); if (alike(was, now)) break; was = now; }
+    for (let i = 0, was = snap(new Set()); i < 50; i++) { if (ptyDrew || drawer.p || i > 0) await Bun.sleep(5); await settle(); const now = snap(new Set()); if (alike(was, now)) break; was = now; }
     const id = `${label}\0${setup.map(named).join(" ")}`;
     let mask = masks.get(id);
     if (!mask) {
@@ -245,7 +245,7 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     const out: Key[] = [];
     // The status bar too (the last row): and its `+N ext` and agent chip, wherever they are drawn.
     for (let y = 0; y < 48; y++) for (let x = 1 + ((y * 7) % 26); x < 160; x += 26) out.push({ kind: "mouse", action: "down", button: 0, x, y });
-    for (const at of [A().extAt, A().dock.chipAt]) if (at) out.push({ kind: "mouse", action: "down", button: 0, x: at.from + 1, y: at.row });
+    for (const at of [A().extAt, A().drawer.chipAt]) if (at) out.push({ kind: "mouse", action: "down", button: 0, x: at.from + 1, y: at.row });
     // The wheel, both ways, over a coarser grid.
     for (let y = 4; y < 47; y += 12) for (let x = 10; x < 160; x += 40) for (const action of ["wheel-down", "wheel-up"] as const) out.push({ kind: "mouse", action, button: 0, x, y });
     return out;
@@ -255,11 +255,11 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     if (k.kind === "mouse" && k.action === "down") press({ ...k, action: "up" });
   };
 
-  // Hints: every key the hint row names is declared by an action the screen (or the shell, or the dock) takes.
+  // Hints: every key the hint row names is declared by an action the screen (or the shell, or the drawer) takes.
   const checkHint = (label: string) => {
     const top = A().stack.at(-1) as Screen | undefined;
     if (!top) return;
-    const acts = [...(top.dispatch?.list().actions ?? []), ...SHELL_ACTIONS.list(), ...DOCK_ACTIONS.list(), ...EXT_ACTIONS.list(), ...NEW_NOTE_ACTIONS.list()];
+    const acts = [...(top.dispatch?.list().actions ?? []), ...SHELL_ACTIONS.list(), ...DRAWER_ACTIONS.list(), ...EXT_ACTIONS.list(), ...NEW_NOTE_ACTIONS.list()];
     const declared = new Set(acts.flatMap(a => [...declaredKeys(a.keys)]));
     // The hint row, and the hint each tile draws in its frame when it has the keys (the desk and its views).
     const tiles: { hint?(): string }[] = [...((top as any).panes?.values?.() ?? [])];
@@ -333,7 +333,7 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     // Second keys: every key, as the first key is (PARITY_QUICK=1: only the keys that type text or are named,
     // and the ctrl and alt keys an action here declares).
     const top = A().stack.at(-1) as Screen | undefined;
-    const declared = new Set([...(top?.dispatch?.list().actions ?? []), ...SHELL_ACTIONS.list(), ...DOCK_ACTIONS.list(), ...EXT_ACTIONS.list(), ...NEW_NOTE_ACTIONS.list()].flatMap(a => [...declaredKeys(a.keys)]).flatMap(t => t.split(" ")));
+    const declared = new Set([...(top?.dispatch?.list().actions ?? []), ...SHELL_ACTIONS.list(), ...DRAWER_ACTIONS.list(), ...EXT_ACTIONS.list(), ...NEW_NOTE_ACTIONS.list()].flatMap(a => [...declaredKeys(a.keys)]).flatMap(t => t.split(" ")));
     const seconds = process.env.PARITY_QUICK !== "1" ? PROBE_KEYS : PROBE_KEYS.filter(k => (k.kind !== "alt" && !(k.kind === "char" && k.ctrl)) || declared.has(keyName(k)!));
     for (const k1 of states) {
       dirty = true;
@@ -416,8 +416,8 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     ["board: preview", kanban, [TAB]],
     ["board: detail", kanban, [{ kind: "enter" }]],
     ["board: float", kanban, [TAB, k("o")]],
-    ["board: outline drawer", kanban, [k("t")]],
-    ["board: backlinks drawer", kanban, [k("b")]],
+    ["board: outline dock", kanban, [k("t")]],
+    ["board: backlinks dock", kanban, [k("b")]],
     ["board: hub picker", kanban, [k("g")]],
   ];
 
@@ -443,7 +443,7 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     ["desk: art tile", desk, [CTRL_W, k("o"), k("b"), k("5")]],
     ["desk: daily", () => new Desk(undefined, { layout: "daily" })],
     ["desk: a terminal", () => new Desk(undefined, { layout: "daily" }), [k("1")]],
-    ["dock: drawer up", () => new MainMenu(), [ALT("a")]],
+    ["drawer: dock up", () => new MainMenu(), [ALT("a")]],
     ["showcase: section 3", () => MENU_SCREENS.find(([key]) => key === "X")![1](app) as Screen, [k("3")]],
     ["showcase: section 3 tried", () => MENU_SCREENS.find(([key]) => key === "X")![1](app) as Screen, [k("3"), { kind: "enter" }]],
   ];

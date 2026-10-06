@@ -33,7 +33,7 @@ export interface TileEnv {
   tile(name: string): Pane | undefined;
   /** The tiles that follow this one (a preview with `source=tile:<this>`). */
   followers(): Pane[];
-  /** It was moved here whole (from another screen, or the dock): it keeps what it shows, whatever is here. */
+  /** It was moved here whole (from another screen, or the drawer): it keeps what it shows, whatever is here. */
   moved?: boolean;
 }
 
@@ -105,7 +105,7 @@ export interface TileKind {
   take?(p: Pane, m: Msg, desk: DeskApi, by?: Actor): string | null;
   /** The tile it follows (a preview's `source=tile:<name>`): what that tile shows, this one shows. */
   follows?(p: Pane): string | null;
-  /** It holds work closing would lose (a running program, an unsaved edit): a new layout keeps it in a drawer. */
+  /** It holds work closing would lose (a running program, an unsaved edit): a new layout keeps it in a dock. */
   holdsWork?(p: Pane): boolean;
   /** What it shows or has selected (a reader's note, the tree's row, a board's card), for followers and marks. */
   shows?(p: Pane): Msg | null;

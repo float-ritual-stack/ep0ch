@@ -64,7 +64,7 @@ export class PreviewPane extends ReaderPane {
   }
   private fileNow(): string | null { return "file" in this.source ? this.source.file : this.tileFile; }
 
-  /** The desk it's on now: a tile moved to another screen or the dock (PIE-498) repaints that one. */
+  /** The desk it's on now: a tile moved to another screen or the drawer (PIE-498) repaints that one. */
   private on: DeskApi | null = null;
   init(desk: DeskApi) { this.on = desk; this.watch(desk); }
   /** A file source (or a terminal tile's file): e, C, m, i, I and ctrl+e are refused here, not started as sessions. */

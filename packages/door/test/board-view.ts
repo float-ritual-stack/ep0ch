@@ -1,6 +1,6 @@
 // The board as its tests read it (PIE-515: the board is a screen spec on the desk, so its areas are tiles and its
 // lanes' state is the lanes' model): places by the names its tests use, "lanes" (the lane the cursor is in), "preview",
-// "detail<i>" and "float<i>" by place (from 0), "tree" and "backlinks" (the drawers' lists), "tree-preview" and
+// "detail<i>" and "float<i>" by place (from 0), "tree" and "backlinks" (the docks' lists), "tree-preview" and
 // "links-preview" (their previews), a lane by its name, or any tile's name. Read through the desk's own host API
 // (`pane`, `modelFor`, `openedPanes`, `floatPanes`, `drawnAt`, `focusPane`): no private reaches. Tests only: an agent
 // names tiles by name (detail1, float1 are detail tiles' names, not places).
@@ -28,7 +28,7 @@ export class BoardView {
   /** The cursor to lane `i` (as h l move it; the keys go with it while they're on the lanes). */
   set lane(i: number) { this.model.lane = i; }
   get preview(): any { return this.b.pane("preview") as PreviewPane; }
-  /** The details docked in the readers row, in its order. */
+  /** The details laid out in the readers row, in its order. */
   get details(): any[] { return this.b.openedPanes("readers") as ReaderPane[]; }
   /** Which detail ⏎ opens into, by place. */
   get active(): number { const a = this.b.activePane("readers"); return a ? this.details.indexOf(a as ReaderPane) : 0; }
@@ -37,11 +37,11 @@ export class BoardView {
   get treePreview(): any { return this.b.pane("tree-preview") as PreviewPane; }
   get linksTile(): any { return this.b.pane("backlinks") as BacklinksPane; }
   get linksPreview(): any { return this.b.pane("backlinks-preview") as PreviewPane; }
-  /** The outline drawer is on screen (open, or docked). */
+  /** The outline dock is on screen (open, or undocked). */
   get treeOpen(): boolean { return this.b.shownNow(this.tree); }
-  get treePinned(): boolean { return !this.b.inDrawer(this.tree); }
+  get treePinned(): boolean { return !this.b.inDock(this.tree); }
   get linksOpen(): boolean { return this.b.shownNow(this.linksTile); }
-  get linksPinned(): boolean { return !this.b.inDrawer(this.linksTile); }
+  get linksPinned(): boolean { return !this.b.inDock(this.linksTile); }
   // The screen's own, as any host reads it.
   get ctx() { return this.b.ctx; }
   get dispatch() { return this.b.dispatch; }

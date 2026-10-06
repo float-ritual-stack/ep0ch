@@ -11,7 +11,7 @@
 // A drop also answers to policy (PIE-505): the view says why a place won't take the tile (`refuse`: a locked
 // screen, a container that takes no drops or only other kinds), and the drop carries that reason, so the
 // ghost and the hint row say it before the release, and the release's `layout.move` refuses with the same words.
-// A shut drawer's handle on the hint row is a drop zone too: the tile goes into the drawer.
+// A shut dock's handle on the hint row is a drop zone too: the tile goes into the dock.
 import type { Rect } from "../canvas";
 import { EDGE_GLYPH, type Dir, type Place } from "./screen-layout";
 
@@ -70,17 +70,17 @@ function zoneAt<I>(tiles: DropTile<I>[], area: Rect, x: number, y: number, src: 
   return { kind: "split", target: t.id, dir, ghost: half(r, dir), label: ARROW[dir] };
 }
 
-/** A shut drawer's handle on the hint row (`row`), and the tile it shows: what a tile dropped on it joins as a tab. */
-export interface DrawerHandle<I> { from: number; to: number; row: number; shows: I; edge: Dir }
+/** A shut dock's handle on the hint row (`row`), and the tile it shows: what a tile dropped on it joins as a tab. */
+export interface DockHandle<I> { from: number; to: number; row: number; shows: I; edge: Dir }
 
 /**
- * A drop on a shut drawer's handle: the tile goes into that drawer, into the tabs of what it shows
+ * A drop on a shut dock's handle: the tile goes into that dock, into the tabs of what it shows
  * (`layout.move where=tabs`). The ghost is drawn over the handle, within `area`, wide enough for its words.
  */
-export function handleDrop<I>(handles: DrawerHandle<I>[], area: Rect, x: number, y: number, src: I, refuse?: Refuse<I>): Drop<I> | null {
+export function handleDrop<I>(handles: DockHandle<I>[], area: Rect, x: number, y: number, src: I, refuse?: Refuse<I>): Drop<I> | null {
   const h = handles.find(h => y === h.row && x >= h.from && x < h.to);
   if (!h || h.shows === src) return null;
-  const label = `${EDGE_GLYPH[h.edge]} into the drawer`;
+  const label = `${EDGE_GLYPH[h.edge]} into the dock`;
   const cols = Math.min(area.cols, Math.max(h.to - h.from, label.length + 6));
   return judged({ kind: "tabs", target: h.shows, ghost: { col: Math.max(area.col, Math.min(h.from, area.col + area.cols - cols)), row: Math.max(area.row, h.row - 3), cols, rows: 3 }, label }, refuse);
 }

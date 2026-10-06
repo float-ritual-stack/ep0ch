@@ -1,7 +1,7 @@
 // PIE-509: the hint row on a narrow screen (120 columns), found by walking the door in a real pane. A row too long
 // for the screen ends "? more", and ? (or a click on it) shows every part in a box above it; a ^W chord's row
 // shows the box at once (^W o lists every tile kind). The keys a row names work on that screen: a float on the
-// desk docks with ^W f (o and x are the board's), and a preset (the brief) doesn't offer alt+d. Moving the board's
+// desk goes back with ^W f (o and x are the board's), and a preset (the brief) doesn't offer alt+d. Moving the board's
 // outline across with S keeps its width. Scratch services and fictional notes only.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
@@ -9,7 +9,7 @@ import { App } from "../src/app";
 import { boardScreen } from "./board-view";
 import * as BV from "./board-view";
 import { Desk } from "../src/desk/desk";
-import { drawerToEdge, splitOf, leaf, type LNode } from "../src/desk/layout";
+import { dockToEdge, splitOf, leaf, type LNode } from "../src/desk/layout";
 import { openScreen } from "../src/desk/screen-specs";
 import { MainMenu } from "../src/screens";
 import { SocketBoard } from "../src/socket";
@@ -21,14 +21,14 @@ const char = (ch: string): Key => ({ kind: "char", ch });
 const ctrl = (ch: string): Key => ({ kind: "char", ch, ctrl: true });
 const COLS = 120, ROWS = 40;
 
-test("a drawer at an outer edge keeps its share when it moves to the other edge", () => {
-  const root = splitOf("row", [{ t: "drawer", kid: leaf("tree"), edge: "left", open: false }, leaf("lanes")], [0.3, 0.7]) as LNode<string>;
-  const moved = drawerToEdge(root, (root as any).kids[0], "right") as any;
+test("a dock at an outer edge keeps its share when it moves to the other edge", () => {
+  const root = splitOf("row", [{ t: "dock", kid: leaf("tree"), edge: "left", open: false }, leaf("lanes")], [0.3, 0.7]) as LNode<string>;
+  const moved = dockToEdge(root, (root as any).kids[0], "right") as any;
   expect(moved.kids[1].edge).toBe("right");
   expect(moved.weights[1] / (moved.weights[0] + moved.weights[1])).toBeCloseTo(0.3, 5);
   // One from inside the layout takes the default.
-  const inner = splitOf("row", [leaf("a"), splitOf("col", [{ t: "drawer", kid: leaf("b"), edge: "up", open: true }, leaf("c")], [0.5, 0.5])]) as any;
-  const out = drawerToEdge(inner, inner.kids[1].kids[0], "left") as any;
+  const inner = splitOf("row", [leaf("a"), splitOf("col", [{ t: "dock", kid: leaf("b"), edge: "up", open: true }, leaf("c")], [0.5, 0.5])]) as any;
+  const out = dockToEdge(inner, inner.kids[1].kids[0], "left") as any;
   expect(out.kids[0].edge).toBe("left");
   expect(out.weights[0] / out.weights.reduce((a: number, w: number) => a + w, 0)).toBeCloseTo(0.26, 5);
 });
@@ -122,7 +122,7 @@ describe.skipIf(!outliner)("hint rows at 120 columns", () => {
     expect(lines().some(l => l.includes("─ keys "))).toBe(false);
   });
 
-  test("a float on the desk names the desk's keys for docking it, and they dock it", () => {
+  test("a float on the desk names the desk's keys for putting it back, and they put it back", () => {
     const d = screen() as any;
     d.focus = [...d.names].find(([, v]: any) => v === "side")[0];
     key(ctrl("w")); key(char("f"));
@@ -134,11 +134,11 @@ describe.skipIf(!outliner)("hint rows at 120 columns", () => {
     expect(d.layoutGet().floats).toEqual([]);
   });
 
-  test("a drawer put at the top edge says so in words", async () => {
+  test("a dock put at the top edge says so in words", async () => {
     const d = screen() as any;
     d.focus = [...d.names].find(([, v]: any) => v === "preview")[0];
     key(ctrl("w")); key(char("p"));
-    expect(message()).toContain("in a drawer on the top");
+    expect(message()).toContain("in a dock on the top");
     key(ctrl("w")); key(char("p"));
     app.pop();
   });
@@ -158,7 +158,7 @@ describe.skipIf(!outliner)("hint rows at 120 columns", () => {
     const b = boardScreen(garden.id, false);
     app.push(b);
     await until(() => BV.view(b).lanes.length === 2 && BV.view(b).lanes.every((l: any) => l.items), "the lanes", 10_000);
-    const share = () => { const t: any = b.layoutGet().tree; const d = t.kids.find((k: any) => k.drawer); return { edge: d.drawer, share: d.share }; };
+    const share = () => { const t: any = b.layoutGet().tree; const d = t.kids.find((k: any) => k.dock); return { edge: d.dock, share: d.share }; };
     expect(share()).toEqual({ edge: "left", share: 0.3 });
     key(char("t"));
     key(char("S"));

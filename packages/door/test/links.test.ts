@@ -1,6 +1,6 @@
 // PIE-415: a click on a link opens it, in every reader: `((…))`, `[[page]]`, a Work ID, a property value
 // in the summary line or the property panel, an embed's title, and a row of the backlinks list. It opens
-// where ⏎ on the same link would (the board: in place, or a detail from a drawer; the desk: its reader;
+// where ⏎ on the same link would (the board: in place, or a detail from a dock; the desk: its reader;
 // the river: a column beside). Clicks are found by the cells the link was drawn in, so scrolling and
 // wrapping move them with the text. Against a throwaway outliner service (never a real outline).
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";

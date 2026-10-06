@@ -146,16 +146,16 @@ export const SECTIONS: Section[] = [
     },
   },
   {
-    key: "panes", need: "open, split, zoom, close tiles; drawers; lock a shape", part: "the layout tree: tiles in containers (splits, tab sets, drawers, columns) with a policy each, floats and spines, one engine for the desk and the screens built on it, the board a preset (^W then o x z s HJKL < > + -, p a drawer, c a spine, f a float, P the policy; alt+k locks; the board's x o T B { } < >); tile.* layout.* actions (pane.* their older names); tile kinds from one registry", files: "src/desk/layout.ts, src/desk/drop.ts, src/desk/tile-kinds.ts, src/desk/builtin-tiles.ts, src/desk/pane-actions.ts, src/desk/panes.ts, src/desk/desk.ts",
+    key: "panes", need: "open, split, zoom, close tiles; docks; lock a shape", part: "the layout tree: tiles in containers (splits, tab sets, docks, columns) with a policy each, floats and spines, one engine for the desk and the screens built on it, the board a preset (^W then o x z s HJKL < > + -, p a dock, c a spine, f a float, P the policy; alt+k locks; the board's x o T B { } < >); tile.* layout.* actions (pane.* their older names); tile kinds from one registry", files: "src/desk/layout.ts, src/desk/drop.ts, src/desk/tile-kinds.ts, src/desk/builtin-tiles.ts, src/desk/pane-actions.ts, src/desk/panes.ts, src/desk/desk.ts",
     aside: "a click on a tile's × closes it (tile.close, as ^W x); the board (section 5) and the river are screen specs on this engine (PIE-511, PIE-515): the river's columns are a flow",
     stage(n, show) {
       const tree = new TreePane(), r = new ReaderPane(true), th = new ThreadPane(), act = new ActivityPane();
       // The thread and the activity panes are one tab set (PIE-413): drag a header onto another to make one.
-      // The outline is in a drawer on the left (PIE-505): it slides shut when the keys leave it, and its handle
+      // The outline is in a dock on the left (PIE-505): it slides shut when the keys leave it, and its handle
       // on the hint row opens it again; a header dropped on the handle goes into it.
       return deskOf({
         title: "showcase · panes", panes: [tree, r, th, act],
-        layout: ([t, rd, h, a]) => pair("row", 0.24, { t: "drawer", kid: leaf(t!), edge: "left", open: true }, pair("row", 0.62, leaf(rd!), { t: "tabs", ids: [h!, a!], active: 0 })),
+        layout: ([t, rd, h, a]) => pair("row", 0.24, { t: "dock", kid: leaf(t!), edge: "left", open: true }, pair("row", 0.62, leaf(rd!), { t: "tabs", ids: [h!, a!], active: 0 })),
       }, show, [], d => { if (n.notebook) d.setCurrent(n.notebook, { reveal: true }); });
     },
   },
@@ -184,18 +184,18 @@ export const SECTIONS: Section[] = [
   },
   {
     key: "terminal", need: "run a program beside the notes (nvim, claude, a shell)", part: "the terminal tile: a pty (Bun.Terminal) drawn through @xterm/headless; click or ⏎ types in it, ctrl+] leaves; ctrl+e edits a draft in one; its program's copy (OSC 52, Claude Code's) goes on to your clipboard through App.copy if you typed or clicked in the tile within 2 min, said \"copied from <tile>\" (or why not)", files: "src/desk/pty.ts, src/surface/editor.ts, src/surface/selection.ts",
-    aside: "the dock (next section; src/dock.ts, PIE-498) runs a program of its own too, its first tab, pulled up over (or beside) any screen, this one too, by alt+a or a click on the status bar's ▲ chip; ctrl+] gives the keys back, alt+A or its top edge sizes it (host.toggle, host.size) · where a program runs: EP0CH_NEST, ep0ch where",
+    aside: "the drawer (next section; src/drawer.ts, PIE-498) runs a program of its own too, its first tab, pulled up over (or beside) any screen, this one too, by alt+a or a click on the status bar's ▲ chip; ctrl+] gives the keys back, alt+A or its top edge sizes it (host.toggle, host.size) · where a program runs: EP0CH_NEST, ep0ch where",
     stage(n, show) {
       const term = new PtyPane({ cmd: ["sh", "-c", "echo 'a terminal tile: sh in a pty the door owns'; echo 'copy from it as Claude Code does:'; printf '%s\\n' \"  printf '\\\\033]52;c;%s\\\\007' \\\"\\$(printf hello | base64)\\\"\"; exec sh"], label: "shell" }), r = new ReaderPane(true);
       return deskOf({ title: "showcase · terminal", panes: [r, term], layout: ([a, b]) => row(0.5, a!, b!) }, show, [], d => { if (n.notebook) d.setCurrent(n.notebook); });
     },
   },
   {
-    key: "dock", need: "carry a tile across screens (a terminal, a reader, the tree)", part: "the dock: the host layer's drawer of tabs on its own desk; host.dock moves a tile in or out whole", files: "src/dock.ts, src/desk/dock-program.ts",
-    aside: "^W a on the kettle docks it (or drag its title onto the status bar's dock chip, or press a while dragging it): it leaves this section and joins the dock, the same program running · pick another section (a screen switch), alt+a pulls the dock up there and it's still in it · ^W a in the dock, or its tab dragged out onto the screen, puts it back · a docked tab's × (or ^W x in the dock) closes it, at once once its program has exited (exit in it, then ^W x) · `act host.dock tile=kettle` does it for an agent, attributed, never with the person's keys",
+    key: "drawer", need: "carry a tile across screens (a terminal, a reader, the tree)", part: "the drawer: the host layer's dock of tabs on its own desk; tile.drawer moves a tile in or out whole", files: "src/drawer.ts, src/desk/drawer-program.ts",
+    aside: "^W a on the kettle puts it in your drawer (or drag its title onto the status bar's drawer chip, or press a while dragging it): it leaves this section and joins the drawer, the same program running · pick another section (a screen switch), alt+a pulls the drawer up there and it's still in it · ^W a in the drawer, or its tab dragged out onto the screen, puts it back · a tab in the drawer's × (or ^W x in the drawer) closes it, at once once its program has exited (exit in it, then ^W x) · `act tile.drawer tile=kettle` does it for an agent, attributed, never with the person's keys",
     stage(n, show) {
-      const kettle = new PtyPane({ cmd: ["sh", "-c", "echo 'the kettle: a terminal tile to dock (^W a). Its pid:' $$; exec sh"], label: "kettle" }), r = new ReaderPane(true);
-      return deskOf({ title: "showcase · dock", panes: [kettle, r], names: ["kettle", "reader"], layout: ([a, b]) => row(0.5, a!, b!) }, show, [], d => { if (n.notebook) d.setCurrent(n.notebook); });
+      const kettle = new PtyPane({ cmd: ["sh", "-c", "echo 'the kettle: a terminal tile to drawer (^W a). Its pid:' $$; exec sh"], label: "kettle" }), r = new ReaderPane(true);
+      return deskOf({ title: "showcase · drawer", panes: [kettle, r], names: ["kettle", "reader"], layout: ([a, b]) => row(0.5, a!, b!) }, show, [], d => { if (n.notebook) d.setCurrent(n.notebook); });
     },
   },
   {
@@ -221,7 +221,7 @@ export const SECTIONS: Section[] = [
   },
   {
     key: "entity", need: "show children, outlinks, backlinks, resources", part: "entity navigation: u, [ ] and ⏎ on links in the surface; children in the thread tile; one links model (src/links.ts) drawn three ways: a row's links in the tree (L), the links tile (b in any reader), the inline ::links in a note", files: "src/surface/note.ts, src/links.ts, src/desk/tree.ts, src/desk/backlinks-pane.ts, src/authored.ts, references.backlinks in src/socket.ts, src/backlinks.ts",
-    aside: "one model, one row: the tree's L (tree.links), the links tile under the reader (b; the board's drawer, section 5) and the shed note's own ::links are the same rows (src/links.ts linkRows, linkRowLine) · Outlinks and Resources from blocks.authored-links, Backlinks grouped and filtered as Detail does · moving onto a resource shows what the service stores for it, read only; ⏎ registers and opens · the mouse as the keys: a click selects, a double click is ⏎, an alt-, ctrl- or middle-click alt+⏎",
+    aside: "one model, one row: the tree's L (tree.links), the links tile under the reader (b; the board's dock, section 5) and the shed note's own ::links are the same rows (src/links.ts linkRows, linkRowLine) · Outlinks and Resources from blocks.authored-links, Backlinks grouped and filtered as Detail does · moving onto a resource shows what the service stores for it, read only; ⏎ registers and opens · the mouse as the keys: a click selects, a double click is ⏎, an alt-, ctrl- or middle-click alt+⏎",
     stage(n, show) {
       const tree = new TreePane(), r = new ReaderPane(true), th = new ThreadPane(), links = new BacklinksPane("reader", true);
       return deskOf({ title: "showcase · entity", panes: [tree, r, links, th], layout: ([a, b, c, e]) => pair("row", 0.3, leaf(a!), pair("row", 0.66, pair("col", 0.62, leaf(b!), leaf(c!)), leaf(e!))) }, show, [], d => { if (n.shed) { d.setCurrent(n.shed); void tree.showLinksOf(n.shed, d); } });
@@ -349,7 +349,7 @@ export const SECTIONS: Section[] = [
     stage() { return openScreen("blank", { persist: false }); },
   },
   {
-    key: "esc", need: "close what popped up (a picker, a menu, a box, a mode, a drawer); say there's nothing left to close", part: "the Esc rule: Esc closes the innermost temporary thing (a picker or menu, the keys box, a ^W chord, link mode, a filter, a drawer or the dock, a zoom, a float's keys, an empty edit, a selection), each through its own action, and never leaves the screen: with nothing left, nothingToClose says so (q leaves)", files: "src/shell-keys.ts, src/desk/desk.ts, src/showcase/frame.ts",
+    key: "esc", need: "close what popped up (a picker, a menu, a box, a mode, a dock); say there's nothing left to close", part: "the Esc rule: Esc closes the innermost temporary thing (a picker or menu, the keys box, a ^W chord, link mode, a filter, a dock or the drawer, a zoom, a float's keys, an empty edit, a selection), each through its own action, and never leaves the screen: with nothing left, nothingToClose says so (q leaves)", files: "src/shell-keys.ts, src/desk/desk.ts, src/showcase/frame.ts",
     aside: "go in (⏎), then ^W z zooms the reader, ] lights a link in it and ^W . opens its menu: three things open · each Esc closes one, innermost first (the menu, the link, the zoom) · the next hands the keys back to this index, and one more says nothing to close · q leaves",
     stage(n, show) {
       const a = new ReaderPane(), b = new ReaderPane();
@@ -450,7 +450,7 @@ export class Showcase implements Screen {
     return f;
   }
 
-  /** Screen.tilesHere: the section shown is a desk: a tile undocked here (host.dock on=false) lands in it. */
+  /** Screen.tilesHere: the section shown is a desk: a tile taken out of the drawer here (tile.drawer on=false) lands in it. */
   tilesHere(): Desk | undefined { const t = this.stage(this.sel)?.top; return t instanceof Desk ? t : undefined; }
   /** Screen.holdsKeys: the person is in the stage and its screen holds their keys (an edit, a comment, a panel). */
   holdsKeys(): boolean { return this.focus === "stage" && !!this.stages.get(this.sel)?.top.holdsKeys?.(); }
