@@ -277,7 +277,7 @@ export class ReaderPane implements Pane {
   landsFrom: string[] = [];
   /** What an empty one says it's for: where its notes come from, and how to get one there. */
   protected emptyFor(): string {
-    if (this.landsFrom.length) return `links you follow in ${this.landsFrom.join(" or ")} land here`;
+    if (this.landsFrom.length) return `what you open in ${this.landsFrom.join(" or ")} lands here`;
     return this.follows && !this.holding ? "shows the current note: pick one in the outline, or / searches" : "keeps the note opened into it · alt+l in another tile, then a click here, sends that tile's opens here";
   }
   render(w: number, h: number, _focused = false, desk?: DeskApi): PaneView {

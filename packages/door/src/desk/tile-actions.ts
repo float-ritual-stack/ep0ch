@@ -105,26 +105,6 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     args: {},
     run(_, { d }) { return d.layouts(); },
   }),
-  "screen.save": def({
-    summary: "save this screen, as it's laid out now, as a screen note named name= in the outline (PIE-565: `[type::screen]`, its spec as data, as screen.spec answers it): every door on the outline then opens it (`ep0ch --screen <name>`, screen.open, ^W r) and an agent can read it. Saving under its own name again writes the same note, checked against the revision this door read (changed since: refused, read again). A built-in screen's name is refused. The person's with no name opens the prompt",
-    keys: "^W w",
-    touches: "nothing", replay: "ask", confirms: true,
-    says: r => (r?.prompt ? null : `saved the screen as ${r.screen}${r.created ? " (a new screen note)" : ""} · ep0ch --screen ${r.screen} opens it`),
-    menu: { label: "save this screen as…", group: SCREEN, key: "ctrl+w w" },
-    args: { name: { type: "string", optional: true, about: "the screen's name: a letter, then letters, digits, . - _ (left out: the person types it)" } },
-    async run({ name }, { d }, actor) { return await d.saveScreen(name, actor); },
-  }),
-  "screen.delete": def({
-    summary: "delete the screen named name= that a person made: its screen note goes to the outline's Trash (restorable there), and it's gone from every door's screens. A built-in can't be. The person's asks first: again within 3s deletes. Trashing the note anywhere (the outliner, an agent) does the same",
-    keys: "x twice on a screen you made, in the screens picker (the blank tile's o)",
-    touches: "nothing", replay: "ask", confirms: true,
-    says: r => (r?.armed ? null : `deleted the screen ${r.screen} (its note is in the Trash)`),
-    // No keycap: its x is the screens picker's, not this tile's.
-    menu: { label: "delete this screen (its note to the Trash)", group: SCREEN, key: "", now: ({ d }) => (d.madeName() ? { args: { name: d.madeName()! } } : { hide: true }) },
-    args: { name: { type: "string", about: "the screen's name (screen.list's made screens)" } },
-    async run({ name }, { d }, actor) { return await d.deleteScreen(name, actor); },
-  }),
-  "layout.load": loadLayout,
   "layout.move": def({
     summary: "move tile=<tile> beside tile to=<tile> (where=left, right, up, down), into its tabs (where=tabs, at index=<n>), or along an outer edge of the whole layout (where=edge-left, edge-right, edge-down, edge-up: a full-height column or full-width row). A drawer moved this way is pinned. The person's focus stays where it is",
     keys: "drag a header; ^W m then h j k l beside, ^W t then h j k l into tabs, ^W H J K L to an edge, ^W T takes a tab out",
@@ -340,7 +320,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     keys: "O in a reader; ^W v beside, ^W V below",
     // Said to the person too (confirms): ^W v on a tile already linked shows the one there, which looked like nothing happening.
     touches: "shape", replay: "safe", confirms: true,
-    says: r => (r.existing ? `${r.from}'s opens already land in ${r.tile}: showed it · alt+l, then a click on ${r.tile}, unlinks it so ^W v opens a new one` : `opened ${tileNoun(String(r.kind), r.tile)} where ${r.from}'s opens land`),
+    says: r => (r.existing ? `${r.from} already opens into ${r.tile}: showed it · alt+l then click ${r.tile} to unlink` : `opened ${tileNoun(String(r.kind), r.tile)} where ${r.from}'s opens land`),
     // Beside it and below it: where its opens land (a flow's column opens the next column instead).
     menu: [
       { label: "preview beside", group: TILE, key: "ctrl+w v", args: { where: "right" }, now: ({ d, reader }, _t, actor) => (d.tileNow(reader, actor).flow || d.tileNow(reader, actor).docked ? { hide: true } : null) },
@@ -438,4 +418,25 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
       return d.selectTab(reader, by, actor);
     },
   }),
+  // Last, so a tile's menu lists its Tile rows first and the Screen group after them.
+  "screen.save": def({
+    summary: "save this screen, as it's laid out now, as a screen note named name= in the outline (PIE-565: `[type::screen]`, its spec as data, as screen.spec answers it): every door on the outline then opens it (`ep0ch --screen <name>`, screen.open, ^W r) and an agent can read it. Saving under its own name again writes the same note, checked against the revision this door read (changed since: refused, read again). A built-in screen's name is refused. The person's with no name opens the prompt",
+    keys: "^W w",
+    touches: "nothing", replay: "ask", confirms: true,
+    says: r => (r?.prompt ? null : `saved the screen as ${r.screen}${r.created ? " (a new screen note)" : ""} · ep0ch --screen ${r.screen} opens it`),
+    menu: { label: "save this screen as…", group: SCREEN, key: "ctrl+w w" },
+    args: { name: { type: "string", optional: true, about: "the screen's name: a letter, then letters, digits, . - _ (left out: the person types it)" } },
+    async run({ name }, { d }, actor) { return await d.saveScreen(name, actor); },
+  }),
+  "screen.delete": def({
+    summary: "delete the screen named name= that a person made: its screen note goes to the outline's Trash (restorable there), and it's gone from every door's screens. A built-in can't be. The person's asks first: again within 3s deletes. Trashing the note anywhere (the outliner, an agent) does the same",
+    keys: "x twice on a screen you made, in the screens picker (the blank tile's o)",
+    touches: "nothing", replay: "ask", confirms: true,
+    says: r => (r?.armed ? null : `deleted the screen ${r.screen} (its note is in the Trash)`),
+    // No keycap: its x is the screens picker's, not this tile's.
+    menu: { label: "delete this screen (its note to the Trash)", group: SCREEN, key: "", now: ({ d }) => (d.madeName() ? { args: { name: d.madeName()! } } : { hide: true }) },
+    args: { name: { type: "string", about: "the screen's name (screen.list's made screens)" } },
+    async run({ name }, { d }, actor) { return await d.deleteScreen(name, actor); },
+  }),
+  "layout.load": loadLayout,
 });

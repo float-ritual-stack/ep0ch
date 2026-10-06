@@ -3,11 +3,11 @@
 // per outline that should have them, check the screens, then delete layouts.json and this script (git keeps it). The
 // door never reads layouts.json again: one version, no runtime import.
 //
-//   bun scripts/import-layouts.ts --ws <outline> [--state <dir>] [--apply]
+//   bun scripts/import-layouts.ts --ws <outline> [--state <dir>] [--rename <old>=<new>]… [--apply]
 //
 // Without --apply it says what it would write. A layout whose name isn't a screen's name (it starts with a digit), is a
-// built-in screen's (desk, river, board), or is already a screen note is left out, with why. Written as the person
-// (author: user): they're the person's own layouts.
+// built-in screen's (desk, river, board), or is already a screen note is left out, with why and the --rename that
+// brings it across under another name. Written as the person (author: user): they're the person's own layouts.
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { connectTarget } from "../src/door";
@@ -20,6 +20,8 @@ import "../src/desk/screen-specs";
 const args = process.argv.slice(2);
 const flag = (f: string) => { const i = args.indexOf(f); return i >= 0 ? args[i + 1] : undefined; };
 const ws = flag("--ws"), apply = args.includes("--apply"), dir = flag("--state") ?? stateDir();
+// --rename old=new (any number): the layout saved as `old` comes across as the screen `new`.
+const renames = new Map(args.flatMap((a, i) => (a === "--rename" && args[i + 1]?.includes("=") ? [args[i + 1]!.split("=", 2) as [string, string]] : [])));
 if (!ws) { console.error("say which outline: bun scripts/import-layouts.ts --ws <outline> [--state <dir>] [--apply]"); process.exit(2); }
 const file = join(dir, "layouts.json");
 let saved: Record<string, unknown>;
@@ -30,16 +32,18 @@ if ("error" in target) { console.error(target.error); process.exit(1); }
 const { board } = target;
 await loadScreenNotes(board);
 let wrote = 0, skipped = 0;
-for (const [name, layout] of Object.entries(saved)) {
+const again = (old: string) => `bun scripts/import-layouts.ts --ws ${ws}${flag("--state") ? ` --state ${dir}` : ""} --rename ${old}=<new name>${apply ? " --apply" : ""}`;
+for (const [old, layout] of Object.entries(saved)) {
+  const name = renames.get(old) ?? old;
   const why = screenNameProblem(name) ?? (builtinScreen(name) ? `${name} is a built-in screen's name` : screenNote(name) ? `the outline already has a screen note named ${name}` : null);
-  if (why) { console.log(`✗ ${name}: left out (${why}); save it again from the door under another name: ^W r, then ^W w`); skipped++; continue; }
+  if (why) { console.log(`✗ ${old}: left out (${why}) · bring it across under another name: ${again(old)}`); skipped++; continue; }
   let spec;
-  try { spec = readSpec({ name, title: name, layouts: true, layout }); } catch (e) { console.log(`✗ ${name}: left out (${(e as Error).message})`); skipped++; continue; }
-  if (!apply) { console.log(`· ${name}: would be written as a screen note`); continue; }
+  try { spec = readSpec({ name, title: name, layouts: true, layout }); } catch (e) { console.log(`✗ ${old}: left out (${(e as Error).message})`); skipped++; continue; }
+  if (!apply) { console.log(`· ${old}: would be written as the screen note ${name}`); continue; }
   const { note } = await saveScreenNote(board, spec, USER);
   console.log(`✓ ${name}: screen note ((${note.id})) · ep0ch --screen ${name} --ws ${ws}`);
   wrote++;
 }
 board.close();
-if (!apply) console.log(`\nnothing written yet · bun scripts/import-layouts.ts --ws ${ws}${flag("--state") ? ` --state ${dir}` : ""} --apply`);
+if (!apply) console.log(`\nnothing written yet · bun scripts/import-layouts.ts ${args.filter(a => a !== "--apply").join(" ")} --apply`);
 else console.log(`\n${wrote} written, ${skipped} left out · once the screens open as they should: rm ${file}`);

@@ -27,7 +27,7 @@ import { Modes } from "../surface/modes";
 import { centred, linePrompt, ListPicker, pickRow } from "../surface/picker";
 import { outlineState, readState, writeState } from "../state";
 import { containerKeys, leafNames, madeScreen, savedNodes, screenNames, screenTargetArg, specData, type ScreenSpec } from "./screen-spec";
-import { saveScreenNote, screenNotes, trashScreenNote } from "./screen-notes";
+import { saveScreenNote, ScreenConflict, screenNotes, trashScreenNote } from "./screen-notes";
 import { bg, C, chip as chipStyle, fg, fitHint, headOf, pad, paint, RESET, selected, width } from "../style";
 import { themed } from "../theme";
 import { ch, type Key, type TileProgram } from "../term";
@@ -228,7 +228,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     else this.build(spec.layout, false, false, true);
     this.fromSpec(spec);
     // A screen a person made (a screen note) opened by its name: ^W w saves it again under it.
-    if (madeScreen(spec.name)) { this.layoutName = spec.name; this.madeAs = spec.name; }
+    if (madeScreen(spec.name)) { this.layoutName = spec.name; this.madeAs = spec.name; this.madeBase = { ...madeScreen(spec.name)! }; }
     // What leaving asks about: a screen of the person's own changed since it was saved (or since it opened, blank).
     if (this.madeHere()) this.savedAs = this.shapeNow();
   }
@@ -740,7 +740,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // how to give it somewhere to land, never a silent change of the current note.
     const shownBy = (p: Pane) => p !== opts.from && kindOf(p)?.shows?.(p)?.id === m?.id && this.shownNow(p);
     if (m && opts.from && (opts.link || opts.reveal) && opts.by?.kind !== "agent" && ![...this.panes.values()].some(shownBy)) {
-      this.ctx.flash(`no tile here shows ${headOf(subject(m), 30)} · alt+l in ${this.nameOfPane(opts.from)}, then a click on a reader, sends its opens there; ^W o r opens a reader`);
+      this.ctx.flash(`no tile shows ${headOf(subject(m), 24)} · alt+l, then a click on a reader, sends ${this.nameOfPane(opts.from)}'s opens there`);
     }
     this.redraw();
   }
@@ -2854,16 +2854,28 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // A screen as data (specData): this one's spec with the layout as it is now, never the file it keeps itself in.
     const { saves: _saves, stays: _stays, ...rest } = this.spec;
     const spec: ScreenSpec = { ...rest, name, title: name, layout: this.layoutSpec() };
-    const { note, created } = await saveScreenNote(this.ctx.board, spec, actor);
+    // The shape written, as it is now: a change made while the note is being written is still a change.
+    const shape = this.shapeNow();
+    let saved;
+    try { saved = await saveScreenNote(this.ctx.board, spec, actor, this.layoutName === name ? this.madeBase : null); }
+    catch (e) {
+      // Changed elsewhere since this screen read it: the next save writes over the note as it is now (said in the refusal).
+      if (e instanceof ScreenConflict && this.layoutName === name) this.madeBase = e.now;
+      throw e;
+    }
+    const { note, created } = saved;
     this.layoutName = name;
+    this.madeBase = { id: note.id, revision: note.revision };
     // A screen a person makes from blank (or one they made) is that screen now: its title, and what a session reopens.
     if (this.madeHere()) { this.title = name; this.madeAs = name; }
-    this.savedAs = this.shapeNow();
+    this.savedAs = shape;
     this.save(); this.redraw();
     return { screen: name, note: note.id, revision: note.revision, created, tiles: this.all().map(id => this.nameOf(id)) };
   }
   /** The name of the screen a person made that this desk shows (saved from blank, or opened by its name). */
   private madeAs: string | null = null;
+  /** The screen note this screen was opened, laid out or last saved from, at the revision read then: what a save is checked against. */
+  private madeBase: { id: string; revision: number } | null = null;
   /** The screen a person made that this desk shows, by name, while its note is there. */
   madeName(): string | null { return this.madeAs && madeScreen(this.madeAs) ? this.madeAs : null; }
 
@@ -2914,6 +2926,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const before = new Set(this.all());
     this.build(found.spec, true);
     this.layoutName = name;
+    this.madeBase = madeScreen(name) ? { ...madeScreen(name)! } : null;
     this.savedAs = this.shapeNow();
     this.save(); this.redraw();
     // What it kept that the layout has no place for (a running program): in a shut drawer, said.

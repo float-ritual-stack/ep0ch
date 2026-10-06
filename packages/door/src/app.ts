@@ -611,8 +611,19 @@ export class App implements Ctx {
    * went is said once the first read is done, and what's wrong with one (a built-in's name, a name two share) always.
    */
   async loadScreens(): Promise<void> {
+    // One read at a time: a change while one is out reads again after it, so the last read is the newest.
+    if (this.screensLoading) { this.screensAgain = true; return this.screensLoading; }
+    this.screensLoading = this.readScreens();
+    try { await this.screensLoading; } finally { this.screensLoading = null; }
+    if (this.screensAgain) { this.screensAgain = false; await this.loadScreens(); }
+  }
+  private screensLoading: Promise<void> | null = null;
+  private screensAgain = false;
+  private async readScreens(): Promise<void> {
     try {
       const r = await loadScreenNotes(this.board);
+      // A save or delete of this door's landed meanwhile: read again rather than take an older answer.
+      if (r.stale) { this.screensAgain = true; return; }
       const said = [r.added.length ? `${r.added.join(", ")} added` : "", r.removed.length ? `${r.removed.join(", ")} gone` : ""].filter(Boolean);
       if (said.length && this.screensSeen) this.flash(`screens: ${said.join(" · ")}`);
       // What's wrong is said when it's new, not again on every change to a screen note.

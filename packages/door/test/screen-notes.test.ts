@@ -45,6 +45,7 @@ describe.skipIf(!outliner)("screens people make, against a scratch outline", () 
     notes.view = await board.request<any>("create", { parentId: null, text: "Sowing list [type::virtual-branch] [query::type=sowing]", author: "user" });
     const term = { info, write() {}, paint() {}, invalidate() {}, onKey(f: any) { key = f; }, onResize() {}, stop() {}, resume() {} };
     app = new App(term as any, board, Date.now(), () => {});
+    board.subscribe(e => app.event(e));
     app.push(new MainMenu());
     forgetScreenNotes();
     await app.loadScreens();
@@ -109,13 +110,30 @@ describe.skipIf(!outliner)("screens people make, against a scratch outline", () 
     const again = await mine("screen.save", { name: "potting" }) as any;
     expect(again).toMatchObject({ created: false, note: before.id });
     expect(again.revision).toBeGreaterThan(before.revision);
-    // Another client edits the note: this door's save is refused, nothing written over it.
+    // Another client edits the note, and this door reads it again (the change feed): the screen shown was opened from
+    // the older one, so its save is refused, nothing written over it.
     const now = (await board.get(before.id))!;
     await board.update(now.id, now.text.replace("A screen made in the door", "A screen made in the door (tidied)"), now.revision!, { kind: "agent", id: "tidier" });
-    await expect(mine("screen.save", { name: "potting" })).rejects.toThrow(/changed since this door read it/);
+    await until(() => madeScreen("potting")!.revision > now.revision!, "the door read the tidied note");
+    await expect(mine("screen.save", { name: "potting" })).rejects.toThrow(/changed since this screen was read/);
     // Read again (the refusal did), the next save writes over the new one.
     await mine("screen.save", { name: "potting" });
     expect((await board.get(before.id))!.text).not.toContain("(tidied)");
+  });
+
+  test("a note edited into a screen note is one, by the change feed; one that isn't JSON still keeps its name from a twin", async () => {
+    const plain = await board.request<any>("create", { parentId: null, text: "Seed trays\nJust a note for now.", author: "user" });
+    const text = screenNoteText(readSpec({ name: "trays", title: "trays", layout: { root: { t: "leaf", kind: "reader", name: "reader" } } }));
+    await board.update(plain.id, text, plain.revision, { kind: "user" });
+    await until(() => screenNames().includes("trays"), "the edited note registered");
+    // A second note named trays whose JSON is broken: trays is two notes' name now, so neither opens.
+    await board.request<any>("create", { parentId: null, text: "trays [type::screen] [screen::trays]\n\n```json\n{ not json\n```", author: "user" });
+    await until(() => !screenNames().includes("trays"), "trays no longer opens");
+    expect(screenNoteProblems().join("\n")).toMatch(/2 screen notes are named trays/);
+  });
+
+  test("a name that is neither built in nor a screen note is refused by screen.open, with the screens there are", async () => {
+    await expect(app.dispatch.act({ action: "screen.open", args: { name: "nonesuch" } }, { kind: "user" })).rejects.toThrow(/no screen "nonesuch", built in or made \(a screen note\) · screens: .*blank/);
   });
 
   test("two notes with one name open neither, and say which; a built-in's name is never taken", async () => {
@@ -168,9 +186,9 @@ describe.skipIf(!outliner)("screens people make, against a scratch outline", () 
     const said = () => { render(); return top().render((top() as any).ctx).lines.join("\n").replace(/\x1b\[[\d;]*m/g, ""); };
     expect(said()).toContain("keeps the note opened into it");
     await mine("tile.preview", { where: "right" }, "detail");
-    expect(said()).toContain("links you follow in detail land here");
+    expect(said()).toContain("what you open in detail lands here");
     // ^W v again: its opens already land there, and the person is told so, not left wondering.
     await mine("tile.preview", { where: "down" }, "detail");
-    expect((app as any).message).toContain("detail's opens already land in detail-preview: showed it");
+    expect((app as any).message).toContain("detail already opens into detail-preview: showed it · alt+l then click detail-preview to unlink");
   });
 });

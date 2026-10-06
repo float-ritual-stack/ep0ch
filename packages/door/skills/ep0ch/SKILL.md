@@ -208,6 +208,12 @@ yourself (path 1): `/exit`, then `claude --continue`.
   `tile.preview tile=<reader>` (`where=right|down|left|up`) opens a reader beside it where its opens land, linked in
   one step: then `link.follow tile=<reader> n=…` lands there and the reader keeps its note. Called again it answers
   `existing: true` and shows that one; it never takes the person's keys (the person's `O`, `^W v`, `^W V`).
+- **Screens people make** (PIE-565): `screen.open name=blank` gives a blank screen; `blank.fill kind=tree|reader|detail|pty|query
+  tile=blank` (a query lane takes `view=<id>`) puts the first tile in its place, `tile.open`/`tile.link` build the rest, and
+  `screen.save name=<name>` writes it to the outline as a screen note (`[type::screen]`, its spec as JSON), attributed to
+  you. Any door on the outline then opens it (`screen.open name=<name>`, `ep0ch --screen <name>`); `screen.list` marks
+  them `made: true` with their note; saving again is checked against the revision read; `screen.delete name=<name>` trashes
+  its note. Read one with the outline tools like any note.
 - **The board** is a screen spec on the desk: the same `layout.get` and `tile.*` work there. Its lanes are
   query tiles named by their lane, in a `columns` container filled from the hub; its readers are `preview`,
   `detail1`…; the outline drawer is `tree` over `tree-preview`, the backlinks drawer `backlinks` beside

@@ -72,7 +72,7 @@ describe.skipIf(!outliner)("--screen <name> [<target>], through screen.open", ()
   });
 
   test("a name nobody knows is refused with the names there are", async () => {
-    await expect(start(["--screen", "nonesuch"])).rejects.toThrow(/no screen "nonesuch" · screens: .*board.*detail.* · try ep0ch --screen /);
+    await expect(start(["--screen", "nonesuch"])).rejects.toThrow(/no screen "nonesuch", built in or made \(a screen note\) · screens: .*board.*detail.* · try ep0ch --screen /);
     expect(top()).toBeInstanceOf(MainMenu);
   });
 });

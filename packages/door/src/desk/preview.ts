@@ -95,7 +95,7 @@ export class PreviewPane extends ReaderPane {
       if (!("tile" in this.source)) return { lines: [fg(C.dark) + "reading…" + RESET] };
       // Where its notes come from: the tile it follows (gone from this screen: it says so) and any whose opens land here.
       const src = this.source.tile, there = !desk?.pane || !!desk.pane(src);
-      const say = there ? `follows ${src}: what's picked there shows here${this.landsFrom.length ? `, and links you follow in ${this.landsFrom.join(" or ")} land here` : ""}` : `follows tile ${src}, which isn't on this screen any more · ^W x closes it, or ^W v on another tile opens a preview of that one`;
+      const say = there ? `follows ${src}: what's picked there shows here${this.landsFrom.length ? `, and what you open in ${this.landsFrom.join(" or ")} lands here` : ""}` : `follows tile ${src}, which isn't on this screen any more · ^W x closes it, or ^W v on another tile opens a preview of that one`;
       return { lines: wrap(say, Math.max(10, w - 1)).map(l => fg(C.dark) + l + RESET) };
     }
     return super.render(w, h, focused, desk);

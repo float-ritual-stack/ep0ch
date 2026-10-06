@@ -301,7 +301,15 @@ export class MainMenu implements Screen {
     if (width(paint(all.map(q => (typeof q === "string" ? q : q[0])).join(""))) <= ctx.t.cols) lines.push(hotLine(this.ptr, lines.length, ctx.t.cols, all, { centre: true }));
     else {
       lines.push(hotLine(this.ptr, lines.length, ctx.t.cols, [...keys, lit], { centre: true }));
-      lines.push(hotLine(this.ptr, lines.length, ctx.t.cols, extras.slice(1), { centre: true }));
+      // The named items on as many lines as the width takes (80 columns: two), each item whole.
+      const named = (q: string | [string, Key, number]) => width(paint(typeof q === "string" ? q : q[0]));
+      let row: (string | [string, Key, number])[] = [];
+      for (let i = 1; i < extras.length; i += 2) {
+        const item = extras[i]!, w = row.length ? row.reduce((n, q) => n + named(q), 0) + named(" |08· ") + named(item) : named(item);
+        if (row.length && w > ctx.t.cols) { lines.push(hotLine(this.ptr, lines.length, ctx.t.cols, row, { centre: true })); row = []; }
+        row.push(...(row.length ? [extras[i - 1]!, item] : [item]));
+      }
+      if (row.length) lines.push(hotLine(this.ptr, lines.length, ctx.t.cols, row, { centre: true }));
     }
     lines.push(center(paint(`|08${ctx.events ? `|14changes on the outline since you logged on: ${ctx.events} · ` : ""}last call ${ctx.lastCall ? bbsDate(ctx.lastCall) : "never"}`), ctx.t.cols));
     return { lines, placements: frame };
