@@ -4,6 +4,7 @@
 // its first screen hands the keys back to whoever framed it.
 import type { Ctx, Frame, Screen, Video } from "../app";
 import type { Key, TermInfo } from "../term";
+import { nothingLeft } from "../shell-keys";
 import { NOBODY, screenKeys, within } from "../whereabouts";
 
 export class FramedScreen {
@@ -18,7 +19,7 @@ export class FramedScreen {
    * `focused`: the frame has the person's keys where it is (its tile is focused, the showcase's stage is entered);
    * the screen inside sees the person's whereabouts through it (`within`). Without it, it always has them.
    */
-  constructor(first: Screen, private readonly outer: () => Ctx, private readonly leave: () => void = () => {}, private readonly opened: () => void = () => {}, readonly focused: () => boolean = () => true) {
+  constructor(first: Screen, private readonly outer: () => Ctx, private readonly leave: () => void = () => {}, private readonly opened: () => void = () => {}, readonly focused: () => boolean = () => true, private readonly escaped?: () => void) {
     this.stack.push(first);
     this.ctx = frameCtx(this);
   }
@@ -40,6 +41,15 @@ export class FramedScreen {
     this.stack.pop();
     top?.dispose?.();
     this.outer().redraw();
+  }
+  /**
+   * Esc with nothing left to close in the frame's first screen: `escaped` (the showcase's stage gives the keys back to its
+   * index; a screen tile, to the desk's next step). A screen pushed in the frame, or a frame without one, says so here: a
+   * frame around this one never hears it, so its own steps aren't skipped.
+   */
+  nothingToClose(leave: string) {
+    if (this.escaped && this.stack.length === 1) return this.escaped();
+    this.outer().flash(nothingLeft(leave));
   }
   /** The frame goes away: each screen in it ends what it started (a draft's hold on the service, PIE-501). */
   dispose() { for (const s of [...this.stack].reverse()) s.dispose?.(); }
@@ -85,6 +95,7 @@ function frameCtx(f: FramedScreen): Ctx {
     quit: () => o().quit(),
     redraw: () => o().redraw(),
     flash: m => o().flash(m),
+    nothingToClose: leave => f.nothingToClose(leave),
     copy: (text, from) => o().copy?.(text, from) ?? false,
     cycleVideo: () => o().cycleVideo(),
     setTheme: name => o().setTheme?.(name),

@@ -66,11 +66,15 @@ describe.skipIf(!outliner)("the BBS shell, against a scratch outline", () => {
       expect(quits).toBe(0);
     });
 
-    test("the board's Esc chain stops at the menu: one Esc too many does nothing", async () => {
+    test("Esc never leaves a screen: on the board's lanes, with nothing to close, it stays and says what leaves", async () => {
       home();
       app.push(boardScreen(hub.id));
       await until(() => BV.view(A().stack.at(-1)).lanes?.[0]?.items, "the lanes", 10_000);
       for (let i = 0; i < 6; i++) key(ESC);
+      expect(titles()).toEqual(["main menu", top().title]);
+      expect(top().title).toContain("board");
+      expect(message()).toBe("nothing to close · q leaves");
+      key(char("q"));
       expect(titles()).toEqual(["main menu"]);
       await Bun.sleep(1800);
       expect(quits).toBe(0);
@@ -111,21 +115,29 @@ describe.skipIf(!outliner)("the BBS shell, against a scratch outline", () => {
       key(char("Q"));
       expect(top().name).toBe("river");
       key(ESC);
+      expect(top().name).toBe("river");
+      expect(message()).toBe("nothing to close · q leaves");
+      key(char("q"));
       expect(titles()).toEqual(["main menu"]);
       key(ESC);
       expect(titles()).toEqual(["main menu"]);
       expect(message()).toContain("G logs off");
     });
 
-    test("q and Esc on a list are back", async () => {
+    test("q on a list is back; Esc there has nothing to close and stays", async () => {
       home();
       key(char("J"));
       expect(top()).toBeInstanceOf(Conferences);
+      key(ESC);
+      expect(top()).toBeInstanceOf(Conferences);
+      expect(message()).toBe("nothing to close · q leaves");
       key(char("q"));
       expect(titles()).toEqual(["main menu"]);
       key(char("S"));
       expect(top()).toBeInstanceOf(Stats);
       key(ESC);
+      expect(top()).toBeInstanceOf(Stats);
+      key(char("q"));
       expect(titles()).toEqual(["main menu"]);
     });
   });

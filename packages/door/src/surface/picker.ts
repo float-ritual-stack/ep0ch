@@ -14,6 +14,9 @@ import type { Mode } from "./modes";
 /** Its box, title and foot, lines above and below the list, and lines beside a list `w` wide (the search's preview). */
 export interface PickerFrame { rect: Rect; title: string; foot: string; head?: string[]; tail?: string[]; side?: { w: number; lines: string[] } }
 
+/** How a picker was put away: esc, one of its closing letters (q), or a click outside it. */
+export type PickerClose = "esc" | "letter" | "click";
+
 export interface PickerSpec<T, H> {
   name: string;
   items(): readonly T[];
@@ -26,8 +29,8 @@ export interface PickerSpec<T, H> {
   heading?(it: T, i: number, w: number): string | null;
   /** A click chooses the row it's on, at once (a menu), instead of moving the cursor there first. */
   clickChooses?: boolean;
-  /** Put away by esc, a closing letter or a click outside: what else that does. */
-  closed?(host: H): void;
+  /** Put away by esc, a closing letter or a click outside (`how`): what else that does. */
+  closed?(host: H, how: PickerClose): void;
   /** Keys and clicks of its own before the list's (the steps' x w !, the policy's h l + - and containers). */
   keys?(k: Key, host: H): boolean;
   clicked?(x: number, y: number, host: H): boolean;
@@ -54,8 +57,8 @@ export class ListPicker<T, H> implements Mode<H> {
   constructor(readonly spec: PickerSpec<T, H>) {}
 
   ended() { return this.done; }
-  /** Put it away, as esc does. */
-  close(host: H) { this.spec.closed?.(host); this.done = true; }
+  /** Put it away, as esc does (or `how` it was). */
+  close(host: H, how: PickerClose = "esc") { this.spec.closed?.(host, how); this.done = true; }
 
   get name() { return this.spec.name; }
   get items(): readonly T[] { return this.spec.items(); }
@@ -80,7 +83,8 @@ export class ListPicker<T, H> implements Mode<H> {
       return true;
     }
     const c = ch(k), input = this.spec.input;
-    if (k.kind === "esc" || (!input && c && this.spec.closers?.includes(c))) { this.close(host); return true; }
+    if (k.kind === "esc") { this.close(host); return true; }
+    if (!input && c && this.spec.closers?.includes(c)) { this.close(host, "letter"); return true; }
     if (this.spec.keys?.(k, host)) return true;
     const was = input?.text;
     if (input?.key(k)) { if (input.text !== was) this.spec.typed?.(host); return true; }
@@ -104,7 +108,7 @@ export class ListPicker<T, H> implements Mode<H> {
     if (!r) return;                                          // never drawn (the reader's status choice): not its click
     // A panel that stays open (the policy rows, the steps) has controls for rows: a click on one is its change.
     if (hit) { const g = this.spec.stays || this.spec.clickChooses ? "open" : this.view.press(hit.i, { mods: k.mods ?? 0, button: k.button }); if (g === "open" || g === "fresh") this.pick(hit.i, host); else this.sel = hit.i; }
-    else if (!this.spec.clicked?.(x, y, host) && (!r || x < r.col || x >= r.col + r.cols || y < r.row || y >= r.row + r.rows)) this.close(host);
+    else if (!this.spec.clicked?.(x, y, host) && (!r || x < r.col || x >= r.col + r.cols || y < r.row || y >= r.row + r.rows)) this.close(host, "click");
   }
 
   /** The list's rows in `h` rows of `w` cells, the cursor's item in view; `at` is the screen row the first is drawn on. */
@@ -159,7 +163,7 @@ export function linePrompt<H>(o: { name: string; title: string; text: string; pr
     name: o.name, input, items: () => (input.text.trim() ? [o.doing(input.text.trim())] : []),
     row: (it, _i, on, w) => [pickRow(` ${it}`, on, w)],
     choose: (_it, _i, host) => o.done(input.text.trim(), host),
-    frame: a => { const w = Math.min(o.w ?? 70, a.cols - 4), head = o.head ?? []; return { rect: centred(a, w, 4 + head.length), title: o.title, foot: "⏎ or a click · esc back", head: [" " + input.show(w - 4), ...head] }; },
+    frame: a => { const w = Math.min(o.w ?? 70, a.cols - 4), head = o.head ?? []; return { rect: centred(a, w, 4 + head.length), title: o.title, foot: "⏎ or a click · esc closes", head: [" " + input.show(w - 4), ...head] }; },
   });
 }
 

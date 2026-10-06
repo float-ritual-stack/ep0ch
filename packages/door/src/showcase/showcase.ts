@@ -5,7 +5,7 @@
 //
 // It only runs on an outline the showcase seed wrote (src/showcase/seed.ts): `scripts/try-it.sh --showcase`
 // starts one. On any other outline it says so and writes nothing.
-import { shellKeyOf } from "../shell-keys";
+import { nothingToClose, shellKeyOf } from "../shell-keys";
 import type { Ctx, Frame, Screen } from "../app";
 import type { Msg } from "../board";
 import { subject } from "../board";
@@ -344,6 +344,14 @@ export const SECTIONS: Section[] = [
     aside: "a blank screen: t r d s Q (or a click on a row) puts the outline, a reader, a detail, a terminal or a query lane in its place; ^W o, ^W v and alt+l build the rest; ^W w saves it as a screen note in this outline, and `ep0ch --screen <name>`, screen.open or the blank tile's o opens it again · `act blank.fill kind=tree tile=blank`, then `act screen.save name=<name>`: an agent builds and saves one the same way",
     stage() { return openScreen("blank", { persist: false }); },
   },
+  {
+    key: "esc", need: "close what popped up (a picker, a menu, a box, a mode, a drawer); say there's nothing left to close", part: "the Esc rule: Esc closes the innermost temporary thing (a picker or menu, the keys box, a ^W chord, link mode, a filter, a drawer or the dock, a zoom, a float's keys, an empty edit, a selection), each through its own action, and never leaves the screen: with nothing left, nothingToClose says so (q leaves)", files: "src/shell-keys.ts, src/desk/desk.ts, src/showcase/frame.ts",
+    aside: "go in (⏎), then ^W z zooms the reader, ] lights a link in it and ^W . opens its menu: three things open · each Esc closes one, innermost first (the menu, the link, the zoom) · the next hands the keys back to this index, and one more says nothing to close · q leaves",
+    stage(n, show) {
+      const a = new ReaderPane(), b = new ReaderPane();
+      return deskOf({ title: "showcase · esc", panes: [a, b], names: ["reader", "beside"], layout: ([x, y]) => row(0.6, x!, y!) }, show, [[a, n.notebook], [b, n.shed]]);
+    },
+  },
 ];
 
 /** The index is wide enough for every need on one line when the terminal allows; narrow, it lists the keys only. */
@@ -431,7 +439,8 @@ export class Showcase implements Screen {
     if (!f) {
       let after: ((ctx: Ctx) => void) | null = null;
       const screen = SECTIONS[i]!.stage(this.notes, a => { after = a; });
-      f = new FramedScreen(screen, () => this.ctx, () => { this.focus = "index"; }, () => after?.(f!.ctx), () => this.focus === "stage" && this.sel === i);
+      f = new FramedScreen(screen, () => this.ctx, () => { this.focus = "index"; }, () => after?.(f!.ctx), () => this.focus === "stage" && this.sel === i,
+        () => void this.dispatch.pressIn(SHOWCASE_ACTIONS, "section.leave", {}));
       this.stages.set(i, f);
     }
     return f;
@@ -501,7 +510,8 @@ export class Showcase implements Screen {
     if (k.kind === "mouse") return this.mouse(k);
     if (this.focus === "stage") { const f = this.stage(this.sel); if (f) f.key(k); else this.focus = "index"; return ctx.redraw(); }
     const c = ch(k);
-    if (k.kind === "esc" || c === "q") return this.shell("screen.back");
+    if (k.kind === "esc") return nothingToClose(ctx);
+    if (c === "q") return this.shell("screen.back");
     if (isUp(k)) return this.sel > 0 ? this.run("section", { name: String(this.sel) }) : undefined;
     if (isDown(k)) return this.sel + 1 < SECTIONS.length ? this.run("section", { name: String(this.sel + 2) }) : undefined;
     if (/^[0-9]$/.test(c)) return this.run("section", { name: c === "0" ? "10" : c });
@@ -511,7 +521,7 @@ export class Showcase implements Screen {
 
   /** A key or click on the index as the person: the showcase's own action. A refusal is said. */
   private run(name: "section" | "section.try", args: { name?: string }) { void this.dispatch.pressIn(SHOWCASE_ACTIONS, name, args); }
-  /** The shell's q, Esc and V (src/shell-keys.ts: screens.ts imports this module). */
+  /** The shell's q and V (src/shell-keys.ts: screens.ts imports this module). */
   private shell(name: "screen.back" | "video.cycle") { shellKeyOf(name, this, this.ctx); }
 
   private mouse(k: Extract<Key, { kind: "mouse" }>) {
@@ -621,6 +631,16 @@ export const SHOWCASE_ACTIONS = actionSet<Showcase>()("showcase", {
       const i = name === undefined ? s.shown : s.sectionOf(name);
       s.pick(i, true);
       return { section: i + 1, key: SECTIONS[i]!.key, in: s.focusName() === "stage" };
+    },
+  }),
+  "section.leave": def({
+    summary: "the person's keys back from a section's stage to the index. The person's only, as going in is",
+    keys: "esc in the stage once its part has nothing left to close (q where the part leaves)",
+    touches: "screen", replay: "safe", person: "the person's keys are theirs: an agent doesn't take them out of a section",
+    args: {},
+    run(_, s) {
+      s.pick(s.shown, false);
+      return { section: s.shown + 1, key: SECTIONS[s.shown]!.key, in: s.focusName() === "stage" };
     },
   }),
   "section": def({

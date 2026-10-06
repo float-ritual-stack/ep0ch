@@ -294,7 +294,9 @@ describe.skipIf(!outliner)("the review's findings, against a scratch outline", (
   test("S1: leaving the desk keeps it and its programs; D on the menu brings the same desk back; quitting asks", async () => {
     D().focus = idOf("tree");
     const pid = tile("claude").terminal.pid;
-    key({ kind: "esc" });
+    key({ kind: "esc" });                                       // Esc never leaves a screen: nothing to close here
+    expect(top()).toBe(desk);
+    key(char("q"));
     expect(top()).toBeInstanceOf(MainMenu);
     expect((app as any).background).toContain(desk);
     expect(message()).toContain("still running");
@@ -306,7 +308,7 @@ describe.skipIf(!outliner)("the review's findings, against a scratch outline", (
     expect((app as any).background).not.toContain(desk);
     expect(tile("claude").terminal.pid).toBe(pid);
     // Quitting from the menu with the desk in the background: asked twice, the programs named.
-    key({ kind: "esc" });
+    key(char("q"));
     let quit = false;
     (app as any).done = () => { quit = true; };
     key(ctrl("c"));

@@ -284,7 +284,7 @@ export interface ColumnsHost extends DeskApi {
   nameOfPane(p: Pane): string;
   /** The person's keys go into the session `p` holds (an edit they left), as e or ⏎ does. */
   enterSession(p: import("./panes").ReaderPane): void;
-  /** Leave the screen (the hub picker put away with no board yet): the shell's back. */
+  /** Leave the screen (the hub picker's q with no board yet): the shell's back. */
   leave(): void;
 }
 

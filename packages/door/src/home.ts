@@ -341,7 +341,7 @@ function offerWrite(pane: HomePane, desk: DeskApi, outline: string, machine?: st
     name: "home-write", items: () => items,
     row: (it, _i, lit, w) => [pickRow(` ${it.label}`, lit, w)],
     choose: it => void desk.press?.(pane, HOME_ACTIONS, "home.open", { outline, ...(machine ? { machine } : {}), write: it.write }),
-    frame: a => ({ rect: centred(a, Math.min(70, a.cols - 4), 7), title: `open ${outline}${on(machine)}`, foot: "⏎ or a double click chooses · esc back", head: [paint(`|08 with .ep0ch naming it, the next ep0ch in ${basename(folder)} opens it directly:`), paint(`|08 ${folder}/.ep0ch`), ""] }),
+    frame: a => ({ rect: centred(a, Math.min(70, a.cols - 4), 7), title: `open ${outline}${on(machine)}`, foot: "⏎ or a double click chooses · esc closes", head: [paint(`|08 with .ep0ch naming it, the next ep0ch in ${basename(folder)} opens it directly:`), paint(`|08 ${folder}/.ep0ch`), ""] }),
   }));
 }
 

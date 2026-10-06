@@ -164,7 +164,7 @@ serve --http` (the remote gateway, for claude.ai, behind Clerk OAuth) answer `ou
 On every screen, before the screen's own actions: `screen.open name=<menu key, label or title>`,
 `screen.back`, `screen.list` (what the menu opens and the stack the person is on). On the BBS lists (a
 message list, Join, Last callers, File areas): `list.read` (rows numbered from 1, the lit one; moves nothing),
-`list.select n=`, `list.open [n=]`. The menu's letters, `⏎` and clicks, and `q`/`Esc`, `j k`, `⏎` and clicks on
+`list.select n=`, `list.open [n=]`. The menu's letters, `⏎` and clicks, and `q`, `j k`, `⏎` and clicks on
 a list, run the same actions. On the menu or a list, the control socket's `open <id>` opens the note in a
 message reader over it.
 
@@ -185,7 +185,20 @@ These change what the person looks at, so an agent's is a visible, attributed mo
   desk, the board, the river, the brief, Waiting, the welcome, the showcase) is refused when it's already on
   the stack (`screen.back` gets there);
 - never Goodbye: `screen.open name=G` is refused, and `screen.back` on the main menu is refused (the person's
-  `Esc` there only says "G logs off"; their `q` there is the Quay, as it always was).
+  `Esc` there only says "nothing to close · G logs off"; their `q` there is the Quay, as it always was).
+
+**Esc closes; it never leaves.** The person's `Esc` closes the innermost temporary thing, one per press: first what
+holds their keys (a picker or menu: the tile menu `⋯`, a search, a layout or board picker; the keys box, `? more`; a
+pending chord, `^W`; link mode, `alt+l`; a filter being typed; an edit, at once with nothing typed, with a second `Esc`
+when unsaved, PIE-475), then the dock when it's up and they're out of it (`host.toggle`), then what's lit in their tile
+(a link, a selection), then the screen's own (a zoom, a drawer, the keys back home, a float's keys back to the tile
+under it).
+With nothing left it does nothing and says so on the status bar: `nothing to close · q leaves` (the menu's says `G
+logs off`). It never pops a screen and never logs off: leaving is `q` (`screen.back`), quitting `G` or `ctrl+c`. Each
+step is an action an agent runs by name (`host.toggle open=false`, `tile.drawer open=false`, `tile.zoom on=false`,
+`tile.focus`, `element.select n=0`, `select.clear`, `edit.close`), so nothing here needs `Esc` sent as a key. In the
+showcase, `Esc` in a section's stage with nothing left hands the keys back to the index (`section.leave`); in a screen
+shown in a tile (the board on the desk), it goes on to the desk's own steps.
 
     ep0ch act screen.open name=J --as claude-7
     ep0ch act list.read --as claude-7

@@ -190,4 +190,20 @@ describe.skipIf(!outliner)("the board's actions, against a scratch outline", () 
     key(char("x"));
     expect(B().floats.length).toBe(0);
   });
+
+  test("the hub picker with no board shown yet: esc puts it away and the screen stays, empty, saying how to go on; q leaves", async () => {
+    const b2 = boardScreen(garden.id, false);
+    app.push(b2);
+    const V = () => BV.view(b2);
+    await until(() => V().lanes.length === 2, "the second board's lanes", 10_000);
+    V().model.hub = null;                                        // as a board that opened on the picker, none chosen yet
+    key(char("g")); await until(() => !!V().hubPicker, "the picker");
+    expect(ran(() => key({ kind: "esc" }))).toEqual(["board.hub"]);
+    expect(V().hubPicker).toBeNull();
+    expect((app as any).stack.at(-1)).toBe(b2);                // Esc never leaves the screen
+    expect(V().status).toBe("no board shown · g picks one · q leaves");
+    key(char("g")); await until(() => !!V().hubPicker, "the picker again");
+    key(char("q"));                                              // q is back, as everywhere
+    expect((app as any).stack.at(-1)).toBe(b);
+  });
 });

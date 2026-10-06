@@ -91,6 +91,11 @@ export interface Ctx {
   redraw(): void;
   flash(msg: string, ms?: number): void;
   /**
+   * Esc reached a screen with nothing left to close (src/shell-keys.ts `nothingToClose`): what the frame around it does
+   * instead of saying so (the showcase's stage hands the keys back to its index). The door's own Ctx leaves it out.
+   */
+  nothingToClose?(leave: string): void;
+  /**
    * Put text on the terminal's clipboard (OSC 52; Herdr and Ghostty pass it on), and say "copied to clipboard" over the
    * screen; `from`: a terminal tile's name, when its program copied it ("copied from <tile>"). False when nothing was
    * copied (over COPY_MAX, or a tile's copy the door didn't pass on: `Uncopied`), and the toast says why.

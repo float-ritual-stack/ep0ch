@@ -7,7 +7,7 @@
 //
 // Every change goes through a named action (TILE_ACTIONS, PANE_ACTIONS, DESK_ACTIONS): the keys, the mouse
 // and the control socket are callers. The desk draws the borders, headers, tabs and the drag's ghost.
-import { shellKeyOf } from "../shell-keys";
+import { nothingToClose, shellKeyOf } from "../shell-keys";
 import type { Ctx, Frame, Screen, ViewState } from "../app";
 import { bodyLinesOf, subject, type Msg } from "../board";
 import { Canvas, DOTTED_BOX, overflows, scrollPct, type BoxGlyphs, type Rect } from "../canvas";
@@ -2309,20 +2309,37 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       if (/^[1-9]$/.test(k.ch) && this.numbered) { const id = this.all()[Number(k.ch) - 1]; if (id !== undefined) return this.run("tile.focus", {}, this.nameOf(id)); return; }
       if (k.ch === "q" && this.spec.home === undefined) { this.pending = null; return this.shell("screen.back"); }
     }
-    // Esc steps back: out of a zoom, a drawer the keys are in shuts, the keys go home (the spec's), a drawer sliding over
-    // shuts, then the screen is left. On a screen with a home, q takes the same steps (PIE-489: q is back everywhere).
+    // Esc closes the screen's next temporary thing (closeStep), and with none left says so and stays: it never leaves the
+    // screen (UI-GRAMMAR, "Esc"). On a screen with a home, q takes the same steps and then leaves (PIE-489: q is back
+    // everywhere).
     if (k.kind === "esc" || (c0 === "q" && this.spec.home !== undefined)) {
-      if (this.zoom !== null) return this.run("tile.zoom", { on: false }, String(this.numberOf(this.zoom)));
-      const shuts = (d: Drawer<number> | null) => !!d?.open && d.policy?.overlay !== false && policyOfNode(this.layout, d).collapsible;
-      const d = drawerOf(this.root, this.focus);
-      if (shuts(d)) return this.run(chainOf(this.root, this.focus).some(c => c.policy?.shuts) ? "tile.close" : "tile.drawer", chainOf(this.root, this.focus).some(c => c.policy?.shuts) ? {} : { open: false }, this.nameOf(this.focus));
-      const home = this.homeTile();
-      if (home !== undefined && !this.atHome()) return this.run("tile.focus", {}, this.nameOf(home));
-      const open = this.spec.home !== undefined ? drawers(this.root).find(x => shuts(x) && leaves(x.kid).length) : undefined;
-      if (open) return this.run("tile.drawer", { open: false, container: open.id }, this.nameOf(leaves(open.kid)[0]!));
+      if (this.closeStep(k.kind === "esc")) return;
+      if (k.kind === "esc") return nothingToClose(this.ctx);
       this.pending = null; return this.shell("screen.back");
     }
   }
+
+  /**
+   * The screen's own next step out, as an action: out of a zoom, a drawer the keys are in shuts, the keys go home (the
+   * spec's), a drawer sliding over shuts; for Esc, a float gives the keys back to the tile under it. False: none left.
+   */
+  private closeStep(esc: boolean): boolean {
+    const step = (name: string, args: Record<string, unknown>, tile: string) => { this.run(name, args, tile); return true; };
+    if (this.zoom !== null) return step("tile.zoom", { on: false }, String(this.numberOf(this.zoom)));
+    const shuts = (d: Drawer<number> | null) => !!d?.open && d.policy?.overlay !== false && policyOfNode(this.layout, d).collapsible;
+    const d = drawerOf(this.root, this.focus);
+    if (shuts(d)) return chainOf(this.root, this.focus).some(c => c.policy?.shuts) ? step("tile.close", {}, this.nameOf(this.focus)) : step("tile.drawer", { open: false }, this.nameOf(this.focus));
+    const home = this.homeTile();
+    if (home !== undefined && !this.atHome()) return step("tile.focus", {}, this.nameOf(home));
+    const open = this.spec.home !== undefined ? drawers(this.root).find(x => shuts(x) && leaves(x.kid).length) : undefined;
+    if (open) return step("tile.drawer", { open: false, container: open.id }, this.nameOf(leaves(open.kid)[0]!));
+    const ground = esc && this.isFloat(this.focus) ? this.grounded() : undefined;
+    if (ground !== undefined) return step("tile.focus", {}, this.nameOf(ground));
+    return false;
+  }
+
+  /** DeskApi.escaped: Esc found nothing left to close in a tile's own screen (a screen tile): the desk's next step, or nothing. */
+  escaped() { if (!this.closeStep(true)) nothingToClose(this.ctx); }
 
   /** alt+l, then a key: h j k l (the tile that way), a tile's number, or esc. */
   private linkKey(k: Key) {
@@ -2637,8 +2654,15 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
   /** The tile last given the keys in each columns container (by its id): its place for Tab and home. */
   private lastIn = new Map<string, number>();
+  /** The last tile the keys were in that isn't a float: where esc in a float gives them back. */
+  private lastGrounded: number | undefined;
+  private grounded(): number | undefined {
+    const g = this.lastGrounded;
+    return g !== undefined && this.panes.has(g) && !this.isFloat(g) && visible(this.root).includes(g) ? g : this.tabStops().find(id => !this.isFloat(id));
+  }
   /** Where the keys are now is the place of each columns container they're in. */
   private noteFocus() {
+    if (!this.isFloat(this.focus)) this.lastGrounded = this.focus;
     for (const c of chainOf(this.root, this.focus)) if (c.t === "columns" && c.id) this.lastIn.set(c.id, this.focus);
     // A tile opened into a container that's given the keys is where the next open there lands.
     const k = this.openedInto(this.focus);
