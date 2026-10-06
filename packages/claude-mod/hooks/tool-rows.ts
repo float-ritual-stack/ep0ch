@@ -426,15 +426,36 @@ export function toolRowTree(ui: ToolRowElements, row: ToolRow, m: ToolRowModel):
 
 // ─── Text helpers ──────────────────────────────────────────────────────────
 
-/** Markdown cut to DETAIL_LINES lines (and well under Markdown's cap), saying how many more; a fence cut open is closed. */
+/**
+ * Markdown cut to DETAIL_LINES lines and DETAIL_CHARS characters (a long line is cut too), saying how much more there
+ * was; a fence left open by the cut is closed with its own delimiter, so the note after it reads as text.
+ */
 export function capped(markdown: string): string {
   const all = markdown.replace(/\r\n?/g, '\n').replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, '').split('\n')
-  let kept = all.slice(0, DETAIL_LINES)
-  while (kept.join('\n').length > DETAIL_CHARS && kept.length > 1) kept = kept.slice(0, -1)
+  const kept: string[] = []
+  let chars = 0
+  let cutLine = false
+  for (const line of all) {
+    if (kept.length >= DETAIL_LINES) break
+    if (chars + line.length > DETAIL_CHARS) {
+      kept.push(`${line.slice(0, Math.max(0, DETAIL_CHARS - chars))}…`)
+      cutLine = true
+      break
+    }
+    kept.push(line)
+    chars += line.length + 1
+  }
   const more = all.length - kept.length
-  if (!more) return kept.join('\n')
-  const fences = kept.filter(l => /^\s*(```|~~~)/.test(l)).length
-  return [...kept, ...(fences % 2 ? ['```'] : []), '', `*… ${more} more ${more === 1 ? 'line' : 'lines'}*`].join('\n')
+  if (!more && !cutLine) return kept.join('\n')
+  let open: string | null = null
+  for (const line of kept) {
+    const fence = /^\s*(`{3,}|~{3,})(.*)$/.exec(line)
+    if (!fence) continue
+    if (!open) open = fence[1]!
+    else if (fence[1]![0] === open[0] && fence[1]!.length >= open.length && !fence[2]!.trim()) open = null
+  }
+  const notice = more ? `*… ${more} more ${more === 1 ? 'line' : 'lines'}*` : '*… the rest is cut*'
+  return [...kept, ...(open ? [open] : []), '', notice].join('\n')
 }
 
 /** A short line diff (the changed lines between the common head and tail), as the outliner's `shortDiff` writes one. */

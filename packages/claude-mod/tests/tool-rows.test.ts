@@ -204,6 +204,13 @@ describe('the formatter: states and shapes', () => {
     expect(cut.filter(l => l === '```').length).toBe(1)
     expect(cut.at(-1)).toBe('*… 4 more lines*')
     expect(capped('short\ttab\u0007bell')).toBe('short\ttabbell')
+    const wide = capped('x'.repeat(12_000)).split('\n')
+    expect(wide[0]!.length).toBe(8001)
+    expect(wide.at(-1)).toBe('*… the rest is cut*')
+    const fourTicks = capped(['````diff', ...Array.from({ length: DETAIL_LINES + 2 }, (_, i) => `+${i}`), '````'].join('\n')).split('\n')
+    expect(fourTicks.at(-3)).toBe('````')
+    const tildes = capped(['~~~', ...Array.from({ length: DETAIL_LINES + 2 }, (_, i) => `${i}`), '~~~'].join('\n')).split('\n')
+    expect(tildes.at(-3)).toBe('~~~')
   })
 
   test('the result line: one line for a write, nothing for a read, the engine for an error', () => {
@@ -344,6 +351,8 @@ describe('the rows in the transcript', () => {
     const s = sessionIn(on)
     await $.session.start(START)
     await s.clock.settle()
+    await mountRow($, 'terminal', { tool: 'mcp__pi-outliner__outline_edit', input: EDIT })
+    await mountRow($, 'terminal', { tool: 'mcp__pi-outliner__outline_read', input: { ref: 'PIE-12' } }, 'toolu_2')
     const write = await $.ui.mount({ plugin: 'pi-outliner', surface: 'terminal', component: 'ToolResult', requestId: 'toolu_1',
       props: { tool_use_id: 'toolu_1', tool: 'mcp__pi-outliner__outline_edit', output: JSON.stringify({ revision: 2, previousRevision: 1 }), isErrored: false } })
     expect((await write.find({ type: 'Text', text: /✓ rev 2/ }))).toBeDefined()
@@ -361,6 +370,10 @@ describe('the rows in the transcript', () => {
     expect(await malformed.find({ key: 'engine' })).toBeDefined()
     const other = await mountRow($, 'terminal', { tool: 'mcp__pi-outliner__door_peek', input: {} }, 'toolu_3')
     expect(await other.find({ key: 'engine' })).toBeDefined()
+    // The engine drew the call's row, so its result is the engine's too.
+    const result = await $.ui.mount({ plugin: 'pi-outliner', surface: 'terminal', component: 'ToolResult', requestId: 'toolu_1',
+      props: { tool_use_id: 'toolu_1', tool: 'mcp__pi-outliner__outline_edit', output: JSON.stringify({ revision: 2 }), isErrored: false } })
+    expect(await result.find({ key: 'engine-result' })).toBeDefined()
   })
 
   test('/tool-rows off leaves the engine’s rows, kept for the next session; /tool-rows on brings them back', async ($, on) => {
