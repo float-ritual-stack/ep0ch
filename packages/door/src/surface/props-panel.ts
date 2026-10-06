@@ -3,6 +3,7 @@
 // copied, followed (block, page and Work-ID values) and edited in place: an edit is one `properties.patch`
 // of that token, checked against the revision the panel read, so it never overwrites someone else's change.
 // The surface owns the panel and runs its actions; this file draws it and turns keys into intents.
+import { pageAddressReferences, referencedBlock } from "@ep0ch/outline-core/link-syntax";
 import { titleLine, type Msg } from "../board";
 import { printable, type Source } from "../props";
 import { MISSING_MARK, pageOf, refView, referencesIn, shortId } from "../refs";
@@ -22,18 +23,16 @@ export interface PropRow {
   target: { block: string } | { page: string } | null;
 }
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /**
  * Where a value points, when it names something: a block id or `((id))`, a `[[page]]`, or a Work ID in
  * the workspace's own prefix (`PIE-409` when the prefix is PIE; `week-38` or `utf-8` are just text).
  */
 export function valueTarget(key: string, value: string, workIdPrefix: string | null = null): PropRow["target"] {
   const v = value.trim();
-  const ref = v.match(/^\(\(([A-Za-z0-9_-]{8,})(?:\^[A-Za-z0-9][A-Za-z0-9_-]*)?(?:\|[^)]*)?\)\)$/);
-  if (ref) return { block: ref[1]! };
-  if (UUID.test(v)) return { block: v };
-  const page = v.match(/^\[\[([^\]|]+)(?:\|[^\]]*)?\]\]$/);
-  if (page) return { page: page[1]!.trim() };
+  const ref = referencedBlock(v);
+  if (ref) return { block: ref.blockId };
+  const [page] = pageAddressReferences(v);
+  if (page && page.start === 0 && page.end === v.length) return { page: page.displayAddress };
   // `work-id` and `page` declare this note's own addresses; they don't point anywhere else.
   if (key === "work-id" || key === "page") return null;
   const [prefix, n] = [v.slice(0, v.lastIndexOf("-")), v.slice(v.lastIndexOf("-") + 1)];

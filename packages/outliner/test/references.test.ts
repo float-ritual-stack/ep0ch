@@ -1,13 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import {
-  blockDisplayTitle,
-  blockReferenceIds,
-  blockReferenceOccurrences,
-  resolveBlockReferences,
-  resolveBlockReferencesWithStatus,
-} from "../src/references";
+import { blockDisplayTitle, resolveBlockReferences, resolveBlockReferencesWithStatus } from "../src/references";
+import { blockReferenceIds, blockReferenceOccurrences } from "@ep0ch/outline-core/link-syntax";
 import { outlinerReferenceOccurrences } from "../src/reference-occurrences";
+import { fragmentAnchors } from "../src/fragments";
 import type { Block } from "../src/types";
+import { ANCHOR_LINES, ANCHOR_NOTE, BLANK_LABEL_NOTE, BLANK_LABEL_PAGES, PAINT_ID, PAREN_LABEL, PAREN_LABEL_NOTE } from "../../outline-core/test/fixtures/link-notes";
 
 const target: Block = {
   revision: 1,
@@ -370,5 +367,21 @@ describe("reference occurrence Markdown protection", () => {
         end: text.indexOf(visibleReference) + visibleReference.length,
       },
     ]);
+  });
+});
+
+describe("links and anchors the door draws alike (shared fixture)", () => {
+  test("a label with parentheses is read whole, so the door's lookup by target finds this answer", () => {
+    const { references } = resolveBlockReferencesWithStatus(PAREN_LABEL_NOTE, () => null);
+    expect(references).toEqual([{ blockId: PAINT_ID, label: PAREN_LABEL, status: "missing" }]);
+  });
+
+  test("a page link with a blank label is no reference", () => {
+    const pages = outlinerReferenceOccurrences(BLANK_LABEL_NOTE).flatMap(r => (r.kind === "page" ? [{ address: r.address, label: r.label }] : []));
+    expect(pages).toEqual(BLANK_LABEL_PAGES);
+  });
+
+  test("the fragment anchors are the ones the door hides", () => {
+    expect(fragmentAnchors(ANCHOR_NOTE).map(a => a.id)).toEqual(ANCHOR_LINES.flatMap(([, id]) => (id ? [id] : [])));
   });
 });

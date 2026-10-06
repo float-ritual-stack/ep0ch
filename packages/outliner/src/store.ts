@@ -1,3 +1,4 @@
+import { referencedBlock } from "@ep0ch/outline-core/link-syntax";
 import {handOrderRefusal, isVirtualBranchDefinition, parseVirtualBranchConfig, selectVirtualBranchMembers, virtualBranchMembershipQuery, type VirtualBranchMembers} from "./virtual-branches";
 import {placeOrderedItems} from "./virtual-placement";
 import {WorkingSelectionRepository} from "./working-selection";
@@ -58,17 +59,9 @@ import {
   PROPERTY_PARSER_VERSION,
 } from "./properties";
 import { literalMarkerLineRanges } from "@ep0ch/outline-core/code-ranges";
-import {
-  normalizePageAddress,
-  tryNormalizePageAddress,
-  type NormalizedPageAddress,
-} from "./page-addresses";
-import {
-  blockReferenceDisplayText,
-  blockReferenceOccurrences,
-  resolveBlockReferences as resolveBlockReferenceText,
-  resolveBlockReferencesWithStatus,
-} from "./references";
+import { normalizePageAddress, tryNormalizePageAddress, type NormalizedPageAddress } from "@ep0ch/outline-core/link-syntax";
+import { blockReferenceDisplayText, resolveBlockReferences as resolveBlockReferenceText, resolveBlockReferencesWithStatus } from "./references";
+import { blockReferenceOccurrences } from "@ep0ch/outline-core/link-syntax";
 import {
   ResourceCatalog,
   type ResourceCatalogOptions,
@@ -2722,7 +2715,7 @@ export class OutlinerStore {
    */
   resolveBlockRef(ref: string): Block {
     // ((id)) and ((id|label)) name the id; [[page]] the page.
-    const text = typeof ref === "string" ? ref.trim().replace(/^\(\(([^|)]+)(?:\|[^)]*)?\)\)$/, "$1").replace(/^\[\[(.+)\]\]$/, "$1").trim() : "";
+    const text = typeof ref === "string" ? referencedBlock(ref)?.blockId ?? ref.trim().replace(/^\[\[(.+)\]\]$/, "$1").trim() : "";
     if (!text) throw new Error("Give a block: an id, ((id)), a Work ID or a [[page]]");
     const exact = this.database.query("SELECT id, effective_deleted_root_id AS trashed FROM blocks WHERE id = ?").get(text.toLowerCase()) as { id: string; trashed: string | null } | null;
     if (exact?.trashed) throw new Error(`${ref} is in Trash`);

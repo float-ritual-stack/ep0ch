@@ -1,6 +1,7 @@
 import { authoredTextDigest } from "../src/authored-links";
 import { firstLineWithoutPropertyTokens } from "../src/properties";
-import { blockReferenceDisplayText, blockReferenceOccurrences, resolveBlockReferencesWithStatus } from "../src/references";
+import { blockReferenceDisplayText, resolveBlockReferencesWithStatus } from "../src/references";
+import { blockReferenceOccurrences } from "@ep0ch/outline-core/link-syntax";
 import type { Block, TreeIndexBlock, VisibleBlock } from "../src/types";
 
 // Controller/renderer fixtures retain source documents outside their compact

@@ -1,5 +1,5 @@
 import { rankBlockFocusMatches } from "./block-focus";
-import type { NormalizedPageAddress } from "./page-addresses";
+import { type NormalizedPageAddress } from "@ep0ch/outline-core/link-syntax";
 import { blockDisplayTitle } from "./references";
 import { searchTextTerms } from "@ep0ch/outline-core/search-match";
 import { ancestorPath, contextList, searchContext, sortByContext, type ContextReason } from "./search-context";

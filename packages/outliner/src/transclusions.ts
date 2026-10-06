@@ -4,6 +4,7 @@
 // re-deriving; Detail's own embed projection (detail-embeds.ts) takes its limits and wording from here.
 import { checklistItems } from "./checklist-items";
 import { codeLineSet, fragmentPresentationText, isFragmentId, resolveFragmentSlice, type FragmentKind } from "./fragments";
+import { embedPattern } from "@ep0ch/outline-core/link-syntax";
 import { blockDisplayTitle } from "./references";
 import type { Block, ChecklistItem } from "./types";
 import { isVirtualBranchDefinition } from "./virtual-branches";
@@ -22,9 +23,6 @@ export const TRANSCLUSION_MAX_NODES = 64;
  */
 export const TRANSCLUSION_MAX_BYTES = 512 * 1024;
 
-/** `!((id))` and `!((id^fragment))`: Detail's transclusion syntax (no label). */
-export const EMBED_PATTERN_SOURCE = String.raw`!\(\(([A-Za-z0-9_-]{8,})(?:\^([A-Za-z0-9][A-Za-z0-9_-]{0,63}))?\)\)`;
-export const embedPattern = () => new RegExp(EMBED_PATTERN_SOURCE, "g");
 
 /**
  * The embeds a reader expands in `text`, in order. Fenced and indented code shows `!((…))` as written,

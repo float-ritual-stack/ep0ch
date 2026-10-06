@@ -221,7 +221,7 @@
       "does": "What moving a block into a saved view would patch, at the block's revision, or why it can't; what a new block there is born with. The service owns the semantics; clients ask.",
       "built": "view-writes.ts splits a view's query into clauses a write sets and clauses that must already hold, then evaluates the whole query on the patched block. Ported from the door's move planning, which it replaces.",
       "refs": [
-        { "r": "outliner", "p": "src/view-writes.ts", "l": 162, "m": "export function planMoveIntoView" },
+        { "r": "outliner", "p": "src/view-writes.ts", "l": 163, "m": "export function planMoveIntoView" },
         { "r": "outliner", "p": "src/store.ts", "l": 3206, "m": "planViewWrites(input" },
         { "r": "outliner", "p": "src/server.ts", "l": 1856, "m": "case \"views.planWrite\"" }
       ],
@@ -278,7 +278,7 @@
       "does": "Finds [key::value] tokens at paint time (titles, digests, colour) by the service's own rule, so the door and Detail agree on every note.",
       "built": "The door imports @ep0ch/outline-core/property-grammar, the file the service parses with; test/grammar.test.ts checks titles against the service's parser. It replaced nine local regexes, then a vendored copy.",
       "refs": [
-        { "r": "door", "p": "src/text.ts", "l": 3, "m": "@ep0ch/outline-core/property-grammar" },
+        { "r": "door", "p": "src/text.ts", "l": 4, "m": "@ep0ch/outline-core/property-grammar" },
         { "r": "door", "p": "src/board.ts", "l": 4, "m": "@ep0ch/outline-core/property-grammar" }
       ]
     },
@@ -407,8 +407,8 @@
         { "r": "door", "p": "src/term.ts", "l": 378, "m": "\\x1b[?1002h" },
         { "r": "door", "p": "src/scroll.ts", "l": 23, "m": "export const wheelRows" },
         { "r": "door", "p": "src/term.ts", "l": 48, "m": "export const OPTION_KEYS" },
-        { "r": "door", "p": "src/text.ts", "l": 24, "m": "export function printable(" },
-        { "r": "door", "p": "src/text.ts", "l": 37, "m": "export function paintable(" },
+        { "r": "door", "p": "src/text.ts", "l": 25, "m": "export function printable(" },
+        { "r": "door", "p": "src/text.ts", "l": 38, "m": "export function paintable(" },
         { "r": "door", "p": "src/style.ts", "l": 114, "m": "export const width = " },
         { "r": "door", "p": "src/style.ts", "l": 262, "m": "export function fitHint(" }
       ],
@@ -851,7 +851,7 @@
       { "label": "views.planWrite", "at": "door.socketboard", "what": "SocketBoard sends one views.planWrite request over the service socket.",
         "ref": { "r": "door", "p": "src/socket.ts", "l": 711, "m": "\"views.planWrite\"" } },
       { "label": "plan", "at": "svc.planwrite", "what": "The service splits each lane's query and plans the property patch, or refuses with the reason.",
-        "ref": { "r": "outliner", "p": "src/view-writes.ts", "l": 162, "m": "export function planMoveIntoView" } },
+        "ref": { "r": "outliner", "p": "src/view-writes.ts", "l": 163, "m": "export function planMoveIntoView" } },
       { "label": "enter", "at": "door.board", "what": "The mover shows each lane's plan; Enter checks the selection hasn't changed and runs the card.move action, which calls moveTo.",
         "ref": { "r": "door", "p": "src/desk/lanes.ts", "l": 689, "m": "if (i !== from) void this.run(\"card.move\", { lane: this.lanes[i]!.name, card: card.id })" } },
       { "label": "properties.patch", "at": "door.socketboard", "what": "moveTo re-plans the target lane, then applyMove sends properties.patch with expectedRevision and the actor's provenance.",

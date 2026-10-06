@@ -1,9 +1,9 @@
 import {Lexer, type Token} from "marked";
 import { protectedCodeRanges } from "@ep0ch/outline-core/code-ranges";
-import { pageAddressReferences } from "./page-addresses";
+import { pageAddressReferences } from "@ep0ch/outline-core/link-syntax";
 import { parsePropertyRecords } from "./properties";
 import type { PropertyRecord } from "./types";
-import { blockReferenceEnvelopeRanges, blockReferenceOccurrences } from "./references";
+import { blockReferenceEnvelopeRanges, blockReferenceOccurrences } from "@ep0ch/outline-core/link-syntax";
 import { ticketKeyReferences } from "./work-ids";
 
 export interface TextRange {

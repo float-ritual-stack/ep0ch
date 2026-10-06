@@ -1,5 +1,5 @@
 import type { PageAddressMatch } from "./types";
-import { referenceEnvelopeEnd } from "./reference-envelopes";
+import { referenceEnvelopeEnd } from "@ep0ch/outline-core/addressable-resource";
 import { workIdReferences } from "./work-ids";
 
 export type CompletionTargetKind = "page" | "block" | "file";

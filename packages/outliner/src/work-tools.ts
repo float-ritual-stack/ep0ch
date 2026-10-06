@@ -8,13 +8,14 @@
  * roadmap properties, delivery facts); these helpers only refuse what they can
  * tell is wrong before writing, and say why.
  */
+import { referencedBlock } from "@ep0ch/outline-core/link-syntax";
 import type { RequestInput } from "./client";
 import { deliveryIdentities, parseDeliveryIdentity, type DeliveryIdentity } from "./delivery-lifecycle";
 import { documentFolds } from "./document-folds";
 import { droppedStructure } from "./draft-patch";
 import { markdownSourceTokens } from "./markdown-structure";
 import { getProperty, matchesFilters, normalizePropertyKey, parsePropertyRecords, patchPropertyText, validateProperty } from "./properties";
-import { blockReferenceOccurrences } from "./references";
+import { blockReferenceOccurrences } from "@ep0ch/outline-core/link-syntax";
 import { parseWorkId } from "./work-ids";
 import {
   ROADMAP_WORK_STAGES,
@@ -119,7 +120,7 @@ export function requireWorkItem(block: Block): string {
  * never lands on a guessed block.
  */
 export async function resolveBlock(client: WorkToolsClient, address: string): Promise<Block> {
-  const trimmed = address.trim().replace(/^\(\((.*)\)\)$/, "$1").trim();
+  const trimmed = referencedBlock(address)?.blockId ?? address.trim();
   let block: Block;
   if (BLOCK_ID.test(trimmed)) {
     block = await client.request<Block>({ action: "get", blockId: trimmed.toLowerCase() });
@@ -140,7 +141,7 @@ export async function resolveBlock(client: WorkToolsClient, address: string): Pr
 
 /** A block named by its UUID (a delivery or proof), refusing one in Trash. */
 async function getActiveBlock(client: WorkToolsClient, blockId: string): Promise<Block> {
-  const block = await client.request<Block>({ action: "get", blockId: blockId.trim().replace(/^\(\((.*)\)\)$/, "$1").trim() });
+  const block = await client.request<Block>({ action: "get", blockId: referencedBlock(blockId)?.blockId ?? blockId.trim() });
   if (block.effectiveDeletedRootId) throw new WorkToolRefusal(`Block is in Trash: ${block.id}`);
   return block;
 }
@@ -525,7 +526,7 @@ function findItemDelivery(workId: string, deliveries: readonly DeliveryIdentity[
     if (!match) throw new WorkToolRefusal(`Delivery ${address.id} does not belong to ${workId}; its deliveries: ${listed()}`);
     return match;
   }
-  const trimmed = address.trim().replace(/^\(\((.*)\)\)$/, "$1").trim();
+  const trimmed = referencedBlock(address)?.blockId ?? address.trim();
   const match = BLOCK_ID.test(trimmed)
     ? deliveries.find((delivery) => delivery.block.id === trimmed.toLowerCase())
     : deliveries.find((delivery) => delivery.key.toUpperCase() === deliveryKeyFor(workId, trimmed).toUpperCase());

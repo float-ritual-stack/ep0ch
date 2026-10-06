@@ -20,9 +20,9 @@
  * holds; `src/server.ts` routes.
  */
 import { fragmentAnchors } from "./fragments";
-import { pageAddressReferences } from "./page-addresses";
+import { pageAddressReferences } from "@ep0ch/outline-core/link-syntax";
 import { parsePropertyRecords } from "./properties";
-import { blockReferenceOccurrences } from "./references";
+import { blockReferenceOccurrences } from "@ep0ch/outline-core/link-syntax";
 import type { DraftPatchSpan } from "@ep0ch/outline-core/draft-patch-compare";
 import type { MutationProvenance } from "./types";
 

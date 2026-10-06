@@ -11,6 +11,7 @@ import type { Ctx } from "../app";
 import { subject, titleLine, type Msg } from "../board";
 import { codeFenceLines } from "@ep0ch/outline-core/code-fence";
 import { literalLines } from "@ep0ch/outline-core/code-ranges";
+import { fragmentAnchorMatch, linkOccurrences, referencedBlock } from "@ep0ch/outline-core/link-syntax";
 import { CommentSession, type CommentEnv } from "../comment";
 import { foldPoints, heroBox, mediaLines, renderDoc, type Doc, type DocEnv, type DocImage, type FoldPoint, type ImageControl } from "../doc";
 import { DENSITIES, isDensity, type Density, type FigureControl, type FigureInfo } from "../graphs";
@@ -18,7 +19,7 @@ import { embedRegion, embedsLoading, viewResults, embedStepChanged, isOpenPropos
 import { extensionRegion, projectionRegion, projectionsOf, resourceChanged, RUN_AGAIN, ticketBlocksOf, ticketRegion, type ResourceProjection, type TicketPart } from "../projection";
 import { EXT_ACTIONS, extensionNamed, handlerKeyAction } from "../extensions";
 import { metadataLines, printable, setUserSummaryKeys, summaryKeys, summarySegments, tokensFor, tokensOf, type Source } from "../props";
-import { type CalloutRef, type ImageRef, LINK_OFF, LINK_ON, MD_LINK, outlineChanged, PAGE, pageView, pageOf, presentLinks, REF, resourceTokensOf, refKey, referencesIn, refView, workIdPrefix, shortId, type LinkTarget } from "../refs";
+import { type CalloutRef, type ImageRef, LINK_OFF, LINK_ON, outlineChanged, pageView, pageOf, presentLinks, resourceTokensOf, refKey, referencesIn, refView, workIdPrefix, shortId, type LinkTarget } from "../refs";
 import { isOutlineNote, openResource, RESOURCE_NOTE, resourceTarget } from "../authored";
 import { changeOf, parseStatus, STEP_CHOICES, STEP_MARKS, stepChanged, UndoHistory, stepLink, stepsLoading, stepsOf, stepStillOn, stepTitle, statusWord, type StepChoice, type StepRef } from "../steps";
 import { destinationOf, external, externalOpenCommand, fileOpenCommand } from "../open";
@@ -276,18 +277,17 @@ interface Mark { thread: string; open: boolean; row: number; rows: [number, numb
 interface Control { thread: string; control: ThreadControl; row: number; from: number; to: number; label: string }
 
 /**
- * The note's links in reading order: exact `((…))` (transclusions too), `[[…]]` and Markdown `[text](url)`,
- * the service's syntax.
+ * The note's links in reading order, as outline-core's scan finds them: `((…))` (transclusions too), `[[…]]` and
+ * Markdown `[text](url)`.
  */
-const LINK = new RegExp(`${REF.source}|${PAGE.source}|${MD_LINK.source}`, "g");
-const linksOf = (m: Msg): Link[] => [...m.text.matchAll(LINK)].flatMap((x): Link[] => {
-  if (x[1]) return x[3] !== undefined && !x[3].trim() ? [] : [{ block: x[1], ...(x[2] ? { fragment: x[2] } : {}), ...(x[3] !== undefined ? { label: x[3] } : {}) }];
-  if (x[4] !== undefined) return [{ page: x[4].trim(), ...(x[5] !== undefined ? { label: x[5] } : {}) }];
-  return [{ url: x[7]!, label: x[6]! }];
+const linksOf = (m: Msg): Link[] => linkOccurrences(m.text).map((l): Link => {
+  if (l.kind === "block") return { block: l.blockId, ...(l.fragmentId ? { fragment: l.fragmentId } : {}), ...(l.label !== undefined ? { label: l.label } : {}) };
+  if (l.kind === "page") return { page: l.displayAddress, ...(l.label !== undefined ? { label: l.label } : {}) };
+  return { url: l.url, label: l.text };
 });
 /** How a link reads in the hint and `peek`: its title or label, as the note shows it. */
 const linkText = (l: Link, text: string, src: Source | null) => l.block
-  ? refView(l.block, l.fragment, l.label, referencesIn(text, src)?.get(refKey(l.block, l.fragment, l.label))).text
+  ? refView(l.block, l.fragment, l.label, referencesIn(text, src)?.get(refKey(l.block, l.fragment))).text
   : l.page ? pageView(l.page, l.label, pageOf(l.page, src)).text : l.url !== undefined ? l.label ?? l.url : l.media?.split("/").pop() ?? "";
 
 /**
@@ -306,8 +306,8 @@ export function readableSource(m: Msg, src: Source | null): { text: string; line
   const rows = all.map((l, i) => ({ l, i })).filter(({ i }) => i > title && !hidden.has(i) && !lit.markers.has(i))
     // A stable fragment anchor (`## Beds ^beds`) is an address, not prose: read mode hides it, as Detail does.
     .map(({ l, i }) => {
-      const a = code[i]! >= 0 ? null : l.match(/ \^([A-Za-z0-9][A-Za-z0-9_-]{0,63})$/);
-      return a ? { l: l.slice(0, a.index), i, anchor: a[1] } : { l, i };
+      const a = code[i]! >= 0 ? null : fragmentAnchorMatch(l);
+      return a ? { l: l.slice(0, a.index).trimEnd(), i, anchor: a[1] } : { l, i };
     });
   // Blank lines before the first line with text aren't drawn.
   let lead = 0;
@@ -3308,8 +3308,10 @@ export class NoteSurface {
       return e;
     }
     let want = id!.trim(), inBlock = block;
-    const hat = want.lastIndexOf("^");
-    if (hat > 0) { inBlock = want.slice(0, hat).replace(/^\(\(/, ""); want = want.slice(hat + 1).replace(/\)\)$/, ""); }
+    // `((id^step))` as a reference writes it, `id^step`, or `^step`.
+    const ref = referencedBlock(want), hat = want.lastIndexOf("^");
+    if (ref?.fragment) { inBlock = ref.blockId; want = ref.fragment; }
+    else if (hat > 0) { inBlock = want.slice(0, hat); want = want.slice(hat + 1); }
     want = want.replace(/^\^/, "");
     const hits = all.filter(e => e.task!.step.itemId === want && (!inBlock || sameId(inBlock, e.task!.block)));
     if (!hits.length) throw new ActionRefused(`no step ^${want}${inBlock ? ` in ${inBlock}` : ""} is drawn in this reader (${list()})`);

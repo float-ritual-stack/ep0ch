@@ -113,7 +113,7 @@ describe("planning a new note", () => {
     expect(planCreateInView(queued, "Oil it [priority::low] [arc::a] [track::t]\nAfter [depends-on::((b-1))] lands.")).toEqual({ kind: "refused", reason: "[depends-on::((b-1))] on line 2 belongs to that line, not the item; put it on the title line" });
     // A bare property line in the preamble is the item's too: it goes to the allocator, not into the body.
     expect(planCreateInView(queued, "Oil it [arc::a] [track::t]\npriority:: high\nThe back door.")).toMatchObject({ item: { title: "Oil it", body: "The back door.", priority: "high" } });
-    expect(planCreateInView(queued, "Oil it [priority::low] [arc::a] [track::t] [depends-on::((b-1))]")).toEqual({ kind: "refused", reason: "depends-on must be a block id (a UUID), not b-1" });
+    expect(planCreateInView(queued, "Oil it [priority::low] [arc::a] [track::t] [depends-on::((b-1))]")).toEqual({ kind: "refused", reason: "depends-on must be a block id (a UUID), not ((b-1))" });
     expect(planCreateInView(queued, "Tune it [project::pi-outliner] [priority::low] [arc::a] [track::t]")).toMatchObject({ item: { project: "pi-outliner" } });
     expect(planCreateInView(queued, "Tune it [work-stage::doing] [priority::low] [arc::a] [track::t]")).toEqual({ kind: "refused", reason: "the text sets work-stage::doing, but Queued needs work-stage=queued" });
     expect(planCreateInView(queued, "Tune it [work-id::HOME-9] [priority::low] [arc::a] [track::t]")).toEqual({ kind: "refused", reason: "the workboard's allocator issues the work-id; take [work-id::] out of the text" });

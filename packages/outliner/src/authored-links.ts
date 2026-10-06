@@ -6,7 +6,7 @@ import {
   rangesOverlap,
   type OutlinerReferenceOccurrence,
 } from "./reference-occurrences";
-import { PAGE_ADDRESS_MAX_LENGTH } from "./page-addresses";
+import { PAGE_ADDRESS_MAX_LENGTH } from "@ep0ch/outline-core/link-syntax";
 import {
   authoredResourceReferenceKey,
   authoredResourceReferenceOccurrences,

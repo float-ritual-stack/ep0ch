@@ -1,7 +1,7 @@
 import { standaloneListItemText, markdownSourceTokens, type MarkdownListItem, type MarkdownSourceToken } from "./markdown-structure";
 
-const FRAGMENT_ID_SOURCE = String.raw`[A-Za-z0-9][A-Za-z0-9_-]{0,63}`;
-const FRAGMENT_ANCHOR_PATTERN = new RegExp(String.raw`(?:^|\s)\^(${FRAGMENT_ID_SOURCE})\s*$`);
+import { FRAGMENT_ID_SOURCE, fragmentAnchorMatch } from "@ep0ch/outline-core/link-syntax";
+
 const HEADING_PATTERN = /^(#{1,6})\s+(.+?)\s*$/;
 
 export type FragmentKind = "heading" | "paragraph" | "list-item";
@@ -56,10 +56,6 @@ function lineOffsets(text: string): number[] {
   return offsets;
 }
 
-function anchorMatch(line: string): RegExpMatchArray | null {
-  return line.match(FRAGMENT_ANCHOR_PATTERN);
-}
-
 function contentBeforeAnchor(line: string, match: RegExpMatchArray | null): string {
   return match ? line.slice(0, match.index).trimEnd() : line.trimEnd();
 }
@@ -71,7 +67,7 @@ function paragraphLabel(lines: readonly string[], lineIndex: number, finalLine: 
     lines[start - 1]!.trim() !== "" &&
     !contentBeforeAnchor(
       lines[start - 1]!,
-      anchorMatch(lines[start - 1]!),
+      fragmentAnchorMatch(lines[start - 1]!),
     ).match(HEADING_PATTERN)
   ) {
     start -= 1;
@@ -140,7 +136,7 @@ function parseAnchors(text: string, note: ParsedNote): FragmentAnchor[] {
   for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
     if (codeLines.has(lineIndex)) continue;
     const line = lines[lineIndex]!;
-    const match = anchorMatch(line);
+    const match = fragmentAnchorMatch(line);
     if (!match) continue;
     const content = contentBeforeAnchor(line, match);
     const heading = content.match(HEADING_PATTERN);
@@ -182,7 +178,7 @@ export function resolveFragmentSlice(
   } else if (anchor.kind === "heading") {
     const heading = contentBeforeAnchor(
       lines[anchor.lineIndex]!,
-      anchorMatch(lines[anchor.lineIndex]!),
+      fragmentAnchorMatch(lines[anchor.lineIndex]!),
     ).match(HEADING_PATTERN)!;
     const depth = heading[1]!.length;
     endLine = lines.length - 1;
@@ -192,7 +188,7 @@ export function resolveFragmentSlice(
       if (codeLines.has(lineIndex)) continue;
       const candidate = contentBeforeAnchor(
         lines[lineIndex]!,
-        anchorMatch(lines[lineIndex]!),
+        fragmentAnchorMatch(lines[lineIndex]!),
       ).match(HEADING_PATTERN);
       if (candidate && candidate[1]!.length <= depth) {
         endLine = lineIndex - 1;
@@ -205,7 +201,7 @@ export function resolveFragmentSlice(
       lines[startLine - 1]!.trim() !== "" &&
       !contentBeforeAnchor(
         lines[startLine - 1]!,
-        anchorMatch(lines[startLine - 1]!),
+        fragmentAnchorMatch(lines[startLine - 1]!),
       ).match(HEADING_PATTERN)
     ) {
       startLine -= 1;
@@ -235,7 +231,7 @@ export function fragmentCandidates(
     for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
       if (codeLines.has(lineIndex)) continue;
       const line = lines[lineIndex]!;
-      const match = anchorMatch(line);
+      const match = fragmentAnchorMatch(line);
       const heading = contentBeforeAnchor(line, match).match(HEADING_PATTERN);
       if (!heading) continue;
       const anchor = anchorsByLine.get(lineIndex);
@@ -292,7 +288,7 @@ export function ensureHeadingFragment(
   const lines = text.split(/\r?\n/);
   const line = lines[lineIndex];
   if (line === undefined) throw new Error(`Fragment heading line is unavailable: ${lineIndex + 1}`);
-  const existing = anchorMatch(line);
+  const existing = fragmentAnchorMatch(line);
   const content = contentBeforeAnchor(line, existing);
   const heading = content.match(HEADING_PATTERN);
   if (!heading) throw new Error(`Fragment target is not a Markdown heading: line ${lineIndex + 1}`);
@@ -310,7 +306,7 @@ export function ensureHeadingFragment(
 }
 
 export function stripFragmentAnchors(text: string): string {
-  return text.split(/\r?\n/).map((line) => contentBeforeAnchor(line, anchorMatch(line))).join("\n");
+  return text.split(/\r?\n/).map((line) => contentBeforeAnchor(line, fragmentAnchorMatch(line))).join("\n");
 }
 
 export function parseFragmentCompletionQuery(query: string): FragmentCompletionQuery | null {

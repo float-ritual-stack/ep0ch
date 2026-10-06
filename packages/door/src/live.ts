@@ -28,6 +28,7 @@
 //   calendar  date: <property> (date) marks its day in the month shown (year:, month:, else today's)
 //
 // A figure block's child bullets (src/graphs.ts FigureSource) are asked for here too (childRows), the same way.
+import { referencedBlock } from "@ep0ch/outline-core/link-syntax";
 import type { Msg } from "./board";
 import type { SocketBoard } from "./socket";
 import { subject } from "./board";
@@ -64,7 +65,6 @@ const changed = () => { onChange(); for (const fn of listeners) fn(); };
 /** The outline changed somewhere: re-ask every question on the next render (answers stay visible meanwhile). */
 export function invalidateLive() { generation++; }
 
-const REF = /\(\(([0-9a-f]{8}-[0-9a-f-]{27})[^)]*\)\)|^([0-9a-f]{8}-[0-9a-f-]{27})$/;
 
 function sourceKey(p: Props): string | null {
   const also = `|done:${p.done ?? ""}|now:${p.now ?? ""}`;
@@ -88,9 +88,9 @@ async function fetchSource(p: Props): Promise<{ items: Msg[]; truncated: boolean
 async function fetchItems(p: Props): Promise<{ items: Msg[]; truncated: boolean }> {
   if (!board) throw new Error("no outline connection");
   if (p.view) {
-    const m = String(p.view).trim().match(REF);
-    if (!m) throw new Error("view: needs a ((block-ref)) or block id");
-    const def = await board.get(m[1] ?? m[2]!);
+    const ref = referencedBlock(String(p.view));
+    if (!ref) throw new Error("view: needs a ((block-ref)) or block id");
+    const def = await board.get(ref.blockId);
     if (!def) throw new Error("view not found");
     const r = await readView(board, def);
     if (r.status !== "ready") throw new Error(`view ${r.status}: ${r.errors.join("; ")}`);

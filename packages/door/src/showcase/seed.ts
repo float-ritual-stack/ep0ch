@@ -102,6 +102,7 @@ function notebookText(whiteboardId: string, kettleId: string, tapId: string): st
     "",
     `Our plot at the Elm Row allotments. Links: [[${SEED.shed}]], ((${kettleId}|the kettle job)), and a soft link: ${WORK_PREFIX}-001 is the gate latch.`,
     "The water butt is half full [level::half] after Sunday's rain.",
+    `A label can hold parentheses: ((${kettleId}|the kettle (the dented one))) needs a new lid.`,
     "",
     "> [!note] Gate code",
     "> The gate code changed on Saturday; it is on the shed door.",

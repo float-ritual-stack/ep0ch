@@ -2,7 +2,7 @@ import { codeFenceOpen } from "@ep0ch/outline-core/code-fence";
 import { literalMarkerLineStarts, offsetInRanges, protectedCodeRanges, scanLiteralRegions, scanPropertyLiteralRanges, sourceLines, type SourceLine, type SourceRange } from "@ep0ch/outline-core/code-ranges";
 import { HASHTAG_VALUE_PATTERN, isEscapedAt, PROPERTY_KEY_PATTERN, PROPERTY_KEY_SOURCE, propertyTokenPattern } from "@ep0ch/outline-core/property-grammar";
 import { headerLine } from "@ep0ch/outline-core/header-line";
-import { blockReferenceEnvelopeRanges } from "./reference-envelopes";
+import { blockReferenceEnvelopeRanges } from "@ep0ch/outline-core/link-syntax";
 import type {
   BlockProperty,
   PropertyFilter,

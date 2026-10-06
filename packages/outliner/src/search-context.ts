@@ -1,5 +1,6 @@
-import { pageAddressReferences, type NormalizedPageAddress } from "./page-addresses";
-import { blockDisplayTitle, blockReferenceIds } from "./references";
+import { pageAddressReferences, type NormalizedPageAddress } from "@ep0ch/outline-core/link-syntax";
+import { blockDisplayTitle } from "./references";
+import { blockReferenceIds } from "@ep0ch/outline-core/link-syntax";
 import { SEARCH_MATCH_KINDS, type SearchMatchKind } from "@ep0ch/outline-core/search-match";
 import type { Block } from "./types";
 
