@@ -339,6 +339,40 @@ find it with `outline_find` first.
   name the door shows for the agent), else `claude-code`. The workboard tools
   use the same actor, from the environment.
 
+### Tool rows in the transcript
+
+The mod draws its own tool calls in the transcript as one compact row each, in place of Claude Code's
+`pi-outliner - outline_edit (MCP)(ref: "PIE-569", … append: "\n## …")` and its JSON answer, so a write reads as
+what it did and can be checked where it happened (`hooks/tool-rows.ts` is the pure half: what an input and an
+answer say, and the tree).
+
+```
+▸ ✎ PIE-569 · appended "Inside or outside the frame" · rev 1→2
+  + "A tab can hold a split" · created · under PIE-569
+  💬 comment on PIE-492 · on "runner beans" · "Which variety?"
+  ⇄ PIE-561 · stage later → queued
+  ⌕ find "dropdown menu" · 6 hits
+```
+
+- **Writes** (`outline_edit`, `outline_patch`, `outline_create`, `outline_comment`, `outline_reply`,
+  `outline_resolve_thread`, `note_section`, `work_*`, `view_order` with `ids`): a verb glyph, the note (its Work ID,
+  page or title; a block id's title is looked up once a session, off the draw) and the change. **Reads**
+  (`outline_read`, `outline_find`, `outline_changes`, `outline_resolve`, `show`) are one dim line.
+- **The note is a button:** pressed, it opens where a reference in a reply opens ([Where a note opens](#where-a-note-opens)).
+- **`▸` unfolds** what the write wrote, as Markdown: an append's text, a replace's or patch's diff, a new block's or
+  item's body, a comment with its quote, a view's new order (a find's hits, a changes listing). `▾` folds it. At most
+  40 lines, then "… n more lines". Rows start folded; each row's fold is kept for the session by its tool call.
+  Transcript rows never hold the keys, so the fold is a click.
+- **States:** a running call ends in `…`; an errored one's glyph is red with the first line of the reason under it
+  (Claude Code's result row under it still says it in full); an interrupted one is dim and says so; a patch that
+  became a proposal, or an edit that dropped linked structure, says so in yellow.
+- **The result row** under a write is one line (`⎿ ✓ rev 2`, `✓ applied`, `✓ thread open`) and under a read nothing,
+  since the row says it.
+- **Off and on:** `/tool-rows off` puts Claude Code's own rows back (kept across sessions in `$.store`, `tool-rows`);
+  `/tool-rows on` brings these back. They are on unless turned off.
+- Anything the formatter doesn't recognise (an input of another shape, a tool it doesn't know) and a drawing that
+  throws are Claude Code's own row, so the transcript never breaks.
+
 ## Door tools
 
 When Claude runs in a door tile (`EP0CH_CONTROL` set), it also gets
