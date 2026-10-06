@@ -196,3 +196,59 @@ unix-socket JSON-lines client.
 - Untyped result: prevents (the caller names a Schema).
 - Lines: worse by three times for a one-shot; the ratio would improve on the long-lived Board connection where the
   original is 100+ lines of reconnect, backoff and catch-up.
+
+## D. `ep0ch outline list | create | delete` on `effect/cli`
+
+`packages/effect-spike/src/outline-cli.ts` and `test/outline-cli.test.ts`; the originals are `parseOutlineArgs` in
+`packages/door/src/outlines.ts` (~60 lines of `args.includes` and a `switch`) and `cli-words.ts` (145 lines: the
+known words, the door's flags, an edit-distance "closest word" and usage lookup). Chosen to see what the CLI module
+gives a 22-command CLI for free, and what its `Environment` costs.
+
+**What changed**
+
+- Each subcommand is `Command.make(name, { flags and arguments }, handler)`. `--machine` and `--json` are shared
+  flags on the parent; a subcommand reads them with `yield* outline`. The outline name and the machine name are
+  Schemas on the argument and the flag (`Argument.withSchema`, `Flag.withSchema`), so the handler never sees a bad
+  one and nothing is sent to the host for `create "Bad Name"` (the test counts connections).
+- The host's socket is a `Context.Reference` with a default, swapped by a test (or by `--machine`) without a
+  parameter threading through every command.
+- `--help`, `--version`, aliases (`ls`), examples and "Did you mean this?" on an unknown subcommand come from the
+  module. Completions exist (`Completions.generate`), not tried.
+- The test stubs the module's `Environment` (FileSystem, Path, Terminal, ChildProcessSpawner, Stdio) in ten lines
+  and reads what was printed through `TestConsole.logLines` and `errorLines`. The Bun layer
+  (`@effect/platform-bun`'s `BunServices.layer`) provides the same in one line for `main.ts`.
+
+**What it caught**
+
+- **Parse errors arrive wrapped.** `runWith` fails with `ShowHelp { errors: [...] }` carrying the
+  `UnknownSubcommand` or `InvalidValue`, and the runner has already printed them on stderr (`renderErrors` is on
+  by default). A caller that wants its own wording (ep0ch's refusals name the exact command) sets
+  `renderErrors: false` and formats `errors` itself.
+- **"Did you mean" covers subcommands, not flags.** `lits` suggests `list` and `ls`; `--jsno` is "Unrecognized
+  flag" with `suggestions: []`. ep0ch's `closest` does both; keeping it would mean formatting `UnrecognizedOption`
+  ourselves.
+- **A value that looks like a flag is read as a flag.** `--machine -oProxyCommand=x` becomes "Missing value for flag
+  --machine" plus "Unrecognized flag: -oProxyCommand", and the machine-name Schema never runs. ep0ch's parser refuses
+  it as a bad machine name. Both are refusals; the module's is less specific.
+
+**What it cost**
+
+| | original | spike |
+|---|---|---|
+| parser and words | ~205 lines (`parseOutlineArgs`, `cli-words.ts`) for 22 commands | 66 lines for 3 commands, help and typo handling included |
+| test | `cli-words.test.ts` and `outlines.test.ts` (not counted) | 89 lines plus a 31-line fake host |
+
+- `effect/cli` imports in 70 ms under bun, on top of `effect/Effect`'s 22 ms. `ep0ch --version` is 90 ms today. A
+  CLI on this module roughly doubles the startup of the commands that load it; the door itself (the TUI) need
+  never import it, so `main.ts` would branch before loading.
+- The handler signature `Effect.fn(function*({ all }) { const root = yield* outline; ... })` reads well; the
+  pipe of `withDescription`, `withAlias`, `withExamples` after each command is the module's style and is verbose.
+
+**Verdicts for this slice**
+
+- Hand-rolled argv parsing and its duplicated word lists: prevents the class (one definition is the parser, the
+  help and the suggestions); the door's `COMMANDS` array and `DOOR_FLAGS` table would go.
+- Refusals with the exact command: neutral to slightly worse out of the box (the module's wording), fixable by
+  owning error rendering.
+- Startup: worse by about 70 ms for CLI runs that load it.
+- Typo handling: slightly worse (no flag suggestions).

@@ -5,28 +5,7 @@ import { join } from "node:path";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import { hostRequest, type HostRequestError } from "../src/host-request";
-
-/** A fictional outline host on a unix socket: answers by action, counts connections and how many are still open. */
-function fakeHost(dir: string) {
-  const path = join(dir, "host.sock");
-  let opened = 0, open = 0;
-  const server = Bun.listen({
-    unix: path,
-    socket: {
-      open() { opened++; open++; },
-      close() { open--; },
-      data(sock, d) {
-        const req = JSON.parse(Buffer.from(d).toString().trim());
-        if (req.action === "ping") sock.write(JSON.stringify({ id: req.id, ok: true, result: { status: "ready" }, sequence: 1 }) + "\n");
-        else if (req.action === "outlines.create") sock.write(JSON.stringify({ id: req.id, ok: false, error: `"${req.name}" isn't an outline name`, sequence: 1 }) + "\n");
-        else if (req.action === "garbled") sock.write("{\"id\":\"host\",\"ok\":true}\n");
-        else if (req.action === "hangup") sock.end();
-        // "slow": never answers
-      },
-    },
-  });
-  return { path, server, get opened() { return opened; }, get open() { return open; } };
-}
+import { fakeHost } from "./fake-host";
 
 const dir = mkdtempSync(join(tmpdir(), "effect-spike-"));
 const host = fakeHost(dir);
@@ -47,8 +26,8 @@ describe("a request to the outline host, on Effect's Socket", () => {
   });
 
   test("a refusal is typed, with the service's words; the socket is closed", async () => {
-    const e = await fails(hostRequest(host.path, "outlines.create", { name: "Bad Name" }));
-    expect(e).toMatchObject({ _tag: "Refused", action: "outlines.create", message: `"Bad Name" isn't an outline name` });
+    const e = await fails(hostRequest(host.path, "outlines.create", { name: "garden" }));
+    expect(e).toMatchObject({ _tag: "Refused", action: "outlines.create", message: `"garden" exists already` });
     await settled();
     expect(host.open).toBe(0);
   });
