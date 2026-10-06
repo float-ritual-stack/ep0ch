@@ -30,17 +30,19 @@ export interface LitestreamUnit {
   wrapper: string[];
   litestream: string;
   config: string;
-  /** A follower's output database (the last argument). */
+  /** A follower's output database (`-o`, else the last argument). */
   output?: string;
+  /** A follower given a replica URL (`restore -f -o <output> <url>`) instead of a config's database. */
+  url?: string;
   /** systemd's EnvironmentFile (the bucket's keys), read only into the child's environment. */
   envFile?: string;
-  /** launchd's StandardErrorPath (else StandardOutPath): its log. */
-  logPath?: string;
+  /** launchd's StandardErrorPath and StandardOutPath (Litestream logs to stdout): its logs. */
+  logPaths?: string[];
   state?: UnitState & { since?: string };
 }
 
 /** A replica's newest file: the highest transaction it holds, and when that file was written. */
-export interface ReplicaPosition { txid: number; at: string; files: { txid: number; minTxid: number; at: string }[] }
+export interface ReplicaPosition { txid: number; at: string; files: { txid: number; minTxid: number; at: string; level: number }[] }
 
 /** One database a unit replicates (or a mirror it follows), and where each side is. */
 export interface ReplicaFacts {
@@ -72,7 +74,7 @@ export interface BackupFacts { units: BackupUnitFacts[]; now: number }
 const words = (s: string, home: string) => (s.match(/"[^"]*"|\S+/g) ?? []).map(w => w.replace(/^"|"$/g, "").replace(/%h/g, home));
 
 /** How a unit runs Litestream, from its argv: its wrapper, the binary, the command, the config, a follower's output. */
-export function litestreamArgv(argv: readonly string[]): Pick<LitestreamUnit, "wrapper" | "litestream" | "role" | "config" | "output"> | null {
+export function litestreamArgv(argv: readonly string[]): Pick<LitestreamUnit, "wrapper" | "litestream" | "role" | "config" | "output" | "url"> | null {
   const at = argv.findIndex(a => basename(a) === "litestream");
   if (at < 0) return null;
   const cmd = argv[at + 1], rest = argv.slice(at + 2);
@@ -80,8 +82,11 @@ export function litestreamArgv(argv: readonly string[]): Pick<LitestreamUnit, "w
   const config = flag("-config") ?? flag("--config") ?? "/etc/litestream.yml";
   if (cmd === "replicate") return { wrapper: argv.slice(0, at), litestream: argv[at]!, role: "replicate", config };
   if (cmd === "restore" && (rest.includes("-f") || rest.includes("--f"))) {
-    const output = rest.at(-1);
-    return output && !output.startsWith("-") ? { wrapper: argv.slice(0, at), litestream: argv[at]!, role: "follow", config, output } : null;
+    const last = rest.at(-1), o = flag("-o");
+    if (!last || last.startsWith("-")) return null;
+    const base = { wrapper: argv.slice(0, at), litestream: argv[at]!, role: "follow" as const, config };
+    if (o) return /^[a-z0-9]+:\/\//i.test(last) ? { ...base, output: o, url: last } : { ...base, output: o };
+    return { ...base, output: last };
   }
   return null;
 }
@@ -113,8 +118,8 @@ export function litestreamUnits(platform: Platform, home: string): LitestreamUni
       const how = litestreamArgv(plistStrings(text, "ProgramArguments"));
       if (!how) continue;
       const label = plistStrings(text, "Label")[0] ?? file.replace(/\.plist$/, "");
-      const logPath = plistStrings(text, "StandardErrorPath")[0] ?? plistStrings(text, "StandardOutPath")[0];
-      out.push({ kind, name: label, path: join(dir, file), ...how, ...(logPath ? { logPath } : {}) });
+      const logPaths = [...new Set([...plistStrings(text, "StandardOutPath"), ...plistStrings(text, "StandardErrorPath")])];
+      out.push({ kind, name: label, path: join(dir, file), ...how, ...(logPaths.length ? { logPaths } : {}) });
     }
   }
   return out;
@@ -134,7 +139,12 @@ interface DbConfig { path?: string; dir?: string; pattern?: string; replica?: Re
 /** A replica's URL for one database (`rel`: its path under a `dir` entry), in the form `litestream ltx` takes. */
 export function replicaUrl(r: ReplicaConfig | undefined, rel?: string): string | null {
   if (!r) return null;
-  const tail = (base: string) => rel ? `${base.replace(/\/+$/, "")}/${rel}` : base;
+  const tail = (base: string) => {
+    if (!rel) return base;
+    const q = base.indexOf("?");
+    const [path, query] = q < 0 ? [base, ""] : [base.slice(0, q), base.slice(q)];
+    return `${path.replace(/\/+$/, "")}/${rel}${query}`;
+  };
   if (r.url) return tail(r.url);
   if ((r.type ?? "s3") === "s3" && r.bucket) {
     const q = [...(r.endpoint ? [`endpoint=${r.endpoint}`] : []), ...(r.region ? [`region=${r.region}`] : [])].join("&");
@@ -147,9 +157,11 @@ export function replicaUrl(r: ReplicaConfig | undefined, rel?: string): string |
 const globRe = (pattern: string) => new RegExp(`^${pattern.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, "[^/]*").replace(/\?/g, "[^/]")}$`);
 
 /** The databases a config names: each `path`, and a `dir` entry's outlines (`<name>.sqlite` matching its pattern). */
-export function configDatabases(configText: string): { path: string; url: string | null }[] {
+export function configDatabases(configText: string, env: Env = {}): { path: string; url: string | null }[] {
+  // As Litestream reads it: $VAR and ${VAR} expanded from its environment first.
+  const expanded = configText.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)/g, (_, a, b) => env[a ?? b] ?? "");
   let parsed: { dbs?: DbConfig[] } | null;
-  try { parsed = Bun.YAML.parse(configText) as { dbs?: DbConfig[] } | null; } catch { return []; }
+  try { parsed = Bun.YAML.parse(expanded) as { dbs?: DbConfig[] } | null; } catch { return []; }
   const out: { path: string; url: string | null }[] = [];
   for (const db of parsed?.dbs ?? []) {
     const replica = db.replica ?? db.replicas?.[0];
@@ -203,10 +215,10 @@ export function lastWrite(db: string): number | null {
 
 /** `litestream ltx -level all -json`'s answer, read: the highest transaction, and when its file was written. */
 export function parseLtxList(json: string): ReplicaPosition | { error: string } {
-  let rows: { min_txid?: string; max_txid?: string; timestamp?: string }[];
+  let rows: { level?: number; min_txid?: string; max_txid?: string; timestamp?: string }[];
   try { rows = JSON.parse(json); } catch { return { error: `litestream ltx answered ${JSON.stringify(json.trim().slice(0, 120))}` }; }
   if (!Array.isArray(rows)) return { error: "litestream ltx didn't answer a list" };
-  const files = rows.flatMap(r => r.max_txid && r.timestamp ? [{ txid: parseInt(r.max_txid, 16), minTxid: parseInt(r.min_txid ?? r.max_txid, 16), at: r.timestamp }] : []);
+  const files = rows.flatMap(r => r.max_txid && r.timestamp ? [{ txid: parseInt(r.max_txid, 16), minTxid: parseInt(r.min_txid ?? r.max_txid, 16), at: r.timestamp, level: r.level ?? 0 }] : []);
   if (!files.length) return { error: "the replica holds no files" };
   const newest = files.reduce((a, b) => (b.txid > a.txid || (b.txid === a.txid && b.at > a.at) ? b : a));
   return { txid: newest.txid, at: newest.at, files };
@@ -225,10 +237,23 @@ export function unitEnv(u: LitestreamUnit, env: Env): Env {
   return { ...env, ...vars };
 }
 
+/**
+ * Text from a Litestream run or log with anything key-shaped taken out: the unit's EnvironmentFile values, a URL's
+ * user:password, and `<name>=<value>` / `<name>: <value>` for names that say key, secret, token or password.
+ */
+export function redact(text: string, u?: LitestreamUnit, env: Env = {}): string {
+  let out = text;
+  void env;
+  if (u?.envFile) for (const v of Object.values(unitEnv(u, {}))) if (v && v.length >= 6) out = out.split(v).join("<redacted>");
+  return out
+    .replace(/(\/\/)[^/\s:@]+:[^/\s@]+@/g, "$1<redacted>@")
+    .replace(/\b([A-Za-z_-]*(?:key|secret|token|password)[A-Za-z_-]*)(\s*[=:]\s*)("[^"]*"|[^\s",}]+)/gi, "$1$2<redacted>");
+}
+
 /** The replica's position, asked the way the unit runs Litestream. Errors are said without the command's environment. */
 export async function replicaPosition(u: LitestreamUnit, url: string, run: Run, env: Env): Promise<ReplicaPosition | { error: string }> {
   const r = await run([...u.wrapper, u.litestream, "ltx", "-level", "all", "-json", url], { env: unitEnv(u, env), timeoutMs: 30_000 });
-  if (r.code !== 0) return { error: `litestream ltx failed: ${(r.err.trim().split("\n").at(-1) ?? "").slice(0, 200) || `exit ${r.code}`}` };
+  if (r.code !== 0) return { error: `litestream ltx failed: ${redact((r.err.trim().split("\n").at(-1) ?? "").slice(0, 200), u, env) || `exit ${r.code}`}` };
   return parseLtxList(r.out);
 }
 
@@ -248,7 +273,8 @@ export function logErrors(text: string, now: number, started?: number): LogFacts
     if (!line.includes("level=ERROR")) continue;
     const at = /time=(\S+)/.exec(line)?.[1];
     const t = at ? Date.parse(at) : NaN;
-    const short = line.length > 240 ? `${line.slice(0, 239)}…` : line;
+    const clean = redact(line);
+    const short = clean.length > 240 ? `${clean.slice(0, 239)}…` : clean;
     latest = { at: at ?? "", line: short };
     if (!(Number.isFinite(t) && t >= from)) continue;
     count++;
@@ -261,9 +287,12 @@ export function logErrors(text: string, now: number, started?: number): LogFacts
 
 async function unitLog(u: LitestreamUnit, run: Run, now: number, started?: number): Promise<LogFacts> {
   if (u.kind === "launchd") {
-    if (!u.logPath) return { errorsLastHour: 0, byDb: {}, unavailable: "the agent names no log file" };
-    try { return logErrors(await Bun.file(u.logPath).slice(Math.max(0, statSync(u.logPath).size - 2 * 1024 * 1024)).text(), now, started); }
-    catch (e) { return { errorsLastHour: 0, byDb: {}, unavailable: `can't read ${u.logPath}: ${(e as Error).message}` }; }
+    if (!u.logPaths?.length) return { errorsLastHour: 0, byDb: {}, unavailable: "the agent names no log file" };
+    try {
+      const texts = await Promise.all(u.logPaths.filter(existsSync).map(p => Bun.file(p).slice(Math.max(0, statSync(p).size - 2 * 1024 * 1024)).text()));
+      // Lines in time order across both files (each line starts with its time=).
+      return logErrors(texts.join("\n").split("\n").sort().join("\n"), now, started);
+    } catch (e) { return { errorsLastHour: 0, byDb: {}, unavailable: `can't read ${u.logPaths.join(", ")}: ${(e as Error).message}` }; }
   }
   const r = await run(["journalctl", "--user", "-u", u.name, "-n", "5000", "-o", "cat", "--no-pager"], { timeoutMs: 10_000 });
   if (r.code !== 0) return { errorsLastHour: 0, byDb: {}, unavailable: `journalctl failed: ${r.err.trim().slice(0, 160)}` };
@@ -296,7 +325,7 @@ async function restoreTest(u: LitestreamUnit, url: string, run: Run, env: Env): 
   try {
     const out = join(dir, "restored.sqlite");
     const r = await run([...u.wrapper, u.litestream, "restore", "-o", out, url], { env: unitEnv(u, env), timeoutMs: 300_000 });
-    if (r.code !== 0) return { ok: false, detail: `restore failed: ${(r.err.trim().split("\n").at(-1) ?? "").slice(0, 200) || `exit ${r.code}`}` };
+    if (r.code !== 0) return { ok: false, detail: `restore failed: ${redact((r.err.trim().split("\n").at(-1) ?? "").slice(0, 200), u, env) || `exit ${r.code}`}` };
     const db = new Database(out, { readonly: true });
     try {
       const rows = db.query("PRAGMA integrity_check").all() as { integrity_check: string }[];
@@ -319,7 +348,7 @@ export async function gatherBackups(o: { platform: Platform; home: string; env: 
       const unit = { ...u, state };
       let text: string;
       try { text = readFileSync(u.config, "utf8"); } catch (e) { return { unit, log, dbs: [], problem: `can't read its config ${u.config}: ${(e as Error).message}` }; }
-      const all = configDatabases(text);
+      const all = u.url ? [{ path: u.output!, url: u.url }] : configDatabases(text, unitEnv(u, o.env));
       const named = u.role === "follow" ? all.filter(d => resolve(d.path) === resolve(u.output!)) : all;
       const dbs = await Promise.all(named.map(async (d): Promise<ReplicaFacts> => {
         const name = basename(d.path).replace(/\.sqlite$/, "");
@@ -372,12 +401,20 @@ export function mirrorVerdict(u: LitestreamUnit, db: ReplicaFacts, now: number):
   if ("error" in db.replica) return { status: "unknown", detail: `couldn't read the replica: ${db.replica.error}` };
   const r = db.replica, have = db.mirror?.txid ?? null;
   if (have === null) return { status: "missing", detail: `no copy yet (${db.path}-txid is missing); the replica is at txid ${hex(r.txid)} (${hhmm(r.at)})`, fix: restartCommand(u) };
-  // The replica's history restarted under the mirror (the source's state was reset): files newer than the mirror's, at lower txids.
-  const restarted = r.files.filter(f => f.txid < have && f.at > (r.files.find(x => x.txid === have)?.at ?? "")).sort((a, b) => a.at.localeCompare(b.at));
+  // The replica's history restarted under the mirror (the source's state was reset): level-0 files, which are uploaded
+  // in transaction order, at txids below the mirror's but uploaded after the one it holds. (Compactions at higher levels
+  // are uploaded later than the files they cover, and say nothing.)
+  const heldAt = r.files.filter(x => x.level === 0 && x.txid === have).map(x => x.at).sort()[0] ?? r.files.filter(x => x.txid === have).map(x => x.at).sort()[0] ?? "";
+  const restarted = r.files.filter(f => f.level === 0 && f.txid < have && f.at > heldAt).sort((a, b) => a.at.localeCompare(b.at));
   if (restarted.length && r.txid === have) {
-    return { status: "missing", staleSince: restarted[0]!.at, detail: `stale since ${hhmm(restarted[0]!.at)}: the replica's history restarted (newer files at txid ${hex(restarted.at(-1)!.txid)}, below the mirror's ${hex(have)}), so the follower can't apply them; the source's replica needs a fresh start`, fix: `fix the source machine's replica (its doctor says how), then ${stopCommand(u)} && mv ${db.path} ${db.path}-txid ~/backups/ && ${startCommand(u)}` };
+    return { status: "missing", staleSince: restarted[0]!.at, detail: `stale since ${hhmm(restarted[0]!.at)}: the replica's history restarted (newer files at txid ${hex(restarted.at(-1)!.txid)}, below the mirror's ${hex(have)}), so the follower can't apply them; the source's replica needs a fresh start`, fix: `fix the source machine's replica (its doctor says how), then ${stopCommand(u)} && mkdir -p ~/backups/mirrors && mv ${db.path}* ~/backups/mirrors/ && ${startCommand(u)}` };
   }
-  if (r.txid <= have) return { status: "ok", detail: `mirror at txid ${hex(have)}, the replica's newest (${hhmm(r.at)})` };
+  // Ahead of its replica: the replica was started over (its old history deleted), and the follower can't apply the new one.
+  if (have > r.txid) {
+    const since = r.files.map(f => f.at).sort()[0] ?? r.at;
+    return { status: "missing", staleSince: since, detail: `stale since ${hhmm(since)}: the mirror is at txid ${hex(have)}, past its replica's newest (${hex(r.txid)}): the replica was started over, so the follower needs a fresh copy`, fix: `${stopCommand(u)} && mkdir -p ~/backups/mirrors && mv ${db.path}* ~/backups/mirrors/ && ${startCommand(u)}` };
+  }
+  if (r.txid === have) return { status: "ok", detail: `mirror at txid ${hex(have)}, the replica's newest (${hhmm(r.at)})` };
   const missed = r.files.filter(f => f.txid > have).sort((a, b) => a.at.localeCompare(b.at));
   const since = missed[0]?.at ?? r.at;
   if (now - Date.parse(since) < STALE_AFTER_MS) return { status: "ok", detail: `mirror at txid ${hex(have)}; the replica's ${hex(r.txid)} arrived ${hhmm(since)}, following` };
@@ -402,7 +439,7 @@ export function backupChecks(b: BackupFacts, home: string): { name: string; stat
       const detail = `${log.errorsLastHour} ERROR line${log.errorsLastHour === 1 ? "" : "s"} in the last hour; latest: ${log.latest!.line}`;
       const fix = ltx.length
         ? `${ltx.join(", ")}: Litestream lost a file of its local state; give ${ltx.length === 1 ? "it" : "them"} a fresh start: ${freshStart(u, ltx.map(name => dbs.find(d => basename(d.path) === name) ?? { path: join("<outlines>", name), url: null }), home)}`
-        : `read it (${u.kind === "systemd" ? `journalctl --user -u ${u.name} -n 50` : `tail -50 ${u.logPath}`}), then ${restartCommand(u)}`;
+        : `read it (${u.kind === "systemd" ? `journalctl --user -u ${u.name} -n 50` : `tail -50 ${u.logPaths?.join(" ")}`}), then ${restartCommand(u)}`;
       add(`${label} log`, { status: "missing", detail, fix });
     } else add(`${label} log`, { status: "ok", detail: `no ERROR in the last hour${log.latest ? ` (the last one: ${hhmm(log.latest.at)})` : ""}` });
     if (problem) add(label, { status: "missing", detail: problem });
@@ -425,7 +462,7 @@ export async function mirrorHealth(followed: string, o: { platform: Platform; ho
   if (state.active === false) return { since: null, why: `its follower ${u.name} isn't running (${state.detail})` };
   let text: string;
   try { text = readFileSync(u.config, "utf8"); } catch { return null; }
-  const d = configDatabases(text).find(x => resolve(x.path) === resolve(followed));
+  const d = u.url ? { path: followed, url: u.url } : configDatabases(text, unitEnv(u, o.env)).find(x => resolve(x.path) === resolve(followed));
   if (!d?.url) return null;
   const replica = await replicaPosition(u, d.url, o.run, o.env);
   if ("error" in replica) return null;

@@ -25,6 +25,8 @@ describe("reading Litestream units and configs", () => {
     expect(litestreamArgv(["litestream", "restore", "-f", "-follow-interval", "10s", "-config", "/u/m.yml", "/u/mirrors/far/garden.sqlite"]))
       .toMatchObject({ role: "follow", output: "/u/mirrors/far/garden.sqlite", config: "/u/m.yml" });
     expect(litestreamArgv(["litestream", "restore", "-o", "/tmp/x", "s3://b/x"])).toBeNull();
+    expect(litestreamArgv(["litestream", "restore", "-f", "-o", "/u/mirrors/far/garden.sqlite", "s3://b/far/garden.sqlite"]))
+      .toMatchObject({ role: "follow", output: "/u/mirrors/far/garden.sqlite", url: "s3://b/far/garden.sqlite" });
     expect(litestreamArgv(["bun", "host-main.ts"])).toBeNull();
     expect(litestreamArgv(["litestream", "replicate"])).toMatchObject({ config: "/etc/litestream.yml" });
   });
@@ -34,6 +36,10 @@ describe("reading Litestream units and configs", () => {
     expect(replicaUrl(r, "garden.sqlite")).toBe("s3://fictional-bucket/box-a/outlines/garden.sqlite?endpoint=https://objects.example.test&region=r1");
     expect(replicaUrl({ ...r, path: "box-a/outlines/garden.sqlite" })).toBe("s3://fictional-bucket/box-a/outlines/garden.sqlite?endpoint=https://objects.example.test&region=r1");
     expect(replicaUrl({ url: "s3://b/p" }, "x.sqlite")).toBe("s3://b/p/x.sqlite");
+    expect(replicaUrl({ url: "s3://b/p?region=r1" }, "x.sqlite")).toBe("s3://b/p/x.sqlite?region=r1");
+    // Expanded from the unit's environment first, as Litestream reads it.
+    expect(configDatabases("dbs:\n  - path: ${HOME_DB}\n    replica:\n      url: s3://${BUCKET}/x\n", { HOME_DB: "/o/a.sqlite", BUCKET: "fictional-bucket" }))
+      .toEqual([{ path: "/o/a.sqlite", url: "s3://fictional-bucket/x" }]);
     expect(replicaUrl(undefined)).toBeNull();
   });
 
@@ -91,6 +97,10 @@ describe("verdicts", () => {
     expect(m(9, [{ min: 1, max: 9, at: at(60) }, { min: 10, max: 10, at: at(2) }]).detail).toContain("following");
     const behind = m(9, [{ min: 1, max: 9, at: at(60) }, { min: 10, max: 10, at: at(45) }, { min: 11, max: 11, at: at(20) }]);
     expect(behind).toMatchObject({ status: "missing", staleSince: at(45), fix: "systemctl --user restart mirror-follow.service" });
+    // A compaction uploaded after the mirror's file is normal history, not a restart.
+    expect(m(9, [{ min: 9, max: 9, at: at(60) }, { level: 1, min: 1, max: 8, at: at(30) }]).status).toBe("ok");
+    // Past its replica's newest: the replica was started over.
+    expect(m(0x64, [{ min: 1, max: 2, at: at(20) }])).toMatchObject({ status: "missing", staleSince: at(20), detail: expect.stringContaining("started over") });
     const stuck = m(0x1a6, [{ level: 9, min: 1, max: 0x1a6, at: at(60) }, { min: 1, max: 2, at: at(20) }]);
     expect(stuck).toMatchObject({ status: "missing", staleSince: at(20) });
     expect(stuck.detail).toContain("history restarted");
@@ -166,6 +176,12 @@ describe("gathering from a scratch home, with a fake run", () => {
     expect(by["restore garden"]).toMatchObject({ status: "ok", detail: expect.stringContaining("integrity_check ok") });
     expect(checks.map(c => c.name)).not.toContain("replica garden.sqlite.owner");
     expect(JSON.stringify(checks)).not.toContain("not-a-real-key");
+    // A failing ltx that echoes the key, or a URL's password, is said without them.
+    const { replicaPosition, redact } = await import("../src/setup/backups");
+    const leaky = async () => ({ code: 1, out: "", err: "auth failed for key not-a-real-key at s3://user:hunter22@bucket/x secret_access_key=abc123" });
+    const failed = await replicaPosition(litestreamUnits("linux", home)[0]!, "s3://b/x", leaky, {});
+    expect("error" in failed && failed.error).toBe("litestream ltx failed: auth failed for key <redacted> at s3://<redacted>@bucket/x secret_access_key=<redacted>");
+    expect(redact("token: abc")).toBe("token: <redacted>");
     // ltx ran the way the unit runs Litestream: its binary; restore wrote only under the temp folder.
     expect(calls.filter(c => c.includes("ltx")).every(c => c[0] === join(home, "bin/litestream"))).toBe(true);
     expect(calls.filter(c => c.includes("restore") && c.includes("-o")).every(c => c[c.indexOf("-o") + 1]!.includes("ep0ch-restore-"))).toBe(true);
