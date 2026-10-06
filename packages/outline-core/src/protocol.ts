@@ -60,6 +60,12 @@ export interface OutlinerRequestProblem {
   position?: number;
 }
 
+/**
+ * What a fragment anchor names (`fragments.read`, `fragments.candidates`): a heading's section, a paragraph, a list
+ * item, or (PIE-580) a component block such as a figure, named by an anchor alone on the line after its `::`.
+ */
+export type FragmentKind = "heading" | "paragraph" | "list-item" | "component";
+
 /** One answer line on the socket. */
 export type OutlinerResponse =
   | { id: string; ok: true; result: unknown; sequence: number }

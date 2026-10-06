@@ -14,6 +14,7 @@
 //
 // Cells are toned by their share of the largest; an empty cell is a dot. Narrow, the column heads are cut to fit.
 import { ellipsize, fg, pad, RESET, width as vwidth } from "../style";
+import { wrap } from "../text";
 import type { Markdown } from "./markdown";
 import { ACCENT, DIM, HI, INK, ordered, type Props } from "./palette";
 
@@ -24,9 +25,11 @@ export function drawMatrix(p: Props, w: number): string[] {
   // Cells as a map of maps, whatever the YAML gave (a row named `constructor` is a row, not Object's).
   const cells = cellsOf(p.cells);
   const rows = ordered(p["order-down"], [...cells.keys()]);
-  const cols = ordered(p["order-across"], [...cells.values()].flatMap(r => [...r.keys()]));
-  if (!rows.length || !cols.length) return [fg(DIM) + "no cells: rows are `- row: col=n …`, or down: and across: name two properties" + RESET];
+  const all = ordered(p["order-across"], [...cells.values()].flatMap(r => [...r.keys()]));
+  if (!rows.length || !all.length) return wrap("no cells: rows are `- row: col=n …`, or down: and across: name two properties", w).map(l => fg(DIM) + l + RESET);
   const lw = Math.min(Math.max(...rows.map(vwidth)), Math.max(6, Math.floor(w / 3)));
+  // As many columns as fit at four cells each; the rest are counted beneath, as a narrow table counts its own.
+  const fit = Math.max(1, Math.floor((w - lw - 1) / 4)), cols = all.slice(0, fit), dropped = all.length - cols.length;
   const cw = Math.max(3, Math.min(12, Math.floor((w - lw - 1) / cols.length)));
   const at = (r: string, c: string) => cells.get(r)?.get(c) ?? 0;
   const max = Math.max(1, ...rows.flatMap(r => cols.map(c => at(r, c))));
@@ -39,7 +42,7 @@ export function drawMatrix(p: Props, w: number): string[] {
   }).join("") + RESET);
   const totals = cols.map(c => rows.reduce((a, r) => a + at(r, c), 0));
   const foot = fg(DIM) + pad("", lw + 1) + totals.map(t => pad(String(t), cw)).join("") + RESET;
-  return [head, ...body, fg(DIM) + "·".repeat(Math.min(w, lw + 1 + cw * cols.length)) + RESET, foot];
+  return [head, ...body, fg(DIM) + "·".repeat(Math.min(w, lw + 1 + cw * cols.length)) + RESET, foot, ...(dropped ? [fg(DIM) + `+${dropped} column${dropped === 1 ? "" : "s"} · widen to see` + RESET] : [])];
 }
 
 export type Cells = Map<string, Map<string, number>>;

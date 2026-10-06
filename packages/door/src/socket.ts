@@ -12,7 +12,7 @@ import { BACKLINK_QUERY_LIMIT, type BacklinkCollection } from "./backlinks";
 import type { ResourceProjectionRead } from "./projection";
 import type { ExtensionActResult, ExtensionList } from "./extensions";
 import { resourceStored, type AuthoredLinksSnapshot, type AuthoredResourceReference, type ResourceDescription } from "./authored";
-import { type HostedOutlineSummary, OUTLINE_NAME_PATTERN, type OutlinerHostStatus, protocolMismatch } from "@ep0ch/outline-core/protocol";
+import { type FragmentKind, type HostedOutlineSummary, OUTLINE_NAME_PATTERN, type OutlinerHostStatus, protocolMismatch } from "@ep0ch/outline-core/protocol";
 import { outlineLayout, outlinesFolder } from "@ep0ch/outline-core/outline-location";
 import { jsonLine, JsonLines } from "./jsonl";
 
@@ -249,7 +249,7 @@ export type StepChange = { kind: "status"; status: StepStatus } | { kind: "ensur
 
 /** A fragment's slice of its note, as the service reads it (`fragments.read`, PIE-424). */
 export interface FragmentSlice {
-  kind: "heading" | "paragraph" | "list-item" | "component"; label: string;
+  kind: FragmentKind; label: string;
   /** Note lines (from 0, the subject), inclusive, and UTF-16 offsets [start, end). */
   startLine: number; endLine: number; start: number; end: number;
   /** The slice as a reader shows it (anchors hidden, a list item standing alone), line for line. */
@@ -262,7 +262,7 @@ export type FragmentRead =
 
 /** A fragment completion can link to, as `fragments.candidates` finds it. */
 export interface FragmentCandidate {
-  blockId: string; title: string; revision: number; kind: "heading" | "paragraph" | "list-item"; label: string; lineIndex: number;
+  blockId: string; title: string; revision: number; kind: FragmentKind; label: string; lineIndex: number;
   fragmentId?: string;
   /** A heading without an anchor: the anchor it would get, and its line with it. */
   anchor?: { fragmentId: string; line: string };

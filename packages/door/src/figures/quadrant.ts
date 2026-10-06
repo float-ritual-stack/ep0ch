@@ -24,9 +24,11 @@ export interface Point { x: string; y: string; label: string; accent?: boolean; 
 
 export function drawQuadrant(p: Props, w: number, link?: RowLink): string[] {
   const points: Point[] = records(p.points).map((q: Props) => ({ x: String(q.x ?? ""), y: String(q.y ?? ""), label: String(q.label ?? ""), accent: !!q.accent, muted: !!q.muted, ...(typeof q.block === "string" ? { block: q.block } : {}) }));
-  const xs = ordered(p.xs, points.map(q => q.x)), ys = ordered(p.ys, points.map(q => q.y));
-  if (!xs.length || !ys.length) return wrap("no points: rows are `- label: x, y`, or x: and y: name two properties", w).map(l => fg(DIM) + l + RESET);
+  const allX = ordered(p.xs, points.map(q => q.x)), ys = ordered(p.ys, points.map(q => q.y));
+  if (!allX.length || !ys.length) return wrap("no points: rows are `- label: x, y`, or x: and y: name two properties", w).map(l => fg(DIM) + l + RESET);
   const yw = Math.min(Math.max(...ys.map(vwidth)), Math.max(4, Math.floor(w / 4)));
+  // As many columns as fit at four cells each; the rest are counted beneath.
+  const fit = Math.max(1, Math.floor((w - yw - 2) / 4)), xs = allX.slice(0, fit), dropped = allX.length - xs.length;
   const cw = Math.max(3, Math.floor((w - yw - 2) / xs.length));
   const narrow = tier(w) === "narrow" || cw < 9;
   const corners: string[] = Array.isArray(p.quadrants) ? p.quadrants.map(String) : [];
@@ -47,7 +49,7 @@ export function drawQuadrant(p: Props, w: number, link?: RowLink): string[] {
         if (narrow) {
           cell = c.map(q => { legend.push({ n: legend.length + 1, point: q }); return ink(q) + rowLink(link, q.block, "●") + UNBOLD + RESET; }).join("");
           cell = c.length > cw - 1 ? fg(INK) + ellipsize(`●${c.length}`, cw) + RESET : cell;
-        } else if (r === 2 && c.length > 3) cell = fg(DIM) + ellipsize(`+${c.length - 2} more`, cw - 1) + RESET;
+        } else if (r === 2 && c.length > 3) { cell = fg(DIM) + ellipsize(`+${c.length - 2} more`, cw - 1) + RESET; for (const q of c.slice(2)) legend.push({ n: legend.length + 1, point: q }); }
         else { const q = c[r]; cell = q ? ink(q) + rowLink(link, q.block, ellipsize(`·${q.label}`, cw - 1)) + UNBOLD + RESET : ""; }
         line += pad(cell, cw);
       }
@@ -57,6 +59,7 @@ export function drawQuadrant(p: Props, w: number, link?: RowLink): string[] {
   out.push(" ".repeat(yw) + fg(DIM) + " └" + "─".repeat(plotW) + RESET);
   out.push(" ".repeat(yw + 2) + xs.map(x => fg(HI) + pad(ellipsize(x, cw - 1), cw)).join("") + RESET);
   out.push(...cornerLine(corners[2] ?? "", corners[3] ?? ""));
+  if (dropped) out.push(fg(DIM) + `+${dropped} column${dropped === 1 ? "" : "s"} · widen to see` + RESET);
   if (legend.length) {
     out.push("");
     for (const { point: q } of legend) { const where = ellipsize(` (${q.x}, ${q.y})`, w >> 1); out.push(ink(q) + rowLink(link, q.block, ellipsize(q.label, Math.max(4, w - vwidth(where)))) + UNBOLD + fg(DIM) + where + RESET); }

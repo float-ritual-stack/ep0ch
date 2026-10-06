@@ -2,14 +2,16 @@ import { standaloneListItemText, markdownSourceTokens, type MarkdownListItem, ty
 
 import { FRAGMENT_ID_SOURCE, fragmentAnchorMatch } from "@ep0ch/outline-core/link-syntax";
 import { componentBlocks } from "@ep0ch/outline-core/component-block";
+import type { FragmentKind } from "@ep0ch/outline-core/protocol";
 
 const HEADING_PATTERN = /^(#{1,6})\s+(.+?)\s*$/;
 
 /**
- * `component` (PIE-580): an anchor on a line of its own right after a component block's closing `::` names that block
- * (a figure, a `::links`), so `((id^quadrant))` lands on the figure and its slice is the whole block.
+ * The kinds are outline-core's (`protocol.ts`, on the wire). `component` (PIE-580): an anchor on a line of its own right
+ * after a component block's closing `::` names that block (a figure, a `::links`), so `((id^quadrant))` lands on the
+ * figure and its slice is the whole block.
  */
-export type FragmentKind = "heading" | "paragraph" | "list-item" | "component";
+export type { FragmentKind };
 
 export interface FragmentAnchor {
   id: string;
