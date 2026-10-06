@@ -64,7 +64,8 @@ function listMarker(line: string): ListContainer | null {
 /**
  * The code blocks of a note's lines as CommonMark's block structure reads them: its fenced code (a fence in a list
  * item counts from the item's content column, so a fence nested under a bullet is code) and its indented code lines
- * (four columns past their container, after a blank line). An unclosed fence runs to the end.
+ * (four columns past their container, after a blank line). An unclosed fence runs to the end, or to the end of the
+ * list item it is in.
  */
 export function codeBlocks(lines: readonly string[]): { fences: CodeFenceBlock[]; indented: number[] } {
   const fences: CodeFenceBlock[] = [], indented: number[] = [];
@@ -74,6 +75,9 @@ export function codeBlocks(lines: readonly string[]): { fences: CodeFenceBlock[]
   let canStartIndentedCode = true;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]!;
+    // A fence in a list item ends with the item: a nonblank line left of the item's content column ends both, and is
+    // read as what it is.
+    if (active && active.contentIndent > 0 && line.trim() && leadingColumns(line).columns < active.contentIndent) active = null;
     if (active) {
       active.block.end = i;
       if (closesCodeFence(line, active.block.fence, active.contentIndent)) {

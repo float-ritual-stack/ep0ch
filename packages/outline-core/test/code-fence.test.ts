@@ -42,6 +42,11 @@ test("the shared notes' fences are where the service and the door look for them"
   expect(codeFenceLines(["```", "never closed", "**x**"])).toEqual([0, 0, 0]);
 });
 
+test("an unclosed fence in a list item protects only the item: a property after the list is read", () => {
+  const text = "- a\n  ```\n  [k::1]\nafter [k::2]";
+  expect(scanPropertyLiteralRanges(text)).toEqual([{ start: 4, end: text.indexOf("after") }]);
+});
+
 test("the literal and protected ranges cover a tilde fence as code", () => {
   const fenceStart = TILDE_FENCE_NOTE.indexOf("~~~text"), fenceEnd = TILDE_FENCE_NOTE.lastIndexOf("~~~") + 4;
   expect(fencedRanges(TILDE_FENCE_NOTE)).toEqual([{ start: fenceStart, end: fenceEnd }]);
@@ -51,9 +56,11 @@ test("the literal and protected ranges cover a tilde fence as code", () => {
 });
 
 test("a fence under a bullet counts from the item's content column; outside a list, four columns is not a fence", () => {
-  expect(codeFenceLines(["- a", "     ```", "x", "     ```", "after"])).toEqual([-1, 1, 1, 1, -1]);
+  expect(codeFenceLines(["- a", "     ```", "  x", "     ```", "after"])).toEqual([-1, 1, 1, 1, -1]);
   expect(codeFenceLines(["- ```", "  x", "  ```"])).toEqual([0, 0, 0]);
   expect(codeFenceLines(["text", "    ```", "x"])).toEqual([-1, -1, -1]);
+  // Unclosed, it ends with its list item: a line left of the item's content column is read as what it is.
+  expect(codeFenceLines(["- a", "  ```", "  code", "after the list", "```"])).toEqual([-1, 1, 1, -1, 4]);
 });
 
 test("the Claude mod's copy is outline-core's code-fence.ts, word for word", async () => {

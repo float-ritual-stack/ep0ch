@@ -27,7 +27,7 @@ export function sourceLines(text: string): SourceLine[] {
 
 function fencedRangesOf(text: string, lines: SourceLine[]): SourceRange[] {
   return codeBlocks(lines.map(line => text.slice(line.start, line.contentEnd))).fences
-    .map(block => ({ start: lines[block.start]!.start, end: block.closed ? lines[block.end]!.end : text.length }));
+    .map(block => ({ start: lines[block.start]!.start, end: lines[block.end]!.end }));
 }
 
 /** The fenced code blocks of `text`, opening and closing lines (with their line breaks) included. */
