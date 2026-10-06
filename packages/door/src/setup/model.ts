@@ -8,6 +8,7 @@
 import type { DoorAgent } from "../desk/agent-env";
 import type { HostedOutline } from "../socket";
 
+import type { BackupFacts } from "./backups";
 import type { ExtFacts } from "./ext-links";
 import type { StaleLink } from "./links";
 import type { SkillLinkFacts } from "./skill-links";
@@ -181,6 +182,8 @@ export interface Facts {
   ext?: { root: string; exts: ExtFacts[]; stale: StaleLink[]; record?: string };
   /** The shipped agent skills' links (Claude Code's skills folder, and ~/.agents/skills); undefined when not looked for. */
   skills?: SkillLinkFacts;
+  /** The Litestream units (replicators, mirror followers) and how far each replica trails (backups.ts); doctor only. */
+  backups?: BackupFacts;
 }
 
 /** The plugin's actions the Outliner installer binds keys to. */

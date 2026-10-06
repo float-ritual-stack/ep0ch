@@ -57,7 +57,19 @@ export function mirrorsConfig(env: Env): MirrorsConfig | { error: string } {
 interface Generation { dir: string; host: OutlineHost; board: NotesBoard; asOf: string; marker: string }
 
 /** What a mirror read gives: the copy's board and the newest change it holds. */
-export interface MirrorRead { board: NotesBoard; asOf: string }
+/** Stale: the copy's follower has stopped, or is behind the replica it follows; `since` when that's known. */
+export interface MirrorStale { since: string | null; why: string }
+export interface MirrorRead { board: NotesBoard; asOf: string; stale?: MirrorStale }
+
+/** How often a read asks whether the follower keeps up (it lists the replica's files), and how long it waits. */
+const HEALTH_EVERY_MS = 60_000;
+const HEALTH_WAIT_MS = 3_000;
+
+/** Doctor's question about one mirror (setup/backups.ts `mirrorHealth`), asked of this machine's follower unit. */
+const followerHealth = async (follow: string): Promise<MirrorStale | null> => {
+  const [{ mirrorHealth }, { run }, { detectPlatform }] = await Promise.all([import("./setup/backups"), import("./setup/facts"), import("./setup/model")]);
+  return mirrorHealth(follow, { platform: detectPlatform(), home: process.env.HOME || homedir(), env: process.env, run });
+};
 
 export class OutlineMirror {
   /** The file Litestream follows the replica into. */
@@ -71,7 +83,11 @@ export class OutlineMirror {
   private problem: string | null = null;
   private closed = false;
 
-  constructor(readonly outline: string, readonly machine: string, folder: string, private readonly log: (line: string) => void = console.error, private readonly now: () => number = Date.now) {
+  private health: { at: number; stale: MirrorStale | null } | null = null;
+  private asking: Promise<void> | null = null;
+
+  constructor(readonly outline: string, readonly machine: string, folder: string, private readonly log: (line: string) => void = console.error, private readonly now: () => number = Date.now,
+    private readonly askHealth: (follow: string) => Promise<MirrorStale | null> = followerHealth) {
     this.follow = join(folder, machine, `${outline}.sqlite`);
     // This process's own folder: another gateway on the same mirrors serves from its own.
     this.work = join(folder, ".serve", machine, outline, String(process.pid));
@@ -92,7 +108,22 @@ export class OutlineMirror {
       await this.refreshing;
     }
     if (!this.current) return { error: `can't be read: ${this.problem ?? "unknown"}` };
-    return { board: this.current.board, asOf: this.current.asOf };
+    const stale = await this.staleness();
+    return { board: this.current.board, asOf: this.current.asOf, ...(stale ? { stale } : {}) };
+  }
+
+  /**
+   * Whether the follower keeps up, asked at most every HEALTH_EVERY_MS and waited on for at most HEALTH_WAIT_MS (a slow
+   * answer lands for the next read). Unknown (no follower unit here, the replica unreadable) is not stale.
+   */
+  private async staleness(): Promise<MirrorStale | null> {
+    if (!this.health || this.now() - this.health.at >= HEALTH_EVERY_MS) {
+      this.asking ??= this.askHealth(this.follow)
+        .then(stale => { this.health = { at: this.now(), stale }; }, e => { this.log(`mcp mirror ${this.outline}@${this.machine}: can't check its follower: ${(e as Error).message}`); this.health = { at: this.now(), stale: this.health?.stale ?? null }; })
+        .finally(() => { this.asking = null; });
+      await Promise.race([this.asking, Bun.sleep(HEALTH_WAIT_MS)]);
+    }
+    return this.health?.stale ?? null;
   }
 
   /** The followed file's state: a change in either file is a newer copy. */

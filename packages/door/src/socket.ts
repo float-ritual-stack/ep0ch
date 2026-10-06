@@ -197,7 +197,11 @@ import type { McpAccessLevel, McpAccessStatus } from "@ep0ch/outline-core/protoc
  * gateway's machine of an outline whose home is another machine). `asOf`: when it was read, or the newest change the
  * mirror holds; `note`: where the mirror comes from.
  */
-export interface McpSource { source: "live" | "mirror"; asOf: string; note?: string }
+export interface McpSource {
+  source: "live" | "mirror"; asOf: string; note?: string;
+  /** A mirror whose follower has stopped or fallen behind its replica: since when (when known), and why. */
+  stale?: { since: string | null; why: string };
+}
 export interface McpReachability extends McpSource {
   id: string;
   status: "reachable";

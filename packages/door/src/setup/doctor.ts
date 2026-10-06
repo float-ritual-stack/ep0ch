@@ -6,6 +6,7 @@ import { clauses } from "./progress";
 import { PROTOCOL } from "@ep0ch/outline-core/protocol";
 import { DOCK_TILE_ID } from "../desk/agent-env";
 import { CHANGE_AGENT } from "../desk/dock-program";
+import { backupChecks } from "./backups";
 import { KEYED_ACTIONS, MIN_BUN, PLUGIN_ID, type Facts, short, staleness } from "./model";
 import { ep0ch, sessionFlags } from "../session/place";
 import { chooseLinkDir, claudeModState, oldMentionsAllowlist, hostRestartHint, hostUnitCommand, linkStep, pluginStep, repoStep, sessionName, sessionVerdict, unitChanges } from "./plan";
@@ -103,6 +104,9 @@ export function doctorChecks(f: Facts): Check[] {
     else if (m.connected) add("machines", m.machine, "behind", `connected, but no outline host answers through ${what}`, `ssh ${m.machine} ep0ch status (its host), or ep0ch --machine ${m.machine} (starts the forward again)`);
     else add("machines", m.machine, "info", `no forward running (${what}) · a door on it starts one (ep0ch --machine ${m.machine})`);
   }
+
+  // backups: each Litestream unit, its log, and how far each replica (or mirror) trails
+  if (f.backups) for (const c of backupChecks(f.backups, f.home)) add("backups", c.name, c.status, c.detail, c.fix);
 
   // Herdr
   if (!f.herdr.path) add("herdr", "herdr", "missing", "not on PATH", "see https://herdr.dev");

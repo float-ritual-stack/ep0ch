@@ -338,8 +338,19 @@ host, packages/door is `ep0ch`, the Claude mod is in it too), the outline host s
 commands look after it, on macOS and Linux alike:
 
     ep0ch doctor [--json]            every piece and its state, with the command that fixes it (read-only)
+    ep0ch doctor --backups           also restores each replica's newest snapshot into a temp folder and checks it
     ep0ch install                    the plan: what would change, step by step (a dry run; nothing changes)
     ep0ch install --apply            run it
+
+Its `backups` group reads each Litestream unit (`litestream replicate`, and float-2's mirror followers,
+`litestream restore -f`): ✓ while it runs (pid, up since), ✗ for ERROR lines its log has had in the last hour since
+it started (a lost file of its local state gets the fresh-start commands: its state moved aside and the replica's old
+history deleted, since Litestream 0.5 keeps no generations), and per outline how far the replica trails the
+database: ✗ "stale since" once a write has waited more than 10 minutes, and ✗ when the replica holds a later txid than
+the database (its state was reset under it, so a restore would bring back the old copy). A mirror is compared with
+the replica it follows the same way, and the remote MCP gateway's `list_outlines` and reads say `stale` (since when)
+for it. The replica is listed with `litestream ltx`, run the way the unit runs Litestream (its `with-secrets` or
+EnvironmentFile), so the keys reach only that process and are never printed.
 
 `doctor` marks each piece ✓ current, ! behind, ✗ missing, ? couldn't be checked (a `git fetch` that failed
 or timed out after 90s, or a source `git ls-remote` couldn't reach: never ✓ on an old fetch, and doctor

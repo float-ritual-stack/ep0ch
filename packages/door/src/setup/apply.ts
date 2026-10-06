@@ -15,7 +15,7 @@ import type { Handover } from "../session/client";
 import { applyLinks, byFolder, LinkFailed, type LinkWork } from "./links";
 
 type Env = Record<string, string | undefined>;
-export const SETUP_USAGE = "ep0ch doctor [--json] | ep0ch install [--apply] [--json]";
+export const SETUP_USAGE = "ep0ch doctor [--backups] [--json] | ep0ch install [--apply] [--json]";
 
 const MARK: Record<StepStatus, string> = { do: "→", skip: "✓", manual: "!" };
 
@@ -256,8 +256,8 @@ export interface SetupIO {
 export async function setupCommand(args: readonly string[], io: SetupIO = { out: console.log, err: console.error }): Promise<number> {
   const json = args.includes("--json");
   const env = io.env ?? process.env;
-  const unknown = args.slice(1).filter(a => !["--json", "--apply"].includes(a));
-  if (unknown.length || (args[0] === "doctor" && args.includes("--apply"))) { io.err(`ep0ch: ${SETUP_USAGE}`); return 2; }
+  const unknown = args.slice(1).filter(a => !["--json", "--apply", "--backups"].includes(a));
+  if (unknown.length || (args[0] === "doctor" && args.includes("--apply")) || (args[0] !== "doctor" && args.includes("--backups"))) { io.err(`ep0ch: ${SETUP_USAGE}`); return 2; }
   const home = resolve(env.HOME || homedir());
   if (!json) { const { out, err } = io; io = { ...io, out: s => out(tilde(s, home)), err: s => err(tilde(s, home)) }; }
   const progress = io.progress ?? new Progress({ mode: progressMode({ json, terminal: io.terminal, env }), out: io.out, terminal: io.terminal, env, tidy: s => tilde(s, home) });
@@ -281,6 +281,7 @@ async function setup(args: readonly string[], io: SetupIO, env: Env, json: boole
   // Checking the stack (git fetches among it) can take a while on a slow link: a phase, gone once it's done.
   const checking = progress.task({ mark: "·", title: "Checking the stack", transient: true });
   const facts = await gatherFacts({ env, repoRoot: io.repoRoot, platform: io.platform, cwd: io.cwd,
+    ...(args[0] === "doctor" ? { backups: args.includes("--backups") ? "restore" as const : "check" as const } : {}),
     onProgress: p => checking.count(p.done, p.total, p.waiting.length ? `waiting on ${p.waiting.join(", ")}` : undefined), onLine: checking.child });
   checking.end(true);
   if (args[0] === "doctor") {
