@@ -138,7 +138,7 @@ export type Op<I = number> =
   | { op: "close"; tile: I; gone?: boolean }
   /** A new tile `with` of `kind` takes tile `tile`'s place whole (its weight, its tab, its dock), and `tile` goes: a blank tile's first step. */
   | { op: "replace"; tile: I; with: I; kind: string; name?: string }
-  /** A tile leaves this layout whole, to go on elsewhere (the host layer's dock, PIE-498): moved, not closed. */
+  /** A tile leaves this layout whole, to go on elsewhere (your drawer, PIE-498): moved, not closed. */
   | { op: "take"; tile: I; heir?: { id: I; name?: string } }
   | { op: "move"; tile: I; to: Place<I> }
   | { op: "swap"; tile: I; with: I }
@@ -706,7 +706,7 @@ class Step<I> {
     this.d.answer = { tile: this.d.names.get(op.with), replaced: name };
   }
   /**
-   * A tile leaves this layout whole (to the host layer's dock, or from it to a screen): its program, note and history
+   * A tile leaves this layout whole (into your drawer, or from it to a screen): its program, note and history
    * go with it, so nothing is closed. It moves, so the move rules ask: not out of a locked shape or a container that
    * keeps its tiles, never the tile the person types in (nor, for an agent, the one with their keys), never the last.
    * `heir`: a new tile takes its place, its name and its keys (the drawer's own tab, whose next program starts there).
@@ -1307,7 +1307,7 @@ export function hostLayer(o: { tabs: string[]; names?: ReadonlyMap<string, strin
   const names = new Map<string, string>([[HOST_SCREEN, HOST_SCREEN], ...o.tabs.map(t => [t, o.names?.get(t) ?? t] as [string, string])]);
   return init({ tree, names }, prev);
 }
-/** The host layer's dock. */
+/** The host layer's one dock: your drawer, docked to the bottom edge (its tabs over or beside the screen). */
 export function hostDock<I>(s: Pick<LayoutState<I>, "tree">): Dock<I> | null { return docks(s.tree)[0] ?? null; }
 /**
  * Where the two layers go in `area`, as the screen shown lets the host layer appear (`mode`, its policy's `host`):

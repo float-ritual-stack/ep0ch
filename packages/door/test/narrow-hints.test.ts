@@ -138,7 +138,7 @@ describe.skipIf(!outliner)("hint rows at 120 columns", () => {
     const d = screen() as any;
     d.focus = [...d.names].find(([, v]: any) => v === "preview")[0];
     key(ctrl("w")); key(char("p"));
-    expect(message()).toContain("in a dock on the top");
+    expect(message()).toContain("docked preview to the top edge");
     key(ctrl("w")); key(char("p"));
     app.pop();
   });

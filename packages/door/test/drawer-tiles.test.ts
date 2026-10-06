@@ -1,4 +1,4 @@
-// PIE-498: the general drawer. Any tile joins the host layer's dock as a tab and leaves it again into the screen shown,
+// PIE-498: the general drawer. Any tile joins your drawer as a tab and leaves it again into the screen shown,
 // whole: a terminal's program keeps running (the same pid), a reader keeps its note. By `act` (tile.drawer, attributed,
 // never the person's keys), by ^W a, by a drag onto the drawer's chip or out of the dock, and by a key while dragging.
 // It's saved (drawer-tiles.json) and comes back in the next door. Scratch outline host, fictional notes, `cat` programs.
@@ -302,6 +302,23 @@ describe.skipIf(!outliner)("the drawer: any tile, moved whole between screens", 
       expect((d.pane("shell") as PtyPane).running).toBe(true);
       expect(d.A.message).toContain("shell went into your drawer · alt+a shows it");
       expect(d.app.drawer.open).toBe(false);                     // nobody's keys or view moved
+    } finally { d.app.quit(); }
+  });
+
+  test("^W P in your drawer: the policy panel opens over the drawer's tab and Esc closes it, the keys still in the drawer", async () => {
+    const d = await door();
+    try {
+      await d.app.act({ action: "tile.drawer", args: {}, tile: "tree", as: AS });
+      d.key({ kind: "alt", ch: "a" }); d.paint();
+      await d.app.drawer.desk!.dispatch.act({ action: "tab.select", tile: "tree" }, USER);
+      expect(d.app.drawer.entered).toBe(true);
+      d.key(ctrl("w")); d.key(char("P"));
+      const shown = d.paint().join("\n");
+      expect(shown).toContain("─ policy ─");
+      expect(shown).toContain("draggable · its tiles move out");
+      d.key({ kind: "esc" }); d.paint();
+      expect(d.paint().join("\n")).not.toContain("─ policy ─");
+      expect(d.app.drawer.entered).toBe(true);
     } finally { d.app.quit(); }
   });
 

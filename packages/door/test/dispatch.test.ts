@@ -392,8 +392,9 @@ describe.skipIf(!outliner)("routing on the desk, the board and the river: tile.t
     const qn = String(D.layoutGet().tiles.findIndex((x: any) => x.name === "quay") + 1);
     for (const sel of ["quay", q.id, qn, `#${qn}`]) expect(await act("tile.info", {}, sel)).toMatchObject({ name: "quay", kind: "river" });
     await act("tile.close", {}, "quay");
-    await act("tile.close", { }, "shell").catch(() => {});
-    await act("tile.close", { }, "shell").catch(() => {});
+    // Its program ended (an agent doesn't end one by closing it): left running, leaving would carry it into the drawer.
+    await act("tile.type", { text: "exit\\n" }, "shell");
+    await until(() => !D.layoutGet().tiles.find((x: any) => x.name === "shell")?.terminal?.running, "the shell ended");
     app.pop();
   }, 30_000);
 
@@ -420,7 +421,8 @@ describe.skipIf(!outliner)("routing on the desk, the board and the river: tile.t
     await until(() => B.layoutGet().tiles.find((x: any) => x.name === "shell")?.terminal?.running, "the board's shell");
     for (const sel of ["shell", t.id]) expect(await act("tile.type", { text: "true\\n" }, sel)).toMatchObject({ tile: "shell" });
     await expect(act("tile.type", { text: "x" }, "preview")).rejects.toThrow("preview is a preview tile: tile.type is for a terminal tile; here: shell");
-    await act("tile.close", {}, "shell").catch(() => {}); await act("tile.close", {}, "shell").catch(() => {});
+    await act("tile.type", { text: "exit\\n" }, "shell");
+    await until(() => !B.layoutGet().tiles.find((x: any) => x.name === "shell")?.terminal?.running, "the board's shell ended");
     app.pop();
   }, 30_000);
 

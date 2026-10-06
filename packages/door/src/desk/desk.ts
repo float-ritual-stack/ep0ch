@@ -312,7 +312,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /**
    * Who acts, where the person is, the room: what `apply` reads. Where the person is comes from the shell's one
    * answer (the whereabouts query, PIE-514): the tile they type in, and whether they're busy anywhere (here, in the
-   * host layer's dock, in a shell the door waits under). Their focus here is this screen's own state.
+   * drawer, in a shell the door waits under). Their focus here is this screen's own state.
    */
   private layoutCtx(actor: Actor): LayoutCtx<number> {
     const w = this.dispatch.where();
@@ -3486,7 +3486,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   // ── the drawer (PIE-498): a tile leaves a screen whole, or comes into one, its program, note and history with it ──
 
   /**
-   * `tile.drawer`: tile `sel` goes into the drawer (on=true; default here), the host layer's dock that travels with the
+   * `tile.drawer`: tile `sel` goes into the drawer (on=true; default here), the host layer's tabs that travel with the
    * person across screens, or, from the drawer, back into the screen shown (on=false), beside `to` (where=). The host
    * layer does it (`Ctx.hostLayer`): this screen's part is `takeOut` and `bringIn`, each one layout operation.
    */
