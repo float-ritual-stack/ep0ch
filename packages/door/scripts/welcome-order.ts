@@ -7,8 +7,10 @@
 //
 // Without --apply it prints the order it would set and the values it would rewrite. It reads the order as the door did
 // before: numbered notes first, lowest first; any other value after them, by title; ties by when they were written.
-// With no numbers left (a second run), the order isn't touched. The Welcome view is made when the outline has none. Every write is checked against the revision read, and recorded
-// as the agent named by --as (default welcome-order).
+// The order is set once, by the run that makes the Welcome view; a run that finds the view there (a second run, one
+// that failed part way) only rewrites the values left, so a retry never re-orders from half-converted values. Each
+// value is rewritten only if its note is still at the revision this run read (else it's said, and left). Recorded as
+// the agent named by --as (default welcome-order).
 import { relative } from "node:path";
 import { subject, type Msg } from "../src/board";
 import { connectTarget } from "../src/door";
@@ -38,9 +40,10 @@ const notes = before(await board.query(WELCOME_KEY, 500, "created", "asc", false
 let view = await welcomeView(board);
 console.log(`${notes.length} welcome note(s) on ${ws}, in this order:`);
 notes.forEach((m, i) => console.log(`  ${i + 1}. ${subject(m)} [${WELCOME_KEY}::${m.props[WELCOME_KEY] ?? ""}] ((${m.id}))`));
-console.log(view ? `the Welcome view: ${subject(view)} ((${view.id}))` : "no Welcome view yet: one is made");
+console.log(view ? `the Welcome view: ${subject(view)} ((${view.id}))` : "no Welcome view yet");
 const rewrite = notes.filter(m => (m.props[WELCOME_KEY] ?? "").trim() !== "true");
-if (!notes.some(m => number(m) !== null)) console.log("no numbered welcome notes: the Welcome view's order is left as it is");
+const ordering = !view && notes.some(m => number(m) !== null);
+console.log(ordering ? "this order is set on the Welcome view this run makes" : view ? "the Welcome view is there: its order is left as it is (only values are rewritten)" : "no numbered welcome notes: no order to set");
 console.log(`${rewrite.length} value(s) to rewrite to true`);
 if (!apply) {
   console.log(`\nnothing written yet · bun ${me} ${args.join(" ")} --apply`);
@@ -48,9 +51,10 @@ if (!apply) {
   process.exit(0);
 }
 
-if (!view) { view = await board.createBlock(null, WELCOME_VIEW_TEXT, actor); console.log(`✓ made the Welcome view ((${view.id}))`); }
-// Numbers are what set the order; with none left (run again, or never numbered), the view's order is left as it is.
-if (notes.some(m => number(m) !== null)) {
+// The order is set by the run that makes the view, from the values as read; a later run (the view there) never re-orders.
+if (!view && notes.some(m => number(m) !== null)) {
+  view = await board.createBlock(null, WELCOME_VIEW_TEXT, actor);
+  console.log(`✓ made the Welcome view ((${view.id}))`);
   const order = await board.moveInView({ view: view.id, blocks: notes.map(m => m.id) }, actor);
   console.log(`✓ the Welcome view's hand-set order: ${order.blockIds.slice(0, notes.length).map(id => subject(notes.find(m => m.id === id) ?? { text: id } as Msg)).join(" · ")}`);
 }
@@ -58,6 +62,8 @@ let done = 0, failed = 0;
 for (const m of rewrite) {
   try {
     const { revision, tokens } = await board.propertyTokens(m.id, WELCOME_KEY);
+    // Changed since this run read it (its order was taken from that read): left for the person, said.
+    if (m.revision !== undefined && revision !== m.revision) throw new Error(`it changed since this run read it (revision ${m.revision}, now ${revision}); check its place in the Welcome view`);
     const ops = tokens.filter(t => t.scope === "block" && t.value.trim() !== "true").map(t => ({ op: "replace" as const, ordinal: t.ordinal, value: "true" }));
     if (ops.length) await board.patchProperties(m.id, revision, ops, actor);
     done++;

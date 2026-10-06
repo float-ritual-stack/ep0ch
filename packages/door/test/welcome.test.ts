@@ -393,7 +393,7 @@ describe.skipIf(!outliner)("the one-off: [welcome::n] numbers become the Welcome
     const dry = run();
     expect(dry.code).toBe(0);
     expect(dry.out).toMatch(/1\. Start here \[welcome::1\][\s\S]*2\. House rules \[welcome::2\][\s\S]*3\. Apple notes \[welcome::yes\]/);
-    expect(dry.out).toContain("no Welcome view yet: one is made");
+    expect(dry.out).toContain("this order is set on the Welcome view this run makes");
     expect(dry.out).toContain("nothing written yet");
     expect((await board.get(start.id))!.props.welcome).toBe("1");
     const done = run("--apply");

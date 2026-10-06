@@ -157,8 +157,8 @@ export class WelcomeList implements Pane {
   fallback: Msg | null = null;
   /** The Welcome view whose hand-set order this is (null: none yet; the first move makes one). */
   orderView: Msg | null = null;
-  /** A row pressed in the list, while the button is down: dropped on another row, the note moves there. */
-  private pressed: number | null = null;
+  /** The note pressed in the list, while the button is down (by id: a refresh meanwhile can move rows): dropped on another row, it moves there. */
+  private pressed: string | null = null;
   problem = "";
   /** Which logo the band draws (LOGOS), by place: the dotted SHY-EPO! first; `L` or a click on it for the next. */
   logo = 0;
@@ -228,13 +228,14 @@ export class WelcomeList implements Pane {
    */
   mouse(k: Extract<Key, { kind: "mouse" }>, x: number, y: number, desk: DeskApi): boolean {
     const r = this.rows[this.view.top + y], i = r && "i" in r ? r.i : null;
-    if (k.action === "down" && k.button === 0) { this.pressed = i; return true; }
+    if (k.action === "down" && k.button === 0) { this.pressed = i !== null ? this.items?.[i]?.id ?? null : null; return true; }
     if (k.action === "up") {
-      const from = this.pressed;
+      const id = this.pressed;
       this.pressed = null;
-      const m = from !== null ? this.items?.[from] : undefined;
-      if (m && i !== null && i !== from) void desk.press?.(this, WELCOME_ACTIONS, "welcome.move", { id: m.id, to: i + 1 });
-      else this.click(x, y, desk);
+      const from = id ? (this.items ?? []).findIndex(m => m.id === id) : -1;
+      // Pressed on a note still in the list and dropped on another row: a move; anything else is a click where it was let go.
+      if (id && from >= 0 && i !== null && i !== from) void desk.press?.(this, WELCOME_ACTIONS, "welcome.move", { id, to: i + 1 });
+      else if (!id || from >= 0) this.click(x, y, desk);
       return true;
     }
     return k.action === "drag";
@@ -328,6 +329,8 @@ export class WelcomeList implements Pane {
   async move(m: Msg, at: { by?: number; to?: number }, actor: Actor, desk: DeskApi): Promise<Record<string, unknown>> {
     const board = desk.ctx.board, items = this.items ?? [];
     let view = this.orderView, made = false;
+    // Asked again first: another door (or the one-off script) may have made it since this list was read.
+    if (!view) view = this.orderView = await welcomeView(board);
     if (!view) {
       view = await board.createBlock(null, WELCOME_VIEW_TEXT, actor);
       made = true;
@@ -531,7 +534,7 @@ export class WelcomePreview extends PreviewPane {
 export const WELCOME_ACTIONS = actionSet<KindHost>()("welcome", {
   "welcome.select": def({
     summary: "read a welcome note in the detail: n (its place from 1, as the tabs number them: 1-9, then 10 is the 0 key) or id; read=true also gives the detail the person's keys (never an agent's). Refused to an agent while the person is typing here",
-    keys: "1-9 0, a click on a tab, j k ⏎ in the list",
+    keys: "1-9 0, a click on a tab, j k ⏎, a click or the wheel in the list",
     touches: "screen", replay: "safe", says: r => `put ${r.title.slice(0, 40)} in the detail${r.n ? ` (welcome ${tabKey(r.n - 1) ?? r.n})` : ""}`,
     args: {
       n: { type: "number", optional: true, about: "its place, from 1" },
