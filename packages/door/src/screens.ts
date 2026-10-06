@@ -598,7 +598,7 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
     },
     run({ on, ms }, { ctx }) {
       if (ms !== undefined && !(Number.isFinite(ms) && ms > 0)) throw new ActionRefused(`ms is a window in milliseconds above 0, not ${ms}`);
-      const keep = on ? Math.round(ms ?? ARM_MS) : 0;
+      const keep = on ? Math.max(1, Math.round(ms ?? ARM_MS)) : 0;
       useEditArm(keep);
       writeState("edit-arm.json", { ms: keep });
       const now = editArmMs();

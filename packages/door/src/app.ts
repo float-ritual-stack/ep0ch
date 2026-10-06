@@ -176,6 +176,8 @@ export interface Ctx {
   arm?(a: Arm): void;
   /** The edit armed now, or null: the screen draws its tile in the edit's colour. */
   armed?(): Arm | null;
+  /** Let an armed edit go without a key (a frame's screen changed under it). */
+  disarm?(): void;
 }
 
 export interface Screen {
@@ -452,7 +454,7 @@ export class App implements Ctx {
     this.flash(a.say, a.ms);
   }
   armed(): Arm | null { return this.armedNow?.a ?? null; }
-  private disarm() {
+  disarm() {
     const s = this.armedNow;
     if (!s) return;
     clearTimeout(s.timer);

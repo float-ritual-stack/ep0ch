@@ -33,12 +33,14 @@ export class FramedScreen {
   /** Enter the first screen once, when it is first shown (it reads the outline then). */
   open() { if (!this.entered) { this.entered = true; this.first.enter?.(this.ctx); this.opened(); } }
 
-  push(s: Screen) { this.stack.push(s); s.enter?.(this.ctx); this.outer().redraw(); }
+  // An edit armed in the frame is its top screen's: a screen pushed over it, popped or replaced lets it go (App.push does the same).
+  push(s: Screen) { this.outer().disarm?.(); this.stack.push(s); s.enter?.(this.ctx); this.outer().redraw(); }
   pop() {
     const top = this.stack.at(-1);
     if (this.stack.length === 1) { this.leave(); this.outer().redraw(); return; }
     // An inner screen holding a draft stays: the person gets the outer unsaved guard's message instead.
     if (top?.unsaved?.()) { this.outer().flash("an edit isn't saved · ctrl+s saves it"); return; }
+    this.outer().disarm?.();
     this.stack.pop();
     top?.dispose?.();
     this.outer().redraw();
@@ -53,8 +55,8 @@ export class FramedScreen {
     this.outer().flash(nothingLeft(leave));
   }
   /** The frame goes away: each screen in it ends what it started (a draft's hold on the service, PIE-501). */
-  dispose() { for (const s of [...this.stack].reverse()) s.dispose?.(); }
-  replace(s: Screen) { const was = this.stack.at(-1); if (this.stack.length === 1) { this.stack[0] = s; s.enter?.(this.ctx); } else { this.stack.pop(); this.push(s); } if (was !== s) was?.dispose?.(); this.outer().redraw(); }
+  dispose() { this.outer().disarm?.(); for (const s of [...this.stack].reverse()) s.dispose?.(); }
+  replace(s: Screen) { this.outer().disarm?.(); const was = this.stack.at(-1); if (this.stack.length === 1) { this.stack[0] = s; s.enter?.(this.ctx); } else { this.stack.pop(); this.push(s); } if (was !== s) was?.dispose?.(); this.outer().redraw(); }
 
   /** The top screen, drawn `w` by `h`. Its image placements keep their keys under `tag`. */
   render(w: number, h: number, tag: string): Frame {
@@ -107,6 +109,7 @@ function frameCtx(f: FramedScreen): Ctx {
     // An edit armed in the frame is the door's (the shell takes the next key); a door without arming opens at once.
     get arm() { const c = o(); return c.arm ? (a: Arm) => c.arm!(a) : undefined; },
     armed: () => o().armed?.() ?? null,
+    disarm: () => o().disarm?.(),
     // Where the person is, as seen from inside the frame: its screen has their focus only while the frame has it.
     person: () => within(o().person?.() ?? NOBODY, f.focused(), screenKeys(f.top)),
   };

@@ -1852,7 +1852,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const typing = pane === this.ptyIn && focused;
     // The header first: a tile that puts controls on it (the backlinks' status) draws its body knowing it did.
     // The person's keys are in this tile (it's focused and they're on this desk): its frame and name wear the focus accent.
-    const keys = focused && !dock && this.cover(id) !== "peek" && this.keysHere();
+    const keys = focused && this.cover(id) !== "peek" && this.keysHere();
     const head = (float ? `${fg(C.yellow)}⧉ ${RESET}` : "") + this.header(id, r, keys, float ? 2 : 0);
     // A float's ⧉ puts it back: the cell either side counts too (a font that draws the glyph wide puts it under the pointer there).
     if (float) this.floatButtons.push({ id, row: r.row, from: r.col + 2, to: r.col + 5 });

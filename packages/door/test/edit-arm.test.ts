@@ -193,6 +193,8 @@ describe.skipIf(!outliner)("e arms the edit; ⏎ or e again opens it (edit.arm)"
       expect(app.armed()?.ms).toBe(45_000);
       key({ kind: "esc" });
       expect(app.armed()).toBeNull();
+      // A window under a millisecond is still on, never rounded to off.
+      expect(await app.press("edit.arm.set", { on: true, ms: 0.1 })).toMatchObject({ armed: true, ms: 1 });
       // The environment wins: set, it overrides what was kept.
       window("off");
       expect(editArmMs()).toBe(0);
