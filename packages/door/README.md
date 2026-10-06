@@ -1242,7 +1242,7 @@ The board's new-card composer is the same control too.
 | `Ctrl+T`, or a click on `[insert]` | **insert from a picker** (`draft.pick`, src/pick.ts): `tv ep0ch` (television's outline channel, from `ext/television`) opens in a terminal tile beside the note, with your keys (on a screen without tiles, or a locked one like the board, it takes the terminal), and what you choose there (Tab picks several) goes in at the cursor, space-separated: `((id))` for a note, `[file::path]` from `ep0ch-files` (`ctrl-t` in tv switches channel, `ctrl-s` between its Tree, Recent and All); the tile closes when tv does. `EP0CH_PICKER` names another picker (`fzf -m`), `EP0CH_PICK_CHANNEL` its argument (empty for none). In a comment or reply and the board's new card too. The person's only: an agent writes with `draft.patch` |
 | `Ctrl+S` | save |
 | `Ctrl+R` | after the note changed elsewhere: load the current text (your draft is copied to disk first) |
-| `Esc` | close; with unsaved changes it asks for a second `Esc`, which **puts the draft aside** (below); with a selection, the first `Esc` only lets go of it |
+| `Esc` | close; with unsaved changes it asks for a second `Esc`, which **puts the draft aside** (below); with a selection, the first `Esc` only lets go of it; an edit opened by mistake (a few stray characters, below) closes on the first |
 | `Enter` | on a first line of only `[page::x]` (and other properties), the title `x` goes in front first (PIE-544; the save does the same, below). Then a new line; on a list item (`-`, `*`, `+`, `1.`, `1)`, `- [ ]`, at any indent) the next item at the same level: numbers count up, a checklist step starts unchecked. On an empty item it goes up to its parent's level (continuing the parent's numbers), and at the top level the list ends. An indented line keeps its indent. A marker you type yourself on the new item replaces it (`- ` then `- ` is one bullet) |
 | `Alt+Enter` | a plain new line, no list continuation |
 | `Tab`, `Shift+Tab` | indent or outdent the line (or every line a selection touches, nesting kept): an item goes under the item above it, lined up with its text, and back out to its parent's level. Inside a draft `Tab` never moves focus; `Esc` (or `Ctrl+S`) is how you leave |
@@ -1266,10 +1266,24 @@ The board's new-card composer is the same control too.
   `C` and a passage; `r` on the thread; `n` in the lane) brings the text back. `Esc` twice on text that
   came back unchanged drops it, and says where its copy stays. Closing a screen, quitting and a dropped
   connection (`SIGHUP`) put drafts aside the same way. An edit put aside on an older revision isn't laid
-  over a newer note: the reader's line says it was put aside on an older revision and where its copy is,
-  until a newer edit of the note is saved. A new card is put aside in its
+  over a newer note: the reader's line says which revision it was written on, until a newer edit of the note is
+  saved or you dismiss it. A new card is put aside in its
   lane on its own board: another board's lane of the same name doesn't bring it back. An agent's edit or
   comment never picks up your put-aside text.
+- **The `■ unsent` line's controls** (src/unsent.ts), by a click, `[ ]` then `⏎`, the tile's `⋯` menu or `act`:
+  `[diff]` opens a reader beside it with the note as it is now against the unsent edit (`- the note now`,
+  `+ the unsent edit`, coloured; it says which revision the edit was written on); `[open copy]` shows the put-aside
+  text as written; `[dismiss]` lets it go (its copy stays on disk); `[take it back]` opens the note's edit with the
+  unsent changes in it: one written on the revision the note is at comes back whole, one on an older revision is
+  replayed change by change from the text it started from, each compared like an agent's `draft.patch`, so a
+  passage changed since is left as it is now and said, never overwritten (ctrl+z takes back the last change). The
+  diff view has `[open copy]`, `[dismiss]` and `[take it back]` too. An edit put aside on an older revision more than
+  three days ago folds into one dim line, `■ 1 old unsent edit · [show]`.
+- **An edit opened by mistake isn't put aside.** `e`, then a `j` or `q` meant for the reader, becomes text; so an
+  edit open under ten seconds with at most three characters typed into it and nothing taken out closes on the
+  first `Esc`, says `dropped 2 stray characters · ctrl+z brings them back` and leaves no `■ unsent` line (its copy
+  still goes to `drafts/`). `ctrl+z` within a minute opens the edit again with them. Anything more is a real edit
+  and keeps the `Esc` twice (src/stray.ts).
 - **Click away, as in any editor.** A click inside the draft places the cursor; a click anywhere else
   leaves the edit and does what that click does (focuses a tile, opens a row or a link, opens a drawer).
   An unchanged edit just closes; a changed one is saved against the revision it started from; a save that's

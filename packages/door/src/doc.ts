@@ -306,7 +306,10 @@ export function renderDoc(body: string, env: DocEnv): Doc {
       const figure = reframeAscii(code, W);
       if (figure) { out.push(...figure); continue; }
       if (fence.fence.info) out.push(fg(C.dark) + `╭ ${fence.fence.info}` + RESET);
-      for (const c of code) for (const piece of chunk(c, W - 2)) out.push(fg(C.blue) + "│ " + fg(C.lcyan) + piece + RESET);
+      // A ```diff fence colours its lines by their mark: + added, - removed, @@ a hunk, the rest dim (the unsent diff).
+      const diff = /^diff\b/.test(fence.fence.info);
+      const ink = (c: string) => (!diff ? C.lcyan : c.startsWith("+") ? C.lgreen : c.startsWith("-") ? C.lred : c.startsWith("@@") ? C.cyan : C.grey);
+      for (const c of code) for (const piece of chunk(c, W - 2)) out.push(fg(C.blue) + "│ " + fg(ink(c)) + piece + RESET);
       continue;
     }
 

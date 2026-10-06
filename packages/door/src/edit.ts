@@ -1,6 +1,7 @@
 // An in-place draft of one block's whole text: subject line, body and [key::value] properties together,
 // so a save never drops anything the reader didn't show. The service decides conflicts: a save carries
 // the revision the draft started from, and a stale one is refused, never overwritten.
+import { strayKeys } from "./stray";
 import { pageTitleLine } from "@ep0ch/outline-core/page-title";
 import { mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -88,6 +89,20 @@ export class Draft {
 
   get text() { return this.lines.join("\n"); }
   get dirty() { return this.text !== this.original; }
+  /** The text the draft started from (an unsent edit keeps it: "take it back" replays its changes against the note now). */
+  get started() { return this.original; }
+  /** When the draft opened. */
+  readonly openedAt = Date.now();
+  /** Stray characters close it on the first esc: a note's edit the person opened (its session says so), never a comment, a new card or an agent's edit. */
+  straysClose = false;
+  /**
+   * The characters an edit opened by mistake picked up (`strayKeys`: open briefly, a few characters typed, nothing taken
+   * out, only by the person, not text brought back), or null. Esc closes it at once, copied but not put aside.
+   */
+  stray(now = Date.now()): string | null {
+    if (!this.straysClose || this.restored !== null || this.writers.some(w => w.kind !== "user")) return null;
+    return strayKeys(this.original, this.text, now - this.openedAt);
+  }
   /** A save is under way (checking properties, or writing): nothing may change or close the draft. */
   get busy() { return this.saving || this.previewing; }
 
@@ -176,6 +191,8 @@ export class Draft {
       // The first esc lets go of a selection; nothing else.
       if (this.anchor) { this.anchor = null; return "keep"; }
       if (!this.dirty) return "close";
+      // An edit opened by mistake (a stray `j` or `q` became text) closes on the first esc: its session drops the strays.
+      if (this.stray() !== null) return "discard";
       if (!was) {
         this.discardArmed = true;
         this.note = this.restored === this.text

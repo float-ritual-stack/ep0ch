@@ -20,11 +20,12 @@ import { extensionRegion, projectionRegion, projectionsOf, resourceChanged, RUN_
 import { EXT_ACTIONS, extensionNamed, handlerKeyAction } from "../extensions";
 import { metadataLines, printable, setUserSummaryKeys, summaryKeys, summarySegments, tokensFor, tokensOf, type Source } from "../props";
 import { type CalloutRef, type ImageRef, LINK_OFF, LINK_ON, outlineChanged, pageView, pageOf, presentLinks, resourceTokensOf, refKey, referencesIn, refView, workIdPrefix, shortId, type LinkTarget } from "../refs";
-import { isOutlineNote, openResource, RESOURCE_NOTE, resourceTarget } from "../authored";
+import { isOutlineNote, openResource, RESOURCE_NOTE, resourceTarget, UNSENT_NOTE } from "../authored";
 import { changeOf, parseStatus, STEP_CHOICES, STEP_MARKS, stepChanged, UndoHistory, stepLink, stepsLoading, stepsOf, stepStillOn, stepTitle, statusWord, type StepChoice, type StepRef } from "../steps";
 import { destinationOf, external, externalOpenCommand, fileOpenCommand } from "../open";
-import { Draft, DRAFT_ACTIONS, sameParty, type DraftActionArgs } from "../edit";
-import { agentRefusal, blockTarget, DraftSession, leaveSaid, propertyChange, unsentOn, type Ended, type LeaveResult } from "../draft-session";
+import { Draft, DRAFT_ACTIONS, sameParty, tidy, whenPut, type DraftActionArgs } from "../edit";
+import { agentRefusal, blockTarget, DraftSession, hasStrays, keepUnsent, leaveSaid, propertyChange, takeStrays, unsent, unshelve, type Ended, type LeaveResult, type Unsent } from "../draft-session";
+import { copyNote, diffNote, oldUnsentLine, takeBackSpans, UNSENT_LABEL, unsentEntries, unsentView, type UnsentEntry, type UnsentKind, type UnsentOp } from "../unsent";
 import { inWindow, type Placement } from "../kitty";
 import { ALIGNS, media, parseDim, parseMediaLine, parseSize, rewriteMediaLine, sized, sizeText, type MediaAttr, type MediaSpec } from "../media";
 import type { Scroll } from "../canvas";
@@ -235,11 +236,14 @@ interface Element {
   /** A callout's icon and type (PIE-538): the callout as it was read where it's drawn. */
   callout?: CalloutRef;
 }
+/** What ⏎ does on an `■ unsent` line's control. */
+const UNSENT_VERB: Record<UnsentOp, string> = { diff: "show it against the note now", copy: "open its copy", dismiss: "dismiss it (its copy stays on disk)", take: "take it back into an edit", show: "show the old unsent edit" };
 /** What ⏎ does on an element, for the hint. `open`: a fold is folded, a comment mark's thread is expanded. */
 const verbOf = (e: Element, open: boolean) =>
   e.link?.ext ? extVerb(e.link.ext)
   : e.kind === "fold" ? (open ? "unfold" : "fold") : e.kind === "comment" ? (open ? "collapse its thread" : "expand its thread")
   : e.kind === "control" && e.link?.proposal?.op ? (e.link.proposal.op === "apply" ? "apply it anyway" : "dismiss it")
+  : e.kind === "control" && e.link?.unsent ? UNSENT_VERB[e.link.unsent.op]
   : e.kind === "control" ? (e.control === "select" ? "select its passage" : e.control === "reply" ? "reply" : e.label.startsWith("Reopen") ? "reopen" : "resolve")
   : e.kind === "figure" ? (e.link?.figure?.tab !== undefined ? "show this tab" : "change the density") : e.kind === "row" ? "open its note" : e.kind === "embed" ? "open it" : e.kind === "task" ? "status" : e.kind === "callout" ? "choose its type"
   : e.kind === "resource" ? (e.link?.url ? "open the ticket's page" : "say why there's nothing to open") : e.link?.resource ? "show the resource" : e.link?.media || e.link?.url ? "open" : "follow";
@@ -642,7 +646,7 @@ export class NoteSurface {
     if (m?.id !== this.commentsFor) { this.comments = null; this.commentsFor = ""; }
     if (!m) return true;
     // A Resource or a file shown as a note: nothing in the outline to read for it.
-    if (!isOutlineNote(m)) { this.crumbs = m.id.startsWith(RESOURCE_NOTE) ? "a Resource · not a note in the outline" : "a file"; return true; }
+    if (!isOutlineNote(m)) { this.crumbs = m.id.startsWith(RESOURCE_NOTE) ? "a Resource · not a note in the outline" : m.id.startsWith(UNSENT_NOTE) ? "an unsent draft · read here, never written" : "a file"; return true; }
     // Lists carry title, properties and revision only; the surface fetches the whole note.
     if (m.partial) this.readWhole(host);
     void this.loadComments(host);
@@ -767,14 +771,17 @@ export class NoteSurface {
       // A note trashed while it's shown (a proposal dismissed, a card or an ancestor trashed elsewhere: staleOn) says so: it's still readable.
       ...(m.deleted ? [fg(C.lred) + pad(IN_TRASH, w) + RESET] : []),
       ...(this.notice ? [fg(C.yellow) + pad(this.notice, w) + RESET] : []),
-      // A draft put aside on this note (esc twice, a closed screen, the door quitting) says so, and how it comes back.
-      ...unsentOn(m.id, m.revision).map(l => fg(C.yellow) + pad(l, w) + RESET),
+    ];
+    // A draft put aside on this note (esc twice, a closed screen, the door quitting) says so, with its controls:
+    // [diff] [open copy] [dismiss] [take it back]; an old one on an older revision folds into one dim line.
+    const unsentHead = this.unsentHead(m, w, head.length);
+    head.push(...unsentHead.lines,
       // An opener without a closer protects nothing: say so, as Detail does (PIE-422).
       ...(unterminated !== null ? [fg(C.yellow) + pad(`⚠ the <!-- literal --> on line ${unterminated + 1} has no closing <!-- /literal --> line, so properties after it are still read`, w) + RESET] : []),
       ...(this.agent ? [fg(C.lmagenta) + pad(`an agent (${this.agent.id}) ${this.agent.did}`, w) + RESET] : []),
       // A focus mark says whose it is, in the ruler's own tint (PIE-423).
       ...(this.focusMark ? [RULER_BG + fg(C.lmagenta) + pad(this.focusMark.fragment ? `◆ ${this.focusMark.label} · the fragment the link names${this.focusMark.by.kind === "agent" ? ` · ${agentLabel(this.focusMark.by)} followed it` : ""} · esc lets go` : `◆ focus · ${agentLabel(this.focusMark.by)} marked ${this.focusMark.label}`, w).split(RESET).join(RESET + RULER_BG) + RESET] : []),
-    ];
+    );
     if (this.panel) {
       const rows = this.rows(m);
       const tokens = tokensOf(m.text, src);
@@ -800,6 +807,7 @@ export class NoteSurface {
       });
       this.elems = [...laid.elems, ...own].sort((a, b) => a.row - b.row || a.from - b.from);
     }
+    if (unsentHead.elems.length) this.elems = [...this.elems, ...unsentHead.elems].sort((a, b) => a.row - b.row || a.from - b.from);
     this.keepCurrent(host);
     // The body rows actually shown: none when the header fills the pane (then there's no scroll to show). A header
     // image above it (PIE-532) gives a row back for each row scrolled, so the furthest scroll is where the last body
@@ -1854,6 +1862,8 @@ export class NoteSurface {
     // ctrl+z undoes the last change made here, a step's status, a callout's header or an image's layout, whichever came last.
     if (k.kind === "char" && k.ctrl && k.ch === "z") {
       const at = this.msg?.id ?? "";
+      // Right after esc dropped an edit's stray characters (src/stray.ts): they come back first.
+      if (at && hasStrays(`edit:${at}`)) { void this.runKey("edit.strays", {}, host); return true; }
       const last = ([["callout.undo", this.calloutHistory.last("you", at)], ["image.undo", this.imageHistory.last("you", at)], ["task.undo", this.stepHistory.last("you", at)]] as const)
         .reduce<{ name: "callout.undo" | "image.undo" | "task.undo"; seq: number }>((a, [name, e]) => e && (e.seq ?? 0) > a.seq ? { name, seq: e.seq ?? 0 } : a, { name: "task.undo", seq: -1 });
       void this.runKey(last.name, {}, host, true);
@@ -2225,6 +2235,7 @@ export class NoteSurface {
     // A comment mark expands its thread under the passage, or collapses it (PIE-420): the person's only.
     if (e.kind === "comment") { if (select) this.setExpanded(e.thread!, !this.expanded.has(e.thread!)); host.redraw(); return { thread: e.thread, expanded: this.expanded.has(e.thread!) }; }
     if (e.kind === "control" && e.link?.proposal?.op) return this.proposalControl(e.link.proposal.op, e.link.proposal.id, host);
+    if (e.kind === "control" && e.link?.unsent) return this.runKey(`unsent.${e.link.unsent.op}`, { kind: e.link.unsent.kind }, host);
     // A live figure's tab shows it; its density control steps to the next density.
     // (element.open sends an agent's through figure.tab and figure.density itself, with their rules.)
     if (e.kind === "figure" && e.link?.figure) { this.pressFigure(e.link.figure, host); return null; }
@@ -2688,6 +2699,7 @@ export class NoteSurface {
       n: i + 1, kind: e.kind, label: printable(e.label), current: e.key === this.cur,
       ...(e.link ? { target: e.link.block ?? e.link.page ?? e.link.media ?? e.link.url } : {}), ...(e.thread ? { thread: e.thread } : {}), ...(e.control ? { control: e.control } : {}),
       ...(e.link?.proposal?.op ? { control: e.link.proposal.op, proposal: e.link.proposal.id } : {}),
+      ...(e.link?.unsent ? { control: e.link.unsent.op, unsent: e.link.unsent.kind } : {}),
     }));
   }
 
@@ -2749,6 +2761,9 @@ export class NoteSurface {
     // A proposal's [apply] or [dismiss] (PIE-501): it becomes the `[ ]` position, and its action runs.
     const pc = h.link.proposal;
     if (pc?.op) { if (e) this.setElem(e); host.redraw(); void this.proposalControl(pc.op, pc.id, host); return true; }
+    // An `■ unsent` line's control: it becomes the `[ ]` position, and its action runs.
+    const uc = h.link.unsent;
+    if (uc) { if (e) this.setElem(e); host.redraw(); void this.runKey(`unsent.${uc.op}`, { kind: uc.kind }, host); return true; }
     // A live figure's tab or density: it becomes the `[ ]` position, and figure.tab or figure.density runs.
     if (h.link.role === "figure" && h.link.figure) { if (e) this.setElem(e); this.pressFigure(h.link.figure, host); host.redraw(); return true; }
     // An image's caption control (PIE-532): the image becomes the `[ ]` position, and the control's action runs.
@@ -2778,6 +2793,7 @@ export class NoteSurface {
       return Promise.resolve(null);
     }
     if (l.proposal?.op) { void this.proposalControl(l.proposal.op, l.proposal.id, host); return Promise.resolve(null); }
+    if (l.unsent) { void this.runKey(`unsent.${l.unsent.op}`, { kind: l.unsent.kind }, host); return Promise.resolve(null); }
     if (l.role === "image" && l.image) { this.pressImage(l.image, host); return Promise.resolve(null); }
     if (l.role === "figure" && l.figure) {
       const e = this.elems.find(x => x.link === l) ?? this.elems.find(x => x.link?.figure && figureElemBase(x.link.figure) === figureElemBase(l.figure!));
@@ -3829,6 +3845,47 @@ export class NoteSurface {
   }
 
   /** The keys a proposal's element offers, for the hint: `X` alone when it can't be applied (it was drawn with no `[apply]`). */
+  /** Notes whose old unsent edits the person unfolded ([show] on "■ 1 old unsent edit"). */
+  private oldUnsentShown = new Set<string>();
+  /** Unfold the old unsent edits on note `of` (`unsent.show`). */
+  showOldUnsent(of: string) { this.oldUnsentShown.add(of); }
+
+  /**
+   * The `■ unsent` lines for note `m` (or, in a view of what's put aside, for the note it's about), each with its
+   * controls as elements and click targets from header row `row`. Old edits put aside on an older revision fold into
+   * one dim line until [show].
+   */
+  private unsentHead(m: Msg, w: number, row: number): { lines: string[]; elems: Element[] } {
+    const view = unsentView(m.id), of = view?.of ?? m.id;
+    const all = unsentEntries(of, m.revision, whenPut);
+    const folded = this.oldUnsentShown.has(of) ? [] : all.filter(e => e.old), shown = all.filter(e => !folded.includes(e));
+    const tags: Link[] = [];
+    const mine = (ops: UnsentOp[]) => ops.filter(op => op !== view?.view);
+    const control = (kind: UnsentKind, op: UnsentOp) => " " + fg(C.lcyan) + tagged(tags, { block: of, role: "control", unsent: { of, kind, op } }, UNSENT_LABEL[op]);
+    const controls = (kind: UnsentKind, ops: UnsentOp[]) => mine(ops).map(op => control(kind, op)).join("");
+    /** The controls on rows of their own, as many to a row as fit. */
+    const controlRows = (kind: UnsentKind, ops: UnsentOp[]) => mine(ops).reduce<UnsentOp[][]>((rows, op) => {
+      const last = rows.at(-1);
+      if (last && last.reduce((n, o) => n + UNSENT_LABEL[o].length + 1, 0) + UNSENT_LABEL[op].length + 1 <= w) last.push(op); else rows.push([op]);
+      return rows;
+    }, []).map(r => pad(r.map(op => control(kind, op)).join(""), w) + RESET);
+    // Its controls after the words when both fit, else on rows of their own under them (a narrow reader).
+    const wide = (e: UnsentEntry) => e.ops.filter(op => op !== view?.view).reduce((n, op) => n + UNSENT_LABEL[op].length + 1, 0);
+    const raw = [
+      ...shown.flatMap(e => width(e.text) + wide(e) <= w
+        ? [pad(fg(C.yellow) + e.text + controls(e.kind, e.ops), w) + RESET]
+        : [pad(fg(C.yellow) + ellipsize(e.text, w), w) + RESET, ...controlRows(e.kind, e.ops)]),
+      ...(folded.length ? [pad(fg(C.dark) + oldUnsentLine(folded.length) + " ·" + controls("edit", ["show"]), w) + RESET] : []),
+    ];
+    const { lines, ranges } = extractLinks(raw);
+    const elems: Element[] = ranges.map(r => {
+      const l = tags[r.n]!, u = l.unsent!, key = `control:unsent:${u.op}:${u.kind}:${of}#0`, at = row + r.line;
+      this.hits.push({ row: at, from: r.from, to: r.to, link: l, elem: key });
+      return { key, kind: "control", row: at, from: r.from, to: r.to, ruler: [at, at + 1], label: `${UNSENT_LABEL[u.op]} the unsent ${u.kind === "child" ? "note" : u.kind}`, link: l };
+    });
+    return { lines, elems };
+  }
+
   private proposalKeys(id: string): string {
     return this.elems.some(x => x.link?.proposal?.op === "apply" && x.link.proposal.id === id) ? "A apply anyway · X dismiss · " : "X dismiss · ";
   }
@@ -4163,6 +4220,27 @@ interface On { surface: NoteSurface; host: SurfaceHost }
  * A note action's row in its reader's menu (tile.menu, PIE-492): under "Note", hidden while the reader shows no note,
  * and dimmed (`busy`) while an edit or a comment holds it.
  */
+/** An unsent action's argument: which put-aside draft on the note. */
+const UNSENT_ARGS = { kind: { type: "string" as const, optional: true, about: "edit (default), comment, child (a note under this one) or card: what's put aside on the note" } };
+/** The note what's put aside belongs to: the note shown, or the one a diff or copy view is about. */
+const unsentOf = (surface: NoteSurface) => { const m = surface.requireNote(); return unsentView(m.id)?.of ?? m.id; };
+/** The first kind put aside on the note shown (what [open copy] and [dismiss] mean without kind=). */
+const firstUnsent = (surface: NoteSurface): UnsentKind | undefined => { const m = surface.msg; if (!m) return undefined; const of = unsentView(m.id)?.of ?? m.id; return (["edit", "comment", "child", "card"] as const).find(k => unsent(`${k}:${of}`)); };
+/** What's put aside on the note shown, as `kind`, refused when there's nothing; `fetch`: the note as it is now too. */
+async function unsentHere(surface: NoteSurface, host: SurfaceHost, kind: string, fetch: boolean): Promise<{ of: string; u: Unsent; now: Msg | null }> {
+  if (!["edit", "comment", "child", "card"].includes(kind)) throw new ActionRefused(`kind is edit, comment, child or card, not ${kind}`);
+  const of = unsentOf(surface), u = unsent(`${kind}:${of}`);
+  if (!u) throw new ActionRefused(`nothing is put aside as unsent here (${kind})`);
+  const now = fetch || kind === "edit" ? await host.ctx.board.get(of) : null;
+  if (fetch && !now) throw new ActionRefused("the note is gone from the outline; [open copy] still has the unsent text");
+  return { of, u, now };
+}
+/** A tile menu row for an unsent action: shown while something (an edit, with `edit`) is put aside on the note shown. */
+const unsentRow = (label: string, only?: "edit"): MenuEntry<any, On> => ({
+  label, group: "Note",
+  now: on => { const m = on.surface.msg; if (!m) return { hide: true }; const of = unsentView(m.id)?.of ?? m.id; return (only ? unsent(`edit:${of}`) : firstUnsent(on.surface)) ? null : { hide: true }; },
+});
+
 const noteRow = (label: string, key: string, o: { busy?: true; now?: (on: On) => MenuNow<any> | null } = {}): MenuEntry<any, On> => ({
   label, group: "Note", key,
   now: on => (!on.surface.msg ? { hide: true } : o.busy && (on.surface.draft || on.surface.session) ? { refused: "this reader is editing or commenting; close that first" } : o.now?.(on) ?? null),
@@ -4612,6 +4690,11 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
         const r = await surface.runExt(e.link.ext.action, e.link.ext, host, actor);
         surface.noteAgent(actor, `ran ${e.link.ext.action} on ${e.label.slice(0, 40)}`);
         return { element: i, kind: e.kind, action: e.link.ext.action, ...(r && typeof r === "object" ? r : {}) };
+      }
+      // An `■ unsent` line's control runs its action as whoever asks (an agent's is refused: the unsent text is the person's).
+      if (e.kind === "control" && e.link?.unsent) {
+        const r: unknown = await NOTE_ACTIONS.run(`unsent.${e.link.unsent.op}`, { kind: e.link.unsent.kind }, on, actor);
+        return { element: i, kind: e.kind, ...(r && typeof r === "object" ? r : {}) };
       }
       // A proposal's [apply] [dismiss] run its action as whoever asks (an agent dismisses only its own).
       if (e.kind === "control" && e.link?.proposal?.op) {
@@ -5440,6 +5523,120 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       } catch (err) {
         throw new ActionRefused(err instanceof Error ? err.message : String(err));
       } finally { host.redraw(); }
+    },
+  }),
+  // ── what's put aside on this note (src/unsent.ts): the `■ unsent` line's controls ──
+  "unsent.diff": def({
+    summary: "what's put aside as unsent on this note (its edit) against the note as it is now: a line diff (- the note now, + the unsent edit), and the revision it was written on. The person's opens in a reader beside this one (read-only, with [dismiss] and [take it back]); an agent gets the rows",
+    keys: "⏎ or a click on [diff] on the ■ unsent line",
+    touches: "nothing", replay: "safe",
+    menu: unsentRow("unsent: diff against the note now", "edit"),
+    args: UNSENT_ARGS,
+    async run({ kind }, { surface, host }, actor) {
+      const { of, u, now } = await unsentHere(surface, host, kind ?? "edit", true);
+      const view = diffNote(now!, u);
+      if (actor.kind === "agent") return { of, base: u.base, revision: now!.revision ?? null, at: u.at, diff: view.text };
+      host.navigate(view, { fresh: true });
+      return { of, base: u.base, revision: now!.revision ?? null, opened: view.id };
+    },
+  }),
+  "unsent.copy": def({
+    summary: "the text put aside as unsent on this note (kind=edit, comment, child or card), as it was written: the person's opens in a reader beside this one (read-only); an agent gets the text and where its copy is on disk",
+    keys: "⏎ or a click on [open copy] on the ■ unsent line",
+    touches: "nothing", replay: "safe",
+    menu: unsentRow("unsent: open its copy"),
+    args: UNSENT_ARGS,
+    async run({ kind }, { surface, host }, actor) {
+      const { of, u, now } = await unsentHere(surface, host, kind ?? firstUnsent(surface) ?? "edit", false);
+      if (actor.kind === "agent") return { of, kind: kind ?? "edit", text: u.text, copy: u.copy, at: u.at };
+      const view = copyNote(now ?? ({ id: of, text: "", parentId: null, childIds: [], createdAt: u.at, updatedAt: u.at, author: "unsent", props: {} } as Msg), u);
+      host.navigate(view, { fresh: true });
+      return { of, opened: view.id, copy: u.copy };
+    },
+  }),
+  "unsent.dismiss": def({
+    summary: "forget what's put aside as unsent on this note (kind=edit, comment, child or card): its ■ unsent line goes; its copy stays on disk (drafts/). The person's only",
+    keys: "⏎ or a click on [dismiss] on the ■ unsent line or in its diff",
+    touches: "nothing", replay: "ask",
+    person: "the unsent text is the person's to keep or let go; an agent reads it with unsent.diff or unsent.copy",
+    menu: unsentRow("unsent: dismiss (its copy stays)"),
+    args: UNSENT_ARGS,
+    async run({ kind }, { surface, host }) {
+      const k = kind ?? firstUnsent(surface) ?? "edit";
+      const { of, u } = await unsentHere(surface, host, k, false);
+      unshelve(`${k}:${of}`);
+      host.ctx.flash(`dismissed the unsent ${k === "child" ? "note" : k}${u.copy ? ` · its copy stays at ${tidy(u.copy)}` : ""}`);
+      host.redraw();
+      return { of, kind: k, dismissed: true, copy: u.copy };
+    },
+  }),
+  "unsent.take": def({
+    summary: "take an unsent edit back: open this note's edit on the revision it's at now, with the unsent changes in it. One written on that revision comes back whole; one on an older revision is replayed change by change from the text it started from (draft.patch's compare, as the person's own apply), so a passage changed since is left as it is now and said, never overwritten. The person's only: it opens an edit with their keys",
+    keys: "⏎ or a click on [take it back] on the ■ unsent line or in its diff",
+    touches: "draft", draft: "write", replay: "ask",
+    person: "taking an unsent edit back opens an edit with the person's keys; an agent proposes text with draft.patch",
+    menu: unsentRow("unsent: take it back into an edit", "edit"),
+    args: UNSENT_ARGS,
+    async run(_, { surface, host }) {
+      const { of, u, now } = await unsentHere(surface, host, "edit", true);
+      // In the diff view: this reader shows the note itself again, to edit it.
+      if (surface.msg?.id !== of) surface.show(now!, host);
+      if (surface.draft) throw new ActionRefused("this reader is already editing the note; save or close that edit first");
+      if (u.base === now!.revision) {
+        await surface.ensureDraft(host);                       // brought back whole (DraftSession.restore)
+        host.redraw();
+        return { of, taken: "whole", base: u.base };
+      }
+      if (u.from === undefined) throw new ActionRefused(`this unsent edit was put aside before the door kept the text it started from, so its changes can't be told from newer ones · [diff] shows it against the note now, [open copy] has it whole${u.copy ? ` (${tidy(u.copy)})` : ""}`);
+      const s = await surface.ensureDraft(host);
+      s.draft.straysClose = false;                               // taken back on purpose: never "stray" on the next esc
+      const spans = takeBackSpans(u.from, u.text);
+      let applied = 0, missed = 0;
+      // From the bottom up, each its own change (ctrl+z takes back the last), compared against the text as it is now.
+      spans.reverse().forEach((span, i) => {
+        const a = s.draft.applyPatch({ patchId: `unsent-${u.at}-${i}`, patches: [span], revision: s.draft.base, force: true }, USER);
+        if (a.applied) applied++; else missed++;
+      });
+      if (!missed) unshelve(`edit:${of}`);
+      s.draft.note = !spans.length ? "nothing in the unsent edit differs from the text it started from"
+        : missed ? `took back ${applied} of ${spans.length} changes · ${missed} left out: ${missed === 1 ? "its passage" : "their passages"} changed since · the unsent edit stays ([diff] shows it)`
+        : `took back the unsent edit from ${whenPut(u.at)}: ${applied} change${applied === 1 ? "" : "s"}, lit · ctrl+s saves · ctrl+z takes back the last`;
+      host.redraw();
+      return { of, taken: missed ? "partly" : "all", applied, missed, base: u.base, revision: s.draft.base };
+    },
+  }),
+  "unsent.show": def({
+    summary: "unfold old unsent edits (put aside on an older revision more than a few days ago), folded into one dim line on this note",
+    keys: "⏎ or a click on [show] on the ■ old unsent edit line",
+    touches: "nothing", replay: "safe",
+    args: UNSENT_ARGS,
+    run(_, { surface, host }) {
+      const of = unsentOf(surface);
+      surface.showOldUnsent(of);
+      host.redraw();
+      return { of, shown: true };
+    },
+  }),
+  "edit.strays": def({
+    summary: "bring back the stray characters esc just dropped from an edit opened by mistake (src/stray.ts: open under 10s, up to 3 characters typed, nothing taken out): the edit opens again with them, as it was",
+    keys: "ctrl+z right after esc dropped them (within a minute)",
+    touches: "draft", draft: "write", replay: "ask",
+    person: "the strays were the person's keys; an agent writes with edit.text or draft.patch",
+    args: {},
+    async run(_, { surface, host }) {
+      const m = surface.requireNote();
+      // Never over an edit put aside here since (DraftSession.open forgets superseded strays too); asked before they're taken.
+      if (unsent(`edit:${m.id}`)) throw new ActionRefused("an edit was put aside on this note since; it comes back with e");
+      const s = takeStrays(`edit:${m.id}`);
+      if (!s) throw new ActionRefused("no stray characters were dropped here in the last minute");
+      keepUnsent(s.u);                                           // put aside for a moment: the edit brings it back
+      const d = (await surface.ensureDraft(host)).draft;
+      if (d.text === s.u.text) {
+        d.row = Math.min(s.row, d.lines.length - 1); d.col = Math.min(s.col, d.lines[d.row]!.length);
+        d.note = `brought back ${s.u.text.length - (s.u.from ?? "").length} stray character${s.u.text.length - (s.u.from ?? "").length === 1 ? "" : "s"} · esc twice drops them`;
+      }
+      host.redraw();
+      return { id: m.id, restored: d.text === s.u.text };
     },
   }),
   "select.clear": def({
