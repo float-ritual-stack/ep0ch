@@ -67,7 +67,7 @@ export const BLANK_ACTIONS = actionSet<KindHost>()("blank", {
       const d = desk as DeskApi & Required<Pick<DeskApi, "replaceTile" | "askChoices">>;
       // A query lane without its view: the person picks the view first (an agent names it).
       if (kind === "query" && !view && actor.kind !== "agent") {
-        await d.askChoices(kind, more => void d.perform?.("blank.fill", { kind, ...more }, USER, tile));
+        await d.askChoices(kind, more => void d.perform?.("blank.fill", { kind, ...more, ...(name ? { name } : {}) }, USER, tile));
         return { tile, picking: kind };
       }
       return await d.replaceTile(tile, { kind, ...(view ? { view } : {}), ...(cmd ? { cmd } : {}), ...(name ? { name } : {}) }, actor);

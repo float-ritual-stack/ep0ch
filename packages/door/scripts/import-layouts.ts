@@ -9,11 +9,11 @@
 // built-in screen's (desk, river, board), or is already a screen note is left out, with why and the --rename that
 // brings it across under another name. Written as the person (author: user): they're the person's own layouts.
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { connectTarget } from "../src/door";
 import { stateDir } from "../src/state";
 import { USER } from "../src/socket";
-import { loadScreenNotes, saveScreenNote, screenNote } from "../src/desk/screen-notes";
+import { loadScreenNotes, readScreenNote, saveScreenNote, SCREEN_TYPE } from "../src/desk/screen-notes";
 import { builtinScreen, readSpec, screenNameProblem } from "../src/desk/screen-spec";
 import "../src/desk/screen-specs";
 
@@ -31,19 +31,24 @@ const target = await connectTarget(["--ws", ws]);
 if ("error" in target) { console.error(target.error); process.exit(1); }
 const { board } = target;
 await loadScreenNotes(board);
+// Every name a screen note gives, read well or not: a second note by one of them would open neither.
+const taken = new Set((await board.byProp("type", SCREEN_TYPE, 500)).map(m => readScreenNote(m).name));
+// This script as the person ran it, from wherever they are.
+const me = relative(process.cwd(), import.meta.path) || "import-layouts.ts";
 let wrote = 0, skipped = 0;
-const again = (old: string) => `bun scripts/import-layouts.ts --ws ${ws}${flag("--state") ? ` --state ${dir}` : ""} --rename ${old}=<new name>${apply ? " --apply" : ""}`;
+const again = (old: string) => `bun ${me} --ws ${ws}${flag("--state") ? ` --state ${dir}` : ""} --rename ${old}=<new name>${apply ? " --apply" : ""}`;
 for (const [old, layout] of Object.entries(saved)) {
   const name = renames.get(old) ?? old;
-  const why = screenNameProblem(name) ?? (builtinScreen(name) ? `${name} is a built-in screen's name` : screenNote(name) ? `the outline already has a screen note named ${name}` : null);
+  const why = screenNameProblem(name) ?? (builtinScreen(name) ? `${name} is a built-in screen's name` : taken.has(name) ? `the outline already has a screen note named ${name}` : null);
   if (why) { console.log(`✗ ${old}: left out (${why}) · bring it across under another name: ${again(old)}`); skipped++; continue; }
   let spec;
   try { spec = readSpec({ name, title: name, layouts: true, layout }); } catch (e) { console.log(`✗ ${old}: left out (${(e as Error).message})`); skipped++; continue; }
   if (!apply) { console.log(`· ${old}: would be written as the screen note ${name}`); continue; }
   const { note } = await saveScreenNote(board, spec, USER);
+  taken.add(name);
   console.log(`✓ ${name}: screen note ((${note.id})) · ep0ch --screen ${name} --ws ${ws}`);
   wrote++;
 }
 board.close();
-if (!apply) console.log(`\nnothing written yet · bun scripts/import-layouts.ts ${args.filter(a => a !== "--apply").join(" ")} --apply`);
+if (!apply) console.log(`\nnothing written yet · bun ${me} ${args.filter(a => a !== "--apply").join(" ")} --apply`);
 else console.log(`\n${wrote} written, ${skipped} left out · once the screens open as they should: rm ${file}`);

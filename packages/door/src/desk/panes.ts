@@ -284,7 +284,8 @@ export class ReaderPane implements Pane {
     const v = this.surface.render(w, h, desk && this.host(desk));
     if (this.msg || this.surface.draft || h < 3) return v;
     // An empty reader (^W o d) says what it's for, and offers a note to write in it: ctrl+n here makes one and opens it in this tile.
-    const said = wrap(this.emptyFor(), Math.max(10, w - 1)).map(l => fg(C.dark) + l + RESET);
+    // What it says, cut to leave room for the offer under it (its click inside the tile).
+    const said = wrap(this.emptyFor(), Math.max(10, w - 1)).slice(0, Math.max(1, h - 2)).map(l => fg(C.dark) + l + RESET);
     const { line, spot } = newNoteOffer(said.length + 1);
     return { ...v, lines: [...said, "", line], spots: [spot] };
   }
