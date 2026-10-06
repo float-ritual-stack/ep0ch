@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import {
   ensureHeadingFragment,
   fragmentAnchors,
@@ -192,4 +192,26 @@ test("a `#` line inside a code fence is code: it neither ends a heading's sectio
   const source = ["# Notes", "## Setup ^setup", "Run this:", "```sh", "# comment, not a heading", "```", "Then restart.", "## Next"].join("\n");
   expect(resolveFragmentSlice(source, "setup")).toMatchObject({ status: "resolved", slice: { startLine: 1, endLine: 6 } });
   expect(fragmentCandidates(source, "", "heading").map(candidate => candidate.label)).toEqual(["Notes", "Setup", "Next"]);
+});
+
+describe("component anchors (PIE-580)", () => {
+  const note = ["Beds [type::plan]", "", "## Where ^where", "::graph-quadrant", "---", "title: Where to put the beds", "xs: [shade, sun]", "---", "- far corner: shade, wet", "", "- **middle: sun, dry**", "::", "^quadrant", "", "A paragraph after. ^after"].join("\n");
+  test("an anchor alone on the line after a figure's :: names the figure, by its title", () => {
+    expect(fragmentAnchors(note).map(a => [a.id, a.kind, a.label])).toEqual([["where", "heading", "Where"], ["quadrant", "component", "Where to put the beds"], ["after", "paragraph", "A paragraph after."]]);
+  });
+  test("its slice is the whole block, the blank line inside it included, the anchor's own line left out", () => {
+    const r = resolveFragmentSlice(note, "quadrant");
+    expect(r.status).toBe("resolved");
+    if (r.status !== "resolved") return;
+    expect([r.slice.startLine, r.slice.endLine]).toEqual([3, 11]);
+    expect(r.slice.text.split("\n")[0]).toBe("::graph-quadrant");
+    expect(r.slice.text.split("\n").at(-1)).toBe("::");
+    expect(r.slice.text).not.toContain("^quadrant");
+  });
+  test("an anchor alone after prose, or after an unclosed figure, is the paragraph's as before", () => {
+    expect(fragmentAnchors("a line\n^p").map(a => a.kind)).toEqual(["paragraph"]);
+    expect(fragmentAnchors("::graph-rank\n- a: 1\n^open").map(a => a.kind)).toEqual(["paragraph"]);
+    // A one-line component with arguments has no closing line: not a component anchor.
+    expect(fragmentAnchors("::links ((00000000-0000-4000-8000-000000000000))\n^l").map(a => a.kind)).toEqual(["paragraph"]);
+  });
 });

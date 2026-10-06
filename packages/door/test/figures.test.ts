@@ -2,6 +2,7 @@
 // figure-markdown.ts), a quote's byline, and `ep0ch export`'s ASCII twin. Pure renders: no outline.
 import { describe, expect, test } from "bun:test";
 import { renderDoc } from "../src/doc";
+import { C, fg } from "../src/style";
 import { figureAscii, figureSource, reframeAscii, renderGraph } from "../src/graphs";
 import { figuresAsAscii } from "../src/export";
 import { registryKeys } from "../src/figures/keys";
@@ -247,5 +248,79 @@ describe("backup runs", () => {
     expect(runNote({ source: "restic", status: "ok", date: "2026-10-03", took: took(252_000) })).toBe(
       "restic backup 2026-10-03 [type::backup-run] - [status::ok] - [date::2026-10-03] - [source::restic] - [took::4m 12s]",
     );
+  });
+});
+
+describe("the comparison kinds (PIE-575 to PIE-579)", () => {
+  test("quadrant: a cell per (x, y), the axes ordered by xs: and ys:, corners named; narrow, dots and a legend", () => {
+    const src = ["---", "title: q", "xs: [cheap, costly]", "ys: [prevents, nothing]", "quadrants: [edges, '', '', the hard ones]", "---", "- wire: cheap, prevents", "- **identity: costly, nothing**", "- parsers: costly, nothing"];
+    const wide = body(draw("quadrant", src, 70));
+    expect(wide[0]).toMatch(/^\s+edges$/);
+    expect(wide[1]).toMatch(/^prevents\s+│·wire\s*$/);
+    expect(wide[2]).toMatch(/^nothing\s+│\s+·identity$/);
+    expect(wide[3]).toMatch(/^\s+·parsers$/);
+    expect(wide.at(-1)).toMatch(/the hard ones$/);
+    const narrow = body(draw("quadrant", src, 40));
+    expect(narrow[2]).toMatch(/^nothing\s+│\s+●●\s*$/);
+    expect(narrow.join("\n")).toContain("identity (costly, nothing)");
+    // The bold row is the accent.
+    expect(renderGraph("quadrant", figureSource(src), 70).join("\n")).toMatch(/\x1b\[1m[^\n]*identity/);
+  });
+  test("matrix: rows by one property, columns by another, cells toned and totalled; narrow heads cut to fit", () => {
+    const src = ["---", "title: m", "order-across: [edges, identity]", "---", "- CodeRabbit: edges=80 identity=2", "- ultrareview: identity=2 parsers=1"];
+    const out = body(draw("matrix", src, 70));
+    expect(out[0]).toMatch(/^\s+edges\s+identity\s+parsers\s*$/);
+    expect(out[1]).toMatch(/^CodeRabbit\s+█ 80\s+░ 2\s+·\s*$/);
+    expect(out[2]).toMatch(/^ultrareview\s+·\s+░ 2\s+░ 1\s*$/);
+    expect(out[4]).toMatch(/^\s+80\s+4\s+1\s*$/);
+    expect(body(draw("matrix", src, 34))[0]).toMatch(/iden…/);
+  });
+  test("compare: cells between |s aligned by label under their column names; under 60 columns it stacks", () => {
+    const src = ["---", "title: c", "columns: [Raised beds, Grow bags]", "---", "- cost: £60 of boards | £12 a bag", "- **lasts: ten years | two seasons**"];
+    const wide = body(draw("compare", src, 70));
+    expect(wide[0]).toMatch(/^\s+┊ Raised beds\s+┊ Grow bags\s*$/);
+    expect(wide[2]).toMatch(/^cost\s+┊ £60 of boards\s+┊ £12 a bag\s*$/);
+    const stacked = body(draw("compare", src, 44));
+    expect(stacked.slice(0, 3)).toEqual(["cost", "  Raised beds  £60 of boards", "  Grow bags    £12 a bag"]);
+  });
+  test("flow: each source's total and its flows weighted by share, then the targets' totals; `->` works too", () => {
+    const out = body(draw("flow", ["- main → recorded: 5", "- main -> fixed: 2", "- **Effect → fixed: 4**"], 60));
+    expect(out[0]).toMatch(/^main\s+7 █+$/);
+    expect(out[1]).toMatch(/^  ═+▶ recorded 5$/);
+    expect(out[2]).toMatch(/^  ─+▶ fixed 2$/);
+    expect(out[3]).toMatch(/^Effect\s+4 █+$/);
+    expect(out.slice(-2).map(l => l.split(/\s+/)[0])).toEqual(["fixed", "recorded"]);
+  });
+  test("meter with a limit: a bar per row to the limit, the headroom said, an overrun marked; without one, the share as before", () => {
+    const out = body(draw("meter", ["---", "title: b", "limit: 150", "unit: ms", "---", "- door: 90", "- **barrel: 181**"], 70));
+    expect(out[0]).toMatch(/^door\s+█+-+┃\s+90 \/ 150 ms$/);
+    expect(out[1]).toMatch(/^\s+60 ms left$/);
+    expect(out[2]).toMatch(/^barrel\s+█+┃\s+181 \/ 150 ms$/);
+    expect(out[3]).toMatch(/^\s+31 ms over$/);
+    expect(renderGraph("meter", figureSource(["---", "limit: 150", "---", "- barrel: 181"]), 70).join("")).toContain(fg(C.lred) + "31 over");
+    expect(body(draw("meter", ["---", "value: 0.4", "---"], 60))[0]).toMatch(/^█+-+\s+40%$/);
+  });
+});
+
+describe("one width rule for every kind (PIE-581)", () => {
+  const within = (out: string[], w: number) => out.every(l => plain(l).length <= w);
+  test("stat tiles wrap into rows; a narrow table keeps the title column and one more and says what it dropped", () => {
+    const stat = body(draw("stat", ["- a: 1", "- b: 22", "- c: 333", "- d: 4", "- e: 55", "- f: 6"], 36));
+    expect(stat).toHaveLength(5);
+    expect(stat[3]).toMatch(/^55\s+6\s*$/);
+    const table = body(draw("table", ["---", "headers: [Job, Stage, Priority, Owner]", "rows:", "  - [Fix the gate latch, queued, medium, Ada]", "---"], 40));
+    expect(table[0]).toMatch(/^Job\s+┊ Stage\s*$/);
+    expect(table.at(-1)).toBe("+2 columns · widen to see");
+  });
+  test("narrow, a timeline's and a decision's side note goes under its row; nothing drawn is wider than the frame", () => {
+    const tl = body(draw("timeline", ["- **Mar: potatoes** — after the frost, when the soil has dried"], 40));
+    expect(tl[0]).toMatch(/^●  Mar  potatoes\s*$/);
+    expect(tl[1]).toMatch(/^\s+after the frost/);
+    const d = body(draw("decision", ["- **Raised beds** — the clay stays wet, so the roots rot"], 40));
+    expect(d[0]).toMatch(/^● Raised beds\s*$/);
+    expect(d[1]).toMatch(/^\s+— the clay stays wet/);
+    for (const w of [40, 80, 160]) for (const [kind, src] of [["quadrant", ["- a: x, y", "- b: y, x"]], ["matrix", ["- r: c=1 d=2"]], ["compare", ["- a: one | two"]], ["flow", ["- a → b: 2"]], ["meter", ["---", "limit: 10", "---", "- a: 12"]], ["stat", ["- a: 1", "- b: 2", "- c: 3", "- d: 4", "- e: 5"]]] as const) {
+      expect(within(renderGraph(kind, figureSource([...src]), w), w)).toBe(true);
+    }
   });
 });

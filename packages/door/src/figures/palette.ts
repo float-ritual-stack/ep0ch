@@ -16,3 +16,11 @@ export const rowLink = (link: RowLink | undefined, block: unknown, text: string,
 
 /** A kind's drawing: its rows at `w` columns inside the frame. */
 export type Draw = (p: Props, w: number, link?: RowLink) => string[];
+
+/**
+ * How much room a figure has (PIE-581): `narrow` under 48 columns (a river column, a drawer), `cozy` under 90 (a
+ * detail beside another tile), `wide` past it. Each kind says once what it does per tier; the tier is the
+ * reader's width, never the terminal's.
+ */
+export type Tier = "narrow" | "cozy" | "wide";
+export const tier = (w: number): Tier => (w < 48 ? "narrow" : w < 90 ? "cozy" : "wide");

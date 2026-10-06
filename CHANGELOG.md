@@ -10,6 +10,22 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Figures that compare, and figures that fit (PIE-575 to PIE-581)
+
+- **Four kinds for comparisons.** `::graph-quadrant` places notes by two properties (`x:`, `y:`; `xs:`, `ys:` order
+  the axes, `quadrants:` names the corners); `::graph-matrix` counts over two (`down:`, `across:`), toned by share
+  with totals; `::graph-compare` aligns two or three columns by row label (`- cost: £60 | £12`); `::graph-flow` shows
+  where things came from and went (`- a → b: 7`, or `from:` and `to:`). Each takes Markdown rows or a live
+  `query:`/`view:`. The kitchen sink's figures note has one of each.
+- **A meter with a limit.** `limit:` and `unit:` on `::graph-meter` draw each value against a budget, the limit as a
+  mark, the headroom or overrun said beneath (`- with the barrel: 181` against `limit: 150` reads "31 ms over").
+- **Every figure fits its width.** One rule (narrow under 48 columns, cozy under 90, wide): a narrow table keeps its
+  title column and one more and says `+n columns`; stat tiles wrap into rows; a timeline's or decision's side note
+  goes under its row; `compare` stacks; `matrix` cuts its heads; `quadrant` draws dots with a legend. Nothing a
+  figure draws is wider than its frame at any width.
+- **A figure can be linked to.** An anchor alone on the line after a figure's closing `::` names it:
+  `((id^quadrant|the quadrant))` lands on the figure, and `!((id^quadrant))` embeds just that block.
+
 Since October 2, 2026: pull requests #136 to #197, the outliner's #280 to #282 (in pi-herdr-outliner), and the
 move into one repository (PIE-530).
 

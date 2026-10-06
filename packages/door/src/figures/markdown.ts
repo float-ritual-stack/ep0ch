@@ -29,6 +29,8 @@ export const BASE_MARKDOWN: Record<string, (md: Markdown, p: Props) => Props> = 
   // - outbox: 18   the bold one is the accent (else the last)
   stat: md => (md.rows.length ? { items: md.rows.map(r => ({ label: r.label ?? "", value: r.label === null ? r.text : r.value, accent: r.emphasis === "strong" })) } : {}),
   kpi: (md, p) => BASE_MARKDOWN.stat!(md, p),
+  // - label: 48   one bar each against the YAML's limit:; the bold one is the accent
+  meter: md => (md.rows.length ? { items: md.rows.map(r => ({ label: r.label ?? "", value: valueOf(r), accent: r.emphasis === "strong" })) } : {}),
   // 2 0 5 11 3*2 (rows or paragraphs); a row each (`- Mon: 2`) labels the points
   spark: md => sparkOf(md),
   plot: md => {

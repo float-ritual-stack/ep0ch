@@ -88,7 +88,7 @@ export const PLOT_JOBS: { title: string; stage: string; priority: string }[] = [
 ];
 
 /** Every `::graph-*` kind the door draws (src/graphs.ts); the figures note has one of each. */
-export const FIGURE_KINDS = ["check", "stat", "kpi", "rank", "table", "tabs", "timeline", "meter", "funnel", "waterfall", "spark", "plot", "gantt", "tree"] as const;
+export const FIGURE_KINDS = ["check", "stat", "kpi", "rank", "table", "tabs", "timeline", "meter", "funnel", "waterfall", "spark", "plot", "gantt", "tree", "quadrant", "matrix", "compare", "flow"] as const;
 /** The kinds the Markdown figures note shows (src/figures/), each in its Markdown form; the keys note has `keys`. */
 export const MARKDOWN_KINDS = ["decision", "chat", "uptime", "activity", "calendar", "annotate"] as const;
 
@@ -338,6 +338,15 @@ function figuresText(gardenViewId: string): string {
     ...fig("plot", ["title: Courgettes picked", "data: [1, 3, 4, 2, 6, 5]", "labels: [Jul, Aug, Sep, Oct, Nov, Dec]"]),
     ...fig("gantt", ["title: Autumn on the plot", "progress: 0.4", "ticks: [Sep, Oct, Nov]", "items:", "  - { label: dig over, start: 0, end: 0.3, complete: 1 }", "  - { label: plant garlic, start: 0.25, end: 0.6, complete: 0.5 }", "  - { label: mulch, start: 0.55, end: 1, complete: 0 }"]),
     ...fig("tree", ["title: The shed", "nodes:", "  - label: shelves", "    children:", "      - { label: pots }", "      - { label: seed tins, accent: true }", "  - label: hooks", "    children:", "      - { label: inner tubes, meta: left }", "      - { label: pump }"]),
+    "The comparison kinds (PIE-575 to PIE-579): two properties at once, columns aligned by label, flows, a budget.",
+    "",
+    ...fig("quadrant", ["title: House jobs by priority and stage (live)", 'query: "type=roadmap-item project=house"', "x: priority", "xs: [low, medium, high]", "y: work-stage", "ys: [done, review, doing, queued]"]),
+    ...mdFig("quadrant", ["title: Where to put the beds", "xs: [shade, sun]", "ys: [wet, dry]", "quadrants: [the bog, '', '', the best bed]"], ["- the far corner: shade, wet", "- by the shed: shade, dry", "- **the middle beds: sun, dry**", "- under the apple: sun, wet"]),
+    ...fig("matrix", ["title: House jobs by arc and stage (live)", 'query: "type=roadmap-item project=house"', "down: arc", "across: work-stage", "order-across: [doing, review, queued, done]"]),
+    ...mdFig("compare", ["title: Raised beds or grow bags", "columns: [Raised beds, Grow bags]"], ["- cost: £60 of scaffold boards | £12 a bag", "- drainage: good on the clay | fine", "- **lasts: ten years | two seasons**", "- moving: never | in an afternoon"]),
+    ...fig("flow", ["title: Chores by area and stage (live)", 'query: "type=chore"', "from: area", "to: stage"]),
+    ...mdFig("flow", ["title: Seed to plate"], ["- sown → sprouted: 31", "- sown → lost: 9", "- **sprouted → planted out: 24**", "- sprouted → eaten by slugs: 7", "- planted out → harvested: 18"]),
+    ...mdFig("meter", ["title: Startup budget", "limit: 150", "unit: ms"], ["- the door alone: 90", "- with Schema: 138", "- **with the barrel: 181**"]),
   ].join("\n").trimEnd();
 }
 

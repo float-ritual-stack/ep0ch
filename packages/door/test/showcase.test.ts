@@ -130,6 +130,18 @@ describe.skipIf(!outliner)("the showcase seed", () => {
     expect([...at].sort((a, b) => a - b)).toEqual(at);
   });
 
+  test("every figure fits its width (PIE-581): the figures note drawn at 40, 80 and 160 columns has no line past the edge", async () => {
+    for (const w of [40, 80, 160]) {
+      const lines = (await drawNote(board, seeded.notes.figures.id, w))!.map(plain);
+      const wide = lines.filter(l => Bun.stringWidth(l) > w);
+      expect(wide, `at ${w}: ${wide.slice(0, 3).join(" | ")}`).toEqual([]);
+      // The comparison kinds drew with the seeded data, not a refusal.
+      // (A narrow frame cuts a long title with …, so the stems.)
+      for (const title of ["HOUSE JOBS BY PRIORITY", "HOUSE JOBS BY ARC", "RAISED BEDS OR GROW BAGS", "CHORES BY AREA", "STARTUP BUDGET"]) expect(lines.join("\n")).toContain(title);
+      expect(lines.join("\n")).not.toMatch(/name the two properties|no (points|cells|flows|rows):/);
+    }
+  });
+
   test("seeding twice is refused", async () => {
     await expect(seedShowcase(board)).rejects.toThrow(/already has a showcase/);
   });

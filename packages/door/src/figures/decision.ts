@@ -16,7 +16,7 @@
 import { BOLD, fg, pad, RESET, UNBOLD, width as vwidth } from "../style";
 import { wrap } from "../text";
 import type { Markdown } from "./markdown";
-import { ACCENT, DIM, HI, INK, rowLink, type Props, type RowLink } from "./palette";
+import { ACCENT, DIM, HI, INK, rowLink, tier, type Props, type RowLink } from "./palette";
 
 export type DecisionState = "chosen" | "rejected" | "open";
 
@@ -32,20 +32,23 @@ const GLYPH: Record<DecisionState, string> = { chosen: "●", rejected: "×", op
 
 export function drawDecision(p: Props, w: number, link?: RowLink): string[] {
   const options: Props[] = p.options ?? [];
-  const lw = Math.min(Math.max(0, ...options.map(o => vwidth(String(o.label ?? "")))), Math.max(8, Math.floor((w - 4) * 0.45)));
+  // Narrow (PIE-581): the reason goes under its option, so neither wraps word by word in a thin column.
+  const narrow = tier(w) === "narrow";
+  const lw = narrow ? w - 2 : Math.min(Math.max(0, ...options.map(o => vwidth(String(o.label ?? "")))), Math.max(8, Math.floor((w - 4) * 0.45)));
   const out: string[] = [];
   for (const o of options) {
     const state = decisionState(o.state), label = String(o.label ?? "");
     const glyph = (state === "chosen" ? fg(ACCENT) : state === "rejected" ? fg(DIM) : fg(INK)) + GLYPH[state];
     const ink = state === "chosen" ? fg(HI) + BOLD : state === "rejected" ? fg(DIM) : fg(INK);
     const labels = wrap(label, lw);
-    const reason = o.reason ? wrap(String(o.reason), Math.max(6, w - lw - 6)) : [];
-    const n = Math.max(labels.length, reason.length);
+    const reason = o.reason ? wrap(String(o.reason), narrow ? Math.max(6, w - 4) : Math.max(6, w - lw - 6)) : [];
+    const n = narrow ? labels.length : Math.max(labels.length, reason.length);
     for (let i = 0; i < n; i++) {
       const l = labels[i] ?? "", head = i ? "  " : glyph + RESET + " ";
-      const text = ink + pad(i ? l : rowLink(link, o.block, l), lw) + UNBOLD + RESET;
-      out.push(head + text + (reason[i] ? `  ${fg(DIM)}${i ? "  " : "— "}${reason[i]}${RESET}` : ""));
+      const text = ink + (narrow ? (i ? l : rowLink(link, o.block, l)) : pad(i ? l : rowLink(link, o.block, l), lw)) + UNBOLD + RESET;
+      out.push(head + text + (!narrow && reason[i] ? `  ${fg(DIM)}${i ? "  " : "— "}${reason[i]}${RESET}` : ""));
     }
+    if (narrow) for (const [i, r] of reason.entries()) out.push(`    ${fg(DIM)}${i ? "  " : "— "}${r}${RESET}`);
   }
   const prose: string[] = Array.isArray(p.text) ? p.text.map(String) : p.text ? [String(p.text)] : [];
   if (prose.length) { out.push(""); for (const para of prose) out.push(...wrap(para, w).map(l => fg(INK) + l + RESET), ...(para === prose.at(-1) ? [] : [""])); }

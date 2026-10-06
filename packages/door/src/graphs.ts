@@ -8,7 +8,7 @@ import { childRows, resolveLive, setLiveSource } from "./live";
 import { figureRow, parseFigureMarkdown } from "@ep0ch/outline-core/figure-markdown";
 import { FIGURES, MARKDOWN } from "./figures/index";
 import type { Markdown } from "./figures/markdown";
-import { ACCENT, DIM, HI, INK, rowLink, type Props, type RowLink } from "./figures/palette";
+import { ACCENT, DIM, HI, INK, rowLink, tier, type Props, type RowLink } from "./figures/palette";
 export type { RowLink } from "./figures/palette";
 import { setLinksSource } from "./links";
 import type { SocketBoard } from "./socket";
@@ -141,25 +141,33 @@ const KINDS: Record<string, (p: Props, w: number, link?: RowLink, ui?: FigureUI)
   timeline: (p, w, link) => {
     const ev: Props[] = p.events ?? [];
     const dw = Math.max(0, ...ev.map(e => String(e.date ?? "").length));
+    // Narrow (PIE-581): the side note goes under its event instead of past the edge.
+    const narrow = tier(w) === "narrow";
     return ev.flatMap((e, i) => {
       const now = e.state === "now", next = e.state === "next";
       const dot = next ? fg(DIM) + "○" : fg(now ? ACCENT : HI) + "●";
-      const note = e.note ? `${fg(DIM)}  — ${e.note}` : "";
+      const note = e.note && !narrow ? `${fg(DIM)}  — ${e.note}` : "";
       const line = `${dot}  ${fg(next ? DIM : INK)}${String(e.date ?? "").padEnd(dw)}  ${fg(now ? ACCENT : next ? DIM : HI)}${rowLink(link, e.block, String(e.label ?? ""))}${note}${RESET}`;
-      return i < ev.length - 1 ? [pad(line, w), fg(DIM) + "│" + RESET] : [pad(line, w)];
+      const under = e.note && narrow ? wrap(String(e.note), Math.max(8, w - dw - 5)).map(l => " ".repeat(dw + 5) + fg(DIM) + l + RESET) : [];
+      return [pad(line, w), ...under, ...(i < ev.length - 1 ? [fg(DIM) + "│" + RESET] : [])];
     });
   },
 
-  stat: (p) => {
+  stat: (p, w) => {
     const items: Props[] = p.items ?? [];
     // The accent: the bold item (Markdown) or `accent: true`, else the last.
     const marked = items.some(it => it.accent);
     const cells = items.map((it, i) => ({ v: String(it.value ?? ""), l: String(it.label ?? ""), accent: marked ? !!it.accent : i === items.length - 1 }));
-    const cw = Math.max(...cells.map(c => Math.max(c.v.length, c.l.length))) + 4;
-    return [
-      cells.map(c => fg(c.accent ? ACCENT : HI) + BOLD + c.v.padEnd(cw) + UNBOLD).join("") + RESET,
-      cells.map(c => fg(DIM) + c.l.padEnd(cw)).join("") + RESET,
-    ];
+    const cw = Math.max(...cells.map(c => Math.max(vwidth(c.v), vwidth(c.l)))) + 4;
+    // Tiles wrap into rows of as many as fit (PIE-581): a fifth tile goes under the first, never past the edge.
+    const per = Math.max(1, Math.floor(Math.max(cw, w) / cw));
+    const out: string[] = [];
+    for (let i = 0; i < cells.length; i += per) {
+      const row = cells.slice(i, i + per);
+      if (i) out.push("");
+      out.push(row.map(c => fg(c.accent ? ACCENT : HI) + BOLD + pad(c.v, cw) + UNBOLD).join("") + RESET, row.map(c => fg(DIM) + pad(c.l, cw)).join("") + RESET);
+    }
+    return out;
   },
 
   kpi: (p) => KINDS.stat!(p, 0),
@@ -198,9 +206,32 @@ const KINDS: Record<string, (p: Props, w: number, link?: RowLink, ui?: FigureUI)
 
   plot: (p, w) => KINDS.spark!({ ...p, caption: p.labels ? `${p.labels[0]} … ${p.labels.at(-1)}` : p.caption }, w),
 
+  // A share (`value: 0.4`, or a live count of `done:`), or with `limit:` a budget (PIE-578): each value drawn to the
+  // limit, the limit a mark at the bar's end, the headroom said beneath (an overrun in red). Rows `- label: 48`
+  // draw one bar each against the same limit.
   meter: (p, w) => {
-    const v = num(p.value), frac = v > 1 ? v / 100 : v;
-    return [`${bar(frac, Math.max(10, Math.min(40, w - 8)))}  ${fg(ACCENT)}${Math.round(frac * 100)}%${RESET}`, ...(p.caption ? [fg(DIM) + p.caption + RESET] : [])];
+    if (p.limit === undefined) {
+      const v = num(p.value), frac = v > 1 ? v / 100 : v;
+      return [`${bar(frac, Math.max(10, Math.min(40, w - 8)))}  ${fg(ACCENT)}${Math.round(frac * 100)}%${RESET}`, ...(p.caption ? [fg(DIM) + p.caption + RESET] : [])];
+    }
+    const limit = Math.max(num(p.limit), 1e-9), unit = p.unit ? ` ${p.unit}` : "";
+    const items: Props[] = Array.isArray(p.items) && p.items.length ? p.items : [{ label: p.label ?? "", value: p.value }];
+    const lw = Math.min(Math.max(0, ...items.map(it => vwidth(String(it.label ?? "")))), Math.max(6, Math.floor(w / 3)));
+    const vw = Math.max(...items.map(it => fmt(num(it.value)).length), fmt(limit).length);
+    const bw = Math.max(8, Math.min(40, w - lw - vw * 2 - (tier(w) === "narrow" ? 0 : unit.length + 3) - 7));
+    const out: string[] = [];
+    for (const it of items) {
+      const v = num(it.value), over = v > limit, k = Math.min(bw, Math.round((Math.min(v, limit) / limit) * bw));
+      const fill = fg(over ? C.lred : it.accent ? ACCENT : HI) + "█".repeat(k) + fg(DIM) + "-".repeat(bw - k) + fg(over ? C.lred : DIM) + "┃" + RESET;
+      const label = lw ? fg(it.accent ? ACCENT : HI) + pad(ellipsize(String(it.label ?? ""), lw), lw) + "  " : "";
+      // Narrow: `90/150` and the unit beneath, so the bar keeps its room.
+      const said = tier(w) === "narrow" ? `${fmt(v)}/${fmt(limit)}` : `${fmt(v).padStart(vw)}${fg(DIM)} / ${fmt(limit)}${unit}`;
+      out.push(`${label}${fill}  ${fg(over ? C.lred : INK)}${said}${RESET}`);
+      const room = Math.abs(limit - v);
+      out.push(" ".repeat(lw ? lw + 2 : 0) + (over ? fg(C.lred) + `${fmt(room)}${unit} over` : fg(DIM) + `${fmt(room)}${unit} left`) + RESET);
+    }
+    if (p.caption) out.push(fg(DIM) + p.caption + RESET);
+    return out;
   },
 
   gantt: (p, w) => {
@@ -229,9 +260,17 @@ const KINDS: Record<string, (p: Props, w: number, link?: RowLink, ui?: FigureUI)
   },
 
   table: (p, w, link, ui) => {
-    const head: string[] = (p.headers ?? []).map(String), rows: string[][] = (p.rows ?? []).map((r: unknown[]) => r.map(String));
-    const foot: string[] | undefined = p.footer?.map(String);
+    let head: string[] = (p.headers ?? []).map(String), rows: string[][] = (p.rows ?? []).map((r: unknown[]) => r.map(String));
+    let foot: string[] | undefined = p.footer?.map(String);
     const align: string[] = p.align ?? [];
+    // Narrow (PIE-581): the title column and one more; the rest are counted in the footer, never wrapped to nothing.
+    const tcol = Math.max(0, Number(p.titleColumn) || 0), width0 = Math.max(...[head, ...rows].map(r => r.length));
+    let dropped = 0;
+    if (tier(w) === "narrow" && width0 > 2) {
+      const keep = [tcol, [...Array(width0).keys()].find(k => k !== tcol)!];
+      const cut = (r: string[]) => keep.map(k => r[k] ?? "");
+      head = cut(head); rows = rows.map(cut); foot = foot && cut(foot); dropped = width0 - 2;
+    }
     const all = [head, ...rows, ...(foot ? [foot] : [])];
     const n = Math.max(...all.map(r => r.length));
     let cw = Array.from({ length: n }, (_, k) => Math.max(...all.map(r => vwidth(r[k] ?? ""))));
@@ -243,14 +282,14 @@ const KINDS: Record<string, (p: Props, w: number, link?: RowLink, ui?: FigureUI)
     // The density (the reader's choice, else the YAML's): the title column wraps over that many lines, hanging past
     // a work id; the other columns stay on the row's first line. A row's lines are one link, to its note.
     const density = ui?.density ?? (isDensity(p.density) ? p.density : "compact"), most = TITLE_LINES[density];
-    const tc = Math.min(n - 1, Math.max(0, Number(p.titleColumn) || 0));
+    const tc = dropped ? 0 : Math.min(n - 1, Math.max(0, Number(p.titleColumn) || 0));
     const drawRow = (r: string[]) => {
       const t = titleLines(r[tc] ?? "", cw[tc]!, most);
       return t.map((tl, i) => line(i ? r.map((_, k) => (k === tc ? tl : "")) : r.map((c, k) => (k === tc ? tl : c)), fg(INK)));
     };
     const blocks: unknown[] = p.blocks ?? [];
     const body = rows.flatMap((r, i) => [...(density === "comfortable" && i ? [""] : []), ...rowLinks(link, blocks[i], drawRow(r), ui?.key)]);
-    return [line(head, fg(HI)), rule, ...body, ...(foot ? [rule, line(foot, fg(HI))] : [])];
+    return [line(head, fg(HI)), rule, ...body, ...(foot ? [rule, line(foot, fg(HI))] : []), ...(dropped ? [fg(DIM) + `+${dropped} column${dropped === 1 ? "" : "s"} · widen to see` + RESET] : [])];
   },
 
   // A query's results grouped by a property, one tab per value (src/live.ts), the chosen tab's rows drawn as a table.
