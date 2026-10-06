@@ -620,6 +620,19 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect(S().focus).toBe("stage");                                                 // the zoom went before the stage did
     for (let i = 0; i < 4 && S().focus !== "index"; i++) press({ kind: "esc" });
     expect(S().focus).toBe("index");
+  test("the Welcome on the seeded outline: [welcome::true] notes in the Welcome view's hand-set order, moved through act", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "screen.open", args: { name: "welcome" }, as: "test-agent" });
+    const top = () => app.screens().at(-1) as any;
+    const items = () => (top().pane?.("welcome")?.items ?? null) as { text: string; id: string }[] | null;
+    await until(() => top().name === "welcome" && items()?.length === 2, "the two seeded welcome notes");
+    expect(items()!.map(m => m.text.split(" [")[0])).toEqual(["Start here", "House rules"]);
+    await app.act({ action: "welcome.move", args: { id: items()![1]!.id, to: 1 }, as: "test-agent" });
+    expect(items()!.map(m => m.text.split(" [")[0])).toEqual(["House rules", "Start here"]);
+    await app.act({ action: "welcome.move", args: { id: items()![1]!.id, to: 1 }, as: "test-agent" });
+    expect(items()!.map(m => m.text.split(" [")[0])).toEqual(["Start here", "House rules"]);
+    await app.act({ action: "screen.back", args: {}, as: "test-agent" });
+    await until(() => top() === sc, "back on the showcase");
   }, 20_000);
 
   test("the dock section, driven through act: the kettle docks, a section switch keeps it (the same pid), and it undocks into another section", async () => {

@@ -58,7 +58,7 @@ describe.skipIf(!outliner)("the themes on real screens (WCAG 2 contrast)", () =>
     // A welcome note, so the welcome screen has something to show; and a note with links, a comment and an
     // agent's proposal for the reader.
     const user: Actor = { kind: "user" };
-    await board.createBlock(null, `Start here [welcome::1]\nThe house board is [[${SEED.hub}]]; the bikes are in [[${SEED.shed}]].`, user);
+    await board.createBlock(null, `Start here [welcome::true]\nThe house board is [[${SEED.hub}]]; the bikes are in [[${SEED.shed}]].`, user);
     const plan = await board.createBlock(null, `Weekend plan\nThe peas   climb  the net, by [[${SEED.shed}]].\n\nSee ((${seeded.notes.recipe.id}|the soup)).`, user);
     const read = (await board.get(plan.id))!;
     const observed = "The peas   climb  the net", start = read.text.indexOf(observed);

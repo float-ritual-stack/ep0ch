@@ -53,10 +53,20 @@ move into one repository (PIE-530).
   folder (`$XDG_STATE_HOME/ep0ch-door`, or `EP0CH_STATE`).
 - **Television (optional).** With `tv` on your PATH, `ep0ch install --apply` links the outline's channels into
   television's cable folder.
+- **Welcome numbers become an order** (once per outline with numbered welcome notes; pie and float-hub):
+  `bun packages/door/scripts/welcome-order.ts --ws <outline>` prints the order it would set; `--apply` makes the
+  Welcome view if there's none, sets its order from the numbers and rewrites the values to `true`.
 - **Layouts you saved by name** (`^W w`, kept in the door's `layouts.json`) are screen notes in the outline now, and
   the door no longer reads `layouts.json`. Bring them across once per outline that should have them:
   `bun packages/door/scripts/import-layouts.ts --ws <outline>` says what it would write, `--apply` writes it; then
   delete `layouts.json` (its path is printed).
+
+### Welcome: `[welcome::true]` marks a note, the order is set by hand
+
+Any `[welcome::…]` value now only marks a welcome note; a number is no longer its place. The order is the Welcome
+view's hand-set order (a saved view `[query::welcome]`, the same order a board lane keeps): `alt+↑` `alt+↓` or a drag in
+Welcome's list, `ep0ch view order`, or a lane on that view. The first move makes the view. Two notes can no longer share
+a place, so nothing shifts silently.
 
 ### Make your own screens: start blank, save it to the outline (PIE-565)
 

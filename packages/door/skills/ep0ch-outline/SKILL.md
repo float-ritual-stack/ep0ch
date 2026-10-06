@@ -118,12 +118,15 @@ directions ("the draft is in the outbox below"). Look the id up and link it. `[[
 - **A new note where it belongs:** `outliner new --text … [--near <id>] --author agent --actor <id>` (or the door's
   `note.new`) asks the service's placement rule: under `--near`, else the top of the Inbox. Use it instead of
   working out where the Inbox is. A missing `[[page]]` is made by the door's `page.create` (the Inbox too).
-- `[welcome::n]` puts a note on the door's Welcome screen (`C`, or the landing after logon with
-  `EP0CH_LANDING=welcome`), in place `n`; unnumbered ones come after, by title. The first is read on
-  arrival. Tag, untag or reorder by editing the property; the screen updates live.
+- `[welcome::true]` puts a note on the door's Welcome screen (`C`, or the landing after logon with
+  `EP0CH_LANDING=welcome`); the value only marks it (a number is no longer a place). The order is the Welcome view's
+  hand-set order (the saved view `[query::welcome]`): set it with `view_order` / `ep0ch view order <view> <id>…`,
+  or the door's `welcome.move`; the first is read on arrival. Tag or untag by editing the property; the screen
+  updates live.
 - **A briefing** while they're away: one note, updated in place at every milestone, not a diary. Needs-you
   first, then what's live, done, in progress and decisions made; superseded briefings move to an archived
-  child. Give it a `[page::…]` and a low `[welcome::n]` so it is the first thing they read.
+  child. Give it a `[page::…]` and `[welcome::true]`, and put it first in the Welcome view's order so it is the first thing
+  they read.
 - The morning brief has its own skill: `daily-brief`.
 
 ## Publishing

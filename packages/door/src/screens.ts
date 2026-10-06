@@ -234,7 +234,7 @@ const ITEMS: MenuItem[] = [
   { key: "X", label: "Showcase", open: () => new Showcase(), one: "showcase" },
   // The daily brief (PIE-435), on the key line too: T for today (B is the Bulletin).
   { key: "T", label: "Today", open: () => openScreen("brief"), one: "brief" },
-  // float-hub's own views: its outbox items still waiting, and the welcome notes ([welcome::1]…; without
+  // float-hub's own views: its outbox items still waiting, and the welcome notes ([welcome::…] in the Welcome view's order; without
   // any, the agents' [[claude-now]] page, which C pinned before).
   { key: "O", label: "Waiting", open: () => openScreen("waiting"), one: "waiting" },
   { key: "C", label: "Welcome", open: () => openScreen("welcome"), one: "welcome" },

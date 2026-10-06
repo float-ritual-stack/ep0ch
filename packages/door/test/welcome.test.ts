@@ -4,7 +4,7 @@ import { join } from "node:path";
 import type { Art, Cell } from "../src/ansi";
 import { App, type Screen } from "../src/app";
 import type { Msg } from "../src/board";
-import { densest, logoCells, orderWelcome, placeOfKey, tabKey, type WelcomeDetail, type WelcomeList, type WelcomePreview } from "../src/hub/welcome";
+import { densest, logoCells, orderWelcome, WELCOME_VIEW_TEXT, placeOfKey, tabKey, type WelcomeDetail, type WelcomeList, type WelcomePreview } from "../src/hub/welcome";
 import { BacklinksPane } from "../src/desk/backlinks-pane";
 import { Desk } from "../src/desk/desk";
 import { ReaderPane } from "../src/desk/panes";
@@ -24,9 +24,11 @@ const art = (lines: string[]): Art => {
 };
 
 describe("which notes are welcome notes, in what order", () => {
-  test("numbers first, lowest first ([welcome::1] opens); any other value after them, by title", () => {
-    const list = [row("z", "true", "Zebra notes"), row("two", "2", "House rules"), row("a", "yes", "Apple notes"), row("one", "1", "Start here"), row("ten", "10", "Late")];
-    expect(orderWelcome(list).map(m => m.id)).toEqual(["one", "two", "ten", "a", "z"]);
+  test("the Welcome view's hand-set order first; any the order doesn't place after, by title; the value only marks a note", () => {
+    const list = [row("z", "true", "Zebra notes"), row("two", "true", "House rules"), row("a", "yes", "Apple notes"), row("one", "true", "Start here"), row("ten", "10", "Late")];
+    expect(orderWelcome(list, ["one", "two", "ten"]).map(m => m.id)).toEqual(["one", "two", "ten", "a", "z"]);
+    // With no Welcome view: by title, whatever the values are (a number is no longer a place).
+    expect(orderWelcome(list).map(m => m.id)).toEqual(["a", "two", "ten", "one", "z"]);
   });
   test("the keys: 1-9 then 0 for the tenth; none after", () => {
     expect([0, 8, 9, 10].map(tabKey)).toEqual(["1", "9", "0", null]);
@@ -98,7 +100,7 @@ describe.skipIf(!outliner)("the welcome screen", () => {
     expect(top().name).toBe("welcome");
     await until(() => list().items !== null, "the welcome notes asked for");
     expect(screen()).toContain("No note is a welcome note");
-    expect(screen()).toContain("Tag one [welcome::1]");
+    expect(screen()).toContain("Tag one [welcome::true]");
     expect(screen()).toContain("Nothing to read yet");
     idle();
     await expect(app.act({ action: "welcome.select", args: { n: 1 }, as: "test-agent" })).rejects.toThrow(/no note is a welcome note yet/);
@@ -132,10 +134,35 @@ describe.skipIf(!outliner)("the welcome screen", () => {
   test("tagged notes replace the fallback, in order; the first is the detail and has the keys", async () => {
     n.kettle = await board.createBlock(null, "The kettle\nIt whistles now.");
     n.shelf = await board.createBlock(null, `Tea shelf\nNext to ((${n.kettle.id}|the kettle)).`);
-    n.rules = await board.createBlock(null, "House rules [welcome::2]\nWipe the counter.");
+    n.rules = await board.createBlock(null, "House rules [welcome::true]\nWipe the counter.");
     n.apple = await board.createBlock(null, "Apple notes [welcome::true]\nCrisp ones only.");
-    n.start = await board.createBlock(null, `Start here [welcome::1]\nFirst, boil ((${n.kettle.id}|the kettle)). Then read the rules.`);
-    await until(() => list().items?.length === 3 && tileOf<WelcomeDetail>("detail").msg?.id === n.start.id, "three welcome notes, the first in the detail");
+    n.start = await board.createBlock(null, `Start here [welcome::true]\nFirst, boil ((${n.kettle.id}|the kettle)). Then read the rules.`);
+    // No Welcome view yet: by title. Start here goes first by hand (alt+↑ in the list, twice), which makes the view.
+    await until(() => list().items?.length === 3, "three welcome notes");
+    expect(list().items!.map(m => m.id)).toEqual([n.apple.id, n.rules.id, n.start.id]);
+    expect(list().orderView).toBeNull();
+    await top().dispatch.act({ action: "welcome.select", args: { id: n.start.id } }, { kind: "user" });
+    press({ kind: "tab" }); press({ kind: "tab" }); press({ kind: "tab" });
+    expect(focus()).toBe("welcome");
+    press({ kind: "alt-up" });
+    await until(() => list().items?.[1]?.id === n.start.id && !!list().orderView, "alt+↑: one place up, the Welcome view made");
+    expect((app as any).message).toContain("made the Welcome view");
+    press({ kind: "alt-up" });
+    await until(() => list().items?.[0]?.id === n.start.id, "alt+↑ again: first");
+    expect((await board.get(list().orderView!.id))!.text).toContain("[query::welcome]");
+    // A drag in the list: House rules (third now) dropped on the second row.
+    const listRect = (top().layoutGet() as any).tiles.find((t: any) => t.name === "welcome").rect;
+    const rulesRow = at("House rules", listRect.row), appleRow = at("Apple notes", listRect.row);
+    press({ kind: "mouse", action: "down", button: 0, x: rulesRow.x, y: rulesRow.y }); press({ kind: "mouse", action: "up", button: 0, x: appleRow.x, y: appleRow.y });
+    await until(() => list().items?.[1]?.id === n.rules.id, "the drag: House rules second");
+    // An agent's move, by act, is said; the order is the view's, so `ep0ch view order` would show the same.
+    idle();
+    await app.act({ action: "welcome.move", args: { id: n.apple.id, to: 3 }, as: "test-agent" });
+    expect(list().items!.map(m => m.id)).toEqual([n.start.id, n.rules.id, n.apple.id]);
+    expect((await board.viewOrder(list().orderView!.id)).blockIds.slice(0, 3)).toEqual([n.start.id, n.rules.id, n.apple.id]);
+    // The first in the order is 1: picked, it's the detail, with the keys.
+    ch("1");
+    await until(() => tileOf<WelcomeDetail>("detail").msg?.id === n.start.id, "1: Start here, first by hand");
     await until(() => screen().includes("First, boil"), "the first note drawn");
     expect(list().items!.map(m => m.id)).toEqual([n.start.id, n.rules.id, n.apple.id]);
     expect(focus()).toBe("detail");
@@ -292,7 +319,7 @@ describe.skipIf(!outliner)("the welcome screen", () => {
   });
 
   test("past ten notes the tenth is 0 and the rest are … more, which goes to the list", async () => {
-    for (let i = 3; i <= 12; i++) await board.createBlock(null, `Extra ${String(i).padStart(2, "0")} [welcome::${i}]`);
+    for (let i = 3; i <= 12; i++) await board.createBlock(null, `Extra ${String(i).padStart(2, "0")} [welcome::true]`);
     await until(() => list().items?.length === 13, "thirteen welcome notes");
     await until(() => screen().includes("… 3 more"), "the more tab");
     ch("0");
@@ -344,4 +371,43 @@ describe.skipIf(!outliner)("a backlinks tile on the desk", () => {
     await until(() => reader.msg?.id === a.id, "⏎: the source is the current note");
     void b;
   }, 30_000);
+});
+
+describe.skipIf(!outliner)("the one-off: [welcome::n] numbers become the Welcome view's hand-set order", () => {
+  const scratch = new Scratch();
+  let board: SocketBoard;
+  beforeAll(async () => { board = new SocketBoard(await scratch.start()); await board.info(); }, 30_000);
+  afterAll(async () => { board?.close(); await scratch.dispose(); });
+  const run = (...more: string[]) => {
+    const env = { ...(process.env as Record<string, string>), ...scratch.env };
+    delete env.EP0CH_SOCKET;
+    const r = Bun.spawnSync(["bun", "scripts/welcome-order.ts", "--ws", scratch.name, ...more], { cwd: join(import.meta.dir, ".."), env });
+    return { code: r.exitCode, out: r.stdout.toString(), err: r.stderr.toString() };
+  };
+
+  test("a dry run says the order and writes nothing; --apply makes the view, sets its order and rewrites the values to true", async () => {
+    const user = { kind: "user" } as const;
+    const rules = await board.createBlock(null, "House rules [welcome::2]\nWipe the counter.", user);
+    const start = await board.createBlock(null, "Start here [welcome::1]\nBoil the kettle.", user);
+    const apple = await board.createBlock(null, "Apple notes [welcome::yes]\nCrisp ones only.", user);
+    const dry = run();
+    expect(dry.code).toBe(0);
+    expect(dry.out).toMatch(/1\. Start here \[welcome::1\][\s\S]*2\. House rules \[welcome::2\][\s\S]*3\. Apple notes \[welcome::yes\]/);
+    expect(dry.out).toContain("no Welcome view yet: one is made");
+    expect(dry.out).toContain("nothing written yet");
+    expect((await board.get(start.id))!.props.welcome).toBe("1");
+    const done = run("--apply");
+    expect(done.code).toBe(0);
+    expect(done.out).toContain("✓ 3 value(s) rewritten to true");
+    for (const m of [rules, start, apple]) expect((await board.get(m.id))!.props.welcome).toBe("true");
+    const { welcomeView, findWelcome } = await import("../src/hub/welcome");
+    const view = await welcomeView(board);
+    expect(view!.props).toMatchObject({ type: "virtual-branch", query: "welcome" });
+    expect((await findWelcome(board)).notes.map(m => m.id)).toEqual([start.id, rules.id, apple.id]);
+    // The view it made is the agent's that ran it (a property patch keeps the note's own author).
+    expect((await board.get(view!.id))!.author).toBe("welcome-order");
+    // Again: nothing left to rewrite, the same order.
+    expect(run("--apply").out).toContain("0 value(s) to rewrite");
+    expect((await findWelcome(board)).notes.map(m => m.id)).toEqual([start.id, rules.id, apple.id]);
+  }, 60_000);
 });
