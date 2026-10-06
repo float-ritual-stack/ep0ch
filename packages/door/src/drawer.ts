@@ -602,7 +602,7 @@ export class AgentDrawer {
    * person's drawer pulls the drawer up on it (their keys with it when they had them); an agent's adds the tab behind
    * the one shown and leaves the drawer and the keys as they are.
    */
-  put(from: Desk, name: string, actor: Actor): TileDone {
+  put(from: Desk, name: string, actor: Actor, keys = false): TileDone {
     const d = this.desk;
     if (!d) throw new ActionRefused("the drawer isn't ready (no screen is shown yet)");
     if (from === d) throw new ActionRefused(`${name} is in the drawer already`);
@@ -619,7 +619,7 @@ export class AgentDrawer {
       // Shown on its tab, the drawer up; the keys come along only when they were in it.
       d.run("tab.select", {}, done.tile);
       if (!this.open && this.mode !== "none") this.do({ op: "slide", tile: HOST_TILES, open: true }, actor);
-      if (moved.typing && this.open) { this.do({ op: "focus", tile: HOST_TILES }, actor); this.intoShown(); }
+      if ((moved.typing || keys) && this.open) { this.do({ op: "focus", tile: HOST_TILES }, actor); this.intoShown(); }
       this.save();
     }
     this.d?.shownAs(this.shown);

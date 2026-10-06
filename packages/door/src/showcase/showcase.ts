@@ -26,6 +26,8 @@ import { Desk, DESK_ACTIONS } from "../desk/desk";
 import { openScreen } from "../desk/screen-specs";
 import { autoName, serializeTree } from "../desk/screen-layout";
 import type { SavedTree, TileSpec } from "../desk/tiles";
+import type { NewNoteOpens, NewNoteRule } from "../desk/screen-spec";
+import type { NewNoteHow } from "../new-note";
 import { TILE_ACTIONS } from "../desk/tile-actions";
 import { PANE_ACTIONS } from "../desk/pane-actions";
 import { BOARD_ACTIONS } from "../desk/lanes";
@@ -328,8 +330,8 @@ export const SECTIONS: Section[] = [
     },
   },
   {
-    key: "newnotes", need: "make a new note or page from anywhere", part: "note.new (ctrl+n on every screen, + on the menu, act) asks the service's notes.create, whose placement rule puts it (under the note in the reader you're in, else the top of the Inbox), then opens it where opens land through the reader's own edit; a missing [[page]] is offered, then made by page.create (pages.follow, the same rule); a lone [page::x] titles itself (outline-core's page-title rule, on ⏎ and on every save)", files: "src/new-note.ts, outline-core/src/page-title.ts, outliner src/note-placement.ts, src/surface/note.ts",
-    aside: "go in (⏎), then ctrl+n: a note under this one opens to be written · ] to [[Seed swap ledger]], ⏎ offers it, ⏎ again makes it in the Inbox · type [page::2026-03-12] and ⏎ on the first line of a new note",
+    key: "newnotes", need: "make a new note or page from anywhere", part: "note.new (ctrl+n on every screen, in an edit too, + on the menu, act) asks the service's notes.create, whose placement rule puts it (under the note in the reader you're in, else the top of the Inbox), then opens it where the screen spec's newNote says (PIE-591): a float over the screen by default, by the layout engine's own float (as many as you like, cascaded; its title drags it, onto a header or the edge docks it; × or esc on it still empty trashes it), a tab, your drawer, or the board's lanes' card.new; a missing [[page]] is offered, then made by page.create (pages.follow, the same rule); a lone [page::x] titles itself (outline-core's page-title rule, on ⏎ and on every save)", files: "src/new-note.ts, src/desk/desk.ts (editNew, openNoteTile, floatDock), src/desk/screen-spec.ts (newNote), outline-core/src/page-title.ts, outliner src/note-placement.ts, src/surface/note.ts",
+    aside: "go in (⏎), then ctrl+n, ctrl+n, ctrl+n: a floating note each, under this one, the newest with your keys · type, ctrl+n again: what you typed is saved, the next floats · drag a float's title onto this reader's header: it docks as a tab · × or esc on an empty one puts it in the trash · ] to [[Seed swap ledger]], ⏎ offers it, ⏎ again makes it in the Inbox · type [page::2026-03-12] and ⏎ on the first line of a new note",
     stage(n, show) {
       const a = new ReaderPane();
       return deskOf({ title: "showcase · new notes", panes: [a] }, show, [[a, n.newNotes]]);
@@ -563,14 +565,23 @@ export class Showcase implements Screen {
   /** The note in the reader the person is in on the shown stage (PIE-544): a new note goes under it. */
   noteContext(): string | null { return this.focus === "stage" ? this.stages.get(this.sel)?.top.noteContext?.() ?? null : null; }
   /** A new note opened to be written on the shown stage, as its desk opens one; the person's keys go into the stage. */
-  async editNew(m: Msg): Promise<string | null> {
+  async editNew(m: Msg, how?: NewNoteHow): Promise<string | null> {
     const f = this.stage(this.sel);
     if (!f?.top.editNew) throw new ActionRefused(`the ${SECTIONS[this.sel]!.key} section has no reader to write a new note in`);
     const was = this.focus;
     this.focus = "stage";
-    const at = await f.top.editNew(m).catch(e => { this.focus = was; throw e; });
+    const at = await f.top.editNew(m, how).catch(e => { this.focus = was; throw e; });
     if (!at) this.focus = was;
     return at;
+  }
+  /** The shown stage's own new-note rule, and its edit where ctrl+n is still a note (PIE-591), while the keys are in it. */
+  newNoteRule(): NewNoteRule | null { return this.focus === "stage" ? this.stages.get(this.sel)?.top.newNoteRule?.() ?? null : null; }
+  newNoteWhileTyping(): boolean { return this.focus === "stage" && !!this.stages.get(this.sel)?.top.newNoteWhileTyping?.(); }
+  /** An agent's new note shown on the stage (note.new opens=), never taking the person's keys. */
+  async showNew(m: Msg, opens: NewNoteOpens, actor: Actor): Promise<string | null> {
+    const f = this.stage(this.sel);
+    if (!f?.top.showNew) throw new ActionRefused(`the ${SECTIONS[this.sel]!.key} section has no tiles to show a new note in`);
+    return f.top.showNew(m, opens, actor);
   }
   openBlock(m: Msg) { const f = this.stage(this.sel); if (!f?.top.openBlock) throw new ActionRefused(`the ${SECTIONS[this.sel]!.key} section can't open blocks`); f.top.openBlock(m); }
 

@@ -10,7 +10,7 @@ import { MainMenu, MessageReader } from "../src/screens";
 import { Refused, SocketBoard } from "../src/socket";
 import type { Key } from "../src/term";
 import { Draft } from "../src/edit";
-import { putAway } from "../src/new-note";
+import { personOpens, putAway } from "../src/new-note";
 import { outliner, Scratch, until } from "./scratch";
 
 const char = (ch: string): Key => ({ kind: "char", ch });
@@ -119,7 +119,7 @@ describe.skipIf(!outliner)("new notes from anywhere (PIE-544)", () => {
     await reads(async () => (await board.get(second))?.props === undefined || !(await board.children(inbox)).some(m => m.id === second), "the empty note trashed", 5000);
   }, 30_000);
 
-  test("ctrl+n in a desk reader: under the note it shows, opened where opens land with the keys; esc on it empty puts it in the trash", async () => {
+  test("ctrl+n in a desk reader: under the note it shows, floating with the keys; esc on it empty puts it in the trash and the float goes", async () => {
     let key: (k: Key) => void = () => {};
     const app = new App(term(f => { key = f; }) as any, board, Date.now(), () => {});
     app.push(new MainMenu());
@@ -146,33 +146,38 @@ describe.skipIf(!outliner)("new notes from anywhere (PIE-544)", () => {
       await until(() => !!editing(), "the new note's edit open", 8000);
       const r = editing(), id = r.surface.draft.blockId;
       expect((await board.get(id))!.parentId).toBe(notes.plot.id);
-      // The note being read stays read: the new one opens in a reader beside it (as O gives), never over it.
+      // The note being read stays read: the new one floats over the screen in a tile of its own (PIE-591), never over it.
       expect(r).not.toBe(plot);
+      expect(desk.isFloat(desk.idOf(r))).toBe(true);
       expect(plot.msg?.id).toBe(notes.plot.id);
       expect(desk.panes.get(desk.focus)).toBe(r);
       await until(() => desk.entered.in(r), "the person is in the new note's edit", 5000);
       // Nothing typed: esc closes it, and the empty note goes to the trash; the plot notes are where they were.
       key({ kind: "esc" });
       await reads(async () => !(await childrenOf(notes.plot.id)).includes(""), "the empty note trashed", 5000);
+      await until(() => desk.idOf(r) === undefined, "its float gone with it", 5000);
       expect(plot.msg?.id).toBe(notes.plot.id);
-      // ctrl+n while the person types in an edit is typed there, never a note.
-      desk.focusOn(desk.nameOf([...desk.panes].find(([, p]: any) => p === plot)![0]));
-      const before = (await childrenOf(notes.plot.id)).length;
+      // ctrl+n while the person types in an edit (PIE-591): that edit is left as a click away leaves it (what was
+      // typed saved), and a new note floats over the screen with the keys.
+      const plotName = desk.nameOf([...desk.panes].find(([, p]: any) => p === plot)![0]);
+      desk.focusOn(plotName);
       key(char("e"));
-      await until(() => !!plot.surface.draft, "the plot notes' edit", 5000);
+      await until(() => !!plot.surface.draft && desk.entered.in(plot), "the plot notes' edit", 5000);
+      key({ kind: "end" });
+      for (const c of " Sown 3 May.") key(char(c));
       key(ctrl("n"));
-      await Bun.sleep(300);
-      expect(plot.surface.draft.blockId).toBe(notes.plot.id);
-      expect((await childrenOf(notes.plot.id)).length).toBe(before);
-      plot.surface.closeDraftAction(true);
-      // Again from the plot notes: it lands in the reader beside them (their link now), and once written and saved
-      // the desk names it by what was written, never the "(empty)" it opened as.
-      key(ctrl("n"));
-      await until(() => !!editing() && editing().surface.draft.blockId !== notes.plot.id, "a second new note's edit", 8000);
-      expect(plot.msg?.id).toBe(notes.plot.id);
+      await until(() => !!editing() && editing() !== plot && editing().surface.draft.blockId !== notes.plot.id, "a new note's edit from the edit", 8000);
+      await reads(async () => (await board.get(notes.plot.id))!.text.includes("Sown 3 May."), "the left edit saved");
+      expect(plot.surface.draft).toBeFalsy();
+      const fromEdit = editing();
+      expect(desk.isFloat(desk.idOf(fromEdit))).toBe(true);
+      expect((await board.get(fromEdit.surface.draft.blockId))!.parentId).toBe(notes.plot.id);
+      // Written and saved, its float names it by what was written, never the "(empty)" it opened as; the current note
+      // (what following readers show) stays the person's reading place.
       for (const c of "Beans up") key(char(c));
       key(ctrl("s"));
-      await until(() => (desk.describe().current as any)?.title === "Beans up", "the desk naming the saved note", 5000);
+      await until(() => !fromEdit.surface.draft && fromEdit.title() === "Beans up", "the float naming the saved note", 5000);
+      expect((desk.describe().floats as any[]).some(f => f.title === "Beans up")).toBe(true);
       // An empty reader (^W o d) offers a new note, and ctrl+n there writes it in that reader.
       const opened = await app.act({ action: "tile.open", args: { kind: "detail", name: "blank" } }) as any;
       const blank = desk.panes.get(desk.idNamed("blank")) as any;
@@ -182,6 +187,78 @@ describe.skipIf(!outliner)("new notes from anywhere (PIE-544)", () => {
       key(ctrl("n"));
       await until(() => !!blank.surface.draft, "the new note's edit in the empty reader", 8000);
       expect(opened).toBeTruthy();
+    } finally { desk.dispose?.(); }
+  }, 30_000);
+
+  test("floating new notes (PIE-591): a click away keeps an empty one open; × saves a written one; opens=tab and drawer; note.opens remembered", async () => {
+    let key: (k: Key) => void = () => {};
+    const app = new App(term(f => { key = f; }) as any, board, Date.now(), () => {});
+    app.push(new MainMenu());
+    const desk = new Desk() as any;
+    app.push(desk);
+    try {
+      desk.render(desk.ctx);
+      await until(() => desk.panes.size > 0, "the desk's tiles", 10_000);
+      await app.act({ action: "tile.open", args: { kind: "detail", note: notes.plot.id, name: "plotf" } });
+      const plot = desk.panes.get(desk.idNamed("plotf")) as any;
+      await until(() => plot?.msg?.id === notes.plot.id, "the detail on the plot notes");
+      desk.focusOn("plotf");
+      const floats = () => (desk.describe().floats as any[]).filter(f => f.newNote);
+      // Two, the keys on the second: the first, not typed in, stays open where it is (a burst never trashes them).
+      key(ctrl("n")); key(ctrl("n"));
+      await until(() => floats().length === 2 && floats().every(f => f.writing), "two floating drafts", 8000);
+      const [a, b] = floats();
+      // From a new note's float, the next goes beside it (its context), not under it; only while it shows that note.
+      expect(desk.noteContext()).toBe(notes.plot.id);
+      expect((await board.get(b.id))!.parentId).toBe(notes.plot.id);
+      // A click away from the second (on the plot detail): nothing typed, so it stays open and empty, never trashed.
+      desk.render(desk.ctx);
+      const pr = desk.rectsNow().get(desk.idNamed("plotf"));
+      key({ kind: "mouse", action: "down", button: 0, x: pr.col + 2, y: pr.row + pr.rows - 2 }); key({ kind: "mouse", action: "up", button: 0, x: pr.col + 2, y: pr.row + pr.rows - 2 });
+      await Bun.sleep(200);
+      expect(floats().map(f => f.id)).toEqual([a.id, b.id]);
+      expect(floats().every(f => f.writing)).toBe(true);
+      expect(await board.get(b.id)).toBeTruthy();
+      // Written, its × (tile.close) saves it and closes it; the empty one's trashes it.
+      desk.focusOn(b.tile); key(char("e"));
+      await until(() => desk.newNoteWhileTyping(), "in b's edit", 5000);
+      for (const c of "Netting up") key(char(c));
+      await desk.dispatch.press("tile.close", {}, b.tile);
+      await reads(async () => (await board.get(b.id))?.text === "Netting up", "the written one saved on close");
+      await until(() => !floats().some(f => f.id === b.id), "its float closed");
+      await desk.dispatch.press("tile.close", {}, a.tile);
+      await reads(async () => await board.isTrashed(a.id) === true, "the empty one trashed on close");
+      await until(() => floats().length === 0, "both closed");
+      // opens=tab: a new tab on the tile the person is in, its edit open there.
+      desk.focusOn("plotf");
+      const you = (action: string, args: Record<string, unknown> = {}) => (app as any).dispatch.press(action, args);
+      const t = await you("note.new", { opens: "tab" });
+      expect(t.opens).toBe("tab");
+      const tree = JSON.stringify((await desk.dispatch.press("layout.get") as any).tree);
+      expect(tree).toContain(`"tabs":["plotf","${t.reader}"]`);
+      expect(desk.describe().focusName).toBe(t.reader);
+      await desk.dispatch.press("tile.close", {}, t.reader);
+      // note.opens: the person's choice, remembered; EP0CH_NEW_NOTE wins in a door that sets it.
+      expect(await you("note.opens", { opens: "drawer" })).toMatchObject({ opens: "drawer", changed: true });
+      expect(personOpens({})).toBe("drawer");
+      expect(personOpens({ EP0CH_NEW_NOTE: "tab" })).toBe("tab");
+      await expect(app.act({ action: "note.opens", args: { opens: "drawer" }, as: "gardener" })).rejects.toThrow("the person's own setting");
+      // An agent's opens=drawer is refused before anything is made.
+      const inboxNow = (await childrenOf(inbox)).length;
+      await expect(app.act({ action: "note.new", args: { text: "Rake leaves", opens: "drawer" }, as: "gardener" })).rejects.toThrow("person's drawer");
+      expect((await childrenOf(inbox)).length).toBe(inboxNow);
+      // The drawer: the new note's tile goes into it, the drawer up on it with the keys and its edit open.
+      desk.focusOn("plotf");
+      const d = await you("note.new");
+      expect(d.opens).toBe("drawer");
+      const drawer = (app as any).drawer.desk;
+      await until(() => !!drawer?.pane(d.reader)?.surface?.draft, "the new note's edit in the drawer", 8000);
+      expect(floats().length).toBe(0);
+      expect(await you("note.opens", { opens: "float" })).toMatchObject({ opens: "float" });
+      // Put away as it came: the drawer's note closed (still empty: to the trash), the drawer down (it's saved state).
+      await drawer.dispatch.press("tile.close", {}, d.reader);
+      await reads(async () => await board.isTrashed(d.id) === true, "the drawer's empty note trashed on close");
+      await you("host.toggle", { open: false });
     } finally { desk.dispose?.(); }
   }, 30_000);
 

@@ -81,6 +81,8 @@ export interface DeskApi {
   coverOf?(p: Pane): "full" | "peek" | "spine" | undefined;
   /** The tile named `name` on this screen. */
   pane?(name: string): Pane | undefined;
+  /** Reader `p`'s note went to the trash empty (a new note closed unwritten): a tile made for it alone goes (PIE-591). */
+  noteGone?(p: Pane, id: string): void;
   /** Tile `p`'s name (what `tile=` and `open from=` take). */
   nameOfPane?(p: Pane): string;
   /** Tile `p` is in a dock (not pinned in the layout). */
@@ -263,6 +265,7 @@ export class ReaderPane implements Pane {
       ...(desk.press ? { press: (name: string, args: Record<string, unknown>, quiet?: boolean | ((why: string) => string | null), given?: SurfaceHost) => desk.press!(this, NOTE_ACTIONS, name, args, quiet, given) } : {}),
       // `b`: this note's links in the screen's links tile (one opened beside it where there's none).
       ...(desk.openLinks ? { links: (actor: Actor) => desk.openLinks!(this, actor) } : {}),
+      ...(desk.noteGone ? { gone: (id: string) => desk.noteGone!(this, id) } : {}),
       // A reader that follows another tile takes `p` (hold) before the surface does.
       ...(this.follows ? { ownKeys: "p" } : {}),
     };

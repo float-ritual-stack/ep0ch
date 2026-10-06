@@ -16,7 +16,7 @@ import { readLinks } from "../links";
 import type { Placement } from "../kitty";
 import { whoOf, USER, type Actor, type OutlineEvent } from "../socket";
 import { ActionRefused, ActionSet, actionSet, def, asBoundKey, hintSpots, keyName, type ActRequest } from "../surface/actions";
-import { newNoteOffer } from "../new-note";
+import { newNoteOffer, type NewNoteHow } from "../new-note";
 import { actorRule, Dispatcher, type Delegation, type MenuRow, type Registration, type RunHow, type TileRef } from "../surface/dispatch";
 import type { ScreenKeys, Whereabouts } from "../whereabouts";
 import { armsEdit, leaveSaid, NOTE_ACTIONS, type OpenHow, type SurfaceHost } from "../surface/note";
@@ -26,7 +26,7 @@ import { jevOff, notConfigured, SEARCH_JEV_PAUSE_MS } from "../surface/completer
 import { Modes } from "../surface/modes";
 import { centred, linePrompt, ListPicker, pickRow } from "../surface/picker";
 import { outlineState, readState, writeState } from "../state";
-import { containerKeys, leafNames, madeScreen, savedNodes, screenNames, screenTargetArg, specData, type ScreenSpec } from "./screen-spec";
+import { containerKeys, leafNames, madeScreen, newNoteRule, savedNodes, screenNames, screenTargetArg, specData, type NewNoteOpens, type NewNoteRule, type ScreenSpec } from "./screen-spec";
 import { saveScreenNote, ScreenConflict, screenNotes, trashScreenNote } from "./screen-notes";
 import { visible as visibleText, bg, BOLD, C, fgRgb, chip as chipStyle, fg, fitHint, headOf, pad, paint, RESET, selected, width } from "../style";
 import { theme, themed } from "../theme";
@@ -162,8 +162,12 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /** ^W P: the policy panel over the focused tile's containers. */
   /** The spines drawn, for a click. */
   private spines: [number, Rect][] = [];
-  /** A float's title or ◢ corner being dragged: it follows the pointer by `float.place`. */
-  private floatDrag: { id: number; size: boolean; dx: number; dy: number } | null = null;
+  /**
+   * A float's title or ◢ corner being dragged: it follows the pointer by `float.place`. Its title over a tile's header,
+   * a dock's handle or the screen's outer edge (PIE-591) is a place to dock it (`drop`): released there, it's a
+   * `layout.move` into the layout, as a tile's drag is; anywhere else it only moves.
+   */
+  private floatDrag: { id: number; size: boolean; dx: number; dy: number; drop?: Drop<number> | null; x?: number; y?: number } | null = null;
   /** The layout last loaded or saved by name. */
   private layoutName: string | null = null;
   /** The terminal tile the person is typing in: every key but the escape chord is its program's. */
@@ -298,15 +302,17 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   // ── the layout's one way to change (PIE-513) ──
 
   /** What a tile is, as the layout's rules need it (its kind, its kind's policy, what keeps it, what it holds). */
-  private facts(id: number): TileFacts {
+  private facts(id: number, actor?: Actor): TileFacts {
     const p = this.panes.get(id), k = kindOf(p), src = this.sourced.get(id);
+    // A new note's tile (PIE-591) closes with its edit for the person: closeTile leaves the edit first (never lost).
+    const closesWithEdit = !!actor && actor.kind !== "agent" && !!madeFor(p);
     const how = src ? tileSource(src.source)?.source.drop : undefined;
     return {
       kind: this.unregistered.get(id)?.kind ?? p?.kind ?? "tile",
       ...(k?.policy ? { policy: k.policy } : {}), ...(k?.stays ? { stays: k.stays } : {}), ...(k?.accepts?.tiles ? { tabs: k.accepts.tiles } : {}), notes: !!k?.accepts?.notes,
       ...(src ? { keeps: `${src.source} supplies it, and it goes when its data does${how ? ` · to drop it, ${how}` : ""}` } : {}),
       ...(k?.placeholder ? { placeholder: true } : {}),
-      ...(p instanceof ReaderPane && p.editing ? { editing: sessionName(p) } : {}),
+      ...(p instanceof ReaderPane && p.editing && !(closesWithEdit && p.surface.drafting) ? { editing: sessionName(p) } : {}),
       ...(p instanceof PtyPane && p.running ? { running: p.run.cmd[0] ?? "a program" } : {}),
       ...(p && this.holdsWork(p) ? { holds: true } : {}),
     };
@@ -320,7 +326,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const w = this.dispatch.where();
     const typing = w.typingIn !== null ? this.idNamed(w.typingIn) ?? null : null;
     return {
-      actor, area: this.area, tile: id => this.facts(id),
+      actor, area: this.area, tile: id => this.facts(id, actor),
       person: { focus: this.focus, typingIn: typing, busy: w.busy, held: actorRule({ touches: "screen" }, actor, w, {}), here: w.focus !== null || w.typingIn !== null },
       kinds: { all: tileKindNames(), notes: tileKinds().filter(k => k.accepts?.notes).map(k => k.kind) },
     };
@@ -1563,23 +1569,61 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     return best;
   }
 
-  /** The note in the reader the person is in (PIE-544): a new note goes under it. A list, a lane or a terminal: none (the Inbox). */
+  /**
+   * The note in the reader the person is in (PIE-544): a new note goes under it. A list, a lane or a terminal: none (the
+   * Inbox). In a tile made for a new note (PIE-591), where that one went: a burst of ctrl+n makes siblings, not a chain.
+   */
   noteContext(): string | null {
-    const p = this.panes.get(this.focus);
+    const p = this.panes.get(this.focus), made = madeFor(p);
+    if (made && p instanceof ReaderPane && p.msg?.id === made.id) return made.context;
     return p instanceof ReaderPane && p.msg ? p.msg.id : null;
   }
 
+  /** What the spec says ctrl+n does with the keys where they are (PIE-591: the board's lanes make a card), or null. */
+  newNoteRule(): NewNoteRule | null { return newNoteRule(this.spec, this.panes.get(this.focus)?.kind); }
+
+  /** The person is typing in an edit here, nothing else open over it: ctrl+n is still a new note (PIE-591). */
+  newNoteWhileTyping(): boolean {
+    const p = this.focusedReader();
+    return !!p && p.editing && this.entered.in(p) && !this.prefix && !this.overlays.top() && !this.choosingReader() && !this.pending;
+  }
+
+  /** DeskApi.noteGone: a new note's tile (PIE-591) whose note went to the trash unwritten closes with it. */
+  noteGone(p: Pane, _id: string) {
+    const id = this.idOf(p);
+    if (id === undefined || !madeFor(p)) return;
+    this.closeId(id);
+    this.save(); this.redraw();
+  }
+
   /**
-   * A new note for the person to write (PIE-544, `note.new`): where the focused tile's opens land (its link, the
-   * screen's readers row, the next river column, else a free reader), given their keys, its edit open through the
-   * reader's own `edit` (the one editor and draft session). The reader's name, or null when no reader took it.
+   * A new note for the person to write (PIE-544, PIE-591): in a tile of its own where `how` says (a float over the
+   * screen, a new tab on the tile they're in, their drawer), or where the focused tile's opens land (`lands`: its link,
+   * the screen's readers row, the next river column, else a reader beside it); an empty reader they're in (^W o d) takes
+   * it there. Its edit opens through the reader's own `edit` (the one editor and draft session) and their keys go to it.
+   * From an edit, that edit is left as a click away leaves it first (saved when typed in; a new one not typed in yet
+   * stays open, empty, where it is). The reader's name, or null when no reader took it.
    */
-  async editNew(m: Msg): Promise<string | null> {
-    // The note being read stays read: the new one never lands over it. A reader whose opens land nowhere else (no
-    // link, no container, no flow) first gets one beside it, as O gives; a container opens a new tile (fresh).
+  async editNew(m: Msg, how: NewNoteHow = { opens: "lands", context: null }): Promise<string | null> {
     const from = this.focusedName(), f = this.panes.get(this.focus);
     // An empty reader (^W o d) is where the person asked to write: the note opens in it.
     const empty = f instanceof ReaderPane && !f.msg && !f.surface.draft;
+    const writing = this.personIn();
+    if (writing && !this.leaveSession(writing)) this.entered.clear();
+    if (!empty && how.opens !== "lands") {
+      const made = this.openNoteTile(m, how.opens === "tab" ? "tab" : "float", USER, how.context);
+      if (typeof made === "number") {
+        const rd = this.panes.get(made) as ReaderPane, name = this.nameOf(made);
+        // The keys left a dock (the board's outline): it shuts now, as after any key that moves them.
+        this.shutLeftDocks();
+        if (how.opens === "drawer") return this.writeInDrawer(rd, name, m);
+        return await this.writeNew(rd, m) ? name : null;
+      }
+      // Nowhere for it to float (a locked screen): where the screen's opens land, said.
+      this.ctx.flash(`${made} · the new note opens where this screen's opens land`);
+    }
+    // The note being read stays read: the new one never lands over it. A reader whose opens land nowhere else (no
+    // link, no container, no flow) first gets one beside it, as O gives; a container opens a new tile (fresh).
     const into = landing(this.layout, this.focus, this.facts(this.focus));
     if (f instanceof ReaderPane && f.msg && this.linkOf(this.focus) === undefined && !(into && "into" in into) && !this.inFlow(this.focus)) {
       await this.previewTile(from, undefined, USER);
@@ -1596,6 +1640,66 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const open = await this.startSession(rd, "edit") && rd.surface.draft?.blockId === m.id;
     if (!open) rd.surface.markNew(m.id, false);
     return open ? at.reader! : null;
+  }
+
+  /**
+   * An agent's new note shown here for the person (`note.new opens=`, PIE-591): a float or a tab of its own, by the
+   * layout's open as the agent (which never gives it the person's keys), holding the note; no edit is opened.
+   */
+  async showNew(m: Msg, opens: NewNoteOpens, actor: Actor): Promise<string | null> {
+    if (opens === "lands") return this.land(m, actor).reader;
+    if (opens === "drawer") throw new ActionRefused("an agent's note doesn't go into the person's drawer: opens=float or tab shows it on the screen");
+    const made = this.openNoteTile(m, opens, actor, null);
+    if (typeof made === "string") throw new ActionRefused(`not shown: ${made}`);
+    return this.nameOf(made);
+  }
+
+  /**
+   * A detail tile made for new note `m` (PIE-591), holding it: a float over the screen, cascaded from the last (the
+   * layout's float rule), or a new tab on the focused tile (a float, or a tile whose tabs refuse it: a float). One
+   * layout `open`, as `actor`; its id, or the layout's refusal in its words and nothing made.
+   */
+  private openNoteTile(m: Msg, opens: "float" | "tab", actor: Actor, context: string | null): number | string {
+    const tryAt = (at: At<number>) => this.ask({ op: "open", tile: this.nextId, kind: "detail", name: this.autoName("note"), loose: true, at }, actor);
+    const base = this.focus;
+    let r = opens === "tab" && !this.isFloat(base) && visible(this.root).includes(base) ? tryAt({ kind: "tabs", target: base }) : null;
+    if (r && !r.ok && actor.kind !== "agent") this.ctx.flash(`not a tab here (${r.refused}): it floats instead`);
+    if (!r?.ok) r = tryAt({ kind: "float" });
+    if (!r.ok) return r.refused;
+    const pane = makeTile({ kind: "detail" }) as DetailPane;
+    pane.label = "new note";
+    const id = this.put(pane);
+    this.commit(r);
+    this.startTile(id);
+    pane.hold(m, this);
+    // The tile knows what it was made for, wherever it goes (the drawer, another screen): its note and where it went.
+    pane.newNote = { id: m.id, context };
+    this.save(); this.redraw();
+    return id;
+  }
+
+  /**
+   * The edit on a new note's reader, opened whether or not the person's keys are still there (a burst of ctrl+n:
+   * each note gets its edit, the keys stay on the newest); the person is in it when they are.
+   */
+  private async writeNew(rd: ReaderPane, m: Msg, desk: Desk = this): Promise<boolean> {
+    const ok = await rd.surface.editNew(m, rd.host(desk));
+    if (ok && desk.focusedReader() === rd) desk.entered.enter(rd);
+    desk.redraw();
+    return ok;
+  }
+
+  /** The new note's tile into the person's drawer (PIE-591, opens=drawer), the drawer up on it with their keys, its edit open. */
+  private async writeInDrawer(rd: ReaderPane, name: string, m: Msg): Promise<string | null> {
+    const host = this.ctx?.hostLayer;
+    if (host && !host.isDrawer(this)) {
+      try {
+        host.put(this, name, USER, true);
+        const d = host.desks().find(x => host.isDrawer(x));
+        if (d) { const ok = await this.writeNew(rd, m, d); return ok ? d.nameOfPane(rd) : null; }
+      } catch (e) { this.ctx.flash(`not in your drawer (${e instanceof Error ? e.message : String(e)}): it floats here`); }
+    }
+    return await this.writeNew(rd, m) ? name : null;
   }
 
   focusOn(sel: string): { focus: string } {
@@ -1643,7 +1747,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       dragging: this.dragging ? { tile: this.nameOf(this.dragging.src), drop: this.dragging.drop ? dropView(this.dragging.drop, id => this.nameOf(id)) : null } : null,
       layout: describeLayout(this.layout, id => String(order.indexOf(id) + 1)),
       tree: describeLayout(this.layout, id => this.nameOf(id)),
-      floats: this.floats.map(f => ({ ...brief(this.showing(this.panes.get(f.id)!)), tile: this.nameOf(f.id), rect: this.floatRect(f) })),
+      floats: this.floats.map(f => { const p = this.panes.get(f.id)!; return { ...brief(this.showing(p)), tile: this.nameOf(f.id), rect: this.floatRect(f), ...(madeFor(p) ? { newNote: true, writing: p instanceof ReaderPane && !!p.surface.drafting } : {}) }; }),
       // Every reader holding a note, as its surface says it, and whether it's folded (with comments since).
       collapsedReaders: this.namedReaders().filter(r => this.collapsed.has(r.id)).map(r => r.name),
       readers: this.namedReaders().filter(r => r.pane.msg).map(r => { const c = this.collapsed.get(r.id); return { name: r.name, focused: r.id === this.focus, ...r.pane.describe(), ...(c ? { collapsed: true, ...(c.by ? { collapsedBy: c.by } : {}), newComments: r.pane.newComments() } : { collapsed: false }) }; }),
@@ -1689,6 +1793,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       const ids = this.openedTiles(key), pinned = ids.filter(i => !this.isFloat(i)), a = this.activeIn(key);
       for (const id of ids) { const p = this.panes.get(id); if (p instanceof DetailPane) { p.floating = this.isFloat(id); p.opensHere = pinned.length > 1 && id === a; } }
     }
+    // A new note's tile (PIE-591) floating says what it holds, as a float opened into a container does.
+    for (const [id, p] of this.panes) if (madeFor(p)) (p as DetailPane).floating = this.isFloat(id);
     // An empty reader says where its notes come from: the tiles whose opens land in it.
     const into = new Map<number, string[]>();
     for (const id of this.all()) { const to = this.linkOf(id); if (to !== undefined && to !== id) into.set(to, [...(into.get(to) ?? []), this.nameOf(id)]); }
@@ -1758,6 +1864,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     for (const m of this.models.values()) if (m.drawOver?.(canvas, area)) placements = [];
     if (this.dragging) this.drawGhost(canvas, this.dragging.drawer ? null : this.dragging.drop, this.nameOf(this.dragging.src), this.dragging.x, this.dragging.y, this.dragging.drawer ?? undefined);
     else if (this.foreign) this.drawGhost(canvas, this.foreign.drop, this.foreign.name, this.foreign.x, this.foreign.y);
+    else if (this.floatDrag?.drop) this.drawGhost(canvas, this.floatDrag.drop, this.nameOf(this.floatDrag.id), this.floatDrag.x ?? 0, this.floatDrag.y ?? 0);
     // Images would bleed through an overlay.
     for (const o of [...this.overlays.all()].reverse()) { o.draw(canvas, { col: 0, row: 0, cols, rows }); placements = []; }
     const hint = this.hints(cols);
@@ -2100,7 +2207,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   }
 
   /** A float's frame hint, with this screen's keys for putting it back and closing it (the board has its own o and x). */
-  private floatHint(): string { return "drag title · drag ◢ · H J K L move · ^W f back in · ^W x close"; }
+  private floatHint(): string { return "drag title · drag ◢ · H J K L move · ^W f back in · ^W x close · ^N another · its title onto a header or edge docks it"; }
 
   private hints(cols: number): string {
     const rd = this.panes.get(this.focus);
@@ -2144,6 +2251,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (this.dragging) {
       const why = this.dragging.drop?.refused;
       return line(paint(`|14dragging ${this.nameOf(this.dragging.src)}|08 · ${this.dragging.drawer ? `|15${this.dragging.drawer}` : why ? `|12✕ ${why}` : this.dragging.drop ? `|15${this.dragging.drop.label}` : "|08nowhere here"}|08 · a header or the centre makes tabs, a side splits, the outer edge makes a column, a dock's handle docks it here, the drawer chip puts it in your drawer · |15f|08 float · |15p|08 dock · |15a|08 drawer · release drops · esc cancels`));
+    }
+    if (this.floatDrag && !this.floatDrag.size) {
+      const d = this.floatDrag.drop;
+      return line(paint(`|14moving ${this.nameOf(this.floatDrag.id)}|08 · ${d ? (d.refused ? `|12✕ ${d.refused}` : `|15release docks it: ${d.label}`) : "|08release leaves it here"}|08 · onto a tile's header makes it a tab there, the outer edge a column, a dock's handle docks it`));
     }
     if (this.linking) return line(paint(`|13alt+l|08 · click the tile where |15${this.nameOf(this.linking.from)}|08's opens land (or h j k l, or its number) · click it again to unlink · esc cancels`));
     if (this.waitsOnExit()) return line(paint(`|12${this.exitedSay(this.nameOf(this.focus)).replace(" exited · ", " exited|08 · ")}`));
@@ -2591,7 +2702,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const bad = t.name !== undefined ? tileNameProblem(t.name) : null;
     if (bad) throw new ActionRefused(`tile.open: ${bad}`);
     if (t.name && this.idNamed(t.name) !== undefined) throw new ActionRefused(`there's already a tile named ${t.name}`);
-    const base = this.tile(at);
+    // From a float (a new note's, PIE-591) naming no tile: beside the tile under it, where esc in it goes back to.
+    const under = at === undefined && this.isFloat(this.focus) ? this.grounded() : undefined;
+    const base = this.tile(under !== undefined ? this.nameOf(under) : at);
     let spec: TileSpec = { t: "leaf", kind: t.kind, name: t.name ?? (k.word && k.word !== t.kind ? this.autoName(k.word) : undefined), ...(t.cmd ? { cmd: splitWords(t.cmd) } : {}), ...(t.file ? { file: t.file } : {}), ...(t.source ? { source: t.source } : {}), ...(t.note ? { note: t.note } : {}), ...(t.page ? { page: t.page } : {}), ...(t.cwd ? { cwd: t.cwd } : {}), ...(t.view ? { view: t.view } : {}) };
     // The kind checks its fields (a preview's source) and fills what it starts with (it follows `at`).
     const wrong = k.check?.(spec);
@@ -2615,6 +2728,15 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
 
   closeTile(sel: string | undefined, actor: Actor): TileDone {
     const t = this.tile(sel);
+    // A new note's tile (PIE-591) with its edit open: the edit is left first, as a click away leaves it (typed text
+    // saved, else kept as unsent), or closed when nothing was typed (still empty, to the trash); then the tile closes.
+    const nn = this.panes.get(t.id);
+    if (actor.kind !== "agent" && madeFor(nn) && nn instanceof ReaderPane && nn.surface.drafting) {
+      const why = this.ask({ op: "close", tile: t.id }, actor);
+      if (!why.ok) throw new ActionRefused(why.refused);
+      void this.closeNewNote(t.id, nn);
+      return { tile: t.name, closing: true };
+    }
     // A tile in a container that shuts its dock instead (the board's outline and backlinks, `shuts`): it does.
     if (chainOf(this.root, t.id).some(c => c.policy?.shuts)) return this.shutDockOf(t, actor);
     // Every rule (its container's, what keeps it, an edit, the last tile, the person's keys) is the module's.
@@ -2645,6 +2767,17 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (from !== undefined && had && actor.kind !== "agent" && this.panes.has(from)) this.keysTo(from);
     this.save(); this.redraw();
     return { tile: t.name, pane: n, kind };
+  }
+
+  /** `closeTile` on a new note's tile holding its edit (PIE-591): the edit left or closed, then the tile closed. */
+  private async closeNewNote(id: number, rd: ReaderPane) {
+    if (this.entered.in(rd)) this.entered.clear();
+    const said = await this.press(rd, NOTE_ACTIONS, rd.surface.newAndUntouched() ? "edit.close" : "session.leave");
+    const left = said && typeof said === "object" && "left" in said ? leaveSaid(said as Parameters<typeof leaveSaid>[0]) : null;
+    if (left) this.ctx.flash(left, 10000);
+    // Still open (a save still landing, a refusal kept it): the tile stays, and says why where it is.
+    if (!this.panes.has(id) || rd.surface.drafting) return this.redraw();
+    try { this.closeTile(this.nameOf(id), USER); } catch (e) { this.ctx.flash(e instanceof Error ? e.message : String(e)); }
   }
 
   /**
@@ -3624,6 +3757,24 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const where: Where = drop.kind === "edge" ? `edge-${drop.dir}` : drop.kind === "tabs" ? "tabs" : drop.dir;
     return { ...(drop.kind !== "edge" ? { to: this.nameOf(drop.target) } : {}), where, label: drop.label, ...(drop.refused ? { refused: drop.refused } : {}) };
   }
+  /** A drop as `layout.move`'s arguments (a drag's release, a float docked by its title). */
+  private moveArgs(drop: Drop<number>): Record<string, unknown> {
+    return drop.kind === "edge" ? { where: `edge-${drop.dir}` } : drop.kind === "tabs" ? { to: this.nameOf(drop.target), where: "tabs", ...(drop.index !== undefined ? { index: drop.index } : {}) } : { to: this.nameOf(drop.target), where: drop.dir };
+  }
+  /**
+   * Where float `id` docks with its title dragged to x, y (PIE-591), by the same drop zones a tile's drag has, but only
+   * those that can't be meant as a move: a shut dock's handle, the screen's outer edge, a tile's header (its tabs).
+   */
+  private floatDock(id: number, x: number, y: number): Drop<number> | null {
+    const refuse = (to: Place<number>) => refusal(this.layout, { op: "move", tile: id, to }, this.layoutCtx(USER));
+    const handles = this.handles.map(h => ({ from: h.from, to: h.to, row: this.area.row + this.area.rows, shows: shown(h.dock.kid)[0] ?? h.id, edge: h.dock.edge }));
+    const onHandle = handleDrop(handles, this.area, x, y, id, refuse);
+    if (onHandle) return onHandle;
+    const d = dropAt(this.dropTiles(), this.area, x, y, id, true, refuse);
+    if (!d) return null;
+    const header = d.kind === "tabs" && this.dropTiles().some(t => t.id === d.target && t.rect.row === y);
+    return d.kind === "edge" || header ? this.saysDocked(d) : null;
+  }
   /** A drop beside or into a tile in a dock says it docks there (a dock's tiles stay on this screen). */
   private saysDocked(d: Drop<number> | null): Drop<number> | null {
     return d && d.kind !== "edge" && !d.label.includes(DOCK_DROP) && dockOf(this.root, d.target) ? { ...d, label: `${d.label} · ${DOCK_DROP}` } : d;
@@ -3656,6 +3807,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * "saving…" meanwhile, and a refusal puts the draft aside as unsent with a flash.
    */
   private leaveSession(rd: ReaderPane): boolean {
+    // A new note not typed in yet (PIE-591) stays open where it is, empty: only esc or its × puts it away.
+    if (rd.surface.newAndUntouched()) { this.entered.clear(); return true; }
     const why = rd.surface.leaveRefusal();
     if (why) { this.ctx.flash(why); return false; }
     this.entered.clear();
@@ -3717,12 +3870,18 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const p = this.pressed;
     if (k.action === "up") {
       if (this.drag) { this.drag = null; this.save(); }
-      if (this.floatDrag) { this.floatDrag = null; this.save(); return; }
+      if (this.floatDrag) {
+        const g = this.floatDrag;
+        this.floatDrag = null;
+        if (g.drop && !g.drop.refused) return void this.run("layout.move", this.moveArgs(g.drop), this.nameOf(g.id));
+        if (g.drop?.refused) this.ctx.flash(`not docked: ${g.drop.refused}`);
+        this.save(); return this.redraw();
+      }
       const d = this.dragging, h = this.headPress;
       this.dragging = null; this.headPress = null;
       if (d?.drop) {
         const drop = d.drop;
-        this.run("layout.move", drop.kind === "edge" ? { where: `edge-${drop.dir}` } : drop.kind === "tabs" ? { to: this.nameOf(drop.target), where: "tabs", ...(drop.index !== undefined ? { index: drop.index } : {}) } : { to: this.nameOf(drop.target), where: drop.dir }, this.nameOf(d.src));
+        this.run("layout.move", this.moveArgs(drop), this.nameOf(d.src));
       } else if (d) { this.ctx.flash("not moved: dropped where it was"); this.redraw(); }
       else if (h) {
         // A click on a flow column's header is the shift (the river's): it takes the wide place.
@@ -3738,6 +3897,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       if (this.floatDrag) {
         const f = this.floats.find(x => x.id === this.floatDrag!.id), g = this.floatDrag;
         if (f) { const at = this.floatRect(f); this.run("float.place", g.size ? { cols: k.x - at.col + 1, rows: k.y - at.row + 1 } : { col: k.x - g.dx, row: k.y - g.dy }, this.nameOf(g.id)); }
+        if (!g.size && this.floatDrag === g) { g.drop = this.floatDock(g.id, k.x, k.y); g.x = k.x; g.y = k.y; this.redraw(); }
         return;
       }
       // A border follows the pointer by layout.resize (the same action an agent calls).
@@ -3920,6 +4080,9 @@ function readerHears(r: ReaderPane, e: OutlineEvent): boolean {
   if (c.kind === "annotate") return m.id === c.parentId || (r.comments ?? []).some(t => t.id === c.parentId || t.id === id || t.replies.some(x => x.id === id));
   return !!id && m.id === id && c.kind === "edit";
 }
+
+/** What a tile was made for when it's a new note's (PIE-591): its note, and the note it was made from; else null. */
+const madeFor = (p: Pane | undefined): { id: string; context: string | null } | null => (p instanceof DetailPane ? p.newNote : null);
 
 /** How dim a peek column is drawn under its neighbour (the river's cover). */
 const PEEK_DIM = 0.55;

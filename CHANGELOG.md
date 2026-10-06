@@ -10,6 +10,23 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### New notes float, as many as you like (PIE-591)
+
+- **`ctrl+n` never takes over the note you're in.** On the desk (and every screen built on it) a new note floats
+  over the screen with your keys, a draft of its own. Press it again for another, and again: each is cascaded a
+  little lower and to the right, nothing waits on the last, and none is ever refused for "a reader didn't take it".
+- **From an edit too.** `ctrl+n` while you write saves what you typed (as a click away does) and floats the next.
+- **Move it, dock it, close it.** Drag a float by its title; onto a tile's header it joins that tile's tabs, onto
+  the screen's edge it becomes a column, onto a dock's handle it goes into the dock. Its `×` closes it: written,
+  it's saved; still empty, it goes to the trash (as `Esc` on it does).
+- **Never lost.** A float you leave with nothing typed stays open and empty where it is; one you typed in is saved
+  as you leave it. Quitting keeps an open draft as unsent, as any draft.
+- **Your way.** `ep0ch act note.opens opens=tab` (a tab on the tile you're in), `drawer` (your drawer) or `lands`
+  (where the screen's opens land, as before); `float` is the default. `EP0CH_NEW_NOTE` overrides it for one door.
+- **The board's lanes make cards.** `ctrl+n` on a lane opens the new-card composer in that lane (`card.new`, as `n`
+  does), so the card is born with the lane's properties and lands in it. A screen spec says this with `newNote`.
+- **Agents:** `note.new opens=float` (or `tab`) shows an agent's new note to you there, unfocused and attributed.
+
 ### Figures that compare, and figures that fit (PIE-575 to PIE-581)
 
 - **Four kinds for comparisons.** `::graph-quadrant` places notes by two properties (`x:`, `y:`; `xs:`, `ys:` order

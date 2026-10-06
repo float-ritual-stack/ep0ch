@@ -782,7 +782,7 @@ split, tab, drag, link and save, drawn by the door itself, so no multiplexer is 
 | `Tab` / `Shift+Tab`, `1`–`9`, click | focus |
 | `alt+n` / `alt+p` | next / previous tab |
 | `alt+d` | load the `daily` layout |
-| `ctrl+n` | a new note, opened to be written where this tile's opens land: under the note in the reader you're in, else at the top of the Inbox ([New notes and pages](#new-notes-and-pages-pie-544)); on every screen, never while you type |
+| `ctrl+n` | a new note floating over the screen, opened to be written (again for another; from an edit too, what you typed saved first): under the note in the reader you're in, else at the top of the Inbox ([New notes and pages](#new-notes-and-pages-pie-544)); on every screen, never in a filter, a picker or a terminal tile. On the board's lanes: a new card in that lane |
 | `alt+l` | link this tile's opens (then a click, `h j k l` or a number) |
 | `?`, a click on `? more` | when the hint row is too long for the screen (it ends `? more`), show all of it in a box above it (`keys.more`, the person's); a `^W` chord's row shows it at once |
 | `alt+k` | lock or unlock the screen: its shape is fixed (no moves, drops, new tiles, closes, resizes, docks in or out, links, layout loads), its contents stay live (reading, editing, terminals, docks sliding, tabs, zoom) |
@@ -1360,14 +1360,32 @@ The board's new-card composer is the same control too.
 
 ### New notes and pages (PIE-544)
 
-`ctrl+n` makes a new note from any screen and opens it to be written, where the screen's opens land (the
-reader beside, the board's details row, the next river column), in the same editor as `e`. Where it goes is
+`ctrl+n` makes a new note from any screen and opens it to be written, in the same editor as `e`. Where it goes is
 the outline's **placement rule**, kept by the service (`notes.create`, the outliner's `src/note-placement.ts`):
-from a reader, under the note it shows, as its last child; from anywhere else (a list, a lane, a terminal, the
-main menu's `+`), at the top of the Inbox, where quick capture puts its notes. The door only says which note
-you were in; it never works out where the Inbox is. `Esc` on it with nothing typed puts it in the trash and the
-reader goes back. `ctrl+n` is never taken while you type (an edit, a filter, a terminal tile: there it's the
-program's), and the outliner's Tree and Detail bind nothing on it.
+from a reader, under the note it shows, as its last child (from a new note, beside it); from anywhere else (a
+list, a lane, a terminal, the main menu's `+`), at the top of the Inbox, where quick capture puts its notes. The
+door only says which note you were in; it never works out where the Inbox is.
+
+**Where it opens (PIE-591).** On the desk and every screen built on it, a new note **floats** over the screen, a
+draft of its own, a little lower and to the right of the last, with your keys. Press `ctrl+n` as often as you like:
+each is another float, and the one you were in stays open where it was. It works from an edit too: what you typed
+there is saved first, as a click away saves it. A float's title drags it; dropped on a tile's header it docks into
+that tile's tabs, on the screen's outer edge as a column, on a dock's handle into the dock (the hint row says which
+before you let go). Its `×` (or `^W x`) closes it: written, it's saved first; still empty, it goes to the trash.
+`Esc` on it with nothing typed does the same. A draft that loses your keys is never lost: a float you left with
+nothing typed stays open, empty, until you come back to it (`e` or a click enters it); one you typed in is saved as
+you leave it.
+
+- **Elsewhere, or your way.** `note.opens opens=tab` makes them a new tab on the tile you're in, `drawer` a tab in
+  your drawer (pulled up, your keys in it), `lands` where the screen's opens land (a reader beside it, the board's
+  details row, the next river column), `float` again by default; it's remembered (`EP0CH_NEW_NOTE` overrides it
+  for one door). `ep0ch act note.new opens=…` picks for one note.
+- **A screen says its own.** A screen spec's `newNote` rules name what `ctrl+n` does by the focused tile's kind:
+  the board's lanes write a **new card in that lane** (`card.new`, the same composer as `n`), born with the
+  properties the lane's query sets, so it lands in that lane; a float anywhere else on the board.
+- On the BBS screens (the menu, the message reader) it still opens in a reader over the one you're on.
+- `ctrl+n` is never taken in a filter, a picker or a terminal tile (there it's the program's), and the
+  outliner's Tree and Detail bind nothing on it.
 
 - **A missing `[[page]]`** isn't made silently: the first `⏎` or click on `[[Evans Thotts]]` says it has no page
   yet and offers it (under the note's header); the next `⏎` or click on that link, while the offer is still shown
@@ -1380,8 +1398,9 @@ program's), and the outliner's Tree and Detail bind nothing on it.
   from any client (the door, Detail, the CLI, an agent, a quick capture), since the service applies outline-core's
   `page-title.ts` to the texts it's given. A title already there is never touched. A new note saves at once: it had no properties to lose,
   so there's no second `Ctrl+S`.
-- **Agents:** `ep0ch act note.new text=… [near=<id>|inbox=true] --as <id>` makes one, attributed, and says it
-  on your status bar; it opens nothing and never takes your focus. `ep0ch act page.create address=… --as <id>`
+- **Agents:** `ep0ch act note.new text=… [near=<id>|inbox=true] [opens=float|tab] --as <id>` makes one,
+  attributed, and says it on your status bar; it opens nothing (with `opens=`, it's shown there for you, unfocused)
+  and never takes your focus. `ep0ch act page.create address=… --as <id>`
   makes a page. Outside the door: `ep0ch new "<text>" [--near <id>] [--as <id>] [--ws <name>]` (the same service
   call; `--json` for a script), or the outliner's `outliner new --text …`.
 - **An empty outline offers it.** Where a fresh outline has nothing to show (the welcome's list, an empty board,
@@ -1981,7 +2000,9 @@ agent's edit meets the same revision check, property warning and duplicate-safe 
 | `theme.set`, `theme.cycle` | `name=calm\|night\|classic` for `set`: the door's colours on every screen, kept for next time (see [Themes and accessibility](#themes-and-accessibility)); waits as `screen.open` does | `alt+t` on every screen (cycle); a click on the status bar's theme |
 | `who.refresh` | none: ask again who's attached; answers the callers (Who's online) | `r`, a click on `r refresh` |
 | `art.step`, `art.scroll`, `art.ice`, `art.reveal` | `by=` pieces or rows; `on=true\|false` (default toggles). The art viewer's own view | `, . < > ← →`; `↑↓ j k PgUp PgDn`, the wheel; `i`; `⏎`, `space` |
-| `note.new` | `text=` (the person's starts empty), `near=<id>` (under that note) or `inbox=true`. On every screen. The service's placement rule puts it: under the note in the reader you're in (an agent's: only `near=`), else the top of the Inbox. Yours opens where opens land, in its edit; an agent's opens nothing and is said on the status bar (PIE-544) | `ctrl+n` on every screen, `+` on the menu |
+| `note.new` | `text=` (the person's starts empty), `near=<id>` (under that note) or `inbox=true`, `opens=float\|tab\|drawer\|lands`. On every screen. The service's placement rule puts it: under the note in the reader you're in (an agent's: only `near=`), else the top of the Inbox. Yours opens in its edit where the screen's `newNote` says, else your `note.opens`, else floating (PIE-591); the board's lanes run `card.new` instead; an agent's opens nothing (with `opens=float` or `tab`, shown unfocused) and is said on the status bar (PIE-544) | `ctrl+n` on every screen (in an edit too), `+` on the menu |
+| `note.opens` | `opens=float\|tab\|drawer\|lands`: where your new notes open where a screen doesn't say; saved (`EP0CH_NEW_NOTE` overrides). The person's own (PIE-591) | none |
+| `card.new` | `lane=<name>` (default yours): the board's composer for a new card there, born on ctrl+s with the lane's properties. The person's own (PIE-591) | `n`, `ctrl+n` on the lanes |
 | `page.create` | `address=` (default the selected `[[link]]`'s): the page a missing `[[address]]` names, `X [page::X]` where new notes go, then opened as the link would (yours); a page already there is opened. In any reader | `⏎` or a click on a missing `[[page]]`, twice (the first offers it) |
 | `open` | `id`, `tile=detail\|new-detail\|float` (board: where the screen's opens land), `tile=preview` or any reader, `tile=<tile>` (desk); on the menu or a BBS list, the note opens in a message reader over it | `Enter`, `Alt+Enter`, `o` |
 | `brief.step`, `brief.newest`, `brief.date`, `brief.show` | `by=-1\|1`; `date=YYYY-MM-DD`; `id=<brief>` (the daily brief) | `,` `.`; a link to another day's brief |

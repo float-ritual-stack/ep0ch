@@ -180,6 +180,19 @@ describe.skipIf(!outliner)("writing from the board, against a scratch outline", 
     expect(B().lanes[B().lane].items[B().lanes[B().lane].sel].id).toBe(made);   // the person's own create is selected
   });
 
+
+  test("ctrl+n on the lanes (PIE-591): a card in the lane the person is in, born with its properties, never a floating note", async () => {
+    await settled();
+    BV.at(b, "lanes"); B().lane = laneIndex("Queued");
+    const floats = ((b as any).describe().floats as any[]).length;
+    press({ kind: "char", ch: "n", ctrl: true });
+    await until(() => B().composer && !B().composer.planning, "the lane's composer");
+    expect(B().composer.lane.name).toBe("Queued");
+    expect(B().composer.born).toEqual([{ key: "type", value: "roadmap-item" }, { key: "work-stage", value: "queued" }]);
+    expect(((b as any).describe().floats as any[]).length).toBe(floats);
+    press({ kind: "esc" });
+    await until(() => !B().composer, "the composer closed, nothing typed");
+  });
   test("a typed project in the lane's OR group wins over its create:: default (B3); one outside it is refused", async () => {
     await settled();
     const r: any = await act("card.create", { lane: "Queued", text: "Tune the piano [project::pi-outliner] [priority::low] [arc::music] [track::keys]" });

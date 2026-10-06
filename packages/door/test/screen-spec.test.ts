@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { App } from "../src/app";
 import "../src/screens";
 import { Desk } from "../src/desk/desk";
-import { readSpec, screenNames, screenSpec, specData, type ScreenSpec } from "../src/desk/screen-spec";
+import { newNoteRule, readSpec, screenNames, screenSpec, specData, type ScreenSpec } from "../src/desk/screen-spec";
 import { openScreen } from "../src/desk/screen-specs";
 import { keyName } from "../src/surface/actions";
 import { leaf, place, splitOf } from "../src/desk/layout";
@@ -45,6 +45,15 @@ describe("a screen is a spec", () => {
     expect(() => readSpec({ ...ok, keys: [{ key: "x", action: "keys.more", tile: "nope" }] })).toThrow(/runs in tile nope/);
     expect(() => readSpec({ ...ok, band: "nope" })).toThrow(/band is drawn by tile nope/);
     expect(() => readSpec({ ...ok, lands: "nope" })).toThrow(/lands names nope/);
+    // What ctrl+n does on it (PIE-591): one of opens= or action= a rule, read back as it was given.
+    expect(() => readSpec({ ...ok, newNote: { opens: "float" } })).toThrow(/newNote is a list/);
+    expect(() => readSpec({ ...ok, newNote: [{ opens: "window" }] })).toThrow(/opens "window"; it opens float, tab, drawer, lands/);
+    expect(() => readSpec({ ...ok, newNote: [{ opens: "tab", action: "card.new" }] })).toThrow(/one of opens= or action=/);
+    const rules = [{ only: ["query"], action: "card.new" }, { opens: "tab" as const }];
+    expect(readSpec({ ...ok, newNote: rules }).newNote).toEqual(rules);
+    expect(newNoteRule({ newNote: rules }, "query")).toEqual(rules[0]!);
+    expect(newNoteRule({ newNote: rules }, "reader")).toEqual(rules[1]!);
+    expect(newNoteRule({}, "reader")).toBeNull();
     // A field it doesn't know is dropped, not kept: what a note holds is only what a screen is.
     expect(readSpec({ ...ok, stray: 1, frame: "fancy" })).toEqual(ok);
   });

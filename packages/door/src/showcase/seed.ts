@@ -258,6 +258,8 @@ export const NEW_NOTES = [
   "",
   "**ctrl+n** on any screen makes a new note and opens it to be written. From a reader, it goes under the note the reader shows (here: under this one, last); anywhere else, and from **+** on the main menu, at the top of the Inbox. Where it goes is the outline's placement rule, which the service keeps: the door only says which note you were in. Esc on it still empty puts it in the trash.",
   "",
+  "Each one floats over the screen, a draft of its own, a little lower and to the right of the last: press **ctrl+n** as often as you like, in an edit too (what you typed there is saved first). Drag a float by its title to move it; onto a tile's header it docks as a tab there, onto the screen's edge as a column. Its **×** closes it: written, it's saved; still empty, it goes to the trash. On the board's lanes, ctrl+n is a new card in that lane instead.",
+  "",
   "A page nobody has written yet: [[Seed swap ledger]]. The first ⏎ or click on it offers it; the next makes `Seed swap ledger [page::Seed swap ledger]` in the Inbox and opens it. From then on the link finds it.",
   "",
   "A note whose first line is only `[page::2026-03-12]` names itself: ⏎ on that line in the editor, or the save, makes it `2026-03-12 [page::2026-03-12]`. A title already there is kept.",

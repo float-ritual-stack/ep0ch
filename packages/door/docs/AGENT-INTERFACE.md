@@ -212,7 +212,11 @@ the Inbox (`inbox=true` says so outright); it is never placed by the person's re
 resolve (gone, in the trash, a system note) is refused, nothing made, the refusal naming the `inbox=true` command;
 only the person's own reader note falls back to the Inbox. It is written as the agent
 (`author: agent` and its id), opens nothing, and is said on the status bar ("an agent (<id>) · made a new note
-“…” in the Inbox"). The answer has the note's `id`, `parentId`, `rule` (`near` or `inbox`) and `said`.
+“…” in the Inbox"). The answer has the note's `id`, `parentId`, `rule` (`near` or `inbox`) and `said`. With
+`opens=float` (or `tab`) it is also shown to the person there (PIE-591), in a tile of its own that never takes their
+keys; the answer's `reader` names it. The person's own `ctrl+n` floats by default (`note.opens`, the screen spec's
+`newNote`); `peek`'s `floats` mark those with `newNote: true` and `writing` while their edit is open. On the board's
+lanes the person's `ctrl+n` is `card.new` (the lane's composer); an agent writes a card with `card.create`.
 
 `page.create address=<name>` (a note action, in any reader) makes the page a `[[name]]` points at when nothing
 does yet: `name [page::name]`, where new notes go, through the service's `pages.follow`; a page already there is

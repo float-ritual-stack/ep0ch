@@ -61,8 +61,8 @@ export interface HostLayer {
   isDrawer(d: unknown): boolean;
   /** The desks a tile can be on now: the drawer's (once made) and the screen shown's tiles. Followers follow across them. */
   desks(): Desk[];
-  /** Tile `name` of screen `from` into the drawer, whole. */
-  put(from: Desk, name: string, actor: Actor): TileDone;
+  /** Tile `name` of screen `from` into the drawer, whole; `keys`: the person's go into it there (a new note to write). */
+  put(from: Desk, name: string, actor: Actor, keys?: boolean): TileDone;
   /** Tiles still running on a screen that goes for good, kept in the drawer instead of ended (tabs behind the one shown): the panes it took. */
   keep(moved: MovedTile[]): Pane[];
   /** Why tiles like these couldn't be kept in the drawer now, or null. */
@@ -216,10 +216,17 @@ export interface Screen {
   /** The note in the reader the person is in here, where a new note goes under (PIE-544, `note.new`); none: the Inbox. */
   noteContext?(): string | null;
   /**
-   * A new note for the person to write (PIE-544): opened where this screen's opens land, given their keys, its edit
-   * open (the reader's `edit`, the one editor and draft session). The reader's name, or null when none took it.
+   * A new note for the person to write (PIE-544): opened where `how` says on this screen (PIE-591: a float by default,
+   * a tab, the drawer, or where its opens land; a screen without tiles opens it where its opens land), given their
+   * keys, its edit open (the reader's `edit`, the one editor and draft session). The reader's name, or null when none took it.
    */
-  editNew?(m: import("./board").Msg): Promise<string | null>;
+  editNew?(m: import("./board").Msg, how?: import("./new-note").NewNoteHow): Promise<string | null>;
+  /** What this screen's spec says ctrl+n does where the person is now (PIE-591: `ScreenSpec.newNote`), or null. */
+  newNoteRule?(): import("./desk/screen-spec").NewNoteRule | null;
+  /** An agent's new note shown here for the person (note.new opens=), never taking their keys: the tile's name, or null. */
+  showNew?(m: import("./board").Msg, opens: import("./desk/screen-spec").NewNoteOpens, actor: Actor): Promise<string | null>;
+  /** The person is typing in an edit here, where ctrl+n is still a new note (PIE-591; not a filter, a picker or a terminal). */
+  newNoteWhileTyping?(): boolean;
   /**
    * The screen's dispatcher (PIE-514): the action sets it registered, run by its keys and clicks and by `act`
    * (`ep0ch-door actions` lists them). A screen without one has only the shell's.
@@ -804,8 +811,9 @@ export class App implements Ctx {
     if (this.drawer.key(k, this.stack.at(-1), this.term.info.rows, this.drawerRun)) return;
     // alt+v and alt+t turn the video mode and the theme on every screen (but in a terminal tile, whose keys are its program's).
     if (k.kind === "alt" && (k.ch === "v" || k.ch === "t") && !this.stack.at(-1)?.rawKeys?.()) { void this.dispatch.press(k.ch === "v" ? "video.cycle" : "theme.cycle"); return; }
-    // ctrl+n: a new note (PIE-544), on every screen, but never while the person types (an edit, a filter, a terminal tile).
-    if (k.kind === "char" && k.ctrl && k.ch === "n" && !this.stack.at(-1)?.rawKeys?.() && !this.stack.at(-1)?.holdsKeys?.() && !this.stack.at(-1)?.noDrawer) { void this.dispatch.press("note.new"); return; }
+    // ctrl+n: a new note (PIE-544), on every screen, in an edit too (PIE-591), but never in a filter, a picker or a terminal tile.
+    const nTop = this.stack.at(-1);
+    if (k.kind === "char" && k.ctrl && k.ch === "n" && !nTop?.rawKeys?.() && (!nTop?.holdsKeys?.() || nTop.newNoteWhileTyping?.()) && !nTop?.noDrawer) { void this.dispatch.press("note.new"); return; }
     // A paste goes whole to a screen that takes it (a terminal tile); anywhere else it's typed, key by key.
     if (k.kind === "paste" && !this.stack.at(-1)?.rawKeys?.()) {
       for (const key of pasteKeys(k.text)) this.key(key);
