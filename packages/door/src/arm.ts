@@ -44,8 +44,10 @@ export function editArmMs(v = process.env.EP0CH_EDIT_ARM): number {
 
 /** The key opens the armed edit: ⏎, or the key that armed it again. */
 export function confirms(a: Arm, k: Key): boolean {
+  // A paste typed out as keys never opens it: its newline lets the arm go, as any other key does.
+  if ("pasted" in k && k.pasted) return false;
   if (k.kind === "enter") return !("shift" in k && k.shift) && !("ctrl" in k && k.ctrl);
-  return k.kind === "char" && a.key.kind === "char" && k.ch === a.key.ch && !!k.ctrl === !!a.key.ctrl && !k.pasted;
+  return k.kind === "char" && a.key.kind === "char" && k.ch === a.key.ch && !!k.ctrl === !!a.key.ctrl;
 }
 
 /** A key that lets an armed edit go: anything but a mouse button's release (the press before it already did). */

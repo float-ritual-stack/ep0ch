@@ -4548,6 +4548,9 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       const kind: SessionKind = external ? "external" : "edit";
       // Opened as the key did before arming: through the host where it keeps track of the person's session.
       const open = () => {
+        // The reader moved on while it was armed (a lane's preview followed another card, the note was opened over):
+        // the question named this note, so nothing opens on another.
+        if (surface.msg?.id !== m.id) { host.ctx.flash("not opened: the reader shows another note now · e edits it"); host.redraw(); return; }
         if (host.startSession) return void host.startSession(kind);
         void surface.startAsPerson(kind, host).catch(e => { host.ctx.flash(e instanceof Error ? e.message : String(e)); host.redraw(); });
       };

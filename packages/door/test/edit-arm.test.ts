@@ -101,12 +101,33 @@ describe.skipIf(!outliner)("e arms the edit; ⏎ or e again opens it (edit.arm)"
     expect(app.armed()).not.toBeNull();
     const runs = traced(() => key(char("j")));
     expect(app.armed()).toBeNull();
-    expect(runs.map(r => r.name)).toContain("scroll");
+    // Done once: the key that let it go isn't run twice.
+    expect(runs.filter(r => r.name === "scroll")).toHaveLength(1);
     expect(runs.map(r => r.name)).not.toContain("edit");
     await Bun.sleep(100);
     expect(rd.surface.draft).toBeNull();
     expect(rows().join("\n")).not.toContain("✎ edit? ");
     expect(rows().join("\n")).not.toBe(before);
+  }, 30_000);
+
+  test("the reader moved on while armed: ⏎ opens nothing on the other note; a pasted newline never confirms", async () => {
+    window("60000");
+    const { desk, rd } = await deskOnHedge();
+    key(char("e"));
+    expect(app.armed()?.of).toBe(rd.surface);
+    // The reader shows another note now (a lane's preview following another card does this).
+    rd.surface.show(await board.get(notes.yard.id), rd.host(desk));
+    key(ENTER);
+    await Bun.sleep(100);
+    expect(rd.surface.draft).toBeNull();
+    expect(message()).toContain("not opened: the reader shows another note now");
+    // A paste typed out as keys: its newline lets the arm go, never opens the edit.
+    rd.surface.show(await board.get(notes.hedge.id), rd.host(desk));
+    key(char("e"));
+    key({ kind: "enter", pasted: true });
+    expect(app.armed()).toBeNull();
+    await Bun.sleep(100);
+    expect(rd.surface.draft).toBeNull();
   }, 30_000);
 
   test("the window running out lets it go quietly: no question, no colour, nothing opened", async () => {
