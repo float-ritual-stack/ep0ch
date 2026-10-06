@@ -26,6 +26,10 @@
 //             last: N (the last N days to today); source: backups is query "type=backup-run"
 //   activity  blocks per day: count: created|updated (or a date property); weeks: N
 //   calendar  date: <property> (date) marks its day in the month shown (year:, month:, else today's)
+//   quadrant  x: <property>, y: <property> → a point per block in that cell (xs:, ys: order the axes)
+//   matrix    down: <property>, across: <property> → a count per pair (value: <property> sums it instead)
+//   flow      from: <property>, to: <property> → a flow per pair, counted
+//   meter     with limit: the count of results against it (one bar), instead of a share
 //
 // A figure block's child bullets (src/graphs.ts FigureSource) are asked for here too (childRows), the same way.
 import { referencedBlock } from "@ep0ch/outline-core/link-syntax";
@@ -38,6 +42,7 @@ import { headerLine } from "@ep0ch/outline-core/header-line";
 import type { Row } from "./figures/markdown";
 import { decisionState } from "./figures/decision";
 import { dayOf, dayState, isoOf, localDay, monthOf, today, uptimeDays } from "./figures/days";
+import { addCell, type Cells } from "./figures/matrix";
 
 type Props = Record<string, any>;
 /** `done` / `now`: the results the figure's `done:` and `now:` queries hold for, as the service says. */
@@ -214,7 +219,8 @@ export function resolveLive(kind: string, p: Props): Resolved | null {
   // Figures of days count every result, not the first 200.
   if ((kind === "uptime" || kind === "activity" || kind === "calendar") && (p.query || p.view)) p = { limit: 1000, ...p };
   // A tabs figure groups every result, so it asks for all of them; its `limit:` is per tab.
-  const a = answer(kind === "tabs" ? { ...p, limit: TABS_FETCH } : p);
+  // A tabs figure groups every result, and a meter with a budget counts them all: `limit:` is theirs, not the query's.
+  const a = answer(kind === "tabs" || (kind === "meter" && p.limit !== undefined) ? { ...p, limit: TABS_FETCH } : p);
   if (!a) return null;
   if (a.state === "error") return { props: p, status: null, waiting: false, error: a.error };
   if (a.state === "loading" && !a.items.length) return { props: p, status: null, waiting: true };
@@ -248,7 +254,27 @@ export function resolveLive(kind: string, p: Props): Resolved | null {
     case "timeline":
       return { status, waiting: false, props: { ...p, events: items.map(m => ({ date: p.date ? field(m, p.date) : date(p.sort === "created" ? m.createdAt : m.updatedAt), label: subject(m), state: now?.has(m.id) ? "now" : undefined, block: m.id })) } };
     case "meter":
+      if (p.limit !== undefined) return { status, waiting: false, props: { ...p, items: [{ label: p.label ?? "", value: items.filter(m => (done ? isDone(m) : true)).length }] } };
       return { status, waiting: false, props: { ...p, value: items.length ? items.filter(m => (done ? isDone(m) : true)).length / items.length : 0, caption: p.caption ?? `${items.filter(m => (done ? isDone(m) : true)).length} of ${items.length}` } };
+    case "quadrant": {
+      const xk = String(p.x ?? ""), yk = String(p.y ?? "");
+      if (!xk || !yk) return { status, waiting: false, props: p, error: "quadrant: x: and y: name the two properties" };
+      return { status, waiting: false, props: { ...p, points: items.map(m => ({ x: m.props[xk] ?? NONE, y: m.props[yk] ?? NONE, label: p.label ? field(m, String(p.label)) : subject(m), block: m.id })) } };
+    }
+    case "matrix": {
+      const dk = String(p.down ?? ""), ak = String(p.across ?? ""), vk = p.value ? String(p.value) : null;
+      if (!dk || !ak) return { status, waiting: false, props: p, error: "matrix: down: and across: name the two properties" };
+      const cells: Cells = new Map();
+      for (const m of items) addCell(cells, m.props[dk] ?? NONE, m.props[ak] ?? NONE, vk ? Number(m.props[vk]) || 0 : 1);
+      return { status, waiting: false, props: { ...p, cells } };
+    }
+    case "flow": {
+      const fk = String(p.from ?? ""), tk = String(p.to ?? "");
+      if (!fk || !tk) return { status, waiting: false, props: p, error: "flow: from: and to: name the two properties" };
+      const pairs = new Map<string, { from: string; to: string; value: number }>();
+      for (const m of items) { const from = m.props[fk] ?? NONE, to = m.props[tk] ?? NONE, k = `${from}\0${to}`; const f = pairs.get(k); if (f) f.value++; else pairs.set(k, { from, to, value: 1 }); }
+      return { status, waiting: false, props: { ...p, flows: [...pairs.values()] } };
+    }
     case "decision":
       return { status, waiting: false, props: { ...p, options: items.map(m => ({ label: subject(m), state: decisionState(m.props["decision-state"]), reason: m.props[String(p.reason ?? "reason")] || undefined, block: m.id })) } };
     case "uptime": {

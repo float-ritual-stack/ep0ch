@@ -7,7 +7,7 @@
 // and literal ranges, the link grammar, the draft.patch compare, the search matcher), since a long-running service
 // and a remote door can run different checkouts.
 /** The wire protocol both sides of this checkout speak. */
-export const PROTOCOL = 97;
+export const PROTOCOL = 98;
 
 /**
  * Why a service speaking `serviceProtocol` can't serve this client, in words that name both numbers and the side
@@ -59,6 +59,12 @@ export interface OutlinerRequestProblem {
   /** 0-based character position within that field's text. */
   position?: number;
 }
+
+/**
+ * What a fragment anchor names (`fragments.read`, `fragments.candidates`): a heading's section, a paragraph, a list
+ * item, or (PIE-580) a component block such as a figure, named by an anchor alone on the line after its `::`.
+ */
+export type FragmentKind = "heading" | "paragraph" | "list-item" | "component";
 
 /** One answer line on the socket. */
 export type OutlinerResponse =

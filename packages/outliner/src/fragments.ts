@@ -1,10 +1,17 @@
 import { standaloneListItemText, markdownSourceTokens, type MarkdownListItem, type MarkdownSourceToken } from "./markdown-structure";
 
 import { FRAGMENT_ID_SOURCE, fragmentAnchorMatch } from "@ep0ch/outline-core/link-syntax";
+import { componentBlocks } from "@ep0ch/outline-core/component-block";
+import type { FragmentKind } from "@ep0ch/outline-core/protocol";
 
 const HEADING_PATTERN = /^(#{1,6})\s+(.+?)\s*$/;
 
-export type FragmentKind = "heading" | "paragraph" | "list-item";
+/**
+ * The kinds are outline-core's (`protocol.ts`, on the wire). `component` (PIE-580): an anchor on a line of its own right
+ * after a component block's closing `::` names that block (a figure, a `::links`), so `((id^quadrant))` lands on the
+ * figure and its slice is the whole block.
+ */
+export type { FragmentKind };
 
 export interface FragmentAnchor {
   id: string;
@@ -127,8 +134,34 @@ export function fragmentAnchors(text: string): FragmentAnchor[] {
   return note.anchors.map(anchor => ({ ...anchor }));
 }
 
+/** The component blocks of `lines` by the line of their closing `::`, found once per parse. */
+function componentsByEnd(lines: readonly string[], memo: { map?: Map<number, { start: number; end: number; name: string }> }) {
+  memo.map ??= new Map(componentBlocks(lines).filter(c => c.end > c.start).map(c => [c.end, c]));
+  return memo.map;
+}
+
+/**
+ * A component's name for a fragment list: its `title:` when its YAML header (between the `---` lines right after
+ * the opener) has one, parsed as YAML, else `::graph-rank`.
+ */
+function componentLabel(lines: readonly string[], c: { start: number; end: number; name: string }): string {
+  const body = lines.slice(c.start + 1, c.end);
+  const open = body.findIndex(l => l.trim());
+  if (open >= 0 && /^\s*---\s*$/.test(body[open]!)) {
+    const close = body.findIndex((l, i) => i > open && /^\s*---\s*$/.test(l));
+    if (close > open) {
+      try {
+        const yaml = Bun.YAML.parse(body.slice(open + 1, close).join("\n")) as { title?: unknown } | null;
+        if (yaml && typeof yaml === "object" && typeof yaml.title === "string" && yaml.title.trim()) return yaml.title.trim();
+      } catch { /* a bad header names the component by its kind */ }
+    }
+  }
+  return `::${c.name}`;
+}
+
 function parseAnchors(text: string, note: ParsedNote): FragmentAnchor[] {
   const lines = text.split(/\r?\n/);
+  const components: { map?: Map<number, { start: number; end: number; name: string }> } = {};
   const offsets = lineOffsets(text);
   const items = new Map(note.listItems.map(item => [item.span.startLine, item]));
   const codeLines = note.codeLines;
@@ -141,10 +174,14 @@ function parseAnchors(text: string, note: ParsedNote): FragmentAnchor[] {
     const content = contentBeforeAnchor(line, match);
     const heading = content.match(HEADING_PATTERN);
     const item = items.get(lineIndex);
+    // An anchor alone on the line after a component's `::` is the component's (PIE-580).
+    const component = !content && componentsByEnd(lines, components).get(lineIndex - 1);
     anchors.push({
       id: match[1]!,
-      kind: item ? "list-item" : heading ? "heading" : "paragraph",
-      label: item
+      kind: component ? "component" : item ? "list-item" : heading ? "heading" : "paragraph",
+      label: component
+        ? componentLabel(lines, component)
+        : item
         ? content.slice(item.span.start - offsets[lineIndex]!).replace(/^\s*(?:[-+*]|\d+[.)])\s+/, "")
         : heading?.[2]?.trim() || paragraphLabel(lines, lineIndex, content),
       lineIndex,
@@ -172,7 +209,11 @@ export function resolveFragmentSlice(
   const anchor = resolution.anchor;
   let startLine = anchor.lineIndex;
   let endLine = anchor.lineIndex;
-  if (anchor.kind === "list-item") {
+  if (anchor.kind === "component") {
+    // The whole block, from its `::name` line to its `::`; the anchor's own line stays out of the slice.
+    const block = componentsByEnd(lines, {}).get(anchor.lineIndex - 1)!;
+    startLine = block.start; endLine = block.end;
+  } else if (anchor.kind === "list-item") {
     const item = parsedNote(text).listItems.find(item => item.span.startLine === anchor.lineIndex)!;
     endLine = item.span.endLine;
   } else if (anchor.kind === "heading") {

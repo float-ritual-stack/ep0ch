@@ -173,7 +173,11 @@ items:
 | `table` | `columns: [title, <property>, updated, author, …]`; a row opens its note | `headers`, `rows` |
 | `tabs` | `group: <property>`, a tab per value with its count, each a `table` (`columns:`); `order: [a, b]` first (shown even when empty), the rest alphabetically; `limit:` rows per tab | (hand-authored tabs are planned, PIE-533) |
 | `timeline` | one event per block, dated by `date: <property>` or updated; `now: "<filter>"` | `items` |
-| `meter` | the share of results matching `done: "<filter>"` | `value` |
+| `meter` | the share of results matching `done: "<filter>"`; with `limit:` (and `unit:`) the count of results against the limit, the limit a mark on the bar, the headroom said (an overrun in red) | `value`; rows `- label: 48` one bar each against the `limit:` |
+| `quadrant` | `x: <property>`, `y: <property>`: a point per block in its (x, y) cell; `xs:` and `ys:` order the axes (first y at the top); `quadrants: [tl, tr, bl, br]` names the corners | rows `- label: x, y` |
+| `matrix` | `down: <property>`, `across: <property>`: a count per pair, toned by share, totals beneath; `value: <property>` sums it instead; `order-down:`, `order-across:` | rows `- row: col=3 col2=1` |
+| `compare` | static only | `columns: [A, B]` (two or three), rows `- label: a \| b`; stacks under 60 columns |
+| `flow` | `from: <property>`, `to: <property>`: a flow per pair, counted | rows `- a → b: 7`; a source's total and its flows weighted by share, then the targets' totals |
 | `funnel`, `waterfall`, `spark`, `plot`, `gantt`, `tree` | static only | `steps`, `data`, `labels`, `nodes` … |
 | `decision` | one option per note; its `decision-state` (chosen, rejected, open) picks ● × ○; `reason: <property>` | `options`, `text`, `status`, `date` |
 | `chat` | static only | `messages: [{ from, text, aside }]`, `you` |
@@ -182,6 +186,16 @@ items:
 | `activity` | blocks per day, `count: created\|updated` (or a date property); `weeks: 26` | `counts: { 2026-03-02: 4 }` |
 | `calendar` | `date: <property>` marks the month's notes | `year`, `month`, `today`, `weekStartsOn`, `marks` |
 | `annotate` | static only | `code`, `notes` (or a fence with `# (1)` markers and a `1.` list) |
+
+**Width.** Every kind follows one rule (`tier`: narrow under 48 columns, cozy under 90, wide): a table in a narrow
+column keeps its title column and one more and says `+n columns`; stat tiles wrap into rows; a timeline's or
+decision's side note goes under its row; `compare` stacks; `matrix` cuts its heads; `quadrant` shows dots and a
+legend. Write for the content, not the pane: the figure fits itself.
+
+**Addressing a figure.** An anchor alone on the line after a figure's closing `::` names the figure
+(`::graph-quadrant … ::` then `^quadrant`): `((id^quadrant|the quadrant))` lands on it, lit, and the service's
+fragment slice is the whole block, so an embed `!((id^quadrant))` shows just the figure. Headings and paragraphs
+take `^anchor` at their line's end as before.
 
 Live blocks also take `limit:`, `sort:` and `direction: desc|asc` (default `updated`, `desc`). `sort:` is
 `updated`, `created` or any property key (`sort: due`; `property:created` for a property so named): numbers compare
