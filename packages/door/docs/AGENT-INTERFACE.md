@@ -488,6 +488,23 @@ at, and what it does while they're typing:
 | `proposal.dismiss` | no | its own proposals only (the actor its patch names, checked by the service), recorded as it; the person dismisses any |
 | an agent's `open`, `link.follow` or `marks.next` reaching the outline | the outline's cursor never moves for an agent (it doesn't reveal the note) | — |
 
+## What's put aside as unsent
+
+A draft the person put aside (esc twice, a closed screen, the door quitting) shows under the reader's header as a
+`■ unsent` line. Its controls are actions in the note set, on the reader showing the note (`kind=` edit, the default,
+comment, child or card):
+
+| Action | What it does | An agent |
+|---|---|---|
+| `unsent.diff` | the note as it is now against the unsent edit, in a reader beside (`unsent:<id>#diff`, read-only); says the revision it was written on | gets the diff as text, nothing drawn |
+| `unsent.copy` | the put-aside text as written, in a reader beside (`unsent:<id>#copy`) | gets the text and where its copy is |
+| `unsent.dismiss` | forgets it; its copy stays on disk | refused: it's the person's |
+| `unsent.take` | opens the note's edit with the unsent changes in it: whole when written on the revision the note is at, else replayed span by span (`takeBackSpans`, compared as a forced `draft.patch`), leaving a passage changed since as it is | refused: it opens an edit with the person's keys |
+| `unsent.show` | unfolds an old one (an older revision, more than three days) | yes |
+| `edit.strays` | right after esc dropped an edit's stray characters (src/stray.ts), opens the edit again with them (`ctrl+z`, within a minute) | refused |
+
+`elements` lists each control (`control: diff`, `unsent: edit`), so `element.open n=` presses one as a click does.
+
 ## Editing above the person while they type: `draft.patch` (PIE-501)
 
 An agent that wants to change text in a note the person may be writing in doesn't use the door at all: it

@@ -9,6 +9,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { subject, type Msg } from "./board";
+import { strayWords } from "./stray";
 import { DRAFT_ACTIONS, pruneOld, sameParty, tidy, whenPut, PATCH_FLASH_MS, Draft, type DraftAction, type DraftActionArgs } from "./edit";
 import { actorIdOf, EditConflict, isExtensionWriter, Refused, USER, type Actor, type Comment, type CommentPassage, type DraftAnswer, type DraftHoldHandle, type DraftRequest, type SocketBoard } from "./socket";
 import { ActionRefused, agentLabel, type DraftUse } from "./surface/actions";
@@ -144,6 +145,8 @@ export class DraftSession {
     const s = new DraftSession(target, new Draft(target.blockId ?? target.place, init.base ?? 0, init.text ?? "", init.props ?? {}), by, env);
     s.draft.near = target.near;
     s.draft.titlesPages = target.verb !== "send";
+    // Only an edit the person opened can be one opened by mistake: an agent's they typed into is theirs to put aside.
+    s.draft.straysClose = target.place.startsWith("edit:") && by.kind !== "agent";
     if (by.kind !== "agent") s.restore();
     if (target.blockId) {
       registry(env.board).add(s);
@@ -314,6 +317,13 @@ export class DraftSession {
    */
   private putAside(): string {
     const d = this.draft, t = this.target;
+    // An edit opened by mistake (src/stray.ts): copied, never put aside; ctrl+z right after brings the strays back.
+    const typed = d.stray();
+    if (typed !== null) {
+      const copy = d.copyOut(t.label);
+      strays.set(t.place, { u: { key: t.place, text: d.text, base: d.base, at: Date.now(), copy, writers: d.writers, from: d.started }, at: Date.now(), row: d.row, col: d.col });
+      return this.closedWith = `${strayWords(typed)} · ctrl+z brings them back`;
+    }
     if (d.restored !== null && d.restored === d.text) {
       unshelve(t.place);
       const copy = d.copyOut(t.label);
@@ -791,7 +801,11 @@ export function cardTarget(o:
 // ── unsent drafts on disk ─────────────────────────────────────────────────────
 
 /** A draft put aside (esc twice, a screen closed, the door quit): by its place, with a copy on disk. */
-export interface Unsent { key: string; text: string; base: number; at: number; copy: string | null; writers?: Actor[] }
+/**
+ * A draft put aside: its text, the revision it was written on, when, its copy on disk and who wrote it. `from`: the text
+ * it started from ("take it back" replays the changes from there against the note now; absent on older ones).
+ */
+export interface Unsent { key: string; text: string; base: number; at: number; copy: string | null; writers?: Actor[]; from?: string }
 
 /** The outline's own (a draft's key is its blocks', threads' and views'): in its folder of the state dir, `outlineState()`. */
 const unsentDir = () => join(outlineState(), "drafts", "unsent");
@@ -807,7 +821,12 @@ const unsentPath = (key: string) => {
 
 /** Keep `d`'s text under `key` (its place: `edit:<id>`, `comment:<id>`, `reply:<thread>`, `card:<view>`, `child:<id>`). */
 export function shelve(key: string, d: Draft, copy: string | null, at = Date.now()): Unsent {
-  const u: Unsent = { key, text: d.text, base: d.base, at, copy, writers: d.writers };
+  return keepUnsent({ key, text: d.text, base: d.base, at, copy, writers: d.writers, from: d.started });
+}
+
+/** Write a put-aside entry under its key (`shelve`, and stray characters brought back by ctrl+z). */
+export function keepUnsent(u: Unsent): Unsent {
+  const key = u.key;
   try {
     // The draft's whole text: private, like its copy (the folder 0700, the file 0600).
     mkdirSync(unsentDir(), { recursive: true, mode: 0o700 });
@@ -818,6 +837,19 @@ export function shelve(key: string, d: Draft, copy: string | null, at = Date.now
   } catch { /* the copy on disk still has it */ }
   return u;
 }
+
+/** How long after strays are dropped ctrl+z brings them back (ms). */
+export const STRAY_BACK_MS = 60_000;
+/** Stray characters dropped by esc (src/stray.ts), by place, for ctrl+z right after: never on disk as unsent. */
+const strays = new Map<string, { u: Unsent; at: number; row: number; col: number }>();
+/** The strays dropped at `place` in the last STRAY_BACK_MS, taken (once). */
+export function takeStrays(place: string, now = Date.now()): { u: Unsent; row: number; col: number } | null {
+  const s = strays.get(place);
+  strays.delete(place);
+  return s && now - s.at < STRAY_BACK_MS ? s : null;
+}
+/** Whether strays were dropped at `place` lately (ctrl+z asks before running its other undos). */
+export const hasStrays = (place: string, now = Date.now()) => { const s = strays.get(place); return !!s && now - s.at < STRAY_BACK_MS; };
 
 /** Drop old put-aside entries by the same rule as the copies (DRAFT_KEEP, DRAFT_DAYS). The one just written stays. */
 export function pruneUnsent(keep: string, now = Date.now()): string[] {
@@ -845,22 +877,6 @@ export function unsentAll(): Unsent[] {
     return readdirSync(unsentDir()).filter(f => f.endsWith(".json")).map(f => { try { return JSON.parse(readFileSync(join(unsentDir(), f), "utf8")) as Unsent; } catch { return null; } })
       .filter((u): u is Unsent => !!u).sort((a, b) => b.at - a.at);
   } catch { return []; }
-}
-
-/**
- * The reader's lines for what's put aside on note `id`: an edit or a comment on it, a new note under it (a card),
- * or a new card in its lane (a view). When, and the key that brings it back; an edit put aside on another revision
- * than the note's now (`revision`) isn't brought back by `e`, so its line says where its copy is instead.
- */
-export function unsentOn(id: string, revision?: number): string[] {
-  const e = unsent(`edit:${id}`), c = unsent(`comment:${id}`), n = unsent(`child:${id}`), k = unsent(`card:${id}`);
-  const stale = !!e && revision !== undefined && e.base !== revision;
-  return [
-    ...(e ? [stale ? `■ unsent edit from ${whenPut(e.at)} put aside on an older revision · its copy is at ${tidy(e.copy ?? "drafts/")}` : `■ unsent edit from ${whenPut(e.at)} · e brings it back`] : []),
-    ...(c ? [`■ unsent comment from ${whenPut(c.at)} · C and a passage bring it back`] : []),
-    ...(n ? [`■ unsent note under this from ${whenPut(n.at)} · N on the card brings it back`] : []),
-    ...(k ? [`■ unsent new card from ${whenPut(k.at)} · n in this lane brings it back`] : []),
-  ];
 }
 
 /** Whether a draft is put aside at `key` (a lane's title asks on every paint: no read, only whether its file is there). */

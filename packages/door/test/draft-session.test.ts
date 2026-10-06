@@ -5,12 +5,14 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { blockTarget, cardTarget, commentTarget, DraftSession, hasUnsent, Outgoing, rangeHash, recordAs, shelve, unsent, unsentAll, unsentOn, agentRefusal, type DraftCommand, type DraftTarget, type Outcome } from "../src/draft-session";
+import { unsentEntries } from "../src/unsent";
+import { blockTarget, cardTarget, commentTarget, DraftSession, hasUnsent, Outgoing, rangeHash, recordAs, shelve, unsent, unsentAll, agentRefusal, type DraftCommand, type DraftTarget, type Outcome } from "../src/draft-session";
 import { Draft, DRAFT_DAYS, DRAFT_KEEP } from "../src/edit";
 import { SocketBoard, USER, type Actor, type DraftAnswer, type DraftRequest } from "../src/socket";
 import { NoteSurface, type SurfaceHost } from "../src/surface/note";
 import type { Key } from "../src/term";
-import { outliner, Scratch } from "./scratch";
+import type { Msg } from "../src/board";
+import { outliner, Scratch, until } from "./scratch";
 
 const AGENT: Actor = { kind: "agent", id: "tidy" };
 const OTHER: Actor = { kind: "agent", id: "sorter" };
@@ -46,6 +48,9 @@ function keys(s: DraftSession, ks: (Key | string)[]): DraftCommand[] {
   return ran;
 }
 const ESC: Key = { kind: "esc" };
+
+/** The reader's `■ unsent` lines for note `id` (src/unsent.ts), as text. */
+const unsentOn = (id: string, revision?: number) => unsentEntries(id, revision, () => "earlier").map(e => e.text);
 
 describe("the lifecycle, on a fake target", () => {
   test("esc on nothing typed asks to close; esc, esc on typed text asks to discard, which puts it aside with a copy", () => {
@@ -160,7 +165,7 @@ describe("the lifecycle, on a fake target", () => {
     const b = DraftSession.open(t, { text: "Medlar, picked", base: 5 });
     expect([b.dirty, b.draft.text, b.draft.note]).toEqual([false, "Medlar, picked", expect.stringContaining("was on revision 2; the note changed since")]);
     expect(unsent("edit:note-medlar")?.text).toBe("Medlar bletted");
-    expect(unsentOn("note-medlar", 5)).toEqual([expect.stringMatching(/^■ unsent edit from .* put aside on an older revision · its copy is at /)]);
+    expect(unsentOn("note-medlar", 5)).toEqual([expect.stringMatching(/^■ unsent edit from .* · on revision \d+, the note is at \d+$/)]);
     expect(unsentOn("note-medlar", 5)[0]).not.toContain("e brings it back");
     expect(unsentOn("note-medlar", 2)).toEqual([expect.stringMatching(/^■ unsent edit from .* · e brings it back$/)]);
     b.dispose();
@@ -429,7 +434,7 @@ describe.skipIf(!outliner)("the three target adapters, against a scratch outline
     keys(a, [" before frost"]); a.close(true);                      // put aside on this revision
     await board.update(id, "Lift the dahlias and dry them", m.revision!, USER);   // the note moves on elsewhere
     const n = (await board.get(id))!;
-    expect(unsentOn(id, n.revision)).toEqual([expect.stringMatching(/^■ unsent edit from .* put aside on an older revision · its copy is at /)]);
+    expect(unsentOn(id, n.revision)).toEqual([expect.stringMatching(/^■ unsent edit from .* · on revision \d+, the note is at \d+$/)]);
     expect(unsentOn(id, n.revision)[0]).not.toContain("e brings it back");
     const b = DraftSession.open(blockTarget(n, { board }), { text: n.text, base: n.revision, props: n.props }, { board });
     expect(b.draft.text).toBe("Lift the dahlias and dry them");     // not laid over the newer note
@@ -516,5 +521,67 @@ describe.skipIf(!outliner)("the three target adapters, against a scratch outline
     // Saved and closed: the agent writes as it likes again.
     theirs.show((await board.get(id))!, a);
     expect(await theirs.act("props.edit", { key: "stage", value: "doing" }, a, AS)).toBeTruthy();
+  }, 30_000);
+
+  test("in a reader: the ■ unsent line's [diff] [open copy] [dismiss] [take it back] are actions; a stale edit is taken back around newer text", async () => {
+    const id = await create("Compost\nturn the heap\nadd the leaves");
+    const flashes: string[] = [], opened: Msg[] = [];
+    const h: SurfaceHost = { ctx: { board, flash: (m: string) => flashes.push(m), t: { cellW: 9, cellH: 16 }, graphics: false } as any, redraw() {}, navigate: m => { opened.push(m); } };
+    const r = new NoteSurface();
+    r.show((await board.get(id))!, h);
+    await r.edit(h);
+    r.draft!.place(1, 13);
+    for (const c of " weekly") r.key(char(c), h);
+    r.key(ESC, h); r.key(ESC, h);                                    // a real edit: put aside
+    await until(() => r.draft === null, "the edit put aside");
+    // Elsewhere, the note moves on: its last line changes.
+    const m0 = (await board.get(id))!;
+    await board.update(id, "Compost\nturn the heap\nadd the leaves and straw", m0.revision!, USER);
+    r.show((await board.get(id))!, h);
+    const lines = r.render(140, 30, h).lines.map(l => l.replace(/\x1b\[[\d;]*m/g, ""));
+    expect(lines.some(l => /■ unsent edit from .* · on revision \d+, the note is at \d+ \[diff\] \[open copy\] \[dismiss\] \[take it back\]/.test(l))).toBe(true);
+    const controls = r.describeElements().filter(e => e.kind === "control" && "unsent" in e);
+    expect(controls.map(e => e.control)).toEqual(["diff", "copy", "dismiss", "take"]);
+    // [diff]: a read-only reader beside, the note now against the unsent edit; an agent gets the rows.
+    await r.act("element.open", { n: controls[0]!.n }, h, USER);
+    expect(opened.at(-1)!.id).toBe(`unsent:${id}#diff`);
+    expect(opened.at(-1)!.text).toContain("```diff\n  Compost\n- turn the heap\n- add the leaves and straw\n+ turn the heap weekly\n+ add the leaves\n```");
+    expect(await r.act("unsent.diff", {}, h, { kind: "agent", id: "gardener" })).toMatchObject({ diff: expect.stringContaining("+ turn the heap weekly") });
+    await expect(r.act("unsent.dismiss", {}, h, { kind: "agent", id: "gardener" })).rejects.toThrow("the person's");
+    // [take it back]: an edit on the note now with the unsent change in it, the newer line kept.
+    await r.act("unsent.take", {}, h, USER);
+    expect(r.draft!.text).toBe("Compost\nturn the heap weekly\nadd the leaves and straw");
+    expect(r.draft!.note).toContain("took back the unsent edit");
+    expect(unsent(`edit:${id}`)).toBeNull();
+    expect(await r.act("edit.save", {}, h, USER)).toMatchObject({ saved: true });
+    // [dismiss]: the line goes, the copy stays.
+    const m1 = (await board.get(id))!;
+    shelve(`edit:${id}`, Object.assign(new Draft(id, m1.revision!, m1.text + "\nmore"), {}), "/tmp/a-copy.md");
+    r.show(m1, h);
+    expect(await r.act("unsent.dismiss", {}, h, USER)).toMatchObject({ dismissed: true });
+    expect(unsent(`edit:${id}`)).toBeNull();
+  }, 30_000);
+
+  test("in a reader: an edit opened by mistake closes on one esc, says so, leaves no ■ unsent line; ctrl+z brings the strays back", async () => {
+    const id = await create("Bird feeder\nfill on Sundays");
+    const flashes: string[] = [];
+    const h: SurfaceHost = { ctx: { board, flash: (m: string) => flashes.push(m), t: { cellW: 9, cellH: 16 }, graphics: false } as any, redraw() {}, navigate() {} };
+    const r = new NoteSurface();
+    r.show((await board.get(id))!, h);
+    await r.edit(h);
+    r.key(char("j"), h);                                           // meant for the reader: it became text
+    r.key(ESC, h);
+    await until(() => r.draft === null, "the edit closed on one esc");
+    expect(unsent(`edit:${id}`)).toBeNull();
+    await until(() => flashes.some(f => f.includes("dropped 1 stray character · ctrl+z brings them back")), "said once");
+    expect(r.render(100, 20, h).lines.join("\n")).not.toContain("■ unsent");
+    r.key({ kind: "char", ch: "z", ctrl: true }, h);
+    await until(() => r.draft !== null, "the edit open again");
+    expect(r.draft!.text.replace("j", "")).toBe("Bird feeder\nfill on Sundays");
+    expect(r.draft!.note).toContain("brought back 1 stray character");
+    // Real typing past the strays: esc twice, put aside as before.
+    for (const c of " and Wednesdays") r.key(char(c), h);
+    r.key(ESC, h);
+    expect(r.draft).not.toBeNull();
   }, 30_000);
 });

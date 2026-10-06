@@ -21,6 +21,7 @@ import { Dispatcher } from "../surface/dispatch";
 import { screenKeys } from "../whereabouts";
 import { NOTE_ACTIONS } from "../surface/note";
 import { DRAFT_ACTIONS } from "../edit";
+import { keepUnsent, unsent } from "../draft-session";
 import { Desk, DESK_ACTIONS } from "../desk/desk";
 import { openScreen } from "../desk/screen-specs";
 import { autoName, serializeTree } from "../desk/screen-layout";
@@ -130,11 +131,14 @@ export const SECTIONS: Section[] = [
     },
   },
   {
-    key: "drafts", need: "write a draft somewhere: a note's text, a comment or reply, a new card", part: "the draft session (DraftSession): open with what was put aside, the hold, key and leave, submit, stale refusal, recordAs and the agent rule, behind three target adapters (blockTarget, commentTarget, cardTarget)", files: "src/draft-session.ts, src/comment.ts, src/desk/delivery.ts",
-    aside: "the left reader is in an edit (a block's draft, held on the service), the right one writing a comment: click away from either and it's saved or kept as unsent the same way; the board's composer (n, N) is the third adapter",
+    key: "drafts", need: "write a draft somewhere: a note's text, a comment or reply, a new card", part: "the draft session (DraftSession): open with what was put aside, the hold, key and leave, submit, stale refusal, recordAs and the agent rule, behind three target adapters (blockTarget, commentTarget, cardTarget); what's put aside shows as a ■ unsent line with [diff] [open copy] [dismiss] [take it back] (unsent.*), and an edit opened by mistake closes on one esc (the stray rule)", files: "src/draft-session.ts, src/comment.ts, src/desk/delivery.ts, src/unsent.ts, src/stray.ts",
+    aside: "the left reader is in an edit (a block's draft, held on the service), the middle one writing a comment: click away from either and it's saved or kept as unsent the same way; the board's composer (n, N) is the third adapter · the right one has an edit put aside on an older revision: [diff] shows it against the note now, [take it back] replays it into an edit (a passage changed since is left as it is), [dismiss] lets it go (src/unsent.ts) · e then a stray j, then esc: an edit opened by mistake closes at once, no ■ unsent line, and ctrl+z brings the j back (src/stray.ts)",
     stage(n, show) {
-      const a = new ReaderPane(), b = new ReaderPane();
-      return deskOf({ title: "showcase · drafts", panes: [a, b], layout: ([x, y]) => row(0.5, x!, y!) }, show, [[a, n.whiteboard], [b, n.notebook]], d => {
+      const a = new ReaderPane(), b = new ReaderPane(), c = new ReaderPane();
+      // An edit put aside on the shed note a revision ago (fictional), so its ■ unsent line and controls are live here.
+      const shed = n.shed;
+      if (shed && !unsent(`edit:${shed.id}`)) keepUnsent({ key: `edit:${shed.id}`, text: `${shed.text}\n\nOil the padlock before winter.`, base: Math.max(0, (shed.revision ?? 1) - 1), at: Date.now(), copy: null, from: shed.text });
+      return deskOf({ title: "showcase · drafts", panes: [a, b, c], layout: ([x, y, z]) => pair("row", 0.34, leaf(x!), row(0.5, y!, z!)) }, show, [[a, n.whiteboard], [b, n.notebook], [c, shed]], d => {
         // The person's own keys would do these: through the stage's dispatcher, in each reader's tile.
         void d.press(a, NOTE_ACTIONS, "edit");
         void d.press(b, NOTE_ACTIONS, "passage.select").then(() => d.press(b, NOTE_ACTIONS, "comment.write", { body: "" }));

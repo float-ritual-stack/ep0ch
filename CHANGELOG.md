@@ -83,6 +83,21 @@ take an `outline` name now, for a ref or a search; a URI names its own. The door
 the unit, the Caddy block and the Clerk settings. `ep0ch mcp access` now says the grant covers both servers, and
 `initialize` answers a client's own MCP protocol version when it is one the server speaks (else the newest).
 
+### Unsent drafts: fewer, and easier to decide about
+
+An edit opened by mistake no longer leaves an `■ unsent` line. `e`, then a `j` or `q` meant for the reader, became
+text; now an edit open under ten seconds with at most three characters typed into it (nothing taken out) closes on
+the first `Esc`, says `dropped 2 stray characters · ctrl+z brings them back`, and `ctrl+z` within a minute opens it
+again with them. Its copy still goes to `drafts/`. A real edit keeps the `Esc` twice.
+
+Each `■ unsent` line has controls (a click, `[ ]` then `⏎`, the tile's `⋯` menu, `act unsent.*`): `[diff]` shows the
+note as it is now against the unsent edit in a reader beside it, coloured, with the revision it was written on;
+`[open copy]` shows it as written; `[dismiss]` lets it go (the copy stays on disk); `[take it back]` opens the edit
+with the unsent changes in it, replayed change by change against the note now, so a passage that changed since is
+left as it is and said. An old one on an older revision (over three days) folds into `■ 1 old unsent edit · [show]`.
+An edit put aside before this change can be diffed, copied and dismissed; taking one back that was written on an
+older revision needs the text it started from, which only newer ones keep.
+
 ### Esc closes what popped up, and never leaves the screen
 
 `Esc` closes the innermost temporary thing, one per press: a picker or the tile menu, the keys box

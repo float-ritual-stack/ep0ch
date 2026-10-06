@@ -79,7 +79,9 @@ export const RESOURCE_NOTE = "resource:";
  * A note that isn't a block in the outline: a file a preview follows (`file:`) or a Resource shown in a reader
  * (`resource:`). It is read, never edited, commented on or asked for its backlinks.
  */
-export const isOutlineNote = (m: Msg | null | undefined): boolean => !!m && !m.id.startsWith("file:") && !m.id.startsWith(RESOURCE_NOTE);
+/** A view of what's put aside as unsent on a note (its diff, its copy: src/unsent.ts): read here, never written. */
+export const UNSENT_NOTE = "unsent:";
+export const isOutlineNote = (m: Msg | null | undefined): boolean => !!m && !m.id.startsWith("file:") && !m.id.startsWith(RESOURCE_NOTE) && !m.id.startsWith(UNSENT_NOTE);
 
 const MARKDOWN = new Set([".md", ".markdown", ".mdx", ""]);
 

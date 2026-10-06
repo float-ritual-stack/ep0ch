@@ -21,6 +21,7 @@
     "@ep0ch/outline-core": "workspace:*",
     "@ep0ch/outliner": "workspace:*",
     "@xterm/headless": "6.0.0",
+    "diff": "8.0.4",
     "image-size": "2.0.4",
     "jose": "6.2.12",
     "sharp": "0.35.5"

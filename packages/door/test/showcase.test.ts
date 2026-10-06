@@ -289,7 +289,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     // The desk's search overlay, opened on a query with two typos: both allotment notes found, in the service's order.
     search: ["search the board", "alotment notebok", "hit(s)", "Allotment notebook", "Allotment figures"],
     // The draft session: an edit open on the left, a comment being written on the right.
-    drafts: ["editing · Kitchen whiteboard", "comment · Allotment notebook"],
+    drafts: ["editing · Kitchen whiteboard", "comment · Allotment notebook", "■ unsent edit", "[diff]"],
     panes: ["outline", "thread", "│ 4 activity", "Kitchen sink"],
     screens: ["daily brief · 2026-03-11", "2 of 2 briefs"],
     kinds: ["tile kinds", "tree ^W o t", "backlinks ^W o l"],
@@ -567,6 +567,30 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     await until(() => top() === sc, "back on the showcase");
     expect(await app.act({ action: "screen.delete", args: { name: "allotment-work" }, as: "test-agent" })).toMatchObject({ trashed: true });
     expect(await board.isTrashed(saved.note)).toBe(true);
+  }, 20_000);
+
+  test("drafts: the shed reader's ■ unsent line, by act: [diff] opens the note now against the unsent edit beside it, and [take it back] puts it into an edit", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "drafts" }, as: "test-agent" });
+    await until(() => marks.drafts!.every(m => screen().includes(m)), "the drafts section");
+    const stage = () => S().stages.get(S().sel).top;
+    const name = "reader3";                                        // the third reader shows the shed
+    // An agent reads the diff as data (nothing drawn); the person's [diff] opens a reader beside.
+    expect(await app.act({ action: "unsent.diff", tile: name, args: {}, as: "test-agent" })).toMatchObject({ diff: expect.stringContaining("+ Oil the padlock before winter.") });
+    const els = await app.act({ action: "elements", tile: name, args: {}, as: "test-agent" }) as any;
+    const diff = (els.elements as any[]).find(e => e.control === "diff");
+    expect(diff).toBeTruthy();
+    await stage().dispatch.press("element.open", { n: diff.n }, name);
+    const diffView = () => (stage().describe().panes as any[]).map(x => stage().pane(x.name)).find((p: any) => p?.msg?.id?.startsWith?.("unsent:"));
+    await until(() => !!diffView(), "the diff beside the shed");
+    expect(diffView().msg.text).toContain("+ Oil the padlock before winter.");
+    expect(diffView().readOnly).toBe(true);
+    // [take it back]: the shed reader opens its edit with the unsent line in it, lit as a patch.
+    await stage().dispatch.press("unsent.take", {}, name);
+    await until(() => !!stage().pane(name).surface.draft, "the edit open");
+    expect(stage().pane(name).surface.draft.text).toContain("Oil the padlock before winter.");
+    await stage().dispatch.press("edit.close", { discard: true }, name);
+    press({ kind: "esc" });
   }, 20_000);
 
   test("the esc section: three nested things open (a zoom, a lit link, the tile menu); each Esc closes one, innermost first, then the keys come back to the index, then nothing to close, and the screen stays", async () => {
