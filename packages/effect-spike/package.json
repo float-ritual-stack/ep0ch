@@ -1,0 +1,20 @@
+{
+  "name": "@ep0ch/effect-spike",
+  "private": true,
+  "type": "module",
+  "description": "Spike only, not for merge: real ep0ch slices rewritten on Effect 4 to see what it buys and costs. See docs/spikes/effect-4.",
+  "scripts": {
+    "check": "tsc --noEmit",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@ep0ch/outline-core": "workspace:*",
+    "@effect/platform-bun": "4.0.1",
+    "@effect/sql-sqlite-bun": "4.0.1",
+    "effect": "4.0.1"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.9.3"
+  }
+}
