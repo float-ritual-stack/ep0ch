@@ -9,6 +9,7 @@
 import { join } from "node:path";
 import { titleLine, type Msg } from "../board";
 import type { Actor, SocketBoard } from "../socket";
+import { WELCOME_VIEW_TEXT } from "../hub/welcome";
 import { installExamples, installTickets, refreshTicket, registerTicket, SHOWCASE_TICKETS, ticketSource } from "./tickets/install";
 
 /** The root's marker: the showcase screen finds its outline by this property, and never seeds itself. */
@@ -593,6 +594,16 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
   const chores: Msg[] = [];
   for (const c of CHORES) chores.push(await make(notes.chores.id, `${c.title} [type::chore] [area::${c.area}] [stage::${c.stage}] [due::${c.due}]${c.rank === undefined ? "" : ` [rank::${c.rank}]`}`, c.area === "garden" ? SEED_AGENT : { kind: "user" }));
   notes.gardenView = await make(notes.root.id, `${SEED.gardenView} [type::virtual-branch] [query::type=chore area=garden]`);
+
+  // The Welcome screen's notes (C): marked by [welcome::true], in the Welcome view's hand-set order, the first read on opening.
+  // Under a note of their own, the view with them: beside the garden view it would make the root a second board hub.
+  const landing = await make(notes.root.id, "Landing\nWhat the Welcome screen reads first.");
+  const welcomeNotes = [
+    await make(landing.id, `Start here [welcome::true]\nThe house's jobs are on [[${SEED.hub}]]; the bikes are in [[${SEED.shed}]].`),
+    await make(landing.id, "House rules [welcome::true]\nWipe the counter. The last one up turns the heating down."),
+  ];
+  const welcomeView = await make(landing.id, WELCOME_VIEW_TEXT);
+  await board.moveInView({ view: welcomeView.id, blocks: welcomeNotes.map(m => m.id) }, { kind: "user" });
 
   notes.whiteboard = await make(notes.root.id, WHITEBOARD);
   notes.shed = await make(notes.root.id, shedText(notes.whiteboard.id));

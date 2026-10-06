@@ -1,6 +1,7 @@
-// Welcome: the notes with a block-scoped `welcome` property, one at a time. The first ([welcome::1], then
-// [welcome::2]…; any other value comes after the numbered ones, by title) is the detail when the screen
-// opens. A band across the top holds an ep0ch logo from the WoE packs and a tab per note: 1…9, then 0 for the
+// Welcome: the notes with a block-scoped `welcome` property (any value: it only marks a note), one at a time, in the
+// hand-set order of the Welcome view (a saved view `[query::welcome]`, #190's order: alt+↑ alt+↓ or a drag in the list,
+// `welcome.move`, `ep0ch view order`, a board lane on it); the first is the detail when the screen opens. Notes the
+// order hasn't placed (and every note, while there's no Welcome view) come after, by title. A band across the top holds an ep0ch logo from the WoE packs and a tab per note: 1…9, then 0 for the
 // tenth, and "… n more" beyond that (the list down the side shows them all). A link followed in the detail
 // (⏎ or a click) opens in the preview beside it; alt+⏎ or a ctrl- or alt-click reads it in the detail instead
 // (the door's "open fresh" chord, here: make it the thing read). The detail's backlinks run under it
@@ -43,25 +44,35 @@ const WELCOME_LIMIT = 200;
 /** The page shown while no note is a welcome note: the "now" page. */
 export const welcomeFallback = () => nowPage().address;
 
-/** A welcome value that is a number orders by it; any other value comes after, by title. */
-const placeOf = (m: Msg): number | null => {
-  const v = m.props[WELCOME_KEY]?.trim() ?? "";
-  return /^-?\d+(\.\d+)?$/.test(v) ? Number(v) : null;
-};
+/** The Welcome view's query: every note with a `welcome` property, whatever its value. */
+export const WELCOME_QUERY = WELCOME_KEY;
+/** What a new Welcome view is written as (the first hand-set move makes one: `welcome.move`). */
+export const WELCOME_VIEW_TEXT = `Welcome [type::virtual-branch] [query::${WELCOME_QUERY}]\nThe notes the door's Welcome screen shows, in this view's hand-set order: the first is read when it opens.`;
 
-/** Numbered first, lowest first; then the rest by title; ties by when they were written. */
-export function orderWelcome(list: readonly Msg[]): Msg[] {
+/** In the order `ids` gives (the view's hand-set order); the ones it doesn't place after, by title, then by when they were written. */
+export function orderWelcome(list: readonly Msg[], ids: readonly string[] = []): Msg[] {
+  const at = new Map(ids.map((id, i) => [id, i] as const));
   return [...list].sort((a, b) => {
-    const x = placeOf(a), y = placeOf(b);
-    if (x !== null && y !== null && x !== y) return x - y;
-    if ((x === null) !== (y === null)) return x === null ? 1 : -1;
+    const x = at.get(a.id), y = at.get(b.id);
+    if (x !== undefined && y !== undefined) return x - y;
+    if ((x === undefined) !== (y === undefined)) return x === undefined ? 1 : -1;
     return subject(a).localeCompare(subject(b)) || a.createdAt - b.createdAt;
   });
 }
 
-/** Every note with a block-scoped `welcome` property (the service's filter: has the key, any value), in welcome order. */
-export async function findWelcome(board: SocketBoard): Promise<Msg[]> {
-  return orderWelcome(await board.query(WELCOME_KEY, WELCOME_LIMIT, "created", "asc", true));
+/** The Welcome view: the saved view whose query is `welcome` (the oldest, should there be more), or null. */
+export async function welcomeView(board: SocketBoard): Promise<Msg | null> {
+  return (await board.query(`type=virtual-branch query=${WELCOME_QUERY}`, 10, "created", "asc", true))[0] ?? null;
+}
+
+/**
+ * Every note with a block-scoped `welcome` property (the service's filter: has the key, any value), in the Welcome
+ * view's hand-set order, and that view (null: there's none yet, so they're by title).
+ */
+export async function findWelcome(board: SocketBoard): Promise<{ notes: Msg[]; view: Msg | null }> {
+  const [notes, view] = await Promise.all([board.query(WELCOME_KEY, WELCOME_LIMIT, "created", "asc", true), welcomeView(board)]);
+  const ids = view ? (await board.viewOrder(view.id)).blockIds : [];
+  return { notes: orderWelcome(notes, ids), view };
 }
 
 /** The digit for the note at place `i` (from 0): 1…9, then 0 for the tenth; none after that. */
@@ -144,6 +155,10 @@ export class WelcomeList implements Pane {
   items: Msg[] | null = null;
   /** The "now" page while there are no welcome notes (null when there's none either). */
   fallback: Msg | null = null;
+  /** The Welcome view whose hand-set order this is (null: none yet; the first move makes one). */
+  orderView: Msg | null = null;
+  /** The note pressed in the list, while the button is down (by id: a refresh meanwhile can move rows): dropped on another row, it moves there. */
+  private pressed: string | null = null;
   problem = "";
   /** Which logo the band draws (LOGOS), by place: the dotted SHY-EPO! first; `L` or a click on it for the next. */
   logo = 0;
@@ -161,7 +176,7 @@ export class WelcomeList implements Pane {
     const items = this.items;
     return !items ? "asking the outline…" : items.length ? `${items.length} note${items.length === 1 ? "" : "s"}` : "none tagged yet";
   }
-  hint() { return "j k pick · ⏎ read"; }
+  hint() { return "j k pick · ⏎ read · alt+↑ alt+↓ or a drag reorders"; }
 
   render(w: number, h: number, focused: boolean): PaneView {
     if (this.problem) return { lines: [fg(C.lred) + pad(this.problem, w) + RESET] };
@@ -169,7 +184,7 @@ export class WelcomeList implements Pane {
     if (!this.items.length) {
       const lines = [
         ...wrap("No note is a welcome note yet.", w).map(l => fg(C.white) + pad(l, w) + RESET), "",
-        ...[`Tag one [${WELCOME_KEY}::1] (then 2, 3…; any value counts) and it opens here, first.`, "",
+        ...[`Tag one [${WELCOME_KEY}::true] (any value counts) and it opens here. With more than one, alt+↑ alt+↓ here puts them in order.`, "",
           this.fallback ? `Meanwhile the detail shows [[${welcomeFallback()}]].` : `No [[${welcomeFallback()}]] page either.`]
           .flatMap(t => (t ? wrap(t, w) : [""])).map(l => fg(C.grey) + pad(l, w) + RESET), "",
       ];
@@ -203,7 +218,27 @@ export class WelcomeList implements Pane {
     if (k.kind === "home") { this.run(desk, 1); return true; }
     if (k.kind === "end") { this.run(desk, n); return true; }
     if (k.kind === "enter") { this.run(desk, at + 1, true); return true; }
+    if (k.kind === "alt-up" || k.kind === "alt-down") { void desk.press?.(this, WELCOME_ACTIONS, "welcome.move", { by: k.kind === "alt-up" ? -1 : 1 }); return true; }
     return false;
+  }
+
+  /**
+   * The list takes its own presses: released on the row pressed, it's a click (that note read); dragged to another
+   * row, the note moves there in the order (welcome.move to=). The wheel is the desk's (`wheel`).
+   */
+  mouse(k: Extract<Key, { kind: "mouse" }>, x: number, y: number, desk: DeskApi): boolean {
+    const r = this.rows[this.view.top + y], i = r && "i" in r ? r.i : null;
+    if (k.action === "down" && k.button === 0) { this.pressed = i !== null ? this.items?.[i]?.id ?? null : null; return true; }
+    if (k.action === "up") {
+      const id = this.pressed;
+      this.pressed = null;
+      const from = id ? (this.items ?? []).findIndex(m => m.id === id) : -1;
+      // Pressed on a note still in the list and dropped on another row: a move; anything else is a click where it was let go.
+      if (id && from >= 0 && i !== null && i !== from) void desk.press?.(this, WELCOME_ACTIONS, "welcome.move", { id, to: i + 1 });
+      else if (!id || from >= 0) this.click(x, y, desk);
+      return true;
+    }
+    return k.action === "drag";
   }
 
   click(_x: number, y: number, desk: DeskApi) {
@@ -224,7 +259,9 @@ export class WelcomeList implements Pane {
   /** Read the welcome notes again. The detail keeps what it shows unless that was the first read or the fallback. */
   async load(desk: DeskApi, first = false) {
     try {
-      this.items = await findWelcome(desk.ctx.board);
+      const found = await findWelcome(desk.ctx.board);
+      this.items = found.notes;
+      this.orderView = found.view;
       this.problem = "";
     } catch (e) {
       this.problem = `couldn't ask the outline for welcome notes: ${e instanceof Error ? e.message : String(e)}`;
@@ -247,9 +284,9 @@ export class WelcomeList implements Pane {
 
   /** A note tagged, untagged, renamed, trashed or restored anywhere: the list is asked again (once per burst). */
   onEvent(desk: DeskApi, e?: OutlineEvent) {
-    // Without a change record (a reset) it could be anything, so it's asked too. A comment,
-    // a lane's order, a move or a draft doesn't change which notes carry the property, or their titles.
-    if (e?.change && QUIET.has(e.change.kind)) return;
+    // Without a change record (a reset) it could be anything, so it's asked too. A comment, a move or a draft doesn't
+    // change which notes carry the property, or their titles; a hand-set order does when it's the Welcome view's.
+    if (e?.change && QUIET.has(e.change.kind) && !(e.change.kind === "reorder" && (!this.orderView || e.change.blockId === this.orderView.id))) return;
     if (this.reload) clearTimeout(this.reload);
     this.reload = setTimeout(() => { this.reload = null; void this.load(desk); }, 300);
   }
@@ -262,7 +299,7 @@ export class WelcomeList implements Pane {
   pick(i: number, actor: Actor, desk: DeskApi, read = false): Shown {
     const items = this.items;
     if (!items) throw new ActionRefused("the welcome notes are still being read");
-    if (!items.length) throw new ActionRefused(`no note is a welcome note yet; tag one [${WELCOME_KEY}::1]`);
+    if (!items.length) throw new ActionRefused(`no note is a welcome note yet; tag one [${WELCOME_KEY}::true]`);
     if (i < 0 || i >= items.length) throw new ActionRefused(`pick 1 to ${items.length}`);
     return this.readHere(items[i]!, actor, desk, read);
   }
@@ -285,6 +322,28 @@ export class WelcomeList implements Pane {
     return s;
   }
 
+  /**
+   * Put welcome note `m` elsewhere in the Welcome view's hand-set order (by places, or to a place from 1), as `actor`;
+   * with no Welcome view yet, it's made first (`WELCOME_VIEW_TEXT`, said), holding today's order.
+   */
+  async move(m: Msg, at: { by?: number; to?: number }, actor: Actor, desk: DeskApi): Promise<Record<string, unknown>> {
+    const board = desk.ctx.board, items = this.items ?? [];
+    let view = this.orderView, made = false;
+    // Asked again first: another door (or the one-off script) may have made it since this list was read.
+    if (!view) view = this.orderView = await welcomeView(board);
+    if (!view) {
+      view = await board.createBlock(null, WELCOME_VIEW_TEXT, actor);
+      made = true;
+      // Today's order (by title) is where it starts from, so one move changes one place.
+      if (items.length > 1) await board.moveInView({ view: view.id, blocks: items.map(x => x.id) }, actor);
+      this.orderView = view;
+    }
+    const r = await board.moveInView({ view: view.id, blocks: [m.id], ...(at.by !== undefined ? { by: at.by } : {}), ...(at.to !== undefined ? { to: at.to - 1 } : {}) }, actor);
+    await this.load(desk);
+    const n = (this.items ?? []).findIndex(x => x.id === m.id);
+    return { id: m.id, title: subject(m), n: n + 1, of: this.items?.length ?? 0, view: view.id, ...(made ? { made: true } : {}), order: r.blockIds };
+  }
+
   nextLogo(by: number, desk: DeskApi) {
     const step = by < 0 ? -1 : 1;
     this.logo = (this.logo + step + LOGOS.length) % LOGOS.length;
@@ -296,6 +355,7 @@ export class WelcomeList implements Pane {
     const items = this.items, d = this.detail?.msg, pv = this.preview(desk)?.msg;
     return {
       welcome: items ? items.map((m, i) => ({ n: i + 1, key: tabKey(i), id: m.id, title: subject(m), value: m.props[WELCOME_KEY] ?? "" })) : null,
+      view: this.orderView ? { id: this.orderView.id, title: subject(this.orderView) } : null,
       shown: this.at >= 0 ? this.at + 1 : null,
       detail: d ? { id: d.id, title: subject(d) } : null,
       preview: pv ? { id: pv.id, title: subject(pv) } : null,
@@ -347,7 +407,7 @@ export class WelcomeList implements Pane {
     return [
       "|15e p 0 c h |08· |11welcome",
       `|07node 1${ctx.outline ?? ctx.workspace ? ` |08· |03${ctx.outline ?? basename(ctx.workspace)}` : ""}`,
-      n === undefined ? "|08asking the outline…" : n ? `|07${n} |08welcome note${n === 1 ? "" : "s"} · |151-9 0|08 pick` : `|08no notes tagged [${WELCOME_KEY}::] yet`,
+      n === undefined ? "|08asking the outline…" : n ? `|07${n} |08welcome note${n === 1 ? "" : "s"} · |151-9 0|08 pick` : `|08no notes tagged [${WELCOME_KEY}::true] yet`,
       `|08last call ${ctx.lastCall ? bbsDate(ctx.lastCall) : "never"}`,
     ];
   }
@@ -416,7 +476,7 @@ export class WelcomeDetail extends DetailPane {
   override render(w: number, h: number, focused = false, desk?: DeskApi): PaneView {
     const s = this.list;
     if (!this.msg && s) {
-      const why = !s.items ? "asking the outline…" : s.items.length ? "" : `Nothing to read yet: tag a note [${WELCOME_KEY}::1].`;
+      const why = !s.items ? "asking the outline…" : s.items.length ? "" : `Nothing to read yet: tag a note [${WELCOME_KEY}::true].`;
       if (why) return { lines: [fg(C.dark) + pad(why, w) + RESET] };
     }
     return super.render(w, h, focused, desk);
@@ -474,7 +534,7 @@ export class WelcomePreview extends PreviewPane {
 export const WELCOME_ACTIONS = actionSet<KindHost>()("welcome", {
   "welcome.select": def({
     summary: "read a welcome note in the detail: n (its place from 1, as the tabs number them: 1-9, then 10 is the 0 key) or id; read=true also gives the detail the person's keys (never an agent's). Refused to an agent while the person is typing here",
-    keys: "1-9 0, a click on a tab, j k ⏎ in the list",
+    keys: "1-9 0, a click on a tab, j k ⏎, a click or the wheel in the list",
     touches: "screen", replay: "safe", says: r => `put ${r.title.slice(0, 40)} in the detail${r.n ? ` (welcome ${tabKey(r.n - 1) ?? r.n})` : ""}`,
     args: {
       n: { type: "number", optional: true, about: "its place, from 1" },
@@ -500,6 +560,25 @@ export const WELCOME_ACTIONS = actionSet<KindHost>()("welcome", {
       return (pane as WelcomeList).readHere(m, actor, desk);
     },
   }),
+  "welcome.move": def({
+    summary: "put a welcome note elsewhere in the Welcome view's hand-set order, which is the screen's order (the first is read when it opens): the one in the detail, or id=; by=<±places> (negative: up) or to=<place from 1>. With no Welcome view yet ([query::welcome]), it's made first, holding today's order. Recorded as who asked; `ep0ch view order` and a board lane on the view change the same order",
+    keys: "alt+↑ alt+↓ in the list, drag a note up or down the list",
+    touches: "nothing", replay: "ask", confirms: true,
+    says: r => `moved ${String(r.title).slice(0, 40)} to welcome ${r.n} of ${r.of}${r.made ? " (made the Welcome view to hold the order)" : ""}`,
+    args: {
+      id: { type: "string", optional: true, about: "the welcome note's block id (default: the one in the detail)" },
+      by: { type: "number", optional: true, about: "places to move down (negative: up)" },
+      to: { type: "number", optional: true, about: "its place, from 1" },
+    },
+    async run({ id, by, to }, { pane, desk }, actor) {
+      const w = pane as WelcomeList, items = w.items ?? [];
+      if ((by === undefined) === (to === undefined)) throw new ActionRefused("welcome.move takes by=<±places> or to=<place from 1>, one of them");
+      const m = id !== undefined ? items.find(x => x.id.startsWith(id)) : items[w.at];
+      if (!m) throw new ActionRefused(id !== undefined ? `${id} isn't a welcome note` : "no welcome note in the detail to move · name one with id=");
+      if (to !== undefined && (to < 1 || to > items.length)) throw new ActionRefused(`to is 1 to ${items.length}`);
+      return await w.move(m, { by, to }, actor, desk);
+    },
+  }),
   "welcome.logo": def({
     summary: "draw the next ep0ch logo (by=-1: the one before) in the band",
     keys: "L, a click on the logo",
@@ -520,7 +599,7 @@ export function welcomeKinds(): TileKind[] {
   const detail = tileKind("detail")!, preview = tileKind("preview")!;
   return [
     {
-      kind: "welcome.list", word: "list", about: "the welcome notes ([welcome::1]…) and the band with their tabs", noun: "the welcome list",
+      kind: "welcome.list", word: "list", about: "the welcome notes ([welcome::…], in the Welcome view's hand-set order) and the band with their tabs", noun: "the welcome list",
       make: () => new WelcomeList(), actions: WELCOME_ACTIONS,
       start: (p, env) => void (p as WelcomeList).load(env.desk, true),
       band: {

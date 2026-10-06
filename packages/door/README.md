@@ -45,7 +45,7 @@ One walk through the door, in the order you meet things. Each step has its own s
 
 1. **Land in it.** On a machine set up like float-2, an interactive ssh login (outside Herdr and tmux) runs
    `ep0ch` from `~/.bashrc` with `EP0CH_IN_DOOR=1`, and `EP0CH_LANDING=welcome` puts you on
-   [Welcome](#welcome) after the logon's `⏎`: the notes tagged `[welcome::n]`, the first one read. Quitting
+   [Welcome](#welcome) after the logon's `⏎`: the notes tagged `[welcome::true]`, the first one read. Quitting
    the door leaves you at that shell; `ssh -t <host> EP0CH_NO_DOOR=1 bash -l` skips the door once.
    Anywhere else, `ep0ch` opens the outline the folder's `.ep0ch` names, and `ep0ch --ws <name>` opens one by
    name; where nothing names one, the [home base](#the-home-base) lists this machine's outlines and the
@@ -298,9 +298,13 @@ embeds are live.
 
 ## Welcome
 
-The notes you want to land on, one at a time: every note with a block-scoped `welcome` property. Any value
-counts; a number is its place (`[welcome::1]` first, then `[welcome::2]`…), and the rest come after the numbered
-ones, by title. The service finds them (`blocks.query`, filter `welcome`, block scope); the door only orders them.
+The notes you want to land on, one at a time: every note with a block-scoped `welcome` property (`[welcome::true]`;
+any value only marks it). Their order is the hand-set order of the **Welcome view**, a saved view `[query::welcome]`
+(the same order a board lane keeps, #190): `alt+↑` `alt+↓` in the list, or a drag of a note up or down it
+(`welcome.move`), `ep0ch view order <view> <id>…`, or a board lane on that view. The first is read when the screen
+opens. The first move makes the Welcome view if the outline has none (said on the status bar); until then, and for
+notes the order hasn't placed yet, they come by title. The service finds them (`blocks.query`, filter `welcome`)
+and keeps the order (`virtual.occurrences.order`); the door only reads both.
 
 - **Reaching it:** `C` on the main menu, `ep0ch --screen welcome`, or `EP0CH_LANDING=welcome` to land there right
   after the logon (one ⏎ at the logon, and you're reading the first welcome note). `q` goes back to the menu.
@@ -321,11 +325,15 @@ ones, by title. The service finds them (`blocks.query`, filter `welcome`, block 
 - **Backlinks** of the detail's note, grouped as Detail groups them, every group open: landing on them (`Tab`,
   a click) shows the selected one in the same preview, and so do `j` `k` as they move, `⏎` or a click too, `alt+⏎` or a ctrl-click reads it in the detail. `s K w h n .` and
   the status line's controls change the view as on the board's drawer.
+- **Numbers are gone:** a number in `[welcome::…]` is no longer a place. Outlines that used them run the one-off
+  `bun packages/door/scripts/welcome-order.ts --ws <name>` (a dry run; `--apply` writes): it sets the Welcome view's
+  order from the numbers and rewrites the values to `true`.
 - **No welcome notes:** the list says how to tag one, and the detail shows the `[[claude-now]]` page meanwhile
   (the page `C` used to pin).
 - **Live:** tagging, untagging or editing a note anywhere updates the tabs and the list; the detail and the
   backlinks refresh as the outline changes.
 - **Agents:** `welcome.select n=<place>|id=<id>`, `welcome.read id=<id>` (put any note in the detail),
+  `welcome.move [id=<id>] by=<±n>|to=<place>` (the hand-set order, recorded as the agent),
   `welcome.logo`, `welcome.reload`, `backlinks.pick n=|id= [open=true] [fresh=true]`, `backlinks.view`, and the
   desk's and the reader's actions. None of them moves your keys; the picks are refused while you're typing here,
   and the status bar says which agent did what. `open <id>` shows the note in the preview.

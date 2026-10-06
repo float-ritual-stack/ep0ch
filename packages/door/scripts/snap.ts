@@ -1127,7 +1127,7 @@ if (scenario === "themes") {
   const { MENU_SCREENS } = await import("../src/screens");
   const { THEME_NAMES } = await import("../src/theme");
   const seeded = await seedShowcase(board);
-  await board.createBlock(null, `Start here [welcome::1]\nThe house board is [[${SEED.hub}]]; the bikes are in [[${SEED.shed}]], and the soup is [[${SEED.recipe}]].`, { kind: "user" });
+  await board.createBlock(null, `Start here [welcome::true]\nThe house board is [[${SEED.hub}]]; the bikes are in [[${SEED.shed}]], and the soup is [[${SEED.recipe}]].`, { kind: "user" });
   board.subscribe(e => app.event(e));
   const open = (key: string) => { const s = MENU_SCREENS.find(([k]) => k === key)![1](app)!; app.push(s); return s; };
   const back = () => { const A = app as any; for (const s of A.stack.splice(1)) try { s.dispose?.(); } catch { /* gone */ } app.redraw(); };
