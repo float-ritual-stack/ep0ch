@@ -132,7 +132,7 @@ export function machineOutlines(defaultOutline?: string, log: (line: string) => 
   const mirrored = mirrors.map(m => `${m.outline}@${m.machine}`).join(", ");
   const mirrorRead = async (mirror: OutlineMirror): Promise<McpBoard | { error: string }> => {
     const read = await mirror.read();
-    if ("error" in read) return { error: `${mirror.outline} lives on ${mirror.machine}, and this gateway reads it only from its mirror on ${machine}: ${read.error}.` };
+    if ("error" in read) return { error: `${mirror.outline} lives on ${mirror.machine}; ${machine}'s read-only copy ${read.error}, and this gateway reads it only from that copy.` };
     return { board: read.board, served: { source: "mirror", asOf: read.asOf, note: `${mirror.outline} lives on ${mirror.machine}; this is ${machine}'s read-only copy, kept current from its backups` } };
   };
   const local = async (name: string): Promise<McpBoard | { error: string }> => {

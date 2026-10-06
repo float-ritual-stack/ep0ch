@@ -310,3 +310,17 @@ test("rejects oversized owner text before parsing a valid-looking prefix", () =>
     });
   });
 });
+
+test("a note naming itself (its own Work ID, a bare ((own id))) isn't one of its outlinks; a jump to its own anchor is", () => {
+  withStore((store) => {
+    store.configureWorkIdPrefix("PIE");
+    const other = store.create("Other note");
+    const note = store.create("PIE-007 — Pantry shelves [work-id::PIE-007]");
+    const text = `PIE-007 — Pantry shelves [work-id::PIE-007]\nSee ((${note.id})), ((${note.id}^jars)) and ((${other.id})).\nJar list ^jars`;
+    store.update(note.id, text, note.revision);
+    const snapshot = readAuthoredLinks(store, note.id);
+    if (snapshot.kind !== "ready") throw new Error(`Expected ready links, got ${snapshot.kind}`);
+    expect(snapshot.outlinks.entries.map(e => e.resolution.kind === "ready" ? [e.resolution.target.blockId, e.resolution.target.kind === "block" ? e.resolution.target.fragmentId ?? null : null] : e.resolution.kind))
+      .toEqual([[note.id, "jars"], [other.id, null]]);
+  });
+});

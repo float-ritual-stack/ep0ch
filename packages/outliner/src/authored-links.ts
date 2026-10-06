@@ -268,6 +268,11 @@ function addressKey(normalizedAddress: string): string {
   return JSON.stringify(["address", normalizedAddress]);
 }
 
+function pointsAtOwner(link: AuthoredOutlink, ownerId: string): boolean {
+  const r = link.resolution;
+  return r.kind === "ready" && r.target.kind === "block" && r.target.blockId === ownerId && !r.target.fragmentId;
+}
+
 function withIncrementedCount<Entry extends AuthoredOutlink | AuthoredResourceLink>(entry: Entry): Entry {
   return { ...entry, occurrenceCount: entry.occurrenceCount + 1 };
 }
@@ -562,6 +567,9 @@ export function readAuthoredLinks(
     }
 
     const resolved = resolveOutlink(source, candidate);
+    // A note naming itself (its title's own Work ID, its own page, a bare ((own id))) isn't a link out; a jump to an
+    // anchor of its own is.
+    if (pointsAtOwner(resolved, ownerId)) continue;
     const existing = outlinkIndex.get(resolved.key);
     if (existing !== undefined) {
       outlinks[existing] = withIncrementedCount(outlinks[existing]!);

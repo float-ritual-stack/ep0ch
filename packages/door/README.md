@@ -504,6 +504,9 @@ a phone) can read an outline (ADR 0002, decision 4). It is one implementation wi
   gated by its own `ep0ch mcp access`: `none` (the default) refuses, `read` reads. Any other machine's outline is
   refused, and a name that doesn't exist is never made. A tool's `outline` names the outline a ref or a search reads
   (`--ws` gives a default); a URI names its own. `list_outlines` lists them all, with each one's access and freshness.
+  An MCP answer's `record` is the block record without what it repeats (`text` and `header`; `body` and
+  `properties` carry them), a note's own address isn't among its links or backlinks, and `outline_find`'s
+  `completeness` is `{kind, limit, more}` for the limit asked.
   Granting `read` sends that outline's notes to the client's model provider: it is a disclosure decision.
 - **Mirrors (PIE-562).** An outline whose home is another machine (float-hub on the laptop, often asleep or behind
   the work VPN) is read from a read-only copy on this machine, never from that machine, so a closed lid never stalls

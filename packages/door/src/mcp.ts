@@ -178,12 +178,21 @@ const reachability = (outlines: McpOutlines, target: McpBoard, status: McpAccess
   reason: outlines.kind === "local" ? `local MCP access is ${status.level}` : `MCP access is ${status.level} (remote gateway${servedWords(outlines, target)})`,
 });
 
-const envelope = (board: Board, uri: string, access: McpReachability, record: unknown, revision: number | undefined) => ({
+/**
+ * A record as MCP sends it: the service's record without what it repeats (`text` is `body` with the header chips, and
+ * `header` is `properties` again), so a model reads each thing once. Links keep `bodySpans`, which point into `body`;
+ * their `spans` point into the `text` that isn't sent. Other clients get the whole record.
+ */
+export type McpRecord = Omit<BlockRecord, "text" | "header" | "links"> & { links: Omit<BlockRecord["links"][number], "spans">[] };
+export const mcpRecord = ({ text: _text, header: _header, links, ...rest }: BlockRecord): McpRecord =>
+  ({ ...rest, links: links.map(({ spans: _spans, ...link }) => link) });
+
+const envelope = (board: Board, uri: string, access: McpReachability, record: BlockRecord, revision: number | undefined) => ({
   uri,
   outlineInstanceId: board.outlineInstanceId,
   revision: revision ?? access.revision,
   reachability: access,
-  record,
+  record: mcpRecord(record),
 });
 
 async function recordForMcp(outlines: McpOutlines, target: McpBoard, id: string): Promise<{ access: McpReachability; record: BlockRecord } | { error: string }> {
@@ -215,16 +224,20 @@ async function findBlocks(outlines: McpOutlines, args: Record<string, unknown>):
   if ("error" in status) return toolError(status.error);
   const query = stringField(args, "query")?.trim() ?? "";
   const limit = clampLimit(args.limit, 30, query ? 30 : 100);
-  let rows: Found[], completeness: { kind: string; limit?: number }, semantic: unknown;
+  // `completeness` is about this answer: the limit asked for, and whether there are more than it shows (cut here, or
+  // already cut at the service's own limit).
+  let rows: Found[], more: boolean, semantic: unknown;
   if (query) {
     const found = await board.searchBlocks(query);
     rows = found.matches.slice(0, limit).map(m => ({ id: m.block.id, title: m.title, path: m.path, uri: blockUri(board, m.block.id) }));
-    completeness = found.completeness;
+    more = found.matches.length > limit || found.completeness.kind !== "complete";
     semantic = found.semantic;
   } else {
-    rows = everyNote(await board.index()).slice(0, limit).map(f => ({ ...f, uri: blockUri(board, f.id) }));
-    completeness = { kind: rows.length < limit ? "complete" : "limited", limit };
+    const every = everyNote(await board.index());
+    rows = every.slice(0, limit).map(f => ({ ...f, uri: blockUri(board, f.id) }));
+    more = every.length > limit;
   }
+  const completeness = { kind: more ? "truncated" : "complete", limit, more };
   return toolText({ outline: board.address.outline, machine: board.address.machine, ...served, query, limit, access: { level: status.level }, completeness, ...(semantic ? { semantic } : {}), matches: rows });
 }
 
@@ -242,9 +255,10 @@ async function linkData(outlines: McpOutlines, args: Record<string, unknown>): P
     id: target.id,
     title: previewTitle(record.title),
     reachability: read.access,
-    links: record.links,
+    links: mcpRecord(record).links,
     resources: record.resources,
-    backlinks: backlinks.sources,
+    // The service keeps the note itself among its backlinks (the door's "this note" toggle); here it's noise.
+    backlinks: backlinks.sources.filter(s => s.blockId !== target.id),
     completeness: backlinks.completeness,
   });
 }

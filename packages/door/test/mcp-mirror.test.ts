@@ -70,13 +70,13 @@ describe.skipIf(!outliner)("the gateway's read-only mirrors", () => {
     expect(listed.outlines).toEqual([
       { outline: "garden-notes", machine: FAR, uri: `ep0ch://garden-notes@${FAR}`, source: "mirror", asOf: expect.stringMatching(/^\d{4}-\d\d-\d\dT/), access: "read", note: expect.stringContaining(`garden-notes lives on ${FAR}`) },
       { outline: "attic-notes", machine: FAR, uri: `ep0ch://attic-notes@${FAR}`, source: "mirror", asOf: expect.any(String), access: "none", note: expect.any(String) },
-      { outline: "cellar-notes", machine: FAR, uri: `ep0ch://cellar-notes@${FAR}`, source: "unreachable", note: expect.stringContaining("no copy of cellar-notes@far-box has reached this machine yet") },
+      { outline: "cellar-notes", machine: FAR, uri: `ep0ch://cellar-notes@${FAR}`, source: "unreachable", note: expect.stringMatching(/^cellar-notes lives on far-box; .*'s read-only copy hasn't arrived yet/) },
     ]);
   });
 
   test("a read says it came from the mirror, as of the newest change it holds, by URI, by name and as a resource", async () => {
     const read = JSON.parse((await tool("outline_read", { uri: note.uri })).text);
-    expect(read).toMatchObject({ uri: note.uri, reachability: { status: "reachable", level: "read", source: "mirror", asOf: expect.any(String), reason: expect.stringContaining("read-only mirror") }, record: { id: note.id, text: expect.stringContaining("Runner beans") } });
+    expect(read).toMatchObject({ uri: note.uri, reachability: { status: "reachable", level: "read", source: "mirror", asOf: expect.any(String), reason: expect.stringContaining("read-only mirror") }, record: { id: note.id, body: expect.stringContaining("Runner beans") } });
     const found = JSON.parse((await tool("outline_find", { query: "Seed swap", outline: "garden-notes" })).text);
     expect(found).toMatchObject({ outline: "garden-notes", machine: FAR, source: "mirror", asOf: read.reachability.asOf });
     expect(found.matches).toContainEqual(expect.objectContaining({ id: note.id, uri: note.uri }));
@@ -91,7 +91,7 @@ describe.skipIf(!outliner)("the gateway's read-only mirrors", () => {
     expect(refused.text).toContain(`MCP access is none for attic-notes@${FAR}`);
     expect(refused.text).toContain(`runs \`ep0ch mcp access read --ws attic-notes\` on ${FAR}`);
     expect(refused.text).not.toContain("canal");
-    expect((await tool("outline_read", { ref: note.id, outline: "cellar-notes" })).text).toContain("reads it only from its mirror");
+    expect((await tool("outline_read", { ref: note.id, outline: "cellar-notes" })).text).toContain("lives on far-box; ");
   });
 
   test("the copy is served read-only: a write or a host action is refused, and the followed file is never opened to write", async () => {
@@ -112,7 +112,7 @@ describe.skipIf(!outliner)("the gateway's read-only mirrors", () => {
     expect((await tool("outline_read", { uri: laterUri })).isError).toBe(true);
     clock += 16_000;
     const read = JSON.parse((await tool("outline_read", { uri: laterUri })).text);
-    expect(read.record.text).toContain("mid-April");
+    expect(read.record.body).toContain("mid-April");
     expect(Date.parse(read.reachability.asOf)).toBeGreaterThan(Date.parse(before));
   }, 30_000);
 
@@ -122,7 +122,8 @@ describe.skipIf(!outliner)("the gateway's read-only mirrors", () => {
     clock += 16_000;
     const broken = await tool("outline_read", { uri: note.uri });
     expect(broken.isError).toBe(true);
-    expect(broken.text).toContain("can't be read");
+    expect(broken.text).toContain("garden-notes lives on far-box; ");
+    expect(broken.text).toContain("copy can't be read");
     expect(logs.join("\n")).toContain("can't take a snapshot");
     follow("garden-notes");
     clock += 16_000;
