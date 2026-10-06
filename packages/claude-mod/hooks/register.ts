@@ -25,6 +25,21 @@ import {
 import { actorOf, DOOR_TOOLS, doorActArgv, OUTLINE_TOOLS, peekOf } from './outline-tools'
 import { WORK_TOOLS, withOptions } from './work-tools'
 import {
+  idsToTitle,
+  READ_TOOLS,
+  TOOL_PREFIX,
+  TOOL_ROWS_COMMAND,
+  TOOL_ROWS_STORE_KEY,
+  TOOL_ROWS_USAGE,
+  toolResultLineOf,
+  toolRowOf,
+  type ToolRowElements,
+  toolRowsCommandOf,
+  toolRowsPrefsOf,
+  toolRowTree,
+  WRITE_TOOLS,
+} from './tool-rows'
+import {
   bandHasContent,
   choicesText,
   COMMAND_USAGE,
@@ -202,11 +217,12 @@ export function register(on: On, options: PluginOptions): void {
     return result
   })
 
-  // A press that opens a note here seats the mentions pane from the press itself: an open made with the press's `$`
+  // A press that opens a note here (a mention, a reference in a reply, a tool row's note) seats the mentions pane from the press itself: an open made with the press's `$`
   // answers the person, so the engine places it at any width (openNote's open that follows finds it up). In a door
   // or Herdr nothing is seated: the note opens there.
   on('ui.press', { plugin: 'pi-outliner' }, async ($, e, next) => {
-    const opensNote = /^mention-\d+$/.test(e.element) || (e.element === 'outliner-references' && !!e.link && outlinerUriOf(e.link.href) !== null)
+    const opensNote = /^mention-\d+$/.test(e.element) || e.element.startsWith('tool-row-open-') ||
+      (e.element === 'outliner-references' && !!e.link && outlinerUriOf(e.link.href) !== null)
     // The cached variables read without waiting, so the press reaches its closure before anything queued after it.
     if (opensNote && references?.workspace && routeOf(routeEnv ?? await routeEnvOf($)) === 'here') {
       await $.ui.open({ id: MENTIONS_PANE, title: MENTIONS_TITLE }).catch(() => {})
@@ -395,6 +411,62 @@ export function register(on: On, options: PluginOptions): void {
         }),
       ],
     })
+  })
+
+  // The mod's own tool calls as compact rows that fold open on what they wrote (hooks/tool-rows.ts). Anything the
+  // formatter doesn't recognise, a drawing that throws, or the person's `/tool-rows off` leaves the engine's row.
+  for (const name of [...WRITE_TOOLS, ...READ_TOOLS]) {
+    on('ui.render', { component: 'ToolUse', props: { tool: `${TOOL_PREFIX}${name}` } }, async ($, e, next) => {
+      try {
+        const open = { ...TOOL_ROW_OPEN, id: e.props.tool_use_id }
+        const [prefs, expanded, titles] = await Promise.all([
+          $.state.get(TOOL_ROWS_PREFS).then(({ value }) => toolRowsPrefsOf(value)),
+          $.state.get(open).then(({ value }) => value === true),
+          toolTitlesOf($, e.props),
+        ])
+        if (!prefs.enabled) {
+          drawnToolRows.delete(e.props.tool_use_id)
+          return next(e)
+        }
+        const row = toolRowOf(e.props, id => titles.get(id))
+        if (!row) {
+          drawnToolRows.delete(e.props.tool_use_id)
+          return next(e)
+        }
+        const tree = toolRowTree($.ui.resolve(e) as unknown as ToolRowElements, row, {
+          id: e.props.tool_use_id,
+          expanded,
+          toggle: () => void (async () => $.state.set(open, !(await $.state.get(open)).value))(),
+          open: (ref, surface) => void openToolTarget($, ref, surface),
+        })
+        drawnToolRows.add(e.props.tool_use_id)
+        return tree
+      } catch {
+        drawnToolRows.delete(e.props.tool_use_id)
+        return next(e)
+      }
+    })
+    // The row already says what happened: the result is one line (`✓ rev 2`), or nothing for a read. Errors in full.
+    on('ui.render', { component: 'ToolResult', props: { tool: `${TOOL_PREFIX}${name}` } }, async ($, e, next) => {
+      try {
+        // Only under a row the mod drew: where the call's row is the engine's, so is its result.
+        if (!toolRowsPrefsOf((await $.state.get(TOOL_ROWS_PREFS)).value).enabled || !drawnToolRows.has(e.props.tool_use_id)) return next(e)
+        const line = toolResultLineOf(e.props.tool, e.props.output, e.props.isErrored)
+        if (line === null) return next(e)
+        const { Box, Text } = $.ui.resolve(e)
+        return line ? Box({ paddingLeft: 2, children: Text({ dimColor: true, children: `⎿  ${line}` }) }) : Box({})
+      } catch {
+        return next(e)
+      }
+    })
+  }
+
+  on('command.run', { command: TOOL_ROWS_COMMAND }, async ($, e) => {
+    const chosen = toolRowsCommandOf(e.args)
+    if (!chosen) return { text: `${TOOL_ROWS_USAGE} Now ${toolRowsPrefsOf((await $.state.get(TOOL_ROWS_PREFS)).value).enabled ? 'on' : 'off'}.` }
+    await $.state.set(TOOL_ROWS_PREFS, chosen)
+    await $.store.set(TOOL_ROWS_STORE_KEY, chosen)
+    return { text: chosen.enabled ? 'Outline tool rows on: the outline and workboard tool calls draw as compact rows; ▸ unfolds what each wrote.' : "Outline tool rows off: Claude Code's own rows draw the outline tools." }
   })
 
   on('turn.complete', async ($, e, next) => {
@@ -1072,6 +1144,12 @@ async function paneIsPlaced($: EngineInterface): Promise<boolean> {
 
 async function startMentions($: EngineInterface, option: PluginOptions): Promise<void> {
   await $.command.register({
+    name: TOOL_ROWS_COMMAND,
+    description: "The outline and workboard tool calls as compact rows that fold open on what they wrote, or Claude Code's own rows",
+    argumentHint: '[on | off]',
+  })
+  await $.state.set(TOOL_ROWS_PREFS, toolRowsPrefsOf(await $.store.get(TOOL_ROWS_STORE_KEY)))
+  await $.command.register({
     name: 'mentions',
     description: 'Recent mentions of the outline: in a band above the prompt or a pane beside the transcript, with block previews; or hidden',
     argumentHint: '[band | pane | off | preview | scope]',
@@ -1256,6 +1334,52 @@ async function openUri($: EngineInterface, workspace: Workspace, uri: string, su
     $.ui.toast(`Could not open ${outlinerLabelOf(uri)} in the Outliner: ${reason}`, { timeoutMs: 6000 })
     return null
   }
+}
+
+/** `/tool-rows`: the mod's tool rows on or off (kept in `$.store` too); unset reads as on. */
+const TOOL_ROWS_PREFS = { plugin: 'pi-outliner', key: 'toolRows' } as const
+/** Which tool rows are folded open, by tool_use_id. */
+const TOOL_ROW_OPEN = { plugin: 'pi-outliner', key: 'toolRowOpen' } as const
+/** Block titles a tool row names, by block id: looked up once a session, off the draw. */
+const TOOL_TITLES = { plugin: 'pi-outliner', key: 'toolTitles' } as const
+const askedTitles = new Set<string>()
+/** The tool calls whose row the mod drew (not the engine's): only their result rows are shortened. */
+const drawnToolRows = new Set<string>()
+
+/**
+ * The titles of the blocks a tool row names by id. Each is read from state (so
+ * the row draws again when it lands); one not looked up yet is resolved through
+ * the CLI off the draw, once a session. Only in a folder bound to an outline.
+ */
+async function toolTitlesOf($: EngineInterface, view: { tool: string; input: unknown }): Promise<Map<string, string>> {
+  const titles = new Map<string, string>()
+  const workspace = references?.workspace
+  for (const id of idsToTitle({ ...view, isRunning: false, isErrored: false, isInterrupted: false })) {
+    const { value } = await $.state.get({ ...TOOL_TITLES, id })
+    if (value) titles.set(id, value)
+    else if (workspace && !askedTitles.has(id)) {
+      askedTitles.add(id)
+      $.clock.after(0, () => void runOutlinerCli($, workspace, ['agent', 'resolve', '--stdin'], JSON.stringify({ ref: id }))
+        .then(out => {
+          const title: unknown = JSON.parse(out)?.title
+          return typeof title === 'string' && title.trim() ? $.state.set({ ...TOOL_TITLES, id }, title.trim()) : undefined
+        })
+        .catch(() => {}))
+    }
+  }
+  return titles
+}
+
+/** A tool row's target pressed: opened by `openNote`, as a reference in a reply is. */
+async function openToolTarget($: EngineInterface, ref: string, surface: RenderSurface): Promise<void> {
+  const uri = outlinerUriFor(ref)
+  const workspace = references?.workspace
+  if (!uri) return
+  if (!workspace) {
+    $.ui.toast(NOT_BOUND, { timeoutMs: 6000 })
+    return
+  }
+  await openUri($, workspace, uri, surface)
 }
 
 const DETAIL = { plugin: 'pi-outliner', key: 'detail' } as const

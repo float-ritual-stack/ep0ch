@@ -19,6 +19,9 @@ export type BlockViewEntry = { at: string; data: BlockViewData }
  */
 export type DetailBeside = { found: 'detail' | 'none' } | { found: 'refused'; why: string }
 
+/** Whether the mod draws its outline and workboard tool calls as compact rows (`/tool-rows on|off`), kept in `$.store`. */
+export type ToolRowsPrefs = { enabled: boolean }
+
 /** Where Recent mentions shows: a compact band above the prompt, a pane beside the transcript, or nowhere. */
 export type MentionsPlacement = 'band' | 'pane' | 'off'
 
@@ -133,6 +136,12 @@ declare module 'claude-code' {
       detailSources: StateFamily<DetailSource>
       /** Where this Claude is bound (hooks/binding.ts): the card's facts (null: still being read), and whether it shows. */
       binding: BindingCard
+      /** `/tool-rows`: whether the mod draws its tool calls as compact rows (hooks/tool-rows.ts). */
+      toolRows: ToolRowsPrefs
+      /** Which tool rows are folded open, by tool_use_id. */
+      toolRowOpen: StateFamily<boolean>
+      /** Block titles the tool rows name, by block id. */
+      toolTitles: StateFamily<string>
     }
   }
 }

@@ -1,4 +1,4 @@
 {
-  "description": "Recent Mentions (forwards each completed main-loop answer in a folder bound to an outline to that outline's mentions.ingest), clickable references, Recent mentions as a band or pane beside the transcript with door-drawn block previews (BlockView), the show tool, workboard and outline tools over the installed Outliner CLI, door tools in an ep0ch-door tile, where the session runs (ep0ch where) as context, and where this Claude is bound (outline, machine, door, folder) as a card, a status line and context",
+  "description": "Recent Mentions (forwards each completed main-loop answer in a folder bound to an outline to that outline's mentions.ingest), clickable references, Recent mentions as a band or pane beside the transcript with door-drawn block previews (BlockView), the show tool, workboard and outline tools over the installed Outliner CLI, drawn in the transcript as compact rows that fold open on what they wrote, door tools in an ep0ch-door tile, where the session runs (ep0ch where) as context, and where this Claude is bound (outline, machine, door, folder) as a card, a status line and context",
   "modules": ["./register.ts"]
 }
