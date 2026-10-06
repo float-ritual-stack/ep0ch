@@ -10,7 +10,7 @@
 // is a generation in its own folder; the one before is closed a while after it is replaced. The access setting is the
 // one the copy carries, so `ep0ch mcp access` on the laptop reaches the mirror with its next change.
 import { Database } from "bun:sqlite";
-import { chmodSync, existsSync, mkdirSync, rmSync, statSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { isMachineName } from "@ep0ch/outline-core/outline-location";
@@ -73,7 +73,8 @@ export class OutlineMirror {
 
   constructor(readonly outline: string, readonly machine: string, folder: string, private readonly log: (line: string) => void = console.error, private readonly now: () => number = Date.now) {
     this.follow = join(folder, machine, `${outline}.sqlite`);
-    this.work = join(folder, ".serve", machine, outline);
+    // This process's own folder: another gateway on the same mirrors serves from its own.
+    this.work = join(folder, ".serve", machine, outline, String(process.pid));
   }
 
   /** Whether a copy has arrived (Litestream's follow made the file). */
@@ -107,7 +108,9 @@ export class OutlineMirror {
       this.current = next;
       this.problem = null;
     } catch (e) {
-      // The copy before keeps serving; the next check tries again.
+      // A copy that changed and can't be read isn't answered for by the one before: it may have taken away the access
+      // the older copy grants. Nothing is served until a snapshot succeeds (the next check tries again).
+      if (this.current) { this.retire(this.current); this.current = null; }
       this.problem = (e as Error).message;
       this.log(`mcp mirror ${this.outline}@${this.machine}: can't take a snapshot: ${this.problem}`);
     }
@@ -137,8 +140,7 @@ export class OutlineMirror {
   }
 
   private async build(marker: string): Promise<Generation> {
-    // Folders a gateway before this one left are its own, and nothing serves them now.
-    if (this.made === 0) rmSync(this.work, { recursive: true, force: true });
+    if (this.made === 0) this.clearLeftovers();
     const dir = join(this.work, String(++this.made));
     mkdirSync(dir, { recursive: true, mode: 0o700 });
     let host: OutlineHost | undefined;
@@ -151,13 +153,27 @@ export class OutlineMirror {
       board.address = { outline: this.outline, machine: this.machine };
       try {
         await board.info();
-        const newest = Math.max(0, ...(await board.index()).map(b => b.updatedAt).filter(Number.isFinite));
+        let newest = 0;
+        for (const b of await board.index()) if (Number.isFinite(b.updatedAt) && b.updatedAt > newest) newest = b.updatedAt;
         return { dir, host, board, marker, asOf: new Date(newest || statSync(this.follow).mtimeMs).toISOString() };
       } catch (e) { board.close(); throw e; }
     } catch (e) {
       await host?.close().catch(() => {});
       rmSync(dir, { recursive: true, force: true });
       throw e;
+    }
+  }
+
+  /** Folders left by gateways that have gone (each is named by its process id); a running one's are its own. */
+  private clearLeftovers(): void {
+    const parent = join(this.work, "..");
+    let entries: string[] = [];
+    try { entries = readdirSync(parent); } catch { return; }
+    for (const name of entries) {
+      const pid = Number(name);
+      if (!Number.isInteger(pid) || pid <= 0) continue;
+      if (pid !== process.pid && alive(pid)) continue;
+      rmSync(join(parent, name), { recursive: true, force: true });
     }
   }
 
@@ -181,3 +197,5 @@ export class OutlineMirror {
     await Promise.all(gens.map(g => this.drop(g)));
   }
 }
+
+const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch (e) { return (e as NodeJS.ErrnoException).code === "EPERM"; } };

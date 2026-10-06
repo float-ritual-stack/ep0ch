@@ -3,7 +3,7 @@
 // is a VACUUM INTO of its database into the mirrors folder. Fictional notes throughout.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { mkdirSync, readdirSync, rmSync } from "node:fs";
+import { mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { formatEp0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
 import { answerMcp, type McpOutlines } from "../src/mcp";
@@ -114,6 +114,19 @@ describe.skipIf(!outliner)("the gateway's read-only mirrors", () => {
     const read = JSON.parse((await tool("outline_read", { uri: laterUri })).text);
     expect(read.record.text).toContain("mid-April");
     expect(Date.parse(read.reachability.asOf)).toBeGreaterThan(Date.parse(before));
+  }, 30_000);
+
+  test("a changed copy that can't be read stops the mirror answering until a good one arrives (it may have revoked access)", async () => {
+    expect((await tool("outline_read", { uri: note.uri })).isError).toBe(false);
+    writeFileSync(join(mirrorsFolder, FAR, "garden-notes.sqlite"), "not a database");
+    clock += 16_000;
+    const broken = await tool("outline_read", { uri: note.uri });
+    expect(broken.isError).toBe(true);
+    expect(broken.text).toContain("can't be read");
+    expect(logs.join("\n")).toContain("can't take a snapshot");
+    follow("garden-notes");
+    clock += 16_000;
+    expect((await tool("outline_read", { uri: note.uri })).isError).toBe(false);
   }, 30_000);
 
   test("config: mirrors are <outline>@<machine>, in a folder that isn't the outlines folder", () => {

@@ -123,8 +123,8 @@ const localNames = async () => (await hostLive(hostSocketOf(), 3000))?.outlines 
 
 /**
  * The gateway's outlines: any outline on this machine's host by name, opened once and kept, and each mirror it was
- * given (another machine's outline, read from its copy here, never from that machine). A mirror's name wins over a
- * bare name. Any other machine's outline is refused, and an outline that doesn't exist is never made.
+ * given (another machine's outline, read from its copy here, never from that machine). A bare name a mirror has is
+ * the mirror; `<name>@<this machine>` is still this machine's. Any other machine's outline is refused, and an outline that doesn't exist is never made.
  */
 export function machineOutlines(defaultOutline?: string, log: (line: string) => void = console.error, open: (name: string) => Promise<NotesBoard | { error: string }> = name => boardFor(["--ws", name, "--here"]), mirrors: OutlineMirror[] = [], names: () => Promise<string[]> = localNames): McpOutlines & { close(): void } {
   const machine = canonicalLocalMachineName();
@@ -164,7 +164,6 @@ export function machineOutlines(defaultOutline?: string, log: (line: string) => 
       const rows: McpOutlineListing[] = [];
       const access = async (target: McpBoard | { error: string }) => "error" in target ? undefined : (await target.board.mcpAccessStatus().catch(() => undefined))?.level;
       for (const name of await names().catch(() => [])) {
-        if (mirrors.some(m => m.outline === name)) continue;
         const target = await local(name);
         rows.push({ outline: name, machine, uri: `ep0ch://${name}@${machine}`, ...("error" in target ? { source: "unreachable" as const, note: target.error } : { ...target.served, access: await access(target) }) });
       }
