@@ -1,5 +1,6 @@
 // Where a new card in a lane goes (PIE-406). What it is born with, and the text or roadmap item it is
 // saved as, is the service's plan (`views.planWrite`); the board (delivery.ts) asks for it and writes.
+import { referencedBlock } from "@ep0ch/outline-core/link-syntax";
 import { subject, type Msg } from "../board";
 import { ellipsize } from "../style";
 
@@ -14,7 +15,7 @@ export function pickParent(laneName: string, def: Msg | undefined, laneItems: Ms
   const named = def?.properties?.filter(p => p.key === "create-parent") ?? (def?.props["create-parent"] ? [{ key: "create-parent", value: def.props["create-parent"] }] : []);
   if (named.length > 1) return { refused: `${laneName} has more than one create-parent::` };
   if (named.length === 1) {
-    const id = named[0]!.value.replace(/^\(\((.*)\)\)$/, "$1").trim();
+    const id = referencedBlock(named[0]!.value)?.blockId ?? named[0]!.value.trim();
     return { id, why: `${laneName}'s create-parent` };
   }
   const majority = (items: Msg[], where: string): ParentPick | null => {

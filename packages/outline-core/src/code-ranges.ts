@@ -223,7 +223,7 @@ export function scanPropertyLiteralRanges(text: string): SourceRange[] {
 
 /**
  * The code a reference or an authored link can't be in: fenced code and indented code (`codeBlocks`), and code
- * spans (a run of backticks to the next run of the same length on its line). Ranges are by line, without line
+ * spans (`codeSpanRanges`). Ranges are by line, without line
  * breaks, and may overlap.
  */
 export function protectedCodeRanges(text: string): SourceRange[] {
@@ -234,8 +234,11 @@ export function protectedCodeRanges(text: string): SourceRange[] {
   const ranges: SourceRange[] = [];
   for (const block of fences) for (let i = block.start; i <= block.end; i++) ranges.push(lineRange(i));
   for (const i of indented) ranges.push(lineRange(i));
-  for (const match of text.matchAll(/(`+)[^\n]*?\1/g)) {
-    ranges.push({ start: match.index, end: match.index + match[0].length });
-  }
+  ranges.push(...codeSpanRanges(text));
   return ranges;
+}
+
+/** The code spans a link can't be in: a run of backticks to the next as many backticks on its line. */
+export function codeSpanRanges(text: string): SourceRange[] {
+  return [...text.matchAll(/(`+)[^\n]*?\1/g)].map(match => ({ start: match.index, end: match.index + match[0].length }));
 }

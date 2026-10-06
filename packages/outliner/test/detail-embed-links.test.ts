@@ -11,7 +11,8 @@ import {renderDetailReadPreview} from '../src/detail-pi-preview';
 import {measureRenderedLinks, withInternalLinks} from '../src/rendered-links';
 import {linkOutlinerMarkdown, parseOutlinerLinkUri} from '../src/outliner-links';
 import type {Block} from '../src/types';
-import {blockReferenceEnvelopeRanges, blockReferenceOccurrences, resolveBlockReferencesWithStatus} from '../src/references';
+import { resolveBlockReferencesWithStatus } from '../src/references';
+import { blockReferenceEnvelopeRanges, blockReferenceOccurrences } from '@ep0ch/outline-core/link-syntax';
 import {completionTargetAtCursor} from '../src/completion';
 
 const plain = (value: string) => value;

@@ -13,9 +13,9 @@ package's own.
 
 - **packages/outline-core**: pure shared code with no I/O: the property grammar, the header line (`header-line.ts`),
   the block-as-a-record shape (`block-record.ts`), the one code fence rule (`code-fence.ts`) and where a note is
-  code or literal (`code-ranges.ts`), the draft.patch compare, the
-  search matcher, `protocol.ts` (`PROTOCOL` and the wire types) and `outline-location.ts` (which outline a
-  client opens, and the outlines folder's layout). Both sides import it; nobody copies it.
+  code or literal (`code-ranges.ts`), the link grammar (`link-syntax.ts`: references, page links, embeds,
+  anchors), the draft.patch compare, the search matcher, `protocol.ts` (`PROTOCOL` and the wire types) and
+  `outline-location.ts` (which outline a client opens, and the outlines folder's layout). Both sides import it; nobody copies it.
 - **packages/outliner**: the outline host (the board software), its Herdr clients Tree, Detail and Preview
   (the sysop console), the CLI, the publisher, prompts, extensions and the Pi extension. It is the Herdr
   plugin root (`herdr-plugin.toml`). Its own [CONTRIBUTING.md](packages/outliner/CONTRIBUTING.md) has the

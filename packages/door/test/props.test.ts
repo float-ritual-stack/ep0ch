@@ -416,7 +416,8 @@ describe.skipIf(!outliner)("the property panel and transclusions, against a scra
       await until(() => { const s = shown(); return s.includes("See the plan and Garden plan.") && /related-to\s+Garden plan/.test(s); }, "the links and the panel", 8000);
       const once = tally();
       console.log(`  requests to open a note with links and a block-valued property: ${JSON.stringify(once)}`);
-      expect(once["references.resolve"]).toBe(1);
+      // At most once: answers are kept by target, not label, so one already asked about this target may answer it.
+      expect(once["references.resolve"] ?? 0).toBeLessThanOrEqual(1);
       B().preview.surface.panel = null;
     } finally { (board as any).request = request; }
   }, 30_000);

@@ -15,6 +15,7 @@
 //
 // Planning only reads. The client applies a move with `properties.patch` at the revision the plan was
 // made at, so a block that changed in between is refused there, never overwritten.
+import { referencedBlock } from "@ep0ch/outline-core/link-syntax";
 import { compileQueryExpression, serializePropertyFilterValue } from "./block-query";
 import { firstLineWithoutPropertyTokens, formatProperty, parsePropertyRecords } from "./properties";
 import type {
@@ -286,7 +287,7 @@ function composeText(name: string, text: string, born: readonly BlockProperty[],
 }
 
 const listed = (xs: readonly string[]) => (xs.length < 2 ? xs.join("") : `${xs.slice(0, -1).join(", ")} and ${xs.at(-1)}`);
-const idOf = (v: string) => v.replace(/^\(\((.*)\)\)$/, "$1").split("|")[0]!.trim();
+const idOf = (v: string) => referencedBlock(v)?.blockId ?? v.trim();
 
 /**
  * A new roadmap item in a roadmap view, as the allocator takes it. Each field is the typed text's token,

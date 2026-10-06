@@ -93,7 +93,7 @@ describe.skipIf(!outliner)("the showcase seed", () => {
   test("the notebook: callouts, links and soft links, folds, a literal region, a tilde fence, a transclusion, properties in every scope", async () => {
     const t = seeded.notes.notebook.text;
     for (const piece of ["> [!note] Gate code", "> [!warning]- Slugs", `[[${SEED.shed}]]`, `((${seeded.cards[3]!.id}|the kettle job))`, "HOME-001 is the gate latch",
-      "## Beds", "  - runner beans", "<!-- literal -->", "<!-- /literal -->", "~~~text", `!((${seeded.notes.whiteboard.id}))`])
+      "## Beds", "  - runner beans", `((${seeded.cards[3]!.id}|the kettle (the dented one)))`, "<!-- literal -->", "<!-- /literal -->", "~~~text", `!((${seeded.notes.whiteboard.id}))`])
       expect(t).toContain(piece);
     const scope = async (key: string) => (await board.propertyTokens(seeded.notes.notebook.id, key)).tokens.map(x => x.scope);
     expect(await scope("season")).toEqual(["block"]);
@@ -104,6 +104,8 @@ describe.skipIf(!outliner)("the showcase seed", () => {
     // The reader draws the ~~~ fence as code, as the service reads it: its **bold** as typed, in the code box.
     const drawn = (await drawNote(board, seeded.notes.notebook.id, 120))!.map(plain);
     expect(drawn.some(l => l.includes("│ **Not bold**, [mode::quiet] and #quiet are code here"))).toBe(true);
+    // A label with parentheses is read whole, as the service reads it: the link is "the kettle (the dented one)".
+    expect(drawn.some(l => l.includes("A label can hold parentheses: the kettle (the dented one) needs a new lid."))).toBe(true);
     expect((await board.backlinks(seeded.notes.shed.id)).sources.map(b => b.blockId)).toContain(seeded.notes.notebook.id);
     expect((await board.resolvePage(SEED.shed)).status).toBe("resolved");
   });

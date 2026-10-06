@@ -3,7 +3,7 @@ import {
   DEFAULT_BACKLINK_FACET_RULES,
   type BacklinkFacetRules,
 } from "./backlink-facets";
-import { normalizePageAddress } from "./page-addresses";
+import { normalizePageAddress } from "@ep0ch/outline-core/link-syntax";
 import { parsePropertyRecords } from "./properties";
 import {
   outlinerReferenceOccurrences,

@@ -7,7 +7,9 @@ import { colourBody, wrap } from "./text";
 import { componentBlocks, noteCodeFences, noteStructure } from "@ep0ch/outline-core/component-block";
 import { figureSource, frame, graphKind, reframeAscii, renderGraph, type FiguresEnv } from "./graphs";
 import { linkBlockAt, renderLinkBlock } from "./links";
-import { EMBED, stripMarks, type LinkTarget } from "./refs";
+import { stripMarks, type LinkTarget } from "./refs";
+import { codeSpanRanges } from "@ep0ch/outline-core/code-ranges";
+import { embedPattern, linkOccurrences, withoutFragmentAnchor } from "@ep0ch/outline-core/link-syntax";
 import { BUILTIN_CALLOUT_REGISTRY, calloutBlocks, quoteByline, stripQuotes, type CalloutBlock, type CalloutRegistry } from "@ep0ch/outline-core/callouts";
 import { TONE } from "./callouts";
 
@@ -142,12 +144,6 @@ const HEADING = /^(#{1,6})\s+(.*)$/;
 const ITEM = /^(\s*)([-*]|\d+[.)])\s+(.*)$/;
 /** The fewest columns a list item's text keeps when its indentation would take the whole width. */
 const MIN_ITEM_TEXT = 8;
-/**
- * A block anchor at the end of a line (`^books`, `^t-8a6d7f`, the older `^task-<uuid>`), hidden when a note is
- * drawn, as Detail hides it. The id pattern is the service's (FRAGMENT_ID_SOURCE in pi-herdr-outliner's
- * src/fragments.ts); the anchor stays in the source, so folds and links still find it.
- */
-const TASK_ID = /(^|[ \t])\^[A-Za-z0-9][A-Za-z0-9_-]{0,63}[ \t]*$/gm;
 const indentOf = (l: string) => l.length - l.trimStart().length;
 
 
@@ -175,12 +171,12 @@ export function mediaLines(src: readonly string[]): Map<number, MediaSpec> {
 export function foldPoints(body: string, anchors: readonly (string | undefined)[] = []): FoldPoint[] {
   const src = body.split("\n");
   const block = noteStructure(src), images = mediaLines(src);
-  const foldable = (i: number) => block[i] === -1 && !images.has(i) && !new RegExp(EMBED.source).test(src[i]!);
+  const foldable = (i: number) => block[i] === -1 && !images.has(i) && !embedPattern().test(src[i]!);
   const trim = (from: number, to: number) => { while (to > from && !src[to - 1]!.trim()) to--; return to; };
   const out: FoldPoint[] = [];
   const seen = new Map<string, number>();
   const add = (kind: FoldPoint["kind"], level: number, text: string, line: number, end: number, start?: "folded") => {
-    const plain = text.replace(TASK_ID, "").trim().replace(/\s+/g, " ");
+    const plain = withoutFragmentAnchor(text).trim().replace(/\s+/g, " ");
     // A step's box ([ ] or [x]) isn't part of its name: ticking it keeps its fold. Every occurrence counts
     // toward the ordinal, empty ones too, so an earlier `## Notes` gaining a body doesn't renumber this one.
     const base = `${kind}:${level}:${plain.replace(/^\[.\]\s+/, "")}`;
@@ -240,7 +236,11 @@ export function renderDoc(body: string, env: DocEnv): Doc {
   const W = Math.max(10, env.width);
   // A checklist step's stable id (` ^task-<uuid>`, added by the service, e.g. when a step gets a comment)
   // is bookkeeping, not prose.
-  const src = body.split("\n").map(l => l.replace(TASK_ID, ""));
+  // A block anchor at the end of a line (`^books`, `^t-8a6d7f`, the older `^task-<uuid>`) is hidden when a note is
+  // drawn, as Detail hides it (outline-core's anchor rule, the service's); it stays in the source, so folds and links
+  // still find it. A line of code or of a figure keeps its text (`mask = flags ^bit`).
+  const raw = body.split("\n"), rawStructure = noteStructure(raw);
+  const src = raw.map((l, i) => (rawStructure[i] === -1 ? withoutFragmentAnchor(l) : l));
   const mediaAt = mediaLines(src);
   const source: number[] = [], heads: Doc["heads"] = [];
   const at = new Map((env.folds?.points ?? []).map(p => [p.line, p]));
@@ -431,20 +431,18 @@ export function renderDoc(body: string, env: DocEnv): Doc {
     }
 
     // Transclusions: each `!((…))` becomes its shaded region; the text around it stays where it was.
-    // Inline code keeps its text (fences are consumed above): only what's outside backticks is split.
+    // Inline code keeps its text (fences are consumed above): an embed in a code span is its text.
     if (env.embed && line.includes("!((")) {
       const pieces: (string | { id: string; fragment?: string })[] = [];
-      let text = "";
-      line.split(/(`[^`]*`)/).forEach((part, j) => {
-        if (j % 2) { text += part; return; }
-        const parts = part.split(new RegExp(EMBED.source, "g"));
-        for (let k = 0; k < parts.length; k += 3) {
-          text += parts[k]!;
-          if (k + 1 < parts.length) { pieces.push(text, { id: parts[k + 1]!, fragment: parts[k + 2] || undefined }); text = ""; }
-        }
-      });
+      const code = codeSpanRanges(line);
+      let at = 0;
+      for (const l of linkOccurrences(line)) {
+        if (l.kind !== "block" || !l.embed || code.some(c => c.start < l.end && l.start < c.end)) continue;
+        pieces.push(line.slice(at, l.start), { id: l.blockId, fragment: l.fragmentId });
+        at = l.end;
+      }
       if (pieces.length) {
-        pieces.push(text);
+        pieces.push(line.slice(at));
         pieces.forEach((p, k) => {
           if (typeof p !== "string") { out.push(...env.embed!(p.id, p.fragment, embeds++, W)); return; }
           const t = k === 0 ? p.trimEnd() : p.trim();

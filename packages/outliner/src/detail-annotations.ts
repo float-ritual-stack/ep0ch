@@ -4,7 +4,8 @@ import { outlinerActionLink } from "./outliner-actions";
 import { annotationSourceHash, annotationReferenceContextsEqual, extractAnnotationBody } from "./annotations";
 import type { DetailState } from "./detail-controller";
 import { renderMarkdownLine, sanitizeDynamicText } from "./terminal";
-import { blockReferenceDisplayText, blockReferenceOccurrences } from "./references";
+import { blockReferenceDisplayText } from "./references";
+import { blockReferenceOccurrences } from "@ep0ch/outline-core/link-syntax";
 import type { Block, AnnotationRecord, AnnotationTarget, AnnotationThread, BlockReferenceResolution, ResolvedBlockReferences } from "./types";
 
 /** The displayed evidence needed by both Detail and local Preview comment readers. */

@@ -1,4 +1,5 @@
-import {blockReferenceDisplayText, blockReferenceOccurrences} from './references';
+import { blockReferenceDisplayText } from './references';
+import { blockReferenceOccurrences } from '@ep0ch/outline-core/link-syntax';
 import type {ResolvedBlockReferences} from './types';
 import {atomicDocument, concatDocuments, generatedDocument, sliceDocument, type DocumentOrigin, type MappedDocument} from './document-provenance';
 

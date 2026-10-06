@@ -11,21 +11,15 @@ import type { FigureControl } from "./graphs";
 import type { ImageControl } from "./doc";
 import { isOutlineNote, type AuthoredLinksSnapshot, type AuthoredResourceLink } from "./authored";
 import { noteStructure } from "@ep0ch/outline-core/component-block";
-
-/** The service's exact reference: `((id))`, `((id^fragment))`, `((id|label))`, `((id^fragment|label))`. */
-export const REF = /\(\(([A-Za-z0-9_-]{8,})(?:\^([A-Za-z0-9][A-Za-z0-9_-]{0,63}))?(?:\|((?:(?!\)\))[^\r\n])+))?\)\)/g;
-/** A transclusion (Detail's pattern: no label). */
-export const EMBED = /!\(\(([A-Za-z0-9_-]{8,})(?:\^([A-Za-z0-9][A-Za-z0-9_-]{0,63}))?\)\)/g;
-/** A symbolic link, `[[address]]` or `[[address|label]]`. */
-export const PAGE = /\[\[([^\]|\r\n]+)(?:\|([^\]\r\n]+))?\]\]/g;
-/** A Markdown link, `[text](destination)`, not an image (the service's pattern: src/authored-links.ts). */
-export const MD_LINK = /(?<!!)\[([^\[\]\r\n]*)\]\(([^)\r\n]*)\)/g;
+import { codeSpanRanges } from "@ep0ch/outline-core/code-ranges";
+import { blockReferenceOccurrences, linkOccurrences } from "@ep0ch/outline-core/link-syntax";
 
 /** Markers around a resolved link / an unlinked missing one in prepared text; colourBody styles them. */
 export const LINK_ON = "", MISSING_ON = "", LINK_OFF = "";
 export { stripMarks };
 
-export const refKey = (id: string, fragment?: string, label?: string) => `${id}${fragment ? `^${fragment}` : ""}${label !== undefined ? `|${label}` : ""}`;
+/** What a reference's answer is kept under: its target. Its label is how the note writes it, not what it resolves to. */
+export const refKey = (id: string, fragment?: string) => `${id}${fragment ? `^${fragment}` : ""}`;
 /** An id cut to its first eight characters and …, once it is longer than twelve (a link's, an embed's, a property's). */
 export const shortId = (id: string) => (id.length > 12 ? `${id.slice(0, 8)}…` : id);
 
@@ -85,20 +79,24 @@ const BLOCK_ID = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}
  */
 function refsOf(text: string): { text: string; ids: string[] } {
   const refs = new Set<string>(), ids = new Set<string>();
-  for (const m of text.matchAll(REF)) { refs.add(m[0]); ids.add(m[1]!); }
-  for (const m of text.replace(REF, " ").matchAll(BLOCK_ID)) { refs.add(`((${m[0]}))`); ids.add(m[0]); }
+  let rest = "", at = 0;
+  for (const r of blockReferenceOccurrences(text)) {
+    refs.add(`((${refKey(r.blockId, r.fragmentId)}))`); ids.add(r.blockId);
+    rest += text.slice(at, r.start) + " "; at = r.end;
+  }
+  for (const m of (rest + text.slice(at)).matchAll(BLOCK_ID)) { refs.add(`((${m[0]}))`); ids.add(m[0]); }
   return { text: [...refs].sort().join(" "), ids: [...ids] };
 }
 
 /**
- * Every `((…))` in `text` (a note's whole text) as the service reads it, keyed by refKey; also its bare
- * block ids, keyed by id. null while the first answer is on its way. Asked again only when one of those
+ * Every `((…))` in `text` (a note's whole text) as the service reads it (outline-core's scan), keyed by its
+ * target (refKey: the id and fragment, never the label); also its bare block ids, keyed by id. null while the first answer is on its way. Asked again only when one of those
  * blocks changes.
  */
 export function referencesIn(text: string, src: Source | null | undefined): Map<string, ReferenceResolution> | null {
   const refs = refsOf(text);
   if (!refs.text) return new Map();
-  return ask(refsBy, src, refs.text, async b => new Map((await b.resolveReferences(refs.text)).map(r => [refKey(r.blockId, r.fragmentId, r.label), r])),
+  return ask(refsBy, src, refs.text, async b => new Map((await b.resolveReferences(refs.text)).map(r => [refKey(r.blockId, r.fragmentId), r])),
     c => changedSince(c.at, refs.ids))?.value ?? null;
 }
 
@@ -239,32 +237,38 @@ export function presentLinks(text: string, embeds: boolean, src: Source | null |
   // (a live figure, an inline `::links`, from its first line to its `::` as outline-core finds it): its YAML is its
   // question, and a `view: ((id))` or `of: ((id))` in it must still name the id when it's read (src/live.ts,
   // src/links.ts); drawn as a link, the id would be gone.
-  const fencedAt: boolean[] = [];
   const lines = text.split("\n"), typed = noteStructure(lines);
+  // With a sink, each link is also tagged with its place in it, so a click can find it (PIE-415).
+  const mark = (v: LinkView, to: LinkTarget) => {
+    const [on, off] = sink ? [linkTag(sink.push(to) - 1), LINK_END] : ["", ""];
+    return (v.missing ? MISSING_ON : LINK_ON) + on + v.text + off + LINK_OFF;
+  };
   return lines.map((line, i) => {
-    const fenced = typed[i]! >= 0;
-    fencedAt.push(fenced);
-    if (fenced) return line;
-    return line.split(/(`[^`]*`)/).map((part, i) => {
-      if (i % 2) return part;
-      // With a sink, each link is also tagged with its place in it, so a click can find it (PIE-415).
-      const mark = (v: LinkView, to: LinkTarget) => {
-        const [on, off] = sink ? [linkTag(sink.push(to) - 1), LINK_END] : ["", ""];
-        return (v.missing ? MISSING_ON : LINK_ON) + on + v.text + off + LINK_OFF;
-      };
-      // A resource token the service names reads as itself without its brackets, and shows its Resource.
-      for (const t of resources) if (part.includes(t.raw)) part = part.split(t.raw).join(mark({ text: t.raw.slice(1, -1), missing: false }, { resource: t.link, label: t.link.label }));
-      return part
+    if (typed[i]! >= 0) return line;
+    // Each link where outline-core's scan finds it, spliced in by its offsets; code spans keep their text.
+    const code = codeSpanRanges(line);
+    const spans: { start: number; end: number; draw: () => string }[] = [];
+    // A resource token the service names reads as itself without its brackets, and shows its Resource.
+    for (const t of resources) for (let at = line.indexOf(t.raw); at >= 0; at = line.indexOf(t.raw, at + t.raw.length))
+      spans.push({ start: at, end: at + t.raw.length, draw: () => mark({ text: t.raw.slice(1, -1), missing: false }, { resource: t.link, label: t.link.label }) });
+    for (const l of linkOccurrences(line)) {
+      if (l.kind === "markdown") {
         // A Markdown link reads as its text and opens its destination (a web page, or a pi-outliner:// link).
-        .replace(MD_LINK, (_all, text: string, url: string) => mark({ text: emphasis(text), missing: false }, { url, label: text }))
-        .replace(new RegExp(`(!?)${REF.source}`, "g"), (all, bang: string, id: string, frag?: string, label?: string) => {
-          if (label !== undefined && !label.trim()) return all;
-          if (bang && !label && embeds) return all;
-          const v = refView(id, frag, label, resolved.get(refKey(id, frag, label)));
-          const to: LinkTarget = { block: id, ...(frag ? { fragment: frag } : {}), ...(label !== undefined ? { label } : {}) };
-          return bang && !label ? `!${mark(v, to)} · embed not expanded here` : bang + mark(v, to);
-        })
-        .replace(PAGE, (_all, address: string, label?: string) => mark(pageView(address, label, pageOf(address, src)), { page: address.trim(), ...(label !== undefined ? { label } : {}) }));
-    }).join("");
-  }).map((line, i) => (fencedAt[i] ? line : emphasis(line))).join("\n");
+        spans.push({ ...l, draw: () => mark({ text: emphasis(l.text), missing: false }, { url: l.url, label: l.text }) });
+      } else if (l.kind === "page") {
+        spans.push({ ...l, draw: () => mark(pageView(l.displayAddress, l.label, pageOf(l.displayAddress, src)), { page: l.displayAddress, ...(l.label !== undefined ? { label: l.label } : {}) }) });
+      } else if (!l.embed || !embeds) {
+        const v = refView(l.blockId, l.fragmentId, l.label, resolved.get(refKey(l.blockId, l.fragmentId)));
+        const to: LinkTarget = { block: l.blockId, ...(l.fragmentId ? { fragment: l.fragmentId } : {}), ...(l.label !== undefined ? { label: l.label } : {}) };
+        spans.push({ ...l, draw: () => (l.embed ? `!${mark(v, to)} · embed not expanded here` : mark(v, to)) });
+      }
+    }
+    let out = "", at = 0;
+    for (const s of spans.sort((a, b) => a.start - b.start)) {
+      if (s.start < at || code.some(c => c.start < s.end && s.start < c.end)) continue;
+      out += line.slice(at, s.start) + s.draw();
+      at = s.end;
+    }
+    return emphasis(out + line.slice(at));
+  }).join("\n");
 }

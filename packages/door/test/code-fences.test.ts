@@ -43,6 +43,12 @@ describe("a fence the service treats as code is drawn as code (shared fixture)",
     expect(text.some(l => l.includes("Then fill [can::3] cans"))).toBe(true);
   });
 
+  test("a line of code ending in ^word keeps it: only prose has fragment anchors", () => {
+    const text = read("Bit masks\n```\nmask = flags ^bit\n```\nThe rule ^rule").map(plain);
+    expect(text.some(l => l.includes("│ mask = flags ^bit"))).toBe(true);
+    expect(text.some(l => l.includes("The rule") && !l.includes("^rule"))).toBe(true);
+  });
+
   test("a heading inside a ~~~ fence is not a fold point", () => {
     expect(foldPoints("Intro\n## Shed\ntools\n~~~\n## Not a heading\n~~~\n## Beds\nleeks").map(f => f.text)).toEqual(["Shed", "Beds"]);
   });

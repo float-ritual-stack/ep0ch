@@ -97,3 +97,8 @@ export function workIdReferences(
       : []
   );
 }
+
+/** Whether a page address is a Work ID (or another provider's key), which names a roadmap item, not a page. */
+export function isWorkIdAddress(address: string): boolean {
+  return isTicketKey(address);
+}

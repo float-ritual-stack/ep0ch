@@ -4,7 +4,7 @@ import { Marked } from "marked";
 import type { OutlinerClient, OutlinerWatcher } from "./client";
 import type { FileContents } from "./files";
 import { MAX_TEXT_FILE_BYTES } from "./files";
-import { pageAddressReferences, tryNormalizePageAddress } from "./page-addresses";
+import { pageAddressReferences, tryNormalizePageAddress } from "@ep0ch/outline-core/link-syntax";
 import { getProperty, stripPropertyTokens } from "./properties";
 import {
   canonicalPublishRoots,
@@ -13,7 +13,7 @@ import {
   type PublishedFileType,
 } from "./publish-attachments";
 import { ArtifactCompiler, mermaidArtifactPage, reactArtifactPage } from "./publish-artifacts";
-import { blockReferenceOccurrences } from "./references";
+import { blockReferenceOccurrences } from "@ep0ch/outline-core/link-syntax";
 import { MAX_BLOCK_READ_IDS } from "./block-projection";
 import { codeLineSet, stripFragmentAnchors } from "./fragments";
 import { embedMatches, MAX_EMBEDS_PER_DOCUMENT, TRANSCLUSION_WORDING, type TransclusionNode, type TransclusionRead } from "./transclusions";

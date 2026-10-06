@@ -1,4 +1,5 @@
 // Text helpers shared by the BBS screens and the desk panes.
+import { referencedBlock } from "@ep0ch/outline-core/link-syntax";
 import { balanceStyles, balanceTags, C, fg, glyphWidth, graphemes, MARKS, RESET, stripTags, styleMarks, width } from "./style";
 import { isEscapedAt, propertyTokenPattern } from "@ep0ch/outline-core/property-grammar";
 
@@ -137,7 +138,7 @@ export const rule = (w: number, label = "") => {
 };
 
 /** A note's id as given: a bare id, or a block reference as written (`((id))`, what a picker prints). */
-export const blockIdOf = (s: string) => s.replace(/^\(\((.+)\)\)$/, "$1");
+export const blockIdOf = (s: string) => referencedBlock(s)?.blockId ?? s;
 
 /** A command line as words, split on whitespace (the daily agent's EP0CH_DAILY_AGENT, $EDITOR for ctrl+e). */
 export const words = (s: string) => s.trim().split(/\s+/).filter(Boolean);

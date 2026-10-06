@@ -1,7 +1,7 @@
 import {createHash} from 'node:crypto';
 import {resolve} from 'node:path';
-import {blockReferenceOccurrences} from './references';
-import {pageAddressReferences} from './page-addresses';
+import { blockReferenceOccurrences } from '@ep0ch/outline-core/link-syntax';
+import { pageAddressReferences } from '@ep0ch/outline-core/link-syntax';
 import {outlinerReferenceOccurrences} from './reference-occurrences';
 import {marked} from 'marked';
 import {parseOutlinerLinkUri} from './outliner-links';

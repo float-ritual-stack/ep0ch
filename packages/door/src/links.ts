@@ -13,6 +13,7 @@
 // (`resources.describe`). This module only lays the answers out, in the Tree's words (src/authored.ts) and
 // Detail's backlink view (src/backlinks.ts). Showing a row (a preview) never writes: an unregistered Resource
 // says ⏎ registers it, and only ⏎ (or a double click, or `open=true`) does.
+import { referencedBlock } from "@ep0ch/outline-core/link-syntax";
 import {
   groupHasSomething, groupNote, openResource, outlinkWords, resourceNote, resourceTarget, resourceWords, snapshotProblem,
   RESOURCE_NOTE, type AuthoredLinksSnapshot, type AuthoredOutlink, type AuthoredResourceLink,
@@ -269,7 +270,6 @@ export type LinkBlockKind = (typeof LINK_BLOCK_KINDS)[number];
 /** What an inline component asks: whose links (default the note it's in), which groups, a filter, a title. */
 export interface LinkBlockSpec { kind: LinkBlockKind; of: string | null; filter: string; title: string | null; problem?: string }
 
-const ID = /\(\(([0-9a-f]{8}-[0-9a-f-]{27})[^)]*\)\)|^([0-9a-f]{8}-[0-9a-f-]{27})$/;
 
 /**
  * The inline component starting at line `i`, or null. Where it ends (`end`, inclusive) is outline-core's
@@ -289,7 +289,7 @@ export function linkBlockAt(lines: readonly string[], i: number, blocks: Readonl
   if (!block || !(LINK_BLOCK_KINDS as readonly string[]).includes(block.name)) return null;
   const rest = (block.args ?? "").trim(), end = block.end;
   const spec: LinkBlockSpec = { kind: block.name as LinkBlockKind, of: null, filter: "", title: null };
-  const idOf = (s: string) => { const r = ID.exec(s.trim()); return r ? r[1] ?? r[2]! : null; };
+  const idOf = (s: string) => referencedBlock(s)?.blockId ?? null;
   const words: string[] = [];
   // Its arguments: `::links ((id))` names whose; anything else is the filter.
   if (rest) { const id = idOf(rest); if (id) spec.of = id; else words.push(rest); }

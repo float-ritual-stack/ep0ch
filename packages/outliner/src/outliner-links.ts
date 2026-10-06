@@ -9,12 +9,8 @@ import {
 } from "./block-focus";
 import { requireUniqueClientId, sendClientCommand } from "./client-target";
 import { isFragmentId, resolveFragment } from "./fragments";
-import {
-  blockDisplayTitle,
-  blockReferenceDisplayText,
-  blockReferenceEnvelopeRanges,
-  blockReferenceOccurrences,
-} from "./references";
+import { blockDisplayTitle, blockReferenceDisplayText } from "./references";
+import { blockReferenceEnvelopeRanges, blockReferenceOccurrences } from "@ep0ch/outline-core/link-syntax";
 import {
   outlinerReferenceOccurrences,
   protectedMarkdownRanges,
@@ -26,7 +22,7 @@ import {
   dispatchNavigation,
   resolveNavigationDestination,
 } from "./navigation-routes";
-import { isWorkIdAddress } from "./page-addresses";
+import { isWorkIdAddress } from "./work-ids";
 import { authoredResourceReferenceOccurrences } from "./resource-references";
 import { parsePropertyRecords } from "./properties";
 import type {
