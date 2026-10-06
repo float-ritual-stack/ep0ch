@@ -281,7 +281,9 @@ describe("a ctrl+e edit tile's file (F5)", () => {
     await Bun.sleep(500);
     door.pty.write("2");                                               // the person's keys: the reader,
     await Bun.sleep(300);
-    door.pty.write("\x05");                                            // then ctrl+e
+    door.pty.write("\x05");                                            // then ctrl+e, which asks (edit.arm),
+    await Bun.sleep(200);
+    door.pty.write("\x05");                                            // and ctrl+e again opens it
     const edits = join(env.EP0CH_STATE!, "edit");
     const written = (dir: string) => files(dir).some(f => f.endsWith(".md") && readFileSync(join(dir, f), "utf8").includes("written in the tile"));
     await until(() => written(edits) || written(join(dir, "tmp")), "the editor's write", 10_000);

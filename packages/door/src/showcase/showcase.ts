@@ -115,7 +115,8 @@ export const SECTIONS: Section[] = [
     },
   },
   {
-    key: "edit", need: "edit text, complete [[ (( [file::", part: "the editing component: Draft, edit control, completer, DRAFT_ACTIONS (lists, wrap, mouse, preview, unsent); the property panel (i, I)", files: "src/edit.ts, src/surface/editor.ts, src/surface/completer.ts, src/surface/props-panel.ts",
+    key: "edit", need: "edit text, complete [[ (( [file::", part: "the editing component: Draft, edit control, completer, DRAFT_ACTIONS (lists, wrap, mouse, preview, unsent); the property panel (i, I)", files: "src/edit.ts, src/surface/editor.ts, src/surface/completer.ts, src/surface/props-panel.ts, src/arm.ts",
+    aside: "e asks first (edit.arm): the status bar says edit <title>? ⏎ · any other key cancels and the reader's frame turns the edit's yellow; ⏎ or e again opens it, any other key lets it go and does what it does, two seconds let it go quietly · the ⋯ menu's edit row and an agent's edit open at once · edit.arm.set on=false (or EP0CH_EDIT_ARM=off) opens on the first e · the tile with the keys is the double-lined one",
     stage(n, show) {
       const a = new ReaderPane(), b = new ReaderPane();
       return deskOf({ title: "showcase · edit", panes: [a, b], layout: ([x, y]) => row(0.5, x!, y!) }, show, [[a, n.whiteboard], [b, n.notebook]], () => b.surface.openPanel(false));

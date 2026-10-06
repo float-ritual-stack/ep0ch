@@ -27,7 +27,7 @@ const BORDER = /^[\u2500-\u259f]$/u;
  * and the welcome tabs' rail (`[= … =]`). Lines, not words.
  */
 const RULE = /^[.:=[\]]$/;
-const isBorder = (ch: string, fg: Rgb, t: ThemeName) => BORDER.test(ch) || (RULE.test(ch) && fg.join() === THEMES[t].palette[1]!.join());
+const isBorder = (ch: string, fg: Rgb, t: ThemeName) => BORDER.test(ch) || (RULE.test(ch) && [THEMES[t].palette[1]!, THEMES[t].edge.tile, THEMES[t].edge.focus].some(c => fg.join() === c.join()));
 /** Each theme's limits for text: the lowest a word may read at, and the brightest text may be. classic: none. */
 const LIMITS: Record<ThemeName, { min: number; max: number } | null> = { calm: { min: 4.5, max: 15 }, night: { min: 4.5, max: 10 }, classic: null };
 
@@ -195,6 +195,19 @@ describe("the palettes themselves (every background, not only the ones these scr
       } finally { setTheme("calm"); }
     });
   }
+  test("tile edges (PIE-535): every frame shows at 3:1 on the ground; the focused one is warmer and brighter, apart from the typing yellow", () => {
+    for (const t of Object.values(THEMES)) {
+      const ground = t.ground ?? t.palette[0]!;
+      expect(contrast(t.edge.tile, ground), t.name).toBeGreaterThanOrEqual(3);
+      expect(contrast(t.edge.focus, ground), t.name).toBeGreaterThanOrEqual(4.5);
+      expect(contrast(t.edge.focus, t.edge.tile), t.name).toBeGreaterThanOrEqual(1.8);
+      // Not the typing yellow: its blue channel and green differ enough to read as amber, not yellow.
+      const y = t.palette[14]!;
+      expect(Math.abs(y[1] - t.edge.focus[1]) + Math.abs(y[2] - t.edge.focus[2]), t.name).toBeGreaterThan(60);
+      // Never a light colour: capped as the bright text is.
+      expect(luminance(t.edge.focus), t.name).toBeLessThan(luminance([240, 240, 240]));
+    }
+  });
   test("all three are dark: no theme's ground, bars or tints is light", () => {
     for (const t of Object.values(THEMES)) for (const c of [t.ground ?? [0, 0, 0], t.palette[0]!, t.palette[1]!, ...Object.values(t.tint)] as Rgb[]) expect(contrast(c, [0, 0, 0])).toBeLessThan(3);
   });

@@ -44,6 +44,12 @@ export interface Theme {
     /** A search or backlinks row selected while its tile doesn't have the keys. */
     idleRow: Rgb;
   };
+  /**
+   * A tile's frame (PIE-535's clearer edges): `tile`, every frame's line, a mid-tone that shows where one tile ends and
+   * the next begins (two stacked in a column too), 3:1 or better on the ground; `focus`, the tile with the person's
+   * keys, a warm accent apart from the typing yellow, linking magenta and the cyan text. Both dark-capped.
+   */
+  edge: { tile: Rgb; focus: Rgb };
   /** The CRT underlay (kitty+crt): its dark base and the bloom added in the middle of the tube. */
   crt: { base: Rgb; bloom: Rgb };
   /** The heatmap's lowest step (the rest climb the palette's blue, cyan, light cyan, white). */
@@ -65,6 +71,7 @@ const CLASSIC: Theme = {
     select: [46, 72, 132], agent: [78, 40, 88], ruler: [58, 50, 26], thread: [40, 52, 30], embed: [18, 24, 44],
     idle: [22, 30, 58], idleRow: VGA_RGB[8]!,
   },
+  edge: { tile: [112, 112, 136], focus: [232, 148, 48] },
   crt: { base: [4, 6, 14], bloom: [10, 16, 38] },
   heatLow: [8, 10, 24],
   legibleChips: false,
@@ -98,6 +105,7 @@ const CALM: Theme = {
     select: [34, 50, 82], agent: [66, 40, 78], ruler: [56, 50, 30], thread: [36, 50, 34], embed: [20, 26, 38],
     idle: [30, 38, 54], idleRow: [30, 38, 54],
   },
+  edge: { tile: [98, 112, 136], focus: [236, 152, 72] },
   crt: { base: [12, 15, 21], bloom: [6, 8, 12] },
   heatLow: [16, 20, 28],
   legibleChips: true,
@@ -130,6 +138,7 @@ const NIGHT: Theme = {
     select: [26, 36, 58], agent: [50, 30, 58], ruler: [40, 36, 22], thread: [28, 40, 28], embed: [16, 20, 28],
     idle: [24, 28, 38], idleRow: [24, 28, 38],
   },
+  edge: { tile: [86, 96, 114], focus: [206, 134, 66] },
   crt: { base: [9, 10, 13], bloom: [3, 4, 6] },
   heatLow: [14, 16, 22],
   legibleChips: true,

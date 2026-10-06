@@ -295,6 +295,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
 
   beforeAll(async () => {
     process.env.EP0CH_STATE = join(scratch.root, "door");
+    // e arms the edit here, as in the door (test/preload.ts turns it off): ⏎ opens it.
+    process.env.EP0CH_EDIT_ARM = "60000";
     await scratch.start();
     seeded = await scratch.seedShowcase();
     board = new SocketBoard(scratch.sock);
@@ -306,7 +308,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     app.push(new MainMenu()); app.push(sc);
     await until(() => !!S().notes, "the showcase outline", 8000);
   }, 30_000);
-  afterAll(async () => { board?.close(); await scratch.dispose(); delete process.env.EP0CH_STATE; });
+  afterAll(async () => { board?.close(); await scratch.dispose(); delete process.env.EP0CH_STATE; process.env.EP0CH_EDIT_ARM = "off"; });
 
   // What each section's own part draws, once it has read the outline.
   const marks: Record<string, string[]> = {
@@ -389,8 +391,12 @@ describe.skipIf(!outliner)("the showcase screen", () => {
   test("editing works in a section, by keys: e, type, ctrl+s writes to the showcase outline", async () => {
     ch("4"); press({ kind: "enter" });
     expect(S().focus).toBe("stage");
+    // e arms the edit (edit.arm): the reader's frame asks, nothing opens until ⏎.
     ch("e");
     const desk = () => S().stages.get(3).top;
+    expect(screen()).toContain("✎ edit? ");
+    expect(desk().describe().panes[0].editing).toBeFalsy();
+    press({ kind: "enter" });
     await until(() => !!desk().describe().panes[0].editing, "the whiteboard in an edit", 5000);
     for (let i = 0; i < 5; i++) press({ kind: "pgdn" });            // to the last line, however it wraps
     press({ kind: "end" });
@@ -907,7 +913,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     const hang = () => { const rows = half().split("\n"), i = rows.findIndex(r => r.includes("PLOT-3 — Mend")); return { first: rows[i]!, next: rows[i + 1]!, third: rows[i + 2]! }; };
     let h = hang();
     const textAt = h.first.indexOf("Mend");
-    expect(h.next.slice(0, textAt).replace(/[│┊ ]/g, "")).toBe("");          // the second line starts under "Mend", past the id
+    expect(h.next.slice(0, textAt).replace(/[│║┊ ]/g, "")).toBe("");          // the second line starts under "Mend", past the id
     expect(h.next.slice(textAt, textAt + 1)).toMatch(/\S/);
     expect(h.next).toContain("…");
     expect(await app.act({ action: "figure.density", tile: "1", as: "test-agent" })).toMatchObject({ density: "comfortable" });
@@ -934,7 +940,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     press({ kind: "mouse", action: "down", button: 0, x, y }); press({ kind: "mouse", action: "up", button: 0, x, y });
     await until(() => half().includes("PLOT-5 — Clear the bindweed"), "the queued tab, clicked");
     // The person types in the left reader (an edit): an agent's switch there is refused; the right reader's isn't.
-    ch("e");
+    ch("e"); press({ kind: "enter" });   // e arms the edit, ⏎ opens it (edit.arm)
     await until(() => !!S().stages.get(S().sel).top.describe().panes[0].editing, "the edit open", 5000);
     await expect(app.act({ action: "figure.tab", tile: "1", args: { n: "doing" }, as: "test-agent" })).rejects.toThrow(/isn't typing in/);
     expect(await app.act({ action: "figure.tab", tile: "2", args: { by: 1 }, as: "test-agent" })).toMatchObject({ tab: "review" });
@@ -1005,7 +1011,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     press({ kind: "mouse", action: "down", button: 0, x, y }); press({ kind: "mouse", action: "up", button: 0, x, y });
     await reads(t => t.split("\n")[9]!.includes("[size::33%]"), "a click on [−]: a step smaller");
     // The person writes in the note (an edit open): an agent's change is refused, the line untouched.
-    ch("e");
+    ch("e"); press({ kind: "enter" });   // e arms the edit, ⏎ opens it (edit.arm)
     await until(() => !!S().stages.get(S().sel).top.describe().panes[0].editing, "the edit open", 5000);
     await expect(app.act({ action: "image.align", args: { n: 3, to: "left" }, as: "test-agent" })).rejects.toThrow(/open in a draft|typing in/);
     expect(await line(10)).toContain("[align::right]");

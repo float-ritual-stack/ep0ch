@@ -130,8 +130,9 @@ describe.skipIf(!outliner)("the brief screen", () => {
     await until(() => brief().msg?.id === notes.b.id && !brief().msg?.partial, "brief B, read");
     await until(() => screen().includes("Jam jars") && screen().includes("Bread tins"), "the checklist over the saved view", 8000);
     const s = screen();
-    expect(s).toContain("─ 1 daily brief · 2026-01-07 ─");
-    expect(s).toMatch(/│Wed 2026-01-07 · 3 of 3 briefs · , earlier · \. later +│\n│Brief B +│/);
+    // The brief has the keys: its frame is the focused tile's, double-lined.
+    expect(s).toContain("═ 1 daily brief · 2026-01-07 ═");
+    expect(s).toMatch(/║Wed 2026-01-07 · 3 of 3 briefs · , earlier · \. later +║\n║Brief B +║/);
     expect(s).not.toContain("needs a ((block-ref))");
     expect(s).toMatch(/PANTRY NOW[^\n]*\n[^\n]*\n[^\n]*┊ 2 [^\n]*\n[^\n]*┊ pantry jobs/);
     expect(app.describe()).toMatchObject({ screen: "daily brief", state: { kind: "brief", brief: { date: "2026-01-07", n: 3, of: 3, id: notes.b.id }, briefs: 3 } });

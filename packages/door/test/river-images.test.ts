@@ -176,9 +176,9 @@ describe.skipIf(!outliner)("a river column places its note's images, cut to what
     // Its last lines are its links, under its replies (the links tile's rows): blank after them.
     const links = inside.findIndex(l => l.includes("── ▾ links"));
     expect(links).toBeGreaterThan(inside.findIndex(l => l.includes("0 replies")));
-    const end = inside.findIndex((l, i) => i > links && /^│ *│$/.test(l));
+    const end = inside.findIndex((l, i) => i > links && /^[│║] *[│║]$/.test(l));
     expect(end).toBeGreaterThan(links);
-    for (const l of inside.slice(end, -1)) expect(l).toMatch(/^│ *│$/);
+    for (const l of inside.slice(end, -1)) expect(l).toMatch(/^[│║] *[│║]$/);   // ║: it has the keys
     expect(inside.join("\n")).not.toContain("runs on");
     // Nor does any image: the short note has none, and a tile drawn over another takes away the placements under it.
     term.info.cols = 120;

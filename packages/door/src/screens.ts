@@ -9,6 +9,8 @@ import { subject, type Msg } from "./board";
 import { artNamed, loadArt, members, packs, type Member } from "./packs";
 import { C, center, chip, fg, pad, paint, RESET, selected, width } from "./style";
 import { nextTheme, theme, THEME_NAMES, themeNamed, THEMES } from "./theme";
+import { ARM_MS, editArmMs, useEditArm } from "./arm";
+import { writeState } from "./state";
 import { PROTOCOL } from "@ep0ch/outline-core/protocol";
 import { ch, isUp, isDown, type Key } from "./term";
 import { heatmap } from "./stats";
@@ -586,6 +588,26 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
       return { theme: theme().name };
     },
   }),
+  "edit.arm.set": def({
+    summary: "whether the person's e (and ctrl+e) in a reader arms the edit first (edit.arm: the status bar asks, ⏎ or e again opens it) or opens it at once, and how long it waits. Kept for the next start (EP0CH_EDIT_ARM overrides it). An agent's own edit always opens at once",
+    keys: "`ep0ch act edit.arm.set on=false`",
+    touches: "screen", replay: "ask", says: out => `· ${out.armed ? `e asks first (${out.ms} ms)` : "e opens an edit at once"}`,
+    args: {
+      on: { type: "boolean", about: "true: e arms the edit and ⏎ opens it; false: e opens it at once" },
+      ms: { type: "number", optional: true, about: `how long an armed edit waits, in milliseconds (default ${ARM_MS})` },
+    },
+    run({ on, ms }, { ctx }) {
+      if (ms !== undefined && !(Number.isFinite(ms) && ms > 0)) throw new ActionRefused(`ms is a window in milliseconds above 0, not ${ms}`);
+      const keep = on ? Math.max(1, Math.round(ms ?? ARM_MS)) : 0;
+      useEditArm(keep);
+      writeState("edit-arm.json", { ms: keep });
+      const now = editArmMs();
+      // The environment wins over the setting: say so, so a setting that seems not to take says why.
+      const env = process.env.EP0CH_EDIT_ARM?.trim() ? " · EP0CH_EDIT_ARM is set and wins until the door starts without it" : "";
+      ctx.flash(`${now ? `e asks before an edit (${now} ms)` : "e opens an edit at once"}${env}`);
+      return { armed: now > 0, ms: now, saved: keep };
+    },
+  }),
   "theme.cycle": def({
     summary: `the next theme: ${THEME_NAMES.join(" → ")} (theme.set picks one by name)`,
     keys: "alt+t on every screen; click on the status bar's theme",
@@ -949,7 +971,10 @@ export class MessageReader implements Screen {
       // Addressed with a `to::` property, else to everyone, as a BBS message is.
       paint(`|09  To: |07${pad(m.props.to?.trim() || "ALL", 24)}|09Refer#: |07${m.parentId?.slice(0, 8) ?? "none"}`),
       paint(`|09From: |14${pad(m.author ?? "?", 23)} |09Reply: |07${replies === null ? "…" : replies}`),
-      paint(`|09Subj: |15${subject(m).slice(0, Math.max(1, w - 6))}`),
+      // An edit armed here (e, src/arm.ts): the subject asks in the edit's colour until ⏎ opens it or a key lets it go.
+      this.ctx?.armed?.()?.of === this.surface
+        ? paint(`|09Subj: |14✎ edit? ${subject(m).slice(0, Math.max(1, w - 14))} |06⏎ opens it`)
+        : paint(`|09Subj: |15${subject(m).slice(0, Math.max(1, w - 6))}`),
       paint(`|09Conf: |11${pad(info.crumbs, Math.max(1, w - 6))}`),
       paint(`|09Stat: |13${status.toUpperCase()}${props}${comments}`),
     ].map(l => pad(l, w));

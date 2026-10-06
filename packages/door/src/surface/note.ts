@@ -9,6 +9,7 @@
 import { onlyScrolled, scrolled, wheelRows } from "../scroll";
 import type { Ctx } from "../app";
 import { subject, titleLine, type Msg } from "../board";
+import { editArmMs } from "../arm";
 import { codeFenceLines } from "@ep0ch/outline-core/code-fence";
 import { literalLines } from "@ep0ch/outline-core/code-ranges";
 import { fragmentAnchorMatch, linkOccurrences, referencedBlock } from "@ep0ch/outline-core/link-syntax";
@@ -33,7 +34,7 @@ import { whoOf, changedSinceRead, EditConflict, mutationFor, Offline, recordedAc
 import { ellipsize, dim, C, extractLinks, fg, LINK_END, linkTag, pad, RESET, width } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
 import { ago, bbsDate, rule, wrap } from "../text";
-import { ActionRefused, actionSet, def, agentLabel, asActor, type ActionDef, type ArgsOf, type ArgsOfSet, type MenuEntry, type MenuNow } from "./actions";
+import { ActionRefused, actionSet, boundNow, def, agentLabel, asActor, type ActionDef, type ArgsOf, type ArgsOfSet, type MenuEntry, type MenuNow } from "./actions";
 import { Dispatcher } from "./dispatch";
 import { NOBODY } from "../whereabouts";
 import { draftState, editHint, editorClick, openInEditor, renderEditor, writtenBy } from "./editor";
@@ -74,10 +75,10 @@ export interface SurfaceHost {
   /** The summary keys of the view this note is shown from (a lane's `[summary-properties::…]`), if any. */
   summaryKeys?(m: Msg): readonly string[] | null | undefined;
   /**
-   * Open the thread list as the person's `m` does, where the host keeps track of which session the person
-   * is in (⏎ or a click on a comment mark). Without it the surface opens it itself.
+   * Start a session as the person's key does, where the host keeps track of which session the person is in: the
+   * thread list (⏎ or a click on a comment mark), an armed edit confirmed (edit.arm). Without it the surface opens it itself.
    */
-  startSession?(kind: "threads"): void;
+  startSession?(kind: SessionKind): void;
   /**
    * A view's own header rows for the note (the BBS message header: Date, To, From, Subj, Conf), drawn in
    * place of the surface's title, byline and crumb rows. The summary line, notices, an agent's line, a
@@ -1840,6 +1841,8 @@ export class NoteSurface {
     // e ctrl+e C m i I start a session: the note's action for that key (SESSION_ACTIONS), as the desk and the river run it.
     const starts = this.msg ? sessionStart(k) : null;
     if (starts) {
+      // e and ctrl+e arm the edit first (edit.arm): ⏎ or the key again opens it.
+      if (armsEdit(starts)) { void this.runKey("edit.arm", starts === "external" ? { external: true } : {}, host); return true; }
       // The edit and the comment say their own refusals (a flash, the draft's note); the panel's are said here.
       void this.startAsPerson(starts, host).catch(e => { if (starts === "props" || starts === "props-full") host.ctx.flash(e instanceof Error ? e.message : String(e)); host.redraw(); });
       return true;
@@ -4274,6 +4277,10 @@ export function sessionStart(k: Key): SessionKind | null {
   if (k.ctrl) return k.ch === "e" ? "external" : null;
   return k.ch === "e" ? "edit" : k.ch === "C" ? "select" : k.ch === "m" ? "threads" : k.ch === "i" ? "props" : k.ch === "I" ? "props-full" : null;
 }
+/** The person's e and ctrl+e arm the edit (edit.arm, src/arm.ts) where the others start at once; a click on a hint's e opens it. */
+export const armsEdit = (kind: SessionKind): boolean => (kind === "edit" || kind === "external") && !clickedKey();
+/** The key running now came from a click (a hint's key: asBoundKey "click"): the mouse's, so an edit opens at once. */
+const clickedKey = () => !!boundNow()?.split("; ").includes("click");
 /** The note action each of those keys runs (PIE-510): the key, a click and `act` all start it the same way. */
 export const SESSION_ACTIONS: Record<SessionKind, { name: "edit" | "passage.select" | "threads" | "props"; args: Record<string, unknown> }> = {
   edit: { name: "edit", args: {} },
@@ -4513,7 +4520,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "edit": def({
-    summary: "open the note for editing (its whole text, at the revision the service has now); external=true hands it to $EDITOR (ctrl+e, also from an open edit or a comment or reply being written)", keys: "e, ctrl+e",
+    summary: "open the note for editing (its whole text, at the revision the service has now); external=true hands it to $EDITOR (ctrl+e, also from an open edit or a comment or reply being written). The person's e arms it first (edit.arm) and ⏎ or e again opens it; a click on an edit control opens it at once", keys: "e then ⏎/e, ctrl+e then ⏎/ctrl+e (e or ctrl+e alone with edit.arm.set on=false)",
     touches: "draft", draft: "write", replay: "ask",
     menu: noteRow("edit", "e", { now: ({ surface }) => (surface.draft ? { hide: true } : null) }),
     args: { external: { type: "boolean", optional: true, about: "hand the draft to $EDITOR (the person's keys only)" } },
@@ -4529,6 +4536,31 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       if (external) void openInEditor(host.ctx, d, () => surface.draft === d).then(() => host.redraw());
       surface.noteAgent(actor, "opened this note for editing");
       return { id: d.blockId, baseRevision: d.base };
+    },
+  }),
+  "edit.arm": def({
+    summary: "the person's e (ctrl+e: for $EDITOR) in a reader: arm the edit instead of opening it. The status bar asks `edit <title>? ⏎ · any other key cancels` and the reader's frame turns the edit's colour; ⏎ or the same key again within the window (edit.arm.set, or EP0CH_EDIT_ARM over it; default 2000 ms) opens it (edit), any other key lets it go and does what it does, and the window running out lets it go. edit.arm.set on=false (or EP0CH_EDIT_ARM=off) opens it at once. A click on an edit control, and an agent's edit, open at once",
+    keys: "e, ctrl+e", touches: "nothing", replay: "ask",
+    person: "arming is the person's e key, so a stray key never opens an edit; an agent opens one with edit (edit.text puts text in it)",
+    args: { external: { type: "boolean", optional: true, about: "arm ctrl+e's $EDITOR handoff instead" } },
+    run({ external }, { surface, host }) {
+      const m = surface.requireNote();
+      const kind: SessionKind = external ? "external" : "edit";
+      // Opened as the key did before arming: through the host where it keeps track of the person's session.
+      const open = () => {
+        // The reader moved on while it was armed (a lane's preview followed another card, the note was opened over):
+        // the question named this note, so nothing opens on another.
+        if (surface.msg?.id !== m.id) { host.ctx.flash("not opened: the reader shows another note now · e edits it"); host.redraw(); return; }
+        if (host.startSession) return void host.startSession(kind);
+        void surface.startAsPerson(kind, host).catch(e => { host.ctx.flash(e instanceof Error ? e.message : String(e)); host.redraw(); });
+      };
+      const ms = editArmMs();
+      // Already editing here (ctrl+e hands that draft over), arming off, or a door that can't hold an arm: at once.
+      if (surface.draft || surface.session || !ms || !host.ctx.arm) { open(); return { opened: m.id }; }
+      const title = subject(m), short = title.length > 48 ? `${title.slice(0, 47)}…` : title;
+      host.ctx.arm({ of: surface, what: title, say: `edit ${short}${external ? " in $EDITOR" : ""}? ⏎ · any other key cancels`, key: external ? { kind: "char", ch: "e", ctrl: true } : { kind: "char", ch: "e" }, ms, run: open });
+      host.redraw();
+      return { armed: m.id, ms };
     },
   }),
   "draft.pick": def({
@@ -4790,7 +4822,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "back": def({
     summary: "go back to the note this reader showed before it followed a link, went up, or had a note opened into it (an agent's open too), scrolled and with its [ ] position as it was. An agent's is refused on the reader the person has focused",
-    keys: "alt+←, backspace, the mouse's back button, a click on ← back",
+    keys: "alt+←, alt+b, backspace, the mouse's back button, a click on ← back",
     touches: "tile", replay: "safe", way: "back would move what they're reading · an agent goes back only in another reader (name it with tile=)",
     menu: noteRow("back", "alt+left", { busy: true, now: ({ surface }) => (surface.describeHistory().back.length ? null : { hide: true }) }),
     args: {},
@@ -4798,7 +4830,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "forward": def({
     summary: "go forward again to where back came from, scrolled and with its [ ] position as it was. An agent's is refused on the reader the person has focused",
-    keys: "alt+→, the mouse's forward button, a click on forward →",
+    keys: "alt+→, alt+f, the mouse's forward button, a click on forward →",
     touches: "tile", replay: "safe", way: "forward would move what they're reading · an agent goes forward only in another reader (name it with tile=)",
     menu: noteRow("forward", "alt+right", { busy: true, now: ({ surface }) => (surface.describeHistory().forward.length ? null : { hide: true }) }),
     args: {},
