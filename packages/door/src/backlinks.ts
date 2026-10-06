@@ -5,7 +5,7 @@
 //
 // A mirror of pi-herdr-outliner `src/backlink-view.ts` (`backlinkView`, `backlinkGroupRows`, the sort,
 // stage and kind cycles), `isOpenBacklinkStage` (`src/backlink-facets.ts`), the group-expanded rule in `src/detail-controller.ts`, and the row and status
-// text in `src/detail-pi-preview.ts`, line for line, so the board's drawer shows what Detail shows.
+// text in `src/detail-pi-preview.ts`, line for line, so the board's dock shows what Detail shows.
 // test/backlinks.test.ts checks it against the service's own functions. The door never derives a facet:
 // against a service without them the view is one flat list, as Detail's is.
 

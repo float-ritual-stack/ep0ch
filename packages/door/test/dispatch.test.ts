@@ -112,7 +112,7 @@ describe("the actor rule, for every action (PIE-514)", () => {
     // Moving the person's keys or screen: never while they type, never within the idle window.
     touches(["tile.focus", "marks.next", "layout.load", "screen.open", "screen.back", "screen.help", "menu.select", "list.select", "list.open", "host.toggle", "brief.step", "welcome.select", "waiting.pick", "message.next"], "screen");
     // The layout's shape: the layout engine decides each operation.
-    touches(["layout.move", "tile.open", "tile.close", "tile.float", "tile.pin", "tile.collapse", "tab.select", "tile.zoom", "layout.lock", "layout.policy", "pane.split"], "shape");
+    touches(["layout.move", "tile.open", "tile.close", "tile.float", "tile.dock", "tile.collapse", "tab.select", "tile.zoom", "layout.lock", "layout.policy", "pane.split"], "shape");
     // In a tile: refused in the person's (typing in it, for these).
     for (const n of ["tile.type", "view.scrollTo", "agent.type", "host.size", "agent.restart"]) expect({ n, t: of(n).touches, w: of(n).while }).toEqual({ n, t: "tile", w: "typing" });
     for (const n of ["tile.restart", "tile.herdr"]) expect({ n, t: of(n).touches, w: of(n).while }).toEqual({ n, t: "tile", w: "typing" });
@@ -392,8 +392,9 @@ describe.skipIf(!outliner)("routing on the desk, the board and the river: tile.t
     const qn = String(D.layoutGet().tiles.findIndex((x: any) => x.name === "quay") + 1);
     for (const sel of ["quay", q.id, qn, `#${qn}`]) expect(await act("tile.info", {}, sel)).toMatchObject({ name: "quay", kind: "river" });
     await act("tile.close", {}, "quay");
-    await act("tile.close", { }, "shell").catch(() => {});
-    await act("tile.close", { }, "shell").catch(() => {});
+    // Its program ended (an agent doesn't end one by closing it): left running, leaving would carry it into the drawer.
+    await act("tile.type", { text: "exit\\n" }, "shell");
+    await until(() => !D.layoutGet().tiles.find((x: any) => x.name === "shell")?.terminal?.running, "the shell ended");
     app.pop();
   }, 30_000);
 
@@ -420,7 +421,8 @@ describe.skipIf(!outliner)("routing on the desk, the board and the river: tile.t
     await until(() => B.layoutGet().tiles.find((x: any) => x.name === "shell")?.terminal?.running, "the board's shell");
     for (const sel of ["shell", t.id]) expect(await act("tile.type", { text: "true\\n" }, sel)).toMatchObject({ tile: "shell" });
     await expect(act("tile.type", { text: "x" }, "preview")).rejects.toThrow("preview is a preview tile: tile.type is for a terminal tile; here: shell");
-    await act("tile.close", {}, "shell").catch(() => {}); await act("tile.close", {}, "shell").catch(() => {});
+    await act("tile.type", { text: "exit\\n" }, "shell");
+    await until(() => !B.layoutGet().tiles.find((x: any) => x.name === "shell")?.terminal?.running, "the board's shell ended");
     app.pop();
   }, 30_000);
 
@@ -434,7 +436,7 @@ describe.skipIf(!outliner)("routing on the desk, the board and the river: tile.t
     expect(V().columns.map(c => V().name(c))).toEqual([lib, a.reader]);
     const b = await act("open", { id: notes.peas.id, from: a.reader });
     expect(V().columns.map(c => V().name(c))).toEqual([lib, a.reader, b.reader]);
-    await act("tile.hold", { on: true }, b.reader);                                    // docked: full width, its note actions run
+    await act("tile.hold", { on: true }, b.reader);                                    // held: resists compression; its note actions run
     expect(await act("open", { id: notes.beans.id, from: lib })).toMatchObject({ reader: a.reader });   // its own column, found
     // A note action by the block a column shows, by its name and by its stable id.
     expect(await act("folds", {}, notes.peas.id)).toMatchObject({ reader: b.reader });

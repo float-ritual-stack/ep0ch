@@ -177,7 +177,7 @@ if (scenario === "board2") {
   ch("o"); await Bun.sleep(300);                                               // pop the detail out as a float
   mouse("down", 70, 7); mouse("drag", 110, 4); mouse("up", 110, 4);            // drag it by its title
   await snap("2-float", 1000);
-  press({ kind: "esc" }); ch("S");                                             // outline drawer on the right
+  press({ kind: "esc" }); ch("S");                                             // outline dock on the right
   press({ kind: "down" }); press({ kind: "down" });
   await snap("3-tree-right", 3000);
   press({ kind: "esc" }); ch("b");
@@ -297,7 +297,7 @@ if (scenario === "spines") {
   board.close(); await scratch!.dispose(); process.exit(0);
 }
 if (scenario === "backlinks") {
-  // PIE-442: a note many things link to, in the board's backlinks drawer, as Detail shows it: this note and
+  // PIE-442: a note many things link to, in the board's backlinks dock, as Detail shows it: this note and
   // resolved comments hidden, groups by kind with stage counts, open items first, one line each; then
   // everything shown, a kind and a filter. Its own scratch service, fictional notes.
   const mk = (parentId: string | null, text: string) => board.request<any>("create", { parentId, text, author: "agent" });
@@ -438,7 +438,7 @@ if (scenario === "kanban") {
   board.close(); await scratch!.dispose(); process.exit(0);
 }
 if (scenario === "scroll") {
-  // PIE-411 on its own scratch service (fictional long notes): scroll indicators on docked readers, a
+  // PIE-411 on its own scratch service (fictional long notes): scroll indicators on tiled readers, a
   // float and the desk; a comment session opened by m shows in the frame and hints; an agent's edit
   // doesn't take the person's keys until they enter it.
   const mk = (parentId: string | null, text: string) => board.request<any>("create", { parentId, text, author: "agent" });
@@ -1020,7 +1020,7 @@ if (scenario === "board") {
   ch("b");
   await snap("4-backlinks", 4000);
   press({ kind: "esc" }); ch("t");
-  await snap("5-tree-drawer", 3000);
+  await snap("5-tree-dock", 3000);
   board.close(); process.exit(0);
 }
 if (scenario === "river") {

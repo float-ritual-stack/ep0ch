@@ -109,13 +109,13 @@ function deps(env: Record<string, string>, o: { peek?: any; panes?: any[] | null
 
 describe("ep0ch where", () => {
   test("the facts the Claude mod's binding card reads: this machine and folder, the door's outline and its machine, the Herdr pane", async () => {
-    const env = { EP0CH_NEST: "ssh:pts/5 › door:30/daily/dock.agent:claude › herdr:door-claude", EP0CH_CONTROL: "/s/agent-door-claude.sock", EP0CH_TILE: "claude" };
-    const peek = { screen: { screen: "Daily", pid: 30, outline: "orchard", host: "far-box", machine: "far", dock: { tile: { id: "dock.agent", name: "claude" }, shown: true, herdr: { pane: "door-claude" } }, state: { kind: "daily" } } };
+    const env = { EP0CH_NEST: "ssh:pts/5 › door:30/daily/drawer.agent:claude › herdr:door-claude", EP0CH_CONTROL: "/s/agent-door-claude.sock", EP0CH_TILE: "claude" };
+    const peek = { screen: { screen: "Daily", pid: 30, outline: "orchard", host: "far-box", machine: "far", drawer: { tile: { id: "drawer.agent", name: "claude" }, shown: true, herdr: { pane: "door-claude" } }, state: { kind: "daily" } } };
     const d = { ...deps(env, { alive: [30], ttys: ["pts/5"], panes: [{ pane_id: "w4:p1", label: "door-claude" }], peek }), hostname: () => "near-box", cwd: () => "/work/notes" };
     const w = await where(d);
     expect(w.here).toEqual({ machine: "near-box", folder: "/work/notes" });
     expect(w.herdr).toEqual({ pane: "door-claude", label: "door-claude", agent: true });
-    expect(w.door).toMatchObject({ outline: "orchard", host: "far-box", machine: "far", tile: { dock: true } });
+    expect(w.door).toMatchObject({ outline: "orchard", host: "far-box", machine: "far", tile: { drawer: true } });
     expect(formatWhere(w)).toContain("this runs on near-box in /work/notes");
     // A door on this machine's host names no machine; outside Herdr there is no pane.
     const local = await where(deps({ EP0CH_CONTROL: "/c/door.sock" }, { peek: { screen: { pid: 4, outline: "orchard", host: "near-box", state: {} } } }));
@@ -189,11 +189,11 @@ describe("ep0ch where", () => {
     expect(w.layers.at(-1)).toMatchObject({ kind: "tile", live: false, why: "the desk has no such tile now" });
   });
 
-  test("a terminal moved into the dock: found by its pid there, though its old EP0CH_TILE_ID names a screen tile now", async () => {
+  test("a terminal moved into the drawer: found by its pid there, though its old EP0CH_TILE_ID names a screen tile now", async () => {
     const peek = deskPeek({ pid: 10, focus: "middle", tiles: [{ id: "t1", name: "middle", pid: 5100 }] });
-    (peek.screen as any).dock = { tile: { id: "dock.agent", name: "shell" }, shown: true, entered: true, tiles: [{ name: "dock.agent", id: "dock.agent", shown: false }, { name: "kettle", id: "k2", shown: true, focused: true, pid: 6200 }] };
+    (peek.screen as any).drawer = { tile: { id: "drawer.agent", name: "shell" }, shown: true, entered: true, tiles: [{ name: "drawer.agent", id: "drawer.agent", shown: false }, { name: "kettle", id: "k2", shown: true, focused: true, pid: 6200 }] };
     const w = await where(deps({ EP0CH_NEST: "door:10/desk/t1:kettle", EP0CH_CONTROL: "/c/door.sock", EP0CH_TILE_ID: "t1", EP0CH_TILE: "kettle" }, { alive: [10], ancestors: [6200, 10], peek }));
-    expect(w.door?.tile).toMatchObject({ id: "k2", name: "kettle", dock: true });
+    expect(w.door?.tile).toMatchObject({ id: "k2", name: "kettle", drawer: true });
   });
 
   test("door in Herdr: the Herdr pane is checked read-only", async () => {

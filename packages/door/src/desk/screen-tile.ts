@@ -54,7 +54,7 @@ export class ScreenTile implements Pane {
   private frame(s: Screen | null, desk: DeskApi) {
     this.desk = desk;
     this.framed = s && new FramedScreen(s, () => desk.ctx, () => desk.ctx.flash(`the ${this.kind} is a tile · ^W x closes it, ^W z zooms it`), undefined, () => !!desk.hasFocus?.(this),
-      // Esc with nothing left in the screen goes on to the desk's own steps (a zoom, a drawer, a float's keys).
+      // Esc with nothing left in the screen goes on to the desk's own steps (a zoom, a dock, a float's keys).
       () => (desk.escaped ? desk.escaped() : nothingToClose(desk.ctx)));
   }
 

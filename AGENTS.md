@@ -164,7 +164,7 @@ MacBook). It does not support every version a client ever connected with.
     yourself (`EP0CH_STATE=… ep0ch session end --all --yes`);
   - pass the same `EP0CH_CONTROL` to every control command;
   - start it through `packages/door/scripts/test-door-env.sh`, which unsets every `EP0CH_*` you inherit and runs
-    the dock on `EP0CH_DAILY_AGENT=sh` (the person's shell exports their Herdr daily agent: see the
+    the drawer on `EP0CH_DAILY_AGENT=sh` (the person's shell exports their Herdr daily agent: see the
     real-pane recipe in the ep0ch-core skill). Never attach to or type into a Herdr pane you didn't make.
 - A test door or test that names a machine (`--machine`, `EP0CH_MACHINE`, a `.ep0ch`'s `machine`) runs with
   `EP0CH_OUTLINES` under a temp dir (its forwards live in `.remote/` there, never `~/outlines/.remote`) and

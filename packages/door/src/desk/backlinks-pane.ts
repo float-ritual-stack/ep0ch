@@ -387,7 +387,7 @@ export class BacklinksPane implements Pane {
 export interface BacklinksOn { pane: BacklinksPane; desk: DeskApi }
 export const BACKLINKS_ACTIONS = actionSet<BacklinksOn>()("backlinks", {
   "backlinks": def({
-    summary: "a backlinks tile's view as Detail groups it: counts, groups with stage counts, each row. An agent's reads the person's view (or id=<block id>'s) with its own options on top and changes nothing of theirs; the person's (b, as=you) lists the backlinks of id (else of the note in the reader they read through), following the reader that shows it, its drawer sliding open, and sets their options; its rows and controls are backlinks.pick, backlinks.view and backlinks.fold",
+    summary: "a backlinks tile's view as Detail groups it: counts, groups with stage counts, each row. An agent's reads the person's view (or id=<block id>'s) with its own options on top and changes nothing of theirs; the person's (b, as=you) lists the backlinks of id (else of the note in the reader they read through), following the reader that shows it, its dock sliding open, and sets their options; its rows and controls are backlinks.pick, backlinks.view and backlinks.fold",
     keys: "b",
     touches: "nothing", replay: "safe",
     args: {

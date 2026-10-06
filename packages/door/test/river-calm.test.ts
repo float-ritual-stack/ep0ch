@@ -1,6 +1,6 @@
 // The river is calm: focus moves the keys and nothing else; the layout moves only on an explicit shift
 // (w, a click on a column's header, `widen`, an open that needs it); a peek column shows its note covered
-// like a drawer, dimmed; back and forward go between the columns a follow opened. Scratch services only.
+// like a dock, dimmed; back and forward go between the columns a follow opened. Scratch services only.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { App } from "../src/app";
@@ -90,7 +90,7 @@ describe.skipIf(!outliner)("a calm river, against a scratch outline", () => {
     expect(geometry()).toBe(before);
   });
 
-  test("a peek column draws its note's text at reading width, covered by its neighbour like a drawer, and dimmed", () => {
+  test("a peek column draws its note's text at reading width, covered by its neighbour like a dock, and dimmed", () => {
     const g = rectOf("How the Mailroom works");
     click(g.col + 3, g.row + 12);                                // the keys elsewhere: the peek is fully dimmed
     const lines = draw(), r = V().rectOf("Mailroom");
@@ -100,7 +100,7 @@ describe.skipIf(!outliner)("a calm river, against a scratch outline", () => {
     expect(body).toContain("Where quick notes land");        // the note's body, not only headings
     expect(body).toContain("Paint the boathouse door");
     expect(body).toContain("Blue, like the old one");           // its replies' text too
-    // The drawer's edge down the covered side.
+    // The dock's edge down the covered side.
     for (let y = r.row; y < r.row + r.rows; y++) expect(plain(lines[y]!)[r.col + r.cols - 1]).toBe("▒");
     // Dimmed: the note's text is drawn darker than the same kind of text in a full column.
     const fgBefore = (l: string, text: string) => {

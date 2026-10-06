@@ -60,6 +60,40 @@ move into one repository (PIE-530).
   the door no longer reads `layouts.json`. Bring them across once per outline that should have them:
   `bun packages/door/scripts/import-layouts.ts --ws <outline>` says what it would write, `--apply` writes it; then
   delete `layouts.json` (its path is printed).
+- **The dock is now your drawer, and a screen's drawer is now a dock** (once per machine, doors stopped first: end
+  sessions with `ep0ch session end --all --yes`). `bun packages/door/scripts/migrations/drawer-words.ts --ws <outline>`
+  says what it would change; `--write` changes it: `dock.json`, `dock-tiles.json` and `dock-agent.json` in the state
+  dir become `drawer.json`, `drawer-tiles.json` and `drawer-agent.json`, saved layouts (and, with `--ws`, that
+  outline's screen notes, through its host) say `dock` where they said `drawer`, and the drawer's own tile is
+  `drawer.agent`. The door keeps no reader for the old words; the
+  script is deleted once it has run on the machines that matter (pie on float-2, float-hub on the MacBook).
+
+### Your drawer, and docks: the words swapped
+
+What travels with you across screens (the status bar's `▲ claude` chip, `alt+a`, the agent in its first tab) is
+**your drawer**; a screen's sliding edge container (the board's outline and backlinks) is a **dock**, and putting a tile
+in one is docking it to an edge. The actions follow the words, with no old names kept:
+
+- `host.dock` is `tile.drawer`: `on=true` puts a tile in your drawer, `on=false` takes it out. `^W a` still does it
+  ("put in your drawer", "take out").
+- `tile.pin` is `tile.dock`, the right way round now: `on=true` docks the tile to an edge, `on=false` undocks it
+  back into the layout. Its answer says `docked`. `^W p`, the board's `T` and `B` are unchanged; a header's
+  `⇤ docked` label undocks on a click.
+- `tile.drawer` (slide a screen's drawer open or shut) is `tile.slide`. `^W d` is unchanged.
+- `ep0ch where --json` says `tile.drawer`, and the drawer's own tile is `drawer.agent` (`EP0CH_TILE_ID`, the
+  `EP0CH_NEST` layer `drawer/drawer.agent`).
+
+And what changed with them:
+
+- **Leaving a screen with a terminal running** puts the terminal in your drawer instead of refusing: `shell went into
+  your drawer · alt+a shows it`. An unsaved edit still asks.
+- **The drawer's own first tab can leave.** `^W a` on it, or a drag out, puts it on the screen as an ordinary terminal
+  tile, still running; the drawer starts a fresh own program the next time you pull it up.
+- **Drags say where a tile goes:** over the chip or the open drawer, `into your drawer: travels with you`; over a
+  dock's handle, `docked here: stays on this screen`.
+- **`^W P`** (the policy panel) works in your drawer.
+- **A preview keeps following** the tile it follows (`source=tile:tree`) when that tile goes into your drawer and back.
+- **Refusals say what and why in plain words,** with what to do instead, and no internal names.
 
 ### Welcome: `[welcome::true]` marks a note, the order is set by hand
 

@@ -5,7 +5,7 @@
 //
 // - **The checkpoint** (`session-state.json`), written whenever the screens change and again at a handoff: the screens
 //   open as the actions that open them (`screen.open`, and `screen.back` after one kept in the background), the edits
-//   open on the screen on top and in the dock (`Screen.reopen`: its note, then `edit` in its tile), the size the session was drawn at.
+//   open on the screen on top and in the drawer (`Screen.reopen`: its note, then `edit` in its tile), the size the session was drawn at.
 // - **A restore runs those actions through the App's dispatcher, as the actions declare** (`ActionDef.replay`): a step
 //   whose action is `replay: "safe"` runs again; one that isn't is never run by itself, and the restore says which.
 //   The edits are the one exception, and only the person's own: opening an edit writes nothing, and its text is what
@@ -21,7 +21,7 @@ import { USER } from "../socket";
 import { outlineState } from "../state";
 
 /** One step of a restore: an action as the App's dispatcher takes it. */
-export interface Step { action: string; args?: Record<string, unknown>; tile?: string; screen?: string; dock?: boolean }
+export interface Step { action: string; args?: Record<string, unknown>; tile?: string; screen?: string; drawer?: boolean }
 export interface Checkpoint {
   v: 2; at: number; size?: { cols: number; rows: number };
   /** Somebody had logged on (the main menu at the bottom); else the next daemon starts at the logon. */
@@ -67,10 +67,10 @@ export class Checkpoints {
     const c: Checkpoint = {
       v: 2, at: Date.now(), size: this.size(), menu: stack[0] instanceof MainMenu,
       screens: screenSteps(stack, this.app.background),
-      // The screen on top's edits, and the dock's (on every screen: its tiles come back from dock-tiles.json, by name).
+      // The screen on top's edits, and the drawer's (on every screen: its tiles come back from drawer-tiles.json, by name).
       reopen: reopen ? [
         ...(top ? (top.reopen?.() ?? []).map(r => ({ ...r, screen: top.title })) : []),
-        ...(this.app.dock.made?.reopen() ?? []).map(r => ({ ...r, dock: true })),
+        ...(this.app.drawer.made?.reopen() ?? []).map(r => ({ ...r, drawer: true })),
       ] : [],
     };
     try { writeFileSync(checkpointPath(), JSON.stringify(c), { mode: 0o600 }); } catch { /* not fatal: the screens save their own layouts */ }
@@ -105,13 +105,13 @@ export async function restore(app: App, c: Checkpoint): Promise<Restored> {
     } catch (e) { out.errors.push(`${s.action}: ${(e as Error).message}`); }
   }
   for (const s of c.reopen) {
-    // A docked reader's edit: the dock's desk (made now, its tiles back from dock-tiles.json) answers it by the tile's name.
-    if (s.dock && !app.dock.desk) { out.errors.push(`${s.action} in ${s.tile}: the dock isn't ready`); continue; }
-    if (!s.dock && s.screen && app.screens().at(-1)?.title !== s.screen) { out.errors.push(`${s.action} in ${s.tile}: the ${s.screen} isn't open`); continue; }
+    // A reader in the drawer's edit: the drawer's desk (made now, its tiles back from drawer-tiles.json) answers it by the tile's name.
+    if (s.drawer && !app.drawer.desk) { out.errors.push(`${s.action} in ${s.tile}: the drawer isn't ready`); continue; }
+    if (!s.drawer && s.screen && app.screens().at(-1)?.title !== s.screen) { out.errors.push(`${s.action} in ${s.tile}: the ${s.screen} isn't open`); continue; }
     // The reader reads its note again as the screen opens: the edit waits for it (a few seconds at most).
     for (let tries = 0; ; tries++) {
       try {
-        const via = s.dock ? app.dock.desk!.dispatch : app.dispatch;
+        const via = s.drawer ? app.drawer.desk!.dispatch : app.dispatch;
         await via.act({ action: s.action, args: s.args ?? {}, ...(s.tile !== undefined ? { tile: s.tile } : {}) }, USER);
         if (s.action === "edit") out.reopened++;
         break;

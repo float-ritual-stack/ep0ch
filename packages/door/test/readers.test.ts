@@ -380,7 +380,7 @@ describe.skipIf(!outliner)("readers always scroll, against a scratch outline", (
     expect(p.surface.panel).toBeNull();
   });
 
-  test("docking a float never drops a detail holding an edit", async () => {
+  test("putting back a float never drops a detail holding an edit", async () => {
     await fresh();
     key({ kind: "enter" });                                                    // detail 1
     const d0 = B().details[0] as ReaderPane;
@@ -390,12 +390,12 @@ describe.skipIf(!outliner)("readers always scroll, against a scratch outline", (
     await act("edit", {}, "detail1");                                          // an agent's edit, left open in detail 1
     await mine("open", { id: cards.gate.id }, "float");                      // the person's: the float gets their keys
     expect(BV.where(b)).toBe("float0");
-    key(char("o"));                                                            // dock it
+    key(char("o"));                                                            // back into the layout
     expect(B().floats.length).toBe(0);
     expect(B().details).toContain(d0);
     expect(d0.draft).not.toBeNull();
     expect(B().details.at(-1).msg.id).toBe(cards.gate.id);
-    // Both details editing: docking is refused, and says why.
+    // Both details editing: putting it back is refused, and says why.
     await mine("open", { id: cards.shed.id }, "float");
     await act("edit", {}, nm(B().details.find((d: ReaderPane) => d !== d0)));
     BV.at(b, "float0");

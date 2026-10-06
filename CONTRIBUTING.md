@@ -76,7 +76,7 @@ Every review, by the author before opening the PR and by the reviewer, goes thro
 - **One grammar:** do keys, layout operations and terms match the glossary and the other screens? For layout,
   the words are block, tile, container and screen ([Layout](packages/door/docs/UI-GRAMMAR.md#layout-block-tile-container-screen)).
 - **Did you really?** List each shared part the brief or PR said it would use, and check the diff actually uses
-  it. Name any place where it built its own instead (a second drawer, a screen-only layout, a key with no action,
+  it. Name any place where it built its own instead (a second dock or drawer, a screen-only layout, a key with no action,
   a switch on a tile kind's name, a second renderer or parser, a client re-deriving what the service owns, a tool
   path that skips the shared action list). Expect at least one; fix it or say why not.
 - **Service meaning (boundary):** the service owns truth and meaning; clients own presentation. Does the change
@@ -123,7 +123,7 @@ how to check it (automated when possible), so it can be retired once a test or t
 
 - **Names used as identity** ([ADR 0001](docs/adr/0001-ids-names-roles.md)). Does the change store a name (a tile
   name, a pane label, a title) where it means one exact thing or a role? Store ids or roles; refuse an ambiguous
-  name with the candidates. *Seen: #172 (moved previews, dock/screen name shadowing, `where` after a move, the
+  name with the candidates. *Seen: #172 (moved previews, drawer/screen name shadowing, `where` after a move, the
   `door-claude` pane label). Check: by hand.*
 - **A contract changed under another package.** Does the change alter output another package reads (the `ep0ch`
   CLI's argv and output, stderr wording, outline-core grammar, socket shapes)? Run the consumer's tests against

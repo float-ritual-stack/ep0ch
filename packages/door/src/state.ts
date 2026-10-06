@@ -3,7 +3,7 @@
 // by name is a screen note in the outline, PIE-565, not state here.)
 //
 // Two kinds of state live there. What's the person's whatever outline they're on is shared, in the state dir itself:
-// the theme, the machines opened, drafts and ctrl+e files, the dock, the summary keys, the daily scratch and the media
+// the theme, the machines opened, drafts and ctrl+e files, the drawer, the summary keys, the daily scratch and the media
 // cache. What belongs to one outline lives in that outline's own folder,
 // `outlineState()` (sessions/<where>/<name>/, src/session/place.ts): its session's files, the screens' saved layouts
 // (desk.json, river.json, delivery.json), the river's index, the last call, the marks (on its blocks), the doors on it

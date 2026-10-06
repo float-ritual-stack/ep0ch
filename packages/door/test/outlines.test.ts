@@ -133,7 +133,7 @@ describe("which outline the door opens (PIE-530)", () => {
     // --ws takes a name, never a folder.
     expect(resolveTarget(["--ws", "./garden"], env, base)).toMatchObject({ error: expect.stringContaining("takes an outline's name, not a folder") });
     expect(resolveTarget(["--ws", "Not A Name"], env, base)).toMatchObject({ error: expect.stringContaining("isn't an outline name") });
-    expect(slugOutlineName("Tïn_Drawer!!")).toBe("tin-drawer");
+    expect(slugOutlineName("Tïn_Dock!!")).toBe("tin-dock");
   });
 
   test("a folder that names nothing is unnamed: the guess is offered, never taken; $HOME and /tmp get no guess", () => {

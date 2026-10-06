@@ -92,8 +92,8 @@ export type WhereFacts = {
     machine: string | null
     /** The outline host's machine, by its own name. */
     host: string | null
-    /** In the door's dock, rather than a tile on its desk. */
-    dock: boolean
+    /** In the door's drawer, rather than a tile on its desk. */
+    drawer: boolean
     /** The tile's name (`claude`), when in a tile. */
     tile: string | null
   }

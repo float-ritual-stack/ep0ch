@@ -24,9 +24,10 @@ import { outlineChanged } from "./refs";
 import { doorNest } from "./nest";
 import { groundSeq, setTheme as useTheme, theme, type ThemeName } from "./theme";
 import { writeState } from "./state";
-import { AgentDock, DOCK_ACTIONS, DOCK_TILE_ID, HOST_AGENT_TILE, HOST_TILE_ACTIONS, overlay, type DockRun } from "./dock";
+import { AgentDrawer, DRAWER_ACTIONS, DRAWER_TILE_ID, HOST_AGENT_TILE, HOST_TILE_ACTIONS, overlay, type DrawerRun } from "./drawer";
 import type { HostMode } from "./desk/screen-layout";
 import type { Desk, MovedTile } from "./desk/desk";
+import type { Pane } from "./desk/panes";
 import type { TileDone, Where } from "./desk/tile-actions";
 import type { HomeChoice } from "./home";
 
@@ -53,23 +54,27 @@ export type AppTerm = Pick<Term, "info" | "write" | "onKey" | "onResize" | "inva
 
 export type { Video };
 
-/** The host layer's dock as a screen's tiles reach it (PIE-498): `host.dock` moves a tile in or out through it. */
+/** The host layer's drawer as a screen's tiles reach it (PIE-498): `tile.drawer` moves a tile in or out through it. */
 export interface HostLayer {
-  /** `d` is the dock's own desk (its tiles, the drawer's tabs). */
-  isDock(d: unknown): boolean;
-  /** Tile `name` of screen `from` into the dock, whole. */
-  dock(from: Desk, name: string, actor: Actor): TileDone;
-  /** A tile still running on a screen that goes for good, kept in the dock instead of ended (its tab behind the one shown). */
-  keep(moved: MovedTile): void;
-  /** The docked tile the dock shows now (not its own tab), or null. */
+  /** `d` is the drawer's own desk (its tiles, the drawer's tabs). */
+  isDrawer(d: unknown): boolean;
+  /** The desks a tile can be on now: the drawer's (once made) and the screen shown's tiles. Followers follow across them. */
+  desks(): Desk[];
+  /** Tile `name` of screen `from` into the drawer, whole. */
+  put(from: Desk, name: string, actor: Actor): TileDone;
+  /** Tiles still running on a screen that goes for good, kept in the drawer instead of ended (tabs behind the one shown): the panes it took. */
+  keep(moved: MovedTile[]): Pane[];
+  /** Why tiles like these couldn't be kept in the drawer now, or null. */
+  keepRefusal(moved: Pick<MovedTile, "name" | "spec">[]): string | null;
+  /** The tile the drawer shows now (not its own tab), or null. */
   shownTab(): string | null;
-  /** Docked tile `name` back into the screen shown, beside `to` (where). */
-  undock(name: string, to: string | undefined, where: Where | undefined, actor: Actor): TileDone;
+  /** Tile `name` in the drawer back into the screen shown, beside `to` (where). */
+  take(name: string, to: string | undefined, where: Where | undefined, actor: Actor): TileDone;
 }
 
 export interface Ctx {
   t: TermInfo;
-  /** The host layer's dock, where a tile goes to travel across screens (absent: none here). */
+  /** The host layer's drawer, where a tile goes to travel across screens (absent: none here). */
   readonly hostLayer?: HostLayer;
   /** "What changed" includes extension writes (`changes.extensions`); off by default. */
   extensionChanges?: boolean;
@@ -232,14 +237,14 @@ export interface Screen {
   viewState?(): ViewState;
   /** The edits open here, by tile: what a session's next daemon opens again after a handoff (src/session/restore.ts). */
   reopen?(): { action: string; tile: string; args?: Record<string, unknown> }[];
-  /** No dock and no chip here (the logon, the logoff: the person isn't in yet, or is leaving). */
-  noDock?: boolean;
+  /** No drawer and no chip here (the logon, the logoff: the person isn't in yet, or is leaving). */
+  noDrawer?: boolean;
   /**
-   * Where the host layer (the dock) may appear over this screen, as its spec says (PIE-513, its policy's
+   * Where the host layer (the drawer) may appear over this screen, as its spec says (PIE-513, its policy's
    * `host`): `over` it (the default), `beside` it (the screen drawn shorter), or `none` (it keeps the whole screen).
    */
   hostMode?(): HostMode;
-  /** The tiles shown here, when they're a desk inside this screen (the showcase's stage): where an undocked tile lands. */
+  /** The tiles shown here, when they're a desk inside this screen (the showcase's stage): where a tile taken out of the drawer lands. */
   tilesHere?(): Desk | undefined;
 }
 
@@ -267,8 +272,8 @@ export function agentActor(as?: string): Actor {
 }
 
 export class App implements Ctx {
-  /** The host layer's dock, as a screen's tiles reach it (`host.dock`). */
-  get hostLayer(): HostLayer { return this.dock; }
+  /** The host layer's drawer, as a screen's tiles reach it (`tile.drawer`). */
+  get hostLayer(): HostLayer { return this.drawer; }
   private stack: Screen[] = [];
   /** Where frames go: this terminal (a Painter over it), or every client of a session (src/session/). */
   private readonly display: Display;
@@ -302,8 +307,8 @@ export class App implements Ctx {
   /** The home base's door: what ends it with the outline chosen (Ctx.home); absent on a door that is on an outline. */
   home?: { choose(c: HomeChoice): void; cancel?(): void };
   /** The agent that stays with the person on every screen, pulled up from the status bar (PIE-498). */
-  readonly dock: AgentDock;
-  private dockRun: DockRun;
+  readonly drawer: AgentDrawer;
+  private drawerRun: DrawerRun;
 
   /** `now`: the clock the status bar reads (a test's fake one). */
   constructor(private readonly term: AppTerm, readonly board: SocketBoard, public lastCall: number, private readonly done: () => void, private readonly now: () => number = Date.now) {
@@ -311,16 +316,16 @@ export class App implements Ctx {
     this.display = isDisplay(term) ? term : new Painter(term as RawTerm);
     this.ground();
     // The host layer (PIE-513): above every screen, kept across switches; the agent is its drawer's first tab.
-    this.dock = new AgentDock({ redraw: () => this.redraw(), statusChanged: () => this.statusChanged(), flash: (m, ms) => this.flash(m, ms), screen: () => this.stack.at(-1), person: () => this.person(), ctx: () => this });
+    this.drawer = new AgentDrawer({ redraw: () => this.redraw(), statusChanged: () => this.statusChanged(), flash: (m, ms) => this.flash(m, ms), screen: () => this.stack.at(-1), person: () => this.person(), ctx: () => this });
     // The drawer's keys and clicks run the host layer's actions as the person, through the App's dispatcher.
-    this.dockRun = (name, args) => { void this.dispatch.pressIn(DOCK_ACTIONS, name, args); };
-    this.dock.run = (name, args) => this.dispatch.pressIn(DOCK_ACTIONS, name, args);
+    this.drawerRun = (name, args) => { void this.dispatch.pressIn(DRAWER_ACTIONS, name, args); };
+    this.drawer.run = (name, args) => this.dispatch.pressIn(DRAWER_ACTIONS, name, args);
     term.onKey(k => this.key(k));
     term.onBatch?.(run => this.batched(run));
-    // Raw input while the person types in the dock or a terminal tile: the drawer first, then the
+    // Raw input while the person types in the drawer or a terminal tile: the drawer first, then the
     // screen says where it goes (Term keeps mouse and ctrl+]).
-    // In the dock, the person's bytes are the dock's alone (a picker, a reader tab): never the screen's terminal under it.
-    (term as { rawSink?: unknown }).rawSink = () => (this.dock.shown && this.dock.entered ? this.dock.rawInput(this.dockRun) : this.stack.at(-1)?.rawInput?.() ?? null);
+    // In the drawer, the person's bytes are the drawer's alone (a picker, a reader tab): never the screen's terminal under it.
+    (term as { rawSink?: unknown }).rawSink = () => (this.drawer.shown && this.drawer.entered ? this.drawer.rawInput(this.drawerRun) : this.stack.at(-1)?.rawInput?.() ?? null);
     connectFigures(board, () => this.redraw());
     // An image scaled (or dimmed, or read again after a change on disk) is drawn in the next frame.
     onMediaChange(() => this.redraw());
@@ -335,7 +340,7 @@ export class App implements Ctx {
    * rows above the drawer. Screens read their size only here, so their drawing, their hit rows and their keys agree.
    */
   get t() {
-    const i = this.term.info, beside = this.dock.besideRows(i.rows, i.cols);
+    const i = this.term.info, beside = this.drawer.besideRows(i.rows, i.cols);
     return beside ? { ...i, rows: Math.max(2, i.rows - beside) } : i;
   }
   screens(): readonly Screen[] { return this.stack; }
@@ -348,9 +353,9 @@ export class App implements Ctx {
   background: Screen[] = [];
   /**
    * Every screen holding the person's text when the door ends or is handed over: the stack, the background, and the
-   * dock's desk (a docked reader's edit or comment is theirs as much as a shown one's).
+   * drawer's desk (a reader in the drawer's edit or comment is theirs as much as a shown one's).
    */
-  holders(): Screen[] { return [...this.stack, ...this.background, ...(this.dock.made ? [this.dock.made] : [])]; }
+  holders(): Screen[] { return [...this.stack, ...this.background, ...(this.drawer.made ? [this.drawer.made] : [])]; }
   push(s: Screen) { this.background = this.background.filter(x => x !== s); this.stack.push(s); s.enter?.(this); this.redraw(); this.onStack?.(); }
   /** The screens changed (one opened, left or kept in the background): a session checkpoints them (src/session/restore.ts). */
   onStack: (() => void) | null = null;
@@ -381,9 +386,9 @@ export class App implements Ctx {
   private leaving(screens: (Screen | undefined)[], quitting = false): boolean {
     const refusal = quitting ? null : screens.map(s => s?.leaveRefusal?.()).find(Boolean);
     if (refusal) { this.flash(refusal); return false; }
-    // Quitting, a docked reader's unsaved edit asks too (its programs are the dock's own warning).
-    const dirty = [...screens, ...(quitting && this.dock.made ? [this.dock.made] : [])].filter((s): s is Screen => !!s?.unsaved?.());
-    const warn = (quitting ? screens.map(s => s?.leaveWarning?.()).find(Boolean) ?? this.dock.leaveWarning() ?? this.quitWarning?.() ?? null : null) ?? screens.map(s => s?.shapeWarning?.()).find(Boolean) ?? null;
+    // Quitting, a reader in the drawer's unsaved edit asks too (its programs are the drawer's own warning).
+    const dirty = [...screens, ...(quitting && this.drawer.made ? [this.drawer.made] : [])].filter((s): s is Screen => !!s?.unsaved?.());
+    const warn = (quitting ? screens.map(s => s?.leaveWarning?.()).find(Boolean) ?? this.drawer.leaveWarning() ?? this.quitWarning?.() ?? null : null) ?? screens.map(s => s?.shapeWarning?.()).find(Boolean) ?? null;
     if (!dirty.length && !warn) return true;
     if (Date.now() - this.quitArmed < 3000) { this.quitArmed = 0; dirty.forEach(s => s.keepDrafts?.()); return true; }
     this.quitArmed = Date.now();
@@ -565,8 +570,8 @@ export class App implements Ctx {
     if (isExtensionChange(e)) { this.extEvents++; if (this.extensionChanges) this.events++; }
     else if (e.change || e.action !== "reconnected") this.events++;
     this.stack.at(-1)?.onEvent?.(e, this);
-    // The dock's desk is on every screen: its readers hear the outline change as the screen shown does.
-    this.dock.made?.onEvent(e);
+    // The drawer's desk is on every screen: its readers hear the outline change as the screen shown does.
+    this.drawer.made?.onEvent(e);
     this.redraw();
   }
 
@@ -576,7 +581,7 @@ export class App implements Ctx {
     const service = { protocol: b.protocol, offline: this.offline, sequence: b.lastSequence };
     // pid and nest: which process this door is and what it runs in (`ep0ch where` checks them against EP0CH_NEST).
     return { screen: s?.title, stack: this.stack.map(x => x.title), pid: process.pid, ...(this.term.session ? { session: this.term.session() } : {}), nest: doorNest(process.env) || null, suspended: this.away, video: this.video, host: this.host, workspace: this.workspace,
-      ...(this.outline ? { outline: this.outline } : {}), ...(this.machine ? { machine: this.machine } : {}), service, dock: this.dock.describe(),
+      ...(this.outline ? { outline: this.outline } : {}), ...(this.machine ? { machine: this.machine } : {}), service, drawer: this.drawer.describe(),
       // Where the person is (PIE-514): the same answer every agent rule reads, so an agent can see why it was refused.
       person: (({ idle, ...w }) => ({ ...w, idle: Number.isFinite(idle) ? Math.round(idle) : null }))(this.person()), state: s?.describe?.() ?? null };
   }
@@ -655,11 +660,11 @@ export class App implements Ctx {
    * the request names the tile (tile=) or no block; with block= it runs on that block, tile or none.
    */
   readonly dispatch: Dispatcher = new Dispatcher({ title: "door", ctx: () => this }, [
-    { set: HOST_TILE_ACTIONS, takes: "screen", claims: req => req.action === "tile.herdr" && req.tile === DOCK_TILE_ID, on: () => ({ dock: this.dock }) },
-    { set: DOCK_ACTIONS, takes: "none", fixed: () => ({ ...HOST_AGENT_TILE, label: `${this.dock.name} in the dock` }), on: (_, how) => ({ dock: this.dock, ctx: how.ctx, here: this.stack.at(-1) }) },
+    { set: HOST_TILE_ACTIONS, takes: "screen", claims: req => req.action === "tile.herdr" && req.tile === DRAWER_TILE_ID, on: () => ({ drawer: this.drawer }) },
+    { set: DRAWER_ACTIONS, takes: "none", fixed: () => ({ ...HOST_AGENT_TILE, label: `${this.drawer.name} in the drawer` }), on: (_, how) => ({ drawer: this.drawer, ctx: how.ctx, here: this.stack.at(-1) }) },
     { set: NEW_NOTE_ACTIONS, takes: "none", on: (_, how) => ({ ctx: how.ctx, here: this.stack.at(-1) }) },
-    // A tile the screen shown doesn't have but the dock does (tile=, PIE-498): the dock's desk answers it.
-    { claims: req => this.dock.routes(req, this.stack.at(-1)), delegate: () => this.dock.desk?.dispatch, listed: false },
+    // A tile the screen shown doesn't have but the drawer does (tile=, PIE-498): the drawer's desk answers it.
+    { claims: req => this.drawer.routes(req, this.stack.at(-1)), delegate: () => this.drawer.desk?.dispatch, listed: false },
     { set: SHELL_ACTIONS, takes: "none", claims: req => SHELL_ACTIONS.has(req.action) && !this.stack.at(-1)?.dispatch?.has(req.action), on: (_, how) => ({ ctx: how.ctx, here: this.stack.at(-1), again: (name: string, args: Record<string, unknown>) => this.dispatch.act({ action: name, args }, how.actor) }) },
     { set: EXT_ACTIONS, takes: "none", claims: req => EXT_ACTIONS.has(req.action) && !(!!this.stack.at(-1)?.dispatch?.has(req.action) && (req.tile !== undefined || req.args?.block === undefined)), on: (_, how) => ({ ctx: how.ctx }) },
     { delegate: () => this.stack.at(-1)?.dispatch },
@@ -671,7 +676,7 @@ export class App implements Ctx {
    */
   person(): Whereabouts {
     const s = this.stack.at(-1);
-    return whereabouts({ screen: s?.title ?? null, keys: s ? screenKeys(s) : null, inHost: this.dock.shown && this.dock.entered, hostTile: ((t: string | null) => (!t || t === DOCK_TILE_ID ? null : `dock:${t}`))(this.dock.typingTile()), suspended: this.away, loggedOn: !!s && !s.noDock, idle: this.idleFor() });
+    return whereabouts({ screen: s?.title ?? null, keys: s ? screenKeys(s) : null, inHost: this.drawer.shown && this.drawer.entered, hostTile: ((t: string | null) => (!t || t === DRAWER_TILE_ID ? null : `drawer:${t}`))(this.drawer.typingTile()), suspended: this.away, loggedOn: !!s && !s.noDrawer, idle: this.idleFor() });
   }
 
   /**
@@ -682,7 +687,7 @@ export class App implements Ctx {
     const actor = agentActor(req.as);
     const s = this.stack.at(-1);
     const who = agentLabel(actor);
-    // Finding the owner can refuse too (a name both the screen and the dock have): said like every refusal.
+    // Finding the owner can refuse too (a name both the screen and the drawer have): said like every refusal.
     let takes: boolean;
     try { takes = this.dispatch.takes(req); } catch (e) { this.flash(`${who} · ${req.action} refused: ${e instanceof Error ? e.message : String(e)}`); throw e; }
     if (!takes) throw new ActionRefused(`no action ${req.action} on the ${s?.title ?? "current"} screen; here: ${this.dispatch.list().actions.map(a => a.name).join(", ")}`);
@@ -752,12 +757,12 @@ export class App implements Ctx {
         return;
       }
     }
-    // The dock first (PIE-498): its keys while the person is in it, alt+a anywhere, its chip and its rows.
-    if (this.dock.key(k, this.stack.at(-1), this.term.info.rows, this.dockRun)) return;
+    // The drawer first (PIE-498): its keys while the person is in it, alt+a anywhere, its chip and its rows.
+    if (this.drawer.key(k, this.stack.at(-1), this.term.info.rows, this.drawerRun)) return;
     // alt+v and alt+t turn the video mode and the theme on every screen (but in a terminal tile, whose keys are its program's).
     if (k.kind === "alt" && (k.ch === "v" || k.ch === "t") && !this.stack.at(-1)?.rawKeys?.()) { void this.dispatch.press(k.ch === "v" ? "video.cycle" : "theme.cycle"); return; }
     // ctrl+n: a new note (PIE-544), on every screen, but never while the person types (an edit, a filter, a terminal tile).
-    if (k.kind === "char" && k.ctrl && k.ch === "n" && !this.stack.at(-1)?.rawKeys?.() && !this.stack.at(-1)?.holdsKeys?.() && !this.stack.at(-1)?.noDock) { void this.dispatch.press("note.new"); return; }
+    if (k.kind === "char" && k.ctrl && k.ch === "n" && !this.stack.at(-1)?.rawKeys?.() && !this.stack.at(-1)?.holdsKeys?.() && !this.stack.at(-1)?.noDrawer) { void this.dispatch.press("note.new"); return; }
     // A paste goes whole to a screen that takes it (a terminal tile); anywhere else it's typed, key by key.
     if (k.kind === "paste" && !this.stack.at(-1)?.rawKeys?.()) {
       for (const key of pasteKeys(k.text)) this.key(key);
@@ -785,7 +790,7 @@ export class App implements Ctx {
 
   /**
    * A Mac terminal that types Option as characters sends ¬ for alt+l. Where nobody is typing text (no edit,
-   * filter, panel, terminal tile or the dock holds the keys), such a character is the alt key it
+   * filter, panel, terminal tile or the drawer holds the keys), such a character is the alt key it
    * stands for, and the first one says once which terminal setting sends alt itself. In text it stays what
    * was typed (façade, µm). Only on a US-like keyboard (optionKeysOn: by the locale, or EP0CH_OPTION_KEYS).
    */
@@ -810,13 +815,13 @@ export class App implements Ctx {
     else if (s && this.timeShown() !== this.shownTime) this.paintStatus(s);
   }
 
-  /** The status bar's time, as it would read now: the uptime and the clock; and the dock's chip, which changes on its own. */
+  /** The status bar's time, as it would read now: the uptime and the clock; and the drawer's chip, which changes on its own. */
   private timeShown(): string {
     const now = this.now();
-    return `${Math.floor((now - this.started) / 60000)}|${new Date(now).toTimeString().slice(0, 5)}|${this.dock.active ? this.dock.chipText() : ""}`;
+    return `${Math.floor((now - this.started) / 60000)}|${new Date(now).toTimeString().slice(0, 5)}|${this.drawer.active ? this.drawer.chipText() : ""}`;
   }
 
-  /** The dock's chip may have changed (its agent started or stopped working): the status bar alone, when it did. */
+  /** The drawer's chip may have changed (its agent started or stopped working): the status bar alone, when it did. */
   private statusChanged() {
     const s = this.stack.at(-1);
     if (s && !this.paintTimer && this.timeShown() !== this.shownTime) this.paintStatus(s);
@@ -884,21 +889,21 @@ export class App implements Ctx {
     const s = this.stack.at(-1);
     if (!s) return;
     const { cols, rows } = this.term.info;
-    // The dock (the host layer's, PIE-513) is laid over the screen's bottom rows: over one, the screen drew at
+    // The drawer (the host layer's, PIE-513) is laid over the screen's bottom rows: over one, the screen drew at
     // its full size under it; beside one, the screen drew in the rows above it (App.t).
-    this.dock.active = !s.noDock;
+    this.drawer.active = !s.noDrawer;
     // What this frame draws stays in the media module's memory while it's on screen (nextFrame).
     nextFrame();
     const frame = s.render(this);
     let lines = frame.lines.slice(0, rows - 1);
     while (lines.length < rows - 1) lines.push("");
     let placements = this.graphics ? [...(frame.placements ?? [])] : [];
-    if (this.dock.shown) {
-      const d = this.dock.render(cols, rows, s.title);
+    if (this.drawer.shown) {
+      const d = this.drawer.render(cols, rows, s.title);
       lines = overlay(lines, d);
-      // Images under the drawer would show through it; the dock's tiles' own are drawn in it.
+      // Images under the drawer would show through it; the drawer's tiles' own are drawn in it.
       placements = [...placements.filter(p => p.row + p.rows <= d.rect.row), ...(this.graphics ? d.placements : [])];
-    } else { this.dock.rect = null; this.dock.made?.shownAs(false); }
+    } else { this.drawer.rect = null; this.drawer.made?.shownAs(false); }
     if (this.toast) lines = withToast(lines, this.toast.text, cols, this.toast.ok);
     lines.push(this.statusBar(s, cols));
     // The display draws it in its video mode (CP437 and the tube under kitty+crt; a terminal tile's program output too).
@@ -916,8 +921,8 @@ export class App implements Ctx {
     this.shownTime = this.timeShown();
     const [mins, clock] = this.shownTime.split("|");
     const left = ` ${fg(C.white)}ep0ch${fg(C.lcyan)} │ ${s.title} │ ${this.location}`;
-    // The dock's chip starts the right part, so it's always whole and always in the same place from the right.
-    const chip = this.dock.active ? this.dock.chip() : "";
+    // The drawer's chip starts the right part, so it's always whole and always in the same place from the right.
+    const chip = this.drawer.active ? this.drawer.chip() : "";
     // Extension writes hidden from the count read `+N ext` (a click shows them); shown, `ext on`.
     const ext = this.extEvents ? (this.extensionChanges ? "ext on" : `+${this.extEvents} ext`) : "";
     const extPart = ext ? `${fg(C.dark)}${ext} ${fg(C.lcyan)}│ ` : "";
@@ -929,7 +934,7 @@ export class App implements Ctx {
     const tailFrom = cols - width(tail), row = this.term.info.rows - 1;
     this.videoAt = tailFrom >= 0 ? { from: tailFrom, to: tailFrom + width(this.video), row } : null;
     this.themeAt = tailFrom >= 0 ? { from: tailFrom + width(`${this.video} │ `), to: tailFrom + width(`${this.video} │ ${theme().name}`), row } : null;
-    this.dock.chipAt = chip && from >= 0 ? { from, to: from + width(this.dock.chipText()), row: this.term.info.rows - 1 } : null;
+    this.drawer.chipAt = chip && from >= 0 ? { from, to: from + width(this.drawer.chipText()), row: this.term.info.rows - 1 } : null;
     const middle = this.message ? ` ${fg(C.yellow)}${this.message}${fg(C.lcyan)}` : "";
     return statusLine(left, middle, right, cols);
   }

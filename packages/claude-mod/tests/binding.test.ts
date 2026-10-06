@@ -19,7 +19,7 @@ const boundTo = (outline: string | null, machine?: string) => (folder: string) =
   : JSON.stringify({ bound: false, folder })
 
 /** What `ep0ch where --json` says: this machine and folder, and the door around Claude, if any. */
-function whereJson(door: null | { outline: string; machine?: string; host: string; dock?: boolean; tile?: string }, herdr: null | { pane: string; label?: string; agent?: boolean } = null): string {
+function whereJson(door: null | { outline: string; machine?: string; host: string; drawer?: boolean; tile?: string }, herdr: null | { pane: string; label?: string; agent?: boolean } = null): string {
   return JSON.stringify({
     inDoor: !!door,
     here: { machine: 'near-box', folder: FOLDER },
@@ -27,7 +27,7 @@ function whereJson(door: null | { outline: string; machine?: string; host: strin
     door: door ? {
       pid: 4242, control: '/run/door.sock', answers: true, screen: 'Daily', outline: door.outline, workspace: '/outlines/x',
       host: door.host, machine: door.machine ?? null, moved: false,
-      tile: door.dock ? { id: 'dock.agent', name: 'claude', found: true, shown: true, focused: false, descends: true, dock: true } : { id: 't1', name: door.tile ?? 'claude', found: true, shown: true, focused: true, descends: true },
+      tile: door.drawer ? { id: 'drawer.agent', name: 'claude', found: true, shown: true, focused: false, descends: true, drawer: true } : { id: 't1', name: door.tile ?? 'claude', found: true, shown: true, focused: true, descends: true },
     } : null,
     layers: [], keys: { mine: null, typing: null, tile: null, text: 'x' },
     summary: door ? 'stack: door:4242/daily/t1:claude · keys: x' : 'stack: (nothing recorded) · not in a door · keys: x',
@@ -88,14 +88,14 @@ async function cardText(drawn: any): Promise<string> {
 const LOCAL: Case = { bound: boundTo('garden'), where: whereJson(null) }
 const DOOR: Case = { env: { EP0CH_CONTROL: '/run/door.sock', EP0CH_NEST: 'door:4242/daily/t1:claude' }, bound: boundTo('garden'), where: whereJson({ outline: 'garden', host: 'near-box' }) }
 const REMOTE: Case = {
-  env: { EP0CH_CONTROL: '/run/door.sock', EP0CH_NEST: 'door:4242/dock/dock.agent:claude › herdr:door-claude' },
+  env: { EP0CH_CONTROL: '/run/door.sock', EP0CH_NEST: 'door:4242/drawer/drawer.agent:claude › herdr:door-claude' },
   bound: boundTo('harbor', 'far'),
-  where: whereJson({ outline: 'harbor', machine: 'far', host: 'far-box', dock: true }, { pane: 'door-claude', label: 'door-claude', agent: true }),
+  where: whereJson({ outline: 'harbor', machine: 'far', host: 'far-box', drawer: true }, { pane: 'door-claude', label: 'door-claude', agent: true }),
 }
 const MISMATCH: Case = {
-  env: { EP0CH_CONTROL: '/run/door.sock', EP0CH_NEST: 'door:4242/dock/dock.agent:claude › herdr:door-claude' },
+  env: { EP0CH_CONTROL: '/run/door.sock', EP0CH_NEST: 'door:4242/drawer/drawer.agent:claude › herdr:door-claude' },
   bound: boundTo('garden'),
-  where: whereJson({ outline: 'harbor', machine: 'far', host: 'far-box', dock: true }, { pane: 'door-claude', label: 'door-claude', agent: true }),
+  where: whereJson({ outline: 'harbor', machine: 'far', host: 'far-box', drawer: true }, { pane: 'door-claude', label: 'door-claude', agent: true }),
 }
 const UNBOUND: Case = { bound: boundTo(null), where: whereJson(null, { pane: 'w1:p3' }) }
 const UNBOUND_IN_DOOR: Case = { ...MISMATCH, bound: boundTo(null) }
@@ -129,13 +129,13 @@ describe('where this Claude is bound: the card, the status line, the context', (
       expect(s.statuses.at(-1)).toBe('outline: garden @ near-box · folder, door')
     })
 
-    test(`${surface}: in the dock of a door whose outline is on another machine`, async ($, on) => {
+    test(`${surface}: in the drawer of a door whose outline is on another machine`, async ($, on) => {
       const s = sessionIn(on, REMOTE)
       await $.session.start({ ...START, surface })
       await s.clock.settle()
       const text = await cardText(await band($, surface))
       expect(text).toContain('harbor, on far (another machine)')
-      expect(text).toContain('in the dock of the harbor door · its own Herdr pane door-claude')
+      expect(text).toContain('in the drawer of the harbor door · its own Herdr pane door-claude')
       expect(text).toContain("the harbor door's outline is on far (far-box)")
       expect(s.statuses.at(-1)).toBe('outline: harbor @ far · folder, door')
     })
@@ -281,13 +281,13 @@ describe('where this Claude is bound: more cases', () => {
 })
 
 describe('binding helpers', () => {
-  const where = whereFactsOf(whereJson({ outline: 'harbor', machine: 'far', host: 'far-box', dock: true }, { pane: 'door-claude', label: 'door-claude', agent: true }))!
+  const where = whereFactsOf(whereJson({ outline: 'harbor', machine: 'far', host: 'far-box', drawer: true }, { pane: 'door-claude', label: 'door-claude', agent: true }))!
   const facts = (folder: BindingFacts['folder'], w: WhereFacts | null = where): BindingFacts => ({ folder, where: w, cwd: FOLDER, home: HOME, doorTools: true })
 
   test('where --json is read for its facts; anything else is not one', () => {
     expect(where).toEqual({
       inDoor: true, here: { machine: 'near-box', folder: FOLDER }, herdr: { pane: 'door-claude', label: 'door-claude', agent: true },
-      door: { answers: true, outline: 'harbor', machine: 'far', host: 'far-box', dock: true, tile: 'claude' },
+      door: { answers: true, outline: 'harbor', machine: 'far', host: 'far-box', drawer: true, tile: 'claude' },
     })
     expect(whereFactsOf('usage: ep0ch …')).toBeNull()
     expect(whereFactsOf('{"summary":"x"}')).toBeNull()
@@ -301,7 +301,7 @@ describe('binding helpers', () => {
 
   test('plain words: no tile ids, pids or sockets on the card', () => {
     const text = cardLines(facts({ kind: 'bound', workspace: { root: FOLDER, outline: 'garden', pinned: true } })).map(l => l.text).join('\n')
-    expect(text).not.toMatch(/dock\.agent|\bt1\b|4242|\.sock|pid/)
+    expect(text).not.toMatch(/drawer\.agent|\bt1\b|4242|\.sock|pid/)
   })
 
   test('opted out, and a lookup that failed, say why', () => {

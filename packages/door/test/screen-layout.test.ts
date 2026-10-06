@@ -6,7 +6,7 @@ import { describe, expect, test } from "bun:test";
 import type { Rect } from "../src/canvas";
 import type { Actor } from "../src/socket";
 import {
-  apply, describe as describeLayout, drawerOf, hostDrawer, hostLayer, HOST_SCREEN, init, landing, leaf, leaves, place, placeHost, policyAt, refusal, reviveTree, serialize, splitOf, tabsOf, visible,
+  apply, describe as describeLayout, dockOf, hostDock, hostLayer, HOST_SCREEN, init, landing, leaf, leaves, place, placeHost, policyAt, refusal, reviveTree, serialize, splitOf, tabsOf, visible,
   type Ctx, type LayoutState, type LNode, type Op, type Person, type TileFacts,
 } from "../src/desk/screen-layout";
 
@@ -115,21 +115,21 @@ describe("floats have no place in the tree (B7, B8, B9)", () => {
     expect(r.names.get(9)).toBe("edgy");
   });
 
-  test("B9: a float docks only where the containers take it: another place if the first refuses, else refused with why", () => {
-    // The keys on activity, in a split that takes only query tiles: the reader float can't dock beside it.
+  test("B9: a float goes back only where the containers take it: another place if the first refuses, else refused with why", () => {
+    // The keys on activity, in a split that takes only query tiles: the reader float can't drawer beside it.
     let s = withFloat(fresh(), 2);
     const col = leaves(s.tree).includes(3) ? (describeLayout(s, id => String(id)) as any) : null;
     expect(col).not.toBeNull();
     s = ok(s, { op: "policy", tile: 4, set: { accepts: ["query"] }, clear: [] }).state;
-    const docked = ok(s, { op: "float", tile: 2 }, PERSON, { focus: 4 }).state;
-    expect(floated(docked)).toEqual([]);
-    expect(policyAt(docked, 2, facts(2)).accepts).toBeNull();          // beside a tile whose containers take it
+    const back = ok(s, { op: "float", tile: 2 }, PERSON, { focus: 4 }).state;
+    expect(floated(back)).toEqual([]);
+    expect(policyAt(back, 2, facts(2)).accepts).toBeNull();          // beside a tile whose containers take it
     // The whole screen takes only query tiles: nowhere, and it stays a float.
     const screen = ok(s, { op: "policy", node: "screen", set: { accepts: ["query"] }, clear: [] }).state;
     no(screen, { op: "float", tile: 2 }, /takes only query: not reader \(reader\)/, PERSON, { focus: 4 });
-    // A shut drawer is never where a float docks: it wouldn't be shown.
+    // A shut dock is never where a float drawers: it wouldn't be shown.
     let d = ok(fresh(), { op: "pin", tile: 1, on: false, edge: "left" }).state;
-    d = ok(d, { op: "drawer", tile: 1, open: false }, PERSON, { focus: 1 }).state;
+    d = ok(d, { op: "slide", tile: 1, open: false }, PERSON, { focus: 1 }).state;
     d = withFloat(d, 2);
     d = ok(d, { op: "policy", tile: 4, set: { accepts: ["query"] }, clear: [] }).state;
     const out = ok(d, { op: "float", tile: 2 }, PERSON, { focus: 4 }).state;
@@ -149,23 +149,23 @@ describe("containers keep their tiles and their rules (B10, B11)", () => {
     expect(policyAt(s, 4, facts(4)).by.accepts).toBe(id);
   });
 
-  test("B11: the last docked tile isn't put in a drawer; the last drawer showing anything doesn't shut", () => {
+  test("B11: the last laid-out tile isn't put in a dock; the last dock showing anything doesn't shut", () => {
     let s = fresh();
     for (const id of [1, 2, 3]) s = ok(s, { op: "pin", tile: id, on: false }, PERSON, { focus: id }).state;
-    no(s, { op: "pin", tile: 4, on: false }, /activity is the last tile pinned/, PERSON, { focus: 4 });
-    no(s, { op: "pin", tile: 4, on: false, edge: "right" }, /last tile pinned/, PERSON, { focus: 4 });
-    for (const id of [1, 2, 3]) s = ok(s, { op: "drawer", tile: id, open: false }, PERSON, { focus: 4 }).state;
+    no(s, { op: "pin", tile: 4, on: false }, /activity is the last tile not docked/, PERSON, { focus: 4 });
+    no(s, { op: "pin", tile: 4, on: false, edge: "right" }, /last tile not docked/, PERSON, { focus: 4 });
+    for (const id of [1, 2, 3]) s = ok(s, { op: "slide", tile: id, open: false }, PERSON, { focus: 4 }).state;
     expect(names(s, visible(s.tree))).toEqual(["activity"]);
-    // The one docked tile closes: the screen opens a drawer, and the keys go to what it shows.
-    s = ok(s, { op: "drawer", tile: 1, open: false }, PERSON, { focus: 1 }).state;
+    // The one laid-out tile closes: the screen opens a dock, and the keys go to what it shows.
+    s = ok(s, { op: "slide", tile: 1, open: false }, PERSON, { focus: 1 }).state;
     const r = ok(s, { op: "close", tile: 4 }, PERSON, { focus: 1 });
     expect(visible(r.state.tree).length).toBeGreaterThan(0);
     expect(visible(r.state.tree)).toContain(r.focus);
-    no(r.state, { op: "drawer", tile: r.focus, open: false }, /all the screen shows/, PERSON, { focus: r.focus });
+    no(r.state, { op: "slide", tile: r.focus, open: false }, /all the screen shows/, PERSON, { focus: r.focus });
   });
 
-  test("a whole layout put back from a save where every tile is in a shut drawer opens one", () => {
-    const tree: LNode = splitOf("row", [{ t: "drawer", kid: leaf(1), edge: "left", open: false }, { t: "drawer", kid: leaf(2), edge: "right", open: false }]);
+  test("a whole layout put back from a save where every tile is in a shut dock opens one", () => {
+    const tree: LNode = splitOf("row", [{ t: "dock", kid: leaf(1), edge: "left", open: false }, { t: "dock", kid: leaf(2), edge: "right", open: false }]);
     const s = init({ tree, names: NAMES });
     expect(visible(s.tree).length).toBe(1);
   });
@@ -173,7 +173,7 @@ describe("containers keep their tiles and their rules (B10, B11)", () => {
   test("the nearest policy wins, and a lock above locks everything below", () => {
     // The screen says tiles stay where they are; the column of thread and activity says they move, and is locked.
     let s = ok(fresh(), { op: "policy", node: "screen", set: { draggable: false }, clear: [] }).state;
-    no(s, { op: "move", tile: 2, to: { kind: "edge", dir: "left" } }, /reader stays where it is: the screen keeps its tiles \(draggable off\)/);
+    no(s, { op: "move", tile: 2, to: { kind: "edge", dir: "left" } }, /reader stays where it is: the screen keeps its tiles in place · \^W P there turns draggable on/);
     s = ok(s, { op: "policy", tile: 3, set: { draggable: true }, clear: [] }).state;
     expect(policyAt(s, 3, facts(3)).draggable).toBe(true);           // the nearest says it
     expect(policyAt(s, 2, facts(2)).draggable).toBe(false);
@@ -198,14 +198,14 @@ describe("containers keep their tiles and their rules (B10, B11)", () => {
     const keyed = splitOf("col", [leaf(3), leaf(4)], [0.5, 0.5]);
     (keyed as { key?: string }).key = "lanes";
     const s = ok(fresh(splitOf("row", [leaf(1), leaf(2), keyed])), { op: "policy", tile: 3, set: { draggable: false }, clear: [] }).state;
-    no(s, { op: "move", tile: 3, to: { kind: "edge", dir: "left" } }, /thread stays where it is: the lanes container keeps its tiles \(draggable off\)/);
+    no(s, { op: "move", tile: 3, to: { kind: "edge", dir: "left" } }, /thread stays where it is: the lanes container keeps its tiles in place · \^W P there turns draggable on/);
   });
 
   test("a policy that keeps tiles: closable off folds instead; accepts and droppable refuse with who said so", () => {
     extra = {};
     let s = ok(fresh(), { op: "policy", tile: 3, set: { closable: false, droppable: false }, clear: [] }).state;
-    no(s, { op: "close", tile: 4 }, /activity stays: s\d+ keeps its tiles \(closable off\) · tile.collapse folds it to a spine/);
-    no(s, { op: "open", tile: 9, kind: "reader", at: { kind: "split", target: 3, dir: "down" } }, /takes no drops \(droppable off\)/);
+    no(s, { op: "close", tile: 4 }, /activity stays: s\d+ keeps its tiles · tile.collapse folds it to a spine · \^W P there turns closable on/);
+    no(s, { op: "open", tile: 9, kind: "reader", at: { kind: "split", target: 3, dir: "down" } }, /takes no drops: .* · \^W P there turns droppable on/);
     extra = { 2: { keeps: "hub:fern supplies it, and it goes when its data does" } };
     no(fresh(), { op: "close", tile: 2 }, /reader stays: hub:fern supplies it/);
     extra = { 2: { editing: "an edit" } };
@@ -288,33 +288,33 @@ describe("agents never take the person's place (C3, C4)", () => {
     extra = { 4: { running: "vim" } };
     no(s, { op: "close", tile: 4 }, /activity is running vim; an agent doesn't end it/, AGENT);
     extra = {};
-    // An agent's open never takes the keys; an agent's move of the person's tile into a shut drawer opens it for them.
+    // An agent's open never takes the keys; an agent's move of the person's tile into a shut dock opens it for them.
     expect(ok(s, { op: "open", tile: 9, kind: "reader", at: { kind: "split", target: 3, dir: "down" } }, AGENT).focus).toBe(2);
     let d = ok(s, { op: "pin", tile: 1, on: false }, PERSON, { focus: 1 }).state;
-    d = ok(d, { op: "drawer", tile: 1, open: false }, PERSON, { focus: 2 }).state;
+    d = ok(d, { op: "slide", tile: 1, open: false }, PERSON, { focus: 2 }).state;
     const moved = ok(d, { op: "move", tile: 2, to: { kind: "tabs", target: 1 } }, AGENT).state;
-    expect(drawerOf(moved.tree, 2)!.open).toBe(true);
+    expect(dockOf(moved.tree, 2)!.open).toBe(true);
     // An agent's folded tile says who folded it.
     expect(ok(s, { op: "collapse", tile: 1, on: true }, AGENT).state.collapsed.get(1)).toEqual({ by: AGENT.kind === "agent" ? AGENT.id : "" });
   });
 });
 
 describe("the rest of the layout's operations", () => {
-  test("drawers: wrap where it is or at an edge, slide shut and open, dock back keeping its policy", () => {
+  test("docks: wrap where it is or at an edge, slide shut and open, drawer back keeping its policy", () => {
     let s = ok(fresh(), { op: "pin", tile: 1, on: false, edge: "left" }, PERSON, { focus: 1 }).state;
-    const d = drawerOf(s.tree, 1)!;
+    const d = dockOf(s.tree, 1)!;
     expect(d.edge).toBe("left");
     s = ok(s, { op: "policy", node: d.id!, set: { stays: true }, clear: [] }).state;
-    const shut = ok(s, { op: "drawer", tile: 1, open: false }, PERSON, { focus: 1 });
-    expect(shut.focus).not.toBe(1);                                      // the keys leave a drawer that shuts
-    no(shut.state, { op: "drawer", tile: 1, open: false, container: "d999" }, /no drawer d999/);
-    const docked = ok(shut.state, { op: "pin", tile: 1, on: true }).state;
-    expect(drawerOf(docked.tree, 1)).toBeNull();
-    const again = ok(docked, { op: "pin", tile: 1, on: false }, PERSON, { focus: 1 }).state;
-    expect(drawerOf(again.tree, 1)!.policy).toEqual({ stays: true });   // remembered while it was docked
+    const shut = ok(s, { op: "slide", tile: 1, open: false }, PERSON, { focus: 1 });
+    expect(shut.focus).not.toBe(1);                                      // the keys leave a dock that shuts
+    no(shut.state, { op: "slide", tile: 1, open: false, container: "d999" }, /no dock d999/);
+    const back = ok(shut.state, { op: "pin", tile: 1, on: true }).state;
+    expect(dockOf(back.tree, 1)).toBeNull();
+    const again = ok(back, { op: "pin", tile: 1, on: false }, PERSON, { focus: 1 }).state;
+    expect(dockOf(again.tree, 1)!.policy).toEqual({ stays: true });   // remembered while it was undocked
   });
 
-  test("floats: popped out at a fresh rect, kept on the screen when moved, docked back; locked, they don't move", () => {
+  test("floats: popped out at a fresh rect, kept on the screen when moved, put back; locked, they don't move", () => {
     const f = withFloat(fresh(), 4);
     const r = f.floats[0]!.rect;
     expect(r.col + r.cols).toBeLessThanOrEqual(AREA.cols);
@@ -360,14 +360,14 @@ describe("the rest of the layout's operations", () => {
     // A kind that takes no notes isn't linked, and isn't opened either; on a locked screen neither happens.
     no(fresh(), { op: "open", tile: 7, kind: "thread", at: { kind: "split", target: 1, dir: "down" }, link: 1 }, /a thread tile: opens land in a tile that takes notes/);
     no(ok(fresh(), { op: "lock", on: true }).state, { op: "open", tile: 7, kind: "reader", at: { kind: "split", target: 1, dir: "down" }, link: 1 }, /the screen is locked/);
-    // reveal: a folded tile opens, a tile in a shut drawer slides it open, a hidden tab is shown; the keys stay.
+    // reveal: a folded tile opens, a tile in a shut dock slides it open, a hidden tab is shown; the keys stay.
     let s = ok(fresh(), { op: "collapse", tile: 1, on: true }).state;
     s = ok(s, { op: "reveal", tile: 1 }).state;
     expect(s.collapsed.has(1)).toBe(false);
-    const drawer = ok(ok(fresh(), { op: "pin", tile: 1, on: false }).state, { op: "drawer", tile: 1, open: false }, PERSON, { focus: 2 }).state;
-    expect(drawerOf(drawer.tree, 1)!.open).toBe(false);
-    const shown = ok(drawer, { op: "reveal", tile: 1 }, AGENT);
-    expect(drawerOf(shown.state.tree, 1)!.open).toBe(true);
+    const dock = ok(ok(fresh(), { op: "pin", tile: 1, on: false }).state, { op: "slide", tile: 1, open: false }, PERSON, { focus: 2 }).state;
+    expect(dockOf(dock.tree, 1)!.open).toBe(false);
+    const shown = ok(dock, { op: "reveal", tile: 1 }, AGENT);
+    expect(dockOf(shown.state.tree, 1)!.open).toBe(true);
     expect(shown.focus).toBe(2);
     const tabs = ok(fresh(), { op: "move", tile: 4, to: { kind: "tabs", target: 3 } }).state;
     const t = ok(tabs, { op: "reveal", tile: 3 }, PERSON, { focus: 4 });
@@ -377,7 +377,7 @@ describe("the rest of the layout's operations", () => {
     expect(visible(a.state.tree)).not.toContain(3);
   });
 
-  test("borders: resize names its split, a drawer's border sizes only it, a fixed kid keeps its size", () => {
+  test("borders: resize names its split, a dock's border sizes only it, a fixed kid keeps its size", () => {
     no(fresh(), { op: "resize", split: "s999", border: 0, share: 0.5 }, /no split s999/);
     no(fresh(), { op: "resize", path: "", border: 3, share: 0.5 }, /has borders 0-1/);
     let s = fresh();
@@ -475,70 +475,70 @@ describe("two layers: the host layer above every screen (Evan, Oct 1)", () => {
   };
   const host = () => hostLayer({ tabs: ["agent"], names: new Map([["agent", "claude"]]), share: 0.5 });
 
-  test("put away, the screen has the whole room; pulled up over it, the screen keeps it all and the drawer covers its lower half", () => {
+  test("put away, the screen has the whole room; pulled up over it, the screen keeps it all and the dock covers its lower half", () => {
     const s = host();
-    expect(placeHost(s, HOST_AREA, "over")).toEqual({ screen: HOST_AREA, drawer: null, tiles: new Map() });
-    const up = hok(s, { op: "drawer", tile: "agent", open: true });
+    expect(placeHost(s, HOST_AREA, "over")).toEqual({ screen: HOST_AREA, dock: null, tiles: new Map() });
+    const up = hok(s, { op: "slide", tile: "agent", open: true });
     const over = placeHost(up.state, HOST_AREA, "over");
     expect(over.screen).toEqual(HOST_AREA);
-    expect(over.drawer).toEqual({ col: 0, row: 20, cols: 120, rows: 20 });
-    expect(over.tiles.get("agent")).toEqual(over.drawer!);
+    expect(over.dock).toEqual({ col: 0, row: 20, cols: 120, rows: 20 });
+    expect(over.tiles.get("agent")).toEqual(over.dock!);
   });
 
   test("beside it, the screen is drawn shorter; on a screen that keeps the whole screen (none), it isn't drawn, nor pulled up", () => {
-    const up = hok(host(), { op: "drawer", tile: "agent", open: true }).state;
+    const up = hok(host(), { op: "slide", tile: "agent", open: true }).state;
     const beside = placeHost(up, HOST_AREA, "beside");
-    expect(beside.screen.rows + beside.drawer!.rows).toBe(40);
+    expect(beside.screen.rows + beside.dock!.rows).toBe(40);
     expect(beside.screen.rows).toBeLessThan(40);
-    expect(placeHost(up, HOST_AREA, "none")).toEqual({ screen: HOST_AREA, drawer: null, tiles: new Map() });
-    const r = apply(host(), { op: "drawer", tile: "agent", open: true }, hctx(PERSON, {}, "none"));
+    expect(placeHost(up, HOST_AREA, "none")).toEqual({ screen: HOST_AREA, dock: null, tiles: new Map() });
+    const r = apply(host(), { op: "slide", tile: "agent", open: true }, hctx(PERSON, {}, "none"));
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.refused).toMatch(/keeps the whole screen \(its host policy is none\)/);
   });
 
   test("the person's keys go through the layer's own transitions: pulled up, to its tab; put away, back to the screen as they left it", () => {
-    const up = hok(host(), { op: "drawer", tile: "agent", open: true });
+    const up = hok(host(), { op: "slide", tile: "agent", open: true });
     expect(up.focus).toBe("agent");
-    const away = hok(up.state, { op: "drawer", tile: "agent", open: false }, PERSON, { focus: "agent" });
+    const away = hok(up.state, { op: "slide", tile: "agent", open: false }, PERSON, { focus: "agent" });
     expect(away.focus).toBe(HOST_SCREEN);
     // An agent pulls it up without the keys; it can't put it away while the person types in it.
-    const agentUp = hok(host(), { op: "drawer", tile: "agent", open: true }, AGENT);
+    const agentUp = hok(host(), { op: "slide", tile: "agent", open: true }, AGENT);
     expect(agentUp.focus).toBe(HOST_SCREEN);
-    const r = apply(up.state, { op: "drawer", tile: "agent", open: false }, hctx(AGENT, { focus: "agent", typingIn: "agent", busy: true }));
+    const r = apply(up.state, { op: "slide", tile: "agent", open: false }, hctx(AGENT, { focus: "agent", typingIn: "agent", busy: true }));
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.refused).toMatch(/the person is typing; an agent doesn't shut the drawer they have/);
+    if (!r.ok) expect(r.refused).toMatch(/the person is typing; an agent doesn't shut the dock they have/);
   });
 
-  test("the drawer is a real drawer of tabs: the admin outline opens as a tab beside the agent, and the layer saves and comes back", () => {
-    let s = hok(host(), { op: "drawer", tile: "agent", open: true }).state;
+  test("the dock is a real dock of tabs: the admin outline opens as a tab beside the agent, and the layer saves and comes back", () => {
+    let s = hok(host(), { op: "slide", tile: "agent", open: true }).state;
     s = hok(s, { op: "open", tile: "outline", kind: "tree", name: "outline", at: { kind: "tabs", target: "agent" } }, PERSON, { focus: "agent" }).state;
     expect(tabsOf(s.tree, "agent")!.ids).toEqual(["agent", "outline"]);
-    expect(hostDrawer(s)!.kid.t).toBe("tabs");
+    expect(hostDock(s)!.kid.t).toBe("tabs");
     s = hok(s, { op: "tab", tile: "agent" }, PERSON, { focus: "outline" }).state;
     const saved = serialize(s, id => ({ t: "leaf" as const, id }));
     const back = init({ tree: reviveTree(saved.root as any, (l: { id: string }) => l.id), names: s.names });
     expect(tabsOf(back.tree, "outline")!.ids).toEqual(["agent", "outline"]);
-    expect(hostDrawer(back)!.open).toBe(true);
+    expect(hostDock(back)!.open).toBe(true);
     // The screen slot stays where it is: it's the screen's, not a tile to close or move.
     const no2 = apply(s, { op: "close", tile: HOST_SCREEN }, hctx(PERSON));
     expect(no2.ok).toBe(false);
-    if (!no2.ok) expect(no2.refused).toMatch(/screen stays: .* keeps its tiles|closable off/);
+    if (!no2.ok) expect(no2.refused).toMatch(/screen stays: .* keeps its tiles|turns closable on/);
   });
 });
 
-describe("a float and a drawer, one step each way (Evan, Oct 3)", () => {
-  test("a float goes straight into a drawer (tile.pin), and floats out of it again: float → drawer → float", () => {
+describe("a float and a dock, one step each way (Evan, Oct 3)", () => {
+  test("a float goes straight into a dock (tile.dock), and floats out of it again: float → dock → float", () => {
     extra = {};
-    // The person's float, then ^W p on it: into a drawer of its own, in one step, back in the tree.
+    // The person's float, then ^W p on it: into a dock of its own, in one step, back in the tree.
     const f = withFloat(fresh(), 2);
     expect(floated(f)).toEqual(["reader"]);
-    const inDrawer = ok(f, { op: "pin", tile: 2, on: false }, PERSON, { focus: 2 }).state;
-    expect(floated(inDrawer)).toEqual([]);
-    expect(drawerOf(inDrawer.tree, 2)).not.toBeNull();
-    // And ^W f on it in its drawer: a float again, the drawer gone with it.
-    const again = ok(inDrawer, { op: "float", tile: 2 }, PERSON, { focus: 2 }).state;
+    const inDock = ok(f, { op: "pin", tile: 2, on: false }, PERSON, { focus: 2 }).state;
+    expect(floated(inDock)).toEqual([]);
+    expect(dockOf(inDock.tree, 2)).not.toBeNull();
+    // And ^W f on it in its dock: a float again, the dock gone with it.
+    const again = ok(inDock, { op: "float", tile: 2 }, PERSON, { focus: 2 }).state;
     expect(floated(again)).toEqual(["reader"]);
-    expect(drawerOf(again.tree, 2)).toBeNull();
+    expect(dockOf(again.tree, 2)).toBeNull();
     // pin on=true on a float puts it back pinned in the layout; an agent never moves the float the person has.
     expect(floated(ok(f, { op: "pin", tile: 2, on: true }).state)).toEqual([]);
     no(f, { op: "pin", tile: 2, on: false }, /has the person's keys; an agent doesn't move it/, AGENT, { focus: 2 });
@@ -547,7 +547,7 @@ describe("a float and a drawer, one step each way (Evan, Oct 3)", () => {
     no(locked, { op: "pin", tile: 2, on: false }, /locked/, PERSON, { focus: 2 });
   });
 
-  test("take: a tile leaves the layout whole (to the dock), by the move rules, never the last one", () => {
+  test("take: a tile leaves the layout whole (to the drawer), by the move rules, never the last one", () => {
     extra = {};
     const s = fresh();
     const r = ok(s, { op: "take", tile: 3 }, PERSON, { focus: 3 });

@@ -11,7 +11,7 @@ slots now hold live commands), and the bulletin (`SHY-EPO!.ANS`).
 
 **Getting around.** The menu's letters (or a click on an item) open its screens over it. `q` is back on every
 screen. `Esc` closes what popped up, the innermost first (a picker or the tile menu, the keys box, a `^W` chord, link
-mode, a filter, an empty edit, the dock, a selection, a zoom, a drawer, a float's keys), and never leaves a
+mode, a filter, an empty edit, the drawer, a selection, a zoom, a dock, a float's keys), and never leaves a
 screen: with nothing left it stays and says `nothing to close · q leaves`. The menu is the top, with nothing under
 it: there `q` is the Quay, as it always was, and `Esc` says `G` logs off.
 Only `G` (or a click on Goodbye) logs off, and at the logon `Q` hangs up. An agent gets around the same way, with
@@ -58,14 +58,14 @@ One walk through the door, in the order you meet things. Each step has its own s
    menu; only `G` logs off.
 3. **The desk.** `D`, then `alt+d` loads the `daily` layout: the agent's terminal, the outline, the "now" page,
    an editor and details. Drag a tile's header to move it (onto another header it becomes a tab), `^W o` and a
-   kind opens a tile, `^W p` puts one in a drawer (anything dropped on its handle joins it), `alt+k` locks the
+   kind opens a tile, `^W p` docks one to an edge (anything dropped on its handle joins it), `alt+k` locks the
    shape for a task, `^W w` saves the screen by name as a screen note in the outline, `^W r` lays it out as one
    ([The desk](#the-desk)). `M` on the menu starts a blank screen to build from ([Screens you make](#screens-you-make)).
-4. **The dock.** `alt+a` or a click on the status bar's `▲ claude` chip pulls the dock up over any screen, with
-   your keys in it: its own program (your `EP0CH_DAILY_AGENT`, else a shell) and any tile you docked. `^W a` docks
-   the tile you're on (a terminal with a Claude in it, a reader, the tree) and it travels with you across screens,
-   still running; `^W a` in the dock puts it back. `ctrl+]` gives the keys back; `alt+a` again, or `Esc` once
-   you're out, puts it away ([The dock](#the-dock-pie-498)).
+4. **Your drawer.** `alt+a` or a click on the status bar's `▲ claude` chip pulls your drawer up over any screen, with
+   your keys in it: its own program (your `EP0CH_DAILY_AGENT`, else a shell) and any tile you put in. `^W a` puts
+   the tile you're on in it (a terminal with a Claude in it, a reader, the tree) and it travels with you across screens,
+   still running; `^W a` in the drawer takes it out. A screen you leave with a terminal running puts it there too. `ctrl+]` gives the keys back; `alt+a` again, or `Esc` once
+   you're out, puts it away ([The drawer](#the-drawer-pie-498)).
 5. **Easy on the eyes.** The door opens in the **calm** theme: dark, soft accents, every word at 4.5:1 or
    more. `alt+t` (or a click on its name on the status bar) steps to **night**, dimmer, and **classic**, the
    bright VGA palette; `alt+v` steps the video mode (the CRT glow is Kitty+CRT). Both work on every screen
@@ -87,7 +87,7 @@ One walk through the door, in the order you meet things. Each step has its own s
    several) and their `((id))`s go in at the cursor ([Editing notes](#editing-notes)).
 9. **On a Mac,** set the terminal to send Option as Alt (Ghostty `macos-option-as-alt = true`, kitty
    `macos_option_as_alt left`). Without it, where you aren't typing text, the door reads `å` as `alt+a`, `¬`
-   as `alt+l` and so on, and says once which setting to change ([The dock](#the-dock-pie-498)).
+   as `alt+l` and so on, and says once which setting to change ([The drawer](#the-drawer-pie-498)).
 10. **Keep the stack current.** `ep0ch doctor` checks every piece; `ep0ch install` shows the plan and
    `--apply` runs it ([Install and update](#install-and-update)). `ep0ch outline list` names the host's
    outlines, `ep0ch find <words>` (or `--query "type=chore updated >= -7d"`) and `ep0ch show <id>` search and draw
@@ -237,8 +237,8 @@ scrolling row, its key-names row, its list-picker and line-input rows (in the pa
 the board's g m s), its elements and reading-ruler row (PIE-441) and its terminal-output row (PIE-510: cells, escapes,
 CP437; the key names and the terminal output are under every section) have no section yet, and its ids-not-names row
 (ADR 0001) is a rule for code, with nothing to show. The newest parts are in their rows' sections:
-the service's forgiving search (the `/` overlay, opened on a query with typos) in `search`, the dock in `dock` (`^W a` docks its kettle, another section keeps it, the same program; `alt+a` pulls the dock up over the showcase itself), the terminals attached to the door session in `session`, a row's links in the tree
-(`L`) in `entity`, a drawer and the lock (`alt+k`) in `panes`, the draft session (an edit and a comment open side by side) in `drafts`, a screen spec (the brief, its spec read back by `screen.spec`) in `screens`, the tile-kind registry listed by a service-drawn tile in `kinds`, quiet embeds (a dim `»` source line) in `note`, one addressed note as the whole screen (the detail screen spec, `--screen detail <uri>`) in `detail`, the outliner's example extensions (a record, an output, a component with its `[w ward]`, an `@tidy` request) beside what the service's list bound, in `extensions`, Obsidian's callout examples (nested three deep, folded and open, title-only, a type the outline declares) in `callouts`, the Markdown figures (a decision, a chat, a keymap read from the action registry, uptime, activity, a month, annotated code, a figure block whose rows are its child bullets, a quote's byline) in `figures`, and new notes from anywhere (`ctrl+n`, a missing `[[page]]` offered then made, a lone `[page::x]` titling itself) in `newnotes`. It runs on an
+the service's forgiving search (the `/` overlay, opened on a query with typos) in `search`, the drawer in `drawer` (`^W a` puts its kettle in your drawer, another section keeps it, the same program; `alt+a` pulls the drawer up over the showcase itself), the terminals attached to the door session in `session`, a row's links in the tree
+(`L`) in `entity`, a dock and the lock (`alt+k`) in `panes`, the draft session (an edit and a comment open side by side) in `drafts`, a screen spec (the brief, its spec read back by `screen.spec`) in `screens`, the tile-kind registry listed by a service-drawn tile in `kinds`, quiet embeds (a dim `»` source line) in `note`, one addressed note as the whole screen (the detail screen spec, `--screen detail <uri>`) in `detail`, the outliner's example extensions (a record, an output, a component with its `[w ward]`, an `@tidy` request) beside what the service's list bound, in `extensions`, Obsidian's callout examples (nested three deep, folded and open, title-only, a type the outline declares) in `callouts`, the Markdown figures (a decision, a chat, a keymap read from the action registry, uptime, activity, a month, annotated code, a figure block whose rows are its child bullets, a quote's byline) in `figures`, and new notes from anywhere (`ctrl+n`, a missing `[[page]]` offered then made, a lone `[page::x]` titling itself) in `newnotes`. It runs on an
 outline of its own: a private service (own state, workspace and config dirs, background agents off, Herdr
 unset) on a persistent workspace under `<the door's state>/showcase/` (`$EP0CH_STATE`, else `${XDG_STATE_HOME:-~/.local/state}/ep0ch-door`), with the
 door's own `EP0CH_STATE` and `EP0CH_CONTROL` there too, so nothing reaches a real outline or your door.
@@ -324,7 +324,7 @@ and keeps the order (`virtual.occurrences.order`); the door only reads both.
   Reading another note yourself empties the preview (an agent's leaves it).
 - **Backlinks** of the detail's note, grouped as Detail groups them, every group open: landing on them (`Tab`,
   a click) shows the selected one in the same preview, and so do `j` `k` as they move, `⏎` or a click too, `alt+⏎` or a ctrl-click reads it in the detail. `s K w h n .` and
-  the status line's controls change the view as on the board's drawer.
+  the status line's controls change the view as on the board's dock.
 - **Numbers are gone:** a number in `[welcome::…]` is no longer a place. Outlines that used them run the one-off
   `bun packages/door/scripts/welcome-order.ts --ws <name>` (a dry run; `--apply` writes): it sets the Welcome view's
   order from the numbers and rewrites the values to `true`.
@@ -503,7 +503,7 @@ A checkout from before `install` gets it by hand, once:
 | `EP0CH_SCROLL_ROWS` | rows one wheel report scrolls a reader, a draft, a column or a scrollback (1 to 20, default 1). A trackpad then moves the text with your fingers, and a mouse wheel in Ghostty (three reports a notch) moves 3 rows a notch; in a terminal that sends one report a notch (xterm, most Linux terminals) set 3. In lists (the tree, a lane, the BBS lists) a report moves the selection one row |
 | `EP0CH_OBSERVE` | `0` skips registering as an observer (then the door is not in Who's Online and gets no live events) |
 | `EP0CH_NOW_PAGE` | the page the welcome screen (C) shows while no note is tagged `welcome`, and the `daily` layout's "now" tile shows (default `claude-now`); `EP0CH_NOW_LABEL` names it |
-| `EP0CH_DAILY_AGENT` | overrides the dock's own agent for this door (a test door's `sh`, a one-off): unset, the dock runs the agent chosen for the outline's session (`alt+g`, `host.agent`), else a shell. The dock's choice is the way to set it; see [The dock](#the-dock-pie-498) |
+| `EP0CH_DAILY_AGENT` | overrides the drawer's own agent for this door (a test door's `sh`, a one-off): unset, the drawer runs the agent chosen for the outline's session (`alt+g`, `host.agent`), else a shell. The drawer's choice is the way to set it; see [The drawer](#the-drawer-pie-498) |
 | `EP0CH_DAILY_DRAFT` | the file the `daily` layout's editor tile opens (default `scratch.md` in the door's state) |
 
 ## Remote MCP gateway (claude.ai)
@@ -671,7 +671,7 @@ door as one. One runs per outline, like `herdr --session <name>`: naming an outl
 (with several, they print the `--ws` to add for each). The home base marks an outline whose session runs (`● running ·
 1 attached`), and choosing it attaches. A session holds everything the door holds:
 the screens and their layouts, the dispatcher, drafts, the terminal tiles with their programs and scrollback, the
-dock, the service connection and its change feed. Your terminal is a **client**: it shows what the session
+drawer, the service connection and its change feed. Your terminal is a **client**: it shows what the session
 sends and sends what you type. A terminal inside the session (one of its tiles, its drop shell) can't attach to it. With no
 terminal attached, the session draws no frames: its programs keep running and its state keeps up, and the screen is
 drawn when a terminal attaches or `peek`, `snap` or an `act` reads it.
@@ -688,7 +688,7 @@ drawn when a terminal attaches or `peek`, `snap` or an `act` reads it.
   terminal host's `pty.sock` and `pty-host.log`, the checkpoint `session-state.json`, the control socket `door.sock`,
   the saved layouts of the desk, the river and the board (`desk.json`, `river.json`, `delivery.json`), the river's
   index, the last call, the marks and the drafts put aside (`drafts/unsent/`). Shared by every outline, in the state dir
-  itself: the theme, `ctrl+e` copies (`drafts/`), the dock, the machines opened, summary
+  itself: the theme, `ctrl+e` copies (`drafts/`), the drawer, the machines opened, summary
   keys and the daily scratch. The home base, on no outline yet, keeps its own in `home/`.
 - **Ending is its own act:** `E` on the main menu (End), or `ep0ch session end` at your shell: the same action
   (`session.end`), the person's only. With programs running in its tiles or a draft unsaved it asks first (`E` again
@@ -703,7 +703,7 @@ drawn when a terminal attaches or `peek`, `snap` or an `act` reads it.
 - **Agents** reach the session through its control socket as before (`peek`, `act`, `subscribe`); `peek` says which
   terminals are attached (`session.clients`). An agent's act never takes the person's keys, whichever terminal they're on.
 - **Upgrades keep your programs.** `ep0ch session upgrade` hands the session to a new daemon on the code in the
-  checkout. The programs in its terminal tiles and the dock keep running: they never belonged to the daemon,
+  checkout. The programs in its terminal tiles and the drawer keep running: they never belonged to the daemon,
   but to the session's **terminal host**, and the new daemon adopts each by its tile, its output and scrollback
   replayed. The screens come back (one kept in the background too), and so do the edits open on the screen on top
   (`e` or `⏎` in one carries on). Every attached
@@ -716,7 +716,7 @@ drawn when a terminal attaches or `peek`, `snap` or an `act` reads it.
   the phone's, attaches to that outline's session instead of starting a door of its own; a dropped connection only
   detaches. With no terminal (a script, an agent's shell, ssh without `-t`) `ep0ch` starts no session: it says so,
   and `--no-daemon` opens the door there.
-- **The daily agent stays Herdr's.** With an agent chosen "in Herdr", the dock attaches to its session's own pane in Herdr
+- **The daily agent stays Herdr's.** With an agent chosen "in Herdr", the drawer attaches to its session's own pane in Herdr
   ([The daily agent in Herdr](#the-daily-agent-in-herdr)), and that stays so: the session now keeps the attach alive
   between terminals and across upgrades (the drawer's program is in the terminal host), and Herdr keeps the agent
   itself alive through anything the session can't survive (the session ended, the terminal host's own upgrade, a
@@ -764,15 +764,15 @@ split, tab, drag, link and save, drawn by the door itself, so no multiplexer is 
 | drag a border | resize |
 | `alt+l`, then click a tile | this tile's opens land there (a link followed, the tree's `⏎`); click the tile itself to unlink; `h j k l` or a number work too |
 | ctrl-click or alt-click a link | open it beside, not in the link target |
-| click a drawer's handle (`⇤ tree`, hint row) | slide it open |
+| click a dock's handle (`⇤ tree`, hint row) | slide it open |
 | click the `⧉` before a float's title | put it back in the layout (`tile.float`, as `^W f` and the board's `o`); the cell either side of it counts |
 | click the `⧉` in the focused tile's top right corner | float it (`tile.float`, as `^W f`) |
-| click the `⋯` in a tile's top right corner (left of its `×`), or right-click anywhere in the tile | its menu (`tile.menu`, as `^W .`): the tile's actions, grouped (Tile: close, zoom, float, drawer, spine, dock, preview; then its kind's: a reader's Note and Reader rows, a terminal's, a board lane's), each with its key as a keycap. One click, `⏎` or the row's own key runs it as you; a dimmed row says in the menu's foot why it can't run now; `esc` or a click outside puts it away. A terminal whose program asked for the mouse (vim's `mouse=a`, claude) keeps its right-clicks, and its `⋯` still opens the menu; so does a step's box, whose right-click opens its status choice |
-| click the `×` in a tile's top right corner | close it (`tile.close`, as `^W x`), your keys staying where they are; a tile with a running program asks twice. A tile its container keeps (the board's lanes, the river's library) has none, and a drawer's tile closes by the drawer's `[×]` |
-| drag a tile's header onto the status bar's dock chip (`▲ claude`) or the open dock | dock it: it joins the dock as a tab and travels with you across screens (`host.dock`); the chip lights up `⤓ dock <tile>` while you're over it |
-| drag a dock tab's title out over the screen | undock it there, by the same drop zones as any tile (`host.dock on=false to= where=`) |
-| while dragging a tile: `a`, `f`, `p` | dock it, float it, put it in a drawer (`host.dock`, `tile.float`, `tile.pin`: what `^W a`, `^W f`, `^W p` run) |
-| drag a tile's header onto a drawer's handle | the tile goes into that drawer (`layout.move where=tabs`); dropped beside a tile inside an open drawer, it lives in the drawer too |
+| click the `⋯` in a tile's top right corner (left of its `×`), or right-click anywhere in the tile | its menu (`tile.menu`, as `^W .`): the tile's actions, grouped (Tile: close, zoom, float, dock, spine, drawer, preview; then its kind's: a reader's Note and Reader rows, a terminal's, a board lane's), each with its key as a keycap. One click, `⏎` or the row's own key runs it as you; a dimmed row says in the menu's foot why it can't run now; `esc` or a click outside puts it away. A terminal whose program asked for the mouse (vim's `mouse=a`, claude) keeps its right-clicks, and its `⋯` still opens the menu; so does a step's box, whose right-click opens its status choice |
+| click the `×` in a tile's top right corner | close it (`tile.close`, as `^W x`), your keys staying where they are; a tile with a running program asks twice. A tile its container keeps (the board's lanes, the river's library) has none, and a dock's tile closes by the dock's `[×]` |
+| drag a tile's header onto the status bar's drawer chip (`▲ claude`) or the open drawer | put it in your drawer: it joins the drawer as a tab and travels with you across screens (`tile.drawer`); the chip lights up `into your drawer: travels with you` while you're over it |
+| drag a drawer tab's title out over the screen | take it out there, by the same drop zones as any tile (`tile.drawer on=false to= where=`) |
+| while dragging a tile: `a`, `f`, `p` | put it in your drawer, float it, dock it to an edge (`tile.drawer`, `tile.float`, `tile.dock`: what `^W a`, `^W f`, `^W p` run) |
+| drag a tile's header onto a dock's handle | the tile is docked there (`layout.move where=tabs`; the drag says `docked here: stays on this screen`); dropped beside a tile inside an open dock, it lives in the dock too |
 | click `□ lock` / `▣ locked` (hint row) | lock or unlock the screen (`layout.lock`) |
 | a refused drop or border (locked, a container that takes no drops or other kinds, a fixed size) | the ghost turns red and says why; the release does nothing and the status bar says the same words |
 
@@ -784,7 +784,7 @@ split, tab, drag, link and save, drawn by the door itself, so no multiplexer is 
 | `ctrl+n` | a new note, opened to be written where this tile's opens land: under the note in the reader you're in, else at the top of the Inbox ([New notes and pages](#new-notes-and-pages-pie-544)); on every screen, never while you type |
 | `alt+l` | link this tile's opens (then a click, `h j k l` or a number) |
 | `?`, a click on `? more` | when the hint row is too long for the screen (it ends `? more`), show all of it in a box above it (`keys.more`, the person's); a `^W` chord's row shows it at once |
-| `alt+k` | lock or unlock the screen: its shape is fixed (no moves, drops, new tiles, closes, resizes, drawers in or out, links, layout loads), its contents stay live (reading, editing, terminals, drawers sliding, tabs, zoom) |
+| `alt+k` | lock or unlock the screen: its shape is fixed (no moves, drops, new tiles, closes, resizes, docks in or out, links, layout loads), its contents stay live (reading, editing, terminals, docks sliding, tabs, zoom) |
 | `Ctrl+W` then `h j k l` | focus by direction |
 | `Ctrl+W` then `m` + `h j k l` | move beside the tile that way (none that way: to that edge) |
 | `Ctrl+W` then `t` + `h j k l` | move into the tabs of the tile that way |
@@ -795,14 +795,14 @@ split, tab, drag, link and save, drawn by the door itself, so no multiplexer is 
 | `Ctrl+W` then `z` / `x` / `s` | zoom, close, swap with next |
 | `Ctrl+W` then `o` + a kind | open a tile beside: `t` outline, `r` reader, `d` detail, `p` preview of this tile, `e` editor (on the daily draft), `s` shell, `k` board, `v` river, `f` brief, `h` thread, `a` activity, `w` who, `b` bulletin, `l` backlinks of this tile, `q` the cards of the view this tile shows (a query tile) |
 | `Ctrl+W` then `O` + a kind | the same, as a tab of this tile |
-| `Ctrl+W` then `v` / `V`, `O` in a reader | a reader beside / below this tile where its opens land (`tile.preview`): a link followed in a reader, the tree's `⏎`, a list's pick show there and the tile keeps its note. A reader's is a detail; a terminal's follows its file, the board's its card, anything else's its selection. `O` puts it beside a wide reader, else below. Again, it shows that preview (unfolded, its drawer open) and gives it the keys: on a tile whose opens already land in one (the daily desk's outline → `middle`) it's a jump there, and `^W o p` still adds a follower preview. Refused on a river column (its opens already open the next column); `alt+l` on the tile itself unlinks |
-| `Ctrl+W` then `p` / `d` | put this tile (its tab set, as one) in a drawer where it is, or take its drawer away / slide the drawer open or shut. A drawer slides over the others without moving them, shuts when the keys leave it, and holds anything moved into it |
-| `Ctrl+W` then `c` / `f` | fold this tile to a spine where it is (a tile side by side with others), or open it / pop it out as a float over everything (its title drags it, `◢` sizes it, `H J K L` step it), or put a float back in the layout. `^W p` on a float puts it straight into a drawer |
-| `Ctrl+W` then `a` | dock this tile: it leaves the screen whole (a terminal's program keeps running) and joins the dock, which comes up on it; in the dock, `^W a` undocks the tab into the screen shown, beside your tile (`host.dock`) |
-| `Ctrl+W` then `A` | bring the dock's tab shown (a docked terminal you were typing in, say) into this screen beside this tile (`host.dock on=false`) |
+| `Ctrl+W` then `v` / `V`, `O` in a reader | a reader beside / below this tile where its opens land (`tile.preview`): a link followed in a reader, the tree's `⏎`, a list's pick show there and the tile keeps its note. A reader's is a detail; a terminal's follows its file, the board's its card, anything else's its selection. `O` puts it beside a wide reader, else below. Again, it shows that preview (unfolded, its dock open) and gives it the keys: on a tile whose opens already land in one (the daily desk's outline → `middle`) it's a jump there, and `^W o p` still adds a follower preview. Refused on a river column (its opens already open the next column); `alt+l` on the tile itself unlinks |
+| `Ctrl+W` then `p` / `d` | dock this tile (its tab set, as one) to an edge where it is, or undock it back into the layout (`tile.dock`) / slide the dock open or shut (`tile.slide`). A dock stays on this screen, slides over the others without moving them, shuts when the keys leave it, and holds anything moved into it |
+| `Ctrl+W` then `c` / `f` | fold this tile to a spine where it is (a tile side by side with others), or open it / pop it out as a float over everything (its title drags it, `◢` sizes it, `H J K L` step it), or put a float back in the layout. `^W p` on a float puts it straight into a dock |
+| `Ctrl+W` then `a` | put this tile in your drawer: it leaves the screen whole (a terminal's program keeps running) and joins the drawer, which comes up on it; in the drawer, `^W a` takes the tab out into the screen shown, beside your tile, its own first tab too (`tile.drawer`) |
+| `Ctrl+W` then `A` | bring the drawer's tab shown (a terminal in the drawer you were typing in, say) into this screen beside this tile (`tile.drawer on=false`) |
 | `Ctrl+W` then `W`, a click on a flow column's spine | give this tile's flow column the wide place (`tile.widen`): the flow is laid out around it, the column you were reading stays full beside it; moving the keys between columns never moves a column |
-| a click on a header's `⇤ drawer` | pin that drawer where it is (take the drawer away, its tiles in the layout) |
-| `Ctrl+W` then `P` | the policy panel: the containers over this tile (the screen first) and what each allows: locked, draggable, droppable, resizable, accepts, opens into, fixed/min/max size, and a drawer's collapsible, overlay, stays and edge (`⏎` or a click changes a row, `h l` picks the container, `+ -` change a size) |
+| a click on a header's `⇤ docked` | undock it where it is (the dock goes, its tiles back in the layout) |
+| `Ctrl+W` then `P` | the policy panel: the containers over this tile (the screen first) and what each allows: locked, draggable, droppable, resizable, accepts, opens into, fixed/min/max size, and a dock's collapsible, overlay, stays and edge (`⏎` or a click changes a row, `h l` picks the container, `+ -` change a size) |
 | `Ctrl+W` then `r` / `w` | load a layout by name / save this one by name |
 | `Ctrl+W` then `.` | this tile's menu (`tile.menu`), as its `⋯` and a right-click in it open it |
 | `Ctrl+W` then `!` | drop to shell: your login shell in this terminal, the desk back as it was when it exits (the menu's `!`); for a shell in a tile beside the notes, `^W o s` |
@@ -811,7 +811,7 @@ split, tab, drag, link and save, drawn by the door itself, so no multiplexer is 
 | `ctrl+e` in a reader | edit the note in `$EDITOR` in a terminal tile beside it; the draft comes back when it exits |
 | `/` | floating search with preview |
 | `q` | back to the menu; programs running in tiles keep running, and `D` brings the same desk back |
-| `Esc` | closes the innermost thing (a picker, the tile menu, a chord, link mode, a drawer, a zoom, a float's keys); never leaves the desk: with nothing left it says `nothing to close · q leaves` |
+| `Esc` | closes the innermost thing (a picker, the tile menu, a chord, link mode, a dock, a zoom, a float's keys); never leaves the desk: with nothing left it says `nothing to close · q leaves` |
 
 **Layouts** are screens saved by name: `^W w` (`act screen.save name=…`) writes the screen as a screen note in the
 outline ([Screens you make](#screens-you-make)), and `^W r`, `alt+d` for `daily`, or `act layout.load name=…` lays the
@@ -820,7 +820,7 @@ terminal over the "now" detail; the outline over its preview, above the middle d
 daily draft over a third detail; the outline, "now" and the right detail open into the middle), `river`
 (the river's flow of columns, a preview following the column with the keys), `board` (the kanban with a preview tile
 following its card) and `desk`. Loading keeps tiles with the same name (a running program, a reader's note);
-running programs or unsaved edits the new layout has no place for go in one shut drawer on the right, never ended.
+running programs or unsaved edits the new layout has no place for go in one shut dock on the right, never ended.
 
 ### Screens you make
 
@@ -836,13 +836,13 @@ the revision the door read; a built-in screen's name, or one two notes share, is
 screen of your own with changes not saved asks first. `act screen.delete name=<name>` (or trashing the note) takes it
 away. Layouts saved before this in `layouts.json` come across once with `bun scripts/import-layouts.ts --ws <name>`.
 
-**Containers and policy (PIE-505).** A layout is a tree of tiles in containers: splits, tab sets and drawers. A
-drawer slides out from an edge (`act tile.pin tile=tree edge=left`, or the policy panel's edge row) and takes
+**Containers and policy (PIE-505).** A layout is a tree of tiles in containers: splits, tab sets and docks. A
+dock slides out from an edge (`act tile.dock tile=tree edge=left`, or the policy panel's edge row) and takes
 anything dropped into it: the tree, claude and a detail can share one. Every container, and the screen itself,
 carries a policy saved with the layout (`layout.policy`, `^W P`): `locked`, `draggable`, `droppable`,
-`accepts` (tile kinds), `resizable`, `min`/`max`/`fixed` cells, a drawer's `collapsible`, `overlay` and edge, and
+`accepts` (tile kinds), `resizable`, `min`/`max`/`fixed` cells, a dock's `collapsible`, `overlay` and edge, and
 `opensInto` (where its tiles' opens land when they have no link: a tile, or a container's key, where an open
-lands in a tile opened there), `keep` (how many such tiles it keeps), `shuts` (a close in it shuts its drawer),
+lands in a tile opened there), `keep` (how many such tiles it keeps), `shuts` (a close in it shuts its dock),
 `opens` (the open rule: `current`, or `next`).
 A locked screen comes back locked after a restart. A **flow** (PIE-513) is the river's columns as a container: an
 open from one of its tiles (a link followed) lands in a new column right after its own, the columns squeeze full,
@@ -861,10 +861,10 @@ in the tile, the program's own keys run the same actions. A layout saves its kin
 and it comes back after a restart. When its extension goes away while the door runs, the tile ends its
 program and says why in its place; when the extension comes back, so does the tile. A kind whose program is
 on another host than this door says so instead of running.
-`EP0CH_DAILY_AGENT` (the dock's own program; unset, a shell), `EP0CH_DAILY_CWD` (the folder it starts in; unset, the
-rule in [The dock](#the-dock-pie-498)) and
-`EP0CH_DAILY_DRAFT` (default `scratch.md` in the door's state) set the dock's program and the daily draft; the editor is `$VISUAL`, `$EDITOR`, else nvim or vi.
-The agent has one home, the host layer (the dock, below): the daily layout has no tile for it, and lets
+`EP0CH_DAILY_AGENT` (the drawer's own program; unset, a shell), `EP0CH_DAILY_CWD` (the folder it starts in; unset, the
+rule in [The drawer](#the-drawer-pie-498)) and
+`EP0CH_DAILY_DRAFT` (default `scratch.md` in the door's state) set the drawer's program and the daily draft; the editor is `$VISUAL`, `$EDITOR`, else nvim or vi.
+The agent has one home, the host layer (the drawer, below): the daily layout has no tile for it, and lets
 the drawer sit beside the desk (its policy's `host: beside`). A layout saved with the old agent tile (marked
 `agent`, or in a `daily` desk a `claude` tile whose command is the plain `claude`) comes back without it, beside
 the drawer; a terminal you made yourself stays yours.
@@ -876,8 +876,8 @@ the drawer; a terminal you made yourself stays yours.
 | `q`, going to the menu | keep running: the desk stays alive in the background, and `D` on the menu brings it back as it was |
 | `!` / `^W !`, drop to shell | keep running while your shell has the terminal (the door keeps reading them and answering its control socket; it paints nothing) |
 | `^W x` on a running program's tile | asks first; again within 3s closes the tile and ends the program |
-| the program exits while you're in its tile | the tile keeps your keys: `⏎` runs it again, `^W x` closes it (at once: nothing runs), `ctrl+]` goes back to the door (in the dock, `Esc` too), other keys wait. A docked tab closes by its `×` too |
-| loading a layout | a tile with the same name keeps its program; ones the layout has no place for go in a shut drawer on the right |
+| the program exits while you're in its tile | the tile keeps your keys: `⏎` runs it again, `^W x` closes it (at once: nothing runs), `ctrl+]` goes back to the door (in the drawer, `Esc` too), other keys wait. A tab in the drawer closes by its `×` too |
+| loading a layout | a tile with the same name keeps its program; ones the layout has no place for go in a shut dock on the right |
 | detaching from a session (`ctrl+c`, logging off with `G`, closing the terminal, a dropped ssh; see [Sessions](#sessions-quit-is-detach)) | keep running, scrollback and all: the next `ep0ch` attaches to them. `E` on the main menu or `ep0ch session end` ends them with the session (asking first) |
 | quitting a door in its own terminal (`--no-daemon`: `ctrl+c`, logging off from the menu) | asks twice (it names what's running), then ends them. nvim with unsaved changes keeps them in its swap file and offers to recover them next time; without, it leaves nothing behind |
 | SIGINT, SIGQUIT, SIGTERM or SIGHUP, or a crash | they end with the door. First, unsaved edits and comments, and the text of a `ctrl+e` editor still open, are copied to `drafts/` in the door's state, the terminal is put back (alt screen, mouse, paste mode, cursor), the control socket is removed, and the door says where the text went. A crash prints its error on the normal screen and exits 1 |
@@ -886,7 +886,7 @@ the drawer; a terminal you made yourself stays yours.
 
 ### The daily agent in Herdr
 
-Choose an agent "in Herdr" in the dock's picker (`alt+g`; `host.agent name=claude herdr=true`) and the dock's
+Choose an agent "in Herdr" in the drawer's picker (`alt+g`; `host.agent name=claude herdr=true`) and the drawer's
 own tab runs it in a Herdr pane of this outline's session and shows it. Herdr lists it (`herdr agent list`), other
 agents message it (`herdr agent prompt door-<outline>-<hash> "…"`), and it keeps running when the door quits.
 
@@ -899,7 +899,7 @@ agents message it (`herdr agent prompt door-<outline>-<hash> "…"`), and it kee
   Sessions are one per outline, so each has its own agent, started with that session's `EP0CH_CONTROL`: a door on
   another outline never attaches it.
   - If the pane isn't there, the launcher makes it: a tab in the workspace labelled `door` (made too if
-    missing), in the dock's folder, without taking Herdr's focus.
+    missing), in the drawer's folder, without taking Herdr's focus.
   - It starts the agent there inside your login shell (`$SHELL -l -c '<agent>; exec $SHELL -l'`): `/exit`, or a
     crash, leaves a working shell in the pane, never a dead one. Once Herdr detects the agent, the launcher names
     it like the pane.
@@ -963,47 +963,53 @@ selects and copies its text through the door ([Selecting and copying text](#sele
 terminal tile your terminal's selection modifier (Shift in Ghostty) selects what that program drew. Under tmux,
 `set -g set-clipboard on` lets the door's OSC 52 copy reach your clipboard.
 
-### The dock (PIE-498)
+### The drawer (PIE-498)
 
-The dock stays with you on every screen: the menu, the BBS screens, the desk, the kanban, the Quay and the
-welcome. It's a drawer of tabs above every screen (the host layer's). Its first tab is its own program, and any
+Your drawer stays with you on every screen: the menu, the BBS screens, the desk, the kanban, the Quay and the
+welcome. It's your tabs above every screen (the host layer's). Its first tab is its own program, and any
 tile can join it and leave it again: a terminal with a Claude in it, a reader, the tree, a query tile. The chip at
-the start of the status bar's right part, `▲ claude` (`▲ shell +2` with two tiles docked), pulls it up.
+the start of the status bar's right part, `▲ claude` (`▲ shell +2` with two tiles in it), pulls it up.
 
 - **What its own tab runs: your choice, per outline.** `alt+g` (or `host.agent`) opens a picker of the agents
   installed here (`claude`, `codex`, `pi`, `gemini`, `opencode`, `aider` and the rest of Herdr's agent kinds found
   on your PATH), each also "in Herdr" when Herdr is installed, and a shell. The choice is saved for this outline's
-  session (`dock-agent.json` in its folder of the state dir; `host.agent default=true` makes it the default for
-  every outline). Pulling the dock up with nothing chosen yet offers the picker; until then it's a shell.
+  session (`drawer-agent.json` in its folder of the state dir; `host.agent default=true` makes it the default for
+  every outline). Pulling the drawer up with nothing chosen yet offers the picker; until then it's a shell.
   `EP0CH_DAILY_AGENT` overrides it for one door. A new choice starts at the tab's next start: what runs now keeps
-  running (`alt+R` starts the new one in its place). `ep0ch doctor` lists each session's dock agent, where the
+  running (`alt+R` starts the new one in its place). `ep0ch doctor` lists each session's drawer agent, where the
   choice came from, and the command to change it.
-- **No dead panes.** Every agent, in the dock or in a terminal tile, starts inside your login shell. When it exits
+- **No dead panes.** Every agent, in the drawer or in a terminal tile, starts inside your login shell. When it exits
   or crashes, the tile says so (`claude exited · shell`) and is your shell, in the same folder with the same
   environment: `claude --resume`, `claude --continue`, another agent, anything. Nothing restarts it behind your back.
-- **A new shell, here.** `alt+s` opens a new shell as a tab in the dock, in its folder (`host.shell`). It starts in `EP0CH_DAILY_CWD` when
+- **A new shell, here.** `alt+s` opens a new shell as a tab in the drawer, in its folder (`host.shell`). It starts in `EP0CH_DAILY_CWD` when
   you set it; else the folder of the `.ep0ch` naming this outline above where the door started (the project); else
   the outline's own folder (`~/outlines/<name>/`); else where the door started. `ep0ch doctor` says which and why
-  (`dock  runs … in …`). Claude Code's `/resume` lists one folder's conversations, so the folder is yours or the
+  (`drawer  runs … in …`). Claude Code's `/resume` lists one folder's conversations, so the folder is yours or the
   outline's, never one made up.
-- **Docking a tile.** `^W a` on it, or drag its title onto the chip (or onto the open dock), or press `a` while
-  dragging it. It leaves the screen whole: its program keeps running (the same pid), a reader keeps its note,
-  history and draft. The dock comes up on it; your keys come along when you were typing in it. `act host.dock
+- **Putting a tile in.** `^W a` on it, or drag its title onto the chip (or onto the open drawer: it says `into your
+  drawer: travels with you`), or press `a` while dragging it. It leaves the screen whole: its program keeps running (the same pid), a reader keeps its note,
+  history and draft. The drawer comes up on it; your keys come along when you were typing in it. `act tile.drawer
   tile=<t>` does it for an agent, attributed, never with your keys: an agent's tab goes in behind the one shown,
-  the dock stays as it was, and an agent never docks the tile you're typing in or have.
-- **Taking it out again.** `^W a` in the dock, `^W A` on the screen (the dock's tab shown comes beside your tile:
-  the way back for a docked terminal, whose keys are its program's while you're in it), or drag its tab's title out over the screen: it lands by the screen's
-  own drop zones (a side splits, a header or the centre makes tabs, the outer edge a column). `act host.dock
-  on=false tile=<t> to=<tile> where=<side>`. The dock's own tab stays.
-- **In the dock.** Its tiles are tiles: a docked reader reads and edits, a docked tree opens, a docked terminal
-  types. Click a tab to show it (`^W ] [` between them). `Esc` or `ctrl+]` gives your keys back to the screen.
-- **It persists.** What's docked is saved in `dock-tiles.json` in the outline's folder of the state dir, and comes
-  back in the next door. In a session, a docked terminal's program survives `ep0ch session upgrade`: the terminal
-  host keeps it under the key it started with, and the dock adopts it.
+  the drawer stays as it was, and an agent never moves the tile you're typing in or have.
+- **Leaving a screen with programs running.** A screen you leave with a terminal still running in it puts that
+  terminal in your drawer instead of refusing (`shell went into your drawer · alt+a shows it`); an unsaved edit
+  still asks.
+- **Taking it out again.** `^W a` in the drawer, `^W A` on the screen (the drawer's tab shown comes beside your tile:
+  the way back for a terminal in the drawer, whose keys are its program's while you're in it), or drag its tab's title out over the screen: it lands by the screen's
+  own drop zones (a side splits, a header or the centre makes tabs, the outer edge a column). `act tile.drawer
+  on=false tile=<t> to=<tile> where=<side>`. The drawer's own tab can leave too: it becomes an ordinary terminal tile
+  on the screen, its program still running, and the drawer starts a fresh own program the next time it's pulled
+  up. `^W x` doesn't close the drawer's own tab: it says so, and what to do instead.
+- **Followers follow.** A preview following a tile (`source=tile:tree`) keeps following it into the drawer and back.
+- **In the drawer.** Its tiles are tiles: a reader in the drawer reads and edits, a tree in the drawer opens, a terminal in the drawer
+  types, and `^W P` opens the policy panel. Click a tab to show it (`^W ] [` between them). `Esc` or `ctrl+]` gives your keys back to the screen.
+- **It persists.** What's in it is saved in `drawer-tiles.json` in the outline's folder of the state dir, and comes
+  back in the next door. In a session, a terminal in the drawer's program survives `ep0ch session upgrade`: the terminal
+  host keeps it under the key it started with, and the drawer adopts it.
 
-- **Pulling it up.** Click the chip or press `alt+a`. The agent slides up over the lower half of the screen
-  as a drawer, and your keys go to it. The screen under it isn't redrawn smaller: the drawer lies over its
-  bottom rows, as the desk's drawers lie over its tiles.
+- **Pulling it up.** Click the chip or press `alt+a`. The agent slides up over the lower half of the screen,
+  and your keys go to it. The screen under it isn't redrawn smaller: the drawer lies over its
+  bottom rows, as the desk's docks lie over its tiles.
   On macOS, Option+a is `alt+a` only when the terminal sends Option as Alt (Ghostty
   `macos-option-as-alt = true`, kitty `macos_option_as_alt left`, iTerm2's "Left Option key: Esc+",
   Terminal's "Use Option as Meta key"). Otherwise it types `å`: where nobody is typing text, the door reads
@@ -1023,14 +1029,14 @@ the start of the status bar's right part, `▲ claude` (`▲ shell +2` with two 
 - **Putting it away.** `alt+a` again, a click on the chip, or `Esc` once you've left it with `ctrl+]`.
 - **Its height.** Drag its top edge, or press `alt+A` to step through 40%, 50%, 60% and 75%.
 - **One agent, one home.** Its own tab runs the agent chosen for this session (in Herdr: the session's own pane), and it starts the first time you pull it up. It's the host layer's (PIE-513): a layout on the same
-  engine as the screens, its drawer a tab set whose first tab is the agent, above every screen. No screen has a
+  engine as the screens, a dock holding a tab set whose first tab is the agent, above every screen. No screen has a
   copy of it, so one door never attaches twice; leaving a screen never ends it.
 - **What it's doing.** The chip says `working` while the agent writes to its screen and `idle` after. With the
   agent in Herdr, it's Herdr's own state (`herdr agent get`, every few seconds): `working`, `idle`, or
   `needs you` when Herdr says it's blocked. `exited` once the program has ended (`⏎` in the drawer runs it again).
   `watching` when another door (a second ssh session, say) is attached to the agent's Herdr pane: this door only
   watches it, and the drawer says that `⏎` in it would take the pane from the other door.
-- **It persists.** Whether it's up and how tall are saved in `dock.json` in the door's state. The next door
+- **It persists.** Whether it's up and how tall are saved in `drawer.json` in the door's state. The next door
   shows it where you left it (not entered). With Herdr it's the same session on every screen and after a restart.
 - **What it knows.** After its state the chip says what the agent knows: `▲ claude · idle · door tools` when
   it started in a door (with `EP0CH_CONTROL` and the rest) after the Outliner's Claude mod last changed. A
@@ -1076,28 +1082,28 @@ children is a board; `g` picks one. The last board per outline is remembered.
 - **Agents** collapse and open readers with `tile.collapse tile=detail1` (`on=true` folds, `on=false` opens), and `tile=all on=false` is `alt+c`. It's flashed with the agent's id and shown by `peek` (`collapsedBy`). An
   agent never collapses the reader you have focused, and its expand never moves your focus. Note actions in
   a collapsed reader are refused until it's opened.
-- **Resize** by dragging any border: between lanes, between preview and details, lanes/readers, drawer edges.
+- **Resize** by dragging any border: between lanes, between preview and details, lanes/readers, dock edges.
   The edge you grab stays under the pointer; on a header row the title is the grip that moves a tile, the bare
-  line after it the border. Keys: `{ }` lane height, `< >` width of the focused lane, reader or outline drawer.
+  line after it the border. Keys: `{ }` lane height, `< >` width of the focused lane, reader or outline dock.
 - **A preset on the desk** (PIE-511): the board is a screen on the desk's one layout engine
   (`src/desk/layout.ts`). Its lanes are query tiles in a columns container whose tiles come from the hub
   (`hub:<id>`: one per view, kept by view as views come and go); the readers row is the preview, then the
-  details; the outline (the tree over its preview) is a drawer on the left, the backlinks (the list beside
-  its preview) a drawer at the bottom; floats sit over it all. The lanes' policy keeps their tiles (draggable
+  details; the outline (the tree over its preview) is a dock on the left, the backlinks (the list beside
+  its preview) a dock at the bottom; floats sit over it all. The lanes' policy keeps their tiles (draggable
   off), takes only query tiles and opens into the preview: `^W P` changes it, and a lane let go can be dragged
   anywhere, still a lane. Every desk key works here too (`^W` splits, tabs, zoom, lock, `/` search), and a desk
   tile can sit beside the lanes (`^W o`). `peek` and `layout.get` show the tree; agents change it with the
   `tile.*` and `layout.*` actions, which never close or float the tile that has your keys.
 - **`o`** pops the focused reader out as a float (the preview floats a copy): drag its title to move, drag
-  `◢` to resize, `H J K L` to nudge, `o` again or a click on the `⧉` before its title to dock it back as a
+  `◢` to resize, `H J K L` to nudge, `o` again or a click on the `⧉` before its title to put it back as a
   detail, `x` to close. `x` on the preview says why it stays (the readers row's policy: it collapses with `c`).
-- **`t`** outline drawer with its own preview underneath; slides over unless pinned (`T`, or a click on
-  `⇤ drawer` in its header: pinned, it becomes part of the layout); `S` moves it to the other side so it
+- **`t`** outline dock with its own preview underneath; slides over unless undocked (`T`, or a click on
+  `⇤ docked` in its header: undocked, it becomes part of the layout); `S` moves it to the other side so it
   doesn't cover the preview. Shut, it's a handle at the end of the hint row (`⇤ outline`): a click opens it.
-- **`b`** links drawer under the readers: the note's outlinks, resources and backlinks, the list beside its own
+- **`b`** links dock under the readers: the note's outlinks, resources and backlinks, the list beside its own
   preview of the selected row (a backlink's quoted snippet in its title; a resource's stored content); it stays
-  open while you read a source in a detail. `B` pins it into the layout; ⏎ / alt+⏎ or a double click / alt-click
-  opens one in a detail, a click only selects it. A link clicked in either drawer's
+  open while you read a source in a detail. `B` undocks it into the layout (and docks it again); ⏎ / alt+⏎ or a double click / alt-click
+  opens one in a detail, a click only selects it. A link clicked in either dock's
   preview opens in a detail too. It shows what Detail's Backlinks panel shows (PIE-442, the service's
   `references.backlinks.facets`): this note and its descendants hidden, resolved comments hidden, sources
   grouped by kind with stage counts (`+ Outbox item 10 (2 waiting · 1 draft · 7 done)`), open items first
@@ -1106,8 +1112,8 @@ children is a board; `g` picks one. The last board per outline is remembered.
   hidden · Kind: all · Stage: all · Sort: Updated ↓`); click any of its controls, or use Detail's keys:
   `/` filter as you type (⏎ keeps it, esc undoes it), `s` sort (updated, created, title), `h` resolved,
   `n` this note, `.` or space folds a group (⏎ or a click on its header too). Detail's `k` and `t` are the
-  board's up and outline drawer, so kind is **`K`** and stage is **`w`**.
-- The board's layout (sizes, drawers pinned or shut and their sides, collapsed lanes and preview) is saved to
+  board's up and outline dock, so kind is **`K`** and stage is **`w`**.
+- The board's layout (sizes, docks undocked or shut and their sides, collapsed lanes and preview) is saved to
   `delivery.json` as a layout, with the hub per workspace and the lane the cursor was in. Details and floats
   aren't saved.
 
@@ -1285,7 +1291,7 @@ The board's new-card composer is the same control too.
   still goes to `drafts/`). `ctrl+z` within a minute opens the edit again with them. Anything more is a real edit
   and keeps the `Esc` twice (src/stray.ts).
 - **Click away, as in any editor.** A click inside the draft places the cursor; a click anywhere else
-  leaves the edit and does what that click does (focuses a tile, opens a row or a link, opens a drawer).
+  leaves the edit and does what that click does (focuses a tile, opens a row or a link, opens a dock).
   An unchanged edit just closes; a changed one is saved against the revision it started from; a save that's
   refused (it changed elsewhere, offline, refused) keeps the text as **unsent**, and the status bar says
   `not saved: … · the edit to “…” was kept as unsent · e brings it back`. An edit brought back unsent and not
@@ -1636,7 +1642,7 @@ yours only.
 ### Selecting and copying text
 
 The door keeps the terminal's mouse reporting on, so the terminal can't select; every reader does it
-itself (PIE-419): the board's preview, details, floats and drawer previews, the desk's readers, river
+itself (PIE-419): the board's preview, details, floats and dock previews, the desk's readers, river
 columns, the BBS reader, the brief and the welcome.
 
 **Copy on select.** A selection you make with the mouse (a drag, a double click's word, a triple click's
@@ -1732,7 +1738,7 @@ Bodies render with `src/doc.ts`:
   three quarters, full; a header's height by two rows), `←` `→` move it, `H` makes it the header (or not). The
   caption's `[−][+] [◂][▸] [▀]` do the same by mouse. Each change rewrites its line through the note's save, checked
   and recorded as you; `ctrl+z` puts it back. Agents use `images`, `image.size`, `image.align`, `image.hero`, `image.fit`, `image.dim`. On the header, `=` (or its caption's `[whole]` `[fill]`) shows it whole or cropped.
-  Images a drawer or float covers are hidden. River columns draw them as readers do (cropped as they scroll). Where
+  Images a dock or float covers are hidden. River columns draw them as readers do (cropped as they scroll). Where
   an image isn't drawn its line says why: no Kitty graphics in this terminal, or `alt+v` set the video mode to cells.
   If macOS blocks the read (Desktop, Documents), the line says so: grant the terminal Files & Folders access.
 - **Callouts** (PIE-538, [Obsidian's syntax](https://obsidian.md/help/callouts)). `> [!type]± title` draws a box in the
@@ -1830,7 +1836,7 @@ is the engine's (`src/desk/screen-layout.ts`) and every column is a reader of th
 
 - **Placement (niri):** `⏎` inserts a column right after its source, or goes to the column that already has that note. `alt+⏎` forces a duplicate.
 - **Focus is not the layout:** a click in a column, `h` `l` (`tile.focus dir=`) and `tab` give it the keys and nothing else moves. `w` (`tile.widen`, or a click on a column's header, or anywhere on a spine) widens it: the layout is built around that column, and the one you were reading stays full beside it when there's room. ⏎ and a followed link add the column after its source and shift only if the new one wouldn't show full. A click opens a card only in the column that already has the keys.
-- **Compression (Andy's notes):** columns get full, peek or spine width by distance from the wide column; held (`p`, `tile.hold`: held full; `⊙` on the header) columns resist, and the Library starts held. A peek draws its whole note at reading width, covered by its right-hand neighbour like a drawer (`▒` on the edge) and dimmed; only the far columns become spines.
+- **Compression (Andy's notes):** columns get full, peek or spine width by distance from the wide column; held (`p`, `tile.hold`: held full; `⊙` on the header) columns resist, and the Library starts held. A peek draws its whole note at reading width, covered by its right-hand neighbour like a dock (`▒` on the edge) and dimmed; only the far columns become spines.
 - **Threads (Twitter):** `space` expands replies in place under a rail; `s` stacks the selected note as its own column tile under this one (`column.split`).
 - **Links under the replies:** a note's column ends with its links, the links tile's rows (outlinks, resources, backlinks): `j` `k` walk on past the cards into them, `⏎` opens one in the next column (`alt+⏎` a new one), `space` folds a group, `b` or a click on `── ▾ links` folds them all (`column.links`, `column.link`). A swipe sideways on a trackpad steps to the column beside, as `h` `l` do, one column a swipe.
 - **The mouse:** a click on a card selects it, a double click opens it beside (as `⏎`), an alt-, ctrl- or middle-click too; the click that gives a column the keys only selects.
@@ -1896,7 +1902,7 @@ exact VGA palette the door was drawn in (bright cyan, magenta and phosphor green
   the CRT art path are drawn from `VGA_RGB`, never the theme. The menu art is the same image, byte for byte, in
   all three (`test/theme-contrast.test.ts`).
 - **Nothing flashes bright.** No theme has a light ground, a light selection or a light banner; chips (a lit menu
-  slot, a drawer handle, a mark) take text that reads on them (`chip` in `src/style.ts`).
+  slot, a dock handle, a mark) take text that reads on them (`chip` in `src/style.ts`).
 - **Checked, not eyeballed.** `test/theme-contrast.test.ts` paints the main menu and every screen the menu opens
   (the welcome notes, the desk, the board, the Quay, the brief, Waiting, the lists, Stats, the showcase) and a reader
   with links, comments, a proposal, the reading ruler and a selection, reads every cell back from the terminal
@@ -1982,9 +1988,9 @@ agent's edit meets the same revision check, property warning and duplicate-safe 
 | `tree.fold` | `n=` or `id=`, `open=true\|false`: a tree row's children. An agent can't fold away the rows your selection is in | `l → space h ←`, a click on a row's mark |
 | `backlinks.fold` | `kind=`: a group in a backlinks tile (`backlinks.view` takes `step=` for its status-line controls) | `.`, `space`; `s K w h n` |
 | `section.try` | `name=`: the showcase's part, given the keys. The person's only (`section` is the agent's) | `⏎ → l Tab`, a click into the stage |
-| `host.enter`, `host.leave` | `send=`, `restart=true` (an exited agent runs again: `⏎` only); `quiet=true`: type in the dock, or leave it. The person's only | a click in it, `ctrl+]`, `⏎` on an exited agent |
+| `host.enter`, `host.leave` | `send=`, `restart=true` (an exited agent runs again: `⏎` only); `quiet=true`: type in the drawer, or leave it. The person's only | a click in it, `ctrl+]`, `⏎` on an exited agent |
 | `welcome.select`, `welcome.read`, `welcome.logo`, `welcome.reload` | `n=<place>` (1-10 are the tabs' `1`-`9` `0`) or `id=`; `read=true` gives the detail your keys (never an agent's); `id=` any note for `read`; `by=-1\|1` (the welcome screen) | `1`-`9` `0`, tabs, the list; `alt+⏎`, ctrl-click; `L` |
-| `tree.links`, `tree.pick` | `tile=<outline tile>` (the board: its outline drawer); `n=` (as peek's `tree.rows`) or `id=`; `show=true\|false` (links); `open=true` (pick: as `⏎`; a ticket the Jira extension keeps as a block opens that block). An agent's never moves your selection or keys | `L`, `l h space` on a link; `j k`, `⏎`, clicks |
+| `tree.links`, `tree.pick` | `tile=<outline tile>` (the board: its outline dock); `n=` (as peek's `tree.rows`) or `id=`; `show=true\|false` (links); `open=true` (pick: as `⏎`; a ticket the Jira extension keeps as a block opens that block). An agent's never moves your selection or keys | `L`, `l h space` on a link; `j k`, `⏎`, clicks |
 | `projection.refresh` | `tile=`; `block=` (a page or a ticket block; default the one the `[ ]` position is on, else the reader's note), `line=` (one line: an extension's output or component runs again, an `@name` request is asked again, a record fetched). Without `line=`, every line, and every `@name` request not answered yet. Fetches its tickets and runs its extension lines now; the service writes as the extension (`ext:jira`, `ext:moon`), and whoever ran it is who asked (`asked by you`, `asked by an agent (<id>)`) | `r`, a click on a ticket's age or a line's `[r run again]` |
 | `ext.<extension>.<action>` | `block=` (the note with the handler line, or the block it acts on), `line=` (when the note has several of that handler's lines). An extension's action as the service lists it (`ext.fancy-horror.ward`, the built-in `ext.<id>.keep`); the service runs it and what it writes is `ext:<id>`. A tile's actions (`ext.tarot.draw`, `ext.tarot.keep`) are its tile kind's: `tile=<the tile>`, `block=` defaults to the tile's own | the action's key on its line (`w`), a click on its control (`[w ward]`); in a tile, the program's own keys |
 | `changes.extensions` | `include=true\|false` (default: toggle). Whether "what changed" (the status bar's `+N new`, the new scan) includes what extensions wrote, such as a refreshed ticket. Off by default; the person's only | a click on the status bar's `+N ext` |
@@ -1994,9 +2000,9 @@ agent's edit meets the same revision check, property warning and duplicate-safe 
 | `card.reorder` | one of `by` (places; negative up), `to` (position from 0), `before`/`after` (another card in the lane); `card`, `lane` (default the selected card and the lane listing it). The lane's hand-set order, moved by the service in one step (`virtual.occurrences.move`; `by` stays within what the lane shows), recorded as who asked; a sorted lane refuses, naming the `[sort::]` to remove. An agent's is refused only while you're typing in the lanes, and never moves your cursor | `alt+↑ alt+↓`, drag a card up or down its lane |
 | `board.hub` | `id` (a board's block id): show that board; none: the boards there are (yours opens the picker, an agent's only lists them); `close=true` puts the picker away (yours) | `g`, then `j k ⏎` or a click; `esc` `q` |
 | `lane.collapse` | `lane` (default the lit one), `on=true\|false` (default toggles) | `c` on the lanes, `⏎`/`space` on a collapsed lane, a click on its spine |
-| `tile.drawer`, `tile.pin` on `tile=tree` | the board's outline drawer: `tile.drawer` opens or shuts it (`open=true\|false`, default toggles), `tile.pin` pins it (no drawer) or slides it again, `edge=other` moves it to the other side. An agent's open leaves your keys where they are, and it can't shut the drawer you're in. An open drawer's `[×]` shuts it as `esc` does | `t`, `T`, `S`, `esc` `q` in it, a click on `[×]` |
+| `tile.slide`, `tile.dock` on `tile=tree` | the board's outline dock: `tile.slide` opens or shuts it (`open=true\|false`, default toggles), `tile.dock on=false` undocks it into the layout, `on=true` docks it again, `edge=other` moves it to the other side. An agent's open leaves your keys where they are, and it can't shut the dock you're in. An open dock's `[×]` shuts it as `esc` does | `t`, `T`, `S`, `esc` `q` in it, a click on `[×]` |
 | `float.place` | `dx dy` (steps) or `col row cols rows`: move or size a float, kept on screen | `H J K L` on a float, dragging its title or `◢` |
-| `backlinks.pick`, `backlinks.fold` | `n`, `id` or `by`; `open=true`, `fresh=true`; `kind` (fold: a group). One grammar on the board's backlinks drawer and the desk's backlinks tile. An agent's pick leaves your selection and preview; folding is your view, an agent's is refused | `j k Home End`, `⏎`, `alt+⏎`, clicks, the wheel; `.` `space` |
+| `backlinks.pick`, `backlinks.fold` | `n`, `id` or `by`; `open=true`, `fresh=true`; `kind` (fold: a group). One grammar on the board's backlinks dock and the desk's backlinks tile. An agent's pick leaves your selection and preview; folding is your view, an agent's is refused | `j k Home End`, `⏎`, `alt+⏎`, clicks, the wheel; `.` `space` |
 | `board.reload` | none: read the lanes again | `r` |
 | `card.create` | `lane`, `text`, `parent` (default the lane's) | `n`, typing, `Ctrl+S` |
 | `note.create` | `text`, `parent` (default the selected card) | `N`, typing, `Ctrl+S` |
@@ -2005,10 +2011,10 @@ agent's edit meets the same revision check, property warning and duplicate-safe 
 | `tile.widen` | `tile=<tile>` in a flow | desk `^W W`, a click on a flow column's spine |
 | `tile.collapse` | `tile=preview\|detail1\|detail2` or a lane's tile (the focused one by default), `on=true\|false` (default toggles); `tile=all` opens everything (board) | `c`, `⏎` or a click on a spine, `alt+c`; desk `^W c` |
 | `tile.resize` | `tile=<tile>` (`lanes`, a reader, `tree`, `backlinks`, a float; default the focused one), `by` (steps, `-20`…`20`), `axis=row\|col` (width, default; or height) | board `{ } < >`, desk `^W < > + -`, dragging a border |
-| `tile.close`, `tile.float`, `tile.pin` | `tile=<tile>`; `on=true\|false` for `pin` (default toggles). `close` takes a detail, a float or a drawer's tile (it shuts the drawer); the lanes and the preview stay and say why. `float` pops a reader out or puts a float back, `pin` on the board's `tree` and `backlinks` pins or slides the whole drawer. An agent can't close or float the tile that has your keys | board `x`, `esc`, `o`, a click on a float's `⧉`, `T`, `B`; desk `^W x`, `^W f`, `^W p` |
+| `tile.close`, `tile.float`, `tile.dock` | `tile=<tile>`; `on=true\|false` for `dock` (true docks it to an edge, false undocks it; default toggles). `close` takes a detail, a float or a dock's tile (it shuts the dock); the lanes and the preview stay and say why. `float` pops a reader out or puts a float back, `dock` on the board's `tree` and `backlinks` undocks or docks the whole dock. An agent can't close or float the tile that has your keys | board `x`, `esc`, `o`, a click on a float's `⧉`, `T`, `B`; desk `^W x`, `^W f`, `^W p` |
 | `tile.zoom` | `tile=<tile>`, `on=true\|false` (default toggles). The desk and every screen on it, the board too. An agent zooms only the tile that has your keys | `^W z` |
 | `pane.split` | `kind=` any tile kind (`actions` lists them: reader, tree, detail, preview, thread, activity, who, art, an extension's, …), `dir=row\|col` (default along the longer side): `tile.open` with its own arguments. On the board a detail opens with a note (`open tile=new-detail`) | desk `^W o` |
-| `backlinks` (the backlinks tile's) | `id` (default the tile's note; yours, none: the reader you read through), `filter`, `kind` (key or label, or `all`), `stage` (`all open waiting draft active done`), `resolved`, `related`, `sort` (`updated`, `created`, `title`, optionally `-asc`/`-desc`). Answers the view: status line, groups, rows. An agent's reads the person's view with its own options on top and changes nothing of theirs; yours (`as=you`) sets the drawer | `b`, `/ s K w h n .`, clicks |
+| `backlinks` (the backlinks tile's) | `id` (default the tile's note; yours, none: the reader you read through), `filter`, `kind` (key or label, or `all`), `stage` (`all open waiting draft active done`), `resolved`, `related`, `sort` (`updated`, `created`, `title`, optionally `-asc`/`-desc`). Answers the view: status line, groups, rows. An agent's reads the person's view with its own options on top and changes nothing of theirs; yours (`as=you`) sets the dock | `b`, `/ s K w h n .`, clicks |
 | `edit`, `edit.text`, `edit.save`, `edit.reload`, `edit.close` | `text`; `discard=true`; `external=true` (edit: hand the draft to `$EDITOR`, the person's only) | `e`, typing or `Ctrl+E` (`$EDITOR`), `Ctrl+S`, `Ctrl+R`, `Esc` |
 | `session.leave` | none: leave the edit or comment as a click elsewhere does (an unchanged edit closes, a changed one saves, a refused save or a comment is kept as unsent). An agent: only a session it opened | a click outside the draft; desk `^W` then a window key |
 | `composer.leave` | none: the board's new card or note is kept as unsent, never created. The person's only | a click outside the composer |
@@ -2093,7 +2099,7 @@ sending, the draft holds still: keys wait and an agent's `edit.text`, `edit.clos
 `card.move`, `steps`, `step.set`, `note.create` and `card.trash` default to without `card=`, said in the
 status bar; your lane cursor, preview and keys stay put, and so do they for its `card.move`. Only `open`
 and `focus` move them, and they say so in the status bar. Readers in a
-shut drawer (`tree`, `backlinks`) are refused until the drawer is open, so nothing changes out of sight.
+shut dock (`tree`, `backlinks`) are refused until the dock is open, so nothing changes out of sight.
 
 **Who a write is recorded as.** A save or send is recorded as whoever wrote the text, not whoever
 pressed `Ctrl+S` or called `edit.save`:
@@ -2187,7 +2193,7 @@ The service has no auth or read-only mode, so these limits are the door's own di
     bun scripts/snap.ts showcase  # its own scratch host, seeded like the showcase: every section, a board spine, an edit with completion, a click, an agent
     bun scripts/snap.ts fold      # its own scratch host: fold by keys, a click and F, an edit elsewhere keeps folds, an agent unfolds, the desk
     bun scripts/snap.ts tree-links   # its own scratch host: the tree's L, a link's links, a file and a ticket shown
-    bun scripts/snap.ts backlinks    # its own scratch host: the board's backlinks drawer as Detail shows it, a kind and a filter
+    bun scripts/snap.ts backlinks    # its own scratch host: the board's backlinks dock as Detail shows it, a kind and a filter
     bun scripts/snap.ts steps     # its own scratch host: nested and anchored embeds, a cycle, a step's status choice, an agent's change
 
 `test/kanban.test.ts` creates cards and notes, sets steps, trashes and restores, and moves into OR lanes

@@ -1,7 +1,7 @@
-// PIE-505: containers with policy on the desk, against a scratch outline. The tree goes in a left-edge drawer,
-// claude and a detail are dropped into the same drawer (a drag onto its handle, and layout.move), the screen is
+// PIE-505: containers with policy on the desk, against a scratch outline. The tree goes in a left-edge dock,
+// claude and a detail are dropped into the same dock (a drag onto its handle, and layout.move), the screen is
 // locked (alt+k, the chip, act) and a locked drag or border drag is refused with the reason; a container's policy
-// (accepts, draggable, opens-into) is set by act and by the ^W P panel; the drawer and the lock come back after a
+// (accepts, draggable, opens-into) is set by act and by the ^W P panel; the dock and the lock come back after a
 // restart; and a tile kind registered from outside
 // (one the service draws) opens, saves and comes back like a built-in. Scratch services, fictional notes, `sh` only.
 import { screenNote } from "../src/desk/screen-notes";
@@ -37,8 +37,8 @@ describe.skipIf(!outliner)("containers with policy on the desk", () => {
   const idOf = (name: string) => [...D().names].find(([, v]: any) => v === name)![0] as number;
   const mouse = (action: "down" | "drag" | "up", x: number, y: number) => key({ kind: "mouse", action, button: 0, x, y });
   const drag = (x0: number, y0: number, x1: number, y1: number) => { render(); mouse("down", x0, y0); mouse("drag", x0 + 1, y0); render(); mouse("drag", x1, y1); render(); mouse("up", x1, y1); render(); };
-  /** The tree as a short string: drawers as drawer<edge>(…). */
-  const s = (n: any): string => n.pane ?? (n.tabs ? `tabs(${n.tabs.join(",")})` : n.drawer ? `drawer<${n.drawer}>(${s(n.kid)})` : `${n.split}(${n.kids.map(s).join(",")})`);
+  /** The tree as a short string: docks as dock<edge>(…). */
+  const s = (n: any): string => n.pane ?? (n.tabs ? `tabs(${n.tabs.join(",")})` : n.dock ? `dock<${n.dock}>(${s(n.kid)})` : `${n.split}(${n.kids.map(s).join(",")})`);
   const shape = () => s(get().tree);
   const HINT = 58;
   const state = () => join(scratch.root, "door");
@@ -69,26 +69,26 @@ describe.skipIf(!outliner)("containers with policy on the desk", () => {
     for (const k of ["EP0CH_STATE", "EP0CH_DAILY_AGENT", "EP0CH_DAILY_DRAFT", "EDITOR", "EP0CH_NOW_PAGE"]) delete process.env[k];
   });
 
-  test("^W p puts a tile in a drawer where it is, sliding from its edge; ^W p again docks it", () => {
+  test("^W p puts a tile in a dock where it is, sliding from its edge; ^W p again undocks it", () => {
     D().focus = idOf("preview");
     const before = shape();
     key(ctrl("w")); key(char("p"));
-    expect(tile("preview").drawer).toBe("open");
+    expect(tile("preview").dock).toBe("open");
     expect(tile("preview").edge).toBe("up");                       // the middle of a column: from its top
-    expect(shape()).toContain("drawer<up>(preview)");
-    expect(D().render(D().ctx).lines.join("\n").replace(/\x1b\[[\d;]*m/g, "")).toContain("⤒ drawer");
+    expect(shape()).toContain("dock<up>(preview)");
+    expect(D().render(D().ctx).lines.join("\n").replace(/\x1b\[[\d;]*m/g, "")).toContain("⤒ dock");
     key(ctrl("w")); key(char("p"));
-    expect(tile("preview").drawer).toBeUndefined();
+    expect(tile("preview").dock).toBeUndefined();
     expect(shape()).toBe(before);
   });
 
-  test("the tree in a left-edge drawer; claude dropped on its handle and a detail moved beside it live in the same drawer", async () => {
-    const r = await act("tile.pin", { edge: "left" }, "tree") as any;
-    expect(r).toMatchObject({ pinned: false, edge: "left" });
-    expect(shape()).toMatch(/^row\(drawer<left>\(tree\),/);
-    expect(tile("tree").drawer).toBe("shut");                       // an agent's drawer starts shut: the person's keys stay put
-    expect(message()).toContain("an agent (container-agent-505) put tree in a drawer on the left");
-    // The person drags claude's header onto the drawer's handle on the hint row: it goes in, with the tree.
+  test("the tree in a left-edge dock; claude dropped on its handle and a detail moved beside it live in the same dock", async () => {
+    const r = await act("tile.dock", { edge: "left" }, "tree") as any;
+    expect(r).toMatchObject({ docked: true, edge: "left" });
+    expect(shape()).toMatch(/^row\(dock<left>\(tree\),/);
+    expect(tile("tree").dock).toBe("shut");                       // an agent's dock starts shut: the person's keys stay put
+    expect(message()).toContain("an agent (container-agent-505) docked tree to the left edge");
+    // The person drags claude's header onto the dock's handle on the hint row: it goes in, with the tree.
     render();
     const h = D().handles.find((x: any) => x.id === idOf("tree"));
     expect(h).toBeTruthy();
@@ -96,16 +96,16 @@ describe.skipIf(!outliner)("containers with policy on the desk", () => {
     render(); mouse("down", c.col + 4, c.row); mouse("drag", c.col + 6, c.row); render(); mouse("drag", h.from + 1, HINT); render();
     expect(D().describe().dragging.drop).toMatchObject({ kind: "tabs", target: "tree" });
     mouse("up", h.from + 1, HINT); render();
-    expect(shape()).toMatch(/^row\(drawer<left>\(tabs\(tree,claude\)\),/);
-    expect(tile("claude").drawer).toBe("open");                     // the person's drop opens it on what they dropped
-    // A detail moved beside claude lives in the drawer too.
+    expect(shape()).toMatch(/^row\(dock<left>\(tabs\(tree,claude\)\),/);
+    expect(tile("claude").dock).toBe("open");                     // the person's drop opens it on what they dropped
+    // A detail moved beside claude lives in the dock too.
     await mine("layout.move", { to: "claude", where: "down" }, "now");
-    expect(shape()).toMatch(/^row\(drawer<left>\(col\(tabs\(tree,claude\),now\)\),/);
-    expect(tile("now").drawer).toBe("open");
-    // The keys leave the drawer: it slides shut, one handle for all three; Tab never lands in it while shut.
+    expect(shape()).toMatch(/^row\(dock<left>\(col\(tabs\(tree,claude\),now\)\),/);
+    expect(tile("now").dock).toBe("open");
+    // The keys leave the dock: it slides shut, one handle for all three; Tab never lands in it while shut.
     await mine("tile.focus", {}, "middle");
     key({ kind: "tab" });
-    expect(tile("now").drawer).toBe("shut");
+    expect(tile("now").dock).toBe("shut");
     render();
     expect(D().render(D().ctx).lines[HINT]!.replace(/\x1b\[[\d;]*m/g, "")).toContain("⇤ claude+now");                // what it shows: claude's tab, and now
     for (let i = 0; i < 6; i++) { key({ kind: "tab" }); expect(["tree", "claude", "now"]).not.toContain(get().focus); }
@@ -132,21 +132,21 @@ describe.skipIf(!outliner)("containers with policy on the desk", () => {
     mouse("down", at, md.row + 5); mouse("drag", at - 10, md.row + 5); mouse("up", at - 10, md.row + 5);
     expect(JSON.stringify(get().tree)).toBe(share);
     expect(message()).toContain("the screen is locked: resizing is refused");
-    // Agents are refused the same way, by the same rule; reading and the drawer still work (the contents are live).
+    // Agents are refused the same way, by the same rule; reading and the dock still work (the contents are live).
     await expect(act("layout.move", { to: "middle", where: "tabs" }, "side")).rejects.toThrow(/the screen is locked: moving side is refused/);
     await expect(act("tile.resize", { by: 2 }, "side")).rejects.toThrow(/locked/);
     await expect(act("tile.close", {}, "middle")).rejects.toThrow(/closing middle is refused/);
     await expect(mine("layout.load", { name: "river" })).rejects.toThrow(/the screen is locked: loading river/);
     await expect(mine("tile.open", { kind: "reader" }, "middle")).rejects.toThrow(/locked/);
-    await mine("tile.drawer", { open: true }, "tree");
-    expect(tile("tree").drawer).toBe("open");
-    await mine("tile.drawer", { open: false }, "tree");
+    await mine("tile.slide", { open: true }, "tree");
+    expect(tile("tree").dock).toBe("open");
+    await mine("tile.slide", { open: false }, "tree");
   });
 
-  test("the lock and the drawer come back after a restart; a click on the chip unlocks", async () => {
+  test("the lock and the dock come back after a restart; a click on the chip unlocks", async () => {
     const saved = JSON.parse(readFileSync(join(state(), "desk.json"), "utf8"));
     expect(saved.policy).toEqual({ locked: true });
-    expect(JSON.stringify(saved.root)).toContain(`"t":"drawer","edge":"left"`);
+    expect(JSON.stringify(saved.root)).toContain(`"t":"dock","edge":"left"`);
     const before = shape();
     // A second desk from desk.json, as a restarted door builds it (its programs are its own; the first one's stay).
     const again = new Desk() as any;
@@ -154,7 +154,7 @@ describe.skipIf(!outliner)("containers with policy on the desk", () => {
     const g = again.layoutGet();
     expect(g.locked).toBe(true);
     expect(s(g.tree)).toBe(before);
-    expect(g.tiles.find((t: any) => t.name === "now").drawer).toBe("shut");
+    expect(g.tiles.find((t: any) => t.name === "now").dock).toBe("shut");
     for (const p of again.panes.values()) p?.dispose?.();
     // The chip: a click unlocks (layout.lock, as the person).
     render();
@@ -165,21 +165,21 @@ describe.skipIf(!outliner)("containers with policy on the desk", () => {
   });
 
   test("a container's policy: accepts and draggable refuse with the reason; opens-into routes its tiles' opens", async () => {
-    const drawerId = get().tiles.find((t: any) => t.name === "tree").container;
-    expect(drawerId).toMatch(/^d\d+$/);
-    await act("layout.policy", { node: drawerId, accepts: "tree,pty" });
-    await expect(mine("layout.move", { to: "now", where: "down" }, "side")).rejects.toThrow(new RegExp(`${drawerId} takes only tree, pty: not side \\(detail\\)`));
-    await expect(act("layout.policy", { node: drawerId, accepts: "compost" })).rejects.toThrow(/accepts names tile kinds/);
-    await act("layout.policy", { node: drawerId, draggable: false });
-    await expect(mine("layout.move", { where: "edge-right" }, "now")).rejects.toThrow(new RegExp(`now stays where it is: ${drawerId} keeps its tiles \\(draggable off\\)`));
-    await act("layout.policy", { node: drawerId, clear: "accepts,draggable" });
-    // The tree's own link taken away, the drawer's opens-into says where its opens land.
+    const dockId = get().tiles.find((t: any) => t.name === "tree").container;
+    expect(dockId).toMatch(/^d\d+$/);
+    await act("layout.policy", { node: dockId, accepts: "tree,pty" });
+    await expect(mine("layout.move", { to: "now", where: "down" }, "side")).rejects.toThrow(new RegExp(`${dockId} takes only tree, pty: not side \\(detail\\)`));
+    await expect(act("layout.policy", { node: dockId, accepts: "compost" })).rejects.toThrow(/accepts names tile kinds/);
+    await act("layout.policy", { node: dockId, draggable: false });
+    await expect(mine("layout.move", { where: "edge-right" }, "now")).rejects.toThrow(new RegExp(`now stays where it is: ${dockId} keeps its tiles in place · \\^W P there turns draggable on`));
+    await act("layout.policy", { node: dockId, clear: "accepts,draggable" });
+    // The tree's own link taken away, the dock's opens-into says where its opens land.
     await mine("tile.link", {}, "tree");
     expect(tile("tree").link).toBeUndefined();
-    await act("layout.policy", { node: drawerId, opensInto: "middle" });
+    await act("layout.policy", { node: dockId, opensInto: "middle" });
     expect(tile("tree").link).toBe("middle");
     expect(tile("tree").linkFrom).toBe("opensInto");
-    await expect(act("layout.policy", { node: drawerId, opensInto: "claude" })).rejects.toThrow(/opens land in a tile that takes notes/);
+    await expect(act("layout.policy", { node: dockId, opensInto: "claude" })).rejects.toThrow(/opens land in a tile that takes notes/);
     // Read back: each layer, and what applies.
     const r = await act("layout.policy", {}, "tree") as any;
     expect(r.effective.opensInto).toBe("middle");
@@ -255,38 +255,38 @@ describe.skipIf(!outliner)("containers with policy on the desk", () => {
     expect(says()).toContain("the test took it out");
   });
 
-  test("review: a drawer's border sizes only it; an agent's drawer or move never hides the person's tile; a drawer's own resizable", async () => {
+  test("review: a dock's border sizes only it; an agent's dock or move never hides the person's tile; a dock's own resizable", async () => {
     await mine("layout.load", { name: "desk" });                    // row(tree, row(reader, col(thread, activity)))
-    await mine("tile.pin", { edge: "left" }, "thread");
+    await mine("tile.dock", { edge: "left" }, "thread");
     const g = get(); const root = g.tree;
-    expect(root.kids[0].drawer).toBe("left");
+    expect(root.kids[0].dock).toBe("left");
     const shares = () => get().tree.kids.slice(1).map((k: any) => k.share);
     const before = shares(), ratio = before[0] / before[1];
     const r = await mine("layout.resize", { split: root.id, border: 0, share: 0.5 }) as any;
     expect(r.split).toBe(root.id);
     const after = shares();
-    expect(after[0]).not.toBe(before[0]);   // the docked tiles grew together (the drawer took less)
-    expect(after[0] / after[1]).toBeCloseTo(ratio, 1);            // the docked tiles keep their shares
-    // A drawer whose own policy keeps its size: its border is refused.
+    expect(after[0]).not.toBe(before[0]);   // the laid-out tiles grew together (the dock took less)
+    expect(after[0] / after[1]).toBeCloseTo(ratio, 1);            // the laid-out tiles keep their shares
+    // A dock whose own policy keeps its size: its border is refused.
     await act("layout.policy", { node: root.kids[0].id, resizable: false });
-    await expect(mine("layout.resize", { split: root.id, border: 0, share: 0.3 })).rejects.toThrow(/keeps its size \(resizable off\)/);
+    await expect(mine("layout.resize", { split: root.id, border: 0, share: 0.3 })).rejects.toThrow(/keeps its size · \^W P there turns resizable on/);
     await act("layout.policy", { node: root.kids[0].id, clear: "resizable" });
-    // The person's focused tile, moved by an agent beside a tile in a shut drawer: the drawer opens, it stays in view.
+    // The person's focused tile, moved by an agent beside a tile in a shut dock: the dock opens, it stays in view.
     await mine("tile.focus", {}, "reader");
-    await mine("tile.drawer", { open: false }, "thread");
+    await mine("tile.slide", { open: false }, "thread");
     await act("layout.move", { to: "thread", where: "down" }, "reader");
-    expect(tile("reader").drawer).toBe("open");
+    expect(tile("reader").dock).toBe("open");
     expect(tile("reader").shown).toBe(true);
-    // An agent pinning a tab beside the person's tab: the drawer it makes starts open, holding their tile.
+    // An agent pinning a tab beside the person's tab: the dock it makes starts open, holding their tile.
     await mine("layout.load", { name: "desk" });
     await mine("layout.move", { to: "activity", where: "tabs" }, "thread");
     await mine("tile.focus", {}, "activity");
-    await act("tile.pin", { on: false }, "thread");
-    expect(tile("activity").drawer).toBe("open");
+    await act("tile.dock", { on: true }, "thread");
+    expect(tile("activity").dock).toBe("open");
     // A tile dropped beside a tab set isn't refused by the tab set's own policy (it doesn't join it).
     const set = get().tiles.find((t: any) => t.name === "activity");
     const gid = JSON.stringify(get().tree).match(/"tabs":\["(?:thread|activity)","(?:thread|activity)"\],"id":"(g\d+)"/)![1];
-    await act("tile.pin", { on: true }, "thread");
+    await act("tile.dock", { on: false }, "thread");
     await act("layout.policy", { node: gid, droppable: false });
     await mine("layout.move", { to: "activity", where: "left" }, "tree");
     await expect(mine("layout.move", { to: "activity", where: "tabs" }, "reader")).rejects.toThrow(/takes no drops/);

@@ -104,7 +104,7 @@ describe.skipIf(!outliner)("the agent interface, against a scratch outline", () 
     for (const k of ["EP0CH_STATE", "EP0CH_DAILY_AGENT", "EP0CH_DAILY_DRAFT", "EDITOR"]) delete process.env[k];
   });
 
-  test("layout.get: each tile's kind, source, tabs, link and pinned or drawer state, and each split's path", async () => {
+  test("layout.get: each tile's kind, source, tabs, link and pinned or dock state, and each split's path", async () => {
     expect(await act("layout.get")).toMatchObject({ tree: { split: "row", path: "", kids: expect.arrayContaining([expect.objectContaining({ path: "1" })]) } });
     const tiles = desk.layoutGet().tiles;
     expect(tiles.find(t => t.name === "tree")).toMatchObject({ kind: "tree", link: "middle" });

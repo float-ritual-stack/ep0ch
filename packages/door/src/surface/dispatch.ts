@@ -30,7 +30,7 @@ export interface TileRef {
   kind: string;
   /** How a refusal names it ("column 3"); its name by default. */
   label?: string;
-  /** Drawn now (false: in a shut drawer, off the strip). */
+  /** Drawn now (false: in a shut dock, off the strip). */
   shown?: boolean;
   /** The block it shows as its note. */
   shows?: string | null;
@@ -234,7 +234,7 @@ export class Dispatcher {
   }
   /**
    * The same rule, thrown: for a step inside an action that reaches a tile its declaration doesn't name (the board's
-   * drawer shut by its own tile, a preview's copy floated), so it says the dispatcher's words, not its own.
+   * dock shut by its own tile, a preview's copy floated), so it says the dispatcher's words, not its own.
    */
   check(touches: "tile" | "screen", actor: Actor, tile?: string, way?: string): void {
     const no = this.rule(touches, actor, tile, way);

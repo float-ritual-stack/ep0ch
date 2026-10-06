@@ -5,7 +5,7 @@
 // - The pane is the outline session's own (`sessionSlug`: `door-<outline>[--<machine>]-<hash>`, from `--session`), found by
 //   the pane id written down when it was made (`record`), else by its label, on the default Herdr server (HERDR_SOCKET_PATH, else Herdr's own default). Missing, it is made: a tab so
 //   labelled in a workspace labelled `door`
-//   (made too if missing), in EP0CH_DAILY_CWD or the tile's folder (the dock's rule), without taking Herdr's focus. The agent
+//   (made too if missing), in EP0CH_DAILY_CWD or the tile's folder (the drawer's rule), without taking Herdr's focus. The agent
 //   is started there with `exec`, so /exit ends the pane, and named `door` once Herdr sees it.
 // - The tile attaches without --takeover. If another door's tile already has it (or later takes it), this
 //   tile watches read-only (`terminal session observe`) and ⏎ takes it over; `q` stops watching.
@@ -34,7 +34,7 @@ import { ask, JsonLines } from "../jsonl";
 import { appendNest } from "../nest";
 import { alive, defaultStateDir, isInside, stateDir } from "../state";
 import { AGENT_VARS, agentVars, DOOR_START_VARS, withContinue } from "./agent-env";
-import { inLoginShell, isShellName, shellQuote } from "./dock-program";
+import { inLoginShell, isShellName, shellQuote } from "./drawer-program";
 
 export interface Ran { code: number; out: string; err: string }
 /** Runs one `herdr` command to completion (a fake one in tests). */
@@ -112,7 +112,7 @@ const recordFor = (pane: string) => `${linkFor(pane)}.pane`;
 
 /** What the launcher is told on its command line: whose session it is, and the agent to start (`--agent <agent…>`). */
 export interface LaunchArgs { session?: string | null; agent?: string[] }
-/** `--session <label> --agent <agent…>`, as the dock passes them (src/desk/dock-program.ts `herdrCmd`). */
+/** `--session <label> --agent <agent…>`, as the drawer passes them (src/desk/drawer-program.ts `herdrCmd`). */
 export function launchArgs(argv: readonly string[]): LaunchArgs {
   const out: LaunchArgs = {};
   for (let i = 0; i < argv.length; i++) {
@@ -124,7 +124,7 @@ export function launchArgs(argv: readonly string[]): LaunchArgs {
 
 /**
  * The defaults, from the environment the door gave the tile and the launcher's arguments: the pane is the session's
- * own (`sessionSlug`), so a door on another outline never attaches it; the agent is the one the dock chose (plain
+ * own (`sessionSlug`), so a door on another outline never attaches it; the agent is the one the drawer chose (plain
  * `claude` when none is named: `--continue` only when a restart asks for it).
  */
 export function agentConfig(env: Record<string, string | undefined> = process.env, which = (c: string) => Bun.which(c), args: LaunchArgs = {}): AgentConfig {
@@ -140,7 +140,7 @@ export function agentConfig(env: Record<string, string | undefined> = process.en
     scope,
     name: scoped(env.EP0CH_HERDR_NAME || slug),
     workspace: scoped(env.EP0CH_HERDR_WORKSPACE || "door"),
-    // The folder the dock started this launcher in (src/desk/dock-program.ts: the person's EP0CH_DAILY_CWD, the
+    // The folder the drawer started this launcher in (src/desk/drawer-program.ts: the person's EP0CH_DAILY_CWD, the
     // project's .ep0ch folder, the outline's folder, or where the door started), never the door's own PWD.
     cwd: env.EP0CH_DAILY_CWD?.trim().replace(/^~(?=$|\/)/, env.HOME ?? "~") || process.cwd(),
     // A restart (`agent.restart`) keeps the conversation: a bare `claude` gets --continue then, and only then.

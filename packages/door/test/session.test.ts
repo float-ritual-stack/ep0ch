@@ -172,7 +172,7 @@ describe("two clients on one session", () => {
     const keys: unknown[] = [];
     const app = new App(term, { supports: () => null, protocol: null } as any, Date.now(), () => {});
     // A screen that says how big it was drawn and records its keys.
-    app.push({ title: "plot board", noDock: true, key: (k: unknown) => { keys.push(k); }, render: (ctx: any) => ({ lines: Array.from({ length: ctx.t.rows - 1 }, (_, i) => `row ${i} of ${ctx.t.cols}×${ctx.t.rows}`) }) } as any);
+    app.push({ title: "plot board", noDrawer: true, key: (k: unknown) => { keys.push(k); }, render: (ctx: any) => ({ lines: Array.from({ length: ctx.t.rows - 1 }, (_, i) => `row ${i} of ${ctx.t.cols}×${ctx.t.rows}`) }) } as any);
     const paint = () => (app as any).paint();
     return { term, app, keys, paint };
   }
@@ -192,7 +192,7 @@ describe("two clients on one session", () => {
     const term = new SessionTerm();
     const app = new App(term, { supports: () => null, protocol: null } as any, Date.now(), () => {});
     let renders = 0, n = 0;
-    app.push({ title: "plot board", noDock: true, render: () => { renders++; return { lines: [`tick ${n}`] }; } } as any);
+    app.push({ title: "plot board", noDrawer: true, render: () => { renders++; return { lines: [`tick ${n}`] }; } } as any);
     const paint = () => (app as any).paint();
     const before = renders;
     n = 1; paint(); paint(); paint();                       // a busy terminal tile, seen by nobody

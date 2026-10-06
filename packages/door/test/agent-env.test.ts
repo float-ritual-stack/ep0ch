@@ -11,7 +11,7 @@ import { startControl } from "../src/control";
 import { AGENT_VARS, CARRIED_VARS, DOOR_START_VARS, doorAgents, judgeAgent, knowsLabel, lineWithContinue, modDirs, modStamp, procEnv, procStart, withContinue } from "../src/desk/agent-env";
 import { agentConfig, findOrCreate, herdrRunner, runLine } from "../src/desk/herdr-agent";
 import { PtyPane, tileEnv } from "../src/desk/pty";
-import { DOCK_TILE_ID } from "../src/dock";
+import { DRAWER_TILE_ID } from "../src/drawer";
 import { doorAgentChecks } from "../src/setup/doctor";
 import type { Facts } from "../src/setup/model";
 import type { Key } from "../src/term";
@@ -108,25 +108,25 @@ async function tile(cmd: string[], label: string, tileId: string, place = "desk"
 }
 
 describe("one set of agent variables, whichever way the agent is started", () => {
-  test("a terminal tile (^W o s, then claude), the dock's agent (▲ claude, D's daily tile) and the Herdr launcher's pane get the same set", async () => {
+  test("a terminal tile (^W o s, then claude), the drawer's agent (▲ claude, D's daily tile) and the Herdr launcher's pane get the same set", async () => {
     // 1. ^W o s, then claude: a terminal tile's program.
     const t = await tile([standin], "claude", "t5");
     const fromTile = starts()[0]!.env;
     t.kill();
     rmSync(out);
 
-    // 2 and 3. The chip (alt+a) and the daily layout's agent tile are the one dock tile.
+    // 2 and 3. The chip (alt+a) and the daily layout's agent tile are the one drawer tile.
     const d = door();
-    let fromDock: Record<string, string>;
+    let fromDrawer: Record<string, string>;
     try {
       d.app.push(d.screen("main menu") as any);
       d.key(ALT("a")); d.paint();
-      await until(() => starts().length > 0, "the dock's agent");
-      fromDock = starts()[0]!.env;
-    } finally { d.app.quit(); d.app.dock.tile?.kill(); }
+      await until(() => starts().length > 0, "the drawer's agent");
+      fromDrawer = starts()[0]!.env;
+    } finally { d.app.quit(); d.app.drawer.tile?.kill(); }
 
-    // 4. The Herdr launcher, in the dock's tile: what it hands Herdr for the agent's pane (`--env`) and runs there.
-    const launcherEnv = tileEnv({ ...process.env, EP0CH_DAILY_AGENT: "/x/door-agent-herdr.ts", EP0CH_LANDING: "welcome" }, "claude", join(dir, "door.sock"), DOCK_TILE_ID, "dock");
+    // 4. The Herdr launcher, in the drawer's tile: what it hands Herdr for the agent's pane (`--env`) and runs there.
+    const launcherEnv = tileEnv({ ...process.env, EP0CH_DAILY_AGENT: "/x/door-agent-herdr.ts", EP0CH_LANDING: "welcome" }, "claude", join(dir, "door.sock"), DRAWER_TILE_ID, "drawer");
     const cfg = agentConfig(launcherEnv, () => null);
     writeFileSync(join(dir, "herdr"), `#!/bin/sh\necho "$*" >> ${JSON.stringify(join(dir, "calls"))}\ncase "$1 $2" in\n "pane list") echo '{"result":{"panes":[]}}' ;;\n "workspace list") echo '{"result":{"workspaces":[]}}' ;;\n "workspace create") echo '{"result":{"root_pane":{"pane_id":"w9:p1","terminal_id":"term_new"}}}' ;;\n *) echo '{"result":{}}' ;;\nesac\n`);
     await findOrCreate(herdrRunner(join(dir, "herdr")), cfg);
@@ -136,18 +136,18 @@ describe("one set of agent variables, whichever way the agent is started", () =>
 
     const keys = (e: Record<string, string>) => Object.keys(agentVarsOf(e)).sort();
     expect(keys(fromTile)).toEqual(["EP0CH_CONTROL", "EP0CH_IN_DOOR", "EP0CH_NEST", "EP0CH_STATE", "EP0CH_TILE", "EP0CH_TILE_ID"]);
-    expect(keys(fromDock!)).toEqual(keys(fromTile));
+    expect(keys(fromDrawer!)).toEqual(keys(fromTile));
     expect(keys(fromHerdr)).toEqual(keys(fromTile));
     for (const k of AGENT_VARS) expect(fromHerdr[k]).toBeTruthy();
 
     expect(fromTile).toMatchObject({ EP0CH_TILE: "claude", EP0CH_TILE_ID: "t5", EP0CH_IN_DOOR: "1" });
-    expect(fromDock!).toMatchObject({ EP0CH_TILE: "claude", EP0CH_TILE_ID: DOCK_TILE_ID, EP0CH_IN_DOOR: "1" });
-    expect(fromDock!.EP0CH_NEST).toMatch(/door:\d+\/dock\/dock\.agent:claude$/);
+    expect(fromDrawer!).toMatchObject({ EP0CH_TILE: "claude", EP0CH_TILE_ID: DRAWER_TILE_ID, EP0CH_IN_DOOR: "1" });
+    expect(fromDrawer!.EP0CH_NEST).toMatch(/door:\d+\/drawer\/drawer\.agent:claude$/);
     // In Herdr: the link the launcher points at the attached door, the tile's nest then the pane's layer.
-    expect(fromHerdr).toMatchObject({ EP0CH_TILE: "claude", EP0CH_TILE_ID: DOCK_TILE_ID, EP0CH_IN_DOOR: "1", EP0CH_CONTROL: cfg.link });
+    expect(fromHerdr).toMatchObject({ EP0CH_TILE: "claude", EP0CH_TILE_ID: DRAWER_TILE_ID, EP0CH_IN_DOOR: "1", EP0CH_CONTROL: cfg.link });
     // A test door (its own EP0CH_STATE): its own pane, `door-claude-<hash>`, never the person's.
     expect(cfg.pane).toMatch(/^door-claude-[0-9a-f]{8}$/);
-    expect(fromHerdr.EP0CH_NEST).toMatch(new RegExp(`door:\\d+/dock/dock\\.agent:claude › herdr:${cfg.pane}$`));
+    expect(fromHerdr.EP0CH_NEST).toMatch(new RegExp(`door:\\d+/drawer/drawer\\.agent:claude › herdr:${cfg.pane}$`));
     // The pane mustn't inherit how a door was started from the Herdr server's own environment.
     const run = calls.find(c => c.startsWith("pane run"))!;
     for (const k of DOOR_START_VARS) expect(run).toContain(`-u ${k}`);
@@ -234,32 +234,32 @@ describe("what a running agent knows", () => {
     try {
       d.app.push(d.screen("main menu") as any);
       d.key(ALT("a")); d.paint();
-      await until(() => d.app.dock.tile?.running === true && starts().length === 1, "the dock's agent");
-      const first = d.app.dock.tile!.pid!;
-      await d.app.dock.readKnows();
-      expect(d.app.dock.chipText()).toMatch(/^▼ claude · (idle|working) · door tools$/);
+      await until(() => d.app.drawer.tile?.running === true && starts().length === 1, "the drawer's agent");
+      const first = d.app.drawer.tile!.pid!;
+      await d.app.drawer.readKnows();
+      expect(d.app.drawer.chipText()).toMatch(/^▼ claude · (idle|working) · door tools$/);
       updateMod(mod);
-      await d.app.dock.readKnows();
-      expect(d.app.dock.chipText()).toMatch(/^▼ claude · (idle|working) · door tools$/);
+      await d.app.drawer.readKnows();
+      expect(d.app.drawer.chipText()).toMatch(/^▼ claude · (idle|working) · door tools$/);
       // Stale is an older door's missing variables now; stand that in, then restart by ⟳.
-      (d.app.dock as any).knows = { state: "stale", why: "started by an older door, without EP0CH_TILE_ID" };
-      expect(d.app.dock.chipText()).toMatch(/^▼ claude · (idle|working) · started before update ⟳$/);
+      (d.app.drawer as any).knows = { state: "stale", why: "started by an older door, without EP0CH_TILE_ID" };
+      expect(d.app.drawer.chipText()).toMatch(/^▼ claude · (idle|working) · started before update ⟳$/);
 
       // ⟳ is the chip's last cell: a click there restarts; anywhere else on the chip still toggles the drawer.
       const shown = d.paint();
-      const chip = d.app.dock.chipAt!;
+      const chip = d.app.drawer.chipAt!;
       expect(shown.at(-1)!.slice(chip.to - 1, chip.to)).toBe("⟳");
       d.key({ kind: "mouse", action: "down", button: 0, x: chip.to - 1, y: chip.row });
-      expect(d.app.dock.open).toBe(true);                               // not toggled
-      await until(() => starts().length === 2 && d.app.dock.tile?.running === true, "the restart");
-      expect(d.app.dock.tile!.pid).not.toBe(first);
+      expect(d.app.drawer.open).toBe(true);                               // not toggled
+      await until(() => starts().length === 2 && d.app.drawer.tile?.running === true, "the restart");
+      expect(d.app.drawer.tile!.pid).not.toBe(first);
       expect(starts()[1]!.argv).toBe("--continue");                     // a bare claude continues its conversation
       expect(starts()[1]!.env.EP0CH_CONTROL).toBe(starts()[0]!.env.EP0CH_CONTROL);
       expect(bystander.exitCode).toBeNull();
       // Restarted by this door: current again.
-      await d.app.dock.readKnows();
-      expect(d.app.dock.chipText()).toMatch(/door tools$/);
-    } finally { d.app.quit(); d.app.dock.tile?.kill(); bystander.kill(); }
+      await d.app.drawer.readKnows();
+      expect(d.app.drawer.chipText()).toMatch(/door tools$/);
+    } finally { d.app.quit(); d.app.drawer.tile?.kill(); bystander.kill(); }
   });
 
   test("agent.restart by act: refused while the person types in the agent, else done and said; alt+R is the key", async () => {
@@ -268,21 +268,21 @@ describe("what a running agent knows", () => {
     try {
       d.app.push(d.screen("main menu") as any);
       d.key(ALT("a")); d.paint();
-      await until(() => d.app.dock.tile?.running === true && starts().length === 1, "the dock's agent");
+      await until(() => d.app.drawer.tile?.running === true && starts().length === 1, "the drawer's agent");
       const sink = d.term.rawSink();
       sink("hello");                                                    // the person types in it
-      await expect(d.app.act({ action: "agent.restart", args: {}, as: "helper" })).rejects.toThrow(/typing in claude in the dock/);
+      await expect(d.app.act({ action: "agent.restart", args: {}, as: "helper" })).rejects.toThrow(/typing in claude in the drawer/);
       d.key({ kind: "char", ch: "]", ctrl: true });                     // they leave the drawer, just now
       await expect(d.app.act({ action: "agent.restart", args: {}, as: "helper" })).rejects.toThrow(/typed into the agent/);
-      d.app.dock.tile!.personKeyAt = Date.now() - 60_000;
+      d.app.drawer.tile!.personKeyAt = Date.now() - 60_000;
       const r: any = await d.app.act({ action: "agent.restart", args: {}, as: "helper" });
       expect(r).toMatchObject({ restarted: true });
       await until(() => starts().length === 2, "the agent's restart");
       // The person's alt+R, outside the drawer.
       d.key(ALT("R"));
-      await until(() => starts().length === 3 && d.app.dock.tile?.running === true, "alt+R's restart");
+      await until(() => starts().length === 3 && d.app.drawer.tile?.running === true, "alt+R's restart");
       expect(d.app.actions().actions.map((a: any) => a.name)).toContain("agent.restart");
-    } finally { d.app.quit(); d.app.dock.tile?.kill(); }
+    } finally { d.app.quit(); d.app.drawer.tile?.kill(); }
   });
 
   test("in Herdr, a restart without the agent's pid is refused: restarting only the attach would leave the old agent", async () => {
@@ -291,15 +291,15 @@ describe("what a running agent knows", () => {
     try {
       d.app.push(d.screen("main menu") as any);
       d.key(ALT("a")); d.paint();
-      await until(() => d.app.dock.tile?.running === true && starts().length === 1, "the dock's agent");
-      await d.app.act({ action: "tile.herdr", tile: DOCK_TILE_ID, args: { pane: "door-claude" }, as: "door" });
+      await until(() => d.app.drawer.tile?.running === true && starts().length === 1, "the drawer's agent");
+      await d.app.act({ action: "tile.herdr", tile: DRAWER_TILE_ID, args: { pane: "door-claude" }, as: "door" });
       d.key({ kind: "char", ch: "]", ctrl: true });
-      d.app.dock.tile!.personKeyAt = 0;
+      d.app.drawer.tile!.personKeyAt = 0;
       // The fake Herdr lists no pane labelled door-claude.
       await expect(d.app.act({ action: "agent.restart", args: {}, as: "helper" })).rejects.toThrow(/couldn't find the agent's process in Herdr pane door-claude/);
-      expect(d.app.dock.tile!.running).toBe(true);                      // nothing was signalled
+      expect(d.app.drawer.tile!.running).toBe(true);                      // nothing was signalled
       expect(starts().length).toBe(1);
-    } finally { d.app.quit(); d.app.dock.tile?.kill(); }
+    } finally { d.app.quit(); d.app.drawer.tile?.kill(); }
   });
 
   test("ep0ch doctor: a newer mod leaves a door agent current; a stale one (older door) is listed with the fix", async () => {
@@ -322,9 +322,9 @@ describe("what a running agent knows", () => {
       expect(check!.detail).toContain("door:");
       expect(check!.fix).toContain("/exit");                              // a tile's own claude: restarted by hand
       // The door's agent (its tile id, or its Herdr pane made by an older door) is restarted by the chip.
-      const dock = (env: Record<string, string>) => doorAgentChecks({ claude: { agents: [{ pid: 9, cmd: "claude", env, startedAt: 0, knows: { state: "stale", why: "x" } }] } } as unknown as Facts)[0]!.fix;
-      expect(dock({ EP0CH_TILE_ID: DOCK_TILE_ID })).toContain("⟳");
-      expect(dock({ EP0CH_NEST: "door:1/daily/t3:claude › herdr:door-claude" })).toContain("⟳");
+      const drawer = (env: Record<string, string>) => doorAgentChecks({ claude: { agents: [{ pid: 9, cmd: "claude", env, startedAt: 0, knows: { state: "stale", why: "x" } }] } } as unknown as Facts)[0]!.fix;
+      expect(drawer({ EP0CH_TILE_ID: DRAWER_TILE_ID })).toContain("⟳");
+      expect(drawer({ EP0CH_NEST: "door:1/daily/t3:claude › herdr:door-claude" })).toContain("⟳");
       expect(doorAgentChecks({ claude: { agents: [] } } as unknown as Facts)).toEqual([{ group: "claude", name: "door agents", status: "info", detail: "no Claude running in a door tile or the door's Herdr pane" }]);
       expect(doorAgentChecks({ claude: {} } as unknown as Facts)).toEqual([]);
     } finally { t.kill(); }

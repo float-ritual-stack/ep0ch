@@ -152,7 +152,7 @@ export async function serve(args: string[]): Promise<never> {
     checkpoints?.clear();
     host.endAll();
     // The session's own agent pane in Herdr closes with it (named for this session: never another's).
-    app.dock.closeOwnPane();
+    app.drawer.closeOwnPane();
     const ending = guard.ending();
     writeLastCall(loggedOnAt);
     const kept = app.keptOnExit.length ? `\nunsaved text was copied to:\n  ${app.keptOnExit.join("\n  ")}` : "";

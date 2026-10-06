@@ -1,11 +1,11 @@
-// What the dock's own tab runs (PIE-498): the agent the person chose for this outline's session, and the folder it
-// starts in. One answer, read where the dock makes its tile, where its picker lists the choices and where
+// What the drawer's own tab runs (PIE-498): the agent the person chose for this outline's session, and the folder it
+// starts in. One answer, read where the drawer makes its tile, where its picker lists the choices and where
 // `ep0ch doctor` says it, so they never disagree.
 //
 // - The agent: EP0CH_DAILY_AGENT when set (an override, for a test door or a one-off); else the choice saved for this
-//   outline's session (dock-agent.json in its folder of the state dir, made by the dock's picker, `host.agent`); else
-//   the person's default (dock-agent.json in the state dir, `host.agent default=true`); else none chosen yet: a shell,
-//   and the dock offers its picker the first time it's pulled up.
+//   outline's session (drawer-agent.json in its folder of the state dir, made by the drawer's picker, `host.agent`); else
+//   the person's default (drawer-agent.json in the state dir, `host.agent default=true`); else none chosen yet: a shell,
+//   and the drawer offers its picker the first time it's pulled up.
 // - The agents offered: those installed here (Herdr's supported agent kinds, found on PATH), and always a shell. One
 //   in Herdr (it outlives the door) when Herdr is installed: `door-agent-herdr.ts --session <this session> --agent <agent…>`.
 // - Every agent starts inside the person's login shell (`inLoginShell`): when it exits, or crashes, the tile is a
@@ -25,15 +25,15 @@ const START = process.cwd();
 /** The Herdr launcher (scripts/door-agent-herdr.ts): the agent in a Herdr pane that outlives the door. */
 export const HERDR_LAUNCHER = resolve(import.meta.dir, "../../scripts/door-agent-herdr.ts");
 
-/** An agent the dock can run: its name, its command, and whether it runs in Herdr. */
-export interface DockAgent { name: string; cmd: string[]; herdr?: boolean }
-/** What a choice is saved as (dock-agent.json): the agent by name or command line, and where it runs. */
-export interface DockChoice { agent: string; herdr?: boolean }
+/** An agent the drawer can run: its name, its command, and whether it runs in Herdr. */
+export interface DrawerAgent { name: string; cmd: string[]; herdr?: boolean }
+/** What a choice is saved as (drawer-agent.json): the agent by name or command line, and where it runs. */
+export interface DrawerChoice { agent: string; herdr?: boolean }
 
-export interface DockProgram {
+export interface DrawerProgram {
   cmd: string[];
   cwd: string;
-  /** What the dock's own tab is called: the agent's name (`claude`, `codex`), or `shell`. */
+  /** What the drawer's own tab is called: the agent's name (`claude`, `codex`), or `shell`. */
   name: string;
   /** It runs in a Herdr pane (the launcher). */
   herdr: boolean;
@@ -98,7 +98,7 @@ export function inLoginShell(cmd: readonly string[], shell: string, name = progr
 }
 
 /** The agents installed here, a shell first; each also in Herdr when Herdr is installed (and the launcher is here). */
-export function detectAgents(o: { env?: Record<string, string | undefined>; which?: (c: string) => string | null; session?: string | null } = {}): DockAgent[] {
+export function detectAgents(o: { env?: Record<string, string | undefined>; which?: (c: string) => string | null; session?: string | null } = {}): DrawerAgent[] {
   const env = o.env ?? process.env, which = o.which ?? ((c: string) => Bun.which(c, { PATH: env.PATH ?? "" }));
   const shell = env.SHELL || "sh";
   const found = KNOWN_AGENTS.filter(([, c]) => !!which(c)).map(([name, c]) => ({ name, cmd: [c] }));
@@ -118,17 +118,17 @@ export function herdrCmd(agent: readonly string[], session: string | null): stri
 /** This session's label: the outline, and its machine when it's on another (`pie-hole@float-2`). */
 export const sessionLabel = (p: { outline?: string | null; machine?: string | null }) => (p.outline ? `${p.outline}${p.machine ? `@${p.machine}` : ""}` : null);
 
-const readChoice = (file: string): DockChoice | null => {
+const readChoice = (file: string): DrawerChoice | null => {
   try { const x = JSON.parse(readFileSync(file, "utf8")); return x && typeof x.agent === "string" && x.agent.trim() ? { agent: x.agent.trim(), ...(x.herdr === true ? { herdr: true } : {}) } : null; } catch { return null; }
 };
 /** The choice file of a session's folder (`dir`), or the person's default (the state dir). */
-export const choiceFile = (dir: string) => join(dir, "dock-agent.json");
+export const choiceFile = (dir: string) => join(dir, "drawer-agent.json");
 
 /**
- * The dock's program and folder, read now. `dir`: this session's folder of the state dir (its saved choice);
+ * The drawer's program and folder, read now. `dir`: this session's folder of the state dir (its saved choice);
  * `state`: the state dir (the person's default).
  */
-export function dockProgram(o: { env?: Record<string, string | undefined>; outline?: string | null; machine?: string | null; start?: string; home?: string; dir?: string | null; state?: string | null } = {}): DockProgram {
+export function drawerProgram(o: { env?: Record<string, string | undefined>; outline?: string | null; machine?: string | null; start?: string; home?: string; dir?: string | null; state?: string | null } = {}): DrawerProgram {
   const env = o.env ?? process.env, home = o.home ?? env.HOME ?? homedir(), start = o.start ?? START;
   const shell = env.SHELL || "sh";
   const session = sessionLabel(o);
@@ -136,14 +136,14 @@ export function dockProgram(o: { env?: Record<string, string | undefined>; outli
   const saved = o.dir ? readChoice(choiceFile(o.dir)) : null;
   const dflt = !saved && o.state ? readChoice(choiceFile(o.state)) : null;
   const choice = saved ?? dflt;
-  let cmd: string[], from: DockProgram["from"], programWhy: string;
-  if (set) { cmd = words(set); from = "env"; programWhy = `EP0CH_DAILY_AGENT (${set}), which overrides the dock's choice`; }
+  let cmd: string[], from: DrawerProgram["from"], programWhy: string;
+  if (set) { cmd = words(set); from = "env"; programWhy = `EP0CH_DAILY_AGENT (${set}), which overrides the drawer's choice`; }
   else if (choice) {
     const agent = words(choice.agent === "shell" ? shell : choice.agent);
     cmd = choice.herdr ? herdrCmd(agent, session) : agent;
     from = saved ? "session" : "default";
     programWhy = `${saved ? `chosen for ${session ?? "this session"}` : "your default"} (${choice.agent}${choice.herdr ? " in Herdr" : ""})`;
-  } else { cmd = [shell]; from = "none"; programWhy = "a shell: no agent chosen yet (the dock's picker, alt+g, chooses one)"; }
+  } else { cmd = [shell]; from = "none"; programWhy = "a shell: no agent chosen yet (the drawer's picker, alt+g, chooses one)"; }
   // The launcher named outright (EP0CH_DAILY_AGENT): it's told this session, so its pane is this session's own.
   // After the script's path (`bun …/door-agent-herdr.ts`: bun's own arguments come before it).
   if (isLauncher(cmd) && session && !cmd.includes("--session")) { const at = cmd.findIndex(c => basename(c) === "door-agent-herdr.ts") + 1; cmd = [...cmd.slice(0, at), "--session", session, ...cmd.slice(at)]; }
@@ -166,5 +166,5 @@ export function dockProgram(o: { env?: Record<string, string | undefined>; outli
   return { cmd: cmd.length ? cmd : [shell], cwd: folder.cwd, name: programName(cmd), herdr: isLauncher(cmd), from, programWhy, folderWhy: folder.why };
 }
 
-/** The command that changes it, for `ep0ch doctor` and a refusal: the dock's picker, or `act host.agent`. */
-export const CHANGE_AGENT = "alt+g in the dock (its picker), or `ep0ch act host.agent name=<agent> [herdr=true] [default=true]`";
+/** The command that changes it, for `ep0ch doctor` and a refusal: the drawer's picker, or `act host.agent`. */
+export const CHANGE_AGENT = "alt+g in the drawer (its picker), or `ep0ch act host.agent name=<agent> [herdr=true] [default=true]`";

@@ -1,7 +1,7 @@
 // PIE-413, PIE-417, PIE-473, PIE-474: the desk as tiles, against a scratch outline. A header dragged onto a
 // tile's centre makes tabs, onto a side splits, onto the outer edge makes a column; tabs are clicked and
 // cycled; alt+l then a click links a tile's opens; a preview follows a tile or a file; a terminal tile takes
-// every key but ctrl+]; a tile slides over as a drawer and pins back; layouts save, load and keep running
+// every key but ctrl+]; a tile slides over as a dock and pins back; layouts save, load and keep running
 // programs; the river's open rule adds columns. Every one of them is an action an agent can call, and an
 // agent's never takes the person's focus or keys. Scratch services, fictional notes, `sh` and `tail` only.
 import { screenNote } from "../src/desk/screen-notes";
@@ -59,7 +59,7 @@ describe.skipIf(!outliner)("the desk as tiles, against a scratch outline", () =>
   const mouse = (action: "down" | "drag" | "up", x: number, y: number, mods?: number) => key({ kind: "mouse", action, button: 0, x, y, ...(mods ? { mods } : {}) });
   const drag = (x0: number, y0: number, x1: number, y1: number) => { render(); mouse("down", x0, y0); mouse("drag", x0 + 1, y0); render(); mouse("drag", x1, y1); render(); mouse("up", x1, y1); render(); };
   /** The tree as a short string, as the unit tests write it. */
-  const s = (n: any): string => n.pane ?? (n.tabs ? `tabs(${n.tabs.map((t: string) => (t === n.active ? "*" + t : t)).join(",")})` : n.drawer ? `drawer(${s(n.kid)})` : `${n.split ?? (n.flow ? "flow" : "?")}(${n.kids.map(s).join(",")})`);
+  const s = (n: any): string => n.pane ?? (n.tabs ? `tabs(${n.tabs.map((t: string) => (t === n.active ? "*" + t : t)).join(",")})` : n.dock ? `dock(${s(n.kid)})` : `${n.split ?? (n.flow ? "flow" : "?")}(${n.kids.map(s).join(",")})`);
   const shape = () => s(get().tree);
   let notes: Record<string, any> = {};
   const draft = () => join(scratch.root, "door", "draft.md");
@@ -290,50 +290,50 @@ describe.skipIf(!outliner)("the desk as tiles, against a scratch outline", () =>
     key(ctrl("]"));
   }, 20_000);
 
-  test("any tile slides over as a drawer (nothing moves for it), slides shut when the keys leave, opens from its handle, pins back", () => {
+  test("any tile slides over as a dock (nothing moves for it), slides shut when the keys leave, opens from its handle, pins back", () => {
     const tree = () => [...D().names].find(([, v]: any) => v === "tree")[0];
     D().focus = tree();
     const before = rect("preview");
     key(ctrl("w")); key(char("p"));
-    expect(tile("tree").drawer).toBe("open");
+    expect(tile("tree").dock).toBe("open");
     const under = rect("preview");
     expect(under.row).toBeLessThan(before.row);                       // the tree's room is the preview's now
     key({ kind: "tab" });
-    expect(tile("tree").drawer).toBe("shut");
+    expect(tile("tree").dock).toBe("shut");
     render();
     const h = D().handles[0];
     mouse("down", h.from + 1, 58);
-    expect(tile("tree").drawer).toBe("open");
+    expect(tile("tree").dock).toBe("open");
     expect(get().focus).toBe("tree");
     key(ctrl("w")); key(char("p"));
-    expect(tile("tree").drawer).toBeUndefined();
+    expect(tile("tree").dock).toBeUndefined();
     expect(rect("preview")).toEqual(before);
   });
 
-  test("layouts: saved by name with names, links, sources and drawers; loaded back, running programs kept, not ended", async () => {
-    await act("tile.pin", { on: false }, "now");
-    await act("tile.drawer", { open: false }, "now");
+  test("layouts: saved by name with names, links, sources and docks; loaded back, running programs kept, not ended", async () => {
+    await act("tile.dock", { on: true }, "now");
+    await act("tile.slide", { open: false }, "now");
     await mine("screen.save", { name: "garden" });
     const saved = screenNote("garden")!.spec.layout;
-    expect(JSON.stringify(saved)).toContain(`"t":"drawer","edge":"down","open":false`);   // a drawer container, shut
+    expect(JSON.stringify(saved)).toContain(`"t":"dock","edge":"down","open":false`);   // a dock container, shut
     expect(JSON.stringify(saved)).toContain(`"link":"middle"`);
     expect(JSON.stringify(saved)).toContain(`"source":"tile:tree"`);
     const pid = tile("claude").terminal.pid;
     await mine("layout.load", { name: "river" });
-    expect(tile("claude").drawer).toBe("shut");                      // no place in the river: kept, shut
+    expect(tile("claude").dock).toBe("shut");                      // no place in the river: kept, shut
     expect(tile("claude").terminal.pid).toBe(pid);
     await mine("layout.load", { name: "garden" });
     expect(tile("claude").terminal.pid).toBe(pid);                   // reused by name
-    expect(tile("claude").drawer).toBeUndefined();
-    expect(tile("now").drawer).toBe("shut");
+    expect(tile("claude").dock).toBeUndefined();
+    expect(tile("now").dock).toBe("shut");
     expect(get().tiles.length).toBe(JSON.stringify(saved).match(/"t":"leaf"/g)!.length);
     await expect(mine("layout.load", { name: "nope" })).rejects.toThrow(/no layout nope/);
   });
 
   test("the river layout is the river's columns on the desk (a flow, the Library first), a card preview following them", async () => {
     await mine("layout.load", { name: "river" });
-    expect(shape()).toBe("row(flow(library),card,drawer(tabs(*claude,draft)))");  // the running programs, kept in a shut drawer
-    expect([tile("claude").drawer, tile("draft").drawer]).toEqual(["shut", "shut"]);
+    expect(shape()).toBe("row(flow(library),card,dock(tabs(*claude,draft)))");  // the running programs, kept in a shut dock
+    expect([tile("claude").dock, tile("draft").dock]).toEqual(["shut", "shut"]);
     expect(tile("library").kind).toBe("river.column");
     expect(tile("card").source).toBe("tile:river");
     render();

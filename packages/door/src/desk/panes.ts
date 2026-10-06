@@ -69,7 +69,7 @@ export interface DeskApi {
   focusPane?(p: Pane, actor: Actor): void;
   /** The person's keys are held here right now (typing, a picker, a ^W chord): a screen's own key waits. */
   holdsKeys?(): boolean;
-  /** Tile `p` is on screen now (not in a shut drawer, not a hidden tab). */
+  /** Tile `p` is on screen now (not in a shut dock, not a hidden tab). */
   shownNow?(p: Pane): boolean;
   /** Where back (-1) or forward (1) from tile `p`'s column of a flow goes: that column's tile's title, or null. */
   travelPeek?(p: Pane, dir: -1 | 1): string | null;
@@ -83,13 +83,13 @@ export interface DeskApi {
   pane?(name: string): Pane | undefined;
   /** Tile `p`'s name (what `tile=` and `open from=` take). */
   nameOfPane?(p: Pane): string;
-  /** Tile `p` is in a drawer (not pinned in the layout). */
-  inDrawer?(p: Pane): boolean;
-  /** The side of the screen tile `p` is on (its drawer's edge, else where it's placed). */
+  /** Tile `p` is in a dock (not pinned in the layout). */
+  inDock?(p: Pane): boolean;
+  /** The side of the screen tile `p` is on (its dock's edge, else where it's placed). */
   sideOf?(p: Pane): "left" | "right";
   /**
    * The person's backlinks (`b`): tile `p` lists the backlinks of `m` (else of the note the reader they read through
-   * shows), following the reader that shows it; its drawer slides open and their keys go to it.
+   * shows), following the reader that shows it; its dock slides open and their keys go to it.
    */
   aimBacklinks?(p: Pane & { source: string; show(m: Msg, desk: DeskApi): Promise<void> }, m: Msg | null): Promise<void>;
   /**
@@ -210,8 +210,8 @@ export class ReaderPane implements Pane {
   private held = false;
   /**
    * `follows`: this reader shows the view's current note as it changes (the desk's readers), so `p` holds
-   * it on the note it shows. Readers that never follow (the board's preview, details, drawers and floats)
-   * have nothing to hold, so they don't offer it. ("Pin" is kept for a drawer joining the layout.)
+   * it on the note it shows. Readers that never follow (the board's preview, details, docks and floats)
+   * have nothing to hold, so they don't offer it. ("Pin" is kept for a dock joining the layout.)
    */
   constructor(readonly follows = false) {}
   get msg() { return this.surface.msg; }

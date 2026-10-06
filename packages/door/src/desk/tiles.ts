@@ -2,7 +2,7 @@
 // reader that follows the current note, a detail that keeps its note, a preview following a tile or a
 // file, a program in a terminal, a whole screen (board, river), the brief, and the desk's other panes. A
 // layout is the tree of splits and tab sets over tiles, with each tile's name, where its opens land (its
-// link), whether it slides over as a drawer, and the layout's open rule. It is data: a screen saved by name is a
+// link), whether it slides over as a dock, and the layout's open rule. It is data: a screen saved by name is a
 // screen note in the outline (PIE-565, src/desk/screen-notes.ts), its layout one `layout.load` lays a screen out
 // as; the built-in layouts below are the others.
 import { existsSync, writeFileSync } from "node:fs";
@@ -35,7 +35,7 @@ export interface TileSpec {
   file?: string;
   /**
    * The key its program runs under in a session's terminal host, when that isn't `<home>:<its id>`: a terminal tile moved
-   * between screens or into the dock (PIE-498) adopts its own program after a restart by it.
+   * between screens or into the drawer (PIE-498) adopts its own program after a restart by it.
    */
   kept?: string;
   /** A preview's source: `tile:<name>` or `file:<path>`; a backlinks tile's: `tile:<name>`. */
@@ -83,7 +83,7 @@ export interface SavedFloat { tile: TileSpec; rect: { col: number; row: number; 
 export const ID_SHAPE = /^[tsgk]\d+$/;
 export function tileNameProblem(name: string): string | null {
   if (/^#?\d+$/.test(name)) return `a tile's name isn't a number (${name} would be read as the tile numbered ${name.replace("#", "")} on screen); start it with a letter`;
-  if (ID_SHAPE.test(name)) return `a tile's name isn't shaped like an id (${name}: t, s, g or k and digits are tile, split, tab set and dock tile ids)`;
+  if (ID_SHAPE.test(name)) return `a tile's name isn't shaped like an id (${name}: t, s, g or k and digits are tile, split, tab set and drawer tile ids)`;
   if (/^[A-Za-z][\w.-]{0,39}$/.test(name)) return null;
   return `a tile's name starts with a letter, then letters, digits, . - or _, at most 40 (not ${JSON.stringify(name)}; # is for numbers on screen)`;
 }

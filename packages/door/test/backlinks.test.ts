@@ -1,6 +1,6 @@
 // PIE-442: backlinks you can use. src/backlinks.ts mirrors Detail's backlink view (pi-herdr-outliner
 // src/backlink-view.ts) and its panel's text (src/detail-pi-preview.ts); these tests check it against the
-// outliner's own functions over fictional sources and every option, then drive the board's drawer against
+// outliner's own functions over fictional sources and every option, then drive the board's dock against
 // a scratch service: the defaults, filter and sort, and the toggles by key, click and act.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
@@ -193,9 +193,9 @@ describe("the door's own parts of the view", () => {
   });
 });
 
-// ── the board's drawer, against a scratch service ───────────────────────────────────────────────────
+// ── the board's dock, against a scratch service ───────────────────────────────────────────────────
 
-describe.skipIf(!outliner)("the board's backlinks drawer: Detail's facets and defaults, by keys, mouse and act", () => {
+describe.skipIf(!outliner)("the board's backlinks dock: Detail's facets and defaults, by keys, mouse and act", () => {
   const scratch = new Scratch();
   let board: SocketBoard, app: App, b: Desk, hub: any, target: any;
   const ids: Record<string, string> = {};
@@ -213,8 +213,8 @@ describe.skipIf(!outliner)("the board's backlinks drawer: Detail's facets and de
     throw new Error(`"${text}" isn't drawn in ${region}:\n${lines.slice(r.row, r.row + r.rows).join("\n")}`);
   };
   const peek = () => B().describe().backlinks;
-  /** The drawer's list as drawn: its status line (wrapped over `linkHead` lines) joined into one, then one line per row. */
-  const drawer = () => {
+  /** The dock's list as drawn: its status line (wrapped over `linkHead` lines) joined into one, then one line per row. */
+  const dock = () => {
     const r = rect("backlinks"), lines = frame().slice(r.row + 1, r.row + r.rows - 1).map(l => l.slice(r.col + 1, r.col + r.cols - 1).trimEnd());
     const head = B().linksTile.head as number;
     // A wrapped line ends with its separator, or had no room for one.
@@ -222,7 +222,7 @@ describe.skipIf(!outliner)("the board's backlinks drawer: Detail's facets and de
     return [status, ...lines.slice(head)];
   };
 
-  const openDrawer = async () => {
+  const openDock = async () => {
     if ((app as any).stack.at(-1) instanceof Desk) app.pop();
     b = boardScreen(hub.id, false);
     app.push(b);
@@ -261,7 +261,7 @@ describe.skipIf(!outliner)("the board's backlinks drawer: Detail's facets and de
   afterAll(async () => { board?.close(); await scratch.dispose(); delete process.env.EP0CH_STATE; }, 20_000);
 
   test("it opens as Detail's panel does: this note and resolved comments hidden, groups with stage counts, open items first, one line each", async () => {
-    await openDrawer();
+    await openDock();
     const p = peek();
     expect(p.faceted).toBe(true);
     expect(p.status).toBe("7 of 9 match · 1 this note hidden · 1 resolved hidden · Kind: all · Stage: all · Sort: Updated ↓");
@@ -273,7 +273,7 @@ describe.skipIf(!outliner)("the board's backlinks drawer: Detail's facets and de
     expect(p.rows[1].context).toBe("(1 waiting · 1 draft · 2 done)");
     expect(p.rows.slice(4).every((r: any) => r.kind === "kind" && r.open === false)).toBe(true);   // the other kinds, folded (nothing open in them)
     expect(p.rows.find((r: any) => r.selected).id).toBe(ids.draft);               // the first source, not a header
-    const lines = drawer();
+    const lines = dock();
     expect(lines[0]).toBe(p.status);
     // One line per row, the breadcrumb and reference suffix on the same line.
     expect(lines[1]).toContain("▾ ← backlinks (7)");
@@ -283,15 +283,15 @@ describe.skipIf(!outliner)("the board's backlinks drawer: Detail's facets and de
     await until(() => B().linksPreview.msg?.id === ids.draft, "the preview on the selected source");
   }, 20_000);
 
-  test("a narrow drawer wraps the status line between parts: no blank line, and every control stays drawn and clickable", async () => {
-    await openDrawer();
+  test("a narrow dock wraps the status line between parts: no blank line, and every control stays drawn and clickable", async () => {
+    await openDock();
     const info = (app as any).term.info, cols = info.cols;
     try {
       for (const w of [200, 150, 120, 100, 90]) {
         info.cols = w;
         for (const typing of [false, true]) {
           if (typing) { ch("/"); for (const c of "poster") ch(c); }
-          const lines = drawer(), r = rect("backlinks"), head = B().linksTile.head as number;
+          const lines = dock(), r = rect("backlinks"), head = B().linksTile.head as number;
           const raw = frame().slice(r.row + 1, r.row + 1 + head).map(l => l.slice(r.col + 1, r.col + r.cols - 1).trim());
           expect(raw.every(l => l.length > 0)).toBe(true);
           expect(lines[0]).toBe(typing ? peek().status.replace("Filter: poster", "Filter: poster▌") : peek().status);
@@ -307,7 +307,7 @@ describe.skipIf(!outliner)("the board's backlinks drawer: Detail's facets and de
   }, 20_000);
 
   test("the toggles by key: h resolved, n this note, K kind, w stage, s sort; . folds a group; each keeps the counts adding up", async () => {
-    await openDrawer();
+    await openDock();
     ch("h");
     expect(peek().status).toBe("8 of 9 match · 1 this note hidden · resolved shown · Kind: all · Stage: all · Sort: Updated ↓");
     ch("n");
@@ -333,15 +333,15 @@ describe.skipIf(!outliner)("the board's backlinks drawer: Detail's facets and de
   }, 20_000);
 
   test("/ filters as it's typed; board keys are letters in it (t doesn't open the outline); ⏎ keeps it, esc undoes it", async () => {
-    await openDrawer();
+    await openDock();
     ch("/");
     for (const c of "rota") ch(c);
     expect(B().treeOpen).toBe(false);
     expect(peek().typing).toBe("rota");
     expect(peek().rows.map((r: any) => r.id).filter(Boolean)).toEqual([ids.rota]);
-    expect(drawer()[0]).toStartWith("Filter: rota▌ · 1 of 9 match · 6 filtered");
+    expect(dock()[0]).toStartWith("Filter: rota▌ · 1 of 9 match · 6 filtered");
     key({ kind: "esc" });
-    expect(peek()).not.toBeNull();                                                 // esc undid the filter, not the drawer
+    expect(peek()).not.toBeNull();                                                 // esc undid the filter, not the dock
     expect(peek().options.filter).toBe("");
     ch("/"); for (const c of "bgt") ch(c);                                           // the board's b, g and t: letters here
     expect(B().hubPicker).toBeNull();
@@ -354,7 +354,7 @@ describe.skipIf(!outliner)("the board's backlinks drawer: Detail's facets and de
   }, 20_000);
 
   test("mouse: the status line's controls, a group's header, and a row (a detail); alt+⏎ opens a new detail", async () => {
-    await openDrawer();
+    await openDock();
     clickText("backlinks", "1 resolved hidden");
     expect(peek().options.showResolved).toBe(true);
     clickText("backlinks", "resolved shown");
@@ -390,7 +390,7 @@ describe.skipIf(!outliner)("the board's backlinks drawer: Detail's facets and de
     clickText("backlinks", "Offer spare onion sets");
     await until(() => B().details[0]?.msg?.id === ids.draft, "the source in a detail");
     expect(BV.where(b)).toBe("detail0");
-    // Back in the drawer, ⏎ replaces that detail and alt+⏎ opens a second one.
+    // Back in the dock, ⏎ replaces that detail and alt+⏎ opens a second one.
     BV.at(b, "backlinks");
     ch("j");
     await until(() => B().linksPreview.msg?.id === ids.waiting, "the preview");
@@ -398,8 +398,8 @@ describe.skipIf(!outliner)("the board's backlinks drawer: Detail's facets and de
     await until(() => B().details.length === 2 && B().details.some((d: any) => d.msg?.id === ids.waiting), "a second detail");
   }, 20_000);
 
-  test("a click into the drawer while the lanes have the keys only focuses it and selects the row: it never opens one; a modifier or middle click opens a new detail", async () => {
-    await openDrawer();
+  test("a click into the dock while the lanes have the keys only focuses it and selects the row: it never opens one; a modifier or middle click opens a new detail", async () => {
+    await openDock();
     BV.at(b, "lanes");
     expect(BV.where(b)).toBe("lanes");
     const press = (text: string, more: Record<string, unknown> = {}) => {
@@ -409,7 +409,7 @@ describe.skipIf(!outliner)("the board's backlinks drawer: Detail's facets and de
     };
     press("Ask Ana about bean seed");
     expect(BV.where(b)).toBe("backlinks");
-    await until(() => B().linksPreview.msg?.id === ids.waiting, "the row shown in the drawer's preview");
+    await until(() => B().linksPreview.msg?.id === ids.waiting, "the row shown in the dock's preview");
     await Bun.sleep(150);
     expect(B().details.length).toBe(0);                                       // the bug: a first click opened a detail
     await Bun.sleep(450);                                                     // apart: two single clicks, not a double
@@ -422,7 +422,7 @@ describe.skipIf(!outliner)("the board's backlinks drawer: Detail's facets and de
   }, 20_000);
 
   test("an agent reads the same view with its own options and changes none of the person's; the person's act sets theirs", async () => {
-    await openDrawer();
+    await openDock();
     ch("s");                                                                          // the person's sort: updated ↑
     const before = JSON.stringify(peek());
     const agent = { kind: "agent" as const, id: "gardener" };
@@ -438,6 +438,6 @@ describe.skipIf(!outliner)("the board's backlinks drawer: Detail's facets and de
     const mine: any = await b.dispatch.act({ action: "backlinks", args: { stage: "done", sort: "title" } }, USER);
     expect(mine.backlinks.options).toMatchObject({ stage: "done", sortField: "title", sortDirection: "asc" });
     expect(peek().options).toMatchObject({ stage: "done", sortField: "title" });
-    expect(drawer()[0]).toBe(peek().status);
+    expect(dock()[0]).toBe(peek().status);
   }, 20_000);
 });

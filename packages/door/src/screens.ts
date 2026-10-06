@@ -155,7 +155,7 @@ function artWithText(ctx: Ctx, key: string, art: Art, overlays: Overlay[], at = 
 
 export class Logon implements Screen {
   title = "logon";
-  readonly noDock = true;
+  readonly noDrawer = true;
   private shown = 0;
   private readonly script: string[];
   /** `then`: the screen opened over the main menu after the logon (EP0CH_LANDING's name), through `screen.open`. */
@@ -530,7 +530,7 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
     },
   }),
   "session.end": def({
-    summary: "end the session: the door stops, with every program in its terminal tiles and the dock, and every attached terminal is let go (unsaved drafts are copied to disk and put aside, as when the door quits). Logging off (G, ctrl+c) only detaches the terminal you're on; this is how the session ends. With programs running or a draft unsaved it asks first: again within 3s ends it. The person's only",
+    summary: "end the session: the door stops, with every program in its terminal tiles and the drawer, and every attached terminal is let go (unsaved drafts are copied to disk and put aside, as when the door quits). Logging off (G, ctrl+c) only detaches the terminal you're on; this is how the session ends. With programs running or a draft unsaved it asks first: again within 3s ends it. The person's only",
     keys: "E on the main menu (or a click on End on its key line); `ep0ch session end [--ws <name>] [--yes]` from a shell (this folder's outline's session, or --ws's; --yes is force=true)",
     touches: "screen", replay: "ask",
     person: "an agent doesn't end the person's session: it would stop the programs in their terminal tiles and let go of their terminals. A session an agent started on its own state dir it ends with `ep0ch session end` there",
@@ -1342,7 +1342,7 @@ export class Help implements Screen {
         paint("|08   go to the outline, recorded as you, or as the agent that did them. The other screens only read."),
         paint("|08   Video cycles Kitty+CRT → Kitty → plain cells (|15alt+v|08 anywhere). Art and stats are pixels; every word is real terminal text."),
         paint("|08   |15alt+t|08 steps the theme: calm → night → classic (also a click on its name on the status bar). Art stays VGA."),
-        paint("|08   |15q|08 goes back on every screen; |15Esc|08 only closes what popped up (a menu, a picker, a box, a drawer) and never leaves. The menu is the top: there |15q|08 is the Quay and only |15G|08 logs off."),
+        paint("|08   |15q|08 goes back on every screen; |15Esc|08 only closes what popped up (a menu, a picker, a box, a dock) and never leaves. The menu is the top: there |15q|08 is the Quay and only |15G|08 logs off."),
       ],
     };
   }
@@ -1363,7 +1363,7 @@ export class Help implements Screen {
 const HELP: Record<string, string> = {
   N: "messages changed since your last call", J: "top-level blocks as conferences", R: "the 200 most recently changed blocks",
   W: "every client attached to the outline right now", L: "who edited what, agents and humans", F: "the WOE art packs, read from their zips",
-  S: "activity heatmap and top posters", K: "delivery board: stage lanes, one preview, details, outline and backlinks drawers", Q: "the river: Quay's columns, spines and threads over the live outline", B: "the ep0ch menu by shypht, 1997",
+  S: "activity heatmap and top posters", K: "delivery board: stage lanes, one preview, details, outline and backlinks docks", Q: "the river: Quay's columns, spines and threads over the live outline", B: "the ep0ch menu by shypht, 1997",
   D: "the desk: outline, reader, thread and live tiles you lay out yourself", X: "the showcase: every shared part, live (on a showcase outline)", T: "today's brief: the newest type::daily-brief note, live; , . step days", O: "waiting on others: outbox items still waiting, by who they wait on, longest first", C: "Claude · now: the [[claude-now]] page, pinned and live", V: "cycle video mode (alt+v on every screen; alt+t the theme)", "?": "this screen", G: "log off (and remember this call); in a session only this terminal detaches, and everything keeps running for the next attach",
   "!": "drop to shell: your login shell in this terminal; exit comes back here, tiles still running",
   E: "end the session: the door stops with its terminal tiles' programs (G only detaches this terminal); asks first when programs run",
@@ -1373,7 +1373,7 @@ const HELP: Record<string, string> = {
 
 export class Goodbye implements Screen {
   readonly title = "logoff";
-  readonly noDock = true;
+  readonly noDrawer = true;
   private at = Date.now();
   /** Logging off quits the door: with programs still running (the desk in the background), it asks first. */
   /** In a session it only detaches this terminal (nothing ends, so nothing is asked); else, with programs running, it asks first. */

@@ -9,7 +9,7 @@ where it meant an **identity** or a **role**:
 
 - A preview moved to another screen followed "whatever tile is called `detail`" there, not the tile it followed
   before the move.
-- A screen tile and a dock tab both named `kettle`: `tile.type tile=kettle` typed into the wrong terminal.
+- A screen tile and a drawer tab (then called the dock) both named `kettle`: `tile.type tile=kettle` typed into the wrong terminal.
 - `ep0ch where` trusted a tile id carried in a moved terminal's environment after the id had been reused.
 - The Herdr pane label `door-claude` was treated as an identity, so a session for an outline named `claude`
   produced the same label and its pane was never closed.
@@ -25,7 +25,7 @@ Every reference to a tile, pane, note, outline, view or session is one of three 
 |---|---|---|---|
 | **id** | this exact one | a tile id (`t37`), a block `((uuid))`, a Herdr pane id, a session pid | renames and moves; ends with the thing |
 | **name** | the one people call X | a tile name (`preview`), `[[page]]`, a pane label, an outline name | until renamed; can collide |
-| **role** | whichever one does this job now | where opens from this reader land (`from=$EP0CH_TILE`), the dock's agent, today's daily brief, `[welcome::1]`, a view's results | everything; resolved at the moment of use |
+| **role** | whichever one does this job now | where opens from this reader land (`from=$EP0CH_TILE`), the drawer's agent, today's daily brief, `[welcome::1]`, a view's results | everything; resolved at the moment of use |
 
 Rules:
 

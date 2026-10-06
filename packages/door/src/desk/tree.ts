@@ -1,4 +1,4 @@
-// The outline tree (a desk tile, the board's outline drawer), with the authored links the outliner's Tree
+// The outline tree (a desk tile, the board's outline dock), with the authored links the outliner's Tree
 // shows under a block (PIE-259, PIE-324, PIE-329): `L` (`tree.links`) opens, under the selected row, its
 // Outlinks and Resources (the service's `blocks.authored-links`) and its Backlinks (`references.backlinks`,
 // grouped by kind as Detail groups them through src/backlinks.ts). Each group opens and folds; an outlink or
@@ -83,7 +83,7 @@ export class TreePane implements Pane {
   /** Settles once the top level has been read (a reveal waits for it). */
   private loaded: Promise<void> | null = null;
   init(desk: DeskApi) {
-    // Moved to another screen or into the dock (PIE-498): it keeps its rows; nothing is read again or opened.
+    // Moved to another screen or into the drawer (PIE-498): it keeps its rows; nothing is read again or opened.
     if (this.loaded) return;
     this.loaded = desk.ctx.board.roots().then(r => {
       this.roots = r; this.rebuild();

@@ -597,10 +597,10 @@ describe.skipIf(!outliner)("agents acting through the surface, against a scratch
     await settled();
   });
 
-  test("an agent can't act in a drawer's reader while the drawer is shut", async () => {
+  test("an agent can't act in a dock's reader while the dock is shut", async () => {
     expect(B().treeOpen).toBe(false);
     expect(B().describe().backlinks).toBeNull();
-    await expect(act("open", { id: cards.gate.id }, "tree")).rejects.toThrow("tree-preview isn't on screen (its drawer is shut)");
+    await expect(act("open", { id: cards.gate.id }, "tree")).rejects.toThrow("tree-preview isn't on screen (its dock is shut)");
     await expect(act("edit.text", { text: "x" }, "backlinks")).rejects.toThrow("backlinks-preview isn't on screen");
   });
 

@@ -1,5 +1,5 @@
 // PIE-412: the layout tree is the one pane model. The desk's binary splits place exactly as they did,
-// n-ary splits share by weight around spines, drawers slide over or join the layout, borders follow the
+// n-ary splits share by weight around spines, docks slide over or join the layout, borders follow the
 // pointer, and the desk's saved form reads both forms and writes kids and weights. Pure functions (and one desk
 // started from a hand-broken save): the tree arithmetic inside the screen-layout module (its rules are tested
 // through its interface, screen-layout.test.ts).
@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Rect } from "../src/canvas";
 import {
-  columnsOf, dividerAt, dragShare, drawerOf, drawers, drawerToEdge, even, grow, leaf, leaves, move, node, normalise, pair, place, placeScreen, policyOf, remove, resize, revive, serialize, share, splitOf, unwrapDrawer, visible, wrapDrawer, wrapNodeDrawer,
+  columnsOf, dividerAt, dragShare, dockOf, docks, dockToEdge, even, grow, leaf, leaves, move, node, normalise, pair, place, placeScreen, policyOf, remove, resize, revive, serialize, share, splitOf, unwrapDock, visible, wrapDock, wrapNodeDock,
   type Grab, type LNode,
 } from "../src/desk/layout";
 
@@ -74,7 +74,7 @@ describe("placing", () => {
     expect(place(row, r, { fixed: id => (id !== "a" ? 3 : undefined) }).rects.get("a")!.cols).toBe(174);
   });
 
-  test("a sized pane (a drawer) keeps what its weight gives it; its neighbour takes the rounding", () => {
+  test("a sized pane (a dock) keeps what its weight gives it; its neighbour takes the rounding", () => {
     const s = splitOf("col", [leaf("readers"), leaf("links")], [0.5, 0.5]);
     const r = { col: 0, row: 0, cols: 80, rows: 21 };
     expect(place(s, r).rects.get("links")!.rows).toBe(10);                          // round(10.5) went to the first
@@ -90,22 +90,22 @@ describe("placing", () => {
   });
 });
 
-describe("drawers over the board, and columns (PIE-511)", () => {
-  const D = (kid: LNode<string>, edge: "left" | "down", open = true): LNode<string> => ({ t: "drawer", kid, edge, open });
+describe("docks over the board, and columns (PIE-511)", () => {
+  const D = (kid: LNode<string>, edge: "left" | "down", open = true): LNode<string> => ({ t: "dock", kid, edge, open });
   const board = (lanes: LNode<string>) => splitOf<string>("col", [lanes, splitOf("row", [leaf("preview"), leaf("d1")], [4, 3], "readers"), D(splitOf("row", [leaf("links"), leaf("lpv")]), "down")], [0.42, 0.58, 0.36], "board");
   const screen = (lanes: LNode<string>) => splitOf<string>("row", [D(splitOf("col", [leaf("tree"), leaf("tpv")], [0.6, 0.4], "outline"), "left"), board(lanes)], [0.3, 0.7]);
   const r = { col: 0, row: 0, cols: 180, rows: 48 };
 
-  test("two drawers open at once: each lands where docking it alone would put it, and nothing under them moves", () => {
+  test("two docks open at once: each lands where docking it alone would put it, and nothing under them moves", () => {
     const lanes = columnsOf([leaf("a"), leaf("b")], { key: "lanes", source: "hub:x" });
     const P = placeScreen({ root: screen(lanes), floats: [] }, r);
     const shut = screen(columnsOf([leaf("a"), leaf("b")], { key: "lanes" }));
-    for (const d of drawers(shut)) d.open = false;
+    for (const d of docks(shut)) d.open = false;
     const under = placeScreen({ root: shut, floats: [] }, r);
     for (const id of ["a", "b", "preview", "d1"]) expect(P.rects.get(id)).toEqual(under.rects.get(id)!);
     const links = P.slid.find(d => d.node.edge === "down")!, tree = P.slid.find(d => d.node.edge === "left")!;
     expect(tree.rect).toEqual({ col: 0, row: 0, cols: 54, rows: 48 });
-    // The backlinks drawer spans the board's whole width (the outline drawer takes no room under it), at its bottom.
+    // The backlinks dock spans the board's whole width (the outline dock takes no room under it), at its bottom.
     expect(links.rect.col).toBe(0);
     expect(links.rect.cols).toBe(180);
     expect(links.rect.row + links.rect.rows).toBe(48);
@@ -142,15 +142,15 @@ describe("drawers over the board, and columns (PIE-511)", () => {
     expect(leaves(node(moved, "lanes")!)).toEqual(["a", "q", "b"]);
   });
 
-  test("a whole container goes into a drawer and back (the board's outline: the tree over its preview)", () => {
+  test("a whole container goes into a dock and back (the board's outline: the tree over its preview)", () => {
     const outline = splitOf<string>("col", [leaf("tree"), leaf("tpv")], [0.6, 0.4], "outline");
     const t = splitOf<string>("row", [outline, leaf("board")], [0.3, 0.7]);
-    const wrapped = normalise(wrapNodeDrawer(t, node(t, "outline")!, "right", false)!);
-    expect(drawerOf(wrapped, "tree")).toBe(drawerOf(wrapped, "tpv"));
-    expect(drawerOf(wrapped, "tree")!.edge).toBe("right");
+    const wrapped = normalise(wrapNodeDock(t, node(t, "outline")!, "right", false)!);
+    expect(dockOf(wrapped, "tree")).toBe(dockOf(wrapped, "tpv"));
+    expect(dockOf(wrapped, "tree")!.edge).toBe("right");
     expect(visible(wrapped)).toEqual(["board"]);
-    expect(normalise(unwrapDrawer(wrapped, drawerOf(wrapped, "tree")!))).toMatchObject({ t: "split", kids: [{ t: "leaf", id: "board" }, { key: "outline" }] });
-    expect(wrapNodeDrawer(outline, outline)).toBeNull();
+    expect(normalise(unwrapDock(wrapped, dockOf(wrapped, "tree")!))).toMatchObject({ t: "split", kids: [{ t: "leaf", id: "board" }, { key: "outline" }] });
+    expect(wrapNodeDock(outline, outline)).toBeNull();
   });
 });
 
@@ -267,12 +267,12 @@ describe("saved forms", () => {
   });
 });
 
-// PIE-505: a drawer is a container in the tree, sliding over from an edge; every container carries a policy.
-describe("drawer containers and policy (PIE-505)", () => {
+// PIE-505: a dock is a container in the tree, sliding over from an edge; every container carries a policy.
+describe("dock containers and policy (PIE-505)", () => {
   const r = { col: 0, row: 0, cols: 100, rows: 30 };
-  const tree = () => splitOf("row", [{ t: "drawer", kid: splitOf("col", [leaf("tree"), leaf("claude")]), edge: "left", open: true } as LNode<string>, leaf("lanes")], [0.3, 0.7]);
+  const tree = () => splitOf("row", [{ t: "dock", kid: splitOf("col", [leaf("tree"), leaf("claude")]), edge: "left", open: true } as LNode<string>, leaf("lanes")], [0.3, 0.7]);
 
-  test("an open drawer slides over: the layout under it keeps all its room, the drawer's tiles share where it docks", () => {
+  test("an open dock slides over: the layout under it keeps all its room, the dock's tiles share where it sits", () => {
     const s = placeScreen({ root: tree(), floats: [] }, r);
     expect(s.rects.get("lanes")).toEqual(r);                        // nothing moved for it
     expect(s.rects.has("tree")).toBe(false);
@@ -296,32 +296,32 @@ describe("drawer containers and policy (PIE-505)", () => {
     expect(p.rects.get("tree")!.cols).toBe(30);
   });
 
-  test("tile moves reach into a drawer: beside a tile in it, into its tabs; the drawer goes when its last tile leaves", () => {
-    const t = splitOf("row", [{ t: "drawer", kid: leaf("tree"), edge: "left", open: true } as LNode<string>, leaf("a"), leaf("b"), leaf("c")]);
+  test("tile moves reach into a dock: beside a tile in it, into its tabs; the dock goes when its last tile leaves", () => {
+    const t = splitOf("row", [{ t: "dock", kid: leaf("tree"), edge: "left", open: true } as LNode<string>, leaf("a"), leaf("b"), leaf("c")]);
     const one = move(t, "a", { kind: "split", target: "tree", dir: "down" })!;
-    expect(drawerOf(one, "a")).toBe(drawerOf(one, "tree"));
+    expect(dockOf(one, "a")).toBe(dockOf(one, "tree"));
     const two = move(one, "b", { kind: "tabs", target: "a" })!;
-    expect(leaves(drawerOf(two, "b")!.kid)).toEqual(["tree", "a", "b"]);
-    // Everything left the drawer but one tile: taking the tree out leaves a drawer of the rest; the last out removes it.
-    expect(drawers(normalise(remove(t, "tree")!))).toHaveLength(0);
-    // With nothing left outside it to slide over, a drawer is just what it holds.
+    expect(leaves(dockOf(two, "b")!.kid)).toEqual(["tree", "a", "b"]);
+    // Everything left the dock but one tile: taking the tree out leaves a dock of the rest; the last out removes it.
+    expect(docks(normalise(remove(t, "tree")!))).toHaveLength(0);
+    // With nothing left outside it to slide over, a dock is just what it holds.
     const all = move(two, "c", { kind: "tabs", target: "tree" })!;
-    expect(drawers(all)).toHaveLength(0);
+    expect(docks(all)).toHaveLength(0);
     expect(leaves(all)).toEqual(["tree", "c", "a", "b"]);
   });
 
-  test("wrapDrawer puts a tile in a drawer where it is, or at an outer edge; unwrap docks it back; drawerToEdge moves it", () => {
+  test("wrapDock puts a tile in a dock where it is, or at an outer edge; unwrap undocks it back; dockToEdge moves it", () => {
     const t = splitOf("row", [leaf("a"), splitOf("col", [leaf("b"), leaf("c")])]);
-    const inPlace = wrapDrawer(t, "c")!;
-    expect(drawerOf(inPlace, "c")!.edge).toBe("down");             // the last of a column slides up from the bottom
-    const left = normalise(wrapDrawer(t, "c", "left")!) as any;
-    expect(left.kids[0].t).toBe("drawer");
+    const inPlace = wrapDock(t, "c")!;
+    expect(dockOf(inPlace, "c")!.edge).toBe("down");             // the last of a column slides up from the bottom
+    const left = normalise(wrapDock(t, "c", "left")!) as any;
+    expect(left.kids[0].t).toBe("dock");
     expect(left.kids[0].edge).toBe("left");
     expect(leaves(left)).toEqual(["c", "a", "b"]);
-    expect(normalise(unwrapDrawer(inPlace, drawerOf(inPlace, "c")!))).toEqual(normalise(t));
-    const moved = normalise(drawerToEdge(left, left.kids[0], "right")!) as any;
+    expect(normalise(unwrapDock(inPlace, dockOf(inPlace, "c")!))).toEqual(normalise(t));
+    const moved = normalise(dockToEdge(left, left.kids[0], "right")!) as any;
     expect(moved.kids.at(-1).edge).toBe("right");
-    expect(wrapDrawer(leaf("a"), "a")).toBeNull();                 // nothing to slide over
+    expect(wrapDock(leaf("a"), "a")).toBeNull();                 // nothing to slide over
   });
 
   test("a policy can fix a container's size, keep it at least or at most so many cells", () => {
@@ -331,24 +331,24 @@ describe("drawer containers and policy (PIE-505)", () => {
     expect(place(m, r).rects.get("a")!.cols).toBe(10);
   });
 
-  test("the saved form keeps drawers and policies; a stray field in a hand-edited policy is dropped", () => {
+  test("the saved form keeps docks and policies; a stray field in a hand-edited policy is dropped", () => {
     const t = { ...tree(), policy: { locked: true, accepts: ["tree", 3 as any] } } as LNode<string>;
     const back = revive(serialize(t, id => ({ t: "leaf" as const, id })) as any, (l: any) => l.id as string) as any;
     expect(back.policy).toEqual({ locked: true, accepts: ["tree"] });
-    expect(back.kids[0].t).toBe("drawer");
+    expect(back.kids[0].t).toBe("dock");
     expect(back.kids[0].edge).toBe("left");
     expect(leaves(back)).toEqual(["tree", "claude", "lanes"]);
     expect(policyOf({ locked: "yes", min: -2, fixed: 7.4, opensInto: "" })).toEqual({ fixed: 7 });
   });
 
-  test("review: a lone drawer at the top is what it holds, keeping a policy; a drawer inside a drawer is one", () => {
-    const t = { ...splitOf("row", [{ t: "drawer", kid: splitOf("col", [leaf("a"), leaf("b")]), edge: "left", open: true } as LNode<string>]), policy: { locked: true } } as LNode<string>;
+  test("review: a lone dock at the top is what it holds, keeping a policy; a dock inside a dock is one", () => {
+    const t = { ...splitOf("row", [{ t: "dock", kid: splitOf("col", [leaf("a"), leaf("b")]), edge: "left", open: true } as LNode<string>]), policy: { locked: true } } as LNode<string>;
     const n = normalise(t) as any;
     expect(n.t).toBe("split");
     expect(n.policy).toEqual({ locked: true });
-    const nested = splitOf("row", [{ t: "drawer", kid: { t: "drawer", kid: leaf("a"), edge: "up", open: false, policy: { overlay: false } }, edge: "left", open: true } as LNode<string>, leaf("b")]);
+    const nested = splitOf("row", [{ t: "dock", kid: { t: "dock", kid: leaf("a"), edge: "up", open: false, policy: { overlay: false } }, edge: "left", open: true } as LNode<string>, leaf("b")]);
     const m = normalise(nested) as any;
-    expect(m.kids[0]).toMatchObject({ t: "drawer", edge: "left", open: true, policy: { overlay: false }, kid: { t: "leaf", id: "a" } });
+    expect(m.kids[0]).toMatchObject({ t: "dock", edge: "left", open: true, policy: { overlay: false }, kid: { t: "leaf", id: "a" } });
   });
 });
 
@@ -376,8 +376,8 @@ describe("containers keep their rules and every tile its room (PIE-510)", () => 
     expect(sizes(place(splitOf("row", [leaf(1), leaf(2)]), area).rects)).toEqual([[1, 0, 40, 0, 24], [2, 40, 40, 0, 24]]);
   });
 
-  test("evening out leaves each drawer's size: the docked kids share the rest", () => {
-    const t = splitOf("row", [{ t: "drawer", kid: leaf(1), edge: "left", open: true } as LNode, leaf(2), leaf(3)], [0.3, 0.5, 0.2]);
+  test("evening out leaves each dock's size: the laid-out kids share the rest", () => {
+    const t = splitOf("row", [{ t: "dock", kid: leaf(1), edge: "left", open: true } as LNode, leaf(2), leaf(3)], [0.3, 0.5, 0.2]);
     even(t);
     expect(t.weights[0]).toBeCloseTo(0.3);
     expect(t.weights[1]).toBeCloseTo(0.35);

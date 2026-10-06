@@ -177,7 +177,7 @@ describe("attaching", () => {
 });
 
 describe("the defaults", () => {
-  test("plain claude unless the dock names the agent (no door-claude, no hidden --continue); the folder is EP0CH_DAILY_CWD", () => {
+  test("plain claude unless the drawer names the agent (no door-claude, no hidden --continue); the folder is EP0CH_DAILY_CWD", () => {
     const base = { HOME: "/home/someone", PWD: "/somewhere" };
     expect(agentConfig(base, c => (c === "door-claude" ? "/bin/door-claude" : null)).cmd).toBe("claude");
     expect(agentConfig(base, () => "/x", { agent: ["codex", "--model", "x"] }).agent).toEqual(["codex", "--model", "x"]);
@@ -187,7 +187,7 @@ describe("the defaults", () => {
     expect(c).toMatchObject({ pane: "door-claude", name: "door", workspace: "door" });
     expect(c.env.EP0CH_TILE).toBe("claude");
     expect(c.env.EP0CH_CONTROL).toBe(c.link);
-    expect(agentConfig(base, () => null).cwd).toBe(process.cwd());   // the folder the dock started it in, never the door's PWD
+    expect(agentConfig(base, () => null).cwd).toBe(process.cwd());   // the folder the drawer started it in, never the door's PWD
   });
 });
 
@@ -350,9 +350,9 @@ describe("quitting the door", () => {
 
 describe("one agent pane per outline session (sessions are per outline since PIE-418)", () => {
   test("two sessions on two outlines each get their own pane, name and EP0CH_CONTROL, scoped for a test door; a session's end closes only its own", async () => {
-    // Two test doors' sessions (their own state: the scoped path, EP0CH_HERDR_SCOPED), as the dock's tile env gives them.
+    // Two test doors' sessions (their own state: the scoped path, EP0CH_HERDR_SCOPED), as the drawer's tile env gives them.
     const state = join(dir, "state");
-    const tile = (outline: string) => ({ HOME: dir, EP0CH_STATE: state, EP0CH_HERDR_SCOPED: "1", EP0CH_TILE: "claude", EP0CH_TILE_ID: "dock.agent", EP0CH_CONTROL: join(state, "sessions", "local", outline, "door.sock") });
+    const tile = (outline: string) => ({ HOME: dir, EP0CH_STATE: state, EP0CH_HERDR_SCOPED: "1", EP0CH_TILE: "claude", EP0CH_TILE_ID: "drawer.agent", EP0CH_CONTROL: join(state, "sessions", "local", outline, "door.sock") });
     const a = agentConfig(tile("pie-hole"), () => null, launchArgs(["--session", "pie-hole@float-2", "--agent", "claude"]));
     const b = agentConfig(tile("float-bbs-test"), () => null, launchArgs(["--session", "float-bbs-test", "--agent", "codex"]));
     expect(a.pane).toMatch(/^door-pie-hole--float-2-[0-9a-f]{8}-[0-9a-f]{8}$/);

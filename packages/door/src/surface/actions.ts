@@ -221,7 +221,7 @@ const tracers = new Set<(r: ActionRun) => void>();
 /** The screen's key map entry running now (a spec's `keys`): the key names the action it runs, as the action's own keys do. */
 let boundKey: string | null = null;
 /**
- * Run `f` as screen key `key` (a spec's key map: the board's `t` runs tile.drawer): what runs, runs as that key. Inside
+ * Run `f` as screen key `key` (a spec's key map: the board's `t` runs tile.slide): what runs, runs as that key. Inside
  * another (a click on a hint's key), as both.
  */
 export function asBoundKey<T>(key: string, f: () => T): T {

@@ -1,5 +1,5 @@
 // Holding a reader: only readers that follow the view's current note (the desk's) offer `p hold`, and a
-// held reader says so in its title even while it holds an edit or a comment. ("Pin" is for drawers.)
+// held reader says so in its title even while it holds an edit or a comment. ("Pin" is for docks.)
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import type { Msg } from "../src/board";
 import { ReaderPane, type DeskApi } from "../src/desk/panes";

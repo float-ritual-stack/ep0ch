@@ -59,8 +59,8 @@ const builtins = (): TileKind[] => [
     shows: p => (p as TreePane).selected(),
     view: p => { const m = (p as TreePane).selected(); return { viewport: { selected: m?.id ?? null, title: m ? subject(m) : null } }; },
     describe: (p, full) => (full ? { tree: (p as TreePane).describe() } : {}),
-    // The outline as a screen shows it: open (on screen), pinned (in the layout, not in a drawer), its side, and its rows when shown.
-    peek: (p, desk) => { const open = desk.shownNow?.(p) ?? true; return { outline: { open, pinned: !desk.inDrawer?.(p), side: desk.sideOf?.(p) ?? "left", ...(open ? { rows: (p as TreePane).describe() } : {}) } }; },
+    // The outline as a screen shows it: open (on screen), pinned (in the layout, not in a dock), its side, and its rows when shown.
+    peek: (p, desk) => { const open = desk.shownNow?.(p) ?? true; return { outline: { open, pinned: !desk.inDock?.(p), side: desk.sideOf?.(p) ?? "left", ...(open ? { rows: (p as TreePane).describe() } : {}) } }; },
   },
   { kind: "reader", about: "a reader that follows the current note", keys: [{ key: "r", label: "reader" }], make: () => new ReaderPane(true), ...reading, actions: READER_ACTIONS },
   {
@@ -180,7 +180,7 @@ const builtins = (): TileKind[] => [
     defaults: (s, at) => (s.source ? {} : { source: `tile:${at.name}` }),
     describe: (p, full) => ({ source: `tile:${(p as BacklinksPane).source}`, ...(full ? { backlinks: (p as BacklinksPane).describe() } : {}) }),
     // The backlinks as the screen shows them: what they list and from which tile, while they're on screen and aimed.
-    peek: (p, desk) => { const L = p as BacklinksPane; return { backlinks: (desk.shownNow?.(p) ?? true) && L.target ? { from: L.source, pinned: !desk.inDrawer?.(p), ...L.describe() } : null }; },
+    peek: (p, desk) => { const L = p as BacklinksPane; return { backlinks: (desk.shownNow?.(p) ?? true) && L.target ? { from: L.source, pinned: !desk.inDock?.(p), ...L.describe() } : null }; },
   },
 ];
 

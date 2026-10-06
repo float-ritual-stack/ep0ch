@@ -1,6 +1,6 @@
 // PIE-506 on the desk: what its keys and clicks did by themselves is an action now, and an agent's run of
 // it never takes the person's focus, selection or keys. Search answers an agent's query without opening the
-// overlay; going into a terminal or the dock is the person's only; a list tile's pick by an agent
+// overlay; going into a terminal or the drawer is the person's only; a list tile's pick by an agent
 // moves nothing of theirs; ^W then a ctrl+letter isn't the letter. Scratch services, fictional notes, `sh`.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
@@ -148,7 +148,7 @@ describe.skipIf(!outliner)("the desk's keys are actions, and agents' runs of the
     expect((app as any).stack.at(-1)).toBeInstanceOf(MainMenu);
   });
 
-  test("the dock: going in is the person's only", async () => {
+  test("the drawer: going in is the person's only", async () => {
     await expect(app.act({ action: "host.enter", args: {}, as: AS })).rejects.toThrow(/person's keys/);
     await expect(app.act({ action: "host.leave", args: {}, as: AS })).rejects.toThrow(/keys are theirs/);
   });

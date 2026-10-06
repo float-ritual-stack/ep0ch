@@ -1,6 +1,6 @@
 // PIE-506: the board's keys and clicks are actions, and agents run the same ones without taking the
 // person's keys. The hub picker is `board.hub`; the lane cursor is `card.select`; lanes, the outline
-// drawer, floats and the backlinks rows have theirs. Scratch services and fictional notes only.
+// dock, floats and the backlinks rows have theirs. Scratch services and fictional notes only.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { App } from "../src/app";
@@ -72,7 +72,7 @@ describe.skipIf(!outliner)("the board's actions, against a scratch outline", () 
     // A lane's opens land in the readers row (the screen's opensInto), as its ⏎ does: from= a lane, a detail there.
     const lane = tiles.find(t => t.kind === "query")!;
     expect(await act("open", { id: card.id, from: lane.name })).toMatchObject({ reader: expect.stringMatching(/^detail/), id: card.id });
-    // An unlinked tile (the outline drawer's tree): where the board's own open puts a note, its detail.
+    // An unlinked tile (the outline dock's tree): where the board's own open puts a note, its detail.
     expect(tiles.find(t => t.name === "tree").link ?? null).toBeNull();
     const unlinked = await act("open", { id: card.id, from: "tree" }) as any;
     expect(unlinked.id).toBe(card.id);
@@ -162,20 +162,20 @@ describe.skipIf(!outliner)("the board's actions, against a scratch outline", () 
     await until(() => !B().trashed, "restored");
   });
 
-  test("lanes collapse, the outline drawer opens and floats move by actions; an agent's leaves the person's keys", async () => {
+  test("lanes collapse, the outline dock opens and floats move by actions; an agent's leaves the person's keys", async () => {
     // The lane's own action, which folds its tile by the desk's.
     expect(ran(() => key(char("c")))).toEqual(["lane.collapse", "tile.collapse"]);
     expect(B().collapsed.size).toBe(1);
     await act("lane.collapse", { on: false, lane: "To do" });
     expect(B().collapsed.size).toBe(0);
     expect(message()).toContain("opened the lane To do");
-    await act("tile.drawer", { open: true }, "tree");
+    await act("tile.slide", { open: true }, "tree");
     expect(B().treeOpen).toBe(true);
     expect(BV.where(b)).toBe("lanes");
-    await act("tile.drawer", { open: false }, "tree");
-    expect(ran(() => key(char("t")))).toEqual(["tile.drawer"]);
+    await act("tile.slide", { open: false }, "tree");
+    expect(ran(() => key(char("t")))).toEqual(["tile.slide"]);
     expect(BV.where(b)).toBe("tree");
-    await expect(act("tile.drawer", { open: false }, "tree")).rejects.toThrow(/the person|their keys|keys/);
+    await expect(act("tile.slide", { open: false }, "tree")).rejects.toThrow(/the person|their keys|keys/);
     key({ kind: "esc" });
     expect(B().treeOpen).toBe(false);
     // A float: o on the preview pops a copy out; H J K L move it by float.place, as an agent's does.

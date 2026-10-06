@@ -143,8 +143,8 @@ describe.skipIf(!outliner)("the review's findings, against a scratch outline", (
     for (const k of ["EP0CH_STATE", "EP0CH_DAILY_AGENT", "EP0CH_DAILY_DRAFT", "EDITOR"]) delete process.env[k];
   });
 
-  test("blocker: while the person types in a terminal, an agent's focus, drawer shut and open all leave the keys there", async () => {
-    await mine("tile.pin", { on: false }, "side");                 // a drawer, to try shutting under them
+  test("blocker: while the person types in a terminal, an agent's focus, dock shut and open all leave the keys there", async () => {
+    await mine("tile.dock", { on: true }, "side");                 // a dock, to try shutting under them
     enter("claude");
     expect(D().describe().inTerminal).toBe("claude");
     await expect(act("tile.focus", {}, "middle")).rejects.toThrow(/the person is typing/);
@@ -154,13 +154,13 @@ describe.skipIf(!outliner)("the review's findings, against a scratch outline", (
     expect(D().describe().inTerminal).toBe("claude");
     await expect(act("layout.load", { name: "desk" })).rejects.toThrow(/the person is typing/);
     key(ctrl("]"));
-    // The drawer: the person opens it and types in the preview's… no: they're in it; an agent can't shut it on them.
-    await mine("tile.drawer", { open: true }, "side");
+    // The dock: the person opens it and types in the preview's… no: they're in it; an agent can't shut it on them.
+    await mine("tile.slide", { open: true }, "side");
     expect(D().focus).toBe(idOf("side"));
     D().overlays.push({ name: "layouts", key: () => true, draw() {} }); // typing (a picker counts)
-    await expect(act("tile.drawer", { open: false }, "side")).rejects.toThrow(/shut the drawer they have/);
+    await expect(act("tile.slide", { open: false }, "side")).rejects.toThrow(/shut the dock they have/);
     D().overlays.drop("layouts");
-    await mine("tile.pin", { on: true }, "side");
+    await mine("tile.dock", { on: false }, "side");
   });
 
   test("blocker: pane.split and pane.close are tile.open and tile.close (one path: a split along the same axis joins it)", async () => {
@@ -273,13 +273,13 @@ describe.skipIf(!outliner)("the review's findings, against a scratch outline", (
     expect(readFileSync(f, "utf8")).not.toBe(before);
   });
 
-  test("nits: a tile dropped into a drawer's tabs keeps it a drawer; a ctrl+e edit tile isn't saved in the layout", async () => {
-    await mine("tile.pin", { on: false }, "side");
+  test("nits: a tile dropped into a dock's tabs keeps it a dock; a ctrl+e edit tile isn't saved in the layout", async () => {
+    await mine("tile.dock", { on: true }, "side");
     await mine("layout.move", { to: "side", where: "tabs" }, "now");
-    expect([tile("side").drawer, tile("now").drawer]).toEqual([tile("side").drawer, tile("side").drawer]);
-    expect(tile("now").drawer).toBeDefined();
-    await mine("tile.pin", { on: true }, "now");
-    expect([tile("side").drawer, tile("now").drawer]).toEqual([undefined, undefined]);
+    expect([tile("side").dock, tile("now").dock]).toEqual([tile("side").dock, tile("side").dock]);
+    expect(tile("now").dock).toBeDefined();
+    await mine("tile.dock", { on: false }, "now");
+    expect([tile("side").dock, tile("now").dock]).toEqual([undefined, undefined]);
     await mine("layout.move", { to: "middle", where: "down" }, "now");
     // ctrl+e's edit tile: never in desk.json (its temp file goes with the door).
     const f = join(scratch.root, "door", "edit.md");
