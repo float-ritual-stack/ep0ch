@@ -142,3 +142,57 @@ exit, a wait on a clock, retries, child processes, and refusals that carry the e
 - Mutability: worse until decided (readonly arrays everywhere, or `Schema.mutable` on each).
 - Import cost: worse by about 50 ms for every CLI run that touches outline-core, unless the Schemas live apart from
   the pure grammar modules.
+
+## C. The door's `hostRequest` on Effect's Socket
+
+`packages/effect-spike/src/host-request.ts` and `test/host-request.test.ts`; the original is `hostRequest` in
+`packages/door/src/socket.ts` (18 lines: a Promise around `net.connect`, a timer, `JsonLines`, four exits). Chosen for
+the resource-cleanup and error-path-bypass classes at a client boundary, and to see what Effect's own Socket gives a
+unix-socket JSON-lines client.
+
+**What changed**
+
+- The socket is `makeNet({ path })` from `@effect/platform-bun/BunSocket` (a re-export of
+  `@effect/platform-node-shared/NodeSocket`): a scoped resource, closed when `Effect.scoped` ends, on the answer, a
+  refusal, a timeout, an error or an interruption. No timer to clear, no `destroy()` to remember.
+- The timeout is `Effect.timeout`, caught by tag and turned into `HostSilent` with the command (`ep0ch status`); a
+  socket that can't open or hangs up is a `SocketError` whose `reason._tag` (`SocketOpenError`, `SocketCloseError`)
+  becomes `NoHost`'s `said`; the answer line goes through slice B's `ResponseLine`, so a line this protocol can't
+  read is `BadAnswer` naming the missing field rather than a silently `undefined` result.
+- The result is decoded by a Schema the caller passes (`{ result: OutlinerServiceStatus }`), so the generic `T` the
+  original casts to becomes a checked type. A result that doesn't match says `result: Missing key at [...]`.
+- The test runs a fictional host on a real unix socket (`Bun.listen` in a temp dir) and counts open connections
+  after each case: zero every time, timeout included.
+
+**What it caught**
+
+- **Acquire the reader before you write.** The first version wrote the request, then acquired `socket.reader`. The
+  `ping` test passed; `outlines.create` hung for the full 15 s timeout. The duplex is kept paused and drained on
+  `pull`, so an answer that arrives before the reader is acquired can be missed. Reordering fixed it. This is an
+  Effect Socket semantic the docs state in `fromDuplex`'s comment, and it would be an easy production bug: the test
+  found it only because the fake host answers at once.
+- `Effect.fn` with a generic generator (`function*<T>()`) lost its return type (inferred `undefined` at the call
+  site). Passing the result Schema as a parameter and returning `S["Type"]` fixed both the typing and the design.
+
+**What it cost**
+
+| | original | spike |
+|---|---|---|
+| request | 18 lines | 60 lines (four error classes, the decode, the read loop) |
+| test | none (covered indirectly) | 68 lines, against a real socket |
+
+- The read loop (`reader.pull`, decode chunks, split on `\n`) is hand-written here; `effect/encoding`'s
+  `Ndjson.decodeSchemaString` would do it as a Channel over a Stream, which fits a long-lived connection (the
+  Board's event feed) better than this one-shot. Not tried in this slice.
+- `TestClock` can't drive this: the waits are real socket I/O. The timeout test uses a real 150 ms. Any adoption
+  keeps two kinds of test: TestClock for rules (slice A), real sockets for boundaries (this).
+- `@effect/platform-bun/BunSocket` imports in 58 ms (measured as `BunSocketServer`; the client module is similar).
+
+**Verdicts for this slice**
+
+- Resource cleanup at a client boundary: prevents the class (the socket is scoped).
+- Error-path bypass: helps (one error channel, every exit typed), but only within Effect code; the moment this is
+  called from a Promise world the four tags collapse into one thrown error again, unless the caller matches on them.
+- Untyped result: prevents (the caller names a Schema).
+- Lines: worse by three times for a one-shot; the ratio would improve on the long-lived Board connection where the
+  original is 100+ lines of reconnect, backoff and catch-up.
