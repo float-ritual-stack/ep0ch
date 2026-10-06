@@ -303,7 +303,7 @@ describe("the comparison kinds (PIE-575 to PIE-579)", () => {
 });
 
 describe("one width rule for every kind (PIE-581)", () => {
-  const within = (out: string[], w: number) => out.every(l => plain(l).length <= w);
+  const within = (out: string[], w: number) => out.every(l => Bun.stringWidth(plain(l)) <= w);
   test("stat tiles wrap into rows; a narrow table keeps the title column and one more and says what it dropped", () => {
     const stat = body(draw("stat", ["- a: 1", "- b: 22", "- c: 333", "- d: 4", "- e: 55", "- f: 6"], 36));
     expect(stat).toHaveLength(5);
@@ -319,8 +319,34 @@ describe("one width rule for every kind (PIE-581)", () => {
     const d = body(draw("decision", ["- **Raised beds** — the clay stays wet, so the roots rot"], 40));
     expect(d[0]).toMatch(/^● Raised beds\s*$/);
     expect(d[1]).toMatch(/^\s+— the clay stays wet/);
-    for (const w of [40, 80, 160]) for (const [kind, src] of [["quadrant", ["- a: x, y", "- b: y, x"]], ["matrix", ["- r: c=1 d=2"]], ["compare", ["- a: one | two"]], ["flow", ["- a → b: 2"]], ["meter", ["---", "limit: 10", "---", "- a: 12"]], ["stat", ["- a: 1", "- b: 2", "- c: 3", "- d: 4", "- e: 5"]]] as const) {
-      expect(within(renderGraph(kind, figureSource([...src]), w), w)).toBe(true);
+    const long = "a label far longer than any narrow column could hold, with 漢字 wide glyphs in it too";
+    const cases: [string, string[]][] = [
+      ["quadrant", ["---", "quadrants: [" + long + ", " + long + ", c, d]", "---", "- a: x, y", "- b: y, x", `- ${long}: x, x`]],
+      ["matrix", ["- r: c=1 d=2000000", `- ${long}: a=1 b=2 c=3 d=4 e=5 f=6 g=7 h=8 i=9 j=10`]],
+      ["compare", ["---", `columns: [${long}, B, C]`, "---", "- a: one | two", `- ${long}: ${long} | x`]],
+      ["flow", ["- a → b: 2", `- ${long} → ${long}: 123456789012345678901`]],
+      ["meter", ["---", "limit: 10", "unit: a unit with a long name", "---", "- a: 12", `- ${long}: 1234567890`]],
+      ["stat", ["- a: 1", "- b: 2", "- c: 3", "- d: 4", "- e: 5", `- ${long}: ${long}`]],
+      ["timeline", [`- 2026-03-02T10:00: ${long} — ${long}`]],
+      ["decision", [`- **${long}** — ${long}`]],
+      ["table", ["---", "headers: [a, b, c, d]", "rows:", `  - [${long}, ${long}, ${long}, ${long}]`, "---"]],
+      ["quadrant", []], ["matrix", []], ["compare", []], ["flow", []],
+    ];
+    for (const w of [40, 80, 160]) for (const [kind, src] of cases) expect(within(renderGraph(kind, figureSource(src), w), w), `${kind} at ${w}`).toBe(true);
+  });
+  test("odd inputs are drawn, not thrown: a row named constructor, a zero flow, a negative meter, YAML of the wrong shape, kpi at its real width", () => {
+    expect(body(draw("matrix", ["- constructor: c=1", "- __proto__: c=2"], 60))[4]).toMatch(/^\s+3\s*$/);
+    const flow = body(draw("flow", ["- a → b: 0", "- a → c: 2"], 60));
+    expect(flow[0]).toMatch(/^a\s+2 █+$/);
+    expect(flow.find(l => l.includes("b"))).toMatch(/▶ b\s+0$/);
+    // A negative value is drawn as nothing used, never a RangeError.
+    expect(body(draw("meter", ["---", "limit: 10", "---", "- a: -1"], 60))[1]).toMatch(/^\s+10 left$/);
+    expect(draw("meter", ["---", "limit: 0", "---", "- a: 1"], 60).join("\n")).toContain("a budget is a number above 0");
+    for (const src of [["---", "entries: [{ label: cost, cells: free }]", "---"], ["---", "points: [null, 3]", "---"], ["---", "flows: [null]", "---"], ["---", "cells: { row: null, other: { c: 2 } }", "---"]]) {
+      const kind = src[1]!.startsWith("entries") ? "compare" : src[1]!.startsWith("points") ? "quadrant" : src[1]!.startsWith("flows") ? "flow" : "matrix";
+      expect(draw(kind, src, 60).join("\n")).not.toContain("couldn't draw");
     }
+    // kpi is stat at the figure's width: two tiles fit on one row at 60.
+    expect(body(draw("kpi", ["- a: 1", "- b: 2"], 60))).toHaveLength(2);
   });
 });

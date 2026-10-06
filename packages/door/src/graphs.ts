@@ -146,9 +146,12 @@ const KINDS: Record<string, (p: Props, w: number, link?: RowLink, ui?: FigureUI)
     return ev.flatMap((e, i) => {
       const now = e.state === "now", next = e.state === "next";
       const dot = next ? fg(DIM) + "○" : fg(now ? ACCENT : HI) + "●";
-      const note = e.note && !narrow ? `${fg(DIM)}  — ${e.note}` : "";
-      const line = `${dot}  ${fg(next ? DIM : INK)}${String(e.date ?? "").padEnd(dw)}  ${fg(now ? ACCENT : next ? DIM : HI)}${rowLink(link, e.block, String(e.label ?? ""))}${note}${RESET}`;
-      const under = e.note && narrow ? wrap(String(e.note), Math.max(8, w - dw - 5)).map(l => " ".repeat(dw + 5) + fg(DIM) + l + RESET) : [];
+      // The label gets what the date and the note leave (`pad` cuts a line past the frame).
+      const note = e.note && !narrow ? `${fg(DIM)}  — ${ellipsize(String(e.note), Math.max(6, w >> 1))}` : "";
+      const label = ellipsize(String(e.label ?? ""), Math.max(6, w - dw - 5 - (note ? vwidth(note) : 0)));
+      const line = `${dot}  ${fg(next ? DIM : INK)}${String(e.date ?? "").padEnd(dw)}  ${fg(now ? ACCENT : next ? DIM : HI)}${rowLink(link, e.block, label)}${note}${RESET}`;
+      const indent = Math.min(dw + 5, w >> 1);
+      const under = e.note && narrow ? wrap(String(e.note), Math.max(6, w - indent)).map(l => " ".repeat(indent) + fg(DIM) + l + RESET) : [];
       return [pad(line, w), ...under, ...(i < ev.length - 1 ? [fg(DIM) + "│" + RESET] : [])];
     });
   },
@@ -158,7 +161,8 @@ const KINDS: Record<string, (p: Props, w: number, link?: RowLink, ui?: FigureUI)
     // The accent: the bold item (Markdown) or `accent: true`, else the last.
     const marked = items.some(it => it.accent);
     const cells = items.map((it, i) => ({ v: String(it.value ?? ""), l: String(it.label ?? ""), accent: marked ? !!it.accent : i === items.length - 1 }));
-    const cw = Math.max(...cells.map(c => Math.max(vwidth(c.v), vwidth(c.l)))) + 4;
+    // A tile is as wide as its longest value or label plus four, at most the figure (`pad` cuts what is longer).
+    const cw = Math.min(Math.max(w, 4), Math.max(...cells.map(c => Math.max(vwidth(c.v), vwidth(c.l)))) + 4);
     // Tiles wrap into rows of as many as fit (PIE-581): a fifth tile goes under the first, never past the edge.
     const per = Math.max(1, Math.floor(Math.max(cw, w) / cw));
     const out: string[] = [];
@@ -170,7 +174,7 @@ const KINDS: Record<string, (p: Props, w: number, link?: RowLink, ui?: FigureUI)
     return out;
   },
 
-  kpi: (p) => KINDS.stat!(p, 0),
+  kpi: (p, w) => KINDS.stat!(p, w),
 
   rank: (p, w) => {
     const items: Props[] = p.items ?? [];
@@ -214,14 +218,15 @@ const KINDS: Record<string, (p: Props, w: number, link?: RowLink, ui?: FigureUI)
       const v = num(p.value), frac = v > 1 ? v / 100 : v;
       return [`${bar(frac, Math.max(10, Math.min(40, w - 8)))}  ${fg(ACCENT)}${Math.round(frac * 100)}%${RESET}`, ...(p.caption ? [fg(DIM) + p.caption + RESET] : [])];
     }
-    const limit = Math.max(num(p.limit), 1e-9), unit = p.unit ? ` ${p.unit}` : "";
-    const items: Props[] = Array.isArray(p.items) && p.items.length ? p.items : [{ label: p.label ?? "", value: p.value }];
+    const limit = num(p.limit), unit = p.unit ? ` ${ellipsize(String(p.unit), 12)}` : "";
+    if (!(limit > 0)) return [fg(C.lred) + `limit: ${fmt(p.limit)} · a budget is a number above 0` + RESET];
+    const items: Props[] = Array.isArray(p.items) && p.items.length ? p.items.filter(it => it && typeof it === "object") : [{ label: p.label ?? "", value: p.value }];
     const lw = Math.min(Math.max(0, ...items.map(it => vwidth(String(it.label ?? "")))), Math.max(6, Math.floor(w / 3)));
     const vw = Math.max(...items.map(it => fmt(num(it.value)).length), fmt(limit).length);
     const bw = Math.max(8, Math.min(40, w - lw - vw * 2 - (tier(w) === "narrow" ? 0 : unit.length + 3) - 7));
     const out: string[] = [];
     for (const it of items) {
-      const v = num(it.value), over = v > limit, k = Math.min(bw, Math.round((Math.min(v, limit) / limit) * bw));
+      const v = Math.max(0, num(it.value)), over = v > limit, k = Math.max(0, Math.min(bw, Math.round((Math.min(v, limit) / limit) * bw)));
       const fill = fg(over ? C.lred : it.accent ? ACCENT : HI) + "█".repeat(k) + fg(DIM) + "-".repeat(bw - k) + fg(over ? C.lred : DIM) + "┃" + RESET;
       const label = lw ? fg(it.accent ? ACCENT : HI) + pad(ellipsize(String(it.label ?? ""), lw), lw) + "  " : "";
       // Narrow: `90/150` and the unit beneath, so the bar keeps its room.
@@ -260,16 +265,17 @@ const KINDS: Record<string, (p: Props, w: number, link?: RowLink, ui?: FigureUI)
   },
 
   table: (p, w, link, ui) => {
-    let head: string[] = (p.headers ?? []).map(String), rows: string[][] = (p.rows ?? []).map((r: unknown[]) => r.map(String));
-    let foot: string[] | undefined = p.footer?.map(String);
-    const align: string[] = p.align ?? [];
+    let head: string[] = (p.headers ?? []).map(String), rows: string[][] = (Array.isArray(p.rows) ? p.rows : []).map((r: unknown) => (Array.isArray(r) ? r : [r]).map(String));
+    let foot: string[] | undefined = Array.isArray(p.footer) ? p.footer.map(String) : undefined;
+    let align: string[] = Array.isArray(p.align) ? p.align : [];
     // Narrow (PIE-581): the title column and one more; the rest are counted in the footer, never wrapped to nothing.
-    const tcol = Math.max(0, Number(p.titleColumn) || 0), width0 = Math.max(...[head, ...rows].map(r => r.length));
+    const width0 = Math.max(0, ...[head, ...rows].map(r => r.length));
+    const tcol = Math.min(Math.max(0, width0 - 1), Math.max(0, Number(p.titleColumn) || 0));
     let dropped = 0;
     if (tier(w) === "narrow" && width0 > 2) {
       const keep = [tcol, [...Array(width0).keys()].find(k => k !== tcol)!];
       const cut = (r: string[]) => keep.map(k => r[k] ?? "");
-      head = cut(head); rows = rows.map(cut); foot = foot && cut(foot); dropped = width0 - 2;
+      head = cut(head); rows = rows.map(cut); foot = foot && cut(foot); align = cut(align); dropped = width0 - 2;
     }
     const all = [head, ...rows, ...(foot ? [foot] : [])];
     const n = Math.max(...all.map(r => r.length));

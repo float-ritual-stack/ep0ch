@@ -140,6 +140,24 @@ describe.skipIf(!outliner)("the showcase seed", () => {
       for (const title of ["HOUSE JOBS BY PRIORITY", "HOUSE JOBS BY ARC", "RAISED BEDS OR GROW BAGS", "CHORES BY AREA", "STARTUP BUDGET"]) expect(lines.join("\n")).toContain(title);
       expect(lines.join("\n")).not.toMatch(/name the two properties|no (points|cells|flows|rows):/);
     }
+    // The live data drew: the quadrant placed every house job, the matrix's totals are the stage counts, the flow
+    // counted the chores by area, and the budget meter's last row is over its limit.
+    const at80 = (await drawNote(board, seeded.notes.figures.id, 80))!.map(plain).join("\n");
+    expect(at80).toMatch(/HOUSE JOBS BY PRIORITY AND STAGE[\s\S]*live · 6 results/);
+    expect(at80).toMatch(/HOUSE JOBS BY ARC AND STAGE[\s\S]*\n ┊\s+2\s+1\s+2\s+1\s+┊/);
+    expect(at80).toMatch(/CHORES BY AREA AND STAGE[\s\S]*garden\s+3 █/);
+    expect(at80).toMatch(/with the barrel\s+█+┃\s+181 \/ 150 ms\s+┊\n ┊\s+31 ms over/);
+  });
+
+  test("a figure can be linked to (PIE-580): the service slices the whole block for an anchor alone after its ::", async () => {
+    const read = await board.readFragment(seeded.notes.figures.id, "budget");
+    expect(read.status).toBe("resolved");
+    if (read.status !== "resolved") return;
+    const lines = seeded.notes.figures.text.split("\n");
+    expect(lines[read.fragment.startLine]).toBe("::graph-meter");
+    expect(lines[read.fragment.endLine]).toBe("::");
+    expect(lines[read.fragment.endLine + 1]).toBe("^budget");
+    expect(read.fragment.text).toContain("title: Startup budget");
   });
 
   test("seeding twice is refused", async () => {

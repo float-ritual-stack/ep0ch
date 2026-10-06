@@ -138,9 +138,22 @@ function componentsByEnd(lines: readonly string[], memo: { map?: Map<number, { s
   return memo.map;
 }
 
-/** A component's name for a fragment list: its `title:` when its YAML has one, else `::graph-rank`. */
+/**
+ * A component's name for a fragment list: its `title:` when its YAML header (between the `---` lines right after
+ * the opener) has one, parsed as YAML, else `::graph-rank`.
+ */
 function componentLabel(lines: readonly string[], c: { start: number; end: number; name: string }): string {
-  for (let i = c.start + 1; i < c.end; i++) { const t = /^title:\s*(.+?)\s*$/.exec(lines[i]!); if (t) return t[1]!.replace(/^(["'])(.*)\1$/, "$2"); }
+  const body = lines.slice(c.start + 1, c.end);
+  const open = body.findIndex(l => l.trim());
+  if (open >= 0 && /^\s*---\s*$/.test(body[open]!)) {
+    const close = body.findIndex((l, i) => i > open && /^\s*---\s*$/.test(l));
+    if (close > open) {
+      try {
+        const yaml = Bun.YAML.parse(body.slice(open + 1, close).join("\n")) as { title?: unknown } | null;
+        if (yaml && typeof yaml === "object" && typeof yaml.title === "string" && yaml.title.trim()) return yaml.title.trim();
+      } catch { /* a bad header names the component by its kind */ }
+    }
+  }
   return `::${c.name}`;
 }
 

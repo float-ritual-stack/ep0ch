@@ -41,7 +41,7 @@ export function drawDecision(p: Props, w: number, link?: RowLink): string[] {
     const glyph = (state === "chosen" ? fg(ACCENT) : state === "rejected" ? fg(DIM) : fg(INK)) + GLYPH[state];
     const ink = state === "chosen" ? fg(HI) + BOLD : state === "rejected" ? fg(DIM) : fg(INK);
     const labels = wrap(label, lw);
-    const reason = o.reason ? wrap(String(o.reason), narrow ? Math.max(6, w - 4) : Math.max(6, w - lw - 6)) : [];
+    const reason = o.reason ? wrap(String(o.reason), narrow ? Math.max(6, w - 6) : Math.max(6, w - lw - 6)) : [];
     const n = narrow ? labels.length : Math.max(labels.length, reason.length);
     for (let i = 0; i < n; i++) {
       const l = labels[i] ?? "", head = i ? "  " : glyph + RESET + " ";

@@ -42,6 +42,7 @@ import { headerLine } from "@ep0ch/outline-core/header-line";
 import type { Row } from "./figures/markdown";
 import { decisionState } from "./figures/decision";
 import { dayOf, dayState, isoOf, localDay, monthOf, today, uptimeDays } from "./figures/days";
+import { addCell, type Cells } from "./figures/matrix";
 
 type Props = Record<string, any>;
 /** `done` / `now`: the results the figure's `done:` and `now:` queries hold for, as the service says. */
@@ -218,7 +219,8 @@ export function resolveLive(kind: string, p: Props): Resolved | null {
   // Figures of days count every result, not the first 200.
   if ((kind === "uptime" || kind === "activity" || kind === "calendar") && (p.query || p.view)) p = { limit: 1000, ...p };
   // A tabs figure groups every result, so it asks for all of them; its `limit:` is per tab.
-  const a = answer(kind === "tabs" ? { ...p, limit: TABS_FETCH } : p);
+  // A tabs figure groups every result, and a meter with a budget counts them all: `limit:` is theirs, not the query's.
+  const a = answer(kind === "tabs" || (kind === "meter" && p.limit !== undefined) ? { ...p, limit: TABS_FETCH } : p);
   if (!a) return null;
   if (a.state === "error") return { props: p, status: null, waiting: false, error: a.error };
   if (a.state === "loading" && !a.items.length) return { props: p, status: null, waiting: true };
@@ -262,8 +264,8 @@ export function resolveLive(kind: string, p: Props): Resolved | null {
     case "matrix": {
       const dk = String(p.down ?? ""), ak = String(p.across ?? ""), vk = p.value ? String(p.value) : null;
       if (!dk || !ak) return { status, waiting: false, props: p, error: "matrix: down: and across: name the two properties" };
-      const cells: Record<string, Record<string, number>> = {};
-      for (const m of items) { const r = (cells[m.props[dk] ?? NONE] ??= {}), c = m.props[ak] ?? NONE; r[c] = (r[c] ?? 0) + (vk ? Number(m.props[vk]) || 0 : 1); }
+      const cells: Cells = new Map();
+      for (const m of items) addCell(cells, m.props[dk] ?? NONE, m.props[ak] ?? NONE, vk ? Number(m.props[vk]) || 0 : 1);
       return { status, waiting: false, props: { ...p, cells } };
     }
     case "flow": {

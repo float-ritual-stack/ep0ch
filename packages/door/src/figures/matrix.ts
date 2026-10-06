@@ -15,46 +15,65 @@
 // Cells are toned by their share of the largest; an empty cell is a dot. Narrow, the column heads are cut to fit.
 import { ellipsize, fg, pad, RESET, width as vwidth } from "../style";
 import type { Markdown } from "./markdown";
-import { ACCENT, DIM, HI, INK, type Props } from "./palette";
+import { ACCENT, DIM, HI, INK, ordered, type Props } from "./palette";
 
 const SHADES = ["·", "░", "▒", "▓", "█"];
 const shade = (n: number, max: number) => (n <= 0 ? 0 : Math.min(4, Math.max(1, Math.ceil((n / Math.max(1, max)) * 4))));
 
-/** The names listed first (`order-down:`, `order-across:`), then the rest in the order the cells give them. */
-export function ordered(listed: unknown, seen: readonly string[]): string[] {
-  const given = Array.isArray(listed) ? listed.map(String) : [];
-  return [...given, ...seen.filter((v, i, a) => !given.includes(v) && a.indexOf(v) === i)];
-}
-
 export function drawMatrix(p: Props, w: number): string[] {
-  const cells: Record<string, Record<string, number>> = p.cells ?? {};
-  const rows = ordered(p["order-down"], Object.keys(cells));
-  const cols = ordered(p["order-across"], Object.values(cells).flatMap(r => Object.keys(r)));
+  // Cells as a map of maps, whatever the YAML gave (a row named `constructor` is a row, not Object's).
+  const cells = cellsOf(p.cells);
+  const rows = ordered(p["order-down"], [...cells.keys()]);
+  const cols = ordered(p["order-across"], [...cells.values()].flatMap(r => [...r.keys()]));
   if (!rows.length || !cols.length) return [fg(DIM) + "no cells: rows are `- row: col=n …`, or down: and across: name two properties" + RESET];
   const lw = Math.min(Math.max(...rows.map(vwidth)), Math.max(6, Math.floor(w / 3)));
   const cw = Math.max(3, Math.min(12, Math.floor((w - lw - 1) / cols.length)));
-  const max = Math.max(1, ...rows.flatMap(r => cols.map(c => Number(cells[r]?.[c]) || 0)));
+  const at = (r: string, c: string) => cells.get(r)?.get(c) ?? 0;
+  const max = Math.max(1, ...rows.flatMap(r => cols.map(c => at(r, c))));
+  // A cell's number is cut to its column too (`pad` ends it with …), so a big sum never shifts its neighbours.
   const head = " ".repeat(lw + 1) + cols.map(c => fg(HI) + pad(ellipsize(c, cw - 1), cw)).join("") + RESET;
   const body = rows.map(r => fg(HI) + pad(ellipsize(r, lw), lw) + " " + cols.map(c => {
-    const n = Number(cells[r]?.[c]) || 0, s = shade(n, max);
+    const n = at(r, c), s = shade(n, max);
     const tone = s >= 4 ? ACCENT : s >= 2 ? HI : s ? INK : DIM;
     return fg(tone) + pad(n ? `${SHADES[s]} ${n}` : "·", cw);
   }).join("") + RESET);
-  const totals = cols.map(c => rows.reduce((a, r) => a + (Number(cells[r]?.[c]) || 0), 0));
+  const totals = cols.map(c => rows.reduce((a, r) => a + at(r, c), 0));
   const foot = fg(DIM) + pad("", lw + 1) + totals.map(t => pad(String(t), cw)).join("") + RESET;
   return [head, ...body, fg(DIM) + "·".repeat(Math.min(w, lw + 1 + cw * cols.length)) + RESET, foot];
+}
+
+export type Cells = Map<string, Map<string, number>>;
+
+/** `cells` as a map of maps, from a Map, a YAML map of maps, or nothing. */
+export function cellsOf(v: unknown): Cells {
+  if (v instanceof Map) return v as Cells;
+  const out: Cells = new Map();
+  if (v && typeof v === "object" && !Array.isArray(v)) {
+    for (const [r, cols] of Object.entries(v as Record<string, unknown>)) {
+      if (!cols || typeof cols !== "object" || Array.isArray(cols)) continue;
+      out.set(r, new Map(Object.entries(cols as Record<string, unknown>).map(([c, n]) => [c, Number(n) || 0])));
+    }
+  }
+  return out;
+}
+
+/** Add `n` to a cell, making its row and column as needed. */
+export function addCell(cells: Cells, row: string, col: string, n: number): void {
+  const r = cells.get(row) ?? new Map<string, number>();
+  cells.set(row, r);
+  r.set(col, (r.get(col) ?? 0) + n);
 }
 
 /** `- row: col=3 col2=1`: a cell per `name=n`; a bare number is the `value` column. */
 export function matrixMarkdown(md: Markdown): Props {
   if (!md.rows.length) return {};
-  const cells: Record<string, Record<string, number>> = {};
+  const cells: Cells = new Map();
   for (const r of md.rows) {
-    const row = r.label ?? r.text, into = (cells[row] ??= {});
+    const row = r.label ?? r.text;
     for (const tok of r.values) {
       const m = /^(.+?)=(-?\d+(?:\.\d+)?)$/.exec(tok);
-      if (m) into[m[1]!] = (into[m[1]!] ?? 0) + Number(m[2]);
-      else if (Number.isFinite(Number(tok))) into.value = (into.value ?? 0) + Number(tok);
+      if (m) addCell(cells, row, m[1]!, Number(m[2]));
+      else if (tok && Number.isFinite(Number(tok))) addCell(cells, row, "value", Number(tok));
     }
   }
   return { cells };

@@ -249,7 +249,7 @@ export type StepChange = { kind: "status"; status: StepStatus } | { kind: "ensur
 
 /** A fragment's slice of its note, as the service reads it (`fragments.read`, PIE-424). */
 export interface FragmentSlice {
-  kind: "heading" | "paragraph" | "list-item"; label: string;
+  kind: "heading" | "paragraph" | "list-item" | "component"; label: string;
   /** Note lines (from 0, the subject), inclusive, and UTF-16 offsets [start, end). */
   startLine: number; endLine: number; start: number; end: number;
   /** The slice as a reader shows it (anchors hidden, a list item standing alone), line for line. */

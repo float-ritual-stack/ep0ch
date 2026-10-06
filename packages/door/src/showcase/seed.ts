@@ -346,7 +346,10 @@ function figuresText(gardenViewId: string): string {
     ...mdFig("compare", ["title: Raised beds or grow bags", "columns: [Raised beds, Grow bags]"], ["- cost: £60 of scaffold boards | £12 a bag", "- drainage: good on the clay | fine", "- **lasts: ten years | two seasons**", "- moving: never | in an afternoon"]),
     ...fig("flow", ["title: Chores by area and stage (live)", 'query: "type=chore"', "from: area", "to: stage"]),
     ...mdFig("flow", ["title: Seed to plate"], ["- sown → sprouted: 31", "- sown → lost: 9", "- **sprouted → planted out: 24**", "- sprouted → eaten by slugs: 7", "- planted out → harvested: 18"]),
-    ...mdFig("meter", ["title: Startup budget", "limit: 150", "unit: ms"], ["- the door alone: 90", "- with Schema: 138", "- **with the barrel: 181**"]),
+    ...mdFig("meter", ["title: Startup budget", "limit: 150", "unit: ms"], ["- the door alone: 90", "- with Schema: 138", "- **with the barrel: 181**"]).slice(0, -1),
+    "^budget",
+    "",
+    "The anchor alone after the meter's `::` names the figure (PIE-580): `((id^budget))` lands on it.",
   ].join("\n").trimEnd();
 }
 
