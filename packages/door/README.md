@@ -1888,10 +1888,13 @@ exact VGA palette the door was drawn in (bright cyan, magenta and phosphor green
 
 | Theme | For |
 |---|---|
-| `calm` | every day: a near-black ground with a little blue in it, ink-slate bars instead of saturated blue, off-white text (never `#fff`), accents desaturated but each still its hue: cyan for links and focus, yellow for headings, red for errors, magenta for agents |
+| `calm` | every day: a near-black ground with a little blue in it, ink-slate bars instead of saturated blue, off-white text (never `#fff`), accents desaturated but each still its hue: cyan for links, amber for the focused tile, yellow for headings, red for errors, magenta for agents |
 | `night` | late hours and sensitive eyes: calm with the brightest text held near 10:1 and dim text still at 4.5:1 or more |
 | `classic` | the VGA palette, unchanged |
 
+- **Tiles you can tell apart:** every tile's frame is a mid-tone line at 3:1 or more on the ground in each theme, so
+  two tiles stacked in a column part clearly; the tile with your keys is double-lined (`╔═╗`) with its frame and name
+  in the theme's warm amber, apart from the typing yellow. In your drawer, no screen tile looks focused.
 - **Switch** with `alt+t` on every screen (calm → night → classic), a click on the theme's name on the status bar
   (beside the video mode), or `ep0ch act theme.set name=night` (an agent's waits until you're idle and is said on
   the status bar). It applies at once on every screen and is kept in the door's state for next time.
