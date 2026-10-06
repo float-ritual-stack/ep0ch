@@ -194,6 +194,15 @@ MacBook). It does not support every version a client ever connected with.
 - **Tests on a shared machine:** check `uptime`, then one suite at a time, in the foreground, under `timeout 900`,
   never `--parallel` ([CONTRIBUTING](CONTRIBUTING.md)). Several agents testing at once froze float-2 (4 cores);
   a background run's notification may never reach you, so don't end a turn waiting on one.
+  Judge a run by its exit code: grepping colourised output for "fail" hides failures (153 outliner tests were red
+  for a day that way). Before merging a series, run the door's files each alone too (`bun run test:each`).
+- **Scratch files are yours alone.** A session's tmp folder is shared by every agent in it: write PR bodies and
+  scratch files in a private `mktemp -d` there, and re-read a body before `gh pr create/edit --body-file` (one
+  agent's draft was once published on another's PR).
+- **Rebase on the way in, hand the sha on the way out.** main moves many times a day: rebase before the final test
+  run, keep `PROTOCOL` one above main's when you bump it, and after merging tell the deployer (the person, or the
+  agent they made the deployer) the merge sha. A protocol or schema bump also says, in the PR, exactly what to
+  run on each machine (migration commands with real values).
 - **A second opinion before merging** catches what one reviewer misses: pipe the diff to Codex
   (`{ echo "<what to look for>"; git diff origin/main...HEAD; } | codex exec -c model='"gpt-6-astra"' --skip-git-repo-check -`;
   its sandbox can't read the repo on float-2, so the diff is all it sees). CodeRabbit and Greptile review PRs on
