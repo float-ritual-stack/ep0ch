@@ -116,10 +116,12 @@ export class DetailPane extends ReaderPane {
   /** Set by the desk as it draws: an open there lands here (shown when there are two or more), and it floats. */
   opensHere = false;
   floating = false;
+  /** Made for a new note (PIE-591, `note.new`): its id and the note it was made from; it closes with its edit, and goes when the note is trashed unwritten. */
+  newNote: { id: string; context: string | null } | null = null;
   override title(): string {
     if (this.label === null) return this.msg ? "detail" : "detail · empty";
     // A float says what it holds; in the row, which detail it is and whether ⏎ opens here.
-    if (this.floating) return this.msg ? subject(this.msg) : "float";
+    if (this.floating) return this.msg ? subject(this.msg) || this.label : "float";
     return [this.label, this.msg ? "" : "empty", this.opensHere ? "⏎ opens here" : "", this.surface.state()].filter(Boolean).join(" · ");
   }
   override select() {}

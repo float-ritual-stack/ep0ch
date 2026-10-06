@@ -1455,6 +1455,8 @@ export class NoteSurface {
     this.newNotes.delete(m.id);
     return false;
   }
+  /** The draft open here is a new note's (`note.new`) with nothing typed in it yet (PIE-591): a click away leaves it open. */
+  newAndUntouched(): boolean { const s = this.drafting, id = s?.target.blockId; return !!s && !!id && this.newNotes.has(id) && !s.dirty; }
   /** `editNew` by a host that starts the edit its own way (the desk's session start): mark it first, or unmark it. */
   markNew(id: string, on = true) { if (on) this.newNotes.add(id); else this.newNotes.delete(id); }
 

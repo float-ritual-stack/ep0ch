@@ -8,7 +8,8 @@
 // - a hint row (`hint`), shown after the focused tile's own keys;
 // - a band above the tiles, drawn by one of its tiles' kinds (`band`);
 // - where an agent's open lands (`lands`), and what an "open fresh" (alt+⏎) runs (`fresh`);
-// - whether it keeps its layout between runs (`saves`), and whether it loads named layouts (`layouts`).
+// - whether it keeps its layout between runs (`saves`), and whether it loads named layouts (`layouts`);
+// - what a new note (ctrl+n, `note.new`) does on it (`newNote`): where it opens, or an action of its own in its place.
 //
 // Everything a screen does that isn't layout lives in its tiles' kinds (src/desk/tile-kinds.ts) and their actions.
 // A spec is plain data (`specData` writes it, `readSpec` reads it back and checks it): what a screen note holds (a
@@ -28,6 +29,26 @@ export interface KeyBinding {
   unless?: string[];
   /** Only while the focused tile is one of these kinds. */
   only?: string[];
+}
+
+/**
+ * Where a new note opens (PIE-591): `float`, a draft floating over the screen (each one more, cascaded); `tab`, a new tab
+ * on the focused tile; `drawer`, a tab in your drawer; `lands`, where the screen's opens land (a reader beside the one
+ * you're in, the board's readers row, the river's next column).
+ */
+export type NewNoteOpens = "float" | "tab" | "drawer" | "lands";
+export const NEW_NOTE_OPENS: readonly NewNoteOpens[] = ["float", "tab", "drawer", "lands"];
+/**
+ * One rule of a screen's new notes (PIE-591): while the focused tile is (`only`) or isn't (`unless`) one of these kinds,
+ * ctrl+n runs `action` instead of making a note (the board's lanes: `card.new`, a card born with the lane's
+ * properties), or opens the note where `opens` says. The first rule that matches wins; none: a float.
+ */
+export interface NewNoteRule {
+  opens?: NewNoteOpens;
+  action?: string;
+  args?: Record<string, unknown>;
+  only?: string[];
+  unless?: string[];
 }
 
 export interface ScreenSpec {
@@ -65,6 +86,13 @@ export interface ScreenSpec {
   layouts?: true;
   /** Its programs keep running when it's left, and opening it again brings the same one back (the desk). */
   stays?: true;
+  /** What ctrl+n (`note.new`) does here (PIE-591): the first rule matching the focused tile's kind; none, a float. */
+  newNote?: NewNoteRule[];
+}
+
+/** The rule of `spec`'s new notes for a focused tile of `kind` (PIE-591), or null: a float. */
+export function newNoteRule(spec: Pick<ScreenSpec, "newNote">, kind: string | undefined): NewNoteRule | null {
+  return spec.newNote?.find(r => (!r.only || (kind !== undefined && r.only.includes(kind))) && (!r.unless || kind === undefined || !r.unless.includes(kind))) ?? null;
 }
 
 const NAME = /^[A-Za-z][\w.-]{0,39}$/;
@@ -99,10 +127,23 @@ export function readSpec(x: unknown, known = false): ScreenSpec {
       ...(kinds(b.only) ? { only: kinds(b.only)! } : {}),
     } satisfies KeyBinding;
   }) : (() => { throw new Error(`screen ${name}: keys is a list`); })();
+  const newNote = o.newNote === undefined ? undefined : Array.isArray(o.newNote) ? o.newNote.map((r: any, i: number) => {
+    if (!r || typeof r !== "object") throw new Error(`screen ${name}: newNote rule ${i + 1} is an object (opens= or action=)`);
+    if (r.opens !== undefined && !NEW_NOTE_OPENS.includes(r.opens)) throw new Error(`screen ${name}: newNote rule ${i + 1} opens ${JSON.stringify(r.opens)}; it opens ${NEW_NOTE_OPENS.join(", ")}`);
+    if (r.action !== undefined && (typeof r.action !== "string" || !r.action)) throw new Error(`screen ${name}: newNote rule ${i + 1} names no action`);
+    if ((r.opens === undefined) === (r.action === undefined)) throw new Error(`screen ${name}: newNote rule ${i + 1} gives one of opens= or action=`);
+    return {
+      ...(r.opens !== undefined ? { opens: r.opens as NewNoteOpens } : {}), ...(r.action !== undefined ? { action: r.action as string } : {}),
+      ...(r.args && typeof r.args === "object" && !Array.isArray(r.args) ? { args: { ...r.args } } : {}),
+      ...(kinds(r.unless) ? { unless: kinds(r.unless)! } : {}),
+      ...(kinds(r.only) ? { only: kinds(r.only)! } : {}),
+    } satisfies NewNoteRule;
+  }) : (() => { throw new Error(`screen ${name}: newNote is a list of rules`); })();
   const str = (k: string) => (typeof o[k] === "string" && o[k] ? { [k]: o[k] as string } : {});
   const spec: ScreenSpec = {
     name, title, layout,
     ...(keys ? { keys } : {}),
+    ...(newNote ? { newNote } : {}),
     ...str("hint"), ...hintMap(o.hint), ...str("band"), ...str("home"), ...str("lands"), ...str("fresh"), ...str("saves"),
     ...(o.frame === "dotted" ? { frame: "dotted" as const } : {}),
     ...(o.digits === false ? { digits: false as const } : {}),

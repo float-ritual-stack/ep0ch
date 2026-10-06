@@ -579,6 +579,33 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect(S().focus).toBe("index");
   }, 20_000);
 
+  test("made, by the person: a blank screen started from a detail; a click on its + New note runs note.new, as ctrl+n does, and writes in that detail", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "made" }, as: "test-agent" });
+    await until(() => marks.made!.every(m => screen().includes(m)), "the blank screen");
+    const stage = () => S().stages.get(S().sel).top;
+    press({ kind: "enter" });
+    expect(S().focus).toBe("stage");
+    // d: a detail in the blank's place (its row, as the person picks it).
+    press({ kind: "char", ch: "d" });
+    await until(() => (stage().layoutGet().tiles as any[]).some(t => t.kind === "detail"), "a detail in the blank's place");
+    await until(() => screen().includes("+ New note"), "the empty detail's + New note");
+    // A click on + New note, as a mouse event on the screen: the same note.new ctrl+n runs.
+    const rows = sc.render(app).lines.map(plain), y = rows.findIndex(l => l.includes("+ New note")), x = rows[y]!.indexOf("+ New note") + 2;
+    press({ kind: "mouse", action: "down", button: 0, x, y }); press({ kind: "mouse", action: "up", button: 0, x, y });
+    const detail = () => stage().pane((stage().layoutGet().tiles as any[]).find(t => t.kind === "detail").name);
+    await until(() => !!detail()?.surface?.draft, "the new note's edit in the detail, by the click", 8000);
+    const id = detail().surface.draft.blockId;
+    expect(await board.get(id)).toBeTruthy();
+    // Nothing typed: esc puts it in the trash, and the detail is empty again.
+    press({ kind: "esc" });
+    const end = Date.now() + 5000;
+    while (!(await board.isTrashed(id))) { if (Date.now() > end) throw new Error("the empty note wasn't trashed"); await Bun.sleep(30); }
+    for (let i = 0; i < 6 && S().focus === "stage"; i++) press({ kind: "esc" });
+    // Put back as the next test expects it: a fresh blank stage.
+    S().stages.delete(S().sel);
+  }, 20_000);
+
   test("made (PIE-565): a blank screen built through act, saved as a screen note, opened again by name, then deleted", async () => {
     (app as any).lastInput = 0;
     await app.act({ action: "section", args: { name: "made" }, as: "test-agent" });
@@ -1073,6 +1100,85 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect(reader().msg?.id).toBe(before);
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
   }, 30_000);
+
+  test("new notes float (PIE-591): five rapid ctrl+n make five floating drafts; one docked by its title's drag, one saved, one from an edit; × on an empty one trashes it", async () => {
+    const guide = seeded.notes.newNotes.id;
+    for (let i = 0; i < 8 && S().focus === "stage"; i++) press({ kind: "esc" });
+    (app as any).lastInput = 0;
+    const n = SECTIONS.findIndex(s => s.key === "newnotes") + 1;
+    await app.act({ action: "section", args: { name: "newnotes" }, as: "test-agent" });
+    const stage = () => S().stages.get(n - 1).top as any;
+    const reader = () => [...stage().panes.values()].find((p: any) => p.kind === "reader") as any;
+    await until(() => reader()?.msg?.id === guide, "the guide in the reader", 8000);
+    press({ kind: "enter" });
+    expect(S().focus).toBe("stage");
+    // Floats left by the test before (its saved new note) aren't this test's.
+    const old = new Set((stage().describe().floats as any[]).map(f => f.tile));
+    const floats = () => (stage().describe().floats as any[]).filter(f => f.newNote && !old.has(f.tile));
+    const before = (await board.children(guide)).length;
+    // Five, as fast as the keys go: each a float of its own with its edit open, none waiting on the last.
+    for (let i = 0; i < 5; i++) press({ kind: "char", ch: "n", ctrl: true });
+    await until(() => floats().length === 5 && floats().every(f => f.writing), `five floating drafts, each in its edit (${JSON.stringify(stage().describe().floats)})`, 10_000);
+    const kids = await board.children(guide);
+    expect(kids.length).toBe(before + 5);
+    // Siblings under the note read, never a chain of one under the next.
+    for (const f of floats()) expect((await board.get(f.id))!.parentId).toBe(guide);
+    // Cascaded, the newest on top with the keys, and the person in its edit.
+    const rects = floats().map(f => f.rect);
+    expect(new Set(rects.map(r => `${r.col},${r.row}`)).size).toBe(5);
+    const top = floats().at(-1)!;
+    expect(stage().describe().focusName).toBe(top.tile);
+    await until(() => stage().newNoteWhileTyping(), "the person in the newest float's edit", 5000);
+    // Saved: typed in the newest, ctrl+s.
+    for (const c of "Chard seed: 2 rows") press({ kind: "char", ch: c });
+    press({ kind: "char", ch: "s", ctrl: true });
+    const saved = async (id: string, text: string) => { const end = Date.now() + 5000; while ((await board.get(id))?.text !== text) { if (Date.now() > end) throw new Error(`timed out waiting for ${text}`); await Bun.sleep(30); } };
+    await saved(top.id, "Chard seed: 2 rows");
+    // From an edit: into the fourth (its edit open, the keys elsewhere: e enters it), typed, then ctrl+n: saved, a sixth floats.
+    const fourth = floats()[3]!;
+    await stage().dispatch.press("tile.focus", {}, fourth.tile);
+    press({ kind: "char", ch: "e" });
+    await until(() => stage().newNoteWhileTyping() && stage().describe().focusName === fourth.tile, "in the fourth's edit", 5000);
+    for (const c of "Leek trench") press({ kind: "char", ch: c });
+    press({ kind: "char", ch: "n", ctrl: true });
+    await saved(fourth.id, "Leek trench");
+    await until(() => floats().length === 6 && floats().at(-1)!.writing, "a sixth float from the edit", 8000);
+    expect((await board.get(floats().at(-1)!.id))!.parentId).toBe(guide);
+    // Docked by mouse: the first float's title dragged onto the reader's header joins its tabs.
+    const first = floats()[0]!;
+    const rows = () => sc.render(app).lines.map(plain);
+    const titleRow = rows().findIndex(l => l.includes(`⧉ `) && l.includes(` ${first.tile} `));
+    const fx = rows()[titleRow]!.indexOf(` ${first.tile} `) + 2;
+    const head = rows().findIndex(l => /┌─ \d+ reader /.test(l));
+    expect(titleRow).toBeGreaterThan(head);
+    expect(head).toBeGreaterThan(0);
+    const hx = rows()[head]!.indexOf(" reader ") + 2;
+    press({ kind: "mouse", action: "down", button: 0, x: fx, y: titleRow });
+    press({ kind: "mouse", action: "drag", button: 32, x: hx, y: head + 1 });
+    press({ kind: "mouse", action: "drag", button: 32, x: hx, y: head });
+    expect(plain(sc.render(app).lines.join("\n"))).toContain("release docks it");
+    press({ kind: "mouse", action: "up", button: 0, x: hx, y: head });
+    await until(() => !floats().some(f => f.id === first.id), "the first float docked", 5000);
+    // A tab beside the reader now, in the layout: one tab set holding both.
+    expect(((await stage().dispatch.press("layout.get")) as any).tree).toMatchObject({ tabs: ["reader", first.tile], active: first.tile });
+    expect(stage().describe().focusName).toBe(first.tile);
+    // × (tile.close) on an empty one: nothing typed, so it goes to the trash and its float with it.
+    const empty = floats().find(f => f.id !== top.id && f.id !== fourth.id)!;
+    await stage().dispatch.press("tile.close", {}, empty.tile);
+    await until(() => !floats().some(f => f.id === empty.id), "the empty float closed", 5000);
+    const end = Date.now() + 5000;
+    while ((await board.children(guide)).some(k => k.id === empty.id)) { if (Date.now() > end) throw new Error("the empty note wasn't trashed"); await Bun.sleep(30); }
+    // An agent's: made and shown floating for the person, attributed; their keys stay where they are.
+    const keysOn = stage().describe().focusName;
+    const made = await app.act({ action: "note.new", args: { text: "Bean poles: 12", opens: "float" }, as: "test-agent" }) as any;
+    expect(made.reader).toBeTruthy();
+    expect(stage().describe().focusName).toBe(keysOn);
+    expect(await board.get(made.id)).toMatchObject({ author: "test-agent" });
+    // Put the rest away, so the next test finds the stage as it was: each closed (saved, or trashed when empty).
+    for (const f of [...floats(), ...(stage().describe().floats as any[]).filter(f => old.has(f.tile))]) await stage().dispatch.press("tile.close", {}, f.tile);
+    await until(() => (stage().describe().floats as any[]).length === 0, "the floats put away", 8000);
+    for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+  }, 40_000);
 
   test("figures (mdxcn): every Markdown kind drawn, live ones answered; a figure block's child bullets open their notes by act, keys and mouse", async () => {
     (app as any).lastInput = 0;

@@ -200,7 +200,8 @@ yourself (path 1): `/exit`, then `claude --continue`.
 - **New notes and pages** (every screen, PIE-544): `note.new text=… [near=<id>|inbox=true]` makes a note where the
   outline's placement rule puts it (under `near`, else the top of the Inbox; a `near` that's gone is refused, with
   the `inbox=true` command to run instead), as you, said on the status bar (with no door open: `ep0ch new "<text>"
-  --as <you> [--near <id>] [--ws <name>] [--json]`, the same call); it opens nothing and never takes the person's focus. `page.create address=<name>` makes the page a missing
+  --as <you> [--near <id>] [--ws <name>] [--json]`, the same call); it opens nothing (`opens=float` shows it to the
+  person, unfocused) and never takes the person's focus. The person's `ctrl+n` floats a new note each time (PIE-591). `page.create address=<name>` makes the page a missing
   `[[name]]` points at (`name [page::name]`, in the Inbox); `link.follow` on a missing page never makes one. A first
   line of only `[page::x]` is titled `x` on save, so `text="[page::2026-09-30]"` gives `2026-09-30 [page::2026-09-30]`.
 - **Search:** `search query=<words>` answers the service's ranked hits (as Goto, `/` and `((` rank them, from the desk's current note); nothing

@@ -804,6 +804,16 @@ export class Lanes implements SourceModel {
     return { born: plan.born, defaults: plan.defaults, needs, parent: where, plan };
   }
 
+  /** `card.new` (n, ctrl+n on the lanes): the composer for a new card in lane `name` (default the person's), opened. */
+  newCard(name?: string): { lane: string; composing: boolean } {
+    if (name !== undefined) this.lane = this.lanes.indexOf(this.laneFor(name));
+    const lane = this.lanes[this.lane];
+    if (!lane) throw new ActionRefused("no lane here to write a card in");
+    if (this.composer) throw new ActionRefused(`a new ${this.composer.kind === "card" ? "card" : "note"} is open already · ctrl+s creates it, esc closes it`);
+    this.openCardComposer();
+    return { lane: lane.name, composing: !!this.composer };
+  }
+
   /**
    * `n`: a new card in the focused lane, written in a composer over the board. It opens at once, so what
    * is typed next is the card's text, never board keys; the parent's title is filled in when it's read.
@@ -1192,7 +1202,7 @@ export class Lanes implements SourceModel {
     if (c === "H" || c === "L") { const to = this.lanes[this.lane + (c === "H" ? -1 : 1)]; if (to) void this.run("card.move", { lane: to.name }); return true; }
     if (k.kind === "alt-up" || k.kind === "alt-down") { if (this.card()) void this.run("card.reorder", { by: k.kind === "alt-up" ? -1 : 1 }); return true; }
     if (c === "m") { this.openMover(); return true; }
-    if (c === "n") { this.openCardComposer(); return true; }
+    if (c === "n") { void this.run("card.new", {}); return true; }
     if (c === "N") { this.openChildComposer(); return true; }
     if (c === "s") { void this.openSteps(); return true; }
     if (c === "d") {
@@ -1442,6 +1452,14 @@ export const BOARD_ACTIONS = actionSet<BoardOn>()("board", {
     touches: "draft", draft: "leave", replay: "ask", person: "the new card or note being written is the person's; an agent doesn't close it (card.create writes its own)",
     args: { discard: { type: "boolean", optional: true, about: "put typed text aside as unsent and close" } },
     run: ({ discard }, { model }) => lanesOf({ model }).closeComposer(!!discard),
+  }),
+  "card.new": def({
+    summary: "write a new card in a lane (lane=<name>, default the person's): a composer opens over the board, the card born on ctrl+s by card.create with the properties the lane's query sets, so it lands in that lane (PIE-591: ctrl+n on the lanes). A card put aside there comes back. The person's own: it takes their keys",
+    keys: "n, ctrl+n on the lanes",
+    touches: "draft", draft: "type", replay: "ask", person: "the composer takes the person's keys; an agent creates a card with card.create lane= text=",
+    menu: { label: "new card in this lane", group: BOARD, key: "n", now: (on, t) => { const l = on.model instanceof Lanes ? on.model.laneInTile(t.name) : undefined; return l ? { args: { lane: l.name } } : { hide: true }; } },
+    args: { lane: { type: "string", optional: true, about: "the lane's name; default the lane the person is in" } },
+    run: ({ lane }, { model }) => lanesOf({ model }).newCard(lane),
   }),
   "card.create": def({
     summary: "create a card in a lane: the text, born with the properties the lane's query sets (and its create:: default, unless the text sets that key), under the lane's create-parent or where its cards live. In a roadmap lane (type=roadmap-item) it's a roadmap item made by the workboard's allocator, which issues its work-id: the text gives priority, arc and track(s) as [key::value] tokens, and Review/Validate/Done lanes refuse (create in Queued or Doing, then move). Refused, with the reason, when the lane can't define it", keys: "n, typing, ctrl+s",
