@@ -2322,7 +2322,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       return asBoundKey("click", () => this.key(spot.key, ctx));
     }
     // ctrl+n reaching the desk (a click on the hint row's ^N; a typed one the App takes first): a new note, the App's `note.new`.
-    if (k.kind === "char" && k.ctrl && k.ch === "n" && !this.holdsKeys() && this.ctx.press) { void this.ctx.press("note.new"); return; }
+    if (k.kind === "char" && k.ctrl && k.ch === "n" && !this.holdsKeys()) {
+      if (this.ctx.press) void this.ctx.press("note.new");
+      else this.ctx.flash("no new note here: this screen isn't given the door's actions · ctrl+n from the door's own screens");
+      return;
+    }
     // ? shows the whole hint row when it was cut (never while the person is typing: a draft, a filter, a
     // terminal, a ^W chord); the next key or click puts it away again and does what it does, but Esc only that.
     if (ch(k) === "?" && this.hintFull && !this.holdsKeys()) { this.run("keys.more"); return; }

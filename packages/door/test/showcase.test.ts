@@ -579,6 +579,33 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect(S().focus).toBe("index");
   }, 20_000);
 
+  test("made, by the person: a blank screen started from a detail; a click on its + New note runs note.new, as ctrl+n does, and writes in that detail", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "made" }, as: "test-agent" });
+    await until(() => marks.made!.every(m => screen().includes(m)), "the blank screen");
+    const stage = () => S().stages.get(S().sel).top;
+    press({ kind: "enter" });
+    expect(S().focus).toBe("stage");
+    // d: a detail in the blank's place (its row, as the person picks it).
+    press({ kind: "char", ch: "d" });
+    await until(() => (stage().layoutGet().tiles as any[]).some(t => t.kind === "detail"), "a detail in the blank's place");
+    await until(() => screen().includes("+ New note"), "the empty detail's + New note");
+    // A click on + New note, as a mouse event on the screen: the same note.new ctrl+n runs.
+    const rows = sc.render(app).lines.map(plain), y = rows.findIndex(l => l.includes("+ New note")), x = rows[y]!.indexOf("+ New note") + 2;
+    press({ kind: "mouse", action: "down", button: 0, x, y }); press({ kind: "mouse", action: "up", button: 0, x, y });
+    const detail = () => stage().pane((stage().layoutGet().tiles as any[]).find(t => t.kind === "detail").name);
+    await until(() => !!detail()?.surface?.draft, "the new note's edit in the detail, by the click", 8000);
+    const id = detail().surface.draft.blockId;
+    expect(await board.get(id)).toBeTruthy();
+    // Nothing typed: esc puts it in the trash, and the detail is empty again.
+    press({ kind: "esc" });
+    const end = Date.now() + 5000;
+    while (!(await board.isTrashed(id))) { if (Date.now() > end) throw new Error("the empty note wasn't trashed"); await Bun.sleep(30); }
+    for (let i = 0; i < 6 && S().focus === "stage"; i++) press({ kind: "esc" });
+    // Put back as the next test expects it: a fresh blank stage.
+    S().stages.delete(S().sel);
+  }, 20_000);
+
   test("made (PIE-565): a blank screen built through act, saved as a screen note, opened again by name, then deleted", async () => {
     (app as any).lastInput = 0;
     await app.act({ action: "section", args: { name: "made" }, as: "test-agent" });
