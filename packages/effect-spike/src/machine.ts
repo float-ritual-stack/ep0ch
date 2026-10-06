@@ -195,6 +195,10 @@ const lock = (path: string) => Effect.acquireRelease(
     const io = yield* MachineIO;
     if (((yield* io.read(path)) ?? "").trim() === String(io.pid)) yield* io.remove(path);
   }),
+  // acquireRelease runs its acquire uninterruptibly by default (a resource half-made must not be abandoned). The wait
+  // for another client's lock is most of this acquire, and a client that quits must be able to stop waiting: found by
+  // Codex's review of this spike; the first version's interruption test only interrupted after the lock was held.
+  { interruptible: true },
 );
 
 /** Whether the host answers on `socket` within `ms` of the clock: asked at once, then every 100 ms. */

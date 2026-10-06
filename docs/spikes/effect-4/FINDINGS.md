@@ -53,10 +53,18 @@ exit, a wait on a clock, retries, child processes, and refusals that carry the e
 
 **What it caught**
 
-- A test the original couldn't express: *the lock is let go when the waiter is interrupted* (a client that quits
-  mid-start). `Fiber.interrupt` on the forked `ensureForward` runs the release finalizer; the original's
-  `try/finally` only covers a thrown error, not a process that is killed or a caller that stops waiting. This is the
-  resource-cleanup class from #172/#194, and the mechanism is structural, not a discipline.
+- A test the original couldn't express: *the lock is let go when the waiter is interrupted* (a caller that stops
+  waiting, cooperatively: a tile closing, a timeout above it). `Fiber.interrupt` on the forked `ensureForward` runs
+  the release finalizer. The original's `try/finally` covers a thrown error but has no notion of a caller stopping.
+  Narrowed after Codex's review: this is cooperative cancellation inside one process, not cleanup after `SIGKILL` or
+  a crash (no finalizer runs then, in either version), and abandoning a `runPromise` does not interrupt its fiber.
+  Within that boundary the mechanism is structural, not a discipline. This is the resource-cleanup class from
+  #172/#194.
+- Codex's review then found two things the first version got wrong *because* of Effect's semantics, which the tests
+  now cover: `acquireRelease` runs its acquire uninterruptibly by default, so the two-minute wait for another
+  client's lock could not be interrupted at all (`{ interruptible: true }` fixes it); and `Effect.promise` over the
+  legacy `run` means an interrupted fiber releases the lock while the `ssh -f` it started is still running (the
+  Promise can't be cancelled; a typed adapter with an abort signal would be the fix, not done here).
 - The failure paths now provably release the lock too (asserted after `HostSilent`); the original relied on the
   `finally`, which it did have, so this is parity, not a win.
 
@@ -184,8 +192,9 @@ unix-socket JSON-lines client.
 - The read loop (`reader.pull`, decode chunks, split on `\n`) is hand-written here; `effect/encoding`'s
   `Ndjson.decodeSchemaString` would do it as a Channel over a Stream, which fits a long-lived connection (the
   Board's event feed) better than this one-shot. Not tried in this slice.
-- `TestClock` can't drive this: the waits are real socket I/O. The timeout test uses a real 150 ms. Any adoption
-  keeps two kinds of test: TestClock for rules (slice A), real sockets for boundaries (this).
+- The timeout test uses a real 150 ms. Codex points out `TestClock` could still drive the `Effect.timeout` here (sync
+  on the fake host receiving the request, then advance the virtual clock); the socket events need real event-loop
+  progress but the timeout doesn't. Not done in this slice; the earlier claim that TestClock "can't" was wrong.
 - `@effect/platform-bun/BunSocket` imports in 58 ms (measured as `BunSocketServer`; the client module is similar).
 
 **Verdicts for this slice**
@@ -252,3 +261,42 @@ gives a 22-command CLI for free, and what its `Environment` costs.
   owning error rendering.
 - Startup: worse by about 70 ms for CLI runs that load it.
 - Typo handling: slightly worse (no flag suggestions).
+
+
+## Review of the spike's own code (Codex, gpt-6-astra, static)
+
+The branch diff (slices A to D, tests, this file) was piped to Codex with the ultrareview category list and asked for
+every real bug, race, leak and misuse. It could not run anything (its sandbox fails on float-2), so it is a static
+read cross-checked against upstream v4 source. Full text: the session scratchpad; the counts and the triage here.
+
+**20 findings, 2 high, 18 normal, 0 nits. None false.** By where the fault came from:
+
+| origin | count | which |
+|---|---|---|
+| copied from main unchanged (pre-existing in ep0ch) | 6 | lock takeover TOCTOU (#1), `upTo` bounds polling not the probe (#6), socket path in chars not bytes (#7), `lastIndexOf("}")` framing (#8), params spread over the envelope (#11), a post-send disconnect read as "no host" (#14) |
+| Effect used wrongly or half-understood | 4 | uninterruptible acquire (#3), `Effect.promise` discards cancellation (#2), `Effect.promise`/`sync` turn rejections into defects so the adapter lies about infallibility (#4), the result-Schema cast hole (#13) |
+| new plain bugs in the rewrite | 4 | shared streaming `TextDecoder` (#9), blank line then pull (#10), no line limit where the original had one (#15), `privateDir` mapping every error to the mode refusal (#5) |
+| test weaknesses | 3 | sequential callers only (#16), fake host assumes one request per chunk (#17), cleanup not asserted on every path (#18) |
+| this document overclaimed | 2 | interruption is not process death (#19), TestClock could drive the timeout (#20) |
+| ultrareview classes found in Effect code | 0 | identity-by-name 0, parallel-parser 0 |
+
+Fixed on the branch after the review, each with a test: #3 (`interruptible: true`), #9, #10, #11 (envelope after
+the spread), #15 (line limit), and the two document corrections. Left as recorded: #1, #2, #4, #5, #6, #7, #8, #13,
+#14, the test weaknesses. #1, #7, #8 and #11 are bugs in main today (`outline-core/src/machine.ts`,
+`door/src/socket.ts`); they go to the workboard as a follow-up, not to this branch.
+
+**What the count says**
+
+- Six of twenty are the original code's, carried over line for line. A rewrite on Effect doesn't fix what it copies;
+  the archaeology's parallel-parser and one-path-invariant classes are untouched by the library.
+- Four of twenty exist only because of Effect: two of those (#2, #4) are the "two error worlds" cost of wrapping
+  Promise code with `Effect.promise` at an edge (defects instead of failures, no cancellation), which is exactly the
+  incremental-adoption move. One (#3) is a default (`acquireRelease` uninterruptible) that an agent with v3 knowledge
+  wouldn't guess and the docs state. The incremental path pays this tax at every edge; the from-scratch shape pays it
+  once.
+- Four of twenty are ordinary bugs an agent wrote in 60 new lines of socket framing, which the door's 18-line
+  original didn't have because it leaned on `JsonLines` (one shared parser). That is the parallel-parser class,
+  made by the spike itself: the right move was `effect/encoding`'s `Ndjson` or the door's `JsonLines`, not a third
+  framer.
+- Zero identity-by-name and zero parallel-parser findings in the Effect code proper: Schema and Brand give those
+  classes somewhere to live, but the spike didn't exercise them (no ids, one parser).

@@ -21,6 +21,8 @@ export function fakeHost(dir: string) {
         else if (req.action === "outlines.list") ok({ defaultOutline: "jam-shelf", outlines });
         else if (req.action === "outlines.create") req.name === "garden" ? no(`"garden" exists already`) : ok({ name: req.name, database: `/home/sam/outlines/${req.name}.sqlite`, folder: `/home/sam/outlines/${req.name}`, open: true });
         else if (req.action === "outlines.delete") ok({ name: req.name, movedTo: `/home/sam/outlines/.trash/${req.name}` });
+        else if (req.action === "blank-first") sock.write("\n\n" + JSON.stringify({ id: req.id, ok: true, result: { after: "blank" }, sequence: 1 }) + "\n");
+        else if (req.action === "split-char") { const bytes = Buffer.from(JSON.stringify({ id: req.id, ok: true, result: { name: "caf\u00e9" }, sequence: 1 }) + "\n"); const at = bytes.indexOf(0xc3) + 1; sock.write(bytes.subarray(0, at)); setTimeout(() => sock.write(bytes.subarray(at)), 5); }
         else if (req.action === "garbled") sock.write("{\"id\":\"host\",\"ok\":true}\n");
         else if (req.action === "hangup") sock.end();
         // "slow": never answers

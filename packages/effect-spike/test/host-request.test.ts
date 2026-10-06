@@ -47,6 +47,12 @@ describe("a request to the outline host, on Effect's Socket", () => {
     expect(nobody.message).toContain("no outline host answers at");
   });
 
+  test("a blank line before the answer in one chunk, and a character split across two chunks, are read (Codex's findings on the first version)", async () => {
+    expect(await run(hostRequest(host.path, "blank-first", {}, { timeoutMs: 500 }))).toEqual({ after: "blank" });
+    expect(await run(hostRequest(host.path, "split-char", {}, { timeoutMs: 500 }))).toEqual({ name: "café" });
+    expect(await run(hostRequest(host.path, "ping"))).toEqual({ status: "ready" });   // no decoder state carried over
+  });
+
   test("an answer this client's protocol can't read is BadAnswer, naming the missing field", async () => {
     const e = await fails(hostRequest(host.path, "garbled"));
     expect(e._tag).toBe("BadAnswer");

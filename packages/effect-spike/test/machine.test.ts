@@ -114,6 +114,21 @@ describe("a machine's forward, on Effect", () => {
     }).pipe(Effect.provide(Layer.mergeAll(w.layer, TestClock.layer()))));
   });
 
+  test("a client waiting on another's lock can be interrupted, and the lock stays the holder's (Codex's finding: acquireRelease's acquire is uninterruptible unless asked)", async () => {
+    const v = world();
+    const lock = "/home/sam/outlines/.remote/box-a.ctl.lock";
+    v.alive.add(555);
+    v.files.set(lock, "555");
+    const outcome = await Effect.runPromise(Effect.gen(function*() {
+      const fiber = yield* Effect.forkChild(ensureForward("box-a", OPTS));
+      yield* TestClock.adjust("10 seconds");
+      yield* Fiber.interrupt(fiber);                 // returns once the fiber has stopped
+      return yield* Fiber.await(fiber);
+    }).pipe(Effect.provide(Layer.mergeAll(v.layer, TestClock.layer()))));
+    expect(outcome._tag).toBe("Failure");           // interrupted, not LockHeld
+    expect(v.files.get(lock)).toBe("555");
+  });
+
   test("refusals are typed, say what to do, and encode as JSON for the wire", async () => {
     const unreachable = await fails(world({ status: { code: 255, out: "", err: "ssh: Could not resolve hostname box-a" } }), ensureForward("box-a", OPTS));
     expect(unreachable).toMatchObject({ _tag: "MachineRefused", reason: "unreachable", command: "ssh box-a true" });
