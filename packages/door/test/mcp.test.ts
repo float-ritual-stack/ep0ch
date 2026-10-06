@@ -73,6 +73,7 @@ describe.skipIf(!outliner)("ep0ch mcp", () => {
       // Another outline's URI in a ref (spaces around it too) is refused, never read by its id here.
       { jsonrpc: "2.0", id: 18, method: "tools/call", params: { name: "outline_links", arguments: { ref: `  ${target.uri.replace(`${scratch.name}@`, "other-garden@")}` } } },
       { jsonrpc: "2.0", id: 19, method: "tools/call", params: { name: "outline_read", arguments: { ref: target.uri.replace(`${scratch.name}@`, "other-garden@") } } },
+      { jsonrpc: "2.0", id: 20, method: "tools/call", params: { name: "list_outlines", arguments: {} } },
     ].map(r => JSON.stringify(r));
     const code = await mcpCommand(["mcp"], { input: linesOf(requests), write: line => out.push(line), err: line => out.push(`ERR ${line}`) });
     expect(code).toBe(0);
@@ -82,8 +83,8 @@ describe.skipIf(!outliner)("ep0ch mcp", () => {
     expect(fields(response(4)?.result).serverInfo).toMatchObject({ name: "ep0ch" });
     expect(fields(response(4)?.result).protocolVersion).toBe("2025-11-25");
     const listed = fields(response(5)?.result).tools as { name: string; inputSchema?: any }[];
-    expect(listed.map(t => t.name)).toEqual(["outline_read", "outline_find", "outline_links"]);
-    expect(listed[0]!.inputSchema.oneOf).toEqual([{ required: ["uri"] }, { required: ["ref"] }]);
+    expect(listed.map(t => t.name)).toEqual(["list_outlines", "outline_read", "outline_find", "outline_links"]);
+    expect(listed[1]!.inputSchema.oneOf).toEqual([{ required: ["uri"] }, { required: ["ref"] }]);
 
     const find = JSON.parse(tool(response(6)?.result).content[0]!.text) as { matches: { id: string; uri: string }[] };
     expect(find.matches).toContainEqual(expect.objectContaining({ id: privateNote.id, uri: privateNote.uri }));
@@ -113,6 +114,9 @@ describe.skipIf(!outliner)("ep0ch mcp", () => {
       expect(tool(response(id)?.result).isError).toBe(true);
       expect(tool(response(id)?.result).content[0]!.text).toContain(`names other-garden@${machine}; this MCP server is bound to ${scratch.name}@${machine}`);
     }
+    // The bound outline is the one this server lists: live, read now, with its access setting.
+    expect(JSON.parse(tool(response(20)?.result).content[0]!.text)).toEqual({ outlines: [{ outline: scratch.name, machine, uri: `ep0ch://${scratch.name}@${machine}`, source: "live", asOf: expect.any(String), access: "read" }] });
+    expect(JSON.parse(tool(response(7)?.result).content[0]!.text).reachability).toMatchObject({ source: "live", asOf: expect.any(String) });
     const publishedRead = JSON.parse(tool(response(15)?.result).content[0]!.text) as { record: { links: { target: string | null; label: string }[] } };
     expect(publishedRead.record.links.map(link => link.target)).toContain(privateNote.id);
 

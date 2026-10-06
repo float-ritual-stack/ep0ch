@@ -46,8 +46,19 @@ local part). Its ids follow [ADR 0001](0001-ids-names-roles.md).
    server's tools and resources from the same handlers (`answerMcp`) over streamable HTTP. It is an OAuth resource
    server with Clerk as the authorization server: a Clerk JWT access token (`at+jwt`), signed by the issuer's JWKS,
    with `aud` this endpoint, and a subject on `EP0CH_MCP_ALLOWED_SUBJECTS` (unset: refuse all and log the subject);
-   `EP0CH_MCP_ALLOWED_CLIENTS` is the optional client allowlist. It reads only the outlines on its own machine's
-   host, each still gated by its access setting, and never writes. Revocation is the access setting (at once), the
+   `EP0CH_MCP_ALLOWED_CLIENTS` is the optional client allowlist. It reads the outlines on its own machine's host and
+   read-only mirrors of other machines' outlines (`EP0CH_MCP_MIRRORS`, PIE-562), each still gated by its access
+   setting, and never writes.
+
+   *Implemented (mirrors):* an outline whose home is a machine that is often unreachable (float-hub on the laptop) is
+   read from a copy on the gateway's machine, kept current from the outline's own Litestream replica
+   (`litestream restore -f`), and served by an outline host opened read-only (`OutlineHost` with `readOnly`: only the
+   reads MCP makes). It never depends on the home machine answering. Every answer says where it came from: the
+   envelope's `reachability.source` is `live` or `mirror` and `asOf` is when it was read or the newest change the copy
+   holds; `list_outlines` lists every outline with its access and freshness. The access setting is the one the copy
+   carries, so it is still set on the home machine. Mirroring an outline and reading it remotely are the owner's
+   choice per outline (the setting), not a rule about which outlines may leave their machine; what never leaves is
+   an outline's content into the repository (fixtures, tests, commits). Revocation is the access setting (at once), the
    allowlists (on restart), and Clerk's own grant (refresh). Clerk's JWT access tokens can't be recalled before
    they expire (a day).
 5. **The door decides where an open lands; a host only routes and focuses.** `ep0ch open <uri> --json` resolves the
@@ -72,7 +83,7 @@ local part). Its ids follow [ADR 0001](0001-ids-names-roles.md).
 - Every output that names a block carries its URI (#203), and every new surface (MCP, shares, subscriptions,
   cross-outline links, a Tern route) takes it.
 - A new client adapter is a renderer of ViewSpec, not a new UI model. ep0ch keeps its own schema.
-- The remote gateway, MCP writes (`propose` and `full`, store-and-forward for a sleeping outline), the guidance
+- The remote gateway (with mirrors), MCP writes (`propose` and `full`, store-and-forward for a sleeping outline), the guidance
   lease and the Tern plugin are separate tickets on top of this; none needs another identity or permission model.
 - A review asks of each new reference: is it a URI or an id (ADR 0001), and does its surface respect the outline's
   access setting.

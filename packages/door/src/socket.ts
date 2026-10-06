@@ -192,7 +192,13 @@ export type { NotePlacement } from "@ep0ch/outline-core/protocol";
 import type { NotePlacement } from "@ep0ch/outline-core/protocol";
 
 import type { McpAccessLevel, McpAccessStatus } from "@ep0ch/outline-core/protocol";
-export interface McpReachability {
+/**
+ * Where an MCP answer came from: `live` (the outline's own host, read now) or `mirror` (a read-only copy on the
+ * gateway's machine of an outline whose home is another machine). `asOf`: when it was read, or the newest change the
+ * mirror holds; `note`: where the mirror comes from.
+ */
+export interface McpSource { source: "live" | "mirror"; asOf: string; note?: string }
+export interface McpReachability extends McpSource {
   id: string;
   status: "reachable";
   level: McpAccessLevel;

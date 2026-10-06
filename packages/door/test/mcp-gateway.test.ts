@@ -167,7 +167,7 @@ describe.skipIf(!outliner)("ep0ch mcp serve --http", () => {
     const notified = await call({ jsonrpc: "2.0", method: "notifications/initialized" });
     expect(notified.status).toBe(202);
     const listed = await rpc("tools/list");
-    expect((listed.body.result.tools as { name: string }[]).map(t => t.name)).toEqual(["outline_read", "outline_find", "outline_links"]);
+    expect((listed.body.result.tools as { name: string }[]).map(t => t.name)).toEqual(["list_outlines", "outline_read", "outline_find", "outline_links"]);
     expect((await call(null, { method: "GET" })).status).toBe(405);
     const malformed = await fetch(gateway.url, { method: "POST", headers: { Authorization: `Bearer ${await token()}`, "Content-Type": "application/json" }, body: "{not json" });
     expect(malformed.status).toBe(400);

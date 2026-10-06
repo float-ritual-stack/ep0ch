@@ -60,6 +60,11 @@ export interface OutlineHostOptions {
   /** A fault on the host's listener after it started (the socket is gone); by default logged. */
   onListenerError?: (error: Error) => void;
   log?: (message: string) => void;
+  /**
+   * A read-only host: it serves copies (a mirror of another machine's outline) and answers only reads
+   * (`READ_ONLY_ACTIONS`) and `outlines.list`. It never creates, imports or deletes an outline.
+   */
+  readOnly?: boolean;
 }
 
 const HOST_ACTIONS = new Set(["outlines.list", "outlines.create", "outlines.import", "outlines.attach", "outlines.close", "outlines.delete", "outlines.pane"]);
@@ -443,8 +448,8 @@ export class OutlineHost {
     let server: OutlinerServer | undefined;
     try {
       const promptDirectory = aiPromptDirectory(this.options.promptDirectory ?? join(stateDirectory, "prompts"));
-      if (this.options.promptDirectory === undefined) await initializeAiPrompts(promptDirectory);
-      server = new OutlinerServer(store, this.socketPath, this.options.herdrRegistry, promptDirectory, { stateDirectory });
+      if (this.options.promptDirectory === undefined && !this.options.readOnly) await initializeAiPrompts(promptDirectory);
+      server = new OutlinerServer(store, this.socketPath, this.options.herdrRegistry, promptDirectory, { stateDirectory, readOnly: this.options.readOnly === true });
       server.setOutline({ name });
       server.setHost(() => this.status());
       server.startHosted();
@@ -503,6 +508,10 @@ export class OutlineHost {
       id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: 0,
     });
     if (request && HOST_ACTIONS.has(String(request.action))) {
+      if (this.options.readOnly && request.action !== "outlines.list") {
+        fail(new Error(`This outline host serves read-only copies: ${String(request.action)} isn't served`));
+        return;
+      }
       try {
         this.reply(socket, { id, ok: true, result: await this.handleHostAction(request), sequence: 0 });
       } catch (error) {

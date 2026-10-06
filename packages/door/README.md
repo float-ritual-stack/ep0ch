@@ -451,7 +451,7 @@ A checkout from before `install` gets it by hand, once:
 | `ep0ch show <id>… [--source \| --ansi \| --cells] [--width <n>] [--rows <n>]` | each note drawn as a reader draws it (the note surface), at that width, its live figures and `::links` answered by the outline and a view note's results under it (`views.read`, drawn as an embedded view), folded callouts open (no key hints), a blank line between notes; `--source` prints each note's text exactly as written (properties, links, `::` blocks; no header, no wrapping), `---` between notes, for a Markdown file (`ep0ch show --source $(tv ep0ch) >> notes.md`); `--ansi` keeps the colours (a picker's preview); `--cells` prints each as a line of JSON cells for a program that paints a grid (the Claude mod's BlockView draws them as a `Raster`; `src/cells.ts` has the format); `--rows` keeps the first rows, for a preview |
 | `ep0ch mcp access [none\|read\|propose\|full] [--json] [--ws <name>] [--machine <ssh-name>]` | show or set the outline's persisted MCP grant. The default is `none`. `read`, `propose` and `full` all let MCP clients read the outline, through the local stdio server and the [remote gateway](#remote-mcp-gateway-claudeai) alike, but the MCP tools remain read-only; `propose`/`full` are reserved for later write slices. This setting is per outline and independent of web publishing; `none` revokes at once, for both. |
 | `ep0ch mcp [--ws <name>] [--machine <ssh-name>]` | a local read-only stdio MCP server for canonical `ep0ch://<outline>@<machine>/b/<uuid>` block URIs. It refuses every outline read unless `ep0ch mcp access read` (or `propose`/`full`) has explicitly granted this outline. A granted local reader can read private outline content; `[publish::…]` is not required and published blocks do not bypass `none`. `outline_read`, `outline_find`, `outline_links` and `resources/read` keep the same envelope: canonical URI, outline instance id, revision, reachability and block record; `resources/read` also includes Markdown content. |
-| `ep0ch mcp serve --http [--port <n>] [--bind <address>] [--ws <default>]` | the same read-only MCP server over streamable HTTP, for remote clients such as claude.ai: an OAuth resource server (Clerk issues the tokens) for the outlines on this machine's host, each still gated by `ep0ch mcp access`. Port 8792 on 127.0.0.1 by default. See [Remote MCP gateway](#remote-mcp-gateway-claudeai) |
+| `ep0ch mcp serve --http [--port <n>] [--bind <address>] [--ws <default>]` | the same read-only MCP server over streamable HTTP, for remote clients such as claude.ai: an OAuth resource server (Clerk issues the tokens) for the outlines on this machine's host and read-only mirrors of other machines' outlines (`EP0CH_MCP_MIRRORS`), each still gated by `ep0ch mcp access`. Port 8792 on 127.0.0.1 by default. See [Remote MCP gateway](#remote-mcp-gateway-claudeai) |
 | `ep0ch new "<text>" [--near <id>] [--as <id>] [--json]` | a new note from a shell or an agent with no door open, placed by the service as `ctrl+n` places one (see [New notes and pages](#new-notes-and-pages-pie-544)) |
 | `ep0ch view order <view> [<id>…] [--json] [--as <id>]` | a view's hand-set order: printed, or those members put first in the order given (ids, `((id))` or Work IDs), the same service step as the board's `alt+↑` `alt+↓` |
 | `ep0ch outline list --all [--lines]` | every outline you can open from here: this machine's, then each machine you've opened before (a machine not connected now says so; nothing is started) |
@@ -496,10 +496,23 @@ a phone) can read an outline (ADR 0002, decision 4). It is one implementation wi
   `/.well-known/oauth-protected-resource/mcp`, which names Clerk. A valid token for anyone else is 403, and its
   subject is logged. With no subjects listed the gateway is in capture mode: it refuses everyone and logs the
   subject to pin. There is no anonymous access and no setting that turns the check off.
-- **Which outlines.** The outlines on this machine's host, by name, each still gated by its own `ep0ch mcp access`:
-  `none` (the default) refuses, `read` reads. A URI for another machine is refused, and a name that doesn't exist is
-  never made. A tool's `outline` names the outline a ref or a search reads (`--ws` gives a default); a URI names
-  its own. Granting `read` sends that outline's notes to the client's model provider: it is a disclosure decision.
+- **Which outlines.** The outlines on this machine's host, by name, and the mirrors it is given (below), each still
+  gated by its own `ep0ch mcp access`: `none` (the default) refuses, `read` reads. Any other machine's outline is
+  refused, and a name that doesn't exist is never made. A tool's `outline` names the outline a ref or a search reads
+  (`--ws` gives a default); a URI names its own. `list_outlines` lists them all, with each one's access and freshness.
+  Granting `read` sends that outline's notes to the client's model provider: it is a disclosure decision.
+- **Mirrors (PIE-562).** An outline whose home is another machine (float-hub on the laptop, often asleep or behind
+  the work VPN) is read from a read-only copy on this machine, never from that machine, so a closed lid never stalls
+  or refuses a read. The copy comes from the outline's own backups: the laptop's Litestream replicates it to the
+  bucket, and `litestream restore -f` here follows that replica into `<EP0CH_MCP_MIRROR_DIR>/<machine>/<name>.sqlite`
+  (the unit below). The gateway snapshots that file when it changes (checked at most every 15 seconds) and serves the
+  snapshot from an outline host of its own opened read-only (`OutlineHost` with `readOnly`: only the reads MCP makes
+  are answered; the followed file is never opened to write). Every answer says where it came from:
+  `reachability.source` (and `outline_find`'s `source`) is `live` or `mirror`, `asOf` is when it was read or the
+  newest change the copy holds, and a mirror's `note` names its home. The access setting is the one the copy
+  carries: `ep0ch mcp access read --ws float-hub` run on the laptop reaches the mirror with its next change. A
+  mirror whose copy hasn't arrived yet is listed as `unreachable` and its reads are refused, saying so. Writes are
+  later (PIE-562's queue).
 - **Revoking.** `ep0ch mcp access none --ws <name>` stops reads at once. Removing a subject from
   `EP0CH_MCP_ALLOWED_SUBJECTS` (or a client from `EP0CH_MCP_ALLOWED_CLIENTS`) and restarting stops that person (or
   client). Clerk's JWT access tokens live a day and can't be recalled early; revoke the client's grant in Clerk to
@@ -511,6 +524,8 @@ a phone) can read an outline (ADR 0002, decision 4). It is one implementation wi
 | `CLERK_PUBLISHABLE_KEY` | names the issuer (Clerk's Frontend API); from `~/.config/secrets/clerk.env` through `with-secrets clerk -- …`. `EP0CH_MCP_ISSUER` names it outright instead |
 | `EP0CH_MCP_ALLOWED_SUBJECTS` | comma-separated Clerk user ids (`user_…`) allowed in. Unset: capture mode |
 | `EP0CH_MCP_ALLOWED_CLIENTS` | optional comma-separated OAuth `client_id`s; when set, only these clients |
+| `EP0CH_MCP_MIRRORS` | comma-separated `<outline>@<machine>` read from their mirrors (`float-hub@laptop`) |
+| `EP0CH_MCP_MIRROR_DIR` | where the followed copies are, `<machine>/<outline>.sqlite` (default `~/outline-mirrors`; never the outlines folder) |
 
 The unit, `~/.config/systemd/user/ep0ch-mcp.service` (the gateway needs only the publishable key; the secret key
 in `clerk.env` is never read):
@@ -529,6 +544,7 @@ Environment=PATH=%h/.bun/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
 Environment=EP0CH_MCP_RESOURCE=https://mcp.ep0ch.sh/mcp
 # Empty: capture mode. Connect once from claude.ai, read the subject from the journal, put it here, restart.
 Environment=EP0CH_MCP_ALLOWED_SUBJECTS=
+Environment=EP0CH_MCP_MIRRORS=float-hub@laptop
 UnsetEnvironment=EP0CH_SOCKET EP0CH_WS EP0CH_MACHINE
 ExecStart=%h/.local/bin/with-secrets clerk -- %h/.bun/bin/bun src/main.ts mcp serve --http --port 8792
 Restart=always
@@ -538,6 +554,41 @@ UMask=0077
 
 [Install]
 WantedBy=default.target
+```
+
+The mirror's follower, `~/.config/systemd/user/litestream-mirror.service` (the bucket keys from `hetzner-s3.env`; the
+copies stay outside `~/outlines`, so this machine's own Litestream doesn't replicate them back and its host never
+serves them):
+
+```ini
+[Unit]
+Description=Litestream follow: read-only mirrors of other machines' outlines in ~/outline-mirrors, for the MCP gateway
+After=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=%h/.config/secrets/hetzner-s3.env
+ExecStartPre=/bin/mkdir -p %h/outline-mirrors/laptop
+ExecStart=%h/.local/bin/litestream restore -f -follow-interval 10s -config %h/.config/litestream/mirrors.yml %h/outline-mirrors/laptop/float-hub.sqlite
+Restart=always
+RestartSec=10
+UMask=0077
+
+[Install]
+WantedBy=default.target
+```
+
+with `~/.config/litestream/mirrors.yml` naming the laptop's replica:
+
+```yaml
+dbs:
+  - path: /home/evan/outline-mirrors/laptop/float-hub.sqlite
+    replica:
+      type: s3
+      bucket: ep0ch
+      path: laptop/outlines/float-hub.sqlite
+      endpoint: https://hel1.your-objectstorage.com
+      region: hel1
 ```
 
 Caddy, beside `pie.ep0ch.sh` (the `*.ep0ch.sh` record already points at the machine):

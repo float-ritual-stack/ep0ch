@@ -1,5 +1,6 @@
 // `ep0ch mcp serve --http`: the remote MCP gateway (ADR 0002, decision 4; PIE-520's remote part). The same read-only
-// server as `ep0ch mcp` (src/mcp.ts, `answerMcp`), over streamable HTTP, for the outlines on this machine's host.
+// server as `ep0ch mcp` (src/mcp.ts, `answerMcp`), over streamable HTTP, for the outlines on this machine's host and
+// read-only mirrors of other machines' outlines (EP0CH_MCP_MIRRORS, src/mcp-mirror.ts).
 //
 // It is an OAuth resource server only. Clerk is the authorization server (client registration, the GitHub sign-in,
 // tokens); this process checks each Bearer token itself: a JWT access token (`typ: at+jwt`) signed by a key in the
@@ -8,7 +9,9 @@
 // no anonymous mode and no switch that turns the check off. Past the token, each outline's own `ep0ch mcp access`
 // setting decides, as it does for stdio. Nothing here writes.
 import { createRemoteJWKSet, errors as joseErrors, jwtVerify, type JWTVerifyGetKey } from "jose";
-import { answerMcp, type McpOutlines, type NamedOutline } from "./mcp";
+import { hostLive, hostSocketOf } from "./discover";
+import { answerMcp, servedLive, type McpBoard, type McpOutlineListing, type McpOutlines, type NamedOutline } from "./mcp";
+import { mirrorsConfig, OutlineMirror } from "./mcp-mirror";
 import { boardFor, canonicalLocalMachineName, type NotesBoard } from "./notes-cli";
 import { OUTLINE_NAME } from "./socket";
 
@@ -115,13 +118,34 @@ export function gatewayConfig(env: Record<string, string | undefined>): { issuer
   return { issuer: trimSlash(issuer.href), resource, allowedSubjects: listOf(env.EP0CH_MCP_ALLOWED_SUBJECTS), allowedClients: listOf(env.EP0CH_MCP_ALLOWED_CLIENTS) };
 }
 
+/** Where this machine's host is, and what it lists: for `list_outlines`. */
+const localNames = async () => (await hostLive(hostSocketOf(), 3000))?.outlines ?? [];
+
 /**
- * The gateway's outlines: any outline on this machine's host by name, opened once and kept. Another machine's is
- * refused (this gateway reads only its own host), and an outline that doesn't exist is never made.
+ * The gateway's outlines: any outline on this machine's host by name, opened once and kept, and each mirror it was
+ * given (another machine's outline, read from its copy here, never from that machine). A mirror's name wins over a
+ * bare name. Any other machine's outline is refused, and an outline that doesn't exist is never made.
  */
-export function machineOutlines(defaultOutline?: string, log: (line: string) => void = console.error, open: (name: string) => Promise<NotesBoard | { error: string }> = name => boardFor(["--ws", name, "--here"])): McpOutlines & { close(): void } {
+export function machineOutlines(defaultOutline?: string, log: (line: string) => void = console.error, open: (name: string) => Promise<NotesBoard | { error: string }> = name => boardFor(["--ws", name, "--here"]), mirrors: OutlineMirror[] = [], names: () => Promise<string[]> = localNames): McpOutlines & { close(): void } {
   const machine = canonicalLocalMachineName();
   const boards = new Map<string, Promise<NotesBoard | { error: string }>>();
+  const mirrored = mirrors.map(m => `${m.outline}@${m.machine}`).join(", ");
+  const mirrorRead = async (mirror: OutlineMirror): Promise<McpBoard | { error: string }> => {
+    const read = await mirror.read();
+    if ("error" in read) return { error: `${mirror.outline} lives on ${mirror.machine}, and this gateway reads it only from its mirror on ${machine}: ${read.error}.` };
+    return { board: read.board, served: { source: "mirror", asOf: read.asOf, note: `${mirror.outline} lives on ${mirror.machine}; this is ${machine}'s read-only copy, kept current from its backups` } };
+  };
+  const local = async (name: string): Promise<McpBoard | { error: string }> => {
+    let pending = boards.get(name);
+    if (!pending) { pending = open(name); boards.set(name, pending); }
+    const board = await pending;
+    if ("error" in board) {
+      boards.delete(name);
+      log(`mcp gateway: can't open ${name}: ${board.error}`);
+      return { error: `No outline ${name} is open to this gateway on ${machine}.` };
+    }
+    return { board, served: servedLive() };
+  };
   return {
     kind: "remote",
     machine,
@@ -129,20 +153,32 @@ export function machineOutlines(defaultOutline?: string, log: (line: string) => 
     internalError(e: Error) { log(`mcp gateway: internal error: ${e.message}`); return "internal error (the gateway's log has it)"; },
     async board(named?: NamedOutline) {
       const name = named?.outline ?? defaultOutline;
-      if (!name) return { error: `Name the outline: an outline on ${machine}.` };
-      if (named?.machine && named.machine !== machine) return { error: `${name}@${named.machine} is on another machine; this gateway reads only outlines on ${machine}.` };
+      if (!name) return { error: `Name the outline: an outline on ${machine}${mirrored ? ` or a mirror (${mirrored})` : ""}.` };
       if (!OUTLINE_NAME.test(name)) return { error: `${JSON.stringify(name)} isn't an outline name.` };
-      let pending = boards.get(name);
-      if (!pending) { pending = open(name); boards.set(name, pending); }
-      const board = await pending;
-      if ("error" in board) {
-        boards.delete(name);
-        log(`mcp gateway: can't open ${name}: ${board.error}`);
-        return { error: `No outline ${name} is open to this gateway on ${machine}.` };
-      }
-      return board;
+      const mirror = mirrors.find(m => m.outline === name && (!named?.machine || named.machine === m.machine));
+      if (mirror) return mirrorRead(mirror);
+      if (named?.machine && named.machine !== machine) return { error: `${name}@${named.machine} is on another machine; this gateway reads outlines on ${machine}${mirrored ? ` and mirrors of ${mirrored}` : ""}.` };
+      return local(name);
     },
-    close() { for (const p of boards.values()) void p.then(b => { if (!("error" in b)) b.close(); }); boards.clear(); },
+    async list() {
+      const rows: McpOutlineListing[] = [];
+      const access = async (target: McpBoard | { error: string }) => "error" in target ? undefined : (await target.board.mcpAccessStatus().catch(() => undefined))?.level;
+      for (const name of await names().catch(() => [])) {
+        if (mirrors.some(m => m.outline === name)) continue;
+        const target = await local(name);
+        rows.push({ outline: name, machine, uri: `ep0ch://${name}@${machine}`, ...("error" in target ? { source: "unreachable" as const, note: target.error } : { ...target.served, access: await access(target) }) });
+      }
+      for (const m of mirrors) {
+        const target = await mirrorRead(m);
+        rows.push({ outline: m.outline, machine: m.machine, uri: `ep0ch://${m.outline}@${m.machine}`, ...("error" in target ? { source: "unreachable" as const, note: target.error } : { ...target.served, access: await access(target) }) });
+      }
+      return rows;
+    },
+    close() {
+      for (const p of boards.values()) void p.then(b => { if (!("error" in b)) b.close(); });
+      boards.clear();
+      for (const m of mirrors) void m.close();
+    },
   };
 }
 
@@ -267,11 +303,15 @@ export async function mcpServeCommand(args: string[], io: ServeIo = {}): Promise
   if ("error" in parsed) { err(`ep0ch: ${parsed.error}`); return 2; }
   const config = gatewayConfig(io.env ?? process.env);
   if ("error" in config) { err(`ep0ch: ${config.error}`); return 2; }
-  const outlines = machineOutlines(parsed.ws, err);
+  const mirrorConfig = mirrorsConfig(io.env ?? process.env);
+  if ("error" in mirrorConfig) { err(`ep0ch: ${mirrorConfig.error}`); return 2; }
+  const mirrors = mirrorConfig.mirrors.map(m => new OutlineMirror(m.outline, m.machine, mirrorConfig.folder, err));
+  const outlines = machineOutlines(parsed.ws, err, undefined, mirrors);
   let gateway: Gateway;
   try { gateway = startGateway({ config, outlines, port: parsed.port, bind: parsed.bind, ...(io.keys ? { keys: io.keys } : {}), log: err }); }
   catch (e) { outlines.close(); err(`ep0ch: can't listen on ${parsed.bind}:${parsed.port}: ${(e as Error).message}`); return 1; }
   err(`ep0ch mcp gateway on ${gateway.url}: resource ${config.resource.href}, issuer ${config.issuer}, outlines on ${outlines.machine}${parsed.ws ? ` (default ${parsed.ws})` : ""}` +
+    (mirrors.length ? `, mirrors ${mirrors.map(m => `${m.outline}@${m.machine} (${m.follow}${m.exists() ? "" : ", no copy yet"})`).join(", ")}` : "") +
     (config.allowedSubjects.length ? `, ${config.allowedSubjects.length} allowed subject(s)` : " [CAPTURE MODE: every token is refused and its subject logged; set EP0CH_MCP_ALLOWED_SUBJECTS]"));
   io.ready?.(gateway);
   const stop = new Promise<void>(resolve => {
