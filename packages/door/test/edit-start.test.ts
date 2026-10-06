@@ -35,9 +35,7 @@ const term = (onKey: (f: (k: Key) => void) => void) => ({ info: { cols: 170, row
 async function press(key: (k: Key) => void, k: Key, opened: () => boolean, what: string): Promise<ActionRun[]> {
   const runs: ActionRun[] = [];
   const stop = traceActions(r => runs.push(r));
-  // e and ctrl+e arm the edit (edit.arm); the same key again opens it.
-  const arms = k.kind === "char" && k.ch === "e";
-  try { key(k); if (arms) key(k); await until(opened, what, 5000); } finally { stop(); }
+  try { key(k); await until(opened, what, 5000); } finally { stop(); }
   return runs;
 }
 
@@ -147,7 +145,7 @@ describe.skipIf(!outliner)("starting an edit by key runs the edit action (PIE-51
       const rd = [...desk.panes.values()].find((p: any) => p.kind === "reader" && p.msg?.id === notes.hedge.id) as any;
       const id = [...desk.panes].find(([, p]: any) => p === rd)![0];
       desk.focus = id;
-      key(char("e")); key({ kind: "enter" });                          // e arms the edit, ⏎ opens it (edit.arm)
+      key(char("e"));
       await typeAndPutAside(rd.surface, " with shears");
       desk.entered.clear();
       // An agent's edit on the reader the person has focused: its own draft, not the person's text, and no keys.
@@ -156,7 +154,7 @@ describe.skipIf(!outliner)("starting an edit by key runs the edit action (PIE-51
       expect(desk.entered.in(rd)).toBe(false);
       expect(desk.focus).toBe(id);
       await app.act({ action: "edit.close", args: { discard: true }, tile: desk.nameOf(id), as: "edit-start-test" });
-      key(char("e")); key({ kind: "enter" });                          // e arms the edit, ⏎ opens it (edit.arm)
+      key(char("e"));
       await until(() => !!rd.surface.draft, "the person's edit");
       expect(rd.surface.draft.text).toContain("with shears");
       expect(rd.surface.draft.note).toContain("brought back");
@@ -171,10 +169,10 @@ describe.skipIf(!outliner)("starting an edit by key runs the edit action (PIE-51
       key(char("l"));
       const p = V().focused;
       await until(() => p.surface.msg?.id === notes.hedge.id, "the column's note");
-      key(char("e")); key({ kind: "enter" });                          // e arms the edit, ⏎ opens it (edit.arm)
+      key(char("e"));
       await typeAndPutAside(p.surface, " and the gate");
       key(char("h")); key(char("l"));                                    // away and back: the person isn't in an edit
-      key(char("e")); key({ kind: "enter" });                          // e arms the edit, ⏎ opens it (edit.arm)
+      key(char("e"));
       await until(() => !!p.surface.draft, "the column's edit");
       expect(p.surface.draft!.text).toContain("and the gate");
       p.surface.closeDraftAction(true);

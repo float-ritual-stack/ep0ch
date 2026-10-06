@@ -158,7 +158,7 @@ describe.skipIf(!outliner)("the brief screen", () => {
     expect(await app.act({ action: "brief.date", args: { date: "2026-01-05" }, as: "test-agent" })).toMatchObject({ id: notes.a.id, n: 1 });
     expect((app as any).message).toContain("an agent (test-agent) showed the brief for 2026-01-05");
     expect(await app.act({ action: "brief.step", args: { by: 1 }, as: "test-agent" })).toMatchObject({ id: notes.c.id });
-    ch("e"); press({ kind: "enter" });   // e arms the edit, ⏎ opens it (edit.arm)
+    ch("e");
     await until(() => !!brief().draft, "the person's edit");
     await expect(app.act({ action: "brief.newest", as: "test-agent" })).rejects.toThrow(/the person is typing/);
     ch(".");                                                                        // typed into the edit, not a step
@@ -199,7 +199,7 @@ describe.skipIf(!outliner)("the brief screen", () => {
     expect(await app.act({ action: "open", args: { id: notes.a.id }, as: "test-agent" })).toMatchObject({ id: notes.a.id, reader: "brief" });
     expect(brief().shown?.id).toBe(notes.a.id);
     expect(await app.act({ action: "brief.show", args: { id: notes.b.id }, as: "test-agent" })).toMatchObject({ id: notes.b.id, tile: "brief" });
-    ch("e"); press({ kind: "enter" });   // e arms the edit, ⏎ opens it (edit.arm)
+    ch("e");
     await until(() => !!brief().draft, "the person's edit");
     await expect(app.act({ action: "open", args: { id: notes.a.id }, as: "test-agent" })).rejects.toThrow(/the person is typing/);
     expect(brief().shown?.id).toBe(notes.b.id);

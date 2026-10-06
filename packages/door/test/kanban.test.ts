@@ -499,7 +499,7 @@ describe.skipIf(!outliner)("writing from the board, against a scratch outline", 
     await select("Queued", cards.shelf.id);
     press({ kind: "enter" });
     await Bun.sleep(100);
-    press({ kind: "char", ch: "e" }); press({ kind: "enter" });   // e arms the edit, ⏎ opens it (edit.arm)
+    press({ kind: "char", ch: "e" });
     await until(() => B().details.some((d: any) => d.editing), "the draft");
     press({ kind: "char", ch: "!" });
     BV.at(b, "lanes");

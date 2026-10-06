@@ -308,7 +308,7 @@ describe.skipIf(!outliner)("the welcome screen", () => {
     // The person edits the detail: an agent's pick waits.
     ch("1");
     await until(() => focus() === "detail" && tileOf<WelcomeDetail>("detail").msg?.id === n.start.id, "the start note, read");
-    ch("e"); press({ kind: "enter" });   // e arms the edit, ⏎ opens it (edit.arm)
+    ch("e");
     await until(() => !!tileOf<WelcomeDetail>("detail").draft, "the person's edit");
     idle();
     await expect(app.act({ action: "welcome.select", args: { n: 2 }, as: "test-agent" })).rejects.toThrow(/the person is typing on the welcome/);

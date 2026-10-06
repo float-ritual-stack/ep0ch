@@ -295,6 +295,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
 
   beforeAll(async () => {
     process.env.EP0CH_STATE = join(scratch.root, "door");
+    // e arms the edit here, as in the door (test/preload.ts turns it off): ⏎ opens it.
+    process.env.EP0CH_EDIT_ARM = "60000";
     await scratch.start();
     seeded = await scratch.seedShowcase();
     board = new SocketBoard(scratch.sock);
@@ -306,13 +308,13 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     app.push(new MainMenu()); app.push(sc);
     await until(() => !!S().notes, "the showcase outline", 8000);
   }, 30_000);
-  afterAll(async () => { board?.close(); await scratch.dispose(); delete process.env.EP0CH_STATE; });
+  afterAll(async () => { board?.close(); await scratch.dispose(); delete process.env.EP0CH_STATE; process.env.EP0CH_EDIT_ARM = "off"; });
 
   // What each section's own part draws, once it has read the outline.
   const marks: Record<string, string[]> = {
     note: ["Allotment notebook", "the same NoteSurface, as the BBS reader · src/screens.ts", "Subj: Allotment notebook"],
     // The detail screen spec on the notebook: the detail tile's own frame and keys around the same surface.
-    detail: ["═ detail ═", "Allotment notebook", "Our plot at the Elm Row allotments.", "p follow · [ ] elements"],
+    detail: ["─ detail ─", "Allotment notebook", "Our plot at the Elm Row allotments.", "p follow · [ ] elements"],
     // The list scrolls: the note set's header and the registry are on screen; the desk set is further down.
     actions: ["NOTE_ACTIONS · src/surface/note.ts", "the action registry · src/surface/actions.ts"],
     edit: ["Kitchen whiteboard", "properties · 6"],

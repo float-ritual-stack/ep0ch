@@ -65,7 +65,8 @@ describe("the newer kinds", () => {
     // The registry holds what this process has made: the reader's actions, imported above.
     expect(NOTE_ACTIONS.has("edit")).toBe(true);
     const keys = registryKeys(["note"], ["edit"]);
-    expect(keys[0]).toMatchObject({ keys: "e", learn: true });
+    // e asks first (edit.arm), so the sheet teaches the chord.
+    expect(keys[0]).toMatchObject({ keys: "e then ⏎/e", learn: true });
     expect(keys.some(k => /click|drag/.test(k.keys))).toBe(false);
     expect(body(draw("keys", ["---", "actions: note", "learn: [edit]", "limit: 3", "---"])).length).toBe(3);
     expect(body(draw("keys", ["---", "actions: nowhere", "---"]))[0]).toContain("no action in nowhere");

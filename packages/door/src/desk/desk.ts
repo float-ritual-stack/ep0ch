@@ -15,7 +15,7 @@ import { MOUSE_RIGHT, sideways, SidewaysWheel, type RowPress } from "../scroll";
 import { readLinks } from "../links";
 import type { Placement } from "../kitty";
 import { whoOf, USER, type Actor, type OutlineEvent } from "../socket";
-import { ActionRefused, ActionSet, actionSet, def, asBoundKey, boundNow, hintSpots, keyName, type ActRequest } from "../surface/actions";
+import { ActionRefused, ActionSet, actionSet, def, asBoundKey, hintSpots, keyName, type ActRequest } from "../surface/actions";
 import { newNoteOffer } from "../new-note";
 import { actorRule, Dispatcher, type Delegation, type MenuRow, type Registration, type RunHow, type TileRef } from "../surface/dispatch";
 import type { ScreenKeys, Whereabouts } from "../whereabouts";
@@ -28,8 +28,8 @@ import { centred, linePrompt, ListPicker, pickRow } from "../surface/picker";
 import { outlineState, readState, writeState } from "../state";
 import { containerKeys, leafNames, madeScreen, savedNodes, screenNames, screenTargetArg, specData, type ScreenSpec } from "./screen-spec";
 import { saveScreenNote, ScreenConflict, screenNotes, trashScreenNote } from "./screen-notes";
-import { visible as visibleText, bg, BOLD, C, chip as chipStyle, fg, fitHint, headOf, pad, paint, RESET, selected, width } from "../style";
-import { themed } from "../theme";
+import { visible as visibleText, bg, BOLD, C, fgRgb, chip as chipStyle, fg, fitHint, headOf, pad, paint, RESET, selected, width } from "../style";
+import { theme, themed } from "../theme";
 import { ch, type Key, type TileProgram } from "../term";
 import { colourBody, wrap } from "../text";
 import { emphasis } from "../inline";
@@ -1851,7 +1851,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const inner: Rect = { col: r.col + 1, row: r.row + 1, cols: r.cols - 2, rows: r.rows - 2 };
     const typing = pane === this.ptyIn && focused;
     // The header first: a tile that puts controls on it (the backlinks' status) draws its body knowing it did.
-    const head = (float ? `${fg(C.yellow)}⧉ ${RESET}` : "") + this.header(id, r, focused, float ? 2 : 0);
+    // The person's keys are in this tile (it's focused and they're on this desk): its frame and name wear the focus accent.
+    const keys = focused && !dock && this.cover(id) !== "peek" && this.keysHere();
+    const head = (float ? `${fg(C.yellow)}⧉ ${RESET}` : "") + this.header(id, r, keys, float ? 2 : 0);
     // A float's ⧉ puts it back: the cell either side counts too (a font that draws the glyph wide puts it under the pointer there).
     if (float) this.floatButtons.push({ id, row: r.row, from: r.col + 2, to: r.col + 5 });
     const view = inner.cols >= 1 && inner.rows >= 1 ? pane.render(inner.cols, inner.rows, focused, this, typing) : null;
@@ -1863,7 +1865,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const own = pane.frameLook?.(focused) ?? null;
     // An edit armed in it (e, src/arm.ts) draws it in the edit's colour, frame and title, until ⏎ opens it or a key lets it go.
     const armed = pane instanceof ReaderPane && !!this.ctx && this.ctx.armed?.()?.of === pane.surface;
-    const edgeC = this.linking ? (id === this.linking.from ? C.lmagenta : C.magenta) : this.dragging?.src === id ? C.dark : armed ? C.yellow : marked.length ? C.lmagenta : typing ? C.yellow : own?.colour ?? (focused ? C.lcyan : float ? C.yellow : dock ? C.brown : C.blue);
+    const edgeC = this.linking ? (id === this.linking.from ? C.lmagenta : C.magenta) : this.dragging?.src === id ? C.dark : armed ? C.yellow : marked.length ? C.lmagenta : typing ? C.yellow : own?.colour ?? (keys ? "focus" : float ? C.yellow : dock ? C.brown : "tile");
+    const edge = (c: number | "focus" | "tile") => (typeof c === "number" ? fg(c) : fgRgb(theme().edge[c]));
     // A float's long subject is cut so what it holds and how far down it is still show.
     const tail = (held ? fg(C.dark) + " (e enters)" : "") + more;
     // The controls on its top right corner (× ⧉ ⋯, drawn after the frame): where they start, so the title ends before them.
@@ -1888,11 +1891,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const hint = own?.hint ?? (focused && !said ? fg(C.dark) + (held && pane instanceof ReaderPane ? `e ⏎ enter${pane.surface.scrolls() ? " · j k scroll" : ""}` : float && !(pane instanceof ReaderPane && pane.holdsKeys) ? this.floatHint() : pane.hint()) : "");
     // The focused tile's frame is double-lined (╔═╗, in the VGA font too) in whatever colour its state gives it, so which
     // tile the keys go to shows by its shape, apart from the colours of linking, marks, a drag or an edit.
-    // Only while the person's keys are on this screen: not while they're in your drawer, or in another part of a frame
-    // around it (the showcase's index beside its stage).
-    const keys = focused && !dock && cover !== "peek" && this.keysHere();
+    // Double-lined only while the person's keys are here: not while they're in your drawer, or in another part of a frame
+    // around this screen (the showcase's index beside its stage).
     const glyphs = keys ? FOCUS_BOX : this.spec.frame ? FRAMES[this.spec.frame] : undefined;
-    canvas.box(r, fg(cover === "peek" && !focused ? C.dark : edgeC) + (keys ? BOLD : ""), armed ? `${fg(C.yellow)}${BOLD}✎ edit? ${visibleText(title)}` : title, armed ? `${fg(C.yellow)}⏎ opens it · any other key cancels` : hint, glyphs);
+    canvas.box(r, (cover === "peek" && !focused ? fg(C.dark) : edge(edgeC)) + (keys ? BOLD : ""), armed ? `${fg(C.yellow)}${BOLD}✎ edit? ${visibleText(title)}` : title, armed ? `${fg(C.yellow)}⏎ opens it · any other key cancels` : hint, glyphs);
     // The focused tile's ⧉, in its frame's top right corner, floats it by mouse (tile.float, as ^W f); a float's own
     // ⧉, before its title, puts it back.
     // Every tile that can close has a × in its top right corner: a click closes it (tile.close, as ^W x; a running
@@ -1951,7 +1953,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (flow?.held?.some(t => columnOf(flow, t) === columnOf(flow, id))) put("⊙ ", fg(C.yellow));
     if (set && set.ids.length > 1) {
       set.ids.forEach((t, i) => {
-        if (i) put("│", fg(C.blue));
+        if (i) put("│", fgRgb(theme().edge.tile));
         const on = i === set.active;
         put(` ${this.numLabel(t)}${this.panes.get(t)?.headName?.() ?? this.nameOf(t)} `, on ? selected(focused, "idleRow") : fg(C.grey), t);
       });
@@ -1959,9 +1961,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       // A tile named only by its kind reads as its number, then its title.
       if (this.numbered) put(`${this.numberOf(id)}`, fg(focused ? C.white : C.dark), id);
       this.putMarks(id, put, xNow, r.row);
-      put(`${this.numbered ? " " : ""}${this.panes.get(id)!.title()}`, fg(focused ? C.lcyan : C.cyan), id);
+      put(`${this.numbered ? " " : ""}${this.panes.get(id)!.title()}`, focused ? fgRgb(theme().edge.focus) + BOLD : fg(C.cyan), id);
       return this.headerEnd(id, put, xNow, max, r.row);
-    } else put(`${this.numLabel(id)}${this.panes.get(id)!.headName?.() ?? this.nameOf(id)}`, fg(focused ? C.white : C.grey), id);
+    } else put(`${this.numLabel(id)}${this.panes.get(id)!.headName?.() ?? this.nameOf(id)}`, focused ? fgRgb(theme().edge.focus) + BOLD : fg(C.grey), id);
     this.putMarks(id, put, xNow, r.row);
     const p = this.panes.get(id)!;
     // A tile that says what follows its name (a lane: its count) says it; a file shown read-only (a preview of
@@ -2342,8 +2344,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // Not while the tile takes typed text of its own (a river column's / filter): e, i and C are letters there.
     const start = focused && !focused.holdsKeys && !pane?.typing?.() && focused.msg && !readOnly ? sessionStart(k) : null;
     if (focused && start) {
-      // e and ctrl+e arm the edit (edit.arm); a click on the hint row's e is the mouse's, and opens it at once.
-      if (armsEdit(start) && !boundNow()?.split("; ").includes("click")) return void focused.surface.runKey("edit.arm", start === "external" ? { external: true } : {}, focused.host(this));
+      // e and ctrl+e arm the edit (edit.arm); a click on the hint row's e is the mouse's, and opens it at once (armsEdit).
+      if (armsEdit(start)) return void focused.surface.runKey("edit.arm", start === "external" ? { external: true } : {}, focused.host(this));
       return void this.startSession(focused, start);
     }
     if (!focused?.holdsKeys && pane?.key(k, this)) return;

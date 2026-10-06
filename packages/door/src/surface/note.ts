@@ -34,7 +34,7 @@ import { whoOf, changedSinceRead, EditConflict, mutationFor, Offline, recordedAc
 import { ellipsize, dim, C, extractLinks, fg, LINK_END, linkTag, pad, RESET, width } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
 import { ago, bbsDate, rule, wrap } from "../text";
-import { ActionRefused, actionSet, def, agentLabel, asActor, type ActionDef, type ArgsOf, type ArgsOfSet, type MenuEntry, type MenuNow } from "./actions";
+import { ActionRefused, actionSet, boundNow, def, agentLabel, asActor, type ActionDef, type ArgsOf, type ArgsOfSet, type MenuEntry, type MenuNow } from "./actions";
 import { Dispatcher } from "./dispatch";
 import { NOBODY } from "../whereabouts";
 import { draftState, editHint, editorClick, openInEditor, renderEditor, writtenBy } from "./editor";
@@ -4277,8 +4277,10 @@ export function sessionStart(k: Key): SessionKind | null {
   if (k.ctrl) return k.ch === "e" ? "external" : null;
   return k.ch === "e" ? "edit" : k.ch === "C" ? "select" : k.ch === "m" ? "threads" : k.ch === "i" ? "props" : k.ch === "I" ? "props-full" : null;
 }
-/** The person's e and ctrl+e arm the edit (edit.arm, src/arm.ts) where the others start at once. */
-export const armsEdit = (kind: SessionKind): kind is "edit" | "external" => kind === "edit" || kind === "external";
+/** The person's e and ctrl+e arm the edit (edit.arm, src/arm.ts) where the others start at once; a click on a hint's e opens it. */
+export const armsEdit = (kind: SessionKind): boolean => (kind === "edit" || kind === "external") && !clickedKey();
+/** The key running now came from a click (a hint's key: asBoundKey "click"): the mouse's, so an edit opens at once. */
+const clickedKey = () => !!boundNow()?.split("; ").includes("click");
 /** The note action each of those keys runs (PIE-510): the key, a click and `act` all start it the same way. */
 export const SESSION_ACTIONS: Record<SessionKind, { name: "edit" | "passage.select" | "threads" | "props"; args: Record<string, unknown> }> = {
   edit: { name: "edit", args: {} },
@@ -4538,7 +4540,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   }),
   "edit.arm": def({
     summary: "the person's e (ctrl+e: for $EDITOR) in a reader: arm the edit instead of opening it. The status bar asks `edit <title>? ⏎ · any other key cancels` and the reader's frame turns the edit's colour; ⏎ or the same key again within the window (EP0CH_EDIT_ARM, default 2000 ms) opens it (edit), any other key lets it go and does what it does, and the window running out lets it go. EP0CH_EDIT_ARM=off opens it at once. A click on an edit control, and an agent's edit, open at once",
-    keys: "e, ctrl+e", touches: "nothing", replay: "safe",
+    keys: "e, ctrl+e", touches: "nothing", replay: "ask",
     person: "arming is the person's e key, so a stray key never opens an edit; an agent opens one with edit (edit.text puts text in it)",
     args: { external: { type: "boolean", optional: true, about: "arm ctrl+e's $EDITOR handoff instead" } },
     run({ external }, { surface, host }) {

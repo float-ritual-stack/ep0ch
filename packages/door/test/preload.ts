@@ -15,6 +15,10 @@ process.env.EP0CH_DAEMON = "0";
 // nothing, never the person's tv (test/pick.test.ts sets its own).
 process.env.EP0CH_PICKER = "true";
 
+// e opens an edit at once, as before arming (src/arm.ts): a test that presses e means the edit. The arm itself is tested
+// where it's turned on (test/edit-arm.test.ts, the showcase's edit section, the parity probes).
+process.env.EP0CH_EDIT_ARM = "off";
+
 const dir = mkdtempSync(join(tmpdir(), "ep0ch-test-state-"));
 process.env.XDG_STATE_HOME = dir;
 // What the agent chip compares an agent with (the Claude mod Claude loads, src/desk/agent-env.ts) is never the

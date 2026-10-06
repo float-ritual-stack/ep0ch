@@ -44,7 +44,7 @@ describe.skipIf(!outliner)("e arms the edit; ⏎ or e again opens it (edit.arm)"
     for (const s of [...A().stack]) (s as any).dispose?.();
     board?.close();
     await scratch.dispose();
-    delete process.env.EP0CH_STATE; delete process.env.EP0CH_EDIT_ARM;
+    delete process.env.EP0CH_STATE; process.env.EP0CH_EDIT_ARM = "off";   // as test/preload.ts leaves it
   });
   // A long window by default, so a slow machine never lets an arm go between two keys; the expiry test sets a short one.
   const window = (v: string) => { process.env.EP0CH_EDIT_ARM = v; };
