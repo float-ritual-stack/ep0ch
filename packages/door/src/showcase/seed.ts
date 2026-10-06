@@ -596,11 +596,13 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
   notes.gardenView = await make(notes.root.id, `${SEED.gardenView} [type::virtual-branch] [query::type=chore area=garden]`);
 
   // The Welcome screen's notes (C): marked by [welcome::true], in the Welcome view's hand-set order, the first read on opening.
+  // Under a note of their own, the view with them: beside the garden view it would make the root a second board hub.
+  const landing = await make(notes.root.id, "Landing\nWhat the Welcome screen reads first.");
   const welcomeNotes = [
-    await make(notes.root.id, `Start here [welcome::true]\nThe house's jobs are on [[${SEED.hub}]]; the bikes are in [[${SEED.shed}]].`),
-    await make(notes.root.id, "House rules [welcome::true]\nWipe the counter. The last one up turns the heating down."),
+    await make(landing.id, `Start here [welcome::true]\nThe house's jobs are on [[${SEED.hub}]]; the bikes are in [[${SEED.shed}]].`),
+    await make(landing.id, "House rules [welcome::true]\nWipe the counter. The last one up turns the heating down."),
   ];
-  const welcomeView = await make(notes.root.id, WELCOME_VIEW_TEXT);
+  const welcomeView = await make(landing.id, WELCOME_VIEW_TEXT);
   await board.moveInView({ view: welcomeView.id, blocks: welcomeNotes.map(m => m.id) }, { kind: "user" });
 
   notes.whiteboard = await make(notes.root.id, WHITEBOARD);

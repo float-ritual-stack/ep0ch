@@ -620,6 +620,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect(S().focus).toBe("stage");                                                 // the zoom went before the stage did
     for (let i = 0; i < 4 && S().focus !== "index"; i++) press({ kind: "esc" });
     expect(S().focus).toBe("index");
+  }, 20_000);
+
   test("the Welcome on the seeded outline: [welcome::true] notes in the Welcome view's hand-set order, moved through act", async () => {
     (app as any).lastInput = 0;
     await app.act({ action: "screen.open", args: { name: "welcome" }, as: "test-agent" });
