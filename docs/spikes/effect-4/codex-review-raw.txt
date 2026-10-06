@@ -1,0 +1,1174 @@
+OpenAI Codex v0.158.0
+--------
+workdir: /home/evan/projects/ep0ch-wt-effect-spike
+model: gpt-6-astra
+provider: openai
+approval: never
+sandbox: read-only
+reasoning effort: none
+reasoning summaries: none
+session id: 01a11270-abea-7d40-80a9-35b9ba2afa07
+--------
+user
+Review this diff as a senior TypeScript reviewer who knows Effect (note: this is Effect 4.0.1, released 2026-10-06; v3 API names differ, so do not flag v4 names as wrong unless you are sure). It is a SPIKE branch, not for merge: three slices of a bun/TypeScript codebase rewritten on Effect (an ssh-forward rule with a lock file, wire types as Schema, a unix-socket request) plus their tests and a findings doc. Report every real bug, race, resource leak, misuse of Effect (Scope, interruption, Schedule, Schema), wrong error semantics, and test weakness you can find, each as: FILE:LINE, severity (high/normal/nit), one-paragraph finding, and a one-line category tag from this set when it fits: identity-by-name, parallel-parser, error-path-bypass, one-path-invariant, live-object-mutation, resource-cleanup, untyped-boundary, test-weakness, api-misuse, other. End with a count by severity and by category. Do not comment on style or line length.
+diff --git a/docs/spikes/effect-4/FINDINGS.md b/docs/spikes/effect-4/FINDINGS.md
+new file mode 100644
+index 00000000..87ac78c9
+--- /dev/null
++++ b/docs/spikes/effect-4/FINDINGS.md
+@@ -0,0 +1,198 @@
++# Findings
++
++Updated as slices land. Each slice: what was rewritten, what it displaced, what it cost, what it caught.
++
++## 0. Installing effect 4 under bun
++
++- `bun install` of `effect@4.0.1`, `@effect/platform-bun@4.0.1` and `@effect/sql-sqlite-bun@4.0.1`: 156 packages,
++  0.6 s, no errors, lockfile +28 lines. Bun 1.4.2 uses its isolated linker (`node_modules/.bun/`), and the peer
++  dependency on `effect` is linked for every `@effect/*` package.
++- Import cost under bun, wall time, measured from inside the package (`bun src/_imp.ts <module>`), against a
++  baseline of `ep0ch --version` at 90 ms end to end:
++
++  | import | wall |
++  |---|---|
++  | `effect/Effect` | 22 ms |
++  | `effect/Schema` | 48 ms |
++  | `effect/Terminal` | 43 ms |
++  | `effect/cli` | 70 ms |
++  | `effect` (the whole barrel) | 91 ms |
++  | `@effect/platform-bun` (barrel) | 128 ms |
++  | `@effect/platform-bun/BunSocketServer` | 58 ms |
++  | `@effect/sql-sqlite-bun` | 53 ms |
++
++  Subpath imports are affordable for a CLI that runs on every interactive login and from Claude hooks. The barrels
++  double the startup. A rule for any adoption: import `effect/<Module>`, never `effect`.
++- A false alarm worth keeping: a probe script placed outside the package made bun fall back to its global install
++  cache, where peer dependencies aren't linked, and `@effect/platform-bun` failed with
++  `Cannot find module 'effect/http/Multipart'`. From inside the package it resolves. Not an Effect problem.
++
++## A. outline-core's ssh-forward rule (`machine.ts`, `ensureForward`) on Effect
++
++`packages/effect-spike/src/machine.ts` and `test/machine.test.ts`; the original is `packages/outline-core/src/machine.ts`
++and its test. Chosen because it has every concern at once: a resource (the lock file) that must be released on every
++exit, a wait on a clock, retries, child processes, and refusals that carry the exact command.
++
++**What changed**
++
++- `MachineIO` became a `Context.Service`. The rule asks for it in its requirements (`R`) instead of a parameter;
++  callers provide a Layer. `MachineIO.fromLegacy(io)` wraps the existing Promise-based object (outline-core's
++  interface, the outliner's `nodeMachineIO`) as a Layer in 10 lines, so the I/O underneath needn't be rewritten first.
++  outline-core's "no I/O" rule holds: the file imports `effect/Effect`, `effect/Context`, `effect/Layer`,
++  `effect/Schedule`, `effect/Schema`, nothing that touches the world.
++- `now()` and `sleep()` left `MachineIO`: the clock is Effect's, so the tests drive time with `TestClock` and
++  nothing sleeps for real (the suite runs in 115 ms, the two-minute lock wait included).
++- Eight refusals became `Schema.TaggedError` classes. The facts are fields (`machine`, `reason`, `said`,
++  `control`...), the exact command is a `command` getter, and a `message` getter renders the sentence the original
++  threw. The original test's `rejects.toThrow("<sentence>")` assertions all pass against `message`; a new one checks
++  `JSON.stringify(error)` gives `{_tag, machine, reason, said}`, which is what a wire would carry.
++- The lock file is `Effect.acquireRelease` under `Effect.scoped`. A live holder is waited for with
++  `Effect.retry` on `Schedule.spaced("100 millis").pipe(Schedule.upTo({ duration: "2 minutes" }))`; a dead holder's
++  lock is taken over at once by recursion inside the attempt. "Does the host answer within N ms" is `Effect.repeat`
++  with `until` on the same kind of schedule.
++
++**What it caught**
++
++- A test the original couldn't express: *the lock is let go when the waiter is interrupted* (a client that quits
++  mid-start). `Fiber.interrupt` on the forked `ensureForward` runs the release finalizer; the original's
++  `try/finally` only covers a thrown error, not a process that is killed or a caller that stops waiting. This is the
++  resource-cleanup class from #172/#194, and the mechanism is structural, not a discipline.
++- The failure paths now provably release the lock too (asserted after `HostSilent`); the original relied on the
++  `finally`, which it did have, so this is parity, not a win.
++
++**What it cost**
++
++| | original | spike |
++|---|---|---|
++| rule | 186 lines | 246 lines |
++| test | 112 lines | 139 lines |
++| `Effect.` or `yield*` mentions | 0 | 67 |
++
++- About a third more code, almost all of it the error classes (each refusal is a class with two getters instead
++  of one template string) and the `yield*` noise. The rule's logic reads the same, line for line.
++- The `Effect.fnUntraced` versus `Effect.fn("name")` choice, `Schedule.upTo` taking `{ duration }`, `Effect.retry`
++  options taking `schedule`, `TestClock.adjust` taking a `Duration.Input` template type rather than `string`: four
++  small things learned from the checkout's source, none from memory (v3 names differ: `Context.Tag`,
++  `Effect.catchAll`, `Schedule.compose`). An agent writing this from v3 knowledge would have got three of them wrong.
++- First typecheck passed after one fix (the `Duration.Input` type in the test). Tests passed on the first run. That is
++  partly the slice being already shaped for it: the original takes its world as a parameter and its tests already
++  faked the clock.
++
++**Verdicts for this slice**
++
++- Resource cleanup: prevents the class (finalizers run on interruption).
++- Errors with the command: helps (the command is a field a door can act on, not a substring of a sentence); the
++  sentence is still hand-written.
++- Clock and retries: helps (TestClock; schedules are data).
++- Lines of code: worse by a third.
++- Agent ergonomics: worse unless the agent reads the v4 source; the official `LLMS.md` and `MIGRATION.md` are good,
++  and `node_modules/effect/AGENTS.md` ships with the package.
++
++## B. The wire types as Schema, decoded at the socket boundary
++
++`packages/effect-spike/src/protocol.ts` and `test/protocol.test.ts`; the original is `packages/outline-core/src/protocol.ts`
++(interfaces only) and the door's `JsonLines` (`JSON.parse`, trusted) plus its own `WireBlock` redeclaration in
++`socket.ts`. Chosen for the parallel-parser and untyped-JSON classes: ~35 response types are redeclared in the door
++("Note logic: shared, server-side and duplicated"), and a missed wire change fails only at runtime.
++
++**What changed**
++
++- `Block`, `BlockProperty`, `OutlinerRequestProblem`, `OutlinerResponse` and `OutlinerServiceStatus` are
++  `Schema.Struct`s. The TypeScript type is `typeof Block.Type`; a test proves it is assignable to and from
++  outline-core's interface, so the interfaces could be deleted and the Schema be the one definition.
++- `ResponseLine = Schema.fromJsonString(OutlinerResponse)`: the parse and the shape check are one decoder, and a bad
++  line says the path (`Missing key at ["sequence"]`, `["properties"][0]["value"]`).
++- `ProtocolVersion = Schema.Int.check(Schema.makeFilter(n => protocolMismatch(n) ?? true))`: the version check is
++  part of the wire type of `ping`'s answer, in outline-core's own sentence. No caller can read a status and forget
++  the comparison, which is how #188's client-on-97-host-on-86 showed up as a confusing failure rather than that
++  sentence.
++- `Schema.toJsonSchemaDocument(Block)` gives the draft 2020-12 JSON Schema the Claude mod's and MCP tool
++  definitions want, derived rather than written a second time (today the outliner writes typebox schemas for
++  that, 275 `Type.*` calls in 13 files, and the door has none).
++
++**What it caught**
++
++- `Schema.Array`'s Type is `readonly T[]`. outline-core's interfaces are mutable, so `decodeBlock(x)` was not
++  assignable to `Block` until the arrays were marked `Schema.mutable(...)`. Struct fields being `readonly` is fine
++  (TypeScript ignores it for assignability), arrays are not. An adoption would either mark every array mutable or
++  accept readonly types across the codebase; the door mutates arrays it receives, so this is real work, not a flag.
++- The first typecheck also caught a fixture whose `author: "agent"` widened to `string`: the literal union is
++  enforced on the way in, where today any string passes.
++
++**What it cost**
++
++| | original | spike |
++|---|---|---|
++| types | ~60 lines of interfaces (the slice's share of `protocol.ts`) | 81 lines, decoders and JSON Schema included |
++| test | none at this boundary | 46 lines |
++
++- `effect/Schema` costs 48 ms to import under bun, more than `effect/Effect` (22 ms). outline-core is imported by
++  everything, so if the Schemas live there, every `ep0ch` run pays it.
++- v4 Schema names learned from the checkout, not memory: `Schema.Literals` (plural), `Schema.optionalKey` versus
++  `Schema.optional`, `Schema.makeFilter` and `.check(...)`, `Schema.decodeUnknownResult` (there is no `Either`),
++  `Schema.toJsonSchemaDocument`, `Schema.mutable`. The v3 names (`Schema.Literal(...many)`,
++  `Schema.filter`, `JSONSchema.make`) are all gone.
++- The derived JSON Schema sets `additionalProperties: true` by default; an MCP tool definition may want `false`.
++
++**Verdicts for this slice**
++
++- Redeclared wire types: prevents the class if the Schema is the one definition both sides import (it is the type).
++- Untyped JSON at the boundary: prevents, at the cost of one `decode` per line; the error names the path.
++- Protocol mismatch forgotten by a caller: prevents (the check is in the type of `ping`'s answer).
++- Mutability: worse until decided (readonly arrays everywhere, or `Schema.mutable` on each).
++- Import cost: worse by about 50 ms for every CLI run that touches outline-core, unless the Schemas live apart from
++  the pure grammar modules.
++
++## C. The door's `hostRequest` on Effect's Socket
++
++`packages/effect-spike/src/host-request.ts` and `test/host-request.test.ts`; the original is `hostRequest` in
++`packages/door/src/socket.ts` (18 lines: a Promise around `net.connect`, a timer, `JsonLines`, four exits). Chosen for
++the resource-cleanup and error-path-bypass classes at a client boundary, and to see what Effect's own Socket gives a
++unix-socket JSON-lines client.
++
++**What changed**
++
++- The socket is `makeNet({ path })` from `@effect/platform-bun/BunSocket` (a re-export of
++  `@effect/platform-node-shared/NodeSocket`): a scoped resource, closed when `Effect.scoped` ends, on the answer, a
++  refusal, a timeout, an error or an interruption. No timer to clear, no `destroy()` to remember.
++- The timeout is `Effect.timeout`, caught by tag and turned into `HostSilent` with the command (`ep0ch status`); a
++  socket that can't open or hangs up is a `SocketError` whose `reason._tag` (`SocketOpenError`, `SocketCloseError`)
++  becomes `NoHost`'s `said`; the answer line goes through slice B's `ResponseLine`, so a line this protocol can't
++  read is `BadAnswer` naming the missing field rather than a silently `undefined` result.
++- The result is decoded by a Schema the caller passes (`{ result: OutlinerServiceStatus }`), so the generic `T` the
++  original casts to becomes a checked type. A result that doesn't match says `result: Missing key at [...]`.
++- The test runs a fictional host on a real unix socket (`Bun.listen` in a temp dir) and counts open connections
++  after each case: zero every time, timeout included.
++
++**What it caught**
++
++- **Acquire the reader before you write.** The first version wrote the request, then acquired `socket.reader`. The
++  `ping` test passed; `outlines.create` hung for the full 15 s timeout. The duplex is kept paused and drained on
++  `pull`, so an answer that arrives before the reader is acquired can be missed. Reordering fixed it. This is an
++  Effect Socket semantic the docs state in `fromDuplex`'s comment, and it would be an easy production bug: the test
++  found it only because the fake host answers at once.
++- `Effect.fn` with a generic generator (`function*<T>()`) lost its return type (inferred `undefined` at the call
++  site). Passing the result Schema as a parameter and returning `S["Type"]` fixed both the typing and the design.
++
++**What it cost**
++
++| | original | spike |
++|---|---|---|
++| request | 18 lines | 60 lines (four error classes, the decode, the read loop) |
++| test | none (covered indirectly) | 68 lines, against a real socket |
++
++- The read loop (`reader.pull`, decode chunks, split on `\n`) is hand-written here; `effect/encoding`'s
++  `Ndjson.decodeSchemaString` would do it as a Channel over a Stream, which fits a long-lived connection (the
++  Board's event feed) better than this one-shot. Not tried in this slice.
++- `TestClock` can't drive this: the waits are real socket I/O. The timeout test uses a real 150 ms. Any adoption
++  keeps two kinds of test: TestClock for rules (slice A), real sockets for boundaries (this).
++- `@effect/platform-bun/BunSocket` imports in 58 ms (measured as `BunSocketServer`; the client module is similar).
++
++**Verdicts for this slice**
++
++- Resource cleanup at a client boundary: prevents the class (the socket is scoped).
++- Error-path bypass: helps (one error channel, every exit typed), but only within Effect code; the moment this is
++  called from a Promise world the four tags collapse into one thrown error again, unless the caller matches on them.
++- Untyped result: prevents (the caller names a Schema).
++- Lines: worse by three times for a one-shot; the ratio would improve on the long-lived Board connection where the
++  original is 100+ lines of reconnect, backoff and catch-up.
+diff --git a/docs/spikes/effect-4/README.md b/docs/spikes/effect-4/README.md
+new file mode 100644
+index 00000000..ebeeaeb2
+--- /dev/null
++++ b/docs/spikes/effect-4/README.md
+@@ -0,0 +1,30 @@
++# Effect 4 spike
++
++**Not for merge.** This branch (`spike/effect-4`) is a guide, not an implementation. It is never merged into
++`main`. If ep0ch adopts Effect, the real work is planned from the findings in this folder and in the outline
++([[effect-4-spike]], ticket PIE-570), and this branch is deleted.
++
++## Goal
++
++Answer, with code rather than opinion, what moving ep0ch to Effect 4.0 would look like:
++
++1. **Incrementally.** Where Effect can enter at an edge without the rest of the code noticing, what each step
++   buys (which of the project's own bug classes it removes) and what it costs (dependency, startup time, a
++   second error world while both styles coexist, agents writing in a style they half know).
++2. **From scratch.** Knowing what we know now (the shared-parts map, the bug archaeology, the two-clients-one-
++   outline shape), what the packages, services and boundaries would be if the project were started on Effect.
++
++## What the branch holds
++
++- `docs/spikes/effect-4/` — this goal, `FINDINGS.md` (what happened when real slices were rewritten), and
++  `VERDICTS.md` (per bug class: prevents, helps, nothing, worse; filled from the outline's archaeology note).
++- A few real slices rewritten on Effect, each small enough to read in one sitting and each chosen because it
++  touches a bug class the project has actually had. The slices are listed in `FINDINGS.md` as they land.
++
++## Rules for this branch
++
++- It builds and its own tests pass, so the findings are about Effect and not about broken code.
++- Nothing here changes behaviour for anyone: no `ep0ch install --apply`, no deploy, no real outline.
++- Code review of the branch's own code counts as evidence (how many findings, which classes) and is recorded.
++- Every claim about Effect 4 cites the checkout at `~/recon/effect` (docs path or source path), because 4.0
++  shipped on 2026-10-06 and the agents' training knowledge is v3.
+diff --git a/packages/effect-spike/package.json b/packages/effect-spike/package.json
+new file mode 100644
+index 00000000..f51d19f0
+--- /dev/null
++++ b/packages/effect-spike/package.json
+@@ -0,0 +1,20 @@
++{
++  "name": "@ep0ch/effect-spike",
++  "private": true,
++  "type": "module",
++  "description": "Spike only, not for merge: real ep0ch slices rewritten on Effect 4 to see what it buys and costs. See docs/spikes/effect-4.",
++  "scripts": {
++    "check": "tsc --noEmit",
++    "test": "bun test"
++  },
++  "dependencies": {
++    "@ep0ch/outline-core": "workspace:*",
++    "@effect/platform-bun": "4.0.1",
++    "@effect/sql-sqlite-bun": "4.0.1",
++    "effect": "4.0.1"
++  },
++  "devDependencies": {
++    "@types/bun": "latest",
++    "typescript": "^5.9.3"
++  }
++}
+diff --git a/packages/effect-spike/src/host-request.ts b/packages/effect-spike/src/host-request.ts
+new file mode 100644
+index 00000000..07c57287
+--- /dev/null
++++ b/packages/effect-spike/src/host-request.ts
+@@ -0,0 +1,73 @@
++// Slice C of the Effect 4 spike (not for merge): the door's `hostRequest` (packages/door/src/socket.ts) on Effect's
++// Socket. The original is a hand-made Promise: connect, write one line, read until the first JSON line, a timer that
++// destroys the socket, an error handler that rejects, and `Refused` for a service that answered `ok: false`. Four exits
++// (answer, refusal, timeout, error), each of which must remember to clear the timer and destroy the socket.
++//
++// Here the socket is a scoped resource (`makeNet`: closed when the Scope ends, whichever way it ends), the timeout is a
++// combinator, the answer line is decoded by slice B's `ResponseLine`, and each failure is a tagged error with the
++// facts and the command. The caller sees `Effect<T, Refused | HostSilent | NoHost | BadAnswer>`.
++import * as Effect from "effect/Effect";
++import * as Schema from "effect/Schema";
++import { makeNet } from "@effect/platform-bun/BunSocket";
++import { ResponseLine } from "./protocol";
++
++/** The service answered with an error: it refused the request and wrote nothing. */
++export class Refused extends Schema.TaggedError<Refused>()("Refused", { action: Schema.String, error: Schema.String }) {
++  get message() { return this.error; }
++}
++/** Something listens at the socket but didn't answer in time: the outcome is unknown (this is why comment writes carry a requestId). */
++export class HostSilent extends Schema.TaggedError<HostSilent>()("HostSilent", { action: Schema.String, path: Schema.String, timeoutMs: Schema.Int }) {
++  get message() { return `${this.action} timed out after ${this.timeoutMs} ms (${this.path}) · \`${this.command}\` says whether the host is up`; }
++  get command() { return "ep0ch status"; }
++}
++/** Nobody is at the socket, or it hung up before answering. */
++export class NoHost extends Schema.TaggedError<NoHost>()("NoHost", { action: Schema.String, path: Schema.String, said: Schema.String }) {
++  get message() { return `no outline host answers at ${this.path} (${this.said}) · \`${this.command}\` starts it`; }
++  get command() { return "ep0ch install --apply"; }
++}
++/** The host answered, but not with a response line this client's PROTOCOL knows. */
++export class BadAnswer extends Schema.TaggedError<BadAnswer>()("BadAnswer", { action: Schema.String, path: Schema.String, said: Schema.String }) {
++  get message() { return `${this.action}: the outline host at ${this.path} answered something this client can't read (${this.said}) · \`ep0ch install --apply\` updates both sides`; }
++}
++export type HostRequestError = Refused | HostSilent | NoHost | BadAnswer;
++
++/** `ping`'s answer, as the door would ask for it: `hostRequest(path, "ping", {}, { result: OutlinerServiceStatus })`. */
++export { OutlinerServiceStatus } from "./protocol";
++
++const text = new TextDecoder();
++
++/**
++ * A request to the outline host itself (`outlines.*`, or `ping`), on a short connection of its own: one line out, the
++ * first line back, the socket closed on every exit.
++ */
++export const hostRequest = Effect.fn("hostRequest")(function*<S extends Schema.Top = typeof Schema.Unknown>(
++  path: string, action: string, params: Record<string, unknown> = {}, o: { timeoutMs?: number; result?: S } = {},
++) {
++  const timeoutMs = o.timeoutMs ?? 15_000;
++  const result = (o.result ?? Schema.Unknown) as S;
++  const ask = Effect.gen(function*() {
++    const socket = yield* makeNet({ path });
++    // The reader first: a fast answer that arrives before the reader is acquired is otherwise missed (found by the test).
++    const reader = yield* socket.reader;
++    const writer = yield* socket.writer;
++    yield* writer.write(JSON.stringify({ id: "host", action, ...params }) + "\n");
++    let buf = "";
++    for (;;) {
++      for (const chunk of yield* reader.pull) buf += typeof chunk === "string" ? chunk : text.decode(chunk, { stream: true });
++      const nl = buf.indexOf("\n");
++      if (nl < 0) continue;
++      const line = buf.slice(0, nl);
++      if (!line.trim()) { buf = buf.slice(nl + 1); continue; }
++      const r = yield* Schema.decodeUnknownEffect(ResponseLine)(line).pipe(Effect.mapError(e => new BadAnswer({ action, path, said: e.message.split("\n")[0] ?? "" })));
++      if (!r.ok) return yield* new Refused({ action, error: r.error });
++      return yield* Schema.decodeUnknownEffect(result)(r.result).pipe(Effect.mapError(e => new BadAnswer({ action, path, said: `result: ${e.message.split("\n")[0] ?? ""}` })));
++    }
++  });
++  return yield* ask.pipe(
++    Effect.timeout(`${timeoutMs} millis`),
++    Effect.catchTag("TimeoutError", () => new HostSilent({ action, path, timeoutMs })),
++    // A socket that couldn't open, or closed before a line arrived: both are a SocketError, with the reason as its tag.
++    Effect.catchTag("SocketError", e => new NoHost({ action, path, said: e.reason._tag })),
++    Effect.scoped,
++  );
++});
+diff --git a/packages/effect-spike/src/machine.ts b/packages/effect-spike/src/machine.ts
+new file mode 100644
+index 00000000..5d15f7f5
+--- /dev/null
++++ b/packages/effect-spike/src/machine.ts
+@@ -0,0 +1,246 @@
++// Slice A of the Effect 4 spike (not for merge): outline-core's `ensureForward` (src/machine.ts there) rewritten on
++// Effect. The rule is the same; what changes is how the world is reached and how failures travel:
++//
++// - `MachineIO` is a service (Context.Service) instead of a parameter. The rule asks for it in its requirements
++//   (`R`), and the caller provides a Layer: the outliner's Node one, or a test's fake. No I/O is imported here, so
++//   this file keeps outline-core's "no I/O" rule: Effect's core is pure, the I/O arrives through the Layer.
++// - The clock is Effect's. `now()` and `sleep()` leave `MachineIO`; tests drive time with TestClock.
++// - Each refusal is a Schema.TaggedError with the facts as fields and the exact command as `command`, and a
++//   `message` that reads as the original did. The CLI prints `message`; the door can act on `_tag`.
++// - The lock file is `Effect.acquireRelease` under a Scope: it is let go on success, failure or interruption,
++//   including the two-minute wait giving up. The waiting is `Effect.retry` on a Schedule.
++// - "Does the host answer within N ms" is `Effect.repeat` on a Schedule bounded by `upTo`.
++//
++// Pure helpers that are only data (`sshArgv`, `REMOTE_STATUS`) are imported from outline-core as they are.
++import * as Context from "effect/Context";
++import * as Effect from "effect/Effect";
++import * as Layer from "effect/Layer";
++import * as Schedule from "effect/Schedule";
++import * as Schema from "effect/Schema";
++import { isMachineName, MACHINE_NAME_PATTERN, outlineLayout } from "@ep0ch/outline-core/outline-location";
++import { type ForwardPaths, type MachineIO as LegacyMachineIO, type RemoteStatus, sshArgv } from "@ep0ch/outline-core/machine";
++
++// ---- the world, as a service ------------------------------------------------------------------------------------
++
++export interface RunResult { code: number; out: string; err: string }
++
++/** `privateDir` refused: the folder isn't this user's alone. */
++export class PrivateDirRefused extends Schema.TaggedError<PrivateDirRefused>()("PrivateDirRefused", { dir: Schema.String }) {
++  get message() { return `${this.dir} isn't yours alone (it needs mode 700): no forward`; }
++  get command() { return `chmod 700 ${this.dir}`; }
++}
++
++export interface MachineIOShape {
++  /** Run a program to its end (never fails for a non-zero exit). `detached`: leaves a process behind (`ssh -f`). */
++  run(argv: string[], timeoutMs: number, o?: { detached?: boolean }): Effect.Effect<RunResult>;
++  /** Whether an outline host answers on this socket (a request answered, not only a connect). */
++  answers(socket: string): Effect.Effect<boolean>;
++  /** Make the folder, mode 0700; refuse when it's someone else's or others can reach it. */
++  privateDir(dir: string): Effect.Effect<void, PrivateDirRefused>;
++  read(path: string): Effect.Effect<string | null>;
++  remove(path: string): Effect.Effect<void>;
++  /** Create the file with `text` only when there is none (O_EXCL): whether this call made it. The lock. */
++  createExclusive(path: string, text: string): Effect.Effect<boolean>;
++  readonly pid: number;
++  alive(pid: number): Effect.Effect<boolean>;
++}
++
++export class MachineIO extends Context.Service<MachineIO, MachineIOShape>()("ep0ch/effect-spike/MachineIO") {
++  /**
++   * The existing Promise-based `MachineIO` (outline-core's interface, the outliner's `nodeMachineIO`) as a Layer:
++   * how an edge adopts Effect without rewriting the I/O underneath it first.
++   */
++  static fromLegacy(io: LegacyMachineIO): Layer.Layer<MachineIO> {
++    return Layer.succeed(MachineIO, MachineIO.of({
++      run: (argv, ms, o) => Effect.promise(() => io.run(argv, ms, o)),
++      answers: socket => Effect.promise(() => io.answers(socket)),
++      privateDir: dir => Effect.try({ try: () => io.privateDir(dir), catch: () => new PrivateDirRefused({ dir }) }),
++      read: path => Effect.sync(() => io.read(path)),
++      remove: path => Effect.sync(() => io.remove(path)),
++      createExclusive: (path, text) => Effect.sync(() => io.createExclusive(path, text)),
++      pid: io.pid,
++      alive: pid => Effect.sync(() => io.alive(pid)),
++    }));
++  }
++}
++
++// ---- refusals: facts as fields, the command to run as `command`, the sentence as `message` ----------------------
++
++export class NotAMachineName extends Schema.TaggedError<NotAMachineName>()("NotAMachineName", { machine: Schema.String }) {
++  get message() { return `"${this.machine}" isn't an ssh config name (${MACHINE_NAME_PATTERN.source})`; }
++}
++export class SocketPathTooLong extends Schema.TaggedError<SocketPathTooLong>()("SocketPathTooLong", { path: Schema.String, length: Schema.Int }) {
++  get message() { return `${this.path} is too long for a socket's path (${this.length} bytes): a shorter outlines folder (EP0CH_OUTLINES) or machine name`; }
++}
++/** The machine could not be asked: no ssh login, no ep0ch there, or ep0ch there said no. */
++export class MachineRefused extends Schema.TaggedError<MachineRefused>()("MachineRefused", {
++  machine: Schema.String,
++  reason: Schema.Literals(["unreachable", "no-ep0ch", "says"]),
++  said: Schema.String,
++}) {
++  get command() {
++    return this.reason === "unreachable" ? `ssh ${this.machine} true` : this.reason === "no-ep0ch" ? `ssh ${this.machine} ep0ch install --apply` : undefined;
++  }
++  get message() {
++    if (this.reason === "unreachable") return `can't reach ${this.machine} over ssh (${this.said || "no answer"}) · \`${this.command}\` should work without asking anything (a key, or an agent)`;
++    if (this.reason === "no-ep0ch") return `${this.machine} has no ep0ch on a login shell's PATH (${this.said}) · install it there (ep0ch install --apply)`;
++    return `${this.machine} says: ${this.said}`;
++  }
++}
++/** `ep0ch status --json` there answered, but not with a host socket this side can forward. */
++export class BadRemoteStatus extends Schema.TaggedError<BadRemoteStatus>()("BadRemoteStatus", {
++  machine: Schema.String,
++  problem: Schema.Literals(["no-socket", "colon-in-path"]),
++  answered: Schema.String,
++}) {
++  get message() {
++    return this.problem === "no-socket"
++      ? `${this.machine} didn't say where its outline host is (ep0ch status --json there answered ${JSON.stringify(this.answered.trim().slice(0, 120))})`
++      : `${this.machine}'s host socket ${this.answered} has a ":" in its path, which an ssh forward can't name`;
++  }
++}
++/** ssh could not set up the forward. */
++export class ForwardFailed extends Schema.TaggedError<ForwardFailed>()("ForwardFailed", { machine: Schema.String, remoteSocket: Schema.String, said: Schema.String }) {
++  get message() { return `ssh ${this.machine} couldn't forward its host socket ${this.remoteSocket}: ${this.said}`; }
++}
++/** The forward is up (found connected, or just started) but no outline host answers through it. */
++export class HostSilent extends Schema.TaggedError<HostSilent>()("HostSilent", {
++  machine: Schema.String,
++  how: Schema.Literals(["connected", "started"]),
++  control: Schema.String,
++  remoteSocket: Schema.optional(Schema.String),
++}) {
++  get command() { return `ssh ${this.machine} ep0ch status`; }
++  get message() {
++    return this.how === "connected"
++      ? `connected to ${this.machine}, but no outline host answers through the forward (it may be restarting: \`${this.command}\`; if its socket moved, \`ssh -S ${this.control} -O exit ${this.machine}\` and the next client forwards it again)`
++      : `the forward to ${this.machine} is up, but no outline host answers through it (at ${this.remoteSocket} there)`;
++  }
++}
++/** Another client has held the start lock for two minutes. */
++export class LockHeld extends Schema.TaggedError<LockHeld>()("LockHeld", { holder: Schema.Int, path: Schema.String }) {
++  get message() { return `another client (pid ${this.holder}) has been starting this forward for two minutes (${this.path})`; }
++  get command() { return `rm ${this.path}`; }
++}
++
++export type ForwardError = NotAMachineName | SocketPathTooLong | PrivateDirRefused | MachineRefused | BadRemoteStatus | ForwardFailed | HostSilent | LockHeld;
++
++// ---- the rule ---------------------------------------------------------------------------------------------------
++
++const SOCKET_ROOM = 104 - 17;
++
++export const forwardPaths = Effect.fnUntraced(function*(outlines: string, machine: string) {
++  if (!isMachineName(machine)) return yield* new NotAMachineName({ machine });
++  const layout = outlineLayout(outlines), at = layout.remote(machine);
++  if (at.control.length >= SOCKET_ROOM) return yield* new SocketPathTooLong({ path: at.control, length: at.control.length });
++  return { machine, dir: layout.remoteDir, ...at, log: at.control.replace(/\.ctl$/, ".log") } satisfies ForwardPaths;
++});
++
++/** `ep0ch status --json`'s answer, read past a motd before it and words after it. */
++export const parseRemoteStatus = Effect.fnUntraced(function*(text: string, machine: string) {
++  const end = text.lastIndexOf("}");
++  let o: any = null;
++  for (const m of text.matchAll(/^\{/gm)) {
++    try { o = JSON.parse(text.slice(m.index, end + 1)); break; } catch { o = null; }
++  }
++  if (!o || typeof o.socket !== "string" || !o.socket.startsWith("/")) return yield* new BadRemoteStatus({ machine, problem: "no-socket", answered: text });
++  if (o.socket.includes(":")) return yield* new BadRemoteStatus({ machine, problem: "colon-in-path", answered: o.socket });
++  const outlines: string[] = Array.isArray(o.outlines) ? o.outlines.map((x: any) => x?.name).filter((n: unknown): n is string => typeof n === "string") : [];
++  return { socket: o.socket, outlines } satisfies RemoteStatus;
++});
++
++const lastLine = (s: string | null) => (s ?? "").trim().split("\n").filter(Boolean).at(-1) ?? "";
++
++const statusRefusal = (machine: string, r: RunResult) => {
++  const said = lastLine(r.err) || lastLine(r.out);
++  if (r.code === 255) return new MachineRefused({ machine, reason: "unreachable", said });
++  if (r.code === 127 || /not found/.test(said)) return new MachineRefused({ machine, reason: "no-ep0ch", said });
++  return new MachineRefused({ machine, reason: "says", said: said || `exit ${r.code}` });
++};
++
++export type ForwardHow = "up" | "started";
++export interface Forward { socket: string; how: ForwardHow; remote?: RemoteStatus }
++export interface ForwardOptions { ssh: string; outlines: string; /** How long a start waits for the host to answer through it (ms). */ waitMs?: number }
++
++/** A start takes about a minute at most; a waiter gives up after twice that. */
++const LOCK_WAIT = "2 minutes";
++
++class LockBusy extends Schema.TaggedError<LockBusy>()("LockBusy", { holder: Schema.Int }) {}
++
++/**
++ * The lock file at `path` (it holds the holder's pid), held for the Scope: one start of a machine's forward at a
++ * time, across processes. A lock whose holder has gone is taken over, only while it still names that holder. A live
++ * holder is waited for on the clock, then `LockHeld`. Released on every exit, interruption included.
++ */
++const lock = (path: string) => Effect.acquireRelease(
++  Effect.gen(function*() {
++    const io = yield* MachineIO;
++    const mine = String(io.pid);
++    const once: Effect.Effect<void, LockBusy> = Effect.gen(function*() {
++      if (yield* io.createExclusive(path, mine)) return;
++      const held = ((yield* io.read(path)) ?? "").trim(), holder = Number(held);
++      if (Number.isInteger(holder) && holder > 0 && (yield* io.alive(holder))) return yield* new LockBusy({ holder });
++      // A holder that died: take its lock over, but only the lock it left (not one a third client just made), at once.
++      if (((yield* io.read(path)) ?? "").trim() === held) yield* io.remove(path);
++      return yield* once;
++    });
++    return yield* once.pipe(
++      // A live holder is asked again every 100 ms, for two minutes of the clock.
++      Effect.retry({ schedule: Schedule.spaced("100 millis").pipe(Schedule.upTo({ duration: LOCK_WAIT })) }),
++      Effect.catchTag("LockBusy", e => new LockHeld({ holder: e.holder, path })),
++      Effect.as(path),
++    );
++  }),
++  () => Effect.gen(function*() {
++    const io = yield* MachineIO;
++    if (((yield* io.read(path)) ?? "").trim() === String(io.pid)) yield* io.remove(path);
++  }),
++);
++
++/** Whether the host answers on `socket` within `ms` of the clock: asked at once, then every 100 ms. */
++const answersWithin = (socket: string, ms: number) => Effect.gen(function*() {
++  const io = yield* MachineIO;
++  return yield* io.answers(socket).pipe(
++    Effect.repeat({ until: ok => ok, schedule: Schedule.spaced("100 millis").pipe(Schedule.upTo({ duration: `${ms} millis` })) }),
++  );
++});
++
++/**
++ * The machine's forward, answering: found up, or started (asking the machine for its socket first). Fails with a
++ * `ForwardError` that says what went wrong and what to do. Safe from any number of clients at once: one starts
++ * it, the rest wait and find it. A connection that is up but whose host doesn't answer is left as it is (and said).
++ */
++export const ensureForward = Effect.fn("ensureForward")(function*(machine: string, o: ForwardOptions) {
++  const io = yield* MachineIO;
++  const p = yield* forwardPaths(o.outlines, machine);
++  if (yield* io.answers(p.socket)) return { socket: p.socket, how: "up" } satisfies Forward;
++  yield* io.privateDir(p.dir);
++  return yield* Effect.scoped(Effect.gen(function*() {
++    yield* lock(`${p.control}.lock`);
++    if (yield* io.answers(p.socket)) return { socket: p.socket, how: "up" } satisfies Forward;
++    if ((yield* io.run(sshArgv.check(o.ssh, p), 5000)).code === 0) {
++      if (yield* answersWithin(p.socket, 2000)) return { socket: p.socket, how: "up" } satisfies Forward;
++      return yield* new HostSilent({ machine, how: "connected", control: p.control });
++    }
++    // A control socket left by a connection that died would turn the new one's -M off.
++    yield* io.remove(p.control);
++    const asked = yield* io.run(sshArgv.status(o.ssh, machine), 30_000);
++    if (asked.code !== 0) return yield* statusRefusal(machine, asked);
++    const remote = yield* parseRemoteStatus(asked.out, machine);
++    yield* io.remove(p.log);
++    const started = yield* io.run(sshArgv.forward(o.ssh, p, remote.socket), 30_000, { detached: true });
++    if (started.code !== 0) return yield* new ForwardFailed({ machine, remoteSocket: remote.socket, said: lastLine(yield* io.read(p.log)) || `exit ${started.code}` });
++    if (!(yield* answersWithin(p.socket, o.waitMs ?? 5000))) return yield* new HostSilent({ machine, how: "started", control: p.control, remoteSocket: remote.socket });
++    return { socket: p.socket, how: "started", remote } satisfies Forward;
++  }));
++});
++
++/** A machine's forward as it is now, without starting anything: for `ep0ch doctor`. */
++export interface ForwardState { machine: string; socket: string; answers: boolean; connected: boolean }
++
++export const forwardState = Effect.fn("forwardState")(function*(machine: string, o: ForwardOptions) {
++  const io = yield* MachineIO;
++  const p = yield* forwardPaths(o.outlines, machine);
++  const [answers, check] = yield* Effect.all([io.answers(p.socket), io.run(sshArgv.check(o.ssh, p), 5000)], { concurrency: 2 });
++  return { machine, socket: p.socket, answers, connected: check.code === 0 } satisfies ForwardState;
++});
+diff --git a/packages/effect-spike/src/protocol.ts b/packages/effect-spike/src/protocol.ts
+new file mode 100644
+index 00000000..491fefbd
+--- /dev/null
++++ b/packages/effect-spike/src/protocol.ts
+@@ -0,0 +1,81 @@
++// Slice B of the Effect 4 spike (not for merge): outline-core's wire types (src/protocol.ts there) as Schema, and the
++// door's socket boundary decoding with them. Today the wire types are TypeScript interfaces: both sides import them,
++// but a line that arrives is `JSON.parse`d and trusted (the door's `JsonLines`), and the door redeclares a `WireBlock`
++// of its own beside outline-core's `Block`. With Schema, one definition is the type, the decoder, the encoder and the
++// JSON Schema, so the "redeclared wire types" and "untyped JSON at a boundary" classes have one owner.
++//
++// Pure: Schema does no I/O. This file could live in outline-core as it is.
++import * as Schema from "effect/Schema";
++import { PROTOCOL, protocolMismatch } from "@ep0ch/outline-core/protocol";
++
++export const BlockAuthor = Schema.Literals(["user", "agent", "system"]);
++export const BlockProperty = Schema.Struct({ key: Schema.String, value: Schema.String });
++
++/** A block as the service sends it whole. */
++export const Block = Schema.Struct({
++  id: Schema.String,
++  parentId: Schema.NullOr(Schema.String),
++  position: Schema.Int,
++  text: Schema.String,
++  revision: Schema.Int,
++  author: BlockAuthor,
++  actorId: Schema.optionalKey(Schema.String),
++  sessionId: Schema.optionalKey(Schema.String),
++  taskId: Schema.optionalKey(Schema.String),
++  createdAt: Schema.String,
++  updatedAt: Schema.String,
++  deletedAt: Schema.optionalKey(Schema.String),
++  effectiveDeletedRootId: Schema.optionalKey(Schema.String),
++  // `Schema.Array`'s Type is `readonly T[]`; outline-core's interfaces are mutable, so the array is marked mutable to stay assignable.
++  properties: Schema.mutable(Schema.Array(BlockProperty)),
++});
++export type Block = typeof Block.Type;
++
++/** A query the service refused, with where. */
++export const OutlinerRequestProblem = Schema.Struct({
++  code: Schema.Literals(["query-syntax", "query-invalid"]),
++  message: Schema.String,
++  field: Schema.optionalKey(Schema.String),
++  position: Schema.optionalKey(Schema.Int),
++});
++
++/** One answer line on the socket. `result` stays unknown here: each action decodes its own. */
++export const OutlinerResponse = Schema.Union([
++  Schema.Struct({ id: Schema.String, ok: Schema.Literal(true), result: Schema.Unknown, sequence: Schema.Int }),
++  Schema.Struct({ id: Schema.String, ok: Schema.Literal(false), error: Schema.String, problem: Schema.optionalKey(OutlinerRequestProblem), sequence: Schema.Int }),
++]);
++export type OutlinerResponse = typeof OutlinerResponse.Type;
++
++/** One line of the socket, text to a response: `JSON.parse` and the shape check in one decoder. */
++export const ResponseLine = Schema.fromJsonString(OutlinerResponse);
++
++/**
++ * The service's PROTOCOL as `ping` reports it: any other number is refused *while decoding*, with outline-core's own
++ * sentence (which names both numbers and the side to update). The check is on the wire type, so no caller can read a
++ * status and forget to compare.
++ */
++export const ProtocolVersion = Schema.Int.check(Schema.makeFilter(n => protocolMismatch(n, "this client") ?? true));
++
++/** What `ping` answers. */
++export const OutlinerServiceStatus = Schema.Struct({
++  status: Schema.Literal("ready"),
++  protocolVersion: ProtocolVersion,
++  outlineInstanceId: Schema.optionalKey(Schema.String),
++  location: Schema.optionalKey(Schema.Struct({ hostname: Schema.String, workspaceRoot: Schema.String, database: Schema.String, stateDirectory: Schema.String })),
++  outline: Schema.optionalKey(Schema.Struct({ name: Schema.String })),
++  host: Schema.optionalKey(Schema.Struct({ socket: Schema.String, defaultOutline: Schema.optionalKey(Schema.String), outlines: Schema.mutable(Schema.Array(Schema.String)) })),
++});
++export type OutlinerServiceStatus = typeof OutlinerServiceStatus.Type;
++
++export { PROTOCOL };
++
++/** Decoders a client calls at its boundary; each throws a `SchemaError` whose message names the path and the issue. */
++export const decodeResponseLine = Schema.decodeUnknownSync(ResponseLine);
++export const decodeBlock = Schema.decodeUnknownSync(Block);
++export const decodeStatus = Schema.decodeUnknownSync(OutlinerServiceStatus);
++export const decodeStatusAll = Schema.decodeUnknownSync(OutlinerServiceStatus, { errors: "all" });
++export const decodeStatusResult = Schema.decodeUnknownResult(OutlinerServiceStatus);
++export const encodeBlock = Schema.encodeSync(Block);
++
++/** The JSON Schema of a block (draft 2020-12), for the Claude mod's and MCP's tool definitions. */
++export const blockJsonSchema = () => Schema.toJsonSchemaDocument(Block);
+diff --git a/packages/effect-spike/test/host-request.test.ts b/packages/effect-spike/test/host-request.test.ts
+new file mode 100644
+index 00000000..8a3c5aac
+--- /dev/null
++++ b/packages/effect-spike/test/host-request.test.ts
+@@ -0,0 +1,76 @@
++import { afterAll, describe, expect, test } from "bun:test";
++import { mkdtempSync, rmSync } from "node:fs";
++import { tmpdir } from "node:os";
++import { join } from "node:path";
++import * as Effect from "effect/Effect";
++import * as Schema from "effect/Schema";
++import { hostRequest, type HostRequestError } from "../src/host-request";
++
++/** A fictional outline host on a unix socket: answers by action, counts connections and how many are still open. */
++function fakeHost(dir: string) {
++  const path = join(dir, "host.sock");
++  let opened = 0, open = 0;
++  const server = Bun.listen({
++    unix: path,
++    socket: {
++      open() { opened++; open++; },
++      close() { open--; },
++      data(sock, d) {
++        const req = JSON.parse(Buffer.from(d).toString().trim());
++        if (req.action === "ping") sock.write(JSON.stringify({ id: req.id, ok: true, result: { status: "ready" }, sequence: 1 }) + "\n");
++        else if (req.action === "outlines.create") sock.write(JSON.stringify({ id: req.id, ok: false, error: `"${req.name}" isn't an outline name`, sequence: 1 }) + "\n");
++        else if (req.action === "garbled") sock.write("{\"id\":\"host\",\"ok\":true}\n");
++        else if (req.action === "hangup") sock.end();
++        // "slow": never answers
++      },
++    },
++  });
++  return { path, server, get opened() { return opened; }, get open() { return open; } };
++}
++
++const dir = mkdtempSync(join(tmpdir(), "effect-spike-"));
++const host = fakeHost(dir);
++afterAll(() => { host.server.stop(true); rmSync(dir, { recursive: true, force: true }); });
++const run = <T>(e: Effect.Effect<T, HostRequestError>) => Effect.runPromise(e);
++const fails = <T>(e: Effect.Effect<T, HostRequestError>) => Effect.runPromise(Effect.flip(e));
++const settled = () => new Promise(r => setTimeout(r, 20));
++
++describe("a request to the outline host, on Effect's Socket", () => {
++  test("one line out, the first line back, and the socket is closed", async () => {
++    expect(await run(hostRequest(host.path, "ping"))).toEqual({ status: "ready" });
++    const typed = await run(hostRequest(host.path, "ping", {}, { result: Schema.Struct({ status: Schema.Literal("ready") }) }));
++    expect(typed.status).toBe("ready");
++    expect((await fails(hostRequest(host.path, "ping", {}, { result: Schema.Struct({ protocolVersion: Schema.Int }) }))).message).toContain("result: Missing key");
++    await settled();
++    expect(host.opened).toBe(3);   // one connection per request
++    expect(host.open).toBe(0);
++  });
++
++  test("a refusal is typed, with the service's words; the socket is closed", async () => {
++    const e = await fails(hostRequest(host.path, "outlines.create", { name: "Bad Name" }));
++    expect(e).toMatchObject({ _tag: "Refused", action: "outlines.create", message: `"Bad Name" isn't an outline name` });
++    await settled();
++    expect(host.open).toBe(0);
++  });
++
++  test("a host that never answers times out with the command to run; the socket is closed, not leaked", async () => {
++    const e = await fails(hostRequest(host.path, "slow", {}, { timeoutMs: 150 }));
++    expect(e).toMatchObject({ _tag: "HostSilent", timeoutMs: 150, command: "ep0ch status" });
++    expect(e.message).toContain("slow timed out after 150 ms");
++    await settled();
++    expect(host.open).toBe(0);
++  });
++
++  test("a host that hangs up, and nobody at the socket, are both NoHost with what was seen", async () => {
++    expect(await fails(hostRequest(host.path, "hangup"))).toMatchObject({ _tag: "NoHost", said: "SocketCloseError" });
++    const nobody = await fails(hostRequest(join(dir, "nobody.sock"), "ping"));
++    expect(nobody).toMatchObject({ _tag: "NoHost", command: "ep0ch install --apply" });
++    expect(nobody.message).toContain("no outline host answers at");
++  });
++
++  test("an answer this client's protocol can't read is BadAnswer, naming the missing field", async () => {
++    const e = await fails(hostRequest(host.path, "garbled"));
++    expect(e._tag).toBe("BadAnswer");
++    expect(e.message).toContain("answered something this client can't read");
++  });
++});
+diff --git a/packages/effect-spike/test/machine.test.ts b/packages/effect-spike/test/machine.test.ts
+new file mode 100644
+index 00000000..f45939d3
+--- /dev/null
++++ b/packages/effect-spike/test/machine.test.ts
+@@ -0,0 +1,139 @@
++import { describe, expect, test } from "bun:test";
++import * as Effect from "effect/Effect";
++import * as Duration from "effect/Duration";
++import * as Fiber from "effect/Fiber";
++import * as Layer from "effect/Layer";
++import { TestClock } from "effect/testing";
++import { ensureForward, forwardPaths, forwardState, type ForwardError, MachineIO, parseRemoteStatus } from "../src/machine";
++import { REMOTE_STATUS as LEGACY_REMOTE_STATUS } from "@ep0ch/outline-core/machine";
++
++/**
++ * A fictional machine reached over a fictional ssh: what each ssh call does to the world (the connection, the
++ * forward, its log), the files, and every call made, in order. The same world as outline-core's test, as a Layer.
++ * Time is Effect's TestClock: nothing here sleeps for real.
++ */
++function world(o: { status?: { code: number; out: string; err?: string }; forwardFails?: string; hostDown?: boolean } = {}) {
++  const calls: string[][] = [];
++  const files = new Map<string, string>();
++  const alive = new Set<number>([4242]);
++  let connected = false;
++  const layer = MachineIO.fromLegacy({
++    async run(argv, _ms, how) {
++      calls.push(argv);
++      const op = argv.includes("-O") ? argv[argv.indexOf("-O") + 1] : argv.includes("-L") ? "forward" : "status";
++      if (op === "check") return { code: connected ? 0 : 255, out: "", err: connected ? "" : "Control socket connect: No such file" };
++      if (op === "exit") { const was = connected; connected = false; return { code: was ? 0 : 255, out: "", err: "" }; }
++      if (op === "forward") {
++        expect(how?.detached).toBe(true);
++        if (o.forwardFails) { files.set(argv[argv.indexOf("-E") + 1]!, `debug1: hello\n${o.forwardFails}\n`); return { code: 255, out: "", err: "" }; }
++        connected = true;
++        return { code: 0, out: "", err: "" };
++      }
++      return { err: "", ...(o.status ?? { code: 0, out: JSON.stringify({ socket: "/home/sam/outlines/.host/host.sock", outlines: [{ name: "jam-shelf" }] }) }) };
++    },
++    answers: async () => connected && !o.hostDown,
++    privateDir: () => {},
++    read: path => files.get(path) ?? null,
++    remove: path => { files.delete(path); },
++    createExclusive: (path, text) => (files.has(path) ? false : (files.set(path, text), true)),
++    pid: 4242,
++    alive: pid => alive.has(pid),
++    now: () => 0,
++    sleep: async () => {},
++  });
++  return { layer, calls, files, alive, drop: () => { connected = false; }, get connected() { return connected; } };
++}
++const OPTS = { ssh: "ssh", outlines: "/home/sam/outlines", waitMs: 300 };
++const ops = (calls: string[][]) => calls.map(c => (c.includes("-O") ? c[c.indexOf("-O") + 1] : c.includes("-L") ? "forward" : "status"));
++
++/** Run under the world's Layer and the TestClock, advancing the clock by `advance` once the effect is waiting. */
++function run<A, E>(w: ReturnType<typeof world>, eff: Effect.Effect<A, E, MachineIO>, advance: Duration.Input = "0 seconds"): Promise<A> {
++  return Effect.runPromise(Effect.gen(function*() {
++    const fiber = yield* Effect.forkChild(eff);
++    yield* TestClock.adjust(advance);
++    return yield* Fiber.join(fiber);
++  }).pipe(Effect.provide(Layer.mergeAll(w.layer, TestClock.layer()))));
++}
++const fails = <A>(w: ReturnType<typeof world>, eff: Effect.Effect<A, ForwardError, MachineIO>, advance?: Duration.Input) => run(w, Effect.flip(eff), advance);
++
++describe("a machine's forward, on Effect", () => {
++  test("started once: the machine is asked for its socket, then one connection forwards it; a second client finds it up", async () => {
++    const w = world();
++    const first = await run(w, ensureForward("box-a", OPTS));
++    expect(first).toMatchObject({ socket: "/home/sam/outlines/.remote/box-a.sock", how: "started", remote: { socket: "/home/sam/outlines/.host/host.sock", outlines: ["jam-shelf"] } });
++    expect(w.calls.find(c => c.includes(LEGACY_REMOTE_STATUS))).toEqual(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "--", "box-a", LEGACY_REMOTE_STATUS]);
++    const forward = w.calls.find(c => c.includes("-L"))!;
++    expect(forward).toContain("/home/sam/outlines/.remote/box-a.sock:/home/sam/outlines/.host/host.sock");
++    const before = w.calls.length;
++    expect(await run(w, ensureForward("box-a", OPTS))).toEqual({ socket: "/home/sam/outlines/.remote/box-a.sock", how: "up" });
++    expect(w.calls.length).toBe(before);
++    expect([...w.files.keys()].filter(f => f.endsWith(".lock"))).toEqual([]);   // the lock is let go
++  });
++
++  test("a connection that dropped is started again; one up whose host doesn't answer is left up and said, with its tag and command", async () => {
++    const w = world();
++    await run(w, ensureForward("box-a", OPTS));
++    w.drop();
++    expect((await run(w, ensureForward("box-a", OPTS))).how).toBe("started");
++    const down = world({ hostDown: true });
++    await fails(down, ensureForward("box-a", OPTS), "1 second");
++    down.calls.length = 0;
++    const e = await fails(down, ensureForward("box-a", OPTS), "3 seconds");
++    expect(e._tag).toBe("HostSilent");
++    expect(e.message).toContain("connected to box-a, but no outline host answers through the forward (it may be restarting");
++    expect((e as any).command).toBe("ssh box-a ep0ch status");
++    expect(ops(down.calls)).toEqual(["check"]);
++    expect(down.connected).toBe(true);
++    expect([...down.files.keys()].filter(f => f.endsWith(".lock"))).toEqual([]);   // let go on the failure path too
++  });
++
++  test("the lock: a dead holder's lock is taken over at once; a live one is waited for two minutes of the clock, then said, and the lock is theirs still", async () => {
++    const w = world();
++    const lock = "/home/sam/outlines/.remote/box-a.ctl.lock";
++    w.files.set(lock, "777");
++    expect((await run(w, ensureForward("box-a", OPTS))).how).toBe("started");
++    expect(w.files.has(lock)).toBe(false);
++    const v = world();
++    v.alive.add(555);
++    v.files.set(lock, "555");
++    const e = await fails(v, ensureForward("box-a", OPTS), "3 minutes");
++    expect(e._tag).toBe("LockHeld");
++    expect(e.message).toBe("another client (pid 555) has been starting this forward for two minutes (/home/sam/outlines/.remote/box-a.ctl.lock)");
++    expect(v.files.get(lock)).toBe("555");
++  });
++
++  test("the lock is let go when the waiter is interrupted (a client that quits mid-start)", async () => {
++    const w = world({ hostDown: true });
++    const lock = "/home/sam/outlines/.remote/box-a.ctl.lock";
++    await Effect.runPromise(Effect.gen(function*() {
++      const fiber = yield* Effect.forkChild(ensureForward("box-a", OPTS));
++      yield* TestClock.adjust("150 millis");   // inside answersWithin's wait, holding the lock
++      expect(w.files.get(lock)).toBe("4242");
++      yield* Fiber.interrupt(fiber);
++      expect(w.files.has(lock)).toBe(false);
++    }).pipe(Effect.provide(Layer.mergeAll(w.layer, TestClock.layer()))));
++  });
++
++  test("refusals are typed, say what to do, and encode as JSON for the wire", async () => {
++    const unreachable = await fails(world({ status: { code: 255, out: "", err: "ssh: Could not resolve hostname box-a" } }), ensureForward("box-a", OPTS));
++    expect(unreachable).toMatchObject({ _tag: "MachineRefused", reason: "unreachable", command: "ssh box-a true" });
++    expect(unreachable.message).toBe("can't reach box-a over ssh (ssh: Could not resolve hostname box-a) · `ssh box-a true` should work without asking anything (a key, or an agent)");
++    expect(JSON.parse(JSON.stringify(unreachable))).toEqual({ _tag: "MachineRefused", machine: "box-a", reason: "unreachable", said: "ssh: Could not resolve hostname box-a" });
++    expect((await fails(world({ status: { code: 127, out: "", err: "sh: ep0ch: command not found" } }), ensureForward("box-a", OPTS))).message).toContain("box-a has no ep0ch on a login shell's PATH");
++    expect((await fails(world({ status: { code: 1, out: "", err: "ep0ch: no outline host answers at /x/host.sock; start it" } }), ensureForward("box-a", OPTS))).message).toBe("box-a says: ep0ch: no outline host answers at /x/host.sock; start it");
++    expect((await fails(world({ forwardFails: "Warning: remote port forwarding failed" }), ensureForward("box-a", OPTS))).message)
++      .toContain("couldn't forward its host socket /home/sam/outlines/.host/host.sock: Warning: remote port forwarding failed");
++    expect(Effect.runSync(Effect.flip(parseRemoteStatus("motd\nnot json", "box-a"))).message).toContain("didn't say where its outline host is");
++    expect(Effect.runSync(parseRemoteStatus('Welcome {friend}!\n{\n "socket": "/s/host.sock",\n "outlines": [{"name":"jam-shelf"},{"name":"garden"}]\n}\nbye\n', "box-a"))).toEqual({ socket: "/s/host.sock", outlines: ["jam-shelf", "garden"] });
++    expect(Effect.runSync(Effect.flip(forwardPaths("/o", "-oProxyCommand=x")))._tag).toBe("NotAMachineName");
++    expect(Effect.runSync(Effect.flip(forwardPaths(`/${"o".repeat(70)}`, "box-a")))._tag).toBe("SocketPathTooLong");
++  });
++
++  test("its state, read without starting anything", async () => {
++    const w = world();
++    expect(await run(w, forwardState("box-a", OPTS))).toEqual({ machine: "box-a", socket: "/home/sam/outlines/.remote/box-a.sock", answers: false, connected: false });
++    expect(w.calls.every(c => c.includes("check"))).toBe(true);
++    await run(w, ensureForward("box-a", OPTS));
++    expect(await run(w, forwardState("box-a", OPTS))).toMatchObject({ answers: true, connected: true });
++  });
++});
+diff --git a/packages/effect-spike/test/protocol.test.ts b/packages/effect-spike/test/protocol.test.ts
+new file mode 100644
+index 00000000..8d67929f
+--- /dev/null
++++ b/packages/effect-spike/test/protocol.test.ts
+@@ -0,0 +1,46 @@
++import { describe, expect, test } from "bun:test";
++import * as Result from "effect/Result";
++import { Block, blockJsonSchema, decodeBlock, decodeResponseLine, decodeStatus, decodeStatusAll, decodeStatusResult, encodeBlock, PROTOCOL } from "../src/protocol";
++import type { Block as WireBlock } from "@ep0ch/outline-core/protocol";
++
++const block = {
++  id: "b1", parentId: null, position: 0, text: "Seed order [type::errand]", revision: 3, author: "agent" as const, actorId: "tidy",
++  createdAt: "2026-10-06T10:00:00.000Z", updatedAt: "2026-10-06T10:00:00.000Z", properties: [{ key: "type", value: "errand" }],
++};
++
++describe("the wire, as Schema", () => {
++  test("the schema's Type is outline-core's interface, both ways", () => {
++    const decoded: WireBlock = decodeBlock(block);        // Schema type → outline-core interface
++    const back: typeof Block.Type = decoded;              // outline-core interface → Schema type
++    expect(back).toEqual(block);
++    expect(encodeBlock(decoded)).toEqual(block);
++  });
++
++  test("a line of the socket is parsed and checked in one step; a bad one names the path", () => {
++    expect(decodeResponseLine('{"id":"7","ok":true,"result":{"n":1},"sequence":12}')).toEqual({ id: "7", ok: true, result: { n: 1 }, sequence: 12 });
++    expect(decodeResponseLine('{"id":"7","ok":false,"error":"stale revision","sequence":12}')).toMatchObject({ ok: false, error: "stale revision" });
++    expect(() => decodeResponseLine('{"id":"7","ok":true,"result":1}')).toThrow(/Missing key[\s\S]*\["sequence"\]/);
++    expect(() => decodeResponseLine("not json")).toThrow(/JSON/);
++    expect(() => decodeBlock({ ...block, properties: [{ key: "type" }] })).toThrow(/Missing key[\s\S]*\["properties"\]\[0\]\["value"\]/);
++  });
++
++  test("a protocol mismatch is refused while decoding ping, in outline-core's words", () => {
++    const status = { status: "ready", protocolVersion: PROTOCOL, outline: { name: "jam-shelf" } };
++    expect(decodeStatus(status).protocolVersion).toBe(PROTOCOL);
++    expect(() => decodeStatus({ ...status, protocolVersion: PROTOCOL + 1 })).toThrow(`this client speaks protocol ${PROTOCOL} and the outline host protocol ${PROTOCOL + 1}: update the client (ep0ch install --apply) and restart it`);
++    expect(() => decodeStatus({ ...status, protocolVersion: PROTOCOL - 1 })).toThrow("restart the outline host on current code");
++    const r = decodeStatusResult({ ...status, protocolVersion: "97" });
++    expect(Result.isFailure(r)).toBe(true);
++    expect(() => decodeStatusAll({ status: "busy", protocolVersion: PROTOCOL + 1 })).toThrow(/"ready"[\s\S]*protocol/);
++  });
++
++  test("the JSON Schema is derived, not written a second time", () => {
++    const doc = JSON.parse(JSON.stringify(blockJsonSchema()));   // as a tool definition would carry it
++    expect(doc.dialect).toBe("draft-2020-12");
++    expect(doc.schema.type).toBe("object");
++    expect(doc.schema.required.sort()).toEqual(["author", "createdAt", "id", "parentId", "position", "properties", "revision", "text", "updatedAt"]);
++    expect(doc.schema.properties.author).toEqual({ type: "string", enum: ["user", "agent", "system"] });
++    expect(doc.schema.properties.parentId).toEqual({ anyOf: [{ type: "string" }, { type: "null" }] });
++    expect(doc.schema.properties.properties.items.required).toEqual(["key", "value"]);
++  });
++});
+diff --git a/packages/effect-spike/tsconfig.json b/packages/effect-spike/tsconfig.json
+new file mode 100644
+index 00000000..5c9c89c7
+--- /dev/null
++++ b/packages/effect-spike/tsconfig.json
+@@ -0,0 +1,15 @@
++{
++  "compilerOptions": {
++    "target": "ES2022",
++    "module": "ESNext",
++    "moduleResolution": "Bundler",
++    "strict": true,
++    "noEmit": true,
++    "noUnusedLocals": true,
++    "noUnusedParameters": true,
++    "noUncheckedIndexedAccess": true,
++    "skipLibCheck": true,
++    "types": ["bun"]
++  },
++  "include": ["src/**/*.ts", "test/**/*.ts"]
++}
+
+warning: Codex could not find bubblewrap on PATH. Install bubblewrap with your OS package manager. See the sandbox prerequisites: https://developers.openai.com/codex/concepts/sandboxing#prerequisites. Codex will use the bundled bubblewrap in the meantime.
+codex
+I’ll check the diff against the local Effect v4 source and the existing wire and I/O contracts. I’m using the code-review and ep0ch-core skills to ground the review in this repository’s requirements.
+
+web search: 
+web search: https://raw.githubusercontent.com/Effect-TS/effect-smol/main/packages/effect/src/Effect.ts
+codex
+The shell sandbox fails before commands start, so I can’t read the local skills or checkout, or run the tests. I’ll review the supplied diff and cross-check Effect semantics against upstream source, with that verification limit made explicit.
+
+web search: 
+web search: https://raw.githubusercontent.com/Effect-TS/effect-smol/main/packages/platform-node-shared/src/NodeSocket.ts
+web search: 
+web search: 
+web search: 
+web search: https://unpkg.com/effect@4.0.1/src/Effect.ts
+codex
+The strongest findings concern lock ownership and socket framing: the lock takeover has a read/unlink race, interruption can release the lock while a legacy SSH operation continues, and the response reader mishandles buffered blank lines and shares UTF-8 decoder state across requests. The tests miss those cases. I also found that the lock wait sits inside `acquireRelease`’s uninterruptible acquisition region.
+
+web search: 
+web search: 'export const promise'
+codex
+Found **20 issues: 2 high, 18 normal**. This is a static review: the shell sandbox failed before commands started, so I could not run tests or inspect the installed 4.0.1 source. Effect semantics were cross-checked against upstream v4 source; no findings below reject v4 API names.
+
+1. **[packages/effect-spike/src/machine.ts:182](/home/evan/projects/ep0ch-wt-effect-spike/packages/effect-spike/src/machine.ts:182) — high.** The second read does not make stale-lock deletion atomic. Clients A and B can both read the dead holder, B can remove that lock and acquire a new one, and A can then unlink B’s live lock using its earlier comparison. A subsequently acquires its own lock, leaving two starters in the critical section. Additionally, an ordinary exclusive-create-then-write implementation briefly exposes an empty file, which another client treats as stale. The locking primitive must protect ownership across publication and takeover; another content read is insufficient.  
+   Category: `one-path-invariant`
+
+2. **[packages/effect-spike/src/machine.ts:55](/home/evan/projects/ep0ch-wt-effect-spike/packages/effect-spike/src/machine.ts:55) — high.** The legacy Promise adapter discards cancellation. Interrupting `ensureForward` while `io.run(...forward...)` is pending stops the fiber and releases its lock, but the SSH operation continues and can still create the forward. Another client can acquire the released lock and start a competing SSH operation. Cancellation must terminate and await the child, or retain ownership until the operation settles. Wrapping a Promise alone does not cancel its underlying work; Effect exposes an abort signal for that cooperation. [Effect source](https://raw.githubusercontent.com/Effect-TS/effect-smol/main/packages/effect/src/Effect.ts)  
+   Category: `resource-cleanup`
+
+3. **[packages/effect-spike/src/machine.ts:173](/home/evan/projects/ep0ch-wt-effect-spike/packages/effect-spike/src/machine.ts:173) — normal.** The entire two-minute lock-acquisition retry runs inside `acquireRelease`’s default uninterruptible acquisition region. Interrupting an actual waiter therefore waits for acquisition or exhaustion instead of promptly cancelling. The existing interruption test interrupts a fiber that already owns the lock, so it misses this. Keep contention waits interruptible while protecting successful acquisition and finalizer registration. [Effect acquisition contract](https://raw.githubusercontent.com/Effect-TS/effect-smol/main/packages/effect/src/Effect.ts)  
+   Category: `api-misuse`
+
+4. **[packages/effect-spike/src/machine.ts:55](/home/evan/projects/ep0ch-wt-effect-spike/packages/effect-spike/src/machine.ts:55) — normal.** Rejected legacy Promises and exceptions from filesystem operations become defects through `Effect.promise` and `Effect.sync`, bypassing the advertised `ForwardError` channel. For example, an exclusive-create filesystem failure cannot be handled through the refusal tags. The service signatures declare these operations infallible without establishing that guarantee. Expected operational failures need typed adapters; cleanup failures also need an explicit policy. [Effect constructors](https://raw.githubusercontent.com/Effect-TS/effect-smol/main/packages/effect/src/Effect.ts)  
+   Category: `error-path-bypass`
+
+5. **[packages/effect-spike/src/machine.ts:57](/home/evan/projects/ep0ch-wt-effect-spike/packages/effect-spike/src/machine.ts:57) — normal.** Every `privateDir` exception becomes an ownership/mode refusal. Failures such as `ENOSPC`, `EROFS`, or an invalid parent path consequently tell the user the directory “isn't yours alone” and recommend `chmod`, while discarding the actual cause. Distinguish the intentional privacy refusal from directory-creation and filesystem failures.  
+   Category: `other`
+
+6. **[packages/effect-spike/src/machine.ts:202](/home/evan/projects/ep0ch-wt-effect-spike/packages/effect-spike/src/machine.ts:202) — normal.** `Schedule.upTo` bounds scheduling decisions, not the running `io.answers` operation. A slow or stuck probe can exceed `waitMs` arbitrarily, retaining the lock, despite `answersWithin` promising an answer within that duration. The same distinction affects the lock-wait budget if its I/O stalls. Use a deadline around the operation as well as a polling schedule. [Schedule duration semantics](https://raw.githubusercontent.com/Effect-TS/effect-smol/main/packages/effect/src/Schedule.ts)  
+   Category: `api-misuse`
+
+7. **[packages/effect-spike/src/machine.ts:134](/home/evan/projects/ep0ch-wt-effect-spike/packages/effect-spike/src/machine.ts:134) — normal.** The socket-path limit is measured with JavaScript string length while both the operating-system limit and the error message concern bytes. An outlines directory containing multibyte characters can pass this check but exceed the Unix socket limit when encoded. Measure the UTF-8 byte length and report that value.  
+   Category: `other`
+
+8. **[packages/effect-spike/src/machine.ts:140](/home/evan/projects/ep0ch-wt-effect-spike/packages/effect-spike/src/machine.ts:140) — normal.** `parseRemoteStatus` always uses the last `}` in the entire output as the JSON endpoint. Valid status followed by a diagnostic such as `bye {friend}` therefore fails parsing, contrary to the documented support for words after the status. Trying different opening braces does not fix the incorrect endpoint. Frame the JSON value independently of braces in subsequent output.  
+   Category: `other`
+
+9. **[packages/effect-spike/src/host-request.ts:37](/home/evan/projects/ep0ch-wt-effect-spike/packages/effect-spike/src/host-request.ts:37) — normal.** The module-global `TextDecoder` carries streaming UTF-8 state across connections. If request A’s chunk ends partway through a multibyte character, request B’s bytes consume A’s pending decoder state. This can corrupt either response or cause valid JSON to fail. State also survives a cancelled request with an incomplete character. Create the decoder inside each request.  
+   Category: `live-object-mutation`
+
+10. **[packages/effect-spike/src/host-request.ts:60](/home/evan/projects/ep0ch-wt-effect-spike/packages/effect-spike/src/host-request.ts:60) — normal.** Skipping a blank line returns to `reader.pull` before examining the remaining buffer. If one pull contains `"\n"` followed by a complete response, the response stays buffered while the client waits for another chunk. A server keeping the connection open produces a timeout; one closing it can produce `NoHost`. Drain complete buffered lines before pulling again.  
+    Category: `other`
+
+11. **[packages/effect-spike/src/host-request.ts:53](/home/evan/projects/ep0ch-wt-effect-spike/packages/effect-spike/src/host-request.ts:53) — normal.** Spreading `params` after `id` and `action` lets callers override the request envelope. For example, `hostRequest(path, "ping", { action: "outlines.create" })` sends a mutation while errors and tracing still identify it as `ping`. Reject reserved fields or write the authoritative envelope fields after the spread.  
+    Category: `one-path-invariant`
+
+12. **[packages/effect-spike/src/host-request.ts:53](/home/evan/projects/ep0ch-wt-effect-spike/packages/effect-spike/src/host-request.ts:53) — normal.** `Record<string, unknown>` accepts circular objects, BigInts, and throwing `toJSON` implementations, but request serialization is an unguarded `JSON.stringify`. These inputs produce defects instead of a typed request error, bypassing the documented four-error interface. Validate JSON-compatible parameters or explicitly map serialization failures before opening the connection.  
+    Category: `untyped-boundary`
+
+13. **[packages/effect-spike/src/host-request.ts:47](/home/evan/projects/ep0ch-wt-effect-spike/packages/effect-spike/src/host-request.ts:47) — normal.** Casting the fallback `Schema.Unknown` to `S` permits a checked-looking return type without its decoder. A caller can explicitly instantiate `hostRequest<typeof OutlinerServiceStatus>(path, "ping")` while omitting `result`; arbitrary response data then receives the status type. An options value with an optional schema creates the same hole. Separate the no-schema overload returning `unknown` from the overload requiring a result schema.  
+    Category: `untyped-boundary`
+
+14. **[packages/effect-spike/src/host-request.ts:70](/home/evan/projects/ep0ch-wt-effect-spike/packages/effect-spike/src/host-request.ts:70) — normal.** Every socket error becomes `NoHost`, including a disconnect after the host received and committed a mutation. That outcome is just as unknown as a timeout, but the error instead says no host answers and recommends starting it. Callers cannot safely distinguish failure to connect from loss of the acknowledgement. Preserve an explicit unknown-outcome state for failures after transmission.  
+    Category: `other`
+
+15. **[packages/effect-spike/src/host-request.ts:56](/home/evan/projects/ep0ch-wt-effect-spike/packages/effect-spike/src/host-request.ts:56) — normal.** The response buffer has no size limit. A peer continuously sending bytes without a newline can consume substantial memory before the timeout; timeout duration does not bound bytes received. Add a response-line size limit and reject oversized input before appending indefinitely.  
+    Category: `other`
+
+16. **[packages/effect-spike/test/machine.test.ts:60](/home/evan/projects/ep0ch-wt-effect-spike/packages/effect-spike/test/machine.test.ts:60) — normal.** “Started once” is tested with sequential callers, while the fake publishes the lock atomically into a Map and completes SSH operations immediately. It cannot exercise stale-lock replacement races or interruption during an outstanding process. The interruption test also covers a holder rather than a contending waiter. Add controllable concurrent clients and deferred I/O, checking both cancellation completion and exclusive ownership.  
+    Category: `test-weakness`
+
+17. **[packages/effect-spike/test/host-request.test.ts:19](/home/evan/projects/ep0ch-wt-effect-spike/packages/effect-spike/test/host-request.test.ts:19) — normal.** The fake host assumes every `data` callback contains one complete JSON request. Unix stream sockets do not preserve write boundaries, so fragmentation can make the fixture throw before answering. Its response cases also omit fragmented UTF-8 and coalesced blank-plus-response lines, leaving the production framing bugs uncovered. Buffer request lines in the fixture and deliberately vary response chunk boundaries.  
+    Category: `test-weakness`
+
+18. **[packages/effect-spike/test/host-request.test.ts:55](/home/evan/projects/ep0ch-wt-effect-spike/packages/effect-spike/test/host-request.test.ts:55) — normal.** The socket-cleanup claim lacks an explicit caller-interruption test, and the hangup and malformed-answer tests do not assert eventual zero open connections. `afterAll` forcibly closes remaining sockets, masking those leaks. Interrupt a request after the server confirms receipt, await fiber termination, and check closure on every failure path using a bounded condition rather than only a fixed 20 ms delay.  
+    Category: `test-weakness`
+
+19. **[docs/spikes/effect-4/FINDINGS.md:58](/home/evan/projects/ep0ch-wt-effect-spike/docs/spikes/effect-4/FINDINGS.md:58) — normal.** The comparison conflates fiber interruption with process termination. Scope finalizers cannot run after `SIGKILL` or abrupt process death, and abandoning a `runPromise` result does not automatically interrupt its fiber. The test demonstrates explicit cooperative cancellation after acquisition, not cleanup for those cases. Narrow the finding so the spike does not present process-death cleanup as a structural guarantee.  
+    Category: `resource-cleanup`
+
+20. **[docs/spikes/effect-4/FINDINGS.md:187](/home/evan/projects/ep0ch-wt-effect-spike/docs/spikes/effect-4/FINDINGS.md:187) — normal.** Real socket I/O does not prevent using `TestClock` to drive the surrounding Effect timeout. The socket events still require real event-loop progress, but the test can synchronize on connection/request receipt and then advance the virtual timeout. The stated restriction incorrectly turns a fixture choice into an Effect limitation and an adoption requirement.  
+    Category: `api-misuse`
+
+**Severity counts:** high **2**, normal **18**, nit **0**.
+
+| Category | Count |
+|---|---:|
+| identity-by-name | 0 |
+| parallel-parser | 0 |
+| error-path-bypass | 1 |
+| one-path-invariant | 2 |
+| live-object-mutation | 1 |
+| resource-cleanup | 2 |
+| untyped-boundary | 2 |
+| test-weakness | 3 |
+| api-misuse | 3 |
+| other | 6 |
+tokens used
+68,141
+Found **20 issues: 2 high, 18 normal**. This is a static review: the shell sandbox failed before commands started, so I could not run tests or inspect the installed 4.0.1 source. Effect semantics were cross-checked against upstream v4 source; no findings below reject v4 API names.
+
+1. **[packages/effect-spike/src/machine.ts:182](/home/evan/projects/ep0ch-wt-effect-spike/packages/effect-spike/src/machine.ts:182) — high.** The second read does not make stale-lock deletion atomic. Clients A and B can both read the dead holder, B can remove that lock and acquire a new one, and A can then unlink B’s live lock using its earlier comparison. A subsequently acquires its own lock, leaving two starters in the critical section. Additionally, an ordinary exclusive-create-then-write implementation briefly exposes an empty file, which another client treats as stale. The locking primitive must protect ownership across publication and takeover; another content read is insufficient.  
+   Category: `one-path-invariant`
+
+2. **[packages/effect-spike/src/machine.ts:55](/home/evan/projects/ep0ch-wt-effect-spike/packages/effect-spike/src/machine.ts:55) — high.** The legacy Promise adapter discards cancellation. Interrupting `ensureForward` while `io.run(...forward...)` is pending stops the fiber and releases its lock, but the SSH operation continues and can still create the forward. Another client can acquire the released lock and start a competing SSH operation. Cancellation must terminate and await the child, or retain ownership until the operation settles. Wrapping a Promise alone does not cancel its underlying work; Effect exposes an abort signal for that cooperation. [Effect source](https://raw.githubusercontent.com/Effect-TS/effect-smol/main/packages/effect/src/Effect.ts)  
+   Category: `resource-cleanup`
+
+3. **[packages/effect-spike/src/machine.ts:173](/home/evan/projects/ep0ch-wt-effect-spike/packages/effect-spike/src/machine.ts:173) — normal.** The entire two-minute lock-acquisition retry runs inside `acquireRelease`’s default uninterruptible acquisition region. Interrupting an actual waiter therefore waits for acquisition or exhaustion instead of promptly cancelling. The existing interruption test interrupts a fiber that already owns the lock, so it misses this. Keep contention waits interruptible while protecting successful acquisition and finalizer registration. [Effect acquisition contract](https://raw.githubusercontent.com/Effect-TS/effect-smol/main/packages/effect/src/Effect.ts)  
+   Category: `api-misuse`
+
+4. **[packages/effect-spike/src/machine.ts:55](/home/evan/projects/ep0ch-wt-effect-spike/packages/effect-spike/src/machine.ts:55) — normal.** Rejected legacy Promises and exceptions from filesystem operations become defects through `Effect.promise` and `Effect.sync`, bypassing the advertised `ForwardError` channel. For example, an exclusive-create filesystem failure cannot be handled through the refusal tags. The service signatures declare these operations infallible without establishing that guarantee. Expected operational failures need typed adapters; cleanup failures also need an explicit policy. [Effect constructors](https://raw.githubusercontent.com/Effect-TS/effect-smol/main/packages/effect/src/Effect.ts)  
+   Category: `error-path-bypass`
+
+5. **[packages/effect-spike/src/machine.ts:57](/home/evan/projects/ep0ch-wt-effect-spike/packages/effect-spike/src/machine.ts:57) — normal.** Every `privateDir` exception becomes an ownership/mode refusal. Failures such as `ENOSPC`, `EROFS`, or an invalid parent path consequently tell the user the directory “isn't yours alone” and recommend `chmod`, while discarding the actual cause. Distinguish the intentional privacy refusal from directory-creation and filesystem failures.  
+   Category: `other`
+
+6. **[packages/effect-spike/src/machine.ts:202](/home/evan/projects/ep0ch-wt-effect-spike/packages/effect-spike/src/machine.ts:202) — normal.** `Schedule.upTo` bounds scheduling decisions, not the running `io.answers` operation. A slow or stuck probe can exceed `waitMs` arbitrarily, retaining the lock, despite `answersWithin` promising an answer within that duration. The same distinction affects the lock-wait budget if its I/O stalls. Use a deadline around the operation as well as a polling schedule. [Schedule duration semantics](https://raw.githubusercontent.com/Effect-TS/effect-smol/main/packages/effect/src/Schedule.ts)  
+   Category: `api-misuse`
+
+7. **[packages/effect-spike/src/machine.ts:134](/home/evan/projects/ep0ch-wt-effect-spike/packages/effect-spike/src/machine.ts:134) — normal.** The socket-path limit is measured with JavaScript string length while both the operating-system limit and the error message concern bytes. An outlines directory containing multibyte characters can pass this check but exceed the Unix socket limit when encoded. Measure the UTF-8 byte length and report that value.  
+   Category: `other`
+
+8. **[packages/effect-spike/src/machine.ts:140](/home/evan/projects/ep0ch-wt-effect-spike/packages/effect-spike/src/machine.ts:140) — normal.** `parseRemoteStatus` always uses the last `}` in the entire output as the JSON endpoint. Valid status followed by a diagnostic such as `bye {friend}` therefore fails parsing, contrary to the documented support for words after the status. Trying different opening braces does not fix the incorrect endpoint. Frame the JSON value independently of braces in subsequent output.  
+   Category: `other`
+
+9. **[packages/effect-spike/src/host-request.ts:37](/home/evan/projects/ep0ch-wt-effect-spike/packages/effect-spike/src/host-request.ts:37) — normal.** The module-global `TextDecoder` carries streaming UTF-8 state across connections. If request A’s chunk ends partway through a multibyte character, request B’s bytes consume A’s pending decoder state. This can corrupt either response or cause valid JSON to fail. State also survives a cancelled request with an incomplete character. Create the decoder inside each request.  
+   Category: `live-object-mutation`
+
+10. **[packages/effect-spike/src/host-request.ts:60](/home/evan/projects/ep0ch-wt-effect-spike/packages/effect-spike/src/host-request.ts:60) — normal.** Skipping a blank line returns to `reader.pull` before examining the remaining buffer. If one pull contains `"\n"` followed by a complete response, the response stays buffered while the client waits for another chunk. A server keeping the connection open produces a timeout; one closing it can produce `NoHost`. Drain complete buffered lines before pulling again.  
+    Category: `other`
+
+11. **[packages/effect-spike/src/host-request.ts:53](/home/evan/projects/ep0ch-wt-effect-spike/packages/effect-spike/src/host-request.ts:53) — normal.** Spreading `params` after `id` and `action` lets callers override the request envelope. For example, `hostRequest(path, "ping", { action: "outlines.create" })` sends a mutation while errors and tracing still identify it as `ping`. Reject reserved fields or write the authoritative envelope fields after the spread.  
+    Category: `one-path-invariant`
+
+12. **[packages/effect-spike/src/host-request.ts:53](/home/evan/projects/ep0ch-wt-effect-spike/packages/effect-spike/src/host-request.ts:53) — normal.** `Record<string, unknown>` accepts circular objects, BigInts, and throwing `toJSON` implementations, but request serialization is an unguarded `JSON.stringify`. These inputs produce defects instead of a typed request error, bypassing the documented four-error interface. Validate JSON-compatible parameters or explicitly map serialization failures before opening the connection.  
+    Category: `untyped-boundary`
+
+13. **[packages/effect-spike/src/host-request.ts:47](/home/evan/projects/ep0ch-wt-effect-spike/packages/effect-spike/src/host-request.ts:47) — normal.** Casting the fallback `Schema.Unknown` to `S` permits a checked-looking return type without its decoder. A caller can explicitly instantiate `hostRequest<typeof OutlinerServiceStatus>(path, "ping")` while omitting `result`; arbitrary response data then receives the status type. An options value with an optional schema creates the same hole. Separate the no-schema overload returning `unknown` from the overload requiring a result schema.  
+    Category: `untyped-boundary`
+
+14. **[packages/effect-spike/src/host-request.ts:70](/home/evan/projects/ep0ch-wt-effect-spike/packages/effect-spike/src/host-request.ts:70) — normal.** Every socket error becomes `NoHost`, including a disconnect after the host received and committed a mutation. That outcome is just as unknown as a timeout, but the error instead says no host answers and recommends starting it. Callers cannot safely distinguish failure to connect from loss of the acknowledgement. Preserve an explicit unknown-outcome state for failures after transmission.  
+    Category: `other`
+
+15. **[packages/effect-spike/src/host-request.ts:56](/home/evan/projects/ep0ch-wt-effect-spike/packages/effect-spike/src/host-request.ts:56) — normal.** The response buffer has no size limit. A peer continuously sending bytes without a newline can consume substantial memory before the timeout; timeout duration does not bound bytes received. Add a response-line size limit and reject oversized input before appending indefinitely.  
+    Category: `other`
+
+16. **[packages/effect-spike/test/machine.test.ts:60](/home/evan/projects/ep0ch-wt-effect-spike/packages/effect-spike/test/machine.test.ts:60) — normal.** “Started once” is tested with sequential callers, while the fake publishes the lock atomically into a Map and completes SSH operations immediately. It cannot exercise stale-lock replacement races or interruption during an outstanding process. The interruption test also covers a holder rather than a contending waiter. Add controllable concurrent clients and deferred I/O, checking both cancellation completion and exclusive ownership.  
+    Category: `test-weakness`
+
+17. **[packages/effect-spike/test/host-request.test.ts:19](/home/evan/projects/ep0ch-wt-effect-spike/packages/effect-spike/test/host-request.test.ts:19) — normal.** The fake host assumes every `data` callback contains one complete JSON request. Unix stream sockets do not preserve write boundaries, so fragmentation can make the fixture throw before answering. Its response cases also omit fragmented UTF-8 and coalesced blank-plus-response lines, leaving the production framing bugs uncovered. Buffer request lines in the fixture and deliberately vary response chunk boundaries.  
+    Category: `test-weakness`
+
+18. **[packages/effect-spike/test/host-request.test.ts:55](/home/evan/projects/ep0ch-wt-effect-spike/packages/effect-spike/test/host-request.test.ts:55) — normal.** The socket-cleanup claim lacks an explicit caller-interruption test, and the hangup and malformed-answer tests do not assert eventual zero open connections. `afterAll` forcibly closes remaining sockets, masking those leaks. Interrupt a request after the server confirms receipt, await fiber termination, and check closure on every failure path using a bounded condition rather than only a fixed 20 ms delay.  
+    Category: `test-weakness`
+
+19. **[docs/spikes/effect-4/FINDINGS.md:58](/home/evan/projects/ep0ch-wt-effect-spike/docs/spikes/effect-4/FINDINGS.md:58) — normal.** The comparison conflates fiber interruption with process termination. Scope finalizers cannot run after `SIGKILL` or abrupt process death, and abandoning a `runPromise` result does not automatically interrupt its fiber. The test demonstrates explicit cooperative cancellation after acquisition, not cleanup for those cases. Narrow the finding so the spike does not present process-death cleanup as a structural guarantee.  
+    Category: `resource-cleanup`
+
+20. **[docs/spikes/effect-4/FINDINGS.md:187](/home/evan/projects/ep0ch-wt-effect-spike/docs/spikes/effect-4/FINDINGS.md:187) — normal.** Real socket I/O does not prevent using `TestClock` to drive the surrounding Effect timeout. The socket events still require real event-loop progress, but the test can synchronize on connection/request receipt and then advance the virtual timeout. The stated restriction incorrectly turns a fixture choice into an Effect limitation and an adoption requirement.  
+    Category: `api-misuse`
+
+**Severity counts:** high **2**, normal **18**, nit **0**.
+
+| Category | Count |
+|---|---:|
+| identity-by-name | 0 |
+| parallel-parser | 0 |
+| error-path-bypass | 1 |
+| one-path-invariant | 2 |
+| live-object-mutation | 1 |
+| resource-cleanup | 2 |
+| untyped-boundary | 2 |
+| test-weakness | 3 |
+| api-misuse | 3 |
+| other | 6 |
+codex exit 0
