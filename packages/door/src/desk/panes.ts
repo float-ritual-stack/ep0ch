@@ -43,6 +43,8 @@ export interface DeskApi {
   press?(p: Pane, set: ActionSet<any, any>, name: string, args?: Record<string, unknown>, quiet?: boolean | ((why: string) => string | null), given?: unknown): Promise<unknown>;
   /** Tile `p` has the person's focus here (a whole screen in a tile sees the person through it). */
   hasFocus?(p: Pane): boolean;
+  /** Esc found nothing left to close in a tile's own screen (a screen tile's): the desk's next step out, or nothing to close. */
+  escaped?(): void;
   /** Opens from `pane` land in another tile (its link, PIE-473, or the view's open rule): it doesn't follow them in place. */
   routes?(pane: Pane): boolean;
   /** What tile `name` shows or has selected (a backlinks tile lists the backlinks of its source's note). */

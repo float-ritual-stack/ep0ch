@@ -501,12 +501,14 @@ export class Lanes implements SourceModel {
   }
 
   /**
-   * The picker put away (esc, q, a click outside): the board as it was. With no board yet the screen stays, empty, and
-   * says how to go on: Esc closes and never leaves a screen (UI-GRAMMAR, "Esc"); q then leaves it.
+   * The picker put away (esc, q, a click outside): the board as it was. With no board yet, `leave` (the person's q) leaves
+   * the screen as q does everywhere; otherwise it stays, empty, and says how to go on: Esc closes and never leaves a screen
+   * (UI-GRAMMAR, "Esc").
    */
-  closePicker() {
+  closePicker(leave = false) {
     if (!this.hubPicker) return { picker: false };
     this.hubPicker = null;
+    if (!this.hub && leave) { this.host.leave(); return { left: true }; }
     if (!this.hub) this.status = "no board shown · g picks one · q leaves";
     this.host.redraw();
     return { picker: false };
@@ -529,7 +531,8 @@ export class Lanes implements SourceModel {
       name: "hubs", items: () => items, closers: "q", stays: true,             // useHub puts it away once the board is shown
       row: (it, _i, on, w) => [pickRow(` ${subject(it.hub)}  ${fg(C.dark)}${it.lanes} lanes · ${ago(it.hub.updatedAt)}`, on, w)],
       choose: it => void this.run("board.hub", { id: it.hub.id }),
-      closed: () => void this.run("board.hub", { close: true }),
+      // q with no board shown yet leaves the screen, as q does everywhere; esc or a click away only puts the picker away.
+      closed: (_h, how) => void this.run("board.hub", { close: true, ...(how === "letter" && !this.hub ? { leave: true } : {}) }),
       clicked: () => true,                                     // a click beside it isn't a choice, nor a way out
       frame: (a, n) => ({ rect: { col: Math.round(a.cols * 0.2), row: Math.round(a.rows * 0.15), cols: Math.round(a.cols * 0.6), rows: Math.min(a.rows - 4, n + 4) }, title: `pick a board · ${this.host.ctx.workspace}`, foot: "⏎ open · esc closes" }),
     });
@@ -1367,14 +1370,14 @@ export const BOARD_ACTIONS = actionSet<BoardOn>()("board", {
   }),
   "board.hub": def({
     summary: "which board this is: with no id, the hubs it can show (every block with two or more virtual-branch lanes), and for the person the picker to choose one; with id=<hub block id>, show that board. An agent's switch is refused while the person is typing, and is said on the status bar",
-    keys: "g, then j k ↑↓ and ⏎ or click on a board; esc q puts the picker away",
+    keys: "g, then j k ↑↓ and ⏎ or click on a board; esc, q or a click outside puts the picker away (q with no board shown yet leaves the screen; esc stays on it)",
     touches: "screen", touchesWith: a => (a.id !== undefined ? "screen" : "nothing"), replay: "safe", says: r => (r.hub ? `showed the board ${r.title}` : null),
     menu: { label: "another board", group: BOARD, key: "g" },
-    args: { id: { type: "string", optional: true, about: "the hub's block id (or its first 8+ characters)" }, close: { type: "boolean", optional: true, about: "put the picker away (the person's own)" } },
-    run({ id, close }, { model }, actor) {
+    args: { id: { type: "string", optional: true, about: "the hub's block id (or its first 8+ characters)" }, close: { type: "boolean", optional: true, about: "put the picker away (the person's own)" }, leave: { type: "boolean", optional: true, about: "with close and no board shown yet, leave the screen too (the picker's q)" } },
+    run({ id, close, leave }, { model }, actor) {
       // Putting the picker away is the person's own (only their g opens it).
       if (close && actor.kind === "agent") throw new ActionRefused("the hub picker is the person's; an agent shows a board with board.hub id=<hub>");
-      return close ? lanesOf({ model }).closePicker() : lanesOf({ model }).chooseHub(id, actor);
+      return close ? lanesOf({ model }).closePicker(!!leave) : lanesOf({ model }).chooseHub(id, actor);
     },
   }),
   "board.reload": def({

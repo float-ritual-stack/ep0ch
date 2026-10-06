@@ -603,6 +603,23 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect(app.describe()).toMatchObject({ screen: "showcase" });
   }, 20_000);
 
+  test("a screen in a tile (the screen section's board): Esc with nothing left in the board goes on to the desk's steps (its zoom), then back to the index", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "screen" }, as: "test-agent" });
+    await until(() => marks.screen!.every(m => screen().includes(m)), "the screen section");
+    const stage = () => S().stages.get(S().sel).top;
+    press({ kind: "enter" });
+    expect(S().focus).toBe("stage");
+    await stage().dispatch.press("tile.focus", {}, "board");
+    press({ kind: "char", ch: "w", ctrl: true }); press({ kind: "char", ch: "z" });
+    expect(stage().zoom).not.toBeNull();
+    for (let i = 0; i < 6 && stage().zoom !== null; i++) press({ kind: "esc" });   // the board's own things first, if any
+    expect(stage().zoom).toBeNull();
+    expect(S().focus).toBe("stage");                                                 // the zoom went before the stage did
+    for (let i = 0; i < 4 && S().focus !== "index"; i++) press({ kind: "esc" });
+    expect(S().focus).toBe("index");
+  }, 20_000);
+
   test("the dock section, driven through act: the kettle docks, a section switch keeps it (the same pid), and it undocks into another section", async () => {
     (app as any).lastInput = 0;
     await app.act({ action: "section", args: { name: "dock" }, as: "test-agent" });

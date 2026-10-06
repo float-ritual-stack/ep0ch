@@ -4,7 +4,7 @@
 // its first screen hands the keys back to whoever framed it.
 import type { Ctx, Frame, Screen, Video } from "../app";
 import type { Key, TermInfo } from "../term";
-import { nothingToClose } from "../shell-keys";
+import { nothingLeft } from "../shell-keys";
 import { NOBODY, screenKeys, within } from "../whereabouts";
 
 export class FramedScreen {
@@ -44,11 +44,12 @@ export class FramedScreen {
   }
   /**
    * Esc with nothing left to close in the frame's first screen: `escaped` (the showcase's stage gives the keys back to its
-   * index); a screen pushed in the frame, or a frame without one, says so as the door does.
+   * index; a screen tile, to the desk's next step). A screen pushed in the frame, or a frame without one, says so here: a
+   * frame around this one never hears it, so its own steps aren't skipped.
    */
   nothingToClose(leave: string) {
     if (this.escaped && this.stack.length === 1) return this.escaped();
-    nothingToClose(this.outer(), leave);
+    this.outer().flash(nothingLeft(leave));
   }
   /** The frame goes away: each screen in it ends what it started (a draft's hold on the service, PIE-501). */
   dispose() { for (const s of [...this.stack].reverse()) s.dispose?.(); }

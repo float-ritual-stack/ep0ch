@@ -11,7 +11,7 @@ slots now hold live commands), and the bulletin (`SHY-EPO!.ANS`).
 
 **Getting around.** The menu's letters (or a click on an item) open its screens over it. `q` is back on every
 screen. `Esc` closes what popped up, the innermost first (a picker or the tile menu, the keys box, a `^W` chord, link
-mode, a filter, a drawer or the dock, a zoom, a float's keys, an empty edit, a selection), and never leaves a
+mode, a filter, an empty edit, the dock, a selection, a zoom, a drawer, a float's keys), and never leaves a
 screen: with nothing left it stays and says `nothing to close · q leaves`. The menu is the top, with nothing under
 it: there `q` is the Quay, as it always was, and `Esc` says `G` logs off.
 Only `G` (or a click on Goodbye) logs off, and at the logon `Q` hangs up. An agent gets around the same way, with

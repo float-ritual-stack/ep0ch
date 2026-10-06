@@ -23,5 +23,7 @@ export function shellKeyOf(name: "screen.back" | "video.cycle", here: Screen, ct
  */
 export function nothingToClose(ctx: Pick<Ctx, "flash" | "nothingToClose">, leave = "q leaves") {
   if (ctx.nothingToClose) return ctx.nothingToClose(leave);
-  ctx.flash(`nothing to close · ${leave}`);
+  ctx.flash(nothingLeft(leave));
 }
+/** What Esc says with nothing left to close. */
+export const nothingLeft = (leave: string) => `nothing to close · ${leave}`;

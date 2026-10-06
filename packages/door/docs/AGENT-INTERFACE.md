@@ -187,15 +187,18 @@ These change what the person looks at, so an agent's is a visible, attributed mo
 - never Goodbye: `screen.open name=G` is refused, and `screen.back` on the main menu is refused (the person's
   `Esc` there only says "nothing to close · G logs off"; their `q` there is the Quay, as it always was).
 
-**Esc closes; it never leaves.** The person's `Esc` closes the innermost temporary thing, in this order: a picker or
-menu (the tile menu `⋯`, a search, a layout or board picker), the keys box (`? more`), a pending chord (`^W`), link
-mode (`alt+l`), a filter being typed, an open drawer (the dock too, `host.toggle`), a zoom, a float's keys back to
-the tile under it, an edit with nothing typed (one with unsaved text asks for a second `Esc`, PIE-475), a selection.
+**Esc closes; it never leaves.** The person's `Esc` closes the innermost temporary thing, one per press: first what
+holds their keys (a picker or menu: the tile menu `⋯`, a search, a layout or board picker; the keys box, `? more`; a
+pending chord, `^W`; link mode, `alt+l`; a filter being typed; an edit, at once with nothing typed, with a second `Esc`
+when unsaved, PIE-475), then the dock when it's up and they're out of it (`host.toggle`), then what's lit in their tile
+(a link, a selection), then the screen's own (a zoom, a drawer, the keys back home, a float's keys back to the tile
+under it).
 With nothing left it does nothing and says so on the status bar: `nothing to close · q leaves` (the menu's says `G
 logs off`). It never pops a screen and never logs off: leaving is `q` (`screen.back`), quitting `G` or `ctrl+c`. Each
 step is an action an agent runs by name (`host.toggle open=false`, `tile.drawer open=false`, `tile.zoom on=false`,
-`tile.focus`, `element.select n=0`, `select.clear`, `edit.close`), so nothing here needs `Esc` sent as a key. In the showcase, `Esc` in a section's
-stage with nothing left hands the keys back to the index (`section.leave`).
+`tile.focus`, `element.select n=0`, `select.clear`, `edit.close`), so nothing here needs `Esc` sent as a key. In the
+showcase, `Esc` in a section's stage with nothing left hands the keys back to the index (`section.leave`); in a screen
+shown in a tile (the board on the desk), it goes on to the desk's own steps.
 
     ep0ch act screen.open name=J --as claude-7
     ep0ch act list.read --as claude-7

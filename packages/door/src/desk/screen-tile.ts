@@ -4,6 +4,7 @@
 // (the board's card) is the tile's selection: a preview tile can follow it, and the board's own preview
 // strip can become one (`tile.preview` on the board). A screen made for the current note each time it moves
 // (`Follows`: the showcase's BBS message reader beside a reader) is a screen tile too.
+import { nothingToClose } from "../shell-keys";
 import type { Screen } from "../app";
 import type { Msg } from "../board";
 import type { Placement } from "../kitty";
@@ -52,7 +53,9 @@ export class ScreenTile implements Pane {
   select(m: Msg | null, desk: DeskApi) { if (this.follows) { this.framed?.dispose(); this.frame(this.follows.make(m), desk); } }
   private frame(s: Screen | null, desk: DeskApi) {
     this.desk = desk;
-    this.framed = s && new FramedScreen(s, () => desk.ctx, () => desk.ctx.flash(`the ${this.kind} is a tile · ^W x closes it, ^W z zooms it`), undefined, () => !!desk.hasFocus?.(this));
+    this.framed = s && new FramedScreen(s, () => desk.ctx, () => desk.ctx.flash(`the ${this.kind} is a tile · ^W x closes it, ^W z zooms it`), undefined, () => !!desk.hasFocus?.(this),
+      // Esc with nothing left in the screen goes on to the desk's own steps (a zoom, a drawer, a float's keys).
+      () => (desk.escaped ? desk.escaped() : nothingToClose(desk.ctx)));
   }
 
   /** What the screen has selected (the board's card): the tile's selection, for a preview following it. */
