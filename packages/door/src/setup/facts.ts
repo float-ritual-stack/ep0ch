@@ -358,6 +358,8 @@ export interface GatherOptions {
   onProgress?: (p: GatherProgress) => void;
   /** The fetches' output as it arrives, prefixed with what is fetched. */
   onLine?: OnLine;
+  /** Doctor: check the backups (backups.ts); `restore` also restores each newest snapshot into a temp folder. */
+  backups?: "check" | "restore";
 }
 
 export async function gatherFacts(o: GatherOptions = {}): Promise<Facts> {
@@ -380,7 +382,7 @@ export async function gatherFacts(o: GatherOptions = {}): Promise<Facts> {
     return Promise.resolve(p).finally(() => { waiting.splice(waiting.indexOf(name), 1); done++; o.onProgress?.({ done, total: done + waiting.length, waiting: [...waiting] }); });
   };
   const lines = (what: string): OnLine | undefined => (o.onLine ? l => o.onLine!(`${what}: ${l.trim()}`) : undefined);
-  const [bunVersion, herdrVersion, server, plugin, repo, host, agents, sessions] = await Promise.all([
+  const [bunVersion, herdrVersion, server, plugin, repo, host, agents, sessions, backups] = await Promise.all([
     part("bun", bunPath ? run([bunPath, "--version"], { env, timeoutMs: 5000 }).then(r => r.code === 0 ? r.out : null) : null),
     part("Herdr", herdrPath ? run([herdrPath, "--version"], { env, timeoutMs: 5000 }).then(r => r.code === 0 ? r.out.replace(/^herdr\s+/, "") : null) : null),
     part("Herdr's server", herdrPath ? run([herdrPath, "status", "server", "--json"], { env, timeoutMs: 5000 }).then(r => { try { return JSON.parse(r.out).running === true; } catch { return false; } }) : null),
@@ -389,6 +391,7 @@ export async function gatherFacts(o: GatherOptions = {}): Promise<Facts> {
     part("the outline host", hostFacts(folder, platform, home)),
     part("door agents", doorAgents(env).catch(() => undefined)),
     part("the door sessions", doorSessions(env).catch(() => [])),
+    o.backups ? part("the backups", import("./backups").then(b => b.gatherBackups({ platform, home, env, run, restore: o.backups === "restore" }))) : undefined,
   ]);
 
   const found = which("ep0ch", pathDirs);
@@ -454,6 +457,7 @@ export async function gatherFacts(o: GatherOptions = {}): Promise<Facts> {
     sessions,
     ext: extFacts(join(repo.door, "ext"), { env, home, bin: binDirOf(found, target === real(repo.entry)) ?? chooseLinkDir(linkDirs), which: n => which(n, pathDirs), record }),
     skills: skillLinkFacts({ door: repo.door, outliner: repo.outliner, env, home, record }),
+    ...(backups ? { backups } : {}),
   };
 }
 

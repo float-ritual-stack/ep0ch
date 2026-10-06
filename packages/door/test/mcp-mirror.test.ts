@@ -52,7 +52,9 @@ describe.skipIf(!outliner)("the gateway's read-only mirrors", () => {
     mkdirSync(join(mirrorsFolder, FAR), { recursive: true });
     follow("garden-notes");
     follow("attic-notes");
-    const mirrors = ["garden-notes", "attic-notes", "cellar-notes"].map(name => new OutlineMirror(name, FAR, mirrorsFolder, line => logs.push(line), () => clock));
+    // The follower's health, as doctor would answer it: the attic's copy is stale.
+    const health = async (follow: string) => follow.endsWith("attic-notes.sqlite") ? { since: "2026-03-14T08:00:00.000Z", why: "the mirror is at txid 3, the replica at 5" } : null;
+    const mirrors = ["garden-notes", "attic-notes", "cellar-notes"].map(name => new OutlineMirror(name, FAR, mirrorsFolder, line => logs.push(line), () => clock, health));
     // This machine's own host isn't part of these tests: no local outlines.
     outlines = machineOutlines(undefined, line => logs.push(line), async () => ({ error: "no local host" }), mirrors, async () => []);
   }, 30_000);
@@ -69,7 +71,8 @@ describe.skipIf(!outliner)("the gateway's read-only mirrors", () => {
     const listed = JSON.parse((await tool("list_outlines")).text) as { outlines: Record<string, unknown>[] };
     expect(listed.outlines).toEqual([
       { outline: "garden-notes", machine: FAR, uri: `ep0ch://garden-notes@${FAR}`, source: "mirror", asOf: expect.stringMatching(/^\d{4}-\d\d-\d\dT/), access: "read", note: expect.stringContaining(`garden-notes lives on ${FAR}`) },
-      { outline: "attic-notes", machine: FAR, uri: `ep0ch://attic-notes@${FAR}`, source: "mirror", asOf: expect.any(String), access: "none", note: expect.any(String) },
+      { outline: "attic-notes", machine: FAR, uri: `ep0ch://attic-notes@${FAR}`, source: "mirror", asOf: expect.any(String), access: "none",
+        stale: { since: "2026-03-14T08:00:00.000Z", why: "the mirror is at txid 3, the replica at 5" }, note: expect.stringContaining("read-only copy is stale since 2026-03-14T08:00:00.000Z") },
       { outline: "cellar-notes", machine: FAR, uri: `ep0ch://cellar-notes@${FAR}`, source: "unreachable", note: expect.stringMatching(/^cellar-notes lives on far-box; .*'s read-only copy hasn't arrived yet/) },
     ]);
   });

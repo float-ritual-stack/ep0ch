@@ -89,10 +89,13 @@ ${MCP_USAGE}
                                    notes, properties, pages and work ids; the file is only read); stop
                                    releases its database; delete moves it to .deleted/, after asking
   ep0ch status [--json]            the outline host: its socket, its outlines folder, open outlines
-  ep0ch doctor [--json]            every piece of the stack (bun, the ep0ch checkout, ep0ch on PATH, the plugin
+  ep0ch doctor [--backups] [--json]
+                                   every piece of the stack (bun, the ep0ch checkout, ep0ch on PATH, the plugin
                                    in Herdr, the outlines folder and its host and unit, which outline this folder
-                                   opens, Herdr's keys, the Claude mod): ✓ current, ! behind, ✗ missing, with the
-                                   command that fixes each. Read-only
+                                   opens, the backups (each Litestream unit, its log's errors, how far each replica
+                                   or mirror trails), Herdr's keys, the Claude mod): ✓ current, ! behind, ✗ missing,
+                                   with the command that fixes each. Read-only; --backups also restores each newest
+                                   snapshot into a temp folder and runs integrity_check
   ep0ch install [--apply] [--json]
                                    bring the stack up to date: a dry run by default (the plan). --apply backs
                                    up every ~/outlines/*.sqlite to ~/backups/ep0ch/<time>/ first, then updates the

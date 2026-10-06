@@ -133,7 +133,10 @@ export function machineOutlines(defaultOutline?: string, log: (line: string) => 
   const mirrorRead = async (mirror: OutlineMirror): Promise<McpBoard | { error: string }> => {
     const read = await mirror.read();
     if ("error" in read) return { error: `${mirror.outline} lives on ${mirror.machine}; ${machine}'s read-only copy ${read.error}, and this gateway reads it only from that copy.` };
-    return { board: read.board, served: { source: "mirror", asOf: read.asOf, note: `${mirror.outline} lives on ${mirror.machine}; this is ${machine}'s read-only copy, kept current from its backups` } };
+    const note = read.stale
+      ? `${mirror.outline} lives on ${mirror.machine}; ${machine}'s read-only copy is stale${read.stale.since ? ` since ${read.stale.since}` : ""} (${read.stale.why}), so newer changes may be missing`
+      : `${mirror.outline} lives on ${mirror.machine}; this is ${machine}'s read-only copy, kept current from its backups`;
+    return { board: read.board, served: { source: "mirror", asOf: read.asOf, note, ...(read.stale ? { stale: read.stale } : {}) } };
   };
   const local = async (name: string): Promise<McpBoard | { error: string }> => {
     let pending = boards.get(name);
