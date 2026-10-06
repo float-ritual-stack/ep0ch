@@ -71,7 +71,7 @@ ID, `[[page]]`, `((uuid))` or `pi-outliner://` URI).
 A click, `show` and `door_open` share one open (`openNote` in
 `hooks/register.ts`), tried in this order:
 
-1. **In a door tile** (`EP0CH_CONTROL` set: the daily agent, the dock's
+1. **In a door tile** (`EP0CH_CONTROL` set: the daily agent, the drawer's
    agent, or a `claude` started in a `^W o s` terminal tile, in the tile or in
    its Herdr pane): the CLI's `door-open --from <tile>` sends the door an
    agent's `open` from Claude's own tile over `EP0CH_CONTROL`. The tile is
@@ -132,7 +132,7 @@ So nobody has to ask which outline Claude's tools reach (PIE-546), the mod says 
   - **careful** (yellow): the folder names one outline and the door Claude sits in is on another. The outline
     tools write to the folder's; the door tools act in the door's;
   - **Claude:** the machine and folder Claude runs in;
-  - **door:** the dock or a tile of which door, or not in a door, and the Herdr pane;
+  - **door:** the drawer or a tile of which door, or not in a door, and the Herdr pane;
   - **tools:** one set, from this mod.
 
   Beside Recent mentions the card keeps to the binding (outline, why, the yellow line), so the mentions'

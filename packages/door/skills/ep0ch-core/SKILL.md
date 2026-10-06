@@ -108,11 +108,12 @@ Then the root `AGENTS.md` and `CONTRIBUTING.md`. They are short and they are the
 - **Two layers:** the *screen layer* is swapped per screen and stays as small as it was designed; the *host
   layer* (the agent, admin outline and detail, terminals) is above every screen and kept across switches. It is a
   layout on the same module (`hostLayer`, `placeHost`): a slot for the screen beside a dock of tabs; a screen's
-  policy `host` (`beside`, `over`, `none`) says where it may appear. Its dock is the **drawer** (PIE-498): the drawer's
-  own desk (`hostSpec`), its tiles the dock's tabs, and `tile.drawer` moves any tile in or out whole (the screen's
+  policy `host` (`beside`, `over`, `none`) says where it may appear. That dock holds **your drawer** (PIE-498): the
+  drawer's own desk (`hostSpec`), its tiles the drawer's tabs, and `tile.drawer` moves any tile in or out whole (the screen's
   `take`, the other's `open`; a terminal keeps the key its program runs under, `PtyPane.keptKey`). Put what the
-  person carries between screens there, never as a tile duplicated on each screen. "Drawer" means only this: a river
-  column is held (`tile.hold`), a dock pinned (`tile.dock`), a float put back.
+  person carries between screens there, never as a tile duplicated on each screen. "Drawer" means only this; a **dock** is a
+  screen's edge container a tile is docked into (`tile.dock`), which stays on that screen. A river column is held
+  (`tile.hold`), a float put back.
 - **Build the real shape.** Prefer the design that makes the end state true (the open registry over a
   closed list with one escape hatch) and ship it in coherent slices of that architecture. Don't pick the
   minimal option "until we outgrow it".

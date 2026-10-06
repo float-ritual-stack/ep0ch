@@ -152,8 +152,8 @@ describe("containers keep their tiles and their rules (B10, B11)", () => {
   test("B11: the last laid-out tile isn't put in a dock; the last dock showing anything doesn't shut", () => {
     let s = fresh();
     for (const id of [1, 2, 3]) s = ok(s, { op: "pin", tile: id, on: false }, PERSON, { focus: id }).state;
-    no(s, { op: "pin", tile: 4, on: false }, /activity is the last tile pinned/, PERSON, { focus: 4 });
-    no(s, { op: "pin", tile: 4, on: false, edge: "right" }, /last tile pinned/, PERSON, { focus: 4 });
+    no(s, { op: "pin", tile: 4, on: false }, /activity is the last tile not docked/, PERSON, { focus: 4 });
+    no(s, { op: "pin", tile: 4, on: false, edge: "right" }, /last tile not docked/, PERSON, { focus: 4 });
     for (const id of [1, 2, 3]) s = ok(s, { op: "slide", tile: id, open: false }, PERSON, { focus: 4 }).state;
     expect(names(s, visible(s.tree))).toEqual(["activity"]);
     // The one laid-out tile closes: the screen opens a dock, and the keys go to what it shows.

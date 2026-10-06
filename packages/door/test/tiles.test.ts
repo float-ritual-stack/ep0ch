@@ -229,7 +229,7 @@ describe("drops and policy (PIE-505)", () => {
   });
   test("a shut dock's handle on the hint row takes a tile into the tabs of what it shows", () => {
     const handles = [{ from: 80, to: 88, row: 30, shows: "t", edge: "left" as const }];
-    expect(handleDrop(handles, area, 82, 30, "a")).toMatchObject({ kind: "tabs", target: "t", label: "⇤ into the dock" });
+    expect(handleDrop(handles, area, 82, 30, "a")).toMatchObject({ kind: "tabs", target: "t", label: "⇤ docked here: stays on this screen" });
     expect(handleDrop(handles, area, 82, 29, "a")).toBeNull();
     expect(handleDrop(handles, area, 82, 30, "t")).toBeNull();     // onto itself means nothing
   });

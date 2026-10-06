@@ -27,6 +27,7 @@ import { writeState } from "./state";
 import { AgentDrawer, DRAWER_ACTIONS, DRAWER_TILE_ID, HOST_AGENT_TILE, HOST_TILE_ACTIONS, overlay, type DrawerRun } from "./drawer";
 import type { HostMode } from "./desk/screen-layout";
 import type { Desk, MovedTile } from "./desk/desk";
+import type { Pane } from "./desk/panes";
 import type { TileDone, Where } from "./desk/tile-actions";
 import type { HomeChoice } from "./home";
 
@@ -57,10 +58,12 @@ export type { Video };
 export interface HostLayer {
   /** `d` is the drawer's own desk (its tiles, the drawer's tabs). */
   isDrawer(d: unknown): boolean;
+  /** The desks a tile can be on now: the drawer's (once made) and the screen shown's tiles. Followers follow across them. */
+  desks(): Desk[];
   /** Tile `name` of screen `from` into the drawer, whole. */
-  drawer(from: Desk, name: string, actor: Actor): TileDone;
-  /** A tile still running on a screen that goes for good, kept in the drawer instead of ended (its tab behind the one shown). */
-  keep(moved: MovedTile): void;
+  put(from: Desk, name: string, actor: Actor): TileDone;
+  /** Tiles still running on a screen that goes for good, kept in the drawer instead of ended (tabs behind the one shown): the panes it took. */
+  keep(moved: MovedTile[]): Pane[];
   /** The tile the drawer shows now (not its own tab), or null. */
   shownTab(): string | null;
   /** Tile `name` in the drawer back into the screen shown, beside `to` (where). */

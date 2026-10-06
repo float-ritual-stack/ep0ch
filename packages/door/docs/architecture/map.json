@@ -563,7 +563,7 @@
     },
     {
       "id": "door.herdragent", "name": "Herdr agent tile", "group": "door", "chapter": "terminal", "ladder": "provisional", "dependsOn": ["door.pty", "kept.herdr", "door.control"],
-      "does": "The daily agent runs in a Herdr pane the tile attaches to, so quitting the door leaves it running; the next door reattaches. The App owns that one tile (PIE-498), the first tab of the host layer's dock (PIE-513): a layout on the one layout engine above every screen, pulled up from the status bar's chip over or beside a screen, as the screen's policy says. No screen has a copy of it.",
+      "does": "The daily agent runs in a Herdr pane the tile attaches to, so quitting the door leaves it running; the next door reattaches. The App owns that one tile (PIE-498), the first tab of your drawer, on the host layer (PIE-513): a layout on the one layout engine above every screen, pulled up from the status bar's chip over or beside a screen, as the screen's policy says. No screen has a copy of it.",
       "built": "scripts/door-agent-herdr.ts finds or creates the pane under a lock, attaches, and tells the door with tile.herdr over the control socket, as its tile. No title matching.",
       "refs": [
         { "r": "door", "p": "src/desk/herdr-agent.ts", "l": 332, "m": "export async function main" },
@@ -578,7 +578,7 @@
     },
     {
       "id": "door.drawer", "name": "The drawer", "group": "door", "chapter": "terminal", "ladder": "provisional", "dependsOn": ["door.pty", "door.herdragent"],
-      "does": "Tiles that travel with the person across screens (PIE-498): the host layer's dock holds the drawer's own desk, its tiles the dock's tabs. Any tile ⟦docks⟧ and ⟦undocks⟧ whole (tile.drawer, ^W a, a drag onto the chip or out of the dock): a terminal's program keeps running, a reader keeps its note. Its first tab is the drawer's own program (EP0CH_DAILY_AGENT, else a shell, in the person's folder or the outline's).",
+      "does": "Tiles that travel with the person across screens (PIE-498): the host layer holds your drawer, a desk of its own, its tiles the drawer's tabs. Any tile goes in and out whole (tile.drawer, ^W a, a drag onto the chip or out of the drawer): a terminal's program keeps running, a reader keeps its note. Its first tab is the drawer's own program (EP0CH_DAILY_AGENT, else a shell, in the person's folder or the outline's); it can leave too, onto a screen still running, and the drawer starts a fresh one. A screen left with terminals running puts them in the drawer.",
       "built": "One layout operation each side: the screen's take, the drawer desk's open, both asked first; the instance moves. A moved terminal keeps the key its program started under (PtyPane.keptKey, saved as kept), so a session's terminal host gives it back after an upgrade. Saved in drawer-tiles.json.",
       "refs": [
         { "r": "door", "p": "src/drawer.ts", "l": 126, "m": "export class AgentDrawer" },
@@ -677,7 +677,7 @@
     {
       "id": "door.river", "name": "The river", "group": "door", "chapter": "screens", "ladder": "recognised", "tree": "on", "dependsOn": ["door.surface", "door.socketboard"],
       "does": "Columns of notes that open to the right; focus moves the keys, not the layout; far columns shrink to peeks and spines.",
-      "built": "A screen spec on the desk (PIE-515): its columns are river.column tiles (a reader of the note surface with the river's own view: the Library, a note and its replies, a #value branch) in a flow container, the layout engine's squeeze, focus, widen, drawer, travel and close; saved to river.json as the desk's layout. Reply counts from one shared index per service.",
+      "built": "A screen spec on the desk (PIE-515): its columns are river.column tiles (a reader of the note surface with the river's own view: the Library, a note and its replies, a #value branch) in a flow container, the layout engine's squeeze, focus, widen, hold, travel and close; saved to river.json as the desk's layout. Reply counts from one shared index per service.",
       "refs": [
         { "r": "door", "p": "src/river/column.ts", "l": 129, "m": "export class RiverColumn extends ReaderPane" },
         { "r": "door", "p": "src/river/column.ts", "l": 854, "m": "export function riverSpec" },

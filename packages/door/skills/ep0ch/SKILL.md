@@ -126,10 +126,10 @@ It never moves the person's focus, and a door's refusal is the answer, never a r
 `src/desk/agent-env.ts`): `EP0CH_CONTROL`, `EP0CH_TILE`, `EP0CH_TILE_ID`, `EP0CH_NEST`, `EP0CH_IN_DOOR`, and
 the door's `EP0CH_STATE` and `EP0CH_SOCKET` when it has them.
 1. `^W o s` on the desk, then `claude` in that shell: a terminal tile's program.
-2. The `▲ claude` chip on the status bar, or `alt+a`: the drawer, a dock over any screen. Its own tab runs the
+2. The `▲ claude` chip on the status bar, or `alt+a`: your drawer, pulled up over any screen. Its own tab runs the
    agent chosen for the outline's session (`alt+g`, `host.agent name=<agent> [herdr=true]`; `EP0CH_DAILY_AGENT`
    overrides it; none chosen: a shell). Chosen "in Herdr", it runs in the session's own pane (`door-<outline>[--<machine>]-<hash>`,
-   `EP0CH_CONTROL` a link the launcher points at the attached door). Any tile ⟦docked⟧ there travels with the person.
+   `EP0CH_CONTROL` a link the launcher points at the attached door). Any tile put in it travels with the person.
    Every agent starts inside the person's login shell: when it exits, the tile is their shell, nothing restarted.
 
 **A Claude reads these, and the mod, only as it starts.** If the mod changed after it started (a `git pull` of
@@ -186,7 +186,9 @@ yourself (path 1): `/exit`, then `claude --continue`.
   moves a tile into it whole (its program keeps running), `tile.drawer on=false tile=<t> to=<tile> where=<side>` back
   out into the screen shown; `tile=` naming a tile in the drawer reaches it there (`tile.type tile=kettle`). Put your own
   tile in: `tile.drawer tile=<id>` with the id `ep0ch where` gives (it finds your tile by your program, even after it
-  moved; `$EP0CH_TILE_ID` is only where it started). ⟦Docked⟧ tiles' ids are `k<n>`. It never takes the person's keys; you can't drawer the tile they type in,
+  moved; `$EP0CH_TILE_ID` is only where it started). Tiles in the drawer have ids `k<n>`. Its own first tab can leave too: `tile.drawer on=false tile=drawer.agent` puts it
+  on the screen as an ordinary terminal tile, still running, and the drawer starts a fresh one the next time it's pulled
+  up. It never takes the person's keys; you can't move the tile they type in into it,
   put it away, resize it, type in it or restart its agent while they type in it. `peek` shows it as `drawer` (with
   `knows`, `runs` and `tiles`).
 - **Links** (one model on every screen: Outlinks, Resources, Backlinks). `links tile=<reader>` aims the

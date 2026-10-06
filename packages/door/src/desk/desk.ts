@@ -34,7 +34,7 @@ import { ch, type Key, type TileProgram } from "../term";
 import { colourBody, wrap } from "../text";
 import { emphasis } from "../inline";
 import { presentLinks } from "../refs";
-import { dropAt, handleDrop, type Drop, type DropTile } from "./drop";
+import { DOCK_DROP, dropAt, handleDrop, type Drop, type DropTile } from "./drop";
 import {
   allTiles, apply as applyOp, autoName, chainOf, describe as describeLayout, dividerAt, dragShare, dockOf, docks, EDGE_GLYPH, effective, init, isLine, keepOnScreen, kidsOf, landing, layers as policyLayers, leaf, leaves,
   neighbour, node, parentNode, place as placeLayout, policyAt as policyOver, policyOf, policyOfNode, rects as rectsOf, refusal, reviveTree, revisionRefusal, serialize as serializeLayout, splitAxis,
@@ -178,7 +178,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private hits: [number, Rect][] = [];
   private heads: { id: number; from: number; to: number; row: number }[] = [];
   private markHits: { id: number; n: number; from: number; to: number; row: number }[] = [];
-  /** Each header's "⇤ dock" as drawn: a click there undocks it (tile.dock on=false). */
+  /** Each header's "⇤ docked" as drawn: a click there undocks it (tile.dock on=false). */
   private dockLabels: { id: number; from: number; to: number; row: number }[] = [];
   /** Each ⧉ as drawn (a float's, and the focused pinned tile's): a click runs tile.float, putting back or floating it. */
   private floatButtons: { id: number; from: number; to: number; row: number }[] = [];
@@ -301,7 +301,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     const how = src ? tileSource(src.source)?.source.drop : undefined;
     return {
       kind: this.unregistered.get(id)?.kind ?? p?.kind ?? "tile",
-      ...(k?.policy ? { policy: k.policy } : {}), ...(k?.accepts?.tiles ? { tabs: k.accepts.tiles } : {}), notes: !!k?.accepts?.notes,
+      ...(k?.policy ? { policy: k.policy } : {}), ...(k?.stays ? { stays: k.stays } : {}), ...(k?.accepts?.tiles ? { tabs: k.accepts.tiles } : {}), notes: !!k?.accepts?.notes,
       ...(src ? { keeps: `${src.source} supplies it, and it goes when its data does${how ? ` · to drop it, ${how}` : ""}` } : {}),
       ...(k?.placeholder ? { placeholder: true } : {}),
       ...(p instanceof ReaderPane && p.editing ? { editing: sessionName(p) } : {}),
@@ -472,14 +472,23 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private holdsWork(p: Pane): boolean { return !!kindOf(p)?.holdsWork?.(p); }
   /** What a tile shows or has selected (a reader's note, the tree's row, a screen's card): its kind says. */
   private showing(p: Pane | undefined): Msg | null { return p ? kindOf(p)?.shows?.(p) ?? null : null; }
-  /** The tiles that follow tile `id` (a preview with source=tile:<its name>), by their kinds' `follows`. */
+  /**
+   * The tiles that follow tile `id` (a preview with source=tile:<its name>), by their kinds' `follows`: here, and on
+   * the drawer's desk or the screen shown, any bound to this very tile (ADR 0001: a follower keeps following the tile
+   * it followed wherever either goes, never another of that name).
+   */
   private followers(id: number): Pane[] {
     // A source may name a container (`tile:lanes`, the board's columns): any tile in it is followed.
     const names = new Set([this.nameOf(id), ...chainOf(this.root, id).flatMap(c => (isLine(c) && c.key ? [c.key] : []))]);
-    // A follower moved here from another screen follows the very tile it followed there, never one here of that name.
     const src = this.panes.get(id);
-    return [...this.panes].filter(([pid, q]) => { const f = kindOf(q)?.follows?.(q); const b = boundSource.get(q); return pid !== id && f !== null && f !== undefined && names.has(f) && (b === undefined || b === src); }).map(([, q]) => q);
+    const here = [...this.panes].filter(([pid, q]) => { const f = kindOf(q)?.follows?.(q); const b = boundSource.get(q); return pid !== id && f !== null && f !== undefined && (b !== undefined ? b === src : names.has(f)); }).map(([, q]) => q);
+    const away = src ? (this.ctx?.hostLayer?.desks() ?? []).filter(d => d !== this).flatMap(d => d.boundTo(src)) : [];
+    return [...here, ...away];
   }
+  /** This desk's tiles bound to follow `src`, a tile on another desk now (the drawer's, or the screen's). */
+  boundTo(src: Pane): Pane[] { return [...this.panes.values()].filter(q => boundSource.get(q) === src); }
+  /** The desk follower `p` is on: this one, or the drawer's or the screen's (its notes are read and drawn there). */
+  private homeOf(p: Pane): Desk { return this.idOf(p) !== undefined ? this : this.ctx?.hostLayer?.desks().find(d => d.idOf(p) !== undefined) ?? this; }
 
   /** A tile joins a live desk: it reads what it needs (its kind's `start`: a detail its note, a preview its source). */
   private startTile(id: number, moved = false) {
@@ -669,11 +678,14 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // Gone for good: kinds that come later never make tiles (nor start programs) here.
     this.disposed = true;
     unwatchTileKinds(this);
-    // A tile moved here from the drawer that still holds work (a program running) goes back to it, never ended with this screen.
-    for (const id of [...this.movedIn]) {
-      const p = this.panes.get(id);
-      if (!p || !this.holdsWork(p) || !this.ctx?.hostLayer) continue;
-      try { this.ctx.hostLayer.keep({ pane: p, name: this.nameOf(id), spec: this.specOf(id), from: this.title, typing: false }); this.forgetTile(id, p); } catch { /* ends with the screen */ }
+    // Never ended with this screen: a program still running in a tile here, and anything the drawer gave this screen
+    // that still holds work, go into your drawer (said once, for all of them). A tile its host made (the showcase's
+    // exhibits) is the host's, and ends with it.
+    const host = this.ctx?.hostLayer, given = new Set(this.given.values());
+    const keep = host ? [...this.panes].filter(([id, p]) => this.holdsWork(p) && (this.movedIn.has(id) || (p instanceof PtyPane && p.running && !given.has(p)))) : [];
+    if (keep.length) {
+      const kept = host!.keep(keep.map(([id, p]) => ({ pane: p, name: this.nameOf(id), spec: this.specOf(id), from: this.title, typing: false })));
+      for (const [id, p] of keep) if (kept.includes(p)) this.forgetTile(id, p);
     }
     for (const m of this.models.values()) m.dispose?.();
     for (const p of this.panes.values()) p.dispose?.();
@@ -689,12 +701,14 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   /** The programs this desk runs (the agent isn't one of them: it lives in the host layer, PIE-513). */
   /** Its terminal tiles with a program running, or kept for them in a session's terminal host (not drawn since a handoff). */
   private running() { return [...this.panes.values()].filter((p): p is PtyPane => p instanceof PtyPane && (p.running || (!!p.keptAs && ptyBackend().holds(p.keptAs)))); }
-  /** A desk built for another view (the brief) has no way back: leaving it would end its programs, so it says so. */
+  /**
+   * Leaving ends nothing: a screen's running programs go into your drawer as it goes (dispose). Only a door with no
+   * drawer (a test's bare desk) would end them, so there it says so.
+   */
   leaveRefusal(): string | null {
-    // A tile the drawer gave this screen goes back to the drawer when it's left (dispose): it doesn't hold the screen.
-    const back = (p: PtyPane) => !!this.ctx?.hostLayer && [...this.movedIn].some(id => this.panes.get(id) === p);
-    const r = this.spec.stays ? [] : this.running().filter(p => !back(p));
-    return r.length ? `${r.map(p => p.title()).join(", ")} ${r.length === 1 ? "runs" : "run"} in a tile here · ^W a ⟦docks⟧ ${r.length === 1 ? "it" : "them"} (it travels with you), ^W x ends ${r.length === 1 ? "it" : "them"}` : null;
+    if (this.ctx?.hostLayer) return null;
+    const r = this.spec.stays ? [] : this.running();
+    return r.length ? `${r.map(p => p.title()).join(", ")} ${r.length === 1 ? "runs" : "run"} in a tile here, and leaving would end ${r.length === 1 ? "it" : "them"} · ^W x ends ${r.length === 1 ? "it" : "them"} first` : null;
   }
 
   setCurrent(m: Msg | null, opts: { reveal?: boolean; from?: Pane } & OpenHow = {}) {
@@ -722,7 +736,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     }
     const from = this.idOf(opts.from);
     // A preview follows its source tile's selection (PIE-473).
-    if (m && from !== undefined) for (const p of this.followers(from)) p.follow?.(m, this);
+    if (m && from !== undefined) for (const p of this.followers(from)) p.follow?.(m, this.homeOf(p));
     // An open (a link followed, the tree's ⏎, a list's pick) lands in the tile's link (or its container's opens-into),
     // or, in a flow, in a new column right after the tile's own (the flow's open rule, PIE-513).
     if (m && from !== undefined && (opts.link || opts.reveal) && this.routes(opts.from!)) {
@@ -752,7 +766,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   showFrom(from: Pane, m: Msg) {
     const id = this.idOf(from);
     if (id === undefined) return;
-    for (const p of this.followers(id)) p.follow?.(m, this);
+    for (const p of this.followers(id)) p.follow?.(m, this.homeOf(p));
     const to = this.linkOf(id);
     if (to !== undefined) this.openInto(to, m);
     this.redraw();
@@ -3488,24 +3502,24 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       if (!shown) throw new ActionRefused("the drawer shows nothing to bring here");
       return host.take(shown, to ?? t.name, where, actor);
     }
-    return host.drawer(this, t.name, actor);
+    return host.put(this, t.name, actor);
   }
 
-  /** Why tile `sel` can't leave this screen now, or null (nothing is done). */
-  takeRefusal(sel: string | undefined, actor: Actor): string | null {
+  /** Why tile `sel` can't leave this screen now, or null (nothing is done). `heir`: a new tile would take its place. */
+  takeRefusal(sel: string | undefined, actor: Actor, heir = false): string | null {
     const t = this.tileNamed(sel, false);
     if (!t) return `no tile ${sel} on the ${this.title}`;
     // A screen of a fixed shape that saves comes back only with every tile its spec names: they stay.
     if (this.spec.saves && !this.spec.layouts && leafNames(this.spec.layout.root).includes(t.name) && !this.ctx?.hostLayer?.isDrawer(this)) return `${t.name} stays: the ${this.title} is laid out with it (its spec names it)`;
-    const r = this.ask({ op: "take", tile: t.id }, actor);
+    const r = this.ask({ op: "take", tile: t.id, ...(heir ? { heir: { id: this.nextId } } : {}) }, actor);
     return r.ok ? null : r.refused;
   }
   /**
    * Tile `sel` leaves this screen whole (the layout's `take`), for the drawer or a screen from it: its instance goes,
    * nothing of it ends (a terminal's program runs on, a reader keeps its note, its history and its draft).
    */
-  takeOut(sel: string | undefined, actor: Actor): MovedTile {
-    const why = this.takeRefusal(sel, actor);
+  takeOut(sel: string | undefined, actor: Actor, heir?: Pane): MovedTile {
+    const why = this.takeRefusal(sel, actor, !!heir);
     if (why) throw new ActionRefused(why);
     const t = this.tile(sel);
     const pane = this.panes.get(t.id)!;
@@ -3514,9 +3528,14 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // A follower (a preview of a tile) leaving: bound to the tile it follows by identity (none here: to nothing).
     const f = kindOf(pane)?.follows?.(pane);
     if (f && !boundSource.has(pane)) { const sid = this.idNamed(f); boundSource.set(pane, sid !== undefined ? this.panes.get(sid) ?? NO_SOURCE : NO_SOURCE); }
-    this.commit(this.ask({ op: "take", tile: t.id }, actor));
+    // A tile followed here leaving: its followers keep following it, wherever it goes (bound to it, not to its name).
+    for (const q of this.followers(t.id)) if (!boundSource.has(q) && this.idOf(q) !== undefined) boundSource.set(q, pane);
+    const hid = this.nextId;
+    this.commit(this.ask({ op: "take", tile: t.id, ...(heir ? { heir: { id: hid } } : {}) }, actor));
     this.forgetTile(t.id, pane);
     this.openedFrom.delete(t.id);
+    // Its heir takes its place and its name: a new tile of its kind, started as any tile joining a live desk.
+    if (heir) { this.put(heir); this.startTile(hid); }
     this.save(); this.redraw();
     return { pane, name: t.name, spec, from: this.title, typing };
   }
@@ -3560,12 +3579,16 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    */
   foreignAt(x: number, y: number, moving: { name: string; kind: string }): { to?: string; where: Where; label: string; refused?: string } | null {
     const refuse = (to: Place<number>) => refusal(this.layout, { op: "open", tile: this.nextId, kind: moving.kind, name: moving.name, loose: true, at: to }, this.layoutCtx(USER));
-    const drop = dropAt(this.dropTiles(), this.area, x, y, -1, true, refuse);
+    const drop = this.saysDocked(dropAt(this.dropTiles(), this.area, x, y, -1, true, refuse));
     this.foreign = drop ? { name: moving.name, drop, x, y } : null;
     this.redraw();
     if (!drop) return null;
     const where: Where = drop.kind === "edge" ? `edge-${drop.dir}` : drop.kind === "tabs" ? "tabs" : drop.dir;
     return { ...(drop.kind !== "edge" ? { to: this.nameOf(drop.target) } : {}), where, label: drop.label, ...(drop.refused ? { refused: drop.refused } : {}) };
+  }
+  /** A drop beside or into a tile in a dock says it docks there (a dock's tiles stay on this screen). */
+  private saysDocked(d: Drop<number> | null): Drop<number> | null {
+    return d && d.kind !== "edge" && !d.label.includes(DOCK_DROP) && dockOf(this.root, d.target) ? { ...d, label: `${d.label} · ${DOCK_DROP}` } : d;
   }
   /** A tile from outside dragged over this screen, as last placed: its ghost. */
   private foreign: { name: string; drop: Drop<number>; x: number; y: number } | null = null;
@@ -3687,7 +3710,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         // Where it would land (a dock's handle on the hint row first), with the reason policy refuses it, if any.
         const refuse = (to: Place<number>) => refusal(this.layout, { op: "move", tile: h.id, to }, this.layoutCtx(USER));
         const handles = this.handles.map(x => ({ from: x.from, to: x.to, row: this.area.row + this.area.rows, shows: shown(x.dock.kid)[0] ?? x.id, edge: x.dock.edge }));
-        this.dragging = { src: h.id, drop: handleDrop(handles, this.area, k.x, k.y, h.id, refuse) ?? dropAt(this.dropTiles(), this.area, k.x, k.y, h.id, leaves(this.root).length > 1, refuse), x: k.x, y: k.y };
+        this.dragging = { src: h.id, drop: handleDrop(handles, this.area, k.x, k.y, h.id, refuse) ?? this.saysDocked(dropAt(this.dropTiles(), this.area, k.x, k.y, h.id, leaves(this.root).length > 1, refuse)), x: k.x, y: k.y };
         return this.redraw();
       }
       if (this.mouseTile) { const m = this.mouseTile; this.panes.get(m.id)?.mouse?.(k, k.x - m.r.col - 1, k.y - m.r.row - 1, this); return; }

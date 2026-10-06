@@ -62,6 +62,8 @@ export interface TileKind {
   readonly inherits?: readonly ActionSet<any, KindHost>[];
   /** The policy a tile of this kind starts with, under its containers' (a terminal's least width, say). */
   readonly policy?: Policy;
+  /** Why its policy keeps a tile of it (closable or draggable off), in a person's words with what to do instead: said whole in place of the policy's own refusal. */
+  readonly stays?: string;
   /** What it takes: notes opened into it (a link's target), and the tile kinds that may join it as tabs (any when left out). */
   readonly accepts?: { notes?: boolean; tiles?: readonly TileKindName[] };
   /** What it needs to be built again, beyond its kind, name and link (default: the tile's own `spec()`). */

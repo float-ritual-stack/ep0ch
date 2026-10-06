@@ -25,6 +25,9 @@ export type Refuse<I> = (to: Place<I>) => string | null;
 /** With the reason policy gives, when it gives one. */
 const judged = <I>(d: Drop<I> | null, refuse?: Refuse<I>): Drop<I> | null => { const why = d && refuse?.(d); return d && why ? { ...d, refused: why } : d; };
 
+/** What a drop into a dock says while dragging: the tile docks to that edge of this screen, and stays here. */
+export const DOCK_DROP = "docked here: stays on this screen";
+
 /** The outer strips: two cells in from the left and right, the last row at the bottom. */
 export const EDGE_COLS = 2;
 /** The centre of a tile that makes tabs, as a share of its width and height from the middle (each way). */
@@ -80,7 +83,7 @@ export interface DockHandle<I> { from: number; to: number; row: number; shows: I
 export function handleDrop<I>(handles: DockHandle<I>[], area: Rect, x: number, y: number, src: I, refuse?: Refuse<I>): Drop<I> | null {
   const h = handles.find(h => y === h.row && x >= h.from && x < h.to);
   if (!h || h.shows === src) return null;
-  const label = `${EDGE_GLYPH[h.edge]} into the dock`;
+  const label = `${EDGE_GLYPH[h.edge]} ${DOCK_DROP}`;
   const cols = Math.min(area.cols, Math.max(h.to - h.from, label.length + 6));
   return judged({ kind: "tabs", target: h.shows, ghost: { col: Math.max(area.col, Math.min(h.from, area.col + area.cols - cols)), row: Math.max(area.row, h.row - 3), cols, rows: 3 }, label }, refuse);
 }

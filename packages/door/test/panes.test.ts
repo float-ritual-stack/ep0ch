@@ -491,8 +491,8 @@ describe.skipIf(!outliner)("the desk's pane actions, against a scratch outline",
     expect(await act("tile.float", {}, fl.now)).toMatchObject({ floated: false });
     expect(D().layoutGet().floats).toEqual([]);
     // Any tile slides over as a dock now (PIE-413).
-    const pinned = await act("tile.dock", { on: true }, "1") as any;
-    expect(pinned).toMatchObject({ pinned: false });
+    const docked = await act("tile.dock", { on: true }, "1") as any;
+    expect(docked).toMatchObject({ docked: true });
     await act("tile.dock", { on: false }, "1");
     expect(await act("tile.focus", {}, focusedN)).toMatchObject({ tile: expect.any(String) });
   });

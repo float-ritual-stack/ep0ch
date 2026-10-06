@@ -84,10 +84,10 @@ describe.skipIf(!outliner)("containers with policy on the desk", () => {
 
   test("the tree in a left-edge dock; claude dropped on its handle and a detail moved beside it live in the same dock", async () => {
     const r = await act("tile.dock", { edge: "left" }, "tree") as any;
-    expect(r).toMatchObject({ pinned: false, edge: "left" });
+    expect(r).toMatchObject({ docked: true, edge: "left" });
     expect(shape()).toMatch(/^row\(dock<left>\(tree\),/);
     expect(tile("tree").dock).toBe("shut");                       // an agent's dock starts shut: the person's keys stay put
-    expect(message()).toContain("an agent (container-agent-505) put tree in a dock on the left");
+    expect(message()).toContain("an agent (container-agent-505) docked tree to the left edge");
     // The person drags claude's header onto the dock's handle on the hint row: it goes in, with the tree.
     render();
     const h = D().handles.find((x: any) => x.id === idOf("tree"));
