@@ -2834,8 +2834,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (!p.running && p.exited !== null) { p.restart(); return { tile: name, restarted: true }; }
     if (!p.running) throw new ActionRefused(`${name}'s program hasn't started`);
     this.ptyIn = p; this.chord = null;
-    if (send) { p.input(send); this.ctx.flash(`sent ctrl+] to ${name}`); }
-    else this.ctx.flash(`typing in ${name} · ${ESCAPE_CHORD} back to the door`);
+    // Said by what its header calls it (the drawer's own tile: what runs in it, never its tile name).
+    const said = (p as Pane).headName?.() ?? name;
+    if (send) { p.input(send); this.ctx.flash(`sent ctrl+] to ${said}`); }
+    else this.ctx.flash(`typing in ${said} · ${ESCAPE_CHORD} back to the door`);
     return { tile: name, typing: true };
   }
 

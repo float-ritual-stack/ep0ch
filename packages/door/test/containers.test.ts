@@ -171,7 +171,7 @@ describe.skipIf(!outliner)("containers with policy on the desk", () => {
     await expect(mine("layout.move", { to: "now", where: "down" }, "side")).rejects.toThrow(new RegExp(`${dockId} takes only tree, pty: not side \\(detail\\)`));
     await expect(act("layout.policy", { node: dockId, accepts: "compost" })).rejects.toThrow(/accepts names tile kinds/);
     await act("layout.policy", { node: dockId, draggable: false });
-    await expect(mine("layout.move", { where: "edge-right" }, "now")).rejects.toThrow(new RegExp(`now stays where it is: ${dockId} keeps its tiles \\(draggable off\\)`));
+    await expect(mine("layout.move", { where: "edge-right" }, "now")).rejects.toThrow(new RegExp(`now stays where it is: ${dockId} keeps its tiles in place · \\^W P there turns draggable on`));
     await act("layout.policy", { node: dockId, clear: "accepts,draggable" });
     // The tree's own link taken away, the dock's opens-into says where its opens land.
     await mine("tile.link", {}, "tree");
@@ -269,7 +269,7 @@ describe.skipIf(!outliner)("containers with policy on the desk", () => {
     expect(after[0] / after[1]).toBeCloseTo(ratio, 1);            // the laid-out tiles keep their shares
     // A dock whose own policy keeps its size: its border is refused.
     await act("layout.policy", { node: root.kids[0].id, resizable: false });
-    await expect(mine("layout.resize", { split: root.id, border: 0, share: 0.3 })).rejects.toThrow(/keeps its size \(resizable off\)/);
+    await expect(mine("layout.resize", { split: root.id, border: 0, share: 0.3 })).rejects.toThrow(/keeps its size · \^W P there turns resizable on/);
     await act("layout.policy", { node: root.kids[0].id, clear: "resizable" });
     // The person's focused tile, moved by an agent beside a tile in a shut dock: the dock opens, it stays in view.
     await mine("tile.focus", {}, "reader");

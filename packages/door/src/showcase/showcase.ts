@@ -191,10 +191,10 @@ export const SECTIONS: Section[] = [
     },
   },
   {
-    key: "drawer", need: "carry a tile across screens (a terminal, a reader, the tree)", part: "the drawer: the host layer's dock of tabs on its own desk; tile.drawer moves a tile in or out whole", files: "src/drawer.ts, src/desk/drawer-program.ts",
-    aside: "^W a on the kettle puts it in your drawer (or drag its title onto the status bar's drawer chip, or press a while dragging it): it leaves this section and joins the drawer, the same program running · pick another section (a screen switch), alt+a pulls the drawer up there and it's still in it · ^W a in the drawer, or its tab dragged out onto the screen, puts it back · a tab in the drawer's × (or ^W x in the drawer) closes it, at once once its program has exited (exit in it, then ^W x) · `act tile.drawer tile=kettle` does it for an agent, attributed, never with the person's keys",
+    key: "drawer", need: "carry a tile across screens (a terminal, a reader, the tree)", part: "your drawer: the host layer's tabs, above every screen, on a desk of its own; tile.drawer moves a tile in or out whole", files: "src/drawer.ts, src/desk/drawer-program.ts",
+    aside: "^W a on the kettle puts it in your drawer (or drag its title onto the status bar's drawer chip, which says \"into your drawer: travels with you\", or press a while dragging it): it leaves this section and joins the drawer, the same program running · pick another section (a screen switch), alt+a pulls the drawer up there and it's still in it · ^W a in the drawer, or its tab dragged out onto the screen, takes it out · the drawer's own first tab comes out the same way, its program running on as an ordinary terminal tile, and the drawer starts a new one when it next comes up · leave a screen with a program running and it goes into your drawer · a tab in the drawer's × (or ^W x in the drawer) closes it, at once once its program has exited (exit in it, then ^W x) · `act tile.drawer tile=kettle` does it for an agent, attributed, never with the person's keys",
     stage(n, show) {
-      const kettle = new PtyPane({ cmd: ["sh", "-c", "echo 'the kettle: a terminal tile to drawer (^W a). Its pid:' $$; exec sh"], label: "kettle" }), r = new ReaderPane(true);
+      const kettle = new PtyPane({ cmd: ["sh", "-c", "echo 'the kettle: a terminal tile to put in your drawer (^W a). Its pid:' $$; exec sh"], label: "kettle" }), r = new ReaderPane(true);
       return deskOf({ title: "showcase · drawer", panes: [kettle, r], names: ["kettle", "reader"], layout: ([a, b]) => row(0.5, a!, b!) }, show, [], d => { if (n.notebook) d.setCurrent(n.notebook); });
     },
   },

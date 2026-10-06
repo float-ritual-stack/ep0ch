@@ -122,7 +122,7 @@ describe('where helpers', () => {
   test('the tile door-open names: EP0CH_TILE, else a desk tile id, else none', () => {
     expect(doorTileOf({ EP0CH_TILE: 'claude', EP0CH_TILE_ID: 't3' })).toBe('claude')
     expect(doorTileOf({ EP0CH_TILE: '', EP0CH_TILE_ID: 't21' })).toBe('t21')
-    expect(doorTileOf({ EP0CH_TILE: ' ', EP0CH_TILE_ID: 'dock.agent' })).toBeNull()
+    expect(doorTileOf({ EP0CH_TILE: ' ', EP0CH_TILE_ID: 'drawer.agent' })).toBeNull()
     expect(doorTileOf({})).toBeNull()
   })
 })

@@ -494,7 +494,7 @@ class Step<I> {
   private drag(id: I) {
     const e = this.policyAt(id);
     if (e.locked) refuse(this.lockedWhy(e, `moving ${this.name(id)}`));
-    if (!e.draggable) refuse(this.kept(id, e.by.draggable, `${this.name(id)} stays where it is: ${this.whose(e.by.draggable)} keeps its tiles (draggable off)`));
+    if (!e.draggable) refuse(this.kept(id, e.by.draggable, `${this.name(id)} stays where it is: ${this.whose(e.by.draggable)} keeps its tiles in place · ^W P there turns draggable on`));
   }
   /**
    * A tile of `kind` can't go where `to` says: the container there is locked, takes no drops, or takes only other
@@ -529,7 +529,7 @@ class Step<I> {
     }
     if (e.locked) refuse(this.lockedWhy(e, `putting ${label} by ${there}`));
     if (to.kind === "float") return;
-    if (!e.droppable) refuse(`${this.whose(e.by.droppable)} takes no drops (droppable off): ${label} can't go by ${there}`);
+    if (!e.droppable) refuse(`${this.whose(e.by.droppable)} takes no drops: ${label} can't go by ${there} · ^W P there turns droppable on`);
     if (e.accepts && !e.accepts.includes(kind)) refuse(`${this.whose(e.by.accepts)} takes only ${e.accepts.join(", ") || "nothing"}: not ${label} (${kind})`);
     const t = to.kind === "tabs" ? this.facts(to.target) : undefined;
     if (t?.tabs && !t.tabs.includes(kind)) refuse(`${there} (${t.kind}) takes only ${t.tabs.join(", ") || "no tiles"} as tabs: not ${label} (${kind})`);
@@ -538,9 +538,9 @@ class Step<I> {
   private resizeWhy(n: Container<I>, border?: number): string | null {
     const e = this.ofNode(n);
     if (e.locked) return this.lockedWhy(e, "resizing");
-    if (!e.resizable) return `${this.whose(e.by.resizable)} keeps its sizes (resizable off)`;
+    if (!e.resizable) return `${this.whose(e.by.resizable)} keeps its sizes · ^W P there turns resizable on`;
     if (n.t === "flow") return `${n.id ?? "the flow"} sizes its columns itself: ^W W (tile.widen) gives one the wide place`;
-    if (isLine(n) && border !== undefined) for (const k of [n.kids[border], n.kids[border + 1]]) if (k && k.t !== "leaf" && k.policy?.resizable === false) return `${k.id ?? k.t} keeps its size (resizable off)`;
+    if (isLine(n) && border !== undefined) for (const k of [n.kids[border], n.kids[border + 1]]) if (k && k.t !== "leaf" && k.policy?.resizable === false) return `${k.id ?? k.t} keeps its size · ^W P there turns resizable on`;
     if (isLine(n) && border !== undefined) for (const k of [n.kids[border], n.kids[border + 1]]) if (k && k.t !== "leaf" && k.policy?.fixed !== undefined) return `${k.id ?? k.t} is fixed at ${k.policy.fixed} cells (layout.policy node=${k.id} fixed=-1 frees it)`;
     return null;
   }
@@ -664,7 +664,7 @@ class Step<I> {
       if (f.editing) refuse(`not closed: it holds ${f.editing} · e or ⏎ enters it`);
       // A tab set of one holding the rule is the tile's own place (the board's preview, the river's library).
       const own = chainOf(this.d.tree, id).find(c => c.id === e.by.closable && c.t === "tabs" && c.ids.length === 1);
-      if (!e.closable) refuse(own ? `${name} stays: its place (${own.id}) keeps it (closable off)${fold}` : this.kept(id, e.by.closable, `${name} stays: ${this.whose(e.by.closable)} keeps its tiles (closable off)${fold}`));
+      if (!e.closable) refuse(own ? `${name} stays: its place (${own.id}) keeps it${fold} · ^W P there turns closable on` : this.kept(id, e.by.closable, `${name} stays: ${this.whose(e.by.closable)} keeps its tiles${fold} · ^W P there turns closable on`));
       if (f.keeps) refuse(`${name} stays: ${f.keeps}${fold}`);
       if (!this.isFloat(id) && leaves(this.d.tree).length <= 1) refuse("the screen's last tile stays");
       if (this.agent && id === this.d.focus) refuse(`${name} has the person's keys; an agent doesn't close it`);
@@ -690,7 +690,7 @@ class Step<I> {
     if (f.holds) refuse(`${name} holds work: ^W x closes it first`);
     if (f.keeps) refuse(`${name} stays: ${f.keeps}`);
     const e = this.policyAt(id);
-    if (!e.closable) refuse(this.kept(id, e.by.closable, `${name} stays: ${this.whose(e.by.closable)} keeps its tiles (closable off)`));
+    if (!e.closable) refuse(this.kept(id, e.by.closable, `${name} stays: ${this.whose(e.by.closable)} keeps its tiles · ^W P there turns closable on`));
     if (e.accepts && !e.accepts.includes(op.kind)) refuse(`${this.whose(e.by.accepts)} takes only ${e.accepts.join(", ") || "nothing"}: not a ${op.kind} tile`);
     // The person's keys on it: an agent replaces only a place holder (the blank tile), and never where they're typing.
     if (this.agent && id === this.d.focus && !f.placeholder) refuse(`${name} has the person's keys; an agent doesn't replace it`);
@@ -720,7 +720,7 @@ class Step<I> {
     // stays: taken away, the screen's save would come back without it. A kind that only doesn't close (its `stays`)
     // still leaves whole.
     const e = this.policyAt(id), f = this.facts(id);
-    if (!e.closable && !(f.stays && e.by.closable === `${f.kind} tiles`)) refuse(`${name} stays: ${this.whose(e.by.closable)} keeps it (closable off)`);
+    if (!e.closable && !(f.stays && e.by.closable === `${f.kind} tiles`)) refuse(`${name} stays: ${this.whose(e.by.closable)} keeps it · ^W P there turns closable on`);
     if (f.keeps) refuse(`${name} stays: ${f.keeps}`);
     if (!heir && !this.isFloat(id) && leaves(this.d.tree).length <= 1) refuse(`${name} is the screen's last tile: it stays (the screen is never blank)`);
     if (this.agent && this.ctx.person.here !== false && id === this.d.focus) refuse(`${name} has the person's keys; an agent doesn't take it away`);
@@ -840,7 +840,7 @@ class Step<I> {
       if (!has(next, id)) return `there's no place for ${name} in the layout`;
       const e = effective([{ by: "screen", policy: this.d.policy }, ...chainOf(next, id).map(c => ({ by: c.id ?? c.t, policy: c.policy }))]);
       if (e.locked) return this.lockedWhy(e, `putting ${name} back`);
-      if (!e.droppable) return `${this.whose(e.by.droppable)} takes no drops (droppable off): ${name} doesn't land there`;
+      if (!e.droppable) return `${this.whose(e.by.droppable)} takes no drops: ${name} doesn't land there · ^W P there turns droppable on`;
       if (e.accepts && !e.accepts.includes(kind)) return `${this.whose(e.by.accepts)} takes only ${e.accepts.join(", ") || "nothing"}: not ${name} (${kind})`;
       return null;
     };
@@ -961,7 +961,7 @@ class Step<I> {
     if (!dr) refuse(`${name} isn't docked · tile.dock (^W p) docks it`);
     const want = open ?? !dr!.open;
     if (want && this.ctx.screenHost === "none" && has(this.d.tree, HOST_SCREEN as unknown as I)) refuse("the screen shown keeps the whole screen (its host policy is none): the host layer comes back on another screen");
-    if (!want && !this.ofNode(dr!).collapsible) refuse(`${dr!.id ?? "the dock"} stays open (collapsible off)`);
+    if (!want && !this.ofNode(dr!).collapsible) refuse(`${dr!.id ?? "the dock"} stays open: it doesn't slide shut · ^W P there turns collapsible on`);
     // Shutting the dock that has the person's keys moves them: the same rule as any move of the keys.
     const inside = leaves(dr!.kid);
     if (!want && inside.includes(this.d.focus)) this.mayMoveKeys("shut the dock they have");
@@ -984,7 +984,7 @@ class Step<I> {
       const p = parentOf(this.d.tree, id);
       if (!p || p.parent.dir !== "row" || p.parent.t === "flow") refuse(p?.parent.t === "flow" ? `${name} is a column of a flow: it squeezes to a spine by itself as it recedes (^W W widens it)` : `${name} isn't side by side with other tiles: only a tile in a row or columns folds to a spine`);
       const e = this.policyAt(id);
-      if (!e.collapsible) refuse(`${name} stays open: ${e.by.collapsible} doesn't collapse (collapsible off)`);
+      if (!e.collapsible) refuse(`${name} stays open: ${e.by.collapsible} doesn't fold · ^W P there turns collapsible on`);
       if (this.agent && id === this.d.focus) refuse(`${name} has the person's keys; an agent doesn't fold it`);
       this.d.collapsed.set(id, byOf(this.ctx.actor));
     } else this.d.collapsed.delete(id);

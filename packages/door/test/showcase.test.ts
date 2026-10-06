@@ -294,7 +294,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     screens: ["daily brief · 2026-03-11", "2 of 2 briefs"],
     kinds: ["tile kinds", "tree ^W o t", "backlinks ^W o l"],
     terminal: ["a terminal tile: sh in a pty the door owns", "shell"],
-    drawer: ["the kettle: a terminal tile to drawer", "kettle"],
+    drawer: ["the kettle: a terminal tile to put in your drawer", "kettle"],
     preview: ["preview · tree", "outline"],
     screen: ["board ·", "preview · board"],
     spine: ["Queued", "Doing", "Review", "Done", "HOME-003"],
@@ -698,6 +698,18 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect(back).toMatchObject({ tile: "kettle", inDrawer: false });
     expect(stage().pane("kettle").pid).toBe(pid);
     expect(stage().pane("kettle").running).toBe(true);
+    // The drawer's own first tab comes out too: an ordinary terminal tile in this section, its program running on; a
+    // new own tab takes its place in the drawer.
+    const own = app.drawer.tile!;
+    await until(() => own.running, "the drawer's own program runs");
+    const ownPid = own.pid;
+    (app as any).lastInput = 0;
+    const left = await app.act({ action: "tile.drawer", args: { on: false, to: "tree", where: "down" }, tile: "drawer.agent", as: "test-agent" }) as any;
+    expect(left).toMatchObject({ inDrawer: false, fresh: true });
+    expect(stage().pane(left.tile)).toBe(own);
+    expect(stage().pane(left.tile).pid).toBe(ownPid);
+    expect(app.drawer.tile).not.toBe(own);
+    expect(app.drawer.tabs()[0]!.name).toBe("drawer.agent");
     await app.act({ action: "host.toggle", args: { open: false }, as: "test-agent" });
   }, 20_000);
 

@@ -136,7 +136,6 @@ export async function where(d: WhereDeps): Promise<Where> {
   const drawerTile = dv?.tile?.id ? { id: dv.tile.id, name: dv.tile.name, shown: !!dv.shown, focused: !!dv.entered, herdr: dv.herdr, terminal: dv.terminal, drawer: true } : null;
   // In the Herdr agent's pane, "my tile" is whichever tile shows that pane now; elsewhere the tile by id, else name.
   let tile = agentPane ? tilePanes.find(p => p?.herdr?.pane === agentPane) ?? (drawerTile?.herdr?.pane === agentPane ? drawerTile : undefined) : undefined;
-  if (!tile && !agentPane && drawerTile && myTileId === drawerTile.id) tile = drawerTile;
   // A terminal's program finds its tile by its pid first: a tile moved between screens or out of the drawer (PIE-498) has an
   // id there it wasn't started with, and its old EP0CH_TILE_ID may name another tile now.
   if (!tile && !agentPane) tile = tilePanes.find(p => typeof p?.terminal?.pid === "number" && (ancestors.includes(p.terminal.pid) || d.pid === p.terminal.pid));
@@ -145,7 +144,9 @@ export async function where(d: WhereDeps): Promise<Where> {
     const t = dv.tiles.find((x: any) => typeof x?.pid === "number" && (ancestors.includes(x.pid) || d.pid === x.pid));
     if (t) tile = { id: t.id, name: t.name, shown: !!dv.shown && !!t.shown, focused: !!t.focused, terminal: { pid: t.pid }, drawer: true };
   }
-  // Only then by its id (else its name): a moved terminal's stale EP0CH_TILE_ID never wins over its pid.
+  // Only then by its id (else its name): a moved terminal's stale EP0CH_TILE_ID never wins over its pid (the drawer's
+  // own program, taken out onto a screen, still says drawer.agent).
+  if (!tile && !agentPane && drawerTile && myTileId === drawerTile.id) tile = drawerTile;
   if (!tile && !agentPane) tile = tilePanes.find(p => myTileId && p?.id === myTileId) ?? (tilePanes.some(p => p?.id) ? undefined : tilePanes.find(p => p?.name === myTileName));
   const answeringPid = typeof peek?.screen?.pid === "number" ? peek.screen.pid : null;
   const inDoor = !!(inner || control);

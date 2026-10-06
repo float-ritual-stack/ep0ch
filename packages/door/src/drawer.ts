@@ -106,7 +106,7 @@ function registerDrawerKind() {
     kind: DRAWER_KIND, about: "the drawer's own program (EP0CH_DAILY_AGENT, else a shell): the drawer's first tab, the host layer's", noun: "a terminal tile",
     make: () => new UnavailableTile(DRAWER_KIND, "the drawer's own tab is the drawer's (alt+a pulls it up)"),
     inherits: [PTY_ACTIONS], policy: { ...(pty.policy ?? {}), closable: false },
-    stays: "your drawer's own program doesn't close: exit it to end it (a new one starts when the drawer comes up), or ^W a takes it out onto the screen",
+    stays: "your drawer's own program doesn't close · ^W a takes it out onto the screen, or exit it to end it",
   });
 }
 /** What a drop on the chip or the open drawer says while dragging: the tile goes into your drawer, and travels with you. */
@@ -314,7 +314,7 @@ export class AgentDrawer {
   isDrawer(d: unknown): boolean { return !!d && d === this.d; }
   /** The drawer's desk (once made) and the screen shown's tiles (a desk, or a desk inside it: the showcase's section). */
   desks(): Desk[] {
-    const shown = this.host.screen?.(), screen = shown instanceof Desk ? shown : shown?.tilesHere?.();
+    const screen = tilesOf(this.host.screen?.());
     return [...(this.d ? [this.d] : []), ...(screen && screen !== this.d ? [screen] : [])];
   }
   /** The drawer's tiles, as tabs: the drawer's own first. */
@@ -442,7 +442,7 @@ export class AgentDrawer {
   /** The chip in two parts: what it's doing, and what it knows (drawn in yellow when it offers ⟳). */
   private chipParts(now: number): { head: string; knows: string } {
     // A drag that ended by a key (esc, f, p, a) leaves no mouse event here: the light goes out with it.
-    if (this.dropHover) { const sc = this.host.screen?.(); if (!(sc instanceof Desk) || !sc.draggedTile()) this.dropHover = null; }
+    if (this.dropHover && !tilesOf(this.host.screen?.())?.draggedTile()) this.dropHover = null;
     const s = this.state(now);
     if (s !== "off" && s !== "exited") this.pollKnows(now);
     const what = this.restarting ? "restarting" : s === "off" ? "" : s === "blocked" ? "needs you" : s === "exited" ? (this.p?.exited === null && this.p?.agentExit !== null ? `exited ${this.p.agentExit} · shell` : `exited ${this.p?.exited ?? ""}`.trim()) : s;
@@ -634,8 +634,7 @@ export class AgentDrawer {
   take(name: string, to: string | undefined, where: Where | undefined, actor: Actor): TileDone {
     const d = this.desk, shown = this.host.screen?.();
     if (!d) throw new ActionRefused("the drawer isn't ready");
-    // The screen's own tiles: a desk, or a desk inside it (the showcase's section).
-    const screen = shown instanceof Desk ? shown : shown?.tilesHere?.();
+    const screen = tilesOf(shown);
     if (!screen || screen === d) throw new ActionRefused(`the ${shown?.title ?? "screen"} has no tiles to put ${name} among · open one with tiles (D the desk, K the board, R the river), then tile.drawer on=false tile=${name}`);
     // The drawer's own tab leaves as an ordinary terminal tile named for what runs in it, and a new own tab takes its place.
     const old = this.p instanceof DrawerTile && d.pane(name) === this.p ? this.p : null;
@@ -885,7 +884,8 @@ export class AgentDrawer {
   /** The drawer's desk's rows on the terminal: the drawer's, below its bar. */
   private deskRow(): number { return (this.rect?.row ?? 0) + 1; }
 
-  private mouse(k: Extract<Key, { kind: "mouse" }>, screen: Screen | undefined, rows: number, run: DrawerRun): boolean {
+  private mouse(k: Extract<Key, { kind: "mouse" }>, shown: Screen | undefined, rows: number, run: DrawerRun): boolean {
+    const screen = tilesOf(shown);
     if (this.dragging) {
       // Dragged past the ends (onto the status row, or the top): as far as it goes, not a refusal.
       if (k.action === "drag") { const room = rows - 1; run("host.size", { share: clamp((room - Math.max(1, k.y)) / room) }); }
@@ -897,18 +897,18 @@ export class AgentDrawer {
     const onChip = !!chip && k.y === chip.row && k.x >= chip.from && k.x < chip.to;
     const inDrawer = !!r && k.y >= r.row && k.y < r.row + r.rows;
     // A screen's tile dragged by its title over the drawer (the chip, the drawer): it lights up; released, it goes in.
-    const dragged = screen instanceof Desk && screen !== this.d ? screen.draggedTile() : null;
+    const dragged = screen && screen !== this.d ? screen.draggedTile() : null;
     // No drag any more (let go elsewhere, esc, a key that acted on it): the chip and the drawer stop lighting up.
     if (!dragged && this.dropHover) { this.dropHover = null; this.host.redraw(); }
     if (dragged) {
       const over = onChip || inDrawer;
       const hover = over ? dragged : null;
-      if (hover !== this.dropHover) { this.dropHover = hover; (screen as Desk).drawerHover(hover ? `⤓ ${DRAWER_DROP}` : null); this.host.redraw(); }
+      if (hover !== this.dropHover) { this.dropHover = hover; screen!.drawerHover(hover ? `⤓ ${DRAWER_DROP}` : null); this.host.redraw(); }
       if (!over) return false;
       if (k.action === "up") {
         this.dropHover = null;
-        (screen as Desk).cancelDrag();
-        void (screen as Desk).perform("tile.drawer", { on: true }, USER, dragged);
+        screen!.cancelDrag();
+        void screen!.perform("tile.drawer", { on: true }, USER, dragged);
       }
       return true;
     }
@@ -918,17 +918,17 @@ export class AgentDrawer {
     if (out && r && k.y < r.row && (k.action === "drag" || k.action === "up")) {
       if (k.action === "up") this.capture = null;
       const kind = this.tabs().find(t => t.name === out)?.kind ?? "tile";
-      const target = screen instanceof Desk ? screen.foreignAt(k.x, k.y, { name: out, kind }) : null;
+      const target = screen ? screen.foreignAt(k.x, k.y, { name: out, kind }) : null;
       if (k.action === "up") {
         this.d!.cancelDrag();
-        if (screen instanceof Desk) screen.cancelDrag();
+        screen?.cancelDrag();
         if (!target) this.host.flash(`not moved: ${out} stays in the drawer · drop it on a tile's side, its header or centre, or the screen's edge`);
         else if (target.refused) this.host.flash(`not moved: ${target.refused}`);
         else this.takeRun(out, target.to, target.where);
       }
       return true;
     }
-    if (out && r && k.y >= r.row && screen instanceof Desk) screen.cancelDrag();
+    if (out && r && k.y >= r.row) screen?.cancelDrag();
     if (this.capture) {
       // A press in the drawer keeps the mouse until the button comes up (a terminal's drag, a tab dragged).
       if (k.action === "drag" || k.action === "up") this.d?.key({ ...k, y: k.y - this.deskRow() }, this.host.ctx!()!);
@@ -965,6 +965,9 @@ export class AgentDrawer {
     if (d) void d.perform("tile.drawer", { on: false, ...(to ? { to } : {}), where }, USER, name);
   }
 }
+
+/** The screen's own tiles: the screen when it's a desk, or a desk inside it (the showcase's section), else none. */
+function tilesOf(shown: Screen | undefined): Desk | null { return shown instanceof Desk ? shown : shown?.tilesHere?.() ?? null; }
 
 /** `base`, or `base2`, `base3` …: the first name no tile on `screen` has. */
 function freeName(screen: Desk, base: string): string {
@@ -1105,10 +1108,10 @@ export const HOST_TILE_ACTIONS = actionSet<{ drawer: AgentDrawer }>()("host", {
     args: { pane: { type: "string", optional: true, about: "the Herdr pane's label (door-<outline>)" }, name: { type: "string", optional: true, about: "the agent's name in Herdr (door; a test door's door-<hash>)" }, on: { type: "boolean", optional: true, about: "false: it no longer shows a Herdr agent" } },
     run({ pane, name, on }, { drawer }) {
       const p = drawer.tile;
-      if (!p) throw new ActionRefused(`${DRAWER_TILE_ID} hasn't started`);
+      if (!p) throw new ActionRefused("your drawer's own program hasn't started");
       if (on === false) { p.herdr = null; return { tile: DRAWER_TILE_ID, herdr: null }; }
       if (!pane) throw new ActionRefused("tile.herdr needs pane=<the Herdr pane's label>");
-      if (!p.running) throw new ActionRefused(`${DRAWER_TILE_ID}'s program isn't running`);
+      if (!p.running) throw new ActionRefused("your drawer's own program isn't running");
       p.herdr = { pane, ...(name ? { name } : {}) };
       return { tile: DRAWER_TILE_ID, herdr: p.herdr };
     },

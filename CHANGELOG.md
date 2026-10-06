@@ -61,10 +61,11 @@ move into one repository (PIE-530).
   `bun packages/door/scripts/import-layouts.ts --ws <outline>` says what it would write, `--apply` writes it; then
   delete `layouts.json` (its path is printed).
 - **The dock is now your drawer, and a screen's drawer is now a dock** (once per machine, doors stopped first: end
-  sessions with `ep0ch session end --all`). `bun packages/door/scripts/migrations/drawer-words.ts` says what it
-  would change; `--write` changes it: `dock.json`, `dock-tiles.json` and `dock-agent.json` in the state dir become
-  `drawer.json`, `drawer-tiles.json` and `drawer-agent.json`, saved layouts and screen notes say `dock` where they
-  said `drawer`, and the drawer's own tile is `drawer.agent`. The door keeps no reader for the old words; the
+  sessions with `ep0ch session end --all --yes`). `bun packages/door/scripts/migrations/drawer-words.ts --ws <outline>`
+  says what it would change; `--write` changes it: `dock.json`, `dock-tiles.json` and `dock-agent.json` in the state
+  dir become `drawer.json`, `drawer-tiles.json` and `drawer-agent.json`, saved layouts (and, with `--ws`, that
+  outline's screen notes, through its host) say `dock` where they said `drawer`, and the drawer's own tile is
+  `drawer.agent`. The door keeps no reader for the old words; the
   script is deleted once it has run on the machines that matter (pie on float-2, float-hub on the MacBook).
 
 ### Your drawer, and docks: the words swapped

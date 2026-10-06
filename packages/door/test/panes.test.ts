@@ -265,7 +265,7 @@ describe.skipIf(!outliner)("the board on the desk's engine, against a scratch ou
     expect(B().describe().outline.open).toBe(false);
     // The board is on the desk's engine: zoom is the desk's (an agent's never hides the person's tile).
     await expect(act("tile.zoom", {}, "detail2")).rejects.toThrow(/would hide/);
-    await expect(act("tile.close", {}, "preview")).rejects.toThrow(/preview stays: .*closable off/);
+    await expect(act("tile.close", {}, "preview")).rejects.toThrow(/preview stays: .*turns closable on/);
     await expect(act("tile.resize", { by: 0 })).rejects.toThrow(/whole number/);
   });
 
@@ -318,7 +318,7 @@ describe.skipIf(!outliner)("the board on the desk's engine, against a scratch ou
   test("interchangeable, subject to policy: a lane leaves the columns only once they let it; a desk tile goes beside them, not in", async () => {
     await fresh();
     // The lanes keep their tiles (draggable off): a header drag and layout.move are refused, and say why.
-    await expect(act("layout.move", { to: "preview", where: "right" }, "Doing")).rejects.toThrow(/keeps its tiles \(draggable off\)/);
+    await expect(act("layout.move", { to: "preview", where: "right" }, "Doing")).rejects.toThrow(/keeps its tiles in place · \^W P there turns draggable on/);
     // Only query tiles join the columns; another kind goes beside them.
     await expect(act("tile.open", { kind: "activity", to: "Doing", where: "right" })).rejects.toThrow(/takes only query/);
     const opened = await act("tile.open", { kind: "activity", name: "recent", where: "edge-right" }) as any;
@@ -421,7 +421,7 @@ describe.skipIf(!outliner)("the board on the desk's engine, against a scratch ou
     await expect(act("tile.collapse", {}, "tree")).rejects.toThrow(/isn't side by side/);
     const cid = b.containerId("lanes");
     await act("layout.policy", { node: cid, collapsible: false });
-    await expect(act("lane.collapse", { lane: "Queued" })).rejects.toThrow(/collapsible off/);
+    await expect(act("lane.collapse", { lane: "Queued" })).rejects.toThrow(/turns collapsible on/);
     await act("layout.policy", { node: cid, clear: "collapsible" });
     // stays: the backlinks dock's, set and read as any policy field.
     expect(await act("layout.policy", {}, "backlinks")).toMatchObject({ effective: expect.any(Object) });

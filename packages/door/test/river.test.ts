@@ -532,8 +532,8 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
   test("the Library stays (the river is made around it), so a restarted river comes back with its columns (round 3, B-M2)", async () => {
     const o: any = await act("open", { id: notes.squash.id, from: lib() });
     await until(() => !!paneOf(o.reader).root, "the squash column");
-    await expect(act("tile.close", {}, lib())).rejects.toThrow(/library stays: its place \(g\d+\) keeps it \(closable off\)/);
-    await expect(mine("tile.close", {}, lib())).rejects.toThrow(/closable off/);
+    await expect(act("tile.close", {}, lib())).rejects.toThrow(/library stays: its place \(g\d+\) keeps it · .*\^W P there turns closable on/);
+    await expect(mine("tile.close", {}, lib())).rejects.toThrow(/turns closable on/);
     // The hint row offers x only where it closes something: in the note column, not in the Library.
     const hintRow = () => screen().split("\n").find(l => l.includes("h l columns")) ?? "";
     await mine("tile.focus", {}, o.reader);

@@ -173,7 +173,7 @@ describe("containers keep their tiles and their rules (B10, B11)", () => {
   test("the nearest policy wins, and a lock above locks everything below", () => {
     // The screen says tiles stay where they are; the column of thread and activity says they move, and is locked.
     let s = ok(fresh(), { op: "policy", node: "screen", set: { draggable: false }, clear: [] }).state;
-    no(s, { op: "move", tile: 2, to: { kind: "edge", dir: "left" } }, /reader stays where it is: the screen keeps its tiles \(draggable off\)/);
+    no(s, { op: "move", tile: 2, to: { kind: "edge", dir: "left" } }, /reader stays where it is: the screen keeps its tiles in place · \^W P there turns draggable on/);
     s = ok(s, { op: "policy", tile: 3, set: { draggable: true }, clear: [] }).state;
     expect(policyAt(s, 3, facts(3)).draggable).toBe(true);           // the nearest says it
     expect(policyAt(s, 2, facts(2)).draggable).toBe(false);
@@ -198,14 +198,14 @@ describe("containers keep their tiles and their rules (B10, B11)", () => {
     const keyed = splitOf("col", [leaf(3), leaf(4)], [0.5, 0.5]);
     (keyed as { key?: string }).key = "lanes";
     const s = ok(fresh(splitOf("row", [leaf(1), leaf(2), keyed])), { op: "policy", tile: 3, set: { draggable: false }, clear: [] }).state;
-    no(s, { op: "move", tile: 3, to: { kind: "edge", dir: "left" } }, /thread stays where it is: the lanes container keeps its tiles \(draggable off\)/);
+    no(s, { op: "move", tile: 3, to: { kind: "edge", dir: "left" } }, /thread stays where it is: the lanes container keeps its tiles in place · \^W P there turns draggable on/);
   });
 
   test("a policy that keeps tiles: closable off folds instead; accepts and droppable refuse with who said so", () => {
     extra = {};
     let s = ok(fresh(), { op: "policy", tile: 3, set: { closable: false, droppable: false }, clear: [] }).state;
-    no(s, { op: "close", tile: 4 }, /activity stays: s\d+ keeps its tiles \(closable off\) · tile.collapse folds it to a spine/);
-    no(s, { op: "open", tile: 9, kind: "reader", at: { kind: "split", target: 3, dir: "down" } }, /takes no drops \(droppable off\)/);
+    no(s, { op: "close", tile: 4 }, /activity stays: s\d+ keeps its tiles · tile.collapse folds it to a spine · \^W P there turns closable on/);
+    no(s, { op: "open", tile: 9, kind: "reader", at: { kind: "split", target: 3, dir: "down" } }, /takes no drops: .* · \^W P there turns droppable on/);
     extra = { 2: { keeps: "hub:fern supplies it, and it goes when its data does" } };
     no(fresh(), { op: "close", tile: 2 }, /reader stays: hub:fern supplies it/);
     extra = { 2: { editing: "an edit" } };
@@ -522,7 +522,7 @@ describe("two layers: the host layer above every screen (Evan, Oct 1)", () => {
     // The screen slot stays where it is: it's the screen's, not a tile to close or move.
     const no2 = apply(s, { op: "close", tile: HOST_SCREEN }, hctx(PERSON));
     expect(no2.ok).toBe(false);
-    if (!no2.ok) expect(no2.refused).toMatch(/screen stays: .* keeps its tiles|closable off/);
+    if (!no2.ok) expect(no2.refused).toMatch(/screen stays: .* keeps its tiles|turns closable on/);
   });
 });
 
