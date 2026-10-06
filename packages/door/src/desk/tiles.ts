@@ -2,14 +2,13 @@
 // reader that follows the current note, a detail that keeps its note, a preview following a tile or a
 // file, a program in a terminal, a whole screen (board, river), the brief, and the desk's other panes. A
 // layout is the tree of splits and tab sets over tiles, with each tile's name, where its opens land (its
-// link), whether it slides over as a drawer, and the layout's open rule. It is data: saved by name in the
-// door's state (layouts.json), restored with one key or `act layout.restore name=…`.
-//
-// Screen notes in the outline (PIE-412's slice 3) aren't built yet, so layouts live in the door's state
-// only; the saved form is the same one desk.json uses, ready to be written into a note when they are.
+// link), whether it slides over as a drawer, and the layout's open rule. It is data: a screen saved by name is a
+// screen note in the outline (PIE-565, src/desk/screen-notes.ts), its layout one `layout.load` lays a screen out
+// as; the built-in layouts below are the others.
 import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { readState, stateDir, writeState } from "../state";
+import { stateDir } from "../state";
+import { screenNote, screenNotes } from "./screen-notes";
 import { subject } from "../board";
 import { leaf, serializeTree, splitOf, type LNode, type NaryForm, type BinaryForm, type Policy } from "./screen-layout";
 import { ReaderPane, type Pane } from "./panes";
@@ -124,6 +123,11 @@ export class DetailPane extends ReaderPane {
     return [this.label, this.msg ? "" : "empty", this.opensHere ? "⏎ opens here" : "", this.surface.state()].filter(Boolean).join(" · ");
   }
   override select() {}
+  /** The note it was laid out with, when the outline has no such note (gone, or a screen saved on another outline). */
+  missing: string | null = null;
+  protected override emptyFor(): string {
+    return this.missing ? `the note it held (${this.missing.slice(0, 8)}…) isn't in this outline (gone, or the screen was made on another outline) · open one here, or ^W x closes it` : super.emptyFor();
+  }
   spec(): Record<string, unknown> { return this.page ? { page: this.page } : this.msg ? { note: this.msg.id } : this.want ? { note: this.want } : {}; }
 }
 
@@ -175,19 +179,16 @@ export function builtin(name: string): LayoutSpec | null {
 }
 export const BUILTIN = ["daily", "river", "board", "desk"] as const;
 
-/** layouts.json: every layout saved by name. */
-type Saved = Record<string, LayoutSpec>;
-export function savedLayouts(): Saved { const s = readState<Saved>("layouts.json"); return s && typeof s === "object" ? s : {}; }
-export function saveLayout(name: string, spec: LayoutSpec) { const all = savedLayouts(); all[name] = { ...spec, name }; writeState("layouts.json", all); }
-/** A layout by name: the one saved under it, else the built-in. */
+/** A layout by name: a screen note's (a screen a person made, PIE-565), else the built-in. */
 export function layoutNamed(name: string): { spec: LayoutSpec; saved: boolean } | null {
-  const s = savedLayouts()[name];
-  if (s?.root) return { spec: s, saved: true };
+  const n = screenNote(name);
+  if (n) return { spec: { ...n.spec.layout, name }, saved: true };
   const b = builtin(name);
   return b ? { spec: b, saved: false } : null;
 }
+/** Every layout a screen can be laid out as: the built-ins, then the screens people made (a note may take a built-in layout's name: daily). */
 export function layoutNames(): { name: string; saved: boolean; builtin: boolean }[] {
-  const saved = Object.keys(savedLayouts());
+  const saved = screenNotes().map(n => n.name);
   return [...new Set([...BUILTIN, ...saved])].map(name => ({ name, saved: saved.includes(name), builtin: (BUILTIN as readonly string[]).includes(name) }));
 }
 

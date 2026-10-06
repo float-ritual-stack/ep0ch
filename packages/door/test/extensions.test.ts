@@ -6,6 +6,7 @@
 // tile kind registers from `extensions.list`, opens by ^W o and `act`, saves its block and comes back after a
 // restart; and an extension removed while the door runs goes away (its tile says so) and comes back.
 // Fictional notes only; the extensions' content is made up.
+import { screenNote } from "../src/desk/screen-notes";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { cpSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -275,8 +276,8 @@ describe.skipIf(!outliner)("the four kinds in a door, against a scratch service"
     await app.act({ action: "tile.open", args: { kind: "tarot.reading", note: note.id, name: "cards" }, as: AS });
     expect(tiles().find(t => t.name === "cards")).toMatchObject({ kind: "tarot.reading", args: { block: note.id } });
     // Saved with its kind and its block, nothing else.
-    await D().dispatch.act({ action: "layout.save", args: { name: "cards" } }, { kind: "user" });
-    const saved = JSON.stringify(JSON.parse(readFileSync(join(process.env.EP0CH_STATE!, "layouts.json"), "utf8")).cards);
+    await D().dispatch.act({ action: "screen.save", args: { name: "cards" } }, { kind: "user" });
+    const saved = JSON.stringify(screenNote("cards")!.spec.layout);
     expect(saved).toContain(`"kind":"tarot.reading"`);
     expect(saved).toContain(`"state":{"block":"${note.id}"}`);
     expect(saved).not.toContain("tile.ts");

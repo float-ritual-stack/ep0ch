@@ -227,7 +227,7 @@ describe.skipIf(!outliner)("layout identity, against a scratch outline", () => {
   });
 
   test("a closed tile's id isn't given to a tile from a saved layout, nor after a restart", async () => {
-    await act("layout.save", { name: "keep491" });
+    await act("screen.save", { name: "keep491" });
     const side = (await get()).tiles.find((t: any) => t.name === "side");
     await mine("tile.close", {}, "side");
     // Saved with side's id in it; loaded after side closed, the side it makes is another tile.

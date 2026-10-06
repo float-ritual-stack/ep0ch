@@ -565,3 +565,32 @@ describe("a float and a drawer, one step each way (Evan, Oct 3)", () => {
     no(ok(s, { op: "lock", on: true }).state, { op: "take", tile: 3 }, /locked/);
   });
 });
+
+describe("replace: a new tile in another's place (PIE-565, the blank tile's rows)", () => {
+  test("it takes the place whole (its weight, its tab), the keys with it; the old one's name and links go", () => {
+    extra = {};
+    const s = fresh();
+    const linked = ok(s, { op: "link", tile: 1, to: 2 }).state;
+    const r = ok(linked, { op: "replace", tile: 2, with: 9, kind: "pty" });
+    expect(treeNames(r.state)).toEqual(["tree", "pty", "thread", "activity"]);
+    expect(r.focus).toBe(9);
+    expect(r.state.links.has(1)).toBe(false);
+    expect(r.answer).toEqual({ tile: "pty", replaced: "reader" });
+  });
+
+  test("never one holding work, a locked shape, or (for an agent) the tile with the person's keys, unless it only holds a place", () => {
+    extra = { 2: { editing: "an edit" } };
+    no(fresh(), { op: "replace", tile: 2, with: 9, kind: "tree" }, /reader holds an edit/);
+    extra = { 3: { running: "nvim" } };
+    no(fresh(), { op: "replace", tile: 3, with: 9, kind: "tree" }, /thread is running nvim: \^W x ends it first/);
+    extra = {};
+    const locked = ok(fresh(), { op: "lock", on: true }).state;
+    no(locked, { op: "replace", tile: 3, with: 9, kind: "tree" }, /locked/);
+    no(fresh(), { op: "replace", tile: 2, with: 9, kind: "tree" }, /reader has the person's keys; an agent doesn't replace it/, AGENT);
+    extra = { 2: { placeholder: true } };
+    const r = ok(fresh(), { op: "replace", tile: 2, with: 9, kind: "tree" }, AGENT);
+    expect(r.focus).toBe(9);
+    no(fresh(), { op: "replace", tile: 2, with: 9, kind: "tree" }, /where the person is typing/, AGENT, { typingIn: 2 });
+    extra = {};
+  });
+});

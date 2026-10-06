@@ -14,7 +14,8 @@ import { ch, isUp, isDown, type Key } from "./term";
 import { heatmap } from "./stats";
 import { Showcase } from "./showcase/showcase";
 import { openScreen } from "./desk/screen-specs";
-import { screenNames, screenTargetArg } from "./desk/screen-spec";
+import { madeScreen, screenNames, screenTargetArg } from "./desk/screen-spec";
+import { screenNoteProblems } from "./desk/screen-notes";
 import { namesOutline, parseAddressedBlock } from "@ep0ch/outline-core/addressable-resource";
 import { canonicalLocalMachineName } from "./machine-name";
 import { bbsDate, rule, wrap } from "./text";
@@ -242,6 +243,8 @@ const ITEMS: MenuItem[] = [
   { key: "E", label: "End", open: () => null, action: "session.end" },
   // A new note (PIE-544), as ctrl+n on every screen: at the top of the Inbox, opened to be written.
   { key: "+", label: "New note", open: () => null, action: "note.new" },
+  // A blank screen (PIE-565): one tile to build from, saved as a screen note with ^W w; its o opens the ones you made.
+  { key: "M", label: "Make a screen", open: () => openScreen("blank") },
 ];
 
 /** Every screen the menu opens, by its key: what the parity test (PIE-506) presses every key on. */
@@ -298,7 +301,15 @@ export class MainMenu implements Screen {
     if (width(paint(all.map(q => (typeof q === "string" ? q : q[0])).join(""))) <= ctx.t.cols) lines.push(hotLine(this.ptr, lines.length, ctx.t.cols, all, { centre: true }));
     else {
       lines.push(hotLine(this.ptr, lines.length, ctx.t.cols, [...keys, lit], { centre: true }));
-      lines.push(hotLine(this.ptr, lines.length, ctx.t.cols, extras.slice(1), { centre: true }));
+      // The named items on as many lines as the width takes (80 columns: two), each item whole.
+      const named = (q: string | [string, Key, number]) => width(paint(typeof q === "string" ? q : q[0]));
+      let row: (string | [string, Key, number])[] = [];
+      for (let i = 1; i < extras.length; i += 2) {
+        const item = extras[i]!, w = row.length ? row.reduce((n, q) => n + named(q), 0) + named(" |08· ") + named(item) : named(item);
+        if (row.length && w > ctx.t.cols) { lines.push(hotLine(this.ptr, lines.length, ctx.t.cols, row, { centre: true })); row = []; }
+        row.push(...(row.length ? [extras[i - 1]!, item] : [item]));
+      }
+      if (row.length) lines.push(hotLine(this.ptr, lines.length, ctx.t.cols, row, { centre: true }));
     }
     lines.push(center(paint(`|08${ctx.events ? `|14changes on the outline since you logged on: ${ctx.events} · ` : ""}last call ${ctx.lastCall ? bbsDate(ctx.lastCall) : "never"}`), ctx.t.cols));
     return { lines, placements: frame };
@@ -405,7 +416,7 @@ export const knownScreen = (name: string): boolean => !!itemNamed(name) || scree
 /** The refusal for a screen nobody knows: the names there are, and the command to try. */
 export function unknownScreen(name: string): string {
   const names = [...new Set([...screenNames(), ...ITEMS.filter(i => !i.action).map(i => i.label.toLowerCase())])];
-  return `no screen ${JSON.stringify(name)} · screens: ${names.join(", ")} · try ep0ch --screen ${screenNames()[0] ?? "desk"} (screen.list says what each takes)`;
+  return `no screen ${JSON.stringify(name)}, built in or made (a screen note) · screens: ${names.join(", ")} · try ep0ch --screen ${screenNames()[0] ?? "desk"} (screen.list says what each takes; ^W w saves one you make)`;
 }
 
 /**
@@ -427,7 +438,7 @@ const SCREEN_NAMES: Record<string, string[]> = {
   N: ["new scan", "newscan"], J: ["join conference", "conferences"], K: ["kanban", "board"], R: ["recent"], W: ["who's online", "who"],
   L: ["last callers"], F: ["file areas"], S: ["board stats"], Q: ["quay", "river"], B: ["art"], D: ["desk"], G: ["goodbye", "logoff", "log off"],
   X: ["showcase"], T: ["today", "brief"], O: ["waiting"], C: ["welcome", "claude-now"], "!": ["drop to shell", "dos"], E: ["end session", "end"],
-  "+": ["new note", "new", "note.new"],
+  "+": ["new note", "new", "note.new"], M: ["blank", "blank screen", "make a screen"],
 };
 
 /** The shell's actions: the menu's letters, ⏎ and clicks, and q/Esc on every BBS screen, run these, as `act` does. */
@@ -448,7 +459,7 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
     },
   }),
   "screen.open": def({
-    summary: "open a screen by name over the current one (q comes back): a menu item, or any registered screen (screen.list names them), with its target where it takes one (detail: a block id, ((ref)) or ep0ch:// URI; board: a hub id). `ep0ch --screen <name> [<target>]` opens the door on it through this action. An agent's waits until the person is idle and is said on the status bar", keys: "the menu's letters N J K R W L F S Q B D G X T O C E +, or n j k r w l f s q b d g x t o c e, ⏎, click on a menu item or its letter on the key line",
+    summary: "open a screen by name over the current one (q comes back): a menu item, or any registered screen (screen.list names them), with its target where it takes one (detail: a block id, ((ref)) or ep0ch:// URI; board: a hub id). `ep0ch --screen <name> [<target>]` opens the door on it through this action. An agent's waits until the person is idle and is said on the status bar", keys: "the menu's letters N J K R W L F S Q B D G X T O C E + M, or n j k r w l f s q b d g x t o c e m, ⏎, click on a menu item or its letter on the key line",
     touches: "screen", replay: "safe", says: out => (out?.opened ? { text: `· opened ${out.opened} · q goes back`, ms: 6000 } : null),
     args: {
       name: { type: "string", about: "the menu key (S), its label (Stats), the screen's title, or a registered screen name (screen.list)" },
@@ -603,14 +614,16 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
     },
   }),
   "screen.list": def({
-    summary: "the screens the menu opens (key, label, what it is), every registered screen by name (what `ep0ch --screen <name>` and screen.open take, and what a target fills), and the stack the person is on, bottom first",
+    summary: "the screens the menu opens (key, label, what it is), every registered screen by name (what `ep0ch --screen <name>` and screen.open take, and what a target fills; made=true and its note for one a person made, a screen note), what kept a screen note from opening, and the stack the person is on, bottom first",
     touches: "nothing", replay: "safe",
     args: {},
     run(_, { ctx }) {
       return {
         stack: (ctx.screens?.() ?? []).map(s => s.title), screens: ITEMS.map(i => ({ key: i.key, label: i.label, about: HELP[i.key] ?? "" })),
         // Every registered screen (`ep0ch --screen <name>`), with the argument its target fills.
-        named: screenNames().map(name => ({ name, ...(screenTargetArg(name) ? { target: screenTargetArg(name) } : {}) })),
+        named: screenNames().map(name => ({ name, ...(screenTargetArg(name) ? { target: screenTargetArg(name) } : {}), ...(madeScreen(name) ? { made: true, note: madeScreen(name)!.id } : {}) })),
+        // What's wrong with a screen note that kept it from being opened (a built-in's name, two notes with one name).
+        ...(screenNoteProblems().length ? { problems: [...screenNoteProblems()] } : {}),
       };
     },
   }),
@@ -1342,6 +1355,7 @@ const HELP: Record<string, string> = {
   "!": "drop to shell: your login shell in this terminal; exit comes back here, tiles still running",
   E: "end the session: the door stops with its terminal tiles' programs (G only detaches this terminal); asks first when programs run",
   "+": "a new note at the top of the Inbox, opened to be written (ctrl+n on every screen; from a reader, under the note it shows)",
+  M: "a blank screen to build from: its rows start it with an outline, a reader, a terminal or a query lane; ^W w saves it as a screen note, its o opens the ones you made",
 };
 
 export class Goodbye implements Screen {

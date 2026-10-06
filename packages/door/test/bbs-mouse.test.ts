@@ -146,9 +146,9 @@ describe.skipIf(!art)("the main menu by mouse", () => {
     s.mouse("wheel-down", 0, 0);
     expect(selected(m)).toBe("J");
     s.mouse("wheel-up", 0, 0); s.mouse("wheel-up", 0, 0);
-    // The last item is the key line's + New note (PIE-544).
-    expect(selected(m)).toBe("+");
-    expect(s.lines().some(l => l.includes(": New note"))).toBe(true);
+    // The last item is the key line's M, a blank screen to make your own (PIE-565).
+    expect(selected(m)).toBe("M");
+    expect(s.lines().some(l => l.includes(": Make a screen"))).toBe(true);
     expect(s.stack.length).toBe(1);
   });
 

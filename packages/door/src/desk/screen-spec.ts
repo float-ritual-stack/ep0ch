@@ -11,8 +11,8 @@
 // - whether it keeps its layout between runs (`saves`), and whether it loads named layouts (`layouts`).
 //
 // Everything a screen does that isn't layout lives in its tiles' kinds (src/desk/tile-kinds.ts) and their actions.
-// A spec is plain data (`specData` writes it, `readSpec` reads it back and checks it): ready to be stored as a note
-// (gap 4, screens as notes), which can't hold an override.
+// A spec is plain data (`specData` writes it, `readSpec` reads it back and checks it): what a screen note holds (a
+// screen a person made, PIE-565: src/desk/screen-notes.ts), which can't hold an override.
 import { isTileKind } from "./tile-kinds";
 import type { LayoutSpec } from "./tiles";
 import { isKeyName } from "../surface/actions";
@@ -61,8 +61,10 @@ export interface ScreenSpec {
   fresh?: string;
   /** Where it keeps its layout between runs (a file in the door's state); left out, it opens as its spec says each time. */
   saves?: string;
-  /** It loads and saves named layouts (alt+d, ^W r, ^W w), and its programs keep running when it's left (the desk). */
+  /** It loads and saves named layouts (alt+d, ^W r, ^W w): its tiles are the person's own, any kind in any place. */
   layouts?: true;
+  /** Its programs keep running when it's left, and opening it again brings the same one back (the desk). */
+  stays?: true;
 }
 
 const NAME = /^[A-Za-z][\w.-]{0,39}$/;
@@ -105,6 +107,7 @@ export function readSpec(x: unknown, known = false): ScreenSpec {
     ...(o.frame === "dotted" ? { frame: "dotted" as const } : {}),
     ...(o.digits === false ? { digits: false as const } : {}),
     ...(o.layouts === true ? { layouts: true as const } : {}),
+    ...(o.stays === true ? { stays: true as const } : {}),
   };
   if (known) for (const k of leafKinds(layout.root)) if (!isTileKind(k)) throw new Error(`screen ${name}: no tile kind ${k} here`);
   // What it names by name is in its layout: a key's tile, the band's tile, where opens land and the keys go home.
@@ -145,16 +148,34 @@ export type SpecOf = (args?: Record<string, unknown>) => ScreenSpec;
  * How a screen is registered: `target` names the argument a target fills (`ep0ch --screen <name> <target>`,
  * `screen.open name= target=`): detail's `note` (a block), the board's `hub`, a pinned page's `address`.
  */
-export interface ScreenRegistration { target?: string }
+export interface ScreenRegistration {
+  target?: string;
+  /** A screen a person made (a screen note in the outline, src/desk/screen-notes.ts): its note's id and revision. */
+  made?: { id: string; revision: number };
+}
 const specs = new Map<string, SpecOf>();
 const registrations = new Map<string, ScreenRegistration>();
+/** Why `name` can't be a screen's name, or null. */
+export const screenNameProblem = (name: string): string | null => (NAME.test(name) ? null : `a screen's name is a letter, then letters, digits, . - _, at most 40 (not ${JSON.stringify(name)})`);
 /** Register a screen by name (refused under a name taken already). */
 export function registerScreen(name: string, of: SpecOf, how: ScreenRegistration = {}): void {
-  if (!NAME.test(name)) throw new Error(`a screen's name is a letter, then letters, digits, . - _ (not ${JSON.stringify(name)})`);
+  const bad = screenNameProblem(name);
+  if (bad) throw new Error(bad);
   if (specs.has(name)) throw new Error(`screen ${name} is registered already`);
   specs.set(name, of);
   registrations.set(name, how);
 }
+/** Take out a screen a person made (its note was trashed, renamed or changed); a built-in never goes. */
+export function forgetScreen(name: string): boolean {
+  if (!registrations.get(name)?.made) return false;
+  specs.delete(name);
+  registrations.delete(name);
+  return true;
+}
+/** The note a screen a person made is kept in (its id and the revision this door read), or undefined for a built-in. */
+export const madeScreen = (name: string): { id: string; revision: number } | undefined => registrations.get(name)?.made;
+/** A screen the door itself registers (desk, board, blank…): a screen note can't take its name. */
+export const builtinScreen = (name: string): boolean => specs.has(name) && !registrations.get(name)?.made;
 /** The spec of the screen named `name`, or null. */
 export function screenSpec(name: string, args?: Record<string, unknown>): ScreenSpec | null {
   const of = specs.get(name);

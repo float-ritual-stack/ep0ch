@@ -18,6 +18,7 @@ import { invalidateLinks } from "./links";
 import { connectFigures } from "./graphs";
 import { resourceChanged } from "./projection";
 import { EXT_ACTIONS, loadExtensions } from "./extensions";
+import { loadScreenNotes, screenNotesAffected } from "./desk/screen-notes";
 import { invalidatePropertyErrors } from "./props";
 import { outlineChanged } from "./refs";
 import { doorNest } from "./nest";
@@ -218,6 +219,8 @@ export interface Screen {
   dispose?(): void | "keep";
   /** Why the screen can't be left now (it would end something and has no way back), or null. */
   leaveRefusal?(): string | null;
+  /** Leaving it loses something it doesn't keep itself (a screen built and not saved): said, and leaving asks twice. */
+  shapeWarning?(): string | null;
   /** See Ctx.inTile. */
   inTile?(p: TileProgram, done: (code: number | null) => void): boolean;
   /** What the person sees, for `view.subscribe`: diffed after every paint and pushed as events. */
@@ -375,7 +378,7 @@ export class App implements Ctx {
     if (refusal) { this.flash(refusal); return false; }
     // Quitting, a docked reader's unsaved edit asks too (its programs are the dock's own warning).
     const dirty = [...screens, ...(quitting && this.dock.made ? [this.dock.made] : [])].filter((s): s is Screen => !!s?.unsaved?.());
-    const warn = quitting ? screens.map(s => s?.leaveWarning?.()).find(Boolean) ?? this.dock.leaveWarning() ?? this.quitWarning?.() ?? null : null;
+    const warn = (quitting ? screens.map(s => s?.leaveWarning?.()).find(Boolean) ?? this.dock.leaveWarning() ?? this.quitWarning?.() ?? null : null) ?? screens.map(s => s?.shapeWarning?.()).find(Boolean) ?? null;
     if (!dirty.length && !warn) return true;
     if (Date.now() - this.quitArmed < 3000) { this.quitArmed = 0; dirty.forEach(s => s.keepDrafts?.()); return true; }
     this.quitArmed = Date.now();
@@ -549,6 +552,8 @@ export class App implements Ctx {
       // Resource events aren't in the change feed, so none were replayed: projections are read again, and the
       // extensions (a restarted service may serve others) are listed again.
       if (!c && (e.action === "reconnected" || e.action === "reset")) { this.reconnects++; resourceChanged(null); void this.loadExtensions(); }
+      // A screen note made, changed or trashed (here, by another door or an agent), or anything after a reconnect: read them again.
+      if (c ? screenNotesAffected(c) : e.action === "reconnected" || e.action === "reset") this.screensSoon();
       invalidatePropertyErrors();
     }
     // What an extension wrote (a Jira ticket refreshed, PIE-445) isn't news unless the person asks for it.
@@ -600,6 +605,43 @@ export class App implements Ctx {
     this.redraw();
   }
   private extensionsSeen = false;
+
+  /**
+   * Read the outline's screen notes and register each as a screen (PIE-565, src/desk/screen-notes.ts): what came or
+   * went is said once the first read is done, and what's wrong with one (a built-in's name, a name two share) always.
+   */
+  async loadScreens(): Promise<void> {
+    // One read at a time: a change while one is out reads again after it, so the last read is the newest.
+    if (this.screensLoading) { this.screensAgain = true; return this.screensLoading; }
+    this.screensLoading = this.readScreens();
+    try { await this.screensLoading; } finally { this.screensLoading = null; }
+    if (this.screensAgain) { this.screensAgain = false; await this.loadScreens(); }
+  }
+  private screensLoading: Promise<void> | null = null;
+  private screensAgain = false;
+  private async readScreens(): Promise<void> {
+    try {
+      const r = await loadScreenNotes(this.board);
+      // A save or delete of this door's landed meanwhile: read again rather than take an older answer.
+      if (r.stale) { this.screensAgain = true; return; }
+      const said = [r.added.length ? `${r.added.join(", ")} added` : "", r.removed.length ? `${r.removed.join(", ")} gone` : ""].filter(Boolean);
+      if (said.length && this.screensSeen) this.flash(`screens: ${said.join(" · ")}`);
+      // What's wrong is said when it's new, not again on every change to a screen note.
+      const wrong = r.problems.join(" · ");
+      if (wrong && wrong !== this.screensWrong) this.flash(`screens: ${wrong}`, 12_000);
+      this.screensWrong = wrong;
+    } catch (e) { this.flash(`couldn't read the outline's screen notes: ${(e as Error).message}`); }
+    this.screensSeen = true;
+    this.redraw();
+  }
+  private screensSeen = false;
+  private screensWrong = "";
+  private screensTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Read the screen notes again shortly: a burst of changes reads them once. */
+  private screensSoon() {
+    if (this.screensTimer) return;
+    this.screensTimer = setTimeout(() => { this.screensTimer = null; void this.loadScreens(); }, 300);
+  }
 
   /**
    * The App's dispatcher (PIE-514): the host layer's actions, the shell's and the extensions', on every screen, then

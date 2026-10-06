@@ -339,6 +339,11 @@ export const SECTIONS: Section[] = [
       return deskOf({ title: "showcase · menu", panes: [r, term], names: ["reader", "clicks"], layout: ([a, b]) => row(0.6, a!, b!) }, show, [], d => { if (n.notebook) d.setCurrent(n.notebook); });
     },
   },
+  {
+    key: "made", need: "make a screen of your own: start blank, build it, save it, open it by name", part: "the blank screen (one tile whose rows are blank.fill and blank.screens, the layout's replace) and screen notes: screen.save writes the screen as a [type::screen] note, its spec as data, which every door on the outline registers (screen.open, --screen, ^W r)", files: "src/desk/blank.ts, src/desk/screen-notes.ts, src/desk/screen-spec.ts, src/desk/tile-actions.ts",
+    aside: "a blank screen: t r d s Q (or a click on a row) puts the outline, a reader, a detail, a terminal or a query lane in its place; ^W o, ^W v and alt+l build the rest; ^W w saves it as a screen note in this outline, and `ep0ch --screen <name>`, screen.open or the blank tile's o opens it again · `act blank.fill kind=tree tile=blank`, then `act screen.save name=<name>`: an agent builds and saves one the same way",
+    stage() { return openScreen("blank", { persist: false }); },
+  },
 ];
 
 /** The index is wide enough for every need on one line when the terminal allows; narrow, it lists the keys only. */

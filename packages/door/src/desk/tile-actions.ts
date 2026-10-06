@@ -45,13 +45,17 @@ export interface NewTile { kind: TileKindName; name?: string; cmd?: string; file
  */
 interface On { d: Desk; reader?: string }
 
+/** The tile menu's group for saving and loading the screen. */
+const SCREEN = "Screen";
+
 const loadLayout = {
-  summary: "replace the layout with the one saved by name (or the built-in daily, river, board or desk). Tiles with the same name and kind are kept as they are (a running program, a reader's note); a running program or an unsaved edit the new layout has no place for is kept as a shut drawer, never ended. Refused to an agent while the person is typing",
+  summary: "lay this screen out as the screen named name= (one a person made: a screen note) or a built-in layout (daily, river, board, desk). Tiles with the same name and kind are kept as they are (a running program, a reader's note); a running program or an unsaved edit the new layout has no place for is kept as a shut drawer (said: kept=), never ended. The person's with no name opens the picker. Refused to an agent while the person is typing",
   keys: "alt+d (daily); ^W r picks one",
-  touches: "screen", replay: "safe",
-  says: (_: unknown, a: { name: string }) => `laid out ${a.name}`,
-  args: { name: { type: "string", about: "the layout's name" } },
-  run({ name }: { name: string }, { d }: On, actor: Actor) { return d.loadLayout(name, actor); },
+  touches: "screen", replay: "safe", confirms: true,
+  says: (r: { layout?: string; kept?: string[]; picker?: boolean }, a: { name?: string }) => (r?.picker ? null : `laid out ${a.name}${r?.kept?.length ? ` · kept ${r.kept.join(", ")} in a shut drawer (⇥ on the hint row)` : ""}`),
+  menu: { label: "lay it out as a screen…", group: SCREEN, key: "ctrl+w r", now: ({ d }: On) => (d.spec.layouts ? null : { hide: true }) },
+  args: { name: { type: "string", optional: true, about: "the layout's or screen's name (left out: the person picks)" } },
+  run({ name }: { name?: string }, { d }: On, actor: Actor) { return d.loadLayout(name, actor); },
 } as const;
 
 /** What `layout.policy`'s arguments set and clear (the run applies it; `says` puts it in words). */
@@ -95,22 +99,12 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
     run(_, { d }) { return d.layoutGet(); },
   }),
   "layout.list": def({
-    summary: "the layouts that can be loaded: the ones saved by name and the built-ins",
+    summary: "the layouts this screen can be laid out as: the built-ins and the screens people made (screen notes)",
     keys: "^W r",
     touches: "nothing", replay: "safe",
     args: {},
     run(_, { d }) { return d.layouts(); },
   }),
-  "layout.save": def({
-    summary: "save the layout under a name (the door's layouts.json): the tree, each tile's kind, name, note, program, source, link and drawer state, and the open rule",
-    keys: "^W w",
-    touches: "nothing", replay: "ask", confirms: true, says: (_, a) => `saved the layout as ${a.name}`,
-    args: { name: { type: "string", about: "the name to save it under (daily replaces the built-in daily)" } },
-    run({ name }, { d }, actor) {
-      return d.saveLayout(name, actor);
-    },
-  }),
-  "layout.load": loadLayout,
   "layout.move": def({
     summary: "move tile=<tile> beside tile to=<tile> (where=left, right, up, down), into its tabs (where=tabs, at index=<n>), or along an outer edge of the whole layout (where=edge-left, edge-right, edge-down, edge-up: a full-height column or full-width row). A drawer moved this way is pinned. The person's focus stays where it is",
     keys: "drag a header; ^W m then h j k l beside, ^W t then h j k l into tabs, ^W H J K L to an edge, ^W T takes a tab out",
@@ -127,7 +121,7 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
   }),
   "tile.open": def({
     summary: "open a new tile beside tile=<tile> (where=left, right, up, down) or as a tab in it (where=tabs): kind=tree, reader, detail (note=<id>, or page=<name> to pin the note [[name]]), preview (source=tile:<name> or file:<path>), pty (cmd=\"nvim draft.md\", file=<path it edits>), query (view=<a saved view's block id>: its cards, as a board lane), board, river, brief, thread, activity, who, art. The person's focus stays where it is",
-    keys: "^W o <kind>; ^W O <kind> as a tab",
+    keys: "^W o <kind>; ^W O <kind> as a tab; ⏎ or a double click on a view in ^W o q's picker",
     touches: "shape", replay: "ask", says: (r, a) => `opened ${tileNoun(a.kind, r.tile)}`,
     args: {
       kind: { type: "string", about: "what the tile shows" },
@@ -324,7 +318,9 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
   "tile.preview": def({
     summary: "a reader beside tile=<tile> where its opens land (opened and linked as one step): a link followed in it, the tree's ⏎, a list's pick show there, and the tile itself never navigates away. A tile that reads notes gets a detail; a terminal tile a preview of the file it edits (re-read on each save); the board one of its card (its own preview strip collapses); anything else a preview following its selection. Its opens already land in a tile (a link, or its container's opensInto naming one): that one is shown instead, where= aside (the person's keys go to it, an agent's leave them). Refused on a flow's column, whose opens already open the next column. where=right, down, left or up; default beside it if it's wide, else below. tile.link unlinks",
     keys: "O in a reader; ^W v beside, ^W V below",
-    touches: "shape", replay: "safe", says: r => (r.existing ? `showed ${r.tile}, where ${r.from}'s opens land` : `opened ${tileNoun(String(r.kind), r.tile)} where ${r.from}'s opens land`),
+    // Said to the person too (confirms): ^W v on a tile already linked shows the one there, which looked like nothing happening.
+    touches: "shape", replay: "safe", confirms: true,
+    says: r => (r.existing ? `${r.from} already opens into ${r.tile}: showed it · alt+l then click ${r.tile} to unlink` : `opened ${tileNoun(String(r.kind), r.tile)} where ${r.from}'s opens land`),
     // Beside it and below it: where its opens land (a flow's column opens the next column instead).
     menu: [
       { label: "preview beside", group: TILE, key: "ctrl+w v", args: { where: "right" }, now: ({ d, reader }, _t, actor) => (d.tileNow(reader, actor).flow || d.tileNow(reader, actor).docked ? { hide: true } : null) },
@@ -422,4 +418,25 @@ export const TILE_ACTIONS = actionSet<On>()("tile", {
       return d.selectTab(reader, by, actor);
     },
   }),
+  // Last, so a tile's menu lists its Tile rows first and the Screen group after them.
+  "screen.save": def({
+    summary: "save this screen, as it's laid out now, as a screen note named name= in the outline (PIE-565: `[type::screen]`, its spec as data, as screen.spec answers it): every door on the outline then opens it (`ep0ch --screen <name>`, screen.open, ^W r) and an agent can read it. Saving under its own name again writes the same note, checked against the revision this door read (changed since: refused, read again). A built-in screen's name is refused. The person's with no name opens the prompt",
+    keys: "^W w",
+    touches: "nothing", replay: "ask", confirms: true,
+    says: r => (r?.prompt ? null : `saved the screen as ${r.screen}${r.created ? " (a new screen note)" : ""} · ep0ch --screen ${r.screen} opens it`),
+    menu: { label: "save this screen as…", group: SCREEN, key: "ctrl+w w" },
+    args: { name: { type: "string", optional: true, about: "the screen's name: a letter, then letters, digits, . - _ (left out: the person types it)" } },
+    async run({ name }, { d }, actor) { return await d.saveScreen(name, actor); },
+  }),
+  "screen.delete": def({
+    summary: "delete the screen named name= that a person made: its screen note goes to the outline's Trash (restorable there), and it's gone from every door's screens. A built-in can't be. The person's asks first: again within 3s deletes. Trashing the note anywhere (the outliner, an agent) does the same",
+    keys: "x twice on a screen you made, in the screens picker (the blank tile's o)",
+    touches: "nothing", replay: "ask", confirms: true,
+    says: r => (r?.armed ? null : `deleted the screen ${r.screen} (its note is in the Trash)`),
+    // No keycap: its x is the screens picker's, not this tile's.
+    menu: { label: "delete this screen (its note to the Trash)", group: SCREEN, key: "", now: ({ d }) => (d.madeName() ? { args: { name: d.madeName()! } } : { hide: true }) },
+    args: { name: { type: "string", about: "the screen's name (screen.list's made screens)" } },
+    async run({ name }, { d }, actor) { return await d.deleteScreen(name, actor); },
+  }),
+  "layout.load": loadLayout,
 });

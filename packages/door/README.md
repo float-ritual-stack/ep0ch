@@ -52,12 +52,13 @@ One walk through the door, in the order you meet things. Each step has its own s
    ([Outlines on the outline host](#outlines-on-the-outline-host)). `ep0ch --showcase` opens every shared part
    on a seeded outline of made-up notes, to look around without touching yours ([The showcase](#the-showcase)).
 2. **Get around.** The menu's letters or a click open its screens: `D` the desk, `K` the kanban, `Q` the Quay
-   (the river), `T` today's brief, `C` Welcome, `X` the showcase. `q` goes back on every screen below the
+   (the river), `T` today's brief, `C` Welcome, `X` the showcase, `M` a blank screen to make your own. `q` goes back on every screen below the
    menu; only `G` logs off.
 3. **The desk.** `D`, then `alt+d` loads the `daily` layout: the agent's terminal, the outline, the "now" page,
    an editor and details. Drag a tile's header to move it (onto another header it becomes a tab), `^W o` and a
    kind opens a tile, `^W p` puts one in a drawer (anything dropped on its handle joins it), `alt+k` locks the
-   shape for a task, `^W w` and `^W r` save and load layouts by name ([The desk](#the-desk)).
+   shape for a task, `^W w` saves the screen by name as a screen note in the outline, `^W r` lays it out as one
+   ([The desk](#the-desk)). `M` on the menu starts a blank screen to build from ([Screens you make](#screens-you-make)).
 4. **The dock.** `alt+a` or a click on the status bar's `▲ claude` chip pulls the dock up over any screen, with
    your keys in it: its own program (your `EP0CH_DAILY_AGENT`, else a shell) and any tile you docked. `^W a` docks
    the tile you're on (a terminal with a Claude in it, a reader, the tree) and it travels with you across screens,
@@ -610,7 +611,7 @@ drawn when a terminal attaches or `peek`, `snap` or an `act` reads it.
   terminal host's `pty.sock` and `pty-host.log`, the checkpoint `session-state.json`, the control socket `door.sock`,
   the saved layouts of the desk, the river and the board (`desk.json`, `river.json`, `delivery.json`), the river's
   index, the last call, the marks and the drafts put aside (`drafts/unsent/`). Shared by every outline, in the state dir
-  itself: the theme, named layouts (`layouts.json`), `ctrl+e` copies (`drafts/`), the dock, the machines opened, summary
+  itself: the theme, `ctrl+e` copies (`drafts/`), the dock, the machines opened, summary
   keys and the daily scratch. The home base, on no outline yet, keeps its own in `home/`.
 - **Ending is its own act:** `E` on the main menu (End), or `ep0ch session end` at your shell: the same action
   (`session.end`), the person's only. With programs running in its tiles or a draft unsaved it asks first (`E` again
@@ -734,13 +735,28 @@ split, tab, drag, link and save, drawn by the door itself, so no multiplexer is 
 | `/` | floating search with preview |
 | `q` / `Esc` | back to the menu; programs running in tiles keep running, and `D` brings the same desk back |
 
-**Layouts** are saved by name in `~/.local/state/ep0ch-door/layouts.json` (`^W w`, `act layout.save name=…`)
-and loaded with `^W r`, `alt+d` for `daily`, or `act layout.load name=…`. Built in: `daily` (an agent
+**Layouts** are screens saved by name: `^W w` (`act screen.save name=…`) writes the screen as a screen note in the
+outline ([Screens you make](#screens-you-make)), and `^W r`, `alt+d` for `daily`, or `act layout.load name=…` lays the
+desk out as one. Built in: `daily` (an agent
 terminal over the "now" detail; the outline over its preview, above the middle detail; the editor on the
 daily draft over a third detail; the outline, "now" and the right detail open into the middle), `river`
 (the river's flow of columns, a preview following the column with the keys), `board` (the kanban with a preview tile
 following its card) and `desk`. Loading keeps tiles with the same name (a running program, a reader's note);
 running programs or unsaved edits the new layout has no place for go in one shut drawer on the right, never ended.
+
+### Screens you make
+
+`M` on the main menu (or `ep0ch --screen blank`, `act screen.open name=blank`) opens a **blank screen**: one tile that
+offers the first step as rows, each a key, a click and an action (`blank.fill`): `t` the outline, `r` a reader, `d` a
+detail, `s` a terminal, `Q` a query lane (you pick the saved view) in its place, or `o` a screen to open. Build the rest
+with the desk's keys (`^W o`, `^W v`, `alt+l`, drag a header), then `^W w` (or the `⋯` menu's *save this screen as…*,
+or `act screen.save name=<name>`) saves it as a **screen note**: a note `<name> [type::screen] [screen::<name>]` in the
+outline whose `json` code fence holds the screen's spec (what `screen.spec` answers). It travels with the outline: every
+door on it lists it (`screen.list`, the blank tile's `o`, `^W r`) and opens it (`ep0ch --screen <name>`,
+`act screen.open name=<name>`), and an agent can read it. `^W w` on it again saves over the same note, checked against
+the revision the door read; a built-in screen's name, or one two notes share, is refused with the notes' ids. Leaving a
+screen of your own with changes not saved asks first. `act screen.delete name=<name>` (or trashing the note) takes it
+away. Layouts saved before this in `layouts.json` come across once with `bun scripts/import-layouts.ts --ws <name>`.
 
 **Containers and policy (PIE-505).** A layout is a tree of tiles in containers: splits, tab sets and drawers. A
 drawer slides out from an edge (`act tile.pin tile=tree edge=left`, or the policy panel's edge row) and takes
@@ -753,7 +769,7 @@ lands in a tile opened there), `keep` (how many such tiles it keeps), `shuts` (a
 A locked screen comes back locked after a restart. A **flow** (PIE-513) is the river's columns as a container: an
 open from one of its tiles (a link followed) lands in a new column right after its own, the columns squeeze full,
 peek or spine around the wide one, and only `^W W` (or a click on a spine) moves the wide place. A layout saved
-with one (`{"t": "flow", "kids": [...]}` in `layouts.json`) works on the desk; the River is one (PIE-515).
+with one (`{"t": "flow", "kids": [...]}` in a screen note's layout) works on the desk; the River is one (PIE-515).
 Every layout change, by key, click or `act`, is one operation of one module (`src/desk/screen-layout.ts`): it is
 done whole or refused with the reason, and its rules (floats, policy, the lock, the tile you type in) are checked there.
 Tile kinds come from one registry (`src/desk/tile-kinds.ts`): the built-ins register at startup, and an

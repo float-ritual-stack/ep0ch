@@ -53,6 +53,24 @@ move into one repository (PIE-530).
   folder (`$XDG_STATE_HOME/ep0ch-door`, or `EP0CH_STATE`).
 - **Television (optional).** With `tv` on your PATH, `ep0ch install --apply` links the outline's channels into
   television's cable folder.
+- **Layouts you saved by name** (`^W w`, kept in the door's `layouts.json`) are screen notes in the outline now, and
+  the door no longer reads `layouts.json`. Bring them across once per outline that should have them:
+  `bun packages/door/scripts/import-layouts.ts --ws <outline>` says what it would write, `--apply` writes it; then
+  delete `layouts.json` (its path is printed).
+
+### Make your own screens: start blank, save it to the outline (PIE-565)
+
+`M` on the main menu (or `ep0ch --screen blank`) opens a blank screen: one tile whose rows start it with the outline, a
+reader, a detail, a terminal or a query lane (you pick the view), or open a screen. Build the rest with the desk's keys,
+then `^W w` saves it as a **screen note** in the outline (`[type::screen]`, its layout as data). Every door on the
+outline opens it by name (`ep0ch --screen <name>`, the blank tile's `o`, `^W r`), saving again writes over the same note
+with a revision check, and `screen.delete` or trashing the note takes it away. Leaving a screen you built without saving
+asks first. Agents do the same with `blank.fill`, `screen.save`, `screen.open` and `screen.delete`.
+
+Found by building a screen from blank: an empty tile now says what it's for ("links you follow in detail land here",
+or how to send opens there); `^W v` on a tile whose opens already land somewhere says so and how to unlink it, instead of
+seeming to do nothing; the outline's `⏎` with no reader to show the note says so; `^W o q` with no view open picks one;
+a detail whose note isn't in the outline, and a preview whose tile is gone, say so; the `⋯` menu saves and loads screens.
 
 ### Read an outline from claude.ai: the remote MCP gateway
 

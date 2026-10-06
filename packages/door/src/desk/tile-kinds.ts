@@ -68,6 +68,16 @@ export interface TileKind {
   save?(p: Pane): Record<string, unknown>;
   /** Why tile.open's fields won't do (a preview's source that isn't tile: or file:), or null. */
   check?(spec: Partial<TileSpec>): string | null;
+  /**
+   * What the person picks from when a new tile of it lacks what it needs (a query tile's view: the outline's saved
+   * views), each choice the fields it opens with; ^W o and the blank tile's rows ask it instead of refusing.
+   */
+  choices?(desk: DeskApi): Promise<{ title: string; items: { label: string; spec: Partial<TileSpec> }[] }>;
+  /**
+   * It only holds a place (the blank tile): nothing in it to lose, so an agent may put a tile in its place (blank.fill)
+   * even while the person's keys are on it; the keys stay in that place, on the new tile.
+   */
+  readonly placeholder?: true;
   /** What a new one opened beside tile `at` starts with when tile.open didn't say (a preview follows `at`). */
   defaults?(spec: Partial<TileSpec>, at: { name: string; pane: Pane }): Partial<TileSpec>;
   /**

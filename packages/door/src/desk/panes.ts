@@ -96,6 +96,14 @@ export interface DeskApi {
    * the list; an agent's leaves them where they are.
    */
   openLinks?(r: Pane, actor: Actor): Promise<Record<string, unknown>>;
+  /** A new tile of `t.kind` in tile `tile`'s place, which goes (the blank tile's rows, PIE-565). */
+  replaceTile?(tile: string | undefined, t: { kind: string; view?: string; cmd?: string; name?: string }, actor: Actor): Promise<Record<string, unknown>>;
+  /** The person picks what a new tile of `kind` lacks from its kind's `choices` (a query lane's view); `then` opens it. */
+  askChoices?(kind: string, then: (spec: Record<string, unknown>) => void): Promise<boolean>;
+  /** The screens to open from here, in a picker over the screen (the person's). */
+  screenPicker?(): void;
+  /** The screens to open from here: the ones people made, then the built-ins that open on nothing in particular. */
+  screensToOpen?(): { name: string; made: boolean }[];
 }
 
 export interface Pane {
@@ -265,12 +273,21 @@ export class ReaderPane implements Pane {
   reread(desk: DeskApi) { this.surface.reread(this.host(desk)); }
   show(m: Msg | null, desk: DeskApi) { return this.surface.show(m, this.host(desk)); }
   retry(desk: DeskApi) { this.surface.retry(this.host(desk)); }
+  /** The tiles whose opens land here (their link, or their container's opens-into): set by the desk as it draws. */
+  landsFrom: string[] = [];
+  /** What an empty one says it's for: where its notes come from, and how to get one there. */
+  protected emptyFor(): string {
+    if (this.landsFrom.length) return `what you open in ${this.landsFrom.join(" or ")} lands here`;
+    return this.follows && !this.holding ? "shows the current note: pick one in the outline, or / searches" : "keeps the note opened into it · alt+l in another tile, then a click here, sends that tile's opens here";
+  }
   render(w: number, h: number, _focused = false, desk?: DeskApi): PaneView {
     const v = this.surface.render(w, h, desk && this.host(desk));
     if (this.msg || this.surface.draft || h < 3) return v;
-    // An empty reader (^W o d) offers a note to write in it: ctrl+n here makes one and opens it in this tile.
-    const { line, spot } = newNoteOffer(v.lines.length + 1);
-    return { ...v, lines: [...v.lines, "", line], spots: [spot] };
+    // An empty reader (^W o d) says what it's for, and offers a note to write in it: ctrl+n here makes one and opens it in this tile.
+    // What it says, cut to leave room for the offer under it (its click inside the tile).
+    const said = wrap(this.emptyFor(), Math.max(10, w - 1)).slice(0, Math.max(1, h - 2)).map(l => fg(C.dark) + l + RESET);
+    const { line, spot } = newNoteOffer(said.length + 1);
+    return { ...v, lines: [...said, "", line], spots: [spot] };
   }
   save(desk: DeskApi) { return this.surface.save(this.host(desk)); }
   loadComments(desk: DeskApi) { return this.surface.loadComments(this.host(desk)); }

@@ -3,6 +3,7 @@
 // the wide column moves only on `^W W` (tile.widen) or a click on a spine; the flow and its memory come back after
 // a restart. The flow's own behaviours are tested through the module in flow.test.ts; here, the desk's paths into
 // it. Scratch services, fictional notes.
+import { saveScreenNote } from "../src/desk/screen-notes";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -44,11 +45,9 @@ describe.skipIf(!outliner)("a flow on the desk, against a scratch outline", () =
     notes.tide = await mk("Tide table\nLow water at noon.");
     notes.boat = await mk(`Boat check\nBefore launch, read ((${notes.tide.id})).`);
     notes.trip = await mk(`Ferry trip\nPack light; first ((${notes.boat.id})).`);
-    // A screen saved as data: the outline tree beside a flow of readers (its rule: opens into the next column).
+    // A screen saved as data, a screen note in the outline: the outline tree beside a flow of readers (its rule: opens into the next column).
     mkdirSync(join(scratch.root, "door"), { recursive: true });
-    writeFileSync(join(scratch.root, "door", "layouts.json"), JSON.stringify({
-      quay: { name: "quay", focus: "c1", root: { t: "split", dir: "row", kids: [{ t: "leaf", kind: "tree", name: "tree", link: "c1" }, { t: "flow", kids: [{ t: "leaf", kind: "reader", name: "c1" }] }], weights: [0.2, 0.8] } },
-    }));
+    await saveScreenNote(board, { name: "quay", title: "quay", layouts: true, layout: { name: "quay", focus: "c1", root: { t: "split", dir: "row", kids: [{ t: "leaf", kind: "tree", name: "tree", link: "c1" }, { t: "flow", kids: [{ t: "leaf", kind: "reader", name: "c1" }] }], weights: [0.2, 0.8] } as any } }, { kind: "user" });
     const term = { info, write() {}, paint() {}, invalidate() {}, onKey(f: any) { key = f; }, onResize() {}, stop() {}, resume() {} };
     app = new App(term as any, board, Date.now(), () => {});
     app.push(new MainMenu());

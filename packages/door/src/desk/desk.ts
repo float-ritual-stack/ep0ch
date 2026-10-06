@@ -26,7 +26,8 @@ import { jevOff, notConfigured, SEARCH_JEV_PAUSE_MS } from "../surface/completer
 import { Modes } from "../surface/modes";
 import { centred, linePrompt, ListPicker, pickRow } from "../surface/picker";
 import { outlineState, readState, writeState } from "../state";
-import { containerKeys, leafNames, savedNodes, specData, type ScreenSpec } from "./screen-spec";
+import { containerKeys, leafNames, madeScreen, savedNodes, screenNames, screenTargetArg, specData, type ScreenSpec } from "./screen-spec";
+import { saveScreenNote, ScreenConflict, screenNotes, trashScreenNote } from "./screen-notes";
 import { bg, C, chip as chipStyle, fg, fitHint, headOf, pad, paint, RESET, selected, width } from "../style";
 import { themed } from "../theme";
 import { ch, type Key, type TileProgram } from "../term";
@@ -50,7 +51,7 @@ import { LocalMarks, markLabel, type Mark, type MarkStore } from "./marks";
 import { TILE_ACTIONS, type NewTile, type TileDone, type TileNow, type Where } from "./tile-actions";
 import { tileMenu } from "./tile-menu";
 import { DOCK_NAME, DOCK_TILE_ID } from "./agent-env";
-import { builtin, DetailPane, type SavedFloat, isTileKind, layoutNamed, layoutNames, makeTile, saveLayout, tileKindNames, tileNameProblem, type LayoutSpec, type OpenRule, type SavedTree, type TileSpec } from "./tiles";
+import { builtin, DetailPane, type SavedFloat, isTileKind, layoutNamed, layoutNames, makeTile, tileKindNames, tileNameProblem, type LayoutSpec, type OpenRule, type SavedTree, type TileSpec } from "./tiles";
 import { allKindActions, kindActions, kindForKey, kindNoun, kindOf, lastKindOf, tileKinds, tileSource, unwatchTileKinds, watchTileKinds, wasTileKind, type ColumnsHost, type SourceModel, type TileEnv, type TileKind, type TileKindName } from "./tile-kinds";
 
 /**
@@ -62,7 +63,7 @@ interface SavedDesk { root: SavedTree; focus: number; rule?: OpenRule; layout?: 
 /** The desk's own spec (PIE-515): the desk as it has always opened, kept in desk.json, and the screen that loads named layouts. */
 export function deskSpec(): ScreenSpec {
   // A layout saved under the name "desk" is the desk's own.
-  return { name: "desk", title: "desk", layout: layoutNamed("desk")?.spec ?? builtin("desk")!, saves: "desk.json", layouts: true };
+  return { name: "desk", title: "desk", layout: layoutNamed("desk")?.spec ?? builtin("desk")!, saves: "desk.json", layouts: true, stays: true };
 }
 /** Frame glyphs by a spec's `frame`. */
 const FRAMES: Record<NonNullable<ScreenSpec["frame"]>, BoxGlyphs> = { dotted: DOTTED_BOX };
@@ -96,8 +97,8 @@ interface HeadPress { id: number; x: number; y: number }
  */
 export class Desk implements Screen, DeskApi, ColumnsHost {
   title: string;
-  /** What the screen is: its spec's name (`desk`, `welcome`). */
-  get name(): string { return this.spec.name; }
+  /** What the screen is: its spec's name (`desk`, `welcome`), or the name a blank screen was saved under (PIE-565). */
+  get name(): string { return this.madeAs ?? this.spec.name; }
   ctx!: Ctx;
   current: Msg | null = null;
   private panes = new Map<number, Pane>();
@@ -226,6 +227,16 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     else if (saved?.root) { this.build({ root: saved.root, focus: spec.home !== undefined ? spec.layout.focus : saved.focus, rule: saved.rule, ...(saved.policy ? { policy: saved.policy } : {}), ...(saved.floats ? { floats: saved.floats } : {}) }, false, true); this.layoutName = saved.layout ?? null; }
     else this.build(spec.layout, false, false, true);
     this.fromSpec(spec);
+    // A screen a person made (a screen note) opened by its name: ^W w saves it again under it.
+    if (madeScreen(spec.name)) { this.layoutName = spec.name; this.madeAs = spec.name; this.madeBase = { ...madeScreen(spec.name)! }; }
+    // What leaving asks about: a screen of the person's own changed since it was saved (or since it opened, blank).
+    if (this.madeHere()) this.savedAs = this.shapeNow();
+  }
+
+  /** Leaving (or quitting) a screen of the person's own with changes not saved asks first (App.leaving): what it says. */
+  shapeWarning(): string | null {
+    if (!this.madeHere() || this.savedAs === null || this.shapeNow() === this.savedAs) return null;
+    return `the ${this.title} has changes not saved · ^W w saves it as a screen · again within 3s leaves without saving`;
   }
 
   private readonly screenOpenArgs: Record<string, unknown> | null;
@@ -292,6 +303,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       kind: this.unregistered.get(id)?.kind ?? p?.kind ?? "tile",
       ...(k?.policy ? { policy: k.policy } : {}), ...(k?.accepts?.tiles ? { tabs: k.accepts.tiles } : {}), notes: !!k?.accepts?.notes,
       ...(src ? { keeps: `${src.source} supplies it, and it goes when its data does${how ? ` · to drop it, ${how}` : ""}` } : {}),
+      ...(k?.placeholder ? { placeholder: true } : {}),
       ...(p instanceof ReaderPane && p.editing ? { editing: sessionName(p) } : {}),
       ...(p instanceof PtyPane && p.running ? { running: p.run.cmd[0] ?? "a program" } : {}),
       ...(p && this.holdsWork(p) ? { holds: true } : {}),
@@ -338,7 +350,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    */
   private build(spec: LayoutSpec, reuse = false, restore = false, own = false): void {
     // A saved id is the tile's, split's or tab set's own only when this is desk.json coming back (`restore`) or
-    // it was never given out here: a layout loaded from layouts.json never hands a gone tile's id to another.
+    // it was never given out here: a layout loaded from a screen note never hands a gone tile's id to another.
     const mine = (n: number, next: number) => n > 0 && (restore || n >= next);
     const old = new Map(this.panes);
     const oldNames = new Map(this.names);
@@ -653,7 +665,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    */
   dispose(): void | "keep" {
     this.onScreen = false;
-    if (this.spec.layouts && this.running().length) { Desk.kept = this; return "keep"; }
+    if (this.spec.stays && this.running().length) { Desk.kept = this; return "keep"; }
     // Gone for good: kinds that come later never make tiles (nor start programs) here.
     this.disposed = true;
     unwatchTileKinds(this);
@@ -681,7 +693,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   leaveRefusal(): string | null {
     // A tile the dock gave this screen goes back to the dock when it's left (dispose): it doesn't hold the screen.
     const back = (p: PtyPane) => !!this.ctx?.hostLayer && [...this.movedIn].some(id => this.panes.get(id) === p);
-    const r = this.spec.layouts ? [] : this.running().filter(p => !back(p));
+    const r = this.spec.stays ? [] : this.running().filter(p => !back(p));
     return r.length ? `${r.map(p => p.title()).join(", ")} ${r.length === 1 ? "runs" : "run"} in a tile here · ^W a docks ${r.length === 1 ? "it" : "them"} (it travels with you), ^W x ends ${r.length === 1 ? "it" : "them"}` : null;
   }
 
@@ -723,6 +735,12 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       p.select?.(m, this);
       // Revealing moves the outline's cursor to the note: the person's own opens only (an agent's never does).
       if (opts.reveal && m && p !== opts.from && opts.by?.kind !== "agent") void p.reveal?.(m, this);
+    }
+    // The person's open that nothing here shows (the outline's ⏎ with no reader following the current note): said, with
+    // how to give it somewhere to land, never a silent change of the current note.
+    const shownBy = (p: Pane) => p !== opts.from && kindOf(p)?.shows?.(p)?.id === m?.id && this.shownNow(p);
+    if (m && opts.from && (opts.link || opts.reveal) && opts.by?.kind !== "agent" && ![...this.panes.values()].some(shownBy)) {
+      this.ctx.flash(`no tile shows ${headOf(subject(m), 24)} · alt+l, then a click on a reader, sends ${this.nameOfPane(opts.from)}'s opens there`);
     }
     this.redraw();
   }
@@ -1645,6 +1663,10 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
       const ids = this.openedTiles(key), pinned = ids.filter(i => !this.isFloat(i)), a = this.activeIn(key);
       for (const id of ids) { const p = this.panes.get(id); if (p instanceof DetailPane) { p.floating = this.isFloat(id); p.opensHere = pinned.length > 1 && id === a; } }
     }
+    // An empty reader says where its notes come from: the tiles whose opens land in it.
+    const into = new Map<number, string[]>();
+    for (const id of this.all()) { const to = this.linkOf(id); if (to !== undefined && to !== id) into.set(to, [...(into.get(to) ?? []), this.nameOf(id)]); }
+    for (const [id, p] of this.panes) if (p instanceof ReaderPane) p.landsFrom = into.get(id) ?? [];
     // A preview following a list that quotes its selection (the backlinks: where the source mentions the note) says it.
     for (const p of this.panes.values()) if (p instanceof PreviewPane && "tile" in p.source) { const src = this.pane(p.source.tile) as { snippet?(): string } | undefined; p.quote = src?.snippet && this.shownNow(p) ? src.snippet() : ""; }
     const canvas = new Canvas(cols, rows - 1);
@@ -2095,7 +2117,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         ? `|14${this.prefix === "add" ? "open beside" : "open as a tab"}: ${tileKinds().flatMap(k => (k.keys ?? []).map(x => `|07${x.key} |08${x.label}`)).join(" · ")}`
         : this.prefix === "move" || this.prefix === "tab"
           ? `|14${this.prefix === "move" ? "move beside" : "into the tabs of"}: |07h j k l |08the tile that way${this.prefix === "move" ? " (none that way: to the edge)" : ""}`
-          : this.specHint() ?? `|08 Tab/1-9 focus · |15^W|08 window · |15drag|08 a title moves, a border resizes · |15alt+l|08 link · ${this.spec.layouts ? "|15alt+d|08 daily · " : ""}|15alt+k|08 ${this.screenLocked() ? "unlock" : "lock"} · |15^N|08 new · |15/|08 search · |15q|08 menu${this.layoutName ? ` · |03${this.layoutName}` : ""}${this.zoom !== null ? " · |14zoomed" : ""}${this.current ? ` · |03${headOf(subject(this.currentNow()!), 40)}` : ""}`;
+          : this.specHint() ?? `|08 Tab/1-9 focus · |15^W|08 window · |15drag|08 a title moves, a border resizes · |15alt+l|08 link · ${this.spec.layouts ? "|15alt+d|08 daily · " : ""}|15alt+k|08 ${this.screenLocked() ? "unlock" : "lock"} · |15^N|08 new · |15/|08 search · |15q|08 menu${this.layoutName ? ` · |03${this.layoutName}` : ""}${this.shapeWarning() ? " · |15^W w|08 save the screen" : ""}${this.zoom !== null ? " · |14zoomed" : ""}${this.current ? ` · |03${headOf(subject(this.currentNow()!), 40)}` : ""}`;
     return line(paint(s));
   }
 
@@ -2342,8 +2364,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     switch (c) {
       case "T": return tabsOf(this.root, this.focus) ? this.run("layout.move", { to: me, where: "right" }, me) : flash(`${me} isn't in a tab set`);
       case "P": this.overlays.push(policyPanel(this, this.focus)); return this.redraw();
-      case "r": this.overlays.push(layoutPicker(layoutNames())); return this.redraw();
-      case "w": this.overlays.push(layoutSaver(this.layoutName ?? "")); return this.redraw();
+      case "r": return this.run("layout.load", {}, me);
+      case "w": return this.run("screen.save", {}, me);
       // Drop to shell (`screen.shell`), the menu's `!`: loaded when pressed, as screens.ts imports this module.
       case "!": void import("../screens").then(m => m.dropToShell(this, this.ctx)); return;
       case "d": {
@@ -2506,6 +2528,11 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     let spec: TileSpec = { t: "leaf", kind: t.kind, name: t.name ?? (k.word && k.word !== t.kind ? this.autoName(k.word) : undefined), ...(t.cmd ? { cmd: splitWords(t.cmd) } : {}), ...(t.file ? { file: t.file } : {}), ...(t.source ? { source: t.source } : {}), ...(t.note ? { note: t.note } : {}), ...(t.page ? { page: t.page } : {}), ...(t.cwd ? { cwd: t.cwd } : {}), ...(t.view ? { view: t.view } : {}) };
     // The kind checks its fields (a preview's source) and fills what it starts with (it follows `at`).
     const wrong = k.check?.(spec);
+    // Short of what it needs (a query tile with no view): the person picks it from the kind's choices, then it opens.
+    if (wrong && k.choices && actor.kind !== "agent") {
+      await this.askChoices(t.kind, more => this.run("tile.open", { ...t, ...more, to: base.name, where }, base.name));
+      return { tile: base.name, picking: t.kind };
+    }
     if (wrong) throw new ActionRefused(`tile.open: ${wrong}`);
     spec = { ...spec, ...(k.defaults?.(spec, { name: base.name, pane: this.panes.get(base.id)! }) ?? {}) };
     // The layout says yes (or why not) before the tile is made: a refused open starts no program.
@@ -2810,28 +2837,144 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
 
   tileInfo(sel: string | undefined): unknown { const t = this.tile(sel); return this.tileView(t.id); }
 
-  saveLayout(name: string, _actor: Actor) {
-    if (!/^[\w.-]{1,40}$/.test(name)) throw new ActionRefused("a layout's name is 1-40 letters, digits, . - _");
-    if (!this.spec.layouts) throw new ActionRefused(`the ${this.title} keeps its own layout; save one on the desk (D)`);
-    saveLayout(name, this.layoutSpec());
+  /**
+   * `screen.save` (PIE-565): this screen, as it's laid out now, as the screen note named `name` (src/desk/screen-notes.ts):
+   * written to the outline, so every door on it opens it (`--screen <name>`, `screen.open`, ^W r) and an agent reads it.
+   * Saving under the name it already has writes its note again, at the revision this door read. The person's with no
+   * name opens the prompt (^W w), the screen's own name typed in.
+   */
+  async saveScreen(name: string | undefined, actor: Actor): Promise<Record<string, unknown>> {
+    if (name === undefined || !name.trim()) {
+      if (actor.kind === "agent") throw new ActionRefused("screen.save needs name=<the screen's name> (a letter, then letters, digits, . - _)");
+      this.overlays.push(screenSaver(this.layoutName ?? ""));
+      this.redraw();
+      return { prompt: true, name: this.layoutName };
+    }
+    name = name.trim();
+    // A screen as data (specData): this one's spec with the layout as it is now, never the file it keeps itself in.
+    const { saves: _saves, stays: _stays, ...rest } = this.spec;
+    const spec: ScreenSpec = { ...rest, name, title: name, layout: this.layoutSpec() };
+    // The shape written, as it is now: a change made while the note is being written is still a change.
+    const shape = this.shapeNow();
+    let saved;
+    try { saved = await saveScreenNote(this.ctx.board, spec, actor, this.layoutName === name ? this.madeBase : null); }
+    catch (e) {
+      // Changed elsewhere since this screen read it: the next save writes over the note as it is now (said in the refusal).
+      if (e instanceof ScreenConflict && this.layoutName === name) this.madeBase = e.now;
+      throw e;
+    }
+    const { note, created } = saved;
     this.layoutName = name;
-    this.save();
-    return { layout: name, tiles: this.all().map(id => this.nameOf(id)) };
+    this.madeBase = { id: note.id, revision: note.revision };
+    // A screen a person makes from blank (or one they made) is that screen now: its title, and what a session reopens.
+    if (this.madeHere()) { this.title = name; this.madeAs = name; }
+    this.savedAs = shape;
+    this.save(); this.redraw();
+    return { screen: name, note: note.id, revision: note.revision, created, tiles: this.all().map(id => this.nameOf(id)) };
   }
+  /** The name of the screen a person made that this desk shows (saved from blank, or opened by its name). */
+  private madeAs: string | null = null;
+  /** The screen note this screen was opened, laid out or last saved from, at the revision read then: what a save is checked against. */
+  private madeBase: { id: string; revision: number } | null = null;
+  /** The screen a person made that this desk shows, by name, while its note is there. */
+  madeName(): string | null { return this.madeAs && madeScreen(this.madeAs) ? this.madeAs : null; }
 
-  loadLayout(name: string, actor: Actor) {
+  /**
+   * `screen.delete`: the screen note named `name` to the outline's Trash, and the screen gone from every door's list.
+   * The person's asks first (again within 3s deletes); a screen shown here stays as it is, now one of no name.
+   */
+  async deleteScreen(name: string, actor: Actor): Promise<Record<string, unknown>> {
+    if (!madeScreen(name)) throw new ActionRefused(screenNames().includes(name) ? `${name} is a built-in screen: it can't be deleted` : `no screen ${name} that a person made · screen.list names them`);
+    if (actor.kind !== "agent") {
+      const armed = this.deleteArm?.name === name && Date.now() - this.deleteArm.at < 3000;
+      if (!armed) { this.deleteArm = { name, at: Date.now() }; this.ctx.flash(`delete the screen ${name}? its note goes to the Trash · again within 3s deletes it`); return { screen: name, armed: true }; }
+      this.deleteArm = null;
+    }
+    const n = await trashScreenNote(this.ctx.board, name, actor);
+    if (this.madeAs === name) { this.madeAs = null; this.savedAs = null; }
+    if (this.layoutName === name) this.layoutName = null;
+    this.redraw();
+    return { screen: name, note: n.id, trashed: true };
+  }
+  private deleteArm: { name: string; at: number } | null = null;
+  /** This desk is a screen of the person's own (blank, or one they made), not a built-in with a name of its own. */
+  private madeHere(): boolean { return this.madeAs !== null || !!madeScreen(this.spec.name) || (!!this.spec.layouts && !this.spec.saves); }
+  /** The layout as last saved or loaded by name, to say on the hint row when it's changed since. */
+  private savedAs: string | null = null;
+  /** The screen's shape as saving it would write it, but not what its tiles show now (a detail's note) nor their ids. */
+  private shapeNow(): string { return JSON.stringify({ ...this.saved(), rule: this.rule }, (k, v) => (k === "note" || k === "id" ? undefined : v)); }
+
+  /**
+   * `layout.load`: lay this screen out as the screen named `name` (a screen note) or a built-in layout. Tiles with the same
+   * name and kind are kept; one holding work the new layout has no place for goes in a shut drawer. The person's with
+   * no name opens the picker (^W r).
+   */
+  loadLayout(name: string | undefined, actor: Actor) {
+    if (name === undefined || !name.trim()) {
+      if (actor.kind === "agent") throw new ActionRefused(`layout.load needs name=<a layout>: ${layoutNames().map(l => l.name).join(", ")}`);
+      this.overlays.push(layoutPicker(layoutNames()));
+      this.redraw();
+      return { picker: true, layouts: layoutNames() };
+    }
     const found = layoutNamed(name);
-    if (!found) throw new ActionRefused(`no layout ${name}; layouts: ${layoutNames().map(l => l.name).join(", ")}`);
+    if (!found) throw new ActionRefused(`no layout ${name}; layouts: ${layoutNames().map(l => l.name).join(", ")} (a screen you made is one: ^W w saves this one)`);
     // The lock, a container's lock the person set, their keys: the module says whether the screen may be laid out again.
     this.apply({ op: "load", name }, actor);
-    if (!this.spec.layouts) throw new ActionRefused(`the ${this.title} keeps its own layout; load one on the desk (D)`);
+    if (!this.spec.layouts) throw new ActionRefused(`the ${this.title} keeps its own layout; load one on the desk (D) or a blank screen (M on the menu)`);
     this.entered.clear();
     this.ptyIn = null;
+    const before = new Set(this.all());
     this.build(found.spec, true);
     this.layoutName = name;
+    this.madeBase = madeScreen(name) ? { ...madeScreen(name)! } : null;
+    this.savedAs = this.shapeNow();
     this.save(); this.redraw();
-    return { layout: name, saved: found.saved, rule: this.rule, tiles: this.all().map(id => this.nameOf(id)) };
+    // What it kept that the layout has no place for (a running program): in a shut drawer, said.
+    const kept = this.shutDrawers().flatMap(d => leaves(d.kid)).filter(id => before.has(id) && this.holdsWork(this.panes.get(id)!)).map(id => this.nameOf(id));
+    return { layout: name, saved: found.saved, rule: this.rule, tiles: this.all().map(id => this.nameOf(id)), ...(kept.length ? { kept } : {}) };
   }
+
+  /**
+   * A new tile of `t.kind` where tile `sel` is, in its place (the blank tile's rows: tile.open's fields, by one layout
+   * operation, `replace`). The person's keys go to it when they were on the tile it replaces.
+   */
+  async replaceTile(sel: string | undefined, t: NewTile, actor: Actor): Promise<TileDone> {
+    const k = kindOf({ kind: t.kind } as Pane);
+    if (!k || !isTileKind(t.kind)) throw new ActionRefused(`kind is ${tileKindNames().join(", ")}, not ${t.kind}`);
+    const base = this.tile(sel);
+    let spec: TileSpec = { t: "leaf", kind: t.kind, ...(t.name ? { name: t.name } : {}), ...(t.cmd ? { cmd: splitWords(t.cmd) } : {}), ...(t.file ? { file: t.file } : {}), ...(t.source ? { source: t.source } : {}), ...(t.note ? { note: t.note } : {}), ...(t.view ? { view: t.view } : {}) };
+    const wrong = k.check?.(spec);
+    if (wrong) throw new ActionRefused(wrong);
+    spec = { ...spec, ...(k.defaults?.(spec, { name: base.name, pane: this.panes.get(base.id)! }) ?? {}) };
+    const id = this.nextId;
+    const r = this.ask({ op: "replace", tile: base.id, with: id, kind: t.kind, ...(spec.name ? { name: spec.name } : {}) }, actor);
+    if (!r.ok) throw new ActionRefused(r.refused);
+    const old = this.panes.get(base.id)!;
+    this.put(makeTile(spec));
+    this.commit(r);
+    this.dropTile(base.id);
+    old.dispose?.();
+    this.startTile(id);
+    this.save(); this.redraw();
+    return { tile: this.nameOf(id), id: this.tileId(id), kind: t.kind, replaced: base.name };
+  }
+
+  /**
+   * What a kind asks the person for when a new tile of it lacks something (a query tile's view): a picker of its
+   * `choices`, each choice opening it through `then`. False when the kind asks for nothing.
+   */
+  async askChoices(kind: string, then: (spec: Partial<TileSpec>) => void): Promise<boolean> {
+    const k = kindOf({ kind } as Pane);
+    if (!k?.choices) return false;
+    const c = await k.choices(this);
+    this.overlays.push(choicePicker(c.title, c.items, it => then(it.spec)));
+    this.redraw();
+    return true;
+  }
+
+  /** The screens to open from here (the blank tile's o) in a picker: the ones people made, then the built-ins. */
+  screenPicker() { this.overlays.push(screenPicker()); this.redraw(); }
+  screensToOpen() { return screensToOpen(); }
 
   layouts() { return { current: this.layoutName, layouts: layoutNames() }; }
   layoutGet() {
@@ -3736,19 +3879,59 @@ export function splitWords(s: string): string[] { return [...s.matchAll(/"([^"]*
 
 type DeskPicker = ListPicker<any, Desk>;
 
-/** ^W r: the layouts to load, built-in and saved. */
+/** ^W r: the layouts to lay this screen out as: the built-ins, and the screens people made (screen notes). */
 function layoutPicker(items: { name: string; saved: boolean; builtin: boolean }[]): DeskPicker {
   return new ListPicker({
     name: "layouts", items: () => items,
-    row: (it, _i, on, w) => [pickRow(` ${it.name}${it.saved ? (it.builtin ? " · saved over the built-in" : " · saved") : " · built-in"}`, on, w)],
+    row: (it, _i, on, w) => [pickRow(` ${it.name}${it.saved ? (it.builtin ? " · a screen you made, over the built-in" : " · a screen you made") : " · built-in"}`, on, w)],
     choose: (it, _i, d) => d.run("layout.load", { name: it.name }),
-    frame: (a, n) => ({ rect: centred(a, Math.min(60, a.cols - 4), Math.min(a.rows - 4, n + 2)), title: "load a layout", foot: "↑↓ pick · ⏎ load · esc" }),
+    frame: (a, n) => ({ rect: centred(a, Math.min(60, a.cols - 4), Math.min(a.rows - 4, n + 2)), title: "lay this screen out as", foot: "↑↓ pick · ⏎ load · esc" }),
   });
 }
 
-/** ^W w: the name to save the layout as (the layout's own, typed over). */
-function layoutSaver(name: string): DeskPicker {
-  return linePrompt<Desk>({ name: "layouts", title: "save the layout as", text: name, w: 60, doing: t => `save it as ${t}`, done: (t, d) => d.run("layout.save", { name: t }) });
+/** ^W w: the name to save this screen as (its own, typed over): a screen note in the outline. */
+function screenSaver(name: string): DeskPicker {
+  return linePrompt<Desk>({
+    name: "layouts", title: "save this screen as", text: name, w: 60,
+    doing: t => (screenNotes().some(n => n.name === t.trim()) ? `save it over the screen ${t.trim()} (a note in the outline)` : `save it as ${t.trim() || "…"}, a screen note in the outline`),
+    done: (t, d) => d.run("screen.save", { name: t }),
+  });
+}
+
+/**
+ * The screens to open: the ones people made, then the built-ins that open on nothing in particular. ⏎ or a double click
+ * is screen.open; x on one a person made is screen.delete (twice: it asks first).
+ */
+function screensToOpen(): { name: string; made: boolean }[] {
+  const made = screenNotes().map(n => ({ name: n.name, made: true }));
+  return [...made, ...screenNames().filter(n => !made.some(m => m.name === n) && !screenTargetArg(n) && n !== "home").map(name => ({ name, made: false }))];
+}
+function screenPicker(): DeskPicker {
+  const items = screensToOpen;
+  const p: DeskPicker = new ListPicker<{ name: string; made: boolean }, Desk>({
+    name: "screens", items,
+    row: (it, _i, on, w) => [pickRow(` ${it.name} · ${it.made ? "a screen you made" : "built-in"}`, on, w)],
+    // screen.open is the App's (the shell's), as the menu's letters run it.
+    choose: (it, _i, d) => void d.ctx.press?.("screen.open", { name: it.name }),
+    keys: (k, d) => {
+      const it = items()[p.sel];
+      if (ch(k) !== "x" || !it?.made) return false;
+      d.run("screen.delete", { name: it.name });
+      return true;
+    },
+    frame: (a, n) => ({ rect: centred(a, Math.min(60, a.cols - 4), Math.min(a.rows - 4, n + 2)), title: "open a screen", foot: items().some(i => i.made) ? "↑↓ pick · ⏎ open · x x deletes one you made · esc" : "↑↓ pick · ⏎ open · esc · ^W w saves one you make" }),
+  });
+  return p;
+}
+
+/** A kind's choices for a new tile (a query tile's view): one picked runs `then`. */
+function choicePicker(title: string, items: { label: string; spec: Partial<TileSpec> }[], then: (it: { label: string; spec: Partial<TileSpec> }) => void): DeskPicker {
+  return new ListPicker({
+    name: "choices", items: () => items,
+    row: (it, _i, on, w) => [pickRow(` ${it.label}`, on, w)],
+    choose: it => then(it),
+    frame: (a, n) => ({ rect: centred(a, Math.min(60, a.cols - 4), Math.min(a.rows - 4, Math.max(n, 1) + 2)), title, foot: items.length ? "↑↓ pick · ⏎ open · esc" : "none yet · esc" }),
+  });
 }
 
 /**
