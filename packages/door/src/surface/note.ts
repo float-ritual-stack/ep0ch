@@ -5624,10 +5624,11 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     person: "the strays were the person's keys; an agent writes with edit.text or draft.patch",
     args: {},
     async run(_, { surface, host }) {
-      const m = surface.requireNote(), s = takeStrays(`edit:${m.id}`);
-      if (!s) throw new ActionRefused("no stray characters were dropped here in the last minute");
-      // Never over an edit put aside here since (the strays were superseded; DraftSession.open forgets them too).
+      const m = surface.requireNote();
+      // Never over an edit put aside here since (DraftSession.open forgets superseded strays too); asked before they're taken.
       if (unsent(`edit:${m.id}`)) throw new ActionRefused("an edit was put aside on this note since; it comes back with e");
+      const s = takeStrays(`edit:${m.id}`);
+      if (!s) throw new ActionRefused("no stray characters were dropped here in the last minute");
       keepUnsent(s.u);                                           // put aside for a moment: the edit brings it back
       const d = (await surface.ensureDraft(host)).draft;
       if (d.text === s.u.text) {
