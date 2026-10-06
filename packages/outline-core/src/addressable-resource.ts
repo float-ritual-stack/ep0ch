@@ -55,6 +55,12 @@ export function normalizeBlockId(value: string): string {
   return value.toLowerCase();
 }
 
+/**
+ * The block an exact address names: a UUID, or `((uuid))`, `((uuid^fragment))`, `((uuid|label))` written whole. It
+ * throws on anything else, so a URI, an MCP argument or a stored reference is a full id or refused. A value someone
+ * wrote in a note or typed (an id's first 8+ characters, a reference as the note scan reads it) unwraps with
+ * link-syntax.ts's `referencedBlock` instead: that is the authored-reference scan, and it never throws.
+ */
 export function parseBlockRef(input: string): { blockId: string; fragment?: string } {
   if (BLOCK_ID_PATTERN.test(input)) return { blockId: input.toLowerCase() };
   const match = BLOCK_REFERENCE_HEAD_PATTERN.exec(input);
