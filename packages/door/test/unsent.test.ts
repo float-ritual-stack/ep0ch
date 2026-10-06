@@ -56,6 +56,15 @@ describe("unsent drafts against the note now", () => {
     expect(takeStrays("edit:note-trowel")).toBeNull();             // once
   });
 
+  test("strays are forgotten once the note's edit opens again: ctrl+z never lays them over what came after", () => {
+    const a = DraftSession.open(target("note-sieve"), { text: "Sieve the soil", base: 1 });
+    type(a, ["k", ESC]); a.close(true);
+    expect(hasStrays("edit:note-sieve")).toBe(true);
+    const b = DraftSession.open(target("note-sieve"), { text: "Sieve the soil", base: 1 });
+    expect(hasStrays("edit:note-sieve")).toBe(false);
+    b.dispose();
+  });
+
   test("a real edit keeps the esc-twice protection and is put aside, with the text it started from", () => {
     const s = DraftSession.open(target("note-rake"), { text: "Rake the leaves", base: 2 });
     expect(type(s, [" into the bay", ESC])).toEqual([]);           // the first esc only warns

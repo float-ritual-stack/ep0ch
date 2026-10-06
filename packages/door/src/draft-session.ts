@@ -143,6 +143,8 @@ export class DraftSession {
     const by = init.by ?? USER;
     if (target.blockId) { const why = agentRefusal(by, { board: env.board, blockId: target.blockId }); if (why) throw new ActionRefused(why); }
     const s = new DraftSession(target, new Draft(target.blockId ?? target.place, init.base ?? 0, init.text ?? "", init.props ?? {}), by, env);
+    // A new draft here supersedes strays dropped here earlier: ctrl+z never lays them over what came after.
+    strays.delete(target.place);
     s.draft.near = target.near;
     s.draft.titlesPages = target.verb !== "send";
     // Only an edit the person opened can be one opened by mistake: an agent's they typed into is theirs to put aside.

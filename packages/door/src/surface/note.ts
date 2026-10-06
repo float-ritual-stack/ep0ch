@@ -5589,6 +5589,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       }
       if (u.from === undefined) throw new ActionRefused(`this unsent edit was put aside before the door kept the text it started from, so its changes can't be told from newer ones · [diff] shows it against the note now, [open copy] has it whole${u.copy ? ` (${tidy(u.copy)})` : ""}`);
       const s = await surface.ensureDraft(host);
+      s.draft.straysClose = false;                               // taken back on purpose: never "stray" on the next esc
       const spans = takeBackSpans(u.from, u.text);
       let applied = 0, missed = 0;
       // From the bottom up, each its own change (ctrl+z takes back the last), compared against the text as it is now.
@@ -5625,6 +5626,8 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     async run(_, { surface, host }) {
       const m = surface.requireNote(), s = takeStrays(`edit:${m.id}`);
       if (!s) throw new ActionRefused("no stray characters were dropped here in the last minute");
+      // Never over an edit put aside here since (the strays were superseded; DraftSession.open forgets them too).
+      if (unsent(`edit:${m.id}`)) throw new ActionRefused("an edit was put aside on this note since; it comes back with e");
       keepUnsent(s.u);                                           // put aside for a moment: the edit brings it back
       const d = (await surface.ensureDraft(host)).draft;
       if (d.text === s.u.text) {
