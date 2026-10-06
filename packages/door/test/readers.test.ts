@@ -390,7 +390,7 @@ describe.skipIf(!outliner)("readers always scroll, against a scratch outline", (
     await act("edit", {}, "detail1");                                          // an agent's edit, left open in detail 1
     await mine("open", { id: cards.gate.id }, "float");                      // the person's: the float gets their keys
     expect(BV.where(b)).toBe("float0");
-    key(char("o"));                                                            // drawer it
+    key(char("o"));                                                            // back into the layout
     expect(B().floats.length).toBe(0);
     expect(B().details).toContain(d0);
     expect(d0.draft).not.toBeNull();

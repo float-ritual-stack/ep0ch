@@ -69,7 +69,8 @@ export function migrateState(dir: string, write: boolean, report: Report = { ren
     const next = JSON.stringify(migrateValue(data));
     if (next === JSON.stringify(data)) continue;
     report.rewritten.push(file);
-    if (write) writeFileSync(file, text.includes("\n  ") ? JSON.stringify(JSON.parse(next), null, 2) : next);
+    // Written beside it, then renamed over it: never a half-written layout.
+    if (write) { const tmp = `${file}.${process.pid}.tmp`; writeFileSync(tmp, text.includes("\n  ") ? JSON.stringify(JSON.parse(next), null, 2) : next, { mode: 0o600 }); renameSync(tmp, file); }
   }
   return report;
 }
@@ -100,7 +101,7 @@ export async function migrateNotes(board: Pick<SocketBoard, "byProp" | "update">
 
 if (import.meta.main) {
   const args = process.argv.slice(2), write = args.includes("--write"), at = args.indexOf("--ws"), ws = at >= 0 ? args[at + 1] : undefined;
-  if (args.some(a => a !== "--write" && a !== "--ws" && a !== ws)) {
+  if ((at >= 0 && (!ws || ws.startsWith("--"))) || args.some(a => a !== "--write" && a !== "--ws" && a !== ws)) {
     console.error("usage: bun packages/door/scripts/migrations/drawer-words.ts [--ws <outline>] [--write]");
     process.exit(2);
   }

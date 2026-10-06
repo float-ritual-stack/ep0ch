@@ -233,7 +233,7 @@ function keysOf(peek: any, desk: any, door: Where["door"], agentPane: string | n
     if (peek.screen?.drawer?.entered) {
       // Which of the drawer's tabs: its own (the agent), or a tile in the drawer.
       const dv = peek.screen.drawer, typed = Array.isArray(dv.tiles) ? dv.tiles.find((x: any) => x?.focused) : null;
-      const own = !typed || typed.name === "drawer.agent";
+      const own = !typed || typed.name === HOST_AGENT;
       const mine = own ? (!!door.tile?.drawer && door.tile.id === dv.tile?.id) || (!!agentPane && dv.herdr?.pane === agentPane) : !!door.tile?.drawer && door.tile.id === typed.id;
       return { mine, typing: true, tile: own ? dv.tile?.id ?? null : typed.id, text: mine ? "the person is typing in this tile (the drawer)" : `the person is typing in the drawer over the ${screen}, not this tile` };
     }
