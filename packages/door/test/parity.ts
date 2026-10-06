@@ -443,7 +443,7 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     ["desk: art tile", desk, [CTRL_W, k("o"), k("b"), k("5")]],
     ["desk: daily", () => new Desk(undefined, { layout: "daily" })],
     ["desk: a terminal", () => new Desk(undefined, { layout: "daily" }), [k("1")]],
-    ["drawer: dock up", () => new MainMenu(), [ALT("a")]],
+    ["drawer: pulled up", () => new MainMenu(), [ALT("a")]],
     ["showcase: section 3", () => MENU_SCREENS.find(([key]) => key === "X")![1](app) as Screen, [k("3")]],
     ["showcase: section 3 tried", () => MENU_SCREENS.find(([key]) => key === "X")![1](app) as Screen, [k("3"), { kind: "enter" }]],
   ];
