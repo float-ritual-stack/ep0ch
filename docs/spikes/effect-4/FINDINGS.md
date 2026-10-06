@@ -87,3 +87,58 @@ exit, a wait on a clock, retries, child processes, and refusals that carry the e
 - Lines of code: worse by a third.
 - Agent ergonomics: worse unless the agent reads the v4 source; the official `LLMS.md` and `MIGRATION.md` are good,
   and `node_modules/effect/AGENTS.md` ships with the package.
+
+## B. The wire types as Schema, decoded at the socket boundary
+
+`packages/effect-spike/src/protocol.ts` and `test/protocol.test.ts`; the original is `packages/outline-core/src/protocol.ts`
+(interfaces only) and the door's `JsonLines` (`JSON.parse`, trusted) plus its own `WireBlock` redeclaration in
+`socket.ts`. Chosen for the parallel-parser and untyped-JSON classes: ~35 response types are redeclared in the door
+("Note logic: shared, server-side and duplicated"), and a missed wire change fails only at runtime.
+
+**What changed**
+
+- `Block`, `BlockProperty`, `OutlinerRequestProblem`, `OutlinerResponse` and `OutlinerServiceStatus` are
+  `Schema.Struct`s. The TypeScript type is `typeof Block.Type`; a test proves it is assignable to and from
+  outline-core's interface, so the interfaces could be deleted and the Schema be the one definition.
+- `ResponseLine = Schema.fromJsonString(OutlinerResponse)`: the parse and the shape check are one decoder, and a bad
+  line says the path (`Missing key at ["sequence"]`, `["properties"][0]["value"]`).
+- `ProtocolVersion = Schema.Int.check(Schema.makeFilter(n => protocolMismatch(n) ?? true))`: the version check is
+  part of the wire type of `ping`'s answer, in outline-core's own sentence. No caller can read a status and forget
+  the comparison, which is how #188's client-on-97-host-on-86 showed up as a confusing failure rather than that
+  sentence.
+- `Schema.toJsonSchemaDocument(Block)` gives the draft 2020-12 JSON Schema the Claude mod's and MCP tool
+  definitions want, derived rather than written a second time (today the outliner writes typebox schemas for
+  that, 275 `Type.*` calls in 13 files, and the door has none).
+
+**What it caught**
+
+- `Schema.Array`'s Type is `readonly T[]`. outline-core's interfaces are mutable, so `decodeBlock(x)` was not
+  assignable to `Block` until the arrays were marked `Schema.mutable(...)`. Struct fields being `readonly` is fine
+  (TypeScript ignores it for assignability), arrays are not. An adoption would either mark every array mutable or
+  accept readonly types across the codebase; the door mutates arrays it receives, so this is real work, not a flag.
+- The first typecheck also caught a fixture whose `author: "agent"` widened to `string`: the literal union is
+  enforced on the way in, where today any string passes.
+
+**What it cost**
+
+| | original | spike |
+|---|---|---|
+| types | ~60 lines of interfaces (the slice's share of `protocol.ts`) | 81 lines, decoders and JSON Schema included |
+| test | none at this boundary | 46 lines |
+
+- `effect/Schema` costs 48 ms to import under bun, more than `effect/Effect` (22 ms). outline-core is imported by
+  everything, so if the Schemas live there, every `ep0ch` run pays it.
+- v4 Schema names learned from the checkout, not memory: `Schema.Literals` (plural), `Schema.optionalKey` versus
+  `Schema.optional`, `Schema.makeFilter` and `.check(...)`, `Schema.decodeUnknownResult` (there is no `Either`),
+  `Schema.toJsonSchemaDocument`, `Schema.mutable`. The v3 names (`Schema.Literal(...many)`,
+  `Schema.filter`, `JSONSchema.make`) are all gone.
+- The derived JSON Schema sets `additionalProperties: true` by default; an MCP tool definition may want `false`.
+
+**Verdicts for this slice**
+
+- Redeclared wire types: prevents the class if the Schema is the one definition both sides import (it is the type).
+- Untyped JSON at the boundary: prevents, at the cost of one `decode` per line; the error names the path.
+- Protocol mismatch forgotten by a caller: prevents (the check is in the type of `ping`'s answer).
+- Mutability: worse until decided (readonly arrays everywhere, or `Schema.mutable` on each).
+- Import cost: worse by about 50 ms for every CLI run that touches outline-core, unless the Schemas live apart from
+  the pure grammar modules.
