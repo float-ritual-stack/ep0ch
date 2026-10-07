@@ -23,6 +23,7 @@ function terminal(on: On, env: Record<string, string>, pst = true) {
   // No settings hook answers them: the dialog shows, and the tool runs after.
   on('classic.PermissionRequest', () => ({}))
   on('classic.PostToolUse', () => ({}))
+  on('classic.Notification', () => ({}))
   on('process.run', ($, e) => {
     runs.push(e)
     return { value: e.argv[0] === 'tput' ? ok(pst ? 0 : 1) : ok(e.argv[0] === 'ep0ch' ? 1 : 0) }
@@ -46,6 +47,8 @@ describe("this Claude's program status (OSC 7501)", () => {
     await $.session.start(START)
     await $.turn.start({ text: 'deploy it', turnId: 'turn-1' })
     await $.classic.PermissionRequest({ tool_name: 'Bash', tool_input: { command: 'make deploy ENV=staging' } })
+    // The dialog's generic notification doesn't replace what the PermissionRequest said.
+    await $.classic.Notification({ notification_type: 'permission_prompt', message: 'Claude needs your permission' })
     await $.classic.PostToolUse({ tool_name: 'Bash', tool_input: { command: 'make deploy ENV=staging' }, tool_response: {}, tool_use_id: 'tu-1' })
     await $.turn.complete(ANSWER)
     await settle()

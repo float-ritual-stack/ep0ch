@@ -152,9 +152,12 @@ let bindingReadAt = -Infinity
 let statusWanted: Promise<boolean> | undefined
 let statusSent = ''
 let statusChain: Promise<void> = Promise.resolve()
+/** The last report asked for (sent or not): what a later event's report is weighed against. */
+let statusAsked: StatusInput | null = null
 
 /** Say what this Claude is doing to its terminal, off the event's dispatch, in order. Nothing when the terminal doesn't speak it. */
 function reportStatus($: EngineInterface, r: StatusInput): void {
+  statusAsked = r
   statusChain = statusChain.then(async () => {
     statusWanted ??= (async () => statusSetting(await $.env.get('EP0CH_PROGRAM_STATUS'))
       ?? (!!(await $.env.get('TERM')) && (await $.process.run([...PST_ARGV]).then(x => x.exitCode === 0, () => false))))()
@@ -525,7 +528,8 @@ export function register(on: On, options: PluginOptions): void {
   })
   on('classic.Notification', async ($, e, next) => {
     const r = notified(e.notification_type, e.message)
-    if (r) reportStatus($, r)
+    // The dialog's own PermissionRequest said what it asks ("Allow Bash: …?"): its generic notification doesn't replace that.
+    if (r && !(r.kind && statusAsked?.state === 'blocked' && statusAsked.kind === r.kind)) reportStatus($, r)
     return next(e)
   })
   on('tool.call', { tool: 'AskUserQuestion' }, async ($, e, next) => {
