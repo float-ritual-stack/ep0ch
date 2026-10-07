@@ -124,8 +124,9 @@ function doorWords(f: BindingFacts): string {
   const seat = door.drawer ? `the drawer of ${which}` : door.tile ? `the "${door.tile}" tile of ${which}` : `a tile of ${which}`
   const parts = [door.answers ? `in ${seat}` : `in ${seat}, but no door answers now`]
   if (pane) parts.push(herdr!.agent ? `its own ${pane}` : pane)
-  // Handed over or restarted under this Claude: the tools follow the door by its outline's session, and say they do.
-  if (door.stale) parts.push('restarted since Claude started: the door tools follow it')
+  // Claude's environment is older than the door it names (handed over, restarted, or another outline's door): the
+  // tools follow the outline's door when one answers, and say so; with none answering they reach no door.
+  if (door.stale) parts.push(door.answers ? 'its door changed since Claude started: the door tools follow the one that answers' : 'its door changed since Claude started: the door tools reach none until one answers')
   return parts.join(' · ')
 }
 

@@ -217,6 +217,15 @@ describe("ep0ch where", () => {
     expect(current.door?.stale).toBeNull();
   });
 
+  test("another pid on EP0CH_CONTROL without the outline's session (no EP0CH_PLACE) is another door, never a handover", async () => {
+    const env = { EP0CH_NEST: "door:10/desk/t1:claude", EP0CH_CONTROL: "/c/door.sock", EP0CH_TILE_ID: "t1", EP0CH_TILE: "claude" };
+    const peek = deskPeek({ pid: 77, focus: "claude", tiles: [{ id: "t1", name: "claude" }] });
+    const w = await where({ ...deps(env, { alive: [77], peek }), reach: async () => ({ path: env.EP0CH_CONTROL, given: env.EP0CH_CONTROL, place: null, stale: null }) });
+    expect(w.door).toMatchObject({ pid: 77, moved: true, stale: null });
+    // The recorded door is gone, and said so: not marked live as if it had been handed over.
+    expect(w.layers[0]).toMatchObject({ kind: "door", live: false, why: "not running" });
+  });
+
   test("the tile was closed: the desk has no such tile", async () => {
     const w = await where(deps({ EP0CH_NEST: "door:10/desk/t9:shell", EP0CH_CONTROL: "/c/door.sock" }, { alive: [10], peek: deskPeek({ pid: 10, focus: "middle", tiles: [{ id: "t2", name: "middle" }] }) }));
     expect(w.layers.at(-1)).toMatchObject({ kind: "tile", live: false, why: "the desk has no such tile now" });

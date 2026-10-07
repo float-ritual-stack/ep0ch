@@ -170,8 +170,7 @@ export class Draft {
 
   key(k: Key): DraftAction {
     // Whatever comes after ctrl+x lets the chord go (only a ctrl+e right after it is $EDITOR).
-    const chord = this.ctrlX;
-    if (chord) { this.ctrlX = false; this.note = ""; }
+    const chord = this.letChordGo();
     if (k.kind === "mouse") return "keep";
     // Any key brings the cursor back into view after the wheel scrolled away from it.
     this.follow = true;
@@ -613,6 +612,15 @@ export class Draft {
     this.col = Math.max(0, Math.min(this.lines[r]!.length, col));
     if (this.anchor && this.anchor.row === this.row && this.anchor.col === this.col && !extend) this.anchor = null;
     this.goal = null; this.discardArmed = false;
+    // A click between ctrl+x and ctrl+e lets the chord go, as any key does: the ctrl+e after it is the line's end.
+    this.letChordGo();
+  }
+
+  /** Let a pending ctrl+x go (its note too); true when one was pending. */
+  private letChordGo(): boolean {
+    if (!this.ctrlX) return false;
+    this.ctrlX = false; this.note = "";
+    return true;
   }
 
   // ── the view: soft-wrapped rows, the wheel, the mouse ──────────────────────

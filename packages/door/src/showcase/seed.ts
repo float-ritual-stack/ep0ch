@@ -258,7 +258,7 @@ export const heroText = (dir = SHOWCASE_ASSETS) => [
   "",
   "`reader.hero on=false` (an agent's `act`, or `ep0ch act reader.hero on=false`) turns it off in every reader, kept for the next start; on=true brings it back. `mode=follow` makes the header follow each picture as it scrolls under; `mode=first` keeps it on this one.",
   "",
-  "With `reader.hero mode=follow` the header follows the pictures: this one takes over as it scrolls under, fading in over the first.",
+  "With `reader.hero on=true mode=follow` the header follows the pictures: this one takes over as it scrolls under, fading in over the first.",
   "",
   `[img::${dir}/allotment-dusk.jpg] [size::60%] [alt::the plot at dusk, from the gate]`,
   "",

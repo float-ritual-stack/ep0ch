@@ -304,14 +304,19 @@ describe('binding helpers', () => {
     expect(text).not.toMatch(/drawer\.agent|\bt1\b|4242|\.sock|pid/)
   })
 
-  test('a door handed over or restarted under Claude (where says its environment is stale): said plainly, the tools follow it (PIE-604)', () => {
+  test('a door handed over or restarted under Claude (where says its environment is stale): said plainly, the tools follow it, or reach none when none answers (PIE-604)', () => {
     const json = JSON.parse(whereJson({ outline: 'harbor', host: 'near-box', tile: 'claude' }))
     json.door.stale = 'this environment is stale (started under door pid 4242, since handed over or restarted): it answers for pid 5151 on harbor'
     const w = whereFactsOf(JSON.stringify(json))!
     expect(w.door?.stale).toBe(true)
     const door = cardLines(facts({ kind: 'bound', workspace: { root: FOLDER, outline: 'harbor', pinned: true } }, w)).find(l => l.label === 'door')!
-    expect(door.text).toBe('in the "claude" tile of the harbor door · restarted since Claude started: the door tools follow it')
+    expect(door.text).toBe('in the "claude" tile of the harbor door · its door changed since Claude started: the door tools follow the one that answers')
     expect(door.text).not.toMatch(/4242|5151|\.sock|pid/)
+    // Stale with no door answering (EP0CH_CONTROL is another outline's door, this one has none): never "they follow it".
+    json.door.answers = false
+    json.door.stale = "this environment is stale (EP0CH_CONTROL is another outline's door; this tile's outline has none running): it answers for no door now"
+    const none = cardLines(facts({ kind: 'bound', workspace: { root: FOLDER, outline: 'harbor', pinned: true } }, whereFactsOf(JSON.stringify(json))!)).find(l => l.label === 'door')!
+    expect(none.text).toBe('in the "claude" tile of the harbor door, but no door answers now · its door changed since Claude started: the door tools reach none until one answers')
   })
 
   test('opted out, and a lookup that failed, say why', () => {
