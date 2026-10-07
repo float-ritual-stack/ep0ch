@@ -4,7 +4,7 @@
 // (src/work-ids.ts), and how a typed `((note#heading` / `((note^anchor` splits. Fragments themselves are
 // the service's (see below).
 import { calloutTypeAtCursor } from "@ep0ch/outline-core/callouts";
-import { propertyAtCursor, yamlAtCursor } from "@ep0ch/outline-core/component-schema";
+import { inCodeFence, propertyAtCursor, yamlAtCursor } from "@ep0ch/outline-core/component-schema";
 
 /**
  * `key` and `value`: a `[key::value]` property's key or value (PIE-618, from the component schemas); `yaml-key` and
@@ -63,7 +63,8 @@ export function completionTargetAtCursor(line: string, column: number, lines?: r
     }
   }
   if (target) return target;
-  const prop = propertyAtCursor(line, column);
+  // A property in a code fence is the code's text.
+  const prop = lines && row !== undefined && inCodeFence(lines, row) ? null : propertyAtCursor(line, column);
   if (!prop) return null;
   return prop.kind === "key" ? { kind: "key", start: prop.start, end: prop.end, query: prop.query } : { kind: "value", start: prop.start, end: prop.end, query: prop.query, key: prop.key };
 }

@@ -2560,9 +2560,10 @@ export class OutlinerServer {
           };
           const styles = declared("heading-style"), types = declared("callout-type");
           const h = headingStylesFromBlocks(styles.blocks), c = calloutTypesFromBlocks(types.blocks);
+          const merged = mergeComponentSchemas({ headingStyles: h.styles, calloutTypes: c.types, extensions: this.extensionRegistry.components() });
           result = {
-            schemas: mergeComponentSchemas({ headingStyles: h.styles, calloutTypes: c.types, extensions: this.extensionRegistry.components() }),
-            problems: [...h.problems, ...c.problems],
+            schemas: merged.schemas,
+            problems: [...h.problems, ...c.problems, ...merged.problems],
             complete: styles.complete && types.complete,
           };
           break;

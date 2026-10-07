@@ -162,7 +162,7 @@ describe("property keys and values from the component schemas (PIE-618): the sam
     blockContext: async () => ({ selected: null, ancestors: [] }),
     workIdPrefix: async () => null,
     // The service's merged answer: the built-ins with the outline's own style among [heading::]'s values.
-    componentSchemas: async () => ({ schemas: mergeComponentSchemas({ headingStyles: [{ ...BUILTIN_HEADING_STYLES[4]!, name: "plot", block: "decl-plot" }] }), problems: [] }),
+    componentSchemas: async () => mergeComponentSchemas({ headingStyles: [{ ...BUILTIN_HEADING_STYLES[4]!, name: "plot", block: "decl-plot" }] }),
   };
   const typing = (text: string) => {
     const d = new Draft("b1", 1, "Pantry\n");

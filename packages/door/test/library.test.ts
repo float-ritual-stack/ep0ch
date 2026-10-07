@@ -114,9 +114,24 @@ describe.skipIf(!outliner)("the library screen on a scratch outline", () => {
     expect(copied.at(-1)).toBe("My style [heading-style::mine] [heading-pattern::waffle]\n\n## Your calls [heading::mine]");
     const r: any = await act("library.copy", { n: 4, part: "use" }, "test-agent");
     expect(r.source).toBe("## Your calls [heading::mine]");
+    // The agent's copy left the person's clipboard and their selection as they were.
     expect(copied.length).toBe(before + 1);
+    expect(library().selected).toBe(2);
+    await expect(act("library.select", { n: 1.5 })).rejects.toThrow("n is a whole number, not 1.5");
     await act("library.width", { cols: 160 });
     await until(() => lines().some(l => l.includes("drawn at 160 columns, cut at")), "a width wider than the tile, said");
+    await act("library.width", { cols: 80 });
+  });
+
+  test("a grid's cells side by side: a click on a cell's drawing selects it, and the selected cell comes into view", async () => {
+    await act("library.width", { cols: 40 });
+    await act("library.grid", { n: 1 });
+    await until(() => lines().some(l => /heading-align: left .* heading-align: center .* heading-align: right/.test(l)), "three cells abreast", 5000);
+    const y = lines().findIndex(l => l.includes("┆ [heading-align::center]")), x = lines()[y]!.indexOf("[heading-align::center]");
+    key({ kind: "mouse", action: "down", button: 0, x, y }); key({ kind: "mouse", action: "up", button: 0, x, y });
+    await until(() => library().selected === 2, "the middle cell selected by a click on its source");
+    await act("library.select", { n: 15 });
+    await until(() => lines().some(l => /▌ heading-align: right/.test(l)), "the last cell scrolled into view", 5000);
     await act("library.width", { cols: 80 });
   });
 

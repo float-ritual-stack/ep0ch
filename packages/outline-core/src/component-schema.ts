@@ -10,6 +10,8 @@
 
 import { BUILTIN_HEADING_STYLES, type HeadingStyle } from "./heading-styles";
 import { BUILTIN_CALLOUTS, CALLOUT_TONES, type CalloutType } from "./callouts";
+import { codeSpanRanges } from "./code-ranges";
+import { noteCodeFences } from "./component-block";
 
 /** What a property's value is. */
 export const PROP_TYPES = ["enum", "int", "number", "levels", "name", "room", "text", "list", "ref", "template", "pattern", "query"] as const;
@@ -244,9 +246,11 @@ export interface ComponentDeclarations {
 /**
  * The built-ins with the outline's own values in their lists (a declared `[heading-style::plot]` is a value of
  * `[heading::]`, `[rule::]` and `[rule-style::]`; a declared callout type of `[!type]`), then each extension's schemas,
- * marked `ext:<id>`. A declared name that restyles a built-in keeps its place and says so.
+ * marked `ext:<id>`, their `valuesFrom` lists filled the same way. A declared name that restyles a built-in keeps its
+ * place and says so. An extension's component whose id is taken (a built-in's, an earlier extension's) is left out and
+ * said in `problems`.
  */
-export function mergeComponentSchemas(d: ComponentDeclarations = {}): ComponentSchema[] {
+export function mergeComponentSchemas(d: ComponentDeclarations = {}): { schemas: ComponentSchema[]; problems: string[] } {
   const add = (values: readonly PropValue[] | undefined, more: PropValue[]): PropValue[] => {
     const out = (values ?? []).map(v => ({ ...v }));
     for (const m of more) {
@@ -258,12 +262,17 @@ export function mergeComponentSchemas(d: ComponentDeclarations = {}): ComponentS
   };
   const styles = styleValues((d.headingStyles ?? []).filter(s => s.block)).map(v => ({ ...v, meaning: `this outline's: ${v.meaning}` }));
   const types = calloutValues((d.calloutTypes ?? []).filter(t => t.block)).map(v => ({ ...v, meaning: `this outline's: ${v.meaning}` }));
-  const merged = BUILTIN_COMPONENT_SCHEMAS.map(s => ({
+  const filled = (s: ComponentSchema): ComponentSchema => ({
     ...s,
     props: s.props.map(p => p.valuesFrom === "heading-styles" ? { ...p, values: add(p.values, styles) } : p.valuesFrom === "callout-types" ? { ...p, values: add(p.values, types) } : p),
-  }));
-  for (const ext of d.extensions ?? []) for (const c of ext.components) merged.push({ ...c, origin: `ext:${ext.id}` });
-  return merged;
+  });
+  const schemas = BUILTIN_COMPONENT_SCHEMAS.map(filled), problems: string[] = [];
+  for (const ext of d.extensions ?? []) for (const c of ext.components) {
+    const taken = schemas.find(s => s.id === c.id);
+    if (taken) { problems.push(`extension ${ext.id}: component ${c.id} is ${taken.origin === "built-in" ? "a built-in's" : `${taken.origin}'s`} already; give it another id`); continue; }
+    schemas.push(filled({ ...c, origin: `ext:${ext.id}` }));
+  }
+  return { schemas, problems };
 }
 
 // ── checking a schema an extension ships ──────────────────────────────────────
@@ -366,9 +375,12 @@ export function variation(schema: ComponentSchema, set: Record<string, string>, 
   const n = schema.source.note;
   const noteProps = schema.props.filter(p => p.where === "note" && p.key !== n?.name && values[p.key] !== undefined);
   let note: string | undefined;
-  if (n && (noteProps.length || n.uses === undefined)) {
-    note = [`${n.title} [${n.name}::${n.value}]`, ...noteProps.map(p => `[${p.key}::${values[p.key]}]`)].join(" ");
-    if (n.uses) values[n.uses] = n.value;
+  // The declaring note is written when a variation sets one of its properties, names it outright, or is what uses it.
+  if (n && (noteProps.length || values[n.name] !== undefined || n.uses === undefined)) {
+    const name = values[n.name] ?? n.value;
+    note = [`${n.title} [${n.name}::${name}]`, ...noteProps.map(p => `[${p.key}::${values[p.key]}]`)].join(" ");
+    values[n.name] = name;
+    if (n.uses) values[n.uses] = name;
   }
   // The values the source shows: a note's properties are on the note, never on the line.
   const shown = Object.fromEntries(Object.entries(values).filter(([k]) => prop.get(k)?.where !== "note"));
@@ -427,7 +439,7 @@ export function spaceVariations(schema: ComponentSchema, filter: SpaceFilter = {
   }).filter(a => a.values.length);
   const total = axes.reduce((n, a) => n * a.values.length, 1);
   const out: Variation[] = [];
-  for (let i = Math.max(0, from); i < total && out.length < limit; i++) {
+  for (let i = Math.max(0, Math.floor(from)); i < total && out.length < Math.floor(limit); i++) {
     let rest = i;
     const set: Record<string, string> = {};
     for (let j = axes.length - 1; j >= 0; j--) {
@@ -453,19 +465,24 @@ export type PropertyAtCursor =
  * is where a choice goes (the `[` for a key, after the `::` for a value). Null anywhere else.
  */
 export function propertyAtCursor(line: string, col: number): PropertyAtCursor | null {
-  const before = line.slice(0, Math.max(0, Math.min(col, line.length)));
+  const at = Math.max(0, Math.min(col, line.length));
+  // A property in a code span is the code's text (`[head` in an example), never one being written.
+  if (codeSpanRanges(line).some(r => r.start < at && at < r.end)) return null;
+  const before = line.slice(0, at), after = line.slice(at);
   const value = /\[([A-Za-z][A-Za-z0-9_.-]*)::([^\][]*)$/.exec(before);
   if (value && before[value.index - 1] !== "[") {
     const start = before.length - value[2]!.length;
-    const close = /^[^\][]*\]/.exec(line.slice(before.length));
-    return { kind: "value", key: value[1]!, start, end: before.length + (close ? close[0].length : 0), query: value[2]! };
+    // Through its `]`; with none typed yet, through the rest of the word the cursor is in (`[heading::b|and`).
+    const close = /^[^\][]*\]/.exec(after) ?? /^[^\s\][]*/.exec(after);
+    return { kind: "value", key: value[1]!, start, end: before.length + close![0].length, query: value[2]! };
   }
   const key = /\[([A-Za-z][A-Za-z0-9_.-]*)$/.exec(before);
   if (!key || before[key.index - 1] === "[") return null;
-  const start = key.index;
   // Typed in the middle of a key already written: a choice replaces the rest of it and its `::`.
-  const rest = /^[A-Za-z0-9_.-]*(?:::)?/.exec(line.slice(before.length))![0];
-  return { kind: "key", start, end: before.length + rest.length, query: key[1]! };
+  const rest = /^[A-Za-z0-9_.-]*(?:::)?/.exec(after)![0];
+  // `[heading](url)` and `[heading]` are a link's text, not a property.
+  if (!rest.endsWith("::") && after.slice(rest.length).startsWith("]")) return null;
+  return { kind: "key", start: key.index, end: before.length + rest.length, query: key[1]! };
 }
 
 /** The YAML key or value being typed in a component block's YAML: `ti` at a line's start, or `value: 0.` after its key. */
@@ -482,6 +499,8 @@ const COMPONENT_LINE = /^ {0,3}::([a-z][a-z0-9-]*)[ \t]*$/;
 export function yamlAtCursor(lines: readonly string[], row: number, col: number): YamlAtCursor | null {
   const line = lines[row] ?? "";
   if (/^\s*---\s*$/.test(line)) return null;
+  // A figure written inside a code fence is the code's text, never one being written.
+  if (inCodeFence(lines, row)) return null;
   for (let i = row - 1; i >= 0; i--) {
     const l = lines[i]!;
     if (/^\s*---\s*$/.test(l)) {
@@ -503,6 +522,11 @@ export function yamlAtCursor(lines: readonly string[], row: number, col: number)
     if (k) return { kind: "key", component, start: 0, end: before.length + /^[A-Za-z0-9_.-]*(?::[ \t]?)?/.exec(line.slice(before.length))![0].length, query: k[1]! };
     return null;
   }
+}
+
+/** Whether row `row` of `lines` is inside a fenced code block (outside a component block, whose fences are its own). */
+export function inCodeFence(lines: readonly string[], row: number): boolean {
+  return noteCodeFences(lines).some(f => row > f.start && row <= f.end);
 }
 
 /** A candidate for a key or a value, as completion lists it. */

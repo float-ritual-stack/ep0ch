@@ -52,6 +52,9 @@ test("a variation's source: the line alone, or the declaring note and the line t
   expect(variation(c, {}).use).toBe("> [!tip]\n> Water the beds before nine.");
   expect(variation(c, { fold: "-" }).use).toBe("> [!tip]-\n> Water the beds before nine.");
   expect(variation(c, { "callout-tone": "green" })).toMatchObject({ note: "My type [callout-type::mine] [callout-tone::green]", use: "> [!mine]\n> Water the beds before nine." });
+  // Naming the declared style outright writes its note under that name, and the line names it.
+  expect(variation(h, { "heading-style": "plot" })).toMatchObject({ note: "My style [heading-style::plot]", use: "## Your calls [heading::plot]" });
+  expect(variation(h, { "heading-style": "plot", "heading-pattern": "dots" }).note).toBe("My style [heading-style::plot] [heading-pattern::dots]");
   expect(variation(schema("graph-meter"), { limit: "1", caption: "the shared disk" }).use).toBe("::graph-meter\n---\ntitle: Disk\nvalue: 0.6\nlimit: 1\ncaption: the shared disk\n---\n::");
   // A rule's note is written always: it's what declares the rule.
   expect(variation(schema("rule"), {}).note).toBe("Meeting card [rule-name::meeting] [rule-kind::heading:2] [rule-decorate::band] [rule-fields::when, who]");
@@ -62,14 +65,20 @@ test("the outline's own values join the lists; an extension's schemas come after
   const { styles } = headingStylesFromBlocks([{ id: "11111111-plot", properties: [{ key: "heading-style", value: "plot" }, { key: "heading-pattern", value: "dots" }] }, { id: "22222222-band", properties: [{ key: "heading-style", value: "band" }] }]);
   const { types } = calloutTypesFromBlocks([{ id: "33333333-recipe", properties: [{ key: "callout-type", value: "recipe" }, { key: "callout-icon", value: "♨" }] }]);
   const ext: ComponentSchema = { ...schema("graph-spark"), id: "mood", title: "Mood", origin: undefined };
-  const merged = mergeComponentSchemas({ headingStyles: styles, calloutTypes: types, extensions: [{ id: "moods", components: [ext] }] });
+  const clash: ComponentSchema = { ...ext, id: "callout" };
+  const withSource: ComponentSchema = { ...ext, id: "mood-style", props: [...ext.props, { key: "mood-heading", where: "line", type: "enum", meaning: "a style", valuesFrom: "heading-styles", values: [] }] };
+  const { schemas: merged, problems } = mergeComponentSchemas({ headingStyles: styles, calloutTypes: types, extensions: [{ id: "moods", components: [ext, clash, withSource] }] });
+  // An id that's taken is left out and said; an extension's valuesFrom list is filled as a built-in's is.
+  expect(problems).toEqual(["extension moods: component callout is a built-in's already; give it another id"]);
+  expect(merged.filter(s => s.id === "callout")).toHaveLength(1);
+  expect(merged.at(-1)!.props.at(-1)!.values!.map(v => v.value)).toEqual(["plot", "band"]);
   const heading = merged.find(s => s.id === "heading-style")!.props.find(p => p.key === "heading")!;
   expect(heading.values!.map(v => v.value)).toEqual([...BUILTIN_HEADING_STYLES.map(s => s.name), "plot"]);
   expect(heading.values!.find(v => v.value === "plot")).toMatchObject({ declared: "11111111-plot", meaning: expect.stringContaining("this outline's") });
   expect(heading.values!.find(v => v.value === "band")!.meaning).toContain("restyled by this outline");
   expect(merged.find(s => s.id === "rule")!.props.find(p => p.key === "rule-style")!.values!.map(v => v.value)).toContain("plot");
   expect(merged.find(s => s.id === "callout")!.props[0]!.values!.at(-1)).toMatchObject({ value: "recipe", declared: "33333333-recipe" });
-  expect(merged.at(-1)).toMatchObject({ id: "mood", origin: "ext:moods" });
+  expect(merged.at(-2)).toMatchObject({ id: "mood", origin: "ext:moods" });
   // The built-ins aren't changed by a merge.
   expect(schema("heading-style").props[0]!.values!.map(v => v.value)).not.toContain("plot");
 });
@@ -103,6 +112,12 @@ test("propertyAtCursor: a key being typed after [, a value after ::, never [[ or
   expect(propertyAtCursor("> [!wa", 6)).toBeNull();
   expect(propertyAtCursor("a [", 3)).toBeNull();
   expect(propertyAtCursor("[heading::band] then", 20)).toBeNull();
+  // A value with no ] yet: a choice replaces the rest of the word the cursor is in.
+  expect(propertyAtCursor("[heading::band and", 11)).toEqual({ kind: "value", key: "heading", start: 10, end: 14, query: "b" });
+  // A link's text and a code span are never properties.
+  expect(propertyAtCursor("see [heading](#beds)", 9)).toBeNull();
+  expect(propertyAtCursor("see [head]", 9)).toBeNull();
+  expect(propertyAtCursor("write `[head` like so", 12)).toBeNull();
 });
 
 test("yamlAtCursor: a key or value inside a component's YAML, closed or still being written; nothing outside it", () => {
@@ -113,6 +128,8 @@ test("yamlAtCursor: a key or value inside a component's YAML, closed or still be
   expect(yamlAtCursor(["::graph-meter", "---", "title: Disk"], 2, 2)).toEqual({ kind: "key", component: "graph-meter", start: 0, end: 7, query: "ti" });
   expect(yamlAtCursor(["::graph-spark", "---", "da"], 2, 2)).toMatchObject({ kind: "key", component: "graph-spark", query: "da" });
   expect(yamlAtCursor(["plain", "---", "da"], 2, 2)).toBeNull();
+  // A figure written as an example in a code fence is the fence's text.
+  expect(yamlAtCursor(["```", "::graph-spark", "---", "da"], 3, 2)).toBeNull();
 });
 
 test("candidates: keys with their meaning, written [key::; values with theirs; YAML keys by the figure's schema", () => {

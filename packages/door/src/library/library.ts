@@ -36,8 +36,8 @@ const PLACE: Record<PropPlace, string> = { line: "on the line", note: "on the de
 
 /** A part of a row a click runs an action on. */
 interface Hit { from: number; to: number; action: string; args?: Record<string, unknown> }
-/** One drawn row: its text, what a click on it runs, the variation it belongs to. */
-interface Row { text: string; hits?: Hit[]; v?: number }
+/** One drawn row: its text, what a click on it runs, the variation it belongs to (`vs`: the variations of a grid's row of cells). */
+interface Row { text: string; hits?: Hit[]; v?: number; vs?: number[] }
 
 /** A component's short name, for its tab: its title without the `(::graph-meter)`. */
 const shortTitle = (s: ComponentSchema) => s.title.replace(/\s*\(.*\)\s*$/, "");
@@ -79,6 +79,8 @@ export class LibraryPane implements Pane {
   private desk: DeskApi | null = null;
   /** What the last paint laid out: the fixed rows, the scrolled ones. */
   private head: Row[] = [];
+  /** How many of the fixed rows the last paint drew (a short tile draws fewer). */
+  private headShown = 0;
   private body: Row[] = [];
   private revealNext = false;
 
@@ -192,12 +194,15 @@ export class LibraryPane implements Pane {
           const tall = Math.max(...blocks.map(x => x.length));
           for (let j = 0; j < tall; j++) {
             let t = "", hits: Hit[] = [];
+            const vs: number[] = [];
             blocks.forEach((rows, k) => {
               const r = rows[j];
               t += pad(r?.text ?? "", cellW - 2) + RESET + "  ";
               hits = hits.concat((r?.hits ?? []).map(h => ({ ...h, from: h.from + k * cellW, to: h.to + k * cellW })));
+              // A click anywhere on a cell's drawing or source selects it, as on a variation one under another.
+              if (r?.v !== undefined) { vs.push(r.v); hits.push({ from: k * cellW, to: k * cellW + cellW - 2, action: "library.select", args: { n: r.v + 1 } }); }
             });
-            body.push({ text: t, hits });
+            body.push({ text: t, hits, vs });
           }
         }
       }
@@ -228,9 +233,11 @@ export class LibraryPane implements Pane {
     const laid = this.layout(w, desk);
     this.head = laid.head; this.body = laid.body;
     if (this.selectedV >= laid.shown.length) this.selectedV = Math.max(0, laid.shown.length - 1);
-    const headRows = this.head.slice(0, Math.max(0, h - 1));
+    // The controls never take the whole tile: at least three rows stay for the page (a short tile scrolls those).
+    const headRows = this.head.slice(0, Math.max(0, Math.min(this.head.length, h - 4)));
+    this.headShown = headRows.length;
     const room = Math.max(0, h - headRows.length - 1);
-    const rows = this.body.map((r, i) => (r.v === this.selectedV ? i : -1)).filter(i => i >= 0);
+    const rows = this.body.map((r, i) => (r.v === this.selectedV || r.vs?.includes(this.selectedV) ? i : -1)).filter(i => i >= 0);
     const sel = rows.length ? [rows[0]!, rows[rows.length - 1]!] as const : null;
     if (this.revealNext) { this.view.reveal(); this.revealNext = false; }
     const top = this.view.place(sel ? this.selectedV : null, this.body.length, room, sel);
@@ -242,7 +249,7 @@ export class LibraryPane implements Pane {
 
   /** The row a click at `y` is on, and what a click there at `x` runs. */
   private hitAt(x: number, y: number): Hit | null {
-    const row = y < this.head.length ? this.head[y] : y === this.head.length ? undefined : this.body[this.view.top + y - this.head.length - 1];
+    const row = y < this.headShown ? this.head[y] : y === this.headShown ? undefined : this.body[this.view.top + y - this.headShown - 1];
     return row?.hits?.find(h => x >= h.from && x < h.to) ?? (row?.v !== undefined ? { from: 0, to: 0, action: "library.select", args: { n: row.v + 1 } } : null);
   }
 
@@ -308,6 +315,11 @@ function variationAt(p: LibraryPane, n: number | undefined): { v: Variation; i: 
   if (!v) throw new ActionRefused(`there is no variation ${n}; there are ${p.shown.length}`);
   return { v, i };
 }
+/** A whole number an action's argument must be (a place in a list, a step), else refused naming it. */
+function whole<T extends number | undefined>(name: string, v: T): T {
+  if (v !== undefined && !Number.isInteger(v)) throw new ActionRefused(`${name} is a whole number, not ${v}`);
+  return v;
+}
 /** `by` steps through `n` choices from `at`, wrapping. */
 const step = (at: number, by: number, n: number) => (n ? (((at + by) % n) + n) % n : 0);
 
@@ -318,6 +330,7 @@ export const LIBRARY_ACTIONS = actionSet<KindHost>()("library", {
     keys: ", . or a click on its tab", touches: "screen", replay: "safe", says: r => `showed the ${r.title} page`,
     args: { name: { type: "string", optional: true, about: "the component's id" }, by: { type: "number", optional: true, about: "1 the next, -1 the previous" } },
     run({ name, by }, { pane }) {
+      whole("by", by);
       const p = libraryOf(pane), all = p.schemas();
       const at = name !== undefined ? all.findIndex(s => s.id === name) : step(all.findIndex(s => s.id === p.schema().id), by ?? 1, all.length);
       if (at < 0) throw new ActionRefused(`no component ${name}; components: ${all.map(s => s.id).join(", ")}`);
@@ -341,6 +354,7 @@ export const LIBRARY_ACTIONS = actionSet<KindHost>()("library", {
     keys: "← → h l in one property at a time, or a click on a property", touches: "screen", replay: "safe",
     args: { key: { type: "string", optional: true, about: "the property" }, by: { type: "number", optional: true, about: "1 the next, -1 the previous" } },
     run({ key, by }, { pane }) {
+      whole("by", by);
       const p = libraryOf(pane), s = p.schema();
       const at = key !== undefined ? s.sweep.indexOf(key) : step(p.axis, by ?? 1, s.sweep.length);
       if (at < 0) throw new ActionRefused(`${s.id} doesn't sweep ${key}; it sweeps ${s.sweep.join(", ")}`);
@@ -353,6 +367,7 @@ export const LIBRARY_ACTIONS = actionSet<KindHost>()("library", {
     keys: "← → h l in grids, or a click on a grid", touches: "screen", replay: "safe",
     args: { n: { type: "number", optional: true, about: "the grid, from 1" }, by: { type: "number", optional: true, about: "1 the next, -1 the previous" } },
     run({ n, by }, { pane }) {
+      whole("n", n); whole("by", by);
       const p = libraryOf(pane), s = p.schema();
       if (!s.grids.length) throw new ActionRefused(`${s.id} marks no grids`);
       const at = n !== undefined ? n - 1 : step(p.gridAt, by ?? 1, s.grids.length);
@@ -366,6 +381,7 @@ export const LIBRARY_ACTIONS = actionSet<KindHost>()("library", {
     keys: "[ ] ← → h l in every combination", touches: "screen", replay: "safe",
     args: { rows: { type: "number", optional: true, about: "1 down an axis, -1 up" }, by: { type: "number", optional: true, about: "1 right a value, -1 left" } },
     run({ rows, by }, { pane }) {
+      whole("rows", rows); whole("by", by);
       const p = libraryOf(pane), axes = p.spaceAxes();
       if (!axes.length) throw new ActionRefused("this component's space has no axes");
       const row = step(p.cursor.row, rows ?? 0, axes.length);
@@ -410,6 +426,7 @@ export const LIBRARY_ACTIONS = actionSet<KindHost>()("library", {
     keys: "n p in every combination, or a click on n next or p previous", touches: "screen", replay: "safe",
     args: { by: { type: "number", optional: true, about: "1 the next page, -1 the previous" }, n: { type: "number", optional: true, about: "the page, from 1" } },
     run({ by, n }, { pane }) {
+      whole("by", by); whole("n", n);
       const p = libraryOf(pane), pages = Math.max(1, Math.ceil(spaceSize(p.schema(), p.filter).matching / SPACE_PAGE));
       const to = n !== undefined ? n - 1 : p.page + (by ?? 1);
       if (to < 0 || to >= pages) throw new ActionRefused(`page is 1 to ${pages}`);
@@ -422,6 +439,7 @@ export const LIBRARY_ACTIONS = actionSet<KindHost>()("library", {
     keys: "j k ↓ ↑, or a click on a variation", touches: "screen", replay: "safe",
     args: { n: { type: "number", optional: true, about: "the variation, from 1" }, by: { type: "number", optional: true, about: "1 the next, -1 the previous" } },
     run({ n, by }, { pane }) {
+      whole("n", n); whole("by", by);
       const p = libraryOf(pane);
       if (!p.shown.length) throw new ActionRefused("nothing is drawn here to select: pick a part with variations (2, 3 or 4)");
       const at = n !== undefined ? n - 1 : Math.max(0, Math.min(p.shown.length - 1, p.selectedV + (by ?? 1)));
@@ -435,12 +453,13 @@ export const LIBRARY_ACTIONS = actionSet<KindHost>()("library", {
     keys: "y, or a click on copy", touches: "nothing", replay: "safe", says: r => `copied the source of variation ${r.n}`,
     args: { n: { type: "number", optional: true, about: "the variation, from 1" }, part: { type: "string", optional: true, about: "all (default), use or note" } },
     run({ n, part }, { pane, desk }, actor) {
+      whole("n", n);
       const p = libraryOf(pane), { v, i } = variationAt(p, n);
       const text = part === "use" ? v.use : part === "note" ? (v.note ?? "") : variationText(v);
       if (part !== undefined && part !== "all" && part !== "use" && part !== "note") throw new ActionRefused("part is all, use or note");
       if (!text) throw new ActionRefused("this variation has no declaring note");
-      p.selectedV = i;
-      if (actor.kind !== "agent") desk.ctx.copy?.(text, "the library");
+      // The person's copy selects what they copied; an agent's changes nothing of theirs (not what their next y copies).
+      if (actor.kind !== "agent") { p.selectedV = i; desk.ctx.copy?.(text, "the library"); }
       return { n: i + 1, source: text };
     },
   }),
@@ -459,7 +478,7 @@ export const LIBRARY_ACTIONS = actionSet<KindHost>()("library", {
   "library.scroll": def({
     summary: "scroll the page by=<rows> (negative up)", keys: "the wheel, pgup pgdn", touches: "screen", replay: "safe",
     args: { by: { type: "number", about: "rows, negative up" } },
-    run({ by }, { pane }) { const p = libraryOf(pane); p.scrollBy(by); return { by }; },
+    run({ by }, { pane }) { whole("by", by); const p = libraryOf(pane); p.scrollBy(by); return { by }; },
   }),
 });
 
