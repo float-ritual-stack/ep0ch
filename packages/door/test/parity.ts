@@ -410,6 +410,11 @@ describe.skipIf(!outliner)(`agent parity: every key a screen handles is an actio
     ["home base", () => openScreen("home", { folder: scratch.root })],
     // The same, saying a machine lacks the outline asked for (PIE-545): its offers' rows are pressed and clicked too.
     ["home base, an outline missing", () => openScreen("home", { folder: scratch.root, missing: { outline: "fern", machine: "box-a" } })],
+    // The component library (PIE-618), in each of its parts: every key and click there is one of its actions.
+    ["library", () => openScreen("library")],
+    ["library: one property", () => openScreen("library"), [k("2")]],
+    ["library: grids", () => openScreen("library"), [k("3")]],
+    ["library: every combination", () => openScreen("library"), [k("4")]],
   ];
 
   // ── the board in its other states (the keys and clicks of each area) ──

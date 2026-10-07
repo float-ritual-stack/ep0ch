@@ -427,6 +427,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     esc: ["Allotment notebook", "Bike shed"],
     // One note in two readers: the wide one bands its headings, the narrow one draws them as written.
     headings: ["Headings and dividers", "▾ ## Beds", "Water butts"],
+    // The component library on the heading styles' page: its tabs, its parts, the minimal example.
+    library: ["Heading styles", "1 overview", "Minimal example"],
   };
 
   test("one section per reuse-map row, in the map's order, each labelled with its part and file, drawn by the part", async () => {
@@ -571,6 +573,22 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     await expect(app.act({ action: "reader.overscroll", args: { rows: "most" }, as: "test-agent" })).rejects.toThrow(/half, none or a number/);
     expect(await app.act({ action: "reader.overscroll", args: { rows: 4 }, as: "test-agent" })).toEqual({ rows: 4 });
     expect(await app.act({ action: "reader.overscroll", args: { rows: "half" }, as: "test-agent" })).toEqual({ rows: "half" });
+  }, 20_000);
+
+  test("the library section (PIE-618): an agent picks through every combination and copies a variation's source; the outline's own style is a value", async () => {
+    (app as any).lastInput = 0;
+    expect(await app.act({ action: "section", args: { name: "library" }, as: "test-agent" })).toMatchObject({ key: "library" });
+    await until(() => screen().includes("Minimal example"), "the library's overview", 8000);
+    expect(await app.act({ action: "library.pick", args: { axis: "heading-pattern", value: "dots" }, as: "test-agent" })).toMatchObject({ on: true, matching: 486 });
+    expect(await app.act({ action: "library.pick", args: { axis: "heading-tone", value: "green" }, as: "test-agent" })).toMatchObject({ matching: 81 });
+    await until(() => screen().includes("81 of 2430 match · 1–8 shown"), "the picked space drawn", 5000);
+    const copy: any = await app.act({ action: "library.copy", args: { n: 1 }, as: "test-agent" });
+    expect(copy.source).toContain("[heading-pattern::dots]");
+    expect(copy.source).toContain("[heading-tone::green]");
+    await app.act({ action: "library.axis", args: { key: "heading" }, as: "test-agent" });
+    const values = (S().stage(SECTIONS.findIndex(s => s.key === "library")).top.describe().library.variations as any[]).map(v => v.values.heading);
+    expect(values).toContain("plot");
+    await app.act({ action: "library.clear", args: {}, as: "test-agent" });
   }, 20_000);
 
   test("the actions section's registry list: the wheel and keys pick through registry.pick; an agent's pick leaves the person's selection", async () => {
