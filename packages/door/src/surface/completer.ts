@@ -472,11 +472,12 @@ const isCtrlSpace = (k: Key) => k.kind === "char" && !!k.ctrl && (k.ch === "`" |
  * the popup (and only the popup). Tab or Ctrl+Space in a token asks again; Tab anywhere else is the field's. True when
  * the popup took the key.
  */
-function popupKey(d: CompletionField, k: Key, c: Completer): boolean {
+function popupKey(d: CompletionField, k: Key, c: Completer, line = false): boolean {
   if (c.state && !c.shown) c.dismiss();
   const s = c.state;
   if (s) {
-    if (k.kind === "esc") { c.dismiss(); return true; }
+    // A line (a filter, a panel value) has esc of its own: a popup with nothing to choose never keeps it.
+    if (k.kind === "esc") { c.dismiss(); return !line || !!s.items.length; }
     if (s.items.length && !s.loading) {
       if (k.kind === "up" || k.kind === "down") { c.move(k.kind === "up" ? -1 : 1); return true; }
       if (k.kind === "enter" || k.kind === "tab") { void c.accept(); return true; }
@@ -542,7 +543,7 @@ lineCompletionHooks.before = (i, k) => {
   const c = lineCompleter(i);
   if (!c || k.kind === "mouse") return false;
   if ("pasted" in k || k.kind === "paste") { c.dismiss(); return false; }
-  const took = popupKey(i, k, c);
+  const took = popupKey(i, k, c, true);
   openAt.set(i, c.state?.target);
   return took;
 };

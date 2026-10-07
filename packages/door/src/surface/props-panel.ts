@@ -120,7 +120,7 @@ export class PropertyPanel {
   }
 
   hint(): string {
-    if (this.field) return this.field.saving ? "saving…" : completionOf(this.field.input) ? COMPLETION_HINT : "type the value · enter saves · esc cancels";
+    if (this.field) return this.field.saving ? "saving…" : completionOf(this.field.input)?.items.length ? COMPLETION_HINT : "type the value · enter saves · esc cancels";
     return "tab/j k value · y copy · o follow · enter/e edit · s summary · I full · esc close";
   }
 
