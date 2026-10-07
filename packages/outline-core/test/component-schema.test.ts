@@ -3,7 +3,7 @@ import {
   axisValues, BUILTIN_COMPONENT_SCHEMAS, checkValue, componentPageMarkdown, componentSchemaProblem, grid, keyCandidates, mergeComponentSchemas,
   propertyAtCursor, spaceSize, spaceVariations, sweep, valueCandidates, variation, variationText, yamlAtCursor, yamlKeyCandidates, type ComponentSchema,
 } from "../src/component-schema";
-import { BAND_ALIGNS, BAND_LETTERS, BAND_PATTERNS, BAND_ROWS, BUILTIN_HEADING_STYLES, headingStylesFromBlocks } from "../src/heading-styles";
+import { BAND_ALIGNS, BAND_LETTERS, BAND_PATTERNS, BAND_ROWS, BUILTIN_HEADING_STYLES, HEADING_FIELD_KEYS, headingStylesFromBlocks } from "../src/heading-styles";
 import { BUILT_IN_DECORATIONS, PLACES, RULE_TONES, RULE_KEYS } from "../src/rules";
 import { BUILTIN_CALLOUTS, CALLOUT_TONES, calloutTypesFromBlocks } from "../src/callouts";
 
@@ -25,6 +25,7 @@ test("the built-ins say the lists the code reads, never a copy that drifts", () 
   expect(values("rule", "rule-pattern")).toEqual([...BAND_PATTERNS]);
   expect(values("rule", "rule-align")).toEqual([...BAND_ALIGNS]);
   expect(schema("rule").props.map(p => p.key).sort()).toEqual([...RULE_KEYS].sort());
+  for (const k of HEADING_FIELD_KEYS) expect(schema("heading-style").props.map(p => p.key)).toContain(k);
   // Every heading-* key the declaration reads is in the schema.
   const read = headingStylesFromBlocks([{ id: "aaaaaaaa", properties: schema("heading-style").props.filter(p => p.where === "note").map(p => ({ key: p.key, value: p.key === "heading-style" ? "x" : axisValues(p)[0] ?? "1" })) }]);
   expect(read.problems).toEqual([]);

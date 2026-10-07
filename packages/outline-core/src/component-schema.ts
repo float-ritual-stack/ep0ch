@@ -112,8 +112,8 @@ const TONE_MEANING: Record<(typeof CALLOUT_TONES)[number], string> = {
 const HEADING_STYLE: ComponentSchema = {
   id: "heading-style",
   title: "Heading styles",
-  intro: "A heading drawn in a band of glyph tracks, or a `---` drawn as one. The source stays Markdown: `## Your calls [heading::band]` is a level-2 heading whatever draws it, so folds, sections and anchors read it as they always did, and a client that doesn't draw styles shows it as written.\n\nA style is the outline's, as callout types are: the built-ins, or a note that declares `[heading-style::name]` with the `heading-*` properties below. Under 48 columns the heading is drawn as written.",
-  where: "`[heading::name]` on a heading line, `[rule::name]` after a `---`; the `heading-*` properties on the note that declares a style",
+  intro: "A heading drawn in a band of glyph tracks, or a `---` drawn as one. The source stays Markdown: `## Your calls [heading::band]` is a level-2 heading whatever draws it, so folds, sections and anchors read it as they always did, and a client that doesn't draw styles shows it as written.\n\nA style is the outline's, as callout types are: the built-ins, or a declaration, `[heading-style::name]` with the `heading-*` properties below on any line of any note (or as a note's own properties). The same `heading-*` properties on a heading line restyle that heading alone: `## Odd jobs [heading::dots] [heading-tone::amber]`. Under 48 columns the heading is drawn as written.",
+  where: "`[heading::name]` on a heading line, `[rule::name]` after a `---`; the `heading-*` properties on the line that declares a style, or on a heading line to restyle it alone",
   props: [
     { key: "heading", where: "line", type: "enum", meaning: "the style this heading is drawn with", valuesFrom: "heading-styles", values: styleValues(BUILTIN_HEADING_STYLES) },
     { key: "rule", where: "line", type: "enum", meaning: "the style this `---` is drawn with: its band with no heading in it", valuesFrom: "heading-styles", values: styleValues(BUILTIN_HEADING_STYLES), use: "Before the break\n\n--- [rule::{rule}]\n\nAfter it" },
