@@ -3,6 +3,7 @@ import { HerdrRegistryRunner } from "./herdr-runtime";
 import { OutlineHost } from "./outline-host";
 import { resolveOutlinesFolder } from "./paths";
 import { recoverPaused } from "./litestream-guard";
+import { watchEventLoop } from "./loop-watch";
 
 /*
  * The outline host: one per user and machine, serving every outline in the
@@ -34,6 +35,9 @@ function contain(kind: string, detail: string): void {
 }
 process.on("uncaughtException", error => contain("uncaught error", error.stack ?? error.message));
 process.on("unhandledRejection", reason => contain("unhandled rejection", reason instanceof Error ? reason.stack ?? reason.message : String(reason)));
+
+// What holds the loop is said in the log (PIE-625): every client waits on this one loop.
+watchEventLoop(stall => console.log(JSON.stringify(stall)));
 
 try {
   const outlinesFolder = resolveOutlinesFolder();
