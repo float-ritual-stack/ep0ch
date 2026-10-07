@@ -3,6 +3,7 @@
 // set EP0CH_STATE still win. The person's own EP0CH_* settings (a landing, a now page, the daily agent) are
 // cleared too (and Claude's config dir moved), so the suite runs the same from any shell; EP0CH_OUTLINER, which names the checkout the tests
 // start scratch services from, stays.
+import { afterAll, beforeEach } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -30,3 +31,16 @@ process.env.XDG_STATE_HOME = dir;
 process.env.CLAUDE_CONFIG_DIR = join(dir, "claude");
 delete process.env.CLAUDE_CODE_PLUGIN_DIRS;
 process.on("exit", () => { try { rmSync(dir, { recursive: true, force: true }); } catch { /* a temp dir */ } });
+
+// An App a test file leaves running keeps ticking (and painting against that file's boards) while the next files run:
+// a stub board without some method then throws "between tests" in an unrelated file, and the whole suite exits 1 with
+// no test failed. Every App registers itself here (src/app.ts, TEST_APPS) with the file that made it; once another file
+// is running (a new App, or the next test), the earlier files' Apps are retired: they stop ticking and painting.
+const apps = new Map<{ retire(): void }, string>();
+const retireOthers = () => { for (const [app, file] of apps) if (file !== Bun.main) { app.retire(); apps.delete(app); } };
+(globalThis as { [k: symbol]: unknown })[Symbol.for("ep0ch.test.apps")] = { add(app: { retire(): void }) { retireOthers(); apps.set(app, Bun.main); } };
+beforeEach(retireOthers);
+// And as soon as the next file is loading (its module code or beforeAll may wait), not only at its first test.
+let running = Bun.main;
+setInterval(() => { if (Bun.main !== running) { running = Bun.main; retireOthers(); } }, 5).unref();
+afterAll(() => { for (const app of apps.keys()) app.retire(); apps.clear(); });

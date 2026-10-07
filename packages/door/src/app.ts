@@ -74,6 +74,9 @@ export interface HostLayer {
   take(name: string, to: string | undefined, where: Where | undefined, actor: Actor): TileDone;
 }
 
+/** The test run's registry of Apps (test/preload.ts), by a global symbol so the app needs no import from the tests. */
+export const TEST_APPS = Symbol.for("ep0ch.test.apps");
+
 export interface Ctx {
   t: TermInfo;
   /** The host layer's drawer, where a tile goes to travel across screens (absent: none here). */
@@ -362,6 +365,21 @@ export class App implements Ctx {
     term.onResize(() => this.redraw());
     this.timer = setInterval(() => this.tick(), 33);
     this.display.onSeen?.(() => this.catchUp());
+    // The test run's registry (test/preload.ts), when there is one: an App a test file leaves running is retired once
+    // the next file starts, so it never paints against that file's boards. Nothing outside tests sets it.
+    (globalThis as { [TEST_APPS]?: { add(app: App): void } })[TEST_APPS]?.add(this);
+  }
+
+  /**
+   * Stops it ticking and painting, and nothing else (no draft copied out, no `done`): what the test run does with an
+   * App a finished test file left running (test/preload.ts).
+   */
+  retire(): void {
+    this.closed = true;
+    if (this.timer) clearInterval(this.timer);
+    if (this.paintTimer) clearTimeout(this.paintTimer);
+    if (this.publishTimer) clearTimeout(this.publishTimer);
+    this.timer = null; this.paintTimer = null; this.publishTimer = null;
   }
 
   /**
@@ -893,6 +911,7 @@ export class App implements Ctx {
 
   /** Just the status row, where the terminal can repaint a row alone; else the whole frame. */
   private paintStatus(s: Screen) {
+    if (this.closed) return;
     const { cols, rows } = this.term.info;
     if (!this.display.showRow(rows - 1, this.statusBar(s, cols))) this.redraw();
   }
@@ -940,6 +959,9 @@ export class App implements Ctx {
   }
 
   private paint(force = false) {
+    // Ended (quit, or retired by the test run): every way to a paint (a tick, a media or figure change, the board's
+    // events, the drawer) stops here.
+    if (this.closed) return;
     // Nobody sees it (a session with no terminal attached and no live feed): rendered when someone looks (catchUp).
     if (!force && !this.viewers.size && this.display.unseen?.()) { this.skipped = true; this.lastPaint = Date.now(); return; }
     this.skipped = false;
