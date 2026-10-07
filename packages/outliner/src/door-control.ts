@@ -1,4 +1,7 @@
+import { lstatSync, readlinkSync } from "node:fs";
+import { dirname, resolve as resolvePath } from "node:path";
 import { connect } from "node:net";
+import { reachDoor, type DoorReach } from "@ep0ch/outline-core/door-reach";
 
 /**
  * A client for ep0ch-door's control socket (the door's docs/AGENT-INTERFACE.md):
@@ -73,4 +76,24 @@ export async function openInDoor(path: string, blockId: string, options: { actor
     }
   }
   return (await doorRequest(path, request)) as Opened;
+}
+
+/** Whether a door answers on the socket (a connect that succeeds; nothing is sent). */
+function answers(path: string, timeoutMs = 1000): Promise<boolean> {
+  return new Promise(resolve => {
+    const socket = connect(path, () => { socket.destroy(); resolve(true); });
+    socket.setTimeout(timeoutMs, () => { socket.destroy(); resolve(false); });
+    socket.on("error", () => resolve(false));
+  });
+}
+
+/**
+ * The door a program in a tile reaches now, from the socket it was given and its outline's session folder
+ * (EP0CH_PLACE): outline-core's one rule (door-reach.ts), as the door's own `ep0ch act` follows it.
+ */
+export function reachControl(given: string | null | undefined, place: string | null | undefined): Promise<DoorReach> {
+  return reachDoor(given, place, {
+    listening: answers,
+    linkTarget: path => { try { return lstatSync(path).isSymbolicLink() ? resolvePath(dirname(path), readlinkSync(path)) : null; } catch { return null; } },
+  });
 }

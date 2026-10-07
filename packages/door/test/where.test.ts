@@ -69,6 +69,17 @@ describe("EP0CH_NEST", () => {
     expect(inner.EP0CH_NEST).toBe("ssh:pts/5 › herdr:w1:p1 › door:1388380/desk/t1:claude › door:42/daily/t2:shell");
   });
 
+  test("a tile's program is told its outline's session folder (EP0CH_PLACE) when its door serves there, never an outer door's (PIE-604)", () => {
+    const env = tileEnv({ EP0CH_PLACE: "/state/sessions/local/outer" }, "claude", "/state/sessions/local/garden/door.sock", "t1", "desk", 10, "/state/sessions/local/garden");
+    expect(env.EP0CH_PLACE).toBe("/state/sessions/local/garden");
+    // A door serving elsewhere (a test door's moved socket, the home base) gives none, and an inherited one goes.
+    expect(tileEnv({ EP0CH_PLACE: "/state/sessions/local/outer" }, "claude", "/tmp/test/door.sock", "t1", "desk", 10, null).EP0CH_PLACE).toBeUndefined();
+    // The Herdr agent's pane never has one: its EP0CH_CONTROL is a link each door re-points.
+    const c = agentConfig({ HOME: "/home/someone", EP0CH_TILE: "claude", EP0CH_PLACE: "/state/sessions/local/garden" }, () => null);
+    expect(c.env.EP0CH_PLACE).toBeUndefined();
+    expect(c.unset).toContain("EP0CH_PLACE");
+  });
+
   test("door in Herdr in door: the inner Herdr pane is recorded between the doors", () => {
     const outer = tileEnv({ SSH_TTY: "/dev/pts/5", HERDR_PANE_ID: "w1:p1", HERDR_WORKSPACE_ID: "w1" }, "shell", "/c/outer.sock", "t1", "desk", 100);
     // Herdr, run from that tile, makes a pane (its own id) whose door starts a tile.
@@ -182,6 +193,28 @@ describe("ep0ch where", () => {
     expect(w.layers.map(l => [l.kind, l.live])).toEqual([["ssh", false], ["door", false], ["tile", null]]);
     expect(w.keys.text).toBe("unknown: no door answers");
     expect(w.summary).toContain("gone: ssh pts/5, door pid 10 · desk");
+  });
+
+  test("handed over or restarted (PIE-604): the nest's door is gone, its outline's door answers from a new pid; where says the environment is stale and which door it answers for", async () => {
+    const env = { EP0CH_NEST: "ssh:pts/5 › door:10/desk/t1:claude", EP0CH_CONTROL: "/state/sessions/local/garden/door-10.sock", EP0CH_PLACE: "/state/sessions/local/garden", EP0CH_TILE_ID: "t1", EP0CH_TILE: "claude" };
+    const peek = deskPeek({ pid: 77, focus: "claude", typing: "claude", tiles: [{ id: "t1", name: "claude", pid: 5000 }] });
+    const reached: string[] = [];
+    const d = { ...deps(env, { alive: [77], ttys: ["pts/5"], ancestors: [5000, 77], peek }),
+      peek: async (p: string) => { reached.push(p); return peek; },
+      reach: async () => ({ path: "/state/sessions/local/garden/door.sock", given: env.EP0CH_CONTROL, place: env.EP0CH_PLACE, stale: "EP0CH_CONTROL (/state/sessions/local/garden/door-10.sock) has no door now; following the outline's session to /state/sessions/local/garden/door.sock" }) };
+    const w = await where(d);
+    // Asked on the outline's door, not the socket the tile started with.
+    expect(reached).toEqual(["/state/sessions/local/garden/door.sock"]);
+    expect(w.door).toMatchObject({ pid: 77, answers: true, moved: false, tile: { id: "t1", found: true, descends: true } });
+    expect(w.layers.map(l => [l.kind, l.live])).toEqual([["ssh", true], ["door", true], ["tile", true]]);
+    expect(w.layers[1]!.why).toBe("handed over: the outline's door is pid 77 on garden now, its tiles kept");
+    expect(w.door?.stale).toBe("this environment is stale (started under door pid 10, since handed over or restarted; EP0CH_CONTROL (/state/sessions/local/garden/door-10.sock) has no door now; following the outline's session to /state/sessions/local/garden/door.sock): it answers for pid 77 on garden");
+    expect(w.summary).toContain("this environment is stale");
+    expect(w.keys.mine).toBe(true);
+    expect(formatWhere(w)).toContain("it answers for pid 77 on garden");
+    // A current environment says nothing of the kind.
+    const current = await where(deps({ ...env, EP0CH_NEST: "door:77/desk/t1:claude" }, { alive: [77], peek }));
+    expect(current.door?.stale).toBeNull();
   });
 
   test("the tile was closed: the desk has no such tile", async () => {

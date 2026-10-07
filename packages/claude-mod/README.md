@@ -414,6 +414,14 @@ When Claude runs in a door tile (`EP0CH_CONTROL` set), it also gets
 ([Where a note opens](#where-a-note-opens)). Without
 `EP0CH_CONTROL` they are not offered, and a call is refused.
 
+- **They follow the door** (PIE-604). The door is found at each call, never from
+  what Claude started with: `ep0ch` and the outliner's `door-open` take
+  `EP0CH_CONTROL` while it answers from the tile's outline session folder
+  (`EP0CH_PLACE`), else that outline's door there. A session handed over by
+  `ep0ch install --apply`, or restarted, keeps its Claudes' door tools working,
+  and the binding card's door line says "restarted since Claude started: the door
+  tools follow it". A Claude started before `EP0CH_PLACE` existed needs one restart.
+
 - `door_act` and `door_open` are attributed with `--as` (the same actor as
   above), and the door says so on the person's screen.
 - The door never lets an agent take the person's focus, keys or selection.

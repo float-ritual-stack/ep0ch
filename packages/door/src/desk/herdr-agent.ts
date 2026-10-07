@@ -33,7 +33,7 @@ import { dirname, join, resolve } from "node:path";
 import { ask, JsonLines } from "../jsonl";
 import { appendNest } from "../nest";
 import { alive, defaultStateDir, isInside, stateDir } from "../state";
-import { AGENT_VARS, agentVars, DOOR_START_VARS, withContinue } from "./agent-env";
+import { AGENT_VARS, agentVars, DOOR_START_VARS, PLACE_VAR, withContinue } from "./agent-env";
 import { inLoginShell, isShellName, shellQuote } from "./drawer-program";
 
 export interface Ran { code: number; out: string; err: string }
@@ -150,7 +150,9 @@ export function agentConfig(env: Record<string, string | undefined> = process.en
     // The pane's nest: the tile's that made it, then the pane itself. Another door may show it later
     // (`ep0ch where` follows EP0CH_CONTROL to the door that shows it now).
     env: vars,
-    unset: [...DOOR_START_VARS, ...AGENT_VARS.filter(k => !vars[k])],
+    // No EP0CH_PLACE: the pane's EP0CH_CONTROL is a link each door re-points as it attaches the pane, and one let go of
+    // falls back to Herdr rather than following a session that no longer shows the pane.
+    unset: [...DOOR_START_VARS, ...AGENT_VARS.filter(k => !vars[k]), PLACE_VAR],
     link,
     lock: `${link}.lock`,
     record: recordFor(pane),

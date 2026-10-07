@@ -59,6 +59,8 @@ export function useOutlineState(dir: string | null): void { outlineHome = dir; }
 export const homeState = () => join(stateDir(), "home");
 /** The folder set by useOutlineState; unset only in an App a test builds on a scratch board, which keeps it in the state dir. */
 export const outlineState = () => outlineHome ?? stateDir();
+/** Whether this door is on an outline (its folder set, and not the home base's). */
+export const onOutline = () => outlineHome !== null && outlineHome !== homeState();
 
 /** A shared file of the state dir, or with `dir` (outlineState()) the outline's own. */
 export function readState<T>(name: string, dir = stateDir()): T | null {
@@ -77,7 +79,10 @@ export function writeState(name: string, value: unknown, dir = stateDir()): void
 
 /** Is process `pid` running? (EPERM: it is, as someone else.) */
 export function alive(pid: number): boolean {
-  try { process.kill(pid, 0); return true; } catch (e) { return (e as NodeJS.ErrnoException).code === "EPERM"; }
+  try { process.kill(pid, 0); } catch (e) { return (e as NodeJS.ErrnoException).code === "EPERM"; }
+  // A zombie (exited, not yet reaped by whoever started it: a session daemon after a handover) is gone. Linux says so in
+  // /proc; elsewhere the signal is all there is.
+  try { return !/^\d+ \(.*\) Z/s.test(readFileSync(`/proc/${pid}/stat`, "utf8")); } catch { return true; }
 }
 
 /**

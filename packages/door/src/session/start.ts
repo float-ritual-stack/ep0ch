@@ -25,7 +25,7 @@ export const TERMINAL_VARS = ["HERDR_PANE_ID", "HERDR_TAB_ID", "EP0CH_NEST", "SS
  * Started from inside a door (a tile, a drop shell: EP0CH_IN_DOOR), these name that door and its tile, never the
  * session's own: the session serves its control socket in its own state dir and its tiles are its own.
  */
-export const INSIDE_DOOR_VARS = ["EP0CH_CONTROL", "EP0CH_TILE", "EP0CH_TILE_ID", "EP0CH_IN_DOOR"] as const;
+export const INSIDE_DOOR_VARS = ["EP0CH_CONTROL", "EP0CH_TILE", "EP0CH_TILE_ID", "EP0CH_IN_DOOR", "EP0CH_PLACE"] as const;
 
 /** What a session starts with: this environment, without the terminal's (and an outer door's) variables. */
 export function sessionEnv(env: Record<string, string | undefined> = process.env): Record<string, string> {

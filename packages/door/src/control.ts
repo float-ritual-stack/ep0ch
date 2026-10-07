@@ -17,7 +17,8 @@ import type { App } from "./app";
 import { parseActArgs } from "./surface/actions";
 import type { Mirror } from "./mirror";
 import type { TermInfo } from "./term";
-import { isInside, outlineState, privateDir, stateDir } from "./state";
+import { isInside, onOutline, outlineState, privateDir, stateDir } from "./state";
+import { reachDoor, type DoorReach } from "@ep0ch/outline-core/door-reach";
 import { ask, jsonLine, JsonLines, listening } from "./jsonl";
 import { namesOutline, parseAddressedBlock } from "@ep0ch/outline-core/addressable-resource";
 import { runningSessions, sessionInfo, sessionSocket } from "./session/place";
@@ -27,6 +28,37 @@ import { runningSessions, sessionInfo, sessionSocket } from "./session/place";
  * state dir (`outlineState()`; `ep0ch act` finds which: src/session/place.ts, `controlFor`).
  */
 export const controlSocket = () => process.env.EP0CH_CONTROL ?? join(outlineState(), "door.sock");
+
+/**
+ * Where this door serves: `controlSocket()`, except an EP0CH_CONTROL inherited from another outline's door. A door
+ * started where one was set (a tile's program, a script run from one, a shell that kept it) without EP0CH_IN_DOOR
+ * kept it, and served on that outline's socket: its tiles were then told another outline's door, and after a handover
+ * reached it, or none (PIE-604). A socket named in another outline's folder of the state dir is never this door's.
+ */
+export function servingSocket(env: Record<string, string | undefined> = process.env): string {
+  const own = join(outlineState(), "door.sock");
+  const given = env.EP0CH_CONTROL;
+  if (!given) return own;
+  const sessions = join(stateDir(), "sessions");
+  return isInside(sessions, given) && !isInside(outlineState(), given) ? own : given;
+}
+
+/**
+ * The outline's session folder a door serving on `control` is in, for its tiles' EP0CH_PLACE: set only when the door
+ * is on an outline and serves inside its folder (a test door that moved its socket elsewhere, and the home base, have
+ * none, so their programs keep EP0CH_CONTROL as it is).
+ */
+export function controlPlace(control: string | null | undefined): string | null {
+  return control && onOutline() && isInside(outlineState(), control) ? outlineState() : null;
+}
+
+/** The door a program reaches now, from EP0CH_CONTROL and EP0CH_PLACE (outline-core's door-reach.ts, PIE-604). */
+export function reachControl(env: Record<string, string | undefined> = process.env): Promise<DoorReach> {
+  return reachDoor(env.EP0CH_CONTROL, env.EP0CH_PLACE, {
+    listening: p => listening(controlTarget(p)),
+    linkTarget: p => { try { return lstatSync(p).isSymbolicLink() ? resolve(dirname(p), readlinkSync(p)) : null; } catch { return null; } },
+  });
+}
 
 /** How much of the live feed may wait unread for one subscriber before it's disconnected. */
 export const FEED_LIMIT = 1 << 20;
@@ -123,7 +155,7 @@ export async function sweepSockets(dir: string): Promise<string[]> {
  * Serve on door.sock; if another live door already has it, use door-<pid>.sock. The folder must be the
  * user's alone (the state dir is tightened to 0700 if it isn't); anything else is refused, with why.
  */
-export async function startControl(d: ControlDeps, at = controlSocket()): Promise<{ path: string; close(): void }> {
+export async function startControl(d: ControlDeps, at = servingSocket()): Promise<{ path: string; close(): void }> {
   const dir = dirname(at);
   if (!privateDir(dir, isInside(stateDir(), dir))) throw new Error(`${dir} isn't yours alone (it needs mode 700): no control socket, so agents can't reach this door`);
   await sweepSockets(dir);

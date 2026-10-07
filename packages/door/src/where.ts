@@ -12,6 +12,8 @@ import { alive } from "./state";
 import { herdrBin, herdrRunner, type HerdrRun } from "./desk/herdr-agent";
 import { appendNest, ELIDED, nestLayers, outerLayers, parseLayer, type Layer } from "./nest";
 import { HOST_AGENT } from "./whereabouts";
+import { reachControl } from "./control";
+import type { DoorReach } from "@ep0ch/outline-core/door-reach";
 
 /** One layer, checked: `live` true, false (gone), or null (couldn't tell); `why` says what was looked at. */
 export interface WhereLayer { kind: Layer["kind"] | "tile"; label: string; raw: string; live: boolean | null; why: string }
@@ -35,6 +37,12 @@ export interface Where {
     tile: { id: string | null; name: string | null; found: boolean; shown: boolean | null; focused: boolean | null; descends: boolean | null; drawer?: boolean } | null;
     /** The door that answers isn't the one in the nest: the Herdr agent's pane, now shown by another door. */
     moved: boolean;
+    /**
+     * This process's environment is older than its door (PIE-604): the session was handed over or restarted (the
+     * nest's door pid is gone and the outline's door answers from a new one), or EP0CH_CONTROL names a socket with no
+     * door or another outline's. What it says, and which door this answers for now; null when the environment is current.
+     */
+    stale: string | null;
   };
   keys: WhereKeys;
   /** One line for an agent's context. */
@@ -47,6 +55,8 @@ export interface WhereDeps {
   pid: number;
   /** The door's answer to `peek` on this socket, or null when none answers. */
   peek(control: string): Promise<any | null>;
+  /** Which door EP0CH_CONTROL and EP0CH_PLACE reach now (outline-core's door-reach.ts); left out: EP0CH_CONTROL as it is. */
+  reach?(env: Record<string, string | undefined>): Promise<DoorReach>;
   /** Herdr, when there's one to ask (read-only commands only). */
   herdr: HerdrRun | null;
   alive(pid: number): boolean;
@@ -96,7 +106,7 @@ export function procAncestors(pid: number, parent: (pid: number) => number | nul
 export const realDeps = (): WhereDeps => {
   const bin = herdrBin();
   return {
-    env: process.env, pid: process.pid, peek: p => peekDoor(p),
+    env: process.env, pid: process.pid, peek: p => peekDoor(p), reach: env => reachControl(env),
     herdr: bin ? herdrRunner(bin, 3000) : null,
     alive, ttyExists: t => existsSync(`/dev/${t}`), ancestors: procAncestors,
     hostname, cwd: () => process.cwd(),
@@ -110,7 +120,9 @@ export async function where(d: WhereDeps): Promise<Where> {
   const recorded = env.EP0CH_NEST?.trim() || null;
   const nest = appendNest(recorded, ...(recorded ? [] : outerLayers(env, null)));
   const parsed = nestLayers(nest).map(parseLayer);
-  const control = env.EP0CH_CONTROL || null;
+  // The door as it is now: by the outline's session (EP0CH_PLACE) when EP0CH_CONTROL went stale.
+  const reached = d.reach ? await d.reach(env) : null;
+  const control = reached?.path ?? (env.EP0CH_CONTROL || null);
   const doors = parsed.filter((l): l is Extract<Layer, { kind: "door" }> => l.kind === "door");
   const inner = doors.at(-1) ?? null;
   const herdrs = parsed.filter((l): l is Extract<Layer, { kind: "herdr" }> => l.kind === "herdr");
@@ -152,10 +164,20 @@ export async function where(d: WhereDeps): Promise<Where> {
   if (!tile && !agentPane) tile = tilePanes.find(p => myTileId && p?.id === myTileId) ?? (tilePanes.some(p => p?.id) ? undefined : tilePanes.find(p => p?.name === myTileName));
   const answeringPid = typeof peek?.screen?.pid === "number" ? peek.screen.pid : null;
   const inDoor = !!(inner || control);
-  const moved = !!(inner && answeringPid !== null && answeringPid !== inner.pid);
+  // The nest's door is gone and its outline's door answers from another process: the session was handed over or
+  // restarted, and this is its successor (the same door, its tiles kept), not a door that took this pane.
+  // (The old daemon may linger as a zombie its starter hasn't reaped: another pid answering is what counts.)
+  const handedOver = !!(inner && !agentPane && answeringPid !== null && answeringPid !== inner.pid);
+  const moved = !!(inner && answeringPid !== null && answeringPid !== inner.pid) && !handedOver;
+  const now = `${answeringPid ? `pid ${answeringPid}` : "the door"}${peek?.screen?.outline ? ` on ${peek.screen.outline}` : ""}`;
+  const stale = [
+    handedOver ? `started under door pid ${inner!.pid}, since handed over or restarted` : null,
+    reached?.stale ?? null,
+  ].filter(Boolean).join("; ");
   const tpid = typeof tile?.terminal?.pid === "number" ? tile.terminal.pid : null;
   const door: Where["door"] = inDoor ? {
     pid: answeringPid ?? inner?.pid ?? null, control, answers: !!peek, moved,
+    stale: stale ? `this environment is stale (${stale}): it answers for ${peek ? now : "no door now"}` : null,
     screen: peek?.screen?.screen ?? null, outline: peek?.screen?.outline ?? null, workspace: peek?.screen?.workspace ?? null,
     host: typeof peek?.screen?.host === "string" && peek.screen.host ? peek.screen.host : null,
     machine: typeof peek?.screen?.machine === "string" && peek.screen.machine ? peek.screen.machine : null,
@@ -182,10 +204,10 @@ export async function where(d: WhereDeps): Promise<Where> {
     } else if (l.kind === "door") {
       const isInner = l === inner;
       const up = d.alive(l.pid);
-      const why = !up ? "not running" : !isInner ? "running" : peek
+      const why = isInner && handedOver ? `handed over: the outline's door is ${now} now, its tiles kept` : !up ? "not running" : !isInner ? "running" : peek
         ? (moved ? `running · the door on EP0CH_CONTROL is pid ${answeringPid}, which shows this pane now` : `running · its control socket answers`)
         : control ? "running · its control socket doesn't answer" : "running";
-      layers.push({ kind: "door", raw: l.raw, label: `pid ${l.pid} · ${l.place}${isInner && peek?.screen?.outline ? ` · outline ${peek.screen.outline}` : ""}`, live: up, why });
+      layers.push({ kind: "door", raw: l.raw, label: `pid ${l.pid} · ${l.place}${isInner && peek?.screen?.outline ? ` · outline ${peek.screen.outline}` : ""}`, live: up || (isInner && handedOver), why });
       if (isInner && !agentPane) layers.push(tileLayer(l.tileId, l.tile, door!.tile, peek, desk, moved));
     } else if (l.kind === "shell") {
       const up = d.alive(l.pid);
@@ -209,7 +231,7 @@ export async function where(d: WhereDeps): Promise<Where> {
   const keys = inShell && peek?.screen?.suspended === "shell"
     ? { mine: true, typing: true, tile: null, text: "the person is in the door's shell (the door waits under it until it exits)" }
     : keysOf(peek, desk, door, agentPane, paneList, env);
-  const summary = summaryOf(nest, layers, keys, inDoor);
+  const summary = summaryOf(nest, layers, keys, inDoor, door?.stale ?? null);
   const here = { machine: d.hostname?.() || null, folder: d.cwd?.() || null };
   const innerHerdr = herdrs.at(-1);
   const pane = innerHerdr ? herdrPane(innerHerdr.pane) : null;
@@ -255,11 +277,12 @@ function keysOf(peek: any, desk: any, door: Where["door"], agentPane: string | n
   return { mine: null, typing: null, tile: null, text: "unknown: no door and no Herdr pane to ask" };
 }
 
-function summaryOf(nest: string, layers: WhereLayer[], keys: WhereKeys, inDoor: boolean): string {
+function summaryOf(nest: string, layers: WhereLayer[], keys: WhereKeys, inDoor: boolean, stale: string | null): string {
   const gone = layers.filter(l => l.live === false).map(l => `${l.kind} ${l.label}`);
   return [
     nest ? `stack: ${nest}` : "stack: (nothing recorded)",
     !inDoor ? "not in a door" : null,
+    stale,
     gone.length ? `gone: ${gone.join(", ")}` : null,
     `keys: ${keys.text}`,
   ].filter(Boolean).join(" · ");
@@ -272,6 +295,7 @@ export function formatWhere(w: Where): string {
   if (!w.inDoor) out.push("not in a door");
   const width = Math.max(0, ...w.layers.map(l => l.label.length));
   for (const l of w.layers) out.push(`  ${MARK(l.live)} ${l.kind.padEnd(5)} ${l.label.padEnd(width)}  ${l.why}`);
+  if (w.door?.stale) out.push(w.door.stale);
   out.push(`keys: ${w.keys.text}`);
   if (w.here.machine || w.here.folder) out.push(`this runs on ${w.here.machine ?? "this machine"}${w.here.folder ? ` in ${w.here.folder}` : ""}`);
   return out.join("\n");

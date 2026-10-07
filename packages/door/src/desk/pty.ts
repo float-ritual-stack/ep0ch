@@ -18,9 +18,9 @@ import { C, fg } from "../style";
 import type { Key } from "../term";
 import type { DeskApi, Pane, PaneView } from "./panes";
 import { NvimClient, nvimSocketPath, type NvimView } from "./nvim";
-import { controlPath } from "../control";
+import { controlPath, controlPlace } from "../control";
 import { appendNest, doorLayer, doorNest } from "../nest";
-import { agentVars, DOOR_START_VARS, withContinue } from "./agent-env";
+import { agentVars, DOOR_START_VARS, PLACE_VAR, withContinue } from "./agent-env";
 import { KbdModes, keyBytes, translateReports } from "../kbd";
 import { type Clip, Osc52Reader, TILE_COPY_RECENT_MS } from "../surface/selection";
 import { localPtys, ptyBackend, type PtyMeta, type PtyProc } from "./pty-backend";
@@ -107,14 +107,14 @@ export { DOOR_START_VARS };
  * session and Herdr pane the door inherited (recorded here, before the pane's variables are dropped), so the
  * program can say where it runs (`ep0ch where`).
  */
-export function tileEnv(env: Record<string, string | undefined>, tile: string, control: string | null, tileId?: string | null, place?: string | null, pid = process.pid): Record<string, string> {
+export function tileEnv(env: Record<string, string | undefined>, tile: string, control: string | null, tileId?: string | null, place?: string | null, pid = process.pid, session: string | null = controlPlace(control)): Record<string, string> {
   const out: Record<string, string> = {};
-  const drop = new Set<string>([...HERDR_PANE_VARS, ...DOOR_START_VARS, "EP0CH_TILE_ID"]);
+  const drop = new Set<string>([...HERDR_PANE_VARS, ...DOOR_START_VARS, "EP0CH_TILE_ID", PLACE_VAR]);
   for (const [k, v] of Object.entries(env)) if (v !== undefined && !drop.has(k)) out[k] = v;
   // EP0CH_IN_DOOR: a shell in a tile is already in the door, so a login shell's landing guard (float-2's
   // ~/.bashrc starts the door on an interactive ssh login) doesn't open a second door in it.
   Object.assign(out, { TERM: "xterm-256color", COLORTERM: "truecolor", COLORFGBG: "15;0" });
-  Object.assign(out, agentVars(env, { tile, control, tileId, nest: appendNest(doorNest(env), doorLayer(pid, place, tileId, tile)) }));
+  Object.assign(out, agentVars(env, { tile, control, tileId, place: session, nest: appendNest(doorNest(env), doorLayer(pid, place, tileId, tile)) }));
   return out;
 }
 
