@@ -5,15 +5,16 @@
 #   scripts/try-it.sh --ws pie --copy              a private copy of that outline (<outlines>/pie.sqlite),
 #       served by a host of its own from this repository's outliner (or --outliner <dir>). Writes go to the
 #       copy, which is deleted on exit.
-#   scripts/try-it.sh --showcase [--reset] [--prepare]
+#   scripts/try-it.sh --showcase [--reset] [--prepare] [--screen <name> [<target>]]
 #       the showcase (PIE-439): every shared door part on a seeded, made-up outline, served privately
 #       from <the door's state>/showcase (EP0CH_STATE, else ${XDG_STATE_HOME:-~/.local/state}/ep0ch-door). Seeded on first run; edits persist
-#       until --reset stops its host, deletes that state and reseeds. --prepare sets it up and exits.
+#       until --reset stops its host, deletes that state and reseeds. --prepare sets it up and exits. --screen opens
+#       that screen over the main menu on it, instead of the showcase's sections.
 #
 # --hub <block-id> opens that board; otherwise the door picks the outline's board (or asks).
 set -eu
 here=$(cd "$(dirname "$0")/.." && pwd)
-ws=""; copy=0; hub=""; outliner="${EP0CH_OUTLINER:-$here/../outliner}"; showcase=0; reset=0; prepare=0
+screen=""; ws=""; copy=0; hub=""; outliner="${EP0CH_OUTLINER:-$here/../outliner}"; showcase=0; reset=0; prepare=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --ws) ws="$2"; shift 2 ;;
@@ -23,6 +24,7 @@ while [ $# -gt 0 ]; do
     --showcase) showcase=1; shift ;;
     --reset) reset=1; shift ;;
     --prepare) prepare=1; shift ;;
+    --screen) screen="$2"; shift 2; case "${1:-}" in ''|-*) ;; *) screen="$screen $1"; shift ;; esac ;;
     -h|--help) sed -n '2,12p' "$0"; exit 0 ;;
     *) echo "unknown option: $1 (see --help)" >&2; exit 2 ;;
   esac
@@ -120,7 +122,7 @@ if [ "$showcase" = 1 ]; then
   echo "door → the showcase at $base (made-up notes; edits stay until --reset)"
   echo "      control socket: EP0CH_CONTROL=$base/door/door.sock"
   cd "$here" && EP0CH_STATE="$base/door" EP0CH_CONTROL="$base/door/door.sock" EP0CH_OUTLINES="$base/outlines" EP0CH_SOCKET= \
-    bun src/main.ts --no-daemon --ws showcase --showcase
+    bun src/main.ts --no-daemon --ws showcase --showcase ${screen:+--screen $screen}
   exit $?
 fi
 

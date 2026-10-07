@@ -249,6 +249,8 @@ const ITEMS: MenuItem[] = [
   { key: "E", label: "End", open: () => null, action: "session.end" },
   // A new note (PIE-544), as ctrl+n on every screen: at the top of the Inbox, opened to be written.
   { key: "+", label: "New note", open: () => null, action: "note.new" },
+  // The component library (PIE-618): a page per component, from the schemas; `ep0ch --screen library` opens it too.
+  { key: "I", label: "Library", open: () => openScreen("library"), one: "library" },
   // A blank screen (PIE-565): one tile to build from, saved as a screen note with ^W w; its o opens the ones you made.
   { key: "M", label: "Make a screen", open: () => openScreen("blank") },
 ];
@@ -444,7 +446,7 @@ const SCREEN_NAMES: Record<string, string[]> = {
   N: ["new scan", "newscan"], J: ["join conference", "conferences"], K: ["kanban", "board"], R: ["recent"], W: ["who's online", "who"],
   L: ["last callers"], F: ["file areas"], S: ["board stats"], Q: ["quay", "river"], B: ["art"], D: ["desk"], G: ["goodbye", "logoff", "log off"],
   X: ["showcase"], T: ["today", "brief"], O: ["waiting"], C: ["welcome", "claude-now"], "!": ["drop to shell", "dos"], E: ["end session", "end"],
-  "+": ["new note", "new", "note.new"], M: ["blank", "blank screen", "make a screen"],
+  I: ["library", "components"], "+": ["new note", "new", "note.new"], M: ["blank", "blank screen", "make a screen"],
 };
 
 /** The shell's actions: the menu's letters, ⏎ and clicks, and q on every BBS screen, run these, as `act` does. */
@@ -1439,6 +1441,7 @@ const HELP: Record<string, string> = {
   W: "every client attached to the outline right now", L: "who edited what, agents and humans", F: "the WOE art packs, read from their zips",
   S: "activity heatmap and top posters", K: "delivery board: stage lanes, one preview, details, outline and backlinks docks", Q: "the river: Quay's columns, spines and threads over the live outline", B: "the ep0ch menu by shypht, 1997",
   D: "the desk: outline, reader, thread and live tiles you lay out yourself", X: "the showcase: every shared part, live (on a showcase outline)", T: "today's brief: the newest type::daily-brief note, live; , . step days", O: "waiting on others: outbox items still waiting, by who they wait on, longest first", C: "Claude · now: the [[claude-now]] page, pinned and live", V: "cycle video mode (alt+v on every screen; alt+t the theme)", "?": "this screen", G: "log off (and remember this call); in a session only this terminal detaches, and everything keeps running for the next attach",
+  I: "the component library: a page per component (properties, each value drawn with its source, grids, every combination)",
   "!": "drop to shell: your login shell in this terminal; exit comes back here, tiles still running",
   E: "end the session: the door stops with its terminal tiles' programs (G only detaches this terminal); asks first when programs run",
   "+": "a new note at the top of the Inbox, opened to be written (ctrl+n on every screen; from a reader, under the note it shows)",

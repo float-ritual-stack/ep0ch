@@ -24,6 +24,16 @@ function ep0ch(...args: string[]) {
   return { code: r.exitCode, out: r.stdout.toString(), err: r.stderr.toString() };
 }
 
+describe("--screen never silently does nothing", () => {
+  test("an unknown screen with --showcase is refused before the showcase starts, with a command that works", () => {
+    const r = ep0ch("--showcase", "--screen", "nosuchscreen");
+    expect(r.code).toBe(2);
+    expect(r.err).toContain('no screen "nosuchscreen"');
+    expect(r.err).toContain("try ep0ch --screen ");
+    expect(r.out).not.toContain("door → the showcase");
+  });
+});
+
 describe("a word ep0ch doesn't know", () => {
   test("a typo'd command exits 2, opens no door, and names the closest command", () => {
     const r = ep0ch("sessionss");

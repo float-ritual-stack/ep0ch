@@ -1986,7 +1986,8 @@ styles, callouts, rules, `::graph-meter` and `::graph-spark`, and any an extensi
 (`components`). The outline adds its own values (a `[heading-style::plot]` note makes `plot` a value of `[heading::]`).
 Two things are made from that and nothing else: property completion in a draft (above) and the **library**, a
 design-system page per component. `ep0ch --screen library` opens it (`--screen library callout` on a component;
-`screen.open name=library` from anywhere).
+`screen.open name=library` from anywhere; `I` on the main menu; `ep0ch --showcase --screen library` opens it on the
+showcase outline). On a running session, `ep0ch --screen library` opens it there and says so on the status bar.
 
 A page has four parts. **Overview**: what it is, where it goes, the minimal example and the properties table (key,
 where it's written, values, default, meaning). **One property at a time**: each value drawn live, the exact source
