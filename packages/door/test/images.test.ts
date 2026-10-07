@@ -354,6 +354,8 @@ describe("the header takes the hero image as it scrolls under (PIE-598)", () => 
   test("follow: each picture takes over as it scrolls under, fading in over the one before (Kitty: a layer above it; cells: mixed over it)", async () => {
     await ready("sunset.png"); await ready("wide.jpg");
     const text = `Plot\n- [img::${file("sunset.png")}] [size::full]\n\n${body(10)}\n\n[img::${file("wide.jpg")}] [size::full]\n\n${body(80)}`;
+    // A placement drawn from sunset.png's content (its media key), the first picture.
+    const m0Key = (_p: unknown) => (media(file("sunset.png"), "img") as ReadyMedia).key;
     const backdrops = (v: { placements?: { key: string }[] }) => (v.placements ?? []).filter(p => p.key.startsWith("hero-backdrop:")) as any[];
     useHeroHeader({ on: true, mode: "follow" });
     try {
@@ -373,6 +375,17 @@ describe("the header takes the hero image as it scrolls under (PIE-598)", () => 
       await until(() => backdrops(s.render(100, 40, h)).length === 1, "the second alone", 10_000);
       expect(s.headerBackdrop().backdrop).toMatchObject({ image: "wide.jpg", step: 3 });
       expect(s.headerBackdrop().backdrop!.over).toBeUndefined();
+      // A jump straight past a picture not made yet: the one before stays until it's drawn at full, never plain.
+      await sharp(file("wide.jpg")).toFile(file("wide-cold.jpg"));
+      await ready("wide-cold.jpg");
+      const j = new NoteSurface();
+      j.show(note(text.replace("wide.jpg", "wide-cold.jpg")) as any, h);
+      j.render(100, 40, h);
+      (j as any).scroll = second.line + second.rows + 1;
+      const first = backdrops(j.render(100, 40, h));
+      expect(first.length).toBeGreaterThanOrEqual(1);
+      if (first.length === 1) expect(first[0].key).toContain(m0Key(first[0]));
+      await until(() => backdrops(j.render(100, 40, h)).length === 1 && j.headerBackdrop().backdrop?.over === undefined, "the new one at full, alone", 10_000);
       // Cells: the header's colours mixed over the first picture's, never the plain ground between them.
       const c = new NoteSurface(), hc = host(false);
       c.show(note(text) as any, hc);

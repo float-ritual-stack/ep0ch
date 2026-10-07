@@ -614,15 +614,15 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
     keys: "`ep0ch act reader.hero on=false`, `ep0ch act reader.hero on=true mode=follow`",
     touches: "screen", replay: "ask", says: out => `· ${out.on ? `headers take ${out.mode === "follow" ? "each picture as it scrolls under" : "the hero image"}` : "headers stay plain"}`,
     args: {
-      on: { type: "boolean", about: "true: the header takes the picture as it scrolls under; false: headers stay plain" },
+      on: { type: "boolean", optional: true, about: "true: the header takes the picture as it scrolls under; false: headers stay plain; left out, it stays as it was" },
       mode: { type: "string", optional: true, about: "first (the hero only, the default) or follow (each picture in turn); left out, it stays as it was" },
     },
     run({ on, mode }, { ctx }) {
       if (mode !== undefined && !(HERO_MODES as readonly string[]).includes(mode)) throw new ActionRefused(`mode is first or follow, not ${JSON.stringify(mode)}`);
-      const keep = { on, mode: (mode ?? heroHeaderMode()) as HeroMode };
+      const keep = { on: on ?? heroHeaderOn(), mode: (mode ?? heroHeaderMode()) as HeroMode };
       useHeroHeader(keep);
       writeState("reader-hero.json", keep);
-      ctx.flash(!on ? "readers' headers stay plain" : keep.mode === "follow" ? "a reader's header takes each picture as it scrolls under" : "a reader's header takes the hero image as it scrolls under");
+      ctx.flash(!keep.on ? "readers' headers stay plain" : keep.mode === "follow" ? "a reader's header takes each picture as it scrolls under" : "a reader's header takes the hero image as it scrolls under");
       ctx.redraw();
       return { on: heroHeaderOn(), mode: heroHeaderMode() };
     },

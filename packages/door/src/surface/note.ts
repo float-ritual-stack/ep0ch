@@ -794,9 +794,13 @@ export class NoteSurface {
       const entry = media(x.path, x.kind);
       return entry.state === "ready" ? backdrop(entry, x.focus, x.dim, n, w, rows, ...cell, graphics, over) : null;
     };
-    const before = mode === "follow" && at > 0 && step < HERO_STEPS ? all[at - 1]! : null;
-    const under = before ? draw(before, HERO_STEPS, { z: -3 }) : null;
+    // The one before stays under it until it's drawn at full (a step or a variant still being made never leaves the
+    // header plain, or shows a lower step over nothing).
+    const prev = mode === "follow" && at > 0 ? all[at - 1]! : null;
+    let under = prev ? draw(prev, HERO_STEPS, { z: -3 }) : null;
     const shade = draw(pick, step, under && "grid" in under ? { grid: under.grid } : {});
+    if (shade && shade.step === HERO_STEPS) under = null;
+    const before = under ? prev : null;
     const name = (x: { path: string }) => x.path.split("/").pop() ?? x.path;
     this.backdropShown = {
       image: name(pick), line: pick.line + 1, step, of: HERO_STEPS, mode, drawn: !step && !under ? null : !shade && !under ? "making" : graphics ? "kitty" : "cells",
