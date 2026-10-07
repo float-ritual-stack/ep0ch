@@ -66,11 +66,24 @@ describe.skipIf(!outliner)("a tile's menu (PIE-492)", () => {
     expect(by("edit")).toMatchObject({ group: "Note", key: "e" });
     // Back has nothing to go back to yet: not in the menu.
     expect(by("back")).toBeUndefined();
+    // $EDITOR on a draft is a row only while one is being written.
+    expect(by("edit.external")).toBeUndefined();
     // Each row's key is one its action declares (the keycap is the action's own key).
     for (const r of out.rows) if (r.key) expect(declaredKeys(D().dispatch.list().actions.find((a: any) => a.name === r.action)?.keys).has(r.key)).toBe(true);
     // Nothing drawn, the person's keys where they were.
     expect(menu()).toBeNull();
     expect(get().focus).toBe("activity");
+  });
+
+  test("in an edit, the menu's edit in $EDITOR is ctrl+x ctrl+e (edit.external), the person's only", async () => {
+    fresh();
+    await until(() => !!D().pane("reader")?.msg, "the reader shows a note");
+    await mine("edit", {}, "reader");
+    const out = await act("tile.menu", {}, "reader") as { rows: MenuRow[] };
+    expect(out.rows.find(r => r.action === "edit.external")).toMatchObject({ label: "edit in $EDITOR", group: "Note", key: "ctrl+x ctrl+e" });
+    expect(out.rows.find(r => r.action === "edit")).toBeUndefined();
+    await expect(act("edit.external", {}, "reader")).rejects.toThrow(/person's terminal/);
+    await mine("edit.close", {}, "reader");
   });
 
   test("a click on a tile's ⋯ opens its menu under it; one click on a row runs it as the person", async () => {

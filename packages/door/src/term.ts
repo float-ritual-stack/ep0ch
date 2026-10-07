@@ -118,7 +118,7 @@ export interface HandoverOpts { cwd?: string; env?: Record<string, string>; bann
 export interface Handover { run(argv: string[], o?: HandoverOpts): Promise<number | null> }
 /**
  * A program the door runs for a moment in a terminal tile beside what the person is reading (`Ctx.inTile`, PIE-417):
- * ctrl+e's $EDITOR on a draft's file, ctrl+t's picker. `name` is the tile's; `file` the file it edits; the door's
+ * $EDITOR on a draft's file (a reader's ctrl+e, a draft's ctrl+x ctrl+e), ctrl+t's picker. `name` is the tile's; `file` the file it edits; the door's
  * own settings for it (`own`: EP0CH_* too; null unsets one); `shows` what its title calls the program; `wide`: it wants width
  * more than height (a picker's list), so it may go below the reader rather than beside it.
  */

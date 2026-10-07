@@ -1172,7 +1172,7 @@ the same plan's answer.
 | `d` `d` | trash the selected card (and the notes under it); `u` restores it |
 
 - **A new card is born in its lane.** `n` opens a composer over the board (the same edit control as a
-  note: `Ctrl+S` creates, `Ctrl+E` hands it to `$EDITOR`, `Esc` twice puts it aside and `n` in the lane
+  note: `Ctrl+S` creates, `Ctrl+X Ctrl+E` hands it to `$EDITOR`, `Esc` twice puts it aside and `n` in the lane
   brings it back). The first line is the
   title. The lane's plain clauses are appended to the first line as `[key::value]` tokens, unless the text
   already says so; a typed value that contradicts one is refused. The lane's `[create::key=value]` is a
@@ -1239,13 +1239,15 @@ Every reader is the same **note surface** (`src/surface/note.ts`): it draws the 
 the edit, the passage picker and the comment threads, the property warning and "changed elsewhere", and
 keeps unsaved text safe. A view only gives it a rectangle, of any width, and says where a followed link
 opens. Writing a note and writing a comment use one edit control (`src/surface/editor.ts`): the same
-frame, the same status line, the same keys (`Ctrl+S`, `Ctrl+E` to `$EDITOR`, `Ctrl+T` to a picker, `Esc`, twice when unsaved).
+frame, the same status line, the same keys (`Ctrl+S`, `Ctrl+X Ctrl+E` to `$EDITOR`, `Ctrl+A` `Ctrl+E` to the line's start and end, `Ctrl+T` to a picker, `Esc`, twice when unsaved).
 The board's new-card composer is the same control too.
 
 | Keys | Action |
 |---|---|
 | `e`, then `⏎` (or `e` again) | edit in place; the draft is the note's whole text: subject line, body and `[key::value]` properties. The first `e` only asks (`edit.arm`): the status bar says `edit <title>? ⏎ · any other key cancels` and the reader's frame and title turn the edit's yellow (`✎ edit?`; in the BBS reader its `Subj:` line). `⏎` or `e` within 2 s opens it; any other key lets it go and does what it does (`e` then `j` scrolls), and the 2 s running out lets it go quietly. A stray `e`, or one typed into the wrong tile, never opens an edit. The tile menu's `edit` row, a click on the hint row's `e` and an agent's `edit` open at once. `ep0ch act edit.arm.set on=false` turns the asking off (`on=true ms=<n>` sets the wait), kept for the next start; `EP0CH_EDIT_ARM` (`off`, or the wait in milliseconds) overrides it |
-| `Ctrl+E` (then `⏎` or `Ctrl+E`) | hand the draft to `$VISUAL` / `$EDITOR` (then `vi`); what comes back replaces the draft. From reading it asks first, as `e` does; inside an open edit it hands the draft over at once |
+| `Ctrl+E` (then `⏎` or `Ctrl+E`), while reading | edit the note in `$VISUAL` / `$EDITOR` (then `vi`); what comes back replaces the draft. It asks first, as `e` does |
+| `Ctrl+X Ctrl+E`, or the tile menu's `edit in $EDITOR`, in a draft | hand the open draft (an edit, a comment or reply, the board's new card) to `$EDITOR` at once (`edit.external`, bash's own chord); what comes back replaces it |
+| `Ctrl+A`, `Ctrl+E` (`Home`, `End`) | the start and the end of the line: a Mac terminal sends them for `Cmd+←` and `Cmd+→`. `Ctrl+K` cuts to the end |
 | `Ctrl+T`, or a click on `[insert]` | **insert from a picker** (`draft.pick`, src/pick.ts): `tv ep0ch` (television's outline channel, from `ext/television`) opens in a terminal tile beside the note, with your keys (on a screen without tiles, or a locked one like the board, it takes the terminal), and what you choose there (Tab picks several) goes in at the cursor, space-separated: `((id))` for a note, `[file::path]` from `ep0ch-files` (`ctrl-t` in tv switches channel, `ctrl-s` between its Tree, Recent and All); the tile closes when tv does. `EP0CH_PICKER` names another picker (`fzf -m`), `EP0CH_PICK_CHANNEL` its argument (empty for none). In a comment or reply and the board's new card too. The person's only: an agent writes with `draft.patch` |
 | `Ctrl+S` | save |
 | `Ctrl+R` | after the note changed elsewhere: load the current text (your draft is copied to disk first) |
@@ -1418,7 +1420,7 @@ in the lanes comments in the preview.
 | `j k` | move to the next / previous line with text (the whole line, without its indent) |
 | `J K` | extend / shrink the passage by a line |
 | `h l`, `H L` | move where the quote starts (`h l`) or ends (`H L`) by a word |
-| `Enter` | write the comment under the quote; `Ctrl+S` sends, `Ctrl+E` hands it to `$EDITOR` |
+| `Enter` | write the comment under the quote; `Ctrl+S` sends, `Ctrl+X Ctrl+E` hands it to `$EDITOR` |
 | `m` | the note's comment threads: `j k` pick, `r` reply, `x` resolve or reopen, `C` a new comment |
 | `⏎` or a click on a `▐` | the thread inline, under its passage (below); again collapses it |
 | `Esc` | back a step; with unsent text it asks for a second `Esc`, which puts the comment aside (`C` and a passage bring it back) |
@@ -2040,7 +2042,8 @@ agent's edit meets the same revision check, property warning and duplicate-safe 
 | `tile.zoom` | `tile=<tile>`, `on=true\|false` (default toggles). The desk and every screen on it, the board too. An agent zooms only the tile that has your keys | `^W z` |
 | `pane.split` | `kind=` any tile kind (`actions` lists them: reader, tree, detail, preview, thread, activity, who, art, an extension's, …), `dir=row\|col` (default along the longer side): `tile.open` with its own arguments. On the board a detail opens with a note (`open tile=new-detail`) | desk `^W o` |
 | `backlinks` (the backlinks tile's) | `id` (default the tile's note; yours, none: the reader you read through), `filter`, `kind` (key or label, or `all`), `stage` (`all open waiting draft active done`), `resolved`, `related`, `sort` (`updated`, `created`, `title`, optionally `-asc`/`-desc`). Answers the view: status line, groups, rows. An agent's reads the person's view with its own options on top and changes nothing of theirs; yours (`as=you`) sets the dock | `b`, `/ s K w h n .`, clicks |
-| `edit`, `edit.text`, `edit.save`, `edit.reload`, `edit.close` | `text`; `discard=true`; `external=true` (edit: hand the draft to `$EDITOR`, the person's only) | `e` then `⏎`, typing or `Ctrl+E` (`$EDITOR`), `Ctrl+S`, `Ctrl+R`, `Esc` |
+| `edit`, `edit.text`, `edit.save`, `edit.reload`, `edit.close` | `text`; `discard=true`; `external=true` (edit: open it in `$EDITOR`, the person's only) | `e` then `⏎`, typing or `Ctrl+E` (`$EDITOR`, from a reader), `Ctrl+S`, `Ctrl+R`, `Esc` |
+| `edit.external` (the board's new card: `composer.external`) | none: hand the open edit, or the comment or reply being written, to `$EDITOR`; the person's only | `Ctrl+X Ctrl+E` in a draft, the tile menu's `edit in $EDITOR` |
 | `edit.arm` | `external=true` (`Ctrl+E`'s) | the person's `e`: asks before `edit` opens (refused to an agent, which runs `edit`) |
 | `edit.arm.set` | `on`, `ms` | whether `e` asks first and how long it waits; kept in the state dir (`edit-arm.json`), `EP0CH_EDIT_ARM` over it |
 | `session.leave` | none: leave the edit or comment as a click elsewhere does (an unchanged edit closes, a changed one saves, a refused save or a comment is kept as unsent). An agent: only a session it opened | a click outside the draft; desk `^W` then a window key |

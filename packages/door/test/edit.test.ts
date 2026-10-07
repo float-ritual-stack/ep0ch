@@ -53,8 +53,28 @@ describe("draft", () => {
   });
   test("ctrl keys name the actions and never insert text", () => {
     const d = new Draft("b1", 1, "x");
-    expect([d.key(ctrl("s")), d.key(ctrl("e")), d.key(ctrl("r"))]).toEqual(["save", "editor", "reload"]);
+    expect([d.key(ctrl("s")), d.key(ctrl("x")), d.key(ctrl("e")), d.key(ctrl("r"))]).toEqual(["save", "keep", "editor", "reload"]);
     expect(d.text).toBe("x");
+  });
+  test("ctrl+a and ctrl+e go to the line's start and end (a Mac's cmd+← cmd+→); only ctrl+x ctrl+e is $EDITOR", () => {
+    const d = new Draft("b1", 1, "first line\nsecond");
+    d.key({ kind: "left" }); d.key({ kind: "left" });
+    expect(d.key(ctrl("a"))).toBe("keep");
+    expect([d.row, d.col]).toEqual([0, 0]);
+    expect(d.key(ctrl("e"))).toBe("keep");
+    expect([d.row, d.col]).toEqual([0, 10]);
+    expect(d.text).toBe("first line\nsecond");
+    expect(d.key(ctrl("x"))).toBe("keep");
+    expect(d.note).toContain("ctrl+e opens $EDITOR");
+    type(d, "!");                                       // any other key lets the chord go, and does what it does
+    expect(d.note).toBe("");
+    expect(d.key(ctrl("e"))).toBe("keep");
+    expect(d.text).toBe("first line!\nsecond");
+    expect(d.key(ctrl("x"))).toBe("keep");
+    d.key({ kind: "super", ch: "c" });                  // a copy between lets it go too
+    expect(d.key(ctrl("e"))).toBe("keep");
+    expect(d.key(ctrl("x"))).toBe("keep");
+    expect(d.key(ctrl("e"))).toBe("editor");
   });
 });
 
@@ -305,14 +325,33 @@ describe.skipIf(!outliner)("editing against a scratch outline", () => {
     expect((await current(b.id)).text).toBe("Signalled [stage::queued]\nbody");   // copied, not saved
   });
 
-  test("ctrl+e hands the draft to $EDITOR and saves what comes back", async () => {
+  test("ctrl+e in a draft is the line's end and opens no editor", async () => {
+    const b = await create("Line end [stage::queued]\nbody text");
+    const was = { VISUAL: process.env.VISUAL, EDITOR: process.env.EDITOR };
+    delete process.env.VISUAL;
+    process.env.EDITOR = "perl -pi -e 's/body text/the editor ran/'";
+    try {
+      const { pane, d } = await openReader(b.id);
+      pane.key(ctrl("a"), d);
+      pane.key(ctrl("e"), d);
+      type(pane, "!", d);
+      await Bun.sleep(300);                               // an editor, had one started, would be back by now
+      expect(pane.draft!.text).toBe("Line end [stage::queued]!\nbody text");
+      pane.key({ kind: "esc" }, d); pane.key({ kind: "esc" }, d);
+    } finally {
+      if (was.VISUAL !== undefined) process.env.VISUAL = was.VISUAL;
+      if (was.EDITOR !== undefined) process.env.EDITOR = was.EDITOR; else delete process.env.EDITOR;
+    }
+  });
+
+  test("ctrl+x ctrl+e hands the draft to $EDITOR and saves what comes back", async () => {
     const b = await create("Via editor [stage::queued]\nbody text");
     const was = { VISUAL: process.env.VISUAL, EDITOR: process.env.EDITOR };
     delete process.env.VISUAL;
     process.env.EDITOR = "perl -pi -e 's/body text/written in the editor/'";
     try {
       const { pane, d } = await openReader(b.id);
-      pane.key(ctrl("e"), d);
+      pane.key(ctrl("x"), d); pane.key(ctrl("e"), d);
       await until(() => pane.draft!.text === "Via editor [stage::queued]\nwritten in the editor", "the editor's text back in the draft");
       pane.key(ctrl("s"), d);
       await until(() => !pane.editing, "the save");

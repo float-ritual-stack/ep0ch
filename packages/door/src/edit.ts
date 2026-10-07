@@ -57,6 +57,8 @@ export class Draft {
   /** The text a "this save changes properties" warning was shown for; saving that same text again goes ahead. */
   propertyWarned: string | null = null;
   private discardArmed = false;
+  /** ctrl+x was pressed: a ctrl+e next hands the draft to $EDITOR (bash's edit-and-execute chord); any other key lets it go. */
+  private ctrlX = false;
   note = "";
 
   /**
@@ -167,6 +169,9 @@ export class Draft {
   }
 
   key(k: Key): DraftAction {
+    // Whatever comes after ctrl+x lets the chord go (only a ctrl+e right after it is $EDITOR).
+    const chord = this.ctrlX;
+    if (chord) { this.ctrlX = false; this.note = ""; }
     if (k.kind === "mouse") return "keep";
     // Any key brings the cursor back into view after the wheel scrolled away from it.
     this.follow = true;
@@ -178,12 +183,15 @@ export class Draft {
     this.discardArmed = false;
     if (k.kind === "char" && k.ctrl) {
       if (k.ch === "s") return "save";
-      if (k.ch === "e") return "editor";
+      // ctrl+x ctrl+e: $EDITOR. ctrl+e alone is the line's end, as ctrl+a is its start (a Mac's cmd+→ and cmd+←).
+      if (k.ch === "x") { this.ctrlX = true; this.note = "ctrl+x · ctrl+e opens $EDITOR"; return "keep"; }
+      if (k.ch === "e" && chord) return "editor";
+      if (k.ch === "e") { this.anchor = this.goal = null; this.col = this.line.length; return "keep"; }
       if (k.ch === "t") return "pick";
       if (k.ch === "r") return "reload";
       if (k.ch === "p") { void DRAFT_ACTIONS.run("draft.preview", {}, this, USER); return "keep"; }
       if (k.ch === "z") { void DRAFT_ACTIONS.run("draft.undo", {}, this, USER).catch(e => { this.note = e instanceof Error ? e.message : String(e); }); return "keep"; }
-      if (k.ch === "a") { this.anchor = null; this.col = 0; return "keep"; }
+      if (k.ch === "a") { this.anchor = this.goal = null; this.col = 0; return "keep"; }
       if (k.ch === "k") { this.anchor = null; if (this.col < this.line.length) { this.lines[this.row] = this.line.slice(0, this.col); this.wrote(USER); } return "keep"; }
       return "keep";
     }

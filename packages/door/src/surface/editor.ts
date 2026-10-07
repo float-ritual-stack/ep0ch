@@ -111,12 +111,12 @@ export function editorClick(d: Draft, x: number, y: number, extend = false, acto
   return true;
 }
 
-/** The keys line for a draft, the same words everywhere: `ctrl+s save · ctrl+e $EDITOR · … · esc done`. */
+/** The keys line for a draft, the same words everywhere: `ctrl+s save · esc done · ctrl+x ctrl+e $EDITOR · …`. */
 export function editHint(d: Draft, o: { save: "save" | "send"; reload?: string | null; close?: "done" | "back" }): string {
   if (completionOf(d)) return `${COMPLETION_HINT} · ctrl+s ${o.save}`;
   // The ways out first (a narrow hint row cuts the end), then the list keys and the preview.
   const last = d.patches.at(-1);
-  return `ctrl+s ${o.save} · esc ${d.dirty ? "twice puts it aside" : o.close ?? "done"}${last ? ` · ctrl+z undo ${patchLabel(last.by)}'s edit` : ""} · ctrl+e $EDITOR${o.reload ? ` · ctrl+r ${o.reload}` : ""} · ctrl+t insert · tab indent · shift+tab out · ctrl+p preview`;
+  return `ctrl+s ${o.save} · esc ${d.dirty ? "twice puts it aside" : o.close ?? "done"}${last ? ` · ctrl+z undo ${patchLabel(last.by)}'s edit` : ""} · ctrl+x ctrl+e $EDITOR${o.reload ? ` · ctrl+r ${o.reload}` : ""} · ctrl+t insert · tab indent · shift+tab out · ctrl+p preview`;
 }
 
 /** A note draft's state, for its status line. */
