@@ -10,6 +10,26 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Backups you can stop thinking about (PIE-607)
+
+- **Every 15 minutes, each outline that changed goes to restic.** `ep0ch install --apply` sets up the job on Linux
+  (a systemd timer) and macOS (a launchd agent): a consistent, integrity-checked copy of each outline whose change
+  feed moved, into this machine's restic repository in the `ep0ch` bucket (`restic/<machine>`). An unchanged outline
+  isn't snapshotted, and every run stands alone, so a VPN that drops Hetzner for hours or an offline night leaves
+  nothing to repair. Kept: everything for 48 hours, then hourly for 3 days, daily for a month, weekly for 12 weeks.
+- **Mirrors from the newest snapshot.** float-2's read-only copies of the laptop's outlines (what the MCP gateway
+  serves) are refreshed from the laptop's newest snapshot by an atomic rename, and straight from the laptop with
+  `sqlite3_rsync` when it answers; the newer copy wins.
+- **A stale backup is on your status bar.** Changes waiting more than 2 hours for a backup show `✗ backup` on the
+  door's status bar until they clear; a click says which outline, since when and the exact command that fixes it.
+  It's announced once in Herdr (and on your phone, with a secrets group `ntfy`), and `ep0ch doctor` lists every
+  outline's newest snapshot.
+- **`ep0ch backup restore <outline> [--machine laptop] [--at 3h] --to <path>`** writes an integrity-checked copy of
+  any snapshot; `ep0ch backup list` and `status` show what there is. A restore drill runs every month by itself.
+- **What to run:** on the laptop, `EP0CH_BACKUP_MACHINE=laptop ep0ch install --apply` (its plan names restic and the
+  `restic` secrets group if they're missing). Litestream stays for float-2's own outlines; the laptop's Litestream
+  and float-2's followers retire after three clean days (scripts/backup/README.md has the commands).
+
 ### New notes float, as many as you like (PIE-591)
 
 - **`ctrl+n` never takes over the note you're in.** On the desk (and every screen built on it) a new note floats

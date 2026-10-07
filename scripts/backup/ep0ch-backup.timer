@@ -1,0 +1,11 @@
+# Written by `ep0ch install` from scripts/backup/ep0ch-backup.timer in the ep0ch checkout; install rewrites it.
+[Unit]
+Description=ep0ch backups every 15 minutes (PIE-607)
+
+[Timer]
+OnBootSec=3min
+OnUnitInactiveSec=15min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

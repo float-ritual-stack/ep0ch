@@ -12,7 +12,7 @@
 import { Database } from "bun:sqlite";
 import { chmodSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { isMachineName } from "@ep0ch/outline-core/outline-location";
 import { outlinesDir } from "./discover";
 import type { NotesBoard } from "./notes-cli";
@@ -65,10 +65,19 @@ export interface MirrorRead { board: NotesBoard; asOf: string; stale?: MirrorSta
 const HEALTH_EVERY_MS = 60_000;
 const HEALTH_WAIT_MS = 3_000;
 
-/** Doctor's question about one mirror (setup/backups.ts `mirrorHealth`), asked of this machine's follower unit. */
+/**
+ * Doctor's question about one mirror, asked of this machine's Litestream follower unit (setup/backups.ts
+ * `mirrorHealth`); with none, of the restic backup job's alert (PIE-607, backup/alert.ts), which refreshes the mirror.
+ */
 const followerHealth = async (follow: string): Promise<MirrorStale | null> => {
   const [{ mirrorHealth }, { run }, { detectPlatform }] = await Promise.all([import("./setup/backups"), import("./setup/facts"), import("./setup/model")]);
-  return mirrorHealth(follow, { platform: detectPlatform(), home: process.env.HOME || homedir(), env: process.env, run });
+  const litestream = await mirrorHealth(follow, { platform: detectPlatform(), home: process.env.HOME || homedir(), env: process.env, run });
+  if (litestream) return litestream;
+  const { readAlert } = await import("./backup/alert");
+  const { stateDir } = await import("./state");
+  const key = `${basename(dirname(follow))}/${basename(follow).replace(/\.sqlite$/, "")}`;
+  const i = readAlert(join(stateDir(), "backup"))?.incidents.find(x => x.key === `mirror:${key}` || x.key === `pending:${key}`);
+  return i ? { since: i.since, why: i.detail } : null;
 };
 
 export class OutlineMirror {

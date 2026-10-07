@@ -7,12 +7,13 @@
 // what they need is said.
 import { join, resolve } from "node:path";
 import { ep0ch } from "../session/place";
+import { backupPlan } from "../backup/setup";
 import { linkCommands, linkCounts, type LinkWork, linkWork, type OwnedLink, type StaleLink } from "./links";
 import { type Checkout, type DatabaseFacts, type Deps, type Facts, type HostUnit, KEYED_ACTIONS, PLUGIN_ID, PLUGIN_SOURCE, type SessionFact, short, staleness } from "./model";
 
 /** do: runs with --apply. skip: already current. manual: needs a person (the hint says what). */
 export type StepStatus = "do" | "skip" | "manual";
-export type StepId = "backup" | "repo" | "plugin" | "link" | "ext" | "skills" | "host" | "session";
+export type StepId = "backup" | "repo" | "plugin" | "link" | "ext" | "skills" | "host" | "session" | "backups";
 
 export interface Step {
   id: StepId;
@@ -27,6 +28,8 @@ export interface Step {
   unchecked?: true;
   /** ext, skills: the links to make, replace and take away (links.ts), as the commands say. */
   links?: LinkWork;
+  /** backups: the files it writes (the job's units, its settings) before it loads them. */
+  writes?: { path: string; text: string }[];
 }
 
 export interface Plan { steps: Step[]; notes: string[] }
@@ -350,6 +353,16 @@ export function sessionStep(f: Facts, repo: Pick<Step, "status">): Step {
   return { id: "session", title, status: doing ? "do" : "skip", why: verdicts.map(v => v.why).join("; "), commands: doing ? [`${ep0ch()}session upgrade --all`] : [] };
 }
 
+/**
+ * The restic backup job (PIE-607, src/backup/setup.ts): its units written from scripts/backup/ and loaded, and the
+ * settings file naming this machine. restic and the secrets are the person's: said, with the commands.
+ */
+export function backupsStep(f: Facts): Step | null {
+  if (!f.restic) return null;
+  const p = backupPlan(f.restic);
+  return { id: "backups", title: "Back up the outlines to restic every 15 minutes", status: p.status, why: p.why, commands: p.commands, ...(p.writes.length ? { writes: p.writes } : {}) };
+}
+
 /** The whole plan, in order: backup first, whenever anything after it will change something. */
 export function buildPlan(f: Facts, o: PlanOptions): Plan {
   const repo = repoStep(f);
@@ -359,7 +372,8 @@ export function buildPlan(f: Facts, o: PlanOptions): Plan {
   const ext = [...(f.ext ? [extStep(f)] : []), ...(f.skills ? [skillsStep(f)] : [])];
   const host = hostStep(f, repo.status === "do" && f.repo.checkout.behind > 0);
   const session = sessionStep(f, repo);
+  const backups = backupsStep(f);
   const backup = backupStep(f, o, [repo, plugin, link, host].some(s => s.status === "do"));
   // The session last: handed to the new code once everything under it is current.
-  return { steps: [backup, repo, plugin, link, host, session, ...ext], notes: planNotes(f) };
+  return { steps: [backup, repo, plugin, link, host, session, ...(backups ? [backups] : []), ...ext], notes: planNotes(f) };
 }

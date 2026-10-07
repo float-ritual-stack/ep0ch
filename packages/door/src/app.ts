@@ -23,7 +23,8 @@ import { invalidatePropertyErrors } from "./props";
 import { outlineChanged } from "./refs";
 import { doorNest } from "./nest";
 import { groundSeq, setTheme as useTheme, theme, type ThemeName } from "./theme";
-import { writeState } from "./state";
+import { stateDir, writeState } from "./state";
+import { alertMark, readAlert } from "./backup/alert";
 import { AgentDrawer, DRAWER_ACTIONS, DRAWER_TILE_ID, HOST_AGENT_TILE, HOST_TILE_ACTIONS, overlay, type DrawerRun } from "./drawer";
 import type { HostMode } from "./desk/screen-layout";
 import type { Desk, MovedTile } from "./desk/desk";
@@ -81,6 +82,8 @@ export interface Ctx {
   extensionChanges?: boolean;
   /** Extension writes since logon, counted apart from `events`. */
   extEvents?: number;
+  /** The backup job's alert on this machine (PIE-607): the status bar's mark and what it says, or null. */
+  backupAlert?(): { text: string; say: string } | null;
   board: SocketBoard;
   host: string;
   workspace: string;
@@ -319,6 +322,15 @@ export class App implements Ctx {
   extensionChanges = false;
   /** Where the status bar's `+N ext` sits, for a click. */
   private extAt: { from: number; to: number; row: number } | null = null;
+  /** Where the status bar's backup mark sits, for a click (backups.alert). */
+  private backupAt: { from: number; to: number; row: number } | null = null;
+  private backupRead: { at: number; mark: { text: string; say: string } | null } = { at: -Infinity, mark: null };
+  /** The backup job's alert (src/backup/alert.ts, in the state dir's backup/), read at most once a minute. */
+  backupAlert(): { text: string; say: string } | null {
+    const now = this.now();
+    if (now - this.backupRead.at >= 60_000) this.backupRead = { at: now, mark: alertMark(readAlert(`${stateDir()}/backup`), now) };
+    return this.backupRead.mark;
+  }
   /** The event connection to the service is down; the door is reconnecting. */
   offline = false;
   /** The home base's door: what ends it with the outline chosen (Ctx.home); absent on a door that is on an outline. */
@@ -800,8 +812,9 @@ export class App implements Ctx {
       if (k.action === "down") void this.dispatch.press("changes.extensions");
       return;
     }
-    // A click on the status bar's video mode or theme turns it to the next (video.cycle, theme.cycle).
-    for (const [at, action] of [[this.videoAt, "video.cycle"], [this.themeAt, "theme.cycle"]] as const) {
+    // A click on the status bar's video mode or theme turns it to the next (video.cycle, theme.cycle); on its backup
+    // mark, says what's stale (backups.alert).
+    for (const [at, action] of [[this.videoAt, "video.cycle"], [this.themeAt, "theme.cycle"], [this.backupAt, "backups.alert"]] as const) {
       if (at && k.kind === "mouse" && k.y === at.row && k.x >= at.from && k.x < at.to) {
         if (k.action === "down") void this.dispatch.press(action);
         return;
@@ -869,7 +882,7 @@ export class App implements Ctx {
   /** The status bar's time, as it would read now: the uptime and the clock; and the drawer's chip, which changes on its own. */
   private timeShown(): string {
     const now = this.now();
-    return `${Math.floor((now - this.started) / 60000)}|${new Date(now).toTimeString().slice(0, 5)}|${this.drawer.active ? this.drawer.chipText() : ""}`;
+    return `${Math.floor((now - this.started) / 60000)}|${new Date(now).toTimeString().slice(0, 5)}|${this.drawer.active ? this.drawer.chipText() : ""}|${this.backupAlert()?.text ?? ""}`;
   }
 
   /** The drawer's chip may have changed (its agent started or stopped working): the status bar alone, when it did. */
@@ -978,8 +991,14 @@ export class App implements Ctx {
     const ext = this.extEvents ? (this.extensionChanges ? "ext on" : `+${this.extEvents} ext`) : "";
     const extPart = ext ? `${fg(C.dark)}${ext} ${fg(C.lcyan)}│ ` : "";
     const tail = `${this.video} │ ${theme().name} │ on ${mins}m │ ${clock} `;
-    const right = `${chip ? `${chip} │ ` : ""}${this.offline ? `${fg(C.lred)}offline ${fg(C.lcyan)}│ ` : ""}${this.events ? `${fg(C.yellow)}+${this.events} new ${fg(C.lcyan)}│ ` : ""}${extPart}${tail}`;
+    // A stale backup (PIE-607): marked until it clears; a click says what and the fix (backups.alert).
+    const backup = this.backupAlert();
+    const backupPart = backup ? `${fg(C.lred)}${backup.text} ${fg(C.lcyan)}│ ` : "";
+    const newPart = this.events ? `${fg(C.yellow)}+${this.events} new ${fg(C.lcyan)}│ ` : "";
+    const right = `${chip ? `${chip} │ ` : ""}${this.offline ? `${fg(C.lred)}offline ${fg(C.lcyan)}│ ` : ""}${backupPart}${newPart}${extPart}${tail}`;
     const from = cols - width(right);
+    const backupFrom = cols - width(backupPart + newPart + extPart + tail);
+    this.backupAt = backup && backupFrom >= 0 ? { from: backupFrom, to: backupFrom + width(backup.text), row: this.term.info.rows - 1 } : null;
     const extFrom = cols - width(extPart + tail);
     this.extAt = ext && extFrom >= 0 ? { from: extFrom, to: extFrom + width(ext), row: this.term.info.rows - 1 } : null;
     const tailFrom = cols - width(tail), row = this.term.info.rows - 1;

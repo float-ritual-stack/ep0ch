@@ -8,6 +8,7 @@
 import type { DoorAgent } from "../desk/agent-env";
 import type { HostedOutline } from "../socket";
 
+import type { BackupSetupFacts } from "../backup/setup";
 import type { BackupFacts } from "./backups";
 import type { ExtFacts } from "./ext-links";
 import type { StaleLink } from "./links";
@@ -186,6 +187,8 @@ export interface Facts {
   art?: { dir: string; packs: number; fromEnv: boolean };
   /** The Litestream units (replicators, mirror followers) and how far each replica trails (backups.ts); doctor only. */
   backups?: BackupFacts;
+  /** The restic backup job (PIE-607, src/backup/): its units, settings, restic, the secrets, its state and alert. */
+  restic?: BackupSetupFacts;
 }
 
 /** The plugin's actions the Outliner installer binds keys to. */

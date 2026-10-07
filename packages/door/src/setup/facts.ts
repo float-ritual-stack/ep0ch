@@ -383,7 +383,7 @@ export async function gatherFacts(o: GatherOptions = {}): Promise<Facts> {
     return Promise.resolve(p).finally(() => { waiting.splice(waiting.indexOf(name), 1); done++; o.onProgress?.({ done, total: done + waiting.length, waiting: [...waiting] }); });
   };
   const lines = (what: string): OnLine | undefined => (o.onLine ? l => o.onLine!(`${what}: ${l.trim()}`) : undefined);
-  const [bunVersion, herdrVersion, server, plugin, repo, host, agents, sessions, backups] = await Promise.all([
+  const [bunVersion, herdrVersion, server, plugin, repo, host, agents, sessions, backups, restic] = await Promise.all([
     part("bun", bunPath ? run([bunPath, "--version"], { env, timeoutMs: 5000 }).then(r => r.code === 0 ? r.out : null) : null),
     part("Herdr", herdrPath ? run([herdrPath, "--version"], { env, timeoutMs: 5000 }).then(r => r.code === 0 ? r.out.replace(/^herdr\s+/, "") : null) : null),
     part("Herdr's server", herdrPath ? run([herdrPath, "status", "server", "--json"], { env, timeoutMs: 5000 }).then(r => { try { return JSON.parse(r.out).running === true; } catch { return false; } }) : null),
@@ -393,6 +393,7 @@ export async function gatherFacts(o: GatherOptions = {}): Promise<Facts> {
     part("door agents", doorAgents(env).catch(() => undefined)),
     part("the door sessions", doorSessions(env).catch(() => [])),
     o.backups ? part("the backups", import("./backups").then(b => b.gatherBackups({ platform, home, env, run, restore: o.backups === "restore" }))) : undefined,
+    part("the backup job", import("../backup/setup").then(b => b.backupSetupFacts({ platform, home, env, bun: bunPath, main: join(repoRoot, "packages/door/src/main.ts"), repoRoot, run, which: n => which(n, pathDirs) })).catch(() => undefined)),
   ]);
 
   const found = which("ep0ch", pathDirs);
@@ -460,6 +461,7 @@ export async function gatherFacts(o: GatherOptions = {}): Promise<Facts> {
     skills: skillLinkFacts({ door: repo.door, outliner: repo.outliner, env, home, record }),
     art: { dir: packDir(env), packs: packs(packDir(env)).length, fromEnv: !!env.EP0CH_PACKS },
     ...(backups ? { backups } : {}),
+    ...(restic ? { restic } : {}),
   };
 }
 
