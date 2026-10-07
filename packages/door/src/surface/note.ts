@@ -426,7 +426,7 @@ export class NoteSurface {
   private foldCache: { text: string; points: FoldPoint[]; lines: number[] } | null = null;
   /** The last reading render: where the body starts, how far it's scrolled, and its rows' sources and fold heads. */
   /** What the last render drew: `heroRows`, the rows of the header image above it (PIE-532), which every row here is under. */
-  private drawn: { w: number; top: number; scroll: number; room: number; doc: Doc; lines: number[]; head: string[]; body: string[]; heroRows: number } | null = null;
+  private drawn: { w: number; top: number; scroll: number; room: number; doc: Doc; lines: number[]; head: string[]; body: string[]; heroRows: number; roomAt: (s: number) => number } | null = null;
   /** The last render brought the current element in (reveal), so it's brought in again once the header's rows are known. */
   private lastReveal = false;
   /** The last draw was a host's digest (`digest`): its elements are current, whole, with no scroll of the surface's own. */
@@ -926,7 +926,8 @@ export class NoteSurface {
       return !full || over >= full ? Math.max(0, over) : Math.max(0, Math.ceil((over + full) / 2));
     };
     this.endScroll = reach(0);
-    this.maxScroll = Math.max(this.endScroll, reach(overscrollRows(roomFull)));
+    // Never so far that the last body row leaves the view (a short note under a header image).
+    this.maxScroll = Math.max(this.endScroll, Math.min(Math.max(0, body.length - 1), reach(overscrollRows(roomFull))));
     if (this.endWant) { this.scroll = this.endWant === "edge" ? this.endScroll : this.maxScroll; this.endWant = null; }
     let room = roomAt(this.scroll);
     // The element just stepped to, or the fold point just folded, comes into view; so does an agent's mark
@@ -954,7 +955,7 @@ export class NoteSurface {
     room = roomAt(this.scroll);
     const heroRows = full ? Math.max(0, full - this.scroll) : 0;
     h -= heroRows;
-    this.drawn = { w, top: head.length, scroll: this.scroll, room, doc, lines: noteLines, head, body, heroRows };
+    this.drawn = { w, top: head.length, scroll: this.scroll, room, doc, lines: noteLines, head, body, heroRows, roomAt };
     this.selectionControl(w);
     // The body's images, one column in (its margin), cut to the rows shown.
     const placements = imagePlacements(doc.images, 1, ...cellOf(host)).flatMap(p => inWindow(p, this.scroll, room, head.length) ?? []);
@@ -2283,12 +2284,13 @@ export class NoteSurface {
     const d = this.drawn;
     if (!d) return null;
     const top = this.endWant ? (this.endWant === "edge" ? this.endScroll : this.maxScroll) : Math.max(0, Math.min(this.scroll, this.maxScroll));
+    // The room at that scroll: a header image gives a row back for each row scrolled.
+    const room = top === d.scroll ? d.room : d.roomAt(top);
     // The drawn rows' note lines are 0-based; a line here is 1-based, as block.tint and comments count them.
     const lineOf = (row: number) => { const b = d.doc.source[row]; const l = b === undefined ? undefined : d.lines[b]; return l === undefined ? null : l + 1; };
-    const shown = Array.from({ length: Math.max(0, Math.min(d.room, d.body.length - top)) }, (_, i) => lineOf(top + i)).filter((x): x is number => x !== null);
-    // At the end: the last row is in view. Past it (PIE-622): the blank rows under it, scrolled past the bottom edge.
-    const past = Math.max(0, top - Math.max(0, d.body.length - d.room));
-    return { first: shown[0] ?? null, last: shown.at(-1) ?? null, top, room: d.room, total: d.body.length, atEnd: top + d.room >= d.body.length, past };
+    const shown = Array.from({ length: Math.max(0, Math.min(room, d.body.length - top)) }, (_, i) => lineOf(top + i)).filter((x): x is number => x !== null);
+    // At the end: the last row is in view. Past it (PIE-622): the rows scrolled on from End's first stop, blank under it.
+    return { first: shown[0] ?? null, last: shown.at(-1) ?? null, top, room, total: d.body.length, atEnd: top + room >= d.body.length, past: Math.max(0, top - this.endScroll) };
   }
 
   /** Scroll so note line `line` (1 is the subject) is the first body row in view (view.scrollTo). False before it's drawn. */
