@@ -10,6 +10,15 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### A rule's text pattern can no longer hang the host (PIE-630)
+
+- **Changed:** a rule's text pattern is read structurally and refused when it can backtrack without bound: a repeated
+  group that holds a repetition, an optional atom or alternatives at any depth (`((a+))+`, `(?:a+)+`, `(a*)*`, `(a|a)*`),
+  a backreference, or three repeating or optional atoms side by side that match the same characters (`a*a*a*b`,
+  `a*aa*aa*b`; `a+b+c+` and `\s*(\S+)` are fine). A pattern sees the first 400 characters of a line (was 1000). A rule
+  that used such a pattern is reported with its reason; nothing else changes.
+- **Run:** PROTOCOL 108: `ep0ch install --apply`, then restart the doors.
+
 ### Back to an earlier revision of a note (PIE-621, #277)
 
 - **The outline keeps a note's earlier texts:** the newest 100 each note had, from the first save after this update,
