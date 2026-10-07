@@ -1,0 +1,45 @@
+// scripts/agent-env (PIE-597): an agent's own door settings, and its runs go first when memory runs out. float-2's
+// outline host was once killed by the kernel during an agent's whole-suite run: every run started through agent-env
+// has oom_score_adj 1000, inherited by what it starts, and a --test run is capped (MemoryMax) in a systemd user scope.
+import { afterAll, describe, expect, test } from "bun:test";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+const script = join(import.meta.dir, "../../../scripts/agent-env");
+const root = mkdtempSync(join(tmpdir(), "agent-env-"));
+afterAll(() => rmSync(root, { recursive: true, force: true }));
+
+const run = (...args: string[]) => {
+  const r = Bun.spawnSync([script, "probe", ...args], { env: { ...process.env, EP0CH_AGENT_ROOT: root, EP0CH_LANDING: "welcome" }, stdout: "pipe", stderr: "pipe" });
+  return { code: r.exitCode, out: r.stdout.toString(), err: r.stderr.toString() };
+};
+// Only a process with a lower score can show the raise: under agent-env (or box-test's fork, at 0, it can) the test
+// process may already be at 1000, and the probe would pass without the script doing anything.
+const procs = existsSync("/proc/self/oom_score_adj") && Number(readFileSync("/proc/self/oom_score_adj", "utf8")) < 1000;
+const scopes = Bun.spawnSync(["sh", "-c", "command -v systemd-run >/dev/null && systemctl --user is-system-running"], { stdout: "pipe", stderr: "pipe" }).exitCode === 0;
+
+describe("scripts/agent-env", () => {
+  test("its own settings, none of the person's, the command's arguments, stdin and exit code", () => {
+    const echo = Bun.spawnSync([script, "probe", "--test", "--", "sh", "-c", 'printf "%s|" "$@"; cat', "sh", "a b", "", "$HOME", "*"],
+      { env: { ...process.env, EP0CH_AGENT_ROOT: root }, stdin: Buffer.from("typed"), stdout: "pipe" });
+    expect(echo.stdout.toString()).toBe("a b||$HOME|*|typed");
+    const r = run("--", "sh", "-c", 'echo "$EP0CH_STATE|$EP0CH_CONTROL|$EP0CH_OUTLINES|$TMPDIR|${EP0CH_LANDING-unset}|$EP0CH_DAEMON"; exit 7');
+    expect(r.code).toBe(7);
+    const d = join(root, "probe");
+    expect(r.out.trim()).toBe(`${d}/state|${d}/control.sock|${d}/outlines|${d}/tmp|unset|0`);
+  });
+
+  test.skipIf(!procs)("a run, and what it starts, are the first the kernel kills: oom_score_adj 1000", () => {
+    expect(run("--", "sh", "-c", "cat /proc/self/oom_score_adj; sh -c 'cat /proc/self/oom_score_adj'").out.trim().split("\n")).toEqual(["1000", "1000"]);
+    expect(run("--test", "--", "cat", "/proc/self/oom_score_adj").out.trim()).toBe("1000");
+  });
+
+  test.skipIf(!scopes)("a --test run is in a scope of its own, capped at EP0CH_TEST_MEM", () => {
+    const r = Bun.spawnSync([script, "probe", "--test", "--", "sh", "-c", 'cat "/sys/fs/cgroup$(cut -d: -f3 /proc/self/cgroup)/memory.max"; cut -d: -f3 /proc/self/cgroup'],
+      { env: { ...process.env, EP0CH_AGENT_ROOT: root, EP0CH_TEST_MEM: "512M" }, stdout: "pipe" });
+    const [max, cgroup] = r.stdout.toString().trim().split("\n");
+    expect(max).toBe(String(512 * 1024 * 1024));
+    expect(cgroup).toMatch(/agent-env-probe-\d+\.scope$/);
+  });
+});
