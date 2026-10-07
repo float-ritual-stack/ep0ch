@@ -201,7 +201,7 @@ export function register(on: On, options: PluginOptions): void {
   // waits below 144 columns: the pane never showed and the band was gone.
   on('ui.press', { plugin: 'pi-outliner', element: 'mentions-move' }, async ($, e) => {
     const placement = e.component === 'Pane' ? 'band' : 'pane'
-    await chooseMentions($, x => ({ ...x, placement }), option)
+    await chooseMentions($, x => ({ ...x, placement }), option, true)
     return { element: e.element }
   })
 
@@ -231,11 +231,11 @@ export function register(on: On, options: PluginOptions): void {
   })
 
   on('command.run', { command: 'mentions' }, async ($, e) => {
-    const change = commandChoice(e.args)
-    if (!change) return { text: COMMAND_USAGE }
-    const chosen = await chooseMentions($, change, option)
+    const choice = commandChoice(e.args)
+    if (!choice) return { text: COMMAND_USAGE }
+    const chosen = await chooseMentions($, choice.change, option, choice.places)
     await refreshMentions($, option)
-    return { text: choicesText(chosen) }
+    return { text: choicesText(chosen, chosen.placement !== 'pane' || await paneIsPlaced($)) }
   })
 
   on('session.start', async ($, e, next) => {
@@ -1175,12 +1175,15 @@ async function keepMentionsPrefs($: EngineInterface, next: MentionsPrefs): Promi
  * A choice from a button, a hotkey or `/mentions`: kept, and the pane seated
  * or taken down to match; a new scope reads the list again.
  */
-async function chooseMentions($: EngineInterface, change: (p: MentionsPrefs) => MentionsPrefs, option: PluginOptions): Promise<MentionsPrefs> {
+async function chooseMentions($: EngineInterface, change: (p: MentionsPrefs) => MentionsPrefs, option: PluginOptions, places = false): Promise<MentionsPrefs> {
   const before = await mentionsPrefsOf($)
   const next = prefsOf(change(before))
   await keepMentionsPrefs($, next)
-  if (next.placement === 'pane') await openMentionsPane($)
-  else if (before.placement === 'pane') await $.ui.close({ id: MENTIONS_PANE })
+  // Only a choice of where (m, /mentions pane) opens the pane, even when it is already the choice: previews and
+  // scope leave the band or pane as it is, so a band standing in for a waiting pane stays the band.
+  if (next.placement === 'pane') {
+    if (places || before.placement !== 'pane') await openMentionsPane($)
+  } else if (before.placement === 'pane') await $.ui.close({ id: MENTIONS_PANE })
   if (next.placement === 'off' && before.placement !== 'off') $.ui.toast('Recent mentions hidden; /mentions band or /mentions pane shows them again.', { timeoutMs: 6000 })
   if (next.scope !== before.scope) await refreshMentions($, option)
   return next

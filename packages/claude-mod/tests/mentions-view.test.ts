@@ -194,6 +194,24 @@ describe('Recent mentions in Claude Code', () => {
     expect(session.opened).toEqual([PANE, PANE, PANE, PANE])
   })
 
+  test('/mentions preview and scope only change what is shown: a band standing in for a waiting pane stays the band (PIE-603)', async ($, on) => {
+    const session = sessionIn(on, IN_HERDR, { 'mentions-view': { placement: 'pane', previews: false, scope: 'conversation' } }, 'cells', false)
+    await session.begin($)
+    expect(session.opened).toEqual([PANE])
+    const previews = await $.command.run({ command: 'mentions', args: 'preview' } as any)
+    await $.command.run({ command: 'mentions', args: 'scope' } as any)
+    // The band's own p and s are the same choices.
+    const drawn = await band($)
+    await drawn.press({ key: 'mentions-previews' })
+    await drawn.press({ key: 'mentions-scope' })
+    expect(session.opened).toEqual([PANE])
+    expect(session.closed).toEqual([])
+    expect(session.kept()).toEqual({ placement: 'pane', previews: false, scope: 'conversation' })
+    // It says where they are: the band, standing in for the pane that waits.
+    expect(previews.text).toBe('Recent mentions: in the band, standing in for the pane (not on screen yet; m shows it), previews on, this conversation.')
+    expect((await drawn.find({ key: 'mentions-move' }))?.text).toContain('show pane')
+  })
+
   test('the pane lists the mentions before its controls, so Tab and the arrows reach them first, and says its keys', async ($, on) => {
     const session = sessionIn(on, IN_HERDR)
     await session.begin($)

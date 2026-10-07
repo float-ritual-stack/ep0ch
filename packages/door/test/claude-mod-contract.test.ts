@@ -8,6 +8,8 @@ import { SocketBoard } from "../src/socket";
 import { Scratch, scratchDir } from "./scratch";
 
 const MAIN = join(import.meta.dir, "../src/main.ts");
+/** The outliner's CLI, which the mod runs (as the installed Outliner's `src/cli.ts`) for mentions. */
+const OUTLINER_CLI = join(import.meta.dir, "../../outliner/src/cli.ts");
 const mod = (file: string) => import(join(import.meta.dir, "../../claude-mod/hooks", file));
 
 /** This shell's environment without the door, Herdr and outline it may run in: the test names its own. */
@@ -78,6 +80,30 @@ describe("the CLI the Claude mod runs, read by the mod's own readers", () => {
     expect(body).toContain("Broad beans, then the early peas.");
     expect(body).toContain("Ask about netting");
     expect(body).not.toStartWith("---");
+  });
+
+  test("mentions: only what resolves in the outline is listed, read by the band's own reader (PIE-603)", async () => {
+    const { mentionRowsOf, mentionsListArgs } = await mod("mentions-view.ts");
+    const outliner = async (args: string[], stdin?: string) => {
+      const p = Bun.spawn(["bun", OUTLINER_CLI, ...args], {
+        cwd: scratch.workspace, stdin: stdin === undefined ? "ignore" : new TextEncoder().encode(stdin), stdout: "pipe", stderr: "pipe",
+        env: { ...clean, ...env, FORCE_COLOR: "3", OUTLINER_WORKSPACE_ROOT: scratch.workspace },
+      });
+      const [stdout, stderr, exitCode] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
+      return { exitCode, stdout, stderr };
+    };
+    // A reply naming the seeded note, a source number from a document, a Work ID no block here has, a page nobody
+    // made and a block id this outline never had.
+    const text = `Filed under ((${note})); see S-87, PIE-588, [[no-such-page]] and ((00000000-0000-4000-8000-0000000000aa)).`;
+    const message = { workspaceRoot: scratch.workspace, agent: "claude", sessionId: "contract-session", messageId: "turn-1", text };
+    const ingested = await outliner(["mentions", "ingest"], JSON.stringify(message));
+    expect(ingested.stderr).toBe("");
+    expect(ingested.exitCode).toBe(0);
+    const listed = await outliner(mentionsListArgs("conversation", "contract-session"));
+    expect(listed.exitCode).toBe(0);
+    const rows = mentionRowsOf(listed.stdout);
+    expect(rows.map((row: { id: string | null }) => row.id)).toEqual([note]);
+    expect(rows.some((row: { unavailable?: string }) => row.unavailable)).toBe(false);
   });
 
   test("a refusal reaches the mod plain, with its reason, even under FORCE_COLOR", async () => {
