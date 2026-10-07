@@ -25,15 +25,16 @@ interface Frame {
   /** Whether the group so far holds a repeating or optional atom, or alternatives. */
   repeats: boolean;
   alternates: boolean;
-  /** The run on entry, and the longest run any branch of the group reached. */
+  /** The run on entry. */
   before: Atom[];
-  longest: Atom[];
+  /** What the branches closed so far added to the run. */
+  added: Atom[];
 }
 
 /** The quantifier at `i`: how far it reaches (past a lazy `?`), whether it repeats, and whether it can match nothing. */
-function quantifierAt(raw: string, i: number): { end: number; repeats: boolean; optional: boolean } | undefined {
+function quantifierAt(raw: string, i: number): { end: number; repeats: boolean; optional: boolean; fixed: boolean } | undefined {
   const c = raw[i];
-  let end: number, repeats: boolean, optional = false;
+  let end: number, repeats: boolean, optional = false, fixed = false;
   if (c === "+" || c === "*") { end = i + 1; repeats = true; optional = c === "*"; }
   else if (c === "?") { end = i + 1; repeats = false; optional = true; }
   else if (c === "{") {
@@ -41,10 +42,11 @@ function quantifierAt(raw: string, i: number): { end: number; repeats: boolean; 
     if (!m) return undefined;
     end = i + m[0].length;
     optional = Number(m[1]) === 0;
-    repeats = m[2] ? m[3] === "" || Number(m[3]) > 1 : Number(m[1]) > 1;
+    fixed = !m[2] && Number(m[1]) > 1;
+    repeats = m[2] ? m[3] === "" || Number(m[3]) > 1 : false;
   } else return undefined;
   if (raw[end] === "?") end++;
-  return { end, repeats, optional };
+  return { end, repeats, optional, fixed };
 }
 
 /** Where the escape that starts at `i` (a backslash) ends: `\x61`, `a`, `\u{61}`, `\cJ`, `\p{L}`, or two characters. */
@@ -60,7 +62,8 @@ function escapeEnd(raw: string, i: number): number {
 function charSet(source: string, flags: string, cache: Map<string, CharSet>): CharSet {
   if (cache.has(source)) return cache.get(source)!;
   let set: CharSet = null;
-  try {
+  // What reaches past the probes (an astral literal, \u{…}, \p{…}) is unknown, so it overlaps everything.
+  if (!/\\u\{|\\[pP]\{|[\u{10000}-\u{10FFFF}]/u.test(source)) try {
     const re = new RegExp(`^(?:${source})$`, flags);
     const units = new Uint8Array(0x10000 + ASTRAL.length);
     for (let cp = 0; cp < 0x10000; cp++) units[cp] = re.test(String.fromCharCode(cp)) ? 1 : 0;
@@ -79,7 +82,7 @@ const overlap = (a: Atom, b: Atom): boolean => {
 
 export function unsafePatternReason(source: string, flags = "u"): string | undefined {
   const cache = new Map<string, CharSet>();
-  const fresh = (before: Atom[]): Frame => ({ repeats: false, alternates: false, before, longest: before });
+  const fresh = (before: Atom[]): Frame => ({ repeats: false, alternates: false, before, added: [] });
   const stack: Frame[] = [];
   let top = fresh([]);
   /** The repeating and optional atoms side by side so far. */
@@ -105,13 +108,13 @@ export function unsafePatternReason(source: string, flags = "u"): string | undef
       continue;
     } else if (c === ")") {
       group = top;
-      if (group.longest.length > run.length) run = group.longest;
+      run = [...new Set([...group.added, ...run])];
       top = stack.pop() ?? fresh([]);
       atom = { set: null };
       i++;
     } else if (c === "|") {
       top.alternates = true;
-      if (run.length > top.longest.length) top.longest = run;
+      top.added.push(...run.filter(r => !top.before.includes(r)));
       run = top.before;
       i++;
       continue;
@@ -124,8 +127,9 @@ export function unsafePatternReason(source: string, flags = "u"): string | undef
     }
     const q = quantifierAt(source, i);
     if (q) i = q.end;
-    if (q?.repeats && group && (group.repeats || group.alternates)) return group.repeats ? "it repeats a group that repeats or is optional inside (like (a+)+ or (a?a?)+)" : "it repeats a group of alternatives (like (a|aa)+)";
-    if (group && !q?.repeats) { /* a group's own atoms are in the run already */ }
+    if ((q?.repeats || q?.fixed) && group && (group.repeats || group.alternates)) return group.repeats ? "it repeats a group that repeats or is optional inside (like (a+)+ or (a?a?)+)" : "it repeats a group of alternatives (like (a|aa)+)";
+    if (q?.fixed && !group) run = run.filter(r => overlap(r, atom!));
+    else if (group && !q?.repeats) { /* a group's own atoms are in the run already */ }
     else if (atom && (q?.repeats || q?.optional)) {
       if (run.filter(r => overlap(r, atom)).length > MAX_OVERLAPPING) return "it repeats or makes optional several things side by side that match the same characters (like a*a*a*b)";
       run = [...run, atom];
@@ -134,7 +138,7 @@ export function unsafePatternReason(source: string, flags = "u"): string | undef
       // A required atom ends the part of every atom it can't match what they match.
       run = run.filter(r => overlap(r, atom));
     }
-    if (group) { top.repeats ||= group.repeats; top.alternates ||= group.alternates; }
+    if (group) { top.repeats ||= group.repeats || !!q?.optional; top.alternates ||= group.alternates; }
   }
   return undefined;
 }
