@@ -40,7 +40,9 @@ export function renderEditor(d: Draft, f: EditFrame, w: number, h: number): stri
   // The controls, where there's room for them beside the title (a narrow river column has ctrl+t and ctrl+p).
   const pv = f.preview && w >= 40 ? (d.preview ? "[hide preview]" : "[preview]") : "";
   const pk = f.pick && w >= 56 ? "[insert]" : "";
-  const ctls = [...(pk ? [{ text: pk, action: "pick" as const }] : []), ...(pv ? [{ text: pv, action: "preview" as const }] : [])];
+  // With text selected, a [copy] control: the mouse's way to the draft's copy, wherever copy on select is off.
+  const cp = d.selection() && w >= 32 ? "[copy]" : "";
+  const ctls = [...(cp ? [{ text: cp, action: "copy" as const }] : []), ...(pk ? [{ text: pk, action: "pick" as const }] : []), ...(pv ? [{ text: pv, action: "preview" as const }] : [])];
   const cw = ctls.reduce((n, c) => n + c.text.length + 1, 0);
   const tw = Math.max(1, w - cw);
   const controls: NonNullable<Draft["frame"]>["controls"] = [];
@@ -95,15 +97,18 @@ function previewRows(d: Draft, render: (text: string, w: number) => string[], w:
 
 /**
  * A click (or the press of a drag) in the host's cells, over a draft drawn by `renderEditor`: on the
- * preview control it toggles the preview; on the insert control it runs the host's `pick` (its insert-from-a-picker
- * action); on the text it puts the cursor there (`extend`: a drag, selecting from where it was). All are actions.
- * False when the click wasn't on any.
+ * preview control it toggles the preview (a press, `on` left out, only finds it: the click runs it); on the insert control it runs the host's `pick` (its insert-from-a-picker
+ * action); on the copy control it runs the host's `copy` (`draft.copy`, to the person's clipboard); on the text it
+ * puts the cursor there (`extend`: a drag, selecting from where it was). All are actions. False when the click wasn't on any.
  */
-export function editorClick(d: Draft, x: number, y: number, extend = false, actor: Actor = USER, on: { pick?: () => void } = {}): boolean {
+export function editorClick(d: Draft, x: number, y: number, extend = false, actor: Actor = USER, on?: { pick?: () => void; copy?: () => void }): boolean {
   const f = d.frame;
   if (!f) return false;
   const ctl = !extend ? f.controls.find(c => c.row === y && x >= c.from && x < c.to) : undefined;
-  if (ctl?.action === "pick") { on.pick?.(); return true; }
+  // Without `on` it's a press: a control is hit, and its click (the release) runs it.
+  if (ctl && !on) return true;
+  if (ctl?.action === "pick") { on?.pick?.(); return true; }
+  if (ctl?.action === "copy") { on?.copy?.(); return true; }
   if (ctl) { void DRAFT_ACTIONS.run("draft.preview", {}, d, actor); return true; }
   if (!extend && (y < f.row || y >= f.row + f.rows)) return false;
   const p = d.posAt(x - f.col, Math.max(0, Math.min(f.rows - 1, y - f.row)));
@@ -115,8 +120,9 @@ export function editorClick(d: Draft, x: number, y: number, extend = false, acto
 export function editHint(d: Draft, o: { save: "save" | "send"; reload?: string | null; close?: "done" | "back" }): string {
   if (completionOf(d)) return `${COMPLETION_HINT} · ctrl+s ${o.save}`;
   // The ways out first (a narrow hint row cuts the end), then the list keys and the preview.
-  const last = d.patches.at(-1);
-  return `ctrl+s ${o.save} · esc ${d.dirty ? "twice puts it aside" : o.close ?? "done"}${last ? ` · ctrl+z undo ${patchLabel(last.by)}'s edit` : ""} · ctrl+x ctrl+e $EDITOR${o.reload ? ` · ctrl+r ${o.reload}` : ""} · ctrl+t insert · tab indent · shift+tab out · ctrl+p preview`;
+  const last = d.undos.at(-1);
+  const undo = last ? ` · ctrl+z undo${last.by.kind === "agent" ? ` ${patchLabel(last.by)}'s edit` : ""}` : "";
+  return `ctrl+s ${o.save} · esc ${d.dirty ? "twice puts it aside" : o.close ?? "done"}${undo}${d.redos.length ? " · ctrl+y redo" : ""}${d.selection() ? " · alt+c copy" : ""} · ctrl+x ctrl+e $EDITOR${o.reload ? ` · ctrl+r ${o.reload}` : ""} · ctrl+t insert · tab indent · shift+tab out · ctrl+p preview`;
 }
 
 /** A note draft's state, for its status line. */

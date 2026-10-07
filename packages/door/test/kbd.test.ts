@@ -23,7 +23,7 @@ describe("reading key reports", () => {
   test("ctrl and alt keys legacy can't tell apart; ctrl+[ i m h keep their old meanings", () => {
     expect(key("\x1b[99;5u")).toEqual({ kind: "char", ch: "c", ctrl: true });
     expect(key("\x1b[93;5u")).toEqual({ kind: "char", ch: "]", ctrl: true });   // ctrl+]: the escape chord
-    expect(key("\x1b[97;6u")).toEqual({ kind: "char", ch: "a", ctrl: true });   // ctrl+shift+a
+    expect(key("\x1b[97;6u")).toEqual({ kind: "char", ch: "a", ctrl: true, shift: true });   // ctrl+shift+a (a draft's ctrl+shift+z redoes)
     expect(key("\x1b[91;5u")).toEqual({ kind: "esc" });
     expect(key("\x1b[105;5u")).toEqual({ kind: "tab" });
     expect(key("\x1b[109;5u")).toEqual({ kind: "enter" });

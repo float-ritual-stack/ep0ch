@@ -28,8 +28,7 @@ describe("a patch in a draft being typed in", () => {
   const TEXT = "Morning plan\nThe beans   go along  the fence.\nwater  them ^beds\n\n@tidy tidy this\n";
 
   function typing() {
-    const d = new Draft("note-1", 3, TEXT.replace(/\n$/, ""));
-    d.lines.push("");
+    const d = new Draft("note-1", 3, TEXT);
     d.row = d.lines.length - 1; d.col = 0;
     d.render(40, 6);                                                     // laid out, as on screen
     return d;
@@ -114,7 +113,7 @@ describe("a patch in a draft being typed in", () => {
     expect(gone.applyPatch({ patchId: "f3", patches: [span(gone.text, "water  them", "water them")], revision: 1, mark: "@tidy tidy this", force: true }, { kind: "user" })).toEqual({ applied: true });
   });
 
-  test("ctrl+z takes the patch back as one unit, after more typing; an agent may only undo its own", async () => {
+  test("ctrl+z takes back the newest change, typing then the patch as one unit; an agent may only undo its own", async () => {
     const d = typing();
     const p = span(d.text, "The beans   go along  the fence.", "The beans go along the fence.");
     d.applyPatch({ patchId: "p1", patches: [p], revision: 3, mark: "@tidy tidy this" }, TIDY);
@@ -123,12 +122,45 @@ describe("a patch in a draft being typed in", () => {
     await expect(DRAFT_ACTIONS.run("draft.undo", {}, d, { kind: "agent", id: "someone-else" })).rejects.toThrow("this agent has no edit to undo");
     d.key(ctrl("z"));
     await Bun.sleep(0);
-    expect(d.text).toBe(TEXT + "more");
-    expect(d.note).toBe("undid tidy's edit");
+    expect(d.text).toBe(TEXT.replace("The beans   go along  the fence.", "The beans go along the fence."));
+    expect(d.note).toContain("undid typing");
+    d.key(ctrl("z"));
+    await Bun.sleep(0);
+    expect(d.text).toBe(TEXT);
+    expect(d.note).toContain("undid tidy's edit");
     expect(d.patches).toEqual([]);
     d.key(ctrl("z"));
     await Bun.sleep(0);
-    expect(d.note).toBe("no agent edit to undo in this draft");
+    expect(d.note).toBe("nothing to undo in this draft");
+    // ctrl+y puts them back in order, the patch a patch again.
+    d.key(ctrl("y"));
+    await Bun.sleep(0);
+    expect(d.note).toBe("redid tidy's edit");
+    expect(d.patches.map(u => u.patchId)).toEqual(["p1"]);
+    d.key({ kind: "char", ch: "z", ctrl: true, shift: true });
+    await Bun.sleep(0);
+    expect(d.text).toBe(TEXT.replace("The beans   go along  the fence.", "The beans go along the fence.") + "more");
+  });
+
+  test("an agent's undo takes back its own newest step, else its own patch where it is now", async () => {
+    const d = typing();
+    const { DRAFT_ACTIONS } = await import("../src/edit");
+    d.applyPatch({ patchId: "p1", patches: [span(d.text, "The beans   go along  the fence.", "The beans go along the fence.")], revision: 3, mark: "@tidy tidy this" }, TIDY);
+    for (const c of "more") d.key(char(c));
+    // Not tidy's newest step (the person typed since): its patch, taken back where it is now; the typing stays.
+    await DRAFT_ACTIONS.run("draft.undo", {}, d, TIDY);
+    expect(d.text).toBe(TEXT + "more");
+    // The person's ctrl+z: the taking back was the newest change.
+    d.key(ctrl("z"));
+    await Bun.sleep(0);
+    expect(d.text).toBe(TEXT.replace("The beans   go along  the fence.", "The beans go along the fence.") + "more");
+    // Putting back its own taking back is tidy's; the person's typing isn't.
+    await DRAFT_ACTIONS.run("draft.redo", {}, d, TIDY);
+    expect(d.text).toBe(TEXT + "more");
+    for (const c of "!") d.key(char(c));
+    d.key(ctrl("z"));
+    await Bun.sleep(0);
+    await expect(DRAFT_ACTIONS.run("draft.redo", {}, d, TIDY)).rejects.toThrow("an agent redoes only its own");
   });
 
   test("undo finds its patch after the person typed far above it, and after a later patch moved it", () => {

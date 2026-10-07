@@ -10,7 +10,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, w
 import { join } from "node:path";
 import { subject, type Msg } from "./board";
 import { strayWords } from "./stray";
-import { DRAFT_ACTIONS, pruneOld, sameParty, tidy, whenPut, PATCH_FLASH_MS, Draft, type DraftAction, type DraftActionArgs } from "./edit";
+import { DRAFT_ACTIONS, pruneOld, sameParty, tidy, whenPut, PATCH_FLASH_MS, Draft, type DraftAction, type DraftActionArgs, type Step } from "./edit";
 import { actorIdOf, EditConflict, isExtensionWriter, Refused, USER, type Actor, type Comment, type CommentPassage, type DraftAnswer, type DraftHoldHandle, type DraftRequest, type SocketBoard } from "./socket";
 import { ActionRefused, agentLabel, type DraftUse } from "./surface/actions";
 import { completerOf, completionKey, type Completer } from "./surface/completer";
@@ -146,10 +146,15 @@ export class DraftSession {
     // A new draft here supersedes strays dropped here earlier: ctrl+z never lays them over what came after.
     strays.delete(target.place);
     s.draft.near = target.near;
+    s.draft.redraw = env.redraw ?? null;
     s.draft.titlesPages = target.verb !== "send";
     // Only an edit the person opened can be one opened by mistake: an agent's they typed into is theirs to put aside.
     s.draft.straysClose = target.place.startsWith("edit:") && by.kind !== "agent";
-    if (by.kind !== "agent") s.restore();
+    if (by.kind !== "agent" && !s.restore()) {
+      // The last draft written here, on the text this one starts from: its history carries on (PIE-621).
+      const h = histories.get(target.place);
+      if (h && h.revision === s.draft.base) s.draft.adopt(h.steps);
+    }
     if (target.blockId) {
       registry(env.board).add(s);
       s.hold = env.board?.holdDraft?.(target.blockId, s.draft.base, r => s.answer(r)) ?? null;
@@ -195,7 +200,12 @@ export class DraftSession {
     const why = this.target.blockId ? agentRefusal(actor, { board: this.env.board, blockId: this.target.blockId, except: this }) : null;
     if (why) return { ok: false, why };
     const r = await this.target.submit(this, recordAs(d, actor), { asked: actor, away });
-    if (r.ok) { if (this.open) this.end("written"); return r; }
+    if (r.ok) {
+      // Undo survives the save: an edit of this note opened again on what was written takes up its history.
+      if (r.revision !== undefined && d.undos.length) keepHistory(this.target.place, r.revision, d.undos);
+      if (this.open) this.end("written");
+      return r;
+    }
     if (r.stale && this.open) {
       d.conflict = r.why;
       d.note = `your draft is kept and copied to ${d.copyOut(this.target.label)}${this.target.reload ? ` · ctrl+r ${this.target.verb === "save" ? "loads the current text" : "finds it again"}` : ""}`;
@@ -350,7 +360,7 @@ export class DraftSession {
     d.row = d.lines.length - 1; d.col = d.lines[d.row]!.length;
     d.restored = u.text;
     // Whoever wrote it then wrote it now: a save names them all (recordAs).
-    for (const w of u.writers?.length ? u.writers : [USER]) d.wrote(w);
+    for (const w of u.writers?.length ? u.writers : [USER]) d.wrote(w, "bringing back the unsent draft");
     d.note = `brought back your unsent draft from ${whenPut(u.at)} · ctrl+s ${this.target.verb}s · esc twice drops it`;
     return true;
   }
@@ -838,6 +848,15 @@ export function keepUnsent(u: Unsent): Unsent {
     pruneUnsent(path);
   } catch { /* the copy on disk still has it */ }
   return u;
+}
+
+/** A written draft's history by place, for the next draft there on the revision it wrote (`Draft.adopt`): the last few places. */
+const histories = new Map<string, { revision: number; steps: Step[] }>();
+const HISTORY_PLACES = 20;
+function keepHistory(place: string, revision: number, steps: Step[]) {
+  histories.delete(place);
+  histories.set(place, { revision, steps: [...steps] });
+  for (const k of histories.keys()) { if (histories.size <= HISTORY_PLACES) break; histories.delete(k); }
 }
 
 /** How long after strays are dropped ctrl+z brings them back (ms). */

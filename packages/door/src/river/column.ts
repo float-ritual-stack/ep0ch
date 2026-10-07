@@ -576,10 +576,11 @@ export class RiverColumn extends ReaderPane {
     this.desk = desk;
     if (sideways(k)) return false;                                              // the flow's: its kind steps to the column beside
     if (this.surface.editing && this.surface.msg) {
-      // In an edit: the surface's own (the cursor placed, a completion picked, a drag selecting in the draft).
-      if (k.action === "down") { this.editDrag = this.surface.click(x, y, this.host(desk)); }
+      // In an edit: the surface's own press, drag and release, as on the desk (the cursor placed, a completion picked,
+      // a drag selecting in the draft and copied when the button comes up, a double click's word).
+      if (k.action === "down") { this.editDrag = true; this.surface.press(x, y, this.host(desk), !!((k.mods ?? 0) & 4)); }
       else if (k.action === "drag" && this.editDrag) this.surface.drag(x, y, this.host(desk));
-      else if (k.action === "up") this.editDrag = false;
+      else if (k.action === "up" && this.editDrag) { this.editDrag = false; this.surface.release(x, y, this.host(desk)); }
       else if (k.action === "wheel-up" || k.action === "wheel-down") this.surface.wheel(k.action === "wheel-down" ? 1 : -1, this.host(desk));
       desk.redraw();
       return true;

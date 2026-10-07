@@ -22,6 +22,7 @@ import { cardTarget, DraftSession, openDraftOf, type DraftCommand, type LeaveRes
 import { editHint, editorClick, openInEditor, renderEditor, writtenBy } from "../surface/editor";
 import { pickInto, type Picked } from "../pick";
 import { completerFor, completerOf } from "../surface/completer";
+import { copyOnSelect } from "../surface/selection";
 import { Modes } from "../surface/modes";
 import { ListPicker, pickRow } from "../surface/picker";
 import { changedSinceRead, Refused, type ChecklistRead, type ChecklistStep, type CreatePlan, type StepStatus } from "../socket";
@@ -80,6 +81,8 @@ export class Lanes implements SourceModel {
   composer: Composer | null = null;
   /** Where the composer was last drawn, for the mouse. */
   composerAt: Rect | null = null;
+  /** A drag or shift+click is selecting in the composer's draft: the release copies it. */
+  private composerDrag = false;
   /** The selected card's checklist steps (`s`): pick one and set its status. */
   get steps(): Steps | null { return this.overlays.get("steps") as Steps | null; }
   set steps(p: Steps | null) { this.overlay("steps", p); }
@@ -247,7 +250,13 @@ export class Lanes implements SourceModel {
       const inside = !!r && k.x >= r.col && k.y >= r.row && k.x < r.col + r.cols && k.y < r.row + r.rows;
       const inText = !!r && k.x > r.col && k.y > r.row && k.x < r.col + r.cols - 1 && k.y < r.row + r.rows - 1;
       if (r && pop && k.action === "down" && inText && pop.click(k.y - r.row - 1)) { this.host.redraw(); return true; }
-      if (r && (k.action === "down" || k.action === "drag") && (inText || k.action === "drag") && editorClick(d, k.x - r.col - 1, k.y - r.row - 1, k.action === "drag", USER, { pick: () => void this.host.pressAction(BOARD_ACTIONS, "composer.pick", {}) })) { this.host.redraw(); return true; }
+      // A drag (or a shift+click) selects; the button coming up copies what it selected (copy on select, as in a reader).
+      if (k.action === "up" && this.composerDrag) { this.composerDrag = false; if (d.selectedText()?.trim() && copyOnSelect()) this.composerCommand("copy"); return true; }
+      const shift = k.action === "down" && !!((k.mods ?? 0) & 4);
+      if (r && (k.action === "down" || k.action === "drag") && (inText || k.action === "drag") && editorClick(d, k.x - r.col - 1, k.y - r.row - 1, k.action === "drag" || shift, USER, { pick: () => void this.host.pressAction(BOARD_ACTIONS, "composer.pick", {}), copy: () => this.composerCommand("copy") })) {
+        if (k.action === "drag" || shift) this.composerDrag = true;
+        this.host.redraw(); return true;
+      }
       if (k.action !== "down" || inside) return true;
       if (d.busy) { this.host.ctx.flash("the new card is being created · wait for it"); return true; }
       void this.host.pressAction(BOARD_ACTIONS, "composer.leave").then(r => { const said = r ? leaveSaid(r as LeaveResult) : null; if (said) this.host.ctx.flash(said, 8000); this.host.redraw(); });

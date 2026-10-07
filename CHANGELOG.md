@@ -10,6 +10,17 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Editing basics in a draft: copy, undo and redo, a paste in one step (PIE-621)
+
+- **Copy out of an edit.** A drag in a draft copies when the button comes up, as in a reader (`EP0CH_COPY_ON_SELECT=0`
+  turns it off), and so does a double click's word, a triple click's line and a shift+click. `shift+arrows` select by
+  keys; `cmd+c`, `alt+c` (any terminal, tmux too) or the frame's `[copy]` copy. Through OSC 52, said `copied N chars`.
+- **Undo and redo everything.** `ctrl+z` takes back the newest change, typing a word at a time, a paste in one step
+  however big (a paste over 20 lines or 2 KB says `pasted N lines · ctrl+z undoes`), an insert, `$EDITOR`'s text, a
+  reload, an agent's patch; `ctrl+y` (or `ctrl+shift+z` under the Kitty keyboard protocol) puts it back. Undo goes back
+  past a save: open the note again unchanged and `ctrl+z` carries on.
+- **Run:** nothing beyond `ep0ch install --apply` and a door restart; no protocol or schema change.
+
 ### Components describe their own properties once: a library page each, and completion (PIE-618)
 
 - **New:** the component library, `ep0ch --screen library`: a design-system page for each component (heading

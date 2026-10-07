@@ -2485,7 +2485,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
           focused.key(k, this); return;
         }
         if (focused.editing && k.action !== "wheel-up" && k.action !== "wheel-down") {
-          if ((k.action === "down" || k.action === "drag") && this.clickIn(focused, k)) return this.redraw();
+          if ((k.action === "down" || k.action === "drag" || k.action === "up") && this.clickIn(focused, k)) return this.redraw();
           // A click in the edit's own tile (its frame, its hint rows) stays in it. A click anywhere else leaves
           // it as any editor does (session.leave: saved, closed, or kept as unsent) and then does what it does.
           if (k.action !== "down" || this.topTileAt(k.x, k.y) === this.focus || !this.leaveSession(focused)) return;
@@ -3900,11 +3900,21 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   private clickIn(pane: ReaderPane, k: Extract<Key, { kind: "mouse" }>): boolean {
     const at = this.hits.find(([id]) => this.panes.get(id) === pane);
     const hit = at?.[1];
+    if (!hit) return false;
+    const x = k.x - hit.col - 1, y = k.y - hit.row - 1;
+    // The release of a press made in the edit is its, wherever it comes up: a click there (a control, a completion), or
+    // the end of a drag, which copies what it selected (copy on select, as in a reader).
+    if (k.action === "up") { if (this.editPressed !== pane) return false; this.editPressed = null; pane.release(x, y, this); return true; }
+    // A drag in an open edit selects in its draft (the press placed the cursor).
+    if (k.action === "drag") { if (this.editPressed !== pane) return false; pane.drag(x, y, this); return true; }
     // Only where the reader is on top: a float or a dock drawn over its popup keeps the click.
-    return !!hit && this.topTileAt(k.x, k.y) === at![0] && k.x > hit.col && k.y > hit.row && k.x < hit.col + hit.cols - 1 && k.y < hit.row + hit.rows - 1
-      // A drag in an open edit selects in its draft (the press placed the cursor).
-      && (k.action === "drag" ? (pane.drag(k.x - hit.col - 1, k.y - hit.row - 1, this), true) : pane.click(k.x - hit.col - 1, k.y - hit.row - 1, this));
+    if (!(this.topTileAt(k.x, k.y) === at![0] && k.x > hit.col && k.y > hit.row && k.x < hit.col + hit.cols - 1 && k.y < hit.row + hit.rows - 1)) return false;
+    this.editPressed = pane;
+    pane.press(x, y, this, !!((k.mods ?? 0) & 4));
+    return true;
   }
+  /** The reader whose edit the button went down in, until it comes up. */
+  private editPressed: ReaderPane | null = null;
 
   /** How the hint row and a flash name a reader the person is in: by its number on screen (a view may name it its way). */
   /** A reader as the hint row says it: a detail by its label (detail 1), else its number, or its name where tiles aren't numbered. */
@@ -4124,7 +4134,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
         // A reader decides on release: a click, or a drag that selected text (PIE-419). A ctrl- or alt-click opens beside (PIE-473).
         else if (pane instanceof ReaderPane) {
           this.pressed = { pane, col: r.col + 1, row: r.row + 1, fresh: !!((k.mods ?? 0) & 24) };
-          pane.press(x, y, this);
+          pane.press(x, y, this, !!((k.mods ?? 0) & 4));
           // A click that places the cursor in the person's own edit here (one left open while its tile lost
           // the keys) is in it again, as e would be. An agent's draft still takes e or ⏎ (PIE-411).
           if (id === this.focus && pane.surface.pressedIntoOwn) this.entered.enter(pane);

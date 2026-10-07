@@ -89,7 +89,7 @@ export function reportKey(r: KeyReport): Key | null {
       if (c === "m" || c === "j") return { kind: "enter" };
       if (c === "h") return { kind: "backspace" };
     }
-    return { kind: "char", ch: c, ctrl: true };
+    return { kind: "char", ch: c, ctrl: true, ...(shift && /^[a-z]$/i.test(plain) ? { shift: true as const } : {}) };
   }
   const ch = shift ? (r.shifted ? String.fromCodePoint(r.shifted) : plain.toUpperCase()) : plain;
   return alt ? { kind: "alt", ch } : { kind: "char", ch };
