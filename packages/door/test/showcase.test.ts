@@ -345,6 +345,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     callouts: ["Callouts, as Obsidian writes them", "Can callouts be nested?", "Yes!, they can.", "Recipe callouts"],
     // This test's terminal has no Kitty graphics: each image's line says what it is, with its controls.
     images: ["Pictures of the plot", "▀ header allotment-dusk.jpg", "▣ seed-packet.webp · no Kitty graphics in this terminal", "[−][+] [◂][▸] [▀]", "▣ allotment-notice.png"],
+    // A note whose first block is a picture: scrolled, the header takes it as its background (PIE-598).
+    hero: ["An evening on the plot", "▣ evening-beds.jpg", "hero-focus"],
     // The Markdown figures on the left (a decision first), the keys read from the registry on the right.
     figures: ["Figures, written in Markdown", "SQUASH BEDS", "Raised beds", "The reader's keys", "[e]"],
     // A guide note with a [[page]] nobody wrote yet, for ctrl+n, the offer and the page title fill.
@@ -976,6 +978,37 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     // Every switch was reading state: the note's text is as seeded.
     expect((await board.get(id))!.text).toBe(before);
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+  }, 30_000);
+
+  test("hero header (PIE-598): the opening picture, scrolled under the header, becomes its dimmed background; reader.hero on=false keeps it plain", async () => {
+    (app as any).lastInput = 0;
+    expect(await app.act({ action: "section", args: { name: "hero" }, as: "test-agent" })).toMatchObject({ key: "hero" });
+    await until(() => screen().includes("▣ evening-beds.jpg") && !screen().includes("loading…"), "the hero note, its picture read", 8000);
+    const reader = () => { sc.render(app); return S().stages.get(S().sel).top.describe().panes[0]; };
+    const raw = () => sc.render(app).lines as string[];
+    const titleRow = () => raw().find(l => plain(l).includes("An evening on the plot") && !plain(l).includes("showcase"))!;
+    // At the top the picture is in view: the header knows its hero, at step 0, and is plain.
+    expect(reader().header).toEqual({ backdrop: { image: "evening-beds.jpg", line: 2, step: 0, of: 3, drawn: null }, on: true });
+    expect(titleRow()).not.toContain("\x1b[48;2;");
+    // Scrolled past it (an agent's scroll, through act): the header takes it, in this terminal's cells, by steps.
+    await app.act({ action: "scroll", args: { by: 1 }, as: "test-agent" });
+    await until(() => reader().header.backdrop?.drawn === "cells", "the first step drawn", 8000);
+    expect(reader().header.backdrop).toMatchObject({ image: "evening-beds.jpg", line: 2, step: 1, of: 3 });
+    await app.act({ action: "scroll", args: { by: 4 }, as: "test-agent" });
+    await until(() => reader().header.backdrop?.step === 3 && reader().header.backdrop?.drawn === "cells", "the full step drawn", 8000);
+    // Each header cell has its colour, dark (no channel above a third of full), the title's text on top.
+    const bgs = [...titleRow().matchAll(/\x1b\[48;2;(\d+);(\d+);(\d+)m/g)].map(x => [+x[1]!, +x[2]!, +x[3]!]);
+    expect(bgs.length).toBeGreaterThan(20);
+    expect(Math.max(...bgs.flat())).toBeLessThan(90);
+    expect(new Set(bgs.map(c => c.join(","))).size).toBeGreaterThan(1);
+    expect(plain(titleRow())).toContain("An evening on the plot");
+    // Turned off: every reader's header is plain, and the setting is kept for the next start.
+    expect(await app.act({ action: "reader.hero", args: { on: false }, as: "test-agent" })).toEqual({ on: false });
+    expect(JSON.parse(readFileSync(join(process.env.EP0CH_STATE!, "reader-hero.json"), "utf8"))).toEqual({ on: false });
+    expect(reader().header).toEqual({ backdrop: null, on: false });
+    expect(titleRow()).not.toContain("\x1b[48;2;");
+    expect(await app.act({ action: "reader.hero", args: { on: true }, as: "test-agent" })).toEqual({ on: true });
+    await until(() => reader().header.backdrop?.step === 3, "back on", 8000);
   }, 30_000);
 
   test("images (PIE-532): sized, placed and the header, by act, by keys and by a click on a caption control; ctrl+z undoes", async () => {

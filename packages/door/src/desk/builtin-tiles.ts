@@ -20,8 +20,10 @@ import { words } from "../text";
 import { TREE_ACTIONS } from "./tree";
 
 /** A reader of any sort (reader, detail, preview): notes open into it, and an open edit is work. */
-const reading: Pick<TileKind, "accepts" | "holdsWork" | "shows" | "view" | "take"> = {
+const reading: Pick<TileKind, "accepts" | "holdsWork" | "shows" | "view" | "take" | "describe"> = {
   accepts: { notes: true },
+  // Its header's backdrop (PIE-598), when it draws one or the setting turned it off.
+  describe: p => { const h = (p as ReaderPane).surface.headerBackdrop(); return h.backdrop || !h.on ? { header: h } : {}; },
   // A note opened into it is held, and kept in its history (PIE-453): back returns to what it showed.
   take: (p, m, desk) => {
     const r = p as ReaderPane;
@@ -101,7 +103,7 @@ const builtins = (): TileKind[] => [
       const m = showing(src);
       if (m) pv.follow(m, env.desk);
     },
-    describe: p => ({ source: sourceName((p as PreviewPane).source) }),
+    describe: (p, full) => ({ ...reading.describe!(p, full), source: sourceName((p as PreviewPane).source) }),
   },
   {
     kind: "pty", about: "a program in a terminal (cmd=\"nvim draft.md\", file=<path it edits>, cwd=<folder>)", noun: "a terminal tile",

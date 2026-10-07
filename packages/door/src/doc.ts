@@ -1,7 +1,7 @@
 // Render a note body into terminal lines: headings, lists, code fences, Obsidian-style
 // callouts as boxes, Markdown tables as real tables with wrapped multi-line cells, and
 // media lines as image slots the caller fills with Kitty placements.
-import { brightness, media, parseMediaLine, sizeText, type Media, type MediaSpec } from "./media";
+import { brightness, media, parseMediaLine, sizeText, type Focus, type Media, type MediaSpec } from "./media";
 import { balanceTags, BOLD, C, extractLinks, fg, type LinkRange, pad, RESET, splitVisible, stripTags, styleMarks, trimTagged, UNBOLD, width as vwidth } from "./style";
 import { colourBody, wrap } from "./text";
 import { componentBlocks, noteCodeFences, noteStructure } from "@ep0ch/outline-core/component-block";
@@ -496,17 +496,21 @@ export function heroBox(m: { width: number; height: number }, spec: MediaSpec, W
     const cols = Math.max(1, Math.min(W, Math.round((most * cellH * m.width) / m.height / cellW)));
     return { col: Math.floor((W - cols) / 2), cols, rows: most };
   }
-  const crop = coverCrop(m, W * cellW, most * cellH);
+  const crop = coverCrop(m, W * cellW, most * cellH, spec.focus);
   return { col: 0, cols: W, rows: most, ...(crop ? { crop } : {}) };
 }
 
-/** The part of `m` (as fractions of it) that fills a box `pxW` × `pxH` pixels with its aspect kept, around its middle. */
-export function coverCrop(m: { width: number; height: number }, pxW: number, pxH: number): { x: number; y: number; w: number; h: number } | undefined {
+/**
+ * The part of `m` (as fractions of it) that fills a box `pxW` × `pxH` pixels with its aspect kept, around `focus`
+ * (`[hero-focus::x,y]`; its middle when there's none), kept inside the image.
+ */
+export function coverCrop(m: { width: number; height: number }, pxW: number, pxH: number, focus: Focus = { x: 0.5, y: 0.5 }): { x: number; y: number; w: number; h: number } | undefined {
   const box = pxW / pxH, own = m.width / m.height;
+  const at = (f: number, span: number) => Math.max(0, Math.min(1 - span, f - span / 2));
   if (Math.abs(box - own) / own < 0.01) return undefined;
-  if (own > box) { const w = box / own; return { x: (1 - w) / 2, y: 0, w, h: 1 }; }
+  if (own > box) { const w = box / own; return { x: at(focus.x, w), y: 0, w, h: 1 }; }
   const h = own / box;
-  return { x: 0, y: (1 - h) / 2, w: 1, h };
+  return { x: 0, y: at(focus.y, h), w: 1, h };
 }
 
 /**

@@ -39,6 +39,7 @@ export const SEED = {
   callouts: "Callouts, as Obsidian writes them",
   calloutType: "Recipe callouts",
   images: "Pictures of the plot",
+  hero: "An evening on the plot",
   markdownFigures: "Figures, written in Markdown",
   keys: "The reader's keys",
   newNotes: "New notes from anywhere",
@@ -240,6 +241,38 @@ export const imagesText = (dir = SHOWCASE_ASSETS) => [
   "The notice board is paper white: it's dimmed as it's drawn, as every bright image is, so no image is brighter than the door. [dim::0.5] on its line would set how much.",
   "",
   `[img::${dir}/allotment-notice.png] [size::50%] [alt::the notice board, dimmed]`,
+].join("\n");
+
+/**
+ * The hero section's note (PIE-598): its first block is a picture, so as it scrolls up under the reader's header the
+ * header takes it as a dimmed backdrop, centred on the lit shed (`[hero-focus::…]`). Long enough to scroll.
+ */
+export const heroText = (dir = SHOWCASE_ASSETS) => [
+  `${SEED.hero} [season::autumn]`,
+  `- [img::${dir}/evening-beds.jpg] [hero-focus::0.85,0.6] [alt::the beds at dusk, the shed lit]`,
+  "",
+  "Scroll down (j, the wheel, space): as the picture goes up under the header, the title, the byline and the crumbs take it as their background, dimmed and muted so they stay readable. It fades in from the background by steps.",
+  "",
+  "The crop follows the lit shed: `[hero-focus::0.85,0.6]` on the picture's line moves it (across, then down). An image marked `[layout::hero]` does the same once it scrolls away above the title.",
+  "",
+  "`reader.hero on=false` (an agent's `act`, or `ep0ch act reader.hero on=false`) turns it off in every reader, kept for the next start; on=true brings it back.",
+  "",
+  "## The beds this week",
+  "",
+  ...Array.from({ length: 14 }, (_, i) => `- Bed ${i + 1}: ${["garlic, in by the first frost", "broad beans for spring", "leeks, earthed up", "green manure", "kale and chard", "the rhubarb crowns, mulched", "onion sets"][i % 7]}`),
+  "",
+  "## Jobs before the clocks go back",
+  "",
+  ...["Lift the last of the potatoes and dry them on the bench", "Clean and oil the hoe, the rake and the shears", "Empty the water butts below the tap line", "Cover the compost bays with the old carpet", "Net the brassicas against the pigeons", "Stack the canes in the shed, tallest at the back", "Sow sweet peas in root trainers on the windowsill", "Mend the gate latch (it drops in the wind)", "Order the seed potatoes before the catalogue runs out", "Leave the seed heads standing for the finches"].map(j => `- ${j}`),
+  "",
+  "## Notes",
+  "",
+  "The frost pocket by the lower fence gets it first: nothing tender goes in there before May. The pond needs its leaves skimmed weekly until December.",
+  "",
+  "The neighbour on plot 14 swaps her leek seedlings for our spare broad beans; we owe her a dozen in March.",
+  "",
+  "",
+  "The light goes early now. The shed's lamp is on a timer; the watering can by the door is still full from the morning.",
 ].join("\n");
 
 /** A callout type this outline declares (PIE-538): the reader, the completer and the type choice all offer it. */
@@ -636,6 +669,7 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
   notes.calloutType = await make(notes.root.id, CALLOUT_TYPE);
   notes.callouts = await make(notes.root.id, CALLOUTS);
   notes.images = await make(notes.root.id, imagesText());
+  notes.hero = await make(notes.root.id, heroText());
   // The Markdown figures: the note first (its children need it), then its text once the figure block it transcludes is there.
   notes.markdownFigures = await make(notes.root.id, SEED.markdownFigures);
   for (const d of DECISIONS) await make(notes.markdownFigures.id, `${d.title} [type::decision] [decision-state::${d.state}] [reason::${d.reason}] [date::${d.date}]`);
