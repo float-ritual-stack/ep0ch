@@ -5,10 +5,10 @@ const PLACE = "/state/sessions/local/garden";
 const OWN = doorSocketIn(PLACE);
 const OTHER = "/state/sessions/local/allotment/door.sock";
 
-/** A world where `live` sockets answer and `links` are links. */
-const io = (live: string[], links: string[] = []): DoorReachIO => ({
+/** A world where `live` sockets answer and `links` maps a link to where it points. */
+const io = (live: string[], links: Record<string, string> = {}): DoorReachIO => ({
   listening: async p => live.includes(p),
-  isLink: p => links.includes(p),
+  linkTarget: p => links[p] ?? null,
 });
 
 describe("which door a tile's program reaches (PIE-604)", () => {
@@ -37,9 +37,18 @@ describe("which door a tile's program reaches (PIE-604)", () => {
     expect((await reachDoor(OTHER, PLACE, io([OTHER]))).path).toBe(OWN);
   });
 
-  test("a link (re-pointed by whichever door attaches it) is taken while it answers", async () => {
+  test("a link is followed first: pointing at another outline's door it is refused for the tile's own outline's; into the folder it is taken", async () => {
     const link = "/state/agent-door-pie.sock";
-    expect(await reachDoor(link, PLACE, io([link, OWN], [link]))).toMatchObject({ path: link, stale: null });
+    const away = await reachDoor(link, PLACE, io([link, OWN], { [link]: OTHER }));
+    expect(away.path).toBe(OWN);
+    expect(away.stale).toContain("another outline's door");
+    // A link inside the folder that points out of it is refused too.
+    const sneaky = `${PLACE}/door-4242.sock`;
+    expect((await reachDoor(sneaky, PLACE, io([sneaky, OWN], { [sneaky]: OTHER }))).path).toBe(OWN);
+    const home = `${PLACE}/door-77.sock`;
+    expect(await reachDoor(home, PLACE, io([home, OWN], { [home]: OWN }))).toMatchObject({ path: home, stale: null });
+    // Without EP0CH_PLACE (the Herdr agent's pane) the link is taken as it is.
+    expect((await reachDoor(link, undefined, io([link], { [link]: OTHER }))).path).toBe(link);
   });
 
   test("nothing answers anywhere: the outline's own socket, with no excuse", async () => {

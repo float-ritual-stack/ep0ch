@@ -140,4 +140,20 @@ describe("showing a block in ep0ch-door", () => {
     expect(await other.exited).toBe(3);
     expect(door.requests).toHaveLength(1);
   });
+
+  test("a symlink EP0CH_CONTROL pointing at another outline's door is refused with EP0CH_PLACE set: the tile's own outline's door answers (PIE-604)", async () => {
+    // Ours serves door.sock in its session folder; the other outline's door serves elsewhere.
+    door = await fakeDoor(() => ({ ok: true, result: { reader: "ours", id: BLOCK } }));
+    const other = await fakeDoor(() => ({ ok: true, result: { reader: "theirs", id: BLOCK } }));
+    try {
+      const link = join(door.dir, "door-4242.sock");
+      symlinkSync(other.path, link);
+      const child = Bun.spawn([process.execPath, "src/cli.ts", "door-open", BLOCK, "--actor", "claude-code"], {
+        env: { ...process.env, EP0CH_CONTROL: link, EP0CH_PLACE: door.dir }, stdout: "pipe", stderr: "pipe",
+      });
+      expect(await new Response(child.stdout).text()).toContain('"reader":"ours"');
+      expect(await child.exited).toBe(0);
+      expect(other.requests).toHaveLength(0);
+    } finally { await other.close(); }
+  });
 });

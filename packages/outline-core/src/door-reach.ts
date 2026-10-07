@@ -10,15 +10,17 @@
 // The socket alone goes stale: a session handed over to new code (`ep0ch install --apply`) or restarted serves from a
 // new process, and a door that started beside another on its outline served on `door-<pid>.sock`, gone with it. The
 // place doesn't: the program follows its outline's session there. EP0CH_CONTROL is still taken when it answers from
-// inside that folder, or when it is a link (the Herdr agent's pane, whose link each door re-points as it attaches it).
+// inside that folder; a link is followed first, so one pointing at another outline's door is never taken. (The Herdr
+// agent's pane, whose EP0CH_CONTROL is a link each door re-points as it attaches it, has no EP0CH_PLACE: its link is
+// taken as it is.)
 import { isAbsolute, join, relative, resolve } from "node:path";
 
 /** What the rule asks of the world. */
 export interface DoorReachIO {
   /** Whether a door answers on the socket now. */
   listening(path: string): Promise<boolean>;
-  /** Whether the path is a symbolic link (one a door re-points). */
-  isLink(path: string): boolean;
+  /** Where a symbolic link points (absolute), or null when the path is no link. */
+  linkTarget(path: string): string | null;
 }
 
 /** The socket an outline's door serves on, in its session folder. */
@@ -50,7 +52,9 @@ export async function reachDoor(given: string | null | undefined, place: string 
   if (!p) return { path: g, given: g, place: null, stale: null };
   const own = doorSocketIn(p);
   const givenLive = g ? await io.listening(g) : false;
-  if (g && givenLive && (inside(p, g) || io.isLink(g))) return { path: g, given: g, place: p, stale: null };
+  // The socket it names, a link followed: taken only from inside the outline's session folder.
+  const target = g ? io.linkTarget(g) ?? g : null;
+  if (g && givenLive && inside(p, g) && inside(p, target!)) return { path: g, given: g, place: p, stale: null };
   if (g && resolve(g) === resolve(own)) return { path: g, given: g, place: p, stale: null };
   if (await io.listening(own)) {
     const stale = !g ? null

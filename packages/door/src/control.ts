@@ -56,7 +56,7 @@ export function controlPlace(control: string | null | undefined): string | null 
 export function reachControl(env: Record<string, string | undefined> = process.env): Promise<DoorReach> {
   return reachDoor(env.EP0CH_CONTROL, env.EP0CH_PLACE, {
     listening: p => listening(controlTarget(p)),
-    isLink: p => { try { return lstatSync(p).isSymbolicLink(); } catch { return false; } },
+    linkTarget: p => { try { return lstatSync(p).isSymbolicLink() ? resolve(dirname(p), readlinkSync(p)) : null; } catch { return null; } },
   });
 }
 

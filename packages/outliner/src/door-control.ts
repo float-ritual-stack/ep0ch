@@ -1,4 +1,5 @@
-import { lstatSync } from "node:fs";
+import { lstatSync, readlinkSync } from "node:fs";
+import { dirname, resolve as resolvePath } from "node:path";
 import { connect } from "node:net";
 import { reachDoor, type DoorReach } from "@ep0ch/outline-core/door-reach";
 
@@ -93,6 +94,6 @@ function answers(path: string, timeoutMs = 1000): Promise<boolean> {
 export function reachControl(given: string | null | undefined, place: string | null | undefined): Promise<DoorReach> {
   return reachDoor(given, place, {
     listening: answers,
-    isLink: path => { try { return lstatSync(path).isSymbolicLink(); } catch { return false; } },
+    linkTarget: path => { try { return lstatSync(path).isSymbolicLink() ? resolvePath(dirname(path), readlinkSync(path)) : null; } catch { return null; } },
   });
 }
