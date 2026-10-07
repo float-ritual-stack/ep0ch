@@ -13,6 +13,8 @@
 //   EP0CH_BACKUP_SECRETS   the with-secrets groups restic runs with when its password isn't in the environment: hetzner-s3,restic
 //   EP0CH_RESTIC           the restic binary (default: restic on PATH)
 //   EP0CH_OUTLINES, EP0CH_MCP_MIRROR_DIR   the outlines and the mirrors, where they aren't the defaults
+//   EP0CH_MCP_HUB          the ssh name of the machine whose remote MCP gateway queues writes for this one's outlines
+//                          (netmail, PIE-615): each run pulls them and applies them here. Unset: nothing is pulled
 //
 // Secrets never pass through here: restic gets them from `with-secrets <groups> --`, so they reach only restic.
 import { existsSync, readFileSync } from "node:fs";
@@ -24,11 +26,16 @@ import { defaultStateDir } from "../state";
 export type Env = Record<string, string | undefined>;
 
 /** The settings install keeps in the file when they're set where it runs: the timer doesn't inherit that shell. */
-export const KEPT_SETTINGS = ["EP0CH_BACKUP_REPO", "EP0CH_BACKUP_MIRRORS", "EP0CH_BACKUP_SECRETS", "EP0CH_RESTIC", "EP0CH_OUTLINES", "EP0CH_MCP_MIRROR_DIR"] as const;
+export const KEPT_SETTINGS = ["EP0CH_BACKUP_REPO", "EP0CH_BACKUP_MIRRORS", "EP0CH_BACKUP_SECRETS", "EP0CH_RESTIC", "EP0CH_OUTLINES", "EP0CH_MCP_MIRROR_DIR", "EP0CH_MCP_HUB"] as const;
 
 /** The bucket the Litestream replicas already use, under its own prefix: one repository per machine. */
 export const DEFAULT_REPO = "s3:https://hel1.your-objectstorage.com/ep0ch/restic/{machine}";
 export const DEFAULT_SECRETS = "hetzner-s3,restic";
+/**
+ * The gateway machine a Mac pulls its queued MCP writes from, when its settings file names none: install writes it
+ * there (the laptop's ssh name for float-2). An empty `EP0CH_MCP_HUB=` line in the file says "none" and stays.
+ */
+export const DEFAULT_HUB = "float-2";
 /** The tag every outline snapshot carries; `outline=<name>` and `seq=<change>` say which and how far. */
 export const OUTLINE_TAG = "ep0ch-outline";
 
@@ -47,6 +54,8 @@ export interface BackupConfig {
   mirrors: MirrorSource[];
   restic: string;
   secrets: string[];
+  /** The gateway's machine (its ssh name) this one pulls its queued MCP writes from, if any. */
+  hub?: string;
   /** The settings file, read when it's there. */
   file: string;
   env: Env;
@@ -91,6 +100,8 @@ export function backupConfig(env: Env = process.env): BackupConfig | { error: st
   if ("error" in mirrors) return mirrors;
   if (mirrors.some(m => m.machine === machine)) return { error: `EP0CH_BACKUP_MIRRORS names this machine (${machine}); it lists other machines` };
   const repo = get("EP0CH_BACKUP_REPO") ?? DEFAULT_REPO;
+  const hub = get("EP0CH_MCP_HUB");
+  if (hub && !/^[A-Za-z0-9_][A-Za-z0-9_.@-]*$/.test(hub)) return { error: `EP0CH_MCP_HUB=${hub} isn't an ssh name: set it in ${file}` };
   const state = join(env.EP0CH_STATE ?? defaultStateDir({ ...env, HOME: home }), "backup");
   return {
     machine, machineFrom: env.EP0CH_BACKUP_MACHINE?.trim() ? "env" : named ? "file" : "hostname",
@@ -101,6 +112,7 @@ export function backupConfig(env: Env = process.env): BackupConfig | { error: st
     mirrors,
     restic: get("EP0CH_RESTIC") ?? "restic",
     secrets: (get("EP0CH_BACKUP_SECRETS") ?? DEFAULT_SECRETS).split(",").map(s => s.trim()).filter(Boolean),
+    ...(hub ? { hub } : {}),
     file,
     env: { ...env, HOME: home },
   };

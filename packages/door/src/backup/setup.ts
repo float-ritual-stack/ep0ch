@@ -9,7 +9,7 @@ import { hostname } from "node:os";
 import { dirname, join } from "node:path";
 import type { Platform } from "../setup/model";
 import { type Alert, type BackupState, readAlert, readBackupState } from "./alert";
-import { backupConfig, configFileOf, type Env, KEPT_SETTINGS, machineNameOf } from "./config";
+import { backupConfig, configFileOf, DEFAULT_HUB, type Env, KEPT_SETTINGS, machineNameOf } from "./config";
 
 export const UNIT_MARK = "Written by `ep0ch install`";
 export const SYSTEMD_UNITS = ["ep0ch-backup.service", "ep0ch-backup.timer"] as const;
@@ -146,7 +146,10 @@ export function backupPlan(f: BackupSetupFacts): BackupPlan {
   }
   // The settings file: made with the machine's name, or brought up to what this run was given (a renamed machine:
   // the timer's job reads the file, never the shell install ran in, so a name only in the shell would change nothing).
-  const settings = settingsText(f.config.exists ? f.config.text ?? "" : null, { EP0CH_BACKUP_MACHINE: f.config.machine, ...(f.config.kept ?? {}) });
+  // A Mac pulls the remote MCP gateway's queued writes for its outlines (PIE-615) from float-2, unless its file says
+  // otherwise (an empty EP0CH_MCP_HUB= line: none).
+  const hub = f.platform === "macos" && !f.config.kept?.EP0CH_MCP_HUB && !/^\s*(?:export\s+)?EP0CH_MCP_HUB\s*=/m.test(f.config.text ?? "") ? { EP0CH_MCP_HUB: DEFAULT_HUB } : {} as Record<string, string>;
+  const settings = settingsText(f.config.exists ? f.config.text ?? "" : null, { EP0CH_BACKUP_MACHINE: f.config.machine, ...hub, ...(f.config.kept ?? {}) });
   const changedSettings = settings.changed;
   // Written whenever what it would hold differs from what it holds (an empty file too), not only when a line said so.
   if (!f.config.exists || settings.text !== f.config.text) writes.push({ path: f.config.path, text: settings.text });
@@ -223,6 +226,16 @@ export function resticChecks(f: BackupSetupFacts, now = Date.now()): SetupCheck[
       fix: `on ${from}: EP0CH_BACKUP_MACHINE=${from} ep0ch install --apply (a machine set up under another name: set EP0CH_BACKUP_MACHINE=${from} in its ~/.config/ep0ch/backup.env, then ep0ch backup run)` });
     else if (x.error && !incidents.has(`source:${from}`)) out.push({ name: `mirror ${from}`, status: "unknown", detail: `can't read ${from}'s backups${x.failingSince ? ` since ${ago(x.failingSince)}` : ""}: ${x.error}` });
     else if (incidents.has(`source:${from}`)) { const i = incidents.get(`source:${from}`)!; out.push({ name: `mirror ${from}`, status: "missing", detail: i.detail, fix: i.fix }); }
+  }
+  for (const [m, q] of Object.entries(s.netmail?.queues ?? {}).sort()) {
+    const inc = incidents.get(`netmail:${m}`);
+    out.push(inc ? { name: `netmail ${m}`, status: "missing", detail: inc.detail, fix: inc.fix }
+      : { name: `netmail ${m}`, status: q.waiting ? "info" : "ok", detail: `${q.waiting} remote MCP write${q.waiting === 1 ? "" : "s"} queued for ${m}${q.oldest ? `, the oldest ${ago(q.oldest)}` : ""}; its last pull ${q.lastPull ? ago(q.lastPull) : "never"}${q.lastSeen ? `, last seen online ${ago(q.lastSeen)}` : ""}` });
+  }
+  if (s.netmail?.pull) {
+    const p = s.netmail.pull, inc = incidents.get(`netmail-pull:${p.hub}`);
+    out.push(inc ? { name: `netmail from ${p.hub}`, status: "missing", detail: inc.detail, fix: inc.fix }
+      : { name: `netmail from ${p.hub}`, status: p.ok ? "ok" : "unknown", detail: `pulled ${ago(p.at)}: ${p.detail}` });
   }
   if (s.drill) out.push({ name: "restore drill", status: s.drill.ok ? "ok" : "missing", detail: `${ago(s.drill.at)}: ${s.drill.detail}`, ...(s.drill.ok ? {} : { fix: "ep0ch backup drill" }) });
   // The push channel: Herdr's notification always; ntfy to the phone when its secrets group is there.

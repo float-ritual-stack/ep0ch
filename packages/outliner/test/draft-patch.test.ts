@@ -449,6 +449,31 @@ describe("draft.patch over the protocol", () => {
     expect(store.require(note.id).text).toBe("Morning plan");
   });
 
+  test("propose: held sends a patch for a note open in a draft to that draft as a proposal, and patches a saved note as usual (PIE-615)", async () => {
+    const { store, client } = await service();
+    const open = store.create("Morning plan\nsaved text");
+    const live = "Morning plan\nbeans   here, typing";
+    const door = await fakeDoor(client, "door-held", open.id, live, open.revision);
+    const remote = { author: "agent" as const, actorId: "mcp:chat.example.test" };
+    const held = await client.request<DraftPatchResult>({ action: "draft.patch", blockId: open.id, revision: open.revision, patches: [spanOf(live, "beans   here", "beans here")], mutation: remote, propose: "held" });
+    expect(held).toMatchObject({ outcome: "proposed", reason: expect.stringContaining("open in a draft"), embedded: "draft" });
+    expect(door.requests.some(request => request.kind === "patch")).toBe(false);
+    if (held.outcome === "proposed") expect(door.text).toBe(`${live}\n!((${held.proposalId}))`);
+    expect(store.require(open.id).text).toBe("Morning plan\nsaved text");
+    const shut = store.create("Evening plan\nbeans   here");
+    const saved = await client.request<DraftPatchResult>({ action: "draft.patch", blockId: shut.id, revision: shut.revision, patches: [spanOf(shut.text, "beans   here", "beans here")], mutation: remote, propose: "held" });
+    expect(saved).toMatchObject({ outcome: "applied", edits: [{ route: "saved" }] });
+  });
+
+  test("propose: always makes even a matching patch a proposal, and an unknown value is refused (PIE-615)", async () => {
+    const { store, client } = await service();
+    const note = store.create("Seed list\nrunner  beans");
+    const always = await client.request<DraftPatchResult>({ action: "draft.patch", blockId: note.id, revision: note.revision, patches: [spanOf(note.text, "runner  beans", "runner beans")], mutation: TIDY, propose: "always" });
+    expect(always).toMatchObject({ outcome: "proposed", embedded: "saved" });
+    expect(store.require(note.id).text).toContain("runner  beans");
+    await expect(client.request({ action: "draft.patch", blockId: note.id, revision: store.require(note.id).revision, patches: [spanOf(note.text, "runner  beans", "x")], mutation: TIDY, propose: "sometimes" as never })).rejects.toThrow("propose is always or held");
+  });
+
   test("a lease that runs out sends the patch to the saved note", async () => {
     const { store, client } = await service();
     const note = store.create("Morning plan\nbeans   here");

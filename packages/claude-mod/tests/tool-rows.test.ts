@@ -68,6 +68,14 @@ describe('the formatter: one row per tool', () => {
     expect(proposed!.warning).toBe('proposed, not applied: the text changed under it')
   })
 
+  test('outline_set_property: the chip set, and applied, proposed or no change', () => {
+    const input = { ref: NOTE, key: 'crop', value: 'leek', revision: 3 }
+    expect(words(toolRowOf(done('outline_set_property', input, { outcome: 'applied', edits: [{ blockId: NOTE, route: 'saved' }] }))))
+      .toBe('✎ ((0f3c2a1b…)) · set [crop::leek] · applied')
+    expect(words(toolRowOf(done('outline_set_property', input, { outcome: 'unchanged', key: 'crop', value: 'leek' })))).toBe('✎ ((0f3c2a1b…)) · set [crop::leek] · (no change)')
+    expect(toolRowOf(done('outline_set_property', input, { outcome: 'proposed', reason: 'the text changed under it' }))!.warning).toBe('proposed, not applied: the text changed under it')
+  })
+
   test('outline_create: the new block (pressable) once made, its parent, and the body', () => {
     const running = toolRowOf({ ...done('outline_create', { parent: 'PIE-569', text: 'A tab can hold a split\n\nTwo tiles side by side.' }), isRunning: true })
     expect(words(running)).toBe('+ "A tab can hold a split" · created · under PIE-569')
@@ -147,7 +155,7 @@ describe('the formatter: one row per tool', () => {
   test('every tool the mod draws has a row for a usual input', () => {
     expect([...WRITE_TOOLS, ...READ_TOOLS].sort()).toEqual([
       'note_section', 'outline_changes', 'outline_comment', 'outline_create', 'outline_edit', 'outline_find', 'outline_patch', 'outline_read',
-      'outline_reply', 'outline_resolve', 'outline_resolve_thread', 'show', 'view_order', 'work_body', 'work_complete', 'work_create',
+      'outline_reply', 'outline_resolve', 'outline_resolve_thread', 'outline_set_property', 'show', 'view_order', 'work_body', 'work_complete', 'work_create',
       'work_deliver', 'work_set', 'work_stage',
     ])
   })

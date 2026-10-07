@@ -323,6 +323,7 @@ comes back as the tool's error with the reason.
 | `outline_changes` | `since` (an ISO time or a returned `cursor`), `author?`, `actor?`, `limit?`, `before?` | each changed block once, newest first, with who changed it; `complete`, with `before` for the older page when it is false; the next `cursor` |
 | `view_order` | `view` (id, `((id))` or `[[page]]`), `ids?` (block ids, `((id))`s or Work IDs) | the view's hand-set order (`{view, ref, order: [{id, title, workId?}]}`); with `ids`, those members first in that order, the rest after them as they were, recorded as the agent. A sorted view refuses, naming the `[sort::]` to remove |
 | `outline_patch` | `ref`, `revision`, `patches: [{observed, replacement}]`, `mark?`, `policy?` (`edit`, the default, or `prose`), `allowStructural?` | `draft.patch`'s outcome: `applied`, or `proposed` with the reason |
+| `outline_set_property` | `ref`, `key`, `value`, `revision` | one header chip set as a `draft.patch` span: `applied`, `proposed` with the reason, or `unchanged` |
 
 A `ref` is a block id, `((id))`, `[[page]]` or a Work ID. A title is refused:
 find it with `outline_find` first.
@@ -362,7 +363,7 @@ answer say, and the tree).
   ⌕ find "dropdown menu" · 6 hits
 ```
 
-- **Writes** (`outline_edit`, `outline_patch`, `outline_create`, `outline_comment`, `outline_reply`,
+- **Writes** (`outline_edit`, `outline_patch`, `outline_set_property`, `outline_create`, `outline_comment`, `outline_reply`,
   `outline_resolve_thread`, `note_section`, `work_*`, `view_order` with `ids`): a verb glyph, the note (its Work ID,
   page or title; a block id's title is looked up once a session, off the draw) and the change. **Reads**
   (`outline_read`, `outline_find`, `outline_changes`, `outline_resolve`, `show`) are one dim line.

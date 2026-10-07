@@ -10,7 +10,7 @@ import { App } from "../src/app";
 import { GRAPH_KINDS } from "../src/graphs";
 import { liveBoard } from "../src/live";
 import { Help, MainMenu } from "../src/screens";
-import { CHORE_QUEUE, FIGURE_KINDS, LANES, MARKDOWN_KINDS, loadShowcase, RECENT_FILES, RECENT_SESSION, SEED, seedShowcase, type Seeded } from "../src/showcase/seed";
+import { CHORE_QUEUE, FIGURE_KINDS, LANES, MARKDOWN_KINDS, loadShowcase, RECENT_FILES, RECENT_SESSION, REMOTE_CLIENT, REMOTE_LINE, SEED, seedShowcase, type Seeded } from "../src/showcase/seed";
 import { SECTIONS, Showcase, SHOWCASE_ACTIONS } from "../src/showcase/showcase";
 import { SocketBoard } from "../src/socket";
 import { drawNote } from "../src/notes-cli";
@@ -75,6 +75,16 @@ describe.skipIf(!outliner)("the showcase seed", () => {
     expect(s).not.toBeNull();
     expect(Object.keys(s!.notes).sort()).toEqual(Object.keys(SEED).sort());
     expect((await board.roots()).filter(r => r.props.type === "showcase").length).toBe(1);
+  });
+
+  test("the remote writes note (PIE-615): a remote client's patch at propose is a proposal under it, its comment a thread, the note unchanged", async () => {
+    const note = seeded.notes.remoteWrites;
+    const now = (await board.get(note.id))!;
+    expect(now.text).toContain(REMOTE_LINE);
+    const proposal = (await board.children(note.id)).find(m => m.props.type === "draft-proposal");
+    expect(proposal?.text).toContain("from @mcp:chat.example.test: not applied, because its writer may propose changes here, not make them");
+    expect(now.text).toContain(`!((${proposal!.id}))`);
+    expect((await board.comments(note.id))).toEqual([expect.objectContaining({ body: "Was that the peat-free kind?", quote: "two bags of compost", open: true })]);
   });
 
   test("a board hub whose lanes are saved views, with cards in every stage", async () => {
@@ -489,6 +499,15 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     // The shell's actions stay the App's on the showcase: the stage takes only its own (PIE-514).
     expect(await app.act({ action: "screen.list", as: "test-agent" })).toMatchObject({ stack: expect.any(Array) });
   }, 20_000);
+
+  test("a remote MCP client's write is said on the status line with the note's title (PIE-615)", async () => {
+    const { actorOf, applyWrite } = await import("../src/mcp-writes");
+    const note = seeded.notes.remoteWrites;
+    await applyWrite(board, { tool: "outline_comment", blockId: note.id, input: { whole: true, body: "Compost delivered.", requestId: "showcase-flash" } }, { level: "full", actor: actorOf(REMOTE_CLIENT), uri: id => id });
+    await until(() => String((app as any).message ?? "").includes("mcp:chat.example.test"), "the remote write said", 8000);
+    await until(() => String((app as any).message).includes("commented on “Remote writes"), "the comment said by its note", 8000);
+    expect((app as any).message).toBe("mcp:chat.example.test commented on “Remote writes and the netmail queue” · a remote MCP write");
+  });
 
   test("the headings section (PIE-599): the wide reader bands its headings, the narrow one beside it draws them as written; ) stops on a styled heading and f folds its section", async () => {
     (app as any).lastInput = 0;

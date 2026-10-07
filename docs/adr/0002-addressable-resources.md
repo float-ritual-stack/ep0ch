@@ -48,7 +48,7 @@ local part). Its ids follow [ADR 0001](0001-ids-names-roles.md).
    with `aud` this endpoint, and a subject on `EP0CH_MCP_ALLOWED_SUBJECTS` (unset: refuse all and log the subject);
    `EP0CH_MCP_ALLOWED_CLIENTS` is the optional client allowlist. It reads the outlines on its own machine's host and
    read-only mirrors of other machines' outlines (`EP0CH_MCP_MIRRORS`, PIE-562), each still gated by its access
-   setting, and never writes.
+   setting.
 
    *Implemented (mirrors):* an outline whose home is a machine that is often unreachable (float-hub on the laptop) is
    read from a copy on the gateway's machine, kept current from the outline's own Litestream replica
@@ -61,6 +61,16 @@ local part). Its ids follow [ADR 0001](0001-ids-names-roles.md).
    an outline's content into the repository (fixtures, tests, commits). Revocation is the access setting (at once), the
    allowlists (on restart), and Clerk's own grant (refresh). Clerk's JWT access tokens can't be recalled before
    they expire (a day).
+
+   *Implemented (writes, PIE-615):* the gateway offers `outline_create`, `outline_patch`, `outline_comment` and
+   `outline_set_property` with the Claude mod's shapes, and runs the outliner's own agent operations for them
+   (`packages/door/src/mcp-writes.ts` over `@ep0ch/outliner/agent-tools`): no second write path. `propose` makes a patch
+   or a property a `draft.patch` proposal (`propose: always`) and a new block a comment on its parent; `full` applies
+   under the service's revision checks, and a note open in a door's draft gets a proposal in that draft
+   (`propose: held`). Each write is `author: agent`, actor `mcp:<client>`, session the token's subject. A mirror is never
+   written: its outline's writes queue on the gateway's machine (`src/mcp-netmail.ts`, keyed by the block's URI and the
+   revision, text hash and home instance id the mirror showed), and the home machine pulls them over ssh in its backup
+   job and applies them with the same code; a note changed since becomes a proposal, never an overwrite.
 5. **The door decides where an open lands; a host only routes and focuses.** `ep0ch open <uri> --json` resolves the
    outline and machine, finds the session, runs the door's own `open` action, and answers which session, reader and
    host pane received it (or `{opened: false, reason}`). A terminal host (Tern, Herdr, tmux) knows no socket, reader
@@ -83,8 +93,9 @@ local part). Its ids follow [ADR 0001](0001-ids-names-roles.md).
 - Every output that names a block carries its URI (#203), and every new surface (MCP, shares, subscriptions,
   cross-outline links, a Tern route) takes it.
 - A new client adapter is a renderer of ViewSpec, not a new UI model. ep0ch keeps its own schema.
-- The remote gateway (with mirrors), MCP writes (`propose` and `full`, store-and-forward for a sleeping outline), the guidance
-  lease and the Tern plugin are separate tickets on top of this; none needs another identity or permission model.
+- The remote gateway (with mirrors), MCP writes (`propose` and `full`, store-and-forward for a sleeping outline: PIE-615),
+  the guidance lease and the Tern plugin are separate tickets on top of this; none needs another identity or permission
+  model.
 - A review asks of each new reference: is it a URI or an id (ADR 0001), and does its surface respect the outline's
   access setting.
 

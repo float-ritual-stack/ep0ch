@@ -33,7 +33,7 @@ const DETAIL_CHARS = 8000
 const QUOTE_CHARS = 48
 
 export const WRITE_TOOLS = [
-  'outline_edit', 'outline_patch', 'outline_create', 'outline_comment', 'outline_reply', 'outline_resolve_thread',
+  'outline_edit', 'outline_patch', 'outline_set_property', 'outline_create', 'outline_comment', 'outline_reply', 'outline_resolve_thread',
   'note_section', 'work_create', 'work_set', 'work_stage', 'work_body', 'work_deliver', 'work_complete', 'view_order',
 ] as const
 export const READ_TOOLS = ['outline_read', 'outline_find', 'outline_changes', 'outline_resolve', 'show'] as const
@@ -216,6 +216,16 @@ function describe(name: string, input: Record<string, unknown>, out: Record<stri
       if (out?.outcome === 'proposed') warning = `proposed, not applied: ${clip(String(out.reason ?? ''), 80)}`
       const detail = fenced(patches.map(p => [...lines(String(p.observed ?? '')).map(l => `-${l}`), ...lines(String(p.replacement ?? '')).map(l => `+${l}`)].join('\n')).join('\n'), 'diff')
       return { kind: 'write', glyph: '✎', target, change, ...(warning ? { warning } : {}), detail }
+    }
+    case 'outline_set_property': {
+      const target = targetOf(input.ref, titleOf)
+      if (!target || typeof input.key !== 'string' || typeof input.value !== 'string') return null
+      const change = [`set [${input.key}::${clip(input.value, QUOTE_CHARS)}]`]
+      let warning: string | undefined
+      if (out?.outcome === 'unchanged') change.push('(no change)')
+      if (out?.outcome === 'applied') change.push(Array.isArray(out.edits) && recordOf(out.edits[0])?.route === 'draft' ? 'applied to the live draft' : 'applied')
+      if (out?.outcome === 'proposed') warning = `proposed, not applied: ${clip(String(out.reason ?? ''), 80)}`
+      return { kind: 'write', glyph: '✎', target, change, ...(warning ? { warning } : {}) }
     }
     case 'outline_create': {
       if (typeof input.text !== 'string') return null

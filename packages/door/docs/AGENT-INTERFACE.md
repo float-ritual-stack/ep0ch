@@ -161,8 +161,11 @@ export` writes notes out as Markdown or JSON (PIE-534; the door README has the f
 
 An MCP client reads the same outline with no door either: `ep0ch mcp` (stdio, for a local harness) and `ep0ch mcp
 serve --http` (the remote gateway, for claude.ai, behind Clerk OAuth) answer `outline_read`, `outline_find`,
-`outline_links` and `resources/read` of `ep0ch://` URIs from one implementation, read-only, each outline gated by
-`ep0ch mcp access` (`none` by default). The door README's "Remote MCP gateway" has the setup.
+`outline_links` and `resources/read` of `ep0ch://` URIs from one implementation, each outline gated by
+`ep0ch mcp access` (`none` by default). The remote gateway also writes where an outline's access is `propose` or
+`full` (`outline_create`, `outline_patch`, `outline_comment`, `outline_set_property`: the Claude mod's operations, as
+`mcp:<client>`), and queues writes to another machine's outline until that machine pulls them (PIE-615). The door
+README's "Remote MCP gateway" has the setup.
 
 ## The shell: screens and lists
 

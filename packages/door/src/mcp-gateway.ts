@@ -7,11 +7,15 @@
 // issuer's JWKS, from that issuer, for this resource (`aud`), with a subject on EP0CH_MCP_ALLOWED_SUBJECTS. Unset,
 // the list allows no one: every valid token is refused 403 and its subject is logged, so it can be pinned. There is
 // no anonymous mode and no switch that turns the check off. Past the token, each outline's own `ep0ch mcp access`
-// setting decides, as it does for stdio. Nothing here writes.
+// setting decides, as it does for stdio: `propose` and `full` add the write tools (src/mcp-writes.ts), attributed to the
+// token's subject and client. A mirror is never written: a write to its outline queues in the netmail store beside the
+// mirrors (src/mcp-netmail.ts) until its home machine pulls it.
 import { createRemoteJWKSet, errors as joseErrors, jwtVerify, type JWTVerifyGetKey } from "jose";
 import { hostLive, hostSocketOf } from "./discover";
 import { answerMcp, servedLive, type McpBoard, type McpOutlineListing, type McpOutlines, type NamedOutline } from "./mcp";
 import { mirrorsConfig, OutlineMirror } from "./mcp-mirror";
+import { Netmail, netmailFile, readSummaries } from "./mcp-netmail";
+import { writesAt } from "./mcp-writes";
 import { boardFor, canonicalLocalMachineName, type NotesBoard } from "./notes-cli";
 import { OUTLINE_NAME } from "./socket";
 
@@ -126,7 +130,7 @@ const localNames = async () => (await hostLive(hostSocketOf(), 3000))?.outlines 
  * given (another machine's outline, read from its copy here, never from that machine). A bare name a mirror has is
  * the mirror; `<name>@<this machine>` is still this machine's. Any other machine's outline is refused, and an outline that doesn't exist is never made.
  */
-export function machineOutlines(defaultOutline?: string, log: (line: string) => void = console.error, open: (name: string) => Promise<NotesBoard | { error: string }> = name => boardFor(["--ws", name, "--here"]), mirrors: OutlineMirror[] = [], names: () => Promise<string[]> = localNames): McpOutlines & { close(): void } {
+export function machineOutlines(defaultOutline?: string, log: (line: string) => void = console.error, open: (name: string) => Promise<NotesBoard | { error: string }> = name => boardFor(["--ws", name, "--here"]), mirrors: OutlineMirror[] = [], names: () => Promise<string[]> = localNames, netmailAt?: string): McpOutlines & { close(): void } {
   const machine = canonicalLocalMachineName();
   const boards = new Map<string, Promise<NotesBoard | { error: string }>>();
   const mirrored = mirrors.map(m => `${m.outline}@${m.machine}`).join(", ");
@@ -136,8 +140,11 @@ export function machineOutlines(defaultOutline?: string, log: (line: string) => 
     const note = read.stale
       ? `${mirror.outline} lives on ${mirror.machine}; ${machine}'s read-only copy is stale${read.stale.since ? ` since ${read.stale.since}` : ""} (${read.stale.why}), so newer changes may be missing`
       : `${mirror.outline} lives on ${mirror.machine}; this is ${machine}'s read-only copy, kept current from its backups`;
-    return { board: read.board, served: { source: "mirror", asOf: read.asOf, note, ...(read.stale ? { stale: read.stale } : {}) } };
+    return { board: read.board, served: { source: "mirror", asOf: read.asOf, note, ...(read.stale ? { stale: read.stale } : {}) }, home: { machine: mirror.machine, instanceId: read.homeInstanceId } };
   };
+  // The queue opens with the first write; a summary reads whatever is there (another process may have written it).
+  let store: Netmail | null = null;
+  const summaries = () => netmailAt ? readSummaries(netmailAt) : [];
   const local = async (name: string): Promise<McpBoard | { error: string }> => {
     let pending = boards.get(name);
     if (!pending) { pending = open(name); boards.set(name, pending); }
@@ -163,20 +170,35 @@ export function machineOutlines(defaultOutline?: string, log: (line: string) => 
       if (named?.machine && named.machine !== machine) return { error: `${name}@${named.machine} is on another machine; this gateway reads outlines on ${machine}${mirrored ? ` and mirrors of ${mirrored}` : ""}.` };
       return local(name);
     },
+    ...(netmailAt ? {
+      netmail: {
+        queue(entry) { store ??= new Netmail(netmailAt); return store.enqueue(entry); },
+        summary(m) { return summaries().find(s => s.machine === m) ?? null; },
+      },
+    } : {}),
+    log,
     async list() {
       const rows: McpOutlineListing[] = [];
       const access = async (target: McpBoard | { error: string }) => "error" in target ? undefined : (await target.board.mcpAccessStatus().catch(() => undefined))?.level;
       for (const name of await names().catch(() => [])) {
         const target = await local(name);
-        rows.push({ outline: name, machine, uri: `ep0ch://${name}@${machine}`, ...("error" in target ? { source: "unreachable" as const, note: target.error } : { ...target.served, access: await access(target) }) });
+        if ("error" in target) { rows.push({ outline: name, machine, uri: `ep0ch://${name}@${machine}`, source: "unreachable", note: target.error }); continue; }
+        const level = await access(target), writes = level ? writesAt(level) : null;
+        rows.push({ outline: name, machine, uri: `ep0ch://${name}@${machine}`, ...target.served, access: level, ...(writes ? { writes } : {}) });
       }
+      const queues = summaries();
       for (const m of mirrors) {
         const target = await mirrorRead(m);
-        rows.push({ outline: m.outline, machine: m.machine, uri: `ep0ch://${m.outline}@${m.machine}`, ...("error" in target ? { source: "unreachable" as const, note: target.error } : { ...target.served, access: await access(target) }) });
+        const q = queues.find(s => s.machine === m.machine);
+        const queue = { waiting: q?.byOutline[m.outline] ?? 0, oldest: q?.oldest ?? null, lastPull: q?.lastPull ?? null };
+        if ("error" in target) { rows.push({ outline: m.outline, machine: m.machine, uri: `ep0ch://${m.outline}@${m.machine}`, source: "unreachable", note: target.error, ...(q ? { queue } : {}) }); continue; }
+        const level = await access(target), writes = level && writesAt(level) && netmailAt ? "queued" as const : null;
+        rows.push({ outline: m.outline, machine: m.machine, uri: `ep0ch://${m.outline}@${m.machine}`, ...target.served, access: level, ...(writes ? { writes } : {}), ...(writes || q ? { queue } : {}) });
       }
       return rows;
     },
     close() {
+      store?.close(); store = null;
       for (const p of boards.values()) void p.then(b => { if (!("error" in b)) b.close(); });
       boards.clear();
       for (const m of mirrors) void m.close();
@@ -265,7 +287,7 @@ export function startGateway(opts: {
       const slot = await admit();
       if (!slot) return json(503, { error: "busy", error_description: "too many requests at once; try again" }, { "Retry-After": "1" });
       let answer;
-      try { answer = await answerMcp(outlines, await req.text()); }
+      try { answer = await answerMcp(outlines, await req.text(), { sub: verdict.sub, ...(verdict.clientId ? { clientId: verdict.clientId } : {}) }); }
       finally { slot.release(); }
       if (answer?.methods.length) log(`mcp gateway: ${verdict.sub} ${answer.methods.join(", ")}`);
       if (!answer) return json(400, { jsonrpc: "2.0", id: null, error: { code: -32600, message: "empty request" } });
@@ -308,7 +330,7 @@ export async function mcpServeCommand(args: string[], io: ServeIo = {}): Promise
   const mirrorConfig = mirrorsConfig(io.env ?? process.env);
   if ("error" in mirrorConfig) { err(`ep0ch: ${mirrorConfig.error}`); return 2; }
   const mirrors = mirrorConfig.mirrors.map(m => new OutlineMirror(m.outline, m.machine, mirrorConfig.folder, err));
-  const outlines = machineOutlines(parsed.ws, err, undefined, mirrors);
+  const outlines = machineOutlines(parsed.ws, err, undefined, mirrors, undefined, mirrors.length ? netmailFile(io.env ?? process.env) : undefined);
   let gateway: Gateway;
   try { gateway = startGateway({ config, outlines, port: parsed.port, bind: parsed.bind, ...(io.keys ? { keys: io.keys } : {}), log: err }); }
   catch (e) { outlines.close(); err(`ep0ch: can't listen on ${parsed.bind}:${parsed.port}: ${(e as Error).message}`); return 1; }

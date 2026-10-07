@@ -78,7 +78,16 @@ export interface DraftPatchInput {
    * proposal; typing in the passage still does. A live draft compares this way already.
    */
   current?: boolean;
+  /**
+   * When it becomes a proposal instead of applying, whatever the compare says (PIE-615, the remote MCP gateway).
+   * `always`: its writer may only propose here (an outline's `propose` access). `held`: a door holds a live draft of
+   * the note, so the patch is proposed into that draft rather than changing it; a saved note is patched as usual.
+   */
+  propose?: DraftPatchProposeWhen;
 }
+
+export type DraftPatchProposeWhen = "always" | "held";
+export const DRAFT_PATCH_PROPOSE_WHEN: readonly DraftPatchProposeWhen[] = ["always", "held"];
 
 export type DraftPatchRoute = "draft" | "saved";
 

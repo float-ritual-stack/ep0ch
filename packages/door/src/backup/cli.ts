@@ -42,6 +42,11 @@ export function statusLines(c: BackupConfig, now = Date.now()): string[] {
     lines.push(`  mirror ${key}: ${m.at ? `${m.source} copy of ${hhmm(m.at)} (change ${m.seq ?? "?"})` : "no copy yet"} in ${m.folder}${m.pendingSince ? `; its machine has changes since ${hhmm(m.pendingSince)} no backup holds` : ""}${m.error ? `; ${m.error}` : ""}`);
   }
   if (s.drill) lines.push(`  restore drill ${hhmm(s.drill.at)}: ${s.drill.ok ? "ok" : "FAILED"}, ${s.drill.detail}`);
+  for (const [m, q] of Object.entries(s.netmail?.queues ?? {}).sort()) {
+    lines.push(`  netmail for ${m}: ${q.waiting} queued${q.oldest ? `, oldest ${hhmm(q.oldest)}` : ""}; its last pull ${q.lastPull ? hhmm(q.lastPull) : "never"}${q.lastSeen ? `, last seen ${hhmm(q.lastSeen)}` : ""}`);
+  }
+  if (s.netmail?.pull) { const p = s.netmail.pull; lines.push(`  netmail from ${p.hub}: pulled ${hhmm(p.at)}, ${p.ok ? "ok" : "FAILED"}: ${p.detail}`); }
+  else if (c.hub) lines.push(`  netmail from ${c.hub}: not pulled yet (ep0ch mcp pull)`);
   const mark = alertMark(a, now);
   lines.push(mark ? `  alert: ${mark.say}` : a ? "  alert: none" : "  alert: the job hasn't checked yet");
   return lines;

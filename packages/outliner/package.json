@@ -9,6 +9,7 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./agent-tools": "./src/agent-tools.ts",
     "./litestream-guard": "./src/litestream-guard.ts",
     "./litestream-units": "./src/litestream-units.ts",
     "./machine-forward": "./src/machine-forward.ts",

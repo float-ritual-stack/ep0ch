@@ -313,6 +313,19 @@ describe("install and doctor", () => {
     expect(backupPlan(facts({ units, loaded: true, config: { ...facts().config, exists: true, machine: "laptop", named: true, kept: {}, text: p.writes[0]!.text } })).status).toBe("skip");
   });
 
+  test("a Mac's settings name float-2 as the gateway it pulls queued MCP writes from, unless its file names one or none (PIE-615)", () => {
+    const mac = { platform: "macos" as const, units: [{ path: "/fictional/LaunchAgents/io.ep0ch.backup.plist", want: "x", have: "x" }], loaded: true };
+    const text = "# ep0ch backups\nEP0CH_BACKUP_MACHINE=laptop\n";
+    const p = backupPlan(facts({ ...mac, config: { ...facts().config, exists: true, machine: "laptop", text } }));
+    expect(p).toMatchObject({ status: "do", writes: [{ path: facts().config.path, text: `${text}EP0CH_MCP_HUB=float-2\n` }] });
+    expect(p.why).toContain("EP0CH_MCP_HUB=float-2");
+    for (const kept of [`${text}EP0CH_MCP_HUB=other-hub\n`, `${text}EP0CH_MCP_HUB=\n`]) {
+      expect(backupPlan(facts({ ...mac, config: { ...facts().config, exists: true, machine: "laptop", text: kept } })).status).toBe("skip");
+    }
+    // Not on Linux: float-2 is the gateway.
+    expect(backupPlan(facts({ units: facts().units.map(u => ({ ...u, have: u.want })), loaded: true, config: { ...facts().config, exists: true, text: "EP0CH_BACKUP_MACHINE=garden-shed\n" } })).status).toBe("skip");
+  });
+
   test("current and loaded: nothing to do", () => {
     const units = facts().units.map(u => ({ ...u, have: u.want }));
     const text = "# ep0ch backups\nEP0CH_BACKUP_MACHINE=garden-shed\n";

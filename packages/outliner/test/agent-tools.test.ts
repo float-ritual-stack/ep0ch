@@ -312,6 +312,26 @@ test("patch is an edit by default: a dropped [[link]] applies, a linked ^anchor 
   expect(allowed.json.outcome).toBe("applied");
 });
 
+test("set-property replaces a header chip in place or adds one at the line's end, as a patch: stale is a proposal, a list is refused", async () => {
+  const { store, agent } = await setup();
+  const note = store.create("Seed list - [crop::bean] [bed::north]\nRunner beans.");
+  const replaced = await agent("set-property", { ref: note.id, key: "crop", value: "leek", revision: note.revision });
+  expect(replaced.json).toMatchObject({ outcome: "applied", key: "crop", previous: "bean", value: "leek" });
+  expect(store.get(note.id)!.text).toBe("Seed list - [crop::leek] [bed::north]\nRunner beans.");
+  const added = await agent("set-property", { ref: note.id, key: "sown", value: "2026-03-01", revision: store.get(note.id)!.revision });
+  expect(added.json).toMatchObject({ outcome: "applied", previous: null });
+  expect(store.get(note.id)!.text.split("\n")[0]).toBe("Seed list - [crop::leek] [bed::north] [sown::2026-03-01]");
+  const same = await agent("set-property", { ref: note.id, key: "crop", value: "leek", revision: store.get(note.id)!.revision });
+  expect(same.json.outcome).toBe("unchanged");
+  const stale = await agent("set-property", { ref: note.id, key: "bed", value: "south", revision: note.revision });
+  expect(stale.json.outcome).toBe("proposed");
+  expect(store.get(note.id)!.text).toContain("[bed::north]");
+  const list = store.create("Tags [tag::a] [tag::b]");
+  expect((await agent("set-property", { ref: list.id, key: "tag", value: "c", revision: list.revision })).stderr).toContain("a list");
+  expect((await agent("set-property", { ref: list.id, key: "bad key", value: "c", revision: list.revision })).stderr).toContain("isn't a property key");
+  expect((await agent("set-property", { ref: list.id, key: "tag2", value: "x]y", revision: list.revision })).stderr).toContain("without ]");
+});
+
 test("writes without an actor are refused; reads need none", async () => {
   const { store, cli } = await setup();
   const note = store.create("Hose reel");

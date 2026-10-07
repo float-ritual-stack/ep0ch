@@ -634,6 +634,8 @@ export class App implements Ctx {
       invalidatePropertyErrors();
     }
     // What an extension wrote (a Jira ticket refreshed, PIE-445) isn't news unless the person asks for it.
+    const remote = remoteWrite(e);
+    if (remote) void this.sayRemoteWrite(remote);
     if (isExtensionChange(e)) { this.extEvents++; if (this.extensionChanges) this.events++; }
     else if (e.change || e.action !== "reconnected") this.events++;
     this.stack.at(-1)?.onEvent?.(e, this);
@@ -641,6 +643,21 @@ export class App implements Ctx {
     this.drawer.made?.onEvent(e);
     this.redraw();
   }
+
+  /** A remote MCP client's write, said on the status line with the note's title (whatever the screen shows). */
+  private async sayRemoteWrite(w: RemoteWrite): Promise<void> {
+    const read = async (id: string) => (await this.board.records([id]).catch(() => null))?.records[0];
+    let verb = w.verb, r = w.blockId ? await read(w.blockId) : undefined;
+    // A comment or a proposal is a block of its own: said as what it does to the note it's under.
+    const type = r?.properties.find(p => p.key === "type")?.values[0];
+    if (r?.parent && (type === "annotation" || type === "draft-proposal")) { verb = type === "annotation" ? "commented on" : "proposed a change to"; r = await read(r.parent); }
+    // A proposal's embed line is an edit of the note right after it: the proposal is what's said, not "changed".
+    const said = this.remoteSaid, now = this.now();
+    if (verb === "changed" && said && said.id === r?.id && said.verb !== "changed" && now - said.at < 3000) return;
+    this.remoteSaid = { id: r?.id, verb, at: now };
+    this.flash(`${w.actor} ${verb} ${r?.title ? `“${r.title.slice(0, 48)}”` : "a note"} · a remote MCP write`, 6000);
+  }
+  private remoteSaid: { id?: string; verb: string; at: number } | null = null;
 
   describe() {
     const s = this.stack.at(-1);
@@ -1068,6 +1085,15 @@ export function statusLine(left: string, middle: string, right: string, cols: nu
 /** A change an extension wrote (`actorId` `ext:…`, a refreshed Jira ticket): not the person's news by default. */
 export function isExtensionChange(e: OutlineEvent): boolean {
   return !!e.change?.actor?.actorId?.startsWith("ext:");
+}
+
+/** A write by a remote MCP client (PIE-615): an agent whose actor is `mcp:<client>`, live (not replayed). */
+export interface RemoteWrite { actor: string; verb: string; blockId?: string }
+const REMOTE_VERBS: Partial<Record<NonNullable<OutlineEvent["change"]>["kind"], string>> = { create: "added", edit: "changed", annotate: "commented on", move: "moved", delete: "trashed", restore: "restored" };
+export function remoteWrite(e: OutlineEvent): RemoteWrite | null {
+  const c = e.change;
+  if (!c || e.catchUp || c.actor?.author !== "agent" || !c.actor.actorId?.startsWith("mcp:") || c.kind === "draft") return null;
+  return { actor: c.actor.actorId, verb: REMOTE_VERBS[c.kind] ?? "changed", ...(c.blockId ? { blockId: c.blockId } : {}) };
 }
 
 export function forScreens(e: OutlineEvent): boolean {
