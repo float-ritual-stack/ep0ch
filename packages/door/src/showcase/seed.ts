@@ -46,6 +46,7 @@ export const SEED = {
   recentFiles: "Files a session touched",
   headings: "Headings and dividers",
   rules: "Allotment committee, Saturday",
+  remoteWrites: "Remote writes and the netmail queue",
 } as const;
 export type SeedName = keyof typeof SEED;
 
@@ -307,6 +308,33 @@ export const NEW_NOTES = [
   "A page nobody has written yet: [[Seed swap ledger]]. The first ⏎ or click on it offers it; the next makes `Seed swap ledger [page::Seed swap ledger]` in the Inbox and opens it. From then on the link finds it.",
   "",
   "A note whose first line is only `[page::2026-03-12]` names itself: ⏎ on that line in the editor, or the save, makes it `2026-03-12 [page::2026-03-12]`. A title already there is kept.",
+].join("\n");
+
+/** The remote client the showcase's remote writes come from (PIE-615), and the line its patch proposes to change. */
+export const REMOTE_CLIENT = { sub: "user_showcase", clientId: "https://chat.example.test/oauth/client-metadata" } as const;
+export const REMOTE_LINE = "Bought two bags of compost for the beds.";
+
+/**
+ * The remote writes note (PIE-615): what the gateway's writes become, and where the queue for another machine's outline
+ * shows. Under it, at seed time, a remote client's patch at `propose` (a proposal) and its comment, made through the
+ * gateway's own write path (src/mcp-writes.ts).
+ */
+export const REMOTE_WRITES = [
+  SEED.remoteWrites,
+  "",
+  "A conversation on claude.ai, or on the phone, can write here through the remote MCP gateway (`ep0ch mcp serve --http`), as far as this outline's access lets it: `ep0ch mcp access propose` takes proposals, `full` applies writes against the revision they read, and `read` takes none. Each write is an agent's, named `mcp:<client>`, and the door says it on its status line as it lands.",
+  "",
+  "At `propose`, the patch below became a proposal under this note (apply it anyway, or dismiss it), and a comment started a thread:",
+  "",
+  REMOTE_LINE,
+  "",
+  "An outline whose home is another machine (the laptop's) is read from a mirror here, and its writes never touch the mirror. They wait in the netmail queue on the gateway's machine until that machine dials in: its backup job pulls them every fifteen minutes while it's online (or `ep0ch mcp pull` does it now), applies each one, and a note that changed meanwhile gets a proposal, never an overwrite.",
+  "",
+  "Where the queue shows:",
+  "- `ep0ch mcp queue status` on the gateway's machine: how many writes wait for each machine, the oldest, its last pull, and what the latest ones became",
+  "- `list_outlines`, the MCP tool: a mirrored outline's `writes: queued` and its `queue`",
+  "- `ep0ch doctor` and `ep0ch backup status`: a netmail line for each machine, and on the home machine its last pull",
+  "- the door's status bar: an alert once writes have waited a day while their machine was online",
 ].join("\n");
 
 /**
@@ -736,6 +764,15 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
     const project = await make(day.id, "allotment [file-project::allotment]", SEED_AGENT);
     const session = await make(project.id, `session ${RECENT_SESSION.slice(0, 8)} [file-session::${RECENT_SESSION}]`, SEED_AGENT);
     for (const f of RECENT_FILES()) await make(session.id, `${f.shown} [file::${f.file}] [type::file-touch] [day::2026-03-11] [project::allotment] [session::${RECENT_SESSION}] [touches::${f.touches}] [last-touch::${f.at}] [added::${f.added}] [removed::${f.removed}]`, SEED_AGENT);
+  }
+  notes.remoteWrites = await make(notes.root.id, REMOTE_WRITES);
+  {
+    // Through the gateway's own write path, at propose: a patch that becomes a proposal, and a comment.
+    const { actorOf, applyWrite } = await import("../mcp-writes");
+    const o = { level: "propose" as const, actor: actorOf(REMOTE_CLIENT), uri: (id: string) => id };
+    const at = notes.remoteWrites.text.indexOf(REMOTE_LINE);
+    await applyWrite(board, { tool: "outline_patch", blockId: notes.remoteWrites.id, revision: notes.remoteWrites.revision!, input: { policy: "edit", patches: [{ observed: "two bags", replacement: "three bags", range: { start: at + 7, end: at + 15 } }] } }, o);
+    await applyWrite(board, { tool: "outline_comment", blockId: notes.remoteWrites.id, input: { quote: "two bags of compost", body: "Was that the peat-free kind?", requestId: "showcase-remote-comment" } }, o);
   }
   notes.headings = await make(notes.root.id, HEADINGS);
   await make(notes.headings.id, HEADING_STYLE_NOTE);

@@ -486,9 +486,11 @@ A checkout from before `install` gets it by hand, once:
 | `ep0ch find [<words>…] [--query "<expression>"] [--view <id>] [--under <id>] [--sort <key> [--direction asc\|desc]] [--updated-after\|--updated-before\|--created-after\|--created-before <date>] [--ids \| --lines \| --json]` | the notes the outline says a query holds for (PIE-534): `--query` in the saved views' grammar (`"type=chore (area=garden OR area=kitchen) updated >= -7d"`), `--view` a saved view's members in its order, `--under` a subtree (the note included); they combine with each other and with words (every word, any order), in outline order (or `--sort`'s: `created`, `updated` or any property key, numbers as numbers, notes without it last; not with `--view`, which has its own order), at most 1000. The date flags only write the query (`--updated-after 2026-03-01` is `updated > 2026-03-01`). `--ids` prints `((id))` a line (`ep0ch show $(ep0ch find --ids --query type=errand)`); `--json` prints block records (outline-core's `block-record.ts`, built by the host's `blocks.records`), keys sorted, for any find but `--tree` |
 | `ep0ch export [<id>…] [find's flags] [--children] [--format md\|json] [--out <dir>\|-] [--split] [--resolve-links] [--manifest]` | notes out as files (PIE-534). Markdown: a file a note, `<title>-<id8>.md`; the header line's `[k::v]` chips (outline-core's `header-line.ts`) move into YAML front matter, values verbatim strings (a repeated key a list), after the note's id, parent, created, updated and author; the body is the rest verbatim, its first line the prose line 1 held; `--children` adds what's under it as nested lists, or files of their own with `--split`; `--resolve-links` makes `((id))` and `[[page]]` links to exported notes relative file links. JSON: block records, keys sorted. Deterministic, so a folder of them can live in git; `--manifest` writes `manifest.json` (the export time, the outline, the selection). Without `--out`, stdout |
 | `ep0ch show <id>… [--source \| --ansi \| --cells] [--width <n>] [--rows <n>]` | each note drawn as a reader draws it (the note surface), at that width, its live figures and `::links` answered by the outline and a view note's results under it (`views.read`, drawn as an embedded view), folded callouts open (no key hints), a blank line between notes; `--source` prints each note's text exactly as written (properties, links, `::` blocks; no header, no wrapping), `---` between notes, for a Markdown file (`ep0ch show --source $(tv ep0ch) >> notes.md`); `--ansi` keeps the colours (a picker's preview); `--cells` prints each as a line of JSON cells for a program that paints a grid (the Claude mod's BlockView draws them as a `Raster`; `src/cells.ts` has the format); `--rows` keeps the first rows, for a preview |
-| `ep0ch mcp access [none\|read\|propose\|full] [--json] [--ws <name>] [--machine <ssh-name>]` | show or set the outline's persisted MCP grant. The default is `none`. `read`, `propose` and `full` all let MCP clients read the outline, through the local stdio server and the [remote gateway](#remote-mcp-gateway-claudeai) alike, but the MCP tools remain read-only; `propose`/`full` are reserved for later write slices. This setting is per outline and independent of web publishing; `none` revokes at once, for both. |
+| `ep0ch mcp access [none\|read\|propose\|full] [--json] [--ws <name>] [--machine <ssh-name>]` | show or set the outline's persisted MCP grant. The default is `none`. `read`, `propose` and `full` all let MCP clients read the outline, through the local stdio server and the [remote gateway](#remote-mcp-gateway-claudeai) alike. `propose` and `full` also let the remote gateway write ([Writes](#writes-pie-615)): `propose` as proposals for you to apply, `full` applied against the revision the caller read. The stdio server stays read-only. This setting is per outline and independent of web publishing; `none` revokes at once, for both. |
 | `ep0ch mcp [--ws <name>] [--machine <ssh-name>]` | a local read-only stdio MCP server for canonical `ep0ch://<outline>@<machine>/b/<uuid>` block URIs. It refuses every outline read unless `ep0ch mcp access read` (or `propose`/`full`) has explicitly granted this outline. A granted local reader can read private outline content; `[publish::…]` is not required and published blocks do not bypass `none`. `outline_read`, `outline_find`, `outline_links` and `resources/read` keep the same envelope: canonical URI, outline instance id, revision, reachability and block record; `resources/read` also includes Markdown content. |
-| `ep0ch mcp serve --http [--port <n>] [--bind <address>] [--ws <default>]` | the same read-only MCP server over streamable HTTP, for remote clients such as claude.ai: an OAuth resource server (Clerk issues the tokens) for the outlines on this machine's host and read-only mirrors of other machines' outlines (`EP0CH_MCP_MIRRORS`), each still gated by `ep0ch mcp access`. Port 8792 on 127.0.0.1 by default. See [Remote MCP gateway](#remote-mcp-gateway-claudeai) |
+| `ep0ch mcp serve --http [--port <n>] [--bind <address>] [--ws <default>]` | the same MCP server over streamable HTTP, for remote clients such as claude.ai: an OAuth resource server (Clerk issues the tokens) for the outlines on this machine's host and read-only mirrors of other machines' outlines (`EP0CH_MCP_MIRRORS`), each still gated by `ep0ch mcp access`, plus the write tools where that allows them (a mirror's outline queues them). Port 8792 on 127.0.0.1 by default. See [Remote MCP gateway](#remote-mcp-gateway-claudeai) |
+| `ep0ch mcp queue [status\|take\|settle] [--machine <name>] [--json]` | the gateway machine's queue of writes for other machines' outlines ([netmail](#netmail-writes-to-another-machines-outline)): how many wait for each machine, the oldest, its last pull, and what the latest became. `take` and `settle` are what a home machine's pull runs here over ssh |
+| `ep0ch mcp pull [--from <ssh-name>]` | on an outline's home machine: take the writes queued for it on the gateway's machine (`EP0CH_MCP_HUB` in `~/.config/ep0ch/backup.env`), apply each, and say what each became. The backup job runs it every 15 minutes |
 | `ep0ch new "<text>" [--near <id>] [--as <id>] [--json]` | a new note from a shell or an agent with no door open, placed by the service as `ctrl+n` places one (see [New notes and pages](#new-notes-and-pages-pie-544)) |
 | `ep0ch view order <view> [<id>…] [--json] [--as <id>]` | a view's hand-set order: printed, or those members put first in the order given (ids, `((id))` or Work IDs), the same service step as the board's `alt+↑` `alt+↓` |
 | `ep0ch outline list --all [--lines]` | every outline you can open from here: this machine's, then each machine you've opened before (a machine not connected now says so; nothing is started) |
@@ -524,8 +526,9 @@ A checkout from before `install` gets it by hand, once:
 ## Remote MCP gateway (claude.ai)
 
 `ep0ch mcp serve --http` serves `ep0ch mcp`'s tools and `ep0ch://` resources over streamable HTTP, so claude.ai (or
-a phone) can read an outline (ADR 0002, decision 4). It is one implementation with the stdio server (`answerMcp` in
-`src/mcp.ts`); the gateway adds the transport and the token check (`src/mcp-gateway.ts`). It never writes.
+a phone) can read an outline (ADR 0002, decision 4), and write to it as far as its access setting allows
+([Writes](#writes-pie-615)). It is one implementation with the stdio server (`answerMcp` in `src/mcp.ts`); the gateway
+adds the transport, the token check (`src/mcp-gateway.ts`) and, for the caller the token names, the write tools.
 
 - **Who.** The gateway is an OAuth resource server; Clerk is the authorization server (client registration, the
   GitHub sign-in, tokens). Each request's Bearer token must be a Clerk JWT access token (`typ: at+jwt`, RS256) signed
@@ -553,9 +556,10 @@ a phone) can read an outline (ADR 0002, decision 4). It is one implementation wi
   `reachability.source` (and `outline_find`'s `source`) is `live` or `mirror`, `asOf` is when it was read or the
   newest change the copy holds, and a mirror's `note` names its home. The access setting is the one the copy
   carries: `ep0ch mcp access read --ws float-hub` run on the laptop reaches the mirror with its next change. A
-  mirror whose copy hasn't arrived yet is listed as `unreachable` and its reads are refused, saying so. Writes are
-  later (PIE-562's queue).
-- **Revoking.** `ep0ch mcp access none --ws <name>` stops reads at once. Removing a subject from
+  mirror whose copy hasn't arrived yet is listed as `unreachable` and its reads are refused, saying so. A mirror is
+  never written: its outline's writes queue ([netmail](#netmail-writes-to-another-machines-outline)).
+- **Revoking.** `ep0ch mcp access none --ws <name>` (or `read`) stops reads (or writes) at once; a write already queued
+  for another machine is dropped when it arrives, if its outline no longer takes writes there. Removing a subject from
   `EP0CH_MCP_ALLOWED_SUBJECTS` (or a client from `EP0CH_MCP_ALLOWED_CLIENTS`) and restarting stops that person (or
   client). Clerk's JWT access tokens live a day and can't be recalled early; revoke the client's grant in Clerk to
   stop its refresh.
@@ -567,14 +571,62 @@ a phone) can read an outline (ADR 0002, decision 4). It is one implementation wi
 | `EP0CH_MCP_ALLOWED_SUBJECTS` | comma-separated Clerk user ids (`user_…`) allowed in. Unset: capture mode |
 | `EP0CH_MCP_ALLOWED_CLIENTS` | optional comma-separated OAuth `client_id`s; when set, only these clients |
 | `EP0CH_MCP_MIRRORS` | comma-separated `<outline>@<machine>` read from their mirrors (`float-hub@laptop`) |
-| `EP0CH_MCP_MIRROR_DIR` | where the followed copies are, `<machine>/<outline>.sqlite` (default `~/outline-mirrors`; never the outlines folder) |
+| `EP0CH_MCP_MIRROR_DIR` | where the followed copies are, `<machine>/<outline>.sqlite` (default `~/outline-mirrors`; never the outlines folder), and the netmail queue, `.netmail.sqlite` |
+| `EP0CH_MCP_HUB` | on a home machine, in `~/.config/ep0ch/backup.env`: the gateway machine's ssh name, whose queued writes for this machine its backup job pulls (`float-2` on the laptop) |
+
+### Writes (PIE-615)
+
+Four tools, offered to a remote caller when some outline it reaches takes writes: `outline_create` (a block under a
+parent), `outline_patch` (spans of a note, `draft.patch`), `outline_comment` and `outline_set_property` (one header
+chip, as one patch span). They take the Claude mod's shapes, addressed as the reads are (a `uri`, or a `ref` in an
+`outline`), and each runs the outliner's own agent operation (`@ep0ch/outliner/agent-tools`, behind the mod's tools)
+over the outline's socket (`src/mcp-writes.ts`): the service checks revisions, anchors comments and keeps pages and
+linked anchors. What a write becomes is the outline's access:
+
+| Access | A patch or a property | A new block | A comment |
+|---|---|---|---|
+| `none`, `read` | refused, with the command that allows it | refused | refused |
+| `propose` | a proposal under the note (apply anyway, or dismiss) | a comment on its parent carrying the text | a comment |
+| `full` | applied against the revision the caller read; changed since, or open in someone's draft: a proposal (into that draft) | created | a comment |
+
+Every write is an agent's: its actor `mcp:<client>` (a URL client id by its host: claude.ai's is `mcp:claude.ai`), its
+session the token's subject. The outline's activity records both, the gateway's log has a line for each write, and a door
+on the outline says it on its status line as it lands (`mcp:claude.ai commented on “Seed list” · a remote MCP write`).
+Each answer says `applied`, `proposed` (why, and the proposal's URI) or `queued`, with the block's URI. tools/list is
+read when claude.ai connects: after changing an outline's access, reconnect the connector to see the write tools come
+or go (a call is checked against the access now, whatever the list said).
+
+### Netmail: writes to another machine's outline
+
+A mirror's outline (float-hub@laptop) is never written on the gateway's machine. Its writes wait there in a store of
+their own, `<EP0CH_MCP_MIRROR_DIR>/.netmail.sqlite` (`src/mcp-netmail.ts`), each with the block's URI and what the
+mirror showed of it: its revision, its text's hash and the home database's instance id (read from the copy). The
+answer says `queued for float-hub@laptop (laptop last pulled …)`, and `list_outlines` gives each mirror's `queue`.
+
+The home machine dials in: with `EP0CH_MCP_HUB=float-2` in its `~/.config/ep0ch/backup.env`, its backup job (every 15
+minutes, while it's awake) runs `ep0ch mcp queue take --machine <its EP0CH_BACKUP_MACHINE> --json` on the hub over ssh,
+applies each write to its own outline with the gateway's own `applyWrite`, and tells the hub what each became
+(`ep0ch mcp queue settle`). `ep0ch mcp pull` does the same at once. ssh is the trust the machines already share (the
+mirrors and forwards use it), so the gateway has no second credential and no way in to the laptop.
+
+- A write is applied as the outline's access allows on its home machine now: narrowed to `propose` since, a `full`
+  write becomes a proposal; narrowed to `read` or `none`, it is dropped and the hub records why.
+- A note that changed since the mirror showed it becomes a proposal under it: a conflict note, never an overwrite.
+  Same database: the revision decides. A database replaced since (a restore gets a new instance id): the text does.
+  A new block and a comment don't conflict; a comment whose passage changed lands on the whole note, quoting it.
+- A pull cut off after applying and before the hub heard keeps a ledger (`<door state>/backup/netmail-applied.json`),
+  so the next pull tells the hub again and applies nothing twice.
+- The mirror shows a write once it has been applied and the next snapshot (or sqlite3_rsync) has refreshed the copy.
+- `ep0ch mcp queue status` on the hub, `ep0ch backup status` and `ep0ch doctor` on either side show the queue
+  depth, the oldest write and the last pull per machine. A queue that has waited a day while its machine was seen
+  online (a newer snapshot, an ssh answer) is an alert on the door's status bar, announced once, with the fix.
 
 The unit, `~/.config/systemd/user/ep0ch-mcp.service` (the gateway needs only the publishable key; the secret key
 in `clerk.env` is never read):
 
 ```ini
 [Unit]
-Description=ep0ch remote MCP gateway: read-only MCP over HTTP on 127.0.0.1:8792 (https://mcp.ep0ch.sh/mcp via Caddy)
+Description=ep0ch remote MCP gateway: MCP over HTTP on 127.0.0.1:8792 (https://mcp.ep0ch.sh/mcp via Caddy)
 After=outliner-host.service
 Wants=outliner-host.service
 

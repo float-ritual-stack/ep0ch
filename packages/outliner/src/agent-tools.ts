@@ -16,7 +16,9 @@
 import { randomUUID } from "node:crypto";
 import { createBlockComment } from "./block-comments";
 import { parsePropertyFilterClause } from "./block-query";
-import { DRAFT_PATCH_POLICIES, droppedStructure, type DraftPatchPolicyName, type DraftPatchResult } from "./draft-patch";
+import { DRAFT_PATCH_POLICIES, droppedStructure, type DraftPatchPolicyName, type DraftPatchProposeWhen, type DraftPatchResult } from "./draft-patch";
+import { chipText, headerLine } from "@ep0ch/outline-core/header-line";
+import { isPropertyKey } from "@ep0ch/outline-core/property-grammar";
 import type { DraftPatchSpan } from "@ep0ch/outline-core/draft-patch-compare";
 import { parseOutlinerLinkUri, resolveOutlinerLinkTarget, type OutlinerLinkTarget } from "./outliner-links";
 import { pageAddressReferences } from "@ep0ch/outline-core/link-syntax";
@@ -716,7 +718,7 @@ export async function changesSince(
  */
 export async function patchDraft(
   client: AgentToolsClient,
-  input: { ref: string; revision: number; patches: DraftPatchSpan[]; mark?: string; policy?: DraftPatchPolicyName; allowStructural?: boolean },
+  input: { ref: string; revision: number; patches: DraftPatchSpan[]; mark?: string; policy?: DraftPatchPolicyName; allowStructural?: boolean; propose?: DraftPatchProposeWhen },
   actor: AgentActor,
 ): Promise<DraftPatchResult> {
   const revision = requireRevision(input.revision);
@@ -739,12 +741,52 @@ export async function patchDraft(
     policy,
     ...(input.allowStructural === true ? { allowStructural: true } : {}),
     ...(typeof input.mark === "string" && input.mark.trim() ? { mark: { text: input.mark } } : {}),
+    ...(input.propose !== undefined ? { propose: input.propose } : {}),
   }, 15_000);
+}
+
+// ─── One header property ───────────────────────────────────────────────────
+
+export type SetPropertyResult =
+  | (DraftPatchResult & { id: string; key: string; previous: string | null; value: string })
+  | { outcome: "unchanged"; id: string; key: string; previous: string; value: string };
+
+/**
+ * Sets one `[key::value]` chip on a note's header line (outline-core's `header-line.ts`): the chip's value replaced
+ * where it is, or the chip added at the line's end. It is one `draft.patch` span against the revision the agent read,
+ * so it has the patch's rules: a live draft gets it in place (or, with `propose: held`, a proposal), and a note that
+ * changed since becomes a proposal, never an overwrite. A key written more than once is a list: outline_patch edits it.
+ */
+export async function setBlockProperty(
+  client: AgentToolsClient,
+  input: { ref: string; key: string; value: string; revision: number; propose?: DraftPatchProposeWhen },
+  actor: AgentActor,
+): Promise<SetPropertyResult> {
+  const revision = requireRevision(input.revision);
+  const key = typeof input.key === "string" ? input.key.trim() : "";
+  if (!isPropertyKey(key)) throw new WorkToolRefusal(`${JSON.stringify(input.key)} isn't a property key: letters, digits, - and _`);
+  const value = typeof input.value === "string" ? input.value.trim() : "";
+  if (!value || /[\]\n]/.test(value)) throw new WorkToolRefusal("The value is one line of text without ]; give a non-empty value");
+  const block = await writableBlock(client, input.ref);
+  const header = headerLine(block.text);
+  if (header.line < 0) throw new WorkToolRefusal(`${block.id} is empty; it has no header line to set [${key}::…] on`);
+  const same = header.chips.filter(chip => chip.key.toLowerCase() === key.toLowerCase());
+  if (same.length > 1) throw new WorkToolRefusal(`[${key}::…] is written ${same.length} times on ${block.id} (a list); edit it with outline_patch`);
+  const chip = same[0];
+  if (chip && chip.value === value) return { outcome: "unchanged", id: block.id, key: chip.key, previous: chip.value, value };
+  const span: DraftPatchSpan = chip
+    ? { observed: block.text.slice(chip.start, chip.end), replacement: chipText({ key: chip.key, value }), range: { start: chip.start, end: chip.end } }
+    : (() => {
+      const line = block.text.slice(header.offset, header.end);
+      return { observed: line, replacement: `${line.trimEnd()} ${chipText({ key, value })}`, range: { start: header.offset, end: header.end } };
+    })();
+  const result = await patchDraft(client, { ref: block.id, revision, patches: [span], policy: "edit", ...(input.propose ? { propose: input.propose } : {}) }, actor);
+  return { ...result, id: block.id, key: chip?.key ?? key, previous: chip?.value ?? null, value };
 }
 
 // ─── The CLI's `agent` command ──────────────────────────────────────────────
 
-export const AGENT_OPERATIONS = ["read", "find", "resolve", "edit", "create", "comment", "reply", "resolve-thread", "changes", "patch", "view-order", "touch-file"] as const;
+export const AGENT_OPERATIONS = ["read", "find", "resolve", "edit", "create", "comment", "reply", "resolve-thread", "changes", "patch", "set-property", "view-order", "touch-file"] as const;
 export type AgentOperation = (typeof AGENT_OPERATIONS)[number];
 
 /** Runs one operation on its JSON input. Writes need an actor; reads ignore it. */
@@ -770,6 +812,7 @@ export function runAgentOperation(
     case "resolve-thread": return resolveThread(client, any, writer());
     case "changes": return changesSince(client, any);
     case "patch": return patchDraft(client, any, writer());
+    case "set-property": return setBlockProperty(client, any, writer());
     case "view-order": return viewOrder(client, any, Array.isArray(any.ids) && any.ids.length ? writer() : actor);
     case "touch-file": return import("./file-touches").then(m => m.touchFile(client, any, writer()));
   }

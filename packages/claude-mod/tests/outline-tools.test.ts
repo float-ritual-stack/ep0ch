@@ -32,6 +32,7 @@ const ANSWERS: Record<string, string> = {
   changes: JSON.stringify({ entries: [{ cursor: 9, id: NOTE, title: 'Seed swap plan', kind: 'text', author: 'agent', actorId: 'claude-code', at: '2026-03-01T09:00:00.000Z', revision: 4 }], cursor: 9 }),
   'view-order': JSON.stringify({ view: NOTE, ref: `((${NOTE}))`, order: [{ id: THREAD, title: 'Bring labels', workId: 'PIE-12' }, { id: NOTE, title: 'Seed swap plan' }] }),
   patch: JSON.stringify({ outcome: 'applied', edits: [{ blockId: NOTE, route: 'saved', revision: 5 }] }),
+  'set-property': JSON.stringify({ outcome: 'applied', edits: [{ blockId: NOTE, route: 'saved', revision: 6 }], id: NOTE, key: 'crop', previous: null, value: 'leek' }),
 }
 
 type Run = { argv: readonly string[]; init?: ProcessRunInit }
@@ -105,6 +106,8 @@ const CALLS: Array<{ tool: string; input: Record<string, unknown>; operation: st
     json: { since: '2026-03-01T00:00:00Z', actor: 'garden-agent' } },
   { tool: 'outline_patch', input: { ref: NOTE, revision: 3, patches: [{ observed: 'runner  beans', replacement: 'runner beans' }] }, operation: 'patch',
     json: { policy: 'edit', ref: NOTE, revision: 3, patches: [{ observed: 'runner  beans', replacement: 'runner beans' }] } },
+  { tool: 'outline_set_property', input: { ref: NOTE, key: 'crop', value: 'leek', revision: 3 }, operation: 'set-property',
+    json: { ref: NOTE, key: 'crop', value: 'leek', revision: 3 } },
 ]
 
 describe('outline tools', () => {

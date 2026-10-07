@@ -27,6 +27,7 @@ import {
 } from "@ep0ch/outline-core/draft-patch-compare";
 import {
   DRAFT_PATCH_POLICIES,
+  DRAFT_PATCH_PROPOSE_WHEN,
   DRAFT_PROPOSAL_TYPE,
   draftPatchPolicy,
   droppedStructure,
@@ -245,6 +246,14 @@ export class DraftPatchRouter {
     for (const edit of edits) this.deps.store.requireActive(edit.blockId);
     if (mark) this.deps.store.requireActive(mark.blockId);
     const sent = { policy, ...(allowStructural ? { allowStructural } : {}) };
+    if (input.propose !== undefined && !DRAFT_PATCH_PROPOSE_WHEN.includes(input.propose)) {
+      throw new Error(`propose is ${DRAFT_PATCH_PROPOSE_WHEN.join(" or ")}`);
+    }
+    if (input.propose === "always") return this.propose("its writer may propose changes here, not make them", edits, mutation, mark, sent);
+    if (input.propose === "held") {
+      const held = edits.find(edit => this.routeOf(edit.blockId).hold);
+      if (held) return this.propose("the note is open in a draft, which a remote write never changes", edits, mutation, mark, sent);
+    }
     if (policy === "prose") {
       const total = proposalChanges({ edits });
       let change = 0;

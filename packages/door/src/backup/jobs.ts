@@ -377,6 +377,10 @@ export async function runAll(c: BackupConfig, o: { now?: () => number; say?: Say
     const snap = await snapshot(c, s, { now, say }).catch(e => { say(`✗ snapshot: ${(e as Error).message}`); return { uploaded: [], failed: ["(all)"] }; });
     writeBackupState(c.state, s);
     if (c.mirrors.length) { await mirror(c, s, { now, say, follower: o.follower }).catch(e => say(`✗ mirror: ${(e as Error).message}`)); writeBackupState(c.state, s); }
+    // The remote MCP gateway's queued writes: those held here for other machines, and this machine's own pull (PIE-615).
+    const { netmailStep } = await import("./netmail");
+    await netmailStep(c, s, { now, say });
+    writeBackupState(c.state, s);
     const due = o.drill ?? (!s.drill || now() - Date.parse(s.drill.at) >= DRILL_EVERY_MS);
     if (due && Object.values(s.outlines).some(x => x.snapshot)) {
       const d = await drill(c, { now, say });

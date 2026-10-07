@@ -10,6 +10,24 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Write from claude.ai: remote MCP writes, and a queue for the laptop's outlines (PIE-615)
+
+- **Write tools on mcp.ep0ch.sh.** `outline_create`, `outline_patch`, `outline_comment` and `outline_set_property`,
+  for an outline whose access is `propose` (a patch or property is a proposal under the note, a new block a comment on
+  its parent) or `full` (applied against the revision read; a note changed since, or open in your draft, gets a
+  proposal instead). `ep0ch mcp access full --ws pie` is yours to run; `read` stays read-only.
+- **Said and attributed.** Each write is an agent's, `mcp:claude.ai`, with your Clerk subject; the door says it on
+  the status line as it lands, and the gateway's log has a line for each.
+- **Netmail for float-hub.** A write to an outline read from a mirror (float-hub@laptop) waits on float-2 in
+  `~/outline-mirrors/.netmail.sqlite`, and the laptop's backup job pulls it over ssh and applies it (or
+  `ep0ch mcp pull`). A note that changed meanwhile gets a proposal, never an overwrite. `ep0ch mcp queue status`,
+  `ep0ch backup status`, doctor and `list_outlines` show what waits; a queue a day old while the laptop was online is
+  an alert.
+- **Claude mod:** `outline_set_property` (one header chip, as a patch), beside `outline_patch`.
+- **Run:** PROTOCOL 103: restart the outline host, the MCP gateway (`ep0ch-mcp.service`) and every door after
+  `ep0ch install --apply`, on both machines. On the laptop, `EP0CH_MCP_HUB=float-2` in
+  `~/.config/ep0ch/backup.env`.
+
 ### The Inbox agent and note assistance are gone (PIE-613)
 
 - **Removed:** the Inbox agent (Tree's `Shift+I` panel, its results, Pause, Undo, Reconsider and Inbox history

@@ -224,6 +224,16 @@ export function resticChecks(f: BackupSetupFacts, now = Date.now()): SetupCheck[
     else if (x.error && !incidents.has(`source:${from}`)) out.push({ name: `mirror ${from}`, status: "unknown", detail: `can't read ${from}'s backups${x.failingSince ? ` since ${ago(x.failingSince)}` : ""}: ${x.error}` });
     else if (incidents.has(`source:${from}`)) { const i = incidents.get(`source:${from}`)!; out.push({ name: `mirror ${from}`, status: "missing", detail: i.detail, fix: i.fix }); }
   }
+  for (const [m, q] of Object.entries(s.netmail?.queues ?? {}).sort()) {
+    const inc = incidents.get(`netmail:${m}`);
+    out.push(inc ? { name: `netmail ${m}`, status: "missing", detail: inc.detail, fix: inc.fix }
+      : { name: `netmail ${m}`, status: q.waiting ? "info" : "ok", detail: `${q.waiting} remote MCP write${q.waiting === 1 ? "" : "s"} queued for ${m}${q.oldest ? `, the oldest ${ago(q.oldest)}` : ""}; its last pull ${q.lastPull ? ago(q.lastPull) : "never"}${q.lastSeen ? `, last seen online ${ago(q.lastSeen)}` : ""}` });
+  }
+  if (s.netmail?.pull) {
+    const p = s.netmail.pull, inc = incidents.get(`netmail-pull:${p.hub}`);
+    out.push(inc ? { name: `netmail from ${p.hub}`, status: "missing", detail: inc.detail, fix: inc.fix }
+      : { name: `netmail from ${p.hub}`, status: p.ok ? "ok" : "unknown", detail: `pulled ${ago(p.at)}: ${p.detail}` });
+  }
   if (s.drill) out.push({ name: "restore drill", status: s.drill.ok ? "ok" : "missing", detail: `${ago(s.drill.at)}: ${s.drill.detail}`, ...(s.drill.ok ? {} : { fix: "ep0ch backup drill" }) });
   // The push channel: Herdr's notification always; ntfy to the phone when its secrets group is there.
   if (f.groups && !f.groups.includes("heartbeat")) out.push({ name: "heartbeat", status: "info", detail: "no dead-man's ping: a job that stops running is only noticed here (the status bar's ? backup); a secrets group heartbeat with HEARTBEAT_URL (a healthchecks.io check, every 15 minutes) pings after each clean run", fix: "printf 'HEARTBEAT_URL=%s\\n' '<your check URL>' > ~/.config/secrets/heartbeat.env && chmod 600 ~/.config/secrets/heartbeat.env" });

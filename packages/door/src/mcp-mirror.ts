@@ -8,7 +8,9 @@
 // connection) and serves the snapshot from an outline host of its own, in this process, opened `readOnly` (the
 // outliner's OutlineHost: the same service and the same reads as a live outline, and nothing but reads). Each snapshot
 // is a generation in its own folder; the one before is closed a while after it is replaced. The access setting is the
-// one the copy carries, so `ep0ch mcp access` on the laptop reaches the mirror with its next change.
+// one the copy carries, so `ep0ch mcp access` on the laptop reaches the mirror with its next change. So is the home
+// database's instance id (read from the copy's metadata before the host here opens it): a write queued for the home
+// machine carries it, and that machine applies the write as read only when its database is still that one.
 import { Database } from "bun:sqlite";
 import { chmodSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } from "node:fs";
 import { homedir } from "node:os";
@@ -54,12 +56,12 @@ export function mirrorsConfig(env: Env): MirrorsConfig | { error: string } {
   return { folder, mirrors };
 }
 
-interface Generation { dir: string; host: OutlineHost; board: NotesBoard; asOf: string; marker: string }
+interface Generation { dir: string; host: OutlineHost; board: NotesBoard; asOf: string; marker: string; homeInstanceId: string | null }
 
 /** What a mirror read gives: the copy's board and the newest change it holds. */
 /** Stale: the copy's follower has stopped, or is behind the replica it follows; `since` when that's known. */
 export interface MirrorStale { since: string | null; why: string }
-export interface MirrorRead { board: NotesBoard; asOf: string; stale?: MirrorStale }
+export interface MirrorRead { board: NotesBoard; asOf: string; stale?: MirrorStale; homeInstanceId: string | null }
 
 /** How often a read asks whether the follower keeps up (it lists the replica's files), and how long it waits. */
 const HEALTH_EVERY_MS = 60_000;
@@ -118,7 +120,7 @@ export class OutlineMirror {
     }
     if (!this.current) return { error: `can't be read: ${this.problem ?? "unknown"}` };
     const stale = await this.staleness();
-    return { board: this.current.board, asOf: this.current.asOf, ...(stale ? { stale } : {}) };
+    return { board: this.current.board, asOf: this.current.asOf, homeInstanceId: this.current.homeInstanceId, ...(stale ? { stale } : {}) };
   }
 
   /**
@@ -189,6 +191,7 @@ export class OutlineMirror {
     let host: OutlineHost | undefined;
     try {
       marker = this.snapshot(join(dir, `${this.outline}.sqlite`), marker);
+      const homeInstanceId = instanceIdOf(join(dir, `${this.outline}.sqlite`));
       const OutlineHost = await loadOutlineHost();
       host = new OutlineHost({ outlinesFolder: dir, readOnly: true, log: line => this.log(`mcp mirror ${this.outline}@${this.machine}: ${line}`) });
       await host.start();
@@ -198,7 +201,7 @@ export class OutlineMirror {
         await board.info();
         let newest = 0;
         for (const b of await board.index()) if (Number.isFinite(b.updatedAt) && b.updatedAt > newest) newest = b.updatedAt;
-        return { dir, host, board, marker, asOf: new Date(newest || statSync(this.follow).mtimeMs).toISOString() };
+        return { dir, host, board, marker, homeInstanceId, asOf: new Date(newest || statSync(this.follow).mtimeMs).toISOString() };
       } catch (e) { board.close(); throw e; }
     } catch (e) {
       await host?.close().catch(() => {});
@@ -239,6 +242,13 @@ export class OutlineMirror {
     this.current = null;
     await Promise.all(gens.map(g => this.drop(g)));
   }
+}
+
+/** The instance id a database's metadata holds (the outliner's `outline_instance_id`), or null. */
+function instanceIdOf(path: string): string | null {
+  const db = new Database(path, { readonly: true });
+  try { return (db.query("SELECT value FROM metadata WHERE key = 'outline_instance_id'").get() as { value: string } | null)?.value ?? null; }
+  catch { return null; } finally { db.close(); }
 }
 
 const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch (e) { return (e as NodeJS.ErrnoException).code === "EPERM"; } };

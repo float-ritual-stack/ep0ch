@@ -1,15 +1,18 @@
-// A read-only MCP server for ep0ch:// block resources: one implementation, two transports. `ep0ch mcp` serves it
-// over stdio, bound to the outline this process can already open; `ep0ch mcp serve --http` (src/mcp-gateway.ts)
+// An MCP server for ep0ch:// block resources: one implementation, two transports. `ep0ch mcp` serves it over stdio,
+// bound to the outline this process can already open, and only reads; `ep0ch mcp serve --http` (src/mcp-gateway.ts)
 // serves it over streamable HTTP behind OAuth, for this machine's outlines and read-only mirrors of other machines'
-// (src/mcp-mirror.ts). Both answer through `responseFor`
-// with an `McpOutlines` saying which outlines they read; neither ever writes, each outline's own access setting gates
-// every read, and every answer says where it came from (`source`: live or mirror, and `asOf`).
+// (src/mcp-mirror.ts), and adds the write tools (src/mcp-writes.ts) for a caller its token names. Both answer through
+// `responseFor` with an `McpOutlines` saying which outlines they read; each outline's own access setting gates every
+// read and write, and every answer says where it came from (`source`: live or mirror, and `asOf`). A write to a mirror's
+// outline never touches the mirror: it queues for the outline's home machine (src/mcp-netmail.ts).
 import { createInterface } from "node:readline";
 import { boardFor, canonicalLocalMachineName, everyNote, type Found, type NotesBoard } from "./notes-cli";
 import { OUTLINE_NAME, previewTitle, type McpReachability, type McpSource } from "./socket";
 import { MCP_ACCESS_LEVELS, type McpAccessLevel, type McpAccessStatus } from "@ep0ch/outline-core/protocol";
 import type { BlockRecord } from "@ep0ch/outline-core/block-record";
 import { formatEp0chBlockUri, namesOutline, parseAddressedBlock, sameMachine } from "@ep0ch/outline-core/addressable-resource";
+import { QUEUE_USAGE, textHash, type NetmailEntry, type NetmailSummary } from "./mcp-netmail";
+import { actorOf, applyWrite, isWriteTool, writeInput, writesAt, writeToolDefinitions, type McpCaller, type McpWriteTool } from "./mcp-writes";
 
 export const MCP_USAGE = `  ep0ch mcp [--ws <name>] [--machine <ssh-name>]
                                    read-only local MCP server for ep0ch:// block resources after \`ep0ch mcp access read\`:
@@ -20,7 +23,10 @@ export const MCP_USAGE = `  ep0ch mcp [--ws <name>] [--machine <ssh-name>]
                                    needs EP0CH_MCP_RESOURCE, CLERK_PUBLISHABLE_KEY (or EP0CH_MCP_ISSUER) and
                                    EP0CH_MCP_ALLOWED_SUBJECTS (unset: refuse and log who asked)
   ep0ch mcp access [none|read|propose|full] [--json] [--ws <name>] [--machine <ssh-name>]
-                                   show or set this outline's persisted MCP access grant (stdio and the gateway alike)`;
+                                   show or set this outline's persisted MCP access grant (stdio and the gateway alike):
+                                   propose and full let the gateway's write tools (outline_create, outline_patch,
+                                   outline_comment, outline_set_property) propose or apply; a mirror's outline queues them
+${QUEUE_USAGE}`;
 
 type RpcId = string | number | null;
 interface RpcRequest { jsonrpc?: string; id?: RpcId; method?: string; params?: unknown }
@@ -39,8 +45,11 @@ export interface NamedOutline { outline: string; machine?: string }
  */
 export type McpServed = McpSource;
 
-/** A board to read, and where it is served from. */
-export interface McpBoard { board: Board; served: McpServed }
+/**
+ * A board to read, and where it is served from. `home`: a mirror's outline lives on that machine, in the database
+ * whose instance id the copy carries; a write to it queues for that machine.
+ */
+export interface McpBoard { board: Board; served: McpServed; home?: { machine: string; instanceId: string | null } }
 
 /** Served live, read now. */
 export const servedLive = (now = Date.now()): McpServed => ({ source: "live", asOf: new Date(now).toISOString() });
@@ -54,7 +63,17 @@ export interface McpOutlineListing {
   source: McpServed["source"] | "unreachable";
   asOf?: string;
   access?: McpAccessLevel;
+  /** What a write to it becomes: applied or proposed here, or queued for its home machine; absent when it takes none. */
+  writes?: "applied" | "proposals" | "queued";
+  /** A mirror's queued writes: how many wait, the oldest, and when its home machine last pulled. */
+  queue?: { waiting: number; oldest: string | null; lastPull: string | null };
   note?: string;
+}
+
+/** Where a remote server queues writes for other machines' outlines (src/mcp-netmail.ts). */
+export interface McpQueue {
+  queue(entry: Omit<NetmailEntry, "id" | "queuedAt">): NetmailEntry;
+  summary(machine: string): NetmailSummary | null;
 }
 
 /**
@@ -72,6 +91,10 @@ export interface McpOutlines {
   defaultOutline?: string;
   /** What a caller is told of an unexpected failure (the gateway logs it and says less); else its message. */
   internalError?: (e: Error) => string;
+  /** Where writes to a mirror's outline wait (the gateway's); without one, they are refused. */
+  netmail?: McpQueue;
+  /** A line for the server's log (the gateway's): each write and what it became. */
+  log?: (line: string) => void;
 }
 
 const uriOrName = (named: NamedOutline, machine: string) => named.machine ? `ep0ch://${named.outline}@${named.machine}` : `outline ${named.outline}@${machine}`;
@@ -313,7 +336,13 @@ function toolsFor(outlines: McpOutlines) {
   ];
 }
 
-async function callTool(outlines: McpOutlines, paramsValue: unknown): Promise<ToolResult> {
+/** Whether the write tools are offered: to a remote caller, when some outline it can reach takes writes. */
+async function offersWrites(outlines: McpOutlines, caller: McpCaller | undefined): Promise<boolean> {
+  if (!caller || outlines.kind !== "remote") return false;
+  return (await outlines.list()).some(o => !!o.writes);
+}
+
+async function callTool(outlines: McpOutlines, paramsValue: unknown, caller?: McpCaller): Promise<ToolResult> {
   const params = objectFields(paramsValue);
   if (!params || typeof params.name !== "string") throw invalidParams("tools/call needs a tool name.");
   const args = objectFields(params.arguments) ?? {};
@@ -321,19 +350,67 @@ async function callTool(outlines: McpOutlines, paramsValue: unknown): Promise<To
   if (params.name === "outline_read") return readRecord(outlines, args);
   if (params.name === "outline_find") return findBlocks(outlines, args);
   if (params.name === "outline_links") return linkData(outlines, args);
+  if (isWriteTool(params.name) && caller && outlines.kind === "remote") return writeTool(outlines, params.name, args, caller);
   throw invalidParams(`Unknown tool ${params.name}.`);
 }
 
-function resultFor(outlines: McpOutlines, req: RpcRequest): Promise<unknown> | unknown {
+const writeRefusal = (outlines: McpOutlines, { board, served }: McpBoard, level: McpAccessLevel) =>
+  `MCP access is ${level} for ${board.address.outline}@${board.address.machine}${served.source === "mirror" ? ` (as its mirror on ${outlines.machine} carries it)` : ""}, which takes no writes; ` +
+  `its owner runs \`ep0ch mcp access propose --ws ${board.address.outline}\` (proposals) or \`… full …\` (applied) on ${board.address.machine} to allow them.`;
+
+/**
+ * A write tool: the block addressed as the reads address it, checked against the outline's access, then applied
+ * (src/mcp-writes.ts) on a live outline, or queued for its home machine when it is served from a mirror.
+ */
+async function writeTool(outlines: McpOutlines, tool: McpWriteTool, args: Record<string, unknown>, caller: McpCaller): Promise<ToolResult> {
+  const shape = writeInput(tool, args);
+  if ("error" in shape) return toolError(shape.error);
+  const target = await addressedBlock(outlines, stringField(args, "uri") ?? stringField(args, "ref"), args.outline);
+  if ("error" in target) return toolError(target.error);
+  const { board } = target;
+  const status = await target.board.mcpAccessStatus();
+  if (!status.canRead) return toolError(accessRefusal(outlines, target, status.level));
+  if (!writesAt(status.level)) return toolError(writeRefusal(outlines, target, status.level));
+  const record = (await board.records([target.id])).records.find(r => r.id === target.id);
+  if (!record) return toolError(`No block ${target.id} in ${board.address.outline}${target.served.source === "mirror" ? `'s mirror (as of ${target.served.asOf})` : ""}.`);
+  const actor = actorOf(caller);
+  const where = { outline: board.address.outline, machine: board.address.machine };
+  try {
+    if (target.home) {
+      if (!outlines.netmail) return toolError(`${where.outline} lives on ${target.home.machine}, and this server has nowhere to queue writes for it.`);
+      const entry = outlines.netmail.queue({
+        machine: target.home.machine, outline: where.outline, uri: target.uri, blockId: target.id, tool, input: shape.input,
+        revision: shape.revision ?? null, mirrorRevision: record.revision ?? null, textHash: textHash(record.text), instanceId: target.home.instanceId,
+        level: status.level, actorId: actor.actorId, subject: caller.sub, clientId: caller.clientId ?? null,
+      });
+      const q = outlines.netmail.summary(target.home.machine);
+      const seen = q?.lastPull ? `${target.home.machine} last pulled ${q.lastPull}` : `${target.home.machine} hasn't pulled yet`;
+      outlines.log?.(`mcp write: ${actor.actorId} (${caller.sub}) ${tool} ${target.uri}: queued ${entry.id}`);
+      return toolText({
+        outcome: "queued", id: entry.id, uri: target.uri, ...where, queuedFor: `${where.outline}@${target.home.machine}`, queuedAt: entry.queuedAt,
+        waiting: q?.waiting ?? 1, lastPull: q?.lastPull ?? null,
+        said: `queued for ${where.outline}@${target.home.machine} (${seen}); it lands when ${target.home.machine} pulls it, ${status.level === "full" ? "applied, or proposed if the note changed meanwhile" : "as a proposal"}, and the mirror shows it after that`,
+      });
+    }
+    const done = await applyWrite(board, { ...shape, blockId: target.id }, { level: status.level, actor, uri: id => blockUri(board, id) });
+    outlines.log?.(`mcp write: ${actor.actorId} (${caller.sub}) ${tool} ${target.uri}: ${done.outcome}`);
+    return toolText({ outcome: done.outcome, uri: done.uri, ...where, said: done.said, detail: done.detail });
+  } catch (e) {
+    outlines.log?.(`mcp write: ${actor.actorId} (${caller.sub}) ${tool} ${target.uri}: refused: ${(e as Error).message}`);
+    return toolError((e as Error).message);
+  }
+}
+
+function resultFor(outlines: McpOutlines, req: RpcRequest, caller?: McpCaller): Promise<unknown> | unknown {
   switch (req.method) {
     case "initialize":
       return { protocolVersion: protocolFor(objectFields(req.params)?.protocolVersion), capabilities: { tools: {}, resources: {} }, serverInfo: { name: "ep0ch", version: "0.0.0" } };
     case "ping":
       return {};
     case "tools/list":
-      return { tools: toolsFor(outlines) };
+      return offersWrites(outlines, caller).then(w => ({ tools: [...toolsFor(outlines), ...(w ? writeToolDefinitions(outlineProperty(outlines)) : [])] }));
     case "tools/call":
-      return callTool(outlines, req.params);
+      return callTool(outlines, req.params, caller);
     case "resources/list":
       return { resources: [] };
     case "resources/templates/list": {
@@ -381,10 +458,10 @@ function parseRequest(line: string): ParsedMessage[] | { parseError: string } | 
 
 const responseError = (id: RpcId, code: number, message: string) => ({ jsonrpc: "2.0", id, error: { code, message } });
 
-async function responseFor(outlines: McpOutlines, req: ParsedMessage): Promise<unknown | null> {
+async function responseFor(outlines: McpOutlines, req: ParsedMessage, caller?: McpCaller): Promise<unknown | null> {
   if ("invalidRequest" in req) return responseError(req.id, -32600, req.invalidRequest);
   if (req.id === undefined) return null;
-  try { return { jsonrpc: "2.0", id: req.id, result: await resultFor(outlines, req) }; }
+  try { return { jsonrpc: "2.0", id: req.id, result: await resultFor(outlines, req, caller) }; }
   catch (e) {
     if (e instanceof RpcError) return responseError(req.id, e.code, e.message);
     return responseError(req.id, -32603, outlines.internalError?.(e as Error) ?? (e as Error).message);
@@ -399,16 +476,17 @@ export interface McpAnswer { reply: unknown | null; methods: string[]; malformed
 
 /**
  * One JSON-RPC message or batch in, its answer out (`reply` null when every message was a notification). The one
- * implementation both transports call: stdio a line at a time, the HTTP gateway a request body at a time.
+ * implementation both transports call: stdio a line at a time, the HTTP gateway a request body at a time. `caller`:
+ * who the gateway's token names, to whom (and only to whom) the write tools are offered.
  */
-export async function answerMcp(outlines: McpOutlines, text: string): Promise<McpAnswer | null> {
+export async function answerMcp(outlines: McpOutlines, text: string, caller?: McpCaller): Promise<McpAnswer | null> {
   const parsed = parseRequest(text);
   if (!parsed) return null;
   if ("parseError" in parsed) return { reply: responseError(null, -32700, parsed.parseError), methods: [], malformed: true };
   if (parsed.length > MAX_BATCH) return { reply: responseError(null, -32600, `A batch carries at most ${MAX_BATCH} messages.`), methods: [], malformed: true };
   const methods = parsed.flatMap(req => "method" in req && req.method ? [req.method === "tools/call" ? `tools/call ${String(objectFields(req.params)?.name ?? "")}` : req.method] : []);
   const responses: unknown[] = [];
-  for (const req of parsed) { const r = await responseFor(outlines, req); if (r !== null) responses.push(r); }
+  for (const req of parsed) { const r = await responseFor(outlines, req, caller); if (r !== null) responses.push(r); }
   return { reply: responses.length ? (parsed.length === 1 ? responses[0] : responses) : null, methods };
 }
 
@@ -446,6 +524,13 @@ function mcpAccessArgs(argsIn: string[]): { boardArgs: string[]; level?: McpAcce
   return { boardArgs, level, json };
 }
 
+const ACCESS_SAYS: Record<McpAccessLevel, string> = {
+  none: " (denied)",
+  read: " (read-only MCP allowed, stdio and the remote gateway)",
+  propose: " (reads, and the remote gateway's writes as proposals for you to apply)",
+  full: " (reads, and the remote gateway's writes applied, checked against the revision they read; a note open in your draft gets a proposal instead)",
+};
+
 async function mcpAccessCommand(argsIn: string[], io: McpIo): Promise<number> {
   const parsed = mcpAccessArgs(argsIn);
   const err = io.err ?? console.error;
@@ -456,7 +541,7 @@ async function mcpAccessCommand(argsIn: string[], io: McpIo): Promise<number> {
   try {
     const status = parsed.level ? await board.configureMcpAccess(parsed.level) : await board.mcpAccessStatus();
     if (parsed.json) write(JSON.stringify({ outline: board.address.outline, machine: board.address.machine, ...status }, null, 2));
-    else write(`MCP access for ${board.address.outline}@${board.address.machine}: ${status.level}${status.canRead ? " (read-only MCP allowed, stdio and the remote gateway)" : " (denied)"}`);
+    else write(`MCP access for ${board.address.outline}@${board.address.machine}: ${status.level}${ACCESS_SAYS[status.level]}`);
     return 0;
   } finally { board.close(); }
 }
@@ -465,6 +550,11 @@ async function mcpAccessCommand(argsIn: string[], io: McpIo): Promise<number> {
 export async function mcpCommand(argsIn: string[], io: McpIo = {}): Promise<number> {
   if (argsIn[1] === "access") return mcpAccessCommand(argsIn, io);
   if (argsIn[1] === "serve") { const { mcpServeCommand } = await import("./mcp-gateway"); return mcpServeCommand(argsIn.slice(2), io); }
+  if (argsIn[1] === "queue" || argsIn[1] === "pull") {
+    const out = io.write ?? (line => process.stdout.write(`${line}\n`)), err = io.err ?? console.error;
+    if (argsIn[1] === "queue") { const { queueCommand } = await import("./mcp-netmail"); return queueCommand(argsIn.slice(2), { out, err }); }
+    const { pullCommand } = await import("./backup/netmail"); return pullCommand(argsIn.slice(2), { out, err });
+  }
   const parsedArgs = mcpArgs(argsIn);
   const err = io.err ?? console.error;
   if ("error" in parsedArgs) { err(`ep0ch: ${parsedArgs.error}`); return 2; }

@@ -14,6 +14,8 @@ import { writeState } from "../state";
 export const STALE_AFTER_MS = 2 * 3_600_000;
 /** An alert file older than this means the job itself stopped running. */
 export const CHECK_LATE_MS = 60 * 60_000;
+/** Queued MCP writes waiting this long while their machine was online since: something stopped its pull. */
+export const NETMAIL_LATE_MS = 24 * 3_600_000;
 /** How often the restore drill runs. */
 export const DRILL_EVERY_MS = 30 * 24 * 3_600_000;
 
@@ -52,6 +54,15 @@ export interface MirrorState {
 
 export interface Drill { at: string; ok: boolean; detail: string }
 
+/**
+ * Netmail (PIE-615): on the gateway's machine, each other machine's queued MCP writes; on a home machine, its last
+ * pull of them. `lastSeen`: the newest sign the machine was online (its mirror's newest snapshot, an ssh answer, a pull).
+ */
+export interface NetmailState {
+  queues?: Record<string, { waiting: number; oldest: string | null; lastPull: string | null; lastSeen: string | null }>;
+  pull?: { hub: string; at: string; ok: boolean; detail: string; failingSince?: string };
+}
+
 export interface BackupState {
   /** The repository the outlines' snapshots are in: another one starts them over. */
   repo?: string;
@@ -62,6 +73,7 @@ export interface BackupState {
   lastRun?: { at: string; ok: boolean; detail: string };
   lastPrune?: string;
   drill?: Drill;
+  netmail?: NetmailState;
 }
 
 export interface Incident { key: string; title: string; detail: string; fix: string; since: string }
@@ -121,6 +133,18 @@ export function incidents(s: BackupState, machine: string, now: number, cmd: Com
     out.push({ key: `source:${from}`, since: x.failingSince!, title: `${from}'s backups unreadable from ${machine}`,
       detail: `${machine} hasn't been able to read ${from}'s backups since ${hhmm(x.failingSince!)}, so its mirrors' freshness is unknown: ${x.error ?? "?"}`,
       fix: `ep0ch backup mirror   (it says restic's error; check the secrets: with-secrets --list)` });
+  }
+  for (const [m, q] of Object.entries(s.netmail?.queues ?? {}).sort()) {
+    if (!q.waiting || !q.oldest || now - Date.parse(q.oldest) < NETMAIL_LATE_MS || !q.lastSeen || q.lastSeen <= q.oldest) continue;
+    out.push({ key: `netmail:${m}`, since: q.oldest, title: `${m}'s queued MCP writes waiting`,
+      detail: `${q.waiting} remote MCP write${q.waiting === 1 ? "" : "s"} for ${m}'s outlines ${q.waiting === 1 ? "has" : "have"} waited on ${machine} since ${hhmm(q.oldest)}, though ${m} was online at ${hhmm(q.lastSeen)}; its last pull: ${q.lastPull ? hhmm(q.lastPull) : "never"}`,
+      fix: `on ${m}: ep0ch mcp pull   (EP0CH_MCP_HUB=<${machine}'s ssh name> in ~/.config/ep0ch/backup.env makes its backup job pull every run)` });
+  }
+  const pull = s.netmail?.pull;
+  if (pull && !pull.ok && late(pull.failingSince)) {
+    out.push({ key: `netmail-pull:${pull.hub}`, since: pull.failingSince!, title: `pulling queued MCP writes from ${pull.hub} fails`,
+      detail: `${machine} hasn't pulled its queued writes from ${pull.hub} since ${hhmm(pull.failingSince!)}: ${pull.detail}`,
+      fix: `ep0ch mcp pull   (it says why; ssh ${pull.hub} ep0ch mcp queue status shows what waits)` });
   }
   if (s.drill && !s.drill.ok) {
     out.push({ key: `drill:${machine}`, since: s.drill.at, title: `restore drill failed on ${machine}`, detail: s.drill.detail,

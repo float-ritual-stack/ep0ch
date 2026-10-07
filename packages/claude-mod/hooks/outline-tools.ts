@@ -270,6 +270,25 @@ export const OUTLINE_TOOLS: readonly OutlineToolDefinition[] = [
       return { operation: 'patch', input: { policy: 'edit', ...inputOf(input, ['ref', 'revision', 'patches', 'mark', 'policy', 'allowStructural']) } }
     },
   },
+  {
+    name: 'outline_set_property',
+    description:
+      'Set one [key::value] property on a note\'s header line (the chips that end its first line): the value replaced ' +
+      'where the key is, or the chip added at the line\'s end. Against the `revision` outline_read returned, as one ' +
+      'outline_patch span, so it has the patch\'s rules: a live draft gets it in place, and a note that changed since ' +
+      'becomes a proposal (outcome: proposed). A key written more than once is a list: edit it with outline_patch.',
+    inputSchema: schema({
+      ref: REF,
+      key: { type: 'string', description: 'The property key: letters, digits, - and _' },
+      value: { type: 'string', description: 'One line, without ]' },
+      revision: EXPECTED,
+    }, ['ref', 'key', 'value', 'revision']),
+    command(input) {
+      if (!nonEmpty(input.ref) || typeof input.revision !== 'number') return 'Give the ref and the revision you read.'
+      if (!nonEmpty(input.key) || !nonEmpty(input.value)) return 'Give the key and a non-empty value.'
+      return { operation: 'set-property', input: inputOf(input, ['ref', 'key', 'value', 'revision']) }
+    },
+  },
 ]
 
 // ─── Door tools ────────────────────────────────────────────────────────────
