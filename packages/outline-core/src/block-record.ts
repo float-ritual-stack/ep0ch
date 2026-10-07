@@ -32,10 +32,11 @@ export interface BlockRecord {
   /**
    * Links out (`((id))`, `[[page]]`, work ids), each target once, in order: as first written, its label, where it
    * points, and every place it's written: `spans`, [start, end) offsets in `text`; `bodySpans`, the same in `body` (a
-   * link inside a header chip isn't in the body).
+   * link inside a header chip isn't in the body). Then `property` links: a property whose value is a block's id
+   * (`[source-block::<id>]`, its `key`), which the backlink relation counts too, for a target the text doesn't link.
    */
   links: {
-    kind: "block" | "page" | "work-id"; text: string; label: string; target: string | null; status: string;
+    kind: "block" | "page" | "work-id" | "property"; key?: string; text: string; label: string; target: string | null; status: string;
     spans: [number, number][]; bodySpans: [number, number][];
   }[];
   /** The ids of the active blocks that link here, sorted (so a record doesn't change when one of them moves). */

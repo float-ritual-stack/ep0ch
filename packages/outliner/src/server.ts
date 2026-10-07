@@ -243,7 +243,7 @@ function declaredActor(request: OutlinerRequest): MutationProvenance | undefined
  * `OutlineHost` with `readOnly`): the reads the MCP server makes. Every other action is refused, so nothing a client
  * sends can change the copy or start work from it.
  */
-export const READ_ONLY_ACTIONS: ReadonlySet<string> = new Set(["ping", "blocks.records", "tree.search", "tree.index", "references.backlinks", "mcp.access.status"]);
+export const READ_ONLY_ACTIONS: ReadonlySet<string> = new Set(["ping", "get", "pages.resolve", "blocks.records", "tree.search", "tree.index", "references.backlinks", "mcp.access.status"]);
 
 export class OutlinerServer {
   private readonly mentions: MentionRepository;

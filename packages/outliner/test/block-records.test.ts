@@ -87,6 +87,29 @@ test("blocks.records: a block as one record, built by the service; missing and t
   await expect(client.request({ action: "blocks.records", ids: [] })).rejects.toThrow(/1 through 200/);
 });
 
+test("blocks.records: a property naming a block's id is a link, so links and backlinks are each other's inverse", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "outliner-block-records-property-"));
+  const store = new OutlinerStore(join(directory, "outliner.sqlite"));
+  const socket = join(directory, "outliner.sock");
+  const server = new OutlinerServer(store, socket);
+  await server.start();
+  cleanups.push(async () => { await server.close(); store.close(); rmSync(directory, { recursive: true, force: true }); });
+
+  const survey = store.create("Hedge survey");
+  const report = store.create(`Hedge report [source-block::${survey.id}] [reviewed-by::${survey.id}] [type::report]\nSee ((${survey.id})) too.`);
+  const tally = store.create(`Bird tally [source-block::${survey.id}] [status::open]`);
+  const client = new OutlinerClient(socket);
+  const read = await client.request<{ records: BlockRecord[] }>({ action: "blocks.records", ids: [survey.id, report.id, tally.id] });
+  const [s, r, t] = read.records;
+  // The text already links the survey: no second, property link for it.
+  expect(r!.links.map(l => [l.kind, l.target])).toEqual([["block", survey.id]]);
+  const chip = `[source-block::${survey.id}]`;
+  expect(t!.links).toEqual([{ kind: "property", key: "source-block", text: chip, label: "source-block", target: survey.id, status: "ready", spans: [["Bird tally ".length, "Bird tally ".length + chip.length]], bodySpans: [] }]);
+  // A value that isn't a block's id ([status::open]) isn't a link.
+  expect(s!.backlinks).toEqual([report.id, tally.id].sort());
+  for (const record of read.records) for (const link of record.links) expect(read.records.find(x => x.id === link.target)?.backlinks ?? [record.id]).toContain(record.id);
+});
+
 test("query.matches narrows by text and subtree as blocks.query does, keeping the order asked", () => {
   const directory = mkdtempSync(join(tmpdir(), "outliner-query-matches-"));
   const store = new OutlinerStore(join(directory, "outliner.sqlite"));

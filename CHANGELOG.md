@@ -10,6 +10,23 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### MCP gateway fixes from the first claude.ai run (PIE-620)
+
+- **`list_outlines` lists pie.** It reads this machine's outlines from the outlines folder instead of asking the host,
+  which once left every live outline out; one the host can't open is listed as `unreachable`.
+- **Links and backlinks agree.** A property naming a block's id (`[source-block::<id>]`) is now a `property` link in a
+  record (`ep0ch find --json`, `ep0ch export --format json`, MCP), as backlinks already counted it, so a note's
+  backlinks are never missing from its source's links. A Markdown export keeps such a property as written.
+- **Refs as the Claude mod takes them.** `outline_read`, `outline_links` and the write tools take a Work ID,
+  `[[page]]`, `((id))` or an id, on a live outline or a mirror.
+- **Rough edges.** A `limit` of 0 (or past the maximum) is refused, naming both; `outline_links` cuts and counts
+  each group; a `uri` with a conflicting `outline` is refused; searches say lexical or semantic and why
+  (`semantic: true` asks); a top-level path is `(root)`; a mirror says which copy it serves (`copy`) and serves the
+  newer of the follower's and the backup job's; `list_outlines` and `ep0ch mcp access` say to reconnect claude.ai's
+  connector after an access change; a laptop that hasn't pulled its queued writes is said in `list_outlines` and doctor.
+- **Run:** PROTOCOL __P__: `ep0ch install --apply` on float-2 and the laptop, then restart the outline host, the MCP
+  gateway (`ep0ch-mcp.service`) and every door.
+
 ### Write from claude.ai: remote MCP writes, and a queue for the laptop's outlines (PIE-615)
 
 - **Write tools on mcp.ep0ch.sh.** `outline_create`, `outline_patch`, `outline_comment` and `outline_set_property`,

@@ -372,6 +372,19 @@ describe("install and doctor", () => {
     expect(checks.map(c => [c.name, c.status])).toEqual([["restic job", "ok"], ["restic last run", "missing"], ["restic garden", "ok"], ["restic pantry", "missing"], ["restore drill", "ok"], ["heartbeat", "info"], ["push", "info"]]);
     expect(checks.find(c => c.name === "restic pantry")!.fix).toBe("ep0ch backup run");
   });
+
+  test("doctor: a machine that names a gateway hub says so before its first pull, and says the pull once there is one", () => {
+    const units = facts().units.map(u => ({ ...u, have: u.want }));
+    const now = Date.now();
+    const state = { outlines: {}, mirrors: {}, lastRun: { at: iso(now - 300_000), ok: true, detail: "ok" } };
+    const config = { ...facts().config, exists: true, text: "EP0CH_BACKUP_MACHINE=garden-shed\nEP0CH_MCP_HUB=tool-shed\n" };
+    const before = resticChecks(facts({ units, loaded: true, config, state }), now).find(c => c.name === "netmail from tool-shed");
+    expect(before).toMatchObject({ status: "info", detail: expect.stringContaining("no pull recorded yet"), fix: "ep0ch mcp pull" });
+    const pulled = resticChecks(facts({ units, loaded: true, config, state: { ...state, netmail: { pull: { hub: "tool-shed", at: iso(now - 60_000), ok: true, detail: "nothing queued" } } } }), now);
+    expect(pulled.find(c => c.name === "netmail from tool-shed")).toMatchObject({ status: "ok", detail: expect.stringContaining("nothing queued") });
+    // No hub named: no netmail line at all.
+    expect(resticChecks(facts({ units, loaded: true, config: { ...config, text: "EP0CH_BACKUP_MACHINE=garden-shed\n" }, state }), now).some(c => c.name.startsWith("netmail"))).toBe(false);
+  });
 });
 
 describe.skipIf(!outliner)("the door's status bar", () => {

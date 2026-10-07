@@ -11,7 +11,9 @@
 // token's subject and client. A mirror is never written: a write to its outline queues in the netmail store beside the
 // mirrors (src/mcp-netmail.ts) until its home machine pulls it.
 import { createRemoteJWKSet, errors as joseErrors, jwtVerify, type JWTVerifyGetKey } from "jose";
-import { hostLive, hostSocketOf } from "./discover";
+import { readdirSync } from "node:fs";
+import { outlineOfFile } from "@ep0ch/outline-core/outline-location";
+import { outlinesDir } from "./discover";
 import { answerMcp, servedLive, type McpBoard, type McpOutlineListing, type McpOutlines, type NamedOutline } from "./mcp";
 import { mirrorsConfig, OutlineMirror } from "./mcp-mirror";
 import { Netmail, netmailFile, readSummaries } from "./mcp-netmail";
@@ -122,8 +124,15 @@ export function gatewayConfig(env: Record<string, string | undefined>): { issuer
   return { issuer: trimSlash(issuer.href), resource, allowedSubjects: listOf(env.EP0CH_MCP_ALLOWED_SUBJECTS), allowedClients: listOf(env.EP0CH_MCP_ALLOWED_CLIENTS) };
 }
 
-/** Where this machine's host is, and what it lists: for `list_outlines`. */
-const localNames = async () => (await hostLive(hostSocketOf(), 3000))?.outlines ?? [];
+/**
+ * This machine's outlines, for `list_outlines`: every `<name>.sqlite` in the outlines folder, the rule the host lists
+ * by (outline-core's `outlineOfFile`). Read from the folder, not asked of the host: a host slow to answer once made the
+ * list leave out every live outline, silently. One the host can't open is listed as unreachable, saying so.
+ */
+const localNames = async () => {
+  try { return readdirSync(outlinesDir(process.env)).map(outlineOfFile).filter((n): n is string => n !== null).sort(); }
+  catch (e) { if ((e as NodeJS.ErrnoException).code === "ENOENT") return []; throw e; }
+};
 
 /**
  * The gateway's outlines: any outline on this machine's host by name, opened once and kept, and each mirror it was
@@ -137,10 +146,11 @@ export function machineOutlines(defaultOutline?: string, log: (line: string) => 
   const mirrorRead = async (mirror: OutlineMirror): Promise<McpBoard | { error: string }> => {
     const read = await mirror.read();
     if ("error" in read) return { error: `${mirror.outline} lives on ${mirror.machine}; ${machine}'s read-only copy ${read.error}, and this gateway reads it only from that copy.` };
+    const which = `${read.copy.file}, last changed here ${read.copy.copiedAt}; its newest change is ${read.asOf}`;
     const note = read.stale
-      ? `${mirror.outline} lives on ${mirror.machine}; ${machine}'s read-only copy is stale${read.stale.since ? ` since ${read.stale.since}` : ""} (${read.stale.why}), so newer changes may be missing`
-      : `${mirror.outline} lives on ${mirror.machine}; this is ${machine}'s read-only copy, kept current from its backups`;
-    return { board: read.board, served: { source: "mirror", asOf: read.asOf, note, ...(read.stale ? { stale: read.stale } : {}) }, home: { machine: mirror.machine, instanceId: read.homeInstanceId } };
+      ? `${mirror.outline} lives on ${mirror.machine}; ${machine}'s read-only copy (${which}) is stale${read.stale.since ? ` since ${read.stale.since}` : ""} (${read.stale.why}), so newer changes may be missing`
+      : `${mirror.outline} lives on ${mirror.machine}; this is ${machine}'s read-only copy (${which}), kept current from its backups`;
+    return { board: read.board, served: { source: "mirror", asOf: read.asOf, copy: read.copy, note, ...(read.stale ? { stale: read.stale } : {}) }, home: { machine: mirror.machine, instanceId: read.homeInstanceId } };
   };
   // The queue opens with the first write; a summary reads whatever is there (another process may have written it).
   let store: Netmail | null = null;
@@ -180,7 +190,8 @@ export function machineOutlines(defaultOutline?: string, log: (line: string) => 
     async list() {
       const rows: McpOutlineListing[] = [];
       const access = async (target: McpBoard | { error: string }) => "error" in target ? undefined : (await target.board.mcpAccessStatus().catch(() => undefined))?.level;
-      for (const name of await names().catch(() => [])) {
+      // An outlines folder that can't be read fails the list (the gateway logs why), never a list without them.
+      for (const name of await names()) {
         const target = await local(name);
         if ("error" in target) { rows.push({ outline: name, machine, uri: `ep0ch://${name}@${machine}`, source: "unreachable", note: target.error }); continue; }
         const level = await access(target), writes = level ? writesAt(level) : null;
@@ -190,7 +201,10 @@ export function machineOutlines(defaultOutline?: string, log: (line: string) => 
       for (const m of mirrors) {
         const target = await mirrorRead(m);
         const q = queues.find(s => s.machine === m.machine);
-        const queue = { waiting: q?.byOutline[m.outline] ?? 0, oldest: q?.oldest ?? null, lastPull: q?.lastPull ?? null };
+        const queue = {
+          waiting: q?.byOutline[m.outline] ?? 0, oldest: q?.oldest ?? null, lastPull: q?.lastPull ?? null,
+          ...(q?.lastPull ? {} : { said: `${m.machine} hasn't pulled its queued writes from ${machine} yet: on ${m.machine}, \`ep0ch mcp pull --from ${machine}\` pulls now, and EP0CH_MCP_HUB=${machine} in its ~/.config/ep0ch/backup.env has its backup job pull every run (\`ep0ch install --apply\` writes it on a Mac; \`ep0ch doctor\` there shows the last pull)` }),
+        };
         if ("error" in target) { rows.push({ outline: m.outline, machine: m.machine, uri: `ep0ch://${m.outline}@${m.machine}`, source: "unreachable", note: target.error, ...(q ? { queue } : {}) }); continue; }
         const level = await access(target), writes = level && writesAt(level) && netmailAt ? "queued" as const : null;
         rows.push({ outline: m.outline, machine: m.machine, uri: `ep0ch://${m.outline}@${m.machine}`, ...target.served, access: level, ...(writes ? { writes } : {}), ...(writes || q ? { queue } : {}) });

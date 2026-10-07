@@ -79,6 +79,11 @@ describe("exported files, from records", () => {
     expect(files[1]!.content).toContain("For [the plot](allotment-plot-aaaaaaaa.md) and [Seed list](seed-list-cccccccc.md), not ((ffffffff-9)) or !((aaaaaaaa-1)).");
     // The whole text (a child drawn as a list item) keeps its header line; the same links resolve there.
     expect(resolveLinks(order, new Map([["aaaaaaaa-1", { file: "a.md", title: "A" }]]), true)).toBe("Seed order [tag::seeds] [tag::spring]\nFor [the plot](a.md) and [[Seed list]], not ((ffffffff-9)) or !((aaaaaaaa-1)).");
+    // A property naming a note's id is a link in the record, and stays a property in the file.
+    const chip = "[source-block::aaaaaaaa-1]";
+    const sourced = rec("eeeeeeee-5", { title: "Netting receipt", text: `Netting receipt ${chip}\nPaid in cash.`, body: "Netting receipt\nPaid in cash.",
+      links: [{ kind: "property", key: "source-block", text: chip, label: "source-block", target: "aaaaaaaa-1", status: "ready", spans: [[16, 16 + chip.length]], bodySpans: [] }] });
+    expect(resolveLinks(sourced, new Map([["aaaaaaaa-1", { file: "a.md", title: "A" }]]), true)).toBe(sourced.text);
   });
 
   test("json: records with sorted keys; the same records, the same bytes", () => {

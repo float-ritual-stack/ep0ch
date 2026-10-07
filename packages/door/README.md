@@ -540,10 +540,20 @@ adds the transport, the token check (`src/mcp-gateway.ts`) and, for the caller t
 - **Which outlines.** The outlines on this machine's host, by name, and the mirrors it is given (below), each still
   gated by its own `ep0ch mcp access`: `none` (the default) refuses, `read` reads. Any other machine's outline is
   refused, and a name that doesn't exist is never made. A tool's `outline` names the outline a ref or a search reads
-  (`--ws` gives a default); a URI names its own. `list_outlines` lists them all, with each one's access and freshness.
+  (`--ws` gives a default); a URI names its own, and an `outline` naming another outline beside it is refused. A `ref`
+  is what the Claude mod's tools take: an id, `((id))`, `[[page]]` or a Work ID, resolved by the same resolver
+  (agent-tools' `resolveRef`, reads only: a page that doesn't resolve is never made), after the outline's access
+  allows the read. `list_outlines` lists every `<name>.sqlite` in this machine's outlines folder (one the host can't
+  open is `unreachable`, saying so) and every mirror, each with its access and freshness, and `tools` says whether the
+  write tools are offered.
   An MCP answer's `record` is the block record without what it repeats (`text` and `header`; `body` and
-  `properties` carry them), a note's own address isn't among its links or backlinks, and `outline_find`'s
-  `completeness` is `{kind, limit, more}` for the limit asked.
+  `properties` carry them), and a note's own address isn't among its links or backlinks. `record.links` and
+  `record.backlinks` are each other's inverse: a property naming a block's id (`[source-block::<id>]`) is a
+  `property` link, as the backlink relation counts it. `outline_find`'s `completeness` is `{kind, limit, more}` for
+  the limit asked, its `search` says whether the ranking was lexical or semantic (`semantic: true` asks) and why, and a
+  top-level note's `path` is `(root)`. `outline_links` cuts its links, resources and backlinks at `limit` each, and
+  its `completeness` gives each group `{complete, shown, total, more}`. A `limit` outside 1 to the tool's maximum is
+  refused, naming the default and the maximum.
   Granting `read` sends that outline's notes to the client's model provider: it is a disclosure decision.
 - **Mirrors (PIE-562).** An outline whose home is another machine (float-hub on the laptop, often asleep or behind
   the work VPN) is read from a read-only copy on this machine, never from that machine, so a closed lid never stalls
@@ -554,7 +564,9 @@ adds the transport, the token check (`src/mcp-gateway.ts`) and, for the caller t
   snapshot from an outline host of its own opened read-only (`OutlineHost` with `readOnly`: only the reads MCP makes
   are answered; the followed file is never opened to write). Every answer says where it came from:
   `reachability.source` (and `outline_find`'s `source`) is `live` or `mirror`, `asOf` is when it was read or the
-  newest change the copy holds, and a mirror's `note` names its home. The access setting is the one the copy
+  newest change the copy holds (the home machine's clock: a quiet outline's copy can be fresh and its `asOf` old), a
+  mirror's `copy` names the file served and when it last changed here, and its `note` names its home. While both
+  copies exist, the one holding the newer change is served (the follower's on a tie). The access setting is the one the copy
   carries: `ep0ch mcp access read --ws float-hub` run on the laptop reaches the mirror with its next change. A
   mirror whose copy hasn't arrived yet is listed as `unreachable` and its reads are refused, saying so. A mirror is
   never written: its outline's writes queue ([netmail](#netmail-writes-to-another-machines-outline)).
@@ -594,7 +606,8 @@ session the token's subject. The outline's activity records both, the gateway's 
 on the outline says it on its status line as it lands (`mcp:claude.ai commented on “Seed list” · a remote MCP write`).
 Each answer says `applied`, `proposed` (why, and the proposal's URI) or `queued`, with the block's URI. tools/list is
 read when claude.ai connects: after changing an outline's access, reconnect the connector to see the write tools come
-or go (a call is checked against the access now, whatever the list said).
+or go (a call is checked against the access now, whatever the list said). `list_outlines`' `tools.said` and
+`ep0ch mcp access` (when a change adds or removes the write tools) say so.
 
 ### Netmail: writes to another machine's outline
 
@@ -607,7 +620,8 @@ The home machine dials in: with `EP0CH_MCP_HUB=float-2` in its `~/.config/ep0ch/
 Mac), its backup job (every 15
 minutes, while it's awake) runs `ep0ch mcp queue take --machine <its EP0CH_BACKUP_MACHINE> --json` on the hub over ssh,
 applies each write to its own outline with the gateway's own `applyWrite`, and tells the hub what each became
-(`ep0ch mcp queue settle`). `ep0ch mcp pull` does the same at once. ssh is the trust the machines already share (the
+(`ep0ch mcp queue settle`). `ep0ch mcp pull` does the same at once. Until it has, `list_outlines` gives the mirror's
+`queue.said` with both commands, and doctor on the home machine says no pull is recorded yet. ssh is the trust the machines already share (the
 mirrors and forwards use it), so the gateway has no second credential and no way in to the laptop.
 
 - A write is applied as the outline's access allows on its home machine now: narrowed to `propose` since, a `full`
