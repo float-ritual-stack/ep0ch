@@ -10,7 +10,6 @@
 //   acting through the control socket; `end` asking while programs run, then ending.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { connect, type Socket } from "node:net";
 import { join } from "node:path";
 import { App } from "../src/app";
@@ -34,7 +33,7 @@ import { createServer } from "node:net";
 import { USER } from "../src/socket";
 import { localPtys, usePtyBackend } from "../src/desk/pty-backend";
 import { mouseBytes, PtyPane } from "../src/desk/pty";
-import { outliner, Scratch, ScratchHost, until } from "./scratch";
+import { outliner, Scratch, ScratchHost, scratchRoot, until } from "./scratch";
 import { formatEp0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
 
 const plain = (s: string) => s.replace(/\x1b\[[\d;?]*[A-Za-z]/g, "").replace(/\x1b\][^\x07\x1b]*(\x07|\x1b\\)/g, "").replace(/[\u{100000}-\u{10FFFD}]/gu, "");
@@ -73,7 +72,7 @@ describe("the door is a session by default", () => {
 
 describe("a session is for a terminal", () => {
   test("`ep0ch` with no terminal (a script, an agent's shell) starts no session and says what to run", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "ep0ch-notty-"));
+    const dir = mkdtempSync(join(scratchRoot(), "ep0ch-notty-"));
     try {
       const env: Record<string, string> = { ...(process.env as Record<string, string>), EP0CH_STATE: join(dir, "s"), EP0CH_CONTROL: join(dir, "s", "door.sock"), EP0CH_SOCKET: join(dir, "nowhere.sock") };
       delete env.EP0CH_DAEMON;
@@ -128,7 +127,7 @@ describe("the session's environment", () => {
 
 describe("$EDITOR's text is never dropped", () => {
   const draftIn = async (change: (d: Draft) => void, code: number | null, held = true) => {
-    const dir = mkdtempSync(join(tmpdir(), "ep0ch-editor-")), was = { state: process.env.EP0CH_STATE, editor: process.env.EDITOR, visual: process.env.VISUAL };
+    const dir = mkdtempSync(join(scratchRoot(), "ep0ch-editor-")), was = { state: process.env.EP0CH_STATE, editor: process.env.EDITOR, visual: process.env.VISUAL };
     process.env.EP0CH_STATE = dir; process.env.EDITOR = "true"; delete process.env.VISUAL;
     try {
       const d = new Draft("0a1b2c3d-plot", 4, "Water the leeks");
@@ -164,7 +163,7 @@ describe("$EDITOR's text is never dropped", () => {
 
 describe("the session lock", () => {
   test("a lock left by a dead session, or naming a pid now someone else's, is taken over; a live session's isn't", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "ep0ch-lock-")), lock = join(dir, "session.lock");
+    const dir = mkdtempSync(join(scratchRoot(), "ep0ch-lock-")), lock = join(dir, "session.lock");
     const sleeper = Bun.spawn(["sleep", "30"]), named = Bun.spawn(["bash", "-c", "exec -a 'bun main.ts session serve' sleep 30"]);
     try {
       await Bun.sleep(100);
@@ -651,7 +650,7 @@ describe("the terminal host", () => {
   });
 
   test("a daemon that lets go of the host leaves its programs running, and the next one adopts them with their output", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "ep0ch-host-")), was = process.env.EP0CH_STATE;
+    const dir = mkdtempSync(join(scratchRoot(), "ep0ch-host-")), was = process.env.EP0CH_STATE;
     let hostPid = 0;
     process.env.EP0CH_STATE = dir;
     try {
@@ -685,7 +684,7 @@ describe("the terminal host", () => {
   }, 20_000);
 
   test("a connection that doesn't say hello is a probe: it never takes the host from its daemon", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "ep0ch-host-")), was = process.env.EP0CH_STATE;
+    const dir = mkdtempSync(join(scratchRoot(), "ep0ch-host-")), was = process.env.EP0CH_STATE;
     process.env.EP0CH_STATE = dir;
     let host: Awaited<ReturnType<typeof ensurePtyHost>>["host"] | null = null;
     try {
@@ -705,7 +704,7 @@ describe("the terminal host", () => {
   }, 20_000);
 
   test("a host of another protocol is ended and a new one started (its programs can't be adopted)", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "ep0ch-host-")), was = process.env.EP0CH_STATE;
+    const dir = mkdtempSync(join(scratchRoot(), "ep0ch-host-")), was = process.env.EP0CH_STATE;
     process.env.EP0CH_STATE = dir;
     let ended = false;
     const old = createServer(sock => {

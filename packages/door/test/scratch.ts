@@ -2,9 +2,9 @@
 // as the host's default, and its own config dir; background agents off, Herdr unset. Never a real outline.
 // `restart()` stops it and starts it again on the same folder, the way a deploy would. `seedShowcase()` writes the
 // showcase outline (src/showcase/seed.ts) into it.
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import type { Subprocess } from "bun";
 import { HERDR_VARS } from "../src/desk/pty";
 
@@ -32,16 +32,45 @@ const alive = (pid: number) => {
 const pidSpace = () => { try { return readlinkSync("/proc/self/ns/pid"); } catch { return ""; } };
 
 /**
+ * Where scratch dirs go: the temp folder, unless it can't hold one. Two things make it unfit, both met under
+ * `scripts/agent-env` (TMPDIR=~/.agent-env/<name>/tmp):
+ * - a path so long that a session's sockets under it pass the unix socket limit, so its place is hashed into
+ *   `sessions/~/` instead of the folder the tests check;
+ * - a `.ep0ch` above it (the person's `~/.ep0ch` names their real outline), which a folder that should name no
+ *   outline would find walking up.
+ * Then a short private folder of /tmp is used: `/tmp/ep0ch-<uid>` (mode 700, this user's).
+ */
+export function scratchRoot(base = tmpdir()): string {
+  // The folder as it is on disk (a symlinked temp folder is checked where it really is), in bytes, as sockets count.
+  const real = (p: string) => { try { return realpathSync(p); } catch { return resolve(p); } };
+  const named = (dir: string): boolean => existsSync(join(dir, ".ep0ch")) || (dirname(dir) !== dir && named(dirname(dir)));
+  const fits = (p: string) => Buffer.byteLength(p) <= SCRATCH_BASE_MAX && !named(real(p));
+  if (fits(base) && fits(real(base))) return base;
+  const uid = process.getuid?.() ?? 0, dir = `/tmp/ep0ch-${uid}`;
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const st = lstatSync(dir);
+  if (!st.isDirectory() || st.uid !== uid || (st.mode & 0o077)) throw new Error(`${dir} isn't this user's alone (no access for others): scratch dirs can't go there`);
+  if (named(dir)) throw new Error(`a .ep0ch above ${dir} names an outline: scratch dirs can't go under it`);
+  return dir;
+}
+/**
+ * The longest temp folder (bytes) a scratch dir goes in: the deepest socket the tests make under it,
+ * `<base>/ep0ch-scratch-XXXXXX/door/sessions/socket-<10 hex>/scratch/door-<7 digits>.sock`, is 79 bytes past it, so
+ * it stays within 103 (src/session/place.ts SOCKET_MAX).
+ */
+const SCRATCH_BASE_MAX = 24;
+
+/**
  * A temp dir for a scratch service, named `prefix…`, with the id of the test process that owns it (and the pid
  * namespace that id is in) in its `pid` file. The dirs a killed run left (their `pid` names a process that's
  * gone) are removed first: only this prefix's, only this user's, only ones written from this pid namespace,
  * never one whose process runs or that has no `pid` file.
  */
 export function scratchDir(prefix: string): string {
-  const uid = process.getuid?.(), space = pidSpace();
-  for (const name of readdirSync(tmpdir())) {
+  const uid = process.getuid?.(), space = pidSpace(), base = scratchRoot();
+  for (const name of readdirSync(base)) {
     if (!name.startsWith(prefix)) continue;
-    const dir = join(tmpdir(), name);
+    const dir = join(base, name);
     try {
       const st = lstatSync(dir);
       if (!st.isDirectory() || (uid !== undefined && st.uid !== uid)) continue;
@@ -50,7 +79,7 @@ export function scratchDir(prefix: string): string {
       if (ns === space && Number.isInteger(pid) && pid > 0 && pid !== process.pid && !alive(pid)) rmSync(dir, { recursive: true, force: true });
     } catch { /* no pid file, or gone already: left alone */ }
   }
-  const dir = mkdtempSync(join(tmpdir(), prefix));
+  const dir = mkdtempSync(join(base, prefix));
   writeFileSync(join(dir, "pid"), `${process.pid}\n${space}`);
   return dir;
 }
