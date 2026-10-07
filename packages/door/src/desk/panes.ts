@@ -166,6 +166,8 @@ export interface Pane {
   spine?(): { title: string; marks?: string[] };
   /** The person is typing in it (a filter): it holds their keys, as an edit does. */
   typing?(): boolean;
+  /** A completion popup is open in what it types: tab chooses a candidate there (PIE-626), never the desk's next tile. */
+  completing?(): boolean;
   /** The keys went elsewhere while it was typing: it keeps what was typed (a filter) and stops. */
   blur?(): void;
   /** Folded to a spine (true) or opened again: what it holds stays exactly as it was. */

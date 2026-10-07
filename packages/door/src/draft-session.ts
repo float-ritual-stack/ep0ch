@@ -13,7 +13,7 @@ import { strayWords } from "./stray";
 import { DRAFT_ACTIONS, pruneOld, sameParty, tidy, whenPut, PATCH_FLASH_MS, Draft, type DraftAction, type DraftActionArgs, type Step } from "./edit";
 import { actorIdOf, EditConflict, isExtensionWriter, Refused, USER, type Actor, type Comment, type CommentPassage, type DraftAnswer, type DraftHoldHandle, type DraftRequest, type SocketBoard } from "./socket";
 import { ActionRefused, agentLabel, type DraftUse } from "./surface/actions";
-import { completerOf, completionKey, type Completer } from "./surface/completer";
+import { completerOf, defaultCompleter, completionKey, type Completer } from "./surface/completer";
 import { outlineState } from "./state";
 import type { Key } from "./term";
 import { markStart } from "@ep0ch/outline-core/draft-patch-compare";
@@ -180,7 +180,10 @@ export class DraftSession {
    */
   key(k: Key, host: { run(cmd: DraftCommand): void; completer?: Completer | null }): void {
     if (!this.open || this.draft.busy) return;
-    const a: DraftAction = completionKey(this.draft, k, host.completer ?? null);
+    // The default attachment (PIE-626): a session's draft completes from its own connection, whoever hosts it; a host
+    // that passes `completer: null` opts out, one that passes its own (a note's, with the draft's note as context) keeps it.
+    const completer = host.completer === undefined ? defaultCompleter(this.draft, this.env.board, () => this.env.redraw?.()) : host.completer;
+    const a: DraftAction = completionKey(this.draft, k, completer);
     if (a !== "keep") host.run(a);
   }
 

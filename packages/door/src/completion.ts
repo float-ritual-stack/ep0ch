@@ -10,7 +10,7 @@ import { inCodeFence, propertyAtCursor, yamlAtCursor } from "@ep0ch/outline-core
  * `key` and `value`: a `[key::value]` property's key or value (PIE-618, from the component schemas); `yaml-key` and
  * `yaml-value` the same inside a component block's YAML.
  */
-export type CompletionKind = "page" | "block" | "file" | "callout" | "key" | "value" | "yaml-key" | "yaml-value";
+export type CompletionKind = "page" | "block" | "file" | "callout" | "key" | "value" | "yaml-key" | "yaml-value" | "filter-key" | "filter-value";
 
 export interface CompletionTarget {
   kind: CompletionKind;
@@ -22,6 +22,8 @@ export interface CompletionTarget {
   /** A value's property key; a YAML key's or value's component (`graph-meter`). */
   key?: string;
   component?: string;
+  /** A filter's word: a value with a space can't be written in it. */
+  words?: boolean;
 }
 
 const TARGET_SYNTAX: ReadonlyArray<{ kind: CompletionKind; opening: string; closing: string }> = [
@@ -67,6 +69,24 @@ export function completionTargetAtCursor(line: string, column: number, lines?: r
   const prop = lines && row !== undefined && inCodeFence(lines, row) ? null : propertyAtCursor(line, column);
   if (!prop) return null;
   return prop.kind === "key" ? { kind: "key", start: prop.start, end: prop.end, query: prop.query } : { kind: "value", start: prop.start, end: prop.end, query: prop.query, key: prop.key };
+}
+
+/**
+ * A filter's `key:value` word at the cursor (a river column's `/`: `type:hub -status:done word`, a leading `-` leaves
+ * a clause out): the key being typed, or a key's value after its `:`. A bare word that isn't a key (`gardening`)
+ * names nothing, and an empty word asks for nothing until `:` or a letter is typed. A choice replaces up to the word's end.
+ */
+export function filterTargetAtCursor(line: string, column: number): CompletionTarget | null {
+  const cursor = Math.max(0, Math.min(column, line.length));
+  const before = line.slice(0, cursor);
+  let start = before.search(/\S*$/);
+  if (before[start] === "-") start++;
+  const word = before.slice(start);
+  const end = cursor + /^\S*/.exec(line.slice(cursor))![0].length;
+  const colon = word.indexOf(":");
+  if (colon < 0) return /^[A-Za-z][A-Za-z0-9_.-]*$/.test(word) ? { kind: "filter-key", start, end, query: word } : null;
+  const key = word.slice(0, colon);
+  return /^[A-Za-z][A-Za-z0-9_.-]*$/.test(key) ? { kind: "filter-value", start: start + colon + 1, end, query: word.slice(colon + 1), key } : null;
 }
 
 /** The rows of a list of `count` a window of `capacity` shows, keeping `selected` centred. */

@@ -241,7 +241,7 @@ export class CommentSession {
       let out: "keep" | "close" = "keep";
       this.env = env;
       w.key(k, {
-        completer: env.complete?.(d) ?? null,
+        completer: env.complete?.(d) ?? undefined,
         run: cmd => {
           if (cmd === "save") void this.send(env);
           else if (cmd === "editor") env.external(d);

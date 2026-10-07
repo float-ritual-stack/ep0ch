@@ -1135,6 +1135,18 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     } finally { board.searchBlocks = real; }
   }, 20_000);
 
+  test("edit (PIE-626): completion on every line: a property's value and a filter's words, through act, from the same completer", async () => {
+    (app as any).lastInput = 0;
+    expect(await app.act({ action: "section", args: { name: "edit" }, as: "test-agent" })).toEqual({ section: SECTIONS.findIndex(s => s.key === "edit") + 1, key: "edit" });
+    // The property panel's value for [heading::]: the schemas' values with this outline's own plot style among them.
+    const value = await app.act({ action: "complete", args: { text: "pl", key: "heading" }, as: "test-agent" }) as any;
+    expect(value).toMatchObject({ kind: "filter-value", query: "pl" });
+    expect(value.items.map((i: any) => i.insertion)).toContain("plot");
+    // A key in a draft: the same list [head offers while typing.
+    const key = await app.act({ action: "complete", args: { text: "[heading-p" }, as: "test-agent" }) as any;
+    expect(key.items.map((i: any) => i.insertion)).toEqual(["[heading-pattern::", "[heading-padding::"]);
+  }, 20_000);
+
   test("callouts (PIE-538): Obsidian's examples drawn nested and folded; folds, types and starts by keys, mouse and act", async () => {
     const id = seeded.notes.callouts.id, text = async () => (await board.get(id))!.text;
     const reads = async (has: (t: string) => boolean, what: string) => { const end = Date.now() + 5000; while (!has(await text())) { if (Date.now() > end) throw new Error(`timed out waiting for ${what}`); await Bun.sleep(30); } };

@@ -158,7 +158,7 @@ export const centred = (a: Rect, w: number, h: number): Rect => ({ col: Math.flo
  * row that does it once something is typed (`doing` says what), so ⏎ or a click on that row runs `done`.
  */
 export function linePrompt<H>(o: { name: string; title: string; text: string; prefilled?: boolean; doing: (t: string) => string; done: (t: string, host: H) => void; head?: string[]; w?: number }): ListPicker<string, H> {
-  const input = new LineInput(o.text, o.prefilled ?? true);
+  const input = new LineInput(o.text, o.prefilled ?? true, { complete: false });   // a name or a path, never outline text
   return new ListPicker<string, H>({
     name: o.name, input, items: () => (input.text.trim() ? [o.doing(input.text.trim())] : []),
     row: (it, _i, on, w) => [pickRow(` ${it}`, on, w)],

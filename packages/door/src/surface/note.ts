@@ -41,8 +41,8 @@ import { Dispatcher } from "./dispatch";
 import { NOBODY } from "../whereabouts";
 import { draftState, editHint, editorClick, openInEditor, renderEditor, writtenBy } from "./editor";
 import { pickInto, type Picked } from "../pick";
-import { completerFor, completerOf, completionOf, insertCompletion, lookupCompletion, nearOf, type CompletionBoard } from "./completer";
-import { completionTargetAtCursor } from "../completion";
+import { COMPLETION_ROWS, completerFor, completerOf, completionOf, insertCompletion, lookupCompletion, nearOf, type CompletionBoard } from "./completer";
+import { completionTargetAtCursor, type CompletionTarget } from "../completion";
 import { checkValue, propertyRows, PropertyPanel, valueTarget, valueView, type PropRow } from "./props-panel";
 import { ModeStack, type ReaderMode } from "./modes";
 import { LineInput } from "./line";
@@ -894,11 +894,12 @@ export class NoteSurface {
     if (this.panel) {
       const rows = this.rows(m);
       const tokens = tokensOf(m.text, src);
-      const info = { revision: m.revision, summary: this.summary(m).keys, source: this.summary(m).source, scopes: tokens === null ? "loading" as const : tokens.state === "ready" ? "ready" as const : "block" as const, src, text: m.text };
+      const info = { origin: head.length, revision: m.revision, summary: this.summary(m).keys, source: this.summary(m).source, scopes: tokens === null ? "loading" as const : tokens.state === "ready" ? "ready" as const : "block" as const, src, text: m.text };
       const at = head.length;
       const panelHits = () => { for (const r of this.panel!.at) this.hits.push({ row: at + r.y, from: 0, to: w, prop: r.n, follow: false }, ...(r.target ? [{ row: at + r.y, from: r.from, to: w, prop: r.n, follow: true }] : [])); };
       if (this.panel.full) { const lines = [...head, ...this.panel.render(rows, w, Math.max(2, h - head.length), info)]; panelHits(); return { lines }; }
-      const ph = Math.min(rows.length + 2 + (this.panel.note || this.panel.field?.note ? 1 : 0), Math.max(4, Math.floor((h - head.length) * 0.5)));
+      const popup = this.panel.field && completionOf(this.panel.field.input) ? COMPLETION_ROWS : 0;
+      const ph = Math.min(rows.length + 2 + popup + (this.panel.note || this.panel.field?.note ? 1 : 0), Math.max(4 + popup, Math.floor((h - head.length) * 0.5)));
       head.push(...this.panel.render(rows, w, ph, info));
       panelHits();
     }
@@ -1363,7 +1364,7 @@ export class NoteSurface {
   editValue(r: PropRow): void {
     const m = this.msg!;
     if (!this.panel || m.revision === undefined) throw new ActionRefused("the note's revision is unknown, so a value edit couldn't be checked; open it again");
-    this.panel.field = { row: r, input: new LineInput(r.value), revision: m.revision, saving: false, note: "", changedElsewhere: false };
+    this.panel.field = { row: r, input: Object.assign(new LineInput(r.value, false, { complete: { valueKey: r.key } }), { near: m.id }), revision: m.revision, saving: false, note: "", changedElsewhere: false };
   }
 
   /**
@@ -1843,8 +1844,8 @@ export class NoteSurface {
       editing: () => !!P.field, covers: () => P.full,
       key: (k, host) => this.panelKey(k, host),
       click: (x, y, host) => {
-        // A value being typed keeps the reader's clicks; a click on a row selects it (on its value, follows it).
-        if (P.field) return false;
+        // A value being typed keeps the reader's clicks, but for a candidate of its completion popup (PIE-626); a click on a row selects it (on its value, follows it).
+        if (P.field) return completerOf(P.field.input)?.click(y) ?? false;
         const h = this.hitAt(x, y);
         if (!h || !("prop" in h)) return undefined;
         const m = this.msg, r = m ? this.rows(m)[h.prop - 1] : undefined;
@@ -4685,19 +4686,21 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     touchesWith: ({ insert }) => (insert === undefined ? "nothing" : "draft"),
     args: {
       text: { type: "string", optional: true, about: "text ending in the token to complete; leave out to complete at the draft's cursor" },
+      key: { type: "string", optional: true, about: "with text=: complete text as the value of this property (the property panel's field: the outline's values for it, then the schemas'); a [[ or (( in it still offers pages and blocks" },
       insert: { type: "number", optional: true, about: "put the nth candidate (from 1) into the draft at its cursor, as enter does" },
       expect: { type: "string", optional: true, about: "with insert=: the nth candidate's insertion as listed; refused when the list has changed since (a pause can have Jev re-order it)" },
       invitation: { type: "string", optional: true, about: "insert= in the person's draft: the invitation their @name line gave this agent (one step, used up only when it lands); not for a draft of the agent's own" },
     },
-    async run({ text, insert, invitation, expect }, { surface, host }, actor) {
+    async run({ text, key, insert, invitation, expect }, { surface, host }, actor) {
       const board = host.ctx.board as unknown as CompletionBoard;
       if (typeof board?.completePages !== "function") throw new ActionRefused("this connection can't look references up");
       const d = surface.draft ?? (surface.session?.mode === "compose" ? surface.session.composer : null);
       if (insert !== undefined && text !== undefined) throw new ActionRefused("insert completes at the draft's cursor; leave text out");
-      let target;
+      let target: CompletionTarget | null;
       if (text !== undefined) {
         const lines = text.split("\n"), line = lines.at(-1)!;
         target = completionTargetAtCursor(line, line.length, lines, lines.length - 1);
+        if (!target && key) target = { kind: "filter-value", start: 0, end: line.length, query: line, key };
         if (!target) throw new ActionRefused(`nothing to complete: text should end inside [[, ((, [file::, > [!, a [key:: property or a figure's YAML (it ends ${JSON.stringify(line.slice(-20))})`);
       } else {
         if (!d) throw new ActionRefused("nothing is being written here; pass text=\"[[...\" or open an edit first");

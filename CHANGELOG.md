@@ -10,6 +10,16 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Completion wherever you write (PIE-626)
+
+- **New:** `[`, `[[`, `((`, `[file::` and a callout's `> [!` complete in every place the door takes outline text, not
+  just a note's edit: a comment or reply, the board's composer, a new note's float, the property panel's value (`i`,
+  `⏎` on a row: the outline's own values for that key, then the schemas'), and a river column's `/` filter
+  (`ty` offers the keys the outline carries, most used first; `stage:` their values). One completer, one attachment
+  point: a draft session and every `LineInput` complete by default; a line that holds a name, a path or plain words
+  (the search overlay, the links filter, a layout's name, the home base) opts out.
+- **Agents:** `complete text=… key=heading` lists what a property's value offers; `column.complete text=…` what a
+  filter's word offers. No protocol or schema change.
 ### The outline host keeps answering after a change and a restart (PIE-625)
 
 - **Fixed:** requests to the outline host timed out at 3 s in bursts, and for about a minute after each restart. Each

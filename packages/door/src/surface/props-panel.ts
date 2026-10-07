@@ -3,6 +3,7 @@
 // copied, followed (block, page and Work-ID values) and edited in place: an edit is one `properties.patch`
 // of that token, checked against the revision the panel read, so it never overwrites someone else's change.
 // The surface owns the panel and runs its actions; this file draws it and turns keys into intents.
+import { COMPLETION_HINT, COMPLETION_ROWS, completerOf, completionOf, renderCompletion } from "./completer";
 import { pageAddressReferences, referencedBlock } from "@ep0ch/outline-core/link-syntax";
 import { titleLine, type Msg } from "../board";
 import { printable, type Source } from "../props";
@@ -100,10 +101,10 @@ export class PropertyPanel {
     const c = ch(k);
     if (f) {
       if (f.saving) return null;
+      // An open completion popup takes ⏎, esc and the arrows first (the line's own keys, PIE-626); what it leaves is the panel's.
+      if (f.input.key(k)) { f.note = ""; return null; }
       if (k.kind === "enter") return "save";
       if (k.kind === "esc") return "cancel";
-      f.input.key(k);
-      f.note = "";
       return null;
     }
     const move = (d: number) => { if (rows) { this.sel = (this.sel + d + rows) % rows; this.note = ""; } };
@@ -119,12 +120,12 @@ export class PropertyPanel {
   }
 
   hint(): string {
-    if (this.field) return this.field.saving ? "saving…" : "type the value · enter saves · esc cancels";
+    if (this.field) return this.field.saving ? "saving…" : completionOf(this.field.input)?.items.length ? COMPLETION_HINT : "type the value · enter saves · esc cancels";
     return "tab/j k value · y copy · o follow · enter/e edit · s summary · I full · esc close";
   }
 
   /** The panel's lines, at most `h`, `w` wide. `summary` holds the keys the summary line shows. */
-  render(rows: PropRow[], w: number, h: number, info: { revision?: number; summary: readonly string[]; source: string; scopes: "ready" | "loading" | "block"; src: Source | null; text?: string }): string[] {
+  render(rows: PropRow[], w: number, h: number, info: { origin?: number; revision?: number; summary: readonly string[]; source: string; scopes: "ready" | "loading" | "block"; src: Source | null; text?: string }): string[] {
     const scopes = info.scopes === "ready" ? "" : info.scopes === "loading" ? " · reading…" : " · block only (no properties.preview here)";
     const title = `properties · ${rows.length}${info.revision !== undefined ? ` · rev ${info.revision}` : ""}${scopes}`;
     const out = [rule(w, ellipsize(title, Math.max(2, w - 8)))];
@@ -148,6 +149,17 @@ export class PropertyPanel {
       const line = mark + " " + fg(C.brown) + pad(printable(r.key), keyW) + "  " + (scope && !f ? value + RESET + " " + fg(C.dark) + scope : shown) + RESET;
       if (out.length < h) this.at.push({ y: out.length, n: r.n, from: keyW + 4, target: !!r.target });
       out.push(on ? bg(C.blue) + pad(line.split(RESET).join(RESET + bg(C.blue)), w) + RESET : pad(line, w));
+      // The value being typed completes as a draft does: the popup opens under it, and a click on a candidate chooses it.
+      if (f) {
+        const c = completerOf(f.input), pop = completionOf(f.input);
+        if (c) c.drawn = null;
+        if (c && pop && out.length < h) {
+          const at: (number | null)[] = [];
+          const popup = renderCompletion(pop, w, Math.min(COMPLETION_ROWS, h - out.length - (foot ? 1 : 0)), at);
+          c.drawn = { row: (info.origin ?? 0) + out.length, items: at };
+          out.push(...popup);
+        }
+      }
     }
     if (foot) out.push(fg(this.field?.changedElsewhere || /not saved|can't|refused|failed/.test(foot) ? C.lred : C.yellow) + pad(foot, w) + RESET);
     return out.slice(0, h);

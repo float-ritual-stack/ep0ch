@@ -2511,6 +2511,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     // A tile whose current element is a live figure's takes tab, shift+tab and ← → first: they switch its tabs.
     const claimer = this.panes.get(this.focus);
     if (claimer?.claims?.(k) && !this.holdsKeys() && !this.collapsed.has(this.focus) && claimer.key(k, this)) return this.redraw();
+    if (k.kind === "tab" && claimer?.completing?.()) { claimer.key(k, this); return this.redraw(); }
     if (k.kind === "tab" || k.kind === "backtab") {
       const ids = this.zoom !== null ? [this.zoom] : this.tabStops();
       const i = ids.indexOf(this.focus);
@@ -4326,7 +4327,7 @@ function policyPanel(d: Desk, tile: number): DeskPicker {
  */
 function searchOverlay(d: Desk, q: string): DeskPicker {
   let hits: Msg[] = [], busy = false, timer: Timer | null = null, seq = 0, jev: "asking" | "ranked" | undefined;
-  const input = new LineInput(q);
+  const input = new LineInput(q, false, { complete: false });   // the one search's plain words (`tree.search`): no property grammar to complete
   const near = () => d.current?.id;
   const stop = () => { if (timer) clearTimeout(timer); timer = null; seq++; };
   const askJev = (n: number, t: string) => {
