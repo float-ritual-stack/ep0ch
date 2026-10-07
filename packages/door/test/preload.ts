@@ -40,4 +40,7 @@ const apps = new Map<{ retire(): void }, string>();
 const retireOthers = () => { for (const [app, file] of apps) if (file !== Bun.main) { app.retire(); apps.delete(app); } };
 (globalThis as { [k: symbol]: unknown })[Symbol.for("ep0ch.test.apps")] = { add(app: { retire(): void }) { retireOthers(); apps.set(app, Bun.main); } };
 beforeEach(retireOthers);
+// And as soon as the next file is loading (its module code or beforeAll may wait), not only at its first test.
+let running = Bun.main;
+setInterval(() => { if (Bun.main !== running) { running = Bun.main; retireOthers(); } }, 5).unref();
 afterAll(() => { for (const app of apps.keys()) app.retire(); apps.clear(); });

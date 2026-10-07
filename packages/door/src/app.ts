@@ -911,6 +911,7 @@ export class App implements Ctx {
 
   /** Just the status row, where the terminal can repaint a row alone; else the whole frame. */
   private paintStatus(s: Screen) {
+    if (this.closed) return;
     const { cols, rows } = this.term.info;
     if (!this.display.showRow(rows - 1, this.statusBar(s, cols))) this.redraw();
   }
@@ -958,6 +959,9 @@ export class App implements Ctx {
   }
 
   private paint(force = false) {
+    // Ended (quit, or retired by the test run): every way to a paint (a tick, a media or figure change, the board's
+    // events, the drawer) stops here.
+    if (this.closed) return;
     // Nobody sees it (a session with no terminal attached and no live feed): rendered when someone looks (catchUp).
     if (!force && !this.viewers.size && this.display.unseen?.()) { this.skipped = true; this.lastPaint = Date.now(); return; }
     this.skipped = false;
