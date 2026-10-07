@@ -157,7 +157,7 @@ describe.skipIf(!outliner)("the showcase seed", () => {
     expect(at80).toMatch(/HOUSE JOBS BY ARC AND STAGE[\s\S]*\n ┊\s+2\s+1\s+2\s+1\s+┊/);
     expect(at80).toMatch(/CHORES BY AREA AND STAGE[\s\S]*garden\s+3 █/);
     expect(at80).toMatch(/with the barrel\s+█+┃\s+181 \/ 150 ms\s+┊\n ┊\s+31 ms over/);
-  });
+  }, 20_000);
 
   test("a figure can be linked to (PIE-580): the service slices the whole block for an anchor alone after its ::", async () => {
     const read = await board.readFragment(seeded.notes.figures.id, "budget");

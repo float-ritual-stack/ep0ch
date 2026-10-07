@@ -27,12 +27,19 @@ Before a PR claims a change works:
    Focused tests are fine while developing. The door's tests start their own scratch outline host from
    `../outliner` (`test/scratch.ts`; `EP0CH_OUTLINER` overrides it). outline-core's tests are pure. The Claude
    mod's run under `claude plugin test` (`claude` on PATH).
-   - **Whole suites run in a boxd box** (PIE-597): `scripts/box-test [--each] [door|outliner|outline-core|claude-mod|all]`
+   - **Whole suites run off float-2**: `scripts/box-test [--on float-box|boxd] [--each] [door|outliner|outline-core|claude-mod|all]`.
+     The default is float-box (Evan's dedicated server, 20 threads, usually idle) when `ssh float-box true` answers,
+     else boxd (`--on` or `EP0CH_BOX_TARGET` picks). On float-box the run gets a private dir
+     (`/tmp/ep0ch-box-<user>-<id>`, mode 700) with a clone of your commit (unpushed goes up as a bundle) and its
+     own `TMPDIR`, runs niced with `TEST_EACH_JOBS` files at once (default 8) under a `timeout`, streams the output,
+     exits with the first failing suite's code and removes the dir on exit, Ctrl-C and TERM (a run whose ssh was
+     killed -9 removes it itself when its timeout ends). It touches nothing else there. The cost logged is 0.
+   - **On boxd** (PIE-597) the script
      forks the golden box (the repo cloned, `bun install` done), checks out your commit (unpushed is fine: it goes
      up as a bundle), streams the output, exits with the first failing suite's code and removes the fork (one it
      couldn't remove, its run killed, powers itself off and the next run removes it). Each run's time
-     and estimated cost are kept in `~/.local/state/ep0ch/box-test.tsv`. `scripts/box-test --refresh-golden`
-     rebuilds the golden box (after a `bun.lock` change it saves the install). It needs the boxd CLI, signed in.
+     and estimated cost (0 on float-box) and target are kept in `~/.local/state/ep0ch/box-test.tsv`. `scripts/box-test --refresh-golden`
+     rebuilds the golden boxd box (after a `bun.lock` change it saves the install). Boxd needs its CLI, signed in.
    - **Focused runs on float-2** go through `scripts/agent-env <name> --test -- timeout 900 bun test <files>`: two at
      once on the machine at most (`EP0CH_TEST_SLOTS`), each capped in a systemd user scope (`EP0CH_TEST_CPU`, `EP0CH_TEST_MEM`), in the
      foreground, never `--parallel`: five agents' parallel runs once froze float-2. The door's `parity-screens`

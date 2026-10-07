@@ -1,21 +1,27 @@
 #!/usr/bin/env bash
-# The test suites in a boxd box of their own, off this machine (PIE-597): a fork of a golden box (the repo cloned,
-# `bun install` done) checks out one commit, runs the suites, streams their output here, and is destroyed whatever
-# happens. The exit code is the suites'.
+# The test suites on a machine of their own, off this one (PIE-597): float-box (Evan's dedicated server, usually idle)
+# or a boxd box. Either way one commit is checked out, the suites run, their output streams here, and what was made
+# is removed whatever happens. The exit code is the suites'.
 #
-#   scripts/box-test [--ref <rev>] [--each] [--keep] [package …]   default: --ref HEAD, the door
-#   scripts/box-test --refresh-golden                               rebuild the golden box from origin/main
+#   scripts/box-test [--on float-box|boxd] [--ref <rev>] [--each] [--keep] [package …]   default: --ref HEAD, the door
+#   scripts/box-test --refresh-golden                               rebuild the golden boxd box from origin/main
+#
+#   --on      where to run (or EP0CH_BOX_TARGET). Default: float-box when `ssh float-box true` answers in 5 s, else boxd.
+#             On float-box a private run dir (/tmp/ep0ch-box-<user>-<id>, mode 700) takes a clone of the commit and
+#             its own TMPDIR; nothing else on float-box is read or touched. The run is niced (10), at most
+#             TEST_EACH_JOBS (default 8) files at once, under a `timeout` of EP0CH_BOX_MAX, and the dir is removed on
+#             exit, Ctrl-C and TERM (a run whose ssh dies is killed by the timeout, and its dir with it).
 #
 #   package   door, outliner, outline-core, claude-mod or all: `bun run test` in each (claude-mod's needs a
 #             logged-in claude, which boxd injects).
-#   --each    the door's files each alone too (test:each), one per vCPU at once.
-#   --keep    leave the fork running afterwards, and say how to reach and remove it.
+#   --each    the door's files each alone too (test:each), one per vCPU at once on boxd, TEST_EACH_JOBS on float-box.
+#   --keep    leave the fork (boxd) or the run dir (float-box) afterwards, and say how to reach and remove it.
 #
 # The exit code is the first failing suite's (124: a timeout), else 0.
 # The commit needn't be pushed: what origin hasn't got goes up as a git bundle. Uncommitted changes are not
-# tested (it says so). Each run's time, commit and estimated cost go to <state>/ep0ch/box-test.tsv. A fork that
+# tested (it says so). Each run's time, commit, estimated cost (0 on float-box) and target go to <state>/ep0ch/box-test.tsv. A fork that
 # outlives its run (this script killed with -9) powers itself off after EP0CH_BOX_MAX seconds (default 7200) and
-# the next run removes it. Needs the boxd CLI, signed in (boxd auth login).
+# the next run removes it. boxd needs its CLI, signed in (boxd auth login).
 # It says what it's doing (forking, testing, passed or the exit code) to a terminal that speaks the Program Status
 # Protocol (OSC 7501: a door's terminal tile, Ghostty); elsewhere nothing. EP0CH_PROGRAM_STATUS=0 stops it.
 set -uo pipefail
@@ -26,22 +32,116 @@ vcpu=${EP0CH_BOX_VCPU:-4}
 max=${EP0CH_BOX_MAX:-7200}
 origin_url=${EP0CH_BOX_REPO:-https://github.com/float-ritual-stack/ep0ch.git}
 log_dir=${XDG_STATE_HOME:-$HOME/.local/state}/ep0ch
-ref=HEAD each=0 keep=0 refresh=0 pkgs=()
+ref=HEAD each=0 keep=0 refresh=0 pkgs=() target=${EP0CH_BOX_TARGET:-}
+box_host=${EP0CH_BOX_HOST:-float-box}
 while [ $# -gt 0 ]; do
   case $1 in
     --ref) ref=$2; shift 2;;
+    --on) target=${2:-}; shift 2;;
     --each) each=1; shift;;
     --keep) keep=1; shift;;
-    --refresh-golden) refresh=1; shift;;
-    -h|--help) sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'; exit 0;;
+    --refresh-golden) refresh=1; target=boxd; shift;;
+    -h|--help) sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'; exit 0;;
     all) pkgs+=(outline-core outliner door claude-mod); shift;;
     door|outliner|outline-core|claude-mod) pkgs+=("$1"); shift;;
     *) echo "box-test: what is \"$1\"? (packages: door outliner outline-core claude-mod all)" >&2; exit 2;;
   esac
 done
 [ ${#pkgs[@]} -gt 0 ] || pkgs=(door)
+if [ -z "$target" ]; then
+  if ssh -o ConnectTimeout=5 -o BatchMode=yes "$box_host" true </dev/null >/dev/null 2>&1; then target=float-box; else target=boxd; fi
+fi
+case $target in float-box|boxd) ;; *) echo "box-test: --on takes float-box or boxd, not \"$target\"" >&2; exit 2;; esac
 
 say() { printf '\033[2mbox-test:\033[0m %s\n' "$*" >&2; }
+# ── the commit ──
+sha=$(git -C "$repo" rev-parse --verify "$ref^{commit}") || exit 2
+# What the run is doing, to a terminal that speaks the Program Status Protocol (OSC 7501: the door's tiles, Ghostty):
+# asked once, then each report goes without asking (packages/outliner/scripts/program-status.ts).
+ps_on=0
+bun "$repo/packages/outliner/scripts/program-status.ts" --probe 2>/dev/null && ps_on=1
+status() { [ $ps_on = 1 ] && EP0CH_PROGRAM_STATUS=1 bun "$repo/packages/outliner/scripts/program-status.ts" "$@" --app box-test 2>/dev/null; return 0; }
+[ "$ref" = HEAD ] && [ -n "$(git -C "$repo" status --porcelain --untracked-files=no)" ] && say "uncommitted changes aren't tested: $sha is"
+# ── float-box: a private run dir on the server, a clone of the commit in it, removed whatever happens ──
+if [ $target = float-box ]; then
+  ssh_opts=(-o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=15 -o ServerAliveCountMax=4)
+  url_q=$(printf '%q' "$origin_url")
+  rssh() { ssh "${ssh_opts[@]}" "$box_host" "$@"; }
+  start=$(date +%s)
+  # mktemp -d makes it mode 700; the name carries the user and a random id. Nothing else on the machine is named below.
+  dir=$(rssh 'umask 077; mktemp -d "/tmp/ep0ch-box-$(id -un)-XXXXXXXX"' </dev/null 2>/dev/null) \
+    && { [[ $dir =~ ^/tmp/ep0ch-box-[A-Za-z0-9_.-]+-[A-Za-z0-9]{8}$ ]] || dir=; }
+  [ -n "$dir" ] || { echo "box-test: couldn't make a run dir on $box_host (ssh $box_host true); try --on boxd" >&2; exit 1; }
+  rpid=0
+  # Stop the run's process group (the remote script is its own session leader) and remove the dir. Only $dir and
+  # the group whose pid the run wrote into it.
+  cleanup_float() {
+    local code=$?
+    trap '' INT TERM HUP
+    [ -n "$work" ] && rm -rf "$work"
+    [ -n "$tmpref" ] && git -C "$repo" update-ref -d "$tmpref" 2>/dev/null
+    [ $rpid != 0 ] && kill "$rpid" 2>/dev/null
+    if [ $keep = 1 ]; then say "kept $box_host:$dir/ep0ch · remove it: ssh $box_host rm -rf $dir"
+    else
+      rssh "d=$dir; case \$d in /tmp/ep0ch-box-*) ;; *) exit 1;; esac; p=\$(cat \$d/pid 2>/dev/null); case \$p in \"\"|*[!0-9]*|0|1) p=;; esac; if [ -n \"\$p\" ]; then kill -TERM -- -\$p 2>/dev/null; sleep 1; kill -KILL -- -\$p 2>/dev/null; fi; rm -rf -- \$d" </dev/null >/dev/null 2>&1 \
+        && say "removed $box_host:$dir" || say "couldn't remove $box_host:$dir: ssh $box_host rm -rf $dir"
+    fi
+    exit $code
+  }
+  work= tmpref=
+  trap cleanup_float EXIT
+  trap 'status idle "interrupted"; exit 130' INT TERM HUP
+
+  status working "cloning ${sha:0:12} on $box_host (${pkgs[*]})"
+  say "$box_host:$dir for ${sha:0:12} (${pkgs[*]}$([ $each = 1 ] && echo ", each file alone"))"
+  if ! rssh "cd $dir && git clone -q --no-checkout $url_q ep0ch && cd ep0ch && git cat-file -e $sha^{commit}" </dev/null 2>/dev/null; then
+    # Not on origin: what origin hasn't got goes up as a bundle (a ref of this run's names the commit for a moment).
+    work=$(mktemp -d) || exit 1
+    tmpref=refs/box-test/$$ b=$work/box-test.bundle
+    git -C "$repo" update-ref "$tmpref" "$sha" || exit 1
+    git -C "$repo" bundle create -q "$b" "$tmpref" --not origin/main; made=$?
+    [ $made = 0 ] || { echo "box-test: couldn't bundle ${sha:0:12} (git bundle create … --not origin/main)" >&2; exit 1; }
+    rssh "cat > $dir/box-test.bundle" < "$b" \
+      && rssh "cd $dir && { [ -d ep0ch ] || git clone -q --no-checkout $url_q ep0ch; } && cd ep0ch && git fetch -q $dir/box-test.bundle $tmpref && git cat-file -e $sha^{commit}" </dev/null >&2 \
+      || { echo "box-test: $box_host couldn't take the commit ${sha:0:12} (clone of $origin_url, or the bundle)" >&2; exit 1; }
+  fi
+
+  # The run script: its own environment (no EP0CH_* from float-box's shell; the tests make their scratch under /tmp
+  # themselves, and `fake ssh` insists it is under the temp dir, so TMPDIR stays), niced, the door's
+  # test:each capped. It is the leader of its session (setsid), and says its pid so cleanup can stop the group.
+  jobs=${TEST_EACH_JOBS:-8}
+  case $jobs$max in *[!0-9]*) echo 'box-test: TEST_EACH_JOBS and EP0CH_BOX_MAX are whole numbers' >&2; exit 2;; esac
+  # A private HOME (what a test reads or writes of ~ is the run's, and goes with the dir), except where claude-mod's
+  # tests need float-box's logged-in claude.
+  home_line="mkdir -p $dir/home; export HOME=$dir/home; "
+  for p in "${pkgs[@]}"; do [ "$p" = claude-mod ] && home_line=""; done
+  run="ps -o pgid= -p \$\$ | tr -d ' ' > $dir/pid; ${home_line}for v in \$(compgen -e | grep '^EP0CH_'); do unset \$v; done"
+  run+="; cd $dir/ep0ch && git checkout -q --detach $sha && nice -n 10 bun install --frozen-lockfile >/dev/null 2>&1 || { echo 'bun install failed'; exit 2; }; code=0"
+  for p in "${pkgs[@]}"; do
+    run+="; echo; echo \"━━ $p: bun run test\"; (cd packages/$p && nice -n 10 bun run test); c=\$?; [ \$code = 0 ] && code=\$c"
+  done
+  [ $each = 1 ] && run+="; echo; echo '━━ door: each file alone (test:each, $jobs at once)'; (cd packages/door && TEST_EACH_JOBS=$jobs nice -n 10 bun run test:each); c=\$?; [ \$code = 0 ] && code=\$c"
+  run+="; exit \$code"
+  printf '%s\n' "$run" | rssh "cat > $dir/run.sh" || { echo "box-test: couldn't write the run script on $box_host" >&2; exit 1; }
+
+  status working "testing ${pkgs[*]} at ${sha:0:12} on $box_host"
+  # In the foreground over ssh, so output streams as it comes. The remote shell outlives a dead ssh: its timeout ends
+  # an orphaned run (this script killed with -9) and it then removes the dir itself.
+  rm_after="rm -rf -- $dir 2>/dev/null"; [ $keep = 1 ] && rm_after=:
+  rssh "setsid -w bash -c 'timeout -k 30 $max bash $dir/run.sh; c=\$?; $rm_after; exit \$c'" </dev/null &
+  rpid=$!
+  wait $rpid; code=$?; rpid=0
+  [ $code = 255 ] && say "ssh to $box_host dropped; the run is killed by its timeout at most $max s from its start"
+
+  secs=$(( $(date +%s) - start ))
+  mkdir -p "$log_dir"
+  printf '%s\t%s\t%s\t%s\t%ss\t€0\t%s\t%s\n' "$(date -u +%FT%TZ)" "${sha:0:12}" "${pkgs[*]}$([ $each = 1 ] && echo ' each')" "$box_host" "$secs" "$code" float-box >> "$log_dir/box-test.tsv"
+  say "exit $code · $((secs / 60))m$((secs % 60))s · $box_host (cost 0; $log_dir/box-test.tsv)"
+  if [ "$code" = 0 ]; then status done "${pkgs[*]} passed at ${sha:0:12} · $((secs / 60))m$((secs % 60))s"
+  else status error "${pkgs[*]} at ${sha:0:12}: exit $code · $((secs / 60))m$((secs % 60))s"; fi
+  exit "$code"
+fi
+
 # The boxd CLI prints an update notice on stderr; a command's own output is all that's kept.
 bx() { boxd "$@" 2>/dev/null; }
 inbox() { local m=$1; shift; boxd machine exec "$m" -- bash -lc "$*" 2>/dev/null; }
@@ -76,14 +176,6 @@ for m in $(bx list --json | python3 -I -c 'import json,sys; d=json.load(sys.stdi
   say "removing $m, left by an earlier run"; bx machine rm "$m" -y >/dev/null
 done
 
-# ── the commit ──
-sha=$(git -C "$repo" rev-parse --verify "$ref^{commit}") || exit 2
-# What the run is doing, to a terminal that speaks the Program Status Protocol (OSC 7501: the door's tiles, Ghostty):
-# asked once, then each report goes without asking (packages/outliner/scripts/program-status.ts).
-ps_on=0
-bun "$repo/packages/outliner/scripts/program-status.ts" --probe 2>/dev/null && ps_on=1
-status() { [ $ps_on = 1 ] && EP0CH_PROGRAM_STATUS=1 bun "$repo/packages/outliner/scripts/program-status.ts" "$@" --app box-test 2>/dev/null; return 0; }
-[ "$ref" = HEAD ] && [ -n "$(git -C "$repo" status --porcelain --untracked-files=no)" ] && say "uncommitted changes aren't tested: $sha is"
 box="ep0ch-test-${sha:0:8}-$$"
 start=$(date +%s)
 cleanup() {
@@ -148,7 +240,7 @@ secs=$(( $(date +%s) - start ))
 # an upper bound: boxd bills what's in use). Metered up to 25 minutes late, so this is the estimate the log keeps.
 cost=$(awk -v s="$secs" -v c="$vcpu" 'BEGIN { printf "%.3f", s / 3600 * (c * 0.049 + c * 4 * 0.015) }')
 mkdir -p "$log_dir"
-printf '%s\t%s\t%s\t%s\t%ss\t€%s\t%s\n' "$(date -u +%FT%TZ)" "${sha:0:12}" "${pkgs[*]}$([ $each = 1 ] && echo ' each')" "$vcpu" "$secs" "$cost" "$code" >> "$log_dir/box-test.tsv"
+printf '%s\t%s\t%s\t%s\t%ss\t€%s\t%s\t%s\n' "$(date -u +%FT%TZ)" "${sha:0:12}" "${pkgs[*]}$([ $each = 1 ] && echo ' each')" "$vcpu" "$secs" "$cost" "$code" boxd >> "$log_dir/box-test.tsv"
 say "exit $code · $((secs / 60))m$((secs % 60))s · about €$cost ($vcpu vCPU; $log_dir/box-test.tsv)"
 if [ "$code" = 0 ]; then status done "${pkgs[*]} passed at ${sha:0:12} · $((secs / 60))m$((secs % 60))s"
 else status error "${pkgs[*]} at ${sha:0:12}: exit $code · $((secs / 60))m$((secs % 60))s"; fi

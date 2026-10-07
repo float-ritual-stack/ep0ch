@@ -194,7 +194,7 @@ MacBook). It does not support every version a client ever connected with.
   never there. It moves only through `ep0ch install --apply`, which backs up the outlines, fast-forwards it and
   hands everything to the new code together. Run that only when the person (or the agent they made the deployer)
   asks: a merged protocol bump with the host not yet restarted makes every client refuse it.
-- **Tests on a shared machine:** whole suites run in a boxd box, off float-2: `scripts/box-test` (the door) or
+- **Tests on a shared machine:** whole suites run off float-2, on float-box by default and a boxd box as the fallback (`--on boxd`): `scripts/box-test` (the door) or
   `scripts/box-test all --each` before merging a series ([CONTRIBUTING](CONTRIBUTING.md#verification)). A focused
   run on float-2 goes through `scripts/agent-env <name> --test -- timeout 900 bun test <files>`: it waits for one
   of two test slots, is capped in CPU and memory (where there's a systemd user manager, as on float-2), and

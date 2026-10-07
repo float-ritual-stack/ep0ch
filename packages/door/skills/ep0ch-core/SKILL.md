@@ -124,8 +124,8 @@ Then the root `AGENTS.md` and `CONTRIBUTING.md`. They are short and they are the
 
 Never write to a real outline or touch the person's door. Their door may be on the default control socket.
 
-- **Running them:** whole suites in a boxd box, off the shared machine: `scripts/box-test` at the repo root (the
-  door; `all`, `--each`), which streams the output and exits with the suites' code. On float-2 a focused run goes
+- **Running them:** whole suites off the shared machine: `scripts/box-test` at the repo root (the
+  door; `all`, `--each`) runs on float-box by default, in a private dir it removes, or on boxd with `--on boxd`, which streams the output and exits with the suites' code. On float-2 a focused run goes
   through `scripts/agent-env <name> --test -- timeout 900 bun test test/<file>.test.ts`: queued for one of two
   test slots, capped, in the foreground. Never `--parallel`, never in the background waiting for a notification:
   report the result you saw. The door's `parity-screens` takes more than

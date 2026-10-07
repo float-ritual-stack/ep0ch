@@ -3,7 +3,7 @@
 # import cycle, a shared global) fails here. `bun test` loads every file into one process, which hides that: #204's
 # cycle left 13 files unable to load alone for a day. Parity and showcase files are slow; pass file names to run
 # only those. TEST_EACH_JOBS runs that many at once (default 1: one after another; scripts/box-test runs one per
-# vCPU in a boxd box). Prints only the files that fail, then exits 1 if any did.
+# vCPU in a boxd box, 8 on float-box). Prints only the files that fail, then exits 1 if any did.
 self=$(cd "$(dirname "$0")" && pwd)/$(basename "$0")
 cd "$(dirname "$self")/.." || exit 2
 if [ "$1" = --one ]; then
