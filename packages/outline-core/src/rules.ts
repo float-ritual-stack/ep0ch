@@ -152,9 +152,9 @@ export function compileRulePattern(raw: string): RegExp | { problem: string } {
   if (raw.length > 300) return { problem: "the text pattern is longer than 300 characters" };
   // Every line of every note is tested on the service, with no deadline and no way to interrupt a regex: a pattern
   // that can backtrack without bound (`((a+))+`, `(a|aa)*`, a backreference, a pile of `.*`) is refused.
-  const unsafe = unsafePatternReason(raw);
-  if (unsafe) return { problem: `the text pattern ${JSON.stringify(raw)} can take forever on one line: ${unsafe}; use a character class ([ab]+), repeat the inside or the group not both, or match once` };
   const insensitive = raw.startsWith("(?i)");
+  const unsafe = unsafePatternReason(insensitive ? raw.slice(4) : raw, insensitive ? "iu" : "u");
+  if (unsafe) return { problem: `the text pattern ${JSON.stringify(raw)} can take forever on one line: ${unsafe}; use a character class ([ab]+), repeat the inside or the group not both, or match once` };
   try {
     const pattern = new RegExp(insensitive ? raw.slice(4) : raw, insensitive ? "iu" : "u");
     if (pattern.test("")) return { problem: `the text pattern ${JSON.stringify(raw)} matches nothing at all (an empty hit)` };
