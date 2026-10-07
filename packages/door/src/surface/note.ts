@@ -4755,6 +4755,34 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       return { id: d.blockId, baseRevision: d.base };
     },
   }),
+  "revision.restore": def({
+    summary: "go back to an earlier revision of the note (PIE-621): the edit opens (or the open one is used) and that revision's text goes in as one undo step, said with when it was saved; nothing is written until it's saved (ctrl+s), and ctrl+z takes it back. Without revision=, the one before what the edit holds (run it again to go further back). The service keeps the newest 100 texts a note had (`ep0ch revisions <note>` lists them). An agent's: only in an edit it opened",
+    keys: "the tile menu's \"an earlier revision\"",
+    touches: "draft", draft: "replace", replay: "ask",
+    menu: noteRow("an earlier revision", "", { now: ({ surface }) => (surface.session ? { hide: true } : null) }),
+    args: { revision: { type: "number", optional: true, about: "the revision (`ep0ch revisions <note>` lists them); default the one before what the edit holds" } },
+    async run({ revision }, { surface, host }, actor) {
+      surface.requireNote();
+      const { draft: d } = await surface.ensureDraft(host);
+      const list = await host.ctx.board.revisions(d.blockId);
+      const from = d.revisionShown ?? d.base;
+      const want = revision ?? list.revisions.find(r => r.revision < from)?.revision;
+      if (want === undefined) throw new ActionRefused(`no revision before ${from} is kept for this note (the service keeps them from the first save after PIE-621)`);
+      const r = await host.ctx.board.revisionText(d.blockId, want);
+      d.replace(r.text, actor, `revision ${want}'s text`, true);
+      d.revisionShown = want;
+      d.note = `revision ${want} of ${list.revision}, saved ${whenPut(Date.parse(r.savedAt))}${r.author === "agent" && r.actorId ? ` by ${r.actorId}` : ""} · ctrl+s saves it as the note · ctrl+z takes it back`;
+      surface.noteAgent(actor, `put revision ${want}'s text into the edit`);
+      host.redraw();
+      return { revision: want, current: list.revision, savedAt: r.savedAt, chars: r.chars, earlier: list.revisions.filter(x => x.revision < want).map(x => x.revision) };
+    },
+  }),
+  "revisions": def({
+    summary: "the note's revisions (PIE-621): the current one, then the earlier texts the service keeps, newest first, each with when it was saved, by whom, its size and first line. revision.restore puts one into the edit",
+    touches: "nothing", replay: "safe",
+    args: {},
+    async run(_, { surface, host }) { return host.ctx.board.revisions(surface.requireNote().id); },
+  }),
   "edit.arm": def({
     summary: "the person's e (ctrl+e: for $EDITOR) in a reader: arm the edit instead of opening it. The status bar asks `edit <title>? ⏎ · any other key cancels` and the reader's frame turns the edit's colour; ⏎ or the same key again within the window (edit.arm.set, or EP0CH_EDIT_ARM over it; default 2000 ms) opens it (edit), any other key lets it go and does what it does, and the window running out lets it go. edit.arm.set on=false (or EP0CH_EDIT_ARM=off) opens it at once. A click on an edit control, and an agent's edit, open at once",
     keys: "e, ctrl+e", touches: "nothing", replay: "ask",

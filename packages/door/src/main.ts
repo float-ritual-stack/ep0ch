@@ -13,7 +13,7 @@ import { connectTarget, guardDoor, homeBase, openDoor, writeLastCall, type Door 
 import { attachDoor, doorMode, sessionCommand } from "./session/client";
 import { placeOf } from "./session/place";
 import { forwardTo, remoteDoor, remoteOf } from "./machine";
-import { canonicalLocalMachineName, findCommand, NOTES_USAGE, showCommand } from "./notes-cli";
+import { canonicalLocalMachineName, findCommand, NOTES_USAGE, revisionsCommand, showCommand } from "./notes-cli";
 import { EXPORT_USAGE } from "./export";
 import { LIBRARY_USAGE } from "./library/cli";
 import { NEW_USAGE, newCommand } from "./new-cli";
@@ -175,6 +175,7 @@ if (tryArgs) {
 }
 if (args[0] === "find") process.exit(await findCommand(args));
 if (args[0] === "show") process.exit(await showCommand(args));
+if (args[0] === "revisions") process.exit(await revisionsCommand(args));
 if (args[0] === "mcp") process.exit(await mcpCommand(args));
 if (args[0] === "new") process.exit(await newCommand(args));
 if (args[0] === "view") process.exit(await viewCommand(args));

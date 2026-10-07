@@ -203,7 +203,7 @@ it. The runtime never inspects an old shape and never migrates. To change it:
    (PIE-617) as `bun <script> <database>` on every outline at the previous version, with the host stopped, and
    reads `user_version` after, so the script: runs in one transaction, refuses a served file
    (`acquireWorkspaceOwnership`), exits non-zero leaving the file as it was when it can't, and wraps a change that
-   replaces the file (rather than writing in it) in `withLitestreamPaused`. `0003-drop-agent-tables.ts` is the
+   replaces the file (rather than writing in it) in `withLitestreamPaused`. `0004-block-revisions.ts` is the
    model: it checks the shape before it stamps. `openSchema`'s refusal finds it by its number and prints the exact
    commands for the machine (`schemaRefusal`).
 3. The PR says the merge needs `ep0ch install --apply` on each machine; its plan shows the outlines it migrates.

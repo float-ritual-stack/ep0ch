@@ -1,4 +1,5 @@
 import type { Block, BlockAuthor, BlockProperty, McpAccessLevel, NotePlacement } from "@ep0ch/outline-core/protocol";
+export type { BlockRevisionEntry, BlockRevisions } from "@ep0ch/outline-core/protocol";
 // The wire types both sides share live in outline-core (protocol.ts); re-exported for the service's modules.
 export type { Block, BlockAuthor, BlockProperty, OutlinerRequestProblem, OutlinerResponse } from "@ep0ch/outline-core/protocol";
 export type { HostedOutlineAttachment, HostedOutlineDeletion, HostedOutlineList, HostedOutlineSummary, OutlinerHostStatus, OutlinerServiceOutline, OutlinerServiceStatus } from "@ep0ch/outline-core/protocol";
@@ -2156,6 +2157,11 @@ export type OutlinerRequestAction =
    */
   | { id: string; action: "delete"; blockId: string; expectedRevision?: number; ifEmpty?: boolean; mutation?: MutationProvenance }
   | { id: string; action: "trash.restore"; blockId: string; mutation?: MutationProvenance }
+  /**
+   * A block's earlier texts (PIE-621): without `revision` the list (BlockRevisions), with it that revision's whole
+   * text. Going back is an ordinary `update` with that text, recorded as whoever writes it.
+   */
+  | { id: string; action: "block.revisions"; blockId: string; revision?: number }
   | { id: string; action: "trash.purge"; blockId: string; confirmation: string }
   | {
       id: string;

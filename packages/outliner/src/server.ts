@@ -2267,6 +2267,9 @@ export class OutlinerServer {
         case "get":
           result = this.store.require(request.blockId);
           break;
+        case "block.revisions":
+          result = request.revision === undefined ? this.store.revisions(request.blockId) : this.store.revisionText(request.blockId, request.revision);
+          break;
         case "create":
           result = this.store.create(
             titled(request.text),

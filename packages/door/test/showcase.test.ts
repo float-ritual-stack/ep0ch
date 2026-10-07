@@ -10,7 +10,7 @@ import { App } from "../src/app";
 import { GRAPH_KINDS } from "../src/graphs";
 import { liveBoard } from "../src/live";
 import { Help, MainMenu } from "../src/screens";
-import { CHORE_QUEUE, FIGURE_KINDS, LANES, MARKDOWN_KINDS, loadShowcase, RECENT_FILES, RECENT_SESSION, REMOTE_CLIENT, REMOTE_LINE, SEED, seedShowcase, type Seeded } from "../src/showcase/seed";
+import { CHORE_QUEUE, FIGURE_KINDS, LABELS_BEFORE, LANES, MARKDOWN_KINDS, loadShowcase, RECENT_FILES, RECENT_SESSION, REMOTE_CLIENT, REMOTE_LINE, SEED, seedShowcase, type Seeded } from "../src/showcase/seed";
 import { SECTIONS, Showcase, SHOWCASE_ACTIONS } from "../src/showcase/showcase";
 import { SocketBoard } from "../src/socket";
 import { drawNote } from "../src/notes-cli";
@@ -894,6 +894,11 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect(await app.act({ action: "draft.undo", tile: "reader", as: "test-agent" })).toMatchObject({ left: 0, redo: 1 });
     expect(draft().text.split("\n")[0]).not.toContain("wiped");
     expect(await app.act({ action: "draft.redo", tile: "reader", as: "test-agent" })).toMatchObject({ redone: "redid the paste" });
+    expect(draft().text.split("\n")[0]).toEndWith("(wiped Sunday)");
+    // The note's earlier revision (the seed saved it twice), into its own edit as one step, and taken back.
+    expect(await app.act({ action: "revision.restore", tile: "reader", as: "test-agent" })).toMatchObject({ revision: 1, current: 2 });
+    expect(draft().text).toBe(LABELS_BEFORE);
+    await app.act({ action: "draft.undo", tile: "reader", as: "test-agent" });
     expect(draft().text.split("\n")[0]).toEndWith("(wiped Sunday)");
     await app.act({ action: "edit.close", tile: "reader", args: { discard: true }, as: "test-agent" });
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });

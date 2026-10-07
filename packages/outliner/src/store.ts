@@ -11,7 +11,7 @@ import type { ChecklistCollection, ChecklistIdentityChange, ChecklistQuery, Chec
 import { planCreateInView, planMoveIntoView, writeView } from "./view-writes";
 import type {QueryExpression, SavedViewReadOptions, ViewWritePlanRequest, ViewWritePlanResult, SavedViewReadProblem, SavedViewReadResult, VirtualBranchOrder, VirtualBranchPlacementInput} from "./types";
 import { BLOCK_ACTIVITY_KINDS, BLOCK_EDIT_ACTIVITY_KINDS } from "./types";
-import { MCP_ACCESS_LEVELS, type McpAccessLevel, type McpAccessStatus } from "@ep0ch/outline-core/protocol";
+import { MCP_ACCESS_LEVELS, type BlockRevisionEntry, type BlockRevisions, type McpAccessLevel, type McpAccessStatus } from "@ep0ch/outline-core/protocol";
 import { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
 import { mkdirSync } from "node:fs";
@@ -232,6 +232,8 @@ interface WorkIdAllocatorRow {
 // Singleton outline configuration uses the existing metadata table when it is not canonical user content
 // and needs no revisioned note body (same table as sequence/outline_instance_id/change-feed floor).
 export const MCP_ACCESS_METADATA_KEY = "mcp.local_access";
+/** How many earlier texts of a block the store keeps (PIE-621, block_revisions): the newest. */
+export const REVISIONS_KEEP = 100;
 
 function normalizeMcpAccessLevel(value: string): McpAccessLevel {
   const normalized = value.trim().toLowerCase();
@@ -2365,7 +2367,52 @@ export class OutlinerStore {
       WHERE id = ? AND revision = ?
     `).run(text, editedAt, id, expectedRevision);
     if (result.changes !== 1) throw new Error(`Block changed since editing began: ${id}`);
+    // The text it replaced is kept (PIE-621): a saved note can go back to it.
+    if (text !== current.text) {
+      const saved = this.textSaved(current);
+      this.database.query("INSERT OR REPLACE INTO block_revisions (block_id, revision, text, saved_at, author, actor_id, replaced_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
+        .run(id, expectedRevision, current.text, saved.savedAt, saved.author ?? null, saved.actorId ?? null, editedAt);
+      // The newest REVISIONS_KEEP rows a block has, by row: a save that left the text as it was moved the revision on
+      // without a row, so a cut by revision number would drop real history.
+      this.database.query("DELETE FROM block_revisions WHERE block_id = ? AND revision NOT IN (SELECT revision FROM block_revisions WHERE block_id = ? ORDER BY revision DESC LIMIT ?)")
+        .run(id, id, REVISIONS_KEEP);
+    }
     return editedAt;
+  }
+
+  /**
+   * When a block's current text was written and by whom: its last text or property edit (a move or a trip to the Trash
+   * changes `updatedAt`, never the text), else when it was made and by whom. Read before the next write records its own.
+   */
+  private textSaved(block: Block): { savedAt: string; author?: BlockAuthor; actorId?: string } {
+    const row = this.database.query(`SELECT edited_at, author, actor_id FROM block_edit_activity WHERE block_id = ? AND kind IN (${BLOCK_EDIT_ACTIVITY_KINDS.map(() => "?").join(", ")}) ORDER BY activity_id DESC LIMIT 1`)
+      .get(block.id, ...BLOCK_EDIT_ACTIVITY_KINDS) as { edited_at: string; author: BlockAuthor; actor_id: string | null } | null;
+    if (!row) return { savedAt: block.createdAt, author: block.author, ...(block.actorId ? { actorId: block.actorId } : {}) };
+    return { savedAt: row.edited_at, author: row.author, ...(row.actor_id ? { actorId: row.actor_id } : {}) };
+  }
+
+  /**
+   * A block's earlier texts (PIE-621), newest first, after its current one: each revision, when it was saved and by
+   * whom (its edit activity, where one was recorded), and its size and first line. `revision`: that one's whole text.
+   */
+  revisions(id: string): BlockRevisions {
+    const block = this.require(id);
+    const entry = (revision: number, text: string, saved: { savedAt: string; author?: BlockAuthor | null; actorId?: string | null }): BlockRevisionEntry => ({
+      revision, savedAt: saved.savedAt, ...(saved.author ? { author: saved.author } : {}), ...(saved.actorId ? { actorId: saved.actorId } : {}),
+      chars: [...text].length, lines: text.split("\n").length, firstLine: text.split("\n")[0]!.slice(0, 120),
+    });
+    const rows = this.database.query("SELECT revision, text, saved_at, author, actor_id FROM block_revisions WHERE block_id = ? ORDER BY revision DESC").all(id) as Array<{ revision: number; text: string; saved_at: string; author: BlockAuthor | null; actor_id: string | null }>;
+    return { blockId: id, revision: block.revision, revisions: [entry(block.revision, block.text, this.textSaved(block)), ...rows.map(r => entry(r.revision, r.text, { savedAt: r.saved_at, author: r.author, actorId: r.actor_id }))] };
+  }
+
+  /** One revision's whole text: the block's own for the current one, else the one kept (PIE-621). */
+  revisionText(id: string, revision: number): BlockRevisionEntry & { text: string } {
+    const block = this.require(id);
+    const entry = this.revisions(id).revisions.find(r => r.revision === revision);
+    if (revision === block.revision) return { ...entry!, text: block.text };
+    const row = this.database.query("SELECT text FROM block_revisions WHERE block_id = ? AND revision = ?").get(id, revision) as { text: string } | null;
+    if (!row || !entry) throw new Error(`Revision ${revision} of ${id} isn't kept (the note is at revision ${block.revision}; ep0ch revisions lists the ones kept)`);
+    return { ...entry, text: row.text };
   }
 
   private validateRoadmapText(text: string): void {

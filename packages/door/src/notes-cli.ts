@@ -67,7 +67,14 @@ export const NOTES_USAGE = `  ep0ch find [<words>… | --recent | --tree [<root 
                                    as a line of JSON {id, columns, rows, cells, replaced}: cells row-major,
                                    base64 of u32 LE [codePoint, fg, bg] (0x00RRGGBB, 0x01000000 the
                                    terminal's own), one width-1 BMP glyph a cell, U+FFFD for a wider one
-                                   (counted in replaced); --rows keeps the first n rows`;
+                                   (counted in replaced); --rows keeps the first n rows
+  ep0ch revisions <id> [<n> [--restore]] [--json] [--ws <name>] [--machine <ssh-name>]
+                                   a note's revisions (PIE-621): the current one, then the earlier texts the
+                                   outline keeps (the newest 100, from the first save after schema version 4),
+                                   newest first, each with when it was saved, by whom, its size and first line;
+                                   with <n> that revision's whole text; --restore saves it as the note (a new
+                                   revision, recorded as you: it can be gone back on too). In the door: the tile
+                                   menu's "an earlier revision" (revision.restore), into the edit, ctrl+z there`;
 
 /** The canonical outline address used for ep0ch:// block URIs. */
 export interface BoardAddress { outline: string; machine: string }
@@ -403,6 +410,44 @@ export async function drawNote(board: SocketBoard, id: string, width: number, se
 }
 
 /** `ep0ch show <id>… …`: its exit code. */
+/** `ep0ch revisions <id> [<n> [--restore]] [--json]` (PIE-621): a note's earlier texts, one of them, or going back to it. */
+export async function revisionsCommand(argsIn: string[], io: Out = { out: console.log, err: console.error, columns: process.stdout.columns, tty: !!process.stdout.isTTY }): Promise<number> {
+  const args = argsIn.slice(1);
+  for (const f of ["--ws", "--machine"]) { const v = flag(args, f); if (typeof v === "object") { io.err(`ep0ch: ${v.error}`); return 2; } }
+  const json = args.includes("--json"), restore = args.includes("--restore");
+  const words = without(args, ["--ws", "--machine"], ["--json", "--restore"]);
+  const [id, n, ...more] = words;
+  const usage = "ep0ch revisions <id> [<n> [--restore]] [--json]";
+  if (!id || id.startsWith("--") || more.length || (n !== undefined && !/^\d+$/.test(n))) { io.err(`ep0ch: ${usage}`); return 2; }
+  if (restore && n === undefined) { io.err(`ep0ch: --restore needs the revision: ${usage} (ep0ch revisions ${id} lists them)`); return 2; }
+  const board = await boardFor(args);
+  if ("error" in board) { io.err(`ep0ch: ${board.error}`); return 1; }
+  try {
+    const blockId = blockIdOf(id);
+    if (n === undefined) {
+      const list = await board.revisions(blockId);
+      if (json) { io.out(JSON.stringify(list)); return 0; }
+      for (const r of list.revisions) {
+        const by = r.author === "agent" ? ` · ${r.actorId ?? "an agent"}` : r.author === "user" ? " · you" : "";
+        io.out(`${String(r.revision).padStart(4)}${r.revision === list.revision ? " now" : "    "}  ${r.savedAt.slice(0, 16).replace("T", " ")}${by} · ${r.lines} line${r.lines === 1 ? "" : "s"}, ${r.chars} chars · ${printable(r.firstLine, " ")}`);
+      }
+      if (list.revisions.length === 1) io.out("(no earlier text kept: the outline keeps a note's earlier texts from its first save on schema version 4)");
+      return 0;
+    }
+    const r = await board.revisionText(blockId, Number(n));
+    if (!restore) { if (json) io.out(JSON.stringify(r)); else io.out(io.tty ? printable(r.text, "", { lines: true }) : r.text); return 0; }
+    const now = await board.get(blockId);
+    if (!now || now.revision === undefined) { io.err(`ep0ch: no note ${id} in this outline`); return 1; }
+    if (now.text === r.text) { io.out(`revision ${n} is the note's text already (revision ${now.revision})`); return 0; }
+    const saved = await board.update(blockId, r.text, now.revision);
+    io.out(`saved revision ${n}'s text as revision ${saved.revision} · ep0ch revisions ${id} ${now.revision} --restore puts back what it replaced`);
+    return 0;
+  } catch (e) {
+    io.err(`ep0ch: ${(e as Error).message}`);
+    return 1;
+  } finally { board.close(); }
+}
+
 export async function showCommand(argsIn: string[], io: Out = { out: console.log, err: console.error, columns: process.stdout.columns, tty: !!process.stdout.isTTY }): Promise<number> {
   const args = argsIn.slice(1);
   for (const f of ["--ws", "--machine", "--width", "--rows"]) { const v = flag(args, f); if (typeof v === "object") { io.err(`ep0ch: ${v.error}`); return 2; } }

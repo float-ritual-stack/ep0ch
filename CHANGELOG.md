@@ -10,6 +10,16 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Back to an earlier revision of a note (PIE-621)
+
+- **The outline keeps a note's earlier texts:** the newest 100 each note had, from the first save after this update,
+  each with when it was saved and by whom. For a paste that was already saved.
+- **`ep0ch revisions <note>`** lists them, `ep0ch revisions <note> <n>` prints one, `--restore` saves it as the note (a
+  new revision, recorded as you, so it can be gone back on too). In the door the tile menu's `an earlier revision`
+  puts it into the edit as one undo step, written on `ctrl+s`; again goes one further back.
+- **Run:** PROTOCOL 107 and schema version 4: `ep0ch install --apply` on both machines. It stops the outline host,
+  runs `packages/outliner/scripts/migrations/0004-block-revisions.ts` on every outline at schema 3 and starts it
+  again; then restart the doors.
 ### Completion wherever you write (PIE-626)
 
 - **New:** `[`, `[[`, `((`, `[file::` and a callout's `> [!` complete in every place the door takes outline text, not
