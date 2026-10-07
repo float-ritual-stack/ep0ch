@@ -10,7 +10,7 @@ import { App } from "../src/app";
 import { GRAPH_KINDS } from "../src/graphs";
 import { liveBoard } from "../src/live";
 import { Help, MainMenu } from "../src/screens";
-import { CHORE_QUEUE, FIGURE_KINDS, LANES, MARKDOWN_KINDS, loadShowcase, SEED, seedShowcase, type Seeded } from "../src/showcase/seed";
+import { CHORE_QUEUE, FIGURE_KINDS, LANES, MARKDOWN_KINDS, loadShowcase, RECENT_FILES, RECENT_SESSION, SEED, seedShowcase, type Seeded } from "../src/showcase/seed";
 import { SECTIONS, Showcase, SHOWCASE_ACTIONS } from "../src/showcase/showcase";
 import { SocketBoard } from "../src/socket";
 import { drawNote } from "../src/notes-cli";
@@ -158,6 +158,16 @@ describe.skipIf(!outliner)("the showcase seed", () => {
     expect(lines[read.fragment.endLine]).toBe("::");
     expect(lines[read.fragment.endLine + 1]).toBe("^budget");
     expect(read.fragment.text).toContain("title: Startup budget");
+  });
+
+  test("files a session touched (PIE-602): a made-up session's branch, day › project › session › one block per file, each naming its file", async () => {
+    const [day] = await board.children(seeded.notes.recentFiles.id);
+    const [project] = await board.children(day!.id);
+    const [session] = await board.children(project!.id);
+    expect([day!.props["file-day"], project!.props["file-project"], session!.props["file-session"]]).toEqual(["2026-03-11", "allotment", RECENT_SESSION]);
+    const files = await board.children(session!.id);
+    expect(files.map(f => [f.props.file, f.props.type, f.props.touches])).toEqual(RECENT_FILES().map(f => [f.file, "file-touch", String(f.touches)]));
+    for (const f of RECENT_FILES()) expect(existsSync(f.file)).toBe(true);
   });
 
   test("seeding twice is refused", async () => {
@@ -473,6 +483,26 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     // Again: that preview, not a second one.
     expect(await app.act({ action: "tile.preview", tile: "reader", as: "test-agent" })).toMatchObject({ tile: "reader-preview", existing: true });
     expect(tiles().filter(t => t.name.startsWith("reader-preview")).length).toBe(1);
+    expect(S().focus).toBe("index");
+  }, 20_000);
+
+  test("a session's files (PIE-602): an agent's open file= lands the Markdown file drawn as the preview draws it, any other through the file Resource reader, diff=true its changes", async () => {
+    (app as any).lastInput = 0;
+    expect(await app.act({ action: "section", args: { name: "preview" }, as: "test-agent" })).toMatchObject({ key: "preview" });
+    const stage = () => { screen(); return S().stage(SECTIONS.findIndex(s => s.key === "preview")).top; };
+    const showing = () => (stage().layoutGet().tiles as any[]).map(t => t.showing?.id).filter(Boolean) as string[];
+    const [md, txt] = RECENT_FILES();
+    const opened = await app.act({ action: "open", args: { file: md!.file }, as: "test-agent" }) as any;
+    expect(opened.id).toBe(`file:${md!.file}`);
+    await until(() => showing().includes(`file:${md!.file}`), "the bed plan where opens land", 5000);
+    await until(() => screen().includes("Net the brassicas before the pigeons find them."), "the Markdown drawn", 5000);
+    const other = await app.act({ action: "open", args: { file: txt!.file }, as: "test-agent" }) as any;
+    expect(other.id).toStartWith("resource:");
+    await until(() => screen().includes("Scarlet Emperor"), "the seed list through the Resource reader", 8000);
+    const diff = await app.act({ action: "open", args: { file: md!.file, diff: true }, as: "test-agent" }) as any;
+    expect(diff.id).toBe(`file-diff:${md!.file}`);
+    await expect(app.act({ action: "open", args: { file: "beds/plan.md" }, as: "test-agent" })).rejects.toThrow(/absolute path/);
+    await expect(app.act({ action: "open", args: {}, as: "test-agent" })).rejects.toThrow(/id=<block id> or file=/);
     expect(S().focus).toBe("index");
   }, 20_000);
 

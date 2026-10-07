@@ -43,6 +43,7 @@ export const SEED = {
   markdownFigures: "Figures, written in Markdown",
   keys: "The reader's keys",
   newNotes: "New notes from anywhere",
+  recentFiles: "Files a session touched",
 } as const;
 export type SeedName = keyof typeof SEED;
 
@@ -297,6 +298,23 @@ export const NEW_NOTES = [
   "",
   "A note whose first line is only `[page::2026-03-12]` names itself: ⏎ on that line in the editor, or the save, makes it `2026-03-12 [page::2026-03-12]`. A title already there is kept.",
 ].join("\n");
+
+/**
+ * The files a made-up Claude session touched (PIE-602), as the Claude mod files them: under the day, the project and
+ * the session, one block per file with its touches and lines; `[file::]` opens the file (the showcase's own assets).
+ */
+export const recentFilesText = () => [
+  SEED.recentFiles,
+  "",
+  "A Claude session in a door edited two files in the allotment folder. The Claude mod filed each one as it was touched, as it files every Edit and Write in the outline its folder names: under the day, the project and the session, one block per file, its count, last time and lines brought up to date on each touch (the outliner's `agent touch-file`). The real ones live under [[recent-files]]; By project there has one view per project, newest first.",
+  "",
+  "Open a file from its block's `[file::]` link (the file Resource reader), or from the Edit row in Claude: `ep0ch open file:<path>` puts it where opens land, Markdown drawn as the preview draws it; `diff=true` shows its changes.",
+].join("\n");
+export const RECENT_FILES = (dir = SHOWCASE_ASSETS) => [
+  { file: join(dir, "bed-plan.md"), shown: "bed-plan.md", touches: 3, at: "2026-03-11T09:42:00.000Z", added: 6, removed: 2 },
+  { file: join(dir, "seed-list.txt"), shown: "seed-list.txt", touches: 1, at: "2026-03-11T09:31:00.000Z", added: 4, removed: 0 },
+];
+export const RECENT_SESSION = "7c1e2f30-5a4b-4c3d-9e8f-0a1b2c3d4e5f";
 
 /** The search section's note: what the forgiving search finds, tried on this outline's own titles. */
 const FINDING = [
@@ -680,6 +698,13 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
   notes.markdownFigures = await board.update(notes.markdownFigures.id, markdownFiguresText(block.id), notes.markdownFigures.revision!);
   notes.keys = await make(notes.root.id, KEYS_TEXT);
   notes.newNotes = await make(notes.root.id, NEW_NOTES);
+  notes.recentFiles = await make(notes.root.id, recentFilesText());
+  {
+    const day = await make(notes.recentFiles.id, "2026-03-11 [file-day::2026-03-11]", SEED_AGENT);
+    const project = await make(day.id, "allotment [file-project::allotment]", SEED_AGENT);
+    const session = await make(project.id, `session ${RECENT_SESSION.slice(0, 8)} [file-session::${RECENT_SESSION}]`, SEED_AGENT);
+    for (const f of RECENT_FILES()) await make(session.id, `${f.shown} [file::${f.file}] [type::file-touch] [day::2026-03-11] [project::allotment] [session::${RECENT_SESSION}] [touches::${f.touches}] [last-touch::${f.at}] [added::${f.added}] [removed::${f.removed}]`, SEED_AGENT);
+  }
   await seedTickets(board, opts.ticketsConfig);
   notes.tickets = await make(notes.root.id, TICKETS);
   await make(notes.tickets.id, TICKET_PAGE);

@@ -381,6 +381,30 @@ answer say, and the tree).
 - Anything the formatter doesn't recognise (an input of another shape, a tool it doesn't know) and a drawing that
   throws are Claude Code's own row, so the transcript never breaks.
 
+### Files this session touches (PIE-602)
+
+Claude Code's own **Edit** and **Write** rows are drawn the same way, and each file they change is filed in the
+session's outline.
+
+```
+▸ ✎ beds/plan.md · +2 −1 · diff
+▸ + /notes/seed-list.txt · created · +4 −0
+```
+
+- **The row:** the file (relative to the session's folder), the lines added and removed (git's count, else the
+  patch's), and `diff`. `▸` folds open on the patch. Pressed in a door tile, the file opens where an agent's open
+  lands (`ep0ch open file:<path>`): Markdown drawn as the preview draws a file, any other file through the file
+  Resource reader; `diff` opens its changes (git's diff against its last commit, else against the copy kept before
+  the first touch). Outside a door the path is copied and a toast says it opens in a door. `/tool-rows off` puts
+  Claude Code's rows back, these too.
+- **The record:** after each Edit or Write that ran (never a denied or failed one), off the call and one at a time,
+  the installed CLI's `agent touch-file` files it as this session (the outliner's `src/file-touches.ts` owns the
+  shape): under `[[recent-files]]` › the day › the project (its git repository, else the session's folder) › this
+  session, **one `[file::]` block per file per session**, its `touches`, `last-touch`, `added` and `removed` brought up
+  to date on each touch. `By project` there holds one view per project, newest first. A file outside git sends the
+  file as it was with its first touch, kept once in the outline's folder (`file-touches/<session>/`) for its diff.
+  Only in a folder bound to an outline; a failure is one toast a session.
+
 ## Door tools
 
 When Claude runs in a door tile (`EP0CH_CONTROL` set), it also gets

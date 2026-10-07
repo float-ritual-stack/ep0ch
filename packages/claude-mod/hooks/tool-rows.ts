@@ -37,6 +37,16 @@ export const WRITE_TOOLS = [
   'note_section', 'work_create', 'work_set', 'work_stage', 'work_body', 'work_deliver', 'work_complete', 'view_order',
 ] as const
 export const READ_TOOLS = ['outline_read', 'outline_find', 'outline_changes', 'outline_resolve', 'show'] as const
+/**
+ * Claude Code's own file tools whose rows the mod draws too (PIE-602): the file and the lines added and removed, the
+ * file pressed opens it (and `diff` its changes) where a note opens, and the row folds open on the diff.
+ */
+export const FILE_TOOLS = ['Edit', 'Write'] as const
+/** A row target that is a file on this machine, not a note: `file:<absolute path>`; its changes, `file-diff:<path>`. */
+export const FILE_REF = 'file:'
+export const FILE_DIFF_REF = 'file-diff:'
+/** Lines in a file's text: none for an empty one, the last line counted without its newline. */
+const lineCount = (text: string) => (text ? text.split('\n').length - (text.endsWith('\n') ? 1 : 0) : 0)
 
 export const DEFAULT_TOOL_ROWS: ToolRowsPrefs = { enabled: true }
 
@@ -70,6 +80,8 @@ export type ToolRow = {
   /** Words before the target (`comment on`), if any. */
   lead?: string
   target: RowTarget | null
+  /** A second thing to open after the target (a file's `diff`), drawn as its own button. */
+  also?: RowTarget
   /** What happened, after the target, joined with ` · `. */
   change: string[]
   state: 'running' | 'done' | 'errored' | 'interrupted'
@@ -351,8 +363,69 @@ function describe(name: string, input: Record<string, unknown>, out: Record<stri
   return null
 }
 
+/**
+ * The row for Claude Code's Edit or Write (PIE-602), or null to leave the engine's: the file (pressed, it opens), the
+ * lines added and removed, a `diff` to open, and the diff folded under it. Never throws on any input shape.
+ */
+export function fileRowOf(view: ToolCallView, cwd?: string): ToolRow | null {
+  if (!(FILE_TOOLS as readonly string[]).includes(view.tool)) return null
+  const input = recordOf(view.input)
+  const path = typeof input?.file_path === 'string' && input.file_path.startsWith('/') ? input.file_path : null
+  if (!input || !path) return null
+  const state = view.isInterrupted ? 'interrupted' : view.isErrored ? 'errored' : view.isRunning ? 'running' : 'done'
+  const out = state === 'done' ? recordOf(view.output) : null
+  const counted = out ? lineCounts(out) : null
+  const created = out?.type === 'create'
+  const target = { label: shortPath(path, cwd), ref: `${FILE_REF}${path}` }
+  const row: ToolRow = {
+    kind: 'write', glyph: created ? '+' : '✎', target, state,
+    change: [
+      ...(view.tool === 'Write' ? [created ? 'created' : 'rewrote'] : []),
+      ...(counted ? [`+${counted.added} −${counted.removed}`] : []),
+    ],
+    ...(counted && !created ? { also: { label: 'diff', ref: `${FILE_DIFF_REF}${path}` } } : {}),
+  }
+  const patch = out ? patchText(out) : ''
+  if (patch) row.detail = fenced(patch, 'diff')
+  else if (created && typeof out?.content === 'string') row.detail = fenced(out.content, '')
+  if (state === 'errored') row.error = clip(firstLine(outputTextOf(view.output)).replace(/^Error:\s*/, ''), 160) || 'the call failed'
+  return row
+}
+
+/** The lines an Edit or Write added and removed: git's count when it gave one, else its patch's `+` and `-` lines. */
+export function lineCounts(out: Record<string, unknown>): { added: number; removed: number } | null {
+  const git = recordOf(out.gitDiff)
+  if (typeof git?.additions === 'number' && typeof git.deletions === 'number') return { added: git.additions, removed: git.deletions }
+  const hunks = Array.isArray(out.structuredPatch) ? out.structuredPatch.map(recordOf).filter((h): h is Record<string, unknown> => !!h) : null
+  if (!hunks) return out.type === 'create' && typeof out.content === 'string' ? { added: lineCount(out.content), removed: 0 } : null
+  let added = 0, removed = 0
+  for (const h of hunks) for (const l of Array.isArray(h.lines) ? h.lines : []) {
+    if (typeof l !== 'string') continue
+    if (l.startsWith('+')) added++
+    else if (l.startsWith('-')) removed++
+  }
+  if (!hunks.length && out.type === 'create' && typeof out.content === 'string') added = lineCount(out.content)
+  return { added, removed }
+}
+
+/** An Edit's or Write's patch as unified-diff text (its hunks), '' with none. */
+function patchText(out: Record<string, unknown>): string {
+  const hunks = Array.isArray(out.structuredPatch) ? out.structuredPatch.map(recordOf).filter((h): h is Record<string, unknown> => !!h) : []
+  return hunks.map(h => [`@@ -${h.oldStart},${h.oldLines} +${h.newStart},${h.newLines} @@`, ...(Array.isArray(h.lines) ? h.lines.filter((l): l is string => typeof l === 'string') : [])].join('\n')).join('\n')
+}
+
+/** A path as the row shows it: relative to the session's folder when inside it, else its last three parts. */
+export function shortPath(path: string, cwd?: string): string {
+  const base = cwd?.replace(/\/+$/, '')
+  if (base && path.startsWith(`${base}/`)) return path.slice(base.length + 1)
+  const parts = path.split('/').filter(Boolean)
+  return parts.length > 3 ? `…/${parts.slice(-3).join('/')}` : path
+}
+
 /** One line of the tool's result under the row: null leaves the engine's (errors, in full), '' draws nothing. */
 export function toolResultLineOf(tool: string, output: unknown, isErrored: boolean): string | null {
+  // The file's row says what changed, and folds open on the diff: nothing under it but an error.
+  if ((FILE_TOOLS as readonly string[]).includes(tool)) return isErrored ? null : ''
   const name = modToolOf(tool)
   if (!name || isErrored) return null
   if ((READ_TOOLS as readonly string[]).includes(name)) return ''
@@ -415,6 +488,8 @@ export function toolRowTree(ui: ToolRowElements, row: ToolRow, m: ToolRowModel):
         ? [fixed(Button({ key: `tool-row-open-${m.id}`, plain: true, label: row.target.label, onPress: (press: { surface: RenderSurface }) => m.open(row.target!.ref, press.surface) }))]
         : row.target ? [fixed(Text({ bold: true, children: row.target.label }))] : []),
       ...(tail.length ? [Box({ flexShrink: 1, children: Text({ dimColor: true, wrap: 'truncate-end', children: `${row.target || row.lead ? ' · ' : ''}${tail.join(' · ')}` }) })] : []),
+      // After what changed: a second thing to open (a file's diff).
+      ...(row.also?.ref ? [fixed(Text({ dimColor: true, children: ' · ' })), fixed(Button({ key: `tool-row-also-${m.id}`, plain: true, label: row.also.label, onPress: (press: { surface: RenderSurface }) => m.open(row.also!.ref, press.surface) }))] : []),
     ],
   })
   const below: RenderElement[] = []

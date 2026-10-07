@@ -744,7 +744,7 @@ export async function patchDraft(
 
 // ─── The CLI's `agent` command ──────────────────────────────────────────────
 
-export const AGENT_OPERATIONS = ["read", "find", "resolve", "edit", "create", "comment", "reply", "resolve-thread", "changes", "patch", "view-order"] as const;
+export const AGENT_OPERATIONS = ["read", "find", "resolve", "edit", "create", "comment", "reply", "resolve-thread", "changes", "patch", "view-order", "touch-file"] as const;
 export type AgentOperation = (typeof AGENT_OPERATIONS)[number];
 
 /** Runs one operation on its JSON input. Writes need an actor; reads ignore it. */
@@ -771,5 +771,6 @@ export function runAgentOperation(
     case "changes": return changesSince(client, any);
     case "patch": return patchDraft(client, any, writer());
     case "view-order": return viewOrder(client, any, Array.isArray(any.ids) && any.ids.length ? writer() : actor);
+    case "touch-file": return import("./file-touches").then(m => m.touchFile(client, any, writer()));
   }
 }
