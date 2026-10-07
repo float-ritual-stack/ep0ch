@@ -223,7 +223,7 @@ CHANGELOG, the demo hubs, the fresh-outline seed, the showcase and skills, the r
 - Paid review runs on PRs into main. Put `[skip review]` in the title of docs-only, mechanical or small PRs
   and review them yourself (`/code-review` for code). Push fixes in one go; don't re-trigger reviews.
 - Don't commit lockfile churn from a local bun; commit `bun.lock` only when dependencies change.
-- Merge yourself once review is resolved: `gh pr merge --squash --delete-branch`. Check for bot reviews posted
+- Merge yourself once review is resolved: `gh pr merge --squash` (never `--delete-branch` or `-d`: gh also deletes the local branch, and with it the worktree an agent has it checked out in; delete the remote branch alone with `gh api -X DELETE repos/float-ritual-stack/ep0ch/git/refs/heads/<branch>`). Check for bot reviews posted
   after the merge, and answer them in a follow-up PR.
 
 ## Deploy and back up
