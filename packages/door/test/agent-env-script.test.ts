@@ -53,10 +53,13 @@ describe("scripts/agent-env", () => {
   test("test files that once failed only under agent-env pass under it", () => {
     const repo = join(import.meta.dir, "../../..");
     for (const [pkg, file] of [["door", "test/agent-interface.test.ts"], ["outliner", "test/outline-host-clients.test.ts"]] as const) {
-      const r = Bun.spawnSync([script, "regress", "--", "sh", "-c", `cd ${join(repo, "packages", pkg)} && exec bun test ${file}`],
-        { env: { ...process.env, EP0CH_AGENT_ROOT: root }, stdout: "pipe", stderr: "pipe" });
+      const r = Bun.spawnSync([script, "regress", "--", process.execPath, "test", `./${file}`],
+        { cwd: join(repo, "packages", pkg), env: { ...process.env, EP0CH_AGENT_ROOT: root }, stdout: "pipe", stderr: "pipe", timeout: 240_000 });
       const out = r.stderr.toString().replace(/\x1b\[[0-9;]*m/g, "");
-      expect({ file, code: r.exitCode, failed: out.split("\n").filter(l => /^(✗|\(fail\))/.test(l)) }).toEqual({ file, code: 0, failed: [] });
+      // Ran, not skipped: some passed, none skipped or failed.
+      const count = (what: string) => Number(new RegExp(`^\\s*(\\d+) ${what}$`, "m").exec(out)?.[1] ?? 0);
+      expect({ file, code: r.exitCode, passed: count("pass") > 0, skipped: count("skip"), failed: out.split("\n").filter(l => /^(✗|\(fail\))/.test(l)) })
+        .toEqual({ file, code: 0, passed: true, skipped: 0, failed: [] });
     }
   }, 300_000);
 
