@@ -14,7 +14,8 @@
     "./litestream-units": "./src/litestream-units.ts",
     "./machine-forward": "./src/machine-forward.ts",
     "./outline-host": "./src/outline-host.ts",
-    "./plain-stderr": "./src/plain-stderr.ts"
+    "./plain-stderr": "./src/plain-stderr.ts",
+    "./program-status-emit": "./src/program-status-emit.ts"
   },
   "scripts": {
     "outliner": "bun run src/outliner.ts",

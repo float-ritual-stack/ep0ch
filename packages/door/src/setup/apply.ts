@@ -13,6 +13,7 @@ import { backupDirOf, buildPlan, hostMainOf, hostStep, hostUnitArgv, hostUnitCom
 import { hostLive } from "../discover";
 import type { Handover } from "../session/client";
 import { applyLinks, byFolder, LinkFailed, type LinkWork, sh } from "./links";
+import { programStatusEmitter, type StatusEmitter } from "@ep0ch/outliner/program-status-emit";
 
 type Env = Record<string, string | undefined>;
 export const SETUP_USAGE = "ep0ch doctor [--backups] [--json] | ep0ch install [--apply] [--json]";
@@ -382,6 +383,8 @@ export interface SetupIO {
   terminal?: Terminal;
   /** The reporter, made by a test; otherwise made from the terminal. */
   progress?: Progress;
+  /** Program status (OSC 7501) for the terminal, made by a test; otherwise found for this terminal when it applies. */
+  status?: StatusEmitter;
 }
 
 export async function setupCommand(args: readonly string[], io: SetupIO = { out: console.log, err: console.error }): Promise<number> {
@@ -393,7 +396,10 @@ export async function setupCommand(args: readonly string[], io: SetupIO = { out:
   if (!json) { const { out, err } = io; io = { ...io, out: s => out(tilde(s, home)), err: s => err(tilde(s, home)) }; }
   const progress = io.progress ?? new Progress({ mode: progressMode({ json, terminal: io.terminal, env }), out: io.out, terminal: io.terminal, env, tidy: s => tilde(s, home) });
   // Ctrl+C: the running step's line says it was interrupted, the cursor comes back, and which step it was.
+  // What --apply is doing, to a terminal that speaks the Program Status Protocol (OSC 7501): a door's tile, Ghostty.
+  const status = io.status ?? (args.includes("--apply") && progress.mode === "live" ? await programStatusEmitter("ep0ch-install", { env }) : null);
   const interrupted = () => {
+    status?.report({ state: "idle", msg: "install interrupted" });
     const head = progress.interrupt();
     io.err(head?.lead ? `interrupted at step ${head.lead} (${head.title}): it may not have finished; ep0ch install shows where things stand`
       : head ? `interrupted while ${head.title.toLowerCase()}` : "interrupted");
@@ -401,14 +407,14 @@ export async function setupCommand(args: readonly string[], io: SetupIO = { out:
     process.exit(130);
   };
   if (io.terminal) process.on("SIGINT", interrupted);
-  try { return await setup(args, io, env, json, progress); }
+  try { return await setup(args, io, env, json, progress, status); }
   finally {
     progress.close();
     if (io.terminal) process.off("SIGINT", interrupted);
   }
 }
 
-async function setup(args: readonly string[], io: SetupIO, env: Env, json: boolean, progress: Progress): Promise<number> {
+async function setup(args: readonly string[], io: SetupIO, env: Env, json: boolean, progress: Progress, status: StatusEmitter | null): Promise<number> {
   // Checking the stack (git fetches among it) can take a while on a slow link: a phase, gone once it's done.
   const checking = progress.task({ mark: "·", title: "Checking the stack", transient: true });
   const facts = await gatherFacts({ env, repoRoot: io.repoRoot, platform: io.platform, cwd: io.cwd,
@@ -455,6 +461,7 @@ async function setup(args: readonly string[], io: SetupIO, env: Env, json: boole
       step = current.mcp ? mcpStep(current, current.repo.checkout.behind > 0) : { ...step, status: "skip", why: "the MCP gateway's unit is gone" };
     }
     if (step.status !== "do") { stepLines(step, i, current, true).forEach(l => say(l)); results.push(step); continue; }
+    status?.report({ state: "working", progress: Math.round((i / plan.steps.length) * 100), msg: `step ${i + 1} of ${plan.steps.length}: ${step.title}` });
     const task = progress.task({ lead: `${i + 1}`, mark: MARK.do, title: step.title });
     const done: string[] = [];
     try {
@@ -467,10 +474,12 @@ async function setup(args: readonly string[], io: SetupIO, env: Env, json: boole
       results.push({ ...step, done, error, recover });
       if (json) io.out(JSON.stringify({ platform: facts.platform, apply: true, ok: false, steps: results, notes: plan.notes }, null, 2));
       else io.err(`    ✗ ${error}\n    recover: ${recover}\n    stopped: nothing after step ${i + 1} ran`);
+      status?.report({ state: "error", msg: `step ${i + 1} (${step.title}) failed: ${error}` });
       return 1;
     }
   }
   const waiting = results.filter(s => s.status === "manual");
+  status?.report({ state: "done", msg: results.some(s => s.done) ? `installed${waiting.length ? `; ${waiting.length} step${waiting.length === 1 ? "" : "s"} left for you` : ""}` : "nothing to do" });
   if (json) io.out(JSON.stringify({ platform: facts.platform, apply: true, ok: true, steps: results, notes: plan.notes }, null, 2));
   else {
     if (plan.notes.length) { say(""); say("not done by install:"); plan.notes.forEach(n => say(`  · ${n}`)); }

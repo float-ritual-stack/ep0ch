@@ -18,6 +18,7 @@ import { OUTLINE_ENV, remoteHint, resolveClientPaths } from "./paths";
 import { attachHostedOutline, attachNamedOutline, resolveInvocationPaths, waitForOutlineHost } from "./outline-host-client";
 import type { OutlineChooserContext } from "./outline-chooser";
 import { waitForCompatibleService } from "./service-compatibility";
+import { reportWhile } from "./program-status-emit";
 import {
   clientSupportsRole,
   type OutlinerClientRegistration,
@@ -232,10 +233,10 @@ await reportStartupErrors(async () => {
   }
 
   const remote = paths.mode === "remote";
-  await waitForCompatibleService(createOutlinerClient(paths), {
+  await reportWhile("ep0ch-outliner", "waiting for the outline host", () => waitForCompatibleService(createOutlinerClient(paths), {
     timeoutMs: mode === "find-detail" ? 3_000 : 60_000,
     pingTimeoutMs: remote ? undefined : 300,
-  }).catch((error: unknown) => {
+  })).catch((error: unknown) => {
     const lastResponse = (error instanceof Error ? error.message : String(error)).replace(/\.$/, "");
     throw new Error(`Compatible outliner service did not become ready at ${paths.socket}. ${lastResponse}. ${remote
       ? remoteHint(paths)

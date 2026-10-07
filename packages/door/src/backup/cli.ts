@@ -8,6 +8,7 @@ import { blockCount, drill, integrity, mirror, runAll, snapshot, takeLock } from
 import { dumpTo, OUTLINE_NAME, type OutlineSnapshot, snapshots } from "./restic";
 import { writeBackupState } from "./alert";
 import { BACKUP_USAGE } from "./usage";
+import { programStatusEmitter } from "@ep0ch/outliner/program-status-emit";
 export { BACKUP_USAGE };
 
 type IO = { out: (s: string) => void; err: (s: string) => void };
@@ -92,7 +93,11 @@ export async function backupCommand(args: readonly string[], io: IO = { out: con
   }
   switch (sub) {
     case "run": {
-      const r = await runAll(c, { say, ...(args.includes("--drill") ? { drill: true } : {}) });
+      // What the run is doing, to a terminal that speaks the Program Status Protocol (OSC 7501); the timer's has none.
+      const status = await programStatusEmitter("ep0ch-backup", { env });
+      status.report({ state: "working", msg: "backing up the outlines" });
+      const r = await runAll(c, { say: s => { say(s); status.report({ state: "working", msg: s }); }, ...(args.includes("--drill") ? { drill: true } : {}) });
+      status.report(r.ok ? { state: "done", msg: "backup run finished" } : { state: "error", msg: "backup run failed: ep0ch backup status says what" });
       return r.ok ? 0 : 1;
     }
     case "status": {
