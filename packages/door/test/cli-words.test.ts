@@ -26,9 +26,9 @@ function ep0ch(...args: string[]) {
 
 describe("--screen never silently does nothing", () => {
   test("an unknown screen with --showcase is refused before the showcase starts, with a command that works", () => {
-    const r = ep0ch("--showcase", "--screen", "nosuchscreen");
+    const r = ep0ch("--showcase", "--screen", "No Such Screen");
     expect(r.code).toBe(2);
-    expect(r.err).toContain('no screen "nosuchscreen"');
+    expect(r.err).toContain('no screen "No Such Screen"');
     expect(r.err).toContain("try ep0ch --screen ");
     expect(r.out).not.toContain("door → the showcase");
   }, 60_000);
