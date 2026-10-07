@@ -143,8 +143,8 @@ Never write to a real outline or touch the person's door. Their door may be on t
   writes (layouts, drafts, marks, the media cache). Point it at a scratch host with `EP0CH_OUTLINES=<temp
   outlines folder>` and `--ws <name>`, never at `~/outlines`.
 - **A scratch host by hand:** with `d=$(mktemp -d)`, `EP0CH_OUTLINES=$d/outlines EP0CH_DEFAULT_WS=garden XDG_CONFIG_HOME=$d/config
-  OUTLINER_INBOX_AGENT=0 OUTLINER_NOTE_ASSISTANCE=0 bun packages/outliner/src/host-main.ts` (as `scripts/try-it.sh`
-  starts one: without the last three it reads the person's `~/.config` and its Inbox agent rewrites your notes),
+  bun packages/outliner/src/host-main.ts` (as `scripts/try-it.sh` starts one: without `XDG_CONFIG_HOME` it reads the
+  person's `~/.config`),
   then `EP0CH_OUTLINES=$d/outlines ep0ch outline create garden` (`ep0ch init` would write a `.ep0ch` into the
   folder you run it in). Its socket is `$d/outlines/.host/host.sock`.
 - **Real outline shapes without real writes:** `ep0ch try --ws <name> --copy` serves a private copy of that

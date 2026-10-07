@@ -10,6 +10,28 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### The Inbox agent and note assistance are gone (PIE-613)
+
+- **Removed:** the Inbox agent (Tree's `Shift+I` panel, its results, Pause, Undo, Reconsider and Inbox history
+  search), note assistance (automatic types, tags and answers, and **Assist this note**), and edit recovery's
+  **Ask agent** merge. Edit recovery itself stays: the mechanical merge, the versions, Edit draft, Save separate,
+  Discard and Restore. The Inbox note, Quick Capture and where new notes go are unchanged; file what lands in
+  the Inbox yourself or ask an agent to.
+- **Your original writing stays.** What the agent rewrote is still kept, read only: a cleaned note's **Original
+  capture** and **Before this rewrite** links still open the exact text it started from, and comments on those
+  originals still work. Note assistance's originals are kept too, not yet shown anywhere (PIE-345).
+- **Gone with them:** `OUTLINER_INBOX_AGENT`, `OUTLINER_NOTE_ASSISTANCE` and `OUTLINER_INBOX_TIMEOUT_MS`, the
+  `inbox.*`, `edit-recovery.assist` and `edit-recovery.cancel` actions, the `inbox` event, the prompt files
+  `inbox-editor.md`, `inbox-relationships.json`, `inbox-routing.json`, `note-assistance.json`, `note-answer.md`
+  and `edit-merge.md` (`goto-ranking.json` stays; old copies in an outline's `prompts/` are left alone and unused),
+  and the outline folder's `assistant-sessions/`, no longer written.
+- **What to run:** protocol is now 102 and the schema version 3, so the host and every client move together. Stop
+  the outline host, back up, then on each outline that matters (pie on float-2, float-hub on the MacBook):
+  `bun packages/outliner/scripts/migrations/0003-drop-agent-tables.ts ~/outlines/pie.sqlite` (and
+  `~/outlines/float-hub.sqlite` on the MacBook). In one transaction it drops the four agent state tables
+  (`inbox_agent_settings`, `inbox_agent_instructions`, `inbox_retry_triggers`, `note_assistance_state`), keeps
+  `inbox_agent_results` and `note_assistance_results` as they are, and stamps version 3, or changes nothing and
+  says why. Then start the host on the new code (`ep0ch install --apply`).
 ### Rules: when a block matches, draw this or run this (PIE-600)
 
 - **A rule note, no code.** Write a note like `Committee headings [rule-name::committee-bands] [rule-kind::heading:2]

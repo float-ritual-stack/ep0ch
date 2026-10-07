@@ -1702,13 +1702,6 @@ export type OutlinerRequest = OutlinerRequestAction & { outline?: string };
 export type OutlinerRequestAction =
   | { id: string; action: "properties.preview"; text: string }
   | { id: string; action: "properties.inventory"; key: string; propertyScope?: PropertyQueryScope; offset?: number; limit?: number }
-  | { id: string; action: "inbox.search"; query: string; semantic?: boolean }
-  | { id: string; action: "inbox.status"; attentionOnly?: boolean; resultsOffset?: number }
-  | { id: string; action: "inbox.result"; resultId: string }
-  | { id: string; action: "inbox.pause" }
-  | { id: string; action: "inbox.resume" }
-  | { id: string; action: "inbox.retry"; sourceId: string; instructions?: string }
-  | { id: string; action: "inbox.undo"; resultId: string }
   | { id: string; action: "ping" }
   /** Answered by the outline host itself (capabilities `outlines.*`); a single-outline service refuses them. */
   | { id: string; action: "outlines.list" }
@@ -2010,8 +2003,6 @@ export type OutlinerRequestAction =
   | { id: string; action: "edit-recovery.restore"; recoveryId: string; requestId: string; version: "draft"|"before-save" }
   | { id: string; action: "edit-recovery.refresh"; recoveryId: string; expectedRevision: number }
   | { id: string; action: "edit-recovery.propose"; recoveryId: string; expectedRevision: number; proposal: import("./edit-recovery").EditRecoveryProposal }
-  | { id: string; action: "edit-recovery.assist"; recoveryId: string; expectedRevision: number }
-  | { id: string; action: "edit-recovery.cancel"; recoveryId: string }
   | { id: string; action: "edit-recovery.commit"; recoveryId: string; expectedRevision: number; text: string; basedOnRevision: number; mutation: MutationProvenance; identityChanges?:ChecklistIdentityChange[] }
   | { id: string; action: "edit-recovery.discard"; recoveryId: string; expectedRevision: number }
   | { id: string; action: "edit-recovery.separate"; recoveryId: string; expectedRevision: number; mutation: MutationProvenance }
@@ -2358,7 +2349,6 @@ export interface OutlinerNavigationDispatch extends OutlinerNavigationResolution
 
 export type OutlinerEventDomain =
   | "mentions"
-  | "inbox"
   | "content"
   | "resource-catalog"
   | "selection"

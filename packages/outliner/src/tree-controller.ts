@@ -18,8 +18,6 @@ import type { RequestInput } from "./client";
 import { emptyAttentionState } from "./attention";
 import { GotoController } from "./goto-controller";
 import { handleGotoMouse as routeGotoMouse } from "./goto-renderer";
-import { InboxController } from "./inbox-controller";
-import { inboxStatusCue } from "./inbox-renderer";
 import {
   filterCompletionTargetAtCursor,
   parseSearchExpression,
@@ -118,7 +116,7 @@ export type TreeInputMode =
   | "branch-filter"
   | "goto"
   | "purge";
-export type TreeMode = "browse" | "delete" | "viewer" | "action-menu" | "inbox" | TreeInputMode;
+export type TreeMode = "browse" | "delete" | "viewer" | "action-menu" | TreeInputMode;
 
 export type TreeQuickCompletionItem = ReferenceCompletionItem;
 
@@ -149,7 +147,7 @@ export interface TreeView {
   readonly actionMenuBar?: PaneKind;
   readonly actionMenuPinned?: ReadonlySet<string>;
   readonly pinKey?: string;
-  /** Workspace, counts, Inbox and destination: shown in the menu instead of in the chrome. */
+  /** Workspace, counts and destination: shown in the menu instead of in the chrome. */
   readonly actionMenuInfo?: string;
   readonly actionMenuCategory?: ReaderMenu;
   readonly root?: TreeRoot | null;
@@ -175,8 +173,6 @@ export interface TreeView {
   readonly quickColumn: number;
   readonly quickCompletion: TreeQuickCompletion | null;
   readonly goto?: GotoController | null;
-  readonly inbox?: InboxController | null;
-  readonly inboxCue?: string;
   readonly localPreview?: DocumentPreviewState | null;
   readonly previewHelp?: string;
   readonly previewPreferences?: PreviewPreferences;
@@ -496,8 +492,6 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       sanitizeDynamicText(effects.workspaceRoot),
       `${physicalRowCount} block${physicalRowCount === 1 ? "" : "s"} · ${occurrenceRowCount} projected`,
     ];
-    const inboxCue = inboxStatusCue(inbox.snapshot, inbox.error);
-    if (inboxCue) parts.push(outlinerActionLink("tree.inbox.open", sanitizeDynamicText(inboxCue)));
     parts.push(outlinerActionLink("tree.navigation.link", `Opens in: ${sanitizeDynamicText(navigationDisplay.text)}`));
     return `\x1b[2m${parts.join(" · ")}\x1b[22m`;
   }
@@ -511,7 +505,6 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
   let actionMenuScope = "browse";
   let actionMenuCategory: ReaderMenu = "all";
   let locationMenu: OutlinerActionMenuItem[] | null = null;
-  let lastInboxCue = "";
   let pendingBrowsingPublication: PendingBrowsingPublication | null = null;
   let browsingPublicationPump: Promise<void> | null = null;
 
@@ -534,46 +527,10 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     },
   });
 
-  const inbox = new InboxController({
-    actionKeymap,
-    clientId: effects.clientId,
-    openPreview: openPreviewTarget,
-    openExternal: effects.openExternal,
-    copyText: effects.copyText,
-    request: input => effects.request(input),
-    async openResource(resourceId) {
-      if (!await dispatchRecoverable({ kind: "resource", resourceId }, "open")) return;
-      mode = "browse";
-      routineNotice("Pi session opened in Detail");
-      if (refreshPending) await reload();
-      effects.invalidate();
-    },
-    invalidate() {
-      const cue = inboxStatusCue(inbox.snapshot, inbox.error);
-      if (mode === "inbox" || cue !== lastInboxCue) effects.invalidate();
-      lastInboxCue = cue;
-    },
-    async close() {
-      mode = "browse";
-      status = "";
-      if (refreshPending) await reload();
-      effects.invalidate();
-    },
-    async open(blockId, destination) {
-      if (destination === "detail") {
-        if (!await dispatchRecoverable({kind:"block",blockId},"open")) return;
-      } else { await selectVisibleBlock(blockId, { recordNavigation: true, physicalSource: true }); mode = "browse"; }
-      routineNotice(destination === "detail" ? "Inbox result opened in Detail" : "Inbox block revealed in Tree");
-      if (refreshPending) await reload();
-      effects.invalidate();
-    },
-  });
-
   function actionScope(): string {
     if(mode==='browse'&&localReader.state?.focused)return 'reader';
-    if(mode==='inbox'&&!inbox.searchEditing&&!inbox.steering&&inbox.previewMode==='content'&&inbox.reader.state?.focused)return 'inbox-reader';
     if(mode==="viewer"&&workspaceReport)return "workspace";
-    return mode === "inbox" && inbox.searchEditing ? "inbox-search" : mode === "inbox" && inbox.steering ? "inbox-steer" : mode;
+    return mode;
   }
 
   async function handleGotoMouse(sequence: string): Promise<void> {
@@ -591,7 +548,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
   let lastRead: {origin: string; at: number; destination: OutlinerViewAddress} | null = null;
   function cancelReadSequence(): void { lastRead = null; readSequence++; }
   let closed=false;
-  const originKey=()=>JSON.stringify([mode,rows[selectedIndex]?.rowId,mode==='inbox'?inbox.selected?.id:null,mode==='inbox'?inbox.targetIndex:null,mode==='inbox'?inbox.reader.state?.target:localReader.state?.target]);
+  const originKey=()=>JSON.stringify([mode,rows[selectedIndex]?.rowId,localReader.state?.target]);
   async function materializeRecovery(target:OpenDestinationTarget):Promise<OutlinerNavigationTarget>{
     const resolve=recoveryResolvers.get(target);
     if(resolve){target.target=await resolve();recoveryResolvers.delete(target);}
@@ -603,8 +560,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       if (recoveryOrigin !== originKey()) openRecovery.dismiss();
     },
     replace:async target=>{
-      if(mode==='inbox')await inbox.openHere(target.target);
-      else {
+      {
         previewPreferences={...previewPreferences,enabled:true};
         const generation=navigationGeneration;
         const visited=await localReader.visit(target.target);
@@ -724,11 +680,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       if (item.id === "tree.preview.auto") return {...item, label: `Auto dock Preview: ${previewPreferences.dock === "auto" ? "on → off" : "off → on"}`};
       return item;
     });
-    if (actionMenuScope !== "browse") return filterActionMenuItems(items
-      .filter(item => !inbox.attentionOnly || !["tree.inbox.older", "tree.inbox.newer"].includes(item.id))
-      .map(item => item.id === "tree.inbox.attention"
-      ? { ...item, label: inbox.attentionOnly ? "Show recent results" : `Show needs attention (${inbox.snapshot?.attentionCount ?? 0})` }
-      : item), actionMenuQuery);
+    if (actionMenuScope !== "browse") return filterActionMenuItems(items, actionMenuQuery);
     if (connectionOwner(selected)) {
       const hiding = connections.isOpen(selected!.rowId);
       items = items.map((item) =>
@@ -769,22 +721,6 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
 
   function quickInputText(): string {
     return quickBuffer.lines[quickBuffer.row] ?? "";
-  }
-
-  function inboxHelpText(): string | null {
-    if (mode !== "inbox") return null;
-    if(actionScope()==='inbox-reader')return actionKeymap.helpText("tree","inbox-reader");
-    if(inbox.searchEditing)return "Esc cancel search · Enter browse results · Alt+Enter open Detail\nType to search all history · ↑↓ select";
-    if (inbox.steering) return actionKeymap.helpText("tree", "inbox-steer", ["tree.cancel", "tree.inbox.retry.submit"]);
-    const main = actionKeymap.helpText("tree", "inbox", [
-      "tree.cancel", "tree.inbox.pause", "tree.inbox.tree", "tree.inbox.detail", "tree.inbox.undo", "tree.inbox.reconsider",
-    ]);
-    const toggle = `${displayActionChord(actionKeymap.primaryBinding("tree.inbox.attention"))} ${inbox.attentionOnly ? "show recent results" : `needs attention (${inbox.snapshot?.attentionCount ?? 0})`}`;
-    const navigation = actionKeymap.helpText("tree", "inbox", [
-      ...inbox.attentionOnly ? [] : ["tree.inbox.older", "tree.inbox.newer"],
-      "tree.inbox.preview.focus", "tree.inbox.preview.source", "tree.inbox.preview.output", "tree.inbox.preview.activity", "tree.inbox.source", "tree.inbox.target", "tree.inbox.up", "tree.inbox.down", "tree.inbox.pageup", "tree.inbox.pagedown",
-    ]);
-    return `${toggle}  ${main}\n${actionKeymap.helpText("tree", "inbox", ["tree.menu.open"])}  ${navigation}`;
   }
 
   function breadcrumbs(): Array<TreeRoot & {kind:"physical"|"occurrence"}> {
@@ -832,8 +768,6 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       quickColumn: quickBuffer.column,
       quickCompletion,
       goto: mode === "goto" ? goto : null,
-      inbox: mode === "inbox" ? inbox : null,
-      inboxCue: inboxStatusCue(inbox.snapshot, inbox.error),
       localPreview: localReader.state,
       previewPreferences,
       chrome: uiConfig.chrome("tree"),
@@ -856,7 +790,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       status: disconnected ? "Workspace service disconnected; reconnecting…" : freshStatus(),
       refreshPending,
       attention,
-      actionHelpText: mode === "branch-filter" ? "Type to find · Enter browse results · Esc clear · Ctrl+Q close" : inboxHelpText() ?? actionKeymap.helpText("tree", actionScope()),
+      actionHelpText: mode === "branch-filter" ? "Type to find · Enter browse results · Esc clear · Ctrl+Q close" : actionKeymap.helpText("tree", actionScope()),
       actionMenuItems: mode === "action-menu" ? filteredActionMenuItems() : [],
       actionMenuOrigin,
       actionMenuIndex,
@@ -1640,7 +1574,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     effects.invalidate();
   }
 
-  const readOriginKey=()=>JSON.stringify([mode,rows[selectedIndex]?.rowId,mode==='inbox'?inbox.selected?.id:null,mode==='inbox'?inbox.targetIndex:null]);
+  const readOriginKey=()=>JSON.stringify([mode,rows[selectedIndex]?.rowId]);
   async function readSelected(focusImmediately = false): Promise<void> {
     const row = rows[selectedIndex];
     if (row?.kind === "authored-link-header" || row?.kind === "comment-group") { cancelReadSequence(); await handleDisclosure(row.rowId); return; }
@@ -1676,21 +1610,18 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     destinationMenu = null; placementDirection = null; destinationPreview.clear(); mode = callerMode;
     try {
       if(recoveryTarget)target=await materializeRecovery(recoveryTarget);
-      const blockId = target?.kind==="block"?target.blockId:callerMode === "inbox" ? await inbox.resolveContentTarget() : selectedBlockId;
+      const blockId = target?.kind==="block"?target.blockId:selectedBlockId;
       if (!blockId) throw new Error("Select a block to create a Detail destination");
       if (!effects.createDetailDestination) throw new Error("Creating a destination is unavailable in this host");
       status = "Creating Detail · waiting for the new reader to connect…";
-      if (callerMode === "inbox") inbox.notice = status;
       effects.invalidate();
       const destination = await effects.createDetailDestination(blockId, placement);
       if(target)await dispatchRecoverable(target,"open",{destination});
       if (purpose === "link") await effects.request({action: "navigation.link.set", source: {clientId: effects.clientId, region: "tree"}, destination});
       void navigationDisplay.refresh();
       routineNotice(purpose === "link" ? "Linked: Tree → new Detail" : "Opened once in new Detail");
-      if (callerMode === "inbox") inbox.notice = status;
     } catch (error) {
       status = errorMessage(error);
-      if (callerMode === "inbox") inbox.notice = `${status} · Use Link destination or Open once to retry`;
     }
     effects.invalidate();
   }
@@ -1987,11 +1918,6 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
         (event.domain === "view" && event.action === "navigation.link.set")) cancelReadSequence();
     navigationDisplay.onEvent(event);
     if (event.domain === "view" && (event.action === "navigation.link.set" || event.action.startsWith("clients."))) return;
-    if (event.domain === "inbox") {
-      // Progress must not queue provider/status round trips ahead of keyboard input.
-      void inbox.refresh();
-      return;
-    }
     if (event.domain === "attention") {
       if (!event.attention || event.attention.targetClientId !== effects.clientId) return;
       attention = event.attention;
@@ -2045,7 +1971,6 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       return;
     }
     if (event.domain === "selection" || event.domain === "mentions") return;
-    inbox.contentChanged();
     if (connections.active) connections.invalidate();
     // Every outline change advances the sequence. A change at or before the loaded
     // index is already reflected, e.g. the echo of this Tree's own edit or the
@@ -2119,7 +2044,6 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       action: "attention.get",
       targetClientId: effects.clientId,
     });
-    await inbox.refresh();
     const service = await observeService();
     if (mode === "browse") {
       const missed = rowsNeedFetch ? "outline" : await changesSince(indexSequence, service);
@@ -2132,7 +2056,6 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       await publishDisplayRowSelection(rows[selectedIndex]);
     } else {
       refreshPending = true;
-      inbox.contentChanged();
       if (connections.active) connections.invalidate();
     }
     effects.invalidate();
@@ -2186,7 +2109,6 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     disconnected = true; clearTimeout(noticeTimer);
     cancelReadSequence();
     status = "Workspace service disconnected; reconnecting…";
-    inbox.disconnected();
     effects.invalidate();
   }
 
@@ -2317,9 +2239,8 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     if (activate) await focusDetailReader();
   }
 
-  function focusLocalPreview(focused = true):void {if(mode === "inbox") inbox.focusReader(focused); else localReader.focus(focused);}
+  function focusLocalPreview(focused = true):void {localReader.focus(focused);}
   function scrollLocalPreview(delta:number):void {
-    if(mode === "inbox") { inbox.scrollPreview(delta); return; }
     if(!localReader.state)return;
     const frame=treePreviewFrame(localReader.state,effects.terminalWidth(),effects.terminalHeight(),"",previewPreferences,previewChrome());
     localReader.scroll(delta,frame.content.width,frame.content.height);
@@ -2446,7 +2367,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       const branch = isBlockTreeRow(selected) ? branchStates.get(selected.kind === "occurrence" ? selected.viewId : selected.canonicalId) : undefined;
       viewerPath = "View status"; viewerOffset = 0; viewerWrap = true; workspaceReport = null;
       viewerLines = [effects.workspaceRoot, `${physicalRowCount} physical blocks · ${occurrenceRowCount} projected occurrences`,
-        inboxStatusCue(inbox.snapshot, inbox.error), `Opens in: ${navigationDisplay.text}`,
+        `Opens in: ${navigationDisplay.text}`,
         `Filter: ${activeFilter || "none"}`, ...branch ? [
           "", "Virtual branch",
           `Query: ${branch.config?.query || "not configured"}`,
@@ -2517,17 +2438,14 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     if(recovery){if(openRecovery.state.active&&recoveryOrigin===originKey())await openRecovery.handleKeypress(recovery.str,recovery.key);return;}
     navigationGeneration++;
     if(openRecovery.state.active)openRecovery.dismiss();
-    if(mode==='inbox' && inbox.retainCommentDraft())return;
     if(actionId.startsWith('tree.reader.')){
       if(mode==='action-menu')mode=actionMenuReturnMode;
       const action='preview.'+actionId.slice('tree.reader.'.length);
-      if(mode==='inbox')await inbox.previewAction(action);
-      else await localReader.action(action,openPreviewTarget);
+      await localReader.action(action,openPreviewTarget);
       return;
     }
     if(actionId.startsWith('preview.')){
-      if(mode==='inbox')await inbox.previewAction(actionId);
-      else await localReader.action(actionId,openPreviewTarget);
+      await localReader.action(actionId,openPreviewTarget);
       return;
     }
     if (mode === "action-menu" && actionId.startsWith("tree.preview.")) mode = actionMenuReturnMode;
@@ -2565,36 +2483,10 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       resizeLocalPreview(fraction + (actionId.endsWith('grow') ? .05 : -.05)); return;
     }
     if(actionId==="tree.preview.focus") {if(localReader.state)localReader.focus(!localReader.state.focused);else status="Select an item to preview it here";effects.invalidate();return;}
-    if (mode === "action-menu" && actionMenuReturnMode === "inbox" && actionId.startsWith("tree.inbox.preview.")) {mode="inbox";}
-    if (mode === "inbox") {
-      if (actionId === "tree.inbox.preview.next-output") {inbox.nextOutput();return;}
-      if (actionId.startsWith('tree.inbox.select:')) {inbox.selectResult(Number(actionId.split(':')[1]));return;}
-      if (actionId.startsWith('tree.inbox.preview-target:')) {inbox.selectTarget(Number(actionId.split(':')[1]));return;}
-      if (actionId === 'tree.inbox.preview.activity') {inbox.showActivity();return;}
-      if (actionId === 'tree.inbox.preview.before') {inbox.setSourceVersion('before');return;}
-      if (actionId === 'tree.inbox.preview.current') {inbox.setSourceVersion('current');return;}
-      if (actionId === 'tree.inbox.preview.technical') {inbox.toggleTechnicalDetails();return;}
-      if (actionId === 'tree.inbox.preview.focus') {inbox.focusReader(!inbox.reader.state?.focused);return;}
-      if (actionId === 'tree.inbox.preview.source' || actionId === 'tree.inbox.preview.output') {
-        const role=actionId.endsWith('source')?'source':'output';
-        const index=inbox.targets.findIndex(target=>target.role===role);
-        if(index>=0)inbox.selectTarget(index);else inbox.notice='No separate output; preview the current Source';
-        effects.invalidate();return;
-      }
-    }
-    if(actionId==="tree.inbox.search"&&(mode==="inbox"||(mode==="action-menu"&&actionMenuReturnMode==="inbox"))){mode="inbox";inbox.startSearch();return;}
-    if(actionId==="tree.inbox.search.clear"&&mode==="inbox"){await inbox.cancelSearch();return;}
-    if (actionId.startsWith("tree.inbox.open-target:") && mode === "inbox") {
-      const index=Number(actionId.split(":")[1]);
-      if (Number.isInteger(index) && inbox.targets[index]?.role !== "diagnostics" && inbox.targets[index]) {
-        inbox.targetIndex=index; await inbox.input("",{name:"return",meta:true});
-      }
-      return;
-    }
     if (mode === "goto" && actionId === "tree.goto.detail") { await goto.accept("detail"); return; }
     if (actionId === "tree.navigation.link" || actionId === "tree.navigation.once") {
       const activeMode=mode === "action-menu" ? actionMenuReturnMode : mode;
-      if(activeMode !== "browse" && activeMode !== "inbox") {
+      if(activeMode !== "browse") {
         status="Finish or cancel the active edit/filter before changing destinations";
         effects.invalidate();return;
       }
@@ -2645,23 +2537,10 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       } else if (destination) {
         if(menu.recoveryTarget)await dispatchRecoverable(await materializeRecovery(menu.recoveryTarget),"open",{destination});
         else if(menu.target)await dispatchRecoverable(menu.target,"open",{destination});
-        else if (mode === "inbox") {
-          const blockId = await inbox.resolveContentTarget();
-          await dispatchRecoverable({kind:"block",blockId},"open",{destination});
-        } else await focusDetailReader({destination});
+        else await focusDetailReader({destination});
       }
       } catch (error) {
-        const failure = errorMessage(error);
-        if (mode === "inbox") {
-          inbox.notice = failure;
-          try {
-            await handleAction(menu.purpose === "link" ? "tree.navigation.link" : "tree.navigation.once");
-            if(destinationMenu) (destinationMenu as {target?:OutlinerNavigationTarget;recoveryTarget?:OpenDestinationTarget}).target=menu.target;
-            if(destinationMenu)(destinationMenu as {recoveryTarget?:OpenDestinationTarget}).recoveryTarget=menu.recoveryTarget;
-          }
-          catch { /* Keep the original failure visible even if discovery is unavailable. */ }
-        }
-        status = failure;
+        status = errorMessage(error);
       }
       effects.invalidate();
       return;
@@ -2699,29 +2578,6 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       if(effects.openKeyInspector) effects.openKeyInspector();
       else status="Key inspector is unavailable in this host";
       effects.invalidate();return;
-    }
-    if (actionId === "tree.inbox.open") {
-      if (mode !== "browse") {
-        status = "Finish or cancel the Tree editor before opening Inbox activity";
-        effects.invalidate();
-        return;
-      }
-      mode = "inbox";
-      status = "";
-      await inbox.start();
-      return;
-    }
-    if (actionId === "tree.note.assist") {
-      const selected = rows[selectedIndex];
-      if (!isBlockTreeRow(selected)) status = "Select a note to assist";
-      else {
-        try {
-          await effects.request({ action: "inbox.retry", sourceId: selected.canonicalId });
-          status = "Note queued for assistance; open Inbox activity to inspect the result";
-        } catch (error) { status = error instanceof Error ? error.message : "Note assistance unavailable"; }
-      }
-      effects.invalidate();
-      return;
     }
     if (actionId === "tree.indentation.toggle") {
       indentationMode = indentationMode === "viewport" ? "selection" : "viewport";
@@ -2942,7 +2798,6 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     if(mode === "browse" && localReader.state?.focused && localReader.paste(text))return;
     cancelReadSequence();
     if (mode === "goto") { goto.paste(text); return; }
-    if (mode === "inbox") { inbox.paste(text); return; }
     if (mode === "action-menu") {
       updateActionMenuQuery(actionMenuQuery + text);
     } else if (mode !== "browse" && mode !== "delete" && mode !== "viewer") {
@@ -2966,9 +2821,6 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
       else if(key.name==='return'||key.name==='escape'||str.toLowerCase()==='l'){
         await openRecovery.handleKeypress(str,key);return;
       }else openRecovery.dismiss();
-    }
-    if(inputAction!=='suppress' && mode==='inbox' && inbox.hasCommentDraft){
-      await inbox.input(str,key);return;
     }
     if(inputAction!=='suppress')navigationGeneration++;
     if(resolveAction && inputAction !== "suppress" && mode !== "browse" && mode !== "action-menu" && (key.meta || key.ctrl)) {
@@ -3013,14 +2865,13 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     if (inputAction === "suppress") return;
     if (key.name !== "return" || key.ctrl || key.meta || key.shift || mode !== "browse") cancelReadSequence();
     if (key.ctrl && key.name === "q") {
-      if(localReader.hasDraft||inbox.hasCommentDraft){status="Comment draft retained · save or cancel before closing";effects.invalidate();return;}
+      if(localReader.hasDraft){status="Comment draft retained · save or cancel before closing";effects.invalidate();return;}
       closed=true;navigationGeneration++;openRecovery.dispose();clearTimeout(flashTimer);
       effects.stop();
       return;
     }
     if (key.ctrl && key.name === "c") {
       if (mode === "branch-filter") { await clearBranchFilter(); return; }
-      if (mode === "inbox" || (mode === "action-menu" && actionMenuReturnMode === "inbox")) { await inbox.close(); return; }
       if (mode !== "browse") {
         mode = "browse";
         resetQuickEditor();
@@ -3104,7 +2955,6 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     }
     if (mode === "browse" && key.name === "escape" && branchFilter) { await clearBranchFilter(); return; }
     if (mode === "goto") { await goto.input(str, key); return; }
-    if (mode === "inbox") { await inbox.input(str, key); return; }
 
     if (mode !== "browse") {
       if (quickCompletion && ["up","down","return","tab","escape"].includes(key.name??"")) {
@@ -3365,7 +3215,6 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     await observeService();
     await reload();
     await publishDisplayRowSelection(rows[selectedIndex]);
-    await inbox.refresh();
     try { await collected.refresh(); collected.recovered = Boolean(collected.current); }
     catch { /* Selection failure stays visible without preventing ordinary browsing. */ }
   }
@@ -3392,7 +3241,7 @@ export function createTreeController(effects: TreeControllerEffects): TreeContro
     },
     initialize,
     handleKeypress,
-    handleTreeWheel: async direction => {if(mode === "inbox") {inbox.reader.focus(false);inbox.move(direction === "up"?-1:1);}else await handleKeypress("", {name: direction}, "pass", false, true);},
+    handleTreeWheel: async direction => {await handleKeypress("", {name: direction}, "pass", false, true);},
     handleLink,
     handlePaste,
     handleGotoMouse,

@@ -96,7 +96,7 @@ async function checkSamples() {
   writeFileSync(join(bin, "ep0ch"), `#!/bin/sh\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(join(REPO, "packages/door/src/main.ts"))} "$@"\n`, { mode: 0o755 });
   const path = [bin, ...process.env.PATH!.split(":").filter(d => d && !existsSync(join(d, "outliner")))].join(":");
   const sock = join(dir, "o/.host/host.sock");
-  const env: Record<string, string> = { PATH: path, HOME: process.env.HOME!, EP0CH_OUTLINES: join(dir, "o"), EP0CH_WS: "docs-check", EP0CH_STATE: join(dir, "state"), EP0CH_CONTROL: join(dir, "c.sock"), XDG_CONFIG_HOME: join(dir, "cfg"), OUTLINER_INBOX_AGENT: "0", OUTLINER_NOTE_ASSISTANCE: "0", EP0CH_DEFAULT_WS: "docs-check" };
+  const env: Record<string, string> = { PATH: path, HOME: process.env.HOME!, EP0CH_OUTLINES: join(dir, "o"), EP0CH_WS: "docs-check", EP0CH_STATE: join(dir, "state"), EP0CH_CONTROL: join(dir, "c.sock"), XDG_CONFIG_HOME: join(dir, "cfg"), EP0CH_DEFAULT_WS: "docs-check" };
   mkdirSync(join(dir, "o"), { recursive: true }); mkdirSync(join(dir, "cfg"), { recursive: true });
   const log = join(dir, "host.log");
   const host = Bun.spawn([process.execPath, "src/host-main.ts"], { cwd: join(REPO, "packages/outliner"), env, stdout: Bun.file(log), stderr: Bun.file(log) });

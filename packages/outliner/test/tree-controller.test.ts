@@ -17,7 +17,6 @@ import { rankBlockFocusMatches } from "../src/block-focus";
 import { resolveBlockReferencesWithStatus } from "../src/references";
 import { treeIndexFixture } from "./tree-fixtures";
 import type { RequestInput } from "../src/client";
-import type { InboxStatus } from "../src/inbox-types";
 import { OutlinerActionKeymap } from "../src/outliner-actions";
 import {
   createTreeController,
@@ -212,9 +211,6 @@ function harness(
           } as T;
         }
         if (response === undefined && input.action === "files.complete") return [] as T;
-        if (response === undefined && input.action === "inbox.status") {
-          return { enabled: false, paused: false, state: "unavailable", message: "Inbox agent is not configured", pending: 0, results: [], resultsTruncated: false, attentionCount: 0, attentionOnly: input.attentionOnly === true, resultsOffset: 0 } as T;
-        }
         if (response === undefined && input.action === "clients.list") {
           return [{
             clientId: input.role === "tree" ? clientId : "detail-test",
@@ -390,189 +386,6 @@ describe("createTreeController", () => {
     expect(controller.view().refreshPending).toBe(false);
     await controller.handleServiceEvent(event("content"));
     expect(controller.view().refreshPending).toBe(true);
-  });
-
-  test("Inbox progress reads do not hold the serial event and keyboard lane", async () => {
-    const first = block("first");
-    const second = block("second", { position: 1 });
-    const initial: InboxStatus = { enabled: true, paused: false, state: "working", message: "Reading", pending: 1, results: [], resultsTruncated: false, attentionCount: 0, attentionOnly: false, resultsOffset: 0 };
-    const held = Promise.withResolvers<InboxStatus>();
-    let delayStatus = false;
-    const fake = harness(input => {
-      if (input.action === "tree.index") return snapshot([first, second], first);
-      if (input.action === "inbox.status") return delayStatus ? held.promise : initial;
-    });
-    const controller = createTreeController(fake.effects);
-    await controller.initialize();
-    delayStatus = true;
-    const lane = controller.handleServiceEvent(event("inbox")).then(() => controller.handleKeypress("", { name: "down" }, "pass"));
-    try {
-      await Promise.race([lane, Bun.sleep(100).then(() => { throw new Error("Progress blocked keyboard input"); })]);
-      expect(selectedBlockRow(controller).canonicalId).toBe(second.id);
-    } finally { held.resolve(initial); await lane; }
-  });
-  test("opens Inbox from the action menu and uses events while closed without reloading the Tree", async () => {
-    const first = block("first");
-    let inboxStatus: InboxStatus = { enabled: true, paused: false, state: "working", message: "Reading capture", pending: 2, results: [], resultsTruncated: false, attentionCount: 0, attentionOnly: false, resultsOffset: 0 };
-    const fake = harness(input => {
-      if (input.action === "tree.index") return snapshot([first], first);
-      if (input.action === "inbox.status") return { ...inboxStatus, attentionOnly: input.attentionOnly ?? false };
-      if (input.action === "inbox.pause") return inboxStatus = { ...inboxStatus, paused: true, state: "paused" };
-    });
-    const controller = createTreeController(fake.effects);
-    await controller.initialize();
-    expect(controller.view().inboxCue).toContain("working");
-    await controller.handleKeypress("?", { name: "?" }, "pass");
-    expect(controller.view().actionMenuItems?.find(item => item.id === "tree.inbox.open")?.binding).toBe("⇧I");
-    await controller.handleKeypress("Inbox", { sequence: "Inbox" }, "pass");
-    await controller.handleKeypress("", { name: "return" }, "pass");
-    expect(controller.view().mode).toBe("inbox");
-    expect(controller.view().inbox?.snapshot?.pending).toBe(2);
-    expect(selectedBlockRow(controller).canonicalId).toBe(first.id);
-    await controller.handleKeypress("?", { name: "?" }, "pass");
-    expect(controller.view().actionMenuItems?.some(item => item.id === "tree.inbox.undo")).toBe(true);
-    expect(controller.view().actionMenuItems?.find(item => item.id === "tree.inbox.attention")).toMatchObject({ label: "Show needs attention (0)", binding: "a" });
-    expect(controller.view().actionMenuItems?.some(item => item.id === "tree.add.child")).toBe(false);
-    await controller.handleKeypress("", { name: "escape" }, "pass");
-    expect(controller.view().mode).toBe("inbox");
-    expect(controller.view().actionHelpText).toContain("a needs attention (0)");
-    await controller.handleKeypress("a", { name: "a" }, "pass");
-    expect(controller.view().inbox?.attentionOnly).toBe(true);
-    expect(controller.view().actionHelpText).not.toContain("older results");
-    await controller.handleKeypress("?", { name: "?" }, "pass");
-    expect(controller.view().actionMenuItems?.find(item => item.id === "tree.inbox.attention")?.label).toBe("Show recent results");
-    await controller.handleAction("tree.inbox.attention");
-    expect(controller.view().inbox?.attentionOnly).toBe(false);
-    await controller.handleKeypress("p", { name: "p" }, "pass");
-    expect(controller.view().inbox?.snapshot?.state).toBe("paused");
-    await controller.handleKeypress("", { name: "escape" }, "pass");
-    expect(controller.view().mode).toBe("browse");
-    const priorIndexReads = fake.calls.filter(input => input.action === "tree.index").length;
-    inboxStatus = { ...inboxStatus, paused: false, state: "idle", pending: 0 };
-    await controller.handleServiceEvent(event("inbox"));
-    await setImmediate();
-    expect(controller.view().inboxCue).toBe("Inbox idle");
-    expect(fake.calls.filter(input => input.action === "tree.index")).toHaveLength(priorIndexReads);
-    const priorInvalidations = fake.invalidations;
-    inboxStatus = { ...inboxStatus, message: "Another internal progress message" };
-    await controller.handleServiceEvent(event("inbox"));
-    await setImmediate();
-    expect(fake.invalidations).toBe(priorInvalidations);
-    await controller.handleKeypress("I", { name: "i", shift: true }, "pass");
-    expect(controller.view().mode).toBe("inbox");
-    expect(controller.view().inbox?.snapshot?.state).toBe("idle");
-    await controller.handleKeypress("", { name: "escape" }, "pass");
-    await controller.handleKeypress("e", { name: "e" }, "pass");
-    await controller.handlePaste("keep this draft");
-    const draft = controller.view().quickInput;
-    await controller.handleAction("tree.inbox.open");
-    expect(controller.view().mode).toBe("edit");
-    expect(controller.view().quickInput).toBe(draft);
-  });
-
-  test("Inbox key rebinding leaves reconsider input literal and opens outputs through existing Detail navigation", async () => {
-    const source = block("source-capture");
-    const output = block("created-output");
-    const inboxStatus: InboxStatus = { enabled: true, paused: false, state: "idle", message: "Ready", pending: 0, resultsTruncated: false, attentionCount: 1, attentionOnly: false, resultsOffset: 0, results: [{ id: "result-id", sourceId: source.id, sourceTitle: "Captured idea", summary: "Filed", state: "held", outputIds: [output.id], createdAt: "2026-09-20" }] };
-    const fake = harness(input => {
-      if (input.action === "navigation.link.get") return {source:{clientId:"tree-test",region:"tree"},destination:{clientId:"detail-test",region:"detail"},destinations:[{view:{clientId:"detail-test",region:"detail"},label:"Reader"}]};
-      if (input.action === "tree.index") return snapshot([source, output], source);
-      if (input.action === "inbox.status") return { ...inboxStatus, attentionOnly: input.attentionOnly === true };
-      if (input.action.startsWith("inbox.")) return inboxStatus;
-    });
-    fake.effects = { ...fake.effects, actionKeymap: new OutlinerActionKeymap("<test>", { "tree.inbox.pause": ["x"] }) };
-    const controller = createTreeController(fake.effects);
-    await controller.initialize();
-    await controller.handleKeypress("I", { name: "i", shift: true }, "pass");
-    await controller.handleKeypress("p", { name: "p" }, "pass");
-    expect(fake.calls.some(input => input.action === "inbox.pause")).toBe(false);
-    await controller.handleKeypress("x", { name: "x" }, "pass");
-    expect(lastCall(fake.calls, "inbox.pause")).toEqual({ action: "inbox.pause" });
-    await controller.handleKeypress("r", { name: "r" }, "pass");
-    await controller.handleKeypress("p", { name: "p" }, "pass");
-    await controller.handlePaste("lease keep the task in this project");
-    await controller.handleKeypress("", { name: "return" }, "pass");
-    expect(lastCall(fake.calls, "inbox.retry")).toEqual({ action: "inbox.retry", sourceId: source.id, instructions: "please keep the task in this project" });
-    await controller.handleServiceEvent(event("content"));
-    expect(controller.view().refreshPending).toBe(true);
-    await controller.handleKeypress("", { name: "return", meta: true }, "pass");
-    expect(controller.view().mode).toBe("inbox");
-    expect(controller.view().refreshPending).toBe(false);
-    expect(lastCall(fake.calls, "navigation.dispatch")).toMatchObject({ target: { kind: "block", blockId: output.id }, intent: "open" });
-    expect(selectedBlockRow(controller).canonicalId).toBe(source.id);
-    await controller.handleKeypress("", {name:"escape"}, "pass");
-    expect(controller.view().mode).toBe("browse");
-    expect(controller.view().refreshPending).toBe(false);
-  });
-
-  test("Inbox Preview composer owns input before host shortcuts and follows the clicked reader", async () => {
-    const source=block("comment-source"), output=block("comment-output");
-    let refreshed=false;
-    const fake=harness(input=>{
-      if(input.action==='tree.index')return snapshot([source,output],source);
-      if(input.action==='inbox.status')return {enabled:true,paused:true,state:'paused',pending:0,resultsTruncated:false,
-        attentionCount:1,attentionOnly:input.attentionOnly===true,resultsOffset:0,results:refreshed?[{id:'later-result',sourceId:source.id,sourceTitle:'Later receipt',summary:'Updated',state:'held',outputIds:[],createdAt:'2026-01-02T00:00:00.000Z'}]:[{
-          id:'comment-result',sourceId:source.id,sourceTitle:'Original capture',summary:'Filed',state:'held',
-          outputIds:[output.id],createdAt:'2026-01-01T00:00:00.000Z',
-        }]};
-    });
-    const controller=createTreeController(fake.effects);
-    await controller.initialize();
-    await controller.handleKeypress('I',{name:'i',shift:true},'pass');
-    await setImmediate();
-    const inbox=controller.view().inbox!;
-    inbox.focusReader(true,'source');
-    await inbox.previewAction('preview.comment',inbox.outputReader);
-    expect(inbox.reader).toBe(inbox.outputReader);
-    expect(inbox.sourceReader.state?.focused).toBe(false);
-    const writing='FEEDBACK ON SAVED SOURCE / ? p r s a';
-    for(const char of writing)await controller.handleKeypress(char,{name:char.toLowerCase(),shift:char!==char.toLowerCase()},'pass');
-    expect(inbox.outputReader.state!.comment!.buffer.text).toBe(writing);
-    for(const action of ['tree.inbox.preview.activity','tree.inbox.preview.before','tree.inbox.search','tree.menu.open']) {
-      await controller.handleAction(action);
-      expect(controller.view().mode).toBe('inbox');
-      expect(inbox.previewMode).toBe('content');
-      expect(inbox.sourceVersion).toBe('current');
-      expect(inbox.searching).toBe(false);
-      expect(inbox.reader.state!.comment!.buffer.text).toBe(writing);
-    }
-    inbox.focusReader(true,'source');
-    inbox.selectTarget(1);
-    inbox.showActivity();
-    expect(inbox.reader).toBe(inbox.outputReader);
-    expect(inbox.outputReader.state?.focused).toBe(true);
-    expect(inbox.sourceReader.state?.focused).toBe(false);
-
-    renderViewport(controller,120,40);
-    inbox.handlePreviewMouse('\x1b[<0;1;1M',()=>{});
-    expect(inbox.outputReader.state?.focused).toBe(true);
-    await controller.handleKeypress('!',{},'pass');
-    expect(inbox.reader.state!.comment!.buffer.text).toBe(writing+'!');
-
-    refreshed=true;
-    await controller.handleServiceEvent(event('inbox'));
-    await setImmediate();
-    expect(inbox.selected?.id).toBe('comment-result');
-    expect(inbox.outputTarget?.id).toBe(output.id);
-    expect(inbox.reader.state!.comment!.buffer.text).toBe(writing+'!');
-    expect(inbox.previewMode).toBe('content');
-    expect(controller.view().mode).toBe('inbox');
-    await controller.handleKeypress('',{name:'escape'},'pass');
-    expect(inbox.hasCommentDraft).toBe(false);
-    expect(inbox.notice).not.toContain('draft retained');
-    expect(inbox.reader.state!.target).toEqual({kind:'block',blockId:output.id});
-    await controller.handleKeypress('',{name:'escape'},'pass');
-    expect(inbox.reader.state!.focused).toBe(false);
-    expect(controller.view().mode).toBe('inbox');
-    await controller.handleKeypress('',{name:'p',meta:true},'pass');
-    expect(inbox.reader.state!.focused).toBe(true);
-    await controller.handleKeypress('?',{name:'?'},'pass');
-    expect(controller.view().actionMenuItems).toEqual(expect.arrayContaining([expect.objectContaining({id:'tree.reader.comment'})]));
-    expect(controller.view().actionMenuItems).not.toEqual(expect.arrayContaining([expect.objectContaining({id:'tree.preview.close'})]));
-    await controller.handleKeypress('',{name:'escape'},'pass');
-    inbox.move(1);
-    expect(inbox.selected?.id).toBe('later-result');
-    expect(controller.view().mode).toBe('inbox');
   });
 
   test("edits the exact on-demand body with the revision from that read, not the compact preview", async () => {
@@ -4084,47 +3897,6 @@ test('a configured New Tree action remains available while Preview owns focus',a
  await c.handleKeypress('n',{name:'n',meta:true},'pass');expect(roots).toEqual([null]);
 });
 
-test('Inbox destination chooser retains selection, cancel returns to Inbox and one-off opens its output',async()=>{
- const note=block('inbox-source'),output=block('inbox-output');
- const fake=harness(input=>{
-  if(input.action==='tree.index')return snapshot([note,output],note);
-  if(input.action==='inbox.status')return{enabled:true,paused:false,state:'idle',pending:0,message:'ready',attentionCount:0,attentionOnly:!!input.attentionOnly,resultsOffset:0,resultsTruncated:false,results:input.attentionOnly?[]:[{id:'receipt',sourceId:note.id,sourceTitle:'Source',outputIds:[output.id],state:'applied',summary:'Filed',createdAt:'2026-09-23'}]};
-  if(input.action==='navigation.dispatch' && !input.destination)throw Error('No linked destination');
-  if(input.action==='navigation.link.get')return{source:{clientId:'tree-test',region:'tree'},destination:null,destinations:[{view:{clientId:'detail-test',region:'detail'},label:'Reader'}]};
- });
- const c=createTreeController(fake.effects);await c.initialize();await c.handleAction('tree.inbox.open');
- await c.handleAction('tree.menu.open');await c.handleAction('tree.inbox.preview.source');expect(c.view().inbox?.targets[c.view().inbox!.targetIndex]?.id).toBe(note.id);
- await c.handleAction('tree.menu.open');await c.handleAction('tree.inbox.preview.output');expect(c.view().inbox?.targets[c.view().inbox!.targetIndex]?.id).toBe(output.id);
- await c.handleKeypress('',{name:'return',meta:true},'pass');expect(c.view().recoveryHelp).toContain('Open here');
- await c.handleKeypress('l',{name:'l'},'pass');expect(c.view().mode).toBe('action-menu');
- await c.handleKeypress('',{name:'escape'},'pass');expect(c.view().mode).toBe('inbox');expect(c.view().inbox?.selected?.id).toBe('receipt');
- await c.handleAction('tree.navigation.once');await c.handleAction('destination:0');
- expect(c.view().mode).toBe('inbox');expect(lastCall(fake.calls,'navigation.dispatch')).toMatchObject({target:{kind:'block',blockId:output.id},destination:{clientId:'detail-test',region:'detail'}});
- await c.handleAction('tree.navigation.link');await c.handleAction('destination:0');expect(lastCall(fake.calls,'navigation.link.set')).toMatchObject({destination:{clientId:'detail-test',region:'detail'}});
- await c.handleKeypress('',{name:'escape'},'pass');expect(c.view().mode).toBe('browse');expect(fake.stops).toBe(0);
-});
-
-test('all Inbox chooser paths resolve live content and expose creation and stale-reader failures',async()=>{
- const note=block('live-source'),output=block('deleted-output');let stale=false;
- const fake=harness(input=>{
-  if(input.action==='tree.index')return snapshot([note],note);
-  if(input.action==='get') {if(input.blockId===output.id)throw new Error(`Block not found: ${output.id}`);if(input.blockId===note.id)return note;}
-  if(input.action==='inbox.status')return{enabled:true,paused:false,state:'idle',pending:0,message:'ready',attentionCount:0,attentionOnly:!!input.attentionOnly,resultsOffset:0,resultsTruncated:false,results:input.attentionOnly?[]:[{id:'receipt',sourceId:note.id,sourceTitle:'Source',outputIds:[output.id],state:'applied',summary:'Filed',createdAt:'2026-09-23'}]};
-  if(input.action==='navigation.link.get')return{source:{clientId:'tree-test',region:'tree'},destination:null,destinations:stale?[]:[{view:{clientId:'reader',region:'detail'},label:'Reader'}]};
-  if(input.action==='navigation.link.set'&&stale)throw new Error('Reader disconnected');
- });
- const c=createTreeController(fake.effects);await c.initialize();await c.handleAction('tree.inbox.open');
- await c.handleAction('tree.navigation.once');await c.handleAction('destination:0');
- expect(lastCall(fake.calls,'navigation.dispatch')).toMatchObject({target:{kind:'block',blockId:note.id}});
- let created='';fake.effects.createDetailDestination=async(id)=>{created=id;throw new Error('Pane startup timed out');};
- c.view().inbox!.targetIndex=0;
- await c.handleAction('tree.navigation.link');await c.handleAction('destination:new-right');
- expect(created).toBe(note.id);expect(c.view().inbox?.notice).toContain('Pane startup timed out');
- await c.handleAction('tree.navigation.link');stale=true;await c.handleAction('destination:0');
- expect(c.view().mode).toBe('action-menu');expect(c.view().status).toBe('Reader disconnected');
- await c.handleKeypress('',{name:'escape'},'pass');expect(c.view().mode).toBe('inbox');expect(c.view().inbox?.notice).toBe('Reader disconnected');
-});
-
 test('Preview hides persistently while browsing and keeps independent docking preferences',async()=>{
  const a=block('pref-a'),b=block('pref-b');
  const fake=harness(input=>input.action==='tree.index'?snapshot([a,b],a):input.action==='browsing-context.publish'?{contextId:'tree-test-context',target:input.target,preview:{targetClientId:'tree-test',targetRegion:'tree'}}:undefined);
@@ -4135,50 +3907,6 @@ test('Preview hides persistently while browsing and keeps independent docking pr
  await c.handleAction('tree.preview.toggle');expect(c.view().localPreview?.target).toEqual({kind:'block',blockId:b.id});
  expect(c.view().previewPreferences?.bottomFraction).toBe(.7);
  const other=createTreeController(fake.effects);expect(other.view().previewPreferences).toMatchObject({enabled:true,dock:'auto',bottomFraction:.55});
-});
-
-test('Inbox Preview chooser retries the browsed target after a protected destination rejects Open',async()=>{
- const source=block('inbox-original'),target=block('preview-target');let reject=true;
- const fake=harness(input=>{
-  if(input.action==='tree.index')return snapshot([source,target],source);
-  if(input.action==='inbox.status')return{enabled:true,paused:false,state:'idle',pending:0,message:'ready',attentionCount:0,attentionOnly:!!input.attentionOnly,resultsOffset:0,resultsTruncated:false,results:input.attentionOnly?[]:[{id:'receipt',sourceId:source.id,sourceTitle:'Source',outputIds:[],state:'applied',summary:'Filed',createdAt:'2026-09-23'}]};
-  if(input.action==='navigation.link.get')return{source:{clientId:'tree-test',region:'tree'},destination:null,destinations:[{view:{clientId:'reader',region:'detail'},label:'Reader'}]};
-  if(input.action==='navigation.dispatch'&&!input.destination)throw Error('No linked destination');
-  if(input.action==='navigation.dispatch'&&reject)throw Error('Reader has a draft');
- });
- const c=createTreeController(fake.effects);await c.initialize();await c.handleAction('tree.inbox.open');await setImmediate();
- await c.handleAction('preview.link:'+encodeURIComponent('pi-outliner://block/preview-target'));
- await c.handleAction('preview.open');expect(c.view().recoveryHelp).toContain('Open here');
- await c.handleAction('destination.choose');expect(c.view().mode).toBe('action-menu');
- await c.handleAction('destination:0');expect(c.view().mode).toBe('action-menu');
- reject=false;await c.handleAction('destination:0');
- expect(lastCall(fake.calls,'navigation.dispatch')).toMatchObject({target:{kind:'block',blockId:target.id}});
-});
-
-
-test('missing Tree destination offers exact-target Open here by keyboard or mouse without linking',async()=>{
- const source=block('recovery-source'),target=block('recovery-target');
- const fake=harness(input=>{
-  if(input.action==='tree.index')return snapshot([source,target],source);
-  if(input.action==='navigation.dispatch'||input.action==='navigation.resolve')throw Error('No linked destination');
- });
- const c=createTreeController(fake.effects);await c.initialize();
- await c.handleLink('pi-outliner://block/recovery-target');
- expect(c.view().recoveryHelp).toContain('Open here');
- expect(c.view().localPreview?.target).not.toEqual({kind:'block',blockId:target.id});
- await c.handleKeypress('',{name:'return'},'pass');
- expect(c.view().localPreview?.target).toEqual({kind:'block',blockId:target.id});
- expect(selectedBlockRow(c).canonicalId).toBe(source.id);
- expect(c.view().recoveryHelp).toBeUndefined();
- expect(fake.calls.some(input=>input.action==='navigation.link.set')).toBe(false);
- await c.handleLink('pi-outliner://block/recovery-source');
- await c.handleAction('destination.here');
- expect(c.view().localPreview?.target).toEqual({kind:'block',blockId:source.id});
- await c.handleLink('pi-outliner://block/recovery-target');
- await c.handleRowClick(target.id);
- expect(c.view().recoveryHelp).toBeUndefined();
- await c.handleAction('destination.here');
- expect(fake.calls.some(input=>input.action==='navigation.link.set')).toBe(false);
 });
 
 test('cancelled Tree recovery never creates an unresolved page',async()=>{
@@ -4194,24 +3922,6 @@ test('cancelled Tree recovery never creates an unresolved page',async()=>{
  expect(fake.calls.some(input=>input.action==='pages.follow')).toBe(false);
  expect(fake.stops).toBe(0);
 });
-
-test('Inbox missing destination opens browsed Preview target locally and preserves receipt',async()=>{
- const source=block('inbox-origin'),target=block('inbox-followed');
- const fake=harness(input=>{
-  if(input.action==='tree.index')return snapshot([source,target],source);
-  if(input.action==='inbox.status')return{enabled:true,paused:false,state:'idle',pending:0,message:'ready',attentionCount:0,attentionOnly:!!input.attentionOnly,resultsOffset:0,resultsTruncated:false,results:input.attentionOnly?[]:[{id:'receipt',sourceId:source.id,sourceTitle:'Source',outputIds:[],state:'applied',summary:'Filed',createdAt:'2026-09-23'}]};
-  if(input.action==='navigation.dispatch')throw Error('Linked destination closed');
- });
- const c=createTreeController(fake.effects);await c.initialize();await c.handleAction('tree.inbox.open');await setImmediate();
- await c.handleAction('preview.link:'+encodeURIComponent('pi-outliner://block/inbox-followed'));
- await c.handleAction('preview.open');expect(c.view().recoveryHelp).toContain('Open here');
- await c.handleAction('destination.here');
- expect(c.view().mode).toBe('inbox');expect(c.view().inbox?.selected?.id).toBe('receipt');
- expect(c.view().inbox?.reader.state?.target).toEqual({kind:'block',blockId:target.id});
- expect(c.view().inbox?.reader.state?.canBack).toBe(true);
- expect(fake.calls.some(input=>input.action==='navigation.link.set')).toBe(false);
-});
-
 
 test('late missing-destination replies cannot restore cancelled Preview recovery',async()=>{
  const source=block('late-origin'),target=block('late-followed');const gate=Promise.withResolvers<never>();

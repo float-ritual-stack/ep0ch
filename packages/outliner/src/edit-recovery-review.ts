@@ -9,11 +9,11 @@ import {createTwoFilesPatch} from "diff";
 export type RecoveryChoice = {action:"proposal"|"manual"|"separate"|"later";record:EditRecovery};
 type Version = "base"|"draft"|"latest"|"proposal"|"prelaunch"|"changes"|"problems";
 const versions:Version[]=["base","draft","latest","proposal","prelaunch","changes","problems"];
-const retainedActions=["proposal","manual","agent","refresh","separate","discard","next","later"] as const;
+const retainedActions=["proposal","manual","refresh","separate","discard","next","later"] as const;
 const historyActions=["restore","undo","next","later"] as const;
-const labels:Record<typeof retainedActions[number]|typeof historyActions[number],string>={restore:"Restore draft",undo:"Undo save",proposal:"Use proposal",manual:"Edit draft",agent:"Ask agent",refresh:"Refresh latest",separate:"Save separate",discard:"Discard recovery",next:"Next draft",later:"Later"};
+const labels:Record<typeof retainedActions[number]|typeof historyActions[number],string>={restore:"Restore draft",undo:"Undo save",proposal:"Use proposal",manual:"Edit draft",refresh:"Refresh latest",separate:"Save separate",discard:"Discard recovery",next:"Next draft",later:"Later"};
 
-/** One review model for Pi and ANSI. Esc cancels work, never deletes writing. */
+/** One review model for Pi and ANSI. Esc retains and returns, never deletes writing. */
 export class EditRecoveryReview {
   private index=0;
   private version:Version="draft";
@@ -28,16 +28,15 @@ export class EditRecoveryReview {
   private maximum=0;
   private cachedDocument?: {text:string;document:Parameters<typeof documentPreviewLines>[0]};
   private cachedChanges?: {record:EditRecovery;text:string};
-  constructor(private records:EditRecovery[],private client:Pick<EditRecoveryClient,"refresh"|"assist"|"cancel"|"discard"> & Partial<Pick<EditRecoveryClient,"restore">>,
+  constructor(private records:EditRecovery[],private client:Pick<EditRecoveryClient,"refresh"|"discard"> & Partial<Pick<EditRecoveryClient,"restore">>,
     private changed:()=>void,private finish:(choice:RecoveryChoice)=>void,private warnings:readonly string[]=[]) {}
   private get actions(){return this.record.state==="retained"?retainedActions:historyActions;}
   get record():EditRecovery{return this.records[this.index];}
-  /** End a host-owned review without waiting for an outstanding provider. */
+  /** End a host-owned review without waiting for an outstanding request. */
   dismiss(): void {
     if (this.closed) return;
     this.closed = true;
     this.generation++;
-    if (this.pending) void this.client.cancel(this.record).catch(() => {});
     this.pending = false;
     this.finish({action: "later", record: this.record});
   }
@@ -46,7 +45,7 @@ export class EditRecoveryReview {
     const record=this.record;
     const actions=this.actions;this.selected=Math.min(this.selected,actions.length-1);
     const control=(id:string,label:string)=>outlinerActionLink(`recovery.${id}`,`[${label}]`);
-    const controls=wrapTextWithAnsi(actions.map((action,index)=>control(action,`${index===this.selected?"› ":""}${action==="agent"&&this.pending?"Cancel merge":labels[action]}`)).join(" "),Math.max(1,width));
+    const controls=wrapTextWithAnsi(actions.map((action,index)=>control(action,`${index===this.selected?"› ":""}${labels[action]}`)).join(" "),Math.max(1,width));
     const tabs=wrapTextWithAnsi(versions.map((version,index)=>control(`version.${version}`,`${index+1} ${version}${version===this.version?" ●":""}`)).join(" "),Math.max(1,width));
     const explanation=record.proposal?.explanation??(record.merge.incomplete?"Comparison exceeded its budget; review manually":record.merge.propertyConflicts?.length?`Conflicting properties: ${record.merge.propertyConflicts.join(", ")}`:"Overlapping edits need review");
     const unresolved=record.proposal?.unresolved.length?`Unresolved: ${record.proposal.unresolved.join("; ")}`:"";
@@ -60,7 +59,7 @@ export class EditRecoveryReview {
       this.cachedChanges={record,text:`${sanitizeDynamicText(provenance)}\n\n${fence}diff\n${patches}\n${fence}`};
     }
     const text=this.version==="problems"?(this.warnings.length?this.warnings.map(w=>sanitizeDynamicText(w)).join("\n\n"):"No local recovery problems reported"):this.version==="base"?record.baseText:this.version==="draft"?record.draftText:this.version==="latest"?record.latest.text:this.version==="prelaunch"?record.prelaunchText:this.version==="changes"?this.cachedChanges!.text:
-      (unresolved ? `> [!warning] Unresolved choices\n${record.proposal!.unresolved.map(item=>`> ${sanitizeDynamicText(item)}`).join("\n")}\n\n` : "")+(record.proposal?.text??"No proposal yet. Ask the agent or edit your retained draft.");
+      (unresolved ? `> [!warning] Unresolved choices\n${record.proposal!.unresolved.map(item=>`> ${sanitizeDynamicText(item)}`).join("\n")}\n\n` : "")+(record.proposal?.text??"No proposal yet. Edit your retained draft.");
     if(this.cachedDocument?.text!==text)this.cachedDocument={text,document:{canonicalText:text,resolvedText:text,projectedText:text,embedRanges:[],workIdPrefix:null}};
     const rows=documentPreviewLines(this.cachedDocument.document,Math.max(1,width));
     this.page=Math.max(1,height-header.length-2);this.maximum=Math.max(0,rows.length-this.page);this.offset=Math.min(this.offset,this.maximum);
@@ -69,7 +68,7 @@ export class EditRecoveryReview {
   }
   key(str:string,key:TerminalKey):void {
     const actions=this.actions;this.selected=Math.min(this.selected,actions.length-1);
-    if(key.name==="escape"){void this.action(this.pending?"agent":"later");return;}
+    if(key.name==="escape"){void this.action("later");return;}
     if(key.name==="tab"){this.selected=(this.selected+(key.shift?-1:1)+actions.length)%actions.length;this.changed();return;}
     if(key.name==="return"){void this.action(actions[this.selected]);return;}
     const version=versions[Number(str)-1];
@@ -84,23 +83,19 @@ export class EditRecoveryReview {
     }
     const record=this.record;
     if(this.pending){
-      if(id==="agent"||id==="later"){
-        this.generation++;this.pending=false;this.status="Merge cancelled; all versions retained";
-        void this.client.cancel(record).catch(error=>{if(!this.closed){this.status=`Draft retained; cancellation could not be confirmed: ${sanitizeDynamicText(String(error))}`;this.changed();}});
-        this.changed();
-      }
+      if(id==="later")this.dismiss();
       return;
     }
     if(id!=="discard")this.discardArmed=false;
     if(record.state!=="retained"&&!["restore","undo","next","later"].includes(id)){this.status="Saved history: restore a draft or undo the save to start a new review";this.changed();return;}
 
     if(id==="later"||id==="manual"||id==="separate"||id==="proposal") {
-      if(id==="proposal"&&!record.proposal){this.status="No proposal to use; choose Edit draft or Ask agent";this.changed();return;}
+      if(id==="proposal"&&!record.proposal){this.status="No proposal to use; choose Edit draft";this.changed();return;}
       this.closed=true;this.generation++;this.finish({action:id,record});return;
     }
     if(id==="next"){this.index=(this.index+1)%this.records.length;this.offset=0;this.version="draft";this.changed();return;}
     if(id==="discard"&&!this.discardArmed){this.discardArmed=true;this.status="Choose Discard recovery again to hide this retained draft. The canonical note is unchanged.";this.changed();return;}
-    const generation=++this.generation;this.pending=true;this.status=id==="agent"?"Preparing merge proposal · Esc cancels; writing stays retained":"Updating recovery…";this.changed();
+    const generation=++this.generation;this.pending=true;this.status="Updating recovery…";this.changed();
     try {
       if(id==="restore"||id==="undo"){
         if(!this.client.restore)throw Error("Recovery restoration is unavailable");
@@ -108,8 +103,8 @@ export class EditRecoveryReview {
         if(generation!==this.generation||this.closed)return;
         this.records.splice(this.index,0,restored);this.version="proposal";this.offset=0;this.selected=retainedActions.length-1;
         this.status="Current note unchanged · restored draft ready for review and Ctrl+S";
-      }else if(id==="agent"||id==="refresh"){
-        const updated=await(id==="agent"?this.client.assist(record):this.client.refresh(record));
+      }else if(id==="refresh"){
+        const updated=await this.client.refresh(record);
         if(generation!==this.generation||this.closed)return;
         this.records[this.index]=updated;this.version="proposal";this.offset=0;this.status="Review the proposal before using it";
       }else if(id==="discard"){

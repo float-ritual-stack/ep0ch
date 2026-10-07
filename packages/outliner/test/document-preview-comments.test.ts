@@ -10,7 +10,7 @@ import {DocumentPreview} from '../src/document-preview';
 import {DocumentPreviewInput} from '../src/document-preview-input';
 import {documentPreviewLines, documentPreviewLinks, renderDocumentPreview} from '../src/document-preview-renderer';
 import {OutlinerStore} from '../src/store';
-import {InboxRepository} from '../src/inbox-repository';
+import {preserveCapture} from './preserved-captures';
 import type {RequestInput} from '../src/client';
 import type {AnnotationRepresentation,Block} from '../src/types';
 
@@ -109,8 +109,8 @@ test('local Preview reveals canonical passage and general threads without openin
     expect(store.listAnnotationThreads({subject:representation.subject as {kind:'block';blockId:string}})).toHaveLength(3);
 
     // Inbox before-images must keep their captured identity after the live note changes.
-    const inbox=new InboxRepository(store);
-    const attempt=inbox.apply('processed',block,{summary:'Filed note',source:{disposition:'file',text:'New current text'},notes:[],tasks:[],updates:[]});
+    preserveCapture(store,'processed',[block]);const attempt={id:'processed'};
+    store.update(block.id,'New current text',store.require(block.id).revision);
     const currentText=store.get(block.id)!.text;
     const historicalRepresentation={...representation,sourceSnapshot:{...representation.sourceSnapshot,inboxAttemptId:attempt.id}};
     await reader.loadText({kind:'block',blockId:block.id}, 'Before assistance', async () => ({

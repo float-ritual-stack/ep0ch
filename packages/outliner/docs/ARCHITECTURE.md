@@ -56,68 +56,15 @@ owner is running.
 
 The host prints its ready line (socket, outlines folder) after startup, logs each outline it opens, and handles orderly shutdown on `SIGINT`, `SIGTERM`, or `SIGHUP`.
 
-### Automatic Inbox editing
+### AI prompts
 
-The host starts one `InboxWorker` per outline (`src/outline-inbox.ts`) once it opens
-and Pi model configuration is available. Existing Inbox blocks determine pending
-work. Capture replies are sent before waking the worker; model calls never hold a
-SQLite transaction. Closing a client has no effect on processing.
-
-`inbox-model.ts` creates an isolated Pi SDK session for each note. Its only tools
-read canonical notes, search the existing Tree search projection, and submit an
-`InboxPlan`. There are no coding tools, ambient extensions, or direct model writes.
-Jev provides bounded relationship judgments over retrieved candidates. Fully read
-targets and exact revisions constrain proposed replacements.
-
-`ai-prompts.ts` reads and validates ordinary Markdown/JSON files at the job boundary.
-The service seeds a workspace's `stateDir/prompts` from packaged defaults once;
-subsequent starts preserve the user's files, including invalid edits. An explicit
-`OUTLINER_PROMPT_DIR` selects one directory without per-file fallbacks. Inbox takes
-one snapshot before inference, reused across Pi turns and Jev comparisons. Goto
-takes one per eligible search. Neither uses a watcher or prompt cache. Exact file
-text and SHA-256 identities accompany results as historical evidence. Routine
-Inbox status projects only filenames/paths and hashes; `inbox.result` reads one
-full receipt on demand, avoiding retransmission of prompt history on every progress
-event. Resource
-Detail edits the authoritative files through the existing filesystem write contract.
-Prompt files guide judgments; tool schemas and service mutation validators remain
-in code. The optional provenance fields are additive to existing result contracts.
-
-`InboxRepository` applies those concrete edits using the existing Store operations
-inside one transaction with the before-images and result identity. Its small
-internal tables retain results, pause state, reconsideration direction, and the
-source revision suppressed after a hold/failure/Undo. They do not duplicate the
-Inbox as a job queue. Source identity and child ownership survive cleanup; ordinary
-roadmap lifecycle metadata stays under the existing store contract. Undo checks the
-affected graph before restoring it and preserves reserved Work IDs.
-
-`inbox.status`, `inbox.result`, `inbox.pause`, `inbox.resume`, `inbox.retry`, and `inbox.undo` are
-service operations shared by clients. Progress emits an `inbox` event; committed
-edits emit a content event. Tree's `InboxController` owns only navigation and
-presentation. The same view runs in separate and composed Tree surfaces.
-
-The same worker also runs `note-assistance-model.ts` for ordinary notes throughout
-the workspace. `NoteAssistanceRepository` checkpoints block revisions rather than copying
-the note graph into a queue. Startup baselines existing records, including Trash;
-subsequent text changes and newly authored notes are eligible. The checkpoint
-retains inferred metadata, user corrections, explicit reconsideration and the last
-fulfilled request identity. A successful edit, receipt and post-edit checkpoint
-commit together, so assistant output does not trigger itself. Editorially eligible
-Inbox captures, including held/undone captures, remain owned by the editorial path.
-Their original intent is classified before rewriting; answers and final metadata
-join filing in one transaction and recovery receipt. The final source and outputs
-are checkpointed in that transaction, avoiding a second automatic write that would
-invalidate filing's Undo. Ordinary agent notes rejected by editorial eligibility
-remain eligible for workspace assistance even beneath Inbox.
-
-Jev selects ordinary categories, candidate tags and a bounded request operation.
-`properties.inventory` returns distinct indexed values with counts, pagination and
-a sequence; the worker consumes pages in one read transaction for a complete
-inventory. Prose answers reuse Pi's isolated read-only runtime and commit only to
-their source note. Read dependencies and the original source revision/parent are
-checked before commit. Unsupported requests remain open and appear in attention.
-The two operation histories are combined only at read time for global pagination;
-there is one pause flag, one worker and no reconciliation process.
+`ai-prompts.ts` reads and validates Goto's ranking prompt (`goto-ranking.json`) once per
+eligible search. The service seeds a workspace's `stateDir/prompts` from packaged defaults
+once; subsequent starts preserve the user's file, including invalid edits. An explicit
+`OUTLINER_PROMPT_DIR` selects one directory without per-file fallbacks. There is no
+watcher or prompt cache. Resource Detail edits the authoritative file through the
+existing filesystem write contract. The prompt guides judgments; the score contract
+stays in code.
 
 Hashtags are parsed by the existing property parser into block-scoped `tag`
 records, with authored offsets and syntax retained. They stay visible in prose.
@@ -459,7 +406,7 @@ the outlines folder (`EP0CH_OUTLINES`, default `~/outlines`; outline-core's `out
 
 ```text
 <outlines>/<name>.sqlite      the outline (its WAL and the `.owner.sqlite` lock beside it)
-<outlines>/<name>/            its own folder: prompts/, assistant-sessions/, extensions/; the root its relative file links resolve against
+<outlines>/<name>/            its own folder: prompts/, extensions/; the root its relative file links resolve against
 <outlines>/.host/host.sock    the host's socket (the folder is mode 0700)
 <outlines>/.host/host.lock    held by the running host; never unlinked
 <outlines>/.clients/<name>/   a client's own files for that outline (editor drafts)
@@ -643,7 +590,7 @@ tour at `[page::outliner-tour]` / `[system-doc::feature-tour]`. Both readers com
 addressable canonical section blocks. The tour covers navigation, Inbox, editable
 prompts, Resources and comments, workboard flow, and the combined-surface
 experiment. Working source/fragment references and an unsorted ranked projection
-demonstrate reuse without creating sample roadmap work or Inbox jobs. A writable
+demonstrate reuse without creating sample roadmap work. A writable
 bounded virtual branch collects `[type::project-doc]`. Seed-local references use
 the UUIDs returned during that transaction; the database schema is never
 distributed as a binary content template.
@@ -733,7 +680,7 @@ Do not leave older editors running across this upgrade.
 - selection-neutral capture: `capture.create`
 - delivery identity: `deliveries.ensure`
 - mutations: `create`, `update`, `move`, `delete` (move to Trash), `trash.restore`, `trash.purge`; `update`, `move`, `delete` and `trash.restore` take an optional `mutation`
-- activity: `activity.recent` returns each block's latest recorded change by one author. Edits (`text`, `properties`) by default; `kinds` adds `move`, `delete` and `restore`, which are recorded only when the request declared a `mutation` (Tree and Detail declare the person, the Inbox worker `inbox-agent`). A trashed block is listed only for the entry that trashed it, and only while it is still a Trash root
+- activity: `activity.recent` returns each block's latest recorded change by one author. Edits (`text`, `properties`) by default; `kinds` adds `move`, `delete` and `restore`, which are recorded only when the request declared a `mutation` (Tree and Detail declare the person). A trashed block is listed only for the entry that trashed it, and only while it is still a Trash root
 - properties: `properties.patch`, `properties.catalog`, `properties.inventory`, read-only draft parsing `properties.preview`
 - virtual ordering (a view with no `[sort::]`): `virtual.occurrences.order` reads it (the view as a ref); `virtual.occurrences.move` changes it in one step, read, planned and written in one transaction (`VirtualOccurrenceMoveInput`: refs resolved by `resolveBlockRef` (an id, ((id)), an 8+ character prefix, a Work ID, a [[page]]); one block `by`, kept within the view's `[limit::]` while it is shown, `to`, `before`, `after`, or several put first in the order given); `virtual.occurrences.place` (Tree's selections, checked against the order read: `up`, `down`, `top`, `bottom`, `before`/`after`, `first`) and `virtual.occurrences.reorder` write it too. Each takes an optional `mutation`, recorded on the change and as a `move` on each block whose place changed. A sorted view refuses, naming the `[sort::]` to remove. The door's `card.reorder`, `ep0ch view order` and the `view-order` agent operation (`view_order`) are thin clients of `move`
 - references: `references.resolve`, `references.backlinks`
@@ -895,14 +842,14 @@ service sequence, so a committed content change always has a `change_feed` row.
 The service publishes each recorded change as one live event (`content`, or
 `view` for branch-local rank changes) carrying that `change` record, so a live
 subscriber and a catching-up client see identical data. A request that touches
-several blocks (an `annotations.batch`, an Inbox transaction) produces one change
+several blocks (an `annotations.batch`) produces one change
 and one event per block.
 
 ```ts
 interface OutlinerChange {
   sequence: number;        // service sequence after the change
   changeId: number;        // feed position; unique when changes share a sequence
-  action: string;          // request action, "inbox.changed", or "background"
+  action: string;          // request action, or "background"
   kind: "create" | "edit" | "move" | "delete" | "restore" | "purge"
       | "annotate" | "draft" | "reorder" | "other";
   blockId?: string;        // primary block (the view for "reorder")
@@ -925,8 +872,8 @@ move reorders siblings and a delete carries its subtree. Annotation requests
 report `annotate` for each created or edited block and draft saves `draft`;
 other changes report what the store did to the block. `other` has no single
 block (Work-ID configuration); treat it as "reload the affected projection".
-Writes outside a request (the Inbox worker, in-process jobs) are published as
-events with action `inbox.changed` or `background`. A content event without a
+Writes outside a request (in-process jobs) are published as
+events with action `background`. A content event without a
 `change` reports a request that committed nothing.
 
 `changes.since { sequence, limit? }` returns changes with a greater sequence.
@@ -1028,7 +975,7 @@ revisions rechecked before returning the first 30 matches with completeness.
 ### Forgiving search
 
 outline-core's `src/search-match.ts` is the one text matcher: `tree.search` (Goto, Detail's and Quick Capture's `((`,
-and the door's `((` popup and search overlay), `tree.focus`, `inbox.search`, `pages.complete` (`[[`),
+and the door's `((` popup and search overlay), `tree.focus`, `pages.complete` (`[[`),
 the fragment search's note order, the Backlinks filter, Tree's branch filter and the virtual-branch
 navigator's filter all rank or filter with it (`matchesSearchText` for a list, with the query prepared
 once). Matching inside one note's text (a fragment's heading, an annotation's quote, a draft patch's
@@ -1520,18 +1467,16 @@ representations and use text quotes rather than separate passage targets. All
 surfaces then call the same `annotations.create` action and query by block or
 Resource subject.
 
-Local Tree/Inbox pointer and keyboard captures share `PreviewSelectionInput`
+Local Tree pointer and keyboard captures share `PreviewSelectionInput`
 and attach `preview-selection` observation evidence
 to the displayed source representation: input kind, quote, reader, render generation,
 representation identity, viewport text hash and projection kind. A null-offset
 text-quote remains unpositioned; the service checks that its evidence belongs to
 the representation and retains the normal source-snapshot validation. This does
-not weaken the separate Herdr/rendered-snapshot observation contract. Inbox
-keeps the draft-owning reader focused, defers incoming receipts while writing,
-and applies pending receipts on subsequent result navigation or refresh.
+not weaken the separate Herdr/rendered-snapshot observation contract.
 Keyboard selection uses painted viewport cells and grapheme boundaries, not
 source offsets. The reader action scope supplies remappable comment operations
-without colliding with Tree browsing or Inbox result shortcuts. Starting a
+without colliding with Tree browsing. Starting a
 composer consumes the transient selection after freezing its target evidence.
 
 `documentPreviewSourceAnchor` proves a narrow identity case by comparing the

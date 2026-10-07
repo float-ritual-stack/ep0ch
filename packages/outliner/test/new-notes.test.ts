@@ -7,7 +7,6 @@ import { join } from "node:path";
 import { OutlinerClient } from "../src/client";
 import { OutlinerServer } from "../src/server";
 import { OutlinerStore } from "../src/store";
-import { InboxRepository } from "../src/inbox-repository";
 import type { Block, NewNoteReceipt, PageAddressFollowResult } from "../src/types";
 
 const cleanups: Array<() => Promise<void>> = [];
@@ -86,15 +85,6 @@ test("[page::x] fills its own title on create, update and notes.create; a title 
   expect(updated.text).toBe("2026-10-01 [page::2026-10-01]");
   const kept = await client.request<Block>({ action: "update", blockId: updated.id, text: "Plot day [page::2026-10-01]", expectedRevision: updated.revision, mutation: { author: "user" } });
   expect(kept.text).toBe("Plot day [page::2026-10-01]");
-});
-
-test("an empty note opened to be written isn't the Inbox agent's to file until it has text", async () => {
-  const { client, store } = await startService();
-  const empty = await client.request<NewNoteReceipt>({ action: "notes.create", text: "" });
-  const written = await client.request<NewNoteReceipt>({ action: "notes.create", text: "Ask about the seed swap" });
-  const sources = new InboxRepository(store).sourceIds();
-  expect(sources.has(empty.block.id)).toBe(false);
-  expect(sources.has(written.block.id)).toBe(true);
 });
 
 test("a recovered edit's text is titled too: edit-recovery.commit applies the page-title rule", async () => {

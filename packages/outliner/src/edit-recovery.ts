@@ -16,10 +16,9 @@ export interface EditRecoveryStart {
 export interface EditRecoveryProposal {
   text: string;
   basedOnRevision: number;
-  source: "mechanical" | "agent" | "manual";
+  source: "mechanical" | "manual";
   unresolved: string[];
   explanation: string;
-  evidence?: { model: string; promptSha256: string; session: import("./assistant-session").AssistantSessionEvidence };
 }
 export interface EditRecovery extends EditRecoveryStart {
   revision: number;
@@ -51,7 +50,7 @@ function prepared(input: EditRecoveryStart, latest: Block): Pick<EditRecovery,"m
   }};
 }
 
-/** Service-owned recovery evidence; these records never enter note assistance. */
+/** Service-owned recovery evidence. */
 export class EditRecoveryRepository {
   constructor(private readonly store: OutlinerStore) {}
 
@@ -106,7 +105,7 @@ export class EditRecoveryRepository {
 
   propose(id: string, expectedRevision: number, proposal: EditRecoveryProposal): EditRecovery {
     content(proposal.text,"Merge proposal");content(proposal.explanation,"Merge explanation");revision(proposal.basedOnRevision);
-    if(!["agent","manual"].includes(proposal.source)||!Array.isArray(proposal.unresolved)||proposal.unresolved.length>100)throw Error("Invalid merge proposal");
+    if(proposal.source!=="manual"||!Array.isArray(proposal.unresolved)||proposal.unresolved.length>100)throw Error("Invalid merge proposal");
     proposal.unresolved.forEach(value=>content(value,"Unresolved conflict"));
     return this.change(id,expectedRevision,record=>{
       const latest=this.live(record.blockId);

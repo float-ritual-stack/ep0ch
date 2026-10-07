@@ -5,7 +5,7 @@ import {OutlinerClient} from '../../src/client';
 import {OutlinerServer} from '../../src/server';
 import {OutlinerStore} from '../../src/store';
 import type {Block,BrowsingContextState} from '../../src/types';
-import type {InboxStatus} from '../../src/inbox-types';
+import {preserveCapture,rewriteWithOriginal} from '../preserved-captures';
 import {runHerdrScenario} from './herdr-runner';
 let sourceId='',outputId='',rawId='',original='';
 const result=await runHerdrScenario({name:'capture-history',
@@ -18,12 +18,10 @@ const result=await runHerdrScenario({name:'capture-history',
   await server.start();
   const receipt=await client.request<{block:Block}>({action:'capture.create',source:'cli',requestId:'raw-capture',text:'RAW CAPTURE [tag::original]\n\nUntidy original wording 日本語\n\n'+('Long original paragraph.\n\n'.repeat(30))});
   sourceId=receipt.block.id;original=receipt.block.text;
-  server.enableInbox(async()=>({plan:{summary:'Cleaned and split fixture',source:{text:'CLEANED NOTE\n\nClear useful wording.',disposition:'file'},notes:[{text:'EXTRACTED NOTE\n\nOne useful idea.'}],tasks:[],updates:[]},usage:{provider:'fixture',model:'fixture',inputTokens:0,outputTokens:0,cost:0,jevCalls:0,elapsedMs:0}}));
-  for(let i=0;i<200;i++){
-   const status=await client.request<InboxStatus>({action:'inbox.status'});
-   if(status.results.length&&!status.current){outputId=status.results[0]!.outputIds[0]!;rawId=(await client.request<Block>({action:'get',blockId:sourceId})).properties.find(p=>p.key==='raw-capture')!.value;return;}
-   await Bun.sleep(50);
-  }throw Error('Fixture cleanup did not finish');
+  // As the removed Inbox agent left a cleanup and split: the original preserved, both notes linked to it.
+  preserveCapture(store,'cleanup',[receipt.block]);
+  rawId=rewriteWithOriginal(store,receipt.block,'cleanup','CLEANED NOTE\n\nClear useful wording.').resourceId;
+  outputId=store.create(`EXTRACTED NOTE [raw-capture::${rawId}]\n\nOne useful idea.`).id;
  }finally{await server.close();store.close();}
 },async run(s){
  const terminal=await s.attachClient();await terminal.resize(180,65);

@@ -12,7 +12,6 @@ import { OutlinerStore } from "../src/store";
 import { requestLines } from "../src/agent-requests";
 import { applyLocated, locateSpans } from "@ep0ch/outline-core/draft-patch-compare";
 import type { DraftHolderRequest } from "../src/draft-patch";
-import { requestPassages } from "../src/note-content";
 import type { ExtensionsListResult } from "../src/extension-registry";
 import type { ResourceProjection, ResourceProjectionReadResult } from "../src/resource-projection";
 import type { Block, OutlinerEvent } from "../src/types";
@@ -396,8 +395,3 @@ test("drafts.touch: a request written in a held draft runs before any save, and 
   expect(door.requests.filter((request) => request.kind === "patch")).toHaveLength(1);
 });
 
-test("note assistance leaves a line addressed to an extension's agent alone (E8)", () => {
-  const text = "Plan\n@tidy can you fix the formatting above\nWhat tags do I use most?";
-  expect(requestPassages(text, new Set(["tidy"]))).toEqual(["Plan", "What tags do I use most?"]);
-  expect(requestPassages(text).join(" ")).toContain("@tidy can you fix the formatting above");
-});

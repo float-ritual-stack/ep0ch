@@ -27,18 +27,16 @@ addressable as `[[outliner-tour]]`.
 | Find a note and preview it | Tree `g`: [Goto search](#tree-browse-mode) |
 | Keep a reference beside your work | [Current, Preview, and linked Details](#working-with-multiple-details) |
 | Read files and comment on a particular use | [Authored Resources](#inspect-authored-links) and [reference comments](#comments-on-individual-resource-references) |
-| Capture a thought and inspect its cleanup | Tree `c`, then `Shift+I`: [Capture and Inbox](#capture-and-inbox) |
+| Capture a thought | Tree `c`: [Capture and Inbox](#capture-and-inbox) |
 | Tune the AI's instructions | [Editable prompt files](#editing-ai-prompts) |
 | Share notes and track work with an agent | [Agent tools, stages, and batches](#agent-integration) |
 | Put a note or an attached page at a URL | [Publishing blocks](#publishing-blocks) |
 | Open a named outline from any folder | [Which outline a client opens](#which-outline-a-client-opens) and `bun run cli outlines` |
 | Let Claude Code see, open and edit notes | The [Claude Code mod](../claude-mod/README.md): Recent Mentions, clickable references, `show`, workboard and `outline_*` tools, and `door_*` tools in door tiles |
 
-The [combined Tree/Detail surface](#combined-tree-and-detail-experiment) and
-[automatic Inbox editor](#automatic-inbox-agent) are shipped experiments. The
-normal separate-pane layout remains the default.
+The [combined Tree/Detail surface](#combined-tree-and-detail-experiment) is a shipped
+experiment. The normal separate-pane layout remains the default.
 
-Inbox history search: click **Search /** or press `/` in Inbox. Search original capture titles, result summaries and current Source/Output text across the complete stored history. Up/Down selects an attempt while typing; Enter returns to result controls, and Alt+Enter opens its content in Detail. Escape or × restores the previous browsing position. Attempts retain their date and identity. Text results appear first; optional Jev reranking uses the same editable `goto-ranking.json` prompt as Goto. Session transcripts are diagnostics, excluded from this search. The shortlist is bounded and says when matches were omitted; Jev reranks that shortlist rather than searching missing candidates.
 
 When Open has no linked reader (or that reader closed), a recovery bar offers
 **Enter: Open here**, **L: Choose destination**, and **Esc: Cancel**. The first Open
@@ -126,9 +124,9 @@ No shared user host is used.
 - Clients catch up after a disconnect with `changes.since`, read many blocks at once with field projection (`blocks.read`), and preview how a draft's properties will parse (`properties.preview`).
 - `outliner publish serve` gives blocks with `[publish::…]` a read-only URL, including attached HTML, claude.ai React artifacts, SVG, Mermaid and Markdown; `[publish::never]` locks a subtree. See [Publishing blocks](#publishing-blocks).
 - Recoverable deletion preserves canonical structure and identity, excludes Trash content from normal queries/completions, and requires explicit identifier-confirmed purge.
-- Idempotent quick capture retains drafts and writes ordinary canonical children under one workspace Inbox without moving selection or navigation history. The automatic Inbox agent can organize them using the configured Pi model, with optional Jev judgments, inspectable results, Pause/Resume, guarded Undo, and directed reconsideration.
+- Idempotent quick capture retains drafts and writes ordinary canonical children under one workspace Inbox without moving selection or navigation history.
 - Canonical bookmarks use one strict record per target beneath the durable Bookmarks system view; Tree and Detail toggle them optimistically, and the generic split navigator resolves each record back to its live target without rewriting target text.
-- Goto search combines immediate text matches, location context, and a document preview with optional bounded Jev ranking; exact UUIDs, pages, aliases, and Work IDs remain deterministic. Matching forgives punctuation ("Claude - now" is "claude now"), word order, a typo in a longer word and one missing word, always below every match as typed; the rungs are in [Architecture](docs/ARCHITECTURE.md#forgiving-search). Inbox history search, `[[` completion and the Backlinks filter use the same matcher.
+- Goto search combines immediate text matches, location context, and a document preview with optional bounded Jev ranking; exact UUIDs, pages, aliases, and Work IDs remain deterministic. Matching forgives punctuation ("Claude - now" is "claude now"), word order, a typo in a longer word and one missing word, always below every match as typed; the rungs are in [Architecture](docs/ARCHITECTURE.md#forgiving-search). `[[` completion and the Backlinks filter use the same matcher.
 - Client-local multiline-expanded Tree rows support viewport-sized intra-block PageUp/PageDown without changing the Tree cursor.
 - Pi Markdown preview with line, page, endpoint, and mouse/trackpad scrolling.
 - Detail renders source-spanned Markdown, nested Obsidian callouts, generated embeds, Backlinks, and a structured property inspector through one PreviewRegion focus/action model while canonical source remains authoritative.
@@ -1210,7 +1208,6 @@ unchanged.
 | `.` or `Command+.` | Expand/collapse multiline block detail in Tree |
 | `Ctrl+E` or modified Enter | Explicitly edit the selected block in the linked Detail |
 | `g` | Search blocks with a document preview and optional Jev ranking |
-| `Shift+I` | Inspect the automatic Inbox agent, its results, Pause/Resume, Undo, and reconsideration |
 | `o` | Open the first exact `((block-id))` or symbolic `[[address]]` reference in the linked Detail |
 | `R` | Reveal this row's canonical physical source, clearing filters, expanding its ancestors, and focusing this Tree |
 | `Option+Shift+R` | Reveal the first authored reference in this Tree |
@@ -1596,7 +1593,7 @@ External block editing never writes the canonical block directly. From preview i
 
 Writable, unpinned text filesystem Resources keep their provider revision checks: changed external drafts are written back only if the source revision is unchanged; `e` opens the built-in buffer and commits through `Ctrl+S`. Detail uses exported `$VISUAL` or `$EDITOR` directly; when Herdr's plugin environment omits them, it reads those values and `PATH` from the user's interactive shell without evaluating the editor value as shell code. The editor runs in the same local or SSH/Herdr PTY. Failed launches, nonzero exits and restoration failures preserve recovery files.
 
-Recovery drafts are service-owned evidence, not notes sent through background assistance. Client-local journals live in `editor-drafts/` under the resolved workspace state directory; the service stores acknowledged versions in SQLite. Merge assistance uses editable `prompts/edit-merge.md`, the existing Pi configuration and native session traces. It has no filesystem, shell or note-writing tools. Its limit is three model turns, 120 seconds and 120,000 input characters; oversized inputs remain available for manual review. Cancellation and stale responses cannot authorize a save. Proposal quality still requires human review. These new recovery RPCs require protocol 72 and a coordinated client/service restart.
+Recovery drafts are service-owned evidence. Client-local journals live in `editor-drafts/` under the resolved workspace state directory; the service stores acknowledged versions in SQLite. Stale responses cannot authorize a save.
 
 Filesystem saves compare the opened file's content hash, size, and modification
 time. A stale edit retains its Detail draft and leaves the source unchanged.
@@ -2019,7 +2016,7 @@ Tree `c` opens Quick Capture without navigating away from the selected row. Ente
 
 Use **Dock** / Ctrl+O, then Left, Right or Down to keep writing beside or below the Outliner. **Popup** returns to the floating editor. Docking transfers the same draft and cursor/selection; it does not submit or duplicate the note. Focus can move to Tree, Preview or another Detail while the capture stays open. Placement shares the Detail sidebar's layout preservation and rollback path.
 
-**Editor** / Ctrl+E opens the draft in VISUAL/EDITOR using the existing local recovery journal. Opening Capture allocates one canonical Inbox draft before accepting keystrokes, including when blank, so closing or reconnecting can retain writing against that identity. Both assistance workers exclude that note until explicit submission. Returning from the editor retains its writing; use **Save to Inbox** when it is ready for processing. A launch failure keeps the draft available for retry. Concurrent changes are revision guarded, and returned editor writing is retained in the note's recovery history.
+**Editor** / Ctrl+E opens the draft in VISUAL/EDITOR using the existing local recovery journal. Opening Capture allocates one canonical Inbox draft before accepting keystrokes, including when blank, so closing or reconnecting can retain writing against that identity. Returning from the editor retains its writing; use **Save to Inbox** when it is ready. A launch failure keeps the draft available for retry. Concurrent changes are revision guarded, and returned editor writing is retained in the note's recovery history.
 
 **History** / Ctrl+R opens retained writing and the existing Base/Draft/Latest comparison. Choosing a version brings it back into Capture without immediately changing the note. Continue editing, retain it, or submit with Ctrl+S; the reviewed save checks the latest revision and keeps the replaced text available through history. If the note changes again, refresh the review instead of overwriting it. Closing a conflicted capture retains its local writing in that same recovery journal.
 
@@ -2049,7 +2046,9 @@ Optional supporting detail on later lines.
 
 Quick Capture shares Tree and Detail's inline reference list: type `[[` for named pages/Work IDs, `((` for blocks/fragments, or `[file::` for file paths. Keep typing to filter; use Up/Down and Enter/Tab or click a result to insert. Escape first dismisses suggestions and leaves the draft open; another Escape retains and closes it. Completion preserves the multiline cursor and undo history, and does not change capture receipt/retry behavior.
 
-The optional captured-from block is context evidence, not the capture’s parent. Lifecycle metadata is a trailing block-scoped property run on the first authored line, so the useful title remains first; compact Tree rows hide that metadata and supporting lines until expanded. The Inbox can be renamed or moved while retaining its canonical identity, and new captures appear at its top. Persistent receipts bind each request ID to normalized text, source, captured-from context, author, and actor. Changed submissions under the same ID are rejected; same-payload retries remain idempotent after restart. Quick Capture retains the original submitted text while its outcome is uncertain. If the user edits after a failure, retry acknowledges the original submission and leaves the changed draft open under a new identity; another explicit Ctrl+S captures that draft. Cleanup clears only its acknowledged draft revision, and revisions are not reused after clearing. Capture never changes workspace selection/history; the Tree restores the exact prior row and shows a compact receipt. Automatic Inbox editing starts after that durable save, independently of the popup.
+The optional captured-from block is context evidence, not the capture’s parent. Lifecycle metadata is a trailing block-scoped property run on the first authored line, so the useful title remains first; compact Tree rows hide that metadata and supporting lines until expanded. The Inbox can be renamed or moved while retaining its canonical identity, and new captures appear at its top. Persistent receipts bind each request ID to normalized text, source, captured-from context, author, and actor. Changed submissions under the same ID are rejected; same-payload retries remain idempotent after restart. Quick Capture retains the original submitted text while its outcome is uncertain. If the user edits after a failure, retry acknowledges the original submission and leaves the changed draft open under a new identity; another explicit Ctrl+S captures that draft. Cleanup clears only its acknowledged draft revision, and revisions are not reused after clearing. Capture never changes workspace selection/history; the Tree restores the exact prior row and shows a compact receipt.
+
+Notes the former Inbox agent rewrote keep **Original capture** (`raw-capture`) and **Before this rewrite** (`before-rewrite`) links to the exact text it started from. Tree Authored links, Detail Properties and Preview open these read-only snapshots, and comments on them keep their captured identity. Nothing writes new ones (PIE-613).
 
 CLI accepts `--text`, explicit `--stdin`, or automatic non-TTY stdin/heredoc input. `--request-id` provides caller-controlled retry identity and `--captured-from` records optional context. Receipt JSON is written to stdout; service failure exits nonzero without a local fallback. Retry with the same text and context. New CLI and popup clients reject an incompatible service before capture; restart the service and clients together for protocol upgrades. Legacy receipts without payload evidence reject replay and identify the existing capture for manual inspection; migration preserves retained drafts rather than guessing what was submitted.
 
@@ -2066,175 +2065,28 @@ embeds, and bounded queries therefore use the ordinary Detail projection.
 Responses remain chat-only unless the command is invoked; there is no disposable
 report slot or report pane.
 
-### Inbox editing budget
-
-Inbox cleanup and bounded-answer editing have a five-minute total budget across Pi turns and tools. Set `OUTLINER_INBOX_TIMEOUT_MS` on the service to override it (positive integer milliseconds, at most 30 minutes); restart the service to apply it. Progress does not reset the deadline. Classification keeps its own bounded requests.
-
-Five minutes is a provisional background-work allowance: two real attempts exhausted the former two-minute policy during a multi-turn edit. Those older runs lacked transcripts, so they do not establish an optimal budget or prove a longer run will succeed. Inspect the saved Pi session before increasing it further.
-
-A deadline leaves that note unchanged with a failed result and continues other pending work. The same revision is not retried automatically; reconsider it explicitly. Provider/configuration failures still pause assistance. Pause cancels the active run and retains its session evidence.
-
-### Inspecting assistant sessions
-
-Inbox editing and bounded note answers retain a separate native Pi JSONL session
-for each attempt under the workspace state directory's `assistant-sessions/`.
-Open Tree's Inbox activity with `Shift+I`, select a result, then press `t` to open
-its session as a file Resource in Detail. Tab/Enter also follows the session links
-in the result. Files are resolved by the service, including for remote clients.
-Jev-only classifications have no Pi session.
-
-Results retain the session identity, outcome, last phase and start/end timestamps.
-Completed assistant messages and tool calls/results are inspectable with Pi's
-native session tools. If interrupted before Pi's first assistant message, the
-result points to a clearly labelled snapshot of the SDK entries available then;
-partial streamed output is not promised. Each retry starts a new session. Opening
-a transcript does not resume the attempt or replay writes. Canceled attempts stay
-in recent activity without consuming the pending note or becoming failures that
-pause unrelated work. Protocol 65 adds this canceled result state; restart the
-service and clients together when upgrading.
-
-### Automatic Inbox agent
-
-Inbox Open selects a live Output, otherwise the current Source. Saved Pi sessions
-are explicit diagnostics (`t`), never the default for an in-place cleanup.
-`Alt+Enter` opens content in the linked reader while retaining the Inbox result;
-with no available destination it offers the shared chooser. Use **Link destination**
-or **Open once** in the Inbox header (also available through `?`). Cancel returns
-to the result; Escape from Inbox returns to Tree.
-
-
-The service uses the default model and authentication already configured in Pi.
-It processes existing unprocessed Inbox notes and newly saved captures without a
-separate run command. Set `OUTLINER_INBOX_AGENT=0` on the service to disable it.
-Optional `TYPESAFE_API_KEY` enables Jev comparisons of duplicate and related notes;
-the editor still works without Jev. Missing Pi configuration is visible in the
-Inbox view. Restart the service after configuring its model.
-
-Press `Shift+I` in Tree (also available in `?`). The view shows progress, results,
-links, and observed model usage. It opens on **Needs attention** when any questions
-or errors remain, otherwise on **Recent results**. `a` switches between those
-views; the footer names the destination and follows configured shortcuts. A
-background refresh preserves your choice. Left/Right page through recent results.
-The attention count includes items outside the current page. `p` pauses/resumes, `u` undoes the
-selected cleanup, and `r` reconsiders a held, failed, or undone note with optional
-direction. `Tab` selects an output/source link, `Enter` reveals it in Tree, and
-`Alt+Enter` opens it in Detail. Closing the view leaves the agent running.
-Pause and reconsideration instructions survive service restart. History and Undo
-remain available when the model is disabled or unavailable.
-
-The editor can rewrite, split, combine useful context, and file ordinary notes.
-General notes, lists, and meetings stay notes. Concrete Outliner tasks use the
-existing PIE allocator and enter Backlog; cleanup never commits or executes them.
-The original source keeps its identity and children. Clean primary notes move to
-**Filed notes**; sources whose content moved elsewhere become concise linked
-summaries in **Processed captures**. Cleaned notes and split outputs expose **Original capture** through protected
-`raw-capture` Resource properties. **Before this rewrite** names the immediate
-before-image on an edited source or merge target. Tree Authored links, Detail
-Properties and Preview reach these read-only snapshots directly; Preview Back
-returns to the cleaned note. Split outputs share one original; merges keep each
-source. The content reuses Inbox recovery records, without another raw-copy note
-or background processing of historical requests. Missing historical evidence is
-shown as unavailable. This applies to new cleanups; existing notes gain the
-connection when rewritten, using their earliest preserved applied attempt.
-No automatic expiry is introduced. These Resource-reference semantics require
-protocol 73 and a coordinated client/service restart.
-
-Each cleanup and its recovery record commit together. Apply and Undo reject stale
-edits; Undo refuses to overwrite later changes to affected blocks or their children,
-or remove a new output that has since acquired references or annotations. If its
-bounded reference inspection is incomplete, Undo refuses rather than guessing.
-An undone note is held until edited or explicitly reconsidered. Questions do not
-block the remaining Inbox. Provider failures stop automatic processing and remain
-visible; Resume retries the failed note. A single note exceeding its editor budget
-needs attention without stopping unrelated notes. Jev failures are shown with the
-result; the Pi editor can still complete the cleanup. Costs are estimates from observed usage,
-not billing receipts; cancellation may interrupt final usage reporting. This is a
-single-user editorial experiment: inspect the results and use Undo when a judgment
-is wrong.
-
-### Automatic note organization and requests
-
-With Pi configured and `TYPESAFE_API_KEY` available, the same service worker also
-assists new or meaningfully edited ordinary notes throughout the workspace.
-Captures get one combined filing/assistance operation and one Undo receipt.
-Jev chooses a useful content type and a few retrieval tags;
-authored prose, manual types and tags, and the note's identity stay intact.
-Removing an inferred tag or changing its type is a remembered correction, including
-after restart. Managed records such as tickets, batches, annotations and generated
-sections keep their existing contracts. Historical types are not bulk-renamed.
-
-Ordinary categories are `note`, `idea`, `design-note`, `decision`, `finding`,
-`feedback`, `review`, `implementation-proof`, `progress`, `reference`, `synthesis`,
-and `hub`. Topics such as rabbit holes belong in tags rather than new categories.
-Write `#rabbit-hole` or `#y2026/q1` anywhere in prose: these use the same property
-index as `[tag::rabbit-hole]`. Hashtags remain visible. Code, link destinations,
-escaped hashes, headings and numeric references such as `#134` are not tags.
-Tag queries match the complete value; `y2026` does not imply every descendant tag.
-Suggested calendar tags come from the content's stated period, not its import date.
-
-A fresh direct request can be fulfilled in the same note. Complete property
-inventories use the indexed `properties.inventory` operation, independently of
-autocomplete's 100-value limit. Prose answers use Pi with read-only Outliner
-tools. A successful answer records `request-status::fulfilled`; unsupported or
-unanswered requests stay open. Answering cannot run shell commands, change tickets,
-or send messages. Inbox triage can still record a bug or feature as backlog work;
-its receipt distinguishes that filing from actually executing the request.
-Activity distinguishes **organized**, **fulfilled**, and
-**unfulfilled**, with the existing Pause, Undo and Reconsider controls.
-
-The first startup checkpoints existing notes without executing old instructions.
-To opt an older note in, select it in Tree and choose **Assist this note** from
-`?`. New notes need no invocation. Set `OUTLINER_NOTE_ASSISTANCE=0` to disable this
-part while keeping Inbox filing, or `OUTLINER_INBOX_AGENT=0` to disable both.
-`bun run test:e2e:notes` exercises real Jev and Pi inside a private Herdr instance.
-
-Inbox effort routing (PIE-331) keeps coherent captures on Jev-only keep/metadata paths, archives clear test noise reversibly, and sends ambiguity, mixed work and explicit reconsideration to Pi. Activity shows the route and reason. The editable `inbox-routing.json` is read per job; set `enabled` to `false` there to disable routing. [The trial report](experiments/inbox-routing/REPORT.md) documents the measured tradeoffs and limits.
-
 ### Editing AI prompts
 
-The host keeps editable prompt files in each outline's own folder:
-`~/outlines/<name>/prompts/` (beneath `EP0CH_OUTLINES` when set). They are seeded once from the versioned `prompts/` defaults.
-Restarting or upgrading does not replace existing files. `OUTLINER_PROMPT_DIR`
+The host keeps an editable prompt file in each outline's own folder:
+`~/outlines/<name>/prompts/` (beneath `EP0CH_OUTLINES` when set). It is seeded once from the versioned `prompts/` defaults.
+Restarting or upgrading does not replace an existing file. `OUTLINER_PROMPT_DIR`
 selects another complete directory; explicit directories are never populated or
 silently mixed with defaults.
-An existing default installation gains the two note-assistance files once during
-upgrade; later removal or edits are preserved.
 
 | File | Controls |
 | --- | --- |
-| `inbox-editor.md` | Pi's Inbox editing instructions |
-| `inbox-relationships.json` | Jev's duplicate/related and coverage questions |
 | `goto-ranking.json` | Jev's Goto scoring instructions and four score levels |
-| `inbox-routing.json` | Jev Inbox effort selection and reversible-archive trial thresholds |
-| `note-assistance.json` | Jev's ordinary types, tag relevance, request classification and confidence thresholds |
-| `note-answer.md` | Pi's bounded read-only answer instructions |
 
-Add ordinary `[file::/absolute/path/to/prompts/inbox-editor.md]` references to an
-**AI prompts** block. Open each Resource in Detail, press `e`, edit, and save with
-`Ctrl+S`. The runtime reads those same files: the block does not contain a second
+Add an ordinary `[file::/absolute/path/to/prompts/goto-ranking.json]` reference to an
+**AI prompts** block. Open the Resource in Detail, press `e`, edit, and save with
+`Ctrl+S`. The runtime reads that same file: the block does not contain a second
 copy of the instructions. Files are on the service host, including for remote clients.
 
-Each Inbox job reads its prompt files once when it starts; each eligible Goto
-search reads its ranking file. Saving affects the next job/search without a rebuild
-or restart. Jobs already running retain their captured versions. Results record
-the exact file text, path and SHA-256 hash; Inbox shows the filenames and short
-hashes alongside model usage. Historical results keep their old snapshots after
-later edits. Routine `inbox.status` responses include only prompt paths and hashes;
-`inbox.result` with a `resultId` retrieves a receipt's full prompt snapshots. These
-are evidence, never another editable configuration source.
-
-JSON instructions and criteria are editable, while the result keys and score count
-remain the contract enforced by code. Tool permissions, mutation checks and work
-allocation are also code-owned. Empty, missing, oversized or malformed files report
-the affected path. Fix the file and Resume Inbox; Goto retries on the next search
-and retains text matches while its prompt is invalid. No stale prompt is silently
-used. The separate older-note survey remains an experiment, outside automatic Inbox processing.
-
-`bun run test:e2e:prompts` tests Resource editing and prompt reload in a private
-Herdr session using real Pi/Jev calls. It requires configured Pi authentication;
-the service environment supplies `TYPESAFE_API_KEY` for relationship judgments.
-
-
+Each eligible Goto search reads its ranking file, so saving affects the next search
+without a rebuild or restart. The instructions and criteria are editable, while the
+four score levels remain the contract enforced by code. An empty, missing, oversized
+or malformed file reports its path; Goto keeps text matches while its prompt is
+invalid and retries on the next search. No stale prompt is silently used.
 
 ## Agent integration
 
@@ -2453,7 +2305,7 @@ Every outline lives in one folder, the outlines folder (`EP0CH_OUTLINES`, defaul
 ```text
 ~/outlines/
   pie.sqlite            the outline (its WAL and owner-lock files beside it)
-  pie/                  its own folder: prompts/, assistant-sessions/, extensions/, and the files it links relatively
+  pie/                  its own folder: prompts/, extensions/, and the files it links relatively
   .host/                the outline host's socket and lock (mode 0700)
   .clients/pie/         a client's own files for pie (editor drafts)
   .deleted/             where `outline delete` moves an outline; nothing is erased
@@ -2815,43 +2667,6 @@ Drag the divider (beside) or the bar's title (below) to resize directly.
 Dock and size preferences survive hide/show and terminal resizing within that Tree;
 they do not change Herdr panes or persist after closing the Tree. Small windows use
 a compact reader; `Alt+P` switches focus between Tree and Preview.
-
-### Read Inbox source and output in place
-
-On larger panes, Inbox places results and Activity above side-by-side Source and
-Output readers. Drag the horizontal divider to give documents more room; drag the
-vertical divider to change their relative widths. Without a separate output,
-Source takes the full bottom width. Numbered tabs select among multiple outputs.
-Technical details expands session, prompt and usage information; errors remain visible.
-
-**Before** / **3** reads the source saved before the selected attempt. **Current** /
-**4** reads its current canonical content. A before-image may already contain edits
-from earlier attempts; it is not necessarily the original capture. Missing snapshots
-are labelled explicitly, and inspecting one never performs Undo. Historical text
-renders as saved, without resolving today's live queries or embeds into it.
-
-Use **1** for Source, **2** for the first Output, **Tab** for other targets,
-**Shift+A** for Activity, and **Alt+P** for List/Preview focus. Clicking the list
-or either reader changes focus. Wheel over a reader scrolls that document; drag
-inside it to copy. Escape first leaves reader focus, then returns to Tree.
-Narrow panes retain a single reader with Source/Output/Activity choices. Before and
-Current remain available in the Source toolbar and action menu. Explicit Open follows
-the linked destination and opens the current canonical note, never the saved snapshot.
-
-Inbox activity summaries describe the metadata actually applied, including no-op
-organization, alongside the editor's explanation of prose changes. Technical
-usage labels **model work** as wall time from entry to return/failure of model
-work, summed for sequential organization/edit phases. It excludes queue waiting
-and the store commit; it is not Jev latency. `notChecked` records observed search,
-read and judge limits. Those omissions remain visible with technical details
-collapsed. Historical attempts without this field say coverage was not recorded;
-an empty omissions list is not an exhaustive search guarantee.
-
-### Repairing Inbox proposals
-
-`finish_cleanup` validates ordinary note metadata and the existing roadmap allocator without reserving a Work-ID. Field errors return to Pi inside the same session and budget; the service repeats revision checks and commits atomically. Reconsider and Resume remain explicit retry paths. Unchanged failed revisions are suppressed instead of automatically looping.
-
-New activity receipts show the retry trigger, prior attempt and observed cost, plus a failure category. Prompt evidence compares active and packaged hashes; differences are informational and never overwrite your editable files. Historical receipts retain unknown trigger/coverage information.
 
 ### Recent agent mentions
 

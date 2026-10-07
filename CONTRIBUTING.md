@@ -148,7 +148,7 @@ how to check it (automated when possible), so it can be retired once a test or t
   litestream's folder mode failing quietly for an hour. Check: a test for the failure path's output.*
 - **Real config or real outlines reached from a test.** Does a test or scratch host read `~/.config`, `~/outlines`
   or the person's door? *Seen: a scratch host ran the real Inbox agent. Check: `test-door-env.sh`, scratch
-  `XDG_CONFIG_HOME`, `OUTLINER_INBOX_AGENT=0`.*
+  `XDG_CONFIG_HOME`.*
 - **Work for nobody.** Does a session, screen or tile keep doing per-frame or per-event work (drawing, publishing a
   view, scaling images) while nobody is attached or looking? Gate it on someone watching. *Seen: #196 (a detached
   session drew every frame of a busy terminal tile, about 30% of a core). Still to check: the media cache's

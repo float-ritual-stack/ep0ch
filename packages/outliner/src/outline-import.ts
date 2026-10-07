@@ -123,7 +123,7 @@ export function importOutline(sourceInput: string, targetInput: string): ImportR
           const list = columns.map(quote).join(", ");
           const where = table === "metadata" ? ` WHERE key NOT IN (${[...SKIPPED_METADATA].map(key => `'${key}'`).join(", ")})` : "";
           const rows = reader.query(`SELECT ${list} FROM ${quote(table)}${where}`).values();
-          // The schema's own starting rows (the sequence, the Inbox agent's settings) give way to the source's.
+          // The schema's own starting rows (the sequence) give way to the source's.
           const insert = writer.prepare(`INSERT OR REPLACE INTO ${quote(table)} (${list}) VALUES (${columns.map(() => "?").join(", ")})`);
           for (const row of rows) insert.run(...(row as Array<string | number | bigint | null | Uint8Array>));
         }

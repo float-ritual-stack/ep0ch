@@ -606,8 +606,6 @@ lands in the note while he goes on. That needs a door that says when he types in
   the service stops waits for `r`.
 - **Who asked.** `r` takes the presser's `mutation` (`{ author: user }` or `{ author: agent,
   actorId }`; a person when absent) and records it as `requestedBy` (`user`, `agent:<id>`).
-- **Note assistance** leaves a line addressed to an extension's agent alone: it is that agent's
-  request, not one for the assistant.
 - **`respond`** gets the note as the person sees it (their live draft when a door holds one), the
   request (the words after the name) and the mark (the request line), plus bounded context. It
   answers any of:

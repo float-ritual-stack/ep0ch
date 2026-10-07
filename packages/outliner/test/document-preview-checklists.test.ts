@@ -9,7 +9,7 @@ import {join} from 'node:path';
 import {initTheme} from '@earendil-works/pi-coding-agent';
 import {stripTerminalSequences,visibleWidth} from '@earendil-works/pi-tui';
 import {OutlinerStore} from '../src/store';
-import {InboxRepository} from '../src/inbox-repository';
+import {preserveCapture} from './preserved-captures';
 import {OutlinerServer} from '../src/server';
 import {OutlinerClient,type RequestInput} from '../src/client';
 import {DocumentPreview} from '../src/document-preview';
@@ -106,10 +106,10 @@ test('saved Preview versions place passage comments against their displayed obse
 
 test('commenting on an Inbox before-image preserves its attempt and never assigns live checklist IDs',async()=>fixture(async(client,store)=>{
   const {block:before}=await client.request<{block:Block}>({action:'capture.create',requestId:'capture-plan',text:'# Plan\n\n- [ ] Prepare release',source:'cli'});
-  const attempt=new InboxRepository(store).apply('file-plan',before,{
-    summary:'Filed plan',source:{disposition:'file',text:'# Filed plan'},notes:[],tasks:[],updates:[],
-  });
-  const filed=await client.request<Block>({action:'get',blockId:before.id});
+  // As the removed Inbox agent left it: the original preserved, the note rewritten.
+  preserveCapture(store,'file-plan',[before]);const attempt={id:'file-plan'};
+  const filed=await client.request<Block>({action:'update',blockId:before.id,expectedRevision:before.revision,
+    text:'# Filed plan',mutation:{author:'agent',actorId:'inbox'}});
   // Identical bytes are not permission to edit the live note from history.
   const live=await client.request<Block>({action:'update',blockId:before.id,expectedRevision:filed.revision,
     text:before.text,mutation:{author:'user'}});

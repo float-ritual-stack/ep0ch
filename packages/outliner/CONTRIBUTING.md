@@ -216,7 +216,6 @@ source evidence or distinguish authored glyphs from controls.
   `<name>/` holds its side files and is the root its relative file links resolve
   against. `OutlinerServer` stays per outline and never learns about other
   outlines. Derive lists of outlines by scanning the folder; never keep one.
-  `src/outline-inbox.ts` starts an outline's Inbox agent.
 - `src/outline-chooser.ts` and `src/choose-outline-main.ts` are the Herdr popup
   for a folder that names no outline: pick, new or import, then `.ep0ch`.
 - `src/schema.ts` owns the database's schema and its version (`SCHEMA_VERSION`,
@@ -392,8 +391,7 @@ Agents run suites one at a time, in the foreground and under a timeout
 (`timeout 900 bun test test/<file>.test.ts`), after checking `uptime` (wait while
 the load is over 4). Never `--parallel`, and never wait on a background run's
 notification. A test host started by hand gets a scratch `EP0CH_OUTLINES` and
-`XDG_CONFIG_HOME`, plus `OUTLINER_INBOX_AGENT=0 OUTLINER_NOTE_ASSISTANCE=0`, or it
-reads the person's config and runs their Inbox agent on your notes.
+`XDG_CONFIG_HOME`, or it reads the person's config.
 
 ### Live smoke test
 
