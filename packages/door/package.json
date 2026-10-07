@@ -11,7 +11,8 @@
     "check": "tsc --noEmit",
     "test": "bun test",
     "test:each": "sh scripts/test-each.sh",
-    "render": "bun scripts/render.ts"
+    "render": "bun scripts/render.ts",
+    "bench:resize": "bun scripts/bench-resize.ts"
   },
   "devDependencies": {
     "@types/bun": "latest",

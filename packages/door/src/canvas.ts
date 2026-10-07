@@ -18,6 +18,20 @@ export const scrollPct = (s: Scroll) => `${Math.round((Math.min(s.top + s.room, 
 
 const SGR = /(\x1b\[[\d;]*m)/;
 
+/** Whether an SGR sets only the foreground colour (30–37, 90–97, 38;5;n, 38;2;r;g;b, 39), or only the background (40–47, 100–107, 48;…, 49). */
+const FG = /^\x1b\[(?:3[0-79]|9[0-7]|38;5;\d+|38;2;\d+;\d+;\d+)m$/, BG = /^\x1b\[(?:4[0-79]|10[0-7]|48;5;\d+|48;2;\d+;\d+;\d+)m$/;
+/**
+ * The style `sgr` is in after `code`: a colour replaces the one before it rather than piling up after it, so a line
+ * that sets a colour per cell (a header's backdrop drawn in cells, overColours) keeps each cell's style one colour
+ * long. Piled up, its row was every colour before it again, cell after cell: 45 KB a row (PIE-623).
+ */
+export function withSgr(sgr: string, code: string): string {
+  const fg = FG.test(code);
+  if (!fg && !BG.test(code)) return sgr + code;
+  const same = fg ? FG : BG;
+  return sgr ? sgr.split(SGR).filter(p => p && !same.test(p)).join("") + code : code;
+}
+
 /** The characters a box is drawn with. */
 export interface BoxGlyphs { top: string; bottom: string; side: string; tl: string; tr: string; bl: string; br: string }
 export const LINE_BOX: BoxGlyphs = { top: "─", bottom: "─", side: "│", tl: "┌", tr: "┐", bl: "└", br: "┘" };
@@ -42,7 +56,7 @@ export class Canvas {
     let sgr = "", x = col;
     for (const part of s.split(SGR)) {
       if (!part) continue;
-      if (part.startsWith("\x1b[")) { sgr = part === RESET || part === "\x1b[m" ? "" : sgr + part; continue; }
+      if (part.startsWith("\x1b[")) { sgr = part === RESET || part === "\x1b[m" ? "" : withSgr(sgr, part); continue; }
       // Nothing a terminal acts on takes a cell: an escape or control in a title is dropped here (PIE-510).
       for (const g of graphemes(printable(part.includes("\t") ? part.replaceAll("\t", " ") : part))) {
         const w = glyphWidth(g);

@@ -65,6 +65,18 @@ Before a PR claims a change works:
      [live smoke test](packages/outliner/CONTRIBUTING.md#live-smoke-test) and
      [user-workflow walkthrough](packages/outliner/CONTRIBUTING.md#user-workflow-walkthrough) are the equivalent.
 
+7. A change to what a frame draws, how tiles lay out or resize, or how images are scaled or placed (the canvas,
+   the desk's drawing, NoteSurface's layout, figures, media.ts, kitty.ts) runs the **resize bench** before and
+   after, and the PR gives both:
+   `bun run bench:resize` in packages/door (`scripts/bench-resize.ts`; `--only kitty@250x70`, `--frames`, `--json`).
+   It drags a border across a typical desk on a scratch showcase (the hero, pictures and figures notes, the river,
+   the kanban, a terminal tile), Kitty graphics on and off at 120x40 and 250x70, and reports frame times (p50, p95,
+   frames over 16 ms), how long a report waited to be drawn, each tile's render, bytes and Kitty uploads a frame,
+   images scaled, CPU, and what letting go costs. It is CPU-heavy and its times mean something only on a quiet
+   machine: run it in a box of your own (fork `ep0ch-golden`, as box-test does), and compare numbers from one box,
+   never a box's with float-2's. `--check` fails a run over budget (nothing scaled or uploaded during a drag,
+   bytes a frame; `--check-time` adds p95 under 16 ms); `test/resize-bench.test.ts` runs it in the suite.
+
 The PR says what ran, what was looked at, and what wasn't tested. Report implemented, exercised (with the actual
 journey), merged, deployed and owner-accepted separately ([Delivery claims](packages/outliner/CONTRIBUTING.md#delivery-claims)).
 

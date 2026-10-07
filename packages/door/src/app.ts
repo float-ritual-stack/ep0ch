@@ -1,5 +1,6 @@
 // The door: a stack of screens, one status bar, one paint per change.
 import { nextFrame, onMediaChange } from "./media";
+import { onResizeEnd, resizing } from "./resize";
 import type { Placement } from "./kitty";
 import { isDisplay, Painter, type Display, type RawTerm, type Video } from "./display";
 import { AGENT_ACTOR_ID, type Actor, type SocketBoard, type OutlineEvent } from "./socket";
@@ -303,6 +304,8 @@ export class App implements Ctx {
   private message = "";
   private messageUntil = 0;
   private timer: Timer | null = null;
+  /** Stops hearing resizes end (src/resize.ts): the door ended or was retired. */
+  private offResize: () => void = () => {};
   private started: number;
   /** The status bar's clock and uptime as last painted: a minute later, the bar alone is repainted. */
   private shownTime = "";
@@ -362,7 +365,10 @@ export class App implements Ctx {
     // An image scaled (or dimmed, or read again after a change on disk) is drawn in the next frame.
     onMediaChange(() => this.redraw());
     board.onConnection = (state, detail) => { this.offline = state === "lost"; this.flash(state === "lost" ? detail : `reconnected · ${detail}`); };
-    term.onResize(() => this.redraw());
+    // A terminal being resized sends a size a moment: a resize (src/resize.ts) until they stop. When one ends, the
+    // frame after lays out and scales for where it ended.
+    term.onResize(() => { resizing(); this.redraw(); });
+    this.offResize = onResizeEnd(() => this.redraw());
     this.timer = setInterval(() => this.tick(), 33);
     this.display.onSeen?.(() => this.catchUp());
     // The test run's registry (test/preload.ts), when there is one: an App a test file leaves running is retired once
@@ -376,6 +382,7 @@ export class App implements Ctx {
    */
   retire(): void {
     this.closed = true;
+    this.offResize();
     if (this.timer) clearInterval(this.timer);
     if (this.paintTimer) clearTimeout(this.paintTimer);
     if (this.publishTimer) clearTimeout(this.publishTimer);
@@ -808,6 +815,7 @@ export class App implements Ctx {
     // Whatever way the door ends, a ctrl+e editor's text is copied out and said (its tile ends with the door).
     for (const s of this.holders()) { try { this.keptOnExit.push(...(s.keepEdits?.() ?? [])); } catch { /* the rest still get copied */ } }
     this.closed = true;
+    this.offResize();
     if (this.timer) clearInterval(this.timer);
     if (this.paintTimer) clearTimeout(this.paintTimer);
     if (this.publishTimer) clearTimeout(this.publishTimer);

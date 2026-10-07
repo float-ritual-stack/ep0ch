@@ -16,10 +16,15 @@ import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync } fro
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { imageSize } from "image-size";
+import { inResize, resizedWithin } from "./resize";
 import { cacheDir } from "./state";
 import type { Rgb } from "./theme";
 
-export interface PngRef { png: Buffer; width: number; height: number; key: string }
+/**
+ * A PNG the terminal can place. `crop`: the part of the image (fractions of it) its brightness was worked out for: a
+ * placement shows that part, so a PNG drawn for another crop meanwhile (a resize) shows what it was dimmed for.
+ */
+export interface PngRef { png: Buffer; width: number; height: number; key: string; crop?: Crop }
 type Kind = "img" | "video";
 /**
  * A media file as the door holds it, `key` naming its content (path, mtime, size). Loading: its size when its header
@@ -43,6 +48,8 @@ export interface Look { dim?: number; crop?: Crop; mean?: number; peak?: number;
 const MAX_PX = 1600;
 /** The longest edges an image is scaled to: a box is drawn from the next one up (so a resize rarely scales again). */
 const STEPS = [320, 640, 960, 1280, MAX_PX];
+/** How long after a resize what it drew stands in for an image still being made for where it ended. */
+const SETTLE_MS = 3000;
 /** The step made with the first look, before the box it's drawn in is known. */
 const FIRST = 640;
 /** The mean luminance (0–1) an image is dimmed to at most, unless its line says otherwise. */
@@ -71,12 +78,15 @@ export class ScaledCache {
   bytes = 0;
   constructor(private budget: number) {}
   get(job: string): PngRef | undefined { return this.refs.get(job); }
+  /** The last frame `job` was drawn in (-1: never; one just made counts as drawn only once it is). */
+  drawnIn(job: string): number { return this.shown.get(job) ?? -1; }
+  private shown = new Map<string, number>();
   entries() { return this.refs.entries(); }
   /** `job` drawn in `frame`: the most recently drawn now. */
   use(job: string, frame: number) {
     const ref = this.refs.get(job);
     if (!ref) return;
-    this.refs.delete(job); this.refs.set(job, ref); this.drawn.set(job, frame);
+    this.refs.delete(job); this.refs.set(job, ref); this.drawn.set(job, frame); this.shown.set(job, frame);
   }
   /** Keeps `ref` as `job`, then evicts the least recently drawn (never one on screen in `frame`) down to the budget. */
   put(job: string, ref: PngRef, frame: number) {
@@ -95,7 +105,7 @@ export class ScaledCache {
   private drop(job: string) {
     const was = this.refs.get(job);
     if (!was) return;
-    this.refs.delete(job); this.drawn.delete(job); this.bytes -= was.png.length;
+    this.refs.delete(job); this.drawn.delete(job); this.shown.delete(job); this.bytes -= was.png.length;
   }
 }
 const scaled = new ScaledCache(KEEP_BYTES);
@@ -103,6 +113,8 @@ const scaled = new ScaledCache(KEEP_BYTES);
 let frame = 0;
 const making = new Set<string>();
 let onChange: () => void = () => {};
+/** The work the cache has done since the door started, counted for the resize bench (scripts/bench-resize.ts): PNGs scaled (made, not found in the disk cache), cell grids made, light measured. */
+export const mediaWork = { scaled: 0, grids: 0, lights: 0 };
 export function onMediaChange(fn: () => void) { onChange = fn; }
 /** A new frame is being drawn: what the last one drew stays in memory (never evicted while it's on screen). */
 export function nextFrame() { frame++; }
@@ -202,6 +214,7 @@ function sourceOf(path: string, key: string, kind: Kind): Promise<Source> {
  * part is (at the size it's measured at, a 96-pixel thumbnail: a highlight is averaged with what's around it, never left out).
  */
 async function lightOf(s: Source, crop?: Crop): Promise<{ mean: number; peak: number }> {
+  mediaWork.lights++;
   const { data, info } = await (await cropped(s, crop)).resize({ width: 96, height: 96, fit: "inside" }).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
   const lum: number[] = [];
   for (let i = 0; i < data.length; i += info.channels) lum.push(((0.2126 * data[i]! + 0.7152 * data[i + 1]! + 0.0722 * data[i + 2]!) / 255) * (data[i + 3]! / 255));
@@ -247,6 +260,13 @@ const MUTE_SATURATION = 0.12;
 const lookKey = (look: Look) => `${look.dim === undefined ? "a" : Math.round(look.dim * 100)}${look.crop ? `c${[look.crop.x, look.crop.y, look.crop.w, look.crop.h].map(v => Math.round(v * 1000)).join("_")}` : ""}${look.mean !== undefined ? `m${Math.round(look.mean * 1000)}` : ""}${look.peak !== undefined ? `p${Math.round(look.peak * 1000)}` : ""}${look.mute ? "u" : ""}${look.alpha !== undefined && look.alpha < 1 ? `o${Math.round(look.alpha * 100)}` : ""}`;
 
 /**
+ * A look's key without its crop: a PNG is always the whole image (the crop is its placement's), so one made for another
+ * crop draws this one too, its brightness worked out for that one.
+ */
+const looseKey = (look: Look) => lookKey({ ...look, crop: undefined });
+const looseOf = (job: string) => (job.split("\0")[2] ?? "").replace(/c\d+_\d+_\d+_\d+/, "");
+
+/**
  * The PNG of `s` with its longest edge at most `edge`, drawn as `look` says: its brightness worked out from the part
  * drawn, dimmed in the same step as it's scaled (the first frame of an animation, turned upright). From the cache
  * (its name has the content, the step and the look in it), or the file itself when it's a PNG that small already and
@@ -256,8 +276,9 @@ async function scale(s: Source, edge: number, look: Look): Promise<PngRef> {
   const f = look.dim !== undefined && !limited(look) ? brightness(0, look.dim) : brightnessOf(await lightOf(s, look.crop), look);
   const ref = `${s.key}-${edge}-${lookKey(look)}`;
   const alpha = look.alpha !== undefined && look.alpha < 1 ? Math.max(0, look.alpha) : 1;
-  if (s.png && f === 1 && !look.mute && alpha === 1 && Math.max(s.width, s.height) <= edge) return { png: readFileSync(s.src), width: s.width, height: s.height, key: `${ref}-${Math.round(f * 100)}` };
+  if (s.png && f === 1 && !look.mute && alpha === 1 && Math.max(s.width, s.height) <= edge) return { png: readFileSync(s.src), width: s.width, height: s.height, key: `${ref}-${Math.round(f * 100)}`, ...(look.crop ? { crop: look.crop } : {}) };
   const out = await cached(join(mediaCache(), `${ref}.png`), async tmp => {
+    mediaWork.scaled++;
     const sharp = await lib();
     let p = sharp(s.src, { pages: 1 }).rotate().resize({ width: edge, height: edge, fit: "inside", withoutEnlargement: true });
     // A header's backdrop: most of its colour gone and its detail softened, so the header's text reads over it.
@@ -273,7 +294,7 @@ async function scale(s: Source, edge: number, look: Look): Promise<PngRef> {
   });
   const b = readFileSync(out);
   if (b.length < 24 || b.readUInt32BE(0) !== 0x89504e47) throw new Error("not a PNG after conversion");
-  return { png: b, width: b.readUInt32BE(16), height: b.readUInt32BE(20), key: ref };
+  return { png: b, width: b.readUInt32BE(16), height: b.readUInt32BE(20), key: ref, ...(look.crop ? { crop: look.crop } : {}) };
 }
 
 /** The step that covers `edge` pixels on the longest side, never past the image's own. */
@@ -340,9 +361,13 @@ export function sized(m: ReadyMedia, pxW: number, pxH: number, look: Look = {}):
   if (current(m.path)?.media !== m) { media(m.path, m.kind); return null; }
   const fit = Math.max(pxW / m.width, pxH / m.height), own = Math.max(m.width, m.height);
   const edge = stepFor(Math.ceil(fit * own), own), job = jobOf(m.key, edge, look);
+  // A resize going on (src/resize.ts) passes through a width a frame, each wanting a PNG of its own, uploaded and drawn
+  // once: what was drawn last is drawn instead (the terminal scales it, and the crop is the placement's), and the one
+  // for where it ends is made then. Nothing is scaled, and nothing the terminal hasn't got is drawn, until it ends.
+  const resizing = inResize();
   const exact = scaled.get(job);
-  if (exact) { scaled.use(job, frame); return exact; }
-  if (!making.has(job)) {
+  if (exact && (!resizing || scaled.drawnIn(job) >= frame - 1)) { scaled.use(job, frame); return exact; }
+  if (!exact && !resizing && !making.has(job)) {
     making.add(job);
     sourceOf(m.path, m.key, m.kind).then(s => scale(s, edge, look)).then(ref => {
       making.delete(job);
@@ -353,10 +378,16 @@ export function sized(m: ReadyMedia, pxW: number, pxH: number, look: Look = {}):
       if (entry && entry.media === m) { entry.media = { state: "error", path: m.path, kind: m.kind, reason: String((e as Error).message ?? e) }; onChange(); }
     });
   }
-  // The smallest one ready that covers the box, else the biggest one ready, with this look.
-  const tail = `\0${lookKey(look)}`;
-  const ready = [...scaled.entries()].filter(([k]) => k.startsWith(`${m.key}\0`) && k.endsWith(tail)).map(([k, v]) => [Number(k.split("\0")[1]), k, v] as const).sort((a, b) => a[0] - b[0]);
-  const pick = ready.find(([e]) => e >= edge) ?? ready.at(-1);
+  // Meanwhile: the smallest one ready with this look that covers the box, else the biggest. A resize (going on, or just
+  // ended) moved the crop: the one with this look drawn last, for another crop, stands in; while it goes on, whichever
+  // was drawn last. Never one not drawn yet (the terminal hasn't got it). One for another crop is dimmed for that crop,
+  // so its placement shows that crop (PngRef.crop): never a part brighter than its dimming allowed for. Otherwise (an
+  // image's first look) its rows stay dark until the one for its crop is ready.
+  const tail = `\0${lookKey(look)}`, loose = looseKey(look), settling = resizedWithin(SETTLE_MS);
+  const mine = [...scaled.entries()].filter(([k]) => k.startsWith(`${m.key}\0`) && (settling ? looseOf(k) === loose : k.endsWith(tail)));
+  const same = mine.filter(([k]) => k.endsWith(tail)).map(([k, v]) => [Number(k.split("\0")[1]), k, v] as const).sort((a, b) => a[0] - b[0]);
+  const last = () => mine.map(([k, v]) => [scaled.drawnIn(k), k, v] as const).filter(([at]) => at >= 0).sort((a, b) => b[0] - a[0])[0];
+  const pick = same.length && !resizing ? same.find(([e]) => e >= edge) ?? same.at(-1)! : last();
   if (pick) scaled.use(pick[1], frame);
   return pick?.[2] ?? null;
 }
@@ -376,7 +407,8 @@ export function cellColours(m: ReadyMedia, cols: number, rows: number, look: Loo
   if (current(m.path)?.media !== m) { media(m.path, m.kind); return null; }
   const job = `${m.key}\0${cols}x${rows}\0${lookKey(look)}`, hit = grids.get(job);
   if (hit) { grids.delete(job); grids.set(job, hit); return hit; }
-  if (!making.has(job)) {
+  // Not while a resize goes on (src/resize.ts): a grid a width would be made for every width it passes through.
+  if (!inResize() && !making.has(job)) {
     making.add(job);
     sourceOf(m.path, m.key, m.kind).then(s => gridOf(s, cols, rows, look)).then(g => {
       making.delete(job);
@@ -386,10 +418,26 @@ export function cellColours(m: ReadyMedia, cols: number, rows: number, look: Loo
       onChange();
     }, () => { making.delete(job); });
   }
-  return null;
+  // Meanwhile, after a resize (going on, or just ended), the last one made with this look at another size or crop,
+  // stretched to this one: the header doesn't drop to plain while its own is made. Otherwise, nothing until it's ready.
+  if (!resizedWithin(SETTLE_MS)) return null;
+  const loose = looseKey(look);
+  const last = [...grids.entries()].reverse().find(([k]) => k.startsWith(`${m.key}\0`) && looseOf(k) === loose)?.[1];
+  return last ? stretch(last, cols, rows) : null;
+}
+
+/** `g` at `cols` × `rows` cells, each the colour of the cell under its middle. */
+function stretch(g: CellGrid, cols: number, rows: number): CellGrid {
+  const h = g.length, w = g[0]?.length ?? 0;
+  if (!h || !w) return g;
+  return Array.from({ length: rows }, (_, r) => {
+    const src = g[Math.min(h - 1, Math.floor(((r + 0.5) * h) / rows))]!;
+    return Array.from({ length: cols }, (_, c) => src[Math.min(w - 1, Math.floor(((c + 0.5) * w) / cols))]!);
+  });
 }
 
 async function gridOf(s: Source, cols: number, rows: number, look: Look): Promise<CellGrid> {
+  mediaWork.grids++;
   const { data } = await (await cropped(s, look.crop)).resize({ width: cols, height: rows, fit: "fill" }).flatten({ background: "#000" }).removeAlpha().raw().toBuffer({ resolveWithObject: true });
   const px: [number, number, number][] = [];
   for (let i = 0; i + 2 < data.length; i += 3) {
