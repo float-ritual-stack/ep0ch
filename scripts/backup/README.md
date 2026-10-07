@@ -45,7 +45,7 @@ nothing here reads or prints them.
 
 | | default |
 |---|---|
-| `EP0CH_BACKUP_MACHINE` | the short host name |
+| `EP0CH_BACKUP_MACHINE` | none: install asks for it (other machines mirror this one by that name, so it's never taken from the host name silently) |
 | `EP0CH_BACKUP_REPO` | `s3:https://hel1.your-objectstorage.com/ep0ch/restic/{machine}` |
 | `EP0CH_BACKUP_MIRRORS` | none; `laptop` or `laptop=<ssh-name>` |
 | `EP0CH_BACKUP_SECRETS` | `hetzner-s3,restic` |
@@ -92,3 +92,25 @@ On the laptop:
     launchctl bootout gui/$(id -u)/io.ep0ch.litestream && mv ~/Library/LaunchAgents/io.ep0ch.litestream.plist ~/backups/
 
 float-2's own `litestream.service` (pie, pie-hole) stays: float-2 is always online, and restic is the second copy.
+Its config keeps a week of snapshots to restore from (doctor says when it doesn't):
+
+    snapshot:
+      interval: 4h
+      retention: 168h
+
+## Litestream and an outline's file
+
+Litestream doesn't track a database being deleted or replaced. What its source says (db.go): with its meta folder
+(`.<name>.sqlite-litestream`) kept, a database made again at the same path is seen (its WAL salt reset) and gets a
+full snapshot at the next transaction of the same lineage; the harm is `litestream reset`, or a lost meta folder,
+while the bucket keeps the old history (a restore then takes colliding txids). So:
+
+- The outline host deletes an outline, removes a half-made one, and creates or imports one under a name that had an
+  outline before, with this machine's replicator for that folder stopped (`withLitestreamPaused`,
+  packages/outliner/src/litestream-guard.ts), and starts it again after. The meta folder is kept. A replicator it
+  can't stop refuses the change, with the commands. `outliner import` into a path that had an outline does the same.
+- `ep0ch backup restore` never writes into the outlines folder; its refusal gives the swap with the host and
+  Litestream stopped.
+- Nothing resets Litestream except doctor's fresh start, which also clears the bucket's prefix for that outline.
+- The migration scripts (packages/outliner/scripts/migrations/) change a database in place, which Litestream
+  replicates like any write.

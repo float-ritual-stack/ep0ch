@@ -228,6 +228,15 @@ describe.skipIf(!RESTIC)("snapshots, mirrors and restores against a local restic
     expect(s.mirrors["laptop/garden"]!.seq).toBe(99);
   }, 120_000);
 
+  test("a machine with no backups yet is nothing wrong here: said, never an incident", async () => {
+    const porch = machine("porch", { EP0CH_BACKUP_MIRRORS: "attic-box" });
+    const r = await runAll(porch, { now: () => T0, announce: async () => {}, heartbeat: async () => {}, drill: false });
+    expect(r.ok).toBe(true);
+    expect(readBackupState(porch.state).sources?.["attic-box"]).toEqual({ missing: true });
+    const later = await runAll(porch, { now: () => T0 + 3 * STALE_AFTER_MS, announce: async () => {}, heartbeat: async () => {}, drill: false });
+    expect(later.alert.incidents).toEqual([]);
+  }, 120_000);
+
   test("a repository it can't reach: changes wait, then one alert (announced once) with the fix; it clears when the upload works", async () => {
     // restic that can't reach its repository (a VPN resetting connections), without restic's minutes of retries.
     const offline = join(root, "restic-offline.sh");
@@ -236,22 +245,25 @@ describe.skipIf(!RESTIC)("snapshots, mirrors and restores against a local restic
     outline(join(shed.outlines, "garden.sqlite"), ["Sharpen the hoe"]);
     const announced: string[] = [];
     const announce = async (i: { key: string }[]) => { announced.push(...i.map(x => x.key)); };
+    const heartbeats: number[] = [];
     let now = T0;
-    expect((await runAll(shed, { now: () => now, announce, drill: false })).ok).toBe(false);
+    expect((await runAll(shed, { now: () => now, announce, drill: false, heartbeat: async () => { heartbeats.push(now); } })).ok).toBe(false);
     expect(readAlert(shed.state)?.incidents).toEqual([]);
     now += STALE_AFTER_MS + 60_000;
-    const late = await runAll(shed, { now: () => now, announce, drill: false });
+    const late = await runAll(shed, { now: () => now, announce, drill: false, heartbeat: async () => { heartbeats.push(now); } });
     expect(late.alert.incidents.map(i => i.key)).toEqual(["outline:shed/garden"]);
     expect(late.alert.incidents[0]!.fix).toContain("ep0ch backup run");
     expect(late.alert.incidents[0]!.detail).toContain("connection reset by peer");
     now += 900_000;
-    await runAll(shed, { now: () => now, announce, drill: false });
+    await runAll(shed, { now: () => now, announce, drill: false, heartbeat: async () => { heartbeats.push(now); } });
     expect(announced).toEqual(["outline:shed/garden"]);
     // The repository comes back.
     const fixed = { ...shed, restic: RESTIC! };
     now += 900_000;
-    const ok = await runAll(fixed, { now: () => now, announce, drill: false });
+    const ok = await runAll(fixed, { now: () => now, announce, drill: false, heartbeat: async () => { heartbeats.push(now); } });
     expect(ok.ok).toBe(true);
+    // The dead-man's ping only after a clean run.
+    expect(heartbeats).toEqual([now]);
     expect(ok.alert.incidents).toEqual([]);
   }, 120_000);
 
@@ -267,7 +279,7 @@ describe.skipIf(!RESTIC)("snapshots, mirrors and restores against a local restic
 describe("install and doctor", () => {
   const facts = (o: Partial<BackupSetupFacts> = {}): BackupSetupFacts => ({
     platform: "linux", loaded: false, units: [{ path: "/fictional/home/.config/systemd/user/ep0ch-backup.service", want: `# ${UNIT_MARK}\nA`, have: null }, { path: "/fictional/home/.config/systemd/user/ep0ch-backup.timer", want: `# ${UNIT_MARK}\nB`, have: null }],
-    config: { path: "/fictional/home/.config/ep0ch/backup.env", exists: false, machine: "garden-shed" }, restic: "/fictional/bin/restic", groups: ["bucket", "restic"],
+    config: { path: "/fictional/home/.config/ep0ch/backup.env", exists: false, machine: "garden-shed", named: true }, restic: "/fictional/bin/restic", groups: ["bucket", "restic"],
     secrets: ["bucket", "restic"], passwordInEnv: false, repo: "s3:https://example.invalid/restic/garden-shed", state: null, alert: null, stateDir: "/fictional/state/backup", ...o,
   });
 
@@ -279,9 +291,34 @@ describe("install and doctor", () => {
     expect(p.commands).toContain("systemctl --user enable --now ep0ch-backup.timer");
   });
 
+  test("a machine not named yet: asked for in the plan, never taken from the host name silently", () => {
+    const p = backupPlan(facts({ platform: "macos", config: { ...facts().config, machine: "my-macbook", named: false }, units: [{ path: "/fictional/LaunchAgents/io.ep0ch.backup.plist", want: "x", have: null }] }));
+    expect(p).toMatchObject({ status: "manual", writes: [] });
+    expect(p.why).toContain("EP0CH_BACKUP_MACHINE=laptop ep0ch install --apply");
+    expect(p.why).toContain("EP0CH_BACKUP_MIRRORS");
+  });
+
+  test("a machine renamed at install (EP0CH_BACKUP_MACHINE in the shell): the settings file is updated, since the job reads only the file", () => {
+    const text = "# mine\nEP0CH_BACKUP_MACHINE=my-macbook\nEP0CH_BACKUP_MIRRORS=tower\n";
+    const units = facts().units.map(u => ({ ...u, have: u.want }));
+    const p = backupPlan(facts({ units, loaded: true, config: { ...facts().config, exists: true, machine: "laptop", named: true, kept: { EP0CH_BACKUP_MACHINE: "laptop" }, text } }));
+    expect(p.status).toBe("do");
+    expect(p.why).toContain("EP0CH_BACKUP_MACHINE my-macbook → laptop");
+    expect(p.writes).toEqual([{ path: facts().config.path, text: "# mine\nEP0CH_BACKUP_MACHINE=laptop\nEP0CH_BACKUP_MIRRORS=tower\n" }]);
+    // The file then names it: the job's config reads laptop, and nothing more to do.
+    const home = join(root, "renamed-home");
+    mkdirSync(join(home, ".config/ep0ch"), { recursive: true });
+    writeFileSync(join(home, ".config/ep0ch/backup.env"), p.writes[0]!.text);
+    expect(backupConfig({ HOME: home })).toMatchObject({ machine: "laptop", machineFrom: "file" });
+    expect(backupPlan(facts({ units, loaded: true, config: { ...facts().config, exists: true, machine: "laptop", named: true, kept: {}, text: p.writes[0]!.text } })).status).toBe("skip");
+  });
+
   test("current and loaded: nothing to do", () => {
     const units = facts().units.map(u => ({ ...u, have: u.want }));
-    expect(backupPlan(facts({ units, loaded: true, config: { ...facts().config, exists: true } })).status).toBe("skip");
+    const text = "# ep0ch backups\nEP0CH_BACKUP_MACHINE=garden-shed\n";
+    expect(backupPlan(facts({ units, loaded: true, config: { ...facts().config, exists: true, text } })).status).toBe("skip");
+    // An empty settings file is filled in.
+    expect(backupPlan(facts({ units, loaded: true, config: { ...facts().config, exists: true, text: "" } })).writes.map(w => w.text)).toEqual([expect.stringContaining("EP0CH_BACKUP_MACHINE=garden-shed")]);
   });
 
   test("restic or a secret missing, or a unit of the person's own: said with the commands, nothing written", () => {
@@ -315,11 +352,11 @@ describe("install and doctor", () => {
   test("doctor: each outline's newest snapshot, an incident with its fix, the drill", () => {
     const units = facts().units.map(u => ({ ...u, have: u.want }));
     const now = Date.now();
-    const checks = resticChecks(facts({ units, loaded: true, config: { ...facts().config, exists: true }, state: {
+    const checks = resticChecks(facts({ units, loaded: true, config: { ...facts().config, exists: true, text: "EP0CH_BACKUP_MACHINE=garden-shed\n" }, state: {
       outlines: { garden: { seq: 3, at: iso(now - 600_000) }, pantry: { seq: 1, at: iso(now - 5 * 3_600_000), pendingSince: iso(now - 3 * 3_600_000) } },
       mirrors: {}, lastRun: { at: iso(now - 300_000), ok: false, detail: "failed: pantry" }, drill: { at: iso(now - 86_400_000), ok: true, detail: "restored 2 outlines" },
     }, alert: { machine: "garden-shed", checkedAt: iso(now), announced: [], incidents: [{ key: "outline:garden-shed/pantry", title: "t", detail: "pantry changed", fix: "ep0ch backup run", since: iso(now) }] } }), now);
-    expect(checks.map(c => [c.name, c.status])).toEqual([["restic job", "ok"], ["restic last run", "missing"], ["restic garden", "ok"], ["restic pantry", "missing"], ["restore drill", "ok"], ["push", "info"]]);
+    expect(checks.map(c => [c.name, c.status])).toEqual([["restic job", "ok"], ["restic last run", "missing"], ["restic garden", "ok"], ["restic pantry", "missing"], ["restore drill", "ok"], ["heartbeat", "info"], ["push", "info"]]);
     expect(checks.find(c => c.name === "restic pantry")!.fix).toBe("ep0ch backup run");
   });
 });

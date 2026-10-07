@@ -598,20 +598,24 @@ UMask=0077
 WantedBy=default.target
 ```
 
-The mirror's Litestream follower (being retired, PIE-607), `~/.config/systemd/user/litestream-mirror.service` (the bucket keys from `hetzner-s3.env`; the
-copies stay outside `~/outlines`, so this machine's own Litestream doesn't replicate them back and its host never
-serves them):
+The mirror's Litestream follower (being retired, PIE-607) is a template unit,
+`~/.config/systemd/user/litestream-mirror@.service`, one instance per outline (`litestream-mirror@float-hub`); the
+bucket keys come from `hetzner-s3.env`, and the copies stay outside `~/outlines`, so this machine's own Litestream
+doesn't replicate them back and its host never serves them. It restores fresh on every start: Litestream 0.5.17
+refuses to resume a follow whose saved txid is past the newest snapshot (upstream #1385, a crash loop), and doctor
+says when a follower lacks the `ExecStartPre` that removes the old copy:
 
 ```ini
 [Unit]
-Description=Litestream follow: read-only mirrors of other machines' outlines in ~/outline-mirrors, for the MCP gateway
+Description=Litestream follow: read-only mirror of laptop outline %i in ~/outline-mirrors/laptop, for the MCP gateway
 After=network-online.target
 
 [Service]
 Type=simple
 EnvironmentFile=%h/.config/secrets/hetzner-s3.env
 ExecStartPre=/bin/mkdir -p %h/outline-mirrors/laptop
-ExecStart=%h/.local/bin/litestream restore -f -follow-interval 10s -config %h/.config/litestream/mirrors.yml %h/outline-mirrors/laptop/float-hub.sqlite
+ExecStartPre=/bin/rm -f %h/outline-mirrors/laptop/%i.sqlite %h/outline-mirrors/laptop/%i.sqlite-txid %h/outline-mirrors/laptop/%i.sqlite-wal %h/outline-mirrors/laptop/%i.sqlite-shm
+ExecStart=%h/.local/bin/litestream restore -f -follow-interval 10s -config %h/.config/litestream/mirrors.yml %h/outline-mirrors/laptop/%i.sqlite
 Restart=always
 RestartSec=10
 UMask=0077

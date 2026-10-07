@@ -11,35 +11,19 @@ import { Database } from "bun:sqlite";
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, relative, resolve } from "node:path";
-import { outlineOfFile } from "@ep0ch/outline-core/outline-location";
+import { configDatabases as readConfig, instancesIn, isTemplate, litestreamArgv, litestreamUnits as readUnits, type LitestreamUnit as BaseUnit, replicaUrl, templateInstance } from "@ep0ch/outliner/litestream-units";
 import type { Platform, UnitState } from "./model";
+
+export { litestreamArgv, replicaUrl };
+/** The Litestream units on this machine (the outliner's reader). */
+export const litestreamUnits = (platform: Platform, home: string): LitestreamUnit[] => readUnits(platform, home);
+export const configDatabases = readConfig;
 
 type Env = Record<string, string | undefined>;
 type Run = (argv: string[], o: { env?: Env; timeoutMs?: number }) => Promise<{ code: number; out: string; err: string }>;
 
 /** A replica behind its database for longer than this, while the database changed, is stale. */
 export const STALE_AFTER_MS = 10 * 60_000;
-
-/** One Litestream unit: how it runs Litestream and what launchd or systemd says about it. */
-export interface LitestreamUnit {
-  kind: "systemd" | "launchd";
-  name: string;
-  path: string;
-  role: "replicate" | "follow";
-  /** What runs before litestream (`with-secrets hetzner-s3 --`), so a check runs it the same way. */
-  wrapper: string[];
-  litestream: string;
-  config: string;
-  /** A follower's output database (`-o`, else the last argument). */
-  output?: string;
-  /** A follower given a replica URL (`restore -f -o <output> <url>`) instead of a config's database. */
-  url?: string;
-  /** systemd's EnvironmentFile (the bucket's keys), read only into the child's environment. */
-  envFile?: string;
-  /** launchd's StandardErrorPath and StandardOutPath (Litestream logs to stdout): its logs. */
-  logPaths?: string[];
-  state?: UnitState & { since?: string };
-}
 
 /** A replica's newest file: the highest transaction it holds, and when that file was written. */
 export interface ReplicaPosition { txid: number; at: string; files: { txid: number; minTxid: number; at: string; level: number }[] }
@@ -65,117 +49,26 @@ export interface LogFacts {
   unavailable?: string;
 }
 
-export interface BackupUnitFacts { unit: LitestreamUnit; log: LogFacts; dbs: ReplicaFacts[]; problem?: string }
+export interface BackupUnitFacts {
+  unit: LitestreamUnit; log: LogFacts; dbs: ReplicaFacts[]; problem?: string;
+  /**
+   * A follower: whether its unit restores fresh on every start (ExecStartPre removing the mirror and its -txid), the
+   * way round Litestream 0.5.17 refusing to resume a follow whose saved txid is past the newest snapshot (#1385).
+   * A replicator: its config's snapshot interval and retention (the restore history), when it sets them.
+   */
+  freshOnStart?: boolean;
+  snapshot?: { interval?: string; retention?: string };
+}
 export interface BackupFacts { units: BackupUnitFacts[]; now: number }
 
-// ── reading units ────────────────────────────────────────────────────────────────────────────────────────────
-
-/** systemd's ExecStart split as a shell would (quotes kept simple), with %h for the home folder. */
-const words = (s: string, home: string) => (s.match(/"[^"]*"|\S+/g) ?? []).map(w => w.replace(/^"|"$/g, "").replace(/%h/g, home));
-
-/** How a unit runs Litestream, from its argv: its wrapper, the binary, the command, the config, a follower's output. */
-export function litestreamArgv(argv: readonly string[]): Pick<LitestreamUnit, "wrapper" | "litestream" | "role" | "config" | "output" | "url"> | null {
-  const at = argv.findIndex(a => basename(a) === "litestream");
-  if (at < 0) return null;
-  const cmd = argv[at + 1], rest = argv.slice(at + 2);
-  const flag = (f: string) => { const i = rest.indexOf(f); return i >= 0 ? rest[i + 1] : undefined; };
-  const config = flag("-config") ?? flag("--config") ?? "/etc/litestream.yml";
-  if (cmd === "replicate") return { wrapper: argv.slice(0, at), litestream: argv[at]!, role: "replicate", config };
-  if (cmd === "restore" && (rest.includes("-f") || rest.includes("--f"))) {
-    const last = rest.at(-1), o = flag("-o");
-    if (!last || last.startsWith("-")) return null;
-    const base = { wrapper: argv.slice(0, at), litestream: argv[at]!, role: "follow" as const, config };
-    if (o) return /^[a-z0-9]+:\/\//i.test(last) ? { ...base, output: o, url: last } : { ...base, output: o };
-    return { ...base, output: last };
-  }
-  return null;
-}
-
-/** A plist's string values under a key: one (`<string>`), or an array's. */
-const plistStrings = (text: string, key: string): string[] => {
-  const m = new RegExp(`<key>\\s*${key}\\s*</key>\\s*(<array>([\\s\\S]*?)</array>|<string>([^<]*)</string>)`).exec(text);
-  if (!m) return [];
-  return m[2] !== undefined ? [...m[2].matchAll(/<string>([^<]*)<\/string>/g)].map(x => x[1]!.trim()) : [m[3]!.trim()];
-};
-
-/** The Litestream units on this machine: systemd user units on Linux, launchd agents on macOS. */
-export function litestreamUnits(platform: Platform, home: string): LitestreamUnit[] {
-  const [kind, dir, ext] = platform === "linux" ? ["systemd", join(home, ".config/systemd/user"), ".service"] as const
-    : platform === "macos" ? ["launchd", join(home, "Library/LaunchAgents"), ".plist"] as const : [null, "", ""] as const;
-  if (!kind || !existsSync(dir)) return [];
-  const out: LitestreamUnit[] = [];
-  for (const file of readdirSync(dir).filter(n => n.endsWith(ext)).sort()) {
-    let text: string;
-    try { text = readFileSync(join(dir, file), "utf8"); } catch { continue; }
-    if (!text.includes("litestream")) continue;
-    if (kind === "systemd") {
-      const exec = /^\s*ExecStart\s*=\s*(.+)$/m.exec(text)?.[1];
-      const how = exec ? litestreamArgv(words(exec, home)) : null;
-      if (!how) continue;
-      const envFile = /^\s*EnvironmentFile\s*=\s*-?(.+)$/m.exec(text)?.[1]?.trim().replace(/%h/g, home);
-      out.push({ kind, name: file, path: join(dir, file), ...how, ...(envFile ? { envFile } : {}) });
-    } else {
-      const how = litestreamArgv(plistStrings(text, "ProgramArguments"));
-      if (!how) continue;
-      const label = plistStrings(text, "Label")[0] ?? file.replace(/\.plist$/, "");
-      const logPaths = [...new Set([...plistStrings(text, "StandardOutPath"), ...plistStrings(text, "StandardErrorPath")])];
-      out.push({ kind, name: label, path: join(dir, file), ...how, ...(logPaths.length ? { logPaths } : {}) });
-    }
-  }
-  return out;
-}
+/** A Litestream unit, as doctor sees it: the outliner's reading of its file, and what launchd or systemd says now. */
+export interface LitestreamUnit extends BaseUnit { state?: UnitState & { since?: string } }
 
 /** A unit restarted, as a person would type it. */
 export const restartCommand = (u: Pick<LitestreamUnit, "kind" | "name">) =>
   u.kind === "systemd" ? `systemctl --user restart ${u.name}` : `launchctl kickstart -k gui/$(id -u)/${u.name}`;
 const stopCommand = (u: LitestreamUnit) => u.kind === "systemd" ? `systemctl --user stop ${u.name}` : `launchctl bootout gui/$(id -u)/${u.name}`;
 const startCommand = (u: LitestreamUnit) => u.kind === "systemd" ? `systemctl --user start ${u.name}` : `launchctl bootstrap gui/$(id -u) ${u.path}`;
-
-// ── the config and its databases ─────────────────────────────────────────────────────────────────────────────
-
-interface ReplicaConfig { type?: string; url?: string; bucket?: string; path?: string; endpoint?: string; region?: string }
-interface DbConfig { path?: string; dir?: string; pattern?: string; replica?: ReplicaConfig; replicas?: ReplicaConfig[] }
-
-/** A replica's URL for one database (`rel`: its path under a `dir` entry), in the form `litestream ltx` takes. */
-export function replicaUrl(r: ReplicaConfig | undefined, rel?: string): string | null {
-  if (!r) return null;
-  const tail = (base: string) => {
-    if (!rel) return base;
-    const q = base.indexOf("?");
-    const [path, query] = q < 0 ? [base, ""] : [base.slice(0, q), base.slice(q)];
-    return `${path.replace(/\/+$/, "")}/${rel}${query}`;
-  };
-  if (r.url) return tail(r.url);
-  if ((r.type ?? "s3") === "s3" && r.bucket) {
-    const q = [...(r.endpoint ? [`endpoint=${r.endpoint}`] : []), ...(r.region ? [`region=${r.region}`] : [])].join("&");
-    return `s3://${r.bucket}/${tail((r.path ?? "").replace(/^\/+/, ""))}${q ? `?${q}` : ""}`;
-  }
-  if (r.type === "file" && r.path) return `file://${tail(r.path)}`;
-  return null;
-}
-
-const globRe = (pattern: string) => new RegExp(`^${pattern.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, "[^/]*").replace(/\?/g, "[^/]")}$`);
-
-/** The databases a config names: each `path`, and a `dir` entry's outlines (`<name>.sqlite` matching its pattern). */
-export function configDatabases(configText: string, env: Env = {}): { path: string; url: string | null }[] {
-  // As Litestream reads it: $VAR and ${VAR} expanded from its environment first.
-  const expanded = configText.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)/g, (_, a, b) => env[a ?? b] ?? "");
-  let parsed: { dbs?: DbConfig[] } | null;
-  try { parsed = Bun.YAML.parse(expanded) as { dbs?: DbConfig[] } | null; } catch { return []; }
-  const out: { path: string; url: string | null }[] = [];
-  for (const db of parsed?.dbs ?? []) {
-    const replica = db.replica ?? db.replicas?.[0];
-    if (db.path) out.push({ path: db.path, url: replicaUrl(replica) });
-    else if (db.dir) {
-      const re = globRe(db.pattern ?? "*");
-      let files: string[] = [];
-      try { files = readdirSync(db.dir).sort(); } catch { /* the folder isn't there */ }
-      // Outlines only: the host's side files (`<name>.sqlite.owner.sqlite`) and hidden copies aren't outlines.
-      for (const f of files) if (re.test(f) && outlineOfFile(f)) out.push({ path: join(db.dir, f), url: replicaUrl(replica, relative(db.dir, join(db.dir, f))) });
-    }
-  }
-  return out;
-}
 
 // ── positions ────────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -337,9 +230,23 @@ async function restoreTest(u: LitestreamUnit, url: string, run: Run, env: Env): 
 }
 
 /** Every Litestream unit here, as it is: read-only (with `restore`, a temp folder is written and removed). */
+/**
+ * The units as they run: a systemd template (`litestream-mirror@.service`) is each of its instances systemd knows
+ * (`litestream-mirror@float-hub.service`), never the bare template, which never runs itself.
+ */
+export async function runningUnits(platform: Platform, home: string, run: Run): Promise<LitestreamUnit[]> {
+  const out: LitestreamUnit[] = [];
+  for (const u of litestreamUnits(platform, home)) {
+    if (!isTemplate(u)) { out.push(u); continue; }
+    const r = await run(["systemctl", "--user", "list-units", "--all", "--plain", "--no-legend", u.name.replace("@.service", "@*.service")], { timeoutMs: 5000 });
+    for (const i of r.code === 0 ? instancesIn(r.out, u.name) : []) out.push(templateInstance(u, i));
+  }
+  return out;
+}
+
 export async function gatherBackups(o: { platform: Platform; home: string; env: Env; run: Run; now?: number; restore?: boolean }): Promise<BackupFacts> {
   const now = o.now ?? Date.now();
-  const units = litestreamUnits(o.platform, o.home);
+  const units = await runningUnits(o.platform, o.home, o.run);
   return {
     now,
     units: await Promise.all(units.map(async (u): Promise<BackupUnitFacts> => {
@@ -359,7 +266,12 @@ export async function gatherBackups(o: { platform: Platform; home: string; env: 
         const restore = o.restore && d.url && !("error" in replica) ? { restore: await restoreTest(u, d.url, o.run, o.env) } : {};
         return { name, path: d.path, url: d.url, ...side, replica, ...restore };
       }));
-      return { unit, log, dbs };
+      let unitText = "";
+      try { unitText = readFileSync(u.path, "utf8"); } catch { /* said elsewhere */ }
+      const extra = u.role === "follow"
+        ? { freshOnStart: freshRestore(unitText.replaceAll("%i", /@(.+)\.service$/.exec(u.name)?.[1] ?? "%i"), u.output ?? "") }
+        : { snapshot: (() => { try { const y = Bun.YAML.parse(text) as { snapshot?: { interval?: string; retention?: string } } | null; return y?.snapshot ?? {}; } catch { return {}; } })() };
+      return { unit, log, dbs, ...extra };
     })),
   };
 }
@@ -421,19 +333,54 @@ export function mirrorVerdict(u: LitestreamUnit, db: ReplicaFacts, now: number):
   return { status: "missing", staleSince: since, detail: `stale since ${hhmm(since)}: the mirror is at txid ${hex(have)}, the replica at ${hex(r.txid)} (${hhmm(r.at)})`, fix: restartCommand(u) };
 }
 
+/** A Go-style duration (4h, 168h, 30m, 1h30m) in hours, or null. */
+export function hours(d: string): number | null {
+  const parts = [...d.trim().matchAll(/(\d+(?:\.\d+)?)(h|m|s)/g)];
+  if (!parts.length || parts.map(p => p[0]).join("") !== d.trim()) return null;
+  return parts.reduce((t, p) => t + Number(p[1]) * { h: 1, m: 1 / 60, s: 1 / 3600 }[p[2] as "h" | "m" | "s"], 0);
+}
+
+/** A follower's unit removes its mirror and the mirror's -txid before each start (ExecStartPre=…rm…). */
+export function freshRestore(unitText: string, output: string): boolean {
+  const name = output.split("/").pop() ?? "";
+  return unitText.split("\n").some(l => {
+    if (!/^\s*ExecStartPre\s*=.*\brm\b/.test(l)) return false;
+    const words = l.split(/\s+/).map(w => w.split("/").pop() ?? "");
+    return !!name && words.includes(name) && words.includes(`${name}-txid`);
+  });
+}
+
 /** Doctor's lines for backups: each unit, its log, each database or mirror. */
 export function backupChecks(b: BackupFacts, home: string): { name: string; status: Verdict["status"]; detail: string; fix?: string }[] {
   const out: { name: string; status: Verdict["status"]; detail: string; fix?: string }[] = [];
   const add = (name: string, v: Verdict) => out.push({ name, status: v.status, detail: v.detail, ...(v.fix ? { fix: v.fix } : {}) });
   if (!b.units.length) { out.push({ name: "litestream", status: "info", detail: "no Litestream unit here: nothing replicates this machine's outlines" }); return out; }
-  for (const { unit: u, log, dbs, problem } of b.units) {
+  for (const { unit: u, log, dbs, problem, freshOnStart, snapshot } of b.units) {
     const label = u.role === "follow" ? `follower ${u.name}` : `replicator ${u.name}`;
     const s = u.state;
     const running = s?.active === true;
     add(label, running
       ? { status: "ok", detail: `${s!.detail}${s!.since ? `, up since ${hhmm(s!.since)}` : ""}; ${u.config}` }
       : { status: "missing", detail: `not running (${s?.detail ?? "state unknown"}); ${u.path}`, fix: s?.detail === "not loaded in launchd" ? startCommand(u) : restartCommand(u) });
+    // Restore history: Litestream's default is a snapshot a day kept a day; restic (PIE-607) is the long history.
+    if (u.role === "replicate" && snapshot) {
+      const interval = hours(snapshot.interval ?? "24h"), retention = hours(snapshot.retention ?? "24h");
+      const said = `a snapshot every ${snapshot.interval ?? "24h (the default)"}, kept ${snapshot.retention ?? "24h (the default)"}`;
+      const fix = `in ${u.config}:  snapshot: { interval: 4h, retention: 168h }  then ${restartCommand(u)}`;
+      if (interval === null || retention === null) add(`${label} snapshots`, { status: "unknown", detail: `${said}: not durations doctor reads (e.g. 4h, 168h)` });
+      else if (retention < 72 || interval > 12) add(`${label} snapshots`, { status: "behind", detail: `${said}: about ${Math.round(retention)}h to restore from (restic keeps the long history, PIE-607)`, fix });
+      else add(`${label} snapshots`, { status: "ok", detail: said });
+    }
+    if (u.role === "follow" && u.kind === "systemd" && freshOnStart === false) add(`${label} start`, { status: "behind", detail: `it resumes from the mirror it left; Litestream 0.5.17 refuses that (crash loop) whenever the saved txid is past the newest snapshot (upstream #1385)`, fix: `in ${u.path}, before ExecStart: ExecStartPre=/bin/rm -f ${u.output} ${u.output}-txid ${u.output}-wal ${u.output}-shm; then systemctl --user daemon-reload && ${restartCommand(u)}` });
+    // A follower that restores fresh on every start heals the #1385 refusal by itself (Restart=always): said, not failed.
+    // What counts is progress (upstream #1515: a follower can stall with no error at all): a unit that runs now with
+    // every replica or mirror caught up got past its errors (a transient 4xx from the bucket, #1385's refusal healed by a
+    // fresh restore on restart), so they're said, not failed; a unit behind is failed by its replica's or mirror's line.
+    const caughtUp = dbs.length > 0 && !log.lostState?.length && dbs.every(db => (u.role === "follow" ? mirrorVerdict(u, db, b.now) : replicaVerdict(u, db, b.now, home)).status === "ok");
+    const recovered = u.state?.active === true && caughtUp;
+    const resume = u.role === "follow" && freshOnStart && !!log.latest && /ahead of|saved txid|txid .* (?:past|beyond)/i.test(log.latest.line);
     if (log.unavailable) add(`${label} log`, { status: "unknown", detail: log.unavailable });
+    else if (log.errorsLastHour && recovered) add(`${label} log`, { status: "ok", detail: `${log.errorsLastHour} ERROR line${log.errorsLastHour === 1 ? "" : "s"} in the last hour, and it has caught up since${resume ? " (the follow-resume refusal, upstream #1385, healed by the fresh restore on restart)" : ""}; latest: ${log.latest!.line}` });
     else if (log.errorsLastHour) {
       const ltx = log.lostState ?? [];
       const detail = `${log.errorsLastHour} ERROR line${log.errorsLastHour === 1 ? "" : "s"} in the last hour; latest: ${log.latest!.line}`;
@@ -456,7 +403,7 @@ export function backupChecks(b: BackupFacts, home: string): { name: string; stat
 /** Whether a mirror is stale, and since when: its follower stopped, erroring, or behind its replica. Null: current, or unknown. */
 export async function mirrorHealth(followed: string, o: { platform: Platform; home: string; env: Env; run: Run; now?: number }): Promise<{ since: string | null; why: string } | null> {
   const now = o.now ?? Date.now();
-  const u = litestreamUnits(o.platform, o.home).find(x => x.role === "follow" && resolve(x.output!) === resolve(followed));
+  const u = (await runningUnits(o.platform, o.home, o.run)).find(x => x.role === "follow" && resolve(x.output!) === resolve(followed));
   if (!u) return null;
   const state = await unitStateOf(u, o.run, now);
   if (state.active === false) return { since: null, why: `its follower ${u.name} isn't running (${state.detail})` };

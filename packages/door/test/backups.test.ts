@@ -175,6 +175,9 @@ describe("gathering from a scratch home, with a fake run", () => {
     expect(by["mirror garden"]).toMatchObject({ status: "missing", detail: expect.stringContaining(`stale since`) });
     expect(by["restore garden"]).toMatchObject({ status: "ok", detail: expect.stringContaining("integrity_check ok") });
     expect(checks.map(c => c.name)).not.toContain("replica garden.sqlite.owner");
+    // The follower resumes from its old mirror (no fresh restore on start, #1385), and the config keeps a day of history.
+    expect(by["follower mirror-follow.service start"]).toMatchObject({ status: "behind", fix: expect.stringContaining("ExecStartPre=/bin/rm -f") });
+    expect(by["replicator litestream.service snapshots"]).toMatchObject({ status: "behind", fix: expect.stringContaining("interval: 4h, retention: 168h") });
     expect(JSON.stringify(checks)).not.toContain("not-a-real-key");
     // A failing ltx that echoes the key, or a URL's password, is said without them.
     const { replicaPosition, redact } = await import("../src/setup/backups");

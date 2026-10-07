@@ -110,7 +110,11 @@ export async function backupCommand(args: readonly string[], io: IO = { out: con
       const dest = resolve(to);
       if (existsSync(dest) || (() => { try { lstatSync(dest); return true; } catch { return false; } })()) { io.err(`ep0ch backup: ${dest} exists; restore writes a new file (pick another --to, or move that one away)`); return 2; }
       if (isInside(c.outlines, dest) || isInside(c.mirrorsDir, dest)) {
-        io.err(`ep0ch backup: ${dest} is in ${isInside(c.outlines, dest) ? c.outlines : c.mirrorsDir}, which a service has open; restore elsewhere (--to /tmp/${outline}.sqlite), look at it, then swap it in with the host stopped`);
+        const live = join(c.outlines, `${outline}.sqlite`);
+        const stop = process.platform === "darwin" ? "launchctl bootout gui/$(id -u)/<the host's and Litestream's agents>" : "systemctl --user stop outliner-host.service litestream.service";
+        const start = process.platform === "darwin" ? "launchctl bootstrap gui/$(id -u) <each agent's plist>" : "systemctl --user start litestream.service outliner-host.service";
+        io.err(`ep0ch backup: ${dest} is in ${isInside(c.outlines, dest) ? c.outlines : c.mirrorsDir}, which a service has open; restore elsewhere and swap it in with the host and Litestream stopped, keeping Litestream's .${outline}.sqlite-litestream folder (never litestream reset):\n`
+          + `  ep0ch backup restore ${outline} --to /tmp/${outline}.sqlite\n  ${stop}\n  mv ${live} ~/backups/ && rm -f ${live}-wal ${live}-shm && cp /tmp/${outline}.sqlite ${live}\n  ${start}`);
         return 2;
       }
       const when = at === undefined ? null : parseAt(at);

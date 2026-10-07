@@ -10,6 +10,22 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Litestream and an outline's file (PIE-607)
+
+- **Deleting, re-creating or importing an outline pauses Litestream for it.** Litestream doesn't track a database
+  being removed or replaced, so the outline host now stops this machine's replicator for that folder while the
+  file changes, keeps Litestream's own state, and starts it again; if it can't stop it, the change is refused with the
+  commands to do it by hand. Nothing resets Litestream behind your back.
+- **Doctor reads the mirror followers by their instances** (`litestream-mirror@float-hub`), says when a follower
+  doesn't restore fresh on start (Litestream 0.5.17's crash loop, upstream #1385) or when the replicator keeps only a
+  day of snapshots, and treats a follower that healed itself by restarting as healed.
+- **A machine with no backups yet** (the laptop, before its install) is said in doctor, not raised as an alert.
+- **Install asks for the machine's name** (`EP0CH_BACKUP_MACHINE=laptop ep0ch install --apply`) instead of taking the
+  host name: other machines mirror it by that name. A laptop already set up under its host name: set
+  `EP0CH_BACKUP_MACHINE=laptop` in its `~/.config/ep0ch/backup.env`, then `ep0ch backup run`.
+- **A dead-man's ping:** with a secrets group `heartbeat` (HEARTBEAT_URL, e.g. a healthchecks.io check), every
+  clean backup run pings it, so a job that stops is noticed off the machine too.
+
 ### Heading styles and rules that fade (PIE-599)
 
 - **Headings that divide the page.** `## Your calls [heading::band]` draws the heading inside a band made of the
