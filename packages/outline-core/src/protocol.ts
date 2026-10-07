@@ -7,7 +7,7 @@
 // and literal ranges, the link grammar, the heading styles, the component schemas, the draft.patch compare, the search matcher), since a long-running service
 // and a remote door can run different checkouts.
 /** The wire protocol both sides of this checkout speak. */
-export const PROTOCOL = 107;
+export const PROTOCOL = 108;
 
 /**
  * Why a service speaking `serviceProtocol` can't serve this client, in words that name both numbers and the side

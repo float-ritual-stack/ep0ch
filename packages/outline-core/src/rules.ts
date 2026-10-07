@@ -9,6 +9,7 @@ import { calloutBlocks } from "./callouts";
 import { codeSpanRanges, literalLines } from "./code-ranges";
 import { noteStructure } from "./component-block";
 import { BAND_ALIGNS as ALIGNS, BAND_PATTERNS, HEADING_STYLE_NAME, type BandAlign as Align, type BandPattern } from "./heading-styles";
+import { unsafePatternReason } from "./pattern-safety";
 import { propertyTokenPattern } from "./property-grammar";
 
 // ── constructs ──────────────────────────────────────────────────────────────────────────────────────────
@@ -110,7 +111,8 @@ export interface RuleHit { at: "block" | "construct" | "text"; line: number; end
 
 /** At most this many hits per rule in one note: a rule that hits every line decorates the first 16. */
 export const MAX_RULE_HITS = 16;
-const MAX_PATTERN_LINE = 1_000;
+/** A text pattern sees this much of a line: its cost grows with a power of the length (see pattern-safety.ts). */
+const MAX_PATTERN_LINE = 400;
 
 /**
  * Where a text pattern hits a note: line by line, never inside a code fence, a component block, a code span, a
@@ -145,19 +147,13 @@ export function ruleHits(text: string, match: { text?: RegExp; kind?: KindSpec }
   return out;
 }
 
-/** A group that holds a `+`, `*` or `{n,}` and is itself repeated: `(a+)+`, `(?:\w*x)*`, `(a{2,})+`. */
-const NESTED_REPETITION = /\((?:[^()\\]|\\.)*(?:[+*]|\{\d*,\d*\})(?:[^()\\]|\\.)*\)(?:[+*]|\{\d*,\d*\})/;
-
-/** A group with alternatives that is itself repeated: `(a|aa)+`, `(?:x|y)*`. */
-const REPEATED_ALTERNATION = /\((?:[^()\\]|\\.)*\|(?:[^()\\]|\\.)*\)(?:[+*]|\{\d*,\d*\})/;
-
 /** A text pattern as a rule writes it, compiled (`u`, and `i` when it starts `(?i)`), or why it can't be. */
 export function compileRulePattern(raw: string): RegExp | { problem: string } {
   if (raw.length > 300) return { problem: "the text pattern is longer than 300 characters" };
-  // Every line of every note is tested on the service, with no deadline: a repetition of a repetition (`(a+)+`) can
-  // take forever on one line, so it's refused.
-  if (NESTED_REPETITION.test(raw)) return { problem: `the text pattern ${JSON.stringify(raw)} repeats a group that repeats (like (a+)+): it can take forever on one line; repeat the inside or the group, not both` };
-  if (REPEATED_ALTERNATION.test(raw)) return { problem: `the text pattern ${JSON.stringify(raw)} repeats a group of alternatives (like (a|aa)+): it can take forever on one line; use a character class ([ab]+) or match once` };
+  // Every line of every note is tested on the service, with no deadline and no way to interrupt a regex: a pattern
+  // that can backtrack without bound (`((a+))+`, `(a|aa)*`, a backreference, a pile of `.*`) is refused.
+  const unsafe = unsafePatternReason(raw);
+  if (unsafe) return { problem: `the text pattern ${JSON.stringify(raw)} can take forever on one line: ${unsafe}; use a character class ([ab]+), repeat the inside or the group not both, or match once` };
   const insensitive = raw.startsWith("(?i)");
   try {
     const pattern = new RegExp(insensitive ? raw.slice(4) : raw, insensitive ? "iu" : "u");
