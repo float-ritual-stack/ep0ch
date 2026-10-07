@@ -8,6 +8,7 @@ import { welcomeKinds, welcomeSpec } from "../hub/welcome";
 import { HOME_KIND, homeSpec } from "../home";
 import { boardSpec } from "./delivery";
 import { BLANK_KIND, blankSpec } from "./blank";
+import { LIBRARY_KIND, librarySpec } from "../library/library";
 import { riverSpec } from "../river/column";
 import { Desk, deskSpec } from "./desk";
 import { registerScreen, screenNames, screenSpec, screenTargetArg } from "./screen-spec";
@@ -15,7 +16,7 @@ import { registerTileKind, tileKind } from "./tile-kinds";
 
 /** The built-in screens' kinds and specs (once: every module that opens a screen asks). */
 export function registerBuiltinScreens(): void {
-  for (const k of [WAITING_KIND, ...welcomeKinds(), briefKind(), pinnedKind(), HOME_KIND, BLANK_KIND]) if (!tileKind(k.kind)) registerTileKind(k);
+  for (const k of [WAITING_KIND, ...welcomeKinds(), briefKind(), pinnedKind(), HOME_KIND, BLANK_KIND, LIBRARY_KIND]) if (!tileKind(k.kind)) registerTileKind(k);
   const have = new Set(screenNames());
   const add = (name: string, of: Parameters<typeof registerScreen>[1], target?: string) => { if (!have.has(name)) registerScreen(name, of, target ? { target } : {}); };
   add("desk", () => deskSpec());
@@ -27,6 +28,8 @@ export function registerBuiltinScreens(): void {
   add("river", () => riverSpec());
   // A blank screen (PIE-565): one tile to build from; ^W w saves what's built as a screen note.
   add("blank", () => blankSpec());
+  // The component library (PIE-618): a page per component schema; its args say which component and part it opens on.
+  add("library", args => librarySpec(args ?? {}), "component");
   add("detail", args => {
     const note = typeof args?.note === "string" ? args.note : "";
     return {

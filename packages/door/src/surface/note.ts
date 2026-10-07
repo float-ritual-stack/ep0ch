@@ -4627,8 +4627,8 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
   "draft.undo": forwardDraft("draft.undo"),
   "draft.copy": forwardDraft("draft.copy"),
   "complete": def({
-    summary: "reference completion, as typing [[, (( or [file:: offers it: the candidates for text (such as [[PIE-4, ((beds, ((garden#, [file::src/), or at the open draft's cursor; insert=n puts the nth into the draft (expect=<its insertion> refuses it if the list changed meanwhile)",
-    keys: "[[ (( [file:: while writing; tab, ctrl+space · up/down, enter/tab, esc",
+    summary: "completion, as typing [[, ((, [file::, > [!, a property's [key:: or a figure's YAML offers it: the candidates for text (such as [[PIE-4, ((beds, ((garden#, [file::src/, [heading-pattern::, or a ::graph-meter block's lines ending in ti), or at the open draft's cursor; insert=n puts the nth into the draft (expect=<its insertion> refuses it if the list changed meanwhile). Property keys and values come from the component schemas (PIE-618)",
+    keys: "[[ (( [file:: > [! [key:: while writing; tab, ctrl+space · up/down, enter/tab, esc",
     // Looking candidates up reads; putting one in types in the draft at its cursor: an agent's only in a draft it
     // opened and alone typed in, or one the person invited it into (an @name line; the insert uses the invitation up).
     touches: "draft", draft: "type", replay: "ask",
@@ -4646,13 +4646,13 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       if (insert !== undefined && text !== undefined) throw new ActionRefused("insert completes at the draft's cursor; leave text out");
       let target;
       if (text !== undefined) {
-        const line = text.split("\n").at(-1)!;
-        target = completionTargetAtCursor(line, line.length);
-        if (!target) throw new ActionRefused(`nothing to complete: text should end inside [[, (( or [file:: (it ends ${JSON.stringify(line.slice(-20))})`);
+        const lines = text.split("\n"), line = lines.at(-1)!;
+        target = completionTargetAtCursor(line, line.length, lines, lines.length - 1);
+        if (!target) throw new ActionRefused(`nothing to complete: text should end inside [[, ((, [file::, > [!, a [key:: property or a figure's YAML (it ends ${JSON.stringify(line.slice(-20))})`);
       } else {
         if (!d) throw new ActionRefused("nothing is being written here; pass text=\"[[...\" or open an edit first");
-        target = completionTargetAtCursor(d.lines[d.row] ?? "", d.col);
-        if (!target) throw new ActionRefused(`the draft's cursor (line ${d.row + 1}, column ${d.col + 1}) isn't inside [[, (( or [file::`);
+        target = completionTargetAtCursor(d.lines[d.row] ?? "", d.col, d.lines, d.row);
+        if (!target) throw new ActionRefused(`the draft's cursor (line ${d.row + 1}, column ${d.col + 1}) isn't inside [[, ((, [file::, > [!, a [key:: property or a figure's YAML`);
       }
       // The draft as the target was read from it: typing during the lookups below moves the token, and a
       // splice at the old span would land in the wrong place, so any change refuses the insert.

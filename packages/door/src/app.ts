@@ -22,6 +22,7 @@ import { EXT_ACTIONS, loadExtensions } from "./extensions";
 import { loadScreenNotes, screenNotesAffected } from "./desk/screen-notes";
 import { invalidatePropertyErrors } from "./props";
 import { outlineChanged } from "./refs";
+import { componentsChanged } from "./component-schemas";
 import { doorNest } from "./nest";
 import { groundSeq, setTheme as useTheme, theme, type ThemeName } from "./theme";
 import { stateDir, writeState } from "./state";
@@ -642,7 +643,7 @@ export class App implements Ctx {
   event(e: OutlineEvent) {
     // The service's extensions changed (a folder added, removed or edited, PIE-507): read the list again and
     // bind it, so what came shows up and what went goes away without a restart (PIE-512).
-    if (e.domain === "extensions") { void this.loadExtensions(); return; }
+    if (e.domain === "extensions") { componentsChanged(this.board); void this.loadExtensions(); return; }
     // A Resource registered or refreshed (PIE-445): only readers showing a projection of it redraw, and
     // those read it again. It isn't an outline change, so nothing else is asked again. An extension's line that
     // ran (`extensions.output`) or an agent that answered (`extensions.agent`) names its note.

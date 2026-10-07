@@ -10,6 +10,25 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Components describe their own properties once: a library page each, and completion (PIE-618)
+
+- **New:** the component library, `ep0ch --screen library`: a design-system page for each component (heading
+  styles, callouts, rules, `::graph-meter`, `::graph-spark`, and any an extension ships). An overview with the
+  properties table, each value of each property drawn live with the exact source under it, the grids (pattern ×
+  align, rows × row), and every combination (heading styles have 2430) behind a filter you pick per axis. Each
+  variation at 40, 80 or 160 columns; `y` or a click copies its source. Every key and click is an action
+  (`library.*`), so an agent drives it through `act`; the showcase's `library` section opens it.
+- **New:** property completion in a draft: `[head` offers the keys with where they go and what they mean,
+  `[heading-pattern::` the values, each with a one-row preview of what it draws, `[heading::` the built-in styles and
+  the outline's own; the same inside a `::graph-meter` block's YAML.
+- **New:** `ep0ch library` lists the components, `--json` prints their schemas (what an editor's completion or an
+  agent reads), `--out <dir>` writes a Markdown page each, the variations drawn above their source; attached to a
+  published note, the publisher serves one as HTML.
+- **For extensions:** `extension.json` takes `components[]`, component schemas: the extension's properties get a
+  library page and completion with no code. A schema it can't use fails the load and names the field.
+- **What to run:** protocol is now 106 (two new reads, `components.schemas` and `rules.preview`): update the host and
+  every client together (`ep0ch install --apply` on each machine). No schema change.
+
 ### What waits on you: program status in terminal tiles (OSC 7501, PIE-614)
 
 - **Programs say what they're doing.** A program in a door's terminal tile can report its status with OSC 7501 (Mitchell

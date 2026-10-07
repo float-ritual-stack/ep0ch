@@ -238,7 +238,7 @@ the board's g m s), its elements and reading-ruler row (PIE-441) and its termina
 CP437; the key names and the terminal output are under every section) have no section yet, and its ids-not-names row
 (ADR 0001) is a rule for code, with nothing to show. The newest parts are in their rows' sections:
 the service's forgiving search (the `/` overlay, opened on a query with typos) in `search`, the drawer in `drawer` (`^W a` puts its kettle in your drawer, another section keeps it, the same program; `alt+a` pulls the drawer up over the showcase itself), the terminals attached to the door session in `session`, a row's links in the tree
-(`L`) in `entity`, a dock and the lock (`alt+k`) in `panes`, the draft session (an edit and a comment open side by side) in `drafts`, a screen spec (the brief, its spec read back by `screen.spec`) in `screens`, the tile-kind registry listed by a service-drawn tile in `kinds`, quiet embeds (a dim `»` source line) in `note`, one addressed note as the whole screen (the detail screen spec, `--screen detail <uri>`) in `detail`, the outliner's example extensions (a record, an output, a component with its `[w ward]`, an `@tidy` request) beside what the service's list bound, in `extensions`, Obsidian's callout examples (nested three deep, folded and open, title-only, a type the outline declares) in `callouts`, a note's opening picture becoming its header's background as it scrolls away in `hero`, the Markdown figures (a decision, a chat, a keymap read from the action registry, uptime, activity, a month, annotated code, a figure block whose rows are its child bullets, a quote's byline) in `figures`, new notes from anywhere (`ctrl+n`, a missing `[[page]]` offered then made, a lone `[page::x]` titling itself) in `newnotes`, scrolling past the end of a long note (End twice, `reader.overscroll`) in `scroll`, and heading styles (every pattern on a plain `##`, a rule that fades, one heading's own fields, a style declared on a line of the note, banded in a wide reader and as written in a narrow one) in `headings`. It runs on an
+(`L`) in `entity`, a dock and the lock (`alt+k`) in `panes`, the draft session (an edit and a comment open side by side) in `drafts`, a screen spec (the brief, its spec read back by `screen.spec`) in `screens`, the tile-kind registry listed by a service-drawn tile in `kinds`, quiet embeds (a dim `»` source line) in `note`, one addressed note as the whole screen (the detail screen spec, `--screen detail <uri>`) in `detail`, the outliner's example extensions (a record, an output, a component with its `[w ward]`, an `@tidy` request) beside what the service's list bound, in `extensions`, Obsidian's callout examples (nested three deep, folded and open, title-only, a type the outline declares) in `callouts`, a note's opening picture becoming its header's background as it scrolls away in `hero`, the Markdown figures (a decision, a chat, a keymap read from the action registry, uptime, activity, a month, annotated code, a figure block whose rows are its child bullets, a quote's byline) in `figures`, new notes from anywhere (`ctrl+n`, a missing `[[page]]` offered then made, a lone `[page::x]` titling itself) in `newnotes`, scrolling past the end of a long note (End twice, `reader.overscroll`) in `scroll`, heading styles (every pattern on a plain `##`, a rule that fades, one heading's own fields, a style declared on a line of the note, banded in a wide reader and as written in a narrow one) in `headings`, and the component library (a page per component schema, the outline's own style among its values) in `library`. It runs on an
 outline of its own: a private service (own state, workspace and config dirs, background agents off, Herdr
 unset) on a persistent workspace under `<the door's state>/showcase/` (`$EP0CH_STATE`, else `${XDG_STATE_HOME:-~/.local/state}/ep0ch-door`), with the
 door's own `EP0CH_STATE` and `EP0CH_CONTROL` there too, so nothing reaches a real outline or your door.
@@ -1377,6 +1377,7 @@ The board's new-card composer is the same control too.
 | the wheel | scroll the draft to reread; the cursor stays where it was, and the next key brings it back into view |
 | a click, a drag | put the cursor there; a drag selects (for `Tab`, `Shift+Tab`, typing over it or deleting it) |
 | `[[`, `((`, `[file::` while typing; `Tab` or `Ctrl+Space` | reference completion: keep typing to filter, `↑↓` or the wheel choose, `Enter`/`Tab` or a click inserts, `Esc` dismisses |
+| `[` and a key's first letters (`[head`), `[key::`, or a line of a `::graph-*` block's YAML | property completion (PIE-618), from the component schemas (below): the keys with where they go and what they mean, `Enter` writes `[heading-pattern::` and its values open at once, each with its meaning and a one-row preview of what it draws (a style's glyph track); `[heading::` lists the built-in styles and the outline's own. A `[` that starts no key a schema knows (a Markdown link's text) opens nothing |
 | `Ctrl+Z` | take back the last edit an agent patched into the draft (below), as one unit |
 | `A`, while reading | apply anyway: the edit an agent proposed when its patch couldn't apply, on the proposal shown or its embed as the current element; a click on `[apply]` on its embed's source line or in its header does the same. A proposal whose passage was already gone has no `[apply]`, and `A` says why. Anywhere else (not a proposal, nor its embed or control) `A` isn't taken |
 | `X`, while reading | dismiss it: the proposal goes to Trash and its embed line comes out of the note, as an edit by you; or a click on `[dismiss]`. Like `A`, taken only on a proposal |
@@ -1977,6 +1978,41 @@ Bodies render with `src/doc.ts`:
   `> [!quote]` whose last line starts with `— ` draws it as the byline, to the right, the source after a comma
   muted (outline-core's `quoteByline`; Detail draws it the same).
 - Code fences, headings, lists, blockquotes, `**bold**`, `[[links]]`, `((refs))` and `[key::value]` are styled.
+
+### The component library (PIE-618)
+
+Each component says what its properties are once, as a schema in outline-core (`src/component-schema.ts`): heading
+styles, callouts, rules, `::graph-meter` and `::graph-spark`, and any an extension ships in its `extension.json`
+(`components`). The outline adds its own values (a `[heading-style::plot]` note makes `plot` a value of `[heading::]`).
+Two things are made from that and nothing else: property completion in a draft (above) and the **library**, a
+design-system page per component. `ep0ch --screen library` opens it (`--screen library callout` on a component;
+`screen.open name=library` from anywhere).
+
+A page has four parts. **Overview**: what it is, where it goes, the minimal example and the properties table (key,
+where it's written, values, default, meaning). **One property at a time**: each value drawn live, the exact source
+under it (`## Your calls [heading::band]`, and for a style's own properties the declaring note:
+`My style [heading-style::mine] [heading-pattern::waffle]`). **Grids**: the pairs the schema marks (pattern × align,
+rows × row), side by side where they fit. **Every combination**: the whole space (heading styles have 2430) behind a
+filter, never dumped: pick values per axis and the matching variations are drawn, eight at a time. Every variation
+is drawn by the readers' own renderer at 40, 80 or 160 columns, so the narrow fallback shows too; a rule's are drawn
+as the service draws them.
+
+| Keys | Action |
+|---|---|
+| `,` `.`, or a click on a tab | the previous or next component (`library.component`) |
+| `1` `2` `3` `4`, or a click | overview, one property at a time, grids, every combination (`library.part`) |
+| `←` `→` (`h` `l`) | the previous or next property (`library.axis`) or grid (`library.grid`); in every combination, the value under the cursor (`library.cursor`) |
+| `[` `]` | every combination: the axis above or below |
+| `space`, `⏎`, or a click on a value | every combination: pick or unpick it (`library.pick`); `x` clears (`library.clear`), `n` `p` page (`library.page`) |
+| `j` `k` (`↓` `↑`), or a click on a variation | select a variation (`library.select`) |
+| `y`, or a click on `copy` | copy its source (`library.copy`: the declaring note and the line that uses it; `part=use` or `part=note` one of them). An agent's copy comes back as its answer, never to your clipboard |
+| `w`, or a click on a width | draw at 40, 80 or 160 columns (`library.width`) |
+| the wheel, `PgUp` `PgDn` | scroll (`library.scroll`) |
+
+`ep0ch library` lists the components; `--json` prints their schemas as the outline merges them (what an editor's
+completion source or an agent's tool description reads); `--out <dir> [--width 80]` writes a Markdown page each
+(`<id>.md`, and `README.md` listing them), every variation drawn above its source. Attach one to a published note
+(`[file::<dir>/heading-style.md] [publish::true]`) and the publisher serves it as HTML.
 
 ## The river
 

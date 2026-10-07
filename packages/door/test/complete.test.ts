@@ -14,6 +14,8 @@ import { openScreen } from "../src/desk/screen-specs";
 import { view as riverView } from "./river-view";
 import { MainMenu } from "../src/screens";
 import { completionTargetAtCursor, pageAddressCompletion } from "../src/completion";
+import { mergeComponentSchemas } from "@ep0ch/outline-core/component-schema";
+import { BUILTIN_HEADING_STYLES } from "@ep0ch/outline-core/heading-styles";
 import { Draft } from "../src/edit";
 import { Refused, SocketBoard, USER, type Actor } from "../src/socket";
 import { visible } from "../src/style";
@@ -148,6 +150,74 @@ describe("callout types after > [! (PIE-538): the outline's one list, in the sam
     completionKey(d, K("enter"), c);
     await until(() => d.lines[1] === "> [!warning]", "the insert");
     expect(completionOf(d)).toBeNull();
+  });
+});
+
+describe("property keys and values from the component schemas (PIE-618): the same popup, no list of its own", () => {
+  const plot = { value: "plot", meaning: "this outline's: dots, 3 rows, left, plain", declared: "decl-plot" };
+  const board = {
+    completePages: async () => ({ addresses: [], completeness: { kind: "complete" } }),
+    completeFiles: async () => [],
+    searchBlocks: async () => ({ matches: [], completeness: { kind: "complete" }, semantic: { status: "lexical" } }),
+    blockContext: async () => ({ selected: null, ancestors: [] }),
+    workIdPrefix: async () => null,
+    // The service's merged answer: the built-ins with the outline's own style among [heading::]'s values.
+    componentSchemas: async () => mergeComponentSchemas({ headingStyles: [{ ...BUILTIN_HEADING_STYLES[4]!, name: "plot", block: "decl-plot" }] }),
+  };
+  const typing = (text: string) => {
+    const d = new Draft("b1", 1, "Pantry\n");
+    d.row = 1; d.col = 0;
+    const c = completerFor(d, board, () => {})!;
+    for (const ch of text) completionKey(d, char(ch), c);
+    return { d, c };
+  };
+
+  test("[head offers the keys with where they go and what they mean; Enter writes [key:: and its values open at once", async () => {
+    const { d, c } = typing("## Calls [heading-p");
+    await until(() => !!c.state && !c.state.loading && c.state.items.length > 0, "the keys");
+    expect(c.state!.target).toMatchObject({ kind: "key", query: "heading-p" });
+    expect(c.state!.items.map(i => i.insertion)).toEqual(["[heading-pattern::", "[heading-padding::"]);
+    const drawn = renderCompletion(c.state!, 110, 8).map(visible).join("\n");
+    expect(drawn).toContain("properties 1/2");
+    expect(drawn).toContain("property · Heading styles · on the declaring note · the glyph track the band is drawn in");
+    completionKey(d, K("enter"), c);
+    await until(() => d.lines[1] === "## Calls [heading-pattern::" && !!c.state && !c.state.loading && c.state.target.kind === "value", "the values");
+    // Each value with a preview: the glyph track it draws, small.
+    expect(c.state!.items.map(i => i.insertion)).toEqual(["stack]", "waffle]", "uptime]", "dots]", "rule]"]);
+    expect(c.state!.items[1]!.label).toMatch(/^waffle {2}[▓▒░ ]{6,}/);
+    expect(renderCompletion(c.state!, 70, 8).map(visible).join("\n")).toContain("values 1/5");
+    for (const ch of "wa") completionKey(d, char(ch), c);
+    await until(() => !!c.state && !c.state.loading && c.state.target.query === "wa", "waffle");
+    completionKey(d, K("enter"), c);
+    await until(() => d.lines[1] === "## Calls [heading-pattern::waffle]", "the value");
+    expect(completionOf(d)).toBeNull();
+  });
+
+  test("[heading:: offers the built-in styles and the outline's own; a value typed inside a closed property replaces through its ]", async () => {
+    const { d, c } = typing("## Calls [heading::pl");
+    await until(() => !!c.state && !c.state.loading && c.state.items.length > 0, "the styles");
+    expect(c.state!.items.map(i => i.insertion)).toEqual(["plot]"]);
+    expect(c.state!.items[0]!.context).toContain("this outline's");
+    completionKey(d, K("enter"), c);
+    await until(() => d.lines[1] === "## Calls [heading::plot]", "the outline's own style");
+  });
+
+  test("a figure's YAML: its keys after the ---, its values after key: ; a [ no schema knows opens nothing", async () => {
+    const { d, c } = typing("::graph-meter");
+    completionKey(d, K("enter"), c);
+    for (const ch of "---") completionKey(d, char(ch), c);
+    completionKey(d, K("enter"), c);
+    for (const ch of "li") completionKey(d, char(ch), c);
+    await until(() => !!c.state && !c.state.loading && c.state.items.length > 0, "the YAML keys");
+    expect(c.state!.target).toMatchObject({ kind: "yaml-key", component: "graph-meter" });
+    expect(c.state!.items.map(i => i.insertion)).toEqual(["limit: "]);
+    completionKey(d, K("enter"), c);
+    await until(() => d.lines[3] === "limit: " && !!c.state && !c.state.loading && c.state.target.kind === "yaml-value", "its values");
+    expect(c.state!.items.map(i => i.insertion)).toEqual(["0.5", "1"]);
+    c.dismiss();
+    const link = typing("see [the shed");
+    await Bun.sleep(30);
+    expect(link.c.state).toBeNull();
   });
 });
 
@@ -504,7 +574,7 @@ describe.skipIf(!outliner)("completion in the editor, on a scratch service", () 
     expect(e.d.lines.at(-1)).toBe("  ");
     expect(e.pop()).toBeNull();
     e.press(ctrl("`"));                                                   // ctrl+space with nothing to complete
-    expect(e.d.note).toContain("[[, ((, [file:: or a callout's > [!");
+    expect(e.d.note).toContain("[[, ((, [file::, a callout's > [!, a [key:: property or a figure's YAML");
   });
 
   test("Tab and Ctrl+Space ask again after Esc; Ctrl+S saves with the popup open", async () => {

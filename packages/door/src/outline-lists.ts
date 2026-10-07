@@ -20,6 +20,8 @@ export interface OutlineList<R> {
   stamp(registry: R): number;
   /** What's wrong with the outline's declarations, as the service last said. */
   problems(board: object): string[];
+  /** Ask again at the next `of`, keeping the last answer until the new one lands (what it lists changed without an outline change). */
+  stale(board: object): void;
 }
 
 /**
@@ -57,5 +59,6 @@ export function outlineList<T, R extends object>(ask: (board: any) => (() => Pro
     async ready(src) { of(src); await keptBy.get(src.board as object)?.answer?.catch(() => {}); return of(src); },
     stamp(registry) { let n = genOf.get(registry); if (n === undefined) genOf.set(registry, (n = ++gen)); return n; },
     problems: board => keptBy.get(board)?.problems ?? [],
+    stale(board) { const k = keptBy.get(board); if (k && !k.asking) { k.at = -Infinity; k.when = 0; } },
   };
 }

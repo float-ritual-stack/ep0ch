@@ -132,6 +132,7 @@ extensions/horoscope/
 | `tiles[]` | Tile kinds (kind 4). |
 | `agents[]` | Agents a person addresses while they write (`@tidy …`); see [Agents in the note](#agents-in-the-note). |
 | `rules[]` | "When a block matches this": `match`, then `decorate` and `on`; see [Rules](#rules-when-a-block-matches). A rule with only built-in decorations needs no `run`. |
+| `components[]` | What the properties your lines or notes take are, as component schemas (at most 8); see [Component schemas](#component-schemas-docs-and-completion). Needs no `run`. |
 
 ### `config.json`
 
@@ -533,6 +534,42 @@ Shouting [rule-name::shouting] [rule-text::(\S.*?)!!!$] [rule-decorate::text] [r
 rule note never decorates rule notes' own words. What can't be used is listed in `extensions.list`'s
 `ruleProblems` (the door says it once), and writing a rule note sends `extensions.changed`, so readers draw again.
 Heading styles (PIE-599) are the outline's own list (`[heading-style::name]` on a note or any line of one, `headings.styles`); a rule's `band` and `track` are drawn by the same drawer and name a style with `rule-style` (a `--- [rule::fade]` divider's `[rule::…]` is that feature's, which is why a rule note is `[rule-name::…]`). A code rule is the tier above it.
+
+## Component schemas: docs and completion
+
+A component says once what its properties are (PIE-618), and the door makes its docs page and the completion of its
+keys and values from that: there's no docs or completion code in an extension. `components[]` holds outline-core's
+`ComponentSchema` (`@ep0ch/outline-core/component-schema`, the one the built-ins use), checked when the folder loads
+by its `componentSchemaProblem` (a field it can't use fails the load, naming it: `components/0: sweep is a list of its
+props' keys`):
+
+```json
+{ "id": "mood", "title": "Mood", "intro": "How a standup went.", "where": "`[mood::…]` on a standup's note",
+  "props": [{ "key": "mood", "where": "line", "type": "enum", "meaning": "how it went",
+              "values": [{ "value": "calm", "meaning": "nothing on fire" }, { "value": "stormy", "meaning": "something is" }] }],
+  "source": { "use": "Standup [mood::{mood}]" }, "example": { "mood": "calm" },
+  "sweep": ["mood"], "grids": [], "space": ["mood"] }
+```
+
+- `props[]`: `key`, `where` (`line`, `note` for a property of a note that declares a style or type, `yaml` for a
+  figure's), `type` (`enum`, `int`, `number`, `levels`, `name`, `room`, `text`, `list`, `ref`, `template`, `pattern`,
+  `query`), `meaning`, and as they apply `values` (each `{ value, meaning }`), `min` and `max`, `default`, `samples`
+  (values worth drawing for a type with no list), `token` (how it's written when that isn't `[key::value]`), `use`
+  (the source to show this property with).
+- `source.use`: the text a variation writes, `{key}` a value and `{yaml}` the YAML properties given; `source.note`
+  (`{ title, name, value, uses? }`): the declaring note a variation writes when it sets a `note` property.
+- `example`, `sweep` (the properties drawn one value at a time), `grids` (`[key, key]` pairs), `space` (the axes of
+  every combination).
+
+The service answers every schema in one read, `components.schemas`: the built-ins (heading styles, callouts, rules,
+`::graph-meter`, `::graph-spark`) with the outline's own styles and types among their values, then each serving
+extension's, marked `origin: "ext:<id>"`. The door's completer offers `[key::` and the values; its library
+(`ep0ch --screen library`) draws a page for each; `ep0ch library --json` prints them. A page draws a variation with
+the readers' renderer, so a handler line with no projection reads as written there.
+
+`rules.preview` (`note`, `text`): what a rule note, never saved, draws on a sample note's text, as `decorations`
+draws a block's (a query, view or place in the outline is taken to hold). The library draws a rule's variations
+with it.
 
 ## Actions
 

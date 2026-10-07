@@ -237,6 +237,33 @@ export class ExtensionRules {
     return { rules, ruleProblems: this.notes().problems };
   }
 
+  /**
+   * What a rule note (its text, never saved) draws on a sample note's text (PIE-618: a component page's rule variations):
+   * its no-code decorations, placed and drawn as `decorations` makes them for a block. A query, view or place in the
+   * outline is taken to hold for the sample: what's asked is what the rule draws, not which notes it finds.
+   */
+  preview(note: string, text: string): { decorations: Decoration[]; problems: string[] } {
+    const { rules, problems } = rulesFromBlocks([{
+      id: "preview",
+      properties: parsePropertyRecords(note).filter((property) => property.scope === "block").map((property) => ({ key: property.key, value: property.value })),
+    }]);
+    const decorations: Decoration[] = [];
+    for (const rule of rules) {
+      const pattern = rule.match.text ? compileRulePattern(rule.match.text) : undefined;
+      const kind = rule.match.kind ? parseKindSpec(rule.match.kind) : undefined;
+      if ((pattern && "problem" in pattern) || (kind && "problem" in kind)) continue;
+      for (const hit of ruleHits(text, { ...(pattern ? { text: pattern } : {}), ...(kind ? { kind } : {}) })) {
+        if (decorations.length >= MAX_DECORATIONS) break;
+        const view = builtInView(rule.decorate, hit, { text } as Block);
+        decorations.push({
+          rule: "note:preview", name: rule.name, source: { kind: "note", blockId: "preview" }, hit,
+          place: rule.place ?? defaultPlace(rule.decorate.use, hit.at), status: "ready", view, markdown: renderComponent({ data: null, view }, "markdown").body,
+        });
+      }
+    }
+    return { decorations, problems };
+  }
+
   /** Why a rule's query or view can't be used: the grammar's refusal, or a view that isn't one. */
   private queryProblem(rule: RuleEntry): string | undefined {
     try {

@@ -313,6 +313,12 @@ dimmed: the door is dark-first, so write `[dim::0]` only when the person asks fo
   image). Each is an attributed edit of that line, revision-checked, refused under a draft the person has open;
   `image.undo` takes yours back. Writing the line with `outline_patch` works too.
 
+**Every component's properties, in one answer** (PIE-618). `ep0ch library --json` prints the component schemas as
+this outline has them: the heading styles, callouts, rules, `::graph-meter` and `::graph-spark`, each key with where
+it's written, its values and their meanings and its default, the outline's own styles and types among the values,
+and any an extension ships. Read it before writing a component's properties instead of guessing a value. The person
+browses the same as pages (`ep0ch --screen library`), each value drawn with its source.
+
 **Heading styles and rules** (PIE-599; outline-core's `src/heading-styles.ts`, drawn by the door's
 `src/figures/banner.ts`). To divide a page more strongly than a plain heading, give the heading a style. Don't use
 an empty `##` or an empty figure as a divider:
