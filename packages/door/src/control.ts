@@ -217,12 +217,15 @@ export async function controlClient(args: string[]): Promise<number> {
   try {
     // `snap <file>`: the door sends the PNG and this command writes it, where the person said; the door
     // itself writes only under its state (snapPath).
-    if (cmd === "open" && (!arg || arg.includes("="))) throw new Error("open needs a block id: open <id> [from=<tile>] [--as <your id>] [--json]");
+    if (cmd === "open" && (!arg || (arg.includes("=") && !arg.startsWith("file:")))) throw new Error("open needs a block id: open <id> [from=<tile>] [--as <your id>] [--json], or a file: open file:<absolute path> [diff=true]");
     // A block reference as written (`((id))`, `((id|label))`, `((id^fragment))`, what a picker prints) names the same
     // note, through outline-core's one parser; a canonical URI carries its outline address too. A fragment (`^anchor`,
     // `#anchor`) goes on to the open, whose reader scrolls to it. Anything else is passed as the door's own id.
-    const openTarget = cmd === "open" ? openRef(arg!) : null;
+    // `open file:<absolute path> [diff=true] [against=<copy>]`: a file on this machine, not a block (PIE-602).
+    const fileTarget = cmd === "open" && arg!.startsWith("file:") ? arg!.slice(5) : null;
+    const openTarget = cmd === "open" && fileTarget === null ? openRef(arg!) : null;
     req = cmd === "snap" ? (arg ? { cmd, data: true } : { cmd })
+      : fileTarget !== null ? { cmd: "act", ...(await parseActArgs(["open", `file=${fileTarget}`, ...commandArgs.slice(2)])) }
       : cmd === "open" ? { cmd: "act", ...(openTarget!.address ? { address: openTarget!.address } : {}), ...(await parseActArgs(["open", `id=${openTarget!.blockId}`, ...(openTarget!.fragment ? [`fragment=${openTarget!.fragment}`] : []), ...commandArgs.slice(2)])) }
       : cmd === "act" ? { cmd, ...(await parseActArgs(commandArgs.slice(1))) } : { cmd };
   } catch (e) { console.error((e as Error).message); return 1; }

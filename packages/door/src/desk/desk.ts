@@ -47,6 +47,7 @@ import { Entered, ReaderPane, sessionName, sessionStart, startSession, type Desk
 import { isEscapeChord, PtyPane, ESCAPE_CHORD } from "./pty";
 import { ptyBackend } from "./pty-backend";
 import { PreviewPane } from "./preview";
+import { fileOpenNote } from "./file-open";
 import { LocalMarks, markLabel, type Mark, type MarkStore } from "./marks";
 import { TILE_ACTIONS, type NewTile, type TileDone, type TileNow, type Where } from "./tile-actions";
 import { tileMenu } from "./tile-menu";
@@ -1178,6 +1179,9 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
     if (actor.kind === "agent" && host.focused !== false) return;
     void r.pane.surface.revealFragment(fragment, host, actor);
   }
+
+  /** A note that is no block (a file, its diff: `open file=`) where an agent's open lands. */
+  landNote(m: Msg, by: Actor): { reader: string | null; id: string } { return this.land(m, by); }
 
   /** `openBlock(m)`, saying which reader shows it now. */
   private land(m: Msg, by: Actor): { reader: string | null; id: string } {
@@ -4309,8 +4313,18 @@ export const DESK_ACTIONS = actionSet<DeskOn>()("desk", {
     // it lands where opens land: maybe the note they're reading, said on screen, never their keys or a reader they type in.
     touches: "tile", touchesWith: (_, tile) => (tile !== undefined ? "tile" : "nothing"), way: "opening a note there would move what they're reading · name another reader with tile=, or name none (ep0ch open <id>): it lands where opens land, never their keys or a reader they type in",
     replay: "safe", confirms: true, places: ["detail", "new-detail", "float"], says: r => `opened a note${r.reader ? ` in ${r.reader}` : ""}`,
-    args: { id: { type: "string", about: "the block id" }, from: { type: "string", optional: true, about: "open it as this tile's opens go (its link): the tile a program runs in" }, fresh: { type: "boolean", optional: true, about: "with from=: a new tile where its opens land (alt+⏎)" }, fragment: { type: "string", optional: true, about: "a fragment of the note (^anchor or heading id): the reader scrolls to it and marks it" } },
-    async run({ id, from, fresh, fragment }, ctx, actor) {
+    args: { id: { type: "string", optional: true, about: "the block id (or file=)" }, from: { type: "string", optional: true, about: "open it as this tile's opens go (its link): the tile a program runs in" }, fresh: { type: "boolean", optional: true, about: "with from=: a new tile where its opens land (alt+⏎)" }, fragment: { type: "string", optional: true, about: "a fragment of the note (^anchor or heading id): the reader scrolls to it and marks it" },
+      file: { type: "string", optional: true, about: "a file on this machine (an absolute path) in place of id: Markdown drawn as a preview draws it, any other file through the file Resource reader (PIE-602)" },
+      diff: { type: "boolean", optional: true, about: "with file=: its changes (git's diff against its last commit, else against=)" },
+      against: { type: "string", optional: true, about: "with file= diff=true: a copy of the file from before the change, for a file outside git" } },
+    async run({ id, from, fresh, fragment, file, diff, against }, ctx, actor) {
+      // A file lands where an agent's open lands (`ep0ch open file:<path>`): it is no block, so it has no tile's link to follow.
+      if (file !== undefined) {
+        const board = ctx.d.ctx?.board;
+        if (!board) throw new ActionRefused("there's no outline open to read a file through yet");
+        return ctx.d.landNote(await fileOpenNote(board, file, { diff: diff === true, ...(against ? { against } : {}) }, actor), actor);
+      }
+      if (id === undefined) throw new ActionRefused("open needs id=<block id> or file=<absolute path>");
       const r = await openNote({ id, from, fresh }, ctx, actor);
       if (fragment) ctx.d.revealIn(r.reader, fragment, actor);
       return fragment ? { ...r, fragment } : r;

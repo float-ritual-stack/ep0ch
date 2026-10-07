@@ -111,10 +111,11 @@ ${VIEW_USAGE}
 ${EXPORT_USAGE}
   ep0ch clients [--ws <name>] [--machine <ssh-name>]
                                    who is connected to the service, every role (observers too)
-  ep0ch peek | actions | snap <png> | open <id|ep0ch://outline@machine/b/id> [--json] | act <action> [key=value ...]
+  ep0ch peek | actions | snap <png> | open <id|ep0ch://outline@machine/b/id|file:/path> [--json] | act <action> [key=value ...]
                                    drive a running door; EP0CH_CONTROL names which one, else the one on
                                    this folder's outline, else the only one running. open <id> is
-                                   act open id=<id>; a URI names its outline and machine first; --as <id> (or EP0CH_AGENT) names the agent
+                                   act open id=<id>; a URI names its outline and machine first; open file:<path>
+                                   [diff=true] shows a file (or its git diff) where opens land; --as <id> (or EP0CH_AGENT) names the agent
   ep0ch where [--json]             where this runs: the stack of layers (EP0CH_NEST: ssh, Herdr, door, tile), each
                                    checked (the door's pid and control socket, the Herdr pane, the tile), and where
                                    the person's keys are. Read-only; "not in a door" outside one

@@ -24,7 +24,12 @@ import {
 } from './references'
 import { actorOf, DOOR_TOOLS, doorActArgv, OUTLINE_TOOLS, peekOf } from './outline-tools'
 import { WORK_TOOLS, withOptions } from './work-tools'
+import { projectOf, touchInputOf, touchOf } from './file-touches'
 import {
+  FILE_DIFF_REF,
+  FILE_REF,
+  FILE_TOOLS,
+  fileRowOf,
   idsToTitle,
   READ_TOOLS,
   TOOL_PREFIX,
@@ -240,6 +245,7 @@ export function register(on: On, options: PluginOptions): void {
 
   on('session.start', async ($, e, next) => {
     const result = await next(e)
+    if (typeof e.cwd === 'string' && e.cwd) sessionCwd = e.cwd
     // A session start (or the module's reload) starts mentions again: the command, the kept choices, the list.
     mentionsStarting = undefined
     $.clock.after(0, () => void startMentionsOnce($, option))
@@ -415,8 +421,9 @@ export function register(on: On, options: PluginOptions): void {
 
   // The mod's own tool calls as compact rows that fold open on what they wrote (hooks/tool-rows.ts). Anything the
   // formatter doesn't recognise, a drawing that throws, or the person's `/tool-rows off` leaves the engine's row.
-  for (const name of [...WRITE_TOOLS, ...READ_TOOLS]) {
-    on('ui.render', { component: 'ToolUse', props: { tool: `${TOOL_PREFIX}${name}` } }, async ($, e, next) => {
+  // Claude Code's Edit and Write rows too (PIE-602): the file, the lines added and removed, pressed it opens in the door.
+  for (const tool of [...[...WRITE_TOOLS, ...READ_TOOLS].map(name => `${TOOL_PREFIX}${name}`), ...FILE_TOOLS]) {
+    on('ui.render', { component: 'ToolUse', props: { tool } }, async ($, e, next) => {
       try {
         const open = { ...TOOL_ROW_OPEN, id: e.props.tool_use_id }
         const [prefs, expanded, titles] = await Promise.all([
@@ -428,7 +435,7 @@ export function register(on: On, options: PluginOptions): void {
           drawnToolRows.delete(e.props.tool_use_id)
           return next(e)
         }
-        const row = toolRowOf(e.props, id => titles.get(id))
+        const row = (FILE_TOOLS as readonly string[]).includes(tool) ? fileRowOf(e.props, sessionCwd ?? undefined) : toolRowOf(e.props, id => titles.get(id))
         if (!row) {
           drawnToolRows.delete(e.props.tool_use_id)
           return next(e)
@@ -447,7 +454,7 @@ export function register(on: On, options: PluginOptions): void {
       }
     })
     // The row already says what happened: the result is one line (`✓ rev 2`), or nothing for a read. Errors in full.
-    on('ui.render', { component: 'ToolResult', props: { tool: `${TOOL_PREFIX}${name}` } }, async ($, e, next) => {
+    on('ui.render', { component: 'ToolResult', props: { tool } }, async ($, e, next) => {
       try {
         // Only under a row the mod drew: where the call's row is the engine's, so is its result.
         if (!toolRowsPrefsOf((await $.state.get(TOOL_ROWS_PREFS)).value).enabled || !drawnToolRows.has(e.props.tool_use_id)) return next(e)
@@ -460,6 +467,19 @@ export function register(on: On, options: PluginOptions): void {
       }
     })
   }
+
+  // Each file an Edit or Write changed, recorded in the session's outline after the call ran (PIE-602): off the call, so
+  // the tool's answer never waits for the outline, and one at a time, so a file's touches count up in order.
+  on('tool.call', { tool: 'Edit' }, async ($, e, next) => {
+    const result = await next(e)
+    queueTouch($, option, e, result)
+    return result
+  })
+  on('tool.call', { tool: 'Write' }, async ($, e, next) => {
+    const result = await next(e)
+    queueTouch($, option, e, result)
+    return result
+  })
 
   on('command.run', { command: TOOL_ROWS_COMMAND }, async ($, e) => {
     const chosen = toolRowsCommandOf(e.args)
@@ -1373,8 +1393,85 @@ async function toolTitlesOf($: EngineInterface, view: { tool: string; input: unk
   return titles
 }
 
+/** After an Edit or Write answered: its touch queued for the outline, unless it was denied or failed. Never throws. */
+function queueTouch($: EngineInterface, option: PluginOptions, e: { tool: string }, result: { deny?: string; isError?: boolean; result?: unknown }): void {
+  try {
+    if (result.deny || result.isError) return
+    const touch = touchOf(e.tool, e, result.result)
+    if (touch) touchQueue = touchQueue.then(() => recordTouch($, option, touch)).catch(() => {})
+  } catch { /* the call's answer is never touched */ }
+}
+
+/** The touches waiting to be recorded, one after another. */
+let touchQueue: Promise<void> = Promise.resolve()
+/** Files this session has recorded once: the copy from before is sent with the first touch only. */
+const touchedFiles = new Set<string>()
+/** The snapshot a touch block names, by file: what `diff` compares a file outside git with. */
+const snapshots = new Map<string, string>()
+/** The git top level of each folder asked about ('' for none): one `git rev-parse` per folder a session. */
+const toplevels = new Map<string, string>()
+/** The session's folder, as its rows name files relative to it. */
+let sessionCwd: string | null = null
+
+/**
+ * Records one touch in the session's outline: `agent touch-file` through the installed CLI, as this session. Only in
+ * a folder bound to an outline; a failure is said once a session, never thrown into the call.
+ */
+async function recordTouch($: EngineInterface, option: PluginOptions, touch: ReturnType<typeof touchOf> & {}): Promise<void> {
+  if (!references) await loadReferences($, option)
+  const workspace = references?.workspace
+  if (!workspace) return
+  const cwd = sessionCwd ?? (sessionCwd = await $.session.cwd())
+  const dir = touch.path.slice(0, touch.path.lastIndexOf('/')) || '/'
+  let top = toplevels.get(dir)
+  if (top === undefined) {
+    const ran = await $.process.run(['git', '-C', dir, 'rev-parse', '--show-toplevel'], { timeoutMs: 5000 }).catch(() => null)
+    top = ran?.exitCode === 0 ? ran.stdout.trim() : ''
+    toplevels.set(dir, top)
+  }
+  const first = !touchedFiles.has(touch.path)
+  const input = touchInputOf(first ? touch : { ...touch, original: undefined }, projectOf(touch.path, top || null, cwd), await $.session.id(), await $.clock.now())
+  if (!first) delete input.original
+  try {
+    const out = JSON.parse(await runOutlinerCli($, workspace, ['agent', 'touch-file', '--stdin', '--actor', await actorFor($, {})], JSON.stringify(input)))
+    touchedFiles.add(touch.path)
+    if (typeof out?.snapshot === 'string') snapshots.set(touch.path, out.snapshot)
+  } catch (error) {
+    if (!touchFailed) $.ui.toast(`Files this session edits aren't being recorded in the outline: ${error instanceof Error ? error.message : String(error)}`, { timeoutMs: 8000 })
+    touchFailed = true
+  }
+}
+let touchFailed = false
+
+/**
+ * A file row pressed (PIE-602): the file, or its diff (`#diff`), opened in the door this Claude runs in, as an agent's
+ * open lands (`ep0ch open file:<path>`). Outside a door there is no reader of files to open it in: the path is copied,
+ * and the toast says so.
+ */
+async function openFileTarget($: EngineInterface, ref: string, surface: RenderSurface): Promise<void> {
+  const diff = ref.startsWith(FILE_DIFF_REF)
+  const path = ref.slice(diff ? FILE_DIFF_REF.length : FILE_REF.length)
+  const control = (await routeEnvOf($)).EP0CH_CONTROL
+  const name = path.split('/').pop() || path
+  if (!control) {
+    let copied = false
+    try { copied = (await $.ui.copy({ text: path, surface })).isCopied } catch { copied = false }
+    $.ui.toast(`${name}${diff ? "'s diff" : ''} opens in an ep0ch door, and this Claude isn't in one${copied ? ` · copied ${path}` : ` · ${path}`}`, { timeoutMs: 8000 })
+    return
+  }
+  const against = diff ? snapshots.get(path) : undefined
+  const argv = ['ep0ch', 'open', `${FILE_REF}${path}`, ...(diff ? ['diff=true'] : []), ...(against ? [`against=${against}`] : []), '--as', await actorFor($, {}), '--json']
+  const ran = await $.process.run(argv, { env: { EP0CH_CONTROL: control }, timeoutMs: 15_000 }).catch((error: unknown) => ({ exitCode: 1, stdout: '', stderr: String(error) }))
+  let answer: { opened?: boolean; reason?: string } | null = null
+  try { answer = JSON.parse(ran.stdout) } catch { answer = null }
+  if (ran.exitCode !== 0 || answer?.opened === false) {
+    $.ui.toast(`Could not open ${name}${diff ? "'s diff" : ''} in the door: ${answer?.reason ?? (failureReasonOf(ran.stderr) || 'no answer')}`, { timeoutMs: 8000 })
+  }
+}
+
 /** A tool row's target pressed: opened by `openNote`, as a reference in a reply is. */
 async function openToolTarget($: EngineInterface, ref: string, surface: RenderSurface): Promise<void> {
+  if (ref.startsWith(FILE_REF) || ref.startsWith(FILE_DIFF_REF)) return openFileTarget($, ref, surface)
   const uri = outlinerUriFor(ref)
   const workspace = references?.workspace
   if (!uri) return

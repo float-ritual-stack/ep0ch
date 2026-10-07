@@ -51,6 +51,7 @@ itself).
 | `{"cmd":"actions"}` | every action the current screen takes, with its arguments and keys | `ep0ch actions` |
 | `{"cmd":"act","action":"…","args":{…},"tile":"<tile>","as":"<actor id>"}` | the action's result | `ep0ch act <action> k=v … tile=<tile> [--as id]` (`--tile` works too) |
 | `{"cmd":"act","action":"open","args":{"id":"<block>","from":"<tile>"},"as":"<actor id>"}` | puts a block in front of the person (the `open` action: there is one way) | `ep0ch open <id> [from=<tile>] [--as id]` (`act open id=<id>`) |
+| `{"cmd":"act","action":"open","args":{"file":"<absolute path>","diff":true},"as":"<actor id>"}` | a file on this machine where an agent's open lands (PIE-602): Markdown drawn as the preview draws a file, any other file through the file Resource reader, `diff=true` its changes (git's diff against its last commit, else against `against=<copy>`) | `ep0ch open file:<path> [diff=true] [against=<copy>] [--as id]` |
 | `{"cmd":"subscribe","types":["focus.changed",…]}` | the live feed on this connection (below) | `ep0ch subscribe [types]` |
 
 ## Where am I: `EP0CH_NEST` and `ep0ch where`
