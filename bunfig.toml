@@ -1,0 +1,4 @@
+[test]
+# `bun test packages/<pkg>/test/…` from here runs the packages' own preloads (scripts/test-preload.ts), as `bun test`
+# in a package does: Bun reads only the bunfig.toml of the folder it starts in.
+preload = ["./scripts/test-preload.ts"]
