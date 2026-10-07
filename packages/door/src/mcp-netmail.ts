@@ -15,11 +15,16 @@
 //           other text) becomes a proposal under the note: a conflict note, never an overwrite. A new block and a
 //           comment don't conflict; a comment whose passage changed lands on the whole note, quoting it.
 //
-// The home machine keeps a ledger of the entries it applied (`<state>/backup/netmail-applied.json`) until the hub has
-// heard what they became, so a pull cut off between applying and settling never applies one twice.
+// The home machine keeps a ledger (`<state>/backup/netmail-applied.json`): an entry is marked `applying` before its
+// write and given its result after, and stays until the hub has heard what it became. A pull cut off after applying
+// tells the hub again without applying anything twice. One cut off mid-write (a crash, a dropped socket) is tried
+// again as an ordinary write would be: a comment carries the entry's id as its request id (the host returns the one it
+// already made), a new block already under its parent with that text is taken as made, and a patch that landed meets
+// the note's new revision and becomes a proposal, never a second change. A failure the service didn't answer (a
+// timeout, a closed socket) leaves the entry waiting; only the service's own refusal settles it as refused.
 import { Database } from "bun:sqlite";
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { formatEp0chBlockUri } from "@ep0ch/outline-core/addressable-resource";
@@ -27,7 +32,7 @@ import type { McpAccessLevel } from "@ep0ch/outline-core/protocol";
 import { configFileOf, parseEnvFile, type Env } from "./backup/config";
 import { applyWrite, isWriteTool, type McpWrite, type McpWriteTool, type WriteOutcome } from "./mcp-writes";
 import { boardFor, type NotesBoard } from "./notes-cli";
-import { writeState } from "./state";
+import { Refused } from "./socket";
 
 /** A queued write, as the hub keeps it and the home machine takes it. */
 export interface NetmailEntry {
@@ -78,9 +83,13 @@ export class Netmail {
     mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
     this.db = new Database(path, { create: true });
     this.db.exec("PRAGMA busy_timeout = 5000; PRAGMA journal_mode = WAL;");
-    const version = (this.db.query("PRAGMA user_version").get() as { user_version: number }).user_version;
-    if (version === 0) {
-      this.db.exec(`
+    // The version read and the schema made in one write transaction: two first opens (the gateway and a pull's
+    // `queue take`) can't both make it, and a crash part way leaves nothing half made.
+    this.db.exec("BEGIN IMMEDIATE");
+    let version: number;
+    try {
+      version = (this.db.query("PRAGMA user_version").get() as { user_version: number }).user_version;
+      if (version === 0) this.db.exec(`
         CREATE TABLE entries (
           id TEXT PRIMARY KEY, machine TEXT NOT NULL, outline TEXT NOT NULL, uri TEXT NOT NULL, block_id TEXT NOT NULL,
           tool TEXT NOT NULL, input TEXT NOT NULL, revision INTEGER, mirror_revision INTEGER, text_hash TEXT, instance_id TEXT,
@@ -90,7 +99,9 @@ export class Netmail {
         CREATE INDEX entries_waiting ON entries (machine, state, queued_at);
         CREATE TABLE pulls (machine TEXT PRIMARY KEY, at TEXT NOT NULL);
         PRAGMA user_version = ${SCHEMA_VERSION};`);
-    } else if (version !== SCHEMA_VERSION) {
+      this.db.exec("COMMIT");
+    } catch (e) { this.db.exec("ROLLBACK"); this.db.close(); throw e; }
+    if (version !== 0 && version !== SCHEMA_VERSION) {
       this.db.close();
       throw new Error(`${path} is netmail store version ${version}; this ep0ch reads version ${SCHEMA_VERSION} (move it aside once the home machines have pulled it, and the next write makes a new one)`);
     }
@@ -229,9 +240,29 @@ function lastJson(text: string): unknown {
   throw new Error(`no JSON in its answer (${JSON.stringify(text.trim().slice(0, 120))})`);
 }
 
-type Ledger = Record<string, NetmailSettled>;
+/** An entry's write begun (`applying`, its outcome unknown until it returns) or done (what it became). */
+type Ledger = Record<string, NetmailSettled | { id: string; state: "applying"; at: string }>;
 const LEDGER = "netmail-applied.json";
-const readLedger = (dir: string): Ledger => { try { return JSON.parse(readFileSync(join(dir, LEDGER), "utf8")) as Ledger; } catch { return {}; } };
+
+/** The ledger, or none yet. Anything else unreadable stops the pull: without it, a write could land twice. */
+function readLedger(dir: string): Ledger {
+  let text: string;
+  try { text = readFileSync(join(dir, LEDGER), "utf8"); } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "ENOENT") return {};
+    throw new Error(`can't read ${join(dir, LEDGER)}: ${(e as Error).message}`);
+  }
+  const ledger = JSON.parse(text) as unknown;
+  if (!ledger || typeof ledger !== "object" || Array.isArray(ledger)) throw new Error(`${join(dir, LEDGER)} isn't a ledger; move it aside once the hub's queue is checked (ssh <hub> ep0ch mcp queue status)`);
+  return ledger as Ledger;
+}
+
+/** The ledger written, or the pull stops (a temp file renamed over it, mode 600). */
+function writeLedger(dir: string, ledger: Ledger): void {
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const path = join(dir, LEDGER), tmp = `${path}.${process.pid}.tmp`;
+  writeFileSync(tmp, JSON.stringify(ledger), { mode: 0o600 });
+  renameSync(tmp, path);
+}
 
 export interface PullOptions {
   hub: string;
@@ -248,8 +279,15 @@ export interface PullOptions {
 
 export interface PullResult { ok: boolean; detail: string; taken: number; settled: NetmailSettled[] }
 
-/** Applies one queued entry to this machine's outline, as its access allows now. */
-export async function applyEntry(board: NotesBoard, e: NetmailEntry, now: () => number): Promise<NetmailSettled> {
+/** The service answered no (or the operation refused before writing): the entry is settled as refused. */
+const definitive = (e: unknown) => e instanceof Refused || (e as Error)?.name === "WorkToolRefusal" || (e as Error)?.name === "DraftPatchRefusal";
+
+/**
+ * Applies one queued entry to this machine's outline, as its access allows now; null when the outcome is unknown (the
+ * service didn't answer), so it waits for the next pull. `retry`: a write begun before and cut off, whose block may
+ * already be made.
+ */
+export async function applyEntry(board: NotesBoard, e: NetmailEntry, now: () => number, retry = false): Promise<NetmailSettled | null> {
   const at = () => new Date(now()).toISOString();
   const refused = (said: string): NetmailSettled => ({ id: e.id, state: "refused", said, uri: e.uri, at: at() });
   if (!isWriteTool(e.tool)) return refused(`${e.tool} isn't a write this machine knows`);
@@ -257,7 +295,13 @@ export async function applyEntry(board: NotesBoard, e: NetmailEntry, now: () => 
   if (level !== "propose" && level !== "full") return refused(`MCP access for ${e.outline} is ${level} here now, so the write queued at ${e.queuedAt} was dropped`);
   const info = await board.info();
   const uri = (blockId: string) => formatEp0chBlockUri({ ...board.address, blockId });
-  const write: McpWrite = { tool: e.tool, blockId: e.blockId, input: e.input, ...(e.revision !== null ? { revision: e.revision } : {}) };
+  // A comment carries the entry's id as its request id: tried again, the host returns the one it made.
+  const input = e.tool === "outline_comment" && !e.input.requestId ? { ...e.input, requestId: `netmail:${e.id}` } : e.input;
+  const write: McpWrite = { tool: e.tool, blockId: e.blockId, input, ...(e.revision !== null ? { revision: e.revision } : {}) };
+  if (retry && e.tool === "outline_create") {
+    const made = (await board.children(e.blockId)).find(c => c.text === e.input.text && c.author === e.actorId);
+    if (made) return { id: e.id, state: "applied", said: `created ${uri(made.id)} under ${e.uri} (found made by a pull cut off before; queued ${e.queuedAt})`, uri: uri(made.id), at: at() };
+  }
   // Whether the note is still what the mirror showed: the same database at the same revision, or (a database replaced
   // since, whose revisions mean nothing here) the same text, read at the caller's revision. Anything else is proposed.
   let revision: number | undefined, proposeOnly = false;
@@ -275,13 +319,15 @@ export async function applyEntry(board: NotesBoard, e: NetmailEntry, now: () => 
     const done: WriteOutcome = await applyWrite(board, write, { level: effective, actor: { actorId: e.actorId, sessionId: e.subject }, uri, proposeOnly, ...(revision !== undefined ? { revision } : {}), queued: { at: e.queuedAt } });
     return { id: e.id, state: done.outcome, said: `${done.said} (queued ${e.queuedAt})`, ...(done.uri ? { uri: done.uri } : {}), at: at() };
   } catch (err) {
-    return refused(`refused here: ${(err as Error).message}`);
+    if (definitive(err)) return refused(`refused here: ${(err as Error).message}`);
+    return null;
   }
 }
 
 /** One pull: take this machine's entries from the hub, apply each, settle them there. */
 export async function pullNetmail(o: PullOptions): Promise<PullResult> {
   const now = o.now ?? Date.now, say = o.say ?? (() => {});
+  if (!MACHINE.test(o.machine)) return { ok: false, detail: `${JSON.stringify(o.machine)} isn't a machine name (EP0CH_BACKUP_MACHINE)`, taken: 0, settled: [] };
   const took = await ssh(o.env, o.hub, `ep0ch mcp queue take --machine ${o.machine} --json`);
   if (took.code !== 0) {
     const why = took.code === 255 ? `${o.hub} doesn't answer over ssh` : took.code === 127 || /not found/.test(took.err) ? `${o.hub} has no ep0ch on a login shell's PATH` : `ep0ch mcp queue take on ${o.hub} failed (${took.code}): ${took.err.trim().split("\n").at(-1)}`;
@@ -290,36 +336,45 @@ export async function pullNetmail(o: PullOptions): Promise<PullResult> {
   let entries: NetmailEntry[];
   try { entries = (lastJson(took.out) as { entries: NetmailEntry[] }).entries; if (!Array.isArray(entries)) throw new Error("no entries list"); }
   catch (e) { return { ok: false, detail: `${o.hub}'s queue answered oddly: ${(e as Error).message}`, taken: 0, settled: [] }; }
-  const ledger = readLedger(o.state);
+  let ledger: Ledger;
+  try { ledger = readLedger(o.state); } catch (e) { return { ok: false, detail: (e as Error).message, taken: entries.length, settled: [] }; }
   if (!entries.length && !Object.keys(ledger).length) return { ok: true, detail: `nothing queued on ${o.hub}`, taken: 0, settled: [] };
   const open = o.open ?? (name => boardFor(["--ws", name, "--here"]));
   const boards = new Map<string, NotesBoard | { error: string }>();
   const results: NetmailSettled[] = [];
+  let waiting = 0;
   try {
     for (const e of entries) {
-      if (ledger[e.id]) { results.push(ledger[e.id]!); continue; }
+      const had = ledger[e.id];
+      if (had && had.state !== "applying") { results.push(had); continue; }
       let board = boards.get(e.outline);
       if (!board) boards.set(e.outline, board = await open(e.outline));
       // An outline that isn't open here now waits for the next pull; it isn't settled.
-      if ("error" in board) { say(`netmail: ${e.outline} isn't open here (${board.error}); its writes wait`); continue; }
-      const r = await applyEntry(board, e, now);
+      if ("error" in board) { say(`netmail: ${e.outline} isn't open here (${board.error}); its writes wait`); waiting++; continue; }
+      ledger[e.id] = { id: e.id, state: "applying", at: new Date(now()).toISOString() };
+      writeLedger(o.state, ledger);
+      const r = await applyEntry(board, e, now, !!had).catch(() => null);
+      // Unknown (the service didn't answer): it stays `applying`, and the next pull tries it again.
+      if (!r) { say(`netmail ${e.outline}: ${e.id} got no answer; it waits for the next pull`); waiting++; continue; }
       ledger[e.id] = r;
-      writeState(LEDGER, ledger, o.state);
+      writeLedger(o.state, ledger);
       results.push(r);
       say(`netmail ${e.outline}: ${r.state} · ${r.said}`);
     }
+  } catch (e) {
+    return { ok: false, detail: `the pull stopped: ${(e as Error).message}`, taken: entries.length, settled: [] };
   } finally { for (const b of boards.values()) if (!("error" in b)) b.close(); }
   // Entries the ledger holds that the hub no longer lists were settled by an earlier pull whose answer was lost.
   const listed = new Set(entries.map(e => e.id));
   for (const id of Object.keys(ledger)) if (!listed.has(id)) delete ledger[id];
-  if (!results.length) { writeState(LEDGER, ledger, o.state); return { ok: true, detail: `${entries.length} queued on ${o.hub}, none applied here yet`, taken: entries.length, settled: [] }; }
+  if (!results.length) { writeLedger(o.state, ledger); return { ok: true, detail: `${entries.length} queued on ${o.hub}, none applied here yet`, taken: entries.length, settled: [] }; }
   const settled = await ssh(o.env, o.hub, `ep0ch mcp queue settle --machine ${o.machine}`, JSON.stringify({ results }));
   if (settled.code !== 0) {
-    writeState(LEDGER, ledger, o.state);
+    writeLedger(o.state, ledger);
     return { ok: false, detail: `applied ${results.length}, but ${o.hub} didn't take what they became (${settled.code}); the next pull tells it again`, taken: entries.length, settled: results };
   }
   for (const r of results) delete ledger[r.id];
-  writeState(LEDGER, ledger, o.state);
+  writeLedger(o.state, ledger);
   const counts = (["applied", "proposed", "unchanged", "refused"] as const).map(s => [s, results.filter(r => r.state === s).length] as const).filter(([, n]) => n).map(([s, n]) => `${n} ${s}`).join(", ");
-  return { ok: true, detail: `${results.length} from ${o.hub}: ${counts}`, taken: entries.length, settled: results };
+  return { ok: true, detail: `${results.length} from ${o.hub}: ${counts}${waiting ? `; ${waiting} wait for the next pull` : ""}`, taken: entries.length, settled: results };
 }

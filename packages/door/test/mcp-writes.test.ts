@@ -191,7 +191,8 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
     const q3 = await tool("outline_create", { uri: trunk, text: "A brass compass" });
     const q4 = await tool("outline_patch", { uri: lamps, revision: lampsRead.revision, patches: [{ observed: "one cracked", replacement: "both mended" }] });
     expect([q2, q3, q4].map(q => q.json.outcome)).toEqual(["queued", "queued", "queued"]);
-    // The mirror is never written; the far box's outline hasn't changed.
+    // The mirror is never written: it still serves the note as it was. Nor, yet, is the far box's outline.
+    expect((await tool("outline_read", { uri: trunk })).json.record.body).toContain("Old maps of the canal");
     expect((await textOf(far, "attic-notes", FAR, ids.trunk!)).text).toContain("Old maps of the canal");
     const listed = (await tool("list_outlines", {})).json.outlines as { outline: string; queue?: { waiting: number } }[];
     expect(listed.find(o => o.outline === "attic-notes")!.queue!.waiting).toBe(4);
@@ -246,17 +247,40 @@ describe.skipIf(!outliner)("the gateway's writes: applied here, queued for a far
 
   test("access narrowed on the far box since: a full write queued earlier lands as a proposal; none drops it", async () => {
     const lamps = formatEp0chBlockUri({ outline: "attic-notes", machine: FAR, blockId: ids.lamps! });
-    const r = await textOf(far, "attic-notes", FAR, ids.lamps!);
-    expect((await tool("outline_set_property", { uri: lamps, key: "checked", value: "yes", revision: r.revision })).json.outcome).toBe("queued");
+    expect((await tool("outline_create", { uri: lamps, text: "A box of matches" })).json.outcome).toBe("queued");
     await boardOn(far, "attic-notes", FAR).configureMcpAccess("propose");
     const narrowed = await pull();
-    expect(narrowed.settled.map(s => s.state)).toEqual(["proposed"]);
-    expect((await textOf(far, "attic-notes", FAR, ids.lamps!)).text).not.toContain("checked::");
+    expect(narrowed.settled).toMatchObject([{ state: "proposed", said: expect.stringContaining("proposed as a comment") }]);
+    const kids = await boardOn(far, "attic-notes", FAR).request<{ text: string }[]>("children", { parentId: ids.lamps });
+    expect(kids.some(k => k.text === "A box of matches")).toBe(false);
     expect((await tool("outline_comment", { uri: lamps, whole: true, body: "Order wicks" })).json.outcome).toBe("queued");
     await boardOn(far, "attic-notes", FAR).configureMcpAccess("none");
     const dropped = await pull();
     expect(dropped.settled).toMatchObject([{ state: "refused", said: expect.stringContaining("MCP access for attic-notes is none here now") }]);
     await boardOn(far, "attic-notes", FAR).configureMcpAccess("full");
+  }, 60_000);
+
+  test("a write cut off mid-pull is tried again without landing twice; no answer keeps it waiting; a bad ledger stops the pull", async () => {
+    const lamps = formatEp0chBlockUri({ outline: "attic-notes", machine: FAR, blockId: ids.lamps! });
+    const q = (await tool("outline_create", { uri: lamps, text: "A tin of lamp oil" })).json;
+    // A pull that made the block and stopped before its ledger heard: the ledger says applying, the block is there.
+    await boardOn(far, "attic-notes", FAR).request("create", { parentId: ids.lamps, text: "A tin of lamp oil", author: "agent", provenance: { actorId: "mcp:chat.example.test" } });
+    const state = join(dir, "far-state");
+    writeFileSync(join(state, "netmail-applied.json"), JSON.stringify({ [q.id]: { id: q.id, state: "applying", at: "2026-03-14T09:00:00.000Z" } }));
+    const retried = await pull();
+    expect(retried.settled).toMatchObject([{ state: "applied", said: expect.stringContaining("found made by a pull cut off before") }]);
+    const kids = await boardOn(far, "attic-notes", FAR).request<{ text: string }[]>("children", { parentId: ids.lamps });
+    expect(kids.filter(k => k.text === "A tin of lamp oil")).toHaveLength(1);
+
+    // The far box's host doesn't answer: nothing is settled, the write waits.
+    expect((await tool("outline_comment", { uri: lamps, whole: true, body: "Trim the wicks" })).json.outcome).toBe("queued");
+    const gone = await pullNetmail({ hub: "hub-box", machine: FAR, state, env, open: async outline => Object.assign(new SocketBoard(join(dir, "no-such.sock"), 2000, outline), { address: { outline, machine: FAR } }) });
+    expect(gone).toMatchObject({ ok: true, settled: [], detail: expect.stringContaining("none applied here yet") });
+    // A ledger that can't be read stops the pull before anything is applied.
+    writeFileSync(join(state, "netmail-applied.json"), "[not a ledger");
+    expect(await pull()).toMatchObject({ ok: false, settled: [] });
+    rmSync(join(state, "netmail-applied.json"));
+    expect((await pull()).settled.map(s => s.state)).toEqual(["applied"]);
   }, 60_000);
 
   test("the hub's backup job reads the queues, and a queue waiting a day while its machine was online is an incident", () => {
