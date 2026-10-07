@@ -13,7 +13,8 @@
 #
 # --test: at most EP0CH_TEST_SLOTS runs at once on this machine (default 2), each in a systemd user scope with
 # CPUQuota=EP0CH_TEST_CPU (default 200%) and MemoryMax=EP0CH_TEST_MEM (default 3G). Whatever the run leaves
-# behind (a test door's shell, a scratch host) is stopped with its scope when it ends. Without systemd it is only
+# behind (a test door's shell, a scratch host) is stopped with its scope when it ends. Every run, --test or not, has
+# oom_score_adj 1000: when memory runs out, it goes before the person's outline host and door. Without systemd it is only
 # queued (it says so). The exit code is the command's. Full suites belong in a boxd box: scripts/box-test.
 set -euo pipefail
 
@@ -51,7 +52,10 @@ if [ "$mode" = print ]; then
 fi
 [ $# -ge 1 ] || usage
 
-run=("$here/packages/door/scripts/test-door-env.sh" "${settings[@]}" "$@")
+# Everything run here is the first thing the kernel kills when the machine runs out of memory, never the outline host:
+# oom_score_adj 1000, inherited by all it starts. Raising it needs no privilege (a user unit can't lower the host's,
+# and a scope takes no OOMScoreAdjust); a system without /proc goes on without it.
+run=(sh -c 'echo 1000 > /proc/self/oom_score_adj 2>/dev/null; exec "$@"' agent-env "$here/packages/door/scripts/test-door-env.sh" "${settings[@]}" "$@")
 [ "$test" = 1 ] || exec "${run[@]}"
 
 # A test slot: the first free one of EP0CH_TEST_SLOTS, held (an open, locked file) until the run ends.
