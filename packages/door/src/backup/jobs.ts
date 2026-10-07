@@ -207,6 +207,13 @@ export async function mirror(c: BackupConfig, s: BackupState, o: { now?: () => n
     const list = await snapshots(c, c.repoOf(src.machine));
     const keys = Object.keys(s.mirrors).filter(k => k.startsWith(`${src.machine}/`));
     const source = (s.sources ??= {})[src.machine] ??= {};
+    if ("error" in list && list.code === NO_REPO) {
+      // Not set up there yet: nothing to mirror, and nothing wrong here (doctor says how to set it up).
+      source.missing = true; delete source.failingSince; delete source.error;
+      say(`${src.machine} has no backups yet (${c.repoOf(src.machine)}): on ${src.machine}, EP0CH_BACKUP_MACHINE=${src.machine} ep0ch install --apply`);
+      continue;
+    }
+    delete source.missing;
     if ("error" in list) {
       // Unreadable: nothing is known about its mirrors' freshness; that lasting is an incident of its own.
       for (const k of keys) s.mirrors[k]!.error = list.error;
@@ -317,14 +324,32 @@ export async function watch(c: BackupConfig, s: BackupState, o: { now?: () => nu
   return alert;
 }
 
+/** Whether with-secrets has this group (its names only are listed, never values). */
+export function hasSecretsGroup(c: BackupConfig, group: string): boolean {
+  try {
+    const r = Bun.spawnSync(["with-secrets", "--list"], { stdout: "pipe", stderr: "ignore", env: c.env as Record<string, string> });
+    return r.exitCode === 0 && new RegExp(`^${group}\\s`, "m").test(r.stdout.toString());
+  } catch { return false; }
+}
+
+/**
+ * The dead-man's ping (a secrets group `heartbeat` with HEARTBEAT_URL, a healthchecks.io-style check): after a run that
+ * found nothing wrong, so a job that stops running, or keeps failing, is noticed somewhere other than this machine.
+ * The request is made inside the process with-secrets started: the URL is never in an argv.
+ */
+export async function heartbeat(c: BackupConfig): Promise<void> {
+  if (!hasSecretsGroup(c, "heartbeat")) return;
+  const ping = 'await fetch(process.env.HEARTBEAT_URL, { signal: AbortSignal.timeout(20000) })';
+  try { await Bun.spawn(["with-secrets", "heartbeat", "--", process.execPath, "-e", ping], { stdout: "ignore", stderr: "ignore", env: c.env as Record<string, string> }).exited; } catch { /* the next run pings */ }
+}
+
 /** One push per new incident: Herdr's notification here, and ntfy when a secrets group `ntfy` (NTFY_URL) exists. */
 export async function announceAll(c: BackupConfig, list: Incident[]): Promise<void> {
   for (const i of list) {
     const body = `${i.detail}\nfix: ${i.fix}`;
     const quiet = { stdout: "ignore", stderr: "ignore", env: c.env as Record<string, string> } as const;
     try { await Bun.spawn(["herdr", "notification", "show", i.title, "--body", body, "--sound", "request"], quiet).exited; } catch { /* no Herdr here */ }
-    const groups = Bun.spawnSync(["with-secrets", "--list"], { stdout: "pipe", stderr: "ignore", env: c.env as Record<string, string> });
-    if (groups.exitCode === 0 && /^ntfy\s/m.test(groups.stdout.toString())) {
+    if (hasSecretsGroup(c, "ntfy")) {
       // The request is made inside the process with-secrets started, so the topic's URL is never in an argv.
       const push = 'await fetch(process.env.NTFY_URL, { method: "POST", headers: { Title: process.argv[1], Tags: "floppy_disk" }, body: process.argv[2], signal: AbortSignal.timeout(20000) })';
       try { await Bun.spawn(["with-secrets", "ntfy", "--", process.execPath, "-e", push, i.title, body], quiet).exited; }
@@ -334,7 +359,7 @@ export async function announceAll(c: BackupConfig, list: Incident[]): Promise<vo
 }
 
 /** The whole job, as the timer runs it: one at a time (a lock in the state folder). */
-export async function runAll(c: BackupConfig, o: { now?: () => number; say?: Say; drill?: boolean; announce?: (i: Incident[]) => Promise<void>; follower?: typeof followerRuns } = {}): Promise<{ ok: boolean; alert: Alert }> {
+export async function runAll(c: BackupConfig, o: { now?: () => number; say?: Say; drill?: boolean; announce?: (i: Incident[]) => Promise<void>; follower?: typeof followerRuns; heartbeat?: (c: BackupConfig) => Promise<void> } = {}): Promise<{ ok: boolean; alert: Alert }> {
   const now = o.now ?? Date.now, say = o.say ?? (() => {});
   const release = takeLock(c);
   if (typeof release === "string") {
@@ -359,6 +384,7 @@ export async function runAll(c: BackupConfig, o: { now?: () => number; say?: Say
     writeBackupState(c.state, s);
     const alert = await watch(c, s, { now, announce: o.announce });
     if (alert.incidents.length) for (const i of alert.incidents) say(`! ${i.title}: ${i.detail} · fix: ${i.fix}`);
+    else if (ok) await (o.heartbeat ?? heartbeat)(c);
     return { ok, alert };
   } finally { release(); }
 }

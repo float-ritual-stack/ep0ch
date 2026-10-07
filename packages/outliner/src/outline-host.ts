@@ -22,6 +22,7 @@ import {
 } from "./types";
 import { probeSocket } from "./socket-probe";
 import { acquireLockFile, acquireWorkspaceOwnership, ownerLockOf } from "./workspace-ownership";
+import { metaDir, withLitestreamPaused } from "./litestream-guard";
 
 /*
  * The outline host (PIE-457, PIE-530): one process per user and machine, one socket, any number of outlines, like
@@ -258,9 +259,24 @@ export class OutlineHost {
     return database;
   }
 
-  /** Removes what a failed create or import made: the claimed file and its SQLite side files. Never the lock file. */
-  private unclaim(name: string): void {
-    for (const suffix of ["", "-wal", "-shm"]) rmSync(`${this.layout.database(name)}${suffix}`, { force: true });
+  /**
+   * Removes what a failed create or import made: the claimed file and its SQLite side files, with Litestream paused
+   * (litestream-guard.ts: its meta folder kept). Never the lock file.
+   */
+  private async unclaim(name: string): Promise<void> {
+    const database = this.layout.database(name);
+    await withLitestreamPaused([database], `removing the half-made outline ${name}`, () => {
+      for (const suffix of ["", "-wal", "-shm"]) rmSync(`${database}${suffix}`, { force: true });
+    });
+  }
+
+  /**
+   * A change that makes `name`'s file again where one was before (Litestream's meta folder for it is still there, from
+   * an outline deleted under that name): made with Litestream paused. A name never used is made as it is.
+   */
+  private remade<T>(name: string, what: string, change: () => Promise<T>): Promise<T> {
+    const database = this.layout.database(name);
+    return existsSync(metaDir(database)) ? withLitestreamPaused([database], what, change) : change();
   }
 
   /**
@@ -270,14 +286,16 @@ export class OutlineHost {
   async create(nameInput: unknown): Promise<HostedOutlineSummary> {
     const name = requireName(nameInput);
     this.refuseTaken(name);
-    this.claim(name);
-    try {
-      await this.open(name);
-    } catch (error) {
-      this.unclaim(name);
-      throw error;
-    }
-    return this.summary(name);
+    return this.remade(name, `creating the outline ${name}`, async () => {
+      this.claim(name);
+      try {
+        await this.open(name);
+      } catch (error) {
+        await this.unclaim(name);
+        throw error;
+      }
+      return this.summary(name);
+    });
   }
 
   /**
@@ -302,6 +320,12 @@ export class OutlineHost {
       if (!(error instanceof Error && error.message.startsWith("Outliner workspace is already owned"))) throw error;
       throw new Error(`${real} is in use by another outliner process; stop it before importing the database`, { cause: error });
     }
+    let started = false;
+    try { return await this.remade(name, `importing ${real} as ${name}`, () => { started = true; return this.importAs(real, name, release); }); }
+    finally { if (!started) release(); }
+  }
+
+  private async importAs(real: string, name: string, release: () => void): Promise<HostedOutlineSummary & { imported: ImportReport }> {
     let imported: ImportReport;
     this.busy.add(name);
     try {
@@ -319,7 +343,7 @@ export class OutlineHost {
     try {
       await this.open(name);
     } catch (error) {
-      this.unclaim(name);
+      await this.unclaim(name);
       throw error;
     }
     return { ...this.summary(name), imported };
@@ -381,7 +405,9 @@ export class OutlineHost {
       let release: () => void;
       try { release = acquireLockFile(lock.path, `Outline "${name}"`); }
       catch (error) { throw new Error(`${(error as Error).message}; nothing was moved: stop what holds it (\`fuser -v ${lock.path}\` says which process), then delete it again`, { cause: error }); }
-      try {
+      // With Litestream paused (litestream-guard.ts): its meta folder stays, so an outline made again under this name
+      // continues the replica's history instead of colliding with it.
+      try { return await withLitestreamPaused([database], `deleting the outline ${name}`, () => {
         const movedTo = join(this.layout.deleted, `${name}-${new Date().toISOString().replace(/[:.]/g, "-")}`);
         mkdirSync(movedTo, { recursive: true });
         for (const suffix of ["", "-wal", "-shm"]) {
@@ -390,7 +416,7 @@ export class OutlineHost {
         if (lstatOrUndefined(this.layout.folder(name))) renameSync(this.layout.folder(name), join(movedTo, name));
         for (const file of lock.files) rmSync(file, { force: true });
         return { name, movedTo };
-      } finally {
+      }); } finally {
         release();
       }
     } finally {

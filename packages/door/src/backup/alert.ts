@@ -57,7 +57,7 @@ export interface BackupState {
   repo?: string;
   outlines: Record<string, OutlineState>;
   /** Other machines' repositories this one reads, when reading one fails. */
-  sources?: Record<string, { failingSince?: string; error?: string }>;
+  sources?: Record<string, { failingSince?: string; error?: string; missing?: boolean }>;
   mirrors: Record<string, MirrorState>;
   lastRun?: { at: string; ok: boolean; detail: string };
   lastPrune?: string;

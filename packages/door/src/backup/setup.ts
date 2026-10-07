@@ -179,8 +179,14 @@ export function resticChecks(f: BackupSetupFacts, now = Date.now()): SetupCheck[
     out.push(inc ? { name: `mirror ${key}`, status: "missing", detail: inc.detail, fix: inc.fix }
       : { name: `mirror ${key}`, status: m.error ? "unknown" : "ok", detail: `${m.at ? `${m.source} copy of ${ago(m.at)} (change ${m.seq ?? "?"})` : "no copy yet"} in ${where}${m.remoteAt ? `; its machine answered ${ago(m.remoteAt)} at change ${m.remoteSeq}` : ""}${m.error ? `; ${m.error}` : ""}` });
   }
+  for (const [from, x] of Object.entries(s.sources ?? {}).sort()) {
+    if (x.missing) out.push({ name: `mirror ${from}`, status: "info", detail: `${from} has no backups yet, so nothing is mirrored from it`, fix: `on ${from}: EP0CH_BACKUP_MACHINE=${from} ep0ch install --apply` });
+    else if (x.error && !incidents.has(`source:${from}`)) out.push({ name: `mirror ${from}`, status: "unknown", detail: `can't read ${from}'s backups${x.failingSince ? ` since ${ago(x.failingSince)}` : ""}: ${x.error}` });
+    else if (incidents.has(`source:${from}`)) { const i = incidents.get(`source:${from}`)!; out.push({ name: `mirror ${from}`, status: "missing", detail: i.detail, fix: i.fix }); }
+  }
   if (s.drill) out.push({ name: "restore drill", status: s.drill.ok ? "ok" : "missing", detail: `${ago(s.drill.at)}: ${s.drill.detail}`, ...(s.drill.ok ? {} : { fix: "ep0ch backup drill" }) });
   // The push channel: Herdr's notification always; ntfy to the phone when its secrets group is there.
+  if (f.groups && !f.groups.includes("heartbeat")) out.push({ name: "heartbeat", status: "info", detail: "no dead-man's ping: a job that stops running is only noticed here (the status bar's ? backup); a secrets group heartbeat with HEARTBEAT_URL (a healthchecks.io check, every 15 minutes) pings after each clean run", fix: "printf 'HEARTBEAT_URL=%s\\n' '<your check URL>' > ~/.config/secrets/heartbeat.env && chmod 600 ~/.config/secrets/heartbeat.env" });
   if (f.groups && !f.groups.includes("ntfy")) out.push({ name: "push", status: "info", detail: "stale backups are announced in Herdr and on the door's status bar; for a phone push too, add a secrets group ntfy with NTFY_URL=https://ntfy.sh/<a private topic>", fix: "printf 'NTFY_URL=https://ntfy.sh/%s\\n' \"ep0ch-$(openssl rand -hex 8)\" > ~/.config/secrets/ntfy.env && chmod 600 ~/.config/secrets/ntfy.env (then subscribe to that topic in the ntfy app)" });
   return out;
 }

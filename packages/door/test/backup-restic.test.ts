@@ -228,6 +228,15 @@ describe.skipIf(!RESTIC)("snapshots, mirrors and restores against a local restic
     expect(s.mirrors["laptop/garden"]!.seq).toBe(99);
   }, 120_000);
 
+  test("a machine with no backups yet is nothing wrong here: said, never an incident", async () => {
+    const porch = machine("porch", { EP0CH_BACKUP_MIRRORS: "attic-box" });
+    const r = await runAll(porch, { now: () => T0, announce: async () => {}, heartbeat: async () => {}, drill: false });
+    expect(r.ok).toBe(true);
+    expect(readBackupState(porch.state).sources?.["attic-box"]).toEqual({ missing: true });
+    const later = await runAll(porch, { now: () => T0 + 3 * STALE_AFTER_MS, announce: async () => {}, heartbeat: async () => {}, drill: false });
+    expect(later.alert.incidents).toEqual([]);
+  }, 120_000);
+
   test("a repository it can't reach: changes wait, then one alert (announced once) with the fix; it clears when the upload works", async () => {
     // restic that can't reach its repository (a VPN resetting connections), without restic's minutes of retries.
     const offline = join(root, "restic-offline.sh");
@@ -236,22 +245,25 @@ describe.skipIf(!RESTIC)("snapshots, mirrors and restores against a local restic
     outline(join(shed.outlines, "garden.sqlite"), ["Sharpen the hoe"]);
     const announced: string[] = [];
     const announce = async (i: { key: string }[]) => { announced.push(...i.map(x => x.key)); };
+    const heartbeats: number[] = [];
     let now = T0;
-    expect((await runAll(shed, { now: () => now, announce, drill: false })).ok).toBe(false);
+    expect((await runAll(shed, { now: () => now, announce, drill: false, heartbeat: async () => { heartbeats.push(now); } })).ok).toBe(false);
     expect(readAlert(shed.state)?.incidents).toEqual([]);
     now += STALE_AFTER_MS + 60_000;
-    const late = await runAll(shed, { now: () => now, announce, drill: false });
+    const late = await runAll(shed, { now: () => now, announce, drill: false, heartbeat: async () => { heartbeats.push(now); } });
     expect(late.alert.incidents.map(i => i.key)).toEqual(["outline:shed/garden"]);
     expect(late.alert.incidents[0]!.fix).toContain("ep0ch backup run");
     expect(late.alert.incidents[0]!.detail).toContain("connection reset by peer");
     now += 900_000;
-    await runAll(shed, { now: () => now, announce, drill: false });
+    await runAll(shed, { now: () => now, announce, drill: false, heartbeat: async () => { heartbeats.push(now); } });
     expect(announced).toEqual(["outline:shed/garden"]);
     // The repository comes back.
     const fixed = { ...shed, restic: RESTIC! };
     now += 900_000;
-    const ok = await runAll(fixed, { now: () => now, announce, drill: false });
+    const ok = await runAll(fixed, { now: () => now, announce, drill: false, heartbeat: async () => { heartbeats.push(now); } });
     expect(ok.ok).toBe(true);
+    // The dead-man's ping only after a clean run.
+    expect(heartbeats).toEqual([now]);
     expect(ok.alert.incidents).toEqual([]);
   }, 120_000);
 
@@ -319,7 +331,7 @@ describe("install and doctor", () => {
       outlines: { garden: { seq: 3, at: iso(now - 600_000) }, pantry: { seq: 1, at: iso(now - 5 * 3_600_000), pendingSince: iso(now - 3 * 3_600_000) } },
       mirrors: {}, lastRun: { at: iso(now - 300_000), ok: false, detail: "failed: pantry" }, drill: { at: iso(now - 86_400_000), ok: true, detail: "restored 2 outlines" },
     }, alert: { machine: "garden-shed", checkedAt: iso(now), announced: [], incidents: [{ key: "outline:garden-shed/pantry", title: "t", detail: "pantry changed", fix: "ep0ch backup run", since: iso(now) }] } }), now);
-    expect(checks.map(c => [c.name, c.status])).toEqual([["restic job", "ok"], ["restic last run", "missing"], ["restic garden", "ok"], ["restic pantry", "missing"], ["restore drill", "ok"], ["push", "info"]]);
+    expect(checks.map(c => [c.name, c.status])).toEqual([["restic job", "ok"], ["restic last run", "missing"], ["restic garden", "ok"], ["restic pantry", "missing"], ["restore drill", "ok"], ["heartbeat", "info"], ["push", "info"]]);
     expect(checks.find(c => c.name === "restic pantry")!.fix).toBe("ep0ch backup run");
   });
 });

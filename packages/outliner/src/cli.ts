@@ -2,6 +2,7 @@ import { createBlockComment } from "./block-comments";
 import { readSavedView } from "./saved-view-read";
 import {inspectWorkspaceConnection} from './workspace-diagnostics';
 import { resolve } from "node:path";
+import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { tooBroadToName } from "@ep0ch/outline-core/outline-location";
 import { parseArgs, type ParseArgsOptionsConfig } from "node:util";
@@ -115,7 +116,12 @@ if (process.argv[2] === "import") {
   }
   try {
     const { importOutline } = await import("./outline-import");
-    const report = importOutline(positionals[0]!, positionals[1]!);
+    const { metaDir, withLitestreamPaused } = await import("./litestream-guard");
+    // A target where an outline was before (Litestream's meta folder for it is there) is made with Litestream paused.
+    const target = resolve(positionals[1]!);
+    const report = existsSync(metaDir(target))
+      ? await withLitestreamPaused([target], `importing into ${target}`, () => importOutline(positionals[0]!, target))
+      : importOutline(positionals[0]!, target);
     if (values.json) console.log(JSON.stringify(report, null, 2));
     else {
       console.log(`imported ${report.source} into ${report.target}: ${report.blocks} blocks, ${report.properties} properties, ${report.pageAddresses} page addresses, ${report.workIds} work ids`);
