@@ -1772,6 +1772,9 @@ Bodies render with `src/doc.ts`:
   keeps; its middle otherwise. `ep0ch act reader.hero on=false` turns it off in every reader, kept for the next start;
   `mode=follow` makes the header follow the note's pictures: each one that scrolls under takes over, fading in over the
   one before (`mode=first`, the default, keeps the hero).
+  A river column keeps the same header (the reader's title, summary, byline and crumbs) above its scroll, so it
+  takes the picture too. A note may open with its picture right under the subject (`[img::…]` on line 2): a media line
+  is content, never the note's block properties.
 - **Callouts** (PIE-538, [Obsidian's syntax](https://obsidian.md/help/callouts)). `> [!type]± title` draws a box in the
   type's icon and tone, the title on its top edge (the type's own title when there's none; an author's title names
   the type on the right of the edge). One list of types: Obsidian's thirteen and their aliases (note, abstract
