@@ -290,11 +290,17 @@ async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[
       const done: typeof m.outlines = [];
       for (const [i, o] of m.outlines.entries()) {
         task.count(i, m.outlines.length, o.name);
+        task.flush();
+        // An exact copy first: the host is stopped, so it holds every write (the backup step's may have missed the last).
+        if (o.copy) {
+          try { mkdirSync(dirname(o.copy), { recursive: true, mode: 0o700 }); backupDatabase(o.path, o.copy); }
+          catch (e) { throw new StepFailed(`copying ${o.name} before its migration failed: ${(e as Error).message}`, `${o.name} wasn't migrated; ${migrationRecovery(f, m, null, done)}`); }
+        }
         const r = await run([process.execPath, m.script, o.path], { cwd: f.repo.outliner, env, timeoutMs: 600_000, onLine: child });
         const now = outlineSchema(o).version;
         if (r.code !== 0 || now !== m.to) {
           const said = r.code !== 0 ? withoutProgress(r.err) || r.out || `exit ${r.code}` : `the script ended, but ${o.name} is schema ${now ?? "unreadable"}, not ${m.to}`;
-          throw new StepFailed(`migrating ${o.name} (schema ${m.from} → ${m.to}) failed: ${said}`, migrationRecovery(f, m, o, done));
+          throw new StepFailed(`migrating ${o.name} (schema ${m.from} → ${m.to}) failed: ${said}`, migrationRecovery(f, m, { ...o, now }, done));
         }
         done.push(o);
         say(`${o.name}: schema ${m.from} → ${m.to}`);
@@ -327,13 +333,16 @@ async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[
  * backups, two changes install never makes on its own. Stopped, the doors wait and reconnect, and one rerun of install
  * after the fix migrates what's left and starts it; going back is said too, with the exact commands.
  */
-export function migrationRecovery(f: Facts, m: Migration, failed: Migration["outlines"][number], done: readonly Migration["outlines"][number][]): string {
+export function migrationRecovery(f: Facts, m: Migration, failed: (Migration["outlines"][number] & { now: number | null }) | null, done: readonly Migration["outlines"][number][]): string {
   const u = f.host.unit;
   const start = u ? hostUnitCommand(u.kind === "launchd" ? { ...u, state: { active: false, detail: "not loaded in launchd" } } : u, "start") : `bun ${hostMainOf(f)}`;
-  const restore = done.filter(o => o.backup).map(o => `cp ${o.backup} ${o.path}`);
-  const back = m.before ? `git -C ${f.repo.root} reset --hard ${m.before}${restore.length ? `; ${restore.join("; ")}` : ""}; ${start}` : null;
+  // Going back puts every outline its script ran on back from its copy (the failed one too: a script that failed
+  // should have changed nothing, but that isn't proof), each step only after the one before it worked.
+  const restore = [...done, ...(failed ? [failed] : [])].filter(o => o.copy).map(o => `cp ${o.copy} ${o.path}`);
+  const back = m.before ? [`git -C ${f.repo.root} reset --hard ${m.before}`, ...restore, start].join(" && ") : null;
   return [
-    `${failed.name} is as it was (its migration runs in one transaction)${failed.backup ? `, and its backup is ${failed.backup}` : ""}${done.length ? `; ${done.map(o => o.name).join(", ")} ${done.length === 1 ? "is" : "are"} at schema ${m.to}` : ""}`,
+    ...(failed ? [`${failed.name}'s script failed; it runs in one transaction, so the file should be as it was (it reads schema ${failed.now ?? "unreadable"})${failed.copy ? `, and its copy from just before is ${failed.copy}` : ""}`] : []),
+    ...(done.length ? [`${done.map(o => o.name).join(", ")} ${done.length === 1 ? "is" : "are"} at schema ${m.to}`] : []),
     `the outline host is left stopped, so no outline is served half-migrated; the doors on it wait and reconnect`,
     `fix it, then ep0ch install --apply migrates what's left and starts the host`,
     ...(back ? [`or go back to the code before: ${back}`] : []),

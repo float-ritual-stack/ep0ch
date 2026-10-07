@@ -1008,9 +1008,9 @@ describe("the outlines' schema (PIE-617): install migrates them, or refuses befo
     expect(schema.why).toBe("schema 2 → 3: will migrate 2 outlines (float-hub, seed-bank) with 0003-drop-agent-tables.ts; the host stops while they migrate (each in one transaction) and starts after");
     expect(schema.commands).toEqual(["launchctl bootout gui/$(id -u)/io.ep0ch.outliner-host",
       `bun ${REPO}/${SCRIPT} ${HOME}/outlines/float-hub.sqlite`, `bun ${REPO}/${SCRIPT} ${HOME}/outlines/seed-bank.sqlite`]);
-    // Each outline's backup is the one its recovery names; the code before is what going back resets to.
+    // Each outline is copied again just before its script (the host stopped): what going back restores, with the code before.
     expect(schema.migrate).toMatchObject({ from: 2, to: 3, stopsHost: true, before: "40aaaaa",
-      outlines: [{ name: "float-hub", backup: `${HOME}/backups/ep0ch/20260314T092653Z/float-hub.sqlite` }, { name: "seed-bank", backup: `${HOME}/backups/ep0ch/20260314T092653Z/seed-bank.sqlite` }] });
+      outlines: [{ name: "float-hub", copy: `${HOME}/backups/ep0ch/20260314T092653Z/float-hub.schema-2.sqlite` }, { name: "seed-bank", copy: `${HOME}/backups/ep0ch/20260314T092653Z/seed-bank.schema-2.sqlite` }] });
     // launchd's job is booted out to stop it (KeepAlive would bring back a killed one), so it's bootstrapped again.
     expect(plan.steps.find(s => s.id === "host")).toMatchObject({ title: "Start the outline host on the new code", commands: [`launchctl bootstrap gui/$(id -u) ${launchd.path}`] });
     expect(formatPlan(f, plan, false)).toContain("schema 2 → 3: will migrate 2 outlines (float-hub, seed-bank) with 0003-drop-agent-tables.ts");
@@ -1069,14 +1069,25 @@ describe("the outlines' schema (PIE-617): install migrates them, or refuses befo
     expect(statuses(bumped({ "float-hub": null }, { head: 3 }))).toContain("repo:do");
   });
 
-  test("a failed migration: the outline named, its backup, the host left stopped, the rerun, and the way back with real commands", () => {
+  test("a failed migration: the outline named, its copy, the host left stopped, the rerun, and the way back with real commands", () => {
     const f = bumped({ "float-hub": 2, "seed-bank": 2 });
     const m = buildPlan(f, opts()).steps.find(s => s.id === "schema")!.migrate!;
-    const said = migrationRecovery(f, m, m.outlines[1]!, [m.outlines[0]!]);
-    expect(said).toContain(`seed-bank is as it was (its migration runs in one transaction), and its backup is ${HOME}/backups/ep0ch/20260314T092653Z/seed-bank.sqlite; float-hub is at schema 3`);
+    const copies = `${HOME}/backups/ep0ch/20260314T092653Z`;
+    const said = migrationRecovery(f, m, { ...m.outlines[1]!, now: 2 }, [m.outlines[0]!]);
+    expect(said).toContain(`seed-bank's script failed; it runs in one transaction, so the file should be as it was (it reads schema 2), and its copy from just before is ${copies}/seed-bank.schema-2.sqlite; float-hub is at schema 3`);
     expect(said).toContain("the outline host is left stopped, so no outline is served half-migrated");
     expect(said).toContain("ep0ch install --apply migrates what's left and starts the host");
-    expect(said).toContain(`or go back to the code before: git -C ${REPO} reset --hard 40aaaaa; cp ${HOME}/backups/ep0ch/20260314T092653Z/float-hub.sqlite ${HOME}/outlines/float-hub.sqlite; launchctl bootstrap gui/$(id -u) ${launchd.path}`);
+    // Each step only after the one before worked; the failed outline restored too (failing isn't proof it's unchanged).
+    expect(said).toContain(`or go back to the code before: git -C ${REPO} reset --hard 40aaaaa && cp ${copies}/float-hub.schema-2.sqlite ${HOME}/outlines/float-hub.sqlite && cp ${copies}/seed-bank.schema-2.sqlite ${HOME}/outlines/seed-bank.sqlite && launchctl bootstrap gui/$(id -u) ${launchd.path}`);
+  });
+
+  test("after a failed run, an outline that can't take the step keeps the stopped host stopped", () => {
+    const f = bumped({ "float-hub": 3, "seed-bank": 1 }, { head: 3, f: current() });
+    f.schema!.head = code(3);
+    const stopped = { ...f, host: host({ running: false, unit: { ...launchd, state: { active: false, detail: "not loaded in launchd" } } }) };
+    const plan = buildPlan(stopped, opts());
+    expect(plan.steps.find(s => s.id === "schema")!.status).toBe("manual");
+    expect(plan.steps.find(s => s.id === "host")).toMatchObject({ status: "manual", commands: [], why: expect.stringContaining("started it would serve only some") });
   });
 
   test("doctor flags an outline behind the checkout's schema, with install as the fix (or why install can't)", () => {

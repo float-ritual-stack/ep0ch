@@ -417,14 +417,16 @@ exits 1), and · for information:
    Before the update, install reads that commit's `SCHEMA_VERSION` and migration scripts (`git show`) and each
    outline's `user_version`, and the plan says it: "schema 2 → 3: will migrate 2 outlines (pie, pie-hole) with
    0003-drop-agent-tables.ts". Applying, it stops the host through its unit (`systemctl --user stop`, `launchctl
-   bootout`), runs the step's script on each outline behind it (one transaction each; the script refuses a served
+   bootout`), copies each outline behind it again (exact, with nothing serving it, beside the backup as
+   `<name>.schema-<N-1>.sqlite`) and runs the step's script on it (one transaction; the script refuses a served
    file), and the next step starts the host. One step only (N-1 → N, the script for N): an outline older than that, or
    a step whose script was deleted, is imported instead, and install doesn't update the checkout until it's moved
    aside, saying the commands. So does a host it can't stop (outside a unit, or another process at its socket). When a
-   migration fails it stops there, naming the outline (left as it was), its backup and the way back, and leaves the
+   migration fails it stops there, naming the outline, its copy and the way back (each command only after the one before it worked), and leaves the
    host stopped: started on the new code it would serve only the outlines already migrated, and on the code before
    it would need the checkout moved back and those outlines restored, which install never does by itself. Fix it and
-   run `ep0ch install --apply` again: it migrates what's left and starts the host. An outline behind the checkout's
+   run `ep0ch install --apply` again: it migrates what's left and starts the host (an outline that still can't take
+   the step keeps the host stopped). An outline behind the checkout's
    own schema (a run that failed) is migrated the same way without an update; doctor flags it.
 6. **Restart the outline host** after the checkout updated in the same run, or when it speaks another protocol:
    through its unit, `launchctl kickstart -k gui/<uid>/<label>` on macOS (`io.ep0ch.outliner-host`) or

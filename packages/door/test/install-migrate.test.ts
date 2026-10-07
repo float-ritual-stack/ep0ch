@@ -160,9 +160,12 @@ describe.skipIf(!linux)("ep0ch install across a schema bump (PIE-617)", () => {
     expect(schema.error).toContain("migrating compost (schema 3 → 4) failed");
     expect(schema.error).toContain("compost_heap");
     const backup = readdirSync(join(home, "backups/ep0ch"))[0]!;
-    expect(schema.recover).toContain(`compost is as it was (its migration runs in one transaction), and its backup is ${join(home, "backups/ep0ch", backup, "compost.sqlite")}; allotment is at schema 4`);
+    const copy = (name: string) => join(home, "backups/ep0ch", backup, `${name}.schema-3.sqlite`);
+    expect(schema.recover).toContain(`compost's script failed; it runs in one transaction, so the file should be as it was (it reads schema 3), and its copy from just before is ${copy("compost")}; allotment is at schema 4`);
     expect(schema.recover).toContain("the outline host is left stopped");
-    expect(schema.recover).toContain(`or go back to the code before: git -C ${repo} reset --hard ${oldHead}`);
+    expect(schema.recover).toContain(`or go back to the code before: git -C ${repo} reset --hard ${oldHead} && cp ${copy("allotment")} ${join(outlines, "allotment.sqlite")} && cp ${copy("compost")} ${join(outlines, "compost.sqlite")} && systemctl --user start outliner-host.service`);
+    // The copies are exact: taken with the host stopped, each at the old schema.
+    for (const name of ["allotment", "compost"]) { const db = new Database(copy(name), { readonly: true }); expect((db.query("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(3); db.close(); }
     // Nothing after it ran: the host is down, compost as it was, the session on the old code.
     expect(r1.steps.map(s => s.id)).not.toContain("host");
     expect(await hostLive(sock, 1000)).toBeFalsy();

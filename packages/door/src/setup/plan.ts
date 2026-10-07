@@ -36,7 +36,8 @@ export interface Step {
 
 export interface Migration {
   from: number; to: number; script: string;
-  outlines: { name: string; path: string; backup?: string }[];
+  /** `copy`: where each is copied (VACUUM INTO) just before its script runs, with nothing serving it: what going back restores. */
+  outlines: { name: string; path: string; copy?: string }[];
   /** Whether it stops the host first (the host's unit runs it). */
   stopsHost: boolean;
   /** The checkout's commit before this run's update, when it updates: what going back resets it to. */
@@ -489,14 +490,16 @@ export function buildPlan(f: Facts, o: PlanOptions): Plan {
   const link = linkStep(f);
   // Last: an optional link that fails never stops the host's restart or the session's upgrade.
   const ext = [...(f.ext ? [extStep(f)] : []), ...(f.skills ? [skillsStep(f)] : [])];
-  const host = hostStep(f, updates, schema?.status === "do" && !!schema.migrate?.stopsHost);
+  let host = hostStep(f, updates, schema?.status === "do" && !!schema.migrate?.stopsHost);
+  // Outlines that can't take the step: a stopped host (a migration that failed) stays stopped rather than serving some.
+  if (schema?.status === "manual" && host.status === "do") host = { ...host, status: "manual", why: `held back: not every outline can be migrated to the schema the code opens, and started it would serve only some; see "${schema.title}"`, commands: [] };
   // The MCP gateway after the host it talks to.
   const mcp = f.mcp ? [mcpStep(f, updates)] : [];
   const session = sessionStep(f, repo);
   const backups = backupsStep(f);
   const backup = backupStep(f, o, [repo, plugin, link, ...(schema ? [schema] : []), host].some(s => s.status === "do"));
-  // Each migrated outline's backup: what the recovery names when its migration fails.
-  if (schema?.migrate) schema.migrate.outlines = schema.migrate.outlines.map(m => ({ ...m, ...(backup.backups?.find(b => b.path === m.path) ? { backup: backup.backups.find(b => b.path === m.path)!.dest } : {}) }));
+  // Each outline's copy from just before its script (the host stopped, so nothing written since is missing from it).
+  if (schema?.migrate) { const { from } = schema.migrate; schema.migrate.outlines = schema.migrate.outlines.map(m => ({ ...m, copy: join(o.backupDir, stamp(o.now), `${m.name}.schema-${from}.sqlite`) })); }
   // The session last: handed to the new code once everything under it is current.
   return { steps: [backup, repo, plugin, link, ...(schema ? [schema] : []), host, ...mcp, session, ...(backups ? [backups] : []), ...ext], notes: planNotes(f) };
 }

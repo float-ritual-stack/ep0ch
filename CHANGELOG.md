@@ -19,8 +19,8 @@ are its record. The outliner's entries from then are kept below, under
 - **It refuses before updating** when an outline can't take the step (older than it, or its script already
   deleted) or the host can't be stopped (outside its unit): the checkout stays where it was, and the plan says the
   commands (for an old outline, moving it aside and `ep0ch outline import`).
-- **When a migration fails** it stops there: the outline is as it was, the message names its backup and the way
-  back, and the host is left stopped rather than serving only some outlines. Fix it and run `ep0ch install --apply`
+- **When a migration fails** it stops there: the message names the outline, its exact copy from just before and
+  the way back, and the host is left stopped rather than serving only some outlines. Fix it and run `ep0ch install --apply`
   again; it migrates what's left and starts the host.
 - **`ep0ch doctor`** flags an outline whose schema is behind the checkout's code, with install as the fix.
 - **What to run:** nothing new. The next schema change is one `ep0ch install --apply` on each machine.
