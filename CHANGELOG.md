@@ -25,7 +25,7 @@ are its record. The outliner's entries from then are kept below, under
 - **Calm by design.** The band is dim and never a full block. The heading carries the colour, in every theme.
 - **The kitchen sink's `headings` section** shows every built-in on one note, banded in a wide reader and as
   written in a narrow one beside it.
-- **Run:** PROTOCOL is now 99 (a new read, `headings.styles`). Every client and the outline host must be on this
+- **Run:** PROTOCOL is now 100 (a new read, `headings.styles`). Every client and the outline host must be on this
   code together, so run `ep0ch install --apply` on each machine (it restarts the host).
 ### Backups you can stop thinking about (PIE-607)
 
