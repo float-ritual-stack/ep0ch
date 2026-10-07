@@ -37,6 +37,9 @@ Before a PR claims a change works:
      once on the machine at most (`EP0CH_TEST_SLOTS`), each capped in a systemd user scope (`EP0CH_TEST_CPU`, `EP0CH_TEST_MEM`), in the
      foreground, never `--parallel`: five agents' parallel runs once froze float-2. The door's `parity-screens`
      takes more than ten minutes whole; run it in parts with `PARITY_ONLY` (see the ep0ch-core skill), or in a box.
+     Name the files from the package or from the root (`packages/door/test/edit.test.ts`): from the root, the root
+     `bunfig.toml` runs every package's own `test/preload.ts` (`scripts/test-preload.ts`), which Bun otherwise reads
+     only from the folder it starts in.
    - Before merging a series, and in every review round, run the door's files each alone too
      (`scripts/box-test --each`, or `bun run test:each` in packages/door with file names to run a few;
      `TEST_EACH_JOBS` runs several at once): `bun test` loads every file into one process, so a file that only
