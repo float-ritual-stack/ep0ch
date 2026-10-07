@@ -21,7 +21,8 @@ export interface BackupSetupFacts {
   units: UnitFile[];
   /** systemd: the timer is active; launchd: the agent is loaded. null when it couldn't be asked. */
   loaded: boolean | null;
-  config: { path: string; exists: boolean; machine: string; error?: string; kept?: Record<string, string> };
+  /** `named`: the machine's name was given (EP0CH_BACKUP_MACHINE, or the settings file), not taken from the host name. */
+  config: { path: string; exists: boolean; machine: string; named: boolean; error?: string; kept?: Record<string, string> };
   restic: string | null;
   /** The with-secrets groups there are (names only), or null when with-secrets isn't here. */
   groups: string[] | null;
@@ -79,7 +80,7 @@ export async function backupSetupFacts(o: { platform: Platform; home: string; en
   const machine = "error" in c ? (env.EP0CH_BACKUP_MACHINE?.trim() || machineNameOf(hostname())) : c.machine;
   return {
     platform: o.platform, units, loaded,
-    config: { path: file, exists: existsSync(file), machine, ...("error" in c ? { error: c.error } : {}),
+    config: { path: file, exists: existsSync(file), machine, named: "error" in c ? !!env.EP0CH_BACKUP_MACHINE?.trim() : c.machineFrom !== "hostname", ...("error" in c ? { error: c.error } : {}),
       kept: Object.fromEntries(KEPT_SETTINGS.flatMap(k => (env[k]?.trim() ? [[k, env[k]!.trim()]] : []))) },
     restic: "error" in c ? o.which("restic") : c.restic.includes("/") ? (existsSync(c.restic) ? c.restic : null) : o.which(c.restic),
     groups,
@@ -109,6 +110,13 @@ const loadCommands = (f: BackupSetupFacts) => f.platform === "linux"
 export function backupPlan(f: BackupSetupFacts): BackupPlan {
   if (f.platform === "other") return { status: "skip", why: "backups run from a systemd timer or a launchd agent; this platform has neither", commands: [], writes: [], missing: [] };
   if (f.config.error) return { status: "manual", why: f.config.error, commands: [], writes: [], missing: [f.config.error] };
+  // The machine's name is what the other machines mirror it by (their EP0CH_BACKUP_MIRRORS, the MCP gateway's
+  // <outline>@<machine>), so it's asked for, never taken from the host name silently: a laptop called
+  // evans-macbook-pro would back up where float-2, mirroring "laptop", never looks.
+  if (!f.config.named) {
+    const ask = `name this machine for its backups (other machines mirror it by that name: on float-2, EP0CH_BACKUP_MIRRORS=<name>=<ssh-name>): EP0CH_BACKUP_MACHINE=${f.platform === "macos" ? "laptop" : f.config.machine} ep0ch install --apply`;
+    return { status: "manual", why: `first: ${ask}`, commands: [], writes: [], missing: [ask] };
+  }
   const missing: string[] = [];
   if (!f.restic) missing.push(`restic isn't installed: ${f.platform === "macos" ? "brew install restic" : "download restic 0.17 or newer into ~/.local/bin (https://github.com/restic/restic/releases)"}`);
   // The timer's runs get restic's keys through with-secrets: a password in this shell's environment doesn't reach them.
@@ -180,7 +188,8 @@ export function resticChecks(f: BackupSetupFacts, now = Date.now()): SetupCheck[
       : { name: `mirror ${key}`, status: m.error ? "unknown" : "ok", detail: `${m.at ? `${m.source} copy of ${ago(m.at)} (change ${m.seq ?? "?"})` : "no copy yet"} in ${where}${m.remoteAt ? `; its machine answered ${ago(m.remoteAt)} at change ${m.remoteSeq}` : ""}${m.error ? `; ${m.error}` : ""}` });
   }
   for (const [from, x] of Object.entries(s.sources ?? {}).sort()) {
-    if (x.missing) out.push({ name: `mirror ${from}`, status: "info", detail: `${from} has no backups yet, so nothing is mirrored from it`, fix: `on ${from}: EP0CH_BACKUP_MACHINE=${from} ep0ch install --apply` });
+    if (x.missing) out.push({ name: `mirror ${from}`, status: "info", detail: `${from} has no backups yet (restic/${from}), so nothing is mirrored from it; if it backs up under another name (its ep0ch backup status says which), name it ${from}`,
+      fix: `on ${from}: EP0CH_BACKUP_MACHINE=${from} ep0ch install --apply (a machine set up under another name: set EP0CH_BACKUP_MACHINE=${from} in its ~/.config/ep0ch/backup.env, then ep0ch backup run)` });
     else if (x.error && !incidents.has(`source:${from}`)) out.push({ name: `mirror ${from}`, status: "unknown", detail: `can't read ${from}'s backups${x.failingSince ? ` since ${ago(x.failingSince)}` : ""}: ${x.error}` });
     else if (incidents.has(`source:${from}`)) { const i = incidents.get(`source:${from}`)!; out.push({ name: `mirror ${from}`, status: "missing", detail: i.detail, fix: i.fix }); }
   }

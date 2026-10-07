@@ -279,7 +279,7 @@ describe.skipIf(!RESTIC)("snapshots, mirrors and restores against a local restic
 describe("install and doctor", () => {
   const facts = (o: Partial<BackupSetupFacts> = {}): BackupSetupFacts => ({
     platform: "linux", loaded: false, units: [{ path: "/fictional/home/.config/systemd/user/ep0ch-backup.service", want: `# ${UNIT_MARK}\nA`, have: null }, { path: "/fictional/home/.config/systemd/user/ep0ch-backup.timer", want: `# ${UNIT_MARK}\nB`, have: null }],
-    config: { path: "/fictional/home/.config/ep0ch/backup.env", exists: false, machine: "garden-shed" }, restic: "/fictional/bin/restic", groups: ["bucket", "restic"],
+    config: { path: "/fictional/home/.config/ep0ch/backup.env", exists: false, machine: "garden-shed", named: true }, restic: "/fictional/bin/restic", groups: ["bucket", "restic"],
     secrets: ["bucket", "restic"], passwordInEnv: false, repo: "s3:https://example.invalid/restic/garden-shed", state: null, alert: null, stateDir: "/fictional/state/backup", ...o,
   });
 
@@ -289,6 +289,13 @@ describe("install and doctor", () => {
     expect(p.writes.map(w => w.path)).toEqual([...facts().units.map(u => u.path), "/fictional/home/.config/ep0ch/backup.env"]);
     expect(p.writes.at(-1)!.text).toContain("EP0CH_BACKUP_MACHINE=garden-shed");
     expect(p.commands).toContain("systemctl --user enable --now ep0ch-backup.timer");
+  });
+
+  test("a machine not named yet: asked for in the plan, never taken from the host name silently", () => {
+    const p = backupPlan(facts({ platform: "macos", config: { ...facts().config, machine: "my-macbook", named: false }, units: [{ path: "/fictional/LaunchAgents/io.ep0ch.backup.plist", want: "x", have: null }] }));
+    expect(p).toMatchObject({ status: "manual", writes: [] });
+    expect(p.why).toContain("EP0CH_BACKUP_MACHINE=laptop ep0ch install --apply");
+    expect(p.why).toContain("EP0CH_BACKUP_MIRRORS");
   });
 
   test("current and loaded: nothing to do", () => {

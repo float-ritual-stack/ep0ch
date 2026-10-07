@@ -5,7 +5,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { existsSync, readdirSync } from "node:fs";
+import { Database } from "bun:sqlite";
 import { metaDir, recoverPaused, replicatorsFor, running, withLitestreamPaused } from "../src/litestream-guard";
 import { instancesIn, litestreamUnits, templateInstance } from "../src/litestream-units";
 
@@ -31,6 +31,11 @@ function fakeSystemd(state: { active: boolean; stopFails?: boolean }) {
   return { run, calls };
 }
 const records = join(root, "paused");
+/** The pause rows (the guard's records), read and written as another process would. */
+const pauses = () => { const db = new Database(join(records, "pauses.sqlite")); db.run("CREATE TABLE IF NOT EXISTS pauses (unit TEXT PRIMARY KEY, record TEXT NOT NULL)"); return db; };
+const pausedUnits = () => { const db = pauses(); try { return (db.query("SELECT unit FROM pauses").all() as { unit: string }[]).map(r => r.unit); } finally { db.close(); } };
+const pause = (rec: { unit: string; kind: string; path: string; holders: string[]; since: string }) => { const db = pauses(); db.run("INSERT OR REPLACE INTO pauses VALUES (?, ?)", [rec.unit, JSON.stringify(rec)]); db.close(); };
+const holdersOf = (unit: string) => { const db = pauses(); try { return JSON.parse((db.query("SELECT record FROM pauses WHERE unit = ?").get(unit) as { record: string }).record).holders; } finally { db.close(); } };
 const o = (run: ReturnType<typeof fakeSystemd>["run"], alive: (pid: number) => boolean = p => p === process.pid) => ({ platform: "linux" as const, home, run, env: {}, records, alive });
 
 describe("the Litestream guard", () => {
@@ -80,25 +85,25 @@ describe("the Litestream guard", () => {
     const sd = fakeSystemd({ active: true });
     // A change in a process that died after the stop (pid 4242 is dead in this fake).
     await withLitestreamPaused([join(outlines, "garden.sqlite")], "x", () => {
-      expect(readdirSync(records).filter(n => n.endsWith(".json"))).toEqual(["litestream.service.json"]);
+      expect(pausedUnits()).toEqual(["litestream.service"]);
     }, o(sd.run));
-    expect(existsSync(join(records, "litestream.service.json"))).toBe(false);
-    writeFileSync(join(records, "litestream.service.json"), JSON.stringify({ unit: "litestream.service", kind: "systemd", path: "/x", holders: ["4242:1"], since: "2026-05-02T09:00:00Z" }));
+    expect(pausedUnits()).toEqual([]);
+    pause({ unit: "litestream.service", kind: "systemd", path: "/x", holders: ["4242:1"], since: "2026-05-02T09:00:00Z" });
     sd.calls.length = 0;
     expect(recoverPaused(o(sd.run))).toEqual(["litestream.service"]);
     expect(sd.calls).toEqual(["--user start litestream.service"]);
-    expect(existsSync(join(records, "litestream.service.json"))).toBe(false);
+    expect(pausedUnits()).toEqual([]);
   });
 
   test("paused by a live change in another process: held here too, never started under it", async () => {
     const sd = fakeSystemd({ active: false });
     const other = 4343;
-    writeFileSync(join(records, "litestream.service.json"), JSON.stringify({ unit: "litestream.service", kind: "systemd", path: "/x", holders: [`${other}:1`], since: "2026-05-02T09:00:00Z" }));
+    pause({ unit: "litestream.service", kind: "systemd", path: "/x", holders: [`${other}:1`], since: "2026-05-02T09:00:00Z" });
     const alive = (p: number) => p === process.pid || p === other;
     await withLitestreamPaused([join(outlines, "garden.sqlite")], "x", () => {}, o(sd.run, alive));
     expect(sd.calls.filter(c => c.includes("start") || c.includes("stop"))).toEqual([]);
-    expect(JSON.parse(require("node:fs").readFileSync(join(records, "litestream.service.json"), "utf8")).holders).toEqual([`${other}:1`]);
-    rmSync(join(records, "litestream.service.json"));
+    expect(holdersOf("litestream.service")).toEqual([`${other}:1`]);
+    const db = pauses(); db.run("DELETE FROM pauses"); db.close();
   });
 
   test("a state or a config it can't read refuses", async () => {

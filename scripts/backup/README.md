@@ -45,7 +45,7 @@ nothing here reads or prints them.
 
 | | default |
 |---|---|
-| `EP0CH_BACKUP_MACHINE` | the short host name |
+| `EP0CH_BACKUP_MACHINE` | none: install asks for it (other machines mirror this one by that name, so it's never taken from the host name silently) |
 | `EP0CH_BACKUP_REPO` | `s3:https://hel1.your-objectstorage.com/ep0ch/restic/{machine}` |
 | `EP0CH_BACKUP_MIRRORS` | none; `laptop` or `laptop=<ssh-name>` |
 | `EP0CH_BACKUP_SECRETS` | `hetzner-s3,restic` |

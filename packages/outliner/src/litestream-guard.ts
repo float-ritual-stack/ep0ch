@@ -9,12 +9,13 @@
 // `withLitestreamPaused(files, what, change)`: when a Litestream replicator on this machine (a systemd user unit or a
 // launchd agent running `litestream replicate`) has a config covering one of the files (its `path`, or a `dir:` whose
 // pattern matches, made yet or not), it's stopped, the change made, and it's started again. The pause is a record on
-// disk (`<state>/litestream-paused/<unit>.json`) listing the processes holding it, so changes in several processes share
+// disk (a row of `<state>/litestream-paused/pauses.sqlite`) listing the processes holding it, so changes in several processes share
 // one stop and the last one out starts it; a holder that died (a crash, a kill) is pruned by the next guard, the host's
 // start and the backup job (`recoverPaused`), which start the replicator again. A replicator whose state or config
 // can't be read, or that won't stop, refuses the change with the commands that make it by hand. Scratch folders no
 // config covers are never touched.
-import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, rmSync, writeFileSync, writeSync } from "node:fs";
+import { Database } from "bun:sqlite";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { configEntries, covers, type LitestreamUnit, litestreamUnits, type Platform } from "./litestream-units";
@@ -78,26 +79,28 @@ interface PauseRecord { unit: string; kind: LitestreamUnit["kind"]; path: string
 const pidOf = (holder: string | number) => Number(String(holder).split(":")[0]);
 let changes = 0;
 
-/** One process at a time changes the records: a short lock beside them (O_EXCL), taken over from a dead holder. */
-function locked<T>(dir: string, alive: (pid: number) => boolean, f: () => T): T {
-  mkdirSync(dir, { recursive: true, mode: 0o700 });
-  const lock = join(dir, ".lock");
-  for (let tries = 0; ; tries++) {
-    try { const fd = openSync(lock, "wx", 0o600); writeSync(fd, String(process.pid)); closeSync(fd); break; }
-    catch (e) {
-      if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
-      let pid = 0;
-      try { pid = Number(readFileSync(lock, "utf8")) || 0; } catch { /* just released */ }
-      if (pid && !alive(pid)) { rmSync(lock, { force: true }); continue; }
-      if (tries > 200) throw new Error(`${lock} is held by process ${pid}`);
-      Bun.sleepSync(25);
-    }
-  }
-  try { return f(); } finally { rmSync(lock, { force: true }); }
-}
+/** The pause records, read and changed by one process at a time. */
+interface Pauses { get(unit: string): PauseRecord | null; put(rec: PauseRecord): void; del(unit: string): void; all(): PauseRecord[] }
 
-const fileOf = (dir: string, unit: string) => join(dir, `${unit.replace(/[^A-Za-z0-9@._-]/g, "_")}.json`);
-const readRecord = (file: string): PauseRecord | null => { try { return JSON.parse(readFileSync(file, "utf8")) as PauseRecord; } catch { return null; } };
+/**
+ * The records are rows of a small SQLite file (`pauses.sqlite`), changed in an IMMEDIATE transaction: SQLite's own lock
+ * makes it one process at a time, and a process that dies holding it releases it, so there's no lock file to take over.
+ */
+function withPauses<T>(dir: string, f: (p: Pauses) => T): T {
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const db = new Database(join(dir, "pauses.sqlite"));
+  try {
+    db.run("PRAGMA busy_timeout = 10000");
+    db.run("CREATE TABLE IF NOT EXISTS pauses (unit TEXT PRIMARY KEY, record TEXT NOT NULL)");
+    const p: Pauses = {
+      get: unit => { const row = db.query("SELECT record FROM pauses WHERE unit = ?").get(unit) as { record: string } | null; return row ? JSON.parse(row.record) as PauseRecord : null; },
+      put: rec => { db.run("INSERT OR REPLACE INTO pauses (unit, record) VALUES (?, ?)", [rec.unit, JSON.stringify(rec)]); },
+      del: unit => { db.run("DELETE FROM pauses WHERE unit = ?", [unit]); },
+      all: () => (db.query("SELECT record FROM pauses").all() as { record: string }[]).map(r => JSON.parse(r.record) as PauseRecord),
+    };
+    return db.transaction(() => f(p)).immediate();
+  } finally { db.close(); }
+}
 
 /**
  * Pauses held by processes that are gone (a crash mid-change): their replicators started again, their records removed.
@@ -105,16 +108,14 @@ const readRecord = (file: string): PauseRecord | null => { try { return JSON.par
  */
 export function recoverPaused(o: GuardOptions = {}): string[] {
   const dir = recordsOf(o), run = o.run ?? runSync, alive = o.alive ?? aliveDefault, uid = process.getuid?.() ?? 0;
-  if (!existsSync(dir)) return [];
-  return locked(dir, alive, () => {
+  if (!existsSync(join(dir, "pauses.sqlite"))) return [];
+  return withPauses(dir, p => {
     const started: string[] = [];
-    for (const name of readdirSync(dir).filter(n => n.endsWith(".json"))) {
-      const file = join(dir, name), rec = readRecord(file);
-      if (!rec) { rmSync(file, { force: true }); continue; }
+    for (const rec of p.all()) {
       rec.holders = rec.holders.filter(h => alive(pidOf(h)));
-      if (rec.holders.length) { writeFileSync(file, JSON.stringify(rec), { mode: 0o600 }); continue; }
+      if (rec.holders.length) { p.put(rec); continue; }
       const r = run(startArgv({ kind: rec.kind, name: rec.unit, path: rec.path } as LitestreamUnit, uid));
-      if (r.code === 0) { rmSync(file, { force: true }); started.push(rec.unit); }
+      if (r.code === 0) { p.del(rec.unit); started.push(rec.unit); }
     }
     return started;
   });
@@ -137,32 +138,32 @@ export async function withLitestreamPaused<T>(files: readonly string[], what: st
   const me = `${process.pid}:${++changes}`;
   const release = () => {
     if (!held.length) return;
-    locked(dir, alive, () => {
+    withPauses(dir, p => {
       for (const u of held) {
-        const file = fileOf(dir, u.name), rec = readRecord(file);
+        const rec = p.get(u.name);
         const holders = (rec?.holders ?? []).filter(h => h !== me && alive(pidOf(h)));
-        if (rec && holders.length) { writeFileSync(file, JSON.stringify({ ...rec, holders }), { mode: 0o600 }); continue; }
+        if (rec && holders.length) { p.put({ ...rec, holders }); continue; }
         const r = run(startArgv(u, uid));
-        if (r.code === 0) rmSync(file, { force: true });
+        if (r.code === 0) p.del(u.name);
         // Left for recoverPaused (the next guard, the host's start, the backup job), and said.
         else console.error(`litestream guard: ${u.name} didn't start again after ${what}: ${r.out}; start it: ${said(startArgv(u, uid))}`);
       }
     });
   };
   try {
-    locked(dir, alive, () => {
+    withPauses(dir, p => {
       for (const u of units) {
-        const file = fileOf(dir, u.name), rec = readRecord(file);
+        const rec = p.get(u.name);
         // Already paused by a live change elsewhere: held here too, so it isn't started under this change.
         const live = (rec?.holders ?? []).filter(h => alive(pidOf(h)));
-        if (rec && live.length) { writeFileSync(file, JSON.stringify({ ...rec, holders: [...live, me] }), { mode: 0o600 }); held.push(u); continue; }
+        if (rec && live.length) { p.put({ ...rec, holders: [...live, me] }); held.push(u); continue; }
         const now = running(u, run, uid);
         if (now === false) continue;
         if (now === null) throw by(u, "its state can't be read");
         // The record before the stop: a crash from here on leaves it for recoverPaused to start the replicator again.
-        writeFileSync(file, JSON.stringify({ unit: u.name, kind: u.kind, path: u.path, holders: [me], since: new Date().toISOString() } satisfies PauseRecord), { mode: 0o600 });
+        p.put({ unit: u.name, kind: u.kind, path: u.path, holders: [me], since: new Date().toISOString() });
         const r = run(stopArgv(u, uid));
-        if (r.code !== 0) { rmSync(file, { force: true }); throw by(u, `couldn't be stopped (${r.out.split("\n").at(-1) || `exit ${r.code}`})`); }
+        if (r.code !== 0) { p.del(u.name); throw by(u, `couldn't be stopped (${r.out.split("\n").at(-1) || `exit ${r.code}`})`); }
         held.push(u);
       }
     });

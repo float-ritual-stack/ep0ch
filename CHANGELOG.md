@@ -20,6 +20,9 @@ are its record. The outliner's entries from then are kept below, under
   doesn't restore fresh on start (Litestream 0.5.17's crash loop, upstream #1385) or when the replicator keeps only a
   day of snapshots, and treats a follower that healed itself by restarting as healed.
 - **A machine with no backups yet** (the laptop, before its install) is said in doctor, not raised as an alert.
+- **Install asks for the machine's name** (`EP0CH_BACKUP_MACHINE=laptop ep0ch install --apply`) instead of taking the
+  host name: other machines mirror it by that name. A laptop already set up under its host name: set
+  `EP0CH_BACKUP_MACHINE=laptop` in its `~/.config/ep0ch/backup.env`, then `ep0ch backup run`.
 - **A dead-man's ping:** with a secrets group `heartbeat` (HEARTBEAT_URL, e.g. a healthchecks.io check), every
   clean backup run pings it, so a job that stops is noticed off the machine too.
 
