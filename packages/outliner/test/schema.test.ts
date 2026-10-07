@@ -1,10 +1,10 @@
 import { Database } from "bun:sqlite";
-import { afterEach, expect, test } from "bun:test";
-import { copyFileSync, existsSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { afterEach, describe, expect, test } from "bun:test";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { importOutline } from "../src/outline-import";
-import { insertOutlineInstanceId, readOutlineInstanceId, SCHEMA_SQL, SCHEMA_VERSION } from "../src/schema";
+import { insertOutlineInstanceId, readOutlineInstanceId, SCHEMA_SQL, SCHEMA_VERSION, schemaRefusal } from "../src/schema";
 import { OutlinerStore } from "../src/store";
 import { ownerLockOf } from "../src/workspace-ownership";
 import { freshSchemaShape, schemaDifferences, schemaShape, stamp } from "../scripts/migrations/0001-stamp";
@@ -128,7 +128,7 @@ test("the version 3 migration drops the agent state tables, keeping preserved ca
   const path = join(directory(), "outliner.sqlite");
   const noteId = version2(path);
   const id = outlineInstanceId(path);
-  expect(() => new OutlinerStore(path)).toThrow(new RegExp(`schema version 2; .*0003-drop-agent-tables\\.ts`));
+  expect(() => new OutlinerStore(path)).toThrow(new RegExp(`schema version 2; .*0003-drop-agent-tables\\.ts`, "s"));
   const migrated = migrate(path);
   expect(migrated).toEqual({ migrated: true, outlineInstanceId: id });
   expect(userVersion(path)).toBe(3);
@@ -152,7 +152,7 @@ test("a version 3 database missing its instance id is refused with the exact rep
   const database = new Database(path);
   database.query("DELETE FROM metadata WHERE key = 'outline_instance_id'").run();
   database.close();
-  expect(() => new OutlinerStore(path)).toThrow(new RegExp(`has no valid outline instance id; repair it with \`bun \\S+/scripts/migrations/0003-drop-agent-tables\\.ts ${path}\``));
+  expect(() => new OutlinerStore(path)).toThrow(new RegExp(`has no valid outline instance id\\. Repair it with:\n\n  .+\n  bun \\S+/scripts/migrations/0003-drop-agent-tables\\.ts ${path}\n`));
   // Not while a store (a service) has it open.
   const held = new Database(ownerLockOf(path).path);
   held.exec("BEGIN IMMEDIATE");
@@ -342,4 +342,63 @@ test("import makes a new outline with the blocks, properties, page addresses and
 
   expect(() => importOutline(source, target)).toThrow("already exists");
   expect(existsSync(target)).toBe(true);
+});
+
+describe("the refusal says the exact commands for this machine (PIE-617)", () => {
+  const SCRIPT = join(import.meta.dir, "../scripts/migrations/0003-drop-agent-tables.ts");
+  const at = (folder: string, name: string, version: number) => {
+    const path = join(folder, `${name}.sqlite`);
+    const database = new Database(path);
+    database.exec(`CREATE TABLE marker (x); PRAGMA user_version = ${version}`);
+    database.close();
+    return path;
+  };
+
+  test("one step behind: install, or by hand the stop, a line per outline at that version here (real paths), the start", () => {
+    const folder = directory();
+    const hub = at(folder, "float-hub", SCHEMA_VERSION - 1), log = at(folder, "sysops-log", SCHEMA_VERSION - 1);
+    at(folder, "current", SCHEMA_VERSION);
+    expect(schemaRefusal(`The outline database ${hub}`, SCHEMA_VERSION - 1, hub, { platform: "darwin", home: "/Users/wren" })).toBe([
+      `The outline database ${hub} is schema version ${SCHEMA_VERSION - 1}; this build opens only schema version ${SCHEMA_VERSION}.`,
+      `Migrate it, and the 1 other outline here at schema ${SCHEMA_VERSION - 1}, with:`,
+      "",
+      "  ep0ch install --apply",
+      "",
+      "or by hand:",
+      "",
+      "  launchctl bootout gui/$(id -u)/io.ep0ch.outliner-host",
+      `  bun ${SCRIPT} ${hub}`,
+      `  bun ${SCRIPT} ${log}`,
+      "  launchctl bootstrap gui/$(id -u) /Users/wren/Library/LaunchAgents/io.ep0ch.outliner-host.plist",
+    ].join("\n"));
+    const linux = schemaRefusal(`The outline database ${hub}`, SCHEMA_VERSION - 1, hub, { platform: "linux" });
+    expect(linux).toContain("\n  systemctl --user stop outliner-host.service\n");
+    expect(linux).toEndWith("\n  systemctl --user start outliner-host.service");
+    // Nothing to fill in: no placeholders, no prose about services, no colour.
+    expect(linux).not.toMatch(/<[a-z]+>|while no service|\x1b\[/);
+  });
+
+  test("no script for the step: the import route, with the real file and name", () => {
+    const folder = directory();
+    const old = at(folder, "seed-bank", 1);
+    expect(schemaRefusal(`The outline database ${old}`, 1, old, { platform: "linux" })).toBe([
+      `The outline database ${old} is schema version 1; this build opens only schema version ${SCHEMA_VERSION}.`,
+      `No script migrates schema 1 to ${SCHEMA_VERSION}; import its notes into a new outline:`,
+      "",
+      "  systemctl --user stop outliner-host.service",
+      `  mv ${old} ${old}.schema-1`,
+      "  systemctl --user start outliner-host.service",
+      `  ep0ch outline import ${old}.schema-1 seed-bank`,
+    ].join("\n"));
+  });
+
+  test("the store's refusal is that message; a path that needs quoting is quoted", () => {
+    const folder = join(directory(), "my outlines");
+    mkdirSync(folder);
+    const path = at(folder, "float-hub", SCHEMA_VERSION - 1);
+    let said = "";
+    try { new OutlinerStore(path).close(); } catch (e) { said = (e as Error).message; }
+    expect(said).toContain("\n  ep0ch install --apply\n");
+    expect(said).toContain(`\n  bun ${SCRIPT} '${path}'\n`);
+  });
 });

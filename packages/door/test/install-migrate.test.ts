@@ -175,7 +175,17 @@ describe.skipIf(!linux)("ep0ch install across a schema bump (PIE-617)", () => {
     // Doctor flags compost behind the checkout's schema, with install as the fix.
     const doctor = await ep0ch("doctor");
     expect(doctor.out).toMatch(/! schema +compost is schema 3/);
-    expect(doctor.out).toContain("ep0ch install --apply migrates it");
+    expect(doctor.out).toMatch(/schema +compost is schema 3[^\n]*\n(?:.*\n)*? +fix: ep0ch install --apply\n/);
+
+    // A host started by hand on the new code refuses compost, and a client says the exact commands, on their own lines.
+    fakeSystemctl("start", "outliner-host.service");
+    for (let i = 0; !(await hostLive(sock, 1000)); i++) { if (i > 100) throw new Error("the scratch host didn't come back"); await Bun.sleep(100); }
+    const refused = await ep0ch("find", "leeks", "--ws", "compost");
+    expect(refused.code).not.toBe(0);
+    expect(refused.err).toContain(`is schema version 3; this build opens only schema version 4.`);
+    expect(refused.err).toMatch(/\n +ep0ch install --apply\n/);
+    expect(refused.err).toContain(`\n    bun ${join(repo, "packages/outliner/scripts/migrations/0004-seed-trays.ts")} ${join(outlines, "compost.sqlite")}\n`);
+    expect(refused.err).not.toMatch(/<database>|while no service|\x1b\[/);
 
     // Fixed by hand; the rerun migrates what's left, starts the host and hands the session to the new code.
     const compost = new Database(join(outlines, "compost.sqlite"));
@@ -185,7 +195,8 @@ describe.skipIf(!linux)("ep0ch install across a schema bump (PIE-617)", () => {
     const r2 = JSON.parse(second.out) as typeof r1;
     expect({ code: second.code, ok: r2.ok, err: r2.steps.find(s => s.error)?.error }).toEqual({ code: 0, ok: true, err: undefined });
     expect(r2.steps.find(s => s.id === "repo")!.status).toBe("skip");
-    expect(r2.steps.find(s => s.id === "schema")!.done).toEqual(["compost: schema 3 → 4"]);
+    // The host started by hand is stopped through its unit first.
+    expect(r2.steps.find(s => s.id === "schema")!.done).toEqual(["stopped the outline host (systemd outliner-host.service) to migrate", "compost: schema 3 → 4"]);
     expect(r2.steps.find(s => s.id === "host")!.done!.join(" ")).toContain("started the outline host (systemd outliner-host.service");
     expect(r2.steps.find(s => s.id === "session")!.status).toBe("do");
     expect([version("allotment"), version("compost")]).toEqual([4, 4]);

@@ -1,6 +1,8 @@
-import type { Database } from "bun:sqlite";
+import { Database as SqliteDatabase, type Database } from "bun:sqlite";
+import { readdirSync } from "node:fs";
+import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
-import { join } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { BLOCK_ID_PATTERN } from "@ep0ch/outline-core/addressable-resource";
 import { BLOCK_ACTIVITY_KINDS } from "./types";
 
@@ -782,7 +784,8 @@ export function readOutlineInstanceId(database: Database, path: string): string 
   const row = database.query("SELECT value FROM metadata WHERE key = ?").get(OUTLINE_INSTANCE_ID_KEY) as { value: string } | null;
   const value = row?.value;
   if (!value || !BLOCK_ID_PATTERN.test(value)) {
-    throw new Error(`The outline database ${path} has no valid outline instance id; repair it with \`bun ${UPGRADE_SCRIPT} ${path}\` while no service serves it`);
+    const { stop, start } = hostUnitCommands();
+    throw new Error(`The outline database ${path} has no valid outline instance id. Repair it with:\n\n${[stop, `bun ${shWord(UPGRADE_SCRIPT)} ${shWord(path)}`, start].map(l => `  ${l}`).join("\n")}`);
   }
   return value.toLowerCase();
 }
@@ -793,18 +796,71 @@ export function insertOutlineInstanceId(database: Database, value = randomUUID()
   return value.toLowerCase();
 }
 
-/** The one-off script that upgrades a database at `version`, when there is one. */
-const UPGRADES: Readonly<Record<number, string>> = {
-  0: `bun ${join(import.meta.dir, "../scripts/migrations/0001-stamp.ts")} <database>`,
-  2: `bun ${UPGRADE_SCRIPT} <database>`,
-};
+const MIGRATIONS = join(import.meta.dir, "../scripts/migrations");
+
+/** A path as a shell word: as it is when it needs no quoting, else single-quoted. */
+const shWord = (word: string) => (/^[\w@%+=:,./-]+$/.test(word) ? word : `'${word.replaceAll("'", `'\\''`)}'`);
+
+/** The one-off script that upgrades a database at `version` to SCHEMA_VERSION, when there is one: 0001-stamp for 0, else the step's (`<SCHEMA_VERSION>-*.ts`). */
+function upgradeScript(version: number): string | null {
+  const prefix = version === 0 ? "0001-" : version === SCHEMA_VERSION - 1 ? `${String(SCHEMA_VERSION).padStart(4, "0")}-` : null;
+  if (!prefix) return null;
+  try { const file = readdirSync(MIGRATIONS).find(f => f.startsWith(prefix) && f.endsWith(".ts")); return file ? join(MIGRATIONS, file) : null; } catch { return null; }
+}
+
+/** The outline host's unit on this platform, as `ep0ch install` finds it on the machines that matter: its stop and start commands. */
+export function hostUnitCommands(platform: string = process.platform, home: string = homedir()): { stop: string; start: string } {
+  if (platform === "darwin") return { stop: "launchctl bootout gui/$(id -u)/io.ep0ch.outliner-host", start: `launchctl bootstrap gui/$(id -u) ${shWord(join(home, "Library/LaunchAgents/io.ep0ch.outliner-host.plist"))}` };
+  return { stop: "systemctl --user stop outliner-host.service", start: "systemctl --user start outliner-host.service" };
+}
+
+/** The other outlines beside `path` (`<name>.sqlite` in its folder) at the same schema version: one migration covers them all. */
+function behindBeside(path: string, version: number): string[] {
+  const out: string[] = [];
+  try {
+    for (const file of readdirSync(dirname(path)).sort()) {
+      const other = join(dirname(path), file);
+      if (!file.endsWith(".sqlite") || resolve(other) === resolve(path)) continue;
+      try {
+        const db = new SqliteDatabase(other, { readonly: true });
+        try { if (userVersion(db) === version) out.push(other); } finally { db.close(); }
+      } catch { /* not an outline we can read: left out */ }
+    }
+  } catch { /* the folder can't be listed */ }
+  return out;
+}
+
+/**
+ * Why a database at `version` is refused, and what to run (PIE-617): one sentence, then the exact commands for this
+ * machine with real paths, each on its own line, uncoloured, so it can be pasted as it is. With a script for the
+ * step, `ep0ch install --apply` (which stops the host, migrates every outline behind and starts it) and the same by
+ * hand; without one, the import route. `path`: the file, when there is one (its folder's other outlines behind join it).
+ */
+export function schemaRefusal(label: string, version: number, path?: string, o: { platform?: string; home?: string } = {}): string {
+  const head = `${label} is schema version ${version}${version === 0 ? " (made before schema versions)" : ""}; this build opens only schema version ${SCHEMA_VERSION}.`;
+  const block = (lines: string[]) => lines.map(l => `  ${l}`).join("\n");
+  const { stop, start } = hostUnitCommands(o.platform, o.home);
+  const script = upgradeScript(version);
+  const file = path ? resolve(path) : null;
+  if (!file) {
+    return `${head}${script ? ` Its migration: bun ${shWord(script)} on the file, with the outline host stopped.` : " No script upgrades that version; import it into a new outline instead (ep0ch outline import)."}`;
+  }
+  if (script) {
+    const files = [file, ...(version === SCHEMA_VERSION - 1 ? behindBeside(file, version) : [])];
+    const install = version === SCHEMA_VERSION - 1 ? `Migrate it${files.length > 1 ? `, and the ${files.length - 1} other outline${files.length === 2 ? "" : "s"} here at schema ${version},` : ""} with:\n\n${block(["ep0ch install --apply"])}\n\nor by hand:` : "Migrate it by hand:";
+    return `${head}\n${install}\n\n${block([stop, ...files.map(f => `bun ${shWord(script)} ${shWord(f)}`), start])}`;
+  }
+  const name = basename(file).replace(/\.sqlite$/, "");
+  const old = `${file}.schema-${version}`;
+  return `${head}\nNo script migrates schema ${version} to ${SCHEMA_VERSION}; import its notes into a new outline:\n\n${block([stop, `mv ${shWord(file)} ${shWord(old)}`, start, `ep0ch outline import ${shWord(old)} ${shWord(name)}`])}`;
+}
 
 /**
  * Opens a database at `SCHEMA_VERSION`: an empty file is given the schema and
  * stamped (`created`); a database already at it is left alone (`current`).
  * Anything else throws, naming its version and how to upgrade it.
  */
-export function openSchema(database: Database, label = "This database"): "created" | "current" {
+export function openSchema(database: Database, label = "This database", path?: string): "created" | "current" {
   const version = userVersion(database);
   if (version === SCHEMA_VERSION) return "current";
   const { objects } = database.query("SELECT COUNT(*) AS objects FROM sqlite_master").get() as { objects: number };
@@ -816,8 +872,5 @@ export function openSchema(database: Database, label = "This database"): "create
     })();
     return "created";
   }
-  const upgrade = UPGRADES[version];
-  throw new Error(`${label} is schema version ${version}${version === 0 ? " (made before schema versions)" : ""}; this build opens only schema version ${SCHEMA_VERSION}. ${upgrade
-    ? `Upgrade it with \`${upgrade}\` while no service serves it, or import it into a new outline (\`ep0ch outline import <database> <name>\`, through the outline host).`
-    : "No script upgrades that version; import it into a new outline instead (`ep0ch outline import <database> <name>`, through the outline host)."}`);
+  throw new Error(schemaRefusal(label, version, path));
 }

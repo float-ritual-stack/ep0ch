@@ -113,7 +113,7 @@ export function doctorChecks(f: Facts): Check[] {
     const behind = f.schema.outlines.filter(o => o.version !== null && o.version < to), ahead = f.schema.outlines.filter(o => o.version !== null && o.version > to);
     const unread = f.schema.outlines.filter(o => o.version === null);
     if (behind.length) add("outlines", "schema", "behind", `${behind.map(o => `${o.name} is schema ${o.version}`).join(", ")}; the checkout's code opens only schema ${to}, so the host refuses ${behind.length === 1 ? "it" : "them"}`,
-      s?.status === "do" ? `ep0ch install --apply migrates ${behind.length === 1 ? "it" : "them"} (${s.why})` : s?.why);
+      s?.status === "do" ? "ep0ch install --apply" : s?.why);
     else if (f.schema.outlines.length) add("outlines", "schema", unread.length ? "unknown" : "ok", `${unread.length ? `couldn't read ${unread.map(o => `${o.name}'s (${o.error})`).join(", ")}; ` : ""}${f.schema.outlines.filter(o => o.version !== null).map(o => o.name).join(", ")} at schema ${to}, what the checkout's code opens`);
     if (ahead.length) add("outlines", "schema ahead", "behind", `${ahead.map(o => `${o.name} is schema ${o.version}`).join(", ")}, newer than the checkout's code opens (${to})`, repo.status === "do" ? "ep0ch install --apply (updates the checkout)" : undefined);
   }

@@ -192,7 +192,8 @@ it. The runtime never inspects an old shape and never migrates. To change it:
    reads `user_version` after, so the script: runs in one transaction, refuses a served file
    (`acquireWorkspaceOwnership`), exits non-zero leaving the file as it was when it can't, and wraps a change that
    replaces the file (rather than writing in it) in `withLitestreamPaused`. `0003-drop-agent-tables.ts` is the
-   model: it checks the shape before it stamps. Name the script in `openSchema`'s refusal for the old version.
+   model: it checks the shape before it stamps. `openSchema`'s refusal finds it by its number and prints the exact
+   commands for the machine (`schemaRefusal`).
 3. The PR says the merge needs `ep0ch install --apply` on each machine; its plan shows the outlines it migrates.
 4. Delete the script once the outlines that matter (pie on float-2, float-hub on the MacBook) are upgraded; git
    keeps it. Install then refuses an outline still at the old version, with the import route.

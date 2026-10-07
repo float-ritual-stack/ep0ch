@@ -4162,7 +4162,7 @@ export class OutlinerStore {
    * reservations, the allocator and work-id addresses consistent with the declared properties.
    */
   private prepareDatabase(path: string): "created" | "current" {
-    const opened = openSchema(this.database, `The outline database ${path}`);
+    const opened = openSchema(this.database, `The outline database ${path}`, path);
     // After the version check, so a refused file is left exactly as it was.
     this.database.exec("PRAGMA journal_mode = WAL;");
     const reparsed = this.rebuildPropertyIndexForParser();

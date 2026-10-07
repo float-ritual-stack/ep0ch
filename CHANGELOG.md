@@ -23,7 +23,12 @@ are its record. The outliner's entries from then are kept below, under
   the way back, and the host is left stopped rather than serving only some outlines. Fix it and run `ep0ch install --apply`
   again; it migrates what's left and starts the host.
 - **`ep0ch doctor`** flags an outline whose schema is behind the checkout's code, with install as the fix.
+- **The refusal says what to paste.** An outline at an older schema is refused with one sentence and then the
+  exact commands for this machine, each on its own line: `ep0ch install --apply`, or by hand the host's stop
+  command, the migration for every outline here at that version (real paths) and the start command; with no
+  script for the step, the import route. The door, `ep0ch` commands and the MCP gateway pass it on as it is.
 - **What to run:** nothing new. The next schema change is one `ep0ch install --apply` on each machine.
+
 
 
 ### Heading styles as you write them: one heading's own fields, and a style declared on any line (PIE-599)

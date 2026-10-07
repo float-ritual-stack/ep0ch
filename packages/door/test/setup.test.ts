@@ -1094,7 +1094,7 @@ describe("the outlines' schema (PIE-617): install migrates them, or refuses befo
     const checks = (f: Facts) => Object.fromEntries(doctorChecks(f).map(c => [`${c.group}/${c.name}`, c]));
     const behind = bumped({ "float-hub": 2 }, { head: 3, f: current() });
     behind.schema!.head = code(3);
-    expect(checks(behind)["outlines/schema"]).toMatchObject({ status: "behind", detail: "float-hub is schema 2; the checkout's code opens only schema 3, so the host refuses it", fix: expect.stringMatching(/^ep0ch install --apply migrates it \(schema 2 → 3/) });
+    expect(checks(behind)["outlines/schema"]).toMatchObject({ status: "behind", detail: "float-hub is schema 2; the checkout's code opens only schema 3, so the host refuses it", fix: "ep0ch install --apply" });
     const old = bumped({ "float-hub": 1 }, { head: 3, f: current() });
     old.schema!.head = code(3);
     expect(checks(old)["outlines/schema"]!.fix).toContain("import it into a new outline instead");
