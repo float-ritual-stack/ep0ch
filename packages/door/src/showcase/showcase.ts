@@ -45,8 +45,26 @@ import { ScreenTile } from "../desk/screen-tile";
 import { servingSession } from "../session/session-term";
 import { findShowcase, loadShowcase, SEED, type SeedName } from "./seed";
 import { RowView } from "../scroll";
+import { WaitingYouPane } from "../desk/waiting-you";
 
 type Notes = Partial<Record<SeedName, Msg>>;
+
+/**
+ * The program status section's fake deploy (OSC 7501): it reports each step to its terminal tile, waits for the person
+ * to approve production, and finishes done (y) or failed (anything else); then it's a shell, to run it again.
+ */
+export const STATUS_DEMO = [
+  `s() { printf '\\033]7501;%s\\033\\\\' "$1"; }`,
+  `m() { printf '%s' "$1" | base64 | tr -d '\\n'; }`,
+  `echo 'a fake deploy, saying what it does with OSC 7501 (state, progress, a message)'`,
+  `s "state=working:app=deploy:progress=20:msg=$(m 'Building v2.4.1')"; sleep 1`,
+  `s "state=working:app=deploy:progress=60:msg=$(m 'Pushing images')"; sleep 1`,
+  `s "state=blocked:kind=permission:app=deploy:msg=$(m 'Deploy v2.4.1 to production?')"`,
+  `printf 'Deploy v2.4.1 to production? (y/n) '; read a`,
+  `s "state=working:app=deploy:progress=90:msg=$(m 'Rolling out')"; sleep 1`,
+  `if [ "$a" = y ]; then s "state=done:app=deploy:msg=$(m 'Deployed v2.4.1 to 3 regions')"; echo deployed; else s "state=error:app=deploy:msg=$(m 'Stopped: production not approved')"; echo stopped; fi`,
+  `exec sh`,
+].join("\n");
 
 /** One reuse-map row: what a feature needs, the part to use and where it lives, and how it's shown. */
 export interface Section {
@@ -207,6 +225,14 @@ export const SECTIONS: Section[] = [
     stage(n, show) {
       const kettle = new PtyPane({ cmd: ["sh", "-c", "echo 'the kettle: a terminal tile to put in your drawer (^W a). Its pid:' $$; exec sh"], label: "kettle" }), r = new ReaderPane(true);
       return deskOf({ title: "showcase · drawer", panes: [kettle, r], names: ["kettle", "reader"], layout: ([a, b]) => row(0.5, a!, b!) }, show, [], d => { if (n.notebook) d.setCurrent(n.notebook); });
+    },
+  },
+  {
+    key: "status", need: "show what a program in a terminal tile says it's doing (working, blocked on you, done, failed); report the door's own to its terminal", part: "program status (OSC 7501, PIE-614): outline-core's one reader and writer (records, ids, lifetimes, limits); each terminal tile's TileStatus, read through its emulator's OSC handler and answering the feature query, its glyph on the tile's header and tab, the drawer's chip, the status bar's count; the waiting-on-you list (a tile kind: host.waiting, alt+w, a click on the count; status.go, status.seen); doorReport to the door's own terminal", files: "outline-core/src/program-status.ts, src/desk/program-status.ts, src/desk/waiting-you.ts, src/desk/pty.ts, outliner src/program-status-emit.ts, claude-mod hooks/claude-status.ts",
+    aside: "the deploy on the left is a script writing OSC 7501 to its terminal: building, pushing, then blocked on a permission until you answer y in it (click in it, y ⏎); its header's glyph, the status bar's ◆ and the list on the right follow it · ⏎ or a click on a row goes to that terminal, x marks it seen; being in the tile clears its done · alt+w opens the same list in your drawer, on any screen · the Claude mod reports Claude's own (a permission dialog, a question, done), ep0ch install --apply, ep0ch backup run, scripts/box-test and scripts/agent-env --test report theirs; the door reports its own to Ghostty or Rex (doorReport)",
+    stage(_n, show) {
+      const deploy = new PtyPane({ cmd: ["sh", "-c", STATUS_DEMO], label: "deploy" }), list = new WaitingYouPane();
+      return deskOf({ title: "showcase · program status", panes: [deploy, list], names: ["deploy", "waiting"], layout: ([a, b]) => row(0.55, a!, b!) }, show, []);
     },
   },
   {

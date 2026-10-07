@@ -391,6 +391,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     kinds: ["tile kinds", "tree ^W o t", "backlinks ^W o l"],
     terminal: ["a terminal tile: sh in a pty the door owns", "shell"],
     drawer: ["the kettle: a terminal tile to put in your drawer", "kettle"],
+    // A fake deploy reporting its status (OSC 7501) beside the waiting-on-you list that follows it.
+    status: ["a fake deploy, saying what it does with OSC 7501", "waiting on you"],
     preview: ["preview · tree", "outline"],
     screen: ["board ·", "preview · board"],
     spine: ["Queued", "Doing", "Review", "Done", "HOME-003"],
@@ -930,6 +932,45 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect(app.drawer.tabs()[0]!.name).toBe("drawer.agent");
     await app.act({ action: "host.toggle", args: { open: false }, as: "test-agent" });
   }, 20_000);
+
+  test("the program status section (PIE-614): a fake deploy reports each state; its header, the status bar, the list, peek and status.list follow it; answering it ends done; going to it clears it", async () => {
+    (app as any).lastInput = 0;
+    await app.act({ action: "section", args: { name: "status" }, as: "test-agent" });
+    await until(() => marks.status!.every(m => screen().includes(m)), "the status section");
+    const stage = () => S().stages.get(S().sel).top;
+    const deploy = () => stage().pane("deploy");
+    const bar = () => { (app as any).paint(); return plain(painted.at(-1) ?? ""); };
+    // Working, with its progress, on its header.
+    await until(() => deploy()?.status.urgent()?.state === "working", "working", 8000);
+    await until(() => /[◴◷◶◵] (20|60)% \d deploy/.test(screen()), "the header's spinner and progress", 5000);
+    // Blocked on a permission: the header's ◆, the list's row, the status bar's count, peek and status.list.
+    await until(() => deploy()?.status.urgent()?.state === "blocked", "blocked", 8000);
+    await until(() => /◆ \d deploy/.test(screen()) && screen().includes("deploy · needs you · Deploy v2.4.1 to production?"), "the header and the list", 5000);
+    expect(bar()).toContain("◆1 on you");
+    const listed = await app.act({ action: "status.list", args: {}, as: "test-agent" }) as any;
+    expect(listed.waiting[0]).toMatchObject({ n: 1, name: "deploy", state: "blocked", kind: "permission", app: "deploy", msg: "Deploy v2.4.1 to production?" });
+    expect(JSON.stringify(app.describe())).toContain("\"status\":[{\"id\":\"\",\"state\":\"blocked\",\"kind\":\"permission\",\"app\":\"deploy\",\"msg\":\"Deploy v2.4.1 to production?\"}]");
+    // Going to it is the person's: an agent's is refused, its keys stay put.
+    await expect(app.act({ action: "status.go", tile: "waiting", args: { n: 1 }, as: "test-agent" })).rejects.toThrow();
+    // The agent answers the program itself (tile.type), and it rolls out, then finishes done.
+    await app.act({ action: "tile.type", tile: "deploy", args: { text: "y\\n" }, as: "test-agent" });
+    await until(() => deploy()?.status.urgent()?.state === "done", "done", 8000);
+    await until(() => /✓ \d deploy/.test(screen()) && screen().includes("deploy · done · Deployed v2.4.1 to 3 regions"), "done on the header and the list", 5000);
+    expect(bar()).toContain("✓1 on you");
+    // alt+w: the same list in your drawer.
+    (app as any).lastInput = 0;
+    press({ kind: "alt", ch: "w" });
+    await until(() => app.drawer.tabs().some(t => t.kind === "waiting-you"), "the list in the drawer", 5000);
+    expect(app.drawer.open).toBe(true);
+    press({ kind: "char", ch: "]", ctrl: true });
+    await app.act({ action: "host.toggle", args: { open: false }, as: "test-agent" }).catch(() => {});
+    // The person goes to it from the list (⏎ on its row runs status.go): the keys go to the deploy, and its done is seen.
+    await stage().dispatch.press("status.go", { n: 1 }, "waiting");
+    await until(() => deploy()?.status.records.size === 0, "seen once the person is in it", 5000);
+    expect(bar()).not.toContain("on you");
+    press({ kind: "char", ch: "]", ctrl: true });
+    press({ kind: "esc" });
+  }, 30_000);
 
   test("search, driven by an agent: the section's own desk answers the service's forgiving search, the person's overlay left alone", async () => {
     (app as any).lastInput = 0;

@@ -299,6 +299,7 @@ export class AgentDrawer {
       this.do({ op: "focus", tile: HOST_TILES }, actor);
       d.run("tab.select", {}, inDrawer);
       this.intoShown();
+      p.focused?.(d, actor);
       this.host.redraw();
       return { tile: inDrawer, in: "drawer" };
     }
@@ -307,6 +308,8 @@ export class AgentDrawer {
     if (!screen || !name) throw new ActionRefused(`${what} isn't on this screen or in your drawer: it's on a screen under this one (q goes back to it)`);
     if (this.open) this.set(false, actor);
     screen.focusPane(p, actor);
+    // Already the focused tile, the focus didn't move: the person is back in it all the same.
+    p.focused?.(screen, actor);
     this.host.redraw();
     return { tile: name, in: "screen" };
   }
