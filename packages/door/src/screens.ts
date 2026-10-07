@@ -478,7 +478,7 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
     },
   }),
   "screen.open": def({
-    summary: "open a screen by name over the current one (q comes back): a menu item, or any registered screen (screen.list names them), with its target where it takes one (detail: a block id, ((ref)) or ep0ch:// URI; board: a hub id). `ep0ch --screen <name> [<target>]` opens the door on it through this action. An agent's waits until the person is idle and is said on the status bar", keys: "the menu's letters N J K R W L F S Q B D G X T O C E + M, or n j k r w l f s q b d g x t o c e m, ⏎, click on a menu item or its letter on the key line",
+    summary: "open a screen by name over the current one (q comes back): a menu item, or any registered screen (screen.list names them), with its target where it takes one (detail: a block id, ((ref)) or ep0ch:// URI; board: a hub id). `ep0ch --screen <name> [<target>]` opens the door on it through this action. An agent's waits until the person is idle and is said on the status bar", keys: "the menu's letters N J K R W L F S Q B D G X T O C I E + M, or n j k r w l f s q b d g x t o c i e m, ⏎, click on a menu item or its letter on the key line",
     touches: "screen", replay: "safe", says: out => (out?.opened ? { text: `· opened ${out.opened} · q goes back`, ms: 6000 } : null),
     args: {
       name: { type: "string", about: "the menu key (S), its label (Stats), the screen's title, or a registered screen name (screen.list)" },
