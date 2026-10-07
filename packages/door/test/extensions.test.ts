@@ -144,6 +144,9 @@ describe.skipIf(!outliner)("the four kinds in a door, against a scratch service"
 
   afterAll(async () => {
     D()?.dispose?.();
+    // The extension's tile kinds and actions are the process's: unbound, so a later file's door doesn't offer Tarot.
+    bindExtensions(null);
+    app?.quit();
     board?.close();
     await scratch.dispose();
   });
@@ -283,6 +286,7 @@ describe.skipIf(!outliner)("the four kinds in a door, against a scratch service"
     expect(saved).not.toContain("tile.ts");
     // A new door (a restart): the layout comes back before the list is read, its tiles say so, then run.
     bindExtensions(null);
+    app?.quit();
     expect(tileKind("tarot.reading")).toBeUndefined();
     const again = new Desk(undefined, { layout: "cards" }) as any;
     const cards = () => again.layoutGet().tiles.find((t: any) => t.name === "cards");

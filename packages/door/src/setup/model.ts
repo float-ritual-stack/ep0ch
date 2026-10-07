@@ -182,6 +182,8 @@ export interface Facts {
   ext?: { root: string; exts: ExtFacts[]; stale: StaleLink[]; record?: string };
   /** The shipped agent skills' links (Claude Code's skills folder, and ~/.agents/skills); undefined when not looked for. */
   skills?: SkillLinkFacts;
+  /** The art packs the menus draw (EP0CH_PACKS, else the default folder) and how many it holds; undefined when not looked for. */
+  art?: { dir: string; packs: number; fromEnv: boolean };
   /** The Litestream units (replicators, mirror followers) and how far each replica trails (backups.ts); doctor only. */
   backups?: BackupFacts;
 }

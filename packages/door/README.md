@@ -494,7 +494,7 @@ A checkout from before `install` gets it by hand, once:
 | `EP0CH_PICKER`, `EP0CH_PICK_CHANNEL` | the picker `Ctrl+T` hands a draft's terminal to (default `tv`), and its argument (default `ep0ch`; empty for none) |
 | `EP0CH_SSH` | the ssh `--machine` and `--remote` run (default `ssh`) |
 | `EP0CH_DAEMON` | `0` (or `--no-daemon`) opens the door in this terminal, as before sessions: quitting it ends it. Otherwise the door is a session (see [Sessions](#sessions-quit-is-detach)): its outline's, attached to, started first when none runs. Tests and `scripts/test-door-env.sh` set `0`; pass `EP0CH_DAEMON=1` to try a session there |
-| `EP0CH_PACKS` | folder holding the `woe*.zip` packs (default `/opt/float/bbs/inbox/evan`) |
+| `EP0CH_PACKS` | folder holding the `woe*.zip` packs (default `/opt/float/bbs/inbox/evan`). Optional: without packs every screen draws with no art, and `ep0ch doctor` says so. `packages/door/test/fixtures/packs` holds the few pieces the menus use, which the tests always draw |
 | `EP0CH_KITTY` | `1` / `0` forces graphics on or off |
 | `EP0CH_THEME` | `calm` (the default), `night` or `classic`: the colours at start, over the one last chosen with `alt+t` (see [Themes and accessibility](#themes-and-accessibility)) |
 | `EP0CH_LANDING` | the screen opened after the logon, by any `--screen` name: `brief` (the newest daily brief), `welcome` (the welcome notes), or any registered screen (default: the main menu) |

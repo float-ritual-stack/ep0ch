@@ -857,3 +857,14 @@ describe("the agent skills: their links where Claude Code (and ~/.agents) finds 
     expect(skillsStep(withSkills(look(m)))).toMatchObject({ status: "skip" });
   });
 });
+
+describe("doctor: the art packs (PIE-596)", () => {
+  test("none: the menus draw without art, and the fix names the checkout's own few pieces; found: ok", () => {
+    const c = (art: Facts["art"]) => doctorChecks(laptop({ art })).find(x => x.name === "art packs");
+    expect(c(undefined)).toBeUndefined();
+    const none = c({ dir: "/srv/no-art", packs: 0, fromEnv: true })!;
+    expect(none).toMatchObject({ group: "ep0ch", status: "info", detail: "none in /srv/no-art (EP0CH_PACKS): the menus draw without art" });
+    expect(none.fix).toContain(`export EP0CH_PACKS=${REPO}/packages/door/test/fixtures/packs`);
+    expect(c({ dir: "/srv/art", packs: 2, fromEnv: true })).toMatchObject({ status: "ok", detail: "2 in /srv/art" });
+  });
+});
