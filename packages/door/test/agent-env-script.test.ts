@@ -47,6 +47,19 @@ describe("scripts/agent-env", () => {
     expect(refused.stderr.toString()).toContain("is a symlink");
   });
 
+  // Test files that once passed alone but failed under agent-env: the outliner's (scratch folders under $HOME found the
+  // person's ~/.ep0ch, #260) and the agent interface's (its deeper TMPDIR wrapped a terminal tile's echo of the control
+  // socket's path). Run through it here, each must pass as it does alone.
+  test("test files that once failed only under agent-env pass under it", () => {
+    const repo = join(import.meta.dir, "../../..");
+    for (const [pkg, file] of [["door", "test/agent-interface.test.ts"], ["outliner", "test/outline-host-clients.test.ts"]] as const) {
+      const r = Bun.spawnSync([script, "regress", "--", "sh", "-c", `cd ${join(repo, "packages", pkg)} && exec bun test ${file}`],
+        { env: { ...process.env, EP0CH_AGENT_ROOT: root }, stdout: "pipe", stderr: "pipe" });
+      const out = r.stderr.toString().replace(/\x1b\[[0-9;]*m/g, "");
+      expect({ file, code: r.exitCode, failed: out.split("\n").filter(l => /^(✗|\(fail\))/.test(l)) }).toEqual({ file, code: 0, failed: [] });
+    }
+  }, 300_000);
+
   test.skipIf(!procs)("a run, and what it starts, are the first the kernel kills: oom_score_adj 1000", () => {
     expect(run("--", "sh", "-c", "cat /proc/self/oom_score_adj; sh -c 'cat /proc/self/oom_score_adj'").out.trim().split("\n")).toEqual(["1000", "1000"]);
     expect(run("--test", "--", "cat", "/proc/self/oom_score_adj").out.trim()).toBe("1000");

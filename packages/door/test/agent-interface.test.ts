@@ -116,7 +116,9 @@ describe.skipIf(!outliner)("the agent interface, against a scratch outline", () 
   test("a terminal tile is told this door's control socket (EP0CH_CONTROL) and its own name (EP0CH_TILE)", async () => {
     // The door serves on its own path, not EP0CH_CONTROL's default: `ep0ch act` from the tile reaches this door.
     await act("tile.type", { text: "echo \"ctl=$EP0CH_CONTROL tile=$EP0CH_TILE\"\r" }, "claude");
-    await until(() => (terminal("claude")?.text ?? []).join("\n").includes(`ctl=${control.path} tile=claude`), "the tile's echo");
+    // Read across the tile's rows: a long control path (a deep TMPDIR, as under scripts/agent-env) wraps the line.
+    const flat = (t: string) => t.replace(/\s+/g, "");
+    await until(() => flat((terminal("claude")?.text ?? []).join("")).includes(flat(`ctl=${control.path} tile=claude`)), "the tile's echo");
   });
 
   test("view.subscribe from another process: a click moves focus and the event arrives; a move is layout.changed", async () => {
