@@ -8,7 +8,8 @@
 #   scripts/agent-env <name> --print             the settings, as export lines for a shell
 #   scripts/agent-env <name> --clean             remove the agent's folder
 #
-# The folder is $EP0CH_AGENT_ROOT/<name> (default ~/.agent-env/<name>, mode 700), short enough for sockets. The
+# The folder is $EP0CH_AGENT_ROOT/<name> (default ~/.agent-env/<name>, mode 700), short enough for sockets; its temp
+# folder is $EP0CH_AGENT_TMP/ep0ch-agent-<uid>/<name> (default under /tmp, outside $HOME and its ~/.ep0ch). The
 # person's settings are cleared by packages/door/scripts/test-door-env.sh, the same as a test door's.
 #
 # --test: at most EP0CH_TEST_SLOTS runs at once on this machine (default 2), each in a systemd user scope with
@@ -37,12 +38,28 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-if [ "$mode" = clean ]; then rm -rf -- "$dir"; echo "agent-env: removed $dir"; exit 0; fi
+# The temp folder is outside the home folder (EP0CH_AGENT_TMP, default /tmp): a scratch folder under $HOME has the
+# person's ~/.ep0ch above it, which "the nearest .ep0ch walking up" finds, so a test's folder that names no outline
+# would name theirs (the outliner's outline-host tests failed that way under agent-env).
+tmpbase=${EP0CH_AGENT_TMP:-/tmp}/ep0ch-agent-$(id -u)
+tmp=$tmpbase/$name
+# A folder of ours in a shared /tmp: made here (mode 700) or found as a real folder this user owns, never a symlink
+# (one someone else planted would send the chmod, the run's files and --clean somewhere else) and never another's.
+private_dir() {
+  if [ -L "$1" ]; then echo "agent-env: $1 is a symlink; remove it, or set EP0CH_AGENT_TMP to a folder of your own outside \$HOME" >&2; exit 2; fi
+  if [ ! -e "$1" ] && ! mkdir -m 700 "$1" 2>/dev/null && [ ! -d "$1" ]; then echo "agent-env: can't make $1" >&2; exit 2; fi
+  if [ -L "$1" ] || [ ! -d "$1" ] || [ ! -O "$1" ]; then echo "agent-env: $1 isn't a folder of yours; set EP0CH_AGENT_TMP to a folder of your own outside \$HOME" >&2; exit 2; fi
+  chmod 700 "$1"
+}
+mkdir -p "${EP0CH_AGENT_TMP:-/tmp}"
+private_dir "$tmpbase"
+if [ "$mode" = clean ]; then rm -rf -- "$dir" "$tmp"; echo "agent-env: removed $dir and $tmp"; exit 0; fi
+private_dir "$tmp"
 
 umask 077
-mkdir -p "$root" "$dir/state" "$dir/outlines" "$dir/tmp"
+mkdir -p "$root" "$dir/state" "$dir/outlines"
 chmod 700 "$root" "$dir"
-settings=(EP0CH_STATE="$dir/state" EP0CH_CONTROL="$dir/control.sock" EP0CH_OUTLINES="$dir/outlines" TMPDIR="$dir/tmp" EP0CH_AGENT_ENV="$name")
+settings=(EP0CH_STATE="$dir/state" EP0CH_CONTROL="$dir/control.sock" EP0CH_OUTLINES="$dir/outlines" TMPDIR="$tmp" EP0CH_AGENT_ENV="$name")
 
 if [ "$mode" = print ]; then
   for v in $(env | sed -n 's/^\(EP0CH_[A-Za-z0-9_]*\)=.*/\1/p'); do echo "unset $v"; done
