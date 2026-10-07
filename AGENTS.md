@@ -194,7 +194,7 @@ MacBook). It does not support every version a client ever connected with.
 - **Tests on a shared machine:** whole suites run in a boxd box, off float-2: `scripts/box-test` (the door) or
   `scripts/box-test all --each` before merging a series ([CONTRIBUTING](CONTRIBUTING.md#verification)). A focused
   run on float-2 goes through `scripts/agent-env <name> --test -- timeout 900 bun test <files>`: it waits for one
-  of two test slots, is capped in CPU and memory, and whatever it leaves running is stopped with it. Several
+  of two test slots, is capped in CPU and memory (where there's a systemd user manager, as on float-2), and whatever it leaves running is stopped with it. Several
   agents testing at once froze float-2 (4 cores), so never `--parallel` here. Run in the foreground: a background
   run's notification may never reach you, so don't end a turn waiting on one. Judge a run by its exit code:
   grepping colourised output for "fail" hides failures (153 outliner tests were red for a day that way).

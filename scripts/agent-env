@@ -14,7 +14,7 @@
 # --test: at most EP0CH_TEST_SLOTS runs at once on this machine (default 2), each in a systemd user scope with
 # CPUQuota=EP0CH_TEST_CPU (default 200%) and MemoryMax=EP0CH_TEST_MEM (default 3G). Whatever the run leaves
 # behind (a test door's shell, a scratch host) is stopped with its scope when it ends. Without systemd it is only
-# queued. The exit code is the command's. Full suites belong in a boxd box: scripts/box-test.
+# queued (it says so). The exit code is the command's. Full suites belong in a boxd box: scripts/box-test.
 set -euo pipefail
 
 here=$(cd "$(dirname "$0")/.." && pwd)
@@ -74,7 +74,10 @@ done
 if command -v systemd-run >/dev/null && systemctl --user is-system-running >/dev/null 2>&1; then
   unit="agent-env-$name-$$"
   set +e
-  systemd-run --user --scope --quiet --collect --unit="$unit" -p CPUQuota="${EP0CH_TEST_CPU:-200%}" -p MemoryMax="${EP0CH_TEST_MEM:-3G}" -- "${run[@]}"
+  # Ended itself (a signal to this wrapper): the run and whatever it started go with the scope.
+  trap 'systemctl --user stop "$unit.scope" >/dev/null 2>&1; exit 143' TERM INT HUP
+  systemd-run --user --scope --quiet --collect --unit="$unit" -p CPUQuota="${EP0CH_TEST_CPU:-200%}" -p MemoryMax="${EP0CH_TEST_MEM:-3G}" -- "${run[@]}" <&0 &   # <&0: a background job would otherwise read /dev/null
+  wait $!
   code=$?
   # Anything the run started and left (a door's shell, a scratch host) goes with its scope.
   systemctl --user stop "$unit.scope" >/dev/null 2>&1

@@ -29,11 +29,12 @@ Before a PR claims a change works:
    mod's run under `claude plugin test` (`claude` on PATH).
    - **Whole suites run in a boxd box** (PIE-597): `scripts/box-test [--each] [door|outliner|outline-core|claude-mod|all]`
      forks the golden box (the repo cloned, `bun install` done), checks out your commit (unpushed is fine: it goes
-     up as a bundle), streams the output, exits with the suites' code and always removes the fork. Each run's time
+     up as a bundle), streams the output, exits with the first failing suite's code and removes the fork (one it
+     couldn't remove, its run killed, powers itself off and the next run removes it). Each run's time
      and estimated cost are kept in `~/.local/state/ep0ch/box-test.tsv`. `scripts/box-test --refresh-golden`
      rebuilds the golden box (after a `bun.lock` change it saves the install). It needs the boxd CLI, signed in.
    - **Focused runs on float-2** go through `scripts/agent-env <name> --test -- timeout 900 bun test <files>`: two at
-     once on the machine at most (`EP0CH_TEST_SLOTS`), each capped (`EP0CH_TEST_CPU`, `EP0CH_TEST_MEM`), in the
+     once on the machine at most (`EP0CH_TEST_SLOTS`), each capped in a systemd user scope (`EP0CH_TEST_CPU`, `EP0CH_TEST_MEM`), in the
      foreground, never `--parallel`: five agents' parallel runs once froze float-2. The door's `parity-screens`
      takes more than ten minutes whole; run it in parts with `PARITY_ONLY` (see the ep0ch-core skill), or in a box.
    - Before merging a series, and in every review round, run the door's files each alone too
