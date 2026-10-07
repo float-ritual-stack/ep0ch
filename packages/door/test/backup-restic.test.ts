@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { alertMark, type BackupState, CHECK_LATE_MS, incidents, nextAlert, readAlert, readBackupState, STALE_AFTER_MS } from "../src/backup/alert";
 import { backupConfig, type BackupConfig, parseEnvFile, parseMirrors } from "../src/backup/config";
 import { backupCommand, parseAt, pick } from "../src/backup/cli";
-import { changeSeq, followersOf, mirror, newer, runAll, snapshot } from "../src/backup/jobs";
+import { changeSeq, followersOf, mirror, newer, runAll, snapshot, takeLock } from "../src/backup/jobs";
 import { parseSnapshots, resticArgv, summaryId } from "../src/backup/restic";
 import { backupPlan, type BackupSetupFacts, fill, resticChecks, UNIT_MARK, unitFiles } from "../src/backup/setup";
 import { App } from "../src/app";
@@ -72,6 +72,8 @@ describe("settings", () => {
     const rows = [{ id: "aa", time: "2026-05-02T09:00:00Z", paths: ["/garden.sqlite"], tags: ["ep0ch-outline", "outline=garden", "seq=12"], hostname: "laptop" },
       { id: "bb", time: "2026-05-02T09:00:00Z", paths: ["/home"], tags: ["nightly"] }];
     expect(parseSnapshots(JSON.stringify(rows))).toEqual([{ id: "aa", time: "2026-05-02T09:00:00Z", outline: "garden", seq: 12, host: "laptop" }]);
+    // A tag naming a path is no outline: its name becomes a file name.
+    expect(parseSnapshots(JSON.stringify([{ ...rows[0], tags: ["ep0ch-outline", "outline=../../etc/x"] }]))).toEqual([]);
     expect(summaryId('{"message_type":"status"}\n{"message_type":"summary","snapshot_id":"cafe"}\n')).toBe("cafe");
     expect(parseAt("3h", T0)).toBe(T0 - 3 * 3_600_000);
     expect(parseAt("2026-05-01 08:00", T0)).toBe(Date.parse("2026-05-01T08:00"));
@@ -131,6 +133,23 @@ describe("the alert", () => {
     expect(followersOf(units, "/u/outline-mirrors/tower/garden.sqlite")).toEqual([]);
   });
 
+  test("another machine's backups unreadable for 2 hours is an incident of its own", () => {
+    const s = state({ sources: { laptop: { failingSince: iso(T0 - 3 * 3_600_000), error: "Fatal: wrong password" } } });
+    expect(incidents(s, "float", T0, CMD).map(i => i.key)).toEqual(["source:laptop"]);
+  });
+
+  test("one backup command at a time: the lock is exclusive, and a dead holder's is taken over", () => {
+    const c = machine("locks");
+    const release = takeLock(c);
+    expect(typeof release).toBe("function");
+    expect(takeLock(c)).toContain("is running");
+    (release as () => void)();
+    writeFileSync(join(c.state, "run.lock"), "999999999");
+    const again = takeLock(c);
+    expect(typeof again).toBe("function");
+    (again as () => void)();
+  });
+
   test("newer wins: by change, else by time", () => {
     expect(newer({ seq: 5 }, { seq: 4 })).toBe(true);
     expect(newer({ seq: 4 }, { seq: 4 })).toBe(false);
@@ -151,6 +170,9 @@ describe.skipIf(!RESTIC)("snapshots, mirrors and restores against a local restic
     expect(await snapshot(laptop, s, { say })).toEqual({ uploaded: ["garden", "pantry"], failed: [] });
     expect(s.outlines.garden).toMatchObject({ seq: 2 });
     expect(await snapshot(laptop, s, { say })).toEqual({ uploaded: [], failed: [] });
+    // Another repository starts every outline over: nothing counts as backed up there.
+    const elsewhere = { ...laptop, repoOf: (m: string) => join(root, "repos-other", m) };
+    expect((await snapshot(elsewhere, { ...s, outlines: { ...s.outlines } }, { say })).uploaded).toEqual(["garden", "pantry"]);
     outline(join(laptop.outlines, "garden.sqlite"), ["Stake the peas"]);
     expect(await snapshot(laptop, s, { say })).toEqual({ uploaded: ["garden"], failed: [] });
     expect(s.outlines.garden).toMatchObject({ seq: 3 });
@@ -181,14 +203,25 @@ describe.skipIf(!RESTIC)("snapshots, mirrors and restores against a local restic
     const shadow = join(tower.mirrorsDir, ".restic", "laptop", "garden.sqlite");
     expect(existsSync(shadow)).toBe(true);
     expect(existsSync(join(tower.mirrorsDir, "laptop", "garden.sqlite"))).toBe(false);
-    // The follower is retired: the real folder, from scratch; Litestream's leftovers beside it go.
-    mkdirSync(join(tower.mirrorsDir, "laptop"), { recursive: true });
+    // The follower is retired, its copy (change 9, newer than any snapshot) still there: it isn't rolled back.
+    outline(join(tower.mirrorsDir, "laptop", "garden.sqlite"), Array.from({ length: 9 }, (_, i) => `Bed ${i}`));
+    await mirror(tower, s, { say, follower: async () => false });
+    expect(changeSeq(join(tower.mirrorsDir, "laptop", "garden.sqlite"))).toBe(9);
+    expect(s.mirrors["laptop/garden"]).toMatchObject({ seq: 9, source: "found" });
+    // An older copy there (Litestream's, behind) is replaced; Litestream's leftovers beside it go.
+    rmSync(join(tower.mirrorsDir, "laptop"), { recursive: true });
+    delete s.mirrors["laptop/garden"];
+    outline(join(tower.mirrorsDir, "laptop", "garden.sqlite"), ["Bed 1"]);
     writeFileSync(join(tower.mirrorsDir, "laptop", "garden.sqlite-txid"), "00000000000000a0");
     await mirror(tower, s, { say, follower: async () => false });
     const real = join(tower.mirrorsDir, "laptop", "garden.sqlite");
     expect(changeSeq(real)).toBe(3);
     expect(existsSync(`${real}-txid`)).toBe(false);
     expect(s.mirrors["laptop/garden"]).toMatchObject({ seq: 3, source: "restic", folder: join(tower.mirrorsDir, "laptop") });
+    // The laptop showed change 3 over ssh once; the snapshot holds it, so nothing is pending, ssh or not.
+    s.mirrors["laptop/garden"]!.remoteSeq = 3; s.mirrors["laptop/garden"]!.pendingSince = iso(T0);
+    await mirror(tower, s, { say, follower: async () => false });
+    expect(s.mirrors["laptop/garden"]!.pendingSince).toBeUndefined();
     // A newer copy here (from sqlite3_rsync) isn't replaced by an older snapshot.
     s.mirrors["laptop/garden"] = { ...s.mirrors["laptop/garden"], seq: 99, source: "rsync", snapshot: undefined };
     await mirror(tower, s, { say, follower: async () => false });
@@ -272,6 +305,11 @@ describe("install and doctor", () => {
     expect(plist!.want).toContain("<integer>900</integer>");
     expect(plist!.want).not.toContain("{{");
     expect(fill("{{A}} {{B}}", { A: "1" })).toBe("1 {{B}}");
+    // Paths that need quoting: a space and a % in the checkout for systemd, an & for launchd.
+    const [odd] = unitFiles({ platform: "linux", home: "/fictional/home", bun: "/fictional/bin/bun", main: "/fictional/my ep0ch/100%/main.ts", repoRoot, env: {} });
+    expect(odd!.want).toContain('ExecStart=/fictional/bin/bun "/fictional/my ep0ch/100%%/main.ts" backup run');
+    const [amp] = unitFiles({ platform: "macos", home: "/fictional/home", bun: "/fictional/bin/bun", main: "/fictional/R&D/main.ts", repoRoot, env: {} });
+    expect(amp!.want).toContain("<string>/fictional/R&amp;D/main.ts</string>");
   });
 
   test("doctor: each outline's newest snapshot, an incident with its fix, the drill", () => {

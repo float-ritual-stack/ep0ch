@@ -19,12 +19,15 @@ line.
    that hasn't changed isn't snapshotted. Each run stands alone: a failed upload, a gap or an offline night leaves
    nothing to repair; the next run tries again. A repository that isn't there yet is made (`restic init`).
 2. **Retention**, after an upload: `restic forget --group-by host,paths --keep-within 48h --keep-hourly 72
-   --keep-daily 30 --keep-weekly 12`, with `--prune` once a day.
+   --keep-daily 30 --keep-weekly 12`, with `--prune` once a day: every snapshot of the 48 hours before the newest,
+   and the newest of each of the last 72 hours, 30 days and 12 weeks that have one (an outline that changes rarely
+   keeps older history, since only hours and days with a snapshot count).
 3. **Mirrors** (`EP0CH_BACKUP_MIRRORS`): each other machine's newest snapshot of each outline replaces
    `~/outline-mirrors/<machine>/<name>.sqlite` (atomic rename) when it's newer than the copy there. With
    `<machine>=<ssh-name>` and `sqlite3_rsync` on both machines, the outline is also copied straight from it when it
-   answers; whichever copy holds the later change wins. While a Litestream follower (`litestream-mirror@<name>`) still
-   runs, the copy goes to `~/outline-mirrors/.restic/<machine>/` instead, so the two never write one file.
+   answers; whichever copy holds the later change wins. While a Litestream follower (`litestream-mirror@<name>`)
+   is active or enabled, the copy goes to `~/outline-mirrors/.restic/<machine>/` instead, so the two never write one
+   file; once it's disabled and stopped, a copy Litestream left there is read first and only a newer snapshot replaces it.
 4. **Drill**, monthly: every outline's newest snapshot restored into a temp folder and checked (`integrity_check`,
    its blocks counted). `ep0ch backup drill` runs it now.
 5. **Watch.** Changes waiting more than 2 hours for a snapshot (here, or on a mirrored machine that answers over ssh),

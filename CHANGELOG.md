@@ -16,7 +16,7 @@ are its record. The outliner's entries from then are kept below, under
   (a systemd timer) and macOS (a launchd agent): a consistent, integrity-checked copy of each outline whose change
   feed moved, into this machine's restic repository in the `ep0ch` bucket (`restic/<machine>`). An unchanged outline
   isn't snapshotted, and every run stands alone, so a VPN that drops Hetzner for hours or an offline night leaves
-  nothing to repair. Kept: everything for 48 hours, then hourly for 3 days, daily for a month, weekly for 12 weeks.
+  nothing to repair. Kept: every snapshot of the last 48 hours, and the newest of each of the last 72 hours, 30 days and 12 weeks that have one.
 - **Mirrors from the newest snapshot.** float-2's read-only copies of the laptop's outlines (what the MCP gateway
   serves) are refreshed from the laptop's newest snapshot by an atomic rename, and straight from the laptop with
   `sqlite3_rsync` when it answers; the newer copy wins.

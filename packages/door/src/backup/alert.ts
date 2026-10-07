@@ -35,9 +35,10 @@ export interface MirrorState {
   folder?: string;
   snapshot?: string;
   seq?: number | null;
-  /** The snapshot's time (or, from sqlite3_rsync, when it was copied). */
+  /** The snapshot's time (or, from sqlite3_rsync, when it was copied; a copy found there, its file's time). */
   at?: string;
-  source?: "restic" | "rsync";
+  /** Where the copy came from: a snapshot, sqlite3_rsync, or found in the folder (Litestream's, a lost state file). */
+  source?: "restic" | "rsync" | "found";
   refreshed?: string;
   /** The outline's change on its machine when last asked over ssh, and when. */
   remoteSeq?: number | null;
@@ -52,7 +53,11 @@ export interface MirrorState {
 export interface Drill { at: string; ok: boolean; detail: string }
 
 export interface BackupState {
+  /** The repository the outlines' snapshots are in: another one starts them over. */
+  repo?: string;
   outlines: Record<string, OutlineState>;
+  /** Other machines' repositories this one reads, when reading one fails. */
+  sources?: Record<string, { failingSince?: string; error?: string }>;
   mirrors: Record<string, MirrorState>;
   lastRun?: { at: string; ok: boolean; detail: string };
   lastPrune?: string;
@@ -110,6 +115,12 @@ export function incidents(s: BackupState, machine: string, now: number, cmd: Com
         detail: `${machine}'s copy of ${name} hasn't taken the newer snapshot since ${hhmm(m.behindSince!)}${m.error ? `: ${m.error}` : ""}`,
         fix: `${cmd.run}   (its log: ${cmd.log})` });
     }
+  }
+  for (const [from, x] of Object.entries(s.sources ?? {}).sort()) {
+    if (!late(x.failingSince)) continue;
+    out.push({ key: `source:${from}`, since: x.failingSince!, title: `${from}'s backups unreadable from ${machine}`,
+      detail: `${machine} hasn't been able to read ${from}'s backups since ${hhmm(x.failingSince!)}, so its mirrors' freshness is unknown: ${x.error ?? "?"}`,
+      fix: `ep0ch backup mirror   (it says restic's error; check the secrets: with-secrets --list)` });
   }
   if (s.drill && !s.drill.ok) {
     out.push({ key: `drill:${machine}`, since: s.drill.at, title: `restore drill failed on ${machine}`, detail: s.drill.detail,

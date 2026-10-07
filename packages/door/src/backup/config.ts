@@ -12,6 +12,7 @@
 //                          straight from it with sqlite3_rsync when it answers (whichever copy is newer wins)
 //   EP0CH_BACKUP_SECRETS   the with-secrets groups restic runs with when its password isn't in the environment: hetzner-s3,restic
 //   EP0CH_RESTIC           the restic binary (default: restic on PATH)
+//   EP0CH_OUTLINES, EP0CH_MCP_MIRROR_DIR   the outlines and the mirrors, where they aren't the defaults
 //
 // Secrets never pass through here: restic gets them from `with-secrets <groups> --`, so they reach only restic.
 import { existsSync, readFileSync } from "node:fs";
@@ -21,6 +22,9 @@ import { outlinesDir } from "../discover";
 import { defaultStateDir } from "../state";
 
 export type Env = Record<string, string | undefined>;
+
+/** The settings install keeps in the file when they're set where it runs: the timer doesn't inherit that shell. */
+export const KEPT_SETTINGS = ["EP0CH_BACKUP_REPO", "EP0CH_BACKUP_MIRRORS", "EP0CH_BACKUP_SECRETS", "EP0CH_RESTIC", "EP0CH_OUTLINES", "EP0CH_MCP_MIRROR_DIR"] as const;
 
 /** The bucket the Litestream replicas already use, under its own prefix: one repository per machine. */
 export const DEFAULT_REPO = "s3:https://hel1.your-objectstorage.com/ep0ch/restic/{machine}";
@@ -91,9 +95,9 @@ export function backupConfig(env: Env = process.env): BackupConfig | { error: st
   return {
     machine, machineFrom: env.EP0CH_BACKUP_MACHINE?.trim() ? "env" : named ? "file" : "hostname",
     repoOf: m => repo.replaceAll("{machine}", m),
-    outlines: outlinesDir({ ...env, HOME: home }),
+    outlines: outlinesDir({ EP0CH_OUTLINES: get("EP0CH_OUTLINES"), HOME: home }),
     state,
-    mirrorsDir: resolve(env.EP0CH_MCP_MIRROR_DIR?.trim() || join(home, "outline-mirrors")),
+    mirrorsDir: resolve(get("EP0CH_MCP_MIRROR_DIR") || join(home, "outline-mirrors")),
     mirrors,
     restic: get("EP0CH_RESTIC") ?? "restic",
     secrets: (get("EP0CH_BACKUP_SECRETS") ?? DEFAULT_SECRETS).split(",").map(s => s.trim()).filter(Boolean),

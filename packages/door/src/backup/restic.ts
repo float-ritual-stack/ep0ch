@@ -34,6 +34,10 @@ export const complaint = (r: Ran) => {
   return (lines.find(l => /^Fatal:/.test(l)) ?? lines.at(-1) ?? `exit ${r.code}`).slice(0, 240);
 };
 
+/** An outline's name as a snapshot may carry it: a file name, never a path (the tags are read from a repository). */
+export const OUTLINE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+const safeName = (n: string) => OUTLINE_NAME.test(n) && !n.includes("..");
+
 export interface OutlineSnapshot { id: string; time: string; outline: string; seq: number | null; host: string }
 
 /** `restic snapshots --json`'s answer, as outline snapshots (others are left out). */
@@ -45,7 +49,7 @@ export function parseSnapshots(json: string): OutlineSnapshot[] | { error: strin
     const tags = r.tags ?? [];
     if (!r.id || !r.time || !tags.includes(OUTLINE_TAG)) return [];
     const outline = tags.find(t => t.startsWith("outline="))?.slice(8) ?? r.paths?.[0]?.replace(/^\//, "").replace(/\.sqlite$/, "");
-    if (!outline) return [];
+    if (!outline || !safeName(outline)) return [];
     const seq = tags.find(t => t.startsWith("seq="))?.slice(4);
     return [{ id: r.id, time: r.time, outline, seq: seq && /^\d+$/.test(seq) ? Number(seq) : null, host: r.hostname ?? "" }];
   });
@@ -77,7 +81,8 @@ export async function backupFile(c: BackupConfig, repo: string, copy: string, na
 
 /** A snapshot's outline, written to `dest`. */
 export async function dumpTo(c: BackupConfig, repo: string, s: Pick<OutlineSnapshot, "id" | "outline">, dest: string): Promise<{ ok: true } | { error: string }> {
-  const r = await runRestic(c, repo, ["dump", "--no-lock", s.id, `/${s.outline}.sqlite`], { stdout: dest });
+  // With a lock: a prune on the other machine holds the repository exclusively; this waits for it.
+  const r = await runRestic(c, repo, ["dump", "--retry-lock", "10m", s.id, `/${s.outline}.sqlite`], { stdout: dest });
   return r.code === 0 ? { ok: true } : { error: complaint(r) };
 }
 

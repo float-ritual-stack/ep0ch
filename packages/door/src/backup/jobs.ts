@@ -9,14 +9,14 @@
 //   watch     what's stale (alert.ts), into alert.json for the door's status bar and doctor; each incident announced once.
 //   drill     monthly: each outline's newest snapshot restored into a temp folder and checked.
 import { Database } from "bun:sqlite";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { outlineOfFile } from "@ep0ch/outline-core/outline-location";
 import { alive } from "../state";
 import { type Alert, type BackupState, type Commands, DRILL_EVERY_MS, hhmm, type Incident, incidents, type MirrorState, nextAlert, readAlert, readBackupState, writeAlert, writeBackupState } from "./alert";
 import type { BackupConfig, MirrorSource } from "./config";
-import { backupFile, complaint, dumpTo, forget, NO_REPO, type OutlineSnapshot, runRestic, snapshots } from "./restic";
+import { backupFile, complaint, dumpTo, forget, NO_REPO, OUTLINE_NAME, type OutlineSnapshot, runRestic, snapshots } from "./restic";
 
 type Say = (line: string) => void;
 
@@ -84,6 +84,8 @@ export async function snapshot(c: BackupConfig, s: BackupState, o: { force?: boo
   const repo = c.repoOf(c.machine);
   const uploaded: string[] = [], failed: string[] = [];
   const outlines = localOutlines(c.outlines);
+  // Snapshots are the repository's: another repository (or machine name) starts every outline over.
+  if (s.repo !== repo) { s.outlines = {}; s.repo = repo; delete s.lastPrune; }
   // Outlines that were removed (moved, renamed) are no longer watched.
   for (const name of Object.keys(s.outlines)) if (!outlines.some(x => x.name === name)) delete s.outlines[name];
   const changed = outlines.map(x => ({ ...x, seq: changeSeq(x.path) })).filter(x => {
@@ -140,14 +142,20 @@ export function followersOf(units: { kind: "systemd" | "launchd"; name: string; 
   });
 }
 
-/** Whether a Litestream follower still writes this mirror (litestream-mirror@<outline>, running). */
+/**
+ * Whether a Litestream follower may still write this mirror: a follower unit for it that isn't both stopped and
+ * disabled (a restarting, failed or enabled one may write again), or whose state can't be asked. Retired means
+ * `systemctl --user disable --now` (scripts/backup/README.md).
+ */
 async function followerRuns(c: BackupConfig, file: string): Promise<boolean> {
   const { litestreamUnits } = await import("../setup/backups");
   const { detectPlatform } = await import("../setup/model");
   const platform = detectPlatform();
+  const ask = (argv: string[]) => { try { return Bun.spawnSync(argv, { stdout: "pipe", stderr: "pipe" }).stdout.toString().trim(); } catch { return null; } };
   for (const name of followersOf(litestreamUnits(platform, c.env.HOME!), file)) {
-    const r = Bun.spawnSync(platform === "linux" ? ["systemctl", "--user", "is-active", name] : ["launchctl", "list", name], { stdout: "pipe", stderr: "pipe" });
-    if (r.exitCode === 0) return true;
+    if (platform !== "linux") return true;   // a launchd follower: present is enough
+    const active = ask(["systemctl", "--user", "is-active", name]), enabled = ask(["systemctl", "--user", "is-enabled", name]);
+    if (active !== "inactive" || !["disabled", "masked", "not-found", ""].includes(enabled ?? "?")) return true;
   }
   return false;
 }
@@ -171,12 +179,9 @@ export function replaceMirror(copy: string, file: string): void {
 export const newer = (a: { seq?: number | null; at?: string }, b: { seq?: number | null; at?: string }) =>
   a.seq != null && b.seq != null ? a.seq > b.seq : (a.at ?? "") > (b.at ?? "");
 
-/** An outline name that's safe in a shell line (the backups' tags are read from a repository). */
-const SAFE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
-
 /** The outlines' changes on another machine, asked over ssh (read-only), or null when it doesn't answer. */
 async function remoteSeqs(ssh: string, names: string[], c: BackupConfig): Promise<Record<string, number> | null> {
-  const script = names.filter(n => SAFE_NAME.test(n)).map(n => `printf '%s %s\\n' ${n} "$(sqlite3 -readonly "\${EP0CH_OUTLINES:-$HOME/outlines}/${n}.sqlite" 'select max(change_id) from change_feed' 2>/dev/null)"`).join("; ");
+  const script = names.filter(n => OUTLINE_NAME.test(n)).map(n => `printf '%s %s\\n' ${n} "$(sqlite3 -readonly "\${EP0CH_OUTLINES:-$HOME/outlines}/${n}.sqlite" 'select max(change_id) from change_feed' 2>/dev/null)"`).join("; ");
   const p = Bun.spawn([c.env.EP0CH_SSH || "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8", ssh, script], { stdout: "pipe", stderr: "pipe", env: c.env as Record<string, string> });
   const timer = setTimeout(() => p.kill(), 30_000);
   const [out, code] = await Promise.all([new Response(p.stdout).text(), p.exited]).finally(() => clearTimeout(timer));
@@ -201,12 +206,15 @@ export async function mirror(c: BackupConfig, s: BackupState, o: { now?: () => n
   for (const src of c.mirrors) {
     const list = await snapshots(c, c.repoOf(src.machine));
     const keys = Object.keys(s.mirrors).filter(k => k.startsWith(`${src.machine}/`));
+    const source = (s.sources ??= {})[src.machine] ??= {};
     if ("error" in list) {
-      // Unreadable: every mirror of this machine that's already behind stays behind; nothing else is known.
+      // Unreadable: nothing is known about its mirrors' freshness; that lasting is an incident of its own.
       for (const k of keys) s.mirrors[k]!.error = list.error;
+      source.failingSince ??= iso(); source.error = list.error;
       say(`can't read ${src.machine}'s backups: ${list.error}`);
       continue;
     }
+    delete source.failingSince; delete source.error;
     const remote = src.ssh ? await remoteSeqs(src.ssh, list.map(x => x.outline), c) : null;
     if (src.ssh && !remote) say(`${src.machine} (${src.ssh}) doesn't answer over ssh: mirrors come from its backups only`);
     for (const snap of list) await mirrorOne(c, s, src, snap, remote, { now, iso, say, follower: o.follower });
@@ -218,16 +226,23 @@ async function mirrorOne(c: BackupConfig, s: BackupState, src: MirrorSource, sna
   const key = `${src.machine}/${snap.outline}`;
   const m: MirrorState = s.mirrors[key] ??= {};
   const folder = await mirrorFolder(c, src.machine, snap.outline, o.follower);
-  if (m.folder && m.folder !== folder) { delete m.snapshot; delete m.seq; delete m.at; }   // a new folder starts empty
+  if (m.folder && m.folder !== folder) { delete m.snapshot; delete m.seq; delete m.at; delete m.source; }
   m.folder = folder;
   mkdirSync(folder, { recursive: true, mode: 0o700 });
   const file = join(folder, `${snap.outline}.sqlite`);
+  // What the file there holds, read from it: a copy this job didn't make (Litestream's, before it retired) or a
+  // state file that was lost is never replaced by an older snapshot.
+  if (existsSync(file) && m.source === undefined) {
+    const seq = changeSeq(file);
+    if (seq !== null) { m.seq = seq; m.at = new Date(statSync(file).mtimeMs).toISOString(); m.source = "found"; }
+  }
   // What the machine says it has: changes no snapshot holds are pending (watch says when that's too long).
   if (remote && snap.outline in remote) {
     m.remoteSeq = remote[snap.outline]!; m.remoteAt = o.iso();
-    if (snap.seq !== null && m.remoteSeq > snap.seq) m.pendingSince ??= o.iso(); else delete m.pendingSince;
   }
-  const tmp = join(folder, `.${snap.outline}.sqlite.incoming`);
+  // Pending until a snapshot holds the change the machine last showed (asked now or before).
+  if (m.remoteSeq != null && snap.seq !== null && m.remoteSeq > snap.seq) m.pendingSince ??= o.iso(); else delete m.pendingSince;
+  const tmp = join(folder, `.${snap.outline}.sqlite.incoming-${process.pid}`);
   try {
     // A copy here from sqlite3_rsync may be newer than the newest snapshot: it stays.
     if (!existsSync(file) || (m.snapshot !== snap.id && newer(snap, m))) {
@@ -310,7 +325,9 @@ export async function announceAll(c: BackupConfig, list: Incident[]): Promise<vo
     try { await Bun.spawn(["herdr", "notification", "show", i.title, "--body", body, "--sound", "request"], quiet).exited; } catch { /* no Herdr here */ }
     const groups = Bun.spawnSync(["with-secrets", "--list"], { stdout: "pipe", stderr: "ignore", env: c.env as Record<string, string> });
     if (groups.exitCode === 0 && /^ntfy\s/m.test(groups.stdout.toString())) {
-      try { await Bun.spawn(["with-secrets", "ntfy", "--", "sh", "-c", 'curl -fsS -m 20 -H "Title: $1" -H "Tags: floppy_disk" -d "$2" "$NTFY_URL" >/dev/null', "push", i.title, body], quiet).exited; }
+      // The request is made inside the process with-secrets started, so the topic's URL is never in an argv.
+      const push = 'await fetch(process.env.NTFY_URL, { method: "POST", headers: { Title: process.argv[1], Tags: "floppy_disk" }, body: process.argv[2], signal: AbortSignal.timeout(20000) })';
+      try { await Bun.spawn(["with-secrets", "ntfy", "--", process.execPath, "-e", push, i.title, body], quiet).exited; }
       catch { /* the status bar still shows it */ }
     }
   }
@@ -319,16 +336,11 @@ export async function announceAll(c: BackupConfig, list: Incident[]): Promise<vo
 /** The whole job, as the timer runs it: one at a time (a lock in the state folder). */
 export async function runAll(c: BackupConfig, o: { now?: () => number; say?: Say; drill?: boolean; announce?: (i: Incident[]) => Promise<void>; follower?: typeof followerRuns } = {}): Promise<{ ok: boolean; alert: Alert }> {
   const now = o.now ?? Date.now, say = o.say ?? (() => {});
-  mkdirSync(c.state, { recursive: true, mode: 0o700 });
-  const lock = join(c.state, "run.lock");
-  try {
-    const pid = Number(Bun.file(lock).size ? await Bun.file(lock).text() : 0);
-    if (pid && pid !== process.pid && alive(pid) && Date.now() - statSync(lock).mtimeMs < 3 * 3_600_000) {
-      say(`another backup run (pid ${pid}) is going; this one stops`);
-      return { ok: true, alert: readAlert(c.state) ?? nextAlert(null, [], c.machine, now()).alert };
-    }
-  } catch { /* no lock */ }
-  writeFileSync(lock, String(process.pid), { mode: 0o600 });
+  const release = takeLock(c);
+  if (typeof release === "string") {
+    say(release);
+    return { ok: true, alert: readAlert(c.state) ?? nextAlert(null, [], c.machine, now()).alert };
+  }
   try {
     const s = readBackupState(c.state);
     // Each part stands alone: one failing never stops the others.
@@ -341,11 +353,34 @@ export async function runAll(c: BackupConfig, o: { now?: () => number; say?: Say
       s.drill = { at: new Date(now()).toISOString(), ...d };
       say(`${d.ok ? "✓" : "✗"} restore drill: ${d.detail}`);
     }
-    const ok = !snap.failed.length;
-    s.lastRun = { at: new Date(now()).toISOString(), ok, detail: snap.failed.length ? `failed: ${snap.failed.join(", ")}` : snap.uploaded.length ? `uploaded ${snap.uploaded.join(", ")}` : "nothing changed" };
+    const sources = Object.entries(s.sources ?? {}).filter(([, x]) => x.error).map(([m]) => `${m}'s backups unreadable`);
+    const ok = !snap.failed.length && !sources.length;
+    s.lastRun = { at: new Date(now()).toISOString(), ok, detail: [snap.failed.length ? `failed: ${snap.failed.join(", ")}` : snap.uploaded.length ? `uploaded ${snap.uploaded.join(", ")}` : "nothing changed", ...sources].join("; ") };
     writeBackupState(c.state, s);
     const alert = await watch(c, s, { now, announce: o.announce });
     if (alert.incidents.length) for (const i of alert.incidents) say(`! ${i.title}: ${i.detail} · fix: ${i.fix}`);
     return { ok, alert };
-  } finally { rmSync(lock, { force: true }); }
+  } finally { release(); }
+}
+
+/**
+ * One backup command at a time on a machine: `run.lock` made exclusively (O_EXCL), holding its pid. A lock whose
+ * process is gone is taken over. Returns the release, or why it can't run now.
+ */
+export function takeLock(c: BackupConfig): (() => void) | string {
+  mkdirSync(c.state, { recursive: true, mode: 0o700 });
+  const lock = join(c.state, "run.lock");
+  for (let tries = 0; tries < 2; tries++) {
+    try {
+      const fd = openSync(lock, "wx", 0o600);
+      writeSync(fd, String(process.pid)); closeSync(fd);
+      return () => { try { if (readFileSync(lock, "utf8") === String(process.pid)) rmSync(lock); } catch { /* gone */ } };
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== "EEXIST") return `can't make ${lock}: ${(e as Error).message}`;
+      const pid = Number(readFileSync(lock, "utf8").trim() || 0);
+      if (pid && alive(pid)) return `another backup command (pid ${pid}) is running; this one stops`;
+      rmSync(lock, { force: true });   // its process is gone
+    }
+  }
+  return `couldn't take ${lock}`;
 }

@@ -9,7 +9,7 @@ import { hostname } from "node:os";
 import { dirname, join } from "node:path";
 import type { Platform } from "../setup/model";
 import { type Alert, type BackupState, readAlert, readBackupState } from "./alert";
-import { backupConfig, configFileOf, type Env, machineNameOf } from "./config";
+import { backupConfig, configFileOf, type Env, KEPT_SETTINGS, machineNameOf } from "./config";
 
 export const UNIT_MARK = "Written by `ep0ch install`";
 export const SYSTEMD_UNITS = ["ep0ch-backup.service", "ep0ch-backup.timer"] as const;
@@ -21,7 +21,7 @@ export interface BackupSetupFacts {
   units: UnitFile[];
   /** systemd: the timer is active; launchd: the agent is loaded. null when it couldn't be asked. */
   loaded: boolean | null;
-  config: { path: string; exists: boolean; machine: string; error?: string };
+  config: { path: string; exists: boolean; machine: string; error?: string; kept?: Record<string, string> };
   restic: string | null;
   /** The with-secrets groups there are (names only), or null when with-secrets isn't here. */
   groups: string[] | null;
@@ -35,11 +35,18 @@ export interface BackupSetupFacts {
 }
 
 /** A template with its {{NAME}}s filled. */
-export const fill = (text: string, vars: Record<string, string>) => text.replace(/\{\{([A-Z]+)\}\}/g, (m, k) => vars[k] ?? m);
+export const fill = (text: string, vars: Record<string, string>, quote: (v: string) => string = v => v) =>
+  text.replace(/\{\{([A-Z]+)\}\}/g, (m, k) => (vars[k] !== undefined ? quote(vars[k]!) : m));
+
+/** A value in a systemd line: % doubled, and quoted when it has a space or a quote. */
+export const systemdValue = (v: string) => { const e = v.replace(/%/g, "%%"); return /[\s"'\\]/.test(e) ? `"${e.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"` : e; };
+/** A value in a plist's <string>. */
+export const xmlValue = (v: string) => v.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
 /** The PATH the job runs with: bun's folder, ~/.local/bin (restic, with-secrets), Homebrew's, the system's. */
 export const jobPath = (bun: string, home: string) =>
-  [...new Set([dirname(bun), join(home, ".local/bin"), "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"])].join(":");
+  // (A folder with a space is left out: systemd's Environment= line can't quote one inside the value.)
+  [...new Set([dirname(bun), join(home, ".local/bin"), "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"])].filter(d => !/\s/.test(d)).join(":");
 
 export function unitFiles(o: { platform: Platform; home: string; bun: string; main: string; repoRoot: string; env: Env }): UnitFile[] {
   const vars = { BUN: o.bun, MAIN: o.main, PATH: jobPath(o.bun, o.home), HOME: o.home };
@@ -47,11 +54,11 @@ export function unitFiles(o: { platform: Platform; home: string; bun: string; ma
   const templates = join(o.repoRoot, "scripts/backup");
   if (o.platform === "linux") {
     const dir = join(o.env.XDG_CONFIG_HOME || join(o.home, ".config"), "systemd/user");
-    return SYSTEMD_UNITS.map(n => ({ path: join(dir, n), want: fill(read(join(templates, n)) ?? "", vars), have: read(join(dir, n)) }));
+    return SYSTEMD_UNITS.map(n => ({ path: join(dir, n), want: fill(read(join(templates, n)) ?? "", vars, systemdValue), have: read(join(dir, n)) }));
   }
   if (o.platform === "macos") {
     const path = join(o.home, "Library/LaunchAgents", `${LAUNCHD_LABEL}.plist`);
-    return [{ path, want: fill(read(join(templates, `${LAUNCHD_LABEL}.plist`)) ?? "", vars), have: read(path) }];
+    return [{ path, want: fill(read(join(templates, `${LAUNCHD_LABEL}.plist`)) ?? "", vars, xmlValue), have: read(path) }];
   }
   return [];
 }
@@ -72,7 +79,8 @@ export async function backupSetupFacts(o: { platform: Platform; home: string; en
   const machine = "error" in c ? (env.EP0CH_BACKUP_MACHINE?.trim() || machineNameOf(hostname())) : c.machine;
   return {
     platform: o.platform, units, loaded,
-    config: { path: file, exists: existsSync(file), machine, ...("error" in c ? { error: c.error } : {}) },
+    config: { path: file, exists: existsSync(file), machine, ...("error" in c ? { error: c.error } : {}),
+      kept: Object.fromEntries(KEPT_SETTINGS.flatMap(k => (env[k]?.trim() ? [[k, env[k]!.trim()]] : []))) },
     restic: "error" in c ? o.which("restic") : c.restic.includes("/") ? (existsSync(c.restic) ? c.restic : null) : o.which(c.restic),
     groups,
     secrets: "error" in c ? [] : c.secrets,
@@ -103,7 +111,8 @@ export function backupPlan(f: BackupSetupFacts): BackupPlan {
   if (f.config.error) return { status: "manual", why: f.config.error, commands: [], writes: [], missing: [f.config.error] };
   const missing: string[] = [];
   if (!f.restic) missing.push(`restic isn't installed: ${f.platform === "macos" ? "brew install restic" : "download restic 0.17 or newer into ~/.local/bin (https://github.com/restic/restic/releases)"}`);
-  if (!f.passwordInEnv) {
+  // The timer's runs get restic's keys through with-secrets: a password in this shell's environment doesn't reach them.
+  {
     if (!f.groups) missing.push("with-secrets isn't on PATH (~/.local/bin/with-secrets, from the dotfiles); restic gets its keys through it");
     else for (const g of f.secrets.filter(g => !f.groups!.includes(g))) {
       missing.push(g === "restic"
@@ -120,7 +129,7 @@ export function backupPlan(f: BackupSetupFacts): BackupPlan {
     if (u.have !== null && !u.have.includes(UNIT_MARK)) { foreign.push(u.path); continue; }
     writes.push({ path: u.path, text: u.want });
   }
-  if (!f.config.exists) writes.push({ path: f.config.path, text: `# ep0ch backups (PIE-607): this machine's settings; packages/door/src/backup/config.ts lists them.\nEP0CH_BACKUP_MACHINE=${f.config.machine}\n` });
+  if (!f.config.exists) writes.push({ path: f.config.path, text: `# ep0ch backups (PIE-607): this machine's settings; packages/door/src/backup/config.ts lists them.\nEP0CH_BACKUP_MACHINE=${f.config.machine}\n${Object.entries(f.config.kept ?? {}).map(([k, v]) => `${k}=${v}\n`).join("")}` });
   if (foreign.length) missing.push(`${foreign.join(", ")} ${foreign.length === 1 ? "is" : "are"} yours (no "${UNIT_MARK}" line); move ${foreign.length === 1 ? "it" : "them"} away and rerun to let install write ${foreign.length === 1 ? "it" : "them"}`);
   if (missing.length) return { status: "manual", why: `first: ${missing.join("; ")}`, commands: [], writes: [], missing };
   const units = writes.filter(w => w.path !== f.config.path);

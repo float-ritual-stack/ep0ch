@@ -1,11 +1,11 @@
 // `ep0ch backup …` (PIE-607): the job the timer runs, its parts one by one, and the restore.
-import { existsSync, mkdirSync, renameSync, rmSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { existsSync, linkSync, lstatSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { isInside } from "../state";
 import { age, alertMark, hhmm, readAlert, readBackupState } from "./alert";
 import { backupConfig, type BackupConfig, type Env } from "./config";
-import { drill, integrity, mirror, runAll, snapshot, blockCount } from "./jobs";
-import { dumpTo, type OutlineSnapshot, snapshots } from "./restic";
+import { blockCount, drill, integrity, mirror, runAll, snapshot, takeLock } from "./jobs";
+import { dumpTo, OUTLINE_NAME, type OutlineSnapshot, snapshots } from "./restic";
 import { writeBackupState } from "./alert";
 import { BACKUP_USAGE } from "./usage";
 export { BACKUP_USAGE };
@@ -47,16 +47,9 @@ export function statusLines(c: BackupConfig, now = Date.now()): string[] {
   return lines;
 }
 
-export async function backupCommand(args: readonly string[], io: IO = { out: console.log, err: console.error }, env: Env = process.env): Promise<number> {
-  const sub = args[1];
-  const c = backupConfig(env);
-  if ("error" in c) { io.err(`ep0ch backup: ${c.error}`); return 2; }
+async function stateful(sub: "snapshot" | "mirror" | "drill", args: readonly string[], c: BackupConfig, io: IO): Promise<number> {
   const say = (s: string) => io.out(s);
   switch (sub) {
-    case "run": {
-      const r = await runAll(c, { say, ...(args.includes("--drill") ? { drill: true } : {}) });
-      return r.ok ? 0 : 1;
-    }
     case "snapshot": {
       const s = readBackupState(c.state);
       const r = await snapshot(c, s, { say, force: args.includes("--force") });
@@ -78,6 +71,25 @@ export async function backupCommand(args: readonly string[], io: IO = { out: con
       say(`${d.ok ? "✓" : "✗"} ${d.detail}`);
       return d.ok ? 0 : 1;
     }
+  }
+}
+
+export async function backupCommand(args: readonly string[], io: IO = { out: console.log, err: console.error }, env: Env = process.env): Promise<number> {
+  const sub = args[1];
+  const c = backupConfig(env);
+  if ("error" in c) { io.err(`ep0ch backup: ${c.error}`); return 2; }
+  const say = (s: string) => io.out(s);
+  // The parts that write the job's state run one at a time, as the timer's run does (takeLock).
+  if (sub === "snapshot" || sub === "mirror" || sub === "drill") {
+    const release = takeLock(c);
+    if (typeof release === "string") { io.err(`ep0ch backup: ${release}`); return 1; }
+    try { return await stateful(sub, args, c, io); } finally { release(); }
+  }
+  switch (sub) {
+    case "run": {
+      const r = await runAll(c, { say, ...(args.includes("--drill") ? { drill: true } : {}) });
+      return r.ok ? 0 : 1;
+    }
     case "status": {
       if (args.includes("--json")) io.out(JSON.stringify({ machine: c.machine, repo: c.repoOf(c.machine), state: readBackupState(c.state), alert: readAlert(c.state) }, null, 2));
       else statusLines(c).forEach(say);
@@ -94,9 +106,9 @@ export async function backupCommand(args: readonly string[], io: IO = { out: con
     }
     case "restore": {
       const outline = args[2], to = flag(args, "--to"), at = flag(args, "--at"), machine = flag(args, "--machine") ?? c.machine;
-      if (!outline || outline.startsWith("-") || !to) { io.err(`ep0ch backup restore <outline> [--machine <name>] [--at <time>] --to <path>`); return 2; }
+      if (!outline || !OUTLINE_NAME.test(outline) || !to) { io.err(`ep0ch backup restore <outline> [--machine <name>] [--at <time>] --to <path>`); return 2; }
       const dest = resolve(to);
-      if (existsSync(dest)) { io.err(`ep0ch backup: ${dest} exists; restore writes a new file (pick another --to, or move that one away)`); return 2; }
+      if (existsSync(dest) || (() => { try { lstatSync(dest); return true; } catch { return false; } })()) { io.err(`ep0ch backup: ${dest} exists; restore writes a new file (pick another --to, or move that one away)`); return 2; }
       if (isInside(c.outlines, dest) || isInside(c.mirrorsDir, dest)) {
         io.err(`ep0ch backup: ${dest} is in ${isInside(c.outlines, dest) ? c.outlines : c.mirrorsDir}, which a service has open; restore elsewhere (--to /tmp/${outline}.sqlite), look at it, then swap it in with the host stopped`);
         return 2;
@@ -109,11 +121,16 @@ export async function backupCommand(args: readonly string[], io: IO = { out: con
       const snap = pick(list, when);
       if (!snap) { io.err(`ep0ch backup: no snapshot of ${outline}${when !== null ? ` at or before ${hhmm(when)}` : ""} in ${repo}${list.length ? `; the oldest is ${hhmm(list[0]!.time)}` : ""}`); return 1; }
       mkdirSync(dirname(dest), { recursive: true });
-      const tmp = `${dest}.incoming`;
-      const r = await dumpTo(c, repo, snap, tmp);
-      const verdict = "error" in r ? r.error : integrity(tmp);
-      if (verdict !== "ok") { rmSync(tmp, { force: true }); io.err(`ep0ch backup: restoring ${snap.id.slice(0, 8)} failed: ${verdict}`); return 1; }
-      renameSync(tmp, dest);
+      // Staged in a private folder beside it (the same file system), then linked in: link never replaces a file
+      // that appeared meanwhile.
+      const stage = mkdtempSync(join(dirname(dest), ".restore-"));
+      const tmp = join(stage, "restored.sqlite");
+      try {
+        const r = await dumpTo(c, repo, snap, tmp);
+        const verdict = "error" in r ? r.error : integrity(tmp);
+        if (verdict !== "ok") { io.err(`ep0ch backup: restoring ${snap.id.slice(0, 8)} failed: ${verdict}`); return 1; }
+        try { linkSync(tmp, dest); } catch (e) { io.err(`ep0ch backup: ${dest}: ${(e as Error).message}; nothing written`); return 1; }
+      } finally { rmSync(stage, { recursive: true, force: true }); }
       say(`✓ ${outline} from ${machine}'s snapshot ${snap.id.slice(0, 8)} (${hhmm(snap.time)}, change ${snap.seq ?? "?"}, ${blockCount(dest) ?? "?"} blocks) → ${dest}; integrity ok`);
       return 0;
     }
