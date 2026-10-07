@@ -2,6 +2,7 @@ import { codeFenceOpen } from "@ep0ch/outline-core/code-fence";
 import { literalMarkerLineStarts, offsetInRanges, protectedCodeRanges, scanLiteralRegions, scanPropertyLiteralRanges, sourceLines, type SourceLine, type SourceRange } from "@ep0ch/outline-core/code-ranges";
 import { HASHTAG_VALUE_PATTERN, isEscapedAt, PROPERTY_KEY_PATTERN, PROPERTY_KEY_SOURCE, propertyTokenPattern } from "@ep0ch/outline-core/property-grammar";
 import { headerLine } from "@ep0ch/outline-core/header-line";
+import { isMediaLine } from "@ep0ch/outline-core/media-line";
 import { blockReferenceEnvelopeRanges } from "@ep0ch/outline-core/link-syntax";
 import type {
   BlockProperty,
@@ -214,11 +215,15 @@ export function parsePropertyRecords(text: string): PropertyRecord[] {
   );
   const candidatesByLine = propertyCandidateLines(candidates);
   const purePropertyLines = new Set<number>();
+  // A media line (`[img::path] [size::40%]`, outline-core's media-line grammar) is content to draw, never block
+  // metadata, wherever it is: right under the subject too (PIE-598).
+  const mediaLine = (lineIndex: number) => isMediaLine(text.slice(lines[lineIndex]!.start, lines[lineIndex]!.contentEnd));
   for (const [lineIndex, lineCandidates] of candidatesByLine) {
-    if (lineContainsOnlyProperties(text, lines[lineIndex], lineCandidates)) {
+    const media = mediaLine(lineIndex);
+    if (!media && lineContainsOnlyProperties(text, lines[lineIndex], lineCandidates)) {
       purePropertyLines.add(lineIndex);
     }
-    const metadataLine = lineContainsOnlyProperties(
+    const metadataLine = !media && lineContainsOnlyProperties(
       text, lines[lineIndex]!, lineCandidates.filter(candidate => candidate.syntax !== "bare"),
     );
     let trailing = true;
@@ -242,10 +247,11 @@ export function parsePropertyRecords(text: string): PropertyRecord[] {
     if (purePropertyLines.has(firstNonblankLine)) {
       preambleStart = firstNonblankLine;
     } else {
+      // Blank lines, and the media lines a note may open with (its picture), come before its preamble.
       let cursor = firstNonblankLine + 1;
       while (
         cursor < lines.length &&
-        !containsNonWhitespace(text, lines[cursor].start, lines[cursor].contentEnd)
+        (!containsNonWhitespace(text, lines[cursor].start, lines[cursor].contentEnd) || mediaLine(cursor))
       ) {
         cursor += 1;
       }

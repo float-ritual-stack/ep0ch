@@ -250,7 +250,7 @@ export const imagesText = (dir = SHOWCASE_ASSETS) => [
  */
 export const heroText = (dir = SHOWCASE_ASSETS) => [
   `${SEED.hero} [season::autumn]`,
-  `- [img::${dir}/evening-beds.jpg] [hero-focus::0.85,0.6] [alt::the beds at dusk, the shed lit]`,
+  `[img::${dir}/evening-beds.jpg] [hero-focus::0.85,0.6] [alt::the beds at dusk, the shed lit]`,
   "",
   "Scroll down (j, the wheel, space): as the picture goes up under the header, the title, the byline and the crumbs take it as their background, dimmed and muted so they stay readable. It fades in from the background by steps.",
   "",
