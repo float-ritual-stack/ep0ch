@@ -46,7 +46,7 @@ halt() {
 serve() {
   mkdir -p "$1/outlines" "$1/config"
   # The -u list is HERDR_VARS in src/desk/pty.ts (test/runtime-parts.test.ts checks they match).
-  (cd "$outliner" && exec env -u HERDR_ENV -u HERDR_SOCKET_PATH -u HERDR_PANE_ID -u HERDR_WORKSPACE_ID -u HERDR_TAB_ID -u EP0CH_SOCKET -u EP0CH_WS \
+  (cd "$outliner" && exec env -u HERDR_ENV -u HERDR_SOCKET_PATH -u HERDR_PANE_ID -u HERDR_WORKSPACE_ID -u HERDR_TAB_ID -u EP0CH_SOCKET -u EP0CH_WS -u EP0CH_MACHINE \
     EP0CH_OUTLINES="$1/outlines" EP0CH_DEFAULT_WS="$2" XDG_CONFIG_HOME="$1/config" \
     bun src/host-main.ts >"$3" 2>&1) &
   pid=$!
@@ -62,7 +62,7 @@ serve() {
     sleep 0.2
   done
   # Its default outline, made when it isn't there yet (a copy is).
-  (cd "$here" && EP0CH_OUTLINES="$1/outlines" EP0CH_SOCKET= bun src/main.ts outline attach "$2" --json >/dev/null)
+  (cd "$here" && EP0CH_OUTLINES="$1/outlines" EP0CH_SOCKET= EP0CH_MACHINE= bun src/main.ts outline attach "$2" --here --json >/dev/null)
 }
 need_outliner() {
   [ -f "$outliner/src/host-main.ts" ] || { echo "$1 needs the outliner package (--outliner <dir>, or EP0CH_OUTLINER); $outliner has none" >&2; exit 2; }
@@ -124,8 +124,8 @@ if [ "$showcase" = 1 ]; then
   set -- --no-daemon --ws showcase --showcase
   [ -z "$sname" ] || set -- "$@" --screen "$sname"
   [ -z "$starget" ] || set -- "$@" "$starget"
-  cd "$here" && EP0CH_STATE="$base/door" EP0CH_CONTROL="$base/door/door.sock" EP0CH_OUTLINES="$base/outlines" EP0CH_SOCKET= \
-    bun src/main.ts "$@"
+  cd "$here" && EP0CH_STATE="$base/door" EP0CH_CONTROL="$base/door/door.sock" EP0CH_OUTLINES="$base/outlines" EP0CH_SOCKET= EP0CH_MACHINE= \
+    bun src/main.ts --here "$@"
   exit $?
 fi
 
@@ -148,4 +148,5 @@ mkdir -p "$tmp/outlines"
 sqlite3 -readonly "$live" ".backup '$tmp/outlines/$ws.sqlite'"
 serve "$tmp" "$ws" "$tmp/host.log"
 echo "door → a private copy of $ws, served from $outliner (writes stay in the copy, deleted on exit)"
-cd "$here" && EP0CH_OUTLINES="$tmp/outlines" EP0CH_SOCKET= bun src/main.ts --no-daemon --ws "$ws" --screen board $hub
+# A copy is on this machine, whatever EP0CH_MACHINE or a .ep0ch says: --here names it over both.
+cd "$here" && EP0CH_OUTLINES="$tmp/outlines" EP0CH_SOCKET= EP0CH_MACHINE= bun src/main.ts --here --no-daemon --ws "$ws" --screen board $hub

@@ -27,6 +27,13 @@ are its record. The outliner's entries from then are kept below, under
   line in `ep0ch doctor` and a backup alert with `systemctl --user start …`, until it runs.
 - **Fixed:** a mirror whose snapshot has no change feed now takes a newer snapshot (the job compared the wrong time field).
 
+### Scratch runs stay off real config and machines (PIE-634)
+
+- **Fixed:** `scripts/agent-env` gives a run private `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_STATE_HOME` and `XDG_CACHE_HOME` (so
+  the backup commands no longer read your `~/.config/ep0ch/backup.env`), and clears `RESTIC_*`, `LITESTREAM_*` and `AWS_*`.
+  `try-it.sh --copy` (and the showcase) clear `EP0CH_MACHINE` and pass `--here`, so a copy never routes to a remote outline.
+  `scripts/box-test --on` or `--ref` with no value exits 2 instead of looping forever.
+
 ### Back to an earlier revision of a note (PIE-621, #277)
 
 - **The outline keeps a note's earlier texts:** the newest 100 each note had, from the first save after this update,
