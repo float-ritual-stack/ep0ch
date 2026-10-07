@@ -1058,6 +1058,7 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
   onEvent(e: OutlineEvent) {
     this.hear(e);
     for (const m of this.models.values()) m.onEvent?.(e);
+    if (!this.ctx) return;
     const readers = [...this.panes.values()].filter((p): p is ReaderPane => p instanceof ReaderPane && !p.msg?.id.startsWith("file:"));
     // Each reader the change makes stale re-reads its note (NoteSurface.staleOn, .reread; a draft is only marked).
     for (const r of readers) if (r.surface.staleOn(e)) r.reread(this);
@@ -1069,6 +1070,8 @@ export class Desk implements Screen, DeskApi, ColumnsHost {
    * columns container whose source it may change is filled again (a view added under the hub: a new lane).
    */
   private hear(e: OutlineEvent, skip?: (p: Pane) => boolean) {
+    // A desk never entered (a showcase stage not opened yet) has no Ctx: its tiles read fresh when it is entered.
+    if (!this.ctx) return;
     for (const p of this.panes.values()) {
       // A plain reader hears only what concerns it; a reader of its own kind (a pinned page waiting for its page, the brief
       // counting its days) hears everything, as any tile does.
