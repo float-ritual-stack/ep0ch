@@ -8,7 +8,7 @@
 /** How long a resize's report holds it: a drag paused that long is laid out and scaled for where it is. */
 export const RESIZE_HOLD_MS = 500;
 
-let until = 0;
+let until = 0, endedAt = -Infinity;
 let timer: ReturnType<typeof setTimeout> | null = null;
 const ended = new Set<() => void>();
 
@@ -26,11 +26,18 @@ export function resizeEnded(): void { if (until) end(); }
 /** Whether a resize is going on. */
 export const inResize = (): boolean => until > 0 && Date.now() < until;
 
+/**
+ * Whether a resize is going on or ended within `ms`: what it left to make (an image for the size it ended at) may
+ * still be on its way, and what was drawn during it stands in meanwhile.
+ */
+export const resizedWithin = (ms: number): boolean => inResize() || Date.now() - endedAt < ms;
+
 /** Call `fn` when a resize ends (the door redraws: what waited is laid out and scaled now). */
 export function onResizeEnd(fn: () => void): () => void { ended.add(fn); return () => ended.delete(fn); }
 
 function end() {
   if (timer) { clearTimeout(timer); timer = null; }
   until = 0;
+  endedAt = Date.now();
   for (const fn of ended) fn();
 }

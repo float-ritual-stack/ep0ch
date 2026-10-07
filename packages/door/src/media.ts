@@ -16,7 +16,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync } fro
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { imageSize } from "image-size";
-import { inResize } from "./resize";
+import { inResize, resizedWithin } from "./resize";
 import { cacheDir } from "./state";
 import type { Rgb } from "./theme";
 
@@ -48,6 +48,8 @@ export interface Look { dim?: number; crop?: Crop; mean?: number; peak?: number;
 const MAX_PX = 1600;
 /** The longest edges an image is scaled to: a box is drawn from the next one up (so a resize rarely scales again). */
 const STEPS = [320, 640, 960, 1280, MAX_PX];
+/** How long after a resize what it drew stands in for an image still being made for where it ended. */
+const SETTLE_MS = 3000;
 /** The step made with the first look, before the box it's drawn in is known. */
 const FIRST = 640;
 /** The mean luminance (0–1) an image is dimmed to at most, unless its line says otherwise. */
@@ -76,14 +78,15 @@ export class ScaledCache {
   bytes = 0;
   constructor(private budget: number) {}
   get(job: string): PngRef | undefined { return this.refs.get(job); }
-  /** The last frame `job` was drawn in (-1: never). */
-  drawnIn(job: string): number { return this.drawn.get(job) ?? -1; }
+  /** The last frame `job` was drawn in (-1: never; one just made counts as drawn only once it is). */
+  drawnIn(job: string): number { return this.shown.get(job) ?? -1; }
+  private shown = new Map<string, number>();
   entries() { return this.refs.entries(); }
   /** `job` drawn in `frame`: the most recently drawn now. */
   use(job: string, frame: number) {
     const ref = this.refs.get(job);
     if (!ref) return;
-    this.refs.delete(job); this.refs.set(job, ref); this.drawn.set(job, frame);
+    this.refs.delete(job); this.refs.set(job, ref); this.drawn.set(job, frame); this.shown.set(job, frame);
   }
   /** Keeps `ref` as `job`, then evicts the least recently drawn (never one on screen in `frame`) down to the budget. */
   put(job: string, ref: PngRef, frame: number) {
@@ -102,7 +105,7 @@ export class ScaledCache {
   private drop(job: string) {
     const was = this.refs.get(job);
     if (!was) return;
-    this.refs.delete(job); this.drawn.delete(job); this.bytes -= was.png.length;
+    this.refs.delete(job); this.drawn.delete(job); this.shown.delete(job); this.bytes -= was.png.length;
   }
 }
 const scaled = new ScaledCache(KEEP_BYTES);
@@ -375,14 +378,15 @@ export function sized(m: ReadyMedia, pxW: number, pxH: number, look: Look = {}):
       if (entry && entry.media === m) { entry.media = { state: "error", path: m.path, kind: m.kind, reason: String((e as Error).message ?? e) }; onChange(); }
     });
   }
-  // Meanwhile: the smallest one ready with this look that covers the box, else the biggest; else (the crop moved: a
-  // resize) the one with this look for another crop drawn last. While a resize goes on, whichever was drawn last (one
-  // never drawn isn't: the terminal hasn't got it). One for another crop is dimmed for that crop, so its placement shows
-  // that crop (PngRef.crop): never a part of the image brighter than its dimming allowed for.
-  const tail = `\0${lookKey(look)}`, loose = looseKey(look);
-  const mine = [...scaled.entries()].filter(([k]) => k.startsWith(`${m.key}\0`) && looseOf(k) === loose);
+  // Meanwhile: the smallest one ready with this look that covers the box, else the biggest. A resize (going on, or just
+  // ended) moved the crop: the one with this look drawn last, for another crop, stands in; while it goes on, whichever
+  // was drawn last. Never one not drawn yet (the terminal hasn't got it). One for another crop is dimmed for that crop,
+  // so its placement shows that crop (PngRef.crop): never a part brighter than its dimming allowed for. Otherwise (an
+  // image's first look) its rows stay dark until the one for its crop is ready.
+  const tail = `\0${lookKey(look)}`, loose = looseKey(look), settling = resizedWithin(SETTLE_MS);
+  const mine = [...scaled.entries()].filter(([k]) => k.startsWith(`${m.key}\0`) && (settling ? looseOf(k) === loose : k.endsWith(tail)));
   const same = mine.filter(([k]) => k.endsWith(tail)).map(([k, v]) => [Number(k.split("\0")[1]), k, v] as const).sort((a, b) => a[0] - b[0]);
-  const last = () => mine.map(([k, v]) => [scaled.drawnIn(k), k, v] as const).filter(([at]) => !resizing || at >= 0).sort((a, b) => b[0] - a[0])[0];
+  const last = () => mine.map(([k, v]) => [scaled.drawnIn(k), k, v] as const).filter(([at]) => at >= 0).sort((a, b) => b[0] - a[0])[0];
   const pick = same.length && !resizing ? same.find(([e]) => e >= edge) ?? same.at(-1)! : last();
   if (pick) scaled.use(pick[1], frame);
   return pick?.[2] ?? null;
@@ -414,8 +418,9 @@ export function cellColours(m: ReadyMedia, cols: number, rows: number, look: Loo
       onChange();
     }, () => { making.delete(job); });
   }
-  // Meanwhile, the last one made with this look, at another size or crop, stretched to this one: the header never
-  // drops to plain while its own is made.
+  // Meanwhile, after a resize (going on, or just ended), the last one made with this look at another size or crop,
+  // stretched to this one: the header doesn't drop to plain while its own is made. Otherwise, nothing until it's ready.
+  if (!resizedWithin(SETTLE_MS)) return null;
   const loose = looseKey(look);
   const last = [...grids.entries()].reverse().find(([k]) => k.startsWith(`${m.key}\0`) && looseOf(k) === loose)?.[1];
   return last ? stretch(last, cols, rows) : null;
