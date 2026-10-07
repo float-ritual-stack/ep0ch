@@ -68,6 +68,10 @@ source evidence or distinguish authored glyphs from controls.
 
 - `src/store.ts` owns persistence and canonical graph invariants.
 - `src/server.ts` owns protocol dispatch, sequence, and subscriptions.
+- `src/loop-watch.ts` owns the host's one event loop (PIE-625): whose turn it is (`Turns`, the whole-outline reads
+  last but never starved) and what held it (`loop_stalled`, `slow_request` in the host's log). `src/text-memo.ts`
+  memoizes what is a pure function of a note's text (display titles); a whole-outline read uses those and the
+  store's per-change graph, never its own copy. See [Responsiveness](#responsiveness).
 - `src/tree-controller.ts` / `src/tree-renderer.ts` own Tree behavior and presentation.
 - `src/ui-config.ts` owns `ui.json` (pinned bar actions and `compact | full`
   chrome per pane kind, shared in shape with the door); `src/reader-chrome.ts`
