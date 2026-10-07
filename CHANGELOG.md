@@ -10,6 +10,23 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Rules: when a block matches, draw this or run this (PIE-600)
+
+- **A rule note, no code.** Write a note like `Committee headings [rule-name::committee-bands] [rule-kind::heading:2]
+  [rule-decorate::band] [rule-pattern::stack]` and every `##` heading (under `rule-under::((id))`, if you scope it)
+  is drawn as a band of glyph tracks in its place, still a heading you fold and `( )` to. Match by a query
+  (`[rule-match::type=meeting]`), a text pattern (`[rule-text::…]`, never in code) or a kind (heading, callout,
+  list, rule, image); draw a band, a divider, a card of the block's properties, a badge, words, or a box around it.
+- **Rules in extensions.** `rules[]` in `extension.json`: `match`, then `decorate` (the extension draws the view)
+  and `on` (run an action when a block starts or stops matching, or changes while it matches; a quiet wait, no
+  loops on an extension's own writes). Three examples to fork: `outliner ext add meeting-card` (a card over every
+  meeting), `done-stamp` (`[done-at::]` when status becomes done) and `shout` (a line ending `!!!` as a band).
+- **Your text never changes.** `R` in a reader shows the note as written, and back. Detail shows each decoration as
+  text under what it matched; the publisher puts it in the page (a band is its heading).
+- **Agents:** `peek` lists a reader's `decorations`; `extensions.list` lists every rule, what it matches, how many
+  blocks match a trigger and its last run.
+- **Run:** PROTOCOL 101: restart the outline host and update every door (`ep0ch install --apply`).
+
 ### Litestream and an outline's file (PIE-607)
 
 - **Deleting, re-creating or importing an outline pauses Litestream for it.** Litestream doesn't track a database

@@ -1,3 +1,5 @@
+import type { Decoration } from "./extension-rules";
+import type { ResourceProjectionReadResult } from "./resource-projection";
 import { hostname, networkInterfaces } from "node:os";
 import { extname } from "node:path";
 import { Marked } from "marked";
@@ -856,13 +858,31 @@ export class Publisher {
     const subtree = await this.client.request<ProjectedBlockCollection>({
       action: "blocks.query",
       query: { subtreeRootId: entry.blockId, limit: PUBLISH_QUERY_LIMIT },
-      fields: ["text", "parent", "properties", "author"],
+      fields: ["text", "parent", "properties", "author", "revision"],
     });
     const rows = shownSubtree(subtree).filter((row) => !row.locked);
     const shown = rows.map((row) => row.block.text ?? "");
     const pages = await this.resolvePages(shown);
     const embeds = await this.readEmbeds(shown, entry.blockId, this.shareable(audience, index, rows.map((row) => row.block.id)));
-    return renderSubtreeMarkdown(subtree, await this.linkable(index, shown, pages, embeds, audience), this.basePathFor(audience), pages, embeds);
+    const decorations = await this.readDecorations(rows.map((row) => ({ id: row.block.id, revision: row.block.revision })));
+    return renderSubtreeMarkdown(subtree, await this.linkable(index, shown, pages, embeds, audience), this.basePathFor(audience), pages, embeds, decorations);
+  }
+
+  /**
+   * What the rules draw on each shown block (PIE-600), as the service answers `resources.projection.read`. A block
+   * whose read fails is published as written: a decoration is never what a page depends on.
+   */
+  private async readDecorations(rows: readonly { id: string; revision?: number }[]): Promise<ReadonlyMap<string, readonly Decoration[]>> {
+    const out = new Map<string, readonly Decoration[]>();
+    const revisions = new Map(rows.map((row) => [row.id, row.revision]));
+    await Promise.all(rows.slice(0, MAX_DECORATED_BLOCKS).map(async ({ id: blockId }) => {
+      try {
+        const read = await this.client.request<ResourceProjectionReadResult>({ action: "resources.projection.read", blockId });
+        // Placed by line: only against the revision this page shows (an edit since would move them).
+        if (read.decorations?.length && read.revision === revisions.get(blockId)) out.set(blockId, read.decorations);
+      } catch { /* published as written */ }
+    }));
+    return out;
   }
 
   /** An attached markdown file rendered: its `((block))` and `[[page]]` links and its embeds, as a block's. */
@@ -1010,6 +1030,54 @@ function publishedText(text: string, context: TextContext, options: { keepProper
   return body.replace(/\n{3,}/g, "\n\n").replace(/^\n+|\n+$/g, "");
 }
 
+/** At most this many blocks of one page are asked for their decorations. */
+const MAX_DECORATED_BLOCKS = 200;
+
+/**
+ * A block's text with what the rules draw on it (PIE-600), as Markdown: the publisher's text fallback for the view
+ * primitives (a band is its heading, a card its title and fields). A decoration of the whole block goes under its
+ * title (or at its end); one of a construct or a line above or below it, in its place, or (around) with its title
+ * above. One not drawn yet leaves the text as written. The service made the Markdown inert, so it adds no
+ * properties or links.
+ */
+export function decoratedText(text: string, decorations: readonly Decoration[] | undefined): string {
+  if (!decorations?.length) return text;
+  const lines = text.split("\n");
+  const block = (decoration: Decoration) => ["", ...decoration.markdown!.split("\n"), ""];
+  // Placed against the text as written, then emitted once: the first rule to take a line's place has it, as in the door.
+  const before = lines.map((): string[][] => []), after = lines.map((): string[][] => []);
+  const head: string[][] = [], tail: string[][] = [];
+  const replaced = new Map<number, { end: number; lines: string[] }>();
+  const taken = (from: number, to: number) => [...replaced].some(([at, r]) => from < r.end && at < to);
+  for (const decoration of decorations) {
+    if ((decoration.status !== "ready" && decoration.status !== "stale") || !decoration.markdown?.trim()) continue;
+    const { at, line } = decoration.hit, end = Math.min(decoration.hit.end, lines.length);
+    if (at === "block") { (decoration.place === "below" ? tail : head).push(block(decoration)); continue; }
+    if (line >= lines.length || end <= line) continue;
+    if (decoration.place === "replace" && !taken(line, end)) replaced.set(line, { end, lines: block(decoration) });
+    else if (decoration.place === "below") after[end - 1]!.push(block(decoration));
+    else if (decoration.place === "around") { if (decoration.title) before[line]!.push(["", `**${decoration.title.replace(/[*_`\\[\]]/g, "")}**`]); }
+    else before[line]!.push(block(decoration));
+  }
+  const out: string[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    for (const group of before[i]!) out.push(...group);
+    const replacing = replaced.get(i);
+    if (replacing) {
+      out.push(...replacing.lines);
+      for (let j = i; j < replacing.end; j++) for (const group of after[j]!) out.push(...group);
+      i = replacing.end - 1;
+    } else {
+      out.push(lines[i]!);
+      for (const group of after[i]!) out.push(...group);
+    }
+    // The block's own decorations go under its title.
+    if (i === 0) for (const group of head) out.push(...group);
+  }
+  for (const group of tail) out.push(...group);
+  return out.join("\n");
+}
+
 /**
  * A published block's title as readers see it: a `((ref))` shows its authored
  * label, else a published target's title, else "unpublished note" — never an
@@ -1085,12 +1153,13 @@ export function renderSubtreeMarkdown(
   basePath = "",
   pages: ReadonlyMap<string, string> = new Map(),
   embeds?: EmbedExpansion,
+  decorations: ReadonlyMap<string, readonly Decoration[]> = new Map(),
 ): string {
   const [rootRow, ...rows] = shownSubtree(subtree);
   if (!rootRow) return "";
   const root = rootRow.block;
   const context: TextContext = { index, basePath, pages, ...(embeds ? { embeds } : {}) };
-  const rootText = publishedText(root.text ?? "", context);
+  const rootText = publishedText(decoratedText(root.text ?? "", decorations.get(root.id)), context);
   const [first = "", ...rest] = rootText.split("\n");
   const lines = /^#{1,6}\s/.test(first) ? [first, ...rest]
     // A note that opens with an embed keeps it below the heading.
@@ -1098,7 +1167,7 @@ export function renderSubtreeMarkdown(
       : [`# ${first.trim() || root.id}`, ...rest];
   const listed: string[] = [];
   for (const { block, locked } of rows) {
-    const text = locked ? placeholder(LOCKED_NOTE) : publishedText(block.text ?? "", context);
+    const text = locked ? placeholder(LOCKED_NOTE) : publishedText(decoratedText(block.text ?? "", decorations.get(block.id)), context);
     const indent = "  ".repeat(Math.max(0, block.depth - root.depth - 1));
     const [head = "", ...tail] = text.split("\n");
     listed.push(`${indent}- ${head}`);

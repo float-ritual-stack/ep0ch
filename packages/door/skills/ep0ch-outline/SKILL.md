@@ -373,6 +373,22 @@ commentable, publishable when they choose. Four kinds, one extension may be seve
    `act tile.open kind=tarot.reading note=<id>`). It reaches the outline only through the service's
    actions, so what it writes is the extension's.
 
+**Rules** (PIE-600) say "when a block matches this, draw this on it, or run this", without touching its text:
+`match` by a property (`type=meeting`), a saved-view query, a text pattern (line by line, never in code) or a
+construct kind (`heading:1`, `callout`, `list`, `rule`, `image`); then `decorate` (view primitives above, below, in
+place of or around what matched; `band` and `track` for heading styles and dividers) and `on` (an action when a
+block starts or stops matching, or changes while it matches; an extension's own writes never set one off). The
+no-code tier is a **rule note** you can write for a person in their outline:
+
+```text
+Committee headings [rule-name::committee-bands] [rule-under::((<id>))] [rule-kind::heading:2] [rule-decorate::band] [rule-pattern::stack] [rule-align::center]
+Meetings [rule-name::meetings] [rule-match::type=meeting] [rule-decorate::card] [rule-fields::when, attendees]
+```
+
+Scope it with `rule-under` unless they want it everywhere. The examples to copy for code: `meeting-card`
+(decorate), `done-stamp` (on), `shout` (a text pattern). `R` in the door shows a note as written; `peek` lists a
+reader's `decorations`. The contract: packages/outliner `docs/extensions/README.md#rules-when-a-block-matches`.
+
 An extension can also declare **agents** a person addresses while they write: a line `@tidy` (after an
 optional bullet) runs once the note is quiet, and its edit lands attributed to the extension (`ext:tidy`),
 or as a proposal if the person was typing there. The door shows the request's state under the line;
@@ -385,7 +401,7 @@ Everything an extension writes is attributed `author: agent`, `actorId: ext:<id>
 An extension is a folder: in the outline's own `extensions/<id>/` (under `~/outlines/<name>/`; it travels with that outline), or the
 service host's user folder (`~/.config/pi-herdr-outliner/extensions/<id>/`, every outline): `extension.json`,
 the code, `config.json` (secrets as references, never literals). `outliner ext ls` lists them, `outliner ext add
-<id>` copies a built-in example (moon, horoscope, fancy-horror, tarot, tidy, jira) into the user folder, or with
+<id>` copies a built-in example (moon, horoscope, fancy-horror, tarot, tidy, jira, meeting-card, done-stamp, shout) into the user folder, or with
 `--outline-folder <outline root>` into the outline's, `outliner ext remove <id>` takes it away (both apply
 without a restart), and `outliner ext act <id> <action> --block <id>` runs an action. The contract and worked examples are packages/outliner
 `docs/extensions/README.md`. Test one against a scratch host, never their live folder. For a need, pick the

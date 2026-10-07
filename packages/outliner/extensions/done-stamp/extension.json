@@ -1,0 +1,20 @@
+{
+  "contract": 2,
+  "id": "done-stamp",
+  "version": 1,
+  "name": "Done stamp",
+  "description": "A rule that runs: when a block's status becomes done it gets [done-at::<date>]; when it stops being done the stamp goes.",
+  "run": ["bun", "done-stamp.ts"],
+  "actions": [
+    { "id": "stamp", "label": "Stamp the date it was done", "on": "block", "effects": "write" },
+    { "id": "unstamp", "label": "Take the done stamp off", "on": "block", "effects": "write" }
+  ],
+  "rules": [
+    {
+      "id": "stamp",
+      "description": "Stamps [done-at::] on a block that becomes status=done, and takes it off when it stops being done",
+      "match": { "property": "status=done" },
+      "on": { "start": "stamp", "stop": "unstamp", "quiet": "2s" }
+    }
+  ]
+}

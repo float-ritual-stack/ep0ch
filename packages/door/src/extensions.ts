@@ -60,7 +60,21 @@ export interface ExtensionTileKind {
   args?: Record<string, { type: string; description?: string }>;
   save?: string;
 }
-export interface ExtensionList { generation: number; extensions: ExtensionEntry[]; tileKinds: ExtensionTileKind[]; primitives?: string[]; targets?: string[] }
+/**
+ * A rule (PIE-600) as `extensions.list` names it: an extension's (`ext:<id>/<rule>`) or a rule note's
+ * (`note:<id>`), what it matches, what it draws and what it runs. The service evaluates them; the door draws the
+ * decorations a note's read carries (src/projection.ts).
+ */
+export interface RuleEntry {
+  key: string; name: string; description?: string;
+  source: { kind: "extension"; extension: string; rule: string } | { kind: "note"; blockId: string };
+  match: { query?: string; view?: string; under?: string; text?: string; kind?: string };
+  decorate?: { place?: string; use?: string; code: boolean };
+  on?: { start?: string; stop?: string; change?: string; quiet: string };
+  matching?: number;
+  problem?: string;
+}
+export interface ExtensionList { generation: number; extensions: ExtensionEntry[]; tileKinds: ExtensionTileKind[]; primitives?: string[]; targets?: string[]; rules?: RuleEntry[]; ruleProblems?: string[] }
 export interface ExtensionActResult { extension: string; action: string; message?: string; written: string[] }
 
 /** What an extension action needs from where it runs: the outline, and somewhere to say what happened. */
@@ -101,6 +115,8 @@ function cleaned(l: ExtensionList): ExtensionList {
     ...l,
     extensions: l.extensions.map(e => ({ ...e, ...(e.name !== undefined ? { name: oneLine(e.name) } : {}), description: clean(e.description), error: clean(e.error), handlers: e.handlers ?? [], actions: (e.actions ?? []).map(action), agents: e.agents ?? [] })),
     tileKinds: (l.tileKinds ?? []).map(t => ({ ...t, name: oneLine(t.name), description: clean(t.description), actions: (t.actions ?? []).map(action) })),
+    rules: (l.rules ?? []).map(r => ({ ...r, name: oneLine(r.name), description: clean(r.description), ...(r.problem !== undefined ? { problem: oneLine(r.problem) } : {}) })),
+    ruleProblems: (l.ruleProblems ?? []).map(oneLine),
   };
 }
 
@@ -109,6 +125,10 @@ export const extensionList = (): ExtensionList | null => current;
 
 /** The extension `id` as listed, while it serves. */
 export const extensionNamed = (id: string): ExtensionEntry | undefined => current?.extensions.find(e => e.id === id && serving(e));
+
+/** The rules the service lists (PIE-600): while there are any that decorate, every note's read may carry decorations. */
+export const extensionRules = (): RuleEntry[] => current?.rules ?? [];
+export const decoratingRules = (): boolean => extensionRules().some(r => !!r.decorate);
 
 /**
  * Whether note text may have a handler line or an `@name` request line an extension answers: a cheap filter
@@ -265,6 +285,7 @@ export interface Bound { added: string[]; removed: string[]; problems: string[] 
 export function bindExtensions(raw: ExtensionList | null): Bound {
   const next = raw ? cleaned(raw) : null;
   const was = new Map((current?.extensions ?? []).map(e => [e.id, e] as const));
+  const saidRules = new Set(current?.ruleProblems ?? []);
   const before = new Set((current?.extensions ?? []).filter(serving).map(e => e.id));
   current = next;
   const served = (next?.extensions ?? []).filter(serving);
@@ -273,6 +294,8 @@ export function bindExtensions(raw: ExtensionList | null): Bound {
   for (const e of next?.extensions ?? []) {
     if (e.state === "failed" && was.get(e.id)?.state !== "failed") problems.push(`${e.name ?? e.id} failed${e.error ? `: ${e.error}` : ""}${e.name ? " (still serving its last good version)" : ""}`);
   }
+  // A rule note that can't be used (PIE-600): said once, as the service words it.
+  for (const p of next?.ruleProblems ?? []) if (!saidRules.has(p)) problems.push(`rule ${p}`);
   // The filter: a handler line (`key::`, a bullet before it is fine) or a request line (`@name`).
   const keys = served.flatMap(e => e.handlers.map(h => escape(h.key)));
   const agents = served.flatMap(e => (e.agents ?? []).map(a => escape(a.name)));

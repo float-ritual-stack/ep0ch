@@ -2,7 +2,7 @@
 // callouts as boxes, Markdown tables as real tables with wrapped multi-line cells, and
 // media lines as image slots the caller fills with Kitty placements.
 import { brightness, media, parseMediaLine, sizeText, type Focus, type Media, type MediaSpec } from "./media";
-import { balanceTags, BOLD, C, extractLinks, fg, type LinkRange, pad, RESET, splitVisible, stripTags, styleMarks, trimTagged, UNBOLD, width as vwidth } from "./style";
+import { balanceTags, BOLD, C, extractLinks, fg, headOf, type LinkRange, pad, RESET, splitVisible, stripTags, styleMarks, trimTagged, UNBOLD, width as vwidth } from "./style";
 import { colourBody, wrap } from "./text";
 import { componentBlocks, noteCodeFences, noteStructure } from "@ep0ch/outline-core/component-block";
 import { figureSource, frame, graphKind, reframeAscii, renderGraph, type FiguresEnv } from "./graphs";
@@ -104,6 +104,13 @@ export interface DocEnv {
   image?: (line: number, control: ImageControl, text: string) => string;
   /** Drawn for print (`ep0ch show`): an image's caption names its whole path, and says nothing about graphics. */
   printed?: boolean;
+  /**
+   * A rule's decoration in the place of body lines from `line` to `end` (PIE-600, src/projection.ts): `rows` drawn
+   * instead of them (`replace`: a heading's band), or a frame titled `title` in `colour` drawn around them
+   * (`around`). A heading it replaces keeps its fold point: ( ) stops on it and f folds what's under it. Without it
+   * (an embed, a draft's preview, the reader's raw view) the lines are drawn as written.
+   */
+  decorate?: (line: number, width: number) => { end: number; rows?: string[]; headRow?: number; frame?: { title: string; colour: number } } | null;
 }
 /** A control on an image's caption: a size step, an alignment step, or the header on or off. */
 export type ImageControl = { size: 1 | -1 } | { align: 1 | -1 } | { hero: boolean } | { fit: "cover" | "contain" };
@@ -275,6 +282,40 @@ export function renderDoc(body: string, env: DocEnv): Doc {
     from = i;
     const line = src[i]!;
 
+    // A rule's decoration in these lines' place, or around them (PIE-600).
+    const deco = env.decorate?.(i, W);
+    if (deco && deco.end > i) {
+      const fp = at.get(i), folded = !!fp && !!env.folds && fp.kind !== "callout" && env.folds.folded.has(fp.key);
+      if (deco.rows) {
+        // In a heading's place the fold point stays, on the row with its words (a band's text row).
+        if (fp && env.folds) heads.push({ key: fp.key, row: out.length + Math.min(Math.max(0, deco.rows.length - 1), deco.headRow ?? Math.floor(Math.max(0, deco.rows.length - 1) / 2)), cols: W });
+        out.push(...deco.rows);
+        if (folded && fp) {
+          out.push(fg(C.dark) + `▸ ${fp.hidden} line${fp.hidden === 1 ? "" : "s"} folded` + RESET);
+          mark(); insert(i + 1); inserted = fp.end; i = fp.end - 1;
+        } else i = deco.end - 1;
+        continue;
+      }
+      if (deco.frame) {
+        // Around them: drawn in a frame by this renderer, their folds kept (a folded one inside stays folded).
+        const inner = Math.max(8, W - 4), off = i, end = deco.end, colour = deco.frame.colour, inside = (n: number) => n >= off && n < end;
+        const sub = renderDoc(src.slice(i, end).join("\n"), {
+          ...env, nested: true, width: inner, graphics: false, keepTags: true, embed: undefined, after: undefined, task: undefined,
+          callout: undefined, decorate: undefined, literal: new Set([...(env.literal ?? [])].filter(inside).map(n => n - off)),
+          folds: env.folds && { ...env.folds, points: env.folds.points.filter(p => inside(p.line)).map(p => ({ ...p, line: p.line - off, end: Math.min(p.end, end) - off })) },
+        });
+        const title = deco.frame.title ? ` ${headOf(deco.frame.title, Math.max(0, W - 6))} ` : "";
+        out.push(fg(colour) + "╭─" + title + "─".repeat(Math.max(0, W - 3 - vwidth(title))) + "╮" + RESET);
+        mark();
+        const base = out.length;
+        sub.lines.forEach((l, r) => { out.push(fg(colour) + "│ " + RESET + pad(l, inner) + fg(colour) + " │" + RESET); source.push(off + (sub.source[r] ?? 0)); });
+        for (const h of sub.heads) heads.push({ ...h, row: base + h.row, cols: W });
+        out.push(fg(colour) + "╰" + "─".repeat(Math.max(0, W - 2)) + "╯" + RESET);
+        i = end - 1;
+        continue;
+      }
+    }
+
     // A heading or a list item the reader can fold: its disclosure, and nothing it hides when folded.
     const fp = at.get(i);
     if (fp && env.folds && fp.kind !== "callout") {
@@ -375,7 +416,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
         const tag = env.callout?.(i, cb) ?? ((x: string) => x);
         out.push(fg(colour) + pad(`${tag(t.icon)} ${BOLD}${cb.title || t.title}${UNBOLD}`, W) + RESET);
         if (body.length && !folded) {
-          const sub = renderDoc(body.join("\n"), { ...env, nested: true, keepTags: true, embed: undefined, after: undefined, task: undefined, folds: undefined, callout: undefined, literal: undefined });
+          const sub = renderDoc(body.join("\n"), { ...env, nested: true, keepTags: true, embed: undefined, after: undefined, task: undefined, folds: undefined, callout: undefined, decorate: undefined, literal: undefined });
           mark();
           sub.lines.forEach((l, r) => { out.push(l); source.push(i + 1 + (sub.source[r] ?? 0)); });
           if (byline) { out.push(bylineRow(W)); source.push(i + 1 + byline.line); }
@@ -417,7 +458,7 @@ export function renderDoc(body: string, env: DocEnv): Doc {
         if (body.length) {
           const off = i + 1, inside = (n: number) => n > i && n < cb.end;
           const sub = renderDoc(body.join("\n"), {
-            ...env, nested: true, width: inner, graphics: false, keepTags: true, embed: undefined, after: undefined, task: undefined,
+            ...env, nested: true, width: inner, graphics: false, keepTags: true, embed: undefined, after: undefined, task: undefined, decorate: undefined,
             literal: new Set([...(env.literal ?? [])].filter(inside).map(n => n - off)),
             folds: env.folds && { ...env.folds, points: env.folds.points.filter(p => inside(p.line)).map(p => ({ ...p, line: p.line - off, end: p.end - off })) },
             callout: env.callout && ((n, b) => env.callout!(n + off, { ...b, line: b.line + off, end: b.end + off, depth: b.depth + cb.depth })),

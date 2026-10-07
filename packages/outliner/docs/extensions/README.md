@@ -1,11 +1,12 @@
-# Extensions: the four kinds
+# Extensions: the four kinds, and rules
 
 An extension is a folder. Put one in a watched folder and the outline service loads it, with no
 restart. Delete the folder and everything it added goes away (its handlers, actions, tiles and kept
 line results); records it wrote stay, because they are data. The service runs the extension's
 code; clients (Detail, the door, the publisher, agents) only draw what the service returns.
 
-There are four kinds. One extension may provide several of them.
+There are four kinds, and **rules** that say when a block gets one (PIE-600). One extension may provide
+several of them.
 
 | Kind | What it is | Written as | Where the result lives | How a client draws it |
 |---|---|---|---|---|
@@ -13,11 +14,14 @@ There are four kinds. One extension may provide several of them.
 | 2. **Inline output** | Markdown rendered inside a block | `horoscope:: virgo` | Kept by the service per line (`extension_outputs`); never written into the note unless you **keep** it | The projection's `output.markdown`, under the line |
 | 3. **Rich component** | Data plus a view, with its own behaviour (actions) | `fancy-horror:: virgo` | Kept like an output: `{ data, view }` | The view's primitives (box, card, table, stat, bar, checklist, sparkline, badge, text, row, stack), or a rendered target |
 | 4. **A whole tile** | A program in a tile of its own kind | opened from the door | Whatever its actions write | The door's tile-kind registry runs it in a terminal tile |
+| **Rules** (`decorate`, `on`) | "When a block matches this, draw this on it, or run this": `match` by a property, a saved-view query, a text pattern or a construct kind | `rules[]` in `extension.json`, or a rule note (`[rule-name::name]`, no code) | Nothing in the note: a built-in decoration is computed on read; a code rule's view is kept like an output until the block's revision changes; a trigger's writes are the extension's | `decorations` in `resources.projection.read`: view primitives (plus `band` and `track`) above, below, in place of or around what matched; Detail and the publisher as text |
 
 The canonical examples ship in [`extensions/`](../../extensions): [moon](../../extensions/moon) and
 [jira](../../extensions/jira) (data), [horoscope](../../extensions/horoscope) (inline output),
 [fancy-horror](../../extensions/fancy-horror) (rich component) and [tarot](../../extensions/tarot)
-(a tile). They are forkable source: `outliner ext add <name>` copies one into your folder, where it
+(a tile); [meeting-card](../../extensions/meeting-card) (a rule that decorates),
+[done-stamp](../../extensions/done-stamp) (a rule that runs) and [shout](../../extensions/shout) (a rule on a
+text pattern). They are forkable source: `outliner ext add <name>` copies one into your folder, where it
 is yours to edit.
 
 Extensions are **trusted code, not a sandbox**, like nvim or Claude Code plugins. They run as the
@@ -127,6 +131,7 @@ extensions/horoscope/
 | `actions[]` | What it can do: one action is a key, a click and an agent call alike. |
 | `tiles[]` | Tile kinds (kind 4). |
 | `agents[]` | Agents a person addresses while they write (`@tidy …`); see [Agents in the note](#agents-in-the-note). |
+| `rules[]` | "When a block matches this": `match`, then `decorate` and `on`; see [Rules](#rules-when-a-block-matches). A rule with only built-in decorations needs no `run`. |
 
 ### `config.json`
 
@@ -168,6 +173,7 @@ yours alone (`chmod 600`); otherwise the call fails naming the file and its mode
 | `read` | a data handler | `{ handler, key, options, context }` | `{ record: { title, fields: [{ key, value }], body } }` |
 | `run` | an output or component handler | `{ handler, argument, options, context }` | output: `{ markdown, title? }`; component: `{ data, view, targets?, title? }` |
 | `respond` | an `@name` request | `{ agent, request, mark, note: { id, revision, text }, context }` | `{ message?, reply?, patches?: [{ observed, replacement, before?, after? }] }` |
+| `decorate` | a rule's hit (no `use`) | `{ rule, hit, context }` | `{ view, title? }` |
 | `act` | an action | `{ action, args?, target?: { blockId, revision, line?, argument?, options? }, context?, output? }` | `{ message?, writes?: [...] }` |
 | `resolve`, `read`, `changed` | Jira's Resource path | see [resource-process.md](resource-process.md) | |
 
@@ -390,6 +396,8 @@ Its behaviour is **actions** (below): `ward` writes a block, and the next run re
 | `card` | `title`, `subtitle?`, `badge?`, `link?` (a block id), `children?` |
 | `box` | `title?`, `children` |
 | `stack`, `row` | `children` (top to bottom; side by side) |
+| `band` | `text?`, `level?` (1–3), `pattern?`, `align?`, `row?`, `tone?`: a heading in glyph tracks (rules) |
+| `track` | `pattern?`, `tone?`: one row of glyph track, a divider (rules) |
 
 `tone` is `default`, `good`, `warn`, `bad`, `dim` or `accent`. Limits: depth 8, 400 primitives, 200
 rows, 12 columns, 2 000 characters of text each, 256 KiB of data. A view that breaks one is refused
@@ -425,6 +433,106 @@ component never breaks a reader: it degrades to its data.
 4. `bugs:: mine` draws in Detail and the door; `extensions.render … target: "csv"` gives a sheet.
 
 [fancy-horror](../../extensions/fancy-horror) is the canonical one.
+
+## Rules: when a block matches
+
+A **rule** says "when a block matches this, draw this on it, or run this" (PIE-600). The handler lines above
+are the oldest case of it: a handler's `key` matches a `key::` line. A rule matches anything else, and never
+changes the note's text.
+
+```json
+"rules": [
+  { "id": "card", "match": { "property": "type=meeting" }, "decorate": { "place": "above" } },
+  { "id": "bands", "match": { "kind": "heading:1", "under": "<a block id>" }, "decorate": { "use": "band", "pattern": "stack", "align": "center" } },
+  { "id": "stamp", "match": { "property": "status=done" }, "on": { "start": "stamp", "stop": "unstamp", "quiet": "2s" } }
+]
+```
+
+### `match`
+
+Every condition given must hold; at least one is needed.
+
+| Field | Matches | Evaluated by |
+|---|---|---|
+| `property` | `key=value` or `key`: the property case of `query` | the service's query matcher (`query.matches`), the views' grammar and index |
+| `query` | a saved-view query (`type=meeting AND where="the shed"`) | the same |
+| `view` | a saved view's block id: its `[query::…]` | the same |
+| `under` | only blocks under this one (and it) | the same |
+| `text` | a pattern, line by line, never in a code fence, a code span, a literal region or a `[key::value]` token; `(?i)` at the start ignores case; each line once, 16 lines per note at most | outline-core `ruleHits` |
+| `kind` | a construct: `heading`, `heading:1`…`heading:6` (`h1`…), `callout`, `callout:<type>`, `list`, `rule` (a thematic break), `image` | outline-core `noteConstructs` |
+
+Without `text` or `kind` the whole block matches; with them, each construct or line that does is a **hit**:
+`{ at: "block" | "construct" | "text", line, end, text, level?, kind?, captures? }` (whole-text lines, `end` the line
+after the last).
+
+### `decorate`
+
+| Field | Meaning |
+|---|---|
+| `place` | `above`, `below`, `replace` (in its place) or `around`. Default: a band or divider replaces, a box goes around, the rest above. A whole block's `replace` and `around` are `above` |
+| `use` | a built-in decoration, no code: `band` (a heading in three rows of glyph track, PIE-599's banner), `divider` (one row of track), `card` (the block's title and `fields`), `badge`, `text`, `box` |
+| `style` | a `band` or `divider` draws with this heading style ([heading styles](../../../../CHANGELOG.md), PIE-599: `[heading-style::name]` notes and the built-ins `band`, `tab`, `waffle`, `uptime`, `dots`, `rule`, `fade`); `pattern`, `align` and `tone` go over it. Default: `band` (a divider: `fade`) |
+| `label`, `tone`, `fields`, `pattern`, `align` | the built-in's words (a template: `{title}`, `{text}`, `{level}`, `{$1}`, any property `{status}`), tone, the card's property keys, the band's glyphs (`stack`, `waffle`, `uptime`, `dots`, `rule`) and where its words sit |
+| `deadline` | a code rule's call |
+
+Without `use`, the service runs the extension's **`decorate`** operation for each hit:
+
+```json
+{ "operation": "decorate", "input": { "rule": "card", "hit": { "at": "block", "line": 0, "end": 3, "text": "…" }, "context": { "block": { … }, "children": [ … ], "ancestors": [ … ], "now": "…" } } }
+```
+
+and it answers `{ "view": <primitive>, "title"?: "…" }`. The view is checked like a component's and kept like an
+output (`extension_outputs`, `rule:` keys), known by the rule and what it matched (moving the line keeps it); it
+runs again when the block's revision changes, showing the last one (`stale`) meanwhile. At most four run at once.
+
+**What readers get:** `resources.projection.read` on a whole block carries `decorations`:
+
+```json
+{ "rule": "ext:meeting-card/card", "name": "meeting-card/card", "source": { "kind": "extension", "extension": "meeting-card", "rule": "card" },
+  "hit": { "at": "block", "line": 0, "end": 1, "text": "Committee" }, "place": "above", "status": "ready",
+  "view": { "type": "card", … }, "markdown": "**Committee** …", "ranAt": "…" }
+```
+
+`status` is `ready`, `stale`, `not-run` or `unavailable` (with `reason`). An `extensions.output` event names the
+block when a code rule's view lands. The door draws `view` (a replaced heading keeps its fold point and `( )` stop;
+`R` shows the note as written); Detail shows the decoration as text under what it matched, named by its rule; the
+publisher puts its `markdown` in the page (a band is its `#` heading).
+
+Two primitives exist for rules: `band` (`text?`, `level?` 1–3, `style?`, `pattern?`, `align?`, `row?` top, middle or
+bottom, `tone?`) and `track` (`style?`, `pattern?`, `tone?`). The door draws them with the heading styles' drawer
+(PIE-599): the named style (default `band`, a track `fade`) with the primitive's fields over it, and under the
+figures' narrow width (48 columns) a band is its plain heading. Their text targets are a heading and `---`.
+
+### `on`: change triggers
+
+`on: { start?, stop?, change?, quiet? }` names actions (from `actions[]`, `on: block`) run on the block when it
+**starts** matching, **stops** matching, or is saved while it **matches**, once it has been quiet for `quiet`
+(default 2s): a burst of saves while typing is one trigger.
+
+- Fed by the change feed: creates, edits, moves and restores.
+- **No loops.** A save any extension made never sets a rule off; it only moves what the rule remembers. So
+  `done-stamp`'s own `[done-at::]` write runs nothing, and neither does another extension's.
+- **A rule starts from now.** Installing a rule over blocks that already match runs nothing for them.
+- The action runs through `extensions.act`: its writes are `ext:<id>`'s, with `requestedBy` the person or agent
+  whose save set it off.
+- `extensions.list`'s `rules` says how many blocks match each trigger rule, and its last run (`lastRun`: when,
+  which block, start, stop or change, its message or error).
+
+### Rule notes: the no-code tier
+
+A note with `[rule-name::name]` is a rule, with the outline (like `[callout-type::]`):
+
+```text
+Committee headings [rule-name::committee-bands] [rule-under::((<id>))] [rule-kind::heading:2] [rule-decorate::band] [rule-pattern::stack] [rule-align::center]
+Meetings [rule-name::meetings] [rule-match::type=meeting] [rule-decorate::card] [rule-fields::when, attendees] [rule-label::{title} at {where}]
+Shouting [rule-name::shouting] [rule-text::(\S.*?)!!!$] [rule-decorate::text] [rule-tone::warn]
+```
+
+`rule-match` (a query), `rule-view`, `rule-under`, `rule-text` (a `]` is written `\x5d`) and `rule-kind` match;
+`rule-decorate`, `rule-place`, `rule-label`, `rule-tone`, `rule-fields`, `rule-pattern`, `rule-align` and `rule-style` (a heading style by name) draw. A
+rule note never decorates rule notes' own words. What can't be used is listed in `extensions.list`'s
+`ruleProblems` (the door says it once), and writing a rule note sends `extensions.changed`, so readers draw again.
+Heading styles (PIE-599) are the outline's own list (`[heading-style::name]` notes, `headings.styles`); a rule's `band` and `track` are drawn by the same drawer and name a style with `rule-style` (a `--- [rule::fade]` divider's `[rule::…]` is that feature's, which is why a rule note is `[rule-name::…]`). A code rule is the tier above it.
 
 ## Actions
 
@@ -616,7 +724,9 @@ socket call.
     "tiles": []
   }],
   "tileKinds": [ … ],
-  "primitives": ["text", "badge", "stat", "bar", "table", "checklist", "sparkline", "card", "box", "stack", "row"],
+  "primitives": ["text", "badge", "stat", "bar", "table", "checklist", "sparkline", "card", "box", "stack", "row", "band", "track"],
+  "rules": [{ "key": "ext:done-stamp/stamp", "name": "done-stamp/stamp", "source": { "kind": "extension", … }, "match": { "query": "status=done" }, "on": { "start": "stamp", "stop": "unstamp", "quiet": "2s" }, "matching": 3 }],
+  "ruleProblems": [],
   "targets": ["terminal", "markdown", "blockdown", "html", "json", "csv"],
   "trust": "Extensions are trusted code, not a sandbox: they run as the service user."
 }

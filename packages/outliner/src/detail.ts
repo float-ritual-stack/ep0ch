@@ -37,7 +37,7 @@ import {
   type DetailController,
   type DetailViewport,
 } from "./detail-controller";
-import { projectDetailRead } from "./detail-embeds";
+import { learnDetailRules, projectDetailRead } from "./detail-embeds";
 import { DetailEventScheduler } from "./detail-event-scheduler";
 import { createDetailKeyHandler, detailActionScopes } from "./detail-keymap";
 import { buildDetailAnsiPreview, detailTitle, renderDetailHeader, renderDetailFooter, renderDetailLines } from "./detail-renderer";
@@ -775,6 +775,7 @@ function startWatcher(): void {
     },
     onConnect: async () => {
       void destinationDisplay.refresh();
+      await learnDetailRules(client);
       await runtimeSync?.synchronize();
       firstWatcherConnection.resolve();
       if (runtimeInitialized) {
@@ -789,7 +790,12 @@ function startWatcher(): void {
       if (!runtimeInitialized) firstWatcherConnection.reject(error);
       else serviceEventScheduler.scheduleWork(() => controller.onServiceError(error));
     },
-    onEvent: (event) => { destinationDisplay.onEvent(event); serviceEventScheduler.schedule(event); },
+    onEvent: (event) => {
+      destinationDisplay.onEvent(event);
+      // The rules changed (PIE-600): whether every note may be decorated, then the note again.
+      if (event.domain === "extensions") { serviceEventScheduler.scheduleWork(async () => { await learnDetailRules(client); }); }
+      serviceEventScheduler.schedule(event);
+    },
   });
 }
 
