@@ -18,6 +18,9 @@ import { until } from "./scratch";
 
 const linux = process.platform === "linux";
 const top = resolve(import.meta.dir, "../../..");
+/** The checkout's schema version (the outliner's schema.ts, read as text: the door imports nothing else of it), and the bump the scratch origin makes. */
+const N = Number(/^export const SCHEMA_VERSION = (\d+);/m.exec(readFileSync(join(top, "packages/outliner/src/schema.ts"), "utf8"))![1]);
+const M = N + 1, STEP_FILE = `${String(M).padStart(4, "0")}-seed-trays.ts`;
 const root = mkdtempSync(join(tmpdir(), "ep0ch-im-"));
 const repo = join(root, "repo"), origin = join(root, "origin.git"), home = join(root, "home"), outlines = join(root, "outlines");
 const state = join(root, "state"), bin = join(root, "bin"), units = join(root, "units");
@@ -45,7 +48,7 @@ const ep0ch = async (...args: string[]) => {
 const version = (name: string) => { const db = new Database(join(outlines, `${name}.sqlite`), { readonly: true }); try { return (db.query("PRAGMA user_version").get() as { user_version: number }).user_version; } finally { db.close(); } };
 const fakeSystemctl = (...args: string[]) => sh([join(bin, "systemctl"), "--user", ...args]);
 
-/** A step 3 → 4 the way a real one-off is written: refuses a served file, one transaction, and refuses what it can't take. */
+/** A step N → N+1 the way a real one-off is written: refuses a served file, one transaction, and refuses what it can't take. */
 const STEP = `import { Database } from "bun:sqlite";
 import { acquireWorkspaceOwnership } from "../../src/workspace-ownership";
 const path = process.argv[2]!;
@@ -53,11 +56,11 @@ const release = acquireWorkspaceOwnership(path);
 const db = new Database(path, { readwrite: true, create: false });
 try {
   const { user_version: v } = db.query("PRAGMA user_version").get() as { user_version: number };
-  if (v !== 3) throw new Error(\`\${path} is schema \${v}, not 3\`);
+  if (v !== ${N}) throw new Error(\`\${path} is schema \${v}, not ${N}\`);
   db.transaction(() => {
     db.exec("CREATE TABLE seed_trays (id TEXT PRIMARY KEY)");
     if (db.query("SELECT 1 FROM sqlite_master WHERE name = 'compost_heap'").get()) throw new Error(\`\${path} has a compost_heap table this step doesn't know\`);
-    db.exec("PRAGMA user_version = 4");
+    db.exec("PRAGMA user_version = ${M}");
   })();
 } catch (e) { console.error((e as Error).message); process.exitCode = 1; }
 finally { db.close(); release(); }
@@ -79,11 +82,11 @@ beforeAll(async () => {
   sh(["git", "clone", "-q", "--bare", repo, origin]);
   git("remote", "add", "origin", origin); git("fetch", "-q", "origin"); git("branch", "-q", "--set-upstream-to=origin/main", "main");
   const schema = join(repo, "packages/outliner/src/schema.ts");
-  writeFileSync(schema, readFileSync(schema, "utf8").replace(/^export const SCHEMA_VERSION = \d+;/m, "export const SCHEMA_VERSION = 4;"));
-  writeFileSync(join(repo, "packages/outliner/scripts/migrations/0004-seed-trays.ts"), STEP);
+  writeFileSync(schema, readFileSync(schema, "utf8").replace(/^export const SCHEMA_VERSION = \d+;/m, `export const SCHEMA_VERSION = ${M};`));
+  writeFileSync(join(repo, "packages/outliner/scripts/migrations", STEP_FILE), STEP);
   // An earlier step's script is deleted once used (AGENTS.md): what's left is this step's.
-  for (const f of readdirSync(join(repo, "packages/outliner/scripts/migrations"))) if (/^0003-/.test(f)) rmSync(join(repo, "packages/outliner/scripts/migrations", f));
-  git("add", "-A"); git("commit", "-qm", "seed trays: schema 4");
+  for (const f of readdirSync(join(repo, "packages/outliner/scripts/migrations"))) if (f.startsWith(`${String(N).padStart(4, "0")}-`)) rmSync(join(repo, "packages/outliner/scripts/migrations", f));
+  git("add", "-A"); git("commit", "-qm", `seed trays: schema ${M}`);
   newHead = git("rev-parse", "HEAD");
   git("push", "-q", "origin", "main"); git("reset", "-q", "--hard", oldHead);
   sh([bun, "install", "--frozen-lockfile"], repo, 300_000);
@@ -108,7 +111,7 @@ esac
   fakeSystemctl("start", "outliner-host.service");
   await until(() => existsSync(sock), "the scratch host's socket", 20_000);
   for (let i = 0; !(await hostLive(sock, 1000)); i++) { if (i > 100) throw new Error("the scratch host didn't answer"); await Bun.sleep(100); }
-  // Two outlines at schema 3; compost holds a table the step refuses (the failure, fixed by hand later).
+  // Two outlines at schema N; compost holds a table the step refuses (the failure, fixed by hand later).
   for (const name of ["allotment", "compost"]) await hostRequest(sock, "outlines.create", { name });
   fakeSystemctl("stop", "outliner-host.service");
   const compost = new Database(join(outlines, "compost.sqlite"));
@@ -140,12 +143,12 @@ afterAll(async () => {
 describe.skipIf(!linux)("ep0ch install across a schema bump (PIE-617)", () => {
   test("the plan, a migration that fails and leaves the host stopped, then a rerun that migrates the rest and hands the session over", async () => {
     expect(sessionPid).toBeGreaterThan(0);
-    expect([version("allotment"), version("compost")]).toEqual([3, 3]);
+    expect([version("allotment"), version("compost")]).toEqual([N, N]);
 
     // The dry run says what will happen, changes nothing.
     const plan = await ep0ch("install");
     expect(plan.code).toBe(0);
-    expect(plan.out).toContain("schema 3 → 4: will migrate 2 outlines (allotment, compost) with 0004-seed-trays.ts");
+    expect(plan.out).toContain(`schema ${N} → ${M}: will migrate 2 outlines (allotment, compost) with ${STEP_FILE}`);
     expect(plan.out).toContain("systemctl --user stop outliner-host.service");
     expect(git("rev-parse", "HEAD")).toBe(oldHead);
 
@@ -156,35 +159,35 @@ describe.skipIf(!linux)("ep0ch install across a schema bump (PIE-617)", () => {
     expect(r1.ok).toBe(false);
     expect(r1.steps.find(s => s.id === "repo")!.done!.join(" ")).toContain(`fast-forwarded ${oldHead.slice(0, 7)} → ${newHead.slice(0, 7)}`);
     const schema = r1.steps.find(s => s.id === "schema")!;
-    expect(schema.done).toEqual(["stopped the outline host (systemd outliner-host.service) to migrate", "allotment: schema 3 → 4"]);
-    expect(schema.error).toContain("migrating compost (schema 3 → 4) failed");
+    expect(schema.done).toEqual(["stopped the outline host (systemd outliner-host.service) to migrate", `allotment: schema ${N} → ${M}`]);
+    expect(schema.error).toContain(`migrating compost (schema ${N} → ${M}) failed`);
     expect(schema.error).toContain("compost_heap");
     const backup = readdirSync(join(home, "backups/ep0ch"))[0]!;
-    const copy = (name: string) => join(home, "backups/ep0ch", backup, `${name}.schema-3.sqlite`);
-    expect(schema.recover).toContain(`compost's script failed; it runs in one transaction, so the file should be as it was (it reads schema 3), and its copy from just before is ${copy("compost")}; allotment is at schema 4`);
+    const copy = (name: string) => join(home, "backups/ep0ch", backup, `${name}.schema-${N}.sqlite`);
+    expect(schema.recover).toContain(`compost's script failed; it runs in one transaction, so the file should be as it was (it reads schema ${N}), and its copy from just before is ${copy("compost")}; allotment is at schema ${M}`);
     expect(schema.recover).toContain("the outline host is left stopped");
     expect(schema.recover).toContain(`or go back to the code before: git -C ${repo} reset --hard ${oldHead} && cp ${copy("allotment")} ${join(outlines, "allotment.sqlite")} && cp ${copy("compost")} ${join(outlines, "compost.sqlite")} && systemctl --user start outliner-host.service`);
     // The copies are exact: taken with the host stopped, each at the old schema.
-    for (const name of ["allotment", "compost"]) { const db = new Database(copy(name), { readonly: true }); expect((db.query("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(3); db.close(); }
+    for (const name of ["allotment", "compost"]) { const db = new Database(copy(name), { readonly: true }); expect((db.query("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(N); db.close(); }
     // Nothing after it ran: the host is down, compost as it was, the session on the old code.
     expect(r1.steps.map(s => s.id)).not.toContain("host");
     expect(await hostLive(sock, 1000)).toBeFalsy();
-    expect([version("allotment"), version("compost")]).toEqual([4, 3]);
+    expect([version("allotment"), version("compost")]).toEqual([M, N]);
     expect(existsSync(join(home, "backups/ep0ch", backup, "allotment.sqlite"))).toBe(true);
 
     // Doctor flags compost behind the checkout's schema, with install as the fix.
     const doctor = await ep0ch("doctor");
-    expect(doctor.out).toMatch(/! schema +compost is schema 3/);
-    expect(doctor.out).toMatch(/schema +compost is schema 3[^\n]*\n(?:.*\n)*? +fix: ep0ch install --apply\n/);
+    expect(doctor.out).toMatch(new RegExp(`! schema +compost is schema ${N}`));
+    expect(doctor.out).toMatch(new RegExp(`schema +compost is schema ${N}[^\\n]*\\n(?:.*\\n)*? +fix: ep0ch install --apply\\n`));
 
     // A host started by hand on the new code refuses compost, and a client says the exact commands, on their own lines.
     fakeSystemctl("start", "outliner-host.service");
     for (let i = 0; !(await hostLive(sock, 1000)); i++) { if (i > 100) throw new Error("the scratch host didn't come back"); await Bun.sleep(100); }
     const refused = await ep0ch("find", "leeks", "--ws", "compost");
     expect(refused.code).not.toBe(0);
-    expect(refused.err).toContain(`is schema version 3; this build opens only schema version 4.`);
+    expect(refused.err).toContain(`is schema version ${N}; this build opens only schema version ${M}.`);
     expect(refused.err).toMatch(/\n +ep0ch install --apply\n/);
-    expect(refused.err).toContain(`\n    bun ${join(repo, "packages/outliner/scripts/migrations/0004-seed-trays.ts")} ${join(outlines, "compost.sqlite")}\n`);
+    expect(refused.err).toContain(`\n    bun ${join(repo, "packages/outliner/scripts/migrations", STEP_FILE)} ${join(outlines, "compost.sqlite")}\n`);
     expect(refused.err).not.toMatch(/<database>|while no service|\x1b\[/);
 
     // Fixed by hand; the rerun migrates what's left, starts the host and hands the session to the new code.
@@ -196,10 +199,10 @@ describe.skipIf(!linux)("ep0ch install across a schema bump (PIE-617)", () => {
     expect({ code: second.code, ok: r2.ok, err: r2.steps.find(s => s.error)?.error }).toEqual({ code: 0, ok: true, err: undefined });
     expect(r2.steps.find(s => s.id === "repo")!.status).toBe("skip");
     // The host started by hand is stopped through its unit first.
-    expect(r2.steps.find(s => s.id === "schema")!.done).toEqual(["stopped the outline host (systemd outliner-host.service) to migrate", "compost: schema 3 → 4"]);
+    expect(r2.steps.find(s => s.id === "schema")!.done).toEqual(["stopped the outline host (systemd outliner-host.service) to migrate", `compost: schema ${N} → ${M}`]);
     expect(r2.steps.find(s => s.id === "host")!.done!.join(" ")).toContain("started the outline host (systemd outliner-host.service");
     expect(r2.steps.find(s => s.id === "session")!.status).toBe("do");
-    expect([version("allotment"), version("compost")]).toEqual([4, 4]);
+    expect([version("allotment"), version("compost")]).toEqual([M, M]);
     // The host opens both on the new code (a ping opens the outline it names, and it refuses one at another schema).
     for (const outline of ["allotment", "compost"]) expect(await hostRequest(sock, "ping", { outline })).toMatchObject({ protocolVersion: expect.any(Number) });
     // The session: a new daemon on the new commit.

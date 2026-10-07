@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { BIG_PASTE_LINES, changeOf, Draft, DRAFT_ACTIONS, TYPING_PAUSE_MS } from "../src/edit";
 import { ReaderPane, type DeskApi } from "../src/desk/panes";
 import { SocketBoard, USER } from "../src/socket";
+import { NOTE_ACTIONS } from "../src/surface/note";
 import { pasteKeys, type Key } from "../src/term";
 import { outliner, Scratch, until } from "./scratch";
 
@@ -200,7 +201,7 @@ describe("selecting and copying by keys", () => {
   });
 });
 
-describe.skipIf(!outliner)("against a scratch outline: undo past a save", () => {
+describe.skipIf(!outliner)("against a scratch outline: past a save, and back to an earlier revision", () => {
   let scratch: Scratch, board: SocketBoard, sock = "";
   const flashes: string[] = [];
   const desk = () => ({
@@ -214,6 +215,12 @@ describe.skipIf(!outliner)("against a scratch outline: undo past a save", () => 
     await until(() => pane.editing, "the draft to open");
     return { pane, d, draft: () => pane.surface.draft! };
   };
+  const cli = async (args: string[]) => {
+    const p = Bun.spawn(["bun", join(import.meta.dir, "../src/main.ts"), ...args], { stdout: "pipe", stderr: "pipe", env: { ...process.env, EP0CH_CONTROL: "/nonexistent/ep0ch-test.sock", EP0CH_SOCKET: sock, EP0CH_WS: scratch.name } });
+    const [out, err] = [await new Response(p.stdout).text(), await new Response(p.stderr).text()];
+    return { code: await p.exited, out, err };
+  };
+
   beforeAll(async () => {
     scratch = new Scratch();
     sock = await scratch.start();
@@ -238,4 +245,35 @@ describe.skipIf(!outliner)("against a scratch outline: undo past a save", () => 
     await until(() => again.draft().text === "Jam labels for ", "redone a word");
   }, 20_000);
 
+
+  test("a saved paste taken back: revision.restore puts the earlier text in the edit (one step), ctrl+s saves it; the CLI lists, prints and restores", async () => {
+    const b = await board.request("create", { parentId: null, text: "Shed rota\nTuesdays: oil the hinges", author: "user" });
+    const doc = Array.from({ length: 30 }, (_, i) => `- pantry line ${i}`).join("\n");
+    const pasted = await board.update(b.id, `Shed rota\nTuesdays: oil the hinges\n${doc}`, b.revision) as { revision: number };
+    // In the door: the edit, revision.restore (the tile menu's row), and the earlier text is in, as one step.
+    const r = await open(b.id);
+    const on = { surface: r.pane.surface, host: r.pane.host(r.d) };
+    expect(await NOTE_ACTIONS.run("revision.restore", {}, on, USER)).toMatchObject({ revision: b.revision, current: pasted.revision });
+    expect(r.draft().text).toBe("Shed rota\nTuesdays: oil the hinges");
+    expect(r.draft().note).toContain(`revision ${b.revision} of ${pasted.revision}`);
+    await expect(NOTE_ACTIONS.run("revision.restore", {}, on, USER)).rejects.toThrow("no revision before");
+    r.pane.key(ctrl("z"), r.d);
+    await until(() => r.draft().text.includes("pantry line 29"), "ctrl+z takes the earlier text back out");
+    r.pane.key(ctrl("y"), r.d);
+    await until(() => !r.draft().text.includes("pantry"), "and ctrl+y puts it in again");
+    r.pane.key(ctrl("s"), r.d);
+    await until(() => !r.pane.editing, "the save");
+    expect((await board.get(b.id))!.text).toBe("Shed rota\nTuesdays: oil the hinges");
+    // The CLI: the list, one revision's text, and --restore (itself a revision).
+    const list = await cli(["revisions", b.id]);
+    expect(list.code).toBe(0);
+    expect(list.out.split("\n")[0]).toMatch(new RegExp(`^\\s+${pasted.revision + 1} now .* · 2 lines`));
+    expect(list.out).toContain(`${pasted.revision}     `);
+    const one = await cli(["revisions", b.id, String(pasted.revision)]);
+    expect(one.out).toContain("pantry line 29");
+    const back = await cli(["revisions", b.id, String(pasted.revision), "--restore"]);
+    expect(back.out).toContain(`saved revision ${pasted.revision}'s text as revision ${pasted.revision + 2}`);
+    expect((await board.get(b.id))!.text).toContain("pantry line 29");
+    expect((await cli(["revisions", b.id, "--restore"])).code).toBe(2);
+  }, 30_000);
 });

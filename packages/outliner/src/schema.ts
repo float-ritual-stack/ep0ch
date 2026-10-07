@@ -25,7 +25,7 @@ import { BLOCK_ACTIVITY_KINDS } from "./types";
  * including those one subsystem uses alone (workflows, agent mentions), so a
  * database's shape never depends on which subsystems ran.
  */
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 /**
  * What an `@name` request came to. `waiting`: written by an agent, so it waits for r. `proposed` becomes
@@ -764,6 +764,19 @@ export const SCHEMA_SQL = `
       message_json TEXT NOT NULL CHECK(json_valid(message_json))
      );
 
+  -- Earlier texts of blocks (PIE-621): each revision's text, kept when the next one replaces it, so a saved note
+  -- can go back (block.revisions). The current text is the block's own; the newest REVISIONS_KEEP are kept a block.
+  CREATE TABLE IF NOT EXISTS block_revisions (
+    block_id TEXT NOT NULL REFERENCES blocks(id) ON DELETE CASCADE,
+    revision INTEGER NOT NULL CHECK (revision >= 1),
+    text TEXT NOT NULL,
+    saved_at TEXT NOT NULL,
+    author TEXT,
+    actor_id TEXT,
+    replaced_at TEXT NOT NULL,
+    PRIMARY KEY (block_id, revision)
+  );
+
   -- Edit recovery (edit-recovery.ts).
   CREATE TABLE IF NOT EXISTS edit_recovery (
         id TEXT PRIMARY KEY, block_id TEXT NOT NULL, revision INTEGER NOT NULL,
@@ -777,15 +790,15 @@ const userVersion = (database: Database) => (database.query("PRAGMA user_version
 
 export const OUTLINE_INSTANCE_ID_KEY = "outline_instance_id";
 
-/** The one-off script for schema 2 → 3, which also repairs a version-3 database without an outline instance id. */
-const UPGRADE_SCRIPT = join(import.meta.dir, "../scripts/migrations/0003-drop-agent-tables.ts");
+/** The one-off script for schema 3 → 4, which also repairs a version-4 database without an outline instance id. */
+const REPAIR_SCRIPT = join(import.meta.dir, "../scripts/migrations/0004-block-revisions.ts");
 
 export function readOutlineInstanceId(database: Database, path: string): string {
   const row = database.query("SELECT value FROM metadata WHERE key = ?").get(OUTLINE_INSTANCE_ID_KEY) as { value: string } | null;
   const value = row?.value;
   if (!value || !BLOCK_ID_PATTERN.test(value)) {
     const { stop, start } = hostUnitCommands();
-    throw new Error(`The outline database ${path} has no valid outline instance id. Repair it with:\n\n${[stop, `bun ${shWord(UPGRADE_SCRIPT)} ${shWord(path)}`, start].map(l => `  ${l}`).join("\n")}`);
+    throw new Error(`The outline database ${path} has no valid outline instance id. Repair it with:\n\n${[stop, `bun ${shWord(REPAIR_SCRIPT)} ${shWord(path)}`, start].map(l => `  ${l}`).join("\n")}`);
   }
   return value.toLowerCase();
 }

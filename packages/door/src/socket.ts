@@ -14,7 +14,7 @@ import { BACKLINK_QUERY_LIMIT, type BacklinkCollection } from "./backlinks";
 import type { Decoration, ResourceProjectionRead } from "./projection";
 import type { ExtensionActResult, ExtensionList } from "./extensions";
 import { resourceStored, type AuthoredLinksSnapshot, type AuthoredResourceReference, type ResourceDescription } from "./authored";
-import { type FragmentKind, type HostedOutlineSummary, OUTLINE_NAME_PATTERN, type OutlinerHostStatus, protocolMismatch } from "@ep0ch/outline-core/protocol";
+import { type BlockRevisionEntry, type BlockRevisions, type FragmentKind, type HostedOutlineSummary, OUTLINE_NAME_PATTERN, type OutlinerHostStatus, protocolMismatch } from "@ep0ch/outline-core/protocol";
 import { outlineLayout, outlinesFolder } from "@ep0ch/outline-core/outline-location";
 import { jsonLine, JsonLines } from "./jsonl";
 
@@ -1183,6 +1183,14 @@ export class SocketBoard implements Board {
   async blockContext(blockId: string): Promise<{ selected: Msg | null; ancestors: Msg[] }> {
     const r = await this.request<{ selected: WireBlock | null; ancestors?: WireBlock[] }>("blocks.context", { blockId });
     return { selected: r.selected ? toMsg(r.selected) : null, ancestors: (r.ancestors ?? []).map(b => toMsg(b)) };
+  }
+
+  /** A note's revisions (PIE-621): the current one first, then the earlier texts the service keeps, newest first. */
+  async revisions(blockId: string): Promise<BlockRevisions> { return this.request<BlockRevisions>("block.revisions", { blockId }); }
+
+  /** One revision's whole text. */
+  async revisionText(blockId: string, revision: number): Promise<BlockRevisionEntry & { text: string }> {
+    return this.request<BlockRevisionEntry & { text: string }>("block.revisions", { blockId, revision });
   }
 
   /** Bring a Trash root (and its subtree) back where it was. */

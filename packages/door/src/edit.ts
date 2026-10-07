@@ -86,6 +86,9 @@ export class Draft {
   /** The note's properties when the draft opened, as the service parsed them, to report what a save changed. */
   baseProps: Record<string, string>;
 
+  /** The earlier revision whose text `revision.restore` last put in (PIE-621): the next one goes further back from it. */
+  revisionShown: number | null = null;
+
   /** The note this draft is about (its target's `near`): reference completion searches from there. */
   near?: string;
   /** A note's text (an edit, a new card or note; not a comment): ⏎ on a first line of only `[page::x]` titles it (PIE-544). */
@@ -270,14 +273,15 @@ export class Draft {
   }
 
   /**
-   * Replace the text wholesale ($EDITOR came back, or an agent sent it). The base revision
+   * Replace the text wholesale ($EDITOR came back, an agent sent it, an earlier revision put in). The base revision
    * stays: the service still judges it. One undo step, `what` it was.
    */
-  replace(text: string, by: Actor = USER, what = by.kind === "agent" ? `${patchLabel(by)}'s text` : "the editor's text") {
+  replace(text: string, by: Actor = USER, what = by.kind === "agent" ? `${patchLabel(by)}'s text` : "the editor's text", exact = false) {
     this.settle();
     this.record(USER, "a change");
     const before = this.text;
-    this.lines = text.replace(/\n$/, "").split("\n");
+    // An editor's file ends in a line break the draft never had; `exact` (an earlier revision) keeps the text as it was.
+    this.lines = (exact ? text : text.replace(/\n$/, "")).split("\n");
     if (this.text !== before) this.wrote(by, what);
     this.row = Math.min(this.row, this.lines.length - 1);
     this.col = Math.min(this.col, this.lines[this.row]!.length);

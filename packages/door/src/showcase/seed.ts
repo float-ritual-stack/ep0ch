@@ -334,9 +334,13 @@ export const OVERSCROLL = [
 export const REMOTE_CLIENT = { sub: "user_showcase", clientId: "https://chat.example.test/oauth/client-metadata" } as const;
 export const REMOTE_LINE = "Bought two bags of compost for the beds.";
 
-/** The undo section's note (PIE-621): an edit to paste into, select and copy from. */
+/**
+ * The undo section's note (PIE-621): one earlier revision (the first text, kept by the outline when the second replaced
+ * it), so the tile menu's "an earlier revision" has something to go back to.
+ */
+export const LABELS_BEFORE = [`${SEED.labels} [page::${SEED.labels}]`, "[room::pantry]", "", "Write the date on every lid."].join("\n");
 export const LABELS = [`${SEED.labels} [page::${SEED.labels}]`, "[room::pantry]", "", "Write the date on every lid.", "Rota: whoever fills a jar labels it.",
-  "Drag across text in an edit and it's copied; ctrl+z undoes, ctrl+y redoes, and ctrl+z still works after a save, when you open the note again."].join("\n");
+  "Drag across text in an edit and it's copied; ctrl+z undoes, ctrl+y redoes; the tile menu's \"an earlier revision\" goes back past a save."].join("\n");
 
 /**
  * The remote writes note (PIE-615): what the gateway's writes become, and where the queue for another machine's outline
@@ -790,7 +794,8 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
     for (const f of RECENT_FILES()) await make(session.id, `${f.shown} [file::${f.file}] [type::file-touch] [day::2026-03-11] [project::allotment] [session::${RECENT_SESSION}] [touches::${f.touches}] [last-touch::${f.at}] [added::${f.added}] [removed::${f.removed}]`, SEED_AGENT);
   }
   notes.remoteWrites = await make(notes.root.id, REMOTE_WRITES);
-  notes.labels = await make(notes.root.id, LABELS);
+  const labels = await make(notes.root.id, LABELS_BEFORE);
+  notes.labels = await board.update(labels.id, LABELS, labels.revision!);
   {
     // Through the gateway's own write path, at propose: a patch that becomes a proposal, and a comment.
     const { actorOf, applyWrite } = await import("../mcp-writes");
