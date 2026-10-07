@@ -65,7 +65,7 @@ describe.skipIf(!outliner)("river columns host the note surface, against a scrat
   }, 30_000);
 
   afterAll(async () => {
-    board?.close(); other?.close();
+    app?.quit(); board?.close(); other?.close();
     await scratch.dispose();
     delete process.env.EP0CH_STATE;
   });
