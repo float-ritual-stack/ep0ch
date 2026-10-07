@@ -4,6 +4,7 @@ import { Type, IsSchema, type Static, type TSchema } from "typebox";
 import { Compile } from "typebox/compile";
 import { cleanExtensionText } from "./extension-records";
 import { ALIGNS, BAND_PATTERNS, BUILT_IN_DECORATIONS, compileRulePattern, parseKindSpec, PLACES, RULE_TONES } from "@ep0ch/outline-core/rules";
+import { componentSchemaProblem } from "@ep0ch/outline-core/component-schema";
 
 /**
  * What an extension folder is (contract 2): `extension.json` plus an optional
@@ -31,6 +32,10 @@ import { ALIGNS, BAND_PATTERNS, BUILT_IN_DECORATIONS, compileRulePattern, parseK
  * a built-in decoration with no code, or the `decorate` operation) and `on`
  * (run an action when a block starts or stops matching, or changes while it
  * matches). A handler's `key` is the oldest case of match: a `key::` line.
+ *
+ * `components[]` (PIE-618) describe the properties its lines or notes take, as
+ * outline-core's component schemas: the door completes their keys and values
+ * and draws each a page in its library, with no code of the extension's.
  */
 
 export const EXTENSION_ID_PATTERN = "^[a-z][a-z0-9-]{0,31}$";
@@ -239,6 +244,8 @@ const ManifestV2 = Type.Object(
     tiles: Type.Optional(Type.Array(Tile, { maxItems: 8 })),
     agents: Type.Optional(Type.Array(Agent, { maxItems: 8 })),
     rules: Type.Optional(Type.Array(RuleSchema, { maxItems: 16 })),
+    /** Component schemas (`@ep0ch/outline-core/component-schema`), checked by its `componentSchemaProblem`. */
+    components: Type.Optional(Type.Array(Type.Unknown(), { maxItems: 8 })),
   },
   { additionalProperties: false },
 );
@@ -454,9 +461,17 @@ function checkManifest(manifest: ExtensionManifest): void {
     }
     if (rule.on && !rule.on.start && !rule.on.stop && !rule.on.change) throw new ExtensionLoadError(`${where}/on names no action: give start, stop or change`);
   }
+  const componentIds = new Set<string>();
+  for (const [index, component] of (manifest.components ?? []).entries()) {
+    const problem = componentSchemaProblem(component);
+    if (problem) throw new ExtensionLoadError(`extension.json: components/${index}: ${problem}`);
+    const id = (component as { id: string }).id;
+    if (componentIds.has(id)) throw new ExtensionLoadError(`extension.json: components/${index}/id ${id} is declared twice`);
+    componentIds.add(id);
+  }
   const needsRun = (manifest.handlers ?? []).length > 0 || (manifest.actions ?? []).length > 0 || agentNames.size > 0 || codeRules > 0;
   if (needsRun && !manifest.run) throw new ExtensionLoadError("extension.json: handlers, actions, agents and rules that decorate with code need run (the program each call starts)");
-  if (!needsRun && !(manifest.tiles ?? []).length && !(manifest.rules ?? []).length) throw new ExtensionLoadError("extension.json declares nothing: add handlers, actions, agents, rules or tiles");
+  if (!needsRun && !(manifest.tiles ?? []).length && !(manifest.rules ?? []).length && !componentIds.size) throw new ExtensionLoadError("extension.json declares nothing: add handlers, actions, agents, rules, tiles or components");
 }
 
 /** `bun` in an argv means the service's own Bun, so a folder works wherever the service runs. */

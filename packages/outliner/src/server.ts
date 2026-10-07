@@ -1,6 +1,7 @@
 import { queryRequestProblem } from "./block-query";
 import { calloutTypesFromBlocks } from "@ep0ch/outline-core/callouts";
 import { headingStylesFromBlocks } from "@ep0ch/outline-core/heading-styles";
+import { mergeComponentSchemas } from "@ep0ch/outline-core/component-schema";
 import type { RequestInput } from "./client";
 import { PROTOCOL } from "@ep0ch/outline-core/protocol";
 import { withPageTitle } from "@ep0ch/outline-core/page-title";
@@ -2542,6 +2543,28 @@ export class OutlinerServer {
               : { id: block.id, line: r.line, properties: records.filter((o) => o.line === r.line && o.scope !== "block") });
           });
           result = { ...headingStylesFromBlocks(declarations), complete: declared.completeness.kind === "complete" };
+          break;
+        }
+        case "rules.preview": {
+          if (typeof request.note !== "string" || typeof request.text !== "string") throw new Error("rules.preview needs note and text");
+          if (request.note.length > 4_000 || request.text.length > 20_000) throw new Error("rules.preview: the note is at most 4000 characters and the text 20000");
+          result = this.extensionRules.preview(request.note, request.text);
+          break;
+        }
+        case "components.schemas": {
+          // PIE-618: every component's schema in one read: the built-ins with the outline's own styles and types among
+          // their values, then the schemas the extensions ship. What's wrong with a declaration is said, as above.
+          const declared = (key: string) => {
+            const found = this.store.queryBlocks({ filters: [{ key }], limit: 500 });
+            return { blocks: [...found.blocks].sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id)), complete: found.completeness.kind === "complete" };
+          };
+          const styles = declared("heading-style"), types = declared("callout-type");
+          const h = headingStylesFromBlocks(styles.blocks), c = calloutTypesFromBlocks(types.blocks);
+          result = {
+            schemas: mergeComponentSchemas({ headingStyles: h.styles, calloutTypes: c.types, extensions: this.extensionRegistry.components() }),
+            problems: [...h.problems, ...c.problems],
+            complete: styles.complete && types.complete,
+          };
           break;
         }
         case "references.backlinks":

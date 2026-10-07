@@ -1,3 +1,4 @@
+import type { ComponentSchema } from "@ep0ch/outline-core/component-schema";
 import { existsSync, readdirSync, realpathSync, statSync, watch, type FSWatcher } from "node:fs";
 import { hostname } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -391,6 +392,15 @@ export class ExtensionRegistry {
       args: tile.args ?? {},
       save: "args" as const,
     }));
+  }
+
+  /** The component schemas each serving extension ships (PIE-618), for `components.schemas`. */
+  components(): { id: string; components: ComponentSchema[] }[] {
+    return this.slots.flatMap((slot) => {
+      const extension = slot.serving;
+      const components = extension && (slot.state === "active" || slot.state === "failed") ? (extension.manifest.components ?? []) as ComponentSchema[] : [];
+      return components.length ? [{ id: slot.id, components }] : [];
+    });
   }
 
   /** `extensions.list`: every folder, its state and error, and what it serves. */

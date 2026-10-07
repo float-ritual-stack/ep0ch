@@ -15,6 +15,7 @@ import { placeOf } from "./session/place";
 import { forwardTo, remoteDoor, remoteOf } from "./machine";
 import { canonicalLocalMachineName, findCommand, NOTES_USAGE, showCommand } from "./notes-cli";
 import { EXPORT_USAGE } from "./export";
+import { LIBRARY_USAGE } from "./library/cli";
 import { NEW_USAGE, newCommand } from "./new-cli";
 import { VIEW_USAGE, viewCommand } from "./view-cli";
 import { MCP_USAGE, mcpCommand } from "./mcp";
@@ -111,6 +112,7 @@ ${NOTES_USAGE}
 ${NEW_USAGE}
 ${VIEW_USAGE}
 ${EXPORT_USAGE}
+${LIBRARY_USAGE}
   ep0ch clients [--ws <name>] [--machine <ssh-name>]
                                    who is connected to the service, every role (observers too)
   ep0ch peek | actions | snap <png> | open <id|ep0ch://outline@machine/b/id|file:/path> [--json] | act <action> [key=value ...]
@@ -169,6 +171,7 @@ if (args[0] === "mcp") process.exit(await mcpCommand(args));
 if (args[0] === "new") process.exit(await newCommand(args));
 if (args[0] === "view") process.exit(await viewCommand(args));
 if (args[0] === "export") { const { exportCommand } = await import("./export"); process.exit(await exportCommand(args)); }
+if (args[0] === "library") { const { libraryCommand } = await import("./library/cli"); process.exit(await libraryCommand(args)); }
 if (args[0] === "where") process.exit(await whereCommand(args.slice(1)));
 if (args[0] === "session") process.exit(await sessionCommand(args.slice(1)));
 if (args[0] === "open" && args[1]?.startsWith("ep0ch://")) {

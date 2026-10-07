@@ -5,12 +5,13 @@
 // the note's revision and an exact quote, and carries a requestId, so a retry after a lost answer
 // returns the comment that was already saved instead of adding a second one.
 import type { HeadingStyle } from "@ep0ch/outline-core/heading-styles";
+import type { ComponentSchema } from "@ep0ch/outline-core/component-schema";
 import type { BlockRecord } from "@ep0ch/outline-core/block-record";
 import { connect, type Socket } from "node:net";
 import { homedir, hostname } from "node:os";
 import type { Board, BoardInfo, Caller, Msg } from "./board";
 import { BACKLINK_QUERY_LIMIT, type BacklinkCollection } from "./backlinks";
-import type { ResourceProjectionRead } from "./projection";
+import type { Decoration, ResourceProjectionRead } from "./projection";
 import type { ExtensionActResult, ExtensionList } from "./extensions";
 import { resourceStored, type AuthoredLinksSnapshot, type AuthoredResourceReference, type ResourceDescription } from "./authored";
 import { type FragmentKind, type HostedOutlineSummary, OUTLINE_NAME_PATTERN, type OutlinerHostStatus, protocolMismatch } from "@ep0ch/outline-core/protocol";
@@ -564,6 +565,14 @@ export class SocketBoard implements Board {
   /** The outline's heading styles (PIE-599): those its notes declare with [heading-style::name]; the built-ins are outline-core's. */
   async headingStyles(): Promise<{ styles: HeadingStyle[]; problems: string[]; complete: boolean }> {
     return this.request<{ styles: HeadingStyle[]; problems: string[]; complete: boolean }>("headings.styles", {});
+  }
+  /** What a rule note (its text, never saved) draws on a sample note's text (PIE-618: a component page's rule variations). */
+  async rulePreview(note: string, text: string): Promise<{ decorations: Decoration[]; problems: string[] }> {
+    return this.request<{ decorations: Decoration[]; problems: string[] }>("rules.preview", { note, text });
+  }
+  /** Every component's schema (PIE-618): the built-ins with the outline's own styles and types as values, then the extensions'. */
+  async componentSchemas(): Promise<{ schemas: ComponentSchema[]; problems: string[]; complete: boolean }> {
+    return this.request<{ schemas: ComponentSchema[]; problems: string[]; complete: boolean }>("components.schemas", {});
   }
 
   /** What a `[[page]]` address or Work ID points at. Never follows (`pages.follow` would create a stub). */

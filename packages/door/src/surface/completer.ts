@@ -19,6 +19,11 @@ import { printable } from "../text";
 import { withoutPropertyTokens } from "@ep0ch/outline-core/property-grammar";
 import type { CalloutRegistry } from "@ep0ch/outline-core/callouts";
 import { calloutsReady, TONE } from "../callouts";
+import { keyCandidates, valueCandidates, variation, yamlKeyCandidates, type ComponentSchema, type PropertyCandidate } from "@ep0ch/outline-core/component-schema";
+import { componentsReady } from "../component-schemas";
+import type { ListSource } from "../outline-lists";
+import { drawVariation } from "../library/draw";
+import { visible, width as cells } from "../style";
 
 /** At most this many candidates per lookup, as in the outliner. */
 export const COMPLETION_LIMIT = 20;
@@ -89,7 +94,12 @@ export const notConfigured = (semantic: { status: string; message?: string }) =>
 /** The candidates for one token: the same lookups and insertions the outliner's editors use. */
 export async function lookupCompletion(board: CompletionBoard, target: CompletionTarget, prefix: string | null, own?: OwnNote, opts: LookupOptions = {}): Promise<CompletionLookup> {
   let items: CompletionItem[] = [], truncated: number | null = null, empty = "", partial = "", ranked = false, off = false;
-  if (target.kind === "callout") {
+  if (target.kind === "key" || target.kind === "value" || target.kind === "yaml-key" || target.kind === "yaml-value") {
+    // The component schemas (PIE-618): the same answer the library draws its pages from, no list of the completer's own.
+    const src = { board, redraw: () => {} };
+    items = propertyCandidates(await componentsReady(src), target, src);
+    empty = "";
+  } else if (target.kind === "callout") {
     // The outline's callout types (PIE-538): the one list the reader draws and the type choice offers.
     items = calloutCandidates(await calloutsReady({ board, redraw: () => {} }), target.query);
     empty = `no callout type starts ${JSON.stringify(target.query)}; [!${target.query}] still draws, in neutral (declare it with [callout-type::${target.query || "name"}])`;
@@ -137,6 +147,34 @@ export async function lookupCompletion(board: CompletionBoard, target: Completio
   }
   const message = items.length ? partial || (truncated ? `showing the first ${truncated} matches` : "") : [partial && `partial search: ${partial}`, empty].filter(Boolean).join(" · ");
   return { items, truncated, message, ...(ranked ? { jev: "ranked" as const } : {}), ...(off ? { jevOff: true } : {}) };
+}
+
+/**
+ * The schemas' keys or values for a property target: a key with where it goes and what it means, a value with its
+ * meaning and a preview, the variation it makes drawn small (one row of it: a style's glyph track, a callout's frame).
+ */
+export function propertyCandidates(schemas: readonly ComponentSchema[], target: CompletionTarget, src: ListSource | null = null): CompletionItem[] {
+  const found: PropertyCandidate[] = target.kind === "key" ? keyCandidates(schemas, target.query)
+    : target.kind === "value" ? valueCandidates(schemas, target.key ?? "", target.query)
+    : target.kind === "yaml-key" ? yamlKeyCandidates(schemas, target.component ?? "", target.query)
+    : valueCandidates(schemas, target.key ?? "", target.query, false, target.component);
+  return found.slice(0, COMPLETION_LIMIT).map(c => {
+    const preview = c.value === undefined ? "" : valuePreview(schemas, c, src);
+    return { label: preview ? `${c.label}  ${preview}` : c.label, insertion: c.insertion, kind: target.kind.endsWith("key") ? "property" : "value", context: c.detail };
+  });
+}
+
+/** One row of what a value draws, at most 24 columns: the row with the most shades and blocks, else its first with anything on it. */
+function valuePreview(schemas: readonly ComponentSchema[], c: PropertyCandidate, src: ListSource | null): string {
+  const schema = schemas.find(s => s.id === c.component);
+  if (!schema) return "";
+  let rows: string[];
+  try { rows = drawVariation(variation(schema, { [c.key]: c.value! }, c.key), 64, src).map(r => visible(r).replace(/[┊│]/g, " ").trim()).filter(Boolean); } catch { return ""; }
+  const weight = (r: string) => [...r].filter(ch => /[\u2580-\u259f]/.test(ch)).length;
+  const best = rows.reduce<string | undefined>((a, r) => (a === undefined || weight(r) > weight(a) ? r : a), undefined) ?? "";
+  let out = "";
+  for (const ch of best) { if (cells(out + ch) > 24) break; out += ch; }
+  return out;
 }
 
 /**
@@ -212,7 +250,7 @@ export class Completer {
   constructor(private readonly d: Draft, private readonly board: CompletionBoard, private readonly redraw: () => void, private readonly own: () => OwnNote | undefined = () => undefined) {}
 
   /** The token the cursor is in, if any. */
-  target(): CompletionTarget | null { return completionTargetAtCursor(this.d.lines[this.d.row] ?? "", this.d.col); }
+  target(): CompletionTarget | null { return completionTargetAtCursor(this.d.lines[this.d.row] ?? "", this.d.col, this.d.lines, this.d.row); }
 
   /** The popup still belongs where the cursor is (the wheel, or an agent's edit.text, can move it without a key). */
   get shown(): CompletionState | null {
@@ -246,7 +284,7 @@ export class Completer {
   private askJev(generation: number, target: CompletionTarget): void {
     this.stopJev();
     const fragment = target.kind === "block" && parseFragmentCompletionQuery(target.query);
-    if (target.kind === "file" || target.kind === "callout" || fragment || target.query.trim().length < 3 || jevOff.has(this.board)) return;
+    if (target.kind !== "page" && target.kind !== "block" || fragment || target.query.trim().length < 3 || jevOff.has(this.board)) return;
     // Jev re-orders the service's candidates (up to 30 for ((): one beyond the 20 shown can come into view.
     this.jevTimer = setTimeout(async () => {
       this.jevTimer = null;
@@ -289,6 +327,8 @@ export class Completer {
       const r = await lookupCompletion(this.board, target, this.prefix ?? null, this.own(), { near: this.near() });
       if (r.jevOff) jevOff.add(this.board);
       if (!this.current(generation)) return;
+      // A `[` that starts no property the schemas know (a Markdown link's text, say) opens nothing.
+      if (!r.items.length && target.kind !== "page" && target.kind !== "block" && target.kind !== "file" && target.kind !== "callout") { this.dismiss(); return; }
       const index = Math.max(0, r.items.findIndex(i => i.insertion === was));
       this.state = { ...r, target, index, loading: false, at: this.state!.at };
       this.redraw();
@@ -393,7 +433,7 @@ export function completionKey(d: Draft, k: Key, c: Completer | null): DraftActio
   }
   if (k.kind === "tab" || isCtrlSpace(k)) {
     if (c.target()) { void c.refresh(); return "keep"; }
-    if (k.kind !== "tab") { d.note = "completion works inside [[, ((, [file:: or a callout's > [!"; return "keep"; }
+    if (k.kind !== "tab") { d.note = "completion works inside [[, ((, [file::, a callout's > [!, a [key:: property or a figure's YAML"; return "keep"; }
   }
   const before = d.text, open = c.state?.target;
   const a = d.key(k);
@@ -423,7 +463,8 @@ export function renderCompletion(s: CompletionState, w: number, h: number, rows:
   const room = Math.max(1, h - Number(header) - Number(footer) - 1);
   const win = completionWindow(s.items.length, s.index, room);
   const out: string[] = [];
-  if (header) rows.push(null), out.push(line(` ${s.target?.kind === "callout" ? "callout types" : "references"} ${s.index + 1}/${s.items.length}${s.truncated ? ` · first ${s.truncated}` : ""}${s.loading ? " · finding..." : ""}`, fg(C.lcyan), bg(C.blue)));
+  const heading = { callout: "callout types", key: "properties", "yaml-key": "properties", value: "values", "yaml-value": "values" }[s.target?.kind as string] ?? "references";
+  if (header) rows.push(null), out.push(line(` ${heading} ${s.index + 1}/${s.items.length}${s.truncated ? ` · first ${s.truncated}` : ""}${s.loading ? " · finding..." : ""}`, fg(C.lcyan), bg(C.blue)));
   for (let i = win.start; i < win.end; i++) {
     const it = s.items[i]!, sel = i === s.index;
     rows.push(i);

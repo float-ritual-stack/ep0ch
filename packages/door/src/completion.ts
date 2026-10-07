@@ -4,8 +4,13 @@
 // (src/work-ids.ts), and how a typed `((note#heading` / `((note^anchor` splits. Fragments themselves are
 // the service's (see below).
 import { calloutTypeAtCursor } from "@ep0ch/outline-core/callouts";
+import { propertyAtCursor, yamlAtCursor } from "@ep0ch/outline-core/component-schema";
 
-export type CompletionKind = "page" | "block" | "file" | "callout";
+/**
+ * `key` and `value`: a `[key::value]` property's key or value (PIE-618, from the component schemas); `yaml-key` and
+ * `yaml-value` the same inside a component block's YAML.
+ */
+export type CompletionKind = "page" | "block" | "file" | "callout" | "key" | "value" | "yaml-key" | "yaml-value";
 
 export interface CompletionTarget {
   kind: CompletionKind;
@@ -14,6 +19,9 @@ export interface CompletionTarget {
   end: number;
   /** What was typed after the opening delimiter, up to the cursor. */
   query: string;
+  /** A value's property key; a YAML key's or value's component (`graph-meter`). */
+  key?: string;
+  component?: string;
 }
 
 const TARGET_SYNTAX: ReadonlyArray<{ kind: CompletionKind; opening: string; closing: string }> = [
@@ -24,11 +32,14 @@ const TARGET_SYNTAX: ReadonlyArray<{ kind: CompletionKind; opening: string; clos
 
 /**
  * The innermost unclosed `[[`, `((` or `[file::` before the cursor, or a callout's type being typed (`> [!wa`,
- * PIE-538, by outline-core's callout grammar), or null.
+ * PIE-538, by outline-core's callout grammar), or a property's key or value (`[head`, `[heading-pattern::wa`, PIE-618),
+ * or with the draft's `lines` and `row`, a key or value in a component block's YAML; else null.
  */
-export function completionTargetAtCursor(line: string, column: number): CompletionTarget | null {
+export function completionTargetAtCursor(line: string, column: number, lines?: readonly string[], row?: number): CompletionTarget | null {
   const callout = calloutTypeAtCursor(line, column);
   if (callout) return { kind: "callout", ...callout };
+  const yaml = lines && row !== undefined ? yamlAtCursor(lines, row, column) : null;
+  if (yaml) return yaml.kind === "key" ? { kind: "yaml-key", start: yaml.start, end: yaml.end, query: yaml.query, component: yaml.component } : { kind: "yaml-value", start: yaml.start, end: yaml.end, query: yaml.query, key: yaml.key, component: yaml.component };
   const end = Math.max(0, Math.min(column, line.length));
   const beforeCursor = line.slice(0, end);
   let target: CompletionTarget | null = null;
@@ -51,7 +62,10 @@ export function completionTargetAtCursor(line: string, column: number): Completi
       target = { kind: syntax.kind, start, end: replacementEnd, query: beforeCursor.slice(start + syntax.opening.length) };
     }
   }
-  return target;
+  if (target) return target;
+  const prop = propertyAtCursor(line, column);
+  if (!prop) return null;
+  return prop.kind === "key" ? { kind: "key", start: prop.start, end: prop.end, query: prop.query } : { kind: "value", start: prop.start, end: prop.end, query: prop.query, key: prop.key };
 }
 
 /** The rows of a list of `count` a window of `capacity` shows, keeping `selected` centred. */

@@ -13,6 +13,8 @@ const HEADINGS = outlineList<HeadingStyle, HeadingStyleRegistry>(
 
 /** The outline's heading styles for this connection: the built-ins until (and unless) the service answers. */
 export const headingStylesOf = HEADINGS.of;
+/** The outline's heading styles once the question out now (if any) is answered (a CLI drawing a page whole). */
+export const headingStylesReady = HEADINGS.ready;
 /** Which answer `headingStylesOf` gives now, for a reader's layout cache. */
 export const headingStylesStamp = HEADINGS.stamp;
 /** What's wrong with the outline's heading-style declarations, as the service last said. */
