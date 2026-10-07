@@ -89,8 +89,9 @@ describe.skipIf(!outliner)("starting an edit by key runs the edit action (PIE-51
         if (s.name === "m") continue;
         const runs = await press(key, s.key, opened(surface, s.opens), `${s.name} opened in the preview`);
         expect(runs.filter(r => r.actor.kind === "user").map(r => r.name), s.name).toContain(s.action);
-        expect(BV.where(b), s.name).toBe("preview");
-        // ctrl+e: $EDITOR runs in a terminal tile beside the preview, which has the keys until it exits.
+        // ctrl+e: $EDITOR runs in a terminal tile beside the preview, which has the keys until it exits. Whether
+        // `true` has exited by now depends on the machine (on a boxd box it hasn't), so where the keys are is checked once it's back.
+        if (s.name !== "ctrl+e") expect(BV.where(b), s.name).toBe("preview");
         if (s.name !== "ctrl+e") await until(() => b.isIn(V.preview), `${s.name}: the person is in the preview's session`);
         if (s.name === "ctrl+e") { await until(() => /no changes from true/.test(surface.draft?.note ?? ""), "$EDITOR came back", 5000); expect(BV.where(b)).toBe("preview"); }
         if (s.name === "I") expect(surface.panel.full).toBe(true);

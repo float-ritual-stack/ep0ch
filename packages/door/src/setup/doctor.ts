@@ -1,6 +1,6 @@
 // `ep0ch doctor`: every piece of the stack, its state (✓ current, ! behind, ✗ missing, · for information)
 // and the exact command that fixes it. Read-only; built from the facts (model.ts) so tests describe machines.
-import { basename, dirname } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { byFolder, lnCommand, sh } from "./links";
 import { clauses } from "./progress";
 import { PROTOCOL } from "@ep0ch/outline-core/protocol";
@@ -53,6 +53,14 @@ export function doctorChecks(f: Facts): Check[] {
       const v = sessionVerdict(sx, f, { status: "skip" });
       add("ep0ch", `session ${sessionName(sx)}`, v.status === "do" ? "behind" : /another checkout|left for you/.test(v.why) ? "info" : "ok", `pid ${sx.pid} · ${sx.clients} terminal${sx.clients === 1 ? "" : "s"} attached · ${sx.programs} program${sx.programs === 1 ? "" : "s"} in its tiles; ${v.brief}`, v.status === "do" ? `${ep0ch(process.env, sx)}session upgrade ${sessionFlags({ place: sx })}` : undefined);
     }
+  }
+
+  // The art packs (PIE-596): optional. Without them every screen draws, with no art; the checkout's own few pieces will do.
+  if (f.art) {
+    const few = join(f.repo.door, "test/fixtures/packs");
+    if (f.art.packs) add("ep0ch", "art packs", "ok", `${f.art.packs} in ${f.art.dir}`);
+    else add("ep0ch", "art packs", "info", `none in ${f.art.dir}${f.art.fromEnv ? " (EP0CH_PACKS)" : ""}: the menus draw without art`,
+      `export EP0CH_PACKS=<the folder with the woe*.zip packs>, or the checkout's few pieces: export EP0CH_PACKS=${few}`);
   }
 
   // the Outliner plugin: Herdr's link to this checkout's packages/outliner

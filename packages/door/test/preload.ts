@@ -19,6 +19,10 @@ process.env.EP0CH_PICKER = "true";
 // where it's turned on (test/edit-arm.test.ts, the showcase's edit section, the parity probes).
 process.env.EP0CH_EDIT_ARM = "off";
 
+// The art the menus draw is the repo's own few pieces (test/fixtures/packs, PIE-596), never the person's packs folder,
+// so the suite draws the same art on every machine, a fresh clone included.
+process.env.EP0CH_PACKS = join(import.meta.dir, "fixtures/packs");
+
 const dir = mkdtempSync(join(tmpdir(), "ep0ch-test-state-"));
 process.env.XDG_STATE_HOME = dir;
 // What the agent chip compares an agent with (the Claude mod Claude loads, src/desk/agent-env.ts) is never the

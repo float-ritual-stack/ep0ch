@@ -11,6 +11,7 @@ import { machineStatus, usedMachines } from "../machine";
 import { binDirOf, extFacts } from "./ext-links";
 import { skillLinkFacts } from "./skill-links";
 import { outlinerPlugin } from "../skills";
+import { packDir, packs } from "../packs";
 import { outlineOfFile } from "@ep0ch/outline-core/outline-location";
 import { doorAgents } from "../desk/agent-env";
 import { hostRequest, type HostedOutline } from "../socket";
@@ -457,6 +458,7 @@ export async function gatherFacts(o: GatherOptions = {}): Promise<Facts> {
     sessions,
     ext: extFacts(join(repo.door, "ext"), { env, home, bin: binDirOf(found, target === real(repo.entry)) ?? chooseLinkDir(linkDirs), which: n => which(n, pathDirs), record }),
     skills: skillLinkFacts({ door: repo.door, outliner: repo.outliner, env, home, record }),
+    art: { dir: packDir(env), packs: packs(packDir(env)).length, fromEnv: !!env.EP0CH_PACKS },
     ...(backups ? { backups } : {}),
   };
 }

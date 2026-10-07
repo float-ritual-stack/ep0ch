@@ -6,7 +6,7 @@ import type { Art, Cell } from "./ansi";
 import { artBlock, cloneGrid, locate, stamp } from "./art-view";
 import type { Ctx, Frame, Screen } from "./app";
 import { subject, type Msg } from "./board";
-import { artNamed, loadArt, members, packs, type Member } from "./packs";
+import { artNamed, loadArt, members, PACK_DIR, packs, type Member } from "./packs";
 import { C, center, chip, fg, pad, paint, RESET, selected, width } from "./style";
 import { nextTheme, theme, THEME_NAMES, themeNamed, THEMES } from "./theme";
 import { ARM_MS, editArmMs, useEditArm } from "./arm";
@@ -230,7 +230,7 @@ const ITEMS: MenuItem[] = [
   { key: "F", label: "Files", open: () => new FileAreas() },
   { key: "S", label: "Stats", open: () => new Stats() },
   { key: "Q", label: "Quay", open: () => openScreen("river"), one: "river" },
-  { key: "B", label: "Bulletin", open: () => new ArtViewer(members(packs().find(p => /woe0497/i.test(p)) ?? packs()[0]!).filter(m => /\.(ans|asc)$/i.test(m.path)), "SHY-EPO!.ANS") },
+  { key: "B", label: "Bulletin", open: () => { const p = packs().find(p => /woe0497/i.test(p)) ?? packs()[0]; return new ArtViewer(p ? members(p).filter(m => /\.(ans|asc)$/i.test(m.path)) : [], "SHY-EPO!.ANS"); } },
   { key: "D", label: "Desk", open: () => openScreen("desk"), one: "desk" },
   { key: "G", label: "Goodbye", open: () => new Goodbye() },
   // The menu art has twelve slots: the showcase (PIE-439) is on its key line and its X key only.
@@ -1256,6 +1256,8 @@ export class ArtViewer implements Screen {
     this.load();
   }
   private load() {
+    // No packs here (EP0CH_PACKS names none): the viewer says so, and every key still works.
+    if (!this.items.length) { this.art = null; this.error = `no art packs in ${PACK_DIR} · ep0ch doctor says how to set EP0CH_PACKS`; this.scroll = 0; this.reveal = 0; return; }
     try { this.art = loadArt(this.items[this.index]!, { ice: this.ice || undefined }); this.error = ""; }
     catch (e) { this.art = null; this.error = String((e as Error).message); }
     this.scroll = 0;
@@ -1312,7 +1314,7 @@ export class ArtViewer implements Screen {
   }
   private ctx: Ctx | null = null;
   /** The next (+1) or previous (-1) piece in the pack, drawn at modem speed. */
-  step(by: number) { const n = this.items.length; this.index = (((this.index + by) % n) + n) % n; this.load(); return this.about(); }
+  step(by: number) { const n = this.items.length; if (!n) return this.about(); this.index = (((this.index + by) % n) + n) % n; this.load(); return this.about(); }
   /** iCE colours on or off (blink becomes bright backgrounds), drawn whole. */
   setIce(on: boolean) { this.ice = on; this.load(); this.reveal = Infinity; return this.about(); }
   /** Scroll by rows within the piece. */
@@ -1320,7 +1322,7 @@ export class ArtViewer implements Screen {
   /** Draw the rest at once (skip the modem-speed reveal). */
   revealAll() { this.reveal = Infinity; return this.about(); }
   get iceOn() { return this.ice; }
-  about() { return { piece: basename(this.items[this.index]!.path), n: this.index + 1, of: this.items.length, ice: this.ice, scroll: this.scroll, height: this.art?.height ?? null }; }
+  about() { return { piece: this.items.length ? basename(this.items[this.index]!.path) : "", n: this.index + 1, of: this.items.length, ice: this.ice, scroll: this.scroll, height: this.art?.height ?? null }; }
   describe() { return { kind: "art", ...this.about(), sauce: this.art?.sauce ?? null }; }
   readonly dispatch: Dispatcher = new Dispatcher({ title: "art viewer", ctx: () => this.ctx }, [{
     set: ART_ACTIONS, takes: "none",

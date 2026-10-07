@@ -3,7 +3,10 @@ import { readdirSync } from "node:fs";
 import { basename, join } from "node:path";
 import { parseAnsi, type Art } from "./ansi";
 
-export const PACK_DIR = process.env.EP0CH_PACKS ?? "/opt/float/bbs/inbox/evan";
+/** Where the packs are when EP0CH_PACKS names no folder: the owner's inbox. Without packs every screen still draws, with no art. */
+export const DEFAULT_PACK_DIR = "/opt/float/bbs/inbox/evan";
+export const packDir = (env: Record<string, string | undefined> = process.env) => env.EP0CH_PACKS || DEFAULT_PACK_DIR;
+export const PACK_DIR = packDir();
 const MAX_MEMBER = 512_000;
 
 export interface Member { pack: string; path: string; size: number }
