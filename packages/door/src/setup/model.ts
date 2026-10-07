@@ -98,6 +98,21 @@ export interface HostFacts {
   unit: HostUnit | null;
 }
 
+/**
+ * The remote MCP gateway's unit (`ep0ch mcp serve --http`, ADR 0002; ep0ch-mcp.service on float-2): it runs the door's
+ * code from a checkout as that code was when it started, so after the checkout moves (a protocol bump above all) it
+ * runs old code until it's restarted. `door`: the folder it runs in (its WorkingDirectory); `startedAt`: when its
+ * process started (unix seconds); `runs`: the commit the checkout was at then (from HEAD's reflog), null when unknown;
+ * `behind`: the checkout has moved since it started.
+ */
+export interface McpFacts {
+  unit: { kind: "systemd" | "launchd"; path: string; name: string; state?: UnitState };
+  door: string | null;
+  startedAt?: number;
+  runs?: string | null;
+  behind?: boolean;
+}
+
 /** A launchd agent (macOS) or a systemd user unit (Linux) that runs the outline host's host-main.ts. */
 export interface HostUnit {
   kind: "systemd" | "launchd";
@@ -179,6 +194,8 @@ export interface Facts {
    * the checkout and commit it runs, its attached terminals and the programs in its tiles. Undefined when not looked for.
    */
   sessions?: SessionFact[];
+  /** The remote MCP gateway's unit, when this machine has one (facts.ts mcpFacts); undefined when not looked for. */
+  mcp?: McpFacts | null;
   /** The door's userland extensions (packages/door/ext/) and the links they ask for; undefined when not looked for. */
   ext?: { root: string; exts: ExtFacts[]; stale: StaleLink[]; record?: string };
   /** The shipped agent skills' links (Claude Code's skills folder, and ~/.agents/skills); undefined when not looked for. */

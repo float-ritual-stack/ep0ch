@@ -15,7 +15,7 @@ import { packDir, packs } from "../packs";
 import { outlineOfFile } from "@ep0ch/outline-core/outline-location";
 import { doorAgents } from "../desk/agent-env";
 import { hostRequest, type HostedOutline } from "../socket";
-import { type Checkout, type DatabaseFacts, type Deps, detectPlatform, type Facts, type HereFacts, type HostFacts, type HostUnit, KEYED_ACTIONS, PLUGIN_ID, type PluginFacts, type RepoFacts, type SessionFact, type UnitState } from "./model";
+import { type Checkout, type DatabaseFacts, type Deps, detectPlatform, type Facts, type HereFacts, type HostFacts, type HostUnit, KEYED_ACTIONS, type McpFacts, PLUGIN_ID, type PluginFacts, type RepoFacts, type SessionFact, type UnitState } from "./model";
 import { chooseLinkDir, linkCandidates } from "./plan";
 
 type Env = Record<string, string | undefined>;
@@ -283,6 +283,105 @@ export async function unitState(unit: HostUnit, uid = process.getuid?.() ?? 0): 
   return systemdState(r.code === 0 ? r.out : null);
 }
 
+/**
+ * The units that run the remote MCP gateway (`… src/main.ts mcp serve --http`): systemd user units, or launchd agents,
+ * whose ExecStart (ProgramArguments) runs it; comments and descriptions don't count. `door`: the door folder whose
+ * main.ts it runs, from an absolute path in the command, else its WorkingDirectory (%h the home folder) for a relative
+ * one; null when that can't be told (then it's never restarted for a checkout).
+ */
+export function mcpUnits(platform: Facts["platform"], home: string): { kind: "systemd" | "launchd"; path: string; name: string; door: string | null }[] {
+  const [kind, dir, ext] = platform === "linux" ? ["systemd", join(home, ".config/systemd/user"), ".service"] as const
+    : platform === "macos" ? ["launchd", join(home, "Library/LaunchAgents"), ".plist"] as const : [null, "", ""] as const;
+  if (!kind || !existsSync(dir)) return [];
+  const expand = (p: string) => p.trim().replace(/%h/g, home).replace(/^~(?=\/)/, home);
+  return readdirSync(dir).filter(n => n.endsWith(ext)).sort().flatMap(file => {
+    let text: string;
+    try { text = readFileSync(join(dir, file), "utf8"); } catch { return []; }
+    const command = kind === "systemd"
+      ? /^\s*ExecStart\s*=\s*(.+)$/m.exec(text)?.[1]
+      : (/<key>\s*ProgramArguments\s*<\/key>\s*<array>([\s\S]*?)<\/array>/.exec(text)?.[1] ?? "").replace(/<\/?string>/g, " ");
+    const run = command ? /(\S*src\/main\.ts)\s+mcp\s+serve\b.*--http/.exec(command) : null;
+    if (!run) return [];
+    const wd = kind === "systemd" ? /^\s*WorkingDirectory\s*=\s*(.+)$/m.exec(text)?.[1] : /<key>\s*WorkingDirectory\s*<\/key>\s*<string>([^<]+)<\/string>/.exec(text)?.[1];
+    const entry = expand(run[1]!), main = entry.startsWith("/") ? entry : wd ? resolve(expand(wd), entry) : null;
+    const label = kind === "launchd" ? /<key>\s*Label\s*<\/key>\s*<string>([^<]+)<\/string>/.exec(text)?.[1]?.trim() : undefined;
+    return [{ kind, path: join(dir, file), name: label || (kind === "launchd" ? file.replace(/\.plist$/, "") : file), door: main ? resolve(main, "../..") : null }];
+  });
+}
+
+/**
+ * The door a systemd unit runs as systemd loaded it (`systemctl --user show -p ExecStart -p WorkingDirectory`, drop-ins
+ * included): its main.ts's folder; null when it doesn't run one it can tell; undefined when systemd didn't answer.
+ */
+export async function loadedDoor(name: string, home: string): Promise<string | null | undefined> {
+  const r = await run(["systemctl", "--user", "show", name, "-p", "ExecStart", "-p", "WorkingDirectory"], { timeoutMs: 5000 });
+  return r.code === 0 ? doorOfShown(r.out, home) : undefined;
+}
+/** systemd's ExecStart (`{ path=… ; argv[]=… ; … }`) and WorkingDirectory as the door folder whose main.ts it runs. */
+export function doorOfShown(shown: string, home: string): string | null {
+  const argv = /argv\[\]=([^;]*)/.exec(shown)?.[1] ?? "";
+  const main = /(\S*src\/main\.ts)\s+mcp\s+serve\b.*--http/.exec(argv)?.[1];
+  if (!main) return null;
+  const wd = /^WorkingDirectory=(.*)$/m.exec(shown)?.[1]?.trim().replace(/^!/, "").replace(/^~(?=\/|$)/, home);
+  const abs = main.startsWith("/") ? main : wd ? resolve(wd, main) : null;
+  return abs ? resolve(abs, "../..") : null;
+}
+
+/** When process `pid` started, in unix seconds: now less its elapsed time (`ps -o etime=`, [[dd-]hh:]mm:ss). */
+export async function processStart(pid: number): Promise<number | undefined> {
+  const r = await run(["ps", "-o", "etime=", "-p", String(pid)], { timeoutMs: 5000 });
+  return r.code === 0 ? startFromElapsed(r.out, Date.now()) : undefined;
+}
+/** `ps -o etime=`'s [[dd-]hh:]mm:ss as the start time in unix seconds, `now` being when it was asked. */
+export function startFromElapsed(etime: string, now: number): number | undefined {
+  const m = /^(?:(\d+)-)?(?:(\d+):)?(\d+):(\d+)$/.exec(etime.trim());
+  if (!m) return undefined;
+  return Math.floor(now / 1000) - (Number(m[1] ?? 0) * 86400 + Number(m[2] ?? 0) * 3600 + Number(m[3]) * 60 + Number(m[4]));
+}
+
+/** HEAD's moves in a checkout, newest first: each commit it moved to and when (unix seconds), from its reflog. */
+export async function headMoves(root: string): Promise<{ commit: string; at: number }[]> {
+  const r = await run(["git", "-C", root, "log", "-g", "--date=unix", "--format=%H %gd", "HEAD", "-n", "200"], { timeoutMs: 5000 });
+  if (r.code !== 0) return [];
+  return r.out.split("\n").flatMap(l => { const m = /^([0-9a-f]{40}) HEAD@\{(\d+)\}$/.exec(l.trim()); return m ? [{ commit: m[1]!, at: Number(m[2]) }] : []; });
+}
+
+/**
+ * The remote MCP gateway as install and doctor see it (McpFacts): its unit (this checkout's when one runs it, else the
+ * first), the door it runs, and, while it runs, when it started, the commit the checkout was at then, and whether HEAD
+ * is another commit now. A move in the second it started counts as after it (a restart too many is harmless, a missed
+ * one isn't); a reflog entry that left HEAD where it was (a no-op reset) doesn't. `behind` is left out when it can't
+ * be told (no start time, no reflog).
+ */
+export async function mcpFacts(platform: Facts["platform"], home: string, repoRoot: string): Promise<McpFacts | null> {
+  const door = resolve(repoRoot, "packages/door");
+  // systemd's loaded configuration (drop-ins included) says what each unit runs, over its file.
+  const all = await Promise.all(mcpUnits(platform, home).map(async x => {
+    const loaded = x.kind === "systemd" ? await loadedDoor(x.name, home) : undefined;
+    const st = await unitState({ ...x, outlines: "", stale: [] });
+    return { ...x, door: loaded !== undefined ? loaded : x.door, state: st };
+  }));
+  const u = all.find(x => x.door === door && x.state.active) ?? all.find(x => x.door === door) ?? all[0];
+  if (!u) return null;
+  const { door: runs, state, ...unit } = u;
+  const startedAt = state.active && state.pid ? await processStart(state.pid) : undefined;
+  if (startedAt === undefined) return { unit: { ...unit, state }, door: runs };
+  const moves = await headMoves(repoRoot);
+  if (!moves.length) return { unit: { ...unit, state }, door: runs, startedAt };
+  return { unit: { ...unit, state }, door: runs, startedAt, ...movedSince(moves, startedAt) };
+}
+
+/**
+ * Against HEAD's moves (newest first), a process started at `startedAt`: the commit HEAD was at then (its last move
+ * before that second), and whether HEAD is another commit now. A move in the second it started counts as after it;
+ * an entry that left HEAD where it was doesn't.
+ */
+export function movedSince(moves: readonly { commit: string; at: number }[], startedAt: number): { runs: string | null; behind?: boolean } {
+  const was = moves.find(m => m.at < startedAt)?.commit ?? null;
+  // No move before it started (the reflog expired, or holds fewer entries): what it runs can't be told.
+  return was === null ? { runs: null } : { runs: was, behind: moves[0]!.commit !== was };
+}
+
 type Ping = { protocolVersion?: number };
 
 /** The outline to ping read-only on the host: an open one (a ping to a closed one would open it); null when none is open. */
@@ -383,7 +482,7 @@ export async function gatherFacts(o: GatherOptions = {}): Promise<Facts> {
     return Promise.resolve(p).finally(() => { waiting.splice(waiting.indexOf(name), 1); done++; o.onProgress?.({ done, total: done + waiting.length, waiting: [...waiting] }); });
   };
   const lines = (what: string): OnLine | undefined => (o.onLine ? l => o.onLine!(`${what}: ${l.trim()}`) : undefined);
-  const [bunVersion, herdrVersion, server, plugin, repo, host, agents, sessions, backups, restic] = await Promise.all([
+  const [bunVersion, herdrVersion, server, plugin, repo, host, agents, sessions, mcp, backups, restic] = await Promise.all([
     part("bun", bunPath ? run([bunPath, "--version"], { env, timeoutMs: 5000 }).then(r => r.code === 0 ? r.out : null) : null),
     part("Herdr", herdrPath ? run([herdrPath, "--version"], { env, timeoutMs: 5000 }).then(r => r.code === 0 ? r.out.replace(/^herdr\s+/, "") : null) : null),
     part("Herdr's server", herdrPath ? run([herdrPath, "status", "server", "--json"], { env, timeoutMs: 5000 }).then(r => { try { return JSON.parse(r.out).running === true; } catch { return false; } }) : null),
@@ -392,6 +491,7 @@ export async function gatherFacts(o: GatherOptions = {}): Promise<Facts> {
     part("the outline host", hostFacts(folder, platform, home)),
     part("door agents", doorAgents(env).catch(() => undefined)),
     part("the door sessions", doorSessions(env).catch(() => [])),
+    part("the MCP gateway", mcpFacts(platform, home, repoRoot).catch(() => null)),
     o.backups ? part("the backups", import("./backups").then(b => b.gatherBackups({ platform, home, env, run, restore: o.backups === "restore" }))) : undefined,
     part("the backup job", import("../backup/setup").then(b => b.backupSetupFacts({ platform, home, env, bun: bunPath, main: join(repoRoot, "packages/door/src/main.ts"), repoRoot, run, which: n => which(n, pathDirs) })).catch(() => undefined)),
   ]);
@@ -457,6 +557,7 @@ export async function gatherFacts(o: GatherOptions = {}): Promise<Facts> {
     })(),
     claude: { settingsPath, settingsDirs, envDirs: splitDirs(env.CLAUDE_CODE_PLUGIN_DIRS), ...(mentions ? { mentions } : {}), ...(env.FORCE_HYPERLINK !== undefined ? { forceHyperlink: env.FORCE_HYPERLINK } : {}), ...(agents ? { agents } : {}) },
     sessions,
+    mcp,
     ext: extFacts(join(repo.door, "ext"), { env, home, bin: binDirOf(found, target === real(repo.entry)) ?? chooseLinkDir(linkDirs), which: n => which(n, pathDirs), record }),
     skills: skillLinkFacts({ door: repo.door, outliner: repo.outliner, env, home, record }),
     art: { dir: packDir(env), packs: packs(packDir(env)).length, fromEnv: !!env.EP0CH_PACKS },
