@@ -2358,7 +2358,7 @@ folder that names none feeds no outline.
 The store's schema is the CREATE statements of one version (`src/schema.ts`), stamped in
 `PRAGMA user_version`. A database on any other version is refused at open, with its version and the command
 that upgrades it; the runtime never migrates. A schema change ships with a one-off script in
-`scripts/migrations/`, run by hand on the outlines that matter; `outliner import` carries what matters into a
+`scripts/migrations/`, which `ep0ch install --apply` runs on each machine's outlines (PIE-617); `outliner import` carries what matters into a
 fresh database instead (see the repository's [CONTRIBUTING.md](../../CONTRIBUTING.md#protocol-and-schema)).
 
 Browsing contexts, Detail targets/history, Tree presentation state, and live

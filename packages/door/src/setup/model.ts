@@ -135,6 +135,19 @@ export interface UnitState { active: boolean | null; pid?: number; lastExit?: st
 /** An outline database on this machine (`<outlines>/<name>.sqlite`), by its name. */
 export interface DatabaseFacts { name: string; path: string }
 
+/**
+ * The outline schema a checkout's code opens (PIE-617): SCHEMA_VERSION in packages/outliner/src/schema.ts (null when it
+ * couldn't be read), and the migration scripts it carries (packages/outliner/scripts/migrations/NNNN-*.ts, each
+ * taking an outline from schema NNNN-1 to NNNN), by the version each ends on, as paths from the repo root.
+ */
+export interface SchemaCode { version: number | null; scripts: Record<number, string>; error?: string }
+
+/** An outline database's schema version (`PRAGMA user_version`, read-only); null with why when it couldn't be read. */
+export interface OutlineSchema { name: string; path: string; version: number | null; error?: string }
+
+/** The schema the checkout opens now (`head`), origin/main's when the checkout is behind it (`upstream`), and each outline's. */
+export interface SchemaFacts { head: SchemaCode; upstream?: SchemaCode; outlines: OutlineSchema[] }
+
 /** Which outline this folder opens (discover.resolveTarget): its name and why, or why none; and on which machine. */
 export interface HereFacts { folder: string; outline?: string; why?: string; unnamed?: string; guess?: string; machine?: string }
 
@@ -163,6 +176,8 @@ export interface Facts {
   linkDirs: { dir: string; onPath: boolean; writable: boolean; existing?: "link" | "broken-link" | "file" }[];
   host: HostFacts;
   databases: DatabaseFacts[];
+  /** The schema the checkout's code opens and each outline's (PIE-617); undefined when not looked for. */
+  schema?: SchemaFacts;
   /** The machines opened from the state dir, and the one this folder names: each one's forward. */
   machines?: MachineFacts[];
   /** Which outline the folder install runs in opens. */

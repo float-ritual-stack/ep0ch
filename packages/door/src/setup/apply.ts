@@ -6,13 +6,13 @@ import { chmodSync, existsSync, mkdirSync, rmSync, statSync, symlinkSync, unlink
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { formatDoctor, doctorReport } from "./doctor";
-import { depsState, gatherFacts, hostFacts, mcpFacts, type OnLine, pluginCode, pluginFacts, run, stopRunning, unitState } from "./facts";
+import { databases, depsState, gatherFacts, hostFacts, mcpFacts, type OnLine, outlineSchema, pluginCode, pluginFacts, run, stopRunning, unitState } from "./facts";
 import { clauses, Progress, progressMode, size, table, type Task, type Terminal } from "./progress";
-import { type Facts, PLUGIN_SOURCE, short, staleness } from "./model";
-import { backupDirOf, buildPlan, hostMainOf, hostStep, hostUnitArgv, hostUnitCommand, mcpRestartCommand, mcpStep, type Plan, type PlanOptions, repoStep, sessionName, sessionVerdict, type Step, type StepStatus } from "./plan";
+import { type Facts, type OutlineSchema, PLUGIN_SOURCE, short, staleness } from "./model";
+import { backupDirOf, buildPlan, hostMainOf, hostStep, hostUnitArgv, hostUnitCommand, mcpRestartCommand, mcpStep, type Migration, type Plan, type PlanOptions, repoStep, sessionName, sessionVerdict, type Step, type StepStatus } from "./plan";
 import { hostLive } from "../discover";
 import type { Handover } from "../session/client";
-import { applyLinks, byFolder, LinkFailed, type LinkWork } from "./links";
+import { applyLinks, byFolder, LinkFailed, type LinkWork, sh } from "./links";
 
 type Env = Record<string, string | undefined>;
 export const SETUP_USAGE = "ep0ch doctor [--backups] [--json] | ep0ch install [--apply] [--json]";
@@ -277,6 +277,46 @@ async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[
       say(`restarted the MCP gateway (${u.kind} ${u.name}) on the new code`);
       return;
     }
+    case "schema": {
+      const m = step.migrate!, u = f.host.unit, uid = process.getuid?.() ?? 0;
+      const logs = u?.kind === "launchd" ? `launchctl print gui/${uid}/${u.name}` : `journalctl --user -u ${u?.name}`;
+      if (m.stopsHost && u) {
+        await must(hostUnitArgv(u, "stop", uid), `nothing was migrated, and the host runs on; ${hostUnitCommand(u, "stop")} by hand, and see ${logs}`, { env, timeoutMs: 30_000, onLine: child });
+        // Gone: its unit's job stopped and nothing answering, so the migration's ownership check finds the file free.
+        const gone = async () => (await unitState(u)).active !== true && !(await hostLive(f.host.socket));
+        if (!(await waitFor(gone, 30_000))) throw new StepFailed(`${u.kind} stopped ${u.name}, but the host still runs after 30s`, `nothing was migrated; see ${logs}, then rerun ep0ch install --apply`);
+        say(`stopped the outline host (${u.kind} ${u.name}) to migrate`);
+      }
+      // Found again now that nothing serves them: an outline made while the backup and the update ran is migrated too,
+      // and one that can't take the step stops it before any is changed.
+      const found = outlinesToMigrate(m, f.host.folder);
+      if (found.blocked.length) {
+        throw new StepFailed(`not migrating: ${found.blocked.map(o => o.version === null ? `${o.name}'s schema version can't be read (${o.error})` : `${o.name} is schema ${o.version}, too old for ${m.from} → ${m.to}`).join("; ")}`,
+          `nothing was migrated; the outline host is left stopped. Move ${found.blocked.length === 1 ? "it" : "each"} aside and import it once the rest is migrated: ${found.blocked.map(o => { const old = `${o.path}.schema-${o.version ?? "old"}`; return `mv ${sh(o.path)} ${sh(old)}; ep0ch install --apply; ep0ch outline import ${sh(old)} ${o.name}`; }).join("; ")}`);
+      }
+      const added = found.outlines.filter(o => !m.outlines.some(p => p.path === o.path));
+      if (added.length) say(`${added.map(o => o.name).join(", ")} appeared since the plan: migrated too`);
+      const todo = found.outlines;
+      const done: typeof m.outlines = [];
+      for (const [i, o] of todo.entries()) {
+        task.count(i, todo.length, o.name);
+        task.flush();
+        // An exact copy first: the host is stopped, so it holds every write (the backup step's may have missed the last).
+        if (o.copy) {
+          try { mkdirSync(dirname(o.copy), { recursive: true, mode: 0o700 }); backupDatabase(o.path, o.copy); }
+          catch (e) { throw new StepFailed(`copying ${o.name} before its migration failed: ${(e as Error).message}`, `${o.name} wasn't migrated; ${migrationRecovery(f, m, null, done)}`); }
+        }
+        const r = await run([process.execPath, m.script, o.path], { cwd: f.repo.outliner, env, timeoutMs: 600_000, onLine: child });
+        const now = outlineSchema(o).version;
+        if (r.code !== 0 || now !== m.to) {
+          const said = r.code !== 0 ? withoutProgress(r.err) || r.out || `exit ${r.code}` : `the script ended, but ${o.name} is schema ${now ?? "unreadable"}, not ${m.to}`;
+          throw new StepFailed(`migrating ${o.name} (schema ${m.from} → ${m.to}) failed: ${said}`, migrationRecovery(f, m, { ...o, now }, done));
+        }
+        done.push(o);
+        say(`${o.name}: schema ${m.from} → ${m.to}`);
+      }
+      return;
+    }
     case "host": {
       const u = f.host.unit!;
       // A unit whose job runs is restarted, answering or not: starting it would do nothing.
@@ -294,6 +334,41 @@ async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[
       return;
     }
   }
+}
+
+/**
+ * The outlines to migrate, read again once the host is stopped (PIE-617): every `<name>.sqlite` in the folder at the
+ * step's `from` (one the plan didn't see too, copied into the same folder as the rest), and `blocked`, any below the
+ * step or unreadable, which stop the step before anything is changed. One already at `to` or newer is left alone.
+ */
+export function outlinesToMigrate(m: Migration, folder: string): { outlines: Migration["outlines"]; blocked: OutlineSchema[] } {
+  const all = databases(folder).map(outlineSchema);
+  const outlines = all.filter(o => o.version === m.from).map(o => ({ name: o.name, path: o.path,
+    ...(m.outlines.find(p => p.path === o.path)?.copy ? { copy: m.outlines.find(p => p.path === o.path)!.copy } : m.copyDir ? { copy: join(m.copyDir, `${o.name}.schema-${m.from}.sqlite`) } : {}) }));
+  return { outlines, blocked: all.filter(o => o.version === null || o.version < m.from) };
+}
+
+/**
+ * What to do when an outline's migration fails (PIE-617). The host is left stopped: started on the new code it would
+ * serve the outlines already migrated and refuse this one (half the outlines, and every door on this one erroring);
+ * started on the code before, it would need the live checkout moved back and the migrated outlines restored from their
+ * backups, two changes install never makes on its own. Stopped, the doors wait and reconnect, and one rerun of install
+ * after the fix migrates what's left and starts it; going back is said too, with the exact commands.
+ */
+export function migrationRecovery(f: Facts, m: Migration, failed: (Migration["outlines"][number] & { now: number | null }) | null, done: readonly Migration["outlines"][number][]): string {
+  const u = f.host.unit;
+  const start = u ? hostUnitCommand(u.kind === "launchd" ? { ...u, state: { active: false, detail: "not loaded in launchd" } } : u, "start") : `bun ${sh(hostMainOf(f))}`;
+  // Going back puts every outline its script ran on back from its copy (the failed one too: a script that failed
+  // should have changed nothing, but that isn't proof), each step only after the one before it worked.
+  const restore = [...done, ...(failed ? [failed] : [])].filter(o => o.copy).map(o => `cp ${sh(o.copy!)} ${sh(o.path)}`);
+  const back = m.before ? [`git -C ${sh(f.repo.root)} reset --hard ${m.before}`, ...restore, start].join(" && ") : null;
+  return [
+    ...(failed ? [`${failed.name}'s script failed; it runs in one transaction, so the file should be as it was (it reads schema ${failed.now ?? "unreadable"})${failed.copy ? `, and its copy from just before is ${failed.copy}` : ""}`] : []),
+    ...(done.length ? [`${done.map(o => o.name).join(", ")} ${done.length === 1 ? "is" : "are"} at schema ${m.to}`] : []),
+    `the outline host is left stopped, so no outline is served half-migrated; the doors on it wait and reconnect`,
+    `fix it, then ep0ch install --apply migrates what's left and starts the host`,
+    ...(back ? [`or go back to the code before: ${back}`] : []),
+  ].join("; ");
 }
 
 /** Paths under the home directory as ~/…, for people (--json keeps them whole). */
@@ -359,7 +434,8 @@ async function setup(args: readonly string[], io: SetupIO, env: Env, json: boole
   for (const [i, planned] of plan.steps.entries()) {
     let step = planned;
     // The host: asked again after the checkout updated (its code may speak a new protocol), and restarted because of it.
-    if (step.id === "host" && plan.steps.some(s => s.id === "repo" && s.status === "do")) {
+    // After a migration too: the schema step stopped it, and it's started.
+    if (step.id === "host" && plan.steps.some(s => (s.id === "repo" || s.id === "schema") && s.status === "do")) {
       const code = await pluginCode(current.repo.outliner);
       const host = await hostFacts(current.host.folder, current.platform, current.home);
       current = { ...current, repo: { ...current.repo, protocol: code.protocol }, host };

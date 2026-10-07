@@ -240,7 +240,7 @@ if (args[0] === "clients") {
   // A folder that names none asks the host as it is (its default outline, when it has one, else its refusal).
   const board = new SocketBoard(target.path, undefined, "outline" in target ? target.outline : undefined);
   try { console.log(formatClients(clientRows(await board.request<any[]>("clients.list")))); }
-  catch (e) { console.error(`ep0ch: no carrier on ${board.path}\n  ${(e as Error).message}`); board.close(); process.exit(1); }
+  catch (e) { console.error(`ep0ch: no carrier on ${board.path}\n  ${(e as Error).message.replaceAll("\n", "\n  ")}`); board.close(); process.exit(1); }
   board.close();
   process.exit(0);
 }

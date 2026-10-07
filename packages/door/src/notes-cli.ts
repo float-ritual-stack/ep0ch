@@ -186,7 +186,7 @@ export async function boardFor(args: string[]): Promise<NotesBoard | { error: st
   const board = new SocketBoard(target.path, undefined, target.outline) as NotesBoard;
   board.address = { outline: target.outline, machine: target.machine ?? canonicalLocalMachineName() };
   try { await board.info(); }
-  catch (e) { board.close(); return { error: `no carrier on ${target.path}: ${(e as Error).message}` }; }
+  catch (e) { board.close(); return { error: `no carrier on ${target.path}\n  ${(e as Error).message.replaceAll("\n", "\n  ")}` }; }
   return board;
 }
 

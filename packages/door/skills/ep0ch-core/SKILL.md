@@ -25,7 +25,7 @@ use `ep0ch`.
 | touch the agent interface | packages/door `docs/AGENT-INTERFACE.md`; `packages/claude-mod/README.md` |
 | change workboard state | the live **How this workboard works** block (the root `AGENTS.md` names it) and the `outliner-workflow` skill's roadmap reference |
 | build or change an extension | packages/outliner `docs/extensions/README.md` (the contract, the four kinds, `@name` agents, worked examples); the door draws what `extensions.list` gives (`src/extensions.ts`) |
-| change the protocol or the schema | the root `AGENTS.md`, "Schema and protocol: one version", and `CONTRIBUTING.md`, "Protocol and schema": one `PROTOCOL` in outline-core, bumped by any wire change, and a mismatch refused; a schema change bumps `SCHEMA_VERSION` with a one-off script in `packages/outliner/scripts/migrations/`, run by hand and deleted. No runtime compat, ever |
+| change the protocol or the schema | the root `AGENTS.md`, "Schema and protocol: one version", and `CONTRIBUTING.md`, "Protocol and schema": one `PROTOCOL` in outline-core, bumped by any wire change, and a mismatch refused; a schema change bumps `SCHEMA_VERSION` with a one-off script in `packages/outliner/scripts/migrations/`, run by `ep0ch install --apply` on each machine and deleted. No runtime compat, ever |
 | change which outline a client opens | outline-core `src/outline-location.ts` (PIE-530): one rule for every client |
 | need the whole picture | the architecture map, `packages/door/docs/architecture/map.json`: every structure in the door and the outliner, its ladder position and its open questions; `bun scripts/architecture-map.ts` in packages/door checks its citations and draws it |
 
@@ -234,9 +234,11 @@ CHANGELOG, the demo hubs, the fresh-outline seed, the showcase and skills, the r
 - **`ep0ch doctor`** (read-only) says what's behind. **`ep0ch install`** prints the plan; `--apply` backs up
   every outline to `~/backups/ep0ch/`, fast-forwards the checkout, links `ep0ch`, and restarts the outline
   host when its code changed. See the door README, "Install and update".
-- **A schema change** ships with its one-off script: back up, stop the host, run
-  `bun packages/outliner/scripts/migrations/<NNNN>-*.ts ~/outlines/<name>.sqlite` on each outline that matters,
-  start the host. A database on another version is refused at open, never migrated by the runtime.
+- **A schema change** ships with its one-off script, and `ep0ch install --apply` runs it (PIE-617): back up,
+  fast-forward, stop the host, `bun packages/outliner/scripts/migrations/<NNNN>-*.ts <outline>` on each outline
+  behind, start the host, hand the sessions over. Its plan names the outlines; it refuses before updating when one
+  can't take the step, and on a failure leaves the host stopped with the recovery. A database on another version is
+  refused at open, never migrated by the runtime.
 - **After an outliner or outline-core merge,** restart the outline host on new code (`systemctl --user restart
   outliner-host.service` on Linux, `launchctl kickstart -k gui/$(id -u)/io.ep0ch.outliner-host` on macOS).
   Doors and panes reconnect by themselves. A Claude started before the mod changed has old tools until it

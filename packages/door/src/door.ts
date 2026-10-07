@@ -132,7 +132,7 @@ export async function connectTarget(args: readonly string[]): Promise<{ board: S
     return { board, service, place, ...(notice ? { notice } : {}) };
   } catch (e) {
     board.close();
-    return { error: `no carrier on ${board.path}\n  ${(e as Error).message}` };
+    return { error: `no carrier on ${board.path}\n  ${(e as Error).message.replaceAll("\n", "\n  ")}` };
   }
 }
 

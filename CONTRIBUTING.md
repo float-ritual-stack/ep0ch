@@ -186,12 +186,17 @@ database whose version isn't `SCHEMA_VERSION` is refused at open, with its versi
 it. The runtime never inspects an old shape and never migrates. To change it:
 
 1. Change the CREATE statements in `src/schema.ts` and bump `SCHEMA_VERSION`.
-2. Write a one-off script, `packages/outliner/scripts/migrations/<NNNN>-<what>.ts`, that takes a database from the
-   previous version to the new one (on a file no host is serving) and stamps it. `0001-stamp.ts` is the model:
-   it checks the shape before it stamps.
-3. Back up, then run it by hand on the outlines that matter (pie on float-2, float-hub on the MacBook). Name the
-   script in `openSchema`'s refusal for the old version.
-4. Delete the script once those outlines are upgraded; git keeps it.
+2. Write a one-off script, `packages/outliner/scripts/migrations/<NNNN>-<what>.ts` (NNNN the new version), that
+   takes a database from the previous version to the new one and stamps it. `ep0ch install --apply` runs it
+   (PIE-617) as `bun <script> <database>` on every outline at the previous version, with the host stopped, and
+   reads `user_version` after, so the script: runs in one transaction, refuses a served file
+   (`acquireWorkspaceOwnership`), exits non-zero leaving the file as it was when it can't, and wraps a change that
+   replaces the file (rather than writing in it) in `withLitestreamPaused`. `0003-drop-agent-tables.ts` is the
+   model: it checks the shape before it stamps. `openSchema`'s refusal finds it by its number and prints the exact
+   commands for the machine (`schemaRefusal`).
+3. The PR says the merge needs `ep0ch install --apply` on each machine; its plan shows the outlines it migrates.
+4. Delete the script once the outlines that matter (pie on float-2, float-hub on the MacBook) are upgraded; git
+   keeps it. Install then refuses an outline still at the old version, with the import route.
 5. For a change too large for a script, make a fresh database and import (`outliner import <old.sqlite>
    <new.sqlite>`, `src/outline-import.ts`, which reads tables by column name).
 

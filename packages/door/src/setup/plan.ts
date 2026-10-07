@@ -5,15 +5,15 @@
 // checked to be that checkout's packages/outliner, and the outline host restarted through its unit when the code
 // under it changed. Every `<outlines>/*.sqlite` is backed up first. Units and Herdr's config are never edited:
 // what they need is said.
-import { join, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 import { ep0ch } from "../session/place";
 import { backupPlan } from "../backup/setup";
-import { linkCommands, linkCounts, type LinkWork, linkWork, type OwnedLink, type StaleLink } from "./links";
-import { type Checkout, type DatabaseFacts, type Deps, type Facts, type HostUnit, KEYED_ACTIONS, type McpFacts, PLUGIN_ID, PLUGIN_SOURCE, type SessionFact, short, staleness } from "./model";
+import { linkCommands, linkCounts, type LinkWork, linkWork, type OwnedLink, sh, type StaleLink } from "./links";
+import { type Checkout, type DatabaseFacts, type SchemaCode, type Deps, type Facts, type HostUnit, KEYED_ACTIONS, type McpFacts, PLUGIN_ID, PLUGIN_SOURCE, type SessionFact, short, staleness } from "./model";
 
 /** do: runs with --apply. skip: already current. manual: needs a person (the hint says what). */
 export type StepStatus = "do" | "skip" | "manual";
-export type StepId = "backup" | "repo" | "plugin" | "link" | "ext" | "skills" | "host" | "mcp" | "session" | "backups";
+export type StepId = "backup" | "repo" | "schema" | "plugin" | "link" | "ext" | "skills" | "host" | "mcp" | "session" | "backups";
 
 export interface Step {
   id: StepId;
@@ -30,6 +30,20 @@ export interface Step {
   links?: LinkWork;
   /** backups: the files it writes (the job's units, its settings) before it loads them. */
   writes?: { path: string; text: string }[];
+  /** schema: the outlines it migrates, one step (`from` → `to`) with one script (absolute), and how to go back. */
+  migrate?: Migration;
+}
+
+export interface Migration {
+  from: number; to: number; script: string;
+  /** `copy`: where each is copied (VACUUM INTO) just before its script runs, with nothing serving it: what going back restores. */
+  outlines: { name: string; path: string; copy?: string }[];
+  /** Where the copies go: an outline that appears after the plan (found again once the host is stopped) is copied there too. */
+  copyDir?: string;
+  /** Whether it stops the host first (the host's unit runs it). */
+  stopsHost: boolean;
+  /** The checkout's commit before this run's update, when it updates: what going back resets it to. */
+  before?: string;
 }
 
 export interface Plan { steps: Step[]; notes: string[] }
@@ -180,17 +194,22 @@ export function backupStep(f: Facts, o: PlanOptions, anythingElse: boolean): Ste
     commands: backups.map(b => `sqlite3 ${b.path} "VACUUM INTO '${b.dest}'"`), backups };
 }
 
-/** A command for the host's unit, as a person would type it: restart (or start) it through launchd or systemd. */
-export function hostUnitCommand(u: HostUnit, verb: "restart" | "start"): string {
+/**
+ * A command for the host's unit, as a person would type it: restart, start or stop it through launchd or systemd. A
+ * launchd job is stopped by booting it out (KeepAlive brings a killed one back), so the start after it bootstraps it.
+ */
+export function hostUnitCommand(u: HostUnit, verb: "restart" | "start" | "stop"): string {
   if (u.kind === "systemd") return `systemctl --user ${verb} ${u.name}`;
+  if (verb === "stop") return `launchctl bootout gui/$(id -u)/${u.name}`;
   // A job launchd hasn't loaded (booted out, or never loaded since the plist was written) is bootstrapped.
-  if (verb === "start" && u.state?.detail === "not loaded in launchd") return `launchctl bootstrap gui/$(id -u) ${u.path}`;
+  if (verb === "start" && u.state?.detail === "not loaded in launchd") return `launchctl bootstrap gui/$(id -u) ${sh(u.path)}`;
   return `launchctl kickstart${verb === "restart" ? " -k" : ""} gui/$(id -u)/${u.name}`;
 }
 
 /** The same command as argv, for install to run. */
-export function hostUnitArgv(u: HostUnit, verb: "restart" | "start", uid: number): string[] {
+export function hostUnitArgv(u: HostUnit, verb: "restart" | "start" | "stop", uid: number): string[] {
   if (u.kind === "systemd") return ["systemctl", "--user", verb, u.name];
+  if (verb === "stop") return ["launchctl", "bootout", `gui/${uid}/${u.name}`];
   if (verb === "start" && u.state?.detail === "not loaded in launchd") return ["launchctl", "bootstrap", `gui/${uid}`, u.path];
   return ["launchctl", "kickstart", ...(verb === "restart" ? ["-k"] : []), `gui/${uid}/${u.name}`];
 }
@@ -231,9 +250,14 @@ export function unitChanges(f: Facts): string | null {
  * a unit, or a unit that needs changing (another checkout's host-main.ts, settings from before PIE-530), is left
  * to the person, with the change.
  */
-export function hostStep(f: Facts, codeUpdates: boolean): Step {
+export function hostStep(f: Facts, codeUpdates: boolean, stopped = false): Step {
   const title = "Restart the outline host on the new code";
   const h = f.host, u = h.unit;
+  // The schema step stops it to migrate the outlines (its unit runs it, or it wouldn't): this starts it again.
+  if (stopped && u) {
+    const after = u.kind === "launchd" ? { ...u, state: { active: false, detail: "not loaded in launchd" } } : u;
+    return { id: "host", title: "Start the outline host on the new code", status: "do", why: `stopped while the outlines migrate; ${u.kind} starts it, and every door and pane on it reconnects`, commands: [hostUnitCommand(after, "start")] };
+  }
   const missing = h.running ? staleness(h, f.repo.protocol) : [];
   const after = codeUpdates ? "the ep0ch checkout is updated in this run" : missing.length ? `it runs old code (${missing.join(", ")})` : "";
   if (!u) {
@@ -258,6 +282,61 @@ export function hostStep(f: Facts, codeUpdates: boolean): Step {
   }
   if (!after) return { id: "host", title, status: "skip", why: `the host runs the current code (${u.kind} ${u.name}${h.protocol ? `, protocol ${h.protocol}` : ""})`, commands: [] };
   return { id: "host", title, status: "do", why: `${after}; ${u.kind} restarts it, and every door and pane on it reconnects`, commands: [hostUnitCommand(u, "restart")] };
+}
+
+/** The schema the outlines must be at after this run: what the code the checkout ends on opens (origin/main's when it updates). */
+export const schemaTarget = (f: Facts, updates: boolean): SchemaCode | undefined => (updates ? f.schema?.upstream : f.schema?.head);
+
+/**
+ * The outlines' schema (PIE-617). When the code the checkout ends on opens a newer schema than an outline is at, the
+ * outline is migrated by that code's script for the step (packages/outliner/scripts/migrations/NNNN-*.ts, NNNN-1 →
+ * NNNN): the host is stopped first (the script refuses a served file), and the host step starts it after. One step
+ * only: each script is a one-off written against its own version's schema, so an outline older than the step, or a
+ * step whose script was deleted, isn't migrated but imported, and install refuses to update the checkout until it's
+ * moved aside (manual here; buildPlan then holds the checkout back). Null when the schema wasn't looked at.
+ */
+export function schemaStep(f: Facts, updates: boolean): Step | null {
+  const s = f.schema;
+  if (!s) return null;
+  const title = "Migrate the outlines to the new schema";
+  const code = schemaTarget(f, updates);
+  const at = updates ? short(f.repo.checkout.upstream) : "the checkout";
+  if (!code || code.version === null) {
+    const why = `couldn't tell which schema ${at} opens${code?.error ? ` (${code.error})` : ""}`;
+    return updates ? { id: "schema", title, status: "manual", why: `${why}, so the outlines can't be checked against it; retry: git -C ${f.repo.root} fetch origin main, then rerun`, commands: [] }
+      : { id: "schema", title, status: "skip", why, commands: [] };
+  }
+  const to = code.version, from = to - 1;
+  const ahead = s.outlines.filter(o => o.version !== null && o.version > to);
+  const behind = s.outlines.filter(o => o.version !== null && o.version < to);
+  // An outline whose version couldn't be read matters only when this run changes the schema the code opens.
+  const unread = updates && s.head.version !== to ? s.outlines.filter(o => o.version === null) : [];
+  const aside = ahead.length ? `; ${ahead.map(o => `${o.name} is schema ${o.version}, newer than this code opens`).join(", ")}` : "";
+  if (!behind.length && !unread.length) {
+    return { id: "schema", title, status: "skip", why: `${!s.outlines.length ? "no outlines" : ahead.length ? `no outline is behind schema ${to}` : `every outline is at schema ${to}`}${aside}`, commands: [] };
+  }
+  const script = code.scripts[to];
+  const h = f.host, u = h.unit;
+  const stop = u ? hostUnitCommand(u, "stop") : "stop the outline host";
+  const problems: string[] = unread.map(o => `couldn't read ${o.name}'s schema version (${o.error}); check ${o.path}, then rerun`);
+  for (const o of behind) {
+    if (o.version === from && script) continue;
+    const why = o.version === from ? `no migration script takes schema ${from} to ${to} (it was deleted once the machines that matter ran it)` : `${script ? `${basename(script)} takes schema ${from} to ${to} only` : `no migration script reaches schema ${to}`}`;
+    const old = `${o.path}.schema-${o.version}`;
+    problems.push(`${o.name} is schema ${o.version}: ${why}; import it into a new outline instead: ${stop}; mv ${sh(o.path)} ${sh(old)}; ep0ch install --apply; ep0ch outline import ${sh(old)} ${o.name}`);
+  }
+  // The script refuses a served file: the host is stopped through its unit, and nothing else may be serving it.
+  const stopsHost = !!u && (h.running || !!u.state?.active);
+  if (h.running && !u) problems.push(`the host at ${h.socket} runs outside a ${f.platform === "macos" ? "launchd agent" : "systemd user unit"}, so install can't stop it to migrate; stop that process, then rerun`);
+  else if (h.running && u?.state?.active === false) problems.push(`another process answers at ${h.socket}, not ${u.kind} ${u.name}, so install can't stop it to migrate; stop that process, then rerun`);
+  else if (stopsHost && unitChanges(f)) problems.push(`${u!.kind} ${u!.name} needs changing before install restarts it: ${unitChanges(f)}`);
+  if (problems.length) return { id: "schema", title, status: "manual", why: `${updates ? `the checkout isn't updated: ${at} opens schema ${to}, and ` : ""}${problems.join("; ")}${aside}`, commands: [] };
+  const names = behind.map(o => o.name);
+  const abs = join(f.repo.root, script!);
+  return { id: "schema", title, status: "do",
+    why: `schema ${from} → ${to}: will migrate ${names.length} outline${names.length === 1 ? "" : "s"} (${names.join(", ")}) with ${basename(script!)}${stopsHost ? `; the host stops while they migrate (each in one transaction) and starts after` : ""}${aside}`,
+    commands: [...(stopsHost ? [stop] : []), ...behind.map(o => `bun ${sh(abs)} ${sh(o.path)}`)],
+    migrate: { from, to, script: abs, outlines: behind.map(o => ({ name: o.name, path: o.path })), stopsHost, ...(updates && f.repo.checkout.head ? { before: f.repo.checkout.head } : {}) } };
 }
 
 /** The command that restarts the MCP gateway's unit, as a person would type it. */
@@ -399,17 +478,34 @@ export function backupsStep(f: Facts): Step | null {
 
 /** The whole plan, in order: backup first, whenever anything after it will change something. */
 export function buildPlan(f: Facts, o: PlanOptions): Plan {
-  const repo = repoStep(f);
-  const plugin = pluginStep(f);
+  let repo = repoStep(f);
+  // The outlines' schema against the code the checkout ends on: one that can't be migrated holds the update back, so
+  // the host never restarts on code that refuses an outline.
+  const schema = schemaStep(f, repo.status === "do" && f.repo.checkout.behind > 0);
+  if (schema?.status === "manual" && repo.status === "do" && f.repo.checkout.behind > 0) {
+    repo = { ...repo, status: "manual", why: `held back (${repo.why}): the outlines can't all be migrated to the schema it opens; see "${schema.title}"`, commands: [] };
+  }
+  const updates = repo.status === "do" && f.repo.checkout.behind > 0;
+  let plugin = pluginStep(f);
+  // A managed plugin refreshed from main would be that code too: held back with the checkout.
+  if (repo.status === "manual" && schema?.status === "manual" && plugin.status === "do") plugin = { ...plugin, status: "manual", why: `held back with the checkout (${plugin.why})`, commands: [] };
   const link = linkStep(f);
   // Last: an optional link that fails never stops the host's restart or the session's upgrade.
   const ext = [...(f.ext ? [extStep(f)] : []), ...(f.skills ? [skillsStep(f)] : [])];
-  const host = hostStep(f, repo.status === "do" && f.repo.checkout.behind > 0);
+  let host = hostStep(f, updates, schema?.status === "do" && !!schema.migrate?.stopsHost);
+  // Outlines that can't take the step: a stopped host (a migration that failed) stays stopped rather than serving some.
+  if (schema?.status === "manual" && host.status === "do") host = { ...host, status: "manual", why: `held back: not every outline can be migrated to the schema the code opens, and started it would serve only some; see "${schema.title}"`, commands: [] };
   // The MCP gateway after the host it talks to.
-  const mcp = f.mcp ? [mcpStep(f, repo.status === "do" && f.repo.checkout.behind > 0)] : [];
+  const mcp = f.mcp ? [mcpStep(f, updates)] : [];
   const session = sessionStep(f, repo);
   const backups = backupsStep(f);
-  const backup = backupStep(f, o, [repo, plugin, link, host].some(s => s.status === "do"));
+  const backup = backupStep(f, o, [repo, plugin, link, ...(schema ? [schema] : []), host].some(s => s.status === "do"));
+  // Each outline's copy from just before its script (the host stopped, so nothing written since is missing from it).
+  if (schema?.migrate) {
+    const { from } = schema.migrate, copyDir = join(o.backupDir, stamp(o.now));
+    schema.migrate.copyDir = copyDir;
+    schema.migrate.outlines = schema.migrate.outlines.map(m => ({ ...m, copy: join(copyDir, `${m.name}.schema-${from}.sqlite`) }));
+  }
   // The session last: handed to the new code once everything under it is current.
-  return { steps: [backup, repo, plugin, link, host, ...mcp, session, ...(backups ? [backups] : []), ...ext], notes: planNotes(f) };
+  return { steps: [backup, repo, plugin, link, ...(schema ? [schema] : []), host, ...mcp, session, ...(backups ? [backups] : []), ...ext], notes: planNotes(f) };
 }
