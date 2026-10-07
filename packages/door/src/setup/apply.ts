@@ -6,10 +6,10 @@ import { chmodSync, existsSync, mkdirSync, rmSync, statSync, symlinkSync, unlink
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { formatDoctor, doctorReport } from "./doctor";
-import { depsState, gatherFacts, hostFacts, type OnLine, pluginCode, pluginFacts, run, stopRunning, unitState } from "./facts";
+import { depsState, gatherFacts, hostFacts, mcpFacts, type OnLine, pluginCode, pluginFacts, run, stopRunning, unitState } from "./facts";
 import { clauses, Progress, progressMode, size, table, type Task, type Terminal } from "./progress";
 import { type Facts, PLUGIN_SOURCE, short, staleness } from "./model";
-import { backupDirOf, buildPlan, hostMainOf, hostStep, hostUnitArgv, hostUnitCommand, type Plan, type PlanOptions, repoStep, sessionName, sessionVerdict, type Step, type StepStatus } from "./plan";
+import { backupDirOf, buildPlan, hostMainOf, hostStep, hostUnitArgv, hostUnitCommand, mcpRestartCommand, mcpStep, type Plan, type PlanOptions, repoStep, sessionName, sessionVerdict, type Step, type StepStatus } from "./plan";
 import { hostLive } from "../discover";
 import type { Handover } from "../session/client";
 import { applyLinks, byFolder, LinkFailed, type LinkWork } from "./links";
@@ -239,6 +239,22 @@ async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[
       say(r.platform === "linux" ? "ep0ch-backup.timer enabled: the first run is within 3 minutes (journalctl --user -u ep0ch-backup)" : "io.ep0ch.backup loaded: it runs now and every 15 minutes (~/Library/Logs/ep0ch-backup.log)");
       return;
     }
+    case "mcp": {
+      const m = f.mcp!, u = { ...m.unit, outlines: "", stale: [] };
+      const logs = u.kind === "launchd" ? `launchctl print gui/${process.getuid?.() ?? 0}/${u.name}` : `journalctl --user -u ${u.name}`;
+      // Its process now, just before the restart: the one a new process replaces.
+      const was = (await unitState(u)).pid;
+      await must(hostUnitArgv(u, "restart", process.getuid?.() ?? 0), `the MCP gateway wasn't restarted; ${mcpRestartCommand(m)} by hand, and see ${logs}`, { env, timeoutMs: 30_000, onLine: child });
+      // A new process, running, and still running a few seconds on (one that dies on start is restarted by its unit
+      // with another pid, and is no success).
+      const fresh = async () => { const st = await unitState(u); return st.active === true && !!st.pid && st.pid !== was ? st.pid : null; };
+      const pid = await waitFor(async () => !!(await fresh()), 30_000) ? await fresh() : null;
+      if (!pid) throw new StepFailed(`${u.kind} restarted ${u.name}, but no new gateway process runs after 30s`, `see ${logs}`);
+      await Bun.sleep(3000);
+      if ((await unitState(u)).pid !== pid) throw new StepFailed(`${u.kind} restarted ${u.name}, but the new gateway (pid ${pid}) didn't stay up`, `see ${logs}`);
+      say(`restarted the MCP gateway (${u.kind} ${u.name}) on the new code`);
+      return;
+    }
     case "host": {
       const u = f.host.unit!;
       const verb = f.host.running ? "restart" : "start";
@@ -333,6 +349,11 @@ async function setup(args: readonly string[], io: SetupIO, env: Env, json: boole
       const pathDirs = current.pathDirs;
       current = { ...current, restic: await backupSetupFacts({ platform: current.platform, home: current.home, env, bun: current.bun.path, main: current.repo.entry, repoRoot: current.repo.root, run, which: n => Bun.which(n, { PATH: pathDirs.join(":") }) }) };
       step = backupsStep(current) ?? step;
+    }
+    // The MCP gateway: asked again after the checkout updated (its unit and state now), restarted because of it.
+    if (step.id === "mcp" && plan.steps.some(s => s.id === "repo" && s.status === "do")) {
+      current = { ...current, mcp: await mcpFacts(current.platform, current.home, current.repo.root) };
+      step = current.mcp ? mcpStep(current, current.repo.checkout.behind > 0) : { ...step, status: "skip", why: "the MCP gateway's unit is gone" };
     }
     if (step.status !== "do") { stepLines(step, i, current, true).forEach(l => say(l)); results.push(step); continue; }
     const task = progress.task({ lead: `${i + 1}`, mark: MARK.do, title: step.title });

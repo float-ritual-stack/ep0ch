@@ -1,6 +1,6 @@
 // `ep0ch doctor`: every piece of the stack, its state (✓ current, ! behind, ✗ missing, · for information)
 // and the exact command that fixes it. Read-only; built from the facts (model.ts) so tests describe machines.
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { byFolder, lnCommand, sh } from "./links";
 import { clauses } from "./progress";
 import { PROTOCOL } from "@ep0ch/outline-core/protocol";
@@ -10,7 +10,7 @@ import { backupChecks } from "./backups";
 import { resticChecks } from "../backup/setup";
 import { KEYED_ACTIONS, MIN_BUN, PLUGIN_ID, type Facts, short, staleness } from "./model";
 import { ep0ch, sessionFlags } from "../session/place";
-import { chooseLinkDir, claudeModState, oldMentionsAllowlist, hostRestartHint, hostUnitCommand, linkStep, pluginStep, repoStep, sessionName, sessionVerdict, unitChanges } from "./plan";
+import { chooseLinkDir, claudeModState, oldMentionsAllowlist, hostRestartHint, hostUnitCommand, mcpBehind, mcpIsHere, mcpRestartCommand, linkStep, pluginStep, repoStep, sessionName, sessionVerdict, unitChanges } from "./plan";
 
 /** unknown: it couldn't be checked (a fetch failed), so it isn't counted as current. */
 export type CheckStatus = "ok" | "behind" | "missing" | "info" | "unknown";
@@ -79,6 +79,18 @@ export function doctorChecks(f: Facts): Check[] {
     add("plugin", "in Herdr", status, said, plugin.status === "skip" ? undefined : plugin.commands.join(" && ") || "ep0ch install --apply");
   }
 
+  // The remote MCP gateway (its own unit): on the checkout's code, started before the checkout last moved, or unknown.
+  if (f.mcp) {
+    const m = f.mcp, u = m.unit, here = mcpIsHere(f), behind = here ? mcpBehind(f, false) : null;
+    const unknown = here && u.state?.active && !behind && m.behind === undefined;
+    add("ep0ch", "mcp gateway", !here || !u.state?.active ? "info" : behind ? "behind" : unknown ? "unknown" : "ok",
+      !here ? (m.door ? `${u.kind} ${u.name} runs ${m.door}, not this checkout's door` : `${u.kind} ${u.name}: which checkout's door it runs can't be told from ${u.path}`)
+        : !u.state?.active ? `${u.kind} ${u.name} isn't running${u.state ? ` (${u.state.detail})` : ""}`
+        : behind ? `${u.kind} ${u.name} runs older code than the checkout: ${behind}`
+        : unknown ? `${u.kind} ${u.name}: whether it runs the checkout's code can't be told (no start time or reflog)`
+        : `${u.kind} ${u.name} runs the checkout's code${m.runs ? ` (${short(m.runs)})` : ""}`,
+      behind ? `ep0ch install --apply restarts it (${mcpRestartCommand(m)})` : unknown ? mcpRestartCommand(m) : here && !u.state?.active ? hostUnitCommand({ ...u, outlines: "", stale: [] }, "start") : undefined);
+  }
   // outlines: the folder, the host serving it by name, its unit, and which outline this folder opens
   const h = f.host;
   add("outlines", "folder", "info", `${h.folder} · ${f.databases.length ? f.databases.map(d => d.name).join(", ") : "no outlines yet"}`);

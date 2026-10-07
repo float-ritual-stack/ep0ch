@@ -15,9 +15,9 @@ import { skillLinkFacts } from "../src/setup/skill-links";
 import { extFacts } from "../src/setup/ext-links";
 import { PROTOCOL } from "@ep0ch/outline-core/protocol";
 import { doctorChecks, formatDoctor, MARK, skillChecks, versionAtLeast } from "../src/setup/doctor";
-import { claudeModIn, databases, depsState, fetchRace, herdrKeys, hostFacts, hostUnit, launchdState, openOutlineToPing, systemdState } from "../src/setup/facts";
-import { type Checkout, detectPlatform, type Facts, type HostFacts, type HostUnit, type SessionFact, staleness } from "../src/setup/model";
-import { backupName, buildPlan, checkoutStep, chooseLinkDir, extStep, skillsStep, hostStep, hostUnitArgv, linkCandidates, type PlanOptions, stamp, unitChanges } from "../src/setup/plan";
+import { claudeModIn, databases, depsState, fetchRace, herdrKeys, hostFacts, hostUnit, launchdState, doorOfShown, mcpUnits, movedSince, openOutlineToPing, startFromElapsed, systemdState } from "../src/setup/facts";
+import { type Checkout, detectPlatform, type Facts, type HostFacts, type HostUnit, type McpFacts, type SessionFact, staleness } from "../src/setup/model";
+import { backupName, buildPlan, checkoutStep, chooseLinkDir, extStep, skillsStep, hostStep, hostUnitArgv, linkCandidates, mcpStep, type PlanOptions, stamp, unitChanges } from "../src/setup/plan";
 
 const scratch = mkdtempSync(join(tmpdir(), "ep0ch-setup-"));
 afterAll(() => rmSync(scratch, { recursive: true, force: true }));
@@ -398,6 +398,94 @@ describe("the outline host under launchd (the Mac) or systemd", () => {
     const beside = mac({ unit: { ...launchd, state: { active: false, lastExit: "1", detail: "launchd: not running, last exit 1" } } });
     expect(hostStep(beside, true)).toMatchObject({ status: "manual", why: expect.stringContaining("another process answers") });
     expect(hostStep(beside, false)).toMatchObject({ status: "skip" });
+  });
+});
+
+describe("the remote MCP gateway's unit (ep0ch mcp serve --http)", () => {
+  const gw = (o: Partial<McpFacts> = {}): McpFacts => ({
+    unit: { kind: "systemd", path: "/home/evan/.config/systemd/user/ep0ch-mcp.service", name: "ep0ch-mcp.service", state: { active: true, pid: 91, detail: "systemd: active (running), pid 91" } },
+    door: "/home/evan/projects/ep0ch/packages/door", startedAt: 1_800_000_000, runs: "1111111aaaa", behind: false, ...o,
+  });
+  const on = (m: McpFacts | null, o: Partial<Facts> = {}): Facts => ({ ...float2(), mcp: m, ...o });
+  const checks = (f: Facts) => Object.fromEntries(doctorChecks(f).map(x => [`${x.group}/${x.name}`, x]));
+
+  test("found by what its ExecStart runs, with the door it runs; a host's unit, a comment or a description isn't it", () => {
+    const home = join(scratch, "mcp-home"), dir = join(home, ".config/systemd/user");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "outliner-host.service"), "[Service]\nExecStart=%h/.bun/bin/bun src/host-main.ts\n");
+    writeFileSync(join(dir, "a-notes.service"), "[Unit]\nDescription=not bun src/main.ts mcp serve --http\n[Service]\n# ExecStart=bun src/main.ts mcp serve --http\nExecStart=/bin/true\n");
+    expect(mcpUnits("linux", home)).toEqual([]);
+    writeFileSync(join(dir, "ep0ch-mcp.service"), "[Service]\nWorkingDirectory=%h/projects/ep0ch/packages/door\nExecStart=%h/.local/bin/with-secrets clerk -- %h/.bun/bin/bun src/main.ts mcp serve --http --port 8792\n");
+    // An absolute main.ts is the door it runs, whatever the WorkingDirectory says.
+    writeFileSync(join(dir, "b-mcp.service"), "[Service]\nWorkingDirectory=%h/projects/ep0ch/packages/door\nExecStart=/usr/bin/bun %h/projects/ep0ch-wt-x/packages/door/src/main.ts mcp serve --http\n");
+    // A relative one with no WorkingDirectory: which door can't be told.
+    writeFileSync(join(dir, "c-mcp.service"), "[Service]\nExecStart=bun src/main.ts mcp serve --http\n");
+    expect(mcpUnits("linux", home)).toEqual([
+      { kind: "systemd", path: join(dir, "b-mcp.service"), name: "b-mcp.service", door: join(home, "projects/ep0ch-wt-x/packages/door") },
+      { kind: "systemd", path: join(dir, "c-mcp.service"), name: "c-mcp.service", door: null },
+      { kind: "systemd", path: join(dir, "ep0ch-mcp.service"), name: "ep0ch-mcp.service", door: join(home, "projects/ep0ch/packages/door") },
+    ]);
+    const agents = join(home, "Library/LaunchAgents");
+    mkdirSync(agents, { recursive: true });
+    writeFileSync(join(agents, "io.ep0ch.mcp.plist"), "<plist><dict><key>Label</key><string>io.ep0ch.mcp</string><key>ProgramArguments</key><array><string>/opt/homebrew/bin/bun</string><string>src/main.ts</string><string>mcp</string><string>serve</string><string>--http</string></array><key>WorkingDirectory</key><string>/Users/wren/projects/ep0ch/packages/door</string></dict></plist>");
+    expect(mcpUnits("macos", home)).toEqual([{ kind: "launchd", path: join(agents, "io.ep0ch.mcp.plist"), name: "io.ep0ch.mcp", door: "/Users/wren/projects/ep0ch/packages/door" }]);
+    expect(startFromElapsed(" 1-02:03:04\n", 1_800_000_000_000)).toBe(1_800_000_000 - (86400 + 2 * 3600 + 3 * 60 + 4));
+    expect(startFromElapsed("05:06", 1_800_000_000_000)).toBe(1_800_000_000 - 306);
+    expect(startFromElapsed("?", 0)).toBeUndefined();
+  });
+
+  test("whether HEAD moved since it started: a move in its start second counts; a no-op entry doesn't", () => {
+    const A = "a".repeat(40), B = "b".repeat(40);
+    expect(movedSince([{ commit: A, at: 100 }], 200)).toEqual({ runs: A, behind: false });
+    expect(movedSince([{ commit: B, at: 300 }, { commit: A, at: 100 }], 200)).toEqual({ runs: A, behind: true });
+    expect(movedSince([{ commit: B, at: 200 }, { commit: A, at: 100 }], 200)).toEqual({ runs: A, behind: true });
+    expect(movedSince([{ commit: A, at: 300 }, { commit: A, at: 100 }], 200)).toEqual({ runs: A, behind: false });
+    // No move before it started (an expired reflog): unknown, not behind.
+    expect(movedSince([{ commit: B, at: 300 }], 200)).toEqual({ runs: null });
+  });
+
+  test("what systemd loaded (drop-ins included) says which door it runs", () => {
+    const shown = "ExecStart={ path=/home/evan/.local/bin/with-secrets ; argv[]=/home/evan/.local/bin/with-secrets clerk -- /home/evan/.bun/bin/bun src/main.ts mcp serve --http --port 8792 ; ignore_errors=no ; start_time=[n/a] ; stop_time=[n/a] ; pid=0 ; code=(null) ; status=0/0 }\nWorkingDirectory=/home/evan/projects/ep0ch/packages/door";
+    expect(doorOfShown(shown, "/home/evan")).toBe("/home/evan/projects/ep0ch/packages/door");
+    expect(doorOfShown(shown.replace("bun src/main.ts", "bun /srv/other/packages/door/src/main.ts"), "/home/evan")).toBe("/srv/other/packages/door");
+    expect(doorOfShown("ExecStart={ path=/bin/true ; argv[]=/bin/true ; }\nWorkingDirectory=/x", "/home/evan")).toBeNull();
+    expect(doorOfShown("ExecStart={ path=/b ; argv[]=bun src/main.ts mcp serve --http ; }\nWorkingDirectory=", "/home/evan")).toBeNull();
+  });
+
+  test("on the checkout's code: nothing to do; the checkout updated in this run, or moved since it started: restarted, said in the plan", () => {
+    expect(mcpStep(on(gw()), false)).toMatchObject({ id: "mcp", status: "skip", why: "the gateway runs the current code (systemd ep0ch-mcp.service, 1111111)" });
+    expect(mcpStep(on(gw()), true)).toMatchObject({ status: "do", why: expect.stringContaining("the ep0ch checkout is updated in this run"), commands: ["systemctl --user restart ep0ch-mcp.service"] });
+    const moved = on(gw({ runs: "0000000ffff", behind: true }), { repo: { ...float2().repo, checkout: checkout("/home/evan/projects/ep0ch", { head: "2222222bbbb", upstream: "2222222bbbb" }) } });
+    expect(mcpStep(moved, false)).toMatchObject({ status: "do", why: expect.stringContaining("it started on 0000000, and the checkout is at 2222222 now") });
+    // In the plan: after the host it talks to, before the sessions.
+    const ids = buildPlan(moved, opts()).steps.map(s => `${s.id}:${s.status}`);
+    expect(ids.indexOf("mcp:do")).toBe(ids.findIndex(x => x.startsWith("host:")) + 1);
+    expect(buildPlan(on(null), opts()).steps.some(s => s.id === "mcp")).toBe(false);
+  });
+
+  test("another checkout's gateway, or one not running, is left alone and said", () => {
+    expect(mcpStep(on(gw({ door: "/home/evan/projects/ep0ch-wt-x/packages/door", behind: true })), true)).toMatchObject({ status: "skip", why: expect.stringContaining("not this checkout's door") });
+    const down = gw({ unit: { ...gw().unit, state: { active: false, lastExit: "1", detail: "systemd: failed (failed), last exit 1" } }, startedAt: undefined, runs: undefined, behind: undefined });
+    expect(mcpStep(on(down), true)).toMatchObject({ status: "skip", why: expect.stringContaining("isn't running (systemd: failed (failed), last exit 1)") });
+  });
+
+  test("doctor flags a gateway running older code than the checkout, with what restarts it", () => {
+    expect(checks(on(gw()))["ep0ch/mcp gateway"]).toMatchObject({ status: "ok", detail: "systemd ep0ch-mcp.service runs the checkout's code (1111111)" });
+    const behind = checks(on(gw({ runs: "0000000ffff", behind: true })))["ep0ch/mcp gateway"]!;
+    expect(behind).toMatchObject({ status: "behind", fix: "ep0ch install --apply restarts it (systemctl --user restart ep0ch-mcp.service)" });
+    expect(behind.detail).toContain("runs older code than the checkout: it started on 0000000");
+    expect(checks(on(gw({ door: "/elsewhere/packages/door" })))["ep0ch/mcp gateway"]).toMatchObject({ status: "info" });
+    expect(checks(on(null))["ep0ch/mcp gateway"]).toBeUndefined();
+    // No start time or reflog: unknown, never ✓, and never restarted on a guess (unless the checkout moves in this run).
+    const unsure = on(gw({ startedAt: undefined, runs: undefined, behind: undefined }));
+    expect(checks(unsure)["ep0ch/mcp gateway"]).toMatchObject({ status: "unknown", fix: "systemctl --user restart ep0ch-mcp.service" });
+    expect(mcpStep(unsure, false)).toMatchObject({ status: "skip", why: expect.stringContaining("can't be told") });
+    expect(mcpStep(unsure, true)).toMatchObject({ status: "do" });
+  });
+
+  test("a gateway whose door can't be told is never restarted, even when the checkout updates", () => {
+    expect(mcpStep(on(gw({ door: null, behind: true })), true)).toMatchObject({ status: "skip", why: expect.stringContaining("can't be told") });
+    expect(checks(on(gw({ door: null })))["ep0ch/mcp gateway"]).toMatchObject({ status: "info" });
   });
 });
 

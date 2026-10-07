@@ -9,11 +9,11 @@ import { join, resolve } from "node:path";
 import { ep0ch } from "../session/place";
 import { backupPlan } from "../backup/setup";
 import { linkCommands, linkCounts, type LinkWork, linkWork, type OwnedLink, type StaleLink } from "./links";
-import { type Checkout, type DatabaseFacts, type Deps, type Facts, type HostUnit, KEYED_ACTIONS, PLUGIN_ID, PLUGIN_SOURCE, type SessionFact, short, staleness } from "./model";
+import { type Checkout, type DatabaseFacts, type Deps, type Facts, type HostUnit, KEYED_ACTIONS, type McpFacts, PLUGIN_ID, PLUGIN_SOURCE, type SessionFact, short, staleness } from "./model";
 
 /** do: runs with --apply. skip: already current. manual: needs a person (the hint says what). */
 export type StepStatus = "do" | "skip" | "manual";
-export type StepId = "backup" | "repo" | "plugin" | "link" | "ext" | "skills" | "host" | "session" | "backups";
+export type StepId = "backup" | "repo" | "plugin" | "link" | "ext" | "skills" | "host" | "mcp" | "session" | "backups";
 
 export interface Step {
   id: StepId;
@@ -258,6 +258,38 @@ export function hostStep(f: Facts, codeUpdates: boolean): Step {
   return { id: "host", title, status: "do", why: `${after}; ${u.kind} restarts it, and every door and pane on it reconnects`, commands: [hostUnitCommand(u, "restart")] };
 }
 
+/** The command that restarts the MCP gateway's unit, as a person would type it. */
+export const mcpRestartCommand = (m: McpFacts) => hostUnitCommand({ ...m.unit, outlines: "", stale: [] }, "restart");
+
+/** Why the MCP gateway runs older code than the checkout (after this run's update), or null when it doesn't (or can't be told). */
+export function mcpBehind(f: Facts, codeUpdates: boolean): string | null {
+  const m = f.mcp;
+  if (!m || !m.unit.state?.active) return null;
+  if (codeUpdates) return "the ep0ch checkout is updated in this run";
+  if (m.behind) return `it started on ${short(m.runs)}, and the checkout is at ${short(f.repo.checkout.head)} now`;
+  return null;
+}
+
+/** The gateway runs this checkout's door: only then does install restart it (never another checkout's, or one it can't tell). */
+export const mcpIsHere = (f: Facts) => !!f.mcp?.door && resolve(f.mcp.door) === resolve(f.repo.door);
+
+/**
+ * The remote MCP gateway (`ep0ch mcp serve --http`, its own unit: ep0ch-mcp.service on float-2) runs the door's code as
+ * it was when it started, and a host on a newer protocol refuses it. When it runs this checkout's door and the checkout
+ * moved under it (in this run, or since it started), install restarts it through its unit, as it does the outline
+ * host. A gateway that runs another checkout (or one install can't tell), or isn't running, is left alone and said.
+ */
+export function mcpStep(f: Facts, codeUpdates: boolean): Step {
+  const title = "Restart the MCP gateway on the new code";
+  const m = f.mcp!, u = m.unit;
+  if (!mcpIsHere(f)) return { id: "mcp", title, status: "skip", why: m.door ? `${u.kind} ${u.name} runs ${m.door}, not this checkout's door; run install from that checkout` : `${u.kind} ${u.name}: which checkout's door it runs can't be told from ${u.path}; restart it yourself (${mcpRestartCommand(m)})`, commands: [] };
+  if (!u.state?.active) return { id: "mcp", title, status: "skip", why: `${u.kind} ${u.name} isn't running${u.state ? ` (${u.state.detail})` : ""}; install doesn't start it`, commands: [] };
+  const behind = mcpBehind(f, codeUpdates);
+  if (!behind && m.behind === undefined) return { id: "mcp", title, status: "skip", why: `whether ${u.kind} ${u.name} runs the current code can't be told (no start time or reflog); ${mcpRestartCommand(m)} if it doesn't`, commands: [] };
+  if (!behind) return { id: "mcp", title, status: "skip", why: `the gateway runs the current code (${u.kind} ${u.name}${m.runs ? `, ${short(m.runs)}` : ""})`, commands: [] };
+  return { id: "mcp", title, status: "do", why: `${behind}; ${u.kind} restarts it, and its MCP clients reconnect`, commands: [mcpRestartCommand(m)] };
+}
+
 /** Things install reports and never does: a unit to create, keys, the Claude mod. */
 export function planNotes(f: Facts): string[] {
   const notes: string[] = [];
@@ -371,9 +403,11 @@ export function buildPlan(f: Facts, o: PlanOptions): Plan {
   // Last: an optional link that fails never stops the host's restart or the session's upgrade.
   const ext = [...(f.ext ? [extStep(f)] : []), ...(f.skills ? [skillsStep(f)] : [])];
   const host = hostStep(f, repo.status === "do" && f.repo.checkout.behind > 0);
+  // The MCP gateway after the host it talks to.
+  const mcp = f.mcp ? [mcpStep(f, repo.status === "do" && f.repo.checkout.behind > 0)] : [];
   const session = sessionStep(f, repo);
   const backups = backupsStep(f);
   const backup = backupStep(f, o, [repo, plugin, link, host].some(s => s.status === "do"));
   // The session last: handed to the new code once everything under it is current.
-  return { steps: [backup, repo, plugin, link, host, session, ...(backups ? [backups] : []), ...ext], notes: planNotes(f) };
+  return { steps: [backup, repo, plugin, link, host, ...mcp, session, ...(backups ? [backups] : []), ...ext], notes: planNotes(f) };
 }
