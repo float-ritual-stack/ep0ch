@@ -1016,7 +1016,9 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     await until(() => screen().includes("▣ evening-beds.jpg") && !screen().includes("loading…"), "the hero note, its picture read", 8000);
     const reader = () => { sc.render(app); return S().stages.get(S().sel).top.describe().panes[0]; };
     const raw = () => sc.render(app).lines as string[];
-    const titleRow = () => raw().find(l => plain(l).includes("An evening on the plot") && !plain(l).includes("showcase"))!;
+    // The title rows inside the tiles (not a frame's label): the reader's is the row's first, the column's beside it.
+    const titleRows = () => raw().filter(l => plain(l).includes("│An evening on the plot"));
+    const titleRow = () => titleRows()[0]!;
     // At the top the picture is in view: the header knows its hero, at step 0, and is plain.
     expect(reader().header).toEqual({ backdrop: { image: "evening-beds.jpg", line: 2, step: 0, of: 3, mode: "first", drawn: null }, on: true, mode: "first" });
     expect(titleRow()).not.toContain("\x1b[48;2;");
@@ -1047,15 +1049,25 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     await until(() => reader().header.backdrop?.image === "allotment-dusk.jpg" && reader().header.backdrop?.step === 3, "the second picture", 8000);
     const second = reader().header.backdrop.line;
     await app.act({ action: "scroll", args: { to: "top" }, as: "test-agent" });
-    const caption = () => { const rows = raw(); return rows.findIndex(l => plain(l).includes("▣ allotment-dusk.jpg")); };
     // Step down until its line has just gone under: the first step, over the hero at full.
     for (let i = 0; i < 80 && reader().header.backdrop?.image !== "allotment-dusk.jpg"; i++) await app.act({ action: "scroll", args: { by: 1 }, as: "test-agent" });
     await until(() => reader().header.backdrop?.drawn === "cells", "the crossfade drawn", 8000);
     expect(reader().header.backdrop).toMatchObject({ image: "allotment-dusk.jpg", line: second, step: 1, mode: "follow", over: "evening-beds.jpg" });
     expect(titleRow()).toContain("\x1b[48;2;");
-    expect(caption()).toBe(-1);
     expect(await app.act({ action: "reader.hero", args: { on: true, mode: "first" }, as: "test-agent" })).toEqual({ on: true, mode: "first" });
     await expect(app.act({ action: "reader.hero", args: { on: true, mode: "every" }, as: "test-agent" })).rejects.toThrow(/first or follow/);
+    // The river column beside it keeps the reader's header above its own scroll, and takes the picture there too.
+    const column = () => { sc.render(app); return S().stages.get(S().sel).top.describe().panes[1]; };
+    await until(() => !!column().column?.showing, "the column's note", 8000);
+    const colTitle = () => (plain(titleRows()[0] ?? "").match(/│An evening on the plot/g) ?? []).length;
+    expect(colTitle()).toBe(2);
+    expect(column().column.header.backdrop).toMatchObject({ image: "evening-beds.jpg", step: 0 });
+    const coloured = () => (titleRows()[0]!.match(/\x1b\[48;2;/g) ?? []).length, before = coloured();
+    await app.act({ action: "column.scroll", args: { by: 12 }, tile: column().name, as: "test-agent" });
+    await until(() => column().column.header.backdrop?.step === 3 && column().column.header.backdrop?.drawn === "cells", "the column's header, with the picture", 8000);
+    // Scrolled, its title is still on screen (sticky), over the picture's colours.
+    expect(colTitle()).toBe(2);
+    expect(coloured()).toBeGreaterThan(before + 20);
   }, 30_000);
 
   test("images (PIE-532): sized, placed and the header, by act, by keys and by a click on a caption control; ctrl+z undoes", async () => {
