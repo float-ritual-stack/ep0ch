@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { alertMark, type BackupState, CHECK_LATE_MS, incidents, nextAlert, readAlert, readBackupState, STALE_AFTER_MS } from "../src/backup/alert";
 import { backupConfig, type BackupConfig, parseEnvFile, parseMirrors } from "../src/backup/config";
 import { backupCommand, parseAt, pick } from "../src/backup/cli";
-import { changeSeq, followersOf, mirror, newer, runAll, snapshot, takeLock } from "../src/backup/jobs";
+import { changeSeq, followersOf, mirror, newer, runAll, snapshot, snapshotNewer, takeLock } from "../src/backup/jobs";
 import { parseSnapshots, resticArgv, summaryId } from "../src/backup/restic";
 import { backupPlan, type BackupSetupFacts, fill, resticChecks, UNIT_MARK, unitFiles } from "../src/backup/setup";
 import { App } from "../src/app";
@@ -138,6 +138,14 @@ describe("the alert", () => {
     expect(incidents(s, "float", T0, CMD).map(i => i.key)).toEqual(["source:laptop"]);
   });
 
+  test("a Litestream replicator a change stopped and that won't start again is an incident, with the command that starts it", () => {
+    const guard = [{ unit: "litestream.service", since: iso(T0 - 600_000), failedAt: iso(T0 - 60_000), error: "Unit is masked", attempts: 3, fix: "systemctl --user start litestream.service" }];
+    const found = incidents(state({ guard }), "float", T0, CMD);
+    expect(found.map(i => i.key)).toEqual(["guard:float/litestream.service"]);
+    expect(found[0]).toMatchObject({ fix: "systemctl --user start litestream.service" });
+    expect(found[0]!.detail).toContain("failed 3 times");
+  });
+
   test("one backup command at a time: the lock is exclusive, and a dead holder's is taken over", () => {
     const c = machine("locks");
     const release = takeLock(c);
@@ -148,6 +156,13 @@ describe("the alert", () => {
     const again = takeLock(c);
     expect(typeof again).toBe("function");
     (again as () => void)();
+  });
+
+  test("a snapshot with no change feed replaces an older mirror by its time, never a newer one", () => {
+    const mirrored = { seq: null, at: "2026-05-02T10:00:00Z" };
+    expect(snapshotNewer({ seq: null, time: "2026-05-02T11:00:00Z" }, mirrored)).toBe(true);
+    expect(snapshotNewer({ seq: null, time: "2026-05-02T09:00:00Z" }, mirrored)).toBe(false);
+    expect(snapshotNewer({ seq: 4, time: "2026-05-02T09:00:00Z" }, { seq: 3, at: "2026-05-02T10:00:00Z" })).toBe(true);
   });
 
   test("newer wins: by change, else by time", () => {

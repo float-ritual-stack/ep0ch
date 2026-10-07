@@ -19,6 +19,14 @@ are its record. The outliner's entries from then are kept below, under
   that used such a pattern is reported with its reason; nothing else changes.
 - **Run:** PROTOCOL 108: `ep0ch install --apply`, then restart the doors.
 
+### Litestream stays stopped no longer, and mirrors take newer snapshots (review fixes)
+
+- **Fixed:** when starting Litestream again after a change to an outline's file fails, the host no longer counts as holding
+  the pause for as long as it lives (replication used to stay stopped until the host restarted). The failure is kept on
+  the record, retried 5 s, 15 s, a minute, five, then every fifteen minutes, said in the host's log each time, a failed
+  line in `ep0ch doctor` and a backup alert with `systemctl --user start …`, until it runs.
+- **Fixed:** a mirror whose snapshot has no change feed now takes a newer snapshot (the job compared the wrong time field).
+
 ### Back to an earlier revision of a note (PIE-621, #277)
 
 - **The outline keeps a note's earlier texts:** the newest 100 each note had, from the first save after this update,

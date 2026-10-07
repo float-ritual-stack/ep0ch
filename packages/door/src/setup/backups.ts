@@ -59,7 +59,7 @@ export interface BackupUnitFacts {
   freshOnStart?: boolean;
   snapshot?: { interval?: string; retention?: string };
 }
-export interface BackupFacts { units: BackupUnitFacts[]; now: number }
+export interface BackupFacts { units: BackupUnitFacts[]; now: number; /** Replicators a change stopped that won't start again (litestream-guard `stuckPauses`). */ stuckUnreadable?: string; stuck?: { unit: string; since: string; failedAt: string; error: string; attempts: number; fix: string }[] }
 
 /** A Litestream unit, as doctor sees it: the outliner's reading of its file, and what launchd or systemd says now. */
 export interface LitestreamUnit extends BaseUnit { state?: UnitState & { since?: string } }
@@ -247,8 +247,13 @@ export async function runningUnits(platform: Platform, home: string, run: Run): 
 export async function gatherBackups(o: { platform: Platform; home: string; env: Env; run: Run; now?: number; restore?: boolean }): Promise<BackupFacts> {
   const now = o.now ?? Date.now();
   const units = await runningUnits(o.platform, o.home, o.run);
+  let stuck: NonNullable<BackupFacts["stuck"]> = [];
+  let stuckUnreadable: string | undefined;
+  try { stuck = (await import("@ep0ch/outliner/litestream-guard")).stuckPauses({ home: o.home, env: o.env }); } catch (e) { stuckUnreadable = (e as Error).message; }
   return {
     now,
+    ...(stuck.length ? { stuck } : {}),
+    ...(stuckUnreadable ? { stuckUnreadable } : {}),
     units: await Promise.all(units.map(async (u): Promise<BackupUnitFacts> => {
       const state = await unitStateOf(u, o.run, now);
       const log = await unitLog(u, o.run, now, state.since ? Date.parse(state.since) : undefined);
@@ -354,6 +359,8 @@ export function freshRestore(unitText: string, output: string): boolean {
 export function backupChecks(b: BackupFacts, home: string): { name: string; status: Verdict["status"]; detail: string; fix?: string }[] {
   const out: { name: string; status: Verdict["status"]; detail: string; fix?: string }[] = [];
   const add = (name: string, v: Verdict) => out.push({ name, status: v.status, detail: v.detail, ...(v.fix ? { fix: v.fix } : {}) });
+  if (b.stuckUnreadable) out.push({ name: "litestream pause records", status: "unknown", detail: `can't read them, so whether a change left a replicator stopped is unknown: ${b.stuckUnreadable}` });
+  for (const g of b.stuck ?? []) out.push({ name: `litestream pause ${g.unit}`, status: "missing", detail: `${g.unit} was stopped for a change to an outline's file (${hhmm(g.since)}) and starting it again failed ${g.attempts} time${g.attempts === 1 ? "" : "s"}, last at ${hhmm(g.failedAt)}: ${g.error}; the host and the backup job keep trying`, fix: g.fix });
   if (!b.units.length) { out.push({ name: "litestream", status: "info", detail: "no Litestream unit here: nothing replicates this machine's outlines" }); return out; }
   for (const { unit: u, log, dbs, problem, freshOnStart, snapshot } of b.units) {
     const label = u.role === "follow" ? `follower ${u.name}` : `replicator ${u.name}`;
