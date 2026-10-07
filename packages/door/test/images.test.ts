@@ -354,8 +354,6 @@ describe("the header takes the hero image as it scrolls under (PIE-598)", () => 
   test("follow: each picture takes over as it scrolls under, fading in over the one before (Kitty: a layer above it; cells: mixed over it)", async () => {
     await ready("sunset.png"); await ready("wide.jpg");
     const text = `Plot\n- [img::${file("sunset.png")}] [size::full]\n\n${body(10)}\n\n[img::${file("wide.jpg")}] [size::full]\n\n${body(80)}`;
-    // A placement drawn from sunset.png's content (its media key), the first picture.
-    const m0Key = (_p: unknown) => (media(file("sunset.png"), "img") as ReadyMedia).key;
     const backdrops = (v: { placements?: { key: string }[] }) => (v.placements ?? []).filter(p => p.key.startsWith("hero-backdrop:")) as any[];
     useHeroHeader({ on: true, mode: "follow" });
     try {
@@ -382,10 +380,20 @@ describe("the header takes the hero image as it scrolls under (PIE-598)", () => 
       j.show(note(text.replace("wide.jpg", "wide-cold.jpg")) as any, h);
       j.render(100, 40, h);
       (j as any).scroll = second.line + second.rows + 1;
-      const first = backdrops(j.render(100, 40, h));
-      expect(first.length).toBeGreaterThanOrEqual(1);
-      if (first.length === 1) expect(first[0].key).toContain(m0Key(first[0]));
-      await until(() => backdrops(j.render(100, 40, h)).length === 1 && j.headerBackdrop().backdrop?.over === undefined, "the new one at full, alone", 10_000);
+      const firstKey = (media(file("sunset.png"), "img") as ReadyMedia).key, coldKey = (media(file("wide-cold.jpg"), "img") as ReadyMedia).key;
+      // Kept: exactly one placement under it, the first picture's, at full (its key: content, edge, a muted look, no `oNN`).
+      const keeps = (b: any[]) => { const under = b.filter(x => x.z === -3); expect(under).toHaveLength(1); expect(under[0].key).toStartWith(`hero-backdrop:${firstKey}-`); expect(under[0].key).toMatch(/u$/); };
+      const fullNew = (b: any[]) => b.length === 1 && b[0].key.startsWith(`hero-backdrop:${coldKey}-`) && /u$/.test(b[0].key);
+      // The frame right after the jump is drawn before the new picture's variants exist (they're made off the render
+      // path): it keeps the first picture.
+      const pending = backdrops(j.render(100, 40, h));
+      expect(fullNew(pending)).toBe(false);
+      keeps(pending);
+      // So does every frame after it until the new one is drawn at full, alone.
+      const frames: any[][] = [];
+      await until(() => { const b = backdrops(j.render(100, 40, h)); frames.push(b); return fullNew(b); }, "the new one at full, alone", 10_000);
+      for (const b of frames.slice(0, -1)) keeps(b);
+      expect(j.headerBackdrop().backdrop?.over).toBeUndefined();
       // Cells: the header's colours mixed over the first picture's, never the plain ground between them.
       const c = new NoteSurface(), hc = host(false);
       c.show(note(text) as any, hc);
