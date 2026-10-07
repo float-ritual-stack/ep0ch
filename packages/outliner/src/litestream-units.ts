@@ -3,7 +3,7 @@
 // systemd anything. The door's doctor (packages/door/src/setup/backups.ts) checks them; the outline host's
 // Litestream guard (litestream-guard.ts) pauses the replicator around a change to an outline's file.
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { basename, join, relative } from "node:path";
+import { basename, dirname, join, relative, resolve } from "node:path";
 import { outlineOfFile } from "@ep0ch/outline-core/outline-location";
 
 export type Platform = "linux" | "macos" | "other";
@@ -104,7 +104,7 @@ export function instancesIn(listing: string, template: string): string[] {
 // ── the config and its databases ─────────────────────────────────────────────────────────────────────────────
 
 interface ReplicaConfig { type?: string; url?: string; bucket?: string; path?: string; endpoint?: string; region?: string }
-interface DbConfig { path?: string; dir?: string; pattern?: string; replica?: ReplicaConfig; replicas?: ReplicaConfig[] }
+export interface DbConfig { path?: string; dir?: string; pattern?: string; replica?: ReplicaConfig; replicas?: ReplicaConfig[] }
 
 /** A replica's URL for one database (`rel`: its path under a `dir` entry), in the form `litestream ltx` takes. */
 export function replicaUrl(r: ReplicaConfig | undefined, rel?: string): string | null {
@@ -126,14 +126,22 @@ export function replicaUrl(r: ReplicaConfig | undefined, rel?: string): string |
 
 const globRe = (pattern: string) => new RegExp(`^${pattern.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, "[^/]*").replace(/\?/g, "[^/]")}$`);
 
+/** A config's `dbs` entries as Litestream reads them ($VAR and ${VAR} expanded from its environment), or null when it doesn't parse. */
+export function configEntries(configText: string, env: Env = {}): DbConfig[] | null {
+  const expanded = configText.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)/g, (_, a, b) => env[a ?? b] ?? "");
+  try { return ((Bun.YAML.parse(expanded) as { dbs?: DbConfig[] } | null)?.dbs ?? []); } catch { return null; }
+}
+
+/** Whether a config's entries cover this database file, made yet or not: its `path`, or a `dir` whose pattern it matches. */
+export function covers(entries: readonly DbConfig[], file: string): boolean {
+  return entries.some(db => db.path ? resolve(db.path) === resolve(file)
+    : !!db.dir && resolve(db.dir) === resolve(dirname(file)) && globRe(db.pattern ?? "*").test(basename(file)));
+}
+
 /** The databases a config names: each `path`, and a `dir` entry's outlines (`<name>.sqlite` matching its pattern). */
 export function configDatabases(configText: string, env: Env = {}): { path: string; url: string | null }[] {
-  // As Litestream reads it: $VAR and ${VAR} expanded from its environment first.
-  const expanded = configText.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)/g, (_, a, b) => env[a ?? b] ?? "");
-  let parsed: { dbs?: DbConfig[] } | null;
-  try { parsed = Bun.YAML.parse(expanded) as { dbs?: DbConfig[] } | null; } catch { return []; }
   const out: { path: string; url: string | null }[] = [];
-  for (const db of parsed?.dbs ?? []) {
+  for (const db of configEntries(configText, env) ?? []) {
     const replica = db.replica ?? db.replicas?.[0];
     if (db.path) out.push({ path: db.path, url: replicaUrl(replica) });
     else if (db.dir) {

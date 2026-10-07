@@ -5,7 +5,8 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { metaDir, replicatorsFor, withLitestreamPaused } from "../src/litestream-guard";
+import { existsSync, readdirSync } from "node:fs";
+import { metaDir, recoverPaused, replicatorsFor, running, withLitestreamPaused } from "../src/litestream-guard";
 import { instancesIn, litestreamUnits, templateInstance } from "../src/litestream-units";
 
 const root = mkdtempSync(join(tmpdir(), "litestream-guard-"));
@@ -29,12 +30,14 @@ function fakeSystemd(state: { active: boolean; stopFails?: boolean }) {
   };
   return { run, calls };
 }
-const o = (run: ReturnType<typeof fakeSystemd>["run"]) => ({ platform: "linux" as const, home, run, env: {} });
+const records = join(root, "paused");
+const o = (run: ReturnType<typeof fakeSystemd>["run"], alive: (pid: number) => boolean = p => p === process.pid) => ({ platform: "linux" as const, home, run, env: {}, records, alive });
 
 describe("the Litestream guard", () => {
   test("only the replicator whose config names the outline's folder", () => {
-    expect(replicatorsFor([join(outlines, "garden.sqlite")], { platform: "linux", home, env: {} }).map(u => u.name)).toEqual(["litestream.service"]);
-    expect(replicatorsFor([join(elsewhere, "garden.sqlite")], { platform: "linux", home, env: {} })).toEqual([]);
+    expect(replicatorsFor([join(outlines, "garden.sqlite")], { platform: "linux", home, env: {} }).units.map(u => u.name)).toEqual(["litestream.service"]);
+    expect(replicatorsFor([join(outlines, "garden.txt")], { platform: "linux", home, env: {} }).units).toEqual([]);   // the pattern
+    expect(replicatorsFor([join(elsewhere, "garden.sqlite")], { platform: "linux", home, env: {} }).units).toEqual([]);
   });
 
   test("stopped for the change, started after; two changes at once share one stop", async () => {
@@ -71,6 +74,38 @@ describe("the Litestream guard", () => {
     await expect(refused).rejects.toThrow("never litestream reset");
     expect(ran).toBe(false);
     expect(metaDir(join(outlines, "garden.sqlite"))).toBe(join(outlines, ".garden.sqlite-litestream"));
+  });
+
+  test("a crash mid-change leaves a record: the next guard (or the host's start) starts the replicator again", async () => {
+    const sd = fakeSystemd({ active: true });
+    // A change in a process that died after the stop (pid 4242 is dead in this fake).
+    await withLitestreamPaused([join(outlines, "garden.sqlite")], "x", () => {
+      expect(readdirSync(records).filter(n => n.endsWith(".json"))).toEqual(["litestream.service.json"]);
+    }, o(sd.run));
+    expect(existsSync(join(records, "litestream.service.json"))).toBe(false);
+    writeFileSync(join(records, "litestream.service.json"), JSON.stringify({ unit: "litestream.service", kind: "systemd", path: "/x", holders: ["4242:1"], since: "2026-05-02T09:00:00Z" }));
+    sd.calls.length = 0;
+    expect(recoverPaused(o(sd.run))).toEqual(["litestream.service"]);
+    expect(sd.calls).toEqual(["--user start litestream.service"]);
+    expect(existsSync(join(records, "litestream.service.json"))).toBe(false);
+  });
+
+  test("paused by a live change in another process: held here too, never started under it", async () => {
+    const sd = fakeSystemd({ active: false });
+    const other = 4343;
+    writeFileSync(join(records, "litestream.service.json"), JSON.stringify({ unit: "litestream.service", kind: "systemd", path: "/x", holders: [`${other}:1`], since: "2026-05-02T09:00:00Z" }));
+    const alive = (p: number) => p === process.pid || p === other;
+    await withLitestreamPaused([join(outlines, "garden.sqlite")], "x", () => {}, o(sd.run, alive));
+    expect(sd.calls.filter(c => c.includes("start") || c.includes("stop"))).toEqual([]);
+    expect(JSON.parse(require("node:fs").readFileSync(join(records, "litestream.service.json"), "utf8")).holders).toEqual([`${other}:1`]);
+    rmSync(join(records, "litestream.service.json"));
+  });
+
+  test("a state or a config it can't read refuses", async () => {
+    expect(running({ kind: "launchd", name: "io.example.litestream" }, () => ({ code: 113, out: "Could not find service \"io.example.litestream\" in domain" }), 501)).toBe(false);
+    expect(running({ kind: "launchd", name: "io.example.litestream" }, () => ({ code: 5, out: "Input/output error" }), 501)).toBeNull();
+    const unknown = (argv: string[]) => ({ code: 1, out: argv[2] === "is-active" ? "unknown-state" : "" });
+    await expect(withLitestreamPaused([join(outlines, "garden.sqlite")], "x", () => {}, o(unknown))).rejects.toThrow("its state can't be read");
   });
 
   test("a template unit is its instances", () => {

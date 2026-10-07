@@ -9,6 +9,7 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./litestream-guard": "./src/litestream-guard.ts",
     "./litestream-units": "./src/litestream-units.ts",
     "./machine-forward": "./src/machine-forward.ts",
     "./outline-host": "./src/outline-host.ts",

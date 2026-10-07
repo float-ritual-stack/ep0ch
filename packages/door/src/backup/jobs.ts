@@ -367,6 +367,11 @@ export async function runAll(c: BackupConfig, o: { now?: () => number; say?: Say
     return { ok: true, alert: readAlert(c.state) ?? nextAlert(null, [], c.machine, now()).alert };
   }
   try {
+    // A change to an outline's file that crashed while Litestream was paused for it left the replicator stopped.
+    try {
+      const { recoverPaused } = await import("@ep0ch/outliner/litestream-guard");
+      for (const unit of recoverPaused({ env: c.env })) say(`Litestream ${unit}: started again (a change to an outline paused it and didn't finish)`);
+    } catch (e) { say(`✗ Litestream guard: ${(e as Error).message}`); }
     const s = readBackupState(c.state);
     // Each part stands alone: one failing never stops the others.
     const snap = await snapshot(c, s, { now, say }).catch(e => { say(`✗ snapshot: ${(e as Error).message}`); return { uploaded: [], failed: ["(all)"] }; });

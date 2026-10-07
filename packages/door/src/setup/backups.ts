@@ -269,7 +269,7 @@ export async function gatherBackups(o: { platform: Platform; home: string; env: 
       let unitText = "";
       try { unitText = readFileSync(u.path, "utf8"); } catch { /* said elsewhere */ }
       const extra = u.role === "follow"
-        ? { freshOnStart: /^\s*ExecStartPre\s*=.*\brm\b.*-txid/m.test(unitText) }
+        ? { freshOnStart: freshRestore(unitText.replaceAll("%i", /@(.+)\.service$/.exec(u.name)?.[1] ?? "%i"), u.output ?? "") }
         : { snapshot: (() => { try { const y = Bun.YAML.parse(text) as { snapshot?: { interval?: string; retention?: string } } | null; return y?.snapshot ?? {}; } catch { return {}; } })() };
       return { unit, log, dbs, ...extra };
     })),
@@ -333,6 +333,23 @@ export function mirrorVerdict(u: LitestreamUnit, db: ReplicaFacts, now: number):
   return { status: "missing", staleSince: since, detail: `stale since ${hhmm(since)}: the mirror is at txid ${hex(have)}, the replica at ${hex(r.txid)} (${hhmm(r.at)})`, fix: restartCommand(u) };
 }
 
+/** A Go-style duration (4h, 168h, 30m, 1h30m) in hours, or null. */
+export function hours(d: string): number | null {
+  const parts = [...d.trim().matchAll(/(\d+(?:\.\d+)?)(h|m|s)/g)];
+  if (!parts.length || parts.map(p => p[0]).join("") !== d.trim()) return null;
+  return parts.reduce((t, p) => t + Number(p[1]) * { h: 1, m: 1 / 60, s: 1 / 3600 }[p[2] as "h" | "m" | "s"], 0);
+}
+
+/** A follower's unit removes its mirror and the mirror's -txid before each start (ExecStartPre=…rm…). */
+export function freshRestore(unitText: string, output: string): boolean {
+  const name = output.split("/").pop() ?? "";
+  return unitText.split("\n").some(l => {
+    if (!/^\s*ExecStartPre\s*=.*\brm\b/.test(l)) return false;
+    const words = l.split(/\s+/).map(w => w.split("/").pop() ?? "");
+    return !!name && words.includes(name) && words.includes(`${name}-txid`);
+  });
+}
+
 /** Doctor's lines for backups: each unit, its log, each database or mirror. */
 export function backupChecks(b: BackupFacts, home: string): { name: string; status: Verdict["status"]; detail: string; fix?: string }[] {
   const out: { name: string; status: Verdict["status"]; detail: string; fix?: string }[] = [];
@@ -346,13 +363,24 @@ export function backupChecks(b: BackupFacts, home: string): { name: string; stat
       ? { status: "ok", detail: `${s!.detail}${s!.since ? `, up since ${hhmm(s!.since)}` : ""}; ${u.config}` }
       : { status: "missing", detail: `not running (${s?.detail ?? "state unknown"}); ${u.path}`, fix: s?.detail === "not loaded in launchd" ? startCommand(u) : restartCommand(u) });
     // Restore history: Litestream's default is a snapshot a day kept a day; restic (PIE-607) is the long history.
-    if (u.role === "replicate" && snapshot && !snapshot.interval) add(`${label} snapshots`, { status: "behind", detail: `${u.config} sets no snapshot interval: Litestream's default (a snapshot every 24h, kept 24h) leaves about a day to restore from`, fix: `add to ${u.config}, then ${restartCommand(u)}:  snapshot: { interval: 4h, retention: 168h }` });
-    else if (u.role === "replicate" && snapshot?.interval) add(`${label} snapshots`, { status: "ok", detail: `a snapshot every ${snapshot.interval}, kept ${snapshot.retention ?? "24h (the default)"}` });
+    if (u.role === "replicate" && snapshot) {
+      const interval = hours(snapshot.interval ?? "24h"), retention = hours(snapshot.retention ?? "24h");
+      const said = `a snapshot every ${snapshot.interval ?? "24h (the default)"}, kept ${snapshot.retention ?? "24h (the default)"}`;
+      const fix = `in ${u.config}:  snapshot: { interval: 4h, retention: 168h }  then ${restartCommand(u)}`;
+      if (interval === null || retention === null) add(`${label} snapshots`, { status: "unknown", detail: `${said}: not durations doctor reads (e.g. 4h, 168h)` });
+      else if (retention < 72 || interval > 12) add(`${label} snapshots`, { status: "behind", detail: `${said}: about ${Math.round(retention)}h to restore from (restic keeps the long history, PIE-607)`, fix });
+      else add(`${label} snapshots`, { status: "ok", detail: said });
+    }
     if (u.role === "follow" && u.kind === "systemd" && freshOnStart === false) add(`${label} start`, { status: "behind", detail: `it resumes from the mirror it left; Litestream 0.5.17 refuses that (crash loop) whenever the saved txid is past the newest snapshot (upstream #1385)`, fix: `in ${u.path}, before ExecStart: ExecStartPre=/bin/rm -f ${u.output} ${u.output}-txid ${u.output}-wal ${u.output}-shm; then systemctl --user daemon-reload && ${restartCommand(u)}` });
     // A follower that restores fresh on every start heals the #1385 refusal by itself (Restart=always): said, not failed.
-    const healed = u.role === "follow" && freshOnStart && !!log.latest && /ahead of|saved txid|txid .* (?:past|beyond)/i.test(log.latest.line);
+    // What counts is progress (upstream #1515: a follower can stall with no error at all): a unit that runs now with
+    // every replica or mirror caught up got past its errors (a transient 4xx from the bucket, #1385's refusal healed by a
+    // fresh restore on restart), so they're said, not failed; a unit behind is failed by its replica's or mirror's line.
+    const caughtUp = dbs.length > 0 && !log.lostState?.length && dbs.every(db => (u.role === "follow" ? mirrorVerdict(u, db, b.now) : replicaVerdict(u, db, b.now, home)).status === "ok");
+    const recovered = u.state?.active === true && caughtUp;
+    const resume = u.role === "follow" && freshOnStart && !!log.latest && /ahead of|saved txid|txid .* (?:past|beyond)/i.test(log.latest.line);
     if (log.unavailable) add(`${label} log`, { status: "unknown", detail: log.unavailable });
-    else if (log.errorsLastHour && healed) add(`${label} log`, { status: "ok", detail: `${log.errorsLastHour} ERROR line${log.errorsLastHour === 1 ? "" : "s"} in the last hour, the follow-resume refusal (upstream #1385), healed by the fresh restore on restart; latest: ${log.latest!.line}` });
+    else if (log.errorsLastHour && recovered) add(`${label} log`, { status: "ok", detail: `${log.errorsLastHour} ERROR line${log.errorsLastHour === 1 ? "" : "s"} in the last hour, and it has caught up since${resume ? " (the follow-resume refusal, upstream #1385, healed by the fresh restore on restart)" : ""}; latest: ${log.latest!.line}` });
     else if (log.errorsLastHour) {
       const ltx = log.lostState ?? [];
       const detail = `${log.errorsLastHour} ERROR line${log.errorsLastHour === 1 ? "" : "s"} in the last hour; latest: ${log.latest!.line}`;
