@@ -1,14 +1,21 @@
 // Heading styles (PIE-599): how a heading or a rule (`---`) is drawn, declared in the outline the way callout types
 // are. The source stays plain Markdown: `## Your calls [heading::band]` is a level-2 heading whatever draws it, and
 // `--- [rule::fade]` a rule. A style names a glyph track (the figures' patterns), how many rows the band takes, where
-// the heading sits in it, its padding, margin, tone and lettering. The service lists an outline's styles
-// (`headings.styles`: these built-ins plus the notes that declare `[heading-style::name]`); the door draws by them,
-// and a client that doesn't (Detail, the publisher, an export) shows the heading or rule as written. A style can be a
-// level's default (`[heading-default::1]`, or `rule` for every `---`), so plain Markdown gets the look with no
-// property. Pure: no I/O. A change to what it matches bumps PROTOCOL (protocol.ts).
+// the heading sits in it, its padding, margin, tone and lettering. Three ways to write one:
+//   - name a style: `## Your calls [heading::band]` (a built-in, or one the outline declares);
+//   - restyle one heading: `## Odd jobs [heading::dots] [heading-tone::amber]`, or on a heading that names none (its
+//     level's default, else the base style) `## Odd jobs [heading-pattern::dots]`; the fields leave the drawn text;
+//   - declare a style on any line of any note, or as a note's own properties:
+//     `Plot style [heading-style::plot] [heading-pattern::dots] [heading-rows::2]`.
+// The service lists an outline's styles (`headings.styles`: these built-ins plus the declarations, read with the
+// outline's property scopes); the door draws by them, and a client that doesn't (Detail, the publisher, an export)
+// shows the heading or rule as written. A style can be a level's default (`[heading-default::1]`, or `rule` for every
+// `---`), so plain Markdown gets the look with no property. Pure: no I/O. A change to what it matches bumps PROTOCOL
+// (protocol.ts).
 
 import { CALLOUT_TONES, type CalloutTone } from "./callouts";
-import { propertyTokensInLine } from "./property-grammar";
+import { codeSpanRanges } from "./code-ranges";
+import { propertyTokensInLine, type PropertyTokenMatch } from "./property-grammar";
 
 export const BAND_PATTERNS = ["stack", "waffle", "uptime", "dots", "rule"] as const;
 export type BandPattern = (typeof BAND_PATTERNS)[number];
@@ -94,19 +101,81 @@ export const BUILTIN_HEADING_STYLE_REGISTRY = headingStyleRegistry();
 /** A style's name: a slug, as `[heading::name]` writes it. */
 export const HEADING_STYLE_NAME = /^[a-z0-9][a-z0-9_-]{0,31}$/;
 
-/** A note's properties, as the service lists them. */
-export interface HeadingStyleDeclaringBlock { id: string; properties: readonly { key: string; value: string }[] }
+/**
+ * One declaration's fields, as the service lists them: a note's own properties when `[heading-style::name]` is one of
+ * them, or the tokens of the one line that carries it (`line`, counted from 0) anywhere in a note's text.
+ */
+export interface HeadingStyleDeclaringBlock { id: string; line?: number; properties: readonly { key: string; value: string }[] }
+
+/** The fields a style is made of, each `[heading-<field>::…]`: what a declaration sets and a heading line overrides. */
+export const HEADING_FIELD_KEYS = ["heading-pattern", "heading-rows", "heading-align", "heading-row", "heading-padding", "heading-margin", "heading-tone", "heading-letters"] as const;
+const FIELD_KEYS: ReadonlySet<string> = new Set(HEADING_FIELD_KEYS);
 
 const ROOM = /^\s*(\d+)(?:\s+(\d+))?\s*$/;
 
+/** What a style is when nothing names one: the base a heading's own fields apply to when its level has no default. */
+export const BASE_HEADING_STYLE: HeadingStyle = style("", {});
+
 /**
- * The heading styles an outline declares: each note with `[heading-style::name]`, and on the same note
+ * `base` with the fields `props` gives (HEADING_FIELD_KEYS; the first of a key counts). A value that can't be used is
+ * said in `problems`, prefixed by `where`, and the base's kept.
+ */
+function withFields(base: HeadingStyle, props: readonly { key: string; value: string }[], where: string, problems: string[]): HeadingStyle {
+  const prop = (k: string) => props.find(p => p.key.toLowerCase() === k)?.value.trim();
+  const oneOf = <T extends string>(key: string, all: readonly T[], fallback: T): T => {
+    const v = prop(key)?.toLowerCase();
+    if (v === undefined) return fallback;
+    if ((all as readonly string[]).includes(v)) return v as T;
+    problems.push(`${where}: ${key} ${JSON.stringify(v)} is one of ${all.join(", ")}`);
+    return fallback;
+  };
+  const room = (key: string, fallback: BandRoom, most: BandRoom): BandRoom => {
+    const v = prop(key);
+    if (v === undefined) return fallback;
+    const m = ROOM.exec(v);
+    if (!m) { problems.push(`${where}: ${key} ${JSON.stringify(v)} is columns, or "rows columns"`); return fallback; }
+    const [rows, cols] = m[2] === undefined ? [fallback.rows, Number(m[1])] : [Number(m[1]), Number(m[2])];
+    return { rows: Math.min(most.rows, rows), cols: Math.min(most.cols, cols) };
+  };
+  let rows = base.rows;
+  const rowsRaw = prop("heading-rows");
+  if (rowsRaw !== undefined) {
+    if (/^[123]$/.test(rowsRaw)) rows = Number(rowsRaw);
+    else problems.push(`${where}: heading-rows ${JSON.stringify(rowsRaw)} is 1, 2 or 3`);
+  }
+  return {
+    ...base,
+    pattern: oneOf("heading-pattern", BAND_PATTERNS, base.pattern),
+    rows,
+    align: oneOf("heading-align", BAND_ALIGNS, base.align),
+    row: oneOf("heading-row", BAND_ROWS, base.row),
+    padding: room("heading-padding", base.padding, { rows: 2, cols: 12 }),
+    margin: room("heading-margin", base.margin, { rows: 3, cols: 24 }),
+    tone: oneOf("heading-tone", CALLOUT_TONES, base.tone),
+    letters: oneOf("heading-letters", BAND_LETTERS, base.letters),
+  };
+}
+
+/**
+ * The style one heading draws with: `base` (the style it names, its level's default, else BASE_HEADING_STYLE) with
+ * the heading's own fields (`## Odd jobs [heading::dots] [heading-tone::amber]`) for this heading only. A field it
+ * can't use keeps the base's, and says so in `problems`.
+ */
+export function headingStyleWith(base: HeadingStyle, fields: readonly { key: string; value: string }[]): { style: HeadingStyle; problems: string[] } {
+  const problems: string[] = [];
+  const s = fields.length ? withFields(base, fields, "this heading", problems) : base;
+  return { style: s, problems };
+}
+
+/**
+ * The heading styles an outline declares: each `[heading-style::name]`, on a note (its own properties) or on any line
+ * of one (`# Plot style [heading-style::plot] [heading-pattern::dots]`: that line's tokens), with
  * `[heading-pattern::stack]` (stack, waffle, uptime, dots or rule), `[heading-rows::3]` (1 to 3),
  * `[heading-align::center]`, `[heading-row::middle]`, `[heading-padding::2]` and `[heading-margin::0]` (columns, or
  * "rows columns"), `[heading-tone::blue]` (a callout tone), `[heading-letters::spaced]` (plain, upper or spaced) and
  * `[heading-default::1, 2]` (the levels it draws when a heading names no style; `rule` for every `---`). A field left
  * out keeps the built-in's of that name, else the default. What can't be used is said in `problems` and falls back,
- * so one mistake never hides the rest. The first note to claim a name has it.
+ * so one mistake never hides the rest. The first declaration of a name has it.
  */
 export function headingStylesFromBlocks(blocks: readonly HeadingStyleDeclaringBlock[]): { styles: HeadingStyle[]; problems: string[] } {
   const styles: HeadingStyle[] = [], problems: string[] = [];
@@ -114,52 +183,46 @@ export function headingStylesFromBlocks(blocks: readonly HeadingStyleDeclaringBl
     const prop = (k: string) => b.properties.find(p => p.key.toLowerCase() === k)?.value.trim();
     const raw = prop("heading-style");
     if (raw === undefined) continue;
-    const name = raw.toLowerCase(), where = `note ${b.id.slice(0, 8)}`;
+    const name = raw.toLowerCase(), where = `note ${b.id.slice(0, 8)}${b.line === undefined ? "" : ` line ${b.line + 1}`}`;
     if (!HEADING_STYLE_NAME.test(name)) { problems.push(`${where}: heading-style ${JSON.stringify(raw)} isn't a name (letters, digits, - and _)`); continue; }
     if (styles.some(s => s.name === name)) { problems.push(`${where}: heading style ${name} is declared already`); continue; }
     const base = BUILTIN_HEADING_STYLES.find(s => s.name === name) ?? style(name, {});
-    const oneOf = <T extends string>(key: string, all: readonly T[], fallback: T): T => {
-      const v = prop(key)?.toLowerCase();
-      if (v === undefined) return fallback;
-      if ((all as readonly string[]).includes(v)) return v as T;
-      problems.push(`${where}: ${key} ${JSON.stringify(v)} is one of ${all.join(", ")}`);
-      return fallback;
-    };
-    const room = (key: string, fallback: BandRoom, most: BandRoom): BandRoom => {
-      const v = prop(key);
-      if (v === undefined) return fallback;
-      const m = ROOM.exec(v);
-      if (!m) { problems.push(`${where}: ${key} ${JSON.stringify(v)} is columns, or "rows columns"`); return fallback; }
-      const [rows, cols] = m[2] === undefined ? [fallback.rows, Number(m[1])] : [Number(m[1]), Number(m[2])];
-      return { rows: Math.min(most.rows, rows), cols: Math.min(most.cols, cols) };
-    };
-    let rows = base.rows;
-    const rowsRaw = prop("heading-rows");
-    if (rowsRaw !== undefined) {
-      if (/^[123]$/.test(rowsRaw)) rows = Number(rowsRaw);
-      else problems.push(`${where}: heading-rows ${JSON.stringify(rowsRaw)} is 1, 2 or 3`);
-    }
     const defaults: (number | "rule")[] = [];
     for (const d of (prop("heading-default") ?? "").split(",").map(x => x.trim().toLowerCase()).filter(Boolean)) {
       if (d === "rule") defaults.push("rule");
       else if (/^[1-6]$/.test(d)) defaults.push(Number(d));
       else problems.push(`${where}: heading-default ${JSON.stringify(d)} is a level (1 to 6) or rule`);
     }
-    styles.push({
-      name,
-      pattern: oneOf("heading-pattern", BAND_PATTERNS, base.pattern),
-      rows,
-      align: oneOf("heading-align", BAND_ALIGNS, base.align),
-      row: oneOf("heading-row", BAND_ROWS, base.row),
-      padding: room("heading-padding", base.padding, { rows: 2, cols: 12 }),
-      margin: room("heading-margin", base.margin, { rows: 3, cols: 24 }),
-      tone: oneOf("heading-tone", CALLOUT_TONES, base.tone),
-      letters: oneOf("heading-letters", BAND_LETTERS, base.letters),
-      defaults,
-      block: b.id,
-    });
+    styles.push({ ...withFields(base, b.properties, where, problems), name, defaults, block: b.id });
   }
   return { styles, problems };
+}
+
+/** A line's `[key::value]` tokens outside its code spans: a token in a code span is its text, as the service reads it. */
+export function liveTokensInLine(line: string): PropertyTokenMatch[] {
+  const code = codeSpanRanges(line);
+  return propertyTokensInLine(line).filter(t => !code.some(c => c.start < t.end && t.start < c.end));
+}
+
+/** `line` without `tokens` (some of its own), the text either side of each joined by one space. */
+export function withoutTokens(line: string, tokens: readonly { start: number; end: number }[]): string {
+  const parts: string[] = [];
+  let at = 0;
+  for (const t of tokens) { parts.push(line.slice(at, t.start)); at = t.end; }
+  parts.push(line.slice(at));
+  return parts.map((p, i) => (i === 0 ? p.trimEnd() : p.trim())).filter((p, i) => i === 0 || p).join(" ").trimEnd();
+}
+
+/**
+ * A line that declares a style (it carries `[heading-style::name]`, wherever in a note it is), read as the service
+ * reads it: the style, what's wrong with it, and the line's text without its tokens. Null for any other line. A reader
+ * draws it as what it declares, not as its tokens.
+ */
+export function headingStyleDeclaration(line: string): { style: HeadingStyle | null; problems: string[]; text: string } | null {
+  const tokens = liveTokensInLine(line);
+  if (!tokens.some(t => t.key === "heading-style")) return null;
+  const { styles, problems } = headingStylesFromBlocks([{ id: "", properties: tokens }]);
+  return { style: styles[0] ?? null, problems: problems.map(p => p.replace(/^note : /, "")), text: withoutTokens(line, tokens).trim() };
 }
 
 // ── the lines that name one ───────────────────────────────────────────────────
@@ -169,28 +232,38 @@ const ATX = /^(#{1,6})\s+(.*)$/;
 /** A thematic break (`---`, `***`, `___`, spaced or not), and what follows it on its line. */
 const RULE = /^ {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*(.*)$/;
 
-/** What a line says about its style: a heading's or a rule's `[heading::x]` / `[rule::x]`, and the line without it. */
+/** What a line says about its style: a heading's or a rule's `[heading::x]` / `[rule::x]`, its own fields, and the line without them. */
 export interface StyledLine {
   kind: "heading" | "rule";
   /** The heading's level; 0 for a rule. */
   level: number;
   /** The style the line names, lowercased, or null when it names none. */
   style: string | null;
-  /** The line without that property (the heading's text keeps any other). */
+  /** The line's own `[heading-<field>::…]` (HEADING_FIELD_KEYS), in order: they restyle this heading only. */
+  fields: { key: string; value: string }[];
+  /** The line without those properties (the heading's text keeps any other). */
   text: string;
 }
 
 /**
- * The style a heading or rule line names: `## Your calls [heading::band]`, `--- [rule::fade]`. Null when the line is
- * neither (a rule with anything but its property after it is text, as Markdown reads it).
+ * The style a heading or rule line names, and its own fields: `## Your calls [heading::band]`,
+ * `## Odd jobs [heading::dots] [heading-tone::amber]`, `## Plain [heading-tone::green]`, `--- [rule::fade]`. Null when
+ * the line is neither (a rule with anything but its properties after it is text, as Markdown reads it), and for a line
+ * that declares a style (headingStyleDeclaration).
  */
 export function styledLine(line: string): StyledLine | null {
   const h = ATX.exec(line);
   const r = h ? null : RULE.exec(line);
   if (!h && !r) return null;
   const key = h ? "heading" : "rule";
-  const token = propertyTokensInLine(line).find(t => t.key === key);
-  const text = token ? (line.slice(0, token.start).trimEnd() + (line.slice(token.end).trim() ? " " + line.slice(token.end).trim() : "")) : line;
+  if (headingStyleDeclaration(line)) return null;
+  const tokens = liveTokensInLine(line);
+  const named = tokens.find(t => t.key === key);
+  const own = tokens.filter(t => t === named || FIELD_KEYS.has(t.key));
+  const text = withoutTokens(line, own);
   if (r && RULE.exec(text)![2]!.trim()) return null;
-  return { kind: key, level: h ? h[1]!.length : 0, style: token ? token.value.toLowerCase() : null, text };
+  return {
+    kind: key, level: h ? h[1]!.length : 0, style: named ? named.value.toLowerCase() : null,
+    fields: own.filter(t => t !== named).map(t => ({ key: t.key, value: t.value })), text,
+  };
 }

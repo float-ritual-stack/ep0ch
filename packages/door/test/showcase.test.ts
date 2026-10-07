@@ -186,9 +186,9 @@ describe.skipIf(!outliner)("the showcase seed", () => {
       const lines = await drawn(w), text = lines.join("\n");
       const wide = lines.filter(l => Bun.stringWidth(l) > w);
       expect(wide, `at ${w}: ${wide.slice(0, 3).join(" | ")}`).toEqual([]);
-      expect(text).not.toMatch(/\[heading::|\[rule::/);
+      expect(text).not.toMatch(/\[heading::|\[heading-|\[rule::/);
       if (w === 40) {
-        for (const h of ["# Your calls", "## The plot", "## Beds", "### Water butts", "## Seed order", "## Compost", "## Plain"]) expect(lines.map(l => l.trim())).toContain(`▾ ${h}`);
+        for (const h of ["# Your calls", "## The plot", "## Beds", "### Water butts", "## Seed order", "## Compost", "## Odd jobs", "## Tool shed", "## Plain"]) expect(lines.map(l => l.trim())).toContain(`▾ ${h}`);
         expect(lines.map(l => l.trim()).filter(l => l === "---").length).toBe(2);
       } else {
         expect(text).toMatch(/[▓▒░]{3}.*Y O U R   C A L L S.*[▓▒░]{3}/);
@@ -197,16 +197,21 @@ describe.skipIf(!outliner)("the showcase seed", () => {
         // The styled rule fades in from both edges; the plain one is as written.
         expect(lines.some(l => /^ ?▓.*▓\s*$/.test(l) && !/[A-Za-z]/.test(l))).toBe(true);
         expect(text).toContain("▾ ## Plain");
+        // One heading's own fields: Odd jobs on the dots band, Tool shed on one row of uptime bars, right-aligned.
+        expect(text).toMatch(/^ +▾ Odd jobs +·/m);
+        expect(text).toMatch(/[▓▒░·].* ▾ Tool shed\s*$/m);
         expect(text).not.toContain("## Beds");
       }
     }
-    // The plot style is a note in the outline: dots on the top row. Restyled to the rule pattern, the seed order is drawn
-    // on a rule band, by the same door.
+    // The plot style is declared on a line of the note (drawn as what it declares, not its tokens): dots on the top
+    // row. Restyled to the rule pattern there, the seed order is drawn on a rule band, by the same door.
+    expect((await drawn(100)).join("\n")).toContain("style plot  dots · 2 rows · left/top · green");
     const before = (await drawn(100)).find(l => l.includes("Seed order"))!;
     expect(before).toMatch(/Seed order.*·/);
-    const style = (await board.byProp("heading-style", "plot", 5))[0]!;
-    const { revision, tokens } = await board.propertyTokens(style.id, "heading-pattern");
-    await board.patchProperties(style.id, revision, [{ op: "replace", ordinal: tokens[0]!.ordinal, value: "rule" }], { kind: "user" });
+    const style = seeded.notes.headings.id;
+    const { revision, tokens } = await board.propertyTokens(style, "heading-pattern");
+    expect(tokens[0]!.value).toBe("dots");
+    await board.patchProperties(style, revision, [{ op: "replace", ordinal: tokens[0]!.ordinal, value: "rule" }], { kind: "user" });
     // A door that connects now (as `ep0ch show` does) asks for the outline's styles and draws the new look.
     const fresh = new SocketBoard(scratch.sock);
     try {

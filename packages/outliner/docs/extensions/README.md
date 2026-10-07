@@ -471,7 +471,7 @@ after the last).
 |---|---|
 | `place` | `above`, `below`, `replace` (in its place) or `around`. Default: a band or divider replaces, a box goes around, the rest above. A whole block's `replace` and `around` are `above` |
 | `use` | a built-in decoration, no code: `band` (a heading in three rows of glyph track, PIE-599's banner), `divider` (one row of track), `card` (the block's title and `fields`), `badge`, `text`, `box` |
-| `style` | a `band` or `divider` draws with this heading style ([heading styles](../../../../CHANGELOG.md), PIE-599: `[heading-style::name]` notes and the built-ins `band`, `tab`, `waffle`, `uptime`, `dots`, `rule`, `fade`); `pattern`, `align` and `tone` go over it. Default: `band` (a divider: `fade`) |
+| `style` | a `band` or `divider` draws with this heading style ([heading styles](../../../../CHANGELOG.md), PIE-599: `[heading-style::name]` declarations and the built-ins `band`, `tab`, `waffle`, `uptime`, `dots`, `rule`, `fade`); `pattern`, `align` and `tone` go over it. Default: `band` (a divider: `fade`) |
 | `label`, `tone`, `fields`, `pattern`, `align` | the built-in's words (a template: `{title}`, `{text}`, `{level}`, `{$1}`, any property `{status}`), tone, the card's property keys, the band's glyphs (`stack`, `waffle`, `uptime`, `dots`, `rule`) and where its words sit |
 | `deadline` | a code rule's call |
 
@@ -532,7 +532,7 @@ Shouting [rule-name::shouting] [rule-text::(\S.*?)!!!$] [rule-decorate::text] [r
 `rule-decorate`, `rule-place`, `rule-label`, `rule-tone`, `rule-fields`, `rule-pattern`, `rule-align` and `rule-style` (a heading style by name) draw. A
 rule note never decorates rule notes' own words. What can't be used is listed in `extensions.list`'s
 `ruleProblems` (the door says it once), and writing a rule note sends `extensions.changed`, so readers draw again.
-Heading styles (PIE-599) are the outline's own list (`[heading-style::name]` notes, `headings.styles`); a rule's `band` and `track` are drawn by the same drawer and name a style with `rule-style` (a `--- [rule::fade]` divider's `[rule::…]` is that feature's, which is why a rule note is `[rule-name::…]`). A code rule is the tier above it.
+Heading styles (PIE-599) are the outline's own list (`[heading-style::name]` on a note or any line of one, `headings.styles`); a rule's `band` and `track` are drawn by the same drawer and name a style with `rule-style` (a `--- [rule::fade]` divider's `[rule::…]` is that feature's, which is why a rule note is `[rule-name::…]`). A code rule is the tier above it.
 
 ## Actions
 

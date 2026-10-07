@@ -329,8 +329,14 @@ columns, or when the heading doesn't fit, it draws the heading or rule as writte
 spaced capitals), `tab` (left, top row), `waffle`, `uptime`, `dots`, `rule`, and `fade` (one row, for `---`). Put a
 blank line before a styled `---`.
 
-The outline declares its own styles the way it declares callout types: a note
+One heading can change a field for itself alone: `## Odd jobs [heading::dots] [heading-tone::amber]`. A field on a
+heading that names no style restyles its level's default, else the base style (`## Odd jobs [heading-pattern::dots]`).
+The fields leave the drawn heading; any other property on it draws as a chip after it.
+
+The outline declares its own styles the way it declares callout types: `[heading-style::name]` with its fields on
+the same line, on any line of any note (or as a note's own properties):
 `Plot style [heading-style::plot] [heading-pattern::dots] [heading-align::left] [heading-row::top] [heading-tone::green]`.
+The door draws that line as what it declares (a chip summary and a small band); raw and the editor show the tokens.
 
 | Property | Values |
 |---|---|

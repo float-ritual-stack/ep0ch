@@ -10,6 +10,16 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Heading styles as you write them: one heading's own fields, and a style declared on any line (PIE-599)
+
+- **One heading, its own look.** `## Odd jobs [heading::dots] [heading-tone::amber]` takes amber for itself; any
+  `heading-*` field on a heading or `---` restyles it alone (over its level's default, else the base style), and
+  leaves the drawn heading. Any other property on a banded heading draws as a chip after it, whole.
+- **Declare a style on any line.** `# Plot style [heading-style::plot] [heading-pattern::dots] [heading-rows::2]`,
+  anywhere in any note, declares `plot` with that line's fields (a note's own properties still do). The door draws
+  the line as what it declares, a chip summary and a small band; raw and the editor show the tokens.
+- **Run:** PROTOCOL 105: restart the outline host and every door after `ep0ch install --apply`, on both machines.
+
 ### MCP gateway fixes from the first claude.ai run (PIE-620)
 
 - **`list_outlines` lists pie.** It reads this machine's outlines from the outlines folder instead of asking the host,

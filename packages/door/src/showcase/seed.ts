@@ -775,7 +775,6 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
     await applyWrite(board, { tool: "outline_comment", blockId: notes.remoteWrites.id, input: { quote: "two bags of compost", body: "Was that the peat-free kind?", requestId: "showcase-remote-comment" } }, o);
   }
   notes.headings = await make(notes.root.id, HEADINGS);
-  await make(notes.headings.id, HEADING_STYLE_NOTE);
   await seedTickets(board, opts.ticketsConfig);
   notes.tickets = await make(notes.root.id, TICKETS);
   await make(notes.tickets.id, TICKET_PAGE);
@@ -824,14 +823,20 @@ export async function findShowcase(board: SocketBoard): Promise<Msg | null> {
   return hits.find(m => m.parentId === null) ?? null;
 }
 
+/** The outline's own style, the seed order's, declared on a line of the note as a person writes one: dots, two rows, left, on the top row, green. */
+export const HEADING_STYLE_LINE = "# Plot style [heading-style::plot] [heading-pattern::dots] [heading-rows::2] [heading-align::left] [heading-row::top] [heading-tone::green]";
+
 /**
- * Heading styles (PIE-599): every built-in pattern, alignment and row on a plain Markdown heading, a styled rule, a plain
- * one, and a style the outline declares (the child note) so the look changes with no door change; each with a body to
- * fold.
+ * Heading styles (PIE-599): the three ways to write one, each working. A style named on a heading (every built-in
+ * pattern, alignment and row), one heading's own fields (`[heading-tone::amber]` over its style, and fields alone over
+ * the base style), and a style the outline declares on a line of this note (the seed order's), so the look changes
+ * with no door change; a styled rule, a plain one and a plain heading; each with a body to fold.
  */
 const HEADINGS = [
   `${SEED.headings} [page::${SEED.headings}]`,
-  "A heading keeps its Markdown; a style from the outline draws it inside a band. Narrow, it is the heading as written.",
+  "A heading keeps its Markdown; a style draws it inside a band. Name a style, give one heading its own fields, or declare a style on any line. Narrow, it is the heading as written.",
+  "",
+  HEADING_STYLE_LINE,
   "",
   "# Your calls [heading::band]",
   "The ones only you can make this week.",
@@ -853,8 +858,11 @@ const HEADINGS = [
   "## Compost [heading::rule]",
   "Turn the left bay in April.",
   "",
-  "## Odd jobs [heading::dots]",
+  "## Odd jobs [heading::dots] [heading-tone::amber]",
   "Oil the shed hinge.",
+  "",
+  "## Tool shed [heading-pattern::uptime] [heading-rows::1] [heading-align::right]",
+  "The spade, the fork, the good trowel.",
   "",
   "---",
   "",
@@ -863,9 +871,6 @@ const HEADINGS = [
   "## Plain",
   "As Markdown writes it.",
 ].join("\n");
-/** The outline's own style, the seed order's: dots, left, on the top row, green. */
-export const HEADING_STYLE_NOTE = "Plot heading style [heading-style::plot] [heading-pattern::dots] [heading-align::left] [heading-row::top] [heading-tone::green]";
-
 /** The first line without its property tokens: how the seed names a note. */
 export const titleOf = (m: Msg) => titleLine(m.text).text.replace(/\s{2,}/g, " ").trim();
 
