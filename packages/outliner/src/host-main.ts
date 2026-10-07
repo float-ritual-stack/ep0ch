@@ -2,7 +2,7 @@ import { HerdrRuntimeRegistry } from "./herdr-registry";
 import { HerdrRegistryRunner } from "./herdr-runtime";
 import { OutlineHost } from "./outline-host";
 import { resolveOutlinesFolder } from "./paths";
-import { recoverPaused, retryRecovery, stuckPauses } from "./litestream-guard";
+import { anyPaused, recoverPaused, retryRecovery, stuckPauses } from "./litestream-guard";
 import { watchEventLoop } from "./loop-watch";
 
 /*
@@ -66,9 +66,12 @@ try {
     for (const unit of recoverPaused()) console.error(`Litestream ${unit}: started again (a change paused it and didn't finish)`);
     const stuck = stuckPauses();
     for (const s of stuck) console.error(`Litestream ${s.unit}: still stopped, it didn't start (${s.error}); trying again; by hand: ${s.fix}`);
-    if (stuck.length) retryRecovery();
+    if (stuck.length || anyPaused()) retryRecovery();
   }
   catch (error) { console.error(`Litestream guard: ${(error as Error).message}`); }
+  // A short command (the CLI) that couldn't start Litestream again exits with its retry: this host looks every minute.
+  const sweep = setInterval(() => { try { if (anyPaused()) retryRecovery(); } catch (error) { console.error(`Litestream guard: ${(error as Error).message}`); } }, 60_000);
+  sweep.unref();
   herdrRunner?.start();
   console.log(JSON.stringify({ status: "ready", socket: host.socketPath, outlines: host.outlinesFolder, ...(defaultOutline ? { defaultOutline } : {}) }));
 

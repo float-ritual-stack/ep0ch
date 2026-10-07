@@ -6,7 +6,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
-import { cancelRetry, metaDir, recoverPaused, replicatorsFor, running, stuckPauses, withLitestreamPaused } from "../src/litestream-guard";
+import { anyPaused, cancelRetry, metaDir, recoverPaused, replicatorsFor, running, stuckPauses, withLitestreamPaused } from "../src/litestream-guard";
 import { instancesIn, litestreamUnits, templateInstance } from "../src/litestream-units";
 
 const root = mkdtempSync(join(tmpdir(), "litestream-guard-"));
@@ -156,5 +156,17 @@ describe("the Litestream guard", () => {
     expect(stuckPauses(o(sd.run))).toMatchObject([{ attempts: 1 }]);
     expect(recoverPaused(o(sd.run))).toEqual(["litestream.service"]);
     expect(pausedUnits()).toEqual([]);
+  });
+
+  test("records that can't be read are an error, never \"none stuck\"; a pause a live change holds is still pending", () => {
+    const broken = join(root, "broken");
+    mkdirSync(broken, { recursive: true });
+    writeFileSync(join(broken, "pauses.sqlite"), "not a database");
+    expect(() => stuckPauses({ records: broken })).toThrow();
+    expect(stuckPauses({ records: join(root, "none-yet") })).toEqual([]);
+    pause({ unit: "litestream.service", kind: "systemd", path: "/x", holders: [`${process.pid}:9`], since: "2026-05-02T09:00:00Z" });
+    expect(stuckPauses(o(fakeSystemd({ active: true }).run))).toEqual([]);
+    expect(anyPaused(o(fakeSystemd({ active: true }).run))).toBe(true);
+    const db = pauses(); db.run("DELETE FROM pauses"); db.close();
   });
 });

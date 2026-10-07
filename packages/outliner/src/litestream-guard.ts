@@ -133,18 +133,23 @@ export function recoverPaused(o: GuardOptions = {}): string[] {
   });
 }
 
-/** The replicators whose start failed and wait for a retry (read only: nothing is made or changed). */
-export function stuckPauses(o: GuardOptions = {}): StuckPause[] {
-  const file = join(recordsOf(o), "pauses.sqlite"), alive = o.alive ?? aliveDefault, uid = process.getuid?.() ?? 0;
+/** Every pause record, read only (nothing is made or changed); `[]` when there is no file, an error when it can't be read. */
+function readPauses(o: GuardOptions): PauseRecord[] {
+  const file = join(recordsOf(o), "pauses.sqlite");
   if (!existsSync(file)) return [];
-  let db: Database | undefined;
-  try {
-    db = new Database(file, { readonly: true });
-    return (db.query("SELECT record FROM pauses").all() as { record: string }[]).map(r => JSON.parse(r.record) as PauseRecord)
-      .filter(r => r.failed && !r.holders.some(h => alive(pidOf(h))))
-      .map(r => ({ unit: r.unit, since: r.since, failedAt: r.failed!.at, error: r.failed!.error, attempts: r.failed!.attempts, fix: said(startArgv({ kind: r.kind, name: r.unit, path: r.path } as LitestreamUnit, uid)) }));
-  } catch { return []; } finally { db?.close(); }
+  const db = new Database(file, { readonly: true });
+  try { return (db.query("SELECT record FROM pauses").all() as { record: string }[]).map(r => JSON.parse(r.record) as PauseRecord); } finally { db.close(); }
 }
+
+/** The replicators whose start failed and wait for a retry, with no live change holding them. Throws when the records can't be read: that is not "none stuck". */
+export function stuckPauses(o: GuardOptions = {}): StuckPause[] {
+  const alive = o.alive ?? aliveDefault, uid = process.getuid?.() ?? 0;
+  return readPauses(o).filter(r => r.failed && !r.holders.some(h => alive(pidOf(h))))
+    .map(r => ({ unit: r.unit, since: r.since, failedAt: r.failed!.at, error: r.failed!.error, attempts: r.failed!.attempts, fix: said(startArgv({ kind: r.kind, name: r.unit, path: r.path } as LitestreamUnit, uid)) }));
+}
+
+/** Whether any pause is still on record, held by a live change or not. */
+export const anyPaused = (o: GuardOptions = {}): boolean => readPauses(o).length > 0;
 
 let retryTimer: ReturnType<typeof setTimeout> | undefined;
 /** Stops the schedule (the host's stop, a test). */
@@ -153,7 +158,7 @@ export function cancelRetry(): void { if (retryTimer) clearTimeout(retryTimer); 
 export const RETRY_DELAYS_MS = [5_000, 15_000, 60_000, 300_000, 900_000];
 
 /**
- * Tries again, with growing waits, until every replicator a change left stopped runs again: a start that failed (the
+ * Tries again, with growing waits, until no pause is on record (every replicator a change left stopped runs again): a start that failed (the
  * unit busy, systemd restarting) is usually fine a moment later. Each failure is said to the log; the timer never
  * keeps a process alive (a short command leaves it to the host's start and the backup job). One schedule at a time.
  * Returns when the first try has been scheduled, and never throws.
@@ -166,9 +171,9 @@ export function retryRecovery(o: GuardOptions = {}): void {
       retryTimer = undefined;
       try {
         for (const unit of recoverPaused(o)) log(`Litestream ${unit}: started again (try ${n + 1})`);
-        const stuck = stuckPauses(o);
-        for (const s of stuck) log(`Litestream ${s.unit}: still stopped after try ${n + 1}: ${s.error}; start it: ${s.fix}`);
-        if (stuck.length) attempt(n + 1);
+        for (const s of stuckPauses(o)) log(`Litestream ${s.unit}: still stopped after try ${n + 1}: ${s.error}; start it: ${s.fix}`);
+        // Until no record is left: one a live change holds now may be orphaned when that change dies.
+        if (anyPaused(o)) attempt(n + 1);
       } catch (error) { log(`litestream guard: ${(error as Error).message}`); attempt(n + 1); }
     }, delays[Math.min(n, delays.length - 1)]!);
     retryTimer.unref?.();
