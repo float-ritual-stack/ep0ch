@@ -20,7 +20,7 @@ import { outlineState, readState, writeState } from "../state";
 import { C, fg, pad, paint, RESET, selected, visible } from "../style";
 import { ch, isUp, isDown, type Key } from "../term";
 import { ago, wrap } from "../text";
-import { RowPresses, scrolled, sideways, wheelRows, type RowPress } from "../scroll";
+import { lastTop, RowPresses, scrolled, sideways, wheelRows, type RowPress } from "../scroll";
 import { withoutPropertyTokens } from "@ep0ch/outline-core/property-grammar";
 import { ReaderPane, runOwn, type DeskApi, type PaneView } from "../desk/panes";
 import type { ScreenSpec } from "../desk/screen-spec";
@@ -419,7 +419,8 @@ export class RiverColumn extends ReaderPane {
       if (first < this.top) this.top = Math.max(0, first - (this.source.kind === "block" && this.sel === 0 ? first : 0));
       if (last >= this.top + rows) this.top = last - rows + 1;
     }
-    this.maxTop = Math.max(0, all.length - rows);
+    // Past the end as every reader scrolls (PIE-622, reader.overscroll): the last row up to the middle.
+    this.maxTop = lastTop(all.length, rows);
     this.top = scrolled(this.top, 0, this.maxTop);
     this.drawn = { lines: all.map(l => l.text), w };
     if (this.text && this.text.w !== w) this.text = null;

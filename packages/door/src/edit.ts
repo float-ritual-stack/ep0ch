@@ -11,7 +11,7 @@ import { ActionRefused, actionSet, def, type ArgsOfSet } from "./surface/actions
 import { isCopyKey, SELECT_BG } from "./surface/selection";
 import { stateDir } from "./state";
 import { bg, C, chip, fg, RESET } from "./style";
-import { scrolled } from "./scroll";
+import { lastTop, scrolled, scrollOff } from "./scroll";
 import type { Key } from "./term";
 import { applyLocated, blockStartAt, locateSpans, mapOffset, markStart, type DraftPatchSpan, type LocatedSpan } from "@ep0ch/outline-core/draft-patch-compare";
 
@@ -679,10 +679,9 @@ export class Draft {
     this.row = p.row; this.col = p.col;
   }
 
-  /** The wheel: the view moves `by` rows; the cursor stays where it is (typing brings it back). */
+  /** The wheel: the view moves `by` rows, past the end as a reader does (PIE-622); the cursor stays where it is (typing brings it back). */
   scrollBy(by: number) {
-    const max = Math.max(0, this.shown.rows.length - this.shown.h);
-    this.top = scrolled(this.top, by, max);
+    this.top = scrolled(this.top, by, lastTop(this.shown.rows.length, this.shown.h));
     this.follow = false;
   }
 
@@ -697,11 +696,14 @@ export class Draft {
     const rows = this.layout(w1);
     this.shown = { w: w1, h: Math.max(1, h), rows };
     const at = this.cursorIn(rows), sel = this.selection();
+    // Following the cursor, the view keeps a few rows around it (scrolloff, PIE-622): on the last line too, where
+    // the rows under it are the blank ones past the end (reader.overscroll; none keeps the last line on the edge).
     if (this.follow) {
-      if (at.vi < this.top) this.top = at.vi;
-      if (at.vi >= this.top + h) this.top = at.vi - h + 1;
+      const off = scrollOff(h);
+      if (at.vi - off < this.top) this.top = at.vi - off;
+      if (at.vi + off >= this.top + h) this.top = at.vi + off - h + 1;
     }
-    this.top = Math.max(0, Math.min(this.top, Math.max(0, rows.length - h)));
+    this.top = Math.max(0, Math.min(this.top, lastTop(rows.length, h)));
     this.cursorRow = Math.max(0, Math.min(h - 1, at.vi - this.top));
     const out: string[] = [];
     // Agents' patches just landed: their text lit, and who made it at the end of their last row.

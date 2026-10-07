@@ -18,6 +18,7 @@ import type { TermInfo } from "./term";
 import { setTheme, startTheme } from "./theme";
 import { useEditArm } from "./arm";
 import { useHeroHeader } from "./surface/hero-header";
+import { useOverscroll } from "./scroll";
 import { hostname } from "node:os";
 import { Term } from "./term";
 import { Mirror } from "./mirror";
@@ -60,6 +61,7 @@ export async function openDoor(o: DoorOpen): Promise<Door> {
   // Whether e arms an edit first, and for how long (edit.arm.set keeps it; EP0CH_EDIT_ARM overrides it).
   useEditArm(readState<{ ms?: number }>("edit-arm.json")?.ms);
   useHeroHeader(readState<{ on?: boolean; mode?: string }>("reader-hero.json"));
+  useOverscroll(readState<{ rows?: unknown }>("reader-overscroll.json")?.rows);
   const app: App = new App(o.term, o.board, lastCall, () => o.done(app));
   if (o.service) {
     app.host = o.service.host;

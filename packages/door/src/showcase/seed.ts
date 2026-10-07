@@ -47,6 +47,7 @@ export const SEED = {
   headings: "Headings and dividers",
   rules: "Allotment committee, Saturday",
   remoteWrites: "Remote writes and the netmail queue",
+  overscroll: "The long row of runner beans",
 } as const;
 export type SeedName = keyof typeof SEED;
 
@@ -308,6 +309,24 @@ export const NEW_NOTES = [
   "A page nobody has written yet: [[Seed swap ledger]]. The first ⏎ or click on it offers it; the next makes `Seed swap ledger [page::Seed swap ledger]` in the Inbox and opens it. From then on the link finds it.",
   "",
   "A note whose first line is only `[page::2026-03-12]` names itself: ⏎ on that line in the editor, or the save, makes it `2026-03-12 [page::2026-03-12]`. A title already there is kept.",
+].join("\n");
+
+/**
+ * The overscroll note (PIE-622): long enough to scroll, so End puts its last line on the reader's bottom edge and,
+ * pressed again, brings it up to the middle with blank rows under it.
+ */
+export const OVERSCROLL = [
+  SEED.overscroll,
+  "",
+  "End (or G) goes to the last line: it sits on the bottom edge. Press it again, or keep scrolling with the wheel, j or space, and the last line comes up to the middle of the reader, with nothing under it. Home comes back to the top.",
+  "",
+  "`ep0ch act reader.overscroll rows=none` stops every reader and draft at its last line as before; `rows=half` is the default, and a number of rows scrolls that far past the end. It's kept for the next start, as the theme is.",
+  "",
+  "In a draft (e), typing on the last line keeps a few blank rows under the cursor, and the wheel scrolls past the end as the reader does.",
+  "",
+  ...Array.from({ length: 36 }, (_, i) => `- Cane ${i + 1}: ${["two plants, tied in", "flowers setting", "first pods, thin them", "picked on Saturday"][i % 4]}.`),
+  "",
+  "The last cane: the compost bin is behind it.",
 ].join("\n");
 
 /** The remote client the showcase's remote writes come from (PIE-615), and the line its patch proposes to change. */
@@ -775,6 +794,7 @@ export async function seedShowcase(board: SocketBoard, opts: { ticketsConfig?: s
     await applyWrite(board, { tool: "outline_comment", blockId: notes.remoteWrites.id, input: { quote: "two bags of compost", body: "Was that the peat-free kind?", requestId: "showcase-remote-comment" } }, o);
   }
   notes.headings = await make(notes.root.id, HEADINGS);
+  notes.overscroll = await make(notes.root.id, OVERSCROLL);
   await seedTickets(board, opts.ticketsConfig);
   notes.tickets = await make(notes.root.id, TICKETS);
   await make(notes.tickets.id, TICKET_PAGE);

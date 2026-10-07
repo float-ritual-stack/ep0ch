@@ -107,6 +107,14 @@ export const SECTIONS: Section[] = [
     },
   },
   {
+    key: "scroll", need: "scroll a view: a note's last line up off the bottom edge to the middle, room kept under a draft's cursor", part: "past the end (PIE-622, src/scroll.ts): lastTop and endTop, the one rule every reader (NoteSurface, a river column) and draft (Draft.render, scrollOff) scrolls by; End, G and scroll to=end stop on the edge first, then go on to the middle; reader.overscroll half|none|<rows> sets how far, kept like the theme", files: "src/scroll.ts, src/surface/note.ts, src/edit.ts, src/river/column.ts, src/screens.ts (reader.overscroll)",
+    aside: "End (or G) puts the last cane on the bottom edge; End again brings it up to the middle, blank under it · the wheel, j and space go on past the edge too · e opens it as a draft: typing on the last line keeps rows under the cursor · `act reader.overscroll rows=none` stops at the edge everywhere, `rows=half` (the default) or a number of rows (kept for the next start) · an agent's view.get says atEnd and past",
+    stage(n, show) {
+      const a = new ReaderPane(), b = new ReaderPane();
+      return deskOf({ title: "showcase · past the end", panes: [a, b], names: ["reader", "short"], layout: ([x, y]) => row(0.62, x!, y!) }, show, [[a, n.overscroll], [b, n.shed]]);
+    },
+  },
+  {
     key: "actions", need: "let a person or agent do anything", part: "the action registry: ActionDef in an ActionSet; keys and `act` call it", files: "src/surface/actions.ts, src/control.ts",
     stage(n, show) {
       const r = new ReaderPane();

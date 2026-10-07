@@ -377,6 +377,8 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     note: ["Allotment notebook", "the same NoteSurface, as the BBS reader · src/screens.ts", "Subj: Allotment notebook"],
     // The detail screen spec on the notebook: the detail tile's own frame and keys around the same surface.
     detail: ["─ detail ─", "Allotment notebook", "Our plot at the Elm Row allotments.", "p follow · [ ] elements"],
+    // A long note to scroll past the end of (PIE-622), a short one beside it.
+    scroll: ["The long row of runner beans", "End (or G) goes to the last line", "Bike shed"],
     // The list scrolls: the note set's header and the registry are on screen; the desk set is further down.
     actions: ["NOTE_ACTIONS · src/surface/note.ts", "the action registry · src/surface/actions.ts"],
     edit: ["Kitchen whiteboard", "properties · 6"],
@@ -457,11 +459,11 @@ describe.skipIf(!outliner)("the showcase screen", () => {
   });
 
   test("editing works in a section, by keys: e, type, ctrl+s writes to the showcase outline", async () => {
-    ch("4"); press({ kind: "enter" });
+    ch("5"); press({ kind: "enter" });
     expect(S().focus).toBe("stage");
     // e arms the edit (edit.arm): the reader's frame asks, nothing opens until ⏎.
     ch("e");
-    const desk = () => S().stages.get(3).top;
+    const desk = () => S().stages.get(4).top;
     expect(screen()).toContain("✎ edit? ");
     expect(desk().describe().panes[0].editing).toBeFalsy();
     press({ kind: "enter" });
@@ -528,6 +530,45 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     expect(screen()).toContain("▾ # Your calls");
     for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
     expect(S().focus).toBe("index");
+  }, 20_000);
+
+  test("the scroll section (PIE-622): End puts the last line on the edge, End again brings it to the middle, blank under it; by keys and act; reader.overscroll none stops at the edge", async () => {
+    (app as any).lastInput = 0;
+    expect(await app.act({ action: "section", args: { name: "scroll" }, as: "test-agent" })).toMatchObject({ key: "scroll" });
+    await until(() => screen().includes("End (or G) goes to the last line"), "the long note", 8000);
+    const scroll = (args: Record<string, unknown>) => app.act({ action: "scroll", args, tile: "reader", as: "test-agent" }) as Promise<any>;
+    // What an agent's view.get says (the viewport the person's keys left, read once it's painted).
+    const view = async () => { screen(); return ((await app.act({ action: "view.get", tile: "reader", as: "test-agent" })) as any).viewport; };
+    // (The agent's first act adds its line to the reader's header, a row less room: read where it is once painted.)
+    expect(await scroll({ to: "end" })).toMatchObject({ atEnd: true, past: 0 });
+    await until(() => screen().includes("The last cane"), "the last line drawn", 5000);
+    const edge = await view();
+    expect(edge).toMatchObject({ atEnd: true, past: 0, top: edge.total - edge.room });
+    const half = await scroll({ to: "end" });
+    expect(half).toMatchObject({ atEnd: true, past: Math.floor(edge.room / 2), top: edge.top + Math.floor(edge.room / 2) });
+    expect(await view()).toMatchObject({ top: half.top, past: half.past });
+    // The wheel's rows past that stop there.
+    expect(await scroll({ by: 5 })).toMatchObject({ top: half.top });
+    // The same by the person's keys: Home, End, End.
+    press({ kind: "enter" });
+    expect(S().focus).toBe("stage");
+    press({ kind: "home" });
+    expect(await view()).toMatchObject({ top: 0, atEnd: false });
+    press({ kind: "end" });
+    expect(await view()).toMatchObject({ top: edge.top, atEnd: true, past: 0 });
+    ch("G");
+    expect(await view()).toMatchObject({ top: half.top, atEnd: true, past: half.past });
+    for (let i = 0; i < 3 && S().focus === "stage"; i++) press({ kind: "esc" });
+    // none: kept for the next start, and End stays on the edge.
+    (app as any).lastInput = 0;
+    expect(await app.act({ action: "reader.overscroll", args: { rows: "none" }, as: "test-agent" })).toEqual({ rows: "none" });
+    expect(JSON.parse(readFileSync(join(process.env.EP0CH_STATE!, "reader-overscroll.json"), "utf8"))).toEqual({ rows: "none" });
+    screen();
+    expect(await scroll({ to: "end" })).toMatchObject({ top: edge.top, past: 0 });
+    expect(await scroll({ to: "end" })).toMatchObject({ top: edge.top, past: 0 });
+    await expect(app.act({ action: "reader.overscroll", args: { rows: "most" }, as: "test-agent" })).rejects.toThrow(/half, none or a number/);
+    expect(await app.act({ action: "reader.overscroll", args: { rows: 4 }, as: "test-agent" })).toEqual({ rows: 4 });
+    expect(await app.act({ action: "reader.overscroll", args: { rows: "half" }, as: "test-agent" })).toEqual({ rows: "half" });
   }, 20_000);
 
   test("the actions section's registry list: the wheel and keys pick through registry.pick; an agent's pick leaves the person's selection", async () => {

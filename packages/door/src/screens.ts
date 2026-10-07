@@ -12,6 +12,8 @@ import { nextTheme, theme, THEME_NAMES, themeNamed, THEMES } from "./theme";
 import { ARM_MS, editArmMs, useEditArm } from "./arm";
 import { HERO_MODES, heroHeaderMode, heroHeaderOn, useHeroHeader, type HeroMode } from "./surface/hero-header";
 import { writeState } from "./state";
+import { overscroll, overscrollOf, useOverscroll } from "./scroll";
+import { overflows, scrollPct } from "./canvas";
 import { PROTOCOL } from "@ep0ch/outline-core/protocol";
 import { ch, isUp, isDown, type Key } from "./term";
 import { heatmap } from "./stats";
@@ -638,6 +640,21 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
       return { on: heroHeaderOn(), mode: heroHeaderMode() };
     },
   }),
+  "reader.overscroll": def({
+    summary: "how far readers (detail, preview, the desk's, a river column, the BBS reader) and drafts scroll past their last line (PIE-622): rows=half (the last line can come up to the middle, the default), none (it stops on the bottom edge), or a number of rows. End or G goes to the last line first, and again past it. Every reader and draft at once, kept for the next start",
+    keys: "`ep0ch act reader.overscroll rows=none`, `ep0ch act reader.overscroll rows=half`, `ep0ch act reader.overscroll rows=5`",
+    touches: "screen", replay: "ask", says: out => `· readers scroll ${out.rows === "none" ? "to their last line" : out.rows === "half" ? "past their end to the middle" : `${out.rows} rows past their end`}`,
+    args: { rows: { type: "string", about: "half, none, or a number of rows (0 to 200)" } },
+    run({ rows }, { ctx }) {
+      const want = overscrollOf(rows);
+      if (want === null) throw new ActionRefused(`rows is half, none or a number of rows from 0 to 200, not ${JSON.stringify(rows)}`);
+      useOverscroll(want);
+      writeState("reader-overscroll.json", { rows: want });
+      ctx.flash(want === "none" ? "readers and drafts stop at their last line" : want === "half" ? "readers and drafts scroll past their end to the middle" : `readers and drafts scroll ${want} rows past their end`);
+      ctx.redraw();
+      return { rows: overscroll() };
+    },
+  }),
   "theme.cycle": def({
     summary: `the next theme: ${THEME_NAMES.join(" → ")} (theme.set picks one by name)`,
     keys: "alt+t on every screen; click on the status bar's theme",
@@ -1071,7 +1088,7 @@ export class MessageReader implements Screen {
    */
   private hint(scroll: { top: number; room: number; total: number } | undefined, w: number): string {
     const s = this.surface;
-    const more = scroll && scroll.total > scroll.room ? ` · ${Math.round(((scroll.top + scroll.room) / scroll.total) * 100)}%` : "";
+    const more = overflows(scroll) ? ` · ${scrollPct(scroll)}` : "";
     return pad(fg(C.dark) + "  " + s.hint("n next · p prev · t thread · ") + (s.holdsKeys ? "" : `${more} · q back`) + RESET, w);
   }
 

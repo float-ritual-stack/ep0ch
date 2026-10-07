@@ -6,7 +6,7 @@
 // A host gives it a rectangle of any width and a SurfaceHost (the door's context, a redraw, and where
 // a followed link opens). Everything a person can do here is also a named action (NOTE_ACTIONS), so an
 // agent driving the door through its control socket goes through the same code as the keys.
-import { onlyScrolled, scrolled, wheelRows } from "../scroll";
+import { onlyScrolled, overscrollRows, scrolled, wheelRows } from "../scroll";
 import type { Ctx } from "../app";
 import { subject, titleLine, type Msg } from "../board";
 import { editArmMs } from "../arm";
@@ -362,6 +362,10 @@ export class NoteSurface {
   scroll = 0;
   /** The furthest the note scrolls, from its last render (keys and the wheel stop there). */
   private maxScroll = Infinity;
+  /** Where End stops first, from its last render: the last line on the bottom edge (PIE-622). */
+  private endScroll = Infinity;
+  /** End was pressed (scrollEnd): the stop it goes to, placed at the next render. */
+  private endWant: "edge" | "last" | null = null;
   /** The last layout, reused by a frame that only scrolled. */
   private laid: Laid | null = null;
   private crumbs = "";
@@ -651,7 +655,7 @@ export class NoteSurface {
     if (this.modes.editing && m?.id !== this.msg?.id) return false;
     if (m?.id !== this.msg?.id) { this.notice = ""; this.pageOffer = null; this.agent = null; this.agentDraft = null; this.focusMark = null; this.picker = null; this.clearSelections(); if (this.panel) { this.panel.sel = 0; this.panel.view.reset(); this.panel.note = ""; } }
     if ((m?.id ?? null) !== this.foldsOf) { this.folded.clear(); this.foldSeen.clear(); this.expanded.clear(); this.figureUI.clear(); this.figuresDrawn = []; this.foldsOf = m?.id ?? null; }
-    this.msg = m; this.scroll = 0; this.maxScroll = Infinity; this.letGo(); this.elems = []; this.crumbs = "…"; this.unread = "";
+    this.msg = m; this.scroll = 0; this.maxScroll = Infinity; this.endScroll = Infinity; this.endWant = null; this.letGo(); this.elems = []; this.crumbs = "…"; this.unread = "";
     this.links = m ? linksOf(m) : [];
     if (m?.id !== this.commentsFor) { this.comments = null; this.commentsFor = ""; }
     if (!m) return true;
@@ -911,12 +915,19 @@ export class NoteSurface {
     if (unsentHead.elems.length) this.elems = [...this.elems, ...unsentHead.elems].sort((a, b) => a.row - b.row || a.from - b.from);
     this.keepCurrent(host);
     // The body rows actually shown: none when the header fills the pane (then there's no scroll to show). A header
-    // image above it (PIE-532) gives a row back for each row scrolled, so the furthest scroll is where the last body
-    // row shows: S ≤ body − (roomFull − (full − S)) while the image shows, S ≤ body − roomFull once it's gone.
+    // image above it (PIE-532) gives a row back for each row scrolled, so the scroll that has the last body row
+    // `extra` rows above the bottom is S ≥ body + extra − (roomFull − (full − S)) while the image shows, and
+    // S ≥ body + extra − roomFull once it's gone. End stops first where it's on the bottom edge (extra 0); the
+    // furthest scroll is past the end (PIE-622, reader.overscroll: to the middle, by default).
     const full = this.hero?.full ?? 0, roomFull = Math.max(0, h - top);
     const roomAt = (s: number) => Math.max(0, roomFull - Math.max(0, full - s));
-    const over = body.length - Math.max(1, roomFull);
-    this.maxScroll = !full || over >= full ? Math.max(0, over) : Math.max(0, Math.ceil((over + full) / 2));
+    const reach = (extra: number) => {
+      const over = body.length + extra - Math.max(1, roomFull);
+      return !full || over >= full ? Math.max(0, over) : Math.max(0, Math.ceil((over + full) / 2));
+    };
+    this.endScroll = reach(0);
+    this.maxScroll = Math.max(this.endScroll, reach(overscrollRows(roomFull)));
+    if (this.endWant) { this.scroll = this.endWant === "edge" ? this.endScroll : this.maxScroll; this.endWant = null; }
     let room = roomAt(this.scroll);
     // The element just stepped to, or the fold point just folded, comes into view; so does an agent's mark
     // (only as far as needed: one already in view doesn't move the note).
@@ -1992,6 +2003,8 @@ export class NoteSurface {
       return true;
     }
     if (k.kind === "pgdn" || c === " " || k.kind === "pgup") { void this.runKey("scroll", { by: k.kind === "pgup" ? -15 : 15 }, host); return true; }
+    // Home to the top; End or G to the last line, then (pressed again) past it to the middle (PIE-622).
+    if (k.kind === "home" || k.kind === "end" || c === "G") { void this.runKey("scroll", { to: k.kind === "home" ? "top" : "end" }, host); return true; }
     // A live figure's element is current: its tabs, its density (figureKey).
     const fk = this.figureKey(k);
     if (fk) { void this.runKey(fk.name, fk.args as never, host); return true; }
@@ -2113,7 +2126,15 @@ export class NoteSurface {
   }
 
   /** The note scrolled `by` rows within its length (the wheel, j k, PgUp PgDn): the current element is let go, nothing else moves. */
-  scrollBy(by: number, letGo = true) { if (letGo) this.letGo(); this.scroll = scrolled(this.scroll, by, this.maxScroll); }
+  scrollBy(by: number, letGo = true) { if (letGo) this.letGo(); this.endWant = null; this.scroll = scrolled(this.scroll, by, this.maxScroll); }
+
+  /** End, G and to=end (PIE-622): the last line to the bottom edge first; from there, past the end as far as it goes. */
+  scrollEnd(letGo = true) {
+    if (letGo) this.letGo();
+    // Which stop, decided now; where it is, at the next render (a header row coming or going changes the room).
+    this.endWant = this.scroll < this.endScroll ? "edge" : "last";
+    this.scroll = this.endWant === "edge" ? this.endScroll : this.maxScroll;
+  }
 
 
   /**
@@ -2127,7 +2148,7 @@ export class NoteSurface {
     if (!this.scrolls()) return false;
     const c = ch(k);
     const by = isUp(k) ? -1 : isDown(k) ? 1 : k.kind === "pgdn" || c === " " ? 15 : k.kind === "pgup" ? -15 : 0;
-    const to = k.kind === "home" ? "top" : k.kind === "end" ? "end" : undefined;
+    const to = k.kind === "home" ? "top" : k.kind === "end" || c === "G" ? "end" : undefined;
     if (!by && !to) return false;
     void this.runKey("scroll", to ? { to } : { by }, host);
     return true;
@@ -2254,15 +2275,20 @@ export class NoteSurface {
   /** The note line (from 0, the subject line) reader row `y` of the last render shows, or null off the note's body. */
   /**
    * What the reader has in view (PIE-413's view.get and view.subscribe): the note lines in its body rows, first
-   * and last (1 is the subject), and the body's scroll. Null before it's drawn.
+   * and last (1 is the subject), and the body's scroll: `atEnd` once its last row shows, `past` the blank rows
+   * under it when it's scrolled past the end (PIE-622). Null before it's drawn. A scroll since the last render
+   * (an action answering before the paint) is counted, so `scroll` answers where it went.
    */
-  viewport(): { first: number | null; last: number | null; top: number; room: number; total: number } | null {
+  viewport(): { first: number | null; last: number | null; top: number; room: number; total: number; atEnd: boolean; past: number } | null {
     const d = this.drawn;
     if (!d) return null;
+    const top = this.endWant ? (this.endWant === "edge" ? this.endScroll : this.maxScroll) : Math.max(0, Math.min(this.scroll, this.maxScroll));
     // The drawn rows' note lines are 0-based; a line here is 1-based, as block.tint and comments count them.
     const lineOf = (row: number) => { const b = d.doc.source[row]; const l = b === undefined ? undefined : d.lines[b]; return l === undefined ? null : l + 1; };
-    const shown = Array.from({ length: Math.max(0, Math.min(d.room, d.body.length - d.scroll)) }, (_, i) => lineOf(d.scroll + i)).filter((x): x is number => x !== null);
-    return { first: shown[0] ?? null, last: shown.at(-1) ?? null, top: d.scroll, room: d.room, total: d.body.length };
+    const shown = Array.from({ length: Math.max(0, Math.min(d.room, d.body.length - top)) }, (_, i) => lineOf(top + i)).filter((x): x is number => x !== null);
+    // At the end: the last row is in view. Past it (PIE-622): the blank rows under it, scrolled past the bottom edge.
+    const past = Math.max(0, top - Math.max(0, d.body.length - d.room));
+    return { first: shown[0] ?? null, last: shown.at(-1) ?? null, top, room: d.room, total: d.body.length, atEnd: top + d.room >= d.body.length, past };
   }
 
   /** Scroll so note line `line` (1 is the subject) is the first body row in view (view.scrollTo). False before it's drawn. */
@@ -2270,6 +2296,7 @@ export class NoteSurface {
     const d = this.drawn;
     if (!d) return false;
     const row = d.doc.source.findIndex(b => b !== undefined && (d.lines[b] ?? 0) + 1 >= line);
+    this.endWant = null;
     this.scroll = Math.max(0, Math.min(this.maxScroll, row < 0 ? d.body.length : row));
     return true;
   }
@@ -3615,7 +3642,7 @@ export class NoteSurface {
     if (!edge && (x < 0 || x >= d.w || y < 0 || y >= d.top + d.room)) return null;
     const body = (row: number) => ({ row: d.top + this.scroll + row, col });
     if (y >= d.top + d.room) {
-      if (this.scroll < this.maxScroll) this.scroll++;
+      if (this.scroll < this.endScroll) this.scroll++;
       return d.room > 0 ? body(d.room - 1) : null;
     }
     if (y < d.top && edge && this.scroll > 0 && this.selection && this.selection.anchor.row >= d.top) {
@@ -5264,7 +5291,7 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
     },
   }),
   "scroll": def({
-    summary: "scroll the reader's note by rows (by=, negative is up) or to=top / to=end; the person's [ ] position is let go, as their own scrolling does. An agent's is refused on the reader the person has focused (view.scrollTo on the desk scrolls without touching their position)", keys: "j k ↑ ↓, PgUp PgDn, space, Home End, wheel",
+    summary: "scroll the reader's note by rows (by=, negative is up) or to=top / to=end (the last line to the bottom edge; again, past the end as reader.overscroll allows, to the middle by default); the person's [ ] position is let go, as their own scrolling does. An agent's is refused on the reader the person has focused (view.scrollTo on the desk scrolls without touching their position)", keys: "j k ↑ ↓, PgUp PgDn, space, Home End G, wheel",
     touches: "tile", replay: "safe", way: "its scroll is theirs; an agent scrolls a reader with view.scrollTo (desk), which leaves their [ ] position alone",
     args: {
       by: { type: "number", optional: true, about: "rows to scroll; negative scrolls up" },
@@ -5275,7 +5302,8 @@ export const NOTE_ACTIONS = actionSet<On>()("note", {
       if ((by === undefined) === (to === undefined)) throw new ActionRefused("say by= (rows) or to=top|end");
       surface.requireNote();
       // The person's own scrolling lets go of their [ ] position; an agent's never touches it.
-      surface.scrollBy(to === "top" ? -1e9 : to === "end" ? 1e9 : by!, actor.kind === "user");
+      if (to === "end") surface.scrollEnd(actor.kind === "user");
+      else surface.scrollBy(to === "top" ? -1e9 : by!, actor.kind === "user");
       surface.noteAgent(actor, "scrolled this reader");
       host.redraw();
       return surface.viewport();
