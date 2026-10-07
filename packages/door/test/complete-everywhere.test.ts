@@ -76,6 +76,12 @@ describe("every line completes by default, with an opt-out (a fake service)", ()
       type(key, "[heading-p");
       await until(() => !!completionOf(key) && !completionOf(key)!.loading && completionOf(key)!.items.length > 0, "the keys");
       expect(completionOf(key)!.items.map(i => i.insertion)).toEqual(["[heading-pattern::", "[heading-padding::"]);
+      // A paste opens nothing, even one ending in a token; ⏎ stays the caller's.
+      const pasted = new LineInput("");
+      pasted.key({ kind: "char", ch: "see ((xylo", pasted: true } as Key);
+      await tick();
+      expect(completionOf(pasted)).toBeNull();
+      expect(pasted.key(K("enter"))).toBe(false);
       // Opted out: a name, a path, plain words.
       const name = new LineInput("", false, { complete: false });
       type(name, "((xylo");

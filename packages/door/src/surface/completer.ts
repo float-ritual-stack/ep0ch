@@ -549,7 +549,8 @@ lineCompletionHooks.before = (i, k) => {
 lineCompletionHooks.after = (i, k, took, was) => {
   const c = lineCompleter(i);
   if (!c || k.kind === "mouse") return;
-  if (!took || k.kind === "esc") { c.dismiss(); return; }
+  // A paste lands as text and opens nothing (a draft's is the same): the next ⏎ is the caller's.
+  if (!took || k.kind === "esc" || "pasted" in k) { c.dismiss(); return; }
   followCursor(c, i.text !== was, openAt.get(i));
 };
 
