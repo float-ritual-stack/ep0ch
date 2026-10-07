@@ -10,7 +10,7 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
-### Back to an earlier revision of a note (PIE-621)
+### Back to an earlier revision of a note (PIE-621, #277)
 
 - **The outline keeps a note's earlier texts:** the newest 100 each note had, from the first save after this update,
   each with when it was saved and by whom. For a paste that was already saved.
@@ -20,7 +20,7 @@ are its record. The outliner's entries from then are kept below, under
 - **Run:** PROTOCOL 107 and schema version 4: `ep0ch install --apply` on both machines. It stops the outline host,
   runs `packages/outliner/scripts/migrations/0004-block-revisions.ts` on every outline at schema 3 and starts it
   again; then restart the doors.
-### Completion wherever you write (PIE-626)
+### Completion wherever you write (PIE-626, #278)
 
 - **New:** `[`, `[[`, `((`, `[file::` and a callout's `> [!` complete in every place the door takes outline text, not
   just a note's edit: a comment or reply, the board's composer, a new note's float, the property panel's value (`i`,
@@ -30,7 +30,7 @@ are its record. The outliner's entries from then are kept below, under
   (the search overlay, the links filter, a layout's name, the home base) opts out.
 - **Agents:** `complete text=… key=heading` lists what a property's value offers; `column.complete text=…` what a
   filter's word offers. No protocol or schema change.
-### The outline host keeps answering after a change and a restart (PIE-625)
+### The outline host keeps answering after a change and a restart (PIE-625, #276)
 
 - **Fixed:** requests to the outline host timed out at 3 s in bursts, and for about a minute after each restart. Each
   change made every Tree re-read the tree and all its saved views, and each read parsed the whole outline again on
@@ -44,7 +44,7 @@ are its record. The outliner's entries from then are kept below, under
   note read takes over 200 ms.
 - **What to run:** nothing beyond the usual update (`ep0ch install --apply`). No protocol or schema change.
 
-### Editing basics in a draft: copy, undo and redo, a paste in one step (PIE-621)
+### Editing basics in a draft: copy, undo and redo, a paste in one step (PIE-621, #272)
 
 - **Copy out of an edit.** A drag in a draft copies when the button comes up, as in a reader (`EP0CH_COPY_ON_SELECT=0`
   turns it off), and so does a double click's word, a triple click's line and a shift+click. `shift+arrows` select by
@@ -55,7 +55,7 @@ are its record. The outliner's entries from then are kept below, under
   past a save: open the note again unchanged and `ctrl+z` carries on.
 - **Run:** nothing beyond `ep0ch install --apply` and a door restart; no protocol or schema change.
 
-### Components describe their own properties once: a library page each, and completion (PIE-618)
+### Components describe their own properties once: a library page each, and completion (PIE-618, #275)
 
 - **New:** the component library, `ep0ch --screen library`: a design-system page for each component (heading
   styles, callouts, rules, `::graph-meter`, `::graph-spark`, and any an extension ships). An overview with the
@@ -74,7 +74,7 @@ are its record. The outliner's entries from then are kept below, under
 - **What to run:** protocol is now 106 (two new reads, `components.schemas` and `rules.preview`): update the host and
   every client together (`ep0ch install --apply` on each machine). No schema change.
 
-### What waits on you: program status in terminal tiles (OSC 7501, PIE-614)
+### What waits on you: program status in terminal tiles (OSC 7501, PIE-614, #270)
 
 - **Programs say what they're doing.** A program in a door's terminal tile can report its status with OSC 7501 (Mitchell
   Hashimoto's Program Status Protocol): working (with progress), blocked on you (a permission, a question, a login),
@@ -96,7 +96,7 @@ are its record. The outliner's entries from then are kept below, under
   something seen is the person's: an agent never clears a done they haven't seen.
 - **Run:** nothing beyond the usual `ep0ch install --apply`; a Claude started before the mod changed reports once
   restarted (`alt+R` in the drawer).
-### Scroll past the end (PIE-622)
+### Scroll past the end (PIE-622, #269)
 
 - **A note's last line no longer hugs the bottom edge.** In every reader (detail, preview, the desk's, a river column,
   the BBS reader) the wheel, `j`, space and PgDn go on past the last line until it sits at the middle, blank under it.
@@ -107,7 +107,7 @@ are its record. The outliner's entries from then are kept below, under
 - **`ep0ch act reader.overscroll rows=none`** stops at the last line as before; `rows=half` is the default, a number of
   rows scrolls that far. Kept for the next start, as the theme is. Shown in the kitchen sink's `scroll` section.
 
-### A schema change is one `ep0ch install --apply` (PIE-617)
+### A schema change is one `ep0ch install --apply` (PIE-617, #265)
 
 - **Install migrates the outlines itself.** When the code it updates to opens a newer schema, the plan says so
   before anything moves ("schema 2 → 3: will migrate 2 outlines (pie, pie-hole) with 0003-drop-agent-tables.ts"),
@@ -126,7 +126,7 @@ are its record. The outliner's entries from then are kept below, under
   script for the step, the import route. The door, `ep0ch` commands and the MCP gateway pass it on as it is.
 - **What to run:** nothing new. The next schema change is one `ep0ch install --apply` on each machine.
 
-### Heading styles as you write them: one heading's own fields, and a style declared on any line (PIE-599)
+### Heading styles as you write them: one heading's own fields, and a style declared on any line (PIE-599, #266)
 
 - **One heading, its own look.** `## Odd jobs [heading::dots] [heading-tone::amber]` takes amber for itself; any
   `heading-*` field on a heading or `---` restyles it alone (over its level's default, else the base style), and
@@ -136,7 +136,7 @@ are its record. The outliner's entries from then are kept below, under
   the line as what it declares, a chip summary and a small band; raw and the editor show the tokens.
 - **Run:** PROTOCOL 105: restart the outline host and every door after `ep0ch install --apply`, on both machines.
 
-### MCP gateway fixes from the first claude.ai run (PIE-620)
+### MCP gateway fixes from the first claude.ai run (PIE-620, #268)
 
 - **`list_outlines` lists pie.** It reads this machine's outlines from the outlines folder instead of asking the host,
   which once left every live outline out; one the host can't open is listed as `unreachable`.
@@ -153,7 +153,7 @@ are its record. The outliner's entries from then are kept below, under
 - **Run:** PROTOCOL 104: `ep0ch install --apply` on float-2 and the laptop, then restart the outline host, the MCP
   gateway (`ep0ch-mcp.service`) and every door.
 
-### Write from claude.ai: remote MCP writes, and a queue for the laptop's outlines (PIE-615)
+### Write from claude.ai: remote MCP writes, and a queue for the laptop's outlines (PIE-615, #264)
 
 - **Write tools on mcp.ep0ch.sh.** `outline_create`, `outline_patch`, `outline_comment` and `outline_set_property`,
   for an outline whose access is `propose` (a patch or property is a proposal under the note, a new block a comment on
@@ -171,7 +171,7 @@ are its record. The outliner's entries from then are kept below, under
   `ep0ch install --apply`, on both machines. On the laptop, install adds `EP0CH_MCP_HUB=float-2` to
   `~/.config/ep0ch/backup.env` (an empty `EP0CH_MCP_HUB=` line there turns the pull off).
 
-### The Inbox agent and note assistance are gone (PIE-613)
+### The Inbox agent and note assistance are gone (PIE-613, #259)
 
 - **Removed:** the Inbox agent (Tree's `Shift+I` panel, its results, Pause, Undo, Reconsider and Inbox history
   search), note assistance (automatic types, tags and answers, and **Assist this note**), and edit recovery's
@@ -210,7 +210,7 @@ are its record. The outliner's entries from then are kept below, under
   they are, and stamps version 3, or changes nothing and says why. It refuses a file a host is serving. The
   `OUTLINER_INBOX_AGENT=0` and `OUTLINER_NOTE_ASSISTANCE=0` lines in the host's unit are now unused and harmless.
 
-### Rules: when a block matches, draw this or run this (PIE-600)
+### Rules: when a block matches, draw this or run this (PIE-600, #251)
 
 - **A rule note, no code.** Write a note like `Committee headings [rule-name::committee-bands] [rule-kind::heading:2]
   [rule-decorate::band] [rule-pattern::stack]` and every `##` heading (under `rule-under::((id))`, if you scope it)
@@ -227,7 +227,7 @@ are its record. The outliner's entries from then are kept below, under
   blocks match a trigger and its last run.
 - **Run:** PROTOCOL 101: restart the outline host and update every door (`ep0ch install --apply`).
 
-### Litestream and an outline's file (PIE-607)
+### Litestream and an outline's file (PIE-607, #254)
 
 - **Deleting, re-creating or importing an outline pauses Litestream for it.** Litestream doesn't track a database
   being removed or replaced, so the outline host now stops this machine's replicator for that folder while the
@@ -243,7 +243,7 @@ are its record. The outliner's entries from then are kept below, under
 - **A dead-man's ping:** with a secrets group `heartbeat` (HEARTBEAT_URL, e.g. a healthchecks.io check), every
   clean backup run pings it, so a job that stops is noticed off the machine too.
 
-### Heading styles and rules that fade (PIE-599)
+### Heading styles and rules that fade (PIE-599, #248)
 
 - **Headings that divide the page.** `## Your calls [heading::band]` draws the heading inside a band made of the
   figures' glyphs. Built-ins: `band` (centred, spaced capitals), `tab` (left, on the top row), `waffle`, `uptime`,
@@ -260,7 +260,7 @@ are its record. The outliner's entries from then are kept below, under
   written in a narrow one beside it.
 - **Run:** PROTOCOL is now 100 (a new read, `headings.styles`). Every client and the outline host must be on this
   code together, so run `ep0ch install --apply` on each machine (it restarts the host).
-### Backups you can stop thinking about (PIE-607)
+### Backups you can stop thinking about (PIE-607, #252)
 
 - **Every 15 minutes, each outline that changed goes to restic.** `ep0ch install --apply` sets up the job on Linux
   (a systemd timer) and macOS (a launchd agent): a consistent, integrity-checked copy of each outline whose change
@@ -280,7 +280,7 @@ are its record. The outliner's entries from then are kept below, under
   `restic` secrets group if they're missing). Litestream stays for float-2's own outlines; the laptop's Litestream
   and float-2's followers retire after three clean days (scripts/backup/README.md has the commands).
 
-### New notes float, as many as you like (PIE-591)
+### New notes float, as many as you like (PIE-591, #240)
 
 - **`ctrl+n` never takes over the note you're in.** On the desk (and every screen built on it) a new note floats
   over the screen with your keys, a draft of its own. Press it again for another, and again: each is cascaded a
@@ -296,6 +296,63 @@ are its record. The outliner's entries from then are kept below, under
 - **The board's lanes make cards.** `ctrl+n` on a lane opens the new-card composer in that lane (`card.new`, as `n`
   does), so the card is born with the lane's properties and lands in it. A screen spec says this with `newNote`.
 - **Agents:** `note.new opens=float` (or `tab`) shows an agent's new note to you there, unfocused and attributed.
+
+### Also merged, by theme (#239 to #280)
+
+**Door**
+
+- **Hero header (PIE-598, PIE-609, #242, #244, #253).** A note's hero image that scrolls under a reader's sticky header
+  becomes the header's backdrop: muted, held dark, fading in over three steps (Kitty graphics, or one colour per cell).
+  `reader.hero [on=…] [mode=first|follow]`: `follow` takes the last picture of the note that has gone under, the old one
+  staying until the new is drawn so the header is never plain. `[hero-focus::x,y]` sets the crop. A picture on the line
+  right under a title is drawn now, not read as metadata. River columns keep the sticky header. PROTOCOL 99.
+- **`ctrl+e` in a draft is the end of the line (#241).** `ctrl+a` the start (a Mac's `cmd+←/→` send these). `$EDITOR`
+  moved to `ctrl+x ctrl+e` (`edit.external`, `composer.external`, and the tile menu's "edit in $EDITOR"); a person's,
+  never an agent's. In a reader `ctrl+e` still arms an edit.
+- **Resizing tiles is smooth, and a program hears its size once (PIE-623, #271, #273, #274).** Nothing is scaled or
+  uploaded during a drag, and a terminal tile's program is told its new size when the resize ends, not on every frame:
+  Claude Code no longer wraps its output mid-word after a resize. `bun run bench:resize` (packages/door) is the guard
+  (`--check`).
+- **`ep0ch --screen <name>` always lands (#279).** Attaching to a running session says `opened <name> · attached to the
+  running session` (or `already on <name>`); `ep0ch --showcase --screen <name>` opens that screen on the showcase outline;
+  an unknown name is refused before anything starts, with the names and a command that works. The component library is on
+  the main menu (`I`).
+- **A change reaching a desk never entered no longer crashes the door (#262),** seen as `desk.ctx.board` undefined with
+  the showcase open.
+
+**Claude mod**
+
+- **Mentions are only what resolves (PIE-603, #243).** A `((id))`, `[[page]]` or Work ID the outline can't resolve (chat
+  identifiers like `S-87`) isn't kept; `gone` only for a block deleted since. `/mentions preview` and `scope` no longer
+  open or move the panel; only `m`, `/mentions band|pane|off` do.
+- **Files a session touches become `[file::]` blocks (PIE-602, #250).** After a successful `Edit` or `Write`, a block under
+  `[[recent-files]]` › day › project › session (one per file per session, with touches and lines added and removed);
+  a view per project under *By project*. The Edit and Write rows open the file, or its diff, in the door.
+- **A Claude in a door follows its door through a handover or restart (PIE-604, #249).** Tiles get `EP0CH_PLACE`, the
+  outline's session folder; `ep0ch act|peek|open|snap|where` and the mod's door tools find the door from it. `ep0ch where`
+  says when the environment is stale and which door answers now.
+
+**Install and ops**
+
+- **`ep0ch install --apply` restarts the MCP gateway on new code (PIE-612, #255),** and `ep0ch doctor` flags one that
+  runs older code than the checkout. It never restarts a gateway that runs another checkout.
+- **A host that is up but slow to answer is restarted, not "started" and waited on (#256).** The probe asks three times
+  before calling the host down.
+
+**Tooling for agents and tests**
+
+- **`scripts/agent-env <name> [--test] -- cmd` and `scripts/box-test` (PIE-597, #246, #247, #260, #280).** A scratch
+  environment of your own (state, control socket, outlines, temp folder outside `$HOME`), and with `--test` a systemd
+  scope with a CPU and memory cap. Every run has `oom_score_adj` 1000, so the kernel kills a test before the outline host.
+  `scripts/box-test [--on float-box|boxd]` runs the suites off this machine (float-box when it answers, else a boxd box).
+- **Tests run on a fresh machine (PIE-596, #245).** The door keeps the nine art pieces its menus draw in
+  `test/fixtures/packs`; no packs is fine. `ep0ch doctor` shows an `art packs` line.
+- **Tests named from the repository's root run the packages' preloads (#258).** A root `bunfig.toml` preloads
+  `scripts/test-preload.ts`; before, a door test run from the root kept your `EP0CH_*` settings and real state folder.
+- **Scratch dirs go where a session's sockets fit and no `.ep0ch` is above them (#267),** and an App a test file leaves
+  running is retired when the next file runs (#261, PIE-595).
+- **Follow-ups from review (#257, #263):** a click between `ctrl+x` and `ctrl+e` cancels the chord; `where` marks a door
+  handed over only when it was reached through the outline's session; the agent-interface test passes under `agent-env`.
 
 ### Figures that compare, and figures that fit (PIE-575 to PIE-581)
 
@@ -371,7 +428,7 @@ move into one repository (PIE-530).
   `drawer.agent`. The door keeps no reader for the old words; the
   script is deleted once it has run on the machines that matter (pie on float-2, float-hub on the MacBook).
 
-### `e` asks before it edits; the tile with your keys stands out
+### `e` asks before it edits; the tile with your keys stands out (#239)
 
 - **`e` arms an edit instead of opening it.** In a reader (the desk's, the board's preview, a river column, the BBS
   reader) the status bar asks `edit <title>? ⏎ · any other key cancels` and the tile turns yellow (`✎ edit?`) for

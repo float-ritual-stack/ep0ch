@@ -127,8 +127,9 @@ Never write to a real outline or touch the person's door. Their door may be on t
 - **Running them:** whole suites off the shared machine: `scripts/box-test` at the repo root (the
   door; `all`, `--each`) runs on float-box by default, in a private dir it removes, or on boxd with `--on boxd`, which streams the output and exits with the suites' code. On float-2 a focused run goes
   through `scripts/agent-env <name> --test -- timeout 900 bun test test/<file>.test.ts`: queued for one of two
-  test slots, capped, in the foreground. Never `--parallel`, never in the background waiting for a notification:
-  report the result you saw. The door's `parity-screens` takes more than
+  test slots, capped, in the foreground. Never `--parallel`, never idle waiting for a background run's notification (poll your own run's output until it exits, or run it
+  in the foreground): report the result you saw. Heavy suites only via `scripts/box-test`. Never `pkill` or kill a
+  process you didn't start: a pattern also matches other agents' runs. The door's `parity-screens` takes more than
   ten minutes whole, so run it in parts: `PARITY_ONLY="main menu,message reader"` names scenarios by their labels
   (`test/parity.ts`), split on commas, so a label with a comma in it ("home base, an outline missing") is picked
   with `-t "home base, an outline missing"` instead.
