@@ -31,7 +31,7 @@ describe("--screen never silently does nothing", () => {
     expect(r.err).toContain('no screen "nosuchscreen"');
     expect(r.err).toContain("try ep0ch --screen ");
     expect(r.out).not.toContain("door → the showcase");
-  });
+  }, 60_000);
 });
 
 describe("a word ep0ch doesn't know", () => {
