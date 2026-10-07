@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Written by `ep0ch install` from scripts/backup/io.ep0ch.backup.plist in the ep0ch checkout; install rewrites it. -->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>io.ep0ch.backup</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>{{BUN}}</string>
+    <string>{{MAIN}}</string>
+    <string>backup</string>
+    <string>run</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>{{PATH}}</string>
+  </dict>
+  <key>StartInterval</key>
+  <integer>900</integer>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>LowPriorityIO</key>
+  <true/>
+  <key>Nice</key>
+  <integer>10</integer>
+  <key>StandardOutPath</key>
+  <string>{{HOME}}/Library/Logs/ep0ch-backup.log</string>
+  <key>StandardErrorPath</key>
+  <string>{{HOME}}/Library/Logs/ep0ch-backup.log</string>
+</dict>
+</plist>

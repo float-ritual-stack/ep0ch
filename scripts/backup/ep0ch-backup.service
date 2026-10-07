@@ -1,0 +1,13 @@
+# Written by `ep0ch install` from scripts/backup/ep0ch-backup.service in the ep0ch checkout; install rewrites it.
+[Unit]
+Description=ep0ch backups: changed outlines snapshotted to restic, mirrors refreshed, staleness checked (PIE-607)
+After=network-online.target
+
+[Service]
+Type=oneshot
+Environment=PATH={{PATH}}
+ExecStart={{BUN}} {{MAIN}} backup run
+Nice=10
+IOSchedulingClass=idle
+TimeoutStartSec=50min
+UMask=0077

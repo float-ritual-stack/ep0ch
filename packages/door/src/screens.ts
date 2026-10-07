@@ -462,6 +462,17 @@ export const SHELL_ACTIONS = actionSet<ShellOn>()("shell", {
       return { include: ctx.extensionChanges };
     },
   }),
+  "backups.alert": def({
+    summary: "say what the backup job found stale (PIE-607): the outline, since when, and the command that fixes it; the status bar's ✗ backup marks it while it lasts (? backup: the check itself stopped). Read-only: an agent gets the same words back",
+    keys: "a click on the status bar's ✗ backup or ? backup",
+    touches: "nothing", replay: "safe",
+    args: {},
+    run(_, { ctx }) {
+      const mark = ctx.backupAlert?.() ?? null;
+      ctx.flash(mark ? mark.say : "no backup alert: every backup this machine checks is current (ep0ch backup status)", mark ? 20_000 : 4000);
+      return { alert: mark?.say ?? null };
+    },
+  }),
   "screen.open": def({
     summary: "open a screen by name over the current one (q comes back): a menu item, or any registered screen (screen.list names them), with its target where it takes one (detail: a block id, ((ref)) or ep0ch:// URI; board: a hub id). `ep0ch --screen <name> [<target>]` opens the door on it through this action. An agent's waits until the person is idle and is said on the status bar", keys: "the menu's letters N J K R W L F S Q B D G X T O C E + M, or n j k r w l f s q b d g x t o c e m, ⏎, click on a menu item or its letter on the key line",
     touches: "screen", replay: "safe", says: out => (out?.opened ? { text: `· opened ${out.opened} · q goes back`, ms: 6000 } : null),

@@ -18,6 +18,7 @@ import { EXPORT_USAGE } from "./export";
 import { NEW_USAGE, newCommand } from "./new-cli";
 import { VIEW_USAGE, viewCommand } from "./view-cli";
 import { MCP_USAGE, mcpCommand } from "./mcp";
+import { BACKUP_USAGE } from "./backup/usage";
 import { showcaseTry } from "./showcase/route";
 import { checkWords, screenArg, screenUriArgs, usageFor } from "./cli-words";
 import { parseEp0chBlockUri, sameMachine } from "@ep0ch/outline-core/addressable-resource";
@@ -96,6 +97,7 @@ ${MCP_USAGE}
                                    or mirror trails), Herdr's keys, the Claude mod): ✓ current, ! behind, ✗ missing,
                                    with the command that fixes each. Read-only; --backups also restores each newest
                                    snapshot into a temp folder and runs integrity_check
+${BACKUP_USAGE}
   ep0ch install [--apply] [--json]
                                    bring the stack up to date: a dry run by default (the plan). --apply backs
                                    up every ~/outlines/*.sqlite to ~/backups/ep0ch/<time>/ first, then updates the
@@ -152,6 +154,7 @@ if (args[0] === "doctor" || args[0] === "install") {
   const { setupCommand } = await import("./setup/apply");
   process.exit(await setupCommand(args, { out: console.log, err: console.error, terminal: process.stdout }));
 }
+if (args[0] === "backup") { const { backupCommand } = await import("./backup/cli"); process.exit(await backupCommand(args)); }
 if (args.includes("--skill")) { const r = skillCommand(args); (r.code ? console.error : console.log)(r.out); process.exit(r.code); }
 // The showcase lives on its own seeded outline, never the one this folder names: `ep0ch --showcase [--reset]` is
 // `ep0ch try --showcase [--reset]`. With --ws (as try-it.sh itself runs it) it opens the screen on that outline.

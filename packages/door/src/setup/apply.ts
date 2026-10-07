@@ -2,7 +2,7 @@
 // its steps in order, each saying what it did, and stops at the first failure with the recovery. Outlines are only
 // ever copied; no outline is created; no unit, Herdr config or plugin link is changed.
 import { Database } from "bun:sqlite";
-import { chmodSync, existsSync, mkdirSync, rmSync, statSync, symlinkSync, unlinkSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { formatDoctor, doctorReport } from "./doctor";
@@ -222,6 +222,23 @@ async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[
       linkSummary(step.links).forEach(show);
       return;
     }
+    case "backups": {
+      const r = f.restic!;
+      for (const w of step.writes ?? []) {
+        try { mkdirSync(dirname(w.path), { recursive: true, mode: 0o700 }); writeFileSync(w.path, w.text, { mode: 0o600 }); }
+        catch (e) { throw new StepFailed(`writing ${w.path} failed: ${(e as Error).message}`, `nothing was loaded; rerun ep0ch install --apply`); }
+        say(`wrote ${w.path}`);
+      }
+      const { loadArgv } = await import("../backup/setup");
+      const uid = process.getuid?.() ?? 0;
+      for (const argv of loadArgv(r, uid)) {
+        // launchd's bootout of an agent that isn't loaded fails, and is nothing to stop for.
+        if (argv[1] === "bootout") { await run(argv, { env, timeoutMs: 15_000 }); continue; }
+        await must(argv, `the units are written; load them by hand: ${argv.join(" ")}`, { env, timeoutMs: 30_000, onLine: child });
+      }
+      say(r.platform === "linux" ? "ep0ch-backup.timer enabled: the first run is within 3 minutes (journalctl --user -u ep0ch-backup)" : "io.ep0ch.backup loaded: it runs now and every 15 minutes (~/Library/Logs/ep0ch-backup.log)");
+      return;
+    }
     case "host": {
       const u = f.host.unit!;
       const verb = f.host.running ? "restart" : "start";
@@ -308,6 +325,14 @@ async function setup(args: readonly string[], io: SetupIO, env: Env, json: boole
       const host = await hostFacts(current.host.folder, current.platform, current.home);
       current = { ...current, repo: { ...current.repo, protocol: code.protocol }, host };
       step = hostStep(current, current.repo.checkout.behind > 0);
+    }
+    // The backup job's units: from the templates the updated checkout has.
+    if (step.id === "backups" && plan.steps.some(s => s.id === "repo" && s.status === "do") && current.restic) {
+      const { backupSetupFacts } = await import("../backup/setup");
+      const { backupsStep } = await import("./plan");
+      const pathDirs = current.pathDirs;
+      current = { ...current, restic: await backupSetupFacts({ platform: current.platform, home: current.home, env, bun: current.bun.path, main: current.repo.entry, repoRoot: current.repo.root, run, which: n => Bun.which(n, { PATH: pathDirs.join(":") }) }) };
+      step = backupsStep(current) ?? step;
     }
     if (step.status !== "do") { stepLines(step, i, current, true).forEach(l => say(l)); results.push(step); continue; }
     const task = progress.task({ lead: `${i + 1}`, mark: MARK.do, title: step.title });

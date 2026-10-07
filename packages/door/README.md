@@ -360,6 +360,20 @@ the replica it follows the same way, and the remote MCP gateway's `list_outlines
 for it. The replica is listed with `litestream ltx`, run the way the unit runs Litestream (its `with-secrets` or
 EnvironmentFile), so the keys reach only that process and are never printed.
 
+**The restic backups (PIE-607)** replace Litestream where a machine isn't always online, and back up the rest twice.
+`ep0ch install --apply` writes the job's units from `scripts/backup/` (`ep0ch-backup.timer` on Linux, the launchd
+agent `io.ep0ch.backup` on macOS) and `~/.config/ep0ch/backup.env` naming the machine, and loads them; every 15
+minutes `ep0ch backup run` snapshots each outline whose change feed moved (VACUUM INTO, integrity-checked, `restic
+backup --stdin` into `s3:…/ep0ch/restic/<machine>`; an unchanged outline isn't snapshotted, and each run stands alone,
+so an offline night leaves nothing to repair), refreshes the mirrors of other machines' outlines from their newest
+snapshots (`EP0CH_BACKUP_MIRRORS`), restores every outline's newest snapshot into a temp folder once a month (the
+drill), and checks freshness: changes waiting more than 2 hours are an incident, marked `✗ backup` on the door's status
+bar until they clear (a click, or `backups.alert`, says what and the command that fixes it), announced once through
+`herdr notification` and ntfy (a secrets group `ntfy` with `NTFY_URL`), and listed by doctor with each outline's newest
+snapshot. `ep0ch backup status`, `list <outline>` and `restore <outline> [--machine <m>] [--at <time>] --to <path>`
+read them back. [scripts/backup/README.md](../../scripts/backup/README.md) has the settings, the setup on each
+machine and the retirement of the Litestream units.
+
 `doctor` marks each piece ✓ current, ! behind, ✗ missing, ? couldn't be checked (a `git fetch` that failed
 or timed out after 90s, or a source `git ls-remote` couldn't reach: never ✓ on an old fetch, and doctor
 exits 1), and · for information:
@@ -530,9 +544,10 @@ a phone) can read an outline (ADR 0002, decision 4). It is one implementation wi
   Granting `read` sends that outline's notes to the client's model provider: it is a disclosure decision.
 - **Mirrors (PIE-562).** An outline whose home is another machine (float-hub on the laptop, often asleep or behind
   the work VPN) is read from a read-only copy on this machine, never from that machine, so a closed lid never stalls
-  or refuses a read. The copy comes from the outline's own backups: the laptop's Litestream replicates it to the
-  bucket, and `litestream restore -f` here follows that replica into `<EP0CH_MCP_MIRROR_DIR>/<machine>/<name>.sqlite`
-  (the unit below). The gateway snapshots that file when it changes (checked at most every 15 seconds) and serves the
+  or refuses a read. The copy comes from the outline's own backups: the backup job (`ep0ch backup run`, PIE-607)
+  replaces `<EP0CH_MCP_MIRROR_DIR>/<machine>/<name>.sqlite` with the laptop's newest restic snapshot when there's a
+  newer one (an atomic rename), and its staleness alert is what a read says. Until the Litestream follower below is
+  retired, it writes there instead and the job's copy waits in `<mirrors>/.restic/<machine>/`. The gateway snapshots that file when it changes (checked at most every 15 seconds) and serves the
   snapshot from an outline host of its own opened read-only (`OutlineHost` with `readOnly`: only the reads MCP makes
   are answered; the followed file is never opened to write). Every answer says where it came from:
   `reachability.source` (and `outline_find`'s `source`) is `live` or `mirror`, `asOf` is when it was read or the
@@ -583,7 +598,7 @@ UMask=0077
 WantedBy=default.target
 ```
 
-The mirror's follower, `~/.config/systemd/user/litestream-mirror.service` (the bucket keys from `hetzner-s3.env`; the
+The mirror's Litestream follower (being retired, PIE-607), `~/.config/systemd/user/litestream-mirror.service` (the bucket keys from `hetzner-s3.env`; the
 copies stay outside `~/outlines`, so this machine's own Litestream doesn't replicate them back and its host never
 serves them):
 
