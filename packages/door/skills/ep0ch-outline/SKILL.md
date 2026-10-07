@@ -313,6 +313,39 @@ dimmed: the door is dark-first, so write `[dim::0]` only when the person asks fo
   image). Each is an attributed edit of that line, revision-checked, refused under a draft the person has open;
   `image.undo` takes yours back. Writing the line with `outline_patch` works too.
 
+**Heading styles and rules** (PIE-599; outline-core's `src/heading-styles.ts`, drawn by the door's
+`src/figures/banner.ts`). To divide a page more strongly than a plain heading, give the heading a style. Don't use
+an empty `##` or an empty figure as a divider:
+
+```
+# Your calls [heading::band]
+## The plot [heading::tab]
+--- [rule::fade]
+```
+
+The line stays Markdown: folds, `( )`, sections, `^anchors`, Detail, the publisher and export all see the heading
+or rule as written. The door draws it inside a band of the figures' glyphs (dim, the heading in colour). Under 48
+columns, or when the heading doesn't fit, it draws the heading or rule as written. Built-in styles: `band` (centred,
+spaced capitals), `tab` (left, top row), `waffle`, `uptime`, `dots`, `rule`, and `fade` (one row, for `---`). Put a
+blank line before a styled `---`.
+
+The outline declares its own styles the way it declares callout types: a note
+`Plot style [heading-style::plot] [heading-pattern::dots] [heading-align::left] [heading-row::top] [heading-tone::green]`.
+
+| Property | Values |
+|---|---|
+| `heading-pattern` | stack, waffle, uptime, dots, rule |
+| `heading-rows` | 1–3 |
+| `heading-align` | left, center, right |
+| `heading-row` | top, middle, bottom |
+| `heading-padding`, `heading-margin` | columns, or `"rows columns"` |
+| `heading-tone` | a callout tone |
+| `heading-letters` | plain, upper, spaced |
+| `heading-default` | `1, 2` or `rule` |
+
+`heading-default` draws every heading of those levels (or every `---`) in that style with no property. A
+declaration named like a built-in restyles it.
+
 **Tables.** A Markdown table draws as a real table with wrapped cells.
 
 **Extension lines** (next section): `moon:: 2026-10-26`, `jira:: PC-1234`, `horoscope:: virgo`,

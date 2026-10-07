@@ -10,6 +10,23 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### Heading styles and rules that fade (PIE-599)
+
+- **Headings that divide the page.** `## Your calls [heading::band]` draws the heading inside a band made of the
+  figures' glyphs. Built-ins: `band` (centred, spaced capitals), `tab` (left, on the top row), `waffle`, `uptime`,
+  `dots` and `rule`.
+- **Rules that fade.** `--- [rule::fade]` draws a full-width track that fades in from both edges.
+- **Still Markdown.** The line is a plain heading or rule to everything else: folds, `( )` stops, sections and
+  `^anchors`, Detail, the publisher and export. Under 48 columns (the figures' width rule) the door draws it as written.
+- **Your outline's own styles,** declared the way callout types are: a note with `[heading-style::plot]` and
+  `[heading-pattern::dots]`, `-rows`, `-align`, `-row`, `-padding`, `-margin`, `-tone`, `-letters`.
+  `[heading-default::1]` (or `rule`) styles every `#` (or every `---`) with no property. A change to the note
+  restyles every heading that uses it, with no door change.
+- **Calm by design.** The band is dim and never a full block. The heading carries the colour, in every theme.
+- **The kitchen sink's `headings` section** shows every built-in on one note, banded in a wide reader and as
+  written in a narrow one beside it.
+- **Run:** PROTOCOL is now 100 (a new read, `headings.styles`). Every client and the outline host must be on this
+  code together, so run `ep0ch install --apply` on each machine (it restarts the host).
 ### Backups you can stop thinking about (PIE-607)
 
 - **Every 15 minutes, each outline that changed goes to restic.** `ep0ch install --apply` sets up the job on Linux

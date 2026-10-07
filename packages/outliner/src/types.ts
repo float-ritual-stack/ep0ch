@@ -2186,6 +2186,8 @@ export type OutlinerRequestAction =
   | { id: string; action: "references.resolve"; text: string }
   /** The outline's callout types (PIE-538): the built-ins and those its notes declare with [callout-type::name]. */
   | { id: string; action: "callouts.types" }
+  /** The outline's heading styles (PIE-599): the built-ins and those its notes declare with [heading-style::name]. */
+  | { id: string; action: "headings.styles" }
   | { id: string; action: "references.backlinks"; query: BacklinkQuery }
   | { id: string; action: "pages.resolve"; address: string }
   | {

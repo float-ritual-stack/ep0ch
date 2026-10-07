@@ -4,6 +4,7 @@
 // started from, so a stale one is refused instead of overwriting someone else's change; a comment names
 // the note's revision and an exact quote, and carries a requestId, so a retry after a lost answer
 // returns the comment that was already saved instead of adding a second one.
+import type { HeadingStyle } from "@ep0ch/outline-core/heading-styles";
 import type { BlockRecord } from "@ep0ch/outline-core/block-record";
 import { connect, type Socket } from "node:net";
 import { homedir, hostname } from "node:os";
@@ -556,6 +557,10 @@ export class SocketBoard implements Board {
   /** The outline's callout types (PIE-538): the types its notes declare with `[callout-type::name]`, and what's wrong with any. */
   async calloutTypes(): Promise<{ types: CalloutType[]; problems: string[]; complete: boolean }> {
     return this.request<{ types: CalloutType[]; problems: string[]; complete: boolean }>("callouts.types", {});
+  }
+  /** The outline's heading styles (PIE-599): those its notes declare with [heading-style::name]; the built-ins are outline-core's. */
+  async headingStyles(): Promise<{ styles: HeadingStyle[]; problems: string[]; complete: boolean }> {
+    return this.request<{ styles: HeadingStyle[]; problems: string[]; complete: boolean }>("headings.styles", {});
   }
 
   /** What a `[[page]]` address or Work ID points at. Never follows (`pages.follow` would create a stub). */

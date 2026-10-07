@@ -16,7 +16,7 @@ import { BOLD, fg, pad, RESET, UNBOLD, width as vwidth } from "../style";
 import { wrap } from "../text";
 import { expandRuns } from "@ep0ch/outline-core/figure-markdown";
 import type { Markdown } from "./markdown";
-import { ACCENT, DIM, HI, INK, rowLink, type Props, type RowLink } from "./palette";
+import { ACCENT, DIM, HI, INK, rowLink, type Props, type RowLink, SHADES } from "./palette";
 
 const DAY = 86_400_000;
 /** `YYYY-MM-DD` (or a longer ISO time, or a Date) as a day number, or null. */
@@ -115,7 +115,6 @@ export function uptimeDays(results: { day: number; state: DayState; block?: stri
 
 // ── activity ──────────────────────────────────────────────────────────────────
 
-const SHADES = ["·", "░", "▒", "▓", "█"];
 /** A count as one of five shades, by its share of the most in a day. */
 const shade = (n: number, max: number) => (n <= 0 ? 0 : Math.min(4, Math.max(1, Math.ceil((n / Math.max(1, max)) * 4))));
 

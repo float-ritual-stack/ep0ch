@@ -368,6 +368,14 @@ export const SECTIONS: Section[] = [
       return deskOf({ title: "showcase · esc", panes: [a, b], names: ["reader", "beside"], layout: ([x, y]) => row(0.6, x!, y!) }, show, [[a, n.notebook], [b, n.shed]]);
     },
   },
+  {
+    key: "headings", need: "divide a page more strongly than a plain heading: a heading with a band, a rule that fades", part: "heading styles (PIE-599): ## text [heading::band] and --- [rule::fade] stay Markdown; the style (a glyph track of the figures', rows, alignment, padding, margin, tone, lettering) is the outline's, as callout types are (outline-core's built-ins plus [heading-style::name] notes, headings.styles; a style can be a level's default), drawn by src/figures/banner.ts; under the figures' narrow tier, the heading or rule as written", files: "outline-core/src/heading-styles.ts, src/heading-styles.ts, src/outline-lists.ts, src/figures/banner.ts, src/doc.ts",
+    aside: "the same note in two readers: the wide one draws the bands, the narrow one (under 48 columns) the headings as written · ( ) stops on a styled heading, f folds its section · the plot style is a note in this outline ([heading-style::plot]): change its [heading-pattern::] and the band changes, no door change · Detail and the publisher show the heading as written",
+    stage(n, show) {
+      const a = new ReaderPane(), b = new ReaderPane();
+      return deskOf({ title: "showcase · headings", panes: [a, b], names: ["reader", "narrow"], layout: ([x, y]) => row(0.72, x!, y!) }, show, [[a, n.headings], [b, n.headings]]);
+    },
+  },
 ];
 
 /** The index is wide enough for every need on one line when the terminal allows; narrow, it lists the keys only. */

@@ -3,6 +3,8 @@
 import { C } from "../style";
 
 export const ACCENT = C.lcyan, DIM = C.dark, INK = C.grey, HI = C.white;
+/** The shades a figure counts in, none to most (an activity grid's days, a matrix's cells, a banner's band). */
+export const SHADES = ["·", "░", "▒", "▓", "█"] as const;
 
 /** A figure's props, from its YAML (or its Markdown, or the outline). */
 export type Props = Record<string, any>;

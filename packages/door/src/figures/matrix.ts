@@ -16,9 +16,8 @@
 import { ellipsize, fg, pad, RESET, width as vwidth } from "../style";
 import { wrap } from "../text";
 import type { Markdown } from "./markdown";
-import { ACCENT, DIM, HI, INK, ordered, type Props } from "./palette";
+import { ACCENT, DIM, HI, INK, ordered, type Props, SHADES } from "./palette";
 
-const SHADES = ["·", "░", "▒", "▓", "█"];
 const shade = (n: number, max: number) => (n <= 0 ? 0 : Math.min(4, Math.max(1, Math.ceil((n / Math.max(1, max)) * 4))));
 
 export function drawMatrix(p: Props, w: number): string[] {
