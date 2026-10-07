@@ -41,6 +41,14 @@ test("the outline graph is read once per change, is frozen, and a failed transac
     })()).toThrow("abandoned");
     expect(store.database.transaction(() => graphOf(store))().byId.get(note.id)!.text).toBe("Seed packets, sorted [kind::seed]");
     expect(store.queryBlocks({ filters: [{ key: "kind", value: "seed" }], limit: 10 }).blocks.map(block => block.text)).toEqual(["Seed packets, sorted [kind::seed]"]);
+
+    // A COMMIT that fails (a deferred foreign key) rolls back after the work returned: the graph goes then too.
+    expect(() => store.database.transaction(() => {
+      store.database.exec("PRAGMA defer_foreign_keys = ON");
+      store.database.query("UPDATE blocks SET text = 'orphaned', parent_id = 'no-such-note' WHERE id = ?").run(note.id);
+      expect(graphOf(store).byId.get(note.id)!.text).toBe("orphaned");
+    }).immediate()).toThrow();
+    expect(store.database.transaction(() => graphOf(store))().byId.get(note.id)!.text).toBe("Seed packets, sorted [kind::seed]");
   } finally {
     done();
   }
@@ -78,6 +86,21 @@ test("a note read gets its turn before a burst of whole-outline reads queued ahe
   expect(order.indexOf("write")).toBeLessThan(order.indexOf("view-3"));
   expect(order.filter(label => label.startsWith("view"))).toEqual(["view-0", "view-1", "view-2", "view-3"]);
   expect(actionOf(`{"id":"1","action":"views.read","viewId":"x"}`)).toBe("views.read");
+});
+
+test("a whole-outline read is never starved by a stream of other requests", async () => {
+  const turns = new Turns();
+  const order: string[] = [];
+  const index = turns.next("tree.index").then(() => { order.push("index"); });
+  // Three clients each asking again as soon as they're answered: other requests are always waiting.
+  const streams = Array.from({ length: 3 }, async (_, client) => {
+    for (let i = 0; i < 20; i++) {
+      await turns.next("get");
+      order.push(`get-${client}-${i}`);
+    }
+  });
+  await Promise.all([index, ...streams]);
+  expect(order.indexOf("index")).toBeLessThan(10);
 });
 
 test("a loop stall is reported with the work that held it", async () => {

@@ -157,7 +157,7 @@ test("views.read matches the client evaluator for every saved view in a fixture"
 
 // Tree, the navigator and embeds read a small page of each view on every refresh.
 // Ranking and totals cover every member; property hydration covers only the page.
-test("views.read hydrates only the requested page of a large ranked view", () => {
+test("views.read pages a large ranked view over one read of the outline", () => {
   const root = mkdtempSync(join(tmpdir(), "saved-view-large-"));
   const store = new OutlinerStore(join(root, "outline.sqlite"));
   try {
@@ -171,10 +171,11 @@ test("views.read hydrates only the requested page of a large ranked view", () =>
     store.reorderVirtualOccurrences(view.id, ranked);
     const expected = [...ranked, ...ids.filter(id => !ranked.includes(id))];
 
-    const hydrated: number[] = [];
-    const internals = store as unknown as {hydrateVisibleRowsFromCurrentRead(rows: unknown[], ...rest: unknown[]): unknown};
-    const hydrate = internals.hydrateVisibleRowsFromCurrentRead.bind(store);
-    internals.hydrateVisibleRowsFromCurrentRead = (rows, ...rest) => { hydrated.push(rows.length); return hydrate(rows, ...rest); };
+    // The outline is read once for every page (PIE-625: Tree reads every view after each change), not once per read.
+    let reads = 0;
+    const internals = store as unknown as {readGraph(): unknown};
+    const readGraph = internals.readGraph.bind(store);
+    internals.readGraph = () => { reads += 1; return readGraph(); };
 
     const started = performance.now();
     const first = store.readSavedView(view.id);
@@ -187,7 +188,7 @@ test("views.read hydrates only the requested page of a large ranked view", () =>
     const tail = store.readSavedView(view.id, {offset: count - 5});
     expect([tail.blocks.map(block => block.id), tail.total, tail.completeness, tail.nextOffset])
       .toEqual([expected.slice(count - 5), count, {kind: "complete"}, undefined]);
-    expect(hydrated).toEqual([20, 1000, 5]);
+    expect(reads).toBe(1);
     expect(elapsed).toBeLessThan(1000);
   } finally { store.close(); rmSync(root, {recursive: true, force: true}); }
 });

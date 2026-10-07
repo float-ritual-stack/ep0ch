@@ -102,12 +102,17 @@ export const WHOLE_OUTLINE_READS: ReadonlySet<string> = new Set([
  * Whose turn it is on the loop (PIE-625). Every request waits for a turn; one is given per pass of the event loop, so
  * the loop reads the sockets between any two (a request that arrives mid-burst is in line at once), and the other
  * requests go before the whole-outline reads. A turn ends where its request first waits (I/O, a child process); the
- * order within one connection is kept by its own queue.
+ * order within one connection is kept by its own queue. A whole-outline read still gets one turn in LAST_EVERY + 1 while
+ * other requests keep coming.
  */
+const LAST_EVERY = 8;
+
 export class Turns {
   private readonly first: Array<() => void> = [];
   private readonly last: Array<() => void> = [];
   private scheduled = false;
+  /** Turns given in a row to other requests while a whole-outline read waited. */
+  private passedOver = 0;
 
   next(action: unknown): Promise<void> {
     return new Promise(resolve => {
@@ -121,7 +126,10 @@ export class Turns {
     this.scheduled = true;
     setImmediate(() => {
       this.scheduled = false;
-      (this.first.shift() ?? this.last.shift())?.();
+      // Never starved: after LAST_EVERY turns to other requests, a whole-outline read gets one.
+      const fromLast = this.last.length > 0 && (this.first.length === 0 || this.passedOver >= LAST_EVERY);
+      this.passedOver = fromLast || this.last.length === 0 ? 0 : this.passedOver + 1;
+      (fromLast ? this.last.shift() : this.first.shift())?.();
       if (this.first.length || this.last.length) this.schedule();
     });
   }

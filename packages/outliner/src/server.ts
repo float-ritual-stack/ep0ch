@@ -1532,7 +1532,8 @@ export class OutlinerServer {
       try {
         // The whole outline's labels, made a slice per turn: a first read after a start never holds the loop.
         const result = await this.store.readTreeIndexInSlices(request.view ?? {}, () => this.turns.next(request.action));
-        return { id: request.id, ok: true, result, sequence: this.store.sequence };
+        // The snapshot's own sequence: a write between two slices is not in it.
+        return { id: request.id, ok: true, result, sequence: result.sequence };
       } catch (error) {
         return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error), sequence: this.store.sequence };
       }
@@ -3156,6 +3157,7 @@ export class OutlinerServer {
     let request: OutlinerRequest | undefined;
     let response: OutlinerResponse;
     let attribution: ChangeAttribution | undefined;
+    let loopMs: number | undefined;
     const previousSequence = this.store.sequence;
     try {
       request = JSON.parse(line) as OutlinerRequest;
@@ -3181,7 +3183,10 @@ export class OutlinerServer {
         kind: requestChangeKind(current.action),
         collect: true,
       });
-      response = await this.store.changes.run(attribution, () => this.handleAsync(current, subscribedClient));
+      const pending = this.store.changes.run(attribution, () => this.handleAsync(current, subscribedClient));
+      // What ran before the handler first waited held the loop; the waits after it didn't.
+      loopMs = performance.now() - started;
+      response = await pending;
     } catch (error) {
       const problem = queryRequestProblem(error);
       response = {
@@ -3202,21 +3207,21 @@ export class OutlinerServer {
       // The changes are durable in the feed; subscribers recover them with changes.since.
       process.stderr.write(`outliner: live event publication failed: ${error instanceof Error ? error.message : String(error)}\n`);
     }
-    if (loopWatched()) this.timeRequest(request, received, started, answered, performance.now() - answered);
+    if (loopWatched()) this.timeRequest(request, received, started, answered, loopMs ?? answered - started, performance.now() - answered);
   }
 
   /** The host's per-request timing (loop-watch.ts): a request that took long is logged, and named in a stall. */
-  private timeRequest(request: OutlinerRequest | undefined, received: number, started: number, answered: number, publishMs: number): void {
+  private timeRequest(request: OutlinerRequest | undefined, received: number, started: number, answered: number, loopMs: number, publishMs: number): void {
     const action = String(request?.action ?? "invalid");
     const ms = answered - received;
-    noteWork(action, answered - started);
+    noteWork(action, loopMs);
     noteWork(`${action} fan-out`, publishMs);
     // Its own work held the loop, or it waited long enough for a client to notice (a third of the 3 s timeout).
-    if (answered - started < SLOW_REQUEST_MS && publishMs < SLOW_REQUEST_MS && ms < SLOW_WAIT_MS) return;
+    if (loopMs < SLOW_REQUEST_MS && publishMs < SLOW_REQUEST_MS && ms < SLOW_WAIT_MS) return;
     console.log(JSON.stringify({
       status: "slow_request", outline: this.outline?.name, action, ms: Math.round(ms),
-      queuedMs: Math.round(started - received), handleMs: Math.round(answered - started), publishMs: Math.round(publishMs),
-      subscribers: this.subscribers.size,
+      queuedMs: Math.round(started - received), handleMs: Math.round(answered - started), loopMs: Math.round(loopMs),
+      publishMs: Math.round(publishMs), subscribers: this.subscribers.size,
     }));
   }
 

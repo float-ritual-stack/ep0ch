@@ -4022,18 +4022,28 @@ export class OutlinerStore {
     return `${changes.changes}:${version.data_version}`;
   }
 
-  /** A failed transaction rolled rows back without moving the graph's key: the graph may hold what it undid. */
+  /**
+   * A failed transaction (its work threw, or its COMMIT failed) rolled rows back without moving the graph's key: the
+   * graph may hold what it undid. Every way to run one (`deferred`, `immediate`, `exclusive` too) drops it then.
+   */
   private dropGraphOnFailure(): void {
     const transaction = this.database.transaction.bind(this.database);
     const store = this;
-    this.database.transaction = ((work: (...args: unknown[]) => unknown) => transaction(function (this: unknown, ...args: unknown[]) {
+    type Run = (...args: unknown[]) => unknown;
+    const guarded = (run: Run): Run => function (this: unknown, ...args: unknown[]) {
       try {
-        return work.apply(this, args);
+        return run.apply(this, args);
       } catch (error) {
         store.graph = undefined;
         throw error;
       }
-    })) as Database["transaction"];
+    };
+    this.database.transaction = ((work: Run) => {
+      const run = transaction(work) as Run & Record<"deferred" | "immediate" | "exclusive", Run>;
+      return Object.assign(guarded(run), {
+        deferred: guarded(run.deferred), immediate: guarded(run.immediate), exclusive: guarded(run.exclusive),
+      });
+    }) as Database["transaction"];
   }
 
   private readGraph(): LoadedGraph {
