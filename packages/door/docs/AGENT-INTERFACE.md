@@ -279,6 +279,22 @@ the drawer has an id `k<n>`, never a screen tile's `t<n>`. A preview that follow
 its identity (ADR 0001), into the drawer and back. In the drawer a tile's keys work as on a screen, `^W P` (the policy
 panel) too.
 
+### Program status: what waits on the person (PIE-614)
+
+A terminal tile reads what its program reports with OSC 7501 (the Program Status Protocol: working, blocked with a
+kind, done, error; outline-core's `program-status.ts`). `peek` gives each terminal's records as `status` (`id`,
+`state`, `kind`, `progress`, `app`, `title`, `msg`), and the live feed carries them in its viewport. An agent running
+in a tile can report its own the same way (the Claude mod does for Claude: `hooks/claude-status.ts`); the tile answers
+the feature query (`OSC 7501 ; ?`) and its terminfo has `Pst`.
+
+| Action | Args | Keys, mouse | Agent rules |
+|---|---|---|---|
+| `status.list` | | the status bar's count, the waiting-on-you tab | read-only: every blocked, failed and unseen done record across the screen's terminals and the drawer's, most urgent first, each with `n`, `tile`, `name` and since when |
+| `host.waiting` | | `alt+w`, a click on the status bar's `◆1 ✓2 on you` | the waiting-on-you list as a tab in the drawer: the person's pulls the drawer up and goes to it; an agent's opens it behind the tab shown |
+| `status.pick` | `n` or `tile` | `j` `k`, the wheel, in the list | refused while the person is typing there |
+| `status.go` | `n` or `tile` | `⏎`, a click on a row | the person's only: it takes their keys to that terminal (an agent answers a program with `tile.type`) |
+| `status.seen` | `n` or `tile` | `x` | its done and failed records go; blocked ones stay until the program says otherwise. Refused while the person is typing there; said on screen |
+
 ## Naming tiles and splits (PIE-491)
 
 Two actors (the person and an agent, or two agents) change the layout at once, so a name must mean the same

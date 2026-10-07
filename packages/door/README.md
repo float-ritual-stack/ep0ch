@@ -530,6 +530,7 @@ A checkout from before `install` gets it by hand, once:
 | `EP0CH_KITTY` | `1` / `0` forces graphics on or off |
 | `EP0CH_THEME` | `calm` (the default), `night` or `classic`: the colours at start, over the one last chosen with `alt+t` (see [Themes and accessibility](#themes-and-accessibility)) |
 | `EP0CH_LANDING` | the screen opened after the logon, by any `--screen` name: `brief` (the newest daily brief), `welcome` (the welcome notes), or any registered screen (default: the main menu) |
+| `EP0CH_PROGRAM_STATUS` | `0` (or `off`): the door doesn't ask its terminal for the Program Status Protocol (OSC 7501) or report its own status to it, and our commands and the Claude mod emit none; `1`: they report without asking (a terminal known to speak it). Unset: asked (the `?` query, or `Pst` in terminfo). Terminal tiles always read what their programs report |
 | `EP0CH_KEYBOARD` | `legacy` doesn't ask the terminal for the Kitty keyboard protocol (then Shift+Enter reads as Enter); unset, the door asks when the terminal answers its query |
 | `EP0CH_COPY_ON_SELECT` | `0` (or `off`) doesn't copy a mouse selection when the button comes up; `y`, `cmd+c` or the copy control copies it then (Herdr's `ui.copy_on_select`). Unset, a drag copies |
 | `EP0CH_OPTION_KEYS` | `us` reads macOS Option characters (`å`, `¬`) as alt keys outside text, `off` never; unset, by the locale |
@@ -1084,6 +1085,17 @@ the start of the status bar's right part, `▲ claude` (`▲ shell +2` with two 
 - **No dead panes.** Every agent, in the drawer or in a terminal tile, starts inside your login shell. When it exits
   or crashes, the tile says so (`claude exited · shell`) and is your shell, in the same folder with the same
   environment: `claude --resume`, `claude --continue`, another agent, anything. Nothing restarts it behind your back.
+- **What waits on you.** A program in a terminal tile can say what it's doing (OSC 7501, the Program Status
+  Protocol): working (with its progress), blocked on you (a permission, a question, a login), done, or failed. The
+  tile's header and tab show it as a glyph (`◴ 40%`, `◆`, `?`, `✓`, `✗`), the chip says it (`▲ claude · needs you`), and
+  the status bar counts what waits on you (`◆1 ✓2 on you`). A click on that count, or `alt+w`, opens the
+  **waiting-on-you list** as a tab in your drawer (`host.waiting`): every terminal's blocked, failed and finished work,
+  most urgent first; `⏎` or a click goes to that terminal, `x` marks it seen. Being back in a tile (a key, a click)
+  is seeing it: its done goes. Claude Code reports through the ep0ch mod (a permission dialog, a question, done at its
+  answer), and so do `ep0ch install --apply`, `ep0ch backup run`, `scripts/box-test` and `scripts/agent-env --test`;
+  without reports, the chip still guesses from the program's output, as before. The door reports its own to the
+  terminal it runs in when that terminal speaks the protocol (Ghostty, Rex): the most urgent across its tiles, and each
+  tile as a child (`desk/claude`). `EP0CH_PROGRAM_STATUS=0` turns its reports and its query off.
 - **A new shell, here.** `alt+s` opens a new shell as a tab in the drawer, in its folder (`host.shell`). It starts in `EP0CH_DAILY_CWD` when
   you set it; else the folder of the `.ep0ch` naming this outline above where the door started (the project); else
   the outline's own folder (`~/outlines/<name>/`); else where the door started. `ep0ch doctor` says which and why

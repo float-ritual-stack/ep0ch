@@ -940,9 +940,9 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     const stage = () => S().stages.get(S().sel).top;
     const deploy = () => stage().pane("deploy");
     const bar = () => { (app as any).paint(); return plain(painted.at(-1) ?? ""); };
-    // Working, with its progress, on its header.
-    await until(() => deploy()?.status.urgent()?.state === "working", "working", 8000);
-    await until(() => /[◴◷◶◵] (20|60)% \d deploy/.test(screen()), "the header's spinner and progress", 5000);
+    // Working, with its progress, on its header (an earlier visit to the section may have found it further on).
+    await until(() => ["working", "blocked"].includes(deploy()?.status.urgent()?.state), "it reports", 8000);
+    if (deploy().status.urgent().state === "working") expect(screen()).toMatch(/[◴◷◶◵] (20|60)% \d deploy/);
     // Blocked on a permission: the header's ◆, the list's row, the status bar's count, peek and status.list.
     await until(() => deploy()?.status.urgent()?.state === "blocked", "blocked", 8000);
     await until(() => /◆ \d deploy/.test(screen()) && screen().includes("deploy · needs you · Deploy v2.4.1 to production?"), "the header and the list", 5000);

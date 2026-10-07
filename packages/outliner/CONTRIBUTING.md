@@ -75,6 +75,11 @@ source evidence or distinguish authored glyphs from controls.
   pane kind adds a kind there, not its own header or footer.
 - `src/detail-controller.ts` plus `src/detail-*` own Detail behavior and presentation.
 - `src/virtual-branches.ts` owns projection semantics.
+- `src/program-status-emit.ts` (a declared export, `@ep0ch/outliner/program-status-emit`) is the one emitter of
+  program status (OSC 7501, PIE-614) for our own commands: whether this terminal speaks it (`EP0CH_PROGRAM_STATUS`,
+  `tput Pst`, the `?` query) and where reports go; the report itself is outline-core's `encodeProgramStatus`. Tree and
+  Detail say `working` while they wait for the host (`reportWhile`); `scripts/program-status.ts` is the shell scripts'
+  way in. A new long command reports through it, never by printing the sequence itself.
 - `src/note-placement.ts` owns where a new note or page goes (PIE-544): one list of
   placement rules, the first that answers wins (today: under the note the client
   says the person was in, else the top of the Inbox). `notes.create`, the page

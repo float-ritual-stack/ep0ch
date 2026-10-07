@@ -113,7 +113,8 @@ export function recordFacts(r: StatusRecord): Record<string, unknown> {
   return { id: r.id, state: r.state, ...(r.kind ? { kind: r.kind } : {}), ...(r.progress !== undefined ? { progress: r.progress } : {}), ...(r.app ? { app: r.app } : {}), ...(r.title ? { title: statusDisplayText(r.title) } : {}), ...(r.msg ? { msg: statusDisplayText(r.msg) } : {}) };
 }
 
-let terminfoTried: string | null | undefined;
+/** The last state dir asked about, and its answer: asked again when the dir changes or its folder went. */
+let terminfoTried: { state: string; dir: string | null } | null = null;
 /**
  * A terminfo folder whose xterm-256color (the TERM a terminal tile gets) carries `Pst`, the spec's capability saying the
  * door speaks the protocol: compiled once, from this machine's own entry plus Pst, into the door's state (`tic -x`).
@@ -121,19 +122,19 @@ let terminfoTried: string | null | undefined;
  * where there is no infocmp or tic (the query, OSC 7501 ; ?, still says so).
  */
 export function terminfoWithPst(stateDir: string): string | null {
-  if (terminfoTried !== undefined) return terminfoTried;
-  terminfoTried = null;
+  if (terminfoTried?.state === stateDir && (terminfoTried.dir === null || existsSync(terminfoTried.dir))) return terminfoTried.dir;
+  terminfoTried = { state: stateDir, dir: null };
   const dir = join(stateDir, "terminfo");
   try {
     // Compiled already (by an earlier door on this state): ncurses files it under x/ (Linux) or 78/ (macOS).
-    if (existsSync(dir) && readdirSync(dir).some(d => d === "x" || d === "78")) return (terminfoTried = dir);
+    if (existsSync(dir) && readdirSync(dir).some(d => d === "x" || d === "78")) return (terminfoTried.dir = dir);
     const src = spawnSync("infocmp", ["-x", "xterm-256color"], { encoding: "utf8", timeout: 3000 });
     if (src.status !== 0 || !src.stdout.includes("xterm-256color")) return null;
     const entry = `${src.stdout.trimEnd().replace(/,\s*$/, ",")}\n\t${PROGRAM_STATUS_TERMINFO},\n`;
     mkdirSync(dir, { recursive: true, mode: 0o700 });
     const tic = spawnSync("tic", ["-x", "-o", dir, "-"], { input: entry, encoding: "utf8", timeout: 5000 });
     if (tic.status !== 0) return null;
-    return (terminfoTried = dir);
+    return (terminfoTried.dir = dir);
   } catch { return null; }
 }
 

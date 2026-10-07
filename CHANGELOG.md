@@ -10,6 +10,24 @@ are its record. The outliner's entries from then are kept below, under
 
 ## [Unreleased]
 
+### What waits on you: program status in terminal tiles (OSC 7501, PIE-614)
+
+- **Programs say what they're doing.** A program in a door's terminal tile can report its status with OSC 7501 (Mitchell
+  Hashimoto's Program Status Protocol): working (with progress), blocked on you (a permission, a question, a login),
+  done, failed. The tile's header and tab show a calm glyph, the drawer's chip says it (`▲ claude · needs you`), and the
+  status bar counts what waits (`◆1 ✓2 on you`).
+- **The waiting-on-you list.** `alt+w`, or a click on that count, opens it in your drawer on any screen: every
+  terminal's blocked, failed and unseen done work; `⏎` or a click goes there, `x` marks it seen. Being back in a tile
+  clears its done.
+- **Who reports.** Claude Code through the mod (working, a permission dialog, a question, done with its answer's first
+  line, errors); `ep0ch install --apply`; `ep0ch backup run`; `scripts/box-test`; `scripts/agent-env --test`; Tree and
+  Detail while they wait for the outline host. Each reports only to a terminal that speaks the protocol (`Pst` in
+  terminfo, which the door gives its tiles, or the `?` query).
+- **The door reports its own.** In Ghostty or Rex (any terminal answering the query) the door says what waits inside
+  it: the most urgent across its tiles, each tile a child record. `EP0CH_PROGRAM_STATUS=0` turns that off.
+- **Agents:** `peek` gives each terminal's `status` records; `status.list` reads the list; `host.waiting`, `status.seen`.
+- **Run:** nothing beyond the usual `ep0ch install --apply`; a Claude started before the mod changed reports once
+  restarted (`alt+R` in the drawer).
 ### Scroll past the end (PIE-622)
 
 - **A note's last line no longer hugs the bottom edge.** In every reader (detail, preview, the desk's, a river column,
