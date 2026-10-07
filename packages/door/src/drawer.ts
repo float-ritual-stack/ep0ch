@@ -47,6 +47,8 @@ import type { Pane } from "./desk/panes";
 import type { ScreenSpec } from "./desk/screen-spec";
 import type { TileDone, Where } from "./desk/tile-actions";
 import { registerTileKind, tileKind, UnavailableTile } from "./desk/tile-kinds";
+import { statusMark, waitingOnYou } from "./desk/program-status";
+import { rowFacts, WAITING_YOU_KIND_NAME } from "./desk/waiting-you";
 import { PTY_ACTIONS } from "./desk/pty-actions";
 import { apply as applyLayout, hostDock, hostLayer, HOST_SCREEN, placeHost, type Ctx as LayoutCtx, type HostMode, type LayoutState, type Op, type TileFacts } from "./desk/screen-layout";
 import { readState, writeState } from "./state";
@@ -129,11 +131,12 @@ const RESTART_IDLE_MS = 10_000;
 /** What drawer.json keeps: whether it's up, its height, and how many own programs have left it (`gen`, its key's). */
 export interface DrawerSaved { open: boolean; share: number; gen?: number }
 /**
- * What the chip says: not started, working, idle, waiting on the person (Herdr's `blocked`), exited, or
- * `watching`: the Herdr launcher found another door attached to the agent's pane and only watches it (a
- * second ssh session's door), where ⏎ would take the pane from that door.
+ * What the chip says: not started, working, idle, waiting on the person, done (a result the person hasn't seen),
+ * failed, exited, or `watching`: the Herdr launcher found another door attached to the agent's pane and only watches it
+ * (a second ssh session's door), where ⏎ would take the pane from that door. What its program reports (OSC 7501:
+ * src/desk/program-status.ts) comes first; without that, Herdr's status, then whether it wrote anything lately.
  */
-export type AgentState = "off" | "working" | "idle" | "blocked" | "exited" | "watching";
+export type AgentState = "off" | "working" | "idle" | "blocked" | "done" | "failed" | "exited" | "watching";
 
 /** What the drawer needs from the App. */
 export interface DrawerHost {
@@ -268,6 +271,44 @@ export class AgentDrawer {
     if (actor.kind !== "agent") { this.do({ op: "focus", tile: HOST_TILES }, actor); d.run("tab.select", {}, done.tile); this.intoShown(); }
     this.host.redraw();
     return done;
+  }
+
+  /**
+   * The waiting-on-you list (src/desk/waiting-you.ts: what the terminals' programs say waits on the person) as a tab in
+   * the drawer, opened once and shown again after: the person's pulls the drawer up and goes to it (alt+w); an agent's
+   * opens it behind the tab shown.
+   */
+  async waiting(actor: Actor): Promise<{ tile: string; waiting: number }> {
+    const d = this.desk;
+    if (!d) throw new ActionRefused("the drawer isn't ready");
+    if (actor.kind !== "agent" && !this.open) { this.offered = true; this.set(true, actor); }
+    const tile = this.tabs().find(t => t.kind === WAITING_YOU_KIND_NAME)?.name ?? (await d.openTile({ kind: WAITING_YOU_KIND_NAME }, DRAWER_TILE_ID, "tabs", actor)).tile;
+    if (actor.kind !== "agent") { this.do({ op: "focus", tile: HOST_TILES }, actor); d.run("tab.select", {}, tile); this.intoShown(); }
+    this.host.redraw();
+    return { tile, waiting: waitingOnYou().length };
+  }
+
+  /**
+   * Go to tile `p` (the waiting-on-you list's status.go): in the drawer, it's pulled up with that tab shown and the keys
+   * in it; on the screen shown, the drawer goes away and the keys go to it. A tile on a screen under this one is refused.
+   */
+  goTo(p: Pane, actor: Actor): { tile: string; in: "drawer" | "screen" } {
+    const d = this.d, inDrawer = d?.nameOfPane(p) ?? "";
+    if (d && inDrawer) {
+      if (!this.open) { this.offered = true; this.set(true, actor); }
+      this.do({ op: "focus", tile: HOST_TILES }, actor);
+      d.run("tab.select", {}, inDrawer);
+      this.intoShown();
+      this.host.redraw();
+      return { tile: inDrawer, in: "drawer" };
+    }
+    const screen = tilesOf(this.host.screen?.()), name = screen?.nameOfPane(p) ?? "";
+    const what = (p as { statusName?(): string }).statusName?.() ?? "that tile";
+    if (!screen || !name) throw new ActionRefused(`${what} isn't on this screen or in your drawer: it's on a screen under this one (q goes back to it)`);
+    if (this.open) this.set(false, actor);
+    screen.focusPane(p, actor);
+    this.host.redraw();
+    return { tile: name, in: "screen" };
   }
 
   /** The session ended: its own Herdr pane closes (never another session's: the pane is named for this one). */
@@ -409,6 +450,9 @@ export class AgentDrawer {
     if (!p || (!p.running && p.exited === null)) return "off";
     if (p.exited !== null || p.agentExit !== null) return "exited";
     if (p.programTitle === WATCH_TITLE) return "watching";
+    // The program said what it's doing: no guessing.
+    const said = p.status.urgent();
+    if (said) return said.state === "error" ? "failed" : said.state;
     if (p.herdr) {
       this.pollHerdr(now);
       const h = this.herdrState;
@@ -445,7 +489,9 @@ export class AgentDrawer {
     if (this.dropHover && !tilesOf(this.host.screen?.())?.draggedTile()) this.dropHover = null;
     const s = this.state(now);
     if (s !== "off" && s !== "exited") this.pollKnows(now);
-    const what = this.restarting ? "restarting" : s === "off" ? "" : s === "blocked" ? "needs you" : s === "exited" ? (this.p?.exited === null && this.p?.agentExit !== null ? `exited ${this.p.agentExit} · shell` : `exited ${this.p?.exited ?? ""}`.trim()) : s;
+    // What it reported says it in its own words (needs you, asks you, working 40%); else the state's.
+    const said = this.p?.status.urgent();
+    const what = this.restarting ? "restarting" : s === "off" ? "" : said && s !== "exited" && s !== "watching" ? statusMark(said).word : s === "blocked" ? "needs you" : s === "exited" ? (this.p?.exited === null && this.p?.agentExit !== null ? `exited ${this.p.agentExit} · shell` : `exited ${this.p?.exited ?? ""}`.trim()) : s;
     const knows = this.restarting || s === "off" || s === "exited" ? "" : knowsLabel(this.knows);
     // The drawer's own name, then how many more tiles it holds (`▲ claude +2`): a drag over it says it goes in there.
     const more = this.d ? this.tabs().length - 1 : 0;
@@ -537,7 +583,7 @@ export class AgentDrawer {
   /** The chip as drawn on the status bar (its colour says the state). */
   chip(now = Date.now()): string {
     const s = this.state(now);
-    const c = s === "working" ? C.yellow : s === "blocked" ? C.lmagenta : s === "exited" ? C.lred : s === "watching" ? C.lcyan : C.white;
+    const c = s === "working" ? C.yellow : s === "blocked" ? C.lmagenta : s === "done" ? C.lgreen : s === "exited" || s === "failed" ? C.lred : s === "watching" ? C.lcyan : C.white;
     const { head, knows } = this.chipParts(now);
     if (this.dropHover) return `${chipStyle(C.yellow, C.black)}${head}${bg(C.blue)}${fg(C.lcyan)}`;
     return `${bg(this.open ? C.cyan : C.blue)}${fg(c)}${head}${knows && this.offersRestart ? fg(C.yellow) : ""}${knows}${bg(C.blue)}${fg(C.lcyan)}`;
@@ -1038,6 +1084,21 @@ export const DRAWER_ACTIONS = actionSet<DrawerOn>()("drawer", {
     says: (out: { tile?: string }) => `· opened a shell in the drawer (${out.tile ?? "shell"})`,
     args: {},
     run(_, { drawer }, actor) { return drawer.newShell(actor); },
+  }),
+  "host.waiting": def({
+    summary: "the waiting-on-you list as a tab in the drawer: what the programs in terminal tiles say waits on the person (blocked on a permission, a question or a login; failed; done and not yet seen), from their program status (OSC 7501), across the screen's terminals and the drawer's. The person's pulls the drawer up and goes to it; an agent's opens it behind the tab shown (status.list reads the same rows)",
+    keys: "alt+w (on every screen, and in the drawer), a click on the status bar's waiting count",
+    touches: "shape", replay: "ask",
+    says: (out: { tile?: string }) => `· opened the waiting-on-you list in the drawer (${out.tile ?? "waiting-you"})`,
+    args: {},
+    run(_, { drawer }, actor) { return drawer.waiting(actor); },
+  }),
+  "status.list": def({
+    summary: "what waits on the person, read: each terminal tile's program status rows that ask something of them (blocked, failed, done unseen), most urgent first, with the tile, the record (state, kind, progress, app, title, msg) and since when. `peek` gives every terminal's records too (terminal.status)",
+    keys: "the status bar's waiting count, the drawer's waiting-on-you tab",
+    touches: "nothing", replay: "safe",
+    args: {},
+    run() { return { waiting: waitingOnYou().map((r, i) => rowFacts(r, i + 1)) }; },
   }),
   "host.agent": def({
     summary: "the drawer's own agent (its first tab): name=<agent> chooses one installed here (claude, codex, pi, … or shell; herdr=true runs it in Herdr, where it outlives the door), saved for this outline's session (default=true: for every outline). It starts inside the person's login shell, from the drawer's own tab's next start: one running keeps running (agent.restart starts the new one in its place). No name: the person's picker of the agents installed here. EP0CH_DAILY_AGENT, when set, still overrides it",

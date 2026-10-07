@@ -24,6 +24,9 @@ import { agentVars, DOOR_START_VARS, PLACE_VAR, withContinue } from "./agent-env
 import { KbdModes, keyBytes, translateReports } from "../kbd";
 import { type Clip, Osc52Reader, TILE_COPY_RECENT_MS } from "../surface/selection";
 import { localPtys, ptyBackend, type PtyMeta, type PtyProc } from "./pty-backend";
+import { dropStatus, holdStatus, recordFacts, statusMark, terminfoWithPst, TileStatus } from "./program-status";
+import { stateDir } from "../state";
+import type { Actor } from "../socket";
 
 const { Terminal: XTerm } = xterm as unknown as { Terminal: new (o: Record<string, unknown>) => XTermLike };
 
@@ -41,6 +44,11 @@ interface XTermLike {
   write(d: string | Uint8Array, cb?: () => void): void;
   resize(cols: number, rows: number): void;
   onTitleChange(f: (t: string) => void): unknown;
+  /** The emulator's parser: the door's own OSC and ESC handlers (program status, OSC 7501) go in ahead of its own. */
+  parser: {
+    registerOscHandler(ident: number, f: (data: string) => boolean): unknown;
+    registerEscHandler(id: { intermediates?: string; final: string }, f: () => boolean): unknown;
+  };
   /** What the emulator answers the program (a cursor report, the colours it asked for), to go back to it. */
   onData(f: (d: string) => void): unknown;
   dispose(): void;
@@ -114,6 +122,9 @@ export function tileEnv(env: Record<string, string | undefined>, tile: string, c
   // EP0CH_IN_DOOR: a shell in a tile is already in the door, so a login shell's landing guard (float-2's
   // ~/.bashrc starts the door on an interactive ssh login) doesn't open a second door in it.
   Object.assign(out, { TERM: "xterm-256color", COLORTERM: "truecolor", COLORFGBG: "15;0" });
+  // The door speaks the Program Status Protocol (OSC 7501): its xterm-256color says so (`Pst`), found ahead of the rest.
+  const pst = terminfoWithPst(stateDir());
+  if (pst) out.TERMINFO_DIRS = `${pst}:${env.TERMINFO_DIRS ?? ""}`;
   Object.assign(out, agentVars(env, { tile, control, tileId, place: session, nest: appendNest(doorNest(env), doorLayer(pid, place, tileId, tile)) }));
   return out;
 }
@@ -208,6 +219,11 @@ export class PtyPane implements Pane {
   private back = 0;
   private redrawSoon: Timer | null = null;
   private desk: DeskApi | null = null;
+  /**
+   * What its program says it's doing (OSC 7501, src/desk/program-status.ts): records read off what it writes, dropped
+   * when it exits or a new prompt begins, its `done` and `error` kept until the person comes back to the tile.
+   */
+  readonly status = new TileStatus();
   /** Called once when the program exits (an editor opened for a draft reads its file back then). */
   onExit: ((code: number) => void) | null = null;
   /** An nvim tile's socket and the door's connection to it (the cursor, the buffer's file, marks). */
@@ -218,7 +234,7 @@ export class PtyPane implements Pane {
 
   constructor(readonly run: PtySpec) {}
   spec(): Record<string, unknown> { return { cmd: this.run.cmd, ...(this.run.cwd ? { cwd: this.run.cwd } : {}), ...(this.run.file ? { file: this.run.file } : {}), ...(this.run.agent ? { agent: true as const } : {}), ...(this.movedKey ? { kept: this.movedKey } : {}) }; }
-  dispose() { this.kill(); this.term?.dispose(); this.term = null; }
+  dispose() { this.kill(); this.term?.dispose(); this.term = null; dropStatus(this); }
 
   get running() { return !!this.proc && this.exited === null; }
   get pid() { return this.proc?.pid; }
@@ -234,6 +250,19 @@ export class PtyPane implements Pane {
   }
   hint(): string { return this.exited !== null ? "⏎ runs it again" : `click or ⏎ types here · ${ESCAPE_CHORD} back to the door`; }
 
+  /** What the "waiting on you" list and the door's own report call it: its name on the desk, else its program. */
+  statusName(): string { return this.run.label || this.tileName || this.run.shows || basename(this.run.cmd[0] ?? "") || "terminal"; }
+  /** The glyph its header shows for what its program reported (none for idle, or without records). */
+  headStatus(now = Date.now()): { glyph: string; sgr: string } | null {
+    const r = this.status.urgent();
+    if (!r || r.state === "idle") return null;
+    const m = statusMark(r, now);
+    return { glyph: r.state === "working" && r.progress !== undefined ? `${m.glyph} ${r.progress}%` : m.glyph, sgr: m.sgr };
+  }
+  /** The person came back to it (a key, a click, the keys given to it): what was finished they've now seen. */
+  private sawIt() { this.status.seen(); }
+  focused(_desk: DeskApi, actor: Actor) { if (actor.kind !== "agent") this.sawIt(); }
+
   init(desk: DeskApi) { this.desk = desk; }
 
   /**
@@ -247,12 +276,19 @@ export class PtyPane implements Pane {
     this.kbd.reset();
     const term = new XTerm({ cols, rows, scrollback: 1000, allowProposedApi: true });
     this.term = term;
+    holdStatus(this);
     term.onTitleChange(t => { this.programTitle = t.slice(0, 60); });
     // A program asks its terminal things (where the cursor is, its colours): the emulator answers, and the
     // answer goes back to the program as a terminal's would. Without it nvim waits, then complains.
     // Not while what a kept program wrote is replayed (an adopted one): its old queries were answered then.
     let replaying = false;
     term.onData(d => { if (this.running && !replaying) this.proc?.write(d); });
+    // Program status (OSC 7501): its reports become the tile's records, its feature query is answered (not in a replay:
+    // answered then). A new prompt (OSC 133 A) drops working and blocked, a full reset (RIS) every record; the emulator
+    // still does its own after each (false: not handled here alone).
+    term.parser.registerOscHandler(7501, body => { this.status.feed(body, this.running && !replaying ? s => this.proc?.write(s) : null); this.soon(); return true; });
+    term.parser.registerOscHandler(133, body => { if (body === "A" || body.startsWith("A;")) { this.status.prompt(); this.soon(); } return false; });
+    term.parser.registerEscHandler({ final: "c" }, () => { this.status.reset(); this.soon(); return false; });
     /** The modes a program asks of its terminal, followed; `answer`: its queries answered (not in a replay). */
     const modes = (s: string, answer: boolean) => {
       // Which mouse encoding it asked for isn't in xterm's public modes; the request is in the bytes, maybe
@@ -284,7 +320,7 @@ export class PtyPane implements Pane {
         const seen = this.exitTail + text;
         this.exitTail = seen.slice(-320);
         const gone = EXITED.exec(seen);
-        if (gone && this.agentExit === null) { this.agentExit = Number(gone[1]); this.exitTail = ""; }
+        if (gone && this.agentExit === null) { this.agentExit = Number(gone[1]); this.exitTail = ""; this.status.exited(); }
       }
       term.write(d, () => this.soon());
     };
@@ -377,6 +413,7 @@ export class PtyPane implements Pane {
     this.exited = code;
     this.herdrPane = null;
     LIVE.delete(this);
+    this.status.exited();
     try { proc.close(); } catch { /* already closed */ }
     this.soon();
     const f = this.onExit; this.onExit = null;
@@ -447,9 +484,9 @@ export class PtyPane implements Pane {
    * Bytes as the person's terminal sent them. A bracketed paste keeps its markers only for a program that asked for
    * them; a Kitty keyboard report reaches it as it asked (the protocol, or legacy bytes: Shift+Enter as ESC CR).
    */
-  inputRaw(s: string) { this.personKeyAt = Date.now(); s = translateReports(s, this.kbd.flags); this.input(this.term?.modes.bracketedPasteMode ? s : s.replace(/\x1b\[20[01]~/g, "")); }
+  inputRaw(s: string) { this.personKeyAt = Date.now(); this.sawIt(); s = translateReports(s, this.kbd.flags); this.input(this.term?.modes.bracketedPasteMode ? s : s.replace(/\x1b\[20[01]~/g, "")); }
   /** A paste, whole: bracketed (mode 2004) when the program asked for that, so it arrives as one paste, not typed lines. */
-  paste(text: string) { this.personKeyAt = Date.now(); this.input(this.term?.modes.bracketedPasteMode ? `\x1b[200~${text}\x1b[201~` : text); }
+  paste(text: string) { this.personKeyAt = Date.now(); this.sawIt(); this.input(this.term?.modes.bracketedPasteMode ? `\x1b[200~${text}\x1b[201~` : text); }
 
   render(w: number, h: number, focused: boolean, _desk: DeskApi, cursor = focused): PaneView {
     if (w < 2 || h < 1) return { lines: [] };
@@ -488,6 +525,7 @@ export class PtyPane implements Pane {
 
   /** A key the person typed in it (the desk's or the drawer's typing mode): to the program, or ⏎ runs one that exited again. */
   typed(k: Key): boolean {
+    this.sawIt();
     if (this.exited !== null && k.kind === "enter") { this.restart(); return true; }
     const s = this.running ? keyBytes(k, this.term?.modes.applicationCursorKeysMode ?? false, this.kbd.flags) : null;
     if (s === null) return false;
@@ -504,7 +542,7 @@ export class PtyPane implements Pane {
   /** A mouse event at x, y in the tile: to the program when it asked, else the wheel scrolls back. */
   mouse(k: Extract<Key, { kind: "mouse" }>, x: number, y: number): boolean {
     // Only the person's mouse comes here (an agent has none): a click in it is them using it, whatever the program asked.
-    if (k.action === "down") this.personClickAt = Date.now();
+    if (k.action === "down") { this.personClickAt = Date.now(); this.sawIt(); }
     const mode = this.term?.modes.mouseTrackingMode ?? "none";
     if (this.wantsMouse()) {
       if (k.action === "drag" && mode !== "drag" && mode !== "any") return true;
@@ -528,7 +566,7 @@ export class PtyPane implements Pane {
     return {
       cmd: this.run.cmd, file: this.file, running: this.running, exited: this.exited, pid: this.pid, mouse: this.term?.modes.mouseTrackingMode ?? "none",
       ...(this.socket ? { nvim: { socket: this.socket, connected: !!this.nvim, view: this.nvim?.view ?? null } } : {}),
-      cursor: this.cursor(), text: this.text(),
+      cursor: this.cursor(), text: this.text(), status: this.status.records.list().map(recordFacts),
     };
   }
 }
