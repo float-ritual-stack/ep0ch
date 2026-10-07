@@ -222,8 +222,8 @@ timestamps.
   combined source and update the PR's evidence to the exact revision being reviewed.
 - CodeRabbit's generic docstring warning is advisory here. Add comments only when they explain a non-obvious
   invariant.
-- Merge yourself once review is resolved: `gh pr merge --squash` (never `--delete-branch` or `-d`: gh also deletes the local branch, and with it the worktree an agent has it checked out in; delete the remote branch alone with `gh api -X DELETE repos/float-ritual-stack/ep0ch/git/refs/heads/<branch>`), then `git pull --ff-only` in the
-  live checkout.
+- Merge yourself once review is resolved: `gh pr merge --squash` (never `--delete-branch` or `-d`: gh also deletes the local branch, and with it the worktree an agent has it checked out in; delete the remote branch alone with `gh api -X DELETE repos/float-ritual-stack/ep0ch/git/refs/heads/<branch>`). The live checkout
+  moves only through `ep0ch install --apply`, run by the deployer.
 
 ## Documentation
 
