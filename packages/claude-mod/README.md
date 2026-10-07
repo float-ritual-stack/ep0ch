@@ -180,8 +180,16 @@ mod's own. It is read again after each answer is ingested.
   the choice is kept across sessions (`$.store`, `mentions-view`). Closing the
   pane with its mark keeps it hidden. `/mentions [band | pane | off | preview |
   scope]` makes the same choices by keys; `/mentions` alone shows a hidden band.
+  Only `band`, `pane`, `off` and `/mentions` alone move anything: `preview` and
+  `scope` leave the band or pane where it is (a band standing in for a waiting
+  pane stays the band, and says so).
   The band draws only once there is something to show, so an empty one leaves
   the slot above the prompt to others.
+- **What counts:** only a `((id))`, `[[page]]` or Work ID that resolves in the
+  session's outline (the service resolves it at ingest). A source number from a
+  document (`S-87`), another outline's Work ID or a page nobody made is dropped,
+  never listed. "(gone)" is kept for a block named by id that was deleted since;
+  a page that no longer resolves drops off the list.
 - **Preview:** `p` turns on a small preview of each block (the newest two in the
   band, every one in the pane), drawn by the door ([BlockView](#blockview)).
 - **Scope:** `s` switches between this conversation's mentions and every

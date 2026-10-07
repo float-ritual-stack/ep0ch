@@ -12,7 +12,8 @@ export const MENTION_MESSAGE_LIMIT=200;
 const MAX_TEXT=65536,MAX_REFERENCES=100;
 const hash=(value:string)=>createHash('sha256').update(value).digest('hex');
 interface Reference {bare?:boolean;kind:'block'|'address';value:string;start:number;end:number;}
-interface StoredReference extends Reference {blockId:string|null;reason?:string;excerpt:string;}
+/** `blockId` is null only in a message kept before unresolved references were dropped. */
+interface StoredReference extends Reference {blockId:string|null;excerpt:string;}
 interface StoredMessage extends MentionMessage {key:string;receivedAt:string;references:StoredReference[];notChecked:string[];}
 function required(value:unknown,name:string,max=512):string{
  if(typeof value!=='string'||!value.trim()||value.length>max||/[\u0000-\u001f]/.test(value))throw Error(`${name} must be nonempty text, at most ${max} characters`);
@@ -64,13 +65,15 @@ export class MentionRepository {
    }
    const candidates=extractMentionReferences(input.text,this.store.workIdAllocatorStatus().prefix??undefined)
     .filter(reference=>!reference.bare||!!this.store.get(reference.value));
-   const notChecked=candidates.length>MAX_REFERENCES?[`Only the first ${MAX_REFERENCES} distinct references were checked`]:[];
-   const references=candidates.slice(0,MAX_REFERENCES).map(reference=>{
-    const resolution=reference.kind==='block'?null:this.store.resolvePageAddress(reference.value);
-    const block=reference.kind==='block'?this.store.get(reference.value):resolution?.block;
-    const active=block&&!block.effectiveDeletedRootId;
-    return{...reference,blockId:active?block.id:null,...!active?{reason:block?'Target is in Trash':'Target is not registered in this workspace'}:{},excerpt:excerpt(input.text,reference)};
+   // Only what resolves in this outline is a mention: an identifier from another outline or a document
+   // (S-87, a Work ID with another prefix, a page nobody made) is dropped here, never shown as gone. Every
+   // candidate is checked (the text is bounded), so unresolved ones never use up the references kept.
+   const resolved=candidates.flatMap(reference=>{
+    const block=reference.kind==='block'?this.store.get(reference.value):this.store.resolvePageAddress(reference.value).block;
+    return block&&!block.effectiveDeletedRootId?[{...reference,blockId:block.id,excerpt:excerpt(input.text,reference)}]:[];
    });
+   const notChecked=resolved.length>MAX_REFERENCES?[`Only the first ${MAX_REFERENCES} distinct references were kept`]:[];
+   const references=resolved.slice(0,MAX_REFERENCES);
    // An unreferenced answer never becomes an automatic saved note or retained message.
    if(references.length){
     const message:StoredMessage={...input,key,receivedAt:new Date().toISOString(),references,notChecked};
@@ -90,11 +93,16 @@ export class MentionRepository {
   if(!Number.isSafeInteger(limit)||limit<1||limit>100)throw Error('Mention limit must be 1–100');
   const messages=this.messages(scope),entries:MentionEntry[]=[],seen=new Set<string>();
   for(const message of messages)for(const reference of message.references){
-   const block=reference.blockId?this.store.get(reference.blockId):reference.kind==='address'?this.store.resolvePageAddress(reference.value).block:this.store.get(reference.value);
-   const active=block&&!block.effectiveDeletedRootId?block:null;
-   const key=block?.id??`${reference.kind}:${reference.value.toLowerCase()}`;
+   // Every kept reference resolved when it was ingested (one kept before that rule, unresolved, is skipped).
+   if(!reference.blockId)continue;
+   // A page or Work ID is read again (a page can move to another block); one that no longer resolves is dropped.
+   // Only a block named by id that was deleted since stays, as gone.
+   const found=reference.kind==='address'?this.store.resolvePageAddress(reference.value).block:this.store.get(reference.blockId);
+   const active=found&&!found.effectiveDeletedRootId?found:null;
+   if(!active&&reference.kind==='address')continue;
+   const key=active?.id??reference.blockId;
    if(seen.has(key))continue;seen.add(key);
-   entries.push({key,messageKey:message.key,address:reference.value,block:active,...!active?{unavailableReason:reference.reason??'Mentioned target is no longer available'}:{},agent:message.agent,sessionId:message.sessionId,messageId:message.messageId,mentionedAt:message.receivedAt,excerpt:reference.excerpt});
+   entries.push({key,messageKey:message.key,address:reference.value,block:active,...!active?{unavailableReason:found?'Target is in Trash':'Target was deleted'}:{},agent:message.agent,sessionId:message.sessionId,messageId:message.messageId,mentionedAt:message.receivedAt,excerpt:reference.excerpt});
   }
   return{entries:entries.slice(0,limit),completeness:entries.length>limit?{kind:'truncated',limit}:{kind:'complete'},retention:{messages:messages.length,maximum:MENTION_MESSAGE_LIMIT},notChecked:[...new Set(messages.flatMap(m=>m.notChecked))]};
  }

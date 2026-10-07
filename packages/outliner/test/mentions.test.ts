@@ -22,7 +22,7 @@ test('mentions resolve canonical references, deduplicate targets and delivery, r
  const a=f.store.create('Alpha [page::alpha]'),b=f.store.create('Beta');f.store.allocateWorkId(a.id,a.revision);
  const before=f.store.queryBlocks({limit:1000}).blocks.length;
  const receipt=f.repo.ingest(f.message(`Read [[alpha]], PIE-001 and ((${a.id})); also ${b.id}, and [[missing]].`));
- expect(f.repo.list().entries.map(e=>e.block?.id??e.address)).toEqual([a.id,b.id,'missing']);
+ expect(f.repo.list().entries.map(e=>e.block?.id??e.address)).toEqual([a.id,b.id]);
  expect(f.repo.ingest(f.message(`Read [[alpha]], PIE-001 and ((${a.id})); also ${b.id}, and [[missing]].`)).deduplicated).toBe(true);
  expect(()=>f.repo.ingest(f.message('Different'))).toThrow('different text');
  f.repo.ingest(f.message(b.id,'two'));expect(f.repo.list().entries[0]?.block?.id).toBe(b.id);
@@ -54,12 +54,17 @@ test('saved excerpts keep properties, hashtags and nested fences literal',()=>{
  for(const address of ['excerpt-only','escaped-fence','session-page'])expect(f.store.resolvePageAddress(address).block).toBeUndefined();
  expect(f.repo.save(receipt.messageKey).deduplicated).toBe(true);
 });
-test('empty answers are not retained; missing, deleted and truncated results stay visible',()=>{
+test('empty answers are not retained; deleted and truncated results stay visible',()=>{
  const f=setup();f.repo.ingest(f.message('No references here'));expect(f.repo.list().retention.messages).toBe(0);
  const a=f.store.create('Alpha');f.repo.ingest(f.message(a.id,'target'));f.store.delete(a.id);
  expect(f.repo.list().entries[0]?.unavailableReason).toBeDefined();
- f.repo.ingest(f.message(Array.from({length:110},(_,i)=>`[[missing-${i}]]`).join(' '),'bounded'));
+ const many=Array.from({length:110},(_,i)=>f.store.create(`Note ${i}`));
+ f.repo.ingest(f.message(many.map(b=>`((${b.id}))`).join(' '),'bounded'));
  const found=f.repo.list(undefined,10);expect(found.entries).toHaveLength(10);expect(found.completeness.kind).toBe('truncated');expect(found.notChecked.length).toBe(1);
+ // References that don't resolve never use up the ones kept: one that resolves after 110 that don't is a mention.
+ const last=f.store.create('After the noise');
+ f.repo.ingest(f.message(`${Array.from({length:110},(_,i)=>`[[missing-${i}]]`).join(' ')} ((${last.id}))`,'noisy'));
+ expect(f.repo.list(undefined,1).entries[0]?.block?.id).toBe(last.id);
 });
 test('Codex adapters admit only completed responses in explicitly enabled workspaces',()=>{
  const payload={type:'agent-turn-complete',cwd:'/workspace','thread-id':'session','turn-id':'turn','last-assistant-message':'[[alpha]]'};
@@ -88,19 +93,29 @@ test('mention navigator uses canonical Preview and has explicit context, scope a
  await navigator.commands.find(c=>c.key==='v')!.run(row);expect(f.store.queryBlocks({limit:1000}).blocks.some(b=>b.text.startsWith('Conversation excerpt'))).toBe(true);
 });
 
-test('bare unrelated UUIDs are ignored and unresolved page mentions resolve after registration',()=>{
- const f=setup();f.repo.ingest(f.message('Session 00000000-0000-0000-0000-000000000001'));
+test('bare unrelated UUIDs are ignored, and so is any reference that does not resolve in this outline',()=>{
+ const f=setup();f.store.configureWorkIdPrefix('PIE');f.repo.ingest(f.message('Session 00000000-0000-0000-0000-000000000001'));
  expect(f.repo.list().entries).toHaveLength(0);
- f.repo.ingest(f.message('See [[later-page]]','later'));
- expect(f.repo.list().entries[0]?.block).toBeNull();
- const target=f.store.create('Later [page::later-page]');
- expect(f.repo.list().entries[0]?.block?.id).toBe(target.id);
+ // A page nobody made, a Work ID with no block here, another outline's prefix, a source number in a document,
+ // and a ((id)) of a block this outline never had: none is a mention, and none shows as gone.
+ f.repo.ingest(f.message('See [[later-page]], PIE-588, OLD-3, S-87 and ((00000000-0000-4000-8000-000000000002)).','later'));
+ expect(f.repo.list().entries).toHaveLength(0);
+ expect(f.repo.list().retention.messages).toBe(0);
 });
 
-test('Markdown Outliner page URIs resolve canonically, including missing pages',()=>{
+test('a mentioned page that no longer resolves is dropped; only a block named by id and then deleted stays, as gone',()=>{
+ const f=setup(),page=f.store.create('Shed [page::shed]'),block=f.store.create('Chain oil');
+ f.repo.ingest(f.message(`See [[shed]] and ((${block.id})).`));
+ expect(f.repo.list().entries.map(e=>e.block?.id)).toEqual([page.id,block.id]);
+ f.store.delete(page.id);f.store.delete(block.id);
+ const entries=f.repo.list().entries;
+ expect(entries.map(e=>[e.address,e.block,e.unavailableReason])).toEqual([[block.id,null,'Target is in Trash']]);
+});
+
+test('Markdown Outliner page URIs resolve canonically; a missing page is no mention',()=>{
  const f=setup(),a=f.store.create('URI [page::URI example]');
  f.repo.ingest(f.message('See [URI](pi-outliner://page/URI%20example) and [missing](pi-outliner://page/missing).'));
- expect(f.repo.list().entries.map(e=>e.block?.id??e.address)).toEqual([a.id,'missing']);
+ expect(f.repo.list().entries.map(e=>e.block?.id??e.address)).toEqual([a.id]);
 });
 
 test('canonical URI page names retain apostrophes and balanced parentheses',()=>{

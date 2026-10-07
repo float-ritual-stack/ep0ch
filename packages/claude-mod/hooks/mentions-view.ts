@@ -105,23 +105,27 @@ const line = (s: string, width: number) => {
   return flat.length > width ? `${flat.slice(0, Math.max(1, width - 1))}…` : flat
 }
 
-/** The choices a word of `/mentions` makes, or null for a word it doesn't know. */
-export function commandChoice(args: string): ((p: MentionsPrefs) => MentionsPrefs) | null {
+/**
+ * The choices a word of `/mentions` makes, or null for a word it doesn't know. `places` is whether the word is
+ * about where the mentions are (`band`, `pane`, `off`, or none): only those open or close anything. `preview` and
+ * `scope` change what is shown and leave the band or pane where it is.
+ */
+export function commandChoice(args: string): { change: (p: MentionsPrefs) => MentionsPrefs; places: boolean } | null {
   const word = args.trim().toLowerCase()
   const placements: Record<string, MentionsPlacement> = { band: 'band', pane: 'pane', off: 'off', hide: 'off' }
   const placement = placements[word]
-  if (placement) return p => ({ ...p, placement })
-  if (word === 'preview' || word === 'previews') return p => ({ ...p, previews: !p.previews })
-  if (word === 'scope' || word === 'all') return p => ({ ...p, scope: p.scope === 'conversation' ? 'workspace' : 'conversation' })
-  if (word === '') return p => (p.placement === 'off' ? { ...p, placement: 'band' } : p)
+  if (placement) return { change: p => ({ ...p, placement }), places: true }
+  if (word === 'preview' || word === 'previews') return { change: p => ({ ...p, previews: !p.previews }), places: false }
+  if (word === 'scope' || word === 'all') return { change: p => ({ ...p, scope: p.scope === 'conversation' ? 'workspace' : 'conversation' }), places: false }
+  if (word === '') return { change: p => (p.placement === 'off' ? { ...p, placement: 'band' } : p), places: true }
   return null
 }
 
 export const COMMAND_USAGE = 'Usage: /mentions [band | pane | off | preview | scope]'
 
-/** What `/mentions` answers once its choice is made. */
-export const choicesText = (p: MentionsPrefs): string =>
-  `Recent mentions: ${p.placement === 'off' ? 'hidden' : `in the ${p.placement}`}, previews ${p.previews ? 'on' : 'off'}, ${p.scope === 'conversation' ? 'this conversation' : 'all conversations'}.`
+/** What `/mentions` answers once its choice is made. `placed`: whether a chosen pane is on screen (else the band stands in). */
+export const choicesText = (p: MentionsPrefs, placed = true): string =>
+  `Recent mentions: ${p.placement === 'off' ? 'hidden' : p.placement === 'pane' && !placed ? 'in the band, standing in for the pane (not on screen yet; m shows it)' : `in the ${p.placement}`}, previews ${p.previews ? 'on' : 'off'}, ${p.scope === 'conversation' ? 'this conversation' : 'all conversations'}.`
 
 /** How many rows a preview takes: a few in the band, more in the pane. */
 export const PREVIEW_ROWS = { band: 6, pane: 8 } as const

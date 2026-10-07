@@ -43,7 +43,7 @@ test("mentions list: one conversation's, newest first, at most --limit, each wit
   const mine = await run(["--agent", "claude", "--session", "s-1"]);
   expect(mine.exitCode).toBe(0);
   const found = JSON.parse(mine.stdout) as { entries: { title: string; address: string; block: { id: string } | null; sessionId: string }[] };
-  expect(found.entries.map(e => [e.title, e.block?.id ?? null])).toEqual([["Chain oil", oil.id], ["no-such-page", null], ["Bike shed", shed.id]]);
+  expect(found.entries.map(e => [e.title, e.block?.id ?? null])).toEqual([["Chain oil", oil.id], ["Bike shed", shed.id]]);
   expect(found.entries.every(e => e.sessionId === "s-1")).toBe(true);
 
   const one = JSON.parse((await run(["--agent", "claude", "--session", "s-1", "--limit", "1"])).stdout) as { entries: unknown[]; completeness: { kind: string } };
