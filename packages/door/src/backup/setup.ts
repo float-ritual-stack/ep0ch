@@ -146,9 +146,10 @@ export function backupPlan(f: BackupSetupFacts): BackupPlan {
   }
   // The settings file: made with the machine's name, or brought up to what this run was given (a renamed machine:
   // the timer's job reads the file, never the shell install ran in, so a name only in the shell would change nothing).
-  const settings = settingsText(f.config.text ?? null, { EP0CH_BACKUP_MACHINE: f.config.machine, ...(f.config.kept ?? {}) }, !!f.config.text);
+  const settings = settingsText(f.config.exists ? f.config.text ?? "" : null, { EP0CH_BACKUP_MACHINE: f.config.machine, ...(f.config.kept ?? {}) });
   const changedSettings = settings.changed;
-  if (changedSettings.length || !f.config.exists) writes.push({ path: f.config.path, text: settings.text });
+  // Written whenever what it would hold differs from what it holds (an empty file too), not only when a line said so.
+  if (!f.config.exists || settings.text !== f.config.text) writes.push({ path: f.config.path, text: settings.text });
   if (foreign.length) missing.push(`${foreign.join(", ")} ${foreign.length === 1 ? "is" : "are"} yours (no "${UNIT_MARK}" line); move ${foreign.length === 1 ? "it" : "them"} away and rerun to let install write ${foreign.length === 1 ? "it" : "them"}`);
   if (missing.length) return { status: "manual", why: `first: ${missing.join("; ")}`, commands: [], writes: [], missing };
   const units = writes.filter(w => w.path !== f.config.path);
@@ -162,18 +163,18 @@ export function backupPlan(f: BackupSetupFacts): BackupPlan {
 
 /**
  * The settings file with these values set: lines for other keys and comments kept, a key given replaced in place, a new
- * one added. `changed` says what moved (`EP0CH_BACKUP_MACHINE evans-macbook-pro → laptop`). With `keepFile` false (no
- * file yet), the machine's name is the only setting the file starts from.
+ * one added. `changed` says what moved in a file that was there (`EP0CH_BACKUP_MACHINE evans-macbook-pro → laptop`);
+ * `existing` null: no file yet.
  */
-export function settingsText(existing: string | null, set: Record<string, string>, keepFile = true): { text: string; changed: string[] } {
-  const lines = existing && keepFile ? existing.replace(/\n$/, "").split("\n") : ["# ep0ch backups (PIE-607): this machine's settings; packages/door/src/backup/config.ts lists them."];
+export function settingsText(existing: string | null, set: Record<string, string>): { text: string; changed: string[] } {
+  const lines = existing?.trim() ? existing.replace(/\n$/, "").split("\n") : ["# ep0ch backups (PIE-607): this machine's settings; packages/door/src/backup/config.ts lists them."];
   const changed: string[] = [];
   for (const [k, v] of Object.entries(set)) {
     const at = lines.findIndex(l => new RegExp(`^\\s*(?:export\\s+)?${k}\\s*=`).test(l));
     const was = at >= 0 ? lines[at]!.replace(/^[^=]*=\s*/, "").replace(/^(["'])(.*)\1$/, "$2").trim() : null;
     if (was === v) continue;
     if (at >= 0) lines[at] = `${k}=${v}`; else lines.push(`${k}=${v}`);
-    if (existing) changed.push(was === null ? `${k}=${v}` : `${k} ${was} → ${v}`);
+    if (existing !== null) changed.push(was === null ? `${k}=${v}` : `${k} ${was} → ${v}`);
   }
   return { text: `${lines.join("\n")}\n`, changed };
 }

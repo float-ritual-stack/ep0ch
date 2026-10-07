@@ -86,12 +86,21 @@ describe("the Litestream guard", () => {
     // A change in a process that died after the stop (pid 4242 is dead in this fake).
     await withLitestreamPaused([join(outlines, "garden.sqlite")], "x", () => {
       expect(pausedUnits()).toEqual(["litestream.service"]);
+      // Committed, and marked paused only once the stop went through.
+      const db = pauses(); expect(JSON.parse((db.query("SELECT record FROM pauses").get() as { record: string }).record).state).toBe("paused"); db.close();
     }, o(sd.run));
     expect(pausedUnits()).toEqual([]);
     pause({ unit: "litestream.service", kind: "systemd", path: "/x", holders: ["4242:1"], since: "2026-05-02T09:00:00Z" });
     sd.calls.length = 0;
     expect(recoverPaused(o(sd.run))).toEqual(["litestream.service"]);
     expect(sd.calls).toEqual(["--user start litestream.service"]);
+    expect(pausedUnits()).toEqual([]);
+  });
+
+  test("a stop that dies half way (the record still `stopping`, its holder gone) is recovered like any other", () => {
+    const sd = fakeSystemd({ active: false });
+    pause({ unit: "litestream.service", kind: "systemd", path: "/x", holders: ["4242:1"], since: "2026-05-02T09:00:00Z", state: "stopping" } as never);
+    expect(recoverPaused(o(sd.run))).toEqual(["litestream.service"]);
     expect(pausedUnits()).toEqual([]);
   });
 

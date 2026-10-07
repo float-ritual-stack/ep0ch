@@ -315,7 +315,10 @@ describe("install and doctor", () => {
 
   test("current and loaded: nothing to do", () => {
     const units = facts().units.map(u => ({ ...u, have: u.want }));
-    expect(backupPlan(facts({ units, loaded: true, config: { ...facts().config, exists: true } })).status).toBe("skip");
+    const text = "# ep0ch backups\nEP0CH_BACKUP_MACHINE=garden-shed\n";
+    expect(backupPlan(facts({ units, loaded: true, config: { ...facts().config, exists: true, text } })).status).toBe("skip");
+    // An empty settings file is filled in.
+    expect(backupPlan(facts({ units, loaded: true, config: { ...facts().config, exists: true, text: "" } })).writes.map(w => w.text)).toEqual([expect.stringContaining("EP0CH_BACKUP_MACHINE=garden-shed")]);
   });
 
   test("restic or a secret missing, or a unit of the person's own: said with the commands, nothing written", () => {
@@ -349,7 +352,7 @@ describe("install and doctor", () => {
   test("doctor: each outline's newest snapshot, an incident with its fix, the drill", () => {
     const units = facts().units.map(u => ({ ...u, have: u.want }));
     const now = Date.now();
-    const checks = resticChecks(facts({ units, loaded: true, config: { ...facts().config, exists: true }, state: {
+    const checks = resticChecks(facts({ units, loaded: true, config: { ...facts().config, exists: true, text: "EP0CH_BACKUP_MACHINE=garden-shed\n" }, state: {
       outlines: { garden: { seq: 3, at: iso(now - 600_000) }, pantry: { seq: 1, at: iso(now - 5 * 3_600_000), pendingSince: iso(now - 3 * 3_600_000) } },
       mirrors: {}, lastRun: { at: iso(now - 300_000), ok: false, detail: "failed: pantry" }, drill: { at: iso(now - 86_400_000), ok: true, detail: "restored 2 outlines" },
     }, alert: { machine: "garden-shed", checkedAt: iso(now), announced: [], incidents: [{ key: "outline:garden-shed/pantry", title: "t", detail: "pantry changed", fix: "ep0ch backup run", since: iso(now) }] } }), now);

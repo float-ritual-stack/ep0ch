@@ -75,7 +75,7 @@ export function running(u: Pick<LitestreamUnit, "kind" | "name">, run: Run, uid:
 }
 
 /** A pause on disk: the changes holding it (`<pid>:<n>`, one per change, so nested changes in one process each count). */
-interface PauseRecord { unit: string; kind: LitestreamUnit["kind"]; path: string; holders: string[]; since: string }
+interface PauseRecord { unit: string; kind: LitestreamUnit["kind"]; path: string; holders: string[]; since: string; state?: "stopping" | "paused" }
 const pidOf = (holder: string | number) => Number(String(holder).split(":")[0]);
 let changes = 0;
 
@@ -151,22 +151,42 @@ export async function withLitestreamPaused<T>(files: readonly string[], what: st
     });
   };
   try {
-    withPauses(dir, p => {
-      for (const u of units) {
-        const rec = p.get(u.name);
-        // Already paused by a live change elsewhere: held here too, so it isn't started under this change.
-        const live = (rec?.holders ?? []).filter(h => alive(pidOf(h)));
-        if (rec && live.length) { p.put({ ...rec, holders: [...live, me] }); held.push(u); continue; }
-        const now = running(u, run, uid);
-        if (now === false) continue;
-        if (now === null) throw by(u, "its state can't be read");
-        // The record before the stop: a crash from here on leaves it for recoverPaused to start the replicator again.
-        p.put({ unit: u.name, kind: u.kind, path: u.path, holders: [me], since: new Date().toISOString() });
-        const r = run(stopArgv(u, uid));
-        if (r.code !== 0) { p.del(u.name); throw by(u, `couldn't be stopped (${r.out.split("\n").at(-1) || `exit ${r.code}`})`); }
-        held.push(u);
+    // One unit at a time, each in short transactions of its own, so a unit already paused keeps its committed record
+    // whatever happens to the next one:
+    //   1. the record, marked `stopping`, committed before the stop (a crash from here on leaves it for recoverPaused);
+    //   2. the stop, outside any transaction;
+    //   3. the record marked `paused` (or taken back, when the stop failed).
+    // A change elsewhere that finds a `stopping` record waits for it to settle before it joins.
+    for (const u of units) {
+      for (let waited = 0; ; waited += 50) {
+        const step = withPauses(dir, p => {
+          const rec = p.get(u.name);
+          const live = (rec?.holders ?? []).filter(h => alive(pidOf(h)));
+          if (rec && live.length && rec.state === "stopping") return "wait" as const;
+          // Already paused by a live change elsewhere: held here too, so it isn't started under this change.
+          if (rec && live.length) { p.put({ ...rec, holders: [...live, me] }); return "held" as const; }
+          const now = running(u, run, uid);
+          if (now === false) return "stopped" as const;
+          if (now === null) return "unknown" as const;
+          p.put({ unit: u.name, kind: u.kind, path: u.path, holders: [me], since: new Date().toISOString(), state: "stopping" });
+          return "stop" as const;
+        });
+        if (step === "wait") { if (waited > 120_000) throw by(u, "another change has been stopping it for two minutes"); Bun.sleepSync(50); continue; }
+        if (step === "unknown") throw by(u, "its state can't be read");
+        if (step === "held") held.push(u);
+        if (step === "stop") {
+          held.push(u);
+          const r = run(stopArgv(u, uid));
+          withPauses(dir, p => {
+            const rec = p.get(u.name);
+            if (r.code === 0 && rec) p.put({ ...rec, state: "paused" });
+            else if (r.code !== 0) { p.del(u.name); held.pop(); }
+          });
+          if (r.code !== 0) throw by(u, `couldn't be stopped (${r.out.split("\n").at(-1) || `exit ${r.code}`})`);
+        }
+        break;
       }
-    });
+    }
     return await change();
   } finally { release(); }
 }
