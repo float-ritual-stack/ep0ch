@@ -25,10 +25,10 @@ test("a page is laid out from the schema alone: the table, each value with its s
   const p = new LibraryPane();
   const text = () => p.render(COLS, 200, true, desk).lines.map(visible).join("\n");
   expect(text()).toContain("heading-pattern  on the declaring note   stack, waffle, uptime, dots, rule");
-  expect(text()).toContain("┆ ## Your calls [heading::band]");
+  expect(text()).toContain("┊ ## Your calls [heading::band]");
   p.part = "property"; p.axis = 2;
   expect(p.render(COLS, 200, true, desk).lines.map(visible).filter(l => /^. heading-pattern: /.test(l))).toHaveLength(5);
-  expect(text()).toContain("┆ note · My style [heading-style::mine] [heading-pattern::dots]");
+  expect(text()).toContain("┊ note · My style [heading-style::mine] [heading-pattern::dots]");
   p.part = "space";
   expect(text()).toContain("2430 of 2430 match · 1–8 shown");
   // Every part is a digit, and every built-in component has a page.
@@ -73,7 +73,7 @@ describe.skipIf(!outliner)("the library screen on a scratch outline", () => {
     await act("library.select", { n });
     await until(() => lines().some(l => l.includes("heading: plot · this outline's")), "it drawn, selected", 8000);
     const at = lines().findIndex(l => l.includes("heading: plot"));
-    expect(lines().slice(at + 1, at + 6).join("\n")).toContain("┆ ## Your calls [heading::plot]");
+    expect(lines().slice(at + 1, at + 6).join("\n")).toContain("┊ ## Your calls [heading::plot]");
     key(char("l"));
     await until(() => library().property === "rule", "the next property by l");
     key(char("1"));
@@ -127,7 +127,7 @@ describe.skipIf(!outliner)("the library screen on a scratch outline", () => {
     await act("library.width", { cols: 40 });
     await act("library.grid", { n: 1 });
     await until(() => lines().some(l => /heading-align: left .* heading-align: center .* heading-align: right/.test(l)), "three cells abreast", 5000);
-    const y = lines().findIndex(l => l.includes("┆ [heading-align::center]")), x = lines()[y]!.indexOf("[heading-align::center]");
+    const y = lines().findIndex(l => l.includes("┊ [heading-align::center]")), x = lines()[y]!.indexOf("[heading-align::center]");
     key({ kind: "mouse", action: "down", button: 0, x, y }); key({ kind: "mouse", action: "up", button: 0, x, y });
     await until(() => library().selected === 2, "the middle cell selected by a click on its source");
     await act("library.select", { n: 15 });

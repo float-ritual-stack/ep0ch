@@ -116,10 +116,10 @@ export class LibraryPane implements Pane {
     const drawn = drawVariation(v, this.width, src);
     const wider = this.width + 2 > cut;
     for (const l of drawn) out.push({ text: "  " + (wider ? pad(l, cut - 2) : l) + RESET, v: i });
-    if (wider) out.push({ text: fg(C.dark) + pad(`  ↤ drawn at ${this.width} columns, cut at ${cut - 2} · w changes the width`, cut) + RESET, v: i });
+    if (wider) out.push({ text: fg(C.dark) + pad(`  ← drawn at ${this.width} columns, cut at ${cut - 2} · w changes the width`, cut) + RESET, v: i });
     if (drawingWaits(v, src)) out.push({ text: fg(C.dark) + "  asking the outline how the rule draws…" + RESET, v: i });
-    const source = (line: string, tag = "") => wrap(line || " ", Math.max(8, cut - 6 - width(tag))).map((l, j) => ({ text: fg(C.dark) + "  ┆ " + (j || !tag ? "" : fg(C.brown) + tag) + fg(C.grey) + l + RESET, v: i }));
-    if (v.note) { out.push(...source(v.note, "note · ")); out.push({ text: fg(C.dark) + "  ┆" + RESET, v: i }); }
+    const source = (line: string, tag = "") => wrap(line || " ", Math.max(8, cut - 6 - width(tag))).map((l, j) => ({ text: fg(C.dark) + "  ┊ " + (j || !tag ? "" : fg(C.brown) + tag) + fg(C.grey) + l + RESET, v: i }));
+    if (v.note) { out.push(...source(v.note, "note · ")); out.push({ text: fg(C.dark) + "  ┊" + RESET, v: i }); }
     for (const l of v.use.split("\n")) out.push(...source(l));
     out.push({ text: "", v: i });
     return out;
