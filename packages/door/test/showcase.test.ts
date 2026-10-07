@@ -44,7 +44,7 @@ test("the README's showcase says what SECTIONS registers by key, never a count; 
   const grammar = readFileSync(join(import.meta.dir, "../docs/UI-GRAMMAR.md"), "utf8");
   const map = grammar.slice(grammar.indexOf("## Before adding a feature"), grammar.indexOf("## TL;DR"));
   const rows = map.split("\n").filter(l => /^\| [a-z]/.test(l) && !l.startsWith("| The feature"));
-  expect(rows.length - SECTIONS.length).toBe(7);
+  expect(rows.length - SECTIONS.length).toBe(6);
   expect(readme).toContain("its list-picker and line-input rows (in the panes section's ^W P and ^W r,\nthe board's g m s), its elements and reading-ruler row (PIE-441) and its terminal-output row (PIE-510");
 });
 
@@ -933,7 +933,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
 
   test("search, driven by an agent: the section's own desk answers the service's forgiving search, the person's overlay left alone", async () => {
     (app as any).lastInput = 0;
-    expect(await app.act({ action: "section", args: { name: "search" }, as: "test-agent" })).toEqual({ section: 5, key: "search" });
+    expect(await app.act({ action: "section", args: { name: "search" }, as: "test-agent" })).toEqual({ section: 6, key: "search" });
     const r = await app.act({ action: "search", args: { query: "alotment notebok" }, as: "test-agent" }) as any;
     expect(r.query).toBe("alotment notebok");
     expect(r.hits[0]).toMatchObject({ n: 1, title: "Allotment notebook" });
@@ -946,7 +946,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
 
   test("search, from a shell (PIE-534): the section opened through act; find --query, show $(find --ids) and export answer from the same outline", async () => {
     (app as any).lastInput = 0;
-    expect(await app.act({ action: "section", args: { name: "search" }, as: "test-agent" })).toEqual({ section: 5, key: "search" });
+    expect(await app.act({ action: "section", args: { name: "search" }, as: "test-agent" })).toEqual({ section: 6, key: "search" });
     // The section's note says what to try from a shell, under the search overlay the section opens with.
     await until(() => screen().includes("From a shell"), "the finding note's shell section");
     expect(SECTIONS.find(x => x.key === "search")!.aside).toContain("ep0ch export");
@@ -985,7 +985,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     jevOff.delete(board);
     try {
       S().stages.delete(4);                                       // the search stage built again, its overlay asking the stand-in
-      expect(await app.act({ action: "section", args: { name: "search" }, as: "test-agent" })).toEqual({ section: 5, key: "search" });
+      expect(await app.act({ action: "section", args: { name: "search" }, as: "test-agent" })).toEqual({ section: 6, key: "search" });
       await until(() => screen().includes("hit(s)"), "the stage's overlay", 5000);
       // (( in the reader's note: the same search a draft's popup asks, with a typo in each word, then another order.
       const typo = await app.act({ action: "complete", args: { text: "((alotment notebok" }, as: "test-agent" }) as any;
