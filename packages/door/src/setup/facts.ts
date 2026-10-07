@@ -389,11 +389,24 @@ export function openOutlineToPing(outlines: readonly HostedOutline[]): string | 
   return outlines.find(o => o.open)?.name ?? null;
 }
 
+/**
+ * Whether the host at `socket` answers: asked up to `tries` times, `gapMs` apart, each with hostLive's own timeout. A
+ * host busy for a moment (just started and connecting to Herdr, under load) isn't taken for one that's down: install
+ * would then "start" a unit that runs, and wait for a new process that never comes.
+ */
+export async function hostAnswers(socket: string, tries = 3, gapMs = 400, live: (s: string) => Promise<unknown> = hostLive): Promise<boolean> {
+  for (let i = 0; i < tries; i++) {
+    if (await live(socket)) return true;
+    if (i < tries - 1) await Bun.sleep(gapMs);
+  }
+  return false;
+}
+
 /** The outline host over `folder`: its socket, whether it answers, its outlines, its protocol, its unit. */
 export async function hostFacts(folder: string, platform: Facts["platform"], home: string): Promise<HostFacts> {
   const socket = hostSocketOf({ EP0CH_OUTLINES: folder, HOME: home });
   const found = hostUnit(platform, home, folder);
-  const [live, state] = await Promise.all([hostLive(socket), found ? unitState(found) : Promise.resolve(undefined)]);
+  const [live, state] = await Promise.all([hostAnswers(socket), found ? unitState(found) : Promise.resolve(undefined)]);
   const unit = found && state ? { ...found, state } : found;
   if (!live) return { folder, socket, running: false, outlines: [], unit };
   const list = await hostRequest<{ outlines: HostedOutline[] }>(socket, "outlines.list", {}, 3000).catch(() => ({ outlines: [] as HostedOutline[] }));

@@ -9,13 +9,13 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { backupDatabase, formatPlan, handoverLines, linkSummary, setupCommand, tilde } from "../src/setup/apply";
+import { backupDatabase, formatPlan, handoverLines, hostReady, hostVerb, linkSummary, setupCommand, tilde } from "../src/setup/apply";
 import { applyLinks } from "../src/setup/links";
 import { skillLinkFacts } from "../src/setup/skill-links";
 import { extFacts } from "../src/setup/ext-links";
 import { PROTOCOL } from "@ep0ch/outline-core/protocol";
 import { doctorChecks, formatDoctor, MARK, skillChecks, versionAtLeast } from "../src/setup/doctor";
-import { claudeModIn, databases, depsState, fetchRace, herdrKeys, hostFacts, hostUnit, launchdState, doorOfShown, mcpUnits, movedSince, openOutlineToPing, startFromElapsed, systemdState } from "../src/setup/facts";
+import { claudeModIn, databases, depsState, fetchRace, herdrKeys, hostAnswers, hostFacts, hostUnit, launchdState, doorOfShown, mcpUnits, movedSince, openOutlineToPing, startFromElapsed, systemdState } from "../src/setup/facts";
 import { type Checkout, detectPlatform, type Facts, type HostFacts, type HostUnit, type McpFacts, type SessionFact, staleness } from "../src/setup/model";
 import { backupName, buildPlan, checkoutStep, chooseLinkDir, extStep, skillsStep, hostStep, hostUnitArgv, linkCandidates, mcpStep, type PlanOptions, stamp, unitChanges } from "../src/setup/plan";
 
@@ -388,6 +388,38 @@ describe("the outline host under launchd (the Mac) or systemd", () => {
     expect(hostStep(down, false)).toMatchObject({ status: "do", title: "Start the outline host" });
     const unloaded = mac({ running: false, outlines: [], unit: { ...launchd, state: { active: false, detail: "not loaded in launchd" } } });
     expect(hostStep(unloaded, false).commands).toEqual([`launchctl bootstrap gui/$(id -u) ${launchd.path}`]);
+  });
+
+  test("a unit whose job runs but doesn't answer is restarted, never started (a start would do nothing, and install waited on it)", () => {
+    const sd: HostUnit = { ...launchd, kind: "systemd", path: "/home/evan/.config/systemd/user/outliner-host.service", name: "outliner-host.service", state: { active: true, pid: 77, detail: "systemd: active (running), pid 77" } };
+    const hung = mac({ running: false, outlines: [], unit: sd });
+    expect(hostStep(hung, false)).toMatchObject({ status: "do", title: "Restart the outline host on the new code", why: expect.stringContaining("runs (pid 77) but nothing answers"), commands: ["systemctl --user restart outliner-host.service"] });
+    expect(hostVerb(hung)).toBe("restart");
+    expect(hostVerb(mac({ running: false, outlines: [], unit: { ...sd, state: { active: false, detail: "systemd: inactive (dead)" } } }))).toBe("start");
+    expect(hostVerb(mac())).toBe("restart");
+  });
+
+  test("a host busy for a moment isn't taken for one that's down: it's asked again", async () => {
+    let n = 0;
+    expect(await hostAnswers("/x.sock", 3, 1, async () => (++n >= 3 ? {} : null))).toBe(true);
+    expect(n).toBe(3);
+    expect(await hostAnswers("/x.sock", 3, 1, async () => null)).toBe(false);
+  });
+
+  test("ready after a restart: systemd's needs only the host answering (its pid may be read late); launchd's needs a new pid too", async () => {
+    const sd = { ...current(), platform: "linux" as const, host: host({ unit: { ...launchd, kind: "systemd", name: "outliner-host.service", state: { active: true, pid: 77, detail: "" } } }) };
+    const answers = async () => ({});
+    expect(await hostReady(sd, "restart", 77, 50, answers, async () => 77)).toBe(true);
+    // launchd: the old process answering under the old pid isn't the new host; a new pid that answers is.
+    // Through the grace too, and a pid that can't be read isn't a new one.
+    expect(await hostReady(mac(), "restart", 4242, 50, answers, async () => 4242, 3, 1)).toBe(false);
+    expect(await hostReady(mac(), "restart", 4242, 50, answers, async () => undefined, 3, 1)).toBe(false);
+    expect(await hostReady(mac(), "restart", 4242, 50, answers, async () => 5151)).toBe(true);
+    // Nothing answers in time, nor in the grace: not ready.
+    expect(await hostReady(sd, "restart", 77, 50, async () => null, async () => 78, 3, 1)).toBe(false);
+    // Answering late (after the 30s, in the grace): up, so install goes on.
+    let calls = 0;
+    expect(await hostReady(sd, "start", undefined, 1, async () => (++calls > 3 ? {} : null), async () => 1, 5, 1)).toBe(true);
   });
 
   test("a host outside any unit is restarted by the person", () => {

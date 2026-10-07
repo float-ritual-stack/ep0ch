@@ -137,6 +137,28 @@ async function waitFor(check: () => Promise<boolean>, ms: number): Promise<boole
   return false;
 }
 
+/** How install brings the host up: a restart when its unit's job runs (answering or not), else a start. */
+export const hostVerb = (f: Facts): "restart" | "start" => (f.host.running || (f.host.unit?.state?.active && f.host.unit.state.pid) ? "restart" : "start");
+
+/**
+ * The host answers at its socket within `ms` after install's `verb`: under launchd a restart (kickstart -k returns
+ * before the old process is gone) also needs a new pid than `was`, so the old host still answering isn't taken for the
+ * new one (a pid that can't be read isn't a new one); systemd's restart returns once the old one is stopped. Checked
+ * once more at the end, then `grace` more times `graceMs` apart with the same test (a host answering late is up, and
+ * the steps after it, the MCP gateway's among them, still run). `probe` and `pidOf` are the host's socket and its
+ * unit's pid, for tests.
+ */
+export async function hostReady(f: Facts, verb: "restart" | "start", was: number | undefined, ms: number,
+  probe: (socket: string) => Promise<unknown> = hostLive, pidOf: () => Promise<number | undefined> = async () => (await unitState(f.host.unit!)).pid,
+  grace = 10, graceMs = 1000): Promise<boolean> {
+  const needNewPid = f.host.unit?.kind === "launchd" && verb === "restart" && was !== undefined;
+  const ready = async () => { if (needNewPid) { const pid = await pidOf(); if (pid === undefined || pid === was) return false; } return !!(await probe(f.host.socket)); };
+  if ((await waitFor(ready, ms)) || (await ready())) return true;
+  // A slower grace (a host answering late is up), with the same test.
+  for (let i = 0; i < grace; i++) { await Bun.sleep(graceMs); if (await ready()) return true; }
+  return false;
+}
+
 /** What a step runs, reported through its task: what it did (`say`), its children's output, its items. */
 async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[]): Promise<void> {
   // `said` is what --json reports, whole; the person sees the same as a ✓ line, or (record, then show) tidied up.
@@ -257,13 +279,14 @@ async function execute(step: Step, f: Facts, env: Env, task: Task, said: string[
     }
     case "host": {
       const u = f.host.unit!;
-      const verb = f.host.running ? "restart" : "start";
+      // A unit whose job runs is restarted, answering or not: starting it would do nothing.
+      const verb = hostVerb(f);
       const logs = u.kind === "launchd" ? `launchctl print gui/${process.getuid?.() ?? 0}/${u.name} (and its StandardErrorPath)` : `journalctl --user -u ${u.name}`;
+      // Its process now, just before the command: the one a new process replaces.
+      const was = (await unitState(u)).pid;
       await must(hostUnitArgv(u, verb, process.getuid?.() ?? 0), `the host wasn't ${verb}ed; ${hostUnitCommand(u, verb)} by hand, and see ${logs}`, { env, timeoutMs: 30_000, onLine: child });
-      // A new process answering: not the old one still shutting down (launchd's kickstart -k starts the new one after).
-      const was = u.state?.pid;
-      const back = await waitFor(async () => (was === undefined || (await unitState(u)).pid !== was) && !!(await hostLive(f.host.socket)), 30_000);
-      if (!back) throw new StepFailed(`${u.kind} ${verb}ed ${u.name}, but nothing answers at ${f.host.socket} after 30s`, `see ${logs}; the doors on it wait and reconnect once it answers`);
+      // The host answering (hostReady, with a slower grace after 30s before it's called a failure).
+      if (!(await hostReady(f, verb, was, 30_000))) throw new StepFailed(`${u.kind} ${verb}ed ${u.name}, but nothing answers at ${f.host.socket} after 40s`, `see ${logs}; the doors on it wait and reconnect once it answers`);
       const now = await hostFacts(f.host.folder, f.platform, f.home);
       const missing = now.running ? staleness(now, f.repo.protocol) : ["no answer"];
       if (missing.length) throw new StepFailed(`the host ${verb}ed but still runs ${missing.join(", ")}`, `check that ${u.path} runs ${hostMainOf(f)}, then ${hostUnitCommand(u, "restart")}`);

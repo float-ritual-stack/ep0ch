@@ -252,6 +252,8 @@ export function hostStep(f: Facts, codeUpdates: boolean): Step {
     return { id: "host", title, status: "manual", why: `${after}, but another process answers at ${h.socket}, not ${u.kind} ${u.name}; stop that process, then ${hostUnitCommand(u, "start")}`, commands: [] };
   }
   if (!h.running) {
+    // The unit's job runs but doesn't answer (hung, or stuck starting): a start would do nothing; a restart replaces it.
+    if (u.state?.active && u.state.pid) return { id: "host", title, status: "do", why: `${u.kind} ${u.name} runs (pid ${u.state.pid}) but nothing answers at ${h.socket}; ${u.kind} restarts it`, commands: [hostUnitCommand(u, "restart")] };
     return { id: "host", title: "Start the outline host", status: "do", why: `${u.kind} ${u.name} is set up but nothing answers at ${h.socket}${u.state ? ` (${u.state.detail})` : ""}`, commands: [hostUnitCommand(u, "start")] };
   }
   if (!after) return { id: "host", title, status: "skip", why: `the host runs the current code (${u.kind} ${u.name}${h.protocol ? `, protocol ${h.protocol}` : ""})`, commands: [] };
