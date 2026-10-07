@@ -6,6 +6,8 @@
 #   tmux new-session -d -s try "scripts/test-door-env.sh EP0CH_STATE=$d/s scripts/try-it.sh --showcase …"
 for v in $(env | sed -n 's/^\(EP0CH_[A-Za-z0-9_]*\)=.*/\1/p'); do unset "$v"; done
 unset EP0CH_DAILY_AGENT EP0CH_DAILY_CWD EP0CH_LANDING EP0CH_NOW_PAGE
+# The backup commands' repository and credentials (restic, Litestream, S3-style keys) are the person's, not a test's.
+for v in $(env | sed -n 's/^\(\(RESTIC\|LITESTREAM\|AWS\)_[A-Za-z0-9_]*\)=.*/\1/p'); do unset "$v"; done
 # A test door opens in its pane, not as a session that outlives it: EP0CH_DAEMON=1 among the caller's settings asks for one
 # (then end it, and any other its test started: EP0CH_STATE=… ep0ch session end --all --yes).
 exec env EP0CH_DAILY_AGENT=sh EP0CH_DAEMON=0 "$@"

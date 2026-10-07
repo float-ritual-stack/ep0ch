@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # An agent's own door settings on a shared machine (PIE-597): its state, control socket, outlines folder and
-# temp folder, in a private folder of its own, with none of the person's EP0CH_* settings. Wrap a test run or a
+# temp and XDG folders (config, data, state, cache: the backup commands read the person's ~/.config/ep0ch/backup.env
+# otherwise), in a private folder of its own, with none of the person's EP0CH_* settings. Wrap a test run or a
 # test door in it, never the agent's own session (its outline tools would follow EP0CH_OUTLINES to scratch).
 #
 #   scripts/agent-env <name> -- <cmd …>          run cmd with the agent's settings
@@ -59,13 +60,18 @@ if [ "$mode" = clean ]; then rm -rf -- "$dir" "$tmp"; echo "agent-env: removed $
 private_dir "$tmp"
 
 umask 077
-mkdir -p "$root" "$dir/state" "$dir/outlines"
+mkdir -p "$root" "$dir/state" "$dir/outlines" "$dir/xdg/config" "$dir/xdg/data" "$dir/xdg/state" "$dir/xdg/cache"
 chmod 700 "$root" "$dir"
-settings=(EP0CH_STATE="$dir/state" EP0CH_CONTROL="$dir/control.sock" EP0CH_OUTLINES="$dir/outlines" TMPDIR="$tmp" EP0CH_AGENT_ENV="$name")
+settings=(EP0CH_STATE="$dir/state" EP0CH_CONTROL="$dir/control.sock" EP0CH_OUTLINES="$dir/outlines" TMPDIR="$tmp" EP0CH_AGENT_ENV="$name"
+  # Private XDG folders: the backup commands read ~/.config/ep0ch/backup.env (its repository, mirrors and keys) from
+  # $XDG_CONFIG_HOME, the Litestream guard's pause records live in $XDG_STATE_HOME, and a cache or data folder of the
+  # person's is theirs. None of them is the real one here.
+  XDG_CONFIG_HOME="$dir/xdg/config" XDG_DATA_HOME="$dir/xdg/data" XDG_STATE_HOME="$dir/xdg/state" XDG_CACHE_HOME="$dir/xdg/cache")
 
 if [ "$mode" = print ]; then
   for v in $(env | sed -n 's/^\(EP0CH_[A-Za-z0-9_]*\)=.*/\1/p'); do echo "unset $v"; done
   echo "unset EP0CH_DAILY_AGENT EP0CH_DAILY_CWD EP0CH_LANDING EP0CH_NOW_PAGE"
+  for v in $(env | sed -n 's/^\(\(RESTIC\|LITESTREAM\|AWS\)_[A-Za-z0-9_]*\)=.*/\1/p'); do echo "unset $v"; done
   for s in "${settings[@]}" EP0CH_DAILY_AGENT=sh EP0CH_DAEMON=0; do printf 'export %s=%q\n' "${s%%=*}" "${s#*=}"; done
   exit 0
 fi

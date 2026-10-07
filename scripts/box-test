@@ -36,8 +36,8 @@ ref=HEAD each=0 keep=0 refresh=0 pkgs=() target=${EP0CH_BOX_TARGET:-}
 box_host=${EP0CH_BOX_HOST:-float-box}
 while [ $# -gt 0 ]; do
   case $1 in
-    --ref) ref=$2; shift 2;;
-    --on) target=${2:-}; shift 2;;
+    --ref) [ $# -ge 2 ] || { echo "box-test: --ref takes a revision" >&2; exit 2; }; ref=$2; shift 2;;
+    --on) [ $# -ge 2 ] || { echo "box-test: --on takes float-box or boxd" >&2; exit 2; }; target=$2; shift 2;;
     --each) each=1; shift;;
     --keep) keep=1; shift;;
     --refresh-golden) refresh=1; target=boxd; shift;;
