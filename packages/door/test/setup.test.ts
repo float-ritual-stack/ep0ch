@@ -9,7 +9,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { backupDatabase, formatPlan, handoverLines, hostReady, hostVerb, linkSummary, migrationRecovery, setupCommand, tilde } from "../src/setup/apply";
+import { backupDatabase, formatPlan, handoverLines, hostReady, hostVerb, linkSummary, migrationRecovery, outlinesToMigrate, setupCommand, tilde } from "../src/setup/apply";
 import { applyLinks } from "../src/setup/links";
 import { skillLinkFacts } from "../src/setup/skill-links";
 import { extFacts } from "../src/setup/ext-links";
@@ -1079,6 +1079,38 @@ describe("the outlines' schema (PIE-617): install migrates them, or refuses befo
     expect(said).toContain("ep0ch install --apply migrates what's left and starts the host");
     // Each step only after the one before worked; the failed outline restored too (failing isn't proof it's unchanged).
     expect(said).toContain(`or go back to the code before: git -C ${REPO} reset --hard 40aaaaa && cp ${copies}/float-hub.schema-2.sqlite ${HOME}/outlines/float-hub.sqlite && cp ${copies}/seed-bank.schema-2.sqlite ${HOME}/outlines/seed-bank.sqlite && launchctl bootstrap gui/$(id -u) ${launchd.path}`);
+  });
+
+  test("every path in the commands is quoted when it needs to be (a folder with a space)", () => {
+    const repo = "/Users/wren/my projects/ep0ch", folder = "/Users/wren/my outlines";
+    const base = laptop();
+    const f = bumped({}, { f: { ...base, repo: { ...base.repo, root: repo, outliner: `${repo}/packages/outliner` },
+      host: host({ folder, unit: { ...launchd, path: "/Users/wren/Library/Launch Agents/io.ep0ch.outliner-host.plist", program: `${repo}/packages/outliner/src/host-main.ts` } }) } });
+    f.schema!.outlines = [{ name: "float-hub", path: `${folder}/float-hub.sqlite`, version: 2 }];
+    f.databases = [{ name: "float-hub", path: `${folder}/float-hub.sqlite` }];
+    const plan = buildPlan(f, opts({ backupDir: "/Users/wren/back ups" }));
+    const schema = plan.steps.find(s => s.id === "schema")!;
+    expect(schema.commands[1]).toBe(`bun '${repo}/${SCRIPT}' '${folder}/float-hub.sqlite'`);
+    expect(plan.steps.find(s => s.id === "host")!.commands).toEqual([`launchctl bootstrap gui/$(id -u) '/Users/wren/Library/Launch Agents/io.ep0ch.outliner-host.plist'`]);
+    const m = schema.migrate!;
+    expect(migrationRecovery(f, m, { ...m.outlines[0]!, now: 2 }, [])).toContain(`git -C '${repo}' reset --hard 40aaaaa && cp '/Users/wren/back ups/20260314T092653Z/float-hub.schema-2.sqlite' '${folder}/float-hub.sqlite' && launchctl bootstrap`);
+    const old = bumped({ "float-hub": 1 }, { f: { ...base, host: host({ folder }) } });
+    old.schema!.outlines = [{ name: "float-hub", path: `${folder}/float-hub.sqlite`, version: 1 }];
+    expect(buildPlan(old, opts()).steps.find(s => s.id === "schema")!.why).toContain(`mv '${folder}/float-hub.sqlite' '${folder}/float-hub.sqlite.schema-1'; ep0ch install --apply; ep0ch outline import '${folder}/float-hub.sqlite.schema-1' float-hub`);
+  });
+
+  test("once the host is stopped the outlines are read again: one made since the plan is migrated too, one too old stops the step first", () => {
+    const folder = join(scratch, "outlines found again");
+    mkdirSync(folder, { recursive: true });
+    const at = (name: string, version: number) => { const db = new Database(join(folder, `${name}.sqlite`)); db.exec(`CREATE TABLE seeds (x); PRAGMA user_version = ${version}`); db.close(); };
+    at("allotment", 2); at("greenhouse", 2); at("orchard", 3);
+    const m = { from: 2, to: 3, script: "/s/0003-x.ts", stopsHost: true, copyDir: "/b/20260314T092653Z",
+      outlines: [{ name: "allotment", path: join(folder, "allotment.sqlite"), copy: "/b/20260314T092653Z/allotment.schema-2.sqlite" }] };
+    expect(outlinesToMigrate(m, folder)).toEqual({ blocked: [], outlines: [
+      { name: "allotment", path: join(folder, "allotment.sqlite"), copy: "/b/20260314T092653Z/allotment.schema-2.sqlite" },
+      { name: "greenhouse", path: join(folder, "greenhouse.sqlite"), copy: "/b/20260314T092653Z/greenhouse.schema-2.sqlite" }] });
+    at("seed-bank", 1);
+    expect(outlinesToMigrate(m, folder).blocked).toEqual([{ name: "seed-bank", path: join(folder, "seed-bank.sqlite"), version: 1 }]);
   });
 
   test("after a failed run, an outline that can't take the step keeps the stopped host stopped", () => {

@@ -8,7 +8,7 @@
 import { basename, join, resolve } from "node:path";
 import { ep0ch } from "../session/place";
 import { backupPlan } from "../backup/setup";
-import { linkCommands, linkCounts, type LinkWork, linkWork, type OwnedLink, type StaleLink } from "./links";
+import { linkCommands, linkCounts, type LinkWork, linkWork, type OwnedLink, sh, type StaleLink } from "./links";
 import { type Checkout, type DatabaseFacts, type SchemaCode, type Deps, type Facts, type HostUnit, KEYED_ACTIONS, type McpFacts, PLUGIN_ID, PLUGIN_SOURCE, type SessionFact, short, staleness } from "./model";
 
 /** do: runs with --apply. skip: already current. manual: needs a person (the hint says what). */
@@ -38,6 +38,8 @@ export interface Migration {
   from: number; to: number; script: string;
   /** `copy`: where each is copied (VACUUM INTO) just before its script runs, with nothing serving it: what going back restores. */
   outlines: { name: string; path: string; copy?: string }[];
+  /** Where the copies go: an outline that appears after the plan (found again once the host is stopped) is copied there too. */
+  copyDir?: string;
   /** Whether it stops the host first (the host's unit runs it). */
   stopsHost: boolean;
   /** The checkout's commit before this run's update, when it updates: what going back resets it to. */
@@ -200,7 +202,7 @@ export function hostUnitCommand(u: HostUnit, verb: "restart" | "start" | "stop")
   if (u.kind === "systemd") return `systemctl --user ${verb} ${u.name}`;
   if (verb === "stop") return `launchctl bootout gui/$(id -u)/${u.name}`;
   // A job launchd hasn't loaded (booted out, or never loaded since the plist was written) is bootstrapped.
-  if (verb === "start" && u.state?.detail === "not loaded in launchd") return `launchctl bootstrap gui/$(id -u) ${u.path}`;
+  if (verb === "start" && u.state?.detail === "not loaded in launchd") return `launchctl bootstrap gui/$(id -u) ${sh(u.path)}`;
   return `launchctl kickstart${verb === "restart" ? " -k" : ""} gui/$(id -u)/${u.name}`;
 }
 
@@ -321,7 +323,7 @@ export function schemaStep(f: Facts, updates: boolean): Step | null {
     if (o.version === from && script) continue;
     const why = o.version === from ? `no migration script takes schema ${from} to ${to} (it was deleted once the machines that matter ran it)` : `${script ? `${basename(script)} takes schema ${from} to ${to} only` : `no migration script reaches schema ${to}`}`;
     const old = `${o.path}.schema-${o.version}`;
-    problems.push(`${o.name} is schema ${o.version}: ${why}; import it into a new outline instead: ${stop}; mv ${o.path} ${old}; ep0ch install --apply; ep0ch outline import ${old} ${o.name}`);
+    problems.push(`${o.name} is schema ${o.version}: ${why}; import it into a new outline instead: ${stop}; mv ${sh(o.path)} ${sh(old)}; ep0ch install --apply; ep0ch outline import ${sh(old)} ${o.name}`);
   }
   // The script refuses a served file: the host is stopped through its unit, and nothing else may be serving it.
   const stopsHost = !!u && (h.running || !!u.state?.active);
@@ -333,7 +335,7 @@ export function schemaStep(f: Facts, updates: boolean): Step | null {
   const abs = join(f.repo.root, script!);
   return { id: "schema", title, status: "do",
     why: `schema ${from} → ${to}: will migrate ${names.length} outline${names.length === 1 ? "" : "s"} (${names.join(", ")}) with ${basename(script!)}${stopsHost ? `; the host stops while they migrate (each in one transaction) and starts after` : ""}${aside}`,
-    commands: [...(stopsHost ? [stop] : []), ...behind.map(o => `bun ${abs} ${o.path}`)],
+    commands: [...(stopsHost ? [stop] : []), ...behind.map(o => `bun ${sh(abs)} ${sh(o.path)}`)],
     migrate: { from, to, script: abs, outlines: behind.map(o => ({ name: o.name, path: o.path })), stopsHost, ...(updates && f.repo.checkout.head ? { before: f.repo.checkout.head } : {}) } };
 }
 
@@ -499,7 +501,11 @@ export function buildPlan(f: Facts, o: PlanOptions): Plan {
   const backups = backupsStep(f);
   const backup = backupStep(f, o, [repo, plugin, link, ...(schema ? [schema] : []), host].some(s => s.status === "do"));
   // Each outline's copy from just before its script (the host stopped, so nothing written since is missing from it).
-  if (schema?.migrate) { const { from } = schema.migrate; schema.migrate.outlines = schema.migrate.outlines.map(m => ({ ...m, copy: join(o.backupDir, stamp(o.now), `${m.name}.schema-${from}.sqlite`) })); }
+  if (schema?.migrate) {
+    const { from } = schema.migrate, copyDir = join(o.backupDir, stamp(o.now));
+    schema.migrate.copyDir = copyDir;
+    schema.migrate.outlines = schema.migrate.outlines.map(m => ({ ...m, copy: join(copyDir, `${m.name}.schema-${from}.sqlite`) }));
+  }
   // The session last: handed to the new code once everything under it is current.
   return { steps: [backup, repo, plugin, link, ...(schema ? [schema] : []), host, ...mcp, session, ...(backups ? [backups] : []), ...ext], notes: planNotes(f) };
 }
