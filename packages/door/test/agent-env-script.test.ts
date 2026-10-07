@@ -27,7 +27,16 @@ describe("scripts/agent-env", () => {
     const r = run("--", "sh", "-c", 'echo "$EP0CH_STATE|$EP0CH_CONTROL|$EP0CH_OUTLINES|$TMPDIR|${EP0CH_LANDING-unset}|$EP0CH_DAEMON"; exit 7');
     expect(r.code).toBe(7);
     const d = join(root, "probe");
-    expect(r.out.trim()).toBe(`${d}/state|${d}/control.sock|${d}/outlines|${d}/tmp|unset|0`);
+    const uid = process.getuid?.() ?? 0;
+    expect(r.out.trim()).toBe(`${d}/state|${d}/control.sock|${d}/outlines|/tmp/ep0ch-agent-${uid}/probe|unset|0`);
+  });
+
+  test("its temp folder is outside the home folder: a scratch folder there has no ~/.ep0ch above it", () => {
+    const home = join(root, "home");
+    const r = Bun.spawnSync([script, "probe", "--", "sh", "-c", 'echo "$TMPDIR"'], { env: { ...process.env, HOME: home, EP0CH_AGENT_ROOT: join(home, ".agent-env"), EP0CH_AGENT_TMP: join(root, "tmp") }, stdout: "pipe" });
+    const tmp = r.stdout.toString().trim();
+    expect(tmp).toBe(join(root, "tmp", `ep0ch-agent-${process.getuid?.() ?? 0}`, "probe"));
+    expect(tmp.startsWith(`${home}/`)).toBe(false);
   });
 
   test.skipIf(!procs)("a run, and what it starts, are the first the kernel kills: oom_score_adj 1000", () => {
