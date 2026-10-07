@@ -984,7 +984,7 @@ describe.skipIf(!outliner)("the showcase screen", () => {
     // A scratch host has no Jev key (test/scratch.ts): the overlay that said so is asked again, of the stand-in.
     jevOff.delete(board);
     try {
-      S().stages.delete(4);                                       // the search stage built again, its overlay asking the stand-in
+      S().stages.delete(SECTIONS.findIndex(s => s.key === "search"));   // the search stage built again, its overlay asking the stand-in
       expect(await app.act({ action: "section", args: { name: "search" }, as: "test-agent" })).toEqual({ section: 6, key: "search" });
       await until(() => screen().includes("hit(s)"), "the stage's overlay", 5000);
       // (( in the reader's note: the same search a draft's popup asks, with a typo in each word, then another order.
